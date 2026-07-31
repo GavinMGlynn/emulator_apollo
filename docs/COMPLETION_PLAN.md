@@ -2191,13 +2191,17 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         deferrals are in — a grant waits for a committed bus cycle to begin, and
         a locked read-modify-write refuses one outright, which is what will make
         `CAS` indivisible against a DMA controller. `arb_suite`, 15 tests.
-  - [ ] The shared arbitration point itself: one bus, several masters, and a
-        priority encoding between them. §7.7 is explicit that this is *not* the
-        CPU's job — "Systems having several devices that can become bus master
-        require external circuitry to assign priorities to the device" — so it
-        is board logic, and its rule comes from `008778-03` rather than from
-        Motorola. Nothing can contend until this exists; the arbitration unit
-        above has no second master to lose the bus to.
+  - [x] The shared arbitration point itself, `board/ap_arbiter.c`: the
+        external priority encoder §7.7 requires the board to supply, with
+        `008778-03` §2.4.6's order — "DRQO having the highest priority and DRQ7
+        having the lowest" — and the processor beneath all of them.
+        `arbiter_suite`, 9 tests, including the contention measurement Phase 3
+        asks for. Grant and acknowledgement are kept as separate instants, and
+        a master is never pre-empted mid-transfer.
+  - [ ] Remaining: the two routes `008778-03` §2.4.7 gives an I/O adapter for
+        *reaching* the arbiter — a DMA channel in cascade mode plus MASTER.L,
+        and the Series 4000 Master Request Register. Both need transfers, and
+        the register is absent from the oracle (C10).
   - [ ] The synchroniser is `PROVISIONAL` at two clocks, the published maximum
         rather than a measurement. Needs grant latency measured against the
         oracle across request phases, which needs a second master first.

@@ -58,12 +58,16 @@ because that route is in doubt (`tools/mame-oracle/FINDINGS.md` C4). There is
 still no I/O and no device, so nothing boots and no end-to-end timing can be
 measured.
 
-The processor's **side** of bus arbitration is now complete — the BR/BG/BGACK
-state machine of `[030]` §7.7, with the processor at the lowest priority, which
-is the inversion the emergent-contention claim rests on. What does not exist yet
-is the *shared* arbitration point it plugs into: one bus, several masters, a
-priority encoding between them. Until that exists there is nothing to contend
-*with*, so no contention figure can be measured.
+**Bus arbitration is complete on both sides.** The processor's own BR/BG/BGACK
+state machine (`[030]` §7.7.4) plugs into a shared arbitration point that
+implements the external priority encoding §7.7 says the board must supply — DRQ0
+highest through DRQ7 lowest, and the processor beneath all of them.
+
+Contention is therefore **emergent and measured, not modelled**: nothing adds a
+penalty anywhere, and a test simply counts how many of a hundred clocks the
+processor was not the bus master while a device held DRQ0. The processor losing
+a clock is it losing an arbitration, which is the property this whole design
+exists for.
 
 The first board subsystem is in: the **address translation map** at `017000`.
 It is not the CPU's MMU and does not overlap it — it sits between the AT bus and
@@ -142,6 +146,7 @@ Last updated: 2026-08-01.
 | Memory bus and board cache | not started | — |
 | Apollo interrupt controllers (`011000`, `011100`) | working: the two 8259As cascaded on **IR3** (measured, not IR2 as the AT convention would have it), vector bases `A0`/`A8` from the boot PROM's own ICW2, giving levels `A0`-`AF`. Priority order matches `008778-03` Table 2-3, which with the cascade on IR3 has no anomaly. The CPU interrupt level is **6**, also measured — neither manual states it, and it took starting the interval timer by hand to make anything request at all | `intr_suite`, 12 tests; `FINDINGS.md` C11, `tools/mame-oracle/writetrace.lua` |
 | Intel 8259A interrupt controller (the part) | working: ICW1-4 sequence, all three OCWs, fully nested priority with rotation, edge and level triggering, special mask and special fully nested modes, poll, AEOI, and the spurious level 7. 8086-mode vectoring only — MCS-80/85's `CALL` sequence is refused rather than approximated, and this machine never uses it. The Apollo *pairing* is a separate module | `i8259_suite`, 28 tests, each citing `8259A` 231468-003 |
+| Shared bus arbitration point | working: the external priority encoder `[030]` §7.7 requires, DRQ0 through DRQ7 with the processor last, driving the CPU's own arbitration unit over the three-wire protocol. A grant and its acknowledgement are separate instants, so the processor stops driving the bus when it grants rather than when the grant is taken up; a master is never pre-empted mid-transfer | `arbiter_suite`, 9 tests, `MC68030 User's Manual 3ed` §7.7, `008778-03` §2.4.6 |
 | Apollo DMA controllers (`010C00`, `010D00`) | working: DMA 1 at **stride 1** and DMA 2 at **stride 2**, both measured, both aliased through their ranges. A read of a write-only register returns zero where the oracle returns `0F`; `[8237]` marks that read "Illegal", so neither is specified and ours does not invent a register value | `dma_suite`, 6 tests; `FINDINGS.md` C13 |
 | Intel 8237A DMA controller (the part) | **programming model complete**: all sixteen register addresses, four channels with base and current address/count, the single shared first/last flip-flop, command/mode/request/mask/status/temporary, master clear, autoinitialise reload and the mask-on-terminal-count rule. Transfers themselves are **not** modelled and cannot be until there is a shared arbitration point to run a cycle on — a real dependency, not a scoping choice. Not yet wired to the board | `i8237_suite`, 18 tests, `8237A` 231466 |
 | Apollo interval timer (`010800`) | working: the part at **odd addresses, stride 2** (measured — the region reads `00 00 00 00 00 FF ...`, the `FFFF` latch default showing through), the three §3.8 input rates as exact time-base clock domains, and the IRQ0 route. Advancing is by whole pulses, so the rate cannot become a function of how often it is polled | `timer_suite`, 8 tests; `FINDINGS.md` C12 |
