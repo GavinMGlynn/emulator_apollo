@@ -15,6 +15,7 @@
 #include "cpu/m68030/ap_m68030_step.h"
 #include "cpu/m68030/ap_m68030_exception.h"
 #include "cpu/m68030/ap_m68030_mmusr.h"
+#include "cpu/m68030/ap_m68030_state.h"
 #include "unity.h"
 
 void setUp(void) {}
@@ -3683,6 +3684,102 @@ static void test_tst_takes_an_immediate_on_this_part(void) {
   TEST_ASSERT_EQUAL_HEX32(PROGRAM_BASE + 8u, m.cpu.regs.pc);
 }
 
+/* ---------------------------------------------------------------------------
+ * The identity harness: a run's state as one number.
+ * ------------------------------------------------------------------------- */
+
+/* "same workload twice -> same hash", which is the property the whole identity
+ * harness rests on. If two runs of one program from one starting state can
+ * disagree, nothing checked under the harness is checked at all. */
+static void test_the_same_program_run_twice_hashes_the_same(void) {
+  /* A program that touches registers, memory, a branch and a loop, so the hash
+   * has something of every kind to cover: MOVEQ, a store, a countdown DBcc and
+   * a subroutine call and return. */
+  static const uint16_t program[] = {
+      0x7003u,          /* MOVEQ #3,D0        */
+      0x203Cu, 0x0000u, 0x5000u, /* MOVE.L #$5000,D0 -- overwritten below */
+      0x2240u,          /* MOVEA.L D0,A1      */
+      0x7205u,          /* MOVEQ #5,D1        */
+      0x51C9u, 0xFFFEu, /* DBF D1,-2          */
+      0x6100u, 0x0002u, /* BSR.W +2           */
+      0x4E75u,          /* RTS                */
+      0x4E71u, 0x4E71u};
+
+  machine_t first = {0};
+  load(&first, program, 14);
+  first.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
+  first.cpu.regs.isp = SUPERVISOR_STACK;
+
+  machine_t second = {0};
+  load(&second, program, 14);
+  second.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
+  second.cpu.regs.isp = SUPERVISOR_STACK;
+
+  /* The two machines are distinct objects at different addresses: if any host
+   * pointer reached the hash, this is where it would show. */
+  TEST_ASSERT_EQUAL_HEX64(ap_m68030_state_hash(&first.cpu),
+                          ap_m68030_state_hash(&second.cpu));
+
+  for (unsigned i = 0; i < 12u; i++) {
+    (void)ap_m68030_step(&first.cpu);
+    (void)ap_m68030_step(&second.cpu);
+    TEST_ASSERT_EQUAL_HEX64(ap_m68030_state_hash(&first.cpu),
+                            ap_m68030_state_hash(&second.cpu));
+  }
+}
+
+/* And the hash must actually *move* as the run proceeds: one that never changed
+ * would satisfy the test above perfectly and detect nothing. Every step of a
+ * program that changes state must produce a state the run has not been in. */
+static void test_the_hash_moves_as_the_program_runs(void) {
+  static const uint16_t program[] = {0x7001u, 0x7202u, 0x7403u, 0x7604u,
+                                     0x4E71u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 6);
+
+  uint64_t seen[5];
+  seen[0] = ap_m68030_state_hash(&m.cpu);
+  for (unsigned i = 1; i < 5u; i++) {
+    TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED,
+                          ap_m68030_step(&m.cpu).status);
+    seen[i] = ap_m68030_state_hash(&m.cpu);
+  }
+
+  for (unsigned i = 0; i < 5u; i++) {
+    for (unsigned j = i + 1u; j < 5u; j++) {
+      TEST_ASSERT_NOT_EQUAL_UINT64(seen[i], seen[j]);
+    }
+  }
+}
+
+/* Two runs that reach the same registers by different routes are not the same
+ * run: the clock is state. A NOP before the work leaves every architectural
+ * register identical and the machine a few clocks further on, and the hash must
+ * say so -- this is exactly the divergence a fast mode introduces. */
+static void test_two_runs_with_the_same_registers_differ_by_their_clock(void) {
+  static const uint16_t direct[] = {0x7007u, 0x4E71u, 0x4E71u, 0x4E71u};
+  static const uint16_t delayed[] = {0x4E71u, 0x7007u, 0x4E71u, 0x4E71u};
+
+  machine_t a = {0};
+  load(&a, direct, 4);
+  (void)ap_m68030_step(&a.cpu);
+
+  machine_t b = {0};
+  load(&b, delayed, 4);
+  (void)ap_m68030_step(&b.cpu);
+  (void)ap_m68030_step(&b.cpu);
+
+  /* Same register, same PC ... */
+  TEST_ASSERT_EQUAL_HEX32(7u, a.cpu.regs.d[0]);
+  TEST_ASSERT_EQUAL_HEX32(7u, b.cpu.regs.d[0]);
+  TEST_ASSERT_EQUAL_HEX32(PROGRAM_BASE + 2u, a.cpu.regs.pc);
+  TEST_ASSERT_EQUAL_HEX32(PROGRAM_BASE + 4u, b.cpu.regs.pc);
+
+  /* ... and different machines, which the hash reports. */
+  TEST_ASSERT_NOT_EQUAL_UINT64(ap_m68030_state_hash(&a.cpu),
+                               ap_m68030_state_hash(&b.cpu));
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_a_nop_executes_and_advances_the_pc);
@@ -3750,6 +3847,9 @@ int main(void) {
   RUN_TEST(test_a_register_count_is_taken_modulo_sixty_four);
   RUN_TEST(test_a_byte_shift_leaves_the_upper_bytes);
   RUN_TEST(test_an_address_form_accepts_an_immediate_source);
+  RUN_TEST(test_the_same_program_run_twice_hashes_the_same);
+  RUN_TEST(test_the_hash_moves_as_the_program_runs);
+  RUN_TEST(test_two_runs_with_the_same_registers_differ_by_their_clock);
   RUN_TEST(test_the_arithmetic_forms_take_an_immediate_source);
   RUN_TEST(test_the_memory_direction_refuses_an_immediate_destination);
   RUN_TEST(test_tst_takes_an_immediate_on_this_part);

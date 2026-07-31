@@ -245,9 +245,39 @@ file the moment they are found, not when someone remembers.
         FNV-1a 64 vectors — external constants, not our own output — plus
         little-endian feed, `2×u16 ≠ u32`, `time ≠ u64`, order sensitivity, and
         streaming equals one-shot.*
-  - The whole-machine part stays open until there is machine state to hash: a
-    CPU, devices and a bus. It is a Phase 2/3 tail, not something to fake now
-    over an empty machine.
+  - [x] **The CPU's contribution** (`src/core/cpu/m68030/ap_m68030_state.c`),
+        landed now that there is a CPU to hash. Every register including the
+        *inactive* stack pointers, the whole status register, the MMU registers,
+        the cache control registers, the instruction pipe and its holding
+        register, both caches, the ATC, the pending exception and interrupt
+        state — and the **accumulated clock**, which is hashed with the
+        registers rather than reported beside them. Two runs reaching the same
+        registers by different numbers of bus cycles are not the same run on a
+        machine whose whole claim is emergent timing, and that is precisely the
+        divergence a fast mode introduces.
+        The instruction and data sides are fed in that order, so a machine with
+        the two caches exchanged does not hash the same as one without; an
+        absent access context feeds a marker rather than nothing, since "no data
+        side" and "a data side whose cache is empty" are different machines; and
+        an *invalid* ATC entry still contributes its history bit, which is what
+        the replacement algorithm reads.
+        The failure mode this must not have is a field that moves while the hash
+        does not — the harness would then report two diverging machines as one.
+        So `state_suite` **sweeps every field individually**: perturb it, and
+        the hash must change. A field added without a sweep entry is a gap
+        visible in that file rather than one nobody can see.
+        *Verification: `state_suite`, 10 tests — two identically built machines
+        at different addresses agreeing, which is where a leaked host pointer
+        would show; the register, processor, MMU, pipe, cache and ATC sweeps;
+        the two root pointers and the two TTx registers told apart from each
+        other; an invalid ATC entry's history bit; and the clock. `step_suite`,
+        3 further tests (161 total) — **the same program run twice hashing the
+        same at every step**, which is the property the harness rests on; the
+        hash moving as the run proceeds, since one that never changed would
+        satisfy that perfectly and detect nothing; and two runs with identical
+        registers separated only by their clock.*
+  - The device and bus parts stay open until there are devices and a bus. That
+    is a Phase 3 tail, not something to fake now.
 
 ## Phase 2 — CPU family
 
