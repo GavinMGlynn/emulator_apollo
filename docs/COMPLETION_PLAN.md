@@ -2290,7 +2290,19 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         vector `A0`. `timer_suite`, 8 tests. Advancing is by whole pulses with
         the remainder carried, so the rate does not depend on polling
         frequency.
-  - [ ] The MC146818 calendar at `010900`.
+  - [x] The MC146818A itself: clock bytes, registers, RAM, the update cycle
+        with a full Gregorian carry (century rule included, since the part's
+        two-digit year cannot distinguish 1900 from 2000), the alarm with
+        `11XXXXXX` don't-care codes, and Register C's read-to-clear.
+        `mc146818_suite`, 21 tests. Time comes from the caller — the oracle
+        seeds its calendar from the **host clock**, and copying that would make
+        the state hash differ on every run.
+  - [ ] Wire the calendar into the board at `010900` (stride 1, byte
+        consecutive — measured, unlike the timer's odd-address stride 2) and to
+        IRQ8, which `008778-03` Table 2-3 gives as "MC146818 Calendar".
+  - [ ] The declined parts: the periodic interrupt and square wave, whose rates
+        are a divider-tap table not yet transcribed, and the daylight-savings
+        shifts of `DSE` (stored but inert).
 - [ ] SIO serial lines, keyboard and mouse. *Verification: console byte stream
       identical to the oracle's.*
 - [ ] Node ID PROM (`0x011200`), including node ID taken from the logical volume
