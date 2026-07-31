@@ -26,6 +26,7 @@ typedef enum {
   AP_MODEL_DN5500,
   AP_MODEL_DSP3000,
   AP_MODEL_DSP3500,
+  AP_MODEL_DSP4500,
   AP_MODEL_DSP5500,
   AP_MODEL_COUNT
 } ap_model_id_t;
@@ -53,6 +54,10 @@ typedef enum {
 /* A DSP ("Domain Server Processor") is the same board without the display or
  * keyboard: it is a headless node. These are the cheap nodes to run many of on
  * an emulated ring. */
+/* The base (monochrome) configuration of each model. Colour and larger-monitor
+ * variants are real orderable options -- Series 3500/3550/4500 all offer 19"
+ * colour 1280x1024 and 1024x800 -- but a display variant is a graphics-phase
+ * concern, so the table names only the base panel each model ships with. */
 typedef enum {
   AP_DISPLAY_NONE,
   AP_DISPLAY_MONO_1024X800,

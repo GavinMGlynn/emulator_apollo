@@ -25,3 +25,6 @@ compile_commands.json
 .cache/
 .vscode/
 *.swp
+
+# Python venv for probe/disassembly tooling
+tools/.venv/

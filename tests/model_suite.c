@@ -98,6 +98,7 @@ static void test_each_dsp_matches_its_dn_sibling(void) {
   } pairs[] = {
       {AP_MODEL_DSP3000, AP_MODEL_DN3000},
       {AP_MODEL_DSP3500, AP_MODEL_DN3500},
+      {AP_MODEL_DSP4500, AP_MODEL_DN4500},
       {AP_MODEL_DSP5500, AP_MODEL_DN5500},
   };
   for (size_t i = 0; i < sizeof pairs / sizeof pairs[0]; ++i) {

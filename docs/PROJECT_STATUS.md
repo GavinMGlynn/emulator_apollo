@@ -13,8 +13,8 @@ Last updated: 2026-07-31.
 
 | Subsystem | Status | Verification |
 | --- | --- | --- |
-| Build system, presets, CI | working | 4-platform matrix green; `-O0` vs `-O3` output diffed in CI |
-| Model table (`model/`) | working, 8 models | `model_suite`, 13 tests |
+| Build system, presets, CI | working | 4-platform matrix green on first run, plus the `-O0` vs `-O3` output-identity job |
+| Model table (`model/`) | working, 9 models | `model_suite`, 13 tests |
 | Time base (`time/`) | working | `time_suite`, 13 tests |
 | Ring medium interface | not started | — |
 | Ring controller | not started | — |
@@ -106,6 +106,17 @@ Two ring board generations are visible: part `10666` on the 3500/4500 and HP
 part `1818-4882` on the 3000/5500. Both identify as
 `Apollo Token Ring Network Controller-AT`.
 
+### Model figures confirmed from `[CFG]`
+
+Cited as `[CFG]` = HP-Apollo Products Configuration Guide, Dec 1989.
+
+| Model | Confirmed |
+| --- | --- |
+| DN2500 | MC68030 @ 20 MHz + MC68882 @ 20 MHz, on-board monochrome graphics, SCSI bus (7 devices), 3 async RS232 ports, 4–16 MB RAM, 15" mono 1024×800 or 19" mono 1280×1024 |
+| DN3500 / DN3550 | MC68030 @ 25 MHz + MC68882, 4–32 MB RAM |
+| DN4500 / DSP4500 | MC68030 @ 33 MHz + MC68882 @ 33 MHz, 4–32 MB RAM, 7-slot AT/XT bus (6 AT, 1 XT) |
+| DN10000 | PRISM @ 18.2 MHz, up to 4 CPUs, dual 64-bit FPUs per CPU, 8–128 MB RAM — recorded only to confirm it is a different machine and out of scope |
+
 ### Time base
 
 `AP_TIME_BASE_HZ = 3.3 GHz = LCM(12, 20, 25, 33 MHz)`, giving exact integer
@@ -124,8 +135,25 @@ Every entry is also a named item in `docs/COMPLETION_PLAN.md`.
 
 | Figure | Current value | Why provisional | Cost to close |
 | --- | --- | --- | --- |
-| DN4500 CPU clock | 33 MHz | Not confirmed from a cited page; DN4500 is not in MAME | Read `HP-Apollo Products Configuration Guide` / `Quick-Reference Configuration Guide`; low |
-| DN2500 clock, RAM base and size, display | 20 MHz, 16 MB @ `0x1000000`, mono | DN2500 is in neither MAME nor any manual we have yet; only its boot ROM | Find a DN2500 hardware reference, or derive the map from its boot PROM; medium |
+| DN2500 RAM base | `0x1000000` | Assumed to match the other 68030 models. The DN2500 is a single integrated board with PC-standard DRAM modules and its own memory design, and no address-space allocation table for Series 2500 has been found | Derive from the 2500 boot PROM, or find a Series 2500 hardware reference; medium |
+
+### Resolved discrepancies
+
+Kept rather than discarded, so a future contradiction has a documented history.
+
+- **DN4500 CPU clock: 33 MHz, not 30 MHz.** `[CFG]`'s Series 4500 Product
+  Summary (p. D-108) states "32-bit MC68030 33 MHz CPU with MC68882 33 MHz",
+  and its narrative section says "the 33MHz MC68030" — but its own overview
+  table at p. A-11 says `MC68030@30MHZ`. 33 MHz taken as correct: two
+  independent statements against one, the ordering-level summary outranks the
+  marketing summary, and Motorola never binned a 30 MHz 68030 (16/20/25/33/40/50
+  only). Both figures divide the time base, so nothing rests on it structurally.
+  If a probe ever contradicts 33 MHz, that overview table is the reason to
+  revisit.
+- **DSP4500 is headless despite its heading.** `[CFG]` heads the section
+  "DSP4500 Monochrome Workstation", copied from the DN4500 page. Its country kit
+  (`DSPCK-*`) contains only a power cord, where the DN4500's (`DN3CK-*`) includes
+  keyboard, keyboard cable and mouse. Modelled headless, like every other DSP.
 
 ## Known gaps
 

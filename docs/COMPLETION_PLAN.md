@@ -174,9 +174,19 @@ discipline throughout.
 
 ## Phase 7 — Completing the model range
 
-- [ ] Close the DN4500 clock `PROVISIONAL` from a cited configuration guide.
-- [ ] Close the DN2500 `PROVISIONAL` set, or record it as a documented gap with
-      its cost to close.
+- [x] Close the DN4500 clock `PROVISIONAL` from a cited configuration guide.
+      33 MHz, from `[CFG]`'s Series 4500 Product Summary; the conflicting 30 MHz
+      in `[CFG]`'s own overview table is recorded as a resolved discrepancy.
+      *Verification: two independent citations in the same document, both
+      recorded in `docs/PROJECT_STATUS.md`.*
+- [x] Add DSP4500, which `[CFG]` documents and the table was missing.
+      *Verification: `model_suite` checks it matches its DN4500 sibling exactly.*
+- [x] Close most of the DN2500 `PROVISIONAL` set: 68030 @ 20 MHz, 68882 @ 20 MHz,
+      on-board mono graphics, 4–16 MB RAM, all from `[CFG]`'s Series 2500 Product
+      Summary. Only `ram_base` remains open.
+- [ ] Close DN2500 `ram_base`, or record it as a documented gap with its cost to
+      close. *Verification: an address-space table for Series 2500, or the boot
+      PROM's own memory sizing code.*
 - [ ] DN4500 Matrox graphics. *Verification: PNG inspection; no oracle, so
       documented as paper-verified.*
 - [ ] DSP variants confirmed as true subsets. *Verification: `dsp3500` boots
@@ -227,3 +237,16 @@ Nothing is deferred silently. Current list:
   explicitly non-deterministic mode, documented as such, owning no goldens.
 - `.ecm` and other formats we will not support — document the refusal when the
   media layer lands.
+- **DN3550** (Series 3550) — discovered in `[CFG]`: a 68030 @ 25 MHz machine
+  with the DN3500's CPU and a wider graphics menu (19" colour 1280×1024, 19"
+  colour 1024×800, 19" mono 1280×1024, 15" colour 1024×800). Not added to the
+  table yet because its only known difference from DN3500 is display options,
+  which nothing models until Phase 5. Add it there.
+- **DN4000** (and DN3000-to-DN2500 / DN3500-to-DN4500 upgrade paths) —
+  `[CFG]` documents DN4000 as the prior-generation 68020 sibling of DN3000. Not
+  in the agreed scope and not in MAME; revisit only if the 68020 path proves it
+  cheap.
+- **Display variants as first-class configurations** — the table currently names
+  each model's base monochrome panel only. MAME models variants as separate
+  machines (`dn3500`, `dn3500_19i`, colour). Decide the representation in
+  Phase 5, not before.

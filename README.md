@@ -61,12 +61,13 @@ every model expressed as a row in one table rather than scattered conditionals.
 
 | Model | CPU | MMU | Display | Oracle |
 | --- | --- | --- | --- | --- |
-| DN2500 | 68030 | on-chip | mono | paper only |
-| DN3000 | 68020 @ 12 MHz | external 68851 | mono | MAME |
-| **DN3500** | 68030 @ 25 MHz | on-chip | mono | MAME (reference superset) |
-| DN4500 | 68030 | on-chip | colour | paper only |
-| DN5500 | 68040 @ 25 MHz | on-chip 68040 | mono | MAME |
+| DN2500 | 68030 @ 20 MHz | on-chip | mono 1024×800 | paper only |
+| DN3000 | 68020 @ 12 MHz | external 68851 | mono 1024×800 | MAME |
+| **DN3500** | 68030 @ 25 MHz | on-chip | mono 1024×800 | MAME (reference superset) |
+| DN4500 | 68030 @ 33 MHz | on-chip | mono 1280×1024 | paper only |
+| DN5500 | 68040 @ 25 MHz | on-chip 68040 | mono 1024×800 | MAME |
 | DSP3000 / DSP3500 / DSP5500 | as the DN sibling | as the DN sibling | headless | MAME |
+| DSP4500 | as DN4500 | on-chip | headless | paper only |
 
 The DSP servers are the same boards without display or keyboard, which makes
 them the cheap node type to run many of on an emulated ring.
