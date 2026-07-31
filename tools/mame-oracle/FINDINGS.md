@@ -1005,29 +1005,38 @@ answers, and only the disk quietly stops existing.
 **And `050000` answers identically either way**, with the tape card installed
 and without it.
 
-**Settled, in the negative.** `050000` reads `00 40 FF FF FF FF FF FF` in all
-three of: the default configuration, `-isa2 ctape` (tape added beside the disk),
-and `-isa1 wdc -isa2 ctape` (both named explicitly). Something permanent decodes
-it -- an address Table 2-9 marks unused, `048000`, reads all `FF`, so the range is
-genuinely answered rather than floating -- but it is **not the cartridge
-controller**.
+**Retracted, and then settled the other way.**
 
-Widened to a differential scan of the whole AT I/O window, `040000`-`05FFFF`, one
-signature per 256-byte page, taken with and without the card: **no page differs**.
-The card instantiates without complaint and the driver's ROM table asks for
-nothing on its behalf, so it is present and needs no firmware -- yet it decodes
-nowhere the processor can see it, at least passively at reset.
+This entry first reported a negative result: that `050000` reads the same with
+`-isa2 ctape` as without, that a differential scan of the whole AT I/O window
+found no page changing when the card was added, and therefore that `050000` was
+not the cartridge controller.
 
-What this establishes is a boundary rather than an answer: the tape controller
-is not to be modelled from the `050000` dump, and the dump is not evidence about
-it. What remains open is where MAME's Archive SC-499 does live -- plausibly it
-decodes only once enabled, or sits in the AT *memory* window rather than the I/O
-one, neither of which this scan would have caught.
+**That was wrong, and the reason is the whole value of this entry.** The DN3500's
+*default* configuration already carries the tape card -- listing the machine's
+devices shows `:isa2:ctape` with no flag given at all, beside `:isa1:wdc` and its
+disks and floppy. So `-isa2 ctape` added nothing, both arms of the comparison had
+the card, and "no page differs" was measuring one configuration against itself.
 
-Recorded as a negative result deliberately. The dump at `050000` is exactly the
-kind of plausible-looking evidence that would have produced a confident,
-well-tested model of the wrong device -- and one that would have looked correct
-until a real tape transfer failed against it.
+Tested properly, by *removing* it -- `-isa2 ""`, and again with a different card
+in the slot -- `050000` reads `FF` throughout, the unmapped signature. With the
+card present it reads `00 40 FF FF FF FF FF FF`.
+
+**So `050000` is the cartridge tape controller, exactly where `008778-03`
+Table 2-9 puts it.** Eight registers, aliased on an eight-byte period, and the
+manual was right the whole time.
+
+**The lesson, which is the second instance this session.** C12 recorded an
+experiment that invalidated itself by perturbing the machine on every clock; this
+one invalidated itself by never perturbing it at all. Both produced confident,
+well-controlled-looking results, and both were measuring nothing. A differential
+is worthless until the control is shown to differ -- and the check is cheap:
+enumerate the devices and see what is actually there before assuming a flag added
+something.
+
+The original reasoning is left above rather than deleted, because a retraction
+that hides what was believed teaches nothing about how it came to be believed.
+
 
 ## Where the ring is not
 
