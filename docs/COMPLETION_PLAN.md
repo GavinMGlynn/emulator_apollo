@@ -344,8 +344,39 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         half of a read-modify-write already counts. Each clause has its own
         test, including that an already-modified page is not written again,
         which matters because that update costs a bus cycle.
-  - [ ] Translation tables, the table walk, and the 22-entry fully associative
-        ATC (`[030]` §9.4). Note for when it lands: the manual states ATC
+  - [x] **Address translation cache** (`src/core/cpu/m68030/ap_m68030_atc.c`),
+        `[030]` §9.4 pp. 9-17 ff. 22 entries, fully associative, with the tag
+        (V, FC, 24-bit logical) and data (B, CI, WP, M, 24-bit physical)
+        portions the manual specifies.
+        **An ATC hit must cost zero clocks** — "the translation time of the ATC
+        is always completely overlapped by other operations; thus, no
+        performance penalty is associated with ATC searches" — so all the time
+        lives in the miss, in the table search's bus cycles.
+        *Verification: `atc_suite`, 17 tests — offset merged into the frame
+        without translation, page size deciding how much of the tag is compared,
+        FC as part of the tag, B faulting reads as well as writes, WP faulting
+        only writes and read-modify-writes, PFLUSH of one entry leaving the
+        rest, no duplicate tags, and all 22 entries used before any eviction.*
+  - [x] The timing consequence that is easy to miss: **a write to a page that
+        was previously only read is a hit that still costs a full table
+        search**, because the cached entry has M clear. `[030]` §9.4 spells out
+        why — it "assures that the first write operation to a page sets the M
+        bit in both the ATC and the page descriptor ... even when a previous
+        read operation to the page had created an entry for that page in the ATC
+        with the M bit clear". It is its own lookup status rather than folded
+        into a plain hit, so the cost cannot be silently lost.
+  - [ ] **`PROVISIONAL`: the ATC replacement algorithm.** `[030]` §9.4 names it
+        and names its ingredients — "a pseudo least recently used algorithm ...
+        a validity bit and an internal history bit" — but never states the rule.
+        The documented half is implemented exactly (invalid entries reused
+        first); the undocumented half is a stated approximation rather than an
+        invented precision. Recorded in `docs/PROJECT_STATUS.md`'s PROVISIONAL
+        table. *Verification: measure eviction order against the oracle, or find
+        a Motorola note stating the algorithm.*
+  - [ ] The table walk itself: fetch descriptors through the bus, apply
+        `ap_m68030_desc`'s rules, and fill the ATC. This is the piece that joins
+        the four MMU modules together, and the first one whose *timing* is
+        interesting, since it is where the bus cycles are. Note for when it lands: the manual states ATC
         translation "is always completely overlapped by other operations; thus,
         no performance penalty is associated with ATC searches" — so an ATC hit
         must cost nothing in our timing, and a *miss* is where the table walk's

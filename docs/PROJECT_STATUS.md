@@ -24,6 +24,7 @@ Last updated: 2026-07-31.
 | 68030 instruction pipe + cache holding register | working | `pipe_suite`, 14 tests, `MC68030 User's Manual 3ed` §11.2.2 |
 | 68030 bus cycle state machine | working | `bus_suite`, 17 tests, each citing `MC68030 User's Manual 3ed` ch. 7 (read and write cycles) |
 | 68020 / 68030 / 68040 CPU | not started beyond the bus | — |
+| 68030 ATC (22-entry, fully associative) | working, replacement `PROVISIONAL` | `atc_suite`, 17 tests, `MC68030 User's Manual 3ed` §9.4 |
 | 68030 descriptors + search protection state | working | `desc_suite`, 23 tests, `MC68030 User's Manual 3ed` §9.5.1.1 |
 | 68030 translation control (TC) + address split | working | `tc_suite`, 15 tests, `MC68030 User's Manual 3ed` §9.7.2 |
 | 68030 transparent translation (TT0/TT1) | working | `tt_suite`, 15 tests, `MC68030 User's Manual 3ed` §9.3, §9.7.3 |
@@ -322,6 +323,7 @@ Every entry is also a named item in `docs/COMPLETION_PLAN.md`.
 
 | Figure | Current value | Why provisional | Cost to close |
 | --- | --- | --- | --- |
+| 68030 ATC replacement algorithm | first-invalid, then first entry with a clear history bit, sweeping when all are set | `[030]` §9.4 names the policy and its ingredients — "a pseudo least recently used algorithm ... a validity bit and an internal history bit" — but never states the rule. Inventing a precise one would be a fabricated point number. What *is* documented is implemented exactly: invalid entries are reused first | Measure eviction order against the oracle, or find a Motorola application note that states the algorithm; medium. Affects hit rates and therefore timing, never the translation a hit produces |
 | DN2500 RAM base | `0x1000000` | Assumed to match the other 68030 models. The DN2500 is a single integrated board with PC-standard DRAM modules and its own memory design, and no address-space allocation table for Series 2500 has been found | Derive from the 2500 boot PROM, or find a Series 2500 hardware reference; medium |
 
 ### Resolved discrepancies
