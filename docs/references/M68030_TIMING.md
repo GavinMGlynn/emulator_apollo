@@ -156,3 +156,57 @@ CC for each instruction and a stated total — `ADD.L A1,D1` then `SUBA.L D1,A2`
 coming to six clocks. Any transcription of those rows must reproduce that total
 through `ap_m68030_overlap`, which already implements Equation (11-1). That is an
 external check on both the numbers and the rule at once.
+
+## §11.3.4's worked example is mislabelled, and it was about to be trusted
+
+Found while preparing to transcribe §11.6.8, and worth recording because the
+previous section nominated this very example as the *external check* on the
+transcription. Using it as one would have written a wrong number in.
+
+The example computes an instruction pair:
+
+```
+                      Head   Tail   CC
+  1. ADD.L  A1,D1       2      0     2
+  2. SUBA.L D1,A2       4      0     4
+
+  Execution Time = CC1 + [CC2 - min(H2,T1)] = 2 + [4 - 0] = 6 clocks
+```
+
+§11.6.8's own table says otherwise for the second instruction:
+
+| Row | Head | Tail | CC |
+| --- | --- | --- | --- |
+| `ADDA.W Rn,An` | 4 | 0 | `4(0/0/0)` |
+| `ADDA.L Rn,An` | 2 | 0 | `2(0/0/0)` |
+| `SUBA.W Rn,An` | 4 | 0 | `4(0/0/0)` |
+| **`SUBA.L Rn,An`** | **2** | **0** | **`2(0/0/0)`** |
+| `SUBA.W EA,An` | 0 | 0 | `4(0/0/0)` |
+| `SUBA.L EA,An` | 0 | 0 | `2(0/0/0)` |
+| `CMPA Rn,An` (word) | 4 | 0 | `4(0/0/0)` |
+
+**The table is right and the example is mislabelled.** Three reasons, in
+increasing order of weight:
+
+1. The word forms cost 4 and the long forms cost 2 in **six separate rows**
+   across three instructions. A single worked example does not outweigh that.
+2. It is the physically sensible direction. `SUBA.W` sign-extends its word
+   source to 32 bits before subtracting; `SUBA.L` does not. The extra work
+   belongs to the *word* form, which is where the table puts it.
+3. The example's own arithmetic is unaffected. `2 + [4 - min(4,0)] = 6` is a
+   correct demonstration of Equation (11-1) whatever instruction those numbers
+   belong to — so the example is sound as a demonstration of the *rule* and
+   unsound only as a source for `SUBA.L`'s *numbers*.
+
+### What this changes
+
+The worked example still checks Equation (11-1), and `overlap_suite` uses it for
+exactly that. It does **not** check a transcription of `SUBA.L`, and the note in
+that test now says so — otherwise someone later, reconciling the test against
+§11.6.8, would "correct" `4, 0, 4` to `2, 0, 2` and destroy the arithmetic check
+in the process.
+
+So the transcription's external check has to come from somewhere else: the
+per-row pattern above, and the second worked example in §11.3.4 (which uses
+Equation (11-2) and effective address tables). Recorded here rather than
+discovered again.

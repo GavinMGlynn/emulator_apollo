@@ -32,7 +32,18 @@ static void test_the_overlap_is_the_lesser_of_the_tail_and_the_head(void) {
  *                  = 6 clocks
  *
  * An external check rather than one of our own numbers, which is the only kind
- * worth having here. */
+ * worth having here.
+ *
+ * **Do not "correct" these against §11.6.8.** That table gives `SUBA.L Rn,An`
+ * as 2/0/2, not 4/0/4 -- the example is mislabelled, and its numbers are the
+ * `SUBA.W` row's. `docs/references/M68030_TIMING.md` records the evidence: the
+ * word forms cost 4 and the long forms 2 in six rows across `ADDA`, `SUBA` and
+ * `CMPA`, and the word form is the one that sign-extends.
+ *
+ * The mislabelling does not weaken this test, because what is being checked is
+ * the *arithmetic*: 2 + [4 - min(4,0)] = 6 is a correct demonstration of
+ * Equation (11-1) whatever instruction those numbers belong to. Reconciling the
+ * inputs with the table would destroy that check while appearing to tidy it. */
 static void test_the_manuals_worked_example_comes_to_six_clocks(void) {
   const ap_m68030_timing_t add = {.head = 2u, .tail = 0u, .cache_case = 2u};
   const ap_m68030_timing_t suba = {.head = 4u, .tail = 0u, .cache_case = 4u};
