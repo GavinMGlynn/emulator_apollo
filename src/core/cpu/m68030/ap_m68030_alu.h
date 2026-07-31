@@ -80,6 +80,24 @@ ap_m68030_alu_not(uint32_t destination, unsigned size);
 [[nodiscard]] ap_m68030_alu_result_t
 ap_m68030_alu_test(uint32_t value, unsigned size);
 
+/* ADDX and SUBX: the same arithmetic with the extend bit folded in, and a
+ * different rule for Z.
+ *
+ * "Z -- Cleared if the result is nonzero; unchanged otherwise." Z is never
+ * *set* by these, only cleared. That is what lets a multi-precision sequence
+ * accumulate one Z across every word of the operand: the whole result is zero
+ * only if no part of it was non-zero. A model that set Z from each step would
+ * report the last word's zeroness instead of the whole value's, which is right
+ * whenever the top word happens to be zero and wrong otherwise.
+ *
+ * `z_in` is the current Z, which the caller must supply for that reason. */
+[[nodiscard]] ap_m68030_alu_result_t
+ap_m68030_alu_addx(uint32_t destination, uint32_t source, unsigned size,
+                   bool x_in, bool z_in);
+[[nodiscard]] ap_m68030_alu_result_t
+ap_m68030_alu_subx(uint32_t destination, uint32_t source, unsigned size,
+                   bool x_in, bool z_in);
+
 /* Shifts and rotates, Table 3-18's continued page.
  *
  * Three rules carry most of the weight, and each is a place a plausible

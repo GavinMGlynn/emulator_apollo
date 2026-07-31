@@ -240,10 +240,12 @@ static void test_a_conditional_branch_reads_the_previous_result(void) {
 /* The property that lets this module ship incomplete: an instruction with no
  * semantics yet is reported, not skipped and not called illegal. */
 static void test_an_unimplemented_instruction_is_reported_not_skipped(void) {
-  /* MULU.W (A0),D0 decodes perfectly well -- family 1100, opmode 011 -- and
-   * has no semantics here. ADD used to serve this test and now executes, which
-   * is the right reason for a test like this to need changing. */
-  static const uint16_t program[] = {0xC0D0u, 0x4E71u, 0x4E71u, 0x4E71u};
+  /* LEA (A0),A1 decodes perfectly well and has no semantics here -- its whole
+   * subtree, family 0100's LEA/CHK/$48/$4C forms, is still unexecuted. ADD
+   * served this test first and MULU second, each until it started working. A
+   * placeholder that keeps needing replacement because the thing it stood in
+   * for now runs is the right kind of churn. */
+  static const uint16_t program[] = {0x43D0u, 0x4E71u, 0x4E71u, 0x4E71u};
   machine_t m = {0};
   load(&m, program, 4);
 
@@ -253,7 +255,7 @@ static void test_an_unimplemented_instruction_is_reported_not_skipped(void) {
   TEST_ASSERT_NOT_EQUAL_INT(AP_M68030_STEP_ILLEGAL, r.status);
   TEST_ASSERT_NOT_EQUAL_INT(AP_M68030_STEP_EXECUTED, r.status);
   /* It decoded correctly -- the gap is in execution, not decode. */
-  TEST_ASSERT_EQUAL_INT(AP_M68030_DECODED_ARITH, r.kind);
+  TEST_ASSERT_EQUAL_INT(AP_M68030_DECODED_MISC, r.kind);
   /* And the PC did not move past it. */
   TEST_ASSERT_EQUAL_HEX32(PROGRAM_BASE, m.cpu.regs.pc);
 }
@@ -1273,6 +1275,168 @@ static void test_a_byte_shift_leaves_the_upper_bytes(void) {
   TEST_ASSERT_EQUAL_HEX32(0x11223388u, m.cpu.regs.d[0]);
 }
 
+
+/* ---------------------------------------------------------------------------
+ * Multiplies, divides and the extended forms.
+ * ------------------------------------------------------------------------- */
+
+/* "The word form ... multiplies two word operands and produces a long result",
+ * so the product uses the whole destination register. */
+static void test_mulu_produces_a_long_from_two_words(void) {
+  /* MOVE.L #$1000,D0 ; MULU.W #$10,D0 */
+  static const uint16_t program[] = {0x203Cu, 0x0000u, 0x1000u, 0xC0FCu,
+                                     0x0010u, 0x4E71u, 0x4E71u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 8);
+
+  (void)ap_m68030_step(&m.cpu);
+  const ap_m68030_step_result_t r = ap_m68030_step(&m.cpu);
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, r.status);
+  TEST_ASSERT_EQUAL_HEX32(0x10000u, m.cpu.regs.d[0]);
+}
+
+/* MULS treats both operands as signed, so the same bits give a different
+ * product from MULU -- which is the entire difference between them. */
+static void test_muls_and_mulu_differ_on_a_negative_operand(void) {
+  /* MOVEQ #-1,D0 ; MULS.W #2,D0  ->  -2 */
+  static const uint16_t signed_program[] = {0x70FFu, 0xC1FCu, 0x0002u, 0x4E71u,
+                                            0x4E71u, 0x4E71u};
+  machine_t signed_machine = {0};
+  load(&signed_machine, signed_program, 6);
+  (void)ap_m68030_step(&signed_machine.cpu);
+  (void)ap_m68030_step(&signed_machine.cpu);
+  TEST_ASSERT_EQUAL_HEX32(0xFFFFFFFEu, signed_machine.cpu.regs.d[0]);
+
+  /* The same bits unsigned: $FFFF * 2 = $1FFFE. */
+  static const uint16_t unsigned_program[] = {0x70FFu, 0xC0FCu, 0x0002u,
+                                              0x4E71u, 0x4E71u, 0x4E71u};
+  machine_t unsigned_machine = {0};
+  load(&unsigned_machine, unsigned_program, 6);
+  (void)ap_m68030_step(&unsigned_machine.cpu);
+  (void)ap_m68030_step(&unsigned_machine.cpu);
+  TEST_ASSERT_EQUAL_HEX32(0x0001FFFEu, unsigned_machine.cpu.regs.d[0]);
+}
+
+/* "a quotient in the lower word ... and a remainder in the upper word" -- both
+ * halves in one register, and the order is the one worth pinning. */
+static void test_a_divide_puts_the_remainder_in_the_upper_word(void) {
+  /* MOVE.L #100,D0 ; DIVU.W #7,D0  ->  quotient 14, remainder 2 */
+  static const uint16_t program[] = {0x203Cu, 0x0000u, 0x0064u, 0x80FCu,
+                                     0x0007u, 0x4E71u, 0x4E71u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 8);
+
+  (void)ap_m68030_step(&m.cpu);
+  const ap_m68030_step_result_t r = ap_m68030_step(&m.cpu);
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, r.status);
+  TEST_ASSERT_EQUAL_HEX32(0x0002000Eu, m.cpu.regs.d[0]);
+  TEST_ASSERT_EQUAL_HEX32(14u, m.cpu.regs.d[0] & 0xFFFFu);
+  TEST_ASSERT_EQUAL_HEX32(2u, m.cpu.regs.d[0] >> 16);
+}
+
+/* "If the quotient is larger than a 16-bit integer, the overflow condition code
+ * is set and the operands are unchanged" -- so V is the whole result and the
+ * register must survive untouched. */
+static void test_a_division_overflow_leaves_the_operands_unchanged(void) {
+  /* MOVE.L #$10000,D0 ; DIVU.W #1,D0 -- quotient $10000 does not fit. */
+  static const uint16_t program[] = {0x203Cu, 0x0001u, 0x0000u, 0x80FCu,
+                                     0x0001u, 0x4E71u, 0x4E71u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 8);
+
+  (void)ap_m68030_step(&m.cpu);
+  const ap_m68030_step_result_t r = ap_m68030_step(&m.cpu);
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, r.status);
+  TEST_ASSERT_TRUE(ap_m68030_read_ccr(&m.cpu.regs) &
+                   (1u << AP_M68030_SR_V_BIT));
+  /* The dividend is still there. */
+  TEST_ASSERT_EQUAL_HEX32(0x00010000u, m.cpu.regs.d[0]);
+}
+
+/* Division by zero is an exception rather than a result, and taking it needs
+ * machinery this step does not have -- so it declines instead of inventing a
+ * value. Reported unimplemented, not executed. */
+static void test_a_division_by_zero_is_not_given_a_value(void) {
+  static const uint16_t program[] = {0x203Cu, 0x0000u, 0x0064u, 0x80FCu,
+                                     0x0000u, 0x4E71u, 0x4E71u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 8);
+
+  (void)ap_m68030_step(&m.cpu);
+  const ap_m68030_step_result_t r = ap_m68030_step(&m.cpu);
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_UNIMPLEMENTED, r.status);
+  /* The dividend is untouched, so nothing was half-done. */
+  TEST_ASSERT_EQUAL_HEX32(100u, m.cpu.regs.d[0]);
+}
+
+/* ADDX folds the extend bit in, which is what makes multi-precision addition
+ * work at all. */
+static void test_addx_adds_the_extend_bit(void) {
+  /* MOVEQ #1,D0 ; MOVEQ #1,D1 ; ADDX.L D0,D1 with X set  ->  3 */
+  static const uint16_t program[] = {0x7001u, 0x7201u, 0xD380u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 4);
+
+  (void)ap_m68030_step(&m.cpu);
+  (void)ap_m68030_step(&m.cpu);
+  ap_m68030_write_ccr(&m.cpu.regs, (uint16_t)(1u << AP_M68030_SR_X_BIT));
+  const ap_m68030_step_result_t r = ap_m68030_step(&m.cpu);
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, r.status);
+  TEST_ASSERT_EQUAL_HEX32(3u, m.cpu.regs.d[1]);
+}
+
+/* "Z -- Cleared if the result is nonzero; unchanged otherwise." Z is never set
+ * by ADDX, only cleared, which is what lets one Z describe a whole
+ * multi-precision value rather than just its last word. */
+static void test_addx_only_ever_clears_the_zero_flag(void) {
+  /* A zero result with Z already clear leaves Z clear -- a model that set Z
+   * from the result would report this word's zeroness as the whole value's. */
+  static const uint16_t program[] = {0x7000u, 0x7200u, 0xD380u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 4);
+
+  (void)ap_m68030_step(&m.cpu);
+  (void)ap_m68030_step(&m.cpu);
+  ap_m68030_write_ccr(&m.cpu.regs, 0); /* Z clear, X clear */
+  (void)ap_m68030_step(&m.cpu);
+
+  TEST_ASSERT_EQUAL_HEX32(0u, m.cpu.regs.d[1]);
+  TEST_ASSERT_FALSE(ap_m68030_read_ccr(&m.cpu.regs) &
+                    (1u << AP_M68030_SR_Z_BIT));
+
+  /* And with Z already set, a zero result keeps it. */
+  machine_t n = {0};
+  load(&n, program, 4);
+  (void)ap_m68030_step(&n.cpu);
+  (void)ap_m68030_step(&n.cpu);
+  ap_m68030_write_ccr(&n.cpu.regs, (uint16_t)(1u << AP_M68030_SR_Z_BIT));
+  (void)ap_m68030_step(&n.cpu);
+  TEST_ASSERT_TRUE(ap_m68030_read_ccr(&n.cpu.regs) &
+                   (1u << AP_M68030_SR_Z_BIT));
+}
+
+/* An immediate source is fetched, not addressed -- and the address forms take
+ * one too. This caught a real ordering bug: the address calculation ran first
+ * and rejected the immediate mode before anything thought to fetch it, so every
+ * ADDA/SUBA/CMPA with an immediate silently declined. */
+static void test_an_address_form_accepts_an_immediate_source(void) {
+  /* ADDA.W #$1000,A0 */
+  static const uint16_t program[] = {0xD0FCu, 0x1000u, 0x4E71u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 4);
+  m.cpu.regs.a[0] = 0x2000u;
+
+  const ap_m68030_step_result_t r = ap_m68030_step(&m.cpu);
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, r.status);
+  TEST_ASSERT_EQUAL_HEX32(0x3000u, m.cpu.regs.a[0]);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_a_nop_executes_and_advances_the_pc);
@@ -1339,5 +1503,13 @@ int main(void) {
   RUN_TEST(test_a_register_shift_executes);
   RUN_TEST(test_a_register_count_is_taken_modulo_sixty_four);
   RUN_TEST(test_a_byte_shift_leaves_the_upper_bytes);
+  RUN_TEST(test_an_address_form_accepts_an_immediate_source);
+  RUN_TEST(test_mulu_produces_a_long_from_two_words);
+  RUN_TEST(test_muls_and_mulu_differ_on_a_negative_operand);
+  RUN_TEST(test_a_divide_puts_the_remainder_in_the_upper_word);
+  RUN_TEST(test_a_division_overflow_leaves_the_operands_unchanged);
+  RUN_TEST(test_a_division_by_zero_is_not_given_a_value);
+  RUN_TEST(test_addx_adds_the_extend_bit);
+  RUN_TEST(test_addx_only_ever_clears_the_zero_flag);
   return UNITY_END();
 }

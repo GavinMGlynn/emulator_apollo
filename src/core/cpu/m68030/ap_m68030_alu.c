@@ -121,6 +121,45 @@ ap_m68030_alu_result_t ap_m68030_alu_test(uint32_t value, unsigned size) {
   return logic(value, size);
 }
 
+ap_m68030_alu_result_t ap_m68030_alu_addx(uint32_t destination,
+                                          uint32_t source, unsigned size,
+                                          bool x_in, bool z_in) {
+  const uint32_t mask = width_mask(size);
+  const uint32_t d = destination & mask;
+  const uint32_t s = source & mask;
+  const uint64_t wide = (uint64_t)d + (uint64_t)s + (x_in ? 1u : 0u);
+
+  ap_m68030_alu_result_t out = {0};
+  out.result = (uint32_t)(wide & mask);
+  out.n = (out.result & sign_bit(size)) != 0u;
+  /* "Cleared if the result is nonzero; unchanged otherwise" -- never set. */
+  out.z = z_in && (out.result == 0u);
+  out.c = (wide & ~(uint64_t)mask) != 0u;
+  out.v = ((~(d ^ s) & (d ^ out.result)) & sign_bit(size)) != 0u;
+  out.x = out.c;
+  out.sets_x = true;
+  return out;
+}
+
+ap_m68030_alu_result_t ap_m68030_alu_subx(uint32_t destination,
+                                          uint32_t source, unsigned size,
+                                          bool x_in, bool z_in) {
+  const uint32_t mask = width_mask(size);
+  const uint32_t d = destination & mask;
+  const uint32_t s = source & mask;
+  const uint64_t borrow = (uint64_t)s + (x_in ? 1u : 0u);
+
+  ap_m68030_alu_result_t out = {0};
+  out.result = (uint32_t)((d - (uint32_t)borrow) & mask);
+  out.n = (out.result & sign_bit(size)) != 0u;
+  out.z = z_in && (out.result == 0u);
+  out.c = (uint64_t)d < borrow;
+  out.v = (((d ^ s) & (d ^ out.result)) & sign_bit(size)) != 0u;
+  out.x = out.c;
+  out.sets_x = true;
+  return out;
+}
+
 ap_m68030_alu_result_t ap_m68030_alu_shift(ap_m68030_shift_type_t type,
                                            bool left, uint32_t value,
                                            unsigned count, unsigned size,

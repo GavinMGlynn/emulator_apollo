@@ -18,6 +18,8 @@ static bool execute_address_form(ap_m68030_cpu_t *cpu,
                                  uint32_t *clocks);
 static bool execute_bit(ap_m68030_cpu_t *cpu, const ap_m68030_immediate_t *imm,
                         uint32_t *clocks);
+static bool execute_extended(ap_m68030_cpu_t *cpu,
+                             const ap_m68030_arith_t *arith, uint32_t *clocks);
 #include "cpu/m68030/ap_m68030_alu.h"
 #include "cpu/m68030/ap_m68030_operand.h"
 
@@ -253,6 +255,14 @@ static bool execute_arith(ap_m68030_cpu_t *cpu, const ap_m68030_arith_t *arith,
   case AP_M68030_ARITH_SUBA:
   case AP_M68030_ARITH_CMPA:
     return execute_address_form(cpu, arith, clocks);
+  case AP_M68030_ARITH_MULU:
+  case AP_M68030_ARITH_MULS:
+  case AP_M68030_ARITH_DIVU:
+  case AP_M68030_ARITH_DIVS:
+  case AP_M68030_ARITH_ADDX:
+  case AP_M68030_ARITH_SUBX:
+  case AP_M68030_ARITH_EXG:
+    return execute_extended(cpu, arith, clocks);
   case AP_M68030_ARITH_OR:
   case AP_M68030_ARITH_AND:
   case AP_M68030_ARITH_SUB:
@@ -260,16 +270,9 @@ static bool execute_arith(ap_m68030_cpu_t *cpu, const ap_m68030_arith_t *arith,
   case AP_M68030_ARITH_CMP:
   case AP_M68030_ARITH_EOR:
     break;
-  case AP_M68030_ARITH_DIVU:
-  case AP_M68030_ARITH_DIVS:
-  case AP_M68030_ARITH_MULU:
-  case AP_M68030_ARITH_MULS:
-  case AP_M68030_ARITH_SUBX:
-  case AP_M68030_ARITH_ADDX:
   case AP_M68030_ARITH_ABCD:
   case AP_M68030_ARITH_SBCD:
   case AP_M68030_ARITH_CMPM:
-  case AP_M68030_ARITH_EXG:
   case AP_M68030_ARITH_INVALID:
     return false;
   }
@@ -694,19 +697,22 @@ static bool execute_quick(ap_m68030_cpu_t *cpu, const ap_m68030_quick_t *quick,
 static bool execute_address_form(ap_m68030_cpu_t *cpu,
                                  const ap_m68030_arith_t *arith,
                                  uint32_t *clocks) {
-  ap_m68030_address_input_t input = {0};
-  if (!gather_address_input(cpu, arith->ea.kind, arith->size, clocks, &input)) {
-    return false;
-  }
-  const ap_m68030_address_t where =
-      ap_m68030_address_calculate(&cpu->regs, arith->ea, &input);
-
   uint32_t source = 0;
+
+  /* An immediate is fetched rather than addressed, and must be handled *before*
+   * gather_address_input, which has no address to gather for it. */
   if (arith->ea.kind == AP_M68030_EA_IMMEDIATE) {
     if (!fetch_immediate(cpu, arith->size, clocks, &source)) {
       return false;
     }
   } else {
+    ap_m68030_address_input_t input = {0};
+    if (!gather_address_input(cpu, arith->ea.kind, arith->size, clocks,
+                              &input)) {
+      return false;
+    }
+    const ap_m68030_address_t where =
+        ap_m68030_address_calculate(&cpu->regs, arith->ea, &input);
     const ap_m68030_operand_result_t read = ap_m68030_operand_read(
         &cpu->regs, cpu->data, &where, arith->size, cpu->data_function_code);
     *clocks += read.clocks;
@@ -918,6 +924,179 @@ static bool execute_shift(ap_m68030_cpu_t *cpu, const ap_m68030_shift_t *shift,
 
   case AP_M68030_SHIFT_BITFIELD:
   case AP_M68030_SHIFT_INVALID:
+    return false;
+  }
+  return false;
+}
+
+
+/* The register-to-register and wide forms: MULU, MULS, DIVU, DIVS, ADDX, SUBX,
+ * CMPM and EXG. */
+static bool execute_extended(ap_m68030_cpu_t *cpu,
+                             const ap_m68030_arith_t *arith, uint32_t *clocks) {
+  const uint16_t ccr = ap_m68030_read_ccr(&cpu->regs);
+  const bool x_in = ((ccr >> AP_M68030_SR_X_BIT) & 1u) != 0u;
+  const bool z_in = ((ccr >> AP_M68030_SR_Z_BIT) & 1u) != 0u;
+
+  switch (arith->kind) {
+  case AP_M68030_ARITH_EXG:
+    /* EXG swaps two registers whole, and affects no condition codes. Which two
+     * depends on the opmode the decoder already resolved; both are treated as
+     * 32-bit, since there is no sized form. */
+    return false; /* the register pair encoding is not yet resolved here */
+
+  case AP_M68030_ARITH_MULU:
+  case AP_M68030_ARITH_MULS: {
+    /* "The word form ... multiplies two word operands and produces a long
+     * result", so the source is a word and the destination register's low word
+     * is the other operand -- the whole register receives the product. */
+    uint32_t source = 0;
+    /* Immediate first: it is fetched, not addressed. */
+    if (arith->ea.kind == AP_M68030_EA_IMMEDIATE) {
+      if (!fetch_immediate(cpu, 2u, clocks, &source)) {
+        return false;
+      }
+    } else {
+      ap_m68030_address_input_t input = {0};
+      if (!gather_address_input(cpu, arith->ea.kind, 2u, clocks, &input)) {
+        return false;
+      }
+      const ap_m68030_address_t where =
+          ap_m68030_address_calculate(&cpu->regs, arith->ea, &input);
+      const ap_m68030_operand_result_t read = ap_m68030_operand_read(
+          &cpu->regs, cpu->data, &where, 2u, cpu->data_function_code);
+      *clocks += read.clocks;
+      if (!read.ok) {
+        return false;
+      }
+      source = read.value;
+    }
+
+    const uint32_t destination = cpu->regs.d[arith->reg] & 0xFFFFu;
+    uint32_t product;
+    if (arith->kind == AP_M68030_ARITH_MULU) {
+      product = (uint32_t)((source & 0xFFFFu) * destination);
+    } else {
+      const int32_t a = (int32_t)(int16_t)(uint16_t)(source & 0xFFFFu);
+      const int32_t b = (int32_t)(int16_t)(uint16_t)destination;
+      product = (uint32_t)(a * b);
+    }
+
+    cpu->regs.d[arith->reg] = product;
+    /* "V 0, C 0" for the multiplies at this width; N and Z from the long
+     * result, which is why the product is formed before the flags are set. */
+    const ap_m68030_alu_result_t flags = ap_m68030_alu_test(product, 4u);
+    ap_m68030_write_ccr(&cpu->regs, ap_m68030_alu_apply(ccr, &flags));
+    return true;
+  }
+
+  case AP_M68030_ARITH_DIVU:
+  case AP_M68030_ARITH_DIVS: {
+    uint32_t source = 0;
+    /* Immediate first: it is fetched, not addressed. */
+    if (arith->ea.kind == AP_M68030_EA_IMMEDIATE) {
+      if (!fetch_immediate(cpu, 2u, clocks, &source)) {
+        return false;
+      }
+    } else {
+      ap_m68030_address_input_t input = {0};
+      if (!gather_address_input(cpu, arith->ea.kind, 2u, clocks, &input)) {
+        return false;
+      }
+      const ap_m68030_address_t where =
+          ap_m68030_address_calculate(&cpu->regs, arith->ea, &input);
+      const ap_m68030_operand_result_t read = ap_m68030_operand_read(
+          &cpu->regs, cpu->data, &where, 2u, cpu->data_function_code);
+      *clocks += read.clocks;
+      if (!read.ok) {
+        return false;
+      }
+      source = read.value;
+    }
+
+    const uint32_t divisor16 = source & 0xFFFFu;
+    if (divisor16 == 0u) {
+      /* Division by zero is an exception, not a result. Taking it needs the
+       * exception machinery, so this declines rather than inventing a value. */
+      return false;
+    }
+
+    const uint32_t dividend = cpu->regs.d[arith->reg];
+    uint32_t quotient;
+    uint32_t remainder;
+    bool overflow;
+
+    if (arith->kind == AP_M68030_ARITH_DIVU) {
+      quotient = dividend / divisor16;
+      remainder = dividend % divisor16;
+      overflow = quotient > 0xFFFFu;
+    } else {
+      const int32_t a = (int32_t)dividend;
+      const int32_t b = (int32_t)(int16_t)(uint16_t)divisor16;
+      const int32_t q = a / b;
+      const int32_t r = a % b;
+      quotient = (uint32_t)q;
+      remainder = (uint32_t)r;
+      overflow = q > 32767 || q < -32768;
+    }
+
+    if (overflow) {
+      /* "If the quotient is larger than a 16-bit integer, the overflow
+       * condition code is set and the operands are unchanged" -- so V is the
+       * whole result, and the register must not be written. */
+      uint16_t updated = ccr;
+      updated |= (uint16_t)(1u << AP_M68030_SR_V_BIT);
+      ap_m68030_write_ccr(&cpu->regs, updated);
+      return true;
+    }
+
+    /* "a quotient in the lower word ... and a remainder in the upper word". */
+    cpu->regs.d[arith->reg] =
+        ((remainder & 0xFFFFu) << 16) | (quotient & 0xFFFFu);
+
+    const ap_m68030_alu_result_t flags =
+        ap_m68030_alu_test(quotient & 0xFFFFu, 2u);
+    ap_m68030_write_ccr(&cpu->regs, ap_m68030_alu_apply(ccr, &flags));
+    return true;
+  }
+
+  case AP_M68030_ARITH_ADDX:
+  case AP_M68030_ARITH_SUBX: {
+    if (arith->memory_operands) {
+      return false; /* the memory-to-memory form needs two predecrements */
+    }
+    const uint32_t mask = (arith->size == 1u)   ? 0xFFu
+                          : (arith->size == 2u) ? 0xFFFFu
+                                                : 0xFFFFFFFFu;
+    const uint32_t destination = cpu->regs.d[arith->reg] & mask;
+    const uint32_t source = cpu->regs.d[arith->source_reg] & mask;
+
+    const ap_m68030_alu_result_t result =
+        (arith->kind == AP_M68030_ARITH_ADDX)
+            ? ap_m68030_alu_addx(destination, source, arith->size, x_in, z_in)
+            : ap_m68030_alu_subx(destination, source, arith->size, x_in, z_in);
+
+    ap_m68030_write_ccr(&cpu->regs, ap_m68030_alu_apply(ccr, &result));
+    cpu->regs.d[arith->reg] =
+        (cpu->regs.d[arith->reg] & ~mask) | (result.result & mask);
+    return true;
+  }
+
+  /* Only the forms routed here reach this function; the rest are listed so
+   * -Wswitch-enum still forces a decision when one is added. */
+  case AP_M68030_ARITH_OR:
+  case AP_M68030_ARITH_AND:
+  case AP_M68030_ARITH_SUB:
+  case AP_M68030_ARITH_ADD:
+  case AP_M68030_ARITH_CMP:
+  case AP_M68030_ARITH_EOR:
+  case AP_M68030_ARITH_SUBA:
+  case AP_M68030_ARITH_ADDA:
+  case AP_M68030_ARITH_CMPA:
+  case AP_M68030_ARITH_ABCD:
+  case AP_M68030_ARITH_SBCD:
+  case AP_M68030_ARITH_CMPM:
+  case AP_M68030_ARITH_INVALID:
     return false;
   }
   return false;

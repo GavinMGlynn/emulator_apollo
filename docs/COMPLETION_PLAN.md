@@ -898,11 +898,23 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         *Verification: `alu_suite`, 9 further tests (17 total); `step_suite`, 3
         more (64), including a register count taken modulo 64 so a count of 64
         shifts by nothing.*
-  - [ ] The last of the instruction semantics: divides and multiplies, and the
+  - [~] The last of the instruction semantics: divides and multiplies, and the
         register-to-register extended forms (`ADDX`/`SUBX`/`ABCD`/`SBCD`/
         `CMPM`/`EXG`).
-        *Verification: per-family suites, then probes against the oracle.* *Verification: per-family suites, then probes against the
-        oracle for the timing.*
+        Done: `MULU`/`MULS` (word × word → long, the whole register),
+        `DIVU`/`DIVS` (32/16, remainder in the upper word, overflow setting `V`
+        and leaving the operands unchanged), and register-form `ADDX`/`SUBX`
+        with the documented "cleared if nonzero; unchanged otherwise" `Z`, which
+        is what lets one `Z` describe a whole multi-precision value.
+        Still open, and each named rather than left to look finished:
+        `ABCD`, `SBCD`, `CMPM`, `EXG` (the register-pair encoding is not yet
+        resolved), the memory-operand `-(An),-(An)` forms of `ADDX`/`SUBX`, and
+        the divide-by-zero exception — division by zero currently declines as
+        `UNIMPLEMENTED` rather than inventing a value, because taking vector 5
+        needs the exception machinery this step does not yet have.
+        *Verification: `step_suite`, 8 further tests (71 total); then probes
+        against the oracle for the timing, which is data-dependent for both the
+        multiplies and the divides and so is not yet modelled.*
   - [ ] **CMP2/CHK2, CAS and CAS2**, which occupy size field `11` in family
         `0000`'s immediate rows. Not decoded: `ap_m68030_immediate_decode`
         reports invalid there rather than mis-decoding them as a wider ORI, and
