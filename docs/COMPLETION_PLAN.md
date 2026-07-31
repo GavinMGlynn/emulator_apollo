@@ -2383,11 +2383,26 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
 
 ## Phase 4 — Storage, then a first boot
 
-- [ ] Winchester controllers: OMTI (DN3000), WD7000 ESDI and SCSI (DN4500).
-      *Verification: DMA-completion device shape — transfer now, schedule
-      completion in emulated time; oracle diff on a real disk image.*
-- [ ] Floppy (programmed-I/O state machine, correct power-up/no-media state).
-      *Verification: first register read matches the oracle exactly.*
+- [ ] **OMTI 8621 ESDI/floppy controller** — one controller for both, and the
+      DN3500's. *Verification: DMA-completion device shape — transfer now,
+      schedule completion in emulated time; oracle diff.*
+      **Corrected at the Phase 4 boundary.** This item used to read "Winchester
+      controllers: OMTI (DN3000), WD7000 ESDI and SCSI (DN4500)", which left the
+      reference machine unaccounted for and split a single device in two. The
+      oracle's slot list gives the DN3500 `wdc  OMTI 8621 ESDI/floppy controller
+      (Apollo)`, with the floppy drives hanging off it at `isa1:wdc:omti_fdc:0`,
+      and `roms/firmware` carries the matching `3000_OMTI_8621_102640-B.bin`.
+      The WD7000 is the DN4500's and belongs with the other model variants.
+      `FINDINGS.md` C15.
+- [ ] **Archive SC-499 cartridge tape.** Promoted ahead of the disk, because it
+      is the only bootable medium that exists: `media/` holds the Domain/OS
+      SR10.3.5 distribution as `.ct` cartridge images including
+      `CRTG_STD_SFW_BOOT_1`, and no Winchester image at all. The first boot
+      therefore runs from tape and installs onto a blank disk, which reverses
+      the order this phase assumed.
+- [ ] Winchester and floppy media handling (`.awd` for the disk, as the oracle
+      names it). *Verification: first register read matches the oracle exactly
+      for the no-media state.*
 - [ ] QIC-II cartridge tape, `.ct` images. *Verification: reads the bitsavers
       SR10.4 install tapes.*
 - [ ] `.awd` / `.afd` image formats, so oracle and emulator share media.

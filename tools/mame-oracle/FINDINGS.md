@@ -940,6 +940,40 @@ does, and the next part might. A dump is an experiment, not an observation, and
 the fact that it usually behaves like an observation is a property of the parts
 so far rather than of the method.
 
+### C15 — the DN3500's disk controller is the OMTI, and there is no disk image
+
+Reconnaissance before starting Phase 4, and it changes the phase's first item.
+
+`docs/COMPLETION_PLAN.md` says "Winchester controllers: OMTI (DN3000), WD7000
+ESDI and SCSI (DN4500)", which leaves the reference machine unaccounted for. The
+oracle's slot list settles it:
+
+    isa1  wdc  OMTI 8621 ESDI/floppy controller (Apollo)
+          ctape  Archive SC-499
+          3c505  3Com EtherLink Plus
+
+**The DN3500 uses the OMTI 8621, and it is one controller for both the
+Winchester and the floppy** — the slot's own name says "ESDI/floppy", and the
+floppy drive options hang off it as `isa1:wdc:omti_fdc:0`. So Phase 4's first
+two items are not two devices on this machine; the WD7000 is the DN4500's.
+`roms/firmware` carries `3000_OMTI_8621_102640-B.bin`, matching.
+
+**There is no Winchester image to diff against.** The item's stated verification
+is an "oracle diff on a real disk image", and `media/` holds none. What it holds
+is the Domain/OS SR10.3.5 distribution as **cartridge tape** images — the
+`.ct.gz` set including `CRTG_STD_SFW_BOOT_1`, plus an archive of 182 tape files.
+The oracle takes `.awd` for its two Winchester slots and `.ct` for the tape.
+
+So the route to a first boot runs through the tape, not the disk: boot the
+cartridge, and let it install onto a blank Winchester. That reverses the plan's
+implied order, in which storage is built and a disk image supplied.
+
+**One incidental confirmation.** The oracle exposes `node_id` as a *media slot*
+taking `.ani` or `.bin`. The node ID PROM this core just gained takes its
+identifier from its caller rather than holding a constant, on the grounds that a
+device whose purpose is to be unique per machine must not be the same on every
+one. The oracle agrees to the point of making it a mountable image.
+
 ## Where the ring is not
 
 The Apollo Token Ring has **no runnable oracle at all**: MAME carries Domain
