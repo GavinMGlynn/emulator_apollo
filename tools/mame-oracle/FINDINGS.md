@@ -1545,6 +1545,40 @@ page carries a handwritten annotation against the 500 ms figure reading "accept
 interrupt here". Someone else worked out that the command-complete interrupt
 falls at T5, and wrote it on the page.
 
+**Figure 1-6, the read data transfer**, is legible too, and is a different
+handshake from the command one -- four signals rather than two, and per *byte*:
+
+    T1  Device Changes DIRECTION           the device takes the bus
+    T2  Device Asserts READY
+    T3  Device Asserts ACKNOWLEDGE
+    T4  Bus Data Valid                     T3->T4 < 40 us
+    T5  Controller Asserts TRANSFER        0 us < T4->T5
+    T6  Device Deasserts READY             0 us < T5->T6 < 1 us
+    T7  Device Deasserts ACKNOWLEDGE       0.5 us < T5->T7 < 3 us
+    T9  Controller Deasserts TRANSFER      0 us < T7->T9
+    T10 Device Asserts ACKNOWLEDGE         (next byte) T10->T11 < 40 ns
+    ...  repeating T10-T15 per byte, then
+    T16 Device Asserts READY               after the last data octet
+
+So ACKNOWLEDGE and TRANSFER pace each byte, while READY frames the *block*:
+asserted before the first octet and again after the last. A byte-at-a-time model
+that ignores READY gets the bytes right and cannot tell a driver where a block
+ends.
+
+**One rule that is not a timing at all**, and is the most useful line on the
+page: "READY shall not be asserted for an EXCEPTION condition." So READY and
+EXCEPTION are mutually exclusive by specification, not merely by convention --
+a model that raised both, or that raised READY on the exception path, would
+present a state the device cannot be in. The current join asserts Exception at
+end of tape and leaves the controller's Ready alone, which by this rule is
+wrong and is now a named defect rather than an unexamined choice.
+
+The note beside it is worth keeping for the same reason: "If the Controller
+asserts TRANSFER before the device asserts READY, then the behavior of READY is
+device dependent." A specification declining to define a case is itself
+information -- it says a driver must not do that, and that an emulator has no
+correct answer to give if one does.
+
 ## Where the ring is not
 
 The Apollo Token Ring has **no runnable oracle at all**: MAME carries Domain
