@@ -1430,7 +1430,7 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         *Verification: self-timing probes against the oracle, per instruction
         and per addressing mode, with `[030]` §11.6 as an independent check and
         every discrepancy classified before anything is changed.*
-  - [ ] **Effective address times, §11.6.1–§11.6.5**, and composing them
+  - [~] **Effective address times, §11.6.1–§11.6.5**, and composing them
         through Equation (11-2). `FINDINGS.md` C9 is the reason this is now a
         named item rather than a later refinement: without it the footnoted rows
         report a component as a total, and the oracle already shows the size of
@@ -1460,9 +1460,41 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         rather than a rewrite, but it is not to be made before the effective
         address tables exist, so that both sides of the composition are
         published numbers rather than one published and one inferred.
-        *Verification: `ADD.B D0,(A0)` coming to 7 against the oracle and
-        against `NCC + fea`; and the second worked example of §11.3.4, which
-        exists precisely to exercise Equation (11-2).*
+    - [x] **The tables themselves**
+          (`src/core/cpu/m68030/ap_m68030_ea_timing.c`): §11.6.1's fetch and
+          §11.6.3's calculate rows for the modes without a full-format
+          extension word.
+          **Which of the two an instruction uses is load-bearing**, not a
+          formality: `(An)` is `3(1/0/0)` to fetch and `2(0/0/0)` to calculate,
+          the difference being the operand read. Using the wrong table costs or
+          saves a memory access, which is the size of error C9 measured.
+          Two notations are carried rather than flattened. The register-direct
+          rows give head and tail as **`-`**, not 0 — there is no address
+          computation to overlap *with*, which is a different statement from an
+          overlap of zero. And the calculate table writes several heads as
+          **"2+op head"**: the head is the *operation's* head plus a figure, the
+          table expressing a dependency between the two halves of Equation
+          (11-2). Flattening that to 2 would drop whatever the operation
+          contributes.
+          The calculate table has **no immediate row**, and the lookup returns
+          absent rather than zero: an operand in the instruction stream has no
+          address to compute, so zero would read as "free" rather than as "not a
+          thing".
+          *Verification: `ea_timing_suite`, 8 tests — a register operand costing
+          nothing either way and its head marked inapplicable; fetching never
+          costing less than calculating, for every mode, which a swapped
+          transcription would break everywhere at once; the two tables differing
+          by exactly the operand read; the relative heads distinguished from the
+          plain ones; an immediate costing by the words it occupies, with byte
+          and word alike per Table 2-3; the immediate absent from the calculate
+          table; and the long absolute being the one fetch row whose two columns
+          differ.*
+    - [ ] **Composing them**, which needs the refinement C9's second question
+          identified — `max(microcode, hideable) + blocking` — and then the
+          two-sided check per addressing mode.
+          *Verification: `ADD.B D0,(A0)` coming to 7 against the oracle and
+          against `NCC + fea`; and the second worked example of §11.3.4, which
+          exists precisely to exercise Equation (11-2).*
   - [ ] Wire the bus to a memory system so the termination kind and its arrival
         clock come from a device rather than a test. That is what makes
         contention emergent, and it belongs with Phase 3's single arbitration
