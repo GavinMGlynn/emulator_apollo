@@ -2,6 +2,7 @@
 # Frontends depend on this; it never depends on them.
 
 add_library(apollo_core STATIC
+  cpu/m68030/ap_m68030_bounds.c
   cpu/m68030/ap_m68030_branch.c
   cpu/m68030/ap_m68030_bus.c
   cpu/m68030/ap_m68030_cache.c

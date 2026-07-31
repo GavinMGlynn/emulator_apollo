@@ -41,6 +41,23 @@ ap_m68030_decoded_t ap_m68030_decode(uint16_t instruction) {
 
   switch (ap_m68030_opcode_family(instruction)) {
   case AP_M68030_OP_BIT_MOVEP_IMMEDIATE: {
+    /* The size-11 escape is tried first -- it is a *different* subtree, not a
+     * wider operand -- but a failure there **falls through** rather than
+     * ending the decode, because the two subtrees interleave.
+     *
+     * They interleave in one specific place: `CAS` with size field `00` has the
+     * same bit pattern as a *static bit operation*, which is exactly why the
+     * manual leaves that size unassigned. `BSET #n,(A0)` is `$08D0`, and it
+     * matches the escape's shape -- family 0000, bit 8 clear, bits 7-6 reading
+     * 11 -- while being an ordinary bit operation. Stopping at the escape turns
+     * every static `BTST`/`BCHG`/`BCLR`/`BSET` into an illegal instruction. */
+    const ap_m68030_bounds_t bounds = ap_m68030_bounds_decode(instruction);
+    if (bounds.kind != AP_M68030_BOUNDS_INVALID) {
+      out.kind = AP_M68030_DECODED_BOUNDS;
+      out.as.bounds = bounds;
+      return out;
+    }
+
     const ap_m68030_immediate_t immediate =
         ap_m68030_immediate_decode(instruction);
     if (immediate.kind != AP_M68030_IMM_INVALID) {
@@ -191,6 +208,20 @@ unsigned ap_m68030_instruction_length(const ap_m68030_decoded_t *decoded,
     return ap_m68030_shift_length(&decoded->as.shift) +
            ap_m68030_ea_words(decoded->as.shift.ea.kind, first_extension, 2) *
                2u;
+
+  case AP_M68030_DECODED_BOUNDS: {
+    /* The instruction word, its extension words, and whatever effective address
+     * the operand needs. CAS2 names its operands in the extension words rather
+     * than through an effective address, so it has none to size. */
+    const ap_m68030_bounds_t *bounds = &decoded->as.bounds;
+    const unsigned base = 2u + 2u * ap_m68030_bounds_length(bounds);
+    if (bounds->kind == AP_M68030_BOUNDS_CAS2) {
+      return base;
+    }
+    return base + ap_m68030_ea_words(bounds->ea.kind, first_extension,
+                                     bounds->size) *
+                      2u;
+  }
 
   case AP_M68030_DECODED_IMMEDIATE: {
     const ap_m68030_immediate_t *imm = &decoded->as.immediate;

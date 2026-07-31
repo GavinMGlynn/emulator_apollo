@@ -3022,6 +3022,11 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
     return out;
   }
 
+  case AP_M68030_DECODED_BOUNDS:
+    /* CMP2/CHK2/CAS/CAS2 decode but have no semantics here yet. CAS and CAS2
+     * are the ones that need more than arithmetic: their read and write are
+     * indivisible, so executing them honestly means the bus asserting RMC for
+     * the pair, and that is the bus module's item rather than this one. */
   case AP_M68030_DECODED_LINE_A:
   case AP_M68030_DECODED_ILLEGAL:
     out.status = AP_M68030_STEP_UNIMPLEMENTED;

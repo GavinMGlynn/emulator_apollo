@@ -29,6 +29,7 @@
 #include <stdint.h>
 
 #include "cpu/m68030/ap_m68030_arith.h"
+#include "cpu/m68030/ap_m68030_bounds.h"
 #include "cpu/m68030/ap_m68030_branch.h"
 #include "cpu/m68030/ap_m68030_control.h"
 #include "cpu/m68030/ap_m68030_coproc.h"
@@ -41,6 +42,7 @@
 
 typedef enum {
   AP_M68030_DECODED_IMMEDIATE, /* family 0000 */
+  AP_M68030_DECODED_BOUNDS,    /* 0000's size-11 escape: CMP2/CHK2/CAS/CAS2 */
   AP_M68030_DECODED_MOVE,      /* 0001, 0010, 0011 */
   AP_M68030_DECODED_CONTROL,   /* 0100, the $4E group */
   AP_M68030_DECODED_MISC,      /* 0100, LEA/CHK and $48/$4C */
@@ -66,6 +68,7 @@ typedef struct {
   ap_m68030_decoded_kind_t kind;
   union {
     ap_m68030_immediate_t immediate;
+    ap_m68030_bounds_t bounds;
     ap_m68030_move_t move;
     ap_m68030_control_t control;
     ap_m68030_misc_t misc;

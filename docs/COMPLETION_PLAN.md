@@ -1053,10 +1053,41 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         the two bus cycles that case needs, so that is a named gap.
         *Verification: `operand_suite`, 3 further tests (11 total), one sweeping
         all four byte offsets so no single lucky alignment can carry it.*
-  - [ ] **CMP2/CHK2, CAS and CAS2**, which occupy size field `11` in family
-        `0000`'s immediate rows. Not decoded: `ap_m68030_immediate_decode`
-        reports invalid there rather than mis-decoding them as a wider ORI, and
-        a test pins that. *Verification: their own suite, same pattern.*
+  - [x] **CMP2/CHK2, CAS and CAS2 decode**
+        (`src/core/cpu/m68030/ap_m68030_bounds.c`), which occupy size field `11`
+        in family `0000`'s immediate rows. **The opcode map now has no holes
+        left in it.** Their *semantics* are still open: `CAS` and `CAS2` need an
+        indivisible read-modify-write, which is the bus module's item.
+        **The two halves count their sizes differently.** `CMP2`/`CHK2` use the
+        family's ordinary "00 Byte, 01 Word, 10 Long"; `CAS` uses "01 Byte,
+        10 Word, 11 Long", one higher throughout. The same three bits in the
+        same position mean a byte in one half and a word in the other, so a
+        decoder reading the size once for the whole escape gives every `CAS` the
+        wrong operand width, silently. The unassigned value moves with it: `11`
+        for `CMP2`/`CHK2`, `00` for `CAS`.
+        **And `CAS` size `00` is not merely unassigned — it is the static bit
+        operations.** `BSET #n,(A0)` is `$08D0`, which has the escape's shape
+        exactly: family `0000`, bit 8 clear, bits 7-6 reading `11`. So the two
+        subtrees interleave at one point, and a decoder that stops at the escape
+        turns every static `BTST`/`BCHG`/`BCLR`/`BSET` into an illegal
+        instruction — which is how this was found, three suites going red at
+        once. The escape declines and the decode falls through.
+        **`CMP2` and `CHK2` are separated by the extension word**, not the
+        instruction word — "identical to CHK2 except that it sets condition
+        codes rather than taking an exception" — so the decode reports the pair
+        and a second call resolves it, the same two-stage shape the indexed
+        addressing modes need. **`CAS2` hides behind the immediate mode's
+        encoding**, `111100`, which `CAS` cannot use because its operand must be
+        memory alterable.
+        *Verification: `bounds_suite`, 9 tests — the two size encodings side by
+        side on the same bit pattern; each half's unassigned value being the
+        other's valid one; the static bit operations declined and a byte `CAS`
+        one size field higher accepted; the extension word separating `CMP2`
+        from `CHK2`; the checked register possibly being an address register;
+        `CAS2` behind the immediate encoding with two extension words and no
+        byte form; and each half taking the addressing mode category its operand
+        needs — control for the bounds pair it only reads, memory alterable for
+        the operand `CAS` swaps.*
   - [x] **Addressing mode categories** (`src/core/cpu/m68030/ap_m68030_category.c`),
         which decide whether a decoded mode is *legal* for an instruction.
         **Table 2-4 is not transcribed**, because its Alterable column does not
