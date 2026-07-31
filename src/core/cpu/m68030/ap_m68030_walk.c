@@ -1,0 +1,145 @@
+/* MC68030 translation table search. See ap_m68030_walk.h for the citations. */
+
+#include "cpu/m68030/ap_m68030_walk.h"
+
+/* Bits of the logical address consumed before a given level's index, counting
+ * down from the top: the initial shift, then each earlier level's index. */
+static unsigned bits_consumed_before(const ap_m68030_tc_t *tc, unsigned level) {
+  unsigned consumed = tc->initial_shift;
+  for (unsigned i = 0; i < level; i++) {
+    consumed += tc->table_index[i];
+  }
+  return consumed;
+}
+
+/* An early termination page descriptor stops the search above the page table,
+ * so "the low-order bits of the address are supplied by the logical address"
+ * covers every bit below the level reached -- the indices never consumed as
+ * well as the page offset proper. */
+static uint32_t remaining_offset(const ap_m68030_tc_t *tc, unsigned levels_used,
+                                 uint32_t address) {
+  const unsigned consumed = bits_consumed_before(tc, levels_used);
+  if (consumed >= 32u) {
+    return 0;
+  }
+  const unsigned width = 32u - consumed;
+  return address & ((width >= 32u) ? UINT32_C(0xFFFFFFFF)
+                                   : ((UINT32_C(1) << width) - 1u));
+}
+
+ap_m68030_walk_result_t ap_m68030_walk(const ap_m68030_tc_t *tc,
+                                       const ap_m68030_root_t *root,
+                                       uint32_t address,
+                                       ap_m68030_fetch_fn fetch,
+                                       void *context) {
+  ap_m68030_walk_result_t result = {0};
+  ap_m68030_search_reset(&result.search);
+
+  const ap_m68030_tc_split_t split = ap_m68030_tc_split(tc, address);
+
+  uint32_t table_address = root->table_address;
+  bool long_format = root->long_format;
+  bool have_limit = root->has_limit;
+  uint16_t limit = root->limit;
+  bool lower_limit = root->lower_limit;
+
+  for (unsigned level = 0; level < split.levels; level++) {
+    const uint32_t index = split.index[level];
+
+    /* "This 15-bit field contains a limit to which the index portion of an
+     * address is compared ... The limit check applies to the index into the
+     * table at the next lower level of the translation tree." So the limit
+     * carried from the *previous* descriptor governs *this* index. */
+    if (have_limit &&
+        !ap_m68030_desc_index_within_limit(limit, lower_limit, index)) {
+      ap_m68030_search_fail_limit(&result.search);
+      return result;
+    }
+
+    const uint32_t stride = long_format ? 8u : 4u;
+    const uint32_t descriptor_address = table_address + index * stride;
+
+    ap_m68030_descriptor_t descriptor = {0};
+    result.descriptor_fetches++;
+    if (!fetch(context, descriptor_address, long_format, &descriptor)) {
+      /* A bus error during the search sets B, exactly as an invalid descriptor
+       * or a protection violation does. */
+      ap_m68030_search_fail_invalid(&result.search);
+      return result;
+    }
+    result.levels_walked = level + 1;
+
+    /* Protection accumulates whether or not the search continues. */
+    ap_m68030_search_accumulate(&result.search, descriptor.write_protect,
+                                descriptor.supervisor, descriptor.cache_inhibit);
+
+    const bool in_page_table = (level + 1 == split.levels);
+    const ap_m68030_desc_role_t role =
+        ap_m68030_desc_role(descriptor.dt, in_page_table);
+
+    switch (role) {
+    case AP_M68030_ROLE_INVALID:
+      ap_m68030_search_fail_invalid(&result.search);
+      return result;
+
+    case AP_M68030_ROLE_INDIRECT: {
+      /* "this code identifies an indirect descriptor that points to a
+       * short-format [or long-format] page descriptor." One more fetch, and
+       * what it yields is the page descriptor itself. */
+      ap_m68030_descriptor_t pointed = {0};
+      const bool pointed_long = (descriptor.dt == AP_M68030_DT_VALID_8BYTE);
+      result.descriptor_fetches++;
+      result.used_indirect = true;
+      if (!fetch(context, descriptor.address_field, pointed_long, &pointed)) {
+        ap_m68030_search_fail_invalid(&result.search);
+        return result;
+      }
+      ap_m68030_search_accumulate(&result.search, pointed.write_protect,
+                                  pointed.supervisor, pointed.cache_inhibit);
+      if (pointed.dt != AP_M68030_DT_PAGE) {
+        /* An indirect descriptor must point at a page descriptor. Anything
+         * else is a malformed tree, not something to follow further. */
+        ap_m68030_search_fail_invalid(&result.search);
+        return result;
+      }
+      result.ok = true;
+      result.physical =
+          ap_m68030_desc_page_address(pointed.address_field, tc->page_size_bits) |
+          (address & (ap_m68030_tc_page_size(tc) - 1u));
+      return result;
+    }
+
+    case AP_M68030_ROLE_PAGE:
+      result.ok = true;
+      result.physical =
+          ap_m68030_desc_page_address(descriptor.address_field,
+                                      tc->page_size_bits) |
+          (address & (ap_m68030_tc_page_size(tc) - 1u));
+      return result;
+
+    case AP_M68030_ROLE_EARLY_PAGE:
+      /* Stopped above the page table: every logical bit below this level is
+       * offset, not just the page offset. The page address field is used
+       * unmasked here because the block it names is larger than a page. */
+      result.ok = true;
+      result.early_termination = true;
+      result.physical =
+          ((descriptor.address_field & UINT32_C(0x00FFFFFF)) << 8) |
+          remaining_offset(tc, level + 1, address);
+      return result;
+
+    case AP_M68030_ROLE_TABLE:
+      table_address = descriptor.address_field;
+      long_format = (descriptor.dt == AP_M68030_DT_VALID_8BYTE);
+      have_limit = descriptor.has_limit;
+      limit = descriptor.limit;
+      lower_limit = descriptor.lower_limit;
+      break;
+    }
+  }
+
+  /* Ran out of levels without reaching a page descriptor: the tree does not
+   * describe this address. */
+  ap_m68030_search_fail_invalid(&result.search);
+  return result;
+}

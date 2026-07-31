@@ -373,14 +373,54 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         invented precision. Recorded in `docs/PROJECT_STATUS.md`'s PROVISIONAL
         table. *Verification: measure eviction order against the oracle, or find
         a Motorola note stating the algorithm.*
-  - [ ] The table walk itself: fetch descriptors through the bus, apply
+  - [~] The table walk itself: fetch descriptors through the bus, apply
         `ap_m68030_desc`'s rules, and fill the ATC. This is the piece that joins
         the four MMU modules together, and the first one whose *timing* is
-        interesting, since it is where the bus cycles are. Note for when it lands: the manual states ATC
+        interesting, since it is where the bus cycles are. The manual states ATC
         translation "is always completely overlapped by other operations; thus,
         no performance penalty is associated with ATC searches" — so an ATC hit
         must cost nothing in our timing, and a *miss* is where the table walk's
         bus cycles appear.
+    - [x] **The table search** (`src/core/cpu/m68030/ap_m68030_walk.c`),
+          `[030]` §9.2 and §9.5. Splits the logical address with
+          `ap_m68030_tc`, walks the tree, applies `ap_m68030_desc`'s rules to
+          each descriptor, and reports `descriptor_fetches` — the quantity a
+          timing probe measures, and the reason a three-level tree costs more
+          than an early-terminating one.
+          *Verification: `walk_suite`, 13 tests — one fetch per level, an
+          invalid descriptor stopping the search where it is found, early
+          termination both shortening the search and taking the unconsumed
+          index bits as offset, an indirect descriptor costing its extra fetch
+          and being rejected unless it points at a page descriptor, WP/S/CI
+          accumulating down the tree, a limit violation aborting *before* the
+          fetch it would have indexed (0 fetches, not 1), a bus error ending
+          the search, and the 8-byte stride of a long-format table.*
+    - [ ] **Descriptor writeback: the U and M bits.** `ap_m68030_desc` already
+          pins the full M-bit rule and exposes
+          `ap_m68030_search_should_set_modified`, but the walk never calls it —
+          the function is currently unused. Each update is a bus *write*, so
+          this is timing, not bookkeeping: it changes what a probe measures.
+          Needs a write callback alongside `ap_m68030_fetch_fn`.
+          *Verification: a write to an unmodified page costs one more bus cycle
+          than a read of the same page, and an already-modified page costs no
+          extra — the case `desc_suite` already pins in isolation, measured
+          here through the walk.*
+    - [ ] **Fill the ATC from a completed search**, so a miss populates the
+          entry a hit then serves for free. This is the join between
+          `ap_m68030_walk` and `ap_m68030_atc`, and the point at which the
+          "hit costs nothing, miss costs the search" claim becomes measurable
+          end to end. *Verification: a second access to the same page performs
+          zero descriptor fetches; the B bit is set from a search that hit a
+          bus error or a limit violation.*
+    - [ ] **Gap, not a guess: descriptor status bit positions.** The walk takes
+          descriptors already decoded, because `[030]` Figures 9-10 and 9-11
+          did not survive the scan below the address fields — which status bit
+          is U, WP, DT, LU, S, CI or M is lost, exactly as it was for the TTx
+          registers. So the search is implemented and tested in full and the
+          unpacking is deferred rather than invented, mirroring
+          `ap_m68030_tt.h`. *Verification: read Figures 9-10 and 9-11 from the
+          PDF page itself, or cross-check the `MC68851 PMMU User's Manual`,
+          then add an unpacking test.*
 - [ ] 68030 on-chip instruction and data caches, and their effect on bus timing.
       *Verification: self-timing probes measuring hit vs miss.*
 - [ ] 68882 FPU. *Verification: probe suite over each operation and rounding
