@@ -1038,6 +1038,46 @@ The original reasoning is left above rather than deleted, because a retraction
 that hides what was believed teaches nothing about how it came to be believed.
 
 
+### C17 — the tape controller has two registers, and the probe cannot map them
+
+With `050000` confirmed as the cartridge controller (C16), the next step was the
+register sweep that worked for the core-board registers in C10. It half worked,
+and the half that did not is the more useful result.
+
+**What it establishes.** Only two of the eight addresses are live:
+
+    050000  reads 00, no writable bit
+    050001  reads 40 at reset, several bits responding
+    050002-050007  read FF throughout
+
+Two ports is the classic QIC interface shape -- a data register and a
+status/command register -- and it matches `008778-03` Table 2-9 giving the drive
+eight addresses of which only the low pair need be decoded.
+
+**What it cannot establish: the bit map of `050001`.** The probe reported the
+register as a mixture of `rw`, `ro1`, `ro0` and `inv/w1c` bits, and then reported
+that it could not put the register back: `original=40 final=37`.
+
+That note is the finding. `regprobe.lua` works by writing a value, reading it
+back, and restoring the original, and its whole method assumes a write is
+idempotent and reversible. On a **command** register it is neither -- each write
+is an instruction to the controller, the controller's state moves, and every
+subsequent bit's "classification" is taken against a different machine. The
+readbacks bear this out: they drift across the sweep (`47`, `37`, `D7`) rather
+than depending only on the bit being driven.
+
+So the classification above is recorded as *contaminated* and must not be used as
+a bit map. This is exactly the hazard C14 predicted for this class of part, one
+device later: "a dump is an experiment, not an observation, and the fact that it
+usually behaves like an observation is a property of the parts so far rather than
+of the method."
+
+**What a sound measurement needs instead.** Not a bit sweep but a protocol: drive
+the documented QIC command sequence and watch the status register answer, one
+transaction at a time, with a known-good reset between them. That is a different
+tool from `regprobe.lua` and wants the QIC-02 command set, which `008778-03` does
+not carry -- its Chapter 8 is physical only.
+
 ## Where the ring is not
 
 The Apollo Token Ring has **no runnable oracle at all**: MAME carries Domain

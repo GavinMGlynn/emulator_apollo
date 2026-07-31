@@ -2402,8 +2402,15 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
       the DN3500's *default* configuration already carries the tape in `isa2`
       beside the OMTI in `isa1`, which is what invalidated the first attempt at
       this comparison (`FINDINGS.md` C16). No programming model exists in
-      `008778-03`, whose Chapter 8 is physical only, so the registers will need
-      measuring as C10's did.
+      `008778-03`, whose Chapter 8 is physical only.
+      The register *span* is now measured: only `050000` and `050001` are live,
+      the other six addresses read `FF`, which is the classic two-port QIC shape
+      of a data register and a status/command register. The **bit map is not**
+      and cannot be got the C10 way — a bit sweep writes commands to a command
+      register, the controller's state moves under the probe, and the sweep
+      reported it could not restore what it found. It needs a protocol probe
+      driving one documented transaction at a time, and the QIC-02 command set,
+      which no manual here carries (`FINDINGS.md` C17).
       Promoted ahead of the disk, because it
       is the only bootable medium that exists: `media/` holds the Domain/OS
       SR10.3.5 distribution as `.ct` cartridge images including
