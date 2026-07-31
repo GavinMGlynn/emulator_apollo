@@ -587,8 +587,51 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
           We fold that descriptor's S in first, so it does not. The oracle omits
           the clause entirely and therefore has no opinion, so this needs real
           hardware or a Motorola erratum rather than another reading.
-- [ ] 68030 on-chip instruction and data caches, and their effect on bus timing.
+- [~] 68030 on-chip instruction and data caches, and their effect on bus timing.
       *Verification: self-timing probes measuring hit vs miss.*
+  - [x] **Cache structure and policy**
+        (`src/core/cpu/m68030/ap_m68030_cache.c`), `[030]` §6. Both caches are
+        "256-byte direct-mapped ... organized as 16 lines. Each line consists of
+        four entries", with the tag holding **a valid bit per entry**, not per
+        line — "each entry is independently replaceable". That one sentence
+        shapes the module: per-line validity would make a burst fill and a
+        single-entry fill indistinguishable, and those cost very different
+        numbers of bus cycles. It would also make `CEI`/`CED` unimplementable.
+        The function code is part of the tag in *both* caches, which is what
+        lets them survive a supervisor/user switch unflushed.
+        *Verification: `cache_suite`, 19 tests — the A7-A4/A3-A2 split, the
+        function code distinguishing otherwise identical addresses, a
+        single-entry fill leaving its three neighbours invalid against a burst
+        validating all four, a tag change invalidating the rest of the line,
+        `CEI` clearing exactly one entry, and each `CACR` field packing to its
+        own documented bit.*
+  - [x] The data cache's write rules, which are the easiest part to get
+        backwards. It is **writethrough**: a write hit updates the entry "even
+        if the cache is frozen", because freeze stops *replacement*, not
+        updating. On a miss `WA` selects between "write cycles that miss do not
+        alter the data cache contents" and allocation — and the manual's two
+        allocation cases run into one sentence in the scan, so the boundary is
+        reconstructed from the summary line that follows it ("an aligned
+        long-word data write may replace a previously valid entry; whereas, a
+        misaligned data write or a write of data that is not long word may
+        invalidate a previously valid entry or entries"). Both halves are tested
+        separately, including that a sub-long-word write miss *removes*
+        information rather than adding it.
+  - Note: `CACR`'s bit positions are transcribed from §6.3.1's prose ("Bit 13,
+    the WA bit", "Bit 9, the FD bit", …) rather than from Figure 6-14, so this
+    register needed no derivation. `CD`, `CED`, `CI` and `CEI` are modelled as
+    *actions* performed by the write rather than as fields, since all four "are
+    always read as zero" — storing them would invent a readable bit the hardware
+    does not have.
+  - [ ] **The bus-timing join, which is where the plan item's verification
+        lives.** The module deliberately models what hits and what fills, not
+        what a miss costs — the same split as the ATC, whose cost lives in
+        `ap_m68030_walk` rather than in `ap_m68030_atc`. A miss must charge for
+        its external cycles and a burst for its line fill, through
+        `ap_m68030_bus`. *Verification: self-timing probes measuring hit vs
+        miss, which is what this item always asked for; `MD`'s `IC` command
+        toggles the instruction cache, which is what makes the probe possible on
+        real hardware.*
 - [ ] 68882 FPU. *Verification: probe suite over each operation and rounding
       mode; note the oracle's admitted FPU gaps as a divergence class.*
 - [ ] 68020 subset: no on-chip MMU or cache differences, external 68851.
