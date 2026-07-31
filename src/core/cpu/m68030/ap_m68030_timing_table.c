@@ -49,6 +49,11 @@ enum {
   ROW_AND_DN_EA,
   ROW_OR_DN_EA,
   ROW_EOR_DN_EA,
+  ROW_MOVE_RN_DN,
+  ROW_MOVE_RN_AN,
+  ROW_MOVE_RN_IND,
+  ROW_MOVE_RN_POSTINC,
+  ROW_MOVE_RN_PREDEC,
   ROW_MOVEQ,
   ROW_ADDQ,
   ROW_SUBQ,
@@ -94,6 +99,34 @@ static const ap_m68030_table_entry_t TABLE[ROW_COUNT] = {
     [ROW_EOR_DN_EA] = {"EOR Dn,EA", {.head = 0, .tail = 1, .cache_case = 3, .no_cache_case = 4},
      false, true},
 
+    /* §11.6.6, the MOVE instruction, register-source forms.
+     *
+     * `MOVE Rn,-(An)` is the row worth noticing: `CC 4(0/0/1)` where the other
+     * memory destinations are 3, and a **tail of 2** where they have 1. The
+     * predecrement costs a clock the postincrement does not, which is the kind
+     * of asymmetry a model built from a single "memory destination" cost would
+     * flatten. */
+    [ROW_MOVE_RN_DN] = {"MOVE Rn,Dn",
+                        {.head = 2, .tail = 0, .cache_case = 2,
+                         .no_cache_case = 2},
+                        false, false},
+    [ROW_MOVE_RN_AN] = {"MOVE Rn,An",
+                        {.head = 2, .tail = 0, .cache_case = 2,
+                         .no_cache_case = 2},
+                        false, false},
+    [ROW_MOVE_RN_IND] = {"MOVE Rn,(An)",
+                         {.head = 0, .tail = 1, .cache_case = 3,
+                          .no_cache_case = 4},
+                         false, false},
+    [ROW_MOVE_RN_POSTINC] = {"MOVE Rn,(An)+",
+                             {.head = 0, .tail = 1, .cache_case = 3,
+                              .no_cache_case = 4},
+                             false, false},
+    [ROW_MOVE_RN_PREDEC] = {"MOVE Rn,-(An)",
+                            {.head = 0, .tail = 2, .cache_case = 4,
+                             .no_cache_case = 4},
+                            false, false},
+
     /* §11.6.9, Immediate Arithmetical/Logical Instructions. */
     [ROW_MOVEQ] = {"MOVEQ #<data>,Dn", {.head = 2, .tail = 0, .cache_case = 2, .no_cache_case = 2}, false, false},
     [ROW_ADDQ] = {"ADDQ #<data>,Rn", {.head = 2, .tail = 0, .cache_case = 2, .no_cache_case = 2}, false, false},
@@ -120,6 +153,32 @@ const ap_m68030_table_entry_t *ap_m68030_timing_for_word(uint16_t instruction) {
    * form's published figure needs an effective address time this does not
    * carry. Mode 000 is a data register, 001 an address register. */
   const bool register_source = (mode == 0x0u) || (mode == 0x1u);
+
+  /* MOVE and MOVEA, families 0001, 0010 and 0011. The destination's mode sits
+   * in bits 8-6 and its register in 11-9, reversed from the source -- which is
+   * the field order that has caught this project out before. Only a register
+   * source is transcribed; a memory source needs a fetch effective address time
+   * this module does not carry. */
+  if (family >= 0x1u && family <= 0x3u) {
+    const unsigned destination_mode = (unsigned)((instruction >> 6) & 0x7u);
+    if (!register_source) {
+      return nullptr;
+    }
+    switch (destination_mode) {
+    case 0x0u:
+      return &TABLE[ROW_MOVE_RN_DN];
+    case 0x1u:
+      return &TABLE[ROW_MOVE_RN_AN];
+    case 0x2u:
+      return &TABLE[ROW_MOVE_RN_IND];
+    case 0x3u:
+      return &TABLE[ROW_MOVE_RN_POSTINC];
+    case 0x4u:
+      return &TABLE[ROW_MOVE_RN_PREDEC];
+    default:
+      return nullptr;
+    }
+  }
 
   /* MOVEQ is family 0111 with bit 8 clear, and takes no operand at all. */
   if (family == 0x7u && ((instruction >> 8) & 1u) == 0u) {

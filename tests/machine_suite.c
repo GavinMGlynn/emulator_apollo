@@ -329,7 +329,8 @@ static void test_every_transcribed_row_matches_both_published_columns(void) {
       {0x5200u, "ADDQ.B #1,D0"}, {0x5300u, "SUBQ.B #1,D0"},
       {0xD0C0u, "ADDA.W D0,A0"}, {0xD1C0u, "ADDA.L D0,A0"},
       {0x90C0u, "SUBA.W D0,A0"}, {0x91C0u, "SUBA.L D0,A0"},
-      {0xB0C0u, "CMPA.W D0,A0"},
+      {0xB0C0u, "CMPA.W D0,A0"},  {0x2200u, "MOVE.L D0,D1"},
+      {0x2240u, "MOVEA.L D0,A1"},
   };
 
   for (unsigned c = 0; c < sizeof CASES / sizeof CASES[0]; c++) {
@@ -398,6 +399,8 @@ static void test_the_memory_forms_separate_the_two_published_columns(void) {
       {0xD110u, "ADD.B D0,(A0)"}, {0x9110u, "SUB.B D0,(A0)"},
       {0xC110u, "AND.B D0,(A0)"}, {0x8110u, "OR.B D0,(A0)"},
       {0xB110u, "EOR.B D0,(A0)"},
+      /* MOVE's memory destinations, whose CC is 3 like the above. */
+      {0x2080u, "MOVE.L D0,(A0)"}, {0x20C0u, "MOVE.L D0,(A0)+"},
   };
 
   for (unsigned c = 0; c < sizeof CASES / sizeof CASES[0]; c++) {
@@ -424,11 +427,48 @@ static void test_the_memory_forms_separate_the_two_published_columns(void) {
   }
 }
 
+/* `MOVE Rn,-(An)` is the row that would be flattened by a model with one
+ * "memory destination" cost. §11.6.6 gives it `CC 4(0/0/1)` where `(An)` and
+ * `(An)+` are 3, and a **tail of 2** where they have 1 — the predecrement costs
+ * a clock the postincrement does not.
+ *
+ * Its `NCC` is also 4, equal to its `CC`, where the other two go to 4 from 3.
+ * So the predecrement form is *already* long enough to hide its own fetch and
+ * the others are not, which is the same fact seen from the other side. */
+static void test_the_predecrement_move_costs_more_than_the_postincrement(void) {
+  const ap_m68030_table_entry_t *postinc =
+      ap_m68030_timing_for_word(0x20C0u); /* MOVE.L D0,(A0)+ */
+  const ap_m68030_table_entry_t *predec =
+      ap_m68030_timing_for_word(0x2100u); /* MOVE.L D0,-(A0) */
+  TEST_ASSERT_NOT_NULL(postinc);
+  TEST_ASSERT_NOT_NULL(predec);
+
+  TEST_ASSERT_EQUAL_UINT(3u, postinc->timing.cache_case);
+  TEST_ASSERT_EQUAL_UINT(4u, predec->timing.cache_case);
+  TEST_ASSERT_EQUAL_UINT(1u, postinc->timing.tail);
+  TEST_ASSERT_EQUAL_UINT(2u, predec->timing.tail);
+
+  /* And the predecrement's two columns agree while the postincrement's differ:
+   * four clocks of microcode already cover a prefetch, three do not. */
+  TEST_ASSERT_EQUAL_UINT(predec->timing.cache_case,
+                         predec->timing.no_cache_case);
+  TEST_ASSERT_TRUE(postinc->timing.no_cache_case >
+                   postinc->timing.cache_case);
+
+  /* Run it: the stack pointer is not involved, so A0 walks down through RAM. */
+  uint64_t warm[4];
+  sample_memory_form(0x2100u, true, warm, 4u);
+  for (unsigned i = 0; i < 4u; i++) {
+    TEST_ASSERT_EQUAL_UINT64(predec->timing.cache_case, warm[i]);
+  }
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_a_probe_can_set_up_run_and_read_back);
   RUN_TEST(test_every_transcribed_row_matches_both_published_columns);
   RUN_TEST(test_the_memory_forms_separate_the_two_published_columns);
+  RUN_TEST(test_the_predecrement_move_costs_more_than_the_postincrement);
   RUN_TEST(test_reset_leaves_the_state_a_reset_leaves);
   RUN_TEST(test_an_access_beyond_the_ram_faults_rather_than_wrapping);
   RUN_TEST(test_a_runaway_program_ends_at_its_limit);
