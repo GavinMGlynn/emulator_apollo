@@ -2269,6 +2269,19 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
 - [ ] Interval timer and calendar. *Verification: self-timing probes; the
       14-day calendar interval hazard noted in the MAME driver is reproduced or
       explained.*
+  - [x] The MC6840 itself, 16-bit continuous mode: register model, byte
+        buffering, status register, prescaler, gate, and every documented way of
+        clearing an interrupt. `mc6840_suite`, 23 tests. The three Apollo input
+        rates (250/125/62.5 kHz, `008778-03` §3.8) all divide `AP_TIME_BASE_HZ`
+        exactly, so the device needs no change to the time base — asserted in
+        the suite so a future change to either side breaks a test.
+  - [ ] The declined modes: dual 8-bit, single-shot, period measurement and
+        pulse-width measurement. Their rules are in `[6840]` §§3.7.2-3.10 and
+        are simply not transcribed yet; the two measurement modes additionally
+        time an external gate that nothing in this machine drives.
+  - [ ] Wire the timer to the board at `010800` and to IRQ0, which also closes
+        the interrupt-level measurement blocked in `FINDINGS.md` C12.
+  - [ ] The MC146818 calendar at `010900`.
 - [ ] SIO serial lines, keyboard and mouse. *Verification: console byte stream
       identical to the oracle's.*
 - [ ] Node ID PROM (`0x011200`), including node ID taken from the logical volume

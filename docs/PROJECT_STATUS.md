@@ -143,7 +143,8 @@ Last updated: 2026-08-01.
 | Apollo interrupt controllers (`011000`, `011100`) | working: the two 8259As cascaded on **IR3** (measured, not IR2 as the AT convention would have it), vector bases `A0`/`A8` from the boot PROM's own ICW2, giving levels `A0`-`AF`. Priority order matches `008778-03` Table 2-3, which with the cascade on IR3 has no anomaly. Not yet wired to the CPU's interrupt inputs | `intr_suite`, 12 tests; `FINDINGS.md` C11, `tools/mame-oracle/writetrace.lua` |
 | Intel 8259A interrupt controller (the part) | working: ICW1-4 sequence, all three OCWs, fully nested priority with rotation, edge and level triggering, special mask and special fully nested modes, poll, AEOI, and the spurious level 7. 8086-mode vectoring only — MCS-80/85's `CALL` sequence is refused rather than approximated, and this machine never uses it. The Apollo *pairing* is a separate module | `i8259_suite`, 28 tests, each citing `8259A` 231468-003 |
 | Two AT DMA controllers | not started | — |
-| Interval timer, calendar | not started | — |
+| MC6840 interval timer (the part) | working for 16-bit continuous mode: both control register aliases, the write/read byte buffering, the status register, the prescaler, the gate, and all five of `[6840]` §3.11's ways of clearing an interrupt. Dual 8-bit, single-shot and the two measurement modes are **declined** — a timer in a declined mode does not count, rather than counting as if continuous. Not yet wired to the board | `mc6840_suite`, 23 tests, `MC6840UM` (a scan with no text layer; read from page images) |
+| Calendar (MC146818) | not started | — |
 | SIO (serial lines, keyboard, mouse) | not started | — |
 | Winchester (OMTI, WD7000 ESDI/SCSI) | not started | — |
 | Floppy, QIC cartridge tape | not started | — |

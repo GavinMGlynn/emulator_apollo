@@ -11,6 +11,7 @@ add_library(apollo_core STATIC
   cpu/m68030/ap_m68030_access.c
   board/ap_atmap.c
   device/ap_i8259.c
+  device/ap_mc6840.c
   board/ap_boardreg.c
   board/ap_intr.c
   cpu/m68030/ap_m68030_addr.c
