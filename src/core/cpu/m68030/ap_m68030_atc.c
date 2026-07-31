@@ -133,11 +133,19 @@ ap_m68030_atc_result_t ap_m68030_atc_lookup(const ap_m68030_atc_t *atc,
  *
  * Not documented, and therefore PROVISIONAL: which valid entry is chosen. The
  * manual names a "pseudo least recently used algorithm" built from "a validity
- * bit and an internal history bit" and stops there. Implemented as the simplest
- * policy consistent with that description -- take the first entry whose history
- * bit is clear, and when every entry has been used since the last sweep, clear
- * them all and start again. This is a *documented approximation*, not a
- * reconstruction of the part, and it is recorded as such. */
+ * bit and an internal history bit" and stops there.
+ *
+ * One half of that has since been closed from the sibling manual: the
+ * `MC68851 PMMU User's Manual` §5.2.1.3 says the history bit indicates "that
+ * the entry has been recently used", which is why `ap_m68030_atc_mark_used`
+ * exists and why the access path calls it on a hit. What the bit *means* is
+ * documented; what remains PROVISIONAL is narrower than it was.
+ *
+ * Still undocumented, and therefore still an approximation: which entry is
+ * chosen among those whose history bit is clear. Implemented as the first such
+ * entry, and when every entry has been used since the last sweep, clear them
+ * all and start again. A stated approximation rather than an invented
+ * precision. */
 static unsigned choose_victim(ap_m68030_atc_t *atc) {
   for (unsigned i = 0; i < AP_M68030_ATC_ENTRIES; i++) {
     if (!atc->entry[i].valid) {
@@ -177,6 +185,13 @@ int ap_m68030_atc_insert(ap_m68030_atc_t *atc, uint8_t function_code,
       .history = true,
   };
   return (int)victim;
+}
+
+void ap_m68030_atc_mark_used(ap_m68030_atc_t *atc, int index) {
+  if (index < 0 || index >= (int)AP_M68030_ATC_ENTRIES) {
+    return; /* a miss reports -1, and marking nothing is the right answer */
+  }
+  atc->entry[index].history = true;
 }
 
 void ap_m68030_atc_flush_function_codes(ap_m68030_atc_t *atc, uint8_t base,

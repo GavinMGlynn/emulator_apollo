@@ -51,6 +51,9 @@ ap_m68030_access_result_t ap_m68030_access_read(ap_m68030_access_ctx_t *access,
     const ap_m68030_atc_result_t lookup = ap_m68030_atc_lookup(
         access->atc, function_code, logical, access->tc->page_size_bits, false,
         false);
+    /* A translation *used* the entry, so the replacement algorithm's history
+     * bit is set -- unlike a PTEST probe, which must not perturb it. */
+    ap_m68030_atc_mark_used(access->atc, lookup.index);
 
     if (lookup.status == AP_M68030_ATC_HIT) {
       physical = lookup.physical;
@@ -135,6 +138,9 @@ ap_m68030_access_result_t ap_m68030_access_write(ap_m68030_access_ctx_t *access,
     const ap_m68030_atc_result_t lookup = ap_m68030_atc_lookup(
         access->atc, function_code, logical, access->tc->page_size_bits, true,
         false);
+    /* A translation *used* the entry, so the replacement algorithm's history
+     * bit is set -- unlike a PTEST probe, which must not perturb it. */
+    ap_m68030_atc_mark_used(access->atc, lookup.index);
 
     bool search = (lookup.status == AP_M68030_ATC_MISS);
 

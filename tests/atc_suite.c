@@ -243,6 +243,88 @@ static void test_the_cache_has_twenty_two_entries(void) {
   TEST_ASSERT_EQUAL_UINT(22, AP_M68030_ATC_ENTRIES);
 }
 
+/* The history bit means "recently used", not "recently inserted". The
+ * `MC68851 PMMU User's Manual` §5.2.1.3 describes the compatible ATC's second
+ * bit as "a history bit to indicate that the entry has been recently used" --
+ * the MC68030's own §9.4 names the bit without saying what sets it.
+ *
+ * The difference is behavioural, not cosmetic: without marking on a hit, an
+ * entry translated a thousand times but never reloaded is evicted as though
+ * untouched, which is the opposite of what a least-recently-used policy exists
+ * to do. */
+static void test_a_hit_marks_the_entry_recently_used(void) {
+  ap_m68030_atc_t atc;
+  ap_m68030_atc_flush(&atc);
+
+  const int first = ap_m68030_atc_insert(&atc, FC_SUPERVISOR_DATA, 0x00100000,
+                                         PS_4K, 0x00900000, false, false, false,
+                                         false);
+  /* Clear the history the insert set, so what follows is the *hit's* doing. */
+  atc.entry[first].history = false;
+
+  const ap_m68030_atc_result_t hit =
+      ap_m68030_atc_lookup(&atc, FC_SUPERVISOR_DATA, 0x00100000, PS_4K, false,
+                           false);
+  TEST_ASSERT_EQUAL_INT(AP_M68030_ATC_HIT, hit.status);
+
+  /* The lookup alone does not mark: that is what keeps PTEST from perturbing
+   * the state it reports. */
+  TEST_ASSERT_FALSE(atc.entry[first].history);
+
+  ap_m68030_atc_mark_used(&atc, hit.index);
+  TEST_ASSERT_TRUE(atc.entry[first].history);
+}
+
+/* A miss reports index -1, and marking nothing is the right answer rather than
+ * an out-of-range write. */
+static void test_marking_a_miss_touches_nothing(void) {
+  ap_m68030_atc_t atc;
+  ap_m68030_atc_flush(&atc);
+  (void)ap_m68030_atc_insert(&atc, FC_SUPERVISOR_DATA, 0x00100000, PS_4K,
+                             0x00900000, false, false, false, false);
+
+  const ap_m68030_atc_result_t miss =
+      ap_m68030_atc_lookup(&atc, FC_SUPERVISOR_DATA, 0x00200000, PS_4K, false,
+                           false);
+  TEST_ASSERT_EQUAL_INT(AP_M68030_ATC_MISS, miss.status);
+  TEST_ASSERT_EQUAL_INT(-1, miss.index);
+
+  ap_m68030_atc_mark_used(&atc, miss.index); /* must not fault or touch */
+  ap_m68030_atc_mark_used(&atc, (int)AP_M68030_ATC_ENTRIES);
+}
+
+/* And the consequence: an entry that keeps being hit survives a sweep that
+ * evicts one that does not. This is the property the bit exists for, and the
+ * one that was absent while only inserts marked. */
+static void test_a_repeatedly_hit_entry_outlives_an_idle_one(void) {
+  ap_m68030_atc_t atc;
+  ap_m68030_atc_flush(&atc);
+
+  /* Fill every entry, then clear the history so none looks recently used. */
+  for (unsigned i = 0; i < AP_M68030_ATC_ENTRIES; i++) {
+    (void)ap_m68030_atc_insert(&atc, FC_SUPERVISOR_DATA,
+                               (uint32_t)(0x00100000u + i * 0x1000u), PS_4K,
+                               0x00900000u, false, false, false, false);
+  }
+  for (unsigned i = 0; i < AP_M68030_ATC_ENTRIES; i++) {
+    atc.entry[i].history = false;
+  }
+
+  /* Hit the first entry, which marks it. */
+  const ap_m68030_atc_result_t hit =
+      ap_m68030_atc_lookup(&atc, FC_SUPERVISOR_DATA, 0x00100000, PS_4K, false,
+                           false);
+  TEST_ASSERT_EQUAL_INT(AP_M68030_ATC_HIT, hit.status);
+  ap_m68030_atc_mark_used(&atc, hit.index);
+
+  /* The next insert must not choose it: it is the one entry that says it has
+   * been used. */
+  const int victim = ap_m68030_atc_insert(&atc, FC_SUPERVISOR_DATA, 0x00900000,
+                                          PS_4K, 0x00A00000, false, false,
+                                          false, false);
+  TEST_ASSERT_NOT_EQUAL_INT(hit.index, victim);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_a_flushed_cache_misses_everything);
@@ -262,5 +344,8 @@ int main(void) {
   RUN_TEST(test_reinserting_an_address_replaces_rather_than_duplicates);
   RUN_TEST(test_a_full_cache_still_admits_a_new_translation);
   RUN_TEST(test_the_cache_has_twenty_two_entries);
+  RUN_TEST(test_a_hit_marks_the_entry_recently_used);
+  RUN_TEST(test_marking_a_miss_touches_nothing);
+  RUN_TEST(test_a_repeatedly_hit_entry_outlives_an_idle_one);
   return UNITY_END();
 }

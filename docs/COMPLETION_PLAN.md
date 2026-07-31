@@ -1880,14 +1880,30 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         read operation to the page had created an entry for that page in the ATC
         with the M bit clear". It is its own lookup status rather than folded
         into a plain hit, so the cost cannot be silently lost.
-  - [ ] **`PROVISIONAL`: the ATC replacement algorithm.** `[030]` §9.4 names it
-        and names its ingredients — "a pseudo least recently used algorithm ...
-        a validity bit and an internal history bit" — but never states the rule.
-        The documented half is implemented exactly (invalid entries reused
-        first); the undocumented half is a stated approximation rather than an
-        invented precision. Recorded in `docs/PROJECT_STATUS.md`'s PROVISIONAL
-        table. *Verification: measure eviction order against the oracle, or find
-        a Motorola note stating the algorithm.*
+  - [~] **`PROVISIONAL`: the ATC replacement algorithm**, now narrower than it
+        was. `[030]` §9.4 names it and its ingredients — "a pseudo least
+        recently used algorithm ... a validity bit and an internal history bit"
+        — but never states the rule.
+        **The sibling manual closes one half.** `MC68851 PMMU User's Manual`
+        §5.2.1.3, describing the compatible ATC, says the second bit is "a
+        history bit to indicate that the entry has been recently **used**" —
+        which the 68030's own text never says. Our implementation set it only on
+        *insert*, so "recently used" meant "recently loaded": an entry
+        translated a thousand times but never reloaded was evicted as though
+        untouched, the opposite of what a least-recently-used policy is for.
+        A translating hit now marks the entry, through
+        `ap_m68030_atc_mark_used` rather than inside the lookup — because a
+        lookup is also how `PTEST` probes, and "The PTEST instruction does not
+        alter the ATC". Putting it at the call site is what keeps a diagnostic
+        instruction from perturbing the state it exists to report.
+        **What remains PROVISIONAL** is only which entry is chosen among those
+        whose history bit is clear. That is genuinely unstated in both manuals.
+        *Verification: `atc_suite`, 3 further tests (20 total) — a hit marking
+        through the explicit call and *not* through the lookup alone; marking a
+        miss touching nothing; and a repeatedly hit entry surviving a sweep that
+        evicts idle ones, which is the property the bit exists for and which was
+        absent while only inserts marked. Remaining: measure eviction order
+        against the oracle for the last undocumented half.*
   - [x] **MMU status register (`MMUSR`)**
         (`src/core/cpu/m68030/ap_m68030_mmusr.c`), `[030]` §9.7.4 pp. 9-59 f.
         and Table 9-3. One name over two different registers: the bits mean

@@ -98,6 +98,24 @@ void ap_m68030_atc_flush(ap_m68030_atc_t *atc);
 void ap_m68030_atc_flush_entry(ap_m68030_atc_t *atc, uint8_t function_code,
                                uint32_t address, uint8_t page_size_bits);
 
+/* Mark an entry as recently used, which is what the replacement algorithm's
+ * history bit means: the `MC68851 PMMU User's Manual` §5.2.1.3, describing the
+ * compatible ATC, says the second bit is "a history bit to indicate that the
+ * entry has been recently used". The MC68030's own §9.4 names "an internal
+ * history bit" without saying what sets it.
+ *
+ * **Deliberately not done inside `ap_m68030_atc_lookup`.** A lookup is also how
+ * `PTEST` probes the cache, and "The PTEST instruction does not alter the ATC"
+ * -- so marking on every lookup would make a diagnostic instruction perturb the
+ * state it exists to report. Keeping it a separate call puts the distinction at
+ * the call site, where the difference between translating and probing is
+ * visible.
+ *
+ * Without this, "recently used" would mean "recently *inserted*": an entry hit
+ * a thousand times but never reloaded would be evicted as though untouched,
+ * which is the opposite of what a least-recently-used policy is for. */
+void ap_m68030_atc_mark_used(ap_m68030_atc_t *atc, int index);
+
 /* Invalidate every entry whose function code matches, as `PFLUSH FC,MASK` does.
  *
  * "Each bit in the mask that is set to one indicates that the corresponding bit
