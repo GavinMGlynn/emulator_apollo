@@ -24,8 +24,6 @@ tools/mame-oracle/out/
 compile_commands.json
 .cache/
 .vscode/
-.idea/
-cmake-build-*/
 *.swp
 
 # Python venv for probe/disassembly tooling

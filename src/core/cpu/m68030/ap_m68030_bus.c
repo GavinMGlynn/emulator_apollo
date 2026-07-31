@@ -2,16 +2,34 @@
 
 #include "cpu/m68030/ap_m68030_bus.h"
 
-/* Signal levels for a given state, `[030]` 7.3.1 pp. 7-31 ff.
+/* Signal levels for a given state. Read cycles follow `[030]` 7.3.1 pp. 7-31
+ * ff., write cycles 7.3.2 pp. 7-38 ff.
  *
- * ECS is asserted in S0 only -- "for one-half clock" in the flowchart of
- * Figure 7-19 -- and negated during S1. AS and DS are asserted in S1 and held
- * until they are negated during S5. DBEN follows in S2.
+ * The two differ in three places, and none of them is cosmetic -- a device
+ * decodes a transfer from these strobes:
+ *
+ *   read                                  write
+ *   S1  AS and DS asserted                S1  AS and *DBEN* asserted
+ *   S2  DBEN asserted                     S2  data driven; DSACK sampled at end
+ *   S3  DSACK sampled at start            S3  *DS* asserted -- "indicating that
+ *                                             the data is stable on the data bus"
+ *   S5  AS, DS and DBEN all negated       S5  AS and DS negated, but "R/W,
+ *                                             SIZ0-SIZ1, FC0-FC2, and DBEN also
+ *                                             remain valid throughout S5"
+ *
+ * So DS moves from S1 to S3 and DBEN from S2 to S1, and DBEN outlives the cycle
+ * on a write. The first version of this file asserted the read timing for both
+ * and recorded the gap as a tail rather than pretending it was verified; this
+ * closes it from 7.3.2 rather than by inference from 7.3.4's "same signals, in
+ * the same sequence", which is about termination and not about direction.
  *
  * These are the levels *at the end of* the named state, which is what a device
- * sampling on a clock edge sees. S5 negates its three signals during the state,
- * so it leaves them low. */
+ * sampling on a clock edge sees. The address, R/W, SIZ and FC stay valid
+ * through S5 on both kinds and are not modelled as signals here, because they
+ * are fields of the request rather than strobes. */
 static void apply_signals(ap_m68030_bus_t *bus) {
+  const bool read = bus->read;
+
   switch (bus->state) {
   case AP_M68030_S_IDLE:
     bus->ecs = bus->ocs = bus->as = bus->ds = bus->dben = false;
@@ -21,23 +39,24 @@ static void apply_signals(ap_m68030_bus_t *bus) {
     bus->as = bus->ds = bus->dben = false;
     break;
   case AP_M68030_S1:
-    bus->ecs = bus->ocs = false; /* negated during S1 */
+    bus->ecs = bus->ocs = false; /* negated during S1, both kinds */
     bus->as = true;
-    bus->ds = true;
-    bus->dben = false;
+    bus->ds = read;    /* write asserts DS in S3 */
+    bus->dben = !read; /* read asserts DBEN in S2 */
     break;
   case AP_M68030_S2:
-  case AP_M68030_S3:
-    bus->as = bus->ds = bus->dben = true;
+    bus->as = true;
+    bus->ds = read;
+    bus->dben = true;
     break;
+  case AP_M68030_S3:
   case AP_M68030_S4:
     bus->as = bus->ds = bus->dben = true;
     break;
   case AP_M68030_S5:
-    /* "The processor negates AS, DS, and DBEN during state 5 (S5)." The
-     * address, R/W, SIZ and FC stay valid through S5 and are not modelled as
-     * signals here because they are fields of the request, not strobes. */
-    bus->as = bus->ds = bus->dben = false;
+    bus->as = false;
+    bus->ds = false;
+    bus->dben = !read; /* held valid throughout S5 on a write */
     break;
   }
 }
@@ -103,8 +122,9 @@ bool ap_m68030_bus_tick(ap_m68030_bus_t *bus) {
     bus->state = AP_M68030_S5;
     apply_signals(bus);
 
-    bus->state = AP_M68030_S_IDLE;
-    apply_signals(bus);
+    /* Left in S5 rather than reset to idle: S5's levels are what a device sees
+     * as the cycle ends, and on a write DBEN is still asserted there. Jumping
+     * straight to idle would erase that difference. begin() clears it. */
     bus->active = false;
     bus->complete = true;
     return true;
@@ -136,7 +156,9 @@ bool ap_m68030_bus_tick(ap_m68030_bus_t *bus) {
    * immediately, like STERM, rather than transferring data. */
   if (bus->termination == AP_M68030_TERM_STERM ||
       bus->termination == AP_M68030_TERM_BERR) {
-    bus->state = AP_M68030_S_IDLE;
+    /* The cycle ends here, so report the post-cycle strobe levels rather than
+     * leaving S3's asserted ones standing. */
+    bus->state = AP_M68030_S5;
     apply_signals(bus);
     bus->active = false;
     bus->complete = true;

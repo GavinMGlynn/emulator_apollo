@@ -105,7 +105,7 @@ static void test_data_buffer_enable_follows_address_strobe_by_one_clock(void) {
 }
 
 /* [030] 7.3.1 S5: "The processor negates AS, DS, and DBEN during state 5". */
-static void test_the_strobes_are_all_negated_when_the_cycle_completes(void) {
+static void test_the_strobes_are_all_negated_when_a_read_cycle_completes(void) {
   ap_m68030_bus_t bus;
   begin_read(&bus);
   (void)run_cycle(&bus, AP_M68030_TERM_DSACK, 0);
@@ -114,6 +114,75 @@ static void test_the_strobes_are_all_negated_when_the_cycle_completes(void) {
   TEST_ASSERT_FALSE(bus.dben);
   TEST_ASSERT_TRUE(bus.complete);
   TEST_ASSERT_FALSE(ap_m68030_bus_active(&bus));
+}
+
+static void begin_write(ap_m68030_bus_t *bus) {
+  ap_m68030_bus_begin(bus, 0x00010000u, 5, AP_M68030_SIZE_LONG, false, true);
+}
+
+/* A write is the same *length* as a read -- the state sequence and termination
+ * rules are identical ([030] 7.3.2), so only the strobe timing differs. */
+static void test_a_minimum_asynchronous_write_also_takes_three_clocks(void) {
+  ap_m68030_bus_t bus;
+  begin_write(&bus);
+  TEST_ASSERT_EQUAL_UINT32(3, run_cycle(&bus, AP_M68030_TERM_DSACK, 0));
+}
+
+/* [030] 7.3.2 S1: on a write "the processor asserts AS ... The processor also
+ * asserts DBEN during S1", where a read does not assert DBEN until S2. */
+static void test_a_write_asserts_data_buffer_enable_a_clock_earlier_than_a_read(void) {
+  ap_m68030_bus_t write;
+  begin_write(&write);
+  (void)ap_m68030_bus_tick(&write);
+  TEST_ASSERT_TRUE(write.dben);
+
+  ap_m68030_bus_t read;
+  begin_read(&read);
+  (void)ap_m68030_bus_tick(&read);
+  TEST_ASSERT_FALSE(read.dben);
+}
+
+/* [030] 7.3.2 S3: on a write "the processor asserts DS during S3, indicating
+ * that the data is stable on the data bus" -- two states later than a read,
+ * which asserts DS in S1. Asserting DS early on a write would tell a device its
+ * data was stable before it had been driven. */
+static void test_a_write_asserts_data_strobe_two_states_later_than_a_read(void) {
+  ap_m68030_bus_t write;
+  begin_write(&write);
+  (void)ap_m68030_bus_tick(&write); /* ends in S1 */
+  TEST_ASSERT_FALSE(write.ds);
+  ap_m68030_bus_terminate(&write, AP_M68030_TERM_DSACK);
+  (void)ap_m68030_bus_tick(&write); /* ends in S3 */
+  TEST_ASSERT_TRUE(write.ds);
+
+  ap_m68030_bus_t read;
+  begin_read(&read);
+  (void)ap_m68030_bus_tick(&read);
+  TEST_ASSERT_TRUE(read.ds);
+}
+
+/* [030] 7.3.2 S5: a write negates AS and DS, but "R/W, SIZ0-SIZ1, FC0-FC2, and
+ * DBEN also remain valid throughout S5" -- so unlike a read, DBEN is still
+ * asserted as the cycle ends. */
+static void test_a_write_holds_data_buffer_enable_through_the_final_state(void) {
+  ap_m68030_bus_t bus;
+  begin_write(&bus);
+  (void)run_cycle(&bus, AP_M68030_TERM_DSACK, 0);
+  TEST_ASSERT_FALSE(bus.as);
+  TEST_ASSERT_FALSE(bus.ds);
+  TEST_ASSERT_TRUE(bus.dben);
+}
+
+/* Beginning a new cycle clears the previous one's held signals, so a write's
+ * DBEN cannot leak into the cycle that follows it. */
+static void test_a_new_cycle_clears_the_signals_held_by_the_previous_one(void) {
+  ap_m68030_bus_t bus;
+  begin_write(&bus);
+  (void)run_cycle(&bus, AP_M68030_TERM_DSACK, 0);
+  TEST_ASSERT_TRUE(bus.dben);
+  begin_read(&bus);
+  TEST_ASSERT_FALSE(bus.dben);
+  TEST_ASSERT_FALSE(bus.as);
 }
 
 /* A bus error ends the cycle rather than transferring, and does not silently
@@ -167,7 +236,12 @@ int main(void) {
   RUN_TEST(test_ecs_is_negated_by_the_end_of_the_first_clock);
   RUN_TEST(test_address_strobe_is_asserted_by_the_end_of_the_first_clock);
   RUN_TEST(test_data_buffer_enable_follows_address_strobe_by_one_clock);
-  RUN_TEST(test_the_strobes_are_all_negated_when_the_cycle_completes);
+  RUN_TEST(test_the_strobes_are_all_negated_when_a_read_cycle_completes);
+  RUN_TEST(test_a_minimum_asynchronous_write_also_takes_three_clocks);
+  RUN_TEST(test_a_write_asserts_data_buffer_enable_a_clock_earlier_than_a_read);
+  RUN_TEST(test_a_write_asserts_data_strobe_two_states_later_than_a_read);
+  RUN_TEST(test_a_write_holds_data_buffer_enable_through_the_final_state);
+  RUN_TEST(test_a_new_cycle_clears_the_signals_held_by_the_previous_one);
   RUN_TEST(test_a_bus_error_ends_the_cycle_without_a_data_transfer);
   RUN_TEST(test_operand_cycle_start_is_not_asserted_on_a_continuation_cycle);
   RUN_TEST(test_every_cpu_clock_has_an_exactly_representable_half_clock);

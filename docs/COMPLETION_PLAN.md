@@ -226,7 +226,7 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         *clock* and runs that clock's two states in order, so the project's
         cycle rule holds while the manual's granularity is preserved rather
         than collapsed into a translation layer.
-        *Verification: `bus_suite`, 12 tests, each citing its manual section —
+        *Verification: `bus_suite`, 17 tests, each citing its manual section —
         the three-clock asynchronous minimum (7.3.1), the two-clock STERM
         minimum and three-clock STERM-plus-one-wait (7.3.4 p. 7-48), one clock
         per wait state, ECS asserted for only its half-clock, DBEN trailing AS
@@ -234,14 +234,19 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         must not quietly complete. Also asserts that every CPU clock in this
         machine has an even period in base units, so a half-clock is exactly
         representable — the state model would be silently lossy otherwise.*
-  - [ ] **Tail, and deliberately not guessed: write-cycle DS timing.** The bus
-        model asserts DS in S1, which is the *read* cycle's behaviour (7.3.1).
-        `[030]` 7.3.4 says synchronous and asynchronous cycles "assert and
-        respond to the same signals, in the same sequence", but that is about
-        termination, not about read versus write — and the write cycle's DS is
-        asserted later than the read's. Writes currently reuse the read
-        timing, which is unverified. *Verification: transcribe the write cycle
-        from `[030]` 7.3.2 and give it its own tests.*
+  - [x] **Write-cycle strobe timing, closed from `[030]` 7.3.2.** The tail was
+        recorded as one difference (DS) and turned out to be three, which is
+        exactly why it was transcribed rather than inferred: on a write DS moves
+        from S1 to S3 — "indicating that the data is stable on the data bus" —
+        DBEN moves from S2 to S1, and DBEN is *held through S5*, where a read
+        negates it. The cycle's length is unchanged: the state sequence and
+        termination rules are identical, so only the strobes differ. Asserting
+        the read timing on a write would have told a device its data was stable
+        a full clock before it had been driven.
+        *Verification: `bus_suite` grew to 17 tests, four of them contrasting a
+        write against a read directly, plus one that a new cycle clears the
+        signals its predecessor held — so a write's DBEN cannot leak into the
+        cycle that follows it.*
   - [ ] Wire the bus to a memory system so the termination kind and its arrival
         clock come from a device rather than a test. That is what makes
         contention emergent, and it belongs with Phase 3's single arbitration
