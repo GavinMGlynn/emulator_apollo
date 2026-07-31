@@ -91,7 +91,36 @@ typedef struct {
    * come to this. Two published numbers bracketing the same execution is a far
    * stronger check on a transcription than either alone. */
   unsigned no_cache_case;
+
+  /* The `p` of the no-cache case's `(r/p/w)`: "the maximum number of
+   * instruction bus cycles performed by the instruction, including all
+   * prefetches to keep the instruction pipe filled".
+   *
+   * Carried so that `NCC − CC` can be divided by it *in code*, over every row,
+   * rather than by eye over a chosen few. A claim that the quotient is uniform
+   * was made from eleven rows and falsified by three others already in the same
+   * table; `ap_m68030_prefetch_cost` and its test are what make that
+   * impossible to repeat. */
+  unsigned prefetches;
 } ap_m68030_timing_t;
+
+/* The marginal cost of one prefetch, from the published pair.
+ *
+ * `exact` is false when `NCC − CC` is not divisible by `p`. That is not an
+ * error in the row: `p` is itself "the average of the odd-word-aligned case and
+ * the even-word-aligned case (rounded up)", so a true count of one-and-a-half
+ * is published as two and the division inherits the rounding. `BSR` and
+ * `LINK.L` are both like this. What matters is that such a row is *visible*
+ * here rather than silently rounded by whoever reads it. */
+typedef struct {
+  unsigned difference;  /* NCC − CC */
+  unsigned prefetches;  /* p */
+  unsigned clocks;      /* the quotient, meaningful only when `exact` */
+  bool exact;
+} ap_m68030_prefetch_cost_t;
+
+[[nodiscard]] ap_m68030_prefetch_cost_t
+ap_m68030_prefetch_cost(const ap_m68030_timing_t *timing);
 
 /* "The total overlap time between instructions A and B consists of the lesser
  * of the tail of instruction A or the head of instruction B." */

@@ -8,52 +8,52 @@
  * memory mode -- one operand read, which is what makes this the *fetch* table
  * rather than the calculate one. */
 static const ap_m68030_ea_timing_t FETCH_REGISTER = {
-    "Dn or An", {0, 0, 0, 0}, false, false};
+    "Dn or An", {0, 0, 0, 0, .prefetches = 0}, false, false};
 static const ap_m68030_ea_timing_t FETCH_INDIRECT = {
-    "(An)", {1, 1, 3, 3}, true, false};
+    "(An)", {1, 1, 3, 3, .prefetches = 0}, true, false};
 static const ap_m68030_ea_timing_t FETCH_POSTINCREMENT = {
-    "(An)+", {0, 1, 3, 3}, true, false};
+    "(An)+", {0, 1, 3, 3, .prefetches = 0}, true, false};
 static const ap_m68030_ea_timing_t FETCH_PREDECREMENT = {
-    "-(An)", {2, 2, 4, 4}, true, false};
+    "-(An)", {2, 2, 4, 4, .prefetches = 0}, true, false};
 static const ap_m68030_ea_timing_t FETCH_DISPLACEMENT = {
-    "(d16,An) or (d16,PC)", {2, 2, 4, 4}, true, false};
+    "(d16,An) or (d16,PC)", {2, 2, 4, 4, .prefetches = 0}, true, false};
 static const ap_m68030_ea_timing_t FETCH_ABSOLUTE_SHORT = {
-    "(xxx).W", {2, 2, 4, 4}, true, false};
+    "(xxx).W", {2, 2, 4, 4, .prefetches = 0}, true, false};
 /* The long absolute is the one row whose two columns differ: 4 to fetch from
  * the cache and 5 without it, because its second extension word is another
  * prefetch. */
 static const ap_m68030_ea_timing_t FETCH_ABSOLUTE_LONG = {
-    "(xxx).L", {1, 0, 4, 5}, true, false};
+    "(xxx).L", {1, 0, 4, 5, .prefetches = 1}, true, false};
 static const ap_m68030_ea_timing_t FETCH_INDEXED = {
-    "(d8,An,Xn) or (d8,PC,Xn)", {4, 2, 6, 6}, true, false};
+    "(d8,An,Xn) or (d8,PC,Xn)", {4, 2, 6, 6, .prefetches = 0}, true, false};
 
 /* The immediate rows are split by operand size, and byte and word cost the
  * same: Table 2-3's "Low-order byte of the extension word" means a byte
  * immediate still occupies a whole word of instruction stream. */
 static const ap_m68030_ea_timing_t FETCH_IMMEDIATE_WORD = {
-    "#<data>.B or .W", {2, 0, 2, 2}, true, false};
+    "#<data>.B or .W", {2, 0, 2, 2, .prefetches = 0}, true, false};
 static const ap_m68030_ea_timing_t FETCH_IMMEDIATE_LONG = {
-    "#<data>.L", {4, 0, 4, 4}, true, false};
+    "#<data>.L", {4, 0, 4, 4, .prefetches = 0}, true, false};
 
 /* §11.6.3, Calculate Effective Address. No reads anywhere -- `(0/0/0)` for
  * every row -- which is the whole difference from the fetch table. Several
  * heads are written "2+op head" or "4+op head". */
 static const ap_m68030_ea_timing_t CALCULATE_REGISTER = {
-    "Dn or An", {0, 0, 0, 0}, false, false};
+    "Dn or An", {0, 0, 0, 0, .prefetches = 0}, false, false};
 static const ap_m68030_ea_timing_t CALCULATE_INDIRECT = {
-    "(An)", {2, 0, 2, 2}, true, true};
+    "(An)", {2, 0, 2, 2, .prefetches = 0}, true, true};
 static const ap_m68030_ea_timing_t CALCULATE_POSTINCREMENT = {
-    "(An)+", {0, 0, 2, 2}, true, false};
+    "(An)+", {0, 0, 2, 2, .prefetches = 0}, true, false};
 static const ap_m68030_ea_timing_t CALCULATE_PREDECREMENT = {
-    "-(An)", {2, 0, 2, 2}, true, true};
+    "-(An)", {2, 0, 2, 2, .prefetches = 0}, true, true};
 static const ap_m68030_ea_timing_t CALCULATE_DISPLACEMENT = {
-    "(d16,An) or (d16,PC)", {2, 0, 2, 2}, true, true};
+    "(d16,An) or (d16,PC)", {2, 0, 2, 2, .prefetches = 0}, true, true};
 static const ap_m68030_ea_timing_t CALCULATE_ABSOLUTE_SHORT = {
-    "(xxx).W", {2, 0, 2, 2}, true, true};
+    "(xxx).W", {2, 0, 2, 2, .prefetches = 0}, true, true};
 static const ap_m68030_ea_timing_t CALCULATE_ABSOLUTE_LONG = {
-    "(xxx).L", {4, 0, 4, 4}, true, true};
+    "(xxx).L", {4, 0, 4, 4, .prefetches = 0}, true, true};
 static const ap_m68030_ea_timing_t CALCULATE_INDEXED = {
-    "(d8,An,Xn) or (d8,PC,Xn)", {4, 0, 4, 4}, true, true};
+    "(d8,An,Xn) or (d8,PC,Xn)", {4, 0, 4, 4, .prefetches = 0}, true, true};
 
 const ap_m68030_ea_timing_t *
 ap_m68030_ea_fetch_timing(ap_m68030_ea_kind_t kind, unsigned operand_size) {

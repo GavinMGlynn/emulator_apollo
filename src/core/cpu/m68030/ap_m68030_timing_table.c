@@ -93,24 +93,24 @@ enum {
 
 static const ap_m68030_table_entry_t TABLE[ROW_COUNT] = {
     /* §11.6.8, Arithmetical/Logical Instructions. */
-    [ROW_ADD_RN_DN] = {"ADD Rn,Dn", {.head = 2, .tail = 0, .cache_case = 2, .no_cache_case = 2}, false, false},
-    [ROW_ADDA_W] = {"ADDA.W Rn,An", {.head = 4, .tail = 0, .cache_case = 4, .no_cache_case = 4}, false, false},
-    [ROW_ADDA_L] = {"ADDA.L Rn,An", {.head = 2, .tail = 0, .cache_case = 2, .no_cache_case = 2}, false, false},
-    [ROW_AND_DN_DN] = {"AND Dn,Dn", {.head = 2, .tail = 0, .cache_case = 2, .no_cache_case = 2}, false, false},
-    [ROW_EOR_DN_DN] = {"EOR Dn,Dn", {.head = 2, .tail = 0, .cache_case = 2, .no_cache_case = 2}, false, false},
-    [ROW_OR_DN_DN] = {"OR Dn,Dn", {.head = 2, .tail = 0, .cache_case = 2, .no_cache_case = 2}, false, false},
-    [ROW_SUB_RN_DN] = {"SUB Rn,Dn", {.head = 2, .tail = 0, .cache_case = 2, .no_cache_case = 2}, false, false},
-    [ROW_SUBA_W] = {"SUBA.W Rn,An", {.head = 4, .tail = 0, .cache_case = 4, .no_cache_case = 4}, false, false},
-    [ROW_SUBA_L] = {"SUBA.L Rn,An", {.head = 2, .tail = 0, .cache_case = 2, .no_cache_case = 2}, false, false},
-    [ROW_CMP_RN_DN] = {"CMP Rn,Dn", {.head = 2, .tail = 0, .cache_case = 2, .no_cache_case = 2}, false, false},
-    [ROW_CMPA_RN_AN] = {"CMPA Rn,An", {.head = 4, .tail = 0, .cache_case = 4, .no_cache_case = 4}, false, false},
+    [ROW_ADD_RN_DN] = {"ADD Rn,Dn", {.head = 2, .tail = 0, .cache_case = 2, .no_cache_case = 2, .prefetches = 1}, false, false},
+    [ROW_ADDA_W] = {"ADDA.W Rn,An", {.head = 4, .tail = 0, .cache_case = 4, .no_cache_case = 4, .prefetches = 1}, false, false},
+    [ROW_ADDA_L] = {"ADDA.L Rn,An", {.head = 2, .tail = 0, .cache_case = 2, .no_cache_case = 2, .prefetches = 1}, false, false},
+    [ROW_AND_DN_DN] = {"AND Dn,Dn", {.head = 2, .tail = 0, .cache_case = 2, .no_cache_case = 2, .prefetches = 1}, false, false},
+    [ROW_EOR_DN_DN] = {"EOR Dn,Dn", {.head = 2, .tail = 0, .cache_case = 2, .no_cache_case = 2, .prefetches = 1}, false, false},
+    [ROW_OR_DN_DN] = {"OR Dn,Dn", {.head = 2, .tail = 0, .cache_case = 2, .no_cache_case = 2, .prefetches = 1}, false, false},
+    [ROW_SUB_RN_DN] = {"SUB Rn,Dn", {.head = 2, .tail = 0, .cache_case = 2, .no_cache_case = 2, .prefetches = 1}, false, false},
+    [ROW_SUBA_W] = {"SUBA.W Rn,An", {.head = 4, .tail = 0, .cache_case = 4, .no_cache_case = 4, .prefetches = 1}, false, false},
+    [ROW_SUBA_L] = {"SUBA.L Rn,An", {.head = 2, .tail = 0, .cache_case = 2, .no_cache_case = 2, .prefetches = 1}, false, false},
+    [ROW_CMP_RN_DN] = {"CMP Rn,Dn", {.head = 2, .tail = 0, .cache_case = 2, .no_cache_case = 2, .prefetches = 1}, false, false},
+    [ROW_CMPA_RN_AN] = {"CMPA Rn,An", {.head = 4, .tail = 0, .cache_case = 4, .no_cache_case = 4, .prefetches = 1}, false, false},
 
     /* The divides, marked `+` in the table: "Indicates Maximum Time (Actual
      * time is data dependent)". PROVISIONAL. */
-    [ROW_DIVS_W] = {"DIVS.W Dn,Dn", {.head = 2, .tail = 0, .cache_case = 56, .no_cache_case = 56}, true, false},
-    [ROW_DIVS_L] = {"DIVS.L Dn,Dn", {.head = 6, .tail = 0, .cache_case = 90, .no_cache_case = 90}, true, false},
-    [ROW_DIVU_W] = {"DIVU.W Dn,Dn", {.head = 2, .tail = 0, .cache_case = 44, .no_cache_case = 44}, true, false},
-    [ROW_DIVU_L] = {"DIVU.L Dn,Dn", {.head = 6, .tail = 0, .cache_case = 78, .no_cache_case = 78}, true, false},
+    [ROW_DIVS_W] = {"DIVS.W Dn,Dn", {.head = 2, .tail = 0, .cache_case = 56, .no_cache_case = 56, .prefetches = 1}, true, false},
+    [ROW_DIVS_L] = {"DIVS.L Dn,Dn", {.head = 6, .tail = 0, .cache_case = 90, .no_cache_case = 90, .prefetches = 1}, true, false},
+    [ROW_DIVU_W] = {"DIVU.W Dn,Dn", {.head = 2, .tail = 0, .cache_case = 44, .no_cache_case = 44, .prefetches = 1}, true, false},
+    [ROW_DIVU_L] = {"DIVU.L Dn,Dn", {.head = 6, .tail = 0, .cache_case = 78, .no_cache_case = 78, .prefetches = 1}, true, false},
 
     /* The memory-destination forms. These are the first rows whose `NCC`
      * exceeds their `CC`: `3(0/0/1)` against `4(0/1/1)`, so the write hides
@@ -118,15 +118,15 @@ static const ap_m68030_table_entry_t TABLE[ROW_COUNT] = {
      * Under `max(microcode, bus)` the microcode is `CC` here as elsewhere --
      * max(3,2) = 3 and max(3,4) = 4 -- and the core's own bus time supplies the
      * rest. They are what exercises the model where the register forms cannot. */
-    [ROW_ADD_DN_EA] = {"ADD Dn,EA", {.head = 0, .tail = 1, .cache_case = 3, .no_cache_case = 4},
+    [ROW_ADD_DN_EA] = {"ADD Dn,EA", {.head = 0, .tail = 1, .cache_case = 3, .no_cache_case = 4, .prefetches = 1},
      false, true},
-    [ROW_SUB_DN_EA] = {"SUB Dn,EA", {.head = 0, .tail = 1, .cache_case = 3, .no_cache_case = 4},
+    [ROW_SUB_DN_EA] = {"SUB Dn,EA", {.head = 0, .tail = 1, .cache_case = 3, .no_cache_case = 4, .prefetches = 1},
      false, true},
-    [ROW_AND_DN_EA] = {"AND Dn,EA", {.head = 0, .tail = 1, .cache_case = 3, .no_cache_case = 4},
+    [ROW_AND_DN_EA] = {"AND Dn,EA", {.head = 0, .tail = 1, .cache_case = 3, .no_cache_case = 4, .prefetches = 1},
      false, true},
-    [ROW_OR_DN_EA] = {"OR Dn,EA", {.head = 0, .tail = 1, .cache_case = 3, .no_cache_case = 4},
+    [ROW_OR_DN_EA] = {"OR Dn,EA", {.head = 0, .tail = 1, .cache_case = 3, .no_cache_case = 4, .prefetches = 1},
      false, true},
-    [ROW_EOR_DN_EA] = {"EOR Dn,EA", {.head = 0, .tail = 1, .cache_case = 3, .no_cache_case = 4},
+    [ROW_EOR_DN_EA] = {"EOR Dn,EA", {.head = 0, .tail = 1, .cache_case = 3, .no_cache_case = 4, .prefetches = 1},
      false, true},
 
     /* §11.6.6, the MOVE instruction, register-source forms.
@@ -136,39 +136,34 @@ static const ap_m68030_table_entry_t TABLE[ROW_COUNT] = {
      * predecrement costs a clock the postincrement does not, which is the kind
      * of asymmetry a model built from a single "memory destination" cost would
      * flatten. */
-    [ROW_MOVE_RN_DN] = {"MOVE Rn,Dn",
-                        {.head = 2, .tail = 0, .cache_case = 2,
-                         .no_cache_case = 2},
+    [ROW_MOVE_RN_DN] = {"MOVE Rn,Dn", {.head = 2, .tail = 0, .cache_case = 2,
+                         .no_cache_case = 2, .prefetches = 1},
                         false, false},
-    [ROW_MOVE_RN_AN] = {"MOVE Rn,An",
-                        {.head = 2, .tail = 0, .cache_case = 2,
-                         .no_cache_case = 2},
+    [ROW_MOVE_RN_AN] = {"MOVE Rn,An", {.head = 2, .tail = 0, .cache_case = 2,
+                         .no_cache_case = 2, .prefetches = 1},
                         false, false},
-    [ROW_MOVE_RN_IND] = {"MOVE Rn,(An)",
-                         {.head = 0, .tail = 1, .cache_case = 3,
-                          .no_cache_case = 4},
+    [ROW_MOVE_RN_IND] = {"MOVE Rn,(An)", {.head = 0, .tail = 1, .cache_case = 3,
+                          .no_cache_case = 4, .prefetches = 1},
                          false, false},
-    [ROW_MOVE_RN_POSTINC] = {"MOVE Rn,(An)+",
-                             {.head = 0, .tail = 1, .cache_case = 3,
-                              .no_cache_case = 4},
+    [ROW_MOVE_RN_POSTINC] = {"MOVE Rn,(An)+", {.head = 0, .tail = 1, .cache_case = 3,
+                              .no_cache_case = 4, .prefetches = 1},
                              false, false},
-    [ROW_MOVE_RN_PREDEC] = {"MOVE Rn,-(An)",
-                            {.head = 0, .tail = 2, .cache_case = 4,
-                             .no_cache_case = 4},
+    [ROW_MOVE_RN_PREDEC] = {"MOVE Rn,-(An)", {.head = 0, .tail = 2, .cache_case = 4,
+                             .no_cache_case = 4, .prefetches = 1},
                             false, false},
 
     /* §11.6.11, Single Operand Instructions, register forms. */
-    [ROW_CLR_DN] = {"CLR Dn", {2, 0, 2, 2}, false, false},
-    [ROW_NEG_DN] = {"NEG Dn", {2, 0, 2, 2}, false, false},
-    [ROW_NEGX_DN] = {"NEGX Dn", {2, 0, 2, 2}, false, false},
-    [ROW_NOT_DN] = {"NOT Dn", {2, 0, 2, 2}, false, false},
-    [ROW_EXT_DN] = {"EXT Dn", {4, 0, 4, 4}, false, false},
+    [ROW_CLR_DN] = {"CLR Dn", {2, 0, 2, 2, .prefetches = 1}, false, false},
+    [ROW_NEG_DN] = {"NEG Dn", {2, 0, 2, 2, .prefetches = 1}, false, false},
+    [ROW_NEGX_DN] = {"NEGX Dn", {2, 0, 2, 2, .prefetches = 1}, false, false},
+    [ROW_NOT_DN] = {"NOT Dn", {2, 0, 2, 2, .prefetches = 1}, false, false},
+    [ROW_EXT_DN] = {"EXT Dn", {4, 0, 4, 4, .prefetches = 1}, false, false},
     /* TST is the one with a head of zero: nothing of it can be absorbed by the
      * previous instruction's tail, unlike its neighbours. */
-    [ROW_TST_DN] = {"TST Dn", {0, 0, 2, 2}, false, false},
-    [ROW_SCC_DN] = {"Scc Dn", {4, 0, 4, 4}, false, false},
-    [ROW_TAS_DN] = {"TAS Dn", {4, 0, 4, 4}, false, false},
-    [ROW_NBCD_DN] = {"NBCD Dn", {0, 0, 6, 6}, false, false},
+    [ROW_TST_DN] = {"TST Dn", {0, 0, 2, 2, .prefetches = 1}, false, false},
+    [ROW_SCC_DN] = {"Scc Dn", {4, 0, 4, 4, .prefetches = 1}, false, false},
+    [ROW_TAS_DN] = {"TAS Dn", {4, 0, 4, 4, .prefetches = 1}, false, false},
+    [ROW_NBCD_DN] = {"NBCD Dn", {0, 0, 6, 6, .prefetches = 1}, false, false},
 
     /* §11.6.12, Shift/Rotate Instructions, immediate-count register forms.
      *
@@ -183,11 +178,11 @@ static const ap_m68030_table_entry_t TABLE[ROW_COUNT] = {
      * "V is set if the most significant bit is changed at any time during the
      * shift operation", and ASR has no such rule. The extra clocks are the
      * extra work, and `ap_m68030_alu_shift` already does exactly that work. */
-    [ROW_LS_IMM] = {"LSd #<data>,Dy", {4, 0, 4, 4}, false, false},
-    [ROW_ASL_IMM] = {"ASL #<data>,Dy", {2, 0, 6, 6}, false, false},
-    [ROW_ASR_IMM] = {"ASR #<data>,Dy", {4, 0, 4, 4}, false, false},
-    [ROW_RO_IMM] = {"ROd #<data>,Dy", {4, 0, 6, 6}, false, false},
-    [ROW_ROX_DN] = {"ROXd Dn", {10, 0, 12, 12}, false, false},
+    [ROW_LS_IMM] = {"LSd #<data>,Dy", {4, 0, 4, 4, .prefetches = 1}, false, false},
+    [ROW_ASL_IMM] = {"ASL #<data>,Dy", {2, 0, 6, 6, .prefetches = 1}, false, false},
+    [ROW_ASR_IMM] = {"ASR #<data>,Dy", {4, 0, 4, 4, .prefetches = 1}, false, false},
+    [ROW_RO_IMM] = {"ROd #<data>,Dy", {4, 0, 6, 6, .prefetches = 1}, false, false},
+    [ROW_ROX_DN] = {"ROXd Dn", {10, 0, 12, 12, .prefetches = 1}, false, false},
 
     /* §11.6.16, Control Instructions -- the forms whose cost is fixed by the
      * instruction word alone.
@@ -200,20 +195,20 @@ static const ap_m68030_table_entry_t TABLE[ROW_COUNT] = {
      * `9(1/0/0)`, one read for the return address -- so their `CC` already
      * includes two clocks of bus. Under `max(microcode, bus)` that is still the
      * microcode figure, since every one of these exceeds its own bus time. */
-    [ROW_NOP] = {"NOP", {0, 0, 2, 2}, false, false},
-    [ROW_RTS] = {"RTS", {1, 0, 9, 11}, false, false},
-    [ROW_RTR] = {"RTR", {1, 0, 12, 14}, false, false},
-    [ROW_RTD] = {"RTD", {2, 0, 10, 12}, false, false},
-    [ROW_UNLK] = {"UNLK", {0, 0, 5, 5}, false, false},
-    [ROW_LINK_W] = {"LINK.W", {0, 0, 4, 5}, false, false},
-    [ROW_LINK_L] = {"LINK.L", {2, 0, 6, 7}, false, false},
+    [ROW_NOP] = {"NOP", {0, 0, 2, 2, .prefetches = 1}, false, false},
+    [ROW_RTS] = {"RTS", {1, 0, 9, 11, .prefetches = 2}, false, false},
+    [ROW_RTR] = {"RTR", {1, 0, 12, 14, .prefetches = 2}, false, false},
+    [ROW_RTD] = {"RTD", {2, 0, 10, 12, .prefetches = 2}, false, false},
+    [ROW_UNLK] = {"UNLK", {0, 0, 5, 5, .prefetches = 1}, false, false},
+    [ROW_LINK_W] = {"LINK.W", {0, 0, 4, 5, .prefetches = 1}, false, false},
+    [ROW_LINK_L] = {"LINK.L", {2, 0, 6, 7, .prefetches = 2}, false, false},
 
     /* The six logical-immediate-to-status forms share one row at 12 clocks.
      * That is six times the cost of the same operation on a data register,
      * which is the price of a status register write forcing the pipe to
      * refill -- the same fact §8.1.7 gives as the reason those instructions
      * count as a change of flow for tracing. */
-    [ROW_LOGICAL_TO_SR] = {"ANDI/EORI/ORI to SR or CCR", {4, 0, 12, 14},
+    [ROW_LOGICAL_TO_SR] = {"ANDI/EORI/ORI to SR or CCR", {4, 0, 12, 14, .prefetches = 2},
                            false, false},
 
     /* §11.6.15, Conditional Branch Instructions. "Complete execution times
@@ -224,27 +219,27 @@ static const ap_m68030_table_entry_t TABLE[ROW_COUNT] = {
      * one distinguishes byte, word and long. That asymmetry is the pipe: a
      * taken branch throws it away regardless of how far it jumped, while an
      * untaken one has merely read a displacement of some length. */
-    [ROW_BCC_TAKEN] = {"Bcc (Taken)", {6, 0, 6, 8}, false, false},
-    [ROW_BCC_B_NOT_TAKEN] = {"Bcc.B (Not Taken)", {4, 0, 4, 4}, false, false},
-    [ROW_BCC_W_NOT_TAKEN] = {"Bcc.W (Not Taken)", {6, 0, 6, 6}, false, false},
-    [ROW_BCC_L_NOT_TAKEN] = {"Bcc.L (Not Taken)", {6, 0, 6, 8}, false, false},
-    [ROW_BSR] = {"BSR", {2, 0, 6, 9}, false, false},
+    [ROW_BCC_TAKEN] = {"Bcc (Taken)", {6, 0, 6, 8, .prefetches = 2}, false, false},
+    [ROW_BCC_B_NOT_TAKEN] = {"Bcc.B (Not Taken)", {4, 0, 4, 4, .prefetches = 1}, false, false},
+    [ROW_BCC_W_NOT_TAKEN] = {"Bcc.W (Not Taken)", {6, 0, 6, 6, .prefetches = 1}, false, false},
+    [ROW_BCC_L_NOT_TAKEN] = {"Bcc.L (Not Taken)", {6, 0, 6, 8, .prefetches = 2}, false, false},
+    [ROW_BSR] = {"BSR", {2, 0, 6, 9, .prefetches = 2}, false, false},
 
     /* DBcc has three cases, and the expensive one is *leaving* the loop with
      * the counter expired: 10 clocks against 6 for going round again. */
-    [ROW_DBCC_LOOPING] = {"DBcc (cc False, Count Not Expired)", {6, 0, 6, 8},
+    [ROW_DBCC_LOOPING] = {"DBcc (cc False, Count Not Expired)", {6, 0, 6, 8, .prefetches = 2},
                           false, false},
-    [ROW_DBCC_EXPIRED] = {"DBcc (cc False, Count Expired)", {10, 0, 10, 13},
+    [ROW_DBCC_EXPIRED] = {"DBcc (cc False, Count Expired)", {10, 0, 10, 13, .prefetches = 3},
                           false, false},
-    [ROW_DBCC_TRUE] = {"DBcc (cc True)", {6, 0, 6, 8}, false, false},
+    [ROW_DBCC_TRUE] = {"DBcc (cc True)", {6, 0, 6, 8, .prefetches = 1}, false, false},
 
     /* §11.6.9, Immediate Arithmetical/Logical Instructions. */
-    [ROW_MOVEQ] = {"MOVEQ #<data>,Dn", {.head = 2, .tail = 0, .cache_case = 2, .no_cache_case = 2}, false, false},
-    [ROW_ADDQ] = {"ADDQ #<data>,Rn", {.head = 2, .tail = 0, .cache_case = 2, .no_cache_case = 2}, false, false},
-    [ROW_SUBQ] = {"SUBQ #<data>,Rn", {.head = 2, .tail = 0, .cache_case = 2, .no_cache_case = 2}, false, false},
+    [ROW_MOVEQ] = {"MOVEQ #<data>,Dn", {.head = 2, .tail = 0, .cache_case = 2, .no_cache_case = 2, .prefetches = 1}, false, false},
+    [ROW_ADDQ] = {"ADDQ #<data>,Rn", {.head = 2, .tail = 0, .cache_case = 2, .no_cache_case = 2, .prefetches = 1}, false, false},
+    [ROW_SUBQ] = {"SUBQ #<data>,Rn", {.head = 2, .tail = 0, .cache_case = 2, .no_cache_case = 2, .prefetches = 1}, false, false},
     /* `**` in the table: the immediate is fetched through a separate effective
      * address time, so this figure is not the whole cost. */
-    [ROW_ADDI_DN] = {"ADDI #<data>,Dn", {.head = 2, .tail = 0, .cache_case = 2, .no_cache_case = 2}, false, true},
+    [ROW_ADDI_DN] = {"ADDI #<data>,Dn", {.head = 2, .tail = 0, .cache_case = 2, .no_cache_case = 2, .prefetches = 1}, false, true},
 };
 
 #define TABLE_COUNT (sizeof TABLE / sizeof TABLE[0])

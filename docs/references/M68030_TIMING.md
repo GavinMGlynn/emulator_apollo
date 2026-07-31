@@ -461,3 +461,20 @@ footnoted rows stay declined. Transcribing `p` is still worth doing — so this
 division is computed in code, over every row, where an exception is visible at
 the point of use rather than dependent on someone checking. That is the change
 that would have caught this.
+
+### The check now runs in code
+
+`ap_m68030_timing_t` carries `prefetches` — the `p` of the no-cache case's
+`(r/p/w)` — and `ap_m68030_prefetch_cost` performs the division, reporting
+`exact` false when `NCC − CC` is not divisible by it.
+
+`timing_table_suite` then requires that **every** inexact row is named in a list
+in the test. `BSR` and `LINK.L` are named; a row that becomes inexact without
+being added fails, and so does a list that names a row which is no longer
+inexact. That is the property the prose claim could not have: it was true of the
+rows its author looked at, and nothing made the others speak up.
+
+A second test asserts what the withdrawal was actually about — that an exact
+cost of **2** exists, which the claim said it did not. `DBcc` with the condition
+true divides cleanly and gives 2, so the values are not confined to 0 and 1 even
+where the division is well behaved.

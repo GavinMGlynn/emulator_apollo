@@ -246,6 +246,83 @@ static void test_a_status_register_write_costs_a_pipe_refill(void) {
                          status->timing.cache_case);
 }
 
+/* The check that would have caught a claim this project got wrong.
+ *
+ * `(NCC−CC)/p` was asserted to be "0 or 1, never 2, never fractional" from
+ * eleven rows chosen while transcribing. Three rows already in the same table
+ * falsify it: `BSR` at 1.5, `DBcc` with the condition true at 2, and `LINK.L`
+ * at 0.5. The error was not arithmetic — it was stating a pattern found on a
+ * subset as though it held generally.
+ *
+ * So the division now runs over **every** row, and every exception must be
+ * named here. A row that becomes inexact without being listed fails this test,
+ * which is the property the prose claim could not have. */
+static void test_every_inexact_prefetch_cost_is_named(void) {
+  /* The rows where `NCC − CC` is not divisible by `p`. `p` is itself "the
+   * average of the odd-word-aligned case and the even-word-aligned case
+   * (rounded up)", so a true count of one-and-a-half is published as two and
+   * the division inherits the rounding -- which is what these look like. */
+  static const char *const KNOWN_INEXACT[] = {
+      "BSR",     /* (9−6)/2 = 1.5 */
+      "LINK.L",  /* (7−6)/2 = 0.5 */
+  };
+
+  unsigned count = 0;
+  const ap_m68030_table_entry_t *table = ap_m68030_timing_table(&count);
+  unsigned inexact_seen = 0;
+
+  for (unsigned i = 0; i < count; i++) {
+    const ap_m68030_prefetch_cost_t cost =
+        ap_m68030_prefetch_cost(&table[i].timing);
+    if (cost.exact) {
+      continue;
+    }
+    inexact_seen++;
+
+    bool named = false;
+    for (unsigned k = 0; k < sizeof KNOWN_INEXACT / sizeof KNOWN_INEXACT[0];
+         k++) {
+      /* Compared by the form string, so a row renamed without this list being
+       * updated fails rather than matching by position. */
+      const char *a = table[i].form;
+      const char *b = KNOWN_INEXACT[k];
+      unsigned j = 0;
+      while (a[j] != '\0' && b[j] != '\0' && a[j] == b[j]) {
+        j++;
+      }
+      if (a[j] == '\0' && b[j] == '\0') {
+        named = true;
+      }
+    }
+    TEST_ASSERT_TRUE_MESSAGE(named, table[i].form);
+  }
+
+  /* And the named ones are actually there: a list that had gone stale the other
+   * way -- naming rows that no longer exist or are now exact -- would pass the
+   * loop above while claiming exceptions it does not have. */
+  TEST_ASSERT_EQUAL_UINT(sizeof KNOWN_INEXACT / sizeof KNOWN_INEXACT[0],
+                         inexact_seen);
+}
+
+/* And the values the exact rows take are *not* confined to 0 and 1, which is
+ * the substance of what was withdrawn. `DBcc` with the condition true divides
+ * exactly and gives 2. */
+static void test_an_exact_prefetch_cost_is_not_always_zero_or_one(void) {
+  unsigned count = 0;
+  const ap_m68030_table_entry_t *table = ap_m68030_timing_table(&count);
+
+  bool saw_two = false;
+  for (unsigned i = 0; i < count; i++) {
+    const ap_m68030_prefetch_cost_t cost =
+        ap_m68030_prefetch_cost(&table[i].timing);
+    if (cost.exact && cost.clocks >= 2u) {
+      saw_two = true;
+    }
+  }
+  TEST_ASSERT_TRUE_MESSAGE(saw_two,
+                           "a cost of 2 exists; the withdrawn claim said none did");
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_every_transcribed_row_is_internally_consistent);
@@ -256,6 +333,8 @@ int main(void) {
   RUN_TEST(test_every_row_names_its_form);
   RUN_TEST(test_the_control_instructions_are_found_by_their_encodings);
   RUN_TEST(test_a_status_register_write_costs_a_pipe_refill);
+  RUN_TEST(test_every_inexact_prefetch_cost_is_named);
+  RUN_TEST(test_an_exact_prefetch_cost_is_not_always_zero_or_one);
   RUN_TEST(test_the_figures_compose_through_the_overlap_rule);
   return UNITY_END();
 }

@@ -42,6 +42,27 @@ uint32_t ap_m68030_schedule(uint32_t microcode_clocks, uint32_t bus_clocks) {
   return microcode_clocks > bus_clocks ? microcode_clocks : bus_clocks;
 }
 
+ap_m68030_prefetch_cost_t
+ap_m68030_prefetch_cost(const ap_m68030_timing_t *timing) {
+  ap_m68030_prefetch_cost_t out = {0};
+  out.prefetches = timing->prefetches;
+  out.difference = timing->no_cache_case > timing->cache_case
+                       ? timing->no_cache_case - timing->cache_case
+                       : 0u;
+
+  if (timing->prefetches == 0u) {
+    /* No prefetch to attribute the difference to. An effective address row can
+     * be like this: its no-cache case is the same as its cache case because it
+     * runs no instruction bus cycles of its own. */
+    out.exact = out.difference == 0u;
+    return out;
+  }
+
+  out.clocks = out.difference / timing->prefetches;
+  out.exact = (out.difference % timing->prefetches) == 0u;
+  return out;
+}
+
 bool ap_m68030_timing_consistent(const ap_m68030_timing_t *timing) {
   return timing->head <= timing->cache_case && timing->tail <= timing->cache_case;
 }

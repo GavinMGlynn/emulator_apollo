@@ -1522,10 +1522,16 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
           caveat is now load-bearing rather than a hedge: 1.5 and 0.5 are what a
           rounded denominator looks like, which would mean the per-prefetch cost
           is not recoverable from the published pair for those rows at all.
-          **Still worth transcribing `p`** — so this division is computed in
-          code over every row, where an exception is visible at the point of use
-          rather than dependent on someone thinking to check. That is the change
-          that would have caught this.
+          **`p` is now transcribed and the division runs in code.**
+          `ap_m68030_prefetch_cost` reports `exact` false where `NCC − CC` is
+          not divisible by `p`, and `timing_table_suite` requires every inexact
+          row to be *named in the test* — `BSR` and `LINK.L` are; a new one
+          fails, and so does a stale name for a row that is no longer inexact.
+          That is the property the prose claim could not have: it was true of
+          the rows its author happened to look at, and nothing made the others
+          speak up.
+          A second test pins the substance of the withdrawal: an exact cost of
+          **2** exists (`DBcc` with the condition true), which the claim denied.
           *Verification: `ADD.B D0,(A0)` coming to 7 against the oracle and
           against `NCC + fea`; and the second worked example of §11.3.4, which
           exists precisely to exercise Equation (11-2).*
