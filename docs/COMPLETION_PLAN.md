@@ -2157,14 +2157,17 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         *Verification: a burst line fill costing 5 clocks against 8 for four
         single reads, counted through the bus state machine rather than
         asserted.*
-  - [ ] **What a miss costs, end to end.** The module deliberately models what hits and what fills, not
-        what a miss costs — the same split as the ATC, whose cost lives in
-        `ap_m68030_walk` rather than in `ap_m68030_atc`. A miss must charge for
-        its external cycles and a burst for its line fill, through
-        `ap_m68030_bus`. *Verification: self-timing probes measuring hit vs
-        miss, which is what this item always asked for; `MD`'s `IC` command
-        toggles the instruction cache, which is what makes the probe possible on
-        real hardware.*
+  - [x] **What a miss costs, end to end** — closed, and it had been done for
+        some time without the item being ticked. `ap_m68030_cache_read` runs a
+        cycle through `ap_m68030_bus` and *counts the ticks*, so a miss is
+        priced by the bus state machine rather than by a constant: a burst line
+        fill costs 5 clocks, a single long-word fill 2, and a hit 0. The step's
+        clock flows from that, which is why `--time-instructions` shows an
+        untranscribed instruction alternating 0/2 with prefetch alignment.
+        *Verification: `cache_suite` asserts 5, 2 and 0 respectively, and a
+        disabled cache paying 2 on every access. The self-timing probe on real
+        hardware remains worth doing, but that is a **measurement** of the part
+        rather than the modelling this item asked for.*
 - [ ] 68882 FPU. *Verification: probe suite over each operation and rounding
       mode; note the oracle's admitted FPU gaps as a divergence class.*
 - [ ] 68020 subset: no on-chip MMU or cache differences, external 68851.
