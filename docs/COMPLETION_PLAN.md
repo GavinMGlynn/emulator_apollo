@@ -441,9 +441,28 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
           sixteen TRAP numbers, LINK/UNLK and MOVE USP splitting on bit 3,
           JSR/JMP effective addresses, only LINK/RTD/STOP carrying a following
           word, and `$4E78`-`$4E7F` being unassigned rather than aliased.*
-    - [ ] The rest of family `0100`: LEA, PEA, MOVEM, MOVEC, CHK, TAS, TST,
-          CLR, NEG, NEGX, NOT, NBCD, SWAP, EXT, BKPT and the `MOVE to/from
-          SR/CCR` group. *Verification: one suite per subtree, same pattern.*
+    - [x] **The LEA/CHK and `$48`/`$4C` subtree**
+          (`src/core/cpu/m68030/ap_m68030_misc.c`): LEA, CHK.W, CHK.L, PEA,
+          SWAP, BKPT, EXT.W, EXT.L, EXTB.L, NBCD and MOVEM.
+          **The same trick appears three more times here**, and getting the
+          decode *order* wrong is how it bites: an instruction that takes only
+          some addressing modes leaves holes, and other instructions live in
+          them. `PEA` cannot push a register, so mode `000` there is `SWAP` and
+          `001` is `BKPT`. `MOVEM` moves registers to or from memory, so mode
+          `000` is `EXT`. `LEA` loads an address, so mode `000` under its opmode
+          is `EXTB.L`. In each case the register-direct form must be recognised
+          *before* falling through, and a decoder checking the wider instruction
+          first produces a working instruction doing the wrong thing.
+          `EXT`'s encoding also fixes bits 11-9 at `100`, which is `MOVEM`'s
+          registers-to-memory direction — the other direction has no `EXT` at
+          all, so a data register operand there is invalid rather than a third
+          `EXT` form.
+          *Verification: `misc_suite`, 11 tests, including each hole against the
+          instruction whose space it sits in, and the `MOVEM` direction that has
+          no `EXT`.*
+    - [ ] The remainder of family `0100`: CLR, NEG, NEGX, NOT, TST, TAS, MOVEC,
+          MOVES and the `MOVE to/from SR/CCR` group.
+          *Verification: one suite per subtree, same pattern.*
   - [ ] Wire the bus to a memory system so the termination kind and its arrival
         clock come from a device rather than a test. That is what makes
         contention emergent, and it belongs with Phase 3's single arbitration
