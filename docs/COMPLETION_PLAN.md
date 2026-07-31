@@ -2447,8 +2447,11 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         RSTDMA's documented identity with power-on reset — which makes the two
         testable against each other directly. `sc499_suite`, 9 tests.
   - [ ] The QIC-02 command set, tape motion, and the drive behind the
-        controller. Needs a `.ct` image reader; `media/` has the Domain/OS
-        distribution to read.
+        controller. Needs a `.ct` image reader — and the format is now known
+        (`FINDINGS.md` C24): a **raw 512-byte-block image**, 104,841 blocks for
+        the boot cartridge, no wrapper to parse. Its first block is a boot
+        record carrying four big-endian words, the ASCII `SYSBOOT REV` and
+        `M68K`, and 68000 code.
   - [x] Wired into the board at `050000`: four registers at stride 1, the upper
         four addresses of each eight floating to `FF`, aliased through the
         range, on IRQ5. `tape_suite`, 6 tests, including the measured reset dump

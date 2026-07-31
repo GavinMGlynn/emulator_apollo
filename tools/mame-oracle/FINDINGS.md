@@ -1428,6 +1428,42 @@ rather than searched for.
 
 
 
+### C24 — the cartridge tape image, and its boot record
+
+`media/` holds the Domain/OS SR10.3.5 distribution as `.ct.gz` cartridge images.
+Decompressed, `019593-001.CRTG_STD_SFW_BOOT_1` is **53,678,592 bytes, exactly
+104,841 blocks of 512 with no remainder** -- so the format is a raw block image
+and not a container with a wrapper. That alone is worth knowing: a reader needs
+no parsing, only block addressing.
+
+The first block is a boot record. Its first sixteen bytes are four big-endian
+32-bit words, followed by identifying text:
+
+    0013D800   word 0
+    0013D82A   word 1, which is word 0 + 0x2A
+    0013F6BC   word 2, which is word 0 + 0x1EBC (7868)
+    56AC0D83   word 3
+    "SYSBOOT REV \0\0\0\0 M68K    "
+
+and then, at the offset word 1 points past, MC68000 code: `41FA FFD4` is a
+PC-relative `LEA` and `2008` a `MOVE.L A0,D0`.
+
+**Reading, marked as inference.** The shape fits load address, entry point, end
+address and a checksum -- word 1 lands exactly where the code begins after the
+0x2A-byte header, and word 2 gives a 7868-byte image. That is consistent and it
+is not confirmed; the words could equally be three addresses of something else.
+What *is* established is that the block carries 68000 code with an ASCII
+identification, at a fixed offset, in a raw 512-byte-block image.
+
+The identification is worth having on its own: "SYSBOOT REV" and "M68K" say the
+boot record announces both its purpose and its processor, so a reader can
+recognise a bootable cartridge without executing anything.
+
+**Why this matters for the phase.** C15 established that the tape is the only
+bootable medium present -- no Winchester image exists -- so the first boot must
+come from here. This is the block the boot PROM would fetch first, and it is
+readable now, before any tape controller command set is modelled.
+
 ## Where the ring is not
 
 The Apollo Token Ring has **no runnable oracle at all**: MAME carries Domain
