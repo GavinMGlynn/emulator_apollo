@@ -104,7 +104,11 @@ ap_m68030_access_result_t ap_m68030_access_write(ap_m68030_access_ctx_t *access,
                                                  uint32_t logical,
                                                  uint8_t function_code,
                                                  uint32_t value,
-                                                 bool aligned_long_word) {
+                                                 unsigned size) {
+  /* "a misaligned data write or a write of data that is not long word" does not
+   * validate an allocated cache entry, so the rule is the size *and* the
+   * alignment together, not either alone. */
+  const bool aligned_long_word = (size == 4u) && ((logical & 3u) == 0u);
   ap_m68030_access_result_t out = {0};
 
   /* No cache-first shortcut here. The data cache is writethrough, so an
@@ -182,7 +186,7 @@ ap_m68030_access_result_t ap_m68030_access_write(ap_m68030_access_ctx_t *access,
    * means: "the data is written both to the cache and to external memory". The
    * cache update below is in addition to it, never instead of it. */
   if (access->store != NULL) {
-    access->store(access->context, physical, value, 4);
+    access->store(access->context, physical, value, size);
   }
 
   /* The cache's own part, which is an update rather than a fill. */

@@ -1335,6 +1335,292 @@ ap_m68030_take_exception(ap_m68030_cpu_t *cpu, unsigned vector,
   return out;
 }
 
+/* ---------------------------------------------------------------------------
+ * The $4E control group's stack discipline.
+ * ------------------------------------------------------------------------- */
+
+/* Push a long word, which is what JSR, LINK and the frame builders all do. */
+static bool push_long(ap_m68030_cpu_t *cpu, uint32_t value, uint32_t *clocks) {
+  const uint32_t sp = ap_m68030_read_a7(&cpu->regs) - 4u;
+  if (!write_frame_field(cpu, sp, 4u, value, clocks)) {
+    return false;
+  }
+  ap_m68030_write_a7(&cpu->regs, sp);
+  return true;
+}
+
+/* Read from the active stack without moving it; the caller decides the step,
+ * because the frame instructions pop by fixed offsets rather than one at a
+ * time. */
+static bool read_stack(ap_m68030_cpu_t *cpu, uint32_t offset, unsigned size,
+                       uint32_t *clocks, uint32_t *value) {
+  const ap_m68030_address_t where = {
+      .address = ap_m68030_read_a7(&cpu->regs) + offset, .valid = true};
+  const ap_m68030_operand_result_t read =
+      ap_m68030_operand_read(&cpu->regs, cpu->data, &where, size,
+                             AP_M68030_FC_SUPERVISOR_DATA);
+  *clocks += read.clocks;
+  if (!read.ok) {
+    return false;
+  }
+  *value = read.value;
+  return true;
+}
+
+/* Land on a new PC, emptying the pipe -- every change of flow does this, and
+ * forgetting it lets a prefetched word from the old path execute. */
+static void jump_to(ap_m68030_cpu_t *cpu, uint32_t target) {
+  cpu->regs.pc = target;
+  ap_m68030_fetch_reset(&cpu->fetch, target);
+}
+
+/* RTE, `[030]` §8.1: "it examines the stack frame on top of the active
+ * supervisor stack to determine if it is a valid frame and what type of context
+ * restoration it requires."
+ *
+ * "For a normal four-word frame, the processor updates the status register and
+ * program counter with the data read from the stack, increments the stack
+ * pointer by eight"; the six-word frame is the same with 12. The throwaway
+ * frame is the interesting one -- the processor reads only the SR, adds eight,
+ * "and then begins RTE processing again", on whichever stack the restored S and
+ * M bits now select. So it is a loop, not a special case, and the frame it
+ * finds next "may be any format (even another throwaway frame)".
+ *
+ * An undefined format is a format error, vector 14. */
+static bool execute_rte(ap_m68030_cpu_t *cpu, uint32_t *clocks) {
+  /* A throwaway frame can chain, and the manual allows another throwaway
+   * behind it. Bounded so a corrupt stack of throwaways cannot spin forever;
+   * the bound is this model's, not the hardware's, and a run that hits it is
+   * reported as a format error rather than silently stopping. */
+  for (unsigned frames = 0; frames < 8u; frames++) {
+    uint32_t format_word = 0;
+    if (!read_stack(cpu, 6u, 2u, clocks, &format_word)) {
+      return false;
+    }
+    if (!ap_m68030_frame_format_defined((uint16_t)format_word)) {
+      cpu->pending_vector = AP_M68030_VECTOR_FORMAT_ERROR;
+      return true;
+    }
+    const ap_m68030_frame_format_t format =
+        ap_m68030_frame_format_of((uint16_t)format_word);
+
+    uint32_t saved_sr = 0;
+    if (!read_stack(cpu, 0u, 2u, clocks, &saved_sr)) {
+      return false;
+    }
+
+    if (format == AP_M68030_FRAME_THROWAWAY) {
+      /* Only the status register is restored, and the stack it selects may be
+       * a different one -- which is exactly why the pointer is moved on the
+       * *old* stack before the register is written. */
+      ap_m68030_write_a7(&cpu->regs, ap_m68030_read_a7(&cpu->regs) + 8u);
+      ap_m68030_write_sr(&cpu->regs, (uint16_t)saved_sr);
+      continue;
+    }
+
+    if (format != AP_M68030_FRAME_SHORT && format != AP_M68030_FRAME_SIX_WORD) {
+      /* The fault and coprocessor frames restore internal state this model does
+       * not carry. Declined rather than half-restored. */
+      return false;
+    }
+
+    uint32_t saved_pc = 0;
+    if (!read_stack(cpu, 2u, 4u, clocks, &saved_pc)) {
+      return false;
+    }
+    ap_m68030_write_a7(&cpu->regs,
+                       ap_m68030_read_a7(&cpu->regs) +
+                           ap_m68030_frame_words(format) * 2u);
+    /* The status register goes back *whole*, system byte included -- that is
+     * what returns a user program to user state. Writing only the CCR would
+     * leave the handler's supervisor bit in place. */
+    ap_m68030_write_sr(&cpu->regs, (uint16_t)saved_sr);
+    jump_to(cpu, saved_pc);
+    return true;
+  }
+
+  cpu->pending_vector = AP_M68030_VECTOR_FORMAT_ERROR;
+  return true;
+}
+
+static bool execute_control(ap_m68030_cpu_t *cpu,
+                            const ap_m68030_control_t *control,
+                            unsigned length, uint32_t *clocks, bool *branched) {
+  *branched = false;
+
+  /* "If Supervisor State ... Else TRAP". Four instructions in this group are
+   * privileged, and the failure mode is silent: a user program able to run
+   * them could halt the processor or forge a return from exception. The
+   * privilege violation's stacked PC is "First word of instruction causing
+   * Privilege Violation", which is where the PC still is. */
+  if (ap_m68030_control_privileged(control->kind) &&
+      !ap_m68030_supervisor(&cpu->regs)) {
+    cpu->pending_vector = AP_M68030_VECTOR_PRIVILEGE_VIOLATION;
+    return true;
+  }
+
+  switch (control->kind) {
+  case AP_M68030_CTL_NOP:
+    return true;
+
+  case AP_M68030_CTL_TRAP:
+    cpu->pending_vector = ap_m68030_control_trap_vector(control);
+    return true;
+
+  case AP_M68030_CTL_TRAPV:
+    /* "If V then TRAP" -- and when V is clear this is a no-op, not a branch. */
+    if ((ap_m68030_read_ccr(&cpu->regs) & (1u << AP_M68030_SR_V_BIT)) != 0u) {
+      cpu->pending_vector = AP_M68030_VECTOR_TRAPCC;
+    }
+    return true;
+
+  case AP_M68030_CTL_RTS: {
+    /* "(SP) -> PC; SP + 4 -> SP". */
+    uint32_t target = 0;
+    if (!read_stack(cpu, 0u, 4u, clocks, &target)) {
+      return false;
+    }
+    ap_m68030_write_a7(&cpu->regs, ap_m68030_read_a7(&cpu->regs) + 4u);
+    jump_to(cpu, target);
+    *branched = true;
+    return true;
+  }
+
+  case AP_M68030_CTL_RTR: {
+    /* "(SP) -> CCR; SP + 2 -> SP; (SP) -> PC; SP + 4 -> SP", and "The
+     * supervisor portion of the status register is unaffected" -- so this
+     * writes the CCR, never the whole SR. RTR restoring the system byte would
+     * be an unprivileged instruction that changes the privilege level. */
+    uint32_t saved_ccr = 0;
+    uint32_t target = 0;
+    if (!read_stack(cpu, 0u, 2u, clocks, &saved_ccr) ||
+        !read_stack(cpu, 2u, 4u, clocks, &target)) {
+      return false;
+    }
+    ap_m68030_write_a7(&cpu->regs, ap_m68030_read_a7(&cpu->regs) + 6u);
+    ap_m68030_write_ccr(&cpu->regs, (uint16_t)saved_ccr);
+    jump_to(cpu, target);
+    *branched = true;
+    return true;
+  }
+
+  case AP_M68030_CTL_RTE:
+    if (!execute_rte(cpu, clocks)) {
+      return false;
+    }
+    *branched = cpu->pending_vector == 0u;
+    return true;
+
+  case AP_M68030_CTL_RTD: {
+    /* "(SP) -> PC; SP + 4 + dn -> SP": the return address comes off first and
+     * the displacement then releases the caller's arguments. */
+    uint16_t displacement = 0;
+    if (!next_word(cpu, clocks, &displacement)) {
+      return false;
+    }
+    uint32_t target = 0;
+    if (!read_stack(cpu, 0u, 4u, clocks, &target)) {
+      return false;
+    }
+    ap_m68030_write_a7(&cpu->regs,
+                       ap_m68030_read_a7(&cpu->regs) + 4u +
+                           (uint32_t)(int32_t)(int16_t)displacement);
+    jump_to(cpu, target);
+    *branched = true;
+    return true;
+  }
+
+  case AP_M68030_CTL_LINK: {
+    /* "SP - 4 -> SP; An -> (SP); SP -> An; SP + dn -> SP". The order is the
+     * instruction: the register is pushed, *then* takes the new stack pointer,
+     * which is what makes LINK A6 build a frame chain. And "The user should
+     * specify a negative displacement in order to allocate stack area" -- the
+     * displacement is added, so allocation is a negative number. */
+    uint16_t displacement = 0;
+    if (!next_word(cpu, clocks, &displacement)) {
+      return false;
+    }
+    const uint32_t saved =
+        ap_m68030_read_address_register(&cpu->regs, control->reg);
+    if (!push_long(cpu, saved, clocks)) {
+      return false;
+    }
+    const uint32_t sp = ap_m68030_read_a7(&cpu->regs);
+    ap_m68030_write_address_register(&cpu->regs, control->reg, sp);
+    ap_m68030_write_a7(&cpu->regs,
+                       sp + (uint32_t)(int32_t)(int16_t)displacement);
+    return true;
+  }
+
+  case AP_M68030_CTL_UNLK: {
+    /* "An -> SP; (SP) -> An; SP + 4 -> SP", and again the order is the whole
+     * instruction: the stack pointer is loaded from the register *before* the
+     * register is reloaded from the stack, which is what releases the frame
+     * however far the callee moved the stack. */
+    ap_m68030_write_a7(&cpu->regs,
+                       ap_m68030_read_address_register(&cpu->regs,
+                                                       control->reg));
+    uint32_t saved = 0;
+    if (!read_stack(cpu, 0u, 4u, clocks, &saved)) {
+      return false;
+    }
+    ap_m68030_write_a7(&cpu->regs, ap_m68030_read_a7(&cpu->regs) + 4u);
+    ap_m68030_write_address_register(&cpu->regs, control->reg, saved);
+    return true;
+  }
+
+  case AP_M68030_CTL_JSR:
+  case AP_M68030_CTL_JMP: {
+    /* Both jump to the effective *address*, not to what is there: "JMP <ea>"
+     * loads the address itself into the PC. So the address is calculated and
+     * used, never read through. */
+    ap_m68030_address_input_t input = {0};
+    if (!gather_address_input(cpu, control->ea.kind, 4u, clocks, &input)) {
+      return false;
+    }
+    const ap_m68030_address_t where =
+        ap_m68030_address_calculate(&cpu->regs, control->ea, &input);
+    if (!where.valid || where.in_register || where.immediate ||
+        where.indirection_pending) {
+      return false;
+    }
+
+    if (control->kind == AP_M68030_CTL_JSR) {
+      /* "SP - 4 -> SP; PC -> (SP); Destination Address -> PC" -- and the PC
+       * pushed is the one *after* this instruction, extension words included,
+       * which is why the length is passed in. */
+      if (!push_long(cpu, cpu->regs.pc + length, clocks)) {
+        return false;
+      }
+    }
+    jump_to(cpu, where.address);
+    *branched = true;
+    return true;
+  }
+
+  case AP_M68030_CTL_MOVE_TO_USP:
+    /* "MOVE An,USP": the *user* stack pointer, written directly rather than
+     * through A7 -- this only executes in supervisor state, where A7 names the
+     * ISP or MSP, so going through A7 would move the wrong stack and leave the
+     * one being set up untouched. */
+    cpu->regs.usp =
+        ap_m68030_read_address_register(&cpu->regs, control->reg);
+    return true;
+
+  case AP_M68030_CTL_MOVE_FROM_USP:
+    ap_m68030_write_address_register(&cpu->regs, control->reg, cpu->regs.usp);
+    return true;
+
+  case AP_M68030_CTL_RESET:
+  case AP_M68030_CTL_STOP:
+  case AP_M68030_CTL_MOVEC_FROM_CONTROL:
+  case AP_M68030_CTL_MOVEC_TO_CONTROL:
+  case AP_M68030_CTL_INVALID:
+    return false;
+  }
+  return false;
+}
+
 ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
   ap_m68030_step_result_t out = {.status = AP_M68030_STEP_FAULT};
   uint16_t word = 0;
@@ -1362,24 +1648,22 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
     execute_moveq(&cpu->regs, &decoded.as.moveq);
     break;
 
-  case AP_M68030_DECODED_CONTROL:
-    /* "TRAP #<vector> ... 32 + <vector> -> Vector Number": the four-bit field
-     * is an index into Table 8-1's trap range, not a vector number, so TRAP #0
-     * is vector 32. The decoder reports the field; ap_m68030_trap_vector turns
-     * it into the vector, which is what keeps this and the exception module
-     * agreeing by construction rather than by two transcriptions matching. */
-    if (decoded.as.control.kind == AP_M68030_CTL_TRAP) {
-      cpu->pending_vector =
-          ap_m68030_trap_vector(decoded.as.control.vector);
-      break;
-    }
-    if (decoded.as.control.kind != AP_M68030_CTL_NOP) {
+  case AP_M68030_DECODED_CONTROL: {
+    bool branched = false;
+    if (!execute_control(cpu, &decoded.as.control, length, &out.clocks,
+                         &branched)) {
       out.status = AP_M68030_STEP_UNIMPLEMENTED;
       cpu->clocks += out.clocks;
       return out;
     }
-    /* NOP "synchronizes the integer pipeline" and does nothing else. */
+    if (branched) {
+      out.branch_taken = true;
+      out.status = AP_M68030_STEP_EXECUTED;
+      cpu->clocks += out.clocks;
+      return out;
+    }
     break;
+  }
 
   case AP_M68030_DECODED_BRANCH: {
     const ap_m68030_branch_t *branch = &decoded.as.branch;
@@ -1391,13 +1675,22 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
       return out;
     }
     if (branch->is_bsr) {
-      out.status = AP_M68030_STEP_UNIMPLEMENTED; /* needs a stack write */
-      cpu->clocks += out.clocks;
-      return out;
+      /* "SP - 4 -> SP; PC -> (SP); PC + dn -> PC" -- the pushed PC is the one
+       * after this instruction, and the displacement is relative to the
+       * extension word as it is for every branch. */
+      if (!push_long(cpu, cpu->regs.pc + length, &out.clocks)) {
+        out.status = AP_M68030_STEP_FAULT;
+        cpu->clocks += out.clocks;
+        return out;
+      }
     }
 
+    /* BSR is unconditional, and its condition *field* is `F` -- the encoding
+     * that means "never" for a Bcc. Testing the condition without excluding it
+     * pushes a return address and then falls through to the next instruction,
+     * so every subroutine call becomes a leaked stack word. */
     const bool taken =
-        branch->is_bra ||
+        branch->is_bra || branch->is_bsr ||
         ap_m68030_condition(branch->condition, ap_m68030_read_ccr(&cpu->regs));
     out.branch_taken = taken;
 
@@ -1492,8 +1785,18 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
     const unsigned vector = cpu->pending_vector;
     cpu->pending_vector = 0u;
 
-    const ap_m68030_exception_result_t taken = ap_m68030_take_exception(
-        cpu, vector, cpu->regs.pc + length, cpu->regs.pc);
+    /* Table 8-6 decides which address the frame's PC field gets, and it is not
+     * always the next instruction: a privilege violation stacks "First word of
+     * instruction causing Privilege Violation" and a format error stacks the
+     * RTE that found the bad frame. Defaulting to the next one would have a
+     * handler return past the very instruction it was called to diagnose. */
+    const uint32_t stacked =
+        ap_m68030_stacks_next_instruction(vector)
+            ? cpu->regs.pc + length
+            : cpu->regs.pc;
+
+    const ap_m68030_exception_result_t taken =
+        ap_m68030_take_exception(cpu, vector, stacked, cpu->regs.pc);
     out.clocks += taken.clocks;
     if (!taken.ok) {
       /* A fault while stacking is a double fault, which halts the real part.

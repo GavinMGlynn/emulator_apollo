@@ -918,6 +918,22 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         *Verification: `step_suite`, 16 further tests (80 total); then probes
         against the oracle for the timing, which is data-dependent for both the
         multiplies and the divides and so is not yet modelled.*
+  - [x] **Misaligned operands are performed, not declined**, and this is not an
+        edge case: every exception frame puts its long-word PC at `SP + 2`, so
+        `RTE` and `RTR` read a straddling long *every time*. A model that
+        declined them would decline returning from every exception. The operand
+        layer now splits a transfer into one bus cycle per long word, in address
+        order, with the operand's most significant bytes at the lower address so
+        a split write and a split read agree. `ap_m68030_access_write` takes the
+        operand size rather than an "is it a long" flag, and passes it to the
+        memory system — telling it every write is four bytes wide would have a
+        byte store clobber its three neighbours — and derives the cache's write
+        allocation rule from the size and address together rather than trusting
+        the caller to assert it.
+        *Verification: `operand_suite`, 2 further tests (13 total) — a
+        straddling long splitting into two cycles at the right addresses with
+        the right halves, and an aligned byte staying one cycle of its own size;
+        plus the `RTE` round trip in `step_suite`, which is the real output.*
   - [x] **Sub-long-word operands are selected by position, not by mask.** Found
         while testing the memory `ABCD`: the access path answers in long words,
         and `ap_m68030_operand_read` masked the low bits of one instead of
@@ -985,6 +1001,40 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
     executes". The higher-priority exception is *processed* first, which stacks
     it deeper, so the lower-priority handler runs first and returns into it.
     Reset is the stated exception to its own rule.
+  - [x] **The `$4E` control group executes**: `JSR`, `JMP`, `BSR`, `RTS`,
+        `RTR`, `RTD`, `RTE`, `LINK`, `UNLK`, `TRAP`, `TRAPV` and both directions
+        of `MOVE USP`, with the four privileged ones raising a privilege
+        violation in user state.
+        `RTE` is the counterpart of taking an exception, and the throwaway frame
+        makes it a *loop* rather than a special case: "the processor reads the
+        status register value from the frame, increments the active stack
+        pointer by eight, updates the status register ... and then begins RTE
+        processing again", on whichever stack the restored S and M bits now
+        select, and the frame it finds "may be any format (even another
+        throwaway frame)". An undefined format is a format error, vector 14.
+        `RTR` restores **only** the condition codes — "The supervisor portion of
+        the status register is unaffected" — because `RTR` is unprivileged and
+        restoring the system byte would make it an instruction any user program
+        could use to enter supervisor state.
+        **`BSR`'s condition field is `F`**, the encoding that means *never* for
+        a `Bcc`. Testing the condition without excluding it pushes a return
+        address and then falls through, so every subroutine call leaks a stack
+        word and returns to the wrong place. Found while wiring `BSR` to the
+        stack this item provided.
+        `MOVE An,USP` writes the USP *directly* rather than through A7: it only
+        executes in supervisor state, where A7 names the ISP or MSP, so going
+        through A7 would move the wrong stack and leave the one being set up
+        untouched.
+        *Verification: `step_suite`, 8 further tests (97 total) — a `BSR`/`RTS`
+        round trip proving the return address is the instruction after the call;
+        `JMP` going to the address rather than to its contents, which for a jump
+        table is one indirection too many and lands somewhere plausible;
+        `LINK`/`UNLK` as exact inverses; a `TRAP` taken and returned from with
+        the privilege level restored and the user stack untouched; `RTR`
+        declining to restore a stacked S bit; a privileged instruction in user
+        state stacking **its own** address; an undefined frame format becoming a
+        format error; and `TRAPV` in both directions, since a model that always
+        trapped would pass a test that only set V.*
   - [~] **Taking an exception**: stacking the frame, fetching the vector through
         the VBR, and loading the PC (`ap_m68030_take_exception` in
         `ap_m68030_step.c`). Needed an instruction unit and a memory system, so
@@ -1012,8 +1062,18 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         mid-instruction frame, and the interrupt case where the M bit is set and
         a second throwaway frame goes on the interrupt stack — that belongs with
         the interrupt item, along with the priority mask update. `CHK`, `TRAPV`,
-        `TRAPcc`, trace and the privilege violations now need only their
-        instructions, not more exception machinery.
+        `TRAP`, `TRAPV` and the privilege violations are wired in; `CHK`,
+        `TRAPcc` and trace now need only their instructions, not more exception
+        machinery.
+        **Table 8-6's bracketed column is a second fact, separate from the frame
+        size**: the stacked PC is the *next* instruction for an interrupt, a
+        `TRAP` and everything in the six-word row, but the *faulting*
+        instruction for illegal instruction, A-line, F-line, privilege violation
+        ("First word of instruction causing Privilege Violation") and format
+        error ("RTE or cpRESTORE instruction"). Defaulting to "next" has a
+        privilege-violation handler emulate the instruction and return past it,
+        and a format-error handler return past the `RTE` it was called to
+        diagnose. Both run; neither faults.
         *Verification: `step_suite`, 10 further tests (89 total) — the stacked
         SR being the pre-change copy, tracing turned off, the frame on the
         supervisor stack with the USP untouched, the vector fetched through the

@@ -17,11 +17,32 @@ void tearDown(void) {}
 
 #define FC_SUPERVISOR_DATA 5u
 
+#define WRITE_SLOTS 8u
+
 typedef struct {
   unsigned fills;
   uint32_t written;
   bool saw_write;
+  /* Every bus cycle a write turned into, in order: a straddling operand takes
+   * more than one, and which bytes went where is the thing to check. */
+  uint32_t write_address[WRITE_SLOTS];
+  uint32_t write_value[WRITE_SLOTS];
+  unsigned write_size[WRITE_SLOTS];
+  unsigned writes;
 } memory_t;
+
+static void memory_store(void *context, uint32_t physical, uint32_t value,
+                         unsigned size) {
+  memory_t *memory = (memory_t *)context;
+  if (memory->writes < WRITE_SLOTS) {
+    memory->write_address[memory->writes] = physical;
+    memory->write_value[memory->writes] = value;
+    memory->write_size[memory->writes] = size;
+  }
+  memory->writes++;
+  memory->written = value;
+  memory->saw_write = true;
+}
 
 static void memory_fill(void *context, uint32_t line_address,
                         uint8_t function_code, ap_m68030_fill_answer_t *out) {
@@ -54,6 +75,7 @@ static void make_machine(machine_t *m) {
       .cache_enabled = true,
       .translation_enabled = false,
       .fill = memory_fill,
+      .store = memory_store,
       .context = &m->memory,
   };
 }
@@ -249,34 +271,85 @@ static void test_a_word_read_takes_the_half_its_address_names(void) {
   TEST_ASSERT_EQUAL_HEX32(0xCCDDu, lower.value);
 }
 
-/* An operand straddling two long words needs two bus cycles. The 68030 does
- * perform them -- misalignment is not a fault on this part -- but this path
- * issues one, so it declines rather than returning half an operand. The
- * decline is the contract being pinned, and it is a named gap. */
-static void test_an_operand_straddling_two_long_words_is_declined(void) {
+/* An operand straddling two long words takes more than one bus cycle, and the
+ * 68030 performs them -- misalignment is not an address error on this part,
+ * unlike the 68000. It is not a rare case either: every exception frame puts
+ * its long-word PC at SP + 2, so RTE and RTR read a straddling long every
+ * single time. Declining it would decline returning from every exception.
+ *
+ * The harness answers $AABBCCDD for every long word, so the bytes either side
+ * of a boundary are $DD then $AA and a straddling read must join them in that
+ * order -- the wrong order is the mistake this pins. */
+static void test_an_operand_straddling_two_long_words_is_read_across_them(void) {
   machine_t m = {0};
   make_machine(&m);
   ap_m68030_regs_t regs = {0};
 
-  /* A word at offset 3 covers offsets 3 and 4, so it crosses. */
+  /* A word at offset 3 covers the last byte of one long word and the first of
+   * the next. */
   const ap_m68030_address_t crossing = {.address = 0x2003u, .valid = true};
   const ap_m68030_operand_result_t word = ap_m68030_operand_read(
       &regs, &m.access, &crossing, 2u, FC_SUPERVISOR_DATA);
-  TEST_ASSERT_FALSE(word.ok);
-  TEST_ASSERT_TRUE(word.fault);
+  TEST_ASSERT_TRUE(word.ok);
+  TEST_ASSERT_EQUAL_HEX32(0xDDAAu, word.value);
 
-  /* A long word at any offset but zero crosses. */
+  /* A long word at offset 1 takes three bytes then one. */
   const ap_m68030_address_t odd_long = {.address = 0x2001u, .valid = true};
   const ap_m68030_operand_result_t wide = ap_m68030_operand_read(
       &regs, &m.access, &odd_long, 4u, FC_SUPERVISOR_DATA);
-  TEST_ASSERT_FALSE(wide.ok);
+  TEST_ASSERT_TRUE(wide.ok);
+  TEST_ASSERT_EQUAL_HEX32(0xBBCCDDAAu, wide.value);
 
-  /* And an aligned long word does not. */
+  /* And an aligned long word still takes one cycle and comes back whole. */
   const ap_m68030_address_t aligned = {.address = 0x2000u, .valid = true};
   const ap_m68030_operand_result_t whole = ap_m68030_operand_read(
       &regs, &m.access, &aligned, 4u, FC_SUPERVISOR_DATA);
   TEST_ASSERT_TRUE(whole.ok);
   TEST_ASSERT_EQUAL_HEX32(0xAABBCCDDu, whole.value);
+}
+
+/* The write side of the same split, and the byte order is the point: the
+ * operand's most significant bytes go to the *lower* address, so a straddling
+ * write and a straddling read agree. Reversed, an exception frame's PC would
+ * come back with its halves swapped -- and RTE would return somewhere that
+ * decodes as something, which is how this stays hidden. */
+static void test_a_straddling_write_splits_into_cycles_in_address_order(void) {
+  machine_t m = {0};
+  make_machine(&m);
+  ap_m68030_regs_t regs = {0};
+
+  /* A long word at offset 2: two bytes into one long word, two into the next. */
+  const ap_m68030_address_t crossing = {.address = 0x2002u, .valid = true};
+  const ap_m68030_operand_result_t wrote = ap_m68030_operand_write(
+      &regs, &m.access, &crossing, 4u, 0x11223344u, FC_SUPERVISOR_DATA);
+
+  TEST_ASSERT_TRUE(wrote.ok);
+  TEST_ASSERT_EQUAL_UINT(2u, m.memory.writes);
+  TEST_ASSERT_EQUAL_HEX32(0x2002u, m.memory.write_address[0]);
+  TEST_ASSERT_EQUAL_HEX32(0x1122u, m.memory.write_value[0]);
+  TEST_ASSERT_EQUAL_UINT(2u, m.memory.write_size[0]);
+  TEST_ASSERT_EQUAL_HEX32(0x2004u, m.memory.write_address[1]);
+  TEST_ASSERT_EQUAL_HEX32(0x3344u, m.memory.write_value[1]);
+  TEST_ASSERT_EQUAL_UINT(2u, m.memory.write_size[1]);
+}
+
+/* An aligned operand still takes one cycle, and the size reaching the memory
+ * system is the operand's -- telling it every write is four bytes wide would
+ * have a byte store clobber its three neighbours. */
+static void test_an_aligned_write_is_one_cycle_of_the_operands_own_size(void) {
+  machine_t m = {0};
+  make_machine(&m);
+  ap_m68030_regs_t regs = {0};
+
+  const ap_m68030_address_t where = {.address = 0x2001u, .valid = true};
+  const ap_m68030_operand_result_t wrote = ap_m68030_operand_write(
+      &regs, &m.access, &where, 1u, 0x77u, FC_SUPERVISOR_DATA);
+
+  TEST_ASSERT_TRUE(wrote.ok);
+  TEST_ASSERT_EQUAL_UINT(1u, m.memory.writes);
+  TEST_ASSERT_EQUAL_HEX32(0x2001u, m.memory.write_address[0]);
+  TEST_ASSERT_EQUAL_HEX32(0x77u, m.memory.write_value[0]);
+  TEST_ASSERT_EQUAL_UINT(1u, m.memory.write_size[0]);
 }
 
 int main(void) {
@@ -291,6 +364,8 @@ int main(void) {
   RUN_TEST(test_an_immediate_is_not_read_from_memory);
   RUN_TEST(test_a_byte_read_takes_the_byte_its_address_names);
   RUN_TEST(test_a_word_read_takes_the_half_its_address_names);
-  RUN_TEST(test_an_operand_straddling_two_long_words_is_declined);
+  RUN_TEST(test_an_operand_straddling_two_long_words_is_read_across_them);
+  RUN_TEST(test_a_straddling_write_splits_into_cycles_in_address_order);
+  RUN_TEST(test_an_aligned_write_is_one_cycle_of_the_operands_own_size);
   return UNITY_END();
 }

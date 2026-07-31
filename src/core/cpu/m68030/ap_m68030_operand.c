@@ -53,34 +53,51 @@ ap_m68030_operand_read(ap_m68030_regs_t *regs, ap_m68030_access_ctx_t *access,
     return out;
   }
 
-  /* The access path deals in long words, so an operand smaller than one has to
-   * be selected out of it by *position*, not merely masked. The 68030 is big
-   * endian: the byte at address A sits in bits 31-24 of the long word at A & ~3
-   * when A & 3 is zero, and moves down a byte for each step of A & 3.
+  /* The access path deals in one bus cycle at a time, and a cycle carries at
+   * most the long word containing its address. So an operand is selected out of
+   * that long word by *position* -- the 68030 is big endian, so the byte at
+   * address A sits in bits 31-24 when A & 3 is zero and moves down a byte for
+   * each step of A & 3 -- and an operand crossing the boundary takes more than
+   * one cycle.
    *
-   * Masking the low bits instead -- the shape this first had -- returns the long
-   * word's last byte for every address, which is right exactly when A & 3 is 3
-   * and silently wrong the other three times in four. Nothing faults; the wrong
-   * byte simply arrives. */
-  const unsigned offset = where->address & 3u;
+   * Masking the low bits instead, the shape this first had, returns the long
+   * word's last byte for every address: right exactly when A & 3 is 3, silently
+   * wrong the other three times in four, and never faulting.
+   *
+   * Misalignment is not an address error on this part, unlike the 68000 -- and
+   * it is not a rare case either. Every exception frame puts its long-word PC
+   * at SP + 2, so RTE and RTR read a straddling long *every time*. A model that
+   * declined them would decline returning from every exception. */
+  uint32_t address = where->address;
+  unsigned remaining = size;
+  uint32_t value = 0;
 
-  /* An operand that straddles two long words needs two bus cycles. The 68030
-   * does perform them -- misalignment is not a fault on this part, unlike the
-   * 68000 -- but this path issues one, so it declines rather than returning
-   * half an operand. A named gap, not a wrong value. */
-  if (offset + size > 4u) {
-    out.fault = true;
-    return out;
+  while (remaining > 0u) {
+    const unsigned offset = address & 3u;
+    unsigned chunk = 4u - offset;
+    if (chunk > remaining) {
+      chunk = remaining;
+    }
+
+    const ap_m68030_access_result_t read =
+        ap_m68030_access_read(access, address, function_code);
+    out.clocks += read.clocks;
+    if (!read.ok) {
+      out.fault = read.fault;
+      out.ok = false;
+      return out;
+    }
+
+    const unsigned shift = (4u - offset - chunk) * 8u;
+    const uint32_t piece = (read.value >> shift) & size_mask(chunk);
+    value = (value << (chunk * 8u)) | piece;
+
+    address += chunk;
+    remaining -= chunk;
   }
 
-  const ap_m68030_access_result_t read =
-      ap_m68030_access_read(access, where->address, function_code);
-  out.clocks = read.clocks;
-  out.fault = read.fault;
-  out.ok = read.ok;
-
-  const unsigned shift = (4u - offset - size) * 8u;
-  out.value = (read.value >> shift) & size_mask(size);
+  out.value = value;
+  out.ok = true;
   return out;
 }
 
@@ -111,10 +128,35 @@ ap_m68030_operand_write(ap_m68030_regs_t *regs, ap_m68030_access_ctx_t *access,
     return out;
   }
 
-  const ap_m68030_access_result_t written = ap_m68030_access_write(
-      access, where->address, function_code, value, size == 4u);
-  out.clocks = written.clocks;
-  out.fault = written.fault;
-  out.ok = written.ok;
+  /* The same split as the read, in the same order: the operand's most
+   * significant bytes go to the lower address, because the part is big endian
+   * and a straddling write must land the same way round the read takes it. */
+  uint32_t address = where->address;
+  unsigned remaining = size;
+
+  while (remaining > 0u) {
+    const unsigned offset = address & 3u;
+    unsigned chunk = 4u - offset;
+    if (chunk > remaining) {
+      chunk = remaining;
+    }
+
+    const unsigned piece_shift = (remaining - chunk) * 8u;
+    const uint32_t piece = (value >> piece_shift) & size_mask(chunk);
+
+    const ap_m68030_access_result_t written =
+        ap_m68030_access_write(access, address, function_code, piece, chunk);
+    out.clocks += written.clocks;
+    if (!written.ok) {
+      out.fault = written.fault;
+      out.ok = false;
+      return out;
+    }
+
+    address += chunk;
+    remaining -= chunk;
+  }
+
+  out.ok = true;
   return out;
 }

@@ -22,15 +22,19 @@ void tearDown(void) {}
 #define FC_SUPERVISOR_PROGRAM 6u
 #define PROGRAM_BASE 0x00001000u
 
-/* A memory system holding a little program, supplied a long word at a time. */
-#define STORE_SLOTS 16u
+/* A memory system holding a little program.
+ *
+ * Real bytes rather than a log of writes: once a misaligned store splits into
+ * more than one bus cycle, "was this long word written" is no longer a question
+ * a list of (address, value) pairs can answer, and a stack round trip is
+ * exactly the thing that needs asking. The write log is kept alongside for the
+ * tests that care how many cycles a store took and where they went. */
+#define RAM_BYTES 0x00010000u
+#define STORE_SLOTS 32u
 
 typedef struct {
-  const uint16_t *words;
-  unsigned count;
+  uint8_t bytes[RAM_BYTES];
   unsigned fills;
-  /* A tiny writable region, so a store is observable by a later load -- which
-   * is what proves the writethrough actually reached memory. */
   uint32_t store_address[STORE_SLOTS];
   uint32_t store_value[STORE_SLOTS];
   unsigned stores;
@@ -38,13 +42,21 @@ typedef struct {
 
 static void memory_store(void *context, uint32_t physical, uint32_t value,
                          unsigned size) {
-  (void)size;
   memory_t *memory = (memory_t *)context;
   if (memory->stores < STORE_SLOTS) {
     memory->store_address[memory->stores] = physical;
     memory->store_value[memory->stores] = value;
   }
   memory->stores++;
+
+  /* Big endian: the operand's most significant byte goes to the lowest
+   * address, which is what makes a split write and a split read agree. */
+  for (unsigned i = 0; i < size; i++) {
+    const uint32_t at = physical + i;
+    if (at < RAM_BYTES) {
+      memory->bytes[at] = (uint8_t)(value >> ((size - 1u - i) * 8u));
+    }
+  }
 }
 
 static void memory_fill(void *context, uint32_t line_address,
@@ -55,26 +67,12 @@ static void memory_fill(void *context, uint32_t line_address,
   out->termination = AP_M68030_TERM_STERM;
   out->burst_acknowledge = false;
 
-  /* A previously stored long word wins over the program image. */
-  for (unsigned i = memory->stores; i-- > 0 && i < STORE_SLOTS;) {
-    if (memory->store_address[i] == line_address) {
-      out->data[0] = memory->store_value[i];
-      return;
-    }
+  uint32_t value = 0;
+  for (unsigned i = 0; i < 4u; i++) {
+    const uint32_t at = line_address + i;
+    value = (value << 8) | (at < RAM_BYTES ? memory->bytes[at] : 0x4Eu);
   }
-
-  /* Assemble the long word at line_address from the program. */
-  const uint32_t offset = line_address - PROGRAM_BASE;
-  const unsigned index = (unsigned)(offset / 2u);
-  uint16_t high = 0x4E71u; /* NOP fills the gaps */
-  uint16_t low = 0x4E71u;
-  if (index < memory->count) {
-    high = memory->words[index];
-  }
-  if (index + 1u < memory->count) {
-    low = memory->words[index + 1u];
-  }
-  out->data[0] = ((uint32_t)high << 16) | low;
+  out->data[0] = value;
 }
 
 typedef struct {
@@ -92,8 +90,16 @@ typedef struct {
 static void load(machine_t *m, const uint16_t *words, unsigned count) {
   ap_m68030_cache_clear(&m->cache);
   ap_m68030_atc_flush(&m->atc);
-  m->memory.words = words;
-  m->memory.count = count;
+  /* NOP everywhere, so an address the test did not think about decodes as
+   * something harmless rather than as whatever the last test left. */
+  for (unsigned i = 0; i < RAM_BYTES; i += 2u) {
+    m->memory.bytes[i] = 0x4Eu;
+    m->memory.bytes[i + 1u] = 0x71u;
+  }
+  for (unsigned i = 0; i < count; i++) {
+    m->memory.bytes[PROGRAM_BASE + i * 2u] = (uint8_t)(words[i] >> 8);
+    m->memory.bytes[PROGRAM_BASE + i * 2u + 1u] = (uint8_t)words[i];
+  }
   m->memory.fills = 0;
   m->memory.stores = 0;
   m->access = (ap_m68030_access_ctx_t){
@@ -128,10 +134,27 @@ static void load(machine_t *m, const uint16_t *words, unsigned count) {
 /* Point a vector at a handler by pre-storing it, so the vector fetch has
  * something to read: the harness serves a stored long word back at the exact
  * address it was written to. */
+static void write_ram_long(machine_t *m, uint32_t address, uint32_t value) {
+  for (unsigned i = 0; i < 4u; i++) {
+    m->memory.bytes[address + i] = (uint8_t)(value >> ((3u - i) * 8u));
+  }
+}
+
+static uint32_t read_ram_long(const machine_t *m, uint32_t address) {
+  uint32_t value = 0;
+  for (unsigned i = 0; i < 4u; i++) {
+    value = (value << 8) | m->memory.bytes[address + i];
+  }
+  return value;
+}
+
+static uint16_t read_ram_word(const machine_t *m, uint32_t address) {
+  return (uint16_t)((m->memory.bytes[address] << 8) |
+                    m->memory.bytes[address + 1u]);
+}
+
 static void plant_vector(machine_t *m, unsigned vector, uint32_t handler) {
-  m->memory.store_address[m->memory.stores] = vector * 4u;
-  m->memory.store_value[m->memory.stores] = handler;
-  m->memory.stores++;
+  write_ram_long(m, vector * 4u, handler);
 }
 
 
@@ -1395,18 +1418,10 @@ static void test_a_division_by_zero_takes_the_zero_divide_exception(void) {
   /* Six words, and the two addresses differ: the divide is at +6 and takes
    * four bytes, so the stacked PC is +10 and the instruction address +6. */
   TEST_ASSERT_EQUAL_HEX32(SUPERVISOR_STACK - 12u, m.cpu.regs.isp);
-  uint32_t stacked_pc = 0;
-  uint32_t instruction_address = 0;
-  for (unsigned i = 0; i < m.memory.stores; i++) {
-    if (m.memory.store_address[i] == m.cpu.regs.isp + 2u) {
-      stacked_pc = m.memory.store_value[i];
-    }
-    if (m.memory.store_address[i] == m.cpu.regs.isp + 8u) {
-      instruction_address = m.memory.store_value[i];
-    }
-  }
-  TEST_ASSERT_EQUAL_HEX32(PROGRAM_BASE + 6u, instruction_address);
-  TEST_ASSERT_EQUAL_HEX32(PROGRAM_BASE + 10u, stacked_pc);
+  TEST_ASSERT_EQUAL_HEX32(PROGRAM_BASE + 6u,
+                          read_ram_long(&m, m.cpu.regs.isp + 8u));
+  TEST_ASSERT_EQUAL_HEX32(PROGRAM_BASE + 10u,
+                          read_ram_long(&m, m.cpu.regs.isp + 2u));
 }
 
 /* "TRAP #<vector> ... 32 + <vector> -> Vector Number": the four-bit field is an
@@ -1447,12 +1462,7 @@ static void test_the_last_trap_lands_at_the_end_of_the_trap_range(void) {
   TEST_ASSERT_EQUAL_HEX32(HANDLER, m.cpu.regs.pc);
   /* The frame carries the vector *offset*, so TRAP #15 stacks $0BC and not
    * $02F -- the distinction ap_m68030_frame_format_word exists to keep. */
-  uint16_t format_word = 0;
-  for (unsigned i = 0; i < m.memory.stores; i++) {
-    if (m.memory.store_address[i] == m.cpu.regs.isp + 6u) {
-      format_word = (uint16_t)m.memory.store_value[i];
-    }
-  }
+  const uint16_t format_word = read_ram_word(&m, m.cpu.regs.isp + 6u);
   TEST_ASSERT_EQUAL_HEX32(47u * 4u,
                           ap_m68030_frame_vector_offset_of(format_word));
   TEST_ASSERT_EQUAL_INT(AP_M68030_FRAME_SHORT,
@@ -1718,14 +1728,7 @@ static void test_the_stacked_status_register_is_the_one_before_the_change(void) 
   /* The processor is now in supervisor state ... */
   TEST_ASSERT_TRUE(ap_m68030_supervisor(&m.cpu.regs));
   /* ... but the frame remembers that it was not. */
-  bool found = false;
-  for (unsigned i = 0; i < m.memory.stores; i++) {
-    if (m.memory.store_address[i] == r.frame_address) {
-      TEST_ASSERT_EQUAL_HEX32(0u, m.memory.store_value[i]);
-      found = true;
-    }
-  }
-  TEST_ASSERT_TRUE(found);
+  TEST_ASSERT_EQUAL_HEX16(0u, read_ram_word(&m, r.frame_address));
 }
 
 /* "Next, the processor inhibits tracing of the exception handler by clearing
@@ -1779,9 +1782,7 @@ static void test_the_vector_is_fetched_through_the_vector_base_register(void) {
   load(&m, program, 2);
   m.cpu.regs.vbr = 0x00003000u;
   /* TRAP #0 is vector 32, so offset $80. */
-  m.memory.store_address[m.memory.stores] = 0x00003000u + 0x80u;
-  m.memory.store_value[m.memory.stores] = HANDLER;
-  m.memory.stores++;
+  write_ram_long(&m, 0x00003000u + 0x80u, HANDLER);
   m.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
   m.cpu.regs.isp = SUPERVISOR_STACK;
 
@@ -1814,29 +1815,17 @@ static void test_a_zero_divide_gets_the_six_word_frame_with_both_addresses(
   /* Six words, not four. */
   TEST_ASSERT_EQUAL_HEX32(SUPERVISOR_STACK - 12u, r.frame_address);
 
-  uint32_t format_word = 0xFFFFFFFFu;
-  uint32_t stacked_pc = 0xFFFFFFFFu;
-  uint32_t instruction_address = 0xFFFFFFFFu;
-  for (unsigned i = 0; i < m.memory.stores; i++) {
-    if (m.memory.store_address[i] == r.frame_address + 2u) {
-      stacked_pc = m.memory.store_value[i];
-    }
-    if (m.memory.store_address[i] == r.frame_address + 6u) {
-      format_word = m.memory.store_value[i];
-    }
-    if (m.memory.store_address[i] == r.frame_address + 8u) {
-      instruction_address = m.memory.store_value[i];
-    }
-  }
-
+  const uint16_t format_word = read_ram_word(&m, r.frame_address + 6u);
   TEST_ASSERT_EQUAL_INT(AP_M68030_FRAME_SIX_WORD,
-                        ap_m68030_frame_format_of((uint16_t)format_word));
+                        ap_m68030_frame_format_of(format_word));
   /* The vector *offset*, not the vector number: $014 for vector 5. */
-  TEST_ASSERT_EQUAL_HEX32(
-      0x014u, ap_m68030_frame_vector_offset_of((uint16_t)format_word));
+  TEST_ASSERT_EQUAL_HEX32(0x014u,
+                          ap_m68030_frame_vector_offset_of(format_word));
   /* The two addresses are different, which is the point of the wider frame. */
-  TEST_ASSERT_EQUAL_HEX32(PROGRAM_BASE + 6u, stacked_pc);
-  TEST_ASSERT_EQUAL_HEX32(PROGRAM_BASE, instruction_address);
+  TEST_ASSERT_EQUAL_HEX32(PROGRAM_BASE + 6u,
+                          read_ram_long(&m, r.frame_address + 2u));
+  TEST_ASSERT_EQUAL_HEX32(PROGRAM_BASE,
+                          read_ram_long(&m, r.frame_address + 8u));
 }
 
 /* Reset "does not save old context" at all, and the fault frames carry internal
@@ -1876,9 +1865,7 @@ static void test_the_next_step_executes_the_handlers_first_instruction(void) {
   load(&m, program, 4);
   /* The handler sits inside the same image: PROGRAM_BASE + 4 holds a NOP, so
    * plant a distinguishable instruction there through the store path. */
-  m.memory.store_address[m.memory.stores] = PROGRAM_BASE + 4u;
-  m.memory.store_value[m.memory.stores] = 0x70024E71u; /* MOVEQ #2,D0 ; NOP */
-  m.memory.stores++;
+  write_ram_long(&m, PROGRAM_BASE + 4u, 0x70024E71u); /* MOVEQ #2,D0 ; NOP */
   plant_vector(&m, AP_M68030_VECTOR_TRAP_BASE, PROGRAM_BASE + 4u);
   m.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
   m.cpu.regs.isp = SUPERVISOR_STACK;
@@ -1893,6 +1880,210 @@ static void test_the_next_step_executes_the_handlers_first_instruction(void) {
 
   TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&m.cpu).status);
   TEST_ASSERT_EQUAL_HEX32(2u, m.cpu.regs.d[0]);
+}
+
+/* ---------------------------------------------------------------------------
+ * The $4E control group: subroutines, frames and returning from an exception.
+ * ------------------------------------------------------------------------- */
+
+/* "SP - 4 -> SP; PC -> (SP); Destination Address -> PC", then RTS pulls it
+ * back. Run together because a return address that is off by the instruction's
+ * length only shows up when something returns through it. */
+static void test_a_subroutine_call_returns_to_the_instruction_after_it(void) {
+  /* BSR.B +4 ; MOVEQ #1,D0 ; RTS at +6, reached by the branch. */
+  static const uint16_t program[] = {0x6104u, 0x7001u, 0x4E71u, 0x4E75u};
+  machine_t m = {0};
+  load(&m, program, 4);
+  m.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
+  m.cpu.regs.isp = SUPERVISOR_STACK;
+
+  /* The call: lands at +6 and leaves the return address on the stack. */
+  const ap_m68030_step_result_t call = ap_m68030_step(&m.cpu);
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, call.status);
+  TEST_ASSERT_TRUE(call.branch_taken);
+  TEST_ASSERT_EQUAL_HEX32(PROGRAM_BASE + 6u, m.cpu.regs.pc);
+  TEST_ASSERT_EQUAL_HEX32(SUPERVISOR_STACK - 4u, m.cpu.regs.isp);
+
+  /* The RTS there returns to the instruction after the BSR, not to the BSR. */
+  const ap_m68030_step_result_t ret = ap_m68030_step(&m.cpu);
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ret.status);
+  TEST_ASSERT_EQUAL_HEX32(PROGRAM_BASE + 2u, m.cpu.regs.pc);
+  TEST_ASSERT_EQUAL_HEX32(SUPERVISOR_STACK, m.cpu.regs.isp);
+
+  /* And that instruction runs. */
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&m.cpu).status);
+  TEST_ASSERT_EQUAL_HEX32(1u, m.cpu.regs.d[0]);
+}
+
+/* "JMP <ea>" loads the effective *address* into the PC -- it does not read
+ * through it. A model that fetched the operand would jump to whatever happened
+ * to be stored there, which for a jump table is exactly one indirection too
+ * many and lands somewhere plausible. */
+static void test_a_jump_goes_to_the_address_not_to_its_contents(void) {
+  /* JMP (A0) with A0 pointing at +4, where MOVEQ #7,D0 sits. */
+  static const uint16_t program[] = {0x4ED0u, 0x4E71u, 0x7007u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 4);
+  m.cpu.regs.a[0] = PROGRAM_BASE + 4u;
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&m.cpu).status);
+  TEST_ASSERT_EQUAL_HEX32(PROGRAM_BASE + 4u, m.cpu.regs.pc);
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&m.cpu).status);
+  TEST_ASSERT_EQUAL_HEX32(7u, m.cpu.regs.d[0]);
+}
+
+/* "SP - 4 -> SP; An -> (SP); SP -> An; SP + dn -> SP", then UNLK's
+ * "An -> SP; (SP) -> An; SP + 4 -> SP". The pair has to be exactly inverse, and
+ * the order inside each is the instruction: LINK pushes the register *before*
+ * giving it the new stack pointer, and UNLK loads the stack pointer *before*
+ * reloading the register. */
+static void test_link_and_unlk_are_exact_inverses(void) {
+  /* LINK A6,#-16 ; UNLK A6 */
+  static const uint16_t program[] = {0x4E56u, 0xFFF0u, 0x4E5Eu, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 4);
+  m.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
+  m.cpu.regs.isp = SUPERVISOR_STACK;
+  m.cpu.regs.a[6] = 0x12345678u;
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&m.cpu).status);
+  /* The old A6 is on the stack, A6 points at it, and 16 bytes are allocated
+   * below -- "The user should specify a negative displacement in order to
+   * allocate stack area". */
+  TEST_ASSERT_EQUAL_HEX32(SUPERVISOR_STACK - 4u, m.cpu.regs.a[6]);
+  TEST_ASSERT_EQUAL_HEX32(SUPERVISOR_STACK - 20u, m.cpu.regs.isp);
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&m.cpu).status);
+  TEST_ASSERT_EQUAL_HEX32(0x12345678u, m.cpu.regs.a[6]);
+  TEST_ASSERT_EQUAL_HEX32(SUPERVISOR_STACK, m.cpu.regs.isp);
+}
+
+/* The round trip the last commit made half of: take an exception, then RTE out
+ * of it. "the processor updates the status register and program counter with
+ * the data read from the stack" -- the *whole* status register, which is what
+ * returns a user program to user state. */
+static void test_rte_returns_to_the_state_the_exception_interrupted(void) {
+  /* TRAP #0 at +0, then MOVEQ #9,D0 at +2. RTE sits at the handler. */
+  static const uint16_t program[] = {0x4E40u, 0x7009u, 0x4E71u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 4);
+  write_ram_long(&m, PROGRAM_BASE + 4u, 0x4E734E71u); /* RTE ; NOP */
+  plant_vector(&m, AP_M68030_VECTOR_TRAP_BASE, PROGRAM_BASE + 4u);
+  m.cpu.regs.sr = 0; /* user state */
+  m.cpu.regs.isp = SUPERVISOR_STACK;
+  m.cpu.regs.usp = 0x00007000u;
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXCEPTION, ap_m68030_step(&m.cpu).status);
+  TEST_ASSERT_TRUE(ap_m68030_supervisor(&m.cpu.regs));
+
+  /* The RTE in the handler. */
+  const ap_m68030_step_result_t r = ap_m68030_step(&m.cpu);
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, r.status);
+  /* Back in user state, at the instruction after the TRAP, on the user stack,
+   * with the supervisor stack unwound. */
+  TEST_ASSERT_FALSE(ap_m68030_supervisor(&m.cpu.regs));
+  TEST_ASSERT_EQUAL_HEX32(PROGRAM_BASE + 2u, m.cpu.regs.pc);
+  TEST_ASSERT_EQUAL_HEX32(SUPERVISOR_STACK, m.cpu.regs.isp);
+  TEST_ASSERT_EQUAL_HEX32(0x00007000u, m.cpu.regs.usp);
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&m.cpu).status);
+  TEST_ASSERT_EQUAL_HEX32(9u, m.cpu.regs.d[0]);
+}
+
+/* "RTR ... The supervisor portion of the status register is unaffected." RTR is
+ * unprivileged, so restoring the whole SR would make it an instruction any user
+ * program could use to enter supervisor state. */
+static void test_rtr_restores_only_the_condition_codes(void) {
+  static const uint16_t program[] = {0x4E77u, 0x4E71u, 0x4E71u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 4);
+  m.cpu.regs.sr = 0; /* user state */
+  m.cpu.regs.usp = SUPERVISOR_STACK;
+  /* A stacked word with the S bit set, and a return address behind it. */
+  m.memory.bytes[SUPERVISOR_STACK] = 0x20u; /* S set ... */
+  m.memory.bytes[SUPERVISOR_STACK + 1u] = 0x05u; /* ... with C and Z */
+  write_ram_long(&m, SUPERVISOR_STACK + 2u, PROGRAM_BASE + 2u);
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&m.cpu).status);
+
+  /* The condition codes came back ... */
+  TEST_ASSERT_EQUAL_HEX16(0x05u, ap_m68030_read_ccr(&m.cpu.regs));
+  /* ... and the privilege level did not. */
+  TEST_ASSERT_FALSE(ap_m68030_supervisor(&m.cpu.regs));
+  TEST_ASSERT_EQUAL_HEX32(PROGRAM_BASE + 2u, m.cpu.regs.pc);
+}
+
+/* "If Supervisor State ... Else TRAP". The failure mode is silent: a user
+ * program able to run RTE could forge a return from exception into supervisor
+ * state. Table 8-6 also puts the *faulting* instruction's address in the frame
+ * -- "First word of instruction causing Privilege Violation" -- not the next
+ * one, so a handler that emulates the instruction and returns does not skip it. */
+static void test_a_privileged_instruction_in_user_state_violates_privilege(void) {
+  static const uint16_t program[] = {0x4E73u, 0x4E71u, 0x4E71u, 0x4E71u}; /* RTE */
+  machine_t m = {0};
+  load(&m, program, 4);
+  plant_vector(&m, AP_M68030_VECTOR_PRIVILEGE_VIOLATION, HANDLER);
+  m.cpu.regs.sr = 0; /* user state */
+  m.cpu.regs.isp = SUPERVISOR_STACK;
+
+  const ap_m68030_step_result_t r = ap_m68030_step(&m.cpu);
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXCEPTION, r.status);
+  TEST_ASSERT_EQUAL_HEX32(HANDLER, m.cpu.regs.pc);
+  TEST_ASSERT_TRUE(ap_m68030_supervisor(&m.cpu.regs));
+
+  /* The RTE's own address, not the instruction after it. */
+  TEST_ASSERT_EQUAL_HEX32(PROGRAM_BASE, read_ram_long(&m, m.cpu.regs.isp + 2u));
+}
+
+/* "The instruction examines the stack format field in the format/offset word to
+ * determine how much information must be restored" -- and a format the
+ * processor does not define is a format error, vector 14, rather than a return
+ * to whatever the stack happened to contain. */
+static void test_rte_on_an_undefined_frame_format_is_a_format_error(void) {
+  static const uint16_t program[] = {0x4E73u, 0x4E71u, 0x4E71u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 4);
+  plant_vector(&m, AP_M68030_VECTOR_FORMAT_ERROR, HANDLER);
+  m.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
+  m.cpu.regs.isp = SUPERVISOR_STACK;
+  /* Format $7 is not one of the six the MC68030 defines. */
+  m.memory.bytes[SUPERVISOR_STACK + 6u] = 0x70u;
+  m.memory.bytes[SUPERVISOR_STACK + 7u] = 0x00u;
+
+  const ap_m68030_step_result_t r = ap_m68030_step(&m.cpu);
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXCEPTION, r.status);
+  TEST_ASSERT_EQUAL_HEX32(HANDLER, m.cpu.regs.pc);
+  /* And the bad frame was not consumed: the stack pointer moved only by the
+   * new frame this exception built. */
+  TEST_ASSERT_EQUAL_HEX32(SUPERVISOR_STACK - 8u, m.cpu.regs.isp);
+}
+
+/* "TRAPV ... If V Then TRAP" -- so it is a no-op when the overflow flag is
+ * clear, and an exception when it is not. Both directions, since a model that
+ * always trapped would still pass a test that only set V. */
+static void test_trapv_traps_only_when_the_overflow_flag_is_set(void) {
+  static const uint16_t program[] = {0x4E76u, 0x7003u, 0x4E71u, 0x4E71u};
+
+  machine_t clear = {0};
+  load(&clear, program, 4);
+  clear.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
+  clear.cpu.regs.isp = SUPERVISOR_STACK;
+  ap_m68030_write_ccr(&clear.cpu.regs, 0);
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED,
+                        ap_m68030_step(&clear.cpu).status);
+  TEST_ASSERT_EQUAL_HEX32(PROGRAM_BASE + 2u, clear.cpu.regs.pc);
+
+  machine_t set = {0};
+  load(&set, program, 4);
+  plant_vector(&set, AP_M68030_VECTOR_TRAPCC, HANDLER);
+  set.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
+  set.cpu.regs.isp = SUPERVISOR_STACK;
+  ap_m68030_write_ccr(&set.cpu.regs, (uint16_t)(1u << AP_M68030_SR_V_BIT));
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXCEPTION,
+                        ap_m68030_step(&set.cpu).status);
+  TEST_ASSERT_EQUAL_HEX32(HANDLER, set.cpu.regs.pc);
 }
 
 int main(void) {
@@ -1962,6 +2153,14 @@ int main(void) {
   RUN_TEST(test_a_register_count_is_taken_modulo_sixty_four);
   RUN_TEST(test_a_byte_shift_leaves_the_upper_bytes);
   RUN_TEST(test_an_address_form_accepts_an_immediate_source);
+  RUN_TEST(test_a_subroutine_call_returns_to_the_instruction_after_it);
+  RUN_TEST(test_a_jump_goes_to_the_address_not_to_its_contents);
+  RUN_TEST(test_link_and_unlk_are_exact_inverses);
+  RUN_TEST(test_rte_returns_to_the_state_the_exception_interrupted);
+  RUN_TEST(test_rtr_restores_only_the_condition_codes);
+  RUN_TEST(test_a_privileged_instruction_in_user_state_violates_privilege);
+  RUN_TEST(test_rte_on_an_undefined_frame_format_is_a_format_error);
+  RUN_TEST(test_trapv_traps_only_when_the_overflow_flag_is_set);
   RUN_TEST(test_the_stacked_status_register_is_the_one_before_the_change);
   RUN_TEST(test_taking_an_exception_turns_tracing_off);
   RUN_TEST(test_the_frame_is_built_on_the_supervisor_stack_not_the_user_one);

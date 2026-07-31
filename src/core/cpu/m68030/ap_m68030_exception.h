@@ -138,6 +138,24 @@ ap_m68030_frame_format_of(uint16_t format_word);
 [[nodiscard]] ap_m68030_frame_format_t
 ap_m68030_frame_for_vector(unsigned vector);
 
+/* Whether the frame's PC field holds the address of the *next* instruction, or
+ * of the instruction that caused the exception.
+ *
+ * Table 8-6 states this per exception in the bracketed column, and it is not a
+ * property of the frame size: the four-word frame holds the next instruction
+ * for an interrupt or a TRAP and the faulting one for illegal instruction,
+ * A-line, F-line and privilege violation ("First word of instruction causing
+ * Privilege Violation"), and format error stacks "[RTE or cpRESTORE
+ * instruction]" -- the RTE that found the bad frame, not what follows it.
+ * Everything in the six-word frame's row is "[Next instruction for all these
+ * exceptions]".
+ *
+ * Defaulting to "next" is the mistake this exists to prevent: a privilege
+ * violation handler that emulates the instruction and returns would skip it,
+ * and a format error handler would return past the RTE it was meant to
+ * diagnose. Both run; neither faults. */
+[[nodiscard]] bool ap_m68030_stacks_next_instruction(unsigned vector);
+
 /* Whether an interrupt request at `level` is recognised against a status
  * register interrupt mask of `mask`.
  *

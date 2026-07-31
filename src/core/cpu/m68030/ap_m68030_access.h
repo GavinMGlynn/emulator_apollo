@@ -117,12 +117,18 @@ typedef struct {
 ap_m68030_access_read(ap_m68030_access_ctx_t *access, uint32_t logical,
                       uint8_t function_code);
 
-/* Write one long word at a logical address. `aligned_long_word` feeds the data
- * cache's write allocation rule, which validates an allocated entry only for an
- * aligned long. */
+/* Write one operand of `size` bytes at a logical address, in a single bus
+ * cycle -- so the operand must not straddle a long-word boundary; the operand
+ * layer above is what splits a misaligned transfer into cycles this can take.
+ *
+ * The size reaches the store callback, because a byte write is a byte write:
+ * telling the memory system every write is four bytes wide would have a byte
+ * store clobber its three neighbours. It also feeds the data cache's write
+ * allocation rule, which validates an allocated entry only for an *aligned
+ * long* -- so the rule is derived here from the size and the address rather
+ * than asserted by the caller, which is one fewer thing to get wrong. */
 [[nodiscard]] ap_m68030_access_result_t
 ap_m68030_access_write(ap_m68030_access_ctx_t *access, uint32_t logical,
-                       uint8_t function_code, uint32_t value,
-                       bool aligned_long_word);
+                       uint8_t function_code, uint32_t value, unsigned size);
 
 #endif /* APOLLO_CPU_M68030_AP_M68030_ACCESS_H */

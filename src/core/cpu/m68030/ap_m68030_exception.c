@@ -171,6 +171,24 @@ ap_m68030_frame_format_t ap_m68030_frame_for_vector(unsigned vector) {
   return AP_M68030_FRAME_SHORT;
 }
 
+bool ap_m68030_stacks_next_instruction(unsigned vector) {
+  switch (vector) {
+  /* Table 8-6's four-word row, the entries that name the faulting instruction
+   * rather than the one after it. */
+  case AP_M68030_VECTOR_ILLEGAL_INSTRUCTION:
+  case AP_M68030_VECTOR_LINE_A:
+  case AP_M68030_VECTOR_LINE_F:
+  case AP_M68030_VECTOR_PRIVILEGE_VIOLATION:
+  case AP_M68030_VECTOR_FORMAT_ERROR:
+    return false;
+  default:
+    break;
+  }
+  /* Everything else -- the interrupts, TRAP #N, and the whole six-word row,
+   * "[Next instruction for all these exceptions]". */
+  return true;
+}
+
 bool ap_m68030_interrupt_recognised(unsigned level, unsigned previous_level,
                                     unsigned mask) {
   if (level == 0) {
