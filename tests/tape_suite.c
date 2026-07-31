@@ -98,8 +98,100 @@ static void test_the_tape_raises_its_documented_interrupt(void) {
   TEST_ASSERT_EQUAL_HEX8(0xA5, ap_intr_acknowledge(&intr));
 }
 
+/* A tiny cartridge, built by the test -- `media/` is gitignored. */
+static uint8_t cartridge[AP_CT_BLOCK_SIZE * 2u];
+
+static void arm(ap_tape_t *t) {
+  for (unsigned i = 0; i < sizeof cartridge; i++) {
+    cartridge[i] = (uint8_t)(0x40u + (i & 0x3Fu));
+  }
+  ap_tape_reset(t);
+  TEST_ASSERT_TRUE(ap_tape_load(t, cartridge, sizeof cartridge,
+                                AP_QIC_CARTRIDGE_DC600A));
+}
+
+/* Issue a QIC command through the controller, as a driver would: set the
+ * request bit in the control register, then write the opcode to the data
+ * register. */
+static void issue(ap_tape_t *t, uint8_t command) {
+  ap_tape_write(t, AP_TAPE_ADDR + 1u, AP_SC499_CTL_REQUEST);
+  ap_tape_write(t, AP_TAPE_ADDR + 0u, command);
+}
+
+static void test_an_idle_controller_still_reads_as_measured(void) {
+  ap_tape_t t;
+  arm(&t);
+
+  /* With a cartridge loaded but no transfer running, the data register is the
+   * controller's own and reads `00` -- the measured value. The drive only fills
+   * it during a READ, and conflating the two made this dump stop reproducing. */
+  TEST_ASSERT_EQUAL_HEX8(0x00, ap_tape_read(&t, AP_TAPE_ADDR + 0u));
+}
+
+static void test_a_command_reaches_the_drive_through_the_registers(void) {
+  ap_tape_t t;
+  arm(&t);
+
+  /* Control bit 6 is "Request to LSI chip", so a data-register write with it
+   * set is a command rather than data. */
+  issue(&t, AP_QIC_CMD_SELECT);
+  TEST_ASSERT_TRUE(t.drive.selected);
+
+  issue(&t, AP_QIC_CMD_READ);
+  TEST_ASSERT_TRUE(t.drive.reading);
+}
+
+static void test_the_tape_is_read_through_the_data_register(void) {
+  ap_tape_t t;
+  arm(&t);
+  issue(&t, AP_QIC_CMD_SELECT);
+  issue(&t, AP_QIC_CMD_READ);
+
+  /* A byte per access, in order, across the block boundary the drive works in
+   * -- the controller transfers bytes and the drive blocks, so the join has to
+   * carry the difference. */
+  for (unsigned i = 0; i < AP_CT_BLOCK_SIZE + 4u; i++) {
+    TEST_ASSERT_EQUAL_HEX8(cartridge[i], ap_tape_read(&t, AP_TAPE_ADDR + 0u));
+  }
+}
+
+static void test_a_refused_command_raises_exception(void) {
+  ap_tape_t t;
+  arm(&t);
+  issue(&t, AP_QIC_CMD_SELECT);
+
+  /* The status register is the only channel the controller has for saying no,
+   * so a command the drive refuses must show there rather than vanish. WRITE is
+   * refused because there is no write-back path. */
+  issue(&t, AP_QIC_CMD_WRITE);
+  TEST_ASSERT_EQUAL_HEX8(AP_SC499_ST_EXC,
+                         ap_tape_read(&t, AP_TAPE_ADDR + 1u) & AP_SC499_ST_EXC);
+}
+
+static void test_running_off_the_end_raises_exception(void) {
+  ap_tape_t t;
+  arm(&t);
+  issue(&t, AP_QIC_CMD_SELECT);
+  issue(&t, AP_QIC_CMD_READ);
+
+  for (unsigned i = 0; i < sizeof cartridge; i++) {
+    (void)ap_tape_read(&t, AP_TAPE_ADDR + 0u);
+  }
+  /* One past the end. `[SC499]`'s EXC comes "from LSI chip", and the end of a
+   * cartridge is exactly such a condition -- a driver reading on gets an
+   * exception rather than the tape silently wrapping. */
+  (void)ap_tape_read(&t, AP_TAPE_ADDR + 0u);
+  TEST_ASSERT_EQUAL_HEX8(AP_SC499_ST_EXC,
+                         ap_tape_read(&t, AP_TAPE_ADDR + 1u) & AP_SC499_ST_EXC);
+}
+
 int main(void) {
   UNITY_BEGIN();
+  RUN_TEST(test_an_idle_controller_still_reads_as_measured);
+  RUN_TEST(test_a_command_reaches_the_drive_through_the_registers);
+  RUN_TEST(test_the_tape_is_read_through_the_data_register);
+  RUN_TEST(test_a_refused_command_raises_exception);
+  RUN_TEST(test_running_off_the_end_raises_exception);
   RUN_TEST(test_the_measured_dump_is_reproduced);
   RUN_TEST(test_the_write_only_commands_are_reachable_by_writing);
   RUN_TEST(test_the_upper_half_of_each_block_is_not_the_part);

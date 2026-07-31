@@ -32,6 +32,9 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#include <stddef.h>
+
+#include "device/ap_qic.h"
 #include "device/ap_sc499.h"
 
 #define AP_TAPE_ADDR 0x050000u
@@ -40,11 +43,36 @@
 /* `008778-03` Table 2-3. */
 #define AP_TAPE_IRQ 5u
 
+/* ## The join between controller and drive
+ *
+ * `[SC499]` puts the QIC-02 command set behind the data/command register at
+ * `BASE+0`, and gates it with control bit 6, "Request to LSI chip". So a byte
+ * written to the data register while that bit is set is a command to the drive,
+ * and bytes read back are its data.
+ *
+ * **The per-byte handshake is not modelled.** `[SC499]` §1.13.2 describes the
+ * QIC-02 interface timing -- the REQUEST and READY exchange that paces each byte
+ * -- and that section has not been read. What is here transfers a byte per
+ * access with no pacing, which is enough for a driver that polls the status
+ * register and wrong for one that depends on the handshake's edges. Named so
+ * that a driver failing in that way is diagnosed rather than puzzled over. */
+
 typedef struct {
   ap_sc499_t controller;
+  ap_qic_t drive;
+  /* Where in the current block the next data read comes from. The controller
+   * hands over one byte at a time; the drive deals in 512-byte blocks. */
+  uint8_t block[AP_CT_BLOCK_SIZE];
+  unsigned offset;
+  bool block_valid;
 } ap_tape_t;
 
 void ap_tape_reset(ap_tape_t *tape);
+
+/* Load a cartridge into the drive. The type is the caller's to supply; see
+ * `device/ap_qic.h`. */
+[[nodiscard]] bool ap_tape_load(ap_tape_t *tape, const uint8_t *data,
+                                size_t size, ap_qic_cartridge_t cartridge);
 
 /* False for the four undecoded addresses of each eight as well as for anything
  * outside the range: the dump reads `FF` there, and folding them onto the

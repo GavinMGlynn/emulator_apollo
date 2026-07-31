@@ -2455,8 +2455,12 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
   - [x] The drive and tape motion, `device/ap_qic.c`: the readable half of the
         command set over a `.ct` image, with writing refused and the two lost
         opcodes claimed by nothing. `qic_suite`, 12 tests.
-  - [ ] Join the drive to the SC-499's registers, so a driver reaches it
-        through `050000` rather than directly.
+  - [x] The drive joined to the SC-499's registers: a driver reaches it through
+        `050000`, commands go via the request bit, and data comes back a byte at
+        a time. `tape_suite`, 11 tests.
+  - [ ] The per-byte QIC-02 handshake, `[SC499]` §1.13.2's REQUEST/READY
+        exchange — not read, so not modelled. A driver polling status works; one
+        depending on the handshake's edges will not.
   - [ ] Note C25: the
         controller identifies the cartridge type from BOT-to-load-point
         *distance*, which a raw block image has no geometry to supply, so the
