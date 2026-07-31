@@ -2473,13 +2473,16 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         answered, and every region named. `board_suite`, 7 tests.
   - [x] `ap_machine` routed through it, optionally — flat RAM stays the default
         so the probes keep the harness they want. `--boot-tape` uses the map.
-  - [ ] **The boot image's load address is not main memory.** Through the real
-        map the run executes zero instructions: `0013D800` falls in Table 2-8's
-        AT-compatible bus memory space. Either the PROM maps that range before
-        loading, or the header's addresses are logical and the image is placed
-        physically elsewhere. Settle that before touching the map —
-        `FINDINGS.md` C28 records why raising the number by mapping RAM there
-        would mean nothing.
+  - [x] **Settled: the boot image's addresses are logical.** The oracle reads
+        `FF` at `0013D800` and at `00120000`, main memory at `01000000`, and
+        `TC = 0` — so the address is unmapped physically, this core's map is
+        right, and the zero is correct behaviour. Whatever loads the image
+        enables translation and maps the range first (`FINDINGS.md` C28).
+  - [ ] Boot through the PROM rather than side-loading, so translation is set
+        up by the firmware that expects to set it up. The MMU has worked here
+        for some time; what is missing is the PROM path, which
+        `tools/mame-oracle/FINDINGS.md` C4 put in doubt and which this now
+        gives a reason to revisit.
   - [x] The `.ct` image reader, `image/ap_ct.c`: block addressing, the
         whole-block size check, and boot-record parsing. `ct_suite`, 8 tests.
   - [x] The QIC-02 command set transcribed as far as the scan allows

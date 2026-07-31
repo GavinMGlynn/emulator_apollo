@@ -1767,6 +1767,31 @@ a physical address. The 68030 boots with translation off, so either the PROM
 enables the MMU and maps this range before loading, or the image is placed
 physically elsewhere and the header's addresses are logical.
 
+**Confirmed against the oracle: the address is logical.** A dump of the real
+machine settles all three possibilities at once:
+
+    0013D800   FF FF FF FF ...   unmapped
+    00120000   FF FF FF FF ...   unmapped
+    01000000   55 55 55 55 ...   main memory, present
+    TC         00000000          translation disabled
+
+So `0013D800` is not physical memory on a DN3500, which is exactly what this
+core's address map already said -- the map is right and the zero is correct
+behaviour. Main memory is where Table 2-8 puts it, and the MMU is *off* at this
+point in the boot.
+
+The only reading left is that the boot image's addresses are **logical**, and
+that whatever loads the image enables translation and maps that range first. The
+68030 boots with translation off, so the PROM must turn it on; and this core has
+had the MMU -- translation control, transparent translation, the ATC and the
+table walk -- working for some time, so nothing is missing but the firmware that
+programs it.
+
+That also explains why the flat-RAM run got as far as 16,933 instructions: with
+memory answering everywhere, a logical address and a physical one are
+indistinguishable, and the firmware ran until it needed something flat memory
+could not fake.
+
 **The number is not to be repaired by mapping RAM at `0013D800`.** That would
 raise the thermometer to something like its old reading and mean nothing, because
 the reading would again come from memory that answers rather than from a machine

@@ -59,9 +59,7 @@ and identical state hash across repeated runs and between `-O0` and `-O3`.
 
 Routed through the DN3500's **real address map** it executes **zero**: the
 image's declared load address `0013D800` is in AT-compatible bus memory space per
-Table 2-8, not main memory, so it cannot be placed. Both figures are honest and
-the second is the more informative — it names the assumption the first was
-resting on. The fix is *not* to map RAM there; see `FINDINGS.md` C28.
+Table 2-8, not main memory, so it cannot be placed. The oracle confirms it: `0013D800` reads `FF` on a real DN3500, main memory is at `01000000`, and `TC = 0`. So this core's map is right, the zero is correct behaviour, and the image's addresses are **logical** — something enables translation before loading it. Both figures are honest and the second is the more informative.
 
 That is not a boot. The fault on flat RAM is expected: this is the boot image on flat RAM
 with a chosen stack, no boot PROM, and none of the core-board devices mapped, so
