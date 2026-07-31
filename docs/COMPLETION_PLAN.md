@@ -2370,6 +2370,16 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
 - [ ] Node ID PROM (`0x011200`), including node ID taken from the logical volume
       label. *Verification: `lcnode`-visible node ID matches the configured
       value.*
+  - [x] The PROM itself: layout measured, identifier big-endian in registers
+        0-3, checksum in register 14 confirmed arithmetically. Stride 2 with the
+        odd byte reading zero — *not* the serial ports' arrangement at the same
+        stride, which reads every value twice. `nodeid_suite`, 6 tests.
+  - [ ] Taking the identifier from the logical volume label, which needs media
+        and a volume-label reader. The module takes it from its caller, so this
+        is a source above it rather than a change to it.
+  - [ ] Whether the checksum covers only the identifier or all sixteen
+        registers. The rest are zero in the only PROM seen, so both give the
+        same byte; a PROM with a non-zero byte elsewhere would settle it.
 
 ## Phase 4 — Storage, then a first boot
 
