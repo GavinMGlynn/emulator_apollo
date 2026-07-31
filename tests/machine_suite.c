@@ -339,6 +339,8 @@ static void test_every_transcribed_row_matches_both_published_columns(void) {
       {0xE288u, "LSR.L #1,D0"},   {0xE388u, "LSL.L #1,D0"},
       {0xE280u, "ASR.L #1,D0"},   {0xE380u, "ASL.L #1,D0"},
       {0xE298u, "ROR.L #1,D0"},   {0xE290u, "ROXR.L #1,D0"},
+      /* §11.6.16: NOP, whose 2 clocks the oracle measured independently. */
+      {0x4E71u, "NOP"},
   };
 
   for (unsigned c = 0; c < sizeof CASES / sizeof CASES[0]; c++) {

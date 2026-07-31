@@ -68,6 +68,14 @@ enum {
   ROW_ASR_IMM,
   ROW_RO_IMM,
   ROW_ROX_DN,
+  ROW_NOP,
+  ROW_RTS,
+  ROW_RTR,
+  ROW_RTD,
+  ROW_UNLK,
+  ROW_LINK_W,
+  ROW_LINK_L,
+  ROW_LOGICAL_TO_SR,
   ROW_MOVEQ,
   ROW_ADDQ,
   ROW_SUBQ,
@@ -173,6 +181,33 @@ static const ap_m68030_table_entry_t TABLE[ROW_COUNT] = {
     [ROW_RO_IMM] = {"ROd #<data>,Dy", {4, 0, 6, 6}, false, false},
     [ROW_ROX_DN] = {"ROXd Dn", {10, 0, 12, 12}, false, false},
 
+    /* §11.6.16, Control Instructions -- the forms whose cost is fixed by the
+     * instruction word alone.
+     *
+     * `NOP` has a **head of zero**, unlike most register operations, so nothing
+     * of it can be absorbed by the previous instruction's tail. An instruction
+     * that does nothing still cannot be overlapped away.
+     *
+     * The returns carry operand reads in their cache case -- `RTS` is
+     * `9(1/0/0)`, one read for the return address -- so their `CC` already
+     * includes two clocks of bus. Under `max(microcode, bus)` that is still the
+     * microcode figure, since every one of these exceeds its own bus time. */
+    [ROW_NOP] = {"NOP", {0, 0, 2, 2}, false, false},
+    [ROW_RTS] = {"RTS", {1, 0, 9, 11}, false, false},
+    [ROW_RTR] = {"RTR", {1, 0, 12, 14}, false, false},
+    [ROW_RTD] = {"RTD", {2, 0, 10, 12}, false, false},
+    [ROW_UNLK] = {"UNLK", {0, 0, 5, 5}, false, false},
+    [ROW_LINK_W] = {"LINK.W", {0, 0, 4, 5}, false, false},
+    [ROW_LINK_L] = {"LINK.L", {2, 0, 6, 7}, false, false},
+
+    /* The six logical-immediate-to-status forms share one row at 12 clocks.
+     * That is six times the cost of the same operation on a data register,
+     * which is the price of a status register write forcing the pipe to
+     * refill -- the same fact §8.1.7 gives as the reason those instructions
+     * count as a change of flow for tracing. */
+    [ROW_LOGICAL_TO_SR] = {"ANDI/EORI/ORI to SR or CCR", {4, 0, 12, 14},
+                           false, false},
+
     /* §11.6.9, Immediate Arithmetical/Logical Instructions. */
     [ROW_MOVEQ] = {"MOVEQ #<data>,Dn", {.head = 2, .tail = 0, .cache_case = 2, .no_cache_case = 2}, false, false},
     [ROW_ADDQ] = {"ADDQ #<data>,Rn", {.head = 2, .tail = 0, .cache_case = 2, .no_cache_case = 2}, false, false},
@@ -199,6 +234,34 @@ const ap_m68030_table_entry_t *ap_m68030_timing_for_word(uint16_t instruction) {
    * form's published figure needs an effective address time this does not
    * carry. Mode 000 is a data register, 001 an address register. */
   const bool register_source = (mode == 0x0u) || (mode == 0x1u);
+
+  /* §11.6.16's control instructions. The `$4E` group's fixed-cost members are
+   * identified by their whole instruction word, since each is a single
+   * encoding rather than a family. */
+  switch (instruction) {
+  case 0x4E71u:
+    return &TABLE[ROW_NOP];
+  case 0x4E75u:
+    return &TABLE[ROW_RTS];
+  case 0x4E77u:
+    return &TABLE[ROW_RTR];
+  case 0x4E74u:
+    return &TABLE[ROW_RTD];
+  default:
+    break;
+  }
+  /* LINK and UNLK carry a register in their low three bits, so they are ranges
+   * rather than single words. LINK.W is `$4E5x`, UNLK `$4E5x` above it, and
+   * LINK.L a family 0100 form at `$480x`. */
+  if ((instruction & 0xFFF8u) == 0x4E50u) {
+    return &TABLE[ROW_LINK_W];
+  }
+  if ((instruction & 0xFFF8u) == 0x4E58u) {
+    return &TABLE[ROW_UNLK];
+  }
+  if ((instruction & 0xFFF8u) == 0x4808u) {
+    return &TABLE[ROW_LINK_L];
+  }
 
   /* §11.6.11's single-operand forms, family 0100. Bits 11-9 choose the
    * operation and bits 7-6 the size, with `11` an escape to a different

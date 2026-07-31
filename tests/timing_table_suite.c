@@ -138,8 +138,13 @@ static void test_what_is_not_transcribed_is_reported_as_absent(void) {
   TEST_ASSERT_NULL(ap_m68030_timing_for_word(0xD010u));
   /* MULU.W D0,D0 -- family 1100's wide form, not transcribed. */
   TEST_ASSERT_NULL(ap_m68030_timing_for_word(0xC0C0u));
-  /* An instruction from a family the table says nothing about. */
-  TEST_ASSERT_NULL(ap_m68030_timing_for_word(0x4E71u)); /* NOP */
+  /* SWAP, which lives in §11.6.13's miscellaneous table and has not been read
+   * yet. NOP stood here until §11.6.16 was transcribed -- a placeholder for
+   * "not covered" needs replacing whenever coverage grows, which is the right
+   * kind of churn. */
+  TEST_ASSERT_NULL(ap_m68030_timing_for_word(0x4840u)); /* SWAP D0 */
+  /* A register-count shift, whose cost the table marks as count-dependent. */
+  TEST_ASSERT_NULL(ap_m68030_timing_for_word(0xE2A8u)); /* LSR.L D1,D0 */
 }
 
 /* Every row names the form as §11.6 writes it, so a figure can be traced back
@@ -174,6 +179,73 @@ static void test_the_figures_compose_through_the_overlap_rule(void) {
   TEST_ASSERT_EQUAL_UINT64(4u, ap_m68030_overlap_total(&state));
 }
 
+/* §11.6.16's control rows, identified by whole instruction words rather than by
+ * family, since each is a single encoding. The `LINK`/`UNLK` pair splits on bit
+ * 3 of `$4E5x` — the same split `ap_m68030_control_decode` makes, so the two
+ * modules agree about where the boundary is rather than each having its own. */
+static void test_the_control_instructions_are_found_by_their_encodings(void) {
+  const ap_m68030_table_entry_t *nop = ap_m68030_timing_for_word(0x4E71u);
+  TEST_ASSERT_NOT_NULL(nop);
+  TEST_ASSERT_EQUAL_UINT(2u, nop->timing.cache_case);
+  /* NOP's head is zero, unlike most register operations: an instruction that
+   * does nothing still cannot be overlapped away by its predecessor. */
+  TEST_ASSERT_EQUAL_UINT(0u, nop->timing.head);
+
+  const ap_m68030_table_entry_t *rts = ap_m68030_timing_for_word(0x4E75u);
+  TEST_ASSERT_NOT_NULL(rts);
+  TEST_ASSERT_EQUAL_UINT(9u, rts->timing.cache_case);
+  TEST_ASSERT_EQUAL_UINT(11u, rts->timing.no_cache_case);
+
+  /* LINK.W is $4E5x with bit 3 clear and UNLK the same range with it set. */
+  for (unsigned reg = 0; reg < 8u; reg++) {
+    const ap_m68030_table_entry_t *link =
+        ap_m68030_timing_for_word((uint16_t)(0x4E50u + reg));
+    const ap_m68030_table_entry_t *unlk =
+        ap_m68030_timing_for_word((uint16_t)(0x4E58u + reg));
+    TEST_ASSERT_NOT_NULL(link);
+    TEST_ASSERT_NOT_NULL(unlk);
+    TEST_ASSERT_EQUAL_UINT(4u, link->timing.cache_case);
+    TEST_ASSERT_EQUAL_UINT(5u, unlk->timing.cache_case);
+  }
+
+  /* And LINK.L is a different encoding entirely, at $480x, costing more. */
+  const ap_m68030_table_entry_t *link_long =
+      ap_m68030_timing_for_word(0x4808u);
+  TEST_ASSERT_NOT_NULL(link_long);
+  TEST_ASSERT_EQUAL_UINT(6u, link_long->timing.cache_case);
+}
+
+/* Writing the status register costs 12 clocks — six times the same logical
+ * operation on a data register. That is the pipe refilling, and it is the same
+ * fact §8.1.7 gives as the reason these instructions count as a change of flow
+ * for tracing: "the processor must re-prefetch instruction words to fill the
+ * pipe again any time an instruction that can modify the status register is
+ * executed."
+ *
+ * Two independent parts of the manual agreeing about one instruction's
+ * behaviour is worth pinning: a transcription that had this at 2, matching its
+ * data-register sibling, would contradict the trace rule this core already
+ * implements. */
+static void test_a_status_register_write_costs_a_pipe_refill(void) {
+  unsigned count = 0;
+  const ap_m68030_table_entry_t *table = ap_m68030_timing_table(&count);
+
+  const ap_m68030_table_entry_t *status = nullptr;
+  for (unsigned i = 0; i < count; i++) {
+    if (table[i].timing.cache_case == 12u) {
+      status = &table[i];
+    }
+  }
+  TEST_ASSERT_NOT_NULL(status);
+  TEST_ASSERT_EQUAL_UINT(14u, status->timing.no_cache_case);
+
+  /* Six times the register-operand form of the same logical operation. */
+  const ap_m68030_table_entry_t *ordinary = ap_m68030_timing_for_word(0xC200u);
+  TEST_ASSERT_NOT_NULL(ordinary);
+  TEST_ASSERT_EQUAL_UINT(6u * ordinary->timing.cache_case,
+                         status->timing.cache_case);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_every_transcribed_row_is_internally_consistent);
@@ -182,6 +254,8 @@ int main(void) {
   RUN_TEST(test_the_divides_are_marked_data_dependent);
   RUN_TEST(test_what_is_not_transcribed_is_reported_as_absent);
   RUN_TEST(test_every_row_names_its_form);
+  RUN_TEST(test_the_control_instructions_are_found_by_their_encodings);
+  RUN_TEST(test_a_status_register_write_costs_a_pipe_refill);
   RUN_TEST(test_the_figures_compose_through_the_overlap_rule);
   return UNITY_END();
 }

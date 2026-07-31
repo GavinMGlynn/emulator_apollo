@@ -11,7 +11,7 @@
 # instruction prefetches". The published tables average the odd- and
 # even-aligned cases; this reports both.
 word   instruction        steady  clocks per step
-4E71   NOP                NO      0 2 0 2 0 2
+4E71   NOP                yes     2 2 2 2 2 2
 7042   MOVEQ #$42,D0      yes     2 2 2 2 2 2
 D280   ADD.L D0,D1        yes     2 2 2 2 2 2
 E288   LSR.L #1,D0        yes     4 4 4 4 4 4
