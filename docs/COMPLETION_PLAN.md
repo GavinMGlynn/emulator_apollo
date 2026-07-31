@@ -2218,8 +2218,25 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         assumed because it is the only reading with no gaps. Both are pinned by
         tests so they cannot be closed by accident; an oracle diff or a DMA
         transfer exercising the map would settle them.
-  - [ ] The remaining registers of this item: CPU status/control, cache
-        control, task alias, master request, latch-page-on-parity-error.
+  - [x] **Characterised** by measurement, since no manual here lays these out:
+        `008778-03` Table 2-8 gives addresses only, and the handbook carrying
+        the bit layouts is not in `docs/references/`. `tools/mame-oracle/regprobe.lua`
+        drives every bit in both directions; `FINDINGS.md` C10 has the table.
+        Width, aliasing and which bits are storage are now known — the cache
+        control register is a *byte* mirrored across a 16-bit read, which a
+        transcription would have got wrong.
+  - [ ] Implement the four registers that measurement covers: CPU status
+        (bit 15 stuck, write-clears the latched bits), CPU control and
+        latch-page-on-parity (16 bits of storage each), cache control (a
+        mirrored byte, one writable bit). Storage and width only — what the
+        bits *mean* is still unknown, and nothing may depend on a meaning.
+  - [ ] **Blocked, not deferred:** task alias (`010300`) and master request
+        (`011600`) are absent from the oracle — they match, exactly, the
+        all-ones signature that two known-unmapped control addresses produce.
+        Table 2-8 lists both, so the hardware has them and the oracle does not.
+        Needs the architecture handbook, or a boot-PROM disassembly showing what
+        the firmware writes there. Implementing all-ones would bake an oracle
+        gap in as though it were a measurement.
 - [ ] Two 8259 interrupt controllers and the Apollo interrupt vector scheme.
       *Verification: probe-driven interrupt ordering vs oracle.*
 - [ ] Two AT DMA controllers. *Verification: transfer probes; device request

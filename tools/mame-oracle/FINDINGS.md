@@ -630,6 +630,65 @@ differ only in filename case.*
 - No ring ROM appears in any set, confirming from the driver source what
   `RING.md` already states from the manuals: MAME models no Apollo Token Ring.
 
+### C10 — the core-board registers, measured because no manual lays them out
+
+`008778-03` Table 2-8 gives each core-board register an address and says
+nothing at all about its bits. The manual that carries the layouts is the
+*Domain Personal Workstations and Servers Hardware Architecture Handbook*,
+which is **not** in `docs/references/` — we hold only `019411-A00`, an addendum
+that patches its Chapter 4. So there is no paper route to these registers, and
+`CLAUDE.md`'s remaining sanctioned source is the oracle.
+
+That the oracle is GPL and this core is MIT is why this is a **probe** and not
+a reading. `CLAUDE.md` says "build and instrument `ext/mame`", and instrumenting
+means running it and writing down what happened. `tools/mame-oracle/regprobe.lua`
+drives every bit of a register in both directions and records the read-back;
+what follows is measurement, reproducible from this checkout, in the same form
+as every other figure here.
+
+**Method.** For each bit: read the original, write a value with just that bit
+set, read back; write a value with just that bit clear and all others set, read
+back; restore. Both directions are needed — a bit that reads set after *both*
+writes is stuck high rather than writable, and a probe that only ever wrote ones
+would call it read/write.
+
+**Control.** Before concluding that a register is absent, the signature of
+absence had to be established. Two addresses in gaps of Table 2-8 —
+`016000` and `030000` — were probed identically. Both read `FFFF` with no
+writable bit, so *all-ones with nothing writable is what unmapped looks like*
+on this machine. That control is what makes the two rows below sayable.
+
+| Register | Address | Measured |
+| --- | --- | --- |
+| CPU status | `010000` | 16-bit. Bit 15 reads 1 whatever is written. Initial value `8100`; after any write it reads `8000` — bit 8 is latched and **cleared by writing**, and the probe could not restore it. Bits 0–14 read 0 here |
+| CPU control | `010100` | 16-bit, **all 16 bits plain read/write storage**. Initial `F700` |
+| Cache control | `010200` | **8-bit, not 16.** The byte is aliased across the range: a 16-bit read returns it twice (`EFEF`), and `010201` behaves identically to `010200`. Only **bit 7** is writable; the rest read `6F` |
+| Task alias | `010300` | Indistinguishable from unmapped — matches the control signature exactly |
+| Latch-page-on-parity-error | `011300` | 16-bit, all bits plain read/write storage. Initial `0000` |
+| Master request | `011600` | Indistinguishable from unmapped — matches the control signature exactly |
+
+**What this does and does not settle.** It settles *width, aliasing and which
+bits are storage* — the cache control register being a mirrored byte rather than
+a 16-bit register is exactly the kind of thing a transcription would have got
+wrong and a measurement cannot. It settles **nothing about what any bit means**.
+A register whose sixteen bits all store is a register we can implement without
+inventing; it is not a register we understand.
+
+Two further limits, stated because they bound how far this may be pushed:
+
+- The CPU status register's bits 0–14 read 0 **in this machine state**. They
+  report hardware conditions — timeouts, parity, the service switch — that are
+  simply not asserted two emulated seconds into boot. "Reads 0 now" is not
+  "unimplemented", and this probe cannot tell those apart without driving the
+  conditions.
+- Task alias and master request are absent **from the oracle**, which is not the
+  same as absent from the hardware. `CLAUDE.md` warns that the driver admits
+  gaps, and Table 2-8 lists both registers, so the hardware plainly has them.
+  Implementing all-ones would bake an oracle gap into this core as though it
+  were a measurement. They stay declined.
+
+Reproducible: two full runs diff byte-identical.
+
 ## Where the ring is not
 
 The Apollo Token Ring has **no runnable oracle at all**: MAME carries Domain

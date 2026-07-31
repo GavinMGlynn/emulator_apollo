@@ -137,6 +137,7 @@ Last updated: 2026-08-01.
 | 68030 translation table search (the walk) | working: search, U/M writeback, and ATC fill | `walk_suite`, 40 tests, `MC68030 User's Manual 3ed` §9.2, §9.4, §9.5, §11; writeback cost cross-checked against `MC68851 PMMU User's Manual 3ed` §5.1.5.3.11 |
 | 68851 PMMU, 68030/68040 MMU tables + ATC | not started | — |
 | 68881 / 68882 / 68040 FPU | not started | — |
+| Core-board registers (`010000`-`011600`) | **characterised, not yet implemented.** No manual here lays out their bits, so they were measured: widths, aliasing and which bits are storage now known, meanings not. Cache control is a *byte* mirrored across a 16-bit read. Task alias and master request are absent from the oracle and stay declined | `FINDINGS.md` C10, `tools/mame-oracle/regprobe.lua`; two runs byte-identical |
 | Address translation map (`017000`) | working: the translation itself, both DMA widths, and the register file. Between the AT bus and physical memory, not the CPU's MMU -- a DMA controller has no MMU, and this is what lets it see scattered physical pages as one contiguous run. Present on DN3500/4500/5500 and absent on DN3000, from the model table | `atmap_suite`, 15 tests, `019411-A00` §4.2.1.4, `008778-03` §1.2, §2.5 |
 | Memory bus and board cache | not started | — |
 | Two 8259 interrupt controllers | not started | — |
