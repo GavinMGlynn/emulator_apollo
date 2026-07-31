@@ -18,6 +18,7 @@
 #include <stdlib.h>
 
 #include "image/ap_ct.h"
+#include "board/ap_board.h"
 #include "machine/ap_machine.h"
 
 static void print_usage(const char *program_name) {
@@ -177,7 +178,9 @@ static int boot_from_tape(const char *path, unsigned limit) {
   /* Enough RAM to hold the image where it belongs, rounded up. The machine
    * takes flat memory from zero; a real DN3500 has its main memory elsewhere,
    * and wiring that is the boot-PROM route this deliberately does not need. */
-  uint32_t ram_bytes = image.load_address + image.length + 0x10000u;
+  /* Main memory's size, not an address: with the board's map the image's load
+   * address is in the machine's low regions, not in RAM. */
+  uint32_t ram_bytes = 0x400000u;
   uint8_t *ram = calloc(1, ram_bytes);
   if (ram == NULL) {
     free(bytes);
@@ -185,8 +188,26 @@ static int boot_from_tape(const char *path, unsigned limit) {
     return 1;
   }
 
+  /* The DN3500's own address map, so the firmware meets the machine it was
+   * written for: main memory at 1000000, devices at their measured addresses,
+   * and an unclaimed address reported rather than answered with zero. */
+  static const ap_mc146818_time_t epoch = {
+      .year = 1987u, .month = 7u, .day = 31u, .day_of_week = 6u,
+      .hour = 21u, .minute = 9u, .second = 21u,
+  };
+  ap_board_t *board = calloc(1, sizeof *board);
+  if (board == NULL || !ap_board_init(board, ram, ram_bytes, &epoch,
+                                      0x012345u)) {
+    free(board);
+    free(ram);
+    free(bytes);
+    fprintf(stderr, "apollo: cannot build the core board\n");
+    return 1;
+  }
+
   ap_machine_t machine;
   ap_machine_init(&machine, ram, ram_bytes);
+  ap_machine_set_board(&machine, board);
   for (uint32_t i = 0; i < image.length; i++) {
     if (!ap_machine_write(&machine, image.load_address + i, 1u,
                           image.data[i])) {
@@ -212,6 +233,10 @@ static int boot_from_tape(const char *path, unsigned limit) {
          (unsigned long long)ap_machine_hash(&machine));
   printf("  final PC     %08X\n", machine.cpu.regs.pc);
   printf("  bus errors   %u\n", machine.bus_errors);
+  printf("  unmapped     %u read, %u written\n", board->unmapped_reads,
+         board->unmapped_writes);
+  printf("  final region %s\n",
+         ap_board_region_name(ap_board_region(machine.cpu.regs.pc)));
 
   /* Where it stopped matters more than that it stopped. A fault outside the
    * image is the firmware reaching for hardware that is not mapped, which is
@@ -224,6 +249,7 @@ static int boot_from_tape(const char *path, unsigned limit) {
     printf("  note         PC is outside the loaded image\n");
   }
 
+  free(board);
   free(ram);
   free(bytes);
   return 0;

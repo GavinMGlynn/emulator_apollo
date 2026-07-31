@@ -53,11 +53,17 @@ reproducing an average the hardware never exhibits.
 
 **Real Apollo firmware runs.** `--boot-tape <cartridge>` reads a Domain/OS `.ct`
 cartridge, extracts its boot image, places it at the load address the image
-declares, and runs from its entry point. The SR10.3.5 boot cartridge executes
+declares, and runs from its entry point. On flat RAM the SR10.3.5 boot cartridge executed
 **16,933 instructions** before faulting — identical count, identical stop reason
 and identical state hash across repeated runs and between `-O0` and `-O3`.
 
-That is not a boot. The fault is expected: this is the boot image on flat RAM
+Routed through the DN3500's **real address map** it executes **zero**: the
+image's declared load address `0013D800` is in AT-compatible bus memory space per
+Table 2-8, not main memory, so it cannot be placed. Both figures are honest and
+the second is the more informative — it names the assumption the first was
+resting on. The fix is *not* to map RAM there; see `FINDINGS.md` C28.
+
+That is not a boot. The fault on flat RAM is expected: this is the boot image on flat RAM
 with a chosen stack, no boot PROM, and none of the core-board devices mapped, so
 the firmware runs until it reaches for hardware that is not there. What it does
 establish is that 16,933 instructions of real 68030 code — not probes, not

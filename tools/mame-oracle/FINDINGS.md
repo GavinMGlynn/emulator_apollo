@@ -1749,6 +1749,31 @@ Recorded rather than acted on, because changing the machine's address map is a
 larger change than this entry, and because the number is only useful as a
 before-and-after if the before is written down.
 
+**Acted on, and the thermometer went the other way.** Routing the machine
+through the DN3500's real map takes the run from 16,933 instructions to **zero**,
+with one unmapped read and the PC still at the entry point. The image cannot be
+placed at all.
+
+The reason is the finding. `0013D800` is not main memory: Table 2-8 puts
+`120000`-`FBFFFF` in **AT-compatible bus memory space**, and main memory at
+`1000000`. So the boot image's declared load address is not a physical
+main-memory address on this machine, and flat-RAM-from-zero was answering it only
+because flat RAM answers everything.
+
+That reframes C24's confirmation without weakening it. The boot code's first
+instruction really does compute word 0 from word 1, so word 0 really is where the
+image expects to find itself -- but "where it expects to find itself" need not be
+a physical address. The 68030 boots with translation off, so either the PROM
+enables the MMU and maps this range before loading, or the image is placed
+physically elsewhere and the header's addresses are logical.
+
+**The number is not to be repaired by mapping RAM at `0013D800`.** That would
+raise the thermometer to something like its old reading and mean nothing, because
+the reading would again come from memory that answers rather than from a machine
+that matches. 16,933 on flat RAM and 0 on the real map are both honest, and the
+second is more informative: it says exactly which assumption was carrying the
+first.
+
 ## Where the ring is not
 
 The Apollo Token Ring has **no runnable oracle at all**: MAME carries Domain

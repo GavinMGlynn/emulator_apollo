@@ -67,7 +67,7 @@ typedef enum {
   AP_BOARD_REGION_RAM,
 } ap_board_region_t;
 
-typedef struct {
+typedef struct ap_board {
   ap_boardreg_t registers;
   ap_atmap_t translation_map;
   ap_intr_t interrupts;

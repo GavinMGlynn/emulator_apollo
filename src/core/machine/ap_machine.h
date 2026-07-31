@@ -48,6 +48,8 @@
 #include "cpu/m68030/ap_m68030_atc.h"
 #include "cpu/m68030/ap_m68030_cache.h"
 #include "cpu/m68030/ap_m68030_step.h"
+
+struct ap_board;
 #include "state/ap_hash.h"
 
 typedef struct {
@@ -68,6 +70,17 @@ typedef struct {
   ap_m68030_access_ctx_t data_access;
 
   ap_m68030_cpu_t cpu;
+
+  /* Optional: when set, every access is routed through the DN3500's address
+   * map instead of the flat RAM above.
+   *
+   * Optional rather than mandatory because the probes want flat memory -- a
+   * probe puts its program at a known address and wants nothing else in the
+   * way, and a probe harness that had to be a whole DN3500 would be a worse
+   * probe harness. Firmware wants the opposite, and `FINDINGS.md` C28 is what
+   * flat memory cost it: 5634 accesses that read as zero because the device
+   * addresses fell inside the RAM. */
+  struct ap_board *board;
 } ap_machine_t;
 
 /* Wire a machine over `ram`, which the caller owns and must keep alive for as
@@ -78,6 +91,10 @@ typedef struct {
  * Both access contexts point at the CPU's own MMU registers, so a `PMOVE` takes
  * effect on translation rather than only on a register nobody reads. */
 void ap_machine_init(ap_machine_t *machine, uint8_t *ram, uint32_t ram_bytes);
+
+/* Route this machine's accesses through a core-board address map. Pass NULL to
+ * return it to flat RAM. The board is caller-owned, as the RAM is. */
+void ap_machine_set_board(ap_machine_t *machine, struct ap_board *board);
 
 /* Point the processor at an address with a stack, as a reset vector fetch
  * would, and empty the pipe and both caches.

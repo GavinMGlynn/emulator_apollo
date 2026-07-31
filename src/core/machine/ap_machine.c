@@ -3,6 +3,7 @@
 #include "machine/ap_machine.h"
 
 #include "cpu/m68030/ap_m68030_state.h"
+#include "board/ap_board.h"
 
 /* Big endian throughout, matching the operand layer, so a long word written by
  * the operator reads back through an instruction as the same number. */
@@ -13,6 +14,37 @@ static uint32_t read_bytes(const ap_machine_t *machine, uint32_t address,
     value = (value << 8) | machine->ram[address + i];
   }
   return value;
+}
+
+/* With a board attached, an access is a board access -- byte at a time, because
+ * the map is a map of devices and a device answers its own registers. `ok` is
+ * false if *any* byte went unanswered: a long word half in a device and half in
+ * nothing is not a transfer this machine can make. */
+static bool board_read(ap_machine_t *machine, uint32_t address, unsigned count,
+                       uint32_t *out) {
+  uint32_t value = 0;
+  for (unsigned i = 0; i < count; i++) {
+    bool ok = false;
+    uint8_t byte = ap_board_read(machine->board, address + i, &ok);
+    if (!ok) {
+      return false;
+    }
+    value = (value << 8) | byte;
+  }
+  *out = value;
+  return true;
+}
+
+static bool board_write(ap_machine_t *machine, uint32_t address, unsigned count,
+                        uint32_t value) {
+  bool all = true;
+  for (unsigned i = 0; i < count; i++) {
+    bool ok = false;
+    ap_board_write(machine->board, address + i,
+                   (uint8_t)(value >> ((count - 1u - i) * 8u)), &ok);
+    all = all && ok;
+  }
+  return all;
 }
 
 static void write_bytes(ap_machine_t *machine, uint32_t address, unsigned count,
@@ -36,6 +68,20 @@ static void machine_fill(void *context, uint32_t line_address,
   (void)function_code;
   ap_machine_t *machine = (ap_machine_t *)context;
 
+  if (machine->board != NULL) {
+    uint32_t value = 0;
+    if (!board_read(machine, line_address, 4u, &value)) {
+      machine->bus_errors++;
+      out->termination = AP_M68030_TERM_BERR;
+      out->burst_acknowledge = false;
+      return;
+    }
+    out->termination = AP_M68030_TERM_STERM;
+    out->burst_acknowledge = false;
+    out->data[0] = value;
+    return;
+  }
+
   if (!in_range(machine, line_address, 4u)) {
     /* "Outside the RAM is a bus error, not a wrap and not a zero." */
     machine->bus_errors++;
@@ -55,6 +101,13 @@ static void machine_fill(void *context, uint32_t line_address,
 static void machine_store(void *context, uint32_t physical, uint32_t value,
                           unsigned size) {
   ap_machine_t *machine = (ap_machine_t *)context;
+
+  if (machine->board != NULL) {
+    if (!board_write(machine, physical, size, value)) {
+      machine->bus_errors++;
+    }
+    return;
+  }
 
   if (!in_range(machine, physical, size)) {
     machine->bus_errors++;
@@ -235,4 +288,8 @@ uint64_t ap_machine_hash(const ap_machine_t *machine) {
   ap_hash_bytes(&st, machine->ram, machine->ram_bytes);
   ap_hash_u32(&st, (uint32_t)machine->bus_errors);
   return ap_hash_end(&st);
+}
+
+void ap_machine_set_board(ap_machine_t *machine, struct ap_board *board) {
+  machine->board = board;
 }

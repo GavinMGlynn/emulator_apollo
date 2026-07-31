@@ -2471,10 +2471,15 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
   - [x] The address map itself, `board/ap_board.c`: every device placed by
         Table 2-8, main memory at `1000000`, unmapped reported rather than
         answered, and every region named. `board_suite`, 7 tests.
-  - [ ] Route `ap_machine`'s bus through it, so the boot run uses the map. The
-        16,933 figure is the before-and-after, and `ap_machine`'s flat RAM stays
-        for the probes — a probe harness that had to be a whole DN3500 would be
-        a worse probe harness.
+  - [x] `ap_machine` routed through it, optionally — flat RAM stays the default
+        so the probes keep the harness they want. `--boot-tape` uses the map.
+  - [ ] **The boot image's load address is not main memory.** Through the real
+        map the run executes zero instructions: `0013D800` falls in Table 2-8's
+        AT-compatible bus memory space. Either the PROM maps that range before
+        loading, or the header's addresses are logical and the image is placed
+        physically elsewhere. Settle that before touching the map —
+        `FINDINGS.md` C28 records why raising the number by mapping RAM there
+        would mean nothing.
   - [x] The `.ct` image reader, `image/ap_ct.c`: block addressing, the
         whole-block size check, and boot-record parsing. `ct_suite`, 8 tests.
   - [x] The QIC-02 command set transcribed as far as the scan allows
