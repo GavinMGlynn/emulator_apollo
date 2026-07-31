@@ -1074,9 +1074,26 @@ of the method."
 
 **What a sound measurement needs instead.** Not a bit sweep but a protocol: drive
 the documented QIC command sequence and watch the status register answer, one
-transaction at a time, with a known-good reset between them. That is a different
-tool from `regprobe.lua` and wants the QIC-02 command set, which `008778-03` does
-not carry -- its Chapter 8 is physical only.
+transaction at a time, with a known-good reset between them.
+
+**And the document exists.** `docs/references/archive/` now holds the *Archive
+Corporation SC-499 Tape Controller Information Guide* from bitsavers -- the
+controller's own manual, with a QIC-02 command description section. It extracts
+cleanly.
+
+It confirms the measured span immediately and independently: "BASE ADDRESS +0
+(200 HEX): Data/Command Register", a status register at +1, and a control bit 7
+that resets the controller's microprocessor. Two live ports, exactly as the sweep
+found, arrived at from the opposite direction.
+
+The base address differs -- the guide's is jumper-selected and "factory-set at 200
+HEX" where Apollo's Table 2-9 puts the drive at `218`-`21F` -- which is what a
+jumper is for, and is why the placement had to be measured on this board rather
+than taken from the controller's own manual.
+
+So the bit map is no longer a measurement problem at all: it is transcription
+from a manual, which is the cheaper and better source, and the protocol probe is
+needed only to *check* the result rather than to derive it.
 
 ## Where the ring is not
 
