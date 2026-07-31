@@ -72,9 +72,43 @@ Findings that already have a cited source, so they are not re-derived later.
   diagnostics — the hardware's test suite for free, the same free-test argument
   as the ring firmware's self-test — and `IC` toggles the instruction cache,
   which is what makes a cache-effect timing probe possible at all.
-- **Open:** the command list is confirmed, the per-command *syntax and output
-  format* are not. They will be transcribed from a captured MD session under the
-  oracle, not guessed.
+- **Input syntax: closed, and from the manual rather than the oracle.** This was
+  recorded as open on the grounds that the syntax "is not in the handbook's
+  command list" — true, but the handbook continues *past* the list into a
+  per-command reference (`002398-04` pp. 5-7 on) and then states the grammar
+  formally at pp. 5-13/5-14. Now transcribed in `docs/references/MD.md`: the
+  full BNF, hexadecimal-by-default input, `<size_spec>`/`<base_spec>` placement,
+  `*` as current location, and the `AR` control-register names
+  (`TC`/`RP`/`DFC`/`SFC`/`CACR`/`CAAR`) that are the Phase 2 MMU and cache probe
+  surface. The scan's OCR mangles `|` and `::=`; that is called out in the file,
+  and the reconstruction rests on the handbook expanding every token in prose
+  directly below the grammar, not on inference.
+- **Still open: the output format.** The handbook never shows a literal output
+  line, so column layout, separators, prompt and terminator are unknown — and
+  the harness has to parse exactly those bytes. That still wants a captured
+  session under the oracle. The no-guessing rule governs the parser; it no
+  longer blocks the encoder's input side.
+
+### 68030 instruction timing, and why the tables are a check and not a recipe
+
+Recorded in full in `docs/references/M68030_TIMING.md`, from `MC68030 User's
+Manual` 3ed ch. 11. The load-bearing fact:
+
+**No published average-no-cache-case number is a value any single execution of
+that instruction ever takes.** Motorola computed the odd-word-aligned and
+even-word-aligned cases and published *the mean, rounded up* (§11.3.3, p. 11-8),
+and the same for prefetch bus-cycle counts. The cache-case figures separately
+assume no overlap, no data-cache hits, and two-clock bus cycles throughout.
+
+So an emulator that looks up an instruction's published cycle count and adds it
+is not cycle-accurate and cannot be made so by refining the table — it is
+reproducing an average the hardware never exhibits on any particular run. This
+is the concrete justification for the strictly cycle-stepped reference core:
+alignment, cache state, wait states and contention all fall out of the machine
+rather than being tabulated, and ch. 11 then serves as an independent check on
+numbers we produce.
+
+Nothing from ch. 11 is in code. This is reference only.
 
 ### Golden result blocks
 
