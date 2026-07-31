@@ -694,6 +694,25 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         page pays nothing; the price paid once rather than per write; a write
         hit updating the cached value so a later read sees it; and a transparent
         write skipping the tables.*
+  - [x] **Instruction prefetch from real memory**
+        (`src/core/cpu/m68030/ap_m68030_fetch.c`), joining `ap_m68030_pipe` to
+        `ap_m68030_access`. `pipe_suite` pins the pipe against words a test
+        hands it; this pins the same behaviour when the words come from the
+        memory path, which is where the cost actually is.
+        **Half of all sequential prefetches are free, and which half depends on
+        alignment.** The holding register holds one *long word*, so a prefetch
+        of its odd half needs no bus cycle and no cache access. Four sequential
+        words therefore cost **two** fetches from a long-word-aligned start and
+        **three** from an odd one — no single number describes both, which is
+        precisely why the manual publishes an average and why
+        `docs/references/M68030_TIMING.md` says the published figure "is not a
+        value any single execution ever takes". That claim is now produced by
+        the memory path rather than asserted.
+        *Verification: `fetch_suite`, 5 tests — the second word of a long word
+        costing nothing, the two-against-three count, the words reaching stage D
+        in order so the saving is real rather than a dropped fetch, a re-fetch
+        hitting the instruction cache, and a pipe reset discarding the holding
+        register so a branch target's neighbour is not wrongly free.*
   - [ ] **CMP2/CHK2, CAS and CAS2**, which occupy size field `11` in family
         `0000`'s immediate rows. Not decoded: `ap_m68030_immediate_decode`
         reports invalid there rather than mis-decoding them as a wider ORI, and
