@@ -1247,11 +1247,32 @@ controller for both, as C15 established. It is the only one of the four
 candidates describing a combined part at all; the others are Winchester-only or a
 different family.
 
-The 8621 is still not named, so this is transcription from a sibling and must be
-checked against C20's measurement rather than trusted: three driven registers at
-`04D000`, not the 8640's eight-register AT task file. If the 8620's interface
-matches that shape, the sibling is the part; if it does not, the Apollo variant
-diverges further than its number suggests.
+**And it covers the 8621 outright.** §4.1 does not speak of the 8620 but of the
+family: "the OMTI **862X** controller looks like two independent controllers -
+one controller for the floppy disk, and one controller for the fixed disk". The
+title page's model list was narrower than the text; the manual is the 862X
+reference, and the open question from the previous entry is closed.
+
+**Two statements in §4.2 match C20 from the other side.** "There are **four
+registers** (or I/O ports) that the host uses to access the fixed disk. The
+registers have different meanings when they are read or written. These registers
+are normally located at the I/O address listed in table 4-1 but **may be altered
+by jumpers**."
+
+Four registers is what the measurement found -- offsets 1, 2 and 3 driven with
+offset 0 unreadable either way, which is four addresses of which three answer a
+read. And the jumper sentence accounts for Apollo putting the controller at AT
+`1A0` where the manual's default is elsewhere, without needing an Apollo-specific
+variant to explain it. The 8640's eight-register task file was the wrong shape;
+this is the right one.
+
+Also worth carrying: the part "looks like two independent controllers ... through
+two independent sets of registers", and §3.4 confirms the hardware matches the
+programming view -- "This allows full concurrent operations between these two
+sections. For example, DMA data transfer could be occurring at the same time as
+programmed Input/Output data transfers are occurring on the fixed disk." A model
+treating this as one controller with a mode bit would serialise what the hardware
+runs concurrently.
 
 **The shape of the search is the reusable part.** The directory named after the
 part held no documentation. The series manual named after its number covered a

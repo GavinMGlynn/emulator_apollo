@@ -2398,9 +2398,15 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
       `OMTI_AT_Controller_Series_Jan87` covers the **OMTI 8620**, "Winchesters
       ESDI and ST506/412 (MFM) and Flexible Disks" — the DN3500's part in all but
       its last digit, and the only candidate describing a combined ESDI/floppy
-      controller. Transcribe from it, then **check against C20**: three driven
-      registers at `04D000`, not the 8640's eight-register task file. A mismatch
-      means the Apollo variant diverges further than its number suggests. *Verification: DMA-completion device shape — transfer now,
+      controller. §4.1 addresses the **862X**
+      family, not just the 8620, so the 8621 is covered outright. §4.2 gives the
+      fixed disk **four registers** with different meanings read and written,
+      "normally located at the I/O address listed in table 4-1 but may be altered
+      by jumpers" — which matches C20's three-driven-of-four and accounts for
+      Apollo's `1A0` without an Apollo-specific variant. Next: transcribe
+      tables 4-1, 4-2 and 4-3 (PDF page 41 onward) and Sections 5 and 6.
+      Note §4.1's shape — floppy and fixed disk are **two independent register
+      sets** running concurrently, not one controller with a mode bit. *Verification: DMA-completion device shape — transfer now,
       schedule completion in emulated time; oracle diff.*
       **Corrected at the Phase 4 boundary.** This item used to read "Winchester
       controllers: OMTI (DN3000), WD7000 ESDI and SCSI (DN4500)", which left the
