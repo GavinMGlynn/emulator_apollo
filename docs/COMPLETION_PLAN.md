@@ -504,6 +504,27 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         it is worth distinguishing — and there is **no byte MOVEA**, so a
         byte-sized address register destination is not an instruction.
         *Verification: `move_suite`, 8 tests.*
+  - [x] **Family `0000` decode** (`src/core/cpu/m68030/ap_m68030_immediate.c`):
+        ORI, ANDI, SUBI, ADDI, EORI, CMPI, MOVES, the static and dynamic bit
+        operations, MOVEP, and the `to CCR`/`to SR` forms. Bit 8 splits the
+        family — clear selects an immediate row, set makes the bit number
+        dynamic.
+        **MOVEP is the strongest instance yet of this encoding's idiom.** It
+        uses *the same four opmodes* as the dynamic bit operations and is
+        separated only by the effective address mode: a bit operation cannot
+        address an address register, so mode `001` there is MOVEP. The overlap
+        is **total** rather than partial — there is no opmode that is MOVEP and
+        not also a bit operation — which the suite checks by walking all four.
+        The `to CCR`/`to SR` forms are likewise not separate opcodes but the
+        immediate-*destination* encoding, meaningless as an address, with the
+        size field choosing byte (CCR) or word (SR). SUBI, ADDI and CMPI have no
+        such forms, so for them that encoding stays unassigned rather than
+        aliasing — also tested.
+        *Verification: `immediate_suite`, 10 tests.*
+  - [ ] **CMP2/CHK2, CAS and CAS2**, which occupy size field `11` in family
+        `0000`'s immediate rows. Not decoded: `ap_m68030_immediate_decode`
+        reports invalid there rather than mis-decoding them as a wider ORI, and
+        a test pins that. *Verification: their own suite, same pattern.*
   - [ ] **Addressing mode categories** (Table 2-4's Data / Memory / Control /
         Alterable columns), which decide whether a decoded mode is *legal* for a
         given instruction — `MOVE`'s destination must be data alterable, `LEA`'s
