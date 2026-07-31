@@ -2386,14 +2386,17 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
 - [ ] **OMTI 8621 ESDI/floppy controller** — one controller for both, and the
       DN3500's. Placement characterised (`FINDINGS.md` C20): `04D000`, aliased
       on an eight-byte period, offsets 1-3 driven, offsets 0 and 4-7 reading
-      `FF` which a read sweep cannot tell from undriven. The manual is fetched:
-      *OMTI 8000 Series IBM PC AT Intelligent Data Controllers Reference Manual*
-      (SMS, June 1986) in `docs/references/omti/`, a scan needing page-image
-      reading. **First check its contents page names the 8621** — that it covers
-      the part is an inference from the series, not yet confirmed, and
-      `8640_AT_ESDI/` is the fallback. Transcribe rather than probe: a write
-      sweep on a disk controller carries the same command-register hazard that
-      contaminated the tape's (C17). *Verification: DMA-completion device shape — transfer now,
+      `FF` which a read sweep cannot tell from undriven. **No manual for this part has been found yet**, and three plausible
+      candidates have been eliminated (`FINDINGS.md` C20): bitsavers'
+      `8621_AT_ESDI/` holds only ROM dumps and photographs; the *OMTI 8000
+      Series* reference covers models 8100/8200/8500/8600, not the 86xx; and the
+      *OMTI 8640* manual covers only the 8640 and describes the standard AT task
+      file at `1F0`, which does not match Table 2-9's `1A0` or C20's measured
+      three driven registers. The oracle calls the part "OMTI 8621 ESDI/floppy
+      controller **(Apollo)**", so it is likely an Apollo variant with its own
+      interface. Routes left: the unread `OMTI_AT_Controller_Series_Jan87` scan
+      in `docs/references/omti/`, the boot PROM driving the controller, and a
+      write probe last (C17's hazard). *Verification: DMA-completion device shape — transfer now,
       schedule completion in emulated time; oracle diff.*
       **Corrected at the Phase 4 boundary.** This item used to read "Winchester
       controllers: OMTI (DN3000), WD7000 ESDI and SCSI (DN4500)", which left the

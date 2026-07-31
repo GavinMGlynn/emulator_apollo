@@ -1209,11 +1209,33 @@ photographs of the board -- no documentation at all. The *series* reference is
 what covers the part, which is the same pattern as `019411-A00` covering the
 DS3500 where `008778-03` covered only a generation.
 
-**Not yet verified: that the 8621 appears inside it by name.** It is an
-8000-series part and the manual is the 8000-series reference, which is strong but
-is an inference. Checking the contents page is the first thing to do on opening
-it, and if the 8621 is absent the `8640_AT_ESDI/` technical reference is the next
-candidate -- a closer sibling than a series overview.
+**Checked, and the inference was wrong.** The manual's title page lists its
+models: OMTI 8100, 8200, 8500 and 8600. Not the 8621. "8000 Series" here means
+the 8x00 parts, a different family from the 86xx despite the numbering that made
+the inference look safe.
+
+The obvious fallbacks do not cover it either. `OMTI_8640_Technical_Reference_Manual_Jun89`
+has a text layer and mentions the 8640 fifty-one times and no other model, and
+`OMTI_AT_Controller_Series_Jan87` is an unread scan. Both are in
+`docs/references/omti/` for the next attempt.
+
+**And the 8640 is probably the wrong shape anyway.** It presents the standard
+IBM PC/AT task file at `1F0`/`170`, eight live registers. Apollo's Table 2-9 puts
+the Winchester at AT `1A0`, and C20 measured offsets 1-3 driven with 0 and 4-7
+indistinguishable from undriven -- which is not what a task file looks like. That
+is consistent with the oracle naming the part "OMTI 8621 ESDI/floppy controller
+**(Apollo)**": an Apollo variant with its own interface, not a stock AT
+controller at a jumpered address.
+
+So the register model for this part is not, so far, obtainable from a manual. The
+routes left are the unread `OMTI_AT_Controller_Series_Jan87` scan, the boot PROM
+driving the controller, and a write probe -- which for a disk controller carries
+C17's hazard and is the last resort rather than the first.
+
+Recorded at length because the shape of this search is the reusable part: the
+directory named after the part had no documentation, the series manual named
+after its number covered a different family, and the closest sibling describes a
+different interface. Three plausible sources, none of them the one.
 
 ## Where the ring is not
 
