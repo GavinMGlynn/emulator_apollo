@@ -74,11 +74,14 @@ local fake_device = {
 
 local machine_time = 0.0
 
-local frame_notifier, stop_notifier
+-- dump.lua triggers on register_periodic rather than on frame notifications:
+-- frames stop arriving partway through a real run (see FINDINGS.md), which
+-- silently produced no dump at all for any later sampling point.
+local periodic_notifier, stop_notifier
 
 _G.emu = {
 	romname = function () return "dn3500" end,
-	add_machine_frame_notifier = function (fn) frame_notifier = fn end,
+	register_periodic = function (fn) periodic_notifier = fn end,
 	add_machine_stop_notifier = function (fn) stop_notifier = fn end,
 }
 
@@ -114,16 +117,16 @@ dofile(HERE .. "/dump.lua")
 
 -- Before the dump point: nothing should be emitted.
 machine_time = 0.5
-frame_notifier()
+periodic_notifier()
 local premature = #captured
 
 -- At the dump point.
 machine_time = 1.0
-frame_notifier()
+periodic_notifier()
 
 -- A second frame must not dump again.
 machine_time = 1.5
-frame_notifier()
+periodic_notifier()
 
 io.write = real_write
 os.getenv = real_getenv

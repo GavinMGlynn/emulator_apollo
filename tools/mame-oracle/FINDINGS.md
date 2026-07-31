@@ -126,13 +126,32 @@ parameter is live.
 The lesson generalises: a harness that reports back the value it was *asked* for
 cannot detect that the value was ignored. Report what the run actually did.
 
-**Open: no dump is produced beyond about 3.2 emulated seconds.** Measured on
-`dn3500`: `--at` 1.0, 2.0, 2.5, 3.0 and 3.2 all dump; 3.5, 4.0 and 6.0 produce
-nothing at all -- MAME exits 0 with "Average speed: 78.00% (4 seconds)" and no
-dump block, so it reads as success to anything not counting dumps. That bounds
-every campaign to the first ~3 emulated seconds until it is understood, which is
-enough for boot-PROM probes and not enough for anything after. Not diagnosed
-yet: it is not a fractional-value problem, since 3.2 works and 4.0 does not.
+**Fixed: no dump was produced beyond about 3.2 emulated seconds.** The dumper
+triggered on `emu.add_machine_frame_notifier`, and frame notifications *stop
+arriving* on `dn3500` at **3.246948 emulated seconds** — measured with a
+throwaway probe script: frame 195 is the last one delivered, while the machine
+itself runs on past 19s quite happily. So every sampling point beyond about 3.2s
+silently produced nothing, and MAME still exited 0, which reads as success to
+anything not counting dump blocks.
+
+The cause is the notifier, not the machine: `-video none` plus whatever the boot
+PROM does to the screen around 3.2s ends frame generation, and a frame-driven
+hook ends with it. `emu.register_periodic` keeps firing for the whole run
+(verified to 8s), so `dump.lua` uses that instead. `verify` now passes at 3.5,
+5.0 and 8.0 emulated seconds, byte-identical across runs, with genuinely
+different machine state at each (`CURPC` `$798` at 3.5s against `$78E` at 8.0s)
+— which is the check that the dump is sampling rather than repeating.
+
+`test_dump.lua`'s mock now supplies *only* `register_periodic`, so a change back
+to a frame notifier fails the format test rather than silently truncating every
+campaign to the first three seconds.
+
+**Small open item:** the dump header's `at` line still reports the *requested*
+time rather than the time actually sampled. That is deliberate — it keeps the
+line deterministic — but it is the same shape as the `env` defect above, where a
+report of the input concealed that the input was ignored. Worth adding an
+`at_actual` line, which the fixed trigger now makes safe to do: the sampling
+point is demonstrably reproducible.
 
 ### ROM sets
 

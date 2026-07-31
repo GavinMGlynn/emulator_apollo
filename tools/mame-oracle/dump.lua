@@ -139,10 +139,18 @@ local function dump()
 	end
 end
 
--- Frame granularity rather than a cycle-exact hook: this samples the oracle,
+-- Periodic granularity rather than a cycle-exact hook: this samples the oracle,
 -- and the sampling point only has to be *reproducible*, not exact. A figure
 -- that needs cycle precision is measured by a probe, not by this dumper.
-emu.add_machine_frame_notifier(function ()
+--
+-- register_periodic, *not* add_machine_frame_notifier. Frame notifications stop
+-- arriving on dn3500 at 3.246948 emulated seconds -- measured: frame 195 is the
+-- last, while the machine itself runs on past 19s quite happily. A frame-driven
+-- dump therefore silently produced nothing for any point beyond about 3.2s, and
+-- MAME still exited 0, so it read as success to anything not counting dump
+-- blocks. register_periodic keeps firing for the whole run (verified to 8s),
+-- which is what makes a dump point past the video setup reachable at all.
+emu.register_periodic(function ()
 	if not done and manager.machine.time:as_double() >= dump_at then
 		dump()
 	end
