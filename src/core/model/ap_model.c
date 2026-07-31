@@ -69,6 +69,7 @@ static const ap_model_t k_models[AP_MODEL_COUNT] = {
         .ram_base = 0x1000000u,
         .ram_max_bytes = 0x2000000u, /* 8-32 MB supported [CFG] */
         .has_ring = true,
+        .has_address_translation_map = true,
         .provisional = nullptr,
     },
     [AP_MODEL_DN4500] = {
@@ -95,6 +96,7 @@ static const ap_model_t k_models[AP_MODEL_COUNT] = {
         .ram_base = 0x1000000u,
         .ram_max_bytes = 0x2000000u, /* 4-32 MB [CFG]; Table 2-8 DS4000 [S3K] */
         .has_ring = true,
+        .has_address_translation_map = true,
         .provisional = nullptr,
     },
     [AP_MODEL_DN5500] = {
@@ -110,6 +112,7 @@ static const ap_model_t k_models[AP_MODEL_COUNT] = {
         .ram_base = 0x1000000u,
         .ram_max_bytes = 0x2000000u, /* 16-32 MB [CFG] */
         .has_ring = true,
+        .has_address_translation_map = true,
         .provisional = nullptr,
     },
     [AP_MODEL_DSP3000] = {
@@ -140,6 +143,7 @@ static const ap_model_t k_models[AP_MODEL_COUNT] = {
         .ram_base = 0x1000000u,
         .ram_max_bytes = 0x2000000u,
         .has_ring = true,
+        .has_address_translation_map = true,
         .provisional = nullptr,
     },
     [AP_MODEL_DSP4500] = {
@@ -161,6 +165,7 @@ static const ap_model_t k_models[AP_MODEL_COUNT] = {
         .ram_base = 0x1000000u,
         .ram_max_bytes = 0x2000000u,
         .has_ring = true,
+        .has_address_translation_map = true,
         .provisional = nullptr,
     },
     [AP_MODEL_DSP5500] = {
@@ -176,6 +181,7 @@ static const ap_model_t k_models[AP_MODEL_COUNT] = {
         .ram_base = 0x1000000u,
         .ram_max_bytes = 0x2000000u,
         .has_ring = true,
+        .has_address_translation_map = true,
         .provisional = nullptr,
     },
 };

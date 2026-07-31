@@ -2204,6 +2204,22 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
 - [ ] Address translation map (`0x017000`), CPU status/control, cache control,
       task alias, master request, latch-page-on-parity-error registers.
       *Verification: `008778-03` cited per register; oracle diff.*
+  - [x] The address translation map itself: the translation for both DMA
+        widths, the entry format, and the register file. `atmap_suite`,
+        15 tests. The source that settles it is `019411-A00` §4.2.1.4, an
+        addendum that *replaces* pages 4-10 and 4-11 of the handbook and is the
+        only one naming the DS3500 — the base manual describes the map as a
+        Series 4000 feature and would have left our reference machine without
+        one.
+  - [ ] Open on the map, and both are gaps in the manuals rather than in the
+        code: what the region decodes to beyond the entries (`017000`-`0177FF`
+        is 2 KB and 128 entries of 16 bits fill 256 bytes of it), and whether a
+        byte address within it selects entry `(address - base) / 2`, which is
+        assumed because it is the only reading with no gaps. Both are pinned by
+        tests so they cannot be closed by accident; an oracle diff or a DMA
+        transfer exercising the map would settle them.
+  - [ ] The remaining registers of this item: CPU status/control, cache
+        control, task alias, master request, latch-page-on-parity-error.
 - [ ] Two 8259 interrupt controllers and the Apollo interrupt vector scheme.
       *Verification: probe-driven interrupt ordering vs oracle.*
 - [ ] Two AT DMA controllers. *Verification: transfer probes; device request

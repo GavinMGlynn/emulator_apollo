@@ -92,6 +92,21 @@ typedef struct {
    * one; a node may still be configured without it. */
   bool has_ring;
 
+  /* Board-level address translation map at `017000`, between the AT bus and
+   * physical memory. See `board/ap_atmap.h`.
+   *
+   * Genuinely a model difference rather than a superset feature: `008778-03`
+   * §1.2 says "The Series 4000, unlike the Series 3000, incorporates an address
+   * translation map in its architecture", so a DN3000 has none and its DMA
+   * reaches physical memory directly. `019411-A00` §4.2.1.4 replaces that
+   * section and names the models that do: DS3500, DS4000, DS4500, DS5500.
+   *
+   * The DN2500 is on neither list. Set false by that absence rather than by a
+   * statement -- `019411-A00`'s enumeration reads as exhaustive, but it is
+   * still an argument from silence and is the one entry here that a Series 2500
+   * hardware reference could overturn. */
+  bool has_address_translation_map;
+
   /* Non-NULL when one or more fields above are not yet confirmed against a
    * cited source. The string names exactly which. */
   const char *provisional;

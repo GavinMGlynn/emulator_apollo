@@ -23,23 +23,30 @@ violations, format errors, MMU configuration errors, interrupts and trace.
 An instruction outside that set reports `UNIMPLEMENTED` rather than silently
 succeeding, so "how far a program got" is a real measure.
 
-**What the clock does *not* yet include.** The accumulated clock covers bus and
-cache time only: prefetches, operand accesses, table searches and line fills,
-each priced by the bus and cache modules against cited pages. It now includes instruction
-execution time for the **19 transcribed forms** of `[030]` §11.6, scheduled
-against the bus rather than added to it — `max(microcode, bus)`, which
-reproduces both the `CC` and `NCC` columns of every transcribed row. Everything
-else is still bus time alone, and `--time-instructions` shows which is which:
-a scheduled instruction reads steady, an unscheduled one alternates 0/2. The harness to measure it now exists on both sides
-(`tools/mame-oracle/steptime.lua`, and `--time-instructions` on ours), and the
-first comparison is classified: our bus time alternates 0/2 per instruction
-where the oracle is flat, which is `[030]` §11.3.3's "one external bus cycle per
-two instruction prefetches" — the published tables average the two alignment
-cases, and the oracle reports a constant. Ours is hardware-truer there and is
-kept (`FINDINGS.md` C7). So a register-to-register `ADD` currently costs zero
-clocks, and any figure this core reports is a lower bound rather than a
-measurement. Closing that is a named plan item, and it is deliberately *not*
-closed by transcribing `[030]` §11.6's tables: as
+**What the clock covers, and what it still does not.** The accumulated clock
+covers bus and cache time — prefetches, operand accesses, table searches and
+line fills, each priced by the bus and cache modules against cited pages — plus
+instruction execution time for the **59 transcribed rows** of `[030]` §11.6,
+scheduled against the bus rather than added to it as `max(microcode, bus)`,
+which reproduces both the `CC` and `NCC` columns of every one of them.
+
+So a register-to-register `ADD` costs its published 2 clocks. An instruction
+outside those 59 still costs bus time alone and is a lower bound, and
+`--time-instructions` shows which is which: a scheduled instruction reads
+steady, an unscheduled one alternates 0/2.
+
+The harness to measure against exists on both sides
+(`tools/mame-oracle/steptime.lua`, and `--time-instructions` on ours), and seven
+instructions agree with the oracle. The 0/2 alternation is classified rather
+than a defect: it is §11.3.3's "one external bus cycle per two instruction
+prefetches", where the published tables average the two alignment cases and the
+oracle reports a constant. Ours is hardware-truer there and is kept
+(`FINDINGS.md` C7).
+
+What remains open is **composition**. Rows footnoted "Add Fetch Effective
+Address Time" are declined rather than part-priced: their published figure is a
+component, and Equation (11-2) needs a model that can hide *part* of a bus cycle
+(`FINDINGS.md` C9). Transcribing more of §11.6 does not close it — as
 `docs/references/M68030_TIMING.md` records, no published NCC number is a value
 any single execution ever takes, so a core that looked them up would be
 reproducing an average the hardware never exhibits.
@@ -57,6 +64,15 @@ is the inversion the emergent-contention claim rests on. What does not exist yet
 is the *shared* arbitration point it plugs into: one bus, several masters, a
 priority encoding between them. Until that exists there is nothing to contend
 *with*, so no contention figure can be measured.
+
+The first board subsystem is in: the **address translation map** at `017000`.
+It is not the CPU's MMU and does not overlap it — it sits between the AT bus and
+physical memory, and exists because a DMA controller has no MMU of its own. The
+8237 drives a flat 64/128 KB address and expects contiguous memory behind it,
+while the operating system has pages scattered across physical RAM; the map is
+what reconciles those, and it is also the 512 KB window an external AT bus
+master reaches main memory through. Present on DN3500/4500/5500, absent on
+DN3000, and that difference is now a model-table field rather than a conditional.
 The golden regression harness now pins **emulated behaviour** as well as the
 model table: `--run-probes` runs eight probes on the constructed machine and its
 report is a committed golden, checked under every build preset. This section will state exactly what backs the
@@ -121,7 +137,8 @@ Last updated: 2026-08-01.
 | 68030 translation table search (the walk) | working: search, U/M writeback, and ATC fill | `walk_suite`, 40 tests, `MC68030 User's Manual 3ed` §9.2, §9.4, §9.5, §11; writeback cost cross-checked against `MC68851 PMMU User's Manual 3ed` §5.1.5.3.11 |
 | 68851 PMMU, 68030/68040 MMU tables + ATC | not started | — |
 | 68881 / 68882 / 68040 FPU | not started | — |
-| Memory bus, cache, address translation map | not started | — |
+| Address translation map (`017000`) | working: the translation itself, both DMA widths, and the register file. Between the AT bus and physical memory, not the CPU's MMU -- a DMA controller has no MMU, and this is what lets it see scattered physical pages as one contiguous run. Present on DN3500/4500/5500 and absent on DN3000, from the model table | `atmap_suite`, 15 tests, `019411-A00` §4.2.1.4, `008778-03` §1.2, §2.5 |
+| Memory bus and board cache | not started | — |
 | Two 8259 interrupt controllers | not started | — |
 | Two AT DMA controllers | not started | — |
 | Interval timer, calendar | not started | — |
