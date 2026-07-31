@@ -69,6 +69,21 @@ typedef enum {
   AP_M68030_STEP_STOPPED,
 } ap_m68030_step_status_t;
 
+/* What an interrupt acknowledge cycle returned. `[030]` §8.1.9: the processor
+ * "attempts to obtain a vector number from the interrupting device using an
+ * interrupt acknowledge bus cycle"; "For a device that cannot supply an
+ * interrupt vector, the autovector signal (AVEC) can be asserted"; and "If
+ * external logic indicates a bus error during the interrupt acknowledge cycle,
+ * the interrupt is considered spurious". Three outcomes, so three fields rather
+ * than a vector number with two magic values. */
+typedef struct {
+  bool autovector; /* AVEC: use vector 24 + level */
+  bool bus_error;  /* spurious: vector 24 */
+  unsigned vector; /* the device's own vector, when neither */
+} ap_m68030_iack_t;
+
+typedef ap_m68030_iack_t (*ap_m68030_iack_fn)(void *context, unsigned level);
+
 typedef struct {
   ap_m68030_regs_t regs;
   ap_m68030_fetch_t fetch;
@@ -110,6 +125,19 @@ typedef struct {
    * affecting the processor. Counted rather than acted on: this module has no
    * external devices yet, and a count is what a test can observe. */
   unsigned external_resets;
+
+  /* The interrupt request level standing on IPL2-IPL0, and what it was before,
+   * which level 7 needs: it is "transition sensitive", so holding the line at 7
+   * does not re-interrupt but dropping and raising it does. A caller drives
+   * `interrupt_level`; the step maintains `previous_interrupt_level` itself. */
+  unsigned interrupt_level;
+  unsigned previous_interrupt_level;
+
+  /* The interrupt acknowledge cycle. NULL means no device answers, which is a
+   * spurious interrupt rather than a reason not to take one -- the same
+   * outcome the hardware reaches when the cycle bus errors. */
+  ap_m68030_iack_fn acknowledge;
+  void *acknowledge_context;
 
   /* Extension words this step has taken from the instruction stream. The PC
    * advances by the instruction word plus these, rather than by a length
@@ -193,5 +221,27 @@ typedef struct {
 [[nodiscard]] ap_m68030_exception_result_t
 ap_m68030_take_exception(ap_m68030_cpu_t *cpu, unsigned vector,
                          uint32_t stacked_pc, uint32_t instruction_address);
+
+/* Take an interrupt, if one is recognised at the current level and mask.
+ *
+ * `[030]` §8.1.9's order, which differs from every other exception in three
+ * ways: the status register copy is taken **before** the interrupt mask is
+ * raised -- otherwise RTE restores the *handler's* mask rather than the
+ * interrupted code's, and the interrupted code never receives another interrupt
+ * at its own level again; the vector comes off the bus rather than from
+ * internal logic; and "If the M bit of the status register is set, the processor
+ * clears the M bit and creates a throwaway exception stack frame on top of the
+ * interrupt stack", so one interrupt can build *two* frames on two different
+ * stacks.
+ *
+ * The throwaway frame "contains the same program counter value and vector
+ * offset as the frame created on top of the master stack, but has a format
+ * number of 1", and its status register copy "is exactly the same as that placed
+ * on the master stack except that the S bit is set".
+ *
+ * Returns `ok` false when no interrupt is recognised, which is not a failure --
+ * it is the ordinary case. */
+[[nodiscard]] ap_m68030_exception_result_t
+ap_m68030_take_interrupt(ap_m68030_cpu_t *cpu);
 
 #endif /* APOLLO_CPU_M68030_AP_M68030_STEP_H */

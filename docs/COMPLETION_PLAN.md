@@ -1296,15 +1296,31 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         Wired in so far: **divide by zero** (the tail of the instruction
         semantics item above, now closed) and **TRAP #N**, whose four-bit field
         is an index into Table 8-1's trap range and not a vector number.
+        **Interrupts land here too**, and they differ from every other exception
+        in three ways. The status register copy is taken **before** the priority
+        mask is raised — stacking the raised mask instead leaves the interrupted
+        code running at the handler's priority for ever after, never receiving
+        another interrupt at its own level, and nothing faults. The vector comes
+        off the bus through an acknowledge cycle, with `AVEC` selecting an
+        autovector and a bus error during the cycle meaning *spurious* rather
+        than a fault — which is what keeps a machine with a misbehaving device
+        running. And "If the M bit of the status register is set, the processor
+        clears the M bit and creates a throwaway exception stack frame on top of
+        the interrupt stack": one interrupt, **two frames on two different
+        stacks**, and clearing M first is what moves A7 between them, so the
+        order is not an implementation detail.
+        Level 7 is recognised on the *transition* to 7, not on the level, so
+        holding the line there does not re-interrupt — a model that read the
+        level alone would never let the handler make progress. An interrupt also
+        ends a `STOP`, which is what `STOP` was waiting for.
         Still open, each declined rather than approximated: reset (stacks
         nothing), the bus and address error frames (formats `$A`/`$B`, which
-        carry internal state this model does not have), the coprocessor
-        mid-instruction frame, and the interrupt case where the M bit is set and
-        a second throwaway frame goes on the interrupt stack — that belongs with
-        the interrupt item, along with the priority mask update. `CHK`, `TRAPV`,
-        `TRAP`, `TRAPV` and the privilege violations are wired in; `CHK`,
-        `TRAPcc` and trace now need only their instructions, not more exception
-        machinery.
+        carry internal state this model does not have), and the coprocessor
+        mid-instruction frame. `CHK`, `TRAPV`,
+        `TRAP`, `TRAPV`, `CHK`, the privilege violations, the illegal
+        instruction word, the MMU configuration errors and the interrupts are
+        all wired in; **trace** is the one exception left that needs only its
+        own machinery rather than more of this.
         **Table 8-6's bracketed column is a second fact, separate from the frame
         size**: the stacked PC is the *next* instruction for an interrupt, a
         `TRAP` and everything in the six-word row, but the *faulting*

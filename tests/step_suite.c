@@ -3202,6 +3202,253 @@ static void test_pmove_refuses_an_increment_mode(void) {
   TEST_ASSERT_EQUAL_HEX32(0x00005000u, m.cpu.regs.a[0]);
 }
 
+/* ---------------------------------------------------------------------------
+ * Interrupts.
+ * ------------------------------------------------------------------------- */
+
+/* An acknowledge cycle that answers with a device vector, and one that does
+ * not answer at all. */
+static ap_m68030_iack_t acknowledge_with_vector(void *context, unsigned level) {
+  (void)level;
+  unsigned *count = (unsigned *)context;
+  (*count)++;
+  return (ap_m68030_iack_t){.vector = 0x40u};
+}
+
+static ap_m68030_iack_t acknowledge_autovector(void *context, unsigned level) {
+  (void)context;
+  (void)level;
+  return (ap_m68030_iack_t){.autovector = true};
+}
+
+static ap_m68030_iack_t acknowledge_bus_error(void *context, unsigned level) {
+  (void)context;
+  (void)level;
+  return (ap_m68030_iack_t){.bus_error = true};
+}
+
+/* Levels 1-6 are recognised when the request "exceeds the current interrupt
+ * priority mask", and the vector comes off the bus. Both directions of the
+ * mask, since a model that always took the interrupt would pass a test that
+ * only lowered the mask. */
+static void test_an_interrupt_is_taken_only_above_the_priority_mask(void) {
+  static const uint16_t program[] = {0x7001u, 0x4E71u, 0x4E71u, 0x4E71u};
+  unsigned acknowledges = 0;
+
+  machine_t masked = {0};
+  load(&masked, program, 4);
+  masked.cpu.regs.sr = (uint16_t)((1u << AP_M68030_SR_S_BIT) |
+                                  (5u << AP_M68030_SR_INTERRUPT_SHIFT));
+  masked.cpu.regs.isp = SUPERVISOR_STACK;
+  masked.cpu.interrupt_level = 3u; /* below the mask */
+  masked.cpu.acknowledge = acknowledge_with_vector;
+  masked.cpu.acknowledge_context = &acknowledges;
+
+  /* The instruction runs; no interrupt is taken and no cycle is run. */
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED,
+                        ap_m68030_step(&masked.cpu).status);
+  TEST_ASSERT_EQUAL_HEX32(1u, masked.cpu.regs.d[0]);
+  TEST_ASSERT_EQUAL_UINT(0u, acknowledges);
+
+  machine_t above = {0};
+  load(&above, program, 4);
+  plant_vector(&above, 0x40u, HANDLER);
+  above.cpu.regs.sr = (uint16_t)((1u << AP_M68030_SR_S_BIT) |
+                                 (3u << AP_M68030_SR_INTERRUPT_SHIFT));
+  above.cpu.regs.isp = SUPERVISOR_STACK;
+  above.cpu.interrupt_level = 5u; /* above the mask */
+  above.cpu.acknowledge = acknowledge_with_vector;
+  above.cpu.acknowledge_context = &acknowledges;
+
+  const ap_m68030_step_result_t r = ap_m68030_step(&above.cpu);
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXCEPTION, r.status);
+  TEST_ASSERT_EQUAL_UINT(1u, acknowledges);
+  TEST_ASSERT_EQUAL_HEX32(HANDLER, above.cpu.regs.pc);
+  /* And the instruction did *not* run: the interrupt was taken before it. */
+  TEST_ASSERT_EQUAL_HEX32(0u, above.cpu.regs.d[0]);
+}
+
+/* "sets the processor interrupt mask level to the level of the interrupt being
+ * serviced", and the copy stacked for RTE is taken *before* that. Stacking the
+ * raised mask instead leaves the interrupted code running at the handler's
+ * priority for ever after -- it would never receive another interrupt at its
+ * own level, and nothing would fault. */
+static void test_the_stacked_mask_is_the_one_before_the_interrupt(void) {
+  static const uint16_t program[] = {0x7001u, 0x4E71u, 0x4E71u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 4);
+  plant_vector(&m, 0x40u, HANDLER);
+  m.cpu.regs.sr = (uint16_t)((1u << AP_M68030_SR_S_BIT) |
+                             (2u << AP_M68030_SR_INTERRUPT_SHIFT));
+  m.cpu.regs.isp = SUPERVISOR_STACK;
+  m.cpu.interrupt_level = 5u;
+  unsigned acknowledges = 0;
+  m.cpu.acknowledge = acknowledge_with_vector;
+  m.cpu.acknowledge_context = &acknowledges;
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXCEPTION, ap_m68030_step(&m.cpu).status);
+
+  /* The handler runs masked at the level it is servicing ... */
+  TEST_ASSERT_EQUAL_UINT(5u, ap_m68030_interrupt_mask(&m.cpu.regs));
+  /* ... and the frame remembers the mask the interrupted code had. */
+  const uint16_t stacked = read_ram_word(&m, m.cpu.regs.isp);
+  TEST_ASSERT_EQUAL_UINT(
+      2u, (stacked >> AP_M68030_SR_INTERRUPT_SHIFT) & AP_M68030_SR_INTERRUPT_MASK);
+}
+
+/* "Level 7 interrupts cannot be masked by the interrupt priority mask, and they
+ * are transition sensitive. The processor recognizes an interrupt request each
+ * time the external interrupt request level changes from some lower level to
+ * level 7." So a level 7 line already at 7 is not a new interrupt -- holding it
+ * there must not re-interrupt, or the handler never makes progress. */
+static void test_level_seven_interrupts_on_the_transition_and_not_the_level(
+    void) {
+  static const uint16_t program[] = {0x7001u, 0x7202u, 0x4E71u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 4);
+  plant_vector(&m, ap_m68030_autovector(7u), HANDLER);
+  /* The mask is already 7, which masks nothing at this level. */
+  m.cpu.regs.sr = (uint16_t)((1u << AP_M68030_SR_S_BIT) |
+                             (7u << AP_M68030_SR_INTERRUPT_SHIFT));
+  m.cpu.regs.isp = SUPERVISOR_STACK;
+  m.cpu.interrupt_level = 7u;
+  m.cpu.acknowledge = acknowledge_autovector;
+
+  /* The transition from 0 to 7 is recognised. */
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXCEPTION, ap_m68030_step(&m.cpu).status);
+  TEST_ASSERT_EQUAL_HEX32(HANDLER, m.cpu.regs.pc);
+
+  /* The line is still at 7, and that is *not* a second interrupt: the next
+   * step executes an instruction instead. */
+  const ap_m68030_step_result_t next = ap_m68030_step(&m.cpu);
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, next.status);
+}
+
+/* "If external logic indicates a bus error during the interrupt acknowledge
+ * cycle, the interrupt is considered spurious, and the processor generates the
+ * spurious interrupt vector number, 24" -- a defined outcome rather than a
+ * fault, which is what keeps a machine with a misbehaving device running. */
+static void test_a_failed_acknowledge_becomes_the_spurious_vector(void) {
+  static const uint16_t program[] = {0x7001u, 0x4E71u, 0x4E71u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 4);
+  plant_vector(&m, AP_M68030_VECTOR_SPURIOUS_INTERRUPT, HANDLER);
+  m.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
+  m.cpu.regs.isp = SUPERVISOR_STACK;
+  m.cpu.interrupt_level = 4u;
+  m.cpu.acknowledge = acknowledge_bus_error;
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXCEPTION, ap_m68030_step(&m.cpu).status);
+  TEST_ASSERT_EQUAL_HEX32(HANDLER, m.cpu.regs.pc);
+}
+
+/* "If the M bit of the status register is set, the processor clears the M bit
+ * and creates a throwaway exception stack frame on top of the interrupt stack."
+ * One interrupt, two frames, on two different stacks -- and the order matters:
+ * clearing M is what moves A7 from the master stack to the interrupt stack, so
+ * the second frame lands on the other one. */
+static void test_an_interrupt_in_master_state_builds_two_frames(void) {
+  static const uint16_t program[] = {0x7001u, 0x4E71u, 0x4E71u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 4);
+  plant_vector(&m, 0x40u, HANDLER);
+  m.cpu.regs.sr = (uint16_t)((1u << AP_M68030_SR_S_BIT) |
+                             (1u << AP_M68030_SR_M_BIT));
+  m.cpu.regs.msp = 0x00008000u;
+  m.cpu.regs.isp = SUPERVISOR_STACK;
+  m.cpu.interrupt_level = 4u;
+  unsigned acknowledges = 0;
+  m.cpu.acknowledge = acknowledge_with_vector;
+  m.cpu.acknowledge_context = &acknowledges;
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXCEPTION, ap_m68030_step(&m.cpu).status);
+
+  /* "The resulting status register (after exception processing) has the S bit
+   * set and the M bit cleared." */
+  TEST_ASSERT_TRUE(ap_m68030_supervisor(&m.cpu.regs));
+  TEST_ASSERT_FALSE(ap_m68030_master(&m.cpu.regs));
+
+  /* The first frame went on the master stack ... */
+  TEST_ASSERT_EQUAL_HEX32(0x00008000u - 8u, m.cpu.regs.msp);
+  TEST_ASSERT_EQUAL_INT(AP_M68030_FRAME_SHORT,
+                        ap_m68030_frame_format_of(
+                            read_ram_word(&m, m.cpu.regs.msp + 6u)));
+
+  /* ... and the throwaway on the interrupt stack, format 1, with the same PC
+   * and vector offset. */
+  TEST_ASSERT_EQUAL_HEX32(SUPERVISOR_STACK - 8u, m.cpu.regs.isp);
+  const uint16_t throwaway = read_ram_word(&m, m.cpu.regs.isp + 6u);
+  TEST_ASSERT_EQUAL_INT(AP_M68030_FRAME_THROWAWAY,
+                        ap_m68030_frame_format_of(throwaway));
+  TEST_ASSERT_EQUAL_HEX32(0x40u * 4u,
+                          ap_m68030_frame_vector_offset_of(throwaway));
+  TEST_ASSERT_EQUAL_HEX32(read_ram_long(&m, m.cpu.regs.msp + 2u),
+                          read_ram_long(&m, m.cpu.regs.isp + 2u));
+
+  /* "The copy of the status register saved on the throwaway frame is exactly
+   * the same as that placed on the master stack except that the S bit is set."
+   * The interrupted code was in supervisor state here, so the two agree -- and
+   * the throwaway's S bit is set either way. */
+  TEST_ASSERT_TRUE(read_ram_word(&m, m.cpu.regs.isp) &
+                   (1u << AP_M68030_SR_S_BIT));
+}
+
+/* An interrupt is what STOP is waiting for, so taking one ends the stop --
+ * otherwise a processor that stopped to wait for an interrupt would still be
+ * stopped after receiving it, which is a machine that never boots. */
+static void test_an_interrupt_wakes_a_stopped_processor(void) {
+  /* STOP #$2000 -- supervisor, mask 0, so anything interrupts. */
+  static const uint16_t program[] = {0x4E72u, 0x2000u, 0x7005u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 4);
+  plant_vector(&m, ap_m68030_autovector(4u), HANDLER);
+  m.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
+  m.cpu.regs.isp = SUPERVISOR_STACK;
+  m.cpu.acknowledge = acknowledge_autovector;
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&m.cpu).status);
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_STOPPED, ap_m68030_step(&m.cpu).status);
+
+  /* The line rises, and the processor takes the interrupt and resumes. */
+  m.cpu.interrupt_level = 4u;
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXCEPTION, ap_m68030_step(&m.cpu).status);
+  TEST_ASSERT_EQUAL_HEX32(HANDLER, m.cpu.regs.pc);
+
+  /* And it is no longer stopped: the handler's instructions run. */
+  m.cpu.interrupt_level = 0u;
+  TEST_ASSERT_NOT_EQUAL_INT(AP_M68030_STEP_STOPPED,
+                            ap_m68030_step(&m.cpu).status);
+}
+
+/* "The saved value of the program counter is the logical address of the
+ * instruction that would have been executed had the interrupt not occurred" --
+ * so RTE returns to the instruction the interrupt pre-empted, and it then runs.
+ * The whole round trip, which is what an interrupt is for. */
+static void test_an_interrupt_returns_to_the_instruction_it_preempted(void) {
+  static const uint16_t program[] = {0x7009u, 0x4E71u, 0x4E71u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 4);
+  write_ram_long(&m, 0x00006000u, 0x4E734E71u); /* RTE ; NOP */
+  plant_vector(&m, ap_m68030_autovector(4u), 0x00006000u);
+  m.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
+  m.cpu.regs.isp = SUPERVISOR_STACK;
+  m.cpu.interrupt_level = 4u;
+  m.cpu.acknowledge = acknowledge_autovector;
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXCEPTION, ap_m68030_step(&m.cpu).status);
+  TEST_ASSERT_EQUAL_HEX32(0x00006000u, m.cpu.regs.pc);
+
+  /* Drop the line, then RTE out of the handler. */
+  m.cpu.interrupt_level = 0u;
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&m.cpu).status);
+  TEST_ASSERT_EQUAL_HEX32(PROGRAM_BASE, m.cpu.regs.pc);
+  TEST_ASSERT_EQUAL_HEX32(SUPERVISOR_STACK, m.cpu.regs.isp);
+
+  /* The pre-empted instruction now runs, having never been skipped. */
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&m.cpu).status);
+  TEST_ASSERT_EQUAL_HEX32(9u, m.cpu.regs.d[0]);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_a_nop_executes_and_advances_the_pc);
@@ -3269,6 +3516,13 @@ int main(void) {
   RUN_TEST(test_a_register_count_is_taken_modulo_sixty_four);
   RUN_TEST(test_a_byte_shift_leaves_the_upper_bytes);
   RUN_TEST(test_an_address_form_accepts_an_immediate_source);
+  RUN_TEST(test_an_interrupt_is_taken_only_above_the_priority_mask);
+  RUN_TEST(test_the_stacked_mask_is_the_one_before_the_interrupt);
+  RUN_TEST(test_level_seven_interrupts_on_the_transition_and_not_the_level);
+  RUN_TEST(test_a_failed_acknowledge_becomes_the_spurious_vector);
+  RUN_TEST(test_an_interrupt_in_master_state_builds_two_frames);
+  RUN_TEST(test_an_interrupt_wakes_a_stopped_processor);
+  RUN_TEST(test_an_interrupt_returns_to_the_instruction_it_preempted);
   RUN_TEST(test_lea_refuses_an_increment_mode_it_decodes_perfectly_well);
   RUN_TEST(test_a_move_cannot_write_through_the_program_counter);
   RUN_TEST(test_pmove_refuses_an_increment_mode);

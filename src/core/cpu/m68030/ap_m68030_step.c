@@ -1463,9 +1463,13 @@ static bool write_frame_field(ap_m68030_cpu_t *cpu, uint32_t address,
   return wrote.ok;
 }
 
-ap_m68030_exception_result_t
-ap_m68030_take_exception(ap_m68030_cpu_t *cpu, unsigned vector,
-                         uint32_t stacked_pc, uint32_t instruction_address) {
+/* The body of taking an exception, with the stacked status register supplied
+ * rather than read here. Every exception but an interrupt stacks the register as
+ * it stood on entry; an interrupt raises the priority mask first and must stack
+ * the copy taken *before* that, so the two cannot share a single read. */
+static ap_m68030_exception_result_t take_exception_with(
+    ap_m68030_cpu_t *cpu, unsigned vector, uint32_t stacked_pc,
+    uint32_t instruction_address, uint16_t saved_sr) {
   ap_m68030_exception_result_t out = {0};
 
   /* Reset stacks nothing -- "For all exceptions other than reset" -- and the
@@ -1480,12 +1484,10 @@ ap_m68030_take_exception(ap_m68030_cpu_t *cpu, unsigned vector,
     return out;
   }
 
-  /* Step one. The copy is taken *before* the register is changed, and it is the
-   * copy that gets stacked -- so RTE restores the privilege level the exception
-   * interrupted, not the one the handler ran in. */
-  const uint16_t saved_sr = cpu->regs.sr;
-
-  uint16_t updated = saved_sr;
+  /* Step one. The copy was taken *before* the register was changed, and it is
+   * the copy that gets stacked -- so RTE restores the privilege level the
+   * exception interrupted, not the one the handler ran in. */
+  uint16_t updated = cpu->regs.sr;
   updated |= (uint16_t)(1u << AP_M68030_SR_S_BIT);
   updated &= (uint16_t)~(1u << AP_M68030_SR_T1_BIT);
   updated &= (uint16_t)~(1u << AP_M68030_SR_T0_BIT);
@@ -1541,6 +1543,105 @@ ap_m68030_take_exception(ap_m68030_cpu_t *cpu, unsigned vector,
 
   out.frame_address = frame;
   out.ok = true;
+  return out;
+}
+
+ap_m68030_exception_result_t
+ap_m68030_take_exception(ap_m68030_cpu_t *cpu, unsigned vector,
+                         uint32_t stacked_pc, uint32_t instruction_address) {
+  return take_exception_with(cpu, vector, stacked_pc, instruction_address,
+                             cpu->regs.sr);
+}
+
+ap_m68030_exception_result_t ap_m68030_take_interrupt(ap_m68030_cpu_t *cpu) {
+  ap_m68030_exception_result_t out = {0};
+
+  const unsigned level = cpu->interrupt_level;
+  if (!ap_m68030_interrupt_recognised(level, cpu->previous_interrupt_level,
+                                      ap_m68030_interrupt_mask(&cpu->regs))) {
+    cpu->previous_interrupt_level = level;
+    return out;
+  }
+  cpu->previous_interrupt_level = level;
+
+  /* "the processor first makes an internal copy of the status register" -- and
+   * this copy is what both frames carry. Taken before the mask is raised, or
+   * RTE would restore the handler's mask and the interrupted code would never
+   * see another interrupt at its own level. */
+  const uint16_t saved_sr = cpu->regs.sr;
+  const bool master = ap_m68030_master(&cpu->regs);
+
+  /* "sets the processor interrupt mask level to the level of the interrupt
+   * being serviced", so the handler is not re-entered by its own device. */
+  uint16_t raised = cpu->regs.sr;
+  raised &= (uint16_t)~(AP_M68030_SR_INTERRUPT_MASK
+                        << AP_M68030_SR_INTERRUPT_SHIFT);
+  raised |= (uint16_t)((level & AP_M68030_SR_INTERRUPT_MASK)
+                       << AP_M68030_SR_INTERRUPT_SHIFT);
+  ap_m68030_write_sr(&cpu->regs, raised);
+
+  /* "The processor attempts to obtain a vector number from the interrupting
+   * device using an interrupt acknowledge bus cycle." */
+  unsigned vector = AP_M68030_VECTOR_SPURIOUS_INTERRUPT;
+  if (cpu->acknowledge != NULL) {
+    const ap_m68030_iack_t answer =
+        cpu->acknowledge(cpu->acknowledge_context, level);
+    if (answer.bus_error) {
+      /* "If external logic indicates a bus error during the interrupt
+       * acknowledge cycle, the interrupt is considered spurious". */
+      vector = AP_M68030_VECTOR_SPURIOUS_INTERRUPT;
+    } else if (answer.autovector) {
+      vector = ap_m68030_autovector(level);
+    } else {
+      vector = answer.vector;
+    }
+  }
+
+  /* "The saved value of the program counter is the logical address of the
+   * instruction that would have been executed had the interrupt not occurred"
+   * -- so the PC as it stands, since an interrupt is taken between
+   * instructions and nothing has been fetched for the next one. */
+  const uint32_t resume = cpu->regs.pc;
+  out = take_exception_with(cpu, vector, resume, resume, saved_sr);
+  if (!out.ok) {
+    return out;
+  }
+
+  if (!master) {
+    return out;
+  }
+
+  /* "If the M bit of the status register is set, the processor clears the M bit
+   * and creates a throwaway exception stack frame on top of the interrupt
+   * stack." Clearing M first is what moves A7 from the master stack to the
+   * interrupt stack, so the second frame lands on the other one -- which is the
+   * whole point, and is why the order is not an implementation detail. */
+  uint16_t without_master = cpu->regs.sr;
+  without_master &= (uint16_t)~(1u << AP_M68030_SR_M_BIT);
+  ap_m68030_write_sr(&cpu->regs, without_master);
+
+  /* "This second frame contains the same program counter value and vector
+   * offset as the frame created on top of the master stack, but has a format
+   * number of 1", and "The copy of the status register saved on the throwaway
+   * frame is exactly the same as that placed on the master stack except that
+   * the S bit is set". */
+  const uint16_t throwaway_sr =
+      (uint16_t)(saved_sr | (uint16_t)(1u << AP_M68030_SR_S_BIT));
+  const uint32_t frame = ap_m68030_read_a7(&cpu->regs) - 8u;
+
+  bool wrote = write_frame_field(cpu, frame + 0u, 2u, throwaway_sr, &out.clocks);
+  wrote = wrote && write_frame_field(cpu, frame + 2u, 4u, resume, &out.clocks);
+  wrote = wrote && write_frame_field(
+                       cpu, frame + 6u, 2u,
+                       ap_m68030_frame_format_word(AP_M68030_FRAME_THROWAWAY,
+                                                   vector),
+                       &out.clocks);
+  if (!wrote) {
+    out.ok = false;
+    return out;
+  }
+  ap_m68030_write_a7(&cpu->regs, frame);
+  out.frame_address = frame;
   return out;
 }
 
@@ -2813,6 +2914,21 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
   ap_m68030_step_result_t out = {.status = AP_M68030_STEP_FAULT};
   uint16_t word = 0;
   bool abnormal = false;
+
+  /* Interrupts are group 4.2, "Exception processing begins when current
+   * instruction or previous exception processing is completed" -- so they are
+   * recognised *between* instructions, which is here and not in the middle of
+   * one. */
+  const ap_m68030_exception_result_t interrupt = ap_m68030_take_interrupt(cpu);
+  if (interrupt.ok) {
+    /* An interrupt is what a stopped processor is waiting for, so taking one
+     * also ends the stop. */
+    cpu->stopped = false;
+    out.clocks = interrupt.clocks;
+    out.status = AP_M68030_STEP_EXCEPTION;
+    cpu->clocks += out.clocks;
+    return out;
+  }
 
   /* "The processor stops fetching and executing instructions" -- so a stopped
    * processor does not even prefetch, and this returns before touching the
