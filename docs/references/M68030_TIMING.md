@@ -292,3 +292,53 @@ and the two-sided check applies to them unchanged. They are the obvious next
 pass, and unlike the register forms they will exercise the `NCC > CC` case,
 which nothing does today: every transcribed row has `NCC == CC`, because its
 single prefetch hides under microcode of at least two clocks.
+
+## `max(microcode, bus)` does not survive the effective address tables
+
+Recorded before transcribing them, because it changes what the transcription is
+for.
+
+`ADD.B D0,(A0)` composes, by the manual's own Equation (11-2) and the no-overlap
+rule of the no-cache case:
+
+```
+  CC  = CCea + [CCop - min(Hop,Tea)]  =  3 + [3 - min(0,1)]  =  6
+  NCC = NCCop + NCCea                 =  4 + 3               =  7
+```
+
+and the oracle measures 7. So the target is 6 warm and 7 cold.
+
+Now try to reach it with `max(microcode, bus)`. The core's bus for this
+instruction, cold, is a prefetch, the operand read and the write — six clocks.
+Whatever microcode figure is chosen, `max(m, 6)` is 6 when `m ≤ 6` and `m`
+otherwise; it can produce 6 or it can produce 7, but the warm case has a
+*smaller* bus (the read hits the data cache) and needs the *smaller* answer.
+There is no single `m` giving 6 against a four-clock bus and 7 against a
+six-clock one, because `max` is monotonic in both arguments and the required
+answers move the wrong way relative to each other.
+
+**So the two-resource approximation runs out exactly here**, which is where its
+own header said it would: "a full model would let a bus cycle overlap only the
+part of the microcode not waiting on it, which `max` does not express". An
+`ADD` to memory *must* wait for its operand read before it can add, so that read
+cannot hide under the microcode that consumes it — while a prefetch still can.
+
+The distinction the model needs is therefore not more resources but one
+question per bus cycle: **is the microcode waiting on this?** A prefetch is
+not waited on; an operand read feeding the current operation is. That is a
+two-bucket refinement of `max`, not a rewrite:
+
+```
+  total = max(microcode, hideable_bus) + blocking_bus
+```
+
+Under it, `ADD Dn,(An)` cold is `max(m, prefetch 2) + read 2 + write 2`, which
+reaches 7 for `m = 3`; and warm, with the read cached, `max(3, 0) + 0 + 2 = 5`
+— still not 6, so the arithmetic is not yet right either, and the missing clock
+is where the `fea`'s own microcode lives.
+
+This is not a change to make from a chair. It needs the effective address
+tables transcribed so both sides of the composition are published numbers, and
+then the two-sided check applied per addressing mode. What is settled is that
+the *current* model cannot be extended to cover the footnoted rows, and that is
+why the step now declines them rather than reporting a component.

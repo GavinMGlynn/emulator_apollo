@@ -368,13 +368,10 @@ static void test_every_transcribed_row_matches_both_published_columns(void) {
   }
 }
 
-/* The memory-destination forms, which are the first transcribed rows whose
- * `NCC` exceeds their `CC` -- `3(0/0/1)` against `4(0/1/1)`. Everything checked
- * above has `NCC == CC`, so nothing there could tell a correct model from one
- * that ignores the bus. This can.
- *
- * The instruction writes through A0, which points at RAM well clear of the
- * program, so the write is a real bus cycle rather than a refused one. */
+/* Run one single-word instruction whose operand is memory, with A0 pointing at
+ * RAM well clear of the program so the access is a real bus cycle rather than a
+ * refused one. Otherwise as `sample_instruction`: a discarded first step, then
+ * the interval between consecutive steps. */
 static void sample_memory_form(uint16_t word, bool warm, uint64_t *out,
                                unsigned samples) {
   blank();
@@ -401,7 +398,21 @@ static void sample_memory_form(uint16_t word, bool warm, uint64_t *out,
   }
 }
 
-static void test_the_memory_forms_separate_the_two_published_columns(void) {
+/* The arithmetic memory-destination forms are **not** priced, and this asserts
+ * that they are not.
+ *
+ * `FINDINGS.md` C9: §11.6.8 footnotes `ADD Dn,EA` with "Add Fetch Effective
+ * Address Time", so its published 3 is a *component* — the effective address it
+ * reads through is another 3 from §11.6.1, and the oracle measures the whole
+ * instruction at 7. Until those tables are composed in, applying the component
+ * would produce a steady number that looks like a measurement and is short by a
+ * memory access.
+ *
+ * An earlier version of this test compared our total against `CC` and `NCC` and
+ * passed — because both sides were the same component. That is precisely the
+ * blind spot C9 records: a check that compares like with like cannot see that
+ * the like is partial. */
+static void test_the_footnoted_memory_forms_are_declined_not_part_priced(void) {
   static const struct {
     uint16_t word;
     const char *what;
@@ -409,18 +420,47 @@ static void test_the_memory_forms_separate_the_two_published_columns(void) {
       {0xD110u, "ADD.B D0,(A0)"}, {0x9110u, "SUB.B D0,(A0)"},
       {0xC110u, "AND.B D0,(A0)"}, {0x8110u, "OR.B D0,(A0)"},
       {0xB110u, "EOR.B D0,(A0)"},
-      /* MOVE's memory destinations, whose CC is 3 like the above. */
-      {0x2080u, "MOVE.L D0,(A0)"}, {0x20C0u, "MOVE.L D0,(A0)+"},
   };
 
   for (unsigned c = 0; c < sizeof CASES / sizeof CASES[0]; c++) {
     const ap_m68030_table_entry_t *row =
         ap_m68030_timing_for_word(CASES[c].word);
     TEST_ASSERT_NOT_NULL_MESSAGE(row, CASES[c].what);
+    /* The row exists and says it is partial. */
+    TEST_ASSERT_TRUE_MESSAGE(row->needs_effective_address_time, CASES[c].what);
 
-    /* The premise of this test: these rows actually distinguish the columns. */
-    TEST_ASSERT_TRUE_MESSAGE(
-        row->timing.no_cache_case > row->timing.cache_case, CASES[c].what);
+    /* And the core does not apply it: the cost is bus time alone, which is a
+     * write and nothing else once the instruction is cached. */
+    uint64_t warm[4];
+    sample_memory_form(CASES[c].word, true, warm, 4u);
+    for (unsigned i = 0; i < 4u; i++) {
+      TEST_ASSERT_TRUE_MESSAGE(warm[i] < row->timing.cache_case,
+                               CASES[c].what);
+    }
+  }
+}
+
+/* MOVE's register-source memory destinations carry **no** footnote — the table
+ * gives `MOVE Rn,(An)` complete at 3, and only `MOVE SOURCE,(An)`, with a
+ * memory source, needs an address time. So these are priced, and they are the
+ * rows that still exercise both published columns. */
+static void test_the_unfootnoted_memory_moves_match_both_columns(void) {
+  static const struct {
+    uint16_t word;
+    const char *what;
+  } CASES[] = {
+      {0x2080u, "MOVE.L D0,(A0)"},
+      {0x20C0u, "MOVE.L D0,(A0)+"},
+  };
+
+  for (unsigned c = 0; c < sizeof CASES / sizeof CASES[0]; c++) {
+    const ap_m68030_table_entry_t *row =
+        ap_m68030_timing_for_word(CASES[c].word);
+    TEST_ASSERT_NOT_NULL_MESSAGE(row, CASES[c].what);
+    TEST_ASSERT_FALSE_MESSAGE(row->needs_effective_address_time, CASES[c].what);
+    TEST_ASSERT_TRUE_MESSAGE(row->timing.no_cache_case >
+                                 row->timing.cache_case,
+                             CASES[c].what);
 
     uint64_t warm[4];
     sample_memory_form(CASES[c].word, true, warm, 4u);
@@ -620,7 +660,8 @@ int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_a_probe_can_set_up_run_and_read_back);
   RUN_TEST(test_every_transcribed_row_matches_both_published_columns);
-  RUN_TEST(test_the_memory_forms_separate_the_two_published_columns);
+  RUN_TEST(test_the_footnoted_memory_forms_are_declined_not_part_priced);
+  RUN_TEST(test_the_unfootnoted_memory_moves_match_both_columns);
   RUN_TEST(test_the_predecrement_move_costs_more_than_the_postincrement);
   RUN_TEST(test_the_left_arithmetic_shift_costs_more_than_the_right);
   RUN_TEST(test_a_register_count_shift_is_not_transcribed);

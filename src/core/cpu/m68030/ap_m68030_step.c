@@ -3346,7 +3346,19 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
   } else {
     published = ap_m68030_timing_for_word(out.instruction);
   }
-  if (published != nullptr) {
+  /* A row footnoted "Add Fetch Effective Address Time" publishes a *component*,
+   * not a total: `ADD Dn,EA` is 3, and the effective address it reads through
+   * is another 3 or 4 from §11.6.1. Until those tables are composed in, such a
+   * row is declined rather than applied -- `FINDINGS.md` C9 measured the gap at
+   * 7 clocks against our 4 for `ADD.B D0,(A0)`.
+   *
+   * Declining leaves the instruction at bus time alone, which `--time-instructions`
+   * shows as an *alternating* figure rather than a steady one -- visibly a lower
+   * bound, exactly as every instruction with no published figure at all reads.
+   * Reporting the component instead would produce a steady number that looks
+   * like a measurement and is short by a whole memory access, which is the one
+   * outcome this core's conventions rule out everywhere else. */
+  if (published != nullptr && !published->needs_effective_address_time) {
     out.clocks = ap_m68030_schedule(published->timing.cache_case, out.clocks);
   }
 

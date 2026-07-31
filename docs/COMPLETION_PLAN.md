@@ -1440,11 +1440,26 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         head — `CCea + [CCop - min(Hop,Tea)] + ...` — which is why both columns
         were transcribed from the start even though Equation (11-1) does not use
         them per-instruction.
-        **First question to settle:** whether the step should decline to price a
-        footnoted row at all until its effective address time exists, rather
-        than reporting the instruction's own part. A partial figure that says it
-        is partial is defensible in a table; silently reporting one as a total
-        through `--time-instructions` is less so.
+        **First question, settled: the step declines.** A footnoted row is left
+        at bus time alone, which `--time-instructions` shows as an *alternating*
+        figure — visibly a lower bound, exactly as an instruction with no
+        published figure at all reads. Reporting the component would have given
+        a steady number that looks like a measurement and is short by a whole
+        memory access, which every other convention in this core rules out.
+        A test now asserts the decline; the one it replaced compared our total
+        against `CC` and `NCC` and *passed*, because both sides were the same
+        component — the blind spot C9 records, made concrete.
+        **Second question, now recorded:** `max(microcode, bus)` cannot be
+        extended to these rows. `docs/references/M68030_TIMING.md` works it
+        through — the warm case needs a smaller answer against a smaller bus and
+        the cold a larger one against a larger, which `max` cannot give from one
+        microcode figure because it is monotonic in both. The refinement is one
+        question per bus cycle, *is the microcode waiting on this?* — a prefetch
+        is not, an operand read feeding the current operation is — giving
+        `max(microcode, hideable) + blocking`. That is a two-bucket change
+        rather than a rewrite, but it is not to be made before the effective
+        address tables exist, so that both sides of the composition are
+        published numbers rather than one published and one inferred.
         *Verification: `ADD.B D0,(A0)` coming to 7 against the oracle and
         against `NCC + fea`; and the second worked example of §11.3.4, which
         exists precisely to exercise Equation (11-2).*
