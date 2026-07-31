@@ -24,6 +24,7 @@ Last updated: 2026-07-31.
 | 68030 instruction pipe + cache holding register | working | `pipe_suite`, 14 tests, `MC68030 User's Manual 3ed` §11.2.2 |
 | 68030 bus cycle state machine | working, including burst line fills | `bus_suite`, 23 tests, each citing `MC68030 User's Manual 3ed` ch. 7 (read, write and burst cycles) |
 | 68030 on-chip instruction and data caches | working, including the bus-timing join: a hit costs 0 clocks, a burst line fill 5 | `cache_suite`, 29 tests and `bus_suite`, 23 tests, `MC68030 User's Manual 3ed` §6, §7.3.7 |
+| 68030 integer ALU (results and condition codes) | working: ADD, SUB, CMP, AND, OR, EOR | `alu_suite`, 8 tests, `M68000 Family Programmer's Reference Manual 1992` Table 3-18; the byte space verified exhaustively |
 | 68030 operand access (read/write through an effective address) | working | `operand_suite`, 8 tests, `M68000 Family Programmer's Reference Manual 1992` |
 | 68030 instruction step (fetch → decode → execute → advance) | working for `NOP`, `MOVEQ`, 8-bit `BRA`/`Bcc`, `MOVE`/`MOVEA` in all but full-format indexed modes; everything else reports unimplemented | `step_suite`, 22 tests |
 | 68030 instruction prefetch (pipe driven from memory) | working | `fetch_suite`, 5 tests, `MC68030 User's Manual 3ed` §11.2.2 and §6.1 |

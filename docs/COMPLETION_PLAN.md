@@ -798,8 +798,26 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         its own base and outer displacements, so the count is not known until it
         is decoded. `gather_address_input` reports it unimplemented rather than
         reading a guessed number of words.
-  - [ ] The remaining instruction semantics, family by family, now that operand
-        access exists. *Verification: per-family suites, then probes against the
+  - [x] **Integer ALU** (`src/core/cpu/m68030/ap_m68030_alu.c`): ADD, SUB, CMP,
+        AND, OR and EOR, with their condition codes.
+        **Table 3-18's overbars are lost to the scan**, exactly as Table 3-19's
+        were — `ADD`'s overflow reads as "V = Sm Λ Dm Λ Rm V Sm Λ Dm Λ Rm",
+        whose two halves are identical as written and therefore unreadable. So
+        the formulas are *not* transcribed. They are written in the standard
+        equivalent form and then **verified exhaustively**: all 65536 byte
+        operand pairs for both add and subtract, against references computed
+        independently in wider arithmetic where no truncation can hide a carry.
+        A misplaced overbar cannot survive that, and neither can a formula that
+        is right everywhere except one boundary.
+        *Verification: `alu_suite`, 8 tests — the two exhaustive sweeps; word
+        and long cases that would catch a hardcoded byte sign bit; all four
+        combinations of carry and overflow shown reachable, since a single
+        "did it fit" flag would lose the distinction; `CMP` differing from `SUB`
+        **only** in X; and X left alone by the logical operations against being
+        replaced by the carry in the arithmetic ones.*
+  - [ ] Wire the ALU into the step for the arithmetic families, and the
+        remaining instruction semantics family by family.
+        *Verification: per-family suites, then probes against the oracle.* *Verification: per-family suites, then probes against the
         oracle for the timing.*
   - [ ] **CMP2/CHK2, CAS and CAS2**, which occupy size field `11` in family
         `0000`'s immediate rows. Not decoded: `ap_m68030_immediate_decode`
