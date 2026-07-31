@@ -652,6 +652,33 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         address it reached rather than returning a half-computed address as
         though it were final. *Verification: the manual's own worked examples
         for preindexed and postindexed forms, driven through a memory stub.*
+  - [x] **The logical memory access path**
+        (`src/core/cpu/m68030/ap_m68030_access.c`), joining the caches, TTx, the
+        ATC, the table walk and the bus. Its whole content is the *order*, and
+        the order is the reverse of the intuitive one.
+        **A cache hit does not consult the MMU at all**: "Whenever a read access
+        occurs and the required instruction word or data operand is resident in
+        the appropriate on-chip cache (no external bus cycle is required), the
+        MMU is completely ignored ... The MMU is used to validate all accesses
+        that require external bus cycles." That is only possible because the
+        68030's caches are **logically** addressed — their tag is the logical
+        address with the function code — so the cache can answer before anything
+        has been translated.
+        Two consequences that look like bugs and are not: a page's protection is
+        **not** checked on a cache hit, and the MMU's CI bit is irrelevant there,
+        because the MMU is not asked. A model that translates first and then
+        looks in the cache produces the same values with the wrong timing *and*
+        the wrong faults.
+        *Verification: `access_suite`, 7 tests — a cache hit asserted to cost
+        zero clocks **and** to leave the table-fetch and fill counters
+        untouched, which are separate claims; one burst fill serving a whole
+        line with none of the four consulting the MMU; a disabled cache and the
+        CDIS signal each forcing the MMU every time; a transparent access
+        skipping the tables entirely; and the table search being paid once per
+        *page* rather than once per line.*
+  - [ ] Writes through the same path, which add the M-bit rule and the data
+        cache's writethrough behaviour. *Verification: a write to a clean page
+        costing a table search the read did not.*
   - [ ] **CMP2/CHK2, CAS and CAS2**, which occupy size field `11` in family
         `0000`'s immediate rows. Not decoded: `ap_m68030_immediate_decode`
         reports invalid there rather than mis-decoding them as a wider ORI, and

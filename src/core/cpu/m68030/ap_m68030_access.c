@@ -1,0 +1,101 @@
+/* MC68030 logical memory access. See ap_m68030_access.h for why the cache is
+ * consulted before the MMU rather than after. */
+
+#include "cpu/m68030/ap_m68030_access.h"
+
+#include <stddef.h>
+
+ap_m68030_access_result_t ap_m68030_access_read(ap_m68030_access_ctx_t *access,
+                                                uint32_t logical,
+                                                uint8_t function_code) {
+  ap_m68030_access_result_t out = {0};
+
+  const bool cache_usable =
+      ap_m68030_cache_enabled(access->cache_enabled, access->cache_disable,
+                              false);
+
+  /* Step one, and the whole point of the module: the cache answers first, from
+   * the *logical* address. "the MMU is completely ignored" if it does. */
+  if (cache_usable &&
+      ap_m68030_cache_lookup(access->cache, logical, function_code,
+                             &out.value)) {
+    out.ok = true;
+    out.cache_hit = true;
+    out.mmu_consulted = false;
+    out.clocks = 0;
+    return out;
+  }
+
+  /* An external cycle is needed, so now the MMU is asked. "The MMU is used to
+   * validate all accesses that require external bus cycles." */
+  out.mmu_consulted = true;
+
+  uint32_t physical = logical;
+  bool cache_inhibit = false;
+
+  /* Transparent translation is checked before the tables: a matching TTx
+   * register translates without them and without protection checking. */
+  const ap_m68030_access_t tt_access = {.address = logical,
+                                     .function_code = function_code,
+                                     .read = true,
+                                     .read_modify_write = false};
+  const ap_m68030_tt_result_t transparent =
+      ap_m68030_tt_translate(access->tt0, access->tt1, &tt_access);
+
+  if (transparent.transparent) {
+    out.transparent = true;
+    physical = transparent.physical;
+    cache_inhibit = transparent.cache_inhibit;
+  } else if (access->translation_enabled) {
+    /* The ATC first; a miss pays for a table search. */
+    const ap_m68030_atc_result_t lookup = ap_m68030_atc_lookup(
+        access->atc, function_code, logical, access->tc->page_size_bits, false,
+        false);
+
+    if (lookup.status == AP_M68030_ATC_HIT) {
+      physical = lookup.physical;
+      cache_inhibit = lookup.cache_inhibit;
+    } else if (lookup.status == AP_M68030_ATC_FAULT) {
+      out.fault = true;
+      return out;
+    } else {
+      const ap_m68030_search_access_t search_access = {
+          .write = false,
+          .read_modify_write = false,
+          .supervisor = (function_code & 4u) != 0u};
+      const ap_m68030_walk_result_t walk =
+          ap_m68030_walk(access->tc, access->root, logical, &search_access,
+                         access->table_fetch, access->table_update,
+                         access->context);
+      out.descriptor_fetches = walk.descriptor_fetches;
+      (void)ap_m68030_walk_fill_atc(access->atc, &walk, &search_access,
+                                    function_code, logical,
+                                    access->tc->page_size_bits);
+      if (!walk.ok ||
+          !ap_m68030_search_permits_access(&walk.search,
+                                           search_access.supervisor)) {
+        out.fault = true;
+        return out;
+      }
+      physical = walk.physical;
+      cache_inhibit = walk.search.cache_inhibited;
+    }
+  }
+
+  out.physical = physical;
+
+  /* CIOUT, from whichever of the two produced the translation, suppresses the
+   * cache for this access -- which is why it is only consulted now. */
+  const bool fillable = ap_m68030_cache_enabled(
+      access->cache_enabled, access->cache_disable, cache_inhibit);
+
+  const ap_m68030_cache_access_t fetched = ap_m68030_cache_read(
+      access->cache, logical, function_code, fillable, access->burst_enabled,
+      access->cache_frozen, false, access->fill, access->context);
+
+  out.value = fetched.value;
+  out.clocks = fetched.clocks;
+  out.ok = !fetched.bus_error;
+  out.fault = fetched.bus_error;
+  return out;
+}
