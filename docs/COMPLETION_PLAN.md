@@ -2403,8 +2403,14 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
       fixed disk **four registers** with different meanings read and written,
       "normally located at the I/O address listed in table 4-1 but may be altered
       by jumpers" — which matches C20's three-driven-of-four and accounts for
-      Apollo's `1A0` without an Apollo-specific variant. Next: transcribe
-      tables 4-1, 4-2 and 4-3 (PDF page 41 onward) and Sections 5 and 6.
+      Apollo's `1A0` without an Apollo-specific variant. Tables 4-1 and 4-2 are
+      **transcribed** in `FINDINGS.md` C21 — four ports with distinct read and
+      write meanings, the status register's bits, and the C/D bit that switches
+      the data register between 8 and 16 bits wide. The measured `C0` at the
+      status port is exactly Table 4-2's two "Not Used (Set to 1)" bits for an
+      idle controller, so manual and machine agree on a byte. Still to
+      transcribe: table 4-3 (floppy registers) and Sections 5 and 6 (the command
+      sets).
       Note §4.1's shape — floppy and fixed disk are **two independent register
       sets** running concurrently, not one controller with a mode bit. *Verification: DMA-completion device shape — transfer now,
       schedule completion in emulated time; oracle diff.*

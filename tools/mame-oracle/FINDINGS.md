@@ -1281,6 +1281,53 @@ The one that worked was named after neither the part nor its number but after th
 *bus* -- "AT Controller Series" -- and was found last. Four plausible sources,
 and the ordering that looked obvious was the wrong ordering.
 
+### C21 — the OMTI's fixed-disk registers, and the byte that proves it
+
+Transcribed from `OMTI_AT_Controller_Series_Jan87` Tables 4-1 and 4-2.
+
+**Table 4-1, I/O Port Addresses.** Four ports, each meaning different things read
+and written, at a default base of `320H` that Apollo has jumpered to AT `1A0`:
+
+    PORT    READ             WRITE
+    +0      DATA IN          DATA OUT
+    +1      STATUS           RESET (Function)
+    +2      CONFIGURATION    SELECT (Function)
+    +3      N/A              MASK
+
+Note `+3` reads "N/A" -- there is nothing to read there -- and that `+1` and `+2`
+are *function* registers on write: writing them performs a reset and a select
+rather than storing a value, in the same way the SC-499's DMA addresses do.
+
+**Table 4-2, the status register:**
+
+    Bit 7   Not Used (Set to 1)
+    Bit 6   Not Used (Set to 1)
+    Bit 5   IREQ   0 = No Interrupt, 1 = Command Complete
+    Bit 4   DREQ   0 = No DMA Request, 1 = DMA Cycle Requested
+    Bit 3   BSY    0 = Controller Idle, 1 = Controller Selected
+    Bit 2   C/D    0 = word being transferred is data or status
+                   1 = byte being transferred is a command or status byte
+
+**And this is where the measurement pays.** C20 read `FF C0 FC 00` from the four
+ports of an idle controller. The status register at `+1` read **`C0`** -- bits 7
+and 6 set and everything else clear -- which is exactly and only what Table 4-2
+predicts for a controller that is idle, not interrupting, not requesting DMA and
+not transferring: the two "Not Used (Set to 1)" bits and nothing more.
+
+Two documents that have never met agreeing on a byte is the strongest
+confirmation this device will get before it runs. It also retroactively justifies
+C20's caution: offset 0 read `FF` and was recorded as indistinguishable from
+undriven, and Table 4-1 says it is DATA IN -- a real register that happened to
+hold `FF`. The sweep was right not to guess.
+
+**C/D changes the width of the data register**, which is the trap in this part:
+"This is an 8 or 16 bit register depending on the state of the controller
+(determined by the C/D bit in the STATUS register) ... When the C/D bit is 1,
+only bits 0-7 are valid. When C/D is 0 all 16 bits are valid with bits 8-15
+containing byte 1 and bits 0-7 containing byte 0." A model with a fixed-width
+data register would transfer commands correctly and corrupt every data word, or
+the reverse.
+
 ## Where the ring is not
 
 The Apollo Token Ring has **no runnable oracle at all**: MAME carries Domain
