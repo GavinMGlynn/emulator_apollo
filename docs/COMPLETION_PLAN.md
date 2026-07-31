@@ -879,9 +879,28 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         *Verification: `step_suite`, 10 further tests (61 total), including bit
         31 reachable on a register, the bit number wrapping modulo the width,
         and only Z affected with X, N, V and C all asserted to survive.*
-  - [ ] The remaining instruction semantics: divides and multiplies, the
+  - [x] **Shifts and rotates execute**, both the register form and the
+        one-bit-in-memory form. Three rules carry the weight, each a place a
+        plausible implementation goes wrong silently:
+        **A count of zero is not a no-op.** It leaves X alone and clears V and
+        C — *except* for `ROXL`/`ROXR`, where Table 3-18 gives "C ?  X=C", so C
+        takes X's value. A model returning early on a zero count is right four
+        times out of six.
+        **Only the arithmetic *left* shift sets V**, and it is set "if the most
+        significant bit is changed at **any time** during the shift" — not if
+        the sign differs at the end. A value whose sign shifts out and back in
+        sets V despite finishing as it started, which is tested directly.
+        **The rotates split on X**: `ROL`/`ROR` leave it alone, `ROXL`/`ROXR`
+        rotate *through* it. Treating all four alike breaks multi-precision
+        shifts, which are why the extend forms exist — verified by a nine-step
+        `ROXL` on a byte returning both operand and extend bit to their starting
+        values, against an eight-step `ROL` doing the same.
+        *Verification: `alu_suite`, 9 further tests (17 total); `step_suite`, 3
+        more (64), including a register count taken modulo 64 so a count of 64
+        shifts by nothing.*
+  - [ ] The last of the instruction semantics: divides and multiplies, and the
         register-to-register extended forms (`ADDX`/`SUBX`/`ABCD`/`SBCD`/
-        `CMPM`/`EXG`), and the shifts.
+        `CMPM`/`EXG`).
         *Verification: per-family suites, then probes against the oracle.* *Verification: per-family suites, then probes against the
         oracle for the timing.*
   - [ ] **CMP2/CHK2, CAS and CAS2**, which occupy size field `11` in family

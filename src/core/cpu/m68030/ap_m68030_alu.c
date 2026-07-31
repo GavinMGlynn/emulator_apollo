@@ -121,6 +121,101 @@ ap_m68030_alu_result_t ap_m68030_alu_test(uint32_t value, unsigned size) {
   return logic(value, size);
 }
 
+ap_m68030_alu_result_t ap_m68030_alu_shift(ap_m68030_shift_type_t type,
+                                           bool left, uint32_t value,
+                                           unsigned count, unsigned size,
+                                           bool x_in) {
+  const uint32_t mask = width_mask(size);
+  const unsigned width = size * 8u;
+  uint32_t v = value & mask;
+
+  ap_m68030_alu_result_t out = {0};
+  out.sets_x = false; /* raised below only where the table shows an asterisk */
+
+  if (count == 0u) {
+    /* Not a no-op: X is left alone and V and C are cleared -- except for the
+     * rotate-with-extend forms, where the table gives "C ?  X=C". */
+    out.result = v;
+    set_nz(&out, size);
+    out.v = false;
+    out.c = (type == AP_M68030_SHIFT_ROTATE_EXTEND) ? x_in : false;
+    return out;
+  }
+
+  bool carry = false;
+  bool x = x_in;
+  bool msb_changed = false;
+  const uint32_t sign = sign_bit(size);
+  const bool original_sign = (v & sign) != 0u;
+
+  for (unsigned i = 0; i < count; i++) {
+    if (left) {
+      carry = (v & sign) != 0u;
+      v = (v << 1) & mask;
+      switch (type) {
+      case AP_M68030_SHIFT_ROTATE:
+        /* ROL brings the bit that left round to the bottom. */
+        v |= carry ? 1u : 0u;
+        break;
+      case AP_M68030_SHIFT_ROTATE_EXTEND:
+        /* ROXL rotates *through* X: the old X enters at the bottom and the bit
+         * that left becomes the new X. */
+        v |= x ? 1u : 0u;
+        x = carry;
+        break;
+      case AP_M68030_SHIFT_ARITHMETIC:
+      case AP_M68030_SHIFT_LOGICAL:
+        x = carry;
+        break;
+      }
+      if (((v & sign) != 0u) != original_sign) {
+        msb_changed = true;
+      }
+    } else {
+      carry = (v & 1u) != 0u;
+      const bool keep_sign = (v & sign) != 0u;
+      v = (v >> 1) & mask;
+      switch (type) {
+      case AP_M68030_SHIFT_ARITHMETIC:
+        /* ASR replicates the sign rather than shifting in zero. */
+        if (keep_sign) {
+          v |= sign;
+        }
+        x = carry;
+        break;
+      case AP_M68030_SHIFT_LOGICAL:
+        x = carry;
+        break;
+      case AP_M68030_SHIFT_ROTATE:
+        v |= carry ? (sign) : 0u;
+        break;
+      case AP_M68030_SHIFT_ROTATE_EXTEND:
+        v |= x ? sign : 0u;
+        x = carry;
+        break;
+      }
+    }
+  }
+  (void)width;
+
+  out.result = v;
+  set_nz(&out, size);
+  out.c = carry;
+
+  /* "V is set if the most significant bit is changed at any time during the
+   * shift operation" -- and only for the arithmetic left shift. Every other
+   * entry in the table has a plain zero there. */
+  out.v = (type == AP_M68030_SHIFT_ARITHMETIC && left) ? msb_changed : false;
+
+  /* X is affected by the shifts and by the extend rotates, and left alone by
+   * ROL and ROR -- the em dash against the asterisk. */
+  if (type != AP_M68030_SHIFT_ROTATE) {
+    out.sets_x = true;
+    out.x = x;
+  }
+  return out;
+}
+
 uint16_t ap_m68030_alu_apply(uint16_t ccr, const ap_m68030_alu_result_t *r) {
   uint16_t out = 0;
   if (r->sets_x ? r->x : ((ccr >> AP_M68030_SR_X_BIT) & 1u) != 0u) {

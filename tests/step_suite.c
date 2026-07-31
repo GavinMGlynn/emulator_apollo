@@ -1225,6 +1225,54 @@ static void test_a_dynamic_bit_number_comes_from_a_register(void) {
   TEST_ASSERT_EQUAL_HEX32(0x10u, m.cpu.regs.d[0]);
 }
 
+
+/* A shift executing through the step, with the register-count modulo 64 rule. */
+static void test_a_register_shift_executes(void) {
+  /* MOVEQ #1,D0 ; LSL.L #3,D0 */
+  static const uint16_t program[] = {0x7001u, 0xE788u, 0x4E71u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 4);
+
+  (void)ap_m68030_step(&m.cpu);
+  const ap_m68030_step_result_t r = ap_m68030_step(&m.cpu);
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, r.status);
+  TEST_ASSERT_EQUAL_HEX32(8u, m.cpu.regs.d[0]);
+}
+
+/* "the shift count is the value in the data register ... modulo 64", so a
+ * register count of 64 shifts by nothing rather than by a full width. */
+static void test_a_register_count_is_taken_modulo_sixty_four(void) {
+  /* MOVE.L #64,D1 ; MOVEQ #$7F,D0 ; LSL.L D1,D0 */
+  static const uint16_t program[] = {0x223Cu, 0x0000u, 0x0040u, 0x707Fu,
+                                     0xE3A8u, 0x4E71u, 0x4E71u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 8);
+
+  (void)ap_m68030_step(&m.cpu);
+  (void)ap_m68030_step(&m.cpu);
+  const ap_m68030_step_result_t r = ap_m68030_step(&m.cpu);
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, r.status);
+  /* 64 mod 64 is zero, so the operand is unchanged. */
+  TEST_ASSERT_EQUAL_HEX32(0x7Fu, m.cpu.regs.d[0]);
+}
+
+/* A byte shift leaves the register's upper bytes alone, the same size rule seen
+ * through yet another path. */
+static void test_a_byte_shift_leaves_the_upper_bytes(void) {
+  /* MOVE.L #$11223344,D0 ; LSL.B #1,D0 */
+  static const uint16_t program[] = {0x203Cu, 0x1122u, 0x3344u, 0xE308u,
+                                     0x4E71u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 6);
+
+  (void)ap_m68030_step(&m.cpu);
+  (void)ap_m68030_step(&m.cpu);
+
+  TEST_ASSERT_EQUAL_HEX32(0x11223388u, m.cpu.regs.d[0]);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_a_nop_executes_and_advances_the_pc);
@@ -1288,5 +1336,8 @@ int main(void) {
   RUN_TEST(test_btst_does_not_write);
   RUN_TEST(test_a_bit_operation_affects_only_the_zero_flag);
   RUN_TEST(test_a_dynamic_bit_number_comes_from_a_register);
+  RUN_TEST(test_a_register_shift_executes);
+  RUN_TEST(test_a_register_count_is_taken_modulo_sixty_four);
+  RUN_TEST(test_a_byte_shift_leaves_the_upper_bytes);
   return UNITY_END();
 }

@@ -7,6 +7,7 @@
 #include "cpu/m68030/ap_m68030_control.h"
 #include "cpu/m68030/ap_m68030_immediate.h"
 #include "cpu/m68030/ap_m68030_quick.h"
+#include "cpu/m68030/ap_m68030_shift.h"
 #include "cpu/m68030/ap_m68030_single.h"
 
 /* Forward declarations: the two below are defined after the dispatchers that
@@ -856,6 +857,72 @@ static bool execute_bit(ap_m68030_cpu_t *cpu, const ap_m68030_immediate_t *imm,
   return written.ok;
 }
 
+
+/* Shifts and rotates. The register form shifts a data register by a count; the
+ * memory form shifts one word in memory by exactly one. */
+static bool execute_shift(ap_m68030_cpu_t *cpu, const ap_m68030_shift_t *shift,
+                          uint32_t *clocks) {
+  const uint16_t ccr = ap_m68030_read_ccr(&cpu->regs);
+  const bool x_in = ((ccr >> AP_M68030_SR_X_BIT) & 1u) != 0u;
+
+  switch (shift->form) {
+  case AP_M68030_SHIFT_REGISTER: {
+    /* "the shift count is the value in the data register specified in
+     * instruction modulo 64" -- so a register count of 64 is a no-op rather
+     * than a full rotation, and one of 100 is a shift by 36. */
+    const unsigned count =
+        shift->count_in_register
+            ? (unsigned)(cpu->regs.d[shift->count] % 64u)
+            : shift->count;
+
+    const uint32_t mask = (shift->size == 1u)   ? 0xFFu
+                          : (shift->size == 2u) ? 0xFFFFu
+                                                : 0xFFFFFFFFu;
+    const ap_m68030_alu_result_t result = ap_m68030_alu_shift(
+        shift->type, shift->left, cpu->regs.d[shift->reg] & mask, count,
+        shift->size, x_in);
+
+    ap_m68030_write_ccr(&cpu->regs, ap_m68030_alu_apply(ccr, &result));
+    cpu->regs.d[shift->reg] =
+        (cpu->regs.d[shift->reg] & ~mask) | (result.result & mask);
+    return true;
+  }
+
+  case AP_M68030_SHIFT_MEMORY: {
+    ap_m68030_address_input_t input = {0};
+    if (!gather_address_input(cpu, shift->ea.kind, 2u, clocks, &input)) {
+      return false;
+    }
+    const ap_m68030_address_t where =
+        ap_m68030_address_calculate(&cpu->regs, shift->ea, &input);
+
+    const ap_m68030_operand_result_t read = ap_m68030_operand_read(
+        &cpu->regs, cpu->data, &where, 2u, cpu->data_function_code);
+    *clocks += read.clocks;
+    if (!read.ok) {
+      return false;
+    }
+
+    /* "An operand in memory can be shifted one bit only, and the operand size
+     * is restricted to a word." */
+    const ap_m68030_alu_result_t result = ap_m68030_alu_shift(
+        shift->type, shift->left, read.value, 1u, 2u, x_in);
+    ap_m68030_write_ccr(&cpu->regs, ap_m68030_alu_apply(ccr, &result));
+
+    const ap_m68030_operand_result_t written = ap_m68030_operand_write(
+        &cpu->regs, cpu->data, &where, 2u, result.result,
+        cpu->data_function_code);
+    *clocks += written.clocks;
+    return written.ok;
+  }
+
+  case AP_M68030_SHIFT_BITFIELD:
+  case AP_M68030_SHIFT_INVALID:
+    return false;
+  }
+  return false;
+}
+
 ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
   ap_m68030_step_result_t out = {.status = AP_M68030_STEP_FAULT};
   uint16_t word = 0;
@@ -975,8 +1042,15 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
     break;
   }
 
-  case AP_M68030_DECODED_MISC:
   case AP_M68030_DECODED_SHIFT:
+    if (!execute_shift(cpu, &decoded.as.shift, &out.clocks)) {
+      out.status = AP_M68030_STEP_UNIMPLEMENTED;
+      cpu->clocks += out.clocks;
+      return out;
+    }
+    break;
+
+  case AP_M68030_DECODED_MISC:
   case AP_M68030_DECODED_COPROC:
   case AP_M68030_DECODED_LINE_A:
   case AP_M68030_DECODED_ILLEGAL:

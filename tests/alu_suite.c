@@ -15,6 +15,7 @@
 
 #include "cpu/m68030/ap_m68030_alu.h"
 #include "cpu/m68030/ap_m68030_regs.h"
+#include "cpu/m68030/ap_m68030_shift.h"
 #include "unity.h"
 
 void setUp(void) {}
@@ -171,6 +172,131 @@ static void test_applying_a_result_respects_the_extend_bit_rule(void) {
   TEST_ASSERT_FALSE(ap_m68030_alu_apply(x_set, &added) & x_set);
 }
 
+
+/* ---------------------------------------------------------------------------
+ * Shifts and rotates, Table 3-18's continued page.
+ * ------------------------------------------------------------------------- */
+
+/* The last bit shifted out becomes C, and the shifts set X with it. */
+static void test_a_left_shift_carries_out_the_top_bit(void) {
+  const ap_m68030_alu_result_t r =
+      ap_m68030_alu_shift(AP_M68030_SHIFT_LOGICAL, true, 0x81u, 1, 1, false);
+  TEST_ASSERT_EQUAL_HEX32(0x02u, r.result);
+  TEST_ASSERT_TRUE(r.c);
+  TEST_ASSERT_TRUE(r.sets_x);
+  TEST_ASSERT_TRUE(r.x);
+}
+
+/* ASR replicates the sign; LSR shifts in zero. Same operand, same direction,
+ * different instruction. */
+static void test_arithmetic_and_logical_right_shifts_differ_in_the_sign(void) {
+  const ap_m68030_alu_result_t arithmetic =
+      ap_m68030_alu_shift(AP_M68030_SHIFT_ARITHMETIC, false, 0x80u, 1, 1, false);
+  const ap_m68030_alu_result_t logical =
+      ap_m68030_alu_shift(AP_M68030_SHIFT_LOGICAL, false, 0x80u, 1, 1, false);
+
+  TEST_ASSERT_EQUAL_HEX32(0xC0u, arithmetic.result); /* sign replicated */
+  TEST_ASSERT_EQUAL_HEX32(0x40u, logical.result);    /* zero shifted in */
+}
+
+/* A count of zero is not a no-op: X is left alone and V and C are cleared. */
+static void test_a_zero_count_clears_v_and_c_but_leaves_x(void) {
+  const ap_m68030_alu_result_t r =
+      ap_m68030_alu_shift(AP_M68030_SHIFT_LOGICAL, true, 0xFFu, 0, 1, true);
+  TEST_ASSERT_EQUAL_HEX32(0xFFu, r.result);
+  TEST_ASSERT_FALSE(r.v);
+  TEST_ASSERT_FALSE(r.c);
+  TEST_ASSERT_FALSE(r.sets_x); /* X is not affected, so it survives */
+}
+
+/* Except for the rotate-with-extend forms, where the table gives "C ?  X=C" --
+ * a zero count copies X into C rather than clearing it. A model that returned
+ * early on a zero count would be right four times out of six. */
+static void test_a_zero_count_rotate_with_extend_copies_x_into_c(void) {
+  const ap_m68030_alu_result_t set = ap_m68030_alu_shift(
+      AP_M68030_SHIFT_ROTATE_EXTEND, true, 0x0Fu, 0, 1, true);
+  TEST_ASSERT_TRUE(set.c);
+
+  const ap_m68030_alu_result_t clear = ap_m68030_alu_shift(
+      AP_M68030_SHIFT_ROTATE_EXTEND, true, 0x0Fu, 0, 1, false);
+  TEST_ASSERT_FALSE(clear.c);
+}
+
+/* Only the arithmetic *left* shift sets V. Every other entry in the table has a
+ * plain zero in that column. */
+static void test_only_the_arithmetic_left_shift_sets_overflow(void) {
+  /* $40 shifted left once moves the sign in: V set. */
+  const ap_m68030_alu_result_t asl =
+      ap_m68030_alu_shift(AP_M68030_SHIFT_ARITHMETIC, true, 0x40u, 1, 1, false);
+  TEST_ASSERT_TRUE(asl.v);
+
+  /* The same operand and direction as a logical shift sets nothing. */
+  const ap_m68030_alu_result_t lsl =
+      ap_m68030_alu_shift(AP_M68030_SHIFT_LOGICAL, true, 0x40u, 1, 1, false);
+  TEST_ASSERT_FALSE(lsl.v);
+
+  /* Nor does an arithmetic *right* shift. */
+  const ap_m68030_alu_result_t asr =
+      ap_m68030_alu_shift(AP_M68030_SHIFT_ARITHMETIC, false, 0x80u, 1, 1, false);
+  TEST_ASSERT_FALSE(asr.v);
+}
+
+/* "V is set if the most significant bit is changed at *any time* during the
+ * shift" -- not if the sign differs at the end. A value whose sign shifts out
+ * and back in sets V despite finishing as it started. */
+static void test_overflow_is_set_by_a_sign_change_during_the_shift(void) {
+  /* $C0 shifted left twice: $C0 -> $80 -> $00. The sign changed on the second
+   * step even though it started set. */
+  const ap_m68030_alu_result_t changed =
+      ap_m68030_alu_shift(AP_M68030_SHIFT_ARITHMETIC, true, 0xC0u, 2, 1, false);
+  TEST_ASSERT_TRUE(changed.v);
+
+  /* $E0 shifted left once stays negative throughout: no overflow. */
+  const ap_m68030_alu_result_t steady =
+      ap_m68030_alu_shift(AP_M68030_SHIFT_ARITHMETIC, true, 0xE0u, 1, 1, false);
+  TEST_ASSERT_FALSE(steady.v);
+}
+
+/* ROL and ROR do not affect X; ROXL and ROXR rotate through it. Treating all
+ * four alike breaks multi-precision shifts, which are why the extend forms
+ * exist. */
+static void test_the_rotates_split_on_the_extend_bit(void) {
+  const ap_m68030_alu_result_t rol =
+      ap_m68030_alu_shift(AP_M68030_SHIFT_ROTATE, true, 0x80u, 1, 1, false);
+  TEST_ASSERT_EQUAL_HEX32(0x01u, rol.result); /* the bit came round */
+  TEST_ASSERT_TRUE(rol.c);
+  TEST_ASSERT_FALSE(rol.sets_x); /* but X is untouched */
+
+  const ap_m68030_alu_result_t roxl = ap_m68030_alu_shift(
+      AP_M68030_SHIFT_ROTATE_EXTEND, true, 0x80u, 1, 1, false);
+  TEST_ASSERT_EQUAL_HEX32(0x00u, roxl.result); /* X entered at the bottom */
+  TEST_ASSERT_TRUE(roxl.c);
+  TEST_ASSERT_TRUE(roxl.sets_x);
+  TEST_ASSERT_TRUE(roxl.x);
+}
+
+/* A rotate-with-extend is a 9-bit rotation for a byte, so nine of them return
+ * the operand and the extend bit to where they began. */
+static void test_a_rotate_with_extend_is_one_bit_wider_than_the_operand(void) {
+  uint32_t value = 0xA5u;
+  bool x = false;
+  for (unsigned i = 0; i < 9u; i++) {
+    const ap_m68030_alu_result_t r = ap_m68030_alu_shift(
+        AP_M68030_SHIFT_ROTATE_EXTEND, true, value, 1, 1, x);
+    value = r.result;
+    x = r.x;
+  }
+  TEST_ASSERT_EQUAL_HEX32(0xA5u, value);
+  TEST_ASSERT_FALSE(x);
+}
+
+/* A plain rotate is exactly the operand's width, so eight return a byte. */
+static void test_a_plain_rotate_is_the_operand_width(void) {
+  const ap_m68030_alu_result_t r =
+      ap_m68030_alu_shift(AP_M68030_SHIFT_ROTATE, true, 0xA5u, 8, 1, false);
+  TEST_ASSERT_EQUAL_HEX32(0xA5u, r.result);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_byte_addition_matches_a_reference_over_the_whole_space);
@@ -181,5 +307,14 @@ int main(void) {
   RUN_TEST(test_cmp_differs_from_sub_only_in_the_extend_bit);
   RUN_TEST(test_the_logical_operations_always_clear_v_and_c);
   RUN_TEST(test_applying_a_result_respects_the_extend_bit_rule);
+  RUN_TEST(test_a_left_shift_carries_out_the_top_bit);
+  RUN_TEST(test_arithmetic_and_logical_right_shifts_differ_in_the_sign);
+  RUN_TEST(test_a_zero_count_clears_v_and_c_but_leaves_x);
+  RUN_TEST(test_a_zero_count_rotate_with_extend_copies_x_into_c);
+  RUN_TEST(test_only_the_arithmetic_left_shift_sets_overflow);
+  RUN_TEST(test_overflow_is_set_by_a_sign_change_during_the_shift);
+  RUN_TEST(test_the_rotates_split_on_the_extend_bit);
+  RUN_TEST(test_a_rotate_with_extend_is_one_bit_wider_than_the_operand);
+  RUN_TEST(test_a_plain_rotate_is_the_operand_width);
   return UNITY_END();
 }
