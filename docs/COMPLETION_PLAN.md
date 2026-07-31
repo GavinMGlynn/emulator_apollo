@@ -2394,14 +2394,25 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
       and `roms/firmware` carries the matching `3000_OMTI_8621_102640-B.bin`.
       The WD7000 is the DN4500's and belongs with the other model variants.
       `FINDINGS.md` C15.
-- [ ] **Archive SC-499 cartridge tape.** Promoted ahead of the disk, because it
+- [ ] **Archive SC-499 cartridge tape.** Placement from `008778-03` Table 2-9:
+      `050000`-`050F80`, AT `218`-`21F`, eight registers, confirmed by an
+      eight-byte aliasing period in the oracle. **First settle what actually
+      answers there** — `050000` reads the same with the tape card installed and
+      without it, so the dump may not be the controller at all (`FINDINGS.md`
+      C16). No programming model exists in `008778-03`, whose Chapter 8 is
+      physical only, so the registers will need measuring as C10's did.
+      Promoted ahead of the disk, because it
       is the only bootable medium that exists: `media/` holds the Domain/OS
       SR10.3.5 distribution as `.ct` cartridge images including
       `CRTG_STD_SFW_BOOT_1`, and no Winchester image at all. The first boot
       therefore runs from tape and installs onto a blank disk, which reverses
       the order this phase assumed.
 - [ ] Winchester and floppy media handling (`.awd` for the disk, as the oracle
-      names it). *Verification: first register read matches the oracle exactly
+      names it). Placement: `04D000`-`04D007`, AT `1A0`-`1A7`, eight registers,
+      confirmed by aliasing period. **Note for any oracle comparison:** the
+      DN3500 has the OMTI in `isa1` by default, so `-isa1 ctape` *removes the
+      disk controller* — they must go in different slots, and the failure is
+      silent (C16). *Verification: first register read matches the oracle exactly
       for the no-media state.*
 - [ ] QIC-II cartridge tape, `.ct` images. *Verification: reads the bitsavers
       SR10.4 install tapes.*

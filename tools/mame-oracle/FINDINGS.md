@@ -974,6 +974,41 @@ identifier from its caller rather than holding a constant, on the grounds that a
 device whose purpose is to be unique per machine must not be the same on every
 one. The oracle agrees to the point of making it a mountable image.
 
+### C16 — the storage controllers' placement, and a slot that displaces itself
+
+`008778-03` Table 2-9 maps the AT I/O space: the Winchester at `04D000`-`04D007`
+(AT `1A0`-`1A7`) and the tape drive at `050000`-`050F80` (AT `218`-`21F`), eight
+registers each. Chapter 8 covers the tape controller physically -- dimensions,
+connectors, jumpers, LEDs -- and does not give a programming model, the same gap
+as the core-board registers of C10.
+
+Dumped in the oracle's **default** configuration:
+
+    tape   050000: 00 40 FF FF FF FF FF FF   (repeating every eight bytes)
+    winch  04D000: FF C0 FC 00 FF FF FF FF   (repeating every eight bytes)
+
+Eight registers each at stride 1, aliased -- matching Table 2-9's eight-address
+allocations exactly, from a completely independent direction.
+
+**The trap: `-isa1 ctape` removes the disk controller.** Run again with the tape
+card placed in slot 1 and the Winchester reads `FF` throughout, the unmapped
+signature from C10:
+
+    winch  04D000: FF FF FF FF FF FF FF FF
+
+The DN3500's default configuration already has the OMTI 8621 in `isa1`, so
+naming another card for that slot *replaces* it rather than adding to it. A
+future comparison wanting both must place them in different slots. Worth
+recording because the failure is silent: the machine still runs, the tape still
+answers, and only the disk quietly stops existing.
+
+**And `050000` answers identically either way**, with the tape card installed
+and without it. So whatever drives `00 40` there is not the cartridge controller
+responding -- either something else decodes the range or the card sits elsewhere.
+Not resolved here, and it is the first question to settle before modelling the
+tape, because a register model built against that dump would be modelling the
+wrong device.
+
 ## Where the ring is not
 
 The Apollo Token Ring has **no runnable oracle at all**: MAME carries Domain
