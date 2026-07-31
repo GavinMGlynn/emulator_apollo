@@ -815,8 +815,25 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         "did it fit" flag would lose the distinction; `CMP` differing from `SUB`
         **only** in X; and X left alone by the logical operations against being
         replaced by the carry in the arithmetic ones.*
-  - [ ] Wire the ALU into the step for the arithmetic families, and the
-        remaining instruction semantics family by family.
+  - [x] **The ALU wired into the step**: `ADD`, `SUB`, `CMP`, `AND`, `OR` and
+        `EOR` execute in both directions, over every addressing mode extension
+        words reach.
+        **The direction bit decides which operand is the destination**, and with
+        it which way round a subtraction goes — `SUB.L D0,D1` is `D1 - D0`.
+        Reversing it merely negates the result, which looks almost right, and
+        inverts the carry in a way that only shows up in a later conditional
+        branch. Tested in both directions and at the borrow boundary.
+        *Verification: `step_suite`, 8 further tests (30 total) — accumulation
+        into a register; subtraction in the documented order and its borrow;
+        `CMP` leaving both operands alone while setting Z; **a compare followed
+        by a conditional branch**, the pattern every loop is built from and the
+        first time three instructions have had to agree; the memory direction
+        writing back to the effective address rather than the register; a byte
+        operation leaving a register's upper bytes intact through the arithmetic
+        path; and the logical operations clearing V and C while X survives.*
+  - [ ] The remaining instruction semantics: the A-forms, divides and
+        multiplies, the register-to-register extended forms, shifts, the
+        immediate family, and family `0100`'s single-operand group.
         *Verification: per-family suites, then probes against the oracle.* *Verification: per-family suites, then probes against the
         oracle for the timing.*
   - [ ] **CMP2/CHK2, CAS and CAS2**, which occupy size field `11` in family

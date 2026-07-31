@@ -240,8 +240,10 @@ static void test_a_conditional_branch_reads_the_previous_result(void) {
 /* The property that lets this module ship incomplete: an instruction with no
  * semantics yet is reported, not skipped and not called illegal. */
 static void test_an_unimplemented_instruction_is_reported_not_skipped(void) {
-  /* ADD.L (A0),D1 decodes perfectly well and has no semantics here. */
-  static const uint16_t program[] = {0xD290u, 0x4E71u, 0x4E71u, 0x4E71u};
+  /* MULU.W (A0),D0 decodes perfectly well -- family 1100, opmode 011 -- and
+   * has no semantics here. ADD used to serve this test and now executes, which
+   * is the right reason for a test like this to need changing. */
+  static const uint16_t program[] = {0xC0D0u, 0x4E71u, 0x4E71u, 0x4E71u};
   machine_t m = {0};
   load(&m, program, 4);
 
@@ -517,6 +519,161 @@ static void test_both_operands_take_their_extension_words_in_order(void) {
   TEST_ASSERT_EQUAL_HEX32(PROGRAM_BASE + 6u, m.cpu.regs.pc);
 }
 
+
+/* ---------------------------------------------------------------------------
+ * Arithmetic and logic, with the ALU wired in.
+ * ------------------------------------------------------------------------- */
+
+/* ADD.L D0,D1 in the register direction: the register is the destination. */
+static void test_add_accumulates_into_the_register(void) {
+  /* MOVEQ #5,D0 ; MOVEQ #3,D1 ; ADD.L D0,D1 */
+  static const uint16_t program[] = {0x7005u, 0x7203u, 0xD280u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 4);
+
+  (void)ap_m68030_step(&m.cpu);
+  (void)ap_m68030_step(&m.cpu);
+  const ap_m68030_step_result_t r = ap_m68030_step(&m.cpu);
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, r.status);
+  TEST_ASSERT_EQUAL_HEX32(8u, m.cpu.regs.d[1]);
+}
+
+/* The direction bit decides which operand is the destination, and with it which
+ * way round a subtraction goes. SUB.L D0,D1 is D1 - D0, not D0 - D1 --
+ * reversing it negates the result and inverts the carry. */
+static void test_subtraction_goes_destination_minus_source(void) {
+  /* MOVEQ #3,D0 ; MOVEQ #10,D1 ; SUB.L D0,D1  ->  D1 = 7 */
+  static const uint16_t program[] = {0x7003u, 0x720Au, 0x9280u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 4);
+
+  (void)ap_m68030_step(&m.cpu);
+  (void)ap_m68030_step(&m.cpu);
+  (void)ap_m68030_step(&m.cpu);
+
+  TEST_ASSERT_EQUAL_HEX32(7u, m.cpu.regs.d[1]);
+  /* 10 - 3 borrows nothing. */
+  TEST_ASSERT_FALSE(ap_m68030_read_ccr(&m.cpu.regs) &
+                    (1u << AP_M68030_SR_C_BIT));
+}
+
+/* And the borrow appears when the subtraction goes below zero. */
+static void test_a_subtraction_below_zero_borrows(void) {
+  /* MOVEQ #10,D0 ; MOVEQ #3,D1 ; SUB.L D0,D1  ->  D1 = -7, C set */
+  static const uint16_t program[] = {0x700Au, 0x7203u, 0x9280u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 4);
+
+  (void)ap_m68030_step(&m.cpu);
+  (void)ap_m68030_step(&m.cpu);
+  (void)ap_m68030_step(&m.cpu);
+
+  TEST_ASSERT_EQUAL_HEX32(0xFFFFFFF9u, m.cpu.regs.d[1]);
+  TEST_ASSERT_TRUE(ap_m68030_read_ccr(&m.cpu.regs) &
+                   (1u << AP_M68030_SR_C_BIT));
+  TEST_ASSERT_TRUE(ap_m68030_read_ccr(&m.cpu.regs) &
+                   (1u << AP_M68030_SR_N_BIT));
+}
+
+/* CMP writes nothing and exists for its condition codes alone. */
+static void test_cmp_leaves_its_operands_alone(void) {
+  /* MOVEQ #5,D0 ; MOVEQ #5,D1 ; CMP.L D0,D1 */
+  static const uint16_t program[] = {0x7005u, 0x7205u, 0xB280u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 4);
+
+  (void)ap_m68030_step(&m.cpu);
+  (void)ap_m68030_step(&m.cpu);
+  const ap_m68030_step_result_t r = ap_m68030_step(&m.cpu);
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, r.status);
+  /* Both registers survive. */
+  TEST_ASSERT_EQUAL_HEX32(5u, m.cpu.regs.d[0]);
+  TEST_ASSERT_EQUAL_HEX32(5u, m.cpu.regs.d[1]);
+  /* Equal operands set Z. */
+  TEST_ASSERT_TRUE(ap_m68030_read_ccr(&m.cpu.regs) &
+                   (1u << AP_M68030_SR_Z_BIT));
+}
+
+/* A compare followed by a conditional branch -- the pattern every loop is built
+ * from, and the first time three instructions have had to agree. */
+static void test_a_compare_and_branch_agree(void) {
+  /* MOVEQ #7,D0 ; MOVEQ #7,D1 ; CMP.L D0,D1 ; BEQ +2 ; MOVEQ #$FF,D2 */
+  static const uint16_t program[] = {0x7007u, 0x7207u, 0xB280u, 0x6702u,
+                                     0x74FFu, 0x4E71u, 0x4E71u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 8);
+
+  (void)ap_m68030_step(&m.cpu);
+  (void)ap_m68030_step(&m.cpu);
+  (void)ap_m68030_step(&m.cpu);
+  const ap_m68030_step_result_t branch = ap_m68030_step(&m.cpu);
+
+  TEST_ASSERT_TRUE(branch.branch_taken);
+  /* The branch skipped the MOVEQ, so D2 is untouched. */
+  const ap_m68030_step_result_t after = ap_m68030_step(&m.cpu);
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, after.status);
+  TEST_ASSERT_EQUAL_HEX32(0u, m.cpu.regs.d[2]);
+}
+
+/* The memory direction writes the result back to the effective address rather
+ * than to the register. */
+static void test_the_memory_direction_writes_back_to_memory(void) {
+  /* MOVEQ #1,D0 ; ADD.L D0,(A0) */
+  static const uint16_t program[] = {0x7001u, 0xD190u, 0x4E71u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 4);
+  ap_m68030_write_sr(&m.cpu.regs, 1u << AP_M68030_SR_S_BIT);
+  ap_m68030_write_address_register(&m.cpu.regs, 0, 0x4000u);
+
+  (void)ap_m68030_step(&m.cpu);
+  const ap_m68030_step_result_t r = ap_m68030_step(&m.cpu);
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, r.status);
+  /* The register is unchanged; memory received the sum. */
+  TEST_ASSERT_EQUAL_HEX32(1u, m.cpu.regs.d[0]);
+  TEST_ASSERT_EQUAL_UINT(1, m.memory.stores);
+  TEST_ASSERT_EQUAL_HEX32(0x4000u, m.memory.store_address[0]);
+}
+
+/* A byte operation on a data register leaves the upper bytes alone, here
+ * through the arithmetic path rather than MOVE's. */
+static void test_a_byte_add_leaves_the_upper_bytes_of_the_register(void) {
+  /* MOVE.L #$11223344,D1 ; MOVEQ #1,D0 ; ADD.B D0,D1 */
+  static const uint16_t program[] = {0x223Cu, 0x1122u, 0x3344u, 0x7001u,
+                                     0xD200u, 0x4E71u, 0x4E71u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 8);
+
+  (void)ap_m68030_step(&m.cpu);
+  (void)ap_m68030_step(&m.cpu);
+  const ap_m68030_step_result_t r = ap_m68030_step(&m.cpu);
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, r.status);
+  TEST_ASSERT_EQUAL_HEX32(0x11223345u, m.cpu.regs.d[1]);
+}
+
+/* AND and OR clear V and C whatever they were, per Table 3-18. */
+static void test_the_logical_operations_clear_v_and_c(void) {
+  /* MOVEQ #-1,D0 ; MOVEQ #0,D1 ; AND.L D0,D1 */
+  static const uint16_t program[] = {0x70FFu, 0x7200u, 0xC280u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 4);
+
+  (void)ap_m68030_step(&m.cpu);
+  (void)ap_m68030_step(&m.cpu);
+  ap_m68030_write_ccr(&m.cpu.regs, AP_M68030_CCR_MASK);
+  (void)ap_m68030_step(&m.cpu);
+
+  const uint16_t ccr = ap_m68030_read_ccr(&m.cpu.regs);
+  TEST_ASSERT_FALSE(ccr & (1u << AP_M68030_SR_V_BIT));
+  TEST_ASSERT_FALSE(ccr & (1u << AP_M68030_SR_C_BIT));
+  TEST_ASSERT_TRUE(ccr & (1u << AP_M68030_SR_Z_BIT));
+  /* X is not affected by a logical operation, so it survives. */
+  TEST_ASSERT_TRUE(ccr & (1u << AP_M68030_SR_X_BIT));
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_a_nop_executes_and_advances_the_pc);
@@ -541,5 +698,13 @@ int main(void) {
   RUN_TEST(test_an_absolute_long_destination_is_two_words);
   RUN_TEST(test_a_short_absolute_address_is_sign_extended);
   RUN_TEST(test_both_operands_take_their_extension_words_in_order);
+  RUN_TEST(test_add_accumulates_into_the_register);
+  RUN_TEST(test_subtraction_goes_destination_minus_source);
+  RUN_TEST(test_a_subtraction_below_zero_borrows);
+  RUN_TEST(test_cmp_leaves_its_operands_alone);
+  RUN_TEST(test_a_compare_and_branch_agree);
+  RUN_TEST(test_the_memory_direction_writes_back_to_memory);
+  RUN_TEST(test_a_byte_add_leaves_the_upper_bytes_of_the_register);
+  RUN_TEST(test_the_logical_operations_clear_v_and_c);
   return UNITY_END();
 }

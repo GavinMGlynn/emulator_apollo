@@ -5,6 +5,7 @@
 
 #include "cpu/m68030/ap_m68030_branch.h"
 #include "cpu/m68030/ap_m68030_control.h"
+#include "cpu/m68030/ap_m68030_alu.h"
 #include "cpu/m68030/ap_m68030_operand.h"
 
 void ap_m68030_cpu_reset(ap_m68030_cpu_t *cpu, uint32_t pc) {
@@ -222,6 +223,131 @@ static bool execute_move(ap_m68030_cpu_t *cpu, const ap_m68030_move_t *move,
   return true;
 }
 
+
+/* The six arithmetic and logical operations that take a data register and an
+ * effective address. The A-forms, the divides and multiplies, and the
+ * register-to-register special forms are not here yet and report unimplemented.
+ *
+ * The direction bit decides which operand is the destination, and with it which
+ * way round the subtraction goes -- "Destination - Source", where the
+ * destination is the register in one direction and the effective address in the
+ * other. Getting that backwards negates the result and inverts the carry, which
+ * shows up only in a later conditional branch. */
+static bool execute_arith(ap_m68030_cpu_t *cpu, const ap_m68030_arith_t *arith,
+                          uint32_t *clocks) {
+  switch (arith->kind) {
+  case AP_M68030_ARITH_OR:
+  case AP_M68030_ARITH_AND:
+  case AP_M68030_ARITH_SUB:
+  case AP_M68030_ARITH_ADD:
+  case AP_M68030_ARITH_CMP:
+  case AP_M68030_ARITH_EOR:
+    break;
+  case AP_M68030_ARITH_SUBA:
+  case AP_M68030_ARITH_ADDA:
+  case AP_M68030_ARITH_CMPA:
+  case AP_M68030_ARITH_DIVU:
+  case AP_M68030_ARITH_DIVS:
+  case AP_M68030_ARITH_MULU:
+  case AP_M68030_ARITH_MULS:
+  case AP_M68030_ARITH_SUBX:
+  case AP_M68030_ARITH_ADDX:
+  case AP_M68030_ARITH_ABCD:
+  case AP_M68030_ARITH_SBCD:
+  case AP_M68030_ARITH_CMPM:
+  case AP_M68030_ARITH_EXG:
+  case AP_M68030_ARITH_INVALID:
+    return false;
+  }
+
+  ap_m68030_address_input_t input = {0};
+  if (!gather_address_input(cpu, arith->ea.kind, arith->size, clocks, &input)) {
+    /* An immediate source is legal for CMP and the rest through their *I*
+     * forms, which live in family 0000 and are not this instruction. */
+    return false;
+  }
+
+  const ap_m68030_address_t where =
+      ap_m68030_address_calculate(&cpu->regs, arith->ea, &input);
+
+  const ap_m68030_operand_result_t memory = ap_m68030_operand_read(
+      &cpu->regs, cpu->data, &where, arith->size, cpu->data_function_code);
+  *clocks += memory.clocks;
+  if (!memory.ok) {
+    return false;
+  }
+
+  const uint32_t mask = (arith->size == 1u)   ? 0xFFu
+                        : (arith->size == 2u) ? 0xFFFFu
+                                              : 0xFFFFFFFFu;
+  const uint32_t register_value = cpu->regs.d[arith->reg] & mask;
+
+  /* Which operand is the destination is the direction bit's whole meaning. */
+  const uint32_t destination =
+      arith->to_effective_address ? memory.value : register_value;
+  const uint32_t source =
+      arith->to_effective_address ? register_value : memory.value;
+
+  ap_m68030_alu_result_t result;
+  switch (arith->kind) {
+  case AP_M68030_ARITH_ADD:
+    result = ap_m68030_alu_add(destination, source, arith->size);
+    break;
+  case AP_M68030_ARITH_SUB:
+    result = ap_m68030_alu_sub(destination, source, arith->size);
+    break;
+  case AP_M68030_ARITH_CMP:
+    result = ap_m68030_alu_cmp(destination, source, arith->size);
+    break;
+  case AP_M68030_ARITH_AND:
+    result = ap_m68030_alu_and(destination, source, arith->size);
+    break;
+  case AP_M68030_ARITH_OR:
+    result = ap_m68030_alu_or(destination, source, arith->size);
+    break;
+  case AP_M68030_ARITH_EOR:
+    result = ap_m68030_alu_eor(destination, source, arith->size);
+    break;
+  case AP_M68030_ARITH_SUBA:
+  case AP_M68030_ARITH_ADDA:
+  case AP_M68030_ARITH_CMPA:
+  case AP_M68030_ARITH_DIVU:
+  case AP_M68030_ARITH_DIVS:
+  case AP_M68030_ARITH_MULU:
+  case AP_M68030_ARITH_MULS:
+  case AP_M68030_ARITH_SUBX:
+  case AP_M68030_ARITH_ADDX:
+  case AP_M68030_ARITH_ABCD:
+  case AP_M68030_ARITH_SBCD:
+  case AP_M68030_ARITH_CMPM:
+  case AP_M68030_ARITH_EXG:
+  case AP_M68030_ARITH_INVALID:
+    return false;
+  }
+
+  ap_m68030_write_ccr(&cpu->regs,
+                      ap_m68030_alu_apply(ap_m68030_read_ccr(&cpu->regs),
+                                          &result));
+
+  /* CMP writes nothing: it exists for its condition codes alone. */
+  if (arith->kind == AP_M68030_ARITH_CMP) {
+    return true;
+  }
+
+  if (arith->to_effective_address) {
+    const ap_m68030_operand_result_t written = ap_m68030_operand_write(
+        &cpu->regs, cpu->data, &where, arith->size, result.result,
+        cpu->data_function_code);
+    *clocks += written.clocks;
+    return written.ok;
+  }
+
+  /* A data register destination keeps whatever the operand does not cover. */
+  cpu->regs.d[arith->reg] =
+      (cpu->regs.d[arith->reg] & ~mask) | (result.result & mask);
+  return true;
+}
+
 ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
   ap_m68030_step_result_t out = {.status = AP_M68030_STEP_FAULT};
   uint16_t word = 0;
@@ -301,11 +427,18 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
     }
     break;
 
+  case AP_M68030_DECODED_ARITH:
+    if (!execute_arith(cpu, &decoded.as.arith, &out.clocks)) {
+      out.status = AP_M68030_STEP_UNIMPLEMENTED;
+      cpu->clocks += out.clocks;
+      return out;
+    }
+    break;
+
   case AP_M68030_DECODED_IMMEDIATE:
   case AP_M68030_DECODED_MISC:
   case AP_M68030_DECODED_SINGLE:
   case AP_M68030_DECODED_QUICK:
-  case AP_M68030_DECODED_ARITH:
   case AP_M68030_DECODED_SHIFT:
   case AP_M68030_DECODED_COPROC:
   case AP_M68030_DECODED_LINE_A:
