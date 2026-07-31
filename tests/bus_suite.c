@@ -227,6 +227,143 @@ static void test_a_cycle_with_no_termination_never_completes(void) {
   TEST_ASSERT_FALSE(bus.complete);
 }
 
+
+/* ---------------------------------------------------------------------------
+ * Burst operation cycles, [030] 7.3.7. A burst is what makes modelling the
+ * caches worth anything for timing: it is the difference between filling a line
+ * in five clocks and in eight.
+ * ------------------------------------------------------------------------- */
+
+/* Run a burst to completion with the device always ready. Returns total clocks. */
+static uint32_t run_burst(ap_m68030_bus_t *bus) {
+  uint32_t clocks = 0;
+  while (ap_m68030_bus_active(bus)) {
+    ap_m68030_bus_terminate(bus, AP_M68030_TERM_STERM);
+    (void)ap_m68030_bus_tick(bus);
+    clocks++;
+    TEST_ASSERT_LESS_THAN_UINT32(64, clocks);
+  }
+  return clocks;
+}
+
+/* The headline number, and the reason the caches are modelled at all. The first
+ * long word is an ordinary two-clock synchronous read; then "the processor
+ * continues to accept data on every clock during which STERM is asserted", so
+ * the remaining three cost one clock each. Five against the eight that four
+ * separate two-clock reads would cost -- counted, not asserted. */
+static void test_a_full_burst_line_fill_takes_five_clocks(void) {
+  ap_m68030_bus_t bus;
+  begin_read(&bus);
+  ap_m68030_bus_request_burst(&bus);
+  ap_m68030_bus_acknowledge_burst(&bus, true);
+
+  TEST_ASSERT_EQUAL_UINT32(5, run_burst(&bus));
+  TEST_ASSERT_EQUAL_UINT(AP_M68030_BURST_BEATS, bus.burst_beats);
+}
+
+/* The comparison the five-clock figure is only meaningful against: the same
+ * four long words fetched as four separate synchronous cycles. */
+static void test_four_separate_synchronous_reads_take_eight_clocks(void) {
+  uint32_t total = 0;
+  for (unsigned i = 0; i < AP_M68030_BURST_BEATS; i++) {
+    ap_m68030_bus_t bus;
+    ap_m68030_bus_begin(&bus, 0x00010000u + (i * 4u), 5, AP_M68030_SIZE_LONG,
+                        true, i == 0);
+    total += run_cycle(&bus, AP_M68030_TERM_STERM, 0);
+  }
+  TEST_ASSERT_EQUAL_UINT32(8, total);
+}
+
+/* "burst mode is only initiated if both of these signals are asserted for a
+ * synchronous cycle." Each of the three requirements missing on its own leaves
+ * an ordinary two-clock cycle rather than a burst. */
+static void test_a_burst_needs_cbreq_cback_and_sterm_together(void) {
+  ap_m68030_bus_t bus;
+
+  /* CBACK withheld: "CBACK ... can be asserted independently of the CBREQ
+   * signal", and without it the request goes unanswered. */
+  begin_read(&bus);
+  ap_m68030_bus_request_burst(&bus);
+  ap_m68030_bus_acknowledge_burst(&bus, false);
+  TEST_ASSERT_EQUAL_UINT32(2, run_burst(&bus));
+  TEST_ASSERT_FALSE(bus.bursting);
+
+  /* CBREQ never asserted: a volunteering device changes nothing. */
+  begin_read(&bus);
+  ap_m68030_bus_acknowledge_burst(&bus, true);
+  TEST_ASSERT_EQUAL_UINT32(2, run_burst(&bus));
+  TEST_ASSERT_FALSE(bus.bursting);
+
+  /* DSACK rather than STERM: burst runs "only from 32-bit ports that terminate
+   * bus cycles with STERM", so an asynchronous port gets its ordinary
+   * three-clock cycle and no burst. */
+  begin_read(&bus);
+  ap_m68030_bus_request_burst(&bus);
+  ap_m68030_bus_acknowledge_burst(&bus, true);
+  TEST_ASSERT_EQUAL_UINT32(3, run_cycle(&bus, AP_M68030_TERM_DSACK, 0));
+  TEST_ASSERT_FALSE(bus.bursting);
+}
+
+/* "CBREQ is negated after STERM is asserted for the third cycle, indicating
+ * that the MC68030 only requests one more long word (the fourth cycle)." */
+static void test_cbreq_is_negated_after_the_third_long_word(void) {
+  ap_m68030_bus_t bus;
+  begin_read(&bus);
+  ap_m68030_bus_request_burst(&bus);
+  ap_m68030_bus_acknowledge_burst(&bus, true);
+
+  unsigned negated_at = 0;
+  while (ap_m68030_bus_active(&bus)) {
+    ap_m68030_bus_terminate(&bus, AP_M68030_TERM_STERM);
+    (void)ap_m68030_bus_tick(&bus);
+    if (!bus.cbreq && negated_at == 0) {
+      negated_at = bus.burst_beats;
+    }
+  }
+  TEST_ASSERT_EQUAL_UINT(3, negated_at);
+}
+
+/* A device that is not ready inserts a wait clock without advancing the burst:
+ * data is accepted only "on every clock during which STERM is asserted". */
+static void test_a_burst_beat_without_sterm_is_a_wait_state(void) {
+  ap_m68030_bus_t bus;
+  begin_read(&bus);
+  ap_m68030_bus_request_burst(&bus);
+  ap_m68030_bus_acknowledge_burst(&bus, true);
+
+  /* Two clocks to transfer the first long word. */
+  ap_m68030_bus_terminate(&bus, AP_M68030_TERM_STERM);
+  (void)ap_m68030_bus_tick(&bus);
+  (void)ap_m68030_bus_tick(&bus);
+  TEST_ASSERT_TRUE(bus.bursting);
+  TEST_ASSERT_EQUAL_UINT(1, bus.burst_beats);
+
+  /* A clock with STERM withdrawn moves nothing. */
+  ap_m68030_bus_terminate(&bus, AP_M68030_TERM_NONE);
+  (void)ap_m68030_bus_tick(&bus);
+  TEST_ASSERT_EQUAL_UINT(1, bus.burst_beats);
+  TEST_ASSERT_EQUAL_UINT32(1, bus.wait_states);
+}
+
+/* "until the burst is complete or an abnormal termination occurs": a bus error
+ * part-way through ends the line fill short rather than completing it. */
+static void test_a_bus_error_ends_a_burst_early(void) {
+  ap_m68030_bus_t bus;
+  begin_read(&bus);
+  ap_m68030_bus_request_burst(&bus);
+  ap_m68030_bus_acknowledge_burst(&bus, true);
+
+  ap_m68030_bus_terminate(&bus, AP_M68030_TERM_STERM);
+  (void)ap_m68030_bus_tick(&bus);
+  (void)ap_m68030_bus_tick(&bus);
+  ap_m68030_bus_terminate(&bus, AP_M68030_TERM_BERR);
+  (void)ap_m68030_bus_tick(&bus);
+
+  TEST_ASSERT_FALSE(ap_m68030_bus_active(&bus));
+  TEST_ASSERT_TRUE(bus.complete);
+  TEST_ASSERT_LESS_THAN_UINT(AP_M68030_BURST_BEATS, bus.burst_beats);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_a_minimum_asynchronous_read_takes_three_clocks);
@@ -236,6 +373,12 @@ int main(void) {
   RUN_TEST(test_ecs_is_negated_by_the_end_of_the_first_clock);
   RUN_TEST(test_address_strobe_is_asserted_by_the_end_of_the_first_clock);
   RUN_TEST(test_data_buffer_enable_follows_address_strobe_by_one_clock);
+  RUN_TEST(test_a_full_burst_line_fill_takes_five_clocks);
+  RUN_TEST(test_four_separate_synchronous_reads_take_eight_clocks);
+  RUN_TEST(test_a_burst_needs_cbreq_cback_and_sterm_together);
+  RUN_TEST(test_cbreq_is_negated_after_the_third_long_word);
+  RUN_TEST(test_a_burst_beat_without_sterm_is_a_wait_state);
+  RUN_TEST(test_a_bus_error_ends_a_burst_early);
   RUN_TEST(test_the_strobes_are_all_negated_when_a_read_cycle_completes);
   RUN_TEST(test_a_minimum_asynchronous_write_also_takes_three_clocks);
   RUN_TEST(test_a_write_asserts_data_buffer_enable_a_clock_earlier_than_a_read);

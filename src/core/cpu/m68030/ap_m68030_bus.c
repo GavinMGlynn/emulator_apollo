@@ -76,6 +76,10 @@ void ap_m68030_bus_begin(ap_m68030_bus_t *bus, uint32_t address,
   bus->active = true;
   bus->complete = false;
   bus->advancing_to_s4 = false;
+  bus->cbreq = false;
+  bus->cback = false;
+  bus->bursting = false;
+  bus->burst_beats = 0;
 
   /* OCS accompanies ECS on the first external cycle of an operand operation
    * only; it is asserted in S0 along with ECS, so it is set here and cleared
@@ -83,6 +87,12 @@ void ap_m68030_bus_begin(ap_m68030_bus_t *bus, uint32_t address,
   bus->ocs = first_operand;
   bus->ecs = false;
   bus->as = bus->ds = bus->dben = false;
+}
+
+void ap_m68030_bus_request_burst(ap_m68030_bus_t *bus) { bus->cbreq = true; }
+
+void ap_m68030_bus_acknowledge_burst(ap_m68030_bus_t *bus, bool acknowledged) {
+  bus->cback = acknowledged;
 }
 
 void ap_m68030_bus_terminate(ap_m68030_bus_t *bus, ap_m68030_term_t term) {
@@ -130,6 +140,49 @@ bool ap_m68030_bus_tick(ap_m68030_bus_t *bus) {
     return true;
   }
 
+  /* A burst under way transfers one long word per clock: "The processor
+   * continues to accept data on every clock during which STERM is asserted
+   * until the burst is complete or an abnormal termination occurs." AS, DS,
+   * R/W, the address, the function code and the size are all "maintain[ed] ...
+   * in their current state throughout the burst operation", so the strobes stay
+   * as S3 left them rather than being re-driven from S0. */
+  if (bus->bursting) {
+    if (bus->termination == AP_M68030_TERM_BERR) {
+      /* "or an abnormal termination occurs" -- the line fill stops short. */
+      bus->state = AP_M68030_S5;
+      apply_signals(bus);
+      bus->active = false;
+      bus->complete = true;
+      bus->bursting = false;
+      return true;
+    }
+    if (bus->termination != AP_M68030_TERM_STERM) {
+      /* STERM absent this clock: the device is not ready, so this clock is a
+       * wait state and the burst stands still rather than advancing. */
+      bus->wait_states++;
+      return false;
+    }
+
+    bus->burst_beats++;
+
+    /* "If the MC68030 executes a full burst operation and fetches four long
+     * words, CBREQ is negated after STERM is asserted for the third cycle,
+     * indicating that the MC68030 only requests one more long word." */
+    if (bus->burst_beats + 1 >= AP_M68030_BURST_BEATS) {
+      bus->cbreq = false;
+    }
+
+    if (bus->burst_beats >= AP_M68030_BURST_BEATS) {
+      bus->state = AP_M68030_S5;
+      apply_signals(bus);
+      bus->active = false;
+      bus->complete = true;
+      bus->bursting = false;
+      return true;
+    }
+    return false;
+  }
+
   /* Second clock, and every wait clock after it: S2 then S3.
    *
    * "If DSACKx is not recognized by the start of state 3 (S3), the processor
@@ -154,6 +207,16 @@ bool ap_m68030_bus_tick(ap_m68030_bus_t *bus) {
    * 32-bit port (7.3.4 p. 7-48). DSACK carries on to S4/S5, which is why the
    * asynchronous minimum is three clocks. A bus error ends the cycle
    * immediately, like STERM, rather than transferring data. */
+  /* "burst mode is only initiated if both of these signals are asserted for a
+   * synchronous cycle" -- CBREQ and CBACK together, and only under STERM. The
+   * first long word has just transferred, so the cycle stays open for up to
+   * three more, one per clock. */
+  if (bus->termination == AP_M68030_TERM_STERM && bus->cbreq && bus->cback) {
+    bus->burst_beats = 1;
+    bus->bursting = true;
+    return false;
+  }
+
   if (bus->termination == AP_M68030_TERM_STERM ||
       bus->termination == AP_M68030_TERM_BERR) {
     /* The cycle ends here, so report the post-cycle strobe levels rather than

@@ -115,6 +115,13 @@ typedef struct {
   /* Signals, as of the end of the last tick. Named as the manual names them,
    * asserted-true here rather than active-low, because inverting at the pin is
    * the memory system's problem and not this model's. */
+  /* Burst mode, `[030]` §7.3.7. A burst fills a whole cache line in one cycle
+   * that stays open across up to four long words. */
+  bool cbreq;             /* CBREQ: this cycle requests a burst */
+  bool cback;             /* CBACK: the device says it can supply another */
+  bool bursting;          /* the burst was accepted and is under way */
+  unsigned burst_beats;   /* long words transferred, including the first */
+
   bool ecs;  /* external cycle start */
   bool ocs;  /* operand cycle start */
   bool as;   /* address strobe */
@@ -128,6 +135,22 @@ typedef struct {
 void ap_m68030_bus_begin(ap_m68030_bus_t *bus, uint32_t address,
                          uint8_t function_code, ap_m68030_size_t size, bool read,
                          bool first_operand);
+
+/* The number of long words a full burst transfers: "The MC68030 allows a burst
+ * of as many as four long words." */
+#define AP_M68030_BURST_BEATS 4
+
+/* Assert CBREQ on the cycle about to run, which `ap_m68030_cache_burst_request`
+ * decides. Call between `begin` and the first `tick`. */
+void ap_m68030_bus_request_burst(ap_m68030_bus_t *bus);
+
+/* The device's CBACK answer. "burst mode is only initiated if both of these
+ * signals are asserted for a synchronous cycle" -- so a burst needs CBREQ, CBACK
+ * *and* STERM, and any one of them missing leaves an ordinary single cycle.
+ *
+ * "CBACK ... can be asserted independently of the CBREQ signal", so a device
+ * volunteering it without a request changes nothing. */
+void ap_m68030_bus_acknowledge_burst(ap_m68030_bus_t *bus, bool acknowledged);
 
 /* Offer a termination to the cycle in progress. The memory system calls this
  * when it is ready to answer; whether it is early enough to avoid a wait state

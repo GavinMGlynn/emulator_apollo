@@ -638,7 +638,22 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         own, the matching-tag-all-invalid case against its complement (one valid
         entry is enough to stop the burst), and all four suppressors checked
         against an access that would otherwise burst.*
-  - [ ] **The bus's half: burst cycles themselves.**
+  - [x] **The bus's half: burst cycles themselves.** A burst holds one cycle
+        open across up to four long words — "The processor continues to accept
+        data on every clock during which STERM is asserted until the burst is
+        complete or an abnormal termination occurs" — so a line costs 2 clocks
+        for the first long word and 1 for each of the next three.
+        *Verification: `bus_suite`, 6 further tests. The headline pair counts
+        both sides rather than asserting the ratio: a full burst line fill takes
+        **5** clocks, and the same four long words fetched as four separate
+        synchronous cycles take **8**. Also: a burst needs CBREQ, CBACK and STERM
+        together, with each missing on its own leaving an ordinary cycle (and a
+        DSACK port getting its three-clock cycle, since burst runs "only from
+        32-bit ports that terminate bus cycles with STERM"); CBREQ negated after
+        the third long word, "indicating that the MC68030 only requests one more";
+        a clock without STERM being a wait state that does not advance the burst;
+        and a bus error ending the fill short.*
+  - [ ] **Superseded — the bus's half is done.**
         `ap_m68030_bus` models one cycle at a time and has no burst. §7.3.7:
         burst runs only "from 32-bit ports that terminate bus cycles with STERM
         and respond to CBREQ by asserting CBACK", after which the processor

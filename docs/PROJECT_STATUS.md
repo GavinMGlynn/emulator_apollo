@@ -22,8 +22,8 @@ Last updated: 2026-07-31.
 | Ring medium interface | not started | — |
 | Ring controller | not started | — |
 | 68030 instruction pipe + cache holding register | working | `pipe_suite`, 14 tests, `MC68030 User's Manual 3ed` §11.2.2 |
-| 68030 bus cycle state machine | working | `bus_suite`, 17 tests, each citing `MC68030 User's Manual 3ed` ch. 7 (read and write cycles) |
-| 68030 on-chip instruction and data caches | structure, policy and the CBREQ decision working; burst bus cycles not yet modelled | `cache_suite`, 23 tests, `MC68030 User's Manual 3ed` §6, §7.3.7 |
+| 68030 bus cycle state machine | working, including burst line fills | `bus_suite`, 23 tests, each citing `MC68030 User's Manual 3ed` ch. 7 (read, write and burst cycles) |
+| 68030 on-chip instruction and data caches | structure, policy, CBREQ and burst bus cycles working; the miss-cost join is the last piece | `cache_suite`, 23 tests and `bus_suite`, 23 tests, `MC68030 User's Manual 3ed` §6, §7.3.7 |
 | 68020 / 68030 / 68040 CPU | not started beyond the bus | — |
 | 68030 ATC (22-entry, fully associative) | working, replacement `PROVISIONAL` | `atc_suite`, 17 tests, `MC68030 User's Manual 3ed` §9.4 |
 | 68030 descriptors + search protection state | working | `desc_suite`, 23 tests, `MC68030 User's Manual 3ed` §9.5.1.1 |
