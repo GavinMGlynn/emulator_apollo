@@ -2487,10 +2487,12 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         exception, hands the bus back and asserts ready — the three figures'
         common destination. A tape read now makes the device hold the bus, which
         is the state Figure 1-9 resolves. `sc499_suite` and `tape_suite`.
-  - [ ] Its **timings**, which are all bounds — `T3->T4 < 150 us`,
-        `T4->T6 < 500 us` — so modelling them means picking documented figures
-        and marking them `PROVISIONAL`, as the 68030's input synchroniser is.
-        Only a driver watching for the edges themselves needs them.
+  - [x] Its **timings**, modelled at the documented bounds and marked
+        `PROVISIONAL` in code and in `PROJECT_STATUS.md`, as `CLAUDE.md`
+        prescribes for a quantity published as a range. All nine convert
+        exactly to base units, so none is rounded as well as bounded.
+  - [ ] Close them by measurement against a running drive. Only a driver
+        watching for the edges themselves can observe the difference.
   - [ ] Figure 1-5, the write data transfer — only needed if a write-back path
         is ever added, which `ap_qic` currently refuses outright.
   - [ ] Note C25: the

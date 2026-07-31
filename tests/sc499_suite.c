@@ -198,8 +198,32 @@ static void test_accepting_a_command_applies_all_three_figures(void) {
   TEST_ASSERT_EQUAL_UINT(AP_SC499_ENTRY_READY, ap_sc499_command_entry(&t));
 }
 
+static void test_the_handshake_times_are_exact_in_base_units(void) {
+  /* `[SC499]` §1.13.2's figures are all bounds, and this core models them at the
+   * bound -- `PROVISIONAL`, and recorded as such. What is *not* provisional is
+   * that each converts exactly: no figure is rounded on top of being a bound,
+   * so closing them later is a change of value and not of representability. */
+  TEST_ASSERT_EQUAL_UINT64(AP_TIME_BASE_HZ / 1000000u * 1u,
+                           AP_SC499_T_REQUEST_TO_NOT_READY);
+  TEST_ASSERT_EQUAL_UINT64(AP_TIME_BASE_HZ / 1000000u * 150u,
+                           AP_SC499_T_DIRECTION_RELEASE);
+  TEST_ASSERT_EQUAL_UINT64(AP_TIME_BASE_HZ / 1000000u * 500u,
+                           AP_SC499_T_DIRECTION_TO_READY);
+  TEST_ASSERT_EQUAL_UINT64(AP_TIME_BASE_HZ / 2u, AP_SC499_T_COMMAND_EXECUTION);
+  TEST_ASSERT_EQUAL_UINT64(AP_TIME_BASE_HZ / 1000000u * 20u,
+                           AP_SC499_T_CLOSE_MIN);
+  TEST_ASSERT_EQUAL_UINT64(AP_TIME_BASE_HZ / 1000000u * 100u,
+                           AP_SC499_T_CLOSE_MAX);
+
+  /* And the window the specification leaves open is real: the close is bounded
+   * on both sides, so a model choosing one figure is choosing within 80
+   * microseconds of slack rather than reading a number off the page. */
+  TEST_ASSERT_TRUE(AP_SC499_T_CLOSE_MIN < AP_SC499_T_CLOSE_MAX);
+}
+
 int main(void) {
   UNITY_BEGIN();
+  RUN_TEST(test_the_handshake_times_are_exact_in_base_units);
   RUN_TEST(test_the_command_entry_condition_selects_a_figure);
   RUN_TEST(test_accepting_a_command_applies_all_three_figures);
   RUN_TEST(test_a_reset_controller_is_ready_and_done);

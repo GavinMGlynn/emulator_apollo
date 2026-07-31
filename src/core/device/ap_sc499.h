@@ -42,6 +42,8 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#include "time/ap_time.h"
+
 #define AP_SC499_REGISTERS 4u
 
 typedef enum {
@@ -84,6 +86,31 @@ typedef struct {
 
 /* Power-on reset. `[SC499]` defines RSTDMA as performing the same functions, so
  * the two share an implementation and a test. */
+/* The command handshake's edge-to-edge times, in `AP_TIME_BASE_HZ` units.
+ *
+ * **`PROVISIONAL`, every one of them.** `[SC499]` §1.13.2 publishes *bounds*,
+ * not values: "0 us < T3->T4 < 150 us" says the device hands the bus back within
+ * 150 microseconds and says nothing about when. Modelled at the documented
+ * bound, which is `CLAUDE.md`'s rule for a quantity published as a range --
+ * model the documented value, mark it here, name it in `PROJECT_STATUS.md`. The
+ * same treatment the 68030's two-clock input synchroniser carries.
+ *
+ * Taking the bound means every handshake runs at its slowest permitted speed.
+ * That is wrong in a knowable direction and by a knowable amount, which is the
+ * property that makes a provisional figure safe to hold: closing it needs a
+ * measurement, not a decision.
+ *
+ * All nine land exactly on the time base -- 40 ns is 264 units, 500 ms is
+ * 3,300,000,000 -- so none of them is rounded on top of being provisional. */
+#define AP_SC499_T_DATA_TO_REQUEST 0u          /* "0 us <", no lower bound */
+#define AP_SC499_T_REQUEST_TO_NOT_READY 6600u  /* < 1 us */
+#define AP_SC499_T_EXCEPTION_TO_READY 66000u   /* 10 us <, Figure 1-8 T3->T4 */
+#define AP_SC499_T_DIRECTION_RELEASE 990000u   /* < 150 us, Figure 1-9 T3->T4 */
+#define AP_SC499_T_DIRECTION_TO_READY 3300000u /* < 500 us, Figure 1-9 T4->T6 */
+#define AP_SC499_T_COMMAND_EXECUTION 3300000000u /* < 500 ms, Figure 1-7 T4->T5 */
+#define AP_SC499_T_CLOSE_MIN 132000u           /* 20 us <, T6->T8 */
+#define AP_SC499_T_CLOSE_MAX 660000u           /* < 100 us, T6->T8 */
+
 /* Which of `[SC499]` §1.13.2's three command-transfer figures applies, chosen by
  * the device's state when the command is issued.
  *
