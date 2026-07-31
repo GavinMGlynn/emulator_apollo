@@ -43,7 +43,13 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parent.parent
 
-DEFAULT_MAME = REPO / "ext" / "mame" / "mameapollo"
+# What the narrowed build names its binary has moved with MAME's own makefile:
+# older checkouts produced <TARGET><SUBTARGET> = "mameapollo", the pinned v0.289
+# names it after the subtarget alone, "apollo". Both are accepted so the driver
+# does not break when the ext/mame pin moves, which is the same reason
+# romset.py matches ROMs by SHA-1 rather than by name.
+MAME_NAMES = ("apollo", "mameapollo")
+DEFAULT_MAME = REPO / "ext" / "mame" / MAME_NAMES[0]
 DEFAULT_ROMS = HERE / "out" / "roms"
 DEFAULT_RUNDIR = HERE / "out" / "run"
 DUMP_LUA = HERE / "dump.lua"
@@ -55,14 +61,19 @@ def find_mame(explicit: Path | None) -> Path:
             sys.stderr.write("oracle: no MAME binary at %s\n" % explicit)
             raise SystemExit(2)
         return explicit
-    if DEFAULT_MAME.is_file():
-        return DEFAULT_MAME
+    for name in MAME_NAMES:
+        candidate = REPO / "ext" / "mame" / name
+        if candidate.is_file():
+            return candidate
     sys.stderr.write(
-        "oracle: no oracle binary at %s.\nBuild it first -- one driver, no "
-        "tools:\n"
+        "oracle: no oracle binary at %s (or %s).\nBuild it first -- one driver, "
+        "no tools:\n"
         "  cd ext/mame && make SUBTARGET=apollo "
         "SOURCES=src/mame/apollo/apollo.cpp REGENIE=1 TOOLS=0 NOWERROR=1 "
-        '-j"$(nproc)"\n' % DEFAULT_MAME
+        '-j"$(nproc)"\n'
+        "  (budget ~2.5 Gbyte of RAM per job: the luaengine and emumem "
+        "translation units are the peak, and -j beyond memory swaps rather "
+        "than parallelises)\n" % (DEFAULT_MAME, MAME_NAMES[1])
     )
     raise SystemExit(2)
 

@@ -40,7 +40,7 @@ Last updated: 2026-07-31.
 | Floppy, QIC cartridge tape | not started | — |
 | Mono and colour graphics controllers | not started | — |
 | 3c505 802.3 Ethernet | not started | — |
-| MAME oracle harness | driver and dumper working; unrun against a real oracle | `oracle_driver` (19 checks, stub MAME) and `oracle_dump_format` (19 checks, mock machine) |
+| MAME oracle harness | driver and dumper working; oracle binary now built (MAME v0.289), no probe campaign run against it yet | `oracle_driver` (19 checks, stub MAME) and `oracle_dump_format` (19 checks, mock machine); `./apollo -listfull` lists all eleven apollo machines |
 | Golden regression harness | working | `golden_model_table`, run under every build preset; drift, `-O3` identity and regeneration all verified |
 | Probe suite | not started | — |
 | Shared frontend layer (`frontend/common/`) | working | `frontend_common_suite`, 10 tests |

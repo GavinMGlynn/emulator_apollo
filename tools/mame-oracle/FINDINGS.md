@@ -61,8 +61,34 @@ cd ext/mame
 make SOURCES=src/mame/apollo/apollo.cpp SUBTARGET=apollo TOOLS=0 -j"$(nproc)"
 ```
 
-This produces `mameapollo` rather than a full MAME. It is never built by our
-CMake, never linked, and CI never compiles it.
+This produces a single-driver binary rather than a full MAME. It is never built
+by our CMake, never linked, and CI never compiles it.
+
+**The binary's name moved with MAME's makefile.** Older checkouts produced
+`<TARGET><SUBTARGET>` = `mameapollo`; the pinned v0.289 names it after the
+subtarget alone, `apollo`. `oracle.py` accepts either and prefers whichever
+exists, for the same reason `romset.py` matches ROMs by SHA-1 rather than by
+name: neither should break when the `ext/mame` pin moves. Verified against the
+built binary — `./apollo -listfull` lists all eleven apollo machines, `dn3000`
+through `dn5500`.
+
+**Budget memory, not just cores.** `-j"$(nproc)"` is the wrong instinct on a
+small machine: the peak translation units (`luaengine.cpp`, `emumem_aspace.cpp`)
+each want ~2.5 Gbyte under `-O3`, measured, so parallelism is bounded by RAM
+rather than by CPU. Eight jobs against 8 Gbyte does not build slowly — it swaps
+until the machine is unusable. Roughly one job per 2.5 Gbyte of *available*
+memory, and on a workstation that is also running a desktop, a cgroup ceiling
+turns a bad guess into a failed compile instead of a hard reset:
+
+```sh
+systemd-run --user --scope -p MemoryHigh=7G -p MemoryMax=9G \
+  nice -n 10 make SOURCES=src/mame/apollo/apollo.cpp SUBTARGET=apollo \
+  TOOLS=0 NOWERROR=1 -j4
+```
+
+`ccache` is worth installing before the first build rather than after: the
+instrument → measure → revert loop below recompiles the same translation units
+repeatedly, and a cache hit spawns no compiler at all.
 
 `REGENIE=1` is needed on the first build so genie regenerates the makefiles for
 the narrowed `SOURCES`, and `NOWERROR=1` keeps a warning in third-party code

@@ -80,7 +80,17 @@ file the moment they are found, not when someone remembers.
         assemble, and every one of our bitsavers images has exactly the SHA-1
         the driver declares; output lands in the gitignored
         `tools/mame-oracle/out/roms/`.*
-  - [~] The narrow build itself (`SUBTARGET=apollo`, `REGENIE=1`, `NOWERROR=1`).
+  - [x] The narrow build itself (`SUBTARGET=apollo`, `REGENIE=1`, `NOWERROR=1`).
+        Built and running: MAME v0.289, one driver, no tools.
+        *Verification: `./apollo -listfull` lists all eleven apollo machines,
+        `dn3000` through `dn5500`, and `test_oracle.py` passes against it.*
+        Two tails recorded in `FINDINGS.md` rather than left to bite the next
+        person: the binary is named `apollo`, not `mameapollo` — MAME's own
+        naming moved, so `oracle.py` now accepts either, the same
+        pin-independence rule `romset.py` already follows for ROMs — and the
+        build is bounded by *memory* rather than cores, at a measured ~2.5 Gbyte
+        for the peak translation unit, so `-j"$(nproc)"` is the wrong instinct
+        on a small machine.
   - [ ] **Tail, found while assembling the media: there is no bootable image to
         boot.** All Domain/OS media we hold is *installation* media — `cptape`
         tape files (`tape1/00.img` is the `SYSBOOT` tape boot record) and QIC
