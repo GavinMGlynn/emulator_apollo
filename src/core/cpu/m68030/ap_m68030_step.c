@@ -538,6 +538,87 @@ static bool fetch_immediate(ap_m68030_cpu_t *cpu, unsigned size,
  * forms, with an immediate source. The immediate comes *before* the effective
  * address's own extension words in the instruction stream, which is why it is
  * fetched first. */
+/* ORI, ANDI and EORI to the status register or the condition codes.
+ *
+ * A separate path from the ordinary immediate operations because the
+ * destination is not an operand: there is no effective address, no size field to
+ * honour -- the CCR forms are byte and the SR forms word by encoding, not by a
+ * size bit -- and the SR forms are privileged where the CCR forms are not.
+ *
+ * The boot PROM's twenty-first instruction is `ORI #$0700,SR`, masking
+ * interrupts before it touches hardware (`FINDINGS.md` C29). `MOVE to SR`
+ * already worked here; this is a different encoding, and the whole group was
+ * missing together. */
+static bool execute_immediate_to_status(ap_m68030_cpu_t *cpu,
+                                        const ap_m68030_immediate_t *imm,
+                                        uint32_t *clocks) {
+  bool to_sr = imm->kind == AP_M68030_IMM_ORI_TO_SR ||
+               imm->kind == AP_M68030_IMM_ANDI_TO_SR ||
+               imm->kind == AP_M68030_IMM_EORI_TO_SR;
+
+  /* "If Supervisor State ... Else TRAP". The SR forms write the whole status
+   * register including the privilege bits; the CCR forms reach only the
+   * condition codes and are unprivileged. */
+  if (to_sr && !ap_m68030_supervisor(&cpu->regs)) {
+    cpu->pending_vector = AP_M68030_VECTOR_PRIVILEGE_VIOLATION;
+    return true;
+  }
+
+  /* Both forms take a word of immediate data. The CCR forms then use only its
+   * low byte -- the high byte is fetched and discarded, which is why the
+   * instruction is a word long either way. */
+  uint32_t immediate = 0;
+  if (!fetch_immediate(cpu, AP_M68030_SIZE_WORD, clocks, &immediate)) {
+    return false;
+  }
+
+  uint16_t operand = (uint16_t)(immediate & 0xFFFFu);
+  uint16_t mask = to_sr ? 0xFFFFu : 0x00FFu;
+  uint16_t current = cpu->regs.sr;
+  uint16_t result;
+
+  switch (imm->kind) {
+  case AP_M68030_IMM_ORI_TO_CCR:
+  case AP_M68030_IMM_ORI_TO_SR:
+    result = (uint16_t)(current | (operand & mask));
+    break;
+  case AP_M68030_IMM_ANDI_TO_CCR:
+  case AP_M68030_IMM_ANDI_TO_SR:
+    /* AND must not clear what the instruction cannot reach: a CCR form ANDs
+     * only the low byte, so the high byte of the status register is preserved
+     * rather than ANDed against the discarded immediate half. */
+    result = (uint16_t)(current & (operand | (uint16_t)~mask));
+    break;
+  case AP_M68030_IMM_EORI_TO_CCR:
+  case AP_M68030_IMM_EORI_TO_SR:
+    result = (uint16_t)(current ^ (operand & mask));
+    break;
+  case AP_M68030_IMM_ORI:
+  case AP_M68030_IMM_ANDI:
+  case AP_M68030_IMM_SUBI:
+  case AP_M68030_IMM_ADDI:
+  case AP_M68030_IMM_EORI:
+  case AP_M68030_IMM_CMPI:
+  case AP_M68030_IMM_MOVES:
+  case AP_M68030_IMM_MOVEP:
+  case AP_M68030_IMM_BTST:
+  case AP_M68030_IMM_BCHG:
+  case AP_M68030_IMM_BCLR:
+  case AP_M68030_IMM_BSET:
+  case AP_M68030_IMM_INVALID:
+    /* Not reachable: the caller dispatches only the six status-register forms
+     * here. Enumerated rather than defaulted so that adding an immediate kind
+     * is a compile error in every switch that must consider it. */
+    return false;
+  }
+
+  /* Through the register module rather than by assignment: writing the status
+   * register can change which stack pointer A7 names, and a raw store would
+   * leave the machine claiming a privilege level it had not switched into. */
+  ap_m68030_write_sr(&cpu->regs, result);
+  return true;
+}
+
 static bool execute_immediate(ap_m68030_cpu_t *cpu,
                               const ap_m68030_immediate_t *imm,
                               uint32_t *clocks) {
@@ -549,13 +630,14 @@ static bool execute_immediate(ap_m68030_cpu_t *cpu,
   case AP_M68030_IMM_EORI:
   case AP_M68030_IMM_CMPI:
     break;
-  case AP_M68030_IMM_MOVES:
   case AP_M68030_IMM_ORI_TO_CCR:
   case AP_M68030_IMM_ORI_TO_SR:
   case AP_M68030_IMM_ANDI_TO_CCR:
   case AP_M68030_IMM_ANDI_TO_SR:
   case AP_M68030_IMM_EORI_TO_CCR:
   case AP_M68030_IMM_EORI_TO_SR:
+    return execute_immediate_to_status(cpu, imm, clocks);
+  case AP_M68030_IMM_MOVES:
   case AP_M68030_IMM_MOVEP:
   case AP_M68030_IMM_INVALID:
     return false;

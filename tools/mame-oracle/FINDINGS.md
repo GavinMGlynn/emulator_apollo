@@ -1838,6 +1838,23 @@ stopped and *where*, and the PROM is a file that can be read at that address. A
 core that stopped with a generic fault would have needed a debugger to reach the
 same sentence.
 
+**Implemented, and the PROM goes further: 20 instructions to 35.** All six of
+`ORI`, `ANDI` and `EORI` to `SR` and to `CCR` were missing together, which is why
+one instruction blocked the boot -- the decoder knew them and the step had no
+semantics for any.
+
+The `ANDI to CCR` case is the one worth a test of its own. A CCR form reaches
+only the low byte, so the AND must preserve the high byte rather than AND it
+against the discarded half of the immediate. Getting that wrong drops the machine
+out of supervisor state silently, in the middle of firmware that has just
+finished masking interrupts.
+
+**The next stop is `000028D0`**, whose word is `0C2D` -- `CMPI.B` with a
+`(d16,An)` destination. `CMPI` *is* implemented, and the run now shows one
+unmapped read, so this is not simply another missing instruction and should not
+be assumed to be one. Recorded as the next thing to investigate rather than
+diagnosed from the opcode alone.
+
 ## Where the ring is not
 
 The Apollo Token Ring has **no runnable oracle at all**: MAME carries Domain

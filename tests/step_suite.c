@@ -3794,8 +3794,52 @@ static void test_two_runs_with_the_same_registers_differ_by_their_clock(void) {
                                ap_m68030_state_hash(&b.cpu));
 }
 
+static void test_ori_to_the_status_register_sets_the_interrupt_mask(void) {
+  /* The boot PROM's twenty-first instruction, `ORI #$0700,SR` -- masking
+   * interrupts before touching hardware. `MOVE to SR` already worked; this is a
+   * different encoding, and the whole immediate-to-status group was missing
+   * with it (`FINDINGS.md` C29). */
+  static const uint16_t code[] = {0x007Cu, 0x0700u, 0x4E71u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, code, 4);
+  m.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&m.cpu).status);
+  TEST_ASSERT_EQUAL_HEX16((uint16_t)((1u << AP_M68030_SR_S_BIT) | 0x0700u),
+                          m.cpu.regs.sr);
+}
+
+static void test_andi_to_the_condition_codes_leaves_the_high_byte(void) {
+  /* A CCR form reaches only the low byte, so an AND must not clear the
+   * privilege and mask bits against the immediate's discarded half. This is the
+   * one of the six where a naive whole-word implementation silently drops the
+   * machine out of supervisor state. */
+  static const uint16_t code[] = {0x023Cu, 0x0000u, 0x4E71u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, code, 4);
+  m.cpu.regs.sr = (uint16_t)((1u << AP_M68030_SR_S_BIT) | 0x0700u | 0x001Fu);
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&m.cpu).status);
+  TEST_ASSERT_EQUAL_HEX16((uint16_t)((1u << AP_M68030_SR_S_BIT) | 0x0700u),
+                          m.cpu.regs.sr);
+}
+
+static void test_ori_to_the_status_register_is_privileged(void) {
+  /* The SR forms write the privilege bits themselves, so a user-state program
+   * must not reach them -- while the CCR forms are unprivileged. */
+  static const uint16_t code[] = {0x007Cu, 0x0700u, 0x4E71u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, code, 4);
+  m.cpu.regs.sr = 0x0000u;
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXCEPTION, ap_m68030_step(&m.cpu).status);
+}
+
 int main(void) {
   UNITY_BEGIN();
+  RUN_TEST(test_ori_to_the_status_register_sets_the_interrupt_mask);
+  RUN_TEST(test_andi_to_the_condition_codes_leaves_the_high_byte);
+  RUN_TEST(test_ori_to_the_status_register_is_privileged);
   RUN_TEST(test_a_nop_executes_and_advances_the_pc);
   RUN_TEST(test_moveq_sign_extends_to_a_long);
   RUN_TEST(test_moveq_sets_the_documented_condition_codes);

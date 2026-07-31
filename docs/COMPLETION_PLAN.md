@@ -2481,11 +2481,14 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
   - [x] Boot through the PROM: `--boot-prom` loads it at zero and runs from the
         reset vector. Twenty instructions, **zero bus errors, zero unmapped
         accesses** (`FINDINGS.md` C29).
-  - [ ] **Implement `ORI`/`ANDI`/`EORI` to `SR` and `CCR`.** The PROM stops on
-        `ORI #$0700,SR` at `000005FE`. `MOVE to SR` works; this is a different
-        encoding, and the immediate-to-status-register group is the whole gap.
-        Small, bounded, and the single thing between this core and a PROM that
-        runs on.
+  - [x] `ORI`/`ANDI`/`EORI` to `SR` and `CCR` implemented — all six were
+        missing together. The PROM goes from 20 instructions to **35**.
+        `step_suite`, 3 new tests including the `ANDI to CCR` case that would
+        otherwise drop the machine out of supervisor state.
+  - [ ] The PROM now stops at `000028D0` on `0C2D`, a `CMPI.B` with a
+        `(d16,An)` destination, with one unmapped read. `CMPI` is implemented,
+        so this is **not** obviously another missing instruction — investigate
+        before assuming.
   - [x] The `.ct` image reader, `image/ap_ct.c`: block addressing, the
         whole-block size check, and boot-record parsing. `ct_suite`, 8 tests.
   - [x] The QIC-02 command set transcribed as far as the scan allows

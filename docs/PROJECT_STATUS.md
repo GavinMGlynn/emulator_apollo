@@ -55,9 +55,9 @@ reproducing an average the hardware never exhibits.
 address zero, takes the reset stack and program counter from its first two long
 words, and runs. Twenty instructions execute with **zero bus errors and zero
 unmapped accesses** — the first independent check on the address map by something
-other than a test written beside it — and it stops on `ORI #$0700,SR` at
-`000005FE`, which this core decodes but does not execute. That single
-instruction group is now the blocker (`FINDINGS.md` C29).
+other than a test written beside it — and with the immediate-to-status-register group now implemented it reaches **35**, stopping at
+`000028D0` on a `CMPI.B` with a `(d16,An)` destination and one unmapped read — not obviously
+another missing instruction, and recorded as the next thing to investigate (`FINDINGS.md` C29).
 
 **Real Apollo firmware runs.** `--boot-tape <cartridge>` reads a Domain/OS `.ct`
 cartridge, extracts its boot image, places it at the load address the image
