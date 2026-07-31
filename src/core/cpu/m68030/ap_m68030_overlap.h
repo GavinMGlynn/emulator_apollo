@@ -85,6 +85,12 @@ typedef struct {
   unsigned head;       /* Hn: what can be absorbed by the previous tail */
   unsigned tail;       /* Tn: what the next instruction's head can absorb */
   unsigned cache_case; /* CCn */
+  /* NCCn. Carried not to be *used* as a figure -- it is an average of the two
+   * alignment cases and no single execution takes it -- but to be *checked
+   * against*: a cold-cache run of the core, averaged over both alignments, must
+   * come to this. Two published numbers bracketing the same execution is a far
+   * stronger check on a transcription than either alone. */
+  unsigned no_cache_case;
 } ap_m68030_timing_t;
 
 /* "The total overlap time between instructions A and B consists of the lesser

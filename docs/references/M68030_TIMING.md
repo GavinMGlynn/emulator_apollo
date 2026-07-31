@@ -265,3 +265,30 @@ should be overlapping.
 
 That is a far better target than either number alone, and it is the shape the
 execution-time item should be built to.
+
+## `max` also widens what can be transcribed
+
+A note for the next transcription pass, recorded because the reasoning that
+excluded those rows no longer applies.
+
+Rows with a non-zero read or write count were left out on the grounds that their
+`CC` includes operand bus cycles at the table's assumed two clocks each, and the
+core produces those itself — so adding the published figure whole would count
+them twice.
+
+That was true of *addition*. Under `max(microcode, bus)` it dissolves. Take
+`ADD Dn,EA`, `CC 3(0/0/1)` and `NCC 4(0/1/1)`: if the microcode is 3, then
+`max(3, 2) = 3` gives `CC` with the write's two clocks, and `max(3, 4) = 4`
+gives `NCC` with the write and a prefetch. The microcode is simply `CC` again,
+and the bus time the core measures does the rest.
+
+In general the microcode is `CC` for any row where `CC` is at least the bus time
+its own cache case contains — which is every row seen so far, since a row whose
+microcode was shorter than its own bus activity would have `CC` equal to that
+bus activity rather than more.
+
+So the memory forms are transcribable on the same terms as the register forms,
+and the two-sided check applies to them unchanged. They are the obvious next
+pass, and unlike the register forms they will exercise the `NCC > CC` case,
+which nothing does today: every transcribed row has `NCC == CC`, because its
+single prefetch hides under microcode of at least two clocks.

@@ -7,38 +7,45 @@
  * §11.6.8 or §11.6.9 -- no reads, no prefetches, no writes -- so `n` is pure
  * microcode time. The head and tail are the same tables' first two columns.
  *
+ * Every one of these rows also has `NCC` equal to `CC`, which is not a
+ * coincidence and is worth stating: their no-cache case is `n(0/1/0)`, one
+ * prefetch bus cycle worth two clocks, and every `n` here is at least two. The
+ * fetch therefore hides entirely under the microcode and the totals coincide --
+ * `max(n, 2) = n`. A row where the two differ would be one whose microcode is
+ * shorter than a bus cycle, and there is none among the register forms.
+ *
  * The word-size address forms costing 4 against the long forms' 2 is the
  * pattern that appears six times across ADDA, SUBA and CMPA, and it is the
  * direction that makes physical sense: the word form sign-extends its source to
  * 32 bits before operating and the long form does not. */
 static const ap_m68030_table_entry_t TABLE[] = {
     /* §11.6.8, Arithmetical/Logical Instructions. */
-    {"ADD Rn,Dn", {.head = 2, .tail = 0, .cache_case = 2}, false, false},
-    {"ADDA.W Rn,An", {.head = 4, .tail = 0, .cache_case = 4}, false, false},
-    {"ADDA.L Rn,An", {.head = 2, .tail = 0, .cache_case = 2}, false, false},
-    {"AND Dn,Dn", {.head = 2, .tail = 0, .cache_case = 2}, false, false},
-    {"EOR Dn,Dn", {.head = 2, .tail = 0, .cache_case = 2}, false, false},
-    {"OR Dn,Dn", {.head = 2, .tail = 0, .cache_case = 2}, false, false},
-    {"SUB Rn,Dn", {.head = 2, .tail = 0, .cache_case = 2}, false, false},
-    {"SUBA.W Rn,An", {.head = 4, .tail = 0, .cache_case = 4}, false, false},
-    {"SUBA.L Rn,An", {.head = 2, .tail = 0, .cache_case = 2}, false, false},
-    {"CMP Rn,Dn", {.head = 2, .tail = 0, .cache_case = 2}, false, false},
-    {"CMPA Rn,An", {.head = 4, .tail = 0, .cache_case = 4}, false, false},
+    {"ADD Rn,Dn", {.head = 2, .tail = 0, .cache_case = 2, .no_cache_case = 2}, false, false},
+    {"ADDA.W Rn,An", {.head = 4, .tail = 0, .cache_case = 4, .no_cache_case = 4}, false, false},
+    {"ADDA.L Rn,An", {.head = 2, .tail = 0, .cache_case = 2, .no_cache_case = 2}, false, false},
+    {"AND Dn,Dn", {.head = 2, .tail = 0, .cache_case = 2, .no_cache_case = 2}, false, false},
+    {"EOR Dn,Dn", {.head = 2, .tail = 0, .cache_case = 2, .no_cache_case = 2}, false, false},
+    {"OR Dn,Dn", {.head = 2, .tail = 0, .cache_case = 2, .no_cache_case = 2}, false, false},
+    {"SUB Rn,Dn", {.head = 2, .tail = 0, .cache_case = 2, .no_cache_case = 2}, false, false},
+    {"SUBA.W Rn,An", {.head = 4, .tail = 0, .cache_case = 4, .no_cache_case = 4}, false, false},
+    {"SUBA.L Rn,An", {.head = 2, .tail = 0, .cache_case = 2, .no_cache_case = 2}, false, false},
+    {"CMP Rn,Dn", {.head = 2, .tail = 0, .cache_case = 2, .no_cache_case = 2}, false, false},
+    {"CMPA Rn,An", {.head = 4, .tail = 0, .cache_case = 4, .no_cache_case = 4}, false, false},
 
     /* The divides, marked `+` in the table: "Indicates Maximum Time (Actual
      * time is data dependent)". PROVISIONAL. */
-    {"DIVS.W Dn,Dn", {.head = 2, .tail = 0, .cache_case = 56}, true, false},
-    {"DIVS.L Dn,Dn", {.head = 6, .tail = 0, .cache_case = 90}, true, false},
-    {"DIVU.W Dn,Dn", {.head = 2, .tail = 0, .cache_case = 44}, true, false},
-    {"DIVU.L Dn,Dn", {.head = 6, .tail = 0, .cache_case = 78}, true, false},
+    {"DIVS.W Dn,Dn", {.head = 2, .tail = 0, .cache_case = 56, .no_cache_case = 56}, true, false},
+    {"DIVS.L Dn,Dn", {.head = 6, .tail = 0, .cache_case = 90, .no_cache_case = 90}, true, false},
+    {"DIVU.W Dn,Dn", {.head = 2, .tail = 0, .cache_case = 44, .no_cache_case = 44}, true, false},
+    {"DIVU.L Dn,Dn", {.head = 6, .tail = 0, .cache_case = 78, .no_cache_case = 78}, true, false},
 
     /* §11.6.9, Immediate Arithmetical/Logical Instructions. */
-    {"MOVEQ #<data>,Dn", {.head = 2, .tail = 0, .cache_case = 2}, false, false},
-    {"ADDQ #<data>,Rn", {.head = 2, .tail = 0, .cache_case = 2}, false, false},
-    {"SUBQ #<data>,Rn", {.head = 2, .tail = 0, .cache_case = 2}, false, false},
+    {"MOVEQ #<data>,Dn", {.head = 2, .tail = 0, .cache_case = 2, .no_cache_case = 2}, false, false},
+    {"ADDQ #<data>,Rn", {.head = 2, .tail = 0, .cache_case = 2, .no_cache_case = 2}, false, false},
+    {"SUBQ #<data>,Rn", {.head = 2, .tail = 0, .cache_case = 2, .no_cache_case = 2}, false, false},
     /* `**` in the table: the immediate is fetched through a separate effective
      * address time, so this figure is not the whole cost. */
-    {"ADDI #<data>,Dn", {.head = 2, .tail = 0, .cache_case = 2}, false, true},
+    {"ADDI #<data>,Dn", {.head = 2, .tail = 0, .cache_case = 2, .no_cache_case = 2}, false, true},
 };
 
 #define TABLE_COUNT (sizeof TABLE / sizeof TABLE[0])

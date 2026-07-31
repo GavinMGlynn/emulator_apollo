@@ -7,6 +7,7 @@
  * and get the same answer twice.
  */
 
+#include "cpu/m68030/ap_m68030_timing_table.h"
 #include "machine/ap_machine.h"
 #include "unity.h"
 
@@ -270,9 +271,96 @@ static void test_the_mmu_registers_the_machine_reads_are_the_ones_pmove_writes(
   TEST_ASSERT_TRUE(m.instruction_access.tc->enable);
 }
 
+/* ---------------------------------------------------------------------------
+ * The two-sided check on the published figures.
+ * ------------------------------------------------------------------------- */
+
+/* Run one single-word instruction repeatedly and return the clocks each step
+ * cost, after a discarded first step so the pipe fill is not charged to it.
+ * `warm` runs the same instruction from one address so the cache answers;
+ * `!warm` walks forward through fresh memory so every fetch misses. */
+static void sample_instruction(uint16_t word, bool warm, uint64_t *out,
+                               unsigned samples) {
+  blank();
+  ap_machine_t m;
+  ap_machine_init(&m, ram, RAM_BYTES);
+  ap_machine_reset(&m, PROGRAM, STACK);
+
+  for (unsigned i = 0; i < samples + 8u; i++) {
+    TEST_ASSERT_TRUE(ap_machine_write(&m, PROGRAM + i * 2u, 2u, word));
+  }
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_machine_step(&m).status);
+  uint64_t previous = m.cpu.clocks;
+
+  for (unsigned i = 0; i < samples; i++) {
+    if (warm) {
+      /* Back to the same instruction, which the cache now holds. */
+      m.cpu.regs.pc = PROGRAM;
+      ap_m68030_fetch_reset(&m.cpu.fetch, PROGRAM);
+    }
+    TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_machine_step(&m).status);
+    out[i] = m.cpu.clocks - previous;
+    previous = m.cpu.clocks;
+  }
+}
+
+/* The check the whole transcription rests on: for every row the table covers,
+ * a warm-cache run must come to that row's `CC` and a cold-cache run, averaged
+ * over both prefetch alignments, to its `NCC`.
+ *
+ * Two published numbers bracketing the same execution. A mistranscribed figure
+ * fails one; a scheduling model that adds where it should overlap fails the
+ * other; and a model that ignored the bus entirely would pass the warm side and
+ * fail the cold. Neither number is one this project produced.
+ *
+ * The instructions are chosen to be executable in isolation with no operand and
+ * no side effect that stops the run -- the divides are excluded because a
+ * divisor of zero raises an exception, and their figures are the manual's
+ * maximum rather than a value anyway. */
+static void test_every_transcribed_row_matches_both_published_columns(void) {
+  static const struct {
+    uint16_t word;
+    const char *what;
+  } CASES[] = {
+      {0xD200u, "ADD.B D0,D1"},  {0x9200u, "SUB.B D0,D1"},
+      {0xC200u, "AND.B D0,D1"},  {0x8200u, "OR.B D0,D1"},
+      {0xB200u, "CMP.B D0,D1"},  {0x7000u, "MOVEQ #0,D0"},
+      {0x5200u, "ADDQ.B #1,D0"}, {0x5300u, "SUBQ.B #1,D0"},
+      {0xD0C0u, "ADDA.W D0,A0"}, {0xD1C0u, "ADDA.L D0,A0"},
+      {0x90C0u, "SUBA.W D0,A0"}, {0x91C0u, "SUBA.L D0,A0"},
+      {0xB0C0u, "CMPA.W D0,A0"},
+  };
+
+  for (unsigned c = 0; c < sizeof CASES / sizeof CASES[0]; c++) {
+    const ap_m68030_table_entry_t *row =
+        ap_m68030_timing_for_word(CASES[c].word);
+    TEST_ASSERT_NOT_NULL_MESSAGE(row, CASES[c].what);
+
+    uint64_t warm[4];
+    sample_instruction(CASES[c].word, true, warm, 4u);
+    for (unsigned i = 0; i < 4u; i++) {
+      TEST_ASSERT_EQUAL_UINT64_MESSAGE(row->timing.cache_case, warm[i],
+                                       CASES[c].what);
+    }
+
+    /* Cold: the published figure is "the average of the odd-word-aligned case
+     * and the even-word-aligned case (rounded up)", so the average is what must
+     * agree -- comparing a single step to it would be comparing a value to a
+     * mean of two. */
+    uint64_t cold[4];
+    sample_instruction(CASES[c].word, false, cold, 4u);
+    const uint64_t total = cold[0] + cold[1] + cold[2] + cold[3];
+    const uint64_t rounded_average = (total + 3u) / 4u;
+    TEST_ASSERT_EQUAL_UINT64_MESSAGE(row->timing.no_cache_case,
+                                     rounded_average, CASES[c].what);
+  }
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_a_probe_can_set_up_run_and_read_back);
+  RUN_TEST(test_every_transcribed_row_matches_both_published_columns);
   RUN_TEST(test_reset_leaves_the_state_a_reset_leaves);
   RUN_TEST(test_an_access_beyond_the_ram_faults_rather_than_wrapping);
   RUN_TEST(test_a_runaway_program_ends_at_its_limit);
