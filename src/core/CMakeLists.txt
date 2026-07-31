@@ -4,6 +4,7 @@
 add_library(apollo_core STATIC
   cpu/m68030/ap_m68030_bus.c
   cpu/m68030/ap_m68030_cache.c
+  cpu/m68030/ap_m68030_cond.c
   cpu/m68030/ap_m68030_atc.c
   cpu/m68030/ap_m68030_desc.c
   cpu/m68030/ap_m68030_ea.c

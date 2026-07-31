@@ -343,6 +343,24 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
   - [x] `BD SIZE = 00` is **Reserved, not null**. Collapsing the two would
         accept an illegal instruction word as a legal one, so it is reported as
         reserved and tested against the legal null encoding beside it.
+  - [x] **Conditional tests** (`src/core/cpu/m68030/ap_m68030_cond.c`), the
+        sixteen conditions `Bcc`, `Scc`, `DBcc` and `TRAPcc` share,
+        `M68000 Family PRM` Table 3-19.
+        **The table's overbars do not survive the scan** — `HI` reads as "C^ Z"
+        where the manual means not-C and not-Z — so this is the first table
+        whose *content* is damaged rather than its layout. It is recovered from
+        structure rather than guessed: the encoding lays the conditions out in
+        complementary pairs (`2k` against `2k+1`), so a misplaced bar must make
+        some pair agree for some CCR value.
+        *Verification: `cond_suite`, 9 tests. The headline one exhausts the
+        whole space — all sixteen conditions against all thirty-two CCR states —
+        asserting every pair complementary, which is what turns the
+        transcription from trusted into verified. Also: X taking part in no
+        condition (checked over the same whole space), `HI`'s four input
+        combinations individually since it is the entry whose bars were lost,
+        the signed comparisons where a sign error hides, `GT` differing from
+        `GE` only by Z, and T/F unavailable to `Bcc` because those encodings are
+        `BRA` and `BSR`.*
   - [ ] Wire the bus to a memory system so the termination kind and its arrival
         clock come from a device rather than a test. That is what makes
         contention emergent, and it belongs with Phase 3's single arbitration
