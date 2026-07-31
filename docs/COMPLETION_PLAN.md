@@ -302,17 +302,33 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         the function code and address bits". It overrides an otherwise perfect
         match rather than refining it, so it is checked before the address
         comparison and tested in both directions.
-  - [ ] **Gap, not a guess: the TTx register bit layout.** `[030]` Figure 9-37's
-        lower half does not survive the scan — the bit positions of E, CI, R/W,
-        RWM, FC BASE and FC MASK OCR to nothing but a stray "FC MASK", under
-        both `pdftotext` modes. The upper half is legible (31-24 logical address
-        base, 23-16 logical address mask) and every field's *meaning* is given
-        in prose, which is what is implemented. The register is therefore
-        modelled as decoded fields and the packing is deferred rather than
-        invented. Nothing needs it until software writes the register with
-        `PMOVE`. *Verification: read Figure 9-37 from the PDF page itself, or
-        cross-check against `MC68851 PMMU User's Manual` / `M68000 Family
-        Reference`, then add a packing test.*
+  - [x] **Closed: the TTx register bit layout, deferred and then transcribed.**
+        `[030]` Figure 9-37's lower half does not survive the scan — the bit
+        positions of E, CI, R/W, RWM, FC BASE and FC MASK OCR to nothing but a
+        stray "FC MASK", under both `pdftotext` modes — so the register was
+        modelled as decoded fields with *no* packing rather than an invented
+        one. The `M68000 Family Programmer's Reference Manual 1992` Figure 1-9
+        gives it intact: `31-24 ADDRESS BASE`, `23-16 ADDRESS MASK`, then
+        `E(15) 0(14-11) CI(10) R/W(9) RWM(8) 0(7) FC BASE(6-4) 0(3) FC
+        MASK(2-0)`, with prose agreeing field for field with §9.7.3's. That is
+        exactly the cross-check this item asked for, so the packing is
+        transcribed from two agreeing sources rather than reconstructed. The
+        decoded struct stays the interface every other module uses; the packing
+        exists because `PMOVE` moves a register image, not a struct.
+        *Verification: `tt_suite`, 6 further tests — every field packing to its
+        own bit checked individually, the unassigned bits 14-11/7/3 never set
+        and ignored on unpack, the easily-inverted R/W and R/WM senses pinned in
+        all three combinations ("1 = Only read accesses permitted", "1 = R/W
+        field ignored"), a lossless round trip, and the manual's own
+        `$00000000-$0FFFFFFF` worked example driven through a register *image*
+        rather than a struct — the form `PMOVE` will deliver.*
+  - [x] Fixed while doing it: `ap_m68030_tt.h` and `ap_m68030_walk.h` both
+        defined `ap_m68030_access_t`, with different members. Any module using
+        the tables *and* transparent translation — which is every real MMU —
+        would not have compiled, and nothing caught it because no file included
+        both. The walk's is now `ap_m68030_search_access_t`, and `walk_suite`
+        includes both headers for no reason other than to make the build catch a
+        recurrence.
   - [x] **Translation control register (TC) and logical address decomposition**
         (`src/core/cpu/m68030/ap_m68030_tc.c`), `[030]` §9.7.2 pp. 9-54 ff. TC
         is what turns a logical address into a path through the tree — how many

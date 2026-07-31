@@ -44,7 +44,7 @@ static uint32_t remaining_offset(const ap_m68030_tc_t *tc, unsigned levels_used,
  *
  * Returns false for a bus error on the write half. */
 static bool update_history(ap_m68030_walk_result_t *result,
-                           const ap_m68030_access_t *access,
+                           const ap_m68030_search_access_t *access,
                            ap_m68030_update_fn update, void *context,
                            uint32_t descriptor_address,
                            const ap_m68030_descriptor_t *descriptor,
@@ -101,7 +101,7 @@ static bool update_history(ap_m68030_walk_result_t *result,
 
 int ap_m68030_walk_fill_atc(ap_m68030_atc_t *atc,
                             const ap_m68030_walk_result_t *result,
-                            const ap_m68030_access_t *access,
+                            const ap_m68030_search_access_t *access,
                             uint8_t function_code, uint32_t address,
                             uint8_t page_size_bits) {
   /* "The bus error bit ... is set when a bus error ... is encountered during
@@ -128,7 +128,7 @@ int ap_m68030_walk_fill_atc(ap_m68030_atc_t *atc,
 ap_m68030_walk_result_t ap_m68030_walk(const ap_m68030_tc_t *tc,
                                        const ap_m68030_root_t *root,
                                        uint32_t address,
-                                       const ap_m68030_access_t *access,
+                                       const ap_m68030_search_access_t *access,
                                        ap_m68030_fetch_fn fetch,
                                        ap_m68030_update_fn update,
                                        void *context) {

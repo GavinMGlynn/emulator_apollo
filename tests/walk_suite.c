@@ -10,6 +10,13 @@
  * will measure.
  */
 
+/* ap_m68030_tt.h is included for no reason other than to keep it includable
+ * alongside this one. Both headers describe "the access", and they described it
+ * under the same typedef name until that collision was found -- any module using
+ * the tables *and* transparent translation, which is every real MMU, would not
+ * have compiled. Including both here means the build catches it rather than the
+ * next caller. */
+#include "cpu/m68030/ap_m68030_tt.h"
 #include "cpu/m68030/ap_m68030_walk.h"
 #include "unity.h"
 
@@ -89,11 +96,11 @@ static ap_m68030_root_t root_at(uint32_t address) {
 
 /* A supervisor read, the access most tests use: it sets no M bit, so a test
  * that says nothing about the access is testing the search alone. */
-static const ap_m68030_access_t SUPERVISOR_READ = {
+static const ap_m68030_search_access_t SUPERVISOR_READ = {
     .write = false, .read_modify_write = false, .supervisor = true};
-static const ap_m68030_access_t SUPERVISOR_WRITE = {
+static const ap_m68030_search_access_t SUPERVISOR_WRITE = {
     .write = true, .read_modify_write = false, .supervisor = true};
-static const ap_m68030_access_t USER_READ = {
+static const ap_m68030_search_access_t USER_READ = {
     .write = false, .read_modify_write = false, .supervisor = false};
 
 /* Table bases chosen so a descriptor address collision cannot make a wrong
@@ -531,7 +538,7 @@ static void test_a_write_protected_path_does_not_set_the_m_bit(void) {
  * R/W or RMC signal is low" -- so the *read* half of a read-modify-write
  * already sets M, and costs the write that implies. */
 static void test_the_read_half_of_a_read_modify_write_still_sets_m(void) {
-  static const ap_m68030_access_t rmw_read = {
+  static const ap_m68030_search_access_t rmw_read = {
       .write = false, .read_modify_write = true, .supervisor = true};
   ap_m68030_tc_t tc = three_level_4k();
   ap_m68030_root_t root = root_at(ROOT_TABLE);

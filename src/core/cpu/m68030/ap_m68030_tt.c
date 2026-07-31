@@ -68,3 +68,48 @@ ap_m68030_tt_result_t ap_m68030_tt_translate(const ap_m68030_tt_t *tt0,
                          (hit1 && tt1->cache_inhibit);
   return result;
 }
+
+/* The register image PMOVE moves, from the PRM's Figure 1-9. See the header for
+ * why this is a transcription rather than a reconstruction, and for the sense of
+ * the two R/W bits. */
+uint32_t ap_m68030_tt_pack(const ap_m68030_tt_t *tt) {
+  uint32_t word = 0;
+  word |= (uint32_t)tt->logical_base << AP_M68030_TT_ADDRESS_BASE_SHIFT;
+  word |= (uint32_t)tt->logical_mask << AP_M68030_TT_ADDRESS_MASK_SHIFT;
+  if (tt->enabled) {
+    word |= UINT32_C(1) << AP_M68030_TT_E_BIT;
+  }
+  if (tt->cache_inhibit) {
+    word |= UINT32_C(1) << AP_M68030_TT_CI_BIT;
+  }
+  /* "1 = Only read accesses permitted." */
+  if (tt->read_transparent) {
+    word |= UINT32_C(1) << AP_M68030_TT_RW_BIT;
+  }
+  /* "1 = R/W field ignored." */
+  if (tt->ignore_read_write) {
+    word |= UINT32_C(1) << AP_M68030_TT_RWM_BIT;
+  }
+  word |= (uint32_t)(tt->fc_base & AP_M68030_TT_FC_FIELD_MASK)
+          << AP_M68030_TT_FC_BASE_SHIFT;
+  word |= (uint32_t)(tt->fc_mask & AP_M68030_TT_FC_FIELD_MASK)
+          << AP_M68030_TT_FC_MASK_SHIFT;
+  return word;
+}
+
+ap_m68030_tt_t ap_m68030_tt_unpack(uint32_t word) {
+  return (ap_m68030_tt_t){
+      .logical_base =
+          (uint8_t)((word >> AP_M68030_TT_ADDRESS_BASE_SHIFT) & 0xFFu),
+      .logical_mask =
+          (uint8_t)((word >> AP_M68030_TT_ADDRESS_MASK_SHIFT) & 0xFFu),
+      .fc_base = (uint8_t)((word >> AP_M68030_TT_FC_BASE_SHIFT) &
+                           AP_M68030_TT_FC_FIELD_MASK),
+      .fc_mask = (uint8_t)((word >> AP_M68030_TT_FC_MASK_SHIFT) &
+                           AP_M68030_TT_FC_FIELD_MASK),
+      .enabled = ((word >> AP_M68030_TT_E_BIT) & 1u) != 0u,
+      .cache_inhibit = ((word >> AP_M68030_TT_CI_BIT) & 1u) != 0u,
+      .read_transparent = ((word >> AP_M68030_TT_RW_BIT) & 1u) != 0u,
+      .ignore_read_write = ((word >> AP_M68030_TT_RWM_BIT) & 1u) != 0u,
+  };
+}

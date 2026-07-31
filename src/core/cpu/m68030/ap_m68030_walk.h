@@ -60,7 +60,7 @@ typedef struct {
   bool write;
   bool read_modify_write;
   bool supervisor;
-} ap_m68030_access_t;
+} ap_m68030_search_access_t;
 
 /* Fetch the descriptor at a physical address. Returns false for a bus error,
  * which `[030]` §9.4 says sets the B bit of the resulting ATC entry.
@@ -133,7 +133,7 @@ typedef struct {
  * search that must not disturb the tree -- which is what `PTEST` performs. */
 [[nodiscard]] ap_m68030_walk_result_t
 ap_m68030_walk(const ap_m68030_tc_t *tc, const ap_m68030_root_t *root,
-               uint32_t address, const ap_m68030_access_t *access,
+               uint32_t address, const ap_m68030_search_access_t *access,
                ap_m68030_fetch_fn fetch, ap_m68030_update_fn update,
                void *context);
 
@@ -153,7 +153,7 @@ ap_m68030_walk(const ap_m68030_tc_t *tc, const ap_m68030_root_t *root,
  * violation, or a limit violation, so all four are folded in here. */
 int ap_m68030_walk_fill_atc(ap_m68030_atc_t *atc,
                             const ap_m68030_walk_result_t *result,
-                            const ap_m68030_access_t *access,
+                            const ap_m68030_search_access_t *access,
                             uint8_t function_code, uint32_t address,
                             uint8_t page_size_bits);
 

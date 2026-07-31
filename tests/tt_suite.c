@@ -206,6 +206,121 @@ static void test_no_registers_at_all_is_not_transparent(void) {
   TEST_ASSERT_FALSE(ap_m68030_tt_translate(NULL, NULL, &a).transparent);
 }
 
+/* ---------------------------------------------------------------------------
+ * The register image, from the M68000 Family Programmer's Reference Manual 1992
+ * Figure 1-9:
+ *
+ *   31-24 ADDRESS BASE   23-16 ADDRESS MASK
+ *   E(15) 0(14-11) CI(10) R/W(9) RWM(8) 0(7) FC BASE(6-4) 0(3) FC MASK(2-0)
+ *
+ * [030] Figure 9-37 lost this half to the scan, which is why the module carried
+ * decoded fields and no packing until a second source pinned it.
+ * ------------------------------------------------------------------------- */
+
+/* Each field on its own, so a transposition cannot hide behind another field
+ * being right. */
+static void test_each_field_packs_to_its_documented_bit(void) {
+  TEST_ASSERT_EQUAL_HEX32(
+      0x00008000, ap_m68030_tt_pack(&(ap_m68030_tt_t){.enabled = true}));
+  TEST_ASSERT_EQUAL_HEX32(
+      0x00000400, ap_m68030_tt_pack(&(ap_m68030_tt_t){.cache_inhibit = true}));
+  TEST_ASSERT_EQUAL_HEX32(
+      0x00000200,
+      ap_m68030_tt_pack(&(ap_m68030_tt_t){.read_transparent = true}));
+  TEST_ASSERT_EQUAL_HEX32(
+      0x00000100,
+      ap_m68030_tt_pack(&(ap_m68030_tt_t){.ignore_read_write = true}));
+  TEST_ASSERT_EQUAL_HEX32(
+      0x00000070, ap_m68030_tt_pack(&(ap_m68030_tt_t){.fc_base = 0x7}));
+  TEST_ASSERT_EQUAL_HEX32(
+      0x00000007, ap_m68030_tt_pack(&(ap_m68030_tt_t){.fc_mask = 0x7}));
+  TEST_ASSERT_EQUAL_HEX32(
+      0xFF000000, ap_m68030_tt_pack(&(ap_m68030_tt_t){.logical_base = 0xFF}));
+  TEST_ASSERT_EQUAL_HEX32(
+      0x00FF0000, ap_m68030_tt_pack(&(ap_m68030_tt_t){.logical_mask = 0xFF}));
+}
+
+/* Bits 14-11, 7 and 3 have no field and must stay zero however the struct is
+ * filled -- nothing may leak between the two 3-bit function code fields. */
+static void test_the_unassigned_bits_are_never_set(void) {
+  const ap_m68030_tt_t everything = {.logical_base = 0xFF,
+                                     .logical_mask = 0xFF,
+                                     .fc_base = 0x7,
+                                     .fc_mask = 0x7,
+                                     .enabled = true,
+                                     .cache_inhibit = true,
+                                     .read_transparent = true,
+                                     .ignore_read_write = true};
+  TEST_ASSERT_EQUAL_HEX32(0, ap_m68030_tt_pack(&everything) & 0x00007880u);
+}
+
+/* The two R/W bits are the pair most easily inverted: "R/W: 1 = Only read
+ * accesses permitted", "R/WM: 1 = R/W field ignored". A register that permits
+ * only writes has R/W clear, not set. */
+static void test_the_read_write_bits_carry_their_documented_sense(void) {
+  const ap_m68030_tt_t write_only = {.read_transparent = false,
+                                     .ignore_read_write = false};
+  TEST_ASSERT_EQUAL_HEX32(0, ap_m68030_tt_pack(&write_only) & 0x00000300u);
+
+  const ap_m68030_tt_t read_only = {.read_transparent = true};
+  TEST_ASSERT_EQUAL_HEX32(0x00000200,
+                          ap_m68030_tt_pack(&read_only) & 0x00000300u);
+
+  const ap_m68030_tt_t either = {.ignore_read_write = true};
+  TEST_ASSERT_EQUAL_HEX32(0x00000100, ap_m68030_tt_pack(&either) & 0x00000300u);
+}
+
+static void test_pack_and_unpack_round_trip(void) {
+  const ap_m68030_tt_t original = {.logical_base = 0x0A,
+                                   .logical_mask = 0x0F,
+                                   .fc_base = 0x5,
+                                   .fc_mask = 0x2,
+                                   .enabled = true,
+                                   .cache_inhibit = true,
+                                   .read_transparent = true,
+                                   .ignore_read_write = false};
+  const ap_m68030_tt_t back = ap_m68030_tt_unpack(ap_m68030_tt_pack(&original));
+
+  TEST_ASSERT_EQUAL_HEX8(original.logical_base, back.logical_base);
+  TEST_ASSERT_EQUAL_HEX8(original.logical_mask, back.logical_mask);
+  TEST_ASSERT_EQUAL_HEX8(original.fc_base, back.fc_base);
+  TEST_ASSERT_EQUAL_HEX8(original.fc_mask, back.fc_mask);
+  TEST_ASSERT_TRUE(back.enabled);
+  TEST_ASSERT_TRUE(back.cache_inhibit);
+  TEST_ASSERT_TRUE(back.read_transparent);
+  TEST_ASSERT_FALSE(back.ignore_read_write);
+}
+
+/* The packing is only worth having if it drives the same behaviour the decoded
+ * fields do, so this runs the manual's own worked example -- $00000000-$0FFFFFFF
+ * is base $0X with mask $0F -- through a register *image* rather than a struct,
+ * which is the form PMOVE will deliver. */
+static void test_a_register_image_translates_the_manuals_worked_example(void) {
+  ap_m68030_tt_t built = supervisor_data_reads();
+  built.logical_mask = 0x0F;
+
+  const ap_m68030_tt_t tt = ap_m68030_tt_unpack(ap_m68030_tt_pack(&built));
+
+  for (uint32_t high = 0x00; high <= 0x0F; high++) {
+    ap_m68030_access_t a = access_at(high << 24, FC_SUPERVISOR_DATA, true);
+    TEST_ASSERT_TRUE(ap_m68030_tt_translate(&tt, NULL, &a).transparent);
+  }
+  ap_m68030_access_t beyond = access_at(0x10000000, FC_SUPERVISOR_DATA, true);
+  TEST_ASSERT_FALSE(ap_m68030_tt_translate(&tt, NULL, &beyond).transparent);
+}
+
+/* A word with every reserved bit set must decode to the same register as one
+ * with them clear: the fields are read by position, not by whatever else the
+ * word happens to carry. */
+static void test_unpack_ignores_the_unassigned_bits(void) {
+  const uint32_t clean = 0x0A0F8275u;
+  const ap_m68030_tt_t from_clean = ap_m68030_tt_unpack(clean);
+  const ap_m68030_tt_t from_noisy = ap_m68030_tt_unpack(clean | 0x00007880u);
+
+  TEST_ASSERT_EQUAL_HEX32(ap_m68030_tt_pack(&from_clean),
+                          ap_m68030_tt_pack(&from_noisy));
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_a_matching_access_is_translated_to_the_same_address);
@@ -223,5 +338,11 @@ int main(void) {
   RUN_TEST(test_a_non_matching_register_does_not_contribute_cache_inhibit);
   RUN_TEST(test_an_access_matching_neither_register_is_not_transparent);
   RUN_TEST(test_no_registers_at_all_is_not_transparent);
+  RUN_TEST(test_each_field_packs_to_its_documented_bit);
+  RUN_TEST(test_the_unassigned_bits_are_never_set);
+  RUN_TEST(test_the_read_write_bits_carry_their_documented_sense);
+  RUN_TEST(test_pack_and_unpack_round_trip);
+  RUN_TEST(test_a_register_image_translates_the_manuals_worked_example);
+  RUN_TEST(test_unpack_ignores_the_unassigned_bits);
   return UNITY_END();
 }
