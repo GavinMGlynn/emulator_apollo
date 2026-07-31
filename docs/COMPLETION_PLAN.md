@@ -2468,9 +2468,13 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         RAM's top, since the register addresses fall *inside* flat-from-zero
         memory and read as zeros. The firmware reaches high, repeatedly, then
         jumps somewhere unmapped.
-  - [ ] Give the machine the DN3500's real address map: RAM at `1000000` where
-        Table 2-8 puts it, and the built devices mapped where they belong. The
-        16,933 figure is the before-and-after.
+  - [x] The address map itself, `board/ap_board.c`: every device placed by
+        Table 2-8, main memory at `1000000`, unmapped reported rather than
+        answered, and every region named. `board_suite`, 7 tests.
+  - [ ] Route `ap_machine`'s bus through it, so the boot run uses the map. The
+        16,933 figure is the before-and-after, and `ap_machine`'s flat RAM stays
+        for the probes — a probe harness that had to be a whole DN3500 would be
+        a worse probe harness.
   - [x] The `.ct` image reader, `image/ap_ct.c`: block addressing, the
         whole-block size check, and boot-record parsing. `ct_suite`, 8 tests.
   - [x] The QIC-02 command set transcribed as far as the scan allows
