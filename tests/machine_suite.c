@@ -7,6 +7,7 @@
  * and get the same answer twice.
  */
 
+#include "cpu/m68030/ap_m68030_ea_timing.h"
 #include "cpu/m68030/ap_m68030_timing_table.h"
 #include "machine/ap_machine.h"
 #include "unity.h"
@@ -278,12 +279,20 @@ static void test_the_mmu_registers_the_machine_reads_are_the_ones_pmove_writes(
 /* Run one single-word instruction repeatedly and return the clocks each step
  * cost, after a discarded first step so the pipe fill is not charged to it.
  * `warm` runs the same instruction from one address so the cache answers;
- * `!warm` walks forward through fresh memory so every fetch misses. */
+ * `!warm` walks forward through fresh memory so every fetch misses.
+ *
+ * **The data cache is disabled**, because §11.6's assumption list says the
+ * published figures assume it is: "The data cache is not enabled." Comparing a
+ * total measured with it on against a figure computed with it off is not a
+ * like-for-like comparison, and the difference is exactly one operand read per
+ * repeat -- invisible for the register forms, which is why this went unnoticed
+ * until the memory forms were measured. */
 static void sample_instruction(uint16_t word, bool warm, uint64_t *out,
                                unsigned samples) {
   blank();
   ap_machine_t m;
   ap_machine_init(&m, ram, RAM_BYTES);
+  m.data_access.cache_enabled = false;
   ap_machine_reset(&m, PROGRAM, STACK);
 
   for (unsigned i = 0; i < samples + 8u; i++) {
@@ -377,6 +386,10 @@ static void sample_memory_form(uint16_t word, bool warm, uint64_t *out,
   blank();
   ap_machine_t m;
   ap_machine_init(&m, ram, RAM_BYTES);
+  /* As above: §11.6's figures assume the data cache is not enabled, and for a
+   * memory operand that assumption is the difference between a read costing two
+   * clocks and costing none. */
+  m.data_access.cache_enabled = false;
   ap_machine_reset(&m, PROGRAM, STACK);
 
   for (unsigned i = 0; i < samples + 8u; i++) {
@@ -429,13 +442,27 @@ static void test_the_footnoted_memory_forms_are_declined_not_part_priced(void) {
     /* The row exists and says it is partial. */
     TEST_ASSERT_TRUE_MESSAGE(row->needs_effective_address_time, CASES[c].what);
 
-    /* And the core does not apply it: the cost is bus time alone, which is a
-     * write and nothing else once the instruction is cached. */
+    /* And the core is short of the manual's *composed* total, which is the
+     * instruction's own CC plus the fetch effective address time for `(An)`:
+     * 3 + 3 = 6 in the cache case, and the oracle measures 7 uncached.
+     *
+     * Note what cannot be asserted here. With the data cache off, this
+     * instruction's bus time alone -- an operand read and a write, four clocks
+     * -- already exceeds its 3-clock component, so `max(3, 4)` and a plain 4
+     * are the same number: applying the component or declining it is
+     * *unobservable* on these rows. The decline matters for correctness of
+     * intent rather than of arithmetic here, and what is checkable is the gap
+     * against the composed figure. */
+    const ap_m68030_ea_timing_t *fea =
+        ap_m68030_ea_fetch_timing(AP_M68030_EA_ADDRESS_INDIRECT, 1u);
+    TEST_ASSERT_NOT_NULL(fea);
+    const uint64_t composed =
+        row->timing.cache_case + fea->timing.cache_case;
+
     uint64_t warm[4];
     sample_memory_form(CASES[c].word, true, warm, 4u);
     for (unsigned i = 0; i < 4u; i++) {
-      TEST_ASSERT_TRUE_MESSAGE(warm[i] < row->timing.cache_case,
-                               CASES[c].what);
+      TEST_ASSERT_TRUE_MESSAGE(warm[i] < composed, CASES[c].what);
     }
   }
 }

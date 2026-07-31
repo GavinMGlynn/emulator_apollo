@@ -342,3 +342,58 @@ tables transcribed so both sides of the composition are published numbers, and
 then the two-sided check applied per addressing mode. What is settled is that
 the *current* model cannot be extended to cover the footnoted rows, and that is
 why the step now declines them rather than reporting a component.
+
+## Two things found while working out the composition
+
+### The tables assume the data cache is off, and our harness had it on
+
+§11.6's assumption list, which is easy to read past on the way to the numbers:
+
+> - All memory accesses occur with two-clock bus cycles and no wait states.
+> - All operands in memory, including the system stack, are long-word aligned.
+> - A 32-bit bus is used ...
+> - **The data cache is not enabled.**
+> - No exceptions occur (except as specified).
+> - Required address translations ... are resident in the address translation
+>   cache.
+
+Comparing a figure measured with the data cache *on* against one computed with
+it off is not a like-for-like comparison, and the difference is one operand read
+per repeat. That is invisible for the register forms — they touch no data — which
+is why the two-sided check passed for a dozen rows before this surfaced. The
+sampling helpers now disable it, and say why.
+
+The lesson generalises past this instance: a published table's *assumptions*
+need transcribing as carefully as its numbers, because a harness that violates
+one silently compares two different experiments.
+
+### `max(microcode, hideable) + blocking` does not work either
+
+C9's second question proposed splitting bus cycles into those the microcode
+waits on and those it does not. Worked through for `ADD.B D0,(A0)`, whose
+targets are 6 cached and 7 uncached:
+
+| Split | Cached | Uncached |
+| --- | --- | --- |
+| blocking = read + write | `max(m,0) + 4 = 6` → m = 2 | `max(2,2) + 4 = 6` ✗ |
+| blocking = read, write posted | `max(m,2) + 2 = 6` → m = 4 | `max(4,4) + 2 = 6` ✗ |
+
+Both give 6 for the uncached case where the manual and the oracle say 7. The
+reason is the same in each: the extra prefetch is worth two clocks and the
+answer must move by **one**. No all-or-nothing split can produce a partial cost,
+and every two-bucket arrangement is all-or-nothing by construction.
+
+So the marginal cost of a prefetch is *fractional* with respect to a bus cycle,
+and it varies per instruction: `NCC − CC` is 0 for `ADD Rn,Dn`, 1 for
+`ADD Dn,EA` and `MOVE Rn,(An)`, and 2 for a taken `Bcc`. That quantity is
+published for every row, which is the useful observation — it is the slack the
+instruction's microcode has, measured by Motorola, and not something to be
+derived from a scheduling rule this document could invent.
+
+Whether to *use* it that way is the open question. Taking `NCC − CC` as the
+per-instruction prefetch cost reproduces both columns by construction, which is
+suspiciously easy — it fits two points with two points. It would need checking
+against something neither column determines: an instruction with **two**
+prefetches, or a wait-stated bus, where the published pair no longer pins the
+answer. Until that check exists this stays unimplemented, and the footnoted rows
+stay declined.

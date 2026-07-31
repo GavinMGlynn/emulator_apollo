@@ -1460,6 +1460,14 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         rather than a rewrite, but it is not to be made before the effective
         address tables exist, so that both sides of the composition are
         published numbers rather than one published and one inferred.
+    - [x] **A methodological correction the tables forced.** §11.6's assumption
+          list includes "The data cache is not enabled", and the sampling
+          helpers had it on. Comparing a figure measured with it on against one
+          computed with it off is not like-for-like, and the difference is an
+          operand read per repeat — invisible for the register forms, which is
+          why a dozen rows passed the two-sided check before this surfaced. A
+          published table's *assumptions* need transcribing as carefully as its
+          numbers.
     - [x] **The tables themselves**
           (`src/core/cpu/m68030/ap_m68030_ea_timing.c`): §11.6.1's fetch and
           §11.6.3's calculate rows for the modes without a full-format
@@ -1489,9 +1497,23 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
           and word alike per Table 2-3; the immediate absent from the calculate
           table; and the long absolute being the one fetch row whose two columns
           differ.*
-    - [ ] **Composing them**, which needs the refinement C9's second question
-          identified — `max(microcode, hideable) + blocking` — and then the
-          two-sided check per addressing mode.
+    - [ ] **Composing them.** C9's second question proposed
+          `max(microcode, hideable) + blocking`; working it through shows that
+          **does not work either**, and `docs/references/M68030_TIMING.md`
+          records the arithmetic. Both splits of the bus give 6 for
+          `ADD.B D0,(A0)` uncached where the manual and the oracle say 7,
+          because the extra prefetch is worth two clocks and the answer must
+          move by *one*. No all-or-nothing split produces a partial cost.
+          The marginal cost of a prefetch is therefore fractional and
+          per-instruction — and it is **published**: `NCC − CC` is 0 for
+          `ADD Rn,Dn`, 1 for `ADD Dn,EA`, 2 for a taken `Bcc`. That is the slack
+          Motorola measured, not a rule to invent.
+          **The open question is whether to use it.** Taking `NCC − CC` as the
+          prefetch cost reproduces both columns by construction, which fits two
+          points with two points and proves nothing. It needs checking against
+          something neither column determines — an instruction with *two*
+          prefetches, or a wait-stated bus. Until that exists this stays
+          unimplemented and the footnoted rows stay declined.
           *Verification: `ADD.B D0,(A0)` coming to 7 against the oracle and
           against `NCC + fea`; and the second worked example of §11.3.4, which
           exists precisely to exercise Equation (11-2).*
