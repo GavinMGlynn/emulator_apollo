@@ -2394,7 +2394,17 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
       and `roms/firmware` carries the matching `3000_OMTI_8621_102640-B.bin`.
       The WD7000 is the DN4500's and belongs with the other model variants.
       `FINDINGS.md` C15.
-- [ ] **Archive SC-499 cartridge tape.** Placement from `008778-03` Table 2-9:
+- [ ] **Archive SC-499 cartridge tape.**
+  - [x] The controller's register model, from `[SC499]` §1.9: all four
+        addresses, the derived interrupt flag, the tri-stated IRQ line, and
+        RSTDMA's documented identity with power-on reset — which makes the two
+        testable against each other directly. `sc499_suite`, 9 tests.
+  - [ ] The QIC-02 command set, tape motion, and the drive behind the
+        controller. Needs a `.ct` image reader; `media/` has the Domain/OS
+        distribution to read.
+  - [ ] Wire it into the board at `050000`.
+
+      Placement from `008778-03` Table 2-9:
       `050000`-`050F80`, AT `218`-`21F`, eight registers, confirmed by an
       eight-byte aliasing period in the oracle — and `050000` **is** the
       controller, confirmed by removing the card: with `isa2` emptied it reads
