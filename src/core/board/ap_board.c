@@ -120,11 +120,16 @@ uint8_t ap_board_read(ap_board_t *board, uint32_t address, bool *ok) {
     }
     return board->ram[offset];
   }
-  case AP_BOARD_REGION_PROM:
-    /* No boot PROM image is loaded. Reported as unmapped rather than answered
-     * with zero, because a machine that answers the PROM with zeros looks like
-     * a machine with a blank PROM rather than one without one. */
-    break;
+  case AP_BOARD_REGION_PROM: {
+    uint32_t offset = address - AP_BOARD_PROM_BASE;
+    if (board->prom == NULL || offset >= board->prom_bytes) {
+      /* No PROM, or past the image. Reported as unmapped rather than answered
+       * with zero, because a machine answering the PROM with zeros looks like
+       * one with a blank PROM rather than one without a PROM at all. */
+      break;
+    }
+    return board->prom[offset];
+  }
   case AP_BOARD_REGION_UNMAPPED:
     break;
   }
@@ -183,4 +188,30 @@ void ap_board_write(ap_board_t *board, uint32_t address, uint8_t value,
   }
   *ok = false;
   board->unmapped_writes++;
+}
+
+bool ap_board_load_prom(ap_board_t *board, const uint8_t *prom,
+                        uint32_t bytes) {
+  if (prom == NULL || bytes == 0u || bytes > AP_BOARD_PROM_SIZE) {
+    return false;
+  }
+  board->prom = prom;
+  board->prom_bytes = bytes;
+  return true;
+}
+
+bool ap_board_reset_vector(const ap_board_t *board, uint32_t *stack,
+                           uint32_t *pc) {
+  if (board->prom == NULL || board->prom_bytes < 8u) {
+    return false;
+  }
+  /* `[030]` §8.1: reset takes the interrupt stack pointer from the first long
+   * word of the exception table and the program counter from the second. The
+   * table is at address 0 after reset, before any VBR is written. */
+  const uint8_t *p = board->prom;
+  *stack = ((uint32_t)p[0] << 24) | ((uint32_t)p[1] << 16) |
+           ((uint32_t)p[2] << 8) | (uint32_t)p[3];
+  *pc = ((uint32_t)p[4] << 24) | ((uint32_t)p[5] << 16) |
+        ((uint32_t)p[6] << 8) | (uint32_t)p[7];
+  return true;
 }

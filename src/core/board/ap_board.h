@@ -79,6 +79,12 @@ typedef struct ap_board {
   ap_disk_t disk;
   ap_tape_t tape;
 
+  /* The boot PROM, caller-owned. NULL until one is loaded, and the region then
+   * answers unmapped -- a machine with no PROM is a real configuration and must
+   * not look like one with a blank PROM. */
+  const uint8_t *prom;
+  uint32_t prom_bytes;
+
   /* Main memory, caller-owned as `ap_machine`'s is: the core allocates
    * nothing. */
   uint8_t *ram;
@@ -97,6 +103,18 @@ typedef struct ap_board {
                                  uint32_t ram_bytes,
                                  const ap_mc146818_time_t *start,
                                  uint32_t node_id);
+
+/* Attach a boot PROM image. Fails if it is larger than the region Table 2-8
+ * gives it -- an image that does not fit is not this machine's PROM, and
+ * truncating it would run whatever happened to be in the first 64 KB. */
+[[nodiscard]] bool ap_board_load_prom(ap_board_t *board, const uint8_t *prom,
+                                      uint32_t bytes);
+
+/* The reset vector the PROM carries: `[030]` takes the initial supervisor stack
+ * pointer from address 0 and the initial program counter from address 4, both
+ * big-endian long words. False if no PROM is loaded. */
+[[nodiscard]] bool ap_board_reset_vector(const ap_board_t *board,
+                                         uint32_t *stack, uint32_t *pc);
 
 [[nodiscard]] ap_board_region_t ap_board_region(uint32_t address);
 [[nodiscard]] const char *ap_board_region_name(ap_board_region_t region);

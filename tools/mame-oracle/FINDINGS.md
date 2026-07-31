@@ -1799,6 +1799,45 @@ that matches. 16,933 on flat RAM and 0 on the real map are both honest, and the
 second is more informative: it says exactly which assumption was carrying the
 first.
 
+### C29 — the boot PROM runs, and stops on one named instruction
+
+C28 concluded that the PROM must run first, because it is what enables
+translation. It does, and it works:
+
+    reset SSP    01000180  (main memory)
+    reset PC     0000633C  (boot PROM)
+    executed     20 instructions
+    stopped      UNIMPLEMENTED at 000005FE (boot PROM)
+    bus errors   0
+    unmapped     0 read, 0 written
+
+**Zero bus errors and zero unmapped accesses.** Everything the PROM touched in
+those twenty instructions, this core's address map served -- which is the first
+independent check on that map by something other than a test written alongside
+it. The reset vector is right too: the PROM's first long word is a stack pointer
+in main memory and its second a program counter inside the PROM, and both land in
+the regions the map says they should.
+
+That is a far better position than the side-loaded tape reached. 16,933
+instructions on flat RAM came from memory that answered everything; twenty
+instructions here came from a machine that answers what a DN3500 answers.
+
+**The blocker is now one instruction.** At `000005FE` the PROM holds
+`007C 0700`, which is `ORI #$0700,SR` -- setting the interrupt mask to seven, the
+ordinary thing firmware does before touching hardware. This core decodes it and
+reports `UNIMPLEMENTED`.
+
+`ORI to SR` is a different encoding from `MOVE to SR`, which does work here, and
+the same gap almost certainly covers `ANDI to SR`, `EORI to SR` and their CCR
+forms -- the immediate-to-status-register group as a whole. That is a small,
+bounded piece of the instruction unit, and it is now the single thing between
+this core and a PROM that runs on.
+
+Worth noting what made this findable in one step: the machine reports *why* it
+stopped and *where*, and the PROM is a file that can be read at that address. A
+core that stopped with a generic fault would have needed a debugger to reach the
+same sentence.
+
 ## Where the ring is not
 
 The Apollo Token Ring has **no runnable oracle at all**: MAME carries Domain

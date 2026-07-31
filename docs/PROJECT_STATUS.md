@@ -51,6 +51,14 @@ component, and Equation (11-2) needs a model that can hide *part* of a bus cycle
 any single execution ever takes, so a core that looked them up would be
 reproducing an average the hardware never exhibits.
 
+**The boot PROM runs.** `--boot-prom <image>` loads the DN3500's own PROM at
+address zero, takes the reset stack and program counter from its first two long
+words, and runs. Twenty instructions execute with **zero bus errors and zero
+unmapped accesses** — the first independent check on the address map by something
+other than a test written beside it — and it stops on `ORI #$0700,SR` at
+`000005FE`, which this core decodes but does not execute. That single
+instruction group is now the blocker (`FINDINGS.md` C29).
+
 **Real Apollo firmware runs.** `--boot-tape <cartridge>` reads a Domain/OS `.ct`
 cartridge, extracts its boot image, places it at the load address the image
 declares, and runs from its entry point. On flat RAM the SR10.3.5 boot cartridge executed

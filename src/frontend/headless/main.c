@@ -115,6 +115,112 @@ static void run_probes(FILE *out) {
 }
 
 
+
+/* Read a whole file into memory. The frontend does this because `src/core` has
+ * no file I/O by design. */
+static uint8_t *read_file(const char *path, long *size_out) {
+  FILE *file = fopen(path, "rb");
+  if (file == NULL) {
+    return NULL;
+  }
+  if (fseek(file, 0, SEEK_END) != 0) {
+    fclose(file);
+    return NULL;
+  }
+  long size = ftell(file);
+  rewind(file);
+  if (size <= 0) {
+    fclose(file);
+    return NULL;
+  }
+  uint8_t *bytes = malloc((size_t)size);
+  if (bytes == NULL || fread(bytes, 1, (size_t)size, file) != (size_t)size) {
+    free(bytes);
+    fclose(file);
+    return NULL;
+  }
+  fclose(file);
+  *size_out = size;
+  return bytes;
+}
+
+/* Run the machine from its boot PROM, which is how a DN3500 actually starts.
+ *
+ * The side-loading route (`--boot-tape`) puts an image at an address it names
+ * and jumps there. That works only while memory answers everywhere: the real
+ * machine has no physical memory at the boot image's load address, and the
+ * addresses in its header are logical (`FINDINGS.md` C28). The PROM is what
+ * enables translation, so it is what has to run first. */
+static int boot_from_prom(const char *path, unsigned limit) {
+  long size = 0;
+  uint8_t *prom = read_file(path, &size);
+  if (prom == NULL) {
+    fprintf(stderr, "apollo: cannot read boot PROM %s\n", path);
+    return 1;
+  }
+
+  uint32_t ram_bytes = 0x400000u;
+  uint8_t *ram = calloc(1, ram_bytes);
+  ap_board_t *board = calloc(1, sizeof *board);
+  static const ap_mc146818_time_t epoch = {
+      .year = 1987u, .month = 7u, .day = 31u, .day_of_week = 6u,
+      .hour = 21u, .minute = 9u, .second = 21u,
+  };
+  if (ram == NULL || board == NULL ||
+      !ap_board_init(board, ram, ram_bytes, &epoch, 0x012345u)) {
+    free(board);
+    free(ram);
+    free(prom);
+    fprintf(stderr, "apollo: cannot build the core board\n");
+    return 1;
+  }
+  if (!ap_board_load_prom(board, prom, (uint32_t)size)) {
+    free(board);
+    free(ram);
+    free(prom);
+    fprintf(stderr, "apollo: %s does not fit the boot PROM region\n", path);
+    return 1;
+  }
+
+  uint32_t stack = 0;
+  uint32_t pc = 0;
+  if (!ap_board_reset_vector(board, &stack, &pc)) {
+    free(board);
+    free(ram);
+    free(prom);
+    fprintf(stderr, "apollo: %s carries no reset vector\n", path);
+    return 1;
+  }
+
+  printf("boot PROM %s\n", path);
+  printf("  size         %lu\n", (unsigned long)size);
+  printf("  reset SSP    %08X (%s)\n", stack,
+         ap_board_region_name(ap_board_region(stack)));
+  printf("  reset PC     %08X (%s)\n", pc,
+         ap_board_region_name(ap_board_region(pc)));
+
+  ap_machine_t machine;
+  ap_machine_init(&machine, ram, ram_bytes);
+  ap_machine_set_board(&machine, board);
+  ap_machine_reset(&machine, pc, stack);
+
+  ap_machine_run_t run = ap_machine_run(&machine, limit);
+  printf("  executed     %u instruction(s)\n", run.executed);
+  printf("  stopped      %s\n", ap_probe_status_name(run.status));
+  printf("  final PC     %08X (%s)\n", machine.cpu.regs.pc,
+         ap_board_region_name(ap_board_region(machine.cpu.regs.pc)));
+  printf("  bus errors   %u\n", machine.bus_errors);
+  printf("  unmapped     %u read, %u written\n", board->unmapped_reads,
+         board->unmapped_writes);
+  printf("  state hash   %016llX\n",
+         (unsigned long long)ap_machine_hash(&machine));
+
+  free(board);
+  free(ram);
+  free(prom);
+  return 0;
+}
+
 /* Load a cartridge and run its boot image.
  *
  * The file reading lives here and not in `src/core`, which has no file I/O by
@@ -263,9 +369,15 @@ int main(int argc, char **argv) {
   bool run_probe_suite = false;
   bool report_timing = false;
   const char *boot_tape = NULL;
+  const char *boot_prom = NULL;
   unsigned boot_limit = 100000u;
 
   for (int i = 1; i < argc;) {
+    if (strcmp(argv[i], "--boot-prom") == 0 && i + 1 < argc) {
+      boot_prom = argv[i + 1];
+      i += 2;
+      continue;
+    }
     if (strcmp(argv[i], "--boot-tape") == 0 && i + 1 < argc) {
       boot_tape = argv[i + 1];
       i += 2;
@@ -306,6 +418,10 @@ int main(int argc, char **argv) {
   if (opt.list_models) {
     ap_print_model_table(stdout);
     return 0;
+  }
+
+  if (boot_prom != NULL) {
+    return boot_from_prom(boot_prom, boot_limit);
   }
 
   if (boot_tape != NULL) {

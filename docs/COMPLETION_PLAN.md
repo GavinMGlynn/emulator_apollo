@@ -2478,11 +2478,14 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         `TC = 0` — so the address is unmapped physically, this core's map is
         right, and the zero is correct behaviour. Whatever loads the image
         enables translation and maps the range first (`FINDINGS.md` C28).
-  - [ ] Boot through the PROM rather than side-loading, so translation is set
-        up by the firmware that expects to set it up. The MMU has worked here
-        for some time; what is missing is the PROM path, which
-        `tools/mame-oracle/FINDINGS.md` C4 put in doubt and which this now
-        gives a reason to revisit.
+  - [x] Boot through the PROM: `--boot-prom` loads it at zero and runs from the
+        reset vector. Twenty instructions, **zero bus errors, zero unmapped
+        accesses** (`FINDINGS.md` C29).
+  - [ ] **Implement `ORI`/`ANDI`/`EORI` to `SR` and `CCR`.** The PROM stops on
+        `ORI #$0700,SR` at `000005FE`. `MOVE to SR` works; this is a different
+        encoding, and the immediate-to-status-register group is the whole gap.
+        Small, bounded, and the single thing between this core and a PROM that
+        runs on.
   - [x] The `.ct` image reader, `image/ap_ct.c`: block addressing, the
         whole-block size check, and boot-record parsing. `ct_suite`, 8 tests.
   - [x] The QIC-02 command set transcribed as far as the scan allows
