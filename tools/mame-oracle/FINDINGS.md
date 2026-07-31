@@ -96,6 +96,44 @@ from stopping a build we are not maintaining. The pinned checkout has no tags,
 so MAME's version step prints `fatal: No names found, cannot describe anything`
 — harmless, and not an error in our build.
 
+### The oracle runs, and two defects it hid
+
+First readings against the real binary, 2026-08-01.
+
+`verify` passes: two `dn3500` runs at the same point are byte-identical (969
+bytes), and so are two `dn5500` runs (985 bytes). That closes the half of the
+harness item that needed a real emulator.
+
+**`dn5500` runs despite `MACHINE_NOT_WORKING`.** The flag was reason to suspect
+the 68040 path had no oracle at all; run empirically, it starts and dumps
+reproducibly. So it *is* diffable — but the flag is MAME's own statement that it
+does not vouch for the result, which makes DN5500 a divergence class to treat
+with suspicion rather than an absent oracle. Do not promote it to `paper` in the
+model table on the strength of the flag.
+
+**Defect found: the driver's parameters never reached MAME.** `oracle.py` built
+an environment with `APOLLO_DUMP_AT`, `APOLLO_DUMP_CPU` and `APOLLO_DUMP_MEM`
+and then called `subprocess.run(...)` **without `env=`**, so `dump.lua` fell back
+to its defaults for all three. Every reading was taken at 1.0 emulated seconds
+regardless of `--at`, and no memory range was ever dumped. The success message
+printed the *requested* value, which is what hid it: `verify` reported
+"reproducible at 1000000.000000s" for a run that had dumped at 1.0. Two runs of
+the same wrong workload are still identical, so determinism passed and said
+nothing. Fixed by passing `env`; `--at 1.0` and `--at 2.0` now yield different
+machine states (`CURPC` `$7AE` against `$794`), which is the check that the
+parameter is live.
+
+The lesson generalises: a harness that reports back the value it was *asked* for
+cannot detect that the value was ignored. Report what the run actually did.
+
+**Open: no dump is produced beyond about 3.2 emulated seconds.** Measured on
+`dn3500`: `--at` 1.0, 2.0, 2.5, 3.0 and 3.2 all dump; 3.5, 4.0 and 6.0 produce
+nothing at all -- MAME exits 0 with "Average speed: 78.00% (4 seconds)" and no
+dump block, so it reads as success to anything not counting dumps. That bounds
+every campaign to the first ~3 emulated seconds until it is understood, which is
+enough for boot-PROM probes and not enough for anything after. Not diagnosed
+yet: it is not a fractional-value problem, since 3.2 works and 4.0 does not.
+
 ### ROM sets
 
 `tools/mame-oracle/romset.py` assembles them from `roms/firmware/` into

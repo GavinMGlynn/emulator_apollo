@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import zipfile
 import re
 import shutil
 import sys
@@ -48,12 +49,23 @@ DEFAULT_OUT = HERE / "out" / "roms"
 # ROM_START( name )  ...  ROM_END, tolerating the driver's inconsistent spacing
 # (`ROM_START( dn3000)` has no trailing space, in the pinned revision).
 ROM_START_RE = re.compile(r"^\s*ROM_START\s*\(\s*(\w+)\s*\)", re.M)
+# Devices the driver includes, e.g. #include "bus/isa/3c505.h"
+INCLUDE_RE = re.compile(
+    r'^\s*#include\s+"((?:bus|machine|video|sound|cpu)/[^"]+\.h)"', re.M)
 ROM_END_RE = re.compile(r"^\s*ROM_END", re.M)
 
 # ROMX_LOAD( "file", offset, length, CRC(x) SHA1(y), ROM_BIOS(n) )
 # ROM_LOAD ( "file", offset, length, CRC(x) SHA1(y) )
+#
+# The suffixed forms matter and were missed at first: a device ROM in a 16-bit
+# region is declared ROM_LOAD16_BYTE, and a parser that only knows ROM_LOAD
+# silently assembles a *partial* set. That reads as success here and fails much
+# later as "NOT FOUND" from MAME, so the family is matched rather than the two
+# spellings that happened to appear in apollo.cpp.
+# Entries marked NO_DUMP carry no hash and are skipped: they cannot be supplied,
+# and for the sets we use they belong to a BIOS option we do not select.
 ROM_LOAD_RE = re.compile(
-    r"ROMX?_LOAD\s*\(\s*"
+    r"ROMX?_LOAD[0-9A-Z_]*\s*\(\s*"
     r'"([^"]+)"\s*,\s*'          # file name
     r"([0-9a-fA-Fx]+)\s*,\s*"    # offset (unused, but consumed positionally)
     r"([0-9a-fA-Fx]+)\s*,\s*"    # length
@@ -146,9 +158,76 @@ def index_firmware(directory: Path) -> dict:
 
     index: dict = {}
     for path in sorted(directory.rglob("*")):
-        if path.is_file():
-            index.setdefault(sha1_of(path), path)
+        if not path.is_file():
+            continue
+        index.setdefault(sha1_of(path), path)
+        # Device ROM sets are often held as an already-correct MAME zip rather
+        # than as loose files, so index the members too. Matching stays by
+        # SHA-1: the member's *name* inside the archive is not trusted any more
+        # than a loose file's is.
+        if zipfile.is_zipfile(path):
+            with zipfile.ZipFile(path) as archive:
+                for member in archive.namelist():
+                    if member.endswith("/"):
+                        continue
+                    digest = hashlib.sha1(archive.read(member)).hexdigest()
+                    index.setdefault(digest, (path, member))
     return index
+
+
+
+def source_size(source) -> int:
+    """Size of a resolved ROM, held either loose or inside a zip."""
+    if isinstance(source, tuple):
+        archive_path, member = source
+        with zipfile.ZipFile(archive_path) as archive:
+            return archive.getinfo(member).file_size
+    return source.stat().st_size
+
+
+def source_name(source) -> str:
+    if isinstance(source, tuple):
+        return "%s:%s" % (source[0].name, source[1])
+    return source.name
+
+
+def write_rom(source, destination: Path) -> None:
+    if isinstance(source, tuple):
+        archive_path, member = source
+        with zipfile.ZipFile(archive_path) as archive:
+            destination.write_bytes(archive.read(member))
+        return
+    shutil.copyfile(source, destination)
+
+
+def device_sources(driver: Path) -> list:
+    """Device .cpp files the driver pulls in, for their own ROM_START blocks.
+
+    A machine set is not enough to run a machine: MAME loads a card's ROMs from
+    a *sibling* set named after the device, so dn3500 needs a `3c505` set beside
+    it or it refuses to start. The device list is derived from the driver's own
+    `#include "bus/..."` lines rather than transcribed, for the same reason the
+    ROM table is parsed rather than copied -- a transcribed list goes stale the
+    moment the ext/mame pin moves.
+    """
+    devices_root = driver.parents[2] / "devices"
+    if not devices_root.is_dir():
+        return []
+
+    includes = set()
+    for path in sorted(driver.parent.glob("*.cpp")) + sorted(driver.parent.glob("*.h")):
+        for match in INCLUDE_RE.finditer(path.read_text(errors="replace")):
+            includes.add(match.group(1))
+
+    sources = []
+    for include in sorted(includes):
+        candidate = devices_root / (include[:-2] + ".cpp")
+        # Most devices carry no ROM at all, which is ordinary rather than a
+        # parser failure, so they are filtered here instead of being reported as
+        # a changed driver layout by parse_driver.
+        if candidate.is_file() and "ROM_START" in candidate.read_text(errors="replace"):
+            sources.append(candidate)
+    return sources
 
 
 def assemble(machine: str, roms: list, index: dict, out: Path) -> bool:
@@ -176,7 +255,7 @@ def assemble(machine: str, roms: list, index: dict, out: Path) -> bool:
         # The size check is redundant against a matching SHA-1 and kept anyway:
         # if it ever fires, the driver's own length and hash disagree, which is
         # a fact about the oracle worth surfacing loudly rather than ignoring.
-        actual = source.stat().st_size
+        actual = source_size(source)
         if actual != rom.length:
             sys.stderr.write(
                 "romset: %s: %s has the expected sha1 but is %d bytes, not the "
@@ -185,7 +264,7 @@ def assemble(machine: str, roms: list, index: dict, out: Path) -> bool:
                 % (machine, rom.name, actual, rom.length)
             )
             return False
-        shutil.copyfile(source, target / rom.name)
+        write_rom(source, target / rom.name)
 
     sys.stdout.write(
         "romset: %-12s %d ROM(s) -> %s\n" % (machine, len(resolved), target)
@@ -207,8 +286,21 @@ def main(argv=None) -> int:
     args = ap.parse_args(argv)
 
     sets = parse_driver(args.driver)
+    # Device ROM sets live beside the machine sets in the rompath, and a machine
+    # will not start without them.
+    device_sets: dict = {}
+    for source in device_sources(args.driver):
+        device_sets.update(parse_driver(source))
     index = index_firmware(args.firmware)
 
+    # Only the device sets we can actually satisfy are assembled; one we hold no
+    # ROMs for is reported by its machine failing to run, not silently here.
+    satisfiable = {
+        name: roms
+        for name, roms in device_sets.items()
+        if roms and all(index.get(rom.sha1) is not None for rom in roms)
+    }
+    sets.update({k: v for k, v in satisfiable.items() if k not in sets})
     wanted = args.machine or sorted(sets)
     unknown = [m for m in wanted if m not in sets]
     if unknown:
@@ -226,7 +318,7 @@ def main(argv=None) -> int:
                 sys.stdout.write(
                     "  %-40s %8d  %s  %s\n"
                     % (rom.name, rom.length, rom.sha1,
-                       "have: %s" % have.name if have else "MISSING")
+                       "have: %s" % source_name(have) if have else "MISSING")
                 )
         return 0
 

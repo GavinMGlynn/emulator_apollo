@@ -117,7 +117,7 @@ def run_once(mame: Path, args, rundir: Path) -> str:
 
     try:
         proc = subprocess.run(
-            command, capture_output=True, text=True,
+            command, capture_output=True, text=True, env=environment,
             cwd=str(mame.parent), timeout=args.timeout,
         )
     except subprocess.TimeoutExpired:
