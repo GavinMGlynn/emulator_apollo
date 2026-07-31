@@ -65,6 +65,12 @@ typedef enum {
 #define AP_SC499_ST_DONE 0x10u /* "Done, from DMA logic" */
 #define AP_SC499_ST_DIR 0x08u  /* bus direction, controller to host */
 
+/* Whether a register is driven on a read. The two DMA command addresses are
+ * write-only, and the measured dump shows them floating to `FF` rather than
+ * reading zero -- so a board must answer for them, and the part must say it is
+ * not answering. */
+[[nodiscard]] bool ap_sc499_readable(unsigned reg);
+
 typedef struct {
   uint8_t control;
   uint8_t data;

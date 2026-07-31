@@ -2,22 +2,44 @@
 
 #include <string.h>
 
+bool ap_sc499_readable(unsigned reg) {
+  unsigned r = reg & (AP_SC499_REGISTERS - 1u);
+  return r == AP_SC499_DATA || r == AP_SC499_CONTROL_STATUS;
+}
+
 void ap_sc499_reset(ap_sc499_t *tape) {
   memset(tape, 0, sizeof *tape);
   /* `[SC499]` on RSTDMA, which "performs the same functions" as power-on reset:
    * it "initializes the DMA sequencer, clears all Control Register bits to 0,
    * and sets DONE to 1". */
-  tape->done = true;
   /* And Ready, which is what the oracle's idle controller was measured
-   * asserting -- status `40` at reset. */
+   * asserting -- status `40` at reset.
+   *
+   * DONE is left *clear*, against the guide, which says RSTDMA "sets DONE to 1"
+   * and that power-on reset performs the same functions. The measurement is
+   * unambiguous -- `40` has bit 4 clear -- and is preferred here because the
+   * guide's scan lost the status register's bit numbers entirely, so "DONE" may
+   * simply not be the bit this core calls it. Recorded rather than reconciled:
+   * a status read after a real transfer would settle which. */
   tape->ready = true;
 }
 
 /* The interrupt flag is *derived*, not latched: "Interrupt Request Flag. ORing
- * of RDY AND EXC, and DONE if DNIEN is set." So DONE contributes only when its
- * own enable is set, while RDY and EXC always do. */
+ * of RDY AND EXC, and DONE if DNIEN is set."
+ *
+ * That sentence is ambiguous in English -- "RDY AND EXC" reads equally as a list
+ * of two sources or as a conjunction -- and the measurement settles it. The
+ * oracle's controller reads `40` at reset: Ready set, and the flag at bit 7
+ * *clear*. A disjunction would have made the flag follow Ready and set bit 7
+ * too. So it is a conjunction:
+ *
+ *     IRQ = (RDY AND EXC) OR (DONE AND DNIEN)
+ *
+ * Read as a list it would have interrupted on every idle controller, which is
+ * the kind of wrong that looks like a working driver until the interrupt storm
+ * is traced. */
 static bool interrupt_flag(const ap_sc499_t *tape) {
-  if (tape->ready || tape->exception) {
+  if (tape->ready && tape->exception) {
     return true;
   }
   return tape->done && (tape->control & AP_SC499_CTL_DNIEN) != 0u;

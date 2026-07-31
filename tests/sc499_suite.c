@@ -19,7 +19,9 @@ static void test_a_reset_controller_is_ready_and_done(void) {
    * numbers. */
   uint8_t status = ap_sc499_read(&t, AP_SC499_CONTROL_STATUS);
   TEST_ASSERT_EQUAL_HEX8(AP_SC499_ST_RDY, status & AP_SC499_ST_RDY);
-  TEST_ASSERT_EQUAL_HEX8(AP_SC499_ST_DONE, status & AP_SC499_ST_DONE);
+  /* DONE is clear at reset in the measured part, against the guide; see
+   * `ap_sc499_reset`. */
+  TEST_ASSERT_EQUAL_HEX8(0, status & AP_SC499_ST_DONE);
   TEST_ASSERT_EQUAL_HEX8(0, status & AP_SC499_ST_EXC);
 }
 
@@ -78,12 +80,29 @@ static void test_a_masked_controller_drives_no_interrupt(void) {
   TEST_ASSERT_FALSE(ap_sc499_irq(&t));
 
   ap_sc499_write(&t, AP_SC499_CONTROL_STATUS, AP_SC499_CTL_IEN);
+  t.exception = true; /* with Ready, the conjunction that raises the flag */
+  TEST_ASSERT_TRUE(ap_sc499_irq(&t));
+}
+
+static void test_the_flag_is_a_conjunction_not_a_list(void) {
+  ap_sc499_t t;
+  ap_sc499_reset(&t);
+  ap_sc499_write(&t, AP_SC499_CONTROL_STATUS, AP_SC499_CTL_IEN);
+
+  /* "ORing of RDY AND EXC" is ambiguous English, and the measurement settles
+   * it: the oracle reads `40` at reset -- Ready set, flag clear. A disjunction
+   * would have interrupted on every idle controller. */
+  TEST_ASSERT_TRUE(t.ready);
+  TEST_ASSERT_FALSE(ap_sc499_irq(&t));
+
+  t.exception = true;
   TEST_ASSERT_TRUE(ap_sc499_irq(&t));
 }
 
 static void test_the_interrupt_flag_reads_through_the_masks(void) {
   ap_sc499_t t;
   ap_sc499_reset(&t);
+  t.exception = true;
 
   /* "Each interrupt source bit, RDY, EXC, and DONE, can be read through the
    * Status Register regardless of the state of the interrupt masks." So a
@@ -98,9 +117,11 @@ static void test_the_interrupt_flag_reads_through_the_masks(void) {
 static void test_done_contributes_to_the_flag_only_when_enabled(void) {
   ap_sc499_t t;
   ap_sc499_reset(&t);
-  /* Clear the two sources that always contribute, leaving only DONE. */
+  /* Leave the conjunction unsatisfied, so only DONE can raise the flag. DONE is
+   * clear at reset in the measured part, so it has to be asserted here. */
   t.ready = false;
   t.exception = false;
+  t.done = true;
 
   /* "Interrupt Request Flag. ORing of RDY AND EXC, and DONE if DNIEN is set."
    * DONE is the one source gated by its own enable, and flattening the three
@@ -145,6 +166,7 @@ int main(void) {
   RUN_TEST(test_the_dma_commands_ignore_what_is_written);
   RUN_TEST(test_the_command_addresses_read_as_nothing);
   RUN_TEST(test_a_masked_controller_drives_no_interrupt);
+  RUN_TEST(test_the_flag_is_a_conjunction_not_a_list);
   RUN_TEST(test_the_interrupt_flag_reads_through_the_masks);
   RUN_TEST(test_done_contributes_to_the_flag_only_when_enabled);
   RUN_TEST(test_holding_the_reset_bit_holds_the_controller);

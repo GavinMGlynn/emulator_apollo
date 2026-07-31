@@ -1135,6 +1135,39 @@ sequencer, clears all Control Register bits to 0, and sets DONE to 1 (power-on
 reset from the IBM PC performs the same functions)". A reset command that is
 defined as equal to power-on reset is the cheapest possible test of both.
 
+### C19 — the reset dump disambiguates the guide's own sentence
+
+Implementing the SC-499 from C18's transcription produced two disagreements with
+the measured part, and in both the measurement was right.
+
+**The interrupt flag is a conjunction.** `[SC499]` describes it as "ORing of RDY
+AND EXC, and DONE if DNIEN is set", which reads equally as a list of two sources
+or as a conjunction of them. The oracle's controller reads `40` at reset -- Ready
+set at bit 6, and the flag at bit 7 **clear**. A disjunction would have made the
+flag follow Ready and set bit 7 too. So:
+
+    IRQ = (RDY AND EXC) OR (DONE AND DNIEN)
+
+Read as a list it would have interrupted on every idle controller. One byte of
+measurement settles a sentence no amount of re-reading would have.
+
+**DONE is clear at reset, against the guide.** It says RSTDMA "sets DONE to 1"
+and that power-on reset "performs the same functions", so a reset part should
+read `50`, not `40`. It reads `40`.
+
+Not reconciled, and the reason is worth stating: the guide's scan lost the status
+register's **bit numbers** entirely -- C18 recovered them by inference from this
+same reset value -- so "DONE" may simply not be the bit this core calls DONE. The
+core follows the measurement, the divergence is recorded at
+`ap_sc499_reset`, and a status read after a real transfer would settle which bit
+moves.
+
+**And the write-only addresses float rather than reading zero.** The dump reads
+`FF` at `BASE+2` and `BASE+3`. That is the board answering, not the part, so the
+part now reports which registers it drives and the board supplies the floating
+value for the rest. A part returning zero for an address it does not drive would
+be claiming the bus.
+
 ## Where the ring is not
 
 The Apollo Token Ring has **no runnable oracle at all**: MAME carries Domain

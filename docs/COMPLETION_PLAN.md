@@ -2402,7 +2402,14 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
   - [ ] The QIC-02 command set, tape motion, and the drive behind the
         controller. Needs a `.ct` image reader; `media/` has the Domain/OS
         distribution to read.
-  - [ ] Wire it into the board at `050000`.
+  - [x] Wired into the board at `050000`: four registers at stride 1, the upper
+        four addresses of each eight floating to `FF`, aliased through the
+        range, on IRQ5. `tape_suite`, 6 tests, including the measured reset dump
+        reproduced over two aliasing periods.
+  - [ ] **Open:** the guide says a reset sets DONE and the measured part does
+        not. Its scan lost the status register's bit numbers, so "DONE" may not
+        be the bit this core calls DONE. A status read after a real transfer
+        would settle which bit moves (`FINDINGS.md` C19).
 
       Placement from `008778-03` Table 2-9:
       `050000`-`050F80`, AT `218`-`21F`, eight registers, confirmed by an
