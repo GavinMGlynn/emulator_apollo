@@ -488,6 +488,36 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
           root pointers unreachable, since `MOVEC` is the only way to load them.
           Both the decoder and the test that endorsed the error are fixed, and
           MOVEC is privileged along with the rest.
+  - [x] **MOVE and MOVEA decode** (`src/core/cpu/m68030/ap_m68030_move.c`),
+        families `0001`, `0010` and `0011` — one per operand size.
+        **The destination field is reversed**: source is `MODE` then `REGISTER`
+        as everywhere else, destination is `REGISTER` then `MODE`. A decoder
+        reading them the same way round gets a plausible wrong instruction
+        rather than a fault, and the suite pins the reversal in a single
+        comparison — the same bits are the immediate mode at `$29C0` and
+        absolute short at `$21C0`.
+        The size comes from `ap_m68030_opcode_move_size` rather than a second
+        table, because these bits *are* the low half of the family number; a
+        local copy could disagree with the map.
+        `MOVEA` is not a separate encoding but the one destination mode that
+        changes behaviour — it does not affect the condition codes, which is why
+        it is worth distinguishing — and there is **no byte MOVEA**, so a
+        byte-sized address register destination is not an instruction.
+        *Verification: `move_suite`, 8 tests.*
+  - [ ] **Addressing mode categories** (Table 2-4's Data / Memory / Control /
+        Alterable columns), which decide whether a decoded mode is *legal* for a
+        given instruction — `MOVE`'s destination must be data alterable, `LEA`'s
+        source must be control, and so on. Not implemented, and the decoders say
+        so rather than half-checking: `move_suite` asserts only that the
+        immediate destination *decodes*, not that it is a legal instruction.
+        **Read the table from the PDF page before implementing**: in the text
+        extraction the Alterable column shows `—` for absolute short and long,
+        which cannot be right — `MOVE.W D0,$1234` is legal — so either the
+        column is mis-rendered or the row is shifted. A category table
+        transcribed from that would silently reject correct programs.
+        *Verification: each instruction rejecting the modes its own page
+        excludes, with the absolute-addressing row checked against the PDF
+        first.*
   - [ ] Wire the bus to a memory system so the termination kind and its arrival
         clock come from a device rather than a test. That is what makes
         contention emergent, and it belongs with Phase 3's single arbitration
