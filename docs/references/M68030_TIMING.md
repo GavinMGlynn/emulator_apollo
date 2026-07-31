@@ -210,3 +210,58 @@ So the transcription's external check has to come from somewhere else: the
 per-row pattern above, and the second worked example in §11.3.4 (which uses
 Equation (11-2) and effective address tables). Recorded here rather than
 discovered again.
+
+## `CC + bus time` is not the model, and the tables prove it
+
+Found by building it and looking at the result, which is why it is here rather
+than in a commit message.
+
+The obvious way to use the transcribed figures is to add each instruction's
+`CC` to the bus time the core actually accumulated. `CC` carries no fetch time
+(the instruction is in the cache) and the transcribed rows carry no operand bus
+time either, so the two look disjoint and the sum looks safe.
+
+It is not. Compare the two columns for one row:
+
+```
+ADD Rn,Dn     CC 2(0/0/0)     NCC 2(0/1/0)
+```
+
+The no-cache case has **one more instruction bus cycle and the same total**. A
+bus cycle is two clocks by the table's own assumption, so that prefetch cost
+*nothing*. It happened while the microcode ran.
+
+And it is not a simple maximum either:
+
+```
+ADD Dn,EA     CC 3(0/0/1)     NCC 4(0/1/1)
+```
+
+Here the extra prefetch adds **one** clock, not zero and not two. How much of a
+fetch can be hidden depends on how much execution there is to hide it in — which
+is §11.2's whole point: the processor is "eight independently scheduled
+resources", and "very little of the scheduling is directly related to
+instruction boundaries".
+
+So `bus + CC` serialises what the hardware overlaps, and over-counts by the
+amount of the fetch the microcode would have covered. It was implemented,
+measured against the oracle, and backed out: `MOVEQ` went to an alternating 2/4
+where the oracle says a flat 2, and the manual says the answer in a warm cache
+is exactly 2.
+
+### What the model has to be instead
+
+Not an addition. The fetch and the execution are two resources running
+concurrently, and the instruction's cost is what falls out of scheduling them —
+`max` in the simple case, and something structured where a bus cycle can only
+overlap the part of the microcode that is not waiting on it.
+
+The check is already available and does not need the oracle: for any
+transcribed row, a cold-cache run of our core must come to the row's **NCC**,
+and a warm-cache run to its **CC**. Two published numbers per instruction,
+bracketing the same execution from both sides. A model that satisfies both is
+scheduling the resources correctly; one that satisfies neither is adding when it
+should be overlapping.
+
+That is a far better target than either number alone, and it is the shape the
+execution-time item should be built to.

@@ -1330,6 +1330,24 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         Both halves of the comparison are now runnable and pinned:
         `apollo-headless --time-instructions` with a golden, and
         `tools/mame-oracle/steptime.lua` for the oracle.
+    - [ ] **Wiring the figures in is a *scheduling* problem, not an addition.**
+          Adding each instruction's `CC` to the bus time the core accumulated
+          was implemented and backed out: the tables contradict it.
+          `ADD Rn,Dn` is `CC 2(0/0/0)` and `NCC 2(0/1/0)` — one more instruction
+          bus cycle, **the same total** — so that prefetch cost nothing, having
+          happened while the microcode ran. `ADD Dn,EA` is `CC 3(0/0/1)` against
+          `NCC 4(0/1/1)`, where the extra prefetch costs *one* clock rather than
+          zero or two. How much of a fetch is hidden depends on how much
+          execution there is to hide it in, which is §11.2's "eight
+          independently scheduled resources ... very little of the scheduling is
+          directly related to instruction boundaries".
+          **The target is now two-sided and needs no oracle**: for any
+          transcribed row, a cold-cache run must come to that row's `NCC` and a
+          warm-cache run to its `CC`. Two published numbers bracketing the same
+          execution. A model satisfying both schedules the resources correctly;
+          one satisfying neither is adding where it should overlap.
+          *Verification: per transcribed row, cold-cache total equals `NCC` and
+          warm-cache total equals `CC`, both from `[030]` §11.6.*
     - [x] **The published figures, transcribed**
           (`src/core/cpu/m68030/ap_m68030_timing_table.c`). Nineteen rows from
           §11.6.8 and §11.6.9 whose instruction-cache case reads `n(0/0/0)` —
