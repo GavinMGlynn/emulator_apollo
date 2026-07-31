@@ -54,6 +54,20 @@ enum {
   ROW_MOVE_RN_IND,
   ROW_MOVE_RN_POSTINC,
   ROW_MOVE_RN_PREDEC,
+  ROW_CLR_DN,
+  ROW_NEG_DN,
+  ROW_NEGX_DN,
+  ROW_NOT_DN,
+  ROW_EXT_DN,
+  ROW_TST_DN,
+  ROW_SCC_DN,
+  ROW_TAS_DN,
+  ROW_NBCD_DN,
+  ROW_LS_IMM,
+  ROW_ASL_IMM,
+  ROW_ASR_IMM,
+  ROW_RO_IMM,
+  ROW_ROX_DN,
   ROW_MOVEQ,
   ROW_ADDQ,
   ROW_SUBQ,
@@ -127,6 +141,38 @@ static const ap_m68030_table_entry_t TABLE[ROW_COUNT] = {
                              .no_cache_case = 4},
                             false, false},
 
+    /* §11.6.11, Single Operand Instructions, register forms. */
+    [ROW_CLR_DN] = {"CLR Dn", {2, 0, 2, 2}, false, false},
+    [ROW_NEG_DN] = {"NEG Dn", {2, 0, 2, 2}, false, false},
+    [ROW_NEGX_DN] = {"NEGX Dn", {2, 0, 2, 2}, false, false},
+    [ROW_NOT_DN] = {"NOT Dn", {2, 0, 2, 2}, false, false},
+    [ROW_EXT_DN] = {"EXT Dn", {4, 0, 4, 4}, false, false},
+    /* TST is the one with a head of zero: nothing of it can be absorbed by the
+     * previous instruction's tail, unlike its neighbours. */
+    [ROW_TST_DN] = {"TST Dn", {0, 0, 2, 2}, false, false},
+    [ROW_SCC_DN] = {"Scc Dn", {4, 0, 4, 4}, false, false},
+    [ROW_TAS_DN] = {"TAS Dn", {4, 0, 4, 4}, false, false},
+    [ROW_NBCD_DN] = {"NBCD Dn", {0, 0, 6, 6}, false, false},
+
+    /* §11.6.12, Shift/Rotate Instructions, immediate-count register forms.
+     *
+     * "The number of bits shifted does not affect the execution time, unless
+     * noted" -- and the noted rows are the register-count forms, marked `%`
+     * for a count within the operand size and `+` for one beyond it. Those are
+     * count-dependent and are not transcribed here; only the immediate-count
+     * forms, whose cost is fixed.
+     *
+     * **ASL costs more than ASR**: 6 against 4 for the same immediate count.
+     * That is not an oddity of the table -- ASL must watch the sign bit, since
+     * "V is set if the most significant bit is changed at any time during the
+     * shift operation", and ASR has no such rule. The extra clocks are the
+     * extra work, and `ap_m68030_alu_shift` already does exactly that work. */
+    [ROW_LS_IMM] = {"LSd #<data>,Dy", {4, 0, 4, 4}, false, false},
+    [ROW_ASL_IMM] = {"ASL #<data>,Dy", {2, 0, 6, 6}, false, false},
+    [ROW_ASR_IMM] = {"ASR #<data>,Dy", {4, 0, 4, 4}, false, false},
+    [ROW_RO_IMM] = {"ROd #<data>,Dy", {4, 0, 6, 6}, false, false},
+    [ROW_ROX_DN] = {"ROXd Dn", {10, 0, 12, 12}, false, false},
+
     /* §11.6.9, Immediate Arithmetical/Logical Instructions. */
     [ROW_MOVEQ] = {"MOVEQ #<data>,Dn", {.head = 2, .tail = 0, .cache_case = 2, .no_cache_case = 2}, false, false},
     [ROW_ADDQ] = {"ADDQ #<data>,Rn", {.head = 2, .tail = 0, .cache_case = 2, .no_cache_case = 2}, false, false},
@@ -153,6 +199,70 @@ const ap_m68030_table_entry_t *ap_m68030_timing_for_word(uint16_t instruction) {
    * form's published figure needs an effective address time this does not
    * carry. Mode 000 is a data register, 001 an address register. */
   const bool register_source = (mode == 0x0u) || (mode == 0x1u);
+
+  /* §11.6.11's single-operand forms, family 0100. Bits 11-9 choose the
+   * operation and bits 7-6 the size, with `11` an escape to a different
+   * instruction entirely -- so a size of `11` is not a wider operand here and
+   * is refused rather than mapped. Only the data-register form is transcribed;
+   * the memory forms carry a `*` or `**` effective address time. */
+  if (family == 0x4u) {
+    const unsigned row = (unsigned)((instruction >> 9) & 0x7u);
+    const unsigned size_field = (unsigned)((instruction >> 6) & 0x3u);
+    if (size_field == 0x3u || mode != 0x0u) {
+      return nullptr;
+    }
+    switch (row) {
+    case 0x0u:
+      return &TABLE[ROW_NEGX_DN];
+    case 0x1u:
+      return &TABLE[ROW_CLR_DN];
+    case 0x2u:
+      return &TABLE[ROW_NEG_DN];
+    case 0x3u:
+      return &TABLE[ROW_NOT_DN];
+    case 0x5u:
+      return &TABLE[ROW_TST_DN];
+    default:
+      return nullptr;
+    }
+  }
+
+  /* §11.6.12's shifts, family 1110. Bits 4-3 name the type, bit 8 the
+   * direction and bit 5 whether the count is immediate or in a register. Only
+   * the immediate-count forms are transcribed: the register-count rows are
+   * marked `%` and `+` for counts within and beyond the operand size, so their
+   * cost depends on a value the table cannot publish. */
+  if (family == 0xEu) {
+    /* Bits 5-3 are **not** an addressing mode here: bit 5 says where the count
+     * comes from and bits 4-3 name the shift type. The memory forms are the
+     * ones whose size field reads `11`, which is the same escape-not-a-size
+     * idiom family 0100 uses -- and they shift by one through an effective
+     * address, so they are not transcribed.
+     *
+     * Reading bits 5-3 as a mode here is what an earlier version did, and it
+     * rejected ROR while admitting LSR purely by where their type bits fell. */
+    if (((instruction >> 6) & 0x3u) == 0x3u) {
+      return nullptr;
+    }
+    const unsigned type = (unsigned)((instruction >> 3) & 0x3u);
+    const bool count_in_register = ((instruction >> 5) & 1u) != 0u;
+    const bool left = ((instruction >> 8) & 1u) != 0u;
+    if (count_in_register) {
+      return nullptr; /* count-dependent; see the table's %% and + markers */
+    }
+    switch (type) {
+    case 0x0u: /* arithmetic: the one direction that costs more than the other */
+      return left ? &TABLE[ROW_ASL_IMM] : &TABLE[ROW_ASR_IMM];
+    case 0x1u:
+      return &TABLE[ROW_LS_IMM];
+    case 0x2u:
+      return &TABLE[ROW_ROX_DN];
+    case 0x3u:
+      return &TABLE[ROW_RO_IMM];
+    default:
+      return nullptr;
+    }
+  }
 
   /* MOVE and MOVEA, families 0001, 0010 and 0011. The destination's mode sits
    * in bits 8-6 and its register in 11-9, reversed from the source -- which is

@@ -331,6 +331,14 @@ static void test_every_transcribed_row_matches_both_published_columns(void) {
       {0x90C0u, "SUBA.W D0,A0"}, {0x91C0u, "SUBA.L D0,A0"},
       {0xB0C0u, "CMPA.W D0,A0"},  {0x2200u, "MOVE.L D0,D1"},
       {0x2240u, "MOVEA.L D0,A1"},
+      /* §11.6.11's single-operand register forms. */
+      {0x4280u, "CLR.L D0"},      {0x4480u, "NEG.L D0"},
+      {0x4680u, "NOT.L D0"},      {0x4A80u, "TST.L D0"},
+      /* §11.6.12's immediate-count shifts, including the pair whose costs
+       * differ by direction. */
+      {0xE288u, "LSR.L #1,D0"},   {0xE388u, "LSL.L #1,D0"},
+      {0xE280u, "ASR.L #1,D0"},   {0xE380u, "ASL.L #1,D0"},
+      {0xE298u, "ROR.L #1,D0"},   {0xE290u, "ROXR.L #1,D0"},
   };
 
   for (unsigned c = 0; c < sizeof CASES / sizeof CASES[0]; c++) {
@@ -463,12 +471,55 @@ static void test_the_predecrement_move_costs_more_than_the_postincrement(void) {
   }
 }
 
+/* `ASL` costs six clocks where `ASR` costs four, for the same immediate count.
+ * That is not a quirk of the table: "V is set if the most significant bit is
+ * changed at any time during the shift operation" applies to the arithmetic
+ * *left* shift and to nothing else, so ASL watches the sign bit for the whole
+ * shift and ASR does not. The extra clocks are that extra work.
+ *
+ * `ap_m68030_alu_shift` already implements exactly that asymmetry -- it tracks
+ * `msb_changed` only for a left arithmetic shift -- so this is one place where
+ * a published timing and an independently written behaviour agree about which
+ * instruction does more. A transcription that had them the same way round would
+ * be contradicted by the ALU's own code. */
+static void test_the_left_arithmetic_shift_costs_more_than_the_right(void) {
+  const ap_m68030_table_entry_t *asl = ap_m68030_timing_for_word(0xE380u);
+  const ap_m68030_table_entry_t *asr = ap_m68030_timing_for_word(0xE280u);
+  TEST_ASSERT_NOT_NULL(asl);
+  TEST_ASSERT_NOT_NULL(asr);
+
+  TEST_ASSERT_EQUAL_UINT(6u, asl->timing.cache_case);
+  TEST_ASSERT_EQUAL_UINT(4u, asr->timing.cache_case);
+
+  /* The logical shifts have no such rule and no such difference. */
+  const ap_m68030_table_entry_t *lsl = ap_m68030_timing_for_word(0xE388u);
+  const ap_m68030_table_entry_t *lsr = ap_m68030_timing_for_word(0xE288u);
+  TEST_ASSERT_NOT_NULL(lsl);
+  TEST_ASSERT_NOT_NULL(lsr);
+  TEST_ASSERT_EQUAL_UINT(lsl->timing.cache_case, lsr->timing.cache_case);
+  TEST_ASSERT_EQUAL_UINT(4u, lsr->timing.cache_case);
+}
+
+/* The register-count shifts are marked `%` and `+` -- "shift count is less than
+ * or equal to the size of data" and "greater than size of data" -- so their
+ * cost depends on a value the table cannot publish. They are not transcribed,
+ * and the lookup says so rather than returning the immediate-count row, which
+ * would under-count a long shift by half. */
+static void test_a_register_count_shift_is_not_transcribed(void) {
+  /* LSR.L D1,D0: bit 5 set means the count is in a register. */
+  TEST_ASSERT_NULL(ap_m68030_timing_for_word(0xE2A8u));
+  /* And the immediate-count form beside it is. */
+  TEST_ASSERT_NOT_NULL(ap_m68030_timing_for_word(0xE288u));
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_a_probe_can_set_up_run_and_read_back);
   RUN_TEST(test_every_transcribed_row_matches_both_published_columns);
   RUN_TEST(test_the_memory_forms_separate_the_two_published_columns);
   RUN_TEST(test_the_predecrement_move_costs_more_than_the_postincrement);
+  RUN_TEST(test_the_left_arithmetic_shift_costs_more_than_the_right);
+  RUN_TEST(test_a_register_count_shift_is_not_transcribed);
   RUN_TEST(test_reset_leaves_the_state_a_reset_leaves);
   RUN_TEST(test_an_access_beyond_the_ram_faults_rather_than_wrapping);
   RUN_TEST(test_a_runaway_program_ends_at_its_limit);
