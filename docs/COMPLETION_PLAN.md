@@ -322,6 +322,28 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
     12) survived, and the field widths are given in prose. `ap_m68030_tc.h`
     records that reasoning bit by bit, so the difference from TT's deferred
     packing is a documented judgement rather than an inconsistency.
+  - [x] **Descriptor semantics and accumulated search state**
+        (`src/core/cpu/m68030/ap_m68030_desc.c`), `[030]` §9.5.1.1 pp. 9-20 ff.
+        Two facts that are easy to implement wrongly and that surface only once
+        an OS is running, so both are pinned before the walk exists:
+        the DT field is **context-dependent** — `$2`/`$3` describe the next
+        table's format in a pointer table but are *indirect descriptors* in a
+        page table, so a walk that ignores its level would follow an indirect
+        descriptor as though it were a table; and protection **accumulates**
+        down the tree, since "the states of all WP bits encountered during a
+        table search are logically ORed", making a permissive page reached
+        through a protected pointer still protected.
+        *Verification: `desc_suite`, 23 tests — role resolution at both levels,
+        the 4/8-byte next-table stride, upper and lower LIMIT with only its 15
+        bits used, PAGE ADDRESS masking by `PS - 8`, WP/S/CI accumulation, WP
+        being absolute against supervisor, and the full M-bit rule.*
+  - [x] The M-bit rule, transcribed rather than simplified: set before a write
+        to a page whose M is zero, **except** after a WP-set descriptor or a
+        supervisor violation — and "an access is considered to be a write for
+        updating purposes if either the R/W or RMC signal is low", so the read
+        half of a read-modify-write already counts. Each clause has its own
+        test, including that an already-modified page is not written again,
+        which matters because that update costs a bus cycle.
   - [ ] Translation tables, the table walk, and the 22-entry fully associative
         ATC (`[030]` §9.4). Note for when it lands: the manual states ATC
         translation "is always completely overlapped by other operations; thus,
