@@ -29,6 +29,7 @@ function(apollo_add_suite name)
   add_test(NAME ${name} COMMAND ${name})
 endfunction()
 
+apollo_add_suite(bus_suite)
 apollo_add_suite(time_suite)
 apollo_add_suite(model_suite)
 apollo_add_suite(hash_suite)
@@ -43,14 +44,6 @@ apollo_add_suite(frontend_common_suite apollo_frontend_common)
 # golden rather than a promise to add one later.
 apollo_add_golden(golden_model_table model_table.txt apollo-headless --list-models)
 
-# The oracle harness's dump format, checked against a mock machine so it needs
-# no MAME -- which is what lets it run in CI, where the oracle is never built.
-#
-# Best-effort, unlike the goldens above, and the difference is deliberate. A
-# golden asserts the emulator's own cross-platform identity claim, so missing
-# Python is a fatal configure. This pins the format of a development tool that
-# only ever runs on a developer's machine, so a missing Lua names what is not
-# being checked and moves on rather than failing a build of the core.
 # The oracle driver's logic, against a stub MAME: dump extraction from noisy
 # output, the two-run determinism check, and the failure paths. Whether the
 # oracle's numbers are right needs a real emulator and is what FINDINGS.md
@@ -71,6 +64,14 @@ if(Python3_Interpreter_FOUND AND NOT WIN32)
   set_tests_properties(oracle_driver PROPERTIES LABELS tools)
 endif()
 
+# The oracle harness's dump format, checked against a mock machine so it needs
+# no MAME -- which is what lets it run in CI, where the oracle is never built.
+#
+# Best-effort, unlike the goldens above, and the difference is deliberate. A
+# golden asserts the emulator's own cross-platform identity claim, so missing
+# Python is a fatal configure. This pins the format of a development tool that
+# only ever runs on a developer's machine, so a missing Lua names what is not
+# being checked and moves on rather than failing a build of the core.
 find_program(APOLLO_LUA NAMES lua lua5.4 lua5.3)
 if(APOLLO_LUA)
   add_test(NAME oracle_dump_format

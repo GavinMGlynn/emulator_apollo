@@ -214,10 +214,38 @@ file the moment they are found, not when someone remembers.
 
 Build the 68030 first (DN3500 is the superset), then subset and extend.
 
-- [ ] 68030 integer core, strictly cycle-stepped: one `tick()` per machine
+- [~] 68030 integer core, strictly cycle-stepped: one `tick()` per machine
       cycle, no batching, no event queues. *Verification: probes against the
       oracle; `MC68030 User's Manual 3ed` for the paper timing figures, each
       cited.*
+  - [x] **Bus cycle state machine** (`src/core/cpu/m68030/ap_m68030_bus.c`),
+        built first because it is the bottom of the timing stack: emergent
+        timing means every clock an instruction takes is a clock some real bus
+        cycle took. Models the documented S0–S5 half-clock states, both
+        termination paths, and wait-state insertion at S3. One `tick()` is one
+        *clock* and runs that clock's two states in order, so the project's
+        cycle rule holds while the manual's granularity is preserved rather
+        than collapsed into a translation layer.
+        *Verification: `bus_suite`, 12 tests, each citing its manual section —
+        the three-clock asynchronous minimum (7.3.1), the two-clock STERM
+        minimum and three-clock STERM-plus-one-wait (7.3.4 p. 7-48), one clock
+        per wait state, ECS asserted for only its half-clock, DBEN trailing AS
+        by a clock, all strobes negated at S5, and a never-answered cycle that
+        must not quietly complete. Also asserts that every CPU clock in this
+        machine has an even period in base units, so a half-clock is exactly
+        representable — the state model would be silently lossy otherwise.*
+  - [ ] **Tail, and deliberately not guessed: write-cycle DS timing.** The bus
+        model asserts DS in S1, which is the *read* cycle's behaviour (7.3.1).
+        `[030]` 7.3.4 says synchronous and asynchronous cycles "assert and
+        respond to the same signals, in the same sequence", but that is about
+        termination, not about read versus write — and the write cycle's DS is
+        asserted later than the read's. Writes currently reuse the read
+        timing, which is unverified. *Verification: transcribe the write cycle
+        from `[030]` 7.3.2 and give it its own tests.*
+  - [ ] Wire the bus to a memory system so the termination kind and its arrival
+        clock come from a device rather than a test. That is what makes
+        contention emergent, and it belongs with Phase 3's single arbitration
+        point.
 - [ ] Exceptions, traps, interrupt priority, bus/address error stack frames.
       *Verification: probes that deliberately fault, diffed against oracle.*
 - [ ] 68030 on-chip MMU: translation tables, ATC, transparent translation,

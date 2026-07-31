@@ -3,9 +3,9 @@
 The single source of truth for **what works**. Updated in the same commit as the
 code it describes. If this file and the code disagree, the file is the bug.
 
-**Accuracy claim: none yet.** Nothing boots — there is no CPU, no memory bus and
-no device, so no machine can be constructed and no accuracy claim is available
-to make. The golden regression harness now exists, but it pins reports about the
+**Accuracy claim: none yet.** Nothing boots. The 68030's bus cycle state machine
+exists, but there is no instruction execution, no memory system and no device, so
+no machine can be constructed and no accuracy claim is available to make. The golden regression harness now exists, but it pins reports about the
 model table, not emulated behaviour. This section will state exactly what backs
 the claim when there is one.
 
@@ -21,7 +21,8 @@ Last updated: 2026-07-31.
 | State hash (`state/`) | primitive working | `hash_suite`, 11 tests, incl. published FNV-1a 64 vectors |
 | Ring medium interface | not started | — |
 | Ring controller | not started | — |
-| 68020 / 68030 / 68040 CPU | not started | — |
+| 68030 bus cycle state machine | working | `bus_suite`, 12 tests, each citing `MC68030 User's Manual 3ed` ch. 7 |
+| 68020 / 68030 / 68040 CPU | not started beyond the bus | — |
 | 68851 PMMU, 68030/68040 on-chip MMU | not started | — |
 | 68881 / 68882 / 68040 FPU | not started | — |
 | Memory bus, cache, address translation map | not started | — |
@@ -33,11 +34,11 @@ Last updated: 2026-07-31.
 | Floppy, QIC cartridge tape | not started | — |
 | Mono and colour graphics controllers | not started | — |
 | 3c505 802.3 Ethernet | not started | — |
-| MAME oracle harness | not started | — |
+| MAME oracle harness | driver and dumper working; unrun against a real oracle | `oracle_driver` (19 checks, stub MAME) and `oracle_dump_format` (19 checks, mock machine) |
 | Golden regression harness | working | `golden_model_table`, run under every build preset; drift, `-O3` identity and regeneration all verified |
 | Probe suite | not started | — |
 | Shared frontend layer (`frontend/common/`) | working | `frontend_common_suite`, 10 tests |
-| Headless frontend | `--model`, `--list-models`, `--help` | `headless_lists_models` CTest |
+| Headless frontend | `--model`, `--list-models`, `--help` | `golden_model_table`, which supersedes the old smoke test |
 | SDL frontend | not started, deliberately not stubbed | — |
 
 ## What is established, and from where
