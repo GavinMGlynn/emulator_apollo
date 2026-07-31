@@ -1292,13 +1292,21 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         does too, with `-debug -debugger none` making `cpu.debug:step()`
         available headlessly, and Lua reading and writing memory and registers.
         Neither needs firmware, so C4's PROM problem no longer gates this.
-        Two things the harness must settle before any number is trusted, both
-        recorded in C5: a probe must be written into **RAM** at `$01000000` and
-        up, because a write to the PROM's range reports success and does
-        nothing; and `total_cycles` is not bound in this build, so a count has
-        to come from emulated time divided by the clock period — exact only if
-        MAME advances time in whole cycles, which is to be **verified against an
-        instruction whose count is not in dispute**, not assumed.
+        Both of C5's prerequisites are now **settled** — `FINDINGS.md` C6 and
+        `tools/mame-oracle/steptime.lua`. Time advances in whole cycles: every
+        `NOP` step is exactly 80,000,000,000 attoseconds against a 40 ns clock,
+        and the script prints the raw attoseconds beside the derived count and
+        flags any remainder `FRACTIONAL` rather than rounding it away. The
+        side-load guard reads the probe back and refuses if it disagrees, which
+        is what stops a harness aimed at the PROM's range measuring the PROM
+        while reporting the probe.
+        First four measurements, oracle-side: `NOP` 2, `MOVEQ` 2,
+        `ADD.L D0,D1` 2, `LSR.L #1,D0` 4 clocks.
+        **What remains is the comparison, and it is not a matter of copying
+        these.** MAME's 68030 is a cycle-table model and this project expects to
+        out-accurate it, so each disagreement is a discrepancy to classify with
+        `[030]` §11.6 as the arbiter — the ledger's four classes and its ban on
+        closing a row by tuning our timing to match apply here exactly.
     - [x] **The composition rule, built without the numbers**
           (`src/core/cpu/m68030/ap_m68030_overlap.c`). Equation (11-1) and
           §11.2's eight resources are arithmetic and vocabulary rather than

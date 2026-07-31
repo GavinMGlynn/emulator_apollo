@@ -27,7 +27,9 @@ succeeding, so "how far a program got" is a real measure.
 cache time only: prefetches, operand accesses, table searches and line fills,
 each priced by the bus and cache modules against cited pages. It does **not**
 include instruction execution time — the microcode clocks an instruction takes
-between its bus cycles. So a register-to-register `ADD` currently costs zero
+between its bus cycles. The harness to measure it now exists on both sides
+(`tools/mame-oracle/steptime.lua`, and `probe/` on ours); what remains is the
+comparison and the classification of each discrepancy. So a register-to-register `ADD` currently costs zero
 clocks, and any figure this core reports is a lower bound rather than a
 measurement. Closing that is a named plan item, and it is deliberately *not*
 closed by transcribing `[030]` §11.6's tables: as

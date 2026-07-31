@@ -272,6 +272,67 @@ needs no firmware on either side: side-load the same probe into our machine and
 into MAME's, step both, compare. C4 stays open as a finding about the PROM, but
 nothing depends on it any more.
 
+### C6 — the timing harness works, and time advances in whole cycles
+
+**Status: closed. `steptime.lua`.**
+
+C5 named one thing to verify before any measured number could be trusted:
+`total_cycles` is not bound in this MAME build, so a cycle count has to come
+from emulated time divided by the clock period, and that is exact only if MAME
+advances time in whole cycles.
+
+**It does.** Stepping `NOP` at `$01001000` on `dsp3500`, whose 68030 runs at
+25 MHz so one clock is exactly 40 ns = 40,000,000,000 attoseconds:
+
+```
+# step pc_before pc_after attos clocks
+0 01001000 01001002 80000000000 2
+1 01001002 01001004 80000000000 2
+2 01001004 01001006 80000000000 2
+```
+
+Every delta is an exact multiple of the clock period. The script prints the raw
+attoseconds beside the derived count and flags a non-zero remainder as
+`FRACTIONAL`, so this is visible rather than taken on trust — and a fractional
+result would be the signal that the whole approach needs revisiting.
+
+**Four instructions, measured.** One word each, stepped in sequence:
+
+| Word | Instruction | Oracle clocks |
+| --- | --- | --- |
+| `4E71` | `NOP` | 2 |
+| `7042` | `MOVEQ #$42,D0` | 2 |
+| `D280` | `ADD.L D0,D1` | 2 |
+| `E288` | `LSR.L #1,D0` | 4 |
+
+The shift costing more than the rest is the shape one would expect, which is
+mild evidence the harness is measuring what it claims to.
+
+**These are the oracle's numbers, not the hardware's.** MAME's 68030 is a
+cycle-table model, and `CLAUDE.md` is explicit that this project expects to
+out-accurate the oracle. So a disagreement between these and ours is a
+*discrepancy to classify*, not a defect to fix by moving ours: the manual is the
+arbiter, `[030]` §11.6 is the published check, and
+`docs/references/M68030_TIMING.md` already records why those tables are a check
+and not a recipe.
+
+**The guard that matters.** The script writes the probe, reads it back, and
+**refuses** if the readback disagrees:
+
+```
+# ERROR side-load failed at 00001000: wrote 4E71, read 0150
+# (a write to the boot PROM's range succeeds and does nothing)
+```
+
+Without it a harness aimed at the PROM's range would measure the PROM while
+reporting the probe, and every number would be wrong in a way nothing else would
+catch. C5 found that trap; this is what closes it.
+
+**One MAME behaviour worth naming.** `manager.machine:exit()` *requests* an
+exit; the periodic callback can fire once more before it takes effect, which
+printed a spurious extra row after the report's own end marker. A `finished`
+flag is what makes the report end where it says it does.
+
 ## Instrumenting the oracle
 
 Temporary instrumentation in `ext/mame` is **always reverted before commit**,
