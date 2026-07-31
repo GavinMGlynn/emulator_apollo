@@ -397,3 +397,59 @@ against something neither column determines: an instruction with **two**
 prefetches, or a wait-stated bus, where the published pair no longer pins the
 answer. Until that check exists this stays unimplemented, and the footnoted rows
 stay declined.
+
+## The marginal cost of a prefetch is published, and it is 0 or 1
+
+The previous section left `NCC − CC` as a candidate for the per-instruction
+prefetch cost, and objected that it reproduces both columns by construction —
+two points fitted with two points. The objection is answerable, because the
+tables carry a **third** quantity: the `p` of `(r/p/w)`, "the maximum number of
+instruction bus cycles performed by the instruction, including all prefetches".
+
+Dividing by it gives a per-*prefetch* figure that nothing in the fit constrains:
+
+| Row | CC | NCC | `p` | `(NCC−CC)/p` |
+| --- | --- | --- | --- | --- |
+| `ADD Rn,Dn` | 2 | 2 | 1 | **0** |
+| `NOP` | 2 | 2 | 1 | **0** |
+| `UNLK` | 5 | 5 | 1 | **0** |
+| `MOVE Rn,-(An)` | 4 | 4 | 1 | **0** |
+| `ADD Dn,EA` | 3 | 4 | 1 | **1** |
+| `MOVE Rn,(An)` | 3 | 4 | 1 | **1** |
+| `LINK.W` | 4 | 5 | 1 | **1** |
+| `Bcc (Taken)` | 6 | 8 | **2** | **1** |
+| `RTS` | 9 | 11 | **2** | **1** |
+| `ANDI to SR` | 12 | 14 | **2** | **1** |
+| `DBcc (Count Expired)` | 10 | 13 | **3** | **1** |
+
+**Every value is 0 or 1.** Never 2, never fractional, across `p` of one, two and
+three.
+
+That is the discriminating check the previous section asked for. If `NCC − CC`
+were a per-instruction fudge with no structure, there would be no reason for the
+two- and three-prefetch rows to come out at exactly 1 *per prefetch* rather than
+at 2, or 3, or something uneven. They do, and the rows are from four different
+tables.
+
+So the quantity is real and per-prefetch: a prefetch bus cycle is two clocks,
+and the instruction's microcode absorbs either both of them or one of them,
+depending on the instruction. Which of the two is not derivable from the other
+columns — `MOVE Rn,-(An)` and `LINK.W` both have `CC 4` with one write and one
+prefetch, and cost 0 and 1 respectively — so it is data, and Motorola measured
+it.
+
+### The caveat, and what to do about it
+
+`p` is itself "the average of the odd-word-aligned case and the even-word-aligned
+case (rounded up)", so it is an upper bound on the actual count rather than the
+count. The division is therefore exact only if the rounding never bites, and the
+uniformity of the result is evidence that it mostly does not — but it is
+evidence, not proof.
+
+What that argues for is transcribing `p` alongside the totals and computing the
+per-prefetch cost from the pair, rather than storing a derived number. Then a
+row where the division is not integral is *visible* at the point it is read,
+instead of being rounded away by whoever transcribed it.
+
+That is the next step, and it is the first one in this whole line of work whose
+shape is settled before it is begun.

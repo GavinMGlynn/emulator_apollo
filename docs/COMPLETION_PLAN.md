@@ -1508,12 +1508,24 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
           per-instruction — and it is **published**: `NCC − CC` is 0 for
           `ADD Rn,Dn`, 1 for `ADD Dn,EA`, 2 for a taken `Bcc`. That is the slack
           Motorola measured, not a rule to invent.
-          **The open question is whether to use it.** Taking `NCC − CC` as the
-          prefetch cost reproduces both columns by construction, which fits two
-          points with two points and proves nothing. It needs checking against
-          something neither column determines — an instruction with *two*
-          prefetches, or a wait-stated bus. Until that exists this stays
-          unimplemented and the footnoted rows stay declined.
+          **The check was found and the hypothesis passed.** The tables carry a
+          third quantity, the `p` of `(r/p/w)` — "the maximum number of
+          instruction bus cycles ... including all prefetches" — and dividing by
+          it gives a per-*prefetch* figure nothing in the fit constrains.
+          Across eleven rows from four tables, `(NCC−CC)/p` is **0 or 1, never
+          2 and never fractional**, at `p` of one, two and three. If the
+          difference were a per-instruction fudge there would be no reason for
+          the two- and three-prefetch rows to come out at exactly 1 *per
+          prefetch*. `docs/references/M68030_TIMING.md` tabulates it.
+          So a prefetch is two clocks and the microcode absorbs both or one,
+          per instruction — and which is not derivable from the other columns
+          (`MOVE Rn,-(An)` and `LINK.W` are both `CC 4` with one write and one
+          prefetch, costing 0 and 1). It is data, and it is published.
+          **Next, with its shape settled before it is begun:** transcribe `p`
+          alongside the totals and compute the per-prefetch cost from the pair
+          rather than storing a derived number — `p` is itself a rounded
+          average, so a row where the division is not integral must be *visible*
+          where it is read rather than rounded away by the transcriber.
           *Verification: `ADD.B D0,(A0)` coming to 7 against the oracle and
           against `NCC + fea`; and the second worked example of §11.3.4, which
           exists precisely to exercise Equation (11-2).*
