@@ -2256,10 +2256,14 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         there, Table 2-3 is plain fixed priority and carries no anomaly at all.
         What had been imported was the AT convention that the cascade lives on
         IR2. `FINDINGS.md` C11.
-  - [ ] Wire the controllers to the CPU's interrupt inputs, which needs the
-        Apollo interrupt *level* encoding (`008778-03` §3.2 puts priority
-        encoding and vector generation on the logical bus) rather than only the
-        vector byte this module produces.
+  - [ ] **Blocked on a device, not on research.** Wiring the controllers to
+        the CPU needs the 68030 interrupt level the master's INT drives, which
+        neither manual states and which an idle boot cannot show: the PROM
+        programs the parts once and masks them, both IRRs read `00`, and the CPU
+        sits at `SR = 2700`. Nothing requests, so nothing acknowledges.
+        `FINDINGS.md` C12. Closes as soon as the interval timer or calendar
+        (item 5 below) runs in the oracle — the level then falls out of the
+        CPU's own `SR` at the acknowledge.
 - [ ] Two AT DMA controllers. *Verification: transfer probes; device request
       lines gate DMA at block granularity, not per word.*
 - [ ] Interval timer and calendar. *Verification: self-timing probes; the

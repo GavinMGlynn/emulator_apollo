@@ -742,6 +742,41 @@ does not have to rediscover the discrepancy.
 
 Reproducible from this checkout: `APOLLO_TRACE_RANGES="pic1@011000-0110FF,pic2@011100-0111FF"`.
 
+### C12 — which IPL the controllers drive cannot be measured yet, and why
+
+Wiring the interrupt controllers to the CPU needs one more fact than C11
+supplied: which of the 68030's seven interrupt levels the master's INT output
+drives. `008778-03` §3.2 puts "interrupt priority encoding and vector
+generation ... on the logical bus" and gives the parity NMI as "a Level 7
+interrupt ... from the Level 7 autovector location in the CPU exception table
+(0x07c)", but never states the level for the controllers. `019411-A00` does not
+either.
+
+It is not observable in an idle boot, and the reason is worth recording so the
+experiment is not repeated:
+
+- Over 15 emulated seconds the boot PROM programs both controllers **once**, at
+  0.29 s, and never writes them again. The last word to each is `OCW1 = FF`.
+- Forcing them unmasked from Lua changes nothing: sampled at 1 s, **master IRR
+  `00` and slave IRR `00`**. No device in the machine is requesting.
+- The CPU runs at `SR = 2700` — supervisor, interrupt mask 7 — spinning in a
+  short loop. Forcing the mask to 0 as well still produces no acknowledge,
+  because there is still nothing asserted to acknowledge.
+
+So all three of the things that would have to line up are absent at once, and
+the missing one that matters is a *device*. With no media the PROM never gets
+far enough to start anything that interrupts.
+
+**Route out, and it is a plan dependency rather than a research problem.** The
+interval timer and calendar (Phase 3's fifth item) are the first devices that
+raise interrupts unprompted. Once either runs in the oracle, an acknowledge
+occurs and the level falls out of the CPU's own `SR` at that moment. Failing
+that, a bootable image would let the PROM reach the same place by itself.
+
+Recorded as blocked rather than guessed. A level picked to look plausible would
+be indistinguishable from a measured one in the code, and wrong in a way only a
+booting machine would reveal.
+
 ## Where the ring is not
 
 The Apollo Token Ring has **no runnable oracle at all**: MAME carries Domain
