@@ -2396,11 +2396,16 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
       `FINDINGS.md` C15.
 - [ ] **Archive SC-499 cartridge tape.** Placement from `008778-03` Table 2-9:
       `050000`-`050F80`, AT `218`-`21F`, eight registers, confirmed by an
-      eight-byte aliasing period in the oracle. **First settle what actually
-      answers there** — `050000` reads the same with the tape card installed and
-      without it, so the dump may not be the controller at all (`FINDINGS.md`
-      C16). No programming model exists in `008778-03`, whose Chapter 8 is
-      physical only, so the registers will need measuring as C10's did.
+      eight-byte aliasing period in the oracle. **But `050000` is not the
+      cartridge controller** — settled in the negative: it reads identically
+      with the card, without it, and with both cards named, and a differential
+      scan of the whole AT I/O window finds *no* page that changes when the card
+      is added. The card is present and needs no firmware, yet decodes nowhere
+      visible at reset. Find where it does live before modelling it — likely only
+      once enabled, or in the AT *memory* window rather than the I/O one, neither
+      of which that scan would have caught (`FINDINGS.md` C16). No programming
+      model exists in `008778-03` either, whose Chapter 8 is physical only, so
+      the registers will need measuring as C10's did.
       Promoted ahead of the disk, because it
       is the only bootable medium that exists: `media/` holds the Domain/OS
       SR10.3.5 distribution as `.ct` cartridge images including
