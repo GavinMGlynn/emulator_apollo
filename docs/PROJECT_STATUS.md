@@ -28,7 +28,7 @@ Last updated: 2026-07-31.
 | 68030 descriptors + search protection state | working | `desc_suite`, 23 tests, `MC68030 User's Manual 3ed` §9.5.1.1 |
 | 68030 translation control (TC) + address split | working | `tc_suite`, 15 tests, `MC68030 User's Manual 3ed` §9.7.2 |
 | 68030 transparent translation (TT0/TT1) | working | `tt_suite`, 15 tests, `MC68030 User's Manual 3ed` §9.3, §9.7.3 |
-| 68030 translation table search (the walk) | search working; M-bit writeback and ATC fill not yet done | `walk_suite`, 13 tests, `MC68030 User's Manual 3ed` §9.2, §9.5 |
+| 68030 translation table search (the walk) | search and U/M writeback working; ATC fill not yet done | `walk_suite`, 26 tests, `MC68030 User's Manual 3ed` §9.2, §9.5, §11; writeback cost cross-checked against `MC68851 PMMU User's Manual 3ed` §5.1.5.3.11 |
 | 68851 PMMU, 68030/68040 MMU tables + ATC | not started | — |
 | 68881 / 68882 / 68040 FPU | not started | — |
 | Memory bus, cache, address translation map | not started | — |

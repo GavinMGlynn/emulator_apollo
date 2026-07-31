@@ -1,5 +1,7 @@
 /* MC68030 translation table search. See ap_m68030_walk.h for the citations. */
 
+#include <stddef.h>
+
 #include "cpu/m68030/ap_m68030_walk.h"
 
 /* Bits of the logical address consumed before a given level's index, counting
@@ -27,10 +29,69 @@ static uint32_t remaining_offset(const ap_m68030_tc_t *tc, unsigned levels_used,
                                    : ((UINT32_C(1) << width) - 1u));
 }
 
+/* Update the U and M history bits of one descriptor.
+ *
+ * "During a table search, the U bit in each descriptor that is encountered is
+ * checked and set if it is not already set. Similarly, when the table search is
+ * for a write access and the M bit of the page descriptor is clear, the
+ * processor sets the bit if the table search does not encounter a set WP bit or
+ * a supervisor violation."
+ *
+ * Both bits live in the same descriptor, so however many of them change it is
+ * one read-modify-write: `[030]` §11 p. 11-56 counts "an RMC cycle to set the U
+ * bit ... as one read and one write", and the read is the fetch already
+ * counted. Hence one `history_writes` per descriptor, not one per bit.
+ *
+ * Returns false for a bus error on the write half. */
+static bool update_history(ap_m68030_walk_result_t *result,
+                           const ap_m68030_access_t *access,
+                           ap_m68030_update_fn update, void *context,
+                           uint32_t descriptor_address,
+                           const ap_m68030_descriptor_t *descriptor,
+                           bool is_page) {
+  /* A NULL update is a search that must not disturb the tree, which is what
+   * PTEST performs. */
+  if (update == NULL) {
+    return true;
+  }
+
+  /* "This bit is automatically set by the processor when a descriptor is
+   * accessed in which the U bit is clear except after a supervisor violation is
+   * detected."
+   *
+   * The violation is evaluated with this descriptor's own S bit already folded
+   * into the search, so a descriptor that itself denies the access does not get
+   * its U set, while one denied further down the tree already did -- which is
+   * what "a pointer may be fetched, and its U bit set, for an address to which
+   * access is denied at another level of the tree" describes. The ordering is
+   * also what the hardware can do: the write half of the RMC follows the read,
+   * so the S bit is known in time to suppress it. */
+  const bool violated =
+      !ap_m68030_search_permits_access(&result->search, access->supervisor);
+  const bool set_used = !descriptor->used && !violated;
+
+  /* M is the page descriptor's bit alone. `ap_m68030_desc` already holds the
+   * full rule, including that the read half of a read-modify-write counts as a
+   * write and that an already-modified page is not written again. */
+  const bool set_modified =
+      is_page && ap_m68030_search_should_set_modified(
+                     &result->search, access->write, access->read_modify_write,
+                     access->supervisor, descriptor->modified);
+
+  if (!set_used && !set_modified) {
+    return true;
+  }
+
+  result->history_writes++;
+  return update(context, descriptor_address, set_used, set_modified);
+}
+
 ap_m68030_walk_result_t ap_m68030_walk(const ap_m68030_tc_t *tc,
                                        const ap_m68030_root_t *root,
                                        uint32_t address,
+                                       const ap_m68030_access_t *access,
                                        ap_m68030_fetch_fn fetch,
+                                       ap_m68030_update_fn update,
                                        void *context) {
   ap_m68030_walk_result_t result = {0};
   ap_m68030_search_reset(&result.search);
@@ -79,6 +140,12 @@ ap_m68030_walk_result_t ap_m68030_walk(const ap_m68030_tc_t *tc,
 
     switch (role) {
     case AP_M68030_ROLE_INVALID:
+      /* No history update. An invalid descriptor has no U bit to set: beyond
+       * DT, "all long-format descriptors and short-format invalid descriptors
+       * include one or two unused fields. The operating system can use these
+       * fields for its own purposes" -- so writing a U bit here would land in
+       * whatever the OS stored, such as the external device address of a
+       * non-resident page. */
       ap_m68030_search_fail_invalid(&result.search);
       return result;
 
@@ -86,6 +153,12 @@ ap_m68030_walk_result_t ap_m68030_walk(const ap_m68030_tc_t *tc,
       /* "this code identifies an indirect descriptor that points to a
        * short-format [or long-format] page descriptor." One more fetch, and
        * what it yields is the page descriptor itself. */
+      if (!update_history(&result, access, update, context, descriptor_address,
+                          &descriptor, false)) {
+        ap_m68030_search_fail_invalid(&result.search);
+        return result;
+      }
+
       ap_m68030_descriptor_t pointed = {0};
       const bool pointed_long = (descriptor.dt == AP_M68030_DT_VALID_8BYTE);
       result.descriptor_fetches++;
@@ -102,6 +175,12 @@ ap_m68030_walk_result_t ap_m68030_walk(const ap_m68030_tc_t *tc,
         ap_m68030_search_fail_invalid(&result.search);
         return result;
       }
+      /* The page descriptor the indirection reached is where M belongs. */
+      if (!update_history(&result, access, update, context,
+                          descriptor.address_field, &pointed, true)) {
+        ap_m68030_search_fail_invalid(&result.search);
+        return result;
+      }
       result.ok = true;
       result.physical =
           ap_m68030_desc_page_address(pointed.address_field, tc->page_size_bits) |
@@ -110,6 +189,11 @@ ap_m68030_walk_result_t ap_m68030_walk(const ap_m68030_tc_t *tc,
     }
 
     case AP_M68030_ROLE_PAGE:
+      if (!update_history(&result, access, update, context, descriptor_address,
+                          &descriptor, true)) {
+        ap_m68030_search_fail_invalid(&result.search);
+        return result;
+      }
       result.ok = true;
       result.physical =
           ap_m68030_desc_page_address(descriptor.address_field,
@@ -121,6 +205,11 @@ ap_m68030_walk_result_t ap_m68030_walk(const ap_m68030_tc_t *tc,
       /* Stopped above the page table: every logical bit below this level is
        * offset, not just the page offset. The page address field is used
        * unmasked here because the block it names is larger than a page. */
+      if (!update_history(&result, access, update, context, descriptor_address,
+                          &descriptor, true)) {
+        ap_m68030_search_fail_invalid(&result.search);
+        return result;
+      }
       result.ok = true;
       result.early_termination = true;
       result.physical =
@@ -129,6 +218,11 @@ ap_m68030_walk_result_t ap_m68030_walk(const ap_m68030_tc_t *tc,
       return result;
 
     case AP_M68030_ROLE_TABLE:
+      if (!update_history(&result, access, update, context, descriptor_address,
+                          &descriptor, false)) {
+        ap_m68030_search_fail_invalid(&result.search);
+        return result;
+      }
       table_address = descriptor.address_field;
       long_format = (descriptor.dt == AP_M68030_DT_VALID_8BYTE);
       have_limit = descriptor.has_limit;

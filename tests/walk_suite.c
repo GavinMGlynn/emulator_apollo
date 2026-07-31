@@ -1,11 +1,13 @@
 /* MC68030 translation table search.
  *
- * Cited to MC68030 User's Manual 3ed §9.2, §9.4 and §9.5.
+ * Cited to MC68030 User's Manual 3ed §9.2, §9.4, §9.5 and §11.
  *
- * The count that matters is `descriptor_fetches`. The ATC costs nothing on a
- * hit (§9.4), so every clock the MMU spends is a descriptor fetch here. These
- * tests assert the count as carefully as the address, because it is what a
- * timing probe will measure.
+ * The counts that matter are `descriptor_fetches` and `history_writes`. The ATC
+ * costs nothing on a hit (§9.4), so every clock the MMU spends is here, and §11
+ * p. 11-56 counts a table search in reads and writes separately -- "an RMC cycle
+ * to set the U bit is counted as one read and one write". These tests assert
+ * both counts as carefully as the address, because they are what a timing probe
+ * will measure.
  */
 
 #include "cpu/m68030/ap_m68030_walk.h"
@@ -22,11 +24,24 @@ typedef struct {
   ap_m68030_descriptor_t descriptor;
 } tree_entry_t;
 
+/* One recorded history-bit update, so a test can assert *which* descriptor was
+ * written and which bits changed, not merely how many writes happened. */
+typedef struct {
+  uint32_t address;
+  bool set_used;
+  bool set_modified;
+} update_record_t;
+
+#define MAX_UPDATES 8
+
 typedef struct {
   const tree_entry_t *entries;
   unsigned count;
   unsigned fetches;
-  uint32_t bus_error_at; /* fetching this address fails; 0xFFFFFFFF for none */
+  uint32_t bus_error_at;        /* fetching this address fails; ~0 for none */
+  uint32_t update_error_at;     /* updating this address fails; ~0 for none */
+  update_record_t updates[MAX_UPDATES];
+  unsigned update_count;
 } tree_t;
 
 static bool tree_fetch(void *context, uint32_t physical, bool long_format,
@@ -49,6 +64,17 @@ static bool tree_fetch(void *context, uint32_t physical, bool long_format,
   return true;
 }
 
+static bool tree_update(void *context, uint32_t physical, bool set_used,
+                        bool set_modified) {
+  tree_t *tree = (tree_t *)context;
+  if (tree->update_count < MAX_UPDATES) {
+    tree->updates[tree->update_count] = (update_record_t){
+        .address = physical, .set_used = set_used, .set_modified = set_modified};
+  }
+  tree->update_count++;
+  return physical != tree->update_error_at;
+}
+
 /* IS 0 + TIA 7 + TIB 7 + TIC 6 + PS 12 = 32: a three-level tree, 4K pages. */
 static ap_m68030_tc_t three_level_4k(void) {
   return ap_m68030_tc_decode(UINT32_C(0x80000000) | (12u << 20) | (0u << 16) |
@@ -61,11 +87,21 @@ static ap_m68030_root_t root_at(uint32_t address) {
                             .has_limit = false};
 }
 
+/* A supervisor read, the access most tests use: it sets no M bit, so a test
+ * that says nothing about the access is testing the search alone. */
+static const ap_m68030_access_t SUPERVISOR_READ = {
+    .write = false, .read_modify_write = false, .supervisor = true};
+static const ap_m68030_access_t SUPERVISOR_WRITE = {
+    .write = true, .read_modify_write = false, .supervisor = true};
+static const ap_m68030_access_t USER_READ = {
+    .write = false, .read_modify_write = false, .supervisor = false};
+
 /* Table bases chosen so a descriptor address collision cannot make a wrong
  * walk look right. */
 #define ROOT_TABLE 0x00010000u
 #define TABLE_B 0x00020000u
 #define TABLE_C 0x00030000u
+#define INDIRECT_TARGET 0x00040000u
 #define PAGE_FRAME 0x00A00000u
 
 /* Address 0x00000000 indexes 0 at every level, so descriptors sit at each
@@ -78,12 +114,31 @@ static const tree_entry_t three_level_tree[] = {
     {TABLE_C, {.dt = AP_M68030_DT_PAGE, .address_field = PAGE_FRAME >> 8}},
 };
 
+/* The same tree with every U bit already set, so a test can isolate the M bit
+ * without the U updates adding writes of their own. */
+static const tree_entry_t three_level_tree_used[] = {
+    {ROOT_TABLE,
+     {.dt = AP_M68030_DT_VALID_4BYTE, .address_field = TABLE_B, .used = true}},
+    {TABLE_B,
+     {.dt = AP_M68030_DT_VALID_4BYTE, .address_field = TABLE_C, .used = true}},
+    {TABLE_C,
+     {.dt = AP_M68030_DT_PAGE, .address_field = PAGE_FRAME >> 8, .used = true}},
+};
+
 static tree_t make_tree(const tree_entry_t *entries, unsigned count) {
   return (tree_t){.entries = entries,
                   .count = count,
                   .fetches = 0,
-                  .bus_error_at = 0xFFFFFFFFu};
+                  .bus_error_at = 0xFFFFFFFFu,
+                  .update_error_at = 0xFFFFFFFFu,
+                  .update_count = 0};
 }
+
+/* ---------------------------------------------------------------------------
+ * The search itself. These pass a NULL update function, which is exactly what
+ * PTEST does -- "a search that must not disturb the tree" -- so the counts they
+ * assert are the search's own and nothing else.
+ * ------------------------------------------------------------------------- */
 
 /* A full three-level search reaches the page and costs exactly one fetch per
  * level -- the number a timing probe sees. */
@@ -92,8 +147,8 @@ static void test_a_three_level_search_costs_one_fetch_per_level(void) {
   ap_m68030_root_t root = root_at(ROOT_TABLE);
   tree_t tree = make_tree(three_level_tree, 3);
 
-  ap_m68030_walk_result_t r =
-      ap_m68030_walk(&tc, &root, TEST_ADDRESS, tree_fetch, &tree);
+  ap_m68030_walk_result_t r = ap_m68030_walk(
+      &tc, &root, TEST_ADDRESS, &SUPERVISOR_READ, tree_fetch, NULL, &tree);
 
   TEST_ASSERT_TRUE(r.ok);
   TEST_ASSERT_EQUAL_HEX32(PAGE_FRAME | 0x123u, r.physical);
@@ -113,8 +168,8 @@ static void test_an_invalid_descriptor_ends_the_search_early(void) {
   ap_m68030_root_t root = root_at(ROOT_TABLE);
   tree_t tree = make_tree(tree_entries, 2);
 
-  ap_m68030_walk_result_t r =
-      ap_m68030_walk(&tc, &root, TEST_ADDRESS, tree_fetch, &tree);
+  ap_m68030_walk_result_t r = ap_m68030_walk(
+      &tc, &root, TEST_ADDRESS, &SUPERVISOR_READ, tree_fetch, NULL, &tree);
 
   TEST_ASSERT_FALSE(r.ok);
   TEST_ASSERT_TRUE(r.search.invalid);
@@ -133,8 +188,8 @@ static void test_an_early_termination_page_descriptor_shortens_the_search(void) 
   ap_m68030_root_t root = root_at(ROOT_TABLE);
   tree_t tree = make_tree(tree_entries, 2);
 
-  ap_m68030_walk_result_t r =
-      ap_m68030_walk(&tc, &root, TEST_ADDRESS, tree_fetch, &tree);
+  ap_m68030_walk_result_t r = ap_m68030_walk(
+      &tc, &root, TEST_ADDRESS, &SUPERVISOR_READ, tree_fetch, NULL, &tree);
 
   TEST_ASSERT_TRUE(r.ok);
   TEST_ASSERT_TRUE(r.early_termination);
@@ -156,8 +211,8 @@ static void test_early_termination_takes_the_unconsumed_index_bits_as_offset(voi
   /* TIA=0, TIB=0 select the same descriptors, but TIC is non-zero: those bits
    * must appear in the physical address rather than being discarded. */
   const uint32_t address = (UINT32_C(3) << 12) | 0x123u;
-  ap_m68030_walk_result_t r =
-      ap_m68030_walk(&tc, &root, address, tree_fetch, &tree);
+  ap_m68030_walk_result_t r = ap_m68030_walk(
+      &tc, &root, address, &SUPERVISOR_READ, tree_fetch, NULL, &tree);
 
   TEST_ASSERT_TRUE(r.ok);
   TEST_ASSERT_EQUAL_HEX32(PAGE_FRAME | (UINT32_C(3) << 12) | 0x123u, r.physical);
@@ -170,15 +225,17 @@ static void test_an_indirect_descriptor_costs_one_extra_fetch(void) {
   static const tree_entry_t tree_entries[] = {
       {ROOT_TABLE, {.dt = AP_M68030_DT_VALID_4BYTE, .address_field = TABLE_B}},
       {TABLE_B, {.dt = AP_M68030_DT_VALID_4BYTE, .address_field = TABLE_C}},
-      {TABLE_C, {.dt = AP_M68030_DT_VALID_4BYTE, .address_field = 0x00040000u}},
-      {0x00040000u, {.dt = AP_M68030_DT_PAGE, .address_field = PAGE_FRAME >> 8}},
+      {TABLE_C,
+       {.dt = AP_M68030_DT_VALID_4BYTE, .address_field = INDIRECT_TARGET}},
+      {INDIRECT_TARGET,
+       {.dt = AP_M68030_DT_PAGE, .address_field = PAGE_FRAME >> 8}},
   };
   ap_m68030_tc_t tc = three_level_4k();
   ap_m68030_root_t root = root_at(ROOT_TABLE);
   tree_t tree = make_tree(tree_entries, 4);
 
-  ap_m68030_walk_result_t r =
-      ap_m68030_walk(&tc, &root, TEST_ADDRESS, tree_fetch, &tree);
+  ap_m68030_walk_result_t r = ap_m68030_walk(
+      &tc, &root, TEST_ADDRESS, &SUPERVISOR_READ, tree_fetch, NULL, &tree);
 
   TEST_ASSERT_TRUE(r.ok);
   TEST_ASSERT_TRUE(r.used_indirect);
@@ -192,16 +249,17 @@ static void test_an_indirect_descriptor_must_point_at_a_page_descriptor(void) {
   static const tree_entry_t tree_entries[] = {
       {ROOT_TABLE, {.dt = AP_M68030_DT_VALID_4BYTE, .address_field = TABLE_B}},
       {TABLE_B, {.dt = AP_M68030_DT_VALID_4BYTE, .address_field = TABLE_C}},
-      {TABLE_C, {.dt = AP_M68030_DT_VALID_4BYTE, .address_field = 0x00040000u}},
-      {0x00040000u,
+      {TABLE_C,
+       {.dt = AP_M68030_DT_VALID_4BYTE, .address_field = INDIRECT_TARGET}},
+      {INDIRECT_TARGET,
        {.dt = AP_M68030_DT_VALID_4BYTE, .address_field = 0x00050000u}},
   };
   ap_m68030_tc_t tc = three_level_4k();
   ap_m68030_root_t root = root_at(ROOT_TABLE);
   tree_t tree = make_tree(tree_entries, 4);
 
-  ap_m68030_walk_result_t r =
-      ap_m68030_walk(&tc, &root, TEST_ADDRESS, tree_fetch, &tree);
+  ap_m68030_walk_result_t r = ap_m68030_walk(
+      &tc, &root, TEST_ADDRESS, &SUPERVISOR_READ, tree_fetch, NULL, &tree);
   TEST_ASSERT_FALSE(r.ok);
   TEST_ASSERT_TRUE(r.search.invalid);
 }
@@ -222,8 +280,8 @@ static void test_write_protection_on_a_pointer_reaches_the_page(void) {
   ap_m68030_root_t root = root_at(ROOT_TABLE);
   tree_t tree = make_tree(tree_entries, 3);
 
-  ap_m68030_walk_result_t r =
-      ap_m68030_walk(&tc, &root, TEST_ADDRESS, tree_fetch, &tree);
+  ap_m68030_walk_result_t r = ap_m68030_walk(
+      &tc, &root, TEST_ADDRESS, &SUPERVISOR_READ, tree_fetch, NULL, &tree);
 
   TEST_ASSERT_TRUE(r.ok);
   TEST_ASSERT_TRUE(r.search.write_protected);
@@ -247,8 +305,8 @@ static void test_supervisor_and_cache_inhibit_accumulate_down_the_tree(void) {
   ap_m68030_root_t root = root_at(ROOT_TABLE);
   tree_t tree = make_tree(tree_entries, 3);
 
-  ap_m68030_walk_result_t r =
-      ap_m68030_walk(&tc, &root, TEST_ADDRESS, tree_fetch, &tree);
+  ap_m68030_walk_result_t r = ap_m68030_walk(
+      &tc, &root, TEST_ADDRESS, &SUPERVISOR_READ, tree_fetch, NULL, &tree);
 
   TEST_ASSERT_TRUE(r.search.supervisor_only);
   TEST_ASSERT_TRUE(r.search.cache_inhibited);
@@ -267,8 +325,8 @@ static void test_an_out_of_bounds_index_aborts_before_fetching(void) {
   tree_t tree = make_tree(three_level_tree, 3);
 
   /* TIA is bits 31-25, so this address indexes 1 at the top level. */
-  ap_m68030_walk_result_t r =
-      ap_m68030_walk(&tc, &root, UINT32_C(1) << 25, tree_fetch, &tree);
+  ap_m68030_walk_result_t r = ap_m68030_walk(
+      &tc, &root, UINT32_C(1) << 25, &SUPERVISOR_READ, tree_fetch, NULL, &tree);
 
   TEST_ASSERT_FALSE(r.ok);
   TEST_ASSERT_TRUE(r.search.limit_violation);
@@ -283,8 +341,8 @@ static void test_an_index_within_the_limit_proceeds(void) {
   root.limit = 4;
   tree_t tree = make_tree(three_level_tree, 3);
 
-  ap_m68030_walk_result_t r =
-      ap_m68030_walk(&tc, &root, TEST_ADDRESS, tree_fetch, &tree);
+  ap_m68030_walk_result_t r = ap_m68030_walk(
+      &tc, &root, TEST_ADDRESS, &SUPERVISOR_READ, tree_fetch, NULL, &tree);
   TEST_ASSERT_TRUE(r.ok);
   TEST_ASSERT_FALSE(r.search.limit_violation);
 }
@@ -298,8 +356,8 @@ static void test_a_bus_error_during_the_search_produces_no_translation(void) {
   tree_t tree = make_tree(three_level_tree, 3);
   tree.bus_error_at = TABLE_B;
 
-  ap_m68030_walk_result_t r =
-      ap_m68030_walk(&tc, &root, TEST_ADDRESS, tree_fetch, &tree);
+  ap_m68030_walk_result_t r = ap_m68030_walk(
+      &tc, &root, TEST_ADDRESS, &SUPERVISOR_READ, tree_fetch, NULL, &tree);
 
   TEST_ASSERT_FALSE(r.ok);
   TEST_ASSERT_TRUE(r.search.invalid);
@@ -324,7 +382,8 @@ static void test_a_long_format_table_is_indexed_with_the_wider_stride(void) {
 
   /* TIB is bits 24-18, so this indexes 1 at the second level. */
   ap_m68030_walk_result_t r =
-      ap_m68030_walk(&tc, &root, (UINT32_C(1) << 18) | 0x123u, tree_fetch, &tree);
+      ap_m68030_walk(&tc, &root, (UINT32_C(1) << 18) | 0x123u, &SUPERVISOR_READ,
+                     tree_fetch, NULL, &tree);
 
   TEST_ASSERT_TRUE(r.ok);
   TEST_ASSERT_EQUAL_HEX32(PAGE_FRAME | 0x123u, r.physical);
@@ -345,8 +404,300 @@ static void test_the_index_selects_a_descriptor_by_stride(void) {
 
   /* TIA index 2, short format: ROOT_TABLE + 2*4 = ROOT_TABLE + 8. */
   ap_m68030_walk_result_t r =
-      ap_m68030_walk(&tc, &root, (UINT32_C(2) << 25) | 0x123u, tree_fetch, &tree);
+      ap_m68030_walk(&tc, &root, (UINT32_C(2) << 25) | 0x123u, &SUPERVISOR_READ,
+                     tree_fetch, NULL, &tree);
   TEST_ASSERT_TRUE(r.ok);
+}
+
+/* ---------------------------------------------------------------------------
+ * The history bits, [030] 9.5.1.1 and 11 p. 11-56.
+ * ------------------------------------------------------------------------- */
+
+/* "During a table search, the U bit in each descriptor that is encountered is
+ * checked and set if it is not already set." Three descriptors with U clear
+ * therefore cost three writes on top of the three reads -- which is why the
+ * manual's timing table counts reads and writes separately. */
+static void test_each_descriptor_with_u_clear_costs_one_history_write(void) {
+  ap_m68030_tc_t tc = three_level_4k();
+  ap_m68030_root_t root = root_at(ROOT_TABLE);
+  tree_t tree = make_tree(three_level_tree, 3);
+
+  ap_m68030_walk_result_t r = ap_m68030_walk(
+      &tc, &root, TEST_ADDRESS, &SUPERVISOR_READ, tree_fetch, tree_update, &tree);
+
+  TEST_ASSERT_TRUE(r.ok);
+  TEST_ASSERT_EQUAL_UINT(3, r.descriptor_fetches);
+  TEST_ASSERT_EQUAL_UINT(3, r.history_writes);
+  TEST_ASSERT_TRUE(tree.updates[0].set_used);
+  TEST_ASSERT_EQUAL_HEX32(ROOT_TABLE, tree.updates[0].address);
+}
+
+/* "The processor never clears this bit", and a descriptor whose U is already
+ * set needs no write -- the search costs reads only. */
+static void test_a_descriptor_already_used_is_not_written_again(void) {
+  ap_m68030_tc_t tc = three_level_4k();
+  ap_m68030_root_t root = root_at(ROOT_TABLE);
+  tree_t tree = make_tree(three_level_tree_used, 3);
+
+  ap_m68030_walk_result_t r = ap_m68030_walk(
+      &tc, &root, TEST_ADDRESS, &SUPERVISOR_READ, tree_fetch, tree_update, &tree);
+
+  TEST_ASSERT_TRUE(r.ok);
+  TEST_ASSERT_EQUAL_UINT(3, r.descriptor_fetches);
+  TEST_ASSERT_EQUAL_UINT(0, r.history_writes);
+}
+
+/* "when the table search is for a write access and the M bit of the page
+ * descriptor is clear, the processor sets the bit". The same tree costs one
+ * more write for a write access than for a read -- the difference counted
+ * rather than assumed. */
+static void test_a_write_to_an_unmodified_page_costs_one_more_write_than_a_read(
+    void) {
+  ap_m68030_tc_t tc = three_level_4k();
+  ap_m68030_root_t root = root_at(ROOT_TABLE);
+
+  tree_t reading = make_tree(three_level_tree_used, 3);
+  ap_m68030_walk_result_t read_result =
+      ap_m68030_walk(&tc, &root, TEST_ADDRESS, &SUPERVISOR_READ, tree_fetch,
+                     tree_update, &reading);
+
+  tree_t writing = make_tree(three_level_tree_used, 3);
+  ap_m68030_walk_result_t write_result =
+      ap_m68030_walk(&tc, &root, TEST_ADDRESS, &SUPERVISOR_WRITE, tree_fetch,
+                     tree_update, &writing);
+
+  TEST_ASSERT_EQUAL_UINT(0, read_result.history_writes);
+  TEST_ASSERT_EQUAL_UINT(1, write_result.history_writes);
+  /* It is the page descriptor that is written, not a pointer. */
+  TEST_ASSERT_EQUAL_HEX32(TABLE_C, writing.updates[0].address);
+  TEST_ASSERT_TRUE(writing.updates[0].set_modified);
+  TEST_ASSERT_FALSE(writing.updates[0].set_used);
+}
+
+/* An already-modified page is not written again, which matters because that
+ * update would otherwise cost a bus cycle on every write to the page. */
+static void test_an_already_modified_page_is_not_written_again(void) {
+  static const tree_entry_t tree_entries[] = {
+      {ROOT_TABLE,
+       {.dt = AP_M68030_DT_VALID_4BYTE, .address_field = TABLE_B, .used = true}},
+      {TABLE_B,
+       {.dt = AP_M68030_DT_VALID_4BYTE, .address_field = TABLE_C, .used = true}},
+      {TABLE_C,
+       {.dt = AP_M68030_DT_PAGE,
+        .address_field = PAGE_FRAME >> 8,
+        .used = true,
+        .modified = true}},
+  };
+  ap_m68030_tc_t tc = three_level_4k();
+  ap_m68030_root_t root = root_at(ROOT_TABLE);
+  tree_t tree = make_tree(tree_entries, 3);
+
+  ap_m68030_walk_result_t r =
+      ap_m68030_walk(&tc, &root, TEST_ADDRESS, &SUPERVISOR_WRITE, tree_fetch,
+                     tree_update, &tree);
+
+  TEST_ASSERT_TRUE(r.ok);
+  TEST_ASSERT_EQUAL_UINT(0, r.history_writes);
+}
+
+/* "the processor sets the bit if the table search does not encounter a set WP
+ * bit". A write-protected path leaves M alone, so the write costs nothing
+ * extra -- and the access is refused by the protection state instead. */
+static void test_a_write_protected_path_does_not_set_the_m_bit(void) {
+  static const tree_entry_t tree_entries[] = {
+      {ROOT_TABLE,
+       {.dt = AP_M68030_DT_VALID_4BYTE, .address_field = TABLE_B, .used = true}},
+      {TABLE_B,
+       {.dt = AP_M68030_DT_VALID_4BYTE,
+        .address_field = TABLE_C,
+        .used = true,
+        .write_protect = true}},
+      {TABLE_C,
+       {.dt = AP_M68030_DT_PAGE, .address_field = PAGE_FRAME >> 8, .used = true}},
+  };
+  ap_m68030_tc_t tc = three_level_4k();
+  ap_m68030_root_t root = root_at(ROOT_TABLE);
+  tree_t tree = make_tree(tree_entries, 3);
+
+  ap_m68030_walk_result_t r =
+      ap_m68030_walk(&tc, &root, TEST_ADDRESS, &SUPERVISOR_WRITE, tree_fetch,
+                     tree_update, &tree);
+
+  TEST_ASSERT_EQUAL_UINT(0, r.history_writes);
+  TEST_ASSERT_FALSE(ap_m68030_search_permits_write(&r.search));
+}
+
+/* "An access is considered to be a write for updating purposes if either the
+ * R/W or RMC signal is low" -- so the *read* half of a read-modify-write
+ * already sets M, and costs the write that implies. */
+static void test_the_read_half_of_a_read_modify_write_still_sets_m(void) {
+  static const ap_m68030_access_t rmw_read = {
+      .write = false, .read_modify_write = true, .supervisor = true};
+  ap_m68030_tc_t tc = three_level_4k();
+  ap_m68030_root_t root = root_at(ROOT_TABLE);
+  tree_t tree = make_tree(three_level_tree_used, 3);
+
+  ap_m68030_walk_result_t r = ap_m68030_walk(&tc, &root, TEST_ADDRESS, &rmw_read,
+                                             tree_fetch, tree_update, &tree);
+
+  TEST_ASSERT_EQUAL_UINT(1, r.history_writes);
+  TEST_ASSERT_TRUE(tree.updates[0].set_modified);
+}
+
+/* "This bit is automatically set ... except after a supervisor violation is
+ * detected." A user access to a supervisor-only tree updates nothing. */
+static void test_a_supervisor_violation_suppresses_the_u_bit_update(void) {
+  static const tree_entry_t tree_entries[] = {
+      {ROOT_TABLE,
+       {.dt = AP_M68030_DT_VALID_4BYTE,
+        .address_field = TABLE_B,
+        .supervisor = true}},
+      {TABLE_B, {.dt = AP_M68030_DT_VALID_4BYTE, .address_field = TABLE_C}},
+      {TABLE_C, {.dt = AP_M68030_DT_PAGE, .address_field = PAGE_FRAME >> 8}},
+  };
+  ap_m68030_tc_t tc = three_level_4k();
+  ap_m68030_root_t root = root_at(ROOT_TABLE);
+  tree_t tree = make_tree(tree_entries, 3);
+
+  ap_m68030_walk_result_t r = ap_m68030_walk(
+      &tc, &root, TEST_ADDRESS, &USER_READ, tree_fetch, tree_update, &tree);
+
+  /* The violation is detected at the root descriptor, whose own S bit sets it,
+   * so not even that descriptor's U is written. */
+  TEST_ASSERT_EQUAL_UINT(0, r.history_writes);
+  TEST_ASSERT_FALSE(ap_m68030_search_permits_access(&r.search, false));
+}
+
+/* The same tree accessed from supervisor state has no violation, so the U bits
+ * are updated normally -- the suppression is a property of the access, not of
+ * the tree. */
+static void test_the_same_tree_updates_u_for_a_supervisor_access(void) {
+  static const tree_entry_t tree_entries[] = {
+      {ROOT_TABLE,
+       {.dt = AP_M68030_DT_VALID_4BYTE,
+        .address_field = TABLE_B,
+        .supervisor = true}},
+      {TABLE_B, {.dt = AP_M68030_DT_VALID_4BYTE, .address_field = TABLE_C}},
+      {TABLE_C, {.dt = AP_M68030_DT_PAGE, .address_field = PAGE_FRAME >> 8}},
+  };
+  ap_m68030_tc_t tc = three_level_4k();
+  ap_m68030_root_t root = root_at(ROOT_TABLE);
+  tree_t tree = make_tree(tree_entries, 3);
+
+  ap_m68030_walk_result_t r = ap_m68030_walk(
+      &tc, &root, TEST_ADDRESS, &SUPERVISOR_READ, tree_fetch, tree_update, &tree);
+
+  TEST_ASSERT_EQUAL_UINT(3, r.history_writes);
+}
+
+/* Both bits live in one descriptor, so setting both is a single
+ * read-modify-write, not two. [030] 11 p. 11-56 counts "an RMC cycle to set the
+ * U bit ... as one read and one write". */
+static void test_setting_u_and_m_on_one_descriptor_costs_a_single_write(void) {
+  static const tree_entry_t tree_entries[] = {
+      {ROOT_TABLE,
+       {.dt = AP_M68030_DT_VALID_4BYTE, .address_field = TABLE_B, .used = true}},
+      {TABLE_B,
+       {.dt = AP_M68030_DT_VALID_4BYTE, .address_field = TABLE_C, .used = true}},
+      /* U clear and M clear on the page descriptor: both must change. */
+      {TABLE_C, {.dt = AP_M68030_DT_PAGE, .address_field = PAGE_FRAME >> 8}},
+  };
+  ap_m68030_tc_t tc = three_level_4k();
+  ap_m68030_root_t root = root_at(ROOT_TABLE);
+  tree_t tree = make_tree(tree_entries, 3);
+
+  ap_m68030_walk_result_t r =
+      ap_m68030_walk(&tc, &root, TEST_ADDRESS, &SUPERVISOR_WRITE, tree_fetch,
+                     tree_update, &tree);
+
+  TEST_ASSERT_EQUAL_UINT(1, r.history_writes);
+  TEST_ASSERT_EQUAL_UINT(1, tree.update_count);
+  TEST_ASSERT_TRUE(tree.updates[0].set_used);
+  TEST_ASSERT_TRUE(tree.updates[0].set_modified);
+}
+
+/* An invalid descriptor gets no history write. Beyond DT it is all OS-defined:
+ * "short-format invalid descriptors include one or two unused fields. The
+ * operating system can use these fields for its own purposes" -- writing a U
+ * bit there would corrupt whatever the OS stored, such as the device address of
+ * a non-resident page. */
+static void test_an_invalid_descriptor_gets_no_history_write(void) {
+  static const tree_entry_t tree_entries[] = {
+      {ROOT_TABLE,
+       {.dt = AP_M68030_DT_VALID_4BYTE, .address_field = TABLE_B, .used = true}},
+      {TABLE_B, {.dt = AP_M68030_DT_INVALID}},
+  };
+  ap_m68030_tc_t tc = three_level_4k();
+  ap_m68030_root_t root = root_at(ROOT_TABLE);
+  tree_t tree = make_tree(tree_entries, 2);
+
+  ap_m68030_walk_result_t r = ap_m68030_walk(
+      &tc, &root, TEST_ADDRESS, &SUPERVISOR_READ, tree_fetch, tree_update, &tree);
+
+  TEST_ASSERT_FALSE(r.ok);
+  TEST_ASSERT_EQUAL_UINT(0, r.history_writes);
+  TEST_ASSERT_EQUAL_UINT(0, tree.update_count);
+}
+
+/* The M bit belongs to the page descriptor an indirect descriptor points at,
+ * not to the indirect descriptor itself. */
+static void test_the_indirect_target_receives_the_m_bit(void) {
+  static const tree_entry_t tree_entries[] = {
+      {ROOT_TABLE,
+       {.dt = AP_M68030_DT_VALID_4BYTE, .address_field = TABLE_B, .used = true}},
+      {TABLE_B,
+       {.dt = AP_M68030_DT_VALID_4BYTE, .address_field = TABLE_C, .used = true}},
+      {TABLE_C,
+       {.dt = AP_M68030_DT_VALID_4BYTE,
+        .address_field = INDIRECT_TARGET,
+        .used = true}},
+      {INDIRECT_TARGET,
+       {.dt = AP_M68030_DT_PAGE, .address_field = PAGE_FRAME >> 8, .used = true}},
+  };
+  ap_m68030_tc_t tc = three_level_4k();
+  ap_m68030_root_t root = root_at(ROOT_TABLE);
+  tree_t tree = make_tree(tree_entries, 4);
+
+  ap_m68030_walk_result_t r =
+      ap_m68030_walk(&tc, &root, TEST_ADDRESS, &SUPERVISOR_WRITE, tree_fetch,
+                     tree_update, &tree);
+
+  TEST_ASSERT_TRUE(r.ok);
+  TEST_ASSERT_EQUAL_UINT(1, r.history_writes);
+  TEST_ASSERT_EQUAL_HEX32(INDIRECT_TARGET, tree.updates[0].address);
+  TEST_ASSERT_TRUE(tree.updates[0].set_modified);
+}
+
+/* A NULL update function is a search that must not disturb the tree, which is
+ * what PTEST performs: the reads still happen, no write does. */
+static void test_a_search_with_no_update_function_writes_nothing(void) {
+  ap_m68030_tc_t tc = three_level_4k();
+  ap_m68030_root_t root = root_at(ROOT_TABLE);
+  tree_t tree = make_tree(three_level_tree, 3);
+
+  ap_m68030_walk_result_t r = ap_m68030_walk(
+      &tc, &root, TEST_ADDRESS, &SUPERVISOR_WRITE, tree_fetch, NULL, &tree);
+
+  TEST_ASSERT_TRUE(r.ok);
+  TEST_ASSERT_EQUAL_UINT(3, r.descriptor_fetches);
+  TEST_ASSERT_EQUAL_UINT(0, r.history_writes);
+  TEST_ASSERT_EQUAL_UINT(0, tree.update_count);
+}
+
+/* A bus error on the write half of the read-modify-write sets B just as one on
+ * the read half does, and produces no translation. */
+static void test_a_bus_error_updating_history_bits_fails_the_search(void) {
+  ap_m68030_tc_t tc = three_level_4k();
+  ap_m68030_root_t root = root_at(ROOT_TABLE);
+  tree_t tree = make_tree(three_level_tree, 3);
+  tree.update_error_at = TABLE_B;
+
+  ap_m68030_walk_result_t r = ap_m68030_walk(
+      &tc, &root, TEST_ADDRESS, &SUPERVISOR_READ, tree_fetch, tree_update, &tree);
+
+  TEST_ASSERT_FALSE(r.ok);
+  TEST_ASSERT_TRUE(r.search.invalid);
+  TEST_ASSERT_EQUAL_UINT(2, r.history_writes);
 }
 
 int main(void) {
@@ -364,5 +715,18 @@ int main(void) {
   RUN_TEST(test_a_bus_error_during_the_search_produces_no_translation);
   RUN_TEST(test_a_long_format_table_is_indexed_with_the_wider_stride);
   RUN_TEST(test_the_index_selects_a_descriptor_by_stride);
+  RUN_TEST(test_each_descriptor_with_u_clear_costs_one_history_write);
+  RUN_TEST(test_a_descriptor_already_used_is_not_written_again);
+  RUN_TEST(test_a_write_to_an_unmodified_page_costs_one_more_write_than_a_read);
+  RUN_TEST(test_an_already_modified_page_is_not_written_again);
+  RUN_TEST(test_a_write_protected_path_does_not_set_the_m_bit);
+  RUN_TEST(test_the_read_half_of_a_read_modify_write_still_sets_m);
+  RUN_TEST(test_a_supervisor_violation_suppresses_the_u_bit_update);
+  RUN_TEST(test_the_same_tree_updates_u_for_a_supervisor_access);
+  RUN_TEST(test_setting_u_and_m_on_one_descriptor_costs_a_single_write);
+  RUN_TEST(test_an_invalid_descriptor_gets_no_history_write);
+  RUN_TEST(test_the_indirect_target_receives_the_m_bit);
+  RUN_TEST(test_a_search_with_no_update_function_writes_nothing);
+  RUN_TEST(test_a_bus_error_updating_history_bits_fails_the_search);
   return UNITY_END();
 }

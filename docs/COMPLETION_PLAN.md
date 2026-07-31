@@ -395,16 +395,46 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
           accumulating down the tree, a limit violation aborting *before* the
           fetch it would have indexed (0 fetches, not 1), a bus error ending
           the search, and the 8-byte stride of a long-format table.*
-    - [ ] **Descriptor writeback: the U and M bits.** `ap_m68030_desc` already
-          pins the full M-bit rule and exposes
-          `ap_m68030_search_should_set_modified`, but the walk never calls it —
-          the function is currently unused. Each update is a bus *write*, so
-          this is timing, not bookkeeping: it changes what a probe measures.
-          Needs a write callback alongside `ap_m68030_fetch_fn`.
-          *Verification: a write to an unmodified page costs one more bus cycle
-          than a read of the same page, and an already-modified page costs no
-          extra — the case `desc_suite` already pins in isolation, measured
-          here through the walk.*
+    - [x] **Descriptor writeback: the U and M bits.** "During a table search,
+          the U bit in each descriptor that is encountered is checked and set if
+          it is not already set", and M is set for a write access under
+          `ap_m68030_desc`'s rule. Each update is a bus *write*, so this is
+          timing rather than bookkeeping: `[030]` §11 p. 11-56 counts a table
+          search in reads and writes separately and states that "an RMC cycle to
+          set the U bit is counted as one read and one write". The update is
+          expressed as "set U / set M at this address" rather than as a long
+          word, for the same reason the fetch returns a decoded descriptor —
+          the status bit positions are deferred, not guessed.
+          *Verification: `walk_suite`, 13 further tests — one write per
+          descriptor with U clear and none when it is already set, a write
+          access costing exactly one more than a read of the same tree, an
+          already-modified page costing nothing, WP and a supervisor violation
+          each suppressing M, the read half of a read-modify-write still
+          setting it, an invalid descriptor getting no write at all, the M bit
+          landing on an indirect descriptor's target rather than on the
+          indirect itself, and a bus error on the write half setting B.*
+    - [x] Corroborated against the `MC68851 PMMU User's Manual 3ed` §5.1.5.3.11,
+          whose update table is explicit where `[030]` is prose — U clear with M
+          unchanged is an RMW, U and M together are a *single* operation, U
+          already set with M clear on a write is one write, and both already set
+          is no write at all. Our one-write-per-descriptor cost model matches it
+          row for row. Worth recording because it is independent of the 68030
+          manual and pins the case that is easiest to get wrong: setting two
+          bits in one descriptor must not cost two cycles.
+    - [ ] **Open reading, to settle against the oracle: when a supervisor
+          violation suppresses the U update.** `[030]` says the U bit is set
+          "except *after* a supervisor violation is detected" without saying
+          whether a descriptor whose own S bit causes the violation still gets
+          its own U set. We evaluate the violation with the current descriptor's
+          S already folded in, so it does not — which is consistent with the
+          hardware being able to do it (the RMC write half follows the read) and
+          with the manual's other sentence, that "a pointer may be fetched, and
+          its U bit set, for an address to which access is denied at *another*
+          level of the tree". The 68851 manual repeats that sentence and drops
+          the supervisor clause entirely, so it does not arbitrate. This is a
+          documented reading, not a measurement. *Verification: a user-mode
+          access to a supervisor-only tree under the oracle, comparing whether
+          the root descriptor's U bit changed.*
     - [ ] **Fill the ATC from a completed search**, so a miss populates the
           entry a hit then serves for free. This is the join between
           `ap_m68030_walk` and `ap_m68030_atc`, and the point at which the
