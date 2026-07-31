@@ -2256,14 +2256,16 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         there, Table 2-3 is plain fixed priority and carries no anomaly at all.
         What had been imported was the AT convention that the cascade lives on
         IR2. `FINDINGS.md` C11.
-  - [ ] **Blocked on a device, not on research.** Wiring the controllers to
-        the CPU needs the 68030 interrupt level the master's INT drives, which
-        neither manual states and which an idle boot cannot show: the PROM
-        programs the parts once and masks them, both IRRs read `00`, and the CPU
-        sits at `SR = 2700`. Nothing requests, so nothing acknowledges.
-        `FINDINGS.md` C12. Closes as soon as the interval timer or calendar
-        (item 5 below) runs in the oracle — the level then falls out of the
-        CPU's own `SR` at the acknowledge.
+  - [x] **The CPU interrupt level is 6**, measured. Neither manual states it,
+        and an idle boot cannot show it because nothing requests — so the
+        interval timer was started by hand to make something request, and a
+        single write of the CPU's mask swept: taken at mask 5, blocked at mask
+        6, so the level is 6. Reproduced twice at each bracketing mask and
+        confirmed by the master's ISR. `FINDINGS.md` C12.
+  - [ ] Whether the acknowledge is autovectored or a CPU-space cycle a program
+        space tap cannot see. `008778-03` §3.2 says the latter; no read appears
+        on the controller's range either way. Separate from the level and does
+        not block wiring.
 - [ ] Two AT DMA controllers. *Verification: transfer probes; device request
       lines gate DMA at block granularity, not per word.*
 - [ ] Interval timer and calendar. *Verification: self-timing probes; the
@@ -2283,10 +2285,8 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         **odd addresses, stride 2** (`RS n` at `010801 + 2n`, confirmed by the
         `FFFF` latch default showing through), and its interrupt reaches the
         master controller as **IRQ0**, confirming Table 2-3. `FINDINGS.md` C12.
-  - [ ] Wire the timer into the board at `010800` now that its placement is
-        known. The CPU *interrupt level* is still not established — the
-        discriminating experiment invalidated itself, see C12 — so the
-        controller-to-CPU link stays open.
+  - [ ] Wire the timer into the board at `010800`, now that its placement
+        (odd addresses, stride 2) and its IRQ0 route are both measured.
   - [ ] The MC146818 calendar at `010900`.
 - [ ] SIO serial lines, keyboard and mouse. *Verification: console byte stream
       identical to the oracle's.*

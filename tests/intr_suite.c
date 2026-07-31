@@ -235,8 +235,27 @@ static void test_both_controllers_decode_at_their_documented_addresses(void) {
   TEST_ASSERT_FALSE(ap_intr_decode(0x011200u, &is_slave, &a0)); /* node ID PROM */
 }
 
+static void test_the_controllers_drive_interrupt_level_six(void) {
+  /* Measured, not transcribed: neither manual states it. A single write of the
+   * CPU's mask, with the interval timer armed on IRQ0, is taken at mask 5 and
+   * blocked at mask 6 -- so only level 6 fits, since mask 6 permits level 7
+   * alone. `FINDINGS.md` C12.
+   *
+   * Asserted as a bare constant because that is all it is until something
+   * consumes it; the value is the measurement, and a change to it has to
+   * disagree with a recorded experiment. */
+  TEST_ASSERT_EQUAL_UINT(6u, AP_INTR_CPU_LEVEL);
+
+  /* And it is below the level 7 that `008778-03` §3.2 reserves for the parity
+   * non-maskable interrupt -- "It generates a Level 7 interrupt to the CPU."
+   * A controller at level 7 could not be masked apart from parity, which is
+   * the sanity check on the measurement rather than a second source for it. */
+  TEST_ASSERT_TRUE(AP_INTR_CPU_LEVEL < 7u);
+}
+
 int main(void) {
   UNITY_BEGIN();
+  RUN_TEST(test_the_controllers_drive_interrupt_level_six);
   RUN_TEST(test_a_board_out_of_reset_has_neither_controller_programmed);
   RUN_TEST(test_the_firmware_sequence_leaves_everything_masked);
   RUN_TEST(test_a_master_line_vectors_from_the_measured_base);

@@ -62,6 +62,22 @@
 /* Measured from the boot PROM's own ICW3 pair. See the header. */
 #define AP_INTR_CASCADE_LINE 3u
 
+/* The 68030 interrupt level the master's INT output drives.
+ *
+ * Measured, because neither `008778-03` nor `019411-A00` states it. The route
+ * was: start the interval timer by hand so that something actually requests,
+ * then sweep a single write of the CPU's interrupt mask. A mask of 6 permits
+ * only level 7 and blocks it; a mask of 5 permits 6 and 7 and lets it through.
+ * Confirmed from the other side by the master's ISR, which reads `01` exactly
+ * when the interrupt is taken. `FINDINGS.md` C12.
+ *
+ * The control experiment is the part worth remembering: with nothing able to
+ * interrupt, a forced `SR` stays where it is put, so the firmware never touches
+ * it. Without that, the mask seen at an acknowledge could equally have been the
+ * exception raising it or a loop restoring it, and the two readings give
+ * different levels. */
+#define AP_INTR_CPU_LEVEL 6u
+
 /* The machine's sixteen interrupt request lines. `008778-03` Table 2-3 numbers
  * them IRQ0-IRQ15, the second eight being the slave's. */
 #define AP_INTR_LINES 16u

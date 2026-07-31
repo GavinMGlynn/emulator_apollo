@@ -816,8 +816,42 @@ anything about the level.
 
 Recorded that way deliberately. A failed experiment that is reported as a result
 is worse than no experiment, and "mask 7 was observed" would read as "level 7"
-to anyone skimming. The level stays unknown; what is needed is a discriminator
-that perturbs the machine once rather than continuously.
+to anyone skimming.
+
+**Resolved: the controllers drive interrupt level 6.**
+
+The control that unlocked it was the cheapest run of the lot. With nothing able
+to interrupt, write `SR = 2000` once and look again later: it reads `2004` half a
+second on and two seconds on. **The firmware does not touch SR at all** — the
+`2704` seen earlier was the exception raising the mask, not a loop restoring it,
+and a forced mask therefore persists. That makes the single-shot sweep valid, and
+it also explains why the repeated version failed: writing `SR` on every periodic
+callback was never needed and only prevented the exception from being entered.
+
+Sweeping a single write of the mask, timer armed on IRQ0:
+
+| Forced mask | `SR` after | Master ISR | Interrupt taken |
+| --- | --- | --- | --- |
+| 7 | `2704` | `00` | no |
+| 6 | `2604` | `00` | **no** |
+| 5 | `2704` | `01` | **yes** |
+| 3 | `2704` | `01` | yes |
+| 0 | `2704` | `01` | yes |
+
+A mask of 6 permits only level 7 and blocks it; a mask of 5 permits levels 6 and
+7 and lets it through. The level is therefore **6**. Reproduced across two
+independent runs at each of the two masks that bracket it, and confirmed from
+the other side by the master controller's ISR, which reads `01` — IRQ0, the
+timer — exactly when the interrupt is taken and `00` when it is not.
+
+Two details worth carrying forward. The `SR` ending at `2704` after a level-6
+interrupt is the *handler* setting `2700`, not the exception, which sets mask 6;
+and no acknowledge appears on a read tap over the controller's range, so the
+vector is not fetched by a bus cycle the tap can see. Whether that means
+autovectoring or simply that a CPU-space acknowledge is invisible to a program
+space tap is **not** settled here, and `008778-03` §3.2's "interrupt acknowledge
+cycle ... a CPU space cycle" says it should be the latter. That question is
+separate from the level and does not block wiring.
 
 ## Where the ring is not
 
