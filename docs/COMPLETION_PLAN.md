@@ -303,6 +303,25 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         `PMOVE`. *Verification: read Figure 9-37 from the PDF page itself, or
         cross-check against `MC68851 PMMU User's Manual` / `M68000 Family
         Reference`, then add a packing test.*
+  - [x] **Translation control register (TC) and logical address decomposition**
+        (`src/core/cpu/m68030/ap_m68030_tc.c`), `[030]` §9.7.2 pp. 9-54 ff. TC
+        is what turns a logical address into a path through the tree — how many
+        high-order bits to ignore, how many index each of four levels, how many
+        remain as page offset — so it is built before the walk it drives.
+        *Verification: `tc_suite`, 15 tests — all eight documented page-size
+        encodings and the reserved ones rejected, field decode, address split,
+        and the consistency rule.*
+  - [x] The consistency rule, which is the part worth getting exactly right:
+        "The TIx fields are added together **until a zero field is reached**,
+        and this sum is added to PS and IS. The total must be 32." A non-zero
+        TIx *after* a zero one must not contribute — summing all four
+        unconditionally would accept configurations the hardware rejects with an
+        MMU configuration exception. Tested directly.
+  - Note: unlike TT, this register's bit layout *is* pinned — the prose states
+    "the E bit (bit 31)", the figure's column markers (31, 25, 24, 20, 16, 15,
+    12) survived, and the field widths are given in prose. `ap_m68030_tc.h`
+    records that reasoning bit by bit, so the difference from TT's deferred
+    packing is a documented judgement rather than an inconsistency.
   - [ ] Translation tables, the table walk, and the 22-entry fully associative
         ATC (`[030]` §9.4). Note for when it lands: the manual states ATC
         translation "is always completely overlapped by other operations; thus,

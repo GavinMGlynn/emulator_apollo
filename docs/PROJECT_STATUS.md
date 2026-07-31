@@ -24,6 +24,7 @@ Last updated: 2026-07-31.
 | 68030 instruction pipe + cache holding register | working | `pipe_suite`, 14 tests, `MC68030 User's Manual 3ed` §11.2.2 |
 | 68030 bus cycle state machine | working | `bus_suite`, 17 tests, each citing `MC68030 User's Manual 3ed` ch. 7 (read and write cycles) |
 | 68020 / 68030 / 68040 CPU | not started beyond the bus | — |
+| 68030 translation control (TC) + address split | working | `tc_suite`, 15 tests, `MC68030 User's Manual 3ed` §9.7.2 |
 | 68030 transparent translation (TT0/TT1) | working | `tt_suite`, 15 tests, `MC68030 User's Manual 3ed` §9.3, §9.7.3 |
 | 68851 PMMU, 68030/68040 MMU tables + ATC | not started | — |
 | 68881 / 68882 / 68040 FPU | not started | — |

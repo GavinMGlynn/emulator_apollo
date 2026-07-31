@@ -31,6 +31,7 @@ endfunction()
 
 apollo_add_suite(bus_suite)
 apollo_add_suite(pipe_suite)
+apollo_add_suite(tc_suite)
 apollo_add_suite(tt_suite)
 apollo_add_suite(time_suite)
 apollo_add_suite(model_suite)
