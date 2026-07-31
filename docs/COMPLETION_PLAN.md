@@ -11,6 +11,12 @@ file the moment they are found, not when someone remembers.
 - [x] C23 + CMake/Ninja/Clang build, presets per platform, matching test presets
       for every build preset. *Verification: `cmake --preset` and `ctest
       --preset` succeed for each; CI runs all four platforms.*
+  - [x] Supported set pinned to three 64-bit platforms — Linux x86-64 (Red Hat
+        and Debian derived), Windows x86-64, macOS arm64 — with Clang the
+        default and only supported compiler. 64-bit is enforced at configure
+        time because time is a `uint64_t` in base units; a non-Clang compiler or
+        unlisted platform warns instead. *Verification: `cmake/Platform.cmake`;
+        the configure line names the resolved platform, compiler and width.*
 - [x] Warning set applied to first-party targets only, `-Werror` in debug/CI.
       *Verification: debug build is clean with `APOLLO_WERROR=ON`.*
 - [x] GitHub Actions matrix: ubuntu, rockylinux:9 container, windows

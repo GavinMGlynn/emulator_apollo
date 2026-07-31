@@ -53,6 +53,20 @@ Findings that already have a cited source, so they are not re-derived later.
   operands, Winchester bad-track formatting, and certain video synchronisation.
   Expect to out-accurate the oracle in those areas and record it as a class.
 
+### Supported platforms and toolchain
+
+- Three platforms, all 64-bit: **Linux x86-64** (Red Hat and Debian derived),
+  **Windows x86-64** (clang in an MSVC environment), **macOS arm64**. Clang is
+  the default and only supported compiler; all nine presets set it.
+- 64-bit is **enforced**, not assumed: `cmake/Platform.cmake` fails the configure
+  on a 32-bit target. Time is a `uint64_t` in `AP_TIME_BASE_HZ` units, so a
+  32-bit build is a silent-wrong-answer risk rather than merely untested. A
+  non-Clang compiler or an unlisted platform warns rather than fails — useful as
+  a portability check, but off the supported path.
+- *Verification: the configure prints the resolved triple and compiler
+  (`apollo: Linux/x86_64, Clang 21.1.8, 64-bit`); the CI matrix builds all three
+  platforms plus the `-O0` vs `-O3` identity job.*
+
 ### Third-party dependencies
 
 - Six pinned submodules, documented per-submodule in `ext/README.md`. Four are

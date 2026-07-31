@@ -102,6 +102,29 @@ and it is built before the subsystems it checks.
 
 Requires CMake ≥ 3.21, Ninja and Clang (C23).
 
+### Supported platforms
+
+Three, all **64-bit**, with **Clang** the default and only supported compiler on
+each:
+
+| Platform | Architecture | Notes |
+| --- | --- | --- |
+| Linux | x86-64 | Both Red Hat and Debian derived distributions; CI runs `ubuntu-latest` and a `rockylinux:9` container |
+| Windows | x86-64 | Clang inside an MSVC environment |
+| macOS | arm64 | Apple silicon |
+
+One toolchain everywhere is deliberate. The project's central claim is that a
+given workload produces byte-identical results on every platform and build type;
+holding the compiler fixed means that claim is about the emulator rather than
+about three compilers happening to agree. Another compiler is a useful
+portability check and will build with a warning, but it is off the supported
+path.
+
+64-bit is enforced at configure time rather than assumed. Time is a `uint64_t`
+counter in `AP_TIME_BASE_HZ` units, and a 32-bit target is a silent-wrong-answer
+risk rather than merely an untested one, so `cmake/Platform.cmake` fails the
+configure outright.
+
 ```sh
 git clone --recursive https://github.com/GavinMGlynn/emulator_apollo.git
 cd emulator_apollo
@@ -111,8 +134,9 @@ ctest --preset linux-debug
 ./build/linux-debug/src/frontend/headless/apollo-headless --list-models
 ```
 
-Substitute `macos-*` or `windows-*` for the platform presets. Only `ext/unity`
-is needed to build and test; `ext/mame` is the oracle and is not required.
+Substitute `macos-*` or `windows-*` for the platform presets; every configure
+preset has a matching build and test preset. Only `ext/unity` is needed to build
+and test; `ext/mame` is the oracle and is not required.
 
 ```sh
 git submodule update --init --depth 1 ext/unity   # enough for build + tests
