@@ -1168,6 +1168,36 @@ part now reports which registers it drives and the board supplies the floating
 value for the rest. A part returning zero for an address it does not drive would
 be claiming the bus.
 
+### C20 — the OMTI's span, and the limit of what a read sweep can say
+
+The disk controller characterised the same way as the tape, with the control
+**verified** rather than assumed -- C16's lesson, applied deliberately: the probe
+enumerates the machine's devices and prints whether `:isa1:wdc` is present, so
+the two arms are known to differ before their dumps are compared.
+
+    isa1:wdc present = true    04D000: FF C0 FC 00 FF FF FF FF  (repeating)
+    isa1:wdc present = false   04D000: FF FF FF FF FF FF FF FF
+
+So the range is the controller's -- it is entirely absent without the card -- and
+it aliases on an eight-byte period, matching `008778-03` Table 2-9's eight
+addresses at `04D000`-`04D007`.
+
+**What the sweep can say: offsets 1, 2 and 3 are driven**, reading `C0`, `FC` and
+`00`.
+
+**What it cannot: anything about offsets 0 and 4 to 7.** They read `FF` with the
+card fitted, and `FF` is also what the bus floats to without it. A register
+holding `FF` and an address nobody drives are indistinguishable to a reader.
+That ambiguity did not arise for the tape controller, where the live registers
+happened to hold `00` and `40`, and it is worth naming because the same sweep
+produced a clean answer there and a partial one here for no reason the method
+controls.
+
+Settling it wants either the controller's own manual -- the OMTI 8621 is a
+documented part -- or a write probe, which for a disk controller carries exactly
+the command-register hazard that contaminated C17's tape sweep. The manual is the
+better route and the cheaper one, as it proved for the SC-499.
+
 ## Where the ring is not
 
 The Apollo Token Ring has **no runnable oracle at all**: MAME carries Domain

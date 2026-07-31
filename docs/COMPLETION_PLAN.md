@@ -2384,7 +2384,12 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
 ## Phase 4 — Storage, then a first boot
 
 - [ ] **OMTI 8621 ESDI/floppy controller** — one controller for both, and the
-      DN3500's. *Verification: DMA-completion device shape — transfer now,
+      DN3500's. Placement characterised (`FINDINGS.md` C20): `04D000`, aliased
+      on an eight-byte period, offsets 1-3 driven, offsets 0 and 4-7 reading
+      `FF` which a read sweep cannot tell from undriven. Get the controller's
+      manual before probing further — a write sweep on a disk controller carries
+      the same command-register hazard that contaminated the tape's (C17), and
+      the manual was the better route there too. *Verification: DMA-completion device shape — transfer now,
       schedule completion in emulated time; oracle diff.*
       **Corrected at the Phase 4 boundary.** This item used to read "Winchester
       controllers: OMTI (DN3000), WD7000 ESDI and SCSI (DN4500)", which left the
