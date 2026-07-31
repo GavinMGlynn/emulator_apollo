@@ -348,6 +348,75 @@ static void test_cdis_and_ciout_override_the_enable_bit(void) {
   TEST_ASSERT_FALSE(ap_m68030_cache_enabled(false, false, false));
 }
 
+
+/* ---------------------------------------------------------------------------
+ * CBREQ: whether a miss asks for a whole line, [030] 7.3.7. This is the cache's
+ * half of the bus-timing join -- a burst costs 5 clocks against 8 for four
+ * separate synchronous reads, so getting the *request* wrong misprices a line
+ * fill even when the data ends up correct.
+ * ------------------------------------------------------------------------- */
+
+/* First documented condition: "The logical address and function code signals
+ * ... do not match the indexed tag field". */
+static void test_a_tag_mismatch_requests_a_burst(void) {
+  ap_m68030_cache_t cache = empty_cache();
+  const uint32_t values[AP_M68030_CACHE_ENTRIES] = {0xA0, 0xA1, 0xA2, 0xA3};
+  ap_m68030_cache_fill_line(&cache, 0x00002010u, FC_SUPERVISOR_DATA, values);
+
+  TEST_ASSERT_TRUE(ap_m68030_cache_burst_request(
+      &cache, ADDRESS, FC_SUPERVISOR_DATA, true, true, false, false));
+}
+
+/* Second condition, and the one most easily left out: the tag *matches* but
+ * "all four long words corresponding to the indexed tag ... are marked
+ * invalid". Without this a cleared cache refills one long word at a time and
+ * never takes a burst at all. */
+static void test_a_matching_tag_with_no_valid_entries_still_bursts(void) {
+  ap_m68030_cache_t cache = empty_cache();
+  const uint32_t values[AP_M68030_CACHE_ENTRIES] = {0xA0, 0xA1, 0xA2, 0xA3};
+  ap_m68030_cache_fill_line(&cache, ADDRESS, FC_SUPERVISOR_DATA, values);
+  ap_m68030_cache_clear(&cache); /* tags survive, valid bits do not */
+
+  TEST_ASSERT_TRUE(ap_m68030_cache_burst_request(
+      &cache, ADDRESS, FC_SUPERVISOR_DATA, true, true, false, false));
+}
+
+/* The complement: a matching tag with even one valid entry does not burst,
+ * because the line is already partly populated. */
+static void test_a_matching_tag_with_one_valid_entry_does_not_burst(void) {
+  ap_m68030_cache_t cache = empty_cache();
+  ap_m68030_cache_fill_entry(&cache, 0x00001010u, FC_SUPERVISOR_DATA, 0xA0);
+
+  TEST_ASSERT_FALSE(ap_m68030_cache_burst_request(
+      &cache, ADDRESS, FC_SUPERVISOR_DATA, true, true, false, false));
+}
+
+/* "If the appropriate cache is not enabled or if the cache freeze bit for the
+ * cache is set, the processor does not assert CBREQ", the burst enable bit
+ * gates the whole mechanism, and "CBREQ is not asserted during the read or
+ * write cycles of any read-modify-write operation". Each suppressor is checked
+ * against an access that would otherwise burst. */
+static void test_each_condition_suppresses_the_burst_request(void) {
+  ap_m68030_cache_t cache = empty_cache();
+
+  /* Baseline: an empty cache would burst. */
+  TEST_ASSERT_TRUE(ap_m68030_cache_burst_request(
+      &cache, ADDRESS, FC_SUPERVISOR_DATA, true, true, false, false));
+
+  /* DBE/IBE clear. */
+  TEST_ASSERT_FALSE(ap_m68030_cache_burst_request(
+      &cache, ADDRESS, FC_SUPERVISOR_DATA, false, true, false, false));
+  /* Cache disabled. */
+  TEST_ASSERT_FALSE(ap_m68030_cache_burst_request(
+      &cache, ADDRESS, FC_SUPERVISOR_DATA, true, false, false, false));
+  /* Cache frozen. */
+  TEST_ASSERT_FALSE(ap_m68030_cache_burst_request(
+      &cache, ADDRESS, FC_SUPERVISOR_DATA, true, true, true, false));
+  /* Read-modify-write. */
+  TEST_ASSERT_FALSE(ap_m68030_cache_burst_request(
+      &cache, ADDRESS, FC_SUPERVISOR_DATA, true, true, false, true));
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_the_address_splits_into_tag_line_and_long_word);
@@ -369,5 +438,9 @@ int main(void) {
   RUN_TEST(test_clear_entry_uses_the_caar_index);
   RUN_TEST(test_disabling_a_cache_does_not_flush_it);
   RUN_TEST(test_cdis_and_ciout_override_the_enable_bit);
+  RUN_TEST(test_a_tag_mismatch_requests_a_burst);
+  RUN_TEST(test_a_matching_tag_with_no_valid_entries_still_bursts);
+  RUN_TEST(test_a_matching_tag_with_one_valid_entry_does_not_burst);
+  RUN_TEST(test_each_condition_suppresses_the_burst_request);
   return UNITY_END();
 }

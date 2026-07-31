@@ -194,3 +194,34 @@ bool ap_m68030_cache_enabled(bool enable_bit, bool cache_disable,
   }
   return enable_bit;
 }
+
+bool ap_m68030_cache_burst_request(const ap_m68030_cache_t *cache,
+                                   uint32_t address, uint8_t function_code,
+                                   bool burst_enable, bool cache_enabled,
+                                   bool frozen, bool read_modify_write) {
+  /* "If the appropriate cache is not enabled or if the cache freeze bit for the
+   * cache is set, the processor does not assert CBREQ. CBREQ is not asserted
+   * during the read or write cycles of any read-modify-write operation." */
+  if (!burst_enable || !cache_enabled || frozen || read_modify_write) {
+    return false;
+  }
+
+  const ap_m68030_cache_line_t *line =
+      &cache->line[ap_m68030_cache_line_index(address)];
+
+  /* First condition: the tag does not match. */
+  if (line->tag != ap_m68030_cache_tag(address, function_code)) {
+    return true;
+  }
+
+  /* Second condition, and the one that is easy to leave out: the tag *does*
+   * match but "all four long words corresponding to the indexed tag ... are
+   * marked invalid". Without it a cleared cache would refill an entry at a
+   * time, never taking a burst. */
+  for (unsigned e = 0; e < AP_M68030_CACHE_ENTRIES; e++) {
+    if (line->valid[e]) {
+      return false;
+    }
+  }
+  return true;
+}

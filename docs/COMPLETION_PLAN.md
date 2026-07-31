@@ -623,8 +623,33 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
     *actions* performed by the write rather than as fields, since all four "are
     always read as zero" — storing them would invent a readable bit the hardware
     does not have.
-  - [ ] **The bus-timing join, which is where the plan item's verification
-        lives.** The module deliberately models what hits and what fills, not
+  - [x] **The cache's half of the timing join: the `CBREQ` decision**, `[030]`
+        §7.3.7. Whether a miss asks the memory system for a whole *line* rather
+        than one long word, which is worth 5 clocks against 8 and so misprices a
+        line fill if it is wrong even when the data ends up right. The manual
+        gives two conditions and it is an **or**: the tag does not match, *or*
+        "all four long words corresponding to the indexed tag ... are marked
+        invalid". The second is the one easily left out — a line whose tag
+        matches but whose entries were all cleared still bursts, and without it
+        a cleared cache would refill an entry at a time and never burst at all.
+        Suppressed by a clear `DBE`/`IBE`, a disabled cache, a frozen cache, or
+        any read-modify-write cycle.
+        *Verification: `cache_suite`, 4 further tests — each condition on its
+        own, the matching-tag-all-invalid case against its complement (one valid
+        entry is enough to stop the burst), and all four suppressors checked
+        against an access that would otherwise burst.*
+  - [ ] **The bus's half: burst cycles themselves.**
+        `ap_m68030_bus` models one cycle at a time and has no burst. §7.3.7:
+        burst runs only "from 32-bit ports that terminate bus cycles with STERM
+        and respond to CBREQ by asserting CBACK", after which the processor
+        "continues to accept data on every clock during which STERM is
+        asserted" — so a line is 2 clocks for the first long word and 1 for each
+        of the next three, against 8 for four separate synchronous reads. That
+        ratio is the whole point of modelling the caches for timing.
+        *Verification: a burst line fill costing 5 clocks against 8 for four
+        single reads, counted through the bus state machine rather than
+        asserted.*
+  - [ ] **What a miss costs, end to end.** The module deliberately models what hits and what fills, not
         what a miss costs — the same split as the ATC, whose cost lives in
         `ap_m68030_walk` rather than in `ap_m68030_atc`. A miss must charge for
         its external cycles and a burst for its line fill, through

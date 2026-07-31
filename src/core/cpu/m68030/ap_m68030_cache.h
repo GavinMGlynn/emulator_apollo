@@ -178,6 +178,38 @@ void ap_m68030_cacr_write(ap_m68030_cacr_t *cacr, uint32_t word,
                           ap_m68030_cache_t *instruction,
                           ap_m68030_cache_t *data, uint32_t caar);
 
+/* Whether the processor asserts CBREQ for this access — that is, whether a miss
+ * asks the memory system for a whole line rather than one long word.
+ *
+ * `[030]` §7.3.7 gives two conditions, and it is an **or**, not an and:
+ * "Either of the following conditions cause the MC68030 to initiate a cache
+ * burst request (and assert CBREQ) for a cachable read cycle: The logical
+ * address and function code signals ... do not match the indexed tag field ...
+ * [or] All four long words corresponding to the indexed tag in the appropriate
+ * cache are marked invalid."
+ *
+ * The second is the one worth stating aloud: a line whose tag *does* match but
+ * whose entries are all invalid still bursts. Requiring a tag mismatch would
+ * make a cleared cache refill one long word at a time.
+ *
+ * Three things suppress it outright. "If the appropriate cache is not enabled
+ * or if the cache freeze bit for the cache is set, the processor does not
+ * assert CBREQ. CBREQ is not asserted during the read or write cycles of any
+ * read-modify-write operation." And the whole mechanism "is enabled by the data
+ * burst enable (DBE) and instruction burst enable (IBE) bits".
+ *
+ * This is the cache's half of the timing join: whether a burst is *requested*.
+ * Whether it happens is the memory system's answer — burst runs only "from
+ * 32-bit ports that terminate bus cycles with STERM and respond to CBREQ by
+ * asserting CBACK". */
+[[nodiscard]] bool ap_m68030_cache_burst_request(const ap_m68030_cache_t *cache,
+                                                 uint32_t address,
+                                                 uint8_t function_code,
+                                                 bool burst_enable,
+                                                 bool cache_enabled,
+                                                 bool frozen,
+                                                 bool read_modify_write);
+
 /* Whether a cache may be used for an access, given CACR and the two hardware
  * signals that override it.
  *
