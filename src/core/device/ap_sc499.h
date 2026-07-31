@@ -65,6 +65,7 @@ typedef enum {
 #define AP_SC499_ST_DONE 0x10u /* "Done, from DMA logic" */
 #define AP_SC499_ST_DIR 0x08u  /* bus direction, controller to host */
 
+
 /* Whether a register is driven on a read. The two DMA command addresses are
  * write-only, and the measured dump shows them floating to `FF` rather than
  * reading zero -- so a board must answer for them, and the part must say it is
@@ -84,6 +85,20 @@ typedef struct {
 /* Power-on reset. `[SC499]` defines RSTDMA as performing the same functions, so
  * the two share an implementation and a test. */
 void ap_sc499_reset(ap_sc499_t *tape);
+
+/* Raise or clear the exception condition, keeping it exclusive of ready.
+ *
+ * `[SC499]` Figure 1-6: "READY shall not be asserted for an EXCEPTION
+ * condition." Figure 1-8 shows the order the other way round -- on a command
+ * issued while EXCEPTION is up, the device deasserts EXCEPTION first and only
+ * then, at least 10 us later, asserts READY. The two are never both up, by
+ * specification rather than convention.
+ *
+ * So this is a single call rather than two fields a caller sets independently:
+ * an invariant that can be broken by forgetting one line is not an invariant.
+ * `FINDINGS.md` C26 records the join getting exactly that wrong before the
+ * figures were read. */
+void ap_sc499_set_exception(ap_sc499_t *tape, bool asserted);
 
 [[nodiscard]] uint8_t ap_sc499_read(ap_sc499_t *tape, unsigned reg);
 void ap_sc499_write(ap_sc499_t *tape, unsigned reg, uint8_t value);

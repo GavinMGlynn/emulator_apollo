@@ -185,8 +185,45 @@ static void test_running_off_the_end_raises_exception(void) {
                          ap_tape_read(&t, AP_TAPE_ADDR + 1u) & AP_SC499_ST_EXC);
 }
 
+static void test_ready_and_exception_are_never_both_asserted(void) {
+  ap_tape_t t;
+  arm(&t);
+  issue(&t, AP_QIC_CMD_SELECT);
+  issue(&t, AP_QIC_CMD_READ);
+  for (unsigned i = 0; i < sizeof cartridge; i++) {
+    (void)ap_tape_read(&t, AP_TAPE_ADDR + 0u);
+  }
+  (void)ap_tape_read(&t, AP_TAPE_ADDR + 0u); /* past the end */
+
+  /* `[SC499]` Figure 1-6: "READY shall not be asserted for an EXCEPTION
+   * condition." The two are exclusive by specification, so a driver polling
+   * status must never see both -- a state the device cannot be in. */
+  uint8_t status = ap_tape_read(&t, AP_TAPE_ADDR + 1u);
+  TEST_ASSERT_EQUAL_HEX8(AP_SC499_ST_EXC, status & AP_SC499_ST_EXC);
+  TEST_ASSERT_EQUAL_HEX8(0, status & AP_SC499_ST_RDY);
+}
+
+static void test_a_command_clears_an_exception(void) {
+  ap_tape_t t;
+  arm(&t);
+  issue(&t, AP_QIC_CMD_SELECT);
+  issue(&t, AP_QIC_CMD_WRITE); /* refused, raises exception */
+  TEST_ASSERT_EQUAL_HEX8(AP_SC499_ST_EXC,
+                         ap_tape_read(&t, AP_TAPE_ADDR + 1u) & AP_SC499_ST_EXC);
+
+  /* Figure 1-8: on a command issued while EXCEPTION is up the device deasserts
+   * EXCEPTION and then asserts READY. So a driver recovers by commanding, not
+   * by reading -- and the ready bit comes back with it. */
+  issue(&t, AP_QIC_CMD_BOT);
+  uint8_t status = ap_tape_read(&t, AP_TAPE_ADDR + 1u);
+  TEST_ASSERT_EQUAL_HEX8(0, status & AP_SC499_ST_EXC);
+  TEST_ASSERT_EQUAL_HEX8(AP_SC499_ST_RDY, status & AP_SC499_ST_RDY);
+}
+
 int main(void) {
   UNITY_BEGIN();
+  RUN_TEST(test_ready_and_exception_are_never_both_asserted);
+  RUN_TEST(test_a_command_clears_an_exception);
   RUN_TEST(test_an_idle_controller_still_reads_as_measured);
   RUN_TEST(test_a_command_reaches_the_drive_through_the_registers);
   RUN_TEST(test_the_tape_is_read_through_the_data_register);

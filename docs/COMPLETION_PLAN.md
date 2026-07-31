@@ -2467,12 +2467,11 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         synchroniser is. The ordering alone is enough for a polling driver.
   - [x] Figure 1-6, the read data transfer, transcribed (C26): ACKNOWLEDGE and
         TRANSFER pace each byte while READY frames the block.
-  - [ ] **Named defect:** "READY shall not be asserted for an EXCEPTION
-        condition", so the two are mutually exclusive by specification. The
-        current join raises Exception at end of tape and leaves Ready set, which
-        presents a state the device cannot be in.
-  - [ ] Figures 1-5, 1-8, 1-9 and 1-10 — write, exception, direction and status
-        transfers — still to read from the page images.
+  - [x] Figure 1-8 transcribed and the READY/EXCEPTION defect fixed: exception
+        clears ready in one call, and a command clears the exception and
+        restores ready, which is Figure 1-8's own order.
+  - [ ] Figures 1-5, 1-9 and 1-10 — write, direction and status transfers —
+        still to read from the page images.
   - [ ] Note C25: the
         controller identifies the cartridge type from BOT-to-load-point
         *distance*, which a raw block image has no geometry to supply, so the

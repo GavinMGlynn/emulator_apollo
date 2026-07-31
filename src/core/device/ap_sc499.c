@@ -2,6 +2,14 @@
 
 #include <string.h>
 
+void ap_sc499_set_exception(ap_sc499_t *tape, bool asserted) {
+  tape->exception = asserted;
+  if (asserted) {
+    /* Figure 1-6's rule, enforced where it cannot be forgotten. */
+    tape->ready = false;
+  }
+}
+
 bool ap_sc499_readable(unsigned reg) {
   unsigned r = reg & (AP_SC499_REGISTERS - 1u);
   return r == AP_SC499_DATA || r == AP_SC499_CONTROL_STATUS;

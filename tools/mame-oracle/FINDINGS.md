@@ -1579,6 +1579,26 @@ device dependent." A specification declining to define a case is itself
 information -- it says a driver must not do that, and that an emulator has no
 correct answer to give if one does.
 
+**Figure 1-8 closes it**, and gives the other half of the rule. It is the command
+transfer with EXCEPTION already asserted:
+
+    T1  Bus Data Valid
+    T2  Controller Asserts REQUEST      0 us < T1->T2
+    T3  Device Deasserts EXCEPTION      0 us < T2->T3
+    T4  Device Asserts READY           10 us < T3->T4
+    T5  Controller Deasserts REQUEST    0 us < T4->T5
+    T7  Device Deasserts READY         20 us < T5->T7 < 100 us
+
+So EXCEPTION is cleared *by issuing a command*, and READY rises only after it
+falls -- at least ten microseconds after. Figure 1-6 says the two are never both
+asserted; Figure 1-8 shows the order in which they change. A driver recovers from
+an exception by commanding, not by reading.
+
+The defect recorded above is fixed accordingly, and the invariant moved somewhere
+it cannot be forgotten: `ap_sc499_set_exception` sets the condition and clears
+ready in one call, rather than leaving two fields for a caller to keep consistent.
+An invariant that can be broken by omitting a line is not an invariant.
+
 ## Where the ring is not
 
 The Apollo Token Ring has **no runnable oracle at all**: MAME carries Domain

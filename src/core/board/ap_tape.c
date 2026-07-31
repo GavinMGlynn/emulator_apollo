@@ -62,7 +62,7 @@ uint8_t ap_tape_read(ap_tape_t *tape, uint32_t address) {
      * learns it has ended: `[SC499]`'s status carries EXC "from LSI chip", and
      * running off the end of a cartridge is such a condition. */
     if (!ensure_block(tape)) {
-      tape->controller.exception = true;
+      ap_sc499_set_exception(&tape->controller, true);
       return 0xFFu;
     }
     return tape->block[tape->offset++];
@@ -89,9 +89,13 @@ void ap_tape_write(ap_tape_t *tape, uint32_t address, uint8_t value) {
      * Exception instead of failing silently -- the status register is the only
      * channel the controller has for saying no. */
     if (!ap_qic_command(&tape->drive, value)) {
-      tape->controller.exception = true;
+      ap_sc499_set_exception(&tape->controller, true);
     } else {
-      tape->controller.exception = false;
+      /* Figure 1-8: a command issued while EXCEPTION is up clears it, and the
+       * device asserts READY afterwards. So accepting a command is what lifts
+       * an exception -- a driver recovers by commanding, not by reading. */
+      ap_sc499_set_exception(&tape->controller, false);
+      tape->controller.ready = true;
       /* A new command invalidates whatever block was part-read. */
       tape->block_valid = false;
       tape->offset = 0u;
