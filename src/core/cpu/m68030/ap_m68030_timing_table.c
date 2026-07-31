@@ -18,45 +18,16 @@
  * pattern that appears six times across ADDA, SUBA and CMPA, and it is the
  * direction that makes physical sense: the word form sign-extends its source to
  * 32 bits before operating and the long form does not. */
-static const ap_m68030_table_entry_t TABLE[] = {
-    /* §11.6.8, Arithmetical/Logical Instructions. */
-    {"ADD Rn,Dn", {.head = 2, .tail = 0, .cache_case = 2, .no_cache_case = 2}, false, false},
-    {"ADDA.W Rn,An", {.head = 4, .tail = 0, .cache_case = 4, .no_cache_case = 4}, false, false},
-    {"ADDA.L Rn,An", {.head = 2, .tail = 0, .cache_case = 2, .no_cache_case = 2}, false, false},
-    {"AND Dn,Dn", {.head = 2, .tail = 0, .cache_case = 2, .no_cache_case = 2}, false, false},
-    {"EOR Dn,Dn", {.head = 2, .tail = 0, .cache_case = 2, .no_cache_case = 2}, false, false},
-    {"OR Dn,Dn", {.head = 2, .tail = 0, .cache_case = 2, .no_cache_case = 2}, false, false},
-    {"SUB Rn,Dn", {.head = 2, .tail = 0, .cache_case = 2, .no_cache_case = 2}, false, false},
-    {"SUBA.W Rn,An", {.head = 4, .tail = 0, .cache_case = 4, .no_cache_case = 4}, false, false},
-    {"SUBA.L Rn,An", {.head = 2, .tail = 0, .cache_case = 2, .no_cache_case = 2}, false, false},
-    {"CMP Rn,Dn", {.head = 2, .tail = 0, .cache_case = 2, .no_cache_case = 2}, false, false},
-    {"CMPA Rn,An", {.head = 4, .tail = 0, .cache_case = 4, .no_cache_case = 4}, false, false},
-
-    /* The divides, marked `+` in the table: "Indicates Maximum Time (Actual
-     * time is data dependent)". PROVISIONAL. */
-    {"DIVS.W Dn,Dn", {.head = 2, .tail = 0, .cache_case = 56, .no_cache_case = 56}, true, false},
-    {"DIVS.L Dn,Dn", {.head = 6, .tail = 0, .cache_case = 90, .no_cache_case = 90}, true, false},
-    {"DIVU.W Dn,Dn", {.head = 2, .tail = 0, .cache_case = 44, .no_cache_case = 44}, true, false},
-    {"DIVU.L Dn,Dn", {.head = 6, .tail = 0, .cache_case = 78, .no_cache_case = 78}, true, false},
-
-    /* §11.6.9, Immediate Arithmetical/Logical Instructions. */
-    {"MOVEQ #<data>,Dn", {.head = 2, .tail = 0, .cache_case = 2, .no_cache_case = 2}, false, false},
-    {"ADDQ #<data>,Rn", {.head = 2, .tail = 0, .cache_case = 2, .no_cache_case = 2}, false, false},
-    {"SUBQ #<data>,Rn", {.head = 2, .tail = 0, .cache_case = 2, .no_cache_case = 2}, false, false},
-    /* `**` in the table: the immediate is fetched through a separate effective
-     * address time, so this figure is not the whole cost. */
-    {"ADDI #<data>,Dn", {.head = 2, .tail = 0, .cache_case = 2, .no_cache_case = 2}, false, true},
-};
-
-#define TABLE_COUNT (sizeof TABLE / sizeof TABLE[0])
-
-const ap_m68030_table_entry_t *ap_m68030_timing_table(unsigned *count) {
-  *count = (unsigned)TABLE_COUNT;
-  return TABLE;
-}
-
-/* Index into TABLE, by name, so the mapping below reads as the table does and a
- * reordering of the rows cannot silently change what an opcode maps to. */
+/* The row index *is* the table's order: every entry below is written with a
+ * designated initialiser, so a row and its index cannot drift apart however the
+ * file is edited.
+ *
+ * They did drift apart, which is why this is now written this way. Five rows
+ * were inserted into the array at one point and five names into the enum at
+ * another, the counts still matched, and the `static_assert` below -- which only
+ * compares counts -- passed. The lookup then returned `DIVS.W`'s 56 clocks for
+ * `ADD.B D0,(A0)`. A guard that checks a count catches an omission and not a
+ * misordering. */
 enum {
   ROW_ADD_RN_DN = 0,
   ROW_ADDA_W,
@@ -73,11 +44,72 @@ enum {
   ROW_DIVS_L,
   ROW_DIVU_W,
   ROW_DIVU_L,
+  ROW_ADD_DN_EA,
+  ROW_SUB_DN_EA,
+  ROW_AND_DN_EA,
+  ROW_OR_DN_EA,
+  ROW_EOR_DN_EA,
   ROW_MOVEQ,
   ROW_ADDQ,
   ROW_SUBQ,
   ROW_ADDI_DN,
+  ROW_COUNT,
 };
+
+static const ap_m68030_table_entry_t TABLE[ROW_COUNT] = {
+    /* §11.6.8, Arithmetical/Logical Instructions. */
+    [ROW_ADD_RN_DN] = {"ADD Rn,Dn", {.head = 2, .tail = 0, .cache_case = 2, .no_cache_case = 2}, false, false},
+    [ROW_ADDA_W] = {"ADDA.W Rn,An", {.head = 4, .tail = 0, .cache_case = 4, .no_cache_case = 4}, false, false},
+    [ROW_ADDA_L] = {"ADDA.L Rn,An", {.head = 2, .tail = 0, .cache_case = 2, .no_cache_case = 2}, false, false},
+    [ROW_AND_DN_DN] = {"AND Dn,Dn", {.head = 2, .tail = 0, .cache_case = 2, .no_cache_case = 2}, false, false},
+    [ROW_EOR_DN_DN] = {"EOR Dn,Dn", {.head = 2, .tail = 0, .cache_case = 2, .no_cache_case = 2}, false, false},
+    [ROW_OR_DN_DN] = {"OR Dn,Dn", {.head = 2, .tail = 0, .cache_case = 2, .no_cache_case = 2}, false, false},
+    [ROW_SUB_RN_DN] = {"SUB Rn,Dn", {.head = 2, .tail = 0, .cache_case = 2, .no_cache_case = 2}, false, false},
+    [ROW_SUBA_W] = {"SUBA.W Rn,An", {.head = 4, .tail = 0, .cache_case = 4, .no_cache_case = 4}, false, false},
+    [ROW_SUBA_L] = {"SUBA.L Rn,An", {.head = 2, .tail = 0, .cache_case = 2, .no_cache_case = 2}, false, false},
+    [ROW_CMP_RN_DN] = {"CMP Rn,Dn", {.head = 2, .tail = 0, .cache_case = 2, .no_cache_case = 2}, false, false},
+    [ROW_CMPA_RN_AN] = {"CMPA Rn,An", {.head = 4, .tail = 0, .cache_case = 4, .no_cache_case = 4}, false, false},
+
+    /* The divides, marked `+` in the table: "Indicates Maximum Time (Actual
+     * time is data dependent)". PROVISIONAL. */
+    [ROW_DIVS_W] = {"DIVS.W Dn,Dn", {.head = 2, .tail = 0, .cache_case = 56, .no_cache_case = 56}, true, false},
+    [ROW_DIVS_L] = {"DIVS.L Dn,Dn", {.head = 6, .tail = 0, .cache_case = 90, .no_cache_case = 90}, true, false},
+    [ROW_DIVU_W] = {"DIVU.W Dn,Dn", {.head = 2, .tail = 0, .cache_case = 44, .no_cache_case = 44}, true, false},
+    [ROW_DIVU_L] = {"DIVU.L Dn,Dn", {.head = 6, .tail = 0, .cache_case = 78, .no_cache_case = 78}, true, false},
+
+    /* The memory-destination forms. These are the first rows whose `NCC`
+     * exceeds their `CC`: `3(0/0/1)` against `4(0/1/1)`, so the write hides
+     * under three clocks of microcode but the write *plus* a prefetch does not.
+     * Under `max(microcode, bus)` the microcode is `CC` here as elsewhere --
+     * max(3,2) = 3 and max(3,4) = 4 -- and the core's own bus time supplies the
+     * rest. They are what exercises the model where the register forms cannot. */
+    [ROW_ADD_DN_EA] = {"ADD Dn,EA", {.head = 0, .tail = 1, .cache_case = 3, .no_cache_case = 4},
+     false, true},
+    [ROW_SUB_DN_EA] = {"SUB Dn,EA", {.head = 0, .tail = 1, .cache_case = 3, .no_cache_case = 4},
+     false, true},
+    [ROW_AND_DN_EA] = {"AND Dn,EA", {.head = 0, .tail = 1, .cache_case = 3, .no_cache_case = 4},
+     false, true},
+    [ROW_OR_DN_EA] = {"OR Dn,EA", {.head = 0, .tail = 1, .cache_case = 3, .no_cache_case = 4},
+     false, true},
+    [ROW_EOR_DN_EA] = {"EOR Dn,EA", {.head = 0, .tail = 1, .cache_case = 3, .no_cache_case = 4},
+     false, true},
+
+    /* §11.6.9, Immediate Arithmetical/Logical Instructions. */
+    [ROW_MOVEQ] = {"MOVEQ #<data>,Dn", {.head = 2, .tail = 0, .cache_case = 2, .no_cache_case = 2}, false, false},
+    [ROW_ADDQ] = {"ADDQ #<data>,Rn", {.head = 2, .tail = 0, .cache_case = 2, .no_cache_case = 2}, false, false},
+    [ROW_SUBQ] = {"SUBQ #<data>,Rn", {.head = 2, .tail = 0, .cache_case = 2, .no_cache_case = 2}, false, false},
+    /* `**` in the table: the immediate is fetched through a separate effective
+     * address time, so this figure is not the whole cost. */
+    [ROW_ADDI_DN] = {"ADDI #<data>,Dn", {.head = 2, .tail = 0, .cache_case = 2, .no_cache_case = 2}, false, true},
+};
+
+#define TABLE_COUNT (sizeof TABLE / sizeof TABLE[0])
+
+const ap_m68030_table_entry_t *ap_m68030_timing_table(unsigned *count) {
+  *count = (unsigned)TABLE_COUNT;
+  return TABLE;
+}
+
 
 const ap_m68030_table_entry_t *ap_m68030_timing_for_word(uint16_t instruction) {
   const unsigned family = (unsigned)((instruction >> 12) & 0xFu);
@@ -92,6 +124,29 @@ const ap_m68030_table_entry_t *ap_m68030_timing_for_word(uint16_t instruction) {
   /* MOVEQ is family 0111 with bit 8 clear, and takes no operand at all. */
   if (family == 0x7u && ((instruction >> 8) & 1u) == 0u) {
     return &TABLE[ROW_MOVEQ];
+  }
+
+  /* The memory-destination direction: opmodes 100-110 write the result to the
+   * effective address. Those rows are transcribed for a memory destination
+   * only -- a register destination in that direction is a different
+   * instruction entirely (ADDX, ABCD, CMPM, EXG), which §11.6.8 lists
+   * separately and this does not cover. */
+  const bool to_memory = (opmode >= 0x4u) && (opmode <= 0x6u);
+  if (to_memory && !register_source) {
+    switch (family) {
+    case 0xDu:
+      return &TABLE[ROW_ADD_DN_EA];
+    case 0x9u:
+      return &TABLE[ROW_SUB_DN_EA];
+    case 0xCu:
+      return &TABLE[ROW_AND_DN_EA];
+    case 0x8u:
+      return &TABLE[ROW_OR_DN_EA];
+    case 0xBu:
+      return &TABLE[ROW_EOR_DN_EA];
+    default:
+      return nullptr;
+    }
   }
 
   if (!register_source) {
@@ -167,5 +222,5 @@ const ap_m68030_table_entry_t *ap_m68030_timing_for_word(uint16_t instruction) {
  * time this module does not carry. They are transcribed because they were read,
  * and reachable through ap_m68030_timing_table() for anything that wants the
  * published figure directly. */
-static_assert(TABLE_COUNT == (unsigned)ROW_ADDI_DN + 1u,
+static_assert(TABLE_COUNT == (unsigned)ROW_COUNT,
               "every transcribed row must have an index, and vice versa");

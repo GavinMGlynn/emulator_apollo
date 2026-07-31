@@ -4,12 +4,12 @@
 # figures to compare against MC68030 User's Manual ch. 11.
 probe               ran status         d0       pc         clocks berr hash            
 moveq                 2 STOPPED        00000042 00001006        4    0 7DEECBAA4032A345
-store-reload          4 STOPPED        00000042 00001012       12    0 B2DFFE25E65FB592
+store-reload          4 STOPPED        00000042 00001012       14    0 D00F06C6F0C7333C
 loop                 14 STOPPED        00000006 0000100C       20    0 E9056B9809275F32
-subroutine            4 STOPPED        00000007 00001008        8    0 05B3F659C2658DFB
-trap                  4 STOPPED        00000009 00001008       16    0 42E98DFEC7F4C017
+subroutine            4 STOPPED        00000007 00001008       10    0 67F92DE1C543656D
+trap                  4 STOPPED        00000009 00001008       24    0 29184AF4CE96908F
 wide-arithmetic       4 STOPPED        0003299B 00001012       10    0 6ABB5E60ED28A98B
-movem                 7 STOPPED        00000001 00001014       18    0 B9D4D447F790AB64
+movem                 7 STOPPED        00000001 00001014       22    0 FFD2F02B1CB6DA70
 pmove                 3 STOPPED        00000000 0000100E       10    0 C068EEEECF94408F
 
 # what each probe covers

@@ -189,6 +189,32 @@ ap_m68030_access_result_t ap_m68030_access_write(ap_m68030_access_ctx_t *access,
     access->store(access->context, physical, value, size);
   }
 
+  /* And it costs what the bus charges for it, counted by running the cycle --
+   * the same way a read miss is priced, rather than by a constant. A write that
+   * cost nothing is what this was until the published `NCC` column caught it:
+   * `ADD Dn,EA` is `CC 3(0/0/1)` against `NCC 4(0/1/1)`, and the core produced
+   * 3 for both because the write contributed no time.
+   *
+   * The termination is STERM: this is the synchronous case, which is what the
+   * timing tables assume ("All memory accesses occur with two-clock bus cycles
+   * and no wait states"). A memory system that inserts wait states will make
+   * this longer by itself, which is the point of counting ticks rather than
+   * asserting a number. */
+  ap_m68030_bus_t write_bus;
+  ap_m68030_bus_begin(&write_bus, physical, function_code,
+                      size == 4u ? AP_M68030_SIZE_LONG
+                                 : (size == 2u ? AP_M68030_SIZE_WORD
+                                               : AP_M68030_SIZE_BYTE),
+                      false, true);
+  while (ap_m68030_bus_active(&write_bus)) {
+    ap_m68030_bus_terminate(&write_bus, AP_M68030_TERM_STERM);
+    (void)ap_m68030_bus_tick(&write_bus);
+    out.clocks++;
+    if (out.clocks > 64u) {
+      break; /* as the read path does: a device that never answers is a bug */
+    }
+  }
+
   /* The cache's own part, which is an update rather than a fill. */
   const bool cache_usable = ap_m68030_cache_enabled(
       access->cache_enabled, access->cache_disable, cache_inhibit);
