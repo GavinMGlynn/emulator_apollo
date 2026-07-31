@@ -560,6 +560,24 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         register number where zero means register 0, so the substitution must
         *not* happen. Both directions tested.
         *Verification: `shift_suite`, 10 tests.*
+  - [x] **Family `1111` decode** (`src/core/cpu/m68030/ap_m68030_coproc.c`):
+        the coprocessor interface, and with it **the operation code map is
+        complete** — every family from `0000` to `1111` now decodes.
+        cpID 0 is the 68030's *own MMU*: "The MMU instructions use the same
+        opcodes and coprocessor identification (CpID) as the corresponding
+        instructions of the MC68851", so `PMOVE`, `PTEST` and `PFLUSH` are
+        F-line words — which is how the MMU registers this project already
+        models get written. The 68882 sits at a different ID alongside.
+        **The same instruction word takes different vectors depending on
+        privilege**, which is unusual enough to be the module's headline:
+        an unsupported cpID-0 word is an F-line exception (vector 11) from
+        supervisor state and a **privilege violation** (vector 8) from user
+        state. Almost everywhere else in this architecture the exception a word
+        takes is a property of the word alone. Reporting F-line in both cases
+        would let a user program distinguish "unimplemented" from "not
+        allowed" — exactly what the privilege violation exists to prevent.
+        *Verification: `coproc_suite`, 6 tests, including the two vectors from
+        one word and the rule holding for cpID 0 against all seven others.*
   - [ ] **CMP2/CHK2, CAS and CAS2**, which occupy size field `11` in family
         `0000`'s immediate rows. Not decoded: `ap_m68030_immediate_decode`
         reports invalid there rather than mis-decoding them as a wider ORI, and
