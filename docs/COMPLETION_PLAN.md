@@ -2384,7 +2384,15 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
 ## Phase 4 — Storage, then a first boot
 
 - [ ] **OMTI 8621 ESDI/floppy controller** — one controller for both, and the
-      DN3500's. Placement characterised (`FINDINGS.md` C20): `04D000`, aliased
+      DN3500's.
+  - [x] The register model for both halves, from `[OMTI]` Tables 4-1, 4-2 and
+        4-3: the fixed disk's four ports and the floppy's five, modelled as two
+        independent sets sharing nothing. Both measured dumps are reproduced as
+        tests. `omti_suite`, 9 tests.
+  - [ ] The command sets, `[OMTI]` §5 (fixed disk CDBs) and §6 (floppy). They
+        want a drive and a disk image behind them.
+  - [ ] Wire both halves into the board — `04D000` and `05F800`, 74 KB apart.
+ Placement characterised (`FINDINGS.md` C20): `04D000`, aliased
       on an eight-byte period, offsets 1-3 driven, offsets 0 and 4-7 reading
       `FF` which a read sweep cannot tell from undriven. **No manual for this part has been found yet**, and three plausible
       candidates have been eliminated (`FINDINGS.md` C20): bitsavers'
