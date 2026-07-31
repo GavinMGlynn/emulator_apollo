@@ -13,6 +13,7 @@ add_library(apollo_core STATIC
   board/ap_atmap.c
   board/ap_calendar.c
   board/ap_dma.c
+  board/ap_sio.c
   device/ap_i8237.c
   device/ap_i8259.c
   device/ap_mc146818.c

@@ -2360,11 +2360,13 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
   - [ ] Serial framing — baud rates, start/stop bits, parity, and the automatic
         echo and loopback modes. A character crosses this module whole; nothing
         is connected to a wire yet, and the keyboard is what will need it.
-  - [ ] `008778-03` §3.9's Apollo specifics: SIO line 0 is the keyboard, and
-        "The counter/timer on the SIO chip is used for the refresh count ...
-        set up in the timer mode to produce a square wave output on output OP3.
-        The period of the output is 15 microseconds." That output is memory
-        refresh, so the DUART drives a system function and not only a port.
+  - [x] Both ports wired into the board at `010400` and `010500`, stride 2,
+        sharing IRQ1. §3.9's memory-refresh period is pinned at exactly 99000
+        base units — a figure whose *frequency* is not an integer, so it is the
+        second case (after the interval timer's prescaled rate) that a core
+        counting in hertz could not represent at all. `sio_suite`, 6 tests.
+  - [ ] Drive the refresh from the DUART's timer, and the keyboard from
+        SIO line 0. Both need the framing above, or a device on the other end.
 - [ ] Node ID PROM (`0x011200`), including node ID taken from the logical volume
       label. *Verification: `lcnode`-visible node ID matches the configured
       value.*
