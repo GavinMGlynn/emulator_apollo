@@ -2186,6 +2186,21 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
 
 - [ ] Memory bus with one shared arbitration point, so contention is emergent.
       *Verification: probes measuring contention between CPU and DMA.*
+  - [x] The processor's side of the protocol: `[030]` §7.7's BR/BG/BGACK state
+        machine, with the processor at the lowest priority. Both documented
+        deferrals are in — a grant waits for a committed bus cycle to begin, and
+        a locked read-modify-write refuses one outright, which is what will make
+        `CAS` indivisible against a DMA controller. `arb_suite`, 15 tests.
+  - [ ] The shared arbitration point itself: one bus, several masters, and a
+        priority encoding between them. §7.7 is explicit that this is *not* the
+        CPU's job — "Systems having several devices that can become bus master
+        require external circuitry to assign priorities to the device" — so it
+        is board logic, and its rule comes from `008778-03` rather than from
+        Motorola. Nothing can contend until this exists; the arbitration unit
+        above has no second master to lose the bus to.
+  - [ ] The synchroniser is `PROVISIONAL` at two clocks, the published maximum
+        rather than a measurement. Needs grant latency measured against the
+        oracle across request phases, which needs a second master first.
 - [ ] Address translation map (`0x017000`), CPU status/control, cache control,
       task alias, master request, latch-page-on-parity-error registers.
       *Verification: `008778-03` cited per register; oracle diff.*

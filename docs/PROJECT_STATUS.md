@@ -48,8 +48,15 @@ reproducing an average the hardware never exhibits.
 RAM: construct, poke, run to a limit, read back. That is what a side-loaded
 probe needs and it requires no firmware — built ahead of the boot-PROM route
 because that route is in doubt (`tools/mame-oracle/FINDINGS.md` C4). There is
-still no I/O, no device and no bus arbitration point, so nothing boots and no
-end-to-end timing can be measured.
+still no I/O and no device, so nothing boots and no end-to-end timing can be
+measured.
+
+The processor's **side** of bus arbitration is now complete — the BR/BG/BGACK
+state machine of `[030]` §7.7, with the processor at the lowest priority, which
+is the inversion the emergent-contention claim rests on. What does not exist yet
+is the *shared* arbitration point it plugs into: one bus, several masters, a
+priority encoding between them. Until that exists there is nothing to contend
+*with*, so no contention figure can be measured.
 The golden regression harness now pins **emulated behaviour** as well as the
 model table: `--run-probes` runs eight probes on the constructed machine and its
 report is a committed golden, checked under every build preset. This section will state exactly what backs the
@@ -69,6 +76,7 @@ Last updated: 2026-08-01.
 | Ring controller | not started | — |
 | 68030 instruction pipe + cache holding register | working | `pipe_suite`, 14 tests, `MC68030 User's Manual 3ed` §11.2.2 |
 | 68030 bus cycle state machine | working, including burst line fills | `bus_suite`, 23 tests, each citing `MC68030 User's Manual 3ed` ch. 7 (read, write and burst cycles) |
+| 68030 bus arbitration control unit | working: the five-state machine of `[030]` §7.7.4, the processor at lowest priority, both documented deferrals (a committed bus cycle, and a locked read-modify-write) and the single-wire BGACK-alone path. Figure 7-61 did not survive the scan and the states are recovered from the prose walking it; one edge is marked `INFERRED` in code against the two passages supporting it. The input synchroniser is `PROVISIONAL` | `arb_suite`, 15 tests, `MC68030 User's Manual 3ed` §7.7 |
 | 68030 on-chip instruction and data caches | working, including the bus-timing join: a hit costs 0 clocks, a burst line fill 5 | `cache_suite`, 29 tests and `bus_suite`, 23 tests, `MC68030 User's Manual 3ed` §6, §7.3.7 |
 | 68030 integer ALU (results and condition codes) | working: ADD, SUB, CMP, AND, OR, EOR, NEG, NOT, and the shifts and rotates | `alu_suite`, 17 tests, `M68000 Family Programmer's Reference Manual 1992` Table 3-18; the byte space verified exhaustively |
 | 68030 exception taking (stack the frame, fetch the vector through the VBR, load the PC) | working for the four- and six-word frames and the throwaway frame, wired to divide-by-zero, `TRAP #N`, `TRAPV`, `CHK`, `ILLEGAL`, privilege violations, MMU configuration errors, **interrupts** and **trace**; reset, the fault frames, the coprocessor frame and the interrupt M-bit second frame decline rather than approximate | `step_suite` (10 of its tests), `exception_suite`, 16 tests, `[030]` §8.1 and Table 8-6 |
@@ -407,6 +415,7 @@ Every entry is also a named item in `docs/COMPLETION_PLAN.md`.
 | Figure | Current value | Why provisional | Cost to close |
 | --- | --- | --- | --- |
 | 68030 ATC replacement algorithm | first-invalid, then first entry with a clear history bit, sweeping when all are set | **Narrowed.** What the history bit *means* is no longer provisional: `MC68851 PMMU User's Manual` §5.2.1.3, describing the compatible ATC, says it indicates "that the entry has been recently used", so a translating hit now marks it. What remains unstated in both manuals is which entry is chosen *among those whose history bit is clear*. The `MC68030 Data Sheet 1991` is less specific still — "a variation of the least recently used algorithm" — and is a dead end rather than a lead | Measure eviction order against the oracle, or find a Motorola application note stating the rule; medium. Affects hit rates and therefore timing, never the translation a hit produces |
+| 68030 asynchronous input synchroniser | two clocks | `[030]` §7.7.4 publishes a bound and not a value: "all asynchronous inputs to the MC68030 are internally synchronized in a maximum of two cycles of the processor clock". The actual delay depends on where the input edge falls relative to the clock, so it is genuinely a range and one clock is as legal as two. Modelled at the documented maximum. Currently reached only by the arbitration unit's BR and BGACK, but it is the part's rule for every asynchronous input and will be shared once devices drive them | Measure grant latency against the oracle across many request phases; small once a second master exists to request the bus. Affects arbitration latency and therefore contention, never which master wins |
 | DN2500 RAM base | `0x1000000` | Assumed to match the other 68030 models. The DN2500 is a single integrated board with PC-standard DRAM modules and its own memory design, and no address-space allocation table for Series 2500 has been found | Derive from the 2500 boot PROM, or find a Series 2500 hardware reference; medium |
 
 ### Resolved discrepancies
