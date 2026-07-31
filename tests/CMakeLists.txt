@@ -30,6 +30,7 @@ function(apollo_add_suite name)
 endfunction()
 
 apollo_add_suite(bus_suite)
+apollo_add_suite(overlap_suite)
 apollo_add_suite(pipe_suite)
 apollo_add_suite(atc_suite)
 apollo_add_suite(desc_suite)

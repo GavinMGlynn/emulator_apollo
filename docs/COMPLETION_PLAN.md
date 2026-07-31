@@ -1197,10 +1197,33 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         and read back a cycle count — which is what the probe encoder in Phase 1
         exists to provide. So this item is **gated on Phase 1's probe path**,
         and saying so is more useful than starting it now.
-        Two things can be done before that gate: §11.2's eight independent
-        resources and §11.3's head/tail overlap rule are structural rather than
-        numeric, and can be built and tested against the manual's own worked
-        examples without any per-instruction figure.
+    - [x] **The composition rule, built without the numbers**
+          (`src/core/cpu/m68030/ap_m68030_overlap.c`). Equation (11-1) and
+          §11.2's eight resources are arithmetic and vocabulary rather than
+          measurement, so they land now and the figures have somewhere to
+          arrive.
+          The pairing is **directional** — the *following* instruction's head
+          against the *preceding* instruction's tail — and reversing it reads
+          plausibly, costs nothing on any single instruction, and only shows up
+          on a sequence whose entries have asymmetric heads and tails, which is
+          most of them. A test picks a pair where the two orders differ.
+          **Zero net execution time is a documented outcome**: "the heads of
+          some instructions equal the total instruction-cache-case time for
+          those instructions makes a zero net execution time possible". A model
+          clamping every instruction to at least one clock would be wrong in the
+          direction that *hides* a fast mode's error — it would make the
+          reference core slower than the hardware, so a fast mode that skipped
+          work would look closer to correct rather than further from it.
+          Head and tail compose only with CC; §11.3.3 says they do not apply to
+          NCC, so feeding no-cache figures through this rule would subtract a
+          saving the published number already excludes.
+          *Verification: `overlap_suite`, 8 tests — §11.3.4's **worked example**
+          checked verbatim at 6 clocks, which is an external number rather than
+          one of ours; the directional pairing; an instruction fully absorbed
+          costing nothing; the first instruction overlapping with nothing;
+          overlap being pairwise rather than cumulative across three
+          instructions; and a head or tail longer than its instruction reported
+          inconsistent, since such an entry was mis-transcribed.*
         *Verification: self-timing probes against the oracle, per instruction
         and per addressing mode, with `[030]` §11.6 as an independent check and
         every discrepancy classified before anything is changed.*

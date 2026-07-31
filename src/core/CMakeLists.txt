@@ -26,6 +26,7 @@ add_library(apollo_core STATIC
   cpu/m68030/ap_m68030_move.c
   cpu/m68030/ap_m68030_opcode.c
   cpu/m68030/ap_m68030_operand.c
+  cpu/m68030/ap_m68030_overlap.c
   cpu/m68030/ap_m68030_pipe.c
   cpu/m68030/ap_m68030_quick.c
   cpu/m68030/ap_m68030_regs.c
