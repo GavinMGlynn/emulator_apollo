@@ -2302,9 +2302,17 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         neither could be inferred from the other), sixty-four registers aliased
         through the range (also measured), and the IRQ8 route through to vector
         `A8`. `calendar_suite`, 5 tests.
-  - [ ] The declined parts: the periodic interrupt and square wave, whose rates
-        are a divider-tap table not yet transcribed, and the daylight-savings
-        shifts of `DSE` (stored but inert).
+  - [x] `[146818]` Table 5 transcribed, and the periodic interrupt implemented
+        for the nine rates that divide the time base (512 Hz to 2 Hz). The six
+        fastest are **refused, not rounded**: the rates are 32768/2^n Hz and
+        `AP_TIME_BASE_HZ` carries only 2^9.
+  - [ ] Whether to recompute the time base to admit the six fast rates. The
+        cost is now measured, not guessed: x64, dropping the representable span
+        from 88.6 years to 505 days. Worth doing if anything is ever seen using
+        them; the part's own 4.194304 MHz crystal is a separate matter and can
+        never be a clock domain at all, since it would leave 3.95 days.
+  - [ ] The square-wave output pin (nothing on this board is wired to it) and
+        the daylight-savings shifts of `DSE` (stored but inert).
 - [ ] SIO serial lines, keyboard and mouse. *Verification: console byte stream
       identical to the oracle's.*
 - [ ] Node ID PROM (`0x011200`), including node ID taken from the logical volume

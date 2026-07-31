@@ -183,12 +183,47 @@ void ap_mc146818_advance(ap_mc146818_t *rtc, ap_time_t now) {
     }
   }
   rtc->updated_to += ap_clock_duration(&rtc->second_clock, seconds);
+
+  /* The periodic interrupt runs on its own rate and is not stopped by SET:
+   * `[146818]` ties SET to the *update cycle* only, and Figure 15 shows the
+   * periodic flag continuing across an update. Its rate may also change at any
+   * time, so the clock domain is rebuilt from Register A each call rather than
+   * cached -- a cached period would keep the old rate until something else
+   * happened to reset it. */
+  uint32_t hz = ap_mc146818_periodic_hz(rtc);
+  if (hz == 0u || !ap_time_base_divides(hz)) {
+    /* No rate selected, or one this core refuses to approximate. Keep the
+     * cursor with the clock so that selecting a rate later does not deliver a
+     * backlog of interrupts for time that passed while none was chosen. */
+    rtc->periodic_to = now;
+    return;
+  }
+  if (!ap_clock_init(&rtc->periodic_clock, hz)) {
+    rtc->periodic_to = now;
+    return;
+  }
+  if (now <= rtc->periodic_to) {
+    return;
+  }
+  uint64_t ticks =
+      ap_clock_cycles_in(&rtc->periodic_clock, now - rtc->periodic_to);
+  if (ticks != 0u) {
+    /* "The periodic interrupt flag (PF) ... is set to a '1' independent of the
+     * state of the PIE bit." One flag however many periods elapsed: it is a
+     * flag and not a count, and software reading Register C cannot tell two
+     * from twenty. */
+    rtc->ram[AP_MC146818_REGISTER_C] |= AP_MC146818_C_PF;
+    rtc->periodic_to += ap_clock_duration(&rtc->periodic_clock, ticks);
+  }
 }
 
 bool ap_mc146818_irq(const ap_mc146818_t *rtc) {
   uint8_t c = rtc->ram[AP_MC146818_REGISTER_C];
   uint8_t b = rtc->ram[AP_MC146818_REGISTER_B];
-  /* "IRQF = PF*PIE + AF*AIE + UF*UIE". PF is never set here; see the header. */
+  /* "IRQF = PF*PIE + AF*AIE + UF*UIE". */
+  if ((c & AP_MC146818_C_PF) != 0u && (b & AP_MC146818_B_PIE) != 0u) {
+    return true;
+  }
   if ((c & AP_MC146818_C_AF) != 0u && (b & AP_MC146818_B_AIE) != 0u) {
     return true;
   }
@@ -198,9 +233,48 @@ bool ap_mc146818_irq(const ap_mc146818_t *rtc) {
   return false;
 }
 
+/* `[146818]` Table 5, the 4.194304/1.048576 MHz time-base column, transcribed.
+ *
+ * The table publishes an interval and a square-wave frequency for each code --
+ * "30.517 us / 32.768 kHz" through "500 ms / 2 Hz" -- and throughout, the
+ * interval is the reciprocal of the frequency. So one number serves for both,
+ * and it is stored as the frequency because that is what a clock domain needs.
+ *
+ * The 32.768 kHz time-base column differs only in its first two rows, and this
+ * board does not use it: the datasheet's interface figures all show a 4.194304
+ * MHz crystal. */
+static const uint32_t periodic_rate_hz[16] = {
+    0u,     /* 0000: "None" */
+    32768u, /* 0001: 30.517 us */
+    16384u, /* 0010: 61.035 us */
+    8192u,  /* 0011: 122.070 us */
+    4096u,  /* 0100: 244.141 us */
+    2048u,  /* 0101: 488.281 us */
+    1024u,  /* 0110: 976.562 us */
+    512u,   /* 0111: 1.953125 ms */
+    256u,   /* 1000: 3.90625 ms */
+    128u,   /* 1001: 7.8125 ms */
+    64u,    /* 1010: 15.625 ms */
+    32u,    /* 1011: 31.25 ms */
+    16u,    /* 1100: 62.5 ms */
+    8u,     /* 1101: 125 ms */
+    4u,     /* 1110: 250 ms */
+    2u,     /* 1111: 500 ms */
+};
+
+uint32_t ap_mc146818_periodic_hz(const ap_mc146818_t *rtc) {
+  return periodic_rate_hz[rtc->ram[AP_MC146818_REGISTER_A] &
+                          AP_MC146818_A_RATE];
+}
+
 bool ap_mc146818_rate_supported(const ap_mc146818_t *rtc) {
-  uint8_t b = rtc->ram[AP_MC146818_REGISTER_B];
-  return (b & (AP_MC146818_B_PIE | AP_MC146818_B_SQWE)) == 0u;
+  uint32_t hz = ap_mc146818_periodic_hz(rtc);
+  if (hz == 0u) {
+    return true; /* "None" is a rate this core can honour exactly. */
+  }
+  /* The six fastest rates need 2^15 in a base that carries 2^9. See the header
+   * for the measured cost of changing that. */
+  return ap_time_base_divides(hz);
 }
 
 ap_mc146818_time_t ap_mc146818_now(const ap_mc146818_t *rtc) {

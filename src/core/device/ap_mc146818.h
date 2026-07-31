@@ -33,12 +33,30 @@
  *
  * ## What is declined
  *
- * The **periodic interrupt** and the square-wave output. Both are driven by taps
- * on the 22-stage divider selected by RS3-RS0, and `[146818]` publishes those
- * rates in a Table 5 that is not transcribed. A periodic interrupt running at a
- * guessed rate would be indistinguishable from a real one and would corrupt any
- * timing built on it, so `PF` is never set and `ap_mc146818_rate_supported`
- * says so. The Apollo firmware has not been observed programming it.
+ * The **six fastest periodic-interrupt rates**, and for a reason that is a fact
+ * about this machine rather than about this module. `[146818]` Table 5 gives
+ * the rates as 32768/2^n Hz, and `AP_TIME_BASE_HZ` factors as
+ * 2^9 * 3 * 5^8 * 11 — so it carries only 2^9, and the rates from 1.024 kHz up
+ * to 32.768 kHz are **not exactly representable**. `CLAUDE.md`'s rule is that
+ * such a clock means recomputing the base, and the cost of doing so is now
+ * measured rather than guessed at:
+ *
+ *   including 32.768 kHz     base * 64, span falls from 88.6 years to 505 days
+ *   including the 4.194304
+ *   MHz crystal itself       base * 8192, span falls to 3.95 days
+ *
+ * The crystal can therefore never be a clock domain in a 64-bit base at all,
+ * which is worth knowing on its own. The six fast rates could be, at a cost of
+ * 64x the representable span, and that trade has not been made because nothing
+ * has been observed using them — the Apollo firmware never writes the calendar.
+ *
+ * The nine slower rates, 512 Hz down to 2 Hz (1.953 ms to 500 ms), divide the
+ * base exactly and **are** implemented. `ap_mc146818_rate_supported` reports
+ * which case a given `RS3-RS0` falls in, so a rate this core cannot honour is
+ * refused rather than approximated.
+ *
+ * The **square-wave output** pin is not modelled: nothing on this board is
+ * wired to it. Its frequency shares the same selector and the same table.
  *
  * Also declined: the daylight-savings updates of the `DSE` bit, which shift the
  * clock on two specific calendar days. The bit is stored and honoured as
@@ -121,6 +139,11 @@ typedef struct {
   /* Base-unit time the last one-second update happened at. */
   ap_time_t updated_to;
   ap_clock_t second_clock;
+
+  /* The periodic interrupt, kept separate because it runs at its own rate and
+   * must not be quantised to the one-second update. */
+  ap_time_t periodic_to;
+  ap_clock_t periodic_clock;
 } ap_mc146818_t;
 
 /* Reset, and set the clock to `start`. Returns false if the one-second tick is
@@ -139,9 +162,19 @@ void ap_mc146818_advance(ap_mc146818_t *rtc, ap_time_t now);
 /* The IRQ pin: `[146818]`'s "IRQF = PF*PIE + AF*AIE + UF*UIE". */
 [[nodiscard]] bool ap_mc146818_irq(const ap_mc146818_t *rtc);
 
-/* False whenever the periodic interrupt or square wave is enabled, because
- * neither is modelled. A caller must check rather than assume; see the header
- * on why a guessed periodic rate is worse than none. */
+/* The periodic interrupt frequency selected by Register A's RS3-RS0, in hertz,
+ * or zero for `[146818]` Table 5's "None" row.
+ *
+ * The table publishes an interval and a square-wave frequency side by side --
+ * 30.517 us against 32.768 kHz, 500 ms against 2 Hz -- and the interval is the
+ * reciprocal of the frequency throughout, so one number serves for both. */
+[[nodiscard]] uint32_t ap_mc146818_periodic_hz(const ap_mc146818_t *rtc);
+
+/* False when the selected rate is one this core cannot represent exactly. See
+ * the header: the six fastest rates need 2^15 in a time base that carries 2^9.
+ * A caller must check rather than assume, because a periodic interrupt running
+ * at a rounded rate is indistinguishable from a correct one and would drift
+ * whatever is built on it. */
 [[nodiscard]] bool ap_mc146818_rate_supported(const ap_mc146818_t *rtc);
 
 /* The clock as numbers, for tests and for a state hash that must not depend on

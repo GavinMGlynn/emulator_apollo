@@ -373,21 +373,120 @@ static void test_the_read_only_registers_refuse_writes(void) {
   TEST_ASSERT_EQUAL_HEX8(0x7F, ap_mc146818_read(&rtc, AP_MC146818_REGISTER_A));
 }
 
-static void test_the_periodic_interrupt_is_declined(void) {
+static void test_the_rate_table_is_table_fives(void) {
   ap_mc146818_t rtc;
   init(&rtc);
 
-  TEST_ASSERT_TRUE(ap_mc146818_rate_supported(&rtc));
+  /* `[146818]` Table 5, the 4.194304/1.048576 MHz column. Each interval in the
+   * table is the reciprocal of its square-wave frequency, so one number serves
+   * for both -- checked here at the two ends and at the boundary that matters. */
+  static const uint32_t expected[16] = {0,   32768, 16384, 8192, 4096, 2048,
+                                        1024, 512,  256,   128,  64,   32,
+                                        16,   8,    4,     2};
+  for (unsigned rs = 0; rs < 16u; rs++) {
+    ap_mc146818_write(&rtc, AP_MC146818_REGISTER_A, (uint8_t)rs);
+    TEST_ASSERT_EQUAL_UINT32(expected[rs], ap_mc146818_periodic_hz(&rtc));
+  }
+}
 
-  /* The rates come from taps on a 22-stage divider, published in a table this
-   * core has not transcribed. A periodic interrupt at a guessed rate would be
-   * indistinguishable from a real one, so PF is never set and the caller is
-   * told the mode is not modelled. */
+static void test_the_six_fastest_rates_are_refused_not_rounded(void) {
+  ap_mc146818_t rtc;
+  init(&rtc);
+
+  /* Table 5's rates are 32768/2^n Hz, and `AP_TIME_BASE_HZ` factors as
+   * 2^9 * 3 * 5^8 * 11 -- so it carries 2^9 and the six fastest are not exactly
+   * representable. `CLAUDE.md`'s rule is to reject rather than round, and the
+   * cost of changing the base instead is recorded in the header: 64x for these
+   * six, and 8192x to represent the crystal itself, which would leave under
+   * four days of span in a 64-bit counter.
+   *
+   * A rounded periodic interrupt is indistinguishable from a correct one, which
+   * is exactly why it must be refused where it cannot be exact. */
+  for (unsigned rs = 1u; rs <= 6u; rs++) {
+    ap_mc146818_write(&rtc, AP_MC146818_REGISTER_A, (uint8_t)rs);
+    TEST_ASSERT_FALSE(ap_mc146818_rate_supported(&rtc));
+
+    ap_mc146818_advance(&rtc, seconds(10u * rs));
+    TEST_ASSERT_EQUAL_HEX8(0, ap_mc146818_read(&rtc, AP_MC146818_REGISTER_C) &
+                                  AP_MC146818_C_PF);
+  }
+
+  /* And the nine slower ones are exact, 512 Hz down to 2 Hz. */
+  for (unsigned rs = 7u; rs < 16u; rs++) {
+    ap_mc146818_write(&rtc, AP_MC146818_REGISTER_A, (uint8_t)rs);
+    TEST_ASSERT_TRUE(ap_mc146818_rate_supported(&rtc));
+  }
+
+  /* "None" is honoured exactly by doing nothing. */
+  ap_mc146818_write(&rtc, AP_MC146818_REGISTER_A, 0x00);
+  TEST_ASSERT_TRUE(ap_mc146818_rate_supported(&rtc));
+}
+
+static void test_a_representable_rate_sets_its_flag_on_time(void) {
+  ap_mc146818_t rtc;
+  init(&rtc);
+
+  /* RS = 1111 is 500 ms, the slowest and the one an operating system is most
+   * likely to use for a scheduler tick. */
+  ap_mc146818_write(&rtc, AP_MC146818_REGISTER_A, 0x0F);
+  ap_mc146818_write(&rtc, AP_MC146818_REGISTER_B, AP_MC146818_B_24HOUR);
+
+  ap_mc146818_advance(&rtc, (AP_TIME_BASE_HZ / 2u) - 1u);
+  TEST_ASSERT_EQUAL_HEX8(0, ap_mc146818_read(&rtc, AP_MC146818_REGISTER_C) &
+                                AP_MC146818_C_PF);
+
+  ap_mc146818_advance(&rtc, AP_TIME_BASE_HZ / 2u);
+  TEST_ASSERT_EQUAL_HEX8(AP_MC146818_C_PF,
+                         ap_mc146818_read(&rtc, AP_MC146818_REGISTER_C) &
+                             AP_MC146818_C_PF);
+}
+
+static void test_the_periodic_flag_drives_the_interrupt_when_enabled(void) {
+  ap_mc146818_t rtc;
+  init(&rtc);
+  ap_mc146818_write(&rtc, AP_MC146818_REGISTER_A, 0x0F); /* 2 Hz */
   ap_mc146818_write(&rtc, AP_MC146818_REGISTER_B,
                     AP_MC146818_B_24HOUR | AP_MC146818_B_PIE);
-  TEST_ASSERT_FALSE(ap_mc146818_rate_supported(&rtc));
 
-  ap_mc146818_advance(&rtc, seconds(10u));
+  /* "IRQF = PF*PIE + AF*AIE + UF*UIE" -- the first term, which was absent while
+   * the periodic interrupt was declined. */
+  ap_mc146818_advance(&rtc, AP_TIME_BASE_HZ / 2u);
+  TEST_ASSERT_TRUE(ap_mc146818_irq(&rtc));
+  (void)ap_mc146818_read(&rtc, AP_MC146818_REGISTER_C);
+  TEST_ASSERT_FALSE(ap_mc146818_irq(&rtc));
+}
+
+static void test_the_periodic_interrupt_keeps_running_while_the_clock_is_held(
+    void) {
+  ap_mc146818_t rtc;
+  init(&rtc);
+  ap_mc146818_write(&rtc, AP_MC146818_REGISTER_A, 0x0F);
+  ap_mc146818_write(&rtc, AP_MC146818_REGISTER_B,
+                    AP_MC146818_B_24HOUR | AP_MC146818_B_SET);
+
+  /* `[146818]` ties SET to the *update cycle*, not to the divider chain, and
+   * Figure 15 shows the periodic flag continuing across an update. So setting
+   * the time does not silence the scheduler tick -- which is the behaviour an
+   * operating system depends on while it is setting the clock. */
+  ap_mc146818_advance(&rtc, AP_TIME_BASE_HZ);
+  TEST_ASSERT_EQUAL_HEX8(0x21, ap_mc146818_read(&rtc, AP_MC146818_SECONDS));
+  TEST_ASSERT_EQUAL_HEX8(AP_MC146818_C_PF,
+                         ap_mc146818_read(&rtc, AP_MC146818_REGISTER_C) &
+                             AP_MC146818_C_PF);
+}
+
+static void test_selecting_a_rate_late_delivers_no_backlog(void) {
+  ap_mc146818_t rtc;
+  init(&rtc);
+  ap_mc146818_write(&rtc, AP_MC146818_REGISTER_B, AP_MC146818_B_24HOUR);
+
+  /* No rate selected for a while. */
+  ap_mc146818_advance(&rtc, seconds(100u));
+  ap_mc146818_write(&rtc, AP_MC146818_REGISTER_A, 0x0F);
+
+  /* Less than one period later, so nothing yet -- rather than a flag for every
+   * period that would have elapsed had a rate been selected all along. */
+  ap_mc146818_advance(&rtc, seconds(100u) + (AP_TIME_BASE_HZ / 4u));
   TEST_ASSERT_EQUAL_HEX8(0, ap_mc146818_read(&rtc, AP_MC146818_REGISTER_C) &
                                 AP_MC146818_C_PF);
 }
@@ -415,6 +514,11 @@ int main(void) {
   RUN_TEST(test_a_dont_care_alarm_byte_matches_anything);
   RUN_TEST(test_the_fifty_ram_bytes_are_ordinary_storage);
   RUN_TEST(test_the_read_only_registers_refuse_writes);
-  RUN_TEST(test_the_periodic_interrupt_is_declined);
+  RUN_TEST(test_the_rate_table_is_table_fives);
+  RUN_TEST(test_the_six_fastest_rates_are_refused_not_rounded);
+  RUN_TEST(test_a_representable_rate_sets_its_flag_on_time);
+  RUN_TEST(test_the_periodic_flag_drives_the_interrupt_when_enabled);
+  RUN_TEST(test_the_periodic_interrupt_keeps_running_while_the_clock_is_held);
+  RUN_TEST(test_selecting_a_rate_late_delivers_no_backlog);
   return UNITY_END();
 }
