@@ -2458,9 +2458,15 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
   - [x] The drive joined to the SC-499's registers: a driver reaches it through
         `050000`, commands go via the request bit, and data comes back a byte at
         a time. `tape_suite`, 11 tests.
-  - [ ] The per-byte QIC-02 handshake, `[SC499]` §1.13.2's REQUEST/READY
-        exchange — not read, so not modelled. A driver polling status works; one
-        depending on the handshake's edges will not.
+  - [ ] The per-byte QIC-02 handshake. §1.13.2's Figure 1-7 is now
+        **transcribed** (`FINDINGS.md` C26): a five-edge REQUEST/READY exchange
+        whose *ordering* is fully determined. Its timings are all **bounds, not
+        values** — `T4->T5 < 500 ms` for command execution, a 20-to-100 µs
+        window for the close — so implementing them means picking documented
+        figures and marking them `PROVISIONAL`, as the 68030's input
+        synchroniser is. The ordering alone is enough for a polling driver.
+  - [ ] Figures 1-5, 1-6 and 1-8 to 1-10 — write, read, exception, direction and
+        status transfers — still to read from the page images.
   - [ ] Note C25: the
         controller identifies the cartridge type from BOT-to-load-point
         *distance*, which a raw block image has no geometry to supply, so the

@@ -1505,6 +1505,46 @@ written on it -- which a `.ct` image, being a raw block image with no geometry
 (C24), cannot supply. Whatever models the drive will have to be told the
 cartridge type rather than deriving it.
 
+### C26 — the QIC-02 command handshake, and why its timings are ranges
+
+`[SC499]` §1.13.2 is entirely timing *diagrams* -- Figures 1-5 through 1-10 --
+and their OCR is unusable waveform fragments. The page images are perfectly
+legible. Figure 1-7, "Command Transfer, READY Asserted":
+
+    T1  Bus Data Valid
+    T3  Controller Asserts REQUEST     0 us < T1->T3
+    T4  Device Deasserts READY         0 us < T3->T4 < 1 us
+    T5  Device Asserts READY                 T4->T5 < 500 ms
+    T6  Controller Deasserts REQUEST   0 us < T5->T6
+    T7  Bus Data Invalid               0 us < T6->T7
+    T8  Device Deasserts READY        20 us < T6->T8 < 100 us
+
+So a command is a five-edge exchange: the controller puts the opcode on the bus
+and raises REQUEST; the device drops READY to acknowledge it within a
+microsecond; the device raises READY again when it has *executed* the command;
+the controller drops REQUEST; and the device drops READY a last time to close
+the transaction. The diagram marks the T4-to-T5 gap "DEVICE STARTS EXECUTION",
+so that 500 ms is a command's execution budget rather than a bus delay.
+
+**Every figure in that table is a bound, not a value.** `T4->T5 < 500 ms` says a
+command completes within half a second; it does not say when. `20 us < T6->T8 <
+100 us` gives a window 80 microseconds wide. `CLAUDE.md`'s rule for a quantity
+published only as a range is to model the documented value, mark it
+`PROVISIONAL` in code and in `PROJECT_STATUS.md`, and name it in the plan --
+which is what implementing this will require, exactly as the 68030's two-clock
+input synchroniser did.
+
+The cheaper observation is that the *ordering* is fully determined even though
+the durations are not. A model can carry the five edges in sequence, with no
+timing at all, and be right about everything a polling driver can observe --
+which is what the current join does implicitly, one byte per access. What it
+cannot do is answer a driver that watches for the edges themselves.
+
+One incidental confirmation, from a previous owner rather than from Archive: the
+page carries a handwritten annotation against the 500 ms figure reading "accept
+interrupt here". Someone else worked out that the command-complete interrupt
+falls at T5, and wrote it on the page.
+
 ## Where the ring is not
 
 The Apollo Token Ring has **no runnable oracle at all**: MAME carries Domain
