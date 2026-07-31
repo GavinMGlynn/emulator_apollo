@@ -386,6 +386,53 @@ microcode time added to a bus time that keeps alternating -- and the check is
 that our average over both alignments matches `[030]` §11.6, not that our
 per-instruction figure matches MAME's.
 
+### C8 — seven instructions measured against the oracle, seven agreements
+
+**Status: closed for the instructions listed. No discrepancy to classify.**
+
+The transcription of `[030]` §11.6 into `ap_m68030_timing_table.c` is checked
+two ways already: against both published columns on a running machine, and
+against the structural patterns that repeat across the tables. This is the third
+and most independent check — the oracle's own figures, measured through
+`steptime.lua`, which come from MAME's cycle-table model and have no connection
+to the manual pages the transcription was read from.
+
+| Instruction | Word | Manual, transcribed | Oracle, measured |
+| --- | --- | --- | --- |
+| `NOP` | `4E71` | 2 | 2 |
+| `MOVEQ #$42,D0` | `7042` | 2 | 2 |
+| `ADD.L D0,D1` | `D280` | 2 | 2 |
+| `LSR.L #1,D0` | `E288` | 4 | 4 |
+| `ASR.L #1,D0` | `E280` | 4 | 4 |
+| `ASL.L #1,D0` | `E380` | 6 | 6 |
+| `ROXR.L #1,D0` | `E290` | 12 | 12 |
+
+**The `ASL`/`ASR` pair is the most interesting row.** The manual publishes 6
+against 4 for the same immediate count; the oracle, independently, measures 6
+against 4; and `ap_m68030_alu_shift` — written from the instruction's own page
+long before any timing work — tracks `msb_changed` for the arithmetic *left*
+shift alone, because "V is set if the most significant bit is changed at any
+time during the shift operation" applies to it and to nothing else. Three
+sources agreeing on which instruction does more work, one of them explaining
+*why*.
+
+**Where this agreement can and cannot discriminate.** Every instruction above
+has `CC == NCC` in the published tables, and that is not incidental: their
+microcode is long enough to hide a prefetch entirely. On such an instruction a
+flat per-instruction model and a scheduled one *cannot* disagree, so the oracle
+matching us is confirmation of the figures and not yet of the scheduling.
+
+The rows that would discriminate are the memory-destination forms —
+`ADD Dn,EA` is `CC 3` against `NCC 4` — where our core alternates 3 and 4 with
+prefetch alignment and a flat model cannot. Those are checked against both
+published columns already (`machine_suite`), but **not yet against the oracle**,
+because `steptime.lua` sets only the PC and those instructions need an address
+register pointing at writable memory.
+
+That is the next extension to the script, and it is where a disagreement is
+actually likely: C7 established that the oracle reports a flat constant where
+the manual describes an alignment-dependent range.
+
 ## Instrumenting the oracle
 
 Temporary instrumentation in `ext/mame` is **always reverted before commit**,
