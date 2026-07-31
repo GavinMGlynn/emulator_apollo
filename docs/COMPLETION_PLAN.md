@@ -628,6 +628,30 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         second full 65536-word sweep asserting every sizeable instruction has an
         even, non-zero length — instructions are whole words, and that is the
         check no individual case can make.*
+  - [x] **Effective address calculation**
+        (`src/core/cpu/m68030/ap_m68030_addr.c`): decoded fields into an
+        address, with the increment modes' register side effects applied.
+        **A7 is not an ordinary address register.** "If the address register is
+        the stack pointer and the operand size is byte, the address is
+        incremented by two to keep the stack pointer aligned to a word
+        boundary", and likewise decremented. A model that misses this keeps
+        running — the stack merely drifts odd, and every later word or long
+        access to it is misaligned, which on a 68030 does not fault. The symptom
+        is silent corruption a long way from the cause, so it is the one rule in
+        the module worth knowing by heart. Tested in both directions, against
+        an ordinary register doing the opposite, and across the privilege
+        switch so it follows whichever of the three stacks A7 currently names.
+        The PC-relative modes are relative to the **extension word**, not the
+        instruction word and not the next instruction — the same base `Bcc`
+        uses.
+        *Verification: `addr_suite`, 13 tests.*
+  - [ ] **Memory indirect address calculation**, the full-format modes with an
+        indirect action. They need a bus read partway through the calculation,
+        which belongs with the instruction unit that owns the bus — so
+        `ap_m68030_address_calculate` reports `indirection_pending` and the
+        address it reached rather than returning a half-computed address as
+        though it were final. *Verification: the manual's own worked examples
+        for preindexed and postindexed forms, driven through a memory stub.*
   - [ ] **CMP2/CHK2, CAS and CAS2**, which occupy size field `11` in family
         `0000`'s immediate rows. Not decoded: `ap_m68030_immediate_decode`
         reports invalid there rather than mis-decoding them as a wider ORI, and
