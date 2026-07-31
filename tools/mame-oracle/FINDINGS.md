@@ -689,6 +689,59 @@ Two further limits, stated because they bound how far this may be pushed:
 
 Reproducible: two full runs diff byte-identical.
 
+### C11 — the cascade is on IR3, and Table 2-3's priorities were never anomalous
+
+C10 measured registers by reading them. The 8259A cannot be measured that way:
+its four initialization command words configure priority, triggering and
+vectoring, and **none of them can be read back**. The only way to learn how the
+board is wired is to watch the firmware program it.
+
+`tools/mame-oracle/writetrace.lua` installs a write tap over each controller's
+range and logs every write. This is the firmware-behaviour evidence route that
+`CLAUDE.md` already admits for the ring ("a ring-firmware disassembly
+address"), arrived at by running rather than reading. What it records is the
+Apollo boot PROM's own initialization — real firmware, not the oracle's opinion.
+
+Data appears byte-replicated across the 32-bit bus and the mask picks the lane,
+so `FF000000` is `011000` and `00FF0000` is `011001` — which incidentally
+confirms the register pair is at consecutive byte addresses, A0 being address
+bit 0.
+
+| Word | Master `011000` | Slave `011100` |
+| --- | --- | --- |
+| ICW1 | `11` — edge triggered, cascaded, ICW4 to follow | `11` |
+| ICW2 | `A0` — vector base | `A8` — vector base |
+| ICW3 | `08` — **slave attached to IR3** | `03` — **slave ID 3** |
+| ICW4 | `01` — 8086 vectoring; no AEOI, no SFNM, not buffered | `01` |
+| OCW1 | `FF` — all masked after initialization | `FF` |
+
+**The finding: the slave is cascaded on IR3, not IR2.** Master ICW3 `08` sets
+bit 3, and the slave answers with ID 3; the two agree, which is the check that
+this is a wiring fact and not a stray write.
+
+**What that resolves.** `008778-03` Table 2-3 was recorded here as anomalous —
+it gives IRQ3 priority 3 and the whole slave group 4+1 through 4+8, so the slave
+appeared to be outranked by IRQ3, which on a stock AT it is not. With the
+cascade on IR3 the table is *plain fixed priority with no anomaly whatsoever*:
+IR0, IR1, IR2, then the slave on IR3, then IR4 through IR7. The prose agrees for
+the same reason — it says the slave beats IRQ4 to IRQ7 and never mentions IRQ3,
+because in Apollo's numbering "IRQ3" sits on master IR2.
+
+So the manual was right and the assumption was wrong. What was actually being
+imported was the AT convention that the cascade lives on IR2, which this board
+does not follow. Worth recording as its own kind of error: not a
+mis-transcription, but a fact carried in from a *neighbouring* system and never
+checked against this one.
+
+**Still open, and now sharper.** Whether Apollo's IRQ numbering maps "IRQ3" to
+master IR2 as a naming convention, or whether Table 2-3's IRQ2 and IRQ3 labels
+are simply transposed in the scan. The two readings predict identical behaviour
+— the priority order and the vectors are the same either way — so nothing in
+this core depends on settling it. It is recorded so the next reader of Table 2-3
+does not have to rediscover the discrepancy.
+
+Reproducible from this checkout: `APOLLO_TRACE_RANGES="pic1@011000-0110FF,pic2@011100-0111FF"`.
+
 ## Where the ring is not
 
 The Apollo Token Ring has **no runnable oracle at all**: MAME carries Domain

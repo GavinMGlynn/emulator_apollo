@@ -2246,15 +2246,20 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         nested mode, poll, automatic EOI, and the spurious level 7.
         `i8259_suite`, 28 tests against `8259A` 231468-003. MCS-80/85 vectoring
         is refused rather than approximated.
-  - [ ] The Apollo pairing: the two controllers cascaded on IRQ2, at `011000`
-        and `011100`, with the vector byte of `008778-03` §3.2 — which is
-        exactly 8086-mode vectoring, confirmed independently by both manuals.
-  - [ ] **Open question, to settle against the oracle before wiring:**
-        `008778-03` Table 2-3 gives IRQ3 priority 3 and the whole slave group
-        4+1 through 4+8, so IRQ3 outranks the cascade. The prose agrees,
-        pointedly saying the slave beats IRQ4-IRQ7 and not mentioning IRQ3. On
-        a stock AT the slave on IR2 outranks IR3 as well, so either Apollo
-        programs a non-default priority or the table is wrong. Measure it.
+  - [x] The Apollo pairing at `011000` and `011100`, cascaded on **IR3** —
+        not IR2 — with vector bases `A0` and `A8` giving the sixteen levels the
+        contiguous range `A0`-`AF`. `intr_suite`, 12 tests.
+  - [x] **Settled, and it was our assumption that was wrong.** The 8259A's
+        initialization words cannot be read back, so
+        `tools/mame-oracle/writetrace.lua` watched the boot PROM write them:
+        master ICW3 `08`, slave ICW3 `03`, agreeing on IR3. With the cascade
+        there, Table 2-3 is plain fixed priority and carries no anomaly at all.
+        What had been imported was the AT convention that the cascade lives on
+        IR2. `FINDINGS.md` C11.
+  - [ ] Wire the controllers to the CPU's interrupt inputs, which needs the
+        Apollo interrupt *level* encoding (`008778-03` §3.2 puts priority
+        encoding and vector generation on the logical bus) rather than only the
+        vector byte this module produces.
 - [ ] Two AT DMA controllers. *Verification: transfer probes; device request
       lines gate DMA at block granularity, not per word.*
 - [ ] Interval timer and calendar. *Verification: self-timing probes; the
