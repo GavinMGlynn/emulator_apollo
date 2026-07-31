@@ -92,7 +92,11 @@ static bool update_history(ap_m68030_walk_result_t *result,
   }
 
   result->history_writes++;
-  return update(context, descriptor_address, set_used, set_modified);
+  if (!update(context, descriptor_address, set_used, set_modified)) {
+    result->bus_error = true;
+    return false;
+  }
+  return true;
 }
 
 int ap_m68030_walk_fill_atc(ap_m68030_atc_t *atc,
@@ -158,8 +162,10 @@ ap_m68030_walk_result_t ap_m68030_walk(const ap_m68030_tc_t *tc,
     ap_m68030_descriptor_t descriptor = {0};
     result.descriptor_fetches++;
     if (!fetch(context, descriptor_address, long_format, &descriptor)) {
-      /* A bus error during the search sets B, exactly as an invalid descriptor
-       * or a protection violation does. */
+      /* A bus error during the search sets the ATC's B, exactly as an invalid
+       * descriptor or a protection violation does -- but `MMUSR` reports the
+       * two separately, so the cause is recorded as well as the effect. */
+      result.bus_error = true;
       ap_m68030_search_fail_invalid(&result.search);
       return result;
     }
@@ -199,6 +205,7 @@ ap_m68030_walk_result_t ap_m68030_walk(const ap_m68030_tc_t *tc,
       result.descriptor_fetches++;
       result.used_indirect = true;
       if (!fetch(context, descriptor.address_field, pointed_long, &pointed)) {
+        result.bus_error = true;
         ap_m68030_search_fail_invalid(&result.search);
         return result;
       }

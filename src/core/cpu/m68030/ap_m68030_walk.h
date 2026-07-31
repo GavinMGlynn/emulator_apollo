@@ -100,6 +100,16 @@ typedef struct {
   bool used_indirect;
   bool page_modified;     /* M of the page descriptor as it now stands, which is
                            * what the ATC entry caches */
+  bool bus_error;         /* a fetch or a history write actually failed, as
+                           * distinct from the tree being invalid.
+                           *
+                           * The ATC's B bit folds the two together -- §9.4 sets
+                           * it for a bus error *or* an invalid descriptor -- but
+                           * `MMUSR` does not: Table 9-3 gives B and I separately,
+                           * B for "a bus error ... encountered during the table
+                           * search" and I for an invalid DT field. So the two
+                           * causes are kept apart here and merged only where the
+                           * hardware merges them. */
 } ap_m68030_walk_result_t;
 
 /* Where the walk starts: the root pointer's table address and the format of the

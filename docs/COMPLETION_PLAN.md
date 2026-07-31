@@ -383,6 +383,36 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         invented precision. Recorded in `docs/PROJECT_STATUS.md`'s PROVISIONAL
         table. *Verification: measure eviction order against the oracle, or find
         a Motorola note stating the algorithm.*
+  - [x] **MMU status register (`MMUSR`)**
+        (`src/core/cpu/m68030/ap_m68030_mmusr.c`), `[030]` §9.7.4 pp. 9-59 f.
+        and Table 9-3. One name over two different registers: the bits mean
+        different things depending on whether `PTEST` searched the ATC (level 0)
+        or the tables (levels 1-7), and a bit one form defines the other clears
+        outright. Two constructors rather than one with a mode flag, so neither
+        can produce the other's answer.
+        **The bit layout is transcribed, not deferred** — Figure 9-38 lost its
+        field boxes to the scan exactly as Figure 9-37 did, but the `M68000
+        Family Programmer's Reference Manual 1992` gives it intact on the
+        `PTEST` page (p. 6-64): `B(15) L(14) S(13) 0(12) W(11) I(10) M(9) 0(8)
+        0(7) T(6) 0(5) 0(4) 0(3) N(2-0)`. The two documents cross-check — the
+        PRM's last named single bit is T, and the 68030 manual's surviving
+        column markers stop at 6.
+        *Verification: `mmusr_suite`, 16 tests — every field packing to its own
+        bit checked individually so a transposition cannot hide, the unassigned
+        bits never set, round-trip through pack/unpack, and each column of
+        Table 9-3 separately: an absent ATC entry reporting I, a transparent
+        match reporting T *alone*, L/S/N always clear after a level 0 probe, I
+        set by a limit violation as well as by an invalid descriptor, and S
+        depending on the probed function code rather than on the tree.*
+  - [x] Separating B from I in the walk, which `MMUSR` forced and the ATC had
+        hidden. §9.4's single B bit folds a bus error together with an invalid
+        descriptor, but Table 9-3 reports them as different bits, so the walk
+        now records the *cause* as well as the effect.
+  - "Undefined" is represented as zero, and it is a representation decision
+    rather than a claim: Table 9-3 marks W, S and M undefined when I is set, and
+    every other bit undefined when T is set. Clearing them keeps our output from
+    implying a guarantee the manual does not make — so an oracle diff must mask
+    those bits rather than treat a difference as a fault.
   - [x] The table walk itself: fetch descriptors through the bus, apply
         `ap_m68030_desc`'s rules, and fill the ATC. This is the piece that joins
         the four MMU modules together, and the first one whose *timing* is
