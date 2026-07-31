@@ -2408,9 +2408,13 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
       of a data register and a status/command register. The **bit map is not**
       and cannot be got the C10 way — a bit sweep writes commands to a command
       register, the controller's state moves under the probe, and the sweep
-      reported it could not restore what it found. It needs a protocol probe
-      driving one documented transaction at a time, and the QIC-02 command set,
-      which no manual here carries (`FINDINGS.md` C17).
+      reported it could not restore what it found. But **the controller's own
+      manual has been found**: the *Archive SC-499 Tape Controller Information
+      Guide* is in `docs/references/archive/` and carries the QIC-02 command
+      descriptions. It confirms the measured span independently — data/command
+      register at base+0, status at base+1 — so the bit map is transcription
+      rather than measurement, and a protocol probe is needed only to check it
+      (`FINDINGS.md` C17).
       Promoted ahead of the disk, because it
       is the only bootable medium that exists: `media/` holds the Domain/OS
       SR10.3.5 distribution as `.ct` cartridge images including
