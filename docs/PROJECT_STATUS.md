@@ -25,9 +25,12 @@ succeeding, so "how far a program got" is a real measure.
 
 **What the clock does *not* yet include.** The accumulated clock covers bus and
 cache time only: prefetches, operand accesses, table searches and line fills,
-each priced by the bus and cache modules against cited pages. It does **not**
-include instruction execution time — the microcode clocks an instruction takes
-between its bus cycles. The harness to measure it now exists on both sides
+each priced by the bus and cache modules against cited pages. It now includes instruction
+execution time for the **19 transcribed forms** of `[030]` §11.6, scheduled
+against the bus rather than added to it — `max(microcode, bus)`, which
+reproduces both the `CC` and `NCC` columns of every transcribed row. Everything
+else is still bus time alone, and `--time-instructions` shows which is which:
+a scheduled instruction reads steady, an unscheduled one alternates 0/2. The harness to measure it now exists on both sides
 (`tools/mame-oracle/steptime.lua`, and `--time-instructions` on ours), and the
 first comparison is classified: our bus time alternates 0/2 per instruction
 where the oracle is flat, which is `[030]` §11.3.3's "one external bus cycle per
@@ -73,7 +76,7 @@ Last updated: 2026-08-01.
 | Per-instruction timing report (`--time-instructions`) | bus and cache time only, pinned as a golden; the 0/2 alternation is the cache holding register serving two instruction words per fetch | `tests/goldens/timing.txt`; oracle side by `tools/mame-oracle/steptime.lua` |
 | Probe suite (`probe/`, `--run-probes`) | 8 probes on the constructed machine, needing no firmware; results pinned as a golden under every build preset, identical between `-O0` and `-O3` | `tests/goldens/probes.txt`, `probe_suite`, 7 tests |
 | Constructed machine (`machine/`) | a 68030 on flat RAM, with an out-of-range access faulting rather than wrapping; no I/O, no device, no arbitration point | `machine_suite`, 10 tests |
-| 68030 published timings (§11.6) | 19 register-form rows transcribed, the pure-microcode ones; the four divides carry the manual's data-dependent marker and are `PROVISIONAL`. Deliberately not added to the step's clock: the tables show prefetch overlaps execution, so the two compose by scheduling rather than by addition | `timing_table_suite`, 7 tests |
+| 68030 published timings (§11.6) | 19 register-form rows transcribed, the pure-microcode ones; the four divides carry the manual's data-dependent marker and are `PROVISIONAL`. Scheduled into the step's clock as `max(microcode, bus)`, since the tables show prefetch overlaps execution | `timing_table_suite`, 7 tests |
 | 68030 instruction overlap (§11.3's Equation 11-1) | the composition rule only, deliberately without §11.6's per-instruction figures — those must be measured, not transcribed | `overlap_suite`, 8 tests, including the manual's own worked example |
 | 68030 state hash (the identity harness's CPU half) | working: every architectural register, the MMU and cache control registers, the pipe, both caches, the ATC, and the accumulated clock — host pointers excluded by construction, since `ap_hash.h` has no pointer helper | `state_suite`, 12 tests sweeping every field; `step_suite`'s same-program-twice check |
 | 68030 addressing mode categories (Data / Memory / Control / Alterable) | working; derived from §2.3's definitions rather than transcribed from Table 2-4, whose Alterable column is exchanged between two row pairs in the scan | `category_suite`, 8 tests, `M68000 Family Programmer's Reference Manual 1992` §2.3 |

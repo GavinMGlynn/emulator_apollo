@@ -157,6 +157,52 @@ static void test_a_head_or_tail_longer_than_the_instruction_is_inconsistent(
   TEST_ASSERT_FALSE(ap_m68030_timing_consistent(&long_tail));
 }
 
+/* Microcode and bus run concurrently, so an instruction's cost is the two
+ * scheduled rather than summed. The tables establish this and the header quotes
+ * them; these are the two rows worked through.
+ *
+ * `ADD Rn,Dn` is CC 2(0/0/0) and NCC 2(0/1/0): one more bus cycle, worth two
+ * clocks, and the same total -- so the prefetch cost nothing, having happened
+ * while the microcode ran. */
+static void test_a_bus_cycle_hidden_under_microcode_costs_nothing(void) {
+  /* Cache case: no bus at all. */
+  TEST_ASSERT_EQUAL_UINT(2u, ap_m68030_schedule(2u, 0u));
+  /* No-cache case: one prefetch, two clocks, fully hidden. */
+  TEST_ASSERT_EQUAL_UINT(2u, ap_m68030_schedule(2u, 2u));
+}
+
+/* `ADD Dn,EA` is CC 3(0/0/1) against NCC 4(0/1/1): the extra prefetch adds one
+ * clock, not zero and not two. That is what rules out both "add the two" and
+ * "the bus is free" -- the bus time is counted whole, and only the part that
+ * fits under the microcode is free. */
+static void test_bus_time_beyond_the_microcode_is_what_costs(void) {
+  /* Cache case: a write, two clocks, under three of microcode. */
+  TEST_ASSERT_EQUAL_UINT(3u, ap_m68030_schedule(3u, 2u));
+  /* No-cache case: write plus prefetch, four clocks, now exceeding it. */
+  TEST_ASSERT_EQUAL_UINT(4u, ap_m68030_schedule(3u, 4u));
+
+  /* And the sum would have been 5 and 7 -- the model that was implemented,
+   * measured and backed out. */
+  TEST_ASSERT_NOT_EQUAL_UINT(3u + 2u, ap_m68030_schedule(3u, 2u));
+}
+
+/* A long instruction hides everything the bus does. DIVU.W is CC 44(0/0/0) and
+ * NCC 44(0/1/0) -- forty-four clocks of microcode swallow a two-clock prefetch
+ * without trace, which is the same fact as the first test at a scale where a
+ * summing model would be obviously wrong. */
+static void test_a_long_instruction_hides_its_whole_fetch(void) {
+  TEST_ASSERT_EQUAL_UINT(44u, ap_m68030_schedule(44u, 0u));
+  TEST_ASSERT_EQUAL_UINT(44u, ap_m68030_schedule(44u, 2u));
+}
+
+/* An instruction with no microcode figure is its bus time, unchanged. That is
+ * the honest state for everything not yet transcribed: a lower bound, not a
+ * guess dressed as a measurement. */
+static void test_an_untranscribed_instruction_is_its_bus_time(void) {
+  TEST_ASSERT_EQUAL_UINT(2u, ap_m68030_schedule(0u, 2u));
+  TEST_ASSERT_EQUAL_UINT(0u, ap_m68030_schedule(0u, 0u));
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_the_overlap_is_the_lesser_of_the_tail_and_the_head);
@@ -167,5 +213,9 @@ int main(void) {
   RUN_TEST(test_an_empty_sequence_costs_nothing);
   RUN_TEST(test_overlap_is_pairwise_and_not_cumulative);
   RUN_TEST(test_a_head_or_tail_longer_than_the_instruction_is_inconsistent);
+  RUN_TEST(test_a_bus_cycle_hidden_under_microcode_costs_nothing);
+  RUN_TEST(test_bus_time_beyond_the_microcode_is_what_costs);
+  RUN_TEST(test_a_long_instruction_hides_its_whole_fetch);
+  RUN_TEST(test_an_untranscribed_instruction_is_its_bus_time);
   return UNITY_END();
 }

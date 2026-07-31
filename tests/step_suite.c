@@ -342,10 +342,20 @@ static void test_an_illegal_encoding_is_distinct_from_unimplemented(void) {
   TEST_ASSERT_EQUAL_INT(AP_M68030_DECODED_ILLEGAL, r.kind);
 }
 
-/* Instruction fetch costs clocks, and running the same code again costs fewer
- * because the instruction cache answers -- the first end-to-end observation of
- * the cache paying off in a running program. */
-static void test_a_loop_costs_less_the_second_time_around(void) {
+/* What the instruction cache actually buys, which is not always time.
+ *
+ * A second pass over the same four instructions runs **no further bus cycles** —
+ * that is the cache doing its job, and it is what this checks. The *clock*,
+ * though, is unchanged, and that is the manual's own answer rather than a
+ * disappointment: `MOVEQ #<data>,Dn` is CC 2 and NCC 2 in §11.6.9, the same
+ * figure cached or not, because its two-clock fetch hides entirely under its
+ * two clocks of microcode. Saving a bus cycle saves nothing when the bus cycle
+ * was free.
+ *
+ * This test asserted the second pass cost *zero* until the published figures
+ * were wired in. That was right while the clock was bus time alone and is wrong
+ * now: zero would mean a cached instruction takes no time at all. */
+static void test_a_cached_pass_runs_no_bus_cycles_and_costs_its_microcode(void) {
   static const uint16_t program[] = {0x7001u, 0x7202u, 0x7403u, 0x7604u};
   machine_t m = {0};
   load(&m, program, 4);
@@ -355,6 +365,7 @@ static void test_a_loop_costs_less_the_second_time_around(void) {
     first_pass += ap_m68030_step(&m.cpu).clocks;
   }
   const unsigned fills_after_first = m.memory.fills;
+  TEST_ASSERT_TRUE(fills_after_first > 0);
 
   /* Run the same four instructions again from the top. */
   ap_m68030_cpu_reset(&m.cpu, PROGRAM_BASE);
@@ -363,9 +374,12 @@ static void test_a_loop_costs_less_the_second_time_around(void) {
     second_pass += ap_m68030_step(&m.cpu).clocks;
   }
 
-  TEST_ASSERT_TRUE(first_pass > 0);
-  TEST_ASSERT_EQUAL_UINT64(0, second_pass);
+  /* The cache answered: not one further line fill. */
   TEST_ASSERT_EQUAL_UINT(fills_after_first, m.memory.fills);
+
+  /* And four MOVEQs cost their published CC, cached or not. */
+  TEST_ASSERT_EQUAL_UINT64(8, second_pass);
+  TEST_ASSERT_EQUAL_UINT64(first_pass, second_pass);
 }
 
 
@@ -3791,7 +3805,7 @@ int main(void) {
   RUN_TEST(test_a_conditional_branch_reads_the_previous_result);
   RUN_TEST(test_an_unimplemented_instruction_is_reported_not_skipped);
   RUN_TEST(test_an_illegal_encoding_is_distinct_from_unimplemented);
-  RUN_TEST(test_a_loop_costs_less_the_second_time_around);
+  RUN_TEST(test_a_cached_pass_runs_no_bus_cycles_and_costs_its_microcode);
   RUN_TEST(test_move_copies_between_data_registers);
   RUN_TEST(test_a_word_move_leaves_the_upper_half_of_the_destination);
   RUN_TEST(test_movea_word_sign_extends_the_whole_address_register);

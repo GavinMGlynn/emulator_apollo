@@ -5,6 +5,8 @@
 
 #include "cpu/m68030/ap_m68030_step.h"
 
+#include "cpu/m68030/ap_m68030_timing_table.h"
+
 #include "cpu/m68030/ap_m68030_branch.h"
 #include "cpu/m68030/ap_m68030_category.h"
 #include "cpu/m68030/ap_m68030_control.h"
@@ -3311,6 +3313,21 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
     }
     cpu->clocks += out.clocks;
     return out;
+  }
+
+  /* The microsequencer and the bus controller run concurrently, so the
+   * instruction's cost is the two *scheduled* rather than summed -- see
+   * ap_m68030_overlap.h, where the tables' own CC and NCC columns are what
+   * establish that. `out.clocks` holds the bus time this step actually
+   * incurred; the published figure is the microcode.
+   *
+   * Only the transcribed forms are scheduled. Everything else keeps bus time
+   * alone, which is visibly a lower bound rather than a plausible guess, and
+   * `--time-instructions` shows which is which. */
+  const ap_m68030_table_entry_t *published =
+      ap_m68030_timing_for_word(out.instruction);
+  if (published != nullptr) {
+    out.clocks = ap_m68030_schedule(published->timing.cache_case, out.clocks);
   }
 
   /* A taken branch, jump or return has already set the PC and emptied the pipe;

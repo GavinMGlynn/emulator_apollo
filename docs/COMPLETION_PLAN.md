@@ -1330,7 +1330,34 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         Both halves of the comparison are now runnable and pinned:
         `apollo-headless --time-instructions` with a golden, and
         `tools/mame-oracle/steptime.lua` for the oracle.
-    - [ ] **Wiring the figures in is a *scheduling* problem, not an addition.**
+    - [~] **Wiring the figures in is a *scheduling* problem, not an addition**,
+          and the scheduling model now exists: `ap_m68030_schedule`, which is
+          `max(microcode, bus)` and is applied to every transcribed form.
+          The three transcribed instructions in `--time-instructions` went from
+          alternating 0/2 to a **steady 2**, which is what the manual predicts:
+          `MOVEQ` is `CC 2` and `NCC 2`, the same figure cached or not, because
+          its two-clock fetch hides entirely under its two clocks of microcode.
+          The untranscribed ones still alternate, visibly bus-only.
+          **A test had to be restated rather than repaired.** One asserted that
+          a second pass over cached instructions costs *zero*, which was right
+          while the clock was bus time alone. It now costs the published `CC`,
+          and — because `CC` equals `NCC` for `MOVEQ` — costs the *same* as the
+          uncached pass. So what the cache buys there is bus cycles, not clocks,
+          and the test says that instead: no further line fills, and four
+          `MOVEQ`s costing 8.
+          It remains a **two-resource approximation** of §11.2's eight, kept
+          because it reproduces both published columns for every transcribed row
+          and because the alternative is inventing structure the manual does not
+          publish. The remaining work is the two-sided check across more rows:
+          cold-cache totals equalling `NCC`, warm-cache totals `CC`. A row where
+          they stop agreeing is where this runs out, and is a measurement worth
+          having.
+          *Verification: `overlap_suite`, 4 further tests (12 total) — a bus
+          cycle wholly hidden costing nothing, bus time beyond the microcode
+          being what costs, a 44-clock divide swallowing its fetch, and an
+          untranscribed instruction remaining its bus time. Both goldens moved
+          and were regenerated, byte-identical between `-O0` and `-O3`.*
+    - [x] **The original addition, implemented and backed out.**
           Adding each instruction's `CC` to the bus time the core accumulated
           was implemented and backed out: the tables contradict it.
           `ADD Rn,Dn` is `CC 2(0/0/0)` and `NCC 2(0/1/0)` — one more instruction

@@ -4,18 +4,20 @@
  *
  * ## What this is, and what it deliberately is not
  *
- * The per-instruction head, tail and cache-case figures live in §11.6's tables,
- * and this module does **not** transcribe them. `docs/references/M68030_TIMING.md`
- * records why: "No published NCC number is a value any single execution of that
- * instruction ever takes", being a mean of the odd- and even-word-aligned cases
- * rounded up. A core that looked a number up and added it would be reproducing
- * an average the hardware never exhibits, and refining the table could not fix
- * it. The figures this core reports must come from measurement.
+ * This module holds the *rules* by which timing figures compose, and none of
+ * the figures. Those live in `ap_m68030_timing_table.h`, which transcribes the
+ * rows of §11.6 whose cache case is pure microcode and refuses the rest.
  *
- * What *is* transcribable is the composition rule, which is arithmetic rather
- * than measurement, and which any set of figures must obey. Building it now
- * means the numbers have somewhere to arrive, and means the rule is tested
- * against the manual's own worked example rather than against itself.
+ * The separation is not tidiness. The rules here are arithmetic that any set of
+ * figures must obey, and they are tested against the manual's own worked
+ * example rather than against numbers this project produced -- which is the only
+ * kind of check worth having for a rule with no measurements behind it.
+ *
+ * `docs/references/M68030_TIMING.md` records which published column may be used
+ * and which may not: `NCC` is "the average of the odd-word-aligned case and the
+ * even-word-aligned case (rounded up)", so no NCC figure is a value any single
+ * execution takes, while `CC` for a `(0/0/0)` row carries no bus time at all and
+ * is therefore pure microcode.
  *
  * ## The rule
  *
@@ -107,6 +109,49 @@ void ap_m68030_overlap_add(ap_m68030_overlap_state_t *state,
 
 [[nodiscard]] uint64_t
 ap_m68030_overlap_total(const ap_m68030_overlap_state_t *state);
+
+/* ---------------------------------------------------------------------------
+ * Scheduling microcode against the bus.
+ *
+ * `[030]` §11.2: the processor is "eight independently scheduled resources",
+ * and "very little of the scheduling is directly related to instruction
+ * boundaries". The microsequencer and the bus controller are two of them, and
+ * they run *concurrently* -- so an instruction's cost is not its microcode time
+ * plus its bus time.
+ *
+ * The tables say so directly. `ADD Rn,Dn` is `CC 2(0/0/0)` and `NCC 2(0/1/0)`:
+ * one more instruction bus cycle, worth two clocks, and the same total. That
+ * prefetch cost nothing because it happened while the microcode ran. And
+ * `ADD Dn,EA` is `CC 3(0/0/1)` against `NCC 4(0/1/1)`, where the extra prefetch
+ * adds *one* clock -- so it is not a maximum of two independent totals either,
+ * unless the bus time is counted whole.
+ *
+ * It is. Reading both rows as `max(microcode, bus)`:
+ *
+ *     ADD Rn,Dn   CC:  max(2, 0) = 2      NCC: max(2, 2) = 2
+ *     ADD Dn,EA   CC:  max(3, 2) = 3      NCC: max(3, 4) = 4
+ *
+ * where the bus figure is two clocks per cycle, the table's own assumption.
+ * Both columns of both rows fall out, and so does every other transcribed row.
+ *
+ * ## This is a two-resource approximation, and its cost to close is known
+ *
+ * Eight resources are not two. A full model would let a bus cycle overlap only
+ * the part of the microcode not waiting on it, which `max` does not express: it
+ * assumes every bus cycle can hide under any microcode. Where an instruction
+ * *needs* its operand before it can continue, that is optimistic.
+ *
+ * It is kept because it reproduces both published columns for every row that
+ * has been transcribed, and because the alternative is inventing a structure
+ * the manual does not publish. The check is exactly that: cold-cache totals
+ * must equal `NCC` and warm-cache totals `CC`. A row where they stop agreeing
+ * is where this approximation runs out, and is a measurement worth having.
+ * ------------------------------------------------------------------------- */
+
+/* Clocks for an instruction whose microcode takes `microcode_clocks` and whose
+ * bus activity takes `bus_clocks`, run concurrently. */
+[[nodiscard]] uint32_t ap_m68030_schedule(uint32_t microcode_clocks,
+                                          uint32_t bus_clocks);
 
 /* Whether a set of figures is self-consistent: "the heads of some instructions
  * equal the total instruction-cache-case time", so head may equal the cache

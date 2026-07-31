@@ -38,6 +38,10 @@ uint64_t ap_m68030_overlap_total(const ap_m68030_overlap_state_t *state) {
   return state->total;
 }
 
+uint32_t ap_m68030_schedule(uint32_t microcode_clocks, uint32_t bus_clocks) {
+  return microcode_clocks > bus_clocks ? microcode_clocks : bus_clocks;
+}
+
 bool ap_m68030_timing_consistent(const ap_m68030_timing_t *timing) {
   return timing->head <= timing->cache_case && timing->tail <= timing->cache_case;
 }
