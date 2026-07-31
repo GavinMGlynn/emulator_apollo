@@ -174,13 +174,55 @@ is MD over the serial console. If that route does not exist, those three items
 are gated on something that has not been shown to work — which is a worse
 position than being gated on something known hard.
 
-**Next, cheapest first.** Disassemble `0x780`-`0x7C0` of `3500_BOOT_12191_7.bin`
-and read what the loop is waiting on: that answers all three possibilities at
-once and needs no further MAME runs. Then, if it is (1) or (2), configure what
-it wants; if (3), the finding is about the oracle rather than about us, and the
-probe path needs a different route — most plausibly injecting probe state
-directly, which Phase 1 already lists as the CI path and which needs no firmware
-at all.
+**The loop, disassembled.** `3500_BOOT_12191_7.bin` at `$78E`-`$7AE`, decoded by
+hand from the bytes:
+
+```
+0078E  0828 0000 0002   BTST  #0,($0002,A0)
+00794  6600 0078        BNE.W $80E            ; leave
+00798  7800             MOVEQ #0,D4
+0079A  0828 0000 0012   BTST  #0,($0012,A0)
+007A0  6644             BNE.B $7E6            ; leave
+007A2  283C 0000 00F0   MOVE.L #$F0,D4
+007A8  0828 0000 0102   BTST  #0,($0102,A0)
+007AE  67DE             BEQ.B $78E            ; back to the top
+```
+
+Three `BTST`s against one base register, and a branch back if the last is clear.
+The dumps agree: `IR` is `$0828` — a static `BTST` — at every sample, and the two
+sampled PCs (`$794` and `$7AE`) are both inside this loop.
+
+**What it is polling.** `A0` is `$00010401`, and `apollo.cpp` maps
+`$010400`-`$0104ff` to the SIO. So the base is the serial controller, addressed
+on odd bytes as an 8-bit peripheral on a 16-bit bus, and the three tested bits
+are serial status bits. `D2` holds `$45` — ASCII `'E'` — and the instruction just
+past the loop's exit is `MOVE.B #$45,($0104,A0)`, a character write.
+
+**So possibility (3) is out: this is not a self-test failure.** The PROM has
+reached its console code and is polling the serial controller, spinning while
+every status bit it tests stays clear. The natural reading is that it waits for
+console input a headless run never supplies.
+
+**That reading was tested and did not hold.** `null_modem` reads its input from
+the same `-bitb` image it writes to, so pre-populating the file supplies
+keystrokes. Two carriage returns, 25 emulated seconds: the file comes back
+unchanged at two bytes. Nothing was transmitted, and nothing was consumed.
+
+**Where that leaves it.** The PROM polls the SIO and the SIO never reports
+ready — in either direction. The next question is therefore about the SIO
+itself rather than about the PROM: whether MAME's `apollo_sio` reports transmit
+ready before the PROM has programmed it, and whether the PROM's programming
+sequence runs before this loop at all (the registers written between reset and
+`$78E` would say). That is answerable by dumping SIO writes with a Lua tap on
+`$010400`-`$0104ff`, which is a small extension to `dump.lua` and needs no new
+tooling.
+
+**Meanwhile the plan should not lean on this route.** Phase 1 already lists a
+second path — injecting probe state directly into a constructed machine, no
+firmware involved — and describes it as the CI path precisely because it does
+not depend on the PROM. On this evidence that path is also the one to build
+*first*, and MD becomes the development-time confirmation rather than the
+foundation.
 
 ## Instrumenting the oracle
 

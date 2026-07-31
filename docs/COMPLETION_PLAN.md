@@ -190,7 +190,17 @@ file the moment they are found, not when someone remembers.
     the MMU never configured. The syntax work below stands; what is unproven is
     that there is a prompt to send it to. Next step is to disassemble
     `$780`-`$7C0` of the boot PROM and read what the loop waits on, which needs
-    no further oracle runs.
+    no further oracle runs. **Done, and it narrows the finding without closing
+    it:** the loop polls three serial status bits through `A0` = `$10401`, which
+    `apollo.cpp` maps to the SIO, so the PROM has reached its console code
+    rather than failed a self-test. Supplying keystrokes through the
+    `null_modem`'s input side changes nothing in either direction. The open
+    question is now about `apollo_sio`'s ready reporting, not about the PROM.
+    **Consequence for the plan: build the side-loading path first.** Phase 1
+    already lists injecting probe state directly into a constructed machine as
+    the CI path, precisely because it needs no firmware; on this evidence it is
+    also the path that should come first, with MD as development-time
+    confirmation rather than the foundation everything else is gated on.
   - **Route settled, and it is simpler than "Apollo's executable/boot format".**
     The boot PROM holds the Mnemonic Debugger (`008778-03` §1.5.1), whose `A`
     (access/deposit) and `G` (jump) commands take hand-assembled instruction
