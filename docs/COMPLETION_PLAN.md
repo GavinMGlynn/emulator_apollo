@@ -2386,10 +2386,14 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
 - [ ] **OMTI 8621 ESDI/floppy controller** — one controller for both, and the
       DN3500's. Placement characterised (`FINDINGS.md` C20): `04D000`, aliased
       on an eight-byte period, offsets 1-3 driven, offsets 0 and 4-7 reading
-      `FF` which a read sweep cannot tell from undriven. Get the controller's
-      manual before probing further — a write sweep on a disk controller carries
-      the same command-register hazard that contaminated the tape's (C17), and
-      the manual was the better route there too. *Verification: DMA-completion device shape — transfer now,
+      `FF` which a read sweep cannot tell from undriven. The manual is fetched:
+      *OMTI 8000 Series IBM PC AT Intelligent Data Controllers Reference Manual*
+      (SMS, June 1986) in `docs/references/omti/`, a scan needing page-image
+      reading. **First check its contents page names the 8621** — that it covers
+      the part is an inference from the series, not yet confirmed, and
+      `8640_AT_ESDI/` is the fallback. Transcribe rather than probe: a write
+      sweep on a disk controller carries the same command-register hazard that
+      contaminated the tape's (C17). *Verification: DMA-completion device shape — transfer now,
       schedule completion in emulated time; oracle diff.*
       **Corrected at the Phase 4 boundary.** This item used to read "Winchester
       controllers: OMTI (DN3000), WD7000 ESDI and SCSI (DN4500)", which left the

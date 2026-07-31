@@ -1198,6 +1198,23 @@ documented part -- or a write probe, which for a disk controller carries exactly
 the command-register hazard that contaminated C17's tape sweep. The manual is the
 better route and the cheaper one, as it proved for the SC-499.
 
+**The manual is now in `docs/references/omti/`**: *OMTI 8000 Series IBM PC AT
+Intelligent Data Controllers Reference Manual*, Scientific Micro Systems, June
+1986. A scan with no text layer, so it reads from page images as the MC6840's
+did.
+
+Finding it took the sibling-manual route rather than the obvious one. Bitsavers
+does carry an `8621_AT_ESDI/` directory, and it holds only ROM dumps and two
+photographs of the board -- no documentation at all. The *series* reference is
+what covers the part, which is the same pattern as `019411-A00` covering the
+DS3500 where `008778-03` covered only a generation.
+
+**Not yet verified: that the 8621 appears inside it by name.** It is an
+8000-series part and the manual is the 8000-series reference, which is strong but
+is an inference. Checking the contents page is the first thing to do on opening
+it, and if the 8621 is absent the `8640_AT_ESDI/` technical reference is the next
+candidate -- a closer sibling than a series overview.
+
 ## Where the ring is not
 
 The Apollo Token Ring has **no runnable oracle at all**: MAME carries Domain
