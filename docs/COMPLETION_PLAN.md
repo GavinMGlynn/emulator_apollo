@@ -361,6 +361,25 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         the signed comparisons where a sign error hides, `GT` differing from
         `GE` only by Z, and T/F unavailable to `Bcc` because those encodings are
         `BRA` and `BSR`.*
+  - [x] **Operation code map** (`src/core/cpu/m68030/ap_m68030_opcode.c`),
+        `M68000 Family PRM` Table 8-2 — bits 15-12 select the instruction
+        family, and everything below decodes per family.
+        **The MOVE families are not in size order**: `0001` byte, `0010`
+        **long**, `0011` **word**. Assuming byte/word/long yields a decoder that
+        runs and moves the wrong number of bytes for two thirds of all MOVE
+        instructions, which is why the size is exposed here rather than left for
+        each caller to re-derive — there is no arithmetic on the family number
+        that produces it.
+        Families `1010` and `1111` are named rather than lumped in as invalid,
+        because they are exception *generators*: `[030]` Table 8-1 gives vector
+        10 to the "Line 1010 Emulator" and 11 to the "Line 1111 Emulator", which
+        is what lets an OS emulate an absent coprocessor in software. Those
+        vector numbers come from `ap_m68030_exception.h`, so the two modules
+        agree by construction rather than by two copies of a constant.
+        *Verification: `opcode_suite`, 6 tests — the whole published map with
+        the low twelve bits varied to prove they do not influence the family,
+        the move sizes asserted as sizes rather than names, and both emulator
+        families resolving to the exception module's own vectors.*
   - [ ] Wire the bus to a memory system so the termination kind and its arrival
         clock come from a device rather than a test. That is what makes
         contention emergent, and it belongs with Phase 3's single arbitration

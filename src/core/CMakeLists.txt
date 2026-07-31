@@ -10,6 +10,7 @@ add_library(apollo_core STATIC
   cpu/m68030/ap_m68030_ea.c
   cpu/m68030/ap_m68030_exception.c
   cpu/m68030/ap_m68030_mmusr.c
+  cpu/m68030/ap_m68030_opcode.c
   cpu/m68030/ap_m68030_pipe.c
   cpu/m68030/ap_m68030_regs.c
   cpu/m68030/ap_m68030_tc.c
