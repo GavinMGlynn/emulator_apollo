@@ -1618,8 +1618,32 @@ transferred one byte at a time by repeating the REQUEST/READY exchange, with
 DIRECTION reversed so the device drives -- the same reversal the read data
 transfer makes.
 
-**How many bytes, and what they mean, is not on this page.** The figure gives the
-protocol and not the payload. This core's `READ STATUS` currently succeeds and
+**Figure 1-9 completes the command side.** It is the command transfer with
+DIRECTION still asserted -- the device holding the bus after a read or a status
+block:
+
+    T1  READY Asserted
+    T2  Controller Asserts REQUEST      0 us < T1->T2
+    T3  Device Deasserted READY               T2->T3
+    T4  Device Deasserts DIRECTION      0 us < T3->T4 < 150 us
+    T5  Bus Data Valid                        T4->T5 < 1 us
+    T6  Device Asserts READY                  T4->T6 < 500 us
+    T7  Controller Deasserts REQUEST    0 us < T6->T7
+    T10 Device Deasserts READY         20 us < T7->T10 < 100 us
+
+So DIRECTION is the bus-ownership signal, and a command issued while the device
+holds the bus requires it to hand the bus back first -- within 150 microseconds --
+before the exchange can proceed.
+
+**Which makes the command handshake a state machine with three entry
+conditions**, one figure each: Figure 1-7 when the device is ready, Figure 1-8
+when it is in exception, Figure 1-9 when it holds the bus. The device's state on
+entry selects the sequence. That is the shape to implement, and it is not
+guessable from any one of the three -- each looks like the whole protocol until
+the next is read.
+
+**How many status bytes, and what they mean, is not on any of these pages.** The
+figures give the protocol and not the payload. This core's `READ STATUS` currently succeeds and
 returns nothing, which is consistent with the protocol being unmodelled but is
 not a status block; a driver asking for status would find the command accepted
 and no bytes forthcoming. Named rather than guessed: the conventional QIC-02

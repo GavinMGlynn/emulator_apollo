@@ -2478,7 +2478,14 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         succeeds and returns no bytes, which is honest about the gap but is not
         a status block. Find the field definitions before implementing; the
         conventional QIC-02 length is not a source.
-  - [ ] Figures 1-5 and 1-9 — write and direction transfers — still to read.
+  - [x] Figure 1-9, the command transfer with DIRECTION asserted, transcribed
+        (C26). With 1-7 and 1-8 that makes the command handshake a **state
+        machine with three entry conditions** — ready, exception, device holding
+        the bus — one figure each, selected by the device's state on entry.
+  - [ ] Implement that state machine. Its timings are all bounds, so the
+        figures modelled become `PROVISIONAL` as the 68030's synchroniser is.
+  - [ ] Figure 1-5, the write data transfer — only needed if a write-back path
+        is ever added, which `ap_qic` currently refuses outright.
   - [ ] Note C25: the
         controller identifies the cartridge type from BOT-to-load-point
         *distance*, which a raw block image has no geometry to supply, so the
