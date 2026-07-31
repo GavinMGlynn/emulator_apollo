@@ -30,18 +30,27 @@
       "hidden": true,
       "inherits": "base",
       "cacheVariables": {
-        "CMAKE_BUILD_TYPE": "Release"
+        "CMAKE_BUILD_TYPE": "Release",
+        "APOLLO_WERROR": "ON"
       }
     },
     {
       "name": "linux-debug",
       "inherits": "debug-base",
-      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Linux" }
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Linux"
+      }
     },
     {
       "name": "linux-release",
       "inherits": "release-base",
-      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Linux" },
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Linux"
+      },
       "cacheVariables": {
         "CMAKE_C_FLAGS_RELEASE": "-O3 -DNDEBUG",
         "CMAKE_INTERPROCEDURAL_OPTIMIZATION": "ON",
@@ -51,17 +60,29 @@
     {
       "name": "linux-ci",
       "inherits": "debug-base",
-      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Linux" }
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Linux"
+      }
     },
     {
       "name": "macos-debug",
       "inherits": "debug-base",
-      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Darwin" }
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Darwin"
+      }
     },
     {
       "name": "macos-release",
       "inherits": "release-base",
-      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Darwin" },
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Darwin"
+      },
       "cacheVariables": {
         "CMAKE_C_FLAGS_RELEASE": "-O3 -DNDEBUG",
         "CMAKE_INTERPROCEDURAL_OPTIMIZATION": "ON",
@@ -72,7 +93,11 @@
     {
       "name": "macos-ci",
       "inherits": "debug-base",
-      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Darwin" },
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Darwin"
+      },
       "cacheVariables": {
         "PNG_ARM_NEON_OPT": "0"
       }
@@ -80,12 +105,20 @@
     {
       "name": "windows-debug",
       "inherits": "debug-base",
-      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Windows" }
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Windows"
+      }
     },
     {
       "name": "windows-release",
       "inherits": "release-base",
-      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Windows" },
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Windows"
+      },
       "cacheVariables": {
         "CMAKE_C_FLAGS_RELEASE": "-O3 -DNDEBUG"
       }
@@ -93,35 +126,106 @@
     {
       "name": "windows-ci",
       "inherits": "debug-base",
-      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Windows" }
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Windows"
+      }
     }
   ],
   "buildPresets": [
-    { "name": "linux-debug", "configurePreset": "linux-debug" },
-    { "name": "linux-release", "configurePreset": "linux-release" },
-    { "name": "linux-ci", "configurePreset": "linux-ci" },
-    { "name": "macos-debug", "configurePreset": "macos-debug" },
-    { "name": "macos-release", "configurePreset": "macos-release" },
-    { "name": "macos-ci", "configurePreset": "macos-ci" },
-    { "name": "windows-debug", "configurePreset": "windows-debug" },
-    { "name": "windows-release", "configurePreset": "windows-release" },
-    { "name": "windows-ci", "configurePreset": "windows-ci" }
+    {
+      "name": "linux-debug",
+      "configurePreset": "linux-debug"
+    },
+    {
+      "name": "linux-release",
+      "configurePreset": "linux-release"
+    },
+    {
+      "name": "linux-ci",
+      "configurePreset": "linux-ci"
+    },
+    {
+      "name": "macos-debug",
+      "configurePreset": "macos-debug"
+    },
+    {
+      "name": "macos-release",
+      "configurePreset": "macos-release"
+    },
+    {
+      "name": "macos-ci",
+      "configurePreset": "macos-ci"
+    },
+    {
+      "name": "windows-debug",
+      "configurePreset": "windows-debug"
+    },
+    {
+      "name": "windows-release",
+      "configurePreset": "windows-release"
+    },
+    {
+      "name": "windows-ci",
+      "configurePreset": "windows-ci"
+    }
   ],
   "testPresets": [
     {
       "name": "test-base",
       "hidden": true,
-      "output": { "outputOnFailure": true },
-      "execution": { "stopOnFailure": false }
+      "output": {
+        "outputOnFailure": true
+      },
+      "execution": {
+        "stopOnFailure": false
+      }
     },
-    { "name": "linux-debug", "inherits": "test-base", "configurePreset": "linux-debug" },
-    { "name": "linux-release", "inherits": "test-base", "configurePreset": "linux-release" },
-    { "name": "linux-ci", "inherits": "test-base", "configurePreset": "linux-ci" },
-    { "name": "macos-debug", "inherits": "test-base", "configurePreset": "macos-debug" },
-    { "name": "macos-release", "inherits": "test-base", "configurePreset": "macos-release" },
-    { "name": "macos-ci", "inherits": "test-base", "configurePreset": "macos-ci" },
-    { "name": "windows-debug", "inherits": "test-base", "configurePreset": "windows-debug" },
-    { "name": "windows-release", "inherits": "test-base", "configurePreset": "windows-release" },
-    { "name": "windows-ci", "inherits": "test-base", "configurePreset": "windows-ci" }
+    {
+      "name": "linux-debug",
+      "inherits": "test-base",
+      "configurePreset": "linux-debug"
+    },
+    {
+      "name": "linux-release",
+      "inherits": "test-base",
+      "configurePreset": "linux-release"
+    },
+    {
+      "name": "linux-ci",
+      "inherits": "test-base",
+      "configurePreset": "linux-ci"
+    },
+    {
+      "name": "macos-debug",
+      "inherits": "test-base",
+      "configurePreset": "macos-debug"
+    },
+    {
+      "name": "macos-release",
+      "inherits": "test-base",
+      "configurePreset": "macos-release"
+    },
+    {
+      "name": "macos-ci",
+      "inherits": "test-base",
+      "configurePreset": "macos-ci"
+    },
+    {
+      "name": "windows-debug",
+      "inherits": "test-base",
+      "configurePreset": "windows-debug"
+    },
+    {
+      "name": "windows-release",
+      "inherits": "test-base",
+      "configurePreset": "windows-release"
+    },
+    {
+      "name": "windows-ci",
+      "inherits": "test-base",
+      "configurePreset": "windows-ci"
+    }
   ]
 }

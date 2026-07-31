@@ -17,8 +17,18 @@ file the moment they are found, not when someone remembers.
         time because time is a `uint64_t` in base units; a non-Clang compiler or
         unlisted platform warns instead. *Verification: `cmake/Platform.cmake`;
         the configure line names the resolved platform, compiler and width.*
-- [x] Warning set applied to first-party targets only, `-Werror` in debug/CI.
-      *Verification: debug build is clean with `APOLLO_WERROR=ON`.*
+- [x] Warning set applied to first-party targets only, `-Werror` **in every
+      build type**, not debug and CI alone. `APOLLO_WERROR` now defaults to `ON`
+      and `release-base` sets it explicitly. In an emulator a warning is rarely
+      cosmetic — `-Wconversion` and `-Wsign-conversion` fire on exactly the
+      silent width and signedness changes that make a cycle count or an address
+      wrap differ between platforms, which is the one thing this project claims
+      cannot happen. A warning that is an error in Debug and a note in Release
+      is a warning that gets through in Release. Vendored code is unaffected:
+      `apollo_set_warnings()` is never called on anything in `ext/`.
+      *Verification: `build.ninja` carries `-Werror` for the release preset, and
+      both `linux-debug` and `linux-release` build clean and pass 7/7 from a
+      wiped build tree.*
 - [x] GitHub Actions matrix: ubuntu, rockylinux:9 container, windows
       clang-in-MSVC, macos arm64, plus an `-O0` vs `-O3` output-identity job.
       *Verification: matrix green.*
