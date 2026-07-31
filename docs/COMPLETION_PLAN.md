@@ -90,9 +90,27 @@ file the moment they are found, not when someone remembers.
         a golden change). Not acted on from the flag alone — the honest test is
         to run it. *Verification: an attempted `dn5500` run under the built
         oracle, recorded in `FINDINGS.md` either way.*
-- [ ] Oracle harness: drive MAME headless, run N frames/cycles, dump RAM and
+- [~] Oracle harness: drive MAME headless, run N frames/cycles, dump RAM and
       device state in our hex format. *Verification: two runs of the same
       workload produce identical dumps.*
+  - [x] `tools/mame-oracle/dump.lua`, the state dumper MAME loads as
+        `-autoboot_script`: sorted register dump widthed from each entry's own
+        `datasize`, `read_u8`-based hex ranges, and a stop-notifier so a machine
+        that halts early still dumps rather than silently producing nothing.
+        *Verification: `oracle_dump_format`, 19 checks against a mock machine —
+        no MAME needed, which is what lets the format be pinned in CI where the
+        oracle is never built.*
+  - [ ] `tools/mame-oracle/oracle.py`, the driver. Written, **not yet landed**:
+        its verification is `verify` showing two runs byte-identical, and that
+        cannot run until the oracle binary exists.
+  - Determinism is the whole point, so the driver's flags are load-bearing and
+    each closes one way a second run could differ: `-noreadconfig` (ignore
+    `~/.mame/mame.ini`, which no one reviews), redirected and wiped
+    `nvram`/`cfg`/`state`/`diff` directories (they persist across runs by
+    design, so run 2 would otherwise start from a different machine than run 1),
+    `-video none -sound none -nothrottle`, and `-seconds_to_run` as an
+    emulated-time watchdog so a never-reached dump point fails instead of
+    hanging.
 - [x] `tools/mame-oracle/FINDINGS.md`: one row per probe campaign — ours, the
       oracle's, status, and the story. *Verification: the file exists and every
       closed row cites its evidence — vacuously true today, since no campaign

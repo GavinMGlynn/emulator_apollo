@@ -18,6 +18,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: git submodule update --init --depth 1 $CI_SUBMODULES
+      # lua enables the oracle dump-format test; it is best-effort, so a
+      # runner without it still builds and tests the core.
+      - run: sudo apt-get update && sudo apt-get install -y lua5.4
       - run: cmake --preset linux-ci
       - run: cmake --build --preset linux-ci
       - run: ctest --preset linux-ci --output-on-failure
@@ -34,7 +37,7 @@ jobs:
         run: |
           dnf install -y dnf-plugins-core
           dnf config-manager --set-enabled crb
-          dnf install -y clang cmake ninja-build git python3
+          dnf install -y clang cmake ninja-build git python3 lua
       - uses: actions/checkout@v4
       - name: Trust the container checkout
         run: git config --global --add safe.directory '*'
@@ -61,7 +64,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: git submodule update --init --depth 1 $CI_SUBMODULES
-      - run: brew install ninja
+      - run: brew install ninja lua
       - run: cmake --preset macos-ci
       - run: cmake --build --preset macos-ci
       - run: ctest --preset macos-ci --output-on-failure

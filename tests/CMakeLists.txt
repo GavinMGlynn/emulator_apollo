@@ -42,3 +42,22 @@ apollo_add_suite(frontend_common_suite apollo_frontend_common)
 # list as the subsystems that produce them land, and each arrives with its own
 # golden rather than a promise to add one later.
 apollo_add_golden(golden_model_table model_table.txt apollo-headless --list-models)
+
+# The oracle harness's dump format, checked against a mock machine so it needs
+# no MAME -- which is what lets it run in CI, where the oracle is never built.
+#
+# Best-effort, unlike the goldens above, and the difference is deliberate. A
+# golden asserts the emulator's own cross-platform identity claim, so missing
+# Python is a fatal configure. This pins the format of a development tool that
+# only ever runs on a developer's machine, so a missing Lua names what is not
+# being checked and moves on rather than failing a build of the core.
+find_program(APOLLO_LUA NAMES lua lua5.4 lua5.3)
+if(APOLLO_LUA)
+  add_test(NAME oracle_dump_format
+           COMMAND ${APOLLO_LUA} ${CMAKE_SOURCE_DIR}/tools/mame-oracle/test_dump.lua)
+  set_tests_properties(oracle_dump_format PROPERTIES LABELS tools)
+else()
+  message(STATUS
+    "apollo: no lua found, so the oracle dump format is NOT checked "
+    "(tools/mame-oracle/test_dump.lua). Install lua to enable it.")
+endif()
