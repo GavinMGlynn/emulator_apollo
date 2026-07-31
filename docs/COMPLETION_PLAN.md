@@ -1178,6 +1178,32 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         to no category. `step_suite`, 3 further tests (142 total) — `LEA (A0)+`
         refused **with A0 unmoved**, `MOVE.W D0,(d16,PC)` refused with nothing
         stored, and `PMOVE (A0)+,TC` refused.*
+  - [ ] **Instruction execution time — the microcode clocks between the bus
+        cycles.** Named here because it was missing from this plan entirely,
+        which is worse than being open: the step accumulates bus and cache time
+        only, so a register-to-register `ADD` costs **zero** clocks today and
+        every figure the core reports is a lower bound. The core's headline
+        claim is emergent timing, and this is the part of it not yet built.
+        **Not to be closed by transcribing `[030]` §11.6's tables.**
+        `docs/references/M68030_TIMING.md` already records why: "No published
+        NCC number is a value any single execution of that instruction ever
+        takes" — it is a mean of the odd- and even-aligned cases, rounded up —
+        so a core that looked one up and added it would be reproducing an
+        average the hardware never exhibits, and could not be corrected by
+        refining the table. The tables are the *check*.
+        The route is the project's own rule: measure against the oracle, or
+        take a documented value with a cited page and mark it `PROVISIONAL`.
+        Both are blocked on the same thing — a way to run a known instruction
+        and read back a cycle count — which is what the probe encoder in Phase 1
+        exists to provide. So this item is **gated on Phase 1's probe path**,
+        and saying so is more useful than starting it now.
+        Two things can be done before that gate: §11.2's eight independent
+        resources and §11.3's head/tail overlap rule are structural rather than
+        numeric, and can be built and tested against the manual's own worked
+        examples without any per-instruction figure.
+        *Verification: self-timing probes against the oracle, per instruction
+        and per addressing mode, with `[030]` §11.6 as an independent check and
+        every discrepancy classified before anything is changed.*
   - [ ] Wire the bus to a memory system so the termination kind and its arrival
         clock come from a device rather than a test. That is what makes
         contention emergent, and it belongs with Phase 3's single arbitration

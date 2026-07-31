@@ -3,13 +3,45 @@
 The single source of truth for **what works**. Updated in the same commit as the
 code it describes. If this file and the code disagree, the file is the bug.
 
-**Accuracy claim: none yet.** Nothing boots, but a program now *runs*: `ap_m68030_step` fetches through the pipe and instruction cache, decodes, executes a named subset (`NOP`, `MOVEQ`, 8-bit `BRA`/`Bcc`, `MOVE`/`MOVEA`, `ADD`/`SUB`/`CMP`/`AND`/`OR`/`EOR`, the `xxxI` immediate forms, `CLR`/`NEG`/`NOT`/`TST`, `ADDQ`/`SUBQ`/`Scc`/`DBcc`, the A-forms, the bit operations, the shifts, the multiplies and divides, the extended forms and the BCD arithmetic) — countdown and `DBcc` loops run to termination and advances the PC, with clocks accounted. Family `0100` runs in full bar `BKPT`, `MOVEC` reaches `VBR` and `CACR`, `STOP` halts fetching the branches take all three displacement sizes, and every addressing mode the part has now resolves, full-format indexed and memory indirect included, and the MMU instructions — `PMOVE`, `PFLUSH`, `PFLUSHA`, `PLOAD`, `PTEST` — drive the MMU registers and the ATC the MMU modules have been waiting for: subroutines call and return, `MOVEM` saves and restores register sets, `LINK`/`UNLK` build and release frames, and a divide by zero, a `TRAP #N`, a `TRAPV` and a privileged instruction in user state each take a real exception that `RTE` returns from: the frame is stacked on the supervisor stack, the vector is fetched through the VBR, and the handler's first instruction runs next. An instruction outside that subset reports `UNIMPLEMENTED` rather than silently succeeding, so "how far a program got" is a real measure. The 68030's bus cycle state machine
-exists, but there is no instruction execution, no memory system and no device, so
-no machine can be constructed and no accuracy claim is available to make. The golden regression harness now exists, but it pins reports about the
-model table, not emulated behaviour. This section will state exactly what backs
-the claim when there is one.
+**Accuracy claim: none yet, and the reason is now specific rather than
+general.**
 
-Last updated: 2026-07-31.
+**What runs.** `ap_m68030_step` fetches through the pipe and the instruction
+cache, decodes, executes, takes exceptions and advances the PC. The opcode map
+has no undecoded holes left. Executing today: everything in families `0000`
+through `1111` except `BKPT`, `CAS`, `CAS2`, `CMP2`, `CHK2` and the coprocessor
+instructions other than the MMU's — so the six ALU operations in both
+directions, the immediate forms, `MOVE`/`MOVEA`/`MOVEM`, the quick and
+conditional forms, the shifts and rotates, the multiplies and divides, the
+extended and BCD forms, all of family `0100` bar `BKPT`, the whole `$4E` control
+group, and `PMOVE`/`PFLUSH`/`PFLUSHA`/`PLOAD`/`PTEST`. Every addressing mode the
+part has resolves, full-format indexed and memory indirect included, and mode
+legality is enforced by category rather than approximated. Exceptions are taken
+and returned from: `TRAP`, `TRAPV`, `CHK`, divide-by-zero, `ILLEGAL`, privilege
+violations, format errors, MMU configuration errors, interrupts and trace.
+
+An instruction outside that set reports `UNIMPLEMENTED` rather than silently
+succeeding, so "how far a program got" is a real measure.
+
+**What the clock does *not* yet include.** The accumulated clock covers bus and
+cache time only: prefetches, operand accesses, table searches and line fills,
+each priced by the bus and cache modules against cited pages. It does **not**
+include instruction execution time — the microcode clocks an instruction takes
+between its bus cycles. So a register-to-register `ADD` currently costs zero
+clocks, and any figure this core reports is a lower bound rather than a
+measurement. Closing that is a named plan item, and it is deliberately *not*
+closed by transcribing `[030]` §11.6's tables: as
+`docs/references/M68030_TIMING.md` records, no published NCC number is a value
+any single execution ever takes, so a core that looked them up would be
+reproducing an average the hardware never exhibits.
+
+**No machine exists yet.** There is no memory system, no device and no bus
+arbitration point, so nothing boots and no end-to-end timing can be measured.
+The golden regression harness exists but pins reports about the model table
+rather than emulated behaviour. This section will state exactly what backs the
+claim when there is one.
+
+Last updated: 2026-08-01.
 
 ## Subsystems
 
