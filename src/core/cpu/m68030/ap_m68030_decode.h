@@ -81,4 +81,27 @@ typedef struct {
 
 [[nodiscard]] ap_m68030_decoded_t ap_m68030_decode(uint16_t instruction);
 
+/* Total instruction length in bytes, including every extension word.
+ *
+ * ## MOVE needs two extension words, and the second is at a variable offset
+ *
+ * MOVE is the only instruction with *two* effective addresses, and the source's
+ * extension words come first. So the destination's extension word is not at a
+ * fixed position -- it sits after however many words the source took, which the
+ * caller cannot know until it has sized the source. That is why this takes two
+ * extension words rather than one, and why `second_extension` is documented as
+ * "the word following the source's extensions" rather than "the second word of
+ * the instruction". For every other instruction it is ignored.
+ *
+ * `first_extension` is the word immediately after the instruction word, read
+ * only when an effective address uses an indexed mode.
+ *
+ * Returns 0 when the length cannot be determined: an illegal instruction, or a
+ * coprocessor instruction, whose format varies by coprocessor and is not
+ * modelled here. Zero is never a real instruction length, so it cannot be
+ * mistaken for one. */
+[[nodiscard]] unsigned ap_m68030_instruction_length(
+    const ap_m68030_decoded_t *decoded, uint16_t first_extension,
+    uint16_t second_extension);
+
 #endif /* APOLLO_CPU_M68030_AP_M68030_DECODE_H */

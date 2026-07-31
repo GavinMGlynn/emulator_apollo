@@ -610,13 +610,24 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         declares — one word for the brief format, up to five in total for the
         widest full format.
         *Verification: `ea_suite`, 6 further tests (17 total).*
-  - [ ] **Total instruction length**, joining `ap_m68030_ea_words` to each
-        family's own extension words so the PC can advance. The family decoders
-        already report their own (`branch`, `quick`, `control`, `misc`,
-        `shift`); what remains is the dispatcher-level function that adds the
-        effective address's, and the operand size each family gives it.
-        *Verification: a length for every decoded instruction, checked against
-        the manual's own worked encodings.*
+  - [x] **Total instruction length** (`ap_m68030_instruction_length`), joining
+        `ap_m68030_ea_words` to each family's own extension words. **The PC can
+        now advance.**
+        **MOVE needs two extension words, and the second is at a variable
+        offset.** It is the only instruction with two effective addresses, and
+        the source's extension words come first — so the destination's is not at
+        a fixed position but after however many words the source took, which the
+        caller cannot know until it has sized the source. Hence two parameters,
+        with the second documented as "the word following the source's
+        extensions" rather than "the second word of the instruction".
+        Zero means *cannot be sized* — an illegal encoding, or a coprocessor
+        instruction whose format varies by coprocessor and is declined rather
+        than guessed. Zero is never a real instruction length, so it cannot be
+        mistaken for one.
+        *Verification: `decode_suite`, 10 further tests (17 total), including a
+        second full 65536-word sweep asserting every sizeable instruction has an
+        even, non-zero length — instructions are whole words, and that is the
+        check no individual case can make.*
   - [ ] **CMP2/CHK2, CAS and CAS2**, which occupy size field `11` in family
         `0000`'s immediate rows. Not decoded: `ap_m68030_immediate_decode`
         reports invalid there rather than mis-decoding them as a wider ORI, and

@@ -125,3 +125,120 @@ ap_m68030_decoded_t ap_m68030_decode(uint16_t instruction) {
 
   return out;
 }
+
+/* Bytes an immediate operand occupies after the instruction word, by operand
+ * size. Table 2-3: a byte immediate still costs a whole word. */
+static unsigned immediate_bytes(unsigned operand_size) {
+  return (operand_size > 2u) ? 4u : 2u;
+}
+
+unsigned ap_m68030_instruction_length(const ap_m68030_decoded_t *decoded,
+                                      uint16_t first_extension,
+                                      uint16_t second_extension) {
+  switch (decoded->kind) {
+  case AP_M68030_DECODED_ILLEGAL:
+  case AP_M68030_DECODED_COPROC:
+    /* Coprocessor formats vary by coprocessor and are not modelled, so this
+     * declines to guess rather than returning a plausible number. */
+    return 0;
+
+  case AP_M68030_DECODED_LINE_A:
+  case AP_M68030_DECODED_MOVEQ:
+    return 2;
+
+  case AP_M68030_DECODED_BRANCH:
+    return ap_m68030_branch_length(&decoded->as.branch);
+
+  case AP_M68030_DECODED_MOVE: {
+    /* The source's extensions come first, so the destination's extension word
+     * is at an offset the caller had to compute -- hence two parameters. */
+    const unsigned source = ap_m68030_ea_words(
+        decoded->as.move.source.kind, first_extension, decoded->as.move.size);
+    const unsigned destination =
+        ap_m68030_ea_words(decoded->as.move.destination.kind, second_extension,
+                           decoded->as.move.size);
+    return 2u + (source + destination) * 2u;
+  }
+
+  case AP_M68030_DECODED_SINGLE:
+    return 2u + ap_m68030_ea_words(decoded->as.single.ea.kind, first_extension,
+                                   decoded->as.single.size) *
+                    2u;
+
+  case AP_M68030_DECODED_ARITH:
+    return 2u + ap_m68030_ea_words(decoded->as.arith.ea.kind, first_extension,
+                                   decoded->as.arith.size) *
+                    2u;
+
+  case AP_M68030_DECODED_QUICK:
+    return ap_m68030_quick_length(&decoded->as.quick) +
+           ap_m68030_ea_words(decoded->as.quick.ea.kind, first_extension,
+                              decoded->as.quick.size) *
+               2u;
+
+  case AP_M68030_DECODED_CONTROL:
+    return ap_m68030_control_length(&decoded->as.control) +
+           ap_m68030_ea_words(decoded->as.control.ea.kind, first_extension, 4) *
+               2u;
+
+  case AP_M68030_DECODED_MISC:
+    return ap_m68030_misc_length(&decoded->as.misc) +
+           ap_m68030_ea_words(decoded->as.misc.ea.kind, first_extension,
+                              decoded->as.misc.size ? decoded->as.misc.size : 4u) *
+               2u;
+
+  case AP_M68030_DECODED_SHIFT:
+    return ap_m68030_shift_length(&decoded->as.shift) +
+           ap_m68030_ea_words(decoded->as.shift.ea.kind, first_extension, 2) *
+               2u;
+
+  case AP_M68030_DECODED_IMMEDIATE: {
+    const ap_m68030_immediate_t *imm = &decoded->as.immediate;
+    switch (imm->kind) {
+    /* MOVEP carries a 16-bit displacement and no effective address. */
+    case AP_M68030_IMM_MOVEP:
+      return 4;
+
+    /* The CCR and SR forms take one immediate word whichever they are: the CCR
+     * forms are byte operations, but Table 2-3 still gives them a whole word. */
+    case AP_M68030_IMM_ORI_TO_CCR:
+    case AP_M68030_IMM_ORI_TO_SR:
+    case AP_M68030_IMM_ANDI_TO_CCR:
+    case AP_M68030_IMM_ANDI_TO_SR:
+    case AP_M68030_IMM_EORI_TO_CCR:
+    case AP_M68030_IMM_EORI_TO_SR:
+      return 4;
+
+    case AP_M68030_IMM_BTST:
+    case AP_M68030_IMM_BCHG:
+    case AP_M68030_IMM_BCLR:
+    case AP_M68030_IMM_BSET: {
+      /* A static bit operation carries its bit number in a word of its own; a
+       * dynamic one takes it from a register and carries nothing. */
+      const unsigned bit_number = imm->dynamic ? 0u : 2u;
+      return 2u + bit_number +
+             ap_m68030_ea_words(imm->ea.kind, first_extension, 1) * 2u;
+    }
+
+    case AP_M68030_IMM_ORI:
+    case AP_M68030_IMM_ANDI:
+    case AP_M68030_IMM_SUBI:
+    case AP_M68030_IMM_ADDI:
+    case AP_M68030_IMM_EORI:
+    case AP_M68030_IMM_CMPI:
+      return 2u + immediate_bytes(imm->size) +
+             ap_m68030_ea_words(imm->ea.kind, first_extension, imm->size) * 2u;
+
+    case AP_M68030_IMM_MOVES:
+      /* MOVES carries a register-and-direction extension word. */
+      return 4u + ap_m68030_ea_words(imm->ea.kind, first_extension, imm->size) *
+                      2u;
+
+    case AP_M68030_IMM_INVALID:
+      return 0;
+    }
+    return 0;
+  }
+  }
+  return 0;
+}
