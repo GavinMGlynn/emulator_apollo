@@ -49,12 +49,6 @@ static bool update_history(ap_m68030_walk_result_t *result,
                            uint32_t descriptor_address,
                            const ap_m68030_descriptor_t *descriptor,
                            bool is_page) {
-  /* A NULL update is a search that must not disturb the tree, which is what
-   * PTEST performs. */
-  if (update == NULL) {
-    return true;
-  }
-
   /* "This bit is automatically set by the processor when a descriptor is
    * accessed in which the U bit is clear except after a supervisor violation is
    * detected."
@@ -78,12 +72,53 @@ static bool update_history(ap_m68030_walk_result_t *result,
                      &result->search, access->write, access->read_modify_write,
                      access->supervisor, descriptor->modified);
 
+  /* A NULL update is a search that must not disturb the tree, which is what
+   * PTEST performs -- so it decides nothing and writes nothing, but the M state
+   * it *would* have cached is still the descriptor's own. */
+  if (update == NULL) {
+    if (is_page) {
+      result->page_modified = descriptor->modified;
+    }
+    return true;
+  }
+
+  if (is_page) {
+    /* What the ATC entry caches: M as it stands once this search is done. */
+    result->page_modified = descriptor->modified || set_modified;
+  }
+
   if (!set_used && !set_modified) {
     return true;
   }
 
   result->history_writes++;
   return update(context, descriptor_address, set_used, set_modified);
+}
+
+int ap_m68030_walk_fill_atc(ap_m68030_atc_t *atc,
+                            const ap_m68030_walk_result_t *result,
+                            const ap_m68030_access_t *access,
+                            uint8_t function_code, uint32_t address,
+                            uint8_t page_size_bits) {
+  /* "The bus error bit ... is set when a bus error ... is encountered during
+   * the table search", and §9.4 lists the other three conditions that set it:
+   * an invalid descriptor, a supervisor violation, and a limit violation. A
+   * supervisor violation is a property of the access, not of the tree, which is
+   * why the access is needed here and not only the search state. */
+  const bool bus_error =
+      result->search.invalid || result->search.limit_violation ||
+      !ap_m68030_search_permits_access(&result->search, access->supervisor);
+
+  /* An entry whose B is set has no meaningful translation -- the search never
+   * produced one -- so the physical field is stored as zero rather than as
+   * whatever a partial walk left behind. */
+  const uint32_t physical_page =
+      bus_error ? 0u : (result->physical >> AP_M68030_ATC_ADDRESS_SHIFT);
+
+  return ap_m68030_atc_insert(atc, function_code, address, page_size_bits,
+                              physical_page, result->search.write_protected,
+                              result->search.cache_inhibited,
+                              result->page_modified, bus_error);
 }
 
 ap_m68030_walk_result_t ap_m68030_walk(const ap_m68030_tc_t *tc,

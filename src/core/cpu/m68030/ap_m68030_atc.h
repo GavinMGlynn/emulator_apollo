@@ -48,6 +48,11 @@
 /* "a 22-entry fully associative ... cache" */
 #define AP_M68030_ATC_ENTRIES 22
 
+/* The logical and physical address fields hold A31-A8, so both are shifted by
+ * eight. Public because a table search has to scale the physical address it
+ * produced into this field when it fills an entry. */
+#define AP_M68030_ATC_ADDRESS_SHIFT 8u
+
 /* One entry. The tag portion is 28 bits (V, 3-bit FC, 24-bit logical address)
  * and the data portion 28 bits (B, CI, WP, M, 24-bit physical address); both
  * are held here as decoded fields. Physical and logical addresses are the

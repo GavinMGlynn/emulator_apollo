@@ -700,6 +700,211 @@ static void test_a_bus_error_updating_history_bits_fails_the_search(void) {
   TEST_ASSERT_EQUAL_UINT(2, r.history_writes);
 }
 
+/* ---------------------------------------------------------------------------
+ * Filling the ATC, [030] 9.4. This is where the cost model closes: the search's
+ * bus cycles are paid once, and every later access to the page is a hit that
+ * "no performance penalty is associated with".
+ * ------------------------------------------------------------------------- */
+
+#define TEST_FC 5u /* supervisor data */
+
+static ap_m68030_atc_t empty_atc(void) {
+  ap_m68030_atc_t atc;
+  ap_m68030_atc_flush(&atc);
+  return atc;
+}
+
+/* The whole point of the join: one search, then the address is free. */
+static void test_a_filled_entry_turns_the_next_access_into_a_free_hit(void) {
+  ap_m68030_tc_t tc = three_level_4k();
+  ap_m68030_root_t root = root_at(ROOT_TABLE);
+  tree_t tree = make_tree(three_level_tree, 3);
+  ap_m68030_atc_t atc = empty_atc();
+
+  ap_m68030_walk_result_t r = ap_m68030_walk(
+      &tc, &root, TEST_ADDRESS, &SUPERVISOR_READ, tree_fetch, tree_update, &tree);
+  TEST_ASSERT_TRUE(r.ok);
+  TEST_ASSERT_EQUAL_UINT(3, r.descriptor_fetches);
+
+  (void)ap_m68030_walk_fill_atc(&atc, &r, &SUPERVISOR_READ, TEST_FC,
+                                TEST_ADDRESS, tc.page_size_bits);
+
+  ap_m68030_atc_result_t hit = ap_m68030_atc_lookup(
+      &atc, TEST_FC, TEST_ADDRESS, tc.page_size_bits, false, false);
+  TEST_ASSERT_EQUAL_INT(AP_M68030_ATC_HIT, hit.status);
+  TEST_ASSERT_EQUAL_HEX32(PAGE_FRAME | 0x123u, hit.physical);
+}
+
+/* "If a limit violation is detected, the ATC is loaded with an entry having the
+ * bus error (B) bit set." The fault is cached, so a faulting address does not
+ * re-run the table search on every access. */
+static void test_a_limit_violation_is_cached_as_a_faulting_entry(void) {
+  ap_m68030_tc_t tc = three_level_4k();
+  ap_m68030_root_t root = root_at(ROOT_TABLE);
+  root.has_limit = true;
+  root.limit = 0;
+  tree_t tree = make_tree(three_level_tree, 3);
+  ap_m68030_atc_t atc = empty_atc();
+
+  const uint32_t address = UINT32_C(1) << 25;
+  ap_m68030_walk_result_t r = ap_m68030_walk(
+      &tc, &root, address, &SUPERVISOR_READ, tree_fetch, tree_update, &tree);
+  TEST_ASSERT_FALSE(r.ok);
+
+  (void)ap_m68030_walk_fill_atc(&atc, &r, &SUPERVISOR_READ, TEST_FC, address,
+                                tc.page_size_bits);
+
+  ap_m68030_atc_result_t hit = ap_m68030_atc_lookup(
+      &atc, TEST_FC, address, tc.page_size_bits, false, false);
+  TEST_ASSERT_EQUAL_INT(AP_M68030_ATC_FAULT, hit.status);
+}
+
+/* An invalid descriptor sets B the same way. */
+static void test_an_invalid_descriptor_is_cached_as_a_faulting_entry(void) {
+  static const tree_entry_t tree_entries[] = {
+      {ROOT_TABLE, {.dt = AP_M68030_DT_VALID_4BYTE, .address_field = TABLE_B}},
+      {TABLE_B, {.dt = AP_M68030_DT_INVALID}},
+  };
+  ap_m68030_tc_t tc = three_level_4k();
+  ap_m68030_root_t root = root_at(ROOT_TABLE);
+  tree_t tree = make_tree(tree_entries, 2);
+  ap_m68030_atc_t atc = empty_atc();
+
+  ap_m68030_walk_result_t r = ap_m68030_walk(
+      &tc, &root, TEST_ADDRESS, &SUPERVISOR_READ, tree_fetch, tree_update, &tree);
+  (void)ap_m68030_walk_fill_atc(&atc, &r, &SUPERVISOR_READ, TEST_FC,
+                                TEST_ADDRESS, tc.page_size_bits);
+
+  ap_m68030_atc_result_t hit = ap_m68030_atc_lookup(
+      &atc, TEST_FC, TEST_ADDRESS, tc.page_size_bits, false, false);
+  TEST_ASSERT_EQUAL_INT(AP_M68030_ATC_FAULT, hit.status);
+}
+
+/* A supervisor violation sets B too, and this is the case where the *search*
+ * succeeded -- it found a page -- but the entry must still fault, because the
+ * violation is a property of the access rather than of the tree. */
+static void test_a_supervisor_violation_is_cached_as_a_faulting_entry(void) {
+  static const tree_entry_t tree_entries[] = {
+      {ROOT_TABLE,
+       {.dt = AP_M68030_DT_VALID_4BYTE,
+        .address_field = TABLE_B,
+        .supervisor = true}},
+      {TABLE_B, {.dt = AP_M68030_DT_VALID_4BYTE, .address_field = TABLE_C}},
+      {TABLE_C, {.dt = AP_M68030_DT_PAGE, .address_field = PAGE_FRAME >> 8}},
+  };
+  ap_m68030_tc_t tc = three_level_4k();
+  ap_m68030_root_t root = root_at(ROOT_TABLE);
+  tree_t tree = make_tree(tree_entries, 3);
+  ap_m68030_atc_t atc = empty_atc();
+
+  ap_m68030_walk_result_t r = ap_m68030_walk(
+      &tc, &root, TEST_ADDRESS, &USER_READ, tree_fetch, tree_update, &tree);
+  TEST_ASSERT_TRUE(r.ok); /* the search itself reached a page */
+
+  (void)ap_m68030_walk_fill_atc(&atc, &r, &USER_READ, TEST_FC, TEST_ADDRESS,
+                                tc.page_size_bits);
+
+  ap_m68030_atc_result_t hit = ap_m68030_atc_lookup(
+      &atc, TEST_FC, TEST_ADDRESS, tc.page_size_bits, false, false);
+  TEST_ASSERT_EQUAL_INT(AP_M68030_ATC_FAULT, hit.status);
+}
+
+/* WP accumulated by the search reaches the entry, so the cached translation
+ * faults a write while still serving a read. */
+static void test_the_filled_entry_carries_write_protection(void) {
+  static const tree_entry_t tree_entries[] = {
+      {ROOT_TABLE, {.dt = AP_M68030_DT_VALID_4BYTE, .address_field = TABLE_B}},
+      {TABLE_B,
+       {.dt = AP_M68030_DT_VALID_4BYTE,
+        .address_field = TABLE_C,
+        .write_protect = true}},
+      {TABLE_C, {.dt = AP_M68030_DT_PAGE, .address_field = PAGE_FRAME >> 8}},
+  };
+  ap_m68030_tc_t tc = three_level_4k();
+  ap_m68030_root_t root = root_at(ROOT_TABLE);
+  tree_t tree = make_tree(tree_entries, 3);
+  ap_m68030_atc_t atc = empty_atc();
+
+  ap_m68030_walk_result_t r = ap_m68030_walk(
+      &tc, &root, TEST_ADDRESS, &SUPERVISOR_READ, tree_fetch, tree_update, &tree);
+  (void)ap_m68030_walk_fill_atc(&atc, &r, &SUPERVISOR_READ, TEST_FC,
+                                TEST_ADDRESS, tc.page_size_bits);
+
+  ap_m68030_atc_result_t reading = ap_m68030_atc_lookup(
+      &atc, TEST_FC, TEST_ADDRESS, tc.page_size_bits, false, false);
+  ap_m68030_atc_result_t writing = ap_m68030_atc_lookup(
+      &atc, TEST_FC, TEST_ADDRESS, tc.page_size_bits, true, false);
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_ATC_HIT, reading.status);
+  TEST_ASSERT_EQUAL_INT(AP_M68030_ATC_FAULT, writing.status);
+}
+
+/* CI accumulated by the search reaches the entry, which is what drives CIOUT. */
+static void test_the_filled_entry_carries_cache_inhibit(void) {
+  static const tree_entry_t tree_entries[] = {
+      {ROOT_TABLE, {.dt = AP_M68030_DT_VALID_4BYTE, .address_field = TABLE_B}},
+      {TABLE_B,
+       {.dt = AP_M68030_DT_VALID_4BYTE,
+        .address_field = TABLE_C,
+        .cache_inhibit = true}},
+      {TABLE_C, {.dt = AP_M68030_DT_PAGE, .address_field = PAGE_FRAME >> 8}},
+  };
+  ap_m68030_tc_t tc = three_level_4k();
+  ap_m68030_root_t root = root_at(ROOT_TABLE);
+  tree_t tree = make_tree(tree_entries, 3);
+  ap_m68030_atc_t atc = empty_atc();
+
+  ap_m68030_walk_result_t r = ap_m68030_walk(
+      &tc, &root, TEST_ADDRESS, &SUPERVISOR_READ, tree_fetch, tree_update, &tree);
+  (void)ap_m68030_walk_fill_atc(&atc, &r, &SUPERVISOR_READ, TEST_FC,
+                                TEST_ADDRESS, tc.page_size_bits);
+
+  ap_m68030_atc_result_t hit = ap_m68030_atc_lookup(
+      &atc, TEST_FC, TEST_ADDRESS, tc.page_size_bits, false, false);
+  TEST_ASSERT_EQUAL_INT(AP_M68030_ATC_HIT, hit.status);
+  TEST_ASSERT_TRUE(hit.cache_inhibit);
+}
+
+/* The timing consequence [030] 9.4 spells out, now demonstrable end to end: a
+ * read fills the entry with M clear, so a later *write* to the same page is a
+ * hit that still forces a full table search. The first search's cost is not
+ * what the second access pays. */
+static void test_a_read_fills_m_clear_so_a_later_write_still_costs_a_search(
+    void) {
+  ap_m68030_tc_t tc = three_level_4k();
+  ap_m68030_root_t root = root_at(ROOT_TABLE);
+  tree_t tree = make_tree(three_level_tree_used, 3);
+  ap_m68030_atc_t atc = empty_atc();
+
+  ap_m68030_walk_result_t r = ap_m68030_walk(
+      &tc, &root, TEST_ADDRESS, &SUPERVISOR_READ, tree_fetch, tree_update, &tree);
+  TEST_ASSERT_FALSE(r.page_modified);
+  (void)ap_m68030_walk_fill_atc(&atc, &r, &SUPERVISOR_READ, TEST_FC,
+                                TEST_ADDRESS, tc.page_size_bits);
+
+  /* The read is free the second time. */
+  ap_m68030_atc_result_t reading = ap_m68030_atc_lookup(
+      &atc, TEST_FC, TEST_ADDRESS, tc.page_size_bits, false, false);
+  TEST_ASSERT_EQUAL_INT(AP_M68030_ATC_HIT, reading.status);
+
+  /* The write is not: M is clear, so it must go back to the tree. */
+  ap_m68030_atc_result_t writing = ap_m68030_atc_lookup(
+      &atc, TEST_FC, TEST_ADDRESS, tc.page_size_bits, true, false);
+  TEST_ASSERT_EQUAL_INT(AP_M68030_ATC_MODIFY, writing.status);
+
+  /* And that second search sets M, so refilling makes the write free too. */
+  ap_m68030_walk_result_t again = ap_m68030_walk(
+      &tc, &root, TEST_ADDRESS, &SUPERVISOR_WRITE, tree_fetch, tree_update, &tree);
+  TEST_ASSERT_TRUE(again.page_modified);
+  TEST_ASSERT_EQUAL_UINT(1, again.history_writes);
+  (void)ap_m68030_walk_fill_atc(&atc, &again, &SUPERVISOR_WRITE, TEST_FC,
+                                TEST_ADDRESS, tc.page_size_bits);
+
+  ap_m68030_atc_result_t settled = ap_m68030_atc_lookup(
+      &atc, TEST_FC, TEST_ADDRESS, tc.page_size_bits, true, false);
+  TEST_ASSERT_EQUAL_INT(AP_M68030_ATC_HIT, settled.status);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_a_three_level_search_costs_one_fetch_per_level);
@@ -728,5 +933,12 @@ int main(void) {
   RUN_TEST(test_the_indirect_target_receives_the_m_bit);
   RUN_TEST(test_a_search_with_no_update_function_writes_nothing);
   RUN_TEST(test_a_bus_error_updating_history_bits_fails_the_search);
+  RUN_TEST(test_a_filled_entry_turns_the_next_access_into_a_free_hit);
+  RUN_TEST(test_a_limit_violation_is_cached_as_a_faulting_entry);
+  RUN_TEST(test_an_invalid_descriptor_is_cached_as_a_faulting_entry);
+  RUN_TEST(test_a_supervisor_violation_is_cached_as_a_faulting_entry);
+  RUN_TEST(test_the_filled_entry_carries_write_protection);
+  RUN_TEST(test_the_filled_entry_carries_cache_inhibit);
+  RUN_TEST(test_a_read_fills_m_clear_so_a_later_write_still_costs_a_search);
   return UNITY_END();
 }

@@ -34,6 +34,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#include "cpu/m68030/ap_m68030_atc.h"
 #include "cpu/m68030/ap_m68030_desc.h"
 #include "cpu/m68030/ap_m68030_tc.h"
 
@@ -97,6 +98,8 @@ typedef struct {
   unsigned levels_walked;
   bool early_termination; /* ended on a page descriptor above the page table */
   bool used_indirect;
+  bool page_modified;     /* M of the page descriptor as it now stands, which is
+                           * what the ATC entry caches */
 } ap_m68030_walk_result_t;
 
 /* Where the walk starts: the root pointer's table address and the format of the
@@ -123,5 +126,25 @@ ap_m68030_walk(const ap_m68030_tc_t *tc, const ap_m68030_root_t *root,
                uint32_t address, const ap_m68030_access_t *access,
                ap_m68030_fetch_fn fetch, ap_m68030_update_fn update,
                void *context);
+
+/* Install what a completed search produced into the ATC, and return the entry
+ * index used. This is the join that makes the cost model whole: the search's
+ * bus cycles are paid once, and every later access to the page is a hit that
+ * `[030]` §9.4 says costs nothing.
+ *
+ * A *failed* search loads an entry too, rather than leaving the address
+ * uncached: "If a limit violation is detected, the ATC is loaded with an entry
+ * having the bus error (B) bit set." So a faulting address does not re-run the
+ * table search on every access -- the fault itself is cached, which is a timing
+ * claim as much as a correctness one.
+ *
+ * B covers more than a bus error. `[030]` §9.4 sets it for "a bus error ...
+ * encountered during the table search", an invalid descriptor, a supervisor
+ * violation, or a limit violation, so all four are folded in here. */
+int ap_m68030_walk_fill_atc(ap_m68030_atc_t *atc,
+                            const ap_m68030_walk_result_t *result,
+                            const ap_m68030_access_t *access,
+                            uint8_t function_code, uint32_t address,
+                            uint8_t page_size_bits);
 
 #endif /* APOLLO_CPU_M68030_AP_M68030_WALK_H */

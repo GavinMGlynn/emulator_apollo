@@ -383,7 +383,7 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         invented precision. Recorded in `docs/PROJECT_STATUS.md`'s PROVISIONAL
         table. *Verification: measure eviction order against the oracle, or find
         a Motorola note stating the algorithm.*
-  - [~] The table walk itself: fetch descriptors through the bus, apply
+  - [x] The table walk itself: fetch descriptors through the bus, apply
         `ap_m68030_desc`'s rules, and fill the ATC. This is the piece that joins
         the four MMU modules together, and the first one whose *timing* is
         interesting, since it is where the bus cycles are. The manual states ATC
@@ -445,13 +445,26 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
           documented reading, not a measurement. *Verification: a user-mode
           access to a supervisor-only tree under the oracle, comparing whether
           the root descriptor's U bit changed.*
-    - [ ] **Fill the ATC from a completed search**, so a miss populates the
-          entry a hit then serves for free. This is the join between
-          `ap_m68030_walk` and `ap_m68030_atc`, and the point at which the
-          "hit costs nothing, miss costs the search" claim becomes measurable
-          end to end. *Verification: a second access to the same page performs
-          zero descriptor fetches; the B bit is set from a search that hit a
-          bus error or a limit violation.*
+    - [x] **Fill the ATC from a completed search**
+          (`ap_m68030_walk_fill_atc`), so a miss populates the entry a hit then
+          serves for free. This is the join between `ap_m68030_walk` and
+          `ap_m68030_atc`, and the point at which the "hit costs nothing, miss
+          costs the search" claim becomes measurable end to end.
+          A *failed* search fills an entry too, rather than leaving the address
+          uncached: "If a limit violation is detected, the ATC is loaded with an
+          entry having the bus error (B) bit set." So a faulting address does not
+          re-run the table search on every access — the fault itself is cached,
+          which is a timing claim as much as a correctness one. B folds in all
+          four conditions §9.4 names: bus error, invalid descriptor, supervisor
+          violation, limit violation.
+          *Verification: `walk_suite`, 7 further tests — a filled entry turning
+          the next access into a hit at the right physical address, WP and CI
+          reaching the entry, each of the three fault kinds cached as a faulting
+          entry (including a supervisor violation, where the search itself
+          succeeded and only the access was illegal), and the end-to-end form of
+          the §9.4 timing rule: a read fills M clear, so a later write is a hit
+          that still forces a search, and refilling after that search makes the
+          write free.*
     - [ ] **Gap, not a guess: descriptor status bit positions.** The walk takes
           descriptors already decoded, because `[030]` Figures 9-10 and 9-11
           did not survive the scan below the address fields — which status bit

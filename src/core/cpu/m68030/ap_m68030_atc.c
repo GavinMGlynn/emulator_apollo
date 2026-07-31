@@ -6,7 +6,7 @@
 #include <stddef.h> /* NULL */
 
 /* Logical and physical address fields hold A31-A8. */
-#define ATC_ADDRESS_SHIFT 8u
+#define ATC_ADDRESS_SHIFT AP_M68030_ATC_ADDRESS_SHIFT
 #define ATC_ADDRESS_MASK UINT32_C(0x00FFFFFF)
 
 /* "All 24 bits of this field are used in the comparison of this entry to an
