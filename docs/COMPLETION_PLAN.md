@@ -542,6 +542,24 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         register direction, EOR the memory one, and there is no
         `<ea> EOR Dn -> Dn` form at all — asserted as the absence it is.
         *Verification: `arith_suite`, 9 tests.*
+  - [x] **Family `1110` decode** (`src/core/cpu/m68030/ap_m68030_shift.c`):
+        shifts, rotates and the 68020's bit field instructions. **This completes
+        the integer opcode map** — every family from `0000` to `1110` now
+        decodes, with `1010` being the Line A trap the map itself handles.
+        One family, three shapes. Bits 7-6 other than `11` is a register shift;
+        `11` is not a size, and bit 11 then chooses between a memory shift (one
+        word, by one) and a bit field instruction. That is the *fourth* place in
+        the encoding where an illegal size selects something else.
+        **The type field moves between the two shift forms**: bits 4-3 in the
+        register form, bits 11-9 in the memory form — where the register form
+        keeps its shift count. Reading one position for both gives a working
+        shift of the wrong kind, so the suite checks all four types in each
+        position and asserts that the same bits are a *count* in one form.
+        The immediate count's **zero means eight**, the same quirk as `ADDQ`'s
+        quick data — but only when `i/r` is clear; with it set the field is a
+        register number where zero means register 0, so the substitution must
+        *not* happen. Both directions tested.
+        *Verification: `shift_suite`, 10 tests.*
   - [ ] **CMP2/CHK2, CAS and CAS2**, which occupy size field `11` in family
         `0000`'s immediate rows. Not decoded: `ap_m68030_immediate_decode`
         reports invalid there rather than mis-decoding them as a wider ORI, and
