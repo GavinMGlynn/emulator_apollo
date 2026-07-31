@@ -2408,9 +2408,13 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
       write meanings, the status register's bits, and the C/D bit that switches
       the data register between 8 and 16 bits wide. The measured `C0` at the
       status port is exactly Table 4-2's two "Not Used (Set to 1)" bits for an
-      idle controller, so manual and machine agree on a byte. Still to
-      transcribe: table 4-3 (floppy registers) and Sections 5 and 6 (the command
-      sets).
+      idle controller, so manual and machine agree on a byte. Table 4-3 is transcribed too
+      (`FINDINGS.md` C22): the floppy half is a **conventional PC floppy
+      interface** at `3F2`-`3F7` or `372`-`377`, quite unlike the fixed-disk
+      side — one card, two programming models. Still to transcribe: Sections 5
+      and 6, the two command sets. And still to **measure**: where Apollo maps
+      the floppy half, since the fixed-disk side was jumpered away from its
+      default and the floppy side cannot be assumed to sit at its own.
       Note §4.1's shape — floppy and fixed disk are **two independent register
       sets** running concurrently, not one controller with a mode bit. *Verification: DMA-completion device shape — transfer now,
       schedule completion in emulated time; oracle diff.*

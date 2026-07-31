@@ -1328,6 +1328,52 @@ containing byte 1 and bits 0-7 containing byte 0." A model with a fixed-width
 data register would transfer commands correctly and corrupt every data word, or
 the reverse.
 
+### C22 — the OMTI's floppy half is a standard PC controller, elsewhere
+
+Table 4-3, the other of the part's "two independent sets of registers". Five
+eight-bit registers, selectable between a primary and a secondary address:
+
+    PRIMARY  SECONDARY  READ                  WRITE
+    3F2H     372H       N/A                   Digital Output Register
+    3F4H     374H       Main Status Register  N/A
+    3F5H     375H       Data Register         Data Register
+    3F6H     376H       N/A                   Additional Control Register
+    3F7H     377H       Digital Input Register Diskette Control Register
+
+Those are the IBM PC's own floppy addresses. So the OMTI's floppy side is a
+conventional PC floppy interface, while its fixed-disk side is the four-port
+proprietary set of C21 at a jumpered base. One card, two register sets, two
+completely different programming models -- which is exactly what §4.1 meant by
+"looks like two independent controllers" and why §3.4 can promise concurrent
+operation between them.
+
+**Digital Output Register**, write only, "All bits are cleared when a channel
+reset occurs":
+
+    Bit 5  Drive B Motor Enable when 1
+    Bit 4  Drive A Motor Enable when 1
+    Bit 3  Interrupts and DMA enable when 1
+    Bit 2  Reset floppy disk function when 0; "comes out of reset when this bit
+           is set to 1"
+    Bit 0  Select Drive-A; "A 0 selects drive A, A 1 selects drive B"
+    Bits 7, 6, 1 reserved
+
+Bit 2 is inverted against every other control bit in this part -- zero *holds*
+reset -- so a driver clearing the register to disable the motors also holds the
+floppy in reset, and a model that missed the inversion would come out of reset
+exactly when the hardware went in.
+
+**Digital Input Register**, read only: bit 7 "is received from pin 34 of the
+floppy disk control cable and is normally used for diskette change status", bits
+0-6 reserved.
+
+**Not yet established: where Apollo maps this half.** `008778-03` Table 2-9 gives
+the Winchester at AT `1A0` and does not, in what has been read of it, name a
+floppy range. The fixed-disk side was jumpered away from its `320H` default, so
+the floppy side cannot be assumed to sit at its own default either. That is a
+measurement, and the same differential that established the card's presence in
+C20 will settle it.
+
 ## Where the ring is not
 
 The Apollo Token Ring has **no runnable oracle at all**: MAME carries Domain
