@@ -2580,6 +2580,132 @@ static void test_a_long_bsr_pushes_the_address_after_both_displacement_words(
   TEST_ASSERT_EQUAL_HEX32(PROGRAM_BASE + 6u, m.cpu.regs.pc);
 }
 
+/* ---------------------------------------------------------------------------
+ * Full-format indexed addressing and the memory indirect modes.
+ * ------------------------------------------------------------------------- */
+
+/* The full format declares its own displacement sizes, so how long the
+ * instruction is cannot be known from the instruction word -- which is why the
+ * PC advances by the words actually taken rather than by a predicted length.
+ * "EA = (An) + (Xn) + bd" with a word base displacement. */
+static void test_a_full_format_index_adds_base_register_and_displacement(void) {
+  /* MOVE.L ($100,A0,D0.L),D1 in the full format, then MOVEQ #3,D2 after it. */
+  static const uint16_t program[] = {0x2230u, 0x0920u, 0x0100u, 0x7403u,
+                                     0x4E71u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 6);
+  m.cpu.regs.a[0] = 0x00005000u;
+  m.cpu.regs.d[0] = 0x00000010u;
+  write_ram_long(&m, 0x00005110u, 0xFEEDFACEu);
+
+  const ap_m68030_step_result_t r = ap_m68030_step(&m.cpu);
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, r.status);
+  TEST_ASSERT_EQUAL_HEX32(0xFEEDFACEu, m.cpu.regs.d[1]);
+  /* Three words of instruction, so the next one is at +6 -- and it runs. */
+  TEST_ASSERT_EQUAL_HEX32(PROGRAM_BASE + 6u, m.cpu.regs.pc);
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&m.cpu).status);
+  TEST_ASSERT_EQUAL_HEX32(3u, m.cpu.regs.d[2]);
+}
+
+/* The two memory indirect modes differ in *where the index goes* and in nothing
+ * else. Preindexed puts it inside the brackets -- "([bd,An,Xn],od)" -- and
+ * postindexed outside them, "([bd,An],Xn,od)". Run on the same registers with
+ * the same displacements, so only the placement can account for the
+ * difference; a model that indexed in both places, or in neither, would land a
+ * scaled register away, which for a small index is a *nearby* address. */
+static void test_the_index_is_inside_the_brackets_for_only_one_of_the_two(void) {
+  /* MOVE.L ([$100,A0,D0.L],$8),D1 -- I/IS 010, preindexed, word outer. */
+  static const uint16_t preindexed[] = {0x2230u, 0x0922u, 0x0100u, 0x0008u,
+                                        0x4E71u, 0x4E71u};
+  machine_t pre = {0};
+  load(&pre, preindexed, 6);
+  pre.cpu.regs.a[0] = 0x00005000u;
+  pre.cpu.regs.d[0] = 0x00000010u;
+  /* The index is inside, so the intermediate address includes it. */
+  write_ram_long(&pre, 0x00005110u, 0x00006000u);
+  write_ram_long(&pre, 0x00006008u, 0x11111111u);
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED,
+                        ap_m68030_step(&pre.cpu).status);
+  TEST_ASSERT_EQUAL_HEX32(0x11111111u, pre.cpu.regs.d[1]);
+
+  /* MOVE.L ([$100,A0],D0.L,$8),D1 -- I/IS 110, postindexed, word outer. */
+  static const uint16_t postindexed[] = {0x2230u, 0x0926u, 0x0100u, 0x0008u,
+                                         0x4E71u, 0x4E71u};
+  machine_t post = {0};
+  load(&post, postindexed, 6);
+  post.cpu.regs.a[0] = 0x00005000u;
+  post.cpu.regs.d[0] = 0x00000010u;
+  /* The index is outside, so the intermediate address does not include it ... */
+  write_ram_long(&post, 0x00005100u, 0x00007000u);
+  /* ... and it lands on the fetched pointer instead. */
+  write_ram_long(&post, 0x00007018u, 0x22222222u);
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED,
+                        ap_m68030_step(&post.cpu).status);
+  TEST_ASSERT_EQUAL_HEX32(0x22222222u, post.cpu.regs.d[1]);
+}
+
+/* "In this mode, the address register, the index register, and the
+ * displacement are all optional." BS suppresses the base register and IS the
+ * index, and a suppressed element contributes zero -- not its register's
+ * contents. So a suppressed base with a long displacement is an absolute
+ * address, which is what makes this mode usable for a jump table. */
+static void test_a_suppressed_base_contributes_zero_not_its_register(void) {
+  /* MOVE.L ($5200,ZA0,D0.L),D1: BS set, long base displacement, no indirect. */
+  static const uint16_t program[] = {0x2230u, 0x09B0u, 0x0000u, 0x5200u,
+                                     0x4E71u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 6);
+  /* A0 holds something that would be very visible if it were added. */
+  m.cpu.regs.a[0] = 0x0000F000u;
+  m.cpu.regs.d[0] = 0x00000004u;
+  write_ram_long(&m, 0x00005204u, 0xABCDEF01u);
+
+  const ap_m68030_step_result_t r = ap_m68030_step(&m.cpu);
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, r.status);
+  TEST_ASSERT_EQUAL_HEX32(0xABCDEF01u, m.cpu.regs.d[1]);
+}
+
+/* "SCALE ... SCALE VALUE x" -- the index is multiplied before it is added, so
+ * a scale of 4 over an index of 2 reaches the eighth byte and not the second.
+ * A model ignoring the scale reads a *nearby* address, which is the failure
+ * that survives a casual test. */
+static void test_the_index_is_scaled_before_it_is_added(void) {
+  /* MOVE.L (0,A0,D0.L*4),D1 -- scale field 10 in bits 10-9, null base
+   * displacement. The scale sits *above* the full-format bit, so a word that
+   * looks like it names a scale may be naming a displacement size instead. */
+  static const uint16_t program[] = {0x2230u, 0x0D10u, 0x4E71u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 4);
+  m.cpu.regs.a[0] = 0x00005000u;
+  m.cpu.regs.d[0] = 0x00000002u;
+  write_ram_long(&m, 0x00005008u, 0x33333333u); /* 2 * 4 */
+  write_ram_long(&m, 0x00005002u, 0x44444444u); /* where an unscaled read goes */
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&m.cpu).status);
+  TEST_ASSERT_EQUAL_HEX32(0x33333333u, m.cpu.regs.d[1]);
+}
+
+/* "BD SIZE ... 00 = Reserved". Reserved is *not* null: collapsing the two would
+ * accept an instruction word the processor does not define and run it as
+ * though the displacement were absent. */
+static void test_a_reserved_displacement_size_is_not_a_null_one(void) {
+  /* The same instruction with BD SIZE 00 rather than 01. */
+  static const uint16_t program[] = {0x2230u, 0x0900u, 0x4E71u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 4);
+  m.cpu.regs.a[0] = 0x00005000u;
+
+  const ap_m68030_step_result_t r = ap_m68030_step(&m.cpu);
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_UNIMPLEMENTED, r.status);
+  /* And the PC did not move, so nothing was half-done. */
+  TEST_ASSERT_EQUAL_HEX32(PROGRAM_BASE, m.cpu.regs.pc);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_a_nop_executes_and_advances_the_pc);
@@ -2647,6 +2773,11 @@ int main(void) {
   RUN_TEST(test_a_register_count_is_taken_modulo_sixty_four);
   RUN_TEST(test_a_byte_shift_leaves_the_upper_bytes);
   RUN_TEST(test_an_address_form_accepts_an_immediate_source);
+  RUN_TEST(test_a_full_format_index_adds_base_register_and_displacement);
+  RUN_TEST(test_the_index_is_inside_the_brackets_for_only_one_of_the_two);
+  RUN_TEST(test_a_suppressed_base_contributes_zero_not_its_register);
+  RUN_TEST(test_the_index_is_scaled_before_it_is_added);
+  RUN_TEST(test_a_reserved_displacement_size_is_not_a_null_one);
   RUN_TEST(test_movec_reaches_the_vector_base_register_both_ways);
   RUN_TEST(test_the_control_register_codes_are_not_a_dense_index);
   RUN_TEST(test_movec_is_privileged);

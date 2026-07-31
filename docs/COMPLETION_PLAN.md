@@ -645,13 +645,18 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         instruction word and not the next instruction — the same base `Bcc`
         uses.
         *Verification: `addr_suite`, 13 tests.*
-  - [ ] **Memory indirect address calculation**, the full-format modes with an
+  - [x] **Memory indirect address calculation**, the full-format modes with an
         indirect action. They need a bus read partway through the calculation,
         which belongs with the instruction unit that owns the bus — so
         `ap_m68030_address_calculate` reports `indirection_pending` and the
         address it reached rather than returning a half-computed address as
-        though it were final. *Verification: the manual's own worked examples
-        for preindexed and postindexed forms, driven through a memory stub.*
+        though it were final — and now also `post_indirection`, what the mode
+        still owes once the read has happened, which differs between the two
+        forms because the index sits inside the brackets for one and outside for
+        the other. The read itself landed with the step, which is what owns the
+        bus. *Verification: `step_suite`'s preindexed and postindexed pair, run
+        on the same registers and displacements so only the index's placement
+        can account for the difference.*
   - [x] **The logical memory access path**
         (`src/core/cpu/m68030/ap_m68030_access.c`), joining the caches, TTx, the
         ATC, the table walk and the bus. Its whole content is the *order*, and
@@ -794,10 +799,36 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         sign-extending so `$8000` addresses the top of memory; and both operands
         taking their words **in order**, checked by giving them different
         displacements so a swapped read produces the wrong address.*
-  - [ ] Full-format indexed addressing in the step: the extension word declares
-        its own base and outer displacements, so the count is not known until it
-        is decoded. `gather_address_input` reports it unimplemented rather than
-        reading a guessed number of words.
+  - [x] **Full-format indexed addressing and the memory indirect modes**. The
+        extension word declares its own base and outer displacement sizes, so
+        the number of words to read is not known until that word has been read —
+        and neither, therefore, is the instruction's length.
+        **So the PC no longer advances by a predicted length.** It advances by
+        the instruction word plus however many extension words the step actually
+        took, which makes the fetch and the PC agree by construction rather than
+        by two calculations matching. `ap_m68030_instruction_length` remains the
+        decoder-level answer for anything disassembling rather than executing;
+        the step had been calling it with zeroed extension words, which silently
+        means "brief format".
+        **The two memory indirect modes differ in where the index goes and in
+        nothing else** — `([bd,An,Xn],od)` against `([bd,An],Xn,od)` — so the
+        address calculation now reports the intermediate address *without* the
+        index for the postindexed mode and carries what is still owed in
+        `post_indirection`. Indexing in both places, or in neither, lands a
+        scaled register away, and for a small index that is a *nearby* address.
+        The indirection itself is performed in the step, not the calculation:
+        "The processor accesses a long word at this address", and the bus
+        belongs there. One resolver now sits in front of every address the step
+        computes, so no call site can forget it.
+        A **reserved** base displacement size is refused rather than treated as
+        null, as `ap_m68030_ea.h` always insisted.
+        *Verification: `step_suite`, 5 further tests (124 total) — a full-format
+        base and index reaching an operand with the following instruction still
+        running, which is the length check; the preindexed and postindexed forms
+        on the **same** registers and displacements so only the placement can
+        account for the difference; a suppressed base contributing zero rather
+        than its register; the scale applied before the addition; and a reserved
+        displacement size declined with the PC unmoved.*
   - [x] **Integer ALU** (`src/core/cpu/m68030/ap_m68030_alu.c`): ADD, SUB, CMP,
         AND, OR and EOR, with their condition codes.
         **Table 3-18's overbars are lost to the scan**, exactly as Table 3-19's

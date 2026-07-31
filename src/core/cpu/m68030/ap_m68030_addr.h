@@ -49,6 +49,16 @@ typedef struct {
   uint32_t address;          /* the effective address, for memory modes */
 
   bool indirection_pending;  /* a memory indirect action this cannot perform */
+  /* What to add to the long word read at `address` once the indirection has
+   * been performed. The two indirect modes differ in *where the index goes*,
+   * not in whether there is one: preindexed puts it inside the brackets --
+   * "([bd,An,Xn.SIZE*SCALE],od)" -- and postindexed outside them,
+   * "([bd,An],Xn.SIZE*SCALE,od)". So the intermediate address this reports
+   * already excludes the index for the postindexed mode, and it reappears
+   * here. Adding it in both places, or in neither, produces an address off by
+   * a scaled register -- which for a small index is a *nearby* address, and a
+   * nearby address is what makes this hard to see. */
+  int32_t post_indirection;
   bool valid;
 } ap_m68030_address_t;
 
@@ -60,6 +70,7 @@ typedef struct {
   uint16_t extension_word;    /* the indexed modes' brief or full format word */
   int32_t displacement;       /* a fetched 16-bit displacement, or an absolute */
   int32_t base_displacement;  /* the full format's base displacement */
+  int32_t outer_displacement; /* the memory indirect modes' outer displacement */
 } ap_m68030_address_input_t;
 
 /* Calculate, applying the increment and decrement side effects to `regs`. */

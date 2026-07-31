@@ -92,6 +92,16 @@ typedef struct {
    * external devices yet, and a count is what a test can observe. */
   unsigned external_resets;
 
+  /* Extension words this step has taken from the instruction stream. The PC
+   * advances by the instruction word plus these, rather than by a length
+   * predicted from the instruction word alone -- which cannot be right for the
+   * full-format indexed modes, where the extension word declares its own
+   * displacement sizes and so its own length. Counting what was actually read
+   * makes the fetch and the PC agree by construction.
+   *
+   * Reset at the start of every step. */
+  unsigned extension_words;
+
   /* An exception an executing instruction raised, held until the step can take
    * it: an executor knows a divide had a zero divisor, but not the length of
    * the instruction it is inside, and Table 8-6 wants both the faulting

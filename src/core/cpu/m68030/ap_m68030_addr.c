@@ -118,14 +118,30 @@ ap_m68030_address_calculate(ap_m68030_regs_t *regs, ap_m68030_ea_t ea,
         extension.full_format ? input->base_displacement
                               : (int32_t)extension.displacement;
 
-    out.address = base + (uint32_t)index + (uint32_t)displacement;
+    const bool indirect =
+        extension.full_format && extension.indirect != AP_M68030_INDIRECT_NONE;
+
+    /* "EA = (An + bd) + Xn.SIZE*SCALE + od" for the postindexed mode: the
+     * processor "calculates an intermediate indirect memory address using a
+     * base address register and base displacement", *without* the index, and
+     * adds the index to what it reads. The preindexed mode puts the index
+     * inside instead -- "using a base address register, a base displacement,
+     * and the index operand" -- which is what the brackets in each assembler
+     * syntax say. */
+    const bool index_after =
+        indirect && extension.indirect == AP_M68030_INDIRECT_POSTINDEXED;
+
+    out.address = base + (uint32_t)displacement +
+                  (index_after ? 0u : (uint32_t)index);
 
     /* A memory indirect action needs a bus read partway through, which belongs
-     * with the instruction unit. Report the address reached so far and say so,
-     * rather than returning a half-computed address as though it were final. */
-    if (extension.full_format &&
-        extension.indirect != AP_M68030_INDIRECT_NONE) {
+     * with the instruction unit. Report the intermediate address and what is
+     * still owed, rather than returning a half-computed address as though it
+     * were final. */
+    if (indirect) {
       out.indirection_pending = true;
+      out.post_indirection =
+          input->outer_displacement + (index_after ? index : 0);
     }
     return out;
   }

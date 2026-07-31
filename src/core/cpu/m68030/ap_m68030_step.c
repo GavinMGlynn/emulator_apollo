@@ -80,7 +80,76 @@ static bool next_word(ap_m68030_cpu_t *cpu, uint32_t *clocks, uint16_t *word) {
   if (!fill_to_decoded(cpu, clocks, word, &abnormal) || abnormal) {
     return false;
   }
+  cpu->extension_words++;
   return true;
+}
+
+/* Read a base or outer displacement of the size the extension word declared.
+ * A null displacement reads nothing and contributes zero -- "When omitting a
+ * displacement or suppressing an element, its value is zero in the effective
+ * address calculation" -- while the *reserved* encoding is not a null and is
+ * refused, since accepting it would run an illegal instruction word. */
+static bool read_displacement(ap_m68030_cpu_t *cpu, ap_m68030_bd_size_t size,
+                              uint32_t *clocks, int32_t *out) {
+  switch (size) {
+  case AP_M68030_BD_NULL:
+    *out = 0;
+    return true;
+  case AP_M68030_BD_WORD: {
+    uint16_t word = 0;
+    if (!next_word(cpu, clocks, &word)) {
+      return false;
+    }
+    *out = (int32_t)(int16_t)word;
+    return true;
+  }
+  case AP_M68030_BD_LONG: {
+    uint16_t high = 0;
+    uint16_t low = 0;
+    if (!next_word(cpu, clocks, &high) || !next_word(cpu, clocks, &low)) {
+      return false;
+    }
+    *out = (int32_t)(((uint32_t)high << 16) | low);
+    return true;
+  }
+  case AP_M68030_BD_RESERVED:
+    break;
+  }
+  return false;
+}
+
+/* Calculate an effective address, performing any memory indirection it asks
+ * for. The calculation itself cannot: an indirect mode needs a bus read partway
+ * through -- "The processor accesses a long word at this address" -- and the
+ * bus belongs here.
+ *
+ * The long word read is the whole intermediate address, so this is one aligned
+ * long-word read and not an operand-sized one however small the operand is. */
+static ap_m68030_address_t resolve_address(ap_m68030_cpu_t *cpu,
+                                           uint32_t *clocks, ap_m68030_ea_t ea,
+                                           const ap_m68030_address_input_t *in) {
+  ap_m68030_address_t where = ap_m68030_address_calculate(&cpu->regs, ea, in);
+  if (!where.valid || !where.indirection_pending) {
+    return where;
+  }
+
+  const ap_m68030_address_t intermediate = {.address = where.address,
+                                            .valid = true};
+  const ap_m68030_operand_result_t read =
+      ap_m68030_operand_read(&cpu->regs, cpu->data, &intermediate, 4u,
+                             cpu->data_function_code);
+  *clocks += read.clocks;
+  if (!read.ok) {
+    where.valid = false;
+    return where;
+  }
+
+  /* "adds the index operand ... and the outer displacement to yield the
+   * effective address" -- whichever of those two the mode left outside. */
+  where.address = read.value + (uint32_t)where.post_indirection;
+  where.indirection_pending = false;
+  where.post_indirection = 0;
+  return where;
 }
 
 /* Gather the extension words an effective address needs, and turn them into the
@@ -143,11 +212,48 @@ static bool gather_address_input(ap_m68030_cpu_t *cpu, ap_m68030_ea_kind_t kind,
     }
     input->extension_word = word;
     input->extension_address = cpu->regs.pc + 2u;
-    /* Only the brief format is supplied here: the full format may declare base
-     * and outer displacements of its own, and fetching those is its own item. */
+
     const ap_m68030_extension_t extension =
         ap_m68030_ea_decode_extension(word);
-    return !extension.full_format;
+    if (!extension.full_format) {
+      return true; /* the brief format's displacement is in the word itself */
+    }
+    if (extension.reserved) {
+      return false; /* an encoding the manual reserves is not an address */
+    }
+
+    /* The full format declares its own displacement sizes, so the number of
+     * words to read is not known until the word naming them has been read.
+     * "BD SIZE ... 01 = Null Displacement, 10 = Word Displacement, 11 = Long
+     * Displacement", and the same three for the outer one -- and *null* is not
+     * "reserved": collapsing the two would silently accept an illegal word. */
+    if (!read_displacement(cpu, extension.base_displacement_size, clocks,
+                           &input->base_displacement)) {
+      return false;
+    }
+    /* The outer displacement exists only when there is a memory indirect
+     * action to put it outside -- "no memory indirect action, so no outer
+     * displacement". */
+    if (extension.indirect != AP_M68030_INDIRECT_NONE) {
+      ap_m68030_bd_size_t as_bd;
+      switch (extension.outer_displacement_size) {
+      case AP_M68030_OD_NULL:
+        as_bd = AP_M68030_BD_NULL;
+        break;
+      case AP_M68030_OD_WORD:
+        as_bd = AP_M68030_BD_WORD;
+        break;
+      case AP_M68030_OD_LONG:
+        as_bd = AP_M68030_BD_LONG;
+        break;
+      case AP_M68030_OD_NONE:
+        return false; /* an indirect action must name an outer size */
+      }
+      if (!read_displacement(cpu, as_bd, clocks, &input->outer_displacement)) {
+        return false;
+      }
+    }
+    return true;
   }
 
   case AP_M68030_EA_IMMEDIATE:
@@ -207,7 +313,7 @@ static bool execute_move(ap_m68030_cpu_t *cpu, const ap_m68030_move_t *move,
       return false;
     }
     const ap_m68030_address_t source =
-        ap_m68030_address_calculate(&cpu->regs, move->source, &source_input);
+        resolve_address(cpu, clocks, move->source, &source_input);
     const ap_m68030_operand_result_t read = ap_m68030_operand_read(
         &cpu->regs, cpu->data, &source, move->size, cpu->data_function_code);
     *clocks += read.clocks;
@@ -222,8 +328,8 @@ static bool execute_move(ap_m68030_cpu_t *cpu, const ap_m68030_move_t *move,
                             &destination_input)) {
     return false;
   }
-  const ap_m68030_address_t destination = ap_m68030_address_calculate(
-      &cpu->regs, move->destination, &destination_input);
+  const ap_m68030_address_t destination =
+      resolve_address(cpu, clocks, move->destination, &destination_input);
   const ap_m68030_operand_result_t written =
       ap_m68030_operand_write(&cpu->regs, cpu->data, &destination, move->size,
                               value, cpu->data_function_code);
@@ -287,7 +393,7 @@ static bool execute_arith(ap_m68030_cpu_t *cpu, const ap_m68030_arith_t *arith,
   }
 
   const ap_m68030_address_t where =
-      ap_m68030_address_calculate(&cpu->regs, arith->ea, &input);
+      resolve_address(cpu, clocks, arith->ea, &input);
 
   const ap_m68030_operand_result_t memory = ap_m68030_operand_read(
       &cpu->regs, cpu->data, &where, arith->size, cpu->data_function_code);
@@ -433,7 +539,7 @@ static bool execute_immediate(ap_m68030_cpu_t *cpu,
     return false;
   }
   const ap_m68030_address_t where =
-      ap_m68030_address_calculate(&cpu->regs, imm->ea, &input);
+      resolve_address(cpu, clocks, imm->ea, &input);
 
   const ap_m68030_operand_result_t read = ap_m68030_operand_read(
       &cpu->regs, cpu->data, &where, imm->size, cpu->data_function_code);
@@ -539,7 +645,7 @@ static bool execute_single(ap_m68030_cpu_t *cpu,
     return false;
   }
   const ap_m68030_address_t where =
-      ap_m68030_address_calculate(&cpu->regs, single->ea, &input);
+      resolve_address(cpu, clocks, single->ea, &input);
 
   /* CLR writes without reading -- and on the 68020 and later that is literal:
    * it does not read the destination at all. The four register transfers take
@@ -690,7 +796,7 @@ static bool execute_quick(ap_m68030_cpu_t *cpu, const ap_m68030_quick_t *quick,
       return false;
     }
     const ap_m68030_address_t where =
-        ap_m68030_address_calculate(&cpu->regs, quick->ea, &input);
+        resolve_address(cpu, clocks, quick->ea, &input);
 
     const ap_m68030_operand_result_t read = ap_m68030_operand_read(
         &cpu->regs, cpu->data, &where, size, cpu->data_function_code);
@@ -729,7 +835,7 @@ static bool execute_quick(ap_m68030_cpu_t *cpu, const ap_m68030_quick_t *quick,
       return false;
     }
     const ap_m68030_address_t where =
-        ap_m68030_address_calculate(&cpu->regs, quick->ea, &input);
+        resolve_address(cpu, clocks, quick->ea, &input);
 
     const bool condition =
         ap_m68030_condition(quick->condition, ap_m68030_read_ccr(&cpu->regs));
@@ -804,7 +910,7 @@ static bool execute_address_form(ap_m68030_cpu_t *cpu,
       return false;
     }
     const ap_m68030_address_t where =
-        ap_m68030_address_calculate(&cpu->regs, arith->ea, &input);
+        resolve_address(cpu, clocks, arith->ea, &input);
     const ap_m68030_operand_result_t read = ap_m68030_operand_read(
         &cpu->regs, cpu->data, &where, arith->size, cpu->data_function_code);
     *clocks += read.clocks;
@@ -896,7 +1002,7 @@ static bool execute_bit(ap_m68030_cpu_t *cpu, const ap_m68030_immediate_t *imm,
     return false;
   }
   const ap_m68030_address_t where =
-      ap_m68030_address_calculate(&cpu->regs, imm->ea, &input);
+      resolve_address(cpu, clocks, imm->ea, &input);
 
   const ap_m68030_operand_result_t read = ap_m68030_operand_read(
       &cpu->regs, cpu->data, &where, size, cpu->data_function_code);
@@ -992,7 +1098,7 @@ static bool execute_shift(ap_m68030_cpu_t *cpu, const ap_m68030_shift_t *shift,
       return false;
     }
     const ap_m68030_address_t where =
-        ap_m68030_address_calculate(&cpu->regs, shift->ea, &input);
+        resolve_address(cpu, clocks, shift->ea, &input);
 
     const ap_m68030_operand_result_t read = ap_m68030_operand_read(
         &cpu->regs, cpu->data, &where, 2u, cpu->data_function_code);
@@ -1033,7 +1139,7 @@ static bool read_predecrement_at(ap_m68030_cpu_t *cpu, unsigned reg,
                                  uint32_t *value, ap_m68030_address_t *where) {
   const ap_m68030_ea_t ea = {.kind = AP_M68030_EA_PREDECREMENT, .reg = reg};
   const ap_m68030_address_input_t input = {.operand_size = size};
-  *where = ap_m68030_address_calculate(&cpu->regs, ea, &input);
+  *where = resolve_address(cpu, clocks, ea, &input);
 
   const ap_m68030_operand_result_t read = ap_m68030_operand_read(
       &cpu->regs, cpu->data, where, size, cpu->data_function_code);
@@ -1057,7 +1163,7 @@ static bool read_postincrement(ap_m68030_cpu_t *cpu, unsigned reg,
   const ap_m68030_ea_t ea = {.kind = AP_M68030_EA_POSTINCREMENT, .reg = reg};
   const ap_m68030_address_input_t input = {.operand_size = size};
   const ap_m68030_address_t where =
-      ap_m68030_address_calculate(&cpu->regs, ea, &input);
+      resolve_address(cpu, clocks, ea, &input);
 
   const ap_m68030_operand_result_t read = ap_m68030_operand_read(
       &cpu->regs, cpu->data, &where, size, cpu->data_function_code);
@@ -1130,7 +1236,7 @@ static bool execute_extended(ap_m68030_cpu_t *cpu,
         return false;
       }
       const ap_m68030_address_t where =
-          ap_m68030_address_calculate(&cpu->regs, arith->ea, &input);
+          resolve_address(cpu, clocks, arith->ea, &input);
       const ap_m68030_operand_result_t read = ap_m68030_operand_read(
           &cpu->regs, cpu->data, &where, 2u, cpu->data_function_code);
       *clocks += read.clocks;
@@ -1172,7 +1278,7 @@ static bool execute_extended(ap_m68030_cpu_t *cpu,
         return false;
       }
       const ap_m68030_address_t where =
-          ap_m68030_address_calculate(&cpu->regs, arith->ea, &input);
+          resolve_address(cpu, clocks, arith->ea, &input);
       const ap_m68030_operand_result_t read = ap_m68030_operand_read(
           &cpu->regs, cpu->data, &where, 2u, cpu->data_function_code);
       *clocks += read.clocks;
@@ -1535,7 +1641,7 @@ static bool execute_rte(ap_m68030_cpu_t *cpu, uint32_t *clocks) {
 
 static bool execute_control(ap_m68030_cpu_t *cpu,
                             const ap_m68030_control_t *control,
-                            unsigned length, uint32_t *clocks, bool *branched) {
+                            uint32_t *clocks, bool *branched) {
   *branched = false;
 
   /* "If Supervisor State ... Else TRAP". Four instructions in this group are
@@ -1669,7 +1775,7 @@ static bool execute_control(ap_m68030_cpu_t *cpu,
       return false;
     }
     const ap_m68030_address_t where =
-        ap_m68030_address_calculate(&cpu->regs, control->ea, &input);
+        resolve_address(cpu, clocks, control->ea, &input);
     if (!where.valid || where.in_register || where.immediate ||
         where.indirection_pending) {
       return false;
@@ -1678,8 +1784,10 @@ static bool execute_control(ap_m68030_cpu_t *cpu,
     if (control->kind == AP_M68030_CTL_JSR) {
       /* "SP - 4 -> SP; PC -> (SP); Destination Address -> PC" -- and the PC
        * pushed is the one *after* this instruction, extension words included,
-       * which is why the length is passed in. */
-      if (!push_long(cpu, cpu->regs.pc + length, clocks)) {
+       * which is why the count of words taken is read here rather than
+       * predicted. */
+      if (!push_long(cpu, cpu->regs.pc + 2u + 2u * cpu->extension_words,
+                     clocks)) {
         return false;
       }
     }
@@ -1892,7 +2000,7 @@ static bool execute_movem(ap_m68030_cpu_t *cpu, const ap_m68030_misc_t *misc,
       return false;
     }
     const ap_m68030_address_t where =
-        ap_m68030_address_calculate(&cpu->regs, misc->ea, &input);
+        resolve_address(cpu, clocks, misc->ea, &input);
     if (!where.valid || where.in_register || where.immediate ||
         where.indirection_pending) {
       return false;
@@ -2058,7 +2166,7 @@ static bool execute_misc(ap_m68030_cpu_t *cpu, const ap_m68030_misc_t *misc,
                               &input)) {
       return false;
     }
-    where = ap_m68030_address_calculate(&cpu->regs, misc->ea, &input);
+    where = resolve_address(cpu, clocks, misc->ea, &input);
     if (!where.valid || where.indirection_pending) {
       return false;
     }
@@ -2172,6 +2280,8 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
     return out;
   }
 
+  cpu->extension_words = 0;
+
   if (!fill_to_decoded(cpu, &out.clocks, &word, &abnormal) || abnormal) {
     cpu->clocks += out.clocks;
     return out;
@@ -2187,7 +2297,16 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
     return out;
   }
 
-  const unsigned length = ap_m68030_instruction_length(&decoded, 0, 0);
+  /* The length is *not* predicted from the instruction word: a full-format
+   * indexed mode declares its own displacement sizes in an extension word that
+   * has not been read yet, so no function of the instruction word can know it.
+   * Instead the PC advances by the instruction word plus however many extension
+   * words this step actually took, which makes the fetch and the PC agree by
+   * construction rather than by two calculations matching.
+   *
+   * ap_m68030_instruction_length remains the decoder-level answer to "how long
+   * is this", asked by anything disassembling rather than executing. */
+#define CONSUMED_LENGTH (2u + 2u * cpu->extension_words)
 
   switch (decoded.kind) {
   case AP_M68030_DECODED_MOVEQ:
@@ -2196,7 +2315,7 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
 
   case AP_M68030_DECODED_CONTROL: {
     bool branched = false;
-    if (!execute_control(cpu, &decoded.as.control, length, &out.clocks,
+    if (!execute_control(cpu, &decoded.as.control, &out.clocks,
                          &branched)) {
       out.status = AP_M68030_STEP_UNIMPLEMENTED;
       cpu->clocks += out.clocks;
@@ -2251,7 +2370,7 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
     if (branch->is_bsr) {
       /* "SP - 4 -> SP; PC -> (SP); PC + dn -> PC" -- the pushed PC is the one
        * after this instruction, displacement words included. */
-      if (!push_long(cpu, cpu->regs.pc + length, &out.clocks)) {
+      if (!push_long(cpu, cpu->regs.pc + CONSUMED_LENGTH, &out.clocks)) {
         out.status = AP_M68030_STEP_FAULT;
         cpu->clocks += out.clocks;
         return out;
@@ -2362,7 +2481,7 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
      * handler return past the very instruction it was called to diagnose. */
     const uint32_t stacked =
         ap_m68030_stacks_next_instruction(vector)
-            ? cpu->regs.pc + length
+            ? cpu->regs.pc + CONSUMED_LENGTH
             : cpu->regs.pc;
 
     const ap_m68030_exception_result_t taken =
@@ -2380,9 +2499,10 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
     return out;
   }
 
-  cpu->regs.pc += length;
+  cpu->regs.pc += CONSUMED_LENGTH;
   ap_m68030_pipe_advance(&cpu->fetch.pipe);
   out.status = AP_M68030_STEP_EXECUTED;
   cpu->clocks += out.clocks;
   return out;
 }
+#undef CONSUMED_LENGTH
