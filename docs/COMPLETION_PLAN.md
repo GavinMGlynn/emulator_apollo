@@ -182,6 +182,15 @@ file the moment they are found, not when someone remembers.
 - [ ] Python probe encoder emitting hand-assembled 68000 probes — no cross
       toolchain. *Verification: a trivial probe that stores a sentinel runs
       identically under both.*
+  - **The route's assumption is now in doubt, and that is recorded rather than
+    left implicit.** `tools/mame-oracle/FINDINGS.md` C4: the boot PROM does not
+    reach the MD prompt under the oracle. `dsp3500` with a `null_modem` on the
+    serial port transmits **zero bytes** at 20 and 90 emulated seconds, while
+    the CPU sits in a short loop around `$7AE` with interrupts masked at 7 and
+    the MMU never configured. The syntax work below stands; what is unproven is
+    that there is a prompt to send it to. Next step is to disassemble
+    `$780`-`$7C0` of the boot PROM and read what the loop waits on, which needs
+    no further oracle runs.
   - **Route settled, and it is simpler than "Apollo's executable/boot format".**
     The boot PROM holds the Mnemonic Debugger (`008778-03` §1.5.1), whose `A`
     (access/deposit) and `G` (jump) commands take hand-assembled instruction

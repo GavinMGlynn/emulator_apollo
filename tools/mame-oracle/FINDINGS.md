@@ -114,6 +114,74 @@ When the first campaign lands, each row carries:
 | Evidence | Manual page, patent, or ROM address — an oracle number alone never closes a row |
 | Story | Why they differed, in a sentence, so a future contradiction has history |
 
+### C4 — the boot PROM does not reach the Mnemonic Debugger prompt
+
+**Status: open, and it gates the probe path.**
+
+Phase 1's probe route rests on one assumption, recorded in the plan as settled:
+the boot PROM holds the Mnemonic Debugger, whose `A` and `G` commands take
+hand-assembled instruction words over the serial console, so probes need no
+object format and no Domain/OS boot. The *command syntax* is settled from
+`002398-04` ch. 5. What was never checked is whether the PROM reaches the MD
+prompt **under the oracle** at all.
+
+It does not, in any configuration tried so far.
+
+**What was run.** `dsp3500` is the headless variant: `apollo_terminal()` in
+`apollo_m.cpp` wires the SIO's port B transmit to an `rs232` port whose default
+option is `terminal`, at 9600 8N1. Substituting `null_modem` and pointing
+`-bitb` at a file captures the transmitted bytes exactly, which is what a
+byte-exact transcript needs.
+
+```
+apollo dsp3500 -rompath tools/mame-oracle/out/roms -video none -sound none
+  -nothrottle -seconds_to_run 90 -rs232 null_modem -bitb md.txt
+```
+
+**Result: zero bytes**, at 20 and at 90 emulated seconds. MAME exits 0; the
+capture file stays empty. (`-bitb` needs the file to exist first — it is a
+read/write image, and MAME reports "Unable to load image" and continues without
+it otherwise. That is a trap worth naming, since the run still succeeds.)
+
+**Where the processor is.** Dumped through `oracle.py run --machine dsp3500`:
+
+| `--at` | PC | IR | SR | ISP | TC / TT0 / TT1 |
+| --- | --- | --- | --- | --- | --- |
+| 3.0 | `0x00000794` | `0x0828` | `0x2704` | `0x01000180` | all zero |
+| 8.0 | `0x000007AE` | `0x0828` | `0x2704` | `0x01000180` | all zero |
+| 20.0 | `0x000007AE` | `0x0828` | `0x2704` | `0x01000180` | all zero |
+
+So the PROM *is* executing — the stack is set up and the PC moved between 3 s
+and 8 s — and then sits in a short loop around `0x7AE` with the same instruction
+register. `SR` is `$2704`: supervisor, **interrupts masked at level 7**, Z set.
+`TC`, `TT0` and `TT1` are all zero, so the MMU has never been configured.
+
+**What this rules out and what it does not.** It rules out "the console works
+and we captured it wrong": nothing is transmitted. It does not yet distinguish:
+
+1. a legitimate wait on a device the run does not provide — the log shows the
+   3c505 network coprocessor looping on unmapped writes and `Network interface
+   -1 not found`, and the tape and disk report no media;
+2. the PROM selecting the display console rather than the serial one, which on
+   real hardware is an NVRAM/service-mode choice the run never makes;
+3. a genuine early self-test failure, which with interrupts masked at 7 and no
+   MMU would look exactly like this.
+
+**Why it matters beyond the probe path.** The plan gates instruction-execution
+timing, the `PROVISIONAL` ATC replacement algorithm, and the supervisor U-bit
+reading on "measure against the oracle", and the only measurement route recorded
+is MD over the serial console. If that route does not exist, those three items
+are gated on something that has not been shown to work — which is a worse
+position than being gated on something known hard.
+
+**Next, cheapest first.** Disassemble `0x780`-`0x7C0` of `3500_BOOT_12191_7.bin`
+and read what the loop is waiting on: that answers all three possibilities at
+once and needs no further MAME runs. Then, if it is (1) or (2), configure what
+it wants; if (3), the finding is about the oracle rather than about us, and the
+probe path needs a different route — most plausibly injecting probe state
+directly, which Phase 1 already lists as the CI path and which needs no firmware
+at all.
+
 ## Instrumenting the oracle
 
 Temporary instrumentation in `ext/mame` is **always reverted before commit**,
