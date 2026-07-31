@@ -2277,10 +2277,16 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         rates (250/125/62.5 kHz, `008778-03` §3.8) all divide `AP_TIME_BASE_HZ`
         exactly, so the device needs no change to the time base — asserted in
         the suite so a future change to either side breaks a test.
-  - [ ] The declined modes: dual 8-bit, single-shot, period measurement and
-        pulse-width measurement. Their rules are in `[6840]` §§3.7.2-3.10 and
-        are simply not transcribed yet; the two measurement modes additionally
-        time an external gate that nothing in this machine drives.
+  - [x] The remaining counting modes: single shot and dual eight-bit, both
+        transcribed from `[6840]` §§3.7.2-3.8.2 and implemented. This also fixed
+        a real defect — the mode field is *not* three contiguous bits, and
+        reading it as one had been declining `XX0000XX`, which is half of
+        continuous mode.
+  - [ ] Period and pulse-width measurement stay declined, now for a hardware
+        reason rather than a transcription one: both time a signal applied to a
+        timer's gate pin, and on this board the three gates have nothing
+        connected. They are decoded and reported, so a caller learns which mode
+        it asked for.
   - [x] The timer's placement and interrupt route, measured: the part is at
         **odd addresses, stride 2** (`RS n` at `010801 + 2n`, confirmed by the
         `FFFF` latch default showing through), and its interrupt reaches the

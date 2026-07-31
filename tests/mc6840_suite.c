@@ -347,25 +347,142 @@ static void test_only_timer_three_has_a_prescaler(void) {
   TEST_ASSERT_EQUAL_UINT(16u, clocks_to_interrupt(&fresh, 2, 64));
 }
 
-static void test_a_mode_that_is_not_modelled_does_not_count(void) {
+static void test_both_continuous_variants_are_recognised(void) {
   ap_mc6840_t ptm;
-  /* Single shot: bits 5,4,3 = 1,0,0. Not transcribed, so declined. */
-  program_continuous(&ptm, 3, 0x20u | AP_MC6840_CR_IRQ_ENABLE);
 
+  /* The regression this whole pass exists for. `[6840]` §3.7.1 gives two
+   * control words for 16-bit continuous, `XX0100XX` and `XX0000XX`, differing
+   * only in whether a latch write reinitialises the counter. This module used
+   * to read bits 5-3 as one mode field and require `010`, so it declined
+   * `XX0000XX` -- half of continuous mode -- and nothing caught it because the
+   * half that worked was the half the tests used. */
+  program_continuous(&ptm, 9, 0x10u | AP_MC6840_CR_IRQ_ENABLE);
+  TEST_ASSERT_EQUAL_UINT(AP_MC6840_MODE_CONTINUOUS, ap_mc6840_mode(&ptm, 0));
+  TEST_ASSERT_TRUE(ap_mc6840_mode_supported(&ptm, 0));
+  TEST_ASSERT_EQUAL_UINT(10u, clocks_to_interrupt(&ptm, 0, 64));
+
+  program_continuous(&ptm, 9, 0x00u | AP_MC6840_CR_IRQ_ENABLE);
+  TEST_ASSERT_EQUAL_UINT(AP_MC6840_MODE_CONTINUOUS, ap_mc6840_mode(&ptm, 0));
+  TEST_ASSERT_TRUE(ap_mc6840_mode_supported(&ptm, 0));
+  TEST_ASSERT_EQUAL_UINT(10u, clocks_to_interrupt(&ptm, 0, 64));
+}
+
+static void test_a_latch_write_reinitialises_only_when_bit_four_is_clear(void) {
+  ap_mc6840_t ptm;
+
+  /* §3.7.1 lists "Write to the Counter Latches" among the initialisation
+   * conditions for the bit-4-clear variant only. With bit 4 set the current
+   * period runs to its end and the new latch takes effect after it. */
+  program_continuous(&ptm, 100, 0x00u | AP_MC6840_CR_IRQ_ENABLE);
+  for (unsigned i = 0; i < 50; i++) {
+    ap_mc6840_clock(&ptm, 0);
+  }
+  ap_mc6840_write(&ptm, AP_MC6840_RS_TIMER1_MSB, 0x00);
+  ap_mc6840_write(&ptm, AP_MC6840_RS_TIMER1_LSB, 0x04);
+  TEST_ASSERT_EQUAL_UINT(5u, clocks_to_interrupt(&ptm, 0, 64));
+
+  program_continuous(&ptm, 100, 0x10u | AP_MC6840_CR_IRQ_ENABLE);
+  for (unsigned i = 0; i < 50; i++) {
+    ap_mc6840_clock(&ptm, 0);
+  }
+  ap_mc6840_write(&ptm, AP_MC6840_RS_TIMER1_MSB, 0x00);
+  ap_mc6840_write(&ptm, AP_MC6840_RS_TIMER1_LSB, 0x04);
+  /* Fifty-one of the original hundred-and-one remain. */
+  TEST_ASSERT_EQUAL_UINT(51u, clocks_to_interrupt(&ptm, 0, 128));
+}
+
+static void test_dual_eight_bit_multiplies_the_two_halves(void) {
+  ap_mc6840_t ptm;
+
+  /* §3.7.2: "B = The count in the LSB latch +1, times the count in the MSB
+   * latch +1, times the period of the clock." So `0x0304` is (4+1)*(3+1) = 20
+   * clocks -- where a 16-bit countdown of the same latch would be 773. Reading
+   * the latch as one word here is not a small error. */
+  program_continuous(&ptm, 0x0304,
+                     0x10u | AP_MC6840_CR_DUAL_8BIT | AP_MC6840_CR_IRQ_ENABLE);
+  TEST_ASSERT_TRUE(ap_mc6840_mode_supported(&ptm, 0));
+  TEST_ASSERT_EQUAL_UINT(20u, clocks_to_interrupt(&ptm, 0, 128));
+}
+
+static void test_dual_eight_bit_repeats_at_the_same_interval(void) {
+  ap_mc6840_t ptm;
+  program_continuous(&ptm, 0x0203,
+                     0x10u | AP_MC6840_CR_DUAL_8BIT | AP_MC6840_CR_IRQ_ENABLE);
+
+  /* (3+1)*(2+1) = 12. The reload has to restore *both* halves, which a model
+   * keeping only a 16-bit counter would get right the first time and wrong
+   * every time after. */
+  TEST_ASSERT_EQUAL_UINT(12u, clocks_to_interrupt(&ptm, 0, 64));
+  ap_mc6840_write(&ptm, AP_MC6840_RS_CONTROL_2_OR_STATUS, 0x01);
+  (void)ap_mc6840_read(&ptm, AP_MC6840_RS_CONTROL_2_OR_STATUS);
+  (void)ap_mc6840_read(&ptm, AP_MC6840_RS_TIMER1_MSB);
+  TEST_ASSERT_EQUAL_UINT(12u, clocks_to_interrupt(&ptm, 0, 64));
+}
+
+static void test_single_shot_interrupts_repeatedly_but_pulses_once(void) {
+  ap_mc6840_t ptm;
+
+  /* §3.8: "Internally, the count recycling is continuous as if in the
+   * Continuous Mode. Only one pulse is evident on the output pin for each
+   * Counter Initialization." Two halves that a simpler model would conflate --
+   * either stopping the interrupts too, or pulsing the output every period. */
+  program_continuous(&ptm, 4,
+                     0x20u | AP_MC6840_CR_IRQ_ENABLE |
+                         AP_MC6840_CR_OUTPUT_ENABLE);
+  TEST_ASSERT_EQUAL_UINT(AP_MC6840_MODE_SINGLE_SHOT, ap_mc6840_mode(&ptm, 0));
+
+  /* The output is high from initialisation until the first time out. */
+  TEST_ASSERT_TRUE(ap_mc6840_output(&ptm, 0));
+  TEST_ASSERT_EQUAL_UINT(5u, clocks_to_interrupt(&ptm, 0, 32));
+  TEST_ASSERT_FALSE(ap_mc6840_output(&ptm, 0));
+
+  /* But the interrupts keep coming. */
+  ap_mc6840_write(&ptm, AP_MC6840_RS_CONTROL_2_OR_STATUS, 0x01);
+  (void)ap_mc6840_read(&ptm, AP_MC6840_RS_CONTROL_2_OR_STATUS);
+  (void)ap_mc6840_read(&ptm, AP_MC6840_RS_TIMER1_MSB);
+  TEST_ASSERT_EQUAL_UINT(5u, clocks_to_interrupt(&ptm, 0, 32));
+  /* And the output stays down: one pulse per initialisation. */
+  TEST_ASSERT_FALSE(ap_mc6840_output(&ptm, 0));
+}
+
+static void test_reinitialising_a_single_shot_arms_it_again(void) {
+  ap_mc6840_t ptm;
+  program_continuous(&ptm, 4,
+                     0x20u | AP_MC6840_CR_IRQ_ENABLE |
+                         AP_MC6840_CR_OUTPUT_ENABLE);
+  (void)clocks_to_interrupt(&ptm, 0, 32);
+  TEST_ASSERT_FALSE(ap_mc6840_output(&ptm, 0));
+
+  /* §3.8.1: "Each initialization causes a single shot (even during a single
+   * shot) if the counter is enabled." The gate going low is one such. */
+  ap_mc6840_set_gate(&ptm, 0, true);
+  ap_mc6840_set_gate(&ptm, 0, false);
+  TEST_ASSERT_TRUE(ap_mc6840_output(&ptm, 0));
+}
+
+static void test_the_measurement_modes_are_decoded_and_declined(void) {
+  ap_mc6840_t ptm;
+
+  /* §3.9 and §3.10. Both are decoded, so a caller is told *which* mode it asked
+   * for, and both are refused, because "The digital signal to be measured is
+   * applied to the individual gate pin" and on this board nothing is connected
+   * to the gates -- the timers take fixed clocks. Declined for want of a signal
+   * rather than for want of a transcription. */
+  program_continuous(&ptm, 4, 0x08u | AP_MC6840_CR_IRQ_ENABLE);
+  TEST_ASSERT_EQUAL_UINT(AP_MC6840_MODE_PERIOD_MEASUREMENT,
+                         ap_mc6840_mode(&ptm, 0));
   TEST_ASSERT_FALSE(ap_mc6840_mode_supported(&ptm, 0));
+
+  program_continuous(&ptm, 4, 0x18u | AP_MC6840_CR_IRQ_ENABLE);
+  TEST_ASSERT_EQUAL_UINT(AP_MC6840_MODE_PULSE_WIDTH_MEASUREMENT,
+                         ap_mc6840_mode(&ptm, 0));
+  TEST_ASSERT_FALSE(ap_mc6840_mode_supported(&ptm, 0));
+
+  /* And a declined timer stands still rather than counting plausibly. */
   for (unsigned i = 0; i < 64; i++) {
     ap_mc6840_clock(&ptm, 0);
   }
-  /* Silence, rather than plausible interrupts at the continuous rate. A timer
-   * that quietly ran in the wrong mode would produce a believable number and
-   * corrupt every timing measurement built on it. */
   TEST_ASSERT_FALSE(ap_mc6840_irq(&ptm));
-}
-
-static void test_dual_eight_bit_operation_is_declined(void) {
-  ap_mc6840_t ptm;
-  program_continuous(&ptm, 3, 0x10u | AP_MC6840_CR_DUAL_8BIT);
-  TEST_ASSERT_FALSE(ap_mc6840_mode_supported(&ptm, 0));
 }
 
 static void test_the_apollo_clock_rates_divide_the_time_base(void) {
@@ -415,8 +532,13 @@ int main(void) {
   RUN_TEST(test_a_high_gate_holds_its_own_timer_only);
   RUN_TEST(test_the_gate_going_low_reloads_the_counter);
   RUN_TEST(test_only_timer_three_has_a_prescaler);
-  RUN_TEST(test_a_mode_that_is_not_modelled_does_not_count);
-  RUN_TEST(test_dual_eight_bit_operation_is_declined);
+  RUN_TEST(test_both_continuous_variants_are_recognised);
+  RUN_TEST(test_a_latch_write_reinitialises_only_when_bit_four_is_clear);
+  RUN_TEST(test_dual_eight_bit_multiplies_the_two_halves);
+  RUN_TEST(test_dual_eight_bit_repeats_at_the_same_interval);
+  RUN_TEST(test_single_shot_interrupts_repeatedly_but_pulses_once);
+  RUN_TEST(test_reinitialising_a_single_shot_arms_it_again);
+  RUN_TEST(test_the_measurement_modes_are_decoded_and_declined);
   RUN_TEST(test_the_apollo_clock_rates_divide_the_time_base);
   RUN_TEST(test_two_parts_reset_alike_hold_identical_state);
   return UNITY_END();

@@ -2,9 +2,6 @@
 
 #include <string.h>
 
-/* `[6840]` §3.7.1's 16-bit continuous mode: control bits 5,4,3 = 0,1,0 with
- * bit 2 clear. The manual gives it as "X X 0 1 0 0 X X". */
-#define MODE_CONTINUOUS_16BIT 0x10u
 
 void ap_mc6840_reset(ap_mc6840_t *ptm) {
   memset(ptm, 0, sizeof *ptm);
@@ -26,15 +23,37 @@ static bool timers_preset(const ap_mc6840_t *ptm) {
   return (ptm->timer[0].control & AP_MC6840_CR1_TIMERS_PRESET) != 0u;
 }
 
+ap_mc6840_mode_t ap_mc6840_mode(const ap_mc6840_t *ptm, unsigned index) {
+  if (index >= AP_MC6840_TIMERS) {
+    return AP_MC6840_MODE_CONTINUOUS;
+  }
+  uint8_t control = ptm->timer[index].control;
+  if ((control & AP_MC6840_CR_MEASUREMENT) != 0u) {
+    /* §3.9 and §3.10: bit 4 chooses which quantity is measured. */
+    return (control & AP_MC6840_CR_BIT4) != 0u
+               ? AP_MC6840_MODE_PULSE_WIDTH_MEASUREMENT
+               : AP_MC6840_MODE_PERIOD_MEASUREMENT;
+  }
+  /* §3.7 and §3.8: bit 5 chooses continuous or single shot. Bit 4 here is a
+   * different question entirely -- whether a latch write reinitialises -- and
+   * conflating the two is the error the header records. */
+  return (control & AP_MC6840_CR_BIT5) != 0u ? AP_MC6840_MODE_SINGLE_SHOT
+                                             : AP_MC6840_MODE_CONTINUOUS;
+}
+
 bool ap_mc6840_mode_supported(const ap_mc6840_t *ptm, unsigned index) {
   if (index >= AP_MC6840_TIMERS) {
     return false;
   }
-  uint8_t control = ptm->timer[index].control;
-  if ((control & AP_MC6840_CR_DUAL_8BIT) != 0u) {
-    return false;
-  }
-  return (control & AP_MC6840_CR_MODE_MASK) == MODE_CONTINUOUS_16BIT;
+  ap_mc6840_mode_t mode = ap_mc6840_mode(ptm, index);
+  return mode == AP_MC6840_MODE_CONTINUOUS ||
+         mode == AP_MC6840_MODE_SINGLE_SHOT;
+}
+
+/* §3.7.1 and §3.7.2: bit 2 chooses whether the latch is one sixteen-bit word or
+ * two eight-bit ones. */
+static bool dual_8bit(const ap_mc6840_t *ptm, unsigned index) {
+  return (ptm->timer[index].control & AP_MC6840_CR_DUAL_8BIT) != 0u;
 }
 
 bool ap_mc6840_output(const ap_mc6840_t *ptm, unsigned index) {
@@ -42,9 +61,14 @@ bool ap_mc6840_output(const ap_mc6840_t *ptm, unsigned index) {
     return false;
   }
   /* §3.6.1 bit 7: "If the output is masked it will always be electrically
-   * low." */
+   * low." §3.8.2 adds that for single shot the bit is not optional: "Bit 7, the
+   * output enable bit must be high in the Single Shot Mode. This enables the
+   * output for the 'Single Shot'." */
   if ((ptm->timer[index].control & AP_MC6840_CR_OUTPUT_ENABLE) == 0u) {
     return false;
+  }
+  if (ap_mc6840_mode(ptm, index) == AP_MC6840_MODE_SINGLE_SHOT) {
+    return !ptm->timer[index].single_shot_fired;
   }
   return ptm->timer[index].output;
 }
@@ -66,7 +90,12 @@ static bool counting(const ap_mc6840_t *ptm, unsigned index) {
  * take effect at once rather than after the current one runs out. */
 static void reload(ap_mc6840_timer_t *timer) {
   timer->counter = timer->latch;
+  timer->lsb_counter = (uint8_t)(timer->latch & 0xFFu);
   timer->prescale_count = 0u;
+  /* "Each initialization causes a single shot (even during a single shot) if
+   * the counter is enabled" -- so the output is armed again by every
+   * initialisation, not only by the first. */
+  timer->single_shot_fired = false;
 }
 
 void ap_mc6840_set_gate(ap_mc6840_t *ptm, unsigned index, bool high) {
@@ -104,19 +133,57 @@ void ap_mc6840_clock(ap_mc6840_t *ptm, unsigned index) {
     }
   }
 
-  if (timer->counter == 0u) {
+  bool timed_out;
+  if (dual_8bit(ptm, index)) {
+    /* §3.7.2: "This latch count down option treats the 16-bit word in the latch
+     * as two separate 8-bit wide words", and the period is "the count in the LSB
+     * latch +1, times the count in the MSB latch +1, times the period of the
+     * clock". Two nested counters, not one wider one -- a 16-bit countdown with
+     * the same latch would give a completely different period. */
+    uint8_t lsb_latch = (uint8_t)(timer->latch & 0xFFu);
+    if (timer->lsb_counter != 0u) {
+      timer->lsb_counter--;
+      return;
+    }
+    uint8_t msb = (uint8_t)(timer->counter >> 8);
+    if (msb != 0u) {
+      timer->counter = (uint16_t)(((unsigned)(msb - 1u) << 8) | lsb_latch);
+      timer->lsb_counter = lsb_latch;
+      return;
+    }
+    timed_out = true;
+  } else {
     /* §3.7: "Time Out -- occurance one count after the contents of a timer
      * equals $0000." So a latch of N gives a period of N+1 clocks, which is
      * §3.7.1's "A = the total 16-bit count in the latch +1, times the period of
      * the clock". Reloading when the counter *reaches* zero instead would make
      * every period one clock short -- a 0.4% error at a latch of 250 and a
      * 100% error at a latch of zero. */
-    timer->interrupt_flag = true;
-    timer->output = !timer->output;
-    timer->counter = timer->latch;
+    if (timer->counter != 0u) {
+      timer->counter--;
+      return;
+    }
+    timed_out = true;
+  }
+
+  if (!timed_out) {
     return;
   }
-  timer->counter--;
+  timer->interrupt_flag = true;
+
+  if (ap_mc6840_mode(ptm, index) == AP_MC6840_MODE_SINGLE_SHOT) {
+    /* §3.8: "Internally, the count recycling is continuous as if in the
+     * Continuous Mode. Only one pulse is evident on the output pin for each
+     * Counter Initialization." So the interrupts keep coming and the output
+     * falls once and stays down until the next initialisation. */
+    timer->output = false;
+    timer->single_shot_fired = true;
+  } else {
+    timer->output = !timer->output;
+  }
+
+  timer->counter = timer->latch;
+  timer->lsb_counter = (uint8_t)(timer->latch & 0xFFu);
 }
 
 bool ap_mc6840_irq(const ap_mc6840_t *ptm) {
@@ -210,7 +277,13 @@ void ap_mc6840_write(ap_mc6840_t *ptm, ap_mc6840_rs_t rs, uint8_t value) {
     unsigned index = timer_of_rs(rs);
     ptm->timer[index].latch =
         (uint16_t)(((uint16_t)ptm->msb_buffer << 8) | value);
-    reload(&ptm->timer[index]);
+    /* §3.7.1 and §3.7.2 list "Write to the Counter Latches" among the counter
+     * initialisation conditions only for the variants with bit 4 clear. With
+     * bit 4 set, a latch write changes the period the *next* time out uses and
+     * leaves the current one running. */
+    if ((ptm->timer[index].control & AP_MC6840_CR_BIT4) == 0u) {
+      reload(&ptm->timer[index]);
+    }
     /* §3.11, among what clears interrupts: "Writing to the latches. (IF CR x 3
      * = 0 and CR x 4 = 0)". */
     if ((ptm->timer[index].control & 0x18u) == 0u) {

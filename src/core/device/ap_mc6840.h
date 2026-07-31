@@ -29,24 +29,46 @@
  *
  * ## What is modelled
  *
- * The 16-bit continuous mode, which is what a periodic interval timer uses, and
- * the whole register and interrupt model around it: both control register
- * aliases, the write and read buffering, the status register, and every one of
- * `[6840]`'s five ways of clearing an interrupt.
+ * Both counting modes -- continuous and single shot -- in both sixteen-bit and
+ * dual eight-bit operation, and the whole register and interrupt model around
+ * them: both control register aliases, the write and read buffering, the status
+ * register, the prescaler, and every one of `[6840]`'s five ways of clearing an
+ * interrupt.
+ *
+ * ## The mode encoding, which is not three contiguous bits
+ *
+ * It is tempting to read bits 5, 4 and 3 as one mode field. They are not:
+ * `[6840]` §§3.7-3.10 give each bit a separate job, and the job changes
+ * depending on bit 3.
+ *
+ *   bit 3 = 0   the counting modes
+ *               bit 5   0 continuous, 1 single shot
+ *               bit 4   0 a latch write also reinitialises the counter, 1 not
+ *               bit 2   0 sixteen-bit, 1 dual eight-bit
+ *   bit 3 = 1   the measurement modes
+ *               bit 4   0 period measurement, 1 pulse-width measurement
+ *               bit 5   0 interrupt if shorter than the time out, 1 if longer
+ *
+ * Reading it as a single field is how this module first went wrong: it
+ * required bits 5-3 to equal `010` for continuous, and so **declined
+ * `XX0000XX`** — which is equally 16-bit continuous, differing only in whether a
+ * latch write reinitialises. Half of continuous mode was refused, and nothing
+ * caught it because the half that worked was the half the tests used.
  *
  * ## What is declined
  *
- * Dual 8-bit operation, single-shot, period measurement and pulse-width
- * measurement. Not because they are hard but because their timing rules have
- * not been transcribed from `[6840]` §§3.7.2-3.10, and the two measurement
- * modes additionally time an external gate signal that no part of this machine
- * currently drives.
+ * The two **measurement modes**, and now for a reason about the machine rather
+ * than about this module. Both time a digital signal presented on a timer's
+ * gate pin — "The digital signal to be measured is applied to the individual
+ * gate pin that is assigned to each timer" — and on this board the three gates
+ * have nothing connected to them; the timers take fixed clocks from `008778-03`
+ * §3.8. There is no signal to measure, so the modes are decoded, reported, and
+ * refused rather than approximated.
  *
- * `ap_mc6840_mode_supported` reports it, and a timer left in a declined mode
- * simply does not count. That is a deliberate choice over "count as if
- * continuous": a timer that silently behaved like a different mode would
- * produce plausible interrupts at the wrong rate, which is the failure that
- * survives a boot and corrupts every timing measurement downstream.
+ * A timer in a declined mode does not count at all. That is deliberate over
+ * "count as if continuous": a timer silently behaving like a different mode
+ * produces plausible interrupts at the wrong rate, which survives a boot and
+ * corrupts every timing measurement built on it.
  */
 
 #ifndef APOLLO_DEVICE_AP_MC6840_H
@@ -76,9 +98,19 @@ typedef enum {
  * three registers; bit 0 is unique to each. */
 #define AP_MC6840_CR_INTERNAL_CLOCK 0x02u /* 0 external (Cx), 1 internal (E) */
 #define AP_MC6840_CR_DUAL_8BIT 0x04u      /* 0 sixteen-bit, 1 dual eight-bit */
-#define AP_MC6840_CR_MODE_MASK 0x38u      /* bits 5,4,3 select the mode */
+#define AP_MC6840_CR_MEASUREMENT 0x08u    /* bit 3: 1 selects a measurement mode */
+#define AP_MC6840_CR_BIT4 0x10u           /* see the header: two different jobs */
+#define AP_MC6840_CR_BIT5 0x20u           /* see the header: two different jobs */
 #define AP_MC6840_CR_IRQ_ENABLE 0x40u     /* bit 6 */
 #define AP_MC6840_CR_OUTPUT_ENABLE 0x80u  /* bit 7 */
+
+/* The four modes `[6840]` §§3.7-3.10 describe. */
+typedef enum {
+  AP_MC6840_MODE_CONTINUOUS = 0,
+  AP_MC6840_MODE_SINGLE_SHOT,
+  AP_MC6840_MODE_PERIOD_MEASUREMENT,
+  AP_MC6840_MODE_PULSE_WIDTH_MEASUREMENT,
+} ap_mc6840_mode_t;
 
 /* Bit 0, by register. */
 #define AP_MC6840_CR1_TIMERS_PRESET 0x01u /* 0 all operate, 1 all preset */
@@ -102,6 +134,17 @@ typedef struct {
    * rather than as an enable, because the manual's clearing rules refer to the
    * gate *going* low and a level cannot express an edge. */
   bool gate;
+  /* Dual eight-bit operation counts two bytes rather than one word, so the
+   * low half needs its own reload. `[6840]` §3.7.2: the period is "the count in
+   * the LSB latch +1, times the count in the MSB latch +1, times the period of
+   * the clock", which is two nested counters and not a wider one. */
+  uint8_t lsb_counter;
+
+  /* Single shot puts out "only one pulse ... for each Counter Initialization",
+   * although "internally, the count recycling is continuous as if in the
+   * Continuous Mode". So the interrupts keep coming and the output does not. */
+  bool single_shot_fired;
+
   /* Prescaler state, timer 3 only. `[6840]` §3.6.1: "Bit 0 in control register
    * #3 is a clock prescalar and is available only in control register #3." */
   uint8_t prescale_count;
@@ -150,8 +193,12 @@ void ap_mc6840_clock(ap_mc6840_t *ptm, unsigned index);
  * interrupt causes IRQ to be asserted." */
 [[nodiscard]] bool ap_mc6840_irq(const ap_mc6840_t *ptm);
 
-/* Whether a timer's programmed mode is one this module implements. False for
- * the declined modes; see the header. A caller must check rather than assume,
+/* The mode a timer is programmed for, decoded per the header. */
+[[nodiscard]] ap_mc6840_mode_t ap_mc6840_mode(const ap_mc6840_t *ptm,
+                                              unsigned index);
+
+/* Whether that mode is one this module implements. False for the two
+ * measurement modes; see the header. A caller must check rather than assume,
  * because a timer counting in the wrong mode produces plausible interrupts at
  * the wrong rate. */
 [[nodiscard]] bool ap_mc6840_mode_supported(const ap_mc6840_t *ptm,
