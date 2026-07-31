@@ -16,6 +16,7 @@ Last updated: 2026-07-31.
 | Build system, presets, CI | working | 4-platform matrix green on first run, plus the `-O0` vs `-O3` output-identity job |
 | Model table (`model/`) | working, 9 models | `model_suite`, 13 tests |
 | Time base (`time/`) | working | `time_suite`, 13 tests |
+| State hash (`state/`) | primitive working | `hash_suite`, 11 tests, incl. published FNV-1a 64 vectors |
 | Ring medium interface | not started | — |
 | Ring controller | not started | — |
 | 68020 / 68030 / 68040 CPU | not started | — |

@@ -106,6 +106,18 @@ file the moment they are found, not when someone remembers.
       host pointers, with emulated cycle count and PC reported beside it.
       *Verification: same workload twice → same hash; a boot collapses to one
       number.*
+  - [x] The hashing primitive itself (`src/core/state/`): FNV-1a 64-bit with an
+        explicit little-endian feed and width-tagged typed helpers, so the same
+        state hashes identically on a big-endian host and a re-typed field
+        cannot silently preserve the hash. No `ap_hash_ptr()` exists — host
+        pointers are excluded by construction rather than by discipline.
+        *Verification: `hash_suite`, 11 tests, including the **published**
+        FNV-1a 64 vectors — external constants, not our own output — plus
+        little-endian feed, `2×u16 ≠ u32`, `time ≠ u64`, order sensitivity, and
+        streaming equals one-shot.*
+  - The whole-machine part stays open until there is machine state to hash: a
+    CPU, devices and a bus. It is a Phase 2/3 tail, not something to fake now
+    over an empty machine.
 
 ## Phase 2 — CPU family
 

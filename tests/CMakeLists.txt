@@ -31,6 +31,7 @@ endfunction()
 
 apollo_add_suite(time_suite)
 apollo_add_suite(model_suite)
+apollo_add_suite(hash_suite)
 apollo_add_suite(frontend_common_suite apollo_frontend_common)
 
 # The deterministic frontend must at least run everywhere the core does.

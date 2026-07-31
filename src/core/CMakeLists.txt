@@ -3,6 +3,7 @@
 
 add_library(apollo_core STATIC
   model/ap_model.c
+  state/ap_hash.c
   time/ap_time.c
 )
 
