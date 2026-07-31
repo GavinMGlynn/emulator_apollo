@@ -738,9 +738,27 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         instruction reported rather than skipped, an illegal encoding distinct
         from it, and a second pass over the same code costing **zero** clocks
         because the instruction cache answers.*
-  - [ ] The remaining instruction semantics, family by family, and the operand
-        access each needs. *Verification: per-family suites, then probes against
-        the oracle for the timing.*
+  - [x] **Operand access** (`src/core/cpu/m68030/ap_m68030_operand.c`), the
+        layer between address calculation and memory. It exists mostly to hold
+        two register rules that are opposites of each other and are easy to
+        swap, neither of which faults when wrong:
+        **a data register write is partial** — a byte or word operation leaves
+        the rest of the register alone — while **an address register write never
+        is**: "the source operand is sign-extended to a long operand and the
+        operation is performed on the address register using all 32 bits". So
+        `MOVE.W #$FFFF,D0` leaves D0's upper half untouched and
+        `MOVEA.W #$FFFF,A0` sets A0 to `$FFFFFFFF`. Applying the data rule to an
+        address register leaves a stale upper half that later long operations
+        silently use; applying the address rule to a data register destroys live
+        data.
+        *Verification: `operand_suite`, 8 tests, including the two rules applied
+        to the **same** operand value side by side — the comparison that catches
+        using one where the other belongs — plus an unfinished address and an
+        immediate each reported as a fault rather than read as a zero that would
+        look like a real operand.*
+  - [ ] The remaining instruction semantics, family by family, now that operand
+        access exists. *Verification: per-family suites, then probes against the
+        oracle for the timing.*
   - [ ] **CMP2/CHK2, CAS and CAS2**, which occupy size field `11` in family
         `0000`'s immediate rows. Not decoded: `ap_m68030_immediate_decode`
         reports invalid there rather than mis-decoding them as a wider ORI, and
