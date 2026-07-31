@@ -2353,9 +2353,13 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
   - [x] Placement measured: both ports at `010400` and `010500`, **stride 2**,
         sixteen registers over thirty-two bytes. `FINDINGS.md` C14. The DUART
         manual is already in `docs/references/motorola/`.
-  - [ ] The 2681/68681 itself: two channels with their FIFOs, the mode/status/
-        clock-select registers, the counter/timer, the interrupt registers, and
-        the input and output ports.
+  - [x] The 2681/68681's programming model: all sixteen register addresses,
+        both channels with their FIFOs and mode-register pointer, the
+        counter/timer with its two address-triggered commands, the interrupt
+        registers, and the input and output ports. `mc68681_suite`, 15 tests.
+  - [ ] Serial framing — baud rates, start/stop bits, parity, and the automatic
+        echo and loopback modes. A character crosses this module whole; nothing
+        is connected to a wire yet, and the keyboard is what will need it.
   - [ ] `008778-03` §3.9's Apollo specifics: SIO line 0 is the keyboard, and
         "The counter/timer on the SIO chip is used for the refresh count ...
         set up in the timer mode to produce a square wave output on output OP3.
