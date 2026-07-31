@@ -1367,12 +1367,25 @@ exactly when the hardware went in.
 floppy disk control cable and is normally used for diskette change status", bits
 0-6 reserved.
 
-**Not yet established: where Apollo maps this half.** `008778-03` Table 2-9 gives
-the Winchester at AT `1A0` and does not, in what has been read of it, name a
-floppy range. The fixed-disk side was jumpered away from its `320H` default, so
-the floppy side cannot be assumed to sit at its own default either. That is a
-measurement, and the same differential that established the card's presence in
-C20 will settle it.
+**Measured: the floppy half is not beside the fixed-disk half.** Every address
+in `04D000`-`04DFFF` was read with the card fitted and with `isa1` emptied. The
+control is clean -- 384 addresses answer with the card and **none** without it --
+and every one of the 384 belongs to the fixed disk:
+
+- they occupy offsets 1, 2 and 3 of each eight-byte block and no others,
+- they carry only the values `C0`, `FC` and `00` -- C21's status, configuration
+  and mask-port readings,
+- and they run from `04D000` to `04D3FB`, so the four-register set aliases
+  through exactly 1 KB and the rest of the 4 KB reads `FF`.
+
+No second register block appears anywhere in the range. The natural assumption --
+that one card's two halves sit next to each other -- is wrong, and would have
+sent a search for the floppy through addresses that provably do not carry it.
+
+Where it does live is still open, and the window to search is Apollo's AT I/O
+space `040000`-`05FFFF` outside the kilobyte above. `008778-03` Table 2-9 gives
+AT `1A8`-`210` as "Unused" and names no floppy range at all in what has been read
+of it, so the answer may not be in that table either.
 
 ## Where the ring is not
 

@@ -2413,8 +2413,11 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
       interface** at `3F2`-`3F7` or `372`-`377`, quite unlike the fixed-disk
       side — one card, two programming models. Still to transcribe: Sections 5
       and 6, the two command sets. And still to **measure**: where Apollo maps
-      the floppy half, since the fixed-disk side was jumpered away from its
-      default and the floppy side cannot be assumed to sit at its own.
+      the floppy half. It is *not* beside the fixed-disk half — every address in
+      `04D000`-`04DFFF` was scanned with and without the card, the control is
+      clean (384 answer with it, none without), and all 384 are the fixed disk's
+      four registers aliased through 1 KB. The search window is the rest of
+      `040000`-`05FFFF` (C22).
       Note §4.1's shape — floppy and fixed disk are **two independent register
       sets** running concurrently, not one controller with a mode bit. *Verification: DMA-completion device shape — transfer now,
       schedule completion in emulated time; oracle diff.*
