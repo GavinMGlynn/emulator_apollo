@@ -2452,7 +2452,12 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         (`FINDINGS.md` C25) — ten of twelve codes legible; ERASE and SELECT Q11
         FORMAT are left blank rather than guessed, though both are constrained
         to the `2x` group.
-  - [ ] Tape motion and the drive behind the controller. Note C25: the
+  - [x] The drive and tape motion, `device/ap_qic.c`: the readable half of the
+        command set over a `.ct` image, with writing refused and the two lost
+        opcodes claimed by nothing. `qic_suite`, 12 tests.
+  - [ ] Join the drive to the SC-499's registers, so a driver reaches it
+        through `050000` rather than directly.
+  - [ ] Note C25: the
         controller identifies the cartridge type from BOT-to-load-point
         *distance*, which a raw block image has no geometry to supply, so the
         drive must be told its cartridge type rather than deriving it.
