@@ -2225,11 +2225,12 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         Width, aliasing and which bits are storage are now known — the cache
         control register is a *byte* mirrored across a 16-bit read, which a
         transcription would have got wrong.
-  - [ ] Implement the four registers that measurement covers: CPU status
-        (bit 15 stuck, write-clears the latched bits), CPU control and
-        latch-page-on-parity (16 bits of storage each), cache control (a
-        mirrored byte, one writable bit). Storage and width only — what the
-        bits *mean* is still unknown, and nothing may depend on a meaning.
+  - [x] The four registers measurement covers: CPU status (bit 15 stuck,
+        write-clears the latched bits), CPU control and latch-page-on-parity
+        (16 bits of storage each), cache control (a mirrored byte, one writable
+        bit), each aliased across its 256-byte range. `boardreg_suite`,
+        12 tests. Storage and width only — what the bits *mean* is still
+        unknown, and **nothing may be built that depends on a meaning**.
   - [ ] **Blocked, not deferred:** task alias (`010300`) and master request
         (`011600`) are absent from the oracle — they match, exactly, the
         all-ones signature that two known-unmapped control addresses produce.
