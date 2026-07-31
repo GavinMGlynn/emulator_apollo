@@ -1318,9 +1318,30 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         carry internal state this model does not have), and the coprocessor
         mid-instruction frame. `CHK`, `TRAPV`,
         `TRAP`, `TRAPV`, `CHK`, the privilege violations, the illegal
-        instruction word, the MMU configuration errors and the interrupts are
-        all wired in; **trace** is the one exception left that needs only its
-        own machinery rather than more of this.
+        instruction word, the MMU configuration errors, the interrupts and
+        **trace** are all wired in — every exception this model can build a
+        frame for.
+        Trace's rule is an ordering one: "The state of these bits when an
+        instruction begins execution determines whether the instruction
+        generates a trace exception after the instruction completes." So the
+        mode is captured *before* the instruction runs, and an instruction that
+        turns tracing off still traces — which is what lets a debugger step
+        through the line that disables it. The stacked status register is the
+        one that instruction left behind, so tracing is already off in the
+        frame; the trace happened anyway.
+        The change-of-flow mode counts **status register manipulations** as
+        changes of flow, for a hardware reason rather than a logical one:
+        "the processor must re-prefetch instruction words to fill the pipe again
+        any time an instruction that can modify the status register is
+        executed". A model tracing only actual branches would silently skip
+        every `MOVE to SR` a debugger asked to see.
+        An illegal or unimplemented instruction is **not** traced, "since it is
+        not executed" — the distinction an emulation routine depends on, since
+        it must raise the trace itself and would otherwise trace twice. And "if
+        an instruction forces an exception as part of its normal execution, the
+        forced exception processing occurs before the trace exception is
+        processed", so a traced `TRAP` stacks *both*, trace on top, and the
+        trace handler runs first and returns into the trap's.
         **Table 8-6's bracketed column is a second fact, separate from the frame
         size**: the stacked PC is the *next* instruction for an interrupt, a
         `TRAP` and everything in the six-word row, but the *faulting*

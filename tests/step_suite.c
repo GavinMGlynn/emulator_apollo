@@ -3449,6 +3449,177 @@ static void test_an_interrupt_returns_to_the_instruction_it_preempted(void) {
   TEST_ASSERT_EQUAL_HEX32(9u, m.cpu.regs.d[0]);
 }
 
+/* ---------------------------------------------------------------------------
+ * Trace.
+ * ------------------------------------------------------------------------- */
+
+/* "Setting the T1 bit and clearing the TO bit causes the execution of all
+ * instructions to force trace exceptions" -- and "a trace exception is an
+ * extension to the function of any traced instruction", so the instruction
+ * runs first and the exception follows it. */
+static void test_tracing_every_instruction_runs_it_then_traps(void) {
+  static const uint16_t program[] = {0x7007u, 0x4E71u, 0x4E71u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 4);
+  plant_vector(&m, AP_M68030_VECTOR_TRACE, HANDLER);
+  m.cpu.regs.sr = (uint16_t)((1u << AP_M68030_SR_S_BIT) |
+                             (1u << AP_M68030_SR_T1_BIT));
+  m.cpu.regs.isp = SUPERVISOR_STACK;
+
+  const ap_m68030_step_result_t r = ap_m68030_step(&m.cpu);
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXCEPTION, r.status);
+  /* The MOVEQ *did* execute -- the trace is an extension of it, not a
+   * replacement for it. */
+  TEST_ASSERT_EQUAL_HEX32(7u, m.cpu.regs.d[0]);
+  TEST_ASSERT_EQUAL_HEX32(HANDLER, m.cpu.regs.pc);
+
+  /* Table 8-6 gives trace the six-word frame, whose two addresses differ: the
+   * traced instruction, and where execution would have resumed. */
+  TEST_ASSERT_EQUAL_HEX32(SUPERVISOR_STACK - 12u, m.cpu.regs.isp);
+  TEST_ASSERT_EQUAL_HEX32(PROGRAM_BASE,
+                          read_ram_long(&m, m.cpu.regs.isp + 8u));
+  TEST_ASSERT_EQUAL_HEX32(PROGRAM_BASE + 2u,
+                          read_ram_long(&m, m.cpu.regs.isp + 2u));
+
+  /* And the handler is not itself traced: "the processor inhibits tracing of
+   * the exception handler by clearing the T1 and T0 bits". */
+  TEST_ASSERT_EQUAL_INT(AP_M68030_TRACE_NONE,
+                        ap_m68030_trace_mode(&m.cpu.regs));
+}
+
+/* "Clearing the T1 bit and setting the TO bit causes an instruction that forces
+ * a change of flow to take a trace exception. Instructions that increment the
+ * program counter normally do not take the trace exception." Both directions,
+ * since a model that traced everything would pass a test that only branched. */
+static void test_change_of_flow_tracing_ignores_ordinary_instructions(void) {
+  /* MOVEQ then BRA: the first must not trace, the second must. */
+  static const uint16_t program[] = {0x7007u, 0x6002u, 0x4E71u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 4);
+  plant_vector(&m, AP_M68030_VECTOR_TRACE, HANDLER);
+  m.cpu.regs.sr = (uint16_t)((1u << AP_M68030_SR_S_BIT) |
+                             (1u << AP_M68030_SR_T0_BIT));
+  m.cpu.regs.isp = SUPERVISOR_STACK;
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&m.cpu).status);
+  TEST_ASSERT_EQUAL_HEX32(7u, m.cpu.regs.d[0]);
+  TEST_ASSERT_EQUAL_HEX32(SUPERVISOR_STACK, m.cpu.regs.isp);
+
+  const ap_m68030_step_result_t branched = ap_m68030_step(&m.cpu);
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXCEPTION, branched.status);
+  TEST_ASSERT_EQUAL_HEX32(HANDLER, m.cpu.regs.pc);
+  /* The stacked PC is the branch *target*, which is the point of the mode --
+   * and the target is the branch's base (its address plus two) plus the
+   * displacement, so a +2 displacement from +2 lands at +6. */
+  TEST_ASSERT_EQUAL_HEX32(PROGRAM_BASE + 6u,
+                          read_ram_long(&m, m.cpu.regs.isp + 2u));
+}
+
+/* "This mode also includes status register manipulations, because the processor
+ * must re-prefetch instruction words to fill the pipe again any time an
+ * instruction that can modify the status register is executed." A hardware
+ * reason rather than a logical one, and a model that traced only actual
+ * branches would silently skip every `MOVE to SR` a debugger asked to see. */
+static void test_a_status_register_write_counts_as_a_change_of_flow(void) {
+  /* MOVE D0,CCR -- no branch anywhere, and still a change of flow. */
+  static const uint16_t program[] = {0x44C0u, 0x4E71u, 0x4E71u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 4);
+  plant_vector(&m, AP_M68030_VECTOR_TRACE, HANDLER);
+  m.cpu.regs.sr = (uint16_t)((1u << AP_M68030_SR_S_BIT) |
+                             (1u << AP_M68030_SR_T0_BIT));
+  m.cpu.regs.isp = SUPERVISOR_STACK;
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXCEPTION, ap_m68030_step(&m.cpu).status);
+  TEST_ASSERT_EQUAL_HEX32(HANDLER, m.cpu.regs.pc);
+}
+
+/* "The state of these bits when an instruction begins execution determines
+ * whether the instruction generates a trace exception after the instruction
+ * completes." So an instruction that turns tracing *off* still traces -- which
+ * is what lets a debugger single step through the instruction that disables
+ * it. Reading the bits afterwards would lose exactly that instruction. */
+static void test_the_instruction_that_disables_tracing_is_still_traced(void) {
+  /* MOVE #$2000,SR: supervisor, and every trace bit cleared. */
+  static const uint16_t program[] = {0x46FCu, 0x2000u, 0x4E71u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 4);
+  plant_vector(&m, AP_M68030_VECTOR_TRACE, HANDLER);
+  m.cpu.regs.sr = (uint16_t)((1u << AP_M68030_SR_S_BIT) |
+                             (1u << AP_M68030_SR_T1_BIT));
+  m.cpu.regs.isp = SUPERVISOR_STACK;
+
+  const ap_m68030_step_result_t r = ap_m68030_step(&m.cpu);
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXCEPTION, r.status);
+  TEST_ASSERT_EQUAL_HEX32(HANDLER, m.cpu.regs.pc);
+  /* The write *did* take effect -- the frame carries the status register as it
+   * stood when the instruction completed, so tracing is already off in it. The
+   * trace happened anyway, which is the whole point: the decision was made from
+   * the bits as they were when the instruction *began*. Reading them afterwards
+   * would lose exactly this instruction, and a debugger stepping through the
+   * line that disables tracing would never be told it ran. */
+  const uint16_t stacked = read_ram_word(&m, m.cpu.regs.isp);
+  TEST_ASSERT_FALSE(stacked & (1u << AP_M68030_SR_T1_BIT));
+  TEST_ASSERT_EQUAL_HEX16(0x2000u, stacked);
+}
+
+/* "When the processor is in the trace mode and attempts to execute an illegal
+ * or unimplemented instruction, that instruction does not cause a trace
+ * exception since it is not executed." The distinction matters to an emulation
+ * routine, which must handle the trace itself after emulating the instruction
+ * -- if the processor had already traced, it would trace twice. */
+static void test_an_unexecuted_instruction_is_not_traced(void) {
+  /* BKPT #0: decoded, not executed. */
+  static const uint16_t program[] = {0x4848u, 0x4E71u, 0x4E71u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 4);
+  plant_vector(&m, AP_M68030_VECTOR_TRACE, HANDLER);
+  m.cpu.regs.sr = (uint16_t)((1u << AP_M68030_SR_S_BIT) |
+                             (1u << AP_M68030_SR_T1_BIT));
+  m.cpu.regs.isp = SUPERVISOR_STACK;
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_UNIMPLEMENTED,
+                        ap_m68030_step(&m.cpu).status);
+  /* Nothing was stacked, and the PC did not move. */
+  TEST_ASSERT_EQUAL_HEX32(SUPERVISOR_STACK, m.cpu.regs.isp);
+  TEST_ASSERT_EQUAL_HEX32(PROGRAM_BASE, m.cpu.regs.pc);
+}
+
+/* "If an instruction forces an exception as part of its normal execution, the
+ * forced exception processing occurs before the trace exception is processed."
+ * Both happen, in that order -- so the trace frame sits on top and its handler
+ * runs first, which is §8.1's general rule: "the lower the priority of an
+ * exception, the sooner the handler routine for that exception executes". */
+static void test_a_traced_trap_stacks_both_with_the_trace_on_top(void) {
+  static const uint16_t program[] = {0x4E40u, 0x4E71u, 0x4E71u, 0x4E71u}; /* TRAP #0 */
+  machine_t m = {0};
+  load(&m, program, 4);
+  plant_vector(&m, AP_M68030_VECTOR_TRAP_BASE, 0x00006000u);
+  plant_vector(&m, AP_M68030_VECTOR_TRACE, HANDLER);
+  m.cpu.regs.sr = (uint16_t)((1u << AP_M68030_SR_S_BIT) |
+                             (1u << AP_M68030_SR_T1_BIT));
+  m.cpu.regs.isp = SUPERVISOR_STACK;
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXCEPTION, ap_m68030_step(&m.cpu).status);
+
+  /* The trace handler is where execution resumes ... */
+  TEST_ASSERT_EQUAL_HEX32(HANDLER, m.cpu.regs.pc);
+  /* ... and the trace's own frame, a six-word one, sits above the TRAP's
+   * four-word frame. */
+  TEST_ASSERT_EQUAL_HEX32(SUPERVISOR_STACK - 8u - 12u, m.cpu.regs.isp);
+  TEST_ASSERT_EQUAL_INT(AP_M68030_FRAME_SIX_WORD,
+                        ap_m68030_frame_format_of(
+                            read_ram_word(&m, m.cpu.regs.isp + 6u)));
+  TEST_ASSERT_EQUAL_INT(AP_M68030_FRAME_SHORT,
+                        ap_m68030_frame_format_of(
+                            read_ram_word(&m, SUPERVISOR_STACK - 8u + 6u)));
+  /* The trace returns into the TRAP handler, not into the traced program. */
+  TEST_ASSERT_EQUAL_HEX32(0x00006000u,
+                          read_ram_long(&m, m.cpu.regs.isp + 2u));
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_a_nop_executes_and_advances_the_pc);
@@ -3516,6 +3687,12 @@ int main(void) {
   RUN_TEST(test_a_register_count_is_taken_modulo_sixty_four);
   RUN_TEST(test_a_byte_shift_leaves_the_upper_bytes);
   RUN_TEST(test_an_address_form_accepts_an_immediate_source);
+  RUN_TEST(test_tracing_every_instruction_runs_it_then_traps);
+  RUN_TEST(test_change_of_flow_tracing_ignores_ordinary_instructions);
+  RUN_TEST(test_a_status_register_write_counts_as_a_change_of_flow);
+  RUN_TEST(test_the_instruction_that_disables_tracing_is_still_traced);
+  RUN_TEST(test_an_unexecuted_instruction_is_not_traced);
+  RUN_TEST(test_a_traced_trap_stacks_both_with_the_trace_on_top);
   RUN_TEST(test_an_interrupt_is_taken_only_above_the_priority_mask);
   RUN_TEST(test_the_stacked_mask_is_the_one_before_the_interrupt);
   RUN_TEST(test_level_seven_interrupts_on_the_transition_and_not_the_level);

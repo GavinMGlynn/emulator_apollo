@@ -652,13 +652,36 @@ static bool execute_single(ap_m68030_cpu_t *cpu,
     return false;
   }
 
+  /* `MOVE to SR` and `MOVE to CCR` take their operand as a *source*, and it is
+   * almost always an immediate -- `MOVE #$2700,SR` is how every 68000-family
+   * boot ROM sets up. An immediate is fetched rather than addressed, so it must
+   * be taken before the address calculation, which rejects that mode. This is
+   * the fourth place in the step that ordering has mattered. */
+  const bool immediate_source =
+      single->ea.kind == AP_M68030_EA_IMMEDIATE &&
+      (single->kind == AP_M68030_SINGLE_MOVE_TO_SR ||
+       single->kind == AP_M68030_SINGLE_MOVE_TO_CCR);
+
+  ap_m68030_address_t where = {0};
+  if (immediate_source) {
+    uint32_t fetched = 0;
+    if (!fetch_immediate(cpu, single->size, clocks, &fetched)) {
+      return false;
+    }
+    if (single->kind == AP_M68030_SINGLE_MOVE_TO_SR) {
+      ap_m68030_write_sr(&cpu->regs, (uint16_t)fetched);
+    } else {
+      ap_m68030_write_ccr(&cpu->regs, (uint16_t)fetched);
+    }
+    return true;
+  }
+
   ap_m68030_address_input_t input = {0};
   if (!gather_address_input(cpu, single->ea.kind, single->size, clocks,
                             &input)) {
     return false;
   }
-  const ap_m68030_address_t where =
-      resolve_address(cpu, clocks, single->ea, &input);
+  where = resolve_address(cpu, clocks, single->ea, &input);
 
   /* CLR writes without reading -- and on the 68020 and later that is literal:
    * it does not read the destination at all. The four register transfers take
@@ -2910,6 +2933,48 @@ static bool execute_mmu(ap_m68030_cpu_t *cpu, const ap_m68030_coproc_t *coproc,
   return false;
 }
 
+/* Whether an instruction "forces a change of flow", which is what the T1=0,
+ * T0=1 trace mode watches. `[030]` §8.1.7: "Instructions that are traced in this
+ * mode include all branches, jumps, instruction traps, returns, and coprocessor
+ * instructions that modify the program counter flow. This mode also includes
+ * status register manipulations, because the processor must re-prefetch
+ * instruction words to fill the pipe again any time an instruction that can
+ * modify the status register is executed."
+ *
+ * That last clause is the surprising one, and it is a *hardware* reason rather
+ * than a logical one: the pipe is refilled, so as far as the trace logic is
+ * concerned the flow changed. A model that traced only actual branches would
+ * silently skip every `MOVE to SR` and `ANDI to SR` a debugger asked to see. */
+static bool changes_flow(const ap_m68030_decoded_t *decoded, bool branch_taken,
+                         bool raised_exception) {
+  if (branch_taken || raised_exception) {
+    return true;
+  }
+
+  /* Chains rather than switches: each asks one question with one answer, and a
+   * switch would have to name every other enumerator to satisfy -Wswitch-enum
+   * while saying nothing. */
+  if (decoded->kind == AP_M68030_DECODED_SINGLE) {
+    return decoded->as.single.kind == AP_M68030_SINGLE_MOVE_TO_SR ||
+           decoded->as.single.kind == AP_M68030_SINGLE_MOVE_TO_CCR;
+  }
+  if (decoded->kind == AP_M68030_DECODED_IMMEDIATE) {
+    const ap_m68030_immediate_kind_t kind = decoded->as.immediate.kind;
+    return kind == AP_M68030_IMM_ORI_TO_SR ||
+           kind == AP_M68030_IMM_ANDI_TO_SR ||
+           kind == AP_M68030_IMM_EORI_TO_SR ||
+           kind == AP_M68030_IMM_ORI_TO_CCR ||
+           kind == AP_M68030_IMM_ANDI_TO_CCR ||
+           kind == AP_M68030_IMM_EORI_TO_CCR;
+  }
+  if (decoded->kind == AP_M68030_DECODED_CONTROL) {
+    /* The returns and jumps already reported a taken branch; what is left that
+     * touches the status register is STOP. */
+    return decoded->as.control.kind == AP_M68030_CTL_STOP;
+  }
+  return false;
+}
+
 ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
   ap_m68030_step_result_t out = {.status = AP_M68030_STEP_FAULT};
   uint16_t word = 0;
@@ -2926,6 +2991,7 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
     cpu->stopped = false;
     out.clocks = interrupt.clocks;
     out.status = AP_M68030_STEP_EXCEPTION;
+
     cpu->clocks += out.clocks;
     return out;
   }
@@ -2940,6 +3006,14 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
   }
 
   cpu->extension_words = 0;
+
+  /* "The state of these bits when an instruction begins execution determines
+   * whether the instruction generates a trace exception after the instruction
+   * completes" -- so the mode is captured *here*, not after. An instruction
+   * that turns tracing off still traces, which is what lets a debugger single
+   * step through the instruction that disables it. */
+  const ap_m68030_trace_mode_t trace = ap_m68030_trace_mode(&cpu->regs);
+  const uint32_t instruction_address = cpu->regs.pc;
 
   if (!fill_to_decoded(cpu, &out.clocks, &word, &abnormal) || abnormal) {
     cpu->clocks += out.clocks;
@@ -2980,12 +3054,7 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
       cpu->clocks += out.clocks;
       return out;
     }
-    if (branched) {
-      out.branch_taken = true;
-      out.status = AP_M68030_STEP_EXECUTED;
-      cpu->clocks += out.clocks;
-      return out;
-    }
+    out.branch_taken = branched;
     break;
   }
 
@@ -3039,9 +3108,6 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
     if (taken) {
       cpu->regs.pc = ap_m68030_branch_target(cpu->regs.pc, displacement);
       ap_m68030_fetch_reset(&cpu->fetch, cpu->regs.pc);
-      out.status = AP_M68030_STEP_EXECUTED;
-      cpu->clocks += out.clocks;
-      return out;
     }
     break;
   }
@@ -3089,12 +3155,7 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
       cpu->clocks += out.clocks;
       return out;
     }
-    if (taken) {
-      out.branch_taken = true;
-      out.status = AP_M68030_STEP_EXECUTED;
-      cpu->clocks += out.clocks;
-      return out;
-    }
+    out.branch_taken = taken;
     break;
   }
 
@@ -3150,6 +3211,16 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
     return out;
   }
 
+  /* "When the processor is in the trace mode and attempts to execute an illegal
+   * or unimplemented instruction, that instruction does not cause a trace
+   * exception since it is not executed" -- every path above that returns
+   * ILLEGAL, UNIMPLEMENTED or FAULT has already done so, so reaching here means
+   * the instruction executed and the trace is owed. */
+  const bool traced =
+      trace == AP_M68030_TRACE_ANY_INSTRUCTION ||
+      (trace == AP_M68030_TRACE_ON_CHANGE_OF_FLOW &&
+       changes_flow(&decoded, out.branch_taken, cpu->pending_vector != 0u));
+
   if (cpu->pending_vector != 0u) {
     /* Table 8-6's two addresses: the stacked PC "points to" the next
      * instruction for every exception raised this way, and the six-word frame's
@@ -3182,13 +3253,45 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
       return out;
     }
     out.status = AP_M68030_STEP_EXCEPTION;
+
+    if (traced) {
+      /* "If an instruction forces an exception as part of its normal
+       * execution, the forced exception processing occurs before the trace
+       * exception is processed" -- both happen, in that order, so the trace
+       * frame sits on top and its handler runs first and returns into the
+       * forced one. That is the general rule stated backwards in §8.1:
+       * "the lower the priority of an exception, the sooner the handler
+       * routine for that exception executes". */
+      const ap_m68030_exception_result_t traced_after = ap_m68030_take_exception(
+          cpu, AP_M68030_VECTOR_TRACE, cpu->regs.pc, instruction_address);
+      out.clocks += traced_after.clocks;
+      if (!traced_after.ok) {
+        out.status = AP_M68030_STEP_FAULT;
+      }
+    }
     cpu->clocks += out.clocks;
     return out;
   }
 
-  cpu->regs.pc += CONSUMED_LENGTH;
-  ap_m68030_pipe_advance(&cpu->fetch.pipe);
+  /* A taken branch, jump or return has already set the PC and emptied the pipe;
+   * advancing again would step past the target's first instruction. */
+  if (!out.branch_taken) {
+    cpu->regs.pc += CONSUMED_LENGTH;
+    ap_m68030_pipe_advance(&cpu->fetch.pipe);
+  }
   out.status = AP_M68030_STEP_EXECUTED;
+
+  if (traced) {
+    /* Trace uses the six-word frame, whose INSTRUCTION ADDRESS is the traced
+     * instruction and whose PC is where execution would have resumed -- which
+     * for a taken branch is the target, and that is the point of the mode. */
+    const ap_m68030_exception_result_t taken_trace = ap_m68030_take_exception(
+        cpu, AP_M68030_VECTOR_TRACE, cpu->regs.pc, instruction_address);
+    out.clocks += taken_trace.clocks;
+    out.status = taken_trace.ok ? AP_M68030_STEP_EXCEPTION
+                                : AP_M68030_STEP_FAULT;
+  }
+
   cpu->clocks += out.clocks;
   return out;
 }
