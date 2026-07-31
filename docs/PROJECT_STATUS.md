@@ -51,6 +51,20 @@ component, and Equation (11-2) needs a model that can hide *part* of a bus cycle
 any single execution ever takes, so a core that looked them up would be
 reproducing an average the hardware never exhibits.
 
+**Real Apollo firmware runs.** `--boot-tape <cartridge>` reads a Domain/OS `.ct`
+cartridge, extracts its boot image, places it at the load address the image
+declares, and runs from its entry point. The SR10.3.5 boot cartridge executes
+**16,933 instructions** before faulting — identical count, identical stop reason
+and identical state hash across repeated runs and between `-O0` and `-O3`.
+
+That is not a boot. The fault is expected: this is the boot image on flat RAM
+with a chosen stack, no boot PROM, and none of the core-board devices mapped, so
+the firmware runs until it reaches for hardware that is not there. What it does
+establish is that 16,933 instructions of real 68030 code — not probes, not
+synthesised tests — decode and execute deterministically. It is also the first
+end-to-end measure of how far the firmware gets, so it is a number that can be
+driven upward.
+
 **A machine exists, but not the DN3500.** `ap_machine` wires the 68030 to flat
 RAM: construct, poke, run to a limit, read back. That is what a side-loaded
 probe needs and it requires no firmware — built ahead of the boot-PROM route

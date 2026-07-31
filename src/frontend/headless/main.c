@@ -15,6 +15,11 @@
 #include "ap_frontend.h"
 #include "probe/ap_probe.h"
 
+#include <stdlib.h>
+
+#include "image/ap_ct.h"
+#include "machine/ap_machine.h"
+
 static void print_usage(const char *program_name) {
   ap_print_common_usage(stdout, program_name);
   /* Headless-only flags are listed here as they are implemented. */
@@ -108,6 +113,109 @@ static void run_probes(FILE *out) {
   }
 }
 
+
+/* Load a cartridge and run its boot image.
+ *
+ * The file reading lives here and not in `src/core`, which has no file I/O by
+ * design: a deterministic core cannot have a device reaching for a path at run
+ * time. The core is handed bytes and never learns where they came from.
+ *
+ * This is also why the cartridge is a command-line argument rather than a
+ * default path. `media/` is gitignored -- Apollo distribution media is not ours
+ * to redistribute -- so a build that looked for a cartridge would work on one
+ * machine and fail on every other. */
+static int boot_from_tape(const char *path, unsigned limit) {
+  FILE *file = fopen(path, "rb");
+  if (file == NULL) {
+    fprintf(stderr, "apollo: cannot open cartridge %s\n", path);
+    return 1;
+  }
+  if (fseek(file, 0, SEEK_END) != 0) {
+    fclose(file);
+    fprintf(stderr, "apollo: cannot size cartridge %s\n", path);
+    return 1;
+  }
+  long size = ftell(file);
+  rewind(file);
+  if (size <= 0) {
+    fclose(file);
+    fprintf(stderr, "apollo: empty cartridge %s\n", path);
+    return 1;
+  }
+
+  uint8_t *bytes = malloc((size_t)size);
+  if (bytes == NULL || fread(bytes, 1, (size_t)size, file) != (size_t)size) {
+    free(bytes);
+    fclose(file);
+    fprintf(stderr, "apollo: cannot read cartridge %s\n", path);
+    return 1;
+  }
+  fclose(file);
+
+  ap_ct_t cartridge;
+  if (!ap_ct_open(&cartridge, bytes, (size_t)size)) {
+    free(bytes);
+    fprintf(stderr,
+            "apollo: %s is not a whole number of %u-byte blocks\n",
+            path, AP_CT_BLOCK_SIZE);
+    return 1;
+  }
+
+  ap_ct_boot_image_t image;
+  if (!ap_ct_boot_image(&cartridge, &image)) {
+    free(bytes);
+    fprintf(stderr, "apollo: %s carries no bootable M68K image\n", path);
+    return 1;
+  }
+
+  printf("cartridge %s\n", path);
+  printf("  blocks       %llu\n", (unsigned long long)ap_ct_blocks(&cartridge));
+  printf("  load address %08X\n", image.load_address);
+  printf("  entry point  %08X\n", image.entry_point);
+  printf("  length       %u\n", image.length);
+
+  /* Enough RAM to hold the image where it belongs, rounded up. The machine
+   * takes flat memory from zero; a real DN3500 has its main memory elsewhere,
+   * and wiring that is the boot-PROM route this deliberately does not need. */
+  uint32_t ram_bytes = image.load_address + image.length + 0x10000u;
+  uint8_t *ram = calloc(1, ram_bytes);
+  if (ram == NULL) {
+    free(bytes);
+    fprintf(stderr, "apollo: cannot allocate %u bytes of RAM\n", ram_bytes);
+    return 1;
+  }
+
+  ap_machine_t machine;
+  ap_machine_init(&machine, ram, ram_bytes);
+  for (uint32_t i = 0; i < image.length; i++) {
+    if (!ap_machine_write(&machine, image.load_address + i, 1u,
+                          image.data[i])) {
+      free(ram);
+      free(bytes);
+      fprintf(stderr, "apollo: cannot place the image at %08X\n",
+              image.load_address);
+      return 1;
+    }
+  }
+
+  /* A stack below the image, which is a choice and not a measurement: the boot
+   * PROM would set one and this core is not running the PROM. Reported so that
+   * a run which depends on it is visibly depending on a chosen figure. */
+  uint32_t stack = image.load_address;
+  ap_machine_reset(&machine, image.entry_point, stack);
+  printf("  stack        %08X (chosen, not from the cartridge)\n", stack);
+
+  ap_machine_run_t run = ap_machine_run(&machine, limit);
+  printf("  executed     %u instruction(s)\n", run.executed);
+  printf("  stopped      %s\n", ap_probe_status_name(run.status));
+  printf("  state hash   %016llX\n",
+         (unsigned long long)ap_machine_hash(&machine));
+
+  free(ram);
+  free(bytes);
+  return 0;
+}
+
 int main(int argc, char **argv) {
   const char *program_name = argc > 0 ? argv[0] : "apollo-headless";
   ap_common_options_t opt;
@@ -115,8 +223,15 @@ int main(int argc, char **argv) {
 
   bool run_probe_suite = false;
   bool report_timing = false;
+  const char *boot_tape = NULL;
+  unsigned boot_limit = 100000u;
 
   for (int i = 1; i < argc;) {
+    if (strcmp(argv[i], "--boot-tape") == 0 && i + 1 < argc) {
+      boot_tape = argv[i + 1];
+      i += 2;
+      continue;
+    }
     if (strcmp(argv[i], "--run-probes") == 0) {
       run_probe_suite = true;
       i += 1;
@@ -152,6 +267,10 @@ int main(int argc, char **argv) {
   if (opt.list_models) {
     ap_print_model_table(stdout);
     return 0;
+  }
+
+  if (boot_tape != NULL) {
+    return boot_from_tape(boot_tape, boot_limit);
   }
 
   if (run_probe_suite) {
