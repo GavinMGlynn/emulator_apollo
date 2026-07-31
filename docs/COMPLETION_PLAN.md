@@ -846,9 +846,24 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         non-zero operand and **not** for zero (the boundary the rule turns on),
         and **a countdown loop that terminates** — five instruction kinds
         cooperating, and the first program here whose control flow repeats.*
+  - [x] **`ADDQ`, `SUBQ`, `Scc` and `DBcc` execute.**
+        **ADDQ to an address register is a double special case**, and both
+        halves are silent when missed: "the condition codes are not altered, and
+        the entire destination address register is used regardless of the
+        operation size". So `ADDQ.W #1,A0` changes all 32 bits *and* leaves the
+        flags alone — which is what lets a pointer be bumped inside a loop
+        without clobbering the comparison the loop branches on. Both halves are
+        tested, against a data register destination that *does* set the flags.
+        `Scc` writes **all ones**, not one, which is what makes its result
+        usable directly as a mask. `DBcc` decrements only the **low word**, so a
+        loop counter cannot borrow into the register's upper half.
+        *Verification: `step_suite`, 10 further tests (51 total), including a
+        `DBcc` loop running the documented number of times — a count of three
+        runs the body four times, three decrements that branch and a fourth that
+        reaches −1 and falls through.*
   - [ ] The remaining instruction semantics: the A-forms, divides and
-        multiplies, the register-to-register extended forms, shifts, `ADDQ`/
-        `SUBQ`/`Scc`/`DBcc`, and the bit operations.
+        multiplies, the register-to-register extended forms, shifts, and the
+        bit operations.
         *Verification: per-family suites, then probes against the oracle.* *Verification: per-family suites, then probes against the
         oracle for the timing.*
   - [ ] **CMP2/CHK2, CAS and CAS2**, which occupy size field `11` in family

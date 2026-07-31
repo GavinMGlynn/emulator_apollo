@@ -6,6 +6,7 @@
 #include "cpu/m68030/ap_m68030_branch.h"
 #include "cpu/m68030/ap_m68030_control.h"
 #include "cpu/m68030/ap_m68030_immediate.h"
+#include "cpu/m68030/ap_m68030_quick.h"
 #include "cpu/m68030/ap_m68030_single.h"
 #include "cpu/m68030/ap_m68030_alu.h"
 #include "cpu/m68030/ap_m68030_operand.h"
@@ -555,6 +556,119 @@ static bool execute_single(ap_m68030_cpu_t *cpu,
   return written.ok;
 }
 
+
+/* ADDQ, SUBQ, Scc and DBcc.
+ *
+ * ADDQ and SUBQ have an address register special case that is easy to miss and
+ * silent when missed: "When adding to address registers, the condition codes
+ * are not altered, and the entire destination address register is used
+ * regardless of the operation size." So ADDQ.W #1,A0 changes all 32 bits and
+ * leaves the flags alone -- a pointer bumped in a loop must not clobber the
+ * comparison the loop branches on. */
+static bool execute_quick(ap_m68030_cpu_t *cpu, const ap_m68030_quick_t *quick,
+                          uint32_t *clocks, bool *branch_taken) {
+  switch (quick->kind) {
+  case AP_M68030_QUICK_ADDQ:
+  case AP_M68030_QUICK_SUBQ: {
+    const bool to_address_register =
+        quick->ea.kind == AP_M68030_EA_ADDRESS_REGISTER;
+    /* "the entire destination address register is used regardless of the
+     * operation size" -- so the operation widens to a long. */
+    const unsigned size = to_address_register ? 4u : quick->size;
+
+    ap_m68030_address_input_t input = {0};
+    if (!gather_address_input(cpu, quick->ea.kind, size, clocks, &input)) {
+      return false;
+    }
+    const ap_m68030_address_t where =
+        ap_m68030_address_calculate(&cpu->regs, quick->ea, &input);
+
+    const ap_m68030_operand_result_t read = ap_m68030_operand_read(
+        &cpu->regs, cpu->data, &where, size, cpu->data_function_code);
+    *clocks += read.clocks;
+    if (!read.ok) {
+      return false;
+    }
+
+    const ap_m68030_alu_result_t result =
+        (quick->kind == AP_M68030_QUICK_ADDQ)
+            ? ap_m68030_alu_add(read.value, quick->data, size)
+            : ap_m68030_alu_sub(read.value, quick->data, size);
+
+    /* "the condition codes are not altered" for an address register
+     * destination -- which is what lets a pointer be bumped inside a loop
+     * without disturbing the comparison the loop branches on. */
+    if (!to_address_register) {
+      ap_m68030_write_ccr(&cpu->regs,
+                          ap_m68030_alu_apply(ap_m68030_read_ccr(&cpu->regs),
+                                              &result));
+    }
+
+    const ap_m68030_operand_result_t written = ap_m68030_operand_write(
+        &cpu->regs, cpu->data, &where, size, result.result,
+        cpu->data_function_code);
+    *clocks += written.clocks;
+    return written.ok;
+  }
+
+  case AP_M68030_QUICK_SCC: {
+    /* "if the condition is true, sets the byte specified by the effective
+     * address to TRUE (all ones). Otherwise, sets that byte to [zero]" -- all
+     * ones, not one, which is what makes the result usable as a mask. */
+    ap_m68030_address_input_t input = {0};
+    if (!gather_address_input(cpu, quick->ea.kind, 1u, clocks, &input)) {
+      return false;
+    }
+    const ap_m68030_address_t where =
+        ap_m68030_address_calculate(&cpu->regs, quick->ea, &input);
+
+    const bool condition =
+        ap_m68030_condition(quick->condition, ap_m68030_read_ccr(&cpu->regs));
+    const ap_m68030_operand_result_t written = ap_m68030_operand_write(
+        &cpu->regs, cpu->data, &where, 1u, condition ? 0xFFu : 0x00u,
+        cpu->data_function_code);
+    *clocks += written.clocks;
+    return written.ok;
+  }
+
+  case AP_M68030_QUICK_DBCC: {
+    /* "If Condition False Then (Dn - 1 -> Dn; If Dn != -1 Then PC + dn -> PC)".
+     * The displacement word is consumed either way, since it is part of the
+     * instruction whether or not the branch is taken. */
+    uint16_t displacement_word = 0;
+    if (!next_word(cpu, clocks, &displacement_word)) {
+      return false;
+    }
+
+    const bool condition =
+        ap_m68030_condition(quick->condition, ap_m68030_read_ccr(&cpu->regs));
+
+    if (!condition) {
+      /* Only the low *word* of the register counts down; the upper half is
+       * left alone, so a loop counter cannot borrow into it. */
+      const uint16_t counter =
+          (uint16_t)((cpu->regs.d[quick->reg] & 0xFFFFu) - 1u);
+      cpu->regs.d[quick->reg] =
+          (cpu->regs.d[quick->reg] & 0xFFFF0000u) | counter;
+
+      if (ap_m68030_dbcc_taken(false, counter)) {
+        cpu->regs.pc = ap_m68030_branch_target(
+            cpu->regs.pc, (int32_t)(int16_t)displacement_word);
+        ap_m68030_fetch_reset(&cpu->fetch, cpu->regs.pc);
+        *branch_taken = true;
+        return true;
+      }
+    }
+    return true;
+  }
+
+  case AP_M68030_QUICK_TRAPCC:
+  case AP_M68030_QUICK_INVALID:
+    return false;
+  }
+  return false;
+}
+
 ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
   ap_m68030_step_result_t out = {.status = AP_M68030_STEP_FAULT};
   uint16_t word = 0;
@@ -658,8 +772,23 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
     }
     break;
 
+  case AP_M68030_DECODED_QUICK: {
+    bool taken = false;
+    if (!execute_quick(cpu, &decoded.as.quick, &out.clocks, &taken)) {
+      out.status = AP_M68030_STEP_UNIMPLEMENTED;
+      cpu->clocks += out.clocks;
+      return out;
+    }
+    if (taken) {
+      out.branch_taken = true;
+      out.status = AP_M68030_STEP_EXECUTED;
+      cpu->clocks += out.clocks;
+      return out;
+    }
+    break;
+  }
+
   case AP_M68030_DECODED_MISC:
-  case AP_M68030_DECODED_QUICK:
   case AP_M68030_DECODED_SHIFT:
   case AP_M68030_DECODED_COPROC:
   case AP_M68030_DECODED_LINE_A:

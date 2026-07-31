@@ -869,6 +869,181 @@ static void test_a_countdown_loop_terminates(void) {
   TEST_ASSERT_EQUAL_HEX32(0u, m.cpu.regs.d[0]);
 }
 
+
+/* ---------------------------------------------------------------------------
+ * ADDQ, SUBQ, Scc and DBcc.
+ * ------------------------------------------------------------------------- */
+
+/* ADDQ adds its quick data, and the encoded zero means eight. */
+static void test_addq_adds_its_quick_data(void) {
+  /* MOVEQ #1,D0 ; ADDQ.L #3,D0 */
+  static const uint16_t program[] = {0x7001u, 0x5680u, 0x4E71u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 4);
+
+  (void)ap_m68030_step(&m.cpu);
+  const ap_m68030_step_result_t r = ap_m68030_step(&m.cpu);
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, r.status);
+  TEST_ASSERT_EQUAL_HEX32(4u, m.cpu.regs.d[0]);
+}
+
+/* The quick data field's zero means eight, seen through running code. */
+static void test_addq_of_zero_adds_eight(void) {
+  /* MOVEQ #0,D0 ; ADDQ.L #8,D0 -- the data field is 000. */
+  static const uint16_t program[] = {0x7000u, 0x5080u, 0x4E71u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 4);
+
+  (void)ap_m68030_step(&m.cpu);
+  (void)ap_m68030_step(&m.cpu);
+
+  TEST_ASSERT_EQUAL_HEX32(8u, m.cpu.regs.d[0]);
+}
+
+/* The address register special case, and the half that is easy to miss:
+ * "the condition codes are not altered". A pointer bumped inside a loop must
+ * not clobber the comparison the loop branches on. */
+static void test_addq_to_an_address_register_leaves_the_flags_alone(void) {
+  /* ADDQ.W #1,A0 */
+  static const uint16_t program[] = {0x5248u, 0x4E71u, 0x4E71u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 4);
+  ap_m68030_write_sr(&m.cpu.regs, 1u << AP_M68030_SR_S_BIT);
+  ap_m68030_write_address_register(&m.cpu.regs, 0, 0x1000u);
+  ap_m68030_write_ccr(&m.cpu.regs, AP_M68030_CCR_MASK);
+
+  const ap_m68030_step_result_t r = ap_m68030_step(&m.cpu);
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, r.status);
+  TEST_ASSERT_EQUAL_HEX32(0x1001u,
+                          ap_m68030_read_address_register(&m.cpu.regs, 0));
+  /* Every condition code survives untouched. */
+  TEST_ASSERT_EQUAL_HEX16(AP_M68030_CCR_MASK, ap_m68030_read_ccr(&m.cpu.regs));
+}
+
+/* The other half: "the entire destination address register is used regardless
+ * of the operation size", so a word ADDQ carries into the upper half rather
+ * than wrapping within it. */
+static void test_a_word_addq_to_an_address_register_uses_all_32_bits(void) {
+  static const uint16_t program[] = {0x5248u, 0x4E71u, 0x4E71u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 4);
+  ap_m68030_write_sr(&m.cpu.regs, 1u << AP_M68030_SR_S_BIT);
+  ap_m68030_write_address_register(&m.cpu.regs, 0, 0x0000FFFFu);
+
+  (void)ap_m68030_step(&m.cpu);
+
+  /* $0000FFFF + 1 is $00010000, not $00000000. */
+  TEST_ASSERT_EQUAL_HEX32(0x00010000u,
+                          ap_m68030_read_address_register(&m.cpu.regs, 0));
+}
+
+/* An ordinary data register destination *does* set the flags, which is the
+ * contrast that makes the address register case a special case. */
+static void test_addq_to_a_data_register_does_set_the_flags(void) {
+  /* MOVEQ #-1,D0 ; ADDQ.L #1,D0  ->  0, Z set */
+  static const uint16_t program[] = {0x70FFu, 0x5280u, 0x4E71u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 4);
+
+  (void)ap_m68030_step(&m.cpu);
+  (void)ap_m68030_step(&m.cpu);
+
+  TEST_ASSERT_EQUAL_HEX32(0u, m.cpu.regs.d[0]);
+  TEST_ASSERT_TRUE(ap_m68030_read_ccr(&m.cpu.regs) &
+                   (1u << AP_M68030_SR_Z_BIT));
+}
+
+/* "sets the byte ... to TRUE (all ones)" -- all ones, not one, which is what
+ * makes the result usable directly as a mask. */
+static void test_scc_sets_all_ones_not_one(void) {
+  /* MOVEQ #0,D0 sets Z ; SEQ D1 */
+  static const uint16_t program[] = {0x7000u, 0x57C1u, 0x4E71u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 4);
+  m.cpu.regs.d[1] = 0x11223344u;
+
+  (void)ap_m68030_step(&m.cpu);
+  const ap_m68030_step_result_t r = ap_m68030_step(&m.cpu);
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, r.status);
+  /* A byte destination, so only the low byte changes -- to $FF, not $01. */
+  TEST_ASSERT_EQUAL_HEX32(0x112233FFu, m.cpu.regs.d[1]);
+}
+
+/* And zero when the condition is false. */
+static void test_scc_sets_zero_when_the_condition_is_false(void) {
+  /* MOVEQ #1,D0 clears Z ; SEQ D1 */
+  static const uint16_t program[] = {0x7001u, 0x57C1u, 0x4E71u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 4);
+  m.cpu.regs.d[1] = 0x112233FFu;
+
+  (void)ap_m68030_step(&m.cpu);
+  (void)ap_m68030_step(&m.cpu);
+
+  TEST_ASSERT_EQUAL_HEX32(0x11223300u, m.cpu.regs.d[1]);
+}
+
+/* DBcc counts down and branches while the counter has not passed -1. A count of
+ * three runs the body four times: three decrements that branch, and the fourth
+ * that reaches -1 and falls through. */
+static void test_a_dbcc_loop_runs_the_documented_number_of_times(void) {
+  /* MOVEQ #3,D0
+   * loop: ADDQ.L #1,D1
+   *       DBRA D0,loop      (displacement -4 from the extension word)
+   *       MOVEQ #$7F,D2 */
+  static const uint16_t program[] = {0x7003u, 0x5281u, 0x51C8u, 0xFFFCu,
+                                     0x747Fu, 0x4E71u, 0x4E71u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 8);
+
+  for (unsigned i = 0; i < 40u && m.cpu.regs.d[2] != 0x7Fu; i++) {
+    const ap_m68030_step_result_t r = ap_m68030_step(&m.cpu);
+    TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, r.status);
+  }
+
+  /* Four passes: counter 3, 2, 1, 0 branch; the pass at 0 decrements to -1 and
+   * falls through. */
+  TEST_ASSERT_EQUAL_HEX32(4u, m.cpu.regs.d[1]);
+  TEST_ASSERT_EQUAL_HEX32(0xFFFFu, m.cpu.regs.d[0] & 0xFFFFu);
+  TEST_ASSERT_EQUAL_HEX32(0x7Fu, m.cpu.regs.d[2]);
+}
+
+/* Only the low word of the counter counts down, so a loop cannot borrow into
+ * the register's upper half. */
+static void test_dbcc_decrements_only_the_low_word(void) {
+  /* MOVE.L #$00110000,D0 ; DBRA D0,self */
+  static const uint16_t program[] = {0x203Cu, 0x0011u, 0x0000u, 0x51C8u,
+                                     0xFFFEu, 0x4E71u, 0x4E71u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 8);
+
+  (void)ap_m68030_step(&m.cpu);
+  (void)ap_m68030_step(&m.cpu);
+
+  /* The low word went from 0 to $FFFF; the upper half is untouched. */
+  TEST_ASSERT_EQUAL_HEX32(0x0011FFFFu, m.cpu.regs.d[0]);
+}
+
+/* A true condition exits without touching the counter at all. */
+static void test_a_true_dbcc_condition_leaves_the_counter_alone(void) {
+  /* MOVEQ #0,D0 sets Z ; DBEQ D1,back */
+  static const uint16_t program[] = {0x7000u, 0x57C9u, 0xFFFEu, 0x4E71u,
+                                     0x4E71u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 6);
+  m.cpu.regs.d[1] = 5u;
+
+  (void)ap_m68030_step(&m.cpu);
+  const ap_m68030_step_result_t r = ap_m68030_step(&m.cpu);
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, r.status);
+  TEST_ASSERT_FALSE(r.branch_taken);
+  TEST_ASSERT_EQUAL_HEX32(5u, m.cpu.regs.d[1]);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_a_nop_executes_and_advances_the_pc);
@@ -912,5 +1087,15 @@ int main(void) {
   RUN_TEST(test_not_complements_and_clears_v_and_c);
   RUN_TEST(test_tst_sets_flags_without_writing);
   RUN_TEST(test_a_countdown_loop_terminates);
+  RUN_TEST(test_addq_adds_its_quick_data);
+  RUN_TEST(test_addq_of_zero_adds_eight);
+  RUN_TEST(test_addq_to_an_address_register_leaves_the_flags_alone);
+  RUN_TEST(test_a_word_addq_to_an_address_register_uses_all_32_bits);
+  RUN_TEST(test_addq_to_a_data_register_does_set_the_flags);
+  RUN_TEST(test_scc_sets_all_ones_not_one);
+  RUN_TEST(test_scc_sets_zero_when_the_condition_is_false);
+  RUN_TEST(test_a_dbcc_loop_runs_the_documented_number_of_times);
+  RUN_TEST(test_dbcc_decrements_only_the_low_word);
+  RUN_TEST(test_a_true_dbcc_condition_leaves_the_counter_alone);
   return UNITY_END();
 }
