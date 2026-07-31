@@ -23,9 +23,9 @@
  * word, then TABLE ADDRESS at 31-4 -- but which status bit is U, WP, DT, LU, S,
  * CI or M is lost, exactly as it was for the transparent translation registers.
  *
- * So the *walk* is implemented and tested in full, and the bit unpacking is a
- * named tail rather than an invention. This mirrors `ap_m68030_tt.h`; the
- * project's rule is that a layout is transcribed or deferred, never guessed.
+ * The walk is implemented and tested in full against that decoded form, and it
+ * stays the interface. `ap_m68030_descriptor_unpack_*` below turns real memory
+ * into it, and carries its own derivation argument.
  */
 
 #ifndef APOLLO_CPU_M68030_AP_M68030_WALK_H
@@ -61,6 +61,74 @@ typedef struct {
   bool read_modify_write;
   bool supervisor;
 } ap_m68030_search_access_t;
+
+/* Decode a descriptor from memory.
+ *
+ * ## Derived, and deliberately labelled as such
+ *
+ * These positions are **not** transcribed from `[030]`, because that figure did
+ * not survive. They are derived, and the derivation is recorded here so it can
+ * be checked rather than trusted:
+ *
+ * 1. `MC68851 PMMU User's Manual 3ed` §5.1.5.3 states every position in prose,
+ *    unambiguously: S is "bit [40] of long format table and page descriptors",
+ *    CI "bit [38] ... bit [6] of short format", M "[36] ... [4]", U "[35] ...
+ *    [3]", WP "[34] ... [2]", DT "bits [33-32] of all long format descriptors",
+ *    TABLE ADDRESS "[31-4]", PAGE ADDRESS "[31-8]", INDIRECT "[31-2]".
+ * 2. `[030]` §9.6 says "the MC68030 is program compatible with the
+ *    MC68020/MC68851 combination" and lists what the 68030 MMU *lacks* --
+ *    access levels, breakpoints, root pointer table, task aliases, lockable ATC
+ *    entries, globally shared entries. Descriptor *format* is not among the
+ *    differences, and could not be: a tree built for one would not translate on
+ *    the other.
+ * 3. Those missing features are exactly the 68851 bits the 68030 has no field
+ *    for -- RAL(47-45), WAL(44-42), SG(41), G(39), Lock(37) -- leaving S, CI,
+ *    M, U, WP and DT, which is precisely the 68030's set.
+ * 4. `[030]` Figure 9-10 does survive in raw extraction as far as its
+ *    boundaries: TABLE ADDRESS at 31-4 over a **4-bit** status field. The 68851
+ *    says U and WP are on "page or table descriptors" while CI, M, G and Lock
+ *    are page-descriptor-only, so a table descriptor's status is U, WP and DT
+ *    -- exactly four bits.
+ * 5. `[030]` Table 9-3 independently says MMUSR's S is set from "the S bit of a
+ *    **long** format table descriptor or long format page descriptor", matching
+ *    the 68851 placing S at bit 40, long format only. That is the 68030's own
+ *    text confirming a 68851 position.
+ *
+ * Five agreeing sources is a derivation, not a guess -- but it is still a
+ * derivation, so it is a named item in `docs/COMPLETION_PLAN.md` to confirm
+ * against the oracle, which decodes real Domain/OS tables every boot.
+ *
+ * Bits 7 and 5 of a short-format page descriptor, and 47-41/39/37 of a long
+ * one, are the 68851's gate, lock, access level and shared-globally fields. The
+ * 68030 has no such features, so they are ignored on unpack rather than
+ * rejected: "All fields marked 'unused' do not affect the operation of the
+ * MC68851", and an operating system is free to use them. */
+#define AP_M68030_DESC_DT_MASK 0x3u
+#define AP_M68030_DESC_SHORT_WP_BIT 2u
+#define AP_M68030_DESC_SHORT_U_BIT 3u
+#define AP_M68030_DESC_SHORT_M_BIT 4u
+#define AP_M68030_DESC_SHORT_CI_BIT 6u
+/* Long-format status bits, numbered within the *upper* long word, so the
+ * manual's bit 40 is bit 8 here. */
+#define AP_M68030_DESC_LONG_WP_BIT 2u
+#define AP_M68030_DESC_LONG_U_BIT 3u
+#define AP_M68030_DESC_LONG_M_BIT 4u
+#define AP_M68030_DESC_LONG_CI_BIT 6u
+#define AP_M68030_DESC_LONG_S_BIT 8u
+#define AP_M68030_DESC_LONG_LIMIT_SHIFT 16u
+#define AP_M68030_DESC_LONG_LU_BIT 31u
+
+/* `in_page_table` selects the role, which decides how much of the word is
+ * address and how much is status -- a table descriptor keeps 31-4, a page
+ * descriptor 31-8, an indirect descriptor 31-2. */
+[[nodiscard]] ap_m68030_descriptor_t
+ap_m68030_descriptor_unpack_short(uint32_t word, bool in_page_table);
+
+/* The long format is two long words: LIMIT and status in the upper, the address
+ * field in the lower. */
+[[nodiscard]] ap_m68030_descriptor_t
+ap_m68030_descriptor_unpack_long(uint32_t upper, uint32_t lower,
+                                 bool in_page_table);
 
 /* Fetch the descriptor at a physical address. Returns false for a bus error,
  * which `[030]` §9.4 says sets the B bit of the resulting ATC entry.

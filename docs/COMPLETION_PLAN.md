@@ -511,15 +511,39 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
           the §9.4 timing rule: a read fills M clear, so a later write is a hit
           that still forces a search, and refilling after that search makes the
           write free.*
-    - [ ] **Gap, not a guess: descriptor status bit positions.** The walk takes
-          descriptors already decoded, because `[030]` Figures 9-10 and 9-11
-          did not survive the scan below the address fields — which status bit
-          is U, WP, DT, LU, S, CI or M is lost, exactly as it was for the TTx
-          registers. So the search is implemented and tested in full and the
-          unpacking is deferred rather than invented, mirroring
-          `ap_m68030_tt.h`. *Verification: read Figures 9-10 and 9-11 from the
-          PDF page itself, or cross-check the `MC68851 PMMU User's Manual`,
-          then add an unpacking test.*
+    - [x] **Descriptor status bit positions: derived, and labelled as derived.**
+          `[030]` Figures 9-10 and 9-11 did not survive the scan below the
+          address fields, so unlike TTx and `MMUSR` there is no second document
+          that simply states the 68030's. The positions are therefore *derived*,
+          from five sources that agree, and `ap_m68030_walk.h` records the
+          argument so it can be checked rather than trusted:
+          the `MC68851 PMMU User's Manual 3ed` §5.1.5.3 gives every position in
+          prose; `[030]` §9.6 says the 68030 "is program compatible with the
+          MC68020/MC68851 combination" and its list of MMU differences does not
+          include descriptor format, which it could not omit if the bits moved;
+          the features it *does* list as absent — access levels, gates, lockable
+          entries, shared-globally — are exactly the 68851 bits the 68030 has no
+          field for, leaving precisely the 68030's set; `[030]` Figure 9-10 does
+          survive in raw extraction as far as `TABLE ADDRESS` at 31-4 over a
+          **4-bit** status, matching the 68851's U/WP/DT being the only status
+          bits a table descriptor carries; and `[030]` Table 9-3 independently
+          says `MMUSR`'s S comes from "the S bit of a **long** format table
+          descriptor or long format page descriptor", confirming the 68851's
+          placement of S at bit 40, long format only.
+          *Verification: `walk_suite`, 7 further tests — short table and page
+          descriptors decoding their different address widths and status sets, a
+          table descriptor not decoding CI or M (page-descriptor fields whose bit
+          positions fall inside its ADDRESS), an indirect descriptor having no
+          status bits at all and so costing no history write, long-format LIMIT
+          as fifteen bits under the L/U flag, and a three-level tree built from
+          real memory words walking to the same physical address as the
+          hand-built one.*
+    - [ ] **Confirm the derived descriptor positions against the oracle.** Five
+          agreeing sources is a derivation, not a transcription. The oracle
+          decodes real Domain/OS translation tables on every boot, so a
+          disagreement would show up immediately as a failed translation.
+          *Verification: decode the same descriptor words under the oracle and
+          compare field by field.*
 - [ ] 68030 on-chip instruction and data caches, and their effect on bus timing.
       *Verification: self-timing probes measuring hit vs miss.*
 - [ ] 68882 FPU. *Verification: probe suite over each operation and rounding

@@ -912,6 +912,133 @@ static void test_a_read_fills_m_clear_so_a_later_write_still_costs_a_search(
   TEST_ASSERT_EQUAL_INT(AP_M68030_ATC_HIT, settled.status);
 }
 
+/* ---------------------------------------------------------------------------
+ * Decoding descriptors from memory. The positions are derived rather than
+ * transcribed -- see ap_m68030_walk.h for the five agreeing sources -- so these
+ * tests pin the derivation itself, and are what an oracle check would compare
+ * against.
+ * ------------------------------------------------------------------------- */
+
+/* Short-format table descriptor: "Table Address ... bits [31-4]" over a 4-bit
+ * status, which [030] Figure 9-10 independently shows as four bits wide. */
+static void test_a_short_table_descriptor_decodes_address_and_status(void) {
+  /* TABLE_B in 31-4, U set (bit 3), WP set (bit 2), DT = valid 4 byte (1). */
+  const uint32_t word =
+      TABLE_B | (1u << 3) | (1u << 2) | AP_M68030_DT_VALID_4BYTE;
+  const ap_m68030_descriptor_t d =
+      ap_m68030_descriptor_unpack_short(word, false);
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_DT_VALID_4BYTE, d.dt);
+  TEST_ASSERT_EQUAL_HEX32(TABLE_B, d.address_field);
+  TEST_ASSERT_TRUE(d.used);
+  TEST_ASSERT_TRUE(d.write_protect);
+  /* Short format carries no LIMIT and no S: both are long-format only, which
+   * [030] Table 9-3 confirms for S. */
+  TEST_ASSERT_FALSE(d.has_limit);
+  TEST_ASSERT_FALSE(d.supervisor);
+}
+
+/* Short-format page descriptor: "Page Address ... bits [31-8]", so the status
+ * field is wider and gains CI and M. */
+static void test_a_short_page_descriptor_decodes_ci_and_modified(void) {
+  const uint32_t word =
+      PAGE_FRAME | (1u << 6) /* CI */ | (1u << 4) /* M */ | (1u << 3) /* U */ |
+      AP_M68030_DT_PAGE;
+  const ap_m68030_descriptor_t d =
+      ap_m68030_descriptor_unpack_short(word, true);
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_DT_PAGE, d.dt);
+  TEST_ASSERT_EQUAL_HEX32(PAGE_FRAME >> 8, d.address_field);
+  TEST_ASSERT_TRUE(d.cache_inhibit);
+  TEST_ASSERT_TRUE(d.modified);
+  TEST_ASSERT_TRUE(d.used);
+  TEST_ASSERT_FALSE(d.write_protect);
+}
+
+/* A table descriptor's four status bits are U, WP and DT -- CI and M are
+ * page-descriptor fields, so a word with those bit positions set must not
+ * decode them on a table descriptor. Bits 6 and 4 are inside its ADDRESS. */
+static void test_a_table_descriptor_has_no_cache_inhibit_or_modified(void) {
+  const uint32_t word =
+      TABLE_B | (1u << 6) | (1u << 4) | AP_M68030_DT_VALID_4BYTE;
+  const ap_m68030_descriptor_t d =
+      ap_m68030_descriptor_unpack_short(word, false);
+
+  TEST_ASSERT_FALSE(d.cache_inhibit);
+  TEST_ASSERT_FALSE(d.modified);
+}
+
+/* "Indirect Address ... bits [31-2] of all indirect descriptors" leaves only
+ * DT, so an indirect descriptor has no U bit to set -- and therefore costs no
+ * history write. It is reported already-used so nothing tries. */
+static void test_an_indirect_descriptor_has_no_status_bits(void) {
+  /* DT=$2 in a page table is an indirect descriptor, not a table pointer. */
+  const uint32_t word = INDIRECT_TARGET | AP_M68030_DT_VALID_4BYTE;
+  const ap_m68030_descriptor_t d =
+      ap_m68030_descriptor_unpack_short(word, true);
+
+  TEST_ASSERT_EQUAL_HEX32(INDIRECT_TARGET, d.address_field);
+  TEST_ASSERT_TRUE(d.used);
+  TEST_ASSERT_FALSE(d.write_protect);
+}
+
+/* Long format is two long words: LIMIT and status above, address below. The
+ * manual's bit 40 (S) is bit 8 of the upper word, 35 (U) is bit 3, 34 (WP)
+ * is bit 2. */
+static void test_a_long_table_descriptor_decodes_limit_and_supervisor(void) {
+  const uint32_t upper = (0x1234u << 16) | (1u << 8) /* S */ |
+                         (1u << 3) /* U */ | AP_M68030_DT_VALID_4BYTE;
+  const ap_m68030_descriptor_t d =
+      ap_m68030_descriptor_unpack_long(upper, TABLE_B, false);
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_DT_VALID_4BYTE, d.dt);
+  TEST_ASSERT_EQUAL_HEX32(TABLE_B, d.address_field);
+  TEST_ASSERT_TRUE(d.has_limit);
+  TEST_ASSERT_EQUAL_HEX16(0x1234, d.limit);
+  TEST_ASSERT_FALSE(d.lower_limit);
+  TEST_ASSERT_TRUE(d.supervisor);
+  TEST_ASSERT_TRUE(d.used);
+}
+
+/* "The limit field (bits [62-48])" is fifteen bits with L/U (bit 63) above it,
+ * so bit 31 of the upper word is the L/U flag and must not leak into LIMIT. */
+static void test_the_long_format_limit_is_fifteen_bits_under_the_lu_flag(void) {
+  const uint32_t upper =
+      (1u << 31) /* L/U */ | (0x7FFFu << 16) | AP_M68030_DT_VALID_4BYTE;
+  const ap_m68030_descriptor_t d =
+      ap_m68030_descriptor_unpack_long(upper, TABLE_B, false);
+
+  TEST_ASSERT_TRUE(d.lower_limit);
+  TEST_ASSERT_EQUAL_HEX16(0x7FFF, d.limit);
+}
+
+/* A decoded descriptor must drive the walk exactly as a hand-built one does,
+ * which is the point of the whole exercise: this builds a real three-level tree
+ * as memory words and walks it. */
+static void test_a_tree_built_from_memory_words_walks_correctly(void) {
+  static tree_entry_t decoded[3];
+  decoded[0] = (tree_entry_t){
+      ROOT_TABLE,
+      ap_m68030_descriptor_unpack_short(TABLE_B | AP_M68030_DT_VALID_4BYTE, false)};
+  decoded[1] = (tree_entry_t){
+      TABLE_B,
+      ap_m68030_descriptor_unpack_short(TABLE_C | AP_M68030_DT_VALID_4BYTE, false)};
+  decoded[2] = (tree_entry_t){
+      TABLE_C,
+      ap_m68030_descriptor_unpack_short(PAGE_FRAME | AP_M68030_DT_PAGE, true)};
+
+  ap_m68030_tc_t tc = three_level_4k();
+  ap_m68030_root_t root = root_at(ROOT_TABLE);
+  tree_t tree = make_tree(decoded, 3);
+
+  ap_m68030_walk_result_t r = ap_m68030_walk(
+      &tc, &root, TEST_ADDRESS, &SUPERVISOR_READ, tree_fetch, NULL, &tree);
+
+  TEST_ASSERT_TRUE(r.ok);
+  TEST_ASSERT_EQUAL_HEX32(PAGE_FRAME | 0x123u, r.physical);
+  TEST_ASSERT_EQUAL_UINT(3, r.descriptor_fetches);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_a_three_level_search_costs_one_fetch_per_level);
@@ -947,5 +1074,12 @@ int main(void) {
   RUN_TEST(test_the_filled_entry_carries_write_protection);
   RUN_TEST(test_the_filled_entry_carries_cache_inhibit);
   RUN_TEST(test_a_read_fills_m_clear_so_a_later_write_still_costs_a_search);
+  RUN_TEST(test_a_short_table_descriptor_decodes_address_and_status);
+  RUN_TEST(test_a_short_page_descriptor_decodes_ci_and_modified);
+  RUN_TEST(test_a_table_descriptor_has_no_cache_inhibit_or_modified);
+  RUN_TEST(test_an_indirect_descriptor_has_no_status_bits);
+  RUN_TEST(test_a_long_table_descriptor_decodes_limit_and_supervisor);
+  RUN_TEST(test_the_long_format_limit_is_fifteen_bits_under_the_lu_flag);
+  RUN_TEST(test_a_tree_built_from_memory_words_walks_correctly);
   return UNITY_END();
 }

@@ -279,3 +279,102 @@ ap_m68030_walk_result_t ap_m68030_walk(const ap_m68030_tc_t *tc,
   ap_m68030_search_fail_invalid(&result.search);
   return result;
 }
+
+/* ---------------------------------------------------------------------------
+ * Decoding descriptors from memory. See the header for the five-source
+ * derivation of these positions and for why it is a derivation.
+ * ------------------------------------------------------------------------- */
+
+static bool bit_set(uint32_t word, unsigned position) {
+  return ((word >> position) & 1u) != 0u;
+}
+
+ap_m68030_descriptor_t ap_m68030_descriptor_unpack_short(uint32_t word,
+                                                         bool in_page_table) {
+  ap_m68030_descriptor_t descriptor = {0};
+  descriptor.dt = (ap_m68030_dt_t)(word & AP_M68030_DESC_DT_MASK);
+
+  /* Short format carries no LIMIT and no S: the 68851 places both in long
+   * format only, and `[030]` Table 9-3 says the same of S independently. */
+  switch (ap_m68030_desc_role(descriptor.dt, in_page_table)) {
+  case AP_M68030_ROLE_INVALID:
+    return descriptor;
+
+  case AP_M68030_ROLE_INDIRECT:
+    /* "Indirect Address. This field (bits [31-2] of all indirect descriptors)".
+     * That leaves only DT, so an indirect descriptor has no status bits at all
+     * -- no U to set, and therefore no history write to cost. `used` is
+     * reported set so nothing tries to update a bit that does not exist. */
+    descriptor.address_field = word & UINT32_C(0xFFFFFFFC);
+    descriptor.used = true;
+    return descriptor;
+
+  case AP_M68030_ROLE_PAGE:
+  case AP_M68030_ROLE_EARLY_PAGE:
+    /* "Page Address. This field (bits [31-8] of all page descriptors)". Held as
+     * the 24-bit field itself, which is what ap_m68030_desc_page_address takes. */
+    descriptor.address_field = (word >> 8) & UINT32_C(0x00FFFFFF);
+    descriptor.cache_inhibit = bit_set(word, AP_M68030_DESC_SHORT_CI_BIT);
+    descriptor.modified = bit_set(word, AP_M68030_DESC_SHORT_M_BIT);
+    descriptor.used = bit_set(word, AP_M68030_DESC_SHORT_U_BIT);
+    descriptor.write_protect = bit_set(word, AP_M68030_DESC_SHORT_WP_BIT);
+    return descriptor;
+
+  case AP_M68030_ROLE_TABLE:
+    /* "Table Address. This field (bits [31-4] of all table descriptors)", so
+     * the status is the four bits below it -- U, WP and DT, and nothing else.
+     * CI and M are page-descriptor fields. */
+    descriptor.address_field = word & UINT32_C(0xFFFFFFF0);
+    descriptor.used = bit_set(word, AP_M68030_DESC_SHORT_U_BIT);
+    descriptor.write_protect = bit_set(word, AP_M68030_DESC_SHORT_WP_BIT);
+    return descriptor;
+  }
+  return descriptor;
+}
+
+ap_m68030_descriptor_t ap_m68030_descriptor_unpack_long(uint32_t upper,
+                                                        uint32_t lower,
+                                                        bool in_page_table) {
+  ap_m68030_descriptor_t descriptor = {0};
+  descriptor.dt = (ap_m68030_dt_t)(upper & AP_M68030_DESC_DT_MASK);
+
+  const ap_m68030_desc_role_t role =
+      ap_m68030_desc_role(descriptor.dt, in_page_table);
+  if (role == AP_M68030_ROLE_INVALID) {
+    return descriptor;
+  }
+
+  /* "The limit field (bits [62-48] of a long format table or type-2 page
+   * descriptor)" -- fifteen bits, with L/U above it. */
+  descriptor.has_limit = true;
+  descriptor.limit = (uint16_t)((upper >> AP_M68030_DESC_LONG_LIMIT_SHIFT) &
+                                0x7FFFu);
+  descriptor.lower_limit = bit_set(upper, AP_M68030_DESC_LONG_LU_BIT);
+
+  descriptor.supervisor = bit_set(upper, AP_M68030_DESC_LONG_S_BIT);
+  descriptor.used = bit_set(upper, AP_M68030_DESC_LONG_U_BIT);
+  descriptor.write_protect = bit_set(upper, AP_M68030_DESC_LONG_WP_BIT);
+
+  switch (role) {
+  case AP_M68030_ROLE_INDIRECT:
+    descriptor.address_field = lower & UINT32_C(0xFFFFFFFC);
+    descriptor.has_limit = false;
+    return descriptor;
+
+  case AP_M68030_ROLE_PAGE:
+  case AP_M68030_ROLE_EARLY_PAGE:
+    descriptor.address_field = (lower >> 8) & UINT32_C(0x00FFFFFF);
+    /* CI and M are page-descriptor fields on both parts. */
+    descriptor.cache_inhibit = bit_set(upper, AP_M68030_DESC_LONG_CI_BIT);
+    descriptor.modified = bit_set(upper, AP_M68030_DESC_LONG_M_BIT);
+    return descriptor;
+
+  case AP_M68030_ROLE_TABLE:
+    descriptor.address_field = lower & UINT32_C(0xFFFFFFF0);
+    return descriptor;
+
+  case AP_M68030_ROLE_INVALID:
+    return descriptor;
+  }
+  return descriptor;
+}
