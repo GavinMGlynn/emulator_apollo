@@ -163,9 +163,29 @@ def parse_header(data: bytes) -> Header | None:
 # String table
 # ---------------------------------------------------------------------------
 
-def find_strings(data: bytes, minlen: int = 4) -> dict:
-    """Map offset -> printable NUL-terminated string."""
-    out = {}
+MIN_STR = 4
+
+
+def string_at(data: bytes, off: int, minlen: int = MIN_STR) -> str | None:
+    """The printable NUL-terminated string starting exactly at off, or None.
+
+    Exact-offset probing matters: a greedy scan happily absorbs the preceding
+    opcode bytes (``rts`` is 4E 75 = "Nu"), which then hides the real string
+    start that the code actually points at.
+    """
+    if off < 0 or off >= len(data):
+        return None
+    j = off
+    while j < len(data) and 0x20 <= data[j] < 0x7F:
+        j += 1
+    if j - off >= minlen and j < len(data) and data[j] == 0:
+        return data[off:j].decode("ascii")
+    return None
+
+
+def string_runs(data: bytes, minlen: int = MIN_STR) -> list:
+    """Maximal printable NUL-terminated runs as (start, end_exclusive_of_nul)."""
+    runs = []
     i = 0
     n = len(data)
     while i < n:
@@ -173,11 +193,11 @@ def find_strings(data: bytes, minlen: int = 4) -> dict:
         while j < n and 0x20 <= data[j] < 0x7F:
             j += 1
         if j - i >= minlen and j < n and data[j] == 0:
-            out[i] = data[i:j].decode("ascii")
+            runs.append((i, j))
             i = j + 1
         else:
-            i += 1
-    return out
+            i = j + 1 if j > i else i + 1
+    return runs
 
 
 # ---------------------------------------------------------------------------
@@ -252,14 +272,26 @@ def trace(md: Cs, li: Listing, roots: list, limit: int) -> None:
             off += insn.size
 
 
-def linear(md: Cs, li: Listing, start: int, end: int) -> None:
+def linear(md: Cs, li: Listing, start: int, end: int, runs: list) -> None:
+    """Fill gaps left by the trace with a linear sweep, skipping string data."""
+    blocked = set()
+    for a, b in runs:
+        blocked.update(range(a, b + 1))
     off = start
     while off < end:
         if off in li.insns:
             off += li.insns[off].size
             continue
+        if off in blocked or off & 1:
+            off += 1
+            continue
         insn = next(md.disasm(li.data[off:off + 16], li.base + off, count=1), None)
         if insn is None:
+            off += 2
+            continue
+        # An instruction may not straddle the end of the checksummed image: the
+        # bytes past it are a separate trailer, not operand words.
+        if off + insn.size > end:
             off += 2
             continue
         li.insns.setdefault(off, insn)
@@ -304,7 +336,7 @@ def classify_operands(insn) -> list:
     return out
 
 
-def render(li: Listing, hdr: Header | None, strings: dict, out) -> None:
+def render(li: Listing, hdr: Header | None, out) -> None:
     if hdr:
         print(hdr.report(), file=out)
         print(";", file=out)
@@ -318,6 +350,8 @@ def render(li: Listing, hdr: Header | None, strings: dict, out) -> None:
 
     off = 0
     n = len(li.data)
+    if hdr:
+        n = min(n, hdr.values["length"])
     while off < n:
         if off in li.insns:
             insn = li.insns[off]
@@ -338,29 +372,46 @@ def render(li: Listing, hdr: Header | None, strings: dict, out) -> None:
                     w = io_note(a)
                     if w and a >= 0x1000:
                         notes.append("%s%s" % ("imm " if kind == "imm" else "", w))
-                soff = a - li.base
-                if soff in strings:
-                    notes.append('"%s"' % strings[soff])
+                sval = string_at(li.data, a - li.base)
+                if sval:
+                    notes.append('-> "%s"' % sval)
             cmt = ("   ; " + " | ".join(notes)) if notes else ""
             print("%06X  %-12s  %s%s" % (li.base + off, raw, text, cmt), file=out)
             off += insn.size
             continue
 
         # data
-        if off in strings:
-            s = strings[off]
-            print('%06X  dc.b     "%s",0' % (li.base + off, s), file=out)
-            off += len(s) + 1
+        sval = string_at(li.data, off)
+        if sval:
+            print('%06X  dc.b     "%s",0' % (li.base + off, sval), file=out)
+            off += len(sval) + 1
             continue
         run = []
         start = off
-        while off < n and off not in li.insns and off not in strings:
+        while off < n and off not in li.insns and not string_at(li.data, off):
             run.append(li.data[off])
             off += 1
             if len(run) == 16:
                 break
         print("%06X  dc.b     %s" % (li.base + start,
                                      ",".join("$%02X" % b for b in run)), file=out)
+    if hdr and n + 2 <= len(li.data):
+        # Every ring ROM in hand, and the 3C505 ROM too, carries exactly two
+        # non-zero bytes here and nothing but zero fill after. It sits outside
+        # the checksummed image, so it is a trailer rather than code or data the
+        # firmware sums. Its meaning is an open question in RING.md -- do not
+        # guess at it in the listing.
+        print("\n%06X  dc.w     $%04X      ; 2-byte trailer at [length]; purpose "
+              "unknown, outside the checksum"
+              % (li.base + n, struct.unpack_from(">H", li.data, n)[0]), file=out)
+    tail = n + 2
+    if hdr and tail < len(li.data):
+        fill = li.data[tail:]
+        note = "all $00" if not any(fill) else "NOT all $00 -- investigate"
+        print("; 0x%06X-0x%06X: unused, %s (image length is 0x%X)"
+              % (li.base + tail, li.base + len(li.data) - 1, note,
+                 hdr.values["length"]),
+              file=out)
 
 
 def main(argv=None) -> int:
@@ -402,11 +453,13 @@ def main(argv=None) -> int:
     if not args.no_trace and roots:
         trace(md, li, roots, limit)
     code_start = (0x4A + 6 * len(hdr.entries)) if hdr else 0
-    linear(md, li, max(code_start, min(roots) if roots else code_start), limit)
+
+    linear(md, li, max(code_start, min(roots) if roots else code_start), limit,
+           string_runs(data))
 
     out = open(args.out, "w") if args.out else sys.stdout
     try:
-        render(li, hdr, find_strings(data), out)
+        render(li, hdr, out)
     finally:
         if args.out:
             out.close()

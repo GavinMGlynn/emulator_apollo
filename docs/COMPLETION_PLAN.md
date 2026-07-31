@@ -154,6 +154,16 @@ discipline throughout.
       register map and dual-ported RAM layout. *Verification: every register
       recorded in `docs/references/RING.md` with the ROM address that proves it;
       cross-checked against both board generations.*
+  - [x] `tools/ring-rom/disasm.py` resolves the option-ROM header, entry-point
+        table and string table, and confines code to the checksummed image.
+        *Verification: runs clean over all four ring ROMs and the 3C505 ROM;
+        sum32 reports VALID for each.*
+  - Tails found while building it, both recorded in `RING.md`: the DN3000 and
+    DN5500 dumps are byte-identical (finding 5a), so this is three images to
+    read and not four; and every option ROM carries an unexplained 2-byte
+    trailer just past `length` (finding 7a, open question H). H is not a
+    blocker — it is outside the image and nothing yet shows the machine reads
+    it — but the boot PROM's option-ROM scan will settle it.
 - [ ] MAC layer from `010005-00`: free and claimed tokens, frame start and
       separator characters, null separators, packet header, packet data, FCS,
       end-of-frame. *Verification: each format cites its manual section;
