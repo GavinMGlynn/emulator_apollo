@@ -2482,8 +2482,15 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         (C26). With 1-7 and 1-8 that makes the command handshake a **state
         machine with three entry conditions** — ready, exception, device holding
         the bus — one figure each, selected by the device's state on entry.
-  - [ ] Implement that state machine. Its timings are all bounds, so the
-        figures modelled become `PROVISIONAL` as the 68030's synchroniser is.
+  - [x] The state machine's **ordering** implemented: the entry condition is
+        selected from the device's state, and accepting a command clears the
+        exception, hands the bus back and asserts ready — the three figures'
+        common destination. A tape read now makes the device hold the bus, which
+        is the state Figure 1-9 resolves. `sc499_suite` and `tape_suite`.
+  - [ ] Its **timings**, which are all bounds — `T3->T4 < 150 us`,
+        `T4->T6 < 500 us` — so modelling them means picking documented figures
+        and marking them `PROVISIONAL`, as the 68030's input synchroniser is.
+        Only a driver watching for the edges themselves needs them.
   - [ ] Figure 1-5, the write data transfer — only needed if a write-back path
         is ever added, which `ap_qic` currently refuses outright.
   - [ ] Note C25: the

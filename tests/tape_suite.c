@@ -220,8 +220,28 @@ static void test_a_command_clears_an_exception(void) {
   TEST_ASSERT_EQUAL_HEX8(AP_SC499_ST_RDY, status & AP_SC499_ST_RDY);
 }
 
+static void test_reading_the_tape_makes_the_device_hold_the_bus(void) {
+  ap_tape_t t;
+  arm(&t);
+  issue(&t, AP_QIC_CMD_SELECT);
+  issue(&t, AP_QIC_CMD_READ);
+
+  /* Figures 1-6 and 1-10 both open with the device changing DIRECTION to
+   * deliver data. It holds the bus afterwards, which is precisely the state
+   * Figure 1-9's command transfer exists to resolve. */
+  (void)ap_tape_read(&t, AP_TAPE_ADDR + 0u);
+  TEST_ASSERT_EQUAL_UINT(AP_SC499_ENTRY_DIRECTION,
+                         ap_sc499_command_entry(&t.controller));
+
+  /* And a command takes it back, per Figure 1-9's T4. */
+  issue(&t, AP_QIC_CMD_BOT);
+  TEST_ASSERT_EQUAL_UINT(AP_SC499_ENTRY_READY,
+                         ap_sc499_command_entry(&t.controller));
+}
+
 int main(void) {
   UNITY_BEGIN();
+  RUN_TEST(test_reading_the_tape_makes_the_device_hold_the_bus);
   RUN_TEST(test_ready_and_exception_are_never_both_asserted);
   RUN_TEST(test_a_command_clears_an_exception);
   RUN_TEST(test_an_idle_controller_still_reads_as_measured);

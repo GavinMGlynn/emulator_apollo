@@ -84,7 +84,35 @@ typedef struct {
 
 /* Power-on reset. `[SC499]` defines RSTDMA as performing the same functions, so
  * the two share an implementation and a test. */
+/* Which of `[SC499]` §1.13.2's three command-transfer figures applies, chosen by
+ * the device's state when the command is issued.
+ *
+ * The handshake is one protocol with three entry conditions, not three
+ * protocols: Figure 1-7 when the device is ready, Figure 1-8 when it is in
+ * exception, Figure 1-9 when it still holds the bus. Each figure looks like the
+ * whole thing until the next is read -- which is how this core's first attempt
+ * came to violate the READY/EXCEPTION rule, having been written from 1-7 alone. */
+typedef enum {
+  AP_SC499_ENTRY_READY = 0,   /* Figure 1-7 */
+  AP_SC499_ENTRY_EXCEPTION,   /* Figure 1-8 */
+  AP_SC499_ENTRY_DIRECTION,   /* Figure 1-9 */
+} ap_sc499_entry_t;
+
 void ap_sc499_reset(ap_sc499_t *tape);
+
+/* Which figure a command issued now would follow. */
+[[nodiscard]] ap_sc499_entry_t ap_sc499_command_entry(const ap_sc499_t *tape);
+
+/* Apply the effects the selected figure prescribes, on the device accepting a
+ * command. The *ordering* is modelled and the timings are not: every figure in
+ * §1.13.2 publishes bounds rather than values -- `T3->T4 < 150 us`,
+ * `T4->T6 < 500 us` -- and `CLAUDE.md`'s rule for a range is to model the
+ * documented value and mark it `PROVISIONAL`, which is work this has not done.
+ *
+ * The ordering alone is right about everything a polling driver can observe,
+ * which is what the join needs today. A driver watching for the edges
+ * themselves is what would need the timings. */
+void ap_sc499_command_accepted(ap_sc499_t *tape);
 
 /* Raise or clear the exception condition, keeping it exclusive of ready.
  *

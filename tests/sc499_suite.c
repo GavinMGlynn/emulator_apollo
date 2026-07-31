@@ -159,8 +159,49 @@ static void test_two_controllers_reset_alike_hold_identical_state(void) {
   TEST_ASSERT_EQUAL_MEMORY(&a, &b, sizeof a);
 }
 
+static void test_the_command_entry_condition_selects_a_figure(void) {
+  ap_sc499_t t;
+  ap_sc499_reset(&t);
+
+  /* One protocol, three entry conditions, chosen by the device's state --
+   * `[SC499]` §1.13.2's Figures 1-7, 1-8 and 1-9. */
+  TEST_ASSERT_EQUAL_UINT(AP_SC499_ENTRY_READY, ap_sc499_command_entry(&t));
+
+  t.direction = true;
+  TEST_ASSERT_EQUAL_UINT(AP_SC499_ENTRY_DIRECTION,
+                         ap_sc499_command_entry(&t));
+
+  /* Exception outranks the bus, and cannot coexist with ready: §1.13.2's own
+   * rule is that READY "shall not be asserted for an EXCEPTION condition". */
+  ap_sc499_set_exception(&t, true);
+  TEST_ASSERT_EQUAL_UINT(AP_SC499_ENTRY_EXCEPTION,
+                         ap_sc499_command_entry(&t));
+  TEST_ASSERT_FALSE(t.ready);
+}
+
+static void test_accepting_a_command_applies_all_three_figures(void) {
+  ap_sc499_t t;
+  ap_sc499_reset(&t);
+
+  /* Whichever entry applies, the device ends ready, out of exception and off
+   * the bus: 1-8's T3 deasserts EXCEPTION, 1-9's T4 deasserts DIRECTION, and
+   * all three end with the device asserting READY. Modelled as one transition
+   * because the three figures agree on the destination and differ only in the
+   * path -- and the path is timing, which is all bounds. */
+  ap_sc499_set_exception(&t, true);
+  t.direction = true;
+
+  ap_sc499_command_accepted(&t);
+  TEST_ASSERT_FALSE(t.exception);
+  TEST_ASSERT_FALSE(t.direction);
+  TEST_ASSERT_TRUE(t.ready);
+  TEST_ASSERT_EQUAL_UINT(AP_SC499_ENTRY_READY, ap_sc499_command_entry(&t));
+}
+
 int main(void) {
   UNITY_BEGIN();
+  RUN_TEST(test_the_command_entry_condition_selects_a_figure);
+  RUN_TEST(test_accepting_a_command_applies_all_three_figures);
   RUN_TEST(test_a_reset_controller_is_ready_and_done);
   RUN_TEST(test_resetting_the_dma_is_the_same_as_a_power_on_reset);
   RUN_TEST(test_the_dma_commands_ignore_what_is_written);

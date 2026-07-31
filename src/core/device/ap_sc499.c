@@ -2,6 +2,31 @@
 
 #include <string.h>
 
+ap_sc499_entry_t ap_sc499_command_entry(const ap_sc499_t *tape) {
+  /* Exception first: Figure 1-8 is the case where EXCEPTION is up, and
+   * §1.13.2's own rule is that READY cannot be, so the two cannot both select. */
+  if (tape->exception) {
+    return AP_SC499_ENTRY_EXCEPTION;
+  }
+  /* Then the bus: Figure 1-9 is the device still holding it after a read or a
+   * status block, and it must hand it back before the command proceeds. */
+  if (tape->direction) {
+    return AP_SC499_ENTRY_DIRECTION;
+  }
+  return AP_SC499_ENTRY_READY;
+}
+
+void ap_sc499_command_accepted(ap_sc499_t *tape) {
+  /* Figure 1-8, T3: "Device Deasserts EXCEPTION" on the controller raising
+   * REQUEST -- so a command is what lifts an exception. */
+  tape->exception = false;
+  /* Figure 1-9, T4: "Device Deasserts DIRECTION", handing the bus back. */
+  tape->direction = false;
+  /* And in all three figures the device ends by asserting READY: 1-7's T5,
+   * 1-8's T4, 1-9's T6. */
+  tape->ready = true;
+}
+
 void ap_sc499_set_exception(ap_sc499_t *tape, bool asserted) {
   tape->exception = asserted;
   if (asserted) {

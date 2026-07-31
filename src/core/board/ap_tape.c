@@ -65,6 +65,10 @@ uint8_t ap_tape_read(ap_tape_t *tape, uint32_t address) {
       ap_sc499_set_exception(&tape->controller, true);
       return 0xFFu;
     }
+    /* Figures 1-6 and 1-10 both open with "Device Changes DIRECTION": the
+     * device takes the bus to deliver data, and holds it until a command makes
+     * it hand back -- which is the condition Figure 1-9 exists for. */
+    tape->controller.direction = true;
     return tape->block[tape->offset++];
   }
   if (!ap_tape_decode(address, &reg) || !ap_sc499_readable(reg)) {
@@ -91,11 +95,9 @@ void ap_tape_write(ap_tape_t *tape, uint32_t address, uint8_t value) {
     if (!ap_qic_command(&tape->drive, value)) {
       ap_sc499_set_exception(&tape->controller, true);
     } else {
-      /* Figure 1-8: a command issued while EXCEPTION is up clears it, and the
-       * device asserts READY afterwards. So accepting a command is what lifts
-       * an exception -- a driver recovers by commanding, not by reading. */
-      ap_sc499_set_exception(&tape->controller, false);
-      tape->controller.ready = true;
+      /* Whichever of the three figures applies, its effects are the device's
+       * to apply, not the board's. */
+      ap_sc499_command_accepted(&tape->controller);
       /* A new command invalidates whatever block was part-read. */
       tape->block_valid = false;
       tape->offset = 0u;
