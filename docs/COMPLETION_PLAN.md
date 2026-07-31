@@ -227,9 +227,12 @@ file the moment they are found, not when someone remembers.
         *Verification: a captured session transcript in
         `docs/references/MD.md`, byte-exact.* The no-guessing rule still applies
         to the parser; it no longer blocks the encoder's input side.
-- [~] Probes side-loadable into post-boot machine state, so CI needs no
+- [x] Probes side-loadable into post-boot machine state, so CI needs no
       copyrighted firmware. *Verification: the probe suite runs in CI with
-      `roms/` absent.*
+      `roms/` absent* — which it does: `apollo-headless --run-probes` reads no
+      file, opens no ROM and needs no boot, and its output is pinned by
+      `tests/goldens/probes.txt` under every build preset. Confirmed
+      byte-identical between the `-O0` and `-O3` builds.
   - [x] **The machine to side-load into** (`src/core/machine/ap_machine.c`): a
         68030 wired to flat RAM and nothing else. Construct, poke memory and
         registers, run to a limit, read back — the whole cycle a probe performs,
@@ -254,6 +257,35 @@ file the moment they are found, not when someone remembers.
         different RAM buffers hashing alike at every step; the machine hash
         covering the RAM; the two caches being distinct; and a `PMOVE` reaching
         the registers the machine actually translates through.*
+  - [x] **The probes themselves** (`src/core/probe/ap_probe.c`), eight small
+        programs covering one thing each: a register write, a store and reload,
+        a `DBcc` loop, `BSR`/`RTS`, a `TRAP` taken and returned from, the
+        multiplies and divides, `MOVEM` out and back, and a `PMOVE`.
+        **A probe reports rather than judges.** Nothing in the module knows what
+        any result *should* be — a unit test asserts what someone expected, and
+        a golden pins what the emulator did, byte for byte, on every platform
+        and both build types. That is the cross-platform identity claim, and the
+        only mechanism that catches one platform quietly disagreeing with three.
+        **Every probe ends with `STOP`**, so it finishes because its program said
+        so rather than because it ran out of limit. Two were built without a
+        terminator and their first goldens showed it: a loop reporting 20
+        instructions for six iterations of work, and a subroutine that returned
+        and then fell into its own callee. A probe that hits its limit reports
+        whatever it happened to be doing.
+        The runner blanks the RAM and plants a returning handler on every vector
+        before each probe, so a result cannot depend on what ran before it and
+        an unexpected fault lands somewhere legible instead of in blank memory.
+        The reported clock is **bus and cache time only**, said so in the report
+        itself. It is pinned anyway: when instruction execution time arrives the
+        golden moves, and the diff says by how much for every probe at once.
+        *Verification: `tests/goldens/probes.txt`, checked under every build
+        preset and confirmed identical between `-O0` and `-O3`; plus
+        `probe_suite`, 7 tests for what a golden cannot express — a golden will
+        happily pin a probe that never terminates, faults, or differs run to
+        run. Every probe terminating below its limit, none touching memory the
+        machine lacks, the same answer twice on different buffers, a result
+        independent of what ran before, no two probes being the same probe, and
+        every probe carrying a name and a purpose.*
   - [x] **A defect in the state hash, found by building on it.** Two machines
         constructed identically on two different buffers hashed *differently*.
         `ap_m68030_cache_clear` clears valid bits and leaves the tag and data

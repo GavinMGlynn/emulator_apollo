@@ -60,6 +60,7 @@ apollo_add_suite(decode_suite)
 apollo_add_suite(addr_suite)
 apollo_add_suite(access_suite)
 apollo_add_suite(fetch_suite)
+apollo_add_suite(probe_suite)
 apollo_add_suite(state_suite)
 apollo_add_suite(step_suite)
 apollo_add_suite(operand_suite)
@@ -78,6 +79,7 @@ apollo_add_suite(frontend_common_suite apollo_frontend_common)
 # list as the subsystems that produce them land, and each arrives with its own
 # golden rather than a promise to add one later.
 apollo_add_golden(golden_model_table model_table.txt apollo-headless --list-models)
+apollo_add_golden(golden_probes probes.txt apollo-headless --run-probes)
 
 # The oracle driver's logic, against a stub MAME: dump extraction from noisy
 # output, the two-run determinism check, and the failure paths. Whether the

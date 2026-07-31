@@ -1,0 +1,23 @@
+# apollo probe results
+# clocks cover bus and cache time only: instruction execution time
+# is not yet modelled, so these are lower bounds rather than
+# figures to compare against MC68030 User's Manual ch. 11.
+probe               ran status         d0       pc         clocks berr hash            
+moveq                 2 STOPPED        00000042 00001006        4    0 7DEECBAA4032A345
+store-reload          4 STOPPED        00000042 00001012       12    0 B2DFFE25E65FB592
+loop                 14 STOPPED        00000006 0000100C        8    0 8ABA65B5B646AC16
+subroutine            4 STOPPED        00000007 00001008        8    0 05B3F659C2658DFB
+trap                  4 STOPPED        00000009 00001008       16    0 42E98DFEC7F4C017
+wide-arithmetic       4 STOPPED        0003299B 00001012       10    0 6ABB5E60ED28A98B
+movem                 7 STOPPED        00000001 00001014       14    0 7A210240A7BBB718
+pmove                 3 STOPPED        00000000 0000100E       10    0 C068EEEECF94408F
+
+# what each probe covers
+# moveq              one register write, the smallest thing that can be wrong
+# store-reload       operand write-through and read-back
+# loop               a DBcc countdown, and the instruction cache on the second pass
+# subroutine         BSR and RTS, the stack in both directions
+# trap               TRAP taken, handler entered and returned from
+# wide-arithmetic    MULU then DIVU, both halves of the register
+# movem              MOVEM out and back, the predecrement mask reversal
+# pmove              PMOVE into the translation control register
