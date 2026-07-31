@@ -74,12 +74,31 @@ file the moment they are found, not when someone remembers.
       discrepancy classes (`ours-wrong`, `oracle-wrong`, `sub-poll-slack`,
       `open`), the ban on closing a row by tuning our timing to match, and the
       rule that an oracle number alone never closes a row.
-- [ ] Python probe encoder emitting hand-assembled 68000 probes in Apollo's
-      executable/boot format — no cross toolchain. *Verification: a trivial
-      probe that stores a sentinel runs identically under both.*
+- [ ] Python probe encoder emitting hand-assembled 68000 probes — no cross
+      toolchain. *Verification: a trivial probe that stores a sentinel runs
+      identically under both.*
+  - **Route settled, and it is simpler than "Apollo's executable/boot format".**
+    The boot PROM holds the Mnemonic Debugger (`008778-03` §1.5.1), whose `A`
+    (access/deposit) and `G` (jump) commands take hand-assembled instruction
+    words straight over the serial console — no object file, no executable
+    format to recover first, and no Domain/OS boot, which is what keeps probes a
+    Phase 1 deliverable instead of one gated on Phase 4. Command set recorded in
+    `docs/references/MD.md` from `002398-04` ch. 5.
+  - [ ] **Blocker, deliberately not guessed:** MD's exact per-command syntax and
+        output format are not in the handbook's command list — what `A` prints,
+        how it takes a deposit, the radix and terminator, and `DR`'s register
+        dump layout. Capture a real MD session under the oracle and transcribe
+        it. Writing the encoder against a guessed syntax would be precisely the
+        trial-and-error the project forbids. *Verification: a captured session
+        transcript in `docs/references/MD.md`, byte-exact.*
 - [ ] Probes side-loadable into post-boot machine state, so CI needs no
       copyrighted firmware. *Verification: the probe suite runs in CI with
       `roms/` absent.*
+  - Note: MD-driven probes need the boot PROM, so they are a
+      *development-time* path, not the CI path. The CI path stays what this item
+      says — inject probe state directly into a constructed machine, no firmware
+      involved. The two are complements: MD is how a figure gets measured against
+      real firmware, side-loading is how it gets regression-tested without it.
 - [ ] `regress.py` wired into CTest, checking golden result blocks on every
       platform. *Verification: goldens bit-identical on all four CI targets and
       both build types.*

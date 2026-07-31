@@ -53,6 +53,25 @@ Findings that already have a cited source, so they are not re-derived later.
   operands, Winchester bad-track formatting, and certain video synchronisation.
   Expect to out-accurate the oracle in those areas and record it as a class.
 
+### The probe injection path
+
+- The DN3500 boot PROM holds the **Mnemonic Debugger** (`008778-03` §1.5.1), an
+  interactive monitor with `A` (access/deposit), `G` (jump), `D` (dump memory),
+  `DR` (dump registers), `SS` (single step) and `B`/`CB` (breakpoints). Full
+  command set in `docs/references/MD.md`, from `002398-04` ch. 5.
+- This is how probes will be injected, and it removes three obstacles at once:
+  no cross toolchain, no need to recover Apollo's on-disk executable format
+  first, and no Domain/OS boot — MD runs from PROM before any OS. That is what
+  keeps the probe suite a Phase 1 deliverable rather than one gated on Phase 4
+  storage work.
+- Two commands are worth noting early: `TE` runs the boot PROM's own
+  diagnostics — the hardware's test suite for free, the same free-test argument
+  as the ring firmware's self-test — and `IC` toggles the instruction cache,
+  which is what makes a cache-effect timing probe possible at all.
+- **Open:** the command list is confirmed, the per-command *syntax and output
+  format* are not. They will be transcribed from a captured MD session under the
+  oracle, not guessed.
+
 ### Supported platforms and toolchain
 
 - Three platforms, all 64-bit: **Linux x86-64** (Red Hat and Debian derived),
