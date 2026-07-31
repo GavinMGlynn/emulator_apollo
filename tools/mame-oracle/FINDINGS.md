@@ -31,9 +31,77 @@ shape names the cause.
 
 ## Campaigns
 
-None yet. The oracle harness is not built, so no campaign has run and there is
-nothing to report. This section stays empty rather than being pre-populated with
-plausible-looking rows.
+### C1 — 68030 descriptor status bit positions
+
+**Question.** `ap_m68030_walk`'s descriptor decoding was *derived* rather than
+transcribed: `[030]` Figures 9-10 and 9-11 lost their field boxes to the scan, so
+the positions came from the `MC68851 PMMU User's Manual` plus four corroborating
+arguments (see `ap_m68030_walk.h`). Does the oracle agree?
+
+**Method.** Read, not run — `ext/mame/src/devices/cpu/m68000/m68kmmu.h`'s field
+constants. Reading the oracle rather than measuring it is weaker than a probe in
+general, but unusually strong *here*: a wrong bit position does not degrade
+gracefully, it fails to translate, and this implementation boots Domain/OS.
+
+| Field | Ours | Oracle | |
+| --- | --- | --- | --- |
+| DT | bits 1-0 | `M68K_MMU_DF_DT = 0x3` | agree |
+| DT encoding | invalid 0, page 1, table-4 2, table-8 3 | `0/1/2/3` | agree |
+| WP | bit 2 | `0x4` | agree |
+| U | bit 3 | `0x8` | agree |
+| M | bit 4 | `0x10` | agree |
+| CI | bit 6 | `0x40` | agree |
+| S | upper-word bit 8, i.e. descriptor bit 40 | `0x100` | agree |
+| TABLE ADDRESS | 31-4 | `0xfffffff0` | agree |
+| INDIRECT ADDRESS | 31-2 | `0xfffffffc` | agree |
+| ATC physical field | 24 bits, shift 8 | `0x00ffffff`, shift `8` | agree |
+
+**Class: agree.** Every derived position confirmed, by a sixth source
+independent of the five that produced it. The derivation stands.
+
+Two behaviours we had derived from prose are confirmed as code as well: the
+oracle sets **U and M in a single write** (`entry | USED | MODIFIED`), which is
+our one-`history_writes`-per-descriptor cost model; and it writes **no history
+bit to an invalid descriptor** (`type != DT_INVALID`), which we had argued from
+"the operating system can use these fields for its own purposes".
+
+### C2 — the supervisor clause in the history-bit update
+
+**Question.** `[030]` §9.5.1.1 says U is set "except after a supervisor violation
+is detected", and M only "if the table search does not encounter a set WP bit
+**or a supervisor violation**". We implement both clauses. Does the oracle?
+
+**Ours.** Suppresses the U update once a supervisor violation is detected, and
+defers the M rule to `ap_m68030_search_should_set_modified`, which honours it.
+
+**Oracle.** `update_descriptor()` does not consider supervisor state at all. It
+gates M on `!(entry & WP)` alone and U on `!(entry & USED)` alone. The clause is
+simply absent.
+
+**Class: `oracle-wrong`.** The manual states the condition twice, in two separate
+sentences, for two separate bits. **Keep ours.** The practical effect is narrow —
+it changes history bits only on a search that is already going to fault — but it
+is a real difference in what gets written to a translation table, and a
+supervisor-only tree probed from user state is exactly where it shows.
+
+**Still open, and the oracle cannot settle it:** whether a descriptor whose *own*
+S bit causes the violation still gets its own U set. We evaluate the violation
+with that descriptor's S already folded in, so it does not. Since the oracle does
+not implement the clause at all, it has no opinion to compare. Settling this
+needs real hardware or a Motorola erratum, so it stays a documented reading.
+
+### C3 — `MMUSR` bit positions, and a gap in the oracle
+
+Our layout came from the `M68000 Family Programmer's Reference Manual`'s PTEST
+page. The oracle's `M68K_MMU_SR_*` constants agree on every bit it defines:
+B `0x8000` (15), S `0x2000` (13), W `0x0800` (11), I `0x0400` (10), M `0x0200`
+(9), T `0x0040` (6).
+
+**The oracle defines no LIMIT bit at all.** Ours is bit 14, from the PRM figure,
+and `[030]` Table 9-3 describes L for the levels-1-7 form. So MAME never reports
+a limit violation through `MMUSR`. Recorded as a place we are more complete than
+the oracle rather than as a disagreement — nothing in MAME contradicts bit 14, it
+simply has no such bit.
 
 When the first campaign lands, each row carries:
 

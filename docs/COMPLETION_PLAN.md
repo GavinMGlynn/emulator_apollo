@@ -538,12 +538,26 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
           as fifteen bits under the L/U flag, and a three-level tree built from
           real memory words walking to the same physical address as the
           hand-built one.*
-    - [ ] **Confirm the derived descriptor positions against the oracle.** Five
-          agreeing sources is a derivation, not a transcription. The oracle
-          decodes real Domain/OS translation tables on every boot, so a
-          disagreement would show up immediately as a failed translation.
-          *Verification: decode the same descriptor words under the oracle and
-          compare field by field.*
+    - [x] **Confirmed against the oracle** (`FINDINGS.md` campaign C1). Every
+          derived position matches `m68kmmu.h`'s field constants field for
+          field — DT, WP, U, M, CI, S, and both address masks — which is a sixth
+          source independent of the five that produced the derivation. Two
+          behaviours derived from prose are confirmed as code besides: U and M
+          are written in a *single* store, and no history bit is written to an
+          invalid descriptor.
+    - [x] **Divergence found and classified `oracle-wrong`** (C2): `[030]`
+          §9.5.1.1 gates the U update on "except after a supervisor violation is
+          detected" and the M update on "or a supervisor violation", and the
+          oracle implements neither — `update_descriptor()` never consults
+          supervisor state. We keep ours, since the manual states the condition
+          twice for two separate bits. It changes history bits only on a search
+          that already faults, but that is exactly a supervisor-only tree probed
+          from user state.
+    - [ ] **Still open, and not settleable from the oracle:** whether a
+          descriptor whose *own* S bit causes the violation gets its own U set.
+          We fold that descriptor's S in first, so it does not. The oracle omits
+          the clause entirely and therefore has no opinion, so this needs real
+          hardware or a Motorola erratum rather than another reading.
 - [ ] 68030 on-chip instruction and data caches, and their effect on bus timing.
       *Verification: self-timing probes measuring hit vs miss.*
 - [ ] 68882 FPU. *Verification: probe suite over each operation and rounding
