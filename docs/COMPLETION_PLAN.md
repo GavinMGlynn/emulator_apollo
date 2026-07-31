@@ -2240,6 +2240,21 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         gap in as though it were a measurement.
 - [ ] Two 8259 interrupt controllers and the Apollo interrupt vector scheme.
       *Verification: probe-driven interrupt ordering vs oracle.*
+  - [x] The 8259A itself, with no Apollo in it: initialization sequence, all
+        three operation command words, fully nested priority with both
+        rotations, edge and level triggering, special mask mode, special fully
+        nested mode, poll, automatic EOI, and the spurious level 7.
+        `i8259_suite`, 28 tests against `8259A` 231468-003. MCS-80/85 vectoring
+        is refused rather than approximated.
+  - [ ] The Apollo pairing: the two controllers cascaded on IRQ2, at `011000`
+        and `011100`, with the vector byte of `008778-03` §3.2 — which is
+        exactly 8086-mode vectoring, confirmed independently by both manuals.
+  - [ ] **Open question, to settle against the oracle before wiring:**
+        `008778-03` Table 2-3 gives IRQ3 priority 3 and the whole slave group
+        4+1 through 4+8, so IRQ3 outranks the cascade. The prose agrees,
+        pointedly saying the slave beats IRQ4-IRQ7 and not mentioning IRQ3. On
+        a stock AT the slave on IR2 outranks IR3 as well, so either Apollo
+        programs a non-default priority or the table is wrong. Measure it.
 - [ ] Two AT DMA controllers. *Verification: transfer probes; device request
       lines gate DMA at block granularity, not per word.*
 - [ ] Interval timer and calendar. *Verification: self-timing probes; the
