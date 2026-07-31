@@ -1,0 +1,18 @@
+[submodule "ext/unity"]
+	path = ext/unity
+	url = https://github.com/ThrowTheSwitch/Unity.git
+[submodule "ext/zlib"]
+	path = ext/zlib
+	url = https://github.com/madler/zlib.git
+[submodule "ext/libpng"]
+	path = ext/libpng
+	url = https://github.com/pnggroup/libpng.git
+[submodule "ext/musashi"]
+	path = ext/musashi
+	url = https://github.com/kstenerud/Musashi.git
+[submodule "ext/sdl"]
+	path = ext/sdl
+	url = https://github.com/libsdl-org/SDL.git
+[submodule "ext/mame"]
+	path = ext/mame
+	url = https://github.com/mamedev/mame.git

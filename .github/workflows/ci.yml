@@ -1,0 +1,86 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# Only the submodules the build actually needs. ext/mame is the reference
+# oracle, hundreds of megabytes CI never compiles, and is deliberately absent.
+env:
+  CI_SUBMODULES: ext/unity
+
+jobs:
+  linux:
+    name: linux (debian family)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: git submodule update --init --depth 1 $CI_SUBMODULES
+      - run: cmake --preset linux-ci
+      - run: cmake --build --preset linux-ci
+      - run: ctest --preset linux-ci --output-on-failure
+
+  rocky:
+    name: rocky (rhel family)
+    runs-on: ubuntu-latest
+    container: rockylinux:9
+    steps:
+      # git must be installed BEFORE actions/checkout: with no git in the image
+      # checkout silently falls back to a REST tarball with no .git, and the
+      # later submodule update dies with "not a git repository".
+      - name: Install toolchain
+        run: |
+          dnf install -y dnf-plugins-core
+          dnf config-manager --set-enabled crb
+          dnf install -y clang cmake ninja-build git python3
+      - uses: actions/checkout@v4
+      - name: Trust the container checkout
+        run: git config --global --add safe.directory '*'
+      - run: git submodule update --init --depth 1 $CI_SUBMODULES
+      - run: cmake --preset linux-ci
+      - run: cmake --build --preset linux-ci
+      - run: ctest --preset linux-ci --output-on-failure
+
+  windows:
+    name: windows (clang in msvc env)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: git submodule update --init --depth 1 ext/unity
+      - uses: ilammy/msvc-dev-cmd@v1
+      - run: choco install ninja -y
+      - run: cmake --preset windows-ci
+      - run: cmake --build --preset windows-ci
+      - run: ctest --preset windows-ci --output-on-failure
+
+  macos:
+    name: macos (arm64)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: git submodule update --init --depth 1 $CI_SUBMODULES
+      - run: brew install ninja
+      - run: cmake --preset macos-ci
+      - run: cmake --build --preset macos-ci
+      - run: ctest --preset macos-ci --output-on-failure
+
+  # Emulated cycle counts are not wall-clock measurements: the same workload
+  # must produce identical results at -O0 and -O3. A difference is a real bug
+  # (undefined behaviour, a width assumption), not a build artefact.
+  identical-across-build-types:
+    name: results identical at -O0 and -O3
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: git submodule update --init --depth 1 $CI_SUBMODULES
+      - run: cmake --preset linux-ci && cmake --build --preset linux-ci
+      - run: cmake --preset linux-release && cmake --build --preset linux-release
+      - name: Compare deterministic frontend output
+        run: |
+          ./build/linux-ci/src/frontend/headless/apollo-headless --list-models > o0.txt
+          ./build/linux-release/src/frontend/headless/apollo-headless --list-models > o3.txt
+          diff -u o0.txt o3.txt
+      - run: ctest --preset linux-ci --output-on-failure
+      - run: ctest --preset linux-release --output-on-failure

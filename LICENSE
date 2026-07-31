@@ -1,0 +1,46 @@
+MIT License
+
+Copyright (c) 2026 Gavin Glynn
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+--------------------------------------------------------------------------------
+
+Scope of this licence
+
+The MIT licence above covers the first-party source in this repository:
+src/, tests/, tools/, cmake/, and the build files.
+
+It does NOT cover, and this project does not relicense:
+
+  * ext/ submodules, which retain their own licences. In particular ext/mame
+    (MAME) is GPL-2.0-or-later and is used ONLY as a runnable, instrumentable
+    reference oracle: it is built and read, never linked into src/core and
+    never a dependency of any artifact this project ships. ext/musashi is
+    read-only reference material for the same reason. ext/unity (MIT),
+    ext/sdl (Zlib), ext/zlib (Zlib) and ext/libpng (PNG Reference Library
+    licence) are linked and keep their notices.
+
+  * Hardware manuals and vendor documentation under docs/references/, which
+    remain the copyright of Apollo Computer Inc., Hewlett-Packard, Motorola
+    and their successors. They are retained for reference only.
+
+  * Apollo boot and ring-controller firmware images, and Domain/OS media,
+    under roms/ and media/. These are user-supplied, gitignored, and not
+    distributed by this project.

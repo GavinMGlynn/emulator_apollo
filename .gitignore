@@ -1,0 +1,27 @@
+# Build trees (CMake presets write here)
+build/
+
+# User-supplied images — NEVER commit these. This repository is public and
+# Apollo boot/ring firmware and Domain/OS media are not ours to redistribute.
+roms/
+media/
+
+# Vendored hardware manuals stay local: reference only, vendor copyright.
+docs/references/**/*.pdf
+docs/references/**/*.txt.gz
+
+# Oracle scratch
+tools/mame-oracle/out/
+*.awd
+*.afd
+*.ct
+*.ct.gz
+
+# Per-user Claude Code settings (project settings.json is tracked)
+.claude/settings.local.json
+
+# Editor / tooling
+compile_commands.json
+.cache/
+.vscode/
+*.swp
