@@ -77,9 +77,19 @@ file the moment they are found, not when someone remembers.
         table out of `apollo.cpp` rather than transcribing it, and matches our
         files to MAME's by SHA-1 rather than by name — so it cannot drift when
         the `ext/mame` pin moves. *Verification: all 11 apollo machines
-        assemble, and every one of our bitsavers images has exactly the SHA-1
-        the driver declares; output lands in the gitignored
-        `tools/mame-oracle/out/roms/`.*
+        assemble, plus the `3c505` device set, and every one of our bitsavers
+        images has exactly the SHA-1 the driver declares; output lands in the
+        gitignored `tools/mame-oracle/out/roms/`.*
+  - [x] **"Assembles" was not "runs", and this item said the wrong thing until a
+        real run proved it.** Two defects hid behind eleven green machine sets:
+        MAME loads a card's ROMs from a *sibling* set named after the device, so
+        `dn3500` would not start without a `3c505` set beside it; and the ROM
+        parser knew only `ROM_LOAD`/`ROMX_LOAD`, so a `ROM_LOAD16_BYTE` entry was
+        skipped and a *partial* set reported as success. The device list is now
+        derived from the driver's own `#include` lines and the whole `ROM*_LOAD`
+        family is matched. The lesson is the item's, not just the code's: a
+        verification that stops at "we produced files" cannot see that the files
+        are unusable.
   - [x] The narrow build itself (`SUBTARGET=apollo`, `REGENIE=1`, `NOWERROR=1`).
         Built and running: MAME v0.289, one driver, no tools.
         *Verification: `./apollo -listfull` lists all eleven apollo machines,
@@ -102,7 +112,17 @@ file the moment they are found, not when someone remembers.
         install rather than by hand.*
   - This also pulls `.ct` cartridge support (Phase 4) forward in importance: it
     is the format the first boot depends on, not merely a storage item.
-  - [ ] **Verify empirically whether the 68040 path has an oracle at all.**
+  - [x] **Answered: the 68040 path does have an oracle.**
+        `dn5500` starts and dumps reproducibly under the built binary (985
+        bytes, two runs byte-identical) *despite* `MACHINE_NOT_WORKING`. So the
+        flag is not grounds to move DN5500/DSP5500 to `paper` in the model
+        table, and Phase 2's "`dn5500` oracle diff" stands as written — but the
+        flag is MAME's own statement that it does not vouch for the result, so
+        DN5500 readings are a divergence class to treat with suspicion rather
+        than a missing oracle. Recorded in `FINDINGS.md`. The original wording
+        of this item is kept below, because the reasoning it rejected — acting
+        on the flag alone — is the part worth remembering.
+        *Original:* **Verify empirically whether the 68040 path has an oracle at all.**
         `apollo.cpp` declares `dn5500`, `dsp5500` and `dn5500_19i`
         `MACHINE_NOT_WORKING` while no 3000 or 3500 machine carries the flag. If
         it holds, Phase 2's "`dn5500` oracle diff" is unachievable as written and
@@ -132,8 +152,17 @@ file the moment they are found, not when someone remembers.
         look different), a nondeterministic one (catching that is the entire
         reason `verify` exists), a silent one, one that exits non-zero, and a
         check that a stale run directory is wiped rather than reused.*
-  - [ ] The remaining half: `verify` against the **real** oracle, showing two
-        runs of a real workload byte-identical. Needs the binary.
+  - [x] The remaining half: `verify` against the **real** oracle, showing two
+        runs of a real workload byte-identical. Done — `dn3500` at 1.0, 3.5, 5.0
+        and 8.0 emulated seconds, and `dn5500` besides. Getting there needed
+        three fixes recorded in `FINDINGS.md`, of which two were invisible to the
+        19 stub-oracle checks because they live in the seam between the driver
+        and a real MAME: the driver built an environment and never passed it, so
+        every reading was taken at the default 1.0s whatever `--at` said and no
+        memory range was ever dumped; and the dumper triggered on frame
+        notifications, which stop arriving at 3.246948 emulated seconds, so every
+        later sampling point silently produced nothing while MAME still exited 0.
+        Both were concealed by a report that echoed its own input.
   - Determinism is the whole point, so the driver's flags are load-bearing and
     each closes one way a second run could differ: `-noreadconfig` (ignore
     `~/.mame/mame.ini`, which no one reviews), redirected and wiped
