@@ -30,6 +30,7 @@ function(apollo_add_suite name)
 endfunction()
 
 apollo_add_suite(bus_suite)
+apollo_add_suite(pipe_suite)
 apollo_add_suite(time_suite)
 apollo_add_suite(model_suite)
 apollo_add_suite(hash_suite)

@@ -247,6 +247,25 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         write against a read directly, plus one that a new cycle clears the
         signals its predecessor held — so a write's DBEN cannot leak into the
         cycle that follows it.*
+  - [x] **Instruction pipe and cache holding register**
+        (`src/core/cpu/m68030/ap_m68030_pipe.c`), `[030]` §11.2.2 p. 11-2. The
+        three-word pipe (B → C → D, decoded at D), the per-stage abnormal-
+        termination status bit, and the 32-bit holding register that makes
+        alignment matter: an aligned prefetch loads the whole long word, so
+        "the instruction word for the next sequential prefetch can then be
+        accessed directly from the cache holding register, and no external bus
+        cycle or instruction cache access is required".
+        This is the mechanism §11.3.3 averages over when it publishes a
+        no-cache-case time, so modelling it is what lets this core produce the
+        per-run number instead of the published mean.
+        *Verification: `pipe_suite`, 14 tests. The headline one counts bus
+        cycles for four sequential words and gets 2 when long-word aligned
+        against 3 when starting on an odd word — the difference counted rather
+        than averaged. Others cover big-endian word selection, the three-stage
+        decode latency, order preservation, the status bit travelling with its
+        word (a bus error must fault where the word is *used*, not where it was
+        fetched), a clean fill clearing it, and a holding-register miss leaving
+        the stage empty rather than loading a stale word.*
   - [ ] Wire the bus to a memory system so the termination kind and its arrival
         clock come from a device rather than a test. That is what makes
         contention emergent, and it belongs with Phase 3's single arbitration

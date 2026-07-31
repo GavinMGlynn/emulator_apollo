@@ -21,6 +21,7 @@ Last updated: 2026-07-31.
 | State hash (`state/`) | primitive working | `hash_suite`, 11 tests, incl. published FNV-1a 64 vectors |
 | Ring medium interface | not started | — |
 | Ring controller | not started | — |
+| 68030 instruction pipe + cache holding register | working | `pipe_suite`, 14 tests, `MC68030 User's Manual 3ed` §11.2.2 |
 | 68030 bus cycle state machine | working | `bus_suite`, 17 tests, each citing `MC68030 User's Manual 3ed` ch. 7 (read and write cycles) |
 | 68020 / 68030 / 68040 CPU | not started beyond the bus | — |
 | 68851 PMMU, 68030/68040 on-chip MMU | not started | — |
