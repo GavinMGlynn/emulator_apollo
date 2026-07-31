@@ -1003,11 +1003,31 @@ recording because the failure is silent: the machine still runs, the tape still
 answers, and only the disk quietly stops existing.
 
 **And `050000` answers identically either way**, with the tape card installed
-and without it. So whatever drives `00 40` there is not the cartridge controller
-responding -- either something else decodes the range or the card sits elsewhere.
-Not resolved here, and it is the first question to settle before modelling the
-tape, because a register model built against that dump would be modelling the
-wrong device.
+and without it.
+
+**Settled, in the negative.** `050000` reads `00 40 FF FF FF FF FF FF` in all
+three of: the default configuration, `-isa2 ctape` (tape added beside the disk),
+and `-isa1 wdc -isa2 ctape` (both named explicitly). Something permanent decodes
+it -- an address Table 2-9 marks unused, `048000`, reads all `FF`, so the range is
+genuinely answered rather than floating -- but it is **not the cartridge
+controller**.
+
+Widened to a differential scan of the whole AT I/O window, `040000`-`05FFFF`, one
+signature per 256-byte page, taken with and without the card: **no page differs**.
+The card instantiates without complaint and the driver's ROM table asks for
+nothing on its behalf, so it is present and needs no firmware -- yet it decodes
+nowhere the processor can see it, at least passively at reset.
+
+What this establishes is a boundary rather than an answer: the tape controller
+is not to be modelled from the `050000` dump, and the dump is not evidence about
+it. What remains open is where MAME's Archive SC-499 does live -- plausibly it
+decodes only once enabled, or sits in the AT *memory* window rather than the I/O
+one, neither of which this scan would have caught.
+
+Recorded as a negative result deliberately. The dump at `050000` is exactly the
+kind of plausible-looking evidence that would have produced a confident,
+well-tested model of the wrong device -- and one that would have looked correct
+until a real tape transfer failed against it.
 
 ## Where the ring is not
 
