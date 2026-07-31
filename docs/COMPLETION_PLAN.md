@@ -578,6 +578,26 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         allowed" — exactly what the privilege violation exists to prevent.
         *Verification: `coproc_suite`, 6 tests, including the two vectors from
         one word and the rule holding for cpID 0 against all seven others.*
+  - [x] **Decode dispatcher** (`src/core/cpu/m68030/ap_m68030_decode.c`) and
+        MOVEQ, the one family that had no decoder. Given any 16-bit word: which
+        family claims it, and what that family made of it. Family `0100`'s three
+        subtrees are tried in the order their encodings nest — the `$4E` group
+        first (a fixed top byte), then LEA/CHK and `$48`/`$4C` (bit 8 set), then
+        the single-operand group (bit 8 clear) — and that ordering is stated in
+        the header rather than left to be rediscovered.
+        A word no family claims is reported **illegal rather than absorbed by a
+        fallback**, which is the failure mode every family module was written to
+        avoid.
+        *Verification: `decode_suite`, 7 tests, including the property no family
+        suite can check — a sweep of the **entire** 16-bit space asserting every
+        word classifies, and that the wholesale families (`1010`, `1111`,
+        `0110`) claim all 4096 of their words.*
+        Measured coverage across all 65536 encodings: arith 29.0%, move 16.3%,
+        immediate 5.3%, quick/branch/shift/coproc/lineA 6.2% each, moveq 3.1%,
+        misc 2.9%, single 1.9%, control 0.3% — **89.9% claimed, 10.1%
+        illegal**. Neither number should move much without a reason; a
+        dispatcher that claimed everything would be as wrong as one claiming
+        nothing.
   - [ ] **CMP2/CHK2, CAS and CAS2**, which occupy size field `11` in family
         `0000`'s immediate rows. Not decoded: `ap_m68030_immediate_decode`
         reports invalid there rather than mis-decoding them as a wider ORI, and
