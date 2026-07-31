@@ -91,3 +91,24 @@ ap_m68030_tc_split_t ap_m68030_tc_split(const ap_m68030_tc_t *tc,
   split.page_offset = (page_size == 0) ? 0 : (address & (page_size - 1u));
   return split;
 }
+
+uint32_t ap_m68030_tc_encode(const ap_m68030_tc_t *tc) {
+  uint32_t value = 0;
+  if (tc->enable) {
+    value |= UINT32_C(1) << 31;
+  }
+  if (tc->supervisor_root) {
+    value |= UINT32_C(1) << 25;
+  }
+  if (tc->function_code_lookup) {
+    value |= UINT32_C(1) << 24;
+  }
+  value |= ((uint32_t)tc->page_size_bits & 0xFu) << 20;
+  value |= ((uint32_t)tc->initial_shift & 0xFu) << 16;
+  for (unsigned level = 0; level < AP_M68030_TC_LEVELS; level++) {
+    /* TIA is the *highest* nibble of the low half, TID the lowest. */
+    const unsigned shift = 12u - 4u * level;
+    value |= ((uint32_t)tc->table_index[level] & 0xFu) << shift;
+  }
+  return value;
+}

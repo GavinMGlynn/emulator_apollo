@@ -47,6 +47,9 @@
 #include "cpu/m68030/ap_m68030_cache.h"
 #include "cpu/m68030/ap_m68030_decode.h"
 #include "cpu/m68030/ap_m68030_fetch.h"
+#include "cpu/m68030/ap_m68030_tc.h"
+#include "cpu/m68030/ap_m68030_tt.h"
+#include "cpu/m68030/ap_m68030_walk.h"
 #include "cpu/m68030/ap_m68030_regs.h"
 
 typedef enum {
@@ -74,6 +77,22 @@ typedef struct {
   ap_m68030_access_ctx_t *data;
   uint8_t data_function_code;
   uint64_t clocks; /* accumulated across steps */
+
+  /* The MMU registers, which `PMOVE` writes and reads. They live here because
+   * there is one MMU and two access paths through it: a caller that wants
+   * translation to follow a `PMOVE` points both access contexts' `tc`, `root`,
+   * `tt0` and `tt1` at these rather than at storage of its own.
+   *
+   * `crp` and `srp` are root pointer *descriptors* -- "The field descriptions in
+   * the preceding section apply to corresponding fields of the CRP and SRP" --
+   * so they are unpacked by the same code that unpacks a long-format table
+   * descriptor, rather than by a second transcription of the same layout. */
+  ap_m68030_tc_t tc;
+  ap_m68030_root_t crp;
+  ap_m68030_root_t srp;
+  ap_m68030_tt_t tt0;
+  ap_m68030_tt_t tt1;
+  uint16_t mmusr;
 
   /* The cache control and cache address registers, which are CPU state rather
    * than cache state: MOVEC reaches them, and writing CACR performs the cache

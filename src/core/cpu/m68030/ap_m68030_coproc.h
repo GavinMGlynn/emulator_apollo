@@ -40,6 +40,8 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#include "cpu/m68030/ap_m68030_ea.h"
+
 /* Bits 8-6, the coprocessor operation type. */
 typedef enum {
   AP_M68030_CP_GENERAL = 0x0,   /* cpGEN: the arithmetic and move forms */
@@ -59,6 +61,11 @@ typedef struct {
   unsigned cpid;                /* bits 11-9 */
   ap_m68030_coproc_type_t type; /* bits 8-6 */
   bool is_mmu;                  /* cpID 0: the 68030's own MMU instructions */
+  /* The MMU instructions put a six-bit effective address in the low bits of the
+   * instruction word, where a general coprocessor instruction has one too. Only
+   * "control alterable addressing modes" are legal there on this part, which is
+   * a restriction the executor applies -- this reports what the field says. */
+  ap_m68030_ea_t ea;
 } ap_m68030_coproc_t;
 
 [[nodiscard]] ap_m68030_coproc_t ap_m68030_coproc_decode(uint16_t instruction);

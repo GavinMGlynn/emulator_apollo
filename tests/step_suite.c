@@ -2706,6 +2706,206 @@ static void test_a_reserved_displacement_size_is_not_a_null_one(void) {
   TEST_ASSERT_EQUAL_HEX32(PROGRAM_BASE, m.cpu.regs.pc);
 }
 
+/* ---------------------------------------------------------------------------
+ * PMOVE: the MMU registers, reached through family 1111.
+ * ------------------------------------------------------------------------- */
+
+/* A translation control value the consistency check accepts: PS 8 plus
+ * TIA/TIB/TIC of 8 each and IS 0 sums to 32, which is what the check requires.
+ * "The TIx fields are added together until a zero field is reached, and this sum
+ * is added to PS and IS. The total must be 32." */
+#define CONSISTENT_TC 0x80808880u
+
+/* "PMOVE <ea>,MRn" then "PMOVE MRn,<ea>": the round trip, because a write to
+ * the wrong register and a read from the same wrong one agree with each other
+ * and with nothing else. */
+static void test_pmove_writes_and_reads_the_translation_control_register(void) {
+  /* PMOVE (A0),TC ; PMOVE TC,(A1) */
+  static const uint16_t program[] = {0xF010u, 0x4000u, 0xF011u, 0x4200u,
+                                     0x4E71u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 6);
+  m.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
+  m.cpu.regs.a[0] = 0x00005000u;
+  m.cpu.regs.a[1] = 0x00005100u;
+  write_ram_long(&m, 0x00005000u, CONSISTENT_TC);
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&m.cpu).status);
+  TEST_ASSERT_TRUE(m.cpu.tc.enable);
+  TEST_ASSERT_EQUAL_UINT(8u, m.cpu.tc.page_size_bits);
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&m.cpu).status);
+  TEST_ASSERT_EQUAL_HEX32(CONSISTENT_TC, read_ram_long(&m, 0x00005100u));
+}
+
+/* The P-REGISTER field is *not* enough on its own: `010` names the supervisor
+ * root pointer under one prefix and TT0 under another. A decoder reading only
+ * that field would write a transparent translation register where a root
+ * pointer belongs -- and both are plausible 32-bit values, so nothing would
+ * fault until a translation went somewhere strange. */
+static void test_the_same_p_register_field_names_two_different_registers(void) {
+  /* PMOVE (A0),SRP -- prefix 010, P-REGISTER 010, a quad-word operation. */
+  static const uint16_t to_srp[] = {0xF010u, 0x4800u, 0x4E71u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, to_srp, 4);
+  m.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
+  m.cpu.regs.a[0] = 0x00005000u;
+  write_ram_long(&m, 0x00005000u, 0x03FF0002u); /* limit $3FF, DT valid 4-byte */
+  write_ram_long(&m, 0x00005004u, 0x00012000u); /* the table address */
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&m.cpu).status);
+  TEST_ASSERT_EQUAL_HEX32(0x00012000u, m.cpu.srp.table_address);
+  TEST_ASSERT_EQUAL_HEX32(0x03FFu, m.cpu.srp.limit);
+  /* And TT0 was not touched. */
+  TEST_ASSERT_EQUAL_HEX32(0u, ap_m68030_tt_pack(&m.cpu.tt0));
+
+  /* PMOVE (A0),TT0 -- prefix 000, the same P-REGISTER 010, a long operation. */
+  static const uint16_t to_tt0[] = {0xF010u, 0x0800u, 0x4E71u, 0x4E71u};
+  machine_t n = {0};
+  load(&n, to_tt0, 4);
+  n.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
+  n.cpu.regs.a[0] = 0x00005000u;
+  write_ram_long(&n, 0x00005000u, 0x807F8040u);
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&n.cpu).status);
+  TEST_ASSERT_TRUE(n.cpu.tt0.enabled);
+  TEST_ASSERT_EQUAL_HEX32(0x807F8040u, ap_m68030_tt_pack(&n.cpu.tt0));
+  /* And the supervisor root pointer was not touched. */
+  TEST_ASSERT_EQUAL_HEX32(0u, n.cpu.srp.table_address);
+}
+
+/* "A descriptor-type code of $00 (invalid) is not allowed; an attempt to load
+ * zero into the DT field of the CRP or SRP register results in an MMU
+ * configuration exception" -- taken "after moving the operand", so the register
+ * *is* written and only then does it fault. */
+static void test_an_invalid_root_pointer_faults_after_the_move(void) {
+  static const uint16_t program[] = {0xF010u, 0x4C00u, 0x4E71u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 4);
+  plant_vector(&m, AP_M68030_VECTOR_MMU_CONFIGURATION, HANDLER);
+  m.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
+  m.cpu.regs.isp = SUPERVISOR_STACK;
+  m.cpu.regs.a[0] = 0x00005000u;
+  write_ram_long(&m, 0x00005000u, 0x00000000u); /* DT zero: invalid */
+  write_ram_long(&m, 0x00005004u, 0x00012000u);
+
+  const ap_m68030_step_result_t r = ap_m68030_step(&m.cpu);
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXCEPTION, r.status);
+  TEST_ASSERT_EQUAL_HEX32(HANDLER, m.cpu.regs.pc);
+  /* The move happened first, which is what the manual's ordering says. */
+  TEST_ASSERT_EQUAL_HEX32(0x00012000u, m.cpu.crp.table_address);
+}
+
+/* "If the E-bit = 1, consistency checks are performed on the PS and TIx fields.
+ * If the checks fail, the instruction takes an MMU configuration exception
+ * after moving the operand ... and the E-bit is cleared." Both halves: the
+ * value lands, and translation is left off rather than enabled inconsistently.
+ * Refusing the write instead would leave the operating system unable to see
+ * what it wrote wrong. */
+static void test_an_inconsistent_translation_control_lands_with_e_cleared(void) {
+  static const uint16_t program[] = {0xF010u, 0x4000u, 0x4E71u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 4);
+  plant_vector(&m, AP_M68030_VECTOR_MMU_CONFIGURATION, HANDLER);
+  m.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
+  m.cpu.regs.isp = SUPERVISOR_STACK;
+  m.cpu.regs.a[0] = 0x00005000u;
+  /* The same as CONSISTENT_TC but with TID also 8, so the sum is 40. */
+  write_ram_long(&m, 0x00005000u, 0x80808888u);
+
+  const ap_m68030_step_result_t r = ap_m68030_step(&m.cpu);
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXCEPTION, r.status);
+  TEST_ASSERT_EQUAL_HEX32(HANDLER, m.cpu.regs.pc);
+  /* The fields landed ... */
+  TEST_ASSERT_EQUAL_UINT(8u, m.cpu.tc.table_index[3]);
+  /* ... and translation is off. */
+  TEST_ASSERT_FALSE(m.cpu.tc.enable);
+}
+
+/* "If the FD bit equals one, the ATC is not flushed when the instruction is
+ * executed. If the FD bit equals zero, the ATC is flushed" -- so PMOVEFD is a
+ * different instruction from PMOVE in exactly one bit, and an operating system
+ * that meant to keep its cached translations is the one that sets it. */
+static void test_the_flush_disable_bit_decides_whether_the_atc_survives(void) {
+  static const uint16_t flushing[] = {0xF010u, 0x4000u, 0x4E71u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, flushing, 4);
+  m.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
+  m.cpu.regs.a[0] = 0x00005000u;
+  write_ram_long(&m, 0x00005000u, CONSISTENT_TC);
+  (void)ap_m68030_atc_insert(&m.atc, 5u, 0x00020000u, 8u, 0x00090000u, false,
+                             false, false, false);
+  TEST_ASSERT_EQUAL_INT(AP_M68030_ATC_HIT,
+                        ap_m68030_atc_lookup(&m.atc, 5u, 0x00020000u, 8u, false,
+                                             false)
+                            .status);
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&m.cpu).status);
+  TEST_ASSERT_EQUAL_INT(AP_M68030_ATC_MISS,
+                        ap_m68030_atc_lookup(&m.atc, 5u, 0x00020000u, 8u, false,
+                                             false)
+                            .status);
+
+  /* PMOVEFD: the same instruction with FD set. */
+  static const uint16_t keeping[] = {0xF010u, 0x4100u, 0x4E71u, 0x4E71u};
+  machine_t n = {0};
+  load(&n, keeping, 4);
+  n.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
+  n.cpu.regs.a[0] = 0x00005000u;
+  write_ram_long(&n, 0x00005000u, CONSISTENT_TC);
+  (void)ap_m68030_atc_insert(&n.atc, 5u, 0x00020000u, 8u, 0x00090000u, false,
+                             false, false, false);
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&n.cpu).status);
+  TEST_ASSERT_EQUAL_INT(AP_M68030_ATC_HIT,
+                        ap_m68030_atc_lookup(&n.atc, 5u, 0x00020000u, 8u, false,
+                                             false)
+                            .status);
+}
+
+/* Every MMU instruction is privileged, and the vector an *unsupported* one
+ * takes depends on the state it was attempted from: F-line from supervisor,
+ * privilege violation from user. Almost everywhere else in this architecture
+ * the exception a word takes is a property of the word alone -- reporting
+ * F-line in both cases would let a user program distinguish "unimplemented"
+ * from "not allowed", which is what the privilege violation exists to prevent. */
+static void test_an_mmu_instruction_in_user_state_violates_privilege(void) {
+  static const uint16_t program[] = {0xF010u, 0x4000u, 0x4E71u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 4);
+  plant_vector(&m, AP_M68030_VECTOR_PRIVILEGE_VIOLATION, HANDLER);
+  m.cpu.regs.sr = 0; /* user state */
+  m.cpu.regs.isp = SUPERVISOR_STACK;
+  m.cpu.regs.a[0] = 0x00005000u;
+  write_ram_long(&m, 0x00005000u, CONSISTENT_TC);
+
+  const ap_m68030_step_result_t r = ap_m68030_step(&m.cpu);
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXCEPTION, r.status);
+  TEST_ASSERT_EQUAL_HEX32(HANDLER, m.cpu.regs.pc);
+  /* And the register was not written. */
+  TEST_ASSERT_FALSE(m.cpu.tc.enable);
+}
+
+/* "Only control alterable addressing modes can be used" -- the 68030's
+ * "Reduced Instruction Set ... Only Control-Alterable Addressing Modes
+ * Supported for MMU Instructions". A data register is not a memory location,
+ * and accepting one would read an MMU register out of a register operand. */
+static void test_pmove_refuses_a_register_direct_operand(void) {
+  /* PMOVE D0,TC -- mode 000, which the table shows with no entry at all. */
+  static const uint16_t program[] = {0xF000u, 0x4000u, 0x4E71u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 4);
+  m.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
+  m.cpu.regs.d[0] = CONSISTENT_TC;
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_UNIMPLEMENTED,
+                        ap_m68030_step(&m.cpu).status);
+  TEST_ASSERT_FALSE(m.cpu.tc.enable);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_a_nop_executes_and_advances_the_pc);
@@ -2773,6 +2973,13 @@ int main(void) {
   RUN_TEST(test_a_register_count_is_taken_modulo_sixty_four);
   RUN_TEST(test_a_byte_shift_leaves_the_upper_bytes);
   RUN_TEST(test_an_address_form_accepts_an_immediate_source);
+  RUN_TEST(test_pmove_writes_and_reads_the_translation_control_register);
+  RUN_TEST(test_the_same_p_register_field_names_two_different_registers);
+  RUN_TEST(test_an_invalid_root_pointer_faults_after_the_move);
+  RUN_TEST(test_an_inconsistent_translation_control_lands_with_e_cleared);
+  RUN_TEST(test_the_flush_disable_bit_decides_whether_the_atc_survives);
+  RUN_TEST(test_an_mmu_instruction_in_user_state_violates_privilege);
+  RUN_TEST(test_pmove_refuses_a_register_direct_operand);
   RUN_TEST(test_a_full_format_index_adds_base_register_and_displacement);
   RUN_TEST(test_the_index_is_inside_the_brackets_for_only_one_of_the_two);
   RUN_TEST(test_a_suppressed_base_contributes_zero_not_its_register);

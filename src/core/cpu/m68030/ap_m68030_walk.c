@@ -378,3 +378,22 @@ ap_m68030_descriptor_t ap_m68030_descriptor_unpack_long(uint32_t upper,
   }
   return descriptor;
 }
+
+uint32_t ap_m68030_root_pack_upper(const ap_m68030_root_t *root) {
+  uint32_t upper = 0;
+
+  /* "A descriptor-type code of $00 (invalid) is not allowed" in a root pointer,
+   * so a root that reached here is one of the two valid table types, and which
+   * one is exactly what `long_format` records. */
+  upper |= root->long_format ? (uint32_t)AP_M68030_DT_VALID_8BYTE
+                             : (uint32_t)AP_M68030_DT_VALID_4BYTE;
+
+  if (root->has_limit) {
+    upper |= ((uint32_t)root->limit & 0x7FFFu)
+             << AP_M68030_DESC_LONG_LIMIT_SHIFT;
+    if (root->lower_limit) {
+      upper |= UINT32_C(1) << AP_M68030_DESC_LONG_LU_BIT;
+    }
+  }
+  return upper;
+}

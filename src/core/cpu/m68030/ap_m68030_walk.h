@@ -190,6 +190,14 @@ typedef struct {
   bool has_limit;
 } ap_m68030_root_t;
 
+/* The upper long word of a root pointer register, which is the same layout as a
+ * long-format table descriptor's: "The field descriptions in the preceding
+ * section apply to corresponding fields of the CRP and SRP". Written here
+ * rather than in the step so the packing sits beside the unpacking it inverts.
+ *
+ * The lower long word is simply the table address, so it needs no function. */
+[[nodiscard]] uint32_t ap_m68030_root_pack_upper(const ap_m68030_root_t *root);
+
 /* Perform a table search for `address`.
  *
  * Applies the limit check at each level, accumulates protection down the tree,

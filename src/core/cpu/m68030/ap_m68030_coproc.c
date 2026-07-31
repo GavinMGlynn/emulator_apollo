@@ -16,6 +16,13 @@ ap_m68030_coproc_t ap_m68030_coproc_decode(uint16_t instruction) {
   out.cpid = (unsigned)((instruction >> 9) & 0x7u);
   out.is_mmu = (out.cpid == AP_M68030_CPID_MMU);
 
+  /* Bits 5-0 are the effective address field for the types that take one, which
+   * on this part is how PMOVE, PTEST and PFLUSH name their operand. Only
+   * "control alterable addressing modes" are legal there -- a restriction the
+   * executor applies, since this reports what the field says. */
+  out.ea = ap_m68030_ea_decode((unsigned)((instruction >> 3) & 0x7u),
+                               (unsigned)(instruction & 0x7u));
+
   const unsigned type = (unsigned)((instruction >> 6) & 0x7u);
   out.type = (type <= 0x5u) ? (ap_m68030_coproc_type_t)type
                             : AP_M68030_CP_RESERVED;

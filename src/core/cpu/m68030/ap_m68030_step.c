@@ -1,6 +1,8 @@
 /* MC68030 instruction step. See ap_m68030_step.h for why an unimplemented
  * instruction is reported rather than skipped. */
 
+#include <stddef.h>
+
 #include "cpu/m68030/ap_m68030_step.h"
 
 #include "cpu/m68030/ap_m68030_branch.h"
@@ -2266,6 +2268,268 @@ static bool execute_misc(ap_m68030_cpu_t *cpu, const ap_m68030_misc_t *misc,
   return false;
 }
 
+/* ---------------------------------------------------------------------------
+ * PMOVE, `M68000PRM` "Move to/from MMU Registers (MC68030 only)".
+ *
+ * Three instruction formats, told apart by the extension word's top three bits:
+ *
+ *   010  SRP, CRP and TC     P-REGISTER 000 TC, 010 SRP, 011 CRP
+ *   011  MMU status register P-REGISTER 000, and no FD bit
+ *   000  TT0 and TT1         P-REGISTER 010 TT0, 011 TT1
+ *
+ * with R/W at bit 9 and FD at bit 8. Note that P-REGISTER `010` is the
+ * supervisor root pointer under one prefix and TT0 under another: the prefix is
+ * not decoration, and a decoder reading only the P-REGISTER field would write a
+ * transparent translation register where a root pointer belongs.
+ *
+ * "The instruction is a quad-word (8 byte) operation for the CPU root pointer
+ * and the supervisor root pointer. It is a long-word operation for the
+ * translation control register and the transparent translation registers (TT0
+ * and TT1). It is a word operation for the MMU status register."
+ *
+ * "Only control alterable addressing modes can be used", which is what the
+ * 68030 means by "Reduced Instruction Set ... Only Control-Alterable Addressing
+ * Modes Supported for MMU Instructions".
+ * ------------------------------------------------------------------------- */
+
+typedef enum {
+  AP_PMOVE_TC,
+  AP_PMOVE_SRP,
+  AP_PMOVE_CRP,
+  AP_PMOVE_TT0,
+  AP_PMOVE_TT1,
+  AP_PMOVE_MMUSR,
+  AP_PMOVE_NONE,
+} pmove_register_t;
+
+static pmove_register_t pmove_register(uint16_t extension) {
+  const unsigned prefix = (unsigned)((extension >> 13) & 0x7u);
+  const unsigned which = (unsigned)((extension >> 10) & 0x7u);
+
+  switch (prefix) {
+  case 0x2u: /* 010: the root pointers and TC */
+    switch (which) {
+    case 0x0u:
+      return AP_PMOVE_TC;
+    case 0x2u:
+      return AP_PMOVE_SRP;
+    case 0x3u:
+      return AP_PMOVE_CRP;
+    default:
+      return AP_PMOVE_NONE;
+    }
+  case 0x3u: /* 011: the status register, which has no FD bit */
+    return (which == 0x0u) ? AP_PMOVE_MMUSR : AP_PMOVE_NONE;
+  case 0x0u: /* 000: the transparent translation registers */
+    switch (which) {
+    case 0x2u:
+      return AP_PMOVE_TT0;
+    case 0x3u:
+      return AP_PMOVE_TT1;
+    default:
+      return AP_PMOVE_NONE;
+    }
+  default:
+    return AP_PMOVE_NONE;
+  }
+}
+
+static unsigned pmove_size(pmove_register_t which) {
+  switch (which) {
+  case AP_PMOVE_SRP:
+  case AP_PMOVE_CRP:
+    return 8u;
+  case AP_PMOVE_TC:
+  case AP_PMOVE_TT0:
+  case AP_PMOVE_TT1:
+    return 4u;
+  case AP_PMOVE_MMUSR:
+    return 2u;
+  case AP_PMOVE_NONE:
+    break;
+  }
+  return 0u;
+}
+
+/* A root pointer register is a long-format descriptor, so it is unpacked by the
+ * walk's own code rather than by a second transcription of the same bit
+ * positions -- the two cannot then drift apart. */
+static ap_m68030_root_t pmove_root_from(uint32_t upper, uint32_t lower,
+                                        bool *invalid) {
+  const ap_m68030_descriptor_t descriptor =
+      ap_m68030_descriptor_unpack_long(upper, lower, false);
+
+  /* "A descriptor-type code of $00 (invalid) is not allowed; an attempt to load
+   * zero into the DT field of the CRP or SRP register results in an MMU
+   * configuration exception." The move still happens -- the exception is taken
+   * "after moving the operand" -- so this reports rather than refuses. */
+  *invalid = descriptor.dt == AP_M68030_DT_INVALID;
+
+  ap_m68030_root_t root = {0};
+
+  /* The table address comes from the lower long word directly rather than from
+   * the unpacked descriptor: the unpack stops early on an invalid DT, and this
+   * register is written even then -- the exception is "after moving the
+   * operand". Figure 9-35 puts the address in bits 31-4, and "Bits 3-0 of the
+   * root pointer are not used and are ignored when written". */
+  root.table_address = lower & UINT32_C(0xFFFFFFF0);
+  root.long_format = descriptor.dt == AP_M68030_DT_VALID_8BYTE;
+  root.limit = descriptor.limit;
+  root.lower_limit = descriptor.lower_limit;
+  root.has_limit = descriptor.has_limit;
+  return root;
+}
+
+static bool execute_pmove(ap_m68030_cpu_t *cpu, const ap_m68030_coproc_t *coproc,
+                          uint32_t *clocks) {
+  uint16_t extension = 0;
+  if (!next_word(cpu, clocks, &extension)) {
+    return false;
+  }
+
+  const pmove_register_t which = pmove_register(extension);
+  if (which == AP_PMOVE_NONE) {
+    return false; /* a register this part does not have: F-line, not a no-op */
+  }
+  /* Bits 7-0 are shown as zero in all three formats. */
+  if ((extension & 0x00FFu) != 0u) {
+    return false;
+  }
+
+  const bool to_memory = (extension & (1u << 9)) != 0u;
+  /* "If the FD bit equals one, the ATC is not flushed" -- and the status
+   * register's format has no FD bit at all, so its bit 8 is simply zero and
+   * flushing is not something a write to it does. */
+  const bool flush_disabled = (extension & (1u << 8)) != 0u;
+  const unsigned size = pmove_size(which);
+
+  ap_m68030_address_input_t input = {0};
+  if (!gather_address_input(cpu, coproc->ea.kind, size, clocks, &input)) {
+    return false;
+  }
+  const ap_m68030_address_t where =
+      resolve_address(cpu, clocks, coproc->ea, &input);
+  /* "Only control alterable addressing modes can be used": no register direct,
+   * no immediate, no increment modes and nothing PC-relative. */
+  if (!where.valid || where.in_register || where.immediate) {
+    return false;
+  }
+
+  if (to_memory) {
+    uint32_t high = 0;
+    uint32_t low = 0;
+    switch (which) {
+    case AP_PMOVE_TC:
+      low = ap_m68030_tc_encode(&cpu->tc);
+      break;
+    case AP_PMOVE_TT0:
+      low = ap_m68030_tt_pack(&cpu->tt0);
+      break;
+    case AP_PMOVE_TT1:
+      low = ap_m68030_tt_pack(&cpu->tt1);
+      break;
+    case AP_PMOVE_MMUSR:
+      low = cpu->mmusr;
+      break;
+    case AP_PMOVE_SRP:
+    case AP_PMOVE_CRP: {
+      const ap_m68030_root_t *root =
+          (which == AP_PMOVE_SRP) ? &cpu->srp : &cpu->crp;
+      high = ap_m68030_root_pack_upper(root);
+      low = root->table_address;
+      break;
+    }
+    case AP_PMOVE_NONE:
+      return false;
+    }
+
+    if (size == 8u) {
+      if (!write_frame_field(cpu, where.address, 4u, high, clocks) ||
+          !write_frame_field(cpu, where.address + 4u, 4u, low, clocks)) {
+        return false;
+      }
+      return true;
+    }
+    return write_frame_field(cpu, where.address, size, low, clocks);
+  }
+
+  /* Memory to register. */
+  uint32_t high = 0;
+  uint32_t low = 0;
+  if (size == 8u) {
+    const ap_m68030_address_t upper_at = {.address = where.address,
+                                          .valid = true};
+    const ap_m68030_address_t lower_at = {.address = where.address + 4u,
+                                          .valid = true};
+    const ap_m68030_operand_result_t a = ap_m68030_operand_read(
+        &cpu->regs, cpu->data, &upper_at, 4u, AP_M68030_FC_SUPERVISOR_DATA);
+    const ap_m68030_operand_result_t b = ap_m68030_operand_read(
+        &cpu->regs, cpu->data, &lower_at, 4u, AP_M68030_FC_SUPERVISOR_DATA);
+    *clocks += a.clocks + b.clocks;
+    if (!a.ok || !b.ok) {
+      return false;
+    }
+    high = a.value;
+    low = b.value;
+  } else {
+    const ap_m68030_operand_result_t read = ap_m68030_operand_read(
+        &cpu->regs, cpu->data, &where, size, AP_M68030_FC_SUPERVISOR_DATA);
+    *clocks += read.clocks;
+    if (!read.ok) {
+      return false;
+    }
+    low = read.value;
+  }
+
+  switch (which) {
+  case AP_PMOVE_TC: {
+    cpu->tc = ap_m68030_tc_decode(low);
+    /* "If the E-bit = 1, consistency checks are performed on the PS and TIx
+     * fields. If the checks fail, the instruction takes an MMU configuration
+     * exception *after moving the operand* ... and the E-bit is cleared." So
+     * the register is written either way, and only then does it fault. */
+    if (cpu->tc.enable && !ap_m68030_tc_is_consistent(&cpu->tc, NULL)) {
+      cpu->tc.enable = false;
+      cpu->pending_vector = AP_M68030_VECTOR_MMU_CONFIGURATION;
+    }
+    break;
+  }
+  case AP_PMOVE_TT0:
+    cpu->tt0 = ap_m68030_tt_unpack(low);
+    break;
+  case AP_PMOVE_TT1:
+    cpu->tt1 = ap_m68030_tt_unpack(low);
+    break;
+  case AP_PMOVE_MMUSR:
+    cpu->mmusr = (uint16_t)low;
+    break;
+  case AP_PMOVE_SRP:
+  case AP_PMOVE_CRP: {
+    bool invalid = false;
+    const ap_m68030_root_t root = pmove_root_from(high, low, &invalid);
+    if (which == AP_PMOVE_SRP) {
+      cpu->srp = root;
+    } else {
+      cpu->crp = root;
+    }
+    if (invalid) {
+      cpu->pending_vector = AP_M68030_VECTOR_MMU_CONFIGURATION;
+    }
+    break;
+  }
+  case AP_PMOVE_NONE:
+    return false;
+  }
+
+  /* "When the FD-bit is zero, it flushes the address translation cache" -- for
+   * every register but the status one, whose format carries no FD bit. */
+  if (!flush_disabled && which != AP_PMOVE_MMUSR && cpu->data != NULL &&
+      cpu->data->atc != NULL) {
+    ap_m68030_atc_flush(cpu->data->atc);
+  }
+  return true;
+}
+
 ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
   ap_m68030_step_result_t out = {.status = AP_M68030_STEP_FAULT};
   uint16_t word = 0;
@@ -2455,7 +2719,30 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
     }
     break;
 
-  case AP_M68030_DECODED_COPROC:
+  case AP_M68030_DECODED_COPROC: {
+    const ap_m68030_coproc_t *coproc = &decoded.as.coproc;
+
+    /* "The MMU instructions use the same opcodes and coprocessor
+     * identification (CpID) as the corresponding instructions of the
+     * MC68851", so the 68030's own MMU sits at cpID 0 in family 1111. */
+    if (coproc->is_mmu && coproc->type == AP_M68030_CP_GENERAL) {
+      /* Every MMU instruction is privileged, and the vector an *unsupported*
+       * one takes depends on the privilege state: F-line from supervisor,
+       * privilege violation from user. Reporting F-line in both would let a
+       * user program distinguish "unimplemented" from "not allowed". */
+      if (!ap_m68030_supervisor(&cpu->regs)) {
+        cpu->pending_vector = AP_M68030_VECTOR_PRIVILEGE_VIOLATION;
+        break;
+      }
+      if (execute_pmove(cpu, coproc, &out.clocks)) {
+        break;
+      }
+    }
+    out.status = AP_M68030_STEP_UNIMPLEMENTED;
+    cpu->clocks += out.clocks;
+    return out;
+  }
+
   case AP_M68030_DECODED_LINE_A:
   case AP_M68030_DECODED_ILLEGAL:
     out.status = AP_M68030_STEP_UNIMPLEMENTED;

@@ -799,6 +799,46 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         sign-extending so `$8000` addresses the top of memory; and both operands
         taking their words **in order**, checked by giving them different
         displacements so a swapped read produces the wrong address.*
+  - [~] **The MMU instructions**, which are how every MMU register this project
+        already models actually gets written. `PMOVE` lands here; `PTEST`,
+        `PFLUSH` and `PLOAD` remain and are named rather than left implied.
+        **`PMOVE` has three instruction formats, told apart by the extension
+        word's top three bits**, and the P-REGISTER field below them is not
+        enough on its own: `010` names the *supervisor root pointer* under
+        prefix `010` and *TT0* under prefix `000`. A decoder reading only
+        P-REGISTER writes a transparent translation register where a root
+        pointer belongs — and both hold plausible 32-bit values, so nothing
+        faults until a translation goes somewhere strange.
+        Sizes differ per register: quad for the root pointers, long for TC and
+        the TTx pair, word for the status register.
+        **Two writes fault *after* landing.** An invalid root pointer descriptor
+        type and an inconsistent TC both take an MMU configuration exception
+        "after moving the operand", and TC additionally has its E bit cleared.
+        Refusing the write instead would leave the operating system unable to
+        see what it wrote wrong. The invalid-root case also forced a fix: the
+        long-descriptor unpack stops early on DT zero, so the root pointer's
+        table address is taken from the lower long word directly, per Figure
+        9-35's "Bits 3-0 of the root pointer are not used and are ignored when
+        written".
+        **The FD bit makes `PMOVEFD` a different instruction in one bit** —
+        "If the FD bit equals one, the ATC is not flushed" — and the status
+        register's format carries no FD bit at all, so flushing is not something
+        a write to it does.
+        The MMU registers now live on the CPU rather than in whatever the caller
+        supplied, because there is one MMU and two access paths through it; a
+        caller wanting translation to follow a `PMOVE` points both access
+        contexts at them. The root pointers are unpacked by the *walk's* own
+        long-descriptor code — "The field descriptions in the preceding section
+        apply to corresponding fields of the CRP and SRP" — so the two cannot
+        drift apart, and `ap_m68030_root_pack_upper` inverts it beside it.
+        *Verification: `step_suite`, 7 further tests (131 total) — a TC round
+        trip through memory; the same P-REGISTER field reaching two different
+        registers under two prefixes, each leaving the other alone; an invalid
+        root pointer faulting with the address already landed; an inconsistent
+        TC landing with `E` cleared; the ATC surviving `PMOVEFD` and not
+        surviving `PMOVE`; an MMU instruction in user state taking a privilege
+        violation rather than F-line; and a register-direct operand refused,
+        since only control alterable modes are legal.*
   - [x] **Full-format indexed addressing and the memory indirect modes**. The
         extension word declares its own base and outer displacement sizes, so
         the number of words to read is not known until that word has been read —

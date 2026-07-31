@@ -62,6 +62,13 @@ typedef struct {
  * encoding is simply the page offset width, and anything below 8 is reserved. */
 [[nodiscard]] uint32_t ap_m68030_tc_page_size(const ap_m68030_tc_t *tc);
 
+/* The inverse of the decode, for `PMOVE MRn,<ea>` reading the register back.
+ * "All unimplemented fields of this register are read as zeros", so the encode
+ * emits only the fields the decode names -- a round trip through this pair
+ * therefore *normalises* a value rather than preserving it, which is what the
+ * hardware does too. */
+[[nodiscard]] uint32_t ap_m68030_tc_encode(const ap_m68030_tc_t *tc);
+
 /* The consistency check `[030]` performs when TC is written with E set:
  *
  *   "The TIx fields are added together until a zero field is reached, and this
