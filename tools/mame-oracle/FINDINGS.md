@@ -1232,10 +1232,33 @@ routes left are the unread `OMTI_AT_Controller_Series_Jan87` scan, the boot PROM
 driving the controller, and a write probe -- which for a disk controller carries
 C17's hazard and is the last resort rather than the first.
 
-Recorded at length because the shape of this search is the reusable part: the
-directory named after the part had no documentation, the series manual named
-after its number covered a different family, and the closest sibling describes a
-different interface. Three plausible sources, none of them the one.
+**The fourth candidate is the right family.** `OMTI_AT_Controller_Series_Jan87`
+lists its models on page 3:
+
+    OMTI 8620  Winchesters ESDI and ST506/412 (MFM) and Flexible Disks
+    OMTI 8627  Winchesters ESDI and ST412 (2,7 RLL) and Flexible Disks
+    OMTI 8120  Winchester ST506/412 (MFM)
+    OMTI 8127  Winchester ST412 (2,7 RLL)
+
+The **8620** is the DN3500's part in all but its last digit: a combined ESDI and
+*flexible disk* controller, which is exactly what the oracle means by "OMTI 8621
+ESDI/floppy controller (Apollo)" and exactly what `008778-03` needs -- one
+controller for both, as C15 established. It is the only one of the four
+candidates describing a combined part at all; the others are Winchester-only or a
+different family.
+
+The 8621 is still not named, so this is transcription from a sibling and must be
+checked against C20's measurement rather than trusted: three driven registers at
+`04D000`, not the 8640's eight-register AT task file. If the 8620's interface
+matches that shape, the sibling is the part; if it does not, the Apollo variant
+diverges further than its number suggests.
+
+**The shape of the search is the reusable part.** The directory named after the
+part held no documentation. The series manual named after its number covered a
+different family. The closest sibling by number described a different interface.
+The one that worked was named after neither the part nor its number but after the
+*bus* -- "AT Controller Series" -- and was found last. Four plausible sources,
+and the ordering that looked obvious was the wrong ordering.
 
 ## Where the ring is not
 
