@@ -1702,9 +1702,123 @@ static bool execute_control(ap_m68030_cpu_t *cpu,
     return true;
 
   case AP_M68030_CTL_RESET:
-  case AP_M68030_CTL_STOP:
+    /* "asserts the RSTO signal for 512 clock periods, resetting all external
+     * devices. The processor state, other than the program counter, is
+     * unaffected, and execution continues with the next instruction." So this
+     * changes nothing inside the processor -- counting it is the whole of the
+     * observable effect until there are devices to reset. */
+    cpu->external_resets++;
+    return true;
+
+  case AP_M68030_CTL_STOP: {
+    /* "Immediate Data -> SR; STOP". The status register is loaded *first* --
+     * including its interrupt mask, which is the point: STOP is how a
+     * supervisor waits for an interrupt at a chosen priority, and loading the
+     * mask afterwards would leave a window at the old one. */
+    uint16_t immediate = 0;
+    if (!next_word(cpu, clocks, &immediate)) {
+      return false;
+    }
+    ap_m68030_write_sr(&cpu->regs, immediate);
+    cpu->stopped = true;
+    return true;
+  }
+
   case AP_M68030_CTL_MOVEC_FROM_CONTROL:
-  case AP_M68030_CTL_MOVEC_TO_CONTROL:
+  case AP_M68030_CTL_MOVEC_TO_CONTROL: {
+    /* "This is always a 32-bit transfer, even though the control register may
+     * be implemented with fewer bits. Unimplemented bits are read as zeros." */
+    uint16_t extension = 0;
+    if (!next_word(cpu, clocks, &extension)) {
+      return false;
+    }
+    const bool general_is_address = (extension & 0x8000u) != 0u;
+    const unsigned general = (unsigned)((extension >> 12) & 0x7u);
+    const unsigned which = (unsigned)(extension & 0x0FFFu);
+    const bool to_control = control->kind == AP_M68030_CTL_MOVEC_TO_CONTROL;
+
+    if (to_control) {
+      const uint32_t value =
+          general_is_address
+              ? ap_m68030_read_address_register(&cpu->regs, general)
+              : cpu->regs.d[general];
+      switch (which) {
+      case AP_M68030_CONTROL_SFC:
+        /* Three bits wide; the rest read as zero, so they are not stored. */
+        cpu->regs.sfc = (uint8_t)(value & 0x7u);
+        return true;
+      case AP_M68030_CONTROL_DFC:
+        cpu->regs.dfc = (uint8_t)(value & 0x7u);
+        return true;
+      case AP_M68030_CONTROL_CACR:
+        /* The clears happen "at the time a MOVEC instruction loads a one into"
+         * the bit, so they are part of this write and use the CAAR index. */
+        ap_m68030_cacr_write(&cpu->cacr, value, cpu->fetch.access->cache,
+                             cpu->data->cache, cpu->caar);
+        return true;
+      case AP_M68030_CONTROL_USP:
+        cpu->regs.usp = value;
+        return true;
+      case AP_M68030_CONTROL_VBR:
+        cpu->regs.vbr = value;
+        return true;
+      case AP_M68030_CONTROL_CAAR:
+        cpu->caar = value;
+        return true;
+      case AP_M68030_CONTROL_MSP:
+        cpu->regs.msp = value;
+        return true;
+      case AP_M68030_CONTROL_ISP:
+        cpu->regs.isp = value;
+        return true;
+      default:
+        /* "If an attempt is made to access a control register that is not
+         * defined ... an illegal instruction exception occurs." A code this
+         * part does not implement is not a no-op. */
+        cpu->pending_vector = AP_M68030_VECTOR_ILLEGAL_INSTRUCTION;
+        return true;
+      }
+    }
+
+    uint32_t value = 0;
+    switch (which) {
+    case AP_M68030_CONTROL_SFC:
+      value = cpu->regs.sfc;
+      break;
+    case AP_M68030_CONTROL_DFC:
+      value = cpu->regs.dfc;
+      break;
+    case AP_M68030_CONTROL_CACR:
+      value = ap_m68030_cacr_pack(&cpu->cacr);
+      break;
+    case AP_M68030_CONTROL_USP:
+      value = cpu->regs.usp;
+      break;
+    case AP_M68030_CONTROL_VBR:
+      value = cpu->regs.vbr;
+      break;
+    case AP_M68030_CONTROL_CAAR:
+      value = cpu->caar;
+      break;
+    case AP_M68030_CONTROL_MSP:
+      value = cpu->regs.msp;
+      break;
+    case AP_M68030_CONTROL_ISP:
+      value = cpu->regs.isp;
+      break;
+    default:
+      cpu->pending_vector = AP_M68030_VECTOR_ILLEGAL_INSTRUCTION;
+      return true;
+    }
+
+    if (general_is_address) {
+      ap_m68030_write_address_register(&cpu->regs, general, value);
+    } else {
+      cpu->regs.d[general] = value;
+    }
+    return true;
+  }
+
   case AP_M68030_CTL_INVALID:
     return false;
   }
@@ -2049,6 +2163,15 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
   uint16_t word = 0;
   bool abnormal = false;
 
+  /* "The processor stops fetching and executing instructions" -- so a stopped
+   * processor does not even prefetch, and this returns before touching the
+   * pipe. Only an interrupt or a reset clears it, neither of which is an
+   * instruction, so nothing here can. */
+  if (cpu->stopped) {
+    out.status = AP_M68030_STEP_STOPPED;
+    return out;
+  }
+
   if (!fill_to_decoded(cpu, &out.clocks, &word, &abnormal) || abnormal) {
     cpu->clocks += out.clocks;
     return out;
@@ -2090,21 +2213,29 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
 
   case AP_M68030_DECODED_BRANCH: {
     const ap_m68030_branch_t *branch = &decoded.as.branch;
-    /* Only the 8-bit form executes yet: the wider ones need their displacement
-     * fetched, which is operand access this step does not do. */
+
+    /* "PC + dn -> PC", and the base is the same for all three sizes: the
+     * instruction address plus two, which is where the displacement word sits.
+     * The 16- and 32-bit forms take that displacement from the instruction
+     * stream, so they must be read *before* the branch is decided -- the PC has
+     * to advance past them even when the condition is false. Deciding first and
+     * skipping the read for an untaken branch desynchronises the pipe. */
+    int32_t displacement = branch->displacement8;
     if (branch->size != AP_M68030_BRANCH_8BIT) {
-      out.status = AP_M68030_STEP_UNIMPLEMENTED;
-      cpu->clocks += out.clocks;
-      return out;
-    }
-    if (branch->is_bsr) {
-      /* "SP - 4 -> SP; PC -> (SP); PC + dn -> PC" -- the pushed PC is the one
-       * after this instruction, and the displacement is relative to the
-       * extension word as it is for every branch. */
-      if (!push_long(cpu, cpu->regs.pc + length, &out.clocks)) {
-        out.status = AP_M68030_STEP_FAULT;
+      uint16_t high = 0;
+      if (!next_word(cpu, &out.clocks, &high)) {
         cpu->clocks += out.clocks;
         return out;
+      }
+      if (branch->size == AP_M68030_BRANCH_16BIT) {
+        displacement = (int32_t)(int16_t)high;
+      } else {
+        uint16_t low = 0;
+        if (!next_word(cpu, &out.clocks, &low)) {
+          cpu->clocks += out.clocks;
+          return out;
+        }
+        displacement = (int32_t)(((uint32_t)high << 16) | low);
       }
     }
 
@@ -2117,9 +2248,18 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
         ap_m68030_condition(branch->condition, ap_m68030_read_ccr(&cpu->regs));
     out.branch_taken = taken;
 
+    if (branch->is_bsr) {
+      /* "SP - 4 -> SP; PC -> (SP); PC + dn -> PC" -- the pushed PC is the one
+       * after this instruction, displacement words included. */
+      if (!push_long(cpu, cpu->regs.pc + length, &out.clocks)) {
+        out.status = AP_M68030_STEP_FAULT;
+        cpu->clocks += out.clocks;
+        return out;
+      }
+    }
+
     if (taken) {
-      cpu->regs.pc =
-          ap_m68030_branch_target(cpu->regs.pc, branch->displacement8);
+      cpu->regs.pc = ap_m68030_branch_target(cpu->regs.pc, displacement);
       ap_m68030_fetch_reset(&cpu->fetch, cpu->regs.pc);
       out.status = AP_M68030_STEP_EXECUTED;
       cpu->clocks += out.clocks;

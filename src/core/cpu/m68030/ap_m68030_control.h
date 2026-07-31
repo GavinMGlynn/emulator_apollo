@@ -59,6 +59,24 @@ typedef struct {
   ap_m68030_ea_t ea; /* JSR and JMP */
 } ap_m68030_control_t;
 
+/* MOVEC's control register codes, `M68000PRM` MOVEC page. The table lists them
+ * per part, and these are the MC68030's set: SFC/DFC/USP/VBR from the 68010,
+ * plus CACR/CAAR/MSP/ISP from the 68020. The MMU registers are *not* here --
+ * on this part they are reached by PMOVE, and the 68040's TC/ITTx/DTTx/MMUSR
+ * codes belong to that part alone.
+ *
+ * The codes are deliberately not contiguous: bit 11 separates the two groups,
+ * so $800 is not $002 with a different index. Treating the field as a small
+ * dense number is how a model ends up putting the USP where CACR belongs. */
+#define AP_M68030_CONTROL_SFC 0x000u
+#define AP_M68030_CONTROL_DFC 0x001u
+#define AP_M68030_CONTROL_CACR 0x002u
+#define AP_M68030_CONTROL_USP 0x800u
+#define AP_M68030_CONTROL_VBR 0x801u
+#define AP_M68030_CONTROL_CAAR 0x802u
+#define AP_M68030_CONTROL_MSP 0x803u
+#define AP_M68030_CONTROL_ISP 0x804u
+
 /* True when the instruction word is in the `0100 1110` subtree at all. */
 [[nodiscard]] bool ap_m68030_control_matches(uint16_t instruction);
 

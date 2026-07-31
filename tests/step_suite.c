@@ -2406,6 +2406,180 @@ static void test_negx_subtracts_from_zero_with_the_extend_bit(void) {
   TEST_ASSERT_EQUAL_HEX32(0xFFFFFFFEu, m.cpu.regs.d[0]);
 }
 
+/* ---------------------------------------------------------------------------
+ * MOVEC, STOP, RESET and the wider branch displacements.
+ * ------------------------------------------------------------------------- */
+
+/* "MOVEC Rn,Rc" then "MOVEC Rc,Rn": the round trip, because a write that went
+ * to the wrong register and a read that came from the same wrong one agree
+ * with each other and with nothing else. VBR is the one that matters most --
+ * every exception is fetched through it. */
+static void test_movec_reaches_the_vector_base_register_both_ways(void) {
+  /* MOVEC D0,VBR ; MOVEC VBR,D1 */
+  static const uint16_t program[] = {0x4E7Bu, 0x0801u, 0x4E7Au, 0x1801u,
+                                     0x4E71u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 6);
+  m.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
+  m.cpu.regs.d[0] = 0x00003000u;
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&m.cpu).status);
+  TEST_ASSERT_EQUAL_HEX32(0x00003000u, m.cpu.regs.vbr);
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&m.cpu).status);
+  TEST_ASSERT_EQUAL_HEX32(0x00003000u, m.cpu.regs.d[1]);
+}
+
+/* The control register codes are deliberately not contiguous -- bit 11
+ * separates the 68010 group from the 68020 one -- so $800 is not $002 with a
+ * different index. A model treating the field as a small dense number puts the
+ * USP where CACR belongs, and both are plausible 32-bit values. */
+static void test_the_control_register_codes_are_not_a_dense_index(void) {
+  /* MOVEC D0,USP ($800) leaves CACR ($002) alone. */
+  static const uint16_t program[] = {0x4E7Bu, 0x0800u, 0x4E71u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 4);
+  m.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
+  m.cpu.regs.d[0] = 0x00007000u;
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&m.cpu).status);
+  TEST_ASSERT_EQUAL_HEX32(0x00007000u, m.cpu.regs.usp);
+  TEST_ASSERT_EQUAL_HEX32(0u, ap_m68030_cacr_pack(&m.cpu.cacr));
+
+  /* And a code the MC68030 does not define is an illegal instruction, not a
+   * silent no-op: $003 is the 68040's TC. */
+  static const uint16_t undefined[] = {0x4E7Bu, 0x0003u, 0x4E71u, 0x4E71u};
+  machine_t n = {0};
+  load(&n, undefined, 4);
+  plant_vector(&n, AP_M68030_VECTOR_ILLEGAL_INSTRUCTION, HANDLER);
+  n.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
+  n.cpu.regs.isp = SUPERVISOR_STACK;
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXCEPTION, ap_m68030_step(&n.cpu).status);
+  TEST_ASSERT_EQUAL_HEX32(HANDLER, n.cpu.regs.pc);
+}
+
+/* MOVEC is privileged: the control registers are the machine's configuration,
+ * and a user program that could write VBR would own the exception table. */
+static void test_movec_is_privileged(void) {
+  static const uint16_t program[] = {0x4E7Bu, 0x0801u, 0x4E71u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 4);
+  plant_vector(&m, AP_M68030_VECTOR_PRIVILEGE_VIOLATION, HANDLER);
+  m.cpu.regs.sr = 0; /* user state */
+  m.cpu.regs.isp = SUPERVISOR_STACK;
+  m.cpu.regs.d[0] = 0x00003000u;
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXCEPTION, ap_m68030_step(&m.cpu).status);
+  TEST_ASSERT_EQUAL_HEX32(0u, m.cpu.regs.vbr); /* and it did not take effect */
+}
+
+/* "Immediate Data -> SR; STOP" -- the status register is loaded *first*,
+ * interrupt mask included, which is the point of the instruction: it is how a
+ * supervisor waits at a chosen priority. Then nothing executes. */
+static void test_stop_loads_the_status_register_and_then_halts_fetching(void) {
+  /* STOP #$2700 -- supervisor, all interrupts masked. */
+  static const uint16_t program[] = {0x4E72u, 0x2700u, 0x7001u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 4);
+  m.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&m.cpu).status);
+  TEST_ASSERT_EQUAL_HEX16(0x2700u, m.cpu.regs.sr);
+  TEST_ASSERT_EQUAL_UINT(7u, ap_m68030_interrupt_mask(&m.cpu.regs));
+
+  /* The MOVEQ after it does not run, and no fetch happens at all. */
+  const unsigned fills_before = m.memory.fills;
+  const ap_m68030_step_result_t stopped = ap_m68030_step(&m.cpu);
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_STOPPED, stopped.status);
+  TEST_ASSERT_EQUAL_HEX32(0u, m.cpu.regs.d[0]);
+  TEST_ASSERT_EQUAL_UINT(fills_before, m.memory.fills);
+}
+
+/* "RESET ... The processor state, other than the program counter, is
+ * unaffected, and execution continues with the next instruction." So the one
+ * observable thing is the external assertion, and the instruction after it
+ * runs -- a model that halted or reset itself here would stop the boot PROM at
+ * its first line, since resetting the devices is among the first things it
+ * does. */
+static void test_reset_asserts_externally_and_carries_on(void) {
+  static const uint16_t program[] = {0x4E70u, 0x7005u, 0x4E71u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 4);
+  m.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
+  m.cpu.regs.d[3] = 0x12345678u;
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&m.cpu).status);
+  TEST_ASSERT_EQUAL_UINT(1u, m.cpu.external_resets);
+  TEST_ASSERT_EQUAL_HEX32(0x12345678u, m.cpu.regs.d[3]);
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&m.cpu).status);
+  TEST_ASSERT_EQUAL_HEX32(5u, m.cpu.regs.d[0]);
+}
+
+/* All three displacement sizes share one base -- the instruction address plus
+ * two -- so a 16-bit branch of +4 and an 8-bit branch of +4 land in the same
+ * place, and the extra words are consumed either way. */
+static void test_a_word_branch_uses_the_same_base_as_a_byte_one(void) {
+  /* BRA.W +4, whose displacement word puts the target at +6. */
+  static const uint16_t program[] = {0x6000u, 0x0004u, 0x4E71u, 0x7008u,
+                                     0x4E71u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 6);
+
+  const ap_m68030_step_result_t r = ap_m68030_step(&m.cpu);
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, r.status);
+  TEST_ASSERT_TRUE(r.branch_taken);
+  TEST_ASSERT_EQUAL_HEX32(PROGRAM_BASE + 6u, m.cpu.regs.pc);
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&m.cpu).status);
+  TEST_ASSERT_EQUAL_HEX32(8u, m.cpu.regs.d[0]);
+}
+
+/* An *untaken* wide branch still has to consume its displacement words: the PC
+ * must land on the next instruction, not inside the displacement. Deciding the
+ * branch before reading them is the mistake, and it executes a displacement as
+ * an instruction -- which decodes as something. */
+static void test_an_untaken_wide_branch_still_skips_its_displacement(void) {
+  /* BEQ.W +$7FFC with Z clear, then MOVEQ #6,D0 at +4. */
+  static const uint16_t program[] = {0x6700u, 0x7FFCu, 0x7006u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 4);
+  ap_m68030_write_ccr(&m.cpu.regs, 0); /* Z clear, so not taken */
+
+  const ap_m68030_step_result_t r = ap_m68030_step(&m.cpu);
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, r.status);
+  TEST_ASSERT_FALSE(r.branch_taken);
+  TEST_ASSERT_EQUAL_HEX32(PROGRAM_BASE + 4u, m.cpu.regs.pc);
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&m.cpu).status);
+  TEST_ASSERT_EQUAL_HEX32(6u, m.cpu.regs.d[0]);
+}
+
+/* A long BSR reaches further than a word one and still pushes the address after
+ * its two displacement words -- which is the part a byte-sized return address
+ * calculation gets wrong. */
+static void test_a_long_bsr_pushes_the_address_after_both_displacement_words(
+    void) {
+  /* BSR.L +6 : $61FF then a long displacement, target at +8. */
+  static const uint16_t program[] = {0x61FFu, 0x0000u, 0x0006u, 0x4E71u,
+                                     0x4E75u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 6);
+  m.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
+  m.cpu.regs.isp = SUPERVISOR_STACK;
+
+  const ap_m68030_step_result_t r = ap_m68030_step(&m.cpu);
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, r.status);
+  TEST_ASSERT_EQUAL_HEX32(PROGRAM_BASE + 8u, m.cpu.regs.pc);
+  /* Six bytes of instruction, so the return address is +6. */
+  TEST_ASSERT_EQUAL_HEX32(PROGRAM_BASE + 6u,
+                          read_ram_long(&m, SUPERVISOR_STACK - 4u));
+
+  /* And the RTS at the target returns there. */
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&m.cpu).status);
+  TEST_ASSERT_EQUAL_HEX32(PROGRAM_BASE + 6u, m.cpu.regs.pc);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_a_nop_executes_and_advances_the_pc);
@@ -2473,6 +2647,14 @@ int main(void) {
   RUN_TEST(test_a_register_count_is_taken_modulo_sixty_four);
   RUN_TEST(test_a_byte_shift_leaves_the_upper_bytes);
   RUN_TEST(test_an_address_form_accepts_an_immediate_source);
+  RUN_TEST(test_movec_reaches_the_vector_base_register_both_ways);
+  RUN_TEST(test_the_control_register_codes_are_not_a_dense_index);
+  RUN_TEST(test_movec_is_privileged);
+  RUN_TEST(test_stop_loads_the_status_register_and_then_halts_fetching);
+  RUN_TEST(test_reset_asserts_externally_and_carries_on);
+  RUN_TEST(test_a_word_branch_uses_the_same_base_as_a_byte_one);
+  RUN_TEST(test_an_untaken_wide_branch_still_skips_its_displacement);
+  RUN_TEST(test_a_long_bsr_pushes_the_address_after_both_displacement_words);
   RUN_TEST(test_lea_loads_the_address_where_movea_loads_the_contents);
   RUN_TEST(test_pea_pushes_the_address_itself);
   RUN_TEST(test_swap_exchanges_the_halves_and_flags_the_whole);

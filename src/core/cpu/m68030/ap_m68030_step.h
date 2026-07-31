@@ -44,6 +44,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#include "cpu/m68030/ap_m68030_cache.h"
 #include "cpu/m68030/ap_m68030_decode.h"
 #include "cpu/m68030/ap_m68030_fetch.h"
 #include "cpu/m68030/ap_m68030_regs.h"
@@ -59,6 +60,10 @@ typedef enum {
    * instruction, and distinct from ILLEGAL because the processor is in a
    * defined state rather than stopped. */
   AP_M68030_STEP_EXCEPTION,
+  /* The processor is stopped: STOP ran, and nothing executes until an interrupt
+   * or a reset. Distinct from every other outcome because no instruction was
+   * fetched -- a caller looping on "did that execute" must stop looping. */
+  AP_M68030_STEP_STOPPED,
 } ap_m68030_step_status_t;
 
 typedef struct {
@@ -69,6 +74,23 @@ typedef struct {
   ap_m68030_access_ctx_t *data;
   uint8_t data_function_code;
   uint64_t clocks; /* accumulated across steps */
+
+  /* The cache control and cache address registers, which are CPU state rather
+   * than cache state: MOVEC reaches them, and writing CACR performs the cache
+   * clears the write requests. Keeping them here rather than inside either
+   * cache is what lets one write touch both. */
+  ap_m68030_cacr_t cacr;
+  uint32_t caar;
+
+  /* "STOP ... Immediate Data -> SR; STOP". The processor "stops fetching and
+   * executing instructions" until an interrupt or a reset -- so this is a state
+   * a step can be in, not something a step does. */
+  bool stopped;
+
+  /* RESET "asserts the RSTO signal ... resetting all external devices" without
+   * affecting the processor. Counted rather than acted on: this module has no
+   * external devices yet, and a count is what a test can observe. */
+  unsigned external_resets;
 
   /* An exception an executing instruction raised, held until the step can take
    * it: an executor knows a divide had a zero divisor, but not the length of

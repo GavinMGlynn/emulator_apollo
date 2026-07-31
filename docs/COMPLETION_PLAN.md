@@ -1047,10 +1047,42 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         the system byte; `ILLEGAL` taking vector 4 with its own address stacked;
         `NBCD` in both the tens and nines complement; and the three `EXT` forms
         reaching different distances from the same source byte.*
-  - [x] **The `$4E` control group executes**: `JSR`, `JMP`, `BSR`, `RTS`,
-        `RTR`, `RTD`, `RTE`, `LINK`, `UNLK`, `TRAP`, `TRAPV` and both directions
-        of `MOVE USP`, with the four privileged ones raising a privilege
-        violation in user state.
+  - [x] **The `$4E` control group executes in full**: `JSR`, `JMP`, `BSR`,
+        `RTS`, `RTR`, `RTD`, `RTE`, `LINK`, `UNLK`, `TRAP`, `TRAPV`, both
+        directions of `MOVE USP`, both directions of `MOVEC`, `STOP` and
+        `RESET`, with the privileged ones raising a privilege violation in user
+        state.
+        **`MOVEC`'s control register codes are not a dense index**: bit 11
+        separates the 68010's SFC/DFC/USP/VBR from the 68020's CACR/CAAR/MSP/
+        ISP, so `$800` is not `$002` with a different index. A model treating
+        the field as a small number puts the USP where CACR belongs, and both
+        hold plausible 32-bit values. A code this part does not define is an
+        illegal instruction rather than a silent no-op — which is how the
+        68040-only MMU codes are kept out. This is also what makes `VBR` and
+        `CACR` reachable at all, and the boot PROM sets both.
+        **`STOP` loads the status register first**, interrupt mask included:
+        that is the whole point of the instruction, and loading the mask after
+        halting would leave a window at the old priority. A stopped processor
+        does not prefetch, so the step returns before touching the pipe.
+        **`RESET` changes nothing inside the processor** — "The processor state,
+        other than the program counter, is unaffected, and execution continues
+        with the next instruction" — so it is counted rather than acted on. A
+        model that halted or reset itself here would stop the boot PROM at its
+        first line, since resetting the devices is among the first things it
+        does.
+  - [x] **The wider branch displacements**: `BRA`/`Bcc`/`BSR` at 16 and 32 bits,
+        all three sizes sharing one base, "the instruction address plus two".
+        An **untaken** wide branch still consumes its displacement words — the
+        read has to happen before the condition is tested, or the PC lands
+        inside the displacement and executes it as an instruction, which decodes
+        as something.
+        *Verification: `step_suite`, 8 further tests (119 total) — a `MOVEC`
+        round trip through `VBR`, `$800` leaving `$002` alone, an undefined code
+        raising vector 4, `MOVEC` privileged and not taking effect when it
+        traps, `STOP` masking interrupts and then not fetching at all, `RESET`
+        leaving the registers alone and continuing, a word branch landing where
+        a byte one would, an untaken word branch skipping its displacement, and
+        a long `BSR` pushing the address after **both** displacement words.*
         `RTE` is the counterpart of taking an exception, and the throwaway frame
         makes it a *loop* rather than a special case: "the processor reads the
         status register value from the frame, increments the active stack
