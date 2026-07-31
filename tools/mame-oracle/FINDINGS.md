@@ -777,6 +777,48 @@ Recorded as blocked rather than guessed. A level picked to look plausible would
 be indistinguishable from a measured one in the code, and wrong in a way only a
 booting machine would reveal.
 
+**Update, after the MC6840 was read.** Knowing the timer's register model made
+it possible to start a device by hand, which moved three of the four unknowns
+and left the fourth standing.
+
+*The timer's address mapping, established.* A clean dump of `010800` reads
+`00 00 00 00 00 FF 00 FF ...`: even bytes zero, odd bytes `00 00` then six
+`FF`s. That is the part on **odd addresses at stride 2** — `RS n` at
+`010801 + 2n` — with RS0 (no operation) and RS1 (status, nothing pending) reading
+zero and the remaining six reading `FF` because, per `[6840]` §4.1, "if the
+latches are not written, they default to $FFFF". Standard 68000 placement for a
+byte peripheral, confirmed independently by the latch default. Contrast
+`016000`, which reads `FF` throughout: the unmapped signature from C10.
+
+*The calendar is live.* `010900` reads `21 00 09 00 89 00 06 31 07 26` — BCD
+seconds, alarm, minutes, hours, weekday, day, month, year. Note for later that
+the oracle seeds it from the **host clock**, which is a determinism hazard for
+any probe that reads it.
+
+*The timer reaches the controllers as IRQ0, established.* Programmed for
+continuous mode with its interrupt enabled, the status register reads `87` —
+composite set, and all three timer flags — and the master controller's ISR reads
+`01`. That confirms `008778-03` Table 2-3's "IRQO ... MC6840 Timer" by
+measurement rather than by transcription.
+
+*The CPU interrupt level, still not established.* An acknowledge cycle does
+occur, and the CPU's `SR` reads `2704` at that moment, which is mask 7. That is
+suggestive and it is **not** conclusive, because the firmware loop runs at `2700`
+anyway: the mask may be the exception raising it to the level, or simply what
+the loop had already set.
+
+The obvious discriminator — hold the mask below 7 and see whether the interrupt
+still gets through — **invalidated itself**. Forcing `SR` on every periodic
+callback produced zero acknowledges at mask 6, mask 5 *and mask 0*, where a
+single write of mask 0 had produced one. So the repeated intervention prevents
+the exception rather than measuring it, and none of those three runs says
+anything about the level.
+
+Recorded that way deliberately. A failed experiment that is reported as a result
+is worse than no experiment, and "mask 7 was observed" would read as "level 7"
+to anyone skimming. The level stays unknown; what is needed is a discriminator
+that perturbs the machine once rather than continuously.
+
 ## Where the ring is not
 
 The Apollo Token Ring has **no runnable oracle at all**: MAME carries Domain

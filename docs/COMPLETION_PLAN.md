@@ -2279,8 +2279,14 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         pulse-width measurement. Their rules are in `[6840]` §§3.7.2-3.10 and
         are simply not transcribed yet; the two measurement modes additionally
         time an external gate that nothing in this machine drives.
-  - [ ] Wire the timer to the board at `010800` and to IRQ0, which also closes
-        the interrupt-level measurement blocked in `FINDINGS.md` C12.
+  - [x] The timer's placement and interrupt route, measured: the part is at
+        **odd addresses, stride 2** (`RS n` at `010801 + 2n`, confirmed by the
+        `FFFF` latch default showing through), and its interrupt reaches the
+        master controller as **IRQ0**, confirming Table 2-3. `FINDINGS.md` C12.
+  - [ ] Wire the timer into the board at `010800` now that its placement is
+        known. The CPU *interrupt level* is still not established — the
+        discriminating experiment invalidated itself, see C12 — so the
+        controller-to-CPU link stays open.
   - [ ] The MC146818 calendar at `010900`.
 - [ ] SIO serial lines, keyboard and mouse. *Verification: console byte stream
       identical to the oracle's.*
