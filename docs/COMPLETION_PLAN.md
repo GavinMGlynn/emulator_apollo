@@ -2268,6 +2268,18 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         not block wiring.
 - [ ] Two AT DMA controllers. *Verification: transfer probes; device request
       lines gate DMA at block granularity, not per word.*
+  - [x] Placement measured before writing anything: DMA 1 at `010C00` **stride
+        1** (sixteen registers aliased every sixteen bytes, the all-mask
+        register reading `0F` as a reset part holds), DMA 2 at `010D00`
+        **stride 2**. The part is confirmed an 8237A by its byte-pointer
+        flip-flop: two bytes written to an address register, the low one read
+        back first. `FINDINGS.md` C13. Intel's datasheet is now in
+        `docs/references/intel/`.
+  - [ ] The 8237A itself: four channels, the address and count registers with
+        their shared flip-flop, command/mode/request/mask registers, the four
+        transfer modes, and the rotating-priority option.
+  - [ ] Then the shared arbitration point (Phase 3's first item), which has been
+        waiting on a second bus master to exist.
 - [ ] Interval timer and calendar. *Verification: self-timing probes; the
       14-day calendar interval hazard noted in the MAME driver is reproduced or
       explained.*

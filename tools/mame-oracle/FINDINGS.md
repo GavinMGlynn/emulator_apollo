@@ -853,6 +853,40 @@ space tap is **not** settled here, and `008778-03` §3.2's "interrupt acknowledg
 cycle ... a CPU space cycle" says it should be the latter. That question is
 separate from the level and does not block wiring.
 
+### C13 — the two DMA controllers sit at different strides
+
+`008778-03` Table 2-8 places "DMA CONTROLLER #1" at `010C00` and "DMA
+CONTROLLER #2" at `010D00` and says nothing about how their sixteen registers
+map onto those ranges. Following the pattern established for the timer and the
+calendar, it was measured before anything was written.
+
+A clean dump of thirty-two bytes at each:
+
+    dma1  010C00: 00 x15  0F   00 x15  0F
+    dma2  010D00: 00 x30  0F 0F
+
+**DMA 1 is stride 1**, sixteen registers aliased every sixteen bytes. The `0F`
+at offset 15 is the 8237A's all-mask register reading all four channels masked,
+which is what a part out of reset holds — and it repeats at offset 31, which is
+the aliasing.
+
+**DMA 2 is stride 2**, so its register 15 lands at offset 30 rather than 15.
+Offset 15 reads `00` there, which rules stride 1 out directly rather than by
+inference. That matches the ordinary AT arrangement, where the second controller
+carries the 16-bit channels and is mapped a word apart.
+
+Two byte-wide peripherals on adjacent pages with different strides is now the
+third such pair on this board — the interval timer is odd-address stride 2 and
+the calendar beside it is stride 1. No placement here can be inferred from a
+neighbour, and this finding exists mostly to say that with three examples the
+rule is now established by induction rather than by luck.
+
+**The part is confirmed an 8237A independently.** Writing `AB` then `CD` to a
+channel address register and reading it back returns `AB` — the internal
+first/last byte-pointer flip-flop taking two bytes on the write and handing the
+low one back first. A device that merely decoded the address would have returned
+`CD`.
+
 ## Where the ring is not
 
 The Apollo Token Ring has **no runnable oracle at all**: MAME carries Domain
