@@ -148,12 +148,33 @@ static void test_the_privileged_instructions_are_exactly_these(void) {
   TEST_ASSERT_FALSE(ap_m68030_control_privileged(AP_M68030_CTL_JMP));
 }
 
-/* $4E78-$4E7F is not assigned in this subtree, so it is not an instruction. */
-static void test_the_unassigned_singles_are_invalid(void) {
-  for (unsigned low = 0x78u; low <= 0x7Fu; low++) {
+/* $4E7A and $4E7B are MOVEC, one per direction. An earlier version of this
+ * decoder treated the whole $4E78-$4E7F run as unassigned, which would have
+ * made every MOVEC illegal -- and with it VBR, CACR and the MMU root pointers
+ * unreachable, since MOVEC is the only way to load them. */
+static void test_movec_occupies_two_of_the_high_singles(void) {
+  TEST_ASSERT_EQUAL_INT(AP_M68030_CTL_MOVEC_FROM_CONTROL,
+                        ap_m68030_control_decode(0x4E7Au).kind);
+  TEST_ASSERT_EQUAL_INT(AP_M68030_CTL_MOVEC_TO_CONTROL,
+                        ap_m68030_control_decode(0x4E7Bu).kind);
+
+  /* It carries an extension word naming the general and control registers. */
+  const ap_m68030_control_t movec = ap_m68030_control_decode(0x4E7Bu);
+  TEST_ASSERT_EQUAL_UINT(4, ap_m68030_control_length(&movec));
+
+  /* And it is privileged, which is the point: a user program that could reach
+   * CACR or the root pointers could disable the MMU. */
+  TEST_ASSERT_TRUE(
+      ap_m68030_control_privileged(AP_M68030_CTL_MOVEC_TO_CONTROL));
+}
+
+/* The rest of $4E78-$4E7F really is unassigned. */
+static void test_the_remaining_high_singles_are_invalid(void) {
+  const unsigned unassigned[6] = {0x78u, 0x79u, 0x7Cu, 0x7Du, 0x7Eu, 0x7Fu};
+  for (unsigned i = 0; i < 6; i++) {
     TEST_ASSERT_EQUAL_INT(
         AP_M68030_CTL_INVALID,
-        ap_m68030_control_decode((uint16_t)(0x4E00u + low)).kind);
+        ap_m68030_control_decode((uint16_t)(0x4E00u + unassigned[i])).kind);
   }
 }
 
@@ -168,6 +189,7 @@ int main(void) {
   RUN_TEST(test_jsr_and_jmp_carry_an_effective_address);
   RUN_TEST(test_only_three_of_these_carry_a_following_word);
   RUN_TEST(test_the_privileged_instructions_are_exactly_these);
-  RUN_TEST(test_the_unassigned_singles_are_invalid);
+  RUN_TEST(test_movec_occupies_two_of_the_high_singles);
+  RUN_TEST(test_the_remaining_high_singles_are_invalid);
   return UNITY_END();
 }

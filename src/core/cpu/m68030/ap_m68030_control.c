@@ -79,6 +79,17 @@ ap_m68030_control_t ap_m68030_control_decode(uint16_t instruction) {
   case 0x77u:
     control.kind = AP_M68030_CTL_RTR;
     return control;
+  /* $4E7A and $4E7B are MOVEC, whose direction is bit 0 and which is followed
+   * by an extension word naming the general and control registers. They are
+   * *not* unassigned -- an earlier version of this decoder treated the whole
+   * $4E78-$4E7F run as invalid, which would have made every MOVEC an illegal
+   * instruction and so made the MMU and cache control registers unreachable. */
+  case 0x7Au:
+    control.kind = AP_M68030_CTL_MOVEC_FROM_CONTROL;
+    return control;
+  case 0x7Bu:
+    control.kind = AP_M68030_CTL_MOVEC_TO_CONTROL;
+    return control;
   default:
     break;
   }
@@ -91,6 +102,9 @@ unsigned ap_m68030_control_length(const ap_m68030_control_t *control) {
   case AP_M68030_CTL_LINK: /* "WORD" displacement */
   case AP_M68030_CTL_RTD:  /* "16-BIT DISPLACEMENT" */
   case AP_M68030_CTL_STOP: /* "IMMEDIATE DATA" */
+  /* MOVEC's extension word carries A/D, REGISTER and CONTROL REGISTER. */
+  case AP_M68030_CTL_MOVEC_FROM_CONTROL:
+  case AP_M68030_CTL_MOVEC_TO_CONTROL:
     return 4;
   case AP_M68030_CTL_TRAP:
   case AP_M68030_CTL_UNLK:
@@ -117,6 +131,10 @@ bool ap_m68030_control_privileged(ap_m68030_control_kind_t kind) {
   case AP_M68030_CTL_RTE:
   case AP_M68030_CTL_MOVE_TO_USP:
   case AP_M68030_CTL_MOVE_FROM_USP:
+  /* MOVEC reaches VBR, CACR, the root pointers and the function code
+   * registers, so it is supervisor-only like the rest. */
+  case AP_M68030_CTL_MOVEC_FROM_CONTROL:
+  case AP_M68030_CTL_MOVEC_TO_CONTROL:
     return true;
   case AP_M68030_CTL_TRAP:
   case AP_M68030_CTL_LINK:

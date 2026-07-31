@@ -14,9 +14,9 @@
  * six-bit effective address, while `01` opens the control group where bits 5-3
  * choose TRAP, LINK/UNLK, MOVE USP or the fully-decoded `$4E7x` singles.
  *
- * ## Four of these are privileged
+ * ## Six of these are privileged
  *
- * RESET, STOP, RTE and MOVE USP are supervisor-only. Executing one in user
+ * RESET, STOP, RTE, MOVE USP and both directions of MOVEC are supervisor-only. Executing one in user
  * state is a privilege violation, `[030]` Table 8-1 vector 8, and the vector
  * comes from `ap_m68030_exception.h` rather than being written again here.
  * Getting this wrong does not fail loudly: a user program would simply be able
@@ -45,6 +45,8 @@ typedef enum {
   AP_M68030_CTL_RTS,
   AP_M68030_CTL_TRAPV,
   AP_M68030_CTL_RTR,
+  AP_M68030_CTL_MOVEC_FROM_CONTROL, /* $4E7A */
+  AP_M68030_CTL_MOVEC_TO_CONTROL,   /* $4E7B */
   AP_M68030_CTL_JSR,
   AP_M68030_CTL_JMP,
   AP_M68030_CTL_INVALID,

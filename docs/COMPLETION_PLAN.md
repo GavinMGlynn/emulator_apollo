@@ -460,9 +460,34 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
           *Verification: `misc_suite`, 11 tests, including each hole against the
           instruction whose space it sits in, and the `MOVEM` direction that has
           no `EXT`.*
-    - [ ] The remainder of family `0100`: CLR, NEG, NEGX, NOT, TST, TAS, MOVEC,
-          MOVES and the `MOVE to/from SR/CCR` group.
-          *Verification: one suite per subtree, same pattern.*
+    - [x] **The single-operand group**
+          (`src/core/cpu/m68030/ap_m68030_single.c`): NEGX, CLR, NEG, NOT, TST,
+          TAS, `MOVE to/from SR`, `MOVE to/from CCR` and ILLEGAL. **Family
+          `0100` is now complete.**
+          Size field `11` is an escape rather than a size, and what it escapes
+          *to* differs per row — `$40C0` is `MOVE from SR`, `$42C0` `MOVE from
+          CCR`, `$44C0` `MOVE to CCR`, `$46C0` `MOVE to SR`, `$4AC0` `TAS`. So
+          the bit pattern meaning "long" one row up means an entirely different
+          instruction here. That is the third distinct place in the encoding
+          where an illegal size selects something else, after `ADDQ`'s
+          conditional group and `Bcc`'s displacement escapes, and it is worth
+          treating as a family idiom rather than five special cases.
+          `ILLEGAL` (`$4AFC`) is a *defined* word inside TAS's range, not an
+          absence of one — its purpose is to take the illegal instruction
+          exception.
+          Privilege reads backwards and is tested as such: `MOVE to SR` is
+          privileged because it writes the S bit, `MOVE to CCR` is not; and
+          `MOVE from SR` became privileged on the 68010 (a user program that can
+          read S learns whether it is supervised) while `MOVE from CCR`, which
+          the 68000 lacked, is unprivileged.
+          *Verification: `single_suite`, 7 tests.*
+    - [x] **Correction: `$4E7A`/`$4E7B` are MOVEC, not unassigned.** The `$4E`
+          control group first landed with the whole `$4E78`-`$4E7F` run decoded
+          as invalid, and a test that asserted it. That would have made every
+          `MOVEC` an illegal instruction — and with it `VBR`, `CACR` and the MMU
+          root pointers unreachable, since `MOVEC` is the only way to load them.
+          Both the decoder and the test that endorsed the error are fixed, and
+          MOVEC is privileged along with the rest.
   - [ ] Wire the bus to a memory system so the termination kind and its arrival
         clock come from a device rather than a test. That is what makes
         contention emergent, and it belongs with Phase 3's single arbitration
