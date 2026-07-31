@@ -1287,10 +1287,18 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         refining the table. The tables are the *check*.
         The route is the project's own rule: measure against the oracle, or
         take a documented value with a cited page and mark it `PROVISIONAL`.
-        Both are blocked on the same thing — a way to run a known instruction
-        and read back a cycle count — which is what the probe encoder in Phase 1
-        exists to provide. So this item is **gated on Phase 1's probe path**,
-        and saying so is more useful than starting it now.
+        **The route now exists on both sides** — see `FINDINGS.md` C5. Our
+        machine side-loads and steps (`ap_machine`, `ap_probe`); the oracle
+        does too, with `-debug -debugger none` making `cpu.debug:step()`
+        available headlessly, and Lua reading and writing memory and registers.
+        Neither needs firmware, so C4's PROM problem no longer gates this.
+        Two things the harness must settle before any number is trusted, both
+        recorded in C5: a probe must be written into **RAM** at `$01000000` and
+        up, because a write to the PROM's range reports success and does
+        nothing; and `total_cycles` is not bound in this build, so a count has
+        to come from emulated time divided by the clock period — exact only if
+        MAME advances time in whole cycles, which is to be **verified against an
+        instruction whose count is not in dispute**, not assumed.
     - [x] **The composition rule, built without the numbers**
           (`src/core/cpu/m68030/ap_m68030_overlap.c`). Equation (11-1) and
           §11.2's eight resources are arithmetic and vocabulary rather than

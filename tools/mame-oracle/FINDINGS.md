@@ -224,6 +224,54 @@ not depend on the PROM. On this evidence that path is also the one to build
 *first*, and MD becomes the development-time confirmation rather than the
 foundation.
 
+### C5 — the oracle can be side-loaded and single-stepped, without the PROM
+
+**Status: closed, and it unblocks the instruction-timing item.**
+
+C4 left the measurement route in doubt: the boot PROM does not reach the MD
+prompt, and MD over the serial console was the only route the plan recorded. The
+same side-loading technique that works on our own machine works on the oracle,
+which makes the PROM unnecessary for measurement.
+
+What MAME's Lua binding offers, tested rather than assumed (each call wrapped in
+`pcall`, at one emulated second, on `dsp3500`):
+
+| Capability | Plain run | With `-debug -debugger none` |
+| --- | --- | --- |
+| `cpu.state["PC"].value` | works | works |
+| `space:read_u16(addr)` | works | works |
+| `space:write_u16(addr, v)` | works | works |
+| `cpu.debug` | **nil** | present |
+| `cpu.debug:step()` | fails | **works** |
+| `cpu:total_cycles()` | not bound | not bound |
+| `manager.machine.time` | works | works |
+
+Three things follow.
+
+**Single-stepping needs `-debug`, and `-debugger none` keeps it headless.**
+Without `-debug` the `debug` field is nil, so `step()` cannot be called at all.
+With both options MAME runs with no window and the script drives it.
+
+**A write to the boot PROM's address range silently does nothing.** Writing
+`$4E71` to `$1000` and reading it back returns `$0150` — the PROM's own
+contents. The call reports success. So a probe must be side-loaded into *RAM*,
+which on this machine is at `$01000000` and up (the reset ISP is `$01000180`),
+and a harness that wrote low and never checked would run the PROM while
+believing it ran the probe.
+
+**`total_cycles` is not bound in this build**, so a cycle count has to come from
+emulated *time*: `manager.machine.time` before and after a step, divided by the
+CPU's clock period. That is exact only if MAME advances time in whole cycles,
+which is the first thing the timing harness must verify — against an
+instruction whose count is not in dispute — rather than assume.
+
+**What this changes.** Instruction execution time, the `PROVISIONAL` ATC
+replacement algorithm and the supervisor U-bit reading were all gated on
+"measure against the oracle" with no working route. There is now a route that
+needs no firmware on either side: side-load the same probe into our machine and
+into MAME's, step both, compare. C4 stays open as a finding about the PROM, but
+nothing depends on it any more.
+
 ## Instrumenting the oracle
 
 Temporary instrumentation in `ext/mame` is **always reverted before commit**,
