@@ -419,6 +419,31 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         wrapping to 65535; zero is explicitly *not* the terminator, which is
         asserted directly.
         *Verification: `quick_suite`, 10 tests.*
+  - [~] **Family `0100` ("Miscellaneous")**, the largest in the map. Being taken
+        as coherent subtrees rather than claimed whole in one pass.
+    - [x] **The `$4E` control group**
+          (`src/core/cpu/m68030/ap_m68030_control.c`): TRAP, LINK, UNLK, MOVE
+          USP, RESET, NOP, STOP, RTE, RTD, RTS, TRAPV, RTR, JSR and JMP. The
+          subtree narrows in stages rather than by one field — bits 7-6 take
+          JSR and JMP with a six-bit effective address between them, and `01`
+          opens the control group where bits 5-3 choose the rest.
+          **TRAP's four-bit field is an index, not a vector number**: Table 8-1
+          puts TRAP #0-15 at vectors 32-47, so returning the field itself sends
+          TRAP #0 to the reset vector. The vector comes from
+          `ap_m68030_exception.h`, so the two modules agree by construction.
+          **Four are privileged** — RESET, STOP, RTE and both directions of MOVE
+          USP — and this is a class whose failure mode is silent: a user program
+          able to execute them could halt the processor or forge a return from
+          exception. The test states the distinction that matters, that RTS and
+          RTR are ordinary while RTE is not.
+          *Verification: `control_suite`, 10 tests — the `$4E70`-`$4E77` run
+          checked as a whole so a transposition inside it cannot pass, all
+          sixteen TRAP numbers, LINK/UNLK and MOVE USP splitting on bit 3,
+          JSR/JMP effective addresses, only LINK/RTD/STOP carrying a following
+          word, and `$4E78`-`$4E7F` being unassigned rather than aliased.*
+    - [ ] The rest of family `0100`: LEA, PEA, MOVEM, MOVEC, CHK, TAS, TST,
+          CLR, NEG, NEGX, NOT, NBCD, SWAP, EXT, BKPT and the `MOVE to/from
+          SR/CCR` group. *Verification: one suite per subtree, same pattern.*
   - [ ] Wire the bus to a memory system so the termination kind and its arrival
         clock come from a device rather than a test. That is what makes
         contention emergent, and it belongs with Phase 3's single arbitration
