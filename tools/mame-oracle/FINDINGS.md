@@ -433,6 +433,62 @@ That is the next extension to the script, and it is where a disagreement is
 actually likely: C7 established that the oracle reports a flat constant where
 the manual describes an alignment-dependent range.
 
+### C9 — the first real disagreement, and it is ours
+
+**Status: open. Classification: `ours-wrong`. Named as a plan item.**
+
+C8 measured seven instructions against the oracle and got seven agreements,
+while recording that none of them could discriminate: every one had `CC == NCC`,
+so a flat model and a scheduled one cannot differ on them. The discriminating
+rows were the memory-destination forms. `steptime.lua` gained the ability to set
+registers, and they were measured.
+
+They disagree.
+
+| | `ADD.B D0,(A0)` |
+| --- | --- |
+| Oracle, measured | **7**, flat |
+| Ours | 3 warm, alternating 3/4 cold |
+| `ap_m68030_timing_table` row | `CC 3`, `NCC 4` |
+
+**The oracle is right and the table row is incomplete.** §11.6.8 footnotes
+`ADD Dn,EA` with `*` — "Add Fetch Effective Address Time" — and that footnote is
+not decoration. `ADD D0,(A0)` reads the memory operand, adds, and writes back,
+so it *fetches* an effective address; §11.6.1 gives `(An)` as `3(1/0/0)`, three
+clocks including the operand read.
+
+The manual's own composition, Equation (11-2) with the no-overlap assumption of
+the no-cache case:
+
+```
+  NCC(ADD Dn,EA) + fea(An)  =  4 + 3  =  7
+```
+
+which is the oracle's figure exactly. The transcription carries
+`needs_effective_address_time` on precisely these rows, so the *fact* was
+recorded — but nothing acts on it, and the step adds only the instruction's own
+part. Our figure is a component being reported as a total.
+
+**Why nothing caught it before.** The two-sided check compares our totals to
+`CC` and `NCC`, and those are the instruction's own columns. An instruction
+whose published figure is deliberately partial passes that check while being
+incomplete, because the check was built to compare like with like and the row is
+not the whole like. The oracle, which has no such structure and simply reports
+what the instruction cost, is what exposed it — which is the case for keeping an
+independent source even when the internal checks are green.
+
+**What closing it needs.** The `fea`, `cea` and jump effective address tables of
+§11.6.1–§11.6.5, transcribed the same way, and the step composing them through
+Equation (11-2) rather than (11-1) for the footnoted rows. That is a larger pass
+than the instruction tables and it is where `head`/`tail` finally earn their
+place: Equation (11-2) overlaps the effective address's tail against the
+operation's head, which is why both were transcribed from the start.
+
+Until then the rows stay in the table with the flag set, because a partial
+figure that says it is partial is more useful than no figure — but the step
+should arguably decline to price them at all rather than report a component.
+That is the first question for the plan item.
+
 ## Instrumenting the oracle
 
 Temporary instrumentation in `ext/mame` is **always reverted before commit**,

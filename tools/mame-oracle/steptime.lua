@@ -19,6 +19,12 @@
 --                       words, e.g. "4E71,4E71"
 --   APOLLO_STEP_COUNT   how many instructions to step (default 8)
 --   APOLLO_STEP_CLOCK   CPU clock in Hz (default 25000000, the DN3500's)
+--   APOLLO_STEP_REGS    registers to set before stepping, "A0=01002000,D1=3",
+--                       values hexadecimal. Needed by any probe with a memory
+--                       operand: without an address register pointing at
+--                       writable RAM, a store measures a refused write rather
+--                       than a real bus cycle, and the timing would be a
+--                       plausible number for the wrong thing.
 --
 -- ## Why it must be loaded into RAM
 --
@@ -42,6 +48,7 @@ local step_addr  = tonumber(os.getenv("APOLLO_STEP_ADDR") or "", 16)
 local words_spec = os.getenv("APOLLO_STEP_WORDS") or "4E71"
 local step_count = tonumber(os.getenv("APOLLO_STEP_COUNT") or "") or 8
 local clock_hz   = tonumber(os.getenv("APOLLO_STEP_CLOCK") or "") or 25000000
+local regs_spec  = os.getenv("APOLLO_STEP_REGS") or ""
 
 -- One clock in attoseconds. 1e18 attoseconds is one second.
 local clock_attos = 1000000000000000000 // clock_hz
@@ -69,6 +76,27 @@ local function parse_words(spec)
 		words[#words + 1] = value
 	end
 	return words
+end
+
+-- "A0=01002000,D1=3" -> applied to the CPU's state. Unparsable entries are
+-- reported rather than skipped: a probe that silently ran with an unset address
+-- register would measure something, and the something would look reasonable.
+local function apply_registers(cpu, spec)
+	for item in spec:gmatch("[^,]+") do
+		local name, value = item:match("^%s*(%w+)%s*=%s*(%x+)%s*$")
+		if name == nil then
+			out("# ERROR unparsable register assignment %q\n", item)
+			return false
+		end
+		local entry = cpu.state[name]
+		if entry == nil then
+			out("# ERROR no such register %q\n", name)
+			return false
+		end
+		entry.value = tonumber(value, 16)
+		out("# set %s = %08X\n", name, entry.value)
+	end
+	return true
 end
 
 -- Emulated time as one integer, so a delta needs no carry handling.
@@ -116,6 +144,12 @@ emu.register_periodic(function()
 		    step_addr, clock_hz, clock_attos)
 		out("# words=%s count=%d\n", words_spec, step_count)
 		out("# step pc_before pc_after attos clocks\n")
+
+		if not apply_registers(cpu, regs_spec) then
+			finished = true
+			manager.machine:exit()
+			return
+		end
 
 		cpu.state["PC"].value = step_addr
 		last = nil

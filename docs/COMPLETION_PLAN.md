@@ -1430,6 +1430,24 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         *Verification: self-timing probes against the oracle, per instruction
         and per addressing mode, with `[030]` §11.6 as an independent check and
         every discrepancy classified before anything is changed.*
+  - [ ] **Effective address times, §11.6.1–§11.6.5**, and composing them
+        through Equation (11-2). `FINDINGS.md` C9 is the reason this is now a
+        named item rather than a later refinement: without it the footnoted rows
+        report a component as a total, and the oracle already shows the size of
+        the gap — 7 clocks against our 4 for `ADD.B D0,(A0)`.
+        This is where `head` and `tail` finally earn their place. Equation
+        (11-2) overlaps the effective address's tail against the operation's
+        head — `CCea + [CCop - min(Hop,Tea)] + ...` — which is why both columns
+        were transcribed from the start even though Equation (11-1) does not use
+        them per-instruction.
+        **First question to settle:** whether the step should decline to price a
+        footnoted row at all until its effective address time exists, rather
+        than reporting the instruction's own part. A partial figure that says it
+        is partial is defensible in a table; silently reporting one as a total
+        through `--time-instructions` is less so.
+        *Verification: `ADD.B D0,(A0)` coming to 7 against the oracle and
+        against `NCC + fea`; and the second worked example of §11.3.4, which
+        exists precisely to exercise Equation (11-2).*
   - [ ] Wire the bus to a memory system so the termination kind and its arrival
         clock come from a device rather than a test. That is what makes
         contention emergent, and it belongs with Phase 3's single arbitration
