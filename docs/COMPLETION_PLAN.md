@@ -2453,6 +2453,11 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         addresses, the derived interrupt flag, the tri-stated IRQ line, and
         RSTDMA's documented identity with power-on reset — which makes the two
         testable against each other directly. `sc499_suite`, 9 tests.
+  - [x] The boot record's header **confirmed**, not merely inferred: the first
+        instruction is a PC-relative `LEA` that computes word 0 exactly when
+        executed at word 1, so word 0 is the load address and word 1 the entry
+        point (`FINDINGS.md` C24). A boot loader can now be written without
+        assuming.
   - [x] The `.ct` image reader, `image/ap_ct.c`: block addressing, the
         whole-block size check, and boot-record parsing. `ct_suite`, 8 tests.
   - [x] The QIC-02 command set transcribed as far as the scan allows

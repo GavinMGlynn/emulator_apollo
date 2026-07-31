@@ -1448,10 +1448,31 @@ The first block is a boot record. Its first sixteen bytes are four big-endian
 and then, at the offset word 1 points past, MC68000 code: `41FA FFD4` is a
 PC-relative `LEA` and `2008` a `MOVE.L A0,D0`.
 
-**Reading, marked as inference.** The shape fits load address, entry point, end
-address and a checksum -- word 1 lands exactly where the code begins after the
-0x2A-byte header, and word 2 gives a 7868-byte image. That is consistent and it
-is not confirmed; the words could equally be three addresses of something else.
+**Reading, confirmed by the code itself.** The shape fits load address, entry
+point, end address and a checksum -- word 1 lands exactly where the code begins
+after the 0x2A-byte header, and word 2 gives a 7868-byte image. That much was
+arithmetic, and arithmetic alone could not rule out three addresses of something
+else.
+
+The first instruction settles it. `41FA FFD4` is `LEA (d16,PC),A0` with a
+displacement of -44. The 68000 computes that against the address of the extension
+word, which is the instruction's address plus two. **If** the instruction is
+executing at word 1:
+
+    0013D82A  entry point, where the code begins
+    0013D82C  extension word
+       - 002C  displacement
+    ============
+    0013D800  which is word 0, exactly
+
+So the boot record's own first instruction takes the address of its own header
+into A0 -- which is only meaningful if word 1 is where the code runs and word 0 is
+where the image sits. The file contains the proof of its own layout, and the two
+readings are no longer independent guesses but a single consistent one that the
+code depends on.
+
+That is worth more than a manual would be here: a manual would say what the
+fields are called, and this says what the firmware actually does with them.
 What *is* established is that the block carries 68000 code with an ASCII
 identification, at a fixed offset, in a raw 512-byte-block image.
 
