@@ -64,6 +64,46 @@ make SOURCES=src/mame/apollo/apollo.cpp SUBTARGET=apollo TOOLS=0 -j"$(nproc)"
 This produces `mameapollo` rather than a full MAME. It is never built by our
 CMake, never linked, and CI never compiles it.
 
+`REGENIE=1` is needed on the first build so genie regenerates the makefiles for
+the narrowed `SOURCES`, and `NOWERROR=1` keeps a warning in third-party code
+from stopping a build we are not maintaining. The pinned checkout has no tags,
+so MAME's version step prints `fatal: No names found, cannot describe anything`
+— harmless, and not an error in our build.
+
+### ROM sets
+
+`tools/mame-oracle/romset.py` assembles them from `roms/firmware/` into
+`out/roms/<machine>/`, which is gitignored, so no firmware can be staged.
+
+Two properties make it trustworthy, and both are deliberate:
+
+- **The ROM table is parsed from `apollo.cpp`, never transcribed.** A hardcoded
+  table would be correct until the `ext/mame` pin moved and silently wrong
+  after. Alias chains (`#define rom_dsp3500 rom_dn3500`) resolve too.
+- **Our files are matched to MAME's by SHA-1, never by name.** Name matching
+  would need a case-folding rule and then an exception to it; the SHA-1 is
+  already in the driver and is what actually has to hold.
+
+*Verified: all 11 apollo machines assemble, and the SHA-1 of every one of our
+bitsavers images equals the one the driver declares — `3500_BOOT_12191_7.bin`
+is `36f3c83d…`, `3000_BOOT_8475_7.bin` is `6c383d22…`, `5500_BOOT_A1631-80046`
+is `7315a884…`. Our images are bit-for-bit the ROMs the oracle expects and
+differ only in filename case.*
+
+### What the oracle does not cover, from the driver itself
+
+- `dn5500`, `dsp5500` and `dn5500_19i` are declared `MACHINE_NOT_WORKING`
+  (`apollo.cpp` lines 1259–1261), while every 3000 and 3500 machine carries no
+  such flag. If that flag reflects reality, **the entire 68040 path has no
+  working oracle**, which would make Phase 2's "`dn5500` oracle diff"
+  verification unachievable as written and reclassify DN5500/DSP5500 from
+  `mame` to `paper` in the model table.
+  **Not yet acted on: this is the driver's own claim about itself, and the
+  honest test is to run it.** Recorded here so it is checked the moment the
+  build finishes, rather than discovered in Phase 2.
+- No ring ROM appears in any set, confirming from the driver source what
+  `RING.md` already states from the manuals: MAME models no Apollo Token Ring.
+
 ## Where the ring is not
 
 The Apollo Token Ring has **no runnable oracle at all**: MAME carries Domain

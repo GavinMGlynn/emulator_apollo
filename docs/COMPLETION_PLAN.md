@@ -60,9 +60,36 @@ file the moment they are found, not when someone remembers.
 
 ## Phase 1 — Verification infrastructure, before the subsystems it checks
 
-- [ ] Build MAME with only the apollo driver and assemble the `dn3500` ROM set
+- [~] Build MAME with only the apollo driver and assemble the `dn3500` ROM set
       from `roms/firmware/`. *Verification: MAME boots Domain/OS from an SR10.x
       image to a login prompt.*
+  - [x] ROM sets assembled by `tools/mame-oracle/romset.py`, which parses the
+        table out of `apollo.cpp` rather than transcribing it, and matches our
+        files to MAME's by SHA-1 rather than by name — so it cannot drift when
+        the `ext/mame` pin moves. *Verification: all 11 apollo machines
+        assemble, and every one of our bitsavers images has exactly the SHA-1
+        the driver declares; output lands in the gitignored
+        `tools/mame-oracle/out/roms/`.*
+  - [~] The narrow build itself (`SUBTARGET=apollo`, `REGENIE=1`, `NOWERROR=1`).
+  - [ ] **Tail, found while assembling the media: there is no bootable image to
+        boot.** All Domain/OS media we hold is *installation* media — `cptape`
+        tape files (`tape1/00.img` is the `SYSBOOT` tape boot record) and QIC
+        install cartridges. Reaching a login prompt therefore requires
+        installing Domain/OS from tape onto a blank disk image under the oracle
+        first. That is a much larger task than this item's wording implies, and
+        it is the real gate on the first boot. *Verification: a disk image that
+        boots to a login prompt under MAME, produced by a recorded, repeatable
+        install rather than by hand.*
+  - This also pulls `.ct` cartridge support (Phase 4) forward in importance: it
+    is the format the first boot depends on, not merely a storage item.
+  - [ ] **Verify empirically whether the 68040 path has an oracle at all.**
+        `apollo.cpp` declares `dn5500`, `dsp5500` and `dn5500_19i`
+        `MACHINE_NOT_WORKING` while no 3000 or 3500 machine carries the flag. If
+        it holds, Phase 2's "`dn5500` oracle diff" is unachievable as written and
+        DN5500/DSP5500 move from `mame` to `paper` in the model table (which is
+        a golden change). Not acted on from the flag alone — the honest test is
+        to run it. *Verification: an attempted `dn5500` run under the built
+        oracle, recorded in `FINDINGS.md` either way.*
 - [ ] Oracle harness: drive MAME headless, run N frames/cycles, dump RAM and
       device state in our hex format. *Verification: two runs of the same
       workload produce identical dumps.*

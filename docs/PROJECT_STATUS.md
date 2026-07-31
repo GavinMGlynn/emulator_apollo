@@ -195,6 +195,35 @@ Two ring board generations are visible: part `10666` on the 3500/4500 and HP
 part `1818-4882` on the 3000/5500. Both identify as
 `Apollo Token Ring Network Controller-AT`.
 
+### Media in hand — installation tapes, and no bootable disk image
+
+This is the constraint that shapes Phase 1's first milestone, so it is recorded
+before the work rather than discovered inside it.
+
+| Item | What it is |
+| --- | --- |
+| `Apollo_DOMAINOS_SR10.3.5.tgz` | 5 tapes, 176 numbered `.img` files |
+| `019593-001.CRTG_STD_SFW_BOOT_1-REV.A.ct.gz` | bootable QIC install cartridge |
+| `019594-001..004.CRTG_STD_SFW_{1..4}.ct.gz` | QIC install cartridges 1–4 |
+| `cptape.hlp` | Apollo `cptape` help text, rev 9.0, 1986-12-17 |
+
+The `.img` files are **tape files, not disk images** — one file per tape mark,
+the layout `cptape` writes. `tape1/00.img` is 8192 bytes beginning
+`00 13 d8 00 … "SYSBOOT REV" … " M68K    "` followed by 68000 code: the Apollo
+tape boot record. `tape1/02.img` at 50 MB is the install payload.
+
+**So we hold no pre-installed, bootable Domain/OS disk image — only the media to
+create one.** Phase 1's first item is written as "MAME boots Domain/OS from an
+SR10.x image to a login prompt", which assumes an image that does not exist.
+Reaching a login prompt actually requires installing Domain/OS from tape onto a
+blank disk image under the oracle first, which is a substantially larger task
+than booting one. Recorded as a tail in `docs/COMPLETION_PLAN.md` rather than
+absorbed silently into the item.
+
+It also pulls `.ct` cartridge support forward in importance: Phase 4 lists it as
+a storage item, but the install path makes it the format the first boot depends
+on.
+
 ### Model figures confirmed from `[CFG]`
 
 Cited as `[CFG]` = HP-Apollo Products Configuration Guide, Dec 1989.
