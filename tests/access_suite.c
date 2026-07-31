@@ -25,7 +25,19 @@ void tearDown(void) {}
 typedef struct {
   unsigned fills;
   unsigned table_fetches;
+  unsigned stores;
+  uint32_t last_store_address;
+  uint32_t last_store_value;
 } memory_t;
+
+static void memory_store(void *context, uint32_t physical, uint32_t value,
+                         unsigned size) {
+  (void)size;
+  memory_t *memory = (memory_t *)context;
+  memory->stores++;
+  memory->last_store_address = physical;
+  memory->last_store_value = value;
+}
 
 static void memory_fill(void *context, uint32_t line_address,
                         uint8_t function_code, ap_m68030_fill_answer_t *out) {
@@ -96,6 +108,7 @@ static ap_m68030_access_ctx_t context_of(machine_t *m) {
       .table_fetch = table_fetch,
       .table_update = table_update,
       .fill = memory_fill,
+      .store = memory_store,
       .context = &m->memory,
   };
 }
@@ -337,6 +350,33 @@ static void test_a_transparent_write_skips_the_tables(void) {
   TEST_ASSERT_EQUAL_UINT(0, write.descriptor_fetches);
 }
 
+
+/* Writethrough means the external write happens on *every* write that reaches
+ * memory, not only on a miss. An access module that updated the cache and
+ * skipped the bus would report writethrough while behaving like writeback --
+ * and would pass every other test in this file, since nothing else observes
+ * memory. This one does. */
+static void test_every_write_reaches_memory(void) {
+  machine_t m = make_machine();
+  ap_m68030_access_ctx_t ctx = context_of(&m);
+
+  /* Warm the line so the second write is a cache *hit*. */
+  (void)ap_m68030_access_read(&ctx, ADDRESS, FC_SUPERVISOR_DATA);
+  (void)ap_m68030_access_write(&ctx, ADDRESS, FC_SUPERVISOR_DATA, 0x11111111u,
+                               true);
+  TEST_ASSERT_EQUAL_UINT(1, m.memory.stores);
+
+  const ap_m68030_access_result_t hit = ap_m68030_access_write(
+      &ctx, ADDRESS, FC_SUPERVISOR_DATA, 0x22222222u, true);
+  TEST_ASSERT_TRUE(hit.ok);
+
+  /* The hit wrote through as well: two writes, two stores. */
+  TEST_ASSERT_EQUAL_UINT(2, m.memory.stores);
+  TEST_ASSERT_EQUAL_HEX32(0x22222222u, m.memory.last_store_value);
+  /* And to the *physical* address, not the logical one. */
+  TEST_ASSERT_EQUAL_HEX32(hit.physical, m.memory.last_store_address);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_a_cold_access_consults_the_mmu_and_pays_for_it);
@@ -351,5 +391,6 @@ int main(void) {
   RUN_TEST(test_the_modified_bit_is_paid_for_once);
   RUN_TEST(test_a_write_hit_updates_the_cached_value);
   RUN_TEST(test_a_transparent_write_skips_the_tables);
+  RUN_TEST(test_every_write_reaches_memory);
   return UNITY_END();
 }

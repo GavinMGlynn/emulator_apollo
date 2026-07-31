@@ -23,9 +23,16 @@
  *
  * ## What executes today
  *
- * `NOP`, `MOVEQ`, and the 8-bit forms of `BRA`, `BSR` and `Bcc` -- the
- * instructions that need no operand fetch beyond the instruction word itself.
- * Everything else decodes correctly and reports unimplemented.
+ * `NOP`, `MOVEQ`, the 8-bit forms of `BRA` and `Bcc`, and `MOVE`/`MOVEA` in the
+ * addressing modes that need no extension word -- register direct, `(An)`,
+ * `(An)+` and `-(An)`.
+ *
+ * The extension-word modes are excluded for a concrete reason rather than an
+ * arbitrary one: the step does not yet fetch extension words from the
+ * instruction stream, and MOVE is the instruction that makes that hard, since
+ * its destination's extension words sit after its source's. Reporting those
+ * modes unimplemented is honest; guessing at a displacement of zero would run
+ * and be wrong.
  */
 
 #ifndef APOLLO_CPU_M68030_AP_M68030_STEP_H
@@ -48,6 +55,10 @@ typedef enum {
 typedef struct {
   ap_m68030_regs_t regs;
   ap_m68030_fetch_t fetch;
+  /* The data side of the machine, which is a *different* cache from the
+   * instruction side even when it shares a memory system. */
+  ap_m68030_access_ctx_t *data;
+  uint8_t data_function_code;
   uint64_t clocks; /* accumulated across steps */
 } ap_m68030_cpu_t;
 

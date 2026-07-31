@@ -45,6 +45,10 @@
  * `ap_m68030_access_t` for *its* notion of an access -- the address, function
  * code and direction a TTx register compares against. Two headers cannot define
  * the same typedef, and this module includes that one. */
+/* Perform the external write cycle of a writethrough store. */
+typedef void (*ap_m68030_store_fn)(void *context, uint32_t physical,
+                                   uint32_t value, unsigned size);
+
 typedef struct {
   ap_m68030_cache_t *cache; /* the instruction or data cache, as appropriate */
   ap_m68030_atc_t *atc;
@@ -65,6 +69,11 @@ typedef struct {
   ap_m68030_fetch_fn table_fetch;
   ap_m68030_update_fn table_update;
   ap_m68030_fill_fn fill;
+  /* The external write cycle. Writethrough means this happens on *every* write
+   * that reaches memory, hit or miss -- a cache update is not a substitute for
+   * it, and an access module that omitted it would report writethrough while
+   * behaving like writeback. */
+  ap_m68030_store_fn store;
   void *context;
 } ap_m68030_access_ctx_t;
 

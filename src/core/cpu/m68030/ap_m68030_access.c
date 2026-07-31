@@ -178,8 +178,14 @@ ap_m68030_access_result_t ap_m68030_access_write(ap_m68030_access_ctx_t *access,
 
   out.physical = physical;
 
-  /* The cache's own part, which is an update rather than a fill: writethrough
-   * means memory is written either way. */
+  /* The external write happens on every write, which is what "writethrough"
+   * means: "the data is written both to the cache and to external memory". The
+   * cache update below is in addition to it, never instead of it. */
+  if (access->store != NULL) {
+    access->store(access->context, physical, value, 4);
+  }
+
+  /* The cache's own part, which is an update rather than a fill. */
   const bool cache_usable = ap_m68030_cache_enabled(
       access->cache_enabled, access->cache_disable, cache_inhibit);
   if (cache_usable) {

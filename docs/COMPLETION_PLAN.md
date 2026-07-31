@@ -756,6 +756,28 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         using one where the other belongs — plus an unfinished address and an
         immediate each reported as a fault rather than read as a zero that would
         look like a real operand.*
+  - [x] **MOVE and MOVEA semantics**, in the addressing modes reachable without
+        an extension word — register direct, `(An)`, `(An)+`, `-(An)`. The
+        extension-word modes are excluded for a concrete reason rather than an
+        arbitrary one: the step does not yet fetch extension words, and MOVE is
+        the instruction that makes that hard, since its destination's extension
+        words sit after its source's. Those modes report unimplemented;
+        guessing a displacement of zero would run and be wrong.
+        *Verification: `step_suite`, 7 further tests (17 total) — a word MOVE
+        leaving the destination register's upper half intact against `MOVEA.W`
+        sign-extending all 32 bits, the same operand size in both, which is the
+        operand layer's two rules observed through running code; `MOVE` setting
+        exactly the documented condition codes against `MOVEA` touching none;
+        and a store-then-reload round trip through memory with the postincrement
+        and predecrement side effects applied.*
+  - [x] **Defect found by that round trip: the write path never wrote
+        through.** `ap_m68030_access_write` translated the address and updated
+        the data cache but never issued the external write cycle — so it
+        documented writethrough and behaved like writeback. Every existing test
+        passed, because none of them observed memory. Fixed by adding the store
+        callback the cache fill already had, with a regression test that writes
+        twice to a *cached* line and asserts memory saw both, at the physical
+        address rather than the logical one.
   - [ ] The remaining instruction semantics, family by family, now that operand
         access exists. *Verification: per-family suites, then probes against the
         oracle for the timing.*
