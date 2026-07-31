@@ -2275,9 +2275,18 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         flip-flop: two bytes written to an address register, the low one read
         back first. `FINDINGS.md` C13. Intel's datasheet is now in
         `docs/references/intel/`.
-  - [ ] The 8237A itself: four channels, the address and count registers with
-        their shared flip-flop, command/mode/request/mask registers, the four
-        transfer modes, and the rotating-priority option.
+  - [x] The 8237A's programming model, entire: all sixteen register addresses,
+        four channels with base and current registers, the single shared
+        first/last flip-flop, command/mode/request/mask/status/temporary,
+        master clear, autoinitialise reload and mask-on-terminal-count.
+        `i8237_suite`, 18 tests.
+  - [ ] Transfers. Blocked on the shared arbitration point below, and cleanly
+        so: every register above is programmable and observable without a byte
+        moving, which is exactly what firmware does to a controller it has not
+        yet used. Rotating priority is stored and decoded but its rotation is
+        not kept, because nothing can rotate it until a transfer completes.
+  - [ ] Wire the two controllers into the board at `010C00` (stride 1) and
+        `010D00` (stride 2), both measured.
   - [ ] Then the shared arbitration point (Phase 3's first item), which has been
         waiting on a second bus master to exist.
 - [ ] Interval timer and calendar. *Verification: self-timing probes; the
