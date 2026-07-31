@@ -305,6 +305,24 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         word (a bus error must fault where the word is *used*, not where it was
         fetched), a clean fill clearing it, and a holding-register miss leaving
         the stage empty rather than loading a stale word.*
+  - [x] **Programming model** (`src/core/cpu/m68030/ap_m68030_regs.c`), `[030]`
+        §1.3 with the `M68000 Family Programmer's Reference Manual 1992`
+        §1.3.2, whose Figure 1-8 survives intact where the 68030 manual's does
+        not — so the SR layout, the trace-mode table and the stack-selection
+        table are all transcribed rather than derived.
+        **A7 names one of three registers**, and in user state M is *ignored*
+        rather than required to be zero: the PRM's table reads `S 0, M x → USP`,
+        `1 0 → ISP`, `1 1 → MSP`. Switching on the pair as four cases invents a
+        fourth stack. This is the 68020-and-later addition — on the 68000 "the
+        M-bit is always zero" and there is one supervisor stack — so it is
+        precisely what a 68000-shaped model gets wrong.
+        *Verification: `regs_suite`, 10 tests — the S/M table, the `x` being
+        load-bearing (S=0 M=1 is still the USP), A7 reads and writes reaching
+        the active stack while leaving the other two untouched, changing
+        privilege reaching a different stack without copying anything between
+        them, all four trace encodings including `11` reported as UNDEFINED
+        rather than folded into another mode, the reserved bits never reading
+        back, and a CCR write being unable to reach S and escalate privilege.*
   - [ ] Wire the bus to a memory system so the termination kind and its arrival
         clock come from a device rather than a test. That is what makes
         contention emergent, and it belongs with Phase 3's single arbitration
