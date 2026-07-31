@@ -25,6 +25,10 @@ file the moment they are found, not when someone remembers.
 - [x] Exact common time base for mixed clock domains. *Verification:
       `time_suite`, including the 25 MHz-vs-ring realignment period and
       rejection of a clock the base cannot represent.*
+  - [x] Recomputed to 6.6 GHz once the ring PHY was confirmed bi-phase, adding a
+        24 MHz line clock the 3.3 GHz base divided only as 137.5. This closed
+        `RING.md` open question F. *Verification: `time_suite` asserts both ring
+        clocks divide the base and that a bit cell is exactly two line windows.*
 - [ ] `ext/` submodules pinned and documented: unity, sdl, zlib, libpng (linked);
       mame, musashi (reference only). *Verification: CI builds with only
       `ext/unity` initialised.*

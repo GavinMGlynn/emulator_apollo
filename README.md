@@ -44,11 +44,13 @@ reproducible, and goldens can cover inter-node timing, not just one node in
 isolation.
 
 Nodes run at different clocks — 12, 20, 25 and 33 MHz — while the ring is a
-fixed 12 Mbit/s domain. One ring bit time is 83.333… ns, which is 2.0833… cycles
-of a 25 MHz 68030. So no CPU's cycle is a legal unit of account, and time is
-counted in units of **3.3 GHz = LCM(12, 20, 25, 33 MHz)**, in which every
-period is an exact integer and nothing drifts. A clock the base cannot
-represent exactly is rejected at construction rather than rounded away.
+fixed 12 Mbit/s domain. One ring bit cell is 83.33 ns, which is 2.0833… cycles
+of a 25 MHz 68030; and because the ring PHY is bi-phase encoded, the ring itself
+contributes two clocks, a 12 MHz data clock and a 24 MHz line clock. So no CPU's
+cycle is a legal unit of account, and time is counted in units of
+**6.6 GHz = LCM(12, 20, 24, 25, 33 MHz)**, in which every period is an exact
+integer and nothing drifts. A clock the base cannot represent exactly is
+rejected at construction rather than rounded away.
 
 The medium sits behind a narrow interface so a process-separated transport can
 be added later as an explicitly non-deterministic mode, without touching node

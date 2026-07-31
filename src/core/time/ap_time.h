@@ -3,29 +3,39 @@
  * Why a common time base rather than CPU cycles: this emulator runs several
  * nodes of *different models* on one Apollo Token Ring. A DN3000 runs a 12 MHz
  * 68020, a DN3500 a 25 MHz 68030, a DN4500 a 33 MHz 68030 -- while the ring
- * itself is a fixed 12 Mbit/s domain shared by all of them. One ring bit time
- * is 83.333... ns, which is 2.0833... cycles of a 25 MHz CPU and 2.75 of a
- * 33 MHz CPU. No CPU's cycle is a legal unit of account for the machine.
+ * itself is a fixed 12 Mbit/s domain shared by all of them. One ring bit cell
+ * is 83.33 ns, which is 2.0833... cycles of a 25 MHz CPU and 2.75 of a 33 MHz
+ * CPU. No CPU's cycle is a legal unit of account for the machine.
  *
- * So time is counted in units of AP_TIME_BASE_HZ, chosen as the least common
- * multiple of every clock frequency in the machine. Every clock's period is
- * then an exact integer number of units and nothing accumulates rounding
- * error:
+ * The ring contributes two clocks, not one. Its data rate is 12 Mbit/s, but the
+ * physical layer is bi-phase encoded: "In the time it takes to transmit one bit
+ * (this is a bit cell, or 83.33 nsec), two windows exist: the clock window and
+ * the data window", and each node's phase-lock loops run at "the 24-MHz clock"
+ * -- 010005-00 (Apollo Token Ring MAC and Physical Layer Protocols) section 3.2,
+ * p.3-3. So the ring's line clock is 24 MHz and its data clock 12 MHz, and both
+ * must be exactly representable.
  *
- *     12 MHz -> 275 units      20 MHz -> 165 units
- *     25 MHz -> 132 units      33 MHz -> 100 units
- *     12 Mbit/s ring bit -> 275 units
+ * Time is therefore counted in units of AP_TIME_BASE_HZ, the least common
+ * multiple of every clock frequency in the machine:
+ *
+ *     LCM(12, 20, 24, 25, 33 MHz) = 2^3 * 3 * 5^2 * 11 MHz = 6.6 GHz
+ *
+ *     12 MHz -> 550 units      20 MHz -> 330 units
+ *     24 MHz -> 275 units      25 MHz -> 264 units
+ *     33 MHz -> 200 units
+ *     ring bit cell (12 Mbit/s) -> 550 units, of two 275-unit windows
  *
  * Discipline: AP_TIME_BASE_HZ is a *derived* constant. When a new clock domain
- * is added (a video dot clock, say) whose frequency does not divide it, the
- * base is recomputed as the new LCM. That changes the unit but not one bit of
- * emulated behaviour, because every period is derived from it rather than
- * written down. ap_clock_init() refuses a frequency the base does not divide
- * exactly, so an unrepresentable clock is a loud failure at construction time
- * and never a silent drift at run time.
+ * is added whose frequency does not divide it -- as the ring's 24 MHz line clock
+ * did not divide the original 3.3 GHz base -- the base is recomputed as the new
+ * LCM. That changes the unit but not one bit of emulated behaviour, because
+ * every period is derived from it rather than written down. ap_clock_init()
+ * refuses a frequency the base does not divide exactly, so an unrepresentable
+ * clock is a loud failure at construction time and never a silent drift at run
+ * time. A video dot clock is the next candidate to force a recomputation.
  *
- * At 3.3 GHz a uint64_t spans ~177 years of emulated time; wrap is not a
- * concern the model needs to handle.
+ * At 6.6 GHz a uint64_t spans ~88 years of emulated time; wrap is not a concern
+ * the model needs to handle.
  */
 
 #ifndef APOLLO_TIME_AP_TIME_H
@@ -34,10 +44,16 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-/* LCM(12, 20, 25, 33 MHz) = 2^2 * 3 * 5^2 * 11 MHz = 3.3 GHz.
+/* LCM(12, 20, 24, 25, 33 MHz) = 2^3 * 3 * 5^2 * 11 MHz = 6.6 GHz.
  * See docs/PROJECT_STATUS.md for which model clocks are confirmed and which
  * are still PROVISIONAL. */
-#define AP_TIME_BASE_HZ UINT64_C(3300000000)
+#define AP_TIME_BASE_HZ UINT64_C(6600000000)
+
+/* The ring's two clock domains, from 010005-00 section 3.2 p.3-3. Declared here
+ * because the time base exists to represent them exactly, and a change to
+ * either is a change to the base. */
+#define AP_RING_DATA_HZ 12000000u /* NRZ data rate: one bit per 83.33 ns cell */
+#define AP_RING_LINE_HZ 24000000u /* bi-phase window clock: two per bit cell */
 
 /* Absolute time, in AP_TIME_BASE_HZ units, since machine reset. */
 typedef uint64_t ap_time_t;

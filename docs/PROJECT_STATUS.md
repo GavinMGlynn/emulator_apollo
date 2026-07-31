@@ -120,11 +120,22 @@ Cited as `[CFG]` = HP-Apollo Products Configuration Guide, Dec 1989.
 
 ### Time base
 
-`AP_TIME_BASE_HZ = 3.3 GHz = LCM(12, 20, 25, 33 MHz)`, giving exact integer
-periods: 275 units at 12 MHz, 165 at 20 MHz, 132 at 25 MHz, 100 at 33 MHz, and
-275 units for a 12 Mbit/s ring bit. This is a *derived* constant — adding a
-clock it does not divide (a video dot clock, most likely) means recomputing the
-LCM, which changes the unit and no emulated behaviour.
+`AP_TIME_BASE_HZ = 6.6 GHz = LCM(12, 20, 24, 25, 33 MHz)`, giving exact integer
+periods: 550 units at 12 MHz, 330 at 20 MHz, 275 at 24 MHz, 264 at 25 MHz, 200
+at 33 MHz, and a 12 Mbit/s ring bit cell of 550 units built from two 275-unit
+bi-phase windows. This is a *derived* constant — adding a clock it does not
+divide means recomputing the LCM, which changes the unit and no emulated
+behaviour.
+
+The base was 3.3 GHz until the ring's second clock domain was confirmed. The
+Apollo ring PHY is bi-phase encoded, so 12 Mbit/s is the data rate while the
+line clock is 24 MHz (`010005-00` §3.2 p.3-3, recorded as findings 10/10a in
+`docs/references/RING.md`) — and 3.3 GHz divides 24 MHz only as 137.5. Doubling
+the base restored exactness. This is the discipline working as designed rather
+than a correction: the constant is derived, `ap_clock_init()` rejects a
+frequency the base cannot represent instead of rounding it, and every period is
+computed from the base rather than written down, so no emulated behaviour moved.
+A video dot clock is the next candidate to force a recomputation.
 
 ## Deliberate approximations
 
