@@ -56,6 +56,7 @@ typedef struct {
   bool cache_enabled; /* CACR's EI or ED for this cache */
   bool cache_frozen;  /* FI or FD */
   bool burst_enabled; /* IBE or DBE */
+  bool write_allocate; /* CACR's WA, for the data cache's write misses */
   bool cache_disable; /* the CDIS signal, which overrides CACR */
   bool translation_enabled; /* TC's E bit */
 
@@ -80,9 +81,39 @@ typedef struct {
   unsigned descriptor_fetches; /* the table search's cost, when one ran */
 } ap_m68030_access_result_t;
 
+/* ## A write can never skip the MMU
+ *
+ * The read path above turns on a cache hit avoiding the external cycle. A write
+ * cannot: the data cache is **writethrough**, so "the data is written both to
+ * the cache and to external memory" on every write that reaches it. An external
+ * cycle always happens, and "the MMU is used to validate all accesses that
+ * require external bus cycles" -- so a write always consults the MMU, hit or
+ * miss.
+ *
+ * That asymmetry is the whole difference between the two entry points, and it
+ * is also why protection works at all: if a write could be answered from the
+ * cache alone, a write-protected page already resident would be writable.
+ *
+ * ## A write to a clean page costs a table search a read would not
+ *
+ * `[030]` §9.4's consequence, now visible end to end. An ATC entry created by a
+ * *read* has M clear, and a write to it "aborts the access and initiates a table
+ * search" so the M bit is set in both the entry and the page descriptor. So the
+ * first write to a page that has only been read pays for a full table search
+ * even though the translation was already cached.
+ */
+
 /* Read one long word at a logical address. */
 [[nodiscard]] ap_m68030_access_result_t
 ap_m68030_access_read(ap_m68030_access_ctx_t *access, uint32_t logical,
                       uint8_t function_code);
+
+/* Write one long word at a logical address. `aligned_long_word` feeds the data
+ * cache's write allocation rule, which validates an allocated entry only for an
+ * aligned long. */
+[[nodiscard]] ap_m68030_access_result_t
+ap_m68030_access_write(ap_m68030_access_ctx_t *access, uint32_t logical,
+                       uint8_t function_code, uint32_t value,
+                       bool aligned_long_word);
 
 #endif /* APOLLO_CPU_M68030_AP_M68030_ACCESS_H */

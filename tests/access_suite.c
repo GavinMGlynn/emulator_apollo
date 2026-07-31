@@ -234,6 +234,109 @@ static void test_the_table_search_is_paid_once_per_page(void) {
   TEST_ASSERT_EQUAL_UINT(after_first, m.memory.table_fetches);
 }
 
+
+/* ---------------------------------------------------------------------------
+ * Writes. The asymmetry with reads is the point: a read can be answered from
+ * the cache alone, a write never can, because the data cache is writethrough.
+ * ------------------------------------------------------------------------- */
+
+/* A write always consults the MMU, even to a page already cached and already
+ * translated -- which is also what makes write protection work on a resident
+ * page. */
+static void test_a_write_always_consults_the_mmu(void) {
+  machine_t m = make_machine();
+  ap_m68030_access_ctx_t ctx = context_of(&m);
+
+  /* Warm everything: after this the line is cached and the page translated. */
+  (void)ap_m68030_access_read(&ctx, ADDRESS, FC_SUPERVISOR_DATA);
+  const ap_m68030_access_result_t read_again =
+      ap_m68030_access_read(&ctx, ADDRESS, FC_SUPERVISOR_DATA);
+  TEST_ASSERT_TRUE(read_again.cache_hit);
+  TEST_ASSERT_FALSE(read_again.mmu_consulted);
+
+  /* The write to that same, fully warm address still consults the MMU. */
+  const ap_m68030_access_result_t write = ap_m68030_access_write(
+      &ctx, ADDRESS, FC_SUPERVISOR_DATA, 0x12345678u, true);
+  TEST_ASSERT_TRUE(write.ok);
+  TEST_ASSERT_TRUE(write.mmu_consulted);
+}
+
+/* [030] 9.4's consequence end to end: an ATC entry created by a read has M
+ * clear, so the first write to that page costs a full table search even though
+ * the translation was already cached. */
+static void test_a_write_to_a_read_only_warmed_page_costs_a_table_search(void) {
+  machine_t m = make_machine();
+  ap_m68030_access_ctx_t ctx = context_of(&m);
+
+  (void)ap_m68030_access_read(&ctx, ADDRESS, FC_SUPERVISOR_DATA);
+  const unsigned after_read = m.memory.table_fetches;
+
+  /* A second *read* pays nothing more -- the ATC entry serves it. */
+  (void)ap_m68030_access_read(&ctx, ADDRESS + 0x40u, FC_SUPERVISOR_DATA);
+  TEST_ASSERT_EQUAL_UINT(after_read, m.memory.table_fetches);
+
+  /* The first *write* to the same page does pay, because M is clear. */
+  const ap_m68030_access_result_t write = ap_m68030_access_write(
+      &ctx, ADDRESS, FC_SUPERVISOR_DATA, 0x12345678u, true);
+  TEST_ASSERT_TRUE(write.descriptor_fetches > 0);
+  TEST_ASSERT_TRUE(m.memory.table_fetches > after_read);
+}
+
+/* And once M is set, subsequent writes to the page are ordinary ATC hits that
+ * cost no further search -- so the price is paid once, not per write. */
+static void test_the_modified_bit_is_paid_for_once(void) {
+  machine_t m = make_machine();
+  ap_m68030_access_ctx_t ctx = context_of(&m);
+
+  (void)ap_m68030_access_read(&ctx, ADDRESS, FC_SUPERVISOR_DATA);
+  (void)ap_m68030_access_write(&ctx, ADDRESS, FC_SUPERVISOR_DATA, 1, true);
+  const unsigned after_first_write = m.memory.table_fetches;
+
+  const ap_m68030_access_result_t second = ap_m68030_access_write(
+      &ctx, ADDRESS, FC_SUPERVISOR_DATA, 2, true);
+
+  TEST_ASSERT_TRUE(second.ok);
+  TEST_ASSERT_EQUAL_UINT(0, second.descriptor_fetches);
+  TEST_ASSERT_EQUAL_UINT(after_first_write, m.memory.table_fetches);
+}
+
+/* A write hit updates the cache as well as memory, so a later read sees the
+ * written value rather than the stale filled one. */
+static void test_a_write_hit_updates_the_cached_value(void) {
+  machine_t m = make_machine();
+  ap_m68030_access_ctx_t ctx = context_of(&m);
+
+  const ap_m68030_access_result_t first =
+      ap_m68030_access_read(&ctx, ADDRESS, FC_SUPERVISOR_DATA);
+  (void)ap_m68030_access_write(&ctx, ADDRESS, FC_SUPERVISOR_DATA, 0xFEEDFACEu,
+                               true);
+
+  const ap_m68030_access_result_t after =
+      ap_m68030_access_read(&ctx, ADDRESS, FC_SUPERVISOR_DATA);
+  TEST_ASSERT_TRUE(after.cache_hit);
+  TEST_ASSERT_EQUAL_HEX32(0xFEEDFACEu, after.value);
+  TEST_ASSERT_NOT_EQUAL_UINT32(first.value, after.value);
+}
+
+/* A transparently translated write skips the tables, exactly as a read does. */
+static void test_a_transparent_write_skips_the_tables(void) {
+  machine_t m = make_machine();
+  ap_m68030_access_ctx_t ctx = context_of(&m);
+  const ap_m68030_tt_t tt = {.logical_base = 0x00,
+                             .logical_mask = 0xFF,
+                             .fc_mask = 0x7,
+                             .enabled = true,
+                             .ignore_read_write = true};
+  ctx.tt0 = &tt;
+
+  const ap_m68030_access_result_t write = ap_m68030_access_write(
+      &ctx, ADDRESS, FC_SUPERVISOR_DATA, 0x11223344u, true);
+
+  TEST_ASSERT_TRUE(write.transparent);
+  TEST_ASSERT_EQUAL_UINT(0, m.memory.table_fetches);
+  TEST_ASSERT_EQUAL_UINT(0, write.descriptor_fetches);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_a_cold_access_consults_the_mmu_and_pays_for_it);
@@ -243,5 +346,10 @@ int main(void) {
   RUN_TEST(test_the_cache_disable_signal_overrides_the_enable_bit);
   RUN_TEST(test_a_transparent_access_skips_the_translation_tables);
   RUN_TEST(test_the_table_search_is_paid_once_per_page);
+  RUN_TEST(test_a_write_always_consults_the_mmu);
+  RUN_TEST(test_a_write_to_a_read_only_warmed_page_costs_a_table_search);
+  RUN_TEST(test_the_modified_bit_is_paid_for_once);
+  RUN_TEST(test_a_write_hit_updates_the_cached_value);
+  RUN_TEST(test_a_transparent_write_skips_the_tables);
   return UNITY_END();
 }

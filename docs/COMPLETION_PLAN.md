@@ -676,9 +676,24 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         CDIS signal each forcing the MMU every time; a transparent access
         skipping the tables entirely; and the table search being paid once per
         *page* rather than once per line.*
-  - [ ] Writes through the same path, which add the M-bit rule and the data
-        cache's writethrough behaviour. *Verification: a write to a clean page
-        costing a table search the read did not.*
+  - [x] **Writes through the same path.** The asymmetry with reads *is* the
+        content: a read can be answered from the cache alone, and a write never
+        can, because the data cache is writethrough — "the data is written both
+        to the cache and to external memory" — so an external cycle always
+        happens and the MMU is therefore always consulted. That is also what
+        makes write protection work at all: if a write could be answered from
+        the cache, a write-protected page already resident would be writable.
+        **A write to a page that has only been read costs a table search the
+        read did not**, which is §9.4's consequence visible end to end: an ATC
+        entry created by a read has M clear, and a write to it "aborts the
+        access and initiates a table search". Paid once — a second write to the
+        same page is an ordinary hit.
+        *Verification: `access_suite`, 5 further tests (12 total) — a write to a
+        fully warm address still consulting the MMU where the read before it did
+        not; the first write paying a search while a second *read* to the same
+        page pays nothing; the price paid once rather than per write; a write
+        hit updating the cached value so a later read sees it; and a transparent
+        write skipping the tables.*
   - [ ] **CMP2/CHK2, CAS and CAS2**, which occupy size field `11` in family
         `0000`'s immediate rows. Not decoded: `ap_m68030_immediate_decode`
         reports invalid there rather than mis-decoding them as a wider ORI, and
