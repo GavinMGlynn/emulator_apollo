@@ -713,6 +713,34 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         in order so the saving is real rather than a dropped fetch, a re-fetch
         hitting the instruction cache, and a pipe reset discarding the holding
         register so a branch target's neighbour is not wrongly free.*
+  - [~] **The instruction step** (`src/core/cpu/m68030/ap_m68030_step.c`):
+        fetch through the pipe and instruction cache, decode, execute, advance
+        the PC, account the clocks. **A program runs.**
+        Executing today: `NOP`, `MOVEQ`, and the 8-bit forms of `BRA` and
+        `Bcc` — the instructions needing no operand access beyond the
+        instruction word.
+        **Unimplemented is a distinct outcome from illegal**, and that is what
+        lets this ship incomplete. Silently doing nothing would make a program
+        appear to run while producing wrong results *and* a wrong clock count;
+        reporting illegal would be a lie about the hardware and would send a
+        probe down an exception path the real machine never takes. So an
+        unimplemented instruction stops the step, says so, and leaves the PC
+        where it was — "how far did this program get" is then a real measure.
+        `-Wswitch-enum` keeps it honest: every decoded kind is listed
+        explicitly, so adding a family to the decoder forces a decision here
+        rather than letting a `default` make it silently.
+        *Verification: `step_suite`, 10 tests — `MOVEQ` sign-extending `$FF` to
+        −1 and setting exactly the documented condition codes (with X asserted
+        to *survive*), a four-instruction program running to its end, `BRA`
+        landing on its target and the instruction there being the expected one,
+        a conditional branch reading the flags the previous instruction set —
+        the first interaction between two instructions — an unimplemented
+        instruction reported rather than skipped, an illegal encoding distinct
+        from it, and a second pass over the same code costing **zero** clocks
+        because the instruction cache answers.*
+  - [ ] The remaining instruction semantics, family by family, and the operand
+        access each needs. *Verification: per-family suites, then probes against
+        the oracle for the timing.*
   - [ ] **CMP2/CHK2, CAS and CAS2**, which occupy size field `11` in family
         `0000`'s immediate rows. Not decoded: `ap_m68030_immediate_decode`
         reports invalid there rather than mis-decoding them as a wider ORI, and

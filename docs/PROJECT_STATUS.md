@@ -3,7 +3,7 @@
 The single source of truth for **what works**. Updated in the same commit as the
 code it describes. If this file and the code disagree, the file is the bug.
 
-**Accuracy claim: none yet.** Nothing boots. The 68030's bus cycle state machine
+**Accuracy claim: none yet.** Nothing boots, but a program now *runs*: `ap_m68030_step` fetches through the pipe and instruction cache, decodes, executes a named subset (`NOP`, `MOVEQ`, 8-bit `BRA`/`Bcc`) and advances the PC, with clocks accounted. An instruction outside that subset reports `UNIMPLEMENTED` rather than silently succeeding, so "how far a program got" is a real measure. The 68030's bus cycle state machine
 exists, but there is no instruction execution, no memory system and no device, so
 no machine can be constructed and no accuracy claim is available to make. The golden regression harness now exists, but it pins reports about the
 model table, not emulated behaviour. This section will state exactly what backs
@@ -24,6 +24,7 @@ Last updated: 2026-07-31.
 | 68030 instruction pipe + cache holding register | working | `pipe_suite`, 14 tests, `MC68030 User's Manual 3ed` §11.2.2 |
 | 68030 bus cycle state machine | working, including burst line fills | `bus_suite`, 23 tests, each citing `MC68030 User's Manual 3ed` ch. 7 (read, write and burst cycles) |
 | 68030 on-chip instruction and data caches | working, including the bus-timing join: a hit costs 0 clocks, a burst line fill 5 | `cache_suite`, 29 tests and `bus_suite`, 23 tests, `MC68030 User's Manual 3ed` §6, §7.3.7 |
+| 68030 instruction step (fetch → decode → execute → advance) | working for `NOP`, `MOVEQ`, 8-bit `BRA`/`Bcc`; everything else reports unimplemented | `step_suite`, 10 tests |
 | 68030 instruction prefetch (pipe driven from memory) | working | `fetch_suite`, 5 tests, `MC68030 User's Manual 3ed` §11.2.2 and §6.1 |
 | 68030 logical memory access path (cache → MMU → bus) | working, reads and writes | `access_suite`, 12 tests, `MC68030 User's Manual 3ed` §6.1 |
 | 68030 effective address calculation (with register side effects) | working; memory-indirect modes report the pending indirection | `addr_suite`, 13 tests, `M68000 Family Programmer's Reference Manual 1992` §2.2 |

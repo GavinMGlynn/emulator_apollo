@@ -27,6 +27,7 @@ add_library(apollo_core STATIC
   cpu/m68030/ap_m68030_regs.c
   cpu/m68030/ap_m68030_shift.c
   cpu/m68030/ap_m68030_single.c
+  cpu/m68030/ap_m68030_step.c
   cpu/m68030/ap_m68030_tc.c
   cpu/m68030/ap_m68030_tt.c
   cpu/m68030/ap_m68030_walk.c
