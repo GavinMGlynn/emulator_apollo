@@ -861,9 +861,27 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         `DBcc` loop running the documented number of times — a count of three
         runs the body four times, three decrements that branch and a fourth that
         reaches −1 and falls through.*
-  - [ ] The remaining instruction semantics: the A-forms, divides and
-        multiplies, the register-to-register extended forms, shifts, and the
-        bit operations.
+  - [x] **The address-register forms and the bit operations execute.**
+        A word A-form is **not a word operation**: the source is sign-extended
+        and the whole register takes part, so `ADDA.W` with a negative operand
+        subtracts from the full address rather than wrapping in its low half.
+        `ADDA` and `SUBA` alter **no** condition codes — an address calculation
+        must not disturb the flags a following branch depends on — while `CMPA`
+        does, which is the whole reason a compare against an address register is
+        a separate instruction.
+        For the bit operations the operand size comes from the **destination
+        kind**, not an encoding field: a data register is a *long* operation
+        with the bit number modulo 32, memory is a *byte* operation modulo 8. A
+        model picking one width addresses the wrong bit for half of all uses,
+        silently. And Z reflects the bit as it was **before** the operation, so
+        `BSET` on an already-set bit clears Z — testing after the write inverts
+        it.
+        *Verification: `step_suite`, 10 further tests (61 total), including bit
+        31 reachable on a register, the bit number wrapping modulo the width,
+        and only Z affected with X, N, V and C all asserted to survive.*
+  - [ ] The remaining instruction semantics: divides and multiplies, the
+        register-to-register extended forms (`ADDX`/`SUBX`/`ABCD`/`SBCD`/
+        `CMPM`/`EXG`), and the shifts.
         *Verification: per-family suites, then probes against the oracle.* *Verification: per-family suites, then probes against the
         oracle for the timing.*
   - [ ] **CMP2/CHK2, CAS and CAS2**, which occupy size field `11` in family

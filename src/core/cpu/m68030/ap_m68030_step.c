@@ -8,6 +8,15 @@
 #include "cpu/m68030/ap_m68030_immediate.h"
 #include "cpu/m68030/ap_m68030_quick.h"
 #include "cpu/m68030/ap_m68030_single.h"
+
+/* Forward declarations: the two below are defined after the dispatchers that
+ * call them, so the file reads in the order the manual presents the
+ * instructions rather than in dependency order. */
+static bool execute_address_form(ap_m68030_cpu_t *cpu,
+                                 const ap_m68030_arith_t *arith,
+                                 uint32_t *clocks);
+static bool execute_bit(ap_m68030_cpu_t *cpu, const ap_m68030_immediate_t *imm,
+                        uint32_t *clocks);
 #include "cpu/m68030/ap_m68030_alu.h"
 #include "cpu/m68030/ap_m68030_operand.h"
 
@@ -239,6 +248,10 @@ static bool execute_move(ap_m68030_cpu_t *cpu, const ap_m68030_move_t *move,
 static bool execute_arith(ap_m68030_cpu_t *cpu, const ap_m68030_arith_t *arith,
                           uint32_t *clocks) {
   switch (arith->kind) {
+  case AP_M68030_ARITH_ADDA:
+  case AP_M68030_ARITH_SUBA:
+  case AP_M68030_ARITH_CMPA:
+    return execute_address_form(cpu, arith, clocks);
   case AP_M68030_ARITH_OR:
   case AP_M68030_ARITH_AND:
   case AP_M68030_ARITH_SUB:
@@ -246,9 +259,6 @@ static bool execute_arith(ap_m68030_cpu_t *cpu, const ap_m68030_arith_t *arith,
   case AP_M68030_ARITH_CMP:
   case AP_M68030_ARITH_EOR:
     break;
-  case AP_M68030_ARITH_SUBA:
-  case AP_M68030_ARITH_ADDA:
-  case AP_M68030_ARITH_CMPA:
   case AP_M68030_ARITH_DIVU:
   case AP_M68030_ARITH_DIVS:
   case AP_M68030_ARITH_MULU:
@@ -311,6 +321,8 @@ static bool execute_arith(ap_m68030_cpu_t *cpu, const ap_m68030_arith_t *arith,
   case AP_M68030_ARITH_EOR:
     result = ap_m68030_alu_eor(destination, source, arith->size);
     break;
+  /* Handled above and returned before reaching here; listed so -Wswitch-enum
+   * still forces a decision if one is ever added. */
   case AP_M68030_ARITH_SUBA:
   case AP_M68030_ARITH_ADDA:
   case AP_M68030_ARITH_CMPA:
@@ -395,13 +407,14 @@ static bool execute_immediate(ap_m68030_cpu_t *cpu,
   case AP_M68030_IMM_ANDI_TO_SR:
   case AP_M68030_IMM_EORI_TO_CCR:
   case AP_M68030_IMM_EORI_TO_SR:
+  case AP_M68030_IMM_MOVEP:
+  case AP_M68030_IMM_INVALID:
+    return false;
   case AP_M68030_IMM_BTST:
   case AP_M68030_IMM_BCHG:
   case AP_M68030_IMM_BCLR:
   case AP_M68030_IMM_BSET:
-  case AP_M68030_IMM_MOVEP:
-  case AP_M68030_IMM_INVALID:
-    return false;
+    return execute_bit(cpu, imm, clocks);
   }
 
   uint32_t immediate = 0;
@@ -667,6 +680,180 @@ static bool execute_quick(ap_m68030_cpu_t *cpu, const ap_m68030_quick_t *quick,
     return false;
   }
   return false;
+}
+
+
+/* ADDA, SUBA and CMPA: an effective address against an *address* register.
+ *
+ * "the source operand is sign-extended to a long operand and the operation is
+ * performed on the address register using all 32 bits", so a word form is not a
+ * word operation -- it is a long operation on a sign-extended operand. And
+ * ADDA and SUBA alter no condition codes, while CMPA does, which is the whole
+ * reason a compare against an address register is a separate instruction. */
+static bool execute_address_form(ap_m68030_cpu_t *cpu,
+                                 const ap_m68030_arith_t *arith,
+                                 uint32_t *clocks) {
+  ap_m68030_address_input_t input = {0};
+  if (!gather_address_input(cpu, arith->ea.kind, arith->size, clocks, &input)) {
+    return false;
+  }
+  const ap_m68030_address_t where =
+      ap_m68030_address_calculate(&cpu->regs, arith->ea, &input);
+
+  uint32_t source = 0;
+  if (arith->ea.kind == AP_M68030_EA_IMMEDIATE) {
+    if (!fetch_immediate(cpu, arith->size, clocks, &source)) {
+      return false;
+    }
+  } else {
+    const ap_m68030_operand_result_t read = ap_m68030_operand_read(
+        &cpu->regs, cpu->data, &where, arith->size, cpu->data_function_code);
+    *clocks += read.clocks;
+    if (!read.ok) {
+      return false;
+    }
+    source = read.value;
+  }
+
+  /* The sign extension is what makes a word form reach the whole register. */
+  const uint32_t extended = ap_m68030_sign_extend(source, arith->size);
+  const uint32_t destination =
+      ap_m68030_read_address_register(&cpu->regs, arith->reg);
+
+  switch (arith->kind) {
+  case AP_M68030_ARITH_ADDA:
+    /* No condition codes: an address calculation must not disturb the flags a
+     * following branch depends on. */
+    ap_m68030_write_address_register(&cpu->regs, arith->reg,
+                                     destination + extended);
+    return true;
+  case AP_M68030_ARITH_SUBA:
+    ap_m68030_write_address_register(&cpu->regs, arith->reg,
+                                     destination - extended);
+    return true;
+  case AP_M68030_ARITH_CMPA: {
+    /* CMPA *does* set them, and always compares 32 bits. */
+    const ap_m68030_alu_result_t result =
+        ap_m68030_alu_cmp(destination, extended, 4u);
+    ap_m68030_write_ccr(&cpu->regs,
+                        ap_m68030_alu_apply(ap_m68030_read_ccr(&cpu->regs),
+                                            &result));
+    return true;
+  }
+  /* Only the three address-register forms reach this function. */
+  case AP_M68030_ARITH_OR:
+  case AP_M68030_ARITH_AND:
+  case AP_M68030_ARITH_SUB:
+  case AP_M68030_ARITH_ADD:
+  case AP_M68030_ARITH_CMP:
+  case AP_M68030_ARITH_EOR:
+  case AP_M68030_ARITH_DIVU:
+  case AP_M68030_ARITH_DIVS:
+  case AP_M68030_ARITH_MULU:
+  case AP_M68030_ARITH_MULS:
+  case AP_M68030_ARITH_SUBX:
+  case AP_M68030_ARITH_ADDX:
+  case AP_M68030_ARITH_ABCD:
+  case AP_M68030_ARITH_SBCD:
+  case AP_M68030_ARITH_CMPM:
+  case AP_M68030_ARITH_EXG:
+  case AP_M68030_ARITH_INVALID:
+    return false;
+  }
+  return false;
+}
+
+/* BTST, BCHG, BCLR and BSET.
+ *
+ * The operand size is decided by the *destination kind*, not by an encoding
+ * field: "When a data register is the destination, any of the 32 bits can be
+ * specified by a modulo 32-bit number. When a memory location is the
+ * destination, the operation is a byte operation, and the bit number is modulo
+ * 8." A model that picked one width would address the wrong bit for half of all
+ * uses, silently.
+ *
+ * Z comes from the bit as it was *before* the operation -- "TEST (<bit number>
+ * of Destination) -> Z; 1 -> <bit number> of Destination" -- so BSET on an
+ * already-set bit sets Z clear, and testing after the write would invert it. */
+static bool execute_bit(ap_m68030_cpu_t *cpu, const ap_m68030_immediate_t *imm,
+                        uint32_t *clocks) {
+  unsigned bit_number = 0;
+  if (imm->dynamic) {
+    bit_number = (unsigned)cpu->regs.d[imm->reg];
+  } else {
+    uint16_t word = 0;
+    if (!next_word(cpu, clocks, &word)) {
+      return false;
+    }
+    bit_number = word;
+  }
+
+  const bool to_register = imm->ea.kind == AP_M68030_EA_DATA_REGISTER;
+  const unsigned size = to_register ? 4u : 1u;
+  bit_number %= to_register ? 32u : 8u;
+
+  ap_m68030_address_input_t input = {0};
+  if (!gather_address_input(cpu, imm->ea.kind, size, clocks, &input)) {
+    return false;
+  }
+  const ap_m68030_address_t where =
+      ap_m68030_address_calculate(&cpu->regs, imm->ea, &input);
+
+  const ap_m68030_operand_result_t read = ap_m68030_operand_read(
+      &cpu->regs, cpu->data, &where, size, cpu->data_function_code);
+  *clocks += read.clocks;
+  if (!read.ok) {
+    return false;
+  }
+
+  const uint32_t mask = UINT32_C(1) << bit_number;
+  const bool was_set = (read.value & mask) != 0u;
+
+  /* "Z = Dn" with the overbar restored by the operation description: Z is set
+   * when the tested bit was *zero*. Only Z is affected at all. */
+  uint16_t ccr = ap_m68030_read_ccr(&cpu->regs);
+  ccr &= (uint16_t)~(1u << AP_M68030_SR_Z_BIT);
+  if (!was_set) {
+    ccr |= (uint16_t)(1u << AP_M68030_SR_Z_BIT);
+  }
+  ap_m68030_write_ccr(&cpu->regs, ccr);
+
+  uint32_t updated = read.value;
+  switch (imm->kind) {
+  case AP_M68030_IMM_BTST:
+    return true; /* tests only */
+  case AP_M68030_IMM_BCHG:
+    updated ^= mask;
+    break;
+  case AP_M68030_IMM_BCLR:
+    updated &= ~mask;
+    break;
+  case AP_M68030_IMM_BSET:
+    updated |= mask;
+    break;
+  /* Only the four bit operations reach this function. */
+  case AP_M68030_IMM_ORI:
+  case AP_M68030_IMM_ANDI:
+  case AP_M68030_IMM_SUBI:
+  case AP_M68030_IMM_ADDI:
+  case AP_M68030_IMM_EORI:
+  case AP_M68030_IMM_CMPI:
+  case AP_M68030_IMM_MOVES:
+  case AP_M68030_IMM_ORI_TO_CCR:
+  case AP_M68030_IMM_ORI_TO_SR:
+  case AP_M68030_IMM_ANDI_TO_CCR:
+  case AP_M68030_IMM_ANDI_TO_SR:
+  case AP_M68030_IMM_EORI_TO_CCR:
+  case AP_M68030_IMM_EORI_TO_SR:
+  case AP_M68030_IMM_MOVEP:
+  case AP_M68030_IMM_INVALID:
+    return false;
+  }
+
+  const ap_m68030_operand_result_t written = ap_m68030_operand_write(
+      &cpu->regs, cpu->data, &where, size, updated, cpu->data_function_code);
+  *clocks += written.clocks;
+  return written.ok;
 }
 
 ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {

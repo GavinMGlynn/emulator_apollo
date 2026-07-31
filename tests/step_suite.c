@@ -1044,6 +1044,187 @@ static void test_a_true_dbcc_condition_leaves_the_counter_alone(void) {
   TEST_ASSERT_EQUAL_HEX32(5u, m.cpu.regs.d[1]);
 }
 
+
+/* ---------------------------------------------------------------------------
+ * The address-register forms and the bit operations.
+ * ------------------------------------------------------------------------- */
+
+/* ADDA alters no condition codes -- an address calculation must not disturb the
+ * flags a following branch depends on. */
+static void test_adda_leaves_the_condition_codes_alone(void) {
+  /* MOVEQ #4,D0 ; ADDA.L D0,A0 */
+  static const uint16_t program[] = {0x7004u, 0xD1C0u, 0x4E71u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 4);
+  ap_m68030_write_sr(&m.cpu.regs, 1u << AP_M68030_SR_S_BIT);
+  ap_m68030_write_address_register(&m.cpu.regs, 0, 0x1000u);
+
+  (void)ap_m68030_step(&m.cpu);
+  ap_m68030_write_ccr(&m.cpu.regs, AP_M68030_CCR_MASK);
+  const ap_m68030_step_result_t r = ap_m68030_step(&m.cpu);
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, r.status);
+  TEST_ASSERT_EQUAL_HEX32(0x1004u,
+                          ap_m68030_read_address_register(&m.cpu.regs, 0));
+  TEST_ASSERT_EQUAL_HEX16(AP_M68030_CCR_MASK, ap_m68030_read_ccr(&m.cpu.regs));
+}
+
+/* A word A-form is not a word operation: the source is sign-extended and the
+ * whole register takes part, so a negative word subtracts from the full
+ * address rather than wrapping in its low half. */
+static void test_a_word_adda_sign_extends_its_source(void) {
+  /* MOVEQ #-4,D0 ; ADDA.W D0,A0 */
+  static const uint16_t program[] = {0x70FCu, 0xD0C0u, 0x4E71u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 4);
+  ap_m68030_write_sr(&m.cpu.regs, 1u << AP_M68030_SR_S_BIT);
+  ap_m68030_write_address_register(&m.cpu.regs, 0, 0x1000u);
+
+  (void)ap_m68030_step(&m.cpu);
+  (void)ap_m68030_step(&m.cpu);
+
+  /* $1000 - 4, not $1000 + $FFFC. */
+  TEST_ASSERT_EQUAL_HEX32(0x0FFCu,
+                          ap_m68030_read_address_register(&m.cpu.regs, 0));
+}
+
+/* CMPA does set the condition codes, which is why a compare against an address
+ * register is a separate instruction from ADDA and SUBA. */
+static void test_cmpa_does_set_the_condition_codes(void) {
+  /* MOVEQ #$10,D0 ; CMPA.L D0,A0  with A0 = $10  ->  Z set */
+  static const uint16_t program[] = {0x7010u, 0xB1C0u, 0x4E71u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 4);
+  ap_m68030_write_sr(&m.cpu.regs, 1u << AP_M68030_SR_S_BIT);
+  ap_m68030_write_address_register(&m.cpu.regs, 0, 0x10u);
+
+  (void)ap_m68030_step(&m.cpu);
+  const ap_m68030_step_result_t r = ap_m68030_step(&m.cpu);
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, r.status);
+  TEST_ASSERT_TRUE(ap_m68030_read_ccr(&m.cpu.regs) &
+                   (1u << AP_M68030_SR_Z_BIT));
+  /* And the register is untouched. */
+  TEST_ASSERT_EQUAL_HEX32(0x10u,
+                          ap_m68030_read_address_register(&m.cpu.regs, 0));
+}
+
+/* "TEST (<bit number> of Destination) -> Z" -- Z reflects the bit as it was
+ * *before* the operation, so BSET on an already-set bit clears Z. Testing after
+ * the write would invert it. */
+static void test_z_reflects_the_bit_before_the_operation(void) {
+  /* MOVEQ #0,D0 ; BSET #0,D0  -- bit was clear, so Z is set */
+  static const uint16_t program[] = {0x7000u, 0x08C0u, 0x0000u, 0x4E71u,
+                                     0x4E71u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 6);
+
+  (void)ap_m68030_step(&m.cpu);
+  const ap_m68030_step_result_t r = ap_m68030_step(&m.cpu);
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, r.status);
+  TEST_ASSERT_EQUAL_HEX32(1u, m.cpu.regs.d[0]); /* the bit is now set */
+  TEST_ASSERT_TRUE(ap_m68030_read_ccr(&m.cpu.regs) &
+                   (1u << AP_M68030_SR_Z_BIT)); /* but it *was* clear */
+}
+
+/* The complement: setting a bit that was already set clears Z. */
+static void test_setting_an_already_set_bit_clears_z(void) {
+  /* MOVEQ #1,D0 ; BSET #0,D0 */
+  static const uint16_t program[] = {0x7001u, 0x08C0u, 0x0000u, 0x4E71u,
+                                     0x4E71u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 6);
+
+  (void)ap_m68030_step(&m.cpu);
+  (void)ap_m68030_step(&m.cpu);
+
+  TEST_ASSERT_EQUAL_HEX32(1u, m.cpu.regs.d[0]);
+  TEST_ASSERT_FALSE(ap_m68030_read_ccr(&m.cpu.regs) &
+                    (1u << AP_M68030_SR_Z_BIT));
+}
+
+/* A data register destination is a *long* operation with the bit number modulo
+ * 32, so bit 31 is reachable -- a byte-width model would address bit 7. */
+static void test_a_data_register_bit_operation_reaches_bit_thirty_one(void) {
+  /* MOVEQ #0,D0 ; BSET #31,D0 */
+  static const uint16_t program[] = {0x7000u, 0x08C0u, 0x001Fu, 0x4E71u,
+                                     0x4E71u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 6);
+
+  (void)ap_m68030_step(&m.cpu);
+  (void)ap_m68030_step(&m.cpu);
+
+  TEST_ASSERT_EQUAL_HEX32(0x80000000u, m.cpu.regs.d[0]);
+}
+
+/* The bit number is taken modulo the operand width, so 32 wraps to bit 0 on a
+ * data register rather than addressing nothing. */
+static void test_the_bit_number_wraps_modulo_the_operand_width(void) {
+  /* MOVEQ #0,D0 ; BSET #32,D0  ->  bit 0 */
+  static const uint16_t program[] = {0x7000u, 0x08C0u, 0x0020u, 0x4E71u,
+                                     0x4E71u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 6);
+
+  (void)ap_m68030_step(&m.cpu);
+  (void)ap_m68030_step(&m.cpu);
+
+  TEST_ASSERT_EQUAL_HEX32(1u, m.cpu.regs.d[0]);
+}
+
+/* BTST tests without writing. */
+static void test_btst_does_not_write(void) {
+  /* MOVEQ #0,D0 ; BTST #0,D0 */
+  static const uint16_t program[] = {0x7000u, 0x0800u, 0x0000u, 0x4E71u,
+                                     0x4E71u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 6);
+
+  (void)ap_m68030_step(&m.cpu);
+  const ap_m68030_step_result_t r = ap_m68030_step(&m.cpu);
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, r.status);
+  TEST_ASSERT_EQUAL_HEX32(0u, m.cpu.regs.d[0]);
+  TEST_ASSERT_TRUE(ap_m68030_read_ccr(&m.cpu.regs) &
+                   (1u << AP_M68030_SR_Z_BIT));
+}
+
+/* Only Z is affected: Table 3-18 gives the bit operations em dashes under X, N,
+ * V and C, so every other flag survives. */
+static void test_a_bit_operation_affects_only_the_zero_flag(void) {
+  static const uint16_t program[] = {0x7000u, 0x0800u, 0x0000u, 0x4E71u,
+                                     0x4E71u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 6);
+
+  (void)ap_m68030_step(&m.cpu);
+  ap_m68030_write_ccr(&m.cpu.regs, AP_M68030_CCR_MASK);
+  (void)ap_m68030_step(&m.cpu);
+
+  const uint16_t ccr = ap_m68030_read_ccr(&m.cpu.regs);
+  TEST_ASSERT_TRUE(ccr & (1u << AP_M68030_SR_X_BIT));
+  TEST_ASSERT_TRUE(ccr & (1u << AP_M68030_SR_N_BIT));
+  TEST_ASSERT_TRUE(ccr & (1u << AP_M68030_SR_V_BIT));
+  TEST_ASSERT_TRUE(ccr & (1u << AP_M68030_SR_C_BIT));
+}
+
+/* A dynamic bit operation takes its bit number from a register. */
+static void test_a_dynamic_bit_number_comes_from_a_register(void) {
+  /* MOVEQ #4,D1 ; MOVEQ #0,D0 ; BSET D1,D0 */
+  static const uint16_t program[] = {0x7204u, 0x7000u, 0x03C0u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 4);
+
+  (void)ap_m68030_step(&m.cpu);
+  (void)ap_m68030_step(&m.cpu);
+  const ap_m68030_step_result_t r = ap_m68030_step(&m.cpu);
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, r.status);
+  TEST_ASSERT_EQUAL_HEX32(0x10u, m.cpu.regs.d[0]);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_a_nop_executes_and_advances_the_pc);
@@ -1097,5 +1278,15 @@ int main(void) {
   RUN_TEST(test_a_dbcc_loop_runs_the_documented_number_of_times);
   RUN_TEST(test_dbcc_decrements_only_the_low_word);
   RUN_TEST(test_a_true_dbcc_condition_leaves_the_counter_alone);
+  RUN_TEST(test_adda_leaves_the_condition_codes_alone);
+  RUN_TEST(test_a_word_adda_sign_extends_its_source);
+  RUN_TEST(test_cmpa_does_set_the_condition_codes);
+  RUN_TEST(test_z_reflects_the_bit_before_the_operation);
+  RUN_TEST(test_setting_an_already_set_bit_clears_z);
+  RUN_TEST(test_a_data_register_bit_operation_reaches_bit_thirty_one);
+  RUN_TEST(test_the_bit_number_wraps_modulo_the_operand_width);
+  RUN_TEST(test_btst_does_not_write);
+  RUN_TEST(test_a_bit_operation_affects_only_the_zero_flag);
+  RUN_TEST(test_a_dynamic_bit_number_comes_from_a_register);
   return UNITY_END();
 }
