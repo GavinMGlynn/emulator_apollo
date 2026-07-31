@@ -2285,8 +2285,12 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         moving, which is exactly what firmware does to a controller it has not
         yet used. Rotating priority is stored and decoded but its rotation is
         not kept, because nothing can rotate it until a transfer completes.
-  - [ ] Wire the two controllers into the board at `010C00` (stride 1) and
-        `010D00` (stride 2), both measured.
+  - [x] Both controllers wired into the board at `010C00` (stride 1) and
+        `010D00` (stride 2). `dma_suite`, 6 tests. The AT convention that the
+        first controller cascades onto channel 0 of the second is deliberately
+        **not** asserted — the equivalent assumption about the interrupt
+        controllers was wrong here (C11) — and will be measured once transfers
+        exist to measure.
   - [ ] Then the shared arbitration point (Phase 3's first item), which has been
         waiting on a second bus master to exist.
 - [ ] Interval timer and calendar. *Verification: self-timing probes; the

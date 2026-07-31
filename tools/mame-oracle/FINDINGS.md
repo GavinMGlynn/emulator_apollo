@@ -865,15 +865,33 @@ A clean dump of thirty-two bytes at each:
     dma1  010C00: 00 x15  0F   00 x15  0F
     dma2  010D00: 00 x30  0F 0F
 
-**DMA 1 is stride 1**, sixteen registers aliased every sixteen bytes. The `0F`
-at offset 15 is the 8237A's all-mask register reading all four channels masked,
-which is what a part out of reset holds — and it repeats at offset 31, which is
-the aliasing.
+**DMA 1 is stride 1**, sixteen registers aliased every sixteen bytes: the `0F`
+falls at offset 15 and repeats at 31.
 
 **DMA 2 is stride 2**, so its register 15 lands at offset 30 rather than 15.
 Offset 15 reads `00` there, which rules stride 1 out directly rather than by
 inference. That matches the ordinary AT arrangement, where the second controller
 carries the 16-bit channels and is mapped a word apart.
+
+**Corrected.** This finding first said the `0F` "is the all-mask register
+reading all four channels masked". That was an interpretation, and `[8237]`
+Figure 6 contradicts it: register 15 is **"Illegal"** to read — the mask register
+is write-only, and only status (8) and temporary (13) may be read at all. What
+the oracle returns for that illegal read is its own business; `0F` is a
+plausible thing for a part to drive there and is not a register value this core
+should reproduce.
+
+The stride conclusion is untouched, because it never depended on *what* the
+byte was — only on the fact that a distinguishable byte falls at offset 15 on
+one controller and offset 30 on the other. Worth separating carefully: the
+measurement was sound and the gloss on it was not.
+
+**Divergence recorded.** This core returns zero for a read of any write-only
+register, where the oracle returns `0F` at register 15. `[8237]` calls the read
+illegal, so neither answer is specified and ours is the one that does not invent
+a register value. If firmware is ever seen depending on it, that is the moment
+to revisit -- and it would be evidence about the Apollo board's bus rather than
+about the part.
 
 Two byte-wide peripherals on adjacent pages with different strides is now the
 third such pair on this board — the interval timer is odd-address stride 2 and

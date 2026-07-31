@@ -1,0 +1,59 @@
+/* Apollo AT DMA controllers: two 8237As as the board wires them.
+ *
+ * `008778-03` Table 2-8: "010COO - 010CFF  DMA CONTROLLER #1" and
+ * "010D00 - 010DFF  DMA CONTROLLER #2". The parts are `device/ap_i8237.h`.
+ *
+ * ## Two strides, both measured
+ *
+ * DMA 1 is **stride 1** -- sixteen registers in sixteen consecutive bytes,
+ * aliased through the 256-byte range. DMA 2 is **stride 2**, its register `n` at
+ * offset `2n`.
+ *
+ * Neither was assumed. A clean dump of thirty-two bytes at each gave
+ * `00 x15 0F 00 x15 0F` for the first and `00 x30 0F 0F` for the second: the
+ * `0F` is the all-mask register holding all four channels masked, which is what
+ * a part out of reset contains, and where it lands is the stride.
+ * `FINDINGS.md` C13.
+ *
+ * This is the third pair of adjacent byte-wide peripherals on this board with
+ * different strides -- the interval timer is odd-address stride 2 and the
+ * calendar beside it is stride 1. Three examples is enough to treat "measure
+ * the placement" as the rule rather than the precaution.
+ *
+ * ## What is deliberately not asserted here
+ *
+ * On a stock AT the first controller cascades onto channel 0 of the second, and
+ * this module does **not** claim that. The equivalent assumption about the
+ * interrupt controllers was wrong on this machine -- the cascade is on IR3, not
+ * the AT's IR2 (`FINDINGS.md` C11) -- and it was wrong precisely because it was
+ * imported from a neighbouring system rather than checked here. The DMA cascade
+ * will be measured the same way, once transfers exist to measure.
+ */
+
+#ifndef APOLLO_BOARD_AP_DMA_H
+#define APOLLO_BOARD_AP_DMA_H
+
+#include <stdbool.h>
+#include <stdint.h>
+
+#include "device/ap_i8237.h"
+
+#define AP_DMA1_ADDR 0x010C00u
+#define AP_DMA2_ADDR 0x010D00u
+#define AP_DMA_RANGE 0x100u
+
+typedef struct {
+  ap_i8237_t controller[2];
+} ap_dma_t;
+
+void ap_dma_reset(ap_dma_t *dma);
+
+/* Whether an address decodes to a controller, which one, and to which
+ * register. */
+[[nodiscard]] bool ap_dma_decode(uint32_t address, unsigned *unit,
+                                 unsigned *reg);
+
+[[nodiscard]] uint8_t ap_dma_read(ap_dma_t *dma, uint32_t address);
+void ap_dma_write(ap_dma_t *dma, uint32_t address, uint8_t value);
+
+#endif /* APOLLO_BOARD_AP_DMA_H */
