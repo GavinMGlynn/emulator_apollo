@@ -32,7 +32,14 @@
  *
  *     0013D800  0013D82A  0013F6BC  56AC0D83  "SYSBOOT REV" ... "M68K"
  *
- * `ap_ct_boot_record` returns the words verbatim and does **not** name them.
+ * `ap_ct_boot_image` names them, and may: `FINDINGS.md` C24 confirms the reading
+ * from the boot code itself. The record's first instruction is
+ * `LEA (-44,PC),A0`, which executed at word 1 computes word 0 exactly -- so word
+ * 1 is where the code runs and word 0 is where the image sits, and the firmware
+ * would break if either were otherwise.
+ *
+ * `ap_ct_boot_record` still returns the words verbatim and does **not** name
+ * them.
  * They read as load address, entry point, end address and checksum -- word 1 is
  * word 0 plus `0x2A`, exactly where the code begins, and word 2 gives a
  * 7868-byte image -- but C24 records that as an inference, and three addresses
@@ -93,5 +100,22 @@ typedef struct {
  * `bootable` and `m68k` flags report whether the identification is actually
  * there, so a non-bootable cartridge parses successfully and says so. */
 [[nodiscard]] bool ap_ct_boot_record(const ap_ct_t *ct, ap_ct_boot_t *out);
+
+/* The bootable image a cartridge carries, with its words named -- which the
+ * confirmation in C24 licenses and nothing before it did. */
+typedef struct {
+  uint32_t load_address; /* word 0: where the image belongs in memory */
+  uint32_t entry_point;  /* word 1: where execution begins */
+  uint32_t length;       /* word 2 - word 0 */
+  const uint8_t *data;   /* into the image; not copied */
+} ap_ct_boot_image_t;
+
+/* Locate the bootable image. False unless the cartridge announces itself as
+ * `SYSBOOT` for `M68K`, the length is non-zero, and the image fits inside the
+ * cartridge -- a header describing more than the file holds is corrupt, and
+ * loading what there is of it would put a partial program in memory and jump
+ * into it. */
+[[nodiscard]] bool ap_ct_boot_image(const ap_ct_t *ct,
+                                    ap_ct_boot_image_t *out);
 
 #endif /* APOLLO_IMAGE_AP_CT_H */

@@ -2456,8 +2456,12 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
   - [x] The boot record's header **confirmed**, not merely inferred: the first
         instruction is a PC-relative `LEA` that computes word 0 exactly when
         executed at word 1, so word 0 is the load address and word 1 the entry
-        point (`FINDINGS.md` C24). A boot loader can now be written without
-        assuming.
+        point (`FINDINGS.md` C24). `ap_ct_boot_image` names the fields
+        accordingly and validates the image against the cartridge's size.
+  - [ ] Load that image into `ap_machine` and run from the entry point — the
+        pieces all exist; what is missing is frontend plumbing to read a
+        gitignored cartridge at run time, as `--run-probes` does for its own
+        inputs.
   - [x] The `.ct` image reader, `image/ap_ct.c`: block addressing, the
         whole-block size check, and boot-record parsing. `ct_suite`, 8 tests.
   - [x] The QIC-02 command set transcribed as far as the scan allows

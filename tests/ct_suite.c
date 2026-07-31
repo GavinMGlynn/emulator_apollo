@@ -155,8 +155,85 @@ static void test_the_identification_is_matched_past_its_embedded_nuls(void) {
   TEST_ASSERT_TRUE(boot.m68k);
 }
 
+static void test_the_boot_image_names_what_the_code_confirms(void) {
+  ap_ct_t ct;
+  static uint8_t big[AP_CT_BLOCK_SIZE * 32u];
+  ap_ct_boot_image_t boot;
+
+  memset(big, 0, sizeof big);
+  build_boot_block(big);
+  TEST_ASSERT_TRUE(ap_ct_open(&ct, big, sizeof big));
+  TEST_ASSERT_TRUE(ap_ct_boot_image(&ct, &boot));
+
+  /* Named, because C24 confirmed the reading from the boot code: its first
+   * instruction is a PC-relative LEA computing word 0 when executed at word 1. */
+  TEST_ASSERT_EQUAL_HEX32(0x0013D800u, boot.load_address);
+  TEST_ASSERT_EQUAL_HEX32(0x0013D82Au, boot.entry_point);
+  TEST_ASSERT_EQUAL_UINT32(7868u, boot.length);
+
+  /* The header is part of the image -- the load address points at it, not past
+   * it, which is why the entry point is the load address plus 0x2A. */
+  TEST_ASSERT_EQUAL_PTR(big, boot.data);
+  TEST_ASSERT_EQUAL_UINT32(0x2Au, boot.entry_point - boot.load_address);
+}
+
+static void test_the_first_instruction_computes_the_load_address(void) {
+  ap_ct_t ct;
+  static uint8_t big[AP_CT_BLOCK_SIZE * 32u];
+  ap_ct_boot_image_t boot;
+
+  memset(big, 0, sizeof big);
+  build_boot_block(big);
+  TEST_ASSERT_TRUE(ap_ct_open(&ct, big, sizeof big));
+  TEST_ASSERT_TRUE(ap_ct_boot_image(&ct, &boot));
+
+  /* The confirmation itself, as arithmetic on the actual bytes: `41FA` is
+   * LEA (d16,PC),A0 and the 68000 computes the displacement against the
+   * extension word's address. If this stops holding, the layout this module
+   * names has stopped being the layout the code assumes. */
+  const uint8_t *code = big + 0x2A;
+  TEST_ASSERT_EQUAL_HEX8(0x41, code[0]);
+  TEST_ASSERT_EQUAL_HEX8(0xFA, code[1]);
+  int32_t d16 = (int16_t)(((uint16_t)code[2] << 8) | code[3]);
+  uint32_t extension_word = boot.entry_point + 2u;
+  TEST_ASSERT_EQUAL_HEX32(boot.load_address,
+                          (uint32_t)((int32_t)extension_word + d16));
+}
+
+static void test_a_data_cartridge_yields_no_boot_image(void) {
+  ap_ct_t ct;
+  static uint8_t data_only[AP_CT_BLOCK_SIZE];
+  ap_ct_boot_image_t boot;
+
+  memset(data_only, 0x5A, sizeof data_only);
+  TEST_ASSERT_TRUE(ap_ct_open(&ct, data_only, sizeof data_only));
+
+  /* A data cartridge's first block is not a header, and its words would decode
+   * into a plausible address and length. Requiring the identification is what
+   * stops that being loaded and jumped into. */
+  TEST_ASSERT_FALSE(ap_ct_boot_image(&ct, &boot));
+}
+
+static void test_a_header_larger_than_its_cartridge_is_refused(void) {
+  ap_ct_t ct;
+  static uint8_t small[AP_CT_BLOCK_SIZE];
+  ap_ct_boot_image_t boot;
+
+  build_boot_block(small);
+  TEST_ASSERT_TRUE(ap_ct_open(&ct, small, sizeof small));
+
+  /* The header claims 7868 bytes and the cartridge holds 512. Loading what
+   * there is would put a partial program in memory and jump into it -- which
+   * fails somewhere unrelated, much later, with nothing pointing back here. */
+  TEST_ASSERT_FALSE(ap_ct_boot_image(&ct, &boot));
+}
+
 int main(void) {
   UNITY_BEGIN();
+  RUN_TEST(test_the_boot_image_names_what_the_code_confirms);
+  RUN_TEST(test_the_first_instruction_computes_the_load_address);
+  RUN_TEST(test_a_data_cartridge_yields_no_boot_image);
+  RUN_TEST(test_a_header_larger_than_its_cartridge_is_refused);
   RUN_TEST(test_an_image_must_be_a_whole_number_of_blocks);
   RUN_TEST(test_the_measured_cartridge_size_is_a_whole_number_of_blocks);
   RUN_TEST(test_a_block_is_copied_whole_or_not_at_all);

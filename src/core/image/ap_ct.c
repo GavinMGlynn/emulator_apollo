@@ -66,3 +66,36 @@ bool ap_ct_boot_record(const ap_ct_t *ct, ap_ct_boot_t *out) {
                        AP_CT_PROCESSOR_M68K);
   return true;
 }
+
+bool ap_ct_boot_image(const ap_ct_t *ct, ap_ct_boot_image_t *out) {
+  ap_ct_boot_t record;
+  if (!ap_ct_boot_record(ct, &record)) {
+    return false;
+  }
+  /* Only a cartridge that says it is bootable, and says it is for this
+   * processor. A data cartridge's first block is not a header at all, and its
+   * words would decode into a plausible-looking address and length. */
+  if (!record.bootable || !record.m68k) {
+    return false;
+  }
+  if (record.word[2] <= record.word[0]) {
+    return false;
+  }
+
+  uint32_t length = record.word[2] - record.word[0];
+  if ((uint64_t)length > (uint64_t)ct->size) {
+    /* A header describing more than the cartridge holds is corrupt. Loading
+     * what there is would put a partial program in memory and jump into it,
+     * which fails somewhere unrelated and much later. */
+    return false;
+  }
+
+  out->load_address = record.word[0];
+  out->entry_point = record.word[1];
+  out->length = length;
+  /* The image starts at the very beginning of the cartridge: the header is part
+   * of it, which is why the load address points at the header rather than past
+   * it, and why the entry point is the load address plus the header's length. */
+  out->data = ct->data;
+  return true;
+}
