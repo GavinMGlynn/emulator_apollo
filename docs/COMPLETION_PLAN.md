@@ -1088,6 +1088,29 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         byte form; and each half taking the addressing mode category its operand
         needs — control for the bounds pair it only reads, memory alterable for
         the operand `CAS` swaps.*
+  - [x] **The immediate source, swept.** "An immediate is fetched, not
+        addressed" had been fixed four separate times — in the arithmetic
+        forms' address path, in the multiplies and divides, in `CHK`'s bound,
+        and in `MOVE to SR`/`MOVE to CCR`, that last being how every
+        68000-family boot ROM sets itself up. Four is enough: rather than wait
+        for a fifth failing test, every `gather_address_input` call site was
+        checked against its instruction's own page.
+        Two more were found. The **arithmetic forms' register direction** takes
+        an immediate source — "If the location specified is a source operand,
+        all addressing modes can be used" — so `ADD.W #$10,D0` in family `1101`
+        is a real instruction, distinct from the `ADDI` that assembles to the
+        same thing, and it was declining. And **`TST #<data>`** is marked
+        "MC68020, MC68030, MC68040, and CPU32" on its page: the 68000 had no
+        such form, which is exactly why a 68000-shaped model refuses it.
+        The remaining sites are correct by category rather than by accident: the
+        `100`-`110` opmodes, `MOVE`'s destination, `Scc`, the memory shifts, the
+        MMU instructions and `JMP`/`JSR` all take categories an immediate is not
+        in, and the addressing mode category module now says so.
+        *Verification: `step_suite`, 3 further tests (158 total) — an immediate
+        source accepted in two different families with the following
+        instruction still running, which is the length check; the memory
+        direction refusing an immediate destination; and `TST` in both the zero
+        and negative cases.*
   - [x] **Addressing mode categories** (`src/core/cpu/m68030/ap_m68030_category.c`),
         which decide whether a decoded mode is *legal* for an instruction.
         **Table 2-4 is not transcribed**, because its Alterable column does not

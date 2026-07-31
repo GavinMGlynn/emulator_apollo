@@ -368,6 +368,11 @@ static bool execute_move(ap_m68030_cpu_t *cpu, const ap_m68030_move_t *move,
  * destination is the register in one direction and the effective address in the
  * other. Getting that backwards negates the result and inverts the carry, which
  * shows up only in a later conditional branch. */
+/* Defined below, beside the other immediate handling; forward declared because
+ * the arithmetic forms take an immediate source too and sit above it. */
+static bool fetch_immediate(ap_m68030_cpu_t *cpu, unsigned size,
+                            uint32_t *clocks, uint32_t *value);
+
 static bool execute_arith(ap_m68030_cpu_t *cpu, const ap_m68030_arith_t *arith,
                           uint32_t *clocks) {
   switch (arith->kind) {
@@ -398,33 +403,50 @@ static bool execute_arith(ap_m68030_cpu_t *cpu, const ap_m68030_arith_t *arith,
     return false;
   }
 
-  ap_m68030_address_input_t input = {0};
-  if (!gather_address_input(cpu, arith->ea.kind, arith->size, clocks, &input)) {
-    /* An immediate source is legal for CMP and the rest through their *I*
-     * forms, which live in family 0000 and are not this instruction. */
-    return false;
+  /* "If the location specified is a source operand, all addressing modes can be
+   * used" -- the immediate included. `ADD.W #$10,D0` in family 1101 is a real
+   * instruction, distinct from the `ADDI` that assembles to the same thing, and
+   * an immediate is fetched rather than addressed. The `100`-`110` opmodes
+   * write to the effective address, so an immediate cannot be one there. */
+  uint32_t source_operand = 0;
+  if (arith->ea.kind == AP_M68030_EA_IMMEDIATE) {
+    if (arith->to_effective_address) {
+      return false;
+    }
+    if (!fetch_immediate(cpu, arith->size, clocks, &source_operand)) {
+      return false;
+    }
   }
 
-  const ap_m68030_address_t where =
-      resolve_address(cpu, clocks, arith->ea, &input);
+  ap_m68030_address_t where = {0};
+  if (arith->ea.kind != AP_M68030_EA_IMMEDIATE) {
+    ap_m68030_address_input_t input = {0};
+    if (!gather_address_input(cpu, arith->ea.kind, arith->size, clocks,
+                              &input)) {
+      return false;
+    }
+    where = resolve_address(cpu, clocks, arith->ea, &input);
 
-  const ap_m68030_operand_result_t memory = ap_m68030_operand_read(
-      &cpu->regs, cpu->data, &where, arith->size, cpu->data_function_code);
-  *clocks += memory.clocks;
-  if (!memory.ok) {
-    return false;
+    const ap_m68030_operand_result_t memory = ap_m68030_operand_read(
+        &cpu->regs, cpu->data, &where, arith->size, cpu->data_function_code);
+    *clocks += memory.clocks;
+    if (!memory.ok) {
+      return false;
+    }
+    source_operand = memory.value;
   }
 
   const uint32_t mask = (arith->size == 1u)   ? 0xFFu
                         : (arith->size == 2u) ? 0xFFFFu
                                               : 0xFFFFFFFFu;
   const uint32_t register_value = cpu->regs.d[arith->reg] & mask;
+  const uint32_t operand = source_operand & mask;
 
   /* Which operand is the destination is the direction bit's whole meaning. */
   const uint32_t destination =
-      arith->to_effective_address ? memory.value : register_value;
+      arith->to_effective_address ? operand : register_value;
   const uint32_t source =
-      arith->to_effective_address ? register_value : memory.value;
+      arith->to_effective_address ? register_value : operand;
 
   ap_m68030_alu_result_t result;
   switch (arith->kind) {
@@ -661,6 +683,24 @@ static bool execute_single(ap_m68030_cpu_t *cpu,
       single->ea.kind == AP_M68030_EA_IMMEDIATE &&
       (single->kind == AP_M68030_SINGLE_MOVE_TO_SR ||
        single->kind == AP_M68030_SINGLE_MOVE_TO_CCR);
+
+  /* `TST #<data>` is marked "MC68020, MC68030, MC68040, and CPU32" on the TST
+   * page -- the 68000 had no such form, which is why a 68000-shaped model
+   * refuses it. It only reads its operand, so an immediate is fetched and the
+   * flags set from it with nothing written back. */
+  if (single->kind == AP_M68030_SINGLE_TST &&
+      single->ea.kind == AP_M68030_EA_IMMEDIATE) {
+    uint32_t fetched = 0;
+    if (!fetch_immediate(cpu, single->size, clocks, &fetched)) {
+      return false;
+    }
+    const ap_m68030_alu_result_t flags =
+        ap_m68030_alu_test(fetched, single->size);
+    ap_m68030_write_ccr(&cpu->regs,
+                        ap_m68030_alu_apply(ap_m68030_read_ccr(&cpu->regs),
+                                            &flags));
+    return true;
+  }
 
   ap_m68030_address_t where = {0};
   if (immediate_source) {

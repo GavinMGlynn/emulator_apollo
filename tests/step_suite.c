@@ -3620,6 +3620,69 @@ static void test_a_traced_trap_stacks_both_with_the_trace_on_top(void) {
                           read_ram_long(&m, m.cpu.regs.isp + 2u));
 }
 
+/* ---------------------------------------------------------------------------
+ * The immediate source, swept.
+ * ------------------------------------------------------------------------- */
+
+/* "If the location specified is a source operand, all addressing modes can be
+ * used" -- the immediate included. `ADD.W #$10,D0` in family 1101 is a real
+ * instruction, distinct from the `ADDI` that assembles to the same thing, and
+ * an immediate is *fetched* rather than addressed.
+ *
+ * This is the fifth place that ordering has mattered, and it was found by
+ * sweeping the call sites rather than by a sixth failing test. */
+static void test_the_arithmetic_forms_take_an_immediate_source(void) {
+  /* ADD.W #$10,D0 in family 1101, then CMP.W #$20,D0 in family 1011. */
+  static const uint16_t program[] = {0xD07Cu, 0x0010u, 0xB07Cu, 0x0020u,
+                                     0x4E71u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 6);
+  m.cpu.regs.d[0] = 0x0010u;
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&m.cpu).status);
+  TEST_ASSERT_EQUAL_HEX32(0x0020u, m.cpu.regs.d[0]);
+  TEST_ASSERT_EQUAL_HEX32(PROGRAM_BASE + 4u, m.cpu.regs.pc);
+
+  /* And the compare against the same value sets Z, leaving the register. */
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&m.cpu).status);
+  TEST_ASSERT_EQUAL_HEX32(0x0020u, m.cpu.regs.d[0]);
+  TEST_ASSERT_TRUE(ap_m68030_read_ccr(&m.cpu.regs) &
+                   (1u << AP_M68030_SR_Z_BIT));
+}
+
+/* The other direction has no immediate: the `100`-`110` opmodes write to the
+ * effective address, and an immediate is not somewhere a result can go. */
+static void test_the_memory_direction_refuses_an_immediate_destination(void) {
+  /* ADD.W D0,#$10 -- encodable, and not an instruction. */
+  static const uint16_t program[] = {0xD17Cu, 0x0010u, 0x4E71u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 4);
+  m.cpu.regs.d[0] = 1u;
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_UNIMPLEMENTED,
+                        ap_m68030_step(&m.cpu).status);
+}
+
+/* "TST #<data>" is marked "MC68020, MC68030, MC68040, and CPU32" on the TST
+ * page: the 68000 had no such form, which is exactly why a 68000-shaped model
+ * refuses it. It only reads its operand, so nothing is written back. */
+static void test_tst_takes_an_immediate_on_this_part(void) {
+  /* TST.W #0, then TST.W #$8000. */
+  static const uint16_t program[] = {0x4A7Cu, 0x0000u, 0x4A7Cu, 0x8000u,
+                                     0x4E71u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 6);
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&m.cpu).status);
+  TEST_ASSERT_TRUE(ap_m68030_read_ccr(&m.cpu.regs) &
+                   (1u << AP_M68030_SR_Z_BIT));
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&m.cpu).status);
+  TEST_ASSERT_TRUE(ap_m68030_read_ccr(&m.cpu.regs) &
+                   (1u << AP_M68030_SR_N_BIT));
+  TEST_ASSERT_EQUAL_HEX32(PROGRAM_BASE + 8u, m.cpu.regs.pc);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_a_nop_executes_and_advances_the_pc);
@@ -3687,6 +3750,9 @@ int main(void) {
   RUN_TEST(test_a_register_count_is_taken_modulo_sixty_four);
   RUN_TEST(test_a_byte_shift_leaves_the_upper_bytes);
   RUN_TEST(test_an_address_form_accepts_an_immediate_source);
+  RUN_TEST(test_the_arithmetic_forms_take_an_immediate_source);
+  RUN_TEST(test_the_memory_direction_refuses_an_immediate_destination);
+  RUN_TEST(test_tst_takes_an_immediate_on_this_part);
   RUN_TEST(test_tracing_every_instruction_runs_it_then_traps);
   RUN_TEST(test_change_of_flow_tracing_ignores_ordinary_instructions);
   RUN_TEST(test_a_status_register_write_counts_as_a_change_of_flow);
