@@ -2297,9 +2297,11 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         `mc146818_suite`, 21 tests. Time comes from the caller — the oracle
         seeds its calendar from the **host clock**, and copying that would make
         the state hash differ on every run.
-  - [ ] Wire the calendar into the board at `010900` (stride 1, byte
-        consecutive — measured, unlike the timer's odd-address stride 2) and to
-        IRQ8, which `008778-03` Table 2-3 gives as "MC146818 Calendar".
+  - [x] The calendar wired into the board at `010900`: stride 1 and byte
+        consecutive (measured — the timer beside it is odd-address stride 2, so
+        neither could be inferred from the other), sixty-four registers aliased
+        through the range (also measured), and the IRQ8 route through to vector
+        `A8`. `calendar_suite`, 5 tests.
   - [ ] The declined parts: the periodic interrupt and square wave, whose rates
         are a divider-tap table not yet transcribed, and the daylight-savings
         shifts of `DSE` (stored but inert).
