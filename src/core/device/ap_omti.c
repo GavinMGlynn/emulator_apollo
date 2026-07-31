@@ -2,8 +2,7 @@
 
 #include <string.h>
 
-void ap_omti_reset(ap_omti_t *omti) {
-  memset(omti, 0, sizeof *omti);
+void ap_omti_disk_reset(ap_omti_t *omti) {
   /* The measured idle controller: `FF C0 FC 00` across the four fixed-disk
    * ports. `C0` is Table 4-2's two "Not Used (Set to 1)" bits and nothing
    * else -- not interrupting, not requesting DMA, not busy, not in a command
@@ -12,6 +11,12 @@ void ap_omti_reset(ap_omti_t *omti) {
   omti->data = 0xFFFFu;
   omti->status = AP_OMTI_ST_FIXED;
   omti->configuration = 0xFCu;
+  omti->mask = 0u;
+}
+
+void ap_omti_reset(ap_omti_t *omti) {
+  memset(omti, 0, sizeof *omti);
+  ap_omti_disk_reset(omti);
 
   /* And the measured floppy half: `00` main status and `80` digital input, the
    * latter being the diskette-change bit with no media in the drive. */
@@ -57,8 +62,12 @@ void ap_omti_disk_write(ap_omti_t *omti, unsigned reg, uint8_t value) {
     return;
   case AP_OMTI_DISK_STATUS:
     /* Table 4-1 calls the write side "RESET (Function)": a command, not a
-     * store, so the value is not a parameter. */
-    ap_omti_reset(omti);
+     * store, so the value is not a parameter. It resets *this* half only --
+     * clearing the whole part here would stop the floppy's motors as a side
+     * effect of a disk command, which §4.1's two independent controllers
+     * forbid. Caught by a board-level test after the device's own test missed
+     * it, because that one exercised SELECT rather than RESET. */
+    ap_omti_disk_reset(omti);
     return;
   case AP_OMTI_DISK_CONFIG:
     /* "SELECT (Function)". Selecting the controller is what Table 4-2's BSY bit

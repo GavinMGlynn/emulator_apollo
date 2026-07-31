@@ -12,6 +12,7 @@ add_library(apollo_core STATIC
   board/ap_arbiter.c
   board/ap_atmap.c
   board/ap_calendar.c
+  board/ap_disk.c
   board/ap_dma.c
   board/ap_nodeid.c
   board/ap_sio.c

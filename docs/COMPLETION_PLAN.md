@@ -2391,7 +2391,10 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         tests. `omti_suite`, 9 tests.
   - [ ] The command sets, `[OMTI]` §5 (fixed disk CDBs) and §6 (floppy). They
         want a drive and a disk image behind them.
-  - [ ] Wire both halves into the board — `04D000` and `05F800`, 74 KB apart.
+  - [x] Both halves wired into the board at `04D000` and `05F800`, each
+        aliased through 1 KB on its own period, on IRQ14 and IRQ6. The 74 KB gap
+        is asserted as the window's arithmetic rather than as two constants, so
+        the *rule* is what is pinned. `disk_suite`, 6 tests.
  Placement characterised (`FINDINGS.md` C20): `04D000`, aliased
       on an eight-byte period, offsets 1-3 driven, offsets 0 and 4-7 reading
       `FF` which a read sweep cannot tell from undriven. **No manual for this part has been found yet**, and three plausible

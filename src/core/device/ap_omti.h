@@ -101,7 +101,15 @@ typedef struct {
   bool disk_change;
 } ap_omti_t;
 
+/* Power-on: both halves. */
 void ap_omti_reset(ap_omti_t *omti);
+
+/* The fixed disk's own reset, reached by writing its status port. It must not
+ * touch the floppy half -- `[OMTI]` §4.1 has them independent and §3.4 has them
+ * running concurrently, so a disk reset that stopped the drive motors would be
+ * a fault with no register to explain it. The floppy has its own reset in
+ * Digital Output bit 2. */
+void ap_omti_disk_reset(ap_omti_t *omti);
 
 /* The fixed-disk half. */
 [[nodiscard]] uint8_t ap_omti_disk_read(ap_omti_t *omti, unsigned reg);

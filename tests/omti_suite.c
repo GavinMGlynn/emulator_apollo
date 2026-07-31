@@ -135,6 +135,14 @@ static void test_the_two_halves_share_nothing(void) {
   ap_omti_disk_write(&o, AP_OMTI_DISK_CONFIG, 0x00);
   TEST_ASSERT_EQUAL_HEX8(0x3C, ap_omti_fdc_read(&o, AP_OMTI_FDC_DATA));
   TEST_ASSERT_FALSE(ap_omti_fdc_in_reset(&o));
+
+  /* And the stronger case, which this test originally missed by exercising
+   * SELECT alone: the fixed disk's *reset* must leave the floppy running. A
+   * disk reset that stopped the drive motors would be a fault with no register
+   * to explain it. */
+  ap_omti_disk_write(&o, AP_OMTI_DISK_STATUS, 0x00);
+  TEST_ASSERT_EQUAL_HEX8(0x3C, ap_omti_fdc_read(&o, AP_OMTI_FDC_DATA));
+  TEST_ASSERT_FALSE(ap_omti_fdc_in_reset(&o));
 }
 
 static void test_two_controllers_reset_alike_hold_identical_state(void) {
