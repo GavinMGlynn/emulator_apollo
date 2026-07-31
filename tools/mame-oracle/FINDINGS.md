@@ -1382,10 +1382,51 @@ No second register block appears anywhere in the range. The natural assumption -
 that one card's two halves sit next to each other -- is wrong, and would have
 sent a search for the floppy through addresses that provably do not carry it.
 
-Where it does live is still open, and the window to search is Apollo's AT I/O
-space `040000`-`05FFFF` outside the kilobyte above. `008778-03` Table 2-9 gives
-AT `1A8`-`210` as "Unused" and names no floppy range at all in what has been read
-of it, so the answer may not be in that table either.
+**Found: `05F800`.** A page-signature scan of the whole AT I/O window with and
+without the card shows exactly two regions differing -- `04D000`-`04D3FF`, the
+fixed disk, and `05F800`-`05FBFF`, a second kilobyte 74 KB away.
+
+It dumps as `FF FF FF FF 00 FF 00 80`, repeating every eight bytes, and decodes
+straight against Table 4-3 with the block's base at AT `3F0`:
+
+    offset 2  AT 3F2  Digital Output      write only, reads FF
+    offset 4  AT 3F4  Main Status         00, an idle controller
+    offset 5  AT 3F5  Data                FF
+    offset 6  AT 3F6  Additional Control  write only
+    offset 7  AT 3F7  Digital Input       80
+
+That last byte is the confirmation. Table 4-3 says the Digital Input Register's
+bit 7 "is received from pin 34 of the floppy disk control cable and is normally
+used for diskette change status" -- and bit 7 set with no media present is exactly
+what a drive with an open door asserts. The one register in the block whose
+content the manual predicts is the one that matches.
+
+### C23 — the AT I/O window's mapping rule
+
+Three devices now have both an AT address from `008778-03` and a measured Apollo
+address, and one rule fits all three:
+
+    Apollo = 0x040000 + (AT address x 0x80)
+
+    Winchester  AT 1A0  ->  04D000   measured
+    tape        AT 200  ->  050000   Table 2-9
+    floppy      AT 3F0  ->  05F800   measured
+
+Within a device's block the AT addresses then run as *consecutive Apollo bytes*
+-- the fixed disk's four at `04D000`-`04D003`, the floppy's at `05F802` upward --
+and each block aliases every eight bytes through 1 KB.
+
+So the window spreads each AT address across `0x80` bytes of Apollo space for the
+purpose of *placing* a device, and packs a device's own registers consecutively
+within its block. That is why the two halves of one card sit 74 KB apart while
+each half's registers sit next to each other: the distance between them is the
+distance between `1A0` and `3F0` in AT space, multiplied by 128.
+
+Worth having as a rule rather than three coincidences: any future AT device's
+Apollo address can now be predicted from its AT address and then confirmed,
+rather than searched for.
+
+
 
 ## Where the ring is not
 
