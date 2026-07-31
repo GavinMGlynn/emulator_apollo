@@ -2389,8 +2389,14 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         4-3: the fixed disk's four ports and the floppy's five, modelled as two
         independent sets sharing nothing. Both measured dumps are reproduced as
         tests. `omti_suite`, 9 tests.
-  - [ ] The command sets, `[OMTI]` §5 (fixed disk CDBs) and §6 (floppy). They
-        want a drive and a disk image behind them.
+  - [x] §5's fixed-disk command set transcribed (`FINDINGS.md` C27): the 6-byte
+        CDB with its cylinder split across three bytes, the twenty-four common
+        commands, and the ESDI-specific three — noting that `0C INITIALIZE DRIVE
+        CHARACTERISTICS` is ST506-only and must *not* be accepted here.
+  - [ ] Implement the CDB decode. Needs no disk image — a command block can be
+        parsed and validated before anything is read.
+  - [ ] The commands that move data, and §6's floppy set. They want a drive and
+        a disk image behind them, and `media/` has no `.awd`.
   - [x] Both halves wired into the board at `04D000` and `05F800`, each
         aliased through 1 KB on its own period, on IRQ14 and IRQ6. The 74 KB gap
         is asserted as the window's arithmetic rather than as two constants, so

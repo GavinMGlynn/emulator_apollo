@@ -1650,6 +1650,51 @@ and no bytes forthcoming. Named rather than guessed: the conventional QIC-02
 status block has a well-known length, and writing that number in from memory is
 exactly the move this project does not make.
 
+### C27 — the OMTI's fixed-disk command set
+
+`[OMTI]` §5.1.1. Commands are Command Descriptor Blocks of six bytes, or ten for
+`COPY`:
+
+    Byte 0   bits 7-5 Command Class, bits 4-0 Operation Code
+    Byte 1   bit 7 C10 (cylinder MSB), bit 6 unused, bit 5 LUN,
+             bits 4-0 Head Number
+    Byte 2   bits 7-6 C09 and C08, bits 5-0 Sector Number
+    Byte 3   Cylinder low, C07-C00
+    Byte 4   Interleave (for FORMAT) or Block Count
+    Byte 5   bits 7-5 Control Byte, bits 4-0 unused
+
+So addressing is cylinder-head-sector with the **cylinder split across three
+bytes** -- eleven bits, C10 in byte 1's top bit, C09 and C08 in byte 2's, and the
+low eight in byte 3. Five bits of head and six of sector. A model reading the
+cylinder from byte 3 alone would work perfectly on any disk under 256 cylinders
+and fail on every real one.
+
+§5.1.2's command set, common to all models:
+
+    00 TEST DRIVE READY      01 RECALIBRATE          03 REQUEST SENSE
+    04 FORMAT DRIVE          05 READ VERIFY          06 FORMAT TRACK
+    07 FORMAT BAD TRACK      08 READ                 0A WRITE
+    0B SEEK                  0D READ ECC BURST LEN   0E READ FROM SECTOR BUF
+    0F WRITE TO SECTOR BUF   11 ASSIGN ALTERNATE TRK 1B CHANGE CARTRIDGE
+    1E READ DATA TO BUFFER   1F WRITE DATA FROM BUF  20 COPY (10-byte CDB)
+    E0 RAM DIAGNOSTICS       E2 READ ID              E3 DRIVE DIAGNOSTIC
+    E4 CONTROLLER INT DIAG   E5 READ LONG            E6 WRITE LONG
+
+READ and WRITE carry 1 to 256 *blocks*; REQUEST SENSE, READ ID and ASSIGN
+ALTERNATE TRACK carry four bytes; most of the rest carry none.
+
+**The DN3500's controller is the ESDI variant**, so its model-specific commands
+are the ones that apply:
+
+    10 CHECK TRACK FORMAT    37 READ ESDI DEFECT LIST (256 bytes)
+    EC READ CAPACITY (10 bytes)
+
+and `0C INITIALIZE DRIVE CHARACTERISTICS` is **not** -- it is listed under
+"COMMANDS SPECIFIC to the ST506/412 drives". That distinction matters: a model
+accepting `0C` on an ESDI controller would accept a command the hardware rejects,
+and drive geometry would appear to be settable where it is actually read back
+with `READ CAPACITY`.
+
 ## Where the ring is not
 
 The Apollo Token Ring has **no runnable oracle at all**: MAME carries Domain
