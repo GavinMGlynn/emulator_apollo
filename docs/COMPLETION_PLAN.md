@@ -309,8 +309,46 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         clock come from a device rather than a test. That is what makes
         contention emergent, and it belongs with Phase 3's single arbitration
         point.
-- [ ] Exceptions, traps, interrupt priority, bus/address error stack frames.
+- [~] Exceptions, traps, interrupt priority, bus/address error stack frames.
       *Verification: probes that deliberately fault, diffed against oracle.*
+  - [x] **Vectors, priority and frame formats**
+        (`src/core/cpu/m68030/ap_m68030_exception.c`), `[030]` §8 and Tables
+        8-1, 8-5, 8-6. The part that is pure fact, and that everything else will
+        be checked against. Table 8-1 is used as a *check* rather than
+        transcribed: offsets are computed as vector × 4 and the table's own
+        published hex is asserted against that, so a wrong rule fails instead of
+        being copied in.
+        *Verification: `exception_suite`, 14 tests — the published offsets
+        across the table's whole range, autovectors 25-31 and traps 32-47, the
+        documented priority order end to end, address error outranking bus error
+        *within* group 1, each frame format's documented size, and only the six
+        formats the 68030 defines being valid.*
+  - [x] Two details that would produce a frame `RTE` accepts and mishandles.
+        The word at `+$06` carries the vector **offset**, not the vector number
+        — TRAP #0 stacks `$2080`, not `$2020`. And formats `$3`, `$4` and `$7`
+        are defined by *other* M68000 family members but not by the 68030, so
+        accepting them would silently import another processor's frame; they are
+        a format error, vector 14.
+  - [x] Level 7 interrupts, which cannot be expressed as a comparison against
+        the mask. "Level 7 interrupts cannot be masked by the interrupt priority
+        mask, and they are transition sensitive ... recognizes an interrupt
+        request each time the external interrupt request level changes from some
+        lower level to level 7, regardless of the value in the mask." So
+        recognition needs the *previous* level, which the interface takes: held
+        at 7 is not a new interrupt, dropped and re-raised is. The manual's own
+        level 6 contrast is tested alongside it.
+  - Note on the priority table's wording, which reads as a contradiction and is
+    not: "0.0 is the highest priority, 4.2 is the lowest", then "the lower the
+    priority of an exception, the sooner the handler routine for that exception
+    executes". The higher-priority exception is *processed* first, which stacks
+    it deeper, so the lower-priority handler runs first and returns into it.
+    Reset is the stated exception to its own rule.
+  - [ ] **Taking an exception**: stacking the frame, fetching the vector through
+        the VBR, and loading the PC. Needs an instruction unit and a memory
+        system, so it lands with them rather than here — the same split as the
+        caches, where structure and cost were separable.
+        *Verification: probes that deliberately fault, diffed against the
+        oracle, which is what this item always asked for.*
 - [~] 68030 on-chip MMU: translation tables, ATC, transparent translation,
       `MMUSR`. *Verification: probe walks and faults; oracle diff.*
   - [x] **Transparent translation (TT0/TT1)**
