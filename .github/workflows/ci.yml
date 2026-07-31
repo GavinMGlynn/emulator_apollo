@@ -77,10 +77,11 @@ jobs:
       - run: git submodule update --init --depth 1 $CI_SUBMODULES
       - run: cmake --preset linux-ci && cmake --build --preset linux-ci
       - run: cmake --preset linux-release && cmake --build --preset linux-release
-      - name: Compare deterministic frontend output
-        run: |
-          ./build/linux-ci/src/frontend/headless/apollo-headless --list-models > o0.txt
-          ./build/linux-release/src/frontend/headless/apollo-headless --list-models > o3.txt
-          diff -u o0.txt o3.txt
+      # No hand-rolled diff of the two builds against each other any more: that
+      # passes when both have drifted together. Each ctest run checks its build
+      # against the *committed* golden, so agreeing with each other is implied
+      # and agreeing with what was reviewed is actually asserted. The same
+      # entries run on the other three platforms, which is what makes the
+      # goldens portable rather than merely reproducible here.
       - run: ctest --preset linux-ci --output-on-failure
       - run: ctest --preset linux-release --output-on-failure

@@ -15,6 +15,7 @@ list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 include(CompilerWarnings)
 include(GplBoundary)
 include(Platform)
+include(Goldens)
 
 # ext/mame is GPL-2.0-or-later and this core is MIT: assert the boundary rather
 # than trusting review to catch an accidental include. See ext/README.md.
