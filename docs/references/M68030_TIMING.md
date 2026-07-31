@@ -398,58 +398,66 @@ prefetches, or a wait-stated bus, where the published pair no longer pins the
 answer. Until that check exists this stays unimplemented, and the footnoted rows
 stay declined.
 
-## The marginal cost of a prefetch is published, and it is 0 or 1
+## The marginal cost of a prefetch: a claim made and withdrawn
 
-The previous section left `NCC − CC` as a candidate for the per-instruction
-prefetch cost, and objected that it reproduces both columns by construction —
-two points fitted with two points. The objection is answerable, because the
-tables carry a **third** quantity: the `p` of `(r/p/w)`, "the maximum number of
-instruction bus cycles performed by the instruction, including all prefetches".
+**The section this replaces was wrong, and how it was wrong is worth more than
+what it claimed.**
 
-Dividing by it gives a per-*prefetch* figure that nothing in the fit constrains:
+It asserted that `(NCC−CC)/p` — the published difference divided by the
+published instruction-bus-cycle count — is "0 or 1, never 2, never fractional",
+across eleven rows drawn from four tables, and offered that uniformity as the
+discriminating evidence that the quantity is genuinely per-prefetch.
+
+Running the same division over **every** transcribed row, rather than the eleven
+chosen for the table, gives:
 
 | Row | CC | NCC | `p` | `(NCC−CC)/p` |
 | --- | --- | --- | --- | --- |
-| `ADD Rn,Dn` | 2 | 2 | 1 | **0** |
-| `NOP` | 2 | 2 | 1 | **0** |
-| `UNLK` | 5 | 5 | 1 | **0** |
-| `MOVE Rn,-(An)` | 4 | 4 | 1 | **0** |
-| `ADD Dn,EA` | 3 | 4 | 1 | **1** |
-| `MOVE Rn,(An)` | 3 | 4 | 1 | **1** |
-| `LINK.W` | 4 | 5 | 1 | **1** |
-| `Bcc (Taken)` | 6 | 8 | **2** | **1** |
-| `RTS` | 9 | 11 | **2** | **1** |
-| `ANDI to SR` | 12 | 14 | **2** | **1** |
-| `DBcc (Count Expired)` | 10 | 13 | **3** | **1** |
+| `ADD Rn,Dn`, `NOP`, `UNLK`, `MOVE Rn,-(An)`, `Bcc.B` untaken | — | — | 1 | 0 |
+| `ADD Dn,EA`, `MOVE Rn,(An)`, `LINK.W` | — | — | 1 | 1 |
+| `Bcc` taken, `RTS`, `RTR`, `RTD`, `ANDI to SR`, `Bcc.L` untaken, `DBcc` looping | — | — | 2 | 1 |
+| `DBcc` (count expired) | 10 | 13 | 3 | 1 |
+| **`BSR`** | 6 | 9 | 2 | **1.5** |
+| **`DBcc` (cc true)** | 6 | 8 | 1 | **2** |
+| **`LINK.L`** | 6 | 7 | 2 | **0.5** |
 
-**Every value is 0 or 1.** Never 2, never fractional, across `p` of one, two and
-three.
+Three counterexamples, all from rows that were already transcribed and sitting
+in the same table when the claim was made. The values are not confined to 0 and
+1, and the division is not always integral.
 
-That is the discriminating check the previous section asked for. If `NCC − CC`
-were a per-instruction fudge with no structure, there would be no reason for the
-two- and three-prefetch rows to come out at exactly 1 *per prefetch* rather than
-at 2, or 3, or something uneven. They do, and the rows are from four different
-tables.
+### What went wrong, and it was not the arithmetic
 
-So the quantity is real and per-prefetch: a prefetch bus cycle is two clocks,
-and the instruction's microcode absorbs either both of them or one of them,
-depending on the instruction. Which of the two is not derivable from the other
-columns — `MOVE Rn,-(An)` and `LINK.W` both have `CC 4` with one write and one
-prefetch, and cost 0 and 1 respectively — so it is data, and Motorola measured
-it.
+The eleven rows in the original table were the ones that had come up while
+transcribing, and they agreed. The three that disagree were in the file too and
+were not checked. A pattern found by looking at a subset and then stated as
+holding generally is a *hypothesis presented as a result* — and the fact that
+the subset spanned four different tables made it feel like coverage when it was
+not.
 
-### The caveat, and what to do about it
+The correct move, once a pattern is suspected, is to compute it over everything
+mechanically and look at the exceptions. That takes a minute and it is what
+overturned this.
 
-`p` is itself "the average of the odd-word-aligned case and the even-word-aligned
-case (rounded up)", so it is an upper bound on the actual count rather than the
-count. The division is therefore exact only if the rounding never bites, and the
-uniformity of the result is evidence that it mostly does not — but it is
-evidence, not proof.
+### What survives
 
-What that argues for is transcribing `p` alongside the totals and computing the
-per-prefetch cost from the pair, rather than storing a derived number. Then a
-row where the division is not integral is *visible* at the point it is read,
-instead of being rounded away by whoever transcribed it.
+Not much, and that is the honest position. `NCC − CC` is still the published
+marginal cost of an instruction's prefetch activity, and it is still the only
+place the manual states how much of a fetch an instruction can hide. What is
+withdrawn is that dividing it by `p` yields a clean per-prefetch constant — so
+there is no licence to apply it per prefetch our core actually runs, which is
+precisely what the composition needed it for.
 
-That is the next step, and it is the first one in this whole line of work whose
-shape is settled before it is begun.
+The caveat already recorded — that `p` is "the average of the odd-word-aligned
+case and the even-word-aligned case (rounded up)", an upper bound rather than a
+count — is now doing real work rather than sitting as a hedge. `BSR` at 1.5 and
+`LINK.L` at 0.5 are what a rounded denominator looks like. That suggests the
+true prefetch counts are not integers for those rows, which would mean the
+per-prefetch cost cannot be recovered from the published pair at all for them.
+
+### Consequence for the plan
+
+The composition item goes back to needing a model rather than a lookup, and the
+footnoted rows stay declined. Transcribing `p` is still worth doing — so this
+division is computed in code, over every row, where an exception is visible at
+the point of use rather than dependent on someone checking. That is the change
+that would have caught this.
