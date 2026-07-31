@@ -587,8 +587,11 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
           We fold that descriptor's S in first, so it does not. The oracle omits
           the clause entirely and therefore has no opinion, so this needs real
           hardware or a Motorola erratum rather than another reading.
-- [~] 68030 on-chip instruction and data caches, and their effect on bus timing.
-      *Verification: self-timing probes measuring hit vs miss.*
+- [x] 68030 on-chip instruction and data caches, and their effect on bus timing.
+      *Verification: hit-vs-miss measured through the bus state machine — a hit
+      costs 0 clocks, a burst line fill 5, a non-bursting miss 2. A probe
+      against the oracle remains worthwhile and is listed under the probe suite,
+      but the claim no longer rests on one.*
   - [x] **Cache structure and policy**
         (`src/core/cpu/m68030/ap_m68030_cache.c`), `[030]` §6. Both caches are
         "256-byte direct-mapped ... organized as 16 lines. Each line consists of
@@ -653,8 +656,22 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         the third long word, "indicating that the MC68030 only requests one more";
         a clock without STERM being a wait state that does not advance the burst;
         and a bus error ending the fill short.*
-  - [ ] **Superseded — the bus's half is done.**
-        `ap_m68030_bus` models one cycle at a time and has no burst. §7.3.7:
+  - [x] **What a miss costs, end to end** (`ap_m68030_cache_read`). The join the
+        item was really about: a hit costs **no external bus cycle at all** —
+        "Whenever a read access occurs and the required instruction word or data
+        operand is resident in the appropriate on-chip cache (no external bus
+        cycle is required), the MMU is completely ignored" — and a miss costs
+        whatever the bus charges. Same split as the MMU: `ap_m68030_atc` holds
+        the cache and `ap_m68030_walk` spends the time; `ap_m68030_cache` holds
+        the lines and this spends it.
+        *Verification: `cache_suite`, 6 further tests — a miss costing 5 clocks
+        followed by a hit costing 0 and not asking memory again, one burst fill
+        serving all four long words of the line, a device without CBACK costing
+        2 clocks and filling one entry, a disabled cache paying for every access
+        (which is what `MD`'s `IC` toggle exposes on real hardware), a frozen
+        cache fetching but keeping nothing, and a bus error caching nothing so a
+        fault cannot become a cached value.*
+  - Superseded note, kept because the reasoning was the useful part: §7.3.7:
         burst runs only "from 32-bit ports that terminate bus cycles with STERM
         and respond to CBREQ by asserting CBACK", after which the processor
         "continues to accept data on every clock during which STERM is

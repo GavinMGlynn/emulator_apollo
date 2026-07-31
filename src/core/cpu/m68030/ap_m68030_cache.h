@@ -46,6 +46,8 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#include "cpu/m68030/ap_m68030_bus.h"
+
 /* "each organized as 16 lines. Each line consists of four entries" */
 #define AP_M68030_CACHE_LINES 16
 #define AP_M68030_CACHE_ENTRIES 4
@@ -219,5 +221,59 @@ void ap_m68030_cacr_write(ap_m68030_cacr_t *cacr, uint32_t word,
  * instruction and data caches are ignored for the access". */
 [[nodiscard]] bool ap_m68030_cache_enabled(bool enable_bit, bool cache_disable,
                                            bool cache_inhibit);
+
+/* ---------------------------------------------------------------------------
+ * The miss cost, end to end.
+ *
+ * This is the join the plan item's verification is really about: a hit costs no
+ * external bus cycle at all -- "Whenever a read access occurs and the required
+ * instruction word or data operand is resident in the appropriate on-chip cache
+ * (no external bus cycle is required), the MMU is completely ignored" -- and a
+ * miss costs whatever the bus charges, which is 5 clocks for a burst line fill
+ * against 8 for four single reads.
+ *
+ * The same split as the MMU: `ap_m68030_atc` holds the cache and
+ * `ap_m68030_walk` spends the time. Here `ap_m68030_cache` holds the lines and
+ * this function spends the time, through `ap_m68030_bus`.
+ * ------------------------------------------------------------------------- */
+
+/* What the memory system answers when asked to fill. `data` is in long-word
+ * select order -- entry 0 is the line's lowest long word -- and only the first
+ * element is used when the fill is not a burst.
+ *
+ * Modelling note: the 68030's burst supplies the line's four long words, and
+ * the order in which a real device presents them relative to the requested one
+ * is a property of the memory system rather than of the processor. Indexing by
+ * position keeps that the device's business, which is where it belongs. */
+typedef struct {
+  ap_m68030_term_t termination; /* STERM, DSACK or BERR */
+  bool burst_acknowledge;       /* CBACK -- only a 32-bit STERM port asserts it */
+  uint32_t data[AP_M68030_BURST_BEATS];
+} ap_m68030_fill_answer_t;
+
+/* Asked once per fill, with the line's base address. */
+typedef void (*ap_m68030_fill_fn)(void *context, uint32_t line_address,
+                                  uint8_t function_code,
+                                  ap_m68030_fill_answer_t *out);
+
+typedef struct {
+  bool hit;            /* answered from the cache, at no bus cost */
+  uint32_t value;      /* the long word, when there is one */
+  uint32_t clocks;     /* external clocks spent -- zero on a hit */
+  bool burst;          /* the fill ran as a burst */
+  unsigned long_words; /* long words actually transferred */
+  bool bus_error;
+} ap_m68030_cache_access_t;
+
+/* Read one long word through the cache, filling on a miss.
+ *
+ * `cache_enabled` is the result of `ap_m68030_cache_enabled`, so CDIS and CIOUT
+ * are already folded in: a disabled or inhibited access still *runs*, it simply
+ * neither reads nor fills the cache. */
+ap_m68030_cache_access_t
+ap_m68030_cache_read(ap_m68030_cache_t *cache, uint32_t address,
+                     uint8_t function_code, bool cache_enabled,
+                     bool burst_enable, bool frozen, bool read_modify_write,
+                     ap_m68030_fill_fn fill, void *context);
 
 #endif /* APOLLO_CPU_M68030_AP_M68030_CACHE_H */

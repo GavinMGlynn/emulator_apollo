@@ -417,6 +417,166 @@ static void test_each_condition_suppresses_the_burst_request(void) {
       &cache, ADDRESS, FC_SUPERVISOR_DATA, true, true, false, true));
 }
 
+
+/* ---------------------------------------------------------------------------
+ * The miss cost, end to end. This is what the plan item's verification asked
+ * for: a hit costs no external bus cycle, a miss costs what the bus charges.
+ * ------------------------------------------------------------------------- */
+
+typedef struct {
+  ap_m68030_term_t termination;
+  bool cback;
+  unsigned calls;
+  uint32_t last_line_address;
+} memory_t;
+
+static void memory_fill(void *context, uint32_t line_address,
+                        uint8_t function_code, ap_m68030_fill_answer_t *out) {
+  (void)function_code;
+  memory_t *memory = (memory_t *)context;
+  memory->calls++;
+  memory->last_line_address = line_address;
+  out->termination = memory->termination;
+  out->burst_acknowledge = memory->cback;
+  /* Every long word in the machine reads as 0xC0DE0000 + its entry index, so a
+   * test can tell *which* long word it was handed. The driver passes the line
+   * base for a burst and the accessed long word for a single fill, so indexing
+   * from whatever address arrives covers both. */
+  const unsigned base = ap_m68030_cache_entry_index(line_address);
+  for (unsigned e = 0; e < AP_M68030_BURST_BEATS; e++) {
+    out->data[e] = 0xC0DE0000u + ((base + e) % AP_M68030_BURST_BEATS);
+  }
+}
+
+static memory_t sterm_burst_memory(void) {
+  return (memory_t){.termination = AP_M68030_TERM_STERM, .cback = true};
+}
+
+/* The headline claim, now measured rather than asserted: a miss into an empty
+ * cache costs a burst line fill, and the hit that follows costs nothing. */
+static void test_a_miss_costs_a_burst_and_the_next_hit_costs_nothing(void) {
+  ap_m68030_cache_t cache = empty_cache();
+  memory_t memory = sterm_burst_memory();
+
+  const ap_m68030_cache_access_t miss = ap_m68030_cache_read(
+      &cache, ADDRESS, FC_SUPERVISOR_DATA, true, true, false, false,
+      memory_fill, &memory);
+
+  TEST_ASSERT_FALSE(miss.hit);
+  TEST_ASSERT_TRUE(miss.burst);
+  TEST_ASSERT_EQUAL_UINT32(5, miss.clocks);
+  TEST_ASSERT_EQUAL_UINT(AP_M68030_BURST_BEATS, miss.long_words);
+  /* Entry 2 of the line, since ADDRESS selects it. */
+  TEST_ASSERT_EQUAL_HEX32(0xC0DE0002u, miss.value);
+
+  const ap_m68030_cache_access_t hit = ap_m68030_cache_read(
+      &cache, ADDRESS, FC_SUPERVISOR_DATA, true, true, false, false,
+      memory_fill, &memory);
+
+  TEST_ASSERT_TRUE(hit.hit);
+  TEST_ASSERT_EQUAL_UINT32(0, hit.clocks);
+  TEST_ASSERT_EQUAL_HEX32(0xC0DE0002u, hit.value);
+  /* The memory system was not asked a second time. */
+  TEST_ASSERT_EQUAL_UINT(1, memory.calls);
+}
+
+/* The burst filled the whole line, so its three neighbours are hits too -- one
+ * fill answering four accesses is the entire point of bursting. */
+static void test_one_burst_fill_serves_the_whole_line(void) {
+  ap_m68030_cache_t cache = empty_cache();
+  memory_t memory = sterm_burst_memory();
+
+  (void)ap_m68030_cache_read(&cache, ADDRESS, FC_SUPERVISOR_DATA, true, true,
+                             false, false, memory_fill, &memory);
+
+  for (unsigned e = 0; e < AP_M68030_BURST_BEATS; e++) {
+    const ap_m68030_cache_access_t access = ap_m68030_cache_read(
+        &cache, 0x00001010u + (e * 4u), FC_SUPERVISOR_DATA, true, true, false,
+        false, memory_fill, &memory);
+    TEST_ASSERT_TRUE(access.hit);
+    TEST_ASSERT_EQUAL_UINT32(0, access.clocks);
+    TEST_ASSERT_EQUAL_HEX32(0xC0DE0000u + e, access.value);
+  }
+  TEST_ASSERT_EQUAL_UINT(1, memory.calls);
+}
+
+/* A device that cannot burst answers without CBACK, so the same miss costs an
+ * ordinary two-clock cycle and fills one entry rather than four. */
+static void test_a_miss_without_cback_costs_a_single_cycle(void) {
+  ap_m68030_cache_t cache = empty_cache();
+  memory_t memory = sterm_burst_memory();
+  memory.cback = false;
+
+  const ap_m68030_cache_access_t miss = ap_m68030_cache_read(
+      &cache, ADDRESS, FC_SUPERVISOR_DATA, true, true, false, false,
+      memory_fill, &memory);
+
+  TEST_ASSERT_FALSE(miss.burst);
+  TEST_ASSERT_EQUAL_UINT32(2, miss.clocks);
+  TEST_ASSERT_EQUAL_UINT(1, miss.long_words);
+
+  /* Only the accessed entry was filled: its neighbour still misses. */
+  const ap_m68030_cache_access_t neighbour = ap_m68030_cache_read(
+      &cache, 0x00001010u, FC_SUPERVISOR_DATA, true, true, false, false,
+      memory_fill, &memory);
+  TEST_ASSERT_FALSE(neighbour.hit);
+}
+
+/* A disabled cache runs the access but keeps nothing, so every access pays
+ * again -- which is what makes the instruction cache a measurable timing
+ * effect, and what MD's IC command toggles on real hardware. */
+static void test_a_disabled_cache_pays_for_every_access(void) {
+  ap_m68030_cache_t cache = empty_cache();
+  memory_t memory = sterm_burst_memory();
+
+  for (unsigned i = 0; i < 3; i++) {
+    const ap_m68030_cache_access_t access = ap_m68030_cache_read(
+        &cache, ADDRESS, FC_SUPERVISOR_DATA, false /* disabled */, true, false,
+        false, memory_fill, &memory);
+    TEST_ASSERT_FALSE(access.hit);
+    TEST_ASSERT_EQUAL_UINT32(2, access.clocks);
+  }
+  TEST_ASSERT_EQUAL_UINT(3, memory.calls);
+}
+
+/* "When the FI bit is set and a miss occurs ... the entry (or line) is not
+ * replaced": a frozen cache performs the access and keeps nothing. */
+static void test_a_frozen_cache_fetches_but_does_not_keep(void) {
+  ap_m68030_cache_t cache = empty_cache();
+  memory_t memory = sterm_burst_memory();
+
+  const ap_m68030_cache_access_t first = ap_m68030_cache_read(
+      &cache, ADDRESS, FC_SUPERVISOR_DATA, true, true, true /* frozen */, false,
+      memory_fill, &memory);
+  TEST_ASSERT_FALSE(first.hit);
+  TEST_ASSERT_EQUAL_HEX32(0xC0DE0002u, first.value);
+
+  const ap_m68030_cache_access_t second = ap_m68030_cache_read(
+      &cache, ADDRESS, FC_SUPERVISOR_DATA, true, true, true, false, memory_fill,
+      &memory);
+  TEST_ASSERT_FALSE(second.hit);
+  TEST_ASSERT_EQUAL_UINT(2, memory.calls);
+}
+
+/* A faulted fill caches nothing, so the fault is not silently turned into a
+ * cached value that later accesses would hit. */
+static void test_a_bus_error_on_a_fill_caches_nothing(void) {
+  ap_m68030_cache_t cache = empty_cache();
+  memory_t memory = sterm_burst_memory();
+  memory.termination = AP_M68030_TERM_BERR;
+
+  const ap_m68030_cache_access_t access = ap_m68030_cache_read(
+      &cache, ADDRESS, FC_SUPERVISOR_DATA, true, true, false, false,
+      memory_fill, &memory);
+
+  TEST_ASSERT_TRUE(access.bus_error);
+  TEST_ASSERT_EQUAL_UINT(0, access.long_words);
+
+  uint32_t value = 0;
+  TEST_ASSERT_FALSE(
+      ap_m68030_cache_lookup(&cache, ADDRESS, FC_SUPERVISOR_DATA, &value));
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_the_address_splits_into_tag_line_and_long_word);
@@ -442,5 +602,11 @@ int main(void) {
   RUN_TEST(test_a_matching_tag_with_no_valid_entries_still_bursts);
   RUN_TEST(test_a_matching_tag_with_one_valid_entry_does_not_burst);
   RUN_TEST(test_each_condition_suppresses_the_burst_request);
+  RUN_TEST(test_a_miss_costs_a_burst_and_the_next_hit_costs_nothing);
+  RUN_TEST(test_one_burst_fill_serves_the_whole_line);
+  RUN_TEST(test_a_miss_without_cback_costs_a_single_cycle);
+  RUN_TEST(test_a_disabled_cache_pays_for_every_access);
+  RUN_TEST(test_a_frozen_cache_fetches_but_does_not_keep);
+  RUN_TEST(test_a_bus_error_on_a_fill_caches_nothing);
   return UNITY_END();
 }

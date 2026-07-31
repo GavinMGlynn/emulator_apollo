@@ -225,3 +225,80 @@ bool ap_m68030_cache_burst_request(const ap_m68030_cache_t *cache,
   }
   return true;
 }
+
+ap_m68030_cache_access_t
+ap_m68030_cache_read(ap_m68030_cache_t *cache, uint32_t address,
+                     uint8_t function_code, bool cache_enabled,
+                     bool burst_enable, bool frozen, bool read_modify_write,
+                     ap_m68030_fill_fn fill, void *context) {
+  ap_m68030_cache_access_t result = {0};
+
+  /* "Whenever a read access occurs and the required instruction word or data
+   * operand is resident in the appropriate on-chip cache (no external bus cycle
+   * is required)" -- a hit costs nothing, which is the claim this whole module
+   * exists to make measurable. */
+  if (cache_enabled &&
+      ap_m68030_cache_lookup(cache, address, function_code, &result.value)) {
+    result.hit = true;
+    return result;
+  }
+
+  const bool burst =
+      cache_enabled && ap_m68030_cache_burst_request(cache, address,
+                                                     function_code, burst_enable,
+                                                     cache_enabled, frozen,
+                                                     read_modify_write);
+
+  /* A burst fills the whole line, so it addresses the line's base; a single
+   * entry fill addresses its own long word. */
+  const uint32_t line_address = address & ~UINT32_C(0xF);
+  const uint32_t cycle_address = burst ? line_address : (address & ~UINT32_C(3));
+
+  ap_m68030_fill_answer_t answer = {0};
+  answer.termination = AP_M68030_TERM_STERM;
+  fill(context, burst ? line_address : cycle_address, function_code, &answer);
+
+  ap_m68030_bus_t bus;
+  ap_m68030_bus_begin(&bus, cycle_address, function_code, AP_M68030_SIZE_LONG,
+                      true, true);
+  if (burst) {
+    ap_m68030_bus_request_burst(&bus);
+    ap_m68030_bus_acknowledge_burst(&bus, answer.burst_acknowledge);
+  }
+
+  while (ap_m68030_bus_active(&bus)) {
+    ap_m68030_bus_terminate(&bus, answer.termination);
+    (void)ap_m68030_bus_tick(&bus);
+    result.clocks++;
+    if (result.clocks > 64u) {
+      break; /* a device that never answers is the caller's bug, not a hang */
+    }
+  }
+
+  result.burst = bus.burst_beats >= AP_M68030_BURST_BEATS;
+  result.long_words = result.burst ? AP_M68030_BURST_BEATS : 1u;
+
+  if (answer.termination == AP_M68030_TERM_BERR) {
+    /* Nothing is cached from a faulted access, and no value is produced. */
+    result.bus_error = true;
+    result.long_words = 0;
+    return result;
+  }
+
+  const unsigned entry = ap_m68030_cache_entry_index(address);
+  result.value = result.burst ? answer.data[entry] : answer.data[0];
+
+  /* A frozen or disabled cache still performs the access; it just does not keep
+   * the result. "When the FI bit is set and a miss occurs in the instruction
+   * cache, the entry (or line) is not replaced." */
+  if (!cache_enabled || frozen) {
+    return result;
+  }
+
+  if (result.burst) {
+    ap_m68030_cache_fill_line(cache, line_address, function_code, answer.data);
+  } else {
+    ap_m68030_cache_fill_entry(cache, address, function_code, answer.data[0]);
+  }
+  return result;
+}
