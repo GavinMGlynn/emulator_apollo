@@ -2285,8 +2285,11 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         **odd addresses, stride 2** (`RS n` at `010801 + 2n`, confirmed by the
         `FFFF` latch default showing through), and its interrupt reaches the
         master controller as **IRQ0**, confirming Table 2-3. `FINDINGS.md` C12.
-  - [ ] Wire the timer into the board at `010800`, now that its placement
-        (odd addresses, stride 2) and its IRQ0 route are both measured.
+  - [x] The timer wired into the board at `010800`: odd-address decode, the
+        three input rates as exact clock domains, and the IRQ0 route through to
+        vector `A0`. `timer_suite`, 8 tests. Advancing is by whole pulses with
+        the remainder carried, so the rate does not depend on polling
+        frequency.
   - [ ] The MC146818 calendar at `010900`.
 - [ ] SIO serial lines, keyboard and mouse. *Verification: console byte stream
       identical to the oracle's.*
