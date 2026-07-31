@@ -55,8 +55,17 @@ apollo_add_golden(golden_model_table model_table.txt apollo-headless --list-mode
 # output, the two-run determinism check, and the failure paths. Whether the
 # oracle's numbers are right needs a real emulator and is what FINDINGS.md
 # campaigns settle; this is the ordinary program logic around them.
+#
+# Not registered on Windows, and that is a scope statement rather than a
+# workaround. The test drives stub oracles as executables, which means it
+# depends on how a platform launches a script -- and the thing under test only
+# ever runs where the oracle itself is built, which is the Linux development
+# side. Windows is a supported *emulator* platform, not an oracle platform: it
+# builds and tests the core and checks the goldens, which is what its
+# portability claim actually is. The stub launcher still handles Windows so the
+# test can be run there by hand.
 find_package(Python3 QUIET COMPONENTS Interpreter)
-if(Python3_Interpreter_FOUND)
+if(Python3_Interpreter_FOUND AND NOT WIN32)
   add_test(NAME oracle_driver
            COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/mame-oracle/test_oracle.py)
   set_tests_properties(oracle_driver PROPERTIES LABELS tools)

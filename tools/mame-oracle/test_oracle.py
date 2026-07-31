@@ -66,9 +66,25 @@ PC       00010000
 """
 
 
-def write_stub(path: Path, body: str) -> None:
+def write_stub(path: Path, body: str) -> Path:
+    """Write a stub oracle and return the path oracle.py should invoke.
+
+    oracle.py runs whatever --mame names as a program, so the stub has to *be*
+    an executable. A Python file with a shebang and the exec bit is one on
+    POSIX and is not one on Windows, which honours neither -- so Windows gets a
+    .cmd launcher that calls this interpreter on the script. Returning the path
+    to invoke keeps that difference in one place instead of at every call.
+    """
+    if os.name == "nt":
+        script = path.with_suffix(".py")
+        script.write_text("import sys, os\n" + body)
+        launcher = path.with_suffix(".cmd")
+        launcher.write_text('@echo off\r\n"%s" "%s" %%*\r\n' % (sys.executable, script))
+        return launcher
+
     path.write_text("#!/usr/bin/env python3\nimport sys, os\n" + body)
     path.chmod(path.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
+    return path
 
 
 def run_oracle(args: list, cwd: Path) -> subprocess.CompletedProcess:
@@ -87,8 +103,7 @@ def main() -> int:
 
         # A well-behaved but noisy oracle: MAME prints its own chatter, and the
         # dump has to be extracted from between the markers regardless.
-        good = root / "mame_good"
-        write_stub(good, (
+        good = write_stub(root / "mame_good", (
             "sys.stdout.write('Average speed: 102.32%% (1 seconds)\\n')\n"
             "sys.stdout.write(%r)\n"
             "sys.stdout.write('Exiting...\\n')\n"
@@ -96,8 +111,7 @@ def main() -> int:
 
         # Differs on the second run. Uses a marker file rather than a random
         # value so the test itself stays deterministic.
-        flaky = root / "mame_flaky"
-        write_stub(flaky, (
+        flaky = write_stub(root / "mame_flaky", (
             "marker = os.path.join(os.path.dirname(os.path.abspath(__file__)), '.ran')\n"
             "second = os.path.exists(marker)\n"
             "open(marker, 'w').close()\n"
@@ -106,11 +120,9 @@ def main() -> int:
             "sys.stdout.write(d)\n"
         ) % DUMP)
 
-        silent = root / "mame_silent"
-        write_stub(silent, "sys.stdout.write('nothing useful here\\n')\n")
+        silent = write_stub(root / "mame_silent", "sys.stdout.write('nothing useful here\\n')\n")
 
-        failing = root / "mame_failing"
-        write_stub(failing, "sys.stderr.write('boom\\n')\nsys.exit(3)\n")
+        failing = write_stub(root / "mame_failing", "sys.stderr.write('boom\\n')\nsys.exit(3)\n")
 
         common = ["--roms", str(roms), "--rundir", str(rundir), "--machine", "dn3500"]
 
