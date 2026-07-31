@@ -1330,6 +1330,31 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         Both halves of the comparison are now runnable and pinned:
         `apollo-headless --time-instructions` with a golden, and
         `tools/mame-oracle/steptime.lua` for the oracle.
+    - [x] **The published figures, transcribed**
+          (`src/core/cpu/m68030/ap_m68030_timing_table.c`). Nineteen rows from
+          §11.6.8 and §11.6.9 whose instruction-cache case reads `n(0/0/0)` —
+          no operand reads, no writes, and no instruction bus cycles because the
+          instruction is in the cache, so `n` is pure microcode. The `NCC`
+          column is not transcribed at all, and neither are the rows with a
+          non-zero read or write count: their `CC` includes operand bus cycles
+          this core produces itself, so adding them whole would count twice.
+          The table's own markers are kept rather than flattened. The four
+          divides carry `+`, "Indicates Maximum Time (Actual time is data
+          dependent)", and are **`PROVISIONAL`**: using 56 clocks for every
+          `DIVS.W` would be slow by a data-dependent amount rather than wrong by
+          a fixed one, which is much harder to notice. Closing that needs
+          measurement per operand pair.
+          *Verification: `timing_table_suite`, 7 tests — a transcription cannot
+          be checked by re-reading it, so these check it against structure:
+          every row satisfying the head ≤ CC rule a dropped or doubled digit
+          usually breaks; the word-address-forms-cost-4 pattern that showed
+          §11.3.4's example to be mislabelled, pinned so the table cannot drift
+          back towards it; the seven register operations agreeing with each
+          other, so one mistyped row stands out; the divides marked and **only**
+          the divides, since a marker applied too widely makes every figure look
+          provisional; what is not transcribed reported absent rather than
+          approximated by a neighbouring row; and the figures composing through
+          Equation (11-1), which is what they were transcribed for.*
     - [x] **The composition rule, built without the numbers**
           (`src/core/cpu/m68030/ap_m68030_overlap.c`). Equation (11-1) and
           §11.2's eight resources are arithmetic and vocabulary rather than
