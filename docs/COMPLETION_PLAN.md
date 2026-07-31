@@ -908,11 +908,10 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         exchanges. The extended forms share the documented "cleared if nonzero;
         unchanged otherwise" `Z`, which is what lets one `Z` describe a whole
         multi-precision value rather than just its last word.
-        Two things remain, each named rather than left to look finished:
-        the **divide-by-zero exception** — division by zero declines as
-        `UNIMPLEMENTED` rather than inventing a value, because taking vector 5
-        needs exception machinery the step does not have — and `ABCD`/`SBCD`'s
-        **`N` and `V`, which the manual documents as undefined**. A reference
+        Division by zero now raises vector 5 through the exception machinery
+        rather than declining, so the only thing left under this item is
+        `ABCD`/`SBCD`'s **`N` and `V`, which the manual documents as
+        undefined**. A reference
         core must still be deterministic, so `N` is taken from bit 7 and `V`
         cleared, marked `PROVISIONAL` in code; nothing correct may depend on
         either, and an oracle probe would settle what the part actually does.
@@ -986,12 +985,45 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
     executes". The higher-priority exception is *processed* first, which stacks
     it deeper, so the lower-priority handler runs first and returns into it.
     Reset is the stated exception to its own rule.
-  - [ ] **Taking an exception**: stacking the frame, fetching the vector through
-        the VBR, and loading the PC. Needs an instruction unit and a memory
-        system, so it lands with them rather than here — the same split as the
-        caches, where structure and cost were separable.
-        *Verification: probes that deliberately fault, diffed against the
-        oracle, which is what this item always asked for.*
+  - [~] **Taking an exception**: stacking the frame, fetching the vector through
+        the VBR, and loading the PC (`ap_m68030_take_exception` in
+        `ap_m68030_step.c`). Needed an instruction unit and a memory system, so
+        it landed with them rather than here — the same split as the caches,
+        where structure and cost were separable.
+        §8.1's four steps, and their **order** is the whole of the difficulty:
+        the status register is copied *before* S is set, and it is the copy that
+        is stacked. Stacking the modified one survives casual testing — the
+        handler runs, RTE returns — but returns to a user program with S still
+        set. Nothing faults; the privilege boundary is simply gone. The frame
+        goes on the *active* supervisor stack, read after S is set, so a
+        user-state exception builds on the ISP and leaves the USP alone.
+        Which frame comes from Table 8-6, transcribed into
+        `ap_m68030_frame_for_vector`: the six-word frame's extra long word is
+        "the address of the instruction that caused the exception", distinct
+        from the stacked PC, which points at the *next* one. A six-word
+        exception given a four-word frame leaves RTE reading a vector offset out
+        of an address.
+        Wired in so far: **divide by zero** (the tail of the instruction
+        semantics item above, now closed) and **TRAP #N**, whose four-bit field
+        is an index into Table 8-1's trap range and not a vector number.
+        Still open, each declined rather than approximated: reset (stacks
+        nothing), the bus and address error frames (formats `$A`/`$B`, which
+        carry internal state this model does not have), the coprocessor
+        mid-instruction frame, and the interrupt case where the M bit is set and
+        a second throwaway frame goes on the interrupt stack — that belongs with
+        the interrupt item, along with the priority mask update. `CHK`, `TRAPV`,
+        `TRAPcc`, trace and the privilege violations now need only their
+        instructions, not more exception machinery.
+        *Verification: `step_suite`, 10 further tests (89 total) — the stacked
+        SR being the pre-change copy, tracing turned off, the frame on the
+        supervisor stack with the USP untouched, the vector fetched through the
+        VBR at offset rather than number, the six-word frame carrying two
+        different addresses, the unbuildable frames declined with the stack
+        pointer unmoved, and the handler's first instruction actually executing
+        next; `exception_suite`, 2 further tests (16 total) sweeping Table 8-6's
+        rows including every TRAP and every autovector. Then probes that
+        deliberately fault, diffed against the oracle, which is what this item
+        always asked for.
 - [~] 68030 on-chip MMU: translation tables, ATC, transparent translation,
       `MMUSR`. *Verification: probe walks and faults; oracle diff.*
   - [x] **Transparent translation (TT0/TT1)**

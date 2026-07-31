@@ -137,6 +137,40 @@ bool ap_m68030_frame_format_defined(uint16_t format_word) {
   return false;
 }
 
+ap_m68030_frame_format_t ap_m68030_frame_for_vector(unsigned vector) {
+  switch (vector) {
+  /* "Address Error or Bus Error -- Execution Unit at Instruction Boundary" is
+   * the short bus fault frame; the long one is the mid-instruction case, which
+   * needs the internal state this model does not carry. The short form is
+   * reported, and the taker declines both. */
+  case AP_M68030_VECTOR_BUS_ERROR:
+  case AP_M68030_VECTOR_ADDRESS_ERROR:
+    return AP_M68030_FRAME_SHORT_BUS_FAULT;
+
+  /* "Main-Detected Protocol Violation" sits in the coprocessor
+   * mid-instruction frame, not in either of the normal two. */
+  case AP_M68030_VECTOR_COPROCESSOR_PROTOCOL:
+    return AP_M68030_FRAME_COPROCESSOR_MID;
+
+  /* The six-word frame's list, each of which needs the instruction address
+   * kept separately from the return PC. */
+  case AP_M68030_VECTOR_ZERO_DIVIDE:
+  case AP_M68030_VECTOR_CHK:     /* CHK and CHK2 share this vector */
+  case AP_M68030_VECTOR_TRAPCC:  /* cpTRAPcc, TRAPcc and TRAPV share it */
+  case AP_M68030_VECTOR_TRACE:
+  case AP_M68030_VECTOR_MMU_CONFIGURATION:
+    return AP_M68030_FRAME_SIX_WORD;
+
+  default:
+    break;
+  }
+
+  /* Everything else Table 8-6 names -- interrupts, format error, TRAP #N,
+   * illegal instruction, the two emulator lines and privilege violation --
+   * takes the four-word frame. */
+  return AP_M68030_FRAME_SHORT;
+}
+
 bool ap_m68030_interrupt_recognised(unsigned level, unsigned previous_level,
                                     unsigned mask) {
   if (level == 0) {

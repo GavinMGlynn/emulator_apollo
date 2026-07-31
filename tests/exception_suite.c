@@ -209,6 +209,63 @@ static void test_level_seven_is_transition_sensitive(void) {
   TEST_ASSERT_FALSE(ap_m68030_interrupt_recognised(6, 6, 6));
 }
 
+/* Table 8-6 lists the exception types against each frame, and the six-word
+ * frame's list is the one worth pinning: CHK, CHK2, cpTRAPcc, TRAPcc, TRAPV,
+ * trace, zero divide and MMU configuration. Everything the table names besides
+ * those, the fault frames and the coprocessor frame takes four words.
+ *
+ * The failure this catches is not a crash. A six-word exception given the
+ * four-word frame stacks the format word where RTE expects the instruction
+ * address, so RTE reads a vector offset out of an address and returns to
+ * whatever that decodes as. */
+static void test_the_six_word_frame_is_used_by_exactly_its_table_row(void) {
+  const unsigned six[] = {AP_M68030_VECTOR_ZERO_DIVIDE, AP_M68030_VECTOR_CHK,
+                          AP_M68030_VECTOR_TRAPCC, AP_M68030_VECTOR_TRACE,
+                          AP_M68030_VECTOR_MMU_CONFIGURATION};
+  for (unsigned i = 0; i < sizeof six / sizeof six[0]; i++) {
+    TEST_ASSERT_EQUAL_INT(AP_M68030_FRAME_SIX_WORD,
+                          ap_m68030_frame_for_vector(six[i]));
+  }
+
+  const unsigned four[] = {AP_M68030_VECTOR_ILLEGAL_INSTRUCTION,
+                           AP_M68030_VECTOR_PRIVILEGE_VIOLATION,
+                           AP_M68030_VECTOR_LINE_A,
+                           AP_M68030_VECTOR_LINE_F,
+                           AP_M68030_VECTOR_FORMAT_ERROR,
+                           AP_M68030_VECTOR_SPURIOUS_INTERRUPT};
+  for (unsigned i = 0; i < sizeof four / sizeof four[0]; i++) {
+    TEST_ASSERT_EQUAL_INT(AP_M68030_FRAME_SHORT,
+                          ap_m68030_frame_for_vector(four[i]));
+  }
+
+  /* Every TRAP and every autovector is a four-word frame too, and sweeping
+   * them is what stops a boundary being wrong at one end of either range. */
+  for (unsigned trap = 0; trap < 16u; trap++) {
+    TEST_ASSERT_EQUAL_INT(AP_M68030_FRAME_SHORT,
+                          ap_m68030_frame_for_vector(
+                              ap_m68030_trap_vector(trap)));
+  }
+  for (unsigned level = 1u; level <= 7u; level++) {
+    TEST_ASSERT_EQUAL_INT(AP_M68030_FRAME_SHORT,
+                          ap_m68030_frame_for_vector(
+                              ap_m68030_autovector(level)));
+  }
+}
+
+/* The three that need more than the normal frames carry state a four-word one
+ * cannot hold, so they are reported as their own formats rather than rounded
+ * to the nearest buildable thing. */
+static void test_the_fault_and_coprocessor_frames_are_not_the_normal_two(void) {
+  TEST_ASSERT_EQUAL_INT(AP_M68030_FRAME_SHORT_BUS_FAULT,
+                        ap_m68030_frame_for_vector(AP_M68030_VECTOR_BUS_ERROR));
+  TEST_ASSERT_EQUAL_INT(
+      AP_M68030_FRAME_SHORT_BUS_FAULT,
+      ap_m68030_frame_for_vector(AP_M68030_VECTOR_ADDRESS_ERROR));
+  TEST_ASSERT_EQUAL_INT(
+      AP_M68030_FRAME_COPROCESSOR_MID,
+      ap_m68030_frame_for_vector(AP_M68030_VECTOR_COPROCESSOR_PROTOCOL));
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_vector_offsets_match_the_published_table);
@@ -225,5 +282,7 @@ int main(void) {
   RUN_TEST(test_level_zero_is_never_an_interrupt);
   RUN_TEST(test_level_seven_is_not_masked_by_a_mask_of_seven);
   RUN_TEST(test_level_seven_is_transition_sensitive);
+  RUN_TEST(test_the_six_word_frame_is_used_by_exactly_its_table_row);
+  RUN_TEST(test_the_fault_and_coprocessor_frames_are_not_the_normal_two);
   return UNITY_END();
 }

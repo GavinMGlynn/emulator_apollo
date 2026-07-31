@@ -21,6 +21,7 @@ static bool execute_bit(ap_m68030_cpu_t *cpu, const ap_m68030_immediate_t *imm,
 static bool execute_extended(ap_m68030_cpu_t *cpu,
                              const ap_m68030_arith_t *arith, uint32_t *clocks);
 #include "cpu/m68030/ap_m68030_alu.h"
+#include "cpu/m68030/ap_m68030_exception.h"
 #include "cpu/m68030/ap_m68030_operand.h"
 
 void ap_m68030_cpu_reset(ap_m68030_cpu_t *cpu, uint32_t pc) {
@@ -1093,9 +1094,12 @@ static bool execute_extended(ap_m68030_cpu_t *cpu,
 
     const uint32_t divisor16 = source & 0xFFFFu;
     if (divisor16 == 0u) {
-      /* Division by zero is an exception, not a result. Taking it needs the
-       * exception machinery, so this declines rather than inventing a value. */
-      return false;
+      /* "Attempted division by zero causes an exception." The step takes it,
+       * because only the step knows the instruction's length and Table 8-6's
+       * six-word frame wants both this instruction's address and the next
+       * one's. The register is left alone. */
+      cpu->pending_vector = AP_M68030_VECTOR_ZERO_DIVIDE;
+      return true;
     }
 
     const uint32_t dividend = cpu->regs.d[arith->reg];
@@ -1239,6 +1243,98 @@ static bool execute_extended(ap_m68030_cpu_t *cpu,
   return false;
 }
 
+/* Write one operand to supervisor data space at an absolute address, which is
+ * what building a stack frame is made of. */
+static bool write_frame_field(ap_m68030_cpu_t *cpu, uint32_t address,
+                              unsigned size, uint32_t value, uint32_t *clocks) {
+  const ap_m68030_address_t where = {.address = address, .valid = true};
+  const ap_m68030_operand_result_t wrote = ap_m68030_operand_write(
+      &cpu->regs, cpu->data, &where, size, value, AP_M68030_FC_SUPERVISOR_DATA);
+  *clocks += wrote.clocks;
+  return wrote.ok;
+}
+
+ap_m68030_exception_result_t
+ap_m68030_take_exception(ap_m68030_cpu_t *cpu, unsigned vector,
+                         uint32_t stacked_pc, uint32_t instruction_address) {
+  ap_m68030_exception_result_t out = {0};
+
+  /* Reset stacks nothing -- "For all exceptions other than reset" -- and the
+   * fault and coprocessor frames carry state this model does not have. Each is
+   * declined rather than built wrong. */
+  if (vector == AP_M68030_VECTOR_RESET_SP ||
+      vector == AP_M68030_VECTOR_RESET_PC) {
+    return out;
+  }
+  const ap_m68030_frame_format_t format = ap_m68030_frame_for_vector(vector);
+  if (format != AP_M68030_FRAME_SHORT && format != AP_M68030_FRAME_SIX_WORD) {
+    return out;
+  }
+
+  /* Step one. The copy is taken *before* the register is changed, and it is the
+   * copy that gets stacked -- so RTE restores the privilege level the exception
+   * interrupted, not the one the handler ran in. */
+  const uint16_t saved_sr = cpu->regs.sr;
+
+  uint16_t updated = saved_sr;
+  updated |= (uint16_t)(1u << AP_M68030_SR_S_BIT);
+  updated &= (uint16_t)~(1u << AP_M68030_SR_T1_BIT);
+  updated &= (uint16_t)~(1u << AP_M68030_SR_T0_BIT);
+  ap_m68030_write_sr(&cpu->regs, updated);
+
+  /* Step three. "on the active supervisor stack" -- read after S is set, so a
+   * user-state exception builds its frame on ISP or MSP and not on the USP it
+   * came from. */
+  const uint32_t bytes = ap_m68030_frame_words(format) * 2u;
+  const uint32_t frame = ap_m68030_read_a7(&cpu->regs) - bytes;
+
+  bool wrote = write_frame_field(cpu, frame + 0u, 2u, saved_sr, &out.clocks);
+  wrote = wrote && write_frame_field(cpu, frame + 2u, 4u, stacked_pc,
+                                     &out.clocks);
+  wrote = wrote && write_frame_field(
+                       cpu, frame + 6u, 2u,
+                       ap_m68030_frame_format_word(format, vector), &out.clocks);
+  if (format == AP_M68030_FRAME_SIX_WORD) {
+    /* "INSTRUCTION ADDRESS is the address of the instruction that caused the
+     * exception", which is not the stacked PC: that one points at the next. */
+    wrote = wrote && write_frame_field(cpu, frame + 8u, 4u, instruction_address,
+                                       &out.clocks);
+  }
+  if (!wrote) {
+    /* A fault while stacking is a double fault on the real part, which halts
+     * it. Modelling that needs the halted state, so this reports failure with
+     * the SR already changed -- the caller sees ok false and must not treat the
+     * processor as having taken the exception. */
+    return out;
+  }
+  ap_m68030_write_a7(&cpu->regs, frame);
+
+  /* Step four. "The processor multiplies the vector number by four to determine
+   * the exception vector offset. It adds the offset to the value stored in the
+   * vector base register". */
+  out.vector_address = cpu->regs.vbr + ap_m68030_vector_offset(vector);
+  const ap_m68030_address_t vector_where = {.address = out.vector_address,
+                                            .valid = true};
+  const ap_m68030_operand_result_t handler =
+      ap_m68030_operand_read(&cpu->regs, cpu->data, &vector_where, 4u,
+                             AP_M68030_FC_SUPERVISOR_DATA);
+  out.clocks += handler.clocks;
+  if (!handler.ok) {
+    return out;
+  }
+
+  /* "After prefetching the first three words to fill the instruction pipe, the
+   * processor resumes normal processing at the address in the program
+   * counter" -- so the pipe is emptied here and refilled by the next step. */
+  out.handler = handler.value;
+  cpu->regs.pc = out.handler;
+  ap_m68030_fetch_reset(&cpu->fetch, out.handler);
+
+  out.frame_address = frame;
+  out.ok = true;
+  return out;
+}
+
 ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
   ap_m68030_step_result_t out = {.status = AP_M68030_STEP_FAULT};
   uint16_t word = 0;
@@ -1267,6 +1363,16 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
     break;
 
   case AP_M68030_DECODED_CONTROL:
+    /* "TRAP #<vector> ... 32 + <vector> -> Vector Number": the four-bit field
+     * is an index into Table 8-1's trap range, not a vector number, so TRAP #0
+     * is vector 32. The decoder reports the field; ap_m68030_trap_vector turns
+     * it into the vector, which is what keeps this and the exception module
+     * agreeing by construction rather than by two transcriptions matching. */
+    if (decoded.as.control.kind == AP_M68030_CTL_TRAP) {
+      cpu->pending_vector =
+          ap_m68030_trap_vector(decoded.as.control.vector);
+      break;
+    }
     if (decoded.as.control.kind != AP_M68030_CTL_NOP) {
       out.status = AP_M68030_STEP_UNIMPLEMENTED;
       cpu->clocks += out.clocks;
@@ -1371,6 +1477,32 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
   case AP_M68030_DECODED_LINE_A:
   case AP_M68030_DECODED_ILLEGAL:
     out.status = AP_M68030_STEP_UNIMPLEMENTED;
+    cpu->clocks += out.clocks;
+    return out;
+  }
+
+  if (cpu->pending_vector != 0u) {
+    /* Table 8-6's two addresses: the stacked PC "points to" the next
+     * instruction for every exception raised this way, and the six-word frame's
+     * INSTRUCTION ADDRESS is "the address of the instruction that caused the
+     * exception" -- which is where the PC still is, since it has not advanced
+     * past it yet. Advancing first and passing the same value twice is the easy
+     * mistake, and it makes a handler's report of where the fault was point one
+     * instruction too far on. */
+    const unsigned vector = cpu->pending_vector;
+    cpu->pending_vector = 0u;
+
+    const ap_m68030_exception_result_t taken = ap_m68030_take_exception(
+        cpu, vector, cpu->regs.pc + length, cpu->regs.pc);
+    out.clocks += taken.clocks;
+    if (!taken.ok) {
+      /* A fault while stacking is a double fault, which halts the real part.
+       * Reporting a memory fault is honest about not modelling the halt. */
+      out.status = AP_M68030_STEP_FAULT;
+      cpu->clocks += out.clocks;
+      return out;
+    }
+    out.status = AP_M68030_STEP_EXCEPTION;
     cpu->clocks += out.clocks;
     return out;
   }

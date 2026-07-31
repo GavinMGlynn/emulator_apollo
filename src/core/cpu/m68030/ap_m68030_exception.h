@@ -113,6 +113,31 @@ ap_m68030_frame_format_of(uint16_t format_word);
  * valid frame"; an undefined format is a format error, vector 14. */
 [[nodiscard]] bool ap_m68030_frame_format_defined(uint16_t format_word);
 
+/* Which frame Table 8-6 gives this exception. The table lists the exception
+ * *types* against each frame, so this is a transcription of that column:
+ *
+ *   Format $0, four word   interrupt, format error, TRAP #N, illegal
+ *                          instruction, A-line, F-line, privilege violation
+ *   Format $2, six word    CHK, CHK2, cpTRAPcc, TRAPcc, TRAPV, trace, zero
+ *                          divide, MMU configuration, coprocessor
+ *                          post-instruction
+ *   Format $9, 10 words    coprocessor mid-instruction, protocol violation
+ *   Format $A/$B           address error and bus error
+ *
+ * The six-word frame's extra long word is the INSTRUCTION ADDRESS, "the address
+ * of the instruction that caused the exception" -- distinct from the stacked
+ * PC, which for every one of those points at the *next* instruction. An
+ * exception given the four-word frame when it wants six leaves RTE reading the
+ * vector offset out of the instruction address, so this is not a size the
+ * caller may round up.
+ *
+ * Reset is not a frame: "For all exceptions other than reset, the third step is
+ * to save the current processor context." Asking for vector 0 or 1 is a caller
+ * error, and this returns the four-word format for want of anything truer --
+ * the taker declines reset outright rather than relying on it. */
+[[nodiscard]] ap_m68030_frame_format_t
+ap_m68030_frame_for_vector(unsigned vector);
+
 /* Whether an interrupt request at `level` is recognised against a status
  * register interrupt mask of `mask`.
  *

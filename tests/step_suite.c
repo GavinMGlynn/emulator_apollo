@@ -13,6 +13,7 @@
  */
 
 #include "cpu/m68030/ap_m68030_step.h"
+#include "cpu/m68030/ap_m68030_exception.h"
 #include "unity.h"
 
 void setUp(void) {}
@@ -118,6 +119,21 @@ static void load(machine_t *m, const uint16_t *words, unsigned count) {
   m->cpu.data_function_code = 5u; /* supervisor data */
   ap_m68030_cpu_reset(&m->cpu, PROGRAM_BASE);
 }
+
+/* A stack the frame can be built on, away from the program image, and a handler
+ * address distinguishable from everything else in these tests. */
+#define SUPERVISOR_STACK 0x00009000u
+#define HANDLER 0x00002400u
+
+/* Point a vector at a handler by pre-storing it, so the vector fetch has
+ * something to read: the harness serves a stored long word back at the exact
+ * address it was written to. */
+static void plant_vector(machine_t *m, unsigned vector, uint32_t handler) {
+  m->memory.store_address[m->memory.stores] = vector * 4u;
+  m->memory.store_value[m->memory.stores] = handler;
+  m->memory.stores++;
+}
+
 
 /* NOP executes and advances the PC by two. */
 static void test_a_nop_executes_and_advances_the_pc(void) {
@@ -1356,21 +1372,91 @@ static void test_a_division_overflow_leaves_the_operands_unchanged(void) {
   TEST_ASSERT_EQUAL_HEX32(0x00010000u, m.cpu.regs.d[0]);
 }
 
-/* Division by zero is an exception rather than a result, and taking it needs
- * machinery this step does not have -- so it declines instead of inventing a
- * value. Reported unimplemented, not executed. */
-static void test_a_division_by_zero_is_not_given_a_value(void) {
+/* "Attempted division by zero causes an exception": vector 5, the six-word
+ * frame, and the register left alone. Inventing a quotient instead would run
+ * and be wrong; declining would be honest but would stop a program the real
+ * machine carries on running through its handler. */
+static void test_a_division_by_zero_takes_the_zero_divide_exception(void) {
   static const uint16_t program[] = {0x203Cu, 0x0000u, 0x0064u, 0x80FCu,
                                      0x0000u, 0x4E71u, 0x4E71u, 0x4E71u};
   machine_t m = {0};
   load(&m, program, 8);
+  plant_vector(&m, AP_M68030_VECTOR_ZERO_DIVIDE, HANDLER);
+  m.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
+  m.cpu.regs.isp = SUPERVISOR_STACK;
 
   (void)ap_m68030_step(&m.cpu);
   const ap_m68030_step_result_t r = ap_m68030_step(&m.cpu);
 
-  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_UNIMPLEMENTED, r.status);
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXCEPTION, r.status);
+  TEST_ASSERT_EQUAL_HEX32(HANDLER, m.cpu.regs.pc);
   /* The dividend is untouched, so nothing was half-done. */
   TEST_ASSERT_EQUAL_HEX32(100u, m.cpu.regs.d[0]);
+  /* Six words, and the two addresses differ: the divide is at +6 and takes
+   * four bytes, so the stacked PC is +10 and the instruction address +6. */
+  TEST_ASSERT_EQUAL_HEX32(SUPERVISOR_STACK - 12u, m.cpu.regs.isp);
+  uint32_t stacked_pc = 0;
+  uint32_t instruction_address = 0;
+  for (unsigned i = 0; i < m.memory.stores; i++) {
+    if (m.memory.store_address[i] == m.cpu.regs.isp + 2u) {
+      stacked_pc = m.memory.store_value[i];
+    }
+    if (m.memory.store_address[i] == m.cpu.regs.isp + 8u) {
+      instruction_address = m.memory.store_value[i];
+    }
+  }
+  TEST_ASSERT_EQUAL_HEX32(PROGRAM_BASE + 6u, instruction_address);
+  TEST_ASSERT_EQUAL_HEX32(PROGRAM_BASE + 10u, stacked_pc);
+}
+
+/* "TRAP #<vector> ... 32 + <vector> -> Vector Number": the four-bit field is an
+ * index, not a vector number, so TRAP #0 goes to vector 32 and not to the reset
+ * stack pointer. That mistake produces a working instruction jumping somewhere
+ * plausible, which is why it is worth its own assertion. */
+static void test_trap_uses_the_vector_its_number_indexes_not_the_number(void) {
+  static const uint16_t program[] = {0x4E40u, 0x4E71u}; /* TRAP #0 */
+  machine_t m = {0};
+  load(&m, program, 2);
+  plant_vector(&m, AP_M68030_VECTOR_TRAP_BASE, HANDLER);
+  /* And something different at vector 0, so taking that one is visible. */
+  plant_vector(&m, AP_M68030_VECTOR_RESET_SP, 0xDEADBEEFu);
+  m.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
+  m.cpu.regs.isp = SUPERVISOR_STACK;
+
+  const ap_m68030_step_result_t r = ap_m68030_step(&m.cpu);
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXCEPTION, r.status);
+  TEST_ASSERT_EQUAL_HEX32(HANDLER, m.cpu.regs.pc);
+  /* Four words, not six: Table 8-6 puts TRAP #N in the short frame. */
+  TEST_ASSERT_EQUAL_HEX32(SUPERVISOR_STACK - 8u, m.cpu.regs.isp);
+}
+
+/* TRAP #15 is the other end of the range, and a decoder that masked the field
+ * to three bits or added the wrong base would land somewhere else. */
+static void test_the_last_trap_lands_at_the_end_of_the_trap_range(void) {
+  static const uint16_t program[] = {0x4E4Fu, 0x4E71u}; /* TRAP #15 */
+  machine_t m = {0};
+  load(&m, program, 2);
+  plant_vector(&m, AP_M68030_VECTOR_TRAP_BASE + 15u, HANDLER);
+  m.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
+  m.cpu.regs.isp = SUPERVISOR_STACK;
+
+  const ap_m68030_step_result_t r = ap_m68030_step(&m.cpu);
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXCEPTION, r.status);
+  TEST_ASSERT_EQUAL_HEX32(HANDLER, m.cpu.regs.pc);
+  /* The frame carries the vector *offset*, so TRAP #15 stacks $0BC and not
+   * $02F -- the distinction ap_m68030_frame_format_word exists to keep. */
+  uint16_t format_word = 0;
+  for (unsigned i = 0; i < m.memory.stores; i++) {
+    if (m.memory.store_address[i] == m.cpu.regs.isp + 6u) {
+      format_word = (uint16_t)m.memory.store_value[i];
+    }
+  }
+  TEST_ASSERT_EQUAL_HEX32(47u * 4u,
+                          ap_m68030_frame_vector_offset_of(format_word));
+  TEST_ASSERT_EQUAL_INT(AP_M68030_FRAME_SHORT,
+                        ap_m68030_frame_format_of(format_word));
 }
 
 /* ADDX folds the extend bit in, which is what makes multi-precision addition
@@ -1609,6 +1695,206 @@ static void test_cmpm_advances_both_registers_and_writes_nothing(void) {
   TEST_ASSERT_TRUE(ccr & (1u << AP_M68030_SR_N_BIT));
 }
 
+/* ---------------------------------------------------------------------------
+ * Taking an exception, [030] §8.1.
+ * ------------------------------------------------------------------------- */
+
+/* "The processor makes an internal copy of the status register. Then the
+ * processor sets the S bit" -- and it is the *copy* that is stacked. Stacking
+ * the modified one instead leaves RTE returning with S still set, so a user
+ * program that trapped comes back in supervisor state and nothing faults. */
+static void test_the_stacked_status_register_is_the_one_before_the_change(void) {
+  static const uint16_t program[] = {0x4E71u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 2);
+  plant_vector(&m, AP_M68030_VECTOR_TRAP_BASE, HANDLER);
+  m.cpu.regs.sr = 0; /* user state, tracing off */
+  m.cpu.regs.isp = SUPERVISOR_STACK;
+
+  const ap_m68030_exception_result_t r = ap_m68030_take_exception(
+      &m.cpu, AP_M68030_VECTOR_TRAP_BASE, PROGRAM_BASE + 2u, PROGRAM_BASE);
+
+  TEST_ASSERT_TRUE(r.ok);
+  /* The processor is now in supervisor state ... */
+  TEST_ASSERT_TRUE(ap_m68030_supervisor(&m.cpu.regs));
+  /* ... but the frame remembers that it was not. */
+  bool found = false;
+  for (unsigned i = 0; i < m.memory.stores; i++) {
+    if (m.memory.store_address[i] == r.frame_address) {
+      TEST_ASSERT_EQUAL_HEX32(0u, m.memory.store_value[i]);
+      found = true;
+    }
+  }
+  TEST_ASSERT_TRUE(found);
+}
+
+/* "Next, the processor inhibits tracing of the exception handler by clearing
+ * the T1 and T0 bits" -- otherwise the handler single-steps itself. */
+static void test_taking_an_exception_turns_tracing_off(void) {
+  static const uint16_t program[] = {0x4E71u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 2);
+  plant_vector(&m, AP_M68030_VECTOR_TRAP_BASE, HANDLER);
+  m.cpu.regs.sr = (uint16_t)((1u << AP_M68030_SR_S_BIT) |
+                             (1u << AP_M68030_SR_T1_BIT));
+  m.cpu.regs.isp = SUPERVISOR_STACK;
+
+  const ap_m68030_exception_result_t r = ap_m68030_take_exception(
+      &m.cpu, AP_M68030_VECTOR_TRAP_BASE, PROGRAM_BASE + 2u, PROGRAM_BASE);
+
+  TEST_ASSERT_TRUE(r.ok);
+  TEST_ASSERT_EQUAL_INT(AP_M68030_TRACE_NONE,
+                        ap_m68030_trace_mode(&m.cpu.regs));
+}
+
+/* "The processor creates an exception stack frame on the active supervisor
+ * stack": *active*, and read after S is set -- so an exception taken in user
+ * state builds its frame on the ISP and leaves the USP alone. */
+static void test_the_frame_is_built_on_the_supervisor_stack_not_the_user_one(
+    void) {
+  static const uint16_t program[] = {0x4E71u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 2);
+  plant_vector(&m, AP_M68030_VECTOR_TRAP_BASE, HANDLER);
+  m.cpu.regs.sr = 0; /* user state */
+  m.cpu.regs.usp = 0x00007000u;
+  m.cpu.regs.isp = SUPERVISOR_STACK;
+
+  const ap_m68030_exception_result_t r = ap_m68030_take_exception(
+      &m.cpu, AP_M68030_VECTOR_TRAP_BASE, PROGRAM_BASE + 2u, PROGRAM_BASE);
+
+  TEST_ASSERT_TRUE(r.ok);
+  /* Four words below the interrupt stack, and the user stack untouched. */
+  TEST_ASSERT_EQUAL_HEX32(SUPERVISOR_STACK - 8u, r.frame_address);
+  TEST_ASSERT_EQUAL_HEX32(SUPERVISOR_STACK - 8u, m.cpu.regs.isp);
+  TEST_ASSERT_EQUAL_HEX32(0x00007000u, m.cpu.regs.usp);
+}
+
+/* "It adds the offset to the value stored in the vector base register to obtain
+ * the memory address of the exception vector" -- and the offset is the vector
+ * number times four, so TRAP #0 reads $80 from the VBR and not $20. */
+static void test_the_vector_is_fetched_through_the_vector_base_register(void) {
+  static const uint16_t program[] = {0x4E71u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 2);
+  m.cpu.regs.vbr = 0x00003000u;
+  /* TRAP #0 is vector 32, so offset $80. */
+  m.memory.store_address[m.memory.stores] = 0x00003000u + 0x80u;
+  m.memory.store_value[m.memory.stores] = HANDLER;
+  m.memory.stores++;
+  m.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
+  m.cpu.regs.isp = SUPERVISOR_STACK;
+
+  const ap_m68030_exception_result_t r = ap_m68030_take_exception(
+      &m.cpu, AP_M68030_VECTOR_TRAP_BASE, PROGRAM_BASE + 2u, PROGRAM_BASE);
+
+  TEST_ASSERT_TRUE(r.ok);
+  TEST_ASSERT_EQUAL_HEX32(0x00003080u, r.vector_address);
+  TEST_ASSERT_EQUAL_HEX32(HANDLER, r.handler);
+  TEST_ASSERT_EQUAL_HEX32(HANDLER, m.cpu.regs.pc);
+}
+
+/* Table 8-6: zero divide takes the six-word frame, whose extra long word is
+ * "the address of the instruction that caused the exception" -- distinct from
+ * the stacked PC, which points at the next one. Giving it the four-word frame
+ * leaves RTE reading the vector offset out of the instruction address. */
+static void test_a_zero_divide_gets_the_six_word_frame_with_both_addresses(
+    void) {
+  static const uint16_t program[] = {0x4E71u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 2);
+  plant_vector(&m, AP_M68030_VECTOR_ZERO_DIVIDE, HANDLER);
+  m.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
+  m.cpu.regs.isp = SUPERVISOR_STACK;
+
+  const ap_m68030_exception_result_t r = ap_m68030_take_exception(
+      &m.cpu, AP_M68030_VECTOR_ZERO_DIVIDE, PROGRAM_BASE + 6u, PROGRAM_BASE);
+
+  TEST_ASSERT_TRUE(r.ok);
+  /* Six words, not four. */
+  TEST_ASSERT_EQUAL_HEX32(SUPERVISOR_STACK - 12u, r.frame_address);
+
+  uint32_t format_word = 0xFFFFFFFFu;
+  uint32_t stacked_pc = 0xFFFFFFFFu;
+  uint32_t instruction_address = 0xFFFFFFFFu;
+  for (unsigned i = 0; i < m.memory.stores; i++) {
+    if (m.memory.store_address[i] == r.frame_address + 2u) {
+      stacked_pc = m.memory.store_value[i];
+    }
+    if (m.memory.store_address[i] == r.frame_address + 6u) {
+      format_word = m.memory.store_value[i];
+    }
+    if (m.memory.store_address[i] == r.frame_address + 8u) {
+      instruction_address = m.memory.store_value[i];
+    }
+  }
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_FRAME_SIX_WORD,
+                        ap_m68030_frame_format_of((uint16_t)format_word));
+  /* The vector *offset*, not the vector number: $014 for vector 5. */
+  TEST_ASSERT_EQUAL_HEX32(
+      0x014u, ap_m68030_frame_vector_offset_of((uint16_t)format_word));
+  /* The two addresses are different, which is the point of the wider frame. */
+  TEST_ASSERT_EQUAL_HEX32(PROGRAM_BASE + 6u, stacked_pc);
+  TEST_ASSERT_EQUAL_HEX32(PROGRAM_BASE, instruction_address);
+}
+
+/* Reset "does not save old context" at all, and the fault frames carry internal
+ * state this model does not have. Each is declined rather than built wrong -- a
+ * four-word frame where a 16-word one belongs would leave RTE reading a return
+ * address out of the middle of the fault information. */
+static void test_the_frames_this_model_cannot_build_are_declined(void) {
+  static const uint16_t program[] = {0x4E71u, 0x4E71u};
+  const unsigned declined[] = {
+      AP_M68030_VECTOR_RESET_SP, AP_M68030_VECTOR_RESET_PC,
+      AP_M68030_VECTOR_BUS_ERROR, AP_M68030_VECTOR_ADDRESS_ERROR,
+      AP_M68030_VECTOR_COPROCESSOR_PROTOCOL};
+
+  for (unsigned i = 0; i < sizeof declined / sizeof declined[0]; i++) {
+    machine_t m = {0};
+    load(&m, program, 2);
+    m.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
+    m.cpu.regs.isp = SUPERVISOR_STACK;
+
+    const ap_m68030_exception_result_t r =
+        ap_m68030_take_exception(&m.cpu, declined[i], PROGRAM_BASE, PROGRAM_BASE);
+
+    TEST_ASSERT_FALSE(r.ok);
+    /* Nothing was stacked, so the stack pointer is where it was. */
+    TEST_ASSERT_EQUAL_HEX32(SUPERVISOR_STACK, m.cpu.regs.isp);
+  }
+}
+
+/* The whole sequence, seen from outside: the handler's first instruction runs
+ * next. The pipe is emptied when the PC is loaded -- "After prefetching the
+ * first three words to fill the instruction pipe" -- so a stale prefetch cannot
+ * execute in the handler's place. */
+static void test_the_next_step_executes_the_handlers_first_instruction(void) {
+  /* MOVEQ #1,D0 at the program, MOVEQ #2,D0 at the handler. */
+  static const uint16_t program[] = {0x7001u, 0x4E71u, 0x4E71u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 4);
+  /* The handler sits inside the same image: PROGRAM_BASE + 4 holds a NOP, so
+   * plant a distinguishable instruction there through the store path. */
+  m.memory.store_address[m.memory.stores] = PROGRAM_BASE + 4u;
+  m.memory.store_value[m.memory.stores] = 0x70024E71u; /* MOVEQ #2,D0 ; NOP */
+  m.memory.stores++;
+  plant_vector(&m, AP_M68030_VECTOR_TRAP_BASE, PROGRAM_BASE + 4u);
+  m.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
+  m.cpu.regs.isp = SUPERVISOR_STACK;
+
+  /* Run the first instruction, which also fills the pipe past it. */
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&m.cpu).status);
+  TEST_ASSERT_EQUAL_HEX32(1u, m.cpu.regs.d[0]);
+
+  const ap_m68030_exception_result_t r = ap_m68030_take_exception(
+      &m.cpu, AP_M68030_VECTOR_TRAP_BASE, m.cpu.regs.pc, PROGRAM_BASE);
+  TEST_ASSERT_TRUE(r.ok);
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&m.cpu).status);
+  TEST_ASSERT_EQUAL_HEX32(2u, m.cpu.regs.d[0]);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_a_nop_executes_and_advances_the_pc);
@@ -1676,6 +1962,13 @@ int main(void) {
   RUN_TEST(test_a_register_count_is_taken_modulo_sixty_four);
   RUN_TEST(test_a_byte_shift_leaves_the_upper_bytes);
   RUN_TEST(test_an_address_form_accepts_an_immediate_source);
+  RUN_TEST(test_the_stacked_status_register_is_the_one_before_the_change);
+  RUN_TEST(test_taking_an_exception_turns_tracing_off);
+  RUN_TEST(test_the_frame_is_built_on_the_supervisor_stack_not_the_user_one);
+  RUN_TEST(test_the_vector_is_fetched_through_the_vector_base_register);
+  RUN_TEST(test_a_zero_divide_gets_the_six_word_frame_with_both_addresses);
+  RUN_TEST(test_the_frames_this_model_cannot_build_are_declined);
+  RUN_TEST(test_the_next_step_executes_the_handlers_first_instruction);
   RUN_TEST(test_exg_swaps_two_data_registers_whole);
   RUN_TEST(test_exg_distinguishes_the_mixed_pair_from_an_address_pair);
   RUN_TEST(test_abcd_adds_in_decimal_not_binary);
@@ -1688,7 +1981,9 @@ int main(void) {
   RUN_TEST(test_muls_and_mulu_differ_on_a_negative_operand);
   RUN_TEST(test_a_divide_puts_the_remainder_in_the_upper_word);
   RUN_TEST(test_a_division_overflow_leaves_the_operands_unchanged);
-  RUN_TEST(test_a_division_by_zero_is_not_given_a_value);
+  RUN_TEST(test_a_division_by_zero_takes_the_zero_divide_exception);
+  RUN_TEST(test_trap_uses_the_vector_its_number_indexes_not_the_number);
+  RUN_TEST(test_the_last_trap_lands_at_the_end_of_the_trap_range);
   RUN_TEST(test_addx_adds_the_extend_bit);
   RUN_TEST(test_addx_only_ever_clears_the_zero_flag);
   return UNITY_END();

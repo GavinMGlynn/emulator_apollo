@@ -49,6 +49,23 @@
  * must read as zero however it is written. */
 #define AP_M68030_SR_DEFINED 0xF71Fu
 
+/* Address space encodings, `[030]` Table 4-1. Three of the eight are reserved
+ * and named as such rather than left as holes -- a model that treats any FC it
+ * does not recognise as data would translate a reserved code through the data
+ * tables instead of faulting.
+ *
+ * These are what a bus cycle drives on FC2-FC0 and what the MMU and the
+ * transparent translation registers match against, so exception stacking (which
+ * Table 8-1 puts in "SD") and an ordinary operand access differ only here. */
+#define AP_M68030_FC_RESERVED_0 0u
+#define AP_M68030_FC_USER_DATA 1u
+#define AP_M68030_FC_USER_PROGRAM 2u
+#define AP_M68030_FC_USER_DEFINED 3u /* "reserved for user definition" */
+#define AP_M68030_FC_RESERVED_4 4u
+#define AP_M68030_FC_SUPERVISOR_DATA 5u
+#define AP_M68030_FC_SUPERVISOR_PROGRAM 6u
+#define AP_M68030_FC_CPU_SPACE 7u
+
 /* "T1 T0 TRACE MODE" from the PRM's table. `11` is documented as UNDEFINED
  * rather than as a fourth mode, and is reported as such rather than silently
  * folded into one of the other three. */

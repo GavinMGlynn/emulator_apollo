@@ -23,16 +23,19 @@
  *
  * ## What executes today
  *
- * `NOP`, `MOVEQ`, the 8-bit forms of `BRA` and `Bcc`, and `MOVE`/`MOVEA` in the
- * addressing modes that need no extension word -- register direct, `(An)`,
- * `(An)+` and `-(An)`.
+ * `NOP`, `MOVEQ`, the 8-bit forms of `BRA` and `Bcc`, `MOVE`/`MOVEA`, the six
+ * ALU operations in both directions, the `xxxI` immediate forms,
+ * `CLR`/`NEG`/`NOT`/`TST`, `ADDQ`/`SUBQ`/`Scc`/`DBcc`, `ADDA`/`SUBA`/`CMPA`,
+ * the bit operations, the shifts and rotates, the multiplies and divides, and
+ * the extended forms `ADDX`/`SUBX`/`ABCD`/`SBCD`/`CMPM`/`EXG`.
  *
- * The extension-word modes are excluded for a concrete reason rather than an
- * arbitrary one: the step does not yet fetch extension words from the
- * instruction stream, and MOVE is the instruction that makes that hard, since
- * its destination's extension words sit after its source's. Reporting those
- * modes unimplemented is honest; guessing at a displacement of zero would run
- * and be wrong.
+ * Still excluded, each for a concrete reason rather than an arbitrary one: the
+ * full-format indexed modes, whose extension word declares its own
+ * displacement sizes so the word count is not known until it is decoded; the
+ * memory indirect modes, which need a bus read partway through the address
+ * calculation; and the instructions whose semantics are exception processing
+ * itself. Reporting those unimplemented is honest; guessing would run and be
+ * wrong.
  */
 
 #ifndef APOLLO_CPU_M68030_AP_M68030_STEP_H
@@ -50,6 +53,12 @@ typedef enum {
   AP_M68030_STEP_UNIMPLEMENTED, /* decoded, but this model has no semantics */
   AP_M68030_STEP_ILLEGAL,       /* the hardware would fault too */
   AP_M68030_STEP_FAULT,         /* a memory fault during fetch */
+  /* The instruction ran and raised an exception: the frame is stacked and the
+   * PC is the handler's. Distinct from EXECUTED because the caller's idea of
+   * "where did the program get to" is now the handler and not the next
+   * instruction, and distinct from ILLEGAL because the processor is in a
+   * defined state rather than stopped. */
+  AP_M68030_STEP_EXCEPTION,
 } ap_m68030_step_status_t;
 
 typedef struct {
@@ -60,6 +69,13 @@ typedef struct {
   ap_m68030_access_ctx_t *data;
   uint8_t data_function_code;
   uint64_t clocks; /* accumulated across steps */
+
+  /* An exception an executing instruction raised, held until the step can take
+   * it: an executor knows a divide had a zero divisor, but not the length of
+   * the instruction it is inside, and Table 8-6 wants both the faulting
+   * instruction's address and the next one's. Zero means none -- vector 0 is
+   * the reset stack pointer, which no instruction can raise. */
+  unsigned pending_vector;
 } ap_m68030_cpu_t;
 
 typedef struct {
@@ -75,5 +91,56 @@ void ap_m68030_cpu_reset(ap_m68030_cpu_t *cpu, uint32_t pc);
 
 /* Execute one instruction. */
 [[nodiscard]] ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu);
+
+/* ---------------------------------------------------------------------------
+ * Taking an exception, `[030]` §8.1, "Exception Processing Sequence".
+ *
+ * The manual's four steps, and their order is the whole of the difficulty:
+ *
+ *   1. "The processor makes an internal copy of the status register. Then the
+ *      processor sets the S bit, changing to the supervisor privilege level.
+ *      Next, the processor inhibits tracing of the exception handler by
+ *      clearing the T1 and T0 bits."
+ *   2. Determine the vector number -- the caller's job, since for interrupts it
+ *      comes off the bus and for the rest from internal logic.
+ *   3. "The processor creates an exception stack frame on the active supervisor
+ *      stack" -- *active*, so after step 1 has set S, and it is the copy from
+ *      step 1 that is stacked, not the modified register.
+ *   4. Multiply the vector by four, add the VBR, load the PC from there.
+ *
+ * Stacking the modified SR instead of the copy is the mistake that survives
+ * casual testing: the handler runs correctly and RTE returns with S still set,
+ * so a user program that trapped comes back in supervisor state. Nothing
+ * faults; the privilege boundary is simply gone.
+ *
+ * `stacked_pc` is what the frame's PC field gets, and Table 8-6 is explicit
+ * that it differs per exception -- the *next* instruction for TRAP and the
+ * interrupts, the faulting instruction itself for illegal, A-line and F-line,
+ * and "first word of instruction causing Privilege Violation". Passing it in
+ * rather than deriving it here is deliberate: only the caller knows which.
+ *
+ * `instruction_address` fills the six-word frame's extra long word, "the
+ * address of the instruction that caused the exception", and is ignored for the
+ * four-word frame.
+ *
+ * Not handled here, and each declined rather than approximated: reset, which
+ * stacks nothing at all; the bus and address error frames, which carry internal
+ * state this model does not have; the coprocessor mid-instruction frame; and
+ * the interrupt case where "the M bit of the status register is set" and a
+ * second, throwaway frame goes on the interrupt stack -- that belongs with the
+ * interrupt item, along with the priority mask update.
+ * ------------------------------------------------------------------------- */
+
+typedef struct {
+  bool ok;
+  uint32_t clocks;
+  uint32_t frame_address;  /* where the frame was built: the new A7 */
+  uint32_t vector_address; /* VBR + vector * 4 */
+  uint32_t handler;        /* the PC that was loaded */
+} ap_m68030_exception_result_t;
+
+[[nodiscard]] ap_m68030_exception_result_t
+ap_m68030_take_exception(ap_m68030_cpu_t *cpu, unsigned vector,
+                         uint32_t stacked_pc, uint32_t instruction_address);
 
 #endif /* APOLLO_CPU_M68030_AP_M68030_STEP_H */
