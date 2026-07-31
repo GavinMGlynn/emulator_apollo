@@ -28,3 +28,6 @@ compile_commands.json
 
 # Python venv for probe/disassembly tooling
 tools/.venv/
+
+# Scratch disassembly listings (the tool that makes them is tracked)
+tools/ring-rom/*.lst
