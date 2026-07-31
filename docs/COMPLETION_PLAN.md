@@ -1278,13 +1278,22 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         only, so a register-to-register `ADD` costs **zero** clocks today and
         every figure the core reports is a lower bound. The core's headline
         claim is emergent timing, and this is the part of it not yet built.
-        **Not to be closed by transcribing `[030]` §11.6's tables.**
-        `docs/references/M68030_TIMING.md` already records why: "No published
-        NCC number is a value any single execution of that instruction ever
-        takes" — it is a mean of the odd- and even-aligned cases, rounded up —
-        so a core that looked one up and added it would be reproducing an
-        average the hardware never exhibits, and could not be corrected by
-        refining the table. The tables are the *check*.
+        **Not to be closed by transcribing §11.6's NCC column** — that one is a
+        mean of the odd- and even-aligned cases, rounded up, so a core adding it
+        would reproduce an average the hardware never exhibits.
+        **But the `CC` column is a different quantity, and it is the one we
+        need.** `docs/references/M68030_TIMING.md` now records the distinction:
+        §11.6's legend gives each entry as `total(reads/instruction-bus/writes)`,
+        and a register-to-register form reads `CC 2(0/0/0)` — no operand reads,
+        no writes, and no instruction bus cycles, because the instruction is in
+        the cache. There is nothing in that number but microcode, and §11.3.1
+        defines CC without any averaging. So the route here is the project's
+        other permitted one: **a documented value with a cited page**, not a
+        measurement.
+        The same legend independently confirms C7, saying the published
+        prefetch count "is always greater than or equal to the actual number of
+        bus cycles (one bus cycle per two instruction prefetches)" — the actual
+        rule being exactly our alternation.
         The route is the project's own rule: measure against the oracle, or
         take a documented value with a cited page and mark it `PROVISIONAL`.
         **The route now exists on both sides** — see `FINDINGS.md` C5. Our

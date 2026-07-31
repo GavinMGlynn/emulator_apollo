@@ -94,3 +94,65 @@ Data-dependent instructions published only as a range (division and the like)
 are the `PROVISIONAL` case the plan names: model the documented value, mark it
 `PROVISIONAL` in code and in `docs/PROJECT_STATUS.md`, and never invent a point
 number to fill the gap.
+
+## The quantity we actually need, and where it is published
+
+Recorded after the first differential measurement (`tools/mame-oracle/FINDINGS.md`
+C7), because it changes this document's conclusion in one specific way.
+
+The core needs *microcode time* — the clocks an instruction takes between its bus
+cycles — and the argument above says the published tables are a check rather than
+a recipe. That argument is about **NCC**, and it holds. It does not apply to
+**CC**, and the difference is worth stating precisely.
+
+§11.6's legend says each timing column carries `total(a/b/c)`, where `a` is
+operand read cycles, `b` is instruction bus cycles including prefetches, and `c`
+is write cycles. For a register-to-register instruction the cache case reads:
+
+```
+ADD    Rn,Dn     head 2  tail 0   CC 2(0/0/0)   NCC 2(0/1/0)
+ADDA.W Rn,An     head 4  tail 0   CC 4(0/0/0)   NCC 4(0/1/0)
+```
+
+**`CC` with `(0/0/0)` is pure execution time.** No operand reads, no writes, and
+— because the instruction is in the cache — *no instruction bus cycles either*.
+There is nothing in that number but microcode. And §11.3.1 defines CC without
+any averaging: "the total number of clock periods required to execute the
+instruction, provided all the corresponding instruction prefetches are resident
+in the on-chip instruction cache."
+
+So the averaging objection is specific to NCC and to the parenthesised bus-cycle
+count, which the legend itself flags:
+
+> "Because the second value is the average of the odd-word-aligned case and the
+> even-word-aligned case (rounded up to an integral number of bus cycles), it is
+> always greater than or equal to the actual number of bus cycles (one bus cycle
+> per two instruction prefetches)."
+
+That sentence is also an independent confirmation of C7: the manual states the
+*actual* prefetch rule — one bus cycle per two prefetches — and says the
+published count is an over-estimate of it. Our core's alternating 0/2 is the
+actual; the table's `b` and the oracle's flat constant are both roundings of it.
+
+### What this means for the plan
+
+The execution-time item is **not** blocked on measurement after all. Its route is
+the project's other permitted one: a documented value with a cited page.
+Transcribe `CC` and `head`/`tail` for the forms whose cache case reads `(0/0/0)`
+— the register-to-register instructions — and add them to a bus time that keeps
+alternating. Those rows are pure microcode and carry no averaging.
+
+The forms with a non-zero `a` or `c` are different: their CC includes operand bus
+cycles at the table's assumed two clocks each, which our core produces itself
+from actual bus state. Adding the table's CC whole would count those twice. Those
+rows need the bus part subtracted, which is arithmetic on published numbers
+rather than a judgement — but it is a second step, and the register forms are
+worth landing first because they need no adjustment at all.
+
+### How a transcription gets checked
+
+Not by re-reading it. §11.3.4 works two examples end to end with head, tail and
+CC for each instruction and a stated total — `ADD.L A1,D1` then `SUBA.L D1,A2`
+coming to six clocks. Any transcription of those rows must reproduce that total
+through `ap_m68030_overlap`, which already implements Equation (11-1). That is an
+external check on both the numbers and the rule at once.
