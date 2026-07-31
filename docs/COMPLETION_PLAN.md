@@ -2403,9 +2403,15 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
       beside the OMTI in `isa1`, which is what invalidated the first attempt at
       this comparison (`FINDINGS.md` C16). No programming model exists in
       `008778-03`, whose Chapter 8 is physical only.
-      The register *span* is now measured: only `050000` and `050001` are live,
-      the other six addresses read `FF`, which is the classic two-port QIC shape
-      of a data register and a status/command register. The **bit map is not**
+      The register model is now **transcribed** from the controller's own manual
+      (`FINDINGS.md` C18): `BASE+0` data/command, `BASE+1` control on write and
+      status on read, `BASE+2` start DMA and `BASE+3` reset DMA, both
+      write-triggered by any value. Four addresses are used, not the two the read
+      sweep found — the other two are write-only, which is why they read `FF`.
+      Ready is corroborated at status bit 6 by the sweep's reset value of `40`,
+      which the manual's own OCR could not supply.
+      The register *span* was measured first: only `050000` and `050001` read
+      back, the other six addresses read `FF`. The **bit map was not**
       and cannot be got the C10 way — a bit sweep writes commands to a command
       register, the controller's state moves under the probe, and the sweep
       reported it could not restore what it found. But **the controller's own

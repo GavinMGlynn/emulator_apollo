@@ -1095,6 +1095,46 @@ So the bit map is no longer a measurement problem at all: it is transcription
 from a manual, which is the cheaper and better source, and the protocol probe is
 needed only to *check* the result rather than to derive it.
 
+### C18 — the SC-499's registers, transcribed, and what the sweep had half right
+
+From the *Archive SC-499 Tape Controller Information Guide*, §1.9:
+
+    BASE+0   Data/Command Register        read or write
+    BASE+1   Control Register (write) / Status Register (read)
+    BASE+2   Start DMA (DMAGO)            "Any write to this register will
+                                          cause DMAGO to be active"
+    BASE+3   Reset DMA (RSTDMA)           any write asserts RSTDMA
+
+Control register, write: bit 7 resets the controller microprocessor, bit 6 is
+"Request to LSI chip", bit 5 enables interrupts ("IEN = 0, masks interrupts"),
+bit 4 enables the DONE interrupt. Bits 0-3 unused.
+
+Status register, read, five sources in the order the guide lists them: the
+interrupt request flag ("ORing of RDY AND EXC, and DONE if DNIEN is set"), then
+Ready and Exception "from LSI chip", Done "from DMA logic", and Direction, which
+"indicates direction of bus is from controller to IBM PC".
+
+**This reconciles the sweep rather than contradicting it.** C17 reported "only
+two of the eight addresses are live", which was a fair reading of a *read* sweep
+and an incomplete account of the part. The guide says "only four of the address
+locations are used" -- and the other two are **write-only command addresses**,
+triggered by any write regardless of value. A probe that reads finds two ports; a
+part that is written has four. Both statements are true and only together are
+they the truth.
+
+**One cross-check the measurement supplies.** The guide's OCR loses the status
+register's bit *numbers*, listing only the five sources in order. The sweep read
+`40` from that register at reset -- bit 6 -- and the second source in the guide's
+list is Ready, which is exactly what an idle controller asserts. So the
+measurement corroborates Ready at bit 6 and, with it, the guide's list being
+ordered downward from bit 7. That is a fact the manual alone could not supply
+here and the probe alone could not interpret.
+
+**RSTDMA is specified precisely enough to test**: it "initializes the DMA
+sequencer, clears all Control Register bits to 0, and sets DONE to 1 (power-on
+reset from the IBM PC performs the same functions)". A reset command that is
+defined as equal to power-on reset is the cheapest possible test of both.
+
 ## Where the ring is not
 
 The Apollo Token Ring has **no runnable oracle at all**: MAME carries Domain
