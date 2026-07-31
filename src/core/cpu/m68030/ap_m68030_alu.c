@@ -107,6 +107,20 @@ ap_m68030_alu_result_t ap_m68030_alu_eor(uint32_t destination, uint32_t source,
   return logic(destination ^ source, size);
 }
 
+ap_m68030_alu_result_t ap_m68030_alu_neg(uint32_t destination, unsigned size) {
+  /* Subtracting from zero, rather than a separate formula that could drift
+   * from the subtraction's. */
+  return ap_m68030_alu_sub(0u, destination, size);
+}
+
+ap_m68030_alu_result_t ap_m68030_alu_not(uint32_t destination, unsigned size) {
+  return logic(~destination, size);
+}
+
+ap_m68030_alu_result_t ap_m68030_alu_test(uint32_t value, unsigned size) {
+  return logic(value, size);
+}
+
 uint16_t ap_m68030_alu_apply(uint16_t ccr, const ap_m68030_alu_result_t *r) {
   uint16_t out = 0;
   if (r->sets_x ? r->x : ((ccr >> AP_M68030_SR_X_BIT) & 1u) != 0u) {

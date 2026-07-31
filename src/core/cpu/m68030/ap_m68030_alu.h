@@ -63,6 +63,21 @@ ap_m68030_alu_or(uint32_t destination, uint32_t source, unsigned size);
 [[nodiscard]] ap_m68030_alu_result_t
 ap_m68030_alu_eor(uint32_t destination, uint32_t source, unsigned size);
 
+/* NEG: "0 - Destination". Table 3-18 gives it "V = Dm Λ Rm, C = Dm V Rm",
+ * which is exactly what subtracting from zero produces -- so it is that
+ * subtraction rather than a second formula that could disagree with it. */
+[[nodiscard]] ap_m68030_alu_result_t
+ap_m68030_alu_neg(uint32_t destination, unsigned size);
+
+/* NOT: the ones complement. "X -, N *, Z *, V 0, C 0" -- a logical operation
+ * for condition code purposes despite looking arithmetic. */
+[[nodiscard]] ap_m68030_alu_result_t
+ap_m68030_alu_not(uint32_t destination, unsigned size);
+
+/* TST and CLR set their flags from a value without combining two operands. */
+[[nodiscard]] ap_m68030_alu_result_t
+ap_m68030_alu_test(uint32_t value, unsigned size);
+
 /* Fold a result's flags into a condition code register value, leaving X alone
  * for the operations that do not affect it. */
 [[nodiscard]] uint16_t ap_m68030_alu_apply(uint16_t ccr,

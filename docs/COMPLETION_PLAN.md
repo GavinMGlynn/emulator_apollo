@@ -831,9 +831,24 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         writing back to the effective address rather than the register; a byte
         operation leaving a register's upper bytes intact through the arithmetic
         path; and the logical operations clearing V and C while X survives.*
+  - [x] **The immediate family and the single-operand group execute**: `ORI`,
+        `ANDI`, `SUBI`, `ADDI`, `EORI`, `CMPI`, and `CLR`, `NEG`, `NOT`, `TST`.
+        `NEG` is implemented as `0 - destination` rather than as a second
+        formula, because Table 3-18 gives it "V = Dm Λ Rm, C = Dm V Rm" — which
+        is exactly what subtracting from zero produces, so reusing the
+        subtraction means the two cannot drift apart. `NOT` is a *logical*
+        operation for condition code purposes despite looking arithmetic: V and
+        C cleared, X untouched.
+        *Verification: `step_suite`, 11 further tests (41 total) — including
+        `SUBI` subtracting *from* the destination rather than the reverse,
+        `CMPI` and `TST` writing nothing, byte forms leaving a register's upper
+        bytes intact through a third and fourth code path, `NEG` borrowing for a
+        non-zero operand and **not** for zero (the boundary the rule turns on),
+        and **a countdown loop that terminates** — five instruction kinds
+        cooperating, and the first program here whose control flow repeats.*
   - [ ] The remaining instruction semantics: the A-forms, divides and
-        multiplies, the register-to-register extended forms, shifts, the
-        immediate family, and family `0100`'s single-operand group.
+        multiplies, the register-to-register extended forms, shifts, `ADDQ`/
+        `SUBQ`/`Scc`/`DBcc`, and the bit operations.
         *Verification: per-family suites, then probes against the oracle.* *Verification: per-family suites, then probes against the
         oracle for the timing.*
   - [ ] **CMP2/CHK2, CAS and CAS2**, which occupy size field `11` in family

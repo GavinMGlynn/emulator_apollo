@@ -5,6 +5,8 @@
 
 #include "cpu/m68030/ap_m68030_branch.h"
 #include "cpu/m68030/ap_m68030_control.h"
+#include "cpu/m68030/ap_m68030_immediate.h"
+#include "cpu/m68030/ap_m68030_single.h"
 #include "cpu/m68030/ap_m68030_alu.h"
 #include "cpu/m68030/ap_m68030_operand.h"
 
@@ -348,6 +350,211 @@ static bool execute_arith(ap_m68030_cpu_t *cpu, const ap_m68030_arith_t *arith,
   return true;
 }
 
+
+/* Fetch an immediate operand from the instruction stream. Table 2-3: a byte
+ * immediate is the low-order byte of a whole extension word, so byte and word
+ * each cost one word and only a long costs two. */
+static bool fetch_immediate(ap_m68030_cpu_t *cpu, unsigned size,
+                            uint32_t *clocks, uint32_t *value) {
+  uint16_t high = 0;
+  if (!next_word(cpu, clocks, &high)) {
+    return false;
+  }
+  if (size == 4u) {
+    uint16_t low = 0;
+    if (!next_word(cpu, clocks, &low)) {
+      return false;
+    }
+    *value = ((uint32_t)high << 16) | (uint32_t)low;
+    return true;
+  }
+  *value = (size == 1u) ? (uint32_t)(high & 0xFFu) : (uint32_t)high;
+  return true;
+}
+
+/* ORI, ANDI, SUBI, ADDI, EORI and CMPI: the same six operations as the register
+ * forms, with an immediate source. The immediate comes *before* the effective
+ * address's own extension words in the instruction stream, which is why it is
+ * fetched first. */
+static bool execute_immediate(ap_m68030_cpu_t *cpu,
+                              const ap_m68030_immediate_t *imm,
+                              uint32_t *clocks) {
+  switch (imm->kind) {
+  case AP_M68030_IMM_ORI:
+  case AP_M68030_IMM_ANDI:
+  case AP_M68030_IMM_SUBI:
+  case AP_M68030_IMM_ADDI:
+  case AP_M68030_IMM_EORI:
+  case AP_M68030_IMM_CMPI:
+    break;
+  case AP_M68030_IMM_MOVES:
+  case AP_M68030_IMM_ORI_TO_CCR:
+  case AP_M68030_IMM_ORI_TO_SR:
+  case AP_M68030_IMM_ANDI_TO_CCR:
+  case AP_M68030_IMM_ANDI_TO_SR:
+  case AP_M68030_IMM_EORI_TO_CCR:
+  case AP_M68030_IMM_EORI_TO_SR:
+  case AP_M68030_IMM_BTST:
+  case AP_M68030_IMM_BCHG:
+  case AP_M68030_IMM_BCLR:
+  case AP_M68030_IMM_BSET:
+  case AP_M68030_IMM_MOVEP:
+  case AP_M68030_IMM_INVALID:
+    return false;
+  }
+
+  uint32_t immediate = 0;
+  if (!fetch_immediate(cpu, imm->size, clocks, &immediate)) {
+    return false;
+  }
+
+  ap_m68030_address_input_t input = {0};
+  if (!gather_address_input(cpu, imm->ea.kind, imm->size, clocks, &input)) {
+    return false;
+  }
+  const ap_m68030_address_t where =
+      ap_m68030_address_calculate(&cpu->regs, imm->ea, &input);
+
+  const ap_m68030_operand_result_t read = ap_m68030_operand_read(
+      &cpu->regs, cpu->data, &where, imm->size, cpu->data_function_code);
+  *clocks += read.clocks;
+  if (!read.ok) {
+    return false;
+  }
+
+  ap_m68030_alu_result_t result;
+  switch (imm->kind) {
+  case AP_M68030_IMM_ORI:
+    result = ap_m68030_alu_or(read.value, immediate, imm->size);
+    break;
+  case AP_M68030_IMM_ANDI:
+    result = ap_m68030_alu_and(read.value, immediate, imm->size);
+    break;
+  case AP_M68030_IMM_EORI:
+    result = ap_m68030_alu_eor(read.value, immediate, imm->size);
+    break;
+  /* "Destination - Immediate Data" -- the destination is the effective address
+   * here, not the immediate. */
+  case AP_M68030_IMM_SUBI:
+    result = ap_m68030_alu_sub(read.value, immediate, imm->size);
+    break;
+  case AP_M68030_IMM_ADDI:
+    result = ap_m68030_alu_add(read.value, immediate, imm->size);
+    break;
+  case AP_M68030_IMM_CMPI:
+    result = ap_m68030_alu_cmp(read.value, immediate, imm->size);
+    break;
+  case AP_M68030_IMM_MOVES:
+  case AP_M68030_IMM_ORI_TO_CCR:
+  case AP_M68030_IMM_ORI_TO_SR:
+  case AP_M68030_IMM_ANDI_TO_CCR:
+  case AP_M68030_IMM_ANDI_TO_SR:
+  case AP_M68030_IMM_EORI_TO_CCR:
+  case AP_M68030_IMM_EORI_TO_SR:
+  case AP_M68030_IMM_BTST:
+  case AP_M68030_IMM_BCHG:
+  case AP_M68030_IMM_BCLR:
+  case AP_M68030_IMM_BSET:
+  case AP_M68030_IMM_MOVEP:
+  case AP_M68030_IMM_INVALID:
+    return false;
+  }
+
+  ap_m68030_write_ccr(&cpu->regs,
+                      ap_m68030_alu_apply(ap_m68030_read_ccr(&cpu->regs),
+                                          &result));
+
+  if (imm->kind == AP_M68030_IMM_CMPI) {
+    return true; /* compares, writes nothing */
+  }
+
+  const ap_m68030_operand_result_t written = ap_m68030_operand_write(
+      &cpu->regs, cpu->data, &where, imm->size, result.result,
+      cpu->data_function_code);
+  *clocks += written.clocks;
+  return written.ok;
+}
+
+/* CLR, NEG, NOT and TST: one operand, read-modify-write except for TST which
+ * only reads and CLR which only writes. */
+static bool execute_single(ap_m68030_cpu_t *cpu,
+                           const ap_m68030_single_t *single, uint32_t *clocks) {
+  switch (single->kind) {
+  case AP_M68030_SINGLE_CLR:
+  case AP_M68030_SINGLE_NEG:
+  case AP_M68030_SINGLE_NOT:
+  case AP_M68030_SINGLE_TST:
+    break;
+  case AP_M68030_SINGLE_NEGX:
+  case AP_M68030_SINGLE_TAS:
+  case AP_M68030_SINGLE_MOVE_FROM_SR:
+  case AP_M68030_SINGLE_MOVE_FROM_CCR:
+  case AP_M68030_SINGLE_MOVE_TO_CCR:
+  case AP_M68030_SINGLE_MOVE_TO_SR:
+  case AP_M68030_SINGLE_ILLEGAL:
+  case AP_M68030_SINGLE_INVALID:
+    return false;
+  }
+
+  ap_m68030_address_input_t input = {0};
+  if (!gather_address_input(cpu, single->ea.kind, single->size, clocks,
+                            &input)) {
+    return false;
+  }
+  const ap_m68030_address_t where =
+      ap_m68030_address_calculate(&cpu->regs, single->ea, &input);
+
+  uint32_t value = 0;
+  if (single->kind != AP_M68030_SINGLE_CLR) {
+    const ap_m68030_operand_result_t read = ap_m68030_operand_read(
+        &cpu->regs, cpu->data, &where, single->size, cpu->data_function_code);
+    *clocks += read.clocks;
+    if (!read.ok) {
+      return false;
+    }
+    value = read.value;
+  }
+
+  ap_m68030_alu_result_t result;
+  switch (single->kind) {
+  case AP_M68030_SINGLE_CLR:
+    result = ap_m68030_alu_test(0u, single->size);
+    break;
+  case AP_M68030_SINGLE_NEG:
+    result = ap_m68030_alu_neg(value, single->size);
+    break;
+  case AP_M68030_SINGLE_NOT:
+    result = ap_m68030_alu_not(value, single->size);
+    break;
+  case AP_M68030_SINGLE_TST:
+    result = ap_m68030_alu_test(value, single->size);
+    break;
+  case AP_M68030_SINGLE_NEGX:
+  case AP_M68030_SINGLE_TAS:
+  case AP_M68030_SINGLE_MOVE_FROM_SR:
+  case AP_M68030_SINGLE_MOVE_FROM_CCR:
+  case AP_M68030_SINGLE_MOVE_TO_CCR:
+  case AP_M68030_SINGLE_MOVE_TO_SR:
+  case AP_M68030_SINGLE_ILLEGAL:
+  case AP_M68030_SINGLE_INVALID:
+    return false;
+  }
+
+  ap_m68030_write_ccr(&cpu->regs,
+                      ap_m68030_alu_apply(ap_m68030_read_ccr(&cpu->regs),
+                                          &result));
+
+  if (single->kind == AP_M68030_SINGLE_TST) {
+    return true; /* tests, writes nothing */
+  }
+
+  const ap_m68030_operand_result_t written = ap_m68030_operand_write(
+      &cpu->regs, cpu->data, &where, single->size, result.result,
+      cpu->data_function_code);
+  *clocks += written.clocks;
+  return written.ok;
+}
+
 ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
   ap_m68030_step_result_t out = {.status = AP_M68030_STEP_FAULT};
   uint16_t word = 0;
@@ -436,8 +643,22 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
     break;
 
   case AP_M68030_DECODED_IMMEDIATE:
-  case AP_M68030_DECODED_MISC:
+    if (!execute_immediate(cpu, &decoded.as.immediate, &out.clocks)) {
+      out.status = AP_M68030_STEP_UNIMPLEMENTED;
+      cpu->clocks += out.clocks;
+      return out;
+    }
+    break;
+
   case AP_M68030_DECODED_SINGLE:
+    if (!execute_single(cpu, &decoded.as.single, &out.clocks)) {
+      out.status = AP_M68030_STEP_UNIMPLEMENTED;
+      cpu->clocks += out.clocks;
+      return out;
+    }
+    break;
+
+  case AP_M68030_DECODED_MISC:
   case AP_M68030_DECODED_QUICK:
   case AP_M68030_DECODED_SHIFT:
   case AP_M68030_DECODED_COPROC:

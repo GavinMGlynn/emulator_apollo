@@ -674,6 +674,201 @@ static void test_the_logical_operations_clear_v_and_c(void) {
   TEST_ASSERT_TRUE(ccr & (1u << AP_M68030_SR_X_BIT));
 }
 
+
+/* ---------------------------------------------------------------------------
+ * The immediate family and the single-operand group.
+ * ------------------------------------------------------------------------- */
+
+/* ADDI adds an immediate to an effective address. */
+static void test_addi_adds_its_immediate_to_a_register(void) {
+  /* MOVEQ #5,D0 ; ADDI.L #$100,D0 */
+  static const uint16_t program[] = {0x7005u, 0x0680u, 0x0000u, 0x0100u,
+                                     0x4E71u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 6);
+
+  (void)ap_m68030_step(&m.cpu);
+  const ap_m68030_step_result_t r = ap_m68030_step(&m.cpu);
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, r.status);
+  TEST_ASSERT_EQUAL_HEX32(0x105u, m.cpu.regs.d[0]);
+  TEST_ASSERT_EQUAL_HEX32(PROGRAM_BASE + 8u, m.cpu.regs.pc);
+}
+
+/* "Destination - Immediate Data": the effective address is the destination, so
+ * SUBI subtracts the immediate *from* it and not the other way round. */
+static void test_subi_subtracts_the_immediate_from_the_destination(void) {
+  /* MOVEQ #10,D0 ; SUBI.L #3,D0  ->  7 */
+  static const uint16_t program[] = {0x700Au, 0x0480u, 0x0000u, 0x0003u,
+                                     0x4E71u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 6);
+
+  (void)ap_m68030_step(&m.cpu);
+  (void)ap_m68030_step(&m.cpu);
+
+  TEST_ASSERT_EQUAL_HEX32(7u, m.cpu.regs.d[0]);
+  TEST_ASSERT_FALSE(ap_m68030_read_ccr(&m.cpu.regs) &
+                    (1u << AP_M68030_SR_C_BIT));
+}
+
+/* CMPI compares without writing, so its operand survives. */
+static void test_cmpi_compares_without_writing(void) {
+  /* MOVEQ #4,D0 ; CMPI.L #4,D0 */
+  static const uint16_t program[] = {0x7004u, 0x0C80u, 0x0000u, 0x0004u,
+                                     0x4E71u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 6);
+
+  (void)ap_m68030_step(&m.cpu);
+  const ap_m68030_step_result_t r = ap_m68030_step(&m.cpu);
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, r.status);
+  TEST_ASSERT_EQUAL_HEX32(4u, m.cpu.regs.d[0]);
+  TEST_ASSERT_TRUE(ap_m68030_read_ccr(&m.cpu.regs) &
+                   (1u << AP_M68030_SR_Z_BIT));
+}
+
+/* ANDI with a byte immediate: one extension word, low half. */
+static void test_andi_byte_masks_only_the_low_byte(void) {
+  /* MOVE.L #$FFFFFFFF,D0 ; ANDI.B #$0F,D0 */
+  static const uint16_t program[] = {0x203Cu, 0xFFFFu, 0xFFFFu, 0x0200u,
+                                     0x000Fu, 0x4E71u, 0x4E71u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 8);
+
+  (void)ap_m68030_step(&m.cpu);
+  const ap_m68030_step_result_t r = ap_m68030_step(&m.cpu);
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, r.status);
+  /* Only the low byte was masked; the rest of the register survives. */
+  TEST_ASSERT_EQUAL_HEX32(0xFFFFFF0Fu, m.cpu.regs.d[0]);
+}
+
+/* CLR writes zero and sets Z, without needing to read first. */
+static void test_clr_zeroes_its_destination(void) {
+  /* MOVEQ #-1,D0 ; CLR.L D0 */
+  static const uint16_t program[] = {0x70FFu, 0x4280u, 0x4E71u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 4);
+
+  (void)ap_m68030_step(&m.cpu);
+  const ap_m68030_step_result_t r = ap_m68030_step(&m.cpu);
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, r.status);
+  TEST_ASSERT_EQUAL_HEX32(0u, m.cpu.regs.d[0]);
+  TEST_ASSERT_TRUE(ap_m68030_read_ccr(&m.cpu.regs) &
+                   (1u << AP_M68030_SR_Z_BIT));
+}
+
+/* A byte CLR clears only the low byte, which is the same register-size rule
+ * seen through a third path. */
+static void test_a_byte_clr_leaves_the_upper_bytes(void) {
+  /* MOVE.L #$11223344,D0 ; CLR.B D0 */
+  static const uint16_t program[] = {0x203Cu, 0x1122u, 0x3344u, 0x4200u,
+                                     0x4E71u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 6);
+
+  (void)ap_m68030_step(&m.cpu);
+  (void)ap_m68030_step(&m.cpu);
+
+  TEST_ASSERT_EQUAL_HEX32(0x11223300u, m.cpu.regs.d[0]);
+}
+
+/* NEG is "0 - Destination", so it borrows for any non-zero operand and not for
+ * zero -- Table 3-18's "C = Dm V Rm" restated as arithmetic. */
+static void test_neg_negates_and_borrows_for_a_non_zero_operand(void) {
+  /* MOVEQ #5,D0 ; NEG.L D0 */
+  static const uint16_t program[] = {0x7005u, 0x4480u, 0x4E71u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 4);
+
+  (void)ap_m68030_step(&m.cpu);
+  (void)ap_m68030_step(&m.cpu);
+
+  TEST_ASSERT_EQUAL_HEX32(0xFFFFFFFBu, m.cpu.regs.d[0]);
+  TEST_ASSERT_TRUE(ap_m68030_read_ccr(&m.cpu.regs) &
+                   (1u << AP_M68030_SR_C_BIT));
+}
+
+/* Negating zero borrows nothing, which is the boundary the rule turns on. */
+static void test_negating_zero_does_not_borrow(void) {
+  static const uint16_t program[] = {0x7000u, 0x4480u, 0x4E71u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 4);
+
+  (void)ap_m68030_step(&m.cpu);
+  (void)ap_m68030_step(&m.cpu);
+
+  TEST_ASSERT_EQUAL_HEX32(0u, m.cpu.regs.d[0]);
+  TEST_ASSERT_FALSE(ap_m68030_read_ccr(&m.cpu.regs) &
+                    (1u << AP_M68030_SR_C_BIT));
+  TEST_ASSERT_TRUE(ap_m68030_read_ccr(&m.cpu.regs) &
+                   (1u << AP_M68030_SR_Z_BIT));
+}
+
+/* NOT is the ones complement, and is a *logical* operation for condition code
+ * purposes despite looking arithmetic: V and C are cleared, X survives. */
+static void test_not_complements_and_clears_v_and_c(void) {
+  static const uint16_t program[] = {0x7000u, 0x4680u, 0x4E71u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 4);
+
+  (void)ap_m68030_step(&m.cpu);
+  ap_m68030_write_ccr(&m.cpu.regs, AP_M68030_CCR_MASK);
+  (void)ap_m68030_step(&m.cpu);
+
+  TEST_ASSERT_EQUAL_HEX32(0xFFFFFFFFu, m.cpu.regs.d[0]);
+  const uint16_t ccr = ap_m68030_read_ccr(&m.cpu.regs);
+  TEST_ASSERT_FALSE(ccr & (1u << AP_M68030_SR_V_BIT));
+  TEST_ASSERT_FALSE(ccr & (1u << AP_M68030_SR_C_BIT));
+  TEST_ASSERT_TRUE(ccr & (1u << AP_M68030_SR_X_BIT));
+}
+
+/* TST sets flags without writing, so its operand survives -- the counterpart of
+ * CMP in the single-operand group. */
+static void test_tst_sets_flags_without_writing(void) {
+  static const uint16_t program[] = {0x70FFu, 0x4A80u, 0x4E71u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 4);
+
+  (void)ap_m68030_step(&m.cpu);
+  const ap_m68030_step_result_t r = ap_m68030_step(&m.cpu);
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, r.status);
+  TEST_ASSERT_EQUAL_HEX32(0xFFFFFFFFu, m.cpu.regs.d[0]);
+  TEST_ASSERT_TRUE(ap_m68030_read_ccr(&m.cpu.regs) &
+                   (1u << AP_M68030_SR_N_BIT));
+}
+
+/* A real loop: count down and branch while non-zero. Five instruction kinds
+ * cooperating, and the first program here with control flow that repeats. */
+static void test_a_countdown_loop_terminates(void) {
+  /* MOVEQ #3,D0
+   * loop: SUBI.L #1,D0
+   *       BNE loop        (back 6 bytes from the branch's base)
+   *       MOVEQ #$7F,D1 */
+  static const uint16_t program[] = {0x7003u, 0x0480u, 0x0000u, 0x0001u,
+                                     0x66F8u, 0x727Fu, 0x4E71u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 8);
+
+  unsigned steps = 0;
+  bool reached_end = false;
+  for (; steps < 40u; steps++) {
+    const ap_m68030_step_result_t r = ap_m68030_step(&m.cpu);
+    TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, r.status);
+    if (m.cpu.regs.d[1] == 0x7Fu) {
+      reached_end = true;
+      break;
+    }
+  }
+
+  TEST_ASSERT_TRUE(reached_end);
+  TEST_ASSERT_EQUAL_HEX32(0u, m.cpu.regs.d[0]);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_a_nop_executes_and_advances_the_pc);
@@ -706,5 +901,16 @@ int main(void) {
   RUN_TEST(test_the_memory_direction_writes_back_to_memory);
   RUN_TEST(test_a_byte_add_leaves_the_upper_bytes_of_the_register);
   RUN_TEST(test_the_logical_operations_clear_v_and_c);
+  RUN_TEST(test_addi_adds_its_immediate_to_a_register);
+  RUN_TEST(test_subi_subtracts_the_immediate_from_the_destination);
+  RUN_TEST(test_cmpi_compares_without_writing);
+  RUN_TEST(test_andi_byte_masks_only_the_low_byte);
+  RUN_TEST(test_clr_zeroes_its_destination);
+  RUN_TEST(test_a_byte_clr_leaves_the_upper_bytes);
+  RUN_TEST(test_neg_negates_and_borrows_for_a_non_zero_operand);
+  RUN_TEST(test_negating_zero_does_not_borrow);
+  RUN_TEST(test_not_complements_and_clears_v_and_c);
+  RUN_TEST(test_tst_sets_flags_without_writing);
+  RUN_TEST(test_a_countdown_loop_terminates);
   return UNITY_END();
 }
