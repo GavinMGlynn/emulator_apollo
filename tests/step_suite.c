@@ -3145,6 +3145,63 @@ static void test_a_table_search_ptest_leaves_the_atc_alone(void) {
   TEST_ASSERT_EQUAL_HEX32(0x00008000u, m.cpu.regs.a[1]);
 }
 
+/* ---------------------------------------------------------------------------
+ * Addressing mode legality, applied.
+ * ------------------------------------------------------------------------- */
+
+/* The categories are only worth having if something enforces them. `LEA` takes
+ * control modes, so `LEA (A0),A1` is legal and `LEA (A0)+,A1` is not -- the
+ * increment carries an operand size and there is no operand size in a load of
+ * an address. Both encode; only one is an instruction. */
+static void test_lea_refuses_an_increment_mode_it_decodes_perfectly_well(void) {
+  /* LEA (A0)+,A1 */
+  static const uint16_t program[] = {0x43D8u, 0x4E71u, 0x4E71u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 4);
+  m.cpu.regs.a[0] = 0x00005000u;
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_UNIMPLEMENTED,
+                        ap_m68030_step(&m.cpu).status);
+  /* And A0 was not incremented on the way to refusing. */
+  TEST_ASSERT_EQUAL_HEX32(0x00005000u, m.cpu.regs.a[0]);
+}
+
+/* `MOVE`'s destination must be data alterable. `MOVE.W D0,(d16,PC)` encodes,
+ * and without the check the step would try to write through the program
+ * counter -- an instruction the processor refuses, running here. */
+static void test_a_move_cannot_write_through_the_program_counter(void) {
+  /* MOVE.W D0,(d16,PC): the destination's mode goes in bits 8-6 and its
+   * register in 11-9, reversed from the source -- so mode 111 register 010 is
+   * $35C0 and not $3540, which is an ordinary (d16,A2) destination. */
+  static const uint16_t program[] = {0x35C0u, 0x0004u, 0x4E71u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 4);
+  m.cpu.regs.d[0] = 0x1234u;
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_UNIMPLEMENTED,
+                        ap_m68030_step(&m.cpu).status);
+  TEST_ASSERT_EQUAL_UINT(0u, m.memory.stores);
+}
+
+/* The MMU instructions take control alterable modes. "Not a register and not an
+ * immediate" was the shape this check first had, and it let `(An)+`, `-(An)`
+ * and every PC-relative mode through -- all of which the instruction pages mark
+ * absent. */
+static void test_pmove_refuses_an_increment_mode(void) {
+  /* PMOVE (A0)+,TC */
+  static const uint16_t program[] = {0xF018u, 0x4000u, 0x4E71u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 4);
+  m.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
+  m.cpu.regs.a[0] = 0x00005000u;
+  write_ram_long(&m, 0x00005000u, CONSISTENT_TC);
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_UNIMPLEMENTED,
+                        ap_m68030_step(&m.cpu).status);
+  TEST_ASSERT_FALSE(m.cpu.tc.enable);
+  TEST_ASSERT_EQUAL_HEX32(0x00005000u, m.cpu.regs.a[0]);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_a_nop_executes_and_advances_the_pc);
@@ -3212,6 +3269,9 @@ int main(void) {
   RUN_TEST(test_a_register_count_is_taken_modulo_sixty_four);
   RUN_TEST(test_a_byte_shift_leaves_the_upper_bytes);
   RUN_TEST(test_an_address_form_accepts_an_immediate_source);
+  RUN_TEST(test_lea_refuses_an_increment_mode_it_decodes_perfectly_well);
+  RUN_TEST(test_a_move_cannot_write_through_the_program_counter);
+  RUN_TEST(test_pmove_refuses_an_increment_mode);
   RUN_TEST(test_pflusha_invalidates_every_entry);
   RUN_TEST(test_the_flush_mask_says_which_bits_must_agree);
   RUN_TEST(test_pflush_by_address_flushes_that_page_and_no_other);

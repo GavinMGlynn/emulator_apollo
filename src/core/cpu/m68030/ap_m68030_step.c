@@ -6,6 +6,7 @@
 #include "cpu/m68030/ap_m68030_step.h"
 
 #include "cpu/m68030/ap_m68030_branch.h"
+#include "cpu/m68030/ap_m68030_category.h"
 #include "cpu/m68030/ap_m68030_control.h"
 #include "cpu/m68030/ap_m68030_immediate.h"
 #include "cpu/m68030/ap_m68030_quick.h"
@@ -324,6 +325,15 @@ static bool execute_move(ap_m68030_cpu_t *cpu, const ap_m68030_move_t *move,
       return false;
     }
     value = read.value;
+  }
+
+  /* "MOVE ... destination must be data alterable", and MOVEA's must be an
+   * address register. Without the check, `MOVE.W D0,(d16,PC)` encodes and the
+   * step would try to write through the program counter -- an instruction the
+   * processor refuses, running here. */
+  if (move->kind != AP_M68030_MOVE_TO_ADDRESS_REGISTER &&
+      !ap_m68030_ea_is_data_alterable(move->destination.kind)) {
+    return false;
   }
 
   ap_m68030_address_input_t destination_input = {0};
@@ -2127,9 +2137,33 @@ static bool execute_misc(ap_m68030_cpu_t *cpu, const ap_m68030_misc_t *misc,
 
   case AP_M68030_MISC_LEA:
   case AP_M68030_MISC_PEA:
+    /* Both take *control* modes: there must be an address, and no size attached
+     * to it, which is why `LEA (A0),A1` is legal and `LEA (A0)+,A1` is not.
+     *
+     * The check has to come before the address is calculated, not after: the
+     * calculation applies the increment and decrement side effects, so a
+     * refusal that happened afterwards would already have moved the register.
+     * An instruction the processor refuses must leave no trace. */
+    if (!ap_m68030_ea_is_control(misc->ea.kind)) {
+      return false;
+    }
+    break;
+
   case AP_M68030_MISC_NBCD:
+    /* "NBCD <ea>" writes its operand back, so its mode must be data
+     * alterable. */
+    if (!ap_m68030_ea_is_data_alterable(misc->ea.kind)) {
+      return false;
+    }
+    break;
+
   case AP_M68030_MISC_CHK_WORD:
   case AP_M68030_MISC_CHK_LONG:
+    /* "CHK <ea>,Dn" only reads its bound, so every data mode is legal --
+     * including the immediate, which is how the bound is usually written. */
+    if (!ap_m68030_ea_is_data(misc->ea.kind)) {
+      return false;
+    }
     break;
 
   case AP_M68030_MISC_BKPT:
@@ -2178,19 +2212,12 @@ static bool execute_misc(ap_m68030_cpu_t *cpu, const ap_m68030_misc_t *misc,
   switch (misc->kind) {
   case AP_M68030_MISC_LEA:
     /* "<ea> -> An": the address itself, not what is there -- which is the whole
-     * difference between LEA and MOVEA, and why LEA cannot take a register or
-     * an immediate. Condition codes are not affected. */
-    if (where.in_register || where.immediate) {
-      return false;
-    }
+     * difference between LEA and MOVEA. Condition codes are not affected. */
     ap_m68030_write_address_register(&cpu->regs, misc->reg, where.address);
     return true;
 
   case AP_M68030_MISC_PEA:
     /* "SP - 4 -> SP; <ea> -> (SP)" -- again the address, pushed. */
-    if (where.in_register || where.immediate) {
-      return false;
-    }
     return push_long(cpu, where.address, clocks);
 
   case AP_M68030_MISC_NBCD: {
@@ -2403,11 +2430,15 @@ static bool execute_pmove(ap_m68030_cpu_t *cpu, const ap_m68030_coproc_t *coproc
   if (!gather_address_input(cpu, coproc->ea.kind, size, clocks, &input)) {
     return false;
   }
+  /* "Only control alterable addressing modes can be used" -- checked as the
+   * *category*, not as "not a register and not an immediate", which would let
+   * `(An)+`, `-(An)` and every PC-relative mode through. */
+  if (!ap_m68030_ea_is_control_alterable(coproc->ea.kind)) {
+    return false;
+  }
   const ap_m68030_address_t where =
       resolve_address(cpu, clocks, coproc->ea, &input);
-  /* "Only control alterable addressing modes can be used": no register direct,
-   * no immediate, no increment modes and nothing PC-relative. */
-  if (!where.valid || where.in_register || where.immediate) {
+  if (!where.valid) {
     return false;
   }
 
@@ -2619,10 +2650,13 @@ static bool execute_pflush_or_pload(ap_m68030_cpu_t *cpu,
   if (!gather_address_input(cpu, coproc->ea.kind, 4u, clocks, &input)) {
     return false;
   }
+  if (!ap_m68030_ea_is_control_alterable(coproc->ea.kind)) {
+    return false;
+  }
   const ap_m68030_address_t where =
       resolve_address(cpu, clocks, coproc->ea, &input);
-  if (!where.valid || where.in_register || where.immediate) {
-    return false; /* only control alterable modes */
+  if (!where.valid) {
+    return false;
   }
 
   if (mode == 0x6u) {
@@ -2689,9 +2723,12 @@ static bool execute_ptest(ap_m68030_cpu_t *cpu,
   if (!gather_address_input(cpu, coproc->ea.kind, 4u, clocks, &input)) {
     return false;
   }
+  if (!ap_m68030_ea_is_control_alterable(coproc->ea.kind)) {
+    return false;
+  }
   const ap_m68030_address_t where =
       resolve_address(cpu, clocks, coproc->ea, &input);
-  if (!where.valid || where.in_register || where.immediate) {
+  if (!where.valid) {
     return false;
   }
 

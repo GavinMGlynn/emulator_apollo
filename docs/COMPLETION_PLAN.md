@@ -1057,20 +1057,43 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         `0000`'s immediate rows. Not decoded: `ap_m68030_immediate_decode`
         reports invalid there rather than mis-decoding them as a wider ORI, and
         a test pins that. *Verification: their own suite, same pattern.*
-  - [ ] **Addressing mode categories** (Table 2-4's Data / Memory / Control /
-        Alterable columns), which decide whether a decoded mode is *legal* for a
-        given instruction — `MOVE`'s destination must be data alterable, `LEA`'s
-        source must be control, and so on. Not implemented, and the decoders say
-        so rather than half-checking: `move_suite` asserts only that the
-        immediate destination *decodes*, not that it is a legal instruction.
-        **Read the table from the PDF page before implementing**: in the text
-        extraction the Alterable column shows `—` for absolute short and long,
-        which cannot be right — `MOVE.W D0,$1234` is legal — so either the
-        column is mis-rendered or the row is shifted. A category table
-        transcribed from that would silently reject correct programs.
-        *Verification: each instruction rejecting the modes its own page
-        excludes, with the absolute-addressing row checked against the PDF
-        first.*
+  - [x] **Addressing mode categories** (`src/core/cpu/m68030/ap_m68030_category.c`),
+        which decide whether a decoded mode is *legal* for an instruction.
+        **Table 2-4 is not transcribed**, because its Alterable column does not
+        survive the scan — and it fails in a way that is not a plausible
+        reading. The extraction gives absolute addressing `—` and Program
+        Counter Memory Indirect `X`, which is the truth of both rows exchanged;
+        the same rows also give Absolute Long a register field of `000` where
+        `MOVEM`'s, `PMOVE`'s and `PFLUSH`'s own tables all give `001`.
+        So the table is **derived** from §2.3's four definitions, which survive
+        intact: data is everything but `An`; memory is everything but the two
+        register direct modes; control is memory *without an associated size*,
+        so not the increment modes and not the immediate; alterable is
+        everything but the PC-relative modes and the immediate. The derivation
+        agrees with every surviving cell.
+        Two independent checks confirm the exchanged column: `MOVE.W D0,$1234`
+        is a legal instruction and `MOVE`'s destination must be data alterable,
+        so absolute *is* alterable; and nothing PC-relative is a legal `MOVE`
+        destination, so the PC modes are not.
+        Applied where it was already being approximated: the MMU instructions
+        had "not a register and not an immediate", which let `(An)+`, `-(An)`
+        and every PC-relative mode through. `LEA` and `PEA` take control modes,
+        `JMP`/`JSR` take control modes, `MOVE`'s destination must be data
+        alterable and `NBCD`'s operand too, and `CHK` takes any data mode
+        including the immediate.
+        **The check must precede the address calculation**, which was a real
+        defect the first version had: the calculation applies the increment and
+        decrement side effects, so a refusal that came afterwards had already
+        moved the register. An instruction the processor refuses must leave no
+        trace.
+        *Verification: `category_suite`, 8 tests — each of the four definitions
+        swept over every mode, plus the two independent cross-checks against
+        `MOVE`'s and the MMU instructions' own pages, `LEA` admitting the
+        PC-relative modes (which is what makes position-independent code
+        possible) while excluding the increments, and an invalid mode belonging
+        to no category. `step_suite`, 3 further tests (142 total) — `LEA (A0)+`
+        refused **with A0 unmoved**, `MOVE.W D0,(d16,PC)` refused with nothing
+        stored, and `PMOVE (A0)+,TC` refused.*
   - [ ] Wire the bus to a memory system so the termination kind and its arrival
         clock come from a device rather than a test. That is what makes
         contention emergent, and it belongs with Phase 3's single arbitration
