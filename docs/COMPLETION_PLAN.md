@@ -2470,8 +2470,15 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
   - [x] Figure 1-8 transcribed and the READY/EXCEPTION defect fixed: exception
         clears ready in one call, and a command clears the exception and
         restores ready, which is Figure 1-8's own order.
-  - [ ] Figures 1-5, 1-9 and 1-10 — write, direction and status transfers —
-        still to read from the page images.
+  - [x] Figure 1-10, the status byte transfer, transcribed (C26): a repeating
+        per-byte REQUEST/READY exchange with DIRECTION reversed, echoing a
+        status *block* rather than one byte.
+  - [ ] The status block's **length and contents**, which Figure 1-10 does not
+        give — it shows the protocol, not the payload. `READ STATUS` currently
+        succeeds and returns no bytes, which is honest about the gap but is not
+        a status block. Find the field definitions before implementing; the
+        conventional QIC-02 length is not a source.
+  - [ ] Figures 1-5 and 1-9 — write and direction transfers — still to read.
   - [ ] Note C25: the
         controller identifies the cartridge type from BOT-to-load-point
         *distance*, which a raw block image has no geometry to supply, so the

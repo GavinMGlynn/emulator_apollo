@@ -1599,6 +1599,33 @@ it cannot be forgotten: `ap_sc499_set_exception` sets the condition and clears
 ready in one call, rather than leaving two fields for a caller to keep consistent.
 An invariant that can be broken by omitting a line is not an invariant.
 
+**Figure 1-10, the status byte transfer**, is a third handshake again -- and the
+important thing about it is not the timing but that it *repeats*:
+
+    T1  Device Changes Bus DIRECTION       the device takes the bus
+    T2  Bus Data Valid                     0 us < T1->T2
+    T3  Device Asserts READY               0 us < T2->T3
+    T4  Controller Asserts REQUEST         0 us < T3->T4
+    T5  Device Deasserts READY             0 us < T4->T5 < 1 us
+    T7  Controller Deasserts REQUEST      20 us < T4->T7
+    T8  Bus Data Valid                     0 us < T7->T8
+    T9  Device Asserts READY              20 us < T7->T9
+    ... T10-T13 repeat T4-T7 for the next byte
+
+The diagram is annotated "ECHO REMAINING STATUS Byte" between the two halves. So
+READ STATUS does not return *a* status byte: it returns a status *block*,
+transferred one byte at a time by repeating the REQUEST/READY exchange, with
+DIRECTION reversed so the device drives -- the same reversal the read data
+transfer makes.
+
+**How many bytes, and what they mean, is not on this page.** The figure gives the
+protocol and not the payload. This core's `READ STATUS` currently succeeds and
+returns nothing, which is consistent with the protocol being unmodelled but is
+not a status block; a driver asking for status would find the command accepted
+and no bytes forthcoming. Named rather than guessed: the conventional QIC-02
+status block has a well-known length, and writing that number in from memory is
+exactly the move this project does not make.
+
 ## Where the ring is not
 
 The Apollo Token Ring has **no runnable oracle at all**: MAME carries Domain
