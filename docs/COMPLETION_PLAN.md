@@ -2350,6 +2350,17 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         the daylight-savings shifts of `DSE` (stored but inert).
 - [ ] SIO serial lines, keyboard and mouse. *Verification: console byte stream
       identical to the oracle's.*
+  - [x] Placement measured: both ports at `010400` and `010500`, **stride 2**,
+        sixteen registers over thirty-two bytes. `FINDINGS.md` C14. The DUART
+        manual is already in `docs/references/motorola/`.
+  - [ ] The 2681/68681 itself: two channels with their FIFOs, the mode/status/
+        clock-select registers, the counter/timer, the interrupt registers, and
+        the input and output ports.
+  - [ ] `008778-03` §3.9's Apollo specifics: SIO line 0 is the keyboard, and
+        "The counter/timer on the SIO chip is used for the refresh count ...
+        set up in the timer mode to produce a square wave output on output OP3.
+        The period of the output is 15 microseconds." That output is memory
+        refresh, so the DUART drives a system function and not only a port.
 - [ ] Node ID PROM (`0x011200`), including node ID taken from the logical volume
       label. *Verification: `lcnode`-visible node ID matches the configured
       value.*

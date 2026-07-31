@@ -905,6 +905,41 @@ first/last byte-pointer flip-flop taking two bytes on the write and handing the
 low one back first. A device that merely decoded the address would have returned
 `CD`.
 
+### C14 — the serial ports, and a warning about dumping registers at all
+
+`008778-03` §3.9: "All ports are implemented using the Signetics 2681 dual
+asynchronous control chip", at `010400` and `010500` in Table 2-8. Both are
+live. Thirty-two bytes at each:
+
+    sio1 010400: 07 07 0C 0C FF FF 00 00 10 00 5D 5D 00 00 18 18
+                 07 07 0C 0C 61 61 00 00 FF FF E0 E0 FF FF FF FF
+    sio2 010500: 07 07 0C 0C FF FF 00 00 74 04 11 11 00 00 00 00
+                 07 07 0C 0C 61 61 00 00 FF FF E0 E0 FF FF FF FF
+
+**Stride 2**, sixteen registers over thirty-two bytes: every value appears as a
+pair because both bytes of each word select the same register. That is the same
+placement as the second DMA controller and the interval timer, and different
+from the calendar and the first DMA controller — the fourth pair on this board
+where the stride had to be measured rather than inferred.
+
+**The exception in the pairs is the finding.** Offsets 8 and 9 read `10 00` on
+the first port and `74 04` on the second: *not* a pair. Both bytes address
+register 4, which on a 68681 is the input port change register — and reading it
+clears it. The probe read the register twice and watched it empty.
+
+**So a register dump is not a passive observation on this part.** Registers 14
+and 15 are the start-counter and stop-counter commands, taken on a *read*; the
+receive holding registers pop a FIFO; the interrupt status and input-port-change
+registers clear. The dump above therefore started a counter and discarded input
+state as a side effect of being taken.
+
+That is worth recording beyond this device. Every placement measurement in this
+file so far — C10's registers, C12's timer, C13's DMA — has been a read sweep,
+and it has been safe because those parts have no read side effects. This one
+does, and the next part might. A dump is an experiment, not an observation, and
+the fact that it usually behaves like an observation is a property of the parts
+so far rather than of the method.
+
 ## Where the ring is not
 
 The Apollo Token Ring has **no runnable oracle at all**: MAME carries Domain
