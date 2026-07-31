@@ -50,6 +50,11 @@ ap_m68030_single_t ap_m68030_single_decode(uint16_t instruction) {
     default:
       return single; /* invalid */
     }
+    /* The size field was the escape, so it does not name the operand size here.
+     * Each of these has a fixed one instead: "TAS ... Attributes: Size =
+     * (Byte)" and the four MOVEs "Size = (Word)". Leaving it zero would have an
+     * executor read an operand of no width. */
+    single.size = (single.kind == AP_M68030_SINGLE_TAS) ? 1u : 2u;
     single.ea = ap_m68030_ea_decode(mode, reg);
     if (single.ea.kind == AP_M68030_EA_INVALID) {
       single.kind = AP_M68030_SINGLE_INVALID;

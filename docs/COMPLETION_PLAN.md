@@ -1001,6 +1001,52 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
     executes". The higher-priority exception is *processed* first, which stacks
     it deeper, so the lower-priority handler runs first and returns into it.
     Reset is the stated exception to its own rule.
+  - [x] **Family `0100` executes**, completing the family the decoder finished
+        some commits ago. `LEA`, `PEA`, `SWAP`, `EXT.W`/`EXT.L`/`EXTB.L`,
+        `NBCD`, `CHK.W`/`CHK.L`, `MOVEM` in both directions, `NEGX`, `TAS`,
+        `MOVE` to and from both `SR` and `CCR`, and the `ILLEGAL` word.
+        **`MOVEM`'s mask is reversed for the predecrement mode** — "bit 0 A7 …
+        bit 15 D0" against "bit 0 D0 … bit 15 A7" — which makes one loop over
+        bits 0 to 15 give both documented orders, "from D0 to D7, then from A0
+        to A7" for the control modes and "from A7 to A0, then from D7 to D0" for
+        predecrement. Reading it the same way round for both saves the right
+        number of registers into the right amount of space with every one in the
+        wrong place, and a matching postincrement `MOVEM` restores them anyway —
+        so only an outside observer of memory can see it.
+        Two more `MOVEM` facts that are this part's rather than the 68000's: a
+        word transfer **sign-extends into the whole register**, data registers
+        included, which is unlike every other data register write; and "if the
+        addressing register is also moved to memory, the value written is the
+        initial register value decremented by the size of the operation. The
+        MC68000 and MC68010 write the initial register value (not decremented)."
+        **`CHK`'s comparisons are signed** — "The upper bound is a twos
+        complement integer" — so an unsigned model lets a negative register pass
+        any bound whose top bit is clear, which is nearly every bound written.
+        **`TAS` flags the value before setting the bit**; the other order makes
+        it always report an already-taken semaphore, and everything built on it
+        deadlocks. **`MOVE from SR` is privileged and `MOVE from CCR` is not**,
+        which reads backwards from the 68000 and is why it is stated.
+        `BKPT` is the one form left: it runs a breakpoint acknowledge cycle in
+        CPU space, a bus transaction this step does not issue, so it is declined
+        rather than called illegal — which is what it becomes only if nothing
+        answers. It is now the step suite's unimplemented-instruction
+        placeholder, replacing `LEA`, which replaced `MULU`, which replaced
+        `ADD`.
+        The single-operand escapes also gained their **sizes in the decoder**:
+        the size field was the escape that selected them, but `TAS` is still
+        "Size = (Byte)" and the four transfers "Size = (Word)". Reporting zero
+        conflated "carries no size field" with "has no size" and left every
+        executor re-deriving it.
+        *Verification: `step_suite`, 14 further tests (111 total) — `LEA` against
+        `MOVEA` on the same operand, one indirection apart and both plausible;
+        the predecrement mask reversal seen in memory; a save/restore round trip;
+        a word `MOVEM` reaching the whole register; `CHK` inside, above and
+        below its bound, with the negative case distinguished by `N`; `TAS`
+        reporting a free semaphore and taking it; `MOVE from SR` trapping in
+        user state while `MOVE from CCR` does not; `MOVE to CCR` unable to reach
+        the system byte; `ILLEGAL` taking vector 4 with its own address stacked;
+        `NBCD` in both the tens and nines complement; and the three `EXT` forms
+        reaching different distances from the same source byte.*
   - [x] **The `$4E` control group executes**: `JSR`, `JMP`, `BSR`, `RTS`,
         `RTR`, `RTD`, `RTE`, `LINK`, `UNLK`, `TRAP`, `TRAPV` and both directions
         of `MOVE USP`, with the four privileged ones raising a privilege

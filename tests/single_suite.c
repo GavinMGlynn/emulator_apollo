@@ -60,8 +60,18 @@ static void test_the_escape_is_not_a_wider_operand(void) {
 
   const ap_m68030_single_t tas = ap_m68030_single_decode(0x4AD0u);
   TEST_ASSERT_NOT_EQUAL_INT(AP_M68030_SINGLE_TST, tas.kind);
-  /* TAS is a byte operation and carries no size field of its own. */
-  TEST_ASSERT_EQUAL_UINT(0, tas.size);
+  /* TAS carries no size *field* -- the field was the escape that selected it --
+   * but it still has a size: "TAS ... Attributes: Size = (Byte)". Reporting
+   * zero would conflate the two and leave every executor re-deriving it from
+   * the kind, which is the decoder's job. */
+  TEST_ASSERT_EQUAL_UINT(1, tas.size);
+
+  /* The four status register transfers are word operations for the same
+   * reason, and by the same rule: "Size = (Word)". */
+  TEST_ASSERT_EQUAL_UINT(2, ap_m68030_single_decode(0x40D0u).size);
+  TEST_ASSERT_EQUAL_UINT(2, ap_m68030_single_decode(0x42D0u).size);
+  TEST_ASSERT_EQUAL_UINT(2, ap_m68030_single_decode(0x44D0u).size);
+  TEST_ASSERT_EQUAL_UINT(2, ap_m68030_single_decode(0x46D0u).size);
 }
 
 /* "ILLEGAL" is a defined instruction word, not an absence of one: $4AFC exists

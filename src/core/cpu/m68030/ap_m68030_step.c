@@ -499,18 +499,35 @@ static bool execute_immediate(ap_m68030_cpu_t *cpu,
  * only reads and CLR which only writes. */
 static bool execute_single(ap_m68030_cpu_t *cpu,
                            const ap_m68030_single_t *single, uint32_t *clocks) {
+  /* "If Supervisor State ... Else TRAP". MOVE to SR is obviously privileged;
+   * MOVE *from* SR became so on the 68010, and MOVE from CCR -- which the 68000
+   * did not have -- is the unprivileged way to read the condition codes. */
+  if (ap_m68030_single_privileged(single->kind) &&
+      !ap_m68030_supervisor(&cpu->regs)) {
+    cpu->pending_vector = AP_M68030_VECTOR_PRIVILEGE_VIOLATION;
+    return true;
+  }
+
+  if (single->kind == AP_M68030_SINGLE_ILLEGAL) {
+    /* "$4AFC ... takes the illegal instruction trap" -- an instruction whose
+     * entire purpose is to raise vector 4, so it executes rather than being
+     * rejected by the decoder. */
+    cpu->pending_vector = AP_M68030_VECTOR_ILLEGAL_INSTRUCTION;
+    return true;
+  }
+
   switch (single->kind) {
   case AP_M68030_SINGLE_CLR:
   case AP_M68030_SINGLE_NEG:
   case AP_M68030_SINGLE_NOT:
   case AP_M68030_SINGLE_TST:
-    break;
   case AP_M68030_SINGLE_NEGX:
   case AP_M68030_SINGLE_TAS:
   case AP_M68030_SINGLE_MOVE_FROM_SR:
   case AP_M68030_SINGLE_MOVE_FROM_CCR:
   case AP_M68030_SINGLE_MOVE_TO_CCR:
   case AP_M68030_SINGLE_MOVE_TO_SR:
+    break;
   case AP_M68030_SINGLE_ILLEGAL:
   case AP_M68030_SINGLE_INVALID:
     return false;
@@ -524,8 +541,16 @@ static bool execute_single(ap_m68030_cpu_t *cpu,
   const ap_m68030_address_t where =
       ap_m68030_address_calculate(&cpu->regs, single->ea, &input);
 
+  /* CLR writes without reading -- and on the 68020 and later that is literal:
+   * it does not read the destination at all. The four register transfers take
+   * their source from the status register instead of from the operand. */
+  const bool reads_destination =
+      single->kind != AP_M68030_SINGLE_CLR &&
+      single->kind != AP_M68030_SINGLE_MOVE_FROM_SR &&
+      single->kind != AP_M68030_SINGLE_MOVE_FROM_CCR;
+
   uint32_t value = 0;
-  if (single->kind != AP_M68030_SINGLE_CLR) {
+  if (reads_destination) {
     const ap_m68030_operand_result_t read = ap_m68030_operand_read(
         &cpu->regs, cpu->data, &where, single->size, cpu->data_function_code);
     *clocks += read.clocks;
@@ -535,8 +560,74 @@ static bool execute_single(ap_m68030_cpu_t *cpu,
     value = read.value;
   }
 
+  /* The four status register transfers are moves, not arithmetic: "Condition
+   * Codes: Not affected" for the two reads, and the two writes *are* the
+   * condition codes. Handled before the ALU rather than inside it. */
+  switch (single->kind) {
+  case AP_M68030_SINGLE_MOVE_FROM_SR:
+  case AP_M68030_SINGLE_MOVE_FROM_CCR: {
+    /* "Unimplemented bits are read as zeros", which ap_m68030_write_sr already
+     * guarantees of anything stored there. */
+    const uint32_t source =
+        (single->kind == AP_M68030_SINGLE_MOVE_FROM_SR)
+            ? cpu->regs.sr
+            : ap_m68030_read_ccr(&cpu->regs);
+    const ap_m68030_operand_result_t wrote =
+        ap_m68030_operand_write(&cpu->regs, cpu->data, &where, 2u, source,
+                                cpu->data_function_code);
+    *clocks += wrote.clocks;
+    return wrote.ok;
+  }
+
+  case AP_M68030_SINGLE_MOVE_TO_SR:
+    ap_m68030_write_sr(&cpu->regs, (uint16_t)value);
+    return true;
+
+  case AP_M68030_SINGLE_MOVE_TO_CCR:
+    /* "the only portion of the status register (SR) available in the user
+     * mode" -- so this cannot reach the system byte however it is written. */
+    ap_m68030_write_ccr(&cpu->regs, (uint16_t)value);
+    return true;
+
+  case AP_M68030_SINGLE_TAS: {
+    /* "Destination Tested -> Condition Codes; 1 -> Bit 7 of Destination",
+     * over "a locked or read-modify-write transfer sequence" -- the flags come
+     * from the value *before* the bit is set, which is the whole of what makes
+     * it usable as a semaphore. */
+    const ap_m68030_alu_result_t tested = ap_m68030_alu_test(value, 1u);
+    ap_m68030_write_ccr(&cpu->regs,
+                        ap_m68030_alu_apply(ap_m68030_read_ccr(&cpu->regs),
+                                            &tested));
+    const ap_m68030_operand_result_t wrote = ap_m68030_operand_write(
+        &cpu->regs, cpu->data, &where, 1u, value | 0x80u,
+        cpu->data_function_code);
+    *clocks += wrote.clocks;
+    return wrote.ok;
+  }
+
+  /* The arithmetic forms fall through to the ALU below. Listed rather than
+   * defaulted so -Wswitch-enum still forces a decision on a new one. */
+  case AP_M68030_SINGLE_NEGX:
+  case AP_M68030_SINGLE_CLR:
+  case AP_M68030_SINGLE_NEG:
+  case AP_M68030_SINGLE_NOT:
+  case AP_M68030_SINGLE_TST:
+  case AP_M68030_SINGLE_ILLEGAL:
+  case AP_M68030_SINGLE_INVALID:
+    break;
+  }
+
+  const uint16_t ccr_in = ap_m68030_read_ccr(&cpu->regs);
   ap_m68030_alu_result_t result;
   switch (single->kind) {
+  case AP_M68030_SINGLE_NEGX:
+    /* "0 - Destination - X -> Destination", which is SUBX from zero, Z rule
+     * included: "Cleared if the result is nonzero; unchanged otherwise". */
+    result = ap_m68030_alu_subx(
+        0u, value, single->size,
+        ((ccr_in >> AP_M68030_SR_X_BIT) & 1u) != 0u,
+        ((ccr_in >> AP_M68030_SR_Z_BIT) & 1u) != 0u);
+    break;
   case AP_M68030_SINGLE_CLR:
     result = ap_m68030_alu_test(0u, single->size);
     break;
@@ -549,7 +640,6 @@ static bool execute_single(ap_m68030_cpu_t *cpu,
   case AP_M68030_SINGLE_TST:
     result = ap_m68030_alu_test(value, single->size);
     break;
-  case AP_M68030_SINGLE_NEGX:
   case AP_M68030_SINGLE_TAS:
   case AP_M68030_SINGLE_MOVE_FROM_SR:
   case AP_M68030_SINGLE_MOVE_FROM_CCR:
@@ -1621,6 +1711,339 @@ static bool execute_control(ap_m68030_cpu_t *cpu,
   return false;
 }
 
+/* MOVEM's register list mask, `M68000PRM` MOVEM page.
+ *
+ * "The low-order bit corresponds to the first register to be transferred; the
+ * high-order bit corresponds to the last register to be transferred. Thus, for
+ * both control modes and postincrement mode addresses, the mask correspondence
+ * is: [bit 15 A7 ... bit 0 D0]. For the predecrement mode addresses, the mask
+ * correspondence is reversed: [bit 15 D0 ... bit 0 A7]."
+ *
+ * So there is one loop, bit 0 through bit 15, and only the naming changes --
+ * which is also what makes the *order* right in both directions: control mode
+ * transfers "from D0 to D7, then from A0 to A7", and predecrement stores "from
+ * A7 to A0, then from D7 to D0".
+ *
+ * Reading the mask the same way round for both is the mistake, and it produces
+ * a MOVEM that saves the right number of registers into the right amount of
+ * space with every one in the wrong place. */
+static unsigned movem_register(unsigned bit, bool predecrement) {
+  return predecrement ? (15u - bit) : bit;
+}
+
+/* Registers 0-7 are D0-D7 and 8-15 are A0-A7. */
+static uint32_t movem_read_register(const ap_m68030_regs_t *regs,
+                                    unsigned index) {
+  return (index < 8u) ? regs->d[index]
+                      : ap_m68030_read_address_register(regs, index - 8u);
+}
+
+static void movem_write_register(ap_m68030_regs_t *regs, unsigned index,
+                                 uint32_t value) {
+  if (index < 8u) {
+    regs->d[index] = value;
+  } else {
+    ap_m68030_write_address_register(regs, index - 8u, value);
+  }
+}
+
+static bool execute_movem(ap_m68030_cpu_t *cpu, const ap_m68030_misc_t *misc,
+                          uint32_t *clocks) {
+  uint16_t mask = 0;
+  if (!next_word(cpu, clocks, &mask)) {
+    return false;
+  }
+
+  const bool to_memory = misc->kind == AP_M68030_MISC_MOVEM_TO_MEMORY;
+  const bool predecrement = misc->ea.kind == AP_M68030_EA_PREDECREMENT;
+  const bool postincrement = misc->ea.kind == AP_M68030_EA_POSTINCREMENT;
+
+  /* "only the control modes, the predecrement mode, and the postincrement mode
+   * are valid", and each direction takes only one of the two increment modes:
+   * predecrement is register-to-memory only, postincrement memory-to-register
+   * only. The other combinations are not this instruction. */
+  if ((predecrement && !to_memory) || (postincrement && to_memory)) {
+    return false;
+  }
+
+  uint32_t address = 0;
+  if (predecrement || postincrement) {
+    /* The increment modes walk the address themselves, register by register,
+     * rather than through one calculation -- which is why
+     * ap_m68030_address_step is exposed. Start from the register as it is. */
+    address = ap_m68030_read_address_register(&cpu->regs, misc->ea.reg);
+  } else {
+    ap_m68030_address_input_t input = {0};
+    if (!gather_address_input(cpu, misc->ea.kind, misc->size, clocks, &input)) {
+      return false;
+    }
+    const ap_m68030_address_t where =
+        ap_m68030_address_calculate(&cpu->regs, misc->ea, &input);
+    if (!where.valid || where.in_register || where.immediate ||
+        where.indirection_pending) {
+      return false;
+    }
+    address = where.address;
+  }
+
+  for (unsigned bit = 0; bit < 16u; bit++) {
+    if ((mask & (1u << bit)) == 0u) {
+      continue;
+    }
+    const unsigned index = movem_register(bit, predecrement);
+
+    if (predecrement) {
+      /* "The registers are stored starting at the specified address minus the
+       * operand length", so the decrement comes first. */
+      address -= misc->size;
+    }
+
+    const ap_m68030_address_t where = {.address = address, .valid = true};
+    if (to_memory) {
+      uint32_t value = movem_read_register(&cpu->regs, index);
+      if (predecrement && index == misc->ea.reg + 8u) {
+        /* "For the MC68020, MC68030, MC68040, and CPU32, if the addressing
+         * register is also moved to memory, the value written is the initial
+         * register value decremented by the size of the operation. The MC68000
+         * and MC68010 write the initial register value (not decremented)." So
+         * this is a part-specific difference, and this part is the later one. */
+        value -= misc->size;
+      }
+      const ap_m68030_operand_result_t wrote = ap_m68030_operand_write(
+          &cpu->regs, cpu->data, &where, misc->size, value,
+          cpu->data_function_code);
+      *clocks += wrote.clocks;
+      if (!wrote.ok) {
+        return false;
+      }
+    } else {
+      const ap_m68030_operand_result_t read = ap_m68030_operand_read(
+          &cpu->regs, cpu->data, &where, misc->size, cpu->data_function_code);
+      *clocks += read.clocks;
+      if (!read.ok) {
+        return false;
+      }
+      /* "In the case of a word transfer to either address or data registers,
+       * each word is sign-extended to 32 bits, and the resulting long word is
+       * loaded into the associated register." A *data* register write that
+       * replaces all 32 bits is unlike every other one, and a model that made
+       * it partial would leave stale halves behind. */
+      movem_write_register(&cpu->regs, index,
+                           ap_m68030_sign_extend(read.value, misc->size));
+    }
+
+    if (!predecrement) {
+      address += misc->size;
+    }
+  }
+
+  if (predecrement || postincrement) {
+    /* "When the instruction has completed, the decremented address register
+     * contains the address of the last operand stored", and for postincrement
+     * "the address of the last operand loaded plus the operand length" -- both
+     * of which are simply where the walk stopped.
+     *
+     * Postincrement also has "If the addressing register is also loaded from
+     * memory, the memory value is ignored and the register is written with the
+     * postincremented effective address", which this ordering gives for free:
+     * the walk's final write happens after the transfer loaded it. */
+    ap_m68030_write_address_register(&cpu->regs, misc->ea.reg, address);
+  }
+  return true;
+}
+
+static bool execute_misc(ap_m68030_cpu_t *cpu, const ap_m68030_misc_t *misc,
+                         uint32_t *clocks) {
+  switch (misc->kind) {
+  case AP_M68030_MISC_SWAP: {
+    /* "Register 31-16 <-> Register 15-0", and N and Z come from the whole
+     * 32-bit result rather than from either half. */
+    const uint32_t value = cpu->regs.d[misc->reg];
+    const uint32_t swapped = (value >> 16) | (value << 16);
+    cpu->regs.d[misc->reg] = swapped;
+    const ap_m68030_alu_result_t flags = ap_m68030_alu_test(swapped, 4u);
+    ap_m68030_write_ccr(&cpu->regs,
+                        ap_m68030_alu_apply(ap_m68030_read_ccr(&cpu->regs),
+                                            &flags));
+    return true;
+  }
+
+  case AP_M68030_MISC_EXT_WORD:
+  case AP_M68030_MISC_EXT_LONG:
+  case AP_M68030_MISC_EXTB_LONG: {
+    /* "by replicating the sign bit to the left". EXT.W writes only the low
+     * word, so the upper half survives; EXT.L and EXTB.L write all 32 bits.
+     * The difference is what makes EXT.W after EXT.W not the same as EXT.L. */
+    const uint32_t value = cpu->regs.d[misc->reg];
+    uint32_t result;
+    unsigned flag_size;
+    if (misc->kind == AP_M68030_MISC_EXT_WORD) {
+      const uint32_t extended = ap_m68030_sign_extend(value & 0xFFu, 1u);
+      result = (value & 0xFFFF0000u) | (extended & 0xFFFFu);
+      flag_size = 2u;
+    } else if (misc->kind == AP_M68030_MISC_EXT_LONG) {
+      result = ap_m68030_sign_extend(value & 0xFFFFu, 2u);
+      flag_size = 4u;
+    } else {
+      result = ap_m68030_sign_extend(value & 0xFFu, 1u);
+      flag_size = 4u;
+    }
+    cpu->regs.d[misc->reg] = result;
+    const ap_m68030_alu_result_t flags = ap_m68030_alu_test(result, flag_size);
+    ap_m68030_write_ccr(&cpu->regs,
+                        ap_m68030_alu_apply(ap_m68030_read_ccr(&cpu->regs),
+                                            &flags));
+    return true;
+  }
+
+  case AP_M68030_MISC_MOVEM_TO_MEMORY:
+  case AP_M68030_MISC_MOVEM_TO_REGISTERS:
+    return execute_movem(cpu, misc, clocks);
+
+  case AP_M68030_MISC_LEA:
+  case AP_M68030_MISC_PEA:
+  case AP_M68030_MISC_NBCD:
+  case AP_M68030_MISC_CHK_WORD:
+  case AP_M68030_MISC_CHK_LONG:
+    break;
+
+  case AP_M68030_MISC_BKPT:
+  case AP_M68030_MISC_INVALID:
+    /* BKPT runs a breakpoint acknowledge cycle in CPU space, which is a bus
+     * transaction this step does not issue. Declined rather than treated as an
+     * illegal instruction, which is what it becomes only if nothing answers. */
+    return false;
+  }
+
+  /* Everything left takes an effective address. */
+  const unsigned operand_size =
+      (misc->kind == AP_M68030_MISC_CHK_LONG)   ? 4u
+      : (misc->kind == AP_M68030_MISC_CHK_WORD) ? 2u
+      : (misc->kind == AP_M68030_MISC_NBCD)     ? 1u
+                                                : 4u;
+  /* CHK's bound is commonly an immediate, and an immediate is *fetched* rather
+   * than addressed -- gather_address_input has no address to gather for it. So
+   * it is taken first, as it is on every other path that accepts one. LEA and
+   * PEA cannot take an immediate at all: there is no address to load. */
+  bool bound_is_immediate = false;
+  uint32_t immediate_bound = 0;
+  ap_m68030_address_t where = {0};
+
+  if (misc->ea.kind == AP_M68030_EA_IMMEDIATE) {
+    if (misc->kind != AP_M68030_MISC_CHK_WORD &&
+        misc->kind != AP_M68030_MISC_CHK_LONG) {
+      return false;
+    }
+    if (!fetch_immediate(cpu, operand_size, clocks, &immediate_bound)) {
+      return false;
+    }
+    bound_is_immediate = true;
+  } else {
+    ap_m68030_address_input_t input = {0};
+    if (!gather_address_input(cpu, misc->ea.kind, operand_size, clocks,
+                              &input)) {
+      return false;
+    }
+    where = ap_m68030_address_calculate(&cpu->regs, misc->ea, &input);
+    if (!where.valid || where.indirection_pending) {
+      return false;
+    }
+  }
+
+  switch (misc->kind) {
+  case AP_M68030_MISC_LEA:
+    /* "<ea> -> An": the address itself, not what is there -- which is the whole
+     * difference between LEA and MOVEA, and why LEA cannot take a register or
+     * an immediate. Condition codes are not affected. */
+    if (where.in_register || where.immediate) {
+      return false;
+    }
+    ap_m68030_write_address_register(&cpu->regs, misc->reg, where.address);
+    return true;
+
+  case AP_M68030_MISC_PEA:
+    /* "SP - 4 -> SP; <ea> -> (SP)" -- again the address, pushed. */
+    if (where.in_register || where.immediate) {
+      return false;
+    }
+    return push_long(cpu, where.address, clocks);
+
+  case AP_M68030_MISC_NBCD: {
+    /* "0 - Destination10 - X -> Destination" -- the same decimal subtract as
+     * SBCD, from zero, so it is the tens complement with X clear and the nines
+     * complement with X set. */
+    const ap_m68030_operand_result_t read = ap_m68030_operand_read(
+        &cpu->regs, cpu->data, &where, 1u, cpu->data_function_code);
+    *clocks += read.clocks;
+    if (!read.ok) {
+      return false;
+    }
+    const uint16_t ccr = ap_m68030_read_ccr(&cpu->regs);
+    const ap_m68030_alu_result_t result = ap_m68030_alu_sbcd(
+        0u, read.value, ((ccr >> AP_M68030_SR_X_BIT) & 1u) != 0u,
+        ((ccr >> AP_M68030_SR_Z_BIT) & 1u) != 0u);
+    const ap_m68030_operand_result_t wrote = ap_m68030_operand_write(
+        &cpu->regs, cpu->data, &where, 1u, result.result,
+        cpu->data_function_code);
+    *clocks += wrote.clocks;
+    if (!wrote.ok) {
+      return false;
+    }
+    ap_m68030_write_ccr(&cpu->regs, ap_m68030_alu_apply(ccr, &result));
+    return true;
+  }
+
+  case AP_M68030_MISC_CHK_WORD:
+  case AP_M68030_MISC_CHK_LONG: {
+    /* "If Dn < 0 or Dn > Source Then TRAP". Both comparisons are *signed* --
+     * "The upper bound is a twos complement integer" -- so an unsigned compare
+     * would let a negative register pass whenever the bound's top bit is
+     * clear, which is almost always. */
+    uint32_t raw_bound = immediate_bound;
+    if (!bound_is_immediate) {
+      const ap_m68030_operand_result_t read =
+          ap_m68030_operand_read(&cpu->regs, cpu->data, &where, operand_size,
+                                 cpu->data_function_code);
+      *clocks += read.clocks;
+      if (!read.ok) {
+        return false;
+      }
+      raw_bound = read.value;
+    }
+    const int32_t value = (int32_t)ap_m68030_sign_extend(
+        cpu->regs.d[misc->reg], operand_size);
+    const int32_t bound =
+        (int32_t)ap_m68030_sign_extend(raw_bound, operand_size);
+
+    /* "N -- Set if Dn < 0; cleared if Dn > effective address operand;
+     * undefined otherwise." Z, V and C are all undefined, so only N is set. */
+    uint16_t ccr = ap_m68030_read_ccr(&cpu->regs);
+    if (value < 0) {
+      ccr |= (uint16_t)(1u << AP_M68030_SR_N_BIT);
+    } else if (value > bound) {
+      ccr &= (uint16_t)~(1u << AP_M68030_SR_N_BIT);
+    }
+    ap_m68030_write_ccr(&cpu->regs, ccr);
+
+    if (value < 0 || value > bound) {
+      cpu->pending_vector = AP_M68030_VECTOR_CHK;
+    }
+    return true;
+  }
+
+  case AP_M68030_MISC_SWAP:
+  case AP_M68030_MISC_BKPT:
+  case AP_M68030_MISC_EXT_WORD:
+  case AP_M68030_MISC_EXT_LONG:
+  case AP_M68030_MISC_EXTB_LONG:
+  case AP_M68030_MISC_MOVEM_TO_MEMORY:
+  case AP_M68030_MISC_MOVEM_TO_REGISTERS:
+  case AP_M68030_MISC_INVALID:
+    return false;
+  }
+  return false;
+}
+
 ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
   ap_m68030_step_result_t out = {.status = AP_M68030_STEP_FAULT};
   uint16_t word = 0;
@@ -1766,6 +2189,13 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
     break;
 
   case AP_M68030_DECODED_MISC:
+    if (!execute_misc(cpu, &decoded.as.misc, &out.clocks)) {
+      out.status = AP_M68030_STEP_UNIMPLEMENTED;
+      cpu->clocks += out.clocks;
+      return out;
+    }
+    break;
+
   case AP_M68030_DECODED_COPROC:
   case AP_M68030_DECODED_LINE_A:
   case AP_M68030_DECODED_ILLEGAL:

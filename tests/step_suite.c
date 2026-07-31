@@ -279,12 +279,14 @@ static void test_a_conditional_branch_reads_the_previous_result(void) {
 /* The property that lets this module ship incomplete: an instruction with no
  * semantics yet is reported, not skipped and not called illegal. */
 static void test_an_unimplemented_instruction_is_reported_not_skipped(void) {
-  /* LEA (A0),A1 decodes perfectly well and has no semantics here -- its whole
-   * subtree, family 0100's LEA/CHK/$48/$4C forms, is still unexecuted. ADD
-   * served this test first and MULU second, each until it started working. A
-   * placeholder that keeps needing replacement because the thing it stood in
-   * for now runs is the right kind of churn. */
-  static const uint16_t program[] = {0x43D0u, 0x4E71u, 0x4E71u, 0x4E71u};
+  /* BKPT #0 decodes perfectly well and has no semantics here: it runs a
+   * breakpoint acknowledge cycle in CPU space, which is a bus transaction this
+   * step does not issue. ADD served this test first, then MULU, then LEA, each
+   * until it started working. A placeholder that keeps needing replacement
+   * because the thing it stood in for now runs is the right kind of churn --
+   * and BKPT is a better one than its predecessors, since what it waits on is
+   * a different subsystem rather than more of this one. */
+  static const uint16_t program[] = {0x4848u, 0x4E71u, 0x4E71u, 0x4E71u};
   machine_t m = {0};
   load(&m, program, 4);
 
@@ -2086,6 +2088,324 @@ static void test_trapv_traps_only_when_the_overflow_flag_is_set(void) {
   TEST_ASSERT_EQUAL_HEX32(HANDLER, set.cpu.regs.pc);
 }
 
+/* ---------------------------------------------------------------------------
+ * Family 0100: the LEA/$48/$4C subtree and the single-operand escapes.
+ * ------------------------------------------------------------------------- */
+
+/* "<ea> -> An": LEA loads the *address*, not what is there. Against MOVEA on
+ * the same operand, which loads the contents -- one indirection apart, and both
+ * produce a plausible number. */
+static void test_lea_loads_the_address_where_movea_loads_the_contents(void) {
+  /* LEA (A0),A1 ; MOVEA.L (A0),A2 */
+  static const uint16_t program[] = {0x43D0u, 0x2450u, 0x4E71u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 4);
+  write_ram_long(&m, 0x00005000u, 0x0000ABCDu);
+  m.cpu.regs.a[0] = 0x00005000u;
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&m.cpu).status);
+  TEST_ASSERT_EQUAL_HEX32(0x00005000u, m.cpu.regs.a[1]);
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&m.cpu).status);
+  TEST_ASSERT_EQUAL_HEX32(0x0000ABCDu, m.cpu.regs.a[2]);
+}
+
+/* "SP - 4 -> SP; <ea> -> (SP)" -- the address pushed, which is how a routine
+ * passes a pointer to a local. */
+static void test_pea_pushes_the_address_itself(void) {
+  static const uint16_t program[] = {0x4850u, 0x4E71u, 0x4E71u, 0x4E71u}; /* PEA (A0) */
+  machine_t m = {0};
+  load(&m, program, 4);
+  m.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
+  m.cpu.regs.isp = SUPERVISOR_STACK;
+  m.cpu.regs.a[0] = 0x00005678u;
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&m.cpu).status);
+  TEST_ASSERT_EQUAL_HEX32(SUPERVISOR_STACK - 4u, m.cpu.regs.isp);
+  TEST_ASSERT_EQUAL_HEX32(0x00005678u, read_ram_long(&m, m.cpu.regs.isp));
+}
+
+/* "Register 31-16 <-> Register 15-0", with N and Z from the whole 32-bit
+ * result rather than from either half. */
+static void test_swap_exchanges_the_halves_and_flags_the_whole(void) {
+  static const uint16_t program[] = {0x4840u, 0x4E71u}; /* SWAP D0 */
+  machine_t m = {0};
+  load(&m, program, 2);
+  m.cpu.regs.d[0] = 0x12345678u;
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&m.cpu).status);
+  TEST_ASSERT_EQUAL_HEX32(0x56781234u, m.cpu.regs.d[0]);
+  TEST_ASSERT_FALSE(ap_m68030_read_ccr(&m.cpu.regs) &
+                    (1u << AP_M68030_SR_N_BIT));
+
+  /* A value whose *low* half has the top bit set becomes negative once swapped,
+   * which only a 32-bit flag test reports. */
+  machine_t n = {0};
+  load(&n, program, 2);
+  n.cpu.regs.d[0] = 0x00008000u;
+  (void)ap_m68030_step(&n.cpu);
+  TEST_ASSERT_EQUAL_HEX32(0x80000000u, n.cpu.regs.d[0]);
+  TEST_ASSERT_TRUE(ap_m68030_read_ccr(&n.cpu.regs) &
+                   (1u << AP_M68030_SR_N_BIT));
+}
+
+/* "EXT.W ... bit 7 of the designated data register is copied to bits 15-8",
+ * leaving the upper word alone, against "EXTB.L ... copies bit 7 ... to bits
+ * 31-8". Same source byte, different reach -- and EXT.W's surviving upper half
+ * is what makes the two forms not interchangeable. */
+static void test_the_three_extend_forms_reach_different_distances(void) {
+  static const uint16_t ext_word[] = {0x4880u, 0x4E71u};  /* EXT.W D0 */
+  machine_t m = {0};
+  load(&m, ext_word, 2);
+  m.cpu.regs.d[0] = 0xAAAAAA80u;
+  (void)ap_m68030_step(&m.cpu);
+  TEST_ASSERT_EQUAL_HEX32(0xAAAAFF80u, m.cpu.regs.d[0]);
+
+  static const uint16_t extb_long[] = {0x49C0u, 0x4E71u}; /* EXTB.L D0 */
+  machine_t n = {0};
+  load(&n, extb_long, 2);
+  n.cpu.regs.d[0] = 0xAAAAAA80u;
+  (void)ap_m68030_step(&n.cpu);
+  TEST_ASSERT_EQUAL_HEX32(0xFFFFFF80u, n.cpu.regs.d[0]);
+
+  static const uint16_t ext_long[] = {0x48C0u, 0x4E71u}; /* EXT.L D0 */
+  machine_t o = {0};
+  load(&o, ext_long, 2);
+  o.cpu.regs.d[0] = 0xAAAA8000u;
+  (void)ap_m68030_step(&o.cpu);
+  TEST_ASSERT_EQUAL_HEX32(0xFFFF8000u, o.cpu.regs.d[0]);
+}
+
+/* The MOVEM rule that fails silently. "For the predecrement mode addresses, the
+ * mask correspondence is reversed": bit 0 names A7 rather than D0. Reading the
+ * mask the same way round for both directions saves the right number of
+ * registers into the right amount of space with every one in the wrong place --
+ * and the round trip back through a postincrement MOVEM would still restore
+ * them, so only an outside observer of memory can see it. */
+static void test_movem_reverses_its_mask_for_the_predecrement_mode(void) {
+  /* MOVEM.L D0/A0,-(A7): mask bit for D0 is 15, for A0 is 7. */
+  static const uint16_t program[] = {0x48E7u, 0x8080u, 0x4E71u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 4);
+  m.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
+  m.cpu.regs.isp = SUPERVISOR_STACK;
+  m.cpu.regs.d[0] = 0x0D0D0D0Du;
+  m.cpu.regs.a[0] = 0x0A0A0A0Au;
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&m.cpu).status);
+  TEST_ASSERT_EQUAL_HEX32(SUPERVISOR_STACK - 8u, m.cpu.regs.isp);
+  /* "The order of storing is from A7 to A0, then from D7 to D0", so A0 lands
+   * at the higher address and D0 below it. */
+  TEST_ASSERT_EQUAL_HEX32(0x0D0D0D0Du, read_ram_long(&m, SUPERVISOR_STACK - 8u));
+  TEST_ASSERT_EQUAL_HEX32(0x0A0A0A0Au, read_ram_long(&m, SUPERVISOR_STACK - 4u));
+}
+
+/* A save and restore pair, which is what MOVEM is for: the postincrement mask
+ * is *not* reversed, so the same registers come back to the same places. */
+static void test_a_movem_save_and_restore_round_trips(void) {
+  /* MOVEM.L D0-D1/A0,-(A7) ; MOVEM.L (A7)+,D0-D1/A0 */
+  static const uint16_t program[] = {0x48E7u, 0xC080u, 0x4CDFu, 0x0103u,
+                                     0x4E71u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 6);
+  m.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
+  m.cpu.regs.isp = SUPERVISOR_STACK;
+  m.cpu.regs.d[0] = 0x11111111u;
+  m.cpu.regs.d[1] = 0x22222222u;
+  m.cpu.regs.a[0] = 0x33333333u;
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&m.cpu).status);
+  TEST_ASSERT_EQUAL_HEX32(SUPERVISOR_STACK - 12u, m.cpu.regs.isp);
+
+  /* Scribble over them, so a restore that did nothing would be visible. */
+  m.cpu.regs.d[0] = 0;
+  m.cpu.regs.d[1] = 0;
+  m.cpu.regs.a[0] = 0;
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&m.cpu).status);
+  TEST_ASSERT_EQUAL_HEX32(0x11111111u, m.cpu.regs.d[0]);
+  TEST_ASSERT_EQUAL_HEX32(0x22222222u, m.cpu.regs.d[1]);
+  TEST_ASSERT_EQUAL_HEX32(0x33333333u, m.cpu.regs.a[0]);
+  TEST_ASSERT_EQUAL_HEX32(SUPERVISOR_STACK, m.cpu.regs.isp);
+}
+
+/* "In the case of a word transfer to either address or data registers, each
+ * word is sign-extended to 32 bits, and the resulting long word is loaded into
+ * the associated register." A *data* register write replacing all 32 bits is
+ * unlike every other one in the instruction set. */
+static void test_a_word_movem_sign_extends_into_the_whole_register(void) {
+  /* MOVEM.W (A0)+,D0 */
+  static const uint16_t program[] = {0x4C98u, 0x0001u, 0x4E71u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 4);
+  m.memory.bytes[0x5000u] = 0xFFu;
+  m.memory.bytes[0x5001u] = 0xFEu;
+  m.cpu.regs.a[0] = 0x00005000u;
+  m.cpu.regs.d[0] = 0x12345678u;
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&m.cpu).status);
+  TEST_ASSERT_EQUAL_HEX32(0xFFFFFFFEu, m.cpu.regs.d[0]);
+  TEST_ASSERT_EQUAL_HEX32(0x00005002u, m.cpu.regs.a[0]);
+}
+
+/* "If Dn < 0 or Dn > Source Then TRAP", and "The upper bound is a twos
+ * complement integer" -- both comparisons signed. An unsigned compare would let
+ * a negative register pass any bound whose top bit is clear, which is almost
+ * every bound anyone writes. */
+static void test_chk_traps_on_a_negative_register_not_just_a_large_one(void) {
+  /* CHK.W #$1000,D0 -- opmode 110 is the word form and 100 the long, the
+   * 68020 having put its wider CHK *below* the older one rather than above. */
+  static const uint16_t program[] = {0x41BCu, 0x1000u, 0x4E71u, 0x4E71u};
+
+  machine_t inside = {0};
+  load(&inside, program, 4);
+  inside.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
+  inside.cpu.regs.isp = SUPERVISOR_STACK;
+  inside.cpu.regs.d[0] = 0x0800u;
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED,
+                        ap_m68030_step(&inside.cpu).status);
+
+  machine_t above = {0};
+  load(&above, program, 4);
+  plant_vector(&above, AP_M68030_VECTOR_CHK, HANDLER);
+  above.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
+  above.cpu.regs.isp = SUPERVISOR_STACK;
+  above.cpu.regs.d[0] = 0x2000u;
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXCEPTION,
+                        ap_m68030_step(&above.cpu).status);
+  TEST_ASSERT_EQUAL_HEX32(HANDLER, above.cpu.regs.pc);
+
+  /* $FFFF is -1 as a word: below zero, so it traps -- but larger than $1000
+   * unsigned, so an unsigned model would trap for the wrong reason and set the
+   * wrong N. Only the flag distinguishes them. */
+  machine_t negative = {0};
+  load(&negative, program, 4);
+  plant_vector(&negative, AP_M68030_VECTOR_CHK, HANDLER);
+  negative.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
+  negative.cpu.regs.isp = SUPERVISOR_STACK;
+  negative.cpu.regs.d[0] = 0x0000FFFFu;
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXCEPTION,
+                        ap_m68030_step(&negative.cpu).status);
+  /* "N -- Set if Dn < 0", which is the case the sign matters for. */
+  TEST_ASSERT_TRUE(ap_m68030_read_ccr(&negative.cpu.regs) &
+                   (1u << AP_M68030_SR_N_BIT));
+}
+
+/* "Destination Tested -> Condition Codes; 1 -> Bit 7 of Destination": the flags
+ * come from the value *before* the bit is set. Setting first would make TAS
+ * always report a non-zero, already-set operand, and every semaphore built on
+ * it would deadlock. */
+static void test_tas_flags_the_old_value_and_then_sets_the_bit(void) {
+  static const uint16_t program[] = {0x4AD0u, 0x4E71u}; /* TAS (A0) */
+  machine_t m = {0};
+  load(&m, program, 2);
+  m.memory.bytes[0x5000u] = 0x00u;
+  m.cpu.regs.a[0] = 0x00005000u;
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&m.cpu).status);
+  /* Z reflects the operand as it was: free. */
+  TEST_ASSERT_TRUE(ap_m68030_read_ccr(&m.cpu.regs) &
+                   (1u << AP_M68030_SR_Z_BIT));
+  /* And the bit is now set, so the next TAS finds it taken. */
+  TEST_ASSERT_EQUAL_HEX8(0x80u, m.memory.bytes[0x5000u]);
+}
+
+/* "MOVE from SR ... If Supervisor State ... Else TRAP" on the 68010 and later,
+ * while MOVE from CCR -- which the 68000 did not have at all -- is
+ * unprivileged. The pair reads backwards from the 68000, which is exactly why
+ * it is worth stating. */
+static void test_reading_the_status_register_is_privileged_but_the_ccr_is_not(
+    void) {
+  static const uint16_t from_sr[] = {0x40C0u, 0x4E71u};  /* MOVE SR,D0 */
+  machine_t m = {0};
+  load(&m, from_sr, 2);
+  plant_vector(&m, AP_M68030_VECTOR_PRIVILEGE_VIOLATION, HANDLER);
+  m.cpu.regs.sr = 0; /* user state */
+  m.cpu.regs.isp = SUPERVISOR_STACK;
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXCEPTION, ap_m68030_step(&m.cpu).status);
+  TEST_ASSERT_EQUAL_HEX32(HANDLER, m.cpu.regs.pc);
+
+  static const uint16_t from_ccr[] = {0x42C0u, 0x4E71u}; /* MOVE CCR,D0 */
+  machine_t n = {0};
+  load(&n, from_ccr, 2);
+  n.cpu.regs.sr = 0; /* user state, and this one is allowed */
+  ap_m68030_write_ccr(&n.cpu.regs, (uint16_t)(1u << AP_M68030_SR_C_BIT));
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&n.cpu).status);
+  TEST_ASSERT_EQUAL_HEX32(1u, n.cpu.regs.d[0] & 0xFFFFu);
+}
+
+/* "MOVE to CCR ... the only portion of the status register (SR) available in
+ * the user mode" -- so it cannot reach the system byte however it is written,
+ * which is what keeps an unprivileged instruction from granting privilege. */
+static void test_writing_the_ccr_cannot_reach_the_system_byte(void) {
+  static const uint16_t program[] = {0x44C0u, 0x4E71u}; /* MOVE D0,CCR */
+  machine_t m = {0};
+  load(&m, program, 2);
+  m.cpu.regs.sr = 0; /* user state */
+  m.cpu.regs.d[0] = 0x2005u; /* S bit set, plus C and Z */
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&m.cpu).status);
+  TEST_ASSERT_EQUAL_HEX16(0x05u, ap_m68030_read_ccr(&m.cpu.regs));
+  TEST_ASSERT_FALSE(ap_m68030_supervisor(&m.cpu.regs));
+}
+
+/* "$4AFC ... ILLEGAL" is a defined instruction whose whole purpose is to take
+ * vector 4 -- so it *executes*, raising the exception, rather than being
+ * rejected before execution as an unrecognised word would be. */
+static void test_the_illegal_instruction_word_takes_its_exception(void) {
+  static const uint16_t program[] = {0x4AFCu, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 2);
+  plant_vector(&m, AP_M68030_VECTOR_ILLEGAL_INSTRUCTION, HANDLER);
+  m.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
+  m.cpu.regs.isp = SUPERVISOR_STACK;
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXCEPTION, ap_m68030_step(&m.cpu).status);
+  TEST_ASSERT_EQUAL_HEX32(HANDLER, m.cpu.regs.pc);
+  /* Table 8-6: the frame holds the illegal instruction's own address. */
+  TEST_ASSERT_EQUAL_HEX32(PROGRAM_BASE, read_ram_long(&m, m.cpu.regs.isp + 2u));
+}
+
+/* "0 - Destination10 - X -> Destination ... the tens complement of the
+ * destination if the extend bit is zero or the nines complement if the extend
+ * bit is one" -- both, since the X term is the difference between them. */
+static void test_nbcd_gives_the_tens_or_nines_complement_by_the_extend_bit(void) {
+  static const uint16_t program[] = {0x4810u, 0x4E71u}; /* NBCD (A0) */
+
+  machine_t tens = {0};
+  load(&tens, program, 2);
+  tens.memory.bytes[0x5000u] = 0x25u;
+  tens.cpu.regs.a[0] = 0x00005000u;
+  ap_m68030_write_ccr(&tens.cpu.regs, 0);
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED,
+                        ap_m68030_step(&tens.cpu).status);
+  TEST_ASSERT_EQUAL_HEX8(0x75u, tens.memory.bytes[0x5000u]); /* 100 - 25 */
+
+  machine_t nines = {0};
+  load(&nines, program, 2);
+  nines.memory.bytes[0x5000u] = 0x25u;
+  nines.cpu.regs.a[0] = 0x00005000u;
+  ap_m68030_write_ccr(&nines.cpu.regs, (uint16_t)(1u << AP_M68030_SR_X_BIT));
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED,
+                        ap_m68030_step(&nines.cpu).status);
+  TEST_ASSERT_EQUAL_HEX8(0x74u, nines.memory.bytes[0x5000u]); /* 99 - 25 */
+}
+
+/* "0 - Destination - X -> Destination" for NEGX, which is SUBX from zero and
+ * carries its Z rule with it: "Cleared if the result is nonzero; unchanged
+ * otherwise", so a multi-precision negate accumulates one Z. */
+static void test_negx_subtracts_from_zero_with_the_extend_bit(void) {
+  static const uint16_t program[] = {0x4080u, 0x4E71u}; /* NEGX.L D0 */
+  machine_t m = {0};
+  load(&m, program, 2);
+  m.cpu.regs.d[0] = 1u;
+  ap_m68030_write_ccr(&m.cpu.regs, (uint16_t)(1u << AP_M68030_SR_X_BIT));
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&m.cpu).status);
+  /* 0 - 1 - 1 = -2. */
+  TEST_ASSERT_EQUAL_HEX32(0xFFFFFFFEu, m.cpu.regs.d[0]);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_a_nop_executes_and_advances_the_pc);
@@ -2153,6 +2473,20 @@ int main(void) {
   RUN_TEST(test_a_register_count_is_taken_modulo_sixty_four);
   RUN_TEST(test_a_byte_shift_leaves_the_upper_bytes);
   RUN_TEST(test_an_address_form_accepts_an_immediate_source);
+  RUN_TEST(test_lea_loads_the_address_where_movea_loads_the_contents);
+  RUN_TEST(test_pea_pushes_the_address_itself);
+  RUN_TEST(test_swap_exchanges_the_halves_and_flags_the_whole);
+  RUN_TEST(test_the_three_extend_forms_reach_different_distances);
+  RUN_TEST(test_movem_reverses_its_mask_for_the_predecrement_mode);
+  RUN_TEST(test_a_movem_save_and_restore_round_trips);
+  RUN_TEST(test_a_word_movem_sign_extends_into_the_whole_register);
+  RUN_TEST(test_chk_traps_on_a_negative_register_not_just_a_large_one);
+  RUN_TEST(test_tas_flags_the_old_value_and_then_sets_the_bit);
+  RUN_TEST(test_reading_the_status_register_is_privileged_but_the_ccr_is_not);
+  RUN_TEST(test_writing_the_ccr_cannot_reach_the_system_byte);
+  RUN_TEST(test_the_illegal_instruction_word_takes_its_exception);
+  RUN_TEST(test_nbcd_gives_the_tens_or_nines_complement_by_the_extend_bit);
+  RUN_TEST(test_negx_subtracts_from_zero_with_the_extend_bit);
   RUN_TEST(test_a_subroutine_call_returns_to_the_instruction_after_it);
   RUN_TEST(test_a_jump_goes_to_the_address_not_to_its_contents);
   RUN_TEST(test_link_and_unlk_are_exact_inverses);
