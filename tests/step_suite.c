@@ -14,6 +14,7 @@
 
 #include "cpu/m68030/ap_m68030_step.h"
 #include "cpu/m68030/ap_m68030_exception.h"
+#include "cpu/m68030/ap_m68030_mmusr.h"
 #include "unity.h"
 
 void setUp(void) {}
@@ -75,6 +76,25 @@ static void memory_fill(void *context, uint32_t line_address,
   out->data[0] = value;
 }
 
+/* A table search's descriptor fetch, over the same RAM. Having one means PLOAD
+ * and PTEST can walk a tree the test built by hand, rather than being tested
+ * only in the cases that need no tree. */
+static bool table_fetch(void *context, uint32_t physical, bool long_format,
+                        ap_m68030_descriptor_t *out) {
+  memory_t *memory = (memory_t *)context;
+  uint32_t words[2] = {0, 0};
+  for (unsigned w = 0; w < (long_format ? 2u : 1u); w++) {
+    for (unsigned i = 0; i < 4u; i++) {
+      const uint32_t at = physical + w * 4u + i;
+      words[w] = (words[w] << 8) | (at < RAM_BYTES ? memory->bytes[at] : 0u);
+    }
+  }
+  *out = long_format
+             ? ap_m68030_descriptor_unpack_long(words[0], words[1], false)
+             : ap_m68030_descriptor_unpack_short(words[0], false);
+  return true;
+}
+
 typedef struct {
   ap_m68030_cache_t cache;
   ap_m68030_atc_t atc;
@@ -111,6 +131,7 @@ static void load(machine_t *m, const uint16_t *words, unsigned count) {
       .translation_enabled = false,
       .fill = memory_fill,
       .store = memory_store,
+      .table_fetch = table_fetch,
       .context = &m->memory,
   };
   /* The data side is a different cache from the instruction side, sharing the
@@ -134,13 +155,20 @@ static void load(machine_t *m, const uint16_t *words, unsigned count) {
 /* Point a vector at a handler by pre-storing it, so the vector fetch has
  * something to read: the harness serves a stored long word back at the exact
  * address it was written to. */
+/* Bounds-checked, because a test helper that walks off the end of the RAM
+ * corrupts the stack instead of failing -- which is how an address outside the
+ * harness's 64K first showed up here, as a segfault three tests later. */
 static void write_ram_long(machine_t *m, uint32_t address, uint32_t value) {
+  TEST_ASSERT_TRUE_MESSAGE(address + 4u <= RAM_BYTES,
+                           "address outside the harness RAM");
   for (unsigned i = 0; i < 4u; i++) {
     m->memory.bytes[address + i] = (uint8_t)(value >> ((3u - i) * 8u));
   }
 }
 
 static uint32_t read_ram_long(const machine_t *m, uint32_t address) {
+  TEST_ASSERT_TRUE_MESSAGE(address + 4u <= RAM_BYTES,
+                           "address outside the harness RAM");
   uint32_t value = 0;
   for (unsigned i = 0; i < 4u; i++) {
     value = (value << 8) | m->memory.bytes[address + i];
@@ -2835,16 +2863,16 @@ static void test_the_flush_disable_bit_decides_whether_the_atc_survives(void) {
   m.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
   m.cpu.regs.a[0] = 0x00005000u;
   write_ram_long(&m, 0x00005000u, CONSISTENT_TC);
-  (void)ap_m68030_atc_insert(&m.atc, 5u, 0x00020000u, 8u, 0x00090000u, false,
+  (void)ap_m68030_atc_insert(&m.atc, 5u, 0x0000A000u, 8u, 0x00090000u, false,
                              false, false, false);
   TEST_ASSERT_EQUAL_INT(AP_M68030_ATC_HIT,
-                        ap_m68030_atc_lookup(&m.atc, 5u, 0x00020000u, 8u, false,
+                        ap_m68030_atc_lookup(&m.atc, 5u, 0x0000A000u, 8u, false,
                                              false)
                             .status);
 
   TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&m.cpu).status);
   TEST_ASSERT_EQUAL_INT(AP_M68030_ATC_MISS,
-                        ap_m68030_atc_lookup(&m.atc, 5u, 0x00020000u, 8u, false,
+                        ap_m68030_atc_lookup(&m.atc, 5u, 0x0000A000u, 8u, false,
                                              false)
                             .status);
 
@@ -2855,12 +2883,12 @@ static void test_the_flush_disable_bit_decides_whether_the_atc_survives(void) {
   n.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
   n.cpu.regs.a[0] = 0x00005000u;
   write_ram_long(&n, 0x00005000u, CONSISTENT_TC);
-  (void)ap_m68030_atc_insert(&n.atc, 5u, 0x00020000u, 8u, 0x00090000u, false,
+  (void)ap_m68030_atc_insert(&n.atc, 5u, 0x0000A000u, 8u, 0x00090000u, false,
                              false, false, false);
 
   TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&n.cpu).status);
   TEST_ASSERT_EQUAL_INT(AP_M68030_ATC_HIT,
-                        ap_m68030_atc_lookup(&n.atc, 5u, 0x00020000u, 8u, false,
+                        ap_m68030_atc_lookup(&n.atc, 5u, 0x0000A000u, 8u, false,
                                              false)
                             .status);
 }
@@ -2904,6 +2932,217 @@ static void test_pmove_refuses_a_register_direct_operand(void) {
   TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_UNIMPLEMENTED,
                         ap_m68030_step(&m.cpu).status);
   TEST_ASSERT_FALSE(m.cpu.tc.enable);
+}
+
+/* ---------------------------------------------------------------------------
+ * PFLUSH, PLOAD and PTEST.
+ * ------------------------------------------------------------------------- */
+
+/* Put a translation in the ATC, so a flush has something to remove. */
+static void seed_atc(machine_t *m, uint8_t function_code, uint32_t logical) {
+  (void)ap_m68030_atc_insert(&m->atc, function_code, logical, 8u, 0x00090000u,
+                             false, false, false, false);
+}
+
+static bool atc_hits(machine_t *m, uint8_t function_code, uint32_t logical) {
+  return ap_m68030_atc_lookup(&m->atc, function_code, logical, 8u, false, false)
+             .status == AP_M68030_ATC_HIT;
+}
+
+/* "The PFLUSHA instruction invalidates all entries", whatever their function
+ * code. Mode 001, with "mask must be 000" and the FC field "must be 00000". */
+static void test_pflusha_invalidates_every_entry(void) {
+  static const uint16_t program[] = {0xF000u, 0x2400u, 0x4E71u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 4);
+  m.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
+  seed_atc(&m, 1u, 0x0000A000u);
+  seed_atc(&m, 5u, 0x0000B000u);
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&m.cpu).status);
+  TEST_ASSERT_FALSE(atc_hits(&m, 1u, 0x0000A000u));
+  TEST_ASSERT_FALSE(atc_hits(&m, 5u, 0x0000B000u));
+}
+
+/* "Each bit in the mask that is set to one indicates that the corresponding bit
+ * of the FC operand applies ... Each bit in the mask that is zero indicates a
+ * bit of FC ... ignored." So the mask says which bits must *agree*, and a zero
+ * mask therefore selects every function code rather than none. Reading it as a
+ * set of codes to flush inverts the instruction, and `PFLUSH #0,#0` becomes a
+ * no-op where the hardware flushes everything. */
+static void test_the_flush_mask_says_which_bits_must_agree(void) {
+  /* PFLUSH #5,#7 -- mode 100, mask 111, FC field 10101 (immediate 101). */
+  static const uint16_t exact[] = {0xF000u, 0x33F5u, 0x4E71u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, exact, 4);
+  m.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
+  seed_atc(&m, 5u, 0x0000A000u);
+  seed_atc(&m, 1u, 0x0000B000u);
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&m.cpu).status);
+  TEST_ASSERT_FALSE(atc_hits(&m, 5u, 0x0000A000u));
+  TEST_ASSERT_TRUE(atc_hits(&m, 1u, 0x0000B000u)); /* a different code survives */
+
+  /* PFLUSH #5,#4 -- only the top bit must agree, so every supervisor code goes
+   * and every user one stays. This is the manual's own worked example shape. */
+  static const uint16_t masked[] = {0xF000u, 0x3095u, 0x4E71u, 0x4E71u};
+  machine_t n = {0};
+  load(&n, masked, 4);
+  n.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
+  seed_atc(&n, 5u, 0x0000A000u);
+  seed_atc(&n, 6u, 0x0000C000u);
+  seed_atc(&n, 1u, 0x0000B000u);
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&n.cpu).status);
+  TEST_ASSERT_FALSE(atc_hits(&n, 5u, 0x0000A000u));
+  TEST_ASSERT_FALSE(atc_hits(&n, 6u, 0x0000C000u));
+  TEST_ASSERT_TRUE(atc_hits(&n, 1u, 0x0000B000u));
+}
+
+/* "When the instruction also specifies an <ea>, the instruction invalidates the
+ * page descriptor for that effective address entry." And the note that makes
+ * PFLUSH unlike every other instruction: "The address field must provide the
+ * memory management unit with the effective address to be flushed ... not the
+ * effective address describing where the PFLUSH operand is located" -- the
+ * calculated address *is* the operand, never read through. */
+static void test_pflush_by_address_flushes_that_page_and_no_other(void) {
+  /* PFLUSH #5,#7,(A0) -- mode 110, mask 111, FC 10101. */
+  static const uint16_t program[] = {0xF010u, 0x3BF5u, 0x4E71u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 4);
+  m.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
+  m.cpu.regs.a[0] = 0x0000A000u;
+  /* Something at that address that would be read if the address were followed
+   * rather than used, and would then flush the wrong page. */
+  write_ram_long(&m, 0x0000A000u, 0x0000B000u);
+  seed_atc(&m, 5u, 0x0000A000u);
+  seed_atc(&m, 5u, 0x0000B000u);
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&m.cpu).status);
+  TEST_ASSERT_FALSE(atc_hits(&m, 5u, 0x0000A000u));
+  TEST_ASSERT_TRUE(atc_hits(&m, 5u, 0x0000B000u));
+}
+
+/* The FC field is not a plain number: "10XXX -- Function code is specified as
+ * bits XXX. 01DDD -- Function code is specified as bits 2-0 of data register
+ * DDD." Reading the low three bits as the code makes `01DDD` name a function
+ * code that happens to be the register number, which for D5 is 5 -- a perfectly
+ * ordinary supervisor data code, so nothing looks wrong. */
+static void test_a_function_code_from_a_data_register_is_not_its_number(void) {
+  /* PFLUSH D5,#7 -- mode 100, mask 111, FC field 01101 (data register 5). */
+  static const uint16_t program[] = {0xF000u, 0x33EDu, 0x4E71u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 4);
+  m.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
+  m.cpu.regs.d[5] = 1u; /* the code is 1, not 5 */
+  seed_atc(&m, 1u, 0x0000A000u);
+  seed_atc(&m, 5u, 0x0000B000u);
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&m.cpu).status);
+  TEST_ASSERT_FALSE(atc_hits(&m, 1u, 0x0000A000u));
+  TEST_ASSERT_TRUE(atc_hits(&m, 5u, 0x0000B000u));
+}
+
+/* PFLUSH and PLOAD share the extension prefix `001` and are told apart by the
+ * MODE field below it. PLOAD is mode 000, and "creates a new entry as if the
+ * MC68030 had attempted to access that address" -- so it *adds* a translation
+ * where PFLUSH removes one, and a decoder stopping at the prefix would do the
+ * opposite of what was asked. */
+static void test_pload_adds_a_translation_where_pflush_removes_one(void) {
+  /* PLOADW #5,(A0) -- mode 000, R/W 0, FC field 10101. */
+  static const uint16_t program[] = {0xF010u, 0x2015u, 0x4E71u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 4);
+  m.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
+  m.cpu.regs.a[0] = 0x0000A000u;
+
+  /* A one-level tree: PS 8, IS 0, TIA 24 is not legal, so use the consistent
+   * shape and a root whose first table entry terminates early on a page. */
+  m.cpu.tc = ap_m68030_tc_decode(CONSISTENT_TC);
+  m.cpu.crp.table_address = 0x00008000u;
+  m.cpu.crp.long_format = false;
+  m.cpu.crp.has_limit = false;
+  /* Index A of $00020000 under PS 8 / TIA 8: the top eight bits, which are 0.
+   * A short early-termination page descriptor: DT 1, page address $00070000. */
+  write_ram_long(&m, 0x00008000u, 0x00070001u);
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&m.cpu).status);
+  TEST_ASSERT_TRUE(atc_hits(&m, 5u, 0x0000A000u));
+}
+
+/* "PTEST, Level 0" searches the ATC and nothing else, and reports through the
+ * MMUSR: "The I-bit is set if the translation for the specified logical address
+ * is not resident in the ATC". Both directions, since a model that always
+ * reported resident would pass a test that only probed a present page. */
+static void test_ptest_at_level_zero_reports_whether_the_atc_has_it(void) {
+  /* PTEST #5,(A0),#0 -- prefix 100, level 000, R/W 1, A 0, FC 10101. */
+  static const uint16_t program[] = {0xF010u, 0x8215u, 0x4E71u, 0x4E71u};
+
+  machine_t present = {0};
+  load(&present, program, 4);
+  present.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
+  present.cpu.regs.a[0] = 0x0000A000u;
+  present.cpu.tc = ap_m68030_tc_decode(CONSISTENT_TC);
+  seed_atc(&present, 5u, 0x0000A000u);
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED,
+                        ap_m68030_step(&present.cpu).status);
+  const ap_m68030_mmusr_t hit = ap_m68030_mmusr_unpack(present.cpu.mmusr);
+  TEST_ASSERT_FALSE(hit.invalid);
+
+  machine_t absent = {0};
+  load(&absent, program, 4);
+  absent.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
+  absent.cpu.regs.a[0] = 0x0000A000u;
+  absent.cpu.tc = ap_m68030_tc_decode(CONSISTENT_TC);
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED,
+                        ap_m68030_step(&absent.cpu).status);
+  TEST_ASSERT_TRUE(ap_m68030_mmusr_unpack(absent.cpu.mmusr).invalid);
+}
+
+/* "When this field contains 0, the A field and the register field must also be
+ * 0. The instruction takes an F-line exception when the level field is 0 and
+ * the A field is not 0." An ATC probe has no descriptor address to return,
+ * because it never fetched one. */
+static void test_a_level_zero_ptest_cannot_ask_for_a_descriptor_address(void) {
+  /* The same instruction with A set, which is the combination the manual
+   * singles out. */
+  static const uint16_t program[] = {0xF010u, 0x8315u, 0x4E71u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 4);
+  m.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
+  m.cpu.regs.a[0] = 0x0000A000u;
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_UNIMPLEMENTED,
+                        ap_m68030_step(&m.cpu).status);
+}
+
+/* Levels 1-7 walk the tree instead, and "The PTEST instruction does not alter
+ * the ATC" -- so a search that finds a translation leaves the cache exactly as
+ * it was, which is what makes PTEST usable inside a fault handler without
+ * changing the state being diagnosed. */
+static void test_a_table_search_ptest_leaves_the_atc_alone(void) {
+  /* PTEST #5,(A0),#7,A1 -- level 111, R/W 1, A 1, register 001, FC 10101. */
+  static const uint16_t program[] = {0xF010u, 0x9F35u, 0x4E71u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 4);
+  m.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
+  m.cpu.regs.a[0] = 0x0000A000u;
+  m.cpu.tc = ap_m68030_tc_decode(CONSISTENT_TC);
+  m.cpu.crp.table_address = 0x00008000u;
+  m.cpu.crp.long_format = false;
+  m.cpu.crp.has_limit = false;
+  write_ram_long(&m, 0x00008000u, 0x00070001u);
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&m.cpu).status);
+  /* The search succeeded ... */
+  TEST_ASSERT_FALSE(ap_m68030_mmusr_unpack(m.cpu.mmusr).invalid);
+  /* ... and nothing was cached, unlike PLOAD. */
+  TEST_ASSERT_FALSE(atc_hits(&m, 5u, 0x0000A000u));
+  /* "The physical address of the last descriptor fetched can be returned in an
+   * address register" -- the address fetched *from*, not what it pointed at. */
+  TEST_ASSERT_EQUAL_HEX32(0x00008000u, m.cpu.regs.a[1]);
 }
 
 int main(void) {
@@ -2973,6 +3212,14 @@ int main(void) {
   RUN_TEST(test_a_register_count_is_taken_modulo_sixty_four);
   RUN_TEST(test_a_byte_shift_leaves_the_upper_bytes);
   RUN_TEST(test_an_address_form_accepts_an_immediate_source);
+  RUN_TEST(test_pflusha_invalidates_every_entry);
+  RUN_TEST(test_the_flush_mask_says_which_bits_must_agree);
+  RUN_TEST(test_pflush_by_address_flushes_that_page_and_no_other);
+  RUN_TEST(test_a_function_code_from_a_data_register_is_not_its_number);
+  RUN_TEST(test_pload_adds_a_translation_where_pflush_removes_one);
+  RUN_TEST(test_ptest_at_level_zero_reports_whether_the_atc_has_it);
+  RUN_TEST(test_a_level_zero_ptest_cannot_ask_for_a_descriptor_address);
+  RUN_TEST(test_a_table_search_ptest_leaves_the_atc_alone);
   RUN_TEST(test_pmove_writes_and_reads_the_translation_control_register);
   RUN_TEST(test_the_same_p_register_field_names_two_different_registers);
   RUN_TEST(test_an_invalid_root_pointer_faults_after_the_move);

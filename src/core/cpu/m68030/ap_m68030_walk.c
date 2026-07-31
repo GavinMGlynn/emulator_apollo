@@ -161,6 +161,7 @@ ap_m68030_walk_result_t ap_m68030_walk(const ap_m68030_tc_t *tc,
 
     ap_m68030_descriptor_t descriptor = {0};
     result.descriptor_fetches++;
+    result.last_descriptor_address = descriptor_address;
     if (!fetch(context, descriptor_address, long_format, &descriptor)) {
       /* A bus error during the search sets the ATC's B, exactly as an invalid
        * descriptor or a protection violation does -- but `MMUSR` reports the
@@ -203,6 +204,7 @@ ap_m68030_walk_result_t ap_m68030_walk(const ap_m68030_tc_t *tc,
       ap_m68030_descriptor_t pointed = {0};
       const bool pointed_long = (descriptor.dt == AP_M68030_DT_VALID_8BYTE);
       result.descriptor_fetches++;
+      result.last_descriptor_address = descriptor.address_field;
       result.used_indirect = true;
       if (!fetch(context, descriptor.address_field, pointed_long, &pointed)) {
         result.bus_error = true;

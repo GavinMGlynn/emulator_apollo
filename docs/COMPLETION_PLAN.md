@@ -799,9 +799,46 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         sign-extending so `$8000` addresses the top of memory; and both operands
         taking their words **in order**, checked by giving them different
         displacements so a swapped read produces the wrong address.*
-  - [~] **The MMU instructions**, which are how every MMU register this project
-        already models actually gets written. `PMOVE` lands here; `PTEST`,
-        `PFLUSH` and `PLOAD` remain and are named rather than left implied.
+  - [x] **The MMU instructions**, which are how every MMU register and the ATC
+        this project already models actually get driven: `PMOVE`, `PFLUSH`,
+        `PFLUSHA`, `PLOAD` and `PTEST`.
+        **`PFLUSH` and `PLOAD` share the extension prefix `001`** and are told
+        apart by the MODE field below it — PFLUSH's modes are `001`, `100` and
+        `110`, and PLOAD is `000`. A decoder stopping at the prefix does the
+        *opposite* of what was asked: PLOAD adds a translation where PFLUSH
+        removes one.
+        **The flush mask says which bits must agree, not which codes to flush.**
+        "Each bit in the mask that is set to one indicates that the
+        corresponding bit of the FC operand applies", so a *zero* mask selects
+        every function code rather than none. Read the other way,
+        `PFLUSH #0,#0` becomes a no-op where the hardware flushes everything.
+        **The FC field is not a plain number**: `10XXX` is an immediate code,
+        `01DDD` is *data register DDD's* low three bits, `00000` is SFC and
+        `00001` DFC. Reading the low three bits directly makes `01DDD` name a
+        function code that happens to be the register number — for D5 that is 5,
+        an ordinary supervisor data code, so nothing looks wrong.
+        **`PFLUSH` and `PLOAD` use the calculated address as the operand**, never
+        reading through it: "The address field must provide the memory
+        management unit with the effective address to be flushed ... not the
+        effective address describing where the PFLUSH operand is located."
+        `PTEST` at level 0 probes the ATC and at levels 1–7 walks the tree with
+        a NULL history-update callback — which is what `ap_m68030_walk`'s
+        nullable `update` was built for — so it "does not alter the ATC" and
+        does not disturb the tree either. That is what makes it usable inside a
+        fault handler without changing the state being diagnosed. A level-0
+        `PTEST` with the A bit set is an F-line exception, since an ATC probe
+        never fetched a descriptor whose address it could return.
+        `ap_m68030_walk_result_t` gained `last_descriptor_address` for that
+        return value, and `ap_m68030_atc` gained a mask-based flush.
+        *Verification: `step_suite`, 8 further tests (139 total) — `PFLUSHA`
+        clearing entries of differing function codes; the mask selecting by
+        agreement, with a partial mask taking every supervisor code and leaving
+        the user ones; a flush by address leaving the neighbouring page; a
+        function code from a data register that is not the register's number;
+        `PLOAD` adding where `PFLUSH` removes; `PTEST` level 0 in both the
+        resident and non-resident cases; the level-0-with-A combination refused;
+        and a table-search `PTEST` succeeding while leaving the ATC empty and
+        returning the descriptor's own address.*
         **`PMOVE` has three instruction formats, told apart by the extension
         word's top three bits**, and the P-REGISTER field below them is not
         enough on its own: `010` names the *supervisor root pointer* under

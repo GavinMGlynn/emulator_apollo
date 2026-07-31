@@ -98,6 +98,22 @@ void ap_m68030_atc_flush(ap_m68030_atc_t *atc);
 void ap_m68030_atc_flush_entry(ap_m68030_atc_t *atc, uint8_t function_code,
                                uint32_t address, uint8_t page_size_bits);
 
+/* Invalidate every entry whose function code matches, as `PFLUSH FC,MASK` does.
+ *
+ * "Each bit in the mask that is set to one indicates that the corresponding bit
+ * of the FC operand applies to the operation. Each bit in the mask that is zero
+ * indicates a bit of FC ... ignored. For example, a mask operand of 100 causes
+ * the instruction to consider only the most significant bit of the FC operand.
+ * If the FC operand is 001, function codes 000, 001, 010, and 011 are
+ * selected."
+ *
+ * So a zero mask selects *every* function code rather than none -- the mask
+ * says which bits must agree, and when none must, all agree. Reading it as a
+ * set of codes to flush inverts the instruction: `PFLUSH #0,#0` would become a
+ * no-op where the hardware flushes everything with any function code. */
+void ap_m68030_atc_flush_function_codes(ap_m68030_atc_t *atc, uint8_t base,
+                                        uint8_t mask);
+
 /* Look an access up.
  *
  * `[030]` on the ordering this implements: B "causes the MC68030 to take a bus

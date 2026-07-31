@@ -24,6 +24,7 @@ static bool execute_extended(ap_m68030_cpu_t *cpu,
                              const ap_m68030_arith_t *arith, uint32_t *clocks);
 #include "cpu/m68030/ap_m68030_alu.h"
 #include "cpu/m68030/ap_m68030_exception.h"
+#include "cpu/m68030/ap_m68030_mmusr.h"
 #include "cpu/m68030/ap_m68030_operand.h"
 
 void ap_m68030_cpu_reset(ap_m68030_cpu_t *cpu, uint32_t pc) {
@@ -2381,12 +2382,7 @@ static ap_m68030_root_t pmove_root_from(uint32_t upper, uint32_t lower,
 }
 
 static bool execute_pmove(ap_m68030_cpu_t *cpu, const ap_m68030_coproc_t *coproc,
-                          uint32_t *clocks) {
-  uint16_t extension = 0;
-  if (!next_word(cpu, clocks, &extension)) {
-    return false;
-  }
-
+                          uint16_t extension, uint32_t *clocks) {
   const pmove_register_t which = pmove_register(extension);
   if (which == AP_PMOVE_NONE) {
     return false; /* a register this part does not have: F-line, not a no-op */
@@ -2528,6 +2524,252 @@ static bool execute_pmove(ap_m68030_cpu_t *cpu, const ap_m68030_coproc_t *coproc
     ap_m68030_atc_flush(cpu->data->atc);
   }
   return true;
+}
+
+/* ---------------------------------------------------------------------------
+ * PFLUSH, PLOAD and PTEST.
+ *
+ * PFLUSH and PLOAD share the extension word prefix `001` and are told apart by
+ * the MODE field below it -- PFLUSH's modes are 001, 100 and 110, and PLOAD is
+ * 000. So the prefix alone does not identify the instruction, and a decoder
+ * that stopped there would flush the ATC where it meant to load it.
+ *
+ * All three name a function code the same way, and the encoding is not a plain
+ * number: "10XXX -- Function code is specified as bits XXX. 01DDD -- Function
+ * code is specified as bits 2-0 of data register DDD. 00000 -- SFC register.
+ * 00001 -- DFC register." Reading the low three bits as the code makes `01DDD`
+ * name a function code that happens to be the register number.
+ * ------------------------------------------------------------------------- */
+
+static bool resolve_function_code(const ap_m68030_cpu_t *cpu, unsigned field,
+                                  uint8_t *out) {
+  if ((field & 0x18u) == 0x10u) { /* 10XXX */
+    *out = (uint8_t)(field & 0x7u);
+    return true;
+  }
+  if ((field & 0x18u) == 0x08u) { /* 01DDD */
+    *out = (uint8_t)(cpu->regs.d[field & 0x7u] & 0x7u);
+    return true;
+  }
+  if (field == 0x00u) {
+    *out = cpu->regs.sfc;
+    return true;
+  }
+  if (field == 0x01u) {
+    *out = cpu->regs.dfc;
+    return true;
+  }
+  return false; /* an encoding the field does not define */
+}
+
+/* The page size the MMU is configured for, which every ATC operation is
+ * expressed in. */
+static uint8_t mmu_page_size_bits(const ap_m68030_cpu_t *cpu) {
+  return cpu->tc.page_size_bits;
+}
+
+/* Which root pointer a search uses. "SRE ... supervisor root pointer enable":
+ * with it set, a supervisor access searches the SRP tree and everything else
+ * the CRP's. With it clear there is one tree, and it is the CRP's. */
+static const ap_m68030_root_t *root_for(const ap_m68030_cpu_t *cpu,
+                                        uint8_t function_code) {
+  const bool supervisor = (function_code & 0x4u) != 0u;
+  return (cpu->tc.supervisor_root && supervisor) ? &cpu->srp : &cpu->crp;
+}
+
+static bool execute_pflush_or_pload(ap_m68030_cpu_t *cpu,
+                                    const ap_m68030_coproc_t *coproc,
+                                    uint16_t extension, uint32_t *clocks) {
+  const unsigned mode = (unsigned)((extension >> 10) & 0x7u);
+  const unsigned mask = (unsigned)((extension >> 5) & 0x7u);
+  const unsigned fc_field = (unsigned)(extension & 0x1Fu);
+
+  ap_m68030_atc_t *atc = (cpu->data != NULL) ? cpu->data->atc : NULL;
+  if (atc == NULL) {
+    return false;
+  }
+
+  /* "001 -- Flush all entries", and with it "mask must be 000" and the FC field
+   * "must be 00000". A word that sets them is not this instruction. */
+  if (mode == 0x1u) {
+    if (mask != 0u || fc_field != 0u) {
+      return false;
+    }
+    ap_m68030_atc_flush(atc);
+    return true;
+  }
+
+  uint8_t function_code = 0;
+  if (!resolve_function_code(cpu, fc_field, &function_code)) {
+    return false;
+  }
+
+  if (mode == 0x4u) {
+    /* "100 -- Flush by function code only." */
+    ap_m68030_atc_flush_function_codes(atc, function_code, (uint8_t)mask);
+    return true;
+  }
+
+  /* The remaining two both need the effective address. "The address field must
+   * provide the memory management unit with the effective address to be flushed
+   * ... not the effective address describing where the PFLUSH operand is
+   * located" -- so the calculated address *is* the operand, and is never read
+   * through. */
+  ap_m68030_address_input_t input = {0};
+  if (!gather_address_input(cpu, coproc->ea.kind, 4u, clocks, &input)) {
+    return false;
+  }
+  const ap_m68030_address_t where =
+      resolve_address(cpu, clocks, coproc->ea, &input);
+  if (!where.valid || where.in_register || where.immediate) {
+    return false; /* only control alterable modes */
+  }
+
+  if (mode == 0x6u) {
+    /* "110 -- Flush by function code and effective address." */
+    ap_m68030_atc_flush_entry(atc, function_code, where.address,
+                              mmu_page_size_bits(cpu));
+    return true;
+  }
+
+  if (mode != 0x0u) {
+    return false;
+  }
+
+  /* PLOAD. "It also searches the translation table for the descriptor
+   * corresponding to the specified effective address. It creates a new entry as
+   * if the MC68030 had attempted to access that address. Sets the used and
+   * modified bits appropriately as part of the search. The instruction executes
+   * despite the value of the E-bit in the translation control register" -- so
+   * unlike an ordinary access, translation being disabled does not skip it.
+   *
+   * "Any existing entry in the ATC that translates the specified address is
+   * flushed" before the new one is made. */
+  const bool read = (extension & (1u << 9)) != 0u;
+  const ap_m68030_search_access_t access = {
+      .write = !read,
+      .read_modify_write = false,
+      .supervisor = (function_code & 0x4u) != 0u,
+  };
+
+  ap_m68030_atc_flush_entry(atc, function_code, where.address,
+                            mmu_page_size_bits(cpu));
+
+  const ap_m68030_walk_result_t result = ap_m68030_walk(
+      &cpu->tc, root_for(cpu, function_code), where.address, &access,
+      cpu->data->table_fetch, cpu->data->table_update, cpu->data->context);
+  (void)ap_m68030_walk_fill_atc(atc, &result, &access, function_code,
+                                where.address, mmu_page_size_bits(cpu));
+  /* "The PLOAD instruction does not alter the MMUSR." */
+  return true;
+}
+
+static bool execute_ptest(ap_m68030_cpu_t *cpu,
+                          const ap_m68030_coproc_t *coproc, uint16_t extension,
+                          uint32_t *clocks) {
+  const unsigned level = (unsigned)((extension >> 10) & 0x7u);
+  const bool want_address = (extension & (1u << 8)) != 0u;
+  const unsigned address_register = (unsigned)((extension >> 5) & 0x7u);
+  const unsigned fc_field = (unsigned)(extension & 0x1Fu);
+
+  /* "When this field contains 0, the A field and the register field must also
+   * be 0. The instruction takes an F-line exception when the level field is 0
+   * and the A field is not 0." An ATC probe has no descriptor address to
+   * return, because it never fetched one. */
+  if (level == 0u && (want_address || address_register != 0u)) {
+    return false;
+  }
+
+  uint8_t function_code = 0;
+  if (!resolve_function_code(cpu, fc_field, &function_code)) {
+    return false;
+  }
+
+  ap_m68030_address_input_t input = {0};
+  if (!gather_address_input(cpu, coproc->ea.kind, 4u, clocks, &input)) {
+    return false;
+  }
+  const ap_m68030_address_t where =
+      resolve_address(cpu, clocks, coproc->ea, &input);
+  if (!where.valid || where.in_register || where.immediate) {
+    return false;
+  }
+
+  ap_m68030_atc_t *atc = (cpu->data != NULL) ? cpu->data->atc : NULL;
+  if (atc == NULL) {
+    return false;
+  }
+
+  if (level == 0u) {
+    /* "PTEST, Level 0" searches the ATC and nothing else. The T bit reports a
+     * transparent translation match, which the caller evaluates -- the TTx
+     * registers are consulted before the ATC on a real access, so a
+     * transparently translated address is one the ATC never sees. */
+    const ap_m68030_access_t probe = {
+        .address = where.address,
+        .function_code = function_code,
+        .read = true,
+        .read_modify_write = false,
+    };
+    const ap_m68030_tt_result_t transparent =
+        ap_m68030_tt_translate(&cpu->tt0, &cpu->tt1, &probe);
+    const ap_m68030_mmusr_t status = ap_m68030_mmusr_probe_atc(
+        atc, function_code, where.address, mmu_page_size_bits(cpu),
+        transparent.transparent);
+    cpu->mmusr = ap_m68030_mmusr_pack(&status);
+    return true;
+  }
+
+  /* Levels 1-7 perform a table search. "The PTEST instruction does not alter
+   * the ATC", and the update callback is NULL so it does not disturb the
+   * tree's history bits either -- which is exactly what ap_m68030_walk's
+   * nullable `update` exists for. */
+  const ap_m68030_search_access_t access = {
+      .write = (extension & (1u << 9)) == 0u,
+      .read_modify_write = false,
+      .supervisor = (function_code & 0x4u) != 0u,
+  };
+  const ap_m68030_walk_result_t result =
+      ap_m68030_walk(&cpu->tc, root_for(cpu, function_code), where.address,
+                     &access, cpu->data->table_fetch, NULL, cpu->data->context);
+
+  const ap_m68030_mmusr_t status =
+      ap_m68030_mmusr_from_search(&result, function_code);
+  cpu->mmusr = ap_m68030_mmusr_pack(&status);
+
+  if (want_address) {
+    /* "The physical address of the last descriptor fetched can be returned in
+     * an address register." */
+    ap_m68030_write_address_register(&cpu->regs, address_register,
+                                     result.last_descriptor_address);
+  }
+  return true;
+}
+
+/* The MMU instruction dispatcher. The extension word's top three bits choose,
+ * and the four instructions do not partition it evenly: `010`, `011` and `000`
+ * are all PMOVE (three formats, three register groups), `001` is PFLUSH *and*
+ * PLOAD sharing a prefix, and `100` is PTEST. */
+static bool execute_mmu(ap_m68030_cpu_t *cpu, const ap_m68030_coproc_t *coproc,
+                        uint32_t *clocks) {
+  uint16_t extension = 0;
+  if (!next_word(cpu, clocks, &extension)) {
+    return false;
+  }
+
+  switch ((unsigned)((extension >> 13) & 0x7u)) {
+  case 0x0u: /* PMOVE, the transparent translation registers */
+  case 0x2u: /* PMOVE, the root pointers and TC */
+  case 0x3u: /* PMOVE, the status register */
+    return execute_pmove(cpu, coproc, extension, clocks);
+  case 0x1u: /* PFLUSH and PLOAD, told apart by the MODE field */
+    return execute_pflush_or_pload(cpu, coproc, extension, clocks);
+  case 0x4u: /* PTEST */
+    return execute_ptest(cpu, coproc, extension, clocks);
+  default:
+    break;
+  }
+  return false;
 }
 
 ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
@@ -2734,7 +2976,7 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
         cpu->pending_vector = AP_M68030_VECTOR_PRIVILEGE_VIOLATION;
         break;
       }
-      if (execute_pmove(cpu, coproc, &out.clocks)) {
+      if (execute_mmu(cpu, coproc, &out.clocks)) {
         break;
       }
     }

@@ -178,3 +178,16 @@ int ap_m68030_atc_insert(ap_m68030_atc_t *atc, uint8_t function_code,
   };
   return (int)victim;
 }
+
+void ap_m68030_atc_flush_function_codes(ap_m68030_atc_t *atc, uint8_t base,
+                                        uint8_t mask) {
+  const uint8_t effective = (uint8_t)(mask & 0x7u);
+  for (unsigned i = 0; i < AP_M68030_ATC_ENTRIES; i++) {
+    if (!atc->entry[i].valid) {
+      continue;
+    }
+    if (((atc->entry[i].function_code ^ base) & effective) == 0u) {
+      atc->entry[i].valid = false;
+    }
+  }
+}

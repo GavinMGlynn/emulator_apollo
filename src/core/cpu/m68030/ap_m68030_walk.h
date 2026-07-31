@@ -164,6 +164,15 @@ typedef struct {
                                 * and one write" -- so this is measured time, not
                                 * bookkeeping. */
   unsigned levels_walked;
+
+  /* The physical address of the last descriptor the search fetched, which
+   * `PTEST` returns in an address register when its A bit is set: "The physical
+   * address of the last descriptor fetched can be returned in an address
+   * register." A fault handler uses it to find the descriptor that refused the
+   * access, so it is the address *fetched from*, not the address the descriptor
+   * pointed at. Zero when nothing was fetched. */
+  uint32_t last_descriptor_address;
+
   bool early_termination; /* ended on a page descriptor above the page table */
   bool used_indirect;
   bool page_modified;     /* M of the page descriptor as it now stands, which is
