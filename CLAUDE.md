@@ -84,7 +84,10 @@ reference core to chase speed** — that is the classic mistake.
 src/core/      the emulator core, a static lib with zero frontend deps
   model/       the model table: all machine variance lives here
   time/        global time base and scheduling
-src/frontend/  headless (deterministic) and, later, sdl (interactive)
+src/frontend/
+  common/      shared by every frontend: naming, reports, common options
+  headless/    deterministic: no wall clock, no host input, no threads
+  sdl/         interactive (later; deliberately not stubbed)
 tests/         one <suite>.c per subsystem, one CTest entry each
 tools/         probes, the oracle harness, converters
 docs/          PROJECT_STATUS.md, COMPLETION_PLAN.md, references/

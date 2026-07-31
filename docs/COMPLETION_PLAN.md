@@ -29,6 +29,14 @@ file the moment they are found, not when someone remembers.
       mame, musashi (reference only). *Verification: CI builds with only
       `ext/unity` initialised.*
 
+- [x] Shared frontend layer in `src/frontend/common/`: part naming, the
+      `--list-models` report, and the options every frontend accepts
+      (`--model`, `--list-models`, `--help`), parsed one argument at a time so
+      each frontend keeps its own flags. *Verification:
+      `frontend_common_suite` — every model selectable by name, a typo rejected
+      rather than silently emulating the wrong machine, a frontend-specific flag
+      passed through untouched, and the report byte-identical across calls.*
+
 ## Phase 1 — Verification infrastructure, before the subsystems it checks
 
 - [ ] Build MAME with only the apollo driver and assemble the `dn3500` ROM set

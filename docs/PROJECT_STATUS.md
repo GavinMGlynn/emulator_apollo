@@ -32,7 +32,8 @@ Last updated: 2026-07-31.
 | 3c505 802.3 Ethernet | not started | — |
 | MAME oracle harness | not started | — |
 | Probe suite and goldens | not started | — |
-| Headless frontend | `--list-models` only | `headless_lists_models` CTest |
+| Shared frontend layer (`frontend/common/`) | working | `frontend_common_suite`, 10 tests |
+| Headless frontend | `--model`, `--list-models`, `--help` | `headless_lists_models` CTest |
 | SDL frontend | not started, deliberately not stubbed | — |
 
 ## What is established, and from where
