@@ -227,9 +227,52 @@ file the moment they are found, not when someone remembers.
         *Verification: a captured session transcript in
         `docs/references/MD.md`, byte-exact.* The no-guessing rule still applies
         to the parser; it no longer blocks the encoder's input side.
-- [ ] Probes side-loadable into post-boot machine state, so CI needs no
+- [~] Probes side-loadable into post-boot machine state, so CI needs no
       copyrighted firmware. *Verification: the probe suite runs in CI with
       `roms/` absent.*
+  - [x] **The machine to side-load into** (`src/core/machine/ap_machine.c`): a
+        68030 wired to flat RAM and nothing else. Construct, poke memory and
+        registers, run to a limit, read back — the whole cycle a probe performs,
+        with no firmware and no boot. Built **first** rather than after the MD
+        route, on C4's evidence.
+        Not the DN3500: no I/O, no device, no arbitration point. Those are
+        Phase 3, and machine variance belongs in the model table.
+        **RAM is supplied, not allocated** — the core allocates nothing, so a
+        probe picks its size and a test can put one on the stack.
+        **Outside the RAM is a bus error**, counted rather than merely refused.
+        Wrapping would invent an alias the hardware does not have; reading zero
+        would make an out-of-range probe look like a working one that found
+        empty memory. The range is checked as a *range*, so a long word
+        straddling the top is refused rather than reading past the buffer.
+        **A run takes a limit**, because a probe that loops forever must end as
+        a failed probe rather than as a hung harness.
+        *Verification: `machine_suite`, 10 tests — the whole probe cycle; reset
+        leaving supervisor state with interrupts masked at 7; an out-of-range
+        access faulting rather than wrapping, including the straddling case; a
+        runaway program stopping at its limit; a run reporting *why* it ended;
+        an operator write not leaving a stale cache line; two machines on two
+        different RAM buffers hashing alike at every step; the machine hash
+        covering the RAM; the two caches being distinct; and a `PMOVE` reaching
+        the registers the machine actually translates through.*
+  - [x] **A defect in the state hash, found by building on it.** Two machines
+        constructed identically on two different buffers hashed *differently*.
+        `ap_m68030_cache_clear` clears valid bits and leaves the tag and data
+        behind — by design, and documented — so an invalid entry holds whatever
+        the last occupant left, which no lookup can reach. The hash fed it
+        anyway, and `ap_m68030_atc_flush` leaves the same debris.
+        That is a **false positive**, and worse than a miss: a harness that
+        rejects identical machines cannot be used at all, so every item gated on
+        it would have been gated on something unusable. The hash now covers what
+        an access can reach — a line's tag only when some entry is valid, an
+        entry's data only when that entry is — with one deliberate exception,
+        the ATC's history bit, which the replacement algorithm reads whatever the
+        valid bit says.
+        `ap_machine_init` also now defines *every* field rather than the ones it
+        sets: a machine whose behaviour depended on what was in the caller's
+        stack beforehand is not reproducible, which is the one thing it must be.
+        *Verification: `state_suite`, 2 further tests (12 total) — stale data
+        behind an invalid cache entry not counting until the entry is validated,
+        and an invalid ATC entry contributing its history bit and nothing else.*
   - Note: MD-driven probes need the boot PROM, so they are a
       *development-time* path, not the CI path. The CI path stays what this item
       says — inject probe state directly into a constructed machine, no firmware

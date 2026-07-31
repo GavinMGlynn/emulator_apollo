@@ -38,6 +38,7 @@ add_library(apollo_core STATIC
   cpu/m68030/ap_m68030_tt.c
   cpu/m68030/ap_m68030_walk.c
   model/ap_model.c
+  machine/ap_machine.c
   state/ap_hash.c
   time/ap_time.c
 )

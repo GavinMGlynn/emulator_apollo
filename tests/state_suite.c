@@ -378,6 +378,55 @@ static void test_an_absent_access_context_is_not_an_empty_one(void) {
   TEST_ASSERT_NOT_EQUAL_UINT64(present, ap_m68030_state_hash(&m.cpu));
 }
 
+/* The hash must cover what an access can *reach*, and no more. A cache clear
+ * clears valid bits and leaves the tag and data behind -- by design, and the
+ * module says so -- so an invalid entry holds whatever the last occupant left
+ * and no lookup can return it.
+ *
+ * Hashing it anyway is a *false positive*: two machines that behave identically
+ * hash differently. That is worse than a miss, because a harness which rejects
+ * identical machines cannot be used at all -- and it is how this was found, by
+ * two machines built the same way on two different RAM buffers disagreeing. */
+static void test_stale_data_behind_an_invalid_cache_entry_is_not_state(void) {
+  machine_t m = {0};
+  make_machine(&m);
+  const uint64_t clean = ap_m68030_state_hash(&m.cpu);
+
+  /* A line the processor cannot reach: no entry valid, but a tag and data left
+   * over from a previous occupant. */
+  m.instruction_cache.line[5].tag = 0xDEADBEEFu;
+  m.instruction_cache.line[5].entry[0] = 0x12345678u;
+  m.instruction_cache.line[5].entry[3] = 0x9ABCDEF0u;
+  TEST_ASSERT_EQUAL_HEX64(clean, ap_m68030_state_hash(&m.cpu));
+
+  /* Validate one entry and it becomes reachable, so it counts -- along with the
+   * tag, which is per line and shared. */
+  m.instruction_cache.line[5].valid[0] = true;
+  TEST_ASSERT_NOT_EQUAL_UINT64(clean, ap_m68030_state_hash(&m.cpu));
+}
+
+/* The same for the ATC, with one exception that must survive: an invalid
+ * entry's translation is unreachable, but its **history bit** is read by the
+ * replacement algorithm whatever the valid bit says, so two ATCs differing only
+ * there choose different victims on the next miss. */
+static void test_only_the_history_bit_survives_an_invalid_atc_entry(void) {
+  machine_t m = {0};
+  make_machine(&m);
+  const uint64_t clean = ap_m68030_state_hash(&m.cpu);
+
+  /* An unreachable translation left behind by a flush. */
+  m.atc.entry[2].function_code = 5u;
+  m.atc.entry[2].logical = 0x0002A000u;
+  m.atc.entry[2].physical = 0x00090000u;
+  m.atc.entry[2].write_protect = true;
+  TEST_ASSERT_FALSE(m.atc.entry[2].valid);
+  TEST_ASSERT_EQUAL_HEX64(clean, ap_m68030_state_hash(&m.cpu));
+
+  /* The history bit is different: it is read regardless. */
+  m.atc.entry[2].history = true;
+  TEST_ASSERT_NOT_EQUAL_UINT64(clean, ap_m68030_state_hash(&m.cpu));
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_two_identically_built_machines_hash_alike);
@@ -388,6 +437,8 @@ int main(void) {
   RUN_TEST(test_the_pipe_and_holding_register_reach_the_hash);
   RUN_TEST(test_both_caches_and_the_atc_reach_the_hash);
   RUN_TEST(test_an_invalid_atc_entry_still_carries_its_history_bit);
+  RUN_TEST(test_stale_data_behind_an_invalid_cache_entry_is_not_state);
+  RUN_TEST(test_only_the_history_bit_survives_an_invalid_atc_entry);
   RUN_TEST(test_the_accumulated_clock_reaches_the_hash);
   RUN_TEST(test_an_absent_access_context_is_not_an_empty_one);
   return UNITY_END();

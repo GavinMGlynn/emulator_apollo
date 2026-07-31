@@ -35,8 +35,12 @@ closed by transcribing `[030]` §11.6's tables: as
 any single execution ever takes, so a core that looked them up would be
 reproducing an average the hardware never exhibits.
 
-**No machine exists yet.** There is no memory system, no device and no bus
-arbitration point, so nothing boots and no end-to-end timing can be measured.
+**A machine exists, but not the DN3500.** `ap_machine` wires the 68030 to flat
+RAM: construct, poke, run to a limit, read back. That is what a side-loaded
+probe needs and it requires no firmware — built ahead of the boot-PROM route
+because that route is in doubt (`tools/mame-oracle/FINDINGS.md` C4). There is
+still no I/O, no device and no bus arbitration point, so nothing boots and no
+end-to-end timing can be measured.
 The golden regression harness exists but pins reports about the model table
 rather than emulated behaviour. This section will state exactly what backs the
 claim when there is one.
@@ -59,8 +63,9 @@ Last updated: 2026-08-01.
 | 68030 integer ALU (results and condition codes) | working: ADD, SUB, CMP, AND, OR, EOR, NEG, NOT, and the shifts and rotates | `alu_suite`, 17 tests, `M68000 Family Programmer's Reference Manual 1992` Table 3-18; the byte space verified exhaustively |
 | 68030 exception taking (stack the frame, fetch the vector through the VBR, load the PC) | working for the four- and six-word frames and the throwaway frame, wired to divide-by-zero, `TRAP #N`, `TRAPV`, `CHK`, `ILLEGAL`, privilege violations, MMU configuration errors, **interrupts** and **trace**; reset, the fault frames, the coprocessor frame and the interrupt M-bit second frame decline rather than approximate | `step_suite` (10 of its tests), `exception_suite`, 16 tests, `[030]` §8.1 and Table 8-6 |
 | 68030 family `0000` size-11 escape (`CMP2`/`CHK2`/`CAS`/`CAS2`) | decoded; the opcode map now has no holes. Semantics open: `CAS`/`CAS2` need an indivisible read-modify-write | `bounds_suite`, 9 tests, `M68000 Family Programmer's Reference Manual 1992` |
+| Constructed machine (`machine/`) | a 68030 on flat RAM, with an out-of-range access faulting rather than wrapping; no I/O, no device, no arbitration point | `machine_suite`, 10 tests |
 | 68030 instruction overlap (§11.3's Equation 11-1) | the composition rule only, deliberately without §11.6's per-instruction figures — those must be measured, not transcribed | `overlap_suite`, 8 tests, including the manual's own worked example |
-| 68030 state hash (the identity harness's CPU half) | working: every architectural register, the MMU and cache control registers, the pipe, both caches, the ATC, and the accumulated clock — host pointers excluded by construction, since `ap_hash.h` has no pointer helper | `state_suite`, 10 tests sweeping every field; `step_suite`'s same-program-twice check |
+| 68030 state hash (the identity harness's CPU half) | working: every architectural register, the MMU and cache control registers, the pipe, both caches, the ATC, and the accumulated clock — host pointers excluded by construction, since `ap_hash.h` has no pointer helper | `state_suite`, 12 tests sweeping every field; `step_suite`'s same-program-twice check |
 | 68030 addressing mode categories (Data / Memory / Control / Alterable) | working; derived from §2.3's definitions rather than transcribed from Table 2-4, whose Alterable column is exchanged between two row pairs in the scan | `category_suite`, 8 tests, `M68000 Family Programmer's Reference Manual 1992` §2.3 |
 | 68030 operand access (read/write through an effective address) | working; a sub-long-word operand is selected from the long word by position, and one straddling two long words is split into a bus cycle per long word in address order | `operand_suite`, 13 tests, `M68000 Family Programmer's Reference Manual 1992` |
 | 68030 instruction step (fetch → decode → execute → advance) | working for `NOP`, `MOVEQ`, 8-bit `BRA`/`Bcc`, `MOVE`/`MOVEA`, the six ALU operations, the `xxxI` immediate forms, `CLR`/`NEG`/`NOT`/`TST`, `ADDQ`/`SUBQ`/`Scc`/`DBcc`, `ADDA`/`SUBA`/`CMPA`, `BTST`/`BCHG`/`BCLR`/`BSET`, the shifts and rotates, `MULU`/`MULS`, `DIVU`/`DIVS`, `ADDX`/`SUBX`/`ABCD`/`SBCD` in both the register and the `-(An),-(An)` forms, `CMPM` and all three `EXG` exchanges; everything else reports unimplemented, including divide-by-zero, which needs the exception machinery | `step_suite`, 161 tests |

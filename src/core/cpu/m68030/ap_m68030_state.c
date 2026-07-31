@@ -53,12 +53,30 @@ void ap_m68030_hash_pipe(ap_hash_t *st, const ap_m68030_pipe_t *pipe) {
 
 void ap_m68030_hash_cache(ap_hash_t *st, const ap_m68030_cache_t *cache) {
   for (unsigned line = 0; line < AP_M68030_CACHE_LINES; line++) {
-    ap_hash_u32(st, cache->line[line].tag);
+    /* Only what an access can *reach*. `ap_m68030_cache_clear` clears the valid
+     * bits and leaves the tag and data behind, so an invalid entry holds
+     * whatever the last occupant left -- and a lookup can never return it.
+     * Hashing it anyway makes two machines that behave identically hash
+     * differently, which is a false positive in the identity harness and worse
+     * than a miss: a harness that rejects identical machines cannot be used at
+     * all. It is how this was found -- two machines built the same way on two
+     * different buffers disagreed.
+     *
+     * The tag is per line and shared by four entries, so it counts exactly when
+     * some entry in the line is valid. */
+    bool any_valid = false;
     for (unsigned entry = 0; entry < AP_M68030_CACHE_ENTRIES; entry++) {
-      /* The valid bit is per entry, so a line whose tag matches and whose
-       * entries are all invalid is not the same state as an absent line. */
+      any_valid = any_valid || cache->line[line].valid[entry];
+    }
+    ap_hash_u32(st, any_valid ? cache->line[line].tag : 0u);
+
+    for (unsigned entry = 0; entry < AP_M68030_CACHE_ENTRIES; entry++) {
+      /* The valid bit is itself state, and per entry: a line with one valid
+       * entry is not the same as a line with two. */
       hash_bool(st, cache->line[line].valid[entry]);
-      ap_hash_u32(st, cache->line[line].entry[entry]);
+      ap_hash_u32(st, cache->line[line].valid[entry]
+                          ? cache->line[line].entry[entry]
+                          : 0u);
     }
   }
 }
@@ -67,6 +85,20 @@ void ap_m68030_hash_atc(ap_hash_t *st, const ap_m68030_atc_t *atc) {
   for (unsigned i = 0; i < AP_M68030_ATC_ENTRIES; i++) {
     const ap_m68030_atc_entry_t *entry = &atc->entry[i];
     hash_bool(st, entry->valid);
+
+    /* The history bit is fed even for an invalid entry: it is what the
+     * replacement algorithm reads, so two ATCs differing only there choose
+     * different victims on the next miss. `ap_m68030_atc_flush` clears it
+     * along with the valid bit, which is what makes that well defined. */
+    hash_bool(st, entry->history);
+
+    /* Everything else only when the entry is valid. A flush clears the valid
+     * bit and leaves the tag and translation behind, and no lookup can reach
+     * them -- so hashing them would make two machines that behave identically
+     * hash differently, which is a false positive the harness cannot afford. */
+    if (!entry->valid) {
+      continue;
+    }
     ap_hash_u8(st, entry->function_code);
     ap_hash_u32(st, entry->logical);
     hash_bool(st, entry->bus_error);
@@ -74,10 +106,6 @@ void ap_m68030_hash_atc(ap_hash_t *st, const ap_m68030_atc_t *atc) {
     hash_bool(st, entry->write_protect);
     hash_bool(st, entry->modified);
     ap_hash_u32(st, entry->physical);
-    /* The history bit is fed even for an invalid entry: it is what the
-     * replacement algorithm reads, so two ATCs differing only there choose
-     * different victims on the next miss. */
-    hash_bool(st, entry->history);
   }
 }
 
