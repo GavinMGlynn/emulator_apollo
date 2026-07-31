@@ -400,6 +400,25 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         *regardless* of size, the return address differing from the base for the
         wider forms with the 8-bit case asserted to agree, and a branch past the
         end of the address space wrapping rather than saturating.*
+  - [x] **Family `0101` decode** (`src/core/cpu/m68030/ap_m68030_quick.c`):
+        ADDQ, SUBQ, Scc, DBcc and TRAPcc, five instructions in one encoding
+        space separated by fields that overlap rather than nest. Bits 7-6 are
+        the ADDQ/SUBQ size field whose `11` encoding is not a legal size, and
+        that spare encoding selects the conditional group — at which point bit
+        8, the direction bit, becomes part of the condition. Within that group
+        the EA *mode* field separates the rest **by reusing encodings `Scc`
+        cannot legally take**: `Scc` writes a byte, so an address register
+        destination is meaningless, and that is exactly where `DBcc` lives.
+        Neither it nor `TRAPcc` is a special case bolted on; both are holes in
+        `Scc`'s own address space.
+        Two traps, each tested. The quick data field's **zero means eight** —
+        a decoder passing it through turns every add-8 into an add-0, an
+        instruction that runs, sets condition codes and does nothing. And
+        `DBcc` terminates on **−1 after decrementing**, so a starting count of
+        zero decrements to `$FFFF` and stops after one pass rather than
+        wrapping to 65535; zero is explicitly *not* the terminator, which is
+        asserted directly.
+        *Verification: `quick_suite`, 10 tests.*
   - [ ] Wire the bus to a memory system so the termination kind and its arrival
         clock come from a device rather than a test. That is what makes
         contention emergent, and it belongs with Phase 3's single arbitration
