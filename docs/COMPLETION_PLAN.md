@@ -380,6 +380,26 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         the low twelve bits varied to prove they do not influence the family,
         the move sizes asserted as sizes rather than names, and both emulator
         families resolving to the exception module's own vectors.*
+  - [x] **Branch family decode** (`src/core/cpu/m68030/ap_m68030_branch.c`),
+        family `0110`, the first per-family decoder and the one that consumes
+        `ap_m68030_cond`. `M68000 Family PRM` §8.2 and the Bcc/BRA/BSR pages.
+        **The branch base and the BSR return address are different addresses.**
+        The PRM gives the branch as "PC + dn → PC" with PC the instruction
+        address *plus two*, while BSR pushes "PC" meaning the instruction that
+        follows — a whole instruction length away. They coincide only for the
+        8-bit form, which is exactly why the mistake survives casual testing:
+        computing the return address as the base gives a BSR that returns into
+        its own displacement words for the 16- and 32-bit forms.
+        `$00` and `$FF` are escapes rather than displacements, so the 8-bit
+        field cannot encode 0 or −1 — and the manual's own NOTE gives the
+        visible consequence: "A branch to the immediately following instruction
+        automatically uses the 16-bit displacement format".
+        *Verification: `branch_suite`, 8 tests — conditions 0 and 1 decoding as
+        BRA and BSR (the encodings Table 3-19 marks unavailable to `Bcc`), both
+        escapes, length following displacement size, the base being +2
+        *regardless* of size, the return address differing from the base for the
+        wider forms with the 8-bit case asserted to agree, and a branch past the
+        end of the address space wrapping rather than saturating.*
   - [ ] Wire the bus to a memory system so the termination kind and its arrival
         clock come from a device rather than a test. That is what makes
         contention emergent, and it belongs with Phase 3's single arbitration
