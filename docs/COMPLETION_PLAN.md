@@ -129,13 +129,25 @@ file the moment they are found, not when someone remembers.
     format to recover first, and no Domain/OS boot, which is what keeps probes a
     Phase 1 deliverable instead of one gated on Phase 4. Command set recorded in
     `docs/references/MD.md` from `002398-04` ch. 5.
-  - [ ] **Blocker, deliberately not guessed:** MD's exact per-command syntax and
-        output format are not in the handbook's command list — what `A` prints,
-        how it takes a deposit, the radix and terminator, and `DR`'s register
-        dump layout. Capture a real MD session under the oracle and transcribe
-        it. Writing the encoder against a guessed syntax would be precisely the
-        trial-and-error the project forbids. *Verification: a captured session
-        transcript in `docs/references/MD.md`, byte-exact.*
+  - [x] **Input syntax: closed from the manual, not the oracle.** The blocker
+        was recorded as "MD's syntax is not in the handbook's command list",
+        which was true and misleading — the handbook continues *past* the list
+        into a per-command reference (`[EH4]` pp. 5-7 on) and then states the
+        grammar formally at pp. 5-13/5-14. It is now transcribed in
+        `docs/references/MD.md`: the full BNF, hexadecimal-by-default input,
+        `<size_spec>`/`<base_spec>` placement, `*` as current location, and the
+        `AR` control-register names that are the Phase 2 MMU and cache probe
+        surface. *Verification: cited to page; the OCR damage to `|` and `::=`
+        is called out, and the reconstruction rests on the handbook expanding
+        every token in prose immediately below the grammar rather than on
+        inference.*
+  - [ ] **Still open: the output format.** The handbook says `A` "prints address
+        and contents" and never shows a literal line, so column layout,
+        separators, prompt and terminator remain unknown — and the harness must
+        parse exactly those bytes. Capture a real MD session under the oracle.
+        *Verification: a captured session transcript in
+        `docs/references/MD.md`, byte-exact.* The no-guessing rule still applies
+        to the parser; it no longer blocks the encoder's input side.
 - [ ] Probes side-loadable into post-boot machine state, so CI needs no
       copyrighted firmware. *Verification: the probe suite runs in CI with
       `roms/` absent.*

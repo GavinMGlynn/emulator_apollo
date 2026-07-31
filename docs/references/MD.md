@@ -87,17 +87,93 @@ are out of scope — the DNx60 is not a machine we emulate.
 - `XD`/`XE` matter for harness plumbing — XON/XOFF flow control will corrupt a
   byte-exact console capture if left enabled.
 
+## Command grammar
+
+`[EH4]` pp. 5-13/5-14, *Command Formats*. This was previously recorded as
+undocumented, which was wrong: the handbook does not put the syntax in the
+command *list*, but it continues past that list into a per-command reference
+(pp. 5-7 onward) and then states the grammar formally.
+
+```
+<command>       ::= A | B | C | D | DL | F | G | S | V | <empty>
+<size_spec>     ::= :I | :B | :W | :L
+<base_spec>     ::= :O | :D | :H | :A
+<parameter_list>::= <parameter> ...                        (up to four)
+<parameter>     ::= <num_exp> | Dn | An | Rn | CCR | SR |
+                    (An) | <num_exp>(An) | <num_exp>(<index_spec>) |
+                    <num_exp>(An, <index_spec>)
+<num_exp>       ::= <num> | * | <num_exp>+<num> | <num_exp>-<num> |
+                    <num_exp>x<num>
+<num>           ::= <simple_number> | $<simple_number> |
+                    <base>$<simple_number> | -<num> | <quoted_string>
+<base>          ::= <simple_number>
+<quoted_string> ::= '<letter> ... <letter>'                (up to four)
+<index_spec>    ::= An.W | Dn.W | An.L | Dn.L
+
+a command line is:  <command> [<size_spec>] [<parameter_list>] [<base_spec>]
+```
+
+**On the transcription.** The scan's OCR is damaged in exactly the places a
+grammar can least afford — `|` reads as `1`, `I` or `l`, and `::=` as `::-`.
+The raw OCR of the three worst lines is `AIBICIDIDLIFIGISlvl<empty>`,
+`:11 :BI :WI:L` and `:01 :DI :HI:A`, identically under both `pdftotext -layout`
+and plain extraction, so the damage is in the scan and not the extraction.
+
+The reconstruction above is nevertheless **not a guess**, because the handbook
+expands every one of those tokens in prose immediately below the grammar:
+`:I ::= instr-sized items, output in mnemonic format`, then `:B` byte, `:W`
+word, `:L` longword; and `:O` octal, `:D` decimal, `:H` hex, `:A` ASCII. Each
+alternative is independently named, so the separator is the only thing being
+restored. Anything not pinned that way is left as the OCR has it. Verify
+against the PDF at pp. 5-13/5-14 before relying on it for anything subtle.
+
+### Semantics that matter for probes
+
+- **All numeric input defaults to hexadecimal.** `$num` is explicitly hex;
+  `<base>$num` sets the base, so `8$777` is octal and `2$1001` binary.
+- **All addresses and offsets are *printed* in hexadecimal regardless of
+  `<base_spec>`** — the output radix control applies to numbers and immediate
+  constants, not to addresses.
+- `<size_spec>` and `<base_spec>` may appear **anywhere** in the command line,
+  and anywhere in `A` command input, except inside a quoted string.
+- `*` in a `<num_exp>` is the current location. This is what makes the
+  documented continue idiom `G`, then `G *+2` work.
+- Unspecified parameters are set to zero; up to four may be given.
+- `A [<size_spec>] <location> [<base_spec>]` — "accesses `<location>` and prints
+  address and contents according to `<size_spec>` and `<base_spec>`".
+- `D [<size_spec>] <start> <end> <items_per_line> [<base_spec>]` — dumps the
+  bounded range, address followed by the items; default one item per line.
+- `G [<location>]` — jumps after inserting breakpoints and restoring all
+  registers and SR. `B` sets a breakpoint but **does not insert it until `G`**.
+- `CA <start>` calls a subroutine, restoring all registers saved at the last
+  entry except A0.
+- `S [<size_spec>] <start> <end> <value> [<mask>] [<base_spec>]` — `<mask>`
+  defaults to `$FFFFFFFF`.
+- `AR` reaches the control registers by name: `TC` (MMU translation control),
+  `RP` (MMU root pointer), `DFC`/`SFC` (CPU destination/source function code),
+  `CACR`/`CAAR` (cache control/address). Directly the Phase 2 MMU and cache
+  probe surface.
+
+### Entering MD
+
+With the NORMAL/SERVICE switch in **SERVICE**, `CTRL/<RETURN>` passes control to
+MD at any time. AEGIS also enters MD with an `S` code after a fatal error, via a
+`TRAP` from the crash routine.
+
 ## Status
 
-`open` — the command *list* is confirmed from `002398-04`, but the exact
-**syntax and output format** of each command is not yet transcribed: what `A`
-prints, how it accepts a deposit, the radix, the terminator, and what `DR`'s
-register dump looks like byte for byte. The oracle settles this cheaply — run
-`mameapollo` with the boot PROM, drop to MD, and capture a real session — and
-the harness needs the exact bytes anyway to parse them.
+`partially closed`. The command list and now the **input grammar** are
+transcribed from `[EH4]`, so a probe encoder no longer has to guess how to spell
+a deposit or a jump.
 
-Until that capture exists, no probe encoder should be written against a *guessed*
-MD syntax. That would be exactly the trial-and-error the project forbids.
+What remains open is the **output format**: the handbook says `A` "prints address
+and contents" and `DR` dumps registers, but never shows a literal line, so the
+exact column layout, separators, prompt and terminator are still unknown — and
+the harness has to parse those bytes. That still wants a captured session under
+the oracle, which is cheap once `mameapollo` exists.
+
+The original rule stands for the part still open: no parser is written against a
+*guessed* output format. It no longer blocks the encoder's input side.
 
 ## Sources
 
