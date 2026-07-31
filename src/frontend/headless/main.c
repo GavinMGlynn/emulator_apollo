@@ -19,13 +19,60 @@ static void print_usage(const char *program_name) {
   ap_print_common_usage(stdout, program_name);
   /* Headless-only flags are listed here as they are implemented. */
   fprintf(stdout,
-          "  --run-probes          run the built-in probe suite and report\n");
+          "  --run-probes          run the built-in probe suite and report\n"
+          "  --time-instructions   report per-instruction clocks, for oracle\n"
+          "                        comparison\n");
 }
 
 /* The probes' RAM. Static rather than automatic because it is large, and
  * supplied by the caller because the core allocates nothing. */
 #define PROBE_RAM_BYTES 0x00010000u
 static uint8_t probe_ram[PROBE_RAM_BYTES];
+
+/* Per-instruction clocks, measured the way tools/mame-oracle/steptime.lua
+ * measures the oracle's -- consecutive deltas after a discarded first step, so
+ * neither side charges one instruction for filling the pipe.
+ *
+ * This report is *not* a claim about the hardware. It is one half of a
+ * comparison, and the other half is the oracle's; the manual arbitrates. The
+ * header says so, because a table of numbers with no such note is exactly what
+ * gets quoted later as if it were measured silicon. */
+static void time_instructions(FILE *out) {
+  unsigned count = 0;
+  const ap_probe_timing_t *timed = ap_probe_timed_instructions(&count);
+
+  fprintf(out, "# apollo per-instruction clocks\n");
+  fprintf(out,
+          "# BUS AND CACHE TIME ONLY. Instruction execution time -- the\n"
+          "# microcode clocks between the bus cycles -- is not yet modelled, so\n"
+          "# every figure here is a lower bound. Compare against the oracle with\n"
+          "# tools/mame-oracle/steptime.lua, and against MC68030 User's Manual\n"
+          "# ch. 11; classify each disagreement rather than moving these to fit.\n"
+          "#\n"
+          "# The alternation below is expected, not noise. The cache holding\n"
+          "# register is a long word, so one external fetch serves two\n"
+          "# instruction words: [030] 11.3.3, \"one external bus cycle per two\n"
+          "# instruction prefetches\". The published tables average the odd- and\n"
+          "# even-aligned cases; this reports both.\n");
+  fprintf(out, "%-6s %-18s %-7s %s\n", "word", "instruction", "steady",
+          "clocks per step");
+
+  for (unsigned i = 0; i < count; i++) {
+    const ap_probe_timing_t result = ap_probe_time_instruction(
+        timed[i].word, timed[i].mnemonic, probe_ram, PROBE_RAM_BYTES);
+
+    fprintf(out, "%04X   %-18s ", result.word, result.mnemonic);
+    if (!result.ok) {
+      fprintf(out, "%-7s (did not execute)\n", "-");
+      continue;
+    }
+    fprintf(out, "%-7s", result.steady ? "yes" : "NO");
+    for (unsigned s = 0; s < result.samples; s++) {
+      fprintf(out, " %u", result.delta[s]);
+    }
+    fprintf(out, "\n");
+  }
+}
 
 /* A fixed-width report, because it is read as a golden diff by a person: a
  * column that moves when one field widens turns a one-line change into a
@@ -67,10 +114,16 @@ int main(int argc, char **argv) {
   ap_common_options_init(&opt);
 
   bool run_probe_suite = false;
+  bool report_timing = false;
 
   for (int i = 1; i < argc;) {
     if (strcmp(argv[i], "--run-probes") == 0) {
       run_probe_suite = true;
+      i += 1;
+      continue;
+    }
+    if (strcmp(argv[i], "--time-instructions") == 0) {
+      report_timing = true;
       i += 1;
       continue;
     }
@@ -103,6 +156,11 @@ int main(int argc, char **argv) {
 
   if (run_probe_suite) {
     run_probes(stdout);
+    return 0;
+  }
+
+  if (report_timing) {
+    time_instructions(stdout);
     return 0;
   }
 

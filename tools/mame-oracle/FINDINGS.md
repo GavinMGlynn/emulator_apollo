@@ -333,6 +333,59 @@ exit; the periodic callback can fire once more before it takes effect, which
 printed a spurious extra row after the report's own end marker. A `finished`
 flag is what makes the report end where it says it does.
 
+### C7 — our prefetch alternates where the oracle is flat, and the manual says ours is right
+
+**Status: closed. Classification: `oracle-wrong` (an average reported as a point
+value). Ours is kept, with the evidence below.**
+
+The first differential measurement, taken by the same method on both sides:
+side-load N copies of one instruction, step, and report the interval between
+consecutive steps, discarding the first so neither side charges an instruction
+for filling the pipe.
+
+| Instruction | Oracle | Ours (bus and cache only) |
+| --- | --- | --- |
+| `NOP` | 2, 2, 2, 2, 2 | 0, 2, 0, 2, 0, 2 |
+| `MOVEQ #$42,D0` | 2 | 0, 2, 0, 2, 0, 2 |
+| `ADD.L D0,D1` | 2 | 0, 2, 0, 2, 0, 2 |
+| `LSR.L #1,D0` | 4 | 0, 2, 0, 2, 0, 2 |
+
+Two separate things are going on, and only one of them is a gap in ours.
+
+**The alternation is right, and it is the manual's own model.** `[030]` §11.3.3
+computes the no-cache case "assuming both caches miss and the associated
+instruction prefetches require **one external bus cycle per two instruction
+prefetches**". That is exactly the 0/2 pattern: the cache holding register is a
+long word, so one external fetch serves two instruction words and the second one
+is free. The same section then says why no published number shows it: "the
+actual no-cache-case time depends on the **alignment** of prefetches associated
+with an instruction, both alignment cases were considered, and the value shown
+in the table is the **average** of the odd-word-aligned case and the
+even-word-aligned case (rounded up)".
+
+So the oracle's flat 2 is a per-instruction constant with no alignment structure,
+which is what a cycle-table model produces. Ours exhibits the alignment
+dependence the manual describes as real. `docs/references/M68030_TIMING.md`
+predicted this before the core was written — "an emulator that looks up an
+instruction's published cycle count and adds it is therefore not cycle-accurate
+and cannot be made so by refining the table" — and this is the first measurement
+that bears it out.
+
+**The gap in ours is unrelated, and already named.** Every instruction shows the
+*same* 0/2, because our clock covers bus and cache time only: the microcode
+clocks between the bus cycles are not modelled yet. That is why `LSR.L #1,D0`
+costs the oracle 4 and costs us the same as `NOP`. The shift's extra time is
+execution time, not bus time, and the completion plan carries it as its own
+item.
+
+**What this does not license.** It does not license copying the oracle's numbers
+into ours, nor treating the difference for `LSR` as settled. It settles one
+thing: when the execution-time item lands, the target is *not* a flat
+per-instruction constant that reproduces the oracle. It is a per-instruction
+microcode time added to a bus time that keeps alternating -- and the check is
+that our average over both alignments matches `[030]` §11.6, not that our
+per-instruction figure matches MAME's.
+
 ## Instrumenting the oracle
 
 Temporary instrumentation in `ext/mame` is **always reverted before commit**,

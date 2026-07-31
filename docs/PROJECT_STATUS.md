@@ -28,8 +28,12 @@ cache time only: prefetches, operand accesses, table searches and line fills,
 each priced by the bus and cache modules against cited pages. It does **not**
 include instruction execution time — the microcode clocks an instruction takes
 between its bus cycles. The harness to measure it now exists on both sides
-(`tools/mame-oracle/steptime.lua`, and `probe/` on ours); what remains is the
-comparison and the classification of each discrepancy. So a register-to-register `ADD` currently costs zero
+(`tools/mame-oracle/steptime.lua`, and `--time-instructions` on ours), and the
+first comparison is classified: our bus time alternates 0/2 per instruction
+where the oracle is flat, which is `[030]` §11.3.3's "one external bus cycle per
+two instruction prefetches" — the published tables average the two alignment
+cases, and the oracle reports a constant. Ours is hardware-truer there and is
+kept (`FINDINGS.md` C7). So a register-to-register `ADD` currently costs zero
 clocks, and any figure this core reports is a lower bound rather than a
 measurement. Closing that is a named plan item, and it is deliberately *not*
 closed by transcribing `[030]` §11.6's tables: as
@@ -66,6 +70,7 @@ Last updated: 2026-08-01.
 | 68030 integer ALU (results and condition codes) | working: ADD, SUB, CMP, AND, OR, EOR, NEG, NOT, and the shifts and rotates | `alu_suite`, 17 tests, `M68000 Family Programmer's Reference Manual 1992` Table 3-18; the byte space verified exhaustively |
 | 68030 exception taking (stack the frame, fetch the vector through the VBR, load the PC) | working for the four- and six-word frames and the throwaway frame, wired to divide-by-zero, `TRAP #N`, `TRAPV`, `CHK`, `ILLEGAL`, privilege violations, MMU configuration errors, **interrupts** and **trace**; reset, the fault frames, the coprocessor frame and the interrupt M-bit second frame decline rather than approximate | `step_suite` (10 of its tests), `exception_suite`, 16 tests, `[030]` §8.1 and Table 8-6 |
 | 68030 family `0000` size-11 escape (`CMP2`/`CHK2`/`CAS`/`CAS2`) | decoded; the opcode map now has no holes. Semantics open: `CAS`/`CAS2` need an indivisible read-modify-write | `bounds_suite`, 9 tests, `M68000 Family Programmer's Reference Manual 1992` |
+| Per-instruction timing report (`--time-instructions`) | bus and cache time only, pinned as a golden; the 0/2 alternation is the cache holding register serving two instruction words per fetch | `tests/goldens/timing.txt`; oracle side by `tools/mame-oracle/steptime.lua` |
 | Probe suite (`probe/`, `--run-probes`) | 8 probes on the constructed machine, needing no firmware; results pinned as a golden under every build preset, identical between `-O0` and `-O3` | `tests/goldens/probes.txt`, `probe_suite`, 7 tests |
 | Constructed machine (`machine/`) | a 68030 on flat RAM, with an out-of-range access faulting rather than wrapping; no I/O, no device, no arbitration point | `machine_suite`, 10 tests |
 | 68030 instruction overlap (§11.3's Equation 11-1) | the composition rule only, deliberately without §11.6's per-instruction figures — those must be measured, not transcribed | `overlap_suite`, 8 tests, including the manual's own worked example |

@@ -72,6 +72,48 @@ typedef struct {
 [[nodiscard]] ap_probe_result_t ap_probe_run(const ap_probe_t *probe,
                                              uint8_t *ram, uint32_t ram_bytes);
 
+/* ---------------------------------------------------------------------------
+ * Per-instruction timing, measured the way the oracle's harness measures it.
+ *
+ * `tools/mame-oracle/steptime.lua` side-loads N copies of one instruction,
+ * steps them, and reports the emulated time *between consecutive steps*. This
+ * mirrors that exactly, and the mirroring is the point: a figure taken by a
+ * different method is not comparable, however carefully each side is measured.
+ *
+ * Consecutive deltas rather than a single step, because the first instruction
+ * after a reset pays for filling the pipe. Charging that to the instruction
+ * would make every one look like whatever the pipe cost, and would make the two
+ * sides disagree for a reason that has nothing to do with the instruction.
+ *
+ * `steady` says whether every delta was the same. An instruction whose cost
+ * alternates is not mis-measured -- it is telling you something real about
+ * prefetch alignment or the cache, which `docs/references/M68030_TIMING.md`
+ * says is exactly what an emergent-timing core should exhibit and a table
+ * lookup cannot. So it is reported rather than averaged away.
+ * ------------------------------------------------------------------------- */
+
+#define AP_PROBE_TIMING_SAMPLES 6u
+
+typedef struct {
+  uint16_t word;
+  const char *mnemonic;
+  unsigned samples;
+  uint32_t delta[AP_PROBE_TIMING_SAMPLES];
+  bool steady;
+  bool ok; /* every step executed; false means the measurement is meaningless */
+} ap_probe_timing_t;
+
+/* Time one single-word instruction. */
+[[nodiscard]] ap_probe_timing_t ap_probe_time_instruction(uint16_t word,
+                                                          const char *mnemonic,
+                                                          uint8_t *ram,
+                                                          uint32_t ram_bytes);
+
+/* The instructions timed by the report, in a fixed order. Single-word forms
+ * only, so each step is one instruction and the deltas need no attribution. */
+[[nodiscard]] const ap_probe_timing_t *ap_probe_timed_instructions(
+    unsigned *count);
+
 /* The built-in set, in a fixed order. */
 [[nodiscard]] const ap_probe_t *ap_probe_all(unsigned *count);
 

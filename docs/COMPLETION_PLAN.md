@@ -1302,11 +1302,25 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         while reporting the probe.
         First four measurements, oracle-side: `NOP` 2, `MOVEQ` 2,
         `ADD.L D0,D1` 2, `LSR.L #1,D0` 4 clocks.
-        **What remains is the comparison, and it is not a matter of copying
-        these.** MAME's 68030 is a cycle-table model and this project expects to
-        out-accurate it, so each disagreement is a discrepancy to classify with
-        `[030]` §11.6 as the arbiter — the ledger's four classes and its ban on
-        closing a row by tuning our timing to match apply here exactly.
+        **The first comparison is done, and it settles the shape of this item**
+        — `FINDINGS.md` C7. Our bus time *alternates* 0/2 per instruction where
+        the oracle is a flat constant, and the manual says ours is right:
+        §11.3.3 computes the no-cache case "assuming ... one external bus cycle
+        per two instruction prefetches", which is the cache holding register
+        serving two instruction words per fetch, and then says the published
+        figure is "the **average** of the odd-word-aligned case and the
+        even-word-aligned case". The oracle's flat number is what a cycle-table
+        model produces; ours exhibits the alignment dependence the manual calls
+        real. Classified `oracle-wrong`, ours kept.
+        **So the target for this item is not a per-instruction constant.** It is
+        a microcode time added to a bus time that keeps alternating, and the
+        check is that our average over both alignments matches `[030]` §11.6 —
+        not that our per-instruction figure matches MAME's. That the same 0/2
+        appears for `LSR.L #1,D0` as for `NOP`, where the oracle charges 4
+        against 2, is precisely the execution time this item is about.
+        Both halves of the comparison are now runnable and pinned:
+        `apollo-headless --time-instructions` with a golden, and
+        `tools/mame-oracle/steptime.lua` for the oracle.
     - [x] **The composition rule, built without the numbers**
           (`src/core/cpu/m68030/ap_m68030_overlap.c`). Equation (11-1) and
           §11.2's eight resources are arithmetic and vocabulary rather than

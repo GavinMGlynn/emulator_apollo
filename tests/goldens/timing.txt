@@ -1,0 +1,21 @@
+# apollo per-instruction clocks
+# BUS AND CACHE TIME ONLY. Instruction execution time -- the
+# microcode clocks between the bus cycles -- is not yet modelled, so
+# every figure here is a lower bound. Compare against the oracle with
+# tools/mame-oracle/steptime.lua, and against MC68030 User's Manual
+# ch. 11; classify each disagreement rather than moving these to fit.
+#
+# The alternation below is expected, not noise. The cache holding
+# register is a long word, so one external fetch serves two
+# instruction words: [030] 11.3.3, "one external bus cycle per two
+# instruction prefetches". The published tables average the odd- and
+# even-aligned cases; this reports both.
+word   instruction        steady  clocks per step
+4E71   NOP                NO      0 2 0 2 0 2
+7042   MOVEQ #$42,D0      NO      0 2 0 2 0 2
+D280   ADD.L D0,D1        NO      0 2 0 2 0 2
+E288   LSR.L #1,D0        NO      0 2 0 2 0 2
+4A80   TST.L D0           NO      0 2 0 2 0 2
+2200   MOVE.L D0,D1       NO      0 2 0 2 0 2
+4840   SWAP D0            NO      0 2 0 2 0 2
+B280   CMP.L D0,D1        NO      0 2 0 2 0 2

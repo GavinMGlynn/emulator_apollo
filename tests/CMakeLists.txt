@@ -80,6 +80,7 @@ apollo_add_suite(frontend_common_suite apollo_frontend_common)
 # golden rather than a promise to add one later.
 apollo_add_golden(golden_model_table model_table.txt apollo-headless --list-models)
 apollo_add_golden(golden_probes probes.txt apollo-headless --run-probes)
+apollo_add_golden(golden_timing timing.txt apollo-headless --time-instructions)
 
 # The oracle driver's logic, against a stub MAME: dump extraction from noisy
 # output, the two-run determinism check, and the failure paths. Whether the

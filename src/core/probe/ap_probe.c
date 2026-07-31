@@ -190,3 +190,85 @@ ap_probe_result_t ap_probe_run(const ap_probe_t *probe, uint8_t *ram,
   out.hash = ap_machine_hash(&machine);
   return out;
 }
+
+
+/* --- Per-instruction timing ------------------------------------------------
+ *
+ * See ap_probe.h for why this measures consecutive deltas rather than a single
+ * step, and why an unsteady result is reported rather than averaged.
+ */
+
+/* The instructions timed, and what they are. Single-word forms only: a
+ * multi-word instruction would need its extension words laid down too, and the
+ * point here is a like-for-like comparison rather than coverage. */
+static const struct {
+  uint16_t word;
+  const char *mnemonic;
+} TIMED[] = {
+    {0x4E71u, "NOP"},
+    {0x7042u, "MOVEQ #$42,D0"},
+    {0xD280u, "ADD.L D0,D1"},
+    {0xE288u, "LSR.L #1,D0"},
+    {0x4A80u, "TST.L D0"},
+    {0x2200u, "MOVE.L D0,D1"},
+    {0x4840u, "SWAP D0"},
+    {0xB280u, "CMP.L D0,D1"},
+};
+
+static ap_probe_timing_t TIMED_RESULTS[sizeof TIMED / sizeof TIMED[0]];
+
+ap_probe_timing_t ap_probe_time_instruction(uint16_t word,
+                                            const char *mnemonic, uint8_t *ram,
+                                            uint32_t ram_bytes) {
+  ap_probe_timing_t out = {.word = word, .mnemonic = mnemonic, .ok = true};
+
+  for (uint32_t i = 0; i < ram_bytes; i++) {
+    ram[i] = 0;
+  }
+
+  ap_machine_t machine;
+  ap_machine_init(&machine, ram, ram_bytes);
+  ap_machine_reset(&machine, PROBE_LOAD, PROBE_STACK);
+
+  /* One copy per step, plus the discarded first one, plus a margin so the
+   * prefetch never reads past what was laid down. */
+  const unsigned copies = AP_PROBE_TIMING_SAMPLES + 8u;
+  for (unsigned i = 0; i < copies; i++) {
+    (void)ap_machine_write(&machine, PROBE_LOAD + i * 2u, 2u, word);
+  }
+
+  /* The first step pays for filling the pipe, so it is taken and discarded --
+   * exactly as the oracle's harness discards its first interval. */
+  if (ap_machine_step(&machine).status != AP_M68030_STEP_EXECUTED) {
+    out.ok = false;
+    return out;
+  }
+
+  uint64_t previous = machine.cpu.clocks;
+  for (unsigned i = 0; i < AP_PROBE_TIMING_SAMPLES; i++) {
+    if (ap_machine_step(&machine).status != AP_M68030_STEP_EXECUTED) {
+      out.ok = false;
+      return out;
+    }
+    out.delta[i] = (uint32_t)(machine.cpu.clocks - previous);
+    previous = machine.cpu.clocks;
+    out.samples++;
+  }
+
+  out.steady = true;
+  for (unsigned i = 1; i < out.samples; i++) {
+    if (out.delta[i] != out.delta[0]) {
+      out.steady = false;
+    }
+  }
+  return out;
+}
+
+const ap_probe_timing_t *ap_probe_timed_instructions(unsigned *count) {
+  *count = (unsigned)(sizeof TIMED / sizeof TIMED[0]);
+  for (unsigned i = 0; i < *count; i++) {
+    TIMED_RESULTS[i].word = TIMED[i].word;
+    TIMED_RESULTS[i].mnemonic = TIMED[i].mnemonic;
+  }
+  return TIMED_RESULTS;
+}
