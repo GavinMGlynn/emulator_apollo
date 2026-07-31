@@ -51,6 +51,17 @@ apollo_add_golden(golden_model_table model_table.txt apollo-headless --list-mode
 # Python is a fatal configure. This pins the format of a development tool that
 # only ever runs on a developer's machine, so a missing Lua names what is not
 # being checked and moves on rather than failing a build of the core.
+# The oracle driver's logic, against a stub MAME: dump extraction from noisy
+# output, the two-run determinism check, and the failure paths. Whether the
+# oracle's numbers are right needs a real emulator and is what FINDINGS.md
+# campaigns settle; this is the ordinary program logic around them.
+find_package(Python3 QUIET COMPONENTS Interpreter)
+if(Python3_Interpreter_FOUND)
+  add_test(NAME oracle_driver
+           COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/mame-oracle/test_oracle.py)
+  set_tests_properties(oracle_driver PROPERTIES LABELS tools)
+endif()
+
 find_program(APOLLO_LUA NAMES lua lua5.4 lua5.3)
 if(APOLLO_LUA)
   add_test(NAME oracle_dump_format

@@ -100,9 +100,20 @@ file the moment they are found, not when someone remembers.
         *Verification: `oracle_dump_format`, 19 checks against a mock machine —
         no MAME needed, which is what lets the format be pinned in CI where the
         oracle is never built.*
-  - [ ] `tools/mame-oracle/oracle.py`, the driver. Written, **not yet landed**:
-        its verification is `verify` showing two runs byte-identical, and that
-        cannot run until the oracle binary exists.
+  - [x] `tools/mame-oracle/oracle.py`, the driver, and its logic tested against
+        a **stub MAME**. The item's two halves are separable: whether the
+        oracle's *numbers* are right needs a real emulator and is what
+        `FINDINGS.md` campaigns settle, but pulling the dump out of a noisy
+        stdout, noticing that two runs disagree, and failing loudly on a run
+        that produced nothing are ordinary program logic that needs no MAME at
+        all. *Verification: `oracle_driver`, 19 checks over stub oracles chosen
+        for the failure shapes that matter — a noisy one (real MAME prints its
+        own chatter around the dump, and that must not make two identical runs
+        look different), a nondeterministic one (catching that is the entire
+        reason `verify` exists), a silent one, one that exits non-zero, and a
+        check that a stale run directory is wiped rather than reused.*
+  - [ ] The remaining half: `verify` against the **real** oracle, showing two
+        runs of a real workload byte-identical. Needs the binary.
   - Determinism is the whole point, so the driver's flags are load-bearing and
     each closes one way a second run could differ: `-noreadconfig` (ignore
     `~/.mame/mame.ini`, which no one reviews), redirected and wiped
