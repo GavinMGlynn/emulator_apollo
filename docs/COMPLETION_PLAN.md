@@ -272,8 +272,43 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         point.
 - [ ] Exceptions, traps, interrupt priority, bus/address error stack frames.
       *Verification: probes that deliberately fault, diffed against oracle.*
-- [ ] 68030 on-chip MMU: translation tables, ATC, transparent translation,
+- [~] 68030 on-chip MMU: translation tables, ATC, transparent translation,
       `MMUSR`. *Verification: probe walks and faults; oracle diff.*
+  - [x] **Transparent translation (TT0/TT1)**
+        (`src/core/cpu/m68030/ap_m68030_tt.c`), `[030]` §9.3 p. 9-16 and §9.7.3
+        p. 9-57. On this machine's critical path rather than an optional extra:
+        the boot PROM runs before any translation tree exists, and the TTx
+        registers are how it reaches memory and I/O at all.
+        *Verification: `tt_suite`, 15 tests — masked function-code and
+        A31-A24 comparison, the 16 Mbyte minimum block, the manual's own
+        `$00000000-$0FFFFFFF` worked example, read-only blocks not matching
+        writes (which is what lets the tables still write-protect a range whose
+        reads are transparent), either register matching being sufficient, CI
+        ORed when both match, and a non-matching register not contributing its
+        CI.*
+  - [x] The read-modify-write rule, which is easy to get subtly wrong: with RWM
+        clear, *neither* the read nor the write portion of an RMW cycle is
+        transparently translated, and `[030]` stresses this holds "regardless of
+        the function code and address bits". It overrides an otherwise perfect
+        match rather than refining it, so it is checked before the address
+        comparison and tested in both directions.
+  - [ ] **Gap, not a guess: the TTx register bit layout.** `[030]` Figure 9-37's
+        lower half does not survive the scan — the bit positions of E, CI, R/W,
+        RWM, FC BASE and FC MASK OCR to nothing but a stray "FC MASK", under
+        both `pdftotext` modes. The upper half is legible (31-24 logical address
+        base, 23-16 logical address mask) and every field's *meaning* is given
+        in prose, which is what is implemented. The register is therefore
+        modelled as decoded fields and the packing is deferred rather than
+        invented. Nothing needs it until software writes the register with
+        `PMOVE`. *Verification: read Figure 9-37 from the PDF page itself, or
+        cross-check against `MC68851 PMMU User's Manual` / `M68000 Family
+        Reference`, then add a packing test.*
+  - [ ] Translation tables, the table walk, and the 22-entry fully associative
+        ATC (`[030]` §9.4). Note for when it lands: the manual states ATC
+        translation "is always completely overlapped by other operations; thus,
+        no performance penalty is associated with ATC searches" — so an ATC hit
+        must cost nothing in our timing, and a *miss* is where the table walk's
+        bus cycles appear.
 - [ ] 68030 on-chip instruction and data caches, and their effect on bus timing.
       *Verification: self-timing probes measuring hit vs miss.*
 - [ ] 68882 FPU. *Verification: probe suite over each operation and rounding

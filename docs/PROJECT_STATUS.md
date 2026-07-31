@@ -24,7 +24,8 @@ Last updated: 2026-07-31.
 | 68030 instruction pipe + cache holding register | working | `pipe_suite`, 14 tests, `MC68030 User's Manual 3ed` §11.2.2 |
 | 68030 bus cycle state machine | working | `bus_suite`, 17 tests, each citing `MC68030 User's Manual 3ed` ch. 7 (read and write cycles) |
 | 68020 / 68030 / 68040 CPU | not started beyond the bus | — |
-| 68851 PMMU, 68030/68040 on-chip MMU | not started | — |
+| 68030 transparent translation (TT0/TT1) | working | `tt_suite`, 15 tests, `MC68030 User's Manual 3ed` §9.3, §9.7.3 |
+| 68851 PMMU, 68030/68040 MMU tables + ATC | not started | — |
 | 68881 / 68882 / 68040 FPU | not started | — |
 | Memory bus, cache, address translation map | not started | — |
 | Two 8259 interrupt controllers | not started | — |
@@ -289,6 +290,25 @@ than a correction: the constant is derived, `ap_clock_init()` rejects a
 frequency the base cannot represent instead of rounding it, and every period is
 computed from the base rather than written down, so no emulated behaviour moved.
 A video dot clock is the next candidate to force a recomputation.
+
+### A manual figure that did not survive its scan
+
+`MC68030 User's Manual` 3ed Figure 9-37 gives the bit layout of the transparent
+translation registers. Its lower half — the positions of E, CI, R/W, RWM,
+FC BASE and FC MASK — OCRs to nothing but a stray "FC MASK", identically under
+`pdftotext -layout` and plain extraction, so the loss is in the scan rather than
+the extraction. The upper half is legible (31-24 logical address base, 23-16
+logical address mask), and every field's *meaning* is given in prose.
+
+`src/core/cpu/m68030/ap_m68030_tt.c` therefore models the register as **decoded
+fields** and implements the documented semantics, leaving the packing undone
+rather than inferred from a plausible-looking layout. Nothing needs the packing
+until software writes the register with `PMOVE`. Recorded as a named item in
+`docs/COMPLETION_PLAN.md` with two ways to close it.
+
+This is the same discipline as the MD grammar, where the OCR damage *was*
+recoverable because the manual expanded every token in prose below the figure.
+Here it is not, so it stays open.
 
 ## Deliberate approximations
 
