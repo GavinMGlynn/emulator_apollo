@@ -2393,8 +2393,9 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         CDB with its cylinder split across three bytes, the twenty-four common
         commands, and the ESDI-specific three — noting that `0C INITIALIZE DRIVE
         CHARACTERISTICS` is ST506-only and must *not* be accepted here.
-  - [ ] Implement the CDB decode. Needs no disk image — a command block can be
-        parsed and validated before anything is read.
+  - [x] The CDB decode, `device/ap_omti_cdb.c`: field extraction with the
+        three-byte cylinder, and ESDI acceptance that refuses the ST506-only
+        command. `omti_cdb_suite`, 7 tests.
   - [ ] The commands that move data, and §6's floppy set. They want a drive and
         a disk image behind them, and `media/` has no `.awd`.
   - [x] Both halves wired into the board at `04D000` and `05F800`, each
