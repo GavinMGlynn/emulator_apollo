@@ -521,6 +521,27 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         such forms, so for them that encoding stays unassigned rather than
         aliasing — also tested.
         *Verification: `immediate_suite`, 10 tests.*
+  - [x] **The arithmetic and logic families**
+        (`src/core/cpu/m68030/ap_m68030_arith.c`): `1000` OR/DIV/SBCD, `1001`
+        SUB/SUBX, `1011` CMP/EOR, `1100` AND/MUL/ABCD/EXG, `1101` ADD/ADDX.
+        Five families with one shape, which is why they are one module —
+        `family | register | opmode | effective address`, with opmodes `000`-
+        `010` the register direction, `100`-`110` the memory direction, and
+        `011`/`111` the wide forms.
+        **The wide opmodes share a position but not a meaning**: `011` is a word
+        `DIVU` in family `1000`, a word `MULU` in `1100`, and a word `SUBA`,
+        `CMPA` or `ADDA` in the other three. The suite asserts all five at the
+        same opmode, since a decoder assuming one shape for all of them gets
+        four families wrong.
+        The memory-direction opmodes leave register-direct **holes**, filled
+        differently per family — SUBX, ADDX, ABCD, SBCD, CMPM and EXG — the same
+        idiom as SWAP inside PEA, now in five families at once. Tested against
+        the ordinary instruction at the same opmode with a real memory mode, so
+        the holes are shown to be holes rather than special cases.
+        `CMP` and `EOR` share family `1011` **without overlapping**: CMP has the
+        register direction, EOR the memory one, and there is no
+        `<ea> EOR Dn -> Dn` form at all — asserted as the absence it is.
+        *Verification: `arith_suite`, 9 tests.*
   - [ ] **CMP2/CHK2, CAS and CAS2**, which occupy size field `11` in family
         `0000`'s immediate rows. Not decoded: `ap_m68030_immediate_decode`
         reports invalid there rather than mis-decoding them as a wider ORI, and
