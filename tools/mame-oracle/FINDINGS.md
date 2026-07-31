@@ -1464,6 +1464,47 @@ bootable medium present -- no Winchester image exists -- so the first boot must
 come from here. This is the block the boot PROM would fetch first, and it is
 readable now, before any tape controller command set is modelled.
 
+### C25 — the QIC-02 command set, and two codes the scan lost
+
+`[SC499]` §1.13: "The SC-499 controller is designed to accept the QIC-02 command
+set." §1.13.1 lists it, and the page carries handwritten annotations that the OCR
+has mangled into the text -- so this is transcribed from what is legible, with the
+gaps named rather than filled.
+
+    SELECT, SOFT LOCK OFF   0000 0001   01     "selects the tape drive"
+    SELECT, SOFT LOCK ON    0001 0001   11     as above, plus a cartridge lock
+    BOT                     0010 0001   21     "positions the tape ... to BOT"
+    ERASE                               --     code not legible
+    RETENSION               0010 0100   24
+    SELECT Q11 FORMAT                   --     code not legible
+    SELECT Q24 FORMAT                   27
+    WRITE                               40
+    WRITE FILE MARK (WFM)               60
+    READ                                80
+    READ FILE MARK (RFM)                A0
+    READ STATUS                         C0
+
+Two codes are unrecovered: ERASE and SELECT Q11 FORMAT. Both sit in the `2x`
+group with BOT, RETENSION and Q24, so their values are constrained -- `22`, `23`,
+`25` and `26` are what remain unassigned there -- but constrained is not known.
+They are left blank for the same reason the 8259A's one unnamed OCW2 combination
+was marked "by elimination": a plausible value written in as fact is
+indistinguishable from a transcribed one later.
+
+**Two semantics worth carrying.** SELECT is sticky -- "The drive shall remain
+selected until changed by another SELECT command or RESET" -- so it is state, not
+a momentary action. And the soft lock is released by more than its own command:
+"Execution of the SELECT command or RESET unlocks the cartridge", so a plain
+SELECT clears a lock set by the locking variant.
+
+**And one that shapes the drive model.** §1.13: "The SC-499 shall discriminate
+between DC300XL and DC600A cartridges by measurement of BOT to LOAD POINT
+distance and shall select appropriate basic drive write current." The controller
+identifies the cartridge *type* from tape geometry rather than from anything
+written on it -- which a `.ct` image, being a raw block image with no geometry
+(C24), cannot supply. Whatever models the drive will have to be told the
+cartridge type rather than deriving it.
+
 ## Where the ring is not
 
 The Apollo Token Ring has **no runnable oracle at all**: MAME carries Domain
