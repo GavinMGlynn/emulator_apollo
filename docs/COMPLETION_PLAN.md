@@ -2446,8 +2446,10 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         addresses, the derived interrupt flag, the tri-stated IRQ line, and
         RSTDMA's documented identity with power-on reset — which makes the two
         testable against each other directly. `sc499_suite`, 9 tests.
+  - [x] The `.ct` image reader, `image/ap_ct.c`: block addressing, the
+        whole-block size check, and boot-record parsing. `ct_suite`, 8 tests.
   - [ ] The QIC-02 command set, tape motion, and the drive behind the
-        controller. Needs a `.ct` image reader — and the format is now known
+        controller. The format is known
         (`FINDINGS.md` C24): a **raw 512-byte-block image**, 104,841 blocks for
         the boot cartridge, no wrapper to parse. Its first block is a boot
         record carrying four big-endian words, the ASCII `SYSBOOT REV` and
