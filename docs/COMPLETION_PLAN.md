@@ -29,9 +29,20 @@ file the moment they are found, not when someone remembers.
         24 MHz line clock the 3.3 GHz base divided only as 137.5. This closed
         `RING.md` open question F. *Verification: `time_suite` asserts both ring
         clocks divide the base and that a bit cell is exactly two line windows.*
-- [ ] `ext/` submodules pinned and documented: unity, sdl, zlib, libpng (linked);
+- [x] `ext/` submodules pinned and documented: unity, sdl, zlib, libpng (linked);
       mame, musashi (reference only). *Verification: CI builds with only
-      `ext/unity` initialised.*
+      `ext/unity` initialised, and a fresh clone with just that submodule
+      configures, builds and passes `ctest`.*
+  - [x] All four linked submodules moved from branch tips to release tags —
+        unity `v2.7.0`, zlib `v1.3.2`, libpng `v1.6.58`, sdl `release-3.4.12`.
+        They had been on `develop`, `libpng18` and `main`, which pin a SHA but
+        name a commit upstream never released. *Verification: `ext/README.md`
+        records each tag; the suites pass on the new unity.*
+  - [x] MIT/GPL boundary asserted at configure time rather than by review:
+        `cmake/GplBoundary.cmake` rejects a `mame`/`musashi` include in any
+        first-party source, and any target that acquires one in its link
+        libraries or include directories. *Verification: both halves probed with
+        a deliberate violation; both fail with a named message.*
 
 - [x] Shared frontend layer in `src/frontend/common/`: part naming, the
       `--list-models` report, and the options every frontend accepts

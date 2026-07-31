@@ -53,6 +53,29 @@ Findings that already have a cited source, so they are not re-derived later.
   operands, Winchester bad-track formatting, and certain video synchronisation.
   Expect to out-accurate the oracle in those areas and record it as a class.
 
+### Third-party dependencies
+
+- Six pinned submodules, documented per-submodule in `ext/README.md`. Four are
+  linked — `unity` `v2.7.0`, `zlib` `v1.3.2`, `libpng` `v1.6.58`, `sdl`
+  `release-3.4.12` — and two, `mame` and `musashi`, are reference-only and never
+  enter a build.
+- All four linked submodules now sit on **release tags**. They had been added at
+  whatever branch tip was current — zlib on `develop`, libpng on the `libpng18`
+  development branch, SDL on `main` — which records a stable SHA but names an
+  arbitrary mid-development commit upstream never released or tested as a unit.
+  A project whose premise is bit-identical output across platforms and build
+  types cannot rest on those.
+- **Only `ext/unity` is needed to build.** zlib, libpng and SDL are declared so
+  the versions are recorded, but no target references them until the media and
+  display phases. *Verification: a fresh clone with only `ext/unity` initialised
+  configures, builds and passes `ctest`; CI's `CI_SUBMODULES` does the same on
+  all four platforms.*
+- The MIT/GPL boundary is **asserted at configure time**, not left to review:
+  `cmake/GplBoundary.cmake` fails the configure if any first-party source
+  includes a `mame` or `musashi` header, or if any target acquires one in its
+  link libraries or include directories. *Verification: both halves were probed
+  with a deliberate violation and both fail with a named message.*
+
 ### Address map (Series 3000/4000, `008778-03` Table 2-8, Table 2-9)
 
 | Range | Device |

@@ -13,6 +13,11 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 include(CompilerWarnings)
+include(GplBoundary)
+
+# ext/mame is GPL-2.0-or-later and this core is MIT: assert the boundary rather
+# than trusting review to catch an accidental include. See ext/README.md.
+apollo_check_no_reference_includes()
 
 # Emulated cycle counts are not wall-clock measurements: results must be
 # bit-identical on every build type and platform. The regression suite runs on
@@ -22,3 +27,6 @@ enable_testing()
 add_subdirectory(src/core)
 add_subdirectory(src/frontend)
 add_subdirectory(tests)
+
+# Targets exist only now, so the linkage half of the boundary check runs last.
+apollo_check_no_reference_linkage()
