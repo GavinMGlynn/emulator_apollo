@@ -2463,9 +2463,14 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         deterministically across runs and build types. Not a boot — flat RAM, a
         chosen stack, no devices mapped — but the first real firmware to run
         here, and a number to drive upward.
-  - [ ] Find what the fault is. That number is now the phase's thermometer:
-        map the core-board devices into the machine's address space and it
-        should move.
+  - [x] Located the fault (`FINDINGS.md` C28): the final PC is **outside the
+        allocated RAM**, and 5634 bus errors precede it — all above the flat
+        RAM's top, since the register addresses fall *inside* flat-from-zero
+        memory and read as zeros. The firmware reaches high, repeatedly, then
+        jumps somewhere unmapped.
+  - [ ] Give the machine the DN3500's real address map: RAM at `1000000` where
+        Table 2-8 puts it, and the built devices mapped where they belong. The
+        16,933 figure is the before-and-after.
   - [x] The `.ct` image reader, `image/ap_ct.c`: block addressing, the
         whole-block size check, and boot-record parsing. `ct_suite`, 8 tests.
   - [x] The QIC-02 command set transcribed as far as the scan allows

@@ -1716,6 +1716,39 @@ accepting `0C` on an ESDI controller would accept a command the hardware rejects
 and drive geometry would appear to be settable where it is actually read back
 with `READ CAPACITY`.
 
+### C28 — where the boot firmware stops, and what it wants
+
+The SR10.3.5 boot cartridge's image runs 16,933 instructions on flat RAM and
+then faults. Where it stops says more than that it stops:
+
+    final PC     0017E81A
+    bus errors   5634
+    image        0013D800 - 0013F6BC
+    RAM          000000   - 0014F6BC
+
+**The final PC is outside the allocated RAM**, not merely outside the image. So
+the firmware transferred control somewhere the harness has no memory at all, and
+the fault is the fetch failing rather than an instruction this core mis-executed.
+
+**And 5634 bus errors preceded it.** Flat RAM from zero means the core-board
+register addresses -- `010000` upward -- are *inside* the RAM and read as zeros
+rather than faulting, so those thousands of errors are accesses **above**
+`0014F6BC`. The firmware is reaching high, repeatedly, long before it jumps.
+
+**Which fits the machine's real address map.** `008778-03` Table 2-8 puts main
+memory at `1000000`-`2FFFFFF`, and everything below `120000` is boot PROM,
+core-board registers and the AT bus. A boot image loaded at `0013D800` is not in
+main memory at all -- it is in the address space's lower reaches, among devices.
+
+So the harness's flat-RAM-from-zero is the wrong shape for this firmware, and
+that is the next thing to change: give the machine the DN3500's actual address
+map, with RAM where Table 2-8 puts it and the devices already built mapped where
+they belong. The 16,933 figure is the thermometer for whether that helps.
+
+Recorded rather than acted on, because changing the machine's address map is a
+larger change than this entry, and because the number is only useful as a
+before-and-after if the before is written down.
+
 ## Where the ring is not
 
 The Apollo Token Ring has **no runnable oracle at all**: MAME carries Domain

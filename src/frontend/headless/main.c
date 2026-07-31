@@ -210,6 +210,19 @@ static int boot_from_tape(const char *path, unsigned limit) {
   printf("  stopped      %s\n", ap_probe_status_name(run.status));
   printf("  state hash   %016llX\n",
          (unsigned long long)ap_machine_hash(&machine));
+  printf("  final PC     %08X\n", machine.cpu.regs.pc);
+  printf("  bus errors   %u\n", machine.bus_errors);
+
+  /* Where it stopped matters more than that it stopped. A fault outside the
+   * image is the firmware reaching for hardware that is not mapped, which is
+   * expected and is the thing to fix; a fault *inside* the image would mean
+   * this core mis-executed something, which is not. */
+  if (machine.cpu.regs.pc >= image.load_address &&
+      machine.cpu.regs.pc < image.load_address + image.length) {
+    printf("  note         PC is inside the loaded image\n");
+  } else {
+    printf("  note         PC is outside the loaded image\n");
+  }
 
   free(ram);
   free(bytes);
