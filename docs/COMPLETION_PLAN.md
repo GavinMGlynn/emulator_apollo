@@ -323,6 +323,26 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         them, all four trace encodings including `11` reported as UNDEFINED
         rather than folded into another mode, the reserved bits never reading
         back, and a CCR write being unable to reach S and escalate privilege.*
+  - [x] **Effective address decode** (`src/core/cpu/m68030/ap_m68030_ea.c`),
+        `M68000 Family PRM` §2, Figure 2-2 and Tables 2-1, 2-2, 2-4 — all
+        intact, so nothing here is derived. The decode only; turning a decoded
+        extension word into an address reads registers and, for the memory
+        indirect modes, performs bus cycles, so it lands with the instruction
+        unit. Same split that kept the cache's structure separate from its cost.
+        *Verification: `ea_suite`, 11 tests.*
+  - [x] Two decode traps, each with its own test. **Mode 111's register field is
+        a sub-opcode, not a register number** — `111 000` is absolute short, and
+        reading it as "register 0" is the classic 68000 decode bug; the decoder
+        therefore reports a *kind* with mode 7 already folded in, and the three
+        unassigned encodings (`101`-`111`) come back as invalid rather than as
+        some mode. And **Table 2-2's IS and I/IS fields must be read together**:
+        `I/IS = 001` is *preindexed* when IS is clear and *memory indirect* when
+        it is set, so a decoder that reads I/IS alone silently produces the
+        wrong addressing mode. Both IS halves of the table are checked in full,
+        plus the two encodings side by side.
+  - [x] `BD SIZE = 00` is **Reserved, not null**. Collapsing the two would
+        accept an illegal instruction word as a legal one, so it is reported as
+        reserved and tested against the legal null encoding beside it.
   - [ ] Wire the bus to a memory system so the termination kind and its arrival
         clock come from a device rather than a test. That is what makes
         contention emergent, and it belongs with Phase 3's single arbitration
