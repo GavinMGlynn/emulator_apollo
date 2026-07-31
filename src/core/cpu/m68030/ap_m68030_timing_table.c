@@ -76,6 +76,14 @@ enum {
   ROW_LINK_W,
   ROW_LINK_L,
   ROW_LOGICAL_TO_SR,
+  ROW_BCC_TAKEN,
+  ROW_BCC_B_NOT_TAKEN,
+  ROW_BCC_W_NOT_TAKEN,
+  ROW_BCC_L_NOT_TAKEN,
+  ROW_BSR,
+  ROW_DBCC_LOOPING,
+  ROW_DBCC_EXPIRED,
+  ROW_DBCC_TRUE,
   ROW_MOVEQ,
   ROW_ADDQ,
   ROW_SUBQ,
@@ -207,6 +215,28 @@ static const ap_m68030_table_entry_t TABLE[ROW_COUNT] = {
      * count as a change of flow for tracing. */
     [ROW_LOGICAL_TO_SR] = {"ANDI/EORI/ORI to SR or CCR", {4, 0, 12, 14},
                            false, false},
+
+    /* §11.6.15, Conditional Branch Instructions. "Complete execution times
+     * given. No additional tables are needed" -- so unlike most rows these are
+     * whole costs rather than a part needing an effective address time.
+     *
+     * A *taken* branch is one row whatever its displacement size; an untaken
+     * one distinguishes byte, word and long. That asymmetry is the pipe: a
+     * taken branch throws it away regardless of how far it jumped, while an
+     * untaken one has merely read a displacement of some length. */
+    [ROW_BCC_TAKEN] = {"Bcc (Taken)", {6, 0, 6, 8}, false, false},
+    [ROW_BCC_B_NOT_TAKEN] = {"Bcc.B (Not Taken)", {4, 0, 4, 4}, false, false},
+    [ROW_BCC_W_NOT_TAKEN] = {"Bcc.W (Not Taken)", {6, 0, 6, 6}, false, false},
+    [ROW_BCC_L_NOT_TAKEN] = {"Bcc.L (Not Taken)", {6, 0, 6, 8}, false, false},
+    [ROW_BSR] = {"BSR", {2, 0, 6, 9}, false, false},
+
+    /* DBcc has three cases, and the expensive one is *leaving* the loop with
+     * the counter expired: 10 clocks against 6 for going round again. */
+    [ROW_DBCC_LOOPING] = {"DBcc (cc False, Count Not Expired)", {6, 0, 6, 8},
+                          false, false},
+    [ROW_DBCC_EXPIRED] = {"DBcc (cc False, Count Expired)", {10, 0, 10, 13},
+                          false, false},
+    [ROW_DBCC_TRUE] = {"DBcc (cc True)", {6, 0, 6, 8}, false, false},
 
     /* §11.6.9, Immediate Arithmetical/Logical Instructions. */
     [ROW_MOVEQ] = {"MOVEQ #<data>,Dn", {.head = 2, .tail = 0, .cache_case = 2, .no_cache_case = 2}, false, false},
@@ -456,3 +486,44 @@ const ap_m68030_table_entry_t *ap_m68030_timing_for_word(uint16_t instruction) {
  * published figure directly. */
 static_assert(TABLE_COUNT == (unsigned)ROW_COUNT,
               "every transcribed row must have an index, and vice versa");
+
+const ap_m68030_table_entry_t *ap_m68030_timing_for_branch(uint16_t instruction,
+                                                           bool taken) {
+  if (((instruction >> 12) & 0xFu) != 0x6u) {
+    return nullptr;
+  }
+
+  /* BSR is condition `F` in the encoding -- the value that means "never" for a
+   * Bcc -- and is unconditional, so `taken` does not apply to it. Reading the
+   * condition field without excluding BSR is the same trap the step itself
+   * fell into once. */
+  const unsigned condition = (unsigned)((instruction >> 8) & 0xFu);
+  if (condition == 0x1u) {
+    return &TABLE[ROW_BSR];
+  }
+
+  if (taken) {
+    /* One row whatever the displacement size. */
+    return &TABLE[ROW_BCC_TAKEN];
+  }
+
+  /* Not taken, and now the size matters: the displacement byte is zero for the
+   * word form and $FF for the long one, which is how the encoding names a size
+   * it has no field for. */
+  const unsigned displacement = (unsigned)(instruction & 0xFFu);
+  if (displacement == 0x00u) {
+    return &TABLE[ROW_BCC_W_NOT_TAKEN];
+  }
+  if (displacement == 0xFFu) {
+    return &TABLE[ROW_BCC_L_NOT_TAKEN];
+  }
+  return &TABLE[ROW_BCC_B_NOT_TAKEN];
+}
+
+const ap_m68030_table_entry_t *ap_m68030_timing_for_dbcc(bool condition_true,
+                                                         bool count_expired) {
+  if (condition_true) {
+    return &TABLE[ROW_DBCC_TRUE];
+  }
+  return count_expired ? &TABLE[ROW_DBCC_EXPIRED] : &TABLE[ROW_DBCC_LOOPING];
+}

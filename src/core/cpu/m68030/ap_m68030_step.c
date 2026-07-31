@@ -936,6 +936,13 @@ static bool execute_quick(ap_m68030_cpu_t *cpu, const ap_m68030_quick_t *quick,
     const bool condition =
         ap_m68030_condition(quick->condition, ap_m68030_read_ccr(&cpu->regs));
 
+    /* §11.6.15 publishes three DBcc cases, not two, and the step is the only
+     * place that knows which occurred: condition true, condition false with
+     * the counter still live, and condition false with it expired. The last is
+     * the expensive one -- leaving a loop costs more than going round it. */
+    cpu->dbcc_condition_true = condition;
+    cpu->dbcc_count_expired = false;
+
     if (!condition) {
       /* Only the low *word* of the register counts down; the upper half is
        * left alone, so a loop counter cannot borrow into it. */
@@ -944,6 +951,7 @@ static bool execute_quick(ap_m68030_cpu_t *cpu, const ap_m68030_quick_t *quick,
       cpu->regs.d[quick->reg] =
           (cpu->regs.d[quick->reg] & 0xFFFF0000u) | counter;
 
+      cpu->dbcc_count_expired = !ap_m68030_dbcc_taken(false, counter);
       if (ap_m68030_dbcc_taken(false, counter)) {
         cpu->regs.pc = ap_m68030_branch_target(
             cpu->regs.pc, (int32_t)(int16_t)displacement_word);
@@ -3324,8 +3332,20 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
    * Only the transcribed forms are scheduled. Everything else keeps bus time
    * alone, which is visibly a lower bound rather than a plausible guess, and
    * `--time-instructions` shows which is which. */
-  const ap_m68030_table_entry_t *published =
-      ap_m68030_timing_for_word(out.instruction);
+  /* A branch's cost is not a function of its opcode: §11.6.15 gives a taken
+   * `Bcc` 6 clocks and an untaken byte `Bcc` 4, and only the run this step just
+   * performed knows which happened. DBcc has three such cases. Everything else
+   * is answered by the instruction word alone. */
+  const ap_m68030_table_entry_t *published = nullptr;
+  if (decoded.kind == AP_M68030_DECODED_BRANCH) {
+    published = ap_m68030_timing_for_branch(out.instruction, out.branch_taken);
+  } else if (decoded.kind == AP_M68030_DECODED_QUICK &&
+             decoded.as.quick.kind == AP_M68030_QUICK_DBCC) {
+    published = ap_m68030_timing_for_dbcc(cpu->dbcc_condition_true,
+                                          cpu->dbcc_count_expired);
+  } else {
+    published = ap_m68030_timing_for_word(out.instruction);
+  }
   if (published != nullptr) {
     out.clocks = ap_m68030_schedule(published->timing.cache_case, out.clocks);
   }

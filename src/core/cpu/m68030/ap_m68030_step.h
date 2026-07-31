@@ -149,6 +149,11 @@ typedef struct {
    * Reset at the start of every step. */
   unsigned extension_words;
 
+  /* Which of §11.6.15's three DBcc cases the last one was, recorded because
+   * only the execution knows and only the timing tail needs it. */
+  bool dbcc_condition_true;
+  bool dbcc_count_expired;
+
   /* An exception an executing instruction raised, held until the step can take
    * it: an executor knows a divide had a zero divisor, but not the length of
    * the instruction it is inside, and Table 8-6 wants both the faulting

@@ -514,6 +514,108 @@ static void test_a_register_count_shift_is_not_transcribed(void) {
   TEST_ASSERT_NOT_NULL(ap_m68030_timing_for_word(0xE288u));
 }
 
+/* A branch's cost is not a function of its opcode. §11.6.15 gives a taken `Bcc`
+ * 6 clocks and an untaken *byte* `Bcc` 4, so the same instruction word costs
+ * differently depending on a condition evaluated at run time -- which is why
+ * these rows are reached through the outcome rather than through a table
+ * lookup that would have to pick one case and be wrong half the time. */
+static void test_a_taken_branch_costs_more_than_an_untaken_one(void) {
+  /* BEQ.B +2 with Z clear (not taken), then with Z set (taken). Both are the
+   * same instruction word; only the flags differ. */
+  static const uint16_t program[] = {0x6700u, 0x6702u, 0x4E71u, 0x4E71u,
+                                     0x4E71u, 0x4E71u};
+  blank();
+  ap_machine_t m;
+  ap_machine_init(&m, ram, RAM_BYTES);
+  ap_machine_reset(&m, PROGRAM, STACK);
+  for (unsigned i = 0; i < 6u; i++) {
+    TEST_ASSERT_TRUE(ap_machine_write(&m, PROGRAM + i * 2u, 2u, 0x6702u));
+  }
+  (void)program;
+
+  /* Z clear: not taken, and the byte form is 4 clocks. */
+  ap_m68030_write_ccr(&m.cpu.regs, 0);
+  (void)ap_machine_step(&m);
+  uint64_t before = m.cpu.clocks;
+  m.cpu.regs.pc = PROGRAM;
+  ap_m68030_fetch_reset(&m.cpu.fetch, PROGRAM);
+  (void)ap_machine_step(&m);
+  const uint64_t not_taken = m.cpu.clocks - before;
+
+  /* Z set: taken, and a taken branch is 6 whatever its displacement size. */
+  ap_m68030_write_ccr(&m.cpu.regs,
+                      (uint16_t)(1u << AP_M68030_SR_Z_BIT));
+  m.cpu.regs.pc = PROGRAM;
+  ap_m68030_fetch_reset(&m.cpu.fetch, PROGRAM);
+  before = m.cpu.clocks;
+  (void)ap_machine_step(&m);
+  const uint64_t taken = m.cpu.clocks - before;
+
+  TEST_ASSERT_EQUAL_UINT64(4u, not_taken);
+  TEST_ASSERT_EQUAL_UINT64(6u, taken);
+}
+
+/* `DBcc` has three published cases, and the expensive one is *leaving* the
+ * loop: 10 clocks with the counter expired against 6 going round again. A
+ * model with one DBcc cost would make every loop's last iteration four clocks
+ * cheap, which is a systematic under-count proportional to how many loops a
+ * program runs. */
+static void test_leaving_a_dbcc_loop_costs_more_than_going_round(void) {
+  /* MOVEQ #2,D1 ; DBF D1,-2  -- three iterations, then expiry. */
+  static const uint16_t program[] = {0x7202u, 0x51C9u, 0xFFFEu, 0x4E71u,
+                                     0x4E71u};
+  blank();
+  ap_machine_t m;
+  ap_machine_init(&m, ram, RAM_BYTES);
+  ap_machine_reset(&m, PROGRAM, STACK);
+  for (unsigned i = 0; i < 5u; i++) {
+    TEST_ASSERT_TRUE(ap_machine_write(&m, PROGRAM + i * 2u, 2u, program[i]));
+  }
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_machine_step(&m).status);
+
+  uint64_t looping = 0;
+  uint64_t expired = 0;
+  for (unsigned i = 0; i < 3u; i++) {
+    const uint64_t before = m.cpu.clocks;
+    TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_machine_step(&m).status);
+    const uint64_t cost = m.cpu.clocks - before;
+    if (i < 2u) {
+      looping = cost;
+    } else {
+      expired = cost;
+    }
+  }
+
+  TEST_ASSERT_EQUAL_UINT64(6u, looping);
+  TEST_ASSERT_EQUAL_UINT64(10u, expired);
+}
+
+/* `BSR` is unconditional, and its condition *field* is `F` -- the encoding that
+ * means "never" for a `Bcc`. A branch-timing lookup reading the condition
+ * without excluding BSR would price every subroutine call as an untaken branch,
+ * which is the same trap the step's own execution fell into once. */
+static void test_bsr_is_priced_as_a_call_not_as_an_untaken_branch(void) {
+  const ap_m68030_table_entry_t *bsr =
+      ap_m68030_timing_for_branch(0x6100u, true);
+  const ap_m68030_table_entry_t *also_bsr =
+      ap_m68030_timing_for_branch(0x6100u, false);
+  TEST_ASSERT_NOT_NULL(bsr);
+  TEST_ASSERT_NOT_NULL(also_bsr);
+
+  /* The same row either way: `taken` does not apply to an unconditional call. */
+  TEST_ASSERT_EQUAL_PTR(bsr, also_bsr);
+  TEST_ASSERT_EQUAL_UINT(6u, bsr->timing.cache_case);
+  TEST_ASSERT_EQUAL_UINT(9u, bsr->timing.no_cache_case);
+
+  /* And it is not the untaken-byte row, which is what reading the condition
+   * field naively would have produced. */
+  const ap_m68030_table_entry_t *untaken =
+      ap_m68030_timing_for_branch(0x6702u, false);
+  TEST_ASSERT_NOT_NULL(untaken);
+  TEST_ASSERT_EQUAL_UINT(4u, untaken->timing.cache_case);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_a_probe_can_set_up_run_and_read_back);
@@ -522,6 +624,9 @@ int main(void) {
   RUN_TEST(test_the_predecrement_move_costs_more_than_the_postincrement);
   RUN_TEST(test_the_left_arithmetic_shift_costs_more_than_the_right);
   RUN_TEST(test_a_register_count_shift_is_not_transcribed);
+  RUN_TEST(test_a_taken_branch_costs_more_than_an_untaken_one);
+  RUN_TEST(test_leaving_a_dbcc_loop_costs_more_than_going_round);
+  RUN_TEST(test_bsr_is_priced_as_a_call_not_as_an_untaken_branch);
   RUN_TEST(test_reset_leaves_the_state_a_reset_leaves);
   RUN_TEST(test_an_access_beyond_the_ram_faults_rather_than_wrapping);
   RUN_TEST(test_a_runaway_program_ends_at_its_limit);

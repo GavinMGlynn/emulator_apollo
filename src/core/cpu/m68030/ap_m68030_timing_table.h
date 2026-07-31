@@ -82,4 +82,33 @@ ap_m68030_timing_table(unsigned *count);
 [[nodiscard]] const ap_m68030_table_entry_t *
 ap_m68030_timing_for_word(uint16_t instruction);
 
+/* ---------------------------------------------------------------------------
+ * The branches, whose cost is not a function of the instruction word.
+ *
+ * §11.6.15 gives a taken `Bcc` 6 clocks and an untaken byte `Bcc` 4 -- the
+ * difference being the pipe refilling on a change of flow. So no lookup by
+ * opcode can answer for a branch: the same word costs differently depending on
+ * a condition evaluated at run time, which is exactly why these rows were left
+ * out of `ap_m68030_timing_for_word` rather than given whichever case seemed
+ * more common.
+ *
+ * The table is also *not* symmetric in size. A taken branch is one row whatever
+ * its displacement, while an untaken one distinguishes byte from word from
+ * long -- because an untaken branch still has to have read its displacement,
+ * and a taken one has thrown its pipe away regardless.
+ * ------------------------------------------------------------------------- */
+
+/* `Bcc` and `BSR`. `taken` is the run-time outcome; `BSR` is unconditional and
+ * ignores it. */
+[[nodiscard]] const ap_m68030_table_entry_t *
+ap_m68030_timing_for_branch(uint16_t instruction, bool taken);
+
+/* `DBcc`, which has three published cases rather than two: the condition true
+ * (the loop ends), the condition false with the counter not yet expired (it
+ * loops), and the condition false with the counter expired (it falls through).
+ * The last is the expensive one at 10 clocks against 6 -- terminating a loop
+ * costs more than going round it. */
+[[nodiscard]] const ap_m68030_table_entry_t *
+ap_m68030_timing_for_dbcc(bool condition_true, bool count_expired);
+
 #endif /* APOLLO_CPU_M68030_AP_M68030_TIMING_TABLE_H */
