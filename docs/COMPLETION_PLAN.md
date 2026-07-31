@@ -66,9 +66,14 @@ file the moment they are found, not when someone remembers.
 - [ ] Oracle harness: drive MAME headless, run N frames/cycles, dump RAM and
       device state in our hex format. *Verification: two runs of the same
       workload produce identical dumps.*
-- [ ] `tools/mame-oracle/FINDINGS.md`: one row per probe campaign — ours, the
+- [x] `tools/mame-oracle/FINDINGS.md`: one row per probe campaign — ours, the
       oracle's, status, and the story. *Verification: the file exists and every
-      closed row cites its evidence.*
+      closed row cites its evidence — vacuously true today, since no campaign
+      has run and the campaign table is deliberately empty rather than
+      pre-populated.* The ledger and its discipline exist: the four
+      discrepancy classes (`ours-wrong`, `oracle-wrong`, `sub-poll-slack`,
+      `open`), the ban on closing a row by tuning our timing to match, and the
+      rule that an oracle number alone never closes a row.
 - [ ] Python probe encoder emitting hand-assembled 68000 probes in Apollo's
       executable/boot format — no cross toolchain. *Verification: a trivial
       probe that stores a sentinel runs identically under both.*
