@@ -52,8 +52,29 @@ static void execute_moveq(ap_m68030_regs_t *regs,
   ap_m68030_write_ccr(regs, ccr);
 }
 
-/* The addressing modes this step can reach without fetching extension words. */
-static bool mode_needs_no_extension(ap_m68030_ea_kind_t kind) {
+
+/* Take the next word of the instruction stream, which is where an extension
+ * word comes from: the same prefetch path as the instruction word itself, not a
+ * separate read. Advancing the pipe is what makes the word in stage C become
+ * the decoded one. */
+static bool next_word(ap_m68030_cpu_t *cpu, uint32_t *clocks, uint16_t *word) {
+  ap_m68030_pipe_advance(&cpu->fetch.pipe);
+  bool abnormal = false;
+  if (!fill_to_decoded(cpu, clocks, word, &abnormal) || abnormal) {
+    return false;
+  }
+  return true;
+}
+
+/* Gather the extension words an effective address needs, and turn them into the
+ * calculation's inputs. Returns false for a mode this step cannot yet supply --
+ * the full-format indexed forms with their own displacements, which need the
+ * extension word decoded before the count is known. */
+static bool gather_address_input(ap_m68030_cpu_t *cpu, ap_m68030_ea_kind_t kind,
+                                 unsigned size, uint32_t *clocks,
+                                 ap_m68030_address_input_t *input) {
+  input->operand_size = size;
+
   switch (kind) {
   case AP_M68030_EA_DATA_REGISTER:
   case AP_M68030_EA_ADDRESS_REGISTER:
@@ -61,12 +82,57 @@ static bool mode_needs_no_extension(ap_m68030_ea_kind_t kind) {
   case AP_M68030_EA_POSTINCREMENT:
   case AP_M68030_EA_PREDECREMENT:
     return true;
+
   case AP_M68030_EA_DISPLACEMENT:
+  case AP_M68030_EA_PC_DISPLACEMENT: {
+    uint16_t word = 0;
+    if (!next_word(cpu, clocks, &word)) {
+      return false;
+    }
+    /* The displacement is signed, and the PC forms are relative to this very
+     * word -- which is the address the pipe just delivered. */
+    input->displacement = (int32_t)(int16_t)word;
+    input->extension_address = cpu->regs.pc + 2u;
+    return true;
+  }
+
+  case AP_M68030_EA_ABSOLUTE_SHORT: {
+    uint16_t word = 0;
+    if (!next_word(cpu, clocks, &word)) {
+      return false;
+    }
+    /* "(xxx).W" is sign-extended, so $8000 addresses the top of memory rather
+     * than the middle of it. */
+    input->displacement = (int32_t)(int16_t)word;
+    return true;
+  }
+
+  case AP_M68030_EA_ABSOLUTE_LONG: {
+    uint16_t high = 0;
+    uint16_t low = 0;
+    if (!next_word(cpu, clocks, &high) || !next_word(cpu, clocks, &low)) {
+      return false;
+    }
+    input->displacement =
+        (int32_t)(((uint32_t)high << 16) | (uint32_t)low);
+    return true;
+  }
+
   case AP_M68030_EA_INDEXED:
-  case AP_M68030_EA_ABSOLUTE_SHORT:
-  case AP_M68030_EA_ABSOLUTE_LONG:
-  case AP_M68030_EA_PC_DISPLACEMENT:
-  case AP_M68030_EA_PC_INDEXED:
+  case AP_M68030_EA_PC_INDEXED: {
+    uint16_t word = 0;
+    if (!next_word(cpu, clocks, &word)) {
+      return false;
+    }
+    input->extension_word = word;
+    input->extension_address = cpu->regs.pc + 2u;
+    /* Only the brief format is supplied here: the full format may declare base
+     * and outer displacements of its own, and fetching those is its own item. */
+    const ap_m68030_extension_t extension =
+        ap_m68030_ea_decode_extension(word);
+    return !extension.full_format;
+  }
+
   case AP_M68030_EA_IMMEDIATE:
   case AP_M68030_EA_INVALID:
     return false;
@@ -96,34 +162,62 @@ static void set_move_condition_codes(ap_m68030_regs_t *regs, uint32_t value,
  * report it unimplemented. */
 static bool execute_move(ap_m68030_cpu_t *cpu, const ap_m68030_move_t *move,
                          uint32_t *clocks) {
-  if (!mode_needs_no_extension(move->source.kind) ||
-      !mode_needs_no_extension(move->destination.kind)) {
-    return false;
+  uint32_t value = 0;
+
+  /* The source's extension words come first in the stream, then the
+   * destination's -- which is the ordering ap_m68030_instruction_length's two
+   * parameters exist to describe, now actually performed. */
+  if (move->source.kind == AP_M68030_EA_IMMEDIATE) {
+    /* An immediate is the operand itself rather than an address. */
+    uint16_t high = 0;
+    if (!next_word(cpu, clocks, &high)) {
+      return false;
+    }
+    if (move->size == 4u) {
+      uint16_t low = 0;
+      if (!next_word(cpu, clocks, &low)) {
+        return false;
+      }
+      value = ((uint32_t)high << 16) | (uint32_t)low;
+    } else {
+      /* Table 2-3: a byte immediate is the *low-order byte* of the word. */
+      value = (move->size == 1u) ? (uint32_t)(high & 0xFFu) : (uint32_t)high;
+    }
+  } else {
+    ap_m68030_address_input_t source_input = {0};
+    if (!gather_address_input(cpu, move->source.kind, move->size, clocks,
+                              &source_input)) {
+      return false;
+    }
+    const ap_m68030_address_t source =
+        ap_m68030_address_calculate(&cpu->regs, move->source, &source_input);
+    const ap_m68030_operand_result_t read = ap_m68030_operand_read(
+        &cpu->regs, cpu->data, &source, move->size, cpu->data_function_code);
+    *clocks += read.clocks;
+    if (!read.ok) {
+      return false;
+    }
+    value = read.value;
   }
 
-  const ap_m68030_address_input_t input = {.operand_size = move->size};
-
-  const ap_m68030_address_t source =
-      ap_m68030_address_calculate(&cpu->regs, move->source, &input);
-  const ap_m68030_operand_result_t read = ap_m68030_operand_read(
-      &cpu->regs, cpu->data, &source, move->size, cpu->data_function_code);
-  *clocks += read.clocks;
-  if (!read.ok) {
+  ap_m68030_address_input_t destination_input = {0};
+  if (!gather_address_input(cpu, move->destination.kind, move->size, clocks,
+                            &destination_input)) {
     return false;
   }
-
-  const ap_m68030_address_t destination =
-      ap_m68030_address_calculate(&cpu->regs, move->destination, &input);
+  const ap_m68030_address_t destination = ap_m68030_address_calculate(
+      &cpu->regs, move->destination, &destination_input);
   const ap_m68030_operand_result_t written =
       ap_m68030_operand_write(&cpu->regs, cpu->data, &destination, move->size,
-                              read.value, cpu->data_function_code);
+                              value, cpu->data_function_code);
   *clocks += written.clocks;
   if (!written.ok) {
     return false;
   }
+  const uint32_t read_value = value;
 
   if (ap_m68030_move_affects_condition_codes(move)) {
-    set_move_condition_codes(&cpu->regs, read.value, move->size);
+    set_move_condition_codes(&cpu->regs, read_value, move->size);
   }
   return true;
 }

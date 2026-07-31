@@ -403,18 +403,118 @@ static void test_a_move_through_memory_round_trips(void) {
   TEST_ASSERT_EQUAL_HEX32(0x55u, m.cpu.regs.d[1]);
 }
 
-/* A MOVE using an addressing mode that needs an extension word is reported
- * unimplemented rather than executed with a guessed displacement -- the step
- * does not yet fetch extension words. */
-static void test_a_move_needing_an_extension_word_is_unimplemented(void) {
-  /* MOVE.W (d16,A0),D0 : the source needs a displacement word. */
-  static const uint16_t program[] = {0x3028u, 0x0004u, 0x4E71u, 0x4E71u};
+/* ---------------------------------------------------------------------------
+ * Extension words, fetched from the instruction stream through the same pipe
+ * the instruction word came from.
+ * ------------------------------------------------------------------------- */
+
+/* A long immediate is two extension words, high half first. */
+static void test_a_long_immediate_source_is_two_words_high_first(void) {
+  static const uint16_t program[] = {0x203Cu, 0x1234u, 0x5678u, 0x4E71u,
+                                     0x4E71u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 6);
+
+  const ap_m68030_step_result_t r = ap_m68030_step(&m.cpu);
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, r.status);
+  TEST_ASSERT_EQUAL_HEX32(0x12345678u, m.cpu.regs.d[0]);
+  /* Six bytes consumed: the instruction word and two extension words. */
+  TEST_ASSERT_EQUAL_HEX32(PROGRAM_BASE + 6u, m.cpu.regs.pc);
+}
+
+/* Table 2-3 through running code: a byte immediate is the *low-order byte* of a
+ * whole extension word, so the instruction is four bytes and the high half of
+ * the word is not part of the operand. */
+static void test_a_byte_immediate_takes_the_low_half_of_its_word(void) {
+  static const uint16_t program[] = {0x103Cu, 0xAA55u, 0x4E71u, 0x4E71u};
   machine_t m = {0};
   load(&m, program, 4);
 
   const ap_m68030_step_result_t r = ap_m68030_step(&m.cpu);
-  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_UNIMPLEMENTED, r.status);
-  TEST_ASSERT_EQUAL_INT(AP_M68030_DECODED_MOVE, r.kind);
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, r.status);
+  TEST_ASSERT_EQUAL_HEX32(0x55u, m.cpu.regs.d[0]);
+  TEST_ASSERT_EQUAL_HEX32(PROGRAM_BASE + 4u, m.cpu.regs.pc);
+}
+
+/* A displacement source: the word after the instruction is a signed
+ * displacement from the address register. */
+static void test_a_displacement_source_reads_its_extension_word(void) {
+  /* MOVE.L D0,(A1) puts a known value in memory, then MOVE.L (-4,A1),D2
+   * reads it back through a negative displacement. */
+  static const uint16_t program[] = {0x7055u, 0x22C0u, 0x2429u, 0xFFFCu,
+                                     0x4E71u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 6);
+  ap_m68030_write_sr(&m.cpu.regs, 1u << AP_M68030_SR_S_BIT);
+  ap_m68030_write_address_register(&m.cpu.regs, 1, 0x4000u);
+
+  (void)ap_m68030_step(&m.cpu); /* MOVEQ #$55,D0 */
+  (void)ap_m68030_step(&m.cpu); /* MOVE.L D0,(A1)+ : writes $4000, A1 -> $4004 */
+  const ap_m68030_step_result_t r = ap_m68030_step(&m.cpu); /* MOVE.L (-4,A1),D2 */
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, r.status);
+  TEST_ASSERT_EQUAL_HEX32(0x55u, m.cpu.regs.d[2]);
+}
+
+/* An absolute long destination is two extension words, and the store reaches
+ * that address. */
+static void test_an_absolute_long_destination_is_two_words(void) {
+  /* $23C0 : destination register 001, mode 111 -- absolute long. $21C0 is
+   * register 000 and is absolute *short*, which is the reversed destination
+   * field biting for the third time in this project. */
+  static const uint16_t program[] = {0x7077u, 0x23C0u, 0x0000u, 0x5000u,
+                                     0x4E71u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 6);
+
+  (void)ap_m68030_step(&m.cpu); /* MOVEQ #$77,D0 */
+  const ap_m68030_step_result_t r = ap_m68030_step(&m.cpu);
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, r.status);
+  TEST_ASSERT_EQUAL_UINT(1, m.memory.stores);
+  TEST_ASSERT_EQUAL_HEX32(0x5000u, m.memory.store_address[0]);
+  TEST_ASSERT_EQUAL_HEX32(0x77u, m.memory.store_value[0]);
+  /* Instruction word plus two extension words. */
+  TEST_ASSERT_EQUAL_HEX32(PROGRAM_BASE + 8u, m.cpu.regs.pc);
+}
+
+/* "(xxx).W" is sign-extended, so a short absolute above $8000 addresses the top
+ * of memory rather than the middle of it. */
+static void test_a_short_absolute_address_is_sign_extended(void) {
+  static const uint16_t program[] = {0x7011u, 0x11C0u, 0x8000u, 0x4E71u,
+                                     0x4E71u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 6);
+
+  (void)ap_m68030_step(&m.cpu); /* MOVEQ #$11,D0 */
+  const ap_m68030_step_result_t r = ap_m68030_step(&m.cpu); /* MOVE.B D0,($8000).W */
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, r.status);
+  TEST_ASSERT_EQUAL_UINT(1, m.memory.stores);
+  TEST_ASSERT_EQUAL_HEX32(0xFFFF8000u, m.memory.store_address[0]);
+}
+
+/* Both operands taking extension words: the source's come first, then the
+ * destination's -- the ordering ap_m68030_instruction_length describes and this
+ * performs. */
+static void test_both_operands_take_their_extension_words_in_order(void) {
+  /* MOVE.W (2,A0),(6,A1) : source displacement, then destination displacement. */
+  static const uint16_t program[] = {0x3368u, 0x0002u, 0x0006u, 0x4E71u,
+                                     0x4E71u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 6);
+  ap_m68030_write_sr(&m.cpu.regs, 1u << AP_M68030_SR_S_BIT);
+  ap_m68030_write_address_register(&m.cpu.regs, 0, 0x4000u);
+  ap_m68030_write_address_register(&m.cpu.regs, 1, 0x6000u);
+
+  const ap_m68030_step_result_t r = ap_m68030_step(&m.cpu);
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, r.status);
+
+  /* The destination displacement was 6, not 2 -- which is what a decoder that
+   * read the words in the wrong order would produce. */
+  TEST_ASSERT_EQUAL_UINT(1, m.memory.stores);
+  TEST_ASSERT_EQUAL_HEX32(0x6006u, m.memory.store_address[0]);
+  TEST_ASSERT_EQUAL_HEX32(PROGRAM_BASE + 6u, m.cpu.regs.pc);
 }
 
 int main(void) {
@@ -435,6 +535,11 @@ int main(void) {
   RUN_TEST(test_move_sets_the_documented_condition_codes);
   RUN_TEST(test_movea_leaves_the_condition_codes_alone);
   RUN_TEST(test_a_move_through_memory_round_trips);
-  RUN_TEST(test_a_move_needing_an_extension_word_is_unimplemented);
+  RUN_TEST(test_a_long_immediate_source_is_two_words_high_first);
+  RUN_TEST(test_a_byte_immediate_takes_the_low_half_of_its_word);
+  RUN_TEST(test_a_displacement_source_reads_its_extension_word);
+  RUN_TEST(test_an_absolute_long_destination_is_two_words);
+  RUN_TEST(test_a_short_absolute_address_is_sign_extended);
+  RUN_TEST(test_both_operands_take_their_extension_words_in_order);
   return UNITY_END();
 }

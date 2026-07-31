@@ -778,6 +778,26 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         callback the cache fill already had, with a regression test that writes
         twice to a *cached* line and asserts memory saw both, at the physical
         address rather than the logical one.
+  - [x] **Extension word fetching**, which unblocks every addressing mode at
+        once rather than one family at a time. Extension words come from the
+        *same prefetch path* as the instruction word — advancing the pipe is
+        what makes stage C's word the decoded one — rather than from a separate
+        read, so they cost what the manual says they cost and share the holding
+        register's savings.
+        The source's extension words are consumed before the destination's,
+        which is the ordering `ap_m68030_instruction_length`'s two parameters
+        exist to describe and this is where it is actually performed.
+        *Verification: `step_suite`, 6 further tests (22 total) — a long
+        immediate as two words high-half-first; a byte immediate taking the
+        *low* half of a whole word, Table 2-3 seen in running code; a negative
+        displacement source; an absolute long destination; `(xxx).W`
+        sign-extending so `$8000` addresses the top of memory; and both operands
+        taking their words **in order**, checked by giving them different
+        displacements so a swapped read produces the wrong address.*
+  - [ ] Full-format indexed addressing in the step: the extension word declares
+        its own base and outer displacements, so the count is not known until it
+        is decoded. `gather_address_input` reports it unimplemented rather than
+        reading a guessed number of words.
   - [ ] The remaining instruction semantics, family by family, now that operand
         access exists. *Verification: per-family suites, then probes against the
         oracle for the timing.*
