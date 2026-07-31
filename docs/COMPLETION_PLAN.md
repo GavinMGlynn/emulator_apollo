@@ -901,20 +901,35 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
   - [~] The last of the instruction semantics: divides and multiplies, and the
         register-to-register extended forms (`ADDX`/`SUBX`/`ABCD`/`SBCD`/
         `CMPM`/`EXG`).
-        Done: `MULU`/`MULS` (word × word → long, the whole register),
-        `DIVU`/`DIVS` (32/16, remainder in the upper word, overflow setting `V`
-        and leaving the operands unchanged), and register-form `ADDX`/`SUBX`
-        with the documented "cleared if nonzero; unchanged otherwise" `Z`, which
-        is what lets one `Z` describe a whole multi-precision value.
-        Still open, and each named rather than left to look finished:
-        `ABCD`, `SBCD`, `CMPM`, `EXG` (the register-pair encoding is not yet
-        resolved), the memory-operand `-(An),-(An)` forms of `ADDX`/`SUBX`, and
-        the divide-by-zero exception — division by zero currently declines as
+        `MULU`/`MULS` (word × word → long, the whole register), `DIVU`/`DIVS`
+        (32/16, remainder in the upper word, overflow setting `V` and leaving
+        the operands unchanged), `ADDX`/`SUBX` in both the register and the
+        `-(An),-(An)` forms, `ABCD`/`SBCD` in both, `CMPM` and all three `EXG`
+        exchanges. The extended forms share the documented "cleared if nonzero;
+        unchanged otherwise" `Z`, which is what lets one `Z` describe a whole
+        multi-precision value rather than just its last word.
+        Two things remain, each named rather than left to look finished:
+        the **divide-by-zero exception** — division by zero declines as
         `UNIMPLEMENTED` rather than inventing a value, because taking vector 5
-        needs the exception machinery this step does not yet have.
-        *Verification: `step_suite`, 8 further tests (71 total); then probes
+        needs exception machinery the step does not have — and `ABCD`/`SBCD`'s
+        **`N` and `V`, which the manual documents as undefined**. A reference
+        core must still be deterministic, so `N` is taken from bit 7 and `V`
+        cleared, marked `PROVISIONAL` in code; nothing correct may depend on
+        either, and an oracle probe would settle what the part actually does.
+        *Verification: `step_suite`, 16 further tests (80 total); then probes
         against the oracle for the timing, which is data-dependent for both the
         multiplies and the divides and so is not yet modelled.*
+  - [x] **Sub-long-word operands are selected by position, not by mask.** Found
+        while testing the memory `ABCD`: the access path answers in long words,
+        and `ap_m68030_operand_read` masked the low bits of one instead of
+        shifting the operand down from where its address puts it. Every byte
+        read returned the long word's last byte and every word read its low
+        half — right exactly when `A & 3` is 3, silently wrong the other three
+        times in four, and never faulting. An operand straddling two long words
+        now declines rather than returning half of one; the 68030 does perform
+        the two bus cycles that case needs, so that is a named gap.
+        *Verification: `operand_suite`, 3 further tests (11 total), one sweeping
+        all four byte offsets so no single lucky alignment can carry it.*
   - [ ] **CMP2/CHK2, CAS and CAS2**, which occupy size field `11` in family
         `0000`'s immediate rows. Not decoded: `ap_m68030_immediate_decode`
         reports invalid there rather than mis-decoding them as a wider ORI, and

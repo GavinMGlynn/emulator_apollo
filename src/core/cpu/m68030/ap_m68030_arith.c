@@ -90,10 +90,21 @@ ap_m68030_arith_t ap_m68030_arith_decode(uint16_t instruction) {
           out.size = 1;
           return out;
         }
-        /* EXG's opmodes are 01000, 01001 and 10001 across bits 7-3. */
-        if ((opmode == 0x5u) || (opmode == 0x6u && mode == 0x1u)) {
+        /* EXG's opmodes are 01000, 01001 and 10001 across bits 7-3, and which
+         * one decides whether the pair is data, address, or one of each. */
+        if (opmode == 0x5u) {
           out.kind = AP_M68030_ARITH_EXG;
           out.size = 4;
+          out.exg = (mode == 0x0u) ? AP_M68030_EXG_DATA : AP_M68030_EXG_ADDRESS;
+          return out;
+        }
+        if (opmode == 0x6u && mode == 0x1u) {
+          out.kind = AP_M68030_ARITH_EXG;
+          out.size = 4;
+          /* "If the exchange is between data and address registers, this field
+           * always specifies the data register" of Rx, and the address register
+           * of Ry -- so the roles are fixed by the encoding, not by order. */
+          out.exg = AP_M68030_EXG_MIXED;
           return out;
         }
         break;

@@ -205,6 +205,80 @@ static void test_an_immediate_is_not_read_from_memory(void) {
       ap_m68030_operand_write(&regs, &m.access, &immediate, 4, 1, 0).fault);
 }
 
+/* The access path answers in long words, so a byte operand has to be selected
+ * out of one by position. The 68030 is big endian: the long word $AABBCCDD
+ * holds $AA at offset 0 and $DD at offset 3.
+ *
+ * This is the shape of a real bug that shipped here: the read masked the low
+ * bits instead, so every byte read returned $DD whatever its address, and
+ * nothing faulted -- the wrong byte simply arrived. Three addresses in four
+ * were wrong, and the fourth is the one a casual test picks. */
+static void test_a_byte_read_takes_the_byte_its_address_names(void) {
+  static const uint8_t expected[4] = {0xAAu, 0xBBu, 0xCCu, 0xDDu};
+  for (unsigned offset = 0; offset < 4u; offset++) {
+    machine_t m = {0};
+    make_machine(&m);
+    ap_m68030_regs_t regs = {0};
+    const ap_m68030_address_t where = {.address = 0x2000u + offset,
+                                       .valid = true};
+
+    const ap_m68030_operand_result_t read = ap_m68030_operand_read(
+        &regs, &m.access, &where, 1u, FC_SUPERVISOR_DATA);
+
+    TEST_ASSERT_TRUE(read.ok);
+    TEST_ASSERT_EQUAL_HEX32(expected[offset], read.value);
+  }
+}
+
+/* The same for a word: the aligned halves of $AABBCCDD are $AABB and $CCDD. */
+static void test_a_word_read_takes_the_half_its_address_names(void) {
+  machine_t m = {0};
+  make_machine(&m);
+  ap_m68030_regs_t regs = {0};
+
+  const ap_m68030_address_t high = {.address = 0x2000u, .valid = true};
+  const ap_m68030_operand_result_t upper =
+      ap_m68030_operand_read(&regs, &m.access, &high, 2u, FC_SUPERVISOR_DATA);
+  TEST_ASSERT_TRUE(upper.ok);
+  TEST_ASSERT_EQUAL_HEX32(0xAABBu, upper.value);
+
+  const ap_m68030_address_t low = {.address = 0x2002u, .valid = true};
+  const ap_m68030_operand_result_t lower =
+      ap_m68030_operand_read(&regs, &m.access, &low, 2u, FC_SUPERVISOR_DATA);
+  TEST_ASSERT_TRUE(lower.ok);
+  TEST_ASSERT_EQUAL_HEX32(0xCCDDu, lower.value);
+}
+
+/* An operand straddling two long words needs two bus cycles. The 68030 does
+ * perform them -- misalignment is not a fault on this part -- but this path
+ * issues one, so it declines rather than returning half an operand. The
+ * decline is the contract being pinned, and it is a named gap. */
+static void test_an_operand_straddling_two_long_words_is_declined(void) {
+  machine_t m = {0};
+  make_machine(&m);
+  ap_m68030_regs_t regs = {0};
+
+  /* A word at offset 3 covers offsets 3 and 4, so it crosses. */
+  const ap_m68030_address_t crossing = {.address = 0x2003u, .valid = true};
+  const ap_m68030_operand_result_t word = ap_m68030_operand_read(
+      &regs, &m.access, &crossing, 2u, FC_SUPERVISOR_DATA);
+  TEST_ASSERT_FALSE(word.ok);
+  TEST_ASSERT_TRUE(word.fault);
+
+  /* A long word at any offset but zero crosses. */
+  const ap_m68030_address_t odd_long = {.address = 0x2001u, .valid = true};
+  const ap_m68030_operand_result_t wide = ap_m68030_operand_read(
+      &regs, &m.access, &odd_long, 4u, FC_SUPERVISOR_DATA);
+  TEST_ASSERT_FALSE(wide.ok);
+
+  /* And an aligned long word does not. */
+  const ap_m68030_address_t aligned = {.address = 0x2000u, .valid = true};
+  const ap_m68030_operand_result_t whole = ap_m68030_operand_read(
+      &regs, &m.access, &aligned, 4u, FC_SUPERVISOR_DATA);
+  TEST_ASSERT_TRUE(whole.ok);
+  TEST_ASSERT_EQUAL_HEX32(0xAABBCCDDu, whole.value);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_a_data_register_read_is_sized);
@@ -215,5 +289,8 @@ int main(void) {
   RUN_TEST(test_a_memory_operand_uses_the_access_path);
   RUN_TEST(test_an_unfinished_address_is_a_fault_not_a_zero);
   RUN_TEST(test_an_immediate_is_not_read_from_memory);
+  RUN_TEST(test_a_byte_read_takes_the_byte_its_address_names);
+  RUN_TEST(test_a_word_read_takes_the_half_its_address_names);
+  RUN_TEST(test_an_operand_straddling_two_long_words_is_declined);
   return UNITY_END();
 }

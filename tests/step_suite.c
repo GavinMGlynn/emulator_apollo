@@ -1437,6 +1437,178 @@ static void test_an_address_form_accepts_an_immediate_source(void) {
   TEST_ASSERT_EQUAL_HEX32(0x3000u, m.cpu.regs.a[0]);
 }
 
+/* "Exchanges the contents of two 32-bit registers" -- whole registers, and
+ * "Condition Codes: Not affected", which is unusual enough to pin. */
+static void test_exg_swaps_two_data_registers_whole(void) {
+  static const uint16_t program[] = {0xC141u, 0x4E71u}; /* EXG D0,D1 */
+  machine_t m = {0};
+  load(&m, program, 2);
+  m.cpu.regs.d[0] = 0x11223344u;
+  m.cpu.regs.d[1] = 0xAABBCCDDu;
+  ap_m68030_write_ccr(&m.cpu.regs, AP_M68030_CCR_MASK);
+
+  const ap_m68030_step_result_t r = ap_m68030_step(&m.cpu);
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, r.status);
+  TEST_ASSERT_EQUAL_HEX32(0xAABBCCDDu, m.cpu.regs.d[0]);
+  TEST_ASSERT_EQUAL_HEX32(0x11223344u, m.cpu.regs.d[1]);
+  /* Every condition code survives untouched. */
+  TEST_ASSERT_EQUAL_HEX16(AP_M68030_CCR_MASK,
+                          ap_m68030_read_ccr(&m.cpu.regs));
+}
+
+/* The address-address and data-address exchanges share bit 3 and differ only in
+ * the opmode above it, so a decoder that read only the R/M bit would run this
+ * one as EXG A2,A3 and corrupt both registers. */
+static void test_exg_distinguishes_the_mixed_pair_from_an_address_pair(void) {
+  static const uint16_t address_pair[] = {0xC149u, 0x4E71u}; /* EXG A0,A1 */
+  machine_t m = {0};
+  load(&m, address_pair, 2);
+  m.cpu.regs.a[0] = 0x00004000u;
+  m.cpu.regs.a[1] = 0x00008000u;
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&m.cpu).status);
+  TEST_ASSERT_EQUAL_HEX32(0x00008000u, m.cpu.regs.a[0]);
+  TEST_ASSERT_EQUAL_HEX32(0x00004000u, m.cpu.regs.a[1]);
+
+  /* EXG D2,A3 -- "this field always specifies the data register" for Rx and the
+   * address register for Ry, so D2 and A3 are the pair however it was written. */
+  static const uint16_t mixed[] = {0xC58Bu, 0x4E71u};
+  machine_t n = {0};
+  load(&n, mixed, 2);
+  n.cpu.regs.d[2] = 0x0000BEEFu;
+  n.cpu.regs.a[3] = 0x0000CAFEu;
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&n.cpu).status);
+  TEST_ASSERT_EQUAL_HEX32(0x0000CAFEu, n.cpu.regs.d[2]);
+  TEST_ASSERT_EQUAL_HEX32(0x0000BEEFu, n.cpu.regs.a[3]);
+}
+
+/* "The addition is performed using binary-coded decimal arithmetic": each
+ * nibble is a decimal digit, so 25 + 37 is $62 and not $5C. */
+static void test_abcd_adds_in_decimal_not_binary(void) {
+  static const uint16_t program[] = {0xC101u, 0x4E71u}; /* ABCD D1,D0 */
+  machine_t m = {0};
+  load(&m, program, 2);
+  m.cpu.regs.d[0] = 0x25u;
+  m.cpu.regs.d[1] = 0x37u;
+  ap_m68030_write_ccr(&m.cpu.regs, 0);
+
+  const ap_m68030_step_result_t r = ap_m68030_step(&m.cpu);
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, r.status);
+  TEST_ASSERT_EQUAL_HEX32(0x62u, m.cpu.regs.d[0]);
+  /* Binary addition would have given $5C. */
+  TEST_ASSERT_FALSE(ap_m68030_read_ccr(&m.cpu.regs) &
+                    (1u << AP_M68030_SR_C_BIT));
+}
+
+/* "C -- Set if a decimal carry was generated" and "X -- Set the same as the
+ * carry bit": the carry happens at ten, not at $100. */
+static void test_abcd_carries_at_ninety_nine(void) {
+  static const uint16_t program[] = {0xC101u, 0x4E71u}; /* ABCD D1,D0 */
+  machine_t m = {0};
+  load(&m, program, 2);
+  m.cpu.regs.d[0] = 0xFFFFFF99u; /* only the low byte takes part */
+  m.cpu.regs.d[1] = 0x01u;
+  ap_m68030_write_ccr(&m.cpu.regs, 0);
+
+  (void)ap_m68030_step(&m.cpu);
+
+  TEST_ASSERT_EQUAL_HEX32(0xFFFFFF00u, m.cpu.regs.d[0]);
+  const uint16_t ccr = ap_m68030_read_ccr(&m.cpu.regs);
+  TEST_ASSERT_TRUE(ccr & (1u << AP_M68030_SR_C_BIT));
+  TEST_ASSERT_TRUE(ccr & (1u << AP_M68030_SR_X_BIT));
+}
+
+/* "Destination10 - Source10 - X -> Destination", with the borrow taken as ten
+ * rather than sixteen: 42 - 17 is $25, where a binary subtract gives $2B. */
+static void test_sbcd_borrows_a_decimal_ten(void) {
+  static const uint16_t program[] = {0x8101u, 0x4E71u}; /* SBCD D1,D0 */
+  machine_t m = {0};
+  load(&m, program, 2);
+  m.cpu.regs.d[0] = 0x42u;
+  m.cpu.regs.d[1] = 0x17u;
+  ap_m68030_write_ccr(&m.cpu.regs, 0);
+
+  const ap_m68030_step_result_t r = ap_m68030_step(&m.cpu);
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, r.status);
+  TEST_ASSERT_EQUAL_HEX32(0x25u, m.cpu.regs.d[0]);
+}
+
+/* The BCD forms share ADDX's Z rule, and the manual explains why here:
+ * "Normally, the Z condition code bit is set via programming before the start
+ * of an operation. This allows successful tests for zero results upon
+ * completion of multiple-precision operations." */
+static void test_the_bcd_forms_only_ever_clear_the_zero_flag(void) {
+  static const uint16_t program[] = {0xC101u, 0x4E71u}; /* ABCD D1,D0 */
+  machine_t m = {0};
+  load(&m, program, 2);
+  m.cpu.regs.d[0] = 0x00u;
+  m.cpu.regs.d[1] = 0x00u;
+  ap_m68030_write_ccr(&m.cpu.regs, (uint16_t)(1u << AP_M68030_SR_Z_BIT));
+  (void)ap_m68030_step(&m.cpu);
+  TEST_ASSERT_TRUE(ap_m68030_read_ccr(&m.cpu.regs) &
+                   (1u << AP_M68030_SR_Z_BIT));
+
+  /* A nonzero result clears it, and a zero result with Z already clear leaves
+   * it clear -- so Z describes the whole multi-precision value. */
+  machine_t n = {0};
+  load(&n, program, 2);
+  n.cpu.regs.d[0] = 0x00u;
+  n.cpu.regs.d[1] = 0x00u;
+  ap_m68030_write_ccr(&n.cpu.regs, 0);
+  (void)ap_m68030_step(&n.cpu);
+  TEST_ASSERT_FALSE(ap_m68030_read_ccr(&n.cpu.regs) &
+                    (1u << AP_M68030_SR_Z_BIT));
+}
+
+/* "The operands are addressed with the predecrement addressing mode using the
+ * address registers specified in the instruction" -- so both registers move,
+ * the read comes from below them, and the result goes back where the
+ * destination was read from. */
+static void test_the_memory_form_of_abcd_predecrements_both_registers(void) {
+  /* ABCD -(A1),-(A0), then data: $25 at +8 and $37 at +9. */
+  static const uint16_t program[] = {0xC109u, 0x4E71u, 0x4E71u, 0x4E71u,
+                                     0x2537u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 6);
+  m.cpu.regs.a[0] = PROGRAM_BASE + 9u; /* destination byte is at +8 */
+  m.cpu.regs.a[1] = PROGRAM_BASE + 10u; /* source byte is at +9 */
+  ap_m68030_write_ccr(&m.cpu.regs, 0);
+
+  const ap_m68030_step_result_t r = ap_m68030_step(&m.cpu);
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, r.status);
+  TEST_ASSERT_EQUAL_HEX32(PROGRAM_BASE + 8u, m.cpu.regs.a[0]);
+  TEST_ASSERT_EQUAL_HEX32(PROGRAM_BASE + 9u, m.cpu.regs.a[1]);
+  TEST_ASSERT_EQUAL_UINT(1u, m.memory.stores);
+  TEST_ASSERT_EQUAL_HEX32(PROGRAM_BASE + 8u, m.memory.store_address[0]);
+  TEST_ASSERT_EQUAL_HEX32(0x62u, m.memory.store_value[0]);
+}
+
+/* "CMPM (Ay)+,(Ax)+ ... the destination location is not changed": both
+ * registers advance, and nothing is written. */
+static void test_cmpm_advances_both_registers_and_writes_nothing(void) {
+  /* CMPM.B (A1)+,(A0)+ over $25 at +8 and $37 at +9. */
+  static const uint16_t program[] = {0xB109u, 0x4E71u, 0x4E71u, 0x4E71u,
+                                     0x2537u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 6);
+  m.cpu.regs.a[0] = PROGRAM_BASE + 8u; /* destination $25 */
+  m.cpu.regs.a[1] = PROGRAM_BASE + 9u; /* source $37 */
+
+  const ap_m68030_step_result_t r = ap_m68030_step(&m.cpu);
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, r.status);
+  TEST_ASSERT_EQUAL_HEX32(PROGRAM_BASE + 9u, m.cpu.regs.a[0]);
+  TEST_ASSERT_EQUAL_HEX32(PROGRAM_BASE + 10u, m.cpu.regs.a[1]);
+  TEST_ASSERT_EQUAL_UINT(0u, m.memory.stores);
+  /* $25 - $37 borrows, so C is set and N with it. */
+  const uint16_t ccr = ap_m68030_read_ccr(&m.cpu.regs);
+  TEST_ASSERT_TRUE(ccr & (1u << AP_M68030_SR_C_BIT));
+  TEST_ASSERT_TRUE(ccr & (1u << AP_M68030_SR_N_BIT));
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_a_nop_executes_and_advances_the_pc);
@@ -1504,6 +1676,14 @@ int main(void) {
   RUN_TEST(test_a_register_count_is_taken_modulo_sixty_four);
   RUN_TEST(test_a_byte_shift_leaves_the_upper_bytes);
   RUN_TEST(test_an_address_form_accepts_an_immediate_source);
+  RUN_TEST(test_exg_swaps_two_data_registers_whole);
+  RUN_TEST(test_exg_distinguishes_the_mixed_pair_from_an_address_pair);
+  RUN_TEST(test_abcd_adds_in_decimal_not_binary);
+  RUN_TEST(test_abcd_carries_at_ninety_nine);
+  RUN_TEST(test_sbcd_borrows_a_decimal_ten);
+  RUN_TEST(test_the_bcd_forms_only_ever_clear_the_zero_flag);
+  RUN_TEST(test_the_memory_form_of_abcd_predecrements_both_registers);
+  RUN_TEST(test_cmpm_advances_both_registers_and_writes_nothing);
   RUN_TEST(test_mulu_produces_a_long_from_two_words);
   RUN_TEST(test_muls_and_mulu_differ_on_a_negative_operand);
   RUN_TEST(test_a_divide_puts_the_remainder_in_the_upper_word);

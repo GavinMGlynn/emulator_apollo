@@ -255,6 +255,75 @@ ap_m68030_alu_result_t ap_m68030_alu_shift(ap_m68030_shift_type_t type,
   return out;
 }
 
+/* The decimal add of ABCD, digit by digit. "$99 + $01" is $00 carry, not $9A:
+ * the low nibble carries into the high one at ten rather than at sixteen. */
+ap_m68030_alu_result_t ap_m68030_alu_abcd(uint32_t destination, uint32_t source,
+                                          bool x_in, bool z_in) {
+  const unsigned d = destination & 0xFFu;
+  const unsigned s = source & 0xFFu;
+
+  unsigned low = (d & 0x0Fu) + (s & 0x0Fu) + (x_in ? 1u : 0u);
+  unsigned high = ((d >> 4) & 0x0Fu) + ((s >> 4) & 0x0Fu);
+  if (low > 9u) {
+    low -= 10u;
+    high += 1u;
+  }
+  const bool carry = high > 9u;
+  if (carry) {
+    high -= 10u;
+  }
+
+  ap_m68030_alu_result_t out = {0};
+  out.result = ((high & 0x0Fu) << 4) | (low & 0x0Fu);
+
+  /* "C -- Set if a decimal carry was generated" and "X -- Set the same as the
+   * carry bit." */
+  out.c = carry;
+  out.sets_x = true;
+  out.x = carry;
+
+  /* "Z -- Cleared if the result is nonzero; unchanged otherwise." */
+  out.z = z_in && (out.result == 0u);
+
+  /* N and V are documented undefined; see the header for why these particular
+   * values and what may depend on them (nothing). */
+  out.n = (out.result & 0x80u) != 0u;
+  out.v = false;
+  return out;
+}
+
+/* "Destination10 - Source10 - X -> Destination", with a decimal borrow: the low
+ * nibble borrows ten from the high one, not sixteen. */
+ap_m68030_alu_result_t ap_m68030_alu_sbcd(uint32_t destination, uint32_t source,
+                                          bool x_in, bool z_in) {
+  const int d = (int)(destination & 0xFFu);
+  const int s = (int)(source & 0xFFu);
+
+  int low = (d & 0x0F) - (s & 0x0F) - (x_in ? 1 : 0);
+  int high = ((d >> 4) & 0x0F) - ((s >> 4) & 0x0F);
+  if (low < 0) {
+    low += 10;
+    high -= 1;
+  }
+  const bool borrow = high < 0;
+  if (borrow) {
+    high += 10;
+  }
+
+  ap_m68030_alu_result_t out = {0};
+  out.result = (uint32_t)(((high & 0x0F) << 4) | (low & 0x0F));
+
+  /* "C -- Set if a decimal borrow was generated" and X the same as C. */
+  out.c = borrow;
+  out.sets_x = true;
+  out.x = borrow;
+
+  out.z = z_in && (out.result == 0u);
+  out.n = (out.result & 0x80u) != 0u;
+  out.v = false;
+  return out;
+}
+
 uint16_t ap_m68030_alu_apply(uint16_t ccr, const ap_m68030_alu_result_t *r) {
   uint16_t out = 0;
   if (r->sets_x ? r->x : ((ccr >> AP_M68030_SR_X_BIT) & 1u) != 0u) {

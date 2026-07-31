@@ -53,13 +53,34 @@ ap_m68030_operand_read(ap_m68030_regs_t *regs, ap_m68030_access_ctx_t *access,
     return out;
   }
 
+  /* The access path deals in long words, so an operand smaller than one has to
+   * be selected out of it by *position*, not merely masked. The 68030 is big
+   * endian: the byte at address A sits in bits 31-24 of the long word at A & ~3
+   * when A & 3 is zero, and moves down a byte for each step of A & 3.
+   *
+   * Masking the low bits instead -- the shape this first had -- returns the long
+   * word's last byte for every address, which is right exactly when A & 3 is 3
+   * and silently wrong the other three times in four. Nothing faults; the wrong
+   * byte simply arrives. */
+  const unsigned offset = where->address & 3u;
+
+  /* An operand that straddles two long words needs two bus cycles. The 68030
+   * does perform them -- misalignment is not a fault on this part, unlike the
+   * 68000 -- but this path issues one, so it declines rather than returning
+   * half an operand. A named gap, not a wrong value. */
+  if (offset + size > 4u) {
+    out.fault = true;
+    return out;
+  }
+
   const ap_m68030_access_result_t read =
       ap_m68030_access_read(access, where->address, function_code);
   out.clocks = read.clocks;
   out.fault = read.fault;
   out.ok = read.ok;
-  /* The access path deals in long words; take the operand from it by size. */
-  out.value = read.value & size_mask(size);
+
+  const unsigned shift = (4u - offset - size) * 8u;
+  out.value = (read.value >> shift) & size_mask(size);
   return out;
 }
 

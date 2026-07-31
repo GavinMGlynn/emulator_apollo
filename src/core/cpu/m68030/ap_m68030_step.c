@@ -273,6 +273,7 @@ static bool execute_arith(ap_m68030_cpu_t *cpu, const ap_m68030_arith_t *arith,
   case AP_M68030_ARITH_ABCD:
   case AP_M68030_ARITH_SBCD:
   case AP_M68030_ARITH_CMPM:
+    return execute_extended(cpu, arith, clocks);
   case AP_M68030_ARITH_INVALID:
     return false;
   }
@@ -932,6 +933,51 @@ static bool execute_shift(ap_m68030_cpu_t *cpu, const ap_m68030_shift_t *shift,
 
 /* The register-to-register and wide forms: MULU, MULS, DIVU, DIVS, ADDX, SUBX,
  * CMPM and EXG. */
+/* Read one operand through -(An), applying the decrement, and keep where it
+ * came from so the same location can be written back. The predecrement step is
+ * two rather than one for a byte on A7, which ap_m68030_address_calculate
+ * already knows -- so this goes through it rather than adjusting by hand. */
+static bool read_predecrement_at(ap_m68030_cpu_t *cpu, unsigned reg,
+                                 unsigned size, uint32_t *clocks,
+                                 uint32_t *value, ap_m68030_address_t *where) {
+  const ap_m68030_ea_t ea = {.kind = AP_M68030_EA_PREDECREMENT, .reg = reg};
+  const ap_m68030_address_input_t input = {.operand_size = size};
+  *where = ap_m68030_address_calculate(&cpu->regs, ea, &input);
+
+  const ap_m68030_operand_result_t read = ap_m68030_operand_read(
+      &cpu->regs, cpu->data, where, size, cpu->data_function_code);
+  *clocks += read.clocks;
+  if (!read.ok) {
+    return false;
+  }
+  *value = read.value;
+  return true;
+}
+
+static bool read_predecrement(ap_m68030_cpu_t *cpu, unsigned reg, unsigned size,
+                              uint32_t *clocks, uint32_t *value) {
+  ap_m68030_address_t discarded = {0};
+  return read_predecrement_at(cpu, reg, size, clocks, value, &discarded);
+}
+
+static bool read_postincrement(ap_m68030_cpu_t *cpu, unsigned reg,
+                               unsigned size, uint32_t *clocks,
+                               uint32_t *value) {
+  const ap_m68030_ea_t ea = {.kind = AP_M68030_EA_POSTINCREMENT, .reg = reg};
+  const ap_m68030_address_input_t input = {.operand_size = size};
+  const ap_m68030_address_t where =
+      ap_m68030_address_calculate(&cpu->regs, ea, &input);
+
+  const ap_m68030_operand_result_t read = ap_m68030_operand_read(
+      &cpu->regs, cpu->data, &where, size, cpu->data_function_code);
+  *clocks += read.clocks;
+  if (!read.ok) {
+    return false;
+  }
+  *value = read.value;
+  return true;
+}
+
 static bool execute_extended(ap_m68030_cpu_t *cpu,
                              const ap_m68030_arith_t *arith, uint32_t *clocks) {
   const uint16_t ccr = ap_m68030_read_ccr(&cpu->regs);
@@ -940,10 +986,41 @@ static bool execute_extended(ap_m68030_cpu_t *cpu,
 
   switch (arith->kind) {
   case AP_M68030_ARITH_EXG:
-    /* EXG swaps two registers whole, and affects no condition codes. Which two
-     * depends on the opmode the decoder already resolved; both are treated as
-     * 32-bit, since there is no sized form. */
-    return false; /* the register pair encoding is not yet resolved here */
+    /* "Exchanges the contents of two 32-bit registers", condition codes "Not
+     * affected". There is no sized form -- "Size = (Long)" -- so this is always
+     * the whole register, and an address register exchanged here is not
+     * sign-extended from anything.
+     *
+     * A7 goes through the stack-pointer accessors rather than the array, since
+     * A7 names whichever of USP/ISP/MSP is active. */
+    switch (arith->exg) {
+    case AP_M68030_EXG_DATA: {
+      const uint32_t t = cpu->regs.d[arith->reg];
+      cpu->regs.d[arith->reg] = cpu->regs.d[arith->source_reg];
+      cpu->regs.d[arith->source_reg] = t;
+      return true;
+    }
+    case AP_M68030_EXG_ADDRESS: {
+      const uint32_t t = ap_m68030_read_address_register(&cpu->regs, arith->reg);
+      ap_m68030_write_address_register(
+          &cpu->regs, arith->reg,
+          ap_m68030_read_address_register(&cpu->regs, arith->source_reg));
+      ap_m68030_write_address_register(&cpu->regs, arith->source_reg, t);
+      return true;
+    }
+    case AP_M68030_EXG_MIXED: {
+      /* Rx "always specifies the data register" and Ry the address register,
+       * whichever way round the assembler wrote them. */
+      const uint32_t t = cpu->regs.d[arith->reg];
+      cpu->regs.d[arith->reg] =
+          ap_m68030_read_address_register(&cpu->regs, arith->source_reg);
+      ap_m68030_write_address_register(&cpu->regs, arith->source_reg, t);
+      return true;
+    }
+    case AP_M68030_EXG_NONE:
+      break;
+    }
+    return false;
 
   case AP_M68030_ARITH_MULU:
   case AP_M68030_ARITH_MULS: {
@@ -1061,24 +1138,87 @@ static bool execute_extended(ap_m68030_cpu_t *cpu,
   }
 
   case AP_M68030_ARITH_ADDX:
-  case AP_M68030_ARITH_SUBX: {
+  case AP_M68030_ARITH_SUBX:
+  case AP_M68030_ARITH_ABCD:
+  case AP_M68030_ARITH_SBCD: {
+    const unsigned size = (arith->kind == AP_M68030_ARITH_ABCD ||
+                           arith->kind == AP_M68030_ARITH_SBCD)
+                              ? 1u
+                              : arith->size;
+    const uint32_t mask = (size == 1u) ? 0xFFu : (size == 2u) ? 0xFFFFu
+                                                              : 0xFFFFFFFFu;
+
+    uint32_t source = 0;
+    uint32_t destination = 0;
+    ap_m68030_address_t destination_where = {0};
+
     if (arith->memory_operands) {
-      return false; /* the memory-to-memory form needs two predecrements */
+      /* "The operands are addressed with the predecrement addressing mode using
+       * the address registers specified in the instruction." Source first, so
+       * that -(An),-(An) on the same register decrements twice in the order the
+       * hardware does. */
+      if (!read_predecrement(cpu, arith->source_reg, size, clocks, &source)) {
+        return false;
+      }
+      if (!read_predecrement_at(cpu, arith->reg, size, clocks, &destination,
+                                &destination_where)) {
+        return false;
+      }
+    } else {
+      destination = cpu->regs.d[arith->reg] & mask;
+      source = cpu->regs.d[arith->source_reg] & mask;
     }
-    const uint32_t mask = (arith->size == 1u)   ? 0xFFu
-                          : (arith->size == 2u) ? 0xFFFFu
-                                                : 0xFFFFFFFFu;
-    const uint32_t destination = cpu->regs.d[arith->reg] & mask;
-    const uint32_t source = cpu->regs.d[arith->source_reg] & mask;
+
+    /* Four kinds reach here and only four, so this is a chain rather than a
+     * switch -- a switch would have to name every other arithmetic kind to
+     * satisfy -Wswitch-enum, which would say nothing. */
+    ap_m68030_alu_result_t result;
+    if (arith->kind == AP_M68030_ARITH_ADDX) {
+      result = ap_m68030_alu_addx(destination, source, size, x_in, z_in);
+    } else if (arith->kind == AP_M68030_ARITH_SUBX) {
+      result = ap_m68030_alu_subx(destination, source, size, x_in, z_in);
+    } else if (arith->kind == AP_M68030_ARITH_ABCD) {
+      result = ap_m68030_alu_abcd(destination, source, x_in, z_in);
+    } else {
+      result = ap_m68030_alu_sbcd(destination, source, x_in, z_in);
+    }
+
+    /* The flags are written before the store, so a faulting write leaves the
+     * same visible state either way round; the store is what may fail. */
+    if (arith->memory_operands) {
+      const ap_m68030_operand_result_t wrote = ap_m68030_operand_write(
+          &cpu->regs, cpu->data, &destination_where, size,
+          result.result & mask, cpu->data_function_code);
+      *clocks += wrote.clocks;
+      if (!wrote.ok) {
+        return false;
+      }
+    } else {
+      cpu->regs.d[arith->reg] =
+          (cpu->regs.d[arith->reg] & ~mask) | (result.result & mask);
+    }
+    ap_m68030_write_ccr(&cpu->regs, ap_m68030_alu_apply(ccr, &result));
+    return true;
+  }
+
+  case AP_M68030_ARITH_CMPM: {
+    /* "The operands are always addressed with the postincrement addressing
+     * mode" -- Ay is always the source, Ax always the destination, and "the
+     * destination location is not changed": this only sets condition codes. */
+    uint32_t source = 0;
+    uint32_t destination = 0;
+    if (!read_postincrement(cpu, arith->source_reg, arith->size, clocks,
+                            &source)) {
+      return false;
+    }
+    if (!read_postincrement(cpu, arith->reg, arith->size, clocks,
+                            &destination)) {
+      return false;
+    }
 
     const ap_m68030_alu_result_t result =
-        (arith->kind == AP_M68030_ARITH_ADDX)
-            ? ap_m68030_alu_addx(destination, source, arith->size, x_in, z_in)
-            : ap_m68030_alu_subx(destination, source, arith->size, x_in, z_in);
-
+        ap_m68030_alu_cmp(destination, source, arith->size);
     ap_m68030_write_ccr(&cpu->regs, ap_m68030_alu_apply(ccr, &result));
-    cpu->regs.d[arith->reg] =
-        (cpu->regs.d[arith->reg] & ~mask) | (result.result & mask);
     return true;
   }
 
@@ -1093,9 +1233,6 @@ static bool execute_extended(ap_m68030_cpu_t *cpu,
   case AP_M68030_ARITH_SUBA:
   case AP_M68030_ARITH_ADDA:
   case AP_M68030_ARITH_CMPA:
-  case AP_M68030_ARITH_ABCD:
-  case AP_M68030_ARITH_SBCD:
-  case AP_M68030_ARITH_CMPM:
   case AP_M68030_ARITH_INVALID:
     return false;
   }

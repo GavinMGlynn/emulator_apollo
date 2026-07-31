@@ -72,6 +72,18 @@ typedef enum {
   AP_M68030_ARITH_INVALID,
 } ap_m68030_arith_kind_t;
 
+/* Which of EXG's three exchanges, from the opmode field: "01000 -- Data
+ * registers, 01001 -- Address registers, 10001 -- Data register and address
+ * register". The struct's `memory_operands` cannot express this on its own:
+ * both the address-address and the data-address forms have bit 3 set, and they
+ * are distinguished only by the opmode above it. */
+typedef enum {
+  AP_M68030_EXG_NONE = 0, /* not an EXG */
+  AP_M68030_EXG_DATA,     /* EXG Dx,Dy */
+  AP_M68030_EXG_ADDRESS,  /* EXG Ax,Ay */
+  AP_M68030_EXG_MIXED,    /* EXG Dx,Ay -- Rx is always the data register */
+} ap_m68030_exg_mode_t;
+
 typedef struct {
   ap_m68030_arith_kind_t kind;
   unsigned size;             /* operand size in bytes, 0 where not applicable */
@@ -79,6 +91,7 @@ typedef struct {
   bool to_effective_address; /* the 100-110 direction */
   bool memory_operands;      /* the register-register forms' R/M bit */
   unsigned source_reg;       /* those forms' second register */
+  ap_m68030_exg_mode_t exg;  /* which exchange, for EXG only */
   ap_m68030_ea_t ea;
 } ap_m68030_arith_t;
 

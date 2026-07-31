@@ -98,6 +98,34 @@ ap_m68030_alu_addx(uint32_t destination, uint32_t source, unsigned size,
 ap_m68030_alu_subx(uint32_t destination, uint32_t source, unsigned size,
                    bool x_in, bool z_in);
 
+/* ABCD and SBCD: "The addition is performed using binary-coded decimal
+ * arithmetic", on operands "which are packed binary-coded decimal numbers".
+ *
+ * Byte only -- "This operation is a byte operation only" -- and each nibble is
+ * one decimal digit, so $99 + $01 is $00 with a carry rather than $9A.
+ *
+ * Z follows the same never-set rule as ADDX, and for the same reason, which the
+ * manual makes explicit here: "Normally, the Z condition code bit is set via
+ * programming before the start of an operation. This allows successful tests
+ * for zero results upon completion of multiple-precision operations."
+ *
+ * N and V are documented **undefined** for both. Undefined is not "free to
+ * differ between runs" for us -- a reference core must be deterministic -- so
+ * this models N from bit 7 of the result and V cleared, and marks that choice
+ * PROVISIONAL: it is the shape the arithmetic falls out with, not a measured
+ * fact, and it is a named item for an oracle probe. Nothing correct may depend
+ * on either bit, since the hardware does not promise them.
+ *
+ * Operands that are not valid packed BCD are outside what the manual defines;
+ * the digit-carry form used here is total, but its results there are not a
+ * claim about the hardware. */
+[[nodiscard]] ap_m68030_alu_result_t ap_m68030_alu_abcd(uint32_t destination,
+                                                        uint32_t source,
+                                                        bool x_in, bool z_in);
+[[nodiscard]] ap_m68030_alu_result_t ap_m68030_alu_sbcd(uint32_t destination,
+                                                        uint32_t source,
+                                                        bool x_in, bool z_in);
+
 /* Shifts and rotates, Table 3-18's continued page.
  *
  * Three rules carry most of the weight, and each is a place a plausible
