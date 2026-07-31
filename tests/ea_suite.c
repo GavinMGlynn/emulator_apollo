@@ -188,6 +188,77 @@ static void test_the_following_word_count_covers_both_displacements(void) {
                                     .outer_displacement_size = AP_M68030_OD_WORD}));
 }
 
+
+/* ---------------------------------------------------------------------------
+ * Extension word counts, which are what an instruction's length is built from
+ * and therefore what advances the PC. A wrong count here does not fault -- it
+ * desynchronises every following instruction.
+ * ------------------------------------------------------------------------- */
+
+/* The modes that need nothing beyond the instruction word. */
+static void test_the_register_and_indirect_modes_need_no_extension(void) {
+  const ap_m68030_ea_kind_t none[5] = {
+      AP_M68030_EA_DATA_REGISTER, AP_M68030_EA_ADDRESS_REGISTER,
+      AP_M68030_EA_ADDRESS_INDIRECT, AP_M68030_EA_POSTINCREMENT,
+      AP_M68030_EA_PREDECREMENT};
+  for (unsigned i = 0; i < 5; i++) {
+    TEST_ASSERT_EQUAL_UINT(0, ap_m68030_ea_words(none[i], 0, 4));
+  }
+}
+
+/* One displacement word each, and two for the long absolute. */
+static void test_the_displacement_and_absolute_modes(void) {
+  TEST_ASSERT_EQUAL_UINT(1, ap_m68030_ea_words(AP_M68030_EA_DISPLACEMENT, 0, 4));
+  TEST_ASSERT_EQUAL_UINT(
+      1, ap_m68030_ea_words(AP_M68030_EA_PC_DISPLACEMENT, 0, 4));
+  TEST_ASSERT_EQUAL_UINT(
+      1, ap_m68030_ea_words(AP_M68030_EA_ABSOLUTE_SHORT, 0, 4));
+  TEST_ASSERT_EQUAL_UINT(
+      2, ap_m68030_ea_words(AP_M68030_EA_ABSOLUTE_LONG, 0, 4));
+}
+
+/* Table 2-3: a *byte* immediate occupies the low-order byte of a whole
+ * extension word, so byte and word both cost one word and only long costs two.
+ * Sizing the byte case at none would desynchronise the instruction stream. */
+static void test_a_byte_immediate_still_costs_a_whole_word(void) {
+  TEST_ASSERT_EQUAL_UINT(1, ap_m68030_ea_words(AP_M68030_EA_IMMEDIATE, 0, 1));
+  TEST_ASSERT_EQUAL_UINT(1, ap_m68030_ea_words(AP_M68030_EA_IMMEDIATE, 0, 2));
+  TEST_ASSERT_EQUAL_UINT(2, ap_m68030_ea_words(AP_M68030_EA_IMMEDIATE, 0, 4));
+}
+
+/* An indexed mode costs its own extension word plus whatever displacements that
+ * word declares -- none for the brief format. */
+static void test_a_brief_indexed_mode_costs_one_word(void) {
+  /* Brief format: bit 8 clear. */
+  TEST_ASSERT_EQUAL_UINT(
+      1, ap_m68030_ea_words(AP_M68030_EA_INDEXED, 0x0010u, 4));
+  TEST_ASSERT_EQUAL_UINT(
+      1, ap_m68030_ea_words(AP_M68030_EA_PC_INDEXED, 0x0010u, 4));
+}
+
+/* A full-format extension word adds its base and outer displacements on top of
+ * itself, so the widest form is five words in all. */
+static void test_a_full_format_indexed_mode_adds_its_displacements(void) {
+  /* Full format, BD null, no memory indirect: the word alone. */
+  TEST_ASSERT_EQUAL_UINT(
+      1, ap_m68030_ea_words(AP_M68030_EA_INDEXED, 0x0110u, 4));
+
+  /* BD long (2 words) plus outer long (2 words), plus the extension word. */
+  const uint16_t widest = 0x0130u | 0x3u; /* BD long, IS clear, I/IS 011 */
+  TEST_ASSERT_EQUAL_UINT(
+      5, ap_m68030_ea_words(AP_M68030_EA_INDEXED, widest, 4));
+
+  /* BD word plus outer word is three in total. */
+  const uint16_t middling = 0x0120u | 0x2u;
+  TEST_ASSERT_EQUAL_UINT(
+      3, ap_m68030_ea_words(AP_M68030_EA_INDEXED, middling, 4));
+}
+
+/* An invalid mode occupies nothing, since there is no instruction to size. */
+static void test_an_invalid_mode_costs_nothing(void) {
+  TEST_ASSERT_EQUAL_UINT(0, ap_m68030_ea_words(AP_M68030_EA_INVALID, 0, 4));
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_the_register_modes_decode_with_their_register);
@@ -201,5 +272,11 @@ int main(void) {
   RUN_TEST(test_the_memory_indirect_table_decodes_in_full);
   RUN_TEST(test_the_same_i_is_means_different_things_under_is);
   RUN_TEST(test_the_following_word_count_covers_both_displacements);
+  RUN_TEST(test_the_register_and_indirect_modes_need_no_extension);
+  RUN_TEST(test_the_displacement_and_absolute_modes);
+  RUN_TEST(test_a_byte_immediate_still_costs_a_whole_word);
+  RUN_TEST(test_a_brief_indexed_mode_costs_one_word);
+  RUN_TEST(test_a_full_format_indexed_mode_adds_its_displacements);
+  RUN_TEST(test_an_invalid_mode_costs_nothing);
   return UNITY_END();
 }

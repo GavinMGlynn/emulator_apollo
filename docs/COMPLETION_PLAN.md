@@ -598,6 +598,25 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         illegal**. Neither number should move much without a reason; a
         dispatcher that claimed everything would be as wrong as one claiming
         nothing.
+  - [x] **Effective address extension word counts** (`ap_m68030_ea_words`),
+        the piece an instruction's total length is built from and therefore what
+        advances the PC. A wrong count here does not fault — it desynchronises
+        every following instruction, which is why it is pinned per mode rather
+        than derived at each call site.
+        Table 2-3 is the part worth stating: a **byte immediate still occupies a
+        whole extension word** ("Low-order byte of the extension word"), so byte
+        and word both cost one and only long costs two. The indexed modes cost
+        their own extension word *plus* whatever base and outer displacements it
+        declares — one word for the brief format, up to five in total for the
+        widest full format.
+        *Verification: `ea_suite`, 6 further tests (17 total).*
+  - [ ] **Total instruction length**, joining `ap_m68030_ea_words` to each
+        family's own extension words so the PC can advance. The family decoders
+        already report their own (`branch`, `quick`, `control`, `misc`,
+        `shift`); what remains is the dispatcher-level function that adds the
+        effective address's, and the operand size each family gives it.
+        *Verification: a length for every decoded instruction, checked against
+        the manual's own worked encodings.*
   - [ ] **CMP2/CHK2, CAS and CAS2**, which occupy size field `11` in family
         `0000`'s immediate rows. Not decoded: `ap_m68030_immediate_decode`
         reports invalid there rather than mis-decoding them as a wider ORI, and

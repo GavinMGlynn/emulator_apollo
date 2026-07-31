@@ -166,3 +166,42 @@ unsigned ap_m68030_ea_extension_words(const ap_m68030_extension_t *extension) {
   }
   return words;
 }
+
+unsigned ap_m68030_ea_words(ap_m68030_ea_kind_t kind, uint16_t extension_word,
+                            unsigned operand_size) {
+  switch (kind) {
+  /* The register and simple indirect modes need nothing beyond the
+   * instruction word. */
+  case AP_M68030_EA_DATA_REGISTER:
+  case AP_M68030_EA_ADDRESS_REGISTER:
+  case AP_M68030_EA_ADDRESS_INDIRECT:
+  case AP_M68030_EA_POSTINCREMENT:
+  case AP_M68030_EA_PREDECREMENT:
+  case AP_M68030_EA_INVALID:
+    return 0;
+
+  /* A single 16-bit displacement. */
+  case AP_M68030_EA_DISPLACEMENT:
+  case AP_M68030_EA_PC_DISPLACEMENT:
+  case AP_M68030_EA_ABSOLUTE_SHORT:
+    return 1;
+
+  case AP_M68030_EA_ABSOLUTE_LONG:
+    return 2;
+
+  /* The extension word itself, plus whatever base and outer displacements it
+   * declares -- which is zero for the brief format. */
+  case AP_M68030_EA_INDEXED:
+  case AP_M68030_EA_PC_INDEXED: {
+    const ap_m68030_extension_t extension =
+        ap_m68030_ea_decode_extension(extension_word);
+    return 1u + ap_m68030_ea_extension_words(&extension);
+  }
+
+  case AP_M68030_EA_IMMEDIATE:
+    /* Table 2-3: a byte immediate occupies the *low-order byte of the extension
+     * word*, so it still costs a whole word. Only a long costs two. */
+    return (operand_size > 2u) ? 2u : 1u;
+  }
+  return 0;
+}

@@ -123,4 +123,21 @@ typedef struct {
 [[nodiscard]] unsigned
 ap_m68030_ea_extension_words(const ap_m68030_extension_t *extension);
 
+/* How many extension words an effective address occupies, which is what an
+ * instruction's total length is built from and therefore what advances the PC.
+ *
+ * `extension_word` is the first extension word, read only for the two indexed
+ * modes and ignored otherwise -- a caller that has not fetched one may pass
+ * zero for every other mode. `operand_size` is the operand size in bytes, read
+ * only for the immediate mode.
+ *
+ * The immediate mode is the one worth stating, from Table 2-3: a **byte**
+ * immediate still occupies a whole extension word -- "Low-order byte of the
+ * extension word" -- so byte and word are both one word and only long is two.
+ * Sizing the byte case at half a word, or at none, desynchronises every
+ * following instruction rather than producing a visible fault. */
+[[nodiscard]] unsigned ap_m68030_ea_words(ap_m68030_ea_kind_t kind,
+                                          uint16_t extension_word,
+                                          unsigned operand_size);
+
 #endif /* APOLLO_CPU_M68030_AP_M68030_EA_H */
