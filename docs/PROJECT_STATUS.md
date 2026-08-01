@@ -187,9 +187,17 @@ newline to port 1 moves the PROM to `0000220C`, serial writes go from 38 to
 **11839**, main memory writes from 43328 to 177894 and core register writes from
 7 to 2368 — substantial work that was not happening before.
 
-No console bytes emerge even so. Because `sio_suite` proves the path, that is a
-sharp question rather than an ambiguous one: either those writes are not to the
-transmit buffers, or the transmitter is not accepting them.
+No console bytes emerge even so, and per-register counts settle why: **the two
+transmit buffers have zero writes on both ports.** The PROM never transmits.
+The capture was correct and there was nothing to capture.
+
+What it writes instead is the auxiliary control and clock-select registers,
+thousands of times, with the counter/timer preload registers written once each.
+That is the shape of something driving the DUART's counter/timer — which never
+advances here, because nothing ticks. If that holds it would partly reverse an
+earlier correction: a poll loop looked like a timing problem and was not, and
+the thing behind it may be one after all. It is recorded as a reading to confirm
+against the part's manual, not acted on.
 
 The tick loop is still owed and remains the project's central design item, but
 it is not what this stop needs.

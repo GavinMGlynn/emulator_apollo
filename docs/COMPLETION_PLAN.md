@@ -2772,11 +2772,24 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         and the serial region goes from 38 writes to **11839**. Main memory
         writes go from 43328 to 177894 and core register writes from 7 to 2368.
         The firmware is doing substantial work it was not doing before.
-  - [ ] **But no console bytes emerge**, and that is now a sharp question rather
-        than an ambiguous one, because `sio_suite` proves the path. Either those
-        11839 writes are not to the transmit buffers, or the transmitter is not
-        accepting them. Distinguish before assuming: count writes *per register*
-        on the serial path, the same way per-region counts settled the last one.
+  - [x] **Settled: the PROM never transmits.** Per-register write counts show
+        register 3 and register 11 — the two transmit buffers — with **zero
+        writes on both ports**. Our capture was correct and there was nothing to
+        capture. The `tx_enabled` mechanism that could have swallowed the output
+        exists but is not what is happening, which is why it was recorded as a
+        thing to test rather than believed.
+  - [ ] What the 11839 writes actually are: `sio1 reg 9` 4723 times,
+        `sio1 reg 4` 2362, `sio2 reg 1` 2362, `sio2 reg 4` 2361 — the auxiliary
+        control and clock-select registers, hammered, with the counter/timer
+        preload registers written once each. That is the shape of something
+        driving the DUART's **counter/timer**, which in this model never
+        advances because nothing ticks.
+        - If so, the tick loop *is* what this needs, which would partly reverse
+          an earlier correction — a poll loop looked like a timing problem, was
+          not, and the thing behind it may be one after all.
+        - **Establish it before building.** Confirm the register identities
+          against `[68681]` and confirm the firmware reads the counter back,
+          rather than inferring a timer from write volume alone.
         - Checked: `ap_mc68681_write` does drop a transmit-buffer write when
           `tx_enabled` is clear, and the command register's enable and disable
           bits are handled correctly. So the mechanism exists; whether the

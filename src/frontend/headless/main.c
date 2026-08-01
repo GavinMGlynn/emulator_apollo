@@ -365,6 +365,17 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
            ap_board_region_name((ap_board_region_t)r), board->region_reads[r],
            board->region_writes[r]);
   }
+  /* Which serial registers, not just how many. A transmit that never happened
+   * and one dropped at the register look identical from a total. */
+  for (unsigned unit = 0; unit < 2u; unit++) {
+    for (unsigned reg = 0; reg < AP_MC68681_REGISTERS; reg++) {
+      if (board->sio.register_writes[unit][reg] == 0u) {
+        continue;
+      }
+      printf("    sio%u reg %-2u %8u write(s)\n", unit + 1u, reg,
+             board->sio.register_writes[unit][reg]);
+    }
+  }
   printf("  state hash   %016llX\n",
          (unsigned long long)ap_machine_hash(&machine));
 

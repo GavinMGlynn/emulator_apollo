@@ -62,6 +62,12 @@
 
 typedef struct {
   ap_mc68681_t port[2];
+
+  /* Writes per port and register. The per-region counts said the firmware wrote
+   * to serial 11839 times and said nothing about *which* registers, and a
+   * transmit that never happened looks exactly like one that was dropped at the
+   * register. This is the level at which those two separate. */
+  unsigned register_writes[2][AP_MC68681_REGISTERS];
 } ap_sio_t;
 
 void ap_sio_reset(ap_sio_t *sio);

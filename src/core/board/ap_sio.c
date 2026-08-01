@@ -32,6 +32,7 @@ void ap_sio_write(ap_sio_t *sio, uint32_t address, uint8_t value) {
   if (!ap_sio_decode(address, &unit, &reg)) {
     return;
   }
+  sio->register_writes[unit][reg]++;
   ap_mc68681_write(&sio->port[unit], reg, value);
 }
 
