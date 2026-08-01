@@ -2641,23 +2641,32 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         there is no way to write half of `value` into each. Both are now
         invalidated, which costs a refill and cannot return a wrong value
         because writethrough has already reached memory.
-  - [ ] **The read side has the same bug and is still open.** With the write
-        fixed, the reproduction still fails: `ap_m68030_access_read` calls
-        `ap_m68030_cache_lookup` with the raw logical address, and a misaligned
-        long is assembled from a *single* entry. It returns zero for a value
-        that is correct in memory.
-        - Recipe, ready to become a test: make `00004170` and `00004174`
-          resident by reading both, write a long to `00004172`, read it back.
-          Expect `00000620`, currently `00000000`.
-        - Deliberately **not** left in the runner as a failing test — a red
-          suite is the stop-everything condition here, so a reproduction that
-          cannot yet pass lives in the plan. `step_suite` carries a note saying
-          where it went and why.
-        - The two halves are one defect seen twice: an entry is a long word, and
-          any access that is not an aligned long word spans two of them. Fix the
-          read path the same way — assemble from both entries, or decline the
-          hit and take the external cycle.
-  - [ ] Whether the PROM *should* reach `00090000` at all is a separate
+  - [x] **Fixed, and the read path was never the problem.** `operand_write`
+        splits at long-word boundaries, so a misaligned long arrives at the
+        cache as two *partial* writes — and the hit path stored a partial
+        `value` into a four-byte entry, replacing the bytes it had not written
+        along with the ones it had. The entry held neither the old value nor the
+        new one. The written bytes are now merged into their own lanes,
+        big-endian, and the rest of the entry is left alone.
+        - "Regardless of the operand size" means the write reaches the cache
+          whatever its size, not that it replaces the whole entry.
+        - A blanket invalidate was tried first and was **too crude**: it made a
+          byte write hit lose the rest of the line, which `access_suite` caught.
+          Invalidating looks safe — it can only remove information — and is
+          still wrong when the manual says the data is written.
+        - `access_suite` was passing `true` as the *size* argument of a write.
+          The old whole-entry overwrite made a one-byte write of a long value
+          behave like a long write, so that test passed for the wrong reason for
+          as long as the bug existed. Corrected to `4u`. A test a bug keeps
+          green deserves more suspicion than one it turns red.
+        - The reproduction is back in `step_suite` as a passing test, and also
+          asserts the neighbouring bytes survive — a fix that invalidated rather
+          than merged would satisfy the value assertion and fail that one.
+  - [ ] The PROM runs **300000 instructions** with the runaway gone: it no
+        longer reaches address zero and the PC stays inside the PROM. There are
+        now **129 bus errors**, a new and uncharacterised signature. Trace what
+        they touch before treating the count as benign — a clean-looking number
+        has already been wrong once in this investigation.
         question from what happens when it does. Check what it tests before
         jumping — do not assume the jump is unconditional.
   - [ ] The rest of the display controllers: the graphics memories

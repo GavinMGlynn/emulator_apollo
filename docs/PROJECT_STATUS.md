@@ -126,9 +126,14 @@ left the other stale. Both are now invalidated on a misaligned long write, which
 costs a refill and cannot return a wrong value since writethrough has already
 reached memory.
 
-**The read side has the same defect and is still open**: a misaligned long is
-looked up from a single entry. The reproduction is recorded in
-`docs/COMPLETION_PLAN.md` rather than left failing in the runner.
+The read path was never the problem. `operand_write` splits at long-word
+boundaries, so a misaligned long reaches the cache as two *partial* writes, and
+the hit path stored a partial value into a four-byte entry — replacing bytes it
+had not written. The written bytes are now merged into their own lanes.
+
+**The runaway is gone.** The PROM no longer reaches address zero, and 300000
+instructions leave the PC inside the PROM. It now shows 129 bus errors, a new
+and uncharacterised signature rather than a good one.
 
 Getting there needed `--boot-trace` (PC and A7 per step) and one fix. A7 was the
 observable: the PROM's `CLR.B $00011600` bus errored on every pass through its
