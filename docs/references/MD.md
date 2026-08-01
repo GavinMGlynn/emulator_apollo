@@ -70,14 +70,42 @@ CR LF CR LF '>'
   copyright line -- so a parser must not skip lines looking for a prompt after
   a header, because there is no header.
 
-## What is not yet captured
+## The `A` command's line
 
-Command *responses*. The session above only ever sends carriage returns, so MD
-only ever answers with a prompt. `A`'s address-and-contents line -- the format
-the encoder's parser actually has to read -- needs a run that sends `A` and an
-address. That is the same harness with different input, and it is the next
-thing.
+Sending `A`, then an address, then repeated carriage returns produces a run of
+lines. Byte-exact, consecutive:
 
-Until it is captured, the no-guessing rule stands for the `A` line specifically:
-its column layout and separators remain unknown, and this document says so
-rather than extrapolating them from the prompt.
+```
+0D 0A 34 3A 20        CR LF '4'  ':' ' '
+0D 0A 36 3A 20        CR LF '6'  ':' ' '
+0D 0A 38 3A 20        CR LF '8'  ':' ' '
+0D 0A 41 3A 20        CR LF 'A'  ':' ' '
+...
+0D 0A 31 30 3A        CR LF '1' '0' ':'
+0D 0A 31 32 3A        CR LF '1' '2' ':'
+```
+
+What that gives, and only what it gives:
+
+- **The separator is `':' ' '`** -- colon then a single space -- for
+  single-digit addresses. For two-digit addresses the trailing space is
+  **absent**: `31 30 3A` is `10:` with `CR LF` next. So the field is
+  space-padded to a fixed width rather than colon-then-always-space, and a
+  parser splitting on `": "` will fail from address `10` onward.
+- **Addresses are bare hexadecimal, upper case, without leading zeros** --
+  `4`, `6`, `8`, `A`, `C`, `E`, `10`, `1A`, `2E`.
+- **The step is 2**, so `A` walks words rather than bytes.
+- Each line begins with `CR LF`, consistent with the prompt.
+
+## What is still not captured
+
+**The contents.** Every line above ends after the address field -- MD is
+prompting for input at each address and our carriage returns simply advance it,
+so nothing was ever displayed to the right of the separator. The handbook's
+"prints address and contents" describes a case this capture did not reach.
+
+So the parser can be written against the address field and the separator's
+width rule, and **cannot** yet be written against the contents field. Getting
+that needs a run whose input makes MD display rather than step -- and that is a
+question about MD's command set, not about the harness, which now works end to
+end.

@@ -384,11 +384,18 @@ file the moment they are found, not when someone remembers.
           terminator is `CR LF` in that order; **a blank line precedes each
           prompt**, so a parser expecting one terminator reads it as a response;
           and there is no banner or copyright header to skip past.
-        - Still open, narrowly: the `A` command's **address-and-contents line**,
-          which is the format the parser actually has to read. The session so
-          far only sends carriage returns, so MD only ever answers with a
-          prompt. Same harness, different input. `MD.md` records that its
-          layout remains unknown rather than extrapolating it from the prompt.
+        - **The `A` command's line is captured too.** `0D 0A 34 3A 20` is
+          `CR LF '4' ':' ' '`, and the walk steps by 2 — `4`, `6`, `8`, `A`,
+          `C`, `E`, `10`, `1A`. Addresses are bare upper-case hex with no
+          leading zeros.
+        - The catch, and it would have broken the parser: for two-digit
+          addresses the trailing space is **absent** (`31 30 3A` is `10:`). The
+          field is space-padded to a fixed width, not colon-then-always-space,
+          so splitting on `": "` fails from address `10` onward.
+        - Still not captured: **the contents**. Every line ends after the
+          separator, because MD prompts at each address and our carriage returns
+          advance it. Reaching a displayed value is a question about MD's
+          command set, not about the harness, which now works end to end.
         - **A result worth having on the way** (`FINDINGS.md` C39): the oracle's
           four configuration writes, decoded — `sio1 ACR E0`, `sio1 CSRB 77`,
           `sio2 ACR 80`, `sio2 CSRA 77`. Both ports get the same clock select,
