@@ -128,6 +128,7 @@ bool ap_board_init(ap_board_t *board, uint8_t *ram, uint32_t ram_bytes,
    * DN3500 answers there whether or not a screen is present -- and the ID
    * register reads `FF`, which is how the firmware learns there is none. */
   ap_graphics_init(&board->graphics, AP_SCREEN_NONE);
+  ap_kbd_reset(&board->keyboard);
   board->ram = ram;
   board->ram_bytes = ram_bytes;
   return true;
@@ -322,4 +323,33 @@ bool ap_board_reset_vector(const ap_board_t *board, uint32_t *stack,
   *pc = ((uint32_t)p[4] << 24) | ((uint32_t)p[5] << 16) |
         ((uint32_t)p[6] << 8) | (uint32_t)p[7];
   return true;
+}
+
+/* Serial 1 is unit 0 and the keyboard is on channel A. */
+#define KBD_UNIT 0u
+#define KBD_CHANNEL 0u
+
+static bool deliver_key(ap_board_t *board, uint8_t code) {
+  /* At the port's own rate: see the header on why this is an assumption rather
+   * than a measurement. */
+  const uint8_t csr =
+      ap_sio_clock_select(&board->sio, KBD_UNIT, KBD_CHANNEL);
+  ap_sio_receive_at(&board->sio, KBD_UNIT, KBD_CHANNEL, code, csr);
+  return true;
+}
+
+bool ap_board_key_press(ap_board_t *board, unsigned key) {
+  uint8_t code = 0;
+  if (!ap_kbd_press(&board->keyboard, key, &code)) {
+    return false;
+  }
+  return deliver_key(board, code);
+}
+
+bool ap_board_key_release(ap_board_t *board, unsigned key) {
+  uint8_t code = 0;
+  if (!ap_kbd_release(&board->keyboard, key, &code)) {
+    return false;
+  }
+  return deliver_key(board, code);
 }

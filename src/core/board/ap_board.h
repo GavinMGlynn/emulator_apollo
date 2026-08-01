@@ -41,6 +41,7 @@
 #include "board/ap_nodeid.h"
 #include "board/ap_sio.h"
 #include "board/ap_graphics.h"
+#include "device/ap_kbd.h"
 #include "board/ap_tape.h"
 #include "board/ap_timer.h"
 
@@ -119,6 +120,7 @@ typedef struct ap_board {
   ap_disk_t disk;
   ap_tape_t tape;
   ap_graphics_t graphics;
+  ap_kbd_t keyboard;
 
   /* The boot PROM, caller-owned. NULL until one is loaded, and the region then
    * answers unmapped -- a machine with no PROM is a real configuration and must
@@ -201,5 +203,21 @@ typedef struct ap_board {
                                     bool *ok);
 void ap_board_write(ap_board_t *board, uint32_t address, uint8_t value,
                     bool *ok);
+
+/* Press or release a keyboard key, delivering its scan code to serial 1
+ * channel A -- the port the keyboard is wired to, confirmed from both the
+ * oracle's machine configuration and the boot PROM's own poll loop.
+ *
+ * Answers false when there was no transition to report: a repeated press, a
+ * release of a key that was not down, or a key outside the matrix.
+ *
+ * **The link's rate is assumed, not measured.** The code is delivered at the
+ * port's own current clock select, which models a correctly configured link and
+ * makes the DUART's rate check vacuous for this path. The real keyboard's line
+ * rate is not known -- the firmware configures channel *B* in the traces we
+ * have and leaves channel A at reset -- so asserting a figure here would be
+ * inventing one. Recorded rather than guessed. */
+[[nodiscard]] bool ap_board_key_press(ap_board_t *board, unsigned key);
+[[nodiscard]] bool ap_board_key_release(ap_board_t *board, unsigned key);
 
 #endif /* APOLLO_BOARD_AP_BOARD_H */

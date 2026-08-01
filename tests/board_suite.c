@@ -274,6 +274,53 @@ static void test_every_core_board_register_is_reachable_through_the_map(void) {
   TEST_ASSERT_EQUAL_UINT(0u, b.unmapped_writes);
 }
 
+/* The keyboard reaches serial 1 channel A — the port both the oracle's machine
+ * configuration and the boot PROM's own poll loop identify. A scan code
+ * delivered here is what the firmware's translation table searches for. */
+static void test_a_key_press_reaches_serial_one_channel_a(void) {
+  ap_board_t b;
+  bool ok = false;
+  init(&b);
+  /* Enable the receiver and set eight bits, the way a driver does, through the
+   * registers. Eight is not optional here: `MR1` resets to a **five-bit** link,
+   * and a release code has bit 7 set — so on an unconfigured port `4B` arrives
+   * as `0B` and `CB` cannot arrive at all. The keyboard needs the full width. */
+  ap_board_write(&b, AP_SIO1_ADDR + (AP_MC68681_MR_A * 2u), 0x07u, &ok);
+  ap_board_write(&b, AP_SIO1_ADDR + (AP_MC68681_CR_A * 2u), 0x01u, &ok);
+
+  TEST_ASSERT_TRUE(ap_board_key_press(&b, 0x4Bu));
+
+  TEST_ASSERT_EQUAL_HEX8(
+      0x4Bu, ap_board_read(&b, AP_SIO1_ADDR + (AP_MC68681_RB_TB_A * 2u), &ok));
+  TEST_ASSERT_TRUE(ok);
+
+  /* And the release carries bit 7, which is how the firmware tells them
+   * apart. */
+  TEST_ASSERT_TRUE(ap_board_key_release(&b, 0x4Bu));
+  TEST_ASSERT_EQUAL_HEX8(
+      0xCBu, ap_board_read(&b, AP_SIO1_ADDR + (AP_MC68681_RB_TB_A * 2u), &ok));
+}
+
+/* A non-transition delivers nothing, and must not reach the port at all — not
+ * merely be filtered later. A second press with a byte on the wire would be a
+ * key the hardware never reported. */
+static void test_a_repeated_press_puts_nothing_on_the_port(void) {
+  ap_board_t b;
+  bool ok = false;
+  init(&b);
+  ap_board_write(&b, AP_SIO1_ADDR + (AP_MC68681_MR_A * 2u), 0x07u, &ok);
+  ap_board_write(&b, AP_SIO1_ADDR + (AP_MC68681_CR_A * 2u), 0x01u, &ok);
+
+  TEST_ASSERT_TRUE(ap_board_key_press(&b, 0x4Bu));
+  (void)ap_board_read(&b, AP_SIO1_ADDR + (AP_MC68681_RB_TB_A * 2u), &ok);
+
+  TEST_ASSERT_FALSE(ap_board_key_press(&b, 0x4Bu));
+  /* Nothing waiting. */
+  TEST_ASSERT_FALSE(
+      (ap_board_read(&b, AP_SIO1_ADDR + (AP_MC68681_SR_CSR_A * 2u), &ok) &
+       AP_MC68681_SR_RXRDY) != 0u);
+}
+
 static void test_the_boot_prom_region_is_reported_absent(void) {
   ap_board_t b;
   bool ok = true;
@@ -310,6 +357,8 @@ int main(void) {
   RUN_TEST(test_the_windows_do_not_swallow_the_devices_inside_them);
   RUN_TEST(test_main_memory_s_name_stops_where_its_address_space_does);
   RUN_TEST(test_every_core_board_register_is_reachable_through_the_map);
+  RUN_TEST(test_a_key_press_reaches_serial_one_channel_a);
+  RUN_TEST(test_a_repeated_press_puts_nothing_on_the_port);
   RUN_TEST(test_the_boot_prom_region_is_reported_absent);
   RUN_TEST(test_every_region_has_a_name);
   return UNITY_END();

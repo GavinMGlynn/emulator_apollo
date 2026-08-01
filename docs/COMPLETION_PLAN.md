@@ -2816,8 +2816,23 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
       held keys; neither is modelled, because nothing in this core advances time
       and a repeat interval would be a number with no clock behind it. What is
       modelled is the transition, which is what a caller can generate honestly.
-    - Still open: wiring it to serial 1 channel A through
-      `ap_sio_receive_framed`, and a frontend option to press keys.
+    - **Wired**: `ap_board_key_press` and `_release` deliver the scan code to
+      serial 1 channel A. `board_suite`, 2 tests — one that a press and its
+      release arrive as `4B` and `CB`, one that a repeated press puts *nothing*
+      on the port rather than being filtered later.
+    - The framing immediately produced a real constraint. `MR1` resets to a
+      **five-bit** link, so on an unconfigured port `4B` arrives as `0B` and a
+      release code — bit 7 set — cannot arrive at all. **The keyboard needs
+      eight bits**, and the firmware must configure them before it can read a
+      key. That is a fact about the machine, found by the framing work rather
+      than assumed by it.
+    - The link's *rate* is assumed rather than measured: the code goes out at
+      the port's own clock select, which models a correct link and makes the
+      rate check vacuous on this path. The real keyboard's line rate is unknown
+      — the firmware configures channel *B* in every trace we hold and leaves
+      channel A at reset — so a figure here would be invented. Recorded in the
+      board header.
+    - Still open: a frontend option to press keys.
         - **The values are no longer unknown.** `FINDINGS.md` C39 and C42 read
           them off the running oracle: `sio1 ACR E0`, `sio1 CSRB 77`,
           `sio2 ACR 80`, `sio2 CSRA 77` at reset, and the firmware then

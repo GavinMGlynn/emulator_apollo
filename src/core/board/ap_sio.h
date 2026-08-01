@@ -132,4 +132,9 @@ void ap_sio_receive_framed(ap_sio_t *sio, unsigned unit, unsigned channel,
 [[nodiscard]] bool ap_sio_transmit(ap_sio_t *sio, unsigned unit,
                                    unsigned channel, uint8_t *byte);
 
+/* A port's current receiver clock select, for a device that needs to send at
+ * the rate the port is listening on. */
+[[nodiscard]] uint8_t ap_sio_clock_select(ap_sio_t *sio, unsigned unit,
+                                          unsigned channel);
+
 #endif /* APOLLO_BOARD_AP_SIO_H */

@@ -89,3 +89,15 @@ void ap_sio_receive_framed(ap_sio_t *sio, unsigned unit, unsigned channel,
   ap_mc68681_receive_framed(&sio->port[unit], channel, byte, sender_csr,
                             sender_mr1);
 }
+
+uint8_t ap_sio_clock_select(ap_sio_t *sio, unsigned unit, unsigned channel) {
+  if (unit >= 2u) {
+    return 0u;
+  }
+  const unsigned reg =
+      (channel == 0u) ? AP_MC68681_SR_CSR_A : AP_MC68681_SR_CSR_B;
+  /* The register reads as *status*; the clock select is write-only, so the
+   * channel's stored value is the only source. */
+  (void)reg;
+  return sio->port[unit].channel[channel].csr;
+}
