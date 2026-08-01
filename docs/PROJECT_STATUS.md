@@ -772,8 +772,25 @@ Kept rather than discarded, so a future contradiction has a documented history.
 
 ## Known gaps
 
-- No CPU, so no machine can be constructed yet — the model table describes
-  machines that cannot be built.
+- **Nothing advances in time.** `ap_machine_run` steps the CPU and nothing else,
+  so no device clock ticks and no status bit changes on its own. The firmware
+  has not yet needed it — it stops to ask which console it has before starting
+  anything timed — but every device with a counter is inert until the tick loop
+  exists.
+- **The display draws nothing.** Its registers, both graphics memories and the
+  screen identification are modelled; the blitter and the colour lookup table
+  are not. A fitted `c8p` takes 803 writes from the firmware that nothing
+  answers.
+- **The keyboard sends nothing.** Serial 1 channel A is wired and reachable, and
+  the PROM's scan-code table at `000021D2` is read, but no scan codes are
+  generated — so the machine can be typed at only through the oracle.
+- **Serial framing is absent**: no baud rate, start/stop bits or parity, so a
+  character crosses the DUART whole. The firmware autobauds its console by
+  cycling clock select and waiting for a byte to *fail* to decode, which this
+  core cannot yet make happen.
+- No DMA transfers, and no shared arbitration point for them to contend at.
 - The ring controller's register-level interface is not yet recovered; the
   manuals give its address window and block diagram but not its registers.
+- No bootable Domain/OS media: all we hold is installation media, so reaching a
+  login prompt needs an install performed under the oracle first.
 - No SDL frontend. Deliberately absent rather than stubbed.
