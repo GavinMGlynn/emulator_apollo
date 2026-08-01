@@ -2689,6 +2689,35 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
   - [ ] If an FPA is ever modelled, `F8000000-FFFFFFFF` is its space — and the
         commented-out handler is a hint that returning `FFFFFFFF` there was
         tried and not kept. Find out why before repeating it.
+
+### The PROM now needs time to pass
+
+  - [x] The PROM reaches `000007AE` and stays there at 300000, 1000000 and
+        3000000 instructions, with the fault count settled at 129. The
+        instruction is `BTST #0,($102,A0)` followed by `BEQ` back to `0000078E`
+        — a **status-poll loop**, waiting for a device bit to set.
+  - [ ] **It can never set.** `ap_machine_run` steps the CPU and nothing else:
+        no device advances, no clock ticks, so every status bit holds its reset
+        value forever. This is not a defect in any device — it is the machine
+        loop not yet being the machine loop.
+        - This is the project's central design item, deferred until something
+          needed it, and the firmware now does: *"one `tick()` per machine
+          cycle, every subsystem advancing inside it, no batching, no event
+          queues, no special cases."*
+        - Time is counted in `AP_TIME_BASE_HZ` units, never CPU cycles, and
+          `src/core/time/` already exists for it. The step returns clocks; the
+          conversion to base units is the first thing to get right, and
+          `ap_clock_init()` already refuses a frequency the base cannot
+          represent.
+        - Identify which device `A0` points at before building anything — the
+          poll names it, and `--boot-trace` reports only A6 and A7 today.
+          Extending the trace has been the cheapest move available at every
+          step of this investigation.
+  - [ ] Nothing about the 3000000-instruction run is a runaway this time: the PC
+        stays on one instruction and the fault count is static. That is a
+        machine waiting correctly for something that is not coming, which is a
+        different state from the vector-table runaway and should not be
+        confused with it.
   - [x] Every `ap_board_t` counter now records the **first address** as well as
         the count — read-only writes and both AT bus empty-slot directions,
         matching the unmapped pair. Applied before an investigation needed it
