@@ -2688,9 +2688,19 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
   - [ ] Taking the identifier from the logical volume label, which needs media
         and a volume-label reader. The module takes it from its caller, so this
         is a source above it rather than a change to it.
-  - [ ] Whether the checksum covers only the identifier or all sixteen
-        registers. The rest are zero in the only PROM seen, so both give the
-        same byte; a PROM with a non-zero byte elsewhere would settle it.
+  - [x] **Answered: only the identifier.** The oracle's `apollo_ni::call_load`
+        computes `data[2] + data[4] + data[6]` and compares it against
+        `data[30]`. Three bytes summed, not sixteen, and a **sum** rather than
+        an exclusive-or.
+        - The byte positions corroborate the placement this project measured
+          independently: the identifier sits at even offsets `2`, `4`, `6` — the
+          node ID PROM reads zero on odd bytes, which is the decode that had to
+          be corrected after being copied from the SIO — and the checksum is at
+          offset `30`, the last even byte of sixteen registers.
+        - The item said "a PROM with a non-zero byte elsewhere would settle it".
+          It did not need one: the oracle's loader states the rule directly, and
+          reading it cost one grep against a question that had been waiting for
+          media that may not exist.
 
 ## Phase 4 — Storage, then a first boot
 
