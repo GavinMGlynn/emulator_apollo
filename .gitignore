@@ -3,8 +3,15 @@ build/
 
 # User-supplied images — NEVER commit these. This repository is public and
 # Apollo boot/ring firmware and Domain/OS media are not ours to redistribute.
-roms/
-media/
+#
+# Anchored with a leading slash, deliberately. Unanchored, `roms/` and `media/`
+# match a directory of that name at *any* depth: `src/core/media` was silently
+# untracked once by exactly this rule, and had to be renamed to `src/core/image`
+# to get it back. Anchoring keeps the protection where it is needed — the
+# top-level image directories — without swallowing source directories that
+# happen to share a name.
+/roms/
+/media/
 
 # Vendored hardware manuals stay local: reference only, vendor copyright.
 docs/references/**/*.pdf
