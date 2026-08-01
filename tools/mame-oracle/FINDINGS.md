@@ -2518,3 +2518,55 @@ pipe -- and it would have confirmed at each point what was actually in the
 machine rather than what the source implied should be. C43 counted three
 occasions where a single grep would have ranked the theories; this is a fourth,
 and the first where the check was run before the theory instead of after.
+
+
+## C45 -- MD talks, and the missing ingredient was *timing*, not rate
+
+```
+W sio1 CSRB  BB
+W sio1 CRB   45
+W sio1 THRB  0D
+W sio1 THRB  0A
+W sio1 THRB  4D    'M'
+W sio1 THRB  44    'D'
+W sio1 THRB  37    '7'
+W sio1 THRB  0D
+```
+
+`THRB` is serial 1 channel B's **transmit** buffer, and the bytes are
+`CR LF "MD7" CR`. That is the Mnemonic Debugger's banner. **The oracle is
+printing**, on the port C42 identified, after the whole sequence of routes this
+file has been closing.
+
+### What made the difference
+
+Not the rate. `subprocess.run` in `oracle.py` passes no `stdin` argument, so the
+child inherits it and a pipe *does* reach MAME -- C43's first explanation was
+wrong too. The difference is *when* the bytes arrive.
+
+`apollo_stdio_device::poll_timer` reads in a `while` loop until `read` stops
+returning 1. Given a pipe with 400 bytes already in it, the first timer callback
+drains the lot and then sees EOF -- all of it delivered in one instant, seconds
+before the firmware starts probing, and discarded. Feeding one character every
+half second instead keeps stdin open and puts bytes in front of the autobaud
+*while it is running*, which is the only moment they can be measured.
+
+So the answer to "why is there no output" was never about the machine's
+configuration, its build flags, its console choice, or its baud rate. It was that
+a probe needs a signal *during* the probe, and a pipe is not a signal, it is a
+lump.
+
+Also visible: `CRB 45` immediately before the banner. Bit 2 of the command
+register is transmitter enable, so the firmware turns the transmitter on only
+once it has found a rate that works -- which is why every earlier run saw
+`tx_enabled` clear and every write to `THRB` would have been dropped anyway.
+Our own core drops such writes for the same reason (`ap_mc68681`), so the two
+implementations agree on that too.
+
+### The transcript
+
+Phase 1's item wants this captured byte-exact into `docs/references/MD.md`. The
+capture route now exists end to end and produces the first bytes of it. What
+remains is mechanical: run long enough to get a full prompt and a command
+response, and write the bytes out as a transcript rather than as a register
+trace.

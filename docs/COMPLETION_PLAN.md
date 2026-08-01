@@ -365,8 +365,22 @@ file the moment they are found, not when someone remembers.
           through a Python wrapper is one more place to lose them, and
           `oracle.py` says nothing about stdin — and whether the rate is right,
           since the firmware cycles `CSRB` between `77` and `BB`.
-        - Order: the first is testable **without MAME**, by reading what
-          `oracle.py` does with stdin. The second needs a run per rate.
+        - **MD TALKS** (`FINDINGS.md` C45). `W sio1 THRB 0D 0A 4D 44 37 0D` —
+          `CR LF "MD7" CR`, the Mnemonic Debugger's banner, on serial 1 channel
+          B's transmit buffer.
+        - The missing ingredient was **timing**, not rate and not stdin.
+          `subprocess.run` passes no `stdin`, so a pipe does reach MAME — but
+          `poll_timer` drains a ready pipe in one callback and hits EOF, seconds
+          before the autobaud starts. Feeding one character every half second
+          keeps stdin open and puts bytes in front of the probe *while it runs*.
+        - `CRB 45` appears immediately before the banner: bit 2 is transmitter
+          enable, so the firmware only enables the transmitter once it has found
+          a working rate. That is why every earlier run saw nothing — and why
+          `ap_mc68681` dropping writes with `tx_enabled` clear matches.
+        - Remaining, and mechanical: run long enough for a full prompt and a
+          command response, and write the bytes out as a transcript rather than
+          a register trace. *Verification stands: byte-exact in
+          `docs/references/MD.md`.*
         - **A result worth having on the way** (`FINDINGS.md` C39): the oracle's
           four configuration writes, decoded — `sio1 ACR E0`, `sio1 CSRB 77`,
           `sio2 ACR 80`, `sio2 CSRA 77`. Both ports get the same clock select,
