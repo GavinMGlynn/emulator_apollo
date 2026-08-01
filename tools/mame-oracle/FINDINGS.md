@@ -2221,3 +2221,47 @@ The next step for the MD item is *not* another oracle build. It is to find what
 makes the firmware choose a serial console: on a real DN3500 that is a
 configuration setting, and MAME models one -- `apollo_config`. Read that before
 running anything else.
+
+## C37 -- service mode does not make the PROM print on serial either
+
+`tools/mame-oracle/mdcapture.lua` is new: it sets the machine configuration
+before the run and taps serial 1's two transmit buffers, printing each character
+the firmware sends. Two things it got wrong on the way are worth keeping, since
+both cost a run each:
+
+- The configuration port is `:apollo_config`, not `:conf`. `APOLLO_CONF_TAG` is
+  `"conf"`, which is the *device* tag, and the port is reached by a different
+  name. The script now lists the ports it can see when it cannot find the one it
+  wants, because "not found" alone cannot distinguish a wrong tag from a machine
+  that has no such port.
+- MAME refuses a write tap that is not dword-aligned, so a byte register cannot
+  be tapped alone. The tap takes the whole device range and filters by **byte
+  lane**: which lane of the mask is set decides which register was written, and
+  the address alone is not enough on a 32-bit bus.
+
+With the configuration confirmed set -- the script prints
+`# Normal/Service = 1` -- the result is:
+
+| machine | service mode | transmit characters in 10-12 s |
+|---|---|---|
+| `dn3500` | yes | 0 |
+| `dsp3500` | yes | 0 |
+
+So service mode is not what makes this PROM talk, and the `dsp` variant is no
+different from the workstation here.
+
+### What has actually been established
+
+Four routes to a serial transcript have now been closed by measurement rather
+than by argument: a plain `dn3500` run, an `APOLLO_XXL` build with the stdio
+terminal compiled in (C36), configuring the display away (impossible -- the port
+offers no *none*), and service mode. None produces a byte on either transmit
+buffer.
+
+The remaining candidates, in the order they should be tried: tap **serial 2** as
+well, since `dsp3500` maps both and the DSP's console may not be serial 1; and
+dump *every* SIO write decoded by register, rather than filtering to the two
+transmit buffers, so a console being driven some other way is visible instead of
+silently excluded. The second is strictly more informative and should probably
+have come first -- filtering to the answer you expect is how a search misses the
+thing next to it.

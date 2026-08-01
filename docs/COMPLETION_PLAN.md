@@ -302,10 +302,19 @@ file the moment they are found, not when someone remembers.
           is always the display, and **a serial MD transcript cannot be captured
           from `dn3500` by configuration at all.** The earlier reading that the
           mask permits zero was right about the bits and wrong about the port.
-        - What is left is `APOLLO_CONF_SERVICE_MODE`, bit 0, which *is* a
-          two-value setting defaulting to Normal. Service mode is the remaining
-          candidate for making the PROM announce itself, and it is settable
-          through the same `conf` port. Try it before anything else.
+        - **Tried, and service mode is not it** (`FINDINGS.md` C37).
+          `tools/mame-oracle/mdcapture.lua` sets the configuration and taps
+          serial 1's transmit buffers. With `# Normal/Service = 1` confirmed in
+          the output, both `dn3500` and `dsp3500` send **zero** characters in
+          10-12 emulated seconds.
+        - Four routes now closed by measurement: a plain run, the `APOLLO_XXL`
+          terminal build, configuring the display away (impossible), and service
+          mode.
+        - Next, and in this order: dump **every** SIO write decoded by register
+          rather than filtering to the transmit buffers, and tap **serial 2** as
+          well. The unfiltered dump is strictly more informative and should have
+          come first — filtering to the answer you expect is how a search misses
+          the thing beside it.
         - The `dsp` variants remain the other route — no display in their
           machine configuration — but `dsp3500` showed zero serial writes at six
           seconds (C35), so it needs either longer or service mode too.
