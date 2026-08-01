@@ -156,6 +156,41 @@ file the moment they are found, not when someone remembers.
         - The machine settled a source disagreement: the wiki's INVOL options
           are **7, 1, 8**, a newsgroup thread says 7, 1, 8, 10, and INVOL's own
           menu prints `10 - OBSOLETE`. Revision 10.4 takes the wiki's list.
+        - [x] **The disk is initialised** (`FINDINGS.md` C50). INVOL options 7,
+          1 and 8 all ran, and the image went from **every byte zero** to
+          347,471,186 non-zero bytes: physical volume `dn3500`, one logical
+          volume of 329,399 kbyte, a 640 kbyte OS paging file, and INVOL's own
+          `Initialization complete.` Checkpointed to
+          `media/dn3500-invol-done.awd`.
+          - The dialogue is in C50 prompt by prompt with the reason for each
+            answer, because no manual we hold prints a single one of INVOL's
+            prompts. Two of them state their own default, and both were
+            answered by *typing the stated value* rather than sending an empty
+            line — exact, and needing no directive.
+          - `no verification` and `no automated badspot entry` are chosen, not
+            skipped: the medium is a file, and MAME's own driver notes list
+            Winchester bad-track formatting as a known gap.
+        - [ ] Next: `re`, `di c`, `ex calendar`, then `ex domain_os` and `MINST`
+              over four tapes. Two driver capabilities are wanted first, one of
+              them now done:
+          - [x] `!knock`, `!cr` and `!raw` escapes. The session was lost trying
+                to improvise a knock out of a space — see below, it is not a
+                knock at all.
+          - [ ] **Tape swapping.** `MINST` takes four cartridges in turn and the
+                driver can only mount one at start. MAME's Lua can change an
+                image mid-run, so this is a channel from the driver to
+                `mdsession.lua`, not a missing capability.
+          - [ ] Checkpoint the image at every stage boundary. Each stage costs
+                ten minutes of emulated cartridge scan to reach, and what ends a
+                session is not what was being attempted.
+        - **The autobaud wants a carriage return, not merely "a character"**
+          (`FINDINGS.md` C50), which narrows `C45`. Measured as an A/B pair:
+          knocking with `\r` reaches the prompt and gets a sign-on out of `re`;
+          knocking with a space followed by `\r` **never reaches the prompt at
+          all**, not even at power-on. The firmware is matching a known byte to
+          decide whether a candidate rate decoded, so a different first byte is
+          not a weaker signal, it is the wrong one. `--knock-char` exists so the
+          claim stays testable.
         - **We already hold all five tapes it names**, filename for filename, in
           `media/domainos/`. Nothing needs downloading.
         - The sequence is driven from the **MD prompt** (`re`, `di c`,

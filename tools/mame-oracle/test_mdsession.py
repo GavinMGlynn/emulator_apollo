@@ -85,6 +85,7 @@ if mode == "silent":
 out = sys.stdout
 signed_on = False
 seen = 0
+line = ""
 
 while True:
     try:
@@ -107,8 +108,18 @@ while True:
             if mode == "die" and seen >= 3:
                 out.flush()
                 sys.exit(4)
+            if line.strip() == "re":
+                # Reset System: the machine goes deaf again, exactly as the
+                # real one does, and only a further knock brings it back.
+                # Without this the stub cannot exercise the case that cost a
+                # whole session (C50).
+                signed_on = False
+                line = ""
+                continue
+            line = ""
             out.write("\n\n>")
         else:
+            line += char.decode("latin-1")
             out.write(char.decode("latin-1"))
         out.flush()
 """
@@ -205,19 +216,65 @@ def main() -> int:
             "# a comment, which is not sent\n"
             "\n"
             "re\n"
-            "!expect \\n\\n>\n"
+            "!knock \\n\\n>\n"
             "di c\n"
             "!raw x\n"
             "!quit\n"
         )
+        # `!knock` and not `!expect` after `re`, and the stub is what enforces
+        # it: a reset machine is deaf, so an expectation here waits for output
+        # that cannot come. The first version of this fixture used `!expect`
+        # and passed only because the stub could not yet model a reset.
+        # A blank line in the file is *not* an empty answer, and must not be:
+        # a file being appended to a line at a time is full of momentarily
+        # blank tails. `!cr` is how an empty answer is spelt.
         proc = run(stub, ["--stage", "prompt", "--commands", str(commands),
                           "--timeout", "10"],
                    {"MDSTUB_RECORD": str(record)})
         check("a followed command file runs to !quit", proc.returncode, 0)
         received = record.read_bytes().decode("latin-1")
-        # The leading "\r" is the knock that reached the prompt.
+        # The leading "\r" is the knock that reached the power-on prompt, and
+        # the doubled one after "re" is the knock that brought the reset
+        # machine back.
         check("its directives arrive in order and !raw adds no return",
-              received, "\rre\rdi c\rx")
+              received, "\rre\r\rdi c\rx")
+
+        # `!cr` sends a bare carriage return and `!raw` interprets escapes, so
+        # an answer that is nothing at all can be spelt. INVOL ends its badspot
+        # list with one, and the first attempt at it went out as a space --
+        # which is a different byte and, on the knock path, a fatal one (C50).
+        record = work / "received-cr"
+        commands = work / "cr.txt"
+        commands.write_text("!cr\n!raw a\\rb\n!quit\n")
+        proc = run(stub, ["--stage", "prompt", "--commands", str(commands),
+                          "--timeout", "10"],
+                   {"MDSTUB_RECORD": str(record)})
+        check("!cr and !raw escapes run", proc.returncode, 0)
+        check("!cr is a bare return and !raw \\r is a real one",
+              record.read_bytes().decode("latin-1"), "\r\ra\rb")
+
+        # `!knock` is a directive rather than a stage's private trick, because
+        # every stage that resets needs it: after `re` the machine is deaf and
+        # an expectation waits for output it cannot produce.
+        record = work / "received-knock"
+        commands = work / "knock.txt"
+        commands.write_text("re\n!knock MD7C\n!quit\n")
+        proc = run(stub, ["--stage", "prompt", "--commands", str(commands),
+                          "--timeout", "10", "--knock-timeout", "20"],
+                   {"MDSTUB_RECORD": str(record)})
+        check("!knock reaches a machine that has gone quiet",
+              proc.returncode, 0)
+
+        # And the character it knocks with is settable, which is what let the
+        # carriage-return claim in C50 be measured instead of asserted.
+        record = work / "received-char"
+        commands = work / "char.txt"
+        commands.write_text("!quit\n")
+        proc = run(stub, ["--stage", "prompt", "--commands", str(commands),
+                          "--knock-char", "\r", "--timeout", "10"],
+                   {"MDSTUB_RECORD": str(record)})
+        check("the knock character is what reaches the machine",
+              record.read_bytes().decode("latin-1"), "\r")
 
         # And followed *while running*, which is the property the whole
         # mechanism exists for: a stage learnt from the machine's own output

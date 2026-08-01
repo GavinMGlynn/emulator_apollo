@@ -2976,3 +2976,95 @@ an older one. Neither source could have settled it; the program did.
 
 This is the same lesson as `C47` with the sign in the other direction. The
 oracle's documentation is a source, and like every source it has a version.
+
+
+## C50 -- the disk is initialised, and the autobaud wants a carriage return
+
+The install's first stage is done. `INVOL` ran options **7**, **1** and **8**
+against the blank image, driven entirely through `mdsession.py`'s command file,
+and the 348 Mbyte file went from **every byte zero** to **347,471,186 non-zero
+bytes** -- an Apollo physical volume named `dn3500` carrying one logical volume
+of 329,399 kbyte and a 640 kbyte OS paging file.
+
+INVOL's own confirmation, read back by option 8 after option 1 had run:
+
+```
+Volume built by Invol version "revision 10.4"  on  Nov. 27, 2002
+
+Physical volume "dn3500".  Logical volumes:
+
+ #  size (kB)    name
+ 1  329399(d)    dn3500
+```
+
+### The dialogue, which no manual we hold records
+
+`001746-06` and `002398-04` both mention `invol` and neither prints a prompt of
+it. The MAME wiki gives the option numbers and nothing between them. So this was
+read from the machine and answered a turn at a time, which is what `--commands`
+was built for. In order, with the answer given and why:
+
+| Prompt | Answer | Why |
+| --- | --- | --- |
+| `Option:` | `7` | initialize physical badspot list, the wiki's first step |
+| `Select disk: [w=Winch\|f=Floppy\|q=Quit][ctrl#:][unit#]` | `w` | the Winchester, controller and unit defaulted |
+| `Use automated badspot entry?` | `n` | MAME's own driver notes list **Winchester bad-track formatting** as a known gap, so this asks the emulated controller for the one thing its author does not vouch for |
+| `Enter badspots ... Terminate badspot entry with a blank line.` | *(blank)* | the medium is a file and cannot have defects |
+| `Is the badspot information you entered correct?` | `y` | |
+| `Option:` | `1` | initialize virgin physical volume |
+| `Physical volume name:` | `dn3500` | |
+| `Enter verification option:` | `1` | *no verification*. 2 and 3 write and re-read every block to find media defects; the medium is a file, so this is a long no-op rather than a check |
+| `Expected average file size, in kB (CR for default, 5 kB):` | `5` | the stated default, typed rather than defaulted |
+| `volume 1:` | `all, dn3500` | one logical volume over the whole disk |
+| `Use pre-recorded badspot info?` | `y` | option 7 wrote it, and INVOL confirms: *"The pre-recorded badspot list is empty."* |
+| `Option:` | `8` | create the OS paging file |
+| `Enter logical volume number:` | `1` | |
+| `Size in kB for the OS paging file (CR for default value = 640)` | `640` | the stated default |
+
+Then `Formatting... % complete: 20 40 60 80 100`, `Initialization complete.`
+
+Two prompts state their own default (`CR for default, 5 kB`, `default value =
+640`). Both were answered by **typing the stated value** rather than sending an
+empty line, which is exact and needs no directive. Worth noting because it is
+the general move: a prompt that publishes its default does not need a blank
+line to accept it.
+
+### The autobaud wants a carriage return, not merely a character
+
+`C45` records that the firmware's autobaud needs "a character" to arrive while
+it is cycling clock-select rates. That is one word too general.
+
+Continuing past INVOL needs `re`, and `re` leaves the machine deaf again. The
+running session had no knock directive, so the knock was improvised out of the
+one thing its command file could send: a line containing a space, which the
+driver sends as `" "` followed by the carriage return it appends. A hundred of
+them, paced at 0.4 s, produced **no sign-on at all**.
+
+Measured rather than inferred, as an A/B pair on a fresh machine with
+`--knock-char` -- which exists so that this claim is testable:
+
+| Knock | Result |
+| --- | --- |
+| `\r` | reaches the prompt, `re` answers with a fresh sign-on, exit 0 |
+| `" " \r` | **never reaches the prompt at all** -- not after a reset, not even at power-on |
+
+So a leading space does not merely delay the autobaud, it defeats it, and it
+defeats it at power-on too where the window is otherwise forgiving. The firmware
+is matching a **known byte** to decide whether a candidate rate decoded
+correctly, so the first byte it sees has to be the byte it is looking for. Any
+other character is not a weaker signal; it is the wrong one.
+
+`!knock` is now a directive of its own rather than a stage's private trick,
+because every stage that resets needs it.
+
+### What this cost, and what it did not
+
+The session was lost at that `re` -- the machine sat deaf and had to be stopped.
+**The disk did not go with it.** INVOL had already written and exited, the image
+was checkpointed to `media/dn3500-invol-done.awd` the moment `Initialization
+complete.` appeared, and the live image compares byte-identical to that
+checkpoint. The next stage restarts from it rather than from zero.
+
+Which is the argument for checkpointing at every stage boundary of this install:
+each stage costs ten minutes of emulated cartridge scan to reach, and the thing
+that ends a session is not the thing that was being attempted.

@@ -204,7 +204,8 @@ class Session:
             os.write(self.master, bytes([byte]))
             time.sleep(char_delay)
 
-    def knock(self, pattern: str, timeout: float, every: float = 0.4) -> str:
+    def knock(self, pattern: str, timeout: float, every: float = 0.4,
+              char: str = "\r") -> str:
         """Send carriage returns until the machine answers.
 
         A prompt that follows a reset is the one exchange that cannot be driven
@@ -225,10 +226,20 @@ class Session:
         from a machine that died in the reset. Three runs were spent looking for
         a fault in the reset path before the interval -- the one number here
         that had been picked rather than measured -- was suspected.
+
+        **The character matters too, and it must be the carriage return.** C45
+        says the autobaud needs "a character"; it needs *this* character.
+        Knocking with a space followed by a carriage return never reaches the
+        prompt at all -- not after a reset, not even at power-on -- where the
+        carriage return alone reaches it every time. Measured as an A/B pair,
+        which is why `--knock-char` exists: the claim is testable rather than
+        asserted. The firmware is matching a known byte to decide whether a
+        candidate rate decoded correctly, so the first byte it sees has to be
+        the one it is looking for.
         """
         deadline = time.monotonic() + timeout
         while True:
-            self.send("\r")
+            self.send(char)
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 raise SessionError(
@@ -292,7 +303,8 @@ STAGES = {
 
 
 def follow_commands(session: Session, path: Path, timeout: float,
-                    poll: float = 0.5, limit: float = 0.0) -> None:
+                    poll: float = 0.5, limit: float = 0.0,
+                    knock_char: str = "\r") -> None:
     """Send lines from a file as they are appended to it.
 
     The stages above can only be written once the dialogue they answer is
@@ -313,10 +325,20 @@ def follow_commands(session: Session, path: Path, timeout: float,
 
       # ...            a comment
       !expect REGEX    wait for it before reading the next line
+      !knock REGEX     send carriage returns until it appears. What a stage
+                       needs after `re`, since a reset leaves the machine deaf
       !wait SECONDS    let the machine run, sending nothing
-      !raw TEXT        send exactly this, with no carriage return added
+      !raw TEXT        send exactly this, with no carriage return added.
+                       `\\r`, `\\n` and `\\t` are interpreted
+      !cr              send a bare carriage return: an *empty* answer
       !quit            end the session
       anything else    sent as typed, with a carriage return
+
+    `!cr` is not a convenience. A blank line is a real answer on this machine --
+    INVOL ends its badspot list with one, and a disk with no badspots is
+    answered entirely by pressing return. A blank line in the file cannot mean
+    it, because a file being appended to a line at a time is full of incomplete
+    blank lines, so the empty answer needs a name of its own.
     """
     path.parent.mkdir(parents=True, exist_ok=True)
     path.touch()
@@ -329,7 +351,12 @@ def follow_commands(session: Session, path: Path, timeout: float,
             sys.stderr.write("mdsession: command file timeout, ending\n")
             return
 
-        with open(path, "r") as handle:
+        # `newline=""` matters: without it Python's universal-newline handling
+        # turns a `\r` in the file into a line break, so a directive carrying a
+        # carriage return is silently split in two and the return never reaches
+        # the machine. Found the hard way, mid-install, on the one answer that
+        # had to be a bare return.
+        with open(path, "r", newline="") as handle:
             handle.seek(offset)
             chunk = handle.read()
             offset = handle.tell()
@@ -352,11 +379,23 @@ def follow_commands(session: Session, path: Path, timeout: float,
             if line.startswith("!expect "):
                 sys.stderr.write("mdsession: expect %r\n" % line[8:])
                 session.expect(line[8:], timeout)
+            elif line.startswith("!knock "):
+                # After `re` the machine is deaf again and an expectation would
+                # wait for output it cannot produce. Every stage that resets has
+                # to knock, so the directive exists rather than being a stage's
+                # private trick.
+                sys.stderr.write("mdsession: knock for %r\n" % line[7:])
+                session.knock(line[7:], timeout, char=knock_char)
             elif line.startswith("!wait "):
                 time.sleep(float(line[6:]))
             elif line.startswith("!raw "):
-                sys.stderr.write("mdsession: send %r\n" % line[5:])
-                session.send(line[5:])
+                text = (line[5:].replace("\\r", "\r").replace("\\n", "\n")
+                        .replace("\\t", "\t"))
+                sys.stderr.write("mdsession: send %r\n" % text)
+                session.send(text)
+            elif line == "!cr":
+                sys.stderr.write("mdsession: send %r (empty answer)\n" % "\r")
+                session.send("\r")
             elif line == "!quit":
                 sys.stderr.write("mdsession: !quit\n")
                 return
@@ -417,6 +456,10 @@ def main(argv=None) -> int:
                         help="seconds to wait for any one expectation")
     parser.add_argument("--knock-timeout", type=float, default=180.0,
                         help="seconds to spend reaching the first prompt")
+    parser.add_argument("--knock-char", default="\r",
+                        help="the character to knock with. Exposed so the "
+                             "claim that it must be a carriage return can be "
+                             "tested rather than asserted")
     parser.add_argument("--commands", type=Path,
                         help="a file to follow: lines appended to it are sent "
                              "as they appear, so a session outlives the script "
@@ -468,7 +511,8 @@ def main(argv=None) -> int:
                       log=args.log)
     status = 0
     try:
-        session.knock(MD_PROMPT, args.knock_timeout)
+        session.knock(MD_PROMPT, args.knock_timeout,
+                      char=args.knock_char)
         sys.stderr.write("mdsession: at the MD prompt\n")
 
         for index, (mode, pattern, text) in enumerate(STAGES[args.stage],
@@ -476,7 +520,8 @@ def main(argv=None) -> int:
             if mode == "expect":
                 session.expect(pattern, args.timeout)
             elif mode == "knock":
-                session.knock(pattern, args.knock_timeout)
+                session.knock(pattern, args.knock_timeout,
+                              char=args.knock_char)
             sys.stderr.write("mdsession: [%d] send %r\n" % (index, text))
             session.send(text)
 
@@ -490,7 +535,8 @@ def main(argv=None) -> int:
         if args.commands is not None:
             sys.stderr.write("mdsession: following %s\n" % args.commands)
             follow_commands(session, args.commands, args.timeout,
-                            limit=args.commands_timeout)
+                            limit=args.commands_timeout,
+                            knock_char=args.knock_char)
             # Again, and for the same reason: `!quit` follows a command that
             # the machine has not necessarily read yet. The last line of an
             # install is `shut`, so losing it is losing the step that makes the
