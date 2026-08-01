@@ -503,6 +503,92 @@ static void test_a_refused_write_is_not_left_in_the_cache(void) {
   TEST_ASSERT_FALSE(back.ok);
 }
 
+/* §8.1.3: "An address error exception occurs when the processor attempts to
+ * prefetch an instruction from an odd address." */
+static void test_a_prefetch_from_an_odd_address_is_an_address_error(void) {
+  static const uint16_t program[] = {0x4E71u, 0x4E71u, 0x4E71u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 4);
+  plant_vector(&m, AP_M68030_VECTOR_ADDRESS_ERROR, HANDLER);
+  m.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
+  m.cpu.regs.isp = SUPERVISOR_STACK;
+  ap_m68030_cpu_reset(&m.cpu, PROGRAM_BASE + 1u);
+
+  const ap_m68030_step_result_t r = ap_m68030_step(&m.cpu);
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXCEPTION, r.status);
+  TEST_ASSERT_EQUAL_HEX32(HANDLER, m.cpu.regs.pc);
+
+  /* No data cycle, so the short frame. */
+  TEST_ASSERT_EQUAL_HEX32(SUPERVISOR_STACK - 32u, m.cpu.regs.isp);
+  const uint16_t format_word =
+      (uint16_t)(read_ram_long(&m, m.cpu.regs.isp + 4u) & 0xFFFFu);
+  TEST_ASSERT_EQUAL_INT(AP_M68030_FRAME_SHORT_BUS_FAULT,
+                        ap_m68030_frame_format_of(format_word));
+  TEST_ASSERT_EQUAL_UINT(AP_M68030_VECTOR_ADDRESS_ERROR * 4u,
+                         ap_m68030_frame_vector_offset_of(format_word));
+
+  /* "The rerun bits alone show the cause of the exception" -- the *absence* of
+   * the fault bits is what tells a handler this was an address error and not a
+   * bus error, so it is asserted rather than left implied. */
+  const ap_m68030_ssw_t ssw = ap_m68030_ssw_decode(
+      (uint16_t)(read_ram_long(&m, m.cpu.regs.isp + 8u) & 0xFFFFu));
+  TEST_ASSERT_TRUE(ssw.stage_c_rerun);
+  TEST_ASSERT_TRUE(ssw.stage_b_rerun);
+  TEST_ASSERT_FALSE(ssw.stage_c_fault);
+  TEST_ASSERT_FALSE(ssw.stage_b_fault);
+  TEST_ASSERT_FALSE(ssw.data_fault);
+
+  /* The odd address is the one a handler has to correct. */
+  TEST_ASSERT_EQUAL_HEX32(
+      PROGRAM_BASE + 1u,
+      read_ram_long(&m, m.cpu.regs.isp + AP_M68030_BUS_FAULT_ADDRESS));
+}
+
+/* "A bus cycle is not executed, and the processor begins exception processing
+ * immediately." The fault is internally initiated, so nothing reaches the
+ * memory system -- an implementation that let the prefetch go out first would
+ * pass every assertion above while making a bus cycle the hardware never
+ * makes. */
+static void test_an_address_error_runs_no_bus_cycle(void) {
+  static const uint16_t program[] = {0x4E71u, 0x4E71u, 0x4E71u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 4);
+  plant_vector(&m, AP_M68030_VECTOR_ADDRESS_ERROR, HANDLER);
+  m.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
+  m.cpu.regs.isp = SUPERVISOR_STACK;
+  ap_m68030_cpu_reset(&m.cpu, PROGRAM_BASE + 1u);
+  m.memory.fills = 0;
+
+  (void)ap_m68030_step(&m.cpu);
+
+  /* Only the vector fetch, which happens *after* exception processing begins.
+   * No prefetch of the odd address itself. */
+  TEST_ASSERT_EQUAL_UINT(1u, m.memory.fills);
+}
+
+/* The 68000 faulted on a misaligned data access; this part does not. §7.2.1
+ * shows a long word transferred to an odd address in three bus cycles, so
+ * applying the odd-address rule to operands would fault programs the hardware
+ * runs perfectly well. This is the test that keeps the check on the program
+ * counter alone. */
+static void test_a_misaligned_data_access_is_not_an_address_error(void) {
+  /* MOVE.L D0,(A1) with A1 odd. */
+  static const uint16_t program[] = {0x2280u, 0x4E71u, 0x4E71u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 4);
+  plant_vector(&m, AP_M68030_VECTOR_ADDRESS_ERROR, HANDLER);
+  m.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
+  m.cpu.regs.isp = SUPERVISOR_STACK;
+  m.cpu.regs.d[0] = 0x12345678u;
+  m.cpu.regs.a[1] = 0x00004001u; /* odd, and deliberately so */
+
+  const ap_m68030_step_result_t r = ap_m68030_step(&m.cpu);
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, r.status);
+  TEST_ASSERT_EQUAL_HEX32(0x12345678u, read_ram_long(&m, 0x00004001u));
+}
+
 /* The flag describes one instruction, so it must not survive into the next.
  * A stale one would mislabel the following unimplemented instruction as a
  * fault -- the same conflation, merely pointing the other way. */
@@ -4052,6 +4138,9 @@ int main(void) {
   RUN_TEST(test_the_same_instruction_over_memory_that_answers_executes);
   RUN_TEST(test_a_write_nothing_accepts_takes_the_bus_error_exception);
   RUN_TEST(test_a_refused_write_is_not_left_in_the_cache);
+  RUN_TEST(test_a_prefetch_from_an_odd_address_is_an_address_error);
+  RUN_TEST(test_an_address_error_runs_no_bus_cycle);
+  RUN_TEST(test_a_misaligned_data_access_is_not_an_address_error);
   RUN_TEST(test_a_fault_does_not_leak_into_the_following_instruction);
   RUN_TEST(test_an_illegal_encoding_is_distinct_from_unimplemented);
   RUN_TEST(test_a_cached_pass_runs_no_bus_cycles_and_costs_its_microcode);

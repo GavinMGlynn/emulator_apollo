@@ -1801,24 +1801,15 @@ static ap_m68030_ssw_t fault_ssw(const ap_m68030_cpu_t *cpu) {
   return ssw;
 }
 
-ap_m68030_exception_result_t
-ap_m68030_take_bus_fault(ap_m68030_cpu_t *cpu, unsigned vector,
-                         uint32_t instruction_address) {
+/* The body of both fault exceptions. The special status word, the address and
+ * the data output are supplied rather than read here, because an address error
+ * has no faulted access to read them from: it is "internally initiated" and "a
+ * bus cycle is not executed". */
+static ap_m68030_exception_result_t
+take_bus_fault_with(ap_m68030_cpu_t *cpu, unsigned vector,
+                    uint32_t instruction_address, ap_m68030_ssw_t ssw,
+                    uint32_t fault_address, uint32_t data_output) {
   ap_m68030_exception_result_t out = {0};
-  if (!cpu->access_faulted) {
-    /* Nothing faulted, so there is no frame to describe. Declining is the only
-     * honest answer: a frame built from cleared fault state would tell a
-     * handler to repair address zero. */
-    return out;
-  }
-
-  /* Captured before anything else runs. Building the frame is itself a series
-   * of writes through the same path that records these, so a fault while
-   * stacking -- a double fault -- would otherwise overwrite the fault being
-   * reported with the fault that happened trying to report it. */
-  const ap_m68030_ssw_t ssw = fault_ssw(cpu);
-  const uint32_t fault_address = cpu->fault_address;
-  const uint32_t data_output = cpu->fault_data_output;
   const ap_m68030_frame_format_t format = ap_m68030_bus_fault_frame(&ssw);
 
   /* Table 8-6 gives the two frames different PC meanings, and it is not a
@@ -1903,6 +1894,50 @@ ap_m68030_take_bus_fault(ap_m68030_cpu_t *cpu, unsigned vector,
   out.frame_address = frame;
   out.ok = true;
   return out;
+}
+
+ap_m68030_exception_result_t
+ap_m68030_take_bus_fault(ap_m68030_cpu_t *cpu, unsigned vector,
+                         uint32_t instruction_address) {
+  if (!cpu->access_faulted) {
+    /* Nothing faulted, so there is no frame to describe. Declining is the only
+     * honest answer: a frame built from cleared fault state would tell a
+     * handler to repair address zero. */
+    const ap_m68030_exception_result_t declined = {0};
+    return declined;
+  }
+
+  /* Captured before anything else runs. Building the frame is itself a series
+   * of writes through the same path that records these, so a fault while
+   * stacking -- a double fault -- would otherwise overwrite the fault being
+   * reported with the fault that happened trying to report it. */
+  return take_bus_fault_with(cpu, vector, instruction_address, fault_ssw(cpu),
+                             cpu->fault_address, cpu->fault_data_output);
+}
+
+ap_m68030_exception_result_t
+ap_m68030_take_address_error(ap_m68030_cpu_t *cpu) {
+  /* §8.2.1: "If an address error exception occurs, the fault bits written to
+   * the stack frame are not set (they are only set due to a bus error, as
+   * previously described), and the rerun bits alone show the cause of the
+   * exception. Depending on the state of the pipeline, either RB and RC are
+   * both set, or RC alone is set."
+   *
+   * Both, here: an odd program counter invalidates the whole pipe, so neither
+   * stage holds a word worth keeping and both need refilling. The absence of
+   * the fault bits is what tells a handler this was an address error rather
+   * than a bus error, so the encoder's rerun-implies-fault rule must not be
+   * inverted -- and it is not: it adds rerun bits to faults, never the
+   * reverse. */
+  const ap_m68030_ssw_t ssw = {.stage_c_rerun = true, .stage_b_rerun = true};
+
+  /* "A bus cycle is not executed, and the processor begins exception
+   * processing immediately" -- so nothing is counted as a bus error, and the
+   * address stacked is the odd one the processor declined to fetch from. That
+   * is the address a handler has to correct, and it is also where the program
+   * counter still stands. */
+  return take_bus_fault_with(cpu, AP_M68030_VECTOR_ADDRESS_ERROR, cpu->regs.pc,
+                             ssw, cpu->regs.pc, 0u);
 }
 
 /* What an executor's `false` meant, now that the two causes are distinguished.
@@ -3380,6 +3415,27 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
    * instruction, so nothing here can. */
   if (cpu->stopped) {
     out.status = AP_M68030_STEP_STOPPED;
+    return out;
+  }
+
+  /* §8.1.3: "An address error exception occurs when the processor attempts to
+   * prefetch an instruction from an odd address."
+   *
+   * Only a prefetch. Misaligned *data* is legal on this part -- §7.2.1's
+   * long-word transfer to an odd address simply costs three bus cycles -- which
+   * is the difference from the 68000 and the reason this check is on the
+   * program counter alone. Applying it to operands would fault programs the
+   * hardware runs.
+   *
+   * Checked before the pipe is touched, because "a bus cycle is not executed,
+   * and the processor begins exception processing immediately": the fault is
+   * internally initiated, so no bus error is counted and no prefetch is
+   * attempted. */
+  if ((cpu->regs.pc & 1u) != 0u) {
+    const ap_m68030_exception_result_t taken = ap_m68030_take_address_error(cpu);
+    out.clocks += taken.clocks;
+    out.status = taken.ok ? AP_M68030_STEP_EXCEPTION : AP_M68030_STEP_FAULT;
+    cpu->clocks += out.clocks;
     return out;
   }
 

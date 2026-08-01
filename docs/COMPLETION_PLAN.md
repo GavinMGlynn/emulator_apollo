@@ -2556,6 +2556,22 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         The fault at `000028D0` is taken, the PROM's own handler at `00000404`
         runs, and the run ends in a **double fault** when the exception stack
         runs off the bottom of main memory. Bounded and deterministic.
+  - [x] **Address error (vector 3)**, which shares these frames and was defined
+        but never raised. §8.1.3: "An address error exception occurs when the
+        processor attempts to prefetch an instruction from an odd address."
+        - Only a *prefetch*. Misaligned data is legal on this part — §7.2.1
+          transfers a long word to an odd address in three bus cycles — so the
+          check is on the program counter alone. Applying it to operands would
+          fault programs the hardware runs, and there is a test for exactly that
+          so the 68000's rule cannot creep back in.
+        - "A bus cycle is not executed", so the check happens before the pipe is
+          touched: no prefetch is attempted and no bus error is counted. Tested
+          by counting fills — an implementation that let the prefetch go out
+          first would pass every other assertion.
+        - The SSW carries the rerun bits **without** the fault bits, which is
+          what distinguishes an address error from a bus error in the frame.
+        - `step_suite`, 3 tests. The PROM is unchanged at 89 with an identical
+          state hash, which is the check that the change is additive.
   - [ ] **The run re-enters `000028D0` after the handler returns** — five bus
         errors at one address, which is why the stack runs out. A probe handler
         that meant to skip the instruction would adjust the stacked PC, so

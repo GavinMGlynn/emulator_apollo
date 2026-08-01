@@ -292,6 +292,20 @@ ap_m68030_take_exception(ap_m68030_cpu_t *cpu, unsigned vector,
 ap_m68030_take_bus_fault(ap_m68030_cpu_t *cpu, unsigned vector,
                          uint32_t instruction_address);
 
+/* Take an address error: vector 3, on an attempt to prefetch from an odd
+ * program counter.
+ *
+ * "This exception is similar to a bus error exception, but is internally
+ * initiated. A bus cycle is not executed" -- so there is no faulted access to
+ * describe, and the frame is built from the program counter alone. The special
+ * status word carries the rerun bits *without* the fault bits, which is what
+ * distinguishes an address error from a bus error in the frame.
+ *
+ * Only instruction prefetch reaches here. Misaligned data accesses are legal on
+ * the MC68030 and merely cost extra bus cycles. */
+[[nodiscard]] ap_m68030_exception_result_t
+ap_m68030_take_address_error(ap_m68030_cpu_t *cpu);
+
 /* Take an interrupt, if one is recognised at the current level and mask.
  *
  * `[030]` §8.1.9's order, which differs from every other exception in three
