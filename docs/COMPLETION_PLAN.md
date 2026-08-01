@@ -2689,9 +2689,17 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
   - [ ] If an FPA is ever modelled, `F8000000-FFFFFFFF` is its space — and the
         commented-out handler is a hint that returning `FFFFFFFF` there was
         tried and not kept. Find out why before repeating it.
-  - [ ] Every remaining counter in `ap_board_t` reports only "how many". C33's
-        rule is to report *what* an access touched: extend them the same way
-        before an investigation needs it, rather than during one.
+  - [x] Every `ap_board_t` counter now records the **first address** as well as
+        the count — read-only writes and both AT bus empty-slot directions,
+        matching the unmapped pair. Applied before an investigation needed it
+        rather than during one, which is the point of C33's rule.
+        - It paid immediately: the empty-slot scan's first read is `00080000`,
+          exactly `AP_BOARD_ATBUS_MEMORY_BASE`, so the firmware's 15872 reads
+          are a systematic sweep of AT bus memory from its base — an expansion
+          ROM search, as suspected when the window was added, and now shown
+          rather than assumed.
+        - `board_suite` asserts the address for each counter, including that the
+          *first* rom write survives a second one.
         question from what happens when it does. Check what it tests before
         jumping — do not assume the jump is unconditional.
   - [ ] The rest of the display controllers: the graphics memories

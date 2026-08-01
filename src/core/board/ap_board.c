@@ -159,6 +159,9 @@ uint8_t ap_board_read(ap_board_t *board, uint32_t address, bool *ok) {
      * answer. `FF` rather than unmapped: the cycle terminates normally on the
      * real machine, and reporting a fault here would crash an expansion ROM
      * scan that is supposed to simply find nothing. */
+    if (board->atbus_empty_reads == 0u) {
+      board->first_atbus_empty_read = address;
+    }
     board->atbus_empty_reads++;
     return 0xFFu;
   case AP_BOARD_REGION_RAM: {
@@ -224,6 +227,9 @@ void ap_board_write(ap_board_t *board, uint32_t address, uint8_t value,
     ap_graphics_write(&board->graphics, address, value);
     return;
   case AP_BOARD_REGION_ATBUS:
+    if (board->atbus_empty_writes == 0u) {
+      board->first_atbus_empty_write = address;
+    }
     board->atbus_empty_writes++;
     return;
   case AP_BOARD_REGION_RAM: {
@@ -264,6 +270,9 @@ void ap_board_write(ap_board_t *board, uint32_t address, uint8_t value,
      * Counted separately all the same. "The firmware wrote to a PROM" stays
      * worth knowing even though it is not an error, and folding it into the
      * unmapped total would hide it among addresses nothing decodes at all. */
+    if (board->rom_writes == 0u) {
+      board->first_rom_write = address;
+    }
     board->rom_writes++;
     *ok = true;
     return;

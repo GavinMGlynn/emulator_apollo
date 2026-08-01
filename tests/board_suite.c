@@ -62,6 +62,7 @@ static void test_an_unclaimed_address_is_unmapped_not_zero(void) {
   (void)ap_board_read(&b, 0x020000u, &ok);
   TEST_ASSERT_FALSE(ok);
   TEST_ASSERT_EQUAL_UINT(1u, b.unmapped_reads);
+  TEST_ASSERT_EQUAL_HEX32(0x020000u, b.first_unmapped_read);
 }
 
 static void test_main_memory_is_where_table_two_eight_puts_it(void) {
@@ -125,6 +126,8 @@ static void test_the_read_only_memories_absorb_writes_rather_than_faulting(void)
    * knowing even though it is not an error. */
   TEST_ASSERT_EQUAL_UINT(0u, b.unmapped_writes);
   TEST_ASSERT_EQUAL_UINT(2u, b.rom_writes);
+  /* The *first*, so a second write cannot overwrite the lead. */
+  TEST_ASSERT_EQUAL_HEX32(0x000002u, b.first_rom_write);
 
   /* Absorbed, not stored: both still read what they held. */
   TEST_ASSERT_EQUAL_HEX8(0x01u, ap_board_read(&b, 0x000002u, &ok));
@@ -146,6 +149,7 @@ static void test_a_missing_prom_is_absent_for_writes_too(void) {
   TEST_ASSERT_FALSE(ok);
   TEST_ASSERT_EQUAL_UINT(1u, b.unmapped_writes);
   TEST_ASSERT_EQUAL_UINT(0u, b.rom_writes);
+  TEST_ASSERT_EQUAL_HEX32(0x000100u, b.first_unmapped_write);
 }
 
 /* Both AT bus windows are decoded by the **board**, not by whatever card sits
@@ -174,6 +178,11 @@ static void test_an_empty_at_bus_window_reads_ff_rather_than_faulting(void) {
   TEST_ASSERT_EQUAL_UINT(0u, b.unmapped_writes);
   TEST_ASSERT_EQUAL_UINT(1u, b.atbus_empty_reads);
   TEST_ASSERT_EQUAL_UINT(1u, b.atbus_empty_writes);
+
+  /* And *where*, not only how many. C33's rule: a count cannot tell a firmware
+   * self-test from a device that is missing, and an address can. */
+  TEST_ASSERT_EQUAL_HEX32(0x090000u, b.first_atbus_empty_read);
+  TEST_ASSERT_EQUAL_HEX32(0x090000u, b.first_atbus_empty_write);
 }
 
 /* The windows must not swallow the devices inside them. The tape, the disk and

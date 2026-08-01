@@ -145,6 +145,7 @@ typedef struct ap_board {
    * something answers and cannot store. Folding them together would both hide a
    * driver writing to a PROM and make a harmless write look like a fault. */
   unsigned rom_writes;
+  uint32_t first_rom_write;
 
   /* Accesses to an AT bus window with no card behind them. Not unmapped: the
    * board decodes the window, so these terminate normally and read `FF`.
@@ -153,6 +154,8 @@ typedef struct ap_board {
    * have been fitted becomes visible. */
   unsigned atbus_empty_reads;
   unsigned atbus_empty_writes;
+  uint32_t first_atbus_empty_read;
+  uint32_t first_atbus_empty_write;
 } ap_board_t;
 
 /* `start` is the calendar's instant; see `device/ap_mc146818.h` on why it comes
