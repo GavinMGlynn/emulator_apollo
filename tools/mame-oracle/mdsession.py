@@ -103,21 +103,11 @@ def find_mame(explicit: Path | None) -> Path:
 def _die_with_parent():
     """Ask the kernel to kill this child when its parent dies.
 
-    `close()` stops the emulator on every path the driver controls, and none of
-    those are the ones that matter. A driver that is killed -- by a timeout, by
-    `pkill`, by a terminal going away -- skips `close()` entirely and leaves a
-    MAME running with nobody reading its console.
-
-    That is not merely untidy. An orphan holds its log file open, so the next
-    run's driver opens the same path and the two write at different offsets: the
-    file fills with runs of NUL between interleaved fragments, and the transcript
-    of the new run is quietly corrupt. It also keeps a core busy emulating a
-    machine no one can talk to. Both were observed before this existed.
-
-    Linux-only, and deliberately not conditional on anything: this driver is for
-    the oracle, and the oracle is built on Linux. Elsewhere it is a no-op rather
-    than an error, because failing to arm a safety net is not a reason to refuse
-    to run.
+    The **backstop**, covering the one case a signal handler cannot: the driver
+    killed with `SIGKILL`, where no code of ours runs at all. Linux-only --
+    `prctl` is a Linux facility -- and a silent no-op elsewhere, because failing
+    to arm a safety net is not a reason to refuse to run. The portable path is
+    `_install_signal_handlers`, and that is the one under test.
     """
     try:
         import ctypes
@@ -127,6 +117,43 @@ def _die_with_parent():
             PR_SET_PDEATHSIG, signal.SIGTERM, 0, 0, 0)
     except Exception:
         pass
+
+
+def _install_signal_handlers(session):
+    """Stop the emulator when the driver is asked to stop.
+
+    `close()` covers every path the driver controls and none of the ones that
+    matter. A driver killed from outside -- a timeout, a `pkill`, a terminal
+    going away, an operator's Ctrl-C -- skips it, and leaves a MAME running with
+    nobody reading its console.
+
+    That is not merely untidy. An orphan holds its log file open, so the next
+    run opens the same path and the two write at different offsets: the file
+    fills with runs of NUL between interleaved fragments, and the new run's
+    transcript is quietly corrupt while looking like a machine emitting garbage.
+    Two orphans did exactly that here, and the wrong diagnosis was convincing.
+
+    `SIGTERM` and `SIGINT` are what actually arrive in those cases, and handling
+    them works on every platform. `SIGKILL` cannot be handled anywhere, which is
+    what `_die_with_parent` is for.
+    """
+    import signal
+
+    def stop(signum, frame):
+        try:
+            session.close()
+        finally:
+            # The conventional encoding, and it matters: a caller waiting on
+            # this process should be able to tell it was signalled.
+            raise SystemExit(128 + signum)
+
+    for signum in (signal.SIGTERM, signal.SIGINT):
+        try:
+            signal.signal(signum, stop)
+        except (ValueError, OSError):
+            # Not the main thread, or the platform refuses. The backstop and
+            # the ordinary `finally` still apply.
+            pass
 
 
 class Session:
@@ -626,6 +653,7 @@ def main(argv=None) -> int:
 
     session = Session(command, cwd=mame.parent, environment=environment,
                       log=args.log, swapfile=swapfile)
+    _install_signal_handlers(session)
     status = 0
     try:
         session.knock(MD_PROMPT, args.knock_timeout,

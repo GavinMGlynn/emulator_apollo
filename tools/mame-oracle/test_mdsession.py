@@ -380,10 +380,15 @@ def main() -> int:
                           "--timeout", "20"],
                    {"MDSTUB_SWAPLOG": str(swaplog)})
         check("two swaps run in order", proc.returncode, 0)
+        # Compared against `resolve()` on both sides, not against the path as
+        # written. macOS makes /var a symlink to /private/var, so resolving is
+        # not a no-op there even for a path that is already absolute -- and the
+        # driver resolves deliberately, because MAME runs from its own
+        # directory. Asserting the unresolved form tests the platform, not us.
         check("and both reach the machine, resolved to absolute paths",
               swaplog.read_text().split(),
-              ["ctape", str(work / "tape1.ct"),
-               "ctape", str(work / "tape2.ct")])
+              ["ctape", str((work / "tape1.ct").resolve()),
+               "ctape", str((work / "tape2.ct").resolve())])
 
         # A refused swap fails the run rather than being swallowed. A tape that
         # did not mount looks exactly like a tape that mounted and holds nothing
@@ -472,8 +477,13 @@ def main() -> int:
             for pid in _children_of(proc.pid):
                 child = pid
             time.sleep(0.2)
-        proc.kill()
-        proc.wait(timeout=10)
+        # SIGTERM, not SIGKILL. This is what a timeout, a `pkill` or a
+        # terminal going away actually sends, it is handleable on every
+        # platform, and so it is the path worth guaranteeing. SIGKILL is
+        # covered by PR_SET_PDEATHSIG where the kernel offers it, which is
+        # Linux only and therefore not something a portable suite can assert.
+        proc.terminate()
+        proc.wait(timeout=15)
         gone = False
         deadline = time.time() + 15
         while time.time() < deadline:
