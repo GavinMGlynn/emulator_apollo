@@ -154,3 +154,13 @@ address range is rejected, or whether the echo is of a line it never executed.
 
 The remaining unknowns are now about MD rather than about the harness, which is
 a better place to be stuck than the previous one.
+
+The handbook does not settle it either. It gives the syntax line
+`D <start> <end> <items/line>` and **no example**, so argument separators,
+radix and whether the third argument is optional are all unstated -- the same
+gap that made this whole document necessary for the `A` line. `D` is marked `+`,
+"not in DNx60", so it is present on a DN3500 and the command is not the problem.
+
+What would settle it: `H`, the help command, which the same list carries and
+which is the machine's own statement of its syntax. That is one run, and it
+should have been the first thing tried on a live prompt.

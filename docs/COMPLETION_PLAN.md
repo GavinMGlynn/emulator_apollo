@@ -412,6 +412,12 @@ file the moment they are found, not when someone remembers.
           wrong syntax, rejected range, or an echoed line never executed. Those
           are questions about MD rather than about the harness — a better place
           to be stuck than the previous one.
+        - The handbook gives `D <start> <end> <items/line>` and **no example**,
+          so separators, radix and argument optionality are unstated. `D` is
+          marked `+` ("not in DNx60"), so it is present on a DN3500.
+        - **Next, and it should have been first:** send `H`. The command list
+          carries a help command, and it is the machine's own statement of its
+          syntax — one run against a prompt that already works.
         - **A result worth having on the way** (`FINDINGS.md` C39): the oracle's
           four configuration writes, decoded — `sio1 ACR E0`, `sio1 CSRB 77`,
           `sio2 ACR 80`, `sio2 CSRA 77`. Both ports get the same clock select,
