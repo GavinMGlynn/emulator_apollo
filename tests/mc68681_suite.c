@@ -548,6 +548,57 @@ static void test_normal_mode_neither_echoes_nor_withholds(void) {
   TEST_ASSERT_EQUAL_HEX8(0x5Au, ap_mc68681_read(&duart, AP_MC68681_RB_TB_A));
 }
 
+
+/* Parity compared as **enable and type together**. Two ports both using parity
+ * but disagreeing on odd against even produce a wrong bit on roughly half of
+ * all characters — a link that works intermittently, which is worse than one
+ * that never works and invisible to a test that sends a single character. */
+static void test_a_parity_type_disagreement_is_a_parity_error(void) {
+  ap_mc68681_t duart;
+  ap_mc68681_reset(&duart);
+  ap_mc68681_write(&duart, AP_MC68681_CR_A, 0x01u);
+  ap_mc68681_write(&duart, AP_MC68681_SR_CSR_A, 0x77u);
+  /* Eight bits, parity on (bit 2 clear), type 00. */
+  ap_mc68681_write(&duart, AP_MC68681_MR_A, 0x03u);
+
+  /* Same rate, same enable, different type. */
+  ap_mc68681_receive_framed(&duart, 0u, 0x41u, 0x77u, 0x0Bu);
+
+  TEST_ASSERT_TRUE((ap_mc68681_read(&duart, AP_MC68681_SR_CSR_A) &
+                    AP_MC68681_SR_PARITY) != 0u);
+}
+
+/* Agreement does not, or a correctly configured link would report errors. */
+static void test_matching_parity_is_not_an_error(void) {
+  ap_mc68681_t duart;
+  ap_mc68681_reset(&duart);
+  ap_mc68681_write(&duart, AP_MC68681_CR_A, 0x01u);
+  ap_mc68681_write(&duart, AP_MC68681_SR_CSR_A, 0x77u);
+  ap_mc68681_write(&duart, AP_MC68681_MR_A, 0x03u);
+
+  ap_mc68681_receive_framed(&duart, 0u, 0x41u, 0x77u, 0x03u);
+
+  TEST_ASSERT_FALSE((ap_mc68681_read(&duart, AP_MC68681_SR_CSR_A) &
+                     AP_MC68681_SR_PARITY) != 0u);
+}
+
+/* A receiver not using parity cannot find a parity bit wrong, however the
+ * sender was configured. Without this, a no-parity console would report errors
+ * against any sender that used parity — and the DN3500's own ports are
+ * configured by firmware we do not control. */
+static void test_a_receiver_without_parity_reports_none(void) {
+  ap_mc68681_t duart;
+  ap_mc68681_reset(&duart);
+  ap_mc68681_write(&duart, AP_MC68681_CR_A, 0x01u);
+  ap_mc68681_write(&duart, AP_MC68681_SR_CSR_A, 0x77u);
+  ap_mc68681_write(&duart, AP_MC68681_MR_A, 0x07u); /* bit 2 set: no parity */
+
+  ap_mc68681_receive_framed(&duart, 0u, 0x41u, 0x77u, 0x03u);
+
+  TEST_ASSERT_FALSE((ap_mc68681_read(&duart, AP_MC68681_SR_CSR_A) &
+                     AP_MC68681_SR_PARITY) != 0u);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_a_character_sent_at_the_wrong_rate_sets_a_framing_error);
@@ -566,6 +617,9 @@ int main(void) {
   RUN_TEST(test_auto_echo_both_retransmits_and_delivers);
   RUN_TEST(test_remote_loopback_retransmits_without_delivering);
   RUN_TEST(test_normal_mode_neither_echoes_nor_withholds);
+  RUN_TEST(test_a_parity_type_disagreement_is_a_parity_error);
+  RUN_TEST(test_matching_parity_is_not_an_error);
+  RUN_TEST(test_a_receiver_without_parity_reports_none);
   RUN_TEST(test_an_idle_transmitter_is_ready_and_empty);
   RUN_TEST(test_the_mode_register_pointer_advances_then_sticks);
   RUN_TEST(test_the_receive_fifo_holds_three_and_then_overruns);

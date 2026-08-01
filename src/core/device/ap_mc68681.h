@@ -224,6 +224,26 @@ typedef enum {
 
 [[nodiscard]] ap_mc68681_channel_mode_t ap_mc68681_channel_mode(uint8_t mr2);
 
+/* Receive a character whose sender states its *whole* framing, not only its
+ * rate: `sender_mr1` carries the parity enable and type the far end is using.
+ * A disagreement sets `SR[5]`, parity error.
+ *
+ * Separate from `ap_mc68681_receive_at` rather than replacing it, because the
+ * two say different things. `receive_at` means "the sender agrees about
+ * framing and we are checking the rate", which is what a scripted terminal on
+ * a configured link is; this means "here is the far end's configuration, decide
+ * whether it can be read". A caller that had to pass the receiver's own `MR1`
+ * to say "the same" would be stating a fact it does not have.
+ *
+ * Parity is compared as *enable and type together*. Two ports both using
+ * parity but disagreeing on odd against even produce a wrong parity bit on
+ * roughly half of all characters, which is a link that works intermittently --
+ * far worse than one that never works, and invisible to a test that sends a
+ * single character. */
+void ap_mc68681_receive_framed(ap_mc68681_t *duart, unsigned channel,
+                               uint8_t byte, uint8_t sender_csr,
+                               uint8_t sender_mr1);
+
 /* Take what the transmitter holds, if anything -- the other end of the same
  * boundary. Answers false when the transmitter is empty. */
 [[nodiscard]] bool ap_mc68681_transmit(ap_mc68681_t *duart, unsigned channel,

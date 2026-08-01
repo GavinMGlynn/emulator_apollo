@@ -2760,10 +2760,27 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
           would make remote loopback indistinguishable from auto-echo, which is
           the one thing separating them. `mc68681_suite`, 3 more tests with a
           normal-mode control that does neither.
-        - Still open: **parity checked** rather than only reported. The model
-          carries no parity bit, so there is nothing to check against — closing
-          it means the receive path taking the sender's parity as well as its
-          rate, the same shape as `ap_mc68681_receive_at` already has.
+        - **Parity is checked.** `ap_mc68681_receive_framed` takes the sender's
+          `MR1` as well as its rate and sets `SR[5]` when the two disagree.
+          Compared as **enable and type together**: two ports both using parity
+          but differing on odd against even get a wrong bit on roughly half of
+          all characters, which is a link that works *intermittently* — worse
+          than one that never works, and invisible to a test that sends one
+          character.
+        - A receiver not using parity reports none, whatever the sender did. It
+          cannot find a bit it is not looking for, and without that rule a
+          no-parity console would report errors against any sender that used
+          parity — including ports the DN3500's own firmware configures.
+        - Kept separate from `ap_mc68681_receive_at` rather than replacing it,
+          because the two state different things: `receive_at` means "the sender
+          agrees about framing, check the rate", and a caller forced to pass the
+          receiver's own `MR1` to say "the same" would be asserting a fact it
+          does not have.
+
+    That completes the item's original list — baud rates, start and stop bits,
+    parity, and the automatic echo and loopback modes — except that stop bits
+    are decoded and reported rather than timed, which needs the tick loop before
+    it can mean anything.
         - **The values are no longer unknown.** `FINDINGS.md` C39 and C42 read
           them off the running oracle: `sio1 ACR E0`, `sio1 CSRB 77`,
           `sio2 ACR 80`, `sio2 CSRA 77` at reset, and the firmware then

@@ -71,6 +71,33 @@ static bool rate_matches(uint8_t receiver_csr, uint8_t sender_csr) {
   return (receiver_csr >> 4) == (sender_csr >> 4);
 }
 
+void ap_mc68681_receive_framed(ap_mc68681_t *duart, unsigned channel,
+                               uint8_t byte, uint8_t sender_csr,
+                               uint8_t sender_mr1) {
+  if (channel >= AP_MC68681_CHANNELS) {
+    return;
+  }
+  ap_mc68681_channel_t *ch = &duart->channel[channel];
+  const uint8_t own_mr1 = ch->mr[0];
+
+  ap_mc68681_receive_at(duart, channel, byte, sender_csr);
+
+  /* Enable *and* type together: two ports both using parity but disagreeing on
+   * odd against even get a wrong bit on roughly half of all characters, which
+   * is a link that works intermittently rather than one that never works. */
+  const bool parity_agrees =
+      ap_mc68681_parity_enabled(own_mr1) ==
+          ap_mc68681_parity_enabled(sender_mr1) &&
+      (own_mr1 & AP_MC68681_MR1_PARITY_TYPE_MASK) ==
+          (sender_mr1 & AP_MC68681_MR1_PARITY_TYPE_MASK);
+
+  /* Only when this channel uses parity at all: a receiver not looking for a
+   * parity bit cannot find it wrong, however the sender was configured. */
+  if (ch->rx_enabled && ap_mc68681_parity_enabled(own_mr1) && !parity_agrees) {
+    ch->sr |= AP_MC68681_SR_PARITY;
+  }
+}
+
 void ap_mc68681_receive_at(ap_mc68681_t *duart, unsigned channel, uint8_t byte,
                            uint8_t sender_csr) {
   if (channel >= AP_MC68681_CHANNELS) {
