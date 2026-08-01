@@ -3333,3 +3333,67 @@ exist for:
 Recorded because the cheaper option is also the better one here, which is not
 the usual shape and is easy to talk oneself out of. `SALVOL` remains the right
 answer on real hardware, where there is no checkpoint to go back to.
+
+
+## C55 -- Domain/OS runs, and `go` gives a server with no console
+
+The fourth restore attempt reached `Restore complete.` and the Phase II prompt,
+and `go` brought the operating system up:
+
+```
+)go
+Loading Init.
+... loading global libraries
+... global libraries loaded.
+*  Copyright (c)  Hewlett-Packard Co., 1986-1992.                          *
+*****  Node startup on   *****
+
+Looking for orphaned files
+Preserving editor files
+Clearing /tmp
+Initializing /etc/mnttab
+Starting standard daemons:.
+Starting window system:.
+
+SPM system init complete.
+Node ID = 12345
+
+    SERVER_PROCESS_MANAGER, Version 10.2, 89/07/31
+ SPM Initialized on Monday, December 2, 2002 at 21:10:25
+```
+
+**Domain/OS SR10.4 runs on the oracle**, from a disk this project built: init,
+global libraries, daemons, the window system, and the node's own ID. That is the
+first time an Apollo *operating system* rather than an Apollo *utility* has come
+up here.
+
+### And then it stops being useful, correctly
+
+`go` started the **Server Process Manager**, not the Display Manager. SPM is what
+a headless node runs: it takes work from other nodes over the network and offers
+**no login on the console**. Carriage returns sent to it come back as bare
+newlines and nothing else -- measured, not assumed, because "the console is
+silent" has already meant three different things in this campaign.
+
+So the MAME wiki's next step, "login as `user`, then `/install/tools/minst`",
+assumes the **Display Manager on a screen**. Headless, there is no screen to log
+in on, and this is the console question that was flagged as open before the OS
+ever booted: it is now answered, and the answer is that `go` is the wrong door.
+
+The Apollo Survival Guide has the right one, in its list of Phase II commands:
+
+> **SH** - Starts non-graphical, text-based single-user shell for command
+> execution
+
+which is exactly what an installer driven over a serial line needs.
+
+### The cost, and what made it cheap
+
+One restore -- about twenty-five minutes of emulated cartridge -- because
+reaching `)` costs that and `go` cannot be undone from inside SPM. The *disk*
+cost nothing: `dn3500-osclean.awd` was taken after the previous `shut`, so the
+volume went back to a known-good cleanly-shut-down state with a file copy.
+
+That is now three separate occasions where a checkpoint turned a lost session
+into a lost twenty-five minutes. The rule earns its place: **checkpoint at every
+stage boundary, before the irreversible step, not after it.**
