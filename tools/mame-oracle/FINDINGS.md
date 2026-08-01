@@ -2808,3 +2808,171 @@ across stages and check each one's output before sending the next.
 What is settled is that nothing structural blocks it. The media is unpacked, the
 image command is known, the console is captured byte-exact, and MD executes what
 it is sent.
+
+## C49 -- the install session: a pty instead of a pacing loop
+
+`C48` ended on a named obstacle: driving the install past `di c` "needs a
+session that can hold state across stages and check each one's output before
+sending the next". That session now exists as `tools/mame-oracle/mdsession.py`
+and `mdsession.lua`, and building it replaced a workaround with a mechanism.
+
+### The pacing loop was a symptom, and the pty is the cure
+
+`C45` established why a burst of input is lost: `apollo_stdio_device::poll_timer`
+reads stdin in a `while` loop until `read` stops returning 1, so a pipe with a
+script already in it is drained in one callback and then hits EOF -- the whole
+conversation delivered seconds before the autobaud runs, and discarded. The fix
+recorded there was to feed one character every 0.4 s from a shell loop, which
+keeps the pipe from ending.
+
+That works, and it works by keeping a pipe from ending -- which is treating the
+symptom. A **pty** removes the condition: `read` on an empty pty returns
+`EAGAIN`, never EOF, so the session stays open with nothing in flight and a
+command is written at the moment its prompt appears rather than trickled in
+whether or not anything is waiting for it.
+
+The 0.4 s rate does not go away, and should not: it is still exactly right for
+*knocking*, where the machine is deaf and characters have to arrive during the
+autobaud. What changes is its scope. It was doing two jobs -- keeping the pipe
+open and hitting the autobaud window -- and only the second is real. Everything
+after the first prompt is now answer-driven, so the pace of the conversation is
+the machine's rather than a constant.
+
+### Three defects the stub test found before the machine did
+
+`test_mdsession.py` drives the same logic against a stub that behaves like the
+device -- deaf until spoken to, repeating prompt, and able to die on command.
+It found two things a real run would have hidden, and one it would have hidden
+for hours:
+
+- **A pty comes up in canonical mode with `ICRNL`**, which rewrites every `\r`
+  into `\n` on the way to the machine. MD's terminator is `\r`, so the session
+  was sending something other than what it said it sent. It worked anyway --
+  `poll_timer` maps `\n` back to `\r` -- which is a property of one MAME device
+  and not a thing to rest a harness on. The pty is now raw.
+- **And with `ECHO` on**, which copies everything written to the master back
+  into the master's own read buffer. Nothing reads that buffer here, because
+  the console arrives on stdout, so it only fills. A long enough install would
+  eventually block in `os.write` with the machine waiting for input the driver
+  could no longer send -- a hang arriving hours in, looking like the machine's
+  fault.
+- **A send is not a delivery.** Closing the session straight after the last
+  command kills the emulator before it has read it, and the script reports every
+  step done while the last one never happened. The driver now lets the machine
+  run on for a settle window. The test caught this twice, once per code path,
+  and the second was the one that matters: the final command of an install is
+  `shut`.
+
+### The knock interval is load-bearing, and it was the one number picked rather than measured
+
+The driver reaches a prompt by sending carriage returns until the machine
+answers, and the first version sent one every **two seconds**. That reached the
+power-on prompt every time, and got a sign-on out of `re` **once in four runs**
+-- with the success arriving first, which is the worst possible order.
+
+Three runs were then spent looking for a fault in the reset path: the activity
+taps were suspected and cleared by an A/B pair, the disk image was checked and
+found still virgin, the pty's mode was suspected. All of that was looking at
+code that had changed, at a number that had not.
+
+`C45` measured the interval that works: **one character every 0.4 s**. Set to
+that, all four commands of the stage run and each `re` answers with a fresh
+sign-on. The autobaud after a reset is evidently a narrower window than the one
+the machine sits in at power-on -- the power-on case tolerates 2 s, and the
+reset case does not.
+
+Two things worth keeping:
+
+- **A missed window does not degrade, it just misses**, and the result is
+  indistinguishable from a machine that died in the reset. Nothing in the
+  console says "too slow"; there is simply no output.
+- The project's rule is that timing figures come from measurement. `C45` had
+  already made this one, and the driver reimplemented it from scratch at a
+  value that felt reasonable. The rule is not only about figures in
+  `src/core` -- a harness that talks to hardware has timing constants too, and
+  they are as capable of being wrong.
+
+### MD's sign-on is longer than `MD.md` recorded
+
+Held open on a pty rather than stopped at a fixed emulated second, the sign-on
+is:
+
+```
+LF "MD7C REV 8.00, 1989/08/16.17:23:52" LF
+```
+
+`docs/references/MD.md` recorded "the sign-on is `MD7`, with no version suffix,
+no banner text and no copyright line". The bytes it captured are not misread --
+`0D 0A 4D 44 37` is the start of this same line -- but `APOLLO_MD_UNTIL=45`
+stopped the machine partway through the banner, and the trailing `0D 0A` that
+made it look finished is the truncation rather than a terminator.
+
+The correction is recorded there; the general form is worth keeping here.
+**A bounded capture proves what it contains and nothing about what follows.** A
+capture that ends inside a line looks exactly like one that ends at the end of a
+line, and nothing in the capture itself can tell them apart. `C45` even said as
+much -- "run long enough to get a full prompt" -- and the conclusion was drawn
+before that was done.
+
+### What the documentation answered, since the manuals do not
+
+Three procedural gaps closed from sources outside this project's shelf, which
+`C47` established is a legitimate move and this confirms:
+
+- **`DI` selects the device and `EX` executes**, so `di c` means *take standalone
+  utilities from the cartridge* and `ex invol` runs one. From the Apollo
+  Survival Guide, which lists both commands with their arguments.
+- **The cartridge is slow on purpose.** Reaching INVOL's first menu took about
+  ten minutes of wall clock with no console output at all. The MAME forum thread
+  on this install says cartridge access is "very slow (same as the real
+  cartridge tape)", so a silent ten minutes is the expected shape and not a
+  hang. `mdsession.lua` now takes `APOLLO_MD_ACTIVITY` and counts accesses to
+  the tape and disk controllers, because a silent console cannot distinguish
+  those two and a count can. It does:
+
+  ```
+  #     60.0s  tape 58445112 r / 8922 w  disk 0 r / 0 w
+  ```
+
+  **58 million reads of the tape controller in sixty emulated seconds**, against
+  nine thousand writes — a driver spinning on a status register while the
+  cartridge moves, which is what a QIC-02 read looks like from the bus. And the
+  disk at zero in the same window, correctly: INVOL has been loaded, not yet
+  told to do anything. The instrument was added to tell "slow" from "stuck", and
+  the first reading it produced did exactly that.
+
+  It also priced itself, which is the second thing an instrument owes. 65
+  million reads an emulated minute is 65 million Lua callbacks, and the run
+  dropped from the **0.78x** MAME reports untapped to **0.55x** — 60 emulated
+  seconds taking 110 wall seconds, measured across two consecutive reports. On a
+  ten-minute stage that is four minutes added by the thing watching for whether
+  anything is happening.
+
+  So read counting is now **off by default**, and what is left is both cheaper
+  and better aimed: writes, which are rare and are the half that matters — a
+  stage writing the *disk* is doing the install, where reads only say the bus is
+  busy — plus the **program counter** sampled once per report, which costs one
+  read and separates a machine looping inside a driver from one stopped at a
+  single address. That was the question all along; the read count was a proxy
+  for it that happened to be affordable to answer directly.
+- **MAME bug 07530**, "Resetting via typing RE crashes the emulator", covers
+  `dn3000`, `dn3500` and `dn5500` -- and our stage types `re` twice. Checked
+  rather than worried about: it is a regression in 0.216-0.217, fixed in 0.218,
+  and `ext/mame` is pinned at v0.289. Both resets ran, each answering with a
+  fresh sign-on.
+
+### The machine settled a disagreement between two sources
+
+The MAME wiki gives INVOL options **7, 1, 8**. A `comp.sys.apollo` thread gives
+**7, 1, 8, 10** with "first 7 !!!". INVOL's own menu, printed by the machine:
+
+```
+ 10            - OBSOLETE
+```
+
+So the wiki is right for this revision -- `invol (init_volume) - Offline(7),
+revision 10.4, December 2, 1991` -- and the newsgroup's fourth step belongs to
+an older one. Neither source could have settled it; the program did.
+
+This is the same lesson as `C47` with the sign in the other direction. The
+oracle's documentation is a source, and like every source it has a version.

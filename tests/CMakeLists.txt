@@ -128,6 +128,18 @@ if(Python3_Interpreter_FOUND AND NOT WIN32)
   add_test(NAME oracle_driver
            COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/mame-oracle/test_oracle.py)
   set_tests_properties(oracle_driver PROPERTIES LABELS tools)
+
+  # The interactive session driver's logic, against a stub MAME. Same split as
+  # oracle_driver above and the same platform scope: it drives stub executables
+  # and a pty, and the tool it tests only ever runs where the oracle is built.
+  #
+  # It spends real seconds waiting on timeouts it is deliberately provoking --
+  # a machine that never answers has to be waited for to establish that it
+  # never answers -- so it carries a timeout of its own rather than inheriting
+  # CTest's default.
+  add_test(NAME oracle_session
+           COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/mame-oracle/test_mdsession.py)
+  set_tests_properties(oracle_session PROPERTIES LABELS tools TIMEOUT 300)
 endif()
 
 # The oracle harness's dump format, checked against a mock machine so it needs

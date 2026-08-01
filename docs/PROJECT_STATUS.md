@@ -376,7 +376,8 @@ model table: `--run-probes` runs eight probes on the constructed machine and its
 report is a committed golden, checked under every build preset. This section will state exactly what backs the
 claim when there is one.
 
-Last updated: 2026-08-01 (Phase 3 boundary; subsystem table audited).
+Last updated: 2026-08-01 (Phase 3 boundary; subsystem table audited; the
+interactive oracle session added).
 
 ## Subsystems
 
@@ -465,7 +466,8 @@ Last updated: 2026-08-01 (Phase 3 boundary; subsystem table audited).
 | Floppy, QIC cartridge tape | not started | — |
 | Mono and colour graphics controllers | not started | — |
 | 3c505 802.3 Ethernet | not started | — |
-| MAME oracle harness | working and used throughout. Beyond the dumper there are now three probe tools — `regprobe.lua` drives every bit of a register in both directions, `writetrace.lua` taps writes to watch firmware program a device, `steptime.lua` single-steps for instruction timing — and findings C10 through C14 are all measurements taken with them | `oracle_driver` (19 checks, stub MAME) and `oracle_dump_format` (19 checks, mock machine); `./apollo -listfull` lists all eleven apollo machines |
+| MAME oracle harness | working and used throughout. Beyond the dumper there are now four probe tools — `regprobe.lua` drives every bit of a register in both directions, `writetrace.lua` taps writes to watch firmware program a device, `steptime.lua` single-steps for instruction timing, `mdcapture.lua` traces the serial registers byte-exact — and findings C10 through C14 are all measurements taken with them | `oracle_driver` (19 checks, stub MAME) and `oracle_dump_format` (19 checks, mock machine); `./apollo -listfull` lists all eleven apollo machines |
+| Interactive boot-PROM session (`mdsession.py`, `mdsession.lua`) | working: holds a machine open across stages, reads the console and answers it. stdin is a **pty**, which removes the reason the earlier capture had to pace characters at a fixed rate — a pty never reaches EOF, so a command is written when its prompt appears. `--commands FILE` is followed while the run continues, so an unpublished dialogue can be answered as it is read rather than guessed at in advance. Runs `re`, `re`, `di c`, `ex invol` and reaches INVOL's menu. **Deliberately not reproducible in the oracle-reading sense**: it is paced by the host, so nothing timed may be measured through it — its products are a disk image and a transcript | `oracle_session`, 17 checks against a stub MAME; `FINDINGS.md` C49 |
 | Golden regression harness | working | `golden_model_table`, run under every build preset; drift, `-O3` identity and regeneration all verified |
 | Shared frontend layer (`frontend/common/`) | working | `frontend_common_suite`, 10 tests |
 | Headless frontend | `--model`, `--list-models`, `--help` | `golden_model_table`, which supersedes the old smoke test |
@@ -810,5 +812,7 @@ Kept rather than discarded, so a future contradiction has a documented history.
 - The ring controller's register-level interface is not yet recovered; the
   manuals give its address window and block diagram but not its registers.
 - No bootable Domain/OS media: all we hold is installation media, so reaching a
-  login prompt needs an install performed under the oracle first.
+  login prompt needs an install performed under the oracle first. **In
+  progress** — the session driver reaches INVOL's menu, which is the first
+  stage of that install; the disk is not yet initialised.
 - No SDL frontend. Deliberately absent rather than stubbed.

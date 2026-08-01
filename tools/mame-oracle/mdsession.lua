@@ -1,0 +1,340 @@
+-- Hold a long interactive session with the boot PROM's Mnemonic Debugger.
+--
+-- Distinct from `mdcapture.lua`, which taps every serial register write to
+-- produce a byte-exact register trace. This script deliberately taps *nothing*,
+-- because the two jobs conflict: an expect-style driver has to read the console
+-- stream, `apollo_stdio_device::rcv_complete` puts that stream on the process's
+-- stdout one raw character at a time, and a register trace interleaved into it
+-- cannot be parsed back out -- raw console bytes carry no framing to split on.
+--
+-- So the division is: `mdcapture.lua` when the question is *what bytes moved*,
+-- this when the question is *what the machine says and what to send it next*.
+--
+-- Everything this script prints itself goes to **stderr**, for the same reason.
+-- stdout belongs to the machine.
+--
+-- What it does is the two things a session cannot start without:
+--
+--   1. Sets every `apollo_config` field explicitly. The install procedure
+--      records these as Machine Configuration menu settings (`FINDINGS.md`
+--      C47), and a headless run has no menu. Set from this file rather than
+--      from a cfg the last run wrote, so a session does not depend on state
+--      left by a previous one.
+--   2. Presses and releases one key, which is what prompts the firmware's
+--      autobaud (`FINDINGS.md` C45). The DUART's transmitter is not enabled
+--      until the firmware has found a rate, so a machine nobody touches sits
+--      silent however long it is watched.
+--
+-- Settings are chosen by **name**, against the machine's own settings table,
+-- rather than by writing the constants from `apollo.h`. MAME's `user_value` is
+-- a masked field value and not an index -- `APOLLO_CONF_25_YEARS_AGO` is
+-- `0x0080`, not `1` -- so a script assigning `1` would silently select the
+-- wrong setting on every field whose mask is not bit 0. Naming the setting and
+-- reading the name back also makes the log a record of what the machine did
+-- rather than of what it was asked to do.
+--
+-- Loaded as `-autoboot_script`, and -- unlike every other script in this
+-- directory -- it does **not** need `-debug -debugger none`. C5's table is
+-- specific about what that pair buys: `cpu.debug` and therefore `step()`.
+-- Nothing here steps. Ports, fields and images are bound in a plain run, so a
+-- session that asked for the debugger would be paying for a facility it never
+-- calls, on a run that lasts for a whole install.
+--
+-- ## Configuration
+--
+--   APOLLO_MD_POST     key to press once, by its PORT_NAME, to prompt the
+--                      autobaud (default "Numpad Enter")
+--   APOLLO_MD_POST_AT  emulated seconds to wait before pressing (default 4.0)
+--   APOLLO_MD_HOLD     emulated seconds to hold it down (default 0.2)
+--   APOLLO_MD_DISPLAY  Graphics Controller setting name, if the default
+--                      "8-Plane Color" is not wanted
+--   APOLLO_MD_UNTIL    emulated seconds after which to exit. Default 0, meaning
+--                      never -- an install runs for as long as it runs, and the
+--                      driver, which can see the console, is what ends it.
+--   APOLLO_MD_ACTIVITY seconds of emulated time between activity reports, or 0
+--                      for none (the default). A stage like `ex invol` can run
+--                      for ten minutes without printing anything, because the
+--                      cartridge is genuinely that slow, and a silent console
+--                      cannot distinguish that from a machine going nowhere.
+--                      This reports the program counter and counts writes to
+--                      the tape and disk controllers, which can.
+--   APOLLO_MD_ACTIVITY_READS
+--                      "1" to count reads as well. Off by default because it
+--                      costs about 30% of the run's speed: a cartridge read
+--                      spins on a status register 65 million times an emulated
+--                      minute, and each one becomes a Lua call.
+
+-- The install procedure's Machine Configuration, as `FINDINGS.md` C47 records
+-- it: "25 Years Ago" on, everything else off.
+--
+-- "Normal/Service" is not one of the "everything else": its two settings are
+-- Normal and Service, neither of which is Off, and Normal is what an install
+-- wants -- Service mode is for the PROM's own diagnostics. Worth stating
+-- because its *default* is Service, so leaving it alone is a choice too.
+--
+-- "Graphics Controller" likewise has no Off. A DN3500 always has a display
+-- (`mdcapture.lua`'s header records the search that established it), so the
+-- only question is which, and the default is what the wiki's procedure ran.
+local CONFIG = {
+	["Normal/Service"]    = "Normal",
+	["German Keyboard"]   = "Off",
+	["30 Years Ago ..."]  = "Off",
+	["25 Years Ago ..."]  = "On",
+	["Node ID from Disk"] = "Off",
+	["Trap Trace"]        = "Off",
+	["FPU Trace"]         = "Off",
+	["Disk Trace"]        = "Off",
+	["Network Trace"]     = "Off",
+}
+
+local post_text = os.getenv("APOLLO_MD_POST") or "Numpad Enter"
+local post_at_s = tonumber(os.getenv("APOLLO_MD_POST_AT") or "") or 4.0
+local hold_s    = tonumber(os.getenv("APOLLO_MD_HOLD") or "") or 0.2
+local until_s   = tonumber(os.getenv("APOLLO_MD_UNTIL") or "") or 0.0
+
+local display   = os.getenv("APOLLO_MD_DISPLAY")
+if display ~= nil and display ~= "" then
+	CONFIG["Graphics Controller"] = display
+end
+
+local activity_s = tonumber(os.getenv("APOLLO_MD_ACTIVITY") or "") or 0.0
+local count_reads = (os.getenv("APOLLO_MD_ACTIVITY_READS") or "") == "1"
+
+local posted    = false
+local released  = false
+local installed = false
+local finished  = false
+
+-- The two controllers a long stage waits on, from `008778-03` Table 2-9 and
+-- this project's own measurements of both placements: the Archive SC-499
+-- cartridge tape at `050000` and the OMTI 8621 fixed disk at `04D000`. Read and
+-- write are counted apart, because they answer different questions -- a stage
+-- that only ever reads the tape is loading, and one that writes the disk is
+-- doing the thing the install exists for.
+local WATCH = {
+	{ name = "tape", base = 0x050000, last = 0x050FFF, reads = 0, writes = 0 },
+	{ name = "disk", base = 0x04D000, last = 0x04DFFF, reads = 0, writes = 0 },
+}
+local activity_taps = {}
+local reported_at   = 0.0
+
+-- stderr, always: stdout is the machine's console and nothing else may be on
+-- it. A note that lands in the console stream is indistinguishable from output
+-- the firmware produced, which is precisely the confusion this file exists to
+-- avoid.
+local function note(fmt, ...)
+	io.stderr:write(string.format(fmt, ...))
+	io.stderr:flush()
+end
+
+-- Set one configuration field by the *name* of the setting wanted.
+--
+-- Reports what it found on failure rather than only that it failed: a field
+-- name that has moved and a setting name that has moved need different fixes,
+-- and "not found" alone cannot tell them apart.
+local function set_setting(field, field_name, wanted)
+	for value, name in pairs(field.settings) do
+		if name == wanted then
+			field.user_value = value
+			note("# %s = %s (0x%04X)\n", field_name, name, value)
+			return true
+		end
+	end
+	note("# %s: no setting named %q. settings present:\n", field_name, wanted)
+	for value, name in pairs(field.settings) do
+		note("#   0x%04X %s\n", value, name)
+	end
+	return false
+end
+
+local function configure()
+	local port = manager.machine.ioport.ports[":apollo_config"]
+	if port == nil then
+		note("# no :apollo_config port. ports present:\n")
+		for tag, _ in pairs(manager.machine.ioport.ports) do
+			note("#   %s\n", tag)
+		end
+		return
+	end
+
+	-- Driven from the machine's fields rather than from CONFIG's keys, so a
+	-- field this table does not name is *reported* rather than silently left at
+	-- whatever the default is. A configuration that is only half stated is one
+	-- whose other half moves when MAME's does.
+	for name, field in pairs(port.fields) do
+		local wanted = CONFIG[name]
+		if wanted ~= nil then
+			set_setting(field, name, wanted)
+		else
+			note("# %s: not set by this script, left at its default\n", name)
+		end
+	end
+end
+
+-- Press a key by its `PORT_NAME`, across whichever of the keyboard's ports
+-- carries it. Directly, rather than through MAME's natural keyboard:
+-- `apollo_kbd.cpp` defines no `PORT_CHAR` entries at all, so the translation
+-- layer that turns a character into a key press has nothing to work with and
+-- silently does nothing (`FINDINGS.md` C40).
+local held_field = nil
+
+local function press_key(name)
+	for tag, port in pairs(manager.machine.ioport.ports) do
+		if tag:find("kbd") then
+			for field_name, field in pairs(port.fields) do
+				if field_name == name then
+					held_field = field
+					field:set_value(1)
+					note("# pressed %q on %s at %.1fs\n", name, tag,
+					     manager.machine.time.seconds)
+					return
+				end
+			end
+		end
+	end
+	note("# key %q not found; keyboard fields present:\n", name)
+	for tag, port in pairs(manager.machine.ioport.ports) do
+		if tag:find("kbd") then
+			for field_name, _ in pairs(port.fields) do
+				note("#   %s %s\n", tag, field_name)
+			end
+		end
+	end
+end
+
+local function release_key()
+	if held_field ~= nil then
+		held_field:set_value(0)
+		note("# released at %.1fs\n", manager.machine.time.seconds)
+		held_field = nil
+	end
+end
+
+-- Counters only, never a per-access line. A controller polled by a driver
+-- produces thousands of accesses a second, so a trace would bury the console
+-- and slow the run it is measuring; a count answers the only question being
+-- asked, which is whether the number is moving.
+--
+-- **Reads are off by default, and that is measured rather than cautious.** A
+-- cartridge read spins on the status register: 65 million reads of `050000` per
+-- emulated minute, against nine thousand writes. One Lua callback each costs
+-- about 30% of the run's speed -- 0.55x against the 0.78x the same machine
+-- manages untapped -- which on a ten-minute stage is four minutes of nothing,
+-- added by the thing watching for nothing happening.
+--
+-- What is left is enough. Writes are rare and are the *interesting* half
+-- anyway: a stage writing the disk is doing the work, where reads only say the
+-- bus is busy. And the program counter, sampled at report time, costs one read
+-- per report and distinguishes a machine looping in a driver from one stopped
+-- at a single address -- which is the actual question.
+local function watch_activity()
+	local space = manager.machine.devices[":maincpu"].spaces["program"]
+	for _, region in ipairs(WATCH) do
+		if count_reads then
+			activity_taps[#activity_taps + 1] = space:install_read_tap(
+				region.base, region.last, region.name .. "_r",
+				function(offset, data, mask)
+					region.reads = region.reads + 1
+					return data
+				end)
+		end
+		activity_taps[#activity_taps + 1] = space:install_write_tap(
+			region.base, region.last, region.name .. "_w",
+			function(offset, data, mask)
+				region.writes = region.writes + 1
+				-- Unchanged: an instrument that altered the data would change
+				-- what it measured.
+				return data
+			end)
+	end
+	note("# activity reported every %.1f emulated seconds%s\n", activity_s,
+	     count_reads and " (counting reads: expect ~30% slower)" or "")
+end
+
+local function report_activity()
+	local pc = manager.machine.devices[":maincpu"].state["PC"].value
+	local line = string.format("# %8.1fs  PC %08X", manager.machine.time.seconds,
+	                           pc)
+	for _, region in ipairs(WATCH) do
+		if count_reads then
+			line = line .. string.format("  %s %d r / %d w",
+			                             region.name, region.reads,
+			                             region.writes)
+		else
+			line = line .. string.format("  %s %d w", region.name,
+			                             region.writes)
+		end
+	end
+	note("%s\n", line)
+end
+
+local function install()
+	if installed or finished then
+		return
+	end
+	installed = true
+
+	configure()
+
+	-- Which devices the machine actually has. A build flag confirmed only by
+	-- the absence of compile errors is not confirmation that the device it
+	-- guards was instantiated, and those two look identical from outside --
+	-- `APOLLO_XXL` guards the stdio terminal this whole session speaks through.
+	for tag, _ in pairs(manager.machine.devices) do
+		if tag:find("stdio") or tag:find("kbd") then
+			note("# device %s\n", tag)
+		end
+	end
+
+	-- Which media are mounted, by filename. The install is a sequence of tape
+	-- swaps, so a stage that reads the wrong cartridge is a live failure mode,
+	-- and its symptom -- a utility that is simply not found -- looks nothing
+	-- like a mounting problem.
+	for _, image in pairs(manager.machine.images) do
+		note("# image %s: %s\n", image.instance_name,
+		     image.filename or "(empty)")
+	end
+
+	if activity_s > 0 then
+		watch_activity()
+	end
+
+	note("# apollo md session ready\n")
+end
+
+emu.register_periodic(function()
+	if finished then
+		return
+	end
+	if not installed then
+		install()
+		return
+	end
+
+	if not posted and manager.machine.time.seconds >= post_at_s then
+		posted = true
+		press_key(post_text)
+	end
+
+	-- Held for a moment and then released, because a key that is never released
+	-- is not a keystroke: the Apollo keyboard is a scanning device and reports
+	-- transitions, so a permanently-down key produces one event and then looks
+	-- like a stuck key rather than typing.
+	if posted and not released and
+	   manager.machine.time.seconds >= post_at_s + hold_s then
+		released = true
+		release_key()
+	end
+
+	if activity_s > 0 and
+	   manager.machine.time.seconds - reported_at >= activity_s then
+		reported_at = manager.machine.time.seconds
+		report_activity()
+	end
+
+	if until_s > 0 and manager.machine.time.seconds >= until_s then
+		note("# end at %.1f emulated seconds\n", until_s)
+		finished = true
+		manager.machine:exit()
+	end
+end)

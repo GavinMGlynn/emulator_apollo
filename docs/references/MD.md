@@ -66,9 +66,57 @@ CR LF CR LF '>'
 - **A blank line precedes each prompt.** The `CR LF CR LF` before `>` is two
   terminators, not one: MD ends the previous line and then emits an empty one.
   A parser expecting a single terminator will read the blank line as a response.
-- **The sign-on is `MD7`** with no version suffix, no banner text and no
+- ~~**The sign-on is `MD7`** with no version suffix, no banner text and no
   copyright line -- so a parser must not skip lines looking for a prompt after
-  a header, because there is no header.
+  a header, because there is no header.~~ **Wrong, and struck rather than
+  deleted** -- see "The sign-on is longer than this capture saw" below. The
+  capture above stopped mid-line and this read the stop as the end of the line.
+
+## The sign-on is longer than this capture saw
+
+Recaptured through `tools/mame-oracle/mdsession.py`, which holds the session
+open on a pty instead of running to a fixed emulated second. The sign-on is:
+
+```
+0A 4D 44 37 43 20 52 45 56 20 38 2E 30 30 2C 20
+31 39 38 39 2F 30 38 2F 31 36 2E 31 37 3A 32 33
+3A 35 32 0A
+```
+
+which is:
+
+```
+LF "MD7C REV 8.00, 1989/08/16.17:23:52" LF
+```
+
+There *is* a header, and it carries a revision and a build date.
+
+The `CR`s are absent from this *stream*, not from the line:
+`apollo_stdio_device::rcv_complete` drops `\r` on its way to stdout. The leading
+one is confirmed independently -- the register tap above caught `0D 0A` before
+the `M` -- and the trailing one is inferred from that same pattern rather than
+observed here. So the register tap remains the record of what the DUART carried,
+and this is the record of what the line says.
+
+### Why the first capture was wrong, which is the part worth keeping
+
+The bytes in "The bytes" are not misread. `0D 0A 4D 44 37` is genuinely the
+start of this same line -- `CR LF M D 7` -- and `MD7C` continues from exactly
+there. What the capture did not have was the *rest*, because
+`APOLLO_MD_UNTIL=45` stopped the machine partway through the banner, and
+`FINDINGS.md` C45 says so in as many words: "What remains is mechanical: run
+long enough to get a full prompt and a command response."
+
+The trailing `0D 0A` that made the line look finished is the truncation, not a
+terminator. So a capture that ends inside a line is indistinguishable from one
+that ends at the end of a line -- unless something independent says which, and
+here nothing did. The conclusion drawn from it went further than the bytes did:
+"no version suffix, no banner text and no copyright line" is a claim about
+bytes that were never observed.
+
+The general form, since it will happen again: **a bounded capture proves what it
+contains and nothing about what follows.** The bound has to be lifted, or the
+absence has to be shown some other way, before an absence can be reported.
 
 ## The `A` command's line
 

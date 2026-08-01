@@ -131,6 +131,31 @@ file the moment they are found, not when someone remembers.
           checks each one's output before sending the next.
         - Nothing structural blocks it: media unpacked, image command known,
           console captured byte-exact, and MD executes what it is sent.
+        - **The session exists** (`FINDINGS.md` C49):
+          `tools/mame-oracle/mdsession.py` with `mdsession.lua`. stdin is a
+          **pty**, which ends the pacing workaround rather than tuning it — a
+          pty never reaches EOF, so a command is written at the moment its
+          prompt appears and the character rate stops being a parameter. stdout
+          is the console, because `apollo_stdio_device::rcv_complete` puts it
+          there, so the script taps nothing and prints its own notes to stderr.
+          - Tested against a stub MAME, `oracle_session`, 17 checks, on the same
+            split as `oracle_driver`: whether the install *works* needs a real
+            emulator, but reaching a prompt, sending the right commands in
+            order, refusing to match a stale prompt, and failing loudly rather
+            than hanging are ordinary program logic. It found two latent defects
+            (a cooked pty rewriting `\r` to `\n`, and pty echo filling a buffer
+            nobody drains) and one race, twice.
+          - `re`, `re`, `di c`, `ex invol` all run, each reset answering with a
+            fresh sign-on, and **INVOL loads and prints its menu**.
+          - The knock interval is `C45`'s measured 0.4 s and not a chosen
+            number: at 2 s the reset sign-on arrived once in four runs.
+          - `--commands FILE` makes the session *follow* a file, so answers can
+            be appended as the dialogue is read. Reaching INVOL's first menu
+            costs ten minutes of emulated cartridge scan, and killing the run to
+            edit a script pays it again.
+        - The machine settled a source disagreement: the wiki's INVOL options
+          are **7, 1, 8**, a newsgroup thread says 7, 1, 8, 10, and INVOL's own
+          menu prints `10 - OBSOLETE`. Revision 10.4 takes the wiki's list.
         - **We already hold all five tapes it names**, filename for filename, in
           `media/domainos/`. Nothing needs downloading.
         - The sequence is driven from the **MD prompt** (`re`, `di c`,

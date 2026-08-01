@@ -19,6 +19,10 @@ docs/references/**/*.txt.gz
 
 # Oracle scratch
 tools/mame-oracle/out/
+# MAME writes snapshots beside its working directory when a run does not
+# redirect them. Our drivers do redirect, so this catches runs made by hand.
+/snap/
+__pycache__/
 *.awd
 *.afd
 *.ct
