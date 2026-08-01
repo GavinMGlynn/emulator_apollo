@@ -313,12 +313,21 @@ synthesised tests — decode and execute deterministically. It is also the first
 end-to-end measure of how far the firmware gets, so it is a number that can be
 driven upward.
 
-**A machine exists, but not the DN3500.** `ap_machine` wires the 68030 to flat
+**Two machines exist, and both are used.** `ap_machine` wires the 68030 to flat
 RAM: construct, poke, run to a limit, read back. That is what a side-loaded
 probe needs and it requires no firmware — built ahead of the boot-PROM route
-because that route is in doubt (`tools/mame-oracle/FINDINGS.md` C4). There is
-still no I/O and no device, so nothing boots and no end-to-end timing can be
-measured.
+because that route was then in doubt (`tools/mame-oracle/FINDINGS.md` C4).
+
+`ap_board` is the DN3500 itself, and `ap_machine_set_board` routes the
+processor through it. The doubt is resolved: the boot PROM runs from its own
+reset vector through the real address map, and the probes keep their flat memory
+because a probe harness that had to be a whole DN3500 would be a worse probe
+harness.
+
+End-to-end *timing* still cannot be measured, but for a narrower reason than
+"no device": every device answers at a fixed two-clock `STERM`, so a slow one
+cannot lengthen a cycle. That is the arrival-clock item in Phase 2, not an
+absence of hardware.
 
 **Bus arbitration is complete on both sides.** The processor's own BR/BG/BGACK
 state machine (`[030]` §7.7.4) plugs into a shared arbitration point that
