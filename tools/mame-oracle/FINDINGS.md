@@ -2660,3 +2660,25 @@ it does not and the PROM's table simply lists three keys. Recorded unresolved,
 with what would settle it -- reading which `PORT_NAME` sits at kbd3 bit 11, bit
 27 and kbd4 bit 27. If they are the same key's plain, shifted and control forms,
 the first reading holds; if they are three unrelated keys, the second does.
+
+### Settled: three separate keys, not modifier variants
+
+The check named above, run: kbd3 bit 11 is `PORT_NAME("Numpad 1")` and kbd3 bit
+27 is `PORT_NAME("F10")`. Unrelated keys.
+
+So `4B`, `5B` and `7B` are **three distinct physical keys**, and the triple
+spacing in the PROM's table is a consequence of the matrix layout rather than a
+modifier encoding. A keyboard module does *not* fold shift and control into the
+scan code; it reports the key that moved and lets the firmware's table do the
+rest.
+
+That is the reading the arithmetic argued against. `4B`, `5B`, `7B` differing
+only in bits 4 and 5 is a strong-looking pattern, and it means nothing here --
+the keys simply sit at those matrix positions. Two `PORT_NAME`s settled in one
+command what the bit pattern had made look obvious in the other direction.
+
+Which is the whole reason the previous finding recorded both readings instead of
+the likelier one. Had the modifier reading been adopted, a keyboard module built
+on it would have synthesised codes the hardware never sends, and the PROM would
+have matched them -- because the table contains those codes for entirely
+different keys.

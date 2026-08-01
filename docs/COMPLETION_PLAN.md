@@ -2795,10 +2795,14 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
       `000021D2`, found from the `CMP.B (d8,PC,Xn)` loop that searches it. Its
       high bytes fall into triples on a fixed spacing (`CB DB FB`, `C8 D8 F8`,
       …), interleaved with ASCII runs, and several characters repeat.
-    - Whether those triples are unshifted/shifted/control variants of one key or
-      three separate keys is **not settled by the bytes** and is recorded as an
-      open reading rather than guessed. MAME's `apollo_kbd.cpp` holds the other
-      side of the conversation and is where to check next.
+    - **Settled** (`FINDINGS.md` C46): three separate keys. A scan code is
+      `port × 32 + bit` across `keyboard1..4`, bit 7 marks a release, and the
+      table's `4B 5B 7B` are `Numpad 1`, `F10` and one more — unrelated keys
+      whose codes happen to differ only in bits 4 and 5. The triple spacing is
+      matrix layout, not modifier encoding.
+    - So a keyboard module reports **the key that moved**, make and break, and
+      does not fold shift or control into the code. That is the whole interface,
+      and it is now specified rather than inferred.
         - **The values are no longer unknown.** `FINDINGS.md` C39 and C42 read
           them off the running oracle: `sio1 ACR E0`, `sio1 CSRB 77`,
           `sio2 ACR 80`, `sio2 CSRA 77` at reset, and the firmware then
