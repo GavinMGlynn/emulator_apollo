@@ -1838,7 +1838,7 @@ take_bus_fault_with(ap_m68030_cpu_t *cpu, unsigned vector,
   /* Every word of the frame is written, including the ones Table 8-6 labels
    * INTERNAL REGISTER, which are written as zero.
    *
-   * That is a deliberate approximation with a name: this model has no
+   * That is a deliberate approximation, and `PROVISIONAL`: this model has no
    * microsequencer state to save. What matters here is that they are *written*
    * rather than skipped -- a frame that only filled its named fields would
    * leave whatever the stack already held in the gaps, and a handler reading
@@ -2156,8 +2156,8 @@ static bool execute_rte(ap_m68030_cpu_t *cpu, uint32_t *clocks) {
      * stacks the address of the instruction that was executing, so returning
      * there re-executes that instruction from the start.
      *
-     * That is exact for an instruction whose faulted access happens before any
-     * register or memory is changed -- which is every instruction the boot PROM
+     * `PROVISIONAL`. That is exact for an instruction whose faulted access
+     * happens before any register or memory is changed -- which is every instruction the boot PROM
      * faults on, since a fault on the *first* operand access is the common case
      * and a compare writes nothing. It is wrong for an instruction that had
      * already committed a side effect, which is the cost of the approximation
