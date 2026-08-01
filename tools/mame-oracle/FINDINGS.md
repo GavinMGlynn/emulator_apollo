@@ -3397,3 +3397,68 @@ volume went back to a known-good cleanly-shut-down state with a file copy.
 That is now three separate occasions where a checkpoint turned a lost session
 into a lost twenty-five minutes. The rule earns its place: **checkpoint at every
 stage boundary, before the irreversible step, not after it.**
+
+
+## C56 -- the oracle does not model changing a cartridge while the machine runs
+
+`sh` gave a real console: `login:`, `user` with an empty password, and a `$`
+prompt as `user.none.none` on the local registry. `/install/tools/minst` started
+-- RAI MINST 2.37, 09 Dec 91 -- and answered its way through to
+
+```
+Please put volume 1 of the media for Domain/OS into the drive.
+Press the <RETURN> key when ready:
+```
+
+`!swap` mounted `019594-001.CRTG_STD_SFW_1.ct` and the script acknowledged it
+`ok` with the machine still running. Then, on `RETURN`:
+
+```
+Retensioning cartridge tape... Please wait.
+
+<NUL> 4ini<BS> <BS>   pHP i ... t+<TAB>dV_s i<NUL>5sd4wsyspo/_mBt<TAB>/o/lsrep ...
+Crash_Status 000B0008  PC 3C423688 pid 0002
+```
+
+Binary on the console, then **Domain/OS crashed**.
+
+### Why, from the oracle's source rather than from the symptom
+
+`sc499_device::check_tape()` is what notices a new cartridge: it resets the tape
+status, sets Beginning-of-Media, and recomputes `m_image_length` and
+`m_ctape_block_count`. It is called from exactly three places -- `device_reset`,
+and `read_block`/`write_block` **only when `m_tape_pos == 0`**.
+
+And `sc499` registers **no media-change notifier at all**, though MAME's image
+layer offers one (`add_media_change_notifier`, bound in the Lua engine). So
+nothing in the device tells a *running driver* that the medium underneath it has
+been replaced.
+
+That explains both halves of what we have seen, which is the test of an
+explanation:
+
+- **At the MD prompt it works.** `ex <utility>` starts reading at block 0, so
+  `check_tape()` runs on the first read and the device re-learns the cartridge.
+  Two swaps were verified that way, and the driver's own test still passes.
+- **Under Domain/OS it does not.** The OS driver holds its own state across the
+  swap, and `m_ctape_data` has been resized to zero and refilled from a
+  different-length image beneath it. What it reads afterwards is not what it
+  thinks it is reading.
+
+### What this blocks, and the one honest way round it
+
+`MINST` takes **four** cartridges in turn, and every one of them is a change
+made while the operating system holds the drive. So the install cannot be
+finished on this oracle as it stands. This is not a defect in the driver, the
+procedure, or the media -- it is a gap in the emulated device, and the symptom
+appears three layers away from it as an OS crash.
+
+The route is to fix the **oracle**, which this project already builds and
+modifies (`APOLLO_XXL` is a local edit, and `ext/mame` carries three). Resetting
+the tape position and re-running `check_tape()` when an image is loaded is a
+small, local change in `sc499_ctape_image_device::call_load()`, and it makes the
+emulated drive do what a physical one does when a cartridge is pushed in.
+
+Recorded as its own finding because of what it cost to see: the swap reported
+`ok`, the machine kept running, and the failure arrived one command later
+wearing the costume of a filesystem problem.
