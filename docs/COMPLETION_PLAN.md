@@ -3488,10 +3488,27 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         map at `000021D2`, settled because ASCII was being fed to the keyboard
         channel. Superseded by feeding serial 1 channel B, which moves the PROM
         to `00002542`.
-  - [ ] The tick loop is still owed regardless, and remains the project's
-        central design item — but it is **not** what this stop needs, and
-        building it here would have been the wrong move for a plausible reason.
-        A poll loop looks like a timing problem.
+  - [ ] The tick loop is still owed and remains the project's central design
+        item. It was **not** what the `000007AE` stop needed, and building it
+        there would have been the wrong move for a plausible reason — a poll
+        loop looks like a timing problem.
+        - **It is now demonstrably required, by five named things rather than a
+          hunch.** Each was found by building something else and hitting the
+          same wall:
+          1. **Stop-bit timing.** `MR2[3:0]` is decoded and reported; timing it
+             needs a clock.
+          2. **The DUART's counter/timer**, which the memory refresh is driven
+             from — `§3.9`'s period is already pinned at 99000 base units.
+          3. **The MC146818's periodic interrupt**, whose six fastest rates are
+             a `PROVISIONAL` figure waiting on a time-base decision.
+          4. **The bus's arrival clock.** Every device answers at a fixed
+             two-clock `STERM`, so a slow device cannot lengthen a cycle and no
+             timing figure can come from a device's own speed.
+          5. **Keyboard auto-repeat**, deliberately unmodelled because a repeat
+             interval would be a number with no clock behind it.
+        - That list is the difference between "owed eventually" and "next". Each
+          entry names a module already written that is incomplete *only* because
+          nothing advances.
         - This is the project's central design item, deferred until something
           needed it, and the firmware now does: *"one `tick()` per machine
           cycle, every subsystem advancing inside it, no batching, no event
