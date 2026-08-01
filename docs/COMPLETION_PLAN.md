@@ -2591,9 +2591,28 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         - **The boot PROM now runs 100000 instructions with zero bus errors**,
           up from 2788, and is still executing at the limit. `board_suite` has a
           test that all six registers are reachable.
-  - [ ] Raise the limit and find where the PROM actually goes. 100000 with no
-        faults is the first run that has ended because we stopped it rather than
-        because it broke.
+  - [x] Raised the limit. **5000000 instructions, zero bus errors, zero unmapped
+        accesses, zero empty-slot accesses.** The machine is executing real
+        firmware cleanly through its own address map for as long as we let it.
+  - [ ] It does not finish: at both 1000000 and 5000000 the PC is `000006B4`,
+        so it is spinning. The loop is
+        ```
+        0006AA  41EE FE80  LEA     (-$180,A6),A0
+        0006AE  303C 01FF  MOVE.W  #$01FF,D0
+        0006B2  20D0       MOVE.L  (A0),(A0)+
+        0006B4  51C8 FFFC  DBF     D0,*-4
+        ```
+        a read-write-back pass over 512 long words — a memory sizing or test
+        loop. Two readings fit and they need different fixes, so **establish
+        which before changing anything**:
+        - `DBF` is not terminating, in which case 512 iterations never end and
+          the defect is in the quick/conditional group; or
+        - the loop terminates correctly and an *outer* loop re-enters it, in
+          which case the spin is above this code and this is a symptom.
+        Distinguish by tracing D0 and A0 across a few hundred steps rather than
+        by reading either instruction. The last two blockers were both found by
+        tracing a register and both were missed by reasoning about the
+        instructions.
   - [ ] Whether the PROM *should* reach `00090000` at all is a separate
         question from what happens when it does. Check what it tests before
         jumping — do not assume the jump is unconditional.
