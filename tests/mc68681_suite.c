@@ -274,8 +274,80 @@ static void test_two_duarts_reset_alike_hold_identical_state(void) {
   TEST_ASSERT_EQUAL_MEMORY(&a, &b, sizeof a);
 }
 
+
+/* Framing: a character sent at a rate the receiver is not using does not decode.
+ *
+ * This is the behaviour the DN3500's console negotiation is built on. The boot
+ * PROM autobauds by cycling channel B's clock select and waiting for a byte that
+ * arrives cleanly, so a model where every byte arrives intact whatever the rate
+ * would let that succeed at the first rate tried. The *failure* is the signal
+ * the firmware reads. */
+static void test_a_character_sent_at_the_wrong_rate_sets_a_framing_error(void) {
+  ap_mc68681_t duart;
+  ap_mc68681_reset(&duart);
+  ap_mc68681_write(&duart, AP_MC68681_CR_A, 0x01u);          /* rx enable */
+  ap_mc68681_write(&duart, AP_MC68681_SR_CSR_A, 0x77u);      /* our rate */
+
+  ap_mc68681_receive_at(&duart, 0u, 0x41u, 0xBBu);           /* their rate */
+
+  const uint8_t sr = ap_mc68681_read(&duart, AP_MC68681_SR_CSR_A);
+  TEST_ASSERT_TRUE((sr & AP_MC68681_SR_FRAMING) != 0u);
+  /* The byte still arrives -- the part does not discard it -- so a driver sees
+   * a character *and* an error, which is what lets it tell a wrong rate from
+   * silence. Discarding it would look identical to nothing being sent. */
+  TEST_ASSERT_TRUE((sr & AP_MC68681_SR_RXRDY) != 0u);
+}
+
+/* The matching rate must not, or the autobaud never terminates. */
+static void test_a_character_sent_at_the_right_rate_does_not(void) {
+  ap_mc68681_t duart;
+  ap_mc68681_reset(&duart);
+  ap_mc68681_write(&duart, AP_MC68681_CR_A, 0x01u);
+  ap_mc68681_write(&duart, AP_MC68681_SR_CSR_A, 0x77u);
+
+  ap_mc68681_receive_at(&duart, 0u, 0x41u, 0x77u);
+
+  const uint8_t sr = ap_mc68681_read(&duart, AP_MC68681_SR_CSR_A);
+  TEST_ASSERT_FALSE((sr & AP_MC68681_SR_FRAMING) != 0u);
+  TEST_ASSERT_TRUE((sr & AP_MC68681_SR_RXRDY) != 0u);
+  TEST_ASSERT_EQUAL_HEX8(0x41u, ap_mc68681_read(&duart, AP_MC68681_RB_TB_A));
+}
+
+/* Only the receiver's nibble decides. The lower nibble is the *transmitter's*
+ * clock select, and two ports agreeing on receive while differing on transmit
+ * is an ordinary configuration -- flagging it would break every such link. */
+static void test_only_the_receiver_nibble_decides_the_match(void) {
+  ap_mc68681_t duart;
+  ap_mc68681_reset(&duart);
+  ap_mc68681_write(&duart, AP_MC68681_CR_A, 0x01u);
+  ap_mc68681_write(&duart, AP_MC68681_SR_CSR_A, 0x70u);
+
+  ap_mc68681_receive_at(&duart, 0u, 0x41u, 0x7Fu);
+
+  TEST_ASSERT_FALSE(
+      (ap_mc68681_read(&duart, AP_MC68681_SR_CSR_A) & AP_MC68681_SR_FRAMING) != 0u);
+}
+
+/* A disabled receiver never sampled anything, so it cannot have mis-sampled a
+ * stop bit. Without this the flag would appear on a port nothing is listening
+ * to, and a later enable would find an error that never happened. */
+static void test_a_disabled_receiver_reports_no_framing_error(void) {
+  ap_mc68681_t duart;
+  ap_mc68681_reset(&duart);
+  ap_mc68681_write(&duart, AP_MC68681_SR_CSR_A, 0x77u);
+
+  ap_mc68681_receive_at(&duart, 0u, 0x41u, 0xBBu);
+
+  TEST_ASSERT_FALSE(
+      (ap_mc68681_read(&duart, AP_MC68681_SR_CSR_A) & AP_MC68681_SR_FRAMING) != 0u);
+}
+
 int main(void) {
   UNITY_BEGIN();
+  RUN_TEST(test_a_character_sent_at_the_wrong_rate_sets_a_framing_error);
+  RUN_TEST(test_a_character_sent_at_the_right_rate_does_not);
+  RUN_TEST(test_only_the_receiver_nibble_decides_the_match);
+  RUN_TEST(test_a_disabled_receiver_reports_no_framing_error);
   RUN_TEST(test_an_idle_transmitter_is_ready_and_empty);
   RUN_TEST(test_the_mode_register_pointer_advances_then_sticks);
   RUN_TEST(test_the_receive_fifo_holds_three_and_then_overruns);

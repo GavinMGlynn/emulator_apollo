@@ -63,6 +63,29 @@ static void refresh_channel_interrupts(ap_mc68681_t *duart) {
   }
 }
 
+/* The receiver's clock select is the upper nibble of CSR; the lower is the
+ * transmitter's, and a sender's transmit rate is what this receiver must match.
+ * Compared as the whole upper nibble rather than bit by bit: the codes are an
+ * index into a baud-rate table, not a set of flags. */
+static bool rate_matches(uint8_t receiver_csr, uint8_t sender_csr) {
+  return (receiver_csr >> 4) == (sender_csr >> 4);
+}
+
+void ap_mc68681_receive_at(ap_mc68681_t *duart, unsigned channel, uint8_t byte,
+                           uint8_t sender_csr) {
+  if (channel >= AP_MC68681_CHANNELS) {
+    return;
+  }
+  ap_mc68681_channel_t *ch = &duart->channel[channel];
+  ap_mc68681_receive(duart, channel, byte);
+  /* Set *after* delivery, and only if the byte was taken: a receiver that is
+   * disabled or whose FIFO is full never sampled the character at all, so it
+   * cannot have found its stop bit in the wrong place. */
+  if (ch->rx_enabled && !rate_matches(ch->csr, sender_csr)) {
+    ch->sr |= AP_MC68681_SR_FRAMING;
+  }
+}
+
 void ap_mc68681_receive(ap_mc68681_t *duart, unsigned channel, uint8_t byte) {
   if (channel >= AP_MC68681_CHANNELS) {
     return;

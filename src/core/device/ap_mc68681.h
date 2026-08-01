@@ -149,6 +149,24 @@ void ap_mc68681_write(ap_mc68681_t *duart, unsigned reg, uint8_t value);
 /* Hand a received character to a channel, as a wire would. */
 void ap_mc68681_receive(ap_mc68681_t *duart, unsigned channel, uint8_t byte);
 
+/* Receive a character sent at a stated rate, which is the first piece of real
+ * framing this module has.
+ *
+ * `sender_csr` is the clock-select register value the *sender* is using; its
+ * upper nibble is the receiver clock select, matching this channel's own `csr`.
+ * When the two disagree the character was sampled at the wrong rate, so the
+ * receiver does not see a valid stop bit: the byte still enters the FIFO -- the
+ * part does not discard it -- and `SR[6]`, framing error, is set alongside it.
+ *
+ * That failure is not incidental. The DN3500's boot PROM finds its console by
+ * **autobauding**: it cycles channel B's clock select and waits for a character
+ * that decodes cleanly, so a model where every byte arrives intact whatever the
+ * rate would let the negotiation succeed at the first rate tried and would
+ * never reproduce what the machine does. The framing error is the signal the
+ * firmware is actually reading. */
+void ap_mc68681_receive_at(ap_mc68681_t *duart, unsigned channel, uint8_t byte,
+                           uint8_t sender_csr);
+
 /* Take what the transmitter holds, if anything -- the other end of the same
  * boundary. Answers false when the transmitter is empty. */
 [[nodiscard]] bool ap_mc68681_transmit(ap_mc68681_t *duart, unsigned channel,

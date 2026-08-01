@@ -2686,9 +2686,25 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         both channels with their FIFOs and mode-register pointer, the
         counter/timer with its two address-triggered commands, the interrupt
         registers, and the input and output ports. `mc68681_suite`, 15 tests.
-  - [ ] Serial framing — baud rates, start/stop bits, parity, and the automatic
-        echo and loopback modes. A character crosses this module whole; nothing
-        is connected to a wire yet, and the keyboard is what will need it.
+  - [~] Serial framing — baud rates, start/stop bits, parity, and the automatic
+        echo and loopback modes.
+        - **Started, with the piece the console negotiation needs.**
+          `ap_mc68681_receive_at` takes the rate the *sender* used and compares
+          its receiver nibble against the channel's own `CSR`. A mismatch sets
+          `SR[6]`, framing error, and the byte still enters the FIFO — the part
+          does not discard it, and discarding would look identical to nothing
+          being sent. `mc68681_suite`, 4 tests.
+        - That failure is the point. The boot PROM autobauds by cycling channel
+          B's clock select and waiting for a byte that decodes cleanly, so a
+          model where every byte arrives intact whatever the rate would let the
+          negotiation succeed at the first rate tried.
+        - A disabled receiver reports no framing error: it never sampled the
+          character, so it cannot have mis-sampled a stop bit. Without that, the
+          flag would appear on a port nothing is listening to.
+        - Still open: start and stop bits, parity, and the automatic echo and
+          loopback modes. And the board and frontend do not yet carry a rate —
+          `ap_sio_receive` still calls the rate-less entry point, so nothing
+          above this module can produce a mismatch.
         - **The values are no longer unknown.** `FINDINGS.md` C39 and C42 read
           them off the running oracle: `sio1 ACR E0`, `sio1 CSRB 77`,
           `sio2 ACR 80`, `sio2 CSRA 77` at reset, and the firmware then
