@@ -295,11 +295,20 @@ file the moment they are found, not when someone remembers.
           wrong: MAME's `dn3500` defaults to a display fitted, so its console is
           the display, exactly as ours is. Nothing was misconfigured; the
           default is a workstation.
-        - Next, and it is now a small thing: set those bits. MAME does not take
-          configuration ports on the command line, so it wants either a `.cfg`
-          file under `cfg_directory` or a lua poke at the `conf` port
-          (`APOLLO_CONF_TAG` is `"conf"`). The lua route fits the existing
-          harness, which already loads scripts.
+        - **But it cannot be set to "no display".** The `conf` port's "Graphics
+          Controller" offers exactly three settings — 8-plane colour, 4-plane
+          colour and 15-inch monochrome — and no *none*. (19-inch is present but
+          commented out.) So MAME's `dn3500` always has a display, its console
+          is always the display, and **a serial MD transcript cannot be captured
+          from `dn3500` by configuration at all.** The earlier reading that the
+          mask permits zero was right about the bits and wrong about the port.
+        - What is left is `APOLLO_CONF_SERVICE_MODE`, bit 0, which *is* a
+          two-value setting defaulting to Normal. Service mode is the remaining
+          candidate for making the PROM announce itself, and it is settable
+          through the same `conf` port. Try it before anything else.
+        - The `dsp` variants remain the other route — no display in their
+          machine configuration — but `dsp3500` showed zero serial writes at six
+          seconds (C35), so it needs either longer or service mode too.
         - MAME refuses a write tap that is not dword-aligned and its message
           names a *different* address ("did you mean 10404"). Take the whole
           device range and filter; accepting the suggestion taps the wrong
