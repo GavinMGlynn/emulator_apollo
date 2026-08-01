@@ -171,16 +171,20 @@ ABRVPICOH
 
 Nine letters, no separators.
 
-**Read with caution.** It was first taken here as the complete command set, and
-that reading is not safe: sending `R` -- one of the nine -- returns `E`, the
-same single letter `A1000` returns. So either `E` is a generic "needs
-arguments" response and the nine are commands, or `ABRVPICOH` is not a command
-list at all and its meaning is unknown. One run cannot tell those apart, and the
-claim was made from one run.
+**It is a command list, and this is inference from three observations rather
+than a fourth run.** Two of the nine are already confirmed to work: `H` returns
+this very string, and `A` walks memory. A help command whose output is a run of
+letters, two of which are known commands, is a command list. `R` returning `E`
+is then a command rejecting bare invocation, not evidence against the list --
+`A1000` returns the same `E`, and `A` unquestionably exists.
 
-What the string does support is narrower and still useful: `D` does not appear
-in it, and `D` produces nothing, which is consistent with `D` being absent from
-this image whatever the nine letters are.
+Marked as inference because it is one: the alternative, that the string means
+something else and `H` and `A` coincidentally appear in it, is not excluded by
+measurement. It is excluded by there being no other reading in which a help
+command emits its own letter and the memory-examine letter and seven more.
+
+What is measured, and independent of all that: `D` does not appear in the
+string, and `D` produces nothing.
 
 So `D` produced nothing because **the command does not exist here**. The
 handbook's list at `002398-04` describes a fuller MD than this image carries;

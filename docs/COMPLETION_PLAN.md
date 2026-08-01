@@ -415,14 +415,15 @@ file the moment they are found, not when someone remembers.
         - The handbook gives `D <start> <end> <items/line>` and **no example**,
           so separators, radix and argument optionality are unstated. `D` is
           marked `+` ("not in DNx60"), so it is present on a DN3500.
-        - `H` returns `ABRVPICOH`, nine letters. **Read with caution**: this
-          was first taken as the complete command set, and sending `R` — one of
-          the nine — returns `E`, the same response `A1000` gives. So either
-          `E` means "needs arguments" and the nine are commands, or the string
-          is not a command list and its meaning is unknown. One run cannot
-          separate those, and the claim was made from one run.
-        - What survives: `D` is not in the string and `D` produces nothing,
-          consistent with `D` being absent from this image.
+        - `H` returns `ABRVPICOH`. It **is** a command list, by inference from
+          three observations rather than a fourth run: `H` returns the string
+          and `A` walks memory, so two of the nine are confirmed commands, and a
+          help command emitting its own letter plus the memory-examine letter
+          plus seven more has no other plausible reading. `R` returning `E` is a
+          command rejecting bare invocation — `A1000` returns the same `E` and
+          `A` unquestionably exists.
+        - Marked inference, not measurement. What is measured and independent of
+          it: `D` is absent from the string and `D` produces nothing.
         - The handbook's markers distinguish machine *families*, not PROM
           *revisions*, so a command listed for the DN3500 can still be absent
           from a particular DN3500 image. It named something that is not there,
