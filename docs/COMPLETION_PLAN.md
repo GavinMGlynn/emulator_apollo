@@ -3274,12 +3274,19 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
   - [ ] The rest of those 803 writes: `CR2`/`CR3`'s remaining fields, the
         blitter's five defined modes and the colour lookup table. Verify on a
         decoded PNG, not on register round-trips.
-  - [ ] **The display controller is the next module**, and now for a reason
+  - [~] **The display controller is the next module**, and now for a reason
         rather than as the next thing on a list. It stops being a probe target:
         the four regions already recorded (`05D800`/`05E800` registers,
-        `0FA0000`/`000A0000` graphics memory) become the machine's output, and
-        the plan's existing note applies — verify on a **decoded PNG**, not on
-        register round-trips.
+        `0FA0000`/`000A0000` graphics memory) become the machine's output.
+        - Kept as the *rationale* and marked `[~]`, because it is not a separate
+          piece of work. The work is the item directly above — `CR2`/`CR3`, the
+          blitter's five modes, the lookup table — and the Phase 5 line that
+          says the same thing. Three unticked boxes for one job inflated the
+          count and split the evidence between them.
+        - The Phase 5 line now carries the specification (the 803 writes a
+          fitted `c8p` provokes); this line carries why it matters; the item
+          above carries which registers. Cross-referenced rather than merged, so
+          none of the three loses what it uniquely says.
   - [ ] The keyboard is the matching input module: serial 1 channel A takes scan
         codes, and the PROM's table at `000021D2` is the map it decodes them
         with. `--boot-input-channel A` already reaches it; what is missing is
