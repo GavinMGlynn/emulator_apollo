@@ -19,6 +19,7 @@
 
 #include "image/ap_ct.h"
 #include "board/ap_board.h"
+#include "board/ap_sio.h"
 #include "machine/ap_machine.h"
 
 static void print_usage(const char *program_name) {
@@ -33,7 +34,9 @@ static void print_usage(const char *program_name) {
           "  --boot-trace          report pc and a7 per step: a7 is where a\n"
           "                        stack goes wrong, pc only where it shows\n"
           "  --boot-watch ADDR     with --boot-trace, report the long word at\n"
-          "                        ADDR after every step\n");
+          "                        ADDR after every step\n"
+          "  --boot-input TEXT     deliver TEXT to serial port 2 as the\n"
+          "                        firmware reads it; scripted, not host input\n");
 }
 
 /* The probes' RAM. Static rather than automatic because it is large, and
@@ -158,7 +161,7 @@ static uint8_t *read_file(const char *path, long *size_out) {
  * addresses in its header are logical (`FINDINGS.md` C28). The PROM is what
  * enables translation, so it is what has to run first. */
 static int boot_from_prom(const char *path, unsigned limit, bool trace,
-                          uint32_t watch) {
+                          uint32_t watch, const char *input) {
   long size = 0;
   uint8_t *prom = read_file(path, &size);
   if (prom == NULL) {
@@ -211,8 +214,18 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
   ap_machine_set_board(&machine, board);
   ap_machine_reset(&machine, pc, stack);
 
+  /* Scripted serial input, delivered a byte at a time as the firmware takes the
+   * previous one. Not host input: a byte sequence decided before the run
+   * starts, so the run stays reproducible. That is the whole reason this
+   * frontend exists, and a getchar() here would end it.
+   *
+   * SIO2 channel A, because that is where the PROM polls RxRDY -- established
+   * by tracing A0, not assumed. */
+  size_t input_sent = 0;
+  const size_t input_length = input != NULL ? strlen(input) : 0u;
+
   ap_machine_run_t run;
-  if (trace) {
+  if (trace || input_length > 0u) {
     /* Step by step, reporting the program counter and the active stack pointer.
      *
      * A7 is the observable this exists for. A wrong PC is where damage becomes
@@ -223,11 +236,35 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
     printf("# step pc a7 a6 a0 instruction status%s\n",
            watch != 0u ? " watched" : "");
     for (unsigned i = 0; i < limit; i++) {
+      /* Feed the next byte only once the program has taken the last, which is
+       * what a terminal's flow looks like and what stops a script from
+       * overrunning the receiver. */
+      if (input_sent < input_length &&
+          !ap_sio_receiver_ready(&board->sio, 1u, 0u)) {
+        ap_sio_receive(&board->sio, 1u, 0u, (uint8_t)input[input_sent]);
+        /* Advance only if the receiver actually took it. A DUART whose receiver
+         * is still disabled drops the byte, and the firmware enables it long
+         * after reset -- so a script that advanced regardless would deliver its
+         * whole text into a switched-off port and then wait forever for the
+         * first character. Retrying costs nothing and cannot lose a byte. */
+        if (ap_sio_receiver_ready(&board->sio, 1u, 0u)) {
+          input_sent++;
+        }
+      }
       const uint32_t step_pc = machine.cpu.regs.pc;
       const ap_m68030_step_result_t r = ap_m68030_step(&machine.cpu);
       /* A6 as well as A7: the firmware uses it as a base pointer for its own
        * data, and whether those two overlap is the question a trace has to be
        * able to answer. */
+      if (!trace) {
+        run.status = r.status;
+        if (r.status != AP_M68030_STEP_EXECUTED &&
+            r.status != AP_M68030_STEP_EXCEPTION) {
+          break;
+        }
+        run.executed++;
+        continue;
+      }
       printf("%u %08X %08X %08X %08X %04X %s\n", i, step_pc,
              ap_m68030_read_a7(&machine.cpu.regs), machine.cpu.regs.a[6],
              machine.cpu.regs.a[0], r.instruction,
@@ -466,6 +503,7 @@ int main(int argc, char **argv) {
 
   bool boot_trace = false;
   uint32_t boot_watch = 0;
+  const char *boot_input = NULL;
   bool run_probe_suite = false;
   bool report_timing = false;
   const char *boot_tape = NULL;
@@ -489,6 +527,11 @@ int main(int argc, char **argv) {
      * mistake was made. */
     if (strcmp(argv[i], "--boot-limit") == 0 && i + 1 < argc) {
       boot_limit = (unsigned)strtoul(argv[i + 1], NULL, 0);
+      i += 2;
+      continue;
+    }
+    if (strcmp(argv[i], "--boot-input") == 0 && i + 1 < argc) {
+      boot_input = argv[i + 1];
       i += 2;
       continue;
     }
@@ -540,7 +583,8 @@ int main(int argc, char **argv) {
   }
 
   if (boot_prom != NULL) {
-    return boot_from_prom(boot_prom, boot_limit, boot_trace, boot_watch);
+    return boot_from_prom(boot_prom, boot_limit, boot_trace, boot_watch,
+                          boot_input);
   }
 
   if (boot_tape != NULL) {

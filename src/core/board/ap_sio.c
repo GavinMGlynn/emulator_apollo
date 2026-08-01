@@ -38,3 +38,26 @@ void ap_sio_write(ap_sio_t *sio, uint32_t address, uint8_t value) {
 bool ap_sio_irq(const ap_sio_t *sio) {
   return ap_mc68681_irq(&sio->port[0]) || ap_mc68681_irq(&sio->port[1]);
 }
+
+void ap_sio_receive(ap_sio_t *sio, unsigned unit, unsigned channel,
+                    uint8_t byte) {
+  if (unit >= 2u) {
+    return;
+  }
+  ap_mc68681_receive(&sio->port[unit], channel, byte);
+}
+
+bool ap_sio_receiver_ready(ap_sio_t *sio, unsigned unit,
+                           unsigned channel) {
+  if (unit >= 2u) {
+    return false;
+  }
+  /* Read the status register the same way the program does, rather than
+   * reaching into the receive FIFO: the bit the firmware polls is the bit that
+   * decides, and a helper that consulted different state could disagree with
+   * the machine about whether a byte is waiting. */
+  const unsigned status = (channel == 0u) ? AP_MC68681_SR_CSR_A
+                                          : AP_MC68681_SR_CSR_B;
+  return (ap_mc68681_read(&sio->port[unit], status) & AP_MC68681_SR_RXRDY) !=
+         0u;
+}

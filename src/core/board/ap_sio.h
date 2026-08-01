@@ -75,4 +75,19 @@ void ap_sio_write(ap_sio_t *sio, uint32_t address, uint8_t value);
 /* The IRQ line the two parts share. */
 [[nodiscard]] bool ap_sio_irq(const ap_sio_t *sio);
 
+/* Deliver a byte to a port's receiver, as a terminal on the other end of the
+ * wire would. The board has no host input of its own and must not acquire any:
+ * a deterministic core cannot have a device reaching for a keyboard. The bytes
+ * come from a caller that decided them in advance, which is what keeps a run
+ * reproducible. */
+void ap_sio_receive(ap_sio_t *sio, unsigned unit, unsigned channel,
+                    uint8_t byte);
+
+/* Whether a port's receiver already holds a byte the program has not taken.
+ * A caller feeding a script uses this to deliver the next byte only when the
+ * previous one has been read, which is what a real terminal's flow looks like
+ * and what stops a script from overrunning the FIFO. */
+[[nodiscard]] bool ap_sio_receiver_ready(ap_sio_t *sio, unsigned unit,
+                                         unsigned channel);
+
 #endif /* APOLLO_BOARD_AP_SIO_H */

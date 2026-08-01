@@ -2707,9 +2707,26 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         - So both the firmware and our machine are behaving correctly. What is
           missing is a character, and `src/frontend/headless` has no host input
           by design — "deterministic: no wall clock, no host input, no threads".
-  - [ ] Feed the DUART scripted input: a `--boot-input` that hands the frontend
-        a byte sequence to deliver, which keeps determinism (no host keyboard,
-        no wall clock) while letting the firmware get past a console read.
+  - [x] `--boot-input TEXT`, delivering a byte sequence to SIO2 channel A as the
+        firmware takes each one. `ap_sio_receive` and `ap_sio_receiver_ready`
+        expose the DUART's receiver through the board; the bytes are decided
+        before the run starts, so determinism is untouched — a `getchar()` here
+        would have ended the reason this frontend exists.
+        - Delivery **retries until the receiver accepts**. A DUART whose
+          receiver is still disabled drops the byte, and the firmware enables it
+          long after reset, so a script that advanced regardless delivered its
+          whole text into a switched-off port and then waited forever for the
+          first character. That is exactly what the first attempt did, and it
+          looked identical to the input never being wired up at all.
+        - Readiness is read through the **status register the program polls**,
+          not from the FIFO, so the helper cannot disagree with the machine
+          about whether a byte is waiting.
+        - With a newline delivered, the PROM leaves `000007AE` and reaches
+          `00000794`. Without input it still stops at `000007AE`, unchanged.
+  - [ ] Find what the firmware does with the newline and where it goes next.
+        `00000794` is inside the same loop region, so this is not yet a new
+        stop — establish whether it is progressing or waiting again before
+        deciding anything.
   - [ ] The tick loop is still owed regardless, and remains the project's
         central design item — but it is **not** what this stop needs, and
         building it here would have been the wrong move for a plausible reason.

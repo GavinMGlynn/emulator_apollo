@@ -152,10 +152,15 @@ after the decode's shift — the MC68681's status register A, bit 0 of which is
 and the apparent timeout counter above the loop is reloaded every pass, so the
 wait is unbounded.
 
-Both the firmware and the machine are behaving correctly. What is missing is a
-*character*: `src/frontend/headless` has no host input by design. The next item
-is scripted input to the DUART, which keeps determinism while letting the
-firmware get past a console read.
+Both the firmware and the machine are behaving correctly. What was missing is a
+*character*: `src/frontend/headless` has no host input by design.
+
+`--boot-input TEXT` now delivers a byte sequence to SIO2 channel A as the
+firmware takes each one — decided before the run starts, so determinism is
+untouched. Delivery **retries until the receiver accepts**, because a DUART
+whose receiver is still disabled drops the byte and the firmware enables it long
+after reset. With a newline the PROM leaves `000007AE` and reaches `00000794`;
+without input it stops exactly where it did.
 
 The tick loop is still owed and remains the project's central design item, but
 it is not what this stop needs.
