@@ -227,9 +227,22 @@ file the moment they are found, not when someone remembers.
                   installer wants, and the second is far harder to diagnose.
                 - Verified against real MAME, two swaps acknowledged with the
                   machine still running, and in `oracle_session` against a stub.
-          - [ ] Checkpoint the image at every stage boundary. Each stage costs
+          - [x] Checkpoint the image at every stage boundary. Each stage costs
                 ten minutes of emulated cartridge scan to reach, and what ends a
-                session is not what was being attempted.
+                session is not what was being attempted. Four so far, and three
+                have already been needed:
+                - `dn3500-invol-done.awd` — the initialised volume, never
+                  mounted by an OS. **Used**, to escape the salvage prompt.
+                - `dn3500-preos.awd` — the unclean volume attempt 1 left, kept
+                  as evidence rather than deleted.
+                - `dn3500-osrestored.awd` — the OS restored, at the `)` prompt.
+                - `dn3500-osclean.awd` — after `shut`. **Used**, to revert the
+                  `re` that broke the calendar again.
+                - Pinned by `tools/mame-oracle/manifest.py` into
+                  `docs/references/DOMAINOS_IMAGE.md`: SHA-256 of the image and
+                  of all five cartridges, the MAME pin, the driver commit. The
+                  image itself is **not** committed and will not be — the volume
+                  is ours, its contents are Apollo's.
         - **The autobaud wants a carriage return, not merely "a character"**
           (`FINDINGS.md` C50), which narrows `C45`. Measured as an A/B pair:
           knocking with `\r` reaches the prompt and gets a sign-on out of `re`;
