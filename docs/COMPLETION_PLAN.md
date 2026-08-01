@@ -2741,9 +2741,20 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
           delivers `41` as `01`. A rate test had been asserting `41` came back
           intact while quietly depending on framing not being modelled; it now
           programs the eight bits it always meant.
-        - Still open: parity actually checked rather than only reported (the
-          model has no parity bit to check yet), and the automatic echo and
-          loopback modes.
+        - **The channel modes are decoded and local loopback works.**
+          `MR2[7:6]` gives normal, auto-echo, local loopback and remote
+          loopback. In local loopback a transmitted character returns on the
+          same channel, **framed by that channel's own settings** — a self-test
+          that bypassed framing would be checking the FIFO rather than the link.
+        - And it must *not* also reach the pin. A model that both looped back
+          and transmitted would let a self-test pass while the outside world saw
+          traffic it should never have seen, so there is a test that nothing is
+          transmitted outward — and a control that normal mode still does, since
+          a model that never transmitted would satisfy the first two.
+          `mc68681_suite`, 4 tests.
+        - Still open: parity actually checked rather than only reported — the
+          model has no parity bit to check — and auto-echo and remote loopback,
+          which are decoded but not acted on.
         - **The values are no longer unknown.** `FINDINGS.md` C39 and C42 read
           them off the running oracle: `sio1 ACR E0`, `sio1 CSRB 77`,
           `sio2 ACR 80`, `sio2 CSRA 77` at reset, and the firmware then

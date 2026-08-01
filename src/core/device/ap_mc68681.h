@@ -212,6 +212,18 @@ void ap_mc68681_receive_at(ap_mc68681_t *duart, unsigned channel, uint8_t byte,
  * field's other values are fractional and a count cannot carry them. */
 [[nodiscard]] unsigned ap_mc68681_stop_code(uint8_t mr2);
 
+/* `MR2[7:6]`, the channel mode. Normal is a wire to the outside; the other
+ * three connect the channel to itself in different places, and a self-test uses
+ * them to check the part without anything attached. */
+typedef enum {
+  AP_MC68681_MODE_NORMAL = 0u,
+  AP_MC68681_MODE_AUTO_ECHO = 1u,
+  AP_MC68681_MODE_LOCAL_LOOPBACK = 2u,
+  AP_MC68681_MODE_REMOTE_LOOPBACK = 3u,
+} ap_mc68681_channel_mode_t;
+
+[[nodiscard]] ap_mc68681_channel_mode_t ap_mc68681_channel_mode(uint8_t mr2);
+
 /* Take what the transmitter holds, if anything -- the other end of the same
  * boundary. Answers false when the transmitter is empty. */
 [[nodiscard]] bool ap_mc68681_transmit(ap_mc68681_t *duart, unsigned channel,

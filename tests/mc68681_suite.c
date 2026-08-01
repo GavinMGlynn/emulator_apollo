@@ -424,6 +424,71 @@ static void test_an_eight_bit_link_passes_the_whole_byte(void) {
   TEST_ASSERT_EQUAL_HEX8(0xC1u, ap_mc68681_read(&duart, AP_MC68681_RB_TB_A));
 }
 
+
+/* `MR2[7:6]` is the channel mode. Normal is a wire to the outside; the other
+ * three connect the channel to itself, and a self-test uses them to check the
+ * part with nothing attached. */
+static void test_the_channel_mode_is_the_top_two_bits_of_mr2(void) {
+  TEST_ASSERT_EQUAL_UINT(AP_MC68681_MODE_NORMAL, ap_mc68681_channel_mode(0x3Fu));
+  TEST_ASSERT_EQUAL_UINT(AP_MC68681_MODE_AUTO_ECHO,
+                         ap_mc68681_channel_mode(0x40u));
+  TEST_ASSERT_EQUAL_UINT(AP_MC68681_MODE_LOCAL_LOOPBACK,
+                         ap_mc68681_channel_mode(0x80u));
+  TEST_ASSERT_EQUAL_UINT(AP_MC68681_MODE_REMOTE_LOOPBACK,
+                         ap_mc68681_channel_mode(0xC0u));
+}
+
+/* Local loopback: "the transmitter output is internally connected to the
+ * receiver input". A transmitted character comes back on the same channel,
+ * framed by that channel's own settings — a self-test that bypassed framing
+ * would be checking the FIFO rather than the link. */
+static void test_local_loopback_returns_the_character_framed(void) {
+  ap_mc68681_t duart;
+  ap_mc68681_reset(&duart);
+  ap_mc68681_write(&duart, AP_MC68681_MR_A, 0x06u); /* MR1: seven bits */
+  ap_mc68681_write(&duart, AP_MC68681_MR_A, 0x87u); /* MR2: local loopback */
+  ap_mc68681_write(&duart, AP_MC68681_CR_A, 0x05u); /* rx and tx enable */
+
+  ap_mc68681_write(&duart, AP_MC68681_RB_TB_A, 0xC1u);
+
+  TEST_ASSERT_TRUE((ap_mc68681_read(&duart, AP_MC68681_SR_CSR_A) &
+                    AP_MC68681_SR_RXRDY) != 0u);
+  TEST_ASSERT_EQUAL_HEX8(0x41u, ap_mc68681_read(&duart, AP_MC68681_RB_TB_A));
+}
+
+/* And it must *not* also reach the pin. The character never leaves the part, so
+ * a caller collecting transmitted bytes sees nothing — a model that both looped
+ * back and transmitted would let a self-test pass while the outside world saw
+ * traffic it should never have seen. */
+static void test_local_loopback_transmits_nothing_outward(void) {
+  ap_mc68681_t duart;
+  ap_mc68681_reset(&duart);
+  ap_mc68681_write(&duart, AP_MC68681_MR_A, 0x07u);
+  ap_mc68681_write(&duart, AP_MC68681_MR_A, 0x87u);
+  ap_mc68681_write(&duart, AP_MC68681_CR_A, 0x05u);
+
+  ap_mc68681_write(&duart, AP_MC68681_RB_TB_A, 0x5Au);
+
+  uint8_t out = 0;
+  TEST_ASSERT_FALSE(ap_mc68681_transmit(&duart, 0u, &out));
+}
+
+/* Normal mode still transmits outward, which is the control the two above need:
+ * a model that never transmitted would satisfy both. */
+static void test_normal_mode_still_transmits_outward(void) {
+  ap_mc68681_t duart;
+  ap_mc68681_reset(&duart);
+  ap_mc68681_write(&duart, AP_MC68681_MR_A, 0x07u);
+  ap_mc68681_write(&duart, AP_MC68681_MR_A, 0x07u); /* MR2: normal */
+  ap_mc68681_write(&duart, AP_MC68681_CR_A, 0x05u);
+
+  ap_mc68681_write(&duart, AP_MC68681_RB_TB_A, 0x5Au);
+
+  uint8_t out = 0;
+  TEST_ASSERT_TRUE(ap_mc68681_transmit(&duart, 0u, &out));
+  TEST_ASSERT_EQUAL_HEX8(0x5Au, out);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_a_character_sent_at_the_wrong_rate_sets_a_framing_error);
@@ -435,6 +500,10 @@ int main(void) {
   RUN_TEST(test_the_stop_field_keeps_its_uncommon_codes);
   RUN_TEST(test_a_character_arrives_with_the_links_bit_count);
   RUN_TEST(test_an_eight_bit_link_passes_the_whole_byte);
+  RUN_TEST(test_the_channel_mode_is_the_top_two_bits_of_mr2);
+  RUN_TEST(test_local_loopback_returns_the_character_framed);
+  RUN_TEST(test_local_loopback_transmits_nothing_outward);
+  RUN_TEST(test_normal_mode_still_transmits_outward);
   RUN_TEST(test_an_idle_transmitter_is_ready_and_empty);
   RUN_TEST(test_the_mode_register_pointer_advances_then_sticks);
   RUN_TEST(test_the_receive_fifo_holds_three_and_then_overruns);

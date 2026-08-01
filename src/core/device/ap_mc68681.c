@@ -325,6 +325,21 @@ void ap_mc68681_write(ap_mc68681_t *duart, unsigned reg, uint8_t value) {
     if (!ch->tx_enabled) {
       return;
     }
+    if (ap_mc68681_channel_mode(ch->mr[1]) ==
+        AP_MC68681_MODE_LOCAL_LOOPBACK) {
+      /* "the transmitter output is internally connected to the receiver
+       * input": the character never reaches the pin, so it must *not* also be
+       * left in the transmit holding register for a caller to collect. A model
+       * that did both would let a self-test pass while the outside world saw
+       * traffic it should not.
+       *
+       * It arrives framed by this channel's own settings, which is the point of
+       * the mode -- a self-test that bypassed framing would check the FIFO and
+       * not the link. */
+      const unsigned bits = ap_mc68681_character_bits(ch->mr[0]);
+      ap_mc68681_receive(duart, index, (uint8_t)(value & ((1u << bits) - 1u)));
+      return;
+    }
     ch->tx_holding = value;
     ch->tx_holding_full = true;
     ch->sr = (uint8_t)(ch->sr &
@@ -375,4 +390,8 @@ bool ap_mc68681_parity_enabled(uint8_t mr1) {
 
 unsigned ap_mc68681_stop_code(uint8_t mr2) {
   return (unsigned)(mr2 & AP_MC68681_MR2_STOP_MASK);
+}
+
+ap_mc68681_channel_mode_t ap_mc68681_channel_mode(uint8_t mr2) {
+  return (ap_mc68681_channel_mode_t)((mr2 >> 6) & 0x3u);
 }
