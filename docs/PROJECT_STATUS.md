@@ -162,6 +162,14 @@ whose receiver is still disabled drops the byte and the firmware enables it long
 after reset. With a newline the PROM leaves `000007AE` and reaches `00000794`;
 without input it stops exactly where it did.
 
+That loop polls **both** ports — SIO1's status register A and SIO2's — so it is
+a console read waiting for a character on either, and it is responsive:
+different inputs leave the PC at different points inside it. What is missing now
+is the other direction. **Serial output is the next module**, and until it
+exists every guess at a console command is blind — a differing final PC cannot
+distinguish an accepted command from a rejected one. The PROM's own prompt will
+say what it wants.
+
 The tick loop is still owed and remains the project's central design item, but
 it is not what this stop needs.
 

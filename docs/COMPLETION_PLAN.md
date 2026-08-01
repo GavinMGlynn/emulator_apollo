@@ -2723,10 +2723,23 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
           about whether a byte is waiting.
         - With a newline delivered, the PROM leaves `000007AE` and reaches
           `00000794`. Without input it still stops at `000007AE`, unchanged.
-  - [ ] Find what the firmware does with the newline and where it goes next.
-        `00000794` is inside the same loop region, so this is not yet a new
-        stop — establish whether it is progressing or waiting again before
-        deciding anything.
+  - [x] Established: it is a **console read loop**, and it is responsive. The
+        loop polls *both* ports — `BTST #0,($2,A0)` is SIO1's status register A
+        and `BTST #0,($102,A0)` is SIO2's — so the firmware waits for a
+        character on either. It consumes what is delivered and returns to the
+        poll: `""`, `"\n"`, `"EX\n"` and `"H\n"` each leave the PC at a
+        different point *inside* the same loop, which is where the limit fell
+        rather than a new stop.
+  - [ ] **Serial output is the next module, and it is the one that unblocks
+        everything else here.** The firmware is now taking input and we cannot
+        see what it says, so every guess at a console command is blind — `EX`
+        and `H` were guesses, and a differing final PC does not distinguish
+        "accepted" from "rejected". Capture what the DUART transmits and the
+        PROM's own prompt says what it wants.
+        - This is what the project means by verifying on the real output: a
+          console byte stream, not a proxy.
+        - `ap_mc68681` already models the transmitter; the board and frontend
+          need the path out, mirroring `ap_sio_receive`.
   - [ ] The tick loop is still owed regardless, and remains the project's
         central design item — but it is **not** what this stop needs, and
         building it here would have been the wrong move for a plausible reason.
