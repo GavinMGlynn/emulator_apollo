@@ -2763,9 +2763,28 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         half a total cannot give: **no timer and no calendar accesses at all**,
         and the interrupt controllers written 10 times but never read. Establish
         whether that is expected this early before reading anything into it.
-  - [ ] Find what character the PROM is waiting for. It polls both ports, so
-        try each; and the answer is behind a branch, so `--boot-trace` on the
-        poll will show which comparison decides.
+  - [x] `--boot-input-port N`, because the poll tests *both* DUARTs and branches
+        differently for each — which port carries the console is a question the
+        firmware answers, not one to assume. Every run until now fed SIO2, which
+        was the port whose poll happened to be traced first.
+  - [x] **SIO1 is the console.** Feeding a newline to port 1 instead of port 2
+        moves the PROM from the poll loop to `0000220C`, an entirely new region,
+        and the serial region goes from 38 writes to **11839**. Main memory
+        writes go from 43328 to 177894 and core register writes from 7 to 2368.
+        The firmware is doing substantial work it was not doing before.
+  - [ ] **But no console bytes emerge**, and that is now a sharp question rather
+        than an ambiguous one, because `sio_suite` proves the path. Either those
+        11839 writes are not to the transmit buffers, or the transmitter is not
+        accepting them. Distinguish before assuming: count writes *per register*
+        on the serial path, the same way per-region counts settled the last one.
+        - A plausible cause worth testing, not assuming: `ap_mc68681_write` may
+          require `tx_enabled`, and the firmware may enable the transmitter in a
+          way this model does not recognise — in which case the bytes are being
+          dropped at the register rather than never written.
+  - [ ] `0000220C` at both 300000 and 1000000 instructions, so it has settled
+        there. Establish whether that is another wait before treating it as a
+        stop — the last three times a PC settled, twice it was a correct wait
+        and once a runaway.
   - [ ] The tick loop is still owed regardless, and remains the project's
         central design item — but it is **not** what this stop needs, and
         building it here would have been the wrong move for a plausible reason.

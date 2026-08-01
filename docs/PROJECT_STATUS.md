@@ -181,6 +181,16 @@ The same table shows what has *not* been touched, which a total cannot: no timer
 and no calendar accesses at all, and the interrupt controllers written ten times
 but never read. Whether that is expected this early is not yet established.
 
+**SIO1 is the console, not SIO2.** The poll tests both DUARTs and branches
+differently for each, and every run until now fed the wrong one. Feeding a
+newline to port 1 moves the PROM to `0000220C`, serial writes go from 38 to
+**11839**, main memory writes from 43328 to 177894 and core register writes from
+7 to 2368 — substantial work that was not happening before.
+
+No console bytes emerge even so. Because `sio_suite` proves the path, that is a
+sharp question rather than an ambiguous one: either those writes are not to the
+transmit buffers, or the transmitter is not accepting them.
+
 The tick loop is still owed and remains the project's central design item, but
 it is not what this stop needs.
 

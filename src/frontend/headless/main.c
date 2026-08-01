@@ -38,7 +38,9 @@ static void print_usage(const char *program_name) {
           "  --boot-input TEXT     deliver TEXT to serial port 2 as the\n"
           "                        firmware reads it; scripted, not host input\n"
           "  --boot-console        print what the machine transmits on either\n"
-          "                        serial port: its own console output\n");
+          "                        serial port: its own console output\n"
+          "  --boot-input-port N   which serial port --boot-input feeds, 1 or\n"
+          "                        2 (default 2)\n");
 }
 
 /* The probes' RAM. Static rather than automatic because it is large, and
@@ -163,7 +165,8 @@ static uint8_t *read_file(const char *path, long *size_out) {
  * addresses in its header are logical (`FINDINGS.md` C28). The PROM is what
  * enables translation, so it is what has to run first. */
 static int boot_from_prom(const char *path, unsigned limit, bool trace,
-                          uint32_t watch, const char *input, bool console) {
+                          uint32_t watch, const char *input, unsigned input_unit,
+                          bool console) {
   long size = 0;
   uint8_t *prom = read_file(path, &size);
   if (prom == NULL) {
@@ -221,8 +224,9 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
    * starts, so the run stays reproducible. That is the whole reason this
    * frontend exists, and a getchar() here would end it.
    *
-   * SIO2 channel A, because that is where the PROM polls RxRDY -- established
-   * by tracing A0, not assumed. */
+   * The port is a choice, not a constant: the PROM's poll loop tests *both*
+   * DUARTs and branches differently for each, so which one carries the console
+   * is a question the firmware answers rather than one to assume. */
   size_t input_sent = 0;
   const size_t input_length = input != NULL ? strlen(input) : 0u;
 
@@ -244,14 +248,14 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
        * what a terminal's flow looks like and what stops a script from
        * overrunning the receiver. */
       if (input_sent < input_length &&
-          !ap_sio_receiver_ready(&board->sio, 1u, 0u)) {
-        ap_sio_receive(&board->sio, 1u, 0u, (uint8_t)input[input_sent]);
+          !ap_sio_receiver_ready(&board->sio, input_unit, 0u)) {
+        ap_sio_receive(&board->sio, input_unit, 0u, (uint8_t)input[input_sent]);
         /* Advance only if the receiver actually took it. A DUART whose receiver
          * is still disabled drops the byte, and the firmware enables it long
          * after reset -- so a script that advanced regardless would deliver its
          * whole text into a switched-off port and then wait forever for the
          * first character. Retrying costs nothing and cannot lose a byte. */
-        if (ap_sio_receiver_ready(&board->sio, 1u, 0u)) {
+        if (ap_sio_receiver_ready(&board->sio, input_unit, 0u)) {
           input_sent++;
         }
       }
@@ -533,6 +537,7 @@ int main(int argc, char **argv) {
   uint32_t boot_watch = 0;
   const char *boot_input = NULL;
   bool boot_console = false;
+  unsigned boot_input_unit = 1u; /* SIO2 */
   bool run_probe_suite = false;
   bool report_timing = false;
   const char *boot_tape = NULL;
@@ -556,6 +561,13 @@ int main(int argc, char **argv) {
      * mistake was made. */
     if (strcmp(argv[i], "--boot-limit") == 0 && i + 1 < argc) {
       boot_limit = (unsigned)strtoul(argv[i + 1], NULL, 0);
+      i += 2;
+      continue;
+    }
+    if (strcmp(argv[i], "--boot-input-port") == 0 && i + 1 < argc) {
+      /* 1 or 2 as the board names them; 0-based inside. */
+      const unsigned port = (unsigned)strtoul(argv[i + 1], NULL, 0);
+      boot_input_unit = (port >= 2u) ? 1u : 0u;
       i += 2;
       continue;
     }
@@ -618,7 +630,7 @@ int main(int argc, char **argv) {
 
   if (boot_prom != NULL) {
     return boot_from_prom(boot_prom, boot_limit, boot_trace, boot_watch,
-                          boot_input, boot_console);
+                          boot_input, boot_input_unit, boot_console);
   }
 
   if (boot_tape != NULL) {
