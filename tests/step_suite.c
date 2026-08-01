@@ -14,6 +14,7 @@
 
 #include "cpu/m68030/ap_m68030_step.h"
 #include "cpu/m68030/ap_m68030_exception.h"
+#include "cpu/m68030/ap_m68030_ssw.h"
 #include "cpu/m68030/ap_m68030_mmusr.h"
 #include "cpu/m68030/ap_m68030_state.h"
 #include "unity.h"
@@ -352,19 +353,51 @@ static void test_an_unimplemented_instruction_is_reported_not_skipped(void) {
  * reported UNIMPLEMENTED -- sending the investigation after a CMPI that had
  * been implemented and tested for weeks. */
 static void
-test_a_faulting_operand_read_is_a_fault_not_an_unimplemented_instruction(void) {
+test_a_faulting_operand_read_takes_the_bus_error_exception(void) {
   /* `0C2D 0008 0001` -- CMPI.B #$08,(1,A5), the PROM's own word. */
   static const uint16_t program[] = {0x0C2Du, 0x0008u, 0x0001u, 0x4E71u};
   machine_t m = {0};
   load(&m, program, 4);
-  m.cpu.regs.a[5] = 0x00008000u;
-  m.memory.berr_from = 0x00008000u; /* the operand faults; the program does not */
+  plant_vector(&m, AP_M68030_VECTOR_BUS_ERROR, HANDLER);
+  m.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
+  m.cpu.regs.isp = SUPERVISOR_STACK;
+  m.cpu.regs.a[5] = 0x0000C000u;
+  m.memory.berr_from = 0x0000C000u; /* the operand faults; nothing else does */
 
   const ap_m68030_step_result_t r = ap_m68030_step(&m.cpu);
 
-  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_FAULT, r.status);
+  /* Taken, not merely reported. An undecoded read is how firmware *asks*
+   * whether a card is present, so stopping here would model a question as a
+   * crash. */
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXCEPTION, r.status);
   TEST_ASSERT_NOT_EQUAL_INT(AP_M68030_STEP_UNIMPLEMENTED, r.status);
-  TEST_ASSERT_EQUAL_HEX32(PROGRAM_BASE, m.cpu.regs.pc);
+  TEST_ASSERT_EQUAL_HEX32(HANDLER, m.cpu.regs.pc);
+
+  /* A faulted data *read* gets the long frame -- 46 words -- because only that
+   * one has a data input buffer for the handler to write the value into. */
+  TEST_ASSERT_EQUAL_HEX32(SUPERVISOR_STACK - 92u, m.cpu.regs.isp);
+  const uint16_t format_word =
+      (uint16_t)(read_ram_long(&m, m.cpu.regs.isp + 4u) & 0xFFFFu);
+  TEST_ASSERT_EQUAL_INT(AP_M68030_FRAME_LONG_BUS_FAULT,
+                        ap_m68030_frame_format_of(format_word));
+
+  /* The address the handler must repair is the one that faulted, not the
+   * instruction's. */
+  TEST_ASSERT_EQUAL_HEX32(
+      0x0000C001u, read_ram_long(&m, m.cpu.regs.isp + AP_M68030_BUS_FAULT_ADDRESS));
+
+  /* And the long frame stacks the instruction in execution, so the handler can
+   * retry it -- not the next one. */
+  TEST_ASSERT_EQUAL_HEX32(PROGRAM_BASE, read_ram_long(&m, m.cpu.regs.isp + 2u));
+
+  /* The special status word says a data cycle faulted, that it was a read, its
+   * size, and the address space -- everything a repair needs. */
+  const ap_m68030_ssw_t ssw = ap_m68030_ssw_decode(
+      (uint16_t)(read_ram_long(&m, m.cpu.regs.isp + 8u) & 0xFFFFu));
+  TEST_ASSERT_TRUE(ssw.data_fault);
+  TEST_ASSERT_TRUE(ssw.read);
+  TEST_ASSERT_EQUAL_UINT(AP_M68030_SSW_SIZE_BYTE, ssw.size);
+  TEST_ASSERT_EQUAL_UINT8(5u, ssw.function_code); /* supervisor data */
 }
 
 /* The control the test above is worthless without: the identical instruction
@@ -396,11 +429,14 @@ static void test_a_fault_does_not_leak_into_the_following_instruction(void) {
   static const uint16_t program[] = {0x0C2Du, 0x0008u, 0x0001u, 0x4848u};
   machine_t m = {0};
   load(&m, program, 4);
-  m.cpu.regs.a[5] = 0x00008000u;
-  m.memory.berr_from = 0x00008000u;
+  plant_vector(&m, AP_M68030_VECTOR_BUS_ERROR, HANDLER);
+  m.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
+  m.cpu.regs.isp = SUPERVISOR_STACK;
+  m.cpu.regs.a[5] = 0x0000C000u;
+  m.memory.berr_from = 0x0000C000u;
 
   const ap_m68030_step_result_t faulted = ap_m68030_step(&m.cpu);
-  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_FAULT, faulted.status);
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXCEPTION, faulted.status);
 
   /* Step past the instruction the fault stopped, the way a caller that had
    * handled it would, and run the one after. */
@@ -3929,8 +3965,7 @@ int main(void) {
   RUN_TEST(test_a_branch_always_is_taken);
   RUN_TEST(test_a_conditional_branch_reads_the_previous_result);
   RUN_TEST(test_an_unimplemented_instruction_is_reported_not_skipped);
-  RUN_TEST(
-      test_a_faulting_operand_read_is_a_fault_not_an_unimplemented_instruction);
+  RUN_TEST(test_a_faulting_operand_read_takes_the_bus_error_exception);
   RUN_TEST(test_the_same_instruction_over_memory_that_answers_executes);
   RUN_TEST(test_a_fault_does_not_leak_into_the_following_instruction);
   RUN_TEST(test_an_illegal_encoding_is_distinct_from_unimplemented);

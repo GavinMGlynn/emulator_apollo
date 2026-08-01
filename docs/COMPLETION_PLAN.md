@@ -2520,14 +2520,37 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
           This model has no source for the processor's microsequencer state, and
           naming an offset for a field we would fill with a guess is how a guess
           becomes load-bearing.
-  - [ ] Wire the SSW into `take_exception_with`, which today declines every
-        format but `$0` and `$2`, so a faulting access takes the **bus error
-        exception** (vector 2) instead of stopping the step. The PROM needs
-        this: an undecoded read is how a display-adapter probe *asks*, so the
-        firmware almost certainly has a handler that answers "no card".
-  - [ ] `RTE` from a `$A`/`$B` frame, including the rerun of a faulted data
-        access the DF bit requests. Until this lands the exception can be taken
-        but not returned from.
+  - [x] `ap_m68030_take_bus_fault()` — a faulting access now **takes** vector 2
+        rather than stopping the step, building the `$A` or `$B` frame the SSW
+        selects. The CPU records what faulted (address, size, direction,
+        address space, and the value a faulted write carried) at the access,
+        because by the time a status is chosen that detail is gone and a handler
+        given the wrong address repairs the wrong location.
+        - Every word of the frame is *written*, internal registers as zero.
+          Filling only named fields would leave whatever the stack already held
+          in the gaps, and a handler reading those acts on the previous
+          program's data. Zero is a stated value; a skipped word is not.
+        - The stacked PC differs by frame, and Table 8-6 is explicit: `$A` is
+          "at instruction boundary" and stacks the *next* instruction, `$B` is
+          "instruction execution in progress" and stacks the instruction that
+          was running.
+  - [x] `RTE` from a `$A`/`$B` frame. Returning to the stacked PC re-executes
+        the faulted instruction from the start, which is **exact** when the
+        faulted access precedes any side effect — the common case, and every
+        case the boot PROM hits — and wrong for an instruction that had already
+        committed one. A deliberate approximation: closing it needs the internal
+        registers, which needs a microsequencer model.
+  - [ ] **The boot PROM now runs away rather than stopping, and that is a
+        finding rather than progress.** It reaches its 100000-instruction limit
+        with 669442 bus errors, looping in the handler at `000000404`. The
+        unbounded part is not the CPU's: `ap_board_write` **counts an unmapped
+        write and returns**, so each exception frame stacks successfully into
+        undecoded space and the loop can never terminate. The reset SSP is
+        `01000180`, only 384 bytes above the base of main memory, so the stack
+        leaves RAM after four frames. Fix the board's write path first — an
+        undecoded write silently succeeding is wrong on its own terms — then
+        re-measure. Do **not** treat 100000 as a thermometer reading; the
+        previous honest reading was 35.
   - [ ] The long frame's INTERNAL REGISTER fields will have to be stacked as
         zero — a deliberate approximation, since this model has no
         microsequencer state to save. Cost to close: an `RTE` resuming a fault

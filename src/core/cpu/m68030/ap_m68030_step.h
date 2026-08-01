@@ -159,6 +159,22 @@ typedef struct {
    * machine, and a stale one would mislabel the next failure. */
   bool access_faulted;
 
+  /* What faulted, which is what the bus fault frame is made of. Recorded at the
+   * access rather than reconstructed afterwards: by the time the step chooses a
+   * status, the address and size are gone, and a handler given the wrong ones
+   * repairs the wrong location.
+   *
+   * `fault_instruction_stream` separates a prefetch fault from a data cycle
+   * fault. They set different halves of the special status word, and a prefetch
+   * fault has no data cycle at all -- reporting one as the other tells a handler
+   * to repair a data access that never happened. */
+  uint32_t fault_address;
+  unsigned fault_size;
+  bool fault_read;
+  uint8_t fault_function_code;
+  bool fault_instruction_stream;
+  uint32_t fault_data_output; /* the value a faulted write was carrying */
+
   /* The interrupt request level standing on IPL2-IPL0, and what it was before,
    * which level 7 needs: it is "transition sensitive", so holding the line at 7
    * does not re-interrupt but dropping and raising it does. A caller drives
@@ -259,6 +275,22 @@ typedef struct {
 [[nodiscard]] ap_m68030_exception_result_t
 ap_m68030_take_exception(ap_m68030_cpu_t *cpu, unsigned vector,
                          uint32_t stacked_pc, uint32_t instruction_address);
+
+/* Take a bus or address error, building the fault frame from the access the CPU
+ * recorded when it faulted.
+ *
+ * Separate from `ap_m68030_take_exception` because the fault frames are not
+ * simply larger: which of the two applies is decided by the special status
+ * word rather than by the vector, the stacked PC means different things in
+ * each, and the frame carries state that only the faulted access knows. A
+ * caller cannot supply any of that, so it is read from the CPU rather than
+ * passed in.
+ *
+ * Declines when nothing has faulted -- a frame built from cleared fault state
+ * would send a handler to repair address zero. */
+[[nodiscard]] ap_m68030_exception_result_t
+ap_m68030_take_bus_fault(ap_m68030_cpu_t *cpu, unsigned vector,
+                         uint32_t instruction_address);
 
 /* Take an interrupt, if one is recognised at the current level and mask.
  *

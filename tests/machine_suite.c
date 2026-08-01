@@ -104,7 +104,11 @@ static void test_an_access_beyond_the_ram_faults_rather_than_wrapping(void) {
   load(&m, program, 4);
   const ap_machine_run_t run = ap_machine_run(&m, 1u);
 
-  TEST_ASSERT_EQUAL_UINT(0u, run.executed);
+  /* The bus error is *taken*, not merely reported -- which is what the real
+   * part does, and why the run reports an exception rather than stopping. The
+   * fault itself is the assertion here; where the processor went next is the
+   * step module's business. */
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXCEPTION, run.status);
   TEST_ASSERT_TRUE(m.bus_errors > 0u);
 }
 

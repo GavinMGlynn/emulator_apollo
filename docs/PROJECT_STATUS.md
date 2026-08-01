@@ -57,7 +57,21 @@ words, and runs. Twenty instructions execute with **zero bus errors and zero
 unmapped accesses** — the first independent check on the address map by something
 other than a test written beside it — and with the immediate-to-status-register group now implemented it reaches **35**.
 
-It stops at `000028D0`, and the investigation of that stop found a defect in the
+A faulting access now **takes** the bus error exception rather than stopping the
+step, which is what the real part does and what firmware depends on — an
+undecoded read is how a probe *asks* whether a card is present. The consequence
+is that the PROM no longer stops at all: it reaches its 100000-instruction limit
+with 669442 bus errors, looping in the handler at `00000404`.
+
+**That is a finding, not progress, and 100000 is not a thermometer reading.** The
+last honest one was 35. The loop is unbounded because `ap_board_write` counts an
+unmapped write and returns rather than faulting, so every exception frame stacks
+successfully into undecoded space — the reset SSP is `01000180`, just 384 bytes
+above the base of main memory, so the stack leaves RAM after four frames. The
+board's write path is the next thing to fix, and an undecoded write silently
+succeeding is wrong on its own terms regardless of this.
+
+It previously stopped at `000028D0`, and the investigation of that stop found a defect in the
 reporting rather than in the CPU: the step was **reporting a bus fault as an
 unimplemented instruction**, because executors signal both with a bare `false`.
 The `CMPI.B` there was implemented and correct all along. `access_faulted` now
@@ -185,7 +199,7 @@ Last updated: 2026-08-01 (Phase 3 boundary; subsystem table audited).
 | 68030 effective address decode (modes, extension words, lengths) | decode and extension-word counts working; address *calculation* needs the instruction unit | `ea_suite`, 17 tests, `M68000 Family Programmer's Reference Manual 1992` §2, Tables 2-1, 2-2, 2-4 |
 | 68030 programming model (registers, SR, three stack pointers) | working | `regs_suite`, 10 tests, `MC68030 User's Manual 3ed` §1.3 and `M68000 Family Programmer's Reference Manual 1992` §1.3.2 |
 | 68030 exception vectors, priority and stack frames | working; taking an exception needs the instruction unit | `exception_suite`, 14 tests, `MC68030 User's Manual 3ed` §8, Tables 8-1, 8-5, 8-6 |
-| 68030 special status word and bus fault frame layout | working: Figure 8-9's bits, the SIZ1/SIZ0 size code that counts bytes *remaining*, FC2-FC0, and Table 8-6's field offsets for both fault frames. The encoder enforces "a rerun bit is always set when the corresponding fault bit is set", while leaving a rerun *without* a fault expressible because that is how an address error is told from a bus error. The frame is chosen **from the SSW**, not passed in: §8.2.2's "data read faults only generate the long bus fault frame" is structural, since the short frame has no data input buffer for the handler to write the faulted read's value into. Fields Table 8-6 labels INTERNAL REGISTER are deliberately unnamed — this model has no source for them. **Not yet wired into the taker**, which still declines both fault frames | `ssw_suite`, 11 tests, `[030]` §8.2.1, Figure 8-9, Table 8-6, Table 7-3 |
+| 68030 special status word and bus fault frame layout | working: Figure 8-9's bits, the SIZ1/SIZ0 size code that counts bytes *remaining*, FC2-FC0, and Table 8-6's field offsets for both fault frames. The encoder enforces "a rerun bit is always set when the corresponding fault bit is set", while leaving a rerun *without* a fault expressible because that is how an address error is told from a bus error. The frame is chosen **from the SSW**, not passed in: §8.2.2's "data read faults only generate the long bus fault frame" is structural, since the short frame has no data input buffer for the handler to write the faulted read's value into. Fields Table 8-6 labels INTERNAL REGISTER are deliberately unnamed — this model has no source for them. **Wired into the taker**: `ap_m68030_take_bus_fault()` builds whichever frame the SSW selects, and `RTE` returns from both | `ssw_suite`, 11 tests, `step_suite`, `[030]` §8.2.1, Figure 8-9, Table 8-6, Table 7-3 |
 | 68030 ATC (22-entry, fully associative) | working; a translating hit marks the entry recently used, a `PTEST` probe does not. Replacement `PROVISIONAL` only in its victim choice | `atc_suite`, 20 tests, `MC68030 User's Manual 3ed` §9.4 |
 | 68030 descriptors + search protection state | working | `desc_suite`, 23 tests, `MC68030 User's Manual 3ed` §9.5.1.1 |
 | 68030 translation control (TC) + address split | working | `tc_suite`, 15 tests, `MC68030 User's Manual 3ed` §9.7.2 |

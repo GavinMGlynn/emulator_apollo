@@ -29,6 +29,7 @@ static bool execute_extended(ap_m68030_cpu_t *cpu,
 #include "cpu/m68030/ap_m68030_exception.h"
 #include "cpu/m68030/ap_m68030_mmusr.h"
 #include "cpu/m68030/ap_m68030_operand.h"
+#include "cpu/m68030/ap_m68030_ssw.h"
 
 /* The two operand entry points, wrapped so that a fault is *recorded* on the
  * CPU before the result reaches a caller that will reduce it to a bool.
@@ -51,6 +52,12 @@ step_operand_read(ap_m68030_cpu_t *cpu, ap_m68030_regs_t *regs,
       ap_m68030_operand_read(regs, access, where, size, function_code);
   if (result.fault) {
     cpu->access_faulted = true;
+    cpu->fault_address = where->address;
+    cpu->fault_size = size;
+    cpu->fault_read = true;
+    cpu->fault_function_code = function_code;
+    cpu->fault_instruction_stream = false;
+    cpu->fault_data_output = 0u;
   }
   return result;
 }
@@ -64,6 +71,16 @@ step_operand_write(ap_m68030_cpu_t *cpu, ap_m68030_regs_t *regs,
       ap_m68030_operand_write(regs, access, where, size, value, function_code);
   if (result.fault) {
     cpu->access_faulted = true;
+    cpu->fault_address = where->address;
+    cpu->fault_size = size;
+    cpu->fault_read = false;
+    cpu->fault_function_code = function_code;
+    cpu->fault_instruction_stream = false;
+    /* "For data write faults, the handler must transfer the properly sized data
+     * from the data output buffer (DOB) on the stack frame to the location
+     * indicated by the data fault address" -- so the value the write was
+     * carrying is not incidental, it is the only copy the handler will get. */
+    cpu->fault_data_output = value;
   }
   return result;
 }
@@ -128,6 +145,12 @@ static bool next_word(ap_m68030_cpu_t *cpu, uint32_t *clocks, uint16_t *word) {
      * prefetch that never returned, the other a word the pipe marked abnormal
      * because its fetch had. */
     cpu->access_faulted = true;
+    cpu->fault_instruction_stream = true;
+    cpu->fault_address = cpu->regs.pc;
+    cpu->fault_size = 2u;
+    cpu->fault_read = true;
+    cpu->fault_function_code = cpu->fetch.function_code;
+    cpu->fault_data_output = 0u;
     return false;
   }
   cpu->extension_words++;
@@ -1752,6 +1775,158 @@ ap_m68030_take_exception(ap_m68030_cpu_t *cpu, unsigned vector,
                              cpu->regs.sr);
 }
 
+/* The special status word describing the fault the CPU last recorded. */
+static ap_m68030_ssw_t fault_ssw(const ap_m68030_cpu_t *cpu) {
+  ap_m68030_ssw_t ssw = {0};
+  if (cpu->fault_instruction_stream) {
+    /* "The fault bits (FB and FC) indicate that the processor attempted to use
+     * a stage (B or C) and found it to be marked invalid due to a bus error on
+     * the prefetch for that stage."
+     *
+     * B and C are the two stages *ahead* of the decoded one, which is why the
+     * frame carries images of exactly those: stage D's word has already been
+     * used, while B and C hold words the faulted prefetch never delivered and
+     * which a handler must supply before execution can resume. Both are
+     * reported, because words advance B to C to D and a prefetch that failed to
+     * fill the pipe left both stages invalid. The encoder adds the rerun
+     * bits. */
+    ssw.stage_c_fault = true;
+    ssw.stage_b_fault = true;
+    return ssw;
+  }
+  ssw.data_fault = true;
+  ssw.read = cpu->fault_read;
+  ssw.size = ap_m68030_ssw_size_for(cpu->fault_size);
+  ssw.function_code = cpu->fault_function_code;
+  return ssw;
+}
+
+ap_m68030_exception_result_t
+ap_m68030_take_bus_fault(ap_m68030_cpu_t *cpu, unsigned vector,
+                         uint32_t instruction_address) {
+  ap_m68030_exception_result_t out = {0};
+  if (!cpu->access_faulted) {
+    /* Nothing faulted, so there is no frame to describe. Declining is the only
+     * honest answer: a frame built from cleared fault state would tell a
+     * handler to repair address zero. */
+    return out;
+  }
+
+  /* Captured before anything else runs. Building the frame is itself a series
+   * of writes through the same path that records these, so a fault while
+   * stacking -- a double fault -- would otherwise overwrite the fault being
+   * reported with the fault that happened trying to report it. */
+  const ap_m68030_ssw_t ssw = fault_ssw(cpu);
+  const uint32_t fault_address = cpu->fault_address;
+  const uint32_t data_output = cpu->fault_data_output;
+  const ap_m68030_frame_format_t format = ap_m68030_bus_fault_frame(&ssw);
+
+  /* Table 8-6 gives the two frames different PC meanings, and it is not a
+   * detail: the short frame is "Execution Unit at Instruction Boundary" and
+   * stacks the *next* instruction, while the long frame is "Instruction
+   * Execution in Progress" and stacks "the address of the instruction in
+   * execution when the fault occurred".
+   *
+   * Every data fault this model detects is the second case -- the operand
+   * access failed partway through an instruction that has not completed -- so
+   * the instruction's own address is stacked and the handler can retry it. */
+  const uint32_t stacked_pc = (format == AP_M68030_FRAME_LONG_BUS_FAULT)
+                                  ? instruction_address
+                                  : cpu->regs.pc;
+
+  const uint16_t saved_sr = cpu->regs.sr;
+  uint16_t updated = cpu->regs.sr;
+  updated |= (uint16_t)(1u << AP_M68030_SR_S_BIT);
+  updated &= (uint16_t)~(1u << AP_M68030_SR_T1_BIT);
+  updated &= (uint16_t)~(1u << AP_M68030_SR_T0_BIT);
+  ap_m68030_write_sr(&cpu->regs, updated);
+
+  const uint32_t bytes = ap_m68030_frame_words(format) * 2u;
+  const uint32_t frame = ap_m68030_read_a7(&cpu->regs) - bytes;
+
+  /* Every word of the frame is written, including the ones Table 8-6 labels
+   * INTERNAL REGISTER, which are written as zero.
+   *
+   * That is a deliberate approximation with a name: this model has no
+   * microsequencer state to save. What matters here is that they are *written*
+   * rather than skipped -- a frame that only filled its named fields would
+   * leave whatever the stack already held in the gaps, and a handler reading
+   * those would act on the previous program's data. Zero is a stated value; a
+   * skipped word is an unstated one. */
+  bool wrote = true;
+  for (uint32_t offset = 0; offset < bytes && wrote; offset += 2u) {
+    wrote = write_frame_field(cpu, frame + offset, 2u, 0u, &out.clocks);
+  }
+
+  wrote = wrote && write_frame_field(cpu, frame + 0u, 2u, saved_sr, &out.clocks);
+  wrote = wrote && write_frame_field(cpu, frame + 2u, 4u, stacked_pc,
+                                     &out.clocks);
+  wrote = wrote && write_frame_field(
+                       cpu, frame + 6u, 2u,
+                       ap_m68030_frame_format_word(format, vector), &out.clocks);
+  wrote = wrote && write_frame_field(cpu, frame + AP_M68030_BUS_FAULT_SSW, 2u,
+                                     ap_m68030_ssw_encode(&ssw), &out.clocks);
+  /* The pipe images, so a handler can repair the instruction stream. These are
+   * the words the pipe actually holds, not a reconstruction. */
+  wrote = wrote && write_frame_field(cpu, frame + AP_M68030_BUS_FAULT_STAGE_C,
+                                     2u, cpu->fetch.pipe.c.word, &out.clocks);
+  wrote = wrote && write_frame_field(cpu, frame + AP_M68030_BUS_FAULT_STAGE_B,
+                                     2u, cpu->fetch.pipe.b.word, &out.clocks);
+  wrote = wrote && write_frame_field(cpu, frame + AP_M68030_BUS_FAULT_ADDRESS,
+                                     4u, fault_address, &out.clocks);
+  wrote = wrote && write_frame_field(cpu,
+                                     frame + AP_M68030_BUS_FAULT_DATA_OUTPUT,
+                                     4u, data_output, &out.clocks);
+  if (!wrote) {
+    /* A fault while stacking is a double fault, which halts the real part. As
+     * elsewhere, this reports failure with the status register already changed
+     * and the caller must not treat the exception as taken. */
+    return out;
+  }
+  ap_m68030_write_a7(&cpu->regs, frame);
+
+  out.vector_address = cpu->regs.vbr + ap_m68030_vector_offset(vector);
+  const ap_m68030_address_t vector_where = {.address = out.vector_address,
+                                            .valid = true};
+  const ap_m68030_operand_result_t handler =
+      step_operand_read(cpu, &cpu->regs, cpu->data, &vector_where, 4u,
+                        AP_M68030_FC_SUPERVISOR_DATA);
+  out.clocks += handler.clocks;
+  if (!handler.ok) {
+    return out;
+  }
+
+  out.handler = handler.value;
+  cpu->regs.pc = out.handler;
+  ap_m68030_fetch_reset(&cpu->fetch, out.handler);
+
+  out.frame_address = frame;
+  out.ok = true;
+  return out;
+}
+
+/* What an executor's `false` meant, now that the two causes are distinguished.
+ *
+ * A fault is not merely reported: the processor *takes* it, which is what the
+ * real part does and what firmware depends on. An undecoded read is how a
+ * probe asks whether a card is present, and a handler that answers "no" is the
+ * normal, expected path -- so stopping the machine there would model a
+ * question as a crash.
+ *
+ * `FAULT` remains for the case that cannot be taken: a second fault while
+ * building the frame, which halts the real part. */
+static ap_m68030_step_status_t fault_or_unimplemented(
+    ap_m68030_cpu_t *cpu, ap_m68030_step_result_t *out,
+    uint32_t instruction_address) {
+  if (!cpu->access_faulted) {
+    return AP_M68030_STEP_UNIMPLEMENTED;
+  }
+  const ap_m68030_exception_result_t taken = ap_m68030_take_bus_fault(
+      cpu, AP_M68030_VECTOR_BUS_ERROR, instruction_address);
+  out->clocks += taken.clocks;
+  return taken.ok ? AP_M68030_STEP_EXCEPTION : AP_M68030_STEP_FAULT;
+}
+
 ap_m68030_exception_result_t ap_m68030_take_interrupt(ap_m68030_cpu_t *cpu) {
   ap_m68030_exception_result_t out = {0};
 
@@ -1927,11 +2102,32 @@ static bool execute_rte(ap_m68030_cpu_t *cpu, uint32_t *clocks) {
       continue;
     }
 
-    if (format != AP_M68030_FRAME_SHORT && format != AP_M68030_FRAME_SIX_WORD) {
-      /* The fault and coprocessor frames restore internal state this model does
-       * not carry. Declined rather than half-restored. */
+    if (format == AP_M68030_FRAME_COPROCESSOR_MID) {
+      /* The coprocessor frame restores a coprocessor's mid-instruction state,
+       * which this model does not carry at all. Declined rather than
+       * half-restored. */
       return false;
     }
+
+    /* The two fault frames are returned from the same way: status register and
+     * program counter off the stack, the pointer advanced by the frame's own
+     * size. What they add is the rerun, and that is where this model makes a
+     * deliberate approximation.
+     *
+     * §8.2.2: "If the DF bit is set when the processor reads the stack frame,
+     * it reruns the faulted data access". The real part resumes *mid*
+     * instruction, using the internal registers it saved. This model has none,
+     * so it does the only other thing that can be correct: the long frame
+     * stacks the address of the instruction that was executing, so returning
+     * there re-executes that instruction from the start.
+     *
+     * That is exact for an instruction whose faulted access happens before any
+     * register or memory is changed -- which is every instruction the boot PROM
+     * faults on, since a fault on the *first* operand access is the common case
+     * and a compare writes nothing. It is wrong for an instruction that had
+     * already committed a side effect, which is the cost of the approximation
+     * and the reason it is recorded rather than assumed harmless. Closing it
+     * needs the internal state, which needs a microsequencer model. */
 
     uint32_t saved_pc = 0;
     if (!read_stack(cpu, 2u, 4u, clocks, &saved_pc)) {
@@ -3232,8 +3428,7 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
     bool branched = false;
     if (!execute_control(cpu, &decoded.as.control, &out.clocks,
                          &branched)) {
-      out.status = cpu->access_faulted ? AP_M68030_STEP_FAULT
-                                       : AP_M68030_STEP_UNIMPLEMENTED;
+      out.status = fault_or_unimplemented(cpu, &out, instruction_address);
       cpu->clocks += out.clocks;
       return out;
     }
@@ -3301,8 +3496,7 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
    * silently. */
   case AP_M68030_DECODED_MOVE:
     if (!execute_move(cpu, &decoded.as.move, &out.clocks)) {
-      out.status = cpu->access_faulted ? AP_M68030_STEP_FAULT
-                                       : AP_M68030_STEP_UNIMPLEMENTED;
+      out.status = fault_or_unimplemented(cpu, &out, instruction_address);
       cpu->clocks += out.clocks;
       return out;
     }
@@ -3310,8 +3504,7 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
 
   case AP_M68030_DECODED_ARITH:
     if (!execute_arith(cpu, &decoded.as.arith, &out.clocks)) {
-      out.status = cpu->access_faulted ? AP_M68030_STEP_FAULT
-                                       : AP_M68030_STEP_UNIMPLEMENTED;
+      out.status = fault_or_unimplemented(cpu, &out, instruction_address);
       cpu->clocks += out.clocks;
       return out;
     }
@@ -3319,8 +3512,7 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
 
   case AP_M68030_DECODED_IMMEDIATE:
     if (!execute_immediate(cpu, &decoded.as.immediate, &out.clocks)) {
-      out.status = cpu->access_faulted ? AP_M68030_STEP_FAULT
-                                       : AP_M68030_STEP_UNIMPLEMENTED;
+      out.status = fault_or_unimplemented(cpu, &out, instruction_address);
       cpu->clocks += out.clocks;
       return out;
     }
@@ -3328,8 +3520,7 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
 
   case AP_M68030_DECODED_SINGLE:
     if (!execute_single(cpu, &decoded.as.single, &out.clocks)) {
-      out.status = cpu->access_faulted ? AP_M68030_STEP_FAULT
-                                       : AP_M68030_STEP_UNIMPLEMENTED;
+      out.status = fault_or_unimplemented(cpu, &out, instruction_address);
       cpu->clocks += out.clocks;
       return out;
     }
@@ -3338,8 +3529,7 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
   case AP_M68030_DECODED_QUICK: {
     bool taken = false;
     if (!execute_quick(cpu, &decoded.as.quick, &out.clocks, &taken)) {
-      out.status = cpu->access_faulted ? AP_M68030_STEP_FAULT
-                                       : AP_M68030_STEP_UNIMPLEMENTED;
+      out.status = fault_or_unimplemented(cpu, &out, instruction_address);
       cpu->clocks += out.clocks;
       return out;
     }
@@ -3349,8 +3539,7 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
 
   case AP_M68030_DECODED_SHIFT:
     if (!execute_shift(cpu, &decoded.as.shift, &out.clocks)) {
-      out.status = cpu->access_faulted ? AP_M68030_STEP_FAULT
-                                       : AP_M68030_STEP_UNIMPLEMENTED;
+      out.status = fault_or_unimplemented(cpu, &out, instruction_address);
       cpu->clocks += out.clocks;
       return out;
     }
@@ -3358,8 +3547,7 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
 
   case AP_M68030_DECODED_MISC:
     if (!execute_misc(cpu, &decoded.as.misc, &out.clocks)) {
-      out.status = cpu->access_faulted ? AP_M68030_STEP_FAULT
-                                       : AP_M68030_STEP_UNIMPLEMENTED;
+      out.status = fault_or_unimplemented(cpu, &out, instruction_address);
       cpu->clocks += out.clocks;
       return out;
     }
@@ -3384,8 +3572,7 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
         break;
       }
     }
-    out.status = cpu->access_faulted ? AP_M68030_STEP_FAULT
-                                       : AP_M68030_STEP_UNIMPLEMENTED;
+    out.status = fault_or_unimplemented(cpu, &out, instruction_address);
     cpu->clocks += out.clocks;
     return out;
   }
@@ -3397,8 +3584,7 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
      * the pair, and that is the bus module's item rather than this one. */
   case AP_M68030_DECODED_LINE_A:
   case AP_M68030_DECODED_ILLEGAL:
-    out.status = cpu->access_faulted ? AP_M68030_STEP_FAULT
-                                       : AP_M68030_STEP_UNIMPLEMENTED;
+    out.status = fault_or_unimplemented(cpu, &out, instruction_address);
     cpu->clocks += out.clocks;
     return out;
   }
