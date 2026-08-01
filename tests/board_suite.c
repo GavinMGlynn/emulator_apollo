@@ -197,6 +197,32 @@ static void test_the_windows_do_not_swallow_the_devices_inside_them(void) {
   TEST_ASSERT_EQUAL_UINT(AP_BOARD_REGION_UNMAPPED, ap_board_region(0x070000u));
 }
 
+/* The region enum exists to answer "what did the firmware reach for", so a
+ * confident wrong name is worse than none. Main memory's *space* ends at the
+ * largest RAM a DN3500 takes; above that is unmapped, not memory.
+ *
+ * Caught by a run whose final PC printed as "main memory" at `FFFF060E`. The
+ * read path had refused it correctly all along -- only the name was wrong, and
+ * the name is what a reader acts on. */
+static void test_main_memory_s_name_stops_where_its_address_space_does(void) {
+  TEST_ASSERT_EQUAL_UINT(AP_BOARD_REGION_RAM, ap_board_region(AP_BOARD_RAM_BASE));
+  TEST_ASSERT_EQUAL_UINT(AP_BOARD_REGION_RAM, ap_board_region(AP_BOARD_RAM_LIMIT));
+  TEST_ASSERT_EQUAL_UINT(AP_BOARD_REGION_UNMAPPED,
+                         ap_board_region(AP_BOARD_RAM_LIMIT + 1u));
+  TEST_ASSERT_EQUAL_UINT(AP_BOARD_REGION_UNMAPPED, ap_board_region(0xFFFF060Eu));
+
+  /* Inside the space but past the memory fitted is still *named* main memory --
+   * the address decodes to memory, there is simply no SIMM there -- and the
+   * read still refuses it. Same shape as an empty AT bus slot. */
+  ap_board_t b;
+  bool ok = true;
+  init(&b);
+  TEST_ASSERT_EQUAL_UINT(AP_BOARD_REGION_RAM,
+                         ap_board_region(AP_BOARD_RAM_BASE + sizeof ram));
+  (void)ap_board_read(&b, AP_BOARD_RAM_BASE + sizeof ram, &ok);
+  TEST_ASSERT_FALSE(ok);
+}
+
 static void test_the_boot_prom_region_is_reported_absent(void) {
   ap_board_t b;
   bool ok = true;
@@ -231,6 +257,7 @@ int main(void) {
   RUN_TEST(test_a_missing_prom_is_absent_for_writes_too);
   RUN_TEST(test_an_empty_at_bus_window_reads_ff_rather_than_faulting);
   RUN_TEST(test_the_windows_do_not_swallow_the_devices_inside_them);
+  RUN_TEST(test_main_memory_s_name_stops_where_its_address_space_does);
   RUN_TEST(test_the_boot_prom_region_is_reported_absent);
   RUN_TEST(test_every_region_has_a_name);
   return UNITY_END();

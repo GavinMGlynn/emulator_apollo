@@ -86,7 +86,7 @@ crash — the display controller's lesson a second time, found the same way.
 
 Reading `FF` gives `FFFF`, an F-line word, and with the **line 1010 and line
 1111 emulator traps** now raised the machine takes vector 11 the way the
-hardware does. The PROM reaches **2788 instructions**.
+hardware does. The PROM reaches **2788 instructions**, then stops at `FFFF060E` — a PC far outside anything the map allocates, so a wild jump rather than a probe of a known address. That is a different kind of question from the four before it, and likelier a gap in what we execute than a device we have not built.
 
 Both traps were defined and classified and simply never taken; reporting them
 `UNIMPLEMENTED` said the gap was ours when taking the trap is the whole

@@ -48,6 +48,19 @@
 #define AP_BOARD_PROM_BASE 0x000000u
 #define AP_BOARD_PROM_SIZE 0x010000u
 #define AP_BOARD_RAM_BASE 0x1000000u
+/* The largest main memory a DN3500 takes, and so the end of the address space
+ * allocated to it. The oracle's map is built with `DN3500_RAM_END` at
+ * `017FFFFF`, `01FFFFFF` or `03FFFFFF` for 8, 16 or 32 Mbyte -- the base is
+ * fixed and the top moves with what is fitted, so the *space* ends at the
+ * largest of them.
+ *
+ * Bounded rather than open-ended because the region enum's whole purpose is to
+ * answer "what did the firmware reach for". Claiming main memory for every
+ * address above the base made a final PC of `FFFF060E` print as "main memory",
+ * which is a worse answer than "unmapped": the read path refused it correctly,
+ * so the only thing wrong was the name, and a confident wrong name is what a
+ * reader acts on. */
+#define AP_BOARD_RAM_LIMIT 0x3FFFFFFu
 
 /* The two AT bus windows. `008778-03`, and confirmed against the oracle's
  * `dn3500_map`: `ATBUS_IO_BASE 0x040000`, `ATBUS_IO_END 0x05ffff`,

@@ -50,7 +50,12 @@ ap_board_region_t ap_board_region(uint32_t address) {
       return AP_BOARD_REGION_GRAPHICS;
     }
   }
-  if (address >= AP_BOARD_RAM_BASE) {
+  if (address >= AP_BOARD_RAM_BASE && address <= AP_BOARD_RAM_LIMIT) {
+    /* The space allocated to memory, not the memory fitted. An address in here
+     * with no SIMM behind it is still a main memory address -- the read path
+     * bounds-checks against what is actually present and reports it unmapped --
+     * which is the same distinction the AT bus windows make between an empty
+     * slot and an address nothing decodes. */
     return AP_BOARD_REGION_RAM;
   }
   /* Last, so every device *inside* a window keeps its own region. The tape,

@@ -2543,12 +2543,23 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
           convincingly — firmware would take a plausible exception and carry on,
           and the gap would stop being visible.
         - The PROM goes from 425 instructions to **2788**.
-  - [ ] `ap_board_region` claims `AP_BOARD_REGION_RAM` for **everything** at or
-        above `01000000`, so a trace names `FFFF060E` "main memory" when no
-        memory is fitted there. The read path bounds-checks correctly, so only
-        the *naming* is wrong — but naming is the whole purpose of the region
-        enum, and a misleading name is worse than none. Report addresses past
-        the fitted memory as unmapped.
+  - [x] Main memory's *name* now stops where its address space does.
+        `AP_BOARD_RAM_LIMIT` is `03FFFFFF`, the largest RAM a DN3500 takes —
+        the oracle builds its map with `DN3500_RAM_END` at `017FFFFF`,
+        `01FFFFFF` or `03FFFFFF` for 8, 16 or 32 Mbyte, so the base is fixed and
+        the *space* ends at the largest. `FFFF060E` now prints "unmapped".
+        - Inside the space but past the memory fitted is still *named* main
+          memory: the address decodes to memory, there is simply no SIMM there,
+          and the read refuses it. The same shape as an empty AT bus slot.
+        - Only the name was ever wrong; the read path bounds-checked correctly
+          throughout. That is why it was worth fixing rather than shrugging at —
+          the region enum exists to answer "what did the firmware reach for",
+          and a confident wrong name is what a reader acts on. `board_suite`.
+  - [ ] The PROM stops at `FFFF060E` after **2788** instructions. A PC that far
+        out is a wild jump rather than a probe of a known address, so this is a
+        different kind of question from the last four — likelier a gap in what
+        we execute than a device we have not built. Find the last instruction
+        before the PC left the PROM.
   - [ ] Whether the PROM *should* reach `00090000` at all is a separate
         question from what happens when it does. Check what it tests before
         jumping — do not assume the jump is unconditional.
