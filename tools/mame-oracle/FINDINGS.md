@@ -3187,3 +3187,66 @@ Also worth noting for what it says about the earlier work: the calendar reports
 `0:00 (UTC)` and a sane date **before** anything set them, which means the RTC
 this core models as `MC146818A` -- caller-supplied time, never the host's, on
 our side -- is being read correctly by real Apollo firmware on the oracle's.
+
+
+## C53 -- the Domain/OS kernel stops on a clock that runs backwards between sessions
+
+`ex domain_os` loaded the kernel from the boot cartridge -- `low: 01002000
+high: 01111FFF start: 01002024`, about 1.1 Mbyte -- and it started:
+
+```
+Domain/OS kernel(7), revision 10.4, February 14, 1992  11:42:25 am
+
+The calendar is more than a minute slow.
+
+Switch to service mode, press reset and run CALENDAR.
+```
+
+and then **halted**: the program counter sat at `3C456B98` and the tape and
+disk counters were identical across two consecutive activity reports. Not slow,
+stopped -- which the instrument could say and a silent console could not. The
+restore had written 1790 disk sectors and never reached "Restore complete".
+
+### Why the calendar is slow, and why it will be slow again
+
+MAME seeds this machine's RTC to the **same instant on every power-on** --
+`2002/11/27` a little after 11:00 -- and `mc146818_device::device_reset()`
+deliberately does not touch the time, so it advances only with emulated time
+within a run.
+
+The disk does not reset. Every session stamps the volume with a *later* time
+than the one before, and the next session starts the clock back at the seed. So
+after one long session the calendar is permanently behind the volume, and
+**every subsequent boot is "slow" by however long the previous session ran**.
+
+The first install session ran about 25 emulated minutes before the disk was
+written. That is the minute the kernel is complaining about.
+
+This also explains something that would otherwise look like luck: INVOL and
+CALENDAR never complained, because nothing had yet written a timestamp *ahead*
+of the running clock.
+
+### What follows for the harness, beyond this install
+
+Two things, and the second is the more general.
+
+- **`--keep-rundir` from here on.** The driver wipes nvram, cfg and state at
+  startup so that no run depends on what the last one left behind -- exactly
+  right for an oracle *reading*, and wrong for an install, which is one long
+  operation split across process lifetimes. The calendar lives in that NVRAM.
+  A setting made in one session and wiped before the next is not a setting.
+- **A reset is not free on this machine.** `apollo_state::machine_reset` reads
+  the RTC year and shifts it -- `+75` when it is under 25 with "25 Years Ago"
+  set, `-70` when it is 70 or over with neither shift configured. It runs on
+  *every* reset, not once at power-on, so a session that resets repeatedly is
+  moving its own clock around. The install procedure calls for `re` twice
+  before each utility, which is three or four shifts before the OS ever starts.
+  Stages after this one send no `re` at all: a fresh power-on already is a
+  reset, and the fewer of them between setting the clock and using it, the
+  better.
+
+Recorded because it is a class, not an incident: **emulated wall-clock state
+that is re-seeded per process but compared against state that persists** will
+fail this way in any harness that runs a machine in more than one sitting. The
+symptom appears in the guest, thousands of instructions from the cause, and
+reads as a fault in the thing being installed.
