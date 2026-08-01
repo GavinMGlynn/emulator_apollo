@@ -3207,24 +3207,45 @@ disk counters were identical across two consecutive activity reports. Not slow,
 stopped -- which the instrument could say and a silent console could not. The
 restore had written 1790 disk sectors and never reached "Restore complete".
 
-### Why the calendar is slow, and why it will be slow again
+### Why the calendar is slow -- measured, with the mechanism left open
 
-MAME seeds this machine's RTC to the **same instant on every power-on** --
-`2002/11/27` a little after 11:00 -- and `mc146818_device::device_reset()`
-deliberately does not touch the time, so it advances only with emulated time
-within a run.
+The load-bearing fact is the comparison itself: **the volume carries a
+timestamp, the RTC carries a time, and the kernel refuses to boot when the
+second is behind the first.** The disk persists across sessions and the RTC does
+not, so the two are on different clocks the moment an install spans more than
+one process lifetime.
 
-The disk does not reset. Every session stamps the volume with a *later* time
-than the one before, and the next session starts the clock back at the seed. So
-after one long session the calendar is permanently behind the volume, and
-**every subsequent boot is "slow" by however long the previous session ran**.
+What is measured, from two runs of `CALENDAR` at the same point in the
+procedure:
 
-The first install session ran about 25 emulated minutes before the disk was
-written. That is the minute the kernel is complaining about.
+| Session | Console reading |
+| --- | --- |
+| 1 | `2002/11/27 11:08:47 UTC` |
+| 2 | `2002/11/27 11:37:14 UTC` |
 
-This also explains something that would otherwise look like luck: INVOL and
-CALENDAR never complained, because nothing had yet written a timestamp *ahead*
-of the running clock.
+Those are about 28 minutes apart, and so were the two runs in **wall clock**. So
+the RTC is not frozen between sessions and is not reset to a fixed instant --
+something outside the emulated machine advances it.
+
+**A first explanation is recorded and withdrawn**, because it is instructive.
+The reading was "MAME seeds the RTC to the same instant on every power-on, so
+the clock rewinds while the disk marches on". That predicts the two readings
+above would be *identical*. They are not, and the second is 28 minutes later,
+so the explanation is refuted by the measurement it was written before.
+
+`mc146818_device::device_reset()` genuinely does not touch the time -- that part
+holds and is checked in the source. What is **not** established is where the
+initial value comes from, and the two readings do not pin it: they track host
+wall clock in their *offsets* from each other while matching neither host UTC
+nor a fixed constant in their absolute values. Establishing it means
+instrumenting the seeding path, which is a separate campaign and is not needed
+to finish the install.
+
+What the install needs, and what was done: the calendar was read rather than
+set, found to be **ahead** of anything session 1 could have stamped, and the
+restore retried in the same session. Setting it forward was considered and
+rejected -- a value chosen now becomes the thing the *next* session is behind,
+which converts a one-off into a ratchet.
 
 ### What follows for the harness, beyond this install
 
@@ -3245,8 +3266,15 @@ Two things, and the second is the more general.
   reset, and the fewer of them between setting the clock and using it, the
   better.
 
-Recorded because it is a class, not an incident: **emulated wall-clock state
-that is re-seeded per process but compared against state that persists** will
-fail this way in any harness that runs a machine in more than one sitting. The
-symptom appears in the guest, thousands of instructions from the cause, and
-reads as a fault in the thing being installed.
+Recorded because it is a class, not an incident: **a clock the harness restarts,
+compared against a disk the harness does not**, will fail this way in any
+setting where a machine is run across more than one sitting. The symptom appears
+in the guest, thousands of instructions from the cause, and reads as a fault in
+the thing being installed.
+
+And a second, about this file rather than the machine. The withdrawn
+explanation above was written from reading MAME's source and was consistent with
+every observation available *at the time* -- one reading. It took a second
+reading to refute it, and the second reading cost nothing but was not taken
+until the explanation had already been committed. A mechanism inferred from one
+sample is a hypothesis however good the source-reading behind it looks.
