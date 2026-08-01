@@ -216,6 +216,8 @@ static int boot_from_prom(const char *path, unsigned limit) {
    * a write, and this firmware is known to make one. Folded into the unmapped
    * total it would read as a fault that never happened. */
   printf("  rom writes   %u\n", board->rom_writes);
+  printf("  empty slot   %u read, %u written\n", board->atbus_empty_reads,
+         board->atbus_empty_writes);
   printf("  state hash   %016llX\n",
          (unsigned long long)ap_machine_hash(&machine));
 
@@ -349,6 +351,8 @@ static int boot_from_tape(const char *path, unsigned limit) {
    * a write, and this firmware is known to make one. Folded into the unmapped
    * total it would read as a fault that never happened. */
   printf("  rom writes   %u\n", board->rom_writes);
+  printf("  empty slot   %u read, %u written\n", board->atbus_empty_reads,
+         board->atbus_empty_writes);
   printf("  final region %s\n",
          ap_board_region_name(ap_board_region(machine.cpu.regs.pc)));
 

@@ -53,6 +53,15 @@ ap_board_region_t ap_board_region(uint32_t address) {
   if (address >= AP_BOARD_RAM_BASE) {
     return AP_BOARD_REGION_RAM;
   }
+  /* Last, so every device *inside* a window keeps its own region. The tape,
+   * the disk and the display controller all sit within the AT I/O window and
+   * are matched above; what reaches here is window with nothing behind it. */
+  if ((address >= AP_BOARD_ATBUS_IO_BASE &&
+       address <= AP_BOARD_ATBUS_IO_END) ||
+      (address >= AP_BOARD_ATBUS_MEMORY_BASE &&
+       address <= AP_BOARD_ATBUS_MEMORY_END)) {
+    return AP_BOARD_REGION_ATBUS;
+  }
   return AP_BOARD_REGION_UNMAPPED;
 }
 
@@ -71,6 +80,7 @@ const char *ap_board_region_name(ap_board_region_t region) {
   case AP_BOARD_REGION_DISK: return "disk/floppy";
   case AP_BOARD_REGION_TAPE: return "cartridge tape";
   case AP_BOARD_REGION_GRAPHICS: return "display controller";
+  case AP_BOARD_REGION_ATBUS: return "AT bus (empty slot)";
   case AP_BOARD_REGION_RAM: return "main memory";
   }
   return "unmapped";
@@ -127,6 +137,13 @@ uint8_t ap_board_read(ap_board_t *board, uint32_t address, bool *ok) {
     return ap_tape_read(&board->tape, address);
   case AP_BOARD_REGION_GRAPHICS:
     return ap_graphics_read(&board->graphics, address);
+  case AP_BOARD_REGION_ATBUS:
+    /* The window decodes and nothing drives the data lines, so the pull-ups
+     * answer. `FF` rather than unmapped: the cycle terminates normally on the
+     * real machine, and reporting a fault here would crash an expansion ROM
+     * scan that is supposed to simply find nothing. */
+    board->atbus_empty_reads++;
+    return 0xFFu;
   case AP_BOARD_REGION_RAM: {
     uint32_t offset = address - AP_BOARD_RAM_BASE;
     if (board->ram == NULL || offset >= board->ram_bytes) {
@@ -185,6 +202,9 @@ void ap_board_write(ap_board_t *board, uint32_t address, uint8_t value,
     return;
   case AP_BOARD_REGION_GRAPHICS:
     ap_graphics_write(&board->graphics, address, value);
+    return;
+  case AP_BOARD_REGION_ATBUS:
+    board->atbus_empty_writes++;
     return;
   case AP_BOARD_REGION_RAM: {
     uint32_t offset = address - AP_BOARD_RAM_BASE;

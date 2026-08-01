@@ -2521,10 +2521,24 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
           of them can legitimately hold.
   - [x] The boot PROM reaches **425 instructions**, up from 89, with the display
         probe answered.
-  - [ ] The run now stops at PC `00090000`, which is unmapped, after 2 bus
-        errors. Different address, different question — investigate before
-        assuming it is another absent device, and **ask the oracle's map first**
-        (`FINDINGS.md` C32).
+  - [x] `00090000` is **AT bus memory**, not unmapped. The oracle's map gives
+        `ATBUS_IO 040000-05FFFF` and `ATBUS_MEMORY 080000-FFFFFF`, and both
+        windows are decoded by the *board*: an address with no card behind it
+        reads `FF` and terminates normally. The PROM **jumps into** AT bus
+        memory at `00090000`, almost certainly scanning for an expansion ROM, so
+        a board that faulted on an empty window turns "found nothing" into a
+        crash. Same lesson as the display controller, found the same way — the
+        map, first. `board_suite`, 2 tests, including one that the windows do
+        not swallow the tape, disk and display controller sitting inside them.
+  - [ ] The PROM now reads `FFFF` from the empty slot and stops
+        `UNIMPLEMENTED`. `FFFF` is an F-line word, so the real part would take
+        the **line 1111 emulator trap** (vector 11); `A000-AFFF` is the line
+        1010 trap (vector 10). Neither is raised yet. That is the next CPU item,
+        and it is what makes "scan an empty slot and find nothing" end the way
+        the hardware ends it.
+  - [ ] Whether the PROM *should* reach `00090000` at all is a separate
+        question from what happens when it does. Check what it tests before
+        jumping — do not assume the jump is unconditional.
   - [ ] The rest of the display controllers: the graphics memories
         (`0FA0000-0FDFFFF` monochrome, `000A0000-00BFFFF` colour), the blitter,
         the colour lookup table. Verify on a decoded PNG rather than on register

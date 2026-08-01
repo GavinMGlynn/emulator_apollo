@@ -49,6 +49,25 @@
 #define AP_BOARD_PROM_SIZE 0x010000u
 #define AP_BOARD_RAM_BASE 0x1000000u
 
+/* The two AT bus windows. `008778-03`, and confirmed against the oracle's
+ * `dn3500_map`: `ATBUS_IO_BASE 0x040000`, `ATBUS_IO_END 0x05ffff`,
+ * `ATBUS_MEMORY_BASE 0x080000`, `ATBUS_MEMORY_END 0xffffff`.
+ *
+ * Both windows are **decoded by the board**, not by whatever card is in them.
+ * An address in a window with no card behind it reads `FF` -- the bus is
+ * pulled up and the cycle terminates -- and does *not* bus error. That is the
+ * same distinction the display controller turned on: "no card is fitted" and
+ * "nothing decodes this address" are different answers, and only the second is
+ * a fault.
+ *
+ * Which matters here because the boot PROM *jumps into* AT bus memory at
+ * `00090000`, almost certainly scanning for an expansion ROM. A machine that
+ * faulted on the window would turn a scan that finds nothing into a crash. */
+#define AP_BOARD_ATBUS_IO_BASE 0x040000u
+#define AP_BOARD_ATBUS_IO_END 0x05FFFFu
+#define AP_BOARD_ATBUS_MEMORY_BASE 0x080000u
+#define AP_BOARD_ATBUS_MEMORY_END 0xFFFFFFu
+
 /* Which part of the machine an address belongs to. Named rather than
  * boolean-decoded so a caller -- or a trace -- can say *what* the firmware
  * reached for, which is the question C28 could not answer. */
@@ -66,6 +85,7 @@ typedef enum {
   AP_BOARD_REGION_DISK,
   AP_BOARD_REGION_TAPE,
   AP_BOARD_REGION_GRAPHICS,
+  AP_BOARD_REGION_ATBUS,
   AP_BOARD_REGION_RAM,
 } ap_board_region_t;
 
@@ -104,6 +124,14 @@ typedef struct ap_board {
    * something answers and cannot store. Folding them together would both hide a
    * driver writing to a PROM and make a harmless write look like a fault. */
   unsigned rom_writes;
+
+  /* Accesses to an AT bus window with no card behind them. Not unmapped: the
+   * board decodes the window, so these terminate normally and read `FF`.
+   * Counted because "the firmware went looking in an empty slot" is worth
+   * knowing, and because a count that suddenly grows is how a card that should
+   * have been fitted becomes visible. */
+  unsigned atbus_empty_reads;
+  unsigned atbus_empty_writes;
 } ap_board_t;
 
 /* `start` is the calendar's instant; see `device/ap_mc146818.h` on why it comes

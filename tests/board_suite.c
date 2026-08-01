@@ -148,6 +148,55 @@ static void test_a_missing_prom_is_absent_for_writes_too(void) {
   TEST_ASSERT_EQUAL_UINT(0u, b.rom_writes);
 }
 
+/* Both AT bus windows are decoded by the **board**, not by whatever card sits
+ * in them. An address in a window with no card behind it reads `FF` -- the bus
+ * is pulled up and the cycle terminates normally -- and does not fault.
+ *
+ * This is the display controller's lesson again, and it is worth a test of its
+ * own because the failure is invisible until firmware walks a window: the boot
+ * PROM jumps into AT bus memory at `00090000` to scan for an expansion ROM, and
+ * a board that faulted on an empty window would turn "found nothing" into a
+ * crash. */
+static void test_an_empty_at_bus_window_reads_ff_rather_than_faulting(void) {
+  ap_board_t b;
+  bool ok = false;
+  init(&b);
+
+  TEST_ASSERT_EQUAL_UINT(AP_BOARD_REGION_ATBUS, ap_board_region(0x090000u));
+  TEST_ASSERT_EQUAL_HEX8(0xFFu, ap_board_read(&b, 0x090000u, &ok));
+  TEST_ASSERT_TRUE(ok);
+  ap_board_write(&b, 0x090000u, 0x5Au, &ok);
+  TEST_ASSERT_TRUE(ok);
+
+  /* Counted apart from unmapped, because they mean different things: an empty
+   * slot answers, an unmapped address does not. */
+  TEST_ASSERT_EQUAL_UINT(0u, b.unmapped_reads);
+  TEST_ASSERT_EQUAL_UINT(0u, b.unmapped_writes);
+  TEST_ASSERT_EQUAL_UINT(1u, b.atbus_empty_reads);
+  TEST_ASSERT_EQUAL_UINT(1u, b.atbus_empty_writes);
+}
+
+/* The windows must not swallow the devices inside them. The tape, the disk and
+ * the display controller all sit within the AT I/O window, so a window checked
+ * before them would answer `FF` for every one -- and every device test would
+ * still pass, because they call the devices directly. */
+static void test_the_windows_do_not_swallow_the_devices_inside_them(void) {
+  TEST_ASSERT_EQUAL_UINT(AP_BOARD_REGION_TAPE, ap_board_region(0x050000u));
+  TEST_ASSERT_EQUAL_UINT(AP_BOARD_REGION_DISK, ap_board_region(0x04D000u));
+  TEST_ASSERT_EQUAL_UINT(AP_BOARD_REGION_DISK, ap_board_region(0x05F800u));
+  TEST_ASSERT_EQUAL_UINT(AP_BOARD_REGION_GRAPHICS, ap_board_region(0x05D800u));
+  TEST_ASSERT_EQUAL_UINT(AP_BOARD_REGION_GRAPHICS, ap_board_region(0x05E800u));
+
+  /* And the window still claims what no device does. */
+  TEST_ASSERT_EQUAL_UINT(AP_BOARD_REGION_ATBUS, ap_board_region(0x040000u));
+  TEST_ASSERT_EQUAL_UINT(AP_BOARD_REGION_ATBUS, ap_board_region(0x05FFFFu));
+  TEST_ASSERT_EQUAL_UINT(AP_BOARD_REGION_ATBUS, ap_board_region(0x080000u));
+  TEST_ASSERT_EQUAL_UINT(AP_BOARD_REGION_ATBUS, ap_board_region(0xFFFFFFu));
+
+  /* Between the two windows is neither. */
+  TEST_ASSERT_EQUAL_UINT(AP_BOARD_REGION_UNMAPPED, ap_board_region(0x070000u));
+}
+
 static void test_the_boot_prom_region_is_reported_absent(void) {
   ap_board_t b;
   bool ok = true;
@@ -180,6 +229,8 @@ int main(void) {
   RUN_TEST(test_reads_reach_the_devices_themselves);
   RUN_TEST(test_the_read_only_memories_absorb_writes_rather_than_faulting);
   RUN_TEST(test_a_missing_prom_is_absent_for_writes_too);
+  RUN_TEST(test_an_empty_at_bus_window_reads_ff_rather_than_faulting);
+  RUN_TEST(test_the_windows_do_not_swallow_the_devices_inside_them);
   RUN_TEST(test_the_boot_prom_region_is_reported_absent);
   RUN_TEST(test_every_region_has_a_name);
   return UNITY_END();

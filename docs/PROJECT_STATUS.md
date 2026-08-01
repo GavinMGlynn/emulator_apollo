@@ -78,8 +78,15 @@ firmware took an exception the real machine never takes and everything
 downstream of it looked like a bug in the exception path (`FINDINGS.md` C32).
 
 With the controller's identification modelled the probe is answered and the PROM
-reaches **425 instructions**. It now stops at `00090000`, which is unmapped —
-a different address and a different question.
+reaches **425 instructions**. It now reaches `00090000`, which is **AT bus memory** rather than unmapped: both
+AT windows are decoded by the board, and an address with no card behind it reads
+`FF` and terminates normally. The PROM jumps there to scan for an expansion ROM,
+so a board that faulted on an empty window would turn "found nothing" into a
+crash — the display controller's lesson a second time, found the same way.
+
+Reading `FF` gives `FFFF`, an F-line word, and the run stops `UNIMPLEMENTED`.
+The real part would take the line 1111 emulator trap; that is the next CPU
+item.
 
 It previously stopped at `000028D0`, and the investigation of that stop found a defect in the
 reporting rather than in the CPU: the step was **reporting a bus fault as an
