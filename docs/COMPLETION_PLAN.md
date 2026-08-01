@@ -401,13 +401,17 @@ file the moment they are found, not when someone remembers.
           at a time returns `31 30 30 30 31 30 32 0D`. A harness sees its own
           input interleaved with MD's output, and a parser assuming everything
           arriving is a response will mis-read every command it sends.
-        - **Characters are dropped**: the `D`, both spaces and one digit never
-          arrived at 0.3 s spacing, though a burst produced no echo at all.
-          Delivery is rate-sensitive.
-        - So `D`'s format is not yet captured and the obstacle is **delivery,
-          not the command**. Direction is known: pace input against the emulated
-          baud rate, or drive the DUART's receiver directly rather than through
-          the host's standard input.
+        - **Corrected: the echo is selective, not lossy.** The same characters
+          are absent at 0.3 s and 0.9 s spacing — command letter, both spaces,
+          trailing digit — and a rate problem would vary with pacing. That is
+          the shape of MD echoing parsed *arguments*, not raw input. Slowing the
+          input threefold is the measurement that distinguishes them and should
+          have preceded the first conclusion.
+        - So `D`'s format is not captured and the obstacle is **not delivery**.
+          The open question is what MD does with a command it has received:
+          wrong syntax, rejected range, or an echoed line never executed. Those
+          are questions about MD rather than about the harness — a better place
+          to be stuck than the previous one.
         - **A result worth having on the way** (`FINDINGS.md` C39): the oracle's
           four configuration writes, decoded — `sio1 ACR E0`, `sio1 CSRB 77`,
           `sio2 ACR 80`, `sio2 CSRA 77`. Both ports get the same clock select,

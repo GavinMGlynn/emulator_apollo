@@ -135,12 +135,22 @@ Two things follow.
   input interleaved with MD's output and must account for it; a parser that
   assumes everything arriving is a response will mis-read every command it
   sends.
-- **Characters are being dropped.** The `D`, both spaces and one digit never
-  arrived. Per-character pacing got further than a burst did -- a burst produced
-  no echo at all -- so delivery is rate-sensitive and 0.3 s apart is still not
-  reliable.
+- **The echo is selective, and it is not rate loss.** Sending
+  `D ␣ 1 0 0 0 ␣ 1 0 2 0` echoes `1 0 0 0 1 0 2` at both 0.3 s and 0.9 s
+  spacing -- the *same* characters absent at both rates. A dropped-character
+  problem would vary with pacing; this does not. What is missing is the command
+  letter, both spaces, and the trailing digit, which is the shape of MD echoing
+  parsed *arguments* rather than raw input.
 
-`D`'s output format is therefore **not yet captured**, and the obstacle is
-delivery rather than the command. That is a harness problem with a known
-direction: pace input against the emulated baud rate, or drive the DUART's
-receiver directly instead of through the host's standard input.
+  So the earlier reading of this as rate-sensitive loss was wrong. Slowing the
+  input threefold changed nothing, which is the measurement that distinguishes
+  the two and which should have been made before concluding the first time.
+
+`D`'s output format is therefore **not yet captured**: no dump follows the
+command, only the usual prompt. Since the digits do arrive and the pacing does
+not matter, the obstacle is **not** delivery, and the next question is what MD
+does with a command it has received -- whether the syntax is wrong, whether the
+address range is rejected, or whether the echo is of a line it never executed.
+
+The remaining unknowns are now about MD rather than about the harness, which is
+a better place to be stuck than the previous one.
