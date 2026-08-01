@@ -1,5 +1,5 @@
 model     cpu     clock     mmu              display         oracle  ram
-dn2500    68030   20 MHz    68030 on-chip    mono 1024x800   paper   16 MB @ 0x01000000  PROVISIONAL
+dn2500    68030   20 MHz    68030 on-chip    mono 1024x800   paper   16 MB @ 0x04000000  PROVISIONAL
 dn3000    68020   12 MHz    68851 external   mono 1024x800   mame    8 MB @ 0x00100000
 dn3500    68030   25 MHz    68030 on-chip    mono 1024x800   mame    32 MB @ 0x01000000
 dn4500    68030   33 MHz    68030 on-chip    mono 1280x1024  paper   32 MB @ 0x01000000
@@ -10,4 +10,4 @@ dsp4500   68030   33 MHz    68030 on-chip    headless        paper   32 MB @ 0x0
 dsp5500   68040   25 MHz    68040 on-chip    headless        mame    32 MB @ 0x01000000
 
 time base: 6600000000 Hz
-PROVISIONAL dn2500: ram_base: assumed to match the other 68030 models at 0x1000000, but the DN2500 is a single integrated board with its own memory design and no address-space table for it has been found. Close it from the 2500 boot PROM or a Series 2500 hardware reference
+PROVISIONAL dn2500: ram_base: 0x4000000, from the Series 2500 boot PROM's own reset vector. 2500_BOOT_16182_8 starts with SSP 040007D0 where 3500_BOOT_12191_7 starts with 01000180 and its RAM is at 01000000; a reset stack pointer must land in usable memory. This corrects an earlier assumption that the DN2500 matched the other 68030 models at 0x1000000. Still PROVISIONAL: the SSP proves memory exists there, not where the region begins or ends. A Series 2500 allocation table would settle the extent; the oracle cannot, having no 2500 driver

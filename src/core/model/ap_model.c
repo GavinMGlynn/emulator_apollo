@@ -32,14 +32,19 @@ static const ap_model_t k_models[AP_MODEL_COUNT] = {
         .fpu = AP_FPU_M68882,
         .display = AP_DISPLAY_MONO_1024X800,
         .oracle = AP_ORACLE_PAPER_ONLY,
-        .ram_base = 0x1000000u,
+        .ram_base = 0x4000000u,
         .ram_max_bytes = 0x1000000u, /* 4-16 MB [CFG] p. A-11 */
         .has_ring = true,
-        .provisional = "ram_base: assumed to match the other 68030 models at "
-                       "0x1000000, but the DN2500 is a single integrated board "
-                       "with its own memory design and no address-space table "
-                       "for it has been found. Close it from the 2500 boot PROM "
-                       "or a Series 2500 hardware reference",
+        .provisional = "ram_base: 0x4000000, from the Series 2500 boot PROM's "
+                       "own reset vector. 2500_BOOT_16182_8 starts with SSP "
+                       "040007D0 where 3500_BOOT_12191_7 starts with 01000180 "
+                       "and its RAM is at 01000000; a reset stack pointer must "
+                       "land in usable memory. This corrects an earlier "
+                       "assumption that the DN2500 matched the other 68030 "
+                       "models at 0x1000000. Still PROVISIONAL: the SSP proves "
+                       "memory exists there, not where the region begins or "
+                       "ends. A Series 2500 allocation table would settle the "
+                       "extent; the oracle cannot, having no 2500 driver",
     },
     [AP_MODEL_DN3000] = {
         .id = AP_MODEL_DN3000,

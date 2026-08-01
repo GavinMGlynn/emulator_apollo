@@ -3696,9 +3696,23 @@ discipline throughout.
 - [x] Close most of the DN2500 `PROVISIONAL` set: 68030 @ 20 MHz, 68882 @ 20 MHz,
       on-board mono graphics, 4–16 MB RAM, all from `[CFG]`'s Series 2500 Product
       Summary. Only `ram_base` remains open.
-- [ ] Close DN2500 `ram_base`, or record it as a documented gap with its cost to
+- [~] Close DN2500 `ram_base`, or record it as a documented gap with its cost to
       close. *Verification: an address-space table for Series 2500, or the boot
       PROM's own memory sizing code.*
+  - **Corrected from `01000000` to `04000000`**, from the boot PROM's own reset
+    vector — the second of the two routes this item names, and it needed no new
+    material. `2500_BOOT_16182_8` begins with SSP `040007D0` where
+    `3500_BOOT_12191_7` begins with `01000180` and its RAM is at `01000000`. A
+    reset stack pointer must land in usable memory.
+  - So the previous value was not merely unverified, it was **wrong**: it
+    assumed the DN2500 matched the other 68030 models, and the PROM that
+    disproves it has been in `roms/` all along.
+  - Still `[~]` and still `PROVISIONAL`. The reset SSP proves memory exists at
+    that address; it does not give where the region begins or ends. The extent
+    needs a Series 2500 allocation table, and the oracle cannot help — it has no
+    2500 driver.
+  - `tests/goldens/model_table.txt` regenerated; the golden caught the change,
+    which is what it is for.
 - [ ] DN4500 Matrox graphics. *Verification: PNG inspection; no oracle, so
       documented as paper-verified.*
 - [ ] DSP variants confirmed as true subsets. *Verification: `dsp3500` boots
