@@ -2487,12 +2487,24 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         - The second half confirms our assumption. The first **contradicts** it:
           we model 128 entries filling 256 bytes, the oracle models 1024 filling
           all 2 KB.
-        - Classify before changing anything, as the project requires. Either the
-          hardware has 1024 entries and our 128 is a transcription error, or it
-          has 128 and MAME masks generously to a power of two — a `& 0x3ff` is
-          exactly what a careful emulator writes when it does not know the real
-          decode either. `019411-A00` §4.2.1.4 is the addendum that settled the
-          entry format and is where the count should be checked first.
+        - **Checked the addendum, and all three numbers differ.**
+          `019411-A00` §4.2.1.4 says address bits `<15:10>` "provide an index
+          into the Address Translation Map; they select one of the **64
+          entries** contained within it". Six bits, sixty-four entries.
+        - So: the manual says **64**, we model **128**, the oracle masks to
+          **1024**. Ours is not a rounding of the oracle's and the oracle's is
+          not a rounding of ours; the manual agrees with neither.
+        - The manual is the authority here and 64 is almost certainly right — a
+          six-bit field is not ambiguous. But **do not change the code on this
+          alone**: the addendum's bits `<15:10>` index the map from a *DMA
+          address*, and the open question was about the *register file's* extent
+          in the `017000-0177FF` region. Those are two different things that a
+          single number could describe either of, and conflating them is how a
+          confident wrong decode gets written.
+        - Next: read §4.2.1.4 in full for what the region's remaining bytes do,
+          then reconcile all three. This is now the best-evidenced open question
+          in the plan and the only one where a manual, our core and the oracle
+          all say something different.
   - [x] **Characterised** by measurement, since no manual here lays these out:
         `008778-03` Table 2-8 gives addresses only, and the handbook carrying
         the bit layouts is not in `docs/references/`. `tools/mame-oracle/regprobe.lua`
