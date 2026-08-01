@@ -45,8 +45,17 @@
  * `ap_m68030_access_t` for *its* notion of an access -- the address, function
  * code and direction a TTx register compares against. Two headers cannot define
  * the same typedef, and this module includes that one. */
-/* Perform the external write cycle of a writethrough store. */
-typedef void (*ap_m68030_store_fn)(void *context, uint32_t physical,
+/* Perform the external write cycle of a writethrough store, returning whether
+ * the memory system accepted it.
+ *
+ * Returning `void` was a real defect and not merely an omission. A write to an
+ * address nothing decodes would be *counted* by the memory system and then
+ * silently succeed, because there was no way to say otherwise -- so a write
+ * could never raise a bus error, an exception frame could be stacked into
+ * undecoded space, and a fault loop that the real machine ends in a double
+ * fault ran forever instead. A signal a callee cannot send is a signal the
+ * caller will assume never happens. */
+typedef bool (*ap_m68030_store_fn)(void *context, uint32_t physical,
                                    uint32_t value, unsigned size);
 
 typedef struct {

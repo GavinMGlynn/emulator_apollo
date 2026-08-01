@@ -30,13 +30,14 @@ typedef struct {
   uint32_t last_store_value;
 } memory_t;
 
-static void memory_store(void *context, uint32_t physical, uint32_t value,
+static bool memory_store(void *context, uint32_t physical, uint32_t value,
                          unsigned size) {
   (void)size;
   memory_t *memory = (memory_t *)context;
   memory->stores++;
   memory->last_store_address = physical;
   memory->last_store_value = value;
+  return true;
 }
 
 static void memory_fill(void *context, uint32_t line_address,

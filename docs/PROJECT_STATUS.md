@@ -59,17 +59,24 @@ other than a test written beside it — and with the immediate-to-status-registe
 
 A faulting access now **takes** the bus error exception rather than stopping the
 step, which is what the real part does and what firmware depends on — an
-undecoded read is how a probe *asks* whether a card is present. The consequence
-is that the PROM no longer stops at all: it reaches its 100000-instruction limit
-with 669442 bus errors, looping in the handler at `00000404`.
+undecoded read is how a probe *asks* whether a card is present. It reaches **89
+instructions**: the fault at `000028D0` is taken, the PROM's own handler at
+`00000404` runs, and the run ends in a **double fault** when the exception stack
+runs off the bottom of main memory. That is the real part's behaviour, and the
+run is bounded and deterministic.
 
-**That is a finding, not progress, and 100000 is not a thermometer reading.** The
-last honest one was 35. The loop is unbounded because `ap_board_write` counts an
-unmapped write and returns rather than faulting, so every exception frame stacks
-successfully into undecoded space — the reset SSP is `01000180`, just 384 bytes
-above the base of main memory, so the stack leaves RAM after four frames. The
-board's write path is the next thing to fix, and an undecoded write silently
-succeeding is wrong on its own terms regardless of this.
+Getting there needed a defect fixed one layer down. `ap_m68030_store_fn` returned
+`void`, so the memory system could *count* a write to an address nothing decoded
+and then had no way to refuse it — no write could ever raise a bus error. A
+signal a callee cannot send is one the caller assumes never happens. With the
+store able to say no, an undecoded write faults like a read of the same address,
+and the fault loop ends in a double fault instead of running forever.
+
+**The run still re-enters the same instruction after the handler returns**, which
+is why the stack runs out: five bus errors at one address. Whether the PROM's
+handler adjusts the stacked PC and our frame is not giving it what it needs, or
+something else, is the next thing to investigate — and it is not to be assumed
+from the loop alone.
 
 It previously stopped at `000028D0`, and the investigation of that stop found a defect in the
 reporting rather than in the CPU: the step was **reporting a bus fault as an
@@ -178,7 +185,7 @@ Last updated: 2026-08-01 (Phase 3 boundary; subsystem table audited).
 | 68030 state hash (the identity harness's CPU half) | working: every architectural register, the MMU and cache control registers, the pipe, both caches, the ATC, and the accumulated clock — host pointers excluded by construction, since `ap_hash.h` has no pointer helper | `state_suite`, 12 tests sweeping every field; `step_suite`'s same-program-twice check |
 | 68030 addressing mode categories (Data / Memory / Control / Alterable) | working; derived from §2.3's definitions rather than transcribed from Table 2-4, whose Alterable column is exchanged between two row pairs in the scan | `category_suite`, 8 tests, `M68000 Family Programmer's Reference Manual 1992` §2.3 |
 | 68030 operand access (read/write through an effective address) | working; a sub-long-word operand is selected from the long word by position, and one straddling two long words is split into a bus cycle per long word in address order | `operand_suite`, 13 tests, `M68000 Family Programmer's Reference Manual 1992` |
-| 68030 instruction step (fetch → decode → execute → advance) | working for `NOP`, `MOVEQ`, 8-bit `BRA`/`Bcc`, `MOVE`/`MOVEA`, the six ALU operations, the `xxxI` immediate forms, `CLR`/`NEG`/`NOT`/`TST`, `ADDQ`/`SUBQ`/`Scc`/`DBcc`, `ADDA`/`SUBA`/`CMPA`, `BTST`/`BCHG`/`BCLR`/`BSET`, the shifts and rotates, `MULU`/`MULS`, `DIVU`/`DIVS`, `ADDX`/`SUBX`/`ABCD`/`SBCD` in both the register and the `-(An),-(An)` forms, `CMPM` and all three `EXG` exchanges; everything else reports unimplemented, including divide-by-zero, which needs the exception machinery | `step_suite`, 167 tests |
+| 68030 instruction step (fetch → decode → execute → advance) | working for `NOP`, `MOVEQ`, 8-bit `BRA`/`Bcc`, `MOVE`/`MOVEA`, the six ALU operations, the `xxxI` immediate forms, `CLR`/`NEG`/`NOT`/`TST`, `ADDQ`/`SUBQ`/`Scc`/`DBcc`, `ADDA`/`SUBA`/`CMPA`, `BTST`/`BCHG`/`BCLR`/`BSET`, the shifts and rotates, `MULU`/`MULS`, `DIVU`/`DIVS`, `ADDX`/`SUBX`/`ABCD`/`SBCD` in both the register and the `-(An),-(An)` forms, `CMPM` and all three `EXG` exchanges; everything else reports unimplemented, including divide-by-zero, which needs the exception machinery | `step_suite`, 169 tests |
 | 68030 instruction prefetch (pipe driven from memory) | working | `fetch_suite`, 5 tests, `MC68030 User's Manual 3ed` §11.2.2 and §6.1 |
 | 68030 logical memory access path (cache → MMU → bus) | working, reads and writes | `access_suite`, 12 tests, `MC68030 User's Manual 3ed` §6.1 |
 | 68030 effective address calculation (with register side effects) | working; memory-indirect modes report the pending indirection | `addr_suite`, 13 tests, `M68000 Family Programmer's Reference Manual 1992` §2.2 |
@@ -193,7 +200,7 @@ Last updated: 2026-08-01 (Phase 3 boundary; subsystem table audited).
 | 68030 family 0100 `$4E` control group (TRAP/LINK/UNLK/MOVE USP/RESET/NOP/STOP/RTE/RTD/RTS/TRAPV/RTR/JSR/JMP) | working; the rest of family 0100 not yet decoded | `control_suite`, 10 tests, `M68000 Family Programmer's Reference Manual 1992` §8.2 |
 | 68030 family 0101 (ADDQ/SUBQ/Scc/DBcc/TRAPcc) decode | working | `quick_suite`, 10 tests, `M68000 Family Programmer's Reference Manual 1992` §8.2 and each instruction page |
 | 68030 branch family (Bcc/BSR/BRA) decode | working | `branch_suite`, 8 tests, `M68000 Family Programmer's Reference Manual 1992` §8.2 and the Bcc/BRA/BSR pages |
-| MC68030 CPU | working: the whole opcode map decodes and all but `BKPT`, `CAS`, `CAS2`, `CMP2`, `CHK2` and the non-MMU coprocessor instructions execute. Pipe, caches, bus state machine, MMU, exceptions and bus arbitration each have their own rows below | `step_suite`, 167 tests, and the per-subsystem suites |
+| MC68030 CPU | working: the whole opcode map decodes and all but `BKPT`, `CAS`, `CAS2`, `CMP2`, `CHK2` and the non-MMU coprocessor instructions execute. Pipe, caches, bus state machine, MMU, exceptions and bus arbitration each have their own rows below | `step_suite`, 169 tests, and the per-subsystem suites |
 | 68030 operation code map (top-level instruction family) | working | `opcode_suite`, 6 tests, `M68000 Family Programmer's Reference Manual 1992` Table 8-2 |
 | 68030 conditional tests (the 16 Bcc/Scc/DBcc/TRAPcc conditions) | working | `cond_suite`, 9 tests, `M68000 Family Programmer's Reference Manual 1992` Table 3-19 |
 | 68030 effective address decode (modes, extension words, lengths) | decode and extension-word counts working; address *calculation* needs the instruction unit | `ea_suite`, 17 tests, `M68000 Family Programmer's Reference Manual 1992` §2, Tables 2-1, 2-2, 2-4 |

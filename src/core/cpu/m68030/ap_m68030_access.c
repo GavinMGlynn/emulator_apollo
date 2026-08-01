@@ -191,8 +191,16 @@ ap_m68030_access_result_t ap_m68030_access_write(ap_m68030_access_ctx_t *access,
   /* The external write happens on every write, which is what "writethrough"
    * means: "the data is written both to the cache and to external memory". The
    * cache update below is in addition to it, never instead of it. */
-  if (access->store != NULL) {
-    access->store(access->context, physical, value, size);
+  if (access->store != NULL &&
+      !access->store(access->context, physical, value, size)) {
+    /* Nothing answered. This is a bus error exactly as a read of the same
+     * address would be -- the direction does not change whether a device is
+     * there -- and it must be reported before the cache is updated below. A
+     * cache holding a value external memory refused is a cache that will hand
+     * that value back on a later read, which is how a silently dropped write
+     * becomes a wrong *read*. */
+    out.fault = true;
+    return out;
   }
 
   /* And it costs what the bus charges for it, counted by running the cycle --

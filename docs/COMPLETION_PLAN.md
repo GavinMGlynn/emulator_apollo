@@ -2540,17 +2540,32 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         case the boot PROM hits — and wrong for an instruction that had already
         committed one. A deliberate approximation: closing it needs the internal
         registers, which needs a microsequencer model.
-  - [ ] **The boot PROM now runs away rather than stopping, and that is a
-        finding rather than progress.** It reaches its 100000-instruction limit
-        with 669442 bus errors, looping in the handler at `000000404`. The
-        unbounded part is not the CPU's: `ap_board_write` **counts an unmapped
-        write and returns**, so each exception frame stacks successfully into
-        undecoded space and the loop can never terminate. The reset SSP is
-        `01000180`, only 384 bytes above the base of main memory, so the stack
-        leaves RAM after four frames. Fix the board's write path first — an
-        undecoded write silently succeeding is wrong on its own terms — then
-        re-measure. Do **not** treat 100000 as a thermometer reading; the
-        previous honest reading was 35.
+  - [x] **A write can now fault.** `ap_m68030_store_fn` returned `void`, so the
+        memory system could count a write to an address nothing decoded and then
+        had no way to refuse it — no write could raise a bus error, and an
+        exception frame stacked into undecoded space succeeded. A signal a
+        callee cannot send is one the caller assumes never happens.
+        - `ap_m68030_access` reports the fault **before** updating the cache. A
+          cache holding a value external memory refused hands it back on a later
+          read, which is how a silently dropped write becomes a wrong *read*.
+        - This closes the "write side of `access_faulted` is unreachable" tail
+          recorded two items ago: `step_suite` now covers a faulted write taking
+          the **short** frame (its value is in the data output buffer, which the
+          short frame carries) and the refused write not surviving in the cache.
+  - [x] The boot PROM reaches **89 instructions** — an honest reading this time.
+        The fault at `000028D0` is taken, the PROM's own handler at `00000404`
+        runs, and the run ends in a **double fault** when the exception stack
+        runs off the bottom of main memory. Bounded and deterministic.
+  - [ ] **The run re-enters `000028D0` after the handler returns** — five bus
+        errors at one address, which is why the stack runs out. A probe handler
+        that meant to skip the instruction would adjust the stacked PC, so
+        either it is not doing that, or the `$B` frame is not giving it what it
+        needs. Investigate; do **not** assume it from the loop alone.
+  - [ ] The reset SSP is `01000180`, only 384 bytes above the base of main
+        memory, so the supervisor stack has room for four fault frames. Check
+        against the oracle whether a real DN3500 has memory below `01000000`, or
+        whether the firmware moves the stack before anything can fault this
+        deep. Either answer changes what "ran off the stack" means here.
   - [ ] The long frame's INTERNAL REGISTER fields will have to be stacked as
         zero — a deliberate approximation, since this model has no
         microsequencer state to save. Cost to close: an `RTE` resuming a fault

@@ -31,7 +31,7 @@ typedef struct {
   unsigned writes;
 } memory_t;
 
-static void memory_store(void *context, uint32_t physical, uint32_t value,
+static bool memory_store(void *context, uint32_t physical, uint32_t value,
                          unsigned size) {
   memory_t *memory = (memory_t *)context;
   if (memory->writes < WRITE_SLOTS) {
@@ -42,6 +42,7 @@ static void memory_store(void *context, uint32_t physical, uint32_t value,
   memory->writes++;
   memory->written = value;
   memory->saw_write = true;
+  return true;
 }
 
 static void memory_fill(void *context, uint32_t line_address,

@@ -14,6 +14,7 @@
 
 #include "cpu/m68030/ap_m68030_step.h"
 #include "cpu/m68030/ap_m68030_exception.h"
+#include "cpu/m68030/ap_m68030_operand.h"
 #include "cpu/m68030/ap_m68030_ssw.h"
 #include "cpu/m68030/ap_m68030_mmusr.h"
 #include "cpu/m68030/ap_m68030_state.h"
@@ -48,9 +49,15 @@ typedef struct {
   uint32_t berr_from;
 } memory_t;
 
-static void memory_store(void *context, uint32_t physical, uint32_t value,
+static bool memory_store(void *context, uint32_t physical, uint32_t value,
                          unsigned size) {
   memory_t *memory = (memory_t *)context;
+  /* The same region that refuses reads refuses writes. A memory system where
+   * only one direction can fail is not a memory system any board has, and it
+   * was what let a faulted write go unnoticed for as long as it did. */
+  if (memory->berr_from != 0u && physical >= memory->berr_from) {
+    return false;
+  }
   if (memory->stores < STORE_SLOTS) {
     memory->store_address[memory->stores] = physical;
     memory->store_value[memory->stores] = value;
@@ -65,6 +72,7 @@ static void memory_store(void *context, uint32_t physical, uint32_t value,
       memory->bytes[at] = (uint8_t)(value >> ((size - 1u - i) * 8u));
     }
   }
+  return true;
 }
 
 static void memory_fill(void *context, uint32_t line_address,
@@ -418,6 +426,81 @@ test_the_same_instruction_over_memory_that_answers_executes(void) {
   TEST_ASSERT_EQUAL_HEX32(PROGRAM_BASE + 6u, m.cpu.regs.pc);
   TEST_ASSERT_TRUE((ap_m68030_read_ccr(&m.cpu.regs) &
                     (uint16_t)(1u << AP_M68030_SR_Z_BIT)) != 0u);
+}
+
+/* A write that nothing accepts is a bus error exactly as a read of the same
+ * address would be -- the direction does not decide whether a device is there.
+ *
+ * This was unreachable until the store callback could refuse. It returned
+ * `void`, so a write to an address nothing decoded was counted by the memory
+ * system and then silently succeeded, and no write could ever fault. A signal a
+ * callee cannot send is one the caller assumes never happens.
+ *
+ * A faulted *write* takes the short frame: its value is in the data output
+ * buffer, which the short frame carries, so there is nothing for the long one
+ * to add. That is the distinction the frame choice exists to make. */
+static void test_a_write_nothing_accepts_takes_the_bus_error_exception(void) {
+  /* MOVE.B D0,(A1) with A1 in the refusing region. */
+  static const uint16_t program[] = {0x1280u, 0x4E71u, 0x4E71u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 4);
+  plant_vector(&m, AP_M68030_VECTOR_BUS_ERROR, HANDLER);
+  m.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
+  m.cpu.regs.isp = SUPERVISOR_STACK;
+  m.cpu.regs.d[0] = 0x5Au;
+  m.cpu.regs.a[1] = 0x0000C000u;
+  m.memory.berr_from = 0x0000C000u;
+
+  const ap_m68030_step_result_t r = ap_m68030_step(&m.cpu);
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXCEPTION, r.status);
+  TEST_ASSERT_EQUAL_HEX32(HANDLER, m.cpu.regs.pc);
+  TEST_ASSERT_EQUAL_HEX32(SUPERVISOR_STACK - 32u, m.cpu.regs.isp);
+
+  const uint16_t format_word =
+      (uint16_t)(read_ram_long(&m, m.cpu.regs.isp + 4u) & 0xFFFFu);
+  TEST_ASSERT_EQUAL_INT(AP_M68030_FRAME_SHORT_BUS_FAULT,
+                        ap_m68030_frame_format_of(format_word));
+
+  const ap_m68030_ssw_t ssw = ap_m68030_ssw_decode(
+      (uint16_t)(read_ram_long(&m, m.cpu.regs.isp + 8u) & 0xFFFFu));
+  TEST_ASSERT_TRUE(ssw.data_fault);
+  TEST_ASSERT_FALSE(ssw.read);
+  TEST_ASSERT_EQUAL_UINT(AP_M68030_SSW_SIZE_BYTE, ssw.size);
+
+  /* "For data write faults, the handler must transfer the properly sized data
+   * from the data output buffer (DOB) on the stack frame" -- so the value the
+   * write was carrying has to be there, or the handler has nothing to write. */
+  TEST_ASSERT_EQUAL_HEX32(
+      0x5Au, read_ram_long(&m, m.cpu.regs.isp + AP_M68030_BUS_FAULT_DATA_OUTPUT));
+  TEST_ASSERT_EQUAL_HEX32(
+      0x0000C000u,
+      read_ram_long(&m, m.cpu.regs.isp + AP_M68030_BUS_FAULT_ADDRESS));
+}
+
+/* A cache must not keep a value external memory refused. Writethrough means the
+ * external cycle is not optional, so a store the memory system declined has to
+ * leave the cache as it was -- otherwise the dropped write comes back as a
+ * wrong *read* later, from a line that never existed anywhere else. */
+static void test_a_refused_write_is_not_left_in_the_cache(void) {
+  static const uint16_t program[] = {0x1280u, 0x4E71u, 0x4E71u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 4);
+  plant_vector(&m, AP_M68030_VECTOR_BUS_ERROR, HANDLER);
+  m.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
+  m.cpu.regs.isp = SUPERVISOR_STACK;
+  m.cpu.regs.d[0] = 0x5Au;
+  m.cpu.regs.a[1] = 0x0000C000u;
+  m.memory.berr_from = 0x0000C000u;
+
+  (void)ap_m68030_step(&m.cpu);
+
+  /* Read the same address back through the data cache. It must fault again --
+   * a cached copy of the refused byte would answer instead. */
+  const ap_m68030_address_t where = {.address = 0x0000C000u, .valid = true};
+  const ap_m68030_operand_result_t back = ap_m68030_operand_read(
+      &m.cpu.regs, m.cpu.data, &where, 1u, 5u);
+  TEST_ASSERT_FALSE(back.ok);
 }
 
 /* The flag describes one instruction, so it must not survive into the next.
@@ -3967,6 +4050,8 @@ int main(void) {
   RUN_TEST(test_an_unimplemented_instruction_is_reported_not_skipped);
   RUN_TEST(test_a_faulting_operand_read_takes_the_bus_error_exception);
   RUN_TEST(test_the_same_instruction_over_memory_that_answers_executes);
+  RUN_TEST(test_a_write_nothing_accepts_takes_the_bus_error_exception);
+  RUN_TEST(test_a_refused_write_is_not_left_in_the_cache);
   RUN_TEST(test_a_fault_does_not_leak_into_the_following_instruction);
   RUN_TEST(test_an_illegal_encoding_is_distinct_from_unimplemented);
   RUN_TEST(test_a_cached_pass_runs_no_bus_cycles_and_costs_its_microcode);

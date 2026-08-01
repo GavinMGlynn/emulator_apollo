@@ -98,22 +98,24 @@ static void machine_fill(void *context, uint32_t line_address,
   out->data[0] = read_bytes(machine, line_address, 4u);
 }
 
-static void machine_store(void *context, uint32_t physical, uint32_t value,
+static bool machine_store(void *context, uint32_t physical, uint32_t value,
                           unsigned size) {
   ap_machine_t *machine = (ap_machine_t *)context;
 
   if (machine->board != NULL) {
     if (!board_write(machine, physical, size, value)) {
       machine->bus_errors++;
+      return false;
     }
-    return;
+    return true;
   }
 
   if (!in_range(machine, physical, size)) {
     machine->bus_errors++;
-    return;
+    return false;
   }
   write_bytes(machine, physical, size, value);
+  return true;
 }
 
 /* The table search's descriptor fetch, over the same RAM. A machine whose MMU
