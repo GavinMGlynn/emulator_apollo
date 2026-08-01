@@ -143,7 +143,11 @@ Two clean-looking numbers have now misled this investigation in opposite
 directions: five million instructions with zero faults was a runaway, and 129
 faults is a self-test passing. The board therefore records the *first* unmapped
 address in each direction as well as the count, because a count alone cannot
-tell those apart. It reports `FFF90000`.
+tell those apart. It reports `FFF90000`, and that one is also correct: `F8000000-FFFFFFFF` is
+labelled "used by fpa and/or color7?" in the oracle's source, whose handler is
+commented *out* of the map — so a DN3500 bus errors there, as we do. The
+firmware is probing for a floating-point accelerator and being told there is
+none.
 
 Getting there needed `--boot-trace` (PC and A7 per step) and one fix. A7 was the
 observable: the PROM's `CLR.B $00011600` bus errored on every pass through its

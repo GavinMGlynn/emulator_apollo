@@ -2674,10 +2674,21 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         the headless frontend. A count cannot distinguish a self-test from a
         defect; an address can. The first unmapped read is `FFF90000`, high
         space, in the range MAME leaves commented out as `apollo_f8_r/w`.
-  - [ ] Characterise `FFF90000`. It is the *first* fault, so it has the fewest
-        causes behind it. Establish whether the firmware expects it — several of
-        these faults are self-test and some may not be — before deciding whether
-        anything is missing there.
+  - [x] Characterised `FFF90000`, and **our behaviour matches the oracle**.
+        `F8000000-FFFFFFFF` has a handler in MAME's source, `apollo_f8_r`,
+        returning `FFFFFFFF` without a fault — but the map line that would
+        install it is **commented out**, so the catch-all applies and a DN3500
+        bus errors there. That is what we do.
+        - MAME labels the region "used by fpa and/or color7?" — with the
+          question mark. The oracle is *itself* unsure what lives there, so the
+          identity is recorded as uncertain rather than asserted. What is not
+          uncertain is the behaviour, which is what we needed.
+        - So the firmware probes for a floating-point accelerator, gets a bus
+          error, and concludes none is fitted. Consistent with C33: this is a
+          probe answered correctly, not a device missing.
+  - [ ] If an FPA is ever modelled, `F8000000-FFFFFFFF` is its space — and the
+        commented-out handler is a hint that returning `FFFFFFFF` there was
+        tried and not kept. Find out why before repeating it.
   - [ ] Every remaining counter in `ap_board_t` reports only "how many". C33's
         rule is to report *what* an access touched: extend them the same way
         before an investigation needs it, rather than during one.
