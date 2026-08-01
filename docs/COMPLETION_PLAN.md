@@ -2745,6 +2745,19 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
           It did not need one: the oracle's loader states the rule directly, and
           reading it cost one grep against a question that had been waiting for
           media that may not exist.
+        - **Then verified on the real PROM we hold.** `3500_NI_1C874.bin` is 32
+          bytes: `00 00 01 00 C8 00 74 00` then zeros, with `3D` at offset 30.
+          `01 + C8 + 74 = 13D`, and `3D` is what offset 30 contains. The rule
+          taken from the oracle's source is confirmed against hardware data.
+        - Two more things fall out of the same eight bytes. The node ID reads
+          `01C874` from offsets 2, 4 and 6 — and the file is named
+          `3500_NI_1C874.bin`, so the identifier is confirmed by its own
+          filename. And every odd byte is zero, which is the decode this project
+          had to *correct* after copying the SIO's byte-pairing: the node ID
+          reads zero on odd bytes, and here is the PROM saying so.
+        - Three confirmations from one 32-byte file that has been in `roms/`
+          throughout: the checksum rule, the identifier's placement, and the odd
+          byte decode.
 
 ## Phase 4 — Storage, then a first boot
 
