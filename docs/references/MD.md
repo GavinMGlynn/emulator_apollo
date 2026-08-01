@@ -169,8 +169,18 @@ Sending `H` returns:
 ABRVPICOH
 ```
 
-Nine letters, no separators. **That is the complete command set of this boot
-PROM** -- `A`, `B`, `R`, `V`, `P`, `I`, `C`, `O`, `H` -- and `D` is not in it.
+Nine letters, no separators.
+
+**Read with caution.** It was first taken here as the complete command set, and
+that reading is not safe: sending `R` -- one of the nine -- returns `E`, the
+same single letter `A1000` returns. So either `E` is a generic "needs
+arguments" response and the nine are commands, or `ABRVPICOH` is not a command
+list at all and its meaning is unknown. One run cannot tell those apart, and the
+claim was made from one run.
+
+What the string does support is narrower and still useful: `D` does not appear
+in it, and `D` produces nothing, which is consistent with `D` being absent from
+this image whatever the nine letters are.
 
 So `D` produced nothing because **the command does not exist here**. The
 handbook's list at `002398-04` describes a fuller MD than this image carries;
@@ -184,9 +194,10 @@ commands was wrong about this machine, in the direction that costs the most --
 it named something that is not there, so every attempt to use it looked like a
 syntax problem rather than an absence.
 
-**`A` is therefore the only memory-examining command this PROM has**, which
-makes the address-and-prompt format captured above the format the parser must
-read, not a stepping-stone to a nicer one. The contents field appears when `A`
+**`A` is the only memory-examining command confirmed to work on this PROM** --
+confirmed by use rather than by the help string -- which makes the
+address-and-prompt format captured above the format the parser must read, not a
+stepping-stone to a nicer one. The contents field appears when `A`
 is given input that displays rather than advances, and the command set is now
 small enough to establish that from the machine itself.
 

@@ -415,10 +415,14 @@ file the moment they are found, not when someone remembers.
         - The handbook gives `D <start> <end> <items/line>` and **no example**,
           so separators, radix and argument optionality are unstated. `D` is
           marked `+` ("not in DNx60"), so it is present on a DN3500.
-        - **`H` settles it: this PROM has no `D`.** The help output is
-          `ABRVPICOH` — nine letters, the complete command set of
-          `3500_BOOT_12191_7`. `D` produced nothing because the command does not
-          exist here.
+        - `H` returns `ABRVPICOH`, nine letters. **Read with caution**: this
+          was first taken as the complete command set, and sending `R` — one of
+          the nine — returns `E`, the same response `A1000` gives. So either
+          `E` means "needs arguments" and the nine are commands, or the string
+          is not a command list and its meaning is unknown. One run cannot
+          separate those, and the claim was made from one run.
+        - What survives: `D` is not in the string and `D` produces nothing,
+          consistent with `D` being absent from this image.
         - The handbook's markers distinguish machine *families*, not PROM
           *revisions*, so a command listed for the DN3500 can still be absent
           from a particular DN3500 image. It named something that is not there,
