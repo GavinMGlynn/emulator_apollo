@@ -1102,9 +1102,18 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
   - [~] **The instruction step** (`src/core/cpu/m68030/ap_m68030_step.c`):
         fetch through the pipe and instruction cache, decode, execute, advance
         the PC, account the clocks. **A program runs.**
-        Executing today: `NOP`, `MOVEQ`, and the 8-bit forms of `BRA` and
-        `Bcc` — the instructions needing no operand access beyond the
-        instruction word.
+        Executing today: **everything in families `0000` through `1111`**
+        except `BKPT`, `CAS`, `CAS2`, `CMP2`, `CHK2` and the coprocessor
+        instructions other than the MMU's. Every addressing mode the part has
+        resolves, full-format indexed and memory indirect included. Exceptions
+        are taken *and returned from*, including bus error, address error and
+        the line 1010 and 1111 emulator traps.
+
+        (This paragraph read "`NOP`, `MOVEQ`, and the 8-bit forms of `BRA` and
+        `Bcc`" until it was corrected. That was true when the item was written
+        and had been false for a long time — the tables below were updated
+        commit by commit and the prose describing them was not, which is the
+        same rot found in `PROJECT_STATUS.md`'s "no CPU" line.)
         **Unimplemented is a distinct outcome from illegal**, and that is what
         lets this ship incomplete. Silently doing nothing would make a program
         appear to run while producing wrong results *and* a wrong clock count;
@@ -1115,7 +1124,7 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         `-Wswitch-enum` keeps it honest: every decoded kind is listed
         explicitly, so adding a family to the decoder forces a decision here
         rather than letting a `default` make it silently.
-        *Verification: `step_suite`, 10 tests — `MOVEQ` sign-extending `$FF` to
+        *Verification: `step_suite`, **178 tests** — including `MOVEQ` sign-extending `$FF` to
         −1 and setting exactly the documented condition codes (with X asserted
         to *survive*), a four-instruction program running to its end, `BRA`
         landing on its target and the instruction there being the expected one,
@@ -1124,6 +1133,22 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         instruction reported rather than skipped, an illegal encoding distinct
         from it, and a second pass over the same code costing **zero** clocks
         because the instruction cache answers.*
+
+        **What stops it being `[x]`**, and why each is a *reason* rather than an
+        omission:
+        - `BKPT` runs a breakpoint acknowledge cycle in **CPU space**, which is
+          a bus transaction this step does not issue. Blocked on the bus, not on
+          the step.
+        - `CAS` and `CAS2` are an indivisible read-modify-write: executing them
+          honestly means the bus asserting `RMC` for the pair. Also the bus.
+        - `CMP2` and `CHK2` decode and have no semantics yet. **Not blocked** —
+          simply not done, and the smallest remaining piece of this item.
+        - The non-MMU coprocessor instructions take the line 1111 emulator trap,
+          which is **correct** on a machine with no coprocessor fitted rather
+          than a gap. If an FPU is ever modelled they become real work.
+
+        So three of the four are waiting on the bus asserting `RMC` and one is a
+        morning's work. Nothing here is waiting on a decision.
   - [x] **Operand access** (`src/core/cpu/m68030/ap_m68030_operand.c`), the
         layer between address calculation and memory. It exists mostly to hold
         two register rules that are opposites of each other and are easy to
