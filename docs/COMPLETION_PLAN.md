@@ -335,10 +335,22 @@ file the moment they are found, not when someone remembers.
         - The release matters as much as the press: this keyboard scans and
           reports transitions, so a key never released gives one event and then
           reads as stuck.
-        - Next: `ESC` was a test of the *route*, chosen for being the first
-          field in `keyboard1`, not a considered key. Try the keys a boot PROM's
-          console watches for, and hold the window well past the response so a
-          slow banner is not cut off.
+        - **`Numpad Enter` gives the same shape, and the repetition reads it**
+          (`FINDINGS.md` C42): `CSRB` — serial 1 **channel B**'s clock select —
+          toggles `77` → `BB` → `77` → `BB` on every key event. That is
+          **baud-rate detection**. The firmware is cycling channel B's rate and
+          waiting for a character that decodes.
+        - The keyboard is on channel **A**, so a keystroke *prompts* the probe
+          and can never *answer* it. The machine has been asking a question the
+          whole time on a port nothing was answering.
+        - `APOLLO_XXL`'s stdio terminal is wired to `rx_b_w` — **channel B**, the
+          port being probed. C36 called that rebuild a dead end because no
+          output followed; it was right about the output and wrong about the
+          build, which is the only route to the input the firmware wants.
+        - Next: pipe a byte into MAME's standard input, which is what
+          `apollo_stdio_device` reads and what `oracle.py` currently leaves
+          empty. Try **both** rates the firmware cycles before reading anything
+          into a null result.
         - **A result worth having on the way** (`FINDINGS.md` C39): the oracle's
           four configuration writes, decoded — `sio1 ACR E0`, `sio1 CSRB 77`,
           `sio2 ACR 80`, `sio2 CSRA 77`. Both ports get the same clock select,

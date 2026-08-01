@@ -2394,3 +2394,49 @@ of the keyboard's encoding -- it was a test of the *route*, not a considered
 choice of key. The next run should try the keys a boot PROM's console actually
 watches for, and should hold the window open well past the response so a slow
 banner is not cut off.
+
+
+## C42 -- the firmware is autobauding channel B, and that is where the terminal is
+
+`Numpad Enter` gives the same shape as `ESC`, and the repetition is what makes it
+readable:
+
+```
+# pressed "Numpad Enter" at 6.0s
+W sio1 CSRB  BB     <- clock select changed
+W sio1 ACR   E0
+W sio1 CSRB  77     <- and back
+W sio2 ACR   80
+W sio2 CSRA  77
+W sio1 CSRB  BB     <- and again, on the release
+```
+
+`CSRB` is serial 1 **channel B**'s clock select. The firmware toggles it between
+`77` and `BB` on every keyboard event, reconfiguring both DUARTs in between.
+That is **baud-rate detection**: it is cycling the rate of channel B and waiting
+for a character that decodes cleanly.
+
+Two facts already recorded now meet. C36 established that MAME's stdio terminal
+is wired to `apollo_sio::rx_b_w` -- **channel B**, the very port being probed.
+And the keyboard is on channel A, so a keystroke is what *prompts* the probe
+without ever being able to *answer* it.
+
+So the machine has been asking a question this whole time, on a port nothing was
+answering, and every earlier run watched it ask.
+
+### The next step, and why it is now specific
+
+Send a character into channel B at a rate the firmware accepts. The
+`APOLLO_XXL` build from C36 -- which looked like a dead end when it produced no
+output -- is what makes this possible, because `apollo_stdio_device` is the only
+thing wired to that input. It reads the host's standard input, and `oracle.py`
+runs MAME with nothing on stdin.
+
+That is the experiment: pipe a byte in. Whether the rate matters is unknown --
+the firmware may accept either of the two it cycles, or neither -- so a null
+result needs both tried before it means anything.
+
+Worth noting the earlier judgement this overturns. C36 recorded the
+`APOLLO_XXL` rebuild as changing nothing, and it was right that no output
+appeared. It was wrong to imply the build was beside the point. The terminal it
+compiles in is the only route to the port the firmware is actually listening on.
