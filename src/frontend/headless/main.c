@@ -212,6 +212,27 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
     return 1;
   }
 
+  /* A watch address must name memory. This reads through `ap_board_read` every
+   * step, so watching a device register would *perturb the machine*: reading a
+   * DUART's receive buffer pops its FIFO, and every read inflates the
+   * per-region counters. An instrument that changes what it measures is worse
+   * than none, and a comment saying so is not a guard -- the mistake is one
+   * keystroke away and its symptom is a run that is merely *different*, with
+   * nothing to say it was the watching that changed it. */
+  if (watch != 0u) {
+    const ap_board_region_t region = ap_board_region(watch);
+    if (region != AP_BOARD_REGION_RAM && region != AP_BOARD_REGION_PROM) {
+      fprintf(stderr,
+              "apollo: --boot-watch %08X is in %s, not memory. Watching a "
+              "device register would change the run it is measuring.\n",
+              watch, ap_board_region_name(region));
+      free(board);
+      free(ram);
+      free(prom);
+      return 1;
+    }
+  }
+
   printf("boot PROM %s\n", path);
   printf("  size         %lu\n", (unsigned long)size);
   printf("  reset SSP    %08X (%s)\n", stack,

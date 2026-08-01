@@ -2868,13 +2868,13 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
           bits are handled correctly. So the mechanism exists; whether the
           firmware trips it is still unestablished, and the per-register counts
           are still the way to find out.
-  - [ ] **`--boot-watch` must never be pointed at a device register.** It reads
-        through `ap_board_read` every step, so watching a DUART would pop its
-        receive FIFO and every read inflates the per-region counters. An
-        instrument that changes what it measures is worse than none, and this
-        one gives no warning — the run simply becomes a different run. Noted in
-        the help text and the code; a guard that refuses non-memory addresses
-        would be better than a comment.
+  - [x] **`--boot-watch` now refuses a non-memory address**, naming the region
+        it landed in. It reads through `ap_board_read` every step, so watching a
+        DUART would pop its receive FIFO and every read inflates the per-region
+        counters — an instrument that changes what it measures is worse than
+        none. A comment was not a guard: the mistake is one keystroke away, and
+        its symptom is a run that is merely *different*, with nothing to say the
+        watching caused it.
   - [ ] `0000220C` at both 300000 and 1000000 instructions, so it has settled
         there. Establish whether that is another wait before treating it as a
         stop — the last three times a PC settled, twice it was a correct wait
