@@ -1773,10 +1773,20 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
           *Verification: `ADD.B D0,(A0)` coming to 7 against the oracle and
           against `NCC + fea`; and the second worked example of §11.3.4, which
           exists precisely to exercise Equation (11-2).*
-  - [ ] Wire the bus to a memory system so the termination kind and its arrival
-        clock come from a device rather than a test. That is what makes
-        contention emergent, and it belongs with Phase 3's single arbitration
-        point.
+  - [x] **The termination *kind* now comes from a device.** `machine_fill` and
+        `machine_store` ask the board and answer `BERR` when nothing decodes the
+        address, `STERM` when something does — so a bus error is a device
+        declining to answer rather than a test asserting one. That is what made
+        the boot PROM's 129 self-test faults, the AT bus empty-slot reads and
+        the display probe all behave as the hardware does.
+  - [ ] Still open: the termination's **arrival clock**. `STERM` is answered at
+        a fixed two-clock minimum regardless of which device replied, so a slow
+        device cannot yet lengthen a cycle. Until it can, contention is emergent
+        in *who* holds the bus but not in *how long* they hold it, and no
+        measured timing figure can come from a device's own speed.
+        - Belongs with Phase 3's single arbitration point, as the original item
+          said. Splitting it here because half of it is done and a wholly-open
+          item hides that.
 - [~] Exceptions, traps, interrupt priority, bus/address error stack frames.
       *Verification: probes that deliberately fault, diffed against oracle.*
   - [x] **Vectors, priority and frame formats**
