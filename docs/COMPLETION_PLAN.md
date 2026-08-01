@@ -3103,7 +3103,7 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
           mean the firmware has not printed, or that the path from the
           transmitter is broken, and those need opposite responses. With the
           path proven, silence is evidence about the firmware.
-  - [ ] **And the PROM is silent** — 300000 instructions, nothing transmitted on
+  - [x] **And the PROM is silent** — 300000 instructions, nothing transmitted on
         either port or channel. That is now a fact about the firmware, and the
         next question. Possibilities, none yet established:
         - it polls for a console character *before* announcing itself, and the
@@ -3113,6 +3113,8 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         - its console is not a DUART port at all on this configuration.
         Watch writes to the transmit buffers rather than guessing — the same
         move that has settled every other question here.
+        - Answered: it is waiting for a character, not unable to print. Fed one on
+          the port it autobauds, the oracle prints `CR LF "MD7"` (`FINDINGS.md` C45).
   - [x] Per-region access counts on the board, reported by the frontend. The
         completion of C33: a count of *failures* cannot answer "what did the
         firmware want", because the interesting case is usually a device that
@@ -3155,19 +3157,21 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         capture. The `tx_enabled` mechanism that could have swallowed the output
         exists but is not what is happening, which is why it was recorded as a
         thing to test rather than believed.
-  - [ ] What the 11839 writes actually are: `sio1 reg 9` 4723 times,
+  - [x] What the 11839 writes actually are: `sio1 reg 9` 4723 times,
         `sio1 reg 4` 2362, `sio2 reg 1` 2362, `sio2 reg 4` 2361 — the auxiliary
         control and clock-select registers, hammered, with the counter/timer
         preload registers written once each. That is the shape of something
         driving the DUART's **counter/timer**, which in this model never
         advances because nothing ticks.
+        - Answered: not a counter/timer — its registers have zero *reads*. It is
+          the firmware cycling `CSRB` between `77` and `BB` (`FINDINGS.md` C42).
   - [x] **Refuted: it is not the counter/timer.** Per-register *read* counts —
         which matter more than writes on this part, since reading register 14
         starts the counter and 15 stops it — show the counter registers 6 and 7
         with **zero reads on both ports**, and register 14 read twice. Nothing
         is driving a timer. The inference from write volume alone was wrong, and
         was recorded as a reading to confirm for exactly this reason.
-  - [ ] What it *is*: a **write-only loop**. `sio1 reg 9` 4723 writes and
+  - [x] What it *is*: a **write-only loop**. `sio1 reg 9` 4723 writes and
         `sio1 reg 4` 2362 — almost exactly 2:1, so one iteration writes the
         auxiliary control register once and clock-select B twice, about 2362
         times — with **no reads at all** on those registers. A loop that writes
@@ -3177,6 +3181,8 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
           cannot end on anything it reads may be waiting to be interrupted.
         - The tick loop is *not* established as the answer either. Reading the
           code came first, and it says something else.
+        - Answered: it is the channel B autobaud, a rate search rather than a
+          wait for anything readable (`FINDINGS.md` C42).
   - [x] Read the loop at `0000220C`. It is three instructions —
         `CMP.B (d8,PC,Xn),D1`, `BEQ`, `DBF` — a **table search**, comparing the
         received byte against a table at `000021D2`. The table is
@@ -3278,7 +3284,7 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         codes, and the PROM's table at `000021D2` is the map it decodes them
         with. `--boot-input-channel A` already reaches it; what is missing is
         the scan codes themselves.
-  - [ ] Superseded reading, kept because it was right about the device and wrong
+  - [~] Superseded reading, kept because it was right about the device and wrong
         about the consequence: **SIO1 is the keyboard, not a terminal.** If
         so, feeding it ASCII is the wrong thing entirely — `\n` and `\r` both
         fail to match, and `\r` is *in* the table — and the DN3500's console is
