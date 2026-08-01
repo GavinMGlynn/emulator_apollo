@@ -2731,8 +2731,19 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
           not a one-or-two flag. Only the two common lengths are named and the
           rest survive as their own code, because a driver that programmed 1.5
           stop bits meant it.
-        - Still open: applying these to a character rather than only reporting
-          them, and the automatic echo and loopback modes.
+        - **Applied to a character**: a received byte now arrives with only as
+          many bits as the link carries, so a seven-bit port never sees an
+          eighth. That is the absence of a signal rather than truncation of a
+          value — the bit was not transmitted — which is why a seven-bit console
+          shows `A` for both `41` and `C1` and reports no error doing it.
+        - It immediately caught an assumption in an existing test. `MR1` resets
+          to `00`, which is a **five-bit** link, so an unprogrammed port
+          delivers `41` as `01`. A rate test had been asserting `41` came back
+          intact while quietly depending on framing not being modelled; it now
+          programs the eight bits it always meant.
+        - Still open: parity actually checked rather than only reported (the
+          model has no parity bit to check yet), and the automatic echo and
+          loopback modes.
         - **The values are no longer unknown.** `FINDINGS.md` C39 and C42 read
           them off the running oracle: `sio1 ACR E0`, `sio1 CSRB 77`,
           `sio2 ACR 80`, `sio2 CSRA 77` at reset, and the firmware then

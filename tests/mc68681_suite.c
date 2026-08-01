@@ -304,6 +304,10 @@ static void test_a_character_sent_at_the_right_rate_does_not(void) {
   ap_mc68681_reset(&duart);
   ap_mc68681_write(&duart, AP_MC68681_CR_A, 0x01u);
   ap_mc68681_write(&duart, AP_MC68681_SR_CSR_A, 0x77u);
+  /* Eight bits, explicitly. `MR1` resets to `00`, which is a **five-bit** link
+   * — so an unprogrammed port delivers `41` as `01`, and this test read as a
+   * rate test while quietly depending on framing not being modelled. */
+  ap_mc68681_write(&duart, AP_MC68681_MR_A, 0x07u);
 
   ap_mc68681_receive_at(&duart, 0u, 0x41u, 0x77u);
 
@@ -384,6 +388,42 @@ static void test_the_stop_field_keeps_its_uncommon_codes(void) {
   TEST_ASSERT_EQUAL_UINT(AP_MC68681_MR2_STOP_ONE, ap_mc68681_stop_code(0xF7u));
 }
 
+
+/* A character arrives with only as many bits as the link carries. A receiver
+ * programmed for seven never sees an eighth -- the bit is not transmitted, so
+ * this is the absence of a signal rather than truncation of a value.
+ *
+ * It is also why a seven-bit console shows `A` for both `41` and `C1`, and why
+ * a driver that programmed seven and then sent eight-bit data gets a silently
+ * altered stream and no error: nothing went wrong on the wire. */
+static void test_a_character_arrives_with_the_links_bit_count(void) {
+  ap_mc68681_t duart;
+  ap_mc68681_reset(&duart);
+  ap_mc68681_write(&duart, AP_MC68681_CR_A, 0x01u);
+  ap_mc68681_write(&duart, AP_MC68681_SR_CSR_A, 0x77u);
+  /* MR1 = seven bits (field 10), parity disabled (bit 2 set). */
+  ap_mc68681_write(&duart, AP_MC68681_MR_A, 0x06u);
+
+  ap_mc68681_receive_at(&duart, 0u, 0xC1u, 0x77u);
+
+  TEST_ASSERT_EQUAL_HEX8(0x41u, ap_mc68681_read(&duart, AP_MC68681_RB_TB_A));
+}
+
+/* Eight bits passes the byte through unchanged, which is the control the test
+ * above needs: without it, a model that always masked to seven would satisfy
+ * it. */
+static void test_an_eight_bit_link_passes_the_whole_byte(void) {
+  ap_mc68681_t duart;
+  ap_mc68681_reset(&duart);
+  ap_mc68681_write(&duart, AP_MC68681_CR_A, 0x01u);
+  ap_mc68681_write(&duart, AP_MC68681_SR_CSR_A, 0x77u);
+  ap_mc68681_write(&duart, AP_MC68681_MR_A, 0x07u); /* eight bits */
+
+  ap_mc68681_receive_at(&duart, 0u, 0xC1u, 0x77u);
+
+  TEST_ASSERT_EQUAL_HEX8(0xC1u, ap_mc68681_read(&duart, AP_MC68681_RB_TB_A));
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_a_character_sent_at_the_wrong_rate_sets_a_framing_error);
@@ -393,6 +433,8 @@ int main(void) {
   RUN_TEST(test_character_length_is_five_plus_the_field);
   RUN_TEST(test_parity_is_enabled_when_the_bit_is_clear);
   RUN_TEST(test_the_stop_field_keeps_its_uncommon_codes);
+  RUN_TEST(test_a_character_arrives_with_the_links_bit_count);
+  RUN_TEST(test_an_eight_bit_link_passes_the_whole_byte);
   RUN_TEST(test_an_idle_transmitter_is_ready_and_empty);
   RUN_TEST(test_the_mode_register_pointer_advances_then_sticks);
   RUN_TEST(test_the_receive_fifo_holds_three_and_then_overruns);

@@ -77,7 +77,19 @@ void ap_mc68681_receive_at(ap_mc68681_t *duart, unsigned channel, uint8_t byte,
     return;
   }
   ap_mc68681_channel_t *ch = &duart->channel[channel];
-  ap_mc68681_receive(duart, channel, byte);
+
+  /* The character arrives with only as many bits as the link carries. A
+   * receiver programmed for seven never sees an eighth: the bit is not
+   * transmitted, so masking here is not truncation of a value but the absence
+   * of a signal.
+   *
+   * This is why a seven-bit console shows `A` for both `41` and `C1`, and why a
+   * driver that set `MR1` for seven and then sent eight-bit data gets a
+   * silently altered stream rather than an error -- there is nothing for the
+   * part to report, because nothing went wrong on the wire. */
+  const unsigned bits = ap_mc68681_character_bits(ch->mr[0]);
+  const uint8_t framed = (uint8_t)(byte & ((1u << bits) - 1u));
+  ap_mc68681_receive(duart, channel, framed);
   /* Set *after* delivery, and only if the byte was taken: a receiver that is
    * disabled or whose FIFO is full never sampled the character at all, so it
    * cannot have found its stop bit in the wrong place. */
