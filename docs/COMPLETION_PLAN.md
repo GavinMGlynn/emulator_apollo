@@ -2748,6 +2748,24 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         - its console is not a DUART port at all on this configuration.
         Watch writes to the transmit buffers rather than guessing — the same
         move that has settled every other question here.
+  - [x] Per-region access counts on the board, reported by the frontend. The
+        completion of C33: a count of *failures* cannot answer "what did the
+        firmware want", because the interesting case is usually a device that
+        answered and was not what the firmware hoped for. A region with **zero**
+        accesses is as informative as one with thousands.
+  - [x] It answers the silence. Over 300000 instructions:
+        `serial 250244 reads / 38 writes`. The firmware configured both DUARTs
+        — 38 writes is mode, clock-select and command registers for four
+        channels — and then polls. **It never transmits.** So the first of the
+        three possibilities holds: it waits for a console character before
+        announcing itself.
+  - [ ] The table also shows what the firmware has *not* touched, which is the
+        half a total cannot give: **no timer and no calendar accesses at all**,
+        and the interrupt controllers written 10 times but never read. Establish
+        whether that is expected this early before reading anything into it.
+  - [ ] Find what character the PROM is waiting for. It polls both ports, so
+        try each; and the answer is behind a branch, so `--boot-trace` on the
+        poll will show which comparison decides.
   - [ ] The tick loop is still owed regardless, and remains the project's
         central design item — but it is **not** what this stop needs, and
         building it here would have been the wrong move for a plausible reason.

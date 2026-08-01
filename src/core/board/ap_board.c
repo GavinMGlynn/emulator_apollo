@@ -131,7 +131,11 @@ bool ap_board_init(ap_board_t *board, uint8_t *ram, uint32_t ram_bytes,
 
 uint8_t ap_board_read(ap_board_t *board, uint32_t address, bool *ok) {
   *ok = true;
-  switch (ap_board_region(address)) {
+  const ap_board_region_t counted = ap_board_region(address);
+  if ((unsigned)counted < AP_BOARD_REGIONS) {
+    board->region_reads[counted]++;
+  }
+  switch (counted) {
   case AP_BOARD_REGION_CORE_REGISTER:
     return ap_boardreg_read8(&board->registers, address);
   case AP_BOARD_REGION_SIO:
@@ -195,7 +199,11 @@ uint8_t ap_board_read(ap_board_t *board, uint32_t address, bool *ok) {
 void ap_board_write(ap_board_t *board, uint32_t address, uint8_t value,
                     bool *ok) {
   *ok = true;
-  switch (ap_board_region(address)) {
+  const ap_board_region_t counted = ap_board_region(address);
+  if ((unsigned)counted < AP_BOARD_REGIONS) {
+    board->region_writes[counted]++;
+  }
+  switch (counted) {
   case AP_BOARD_REGION_CORE_REGISTER:
     ap_boardreg_write8(&board->registers, address, value);
     return;

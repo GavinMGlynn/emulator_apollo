@@ -102,6 +102,11 @@ typedef enum {
   AP_BOARD_REGION_RAM,
 } ap_board_region_t;
 
+/* One past the last region, for sizing a per-region array. Kept beside the
+ * enum so a region added without extending the counters is a compile error in
+ * the switch statements rather than a silently unrecorded one here. */
+#define AP_BOARD_REGIONS (AP_BOARD_REGION_RAM + 1u)
+
 typedef struct ap_board {
   ap_boardreg_t registers;
   ap_atmap_t translation_map;
@@ -156,6 +161,15 @@ typedef struct ap_board {
   unsigned atbus_empty_writes;
   uint32_t first_atbus_empty_read;
   uint32_t first_atbus_empty_write;
+
+  /* Every access, by region, whether or not anything answered. C33's rule taken
+   * to its end: "the firmware wanted the calendar" is a question a count of
+   * failures cannot answer, because the interesting case is usually a device
+   * that *did* answer and was not what the firmware hoped for. A region with
+   * zero writes is as informative as one with thousands -- it says the firmware
+   * never tried. */
+  unsigned region_reads[AP_BOARD_REGIONS];
+  unsigned region_writes[AP_BOARD_REGIONS];
 } ap_board_t;
 
 /* `start` is the calendar's instant; see `device/ap_mc146818.h` on why it comes

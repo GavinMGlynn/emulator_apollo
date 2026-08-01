@@ -340,6 +340,18 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
   if (board->atbus_empty_writes > 0u) {
     printf("    first write %08X\n", board->first_atbus_empty_write);
   }
+  /* Every region the firmware touched, and every one it did not. The zeros are
+   * the informative half: a device with no accesses is one the firmware never
+   * reached for, which a total cannot say. */
+  printf("  regions      reads / writes\n");
+  for (unsigned r = 0; r < AP_BOARD_REGIONS; r++) {
+    if (board->region_reads[r] == 0u && board->region_writes[r] == 0u) {
+      continue;
+    }
+    printf("    %-22s %8u %8u\n",
+           ap_board_region_name((ap_board_region_t)r), board->region_reads[r],
+           board->region_writes[r]);
+  }
   printf("  state hash   %016llX\n",
          (unsigned long long)ap_machine_hash(&machine));
 

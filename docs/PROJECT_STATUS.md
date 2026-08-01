@@ -171,8 +171,15 @@ directions through the registers a program writes and reads.
 **The PROM is silent.** 300000 instructions produce nothing on either port. The
 path being tested is what makes that a fact about the firmware rather than about
 us — a silent run would otherwise be ambiguous between "has not printed" and
-"cannot print". Why it says nothing is the next question, and is to be settled
-by watching writes to the transmit buffers rather than guessed at.
+"cannot print". Per-region access counts settle why. Over 300000 instructions the serial region
+takes **250244 reads and 38 writes**: the firmware configures both DUARTs — 38
+writes is mode, clock-select and command registers for four channels — and then
+polls, never transmitting. It is waiting for a console character before
+announcing itself.
+
+The same table shows what has *not* been touched, which a total cannot: no timer
+and no calendar accesses at all, and the interrupt controllers written ten times
+but never read. Whether that is expected this early is not yet established.
 
 The tick loop is still owed and remains the project's central design item, but
 it is not what this stop needs.
