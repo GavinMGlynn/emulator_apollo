@@ -3713,6 +3713,14 @@ discipline throughout.
     2500 driver.
   - `tests/goldens/model_table.txt` regenerated; the golden caught the change,
     which is what it is for.
+  - **The same check was then run against every boot PROM we hold, and the rest
+    agree.** `3000_BOOT_8475_4` and `_7` both start with SSP `00100180` against
+    a table entry of `0x100000`; `3500`, `4500` and `5500` all start with
+    `01000180` against `0x1000000`. Five models corroborated, one corrected.
+  - That the only wrong entry was the only *assumed* one is worth stating. The
+    others were taken from address-space tables and the reset vectors agree with
+    them independently, which is a check on both. The DN2500's was a guess
+    filling a gap, and a guess is what the check caught.
 - [ ] DN4500 Matrox graphics. *Verification: PNG inspection; no oracle, so
       documented as paper-verified.*
 - [ ] DSP variants confirmed as true subsets. *Verification: `dsp3500` boots
