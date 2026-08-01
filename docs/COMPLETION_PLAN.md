@@ -3239,6 +3239,16 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
           *first* rom write survives a second one.
         question from what happens when it does. Check what it tests before
         jumping — do not assume the jump is unconditional.
+        - **Answered from the counters, not a new run.** The AT bus empty-slot
+          reads begin at exactly `00080000`, `AP_BOARD_ATBUS_MEMORY_BASE`, and
+          number 15872 — a systematic sweep of the window from its base. A jump
+          to `00090000` is a step *within* that sweep, so it is conditional on
+          what the scan found there and not an unconditional branch into empty
+          space.
+        - Which also explains why it stopped mattering: once the window decoded
+          and read `FF`, the scan found nothing at `00090000`, the `FFFF` there
+          took the F-line trap, and the firmware carried on. The question was
+          worth asking and the answer is that the machine was already right.
   - [ ] The rest of the display controllers: the graphics memories
         (`0FA0000-0FDFFFF` monochrome, `000A0000-00BFFFF` colour), the blitter,
         the colour lookup table. Verify on a decoded PNG rather than on register
