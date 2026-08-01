@@ -86,11 +86,20 @@ carries the distinction from the access to the status, and the PROM reports
 `FAULT` at the same PC with **the instruction count unchanged** — the fix changes
 what the machine says about itself, not what it does (`FINDINGS.md` C30).
 
-The faulting address, `0005E801`, is AT `3D0` through the C23 window rule — CGA.
-Alongside it the firmware stores AT `3B0` (MDA) and `000A0000` (the standard
-frame buffer address), so it is probing for a display adapter. That reading is an
-inference from the confirmed window rule, not an oracle measurement, and is
-marked for confirmation before anything is built on it.
+The faulting address, `0005E801`, is now confirmed against the oracle: the
+firmware is **probing for a display controller**. The addresses are Apollo's own
+colour and monochrome controller register blocks (`05E800` and `05D800`), and
+the `000A0000` stored alongside is Apollo's colour graphics memory base.
+
+An earlier reading derived the same conclusion by putting those addresses through
+the AT window rule, landing on PC MDA and CGA. That derivation was **wrong** —
+the ranges are `0x408` bytes, which no `0x80`-strided AT port can be — and it is
+kept in `FINDINGS.md` C31 because of *why* it felt safe: three facts appeared to
+agree independently, and all three were consequences of one design decision.
+
+Nothing is mis-implemented. The config we boot has no graphics controller, so a
+bus error is the correct answer to the probe. The controllers are a new module,
+listed in `docs/COMPLETION_PLAN.md`.
 
 **Real Apollo firmware runs.** `--boot-tape <cartridge>` reads a Domain/OS `.ct`
 cartridge, extracts its boot image, places it at the load address the image

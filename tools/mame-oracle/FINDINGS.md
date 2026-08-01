@@ -1902,6 +1902,58 @@ address. That is why this is recorded as a reading rather than a guess. It is
 still an inference from the map and not an oracle measurement, so it is marked
 **to be confirmed against the oracle** before anything is built on it.
 
+## C31 -- the conclusion was right, the derivation was wrong, and the three facts were not independent
+
+Confirmed against the oracle, which both settles C30's reading and refutes how
+it was reached. MAME's DN3500 map:
+
+```
+map(0x05d800, 0x05dc07)  apollo_mcr_r/w   Monochrome Controller Registers
+map(0x0fa0000, 0x0fdffff) apollo_mgm_r/w  monochrome graphics memory
+map(0x05e800, 0x05ec07)  apollo_ccr_r/w   Colour Controller Registers
+map(0x0a0000, 0x0bffff)  apollo_cgm_r/w   colour graphics memory
+```
+
+So the firmware **is** probing for a display controller, and it is storing
+{controller registers, graphics memory} pairs into that table. C30's conclusion
+stands.
+
+Its derivation does not. These are **Apollo's own monochrome and colour
+controllers, natively mapped** -- not PC MDA and CGA seen through the AT window.
+Two things refute the window reading outright:
+
+- The ranges are `0x408` bytes each. An AT window port is one byte on a `0x80`
+  stride, so a 1032-byte block cannot be one however the arithmetic comes out.
+- `000A0000` is not "the standard EGA/VGA frame buffer". It is the base of
+  Apollo's **colour graphics memory**, `0x0a0000-0x0bffff`. The same number for
+  an entirely different reason.
+
+### Why this one is worth keeping
+
+C30 said: "Three independent facts agree here ... That is why this is recorded
+as a reading rather than a guess."
+
+They were not independent. Apollo's designers placing their controllers at
+PC-adjacent numbers is a *single common cause* sitting underneath all three
+agreements -- the `3B0`/`3D0` landing, the `0x20`-apart spacing, and the
+`A0000` coincidence. Three consequences of one design decision look exactly
+like three independent confirmations, and counting them as three is what made a
+wrong derivation feel safe.
+
+The check that would have caught it was not more reasoning. It was reading the
+oracle's memory map, which took one grep and was available the whole time.
+"Confirm before building on it" was the right instinct; the cost of confirming
+was so low that doing it *first* would have been cheaper than writing the
+inference down.
+
+### What it means for us
+
+Nothing is mis-implemented. The DN3500 config we boot has no graphics
+controller, so a bus error is the correct answer to the probe, and that is what
+the machine now gives. The graphics controllers are a **new module**, not a
+correction to an existing one -- recorded in `docs/COMPLETION_PLAN.md` with the
+four regions above.
+
 ## Where the ring is not
 
 The Apollo Token Ring has **no runnable oracle at all**: MAME carries Domain

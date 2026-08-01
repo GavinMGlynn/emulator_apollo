@@ -2496,11 +2496,25 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         flag not leaking into the next instruction. The PROM reports `FAULT` at
         the same PC and **the instruction count does not move** — the fix
         changes the diagnosis, not the machine (`FINDINGS.md` C30).
-  - [ ] The faulting address is `0005E801`, which through the C23 window rule is
-        AT `3D0` — CGA. The firmware also stores AT `3B0` (MDA) and `000A0000`
-        (the standard frame buffer) into a table, so it is **probing for a
-        display adapter**. Confirm against the oracle before building on it; it
-        is an inference from the map, not a measurement.
+  - [x] Confirmed against the oracle, and the derivation was **wrong** even
+        though the conclusion was right (`FINDINGS.md` C31). The firmware is
+        probing for a display controller, but these are Apollo's own
+        natively-mapped controllers, not PC MDA/CGA through the AT window: the
+        ranges are `0x408` bytes, which no `0x80`-strided AT port can be, and
+        `000A0000` is Apollo's colour graphics memory rather than a PC frame
+        buffer. The "three independent facts" that made the window reading feel
+        safe were three consequences of one design decision.
+  - [ ] **Apollo graphics controllers** — a new module, not a fix to an existing
+        one. Four regions from the oracle's map:
+        - `05D800-05DC07` monochrome controller registers
+        - `0FA0000-0FDFFFF` monochrome graphics memory
+        - `05E800-05EC07` colour controller registers
+        - `000A0000-00BFFFF` colour graphics memory
+        Nothing is mis-implemented today: the DN3500 config we boot has no
+        graphics controller, so a bus error is the correct answer to the probe
+        and is what the machine gives. Model the controllers only when a config
+        that *has* one is the target, and verify on a decoded PNG rather than on
+        register round-trips.
   - [x] The **special status word** and the bus fault frame layout,
         `cpu/m68030/ap_m68030_ssw.c` — Figure 8-9's bit positions, the SIZ1/SIZ0
         encoding that counts bytes *remaining* (so a long word is zero), the
