@@ -18,7 +18,16 @@ group, and `PMOVE`/`PFLUSH`/`PFLUSHA`/`PLOAD`/`PTEST`. Every addressing mode the
 part has resolves, full-format indexed and memory indirect included, and mode
 legality is enforced by category rather than approximated. Exceptions are taken
 and returned from: `TRAP`, `TRAPV`, `CHK`, divide-by-zero, `ILLEGAL`, privilege
-violations, format errors, MMU configuration errors, interrupts and trace.
+violations, format errors, MMU configuration errors, interrupts, trace,
+**bus error**, **address error**, and the **line 1010 and line 1111 emulator
+traps**.
+
+The last four were added while running the boot PROM and each closed a real
+gap. A faulting access used to report `UNIMPLEMENTED`, blaming the processor for
+the memory system's answer. An odd instruction prefetch was not detected at all.
+And an `A`-line or `F`-line word — which is what an empty AT bus slot reads —
+reported unimplemented, when taking the trap *is* the complete behaviour and
+there is nothing left to implement.
 
 An instruction outside that set reports `UNIMPLEMENTED` rather than silently
 succeeding, so "how far a program got" is a real measure.
