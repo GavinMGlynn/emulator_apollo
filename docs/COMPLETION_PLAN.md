@@ -2530,12 +2530,25 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         crash. Same lesson as the display controller, found the same way — the
         map, first. `board_suite`, 2 tests, including one that the windows do
         not swallow the tape, disk and display controller sitting inside them.
-  - [ ] The PROM now reads `FFFF` from the empty slot and stops
-        `UNIMPLEMENTED`. `FFFF` is an F-line word, so the real part would take
-        the **line 1111 emulator trap** (vector 11); `A000-AFFF` is the line
-        1010 trap (vector 10). Neither is raised yet. That is the next CPU item,
-        and it is what makes "scan an empty slot and find nothing" end the way
-        the hardware ends it.
+  - [x] **The line 1010 and line 1111 emulator traps** (vectors 10 and 11) are
+        raised. Both were defined, classified by `ap_m68030_opcode.c`, and never
+        taken — the step reported them `UNIMPLEMENTED`, which said the gap was
+        ours when taking the trap *is* the complete behaviour. No `A000-AFFF`
+        word is an instruction on any member of the family; the range exists to
+        be trapped. `step_suite`, 3 tests.
+        - The third test is the one that matters: an **MMU** instruction this
+          model has not implemented must still report `UNIMPLEMENTED`, because
+          the MMU is fitted and the real part would execute it. Raising F-line
+          there would dress our own gap up as correct hardware behaviour, and
+          convincingly — firmware would take a plausible exception and carry on,
+          and the gap would stop being visible.
+        - The PROM goes from 425 instructions to **2788**.
+  - [ ] `ap_board_region` claims `AP_BOARD_REGION_RAM` for **everything** at or
+        above `01000000`, so a trace names `FFFF060E` "main memory" when no
+        memory is fitted there. The read path bounds-checks correctly, so only
+        the *naming* is wrong — but naming is the whole purpose of the region
+        enum, and a misleading name is worse than none. Report addresses past
+        the fitted memory as unmapped.
   - [ ] Whether the PROM *should* reach `00090000` at all is a separate
         question from what happens when it does. Check what it tests before
         jumping — do not assume the jump is unconditional.

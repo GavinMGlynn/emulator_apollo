@@ -589,6 +589,68 @@ static void test_a_misaligned_data_access_is_not_an_address_error(void) {
   TEST_ASSERT_EQUAL_HEX32(0x12345678u, read_ram_long(&m, 0x00004001u));
 }
 
+/* `[030]` Table 8-1, vector 10. No word with bits 15-12 = 1010 is an
+ * instruction on any member of the family: the whole `A000-AFFF` range exists
+ * to be trapped and emulated in software. So taking the trap *is* the complete
+ * behaviour, and reporting these unimplemented said the gap was ours when there
+ * is no gap. */
+static void test_a_line_1010_word_takes_the_emulator_trap(void) {
+  static const uint16_t program[] = {0xA000u, 0x4E71u, 0x4E71u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 4);
+  plant_vector(&m, AP_M68030_VECTOR_LINE_A, HANDLER);
+  m.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
+  m.cpu.regs.isp = SUPERVISOR_STACK;
+
+  const ap_m68030_step_result_t r = ap_m68030_step(&m.cpu);
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXCEPTION, r.status);
+  TEST_ASSERT_NOT_EQUAL_INT(AP_M68030_STEP_UNIMPLEMENTED, r.status);
+  TEST_ASSERT_EQUAL_HEX32(HANDLER, m.cpu.regs.pc);
+}
+
+/* Vector 11, when no coprocessor responds. `FFFF` is what an empty AT bus slot
+ * reads, so this is the path a firmware expansion-ROM scan actually takes: it
+ * jumps into the window, fetches `FFFF`, and the trap is how the hardware ends
+ * the attempt. */
+static void test_an_f_line_word_with_no_coprocessor_takes_the_emulator_trap(void) {
+  static const uint16_t program[] = {0xFFFFu, 0x4E71u, 0x4E71u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 4);
+  plant_vector(&m, AP_M68030_VECTOR_LINE_F, HANDLER);
+  m.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
+  m.cpu.regs.isp = SUPERVISOR_STACK;
+
+  const ap_m68030_step_result_t r = ap_m68030_step(&m.cpu);
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXCEPTION, r.status);
+  TEST_ASSERT_EQUAL_HEX32(HANDLER, m.cpu.regs.pc);
+}
+
+/* The distinction the F-line change turns on, and the one that would quietly
+ * rot if it were not tested. An MMU instruction this model has not implemented
+ * must still report UNIMPLEMENTED, because the MMU *is* fitted and the real
+ * part would execute it. Raising F-line there would dress our own gap up as
+ * correct hardware behaviour -- convincingly, since firmware would take a
+ * plausible exception and carry on.
+ *
+ * `F000` with a zero extension word is cpID 0, the MMU's, and is not one of
+ * the MMU instructions implemented here. */
+static void test_an_unimplemented_mmu_instruction_is_not_dressed_up_as_f_line(void) {
+  static const uint16_t program[] = {0xF000u, 0x0000u, 0x4E71u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 4);
+  plant_vector(&m, AP_M68030_VECTOR_LINE_F, HANDLER);
+  m.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
+  m.cpu.regs.isp = SUPERVISOR_STACK;
+
+  const ap_m68030_step_result_t r = ap_m68030_step(&m.cpu);
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_UNIMPLEMENTED, r.status);
+  TEST_ASSERT_NOT_EQUAL_INT(AP_M68030_STEP_EXCEPTION, r.status);
+  TEST_ASSERT_EQUAL_HEX32(PROGRAM_BASE, m.cpu.regs.pc);
+}
+
 /* The flag describes one instruction, so it must not survive into the next.
  * A stale one would mislabel the following unimplemented instruction as a
  * fault -- the same conflation, merely pointing the other way. */
@@ -4138,6 +4200,9 @@ int main(void) {
   RUN_TEST(test_the_same_instruction_over_memory_that_answers_executes);
   RUN_TEST(test_a_write_nothing_accepts_takes_the_bus_error_exception);
   RUN_TEST(test_a_refused_write_is_not_left_in_the_cache);
+  RUN_TEST(test_a_line_1010_word_takes_the_emulator_trap);
+  RUN_TEST(test_an_f_line_word_with_no_coprocessor_takes_the_emulator_trap);
+  RUN_TEST(test_an_unimplemented_mmu_instruction_is_not_dressed_up_as_f_line);
   RUN_TEST(test_a_prefetch_from_an_odd_address_is_an_address_error);
   RUN_TEST(test_an_address_error_runs_no_bus_cycle);
   RUN_TEST(test_a_misaligned_data_access_is_not_an_address_error);

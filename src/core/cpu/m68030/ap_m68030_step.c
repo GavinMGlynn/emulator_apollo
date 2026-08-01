@@ -3627,10 +3627,29 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
       if (execute_mmu(cpu, coproc, &out.clocks)) {
         break;
       }
+      /* An MMU instruction this model has not got to. Reported as
+       * unimplemented and *not* as F-line, even though F-line is what the
+       * comment above says an unsupported one takes -- because the MMU is
+       * fitted here. The real 68030 would execute it. Raising F-line would
+       * dress our own gap up as correct hardware behaviour, and it would do so
+       * convincingly: the firmware would take a plausible exception and carry
+       * on, and the gap would stop being visible. */
+      out.status = fault_or_unimplemented(cpu, &out, instruction_address);
+      cpu->clocks += out.clocks;
+      return out;
     }
-    out.status = fault_or_unimplemented(cpu, &out, instruction_address);
-    cpu->clocks += out.clocks;
-    return out;
+
+    /* Not the MMU, so it addresses a coprocessor this machine does not have.
+     * `[030]` §8.1: an F-line word takes the line 1111 emulator exception when
+     * no coprocessor responds -- which is the case for every cpID but the
+     * MMU's on a DN3500 with no floating-point coprocessor fitted.
+     *
+     * This is correct hardware behaviour rather than a stand-in for missing
+     * work, and the distinction from the MMU case above is the whole point: one
+     * is the machine doing what it does, the other is us not having finished.
+     * They must not report the same thing. */
+    cpu->pending_vector = AP_M68030_VECTOR_LINE_F;
+    break;
   }
 
   case AP_M68030_DECODED_BOUNDS:
@@ -3638,11 +3657,22 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
      * are the ones that need more than arithmetic: their read and write are
      * indivisible, so executing them honestly means the bus asserting RMC for
      * the pair, and that is the bus module's item rather than this one. */
-  case AP_M68030_DECODED_LINE_A:
   case AP_M68030_DECODED_ILLEGAL:
     out.status = fault_or_unimplemented(cpu, &out, instruction_address);
     cpu->clocks += out.clocks;
     return out;
+
+  case AP_M68030_DECODED_LINE_A:
+    /* `[030]` Table 8-1, vector 10: the line 1010 emulator. Unconditional --
+     * no word with bits 15-12 = 1010 is an instruction on any member of the
+     * family, so there is nothing to implement here and never will be. The
+     * whole `A000-AFFF` range exists to be trapped and emulated in software.
+     *
+     * Reporting these unimplemented was wrong in a way that mattered: it said
+     * the gap was ours, when in fact taking the trap *is* the complete and
+     * correct behaviour. */
+    cpu->pending_vector = AP_M68030_VECTOR_LINE_A;
+    break;
   }
 
   /* "When the processor is in the trace mode and attempts to execute an illegal
