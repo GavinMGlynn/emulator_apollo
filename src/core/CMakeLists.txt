@@ -20,6 +20,7 @@ add_library(apollo_core STATIC
   board/ap_sio.c
   board/ap_tape.c
   device/ap_i8237.c
+  device/ap_kbd.c
   device/ap_i8259.c
   device/ap_mc146818.c
   device/ap_omti.c

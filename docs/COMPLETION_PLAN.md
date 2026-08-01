@@ -2803,6 +2803,21 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
     - So a keyboard module reports **the key that moved**, make and break, and
       does not fold shift or control into the code. That is the whole interface,
       and it is now specified rather than inferred.
+    - **Written**: `device/ap_kbd.c`. A press sends the key's index, a release
+      the index with bit 7 set, and the matrix stops at `0x80` *because* bit 7
+      is the flag — a key above it would have a make code indistinguishable from
+      another key's break code, so the bound is refused rather than masked.
+      `kbd_suite`, 5 tests.
+    - A repeated press, or a release of a key never pressed, sends **nothing**.
+      A real matrix scan cannot report a transition that did not happen, and
+      letting one through would desynchronise the firmware's own shift state —
+      which it tracks from these transitions and nothing else.
+    - No timer and no auto-repeat. The real part scans on a timer and repeats
+      held keys; neither is modelled, because nothing in this core advances time
+      and a repeat interval would be a number with no clock behind it. What is
+      modelled is the transition, which is what a caller can generate honestly.
+    - Still open: wiring it to serial 1 channel A through
+      `ap_sio_receive_framed`, and a frontend option to press keys.
         - **The values are no longer unknown.** `FINDINGS.md` C39 and C42 read
           them off the running oracle: `sio1 ACR E0`, `sio1 CSRB 77`,
           `sio2 ACR 80`, `sio2 CSRA 77` at reset, and the firmware then
