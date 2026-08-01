@@ -2487,24 +2487,22 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         - The second half confirms our assumption. The first **contradicts** it:
           we model 128 entries filling 256 bytes, the oracle models 1024 filling
           all 2 KB.
-        - **Checked the addendum, and all three numbers differ.**
-          `019411-A00` §4.2.1.4 says address bits `<15:10>` "provide an index
-          into the Address Translation Map; they select one of the **64
-          entries** contained within it". Six bits, sixty-four entries.
-        - So: the manual says **64**, we model **128**, the oracle masks to
-          **1024**. Ours is not a rounding of the oracle's and the oracle's is
-          not a rounding of ours; the manual agrees with neither.
-        - The manual is the authority here and 64 is almost certainly right — a
-          six-bit field is not ambiguous. But **do not change the code on this
-          alone**: the addendum's bits `<15:10>` index the map from a *DMA
-          address*, and the open question was about the *register file's* extent
-          in the `017000-0177FF` region. Those are two different things that a
-          single number could describe either of, and conflating them is how a
-          confident wrong decode gets written.
-        - Next: read §4.2.1.4 in full for what the region's remaining bytes do,
-          then reconcile all three. This is now the best-evidenced open question
-          in the plan and the only one where a manual, our core and the oracle
-          all say something different.
+        - **Resolved, and our model is right.** `019411-A00` §4.2.1.4 gives
+          *both* numbers, for different transfer widths: during **8-bit** DMA
+          "address bits `<15:10>` provide an index ... they select one of the
+          **64** entries", and during **16-bit** DMA "address bits `<16:10>` ...
+          select one of the **128** entries". The map has 128 entries; 8-bit
+          transfers reach only the first 64.
+        - So our 128 is correct, and the sub-item above already implements "the
+          translation for both DMA widths" — the two facts were in the plan the
+          whole time, one line apart, describing each other.
+        - The oracle's `& 0x3ff` is **over-permissive**: 1024 entries where the
+          hardware has 128. Classified as hardware-truer on our side, with the
+          manual as the citation. It is the kind of mask an emulator writes to
+          avoid an out-of-bounds index rather than to model a decode.
+        - The remaining half of the original question — what the rest of the
+          2 KB region decodes to — is untouched by this. 128 entries of 16 bits
+          fill 256 bytes; §4.2.1.4 says nothing about the other 1792.
   - [x] **Characterised** by measurement, since no manual here lays these out:
         `008778-03` Table 2-8 gives addresses only, and the handbook carrying
         the bit layouts is not in `docs/references/`. `tools/mame-oracle/regprobe.lua`
