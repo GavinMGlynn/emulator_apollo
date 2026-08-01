@@ -3156,3 +3156,34 @@ watching the child go. Two lessons rather than one:
 - a cleanup path that only runs on the tidy exits is not a cleanup path;
 - and the *symptom* appeared in a completely different subsystem from the cause.
   Nothing about "the console is emitting NUL bytes" points at process lifetime.
+
+
+## C52 -- the calendar, and one answer chosen on this project's own grounds
+
+`ex calendar` ran in the same live session that INVOL had finished in -- no
+restart, because the machine never stopped. Its dialogue, which like INVOL's is
+in none of the manuals here:
+
+| Prompt | Answer |
+| --- | --- |
+| `Please select the disk [w=Winch\|s=Storage mod\|f=Floppy\|q=Quit][ctrl#:][unit#] [,lvno].` `If you do not have a disk, enter none (N):` | `w` |
+| `The time-zone is set to 0:00 (UTC).  Would you like to reset it?` | `n` |
+| `The calendar date/time is 2002/11/27 11:08:47 UTC.  Would you like to reset it?` | `n` |
+
+**UTC is kept deliberately, not accepted lazily.** This project's rule is that
+nothing may depend on the host, and a local time zone is a host fact -- the one
+setting here that would make an image built on this machine differ from an image
+built on another. UTC is the only zone that is not a property of where the build
+happened.
+
+The date is a weaker case and is recorded as such. `2002/11/27` is MAME's host
+clock with the driver's "25 Years Ago" configuration applied, so it *is* a host
+fact, and it is left alone because nothing observed so far depends on it. If a
+Domain/OS licence check or a file timestamp ever does, this is the row to
+revisit, and setting it explicitly is one more answer in this table rather than
+a redesign.
+
+Also worth noting for what it says about the earlier work: the calendar reports
+`0:00 (UTC)` and a sane date **before** anything set them, which means the RTC
+this core models as `MC146818A` -- caller-supplied time, never the host's, on
+our side -- is being read correctly by real Apollo firmware on the oracle's.
