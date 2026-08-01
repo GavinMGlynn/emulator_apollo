@@ -227,6 +227,25 @@ file the moment they are found, not when someone remembers.
         *Verification: a captured session transcript in
         `docs/references/MD.md`, byte-exact.* The no-guessing rule still applies
         to the parser; it no longer blocks the encoder's input side.
+        - Progress (`FINDINGS.md` C34): `writetrace.lua` already does the
+          capture -- no new probe was needed. Tapping `010400-0104FF` on
+          `dn3500` for six emulated seconds yields **two** writes, to the
+          auxiliary control and mode B registers, and **neither is a transmit
+          buffer**. The oracle's DN3500 does not print on serial at boot either,
+          which corroborates our own core's silence rather than leaving it a
+          suspicion.
+        - So MD cannot be captured from DN3500 serial: with a display and
+          keyboard fitted the console is the display. The **`dsp` variants** are
+          the candidate -- diskless server nodes with no display, which must use
+          serial as console.
+        - **Blocked on a harness question**: a first `dsp3500` run did not
+          complete. Its tap installs at 20 emulated seconds rather than the
+          0.017 `dn3500` shows, and no dump is produced. Fix that before
+          anything else in this item.
+        - MAME refuses a write tap that is not dword-aligned and its message
+          names a *different* address ("did you mean 10404"). Take the whole
+          device range and filter; accepting the suggestion taps the wrong
+          register.
 - [x] Probes side-loadable into post-boot machine state, so CI needs no
       copyrighted firmware. *Verification: the probe suite runs in CI with
       `roms/` absent* — which it does: `apollo-headless --run-probes` reads no

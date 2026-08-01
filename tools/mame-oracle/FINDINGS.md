@@ -2065,3 +2065,48 @@ leaves commented out as `apollo_f8_r/w`.
 Report *what* an access touched, not only how many there were. Every counter in
 `ap_board_t` that says only "how many" is one an investigation will have to
 extend at the moment it matters.
+
+## C34 -- the DN3500 does not print on serial at boot, and the oracle agrees
+
+Phase 1's open item asks for a byte-exact MD session transcript, captured under
+the oracle. The first attempt at capturing one settles something else first.
+
+`writetrace.lua` already does the job -- no new probe was needed. Tapping
+`010400-0104FF` on `dn3500` for six emulated seconds captures the whole serial
+region, and the answer is two writes:
+
+```
+25920000000000000 sio1 010408 E0E0E0E0 FF0000
+25920280000000000 sio1 010410 77777777 00FF
+```
+
+Offset `010408` is register 4 (auxiliary control) and `010410` is register 8
+(mode register B). **Neither is a transmit buffer.** The oracle's DN3500 does
+not print on its serial port at boot either.
+
+That corroborates our own core, which makes exactly the same number of transmit
+writes -- none -- and it means the silence found in C33 was never a defect. Two
+independent implementations agreeing is worth more here than either alone,
+because the thing being checked is an absence.
+
+### What it means for the MD transcript
+
+An MD session cannot be captured by tapping DN3500 serial at boot, because that
+is not where MD talks. With a display and keyboard fitted -- which `dn3500`
+has -- the console is the display, and a transcript would have to come from the
+frame buffer rather than from a byte stream.
+
+The `dsp` variants are the candidate: they are the diskless server nodes, have
+no display in their machine configuration, and must therefore use the serial
+port as console. A first run of `dsp3500` did **not** complete -- the script
+reports its tap installing at 20 emulated seconds rather than at 0.017 as
+`dn3500` does, and no dump was produced. That is the next thing to fix, and it
+is a harness question rather than a hardware one.
+
+### Tap alignment
+
+MAME refuses a write tap whose range is not dword-aligned: `010406` is rejected
+with "start address has low bits set, did you mean 10404". So a byte register
+cannot be tapped alone on this bus, and the whole device range has to be taken
+and filtered. Worth recording because the rejection names a *different* address
+and it would be easy to accept the suggestion and tap the wrong register.
