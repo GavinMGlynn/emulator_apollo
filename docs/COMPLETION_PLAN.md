@@ -2604,19 +2604,27 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         `ORI.B` on D0 over readable PROM is harmless — which is exactly why five
         million instructions with zero bus errors looked like success.
         **The zero-fault run was a runaway, not a boot.**
-  - [ ] Why the `RTS` at `00002946` pops zero. The stack accounting around it is
-        correct — every push and pop moves A7 by 4 and they balance — so the
-        return-address slot at `01000172` was **overwritten**, not mis-popped.
-        - Concrete hypothesis to test, not to assume: step 55 is
-          `MOVE.L D0,($130,A6)`, and with A6 near `01000042` that lands exactly
-          on `01000172`. If so, A6 and the supervisor stack overlap, which points
-          back at the reset SSP of `01000180` sitting 384 bytes above the base of
-          main memory.
-        - Test it by tracing A6 and the write address, not by reading the code.
-          That is now three consecutive blockers found by tracing a register.
-  - [ ] Re-examine what the reset SSP means. `01000180` leaves 384 bytes of
-        supervisor stack, and this is the second distinct failure to point at
-        it. Ask the oracle what A6 and A7 hold at the same instruction.
+  - [x] Tested the A6/stack-overlap hypothesis by tracing A6, and **it is
+        refuted**. A6 is `01000180`, set deliberately by a `LEA` at step 8, and
+        the firmware indexes it with *positive* offsets while the supervisor
+        stack grows *down* from the same address. They do not overlap — that is
+        the design. Both earlier suspicions that the reset SSP was too small
+        were also wrong: `01000180` is a data-area base as much as a stack top.
+  - [x] The real shape, from the same trace: step 10 is `JMP` (not `BSR`) to
+        `00000646`, so nothing is pushed. RAM starts zeroed, and the slot the
+        bad `RTS` reads at `01000172` **was never written by anything**. Control
+        reached an `RTS` without a matching `BSR`.
+  - [ ] So a **branch is going the wrong way** in the 46 steps between the `JMP`
+        at step 10 and the `RTS` at step 57, dropping control into a subroutine
+        body rather than calling it. A wrong condition code, not a wrong
+        address — a different defect class from every blocker so far, which were
+        missing devices, unreachable registers and mislabelled statuses.
+        - 46 instructions is the smallest window this investigation has had, and
+          small enough to compare **instruction by instruction against the
+          oracle**. Do that rather than reasoning about which condition is
+          wrong; three of the last four blockers were missed by reasoning first.
+        - `tools/mame-oracle/steptime.lua` already single-steps the oracle, so a
+          PC trace over the first 60 instructions is a small extension of it.
   - [ ] Whether the PROM *should* reach `00090000` at all is a separate
         question from what happens when it does. Check what it tests before
         jumping — do not assume the jump is unconditional.

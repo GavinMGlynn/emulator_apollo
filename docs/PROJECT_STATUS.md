@@ -99,10 +99,17 @@ A zero-fault count is not evidence of a boot. It is evidence that nothing
 complained.
 
 The stack accounting around the bad `RTS` is correct — every push and pop moves
-A7 by four and they balance — so the return-address slot at `01000172` was
-overwritten rather than mis-popped. The next step is to trace A6 and the write
-addresses; `MOVE.L D0,($130,A6)` two instructions earlier lands on exactly that
-slot if A6 is near `01000042`.
+A7 by four and they balance. Tracing A6 refuted the overlap hypothesis: A6 is
+`01000180`, the firmware indexes it with positive offsets, and the stack grows
+down from the same address by design.
+
+What the trace does show is that step 10 is a `JMP`, not a `BSR`, and that the
+slot the bad `RTS` reads was never written by anything — RAM starts zeroed. So
+control reached an `RTS` without a matching `BSR`, which means a **branch is
+going the wrong way** in the 46 steps between them. A wrong condition code
+rather than a wrong address, and a different defect class from everything found
+so far. That window is small enough to compare instruction by instruction
+against the oracle.
 
 Getting there needed `--boot-trace` (PC and A7 per step) and one fix. A7 was the
 observable: the PROM's `CLR.B $00011600` bus errored on every pass through its
