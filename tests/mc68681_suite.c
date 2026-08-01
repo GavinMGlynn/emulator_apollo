@@ -489,6 +489,65 @@ static void test_normal_mode_still_transmits_outward(void) {
   TEST_ASSERT_EQUAL_HEX8(0x5Au, out);
 }
 
+
+/* Auto-echo passes the character on *and* delivers it: a terminal sees its own
+ * typing echoed by the part rather than by software. */
+static void test_auto_echo_both_retransmits_and_delivers(void) {
+  ap_mc68681_t duart;
+  ap_mc68681_reset(&duart);
+  ap_mc68681_write(&duart, AP_MC68681_MR_A, 0x07u); /* MR1: eight bits */
+  ap_mc68681_write(&duart, AP_MC68681_MR_A, 0x47u); /* MR2: auto-echo */
+  ap_mc68681_write(&duart, AP_MC68681_CR_A, 0x05u);
+  ap_mc68681_write(&duart, AP_MC68681_SR_CSR_A, 0x77u);
+
+  ap_mc68681_receive_at(&duart, 0u, 0x5Au, 0x77u);
+
+  uint8_t out = 0;
+  TEST_ASSERT_TRUE(ap_mc68681_transmit(&duart, 0u, &out));
+  TEST_ASSERT_EQUAL_HEX8(0x5Au, out);
+  TEST_ASSERT_EQUAL_HEX8(0x5Au, ap_mc68681_read(&duart, AP_MC68681_RB_TB_A));
+}
+
+/* Remote loopback retransmits and does **not** deliver. The channel is a mirror
+ * for someone else's test, and a local program must not see traffic that was
+ * never addressed to it — delivering in both modes would make remote loopback
+ * indistinguishable from auto-echo, which is the one thing separating them. */
+static void test_remote_loopback_retransmits_without_delivering(void) {
+  ap_mc68681_t duart;
+  ap_mc68681_reset(&duart);
+  ap_mc68681_write(&duart, AP_MC68681_MR_A, 0x07u);
+  ap_mc68681_write(&duart, AP_MC68681_MR_A, 0xC7u); /* MR2: remote loopback */
+  ap_mc68681_write(&duart, AP_MC68681_CR_A, 0x05u);
+  ap_mc68681_write(&duart, AP_MC68681_SR_CSR_A, 0x77u);
+
+  ap_mc68681_receive_at(&duart, 0u, 0x5Au, 0x77u);
+
+  uint8_t out = 0;
+  TEST_ASSERT_TRUE(ap_mc68681_transmit(&duart, 0u, &out));
+  TEST_ASSERT_EQUAL_HEX8(0x5Au, out);
+  /* Nothing for the program to read. */
+  TEST_ASSERT_FALSE((ap_mc68681_read(&duart, AP_MC68681_SR_CSR_A) &
+                     AP_MC68681_SR_RXRDY) != 0u);
+}
+
+/* Normal mode does neither, which is the control both need: a model that always
+ * echoed would satisfy the first and a model that never delivered would satisfy
+ * the second. */
+static void test_normal_mode_neither_echoes_nor_withholds(void) {
+  ap_mc68681_t duart;
+  ap_mc68681_reset(&duart);
+  ap_mc68681_write(&duart, AP_MC68681_MR_A, 0x07u);
+  ap_mc68681_write(&duart, AP_MC68681_MR_A, 0x07u); /* MR2: normal */
+  ap_mc68681_write(&duart, AP_MC68681_CR_A, 0x05u);
+  ap_mc68681_write(&duart, AP_MC68681_SR_CSR_A, 0x77u);
+
+  ap_mc68681_receive_at(&duart, 0u, 0x5Au, 0x77u);
+
+  uint8_t out = 0;
+  TEST_ASSERT_FALSE(ap_mc68681_transmit(&duart, 0u, &out));
+  TEST_ASSERT_EQUAL_HEX8(0x5Au, ap_mc68681_read(&duart, AP_MC68681_RB_TB_A));
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_a_character_sent_at_the_wrong_rate_sets_a_framing_error);
@@ -504,6 +563,9 @@ int main(void) {
   RUN_TEST(test_local_loopback_returns_the_character_framed);
   RUN_TEST(test_local_loopback_transmits_nothing_outward);
   RUN_TEST(test_normal_mode_still_transmits_outward);
+  RUN_TEST(test_auto_echo_both_retransmits_and_delivers);
+  RUN_TEST(test_remote_loopback_retransmits_without_delivering);
+  RUN_TEST(test_normal_mode_neither_echoes_nor_withholds);
   RUN_TEST(test_an_idle_transmitter_is_ready_and_empty);
   RUN_TEST(test_the_mode_register_pointer_advances_then_sticks);
   RUN_TEST(test_the_receive_fifo_holds_three_and_then_overruns);

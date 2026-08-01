@@ -2752,9 +2752,18 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
           transmitted outward — and a control that normal mode still does, since
           a model that never transmitted would satisfy the first two.
           `mc68681_suite`, 4 tests.
-        - Still open: parity actually checked rather than only reported — the
-          model has no parity bit to check — and auto-echo and remote loopback,
-          which are decoded but not acted on.
+        - **All four channel modes now act.** Auto-echo retransmits *and*
+          delivers — a terminal sees its own typing echoed by the part rather
+          than by software. Remote loopback retransmits and does **not**
+          deliver: the channel is a mirror for someone else's test, and a local
+          program must not see traffic never addressed to it. Delivering in both
+          would make remote loopback indistinguishable from auto-echo, which is
+          the one thing separating them. `mc68681_suite`, 3 more tests with a
+          normal-mode control that does neither.
+        - Still open: **parity checked** rather than only reported. The model
+          carries no parity bit, so there is nothing to check against — closing
+          it means the receive path taking the sender's parity as well as its
+          rate, the same shape as `ap_mc68681_receive_at` already has.
         - **The values are no longer unknown.** `FINDINGS.md` C39 and C42 read
           them off the running oracle: `sio1 ACR E0`, `sio1 CSRB 77`,
           `sio2 ACR 80`, `sio2 CSRA 77` at reset, and the firmware then

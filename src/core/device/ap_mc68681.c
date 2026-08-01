@@ -89,6 +89,30 @@ void ap_mc68681_receive_at(ap_mc68681_t *duart, unsigned channel, uint8_t byte,
    * part to report, because nothing went wrong on the wire. */
   const unsigned bits = ap_mc68681_character_bits(ch->mr[0]);
   const uint8_t framed = (uint8_t)(byte & ((1u << bits) - 1u));
+
+  /* The two receive-side channel modes. Both retransmit what arrives; they
+   * differ in whether the receiver also keeps it.
+   *
+   * Auto-echo passes the character on *and* delivers it -- a terminal sees its
+   * own typing echoed by the part rather than by software. Remote loopback
+   * retransmits and does **not** deliver: the channel is a mirror for someone
+   * else's test, and a local program must not see traffic that was never
+   * addressed to it. Delivering in both would make remote loopback
+   * indistinguishable from auto-echo, which is the one thing separating them.
+   *
+   * Echoed through the transmit holding register rather than by calling the
+   * write path, because the character is already framed and re-entering the
+   * write path would frame it twice and consult the mode again. */
+  const ap_mc68681_channel_mode_t mode = ap_mc68681_channel_mode(ch->mr[1]);
+  if (mode == AP_MC68681_MODE_AUTO_ECHO ||
+      mode == AP_MC68681_MODE_REMOTE_LOOPBACK) {
+    ch->tx_holding = framed;
+    ch->tx_holding_full = true;
+    if (mode == AP_MC68681_MODE_REMOTE_LOOPBACK) {
+      return;
+    }
+  }
+
   ap_mc68681_receive(duart, channel, framed);
   /* Set *after* delivery, and only if the byte was taken: a receiver that is
    * disabled or whose FIFO is full never sampled the character at all, so it
