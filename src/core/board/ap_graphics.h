@@ -54,6 +54,19 @@
  * aliased: the block is decoded as a range, which is what the map gives. */
 #define AP_GRAPHICS_RANGE 0x408u
 
+/* The graphics memories, from the oracle's map: `0A0000-0BFFFF` colour and
+ * `FA0000-FDFFFF` monochrome.
+ *
+ * Both fall **inside** the AT bus memory window, so they must be decoded before
+ * it or the window swallows them and the machine reports its own frame buffer
+ * as an empty expansion slot. The I/O window has the same hazard and a test for
+ * it; this is the memory window's, and it was live until the graphics memories
+ * were named. */
+#define AP_GRAPHICS_COLOUR_MEMORY_ADDR 0x0A0000u
+#define AP_GRAPHICS_COLOUR_MEMORY_END 0x0BFFFFu
+#define AP_GRAPHICS_MONO_MEMORY_ADDR 0xFA0000u
+#define AP_GRAPHICS_MONO_MEMORY_END 0xFDFFFFu
+
 /* The device ID register, at offset 1 of either block. */
 #define AP_GRAPHICS_DEVICE_ID 1u
 
@@ -82,6 +95,13 @@ void ap_graphics_init(ap_graphics_t *graphics, ap_screen_kind_t screen);
 /* Decode an address to one of the two blocks. `colour` says which. */
 [[nodiscard]] bool ap_graphics_decode(uint32_t address, bool *colour,
                                       uint32_t *offset);
+
+/* Decode an address to one of the two graphics memories. Separate from the
+ * register decode because the two answer differently: a register block reports
+ * a screen's identity, while the memory is storage a fitted card provides and
+ * an absent one does not. */
+[[nodiscard]] bool ap_graphics_decode_memory(uint32_t address, bool *colour,
+                                             uint32_t *offset);
 
 /* Read a register. Both blocks decode whether or not a screen is fitted; a
  * register this module does not model reads `FF`, which is also what an absent

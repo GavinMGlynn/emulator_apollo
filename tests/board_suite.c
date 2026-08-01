@@ -202,6 +202,14 @@ static void test_the_windows_do_not_swallow_the_devices_inside_them(void) {
   TEST_ASSERT_EQUAL_UINT(AP_BOARD_REGION_ATBUS, ap_board_region(0x080000u));
   TEST_ASSERT_EQUAL_UINT(AP_BOARD_REGION_ATBUS, ap_board_region(0xFFFFFFu));
 
+  /* And the graphics memories are not empty slots, though both sit inside the
+   * AT bus memory window. A window matched before them would report the
+   * machine's own frame buffer as an unoccupied expansion slot. */
+  TEST_ASSERT_EQUAL_UINT(AP_BOARD_REGION_GRAPHICS, ap_board_region(0x0A0000u));
+  TEST_ASSERT_EQUAL_UINT(AP_BOARD_REGION_GRAPHICS, ap_board_region(0x0BFFFFu));
+  TEST_ASSERT_EQUAL_UINT(AP_BOARD_REGION_GRAPHICS, ap_board_region(0xFA0000u));
+  TEST_ASSERT_EQUAL_UINT(AP_BOARD_REGION_GRAPHICS, ap_board_region(0xFDFFFFu));
+
   /* Between the two windows is neither. */
   TEST_ASSERT_EQUAL_UINT(AP_BOARD_REGION_UNMAPPED, ap_board_region(0x070000u));
 }

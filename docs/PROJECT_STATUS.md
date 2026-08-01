@@ -218,6 +218,15 @@ stock DN3500 has no serial terminal at all — just the keyboard on channel A.
 Nothing consumes the SIO's transmit. The firmware has nowhere to print because
 there is no terminal, not because it is stuck.
 
+The graphics memories now decode — `0A0000-0BFFFF` colour, `FA0000-FDFFFF`
+monochrome — and, importantly, *before* the AT bus windows. Both sit inside the
+AT memory window, so the board had been reporting the machine's own frame buffer
+as an empty expansion slot. In the PROM run 384 accesses move from "AT bus
+(empty slot)" to "display controller": the firmware was touching its frame
+buffer and we were mislabelling it. No device suite could have caught that —
+they call the device directly and the device was right; only a test of the map
+sees it.
+
 **The display controller is therefore the next module**, for a reason rather
 than as the next item on a list: the four regions already recorded stop being
 probe targets and become the machine's output. The matching input module is the

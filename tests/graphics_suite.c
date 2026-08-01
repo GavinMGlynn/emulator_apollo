@@ -137,12 +137,65 @@ static void test_a_write_is_absorbed_and_does_not_change_the_id(void) {
   TEST_ASSERT_EQUAL_HEX8(11u, ap_graphics_read(&g, AP_GRAPHICS_MONO_ADDR + 1u));
 }
 
+
+/* The graphics memories, and the ordering hazard that was live until they were
+ * named: both fall **inside** the AT bus memory window, so a board that checked
+ * the window first would report the machine's own frame buffer as an empty
+ * expansion slot. The I/O window has the same hazard and already has a test;
+ * this is the memory window's.
+ *
+ * Nothing about the device suites would have caught it -- they call the device
+ * directly, and the device was right. Only a test of the *map* can see it. */
+static void test_the_graphics_memories_decode(void) {
+  bool colour = false;
+  uint32_t offset = 0;
+
+  TEST_ASSERT_TRUE(ap_graphics_decode_memory(0x0A0000u, &colour, &offset));
+  TEST_ASSERT_TRUE(colour);
+  TEST_ASSERT_EQUAL_UINT(0u, offset);
+  TEST_ASSERT_TRUE(ap_graphics_decode_memory(0x0BFFFFu, &colour, &offset));
+  TEST_ASSERT_TRUE(colour);
+
+  TEST_ASSERT_TRUE(ap_graphics_decode_memory(0xFA0000u, &colour, &offset));
+  TEST_ASSERT_FALSE(colour);
+  TEST_ASSERT_TRUE(ap_graphics_decode_memory(0xFDFFFFu, &colour, &offset));
+  TEST_ASSERT_FALSE(colour);
+
+  /* And nothing either side of them. */
+  TEST_ASSERT_FALSE(ap_graphics_decode_memory(0x09FFFFu, &colour, &offset));
+  TEST_ASSERT_FALSE(ap_graphics_decode_memory(0x0C0000u, &colour, &offset));
+  TEST_ASSERT_FALSE(ap_graphics_decode_memory(0xF9FFFFu, &colour, &offset));
+  TEST_ASSERT_FALSE(ap_graphics_decode_memory(0xFE0000u, &colour, &offset));
+
+  /* The register blocks are not memory and the memories are not registers. */
+  TEST_ASSERT_FALSE(ap_graphics_decode_memory(0x05D800u, &colour, &offset));
+  TEST_ASSERT_FALSE(ap_graphics_decode(0x0A0000u, &colour, &offset));
+}
+
+/* With no card fitted the memory reads `FF`, the same answer the register
+ * blocks give and for the same reason: it is what an absent part reads. It is
+ * deliberately not storage yet — memory that accepted writes and displayed
+ * nothing would let a test pass that proves nothing about a screen. */
+static void test_an_absent_card_s_graphics_memory_reads_ff(void) {
+  ap_graphics_t g;
+  ap_graphics_init(&g, AP_SCREEN_NONE);
+  TEST_ASSERT_EQUAL_HEX8(0xFFu, ap_graphics_read(&g, 0x0A0000u));
+  TEST_ASSERT_EQUAL_HEX8(0xFFu, ap_graphics_read(&g, 0xFA0000u));
+
+  /* And a fitted one reads FF too, for now: the storage is the controller's
+   * work, and answering anything else would claim a frame buffer exists. */
+  ap_graphics_init(&g, AP_SCREEN_COLOUR_8_PLANE);
+  TEST_ASSERT_EQUAL_HEX8(0xFFu, ap_graphics_read(&g, 0x0A0000u));
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_each_screen_reports_the_id_the_firmware_compares_against);
   RUN_TEST(test_the_other_family_s_block_reads_ff);
   RUN_TEST(test_an_absent_screen_still_decodes_and_reads_ff);
   RUN_TEST(test_the_blocks_are_the_ranges_the_map_gives_them);
+  RUN_TEST(test_the_graphics_memories_decode);
+  RUN_TEST(test_an_absent_card_s_graphics_memory_reads_ff);
   RUN_TEST(test_an_unmodelled_register_reads_ff_and_not_zero);
   RUN_TEST(test_a_write_is_absorbed_and_does_not_change_the_id);
   return UNITY_END();

@@ -58,7 +58,11 @@ ap_board_region_t ap_board_region(uint32_t address) {
   {
     bool colour = false;
     uint32_t offset = 0;
-    if (ap_graphics_decode(address, &colour, &offset)) {
+    /* Both, and both before the AT bus windows below: the graphics memories sit
+     * inside the AT memory window, so a window checked first would report the
+     * machine's own frame buffer as an empty expansion slot. */
+    if (ap_graphics_decode(address, &colour, &offset) ||
+        ap_graphics_decode_memory(address, &colour, &offset)) {
       return AP_BOARD_REGION_GRAPHICS;
     }
   }

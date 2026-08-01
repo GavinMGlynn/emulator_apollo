@@ -2824,6 +2824,22 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
           confirmation came from a preprocessor guard rather than from anything
           the machine did. Worth noting: no amount of tracing our own run could
           have found it.
+  - [x] The **graphics memories decode**: `0A0000-0BFFFF` colour and
+        `FA0000-FDFFFF` monochrome, matched *before* the AT bus windows.
+        - Both sit **inside** the AT bus memory window, so the board was
+          reporting the machine's own frame buffer as an empty expansion slot.
+          The I/O window had this hazard and a test; the memory window had the
+          hazard and no test, because until the memories were named there was
+          nothing inside it to swallow.
+        - No device suite could have caught it — they call the device directly
+          and the device was right. Only a test of the *map* sees it, and
+          `board_suite` has one now.
+        - It was not hypothetical: in the PROM run 384 accesses move from
+          "AT bus (empty slot)" to "display controller". The firmware was
+          touching its frame buffer and we were mislabelling it.
+        - Reads answer `FF` and nothing is stored. Storage belongs with the
+          controller: memory that accepted writes and displayed nothing would
+          let a test pass that proves nothing about a screen.
   - [ ] **The display controller is the next module**, and now for a reason
         rather than as the next thing on a list. It stops being a probe target:
         the four regions already recorded (`05D800`/`05E800` registers,

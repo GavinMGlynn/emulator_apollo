@@ -29,9 +29,34 @@ bool ap_graphics_decode(uint32_t address, bool *colour, uint32_t *offset) {
   return false;
 }
 
+bool ap_graphics_decode_memory(uint32_t address, bool *colour,
+                               uint32_t *offset) {
+  if (address >= AP_GRAPHICS_COLOUR_MEMORY_ADDR &&
+      address <= AP_GRAPHICS_COLOUR_MEMORY_END) {
+    *colour = true;
+    *offset = address - AP_GRAPHICS_COLOUR_MEMORY_ADDR;
+    return true;
+  }
+  if (address >= AP_GRAPHICS_MONO_MEMORY_ADDR &&
+      address <= AP_GRAPHICS_MONO_MEMORY_END) {
+    *colour = false;
+    *offset = address - AP_GRAPHICS_MONO_MEMORY_ADDR;
+    return true;
+  }
+  return false;
+}
+
 uint8_t ap_graphics_read(const ap_graphics_t *graphics, uint32_t address) {
   bool colour = false;
   uint32_t offset = 0;
+  if (ap_graphics_decode_memory(address, &colour, &offset)) {
+    /* Storage a fitted card provides. None is modelled yet, and `FF` is what an
+     * absent card's memory reads -- the same answer the register blocks give,
+     * for the same reason. Storing it comes with the controller, not before:
+     * memory that accepts writes and displays nothing would let a test pass
+     * that proves nothing about a screen. */
+    return 0xFFu;
+  }
   if (!ap_graphics_decode(address, &colour, &offset)) {
     return 0xFFu;
   }
