@@ -2619,11 +2619,16 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         a real defect — the mode field is *not* three contiguous bits, and
         reading it as one had been declining `XX0000XX`, which is half of
         continuous mode.
-  - [ ] Period and pulse-width measurement stay declined, now for a hardware
+  - [~] Period and pulse-width measurement stay declined, now for a hardware
         reason rather than a transcription one: both time a signal applied to a
         timer's gate pin, and on this board the three gates have nothing
         connected. They are decoded and reported, so a caller learns which mode
         it asked for.
+        - Marked `[~]` rather than `[ ]`. An unticked box reads as work
+          outstanding, and this is not: it is a mode the DN3500 cannot exercise,
+          declined deliberately and reported honestly. It becomes real work only
+          if a model appears whose board wires a gate — which is a Phase 7
+          question, not a Phase 3 omission.
   - [x] The timer's placement and interrupt route, measured: the part is at
         **odd addresses, stride 2** (`RS n` at `010801 + 2n`, confirmed by the
         `FFFF` latch default showing through), and its interrupt reaches the
@@ -2654,8 +2659,11 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         from 88.6 years to 505 days. Worth doing if anything is ever seen using
         them; the part's own 4.194304 MHz crystal is a separate matter and can
         never be a clock domain at all, since it would leave 3.95 days.
-  - [ ] The square-wave output pin (nothing on this board is wired to it) and
+  - [~] The square-wave output pin (nothing on this board is wired to it) and
         the daylight-savings shifts of `DSE` (stored but inert).
+        - Also `[~]`, and for the same reason as the timer's measurement modes:
+          nothing on this board can observe either, so implementing them would
+          add behaviour no test could distinguish from its absence.
 - [ ] SIO serial lines, keyboard and mouse. *Verification: console byte stream
       identical to the oracle's.*
   - **The oracle's half of that comparison now exists.** `docs/references/MD.md`
