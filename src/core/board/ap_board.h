@@ -94,6 +94,13 @@ typedef struct ap_board {
    * A single bus-error total says only that something was missing. */
   unsigned unmapped_reads;
   unsigned unmapped_writes;
+
+  /* Writes to a read-only memory, which are absorbed rather than refused and so
+   * are *not* unmapped. Kept apart because the two mean opposite things: an
+   * unmapped write is an address nothing answers, while this is an address
+   * something answers and cannot store. Folding them together would both hide a
+   * driver writing to a PROM and make a harmless write look like a fault. */
+  unsigned rom_writes;
 } ap_board_t;
 
 /* `start` is the calendar's instant; see `device/ap_mc146818.h` on why it comes

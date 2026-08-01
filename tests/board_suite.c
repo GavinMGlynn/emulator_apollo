@@ -99,21 +99,53 @@ static void test_reads_reach_the_devices_themselves(void) {
   TEST_ASSERT_TRUE(ok);
 }
 
-static void test_the_read_only_memories_refuse_writes(void) {
+/* A read-only memory **absorbs** a write rather than refusing it. Something
+ * decodes the address and terminates the cycle; the storage simply cannot
+ * change, so the processor sees an ordinary completed write and no bus error.
+ *
+ * The oracle settles this: MAME's DN3500 maps the boot ROM for write as well as
+ * read, to a handler that only logs — and its source names the very image we
+ * boot as one that writes to address 4 from PC 2c1c. Real firmware does this and
+ * real hardware shrugs, so a board that faulted here would break a program the
+ * machine runs. */
+static void test_the_read_only_memories_absorb_writes_rather_than_faulting(void) {
+  ap_board_t b;
+  bool ok = false;
+  init(&b);
+  static const uint8_t prom[4] = {0x01u, 0x00u, 0x01u, 0x80u};
+  TEST_ASSERT_TRUE(ap_board_load_prom(&b, prom, sizeof prom));
+
+  ap_board_write(&b, 0x000002u, 0x5Au, &ok);
+  TEST_ASSERT_TRUE(ok);
+  ap_board_write(&b, 0x011202u, 0x5Au, &ok);
+  TEST_ASSERT_TRUE(ok);
+
+  /* Not unmapped -- an unmapped write is an address nothing answers, and these
+   * are answered. Counted apart, because a driver writing to a PROM stays worth
+   * knowing even though it is not an error. */
+  TEST_ASSERT_EQUAL_UINT(0u, b.unmapped_writes);
+  TEST_ASSERT_EQUAL_UINT(2u, b.rom_writes);
+
+  /* Absorbed, not stored: both still read what they held. */
+  TEST_ASSERT_EQUAL_HEX8(0x01u, ap_board_read(&b, 0x000002u, &ok));
+  TEST_ASSERT_TRUE(ok);
+  TEST_ASSERT_EQUAL_HEX8(0x01u, ap_board_read(&b, 0x011202u, &ok));
+  TEST_ASSERT_TRUE(ok);
+}
+
+/* With no PROM fitted the region is absent, and both directions have to say so.
+ * A board whose missing PROM refuses reads but absorbs writes describes no
+ * hardware, and the absorb rule above is exactly the kind that grows such a
+ * hole if it is applied by region name rather than by what is present. */
+static void test_a_missing_prom_is_absent_for_writes_too(void) {
   ap_board_t b;
   bool ok = true;
   init(&b);
 
-  /* A PROM does not store, and counting the attempt is how a driver writing to
-   * one becomes visible rather than appearing to succeed. */
   ap_board_write(&b, 0x000100u, 0x5Au, &ok);
   TEST_ASSERT_FALSE(ok);
-  ap_board_write(&b, 0x011202u, 0x5Au, &ok);
-  TEST_ASSERT_FALSE(ok);
-  TEST_ASSERT_EQUAL_UINT(2u, b.unmapped_writes);
-
-  /* The node ID still reads what it was given. */
-  TEST_ASSERT_EQUAL_HEX8(0x01u, ap_board_read(&b, 0x011202u, &ok));
+  TEST_ASSERT_EQUAL_UINT(1u, b.unmapped_writes);
+  TEST_ASSERT_EQUAL_UINT(0u, b.rom_writes);
 }
 
 static void test_the_boot_prom_region_is_reported_absent(void) {
@@ -146,7 +178,8 @@ int main(void) {
   RUN_TEST(test_an_unclaimed_address_is_unmapped_not_zero);
   RUN_TEST(test_main_memory_is_where_table_two_eight_puts_it);
   RUN_TEST(test_reads_reach_the_devices_themselves);
-  RUN_TEST(test_the_read_only_memories_refuse_writes);
+  RUN_TEST(test_the_read_only_memories_absorb_writes_rather_than_faulting);
+  RUN_TEST(test_a_missing_prom_is_absent_for_writes_too);
   RUN_TEST(test_the_boot_prom_region_is_reported_absent);
   RUN_TEST(test_every_region_has_a_name);
   return UNITY_END();

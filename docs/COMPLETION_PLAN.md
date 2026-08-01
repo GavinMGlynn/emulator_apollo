@@ -2586,6 +2586,25 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
           what distinguishes an address error from a bus error in the frame.
         - `step_suite`, 3 tests. The PROM is unchanged at 89 with an identical
           state hash, which is the check that the change is additive.
+  - [x] **A write to a read-only memory is absorbed, not refused** — a defect
+        introduced when the store path gained the ability to fault, and caught
+        by asking the oracle rather than by reasoning. `ap_board_write` returned
+        `ok = false` for the PROM and node ID, which was harmless while no write
+        could fault and became a spurious bus error the moment one could.
+        - MAME's DN3500 maps the boot ROM for **write** as well as read, to a
+          handler that only logs — and names our exact image in a comment about
+          a write to address `4` from PC `2c1c`. This firmware writes to its own
+          boot ROM and the hardware shrugs, so faulting there would break a
+          program the machine runs.
+        - Counted as `rom_writes`, apart from `unmapped_writes`: the two mean
+          opposite things. An unmapped write is an address nothing answers; this
+          is an address something answers and cannot store.
+        - A *missing* PROM is still unmapped in both directions. A board whose
+          absent PROM refuses reads but absorbs writes describes no hardware,
+          and that is the hole this rule grows if it is applied by region name
+          rather than by what is fitted. `board_suite`, 2 tests.
+        - The PROM run is unchanged at 89 with an identical state hash, so its
+          two unmapped writes were the stack leaving RAM, not PROM writes.
   - [ ] **The run re-enters `000028D0` after the handler returns** — five bus
         errors at one address, which is why the stack runs out. A probe handler
         that meant to skip the instruction would adjust the stacked PC, so

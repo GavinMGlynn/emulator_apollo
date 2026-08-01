@@ -177,12 +177,39 @@ void ap_board_write(ap_board_t *board, uint32_t address, uint8_t value,
     board->ram[offset] = value;
     return;
   }
-  case AP_BOARD_REGION_NODE_ID:
   case AP_BOARD_REGION_PROM:
-    /* Both are read-only memories. A write is not an error the board reports --
-     * the hardware simply does not store it -- but it is not "ok" either, and
-     * counting it is how a driver writing to a PROM becomes visible. */
-    break;
+    if (board->prom == NULL) {
+      /* No PROM fitted, so nothing decodes the address and the write is
+       * unmapped like any other. The read path already reports the region
+       * absent in this case, and the two directions have to agree: a board
+       * where a missing PROM refuses reads but absorbs writes describes no
+       * hardware. */
+      break;
+    }
+    [[fallthrough]];
+  case AP_BOARD_REGION_NODE_ID:
+    /* Both are read-only memories, and a write to one is **absorbed**, not
+     * refused. Something is decoding the address and terminating the cycle --
+     * the storage simply cannot change -- so the processor sees an ordinary
+     * completed write and no bus error.
+     *
+     * The oracle settles this rather than intuition: MAME's DN3500 maps the
+     * boot ROM region for write as well as read, to a handler that does
+     * nothing but log. It also carries this, naming the very image we boot:
+     *
+     *     if (pc == 0x00002c1c && address == 0x00000004 ...)
+     *         // don't log invalid code in 3500_boot_12191_7.bin
+     *
+     * So this firmware really does write to its own boot ROM, and the hardware
+     * really does shrug. A board that bus-errored here would fault real
+     * firmware doing a thing the real machine tolerates.
+     *
+     * Counted separately all the same. "The firmware wrote to a PROM" stays
+     * worth knowing even though it is not an error, and folding it into the
+     * unmapped total would hide it among addresses nothing decodes at all. */
+    board->rom_writes++;
+    *ok = true;
+    return;
   case AP_BOARD_REGION_UNMAPPED:
     break;
   }

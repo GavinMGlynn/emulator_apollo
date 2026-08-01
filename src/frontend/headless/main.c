@@ -212,6 +212,10 @@ static int boot_from_prom(const char *path, unsigned limit) {
   printf("  bus errors   %u\n", machine.bus_errors);
   printf("  unmapped     %u read, %u written\n", board->unmapped_reads,
          board->unmapped_writes);
+  /* Reported separately because it is not an error: a read-only memory absorbs
+   * a write, and this firmware is known to make one. Folded into the unmapped
+   * total it would read as a fault that never happened. */
+  printf("  rom writes   %u\n", board->rom_writes);
   printf("  state hash   %016llX\n",
          (unsigned long long)ap_machine_hash(&machine));
 
@@ -341,6 +345,10 @@ static int boot_from_tape(const char *path, unsigned limit) {
   printf("  bus errors   %u\n", machine.bus_errors);
   printf("  unmapped     %u read, %u written\n", board->unmapped_reads,
          board->unmapped_writes);
+  /* Reported separately because it is not an error: a read-only memory absorbs
+   * a write, and this firmware is known to make one. Folded into the unmapped
+   * total it would read as a fault that never happened. */
+  printf("  rom writes   %u\n", board->rom_writes);
   printf("  final region %s\n",
          ap_board_region_name(ap_board_region(machine.cpu.regs.pc)));
 
