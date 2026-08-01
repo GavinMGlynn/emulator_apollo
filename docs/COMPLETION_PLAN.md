@@ -120,6 +120,17 @@ file the moment they are found, not when someone remembers.
           inferred.
         - **Media prepared**: all five tapes decompressed in `media/domainos/`,
           originals kept.
+        - **The install is drivable** (`FINDINGS.md` C48). The machine boots to
+          MD's prompt with the image and boot tape attached, and sending `re`
+          produces a **second `MD7` sign-on** — the command executing, not
+          echoing, since that banner is output MD makes only on entry.
+        - Not reached: `di c` onward. The full sequence is `re`, `di c`,
+          `ex invol`, the calendar, then Domain/OS and `MINST` taking five tapes
+          in turn, then `shut` — interactive and slow, with tape swaps between
+          stages. Driving it needs a session that holds state across stages and
+          checks each one's output before sending the next.
+        - Nothing structural blocks it: media unpacked, image command known,
+          console captured byte-exact, and MD executes what it is sent.
         - **We already hold all five tapes it names**, filename for filename, in
           `media/domainos/`. Nothing needs downloading.
         - The sequence is driven from the **MD prompt** (`re`, `di c`,

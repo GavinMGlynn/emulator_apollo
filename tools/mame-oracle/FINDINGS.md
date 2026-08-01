@@ -2771,3 +2771,40 @@ format byte-exact, captured through `mdcapture.lua`, which is what a scripted
 rather than hand-driven install would need to parse. The item's verification
 asks for exactly that: "produced by a recorded, repeatable install rather than
 by hand."
+
+
+## C48 -- the install is drivable, and the first command runs
+
+Attempted the install from `C47`'s procedure, headless, with the disk image and
+boot tape attached and the console captured through `mdcapture.lua`.
+
+The machine boots to MD's `>` prompt with `-disk1` and `-ctape` present -- so the
+348 MB image made by hand is accepted by the OMTI device and does not have to
+be a real formatted disk to get that far.
+
+Sending `re` produces a **second `MD7` sign-on** in the same capture:
+
+```
+..MD7....>....>...(many)...>....MD7....>....>...
+```
+
+`re` is *Reset System*. The machine reset and MD signed on again, which is the
+command executing rather than being echoed -- the sign-on is output MD only
+produces on entry.
+
+So the chain works end to end: characters paced into stdin reach the DUART,
+reach MD, are parsed, and a command takes effect. That was the open question
+after `C45`, which had got as far as MD *talking* without anything it said
+depending on what was sent.
+
+### What was not reached
+
+`di c` produced no visible output and the run ended in prompts. The full
+sequence is `re`, `di c`, `ex invol`, the calendar, then Domain/OS and `MINST`
+taking five tapes in turn, then `shut` -- each stage interactive and slow, with
+tape swaps between them. Driving it needs a session that can hold the state
+across stages and check each one's output before sending the next.
+
+What is settled is that nothing structural blocks it. The media is unpacked, the
+image command is known, the console is captured byte-exact, and MD executes what
+it is sent.
