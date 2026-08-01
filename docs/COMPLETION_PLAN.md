@@ -3357,11 +3357,22 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
           and read `FF`, the scan found nothing at `00090000`, the `FFFF` there
           took the F-line trap, and the firmware carried on. The question was
           worth asking and the answer is that the machine was already right.
-  - [ ] The rest of the display controllers: the graphics memories
-        (`0FA0000-0FDFFFF` monochrome, `000A0000-00BFFFF` colour), the blitter,
-        the colour lookup table. Verify on a decoded PNG rather than on register
-        round-trips — a controller that passes register tests and draws nothing
-        is the standard way this goes wrong.
+  - [ ] The rest of the display controllers: the blitter and the colour lookup
+        table. Verify on a decoded PNG rather than on register round-trips — a
+        controller that passes register tests and draws nothing is the standard
+        way this goes wrong.
+        - The **graphics memories are done** and no longer belong in this line:
+          `0A0000-0BFFFF` colour and `FA0000-FDFFFF` monochrome decode, store
+          into caller-owned buffers, and are matched *before* the AT bus windows
+          they sit inside — which had been reporting the machine's own frame
+          buffer as an empty expansion slot. `graphics_suite`.
+        - Also done and not listed here when this was written: the device ID
+          registers, `CR0`'s mode and shift fields, and `CR1`'s bits named per
+          controller family. What remains is the drawing.
+        - The `--screen` option fits one, and with `c8p` the firmware makes
+          **803 writes** to the controller. Those writes are the specification
+          for what is left: they are what the blitter and lookup table have to
+          answer.
   - [x] The **special status word** and the bus fault frame layout,
         `cpu/m68030/ap_m68030_ssw.c` — Figure 8-9's bit positions, the SIZ1/SIZ0
         encoding that counts bytes *remaining* (so a long word is zero), the
