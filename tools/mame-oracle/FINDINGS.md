@@ -2611,3 +2611,25 @@ against. That is as far as the evidence goes: whether the triples are
 unshifted/shifted/control variants of one key, or three separate keys, is not
 settled by the bytes alone and should not be guessed. MAME's `apollo_kbd.cpp`
 carries the other side of the same conversation and is where to check next.
+
+### The other side: make and break codes
+
+`apollo_kbd.cpp` sends `push_scancode(x)` when a key goes down and
+`push_scancode(0x80 + x)` when it comes up -- the classic make/break scheme,
+with bit 7 as the release flag and `x` the key's index in the scanned matrix.
+
+That refines the table above rather than settling it. **Every high byte in it
+has bit 7 set**: `CB` is the release of key `4B`, `DB` of `5B`, `FB` of `7B`.
+So the PROM's table is matching *release* codes, or bit 7 means something else
+on this link -- and a table of key-up events is an odd thing for a character
+translator to search.
+
+The oddity is recorded rather than explained away. The obvious reading is that
+the table holds break codes, and the obvious reading being odd is exactly when
+to write down that it is odd instead of picking whichever interpretation makes
+it ordinary.
+
+The triple spacing survives the reading intact: `CB DB FB` become keys
+`4B 5B 7B`, still *X*, *X*+`10`, *X*+`30`. Whether that is a matrix row stride
+or three modifier variants now has a concrete next question -- what `x` values
+`apollo_kbd`'s matrix assigns, which its `INPUT_PORTS_START` gives directly.
