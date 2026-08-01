@@ -31,7 +31,9 @@ static void print_usage(const char *program_name) {
           "  --boot-limit N        stop a boot after N instructions, to find\n"
           "                        where one goes wrong\n"
           "  --boot-trace          report pc and a7 per step: a7 is where a\n"
-          "                        stack goes wrong, pc only where it shows\n");
+          "                        stack goes wrong, pc only where it shows\n"
+          "  --boot-watch ADDR     with --boot-trace, report the long word at\n"
+          "                        ADDR after every step\n");
 }
 
 /* The probes' RAM. Static rather than automatic because it is large, and
@@ -155,7 +157,8 @@ static uint8_t *read_file(const char *path, long *size_out) {
  * machine has no physical memory at the boot image's load address, and the
  * addresses in its header are logical (`FINDINGS.md` C28). The PROM is what
  * enables translation, so it is what has to run first. */
-static int boot_from_prom(const char *path, unsigned limit, bool trace) {
+static int boot_from_prom(const char *path, unsigned limit, bool trace,
+                          uint32_t watch) {
   long size = 0;
   uint8_t *prom = read_file(path, &size);
   if (prom == NULL) {
@@ -217,7 +220,8 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace) {
      * happens, and the two can be thousands of instructions apart. Printing
      * both together is what lets one be found from the other. */
     run = (ap_machine_run_t){.status = AP_M68030_STEP_EXECUTED};
-    printf("# step pc a7 a6 instruction status\n");
+    printf("# step pc a7 a6 instruction status%s\n",
+           watch != 0u ? " watched" : "");
     for (unsigned i = 0; i < limit; i++) {
       const uint32_t step_pc = machine.cpu.regs.pc;
       const ap_m68030_step_result_t r = ap_m68030_step(&machine.cpu);
@@ -227,6 +231,21 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace) {
       printf("%u %08X %08X %08X %04X %s\n", i, step_pc,
              ap_m68030_read_a7(&machine.cpu.regs), machine.cpu.regs.a[6],
              r.instruction, ap_probe_status_name(r.status));
+      if (watch != 0u) {
+        /* One named location's contents, per step. Three hypotheses about this
+         * value were each refuted by an observable rather than by argument, so
+         * the cheapest thing left is to stop reasoning about what writes it and
+         * simply watch it change. */
+        uint32_t held = 0;
+        bool all = true;
+        for (unsigned k = 0; k < 4u; k++) {
+          bool byte_ok = false;
+          const uint8_t byte = ap_board_read(board, watch + k, &byte_ok);
+          all = all && byte_ok;
+          held = (held << 8) | byte;
+        }
+        printf("  watch %08X = %08X%s\n", watch, held, all ? "" : " (unmapped)");
+      }
       run.status = r.status;
       if (r.status != AP_M68030_STEP_EXECUTED &&
           r.status != AP_M68030_STEP_EXCEPTION) {
@@ -411,6 +430,7 @@ int main(int argc, char **argv) {
   ap_common_options_init(&opt);
 
   bool boot_trace = false;
+  uint32_t boot_watch = 0;
   bool run_probe_suite = false;
   bool report_timing = false;
   const char *boot_tape = NULL;
@@ -434,6 +454,11 @@ int main(int argc, char **argv) {
      * mistake was made. */
     if (strcmp(argv[i], "--boot-limit") == 0 && i + 1 < argc) {
       boot_limit = (unsigned)strtoul(argv[i + 1], NULL, 0);
+      i += 2;
+      continue;
+    }
+    if (strcmp(argv[i], "--boot-watch") == 0 && i + 1 < argc) {
+      boot_watch = (uint32_t)strtoul(argv[i + 1], NULL, 0);
       i += 2;
       continue;
     }
@@ -480,7 +505,7 @@ int main(int argc, char **argv) {
   }
 
   if (boot_prom != NULL) {
-    return boot_from_prom(boot_prom, boot_limit, boot_trace);
+    return boot_from_prom(boot_prom, boot_limit, boot_trace, boot_watch);
   }
 
   if (boot_tape != NULL) {

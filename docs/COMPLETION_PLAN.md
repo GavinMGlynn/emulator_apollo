@@ -2627,18 +2627,26 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         disturb the cache, read again. It round-trips. The test is kept as a
         regression test — misaligned data is legal on this part and the path is
         now covered either way.
-  - [ ] Three hypotheses down. What is established: the `BSR` at step 30 should
-        leave `00000620` at `01000172`, nothing between it and step 57 writes
-        there, the stack arithmetic is right, and reading that address
-        misaligned works. So **verify the memory directly** rather than
-        hypothesising a fourth mechanism — dump the long at `01000172`
-        immediately after step 30 and again before step 57, and find which end
-        of the gap is wrong. `--boot-trace` already proves how cheap one more
-        observable is; this needs a `--boot-watch ADDR` reporting a location's
-        contents per step.
-        - Do not guess a fourth mechanism first. Each of the three refutations
-          cost one small addition to the instrumentation and each was decisive;
-          the reasoning that produced them was not.
+  - [x] `--boot-watch ADDR`, reporting a location's contents per step, and it
+        settles it. **The memory is correct.** `01000172` holds `00000620` from
+        step 30 straight through step 57. The `RTS` read the right address, the
+        right value was there, and it jumped to zero anyway.
+  - [ ] So the defect is between the memory and the processor: the CPU reads
+        through the **data cache** and `--boot-watch` reads the board directly.
+        A stale cache line is the remaining mechanism, and it fits what the
+        other refutations left standing — step 28's `RTS` reads `01000172` and
+        *loads* those lines, step 30's `BSR` writes the slot, and step 57's
+        `RTS` reads it again.
+        - Writethrough means a write must update a line that is already
+          resident, not merely reach memory. A write miss with write-allocate
+          off must **invalidate** rather than leave a valid stale entry.
+        - Reproduce in `access_suite`, which has the cache directly: read an
+          address to make it resident, write it, read it back, and require the
+          new value. That is a smaller and more direct test than the misaligned
+          one, and it does not need the PROM.
+        - This is the fourth mechanism proposed for this stop, but the first
+          reached by elimination rather than by guessing — memory, alignment,
+          stack arithmetic and control flow are each now *measured* correct.
   - [ ] Whether the PROM *should* reach `00090000` at all is a separate
         question from what happens when it does. Check what it tests before
         jumping — do not assume the jump is unconditional.

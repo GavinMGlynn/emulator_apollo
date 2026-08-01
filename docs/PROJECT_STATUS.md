@@ -115,12 +115,17 @@ every later long push and pop at **2 mod 4**. The failing read is a long at
 cache even after a 4 KB sweep evicts around it. The test is kept, since
 misaligned data is legal on this part and the path deserves cover regardless.
 
-Three hypotheses are now down — a stack overlap, a wrong branch, and misaligned
-access — each refuted by one small addition to the instrumentation. What is
-established is that the `BSR` at step 30 should leave `00000620` at `01000172`,
-nothing writes there before step 57, and reading it misaligned works. The next
-step is to watch that location per step rather than hypothesise a fourth
-mechanism.
+Watching the location settled it. **The memory is correct**: `01000172` holds
+`00000620` from step 30 through step 57. The `RTS` read the right address, the
+right value was there, and it jumped to zero.
+
+So the defect sits between the memory and the processor. The CPU reads through
+the **data cache**; `--boot-watch` reads the board directly. A stale cache line
+is what remains once memory, alignment, stack arithmetic and control flow are
+each measured correct — and it fits: step 28's `RTS` makes those lines resident,
+step 30's `BSR` writes the slot, step 57's `RTS` reads it again. Writethrough
+means a write must update a resident line, and a write miss must invalidate
+rather than leave a valid stale entry.
 
 Getting there needed `--boot-trace` (PC and A7 per step) and one fix. A7 was the
 observable: the PROM's `CLR.B $00011600` bus errored on every pass through its
