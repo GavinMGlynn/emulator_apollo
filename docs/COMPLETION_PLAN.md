@@ -347,10 +347,19 @@ file the moment they are found, not when someone remembers.
           port being probed. C36 called that rebuild a dead end because no
           output followed; it was right about the output and wrong about the
           build, which is the only route to the input the firmware wants.
-        - Next: pipe a byte into MAME's standard input, which is what
-          `apollo_stdio_device` reads and what `oracle.py` currently leaves
-          empty. Try **both** rates the firmware cycles before reading anything
-          into a null result.
+        - **Tried, and nothing changed** (`FINDINGS.md` C43). The trace with
+          characters on stdin is byte-identical to the run without: same ten
+          writes, same `CSRB` toggling, no transmit.
+        - Three explanations remain and one run cannot separate them:
+          `oracle.py` may not forward stdin; `apollo_stdio_device` may not be
+          instantiated even in the `APOLLO_XXL` build (which was confirmed only
+          by the absence of compile errors, never by seeing the device exist);
+          or the rate is wrong and the character decodes as noise.
+        - **Next, and it is the cheapest:** list the machine's devices from lua
+          and look for a stdio tag. If the device is absent, the build did not
+          do what C36 assumed and stdin does not matter yet. One run, no new
+          code — `mdcapture.lua` already enumerates ports when it cannot find
+          one and can enumerate devices the same way.
         - **A result worth having on the way** (`FINDINGS.md` C39): the oracle's
           four configuration writes, decoded — `sio1 ACR E0`, `sio1 CSRB 77`,
           `sio2 ACR 80`, `sio2 CSRA 77`. Both ports get the same clock select,

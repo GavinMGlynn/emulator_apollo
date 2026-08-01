@@ -2440,3 +2440,40 @@ Worth noting the earlier judgement this overturns. C36 recorded the
 `APOLLO_XXL` rebuild as changing nothing, and it was right that no output
 appeared. It was wrong to imply the build was beside the point. The terminal it
 compiles in is the only route to the port the firmware is actually listening on.
+
+
+## C43 -- piping stdin changes nothing, and three things could explain it
+
+Ran `dn3500` with characters on standard input, service mode set and a keystroke
+prompting the autobaud probe. The trace is byte-identical to the run without
+stdin: the same ten writes, the same `CSRB` toggling, no transmit.
+
+**Three explanations remain and one run cannot separate them.** Naming all three
+rather than picking the likeliest, because the last several findings in this
+file each cost a run by acting on a plausible one:
+
+1. `oracle.py` may not forward standard input to MAME. It builds a subprocess
+   command and nothing in it says stdin is inherited or piped.
+2. `apollo_stdio_device` may not be *instantiated* even in the `APOLLO_XXL`
+   build. It is added in `dn3500()` inside the guard, and the rebuild was
+   confirmed only by the absence of compile errors -- never by observing the
+   device exist.
+3. The rate may be wrong. The firmware cycles `CSRB` between `77` and `BB`, and
+   a character sent at neither rate decodes as noise and is discarded.
+
+The cheapest of the three to settle is the second, and it settles part of the
+first for free: list the machine's devices from lua and look for a stdio tag. If
+the device is absent, the build did not do what C36 assumed, and nothing about
+stdin matters yet. That check is one run and no new code -- `mdcapture.lua`
+already enumerates ports when it cannot find one and can enumerate devices the
+same way.
+
+### The standing lesson, now with a count
+
+Phase 1's MD item has consumed a long sequence of runs, and the pattern in the
+failures is consistent: each closed route was a confident theory acted on before
+the cheaper check that would have ranked it. The natural keyboard was tried
+before checking for `PORT_CHAR`. The display configuration was reasoned from a
+bitmask before reading the port. The `APOLLO_XXL` terminal was built before
+finding which port the firmware listens on. Every one of those checks was a
+single grep.
