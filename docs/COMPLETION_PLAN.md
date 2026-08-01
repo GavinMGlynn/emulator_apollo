@@ -2501,11 +2501,39 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         (the standard frame buffer) into a table, so it is **probing for a
         display adapter**. Confirm against the oracle before building on it; it
         is an inference from the map, not a measurement.
-  - [ ] A faulting access should ultimately take the **bus error exception**
-        (vector 2) rather than stopping the step. Deferred deliberately: the
-        68030 bus fault frame is format `$A`/`$B` and is its own module. `FAULT`
-        is what the fetch path already reports, so this is consistent rather
-        than a new gap.
+  - [x] The **special status word** and the bus fault frame layout,
+        `cpu/m68030/ap_m68030_ssw.c` — Figure 8-9's bit positions, the SIZ1/SIZ0
+        encoding that counts bytes *remaining* (so a long word is zero), the
+        FC2-FC0 address space, and Table 8-6's field offsets for both fault
+        frames. `ssw_suite`, 11 tests.
+        - The encoder applies "a rerun bit is always set when the corresponding
+          fault bit is set" itself, rather than trusting call sites: FB without
+          RB claims stage B is invalid but needs no prefetch, leaving a stale
+          word in the pipe on RTE.
+        - A rerun *without* a fault stays expressible, because that is exactly
+          how an address error is distinguished from a bus error.
+        - `ap_m68030_bus_fault_frame()` decides the frame from the SSW rather
+          than taking it as a parameter, because §8.2.2's "data read faults only
+          generate the long bus fault frame" is structural — the short frame has
+          no data input buffer, so a read fault stacked into it is unrepairable.
+        - Fields Table 8-6 labels INTERNAL REGISTER are deliberately not named.
+          This model has no source for the processor's microsequencer state, and
+          naming an offset for a field we would fill with a guess is how a guess
+          becomes load-bearing.
+  - [ ] Wire the SSW into `take_exception_with`, which today declines every
+        format but `$0` and `$2`, so a faulting access takes the **bus error
+        exception** (vector 2) instead of stopping the step. The PROM needs
+        this: an undecoded read is how a display-adapter probe *asks*, so the
+        firmware almost certainly has a handler that answers "no card".
+  - [ ] `RTE` from a `$A`/`$B` frame, including the rerun of a faulted data
+        access the DF bit requests. Until this lands the exception can be taken
+        but not returned from.
+  - [ ] The long frame's INTERNAL REGISTER fields will have to be stacked as
+        zero — a deliberate approximation, since this model has no
+        microsequencer state to save. Cost to close: an `RTE` resuming a fault
+        *mid-instruction* cannot work from a zeroed frame, so the rerun above
+        must reconstruct the access from the SSW and fault address instead of
+        from internal state. Record it as `PROVISIONAL` when it lands.
   - [ ] The write side of `access_faulted` is correct but currently
         **unreachable**: the store callback returns `void`, so only an MMU
         protection violation can fault a write, and no `step_suite` test enables
