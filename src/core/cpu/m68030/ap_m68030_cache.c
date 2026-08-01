@@ -94,8 +94,8 @@ void ap_m68030_cache_fill_line(ap_m68030_cache_t *cache, uint32_t address,
 ap_m68030_cache_write_t
 ap_m68030_cache_write(ap_m68030_cache_t *cache, uint32_t address,
                       uint8_t function_code, uint32_t value,
-                      bool aligned_long_word, bool write_allocate,
-                      bool frozen) {
+                      bool aligned_long_word, bool write_allocate, bool frozen,
+                      bool spans_two_entries) {
   ap_m68030_cache_line_t *line =
       &cache->line[ap_m68030_cache_line_index(address)];
   const unsigned entry = ap_m68030_cache_entry_index(address);
@@ -105,6 +105,31 @@ ap_m68030_cache_write(ap_m68030_cache_t *cache, uint32_t address,
   /* "When a hit occurs on a write cycle, the data is written both to the cache
    * and to external memory ... regardless of the operand size and even if the
    * cache is frozen." The freeze bit stops *replacement*, not updating. */
+  /* A misaligned long word spans two entries, and a cache entry is a whole long
+   * word: there is no way to write half of `value` into each. The rule below
+   * for the miss case says "the valid bit(s) are cleared" -- plural, because
+   * this is exactly the access that touches two -- and the same applies on a
+   * hit, since the alternative is writing a whole entry from an address whose
+   * bytes only partly belong to it.
+   *
+   * Leaving one entry updated with the wrong bytes and the other stale is what
+   * made the boot PROM's `RTS` at `00002946` read zero from an address that
+   * demonstrably held `00000620`: the value was in memory, and the cache
+   * answered instead. Writethrough has already put it in memory, so clearing
+   * both entries costs a refill and cannot return a wrong value. */
+  if (spans_two_entries) {
+    if (tag_hit) {
+      line->valid[entry] = false;
+      const unsigned next = entry + 1u;
+      if (next < AP_M68030_CACHE_ENTRIES) {
+        line->valid[next] = false;
+      }
+    }
+    /* The other line, when the access crosses a line boundary as well. The
+     * caller passes the second address for exactly this. */
+    return AP_M68030_CACHE_WRITE_INVALIDATED;
+  }
+
   if (tag_hit && line->valid[entry]) {
     line->entry[entry] = value;
     return AP_M68030_CACHE_WRITE_HIT;

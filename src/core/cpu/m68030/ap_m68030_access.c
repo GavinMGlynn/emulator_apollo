@@ -234,8 +234,9 @@ ap_m68030_access_result_t ap_m68030_access_write(ap_m68030_access_ctx_t *access,
       access->cache_enabled, access->cache_disable, cache_inhibit);
   if (cache_usable) {
     (void)ap_m68030_cache_write(access->cache, logical, function_code, value,
-                                aligned_long_word,
-                                access->write_allocate, access->cache_frozen);
+                                aligned_long_word, access->write_allocate,
+                                access->cache_frozen,
+                                (size == 4u) && ((logical & 3u) != 0u));
   }
 
   out.value = value;

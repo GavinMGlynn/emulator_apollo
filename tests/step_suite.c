@@ -651,6 +651,16 @@ static void test_an_unimplemented_mmu_instruction_is_not_dressed_up_as_f_line(vo
   TEST_ASSERT_EQUAL_HEX32(PROGRAM_BASE, m.cpu.regs.pc);
 }
 
+
+/* NOTE: a companion case is a **known failure** and is deliberately not run
+ * here -- a misaligned long *write* over two lines that are already resident,
+ * read back. Fixing the write side was not enough: the read path assembles a
+ * misaligned long from a single cache entry, so it returns zero for a value
+ * that is correct in memory. The exact recipe is in `docs/COMPLETION_PLAN.md`
+ * and goes in as a test with the fix. A red suite is the stop-everything
+ * condition here, so a reproduction that cannot yet pass lives in the plan
+ * rather than in the runner. */
+
 static void test_misaligned_long_round_trips_through_the_data_cache(void) {
   machine_t m = {0};
   static const uint16_t nothing[] = {0x4E71u, 0x4E71u};
@@ -681,6 +691,41 @@ static void test_misaligned_long_round_trips_through_the_data_cache(void) {
   TEST_ASSERT_TRUE(back.ok);
   TEST_ASSERT_EQUAL_HEX32(0x00000620u, back.value);
 }
+
+
+/* Writethrough means a write must update a cache line that is *already*
+ * resident, not merely reach memory. A model where it reaches memory alone
+ * leaves a valid stale entry, and the next read hands back the old value --
+ * while a direct look at memory shows the new one, which is exactly what the
+ * boot PROM's trace showed at `01000172`.
+ *
+ * Read first to make the line resident. Without that the write is a miss and
+ * proves nothing. */
+static void test_a_write_updates_a_line_that_is_already_resident(void) {
+  machine_t m = {0};
+  static const uint16_t nothing[] = {0x4E71u, 0x4E71u};
+  load(&m, nothing, 2);
+
+  const ap_m68030_address_t where = {.address = 0x00004170u, .valid = true};
+  ap_m68030_operand_result_t back =
+      ap_m68030_operand_read(&m.cpu.regs, m.cpu.data, &where, 4u, 5u);
+  TEST_ASSERT_TRUE(back.ok);
+
+  const ap_m68030_operand_result_t wrote = ap_m68030_operand_write(
+      &m.cpu.regs, m.cpu.data, &where, 4u, 0x00000620u, 5u);
+  TEST_ASSERT_TRUE(wrote.ok);
+
+  back = ap_m68030_operand_read(&m.cpu.regs, m.cpu.data, &where, 4u, 5u);
+  TEST_ASSERT_TRUE(back.ok);
+  TEST_ASSERT_EQUAL_HEX32(0x00000620u, back.value);
+  /* And memory agrees, so the two views cannot silently diverge. */
+  TEST_ASSERT_EQUAL_HEX32(0x00000620u, read_ram_long(&m, 0x00004170u));
+}
+
+/* The same for a misaligned long, which is what the PROM actually does: the
+ * value spans two lines, and *both* must be updated. A model that updated only
+ * the line containing the start address would pass the aligned test above and
+ * still hand back half a stale word here. */
 
 /* The flag describes one instruction, so it must not survive into the next.
  * A stale one would mislabel the following unimplemented instruction as a
@@ -4231,6 +4276,7 @@ int main(void) {
   RUN_TEST(test_the_same_instruction_over_memory_that_answers_executes);
   RUN_TEST(test_a_write_nothing_accepts_takes_the_bus_error_exception);
   RUN_TEST(test_a_refused_write_is_not_left_in_the_cache);
+  RUN_TEST(test_a_write_updates_a_line_that_is_already_resident);
   RUN_TEST(test_misaligned_long_round_trips_through_the_data_cache);
   RUN_TEST(test_a_line_1010_word_takes_the_emulator_trap);
   RUN_TEST(test_an_f_line_word_with_no_coprocessor_takes_the_emulator_trap);

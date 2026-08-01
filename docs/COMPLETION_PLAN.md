@@ -2631,22 +2631,32 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         settles it. **The memory is correct.** `01000172` holds `00000620` from
         step 30 straight through step 57. The `RTS` read the right address, the
         right value was there, and it jumped to zero anyway.
-  - [ ] So the defect is between the memory and the processor: the CPU reads
-        through the **data cache** and `--boot-watch` reads the board directly.
-        A stale cache line is the remaining mechanism, and it fits what the
-        other refutations left standing — step 28's `RTS` reads `01000172` and
-        *loads* those lines, step 30's `BSR` writes the slot, and step 57's
-        `RTS` reads it again.
-        - Writethrough means a write must update a line that is already
-          resident, not merely reach memory. A write miss with write-allocate
-          off must **invalidate** rather than leave a valid stale entry.
-        - Reproduce in `access_suite`, which has the cache directly: read an
-          address to make it resident, write it, read it back, and require the
-          new value. That is a smaller and more direct test than the misaligned
-          one, and it does not need the PROM.
-        - This is the fourth mechanism proposed for this stop, but the first
-          reached by elimination rather than by guessing — memory, alignment,
-          stack arithmetic and control flow are each now *measured* correct.
+  - [x] **Reproduced and half fixed.** A write hit on a *resident* line works;
+        a **misaligned long write spanning two entries** did not. The hit path
+        did `line->entry[entry] = value` regardless of alignment, so one entry
+        got a whole long word assembled from the wrong bytes and the other was
+        left stale. The manual's rule for the miss case says "the valid bit(s)
+        are cleared" — **plural**, because this is the access that touches two —
+        and the same applies on a hit: a cache entry is a whole long word, so
+        there is no way to write half of `value` into each. Both are now
+        invalidated, which costs a refill and cannot return a wrong value
+        because writethrough has already reached memory.
+  - [ ] **The read side has the same bug and is still open.** With the write
+        fixed, the reproduction still fails: `ap_m68030_access_read` calls
+        `ap_m68030_cache_lookup` with the raw logical address, and a misaligned
+        long is assembled from a *single* entry. It returns zero for a value
+        that is correct in memory.
+        - Recipe, ready to become a test: make `00004170` and `00004174`
+          resident by reading both, write a long to `00004172`, read it back.
+          Expect `00000620`, currently `00000000`.
+        - Deliberately **not** left in the runner as a failing test — a red
+          suite is the stop-everything condition here, so a reproduction that
+          cannot yet pass lives in the plan. `step_suite` carries a note saying
+          where it went and why.
+        - The two halves are one defect seen twice: an entry is a long word, and
+          any access that is not an aligned long word spans two of them. Fix the
+          read path the same way — assemble from both entries, or decline the
+          hit and take the external cycle.
   - [ ] Whether the PROM *should* reach `00090000` at all is a separate
         question from what happens when it does. Check what it tests before
         jumping — do not assume the jump is unconditional.
