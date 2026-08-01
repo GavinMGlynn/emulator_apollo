@@ -2504,17 +2504,32 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         `000A0000` is Apollo's colour graphics memory rather than a PC frame
         buffer. The "three independent facts" that made the window reading feel
         safe were three consequences of one design decision.
-  - [ ] **Apollo graphics controllers** — a new module, not a fix to an existing
-        one. Four regions from the oracle's map:
-        - `05D800-05DC07` monochrome controller registers
-        - `0FA0000-0FDFFFF` monochrome graphics memory
-        - `05E800-05EC07` colour controller registers
-        - `000A0000-00BFFFF` colour graphics memory
-        Nothing is mis-implemented today: the DN3500 config we boot has no
-        graphics controller, so a bus error is the correct answer to the probe
-        and is what the machine gives. Model the controllers only when a config
-        that *has* one is the target, and verify on a decoded PNG rather than on
-        register round-trips.
+  - [x] **Display controller identification**, `board/ap_graphics.c` — the two
+        register blocks (`05D800-05DC07` monochrome, `05E800-05EC07` colour) and
+        the device ID register at offset 1 of each. The four screen types are
+        `C4P=8`, `19I=9`, `C8P=10`, `15I=11`, which is exactly what the boot PROM
+        compares against at `000028D0` onward. `graphics_suite`, 6 tests.
+        - **The blocks decode whether or not a screen is fitted.** With none, the
+          ID reads `FF`, matches no type, and the firmware moves on. This is the
+          fact whose absence sent an investigation after a phantom bug in the
+          exception path: "nothing is fitted" and "nothing is there" are
+          different answers, and only the second is a bus error.
+        - Each block answers only for its own family, which is how the firmware
+          tells which controller is present — it reads both.
+        - Only identification is modelled, and the header says so. Unmodelled
+          registers read `FF` rather than zero, because zero is a value several
+          of them can legitimately hold.
+  - [x] The boot PROM reaches **425 instructions**, up from 89, with the display
+        probe answered.
+  - [ ] The run now stops at PC `00090000`, which is unmapped, after 2 bus
+        errors. Different address, different question — investigate before
+        assuming it is another absent device, and **ask the oracle's map first**
+        (`FINDINGS.md` C32).
+  - [ ] The rest of the display controllers: the graphics memories
+        (`0FA0000-0FDFFFF` monochrome, `000A0000-00BFFFF` colour), the blitter,
+        the colour lookup table. Verify on a decoded PNG rather than on register
+        round-trips — a controller that passes register tests and draws nothing
+        is the standard way this goes wrong.
   - [x] The **special status word** and the bus fault frame layout,
         `cpu/m68030/ap_m68030_ssw.c` — Figure 8-9's bit positions, the SIZ1/SIZ0
         encoding that counts bytes *remaining* (so a long word is zero), the

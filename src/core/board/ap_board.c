@@ -43,6 +43,13 @@ ap_board_region_t ap_board_region(uint32_t address) {
   if (in(address, AP_TAPE_ADDR, AP_TAPE_RANGE)) {
     return AP_BOARD_REGION_TAPE;
   }
+  {
+    bool colour = false;
+    uint32_t offset = 0;
+    if (ap_graphics_decode(address, &colour, &offset)) {
+      return AP_BOARD_REGION_GRAPHICS;
+    }
+  }
   if (address >= AP_BOARD_RAM_BASE) {
     return AP_BOARD_REGION_RAM;
   }
@@ -63,6 +70,7 @@ const char *ap_board_region_name(ap_board_region_t region) {
   case AP_BOARD_REGION_TRANSLATION_MAP: return "translation map";
   case AP_BOARD_REGION_DISK: return "disk/floppy";
   case AP_BOARD_REGION_TAPE: return "cartridge tape";
+  case AP_BOARD_REGION_GRAPHICS: return "display controller";
   case AP_BOARD_REGION_RAM: return "main memory";
   }
   return "unmapped";
@@ -85,6 +93,10 @@ bool ap_board_init(ap_board_t *board, uint8_t *ram, uint32_t ram_bytes,
   ap_nodeid_init(&board->node_id, node_id);
   ap_disk_reset(&board->disk);
   ap_tape_reset(&board->tape);
+  /* No display controller fitted by default. The blocks still decode -- a
+   * DN3500 answers there whether or not a screen is present -- and the ID
+   * register reads `FF`, which is how the firmware learns there is none. */
+  ap_graphics_init(&board->graphics, AP_SCREEN_NONE);
   board->ram = ram;
   board->ram_bytes = ram_bytes;
   return true;
@@ -113,6 +125,8 @@ uint8_t ap_board_read(ap_board_t *board, uint32_t address, bool *ok) {
     return ap_disk_read(&board->disk, address);
   case AP_BOARD_REGION_TAPE:
     return ap_tape_read(&board->tape, address);
+  case AP_BOARD_REGION_GRAPHICS:
+    return ap_graphics_read(&board->graphics, address);
   case AP_BOARD_REGION_RAM: {
     uint32_t offset = address - AP_BOARD_RAM_BASE;
     if (board->ram == NULL || offset >= board->ram_bytes) {
@@ -168,6 +182,9 @@ void ap_board_write(ap_board_t *board, uint32_t address, uint8_t value,
     return;
   case AP_BOARD_REGION_TAPE:
     ap_tape_write(&board->tape, address, value);
+    return;
+  case AP_BOARD_REGION_GRAPHICS:
+    ap_graphics_write(&board->graphics, address, value);
     return;
   case AP_BOARD_REGION_RAM: {
     uint32_t offset = address - AP_BOARD_RAM_BASE;

@@ -40,6 +40,7 @@
 #include "board/ap_intr.h"
 #include "board/ap_nodeid.h"
 #include "board/ap_sio.h"
+#include "board/ap_graphics.h"
 #include "board/ap_tape.h"
 #include "board/ap_timer.h"
 
@@ -64,6 +65,7 @@ typedef enum {
   AP_BOARD_REGION_TRANSLATION_MAP,
   AP_BOARD_REGION_DISK,
   AP_BOARD_REGION_TAPE,
+  AP_BOARD_REGION_GRAPHICS,
   AP_BOARD_REGION_RAM,
 } ap_board_region_t;
 
@@ -78,6 +80,7 @@ typedef struct ap_board {
   ap_nodeid_t node_id;
   ap_disk_t disk;
   ap_tape_t tape;
+  ap_graphics_t graphics;
 
   /* The boot PROM, caller-owned. NULL until one is loaded, and the region then
    * answers unmapped -- a machine with no PROM is a real configuration and must
