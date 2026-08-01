@@ -2016,3 +2016,52 @@ Nothing built in this chain is wasted or wrong. Bus error and address error are
 real exceptions this processor takes, they are needed, and they are correct and
 tested. The read-only-write fix is right on its own terms. What changes is only
 which module comes next: the graphics controller, and not more of the CPU.
+
+## C33 -- the boot PROM's bus errors are its self-test, not our defect
+
+With the cache fixed, the PROM runs 300000 instructions with the PC still inside
+the PROM and shows **129 bus errors**, all unmapped *reads*, none written. The
+obvious reading is that 129 faults means 129 things missing.
+
+The oracle says otherwise, twice over.
+
+`apollo_unmapped_r` ends:
+
+```
+    /* unmapped; access causes a bus error */
+    apollo_bus_error();
+    return 0xffffffff;
+```
+
+So an unmapped read really does bus error on a DN3500, and our behaviour
+matches. More usefully, the same function carries:
+
+```
+    } else if (address == 0x00030000 && VERBOSE < 2) {
+        // omit logging for Bus error test address in DN3500 boot prom and self_test
+```
+
+**The boot PROM provokes bus errors deliberately, as part of its self-test.**
+MAME's author hit the same noise and silenced it by address. A machine that took
+*no* bus errors running this PROM would be the suspicious one.
+
+### What this changes about reading the counters
+
+A bus error count is not a defect signature for this firmware, and the instinct
+to drive it to zero is wrong. What matters is *which* addresses fault and
+whether the firmware carries on afterwards -- it does, which is what a passing
+self-test looks like.
+
+This is the second time in this investigation a clean-looking number was
+misleading, and they point opposite ways: five million instructions with zero
+faults was a runaway, and 129 faults is a self-test passing. Neither count meant
+what it looked like. The first unmapped address is recorded now
+(`ap_board_t::first_unmapped_read`) precisely because a count alone cannot
+distinguish these, and it reports `FFF90000` -- high space, in the range MAME
+leaves commented out as `apollo_f8_r/w`.
+
+### The rule
+
+Report *what* an access touched, not only how many there were. Every counter in
+`ap_board_t` that says only "how many" is one an investigation will have to
+extend at the moment it matters.

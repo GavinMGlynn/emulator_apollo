@@ -132,8 +132,18 @@ the hit path stored a partial value into a four-byte entry — replacing bytes i
 had not written. The written bytes are now merged into their own lanes.
 
 **The runaway is gone.** The PROM no longer reaches address zero, and 300000
-instructions leave the PC inside the PROM. It now shows 129 bus errors, a new
-and uncharacterised signature rather than a good one.
+instructions leave the PC inside the PROM with 129 bus errors — **all of which
+are its own self-test**. MAME's `apollo_unmapped_r` calls `apollo_bus_error()`,
+so an unmapped read does fault on a DN3500 and ours matches, and its source
+names `00030000` as the "Bus error test address in DN3500 boot prom and
+self_test". A machine taking no bus errors here would be the suspicious one
+(`FINDINGS.md` C33).
+
+Two clean-looking numbers have now misled this investigation in opposite
+directions: five million instructions with zero faults was a runaway, and 129
+faults is a self-test passing. The board therefore records the *first* unmapped
+address in each direction as well as the count, because a count alone cannot
+tell those apart. It reports `FFF90000`.
 
 Getting there needed `--boot-trace` (PC and A7 per step) and one fix. A7 was the
 observable: the PROM's `CLR.B $00011600` bus errored on every pass through its

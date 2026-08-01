@@ -131,6 +131,14 @@ typedef struct ap_board {
   unsigned unmapped_reads;
   unsigned unmapped_writes;
 
+  /* The first unmapped address in each direction, which a count alone cannot
+   * give. "129 unmapped reads" is a number; "129 unmapped reads, the first at
+   * `0002xxxx`" is a lead. Recording the first rather than the last because a
+   * run that goes wrong tends to keep going wrong, and the earliest one is the
+   * one with the fewest causes behind it. */
+  uint32_t first_unmapped_read;
+  uint32_t first_unmapped_write;
+
   /* Writes to a read-only memory, which are absorbed rather than refused and so
    * are *not* unmapped. Kept apart because the two mean opposite things: an
    * unmapped write is an address nothing answers, while this is an address

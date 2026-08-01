@@ -263,6 +263,14 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
   printf("  bus errors   %u\n", machine.bus_errors);
   printf("  unmapped     %u read, %u written\n", board->unmapped_reads,
          board->unmapped_writes);
+  if (board->unmapped_reads > 0u) {
+    printf("    first read %08X (%s)\n", board->first_unmapped_read,
+           ap_board_region_name(ap_board_region(board->first_unmapped_read)));
+  }
+  if (board->unmapped_writes > 0u) {
+    printf("    first write %08X (%s)\n", board->first_unmapped_write,
+           ap_board_region_name(ap_board_region(board->first_unmapped_write)));
+  }
   /* Reported separately because it is not an error: a read-only memory absorbs
    * a write, and this firmware is known to make one. Folded into the unmapped
    * total it would read as a fault that never happened. */
@@ -398,6 +406,14 @@ static int boot_from_tape(const char *path, unsigned limit) {
   printf("  bus errors   %u\n", machine.bus_errors);
   printf("  unmapped     %u read, %u written\n", board->unmapped_reads,
          board->unmapped_writes);
+  if (board->unmapped_reads > 0u) {
+    printf("    first read %08X (%s)\n", board->first_unmapped_read,
+           ap_board_region_name(ap_board_region(board->first_unmapped_read)));
+  }
+  if (board->unmapped_writes > 0u) {
+    printf("    first write %08X (%s)\n", board->first_unmapped_write,
+           ap_board_region_name(ap_board_region(board->first_unmapped_write)));
+  }
   /* Reported separately because it is not an error: a read-only memory absorbs
    * a write, and this firmware is known to make one. Folded into the unmapped
    * total it would read as a fault that never happened. */

@@ -182,6 +182,9 @@ uint8_t ap_board_read(ap_board_t *board, uint32_t address, bool *ok) {
     break;
   }
   *ok = false;
+  if (board->unmapped_reads == 0u) {
+    board->first_unmapped_read = address;
+  }
   board->unmapped_reads++;
   return 0xFFu;
 }
@@ -268,6 +271,9 @@ void ap_board_write(ap_board_t *board, uint32_t address, uint8_t value,
     break;
   }
   *ok = false;
+  if (board->unmapped_writes == 0u) {
+    board->first_unmapped_write = address;
+  }
   board->unmapped_writes++;
 }
 

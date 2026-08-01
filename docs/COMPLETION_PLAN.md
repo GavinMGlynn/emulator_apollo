@@ -2662,11 +2662,25 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         - The reproduction is back in `step_suite` as a passing test, and also
           asserts the neighbouring bytes survive — a fix that invalidated rather
           than merged would satisfy the value assertion and fail that one.
-  - [ ] The PROM runs **300000 instructions** with the runaway gone: it no
-        longer reaches address zero and the PC stays inside the PROM. There are
-        now **129 bus errors**, a new and uncharacterised signature. Trace what
-        they touch before treating the count as benign — a clean-looking number
-        has already been wrong once in this investigation.
+  - [x] Characterised the 129 bus errors, and **they are the PROM's self-test**
+        (`FINDINGS.md` C33). MAME's `apollo_unmapped_r` calls
+        `apollo_bus_error()`, so an unmapped read really does fault on a DN3500
+        and ours matches; and its source names `00030000` as the "Bus error test
+        address in DN3500 boot prom and self_test". The firmware provokes them
+        deliberately. A machine taking *no* bus errors here would be the
+        suspicious one, and driving the count to zero would be chasing the
+        wrong target.
+  - [x] `ap_board_t::first_unmapped_read` / `first_unmapped_write`, reported by
+        the headless frontend. A count cannot distinguish a self-test from a
+        defect; an address can. The first unmapped read is `FFF90000`, high
+        space, in the range MAME leaves commented out as `apollo_f8_r/w`.
+  - [ ] Characterise `FFF90000`. It is the *first* fault, so it has the fewest
+        causes behind it. Establish whether the firmware expects it — several of
+        these faults are self-test and some may not be — before deciding whether
+        anything is missing there.
+  - [ ] Every remaining counter in `ap_board_t` reports only "how many". C33's
+        rule is to report *what* an access touched: extend them the same way
+        before an investigation needs it, rather than during one.
         question from what happens when it does. Check what it tests before
         jumping — do not assume the jump is unconditional.
   - [ ] The rest of the display controllers: the graphics memories
