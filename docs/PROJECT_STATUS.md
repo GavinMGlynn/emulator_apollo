@@ -86,15 +86,23 @@ crash — the display controller's lesson a second time, found the same way.
 
 Reading `FF` gives `FFFF`, an F-line word, and with the **line 1010 and line
 1111 emulator traps** now raised the machine takes vector 11 the way the
-hardware does. **The boot PROM runs 5000000 instructions with zero bus errors, zero unmapped
-accesses and zero empty-slot accesses.** The machine executes real firmware
-through its own address map for as long as it is allowed to.
+hardware does. **The boot PROM executes 57 instructions of real work, then runs away.**
 
-It does not *finish*: at both 1000000 and 5000000 instructions the PC is
-`000006B4`, a `DBF` closing a `MOVE.L (A0),(A0)+` pass over 512 long words — a
-memory sizing loop. Whether `DBF` fails to terminate or an outer loop re-enters
-it is recorded as the next question, to be settled by tracing D0 and A0 rather
-than by reading the instructions.
+An earlier reading of this line said 5000000 instructions with zero bus errors,
+and that was wrong in the way most worth guarding against: it was true and
+meaningless. At step 57 an `RTS` at `00002946` returns to `00000000`, and
+everything after is the machine walking the vector table as `ORI.B` instructions
+forever. It never faults, because `ORI.B` on D0 over readable PROM is harmless —
+which is precisely why five million clean instructions looked like progress.
+
+A zero-fault count is not evidence of a boot. It is evidence that nothing
+complained.
+
+The stack accounting around the bad `RTS` is correct — every push and pop moves
+A7 by four and they balance — so the return-address slot at `01000172` was
+overwritten rather than mis-popped. The next step is to trace A6 and the write
+addresses; `MOVE.L D0,($130,A6)` two instructions earlier lands on exactly that
+slot if A6 is near `01000042`.
 
 Getting there needed `--boot-trace` (PC and A7 per step) and one fix. A7 was the
 observable: the PROM's `CLR.B $00011600` bus errored on every pass through its

@@ -2594,25 +2594,29 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
   - [x] Raised the limit. **5000000 instructions, zero bus errors, zero unmapped
         accesses, zero empty-slot accesses.** The machine is executing real
         firmware cleanly through its own address map for as long as we let it.
-  - [ ] It does not finish: at both 1000000 and 5000000 the PC is `000006B4`,
-        so it is spinning. The loop is
-        ```
-        0006AA  41EE FE80  LEA     (-$180,A6),A0
-        0006AE  303C 01FF  MOVE.W  #$01FF,D0
-        0006B2  20D0       MOVE.L  (A0),(A0)+
-        0006B4  51C8 FFFC  DBF     D0,*-4
-        ```
-        a read-write-back pass over 512 long words — a memory sizing or test
-        loop. Two readings fit and they need different fixes, so **establish
-        which before changing anything**:
-        - `DBF` is not terminating, in which case 512 iterations never end and
-          the defect is in the quick/conditional group; or
-        - the loop terminates correctly and an *outer* loop re-enters it, in
-          which case the spin is above this code and this is a symptom.
-        Distinguish by tracing D0 and A0 across a few hundred steps rather than
-        by reading either instruction. The last two blockers were both found by
-        tracing a register and both were missed by reasoning about the
-        instructions.
+  - [x] Settled the `000006B4` spin by counting rather than reading: 15 loop
+        entries against 7399 `DBF` executions in 20000 instructions, so ~493 per
+        entry. **`DBF` terminates correctly** and the spin is above it.
+  - [x] **Found it, and it retracts the "5000000 clean instructions" reading.**
+        At step **57** an `RTS` at `00002946` returns to `00000000`. Everything
+        after that is the machine walking the vector table at address 0 as
+        `ORI.B` instructions, four bytes at a time, forever. It never faults —
+        `ORI.B` on D0 over readable PROM is harmless — which is exactly why five
+        million instructions with zero bus errors looked like success.
+        **The zero-fault run was a runaway, not a boot.**
+  - [ ] Why the `RTS` at `00002946` pops zero. The stack accounting around it is
+        correct — every push and pop moves A7 by 4 and they balance — so the
+        return-address slot at `01000172` was **overwritten**, not mis-popped.
+        - Concrete hypothesis to test, not to assume: step 55 is
+          `MOVE.L D0,($130,A6)`, and with A6 near `01000042` that lands exactly
+          on `01000172`. If so, A6 and the supervisor stack overlap, which points
+          back at the reset SSP of `01000180` sitting 384 bytes above the base of
+          main memory.
+        - Test it by tracing A6 and the write address, not by reading the code.
+          That is now three consecutive blockers found by tracing a register.
+  - [ ] Re-examine what the reset SSP means. `01000180` leaves 384 bytes of
+        supervisor stack, and this is the second distinct failure to point at
+        it. Ask the oracle what A6 and A7 hold at the same instruction.
   - [ ] Whether the PROM *should* reach `00090000` at all is a separate
         question from what happens when it does. Check what it tests before
         jumping — do not assume the jump is unconditional.
