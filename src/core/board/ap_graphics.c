@@ -128,3 +128,35 @@ void ap_graphics_write(ap_graphics_t *graphics, uint32_t address,
    * to decide what it meant, and there is no answer to that yet. */
   (void)value;
 }
+
+ap_graphics_cr0_mode_t ap_graphics_cr0_mode(uint8_t cr0) {
+  return (ap_graphics_cr0_mode_t)(cr0 >> 5);
+}
+
+ap_graphics_cr2_access_t ap_graphics_cr2_access(uint8_t cr2) {
+  return (ap_graphics_cr2_access_t)(cr2 >> 6);
+}
+
+const char *ap_graphics_cr0_mode_name(ap_graphics_cr0_mode_t m) {
+  switch (m) {
+  case AP_GRAPHICS_CR0_CPU_DEST_BLT: return "CPU destination BLT";
+  case AP_GRAPHICS_CR0_ALTERNATING_BLT: return "alternating BLT";
+  case AP_GRAPHICS_CR0_VECTOR: return "vector";
+  case AP_GRAPHICS_CR0_CPU_SOURCE_BLT: return "CPU source BLT";
+  case AP_GRAPHICS_CR0_DOUBLE_ACCESS_BLT: return "double access BLT";
+  case AP_GRAPHICS_CR0_UNKNOWN_5: return "unknown (mode 5)";
+  case AP_GRAPHICS_CR0_UNKNOWN_6: return "unknown (mode 6)";
+  case AP_GRAPHICS_CR0_NORMAL: return "normal";
+  }
+  return "unknown";
+}
+
+const char *ap_graphics_cr2_access_name(ap_graphics_cr2_access_t a) {
+  switch (a) {
+  case AP_GRAPHICS_CR2_CONSTANT_ACCESS: return "constant";
+  case AP_GRAPHICS_CR2_PIXEL_ACCESS: return "pixel";
+  case AP_GRAPHICS_CR2_UNKNOWN_2: return "unknown (access 2)";
+  case AP_GRAPHICS_CR2_PLANE_ACCESS: return "plane";
+  }
+  return "unknown";
+}

@@ -2861,10 +2861,21 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         - With `c8p` fitted the display controller takes **803 writes**, up from
           zero. The firmware initialises a display it has found, and every one
           of those writes previously had nowhere to go.
-  - [ ] Those 803 writes are to registers this module does not model — it holds
-        only the device ID. **That is now the gap**, and it is the controller
-        proper: the register set, the blitter and the colour lookup table.
-        Verify on a decoded PNG, not on register round-trips.
+  - [x] The **control register mode fields**: `CR0` bits 7-5 select one of eight
+        operating modes, `CR2` bits 7-6 one of four access modes. A pure data
+        module — names and bit positions — because that part can be got right
+        before anything draws, and a mode field read from the wrong bits is a
+        defect that survives every test of the thing above it: the blitter would
+        run a real mode, just not the one asked for, and only a picture would
+        show it. `graphics_suite`, 2 tests.
+        - CR0 modes 5 and 6 and CR2 access 2 are `???` in the oracle's own
+          source. That is the state of the knowledge, not a gap in the
+          transcription, so they are named **UNKNOWN** rather than given a
+          plausible label — a guess would be indistinguishable from a fact until
+          firmware exercised it. Asserted, so it cannot be quietly filled in.
+  - [ ] The rest of those 803 writes: the register set proper, the blitter's
+        five defined modes and the colour lookup table. Verify on a decoded PNG,
+        not on register round-trips.
   - [ ] **The display controller is the next module**, and now for a reason
         rather than as the next thing on a list. It stops being a probe target:
         the four regions already recorded (`05D800`/`05E800` registers,

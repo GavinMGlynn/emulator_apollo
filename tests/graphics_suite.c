@@ -6,6 +6,7 @@
  */
 
 #include <stddef.h>
+#include <string.h>
 
 #include "board/ap_graphics.h"
 
@@ -246,6 +247,51 @@ static void test_every_way_of_having_no_memory_reads_ff(void) {
                          ap_graphics_read(&g, 0x0A0000u + sizeof small - 1u));
 }
 
+
+/* `CR0` bits 7-5 and `CR2` bits 7-6. A mode field read from the wrong bits is
+ * the kind of defect that survives every test of the thing above it: the
+ * blitter would run a real mode, just not the one asked for, and only a picture
+ * would show it. So the bits are pinned here, before anything uses them. */
+static void test_the_control_register_mode_fields_are_where_they_are(void) {
+  /* Each mode in its own top-three-bits position, with the low bits set to
+   * something so a decode that ignored the shift would be caught. */
+  for (unsigned mode = 0; mode < 8u; mode++) {
+    const uint8_t cr0 = (uint8_t)((mode << 5) | 0x1Fu);
+    TEST_ASSERT_EQUAL_UINT(mode, (unsigned)ap_graphics_cr0_mode(cr0));
+  }
+  for (unsigned access = 0; access < 4u; access++) {
+    const uint8_t cr2 = (uint8_t)((access << 6) | 0x3Fu);
+    TEST_ASSERT_EQUAL_UINT(access, (unsigned)ap_graphics_cr2_access(cr2));
+  }
+
+  /* The named ones, so a renumbering cannot pass silently. */
+  TEST_ASSERT_EQUAL_UINT(AP_GRAPHICS_CR0_NORMAL, ap_graphics_cr0_mode(0xE0u));
+  TEST_ASSERT_EQUAL_UINT(AP_GRAPHICS_CR0_VECTOR, ap_graphics_cr0_mode(0x40u));
+  TEST_ASSERT_EQUAL_UINT(AP_GRAPHICS_CR2_PLANE_ACCESS,
+                         ap_graphics_cr2_access(0xC0u));
+}
+
+/* The oracle's own source lists CR0 modes 5 and 6, and CR2 access 2, as `???`.
+ * That is the state of the knowledge rather than a gap in the transcription, so
+ * they must read as unknown and not as a plausible label -- a guess here would
+ * be indistinguishable from a fact until firmware exercised it. */
+static void test_the_unknown_modes_say_they_are_unknown(void) {
+  TEST_ASSERT_NOT_NULL(
+      strstr(ap_graphics_cr0_mode_name(AP_GRAPHICS_CR0_UNKNOWN_5), "unknown"));
+  TEST_ASSERT_NOT_NULL(
+      strstr(ap_graphics_cr0_mode_name(AP_GRAPHICS_CR0_UNKNOWN_6), "unknown"));
+  TEST_ASSERT_NOT_NULL(strstr(
+      ap_graphics_cr2_access_name(AP_GRAPHICS_CR2_UNKNOWN_2), "unknown"));
+
+  /* And every mode has a name, so a trace cannot print a blank at the moment it
+   * matters. */
+  for (unsigned mode = 0; mode < 8u; mode++) {
+    const char *name = ap_graphics_cr0_mode_name((ap_graphics_cr0_mode_t)mode);
+    TEST_ASSERT_NOT_NULL(name);
+    TEST_ASSERT_TRUE(strlen(name) > 0u);
+  }
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_each_screen_reports_the_id_the_firmware_compares_against);
@@ -256,6 +302,8 @@ int main(void) {
   RUN_TEST(test_an_absent_card_s_graphics_memory_reads_ff);
   RUN_TEST(test_the_graphics_memory_stores_when_a_card_is_fitted);
   RUN_TEST(test_every_way_of_having_no_memory_reads_ff);
+  RUN_TEST(test_the_control_register_mode_fields_are_where_they_are);
+  RUN_TEST(test_the_unknown_modes_say_they_are_unknown);
   RUN_TEST(test_an_unmodelled_register_reads_ff_and_not_zero);
   RUN_TEST(test_a_write_is_absorbed_and_does_not_change_the_id);
   return UNITY_END();

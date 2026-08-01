@@ -138,4 +138,49 @@ void ap_graphics_attach_memory(ap_graphics_t *graphics, uint8_t *colour,
 void ap_graphics_write(ap_graphics_t *graphics, uint32_t address,
                        uint8_t value);
 
+/* ## The control registers' mode fields
+ *
+ * `CR0` bits 7-5 select one of eight operating modes and `CR2` bits 7-6 one of
+ * four access modes. Decoded here as a pure data module -- names and bit
+ * positions only -- because that is the part that can be got right before any
+ * of it draws anything, and because a mode field read from the wrong bits is a
+ * defect that survives every test of the thing above it.
+ *
+ * ## Two of the eight are unknown, and stay unknown
+ *
+ * The oracle's own source lists modes 5 and 6 as `???`, and access mode 2 the
+ * same. That is the state of the knowledge, not a gap in the transcription, so
+ * they are named `UNKNOWN` rather than given a plausible label. A guess here
+ * would be indistinguishable from a fact for as long as nobody exercised it,
+ * and the first thing to exercise it would be firmware doing something real.
+ */
+
+typedef enum {
+  AP_GRAPHICS_CR0_CPU_DEST_BLT = 0u,
+  AP_GRAPHICS_CR0_ALTERNATING_BLT = 1u,
+  AP_GRAPHICS_CR0_VECTOR = 2u,
+  AP_GRAPHICS_CR0_CPU_SOURCE_BLT = 3u,
+  AP_GRAPHICS_CR0_DOUBLE_ACCESS_BLT = 4u,
+  AP_GRAPHICS_CR0_UNKNOWN_5 = 5u,
+  AP_GRAPHICS_CR0_UNKNOWN_6 = 6u,
+  AP_GRAPHICS_CR0_NORMAL = 7u,
+} ap_graphics_cr0_mode_t;
+
+typedef enum {
+  AP_GRAPHICS_CR2_CONSTANT_ACCESS = 0u,
+  AP_GRAPHICS_CR2_PIXEL_ACCESS = 1u,
+  AP_GRAPHICS_CR2_UNKNOWN_2 = 2u,
+  AP_GRAPHICS_CR2_PLANE_ACCESS = 3u,
+} ap_graphics_cr2_access_t;
+
+/* `CR0` bits 7-5, `CR2` bits 7-6. Every value of each is defined, so neither
+ * can fail -- an eight-way field read from three bits has no invalid case, and
+ * pretending otherwise would invent an error the hardware cannot report. */
+[[nodiscard]] ap_graphics_cr0_mode_t ap_graphics_cr0_mode(uint8_t cr0);
+[[nodiscard]] ap_graphics_cr2_access_t ap_graphics_cr2_access(uint8_t cr2);
+
+/* Names, for traces. The unknown modes say so rather than reading as blank. */
+[[nodiscard]] const char *ap_graphics_cr0_mode_name(ap_graphics_cr0_mode_t m);
+[[nodiscard]] const char *ap_graphics_cr2_access_name(ap_graphics_cr2_access_t a);
+
 #endif /* APOLLO_BOARD_AP_GRAPHICS_H */
