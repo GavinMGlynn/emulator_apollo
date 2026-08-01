@@ -199,11 +199,16 @@ reading register 14 starts the counter and 15 stops it — show the counter
 registers with **zero reads on both ports**.
 
 What it is instead is a **write-only loop**, about 2362 iterations of one
-auxiliary-control write and two clock-select writes, reading nothing back. The
-interrupt controllers are written ten times and never read, and this machine
-delivers no interrupts because nothing ticks — so a loop that cannot end on
-anything it reads may be waiting to be interrupted. That is a different reason
-for needing the tick loop than the one just refuted, and needs its own evidence.
+auxiliary-control write and two clock-select writes, reading nothing back. Reading the loop settles it differently again. `0000220C` is three
+instructions — `CMP.B (d8,PC,Xn),D1`, `BEQ`, `DBF` — a table search against
+`000021D2`, and that table interleaves high-bit bytes with ASCII: the signature
+of a **keyboard scan-code map**, not a command table.
+
+So the reading is that **SIO1 is the keyboard, not a terminal**, feeding it
+ASCII is the wrong thing entirely, and the DN3500's console is the graphics
+display plus keyboard. With only the display's ID register modelled the PROM
+would have nowhere to print — which fits it never transmitting. To be confirmed
+against the oracle before anything is built on it.
 
 The tick loop is still owed and remains the project's central design item, but
 it is not what this stop needs.

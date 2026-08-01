@@ -2798,11 +2798,26 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         - The interrupt controllers are **written 10 times and never read**, and
           this machine delivers no interrupts because nothing ticks. A loop that
           cannot end on anything it reads may be waiting to be interrupted.
-        - That would put the tick loop back in play, for **interrupts** rather
-          than for the DUART counter — a different reason from the one just
-          refuted, and it needs its own evidence rather than inheriting that
-          one's. Establish what ends the loop at `0000220C` by reading the code
-          there, before building anything.
+        - The tick loop is *not* established as the answer either. Reading the
+          code came first, and it says something else.
+  - [x] Read the loop at `0000220C`. It is three instructions —
+        `CMP.B (d8,PC,Xn),D1`, `BEQ`, `DBF` — a **table search**, comparing the
+        received byte against a table at `000021D2`. The table is
+        `CB DB FB C8 D8 F8 C9 D9 F9 5B 5D 7B 7D CA DA FA ... 0D 0D 1B 5C ...`:
+        high-bit bytes interleaved with ASCII, which is the signature of a
+        **keyboard scan-code to character map**, not a command table.
+  - [ ] **Reading, not conclusion: SIO1 is the keyboard, not a terminal.** If
+        so, feeding it ASCII is the wrong thing entirely — `\n` and `\r` both
+        fail to match, and `\r` is *in* the table — and the DN3500's console is
+        the graphics display plus keyboard rather than a serial terminal. With
+        only the display's ID register modelled, the PROM would have nowhere to
+        print, which fits it never transmitting.
+        - Confirm against the oracle before acting: what does MAME attach to
+          each `apollo_sio`, and does its DN3500 drive a keyboard there?
+        - If it holds, the console module is the **display**, not serial, and
+          the graphics controller stops being a probe target and becomes the
+          output device. That is a large module and the wrong one to start on a
+          reading this fresh.
         - Checked: `ap_mc68681_write` does drop a transmit-buffer write when
           `tx_enabled` is clear, and the command register's enable and disable
           bits are handled correctly. So the mechanism exists; whether the
