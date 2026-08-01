@@ -238,10 +238,27 @@ file the moment they are found, not when someone remembers.
           keyboard fitted the console is the display. The **`dsp` variants** are
           the candidate -- diskless server nodes with no display, which must use
           serial as console.
-        - **Blocked on a harness question**: a first `dsp3500` run did not
-          complete. Its tap installs at 20 emulated seconds rather than the
-          0.017 `dn3500` shows, and no dump is produced. Fix that before
-          anything else in this item.
+        - **Diagnosed, and the fix is in our own tool.** Two separate things
+          looked like one failure:
+          - "no dump ... the Lua script did not run to completion" is a harness
+            artefact, not a `dsp3500` failure: `oracle.py` passes
+            `-autoboot_script dump.lua` and an extra one appends a second, so
+            MAME takes the last and `dump.lua` never runs. Any run that
+            substitutes a script will say this.
+          - The real problem is that `writetrace.lua` installs its tap at the
+            first `emu.register_periodic` callback, which is **frame-driven**.
+            `dsp3500` is a diskless node with no screen, so it has no frames and
+            the first callback lands at 20 emulated seconds. Confirmed by
+            running to 25 seconds: the tap installs at 20 and captures nothing,
+            because the boot's serial activity is long over.
+        - Fix: install the tap at machine start rather than at the first
+          periodic. The script's own comment — "the first periodic callback is
+          the earliest point a script can act" — is what needs revisiting; it
+          was written against a machine that has a screen, and is false on one
+          that does not.
+        - Each oracle run costs 60-400 wall seconds, so this wants doing with
+          the change and its check planned together rather than by trying
+          variants.
         - MAME refuses a write tap that is not dword-aligned and its message
           names a *different* address ("did you mean 10404"). Take the whole
           device range and filter; accepting the suggestion taps the wrong

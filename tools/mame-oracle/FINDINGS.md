@@ -2098,10 +2098,25 @@ frame buffer rather than from a byte stream.
 
 The `dsp` variants are the candidate: they are the diskless server nodes, have
 no display in their machine configuration, and must therefore use the serial
-port as console. A first run of `dsp3500` did **not** complete -- the script
-reports its tap installing at 20 emulated seconds rather than at 0.017 as
-`dn3500` does, and no dump was produced. That is the next thing to fix, and it
-is a harness question rather than a hardware one.
+port as console.
+
+`dsp3500` does not yet yield a transcript, for two reasons that looked like one:
+
+- "no dump ... the Lua script did not run to completion" is a harness artefact.
+  `oracle.py` already passes `-autoboot_script dump.lua`, and adding another
+  appends a second flag, so MAME takes the last and `dump.lua` never runs. Any
+  run that substitutes a script reports this, `dn3500` included.
+- `writetrace.lua` installs its tap at the first `emu.register_periodic`
+  callback, which is **frame-driven**. A screenless machine has no frames, so
+  the first callback lands at 20 emulated seconds instead of 0.017. Running to
+  25 seconds confirms it: the tap installs at 20 and captures nothing, because
+  the boot's serial activity finished long before.
+
+The fix is in our own tool -- install at machine start, not at the first
+periodic. The script's comment, "the first periodic callback is the earliest
+point a script can act", was written against a machine with a screen and is
+false on one without. That sentence is the defect; the code merely implements
+it.
 
 ### Tap alignment
 
