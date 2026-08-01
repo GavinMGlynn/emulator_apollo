@@ -2806,7 +2806,22 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         `CB DB FB C8 D8 F8 C9 D9 F9 5B 5D 7B 7D CA DA FA ... 0D 0D 1B 5C ...`:
         high-bit bytes interleaved with ASCII, which is the signature of a
         **keyboard scan-code to character map**, not a command table.
-  - [ ] **Reading, not conclusion: SIO1 is the keyboard, not a terminal.** If
+  - [x] **Confirmed by the oracle, and it names the channel.** MAME's DN3500:
+        `m_keyboard->tx_cb().set(m_sio, apollo_sio::rx_a_w)` and
+        `stdio.tx_cb().set(m_sio, apollo_sio::rx_b_w)`. So serial 1 **channel A
+        is the keyboard** and **channel B is a terminal** — the reading was
+        right, and the part it could not have given is that ASCII belongs on a
+        channel, not just a port. Every run until now fed channel A.
+  - [x] `--boot-input-channel A|B`. Feeding `\r` to serial 1 channel B moves the
+        PROM to `00002542`, another new region, so the input is being consumed.
+  - [ ] Still no transmit: registers 3 and 11 have zero writes. The firmware
+        takes terminal input and does not answer on the terminal, which is
+        consistent with the display being its output — but that is now the
+        *second* thing pointing there and still not established. Confirm what
+        MAME's DN3500 does with `apollo_sio` **transmit** before building the
+        display.
+  - [ ] Superseded reading, kept because it was right about the device and wrong
+        about the consequence: **SIO1 is the keyboard, not a terminal.** If
         so, feeding it ASCII is the wrong thing entirely — `\n` and `\r` both
         fail to match, and `\r` is *in* the table — and the DN3500's console is
         the graphics display plus keyboard rather than a serial terminal. With

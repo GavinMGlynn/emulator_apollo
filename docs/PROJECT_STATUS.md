@@ -204,11 +204,18 @@ instructions — `CMP.B (d8,PC,Xn),D1`, `BEQ`, `DBF` — a table search against
 `000021D2`, and that table interleaves high-bit bytes with ASCII: the signature
 of a **keyboard scan-code map**, not a command table.
 
-So the reading is that **SIO1 is the keyboard, not a terminal**, feeding it
-ASCII is the wrong thing entirely, and the DN3500's console is the graphics
-display plus keyboard. With only the display's ID register modelled the PROM
-would have nowhere to print — which fits it never transmitting. To be confirmed
-against the oracle before anything is built on it.
+The oracle confirms it and names the channel: MAME's DN3500 wires the keyboard
+to serial 1 **channel A** and a terminal to serial 1 **channel B**. So the
+reading was right about the device and incomplete about the consequence — ASCII
+belongs on a *channel*, not just a port, and every run until now fed channel A.
+
+`--boot-input-channel` now selects it, and feeding `\r` to channel B moves the
+PROM to `00002542`, another new region. The input is being consumed.
+
+It still never transmits: registers 3 and 11 have zero writes. The firmware
+takes terminal input and does not answer on the terminal, which is consistent
+with the display being its output — the second thing pointing that way, and
+still not established.
 
 The tick loop is still owed and remains the project's central design item, but
 it is not what this stop needs.
