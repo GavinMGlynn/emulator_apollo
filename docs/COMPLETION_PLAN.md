@@ -326,10 +326,19 @@ file the moment they are found, not when someone remembers.
           `natkeyboard:post` has nothing to map to and silently does nothing.
           The longer run was worth doing first: a short window and a post that
           never arrives look identical.
-        - Next: drive the keyboard's own ioport fields — set a key's field, hold
-          it, release it. `INPUT_PORTS_START( apollo_kbd )` defines them. More
-          work than posting text, and it does not depend on a translation layer
-          this device never provided.
+        - **Done, and the firmware responds** (`FINDINGS.md` C41). Pressing
+          `ESC` — found by `PORT_NAME` across `:kbd:keyboard1..4`, held 0.2 s,
+          released — makes serial 1's clock select go `77` → `BB` → `77` with
+          both DUARTs reconfigured after. The machine changed a baud rate on
+          receiving a keystroke: a rate probe, not a console echo, but the first
+          response to input this project has got out of the oracle.
+        - The release matters as much as the press: this keyboard scans and
+          reports transitions, so a key never released gives one event and then
+          reads as stuck.
+        - Next: `ESC` was a test of the *route*, chosen for being the first
+          field in `keyboard1`, not a considered key. Try the keys a boot PROM's
+          console watches for, and hold the window well past the response so a
+          slow banner is not cut off.
         - **A result worth having on the way** (`FINDINGS.md` C39): the oracle's
           four configuration writes, decoded — `sio1 ACR E0`, `sio1 CSRB 77`,
           `sio2 ACR 80`, `sio2 CSRA 77`. Both ports get the same clock select,

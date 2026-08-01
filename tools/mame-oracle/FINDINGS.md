@@ -2354,3 +2354,43 @@ So the route is to drive the keyboard's own ioport fields: set the field for a
 key, hold it, release it. `INPUT_PORTS_START( apollo_kbd )` defines them, and
 that is where the next attempt starts. It is more work than posting text and it
 does not depend on a translation layer this device never provided.
+
+
+## C41 -- the oracle's firmware responds to a real key press
+
+Driving the keyboard's ioport fields directly works where the natural keyboard
+could not. Pressing `ESC` -- found by `PORT_NAME` across `:kbd:keyboard1..4`,
+held 0.2 s and released -- produces this, where before there was nothing:
+
+```
+# pressed "ESC" on :kbd:keyboard1 at 5.0s
+W sio1 CSRB  BB  (010413)
+W sio1 ACR   E0  (010409)
+W sio1 CSRB  77  (010413)
+W sio2 ACR   80  (010509)
+W sio2 CSRA  77  (010503)
+# released at 6.0s
+```
+
+**The firmware reacted.** `CSRB` goes from its configured `77` to `BB` and back,
+and both DUARTs are reconfigured afterwards. `CSRB` is clock select -- baud
+rate -- so the machine changed the speed of serial 1 channel B on receiving a
+keystroke and then restored it. That is the shape of a rate probe, not of a
+console echo, and it is the first response to input this project has got out of
+the oracle at all.
+
+The key is released as well as pressed. A key that is never released is not a
+keystroke: this keyboard is a scanning device reporting transitions, so a
+permanently-down key gives one event and then reads as stuck.
+
+### What is now known and what is not
+
+Known: the input route works, the firmware is alive and responsive, and it
+answers a keystroke by touching baud rates rather than by printing.
+
+Not known: whether any keystroke produces console output, and if so which. `ESC`
+was chosen because it is the first field in `keyboard1` and needed no knowledge
+of the keyboard's encoding -- it was a test of the *route*, not a considered
+choice of key. The next run should try the keys a boot PROM's console actually
+watches for, and should hold the window open well past the response so a slow
+banner is not cut off.

@@ -34,9 +34,11 @@ local until_s  = tonumber(os.getenv("APOLLO_MD_UNTIL") or "") or 10.0
 local service  = (os.getenv("APOLLO_MD_SERVICE") or "1") ~= "0"
 
 local post_at_s = tonumber(os.getenv("APOLLO_MD_POST_AT") or "") or 4.0
-local post_text = os.getenv("APOLLO_MD_POST") or "\n"
+local post_text = os.getenv("APOLLO_MD_POST") or "ESC"
 
+local hold_s    = tonumber(os.getenv("APOLLO_MD_HOLD") or "") or 0.2
 local posted    = false
+local released  = false
 local installed = false
 local finished  = false
 local taps      = {}
@@ -91,6 +93,49 @@ local function set_service_mode()
 	out("# no Service field found in :apollo_config\n")
 end
 
+-- Press a key by its `PORT_NAME`, across whichever of the keyboard's four ports
+-- carries it.
+--
+-- Directly, rather than through MAME's natural keyboard: `apollo_kbd.cpp`
+-- defines no `PORT_CHAR` entries at all, so the translation layer that turns a
+-- character into a key press has nothing to work with and silently does
+-- nothing (FINDINGS.md C40).
+local held_field = nil
+
+local function press_key(name)
+	for tag, port in pairs(manager.machine.ioport.ports) do
+		if tag:find("kbd") then
+			for field_name, field in pairs(port.fields) do
+				if field_name == name then
+					held_field = field
+					field:set_value(1)
+					out("# pressed %q on %s at %.1fs\n", name, tag,
+					    manager.machine.time.seconds)
+					return
+				end
+			end
+		end
+	end
+	-- Naming what is available, because "not found" cannot distinguish a
+	-- misspelled key from a machine with no keyboard.
+	out("# key %q not found; keyboard fields present:\n", name)
+	for tag, port in pairs(manager.machine.ioport.ports) do
+		if tag:find("kbd") then
+			for field_name, _ in pairs(port.fields) do
+				out("#   %s %s\n", tag, field_name)
+			end
+		end
+	end
+end
+
+local function release_key()
+	if held_field ~= nil then
+		held_field:set_value(0)
+		out("# released at %.1fs\n", manager.machine.time.seconds)
+		held_field = nil
+	end
+end
+
 local function install()
 	if installed or finished then
 		return
@@ -143,13 +188,17 @@ emu.register_periodic(function()
 	-- getting the baud rate right before finding out whether the idea works.
 	if not posted and manager.machine.time.seconds >= post_at_s then
 		posted = true
-		local nat = manager.machine.natkeyboard
-		if nat == nil then
-			out("# no natural keyboard on this machine\n")
-		else
-			out("# posting %q at %.1fs\n", post_text, post_at_s)
-			nat:post(post_text)
-		end
+		press_key(post_text)
+	end
+
+	-- Held for a moment and then released, because a key that is never released
+	-- is not a keystroke: the Apollo keyboard is a scanning device and reports
+	-- transitions, so a permanently-down key produces one event and then looks
+	-- like a stuck key rather than typing.
+	if posted and not released and
+	   manager.machine.time.seconds >= post_at_s + hold_s then
+		released = true
+		release_key()
 	end
 
 	if manager.machine.time.seconds >= until_s then
