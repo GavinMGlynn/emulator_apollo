@@ -170,9 +170,43 @@ file the moment they are found, not when someone remembers.
           - `no verification` and `no automated badspot entry` are chosen, not
             skipped: the medium is a file, and MAME's own driver notes list
             Winchester bad-track formatting as a known gap.
-        - [ ] Next: `re`, `di c`, `ex calendar`, then `ex domain_os` and `MINST`
-              over four tapes. Two driver capabilities are wanted first, one of
-              them now done:
+        - [x] **The calendar**, `di c` / `ex calendar` (`FINDINGS.md` C52). Disk
+              `w`, time zone left at **UTC** — deliberately, since a local zone
+              is a host fact and the one setting here that would make an image
+              built on this machine differ from one built on another.
+        - [ ] **The Domain/OS restore**, `ex domain_os`. Three attempts, and the
+              first two are recorded because each named a real property of
+              installing across process lifetimes rather than a mistake in the
+              procedure:
+          - Attempt 1 halted on `The calendar is more than a minute slow`
+            (`FINDINGS.md` C53). The volume carries a timestamp, the RTC carries
+            a time, and the kernel refuses to boot when the second is behind the
+            first — so a clock the harness restarts, compared against a disk it
+            does not, fails this way in any harness that runs a machine across
+            more than one sitting. **The mechanism first recorded for it was
+            withdrawn**: it predicted two `CALENDAR` readings would be identical
+            and they were 28 minutes apart. Where MAME's RTC seed comes from is
+            now marked *not established*.
+          - Attempt 2 cleared the calendar and met `BOOT VOLUME NEEDS
+            SALVAGING` (`FINDINGS.md` C54), because attempt 1's kernel had
+            written 1790 sectors before being stopped. **A failed stage is not a
+            no-op** — with persistent storage the next attempt does not start
+            where the last one did.
+          - Declined `Proceed to bring up OS (and risk volume)?` and **reverted
+            rather than salvaged**. `SALVOL` is the documented remedy and costs a
+            ten-minute tape load to *repair*; the checkpoint costs a file copy to
+            *have the volume back*, and "never mounted" is a better property for
+            a reference artifact than "repaired".
+        - **Answered by measurement**: the Domain/OS kernel's banner appears on
+          the **serial console**, so the OS does not move the console to the
+          display and the whole install is drivable headless.
+        - Two harness rules follow, both now in force: `--keep-rundir`, because
+          the calendar lives in NVRAM and wiping it between sessions un-sets it;
+          and **no `re` between stages**, because
+          `apollo_state::machine_reset` shifts the RTC year on *every* reset
+          rather than once at power-on, and a fresh power-on already is one.
+        - [ ] Then `MINST` over four tapes, then `shut`. Two driver capabilities
+              were wanted first, and both are now done:
           - [x] `!knock`, `!cr` and `!raw` escapes. The session was lost trying
                 to improvise a knock out of a space — see below, it is not a
                 knock at all.
