@@ -342,12 +342,57 @@ static void test_a_disabled_receiver_reports_no_framing_error(void) {
       (ap_mc68681_read(&duart, AP_MC68681_SR_CSR_A) & AP_MC68681_SR_FRAMING) != 0u);
 }
 
+
+/* `MR1[1:0]` is a *count*, not a table index: `00` is five bits and `11` is
+ * eight. Reading it as an index happens to give the same answers and hides why
+ * `11` is eight rather than nine, so the test walks all four. */
+static void test_character_length_is_five_plus_the_field(void) {
+  for (unsigned v = 0; v < 4u; v++) {
+    TEST_ASSERT_EQUAL_UINT(5u + v, ap_mc68681_character_bits((uint8_t)v));
+  }
+  /* And the upper bits do not leak in — parity and receiver control live
+   * there, and a mask error would make an 8-bit link report 5. */
+  TEST_ASSERT_EQUAL_UINT(8u, ap_mc68681_character_bits(0xFFu));
+  TEST_ASSERT_EQUAL_UINT(5u, ap_mc68681_character_bits(0xFCu));
+}
+
+/* Bit 2 **clear** means with parity. This is the inversion most easily got
+ * backwards, and getting it backwards yields a link that works until the first
+ * character with an odd number of set bits — which is to say, one that passes
+ * a test written with `0x00` and fails in service. */
+static void test_parity_is_enabled_when_the_bit_is_clear(void) {
+  TEST_ASSERT_TRUE(ap_mc68681_parity_enabled(0x00u));
+  TEST_ASSERT_FALSE(ap_mc68681_parity_enabled(AP_MC68681_MR1_PARITY_ENABLE));
+  /* Independent of the character length beside it. */
+  TEST_ASSERT_TRUE(ap_mc68681_parity_enabled(0x03u));
+  TEST_ASSERT_FALSE(ap_mc68681_parity_enabled(0x07u));
+}
+
+/* `MR2[3:0]` is sixteen encodings from 0.5 to 2 stop bits, not a one-or-two
+ * flag. The two common lengths are named; the rest must survive as their own
+ * code rather than being folded into the nearest named one, because a driver
+ * that programmed 1.5 stop bits meant it. */
+static void test_the_stop_field_keeps_its_uncommon_codes(void) {
+  TEST_ASSERT_EQUAL_UINT(AP_MC68681_MR2_STOP_ONE,
+                         ap_mc68681_stop_code(AP_MC68681_MR2_STOP_ONE));
+  TEST_ASSERT_EQUAL_UINT(AP_MC68681_MR2_STOP_TWO,
+                         ap_mc68681_stop_code(AP_MC68681_MR2_STOP_TWO));
+  /* A code between the two named ones is neither, and stays itself. */
+  TEST_ASSERT_EQUAL_UINT(0x0Bu, ap_mc68681_stop_code(0x0Bu));
+  /* The upper nibble is CTS/RTS control and the channel mode; it must not
+   * reach the stop-bit answer. */
+  TEST_ASSERT_EQUAL_UINT(AP_MC68681_MR2_STOP_ONE, ap_mc68681_stop_code(0xF7u));
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_a_character_sent_at_the_wrong_rate_sets_a_framing_error);
   RUN_TEST(test_a_character_sent_at_the_right_rate_does_not);
   RUN_TEST(test_only_the_receiver_nibble_decides_the_match);
   RUN_TEST(test_a_disabled_receiver_reports_no_framing_error);
+  RUN_TEST(test_character_length_is_five_plus_the_field);
+  RUN_TEST(test_parity_is_enabled_when_the_bit_is_clear);
+  RUN_TEST(test_the_stop_field_keeps_its_uncommon_codes);
   RUN_TEST(test_an_idle_transmitter_is_ready_and_empty);
   RUN_TEST(test_the_mode_register_pointer_advances_then_sticks);
   RUN_TEST(test_the_receive_fifo_holds_three_and_then_overruns);

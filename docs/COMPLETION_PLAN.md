@@ -2713,8 +2713,26 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
           does not read the status bit at this point in its boot, so nothing
           downstream changes. The mechanism is right and the demonstration is
           not there — those are different claims.
-        - Still open: start and stop bits, parity, and the automatic echo and
-          loopback modes.
+        - **The mode registers' framing fields are decoded**: `MR1[1:0]`
+          character length, `MR1[2]` parity enable, `MR1[4:3]` parity type, and
+          `MR2[3:0]` stop-bit length. Names and bit positions, the same shape as
+          the SSW and the display controller's mode fields, because that part is
+          settleable before any of it shapes a character on a wire.
+          `mc68681_suite`, 3 tests.
+        - Character length is a **count**, `5 + field`, not a table index. Both
+          readings give the same four answers, and only the count says why `11`
+          is eight rather than nine.
+        - Parity is enabled when bit 2 is **clear**. That inversion has its own
+          named function and its own test, because getting it backwards yields a
+          link that works until the first character with an odd number of set
+          bits — one that passes a test written with `0x00` and fails in
+          service.
+        - The stop-bit field is **sixteen encodings** from 0.5 to 2 stop bits,
+          not a one-or-two flag. Only the two common lengths are named and the
+          rest survive as their own code, because a driver that programmed 1.5
+          stop bits meant it.
+        - Still open: applying these to a character rather than only reporting
+          them, and the automatic echo and loopback modes.
         - **The values are no longer unknown.** `FINDINGS.md` C39 and C42 read
           them off the running oracle: `sio1 ACR E0`, `sio1 CSRB 77`,
           `sio2 ACR 80`, `sio2 CSRA 77` at reset, and the firmware then

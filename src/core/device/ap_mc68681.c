@@ -349,3 +349,18 @@ void ap_mc68681_write(ap_mc68681_t *duart, unsigned reg, uint8_t value) {
     return;
   }
 }
+
+unsigned ap_mc68681_character_bits(uint8_t mr1) {
+  /* A count, not a table index: 00 is five bits and 11 is eight. */
+  return 5u + (unsigned)(mr1 & AP_MC68681_MR1_BITS_MASK);
+}
+
+bool ap_mc68681_parity_enabled(uint8_t mr1) {
+  /* Bit 2 clear means *with* parity. The inversion is the part worth a named
+   * function rather than an inline test at each call site. */
+  return (mr1 & AP_MC68681_MR1_PARITY_ENABLE) == 0u;
+}
+
+unsigned ap_mc68681_stop_code(uint8_t mr2) {
+  return (unsigned)(mr2 & AP_MC68681_MR2_STOP_MASK);
+}

@@ -167,6 +167,51 @@ void ap_mc68681_receive(ap_mc68681_t *duart, unsigned channel, uint8_t byte);
 void ap_mc68681_receive_at(ap_mc68681_t *duart, unsigned channel, uint8_t byte,
                            uint8_t sender_csr);
 
+/* ## The framing the mode registers describe
+ *
+ * `MR1` bits 1-0 give the character length, bits 4-3 the parity type and bit 2
+ * whether parity is used at all; `MR2` bits 3-0 give the stop-bit length.
+ * Decoded here as names and bit positions, the same way the display
+ * controller's mode fields were, because that part is settleable before any of
+ * it shapes a character on a wire -- and a field read from the wrong bits is a
+ * defect that survives every test of the layer above it.
+ *
+ * ## Character length is a count, not a code
+ *
+ * `00` is five bits and `11` is eight, so the field is `5 + value`. Reading it
+ * as an index into a table happens to work and hides that; reading it as a
+ * count says why `11` is eight and not, say, nine.
+ *
+ * ## The stop-bit field is not two values
+ *
+ * `MR2[3:0]` is sixteen encodings covering 0.5 to 2 stop bits in sixteenths,
+ * not a one-or-two flag. Only the two common lengths are named; the rest are
+ * reachable and reported as their raw code rather than being folded into the
+ * nearest named one, because a driver that programmed 1.5 stop bits meant it. */
+#define AP_MC68681_MR1_BITS_MASK 0x03u
+#define AP_MC68681_MR1_PARITY_ENABLE 0x04u  /* clear = with parity */
+#define AP_MC68681_MR1_PARITY_TYPE_MASK 0x18u
+#define AP_MC68681_MR1_PARITY_TYPE_SHIFT 3u
+#define AP_MC68681_MR2_STOP_MASK 0x0Fu
+
+/* `MR2[3:0]`: the two lengths a console link uses. */
+#define AP_MC68681_MR2_STOP_ONE 0x07u
+#define AP_MC68681_MR2_STOP_TWO 0x0Fu
+
+/* Bits per character, 5 to 8, from `MR1[1:0]`. */
+[[nodiscard]] unsigned ap_mc68681_character_bits(uint8_t mr1);
+
+/* Whether `MR1` asks for a parity bit at all. Bit 2 **clear** means with
+ * parity, which is the inversion most easily got backwards -- and getting it
+ * backwards yields a link that works until the first character with an odd
+ * number of set bits. */
+[[nodiscard]] bool ap_mc68681_parity_enabled(uint8_t mr1);
+
+/* Stop-bit code from `MR2[3:0]`, raw. Compare against
+ * `AP_MC68681_MR2_STOP_ONE` and `_TWO` rather than converting to a count: the
+ * field's other values are fractional and a count cannot carry them. */
+[[nodiscard]] unsigned ap_mc68681_stop_code(uint8_t mr2);
+
 /* Take what the transmitter holds, if anything -- the other end of the same
  * boundary. Answers false when the transmitter is empty. */
 [[nodiscard]] bool ap_mc68681_transmit(ap_mc68681_t *duart, unsigned channel,
