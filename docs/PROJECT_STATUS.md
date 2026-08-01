@@ -104,12 +104,18 @@ A7 by four and they balance. Tracing A6 refuted the overlap hypothesis: A6 is
 down from the same address by design.
 
 What the trace does show is that step 10 is a `JMP`, not a `BSR`, and that the
-slot the bad `RTS` reads was never written by anything — RAM starts zeroed. So
-control reached an `RTS` without a matching `BSR`, which means a **branch is
-going the wrong way** in the 46 steps between them. A wrong condition code
-rather than a wrong address, and a different defect class from everything found
-so far. That window is small enough to compare instruction by instruction
-against the oracle.
+slot the bad `RTS` reads was never written by anything — RAM starts zeroed. Walking those 46 steps
+showed the control flow following the PROM exactly, every `BSR`/`RTS` pair
+balancing — so it is not a branch either.
+
+What it did surface: step 18 is `MOVE.W SR,-(A7)`, a *word* push, which leaves
+every later long push and pop at **2 mod 4**. The failing read is a long at
+`01000172`, spanning the cache lines at `01000170` and `01000174`. The same
+address round-trips correctly at step 28, so what changes by step 57 is cache
+state — the shape of a line-straddling bug in misaligned long access. Misaligned
+data is legal on this part, so it is a path the hardware exercises and we may
+not. Recorded as a hypothesis to reproduce in `access_suite` directly, not
+through the PROM.
 
 Getting there needed `--boot-trace` (PC and A7 per step) and one fix. A7 was the
 observable: the PROM's `CLR.B $00011600` bus errored on every pass through its

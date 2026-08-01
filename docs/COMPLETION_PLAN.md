@@ -2614,17 +2614,28 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         `00000646`, so nothing is pushed. RAM starts zeroed, and the slot the
         bad `RTS` reads at `01000172` **was never written by anything**. Control
         reached an `RTS` without a matching `BSR`.
-  - [ ] So a **branch is going the wrong way** in the 46 steps between the `JMP`
-        at step 10 and the `RTS` at step 57, dropping control into a subroutine
-        body rather than calling it. A wrong condition code, not a wrong
-        address — a different defect class from every blocker so far, which were
-        missing devices, unreachable registers and mislabelled statuses.
-        - 46 instructions is the smallest window this investigation has had, and
-          small enough to compare **instruction by instruction against the
-          oracle**. Do that rather than reasoning about which condition is
-          wrong; three of the last four blockers were missed by reasoning first.
-        - `tools/mame-oracle/steptime.lua` already single-steps the oracle, so a
-          PC trace over the first 60 instructions is a small extension of it.
+  - [x] Not a branch either. Walking the 46 steps shows every `BSR`/`RTS` pair
+        balancing and the control flow following the PROM exactly. Step 30's
+        `BSR.W` pushes return address `00000620` to `01000172`; step 57's `RTS`
+        reads `01000172` and gets zero. Nothing between them writes there — the
+        `(d16,A6)` stores all land at `010002B0` and above.
+  - [ ] **Leading hypothesis: a misaligned long access across two cache lines.**
+        Step 18 is `MOVE.W SR,-(A7)`, a *word* push, which leaves A7 at
+        `0100017E` and every subsequent long push and pop at **2 mod 4**. The
+        failing read is a long at `01000172`, whose bytes span the lines at
+        `01000170` and `01000174`.
+        - Misaligned data is legal on this part — §7.2.1 transfers a long to an
+          odd address in three bus cycles — so this is a path the hardware
+          exercises and we may not have.
+        - The same address round-trips correctly at step 28, so it is **not**
+          simply broken: what differs by step 57 is the cache state. That is the
+          shape of a line-straddling bug, and it is why this is a hypothesis and
+          not a diagnosis.
+        - Test it directly rather than through the PROM: write and read back a
+          long at an address 2 mod 4 with the data cache enabled, with
+          intervening accesses chosen to evict one of the two lines but not the
+          other. `access_suite` and `operand_suite` both already have the
+          harness. If it reproduces there, the PROM is not needed to fix it.
   - [ ] Whether the PROM *should* reach `00090000` at all is a separate
         question from what happens when it does. Check what it tests before
         jumping — do not assume the jump is unconditional.
