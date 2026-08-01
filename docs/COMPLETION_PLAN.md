@@ -3022,10 +3022,22 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         channels — and then polls. **It never transmits.** So the first of the
         three possibilities holds: it waits for a console character before
         announcing itself.
-  - [ ] The table also shows what the firmware has *not* touched, which is the
+  - [x] The table also shows what the firmware has *not* touched, which is the
         half a total cannot give: **no timer and no calendar accesses at all**,
-        and the interrupt controllers written 10 times but never read. Establish
-        whether that is expected this early before reading anything into it.
+        and the interrupt controllers written 10 times but never read.
+        **Expected**, and answered by work done since rather than by a new run:
+        that trace ends in the console poll loop at `000007AE`, waiting for a
+        character. The firmware configures the interrupt controllers, probes its
+        buses and its display, and then *stops* to ask which console it has. It
+        has not begun anything that needs a clock, so a timer never read and a
+        calendar never touched is what a machine at that point looks like.
+        - The interrupt controllers being written and never read fits the same
+          picture: initialisation command words are write-only on the 8259A
+          (which is why `writetrace.lua` exists at all), so ten writes and zero
+          reads is a part configured and not yet serviced.
+        - Worth keeping as a check rather than deleting: if a later run reaches
+          past the console poll and *still* shows zero timer accesses, that is a
+          real absence rather than an early one, and this line says what changed.
   - [x] `--boot-input-port N`, because the poll tests *both* DUARTs and branches
         differently for each — which port carries the console is a question the
         firmware answers, not one to assume. Every run until now fed SIO2, which
