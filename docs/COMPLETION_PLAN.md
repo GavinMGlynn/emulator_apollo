@@ -2832,7 +2832,18 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
       — the firmware configures channel *B* in every trace we hold and leaves
       channel A at reset — so a figure here would be invented. Recorded in the
       board header.
-    - Still open: a frontend option to press keys.
+    - `--boot-key N` presses and releases a matrix index, self-timed the way
+      scripted input is: it acts once the port can take the code, because a
+      fixed step number would be a guess about how long the firmware takes to
+      enable its receiver and would silently do nothing if it took longer.
+    - **It changes nothing yet, and the counters say why.** The PROM still stops
+      at `000007AE` with 38 serial writes — configuration only. The firmware has
+      not enabled channel A's *receiver* at that point, so a scan code arriving
+      there is dropped by the DUART exactly as the hardware would drop it.
+    - That is the same state the console poll is in, seen from the other side:
+      the machine is waiting, and what it is waiting for is not a keystroke on a
+      port it has not opened. Recorded rather than treated as a defect in the
+      keyboard, which is now complete on its own terms.
         - **The values are no longer unknown.** `FINDINGS.md` C39 and C42 read
           them off the running oracle: `sio1 ACR E0`, `sio1 CSRB 77`,
           `sio2 ACR 80`, `sio2 CSRA 77` at reset, and the firmware then

@@ -21,6 +21,7 @@
 #include "board/ap_board.h"
 #include "board/ap_sio.h"
 #include "board/ap_graphics.h"
+#include "device/ap_kbd.h"
 #include "machine/ap_machine.h"
 
 static void print_usage(const char *program_name) {
@@ -46,6 +47,8 @@ static void print_usage(const char *program_name) {
           "                        2 (default 2)\n"
           "  --boot-input-rate CSR clock select the scripted terminal sends at\n"
           "                        (default 0x77, what the firmware configures)\n"
+          "  --boot-key N          press and release keyboard key N (a matrix\n"
+          "                        index 0-7F, not a character)\n"
           "  --screen KIND         fit a display: c4p, c8p, 19i or 15i\n"
           "  --boot-input-channel C  which channel, A or B (default A). The\n"
           "                        keyboard is port 1 channel A; a terminal is\n"
@@ -176,7 +179,7 @@ static uint8_t *read_file(const char *path, long *size_out) {
 static int boot_from_prom(const char *path, unsigned limit, bool trace,
                           uint32_t watch, const char *input, unsigned input_unit,
                           unsigned input_channel, uint8_t input_rate,
-                          bool console,
+                          unsigned key, bool console,
                           ap_screen_kind_t screen) {
   long size = 0;
   uint8_t *prom = read_file(path, &size);
@@ -290,11 +293,12 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
    * The port is a choice, not a constant: the PROM's poll loop tests *both*
    * DUARTs and branches differently for each, so which one carries the console
    * is a question the firmware answers rather than one to assume. */
+  unsigned key_state = 0u; /* 0 press, 1 release, 2 done */
   size_t input_sent = 0;
   const size_t input_length = input != NULL ? strlen(input) : 0u;
 
   ap_machine_run_t run;
-  if (trace || input_length > 0u || console) {
+  if (trace || input_length > 0u || console || key < AP_KBD_KEYS) {
     /* Step by step, reporting the program counter and the active stack pointer.
      *
      * A7 is the observable this exists for. A wrong PC is where damage becomes
@@ -337,6 +341,19 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
           while (ap_sio_transmit(&board->sio, unit, channel, &out_byte)) {
             fputc((int)out_byte, stdout);
           }
+        }
+      }
+      /* Press the key once the port can take it, then release on the next
+       * opportunity -- the same self-timing as scripted input, and for the same
+       * reason: a fixed step number would be a guess about how long the
+       * firmware takes to enable its receiver, and would silently do nothing if
+       * it took longer. */
+      if (key < AP_KBD_KEYS && key_state < 2u &&
+          !ap_sio_receiver_ready(&board->sio, 0u, 0u)) {
+        const bool moved = (key_state == 0u) ? ap_board_key_press(board, key)
+                                             : ap_board_key_release(board, key);
+        if (moved) {
+          key_state++;
         }
       }
       const uint32_t step_pc = machine.cpu.regs.pc;
@@ -628,6 +645,7 @@ int main(int argc, char **argv) {
   unsigned boot_input_unit = 1u; /* SIO2 */
   unsigned boot_input_channel = 0u;
   unsigned boot_input_rate = 0x77u;
+  unsigned boot_key = AP_KBD_KEYS; /* none */
   ap_screen_kind_t boot_screen = AP_SCREEN_NONE;
   bool run_probe_suite = false;
   bool report_timing = false;
@@ -652,6 +670,13 @@ int main(int argc, char **argv) {
      * mistake was made. */
     if (strcmp(argv[i], "--boot-limit") == 0 && i + 1 < argc) {
       boot_limit = (unsigned)strtoul(argv[i + 1], NULL, 0);
+      i += 2;
+      continue;
+    }
+    if (strcmp(argv[i], "--boot-key") == 0 && i + 1 < argc) {
+      /* A matrix index, not a character: this keyboard reports keys, and the
+       * firmware's own table turns them into characters. */
+      boot_key = (unsigned)strtoul(argv[i + 1], NULL, 0);
       i += 2;
       continue;
     }
@@ -753,7 +778,8 @@ int main(int argc, char **argv) {
   if (boot_prom != NULL) {
     return boot_from_prom(boot_prom, boot_limit, boot_trace, boot_watch,
                           boot_input, boot_input_unit, boot_input_channel,
-                          (uint8_t)boot_input_rate, boot_console, boot_screen);
+                          (uint8_t)boot_input_rate, boot_key, boot_console,
+                          boot_screen);
   }
 
   if (boot_tape != NULL) {
