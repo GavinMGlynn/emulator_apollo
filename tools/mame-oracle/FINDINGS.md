@@ -2633,3 +2633,30 @@ The triple spacing survives the reading intact: `CB DB FB` become keys
 `4B 5B 7B`, still *X*, *X*+`10`, *X*+`30`. Whether that is a matrix row stride
 or three modifier variants now has a concrete next question -- what `x` values
 `apollo_kbd`'s matrix assigns, which its `INPUT_PORTS_START` gives directly.
+
+### The matrix index, and a tension it creates
+
+`scan_keyboard` walks `x` from `0` to `0x7F`, reading
+`m_io_keyboard[x / 32]` and testing bit `x % 32`. So a key's scan code is
+**port index × 32 + bit position** across the four `keyboard1..4` ports, and
+every `x` in that range is a distinct physical key.
+
+Applied to the PROM table's triples, that gives:
+
+| table bytes | keys after clearing bit 7 | port and bit |
+| --- | --- | --- |
+| `CB DB FB` | `4B 5B 7B` | kbd3 bit 11, kbd3 bit 27, kbd4 bit 27 |
+| `C8 D8 F8` | `48 58 78` | kbd3 bit 8, kbd3 bit 24, kbd4 bit 24 |
+
+**This is where the two readings pull apart.** `4B`, `5B` and `7B` differ only
+in bits 4 and 5, which is exactly what a modifier encoding looks like -- shift
+and control folded into the code. But the matrix says each `x` is its own key at
+its own bit, so three separate physical keys that happen to sit at those
+positions is equally consistent with everything measured.
+
+Both readings fit. Nothing here distinguishes them, and the distinction matters:
+one means a keyboard module synthesises modifiers into the code, the other means
+it does not and the PROM's table simply lists three keys. Recorded unresolved,
+with what would settle it -- reading which `PORT_NAME` sits at kbd3 bit 11, bit
+27 and kbd4 bit 27. If they are the same key's plain, shifted and control forms,
+the first reading holds; if they are three unrelated keys, the second does.
