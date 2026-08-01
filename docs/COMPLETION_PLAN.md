@@ -285,9 +285,21 @@ file the moment they are found, not when someone remembers.
         - `ext/mame` is now modified and rebuilt with `APOLLO_XXL`. Recorded in
           C36 rather than left silent: a reading against a differently-built
           oracle is not comparable to one taken before it.
-        - Next: find what makes the firmware choose a *serial* console. On a
-          real DN3500 that is a configuration setting and MAME models one,
-          `apollo_config`. Read it before running anything else.
+        - **Found the setting.** `apollo.h` defines `APOLLO_CONF_DISPLAY` as
+          `0x001E` — a *mask* over `8_PLANES` (2), `4_PLANES` (4), `MONO_15I`
+          (8) and `MONO_19I` (0x10). With none of those bits set the machine has
+          **no display**, and the console has nowhere to go but serial. Bit 0 is
+          `APOLLO_CONF_SERVICE_MODE`, which is the other candidate for reaching
+          MD.
+        - That explains every silent run so far without any of them being
+          wrong: MAME's `dn3500` defaults to a display fitted, so its console is
+          the display, exactly as ours is. Nothing was misconfigured; the
+          default is a workstation.
+        - Next, and it is now a small thing: set those bits. MAME does not take
+          configuration ports on the command line, so it wants either a `.cfg`
+          file under `cfg_directory` or a lua poke at the `conf` port
+          (`APOLLO_CONF_TAG` is `"conf"`). The lua route fits the existing
+          harness, which already loads scripts.
         - MAME refuses a write tap that is not dword-aligned and its message
           names a *different* address ("did you mean 10404"). Take the whole
           device range and filter; accepting the suggestion taps the wrong
