@@ -2696,10 +2696,24 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         3000000 instructions, with the fault count settled at 129. The
         instruction is `BTST #0,($102,A0)` followed by `BEQ` back to `0000078E`
         — a **status-poll loop**, waiting for a device bit to set.
-  - [ ] **It can never set.** `ap_machine_run` steps the CPU and nothing else:
-        no device advances, no clock ticks, so every status bit holds its reset
-        value forever. This is not a defect in any device — it is the machine
-        loop not yet being the machine loop.
+  - [x] **Identified, and it is not time — it is input.** `A0` is `00010401`,
+        so the polled address is `00010503`. That is **SIO2**, and
+        `ap_sio_decode` shifts the offset right by one, giving register 1 —
+        the MC68681's **status register A**, whose bit 0 is **RxRDY**. The
+        firmware is waiting for a character on the second serial port.
+        - The `MOVE.L #$F0,D4` just above looks like a timeout counter, but the
+          `BEQ` returns to `0000078E`, *before* the instruction that loads it,
+          so D4 is reloaded every pass. The wait is genuinely unbounded.
+        - So both the firmware and our machine are behaving correctly. What is
+          missing is a character, and `src/frontend/headless` has no host input
+          by design — "deterministic: no wall clock, no host input, no threads".
+  - [ ] Feed the DUART scripted input: a `--boot-input` that hands the frontend
+        a byte sequence to deliver, which keeps determinism (no host keyboard,
+        no wall clock) while letting the firmware get past a console read.
+  - [ ] The tick loop is still owed regardless, and remains the project's
+        central design item — but it is **not** what this stop needs, and
+        building it here would have been the wrong move for a plausible reason.
+        A poll loop looks like a timing problem.
         - This is the project's central design item, deferred until something
           needed it, and the firmware now does: *"one `tick()` per machine
           cycle, every subsystem advancing inside it, no batching, no event

@@ -146,15 +146,19 @@ address in each direction as well as the count, because a count alone cannot
 tell those apart. **The PROM now needs time to pass.** It reaches `000007AE` and stays there at
 300000, 1000000 and 3000000 instructions with the fault count settled at 129:
 `BTST #0,($102,A0)` and a `BEQ` back, a status-poll loop waiting for a device
-bit. It can never set, because `ap_machine_run` steps the CPU and nothing else —
-no device advances and no clock ticks, so every status bit holds its reset value
-forever.
+bit. `A0` is `00010401`, so the polled address is `00010503`: **SIO2**, register 1
+after the decode's shift — the MC68681's status register A, bit 0 of which is
+**RxRDY**. The firmware is waiting for a character on the second serial port,
+and the apparent timeout counter above the loop is reloaded every pass, so the
+wait is unbounded.
 
-That is not a defect in any device. It is the machine loop not yet being the
-machine loop, and it makes the project's central design item — one `tick()` per
-machine cycle with every subsystem advancing inside it — the next thing to
-build. It has been deferred until something needed it, and the firmware now
-does.
+Both the firmware and the machine are behaving correctly. What is missing is a
+*character*: `src/frontend/headless` has no host input by design. The next item
+is scripted input to the DUART, which keeps determinism while letting the
+firmware get past a console read.
+
+The tick loop is still owed and remains the project's central design item, but
+it is not what this stop needs.
 
 Every board counter now records its first address, not only its count. The AT
 bus empty-slot scan begins at `00080000`, exactly the base of AT bus memory, so

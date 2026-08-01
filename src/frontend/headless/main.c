@@ -220,7 +220,7 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
      * happens, and the two can be thousands of instructions apart. Printing
      * both together is what lets one be found from the other. */
     run = (ap_machine_run_t){.status = AP_M68030_STEP_EXECUTED};
-    printf("# step pc a7 a6 instruction status%s\n",
+    printf("# step pc a7 a6 a0 instruction status%s\n",
            watch != 0u ? " watched" : "");
     for (unsigned i = 0; i < limit; i++) {
       const uint32_t step_pc = machine.cpu.regs.pc;
@@ -228,9 +228,10 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
       /* A6 as well as A7: the firmware uses it as a base pointer for its own
        * data, and whether those two overlap is the question a trace has to be
        * able to answer. */
-      printf("%u %08X %08X %08X %04X %s\n", i, step_pc,
+      printf("%u %08X %08X %08X %08X %04X %s\n", i, step_pc,
              ap_m68030_read_a7(&machine.cpu.regs), machine.cpu.regs.a[6],
-             r.instruction, ap_probe_status_name(r.status));
+             machine.cpu.regs.a[0], r.instruction,
+             ap_probe_status_name(r.status));
       if (watch != 0u) {
         /* One named location's contents, per step. Three hypotheses about this
          * value were each refuted by an observable rather than by argument, so
