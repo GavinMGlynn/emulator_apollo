@@ -143,6 +143,15 @@ local function install()
 	installed = true
 
 	set_service_mode()
+
+	-- Which devices the machine actually has. A build flag confirmed only by
+	-- the absence of compile errors is not confirmation that the device it
+	-- guards was instantiated, and those two look identical from outside.
+	for tag, _ in pairs(manager.machine.devices) do
+		if tag:find("stdio") or tag:find("kbd") or tag:find("sio") then
+			out("# device %s\n", tag)
+		end
+	end
 	out("# apollo md capture, service=%s, until=%.1fs\n",
 	    service and "yes" or "no", until_s)
 

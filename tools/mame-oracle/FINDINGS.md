@@ -2477,3 +2477,44 @@ before checking for `PORT_CHAR`. The display configuration was reasoned from a
 bitmask before reading the port. The `APOLLO_XXL` terminal was built before
 finding which port the firmware listens on. Every one of those checks was a
 single grep.
+
+
+## C44 -- the stdio device exists and reads real stdin, so two of three are out
+
+The cheap check, run first this time. Listing the machine's devices from lua:
+
+```
+# device :sio2  :sio2:cha  :sio2:chb
+# device :sio   :sio:cha   :sio:chb
+# device :stdio
+# device :kbd   :kbd:mono  :kbd:beep
+```
+
+**`:stdio` is there.** The `APOLLO_XXL` rebuild did instantiate the terminal, so
+C43's second explanation is out -- and it was out for the price of one two-second
+run and four lines of lua, against the several-minute runs spent around it.
+
+And `apollo_stdio_device::poll_timer` contains
+`while (::read(STDIN_FILENO, &data, 1) == 1)`. The device reads the process's
+real standard input directly, on a timer. So stdin is genuinely the input path;
+there is no MAME-side abstraction in between that could be swallowing it.
+
+That leaves C43's first and third, and they are now much narrower:
+
+1. whether the bytes reach MAME's stdin at all -- `oracle.py` builds its
+   subprocess without saying anything about stdin, and a pipe through a Python
+   wrapper is one more place for it to be consumed or closed;
+2. whether the rate is right -- the firmware cycles `CSRB` between `77` and
+   `BB`, and a byte at neither decodes as noise.
+
+The first is testable without MAME: check what `oracle.py` does with stdin. The
+second needs a run per rate. Do them in that order.
+
+### Two lines of lua would have saved this
+
+The device listing is four lines and two seconds. It was available before the
+`APOLLO_XXL` rebuild, before the natural-keyboard attempt, and before the stdin
+pipe -- and it would have confirmed at each point what was actually in the
+machine rather than what the source implied should be. C43 counted three
+occasions where a single grep would have ranked the theories; this is a fourth,
+and the first where the check was run before the theory instead of after.

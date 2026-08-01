@@ -355,11 +355,18 @@ file the moment they are found, not when someone remembers.
           instantiated even in the `APOLLO_XXL` build (which was confirmed only
           by the absence of compile errors, never by seeing the device exist);
           or the rate is wrong and the character decodes as noise.
-        - **Next, and it is the cheapest:** list the machine's devices from lua
-          and look for a stdio tag. If the device is absent, the build did not
-          do what C36 assumed and stdin does not matter yet. One run, no new
-          code — `mdcapture.lua` already enumerates ports when it cannot find
-          one and can enumerate devices the same way.
+        - **Done, and two of the three are out** (`FINDINGS.md` C44). `:stdio`
+          is present, so the `APOLLO_XXL` rebuild did instantiate the terminal;
+          and `apollo_stdio_device::poll_timer` contains
+          `while (::read(STDIN_FILENO, &data, 1) == 1)`, so it reads the
+          process's real stdin on a timer with no MAME-side abstraction between.
+          Cost: one two-second run and four lines of lua.
+        - What remains: whether the bytes reach MAME's stdin at all — a pipe
+          through a Python wrapper is one more place to lose them, and
+          `oracle.py` says nothing about stdin — and whether the rate is right,
+          since the firmware cycles `CSRB` between `77` and `BB`.
+        - Order: the first is testable **without MAME**, by reading what
+          `oracle.py` does with stdin. The second needs a run per rate.
         - **A result worth having on the way** (`FINDINGS.md` C39): the oracle's
           four configuration writes, decoded — `sio1 ACR E0`, `sio1 CSRB 77`,
           `sio2 ACR 80`, `sio2 CSRA 77`. Both ports get the same clock select,
