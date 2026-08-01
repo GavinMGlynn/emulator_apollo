@@ -726,7 +726,15 @@ None yet. Each one added here carries its reason and cost to close.
 
 ## PROVISIONAL figures
 
-Every entry is also a named item in `docs/COMPLETION_PLAN.md`.
+Every entry is also a named item in `docs/COMPLETION_PLAN.md`, and every
+`PROVISIONAL` in the source is one of these. Audited in both directions: each
+table row has a plan item, and each plan item points back here.
+
+The plan names several of them in its own words rather than this table's — the
+MC146818A rates appear as "whether to recompute the time base to admit the six
+fast rates", the SC-499 handshake as its `§1.13.2` figures — so a literal search
+for a row's title finds nothing and means nothing. Check the concept, not the
+phrase.
 
 | Figure | Current value | Why provisional | Cost to close |
 | --- | --- | --- | --- |
