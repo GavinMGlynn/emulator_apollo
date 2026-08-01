@@ -2623,6 +2623,20 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
   - [ ] Serial framing — baud rates, start/stop bits, parity, and the automatic
         echo and loopback modes. A character crosses this module whole; nothing
         is connected to a wire yet, and the keyboard is what will need it.
+        - **The values are no longer unknown.** `FINDINGS.md` C39 and C42 read
+          them off the running oracle: `sio1 ACR E0`, `sio1 CSRB 77`,
+          `sio2 ACR 80`, `sio2 CSRA 77` at reset, and the firmware then
+          **autobauds** channel B by cycling `CSRB` between `77` and `BB` on
+          every keyboard event until a character decodes.
+        - That is the first serial configuration this project has measured
+          rather than inferred, and it makes the item concrete: the clock-select
+          codes to decode are `77` and `BB`, and the mode to implement is one
+          where a *wrong* rate yields a character that does not decode — because
+          the firmware's console depends on exactly that failing.
+        - It also fixes the order. Framing must come before the keyboard, not
+          with it: the keyboard is on channel A and the console negotiation
+          happens on channel B, so a keyboard that delivered bytes without
+          framing would let the autobaud succeed at any rate.
   - [x] Both ports wired into the board at `010400` and `010500`, stride 2,
         sharing IRQ1. §3.9's memory-refresh period is pinned at exactly 99000
         base units — a figure whose *frequency* is not an integer, so it is the
