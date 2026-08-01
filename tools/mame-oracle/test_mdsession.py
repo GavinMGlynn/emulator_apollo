@@ -223,7 +223,7 @@ def write_stub(directory: Path) -> Path:
     return path
 
 
-def run(stub: Path, extra, environment=None, timeout=60):
+def run(stub: Path, extra, environment=None, timeout=60, append_after=None):
     env = dict(os.environ)
     env.update(environment or {})
     # A run directory of its own, beside the stub. The driver wipes whatever it
@@ -237,8 +237,22 @@ def run(stub: Path, extra, environment=None, timeout=60):
     # would stop this suite from covering the race the settle exists for.
     command = [sys.executable, str(DRIVER), "--mame", str(stub),
                "--settle", "0.5"] + list(extra)
+    writer = None
+    if append_after is not None:
+        target, text, delay = append_after
+        import threading
+
+        def _append():
+            time.sleep(delay)
+            with open(target, "a") as handle:
+                handle.write(text)
+
+        writer = threading.Thread(target=_append)
+        writer.start()
     proc = subprocess.run(command, capture_output=True, text=True, env=env,
                           timeout=timeout)
+    if writer is not None:
+        writer.join()
     return proc
 
 
@@ -389,6 +403,34 @@ def main() -> int:
               swaplog.read_text().split(),
               ["ctape", str((work / "tape1.ct").resolve()),
                "ctape", str((work / "tape2.ct").resolve())])
+
+        # A swap must not change which file the driver reads its commands
+        # from. `!swap` used to assign the resolved medium to a local called
+        # `path` -- the same name as follow_commands' parameter holding the
+        # command file -- so from the next poll the driver read the *cartridge
+        # image* as commands and typed it at the machine: 308,250 sends and 150
+        # Mbyte of log in the real run, with the real command file silently
+        # never read again.
+        #
+        # The fixture is the shape that catches it: swap in a file with
+        # recognisable content, then append a further command. If the command
+        # file is still the one being followed, the command arrives; if the
+        # driver has been redirected onto the medium, it never does.
+        record = work / "received-afterswap"
+        medium = work / "cartridge.ct"
+        medium.write_text("NOTACOMMAND\n" * 50)
+        commands = work / "afterswap.txt"
+        commands.write_text("!swap ctape %s\n" % medium)
+        proc = run(stub, ["--stage", "prompt", "--commands", str(commands),
+                          "--commands-timeout", "25", "--timeout", "20"],
+                   {"MDSTUB_RECORD": str(record),
+                    "MDSTUB_SWAPLOG": str(work / "swaps-afterswap")},
+                   append_after=(commands, "afterswap\n!quit\n", 4.0))
+        got = record.read_bytes().decode("latin-1")
+        check("a command appended after a swap still arrives",
+              "afterswap" in got, True)
+        check("and the medium's contents are never sent as commands",
+              "NOTACOMMAND" in got, False)
 
         # A refused swap fails the run rather than being swallowed. A tape that
         # did not mount looks exactly like a tape that mounted and holds nothing

@@ -3539,3 +3539,74 @@ binary on the console and no `Crash_Status`.
 `sc499.cpp` and `sc499.h` and citing this finding. Unlike the reverted attempt,
 this one is kept because it is *evidenced*: the standard says insertion behaves
 as reset, the oracle already implements reset, and the machine agrees.
+
+
+## C57 -- the driver typed a cartridge at the machine, and the bug was one word
+
+MINST had loaded from cartridge 1 and was waiting at its template menu. The
+answer `11` was appended to the command file and never sent. The driver was
+alive and its machine was alive, and nothing moved.
+
+The evidence was strange enough to be worth recording before the cause:
+
+- the driver's output file had reached **150 Mbyte** and contained **308,250**
+  `mdsession: send` lines, 307,350 of them at the start of a line, so genuine
+  driver messages rather than a grep artefact;
+- their payloads were Domain/OS documentation -- prose about name servers,
+  RFC882, `install/doc/apollo` -- text the driver has no business sending;
+- and yet the **command file was 1,140 bytes of clean ASCII** and did not
+  contain any of it, while the console log was 28 Kbyte and did not either.
+
+So the driver was sending something it had not read from its command file, and
+had not received on the console.
+
+### The first hypothesis was wrong, and the reproduction is what showed it
+
+The obvious mechanism is a feedback loop: if the console log and the command
+file were ever the same file, every byte the machine printed would be read back
+as a command and typed at the machine, which prints more. That was reproduced
+against the stub and it does storm -- one send becomes twenty, and the command
+file grows from 6 bytes to 969.
+
+It is also **not what happened**. The two files have different inodes, neither
+contains `RFC882`, and neither grew. A mechanism that reproduces is not thereby
+the mechanism that occurred, and the cheap check that separates them is looking
+at the artefacts the real run left rather than at how plausible the story is.
+
+### What it actually was
+
+The first sends after the swap are the answer:
+
+```
+mdsession: send 'Ident  019594   00'
+mdsession: send 'Ident  CRTG_std_sfw_1'
+```
+
+That is the **install cartridge's own header**. The driver was reading
+`019594-001.CRTG_STD_SFW_1.ct` -- 58 Mbyte of tape image -- as its command file
+and typing it at the machine, line by line.
+
+`follow_commands(session, path, ...)` takes the command file as `path`. The
+`!swap` directive resolved the medium into a local variable also called `path`.
+From the next poll onward, `open(path, "rb")` opened the cartridge.
+
+One word. It explains every part of the observation exactly: the storm starts at
+the first swap, the payloads are tape content, the volume matches the cartridge,
+the real command file is untouched because it was never read again, and `11`
+went nowhere.
+
+### Why it survived this long
+
+`!swap` was tested, and the tests passed -- they checked that swaps are
+acknowledged, arrive in order, resolve to absolute paths, and fail loudly when
+refused. Every one of those is about the swap. None of them asked **what the
+driver does next**, and the damage is entirely in what happens after.
+
+The regression test is therefore shaped as the failure was: swap in a file with
+recognisable contents, then append one more command. If the command file is
+still being followed the command arrives; if the driver has been redirected onto
+the medium it never does, and the medium's contents show up as input. Verified by
+removing the fix -- both checks fail without it.
+
+**A test that exercises a feature is not a test that the feature left the program
+in a working state.**

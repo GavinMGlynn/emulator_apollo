@@ -544,12 +544,18 @@ def follow_commands(session: Session, path: Path, timeout: float,
                 # resolved here rather than in the script, because MAME runs
                 # from its own directory and a relative path would mean a
                 # different file at each end.
+                # `medium`, never `path`: `path` is this function's parameter
+                # naming the *command file*. Assigning to it here rebound it,
+                # and from the next poll onward the driver read the cartridge
+                # image as its command file and typed 58 Mbyte of tape at the
+                # machine -- 308,250 sends, 150 Mbyte of log, and the real
+                # command file silently never read again.
                 parts = line[6:].split(None, 1)
                 name = parts[0]
-                path = str(Path(parts[1]).resolve()) if len(parts) > 1 else ""
-                sys.stderr.write("mdsession: swap %s -> %s\n" % (name, path))
+                medium = str(Path(parts[1]).resolve()) if len(parts) > 1 else ""
+                sys.stderr.write("mdsession: swap %s -> %s\n" % (name, medium))
                 sys.stderr.write("mdsession: %s\n"
-                                 % session.swap(name, path, timeout))
+                                 % session.swap(name, medium, timeout))
             elif line == "!quit":
                 sys.stderr.write("mdsession: !quit\n")
                 return
