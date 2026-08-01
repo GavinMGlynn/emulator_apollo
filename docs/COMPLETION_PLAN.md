@@ -319,12 +319,17 @@ file the moment they are found, not when someone remembers.
           reading a status bit that never sets. **It is waiting for the same
           character our core was**, because MAME's keyboard sends nothing
           unattended.
-        - Feeding is **wired** (`APOLLO_MD_POST`, via MAME's natural keyboard)
-          and has not yet produced output (`FINDINGS.md` C40). Recorded as
-          wired-but-unproven rather than as a failure: the window after the post
-          was only eight emulated seconds, and whether `natkeyboard` reaches the
-          Apollo keyboard's serial protocol is untested. Lengthen the window and
-          confirm the keystroke arrives at `apollo_kbd` before concluding.
+        - Feeding via MAME's natural keyboard is **closed** (`FINDINGS.md`
+          C40). Thirty emulated seconds produce the same four writes as eight.
+          `apollo_kbd.cpp` has **zero `PORT_CHAR` entries**, and the natural
+          keyboard translates characters to keys through exactly those — so
+          `natkeyboard:post` has nothing to map to and silently does nothing.
+          The longer run was worth doing first: a short window and a post that
+          never arrives look identical.
+        - Next: drive the keyboard's own ioport fields — set a key's field, hold
+          it, release it. `INPUT_PORTS_START( apollo_kbd )` defines them. More
+          work than posting text, and it does not depend on a translation layer
+          this device never provided.
         - **A result worth having on the way** (`FINDINGS.md` C39): the oracle's
           four configuration writes, decoded — `sio1 ACR E0`, `sio1 CSRB 77`,
           `sio2 ACR 80`, `sio2 CSRA 77`. Both ports get the same clock select,

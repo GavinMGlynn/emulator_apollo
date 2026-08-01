@@ -2340,9 +2340,17 @@ serial line, because the DUART's receiver takes bits and driving it directly
 would mean getting the baud rate right before finding out whether the idea works
 at all.
 
-The post happens. No transmit follows within the eight emulated seconds after
-it. That is not yet a negative result: the window is short, the Apollo keyboard
-is a serial device with its own protocol, and whether `natkeyboard` reaches it
-is untested. Recorded as wired-but-unproven rather than as a failure, because
-the two look identical from one run and only a longer window and a check that
-the keystroke reached the keyboard device can tell them apart.
+The post happens and nothing follows -- not in the eight emulated seconds first
+tried, and not in the thirty-second run that followed. Both were needed, because
+a short window and a post that never arrives look identical.
+
+**It never arrives, and the reason is decisive.** `apollo_kbd.cpp` contains
+**zero `PORT_CHAR` entries**. The natural keyboard translates a character to a
+key press through exactly those mappings, so with none defined `natkeyboard:post`
+has nothing to map to and does nothing at all -- silently, which is why a longer
+window was worth running before concluding.
+
+So the route is to drive the keyboard's own ioport fields: set the field for a
+key, hold it, release it. `INPUT_PORTS_START( apollo_kbd )` defines them, and
+that is where the next attempt starts. It is more work than posting text and it
+does not depend on a translation layer this device never provided.
