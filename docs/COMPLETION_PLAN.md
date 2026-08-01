@@ -431,13 +431,17 @@ file the moment they are found, not when someone remembers.
           field appears when `A` is given input that displays rather than
           advances; the command set is now small enough to settle that from the
           machine.
-        - Data point: `A1000` (no space, paced) returns `E` — a single letter,
-          which is the shape of an error code rather than a dump. `A` alone
-          starts walking at address `4`. So the argument is neither
-          concatenated nor space-separated in the form tried, and the chapter
-          the handbook cross-references — "MNEMONIC DEBUGGER ERROR CODES" at
-          `002398-04` §4 — is where `E` should be looked up **before** another
-          run. That lookup is free and there have been enough runs.
+        - `A1000` returns `E`. The crash-code table at `002398-04` §4 lists
+          `A B C F I J o T U V W X Y` and **no `E`**, so `E` is a
+          command-syntax response rather than a crash code — wrong table.
+        - **But the lookup found a better route.** Every crash entry in that
+          table prints two lines, the second of which is `<PC> <Contents>` —
+          **the address-and-contents line**, printed without any command being
+          typed. So the format the parser needs can be captured by *causing a
+          fault*, not by finding `A`'s argument syntax.
+        - That is also the case the harness most needs: crash analysis is what
+          MD is for, so the crash-entry format matters more than the interactive
+          one. Do that next.
         - **A result worth having on the way** (`FINDINGS.md` C39): the oracle's
           four configuration writes, decoded — `sio1 ACR E0`, `sio1 CSRB 77`,
           `sio2 ACR 80`, `sio2 CSRA 77`. Both ports get the same clock select,

@@ -189,3 +189,30 @@ makes the address-and-prompt format captured above the format the parser must
 read, not a stepping-stone to a nicer one. The contents field appears when `A`
 is given input that displays rather than advances, and the command set is now
 small enough to establish that from the machine itself.
+
+
+## The address-and-contents line has a second, better source
+
+`002398-04` §4, "MNEMONIC DEBUGGER ERROR CODES (PROM)", lists what MD prints on
+entry after a crash. Every entry has the same two-line shape:
+
+```
+A   <PC> <SR> <IR> <FA> <FC>   -  Address Error
+    <PC> <Contents>
+B   <PC> <SR> <IR> <FA> <FC>   -  Bus Error
+    <PC> <Contents>
+U   <PC> <SR>                  -  Unimp inst trap
+    <PC> <Contents>
+```
+
+**`<PC> <Contents>` is the address-and-contents line.** It is printed on every
+crash entry, without any command being typed -- so the format the parser needs
+can be captured by *causing a fault* rather than by finding the right arguments
+to `A`. That is the route this document should take next, and it is also the
+case the harness most needs to read: crash analysis is what MD is for.
+
+The table also settles the `E` from `A1000`. The crash codes are
+`A B C F I J o T U V W X Y` -- **there is no `E`** -- so `E` is a
+command-syntax response and not a crash code, and looking for it in this table
+was the wrong table. Recorded because the lookup was still worth doing: it cost
+nothing, and it produced a better route than the one it was meant to unblock.
