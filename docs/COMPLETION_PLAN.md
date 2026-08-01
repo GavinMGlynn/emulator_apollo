@@ -2875,10 +2875,10 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         none. A comment was not a guard: the mistake is one keystroke away, and
         its symptom is a run that is merely *different*, with nothing to say the
         watching caused it.
-  - [ ] `0000220C` at both 300000 and 1000000 instructions, so it has settled
-        there. Establish whether that is another wait before treating it as a
-        stop — the last three times a PC settled, twice it was a correct wait
-        and once a runaway.
+  - [x] `0000220C` established: a table search against the keyboard scan-code
+        map at `000021D2`, settled because ASCII was being fed to the keyboard
+        channel. Superseded by feeding serial 1 channel B, which moves the PROM
+        to `00002542`.
   - [ ] The tick loop is still owed regardless, and remains the project's
         central design item — but it is **not** what this stop needs, and
         building it here would have been the wrong move for a plausible reason.
@@ -2896,11 +2896,10 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
           poll names it, and `--boot-trace` reports only A6 and A7 today.
           Extending the trace has been the cheapest move available at every
           step of this investigation.
-  - [ ] Nothing about the 3000000-instruction run is a runaway this time: the PC
-        stays on one instruction and the fault count is static. That is a
-        machine waiting correctly for something that is not coming, which is a
-        different state from the vector-table runaway and should not be
-        confused with it.
+  - [x] That run was a machine waiting correctly rather than a runaway — the PC
+        stayed on one instruction and the fault count was static, unlike the
+        vector-table runaway. Confirmed since: it was waiting for console input
+        on a channel nothing was feeding.
   - [x] Every `ap_board_t` counter now records the **first address** as well as
         the count — read-only writes and both AT bus empty-slot directions,
         matching the unmapped pair. Applied before an investigation needed it
@@ -3030,11 +3029,10 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         *mid-instruction* cannot work from a zeroed frame, so the rerun above
         must reconstruct the access from the SSW and fault address instead of
         from internal state. Record it as `PROVISIONAL` when it lands.
-  - [ ] The write side of `access_faulted` is correct but currently
-        **unreachable**: the store callback returns `void`, so only an MMU
-        protection violation can fault a write, and no `step_suite` test enables
-        translation. Cover it when the MMU-enabled step tests land, rather than
-        claiming a test that does not exercise it.
+  - [x] Closed: the store callback returns `bool` now, so a write can fault, and
+        `step_suite` covers a faulted write taking the short frame. It was
+        recorded as unreachable rather than quietly left untested, which is what
+        made it findable when the store path changed.
   - [x] The `.ct` image reader, `image/ap_ct.c`: block addressing, the
         whole-block size check, and boot-record parsing. `ct_suite`, 8 tests.
   - [x] The QIC-02 command set transcribed as far as the scan allows
