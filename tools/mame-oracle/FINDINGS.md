@@ -2682,3 +2682,70 @@ the likelier one. Had the modifier reading been adopted, a keyboard module built
 on it would have synthesised codes the hardware never sends, and the PROM would
 have matched them -- because the table contains those codes for entirely
 different keys.
+
+## C47 -- the "no bootable image" gate is a documented procedure, and we hold the media
+
+Phase 1 records: "All Domain/OS media we hold is *installation* media ... Reaching
+a login prompt therefore requires installing Domain/OS from tape onto a blank
+disk image under the oracle first. That is a much larger task than this item's
+wording implies, and it is the real gate on the first boot."
+
+It is smaller than that, and the reason it looked larger is that nobody had
+looked. MAMEDEV's own `Driver:Apollo` wiki page carries a step-by-step SR10.4
+install for `dn3500`:
+
+```
+rm -f /tmp/dn3500_sr10.4.awd
+mame dn3500 -mouse -disk1 /tmp/dn3500_sr10.4.awd \
+     -ctape /tmp/019593-001.CRTG_STD_SFW_BOOT_1-REV.A.ct
+```
+
+A **348 MB image is generated automatically** when `-disk1` names a file that
+does not exist -- so the disk image nobody had is a side effect of the first
+command, not a thing to be built.
+
+Machine Configuration (`ScrLock` then `Tab`): **"25 Years Ago" On, everything
+else Off**. Then from the MD prompt:
+
+```
+re
+di c
+ex invol
+```
+
+then the calendar, then Domain/OS and the `MINST` utility, taking each tape in
+turn, then `shut`.
+
+### We already have every tape it names
+
+```
+media/domainos/019593-001.CRTG_STD_SFW_BOOT_1-REV.A.ct.gz   boot
+media/domainos/019594-001.CRTG_STD_SFW_1.ct.gz              install 1
+media/domainos/019594-002.CRTG_STD_SFW_2.ct.gz              install 2
+media/domainos/019594-003.CRTG_STD_SFW_3.ct.gz              install 3
+media/domainos/019594-004.CRTG_STD_SFW_4.ct.gz              install 4
+```
+
+Exactly the five the wiki lists, filename for filename, gzipped -- and the
+procedure says to gunzip them. Nothing needs downloading.
+
+### Why this was missed
+
+The item was written while assembling the media, concluded correctly that all of
+it is *installation* media, and reasoned from there that an install was needed
+and would be large. Both steps are right. What never happened is asking whether
+anyone had already written the procedure down -- and the emulator's own wiki had.
+
+This project's rule is to resolve behaviour from the manuals or the oracle
+rather than by trial and error, and it has been read as *our* manuals and *our*
+oracle binary. The oracle's **documentation** is a source too, and it answered a
+gate estimated at weeks with a page.
+
+### What it unblocks
+
+It also lands on ground this session has just prepared. The procedure is driven
+from the **MD prompt** -- and `docs/references/MD.md` now records MD's console
+format byte-exact, captured through `mdcapture.lua`, which is what a scripted
+rather than hand-driven install would need to parse. The item's verification
+asks for exactly that: "produced by a recorded, repeatable install rather than
+by hand."

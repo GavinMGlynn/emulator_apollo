@@ -110,6 +110,25 @@ file the moment they are found, not when someone remembers.
         it is the real gate on the first boot. *Verification: a disk image that
         boots to a login prompt under MAME, produced by a recorded, repeatable
         install rather than by hand.*
+        - **Smaller than recorded, and the procedure already exists**
+          (`FINDINGS.md` C47). MAMEDEV's own `Driver:Apollo` wiki carries a
+          step-by-step SR10.4 install for `dn3500`, and a **348 MB image is
+          generated automatically** when `-disk1` names a file that does not
+          exist — so the blank disk nobody had is a side effect of the first
+          command rather than a thing to build.
+        - **We already hold all five tapes it names**, filename for filename, in
+          `media/domainos/`. Nothing needs downloading.
+        - The sequence is driven from the **MD prompt** (`re`, `di c`,
+          `ex invol`, then `MINST` taking each tape), which is exactly what
+          `docs/references/MD.md` now records byte-exact — so a *scripted*
+          install, which is what this item's verification asks for, has its
+          parser input already captured.
+        - Why it was missed: the item reasoned correctly from "all our media is
+          installation media" to "an install is needed" to "that is large", and
+          never asked whether anyone had written the procedure down. This
+          project treats the oracle as a binary to instrument; its
+          **documentation** is a source too, and it answered a gate estimated at
+          weeks with one page.
   - This also pulls `.ct` cartridge support (Phase 4) forward in importance: it
     is the format the first boot depends on, not merely a storage item.
   - [x] **Answered: the 68040 path does have an oracle.**
