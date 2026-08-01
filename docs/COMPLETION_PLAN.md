@@ -2658,6 +2658,19 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         the daylight-savings shifts of `DSE` (stored but inert).
 - [ ] SIO serial lines, keyboard and mouse. *Verification: console byte stream
       identical to the oracle's.*
+  - **The oracle's half of that comparison now exists.** `docs/references/MD.md`
+    holds its console stream byte-exact — sign-on `0D 0A 4D 44 37 0D 0A`, prompt
+    `0D 0A 0D 0A 3E`, and `A`'s address lines — captured through
+    `tools/mame-oracle/mdcapture.lua`. That was written for Phase 1's MD item and
+    is the verification this item asks for, arriving from the other direction.
+  - Our half does not exist yet: the PROM never transmits on our core, because
+    it never completes the channel B autobaud that precedes the console. So the
+    remaining work for this item is the framing above, and then the comparison
+    is a diff rather than a new measurement.
+  - Worth stating because the two items were filed in different phases and each
+    describes half of one job. Phase 1 wanted the format so a parser could be
+    written; Phase 3 wants the stream so the DUART can be checked. The same
+    capture serves both.
   - [x] Placement measured: both ports at `010400` and `010500`, **stride 2**,
         sixteen registers over thirty-two bytes. `FINDINGS.md` C14. The DUART
         manual is already in `docs/references/motorola/`.
