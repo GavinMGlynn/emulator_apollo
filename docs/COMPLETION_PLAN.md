@@ -2605,16 +2605,21 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
           rather than by what is fitted. `board_suite`, 2 tests.
         - The PROM run is unchanged at 89 with an identical state hash, so its
           two unmapped writes were the stack leaving RAM, not PROM writes.
-  - [ ] **The run re-enters `000028D0` after the handler returns** — five bus
-        errors at one address, which is why the stack runs out. A probe handler
-        that meant to skip the instruction would adjust the stacked PC, so
-        either it is not doing that, or the `$B` frame is not giving it what it
-        needs. Investigate; do **not** assume it from the loop alone.
-  - [ ] The reset SSP is `01000180`, only 384 bytes above the base of main
-        memory, so the supervisor stack has room for four fault frames. Check
-        against the oracle whether a real DN3500 has memory below `01000000`, or
-        whether the firmware moves the stack before anything can fault this
-        deep. Either answer changes what "ran off the stack" means here.
+  - [x] **Resolved: there was never a handler bug** (`FINDINGS.md` C32).
+        `dn3500_map` maps the graphics controller registers, so a real DN3500
+        **answers** at `0005E801` and never faults there. The re-entry, the
+        stack running off the bottom of RAM and the double fault are all
+        artefacts of a device we have not built. Reading the PROM's handler felt
+        like progress and could not have reached this; one grep of the oracle's
+        map did.
+        - Recorded as a working rule: when the question is what the hardware
+          does, ask the oracle **before** reasoning, not after the reasoning
+          fails. Four findings in this chain resolved that way.
+  - [x] The reset SSP question is answered by the same finding: the stack only
+        ran off the bottom of RAM because faults were being raised that the real
+        machine does not raise. `01000180` is not a stack the firmware is
+        expected to build four exception frames on, and now it will not have
+        to.
   - [ ] The long frame's INTERNAL REGISTER fields will have to be stacked as
         zero — a deliberate approximation, since this model has no
         microsequencer state to save. Cost to close: an `RTE` resuming a fault

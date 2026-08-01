@@ -1964,3 +1964,55 @@ never appear in this file as an oracle comparison. They live in
 
 The one exception is the 3c505 itself, which *is* modelled by MAME: when that
 path is implemented it gets ordinary rows here, like any other device.
+
+## C32 -- there was never a handler bug: the DN3500 has a graphics controller
+
+The open item was "the run re-enters `000028D0` after the handler returns --
+five bus errors at one address, which is why the stack runs out". It was framed
+as a question about the PROM's bus error handler, or about what the `$B` frame
+gives it. Both framings were wrong, and one grep of the oracle's map settles it.
+
+`dn3500_map` (`ext/mame/src/mame/apollo/apollo.cpp`, lines 673-717) contains:
+
+```
+map(0x05d800, 0x05dc07)  monochrome controller registers
+map(0x05e800, 0x05ec07)  colour controller registers
+```
+
+**A DN3500 answers at `0005E801`.** It never takes a bus error there at all. Our
+machine does, because we have not built the graphics controller -- so the
+handler runs on a real machine's behalf for a fault that machine never has, and
+everything downstream of it (the re-entry, the stack running off the bottom of
+RAM, the double fault) is an artefact of a missing device rather than a defect
+in anything we built.
+
+There is no handler bug to find. There is a device to build.
+
+### The shape of the mistake
+
+The instruction to characterise a discrepancy before fixing it exists for
+exactly this. The observable was "five faults at one address, then a double
+fault", and that shape is equally consistent with two very different causes:
+
+- a handler that fails to resolve the fault, and
+- a fault that should never have been raised.
+
+Everything about the first is *visible* -- the handler is right there in the
+PROM, disassemblable, and it does have a nested-entry path that looks like it
+might be misfiring. The second is invisible by construction, because a device we
+have not written leaves nothing to look at. Reading the handler felt like
+progress and could not have reached the answer.
+
+The three previous findings in this chain (C30's wrong derivation, C31's
+correction, the read-only write defect) all resolved the same way: a question
+answerable by one grep of the oracle, which reasoning got wrong. That is now a
+pattern rather than a coincidence, and worth acting on -- **when a question is
+about what the hardware does, ask the oracle before reasoning about it, not
+after the reasoning fails.**
+
+### What this does not change
+
+Nothing built in this chain is wasted or wrong. Bus error and address error are
+real exceptions this processor takes, they are needed, and they are correct and
+tested. The read-only-write fix is right on its own terms. What changes is only
+which module comes next: the graphics controller, and not more of the CPU.

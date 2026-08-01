@@ -72,11 +72,12 @@ signal a callee cannot send is one the caller assumes never happens. With the
 store able to say no, an undecoded write faults like a read of the same address,
 and the fault loop ends in a double fault instead of running forever.
 
-**The run still re-enters the same instruction after the handler returns**, which
-is why the stack runs out: five bus errors at one address. Whether the PROM's
-handler adjusts the stacked PC and our frame is not giving it what it needs, or
-something else, is the next thing to investigate — and it is not to be assumed
-from the loop alone.
+**The run re-enters the same instruction after the handler returns, and that is
+a missing device rather than a defect.** `dn3500_map` maps the graphics
+controller registers, so a real DN3500 *answers* at `0005E801` and never faults
+there at all. The re-entry, the stack leaving RAM and the double fault are all
+downstream of a controller we have not built. Nothing in the exception path is
+wrong; the next module is the graphics controller (`FINDINGS.md` C32).
 
 It previously stopped at `000028D0`, and the investigation of that stop found a defect in the
 reporting rather than in the CPU: the step was **reporting a bus fault as an
