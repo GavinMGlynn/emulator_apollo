@@ -23,6 +23,7 @@ uint8_t ap_sio_read(ap_sio_t *sio, uint32_t address) {
   if (!ap_sio_decode(address, &unit, &reg)) {
     return 0u;
   }
+  sio->register_reads[unit][reg]++;
   return ap_mc68681_read(&sio->port[unit], reg);
 }
 

@@ -2784,12 +2784,25 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         preload registers written once each. That is the shape of something
         driving the DUART's **counter/timer**, which in this model never
         advances because nothing ticks.
-        - If so, the tick loop *is* what this needs, which would partly reverse
-          an earlier correction — a poll loop looked like a timing problem, was
-          not, and the thing behind it may be one after all.
-        - **Establish it before building.** Confirm the register identities
-          against `[68681]` and confirm the firmware reads the counter back,
-          rather than inferring a timer from write volume alone.
+  - [x] **Refuted: it is not the counter/timer.** Per-register *read* counts —
+        which matter more than writes on this part, since reading register 14
+        starts the counter and 15 stops it — show the counter registers 6 and 7
+        with **zero reads on both ports**, and register 14 read twice. Nothing
+        is driving a timer. The inference from write volume alone was wrong, and
+        was recorded as a reading to confirm for exactly this reason.
+  - [ ] What it *is*: a **write-only loop**. `sio1 reg 9` 4723 writes and
+        `sio1 reg 4` 2362 — almost exactly 2:1, so one iteration writes the
+        auxiliary control register once and clock-select B twice, about 2362
+        times — with **no reads at all** on those registers. A loop that writes
+        and never reads is not testing anything it can see.
+        - The interrupt controllers are **written 10 times and never read**, and
+          this machine delivers no interrupts because nothing ticks. A loop that
+          cannot end on anything it reads may be waiting to be interrupted.
+        - That would put the tick loop back in play, for **interrupts** rather
+          than for the DUART counter — a different reason from the one just
+          refuted, and it needs its own evidence rather than inheriting that
+          one's. Establish what ends the loop at `0000220C` by reading the code
+          there, before building anything.
         - Checked: `ap_mc68681_write` does drop a transmit-buffer write when
           `tx_enabled` is clear, and the command register's enable and disable
           bits are handled correctly. So the mechanism exists; whether the

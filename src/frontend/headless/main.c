@@ -369,11 +369,13 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
    * and one dropped at the register look identical from a total. */
   for (unsigned unit = 0; unit < 2u; unit++) {
     for (unsigned reg = 0; reg < AP_MC68681_REGISTERS; reg++) {
-      if (board->sio.register_writes[unit][reg] == 0u) {
+      if (board->sio.register_writes[unit][reg] == 0u &&
+          board->sio.register_reads[unit][reg] == 0u) {
         continue;
       }
-      printf("    sio%u reg %-2u %8u write(s)\n", unit + 1u, reg,
-             board->sio.register_writes[unit][reg]);
+      printf("    sio%u reg %-2u %8u write(s) %8u read(s)\n", unit + 1u, reg,
+             board->sio.register_writes[unit][reg],
+             board->sio.register_reads[unit][reg]);
     }
   }
   printf("  state hash   %016llX\n",

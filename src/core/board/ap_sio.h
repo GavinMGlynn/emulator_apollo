@@ -68,6 +68,12 @@ typedef struct {
    * transmit that never happened looks exactly like one that was dropped at the
    * register. This is the level at which those two separate. */
   unsigned register_writes[2][AP_MC68681_REGISTERS];
+
+  /* Reads too, and they carry more than writes do on this part: several of its
+   * registers *act* when read. Reading register 14 starts the counter and
+   * register 15 stops it, so a read count is the only way to see a timer being
+   * driven -- a write count cannot show it at all. */
+  unsigned register_reads[2][AP_MC68681_REGISTERS];
 } ap_sio_t;
 
 void ap_sio_reset(ap_sio_t *sio);

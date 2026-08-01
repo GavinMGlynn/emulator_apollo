@@ -193,11 +193,17 @@ The capture was correct and there was nothing to capture.
 
 What it writes instead is the auxiliary control and clock-select registers,
 thousands of times, with the counter/timer preload registers written once each.
-That is the shape of something driving the DUART's counter/timer — which never
-advances here, because nothing ticks. If that holds it would partly reverse an
-earlier correction: a poll loop looked like a timing problem and was not, and
-the thing behind it may be one after all. It is recorded as a reading to confirm
-against the part's manual, not acted on.
+That looked like something driving the DUART's counter/timer. It is not:
+per-register *read* counts — which carry more than writes on this part, since
+reading register 14 starts the counter and 15 stops it — show the counter
+registers with **zero reads on both ports**.
+
+What it is instead is a **write-only loop**, about 2362 iterations of one
+auxiliary-control write and two clock-select writes, reading nothing back. The
+interrupt controllers are written ten times and never read, and this machine
+delivers no interrupts because nothing ticks — so a loop that cannot end on
+anything it reads may be waiting to be interrupted. That is a different reason
+for needing the tick loop than the one just refuted, and needs its own evidence.
 
 The tick loop is still owed and remains the project's central design item, but
 it is not what this stop needs.
