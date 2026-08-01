@@ -262,9 +262,20 @@ file the moment they are found, not when someone remembers.
           Everything before it compared our numbers against published ones, or
           our behaviour against MAME's source.
         - So the MD transcript still needs a console to read, and both machines
-          agree there is none until a display or a terminal is attached. The
-          remaining route is `dn3500` with MAME's `APOLLO_XXL` stdio terminal
-          built in, or reading the transcript out of the frame buffer.
+          agree there is none until a display or a terminal is attached.
+        - **The route is now known and it is a rebuild.** `-listslots dn3500`
+          offers only ISA slots — `3c505`, `ctape`, `wdc` — and **no serial
+          terminal slot**, so a terminal cannot be attached from the command
+          line. MAME's `apollo_stdio_device` is inside `#ifdef APOLLO_XXL`, so
+          the transcript needs the oracle rebuilt with that defined.
+        - The other route, reading the transcript out of the frame buffer, is
+          not equivalent: MD renders text through the display controller, so
+          recovering characters means decoding a bitmap. That is OCR, not a
+          capture, and it cannot give the byte-exact transcript this item asks
+          for.
+        - Cost: a MAME rebuild on this machine cannot use `make -j$(nproc)` —
+          the luaengine and emumem translation units peak around 2.5 Gbyte each.
+          Plan the build scope before starting it.
         - MAME refuses a write tap that is not dword-aligned and its message
           names a *different* address ("did you mean 10404"). Take the whole
           device range and filter; accepting the suggestion taps the wrong
