@@ -3462,3 +3462,31 @@ emulated drive do what a physical one does when a cartridge is pushed in.
 Recorded as its own finding because of what it cost to see: the swap reported
 `ok`, the machine kept running, and the failure arrived one command later
 wearing the costume of a filesystem problem.
+
+### The obvious fix was tried, and it is not sufficient
+
+`sc499_device` was given the media-change notifier it lacks -- MAME's image
+layer fires one on every load and unload (`diimage.cpp`, both paths verified in
+source), and the handler did what pushing a cartridge in does: forced
+`check_tape()` to recompute length and block count, and reset the tape position,
+block index and data index. Deliberately narrower than `device_reset()`, since
+changing a cartridge does not reset the controller a driver is talking to.
+
+It **changed the outcome without fixing it.** Domain/OS got measurably further --
+twenty-one kilobytes of output rather than a prompt crash -- and then crashed
+anyway. So the device's *geometry* was not the whole problem: something the OS
+driver expects on a cartridge change is still not happening. The likely
+candidate is the exception path -- `device_reset` carries a commented-out
+`SC499_STAT_EXC`, and a real drive raises an exception so the host re-reads
+status -- but that is a guess, and guessing at what a driver expects is the
+trial-and-error this project's rules forbid.
+
+**The patch has been reverted and the oracle rebuilt to stock.** Carrying an
+unproven local modification is worse than carrying none: every reading taken
+against it would need this caveat attached, for a change that did not achieve
+what it was made for. `ext/mame` is back to its three `APOLLO_XXL` edits.
+
+What a real investigation needs, and does not have yet: the SC-499 manual's
+account of what the drive signals when a cartridge is inserted (§1.13 territory,
+already partly transcribed in `C17`-`C19`), and a trace of what Domain/OS's
+driver reads after the change. Both are ordinary work; neither is a guess.
