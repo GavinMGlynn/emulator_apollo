@@ -3486,7 +3486,56 @@ unproven local modification is worse than carrying none: every reading taken
 against it would need this caveat attached, for a change that did not achieve
 what it was made for. `ext/mame` is back to its three `APOLLO_XXL` edits.
 
-What a real investigation needs, and does not have yet: the SC-499 manual's
-account of what the drive signals when a cartridge is inserted (§1.13 territory,
-already partly transcribed in `C17`-`C19`), and a trace of what Domain/OS's
-driver reads after the change. Both are ordinary work; neither is a guess.
+### Closed, and the answer was already in the oracle
+
+The investigation above was done and it took two sources, neither of them a
+guess.
+
+**The SC-499 guide equates the two events in as many words.** Under the READ
+command: *"A READ command following cartridge insertion or RESET shall commence
+at BOT, otherwise the read command commences from the current tape position."*
+It says the same for WRITE, WRITE-FILE-MARK and READ-FILE-MARK. So an insertion
+is required to leave the drive in the state a RESET leaves it in -- that is the
+standard's own wording, not an inference from behaviour.
+
+**And `SC499_ST1_POR` is the mechanism.** QIC-02 status byte 1, bit 0, "power
+on/reset occurred": how a drive tells the host to re-initialise. MAME defines it
+and sets it in exactly one place -- `sc499_device::do_reset()`, which also
+asserts EXCEPTION, rewinds to BOT and clears the readahead and pending-read
+state.
+
+So the whole behaviour was already written and simply **unreachable except
+through the QIC-02 RESET command**. Nothing invoked it on a media change. The
+fix is four lines: on a media change, recompute the geometry with `check_tape()`
+-- first, because `do_reset()` sets POR and BOM only `if (m_has_cartridge)` --
+and then call `do_reset()`.
+
+This also explains why the first attempt failed, which is the test of the
+explanation. It reset the position and geometry but never set POR and never
+asserted EXCEPTION, so Domain/OS was never *told*: it read from a rewound tape it
+still believed was the old one. "Got further and still crashed" was exactly the
+right symptom for that cause.
+
+**Verified on the machine.** With the patch in, swapping the cartridge at
+MINST's prompt produces:
+
+```
+Rbak Command Line: .../rbak_sr10 -dev ct -f 1 install -as //node_12345/install ...
+
+Label:
+   Volume ID:     ST0194
+   Owner ID:      apollo
+   File ID:       force
+   File written:  1992/03/06 19:13:21 UTC
+
+Starting restore:
+```
+
+`ST0194` is the **install** cartridge; the boot cartridge is `SR10.4`. The drive
+read the new medium, MINST ran `rbak_sr10` against it, and the restore began. No
+binary on the console and no `Crash_Status`.
+
+`ext/mame` now carries a fourth local edit, marked `APOLLO ORACLE EDIT` in
+`sc499.cpp` and `sc499.h` and citing this finding. Unlike the reverted attempt,
+this one is kept because it is *evidenced*: the standard says insertion behaves
+as reset, the oracle already implements reset, and the machine agrees.
