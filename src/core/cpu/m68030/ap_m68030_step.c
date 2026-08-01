@@ -30,6 +30,44 @@ static bool execute_extended(ap_m68030_cpu_t *cpu,
 #include "cpu/m68030/ap_m68030_mmusr.h"
 #include "cpu/m68030/ap_m68030_operand.h"
 
+/* The two operand entry points, wrapped so that a fault is *recorded* on the
+ * CPU before the result reaches a caller that will reduce it to a bool.
+ *
+ * Every executor signals failure by returning `false`, and by then the access
+ * result is gone. Recording the fault at the only place that still knows is
+ * what lets the step distinguish "the bus said no" from "this model has no
+ * semantics for that instruction" -- two failures that are indistinguishable at
+ * the return, and that a reader of the status must never have to guess between.
+ *
+ * These take the same arguments as the functions they wrap, plus the CPU, so
+ * that a call site converted to use them reads identically and no argument can
+ * be silently dropped in the conversion. */
+static ap_m68030_operand_result_t
+step_operand_read(ap_m68030_cpu_t *cpu, ap_m68030_regs_t *regs,
+                  ap_m68030_access_ctx_t *access,
+                  const ap_m68030_address_t *where, unsigned size,
+                  uint8_t function_code) {
+  const ap_m68030_operand_result_t result =
+      ap_m68030_operand_read(regs, access, where, size, function_code);
+  if (result.fault) {
+    cpu->access_faulted = true;
+  }
+  return result;
+}
+
+static ap_m68030_operand_result_t
+step_operand_write(ap_m68030_cpu_t *cpu, ap_m68030_regs_t *regs,
+                   ap_m68030_access_ctx_t *access,
+                   const ap_m68030_address_t *where, unsigned size,
+                   uint32_t value, uint8_t function_code) {
+  const ap_m68030_operand_result_t result =
+      ap_m68030_operand_write(regs, access, where, size, value, function_code);
+  if (result.fault) {
+    cpu->access_faulted = true;
+  }
+  return result;
+}
+
 void ap_m68030_cpu_reset(ap_m68030_cpu_t *cpu, uint32_t pc) {
   cpu->regs.pc = pc;
   ap_m68030_fetch_reset(&cpu->fetch, pc);
@@ -84,6 +122,12 @@ static bool next_word(ap_m68030_cpu_t *cpu, uint32_t *clocks, uint16_t *word) {
   ap_m68030_pipe_advance(&cpu->fetch.pipe);
   bool abnormal = false;
   if (!fill_to_decoded(cpu, clocks, word, &abnormal) || abnormal) {
+    /* An extension word that did not arrive is a fault of the instruction
+     * stream, not a gap in this model: the instruction was decoded, and what
+     * failed was reading the rest of it. Both arms are faults -- one is a
+     * prefetch that never returned, the other a word the pipe marked abnormal
+     * because its fetch had. */
+    cpu->access_faulted = true;
     return false;
   }
   cpu->extension_words++;
@@ -142,7 +186,7 @@ static ap_m68030_address_t resolve_address(ap_m68030_cpu_t *cpu,
   const ap_m68030_address_t intermediate = {.address = where.address,
                                             .valid = true};
   const ap_m68030_operand_result_t read =
-      ap_m68030_operand_read(&cpu->regs, cpu->data, &intermediate, 4u,
+      step_operand_read(cpu, &cpu->regs, cpu->data, &intermediate, 4u,
                              cpu->data_function_code);
   *clocks += read.clocks;
   if (!read.ok) {
@@ -320,8 +364,8 @@ static bool execute_move(ap_m68030_cpu_t *cpu, const ap_m68030_move_t *move,
     }
     const ap_m68030_address_t source =
         resolve_address(cpu, clocks, move->source, &source_input);
-    const ap_m68030_operand_result_t read = ap_m68030_operand_read(
-        &cpu->regs, cpu->data, &source, move->size, cpu->data_function_code);
+    const ap_m68030_operand_result_t read = step_operand_read(
+        cpu, &cpu->regs, cpu->data, &source, move->size, cpu->data_function_code);
     *clocks += read.clocks;
     if (!read.ok) {
       return false;
@@ -346,7 +390,7 @@ static bool execute_move(ap_m68030_cpu_t *cpu, const ap_m68030_move_t *move,
   const ap_m68030_address_t destination =
       resolve_address(cpu, clocks, move->destination, &destination_input);
   const ap_m68030_operand_result_t written =
-      ap_m68030_operand_write(&cpu->regs, cpu->data, &destination, move->size,
+      step_operand_write(cpu, &cpu->regs, cpu->data, &destination, move->size,
                               value, cpu->data_function_code);
   *clocks += written.clocks;
   if (!written.ok) {
@@ -429,8 +473,8 @@ static bool execute_arith(ap_m68030_cpu_t *cpu, const ap_m68030_arith_t *arith,
     }
     where = resolve_address(cpu, clocks, arith->ea, &input);
 
-    const ap_m68030_operand_result_t memory = ap_m68030_operand_read(
-        &cpu->regs, cpu->data, &where, arith->size, cpu->data_function_code);
+    const ap_m68030_operand_result_t memory = step_operand_read(
+        cpu, &cpu->regs, cpu->data, &where, arith->size, cpu->data_function_code);
     *clocks += memory.clocks;
     if (!memory.ok) {
       return false;
@@ -499,8 +543,8 @@ static bool execute_arith(ap_m68030_cpu_t *cpu, const ap_m68030_arith_t *arith,
   }
 
   if (arith->to_effective_address) {
-    const ap_m68030_operand_result_t written = ap_m68030_operand_write(
-        &cpu->regs, cpu->data, &where, arith->size, result.result,
+    const ap_m68030_operand_result_t written = step_operand_write(
+        cpu, &cpu->regs, cpu->data, &where, arith->size, result.result,
         cpu->data_function_code);
     *clocks += written.clocks;
     return written.ok;
@@ -660,8 +704,8 @@ static bool execute_immediate(ap_m68030_cpu_t *cpu,
   const ap_m68030_address_t where =
       resolve_address(cpu, clocks, imm->ea, &input);
 
-  const ap_m68030_operand_result_t read = ap_m68030_operand_read(
-      &cpu->regs, cpu->data, &where, imm->size, cpu->data_function_code);
+  const ap_m68030_operand_result_t read = step_operand_read(
+      cpu, &cpu->regs, cpu->data, &where, imm->size, cpu->data_function_code);
   *clocks += read.clocks;
   if (!read.ok) {
     return false;
@@ -713,8 +757,8 @@ static bool execute_immediate(ap_m68030_cpu_t *cpu,
     return true; /* compares, writes nothing */
   }
 
-  const ap_m68030_operand_result_t written = ap_m68030_operand_write(
-      &cpu->regs, cpu->data, &where, imm->size, result.result,
+  const ap_m68030_operand_result_t written = step_operand_write(
+      cpu, &cpu->regs, cpu->data, &where, imm->size, result.result,
       cpu->data_function_code);
   *clocks += written.clocks;
   return written.ok;
@@ -817,8 +861,8 @@ static bool execute_single(ap_m68030_cpu_t *cpu,
 
   uint32_t value = 0;
   if (reads_destination) {
-    const ap_m68030_operand_result_t read = ap_m68030_operand_read(
-        &cpu->regs, cpu->data, &where, single->size, cpu->data_function_code);
+    const ap_m68030_operand_result_t read = step_operand_read(
+        cpu, &cpu->regs, cpu->data, &where, single->size, cpu->data_function_code);
     *clocks += read.clocks;
     if (!read.ok) {
       return false;
@@ -839,7 +883,7 @@ static bool execute_single(ap_m68030_cpu_t *cpu,
             ? cpu->regs.sr
             : ap_m68030_read_ccr(&cpu->regs);
     const ap_m68030_operand_result_t wrote =
-        ap_m68030_operand_write(&cpu->regs, cpu->data, &where, 2u, source,
+        step_operand_write(cpu, &cpu->regs, cpu->data, &where, 2u, source,
                                 cpu->data_function_code);
     *clocks += wrote.clocks;
     return wrote.ok;
@@ -864,8 +908,8 @@ static bool execute_single(ap_m68030_cpu_t *cpu,
     ap_m68030_write_ccr(&cpu->regs,
                         ap_m68030_alu_apply(ap_m68030_read_ccr(&cpu->regs),
                                             &tested));
-    const ap_m68030_operand_result_t wrote = ap_m68030_operand_write(
-        &cpu->regs, cpu->data, &where, 1u, value | 0x80u,
+    const ap_m68030_operand_result_t wrote = step_operand_write(
+        cpu, &cpu->regs, cpu->data, &where, 1u, value | 0x80u,
         cpu->data_function_code);
     *clocks += wrote.clocks;
     return wrote.ok;
@@ -924,8 +968,8 @@ static bool execute_single(ap_m68030_cpu_t *cpu,
     return true; /* tests, writes nothing */
   }
 
-  const ap_m68030_operand_result_t written = ap_m68030_operand_write(
-      &cpu->regs, cpu->data, &where, single->size, result.result,
+  const ap_m68030_operand_result_t written = step_operand_write(
+      cpu, &cpu->regs, cpu->data, &where, single->size, result.result,
       cpu->data_function_code);
   *clocks += written.clocks;
   return written.ok;
@@ -958,8 +1002,8 @@ static bool execute_quick(ap_m68030_cpu_t *cpu, const ap_m68030_quick_t *quick,
     const ap_m68030_address_t where =
         resolve_address(cpu, clocks, quick->ea, &input);
 
-    const ap_m68030_operand_result_t read = ap_m68030_operand_read(
-        &cpu->regs, cpu->data, &where, size, cpu->data_function_code);
+    const ap_m68030_operand_result_t read = step_operand_read(
+        cpu, &cpu->regs, cpu->data, &where, size, cpu->data_function_code);
     *clocks += read.clocks;
     if (!read.ok) {
       return false;
@@ -979,8 +1023,8 @@ static bool execute_quick(ap_m68030_cpu_t *cpu, const ap_m68030_quick_t *quick,
                                               &result));
     }
 
-    const ap_m68030_operand_result_t written = ap_m68030_operand_write(
-        &cpu->regs, cpu->data, &where, size, result.result,
+    const ap_m68030_operand_result_t written = step_operand_write(
+        cpu, &cpu->regs, cpu->data, &where, size, result.result,
         cpu->data_function_code);
     *clocks += written.clocks;
     return written.ok;
@@ -999,8 +1043,8 @@ static bool execute_quick(ap_m68030_cpu_t *cpu, const ap_m68030_quick_t *quick,
 
     const bool condition =
         ap_m68030_condition(quick->condition, ap_m68030_read_ccr(&cpu->regs));
-    const ap_m68030_operand_result_t written = ap_m68030_operand_write(
-        &cpu->regs, cpu->data, &where, 1u, condition ? 0xFFu : 0x00u,
+    const ap_m68030_operand_result_t written = step_operand_write(
+        cpu, &cpu->regs, cpu->data, &where, 1u, condition ? 0xFFu : 0x00u,
         cpu->data_function_code);
     *clocks += written.clocks;
     return written.ok;
@@ -1079,8 +1123,8 @@ static bool execute_address_form(ap_m68030_cpu_t *cpu,
     }
     const ap_m68030_address_t where =
         resolve_address(cpu, clocks, arith->ea, &input);
-    const ap_m68030_operand_result_t read = ap_m68030_operand_read(
-        &cpu->regs, cpu->data, &where, arith->size, cpu->data_function_code);
+    const ap_m68030_operand_result_t read = step_operand_read(
+        cpu, &cpu->regs, cpu->data, &where, arith->size, cpu->data_function_code);
     *clocks += read.clocks;
     if (!read.ok) {
       return false;
@@ -1172,8 +1216,8 @@ static bool execute_bit(ap_m68030_cpu_t *cpu, const ap_m68030_immediate_t *imm,
   const ap_m68030_address_t where =
       resolve_address(cpu, clocks, imm->ea, &input);
 
-  const ap_m68030_operand_result_t read = ap_m68030_operand_read(
-      &cpu->regs, cpu->data, &where, size, cpu->data_function_code);
+  const ap_m68030_operand_result_t read = step_operand_read(
+      cpu, &cpu->regs, cpu->data, &where, size, cpu->data_function_code);
   *clocks += read.clocks;
   if (!read.ok) {
     return false;
@@ -1223,8 +1267,8 @@ static bool execute_bit(ap_m68030_cpu_t *cpu, const ap_m68030_immediate_t *imm,
     return false;
   }
 
-  const ap_m68030_operand_result_t written = ap_m68030_operand_write(
-      &cpu->regs, cpu->data, &where, size, updated, cpu->data_function_code);
+  const ap_m68030_operand_result_t written = step_operand_write(
+      cpu, &cpu->regs, cpu->data, &where, size, updated, cpu->data_function_code);
   *clocks += written.clocks;
   return written.ok;
 }
@@ -1268,8 +1312,8 @@ static bool execute_shift(ap_m68030_cpu_t *cpu, const ap_m68030_shift_t *shift,
     const ap_m68030_address_t where =
         resolve_address(cpu, clocks, shift->ea, &input);
 
-    const ap_m68030_operand_result_t read = ap_m68030_operand_read(
-        &cpu->regs, cpu->data, &where, 2u, cpu->data_function_code);
+    const ap_m68030_operand_result_t read = step_operand_read(
+        cpu, &cpu->regs, cpu->data, &where, 2u, cpu->data_function_code);
     *clocks += read.clocks;
     if (!read.ok) {
       return false;
@@ -1281,8 +1325,8 @@ static bool execute_shift(ap_m68030_cpu_t *cpu, const ap_m68030_shift_t *shift,
         shift->type, shift->left, read.value, 1u, 2u, x_in);
     ap_m68030_write_ccr(&cpu->regs, ap_m68030_alu_apply(ccr, &result));
 
-    const ap_m68030_operand_result_t written = ap_m68030_operand_write(
-        &cpu->regs, cpu->data, &where, 2u, result.result,
+    const ap_m68030_operand_result_t written = step_operand_write(
+        cpu, &cpu->regs, cpu->data, &where, 2u, result.result,
         cpu->data_function_code);
     *clocks += written.clocks;
     return written.ok;
@@ -1309,8 +1353,8 @@ static bool read_predecrement_at(ap_m68030_cpu_t *cpu, unsigned reg,
   const ap_m68030_address_input_t input = {.operand_size = size};
   *where = resolve_address(cpu, clocks, ea, &input);
 
-  const ap_m68030_operand_result_t read = ap_m68030_operand_read(
-      &cpu->regs, cpu->data, where, size, cpu->data_function_code);
+  const ap_m68030_operand_result_t read = step_operand_read(
+      cpu, &cpu->regs, cpu->data, where, size, cpu->data_function_code);
   *clocks += read.clocks;
   if (!read.ok) {
     return false;
@@ -1333,8 +1377,8 @@ static bool read_postincrement(ap_m68030_cpu_t *cpu, unsigned reg,
   const ap_m68030_address_t where =
       resolve_address(cpu, clocks, ea, &input);
 
-  const ap_m68030_operand_result_t read = ap_m68030_operand_read(
-      &cpu->regs, cpu->data, &where, size, cpu->data_function_code);
+  const ap_m68030_operand_result_t read = step_operand_read(
+      cpu, &cpu->regs, cpu->data, &where, size, cpu->data_function_code);
   *clocks += read.clocks;
   if (!read.ok) {
     return false;
@@ -1405,8 +1449,8 @@ static bool execute_extended(ap_m68030_cpu_t *cpu,
       }
       const ap_m68030_address_t where =
           resolve_address(cpu, clocks, arith->ea, &input);
-      const ap_m68030_operand_result_t read = ap_m68030_operand_read(
-          &cpu->regs, cpu->data, &where, 2u, cpu->data_function_code);
+      const ap_m68030_operand_result_t read = step_operand_read(
+          cpu, &cpu->regs, cpu->data, &where, 2u, cpu->data_function_code);
       *clocks += read.clocks;
       if (!read.ok) {
         return false;
@@ -1447,8 +1491,8 @@ static bool execute_extended(ap_m68030_cpu_t *cpu,
       }
       const ap_m68030_address_t where =
           resolve_address(cpu, clocks, arith->ea, &input);
-      const ap_m68030_operand_result_t read = ap_m68030_operand_read(
-          &cpu->regs, cpu->data, &where, 2u, cpu->data_function_code);
+      const ap_m68030_operand_result_t read = step_operand_read(
+          cpu, &cpu->regs, cpu->data, &where, 2u, cpu->data_function_code);
       *clocks += read.clocks;
       if (!read.ok) {
         return false;
@@ -1554,8 +1598,8 @@ static bool execute_extended(ap_m68030_cpu_t *cpu,
     /* The flags are written before the store, so a faulting write leaves the
      * same visible state either way round; the store is what may fail. */
     if (arith->memory_operands) {
-      const ap_m68030_operand_result_t wrote = ap_m68030_operand_write(
-          &cpu->regs, cpu->data, &destination_where, size,
+      const ap_m68030_operand_result_t wrote = step_operand_write(
+          cpu, &cpu->regs, cpu->data, &destination_where, size,
           result.result & mask, cpu->data_function_code);
       *clocks += wrote.clocks;
       if (!wrote.ok) {
@@ -1612,8 +1656,8 @@ static bool execute_extended(ap_m68030_cpu_t *cpu,
 static bool write_frame_field(ap_m68030_cpu_t *cpu, uint32_t address,
                               unsigned size, uint32_t value, uint32_t *clocks) {
   const ap_m68030_address_t where = {.address = address, .valid = true};
-  const ap_m68030_operand_result_t wrote = ap_m68030_operand_write(
-      &cpu->regs, cpu->data, &where, size, value, AP_M68030_FC_SUPERVISOR_DATA);
+  const ap_m68030_operand_result_t wrote = step_operand_write(
+      cpu, &cpu->regs, cpu->data, &where, size, value, AP_M68030_FC_SUPERVISOR_DATA);
   *clocks += wrote.clocks;
   return wrote.ok;
 }
@@ -1682,7 +1726,7 @@ static ap_m68030_exception_result_t take_exception_with(
   const ap_m68030_address_t vector_where = {.address = out.vector_address,
                                             .valid = true};
   const ap_m68030_operand_result_t handler =
-      ap_m68030_operand_read(&cpu->regs, cpu->data, &vector_where, 4u,
+      step_operand_read(cpu, &cpu->regs, cpu->data, &vector_where, 4u,
                              AP_M68030_FC_SUPERVISOR_DATA);
   out.clocks += handler.clocks;
   if (!handler.ok) {
@@ -1822,7 +1866,7 @@ static bool read_stack(ap_m68030_cpu_t *cpu, uint32_t offset, unsigned size,
   const ap_m68030_address_t where = {
       .address = ap_m68030_read_a7(&cpu->regs) + offset, .valid = true};
   const ap_m68030_operand_result_t read =
-      ap_m68030_operand_read(&cpu->regs, cpu->data, &where, size,
+      step_operand_read(cpu, &cpu->regs, cpu->data, &where, size,
                              AP_M68030_FC_SUPERVISOR_DATA);
   *clocks += read.clocks;
   if (!read.ok) {
@@ -2300,16 +2344,16 @@ static bool execute_movem(ap_m68030_cpu_t *cpu, const ap_m68030_misc_t *misc,
          * this is a part-specific difference, and this part is the later one. */
         value -= misc->size;
       }
-      const ap_m68030_operand_result_t wrote = ap_m68030_operand_write(
-          &cpu->regs, cpu->data, &where, misc->size, value,
+      const ap_m68030_operand_result_t wrote = step_operand_write(
+          cpu, &cpu->regs, cpu->data, &where, misc->size, value,
           cpu->data_function_code);
       *clocks += wrote.clocks;
       if (!wrote.ok) {
         return false;
       }
     } else {
-      const ap_m68030_operand_result_t read = ap_m68030_operand_read(
-          &cpu->regs, cpu->data, &where, misc->size, cpu->data_function_code);
+      const ap_m68030_operand_result_t read = step_operand_read(
+          cpu, &cpu->regs, cpu->data, &where, misc->size, cpu->data_function_code);
       *clocks += read.clocks;
       if (!read.ok) {
         return false;
@@ -2480,8 +2524,8 @@ static bool execute_misc(ap_m68030_cpu_t *cpu, const ap_m68030_misc_t *misc,
     /* "0 - Destination10 - X -> Destination" -- the same decimal subtract as
      * SBCD, from zero, so it is the tens complement with X clear and the nines
      * complement with X set. */
-    const ap_m68030_operand_result_t read = ap_m68030_operand_read(
-        &cpu->regs, cpu->data, &where, 1u, cpu->data_function_code);
+    const ap_m68030_operand_result_t read = step_operand_read(
+        cpu, &cpu->regs, cpu->data, &where, 1u, cpu->data_function_code);
     *clocks += read.clocks;
     if (!read.ok) {
       return false;
@@ -2490,8 +2534,8 @@ static bool execute_misc(ap_m68030_cpu_t *cpu, const ap_m68030_misc_t *misc,
     const ap_m68030_alu_result_t result = ap_m68030_alu_sbcd(
         0u, read.value, ((ccr >> AP_M68030_SR_X_BIT) & 1u) != 0u,
         ((ccr >> AP_M68030_SR_Z_BIT) & 1u) != 0u);
-    const ap_m68030_operand_result_t wrote = ap_m68030_operand_write(
-        &cpu->regs, cpu->data, &where, 1u, result.result,
+    const ap_m68030_operand_result_t wrote = step_operand_write(
+        cpu, &cpu->regs, cpu->data, &where, 1u, result.result,
         cpu->data_function_code);
     *clocks += wrote.clocks;
     if (!wrote.ok) {
@@ -2510,7 +2554,7 @@ static bool execute_misc(ap_m68030_cpu_t *cpu, const ap_m68030_misc_t *misc,
     uint32_t raw_bound = immediate_bound;
     if (!bound_is_immediate) {
       const ap_m68030_operand_result_t read =
-          ap_m68030_operand_read(&cpu->regs, cpu->data, &where, operand_size,
+          step_operand_read(cpu, &cpu->regs, cpu->data, &where, operand_size,
                                  cpu->data_function_code);
       *clocks += read.clocks;
       if (!read.ok) {
@@ -2744,10 +2788,10 @@ static bool execute_pmove(ap_m68030_cpu_t *cpu, const ap_m68030_coproc_t *coproc
                                           .valid = true};
     const ap_m68030_address_t lower_at = {.address = where.address + 4u,
                                           .valid = true};
-    const ap_m68030_operand_result_t a = ap_m68030_operand_read(
-        &cpu->regs, cpu->data, &upper_at, 4u, AP_M68030_FC_SUPERVISOR_DATA);
-    const ap_m68030_operand_result_t b = ap_m68030_operand_read(
-        &cpu->regs, cpu->data, &lower_at, 4u, AP_M68030_FC_SUPERVISOR_DATA);
+    const ap_m68030_operand_result_t a = step_operand_read(
+        cpu, &cpu->regs, cpu->data, &upper_at, 4u, AP_M68030_FC_SUPERVISOR_DATA);
+    const ap_m68030_operand_result_t b = step_operand_read(
+        cpu, &cpu->regs, cpu->data, &lower_at, 4u, AP_M68030_FC_SUPERVISOR_DATA);
     *clocks += a.clocks + b.clocks;
     if (!a.ok || !b.ok) {
       return false;
@@ -2755,8 +2799,8 @@ static bool execute_pmove(ap_m68030_cpu_t *cpu, const ap_m68030_coproc_t *coproc
     high = a.value;
     low = b.value;
   } else {
-    const ap_m68030_operand_result_t read = ap_m68030_operand_read(
-        &cpu->regs, cpu->data, &where, size, AP_M68030_FC_SUPERVISOR_DATA);
+    const ap_m68030_operand_result_t read = step_operand_read(
+        cpu, &cpu->regs, cpu->data, &where, size, AP_M68030_FC_SUPERVISOR_DATA);
     *clocks += read.clocks;
     if (!read.ok) {
       return false;
@@ -3112,6 +3156,12 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
   uint16_t word = 0;
   bool abnormal = false;
 
+  /* This describes the instruction about to run, so it starts clear. Leaving a
+   * previous instruction's fault standing would make the *next* unimplemented
+   * instruction report as a fault -- the same conflation this flag exists to
+   * end, merely pointing the other way. */
+  cpu->access_faulted = false;
+
   /* Interrupts are group 4.2, "Exception processing begins when current
    * instruction or previous exception processing is completed" -- so they are
    * recognised *between* instructions, which is here and not in the middle of
@@ -3182,7 +3232,8 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
     bool branched = false;
     if (!execute_control(cpu, &decoded.as.control, &out.clocks,
                          &branched)) {
-      out.status = AP_M68030_STEP_UNIMPLEMENTED;
+      out.status = cpu->access_faulted ? AP_M68030_STEP_FAULT
+                                       : AP_M68030_STEP_UNIMPLEMENTED;
       cpu->clocks += out.clocks;
       return out;
     }
@@ -3250,7 +3301,8 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
    * silently. */
   case AP_M68030_DECODED_MOVE:
     if (!execute_move(cpu, &decoded.as.move, &out.clocks)) {
-      out.status = AP_M68030_STEP_UNIMPLEMENTED;
+      out.status = cpu->access_faulted ? AP_M68030_STEP_FAULT
+                                       : AP_M68030_STEP_UNIMPLEMENTED;
       cpu->clocks += out.clocks;
       return out;
     }
@@ -3258,7 +3310,8 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
 
   case AP_M68030_DECODED_ARITH:
     if (!execute_arith(cpu, &decoded.as.arith, &out.clocks)) {
-      out.status = AP_M68030_STEP_UNIMPLEMENTED;
+      out.status = cpu->access_faulted ? AP_M68030_STEP_FAULT
+                                       : AP_M68030_STEP_UNIMPLEMENTED;
       cpu->clocks += out.clocks;
       return out;
     }
@@ -3266,7 +3319,8 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
 
   case AP_M68030_DECODED_IMMEDIATE:
     if (!execute_immediate(cpu, &decoded.as.immediate, &out.clocks)) {
-      out.status = AP_M68030_STEP_UNIMPLEMENTED;
+      out.status = cpu->access_faulted ? AP_M68030_STEP_FAULT
+                                       : AP_M68030_STEP_UNIMPLEMENTED;
       cpu->clocks += out.clocks;
       return out;
     }
@@ -3274,7 +3328,8 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
 
   case AP_M68030_DECODED_SINGLE:
     if (!execute_single(cpu, &decoded.as.single, &out.clocks)) {
-      out.status = AP_M68030_STEP_UNIMPLEMENTED;
+      out.status = cpu->access_faulted ? AP_M68030_STEP_FAULT
+                                       : AP_M68030_STEP_UNIMPLEMENTED;
       cpu->clocks += out.clocks;
       return out;
     }
@@ -3283,7 +3338,8 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
   case AP_M68030_DECODED_QUICK: {
     bool taken = false;
     if (!execute_quick(cpu, &decoded.as.quick, &out.clocks, &taken)) {
-      out.status = AP_M68030_STEP_UNIMPLEMENTED;
+      out.status = cpu->access_faulted ? AP_M68030_STEP_FAULT
+                                       : AP_M68030_STEP_UNIMPLEMENTED;
       cpu->clocks += out.clocks;
       return out;
     }
@@ -3293,7 +3349,8 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
 
   case AP_M68030_DECODED_SHIFT:
     if (!execute_shift(cpu, &decoded.as.shift, &out.clocks)) {
-      out.status = AP_M68030_STEP_UNIMPLEMENTED;
+      out.status = cpu->access_faulted ? AP_M68030_STEP_FAULT
+                                       : AP_M68030_STEP_UNIMPLEMENTED;
       cpu->clocks += out.clocks;
       return out;
     }
@@ -3301,7 +3358,8 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
 
   case AP_M68030_DECODED_MISC:
     if (!execute_misc(cpu, &decoded.as.misc, &out.clocks)) {
-      out.status = AP_M68030_STEP_UNIMPLEMENTED;
+      out.status = cpu->access_faulted ? AP_M68030_STEP_FAULT
+                                       : AP_M68030_STEP_UNIMPLEMENTED;
       cpu->clocks += out.clocks;
       return out;
     }
@@ -3326,7 +3384,8 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
         break;
       }
     }
-    out.status = AP_M68030_STEP_UNIMPLEMENTED;
+    out.status = cpu->access_faulted ? AP_M68030_STEP_FAULT
+                                       : AP_M68030_STEP_UNIMPLEMENTED;
     cpu->clocks += out.clocks;
     return out;
   }
@@ -3338,7 +3397,8 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
      * the pair, and that is the bus module's item rather than this one. */
   case AP_M68030_DECODED_LINE_A:
   case AP_M68030_DECODED_ILLEGAL:
-    out.status = AP_M68030_STEP_UNIMPLEMENTED;
+    out.status = cpu->access_faulted ? AP_M68030_STEP_FAULT
+                                       : AP_M68030_STEP_UNIMPLEMENTED;
     cpu->clocks += out.clocks;
     return out;
   }

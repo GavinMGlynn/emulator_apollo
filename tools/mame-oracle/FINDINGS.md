@@ -1855,6 +1855,53 @@ unmapped read, so this is not simply another missing instruction and should not
 be assumed to be one. Recorded as the next thing to investigate rather than
 diagnosed from the opcode alone.
 
+## C30 -- the stop was never the instruction, and the status was lying
+
+Investigated. `CMPI.B` was not the problem, and neither was `(d16,An)`. The
+step was **reporting a bus fault as an unimplemented instruction**.
+
+Every executor signals failure with a bare `false`, and two unrelated things
+arrive that way: an instruction this model has no semantics for, and an
+instruction whose operand access faulted. The caller turned both into
+`UNIMPLEMENTED`. So a perfectly good `CMPI` over an address the board does not
+decode reported as a gap in the CPU -- and pointed the investigation at a
+decoder that had been correct for weeks.
+
+That is the more dangerous direction of the same error the module's header has
+always warned about. The fix carries the distinction on the CPU as
+`access_faulted`, set where the access fails and read where the status is
+chosen; the PROM now reports `FAULT` at the same PC. **The instruction count did
+not move.** Nothing about the machine's behaviour changed, only what it says
+about itself -- which is the whole content of this finding.
+
+The lesson is narrower than "test more". The previous three blockers *were* all
+missing instructions, and the status agreed each time. A status that has been
+right three times running is exactly the kind of evidence that stops being
+checked.
+
+### What the PROM is actually reaching for
+
+With the fault correctly attributed, the address is the interesting part. The
+faulting read is `0005E801`, from `MOVEA.L #$0005E800,A5` two instructions
+earlier. Through the C23 window rule, `Apollo = 0x040000 + (AT x 0x80)`:
+
+| Apollo address | AT address | What sits there on a PC/AT |
+|---|---|---|
+| `0005E800` | `3D0` | CGA, whose 6845 is at `3D4`/`3D5` |
+| `0005D800` | `3B0` | MDA, whose 6845 is at `3B4`/`3B5` |
+
+Both are stored into a table at `(0x138,A6)` and `(0x13C,A6)`, alongside the
+constant `000A0000` -- the standard EGA/VGA frame buffer address. The firmware
+is **probing for a display adapter** at the two standard PC bases and recording
+where each one's frame buffer would live.
+
+Three independent facts agree here: the window rule is already confirmed by
+three measured devices, the arithmetic lands exactly on two adapter bases rather
+than near them, and the third stored constant is the matching frame buffer
+address. That is why this is recorded as a reading rather than a guess. It is
+still an inference from the map and not an oracle measurement, so it is marked
+**to be confirmed against the oracle** before anything is built on it.
+
 ## Where the ring is not
 
 The Apollo Token Ring has **no runnable oracle at all**: MAME carries Domain

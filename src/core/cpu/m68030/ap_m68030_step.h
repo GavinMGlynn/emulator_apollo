@@ -21,6 +21,23 @@
  * not advance past it. A caller can count how far a program got, which is a
  * useful measure of progress and a useless one to fake.
  *
+ * ## Nor may a fault look unimplemented
+ *
+ * The same argument runs the other way, and for a long time this module only
+ * honoured half of it. Every executor signals failure by returning `false`, and
+ * two entirely different things arrive that way: an instruction with no
+ * semantics, and an instruction whose *operand access faulted*. Reporting both
+ * as `UNIMPLEMENTED` blames the processor for the memory system's answer.
+ *
+ * That is not a cosmetic mislabel. It sent an investigation of the DN3500 boot
+ * PROM after a `CMPI.B` that had been implemented and tested for weeks, when
+ * what had actually happened was a read of an address this machine does not
+ * decode. The status is the only thing a caller has to go on, and a status that
+ * names the wrong subsystem is worse than no status at all.
+ *
+ * `access_faulted` on the CPU carries the distinction from the access, which is
+ * the last place that still knows, to the status, which is where it is needed.
+ *
  * ## What executes today
  *
  * `NOP`, `MOVEQ`, the 8-bit forms of `BRA` and `Bcc`, `MOVE`/`MOVEA`, the six
@@ -125,6 +142,22 @@ typedef struct {
    * affecting the processor. Counted rather than acted on: this module has no
    * external devices yet, and a count is what a test can observe. */
   unsigned external_resets;
+
+  /* Set when an access made *during* an instruction faulted, so that the step
+   * can tell a bus that said no from an instruction this model cannot execute.
+   *
+   * Both arrive at the executors as a plain `false` return, and without this
+   * they were reported identically -- as `UNIMPLEMENTED`. That is the one lie
+   * this module's whole design is built to avoid: it blames the CPU for the
+   * memory system's answer, and it points an investigation at a decoder that is
+   * working correctly. The distinction cannot be recovered from the return
+   * value, because at the point the executor gives up it no longer has the
+   * access result; so it is recorded when the access fails, and read back when
+   * the status is chosen.
+   *
+   * Cleared at the top of every step: it describes this instruction, not the
+   * machine, and a stale one would mislabel the next failure. */
+  bool access_faulted;
 
   /* The interrupt request level standing on IPL2-IPL0, and what it was before,
    * which level 7 needs: it is "transition sensitive", so holding the line at 7

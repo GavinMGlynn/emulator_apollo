@@ -40,6 +40,11 @@ typedef struct {
   uint32_t store_address[STORE_SLOTS];
   uint32_t store_value[STORE_SLOTS];
   unsigned stores;
+  /* A line address at or above which the memory answers BERR instead of data,
+   * so a test can put a genuine bus error under an instruction's operand. Zero
+   * means never, which is what every test that does not set it wants -- and
+   * `load` resets it, so one test cannot leave a hole in the next one's RAM. */
+  uint32_t berr_from;
 } memory_t;
 
 static void memory_store(void *context, uint32_t physical, uint32_t value,
@@ -66,6 +71,11 @@ static void memory_fill(void *context, uint32_t line_address,
   (void)function_code;
   memory_t *memory = (memory_t *)context;
   memory->fills++;
+  if (memory->berr_from != 0u && line_address >= memory->berr_from) {
+    out->termination = AP_M68030_TERM_BERR;
+    out->burst_acknowledge = false;
+    return;
+  }
   out->termination = AP_M68030_TERM_STERM;
   out->burst_acknowledge = false;
 
@@ -123,6 +133,7 @@ static void load(machine_t *m, const uint16_t *words, unsigned count) {
   }
   m->memory.fills = 0;
   m->memory.stores = 0;
+  m->memory.berr_from = 0u;
   m->access = (ap_m68030_access_ctx_t){
       .cache = &m->cache,
       .atc = &m->atc,
@@ -328,6 +339,76 @@ static void test_an_unimplemented_instruction_is_reported_not_skipped(void) {
   TEST_ASSERT_EQUAL_INT(AP_M68030_DECODED_MISC, r.kind);
   /* And the PC did not move past it. */
   TEST_ASSERT_EQUAL_HEX32(PROGRAM_BASE, m.cpu.regs.pc);
+}
+
+/* The other half of that property, and the one it is useless without: an
+ * instruction this model *does* implement, stopped by a bus that would not
+ * answer, must not be reported as unimplemented.
+ *
+ * The two failures arrive at the executors as the same bare `false`. Reporting
+ * them identically blames the CPU for the memory system's answer, and points
+ * whoever reads the status at a decoder that is working perfectly. This came
+ * from the DN3500 boot PROM, which stopped on exactly the instruction below and
+ * reported UNIMPLEMENTED -- sending the investigation after a CMPI that had
+ * been implemented and tested for weeks. */
+static void
+test_a_faulting_operand_read_is_a_fault_not_an_unimplemented_instruction(void) {
+  /* `0C2D 0008 0001` -- CMPI.B #$08,(1,A5), the PROM's own word. */
+  static const uint16_t program[] = {0x0C2Du, 0x0008u, 0x0001u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 4);
+  m.cpu.regs.a[5] = 0x00008000u;
+  m.memory.berr_from = 0x00008000u; /* the operand faults; the program does not */
+
+  const ap_m68030_step_result_t r = ap_m68030_step(&m.cpu);
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_FAULT, r.status);
+  TEST_ASSERT_NOT_EQUAL_INT(AP_M68030_STEP_UNIMPLEMENTED, r.status);
+  TEST_ASSERT_EQUAL_HEX32(PROGRAM_BASE, m.cpu.regs.pc);
+}
+
+/* The control the test above is worthless without: the identical instruction
+ * over memory that answers must execute. Without this, a step that reported
+ * FAULT for every immediate operation would pass -- and the claim being made is
+ * about the *bus*, not about CMPI. */
+static void
+test_the_same_instruction_over_memory_that_answers_executes(void) {
+  static const uint16_t program[] = {0x0C2Du, 0x0008u, 0x0001u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 4);
+  m.cpu.regs.a[5] = 0x00004000u;
+  m.memory.bytes[0x00004001u] = 0x08u; /* equal, so Z is set */
+
+  const ap_m68030_step_result_t r = ap_m68030_step(&m.cpu);
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, r.status);
+  TEST_ASSERT_EQUAL_HEX32(PROGRAM_BASE + 6u, m.cpu.regs.pc);
+  TEST_ASSERT_TRUE((ap_m68030_read_ccr(&m.cpu.regs) &
+                    (uint16_t)(1u << AP_M68030_SR_Z_BIT)) != 0u);
+}
+
+/* The flag describes one instruction, so it must not survive into the next.
+ * A stale one would mislabel the following unimplemented instruction as a
+ * fault -- the same conflation, merely pointing the other way. */
+static void test_a_fault_does_not_leak_into_the_following_instruction(void) {
+  /* CMPI.B #$08,(1,A5) over faulting memory, then BKPT #0, which is
+   * unimplemented and touches no memory at all. */
+  static const uint16_t program[] = {0x0C2Du, 0x0008u, 0x0001u, 0x4848u};
+  machine_t m = {0};
+  load(&m, program, 4);
+  m.cpu.regs.a[5] = 0x00008000u;
+  m.memory.berr_from = 0x00008000u;
+
+  const ap_m68030_step_result_t faulted = ap_m68030_step(&m.cpu);
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_FAULT, faulted.status);
+
+  /* Step past the instruction the fault stopped, the way a caller that had
+   * handled it would, and run the one after. */
+  m.memory.berr_from = 0u;
+  ap_m68030_cpu_reset(&m.cpu, PROGRAM_BASE + 6u);
+
+  const ap_m68030_step_result_t after = ap_m68030_step(&m.cpu);
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_UNIMPLEMENTED, after.status);
 }
 
 /* An encoding no family claims is genuinely illegal, which is a different
@@ -3848,6 +3929,10 @@ int main(void) {
   RUN_TEST(test_a_branch_always_is_taken);
   RUN_TEST(test_a_conditional_branch_reads_the_previous_result);
   RUN_TEST(test_an_unimplemented_instruction_is_reported_not_skipped);
+  RUN_TEST(
+      test_a_faulting_operand_read_is_a_fault_not_an_unimplemented_instruction);
+  RUN_TEST(test_the_same_instruction_over_memory_that_answers_executes);
+  RUN_TEST(test_a_fault_does_not_leak_into_the_following_instruction);
   RUN_TEST(test_an_illegal_encoding_is_distinct_from_unimplemented);
   RUN_TEST(test_a_cached_pass_runs_no_bus_cycles_and_costs_its_microcode);
   RUN_TEST(test_move_copies_between_data_registers);

@@ -2485,10 +2485,32 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         missing together. The PROM goes from 20 instructions to **35**.
         `step_suite`, 3 new tests including the `ANDI to CCR` case that would
         otherwise drop the machine out of supervisor state.
-  - [ ] The PROM now stops at `000028D0` on `0C2D`, a `CMPI.B` with a
-        `(d16,An)` destination, with one unmapped read. `CMPI` is implemented,
-        so this is **not** obviously another missing instruction — investigate
-        before assuming.
+  - [x] Investigated the `000028D0` stop, and it was **neither** `CMPI` nor
+        `(d16,An)`: the step was reporting a **bus fault as an unimplemented
+        instruction**. Executors signal both with a bare `false`, and the caller
+        turned both into `UNIMPLEMENTED` — blaming the CPU for the memory
+        system's answer, and pointing the investigation at a decoder that was
+        correct. `access_faulted` now carries the distinction from the access to
+        the status. `step_suite`, 3 new tests: the fault case, the control that
+        the same instruction over memory that answers executes, and the stale
+        flag not leaking into the next instruction. The PROM reports `FAULT` at
+        the same PC and **the instruction count does not move** — the fix
+        changes the diagnosis, not the machine (`FINDINGS.md` C30).
+  - [ ] The faulting address is `0005E801`, which through the C23 window rule is
+        AT `3D0` — CGA. The firmware also stores AT `3B0` (MDA) and `000A0000`
+        (the standard frame buffer) into a table, so it is **probing for a
+        display adapter**. Confirm against the oracle before building on it; it
+        is an inference from the map, not a measurement.
+  - [ ] A faulting access should ultimately take the **bus error exception**
+        (vector 2) rather than stopping the step. Deferred deliberately: the
+        68030 bus fault frame is format `$A`/`$B` and is its own module. `FAULT`
+        is what the fetch path already reports, so this is consistent rather
+        than a new gap.
+  - [ ] The write side of `access_faulted` is correct but currently
+        **unreachable**: the store callback returns `void`, so only an MMU
+        protection violation can fault a write, and no `step_suite` test enables
+        translation. Cover it when the MMU-enabled step tests land, rather than
+        claiming a test that does not exercise it.
   - [x] The `.ct` image reader, `image/ap_ct.c`: block addressing, the
         whole-block size check, and boot-record parsing. `ct_suite`, 8 tests.
   - [x] The QIC-02 command set transcribed as far as the scan allows

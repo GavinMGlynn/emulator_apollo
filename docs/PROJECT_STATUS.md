@@ -55,9 +55,21 @@ reproducing an average the hardware never exhibits.
 address zero, takes the reset stack and program counter from its first two long
 words, and runs. Twenty instructions execute with **zero bus errors and zero
 unmapped accesses** — the first independent check on the address map by something
-other than a test written beside it — and with the immediate-to-status-register group now implemented it reaches **35**, stopping at
-`000028D0` on a `CMPI.B` with a `(d16,An)` destination and one unmapped read — not obviously
-another missing instruction, and recorded as the next thing to investigate (`FINDINGS.md` C29).
+other than a test written beside it — and with the immediate-to-status-register group now implemented it reaches **35**.
+
+It stops at `000028D0`, and the investigation of that stop found a defect in the
+reporting rather than in the CPU: the step was **reporting a bus fault as an
+unimplemented instruction**, because executors signal both with a bare `false`.
+The `CMPI.B` there was implemented and correct all along. `access_faulted` now
+carries the distinction from the access to the status, and the PROM reports
+`FAULT` at the same PC with **the instruction count unchanged** — the fix changes
+what the machine says about itself, not what it does (`FINDINGS.md` C30).
+
+The faulting address, `0005E801`, is AT `3D0` through the C23 window rule — CGA.
+Alongside it the firmware stores AT `3B0` (MDA) and `000A0000` (the standard
+frame buffer address), so it is probing for a display adapter. That reading is an
+inference from the confirmed window rule, not an oracle measurement, and is
+marked for confirmation before anything is built on it.
 
 **Real Apollo firmware runs.** `--boot-tape <cartridge>` reads a Domain/OS `.ct`
 cartridge, extracts its boot image, places it at the load address the image
