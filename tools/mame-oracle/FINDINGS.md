@@ -2100,23 +2100,40 @@ The `dsp` variants are the candidate: they are the diskless server nodes, have
 no display in their machine configuration, and must therefore use the serial
 port as console.
 
-`dsp3500` does not yet yield a transcript, for two reasons that looked like one:
+`dsp3500` does not yet yield a transcript, and **the reason is not what this
+finding first said**. The retraction is below, because the mistake is the more
+useful half.
 
 - "no dump ... the Lua script did not run to completion" is a harness artefact.
   `oracle.py` already passes `-autoboot_script dump.lua`, and adding another
   appends a second flag, so MAME takes the last and `dump.lua` never runs. Any
-  run that substitutes a script reports this, `dn3500` included.
-- `writetrace.lua` installs its tap at the first `emu.register_periodic`
-  callback, which is **frame-driven**. A screenless machine has no frames, so
-  the first callback lands at 20 emulated seconds instead of 0.017. Running to
-  25 seconds confirms it: the tap installs at 20 and captures nothing, because
-  the boot's serial activity finished long before.
+  run that substitutes a script reports this, `dn3500` included. That part
+  stands.
+- The tap timing does **not**. This finding claimed `writetrace.lua` installed
+  its tap at "20 emulated seconds" on a screenless machine, blamed
+  `emu.register_periodic` being frame-driven, and named the script's own comment
+  as the defect. All of that rested on misreading `20000000000000000`
+  attoseconds as 20 seconds. **It is 0.02 seconds.** A second is 10^18 attos.
+  `dn3500`'s `17458411763588544` is 0.0175 s. The tap was installing early on
+  both machines the whole time.
 
-The fix is in our own tool -- install at machine start, not at the first
-periodic. The script's comment, "the first periodic callback is the earliest
-point a script can act", was written against a machine with a screen and is
-false on one without. That sentence is the defect; the code merely implements
-it.
+So the real position is simply that `dsp3500` makes **zero** SIO writes in six
+emulated seconds, where `dn3500` makes two. That is a fact about the machine and
+not about the harness, and why it holds is unknown.
+
+### The retraction is the finding
+
+A fix was written for the imagined defect -- installing the tap at
+`add_machine_reset_notifier` instead -- and it was **reverted**, because a change
+made for a reason that turned out false should not survive the reason. It was
+plausible, it passed a no-regression run on `dn3500`, and it would have read as
+a sound improvement in the log forever. What it would not have done is fix
+anything.
+
+Two things would have caught this earlier, and both are cheap: printing a
+derived unit next to a raw one, and dividing before believing a magnitude. This
+project counts time in attoseconds precisely because they are exact; the cost is
+that they are unreadable, and an unreadable number invites exactly this.
 
 ### Tap alignment
 
