@@ -61,3 +61,11 @@ bool ap_sio_receiver_ready(ap_sio_t *sio, unsigned unit,
   return (ap_mc68681_read(&sio->port[unit], status) & AP_MC68681_SR_RXRDY) !=
          0u;
 }
+
+bool ap_sio_transmit(ap_sio_t *sio, unsigned unit, unsigned channel,
+                     uint8_t *byte) {
+  if (unit >= 2u) {
+    return false;
+  }
+  return ap_mc68681_transmit(&sio->port[unit], channel, byte);
+}

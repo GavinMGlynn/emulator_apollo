@@ -110,8 +110,51 @@ static void test_the_serial_ports_raise_the_second_priority_interrupt(void) {
   TEST_ASSERT_EQUAL_HEX8(0xA1, ap_intr_acknowledge(&intr));
 }
 
+
+/* The console path out, and the reason it has a test of its own: a run that
+ * produces no output is ambiguous. It can mean the firmware has not printed
+ * anything, or that the path from the transmitter to the caller is broken, and
+ * those need opposite responses. This settles one of them, so a silent boot is
+ * evidence about the firmware.
+ *
+ * The byte goes in through the register the program writes, not through a back
+ * door, so the test exercises what the machine exercises. */
+static void test_what_the_program_transmits_reaches_the_caller(void) {
+  ap_sio_t sio;
+  ap_sio_reset(&sio);
+
+  /* Enable the transmitter on port 2 channel A, the way a driver does: command
+   * register, transmit enable. */
+  ap_sio_write(&sio, AP_SIO2_ADDR + (AP_MC68681_CR_A * 2u), 0x04u);
+  ap_sio_write(&sio, AP_SIO2_ADDR + (AP_MC68681_RB_TB_A * 2u), 0x41u);
+
+  uint8_t byte = 0;
+  TEST_ASSERT_TRUE(ap_sio_transmit(&sio, 1u, 0u, &byte));
+  TEST_ASSERT_EQUAL_HEX8(0x41u, byte);
+
+  /* And it is taken, not merely peeked at: a second call finds nothing. */
+  TEST_ASSERT_FALSE(ap_sio_transmit(&sio, 1u, 0u, &byte));
+}
+
+/* A byte handed to the receiver reaches the program through the register it
+ * reads, which is the other half of the same wire. */
+static void test_a_delivered_byte_reaches_the_program(void) {
+  ap_sio_t sio;
+  ap_sio_reset(&sio);
+
+  ap_sio_write(&sio, AP_SIO2_ADDR + (AP_MC68681_CR_A * 2u), 0x01u); /* rx on */
+  TEST_ASSERT_FALSE(ap_sio_receiver_ready(&sio, 1u, 0u));
+
+  ap_sio_receive(&sio, 1u, 0u, 0x5Au);
+  TEST_ASSERT_TRUE(ap_sio_receiver_ready(&sio, 1u, 0u));
+  TEST_ASSERT_EQUAL_HEX8(
+      0x5Au, ap_sio_read(&sio, AP_SIO2_ADDR + (AP_MC68681_RB_TB_A * 2u)));
+}
+
 int main(void) {
   UNITY_BEGIN();
+  RUN_TEST(test_what_the_program_transmits_reaches_the_caller);
+  RUN_TEST(test_a_delivered_byte_reaches_the_program);
   RUN_TEST(test_both_ports_decode_at_stride_two);
   RUN_TEST(test_the_paired_bytes_reach_one_register);
   RUN_TEST(test_the_two_ports_are_independent);

@@ -2730,16 +2730,24 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         poll: `""`, `"\n"`, `"EX\n"` and `"H\n"` each leave the PC at a
         different point *inside* the same loop, which is where the limit fell
         rather than a new stop.
-  - [ ] **Serial output is the next module, and it is the one that unblocks
-        everything else here.** The firmware is now taking input and we cannot
-        see what it says, so every guess at a console command is blind — `EX`
-        and `H` were guesses, and a differing final PC does not distinguish
-        "accepted" from "rejected". Capture what the DUART transmits and the
-        PROM's own prompt says what it wants.
-        - This is what the project means by verifying on the real output: a
-          console byte stream, not a proxy.
-        - `ap_mc68681` already models the transmitter; the board and frontend
-          need the path out, mirroring `ap_sio_receive`.
+  - [x] `ap_sio_transmit` and `--boot-console`: the machine's own console byte
+        stream, drained from both ports and both channels every step and written
+        straight to stdout. `sio_suite` covers the path in both directions,
+        through the registers a program actually writes and reads.
+        - The output test exists because **a silent run is ambiguous**. It can
+          mean the firmware has not printed, or that the path from the
+          transmitter is broken, and those need opposite responses. With the
+          path proven, silence is evidence about the firmware.
+  - [ ] **And the PROM is silent** — 300000 instructions, nothing transmitted on
+        either port or channel. That is now a fact about the firmware, and the
+        next question. Possibilities, none yet established:
+        - it polls for a console character *before* announcing itself, and the
+          announcement is behind the branch we never take;
+        - it has decided neither port is the console, having found something it
+          did not expect while probing;
+        - its console is not a DUART port at all on this configuration.
+        Watch writes to the transmit buffers rather than guessing — the same
+        move that has settled every other question here.
   - [ ] The tick loop is still owed regardless, and remains the project's
         central design item — but it is **not** what this stop needs, and
         building it here would have been the wrong move for a plausible reason.

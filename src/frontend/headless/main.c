@@ -36,7 +36,9 @@ static void print_usage(const char *program_name) {
           "  --boot-watch ADDR     with --boot-trace, report the long word at\n"
           "                        ADDR after every step\n"
           "  --boot-input TEXT     deliver TEXT to serial port 2 as the\n"
-          "                        firmware reads it; scripted, not host input\n");
+          "                        firmware reads it; scripted, not host input\n"
+          "  --boot-console        print what the machine transmits on either\n"
+          "                        serial port: its own console output\n");
 }
 
 /* The probes' RAM. Static rather than automatic because it is large, and
@@ -161,7 +163,7 @@ static uint8_t *read_file(const char *path, long *size_out) {
  * addresses in its header are logical (`FINDINGS.md` C28). The PROM is what
  * enables translation, so it is what has to run first. */
 static int boot_from_prom(const char *path, unsigned limit, bool trace,
-                          uint32_t watch, const char *input) {
+                          uint32_t watch, const char *input, bool console) {
   long size = 0;
   uint8_t *prom = read_file(path, &size);
   if (prom == NULL) {
@@ -225,7 +227,7 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
   const size_t input_length = input != NULL ? strlen(input) : 0u;
 
   ap_machine_run_t run;
-  if (trace || input_length > 0u) {
+  if (trace || input_length > 0u || console) {
     /* Step by step, reporting the program counter and the active stack pointer.
      *
      * A7 is the observable this exists for. A wrong PC is where damage becomes
@@ -233,8 +235,10 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
      * happens, and the two can be thousands of instructions apart. Printing
      * both together is what lets one be found from the other. */
     run = (ap_machine_run_t){.status = AP_M68030_STEP_EXECUTED};
-    printf("# step pc a7 a6 a0 instruction status%s\n",
-           watch != 0u ? " watched" : "");
+    if (trace) {
+      printf("# step pc a7 a6 a0 instruction status%s\n",
+             watch != 0u ? " watched" : "");
+    }
     for (unsigned i = 0; i < limit; i++) {
       /* Feed the next byte only once the program has taken the last, which is
        * what a terminal's flow looks like and what stops a script from
@@ -249,6 +253,18 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
          * first character. Retrying costs nothing and cannot lose a byte. */
         if (ap_sio_receiver_ready(&board->sio, 1u, 0u)) {
           input_sent++;
+        }
+      }
+      /* Drain both ports' transmitters every step, so nothing is lost when the
+       * firmware writes two characters before we look again. Written straight
+       * to stdout: this is the machine's console, and the whole point is to see
+       * what it says rather than to interpret it. */
+      for (unsigned unit = 0; unit < 2u; unit++) {
+        for (unsigned channel = 0; channel < 2u; channel++) {
+          uint8_t out_byte = 0;
+          while (ap_sio_transmit(&board->sio, unit, channel, &out_byte)) {
+            fputc((int)out_byte, stdout);
+          }
         }
       }
       const uint32_t step_pc = machine.cpu.regs.pc;
@@ -504,6 +520,7 @@ int main(int argc, char **argv) {
   bool boot_trace = false;
   uint32_t boot_watch = 0;
   const char *boot_input = NULL;
+  bool boot_console = false;
   bool run_probe_suite = false;
   bool report_timing = false;
   const char *boot_tape = NULL;
@@ -528,6 +545,11 @@ int main(int argc, char **argv) {
     if (strcmp(argv[i], "--boot-limit") == 0 && i + 1 < argc) {
       boot_limit = (unsigned)strtoul(argv[i + 1], NULL, 0);
       i += 2;
+      continue;
+    }
+    if (strcmp(argv[i], "--boot-console") == 0) {
+      boot_console = true;
+      i += 1;
       continue;
     }
     if (strcmp(argv[i], "--boot-input") == 0 && i + 1 < argc) {
@@ -584,7 +606,7 @@ int main(int argc, char **argv) {
 
   if (boot_prom != NULL) {
     return boot_from_prom(boot_prom, boot_limit, boot_trace, boot_watch,
-                          boot_input);
+                          boot_input, boot_console);
   }
 
   if (boot_tape != NULL) {

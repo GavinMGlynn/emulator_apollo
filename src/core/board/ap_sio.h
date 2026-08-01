@@ -90,4 +90,13 @@ void ap_sio_receive(ap_sio_t *sio, unsigned unit, unsigned channel,
 [[nodiscard]] bool ap_sio_receiver_ready(ap_sio_t *sio, unsigned unit,
                                          unsigned channel);
 
+/* Take a byte the port's transmitter is holding, if any. The other end of the
+ * same wire as `ap_sio_receive`: the board never decides where output goes, it
+ * only makes it available to a caller that does.
+ *
+ * This is what "verify on the real output" needs -- a console byte stream from
+ * the machine itself, rather than a proxy for one. */
+[[nodiscard]] bool ap_sio_transmit(ap_sio_t *sio, unsigned unit,
+                                   unsigned channel, uint8_t *byte);
+
 #endif /* APOLLO_BOARD_AP_SIO_H */

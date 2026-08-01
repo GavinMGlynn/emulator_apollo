@@ -164,11 +164,15 @@ without input it stops exactly where it did.
 
 That loop polls **both** ports — SIO1's status register A and SIO2's — so it is
 a console read waiting for a character on either, and it is responsive:
-different inputs leave the PC at different points inside it. What is missing now
-is the other direction. **Serial output is the next module**, and until it
-exists every guess at a console command is blind — a differing final PC cannot
-distinguish an accepted command from a rejected one. The PROM's own prompt will
-say what it wants.
+different inputs leave the PC at different points inside it. `--boot-console` now prints what the machine transmits, drained from both ports
+and both channels every step, and `sio_suite` proves the path in both
+directions through the registers a program writes and reads.
+
+**The PROM is silent.** 300000 instructions produce nothing on either port. The
+path being tested is what makes that a fact about the firmware rather than about
+us — a silent run would otherwise be ambiguous between "has not printed" and
+"cannot print". Why it says nothing is the next question, and is to be settled
+by watching writes to the transmit buffers rather than guessed at.
 
 The tick loop is still owed and remains the project's central design item, but
 it is not what this stop needs.
