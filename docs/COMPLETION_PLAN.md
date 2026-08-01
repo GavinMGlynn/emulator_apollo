@@ -2791,6 +2791,14 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
     **This unblocks the keyboard item below**, which was waiting on "the framing
     above, or a device on the other end". The framing exists now; what the
     keyboard still needs is its scan codes.
+    - The PROM's table is captured as data in `FINDINGS.md` C46 — 41 bytes at
+      `000021D2`, found from the `CMP.B (d8,PC,Xn)` loop that searches it. Its
+      high bytes fall into triples on a fixed spacing (`CB DB FB`, `C8 D8 F8`,
+      …), interleaved with ASCII runs, and several characters repeat.
+    - Whether those triples are unshifted/shifted/control variants of one key or
+      three separate keys is **not settled by the bytes** and is recorded as an
+      open reading rather than guessed. MAME's `apollo_kbd.cpp` holds the other
+      side of the conversation and is where to check next.
         - **The values are no longer unknown.** `FINDINGS.md` C39 and C42 read
           them off the running oracle: `sio1 ACR E0`, `sio1 CSRB 77`,
           `sio2 ACR 80`, `sio2 CSRA 77` at reset, and the firmware then

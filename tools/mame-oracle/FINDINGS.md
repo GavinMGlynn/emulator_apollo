@@ -2570,3 +2570,44 @@ capture route now exists end to end and produces the first bytes of it. What
 remains is mechanical: run long enough to get a full prompt and a command
 response, and write the bytes out as a transcript rather than as a register
 trace.
+
+## C46 -- the boot PROM's keyboard table, as data
+
+The keyboard item needs Apollo scan codes, and the PROM carries the table it
+matches them against. Recorded here as bytes so the next attempt starts from
+evidence rather than from a hex dump, with the structure separated from the
+observations about it.
+
+Found by the loop at `00002208` -- `CMP.B (d8,PC,Xn),D1`, `BEQ`, `DBF` -- whose
+extension word's displacement resolves to `000021D2`. From there:
+
+```
+21D2   CB DB FB C8 D8 F8 C9 D9   ........
+21DA   F9 5B 5D 7B 7D CA DA FA   .[]{}...
+21E2   CC DC FC DE 0D 0D 1B 5C   .......\
+21EA   5C 5C 7C 7C 7F 7B 7D 5B   \\||.{}[
+21F2   5D 09 09 09 2F 3F 3F 08   ].../??.
+21FA   08 ...                    ..
+```
+
+`21FB` onward reads as code rather than table -- `2E 00 01 01 C7 66 18` has no
+pattern in common with what precedes it -- so the table is about 41 bytes.
+
+### Observations, not conclusions
+
+- The high bytes fall into **triples on a fixed spacing**: `CB DB FB`,
+  `C8 D8 F8`, `C9 D9 F9`, `CA DA FA`, `CC DC FC`. Each is *X*, *X*+`10`,
+  *X*+`30`. `DE` appears once without a triple.
+- Between and after them are runs that read as ASCII: `[ ] { }`, `CR CR ESC`,
+  `\ \ \ | |`, `DEL { } [ ]`, `TAB TAB TAB`, `/ ? ?`, `BS BS`.
+- The repeats are the interesting part. `0D` twice, `5C` three times, `09`
+  three times, `3F` twice, `08` twice -- several keys produce the same
+  character, which is what a table indexed by *position* would look like when
+  the parallel array holds the characters.
+
+The loop searches this table **linearly** for the byte in `D1` and branches on a
+match, so whatever is in it is what the firmware compares a received byte
+against. That is as far as the evidence goes: whether the triples are
+unshifted/shifted/control variants of one key, or three separate keys, is not
+settled by the bytes alone and should not be guessed. MAME's `apollo_kbd.cpp`
+carries the other side of the same conversation and is where to check next.
