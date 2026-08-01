@@ -227,6 +227,15 @@ buffer and we were mislabelling it. No device suite could have caught that —
 they call the device directly and the device was right; only a test of the map
 sees it.
 
+`--screen c4p|c8p|19i|15i` fits one, allocating the graphics memories in the
+frontend and only when a screen is present. The firmware behaves differently per
+type — `19i` reaches `00000798`, `c8p` reaches `000046BC` — which is the check
+that the ID register is being read and believed. With `c8p` fitted the display
+controller takes **803 writes**, up from zero: the firmware initialises a
+display it has found, and every one of those writes previously had nowhere to
+go. They are to registers this module does not model, which is exactly the gap
+the controller proper has to fill.
+
 **The display controller is therefore the next module**, for a reason rather
 than as the next item on a list: the four regions already recorded stop being
 probe targets and become the machine's output. The matching input module is the

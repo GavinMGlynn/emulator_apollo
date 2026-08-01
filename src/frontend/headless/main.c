@@ -20,6 +20,7 @@
 #include "image/ap_ct.h"
 #include "board/ap_board.h"
 #include "board/ap_sio.h"
+#include "board/ap_graphics.h"
 #include "machine/ap_machine.h"
 
 static void print_usage(const char *program_name) {
@@ -43,6 +44,7 @@ static void print_usage(const char *program_name) {
           "                        serial port: its own console output\n"
           "  --boot-input-port N   which serial port --boot-input feeds, 1 or\n"
           "                        2 (default 2)\n"
+          "  --screen KIND         fit a display: c4p, c8p, 19i or 15i\n"
           "  --boot-input-channel C  which channel, A or B (default A). The\n"
           "                        keyboard is port 1 channel A; a terminal is\n"
           "                        port 1 channel B\n");
@@ -171,7 +173,8 @@ static uint8_t *read_file(const char *path, long *size_out) {
  * enables translation, so it is what has to run first. */
 static int boot_from_prom(const char *path, unsigned limit, bool trace,
                           uint32_t watch, const char *input, unsigned input_unit,
-                          unsigned input_channel, bool console) {
+                          unsigned input_channel, bool console,
+                          ap_screen_kind_t screen) {
   long size = 0;
   uint8_t *prom = read_file(path, &size);
   if (prom == NULL) {
@@ -194,6 +197,33 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
     fprintf(stderr, "apollo: cannot build the core board\n");
     return 1;
   }
+  /* Fit a display, if one was asked for. The memories are allocated here rather
+   * than in the core, which allocates nothing -- and only when a screen is
+   * fitted, so a machine without one has no frame buffer rather than an empty
+   * one. */
+  uint8_t *colour_memory = NULL;
+  uint8_t *mono_memory = NULL;
+  if (screen != AP_SCREEN_NONE) {
+    const uint32_t colour_bytes =
+        AP_GRAPHICS_COLOUR_MEMORY_END - AP_GRAPHICS_COLOUR_MEMORY_ADDR + 1u;
+    const uint32_t mono_bytes =
+        AP_GRAPHICS_MONO_MEMORY_END - AP_GRAPHICS_MONO_MEMORY_ADDR + 1u;
+    colour_memory = calloc(1, colour_bytes);
+    mono_memory = calloc(1, mono_bytes);
+    if (colour_memory == NULL || mono_memory == NULL) {
+      free(colour_memory);
+      free(mono_memory);
+      free(board);
+      free(ram);
+      free(prom);
+      fprintf(stderr, "apollo: cannot allocate the graphics memories\n");
+      return 1;
+    }
+    ap_graphics_init(&board->graphics, screen);
+    ap_graphics_attach_memory(&board->graphics, colour_memory, colour_bytes,
+                              mono_memory, mono_bytes);
+  }
+
   if (!ap_board_load_prom(board, prom, (uint32_t)size)) {
     free(board);
     free(ram);
@@ -590,6 +620,7 @@ int main(int argc, char **argv) {
   bool boot_console = false;
   unsigned boot_input_unit = 1u; /* SIO2 */
   unsigned boot_input_channel = 0u;
+  ap_screen_kind_t boot_screen = AP_SCREEN_NONE;
   bool run_probe_suite = false;
   bool report_timing = false;
   const char *boot_tape = NULL;
@@ -626,6 +657,26 @@ int main(int argc, char **argv) {
       /* 1 or 2 as the board names them; 0-based inside. */
       const unsigned port = (unsigned)strtoul(argv[i + 1], NULL, 0);
       boot_input_unit = (port >= 2u) ? 1u : 0u;
+      i += 2;
+      continue;
+    }
+    if (strcmp(argv[i], "--screen") == 0 && i + 1 < argc) {
+      /* The four the firmware knows, by the names its own probe order
+       * implies -- not by ours. */
+      const char *name = argv[i + 1];
+      if (strcmp(name, "c4p") == 0) {
+        boot_screen = AP_SCREEN_COLOUR_4_PLANE;
+      } else if (strcmp(name, "c8p") == 0) {
+        boot_screen = AP_SCREEN_COLOUR_8_PLANE;
+      } else if (strcmp(name, "19i") == 0) {
+        boot_screen = AP_SCREEN_MONO_19_INCH;
+      } else if (strcmp(name, "15i") == 0) {
+        boot_screen = AP_SCREEN_MONO_15_INCH;
+      } else {
+        fprintf(stderr, "apollo: unknown screen %s (c4p, c8p, 19i, 15i)\n",
+                name);
+        return 1;
+      }
       i += 2;
       continue;
     }
@@ -689,7 +740,7 @@ int main(int argc, char **argv) {
   if (boot_prom != NULL) {
     return boot_from_prom(boot_prom, boot_limit, boot_trace, boot_watch,
                           boot_input, boot_input_unit, boot_input_channel,
-                          boot_console);
+                          boot_console, boot_screen);
   }
 
   if (boot_tape != NULL) {

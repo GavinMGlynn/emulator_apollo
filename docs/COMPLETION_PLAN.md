@@ -2852,6 +2852,19 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
           nothing about a display; the header and the test both say so, because
           a green round-trip is exactly what a working screen would also
           produce.
+  - [x] `--screen c4p|c8p|19i|15i` fits a display, allocating the graphics
+        memories in the frontend — only when one is fitted, so a machine without
+        a screen has *no* frame buffer rather than an empty one.
+        - The firmware behaves differently per type, which is the check that the
+          ID register is being read and believed: `19i` reaches `00000798`,
+          `c8p` reaches `000046BC`.
+        - With `c8p` fitted the display controller takes **803 writes**, up from
+          zero. The firmware initialises a display it has found, and every one
+          of those writes previously had nowhere to go.
+  - [ ] Those 803 writes are to registers this module does not model — it holds
+        only the device ID. **That is now the gap**, and it is the controller
+        proper: the register set, the blitter and the colour lookup table.
+        Verify on a decoded PNG, not on register round-trips.
   - [ ] **The display controller is the next module**, and now for a reason
         rather than as the next thing on a list. It stops being a probe target:
         the four regions already recorded (`05D800`/`05E800` registers,
