@@ -2490,6 +2490,21 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         Needs the architecture handbook, or a boot-PROM disassembly showing what
         the firmware writes there. Implementing all-ones would bake an oracle
         gap in as though it were a measurement.
+        - **Partly answered, from evidence collected for something else.** The
+          boot PROM executes `CLR.B $00011600` — a byte write of zero to the
+          **master request register** — on every pass through its reset path.
+          That is the disassembly this item asked for, and it arrived while
+          chasing a stack exhaustion whose cause was the register being
+          unreachable through the map (`FINDINGS.md` C34 era).
+        - So the register is written, early, with zero, repeatedly. That does
+          not give its read-back value and does not settle task alias
+          (`010300`) at all, both of which still need the handbook or the
+          oracle. But it removes the "we have no idea what touches this" part
+          of the blockage for one of the two.
+        - Worth noting how it was found: not by looking for it. The trace that
+          named `CLR.B $00011600` was watching A7 for an unrelated defect, and
+          the answer to a blocked item was in it. That is an argument for
+          re-reading traces already taken before running new ones.
 - [ ] Two 8259 interrupt controllers and the Apollo interrupt vector scheme.
       *Verification: probe-driven interrupt ordering vs oracle.*
   - [x] The 8259A itself, with no Apollo in it: initialization sequence, all
