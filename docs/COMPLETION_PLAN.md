@@ -2644,6 +2644,18 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         counting in hertz could not represent at all. `sio_suite`, 6 tests.
   - [ ] Drive the refresh from the DUART's timer, and the keyboard from
         SIO line 0. Both need the framing above, or a device on the other end.
+        - **"SIO line 0" is now precise: serial 1, channel A.** Confirmed twice
+          over — MAME's `dn3500` wires `m_keyboard->tx_cb()` to
+          `apollo_sio::rx_a_w` (`FINDINGS.md` C42 era), and the boot PROM's own
+          poll loop reads serial 1's status register A and looks the received
+          byte up in a **scan-code translation table at `000021D2`**, which this
+          project has read.
+        - So the keyboard's side of the wire is specified without needing the
+          oracle again: it sends Apollo scan codes, not ASCII, on channel A, and
+          the PROM's table is the map that decodes them. Feeding ASCII there is
+          what made a carriage return fail to match while `0D` sat in the table.
+        - The refresh half is unchanged and still needs the DUART's timer, which
+          needs the tick loop.
 - [ ] Node ID PROM (`0x011200`), including node ID taken from the logical volume
       label. *Verification: `lcnode`-visible node ID matches the configured
       value.*
