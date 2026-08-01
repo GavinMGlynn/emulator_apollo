@@ -3278,3 +3278,58 @@ every observation available *at the time* -- one reading. It took a second
 reading to refute it, and the second reading cost nothing but was not taken
 until the explanation had already been committed. A mechanism inferred from one
 sample is a hypothesis however good the source-reading behind it looks.
+
+
+## C54 -- "and risk volume" is an offer to decline, and reverting beats salvaging
+
+With the calendar past, the kernel got one step further and stopped on:
+
+```
+BOOT VOLUME NEEDS SALVAGING.
+Proceed to bring up OS (and risk volume)?
+```
+
+The volume was unclean because the *previous* attempt's kernel had written 1790
+sectors and then been stopped -- the halt of `C53` left a mount marker behind.
+So the second attempt inherited the first attempt's wreckage, which is worth
+noting on its own: **a failed stage is not a no-op**, and on a machine with
+persistent storage the next attempt does not start where the last one did.
+
+Answered `n`, which returns to MD with a crash status and a prompt:
+
+```
+Crash_Status 00010005  PC 3C456A56 pid 0001
+S   3C42BA58       2700         BC
+3C42BA58: 4E4F
+>
+```
+
+### Why decline
+
+The prompt is honest about what it is offering, and the offer is bad here for
+two reasons that are specific rather than cautious:
+
+- The product of this work is a **reference artifact**. A filesystem that is
+  subtly inconsistent is exactly the class of defect that survives into every
+  later use, and that gets attributed to whatever is running at the time rather
+  than to an install performed weeks earlier.
+- A clean checkpoint existed, so accepting the risk bought nothing. Risk is
+  worth taking when the alternative is losing work; here the alternative was
+  copying a file.
+
+### Why revert rather than salvage
+
+`SALVOL` is the documented remedy and the Apollo Survival Guide names it
+directly. It was not used, and the reasoning is the same one the checkpoints
+exist for:
+
+- salvaging costs a **ten-minute emulated tape load** to *repair* a volume, and
+  reverting costs a file copy to *have the volume back*;
+- and the results are not equivalent. A salvaged volume is one that was damaged
+  and then mended; the checkpoint is one that was never mounted at all. For an
+  artifact meant to be a known-good starting point, "never damaged" is a
+  materially better property than "repaired", and it is available for less.
+
+Recorded because the cheaper option is also the better one here, which is not
+the usual shape and is easy to talk oneself out of. `SALVOL` remains the right
+answer on real hardware, where there is no checkpoint to go back to.
