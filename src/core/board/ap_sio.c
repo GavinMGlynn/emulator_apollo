@@ -71,3 +71,11 @@ bool ap_sio_transmit(ap_sio_t *sio, unsigned unit, unsigned channel,
   }
   return ap_mc68681_transmit(&sio->port[unit], channel, byte);
 }
+
+void ap_sio_receive_at(ap_sio_t *sio, unsigned unit, unsigned channel,
+                       uint8_t byte, uint8_t sender_csr) {
+  if (unit >= 2u) {
+    return;
+  }
+  ap_mc68681_receive_at(&sio->port[unit], channel, byte, sender_csr);
+}

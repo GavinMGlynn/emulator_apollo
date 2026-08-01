@@ -2701,10 +2701,20 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         - A disabled receiver reports no framing error: it never sampled the
           character, so it cannot have mis-sampled a stop bit. Without that, the
           flag would appear on a port nothing is listening to.
+        - The rate now flows end to end: `ap_sio_receive_at` on the board, and
+          `--boot-input-rate` on the frontend, defaulting to `0x77` because that
+          is what the firmware configures both ports to at reset (measured off
+          the oracle, `FINDINGS.md` C39). The rate-less `ap_sio_receive` remains
+          for callers that mean "assume the wire agrees", which the header now
+          calls a claim rather than a default.
+        - **No behavioural difference is observable yet**, and this is recorded
+          rather than glossed: feeding `\r` at `0x77` and at `0xBB` both leave
+          the PROM at `00002542`. The framing error is set, but the firmware
+          does not read the status bit at this point in its boot, so nothing
+          downstream changes. The mechanism is right and the demonstration is
+          not there — those are different claims.
         - Still open: start and stop bits, parity, and the automatic echo and
-          loopback modes. And the board and frontend do not yet carry a rate —
-          `ap_sio_receive` still calls the rate-less entry point, so nothing
-          above this module can produce a mismatch.
+          loopback modes.
         - **The values are no longer unknown.** `FINDINGS.md` C39 and C42 read
           them off the running oracle: `sio1 ACR E0`, `sio1 CSRB 77`,
           `sio2 ACR 80`, `sio2 CSRA 77` at reset, and the firmware then

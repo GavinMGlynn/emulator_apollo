@@ -95,6 +95,15 @@ void ap_sio_write(ap_sio_t *sio, uint32_t address, uint8_t value);
 void ap_sio_receive(ap_sio_t *sio, unsigned unit, unsigned channel,
                     uint8_t byte);
 
+/* Deliver a byte sent at a stated rate. `sender_csr` is the clock-select value
+ * the device on the other end of the wire is using; a mismatch against the
+ * port's own leaves the byte in the FIFO with a framing error, which is what
+ * the boot PROM's console autobaud is waiting to see. Prefer this to
+ * `ap_sio_receive` for anything modelling a real device: the rate-less form
+ * says "assume the wire agrees", which is a claim rather than a default. */
+void ap_sio_receive_at(ap_sio_t *sio, unsigned unit, unsigned channel,
+                       uint8_t byte, uint8_t sender_csr);
+
 /* Whether a port's receiver already holds a byte the program has not taken.
  * A caller feeding a script uses this to deliver the next byte only when the
  * previous one has been read, which is what a real terminal's flow looks like

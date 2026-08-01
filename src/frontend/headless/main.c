@@ -44,6 +44,8 @@ static void print_usage(const char *program_name) {
           "                        serial port: its own console output\n"
           "  --boot-input-port N   which serial port --boot-input feeds, 1 or\n"
           "                        2 (default 2)\n"
+          "  --boot-input-rate CSR clock select the scripted terminal sends at\n"
+          "                        (default 0x77, what the firmware configures)\n"
           "  --screen KIND         fit a display: c4p, c8p, 19i or 15i\n"
           "  --boot-input-channel C  which channel, A or B (default A). The\n"
           "                        keyboard is port 1 channel A; a terminal is\n"
@@ -173,7 +175,8 @@ static uint8_t *read_file(const char *path, long *size_out) {
  * enables translation, so it is what has to run first. */
 static int boot_from_prom(const char *path, unsigned limit, bool trace,
                           uint32_t watch, const char *input, unsigned input_unit,
-                          unsigned input_channel, bool console,
+                          unsigned input_channel, uint8_t input_rate,
+                          bool console,
                           ap_screen_kind_t screen) {
   long size = 0;
   uint8_t *prom = read_file(path, &size);
@@ -309,8 +312,12 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
        * overrunning the receiver. */
       if (input_sent < input_length &&
           !ap_sio_receiver_ready(&board->sio, input_unit, input_channel)) {
-        ap_sio_receive(&board->sio, input_unit, input_channel,
-                       (uint8_t)input[input_sent]);
+        /* Sent at the rate the terminal is set to. `77` is what the DN3500's
+         * own firmware configures both ports to at reset, measured off the
+         * oracle -- so a scripted terminal that used anything else would be
+         * modelling a misconfigured cable rather than a console. */
+        ap_sio_receive_at(&board->sio, input_unit, input_channel,
+                          (uint8_t)input[input_sent], input_rate);
         /* Advance only if the receiver actually took it. A DUART whose receiver
          * is still disabled drops the byte, and the firmware enables it long
          * after reset -- so a script that advanced regardless would deliver its
@@ -620,6 +627,7 @@ int main(int argc, char **argv) {
   bool boot_console = false;
   unsigned boot_input_unit = 1u; /* SIO2 */
   unsigned boot_input_channel = 0u;
+  unsigned boot_input_rate = 0x77u;
   ap_screen_kind_t boot_screen = AP_SCREEN_NONE;
   bool run_probe_suite = false;
   bool report_timing = false;
@@ -644,6 +652,11 @@ int main(int argc, char **argv) {
      * mistake was made. */
     if (strcmp(argv[i], "--boot-limit") == 0 && i + 1 < argc) {
       boot_limit = (unsigned)strtoul(argv[i + 1], NULL, 0);
+      i += 2;
+      continue;
+    }
+    if (strcmp(argv[i], "--boot-input-rate") == 0 && i + 1 < argc) {
+      boot_input_rate = (unsigned)strtoul(argv[i + 1], NULL, 0);
       i += 2;
       continue;
     }
@@ -740,7 +753,7 @@ int main(int argc, char **argv) {
   if (boot_prom != NULL) {
     return boot_from_prom(boot_prom, boot_limit, boot_trace, boot_watch,
                           boot_input, boot_input_unit, boot_input_channel,
-                          boot_console, boot_screen);
+                          (uint8_t)boot_input_rate, boot_console, boot_screen);
   }
 
   if (boot_tape != NULL) {
