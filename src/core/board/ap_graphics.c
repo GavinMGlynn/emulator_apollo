@@ -160,3 +160,7 @@ const char *ap_graphics_cr2_access_name(ap_graphics_cr2_access_t a) {
   }
   return "unknown";
 }
+
+unsigned ap_graphics_cr0_shift(uint8_t cr0) {
+  return (unsigned)(cr0 & AP_GRAPHICS_CR0_SHIFT_MASK);
+}

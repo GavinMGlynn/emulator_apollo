@@ -292,6 +292,47 @@ static void test_the_unknown_modes_say_they_are_unknown(void) {
   }
 }
 
+
+/* `CR0` carries two fields, and modelling only the mode leaves the other
+ * reading as part of neither. Bits 4-0 are a shift count, and the two must not
+ * bleed into each other: a mode decode that forgot to shift would pick up the
+ * shift bits, and a shift that forgot to mask would pick up the mode. */
+static void test_cr0_carries_a_mode_and_a_shift_that_do_not_overlap(void) {
+  for (unsigned mode = 0; mode < 8u; mode++) {
+    for (unsigned shift = 0; shift < 32u; shift += 7u) {
+      const uint8_t cr0 = (uint8_t)((mode << 5) | shift);
+      TEST_ASSERT_EQUAL_UINT(mode, (unsigned)ap_graphics_cr0_mode(cr0));
+      TEST_ASSERT_EQUAL_UINT(shift, ap_graphics_cr0_shift(cr0));
+    }
+  }
+  /* Every bit accounted for: mode and shift together are the whole byte. */
+  TEST_ASSERT_EQUAL_UINT(0xFFu,
+                         (unsigned)((7u << 5) | AP_GRAPHICS_CR0_SHIFT_MASK));
+}
+
+/* `CR1`'s top two bits mean different things per family: INV and DADDR_16 on a
+ * monochrome controller, AD_BIT and DV_CK on a colour one. Named per family
+ * rather than given one set of names with a comment, because a single name
+ * would be silently wrong on half the machines -- and wrong in the direction
+ * that still runs, since the bit would be read, believed, and mean something
+ * else entirely. */
+static void test_cr1_s_top_bits_are_named_per_family(void) {
+  /* Same positions, different meanings -- which is the point, and is why the
+   * names must differ even though the values do not. */
+  TEST_ASSERT_EQUAL_HEX8(AP_GRAPHICS_CR1_MONO_INV, AP_GRAPHICS_CR1_COLOUR_AD_BIT);
+  TEST_ASSERT_EQUAL_HEX8(AP_GRAPHICS_CR1_MONO_DADDR_16,
+                         AP_GRAPHICS_CR1_COLOUR_DV_CK);
+
+  /* The lower six are common to both, and together with the top two they
+   * account for every bit of the register. */
+  const unsigned common = AP_GRAPHICS_CR1_DH_CK | AP_GRAPHICS_CR1_ROP_EN |
+                          AP_GRAPHICS_CR1_RESET | AP_GRAPHICS_CR1_DP_CK |
+                          AP_GRAPHICS_CR1_SYNC_EN | AP_GRAPHICS_CR1_DISP_EN;
+  TEST_ASSERT_EQUAL_HEX8(0x3Fu, common);
+  TEST_ASSERT_EQUAL_HEX8(
+      0xFFu, common | AP_GRAPHICS_CR1_MONO_INV | AP_GRAPHICS_CR1_MONO_DADDR_16);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_each_screen_reports_the_id_the_firmware_compares_against);
@@ -304,6 +345,8 @@ int main(void) {
   RUN_TEST(test_every_way_of_having_no_memory_reads_ff);
   RUN_TEST(test_the_control_register_mode_fields_are_where_they_are);
   RUN_TEST(test_the_unknown_modes_say_they_are_unknown);
+  RUN_TEST(test_cr0_carries_a_mode_and_a_shift_that_do_not_overlap);
+  RUN_TEST(test_cr1_s_top_bits_are_named_per_family);
   RUN_TEST(test_an_unmodelled_register_reads_ff_and_not_zero);
   RUN_TEST(test_a_write_is_absorbed_and_does_not_change_the_id);
   return UNITY_END();

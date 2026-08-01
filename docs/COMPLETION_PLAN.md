@@ -2873,9 +2873,24 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
           transcription, so they are named **UNKNOWN** rather than given a
           plausible label — a guess would be indistinguishable from a fact until
           firmware exercised it. Asserted, so it cannot be quietly filled in.
-  - [ ] The rest of those 803 writes: the register set proper, the blitter's
-        five defined modes and the colour lookup table. Verify on a decoded PNG,
-        not on register round-trips.
+  - [x] `CR0`'s **shift field** (bits 4-0) and `CR1`'s bits. Two gaps in the
+        mode-field commit above, found by reading the oracle's definitions
+        rather than by using them.
+        - `CR0` carries *two* fields. Decoding only the mode left bits 4-0
+          reading as part of neither, and the test now pins both together — a
+          mode decode that forgot to shift would pick up the shift bits, and a
+          shift that forgot to mask would pick up the mode.
+        - `CR1`'s top two bits **mean different things per family**: `INV` and
+          `DADDR_16` on monochrome, `AD_BIT` and `DV_CK` on 4- and 8-plane
+          colour. Named per family rather than one set of names with a comment,
+          because a single name would be silently wrong on half the machines —
+          and wrong in the direction that still runs, since the bit would be
+          read, believed, and mean something else.
+        - Both registers are asserted to account for **every** bit, so a field
+          added later cannot overlap one already there.
+  - [ ] The rest of those 803 writes: `CR2`/`CR3`'s remaining fields, the
+        blitter's five defined modes and the colour lookup table. Verify on a
+        decoded PNG, not on register round-trips.
   - [ ] **The display controller is the next module**, and now for a reason
         rather than as the next thing on a list. It stops being a probe target:
         the four regions already recorded (`05D800`/`05E800` registers,

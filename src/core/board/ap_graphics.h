@@ -183,4 +183,34 @@ typedef enum {
 [[nodiscard]] const char *ap_graphics_cr0_mode_name(ap_graphics_cr0_mode_t m);
 [[nodiscard]] const char *ap_graphics_cr2_access_name(ap_graphics_cr2_access_t a);
 
+/* `CR0`'s other field: bits 4-0 are a shift count. The register carries two
+ * fields, and decoding only the mode -- which is what this module did first --
+ * leaves the other reading as part of neither. */
+#define AP_GRAPHICS_CR0_SHIFT_MASK 0x1Fu
+[[nodiscard]] unsigned ap_graphics_cr0_shift(uint8_t cr0);
+
+/* ## `CR1`, whose top two bits mean different things per family
+ *
+ * On a monochrome controller bit 7 is INV and bit 6 is DADDR_16; on a 4- or
+ * 8-plane colour one the same bits are AD_BIT and DV_CK. The lower six are
+ * common.
+ *
+ * That is why these are named per family rather than given one set of names
+ * with a comment. A single `AP_GRAPHICS_CR1_INV` would be silently wrong on
+ * half the machines this core is meant to model, and wrong in the direction
+ * that still runs -- the bit would be read, believed, and mean something else.
+ */
+#define AP_GRAPHICS_CR1_MONO_INV 0x80u
+#define AP_GRAPHICS_CR1_MONO_DADDR_16 0x40u
+#define AP_GRAPHICS_CR1_COLOUR_AD_BIT 0x80u
+#define AP_GRAPHICS_CR1_COLOUR_DV_CK 0x40u
+
+/* Common to both families. */
+#define AP_GRAPHICS_CR1_DH_CK 0x20u
+#define AP_GRAPHICS_CR1_ROP_EN 0x10u
+#define AP_GRAPHICS_CR1_RESET 0x08u
+#define AP_GRAPHICS_CR1_DP_CK 0x04u
+#define AP_GRAPHICS_CR1_SYNC_EN 0x02u
+#define AP_GRAPHICS_CR1_DISP_EN 0x01u
+
 #endif /* APOLLO_BOARD_AP_GRAPHICS_H */
