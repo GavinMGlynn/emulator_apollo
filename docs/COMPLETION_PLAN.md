@@ -2478,8 +2478,21 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         is 2 KB and 128 entries of 16 bits fill 256 bytes of it), and whether a
         byte address within it selects entry `(address - base) / 2`, which is
         assumed because it is the only reading with no gaps. Both are pinned by
-        tests so they cannot be closed by accident; an oracle diff or a DMA
-        transfer exercising the map would settle them.
+        tests so they cannot be closed by accident.
+        - **The oracle answers both, and disagrees with us on one.**
+          `apollo_address_translation_map_r` is
+          `address_translation_map[offset & 0x3ff]` on a 16-bit handler, so the
+          offset is in *words*: **1024 entries spanning the whole 2 KB**, and a
+          byte address selecting entry `(address - base) / 2`.
+        - The second half confirms our assumption. The first **contradicts** it:
+          we model 128 entries filling 256 bytes, the oracle models 1024 filling
+          all 2 KB.
+        - Classify before changing anything, as the project requires. Either the
+          hardware has 1024 entries and our 128 is a transcription error, or it
+          has 128 and MAME masks generously to a power of two — a `& 0x3ff` is
+          exactly what a careful emulator writes when it does not know the real
+          decode either. `019411-A00` §4.2.1.4 is the addendum that settled the
+          entry format and is where the count should be checked first.
   - [x] **Characterised** by measurement, since no manual here lays these out:
         `008778-03` Table 2-8 gives addresses only, and the handbook carrying
         the bit layouts is not in `docs/references/`. `tools/mame-oracle/regprobe.lua`
