@@ -63,6 +63,14 @@
 --                      costs about 30% of the run's speed: a cartridge read
 --                      spins on a status register 65 million times an emulated
 --                      minute, and each one becomes a Lua call.
+--   APOLLO_MD_SWAPFILE a file the driver writes to ask for a media change, and
+--                      beside which this writes `<name>.ack` when it is done.
+--                      `MINST` takes four cartridges in turn, so an install
+--                      that cannot change one is an install that stops after
+--                      the first.
+--   APOLLO_MD_SWAPEVERY
+--                      emulated seconds between checks of that file
+--                      (default 0.25)
 
 -- The install procedure's Machine Configuration, as `FINDINGS.md` C47 records
 -- it: "25 Years Ago" on, everything else off.
@@ -117,6 +125,11 @@ local WATCH = {
 }
 local activity_taps = {}
 local reported_at   = 0.0
+
+local swapfile   = os.getenv("APOLLO_MD_SWAPFILE")
+local swap_every = tonumber(os.getenv("APOLLO_MD_SWAPEVERY") or "") or 0.25
+local swap_seen  = -1
+local swap_at    = 0.0
 
 -- stderr, always: stdout is the machine's console and nothing else may be on
 -- it. A note that lands in the console stream is indistinguishable from output
@@ -268,6 +281,83 @@ local function report_activity()
 	note("%s\n", line)
 end
 
+-- Change a mounted medium while the machine runs.
+--
+-- This is safe on the cartridge tape for a stated reason rather than because it
+-- appeared to work: `sc499_ctape_image_device` derives from
+-- `microtape_image_device` and so from `magtape_image_device`, whose
+-- `is_reset_on_load()` returns **false**. A device that reset on load would
+-- throw away the running install at the moment it asked for the next tape,
+-- which is the worst possible time.
+--
+-- The protocol is two files, because the driver and this script share nothing
+-- else -- MAME's stdout belongs to the console and its stderr is not readable
+-- by the driver. The request carries a sequence number so that the same path
+-- can be asked for twice, and the acknowledgement carries the same number back
+-- so the driver waits for *its* swap rather than the previous one.
+local function do_swap(sequence, name, path)
+	local target = nil
+	for _, image in pairs(manager.machine.images) do
+		if image.instance_name == name then
+			target = image
+		end
+	end
+
+	local status
+	if target == nil then
+		local present = {}
+		for _, image in pairs(manager.machine.images) do
+			present[#present + 1] = image.instance_name
+		end
+		status = "no image named " .. name .. "; present: " ..
+		         table.concat(present, " ")
+	else
+		target:unload()
+		if path == "" then
+			status = "ok (unloaded)"
+		else
+			-- `load` returns nil on success and a message otherwise. Reported
+			-- rather than swallowed: a tape that failed to mount looks exactly
+			-- like a tape that mounted and holds nothing the installer wants.
+			local failure = target:load(path)
+			if failure == nil then
+				status = "ok"
+			else
+				status = "load failed: " .. tostring(failure)
+			end
+		end
+	end
+
+	note("# swap %d %s %s -> %s\n", sequence, name, path, status)
+
+	local ack = io.open(swapfile .. ".ack", "w")
+	if ack ~= nil then
+		ack:write(string.format("%d\n%s\n", sequence, status))
+		ack:close()
+	end
+end
+
+local function poll_swap()
+	local handle = io.open(swapfile, "r")
+	if handle == nil then
+		return
+	end
+	local sequence = handle:read("l")
+	local name     = handle:read("l")
+	local path     = handle:read("l")
+	handle:close()
+
+	if sequence == nil or name == nil then
+		return
+	end
+	sequence = tonumber(sequence)
+	if sequence == nil or sequence <= swap_seen then
+		return
+	end
+	swap_seen = sequence
+	do_swap(sequence, name, path or "")
+end
+
 local function install()
 	if installed or finished then
 		return
@@ -299,6 +389,11 @@ local function install()
 		watch_activity()
 	end
 
+	-- Named at startup, because "the swap never happened" has two very
+	-- different causes -- the channel was never armed, or it was armed and the
+	-- request was not seen -- and they look identical from the driver's side.
+	note("# swap channel: %s\n", swapfile or "(none)")
+
 	note("# apollo md session ready\n")
 end
 
@@ -324,6 +419,14 @@ emu.register_periodic(function()
 	   manager.machine.time.seconds >= post_at_s + hold_s then
 		released = true
 		release_key()
+	end
+
+	-- Polled on emulated time rather than every callback: this is a file read,
+	-- and `register_periodic` fires far too often to spend one on each.
+	if swapfile ~= nil and swapfile ~= "" and
+	   manager.machine.time.seconds - swap_at >= swap_every then
+		swap_at = manager.machine.time.seconds
+		poll_swap()
 	end
 
 	if activity_s > 0 and

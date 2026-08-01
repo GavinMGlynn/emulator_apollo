@@ -32,6 +32,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -73,6 +74,43 @@ import os, sys
 mode = os.environ.get("MDSTUB_MODE", "normal")
 record = os.environ.get("MDSTUB_RECORD")
 
+# The swap channel's other end, standing in for mdsession.lua. A real swap goes
+# through MAME's image device; what is testable without MAME is the protocol --
+# that a request is noticed, that the sequence number comes back, and that a
+# failure is reported rather than swallowed.
+swapfile = os.environ.get("APOLLO_MD_SWAPFILE")
+swap_seen = -1
+swap_log = os.environ.get("MDSTUB_SWAPLOG")
+
+def poll_swap():
+    global swap_seen
+    if not swapfile or not os.path.exists(swapfile):
+        return
+    try:
+        with open(swapfile) as handle:
+            lines = handle.read().splitlines()
+    except OSError:
+        return
+    if len(lines) < 2:
+        return
+    sequence = int(lines[0])
+    if sequence <= swap_seen:
+        return
+    swap_seen = sequence
+    name = lines[1]
+    path = lines[2] if len(lines) > 2 else ""
+    if os.environ.get("MDSTUB_SWAPFAIL") == "1":
+        status = "load failed: stub refuses"
+    elif name != "ctape":
+        status = "no image named " + name
+    else:
+        status = "ok"
+    if swap_log:
+        with open(swap_log, "a") as handle:
+            handle.write("%s %s\n" % (name, path))
+    with open(swapfile + ".ack", "w") as handle:
+        handle.write("%d\n%s\n" % (sequence, status))
+
 if mode == "silent":
     # Reads and answers nothing, ever. The machine that hangs.
     while True:
@@ -87,7 +125,16 @@ signed_on = False
 seen = 0
 line = ""
 
+import select
+
 while True:
+    # Polled rather than blocking, so a swap request is noticed while the
+    # machine is sitting at a prompt with nothing being typed -- which is
+    # exactly when a tape gets changed.
+    poll_swap()
+    ready, _, _ = select.select([0], [], [], 0.1)
+    if not ready:
+        continue
     try:
         data = os.read(0, 4096)
     except OSError:
@@ -123,6 +170,38 @@ while True:
             out.write(char.decode("latin-1"))
         out.flush()
 """
+
+
+def _children_of(pid: int):
+    """Direct children of `pid`, from /proc. No dependency on `ps` output."""
+    found = []
+    try:
+        for entry in Path("/proc").iterdir():
+            if not entry.name.isdigit():
+                continue
+            try:
+                stat = (entry / "stat").read_text()
+            except OSError:
+                continue
+            # The comm field is parenthesised and may hold spaces, so the
+            # parent pid is counted from the closing bracket rather than by
+            # splitting the whole line.
+            fields = stat[stat.rfind(")") + 1:].split()
+            if len(fields) >= 2 and fields[1] == str(pid):
+                found.append(int(entry.name))
+    except OSError:
+        pass
+    return found
+
+
+def _alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
 
 
 def write_stub(directory: Path) -> Path:
@@ -276,6 +355,35 @@ def main() -> int:
         check("the knock character is what reaches the machine",
               record.read_bytes().decode("latin-1"), "\r")
 
+        # `!swap` changes a medium without stopping the machine. MINST takes
+        # four cartridges in turn, so an install that cannot change one is an
+        # install that stops after the first.
+        swaplog = work / "swaps"
+        commands = work / "swap.txt"
+        commands.write_text(
+            "!swap ctape %s\n" % (work / "tape1.ct")
+            + "!swap ctape %s\n" % (work / "tape2.ct")
+            + "!quit\n")
+        proc = run(stub, ["--stage", "prompt", "--commands", str(commands),
+                          "--timeout", "20"],
+                   {"MDSTUB_SWAPLOG": str(swaplog)})
+        check("two swaps run in order", proc.returncode, 0)
+        check("and both reach the machine, resolved to absolute paths",
+              swaplog.read_text().split(),
+              ["ctape", str(work / "tape1.ct"),
+               "ctape", str(work / "tape2.ct")])
+
+        # A refused swap fails the run rather than being swallowed. A tape that
+        # did not mount looks exactly like a tape that mounted and holds nothing
+        # the installer wants, and the second is a much harder thing to debug.
+        commands = work / "swapfail.txt"
+        commands.write_text("!swap ctape %s\n!quit\n" % (work / "tape1.ct"))
+        proc = run(stub, ["--stage", "prompt", "--commands", str(commands),
+                          "--timeout", "20"],
+                   {"MDSTUB_SWAPFAIL": "1"})
+        check("a refused swap fails the run", proc.returncode, 1)
+        check_in("and says why", "load failed", proc.stderr)
+
         # And followed *while running*, which is the property the whole
         # mechanism exists for: a stage learnt from the machine's own output
         # must be answerable without restarting the machine, because reaching
@@ -302,6 +410,36 @@ def main() -> int:
               proc.returncode, 0)
         check_in("and reaches the machine", "late",
                  record.read_bytes().decode("latin-1"))
+
+        # A killed driver takes its emulator with it. `close()` covers every
+        # path the driver controls and none of the ones that matter -- a driver
+        # killed from outside skips it, and the orphan then holds the log file
+        # open so the next run's writes interleave with NUL padding. Both were
+        # observed.
+        commands = work / "orphan.txt"
+        commands.write_text("!wait 60\n!quit\n")
+        proc = subprocess.Popen(
+            [sys.executable, str(DRIVER), "--mame", str(stub),
+             "--rundir", str(stub.parent / "run"),
+             "--stage", "prompt", "--commands", str(commands)],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        # Long enough for the stub to be running and past the knock.
+        deadline = time.time() + 20
+        child = None
+        while time.time() < deadline and child is None:
+            for pid in _children_of(proc.pid):
+                child = pid
+            time.sleep(0.2)
+        proc.kill()
+        proc.wait(timeout=10)
+        gone = False
+        deadline = time.time() + 15
+        while time.time() < deadline:
+            if child is None or not _alive(child):
+                gone = True
+                break
+            time.sleep(0.2)
+        check("a killed driver does not leave the machine running", gone, True)
 
         # Relative image paths are resolved against the caller's directory, not
         # MAME's. The driver runs the emulator from its own directory, so an

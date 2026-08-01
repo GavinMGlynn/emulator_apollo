@@ -100,11 +100,40 @@ def find_mame(explicit: Path | None) -> Path:
     raise SystemExit(2)
 
 
+def _die_with_parent():
+    """Ask the kernel to kill this child when its parent dies.
+
+    `close()` stops the emulator on every path the driver controls, and none of
+    those are the ones that matter. A driver that is killed -- by a timeout, by
+    `pkill`, by a terminal going away -- skips `close()` entirely and leaves a
+    MAME running with nobody reading its console.
+
+    That is not merely untidy. An orphan holds its log file open, so the next
+    run's driver opens the same path and the two write at different offsets: the
+    file fills with runs of NUL between interleaved fragments, and the transcript
+    of the new run is quietly corrupt. It also keeps a core busy emulating a
+    machine no one can talk to. Both were observed before this existed.
+
+    Linux-only, and deliberately not conditional on anything: this driver is for
+    the oracle, and the oracle is built on Linux. Elsewhere it is a no-op rather
+    than an error, because failing to arm a safety net is not a reason to refuse
+    to run.
+    """
+    try:
+        import ctypes
+        import signal
+        PR_SET_PDEATHSIG = 1
+        ctypes.CDLL("libc.so.6", use_errno=True).prctl(
+            PR_SET_PDEATHSIG, signal.SIGTERM, 0, 0, 0)
+    except Exception:
+        pass
+
+
 class Session:
     """A live machine, its console, and the ability to answer it."""
 
     def __init__(self, command, cwd, environment, log: Path | None,
-                 echo: bool = True):
+                 echo: bool = True, swapfile: Path | None = None):
         # The pty is the whole point (see the module docstring): stdin must
         # never reach EOF, or the firmware stops being able to hear us.
         self.master, slave = pty.openpty()
@@ -130,6 +159,7 @@ class Session:
         self.proc = subprocess.Popen(
             command, cwd=str(cwd), env=environment,
             stdin=slave, stdout=subprocess.PIPE, stderr=None,
+            preexec_fn=_die_with_parent,
         )
         os.close(slave)
 
@@ -139,6 +169,8 @@ class Session:
         self.echo = echo
         self.log = open(log, "wb") if log is not None else None
         self.closed = False
+        self.swapfile = swapfile
+        self.swap_sequence = 0
 
         self.reader = threading.Thread(target=self._read_console, daemon=True)
         self.reader.start()
@@ -250,6 +282,51 @@ class Session:
                 if self.proc.poll() is not None and self.closed:
                     raise
 
+    def swap(self, name: str, path: str, timeout: float = 60.0) -> str:
+        """Change a mounted medium while the machine runs.
+
+        `MINST` takes four cartridges in turn, so a driver that can only mount
+        one at startup is a driver that stops after the first. MAME's Lua can
+        load an image mid-run and the cartridge device does not reset on load
+        (`sc499_ctape_image_device` inherits `magtape_image_device`, whose
+        `is_reset_on_load` is false), so the capability is there -- what was
+        missing was a way to ask for it.
+
+        Two files, because the driver and the script share nothing else: MAME's
+        stdout is the console and its stderr is not readable from here. The
+        sequence number is what makes waiting meaningful -- the same tape can be
+        asked for twice, and without it the second request would be satisfied by
+        the first one's acknowledgement.
+        """
+        if self.swapfile is None:
+            raise SessionError("this session has no swap channel")
+
+        self.swap_sequence += 1
+        sequence = self.swap_sequence
+        ack = Path(str(self.swapfile) + ".ack")
+        if ack.exists():
+            ack.unlink()
+        self.swapfile.write_text("%d\n%s\n%s\n" % (sequence, name, path))
+
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            if ack.exists():
+                try:
+                    lines = ack.read_text().splitlines()
+                except OSError:
+                    lines = []
+                if len(lines) >= 2 and lines[0].strip() == str(sequence):
+                    status = lines[1].strip()
+                    if not status.startswith("ok"):
+                        raise SessionError("swap %s -> %s: %s"
+                                           % (name, path, status))
+                    return status
+            if self.proc.poll() is not None and self.closed:
+                raise SessionError("the machine exited during a swap")
+            time.sleep(0.2)
+        raise SessionError("no answer to swap %s -> %s within %.0fs"
+                           % (name, path, timeout))
+
     def close(self):
         try:
             self.proc.terminate()
@@ -331,6 +408,8 @@ def follow_commands(session: Session, path: Path, timeout: float,
       !raw TEXT        send exactly this, with no carriage return added.
                        `\\r`, `\\n` and `\\t` are interpreted
       !cr              send a bare carriage return: an *empty* answer
+      !swap NAME PATH  change a mounted medium without stopping the machine,
+                       and wait for the script to confirm it. NAME alone ejects
       !quit            end the session
       anything else    sent as typed, with a carriage return
 
@@ -396,6 +475,17 @@ def follow_commands(session: Session, path: Path, timeout: float,
             elif line == "!cr":
                 sys.stderr.write("mdsession: send %r (empty answer)\n" % "\r")
                 session.send("\r")
+            elif line.startswith("!swap "):
+                # "!swap NAME PATH", or "!swap NAME" to eject. The path is
+                # resolved here rather than in the script, because MAME runs
+                # from its own directory and a relative path would mean a
+                # different file at each end.
+                parts = line[6:].split(None, 1)
+                name = parts[0]
+                path = str(Path(parts[1]).resolve()) if len(parts) > 1 else ""
+                sys.stderr.write("mdsession: swap %s -> %s\n" % (name, path))
+                sys.stderr.write("mdsession: %s\n"
+                                 % session.swap(name, path, timeout))
             elif line == "!quit":
                 sys.stderr.write("mdsession: !quit\n")
                 return
@@ -491,6 +581,13 @@ def main(argv=None) -> int:
         args.disk = args.disk.resolve()
     if args.ctape is not None:
         args.ctape = args.ctape.resolve()
+    # The run directory too, and for a second reason beyond MAME's own
+    # `-nvram_directory` and friends: the swap channel is a *file* in it that
+    # both processes must name identically. Left relative, the driver writes it
+    # here and the script looks for it under ext/mame, and the swap simply never
+    # happens -- which the driver can only report as a timeout.
+    args.rundir = args.rundir.resolve()
+    args.roms = args.roms.resolve()
 
     if args.disk is not None and make_disk(args.disk):
         sys.stderr.write("mdsession: created %s (%d bytes)\n"
@@ -504,11 +601,14 @@ def main(argv=None) -> int:
     environment = dict(os.environ)
     environment.setdefault("APOLLO_MD_POST", "Numpad Enter")
 
+    swapfile = rundir / "swap"
+    environment["APOLLO_MD_SWAPFILE"] = str(swapfile)
+
     command = build_command(mame, args, rundir)
     sys.stderr.write("mdsession: %s\n" % " ".join(command))
 
     session = Session(command, cwd=mame.parent, environment=environment,
-                      log=args.log)
+                      log=args.log, swapfile=swapfile)
     status = 0
     try:
         session.knock(MD_PROMPT, args.knock_timeout,

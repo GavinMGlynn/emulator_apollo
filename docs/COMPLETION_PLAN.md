@@ -176,10 +176,23 @@ file the moment they are found, not when someone remembers.
           - [x] `!knock`, `!cr` and `!raw` escapes. The session was lost trying
                 to improvise a knock out of a space — see below, it is not a
                 knock at all.
-          - [ ] **Tape swapping.** `MINST` takes four cartridges in turn and the
-                driver can only mount one at start. MAME's Lua can change an
-                image mid-run, so this is a channel from the driver to
-                `mdsession.lua`, not a missing capability.
+          - [x] **Tape swapping**, `!swap NAME PATH`. Safe on this device for a
+                stated reason rather than because it appeared to work:
+                `sc499_ctape_image_device` derives from `magtape_image_device`,
+                whose `is_reset_on_load()` is **false**, so changing a cartridge
+                does not reset the machine — which, at the moment `MINST` asks
+                for the next tape, would throw the install away.
+                - A two-file protocol carrying a **sequence number**, because
+                  the driver and the script share nothing else: MAME's stdout is
+                  the console and its stderr is not readable from the driver.
+                  The sequence is what makes waiting mean anything — the same
+                  tape can be asked for twice, and without it the second request
+                  would be satisfied by the first one's acknowledgement.
+                - A refused load **fails the run**. A tape that did not mount
+                  looks exactly like a tape that mounted and holds nothing the
+                  installer wants, and the second is far harder to diagnose.
+                - Verified against real MAME, two swaps acknowledged with the
+                  machine still running, and in `oracle_session` against a stub.
           - [ ] Checkpoint the image at every stage boundary. Each stage costs
                 ten minutes of emulated cartridge scan to reach, and what ends a
                 session is not what was being attempted.

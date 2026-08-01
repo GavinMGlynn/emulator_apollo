@@ -3068,3 +3068,91 @@ checkpoint. The next stage restarts from it rather than from zero.
 Which is the argument for checkpointing at every stage boundary of this install:
 each stage costs ten minutes of emulated cartridge scan to reach, and the thing
 that ends a session is not the thing that was being attempted.
+
+
+## C51 -- tape swapping, and two ways a harness loses a machine
+
+`MINST` takes four cartridges in turn, so an install driver that can mount only
+one at startup is a driver that stops after the first tape. `!swap NAME PATH`
+changes a mounted medium while the machine runs.
+
+**Safe on this device for a stated reason**, not because it appeared to work:
+`sc499_ctape_image_device` derives from `microtape_image_device` and so from
+`magtape_image_device`, whose `is_reset_on_load()` returns **false**. A device
+that reset on load would throw the running install away at the exact moment it
+asked for the next tape.
+
+### The protocol, and why it carries a sequence number
+
+The driver and `mdsession.lua` share nothing: MAME's stdout is the console and
+its stderr is not readable from the driver. So the channel is two files -- a
+request the script polls on emulated time, and an acknowledgement it writes
+back.
+
+The **sequence number** is what makes waiting mean anything. The same cartridge
+can legitimately be asked for twice, and without a number the second request
+would be satisfied by the first one's acknowledgement -- the driver would carry
+on believing a swap had happened while the machine still held the old tape.
+
+A refused load **fails the run**. A tape that did not mount looks exactly like a
+tape that mounted and holds nothing the installer wants, and the second is much
+harder to diagnose from a console transcript.
+
+Verified against real MAME -- two swaps, both acknowledged, machine still
+running -- and in `oracle_session` against a stub that implements the same
+protocol, including the refusal path.
+
+### The swap channel found the path bug a third time
+
+It did not work first time, and the reason was the one this project has now hit
+three times: **MAME runs from its own directory**. `--rundir` was passed
+relative, the driver wrote the request where it was invoked, and the script
+looked for it under `ext/mame`. The swap simply never happened, and the only
+symptom available to the driver was a timeout.
+
+`--disk` and `--ctape` were resolved after the first occurrence; `--rundir` was
+not, because its other uses -- MAME's own `-nvram_directory` and friends -- were
+merely *inconsistent* rather than broken, so nothing had failed loudly enough to
+notice. Both it and `--roms` are resolved now.
+
+The general form: when two processes with different working directories share a
+**file** rather than a directory, a relative path is not a style question. It is
+a channel that silently does not connect.
+
+### Knock for the prompt, not for the sign-on
+
+A stage that resets has to knock, and the obvious thing to knock for is the
+sign-on -- it is the thing a reset produces. That is wrong, and it corrupts the
+*next* command rather than failing itself.
+
+`MD7C REV 8.00, ...` is printed on entry, which is before MD is ready to be
+typed at. A knock that matches the banner returns while the machine is still
+settling, and the command sent immediately afterwards arrives split: the console
+showed `>r`, a line break, and MD's error code `E` -- the `re` had been broken in
+half.
+
+The **prompt** is the only synchronisation point that means ready, because MD
+emits it in answer to a carriage return. The built-in `invol` stage always
+knocked for `MD_PROMPT` and was never affected; the hand-written command file
+did not, and was.
+
+### An orphaned emulator corrupts the next run's transcript
+
+`Session.close()` stops the emulator on every path the driver controls, and none
+of those are the paths that matter. A driver killed from outside -- a timeout, a
+`pkill`, a terminal going away -- skips `close()` and leaves MAME running with
+nobody reading its console.
+
+Observed, and it is worse than untidy. Two orphans held the same log file open
+while a new run opened the same path, and the two wrote at different offsets:
+the transcript filled with **runs of NUL** between interleaved fragments. The
+new run's console looked like the machine was emitting garbage, which is a very
+convincing wrong diagnosis.
+
+The child now asks the kernel to kill it when its parent dies
+(`PR_SET_PDEATHSIG`), and `oracle_session` checks it by killing a driver and
+watching the child go. Two lessons rather than one:
+
+- a cleanup path that only runs on the tidy exits is not a cleanup path;
+- and the *symptom* appeared in a completely different subsystem from the cause.
+  Nothing about "the console is emitting NUL bytes" points at process lifetime.
