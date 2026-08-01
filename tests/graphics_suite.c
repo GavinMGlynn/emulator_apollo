@@ -5,6 +5,8 @@
  * and the tests are about the identification alone.
  */
 
+#include <stddef.h>
+
 #include "board/ap_graphics.h"
 
 #include "unity.h"
@@ -188,6 +190,62 @@ static void test_an_absent_card_s_graphics_memory_reads_ff(void) {
   TEST_ASSERT_EQUAL_HEX8(0xFFu, ap_graphics_read(&g, 0x0A0000u));
 }
 
+
+/* Storage, and nothing more. A write and a read back prove the memory works and
+ * say **nothing** about a display -- which is the honest limit of this module
+ * until the controller lands, and is asserted here so the round-trip cannot be
+ * mistaken for a working screen. */
+static void test_the_graphics_memory_stores_when_a_card_is_fitted(void) {
+  static uint8_t colour[0x20000];
+  static uint8_t mono[0x40000];
+  ap_graphics_t g;
+  ap_graphics_init(&g, AP_SCREEN_COLOUR_8_PLANE);
+  ap_graphics_attach_memory(&g, colour, sizeof colour, mono, sizeof mono);
+
+  ap_graphics_write(&g, 0x0A0000u, 0x5Au);
+  ap_graphics_write(&g, 0x0BFFFFu, 0xA5u);
+  TEST_ASSERT_EQUAL_HEX8(0x5Au, ap_graphics_read(&g, 0x0A0000u));
+  TEST_ASSERT_EQUAL_HEX8(0xA5u, ap_graphics_read(&g, 0x0BFFFFu));
+
+  /* The monochrome memory belongs to a monochrome card, and this is a colour
+   * one: attaching storage does not fit a screen. */
+  ap_graphics_write(&g, 0xFA0000u, 0x33u);
+  TEST_ASSERT_EQUAL_HEX8(0xFFu, ap_graphics_read(&g, 0xFA0000u));
+}
+
+/* Three different ways for there to be nothing behind an address, all reading
+ * `FF` because all three mean the same thing. Separated because it would be
+ * easy to handle only the first and leave the others reading whatever the
+ * pointer happened to be. */
+static void test_every_way_of_having_no_memory_reads_ff(void) {
+  static uint8_t small[16];
+  ap_graphics_t g;
+
+  /* No card of that family. */
+  ap_graphics_init(&g, AP_SCREEN_NONE);
+  ap_graphics_attach_memory(&g, small, sizeof small, small, sizeof small);
+  ap_graphics_write(&g, 0x0A0000u, 0x5Au);
+  TEST_ASSERT_EQUAL_HEX8(0xFFu, ap_graphics_read(&g, 0x0A0000u));
+
+  /* Card fitted, no memory attached. */
+  ap_graphics_init(&g, AP_SCREEN_COLOUR_4_PLANE);
+  ap_graphics_write(&g, 0x0A0000u, 0x5Au);
+  TEST_ASSERT_EQUAL_HEX8(0xFFu, ap_graphics_read(&g, 0x0A0000u));
+
+  /* Card and memory, but past the end of what was attached. A write there must
+   * not run off the buffer, which is why the bound is checked and not assumed
+   * from the region size. */
+  ap_graphics_init(&g, AP_SCREEN_COLOUR_4_PLANE);
+  ap_graphics_attach_memory(&g, small, sizeof small, NULL, 0u);
+  TEST_ASSERT_EQUAL_HEX8(0xFFu, ap_graphics_read(&g, 0x0A0000u + sizeof small));
+  ap_graphics_write(&g, 0x0A0000u + sizeof small, 0x5Au);
+  TEST_ASSERT_EQUAL_HEX8(0xFFu, ap_graphics_read(&g, 0x0A0000u + sizeof small));
+  /* And the byte just inside still works, so the bound is the right one. */
+  ap_graphics_write(&g, 0x0A0000u + sizeof small - 1u, 0x77u);
+  TEST_ASSERT_EQUAL_HEX8(0x77u,
+                         ap_graphics_read(&g, 0x0A0000u + sizeof small - 1u));
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_each_screen_reports_the_id_the_firmware_compares_against);
@@ -196,6 +254,8 @@ int main(void) {
   RUN_TEST(test_the_blocks_are_the_ranges_the_map_gives_them);
   RUN_TEST(test_the_graphics_memories_decode);
   RUN_TEST(test_an_absent_card_s_graphics_memory_reads_ff);
+  RUN_TEST(test_the_graphics_memory_stores_when_a_card_is_fitted);
+  RUN_TEST(test_every_way_of_having_no_memory_reads_ff);
   RUN_TEST(test_an_unmodelled_register_reads_ff_and_not_zero);
   RUN_TEST(test_a_write_is_absorbed_and_does_not_change_the_id);
   return UNITY_END();

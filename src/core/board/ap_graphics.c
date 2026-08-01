@@ -1,7 +1,40 @@
+#include <stddef.h>
+
 #include "board/ap_graphics.h"
 
 void ap_graphics_init(ap_graphics_t *graphics, ap_screen_kind_t screen) {
   graphics->screen = screen;
+  graphics->colour_memory = NULL;
+  graphics->colour_bytes = 0u;
+  graphics->mono_memory = NULL;
+  graphics->mono_bytes = 0u;
+}
+
+void ap_graphics_attach_memory(ap_graphics_t *graphics, uint8_t *colour,
+                               uint32_t colour_bytes, uint8_t *mono,
+                               uint32_t mono_bytes) {
+  graphics->colour_memory = colour;
+  graphics->colour_bytes = colour_bytes;
+  graphics->mono_memory = mono;
+  graphics->mono_bytes = mono_bytes;
+}
+
+/* The storage behind an address, or NULL when there is none: no card of that
+ * family fitted, no memory attached, or an offset past what was attached. All
+ * three read `FF`, because all three are "nothing is there to answer". */
+static uint8_t *memory_at(const ap_graphics_t *graphics, bool colour,
+                          uint32_t offset) {
+  const bool fitted = colour ? ap_graphics_is_colour(graphics->screen)
+                             : ap_graphics_is_monochrome(graphics->screen);
+  if (!fitted) {
+    return NULL;
+  }
+  uint8_t *base = colour ? graphics->colour_memory : graphics->mono_memory;
+  const uint32_t bytes = colour ? graphics->colour_bytes : graphics->mono_bytes;
+  if (base == NULL || offset >= bytes) {
+    return NULL;
+  }
+  return base + offset;
 }
 
 bool ap_graphics_is_colour(ap_screen_kind_t screen) {
@@ -50,12 +83,11 @@ uint8_t ap_graphics_read(const ap_graphics_t *graphics, uint32_t address) {
   bool colour = false;
   uint32_t offset = 0;
   if (ap_graphics_decode_memory(address, &colour, &offset)) {
-    /* Storage a fitted card provides. None is modelled yet, and `FF` is what an
-     * absent card's memory reads -- the same answer the register blocks give,
-     * for the same reason. Storing it comes with the controller, not before:
-     * memory that accepts writes and displays nothing would let a test pass
-     * that proves nothing about a screen. */
-    return 0xFFu;
+    /* Storage a fitted card provides. `FF` when there is none -- no card of
+     * that family, no memory attached, or past what was attached -- because all
+     * three mean nothing is there to answer. */
+    const uint8_t *at = memory_at(graphics, colour, offset);
+    return at != NULL ? *at : 0xFFu;
   }
   if (!ap_graphics_decode(address, &colour, &offset)) {
     return 0xFFu;
@@ -78,11 +110,21 @@ uint8_t ap_graphics_read(const ap_graphics_t *graphics, uint32_t address) {
 
 void ap_graphics_write(ap_graphics_t *graphics, uint32_t address,
                        uint8_t value) {
+  bool colour = false;
+  uint32_t offset = 0;
+  if (ap_graphics_decode_memory(address, &colour, &offset)) {
+    uint8_t *at = memory_at(graphics, colour, offset);
+    if (at != NULL) {
+      *at = value;
+    }
+    /* A write with no memory behind it is discarded, not refused: the region
+     * decodes either way, and refusing would be a bus error the board does not
+     * raise. */
+    return;
+  }
   /* Accepted and discarded. The board reports the write as answered -- the
    * block is decoded -- and this module has no register semantics to apply.
    * Storing the value would be worse than dropping it: a later read would have
    * to decide what it meant, and there is no answer to that yet. */
-  (void)graphics;
-  (void)address;
   (void)value;
 }

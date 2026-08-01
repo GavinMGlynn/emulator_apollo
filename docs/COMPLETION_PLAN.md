@@ -2837,9 +2837,21 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         - It was not hypothetical: in the PROM run 384 accesses move from
           "AT bus (empty slot)" to "display controller". The firmware was
           touching its frame buffer and we were mislabelling it.
-        - Reads answer `FF` and nothing is stored. Storage belongs with the
-          controller: memory that accepted writes and displayed nothing would
-          let a test pass that proves nothing about a screen.
+  - [x] The graphics memories **store**, caller-owned as main memory is — this
+        core allocates nothing. `ap_graphics_attach_memory` takes either or
+        both, which is what a machine with one controller and not the other has.
+        - Three distinct ways to have nothing behind an address — no card of
+          that family, no memory attached, an offset past what was attached —
+          all read `FF`, and each has its own assertion. It would be easy to
+          handle the first and leave the others reading whatever the pointer
+          happened to be.
+        - The bound is **checked, not assumed from the region size**: a region
+          is 128 or 256 Kbyte and an attached buffer need not be, so a write
+          past the end would run off it.
+        - Storage only. A write and read back proves the memory works and says
+          nothing about a display; the header and the test both say so, because
+          a green round-trip is exactly what a working screen would also
+          produce.
   - [ ] **The display controller is the next module**, and now for a reason
         rather than as the next thing on a list. It stops being a probe target:
         the four regions already recorded (`05D800`/`05E800` registers,

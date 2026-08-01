@@ -83,9 +83,30 @@ typedef enum {
 
 typedef struct {
   ap_screen_kind_t screen;
+
+  /* The graphics memories, caller-owned as main memory is: this core allocates
+   * nothing. NULL until a caller attaches them, and a card with no memory
+   * attached reads `FF` exactly as an absent one does -- a frame buffer that
+   * answered zero would look like a screen showing black rather than like no
+   * screen at all. */
+  uint8_t *colour_memory;
+  uint32_t colour_bytes;
+  uint8_t *mono_memory;
+  uint32_t mono_bytes;
 } ap_graphics_t;
 
 void ap_graphics_init(ap_graphics_t *graphics, ap_screen_kind_t screen);
+
+/* Attach the graphics memories. Either may be NULL, which is what a machine
+ * with one controller and not the other has.
+ *
+ * Storage only: nothing here decodes a pixel or drives a screen, and a test
+ * that writes and reads back proves the memory works and says nothing about a
+ * display. That is the honest limit of this module until the controller lands,
+ * and it is stated here so the round-trip test cannot be mistaken for one. */
+void ap_graphics_attach_memory(ap_graphics_t *graphics, uint8_t *colour,
+                               uint32_t colour_bytes, uint8_t *mono,
+                               uint32_t mono_bytes);
 
 /* True when the screen fitted is a colour one. `AP_SCREEN_NONE` is neither, so
  * both blocks answer `FF`. */
