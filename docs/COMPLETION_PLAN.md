@@ -250,8 +250,21 @@ file the moment they are found, not when someone remembers.
         - Actual position: `dsp3500` makes **zero** SIO writes in six emulated
           seconds where `dn3500` makes two. A fact about the machine, not the
           harness, and unexplained.
-        - Next: find out whether `dsp3500` is running at all — check its PC or
-          its main-memory writes before assuming anything about its console.
+        - **Answered, and it is not a fault** (`FINDINGS.md` C35). `dsp3500`
+          runs fine. At six emulated seconds its state is
+          `A0 00010401, A1 0005D800, A3 00010400, A5 000A0000, A6 01000180,
+          PC 00000794, SR 00002704` — every value one our own core holds at the
+          same point, and the PCs are the two ends of the same three-instruction
+          console poll loop. Feeding our core a character on SIO1 channel A puts
+          it at `00000794` exactly.
+        - That is the **first direct state comparison against the oracle on real
+          firmware** rather than on a probe: eight registers and a PC agree.
+          Everything before it compared our numbers against published ones, or
+          our behaviour against MAME's source.
+        - So the MD transcript still needs a console to read, and both machines
+          agree there is none until a display or a terminal is attached. The
+          remaining route is `dn3500` with MAME's `APOLLO_XXL` stdio terminal
+          built in, or reading the transcript out of the frame buffer.
         - MAME refuses a write tap that is not dword-aligned and its message
           names a *different* address ("did you mean 10404"). Take the whole
           device range and filter; accepting the suggestion taps the wrong

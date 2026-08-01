@@ -2142,3 +2142,42 @@ with "start address has low bits set, did you mean 10404". So a byte register
 cannot be tapped alone on this bus, and the whole device range has to be taken
 and filtered. Worth recording because the rejection names a *different* address
 and it would be easy to accept the suggestion and tap the wrong register.
+
+## C35 -- the oracle sits in the same loop we do, with the same registers
+
+`dsp3500` is running perfectly well. The zero SIO writes in C34 were not a
+stalled machine; they are what this firmware does. Dumping its state at six
+emulated seconds:
+
+```
+A0  00010401     A1  0005D800     A3  00010400     A5  000A0000
+A6  01000180     A7  01000180     PC  00000794     SR  00002704
+```
+
+Every one of those is a value our own core holds at the same point. `A0` is the
+console poll's base, `A3` is SIO1, `A1` is the monochrome controller's register
+block, `A5` is the colour graphics memory, and `A6` is the firmware's data base.
+
+The program counters agree too. The oracle stops at `00000794` and ours at
+`000007AE`, which are the two ends of the *same three-instruction loop* --
+`BTST` SIO1, `BNE`, ... `BTST` SIO2, `BEQ` -- so the difference is only where
+each sample fell within one cycle. Feeding our core a character on SIO1
+channel A moves it to `00000794` exactly, which is where the oracle is.
+
+### Why this one matters
+
+This is the first **direct state comparison against the oracle on real
+firmware** rather than on a probe. Everything before it compared a number we
+produced against a number the manuals published, or checked our behaviour
+against MAME's *source*. This checks the running machines against each other,
+and eight registers and a PC agree.
+
+It also settles C34's leftover honestly. "`dsp3500` makes zero SIO writes where
+`dn3500` makes two" looked like a defect to chase. It is the same machine doing
+the same thing, and the two writes `dn3500` makes are a screen being configured
+on a node that has one. Nothing was wrong.
+
+The lesson is the one the retraction above already paid for, arriving from the
+other side: a difference between two runs is not evidence of a fault until the
+runs are known to be comparable. Checking whether `dsp3500` was running at all
+took one dump and should have come before any theory about why it was quiet.
