@@ -2450,6 +2450,16 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         *reaching* the arbiter — a DMA channel in cascade mode plus MASTER.L,
         and the Series 4000 Master Request Register. Both need transfers, and
         the register is absent from the oracle (C10).
+        - The register's **absence from the oracle stands**, but its use no
+          longer has to be guessed: the boot PROM executes `CLR.B $00011600` on
+          every pass through its reset path, so the firmware clears the master
+          request register early and repeatedly. Same evidence as the Phase 3
+          core-register item, cross-referenced here because both were blocked on
+          the same unknown.
+        - What that does not give is the read-back value or the effect of a
+          *set* — only that the firmware clears it at reset, which is what a
+          bus-mastering request register would want at reset and is therefore
+          consistent without confirming anything about the arbitration path.
   - [ ] The synchroniser is `PROVISIONAL` at two clocks, the published maximum
         rather than a measurement. Needs grant latency measured against the
         oracle across request phases, which needs a second master first.
