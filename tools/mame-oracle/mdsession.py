@@ -228,6 +228,23 @@ class Session:
             time.sleep(0.05)
 
     def send(self, text: str, char_delay: float = 0.0):
+        # Everything already received is now *old*. Anything waited for after
+        # this send must be produced in answer to it, so the cursor jumps to the
+        # end of the buffer before a byte goes out.
+        #
+        # Without this, `expect` and `knock` can be satisfied by a prompt that
+        # was already sitting unread -- and they were, twice, in the same
+        # session. `shut` left a prompt nobody consumed; the `!knock` after the
+        # following `re` matched *that* and returned instantly, so `ex domain_os`
+        # was sent into a machine that had just reset and was deaf, and vanished.
+        # Then the same thing through `expect`, and the command arrived as
+        # `eomain_os` -- half of it typed into a machine that was still busy.
+        #
+        # The failure is nasty because it does not look like a synchronisation
+        # bug. It looks like the *machine* mangling input, and the transcript
+        # shows a corrupted command with no hint of why.
+        with self.lock:
+            self.cursor = len(self.buffer)
         data = text.encode("latin-1")
         if char_delay <= 0:
             os.write(self.master, data)

@@ -124,6 +124,10 @@ out = sys.stdout
 signed_on = False
 seen = 0
 line = ""
+# Characters still to be swallowed after a reset. The real machine is deaf
+# while its autobaud hunts for a rate, and that window is exactly where a
+# command sent too early disappears.
+deaf = 0
 
 import select
 
@@ -141,11 +145,18 @@ while True:
         break
     if not data:
         break
-    if record:
-        with open(record, "ab") as handle:
-            handle.write(data)
     for byte in data:
         char = bytes([byte])
+        if deaf > 0:
+            # Deaf, like the firmware during its autobaud: the byte is not
+            # heard at all. Not recorded either -- the record is what the
+            # machine acted on, and a test that recorded discarded input would
+            # report a command as delivered when it was thrown away.
+            deaf -= 1
+            continue
+        if record:
+            with open(record, "ab") as handle:
+                handle.write(char)
         if not signed_on:
             # Deaf until spoken to: the sign-on is provoked, not spontaneous.
             signed_on = True
@@ -161,6 +172,7 @@ while True:
                 # Without this the stub cannot exercise the case that cost a
                 # whole session (C50).
                 signed_on = False
+                deaf = 3
                 line = ""
                 continue
             line = ""
@@ -409,6 +421,36 @@ def main() -> int:
         check("a line appended after the run started is still sent",
               proc.returncode, 0)
         check_in("and reaches the machine", "late",
+                 record.read_bytes().decode("latin-1"))
+
+        # A prompt that was already waiting must not satisfy the *next*
+        # expectation. This is the bug that cost two commands in one real
+        # session: unconsumed output left by an earlier step made a later
+        # `!knock` return instantly, so the command after it was typed into a
+        # machine that had just reset and was deaf.
+        #
+        # The fixture reproduces the shape exactly. `noop` is sent with nothing
+        # waiting on its answer, so its prompt is left unread -- which is what
+        # `shut` did. Then `re`, which makes the machine deaf. Then a knock that
+        # the leftover prompt could satisfy. If it does, the knock returns
+        # without waking anything and `last` is typed into the deaf window and
+        # swallowed, exactly as `ex domain_os` was.
+        record = work / "received-stale"
+        commands = work / "stale.txt"
+        # The `!wait` is the real shape and not padding: in the session that
+        # found this, `shut`'s prompt had been sitting unread for seconds before
+        # `re` was sent. Without the wait the fixture races instead -- the sends
+        # outrun the machine, and `noop`'s output arrives *after* the cursor
+        # moved, which no cursor discipline can help. That is a different bug
+        # (a script that does not wait for what it asked for) and the answer to
+        # it is `!expect`, not this.
+        commands.write_text("noop\n!wait 2\nre\n!knock \\n\\n>\nlast\n!quit\n")
+        proc = run(stub, ["--stage", "prompt", "--commands", str(commands),
+                          "--timeout", "20", "--knock-timeout", "20"],
+                   {"MDSTUB_RECORD": str(record)})
+        check("a stale prompt does not satisfy the next wait",
+              proc.returncode, 0)
+        check_in("so the command after it still arrives", "last",
                  record.read_bytes().decode("latin-1"))
 
         # A killed driver takes its emulator with it. `close()` covers every
