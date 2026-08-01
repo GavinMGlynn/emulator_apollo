@@ -2265,3 +2265,39 @@ transmit buffers, so a console being driven some other way is visible instead of
 silently excluded. The second is strictly more informative and should probably
 have come first -- filtering to the answer you expect is how a search misses the
 thing next to it.
+
+
+## C38 -- the oracle is waiting for the same character our core was
+
+The unfiltered dump, which should have come first. `mdcapture.lua` now reports
+*every* write to both DUARTs, decoded by its write-side register name -- which
+are not the read-side names, since this part has different registers at the same
+address in each direction.
+
+On `dsp3500`, in ten emulated seconds, in service mode: **zero writes to either
+serial port.** Not zero characters -- zero writes of any kind, including the
+mode and clock-select registers a driver must set before it can send anything.
+
+That is not a machine failing to print. It is a machine that has not got as far
+as configuring its serial port, and C35 already said where it is instead: PC
+`00000794`, in the console poll loop, reading a status register and branching on
+a bit that never sets.
+
+**The oracle is waiting for the same character our core was.** MAME's keyboard
+device sends nothing unattended, so nothing ever arrives, and the firmware waits
+exactly as ours did before `--boot-input` existed. Two machines, the same loop,
+the same cause -- which is the strongest form C35's agreement could have taken.
+
+### What this makes the next step
+
+Feed the oracle a character, the way `--boot-input` feeds ours. Either drive
+MAME's `apollo_kbd` device, or inject into the DUART's receiver from lua as our
+`ap_sio_receive` does. The second is closer to what we already know works and
+does not depend on the keyboard's scan-code encoding.
+
+Worth noting the shape of the whole detour. Four routes were closed by
+measurement -- a plain run, the `APOLLO_XXL` terminal, the display
+configuration, service mode -- and every one of them was a theory about why the
+machine would not *speak*. It was never about speaking. The machine was waiting
+to be spoken to, and our own core had already demonstrated that, at
+`000007AE`, several days of findings earlier.

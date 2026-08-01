@@ -310,11 +310,22 @@ file the moment they are found, not when someone remembers.
         - Four routes now closed by measurement: a plain run, the `APOLLO_XXL`
           terminal build, configuring the display away (impossible), and service
           mode.
-        - Next, and in this order: dump **every** SIO write decoded by register
-          rather than filtering to the transmit buffers, and tap **serial 2** as
-          well. The unfiltered dump is strictly more informative and should have
-          come first — filtering to the answer you expect is how a search misses
-          the thing beside it.
+        - **The unfiltered dump answers it** (`FINDINGS.md` C38). On `dsp3500`,
+          ten emulated seconds, service mode: **zero writes to either serial
+          port** — not zero characters, zero writes of any kind, including the
+          mode and clock-select registers a driver must set before sending.
+        - So the oracle has not got as far as configuring its serial port. C35
+          already said where it is: PC `00000794`, the console poll loop,
+          reading a status bit that never sets. **It is waiting for the same
+          character our core was**, because MAME's keyboard sends nothing
+          unattended.
+        - Next: feed the oracle a character, as `--boot-input` feeds ours.
+          Inject into the DUART's receiver from lua — the mirror of
+          `ap_sio_receive` — rather than driving `apollo_kbd`, since that avoids
+          depending on the keyboard's scan-code encoding.
+        - Four routes were closed on the way here and every one was a theory
+          about why the machine would not *speak*. It was never about speaking:
+          it was waiting to be spoken to, which our own core had already shown.
         - The `dsp` variants remain the other route — no display in their
           machine configuration — but `dsp3500` showed zero serial writes at six
           seconds (C35), so it needs either longer or service mode too.
