@@ -19,6 +19,12 @@
 -- ## Configuration
 --
 --   APOLLO_MD_UNTIL   emulated seconds to run before stopping (default 10.0)
+--   APOLLO_MD_POST    text to type once the firmware has settled (default a
+--                     newline). The console poll waits for a character and
+--                     nothing arrives unattended, so without this the machine
+--                     simply sits there -- which is what every earlier run in
+--                     FINDINGS.md C34-C37 was actually watching.
+--   APOLLO_MD_POST_AT emulated seconds to wait before typing (default 4.0)
 --   APOLLO_MD_SERVICE "0" to leave the machine in Normal mode, for the control
 --                     run. Any transcript is worthless without one: output that
 --                     appears in service mode and also in normal mode was not
@@ -27,6 +33,10 @@
 local until_s  = tonumber(os.getenv("APOLLO_MD_UNTIL") or "") or 10.0
 local service  = (os.getenv("APOLLO_MD_SERVICE") or "1") ~= "0"
 
+local post_at_s = tonumber(os.getenv("APOLLO_MD_POST_AT") or "") or 4.0
+local post_text = os.getenv("APOLLO_MD_POST") or "\n"
+
+local posted    = false
 local installed = false
 local finished  = false
 local taps      = {}
@@ -126,6 +136,22 @@ emu.register_periodic(function()
 		install()
 		return
 	end
+	-- Give the firmware a character once it has settled into its console poll,
+	-- the way `--boot-input` does for our own core. Posted through MAME's
+	-- natural keyboard rather than bit-banged onto the serial line: the DUART's
+	-- receiver takes bits, not bytes, and driving it directly would mean
+	-- getting the baud rate right before finding out whether the idea works.
+	if not posted and manager.machine.time.seconds >= post_at_s then
+		posted = true
+		local nat = manager.machine.natkeyboard
+		if nat == nil then
+			out("# no natural keyboard on this machine\n")
+		else
+			out("# posting %q at %.1fs\n", post_text, post_at_s)
+			nat:post(post_text)
+		end
+	end
+
 	if manager.machine.time.seconds >= until_s then
 		out("# end after %d serial write(s)\n", chars)
 		finished = true

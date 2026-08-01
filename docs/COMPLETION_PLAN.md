@@ -319,10 +319,20 @@ file the moment they are found, not when someone remembers.
           reading a status bit that never sets. **It is waiting for the same
           character our core was**, because MAME's keyboard sends nothing
           unattended.
-        - Next: feed the oracle a character, as `--boot-input` feeds ours.
-          Inject into the DUART's receiver from lua — the mirror of
-          `ap_sio_receive` — rather than driving `apollo_kbd`, since that avoids
-          depending on the keyboard's scan-code encoding.
+        - Feeding is **wired** (`APOLLO_MD_POST`, via MAME's natural keyboard)
+          and has not yet produced output (`FINDINGS.md` C40). Recorded as
+          wired-but-unproven rather than as a failure: the window after the post
+          was only eight emulated seconds, and whether `natkeyboard` reaches the
+          Apollo keyboard's serial protocol is untested. Lengthen the window and
+          confirm the keystroke arrives at `apollo_kbd` before concluding.
+        - **A result worth having on the way** (`FINDINGS.md` C39): the oracle's
+          four configuration writes, decoded — `sio1 ACR E0`, `sio1 CSRB 77`,
+          `sio2 ACR 80`, `sio2 CSRA 77`. Both ports get the same clock select,
+          and every address is **odd**, confirming from a running machine that
+          the DUART sits on the odd byte lane — which `ap_sio_decode` already
+          assumes. First serial configuration this project has read off the
+          hardware rather than inferred, and a concrete thing to check our core
+          against.
         - Four routes were closed on the way here and every one was a theory
           about why the machine would not *speak*. It was never about speaking:
           it was waiting to be spoken to, which our own core had already shown.

@@ -2301,3 +2301,48 @@ configuration, service mode -- and every one of them was a theory about why the
 machine would not *speak*. It was never about speaking. The machine was waiting
 to be spoken to, and our own core had already demonstrated that, at
 `000007AE`, several days of findings earlier.
+
+
+## C39 -- the oracle's DUART configuration, decoded, and it is on the odd lane
+
+With every SIO write reported and named, `dn3500` in service mode makes exactly
+four in twelve emulated seconds:
+
+```
+W sio1 ACR   E0  (010409)
+W sio1 CSRB  77  (010413)
+W sio2 ACR   80  (010509)
+W sio2 CSRA  77  (010503)
+```
+
+Two things worth having.
+
+**The addresses are odd.** `010409`, `010413`, `010503`, `010509` -- every one.
+The DUART sits on the **odd byte lane** of this 32-bit bus, which is what our
+own `ap_sio_decode` already assumes when it shifts the offset right by one, and
+this is the first direct confirmation of it from a running machine rather than
+from a dump's shape.
+
+**`CSRA`/`CSRB` are both `77`** -- the same clock-select value on both ports,
+which is a baud rate the firmware picks for both. `ACR` differs between the two
+parts, `E0` against `80`, and bit 7 of ACR is the baud-rate *set* selector, so
+both are on set 1 and serial 1 additionally has its counter/timer source
+configured. That is a concrete thing to check our own core against, and it is
+the first serial configuration this project has read off the hardware rather
+than inferred.
+
+## C40 -- posting a character is wired, and has not yet produced output
+
+`mdcapture.lua` now posts text through MAME's natural keyboard once the firmware
+has settled -- `APOLLO_MD_POST`, defaulting to a newline at four emulated
+seconds. Posted through the natural keyboard rather than bit-banged onto the
+serial line, because the DUART's receiver takes bits and driving it directly
+would mean getting the baud rate right before finding out whether the idea works
+at all.
+
+The post happens. No transmit follows within the eight emulated seconds after
+it. That is not yet a negative result: the window is short, the Apollo keyboard
+is a serial device with its own protocol, and whether `natkeyboard` reaches it
+is untested. Recorded as wired-but-unproven rather than as a failure, because
+the two look identical from one run and only a longer window and a check that
+the keystroke reached the keyboard device can tell them apart.
