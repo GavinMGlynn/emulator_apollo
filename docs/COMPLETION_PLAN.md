@@ -2814,12 +2814,26 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         channel, not just a port. Every run until now fed channel A.
   - [x] `--boot-input-channel A|B`. Feeding `\r` to serial 1 channel B moves the
         PROM to `00002542`, another new region, so the input is being consumed.
-  - [ ] Still no transmit: registers 3 and 11 have zero writes. The firmware
-        takes terminal input and does not answer on the terminal, which is
-        consistent with the display being its output — but that is now the
-        *second* thing pointing there and still not established. Confirm what
-        MAME's DN3500 does with `apollo_sio` **transmit** before building the
-        display.
+  - [x] **Established: the display is the console.** MAME's `dn3500()` wires the
+        stdio terminal only inside `#ifdef APOLLO_XXL`, so a stock DN3500 has
+        **no serial terminal at all** — just the keyboard on serial 1 channel A.
+        Nothing consumes the SIO's transmit. That is why registers 3 and 11 have
+        zero writes: the firmware has nowhere to print *because there is no
+        terminal*, not because it is stuck.
+        - The two hints that pointed here are now one confirmed fact, and the
+          confirmation came from a preprocessor guard rather than from anything
+          the machine did. Worth noting: no amount of tracing our own run could
+          have found it.
+  - [ ] **The display controller is the next module**, and now for a reason
+        rather than as the next thing on a list. It stops being a probe target:
+        the four regions already recorded (`05D800`/`05E800` registers,
+        `0FA0000`/`000A0000` graphics memory) become the machine's output, and
+        the plan's existing note applies — verify on a **decoded PNG**, not on
+        register round-trips.
+  - [ ] The keyboard is the matching input module: serial 1 channel A takes scan
+        codes, and the PROM's table at `000021D2` is the map it decodes them
+        with. `--boot-input-channel A` already reaches it; what is missing is
+        the scan codes themselves.
   - [ ] Superseded reading, kept because it was right about the device and wrong
         about the consequence: **SIO1 is the keyboard, not a terminal.** If
         so, feeding it ASCII is the wrong thing entirely — `\n` and `\r` both

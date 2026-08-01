@@ -212,10 +212,17 @@ belongs on a *channel*, not just a port, and every run until now fed channel A.
 `--boot-input-channel` now selects it, and feeding `\r` to channel B moves the
 PROM to `00002542`, another new region. The input is being consumed.
 
-It still never transmits: registers 3 and 11 have zero writes. The firmware
-takes terminal input and does not answer on the terminal, which is consistent
-with the display being its output — the second thing pointing that way, and
-still not established.
+It still never transmits, and that is now **established rather than suspected**:
+MAME's `dn3500()` wires its stdio terminal only inside `#ifdef APOLLO_XXL`, so a
+stock DN3500 has no serial terminal at all — just the keyboard on channel A.
+Nothing consumes the SIO's transmit. The firmware has nowhere to print because
+there is no terminal, not because it is stuck.
+
+**The display controller is therefore the next module**, for a reason rather
+than as the next item on a list: the four regions already recorded stop being
+probe targets and become the machine's output. The matching input module is the
+keyboard — serial 1 channel A takes scan codes, and the PROM's table at
+`000021D2` is the map it decodes them with.
 
 The tick loop is still owed and remains the project's central design item, but
 it is not what this stop needs.
