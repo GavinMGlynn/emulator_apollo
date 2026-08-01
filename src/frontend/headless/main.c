@@ -34,7 +34,9 @@ static void print_usage(const char *program_name) {
           "  --boot-trace          report pc and a7 per step: a7 is where a\n"
           "                        stack goes wrong, pc only where it shows\n"
           "  --boot-watch ADDR     with --boot-trace, report the long word at\n"
-          "                        ADDR after every step\n"
+          "                        ADDR after every step. MEMORY ONLY: it reads\n"
+          "                        through the board, so a device register\n"
+          "                        would be perturbed by being watched\n"
           "  --boot-input TEXT     deliver TEXT to serial port 2 as the\n"
           "                        firmware reads it; scripted, not host input\n"
           "  --boot-console        print what the machine transmits on either\n"
@@ -293,7 +295,14 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
         /* One named location's contents, per step. Three hypotheses about this
          * value were each refuted by an observable rather than by argument, so
          * the cheapest thing left is to stop reasoning about what writes it and
-         * simply watch it change. */
+         * simply watch it change.
+         *
+         * **Memory only.** This reads through `ap_board_read`, so pointing it
+         * at a device register would *perturb the machine*: reading a DUART's
+         * receive buffer pops its FIFO, and every read here inflates the
+         * per-region counters below. An instrument that changes what it
+         * measures is worse than none, and this one gives no warning -- the run
+         * simply becomes a different run. */
         uint32_t held = 0;
         bool all = true;
         for (unsigned k = 0; k < 4u; k++) {
