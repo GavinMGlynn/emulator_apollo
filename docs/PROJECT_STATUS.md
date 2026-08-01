@@ -722,7 +722,14 @@ Here it is not, so it stays open.
 
 ## Deliberate approximations
 
-None yet. Each one added here carries its reason and cost to close.
+Each carries its reason and cost to close. Distinct from the `PROVISIONAL`
+figures below: those are *numbers* modelled from a documented bound where no
+measurement exists, these are *behaviours* knowingly modelled differently from
+the hardware.
+
+| Approximation | What it does instead | Why | Cost to close |
+| --- | --- | --- | --- |
+| 68030 `RTE` from a bus fault frame | **Re-executes** the faulted instruction from the start rather than resuming mid-instruction | The real part resumes from the internal registers it saved, and this model has none to save | Needs the long frame's internal registers, which need a microsequencer model. Exact meanwhile when the faulted access precedes any side effect — every case the boot PROM reaches — and wrong for an instruction that had already committed one |
 
 ## PROVISIONAL figures
 
@@ -743,7 +750,6 @@ phrase.
 | 68030 asynchronous input synchroniser | two clocks | `[030]` §7.7.4 publishes a bound and not a value: "all asynchronous inputs to the MC68030 are internally synchronized in a maximum of two cycles of the processor clock". The actual delay depends on where the input edge falls relative to the clock, so it is genuinely a range and one clock is as legal as two. Modelled at the documented maximum. Currently reached only by the arbitration unit's BR and BGACK, but it is the part's rule for every asynchronous input and will be shared once devices drive them | Measure grant latency against the oracle across many request phases; small once a second master exists to request the bus. Affects arbitration latency and therefore contention, never which master wins |
 | MC146818A periodic interrupt, six fastest rates | not modelled | `[146818]` Table 5's rates are 32768/2^n Hz. `AP_TIME_BASE_HZ` factors as 2^9·3·5^8·11, so 1.024 kHz through 32.768 kHz are not exactly representable and `ap_clock_init` refuses them. Not an approximation — the nine slower rates are exact and implemented, and the fast six are reported unsupported rather than rounded | Recompute the time base: including 32.768 kHz costs a factor of 64 and drops the representable span from 88.6 years to 505 days. Including the part's own 4.194304 MHz crystal would cost 8192x and leave 3.95 days, so the crystal can never be a clock domain in a 64-bit base at all. Cheap to do, and deliberately not done while nothing is observed using those rates |
 | 68030 long bus fault frame's internal registers | Stacked as **zero**. This model has no microsequencer state to save, so the fields Table 8-6 labels INTERNAL REGISTER are written rather than skipped — a stated value, where a skipped word would leave whatever the stack already held | `[030]` Table 8-6 | An `RTE` resuming a fault *mid-instruction* cannot work from a zeroed frame |
-| 68030 `RTE` from a bus fault frame | **Re-executes** the faulted instruction from the start rather than resuming mid-instruction. Exact when the faulted access precedes any side effect — every case the boot PROM reaches — and wrong for an instruction that had already committed one | `[030]` §8.2.2 | Needs the internal registers above, which need a microsequencer model |
 | DN2500 RAM base | `0x1000000` | Assumed to match the other 68030 models. The DN2500 is a single integrated board with PC-standard DRAM modules and its own memory design, and no address-space allocation table for Series 2500 has been found | Derive from the 2500 boot PROM, or find a Series 2500 hardware reference; medium |
 
 ### Resolved discrepancies
