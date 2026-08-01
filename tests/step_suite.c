@@ -652,14 +652,44 @@ static void test_an_unimplemented_mmu_instruction_is_not_dressed_up_as_f_line(vo
 }
 
 
-/* NOTE: a companion case is a **known failure** and is deliberately not run
- * here -- a misaligned long *write* over two lines that are already resident,
- * read back. Fixing the write side was not enough: the read path assembles a
- * misaligned long from a single cache entry, so it returns zero for a value
- * that is correct in memory. The exact recipe is in `docs/COMPLETION_PLAN.md`
- * and goes in as a test with the fix. A red suite is the stop-everything
- * condition here, so a reproduction that cannot yet pass lives in the plan
- * rather than in the runner. */
+/* The case the boot PROM actually performs: a misaligned long write over two
+ * lines that are already resident, read back.
+ *
+ * `ap_m68030_operand_write` splits at long-word boundaries, so this arrives at
+ * the cache as two *partial* writes. A cache entry is a whole long word, and a
+ * model that stores a partial `value` into one replaces the bytes it did not
+ * write along with the ones it did -- so the entry ends up holding neither the
+ * old value nor the new one.
+ *
+ * That is exactly what made the PROM's `RTS` at `00002946` read zero from an
+ * address `--boot-watch` showed holding `00000620`. Reading both addresses
+ * first is what makes it a hit rather than a miss, and a miss proves nothing
+ * here. */
+static void test_a_misaligned_write_updates_both_resident_lines(void) {
+  machine_t m = {0};
+  static const uint16_t nothing[] = {0x4E71u, 0x4E71u};
+  load(&m, nothing, 2);
+
+  const ap_m68030_address_t low = {.address = 0x00004170u, .valid = true};
+  const ap_m68030_address_t high = {.address = 0x00004174u, .valid = true};
+  TEST_ASSERT_TRUE(
+      ap_m68030_operand_read(&m.cpu.regs, m.cpu.data, &low, 4u, 5u).ok);
+  TEST_ASSERT_TRUE(
+      ap_m68030_operand_read(&m.cpu.regs, m.cpu.data, &high, 4u, 5u).ok);
+
+  const ap_m68030_address_t where = {.address = 0x00004172u, .valid = true};
+  TEST_ASSERT_TRUE(ap_m68030_operand_write(&m.cpu.regs, m.cpu.data, &where, 4u,
+                                           0x00000620u, 5u)
+                       .ok);
+
+  const ap_m68030_operand_result_t back =
+      ap_m68030_operand_read(&m.cpu.regs, m.cpu.data, &where, 4u, 5u);
+  TEST_ASSERT_TRUE(back.ok);
+  TEST_ASSERT_EQUAL_HEX32(0x00000620u, back.value);
+  /* And the neighbouring bytes are untouched: a fix that invalidated instead of
+   * merging would pass the line above and lose these. */
+  TEST_ASSERT_EQUAL_HEX32(0x00000620u, read_ram_long(&m, 0x00004172u));
+}
 
 static void test_misaligned_long_round_trips_through_the_data_cache(void) {
   machine_t m = {0};
@@ -4277,6 +4307,7 @@ int main(void) {
   RUN_TEST(test_a_write_nothing_accepts_takes_the_bus_error_exception);
   RUN_TEST(test_a_refused_write_is_not_left_in_the_cache);
   RUN_TEST(test_a_write_updates_a_line_that_is_already_resident);
+  RUN_TEST(test_a_misaligned_write_updates_both_resident_lines);
   RUN_TEST(test_misaligned_long_round_trips_through_the_data_cache);
   RUN_TEST(test_a_line_1010_word_takes_the_emulator_trap);
   RUN_TEST(test_an_f_line_word_with_no_coprocessor_takes_the_emulator_trap);

@@ -161,8 +161,7 @@ static void test_a_write_hit_updates_the_entry_even_when_frozen(void) {
 
   const ap_m68030_cache_write_t result =
       ap_m68030_cache_write(&cache, ADDRESS, FC_SUPERVISOR_DATA, 0x22222222,
-                            true, false /* WA */, true /* frozen */,
-                            false /* one entry */);
+                            true, false /* WA */, true /* frozen */, 4u);
 
   TEST_ASSERT_EQUAL_INT(AP_M68030_CACHE_WRITE_HIT, result);
   uint32_t value = 0;
@@ -177,8 +176,7 @@ static void test_a_write_miss_without_allocation_leaves_the_cache_alone(void) {
 
   const ap_m68030_cache_write_t result =
       ap_m68030_cache_write(&cache, ADDRESS, FC_SUPERVISOR_DATA, 0x22222222,
-                            true, false /* WA */, false,
-                            false /* one entry */);
+                            true, false /* WA */, false, 4u);
 
   TEST_ASSERT_EQUAL_INT(AP_M68030_CACHE_WRITE_UNTOUCHED, result);
   uint32_t value = 0;
@@ -197,8 +195,7 @@ static void test_write_allocation_validates_only_the_long_word_written(void) {
 
   const ap_m68030_cache_write_t result =
       ap_m68030_cache_write(&cache, ADDRESS, FC_SUPERVISOR_DATA, 0x33333333,
-                            true, true /* WA */, false,
-                            false /* one entry */);
+                            true, true /* WA */, false, 4u);
 
   TEST_ASSERT_EQUAL_INT(AP_M68030_CACHE_WRITE_ALLOCATED, result);
   uint32_t value = 0;
@@ -225,8 +222,7 @@ static void test_a_sub_long_word_write_miss_invalidates_rather_than_fills(void) 
 
   const ap_m68030_cache_write_t result = ap_m68030_cache_write(
       &cache, ADDRESS, FC_SUPERVISOR_DATA, 0x44444444,
-      false /* not an aligned long word */, true /* WA */, false,
-      false /* one entry */);
+      false /* not an aligned long word */, true /* WA */, false, 2u);
 
   TEST_ASSERT_EQUAL_INT(AP_M68030_CACHE_WRITE_INVALIDATED, result);
   uint32_t value = 0;
@@ -249,8 +245,7 @@ static void test_a_frozen_cache_ignores_write_allocation(void) {
 
   const ap_m68030_cache_write_t result =
       ap_m68030_cache_write(&cache, ADDRESS, FC_SUPERVISOR_DATA, 0x55555555,
-                            true, true /* WA */, true /* frozen */,
-                            false /* one entry */);
+                            true, true /* WA */, true /* frozen */, 4u);
 
   TEST_ASSERT_EQUAL_INT(AP_M68030_CACHE_WRITE_UNTOUCHED, result);
 }

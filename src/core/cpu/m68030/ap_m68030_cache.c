@@ -95,7 +95,7 @@ ap_m68030_cache_write_t
 ap_m68030_cache_write(ap_m68030_cache_t *cache, uint32_t address,
                       uint8_t function_code, uint32_t value,
                       bool aligned_long_word, bool write_allocate, bool frozen,
-                      bool spans_two_entries) {
+                      unsigned size) {
   ap_m68030_cache_line_t *line =
       &cache->line[ap_m68030_cache_line_index(address)];
   const unsigned entry = ap_m68030_cache_entry_index(address);
@@ -104,34 +104,34 @@ ap_m68030_cache_write(ap_m68030_cache_t *cache, uint32_t address,
 
   /* "When a hit occurs on a write cycle, the data is written both to the cache
    * and to external memory ... regardless of the operand size and even if the
-   * cache is frozen." The freeze bit stops *replacement*, not updating. */
-  /* A misaligned long word spans two entries, and a cache entry is a whole long
-   * word: there is no way to write half of `value` into each. The rule below
-   * for the miss case says "the valid bit(s) are cleared" -- plural, because
-   * this is exactly the access that touches two -- and the same applies on a
-   * hit, since the alternative is writing a whole entry from an address whose
-   * bytes only partly belong to it.
+   * cache is frozen." The freeze bit stops *replacement*, not updating.
    *
-   * Leaving one entry updated with the wrong bytes and the other stale is what
-   * made the boot PROM's `RTS` at `00002946` read zero from an address that
-   * demonstrably held `00000620`: the value was in memory, and the cache
-   * answered instead. Writethrough has already put it in memory, so clearing
-   * both entries costs a refill and cannot return a wrong value. */
-  if (spans_two_entries) {
-    if (tag_hit) {
-      line->valid[entry] = false;
-      const unsigned next = entry + 1u;
-      if (next < AP_M68030_CACHE_ENTRIES) {
-        line->valid[next] = false;
-      }
-    }
-    /* The other line, when the access crosses a line boundary as well. The
-     * caller passes the second address for exactly this. */
-    return AP_M68030_CACHE_WRITE_INVALIDATED;
-  }
-
+   * "Regardless of the operand size" is the part that needs care. A cache entry
+   * is a whole long word, and `value` is only a whole long word when the access
+   * is an aligned one -- `ap_m68030_operand_write` splits at long-word
+   * boundaries, so a misaligned long arrives here as two partial writes. Storing
+   * a two-byte `value` into a four-byte entry replaces the bytes that were not
+   * written along with the ones that were.
+   *
+   * So the written bytes are merged into their own lanes and the rest of the
+   * entry is left alone. Big-endian: the first byte of an operand goes to the
+   * lowest address, which is the most significant lane of the entry.
+   *
+   * This is what made the boot PROM's `RTS` at `00002946` read zero from an
+   * address that held `00000620`. The return address was pushed as two partial
+   * writes, each replaced a whole entry, and the cache answered a later read
+   * instead of memory. */
   if (tag_hit && line->valid[entry]) {
-    line->entry[entry] = value;
+    const unsigned offset = address & 3u;
+    const unsigned bytes = size > (4u - offset) ? (4u - offset) : size;
+    if (bytes >= 4u) {
+      line->entry[entry] = value;
+    } else {
+      const unsigned shift = (4u - offset - bytes) * 8u;
+      const uint32_t mask = ((UINT32_C(1) << (bytes * 8u)) - 1u) << shift;
+      line->entry[entry] =
+          (line->entry[entry] & ~mask) | ((value << shift) & mask);
+    }
     return AP_M68030_CACHE_WRITE_HIT;
   }
 

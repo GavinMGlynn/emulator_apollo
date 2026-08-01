@@ -133,7 +133,7 @@ ap_m68030_cache_write_t
 ap_m68030_cache_write(ap_m68030_cache_t *cache, uint32_t address,
                       uint8_t function_code, uint32_t value,
                       bool aligned_long_word, bool write_allocate, bool frozen,
-                      bool spans_two_entries);
+                      unsigned size);
 
 /* The cache control register, `[030]` §6.3.1 pp. 6-21 ff.
  *

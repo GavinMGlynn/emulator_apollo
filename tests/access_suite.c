@@ -322,8 +322,12 @@ static void test_a_write_hit_updates_the_cached_value(void) {
 
   const ap_m68030_access_result_t first =
       ap_m68030_access_read(&ctx, ADDRESS, FC_SUPERVISOR_DATA);
+  /* `4u`, the size. This read `true` until byte-lane merging exposed it: the
+   * old cache replaced the whole entry regardless of size, so a one-byte write
+   * of a long value looked like a long write and the test passed for the wrong
+   * reason. */
   (void)ap_m68030_access_write(&ctx, ADDRESS, FC_SUPERVISOR_DATA, 0xFEEDFACEu,
-                               true);
+                               4u);
 
   const ap_m68030_access_result_t after =
       ap_m68030_access_read(&ctx, ADDRESS, FC_SUPERVISOR_DATA);
