@@ -3485,12 +3485,21 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         machine does not raise. `01000180` is not a stack the firmware is
         expected to build four exception frames on, and now it will not have
         to.
-  - [ ] The long frame's INTERNAL REGISTER fields will have to be stacked as
-        zero — a deliberate approximation, since this model has no
-        microsequencer state to save. Cost to close: an `RTE` resuming a fault
-        *mid-instruction* cannot work from a zeroed frame, so the rerun above
-        must reconstruct the access from the SSW and fault address instead of
-        from internal state. Record it as `PROVISIONAL` when it lands.
+  - [~] The long frame's INTERNAL REGISTER fields are stacked as zero — a
+        deliberate approximation, since this model has no microsequencer state
+        to save. Cost to close: an `RTE` resuming a fault *mid-instruction*
+        cannot work from a zeroed frame, so the rerun must reconstruct the
+        access from the SSW and fault address instead of from internal state.
+        - **Landed, and now recorded as the convention requires**: marked
+          `PROVISIONAL` in `ap_m68030_step.c` and entered in
+          `PROJECT_STATUS.md`'s `PROVISIONAL` table, alongside the second
+          approximation it produced — `RTE` re-executing the faulted
+          instruction from the start rather than resuming mid-instruction.
+        - `[~]` rather than `[ ]`: the approximation is *made*, deliberately and
+          documented in all three places. What remains open is closing it, which
+          is the "cost to close" column of the table entry rather than an
+          unstarted task. The item said "record it as `PROVISIONAL` when it
+          lands", and this is that.
   - [x] Closed: the store callback returns `bool` now, so a write can fault, and
         `step_suite` covers a faulted write taking the short frame. It was
         recorded as unreachable rather than quietly left untested, which is what
