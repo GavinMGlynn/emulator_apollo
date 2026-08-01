@@ -27,7 +27,9 @@ static void print_usage(const char *program_name) {
   fprintf(stdout,
           "  --run-probes          run the built-in probe suite and report\n"
           "  --time-instructions   report per-instruction clocks, for oracle\n"
-          "                        comparison\n");
+          "                        comparison\n"
+          "  --boot-limit N        stop a boot after N instructions, to find\n"
+          "                        where one goes wrong\n");
 }
 
 /* The probes' RAM. Static rather than automatic because it is large, and
@@ -392,6 +394,15 @@ int main(int argc, char **argv) {
     }
     if (strcmp(argv[i], "--boot-tape") == 0 && i + 1 < argc) {
       boot_tape = argv[i + 1];
+      i += 2;
+      continue;
+    }
+    /* Stopping a boot short is how you find where it went wrong. Without it the
+     * only observable is the end state, and an end state cannot say which
+     * instruction produced it -- a wild PC looks the same however far back the
+     * mistake was made. */
+    if (strcmp(argv[i], "--boot-limit") == 0 && i + 1 < argc) {
+      boot_limit = (unsigned)strtoul(argv[i + 1], NULL, 0);
       i += 2;
       continue;
     }

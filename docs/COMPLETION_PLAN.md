@@ -2555,11 +2555,32 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
           throughout. That is why it was worth fixing rather than shrugging at —
           the region enum exists to answer "what did the firmware reach for",
           and a confident wrong name is what a reader acts on. `board_suite`.
-  - [ ] The PROM stops at `FFFF060E` after **2788** instructions. A PC that far
-        out is a wild jump rather than a probe of a known address, so this is a
-        different kind of question from the last four — likelier a gap in what
-        we execute than a device we have not built. Find the last instruction
-        before the PC left the PROM.
+  - [x] `--boot-limit N` on the headless frontend, to stop a boot short. Without
+        it the only observable is the end state, and an end state cannot say
+        which instruction produced it — a wild PC looks identical however far
+        back the mistake was made.
+  - [x] Localised the `FFFF060E` stop by bisecting on that flag. The PC leaves
+        the PROM on instruction **2788**, at `00002502`, which is an `RTS`. The
+        subroutine is five instructions:
+        ```
+        0024F6  2F08       MOVE.L  A0,-(A7)
+        0024F8  4E7A 8801  MOVEC   VBR,A0
+        0024FC  0810 0007  BTST    #7,(A0)
+        002500  205F       MOVEA.L (A7)+,A0
+        002502  4E75       RTS
+        ```
+        Each advances the PC by exactly its own length, so nothing is
+        mis-decoded, and the push and pop balance. **The return address on the
+        stack is therefore already wrong when this subroutine is entered** — the
+        `RTS` is where the damage becomes visible, not where it happens.
+  - [ ] Find where the stack was corrupted. It is *before* `0024F6`, so bisect
+        on A7 rather than on the PC: the useful observable is the first step at
+        which A7 stops matching the call depth. Consider a `--boot-trace` that
+        reports PC and A7 per step — the same argument that justified
+        `--boot-limit` applies again, one level down.
+        - Do **not** assume this is another missing device. A wild PC from an
+          `RTS` is a wrong *value*, and the four blockers before it were all
+          absent hardware; that pattern does not apply here.
   - [ ] Whether the PROM *should* reach `00090000` at all is a separate
         question from what happens when it does. Check what it tests before
         jumping — do not assume the jump is unconditional.

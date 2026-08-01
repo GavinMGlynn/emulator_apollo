@@ -86,7 +86,7 @@ crash — the display controller's lesson a second time, found the same way.
 
 Reading `FF` gives `FFFF`, an F-line word, and with the **line 1010 and line
 1111 emulator traps** now raised the machine takes vector 11 the way the
-hardware does. The PROM reaches **2788 instructions**, then stops at `FFFF060E` — a PC far outside anything the map allocates, so a wild jump rather than a probe of a known address. That is a different kind of question from the four before it, and likelier a gap in what we execute than a device we have not built.
+hardware does. The PROM reaches **2788 instructions**, then stops at `FFFF060E` — a PC far outside anything the map allocates, so a wild jump rather than a probe of a known address. Bisected with the new `--boot-limit`: the PC leaves the PROM on instruction 2788 at `00002502`, an `RTS`. Every instruction in that subroutine advances the PC by its own length and its push and pop balance, so the return address was **already wrong on entry** — the `RTS` is where the damage shows, not where it happens. The corruption is earlier and is a wrong value rather than a missing device.
 
 Both traps were defined and classified and simply never taken; reporting them
 `UNIMPLEMENTED` said the gap was ours when taking the trap is the whole
