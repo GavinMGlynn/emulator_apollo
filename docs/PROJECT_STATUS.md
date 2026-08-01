@@ -110,12 +110,17 @@ balancing — so it is not a branch either.
 
 What it did surface: step 18 is `MOVE.W SR,-(A7)`, a *word* push, which leaves
 every later long push and pop at **2 mod 4**. The failing read is a long at
-`01000172`, spanning the cache lines at `01000170` and `01000174`. The same
-address round-trips correctly at step 28, so what changes by step 57 is cache
-state — the shape of a line-straddling bug in misaligned long access. Misaligned
-data is legal on this part, so it is a path the hardware exercises and we may
-not. Recorded as a hypothesis to reproduce in `access_suite` directly, not
-through the PROM.
+`01000172`, spanning the cache lines at `01000170` and `01000174`. That hypothesis is
+**refuted**: tested directly, a long at 2 mod 4 round-trips through the data
+cache even after a 4 KB sweep evicts around it. The test is kept, since
+misaligned data is legal on this part and the path deserves cover regardless.
+
+Three hypotheses are now down — a stack overlap, a wrong branch, and misaligned
+access — each refuted by one small addition to the instrumentation. What is
+established is that the `BSR` at step 30 should leave `00000620` at `01000172`,
+nothing writes there before step 57, and reading it misaligned works. The next
+step is to watch that location per step rather than hypothesise a fourth
+mechanism.
 
 Getting there needed `--boot-trace` (PC and A7 per step) and one fix. A7 was the
 observable: the PROM's `CLR.B $00011600` bus errored on every pass through its

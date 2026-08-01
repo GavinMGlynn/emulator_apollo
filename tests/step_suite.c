@@ -651,6 +651,37 @@ static void test_an_unimplemented_mmu_instruction_is_not_dressed_up_as_f_line(vo
   TEST_ASSERT_EQUAL_HEX32(PROGRAM_BASE, m.cpu.regs.pc);
 }
 
+static void test_misaligned_long_round_trips_through_the_data_cache(void) {
+  machine_t m = {0};
+  static const uint16_t nothing[] = {0x4E71u, 0x4E71u};
+  load(&m, nothing, 2);
+
+  const ap_m68030_address_t where = {.address = 0x00004172u, .valid = true};
+  const ap_m68030_operand_result_t wrote = ap_m68030_operand_write(
+      &m.cpu.regs, m.cpu.data, &where, 4u, 0x00000620u, 5u);
+  TEST_ASSERT_TRUE(wrote.ok);
+
+  /* Straight back, which is the case that already works in the PROM. */
+  ap_m68030_operand_result_t back =
+      ap_m68030_operand_read(&m.cpu.regs, m.cpu.data, &where, 4u, 5u);
+  TEST_ASSERT_TRUE(back.ok);
+  TEST_ASSERT_EQUAL_HEX32(0x00000620u, back.value);
+
+  /* Now touch enough other memory to disturb the cache, then read again. The
+   * value spans the lines at 4170 and 4174, so a model that caches only one of
+   * them hands back half a stale word here rather than at the write. */
+  for (uint32_t a = 0x00005000u; a < 0x00006000u; a += 4u) {
+    const ap_m68030_address_t other = {.address = a, .valid = true};
+    const ap_m68030_operand_result_t r =
+        ap_m68030_operand_read(&m.cpu.regs, m.cpu.data, &other, 4u, 5u);
+    TEST_ASSERT_TRUE(r.ok);
+  }
+
+  back = ap_m68030_operand_read(&m.cpu.regs, m.cpu.data, &where, 4u, 5u);
+  TEST_ASSERT_TRUE(back.ok);
+  TEST_ASSERT_EQUAL_HEX32(0x00000620u, back.value);
+}
+
 /* The flag describes one instruction, so it must not survive into the next.
  * A stale one would mislabel the following unimplemented instruction as a
  * fault -- the same conflation, merely pointing the other way. */
@@ -4200,6 +4231,7 @@ int main(void) {
   RUN_TEST(test_the_same_instruction_over_memory_that_answers_executes);
   RUN_TEST(test_a_write_nothing_accepts_takes_the_bus_error_exception);
   RUN_TEST(test_a_refused_write_is_not_left_in_the_cache);
+  RUN_TEST(test_misaligned_long_round_trips_through_the_data_cache);
   RUN_TEST(test_a_line_1010_word_takes_the_emulator_trap);
   RUN_TEST(test_an_f_line_word_with_no_coprocessor_takes_the_emulator_trap);
   RUN_TEST(test_an_unimplemented_mmu_instruction_is_not_dressed_up_as_f_line);

@@ -2619,23 +2619,26 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         `BSR.W` pushes return address `00000620` to `01000172`; step 57's `RTS`
         reads `01000172` and gets zero. Nothing between them writes there — the
         `(d16,A6)` stores all land at `010002B0` and above.
-  - [ ] **Leading hypothesis: a misaligned long access across two cache lines.**
-        Step 18 is `MOVE.W SR,-(A7)`, a *word* push, which leaves A7 at
-        `0100017E` and every subsequent long push and pop at **2 mod 4**. The
-        failing read is a long at `01000172`, whose bytes span the lines at
-        `01000170` and `01000174`.
-        - Misaligned data is legal on this part — §7.2.1 transfers a long to an
-          odd address in three bus cycles — so this is a path the hardware
-          exercises and we may not have.
-        - The same address round-trips correctly at step 28, so it is **not**
-          simply broken: what differs by step 57 is the cache state. That is the
-          shape of a line-straddling bug, and it is why this is a hypothesis and
-          not a diagnosis.
-        - Test it directly rather than through the PROM: write and read back a
-          long at an address 2 mod 4 with the data cache enabled, with
-          intervening accesses chosen to evict one of the two lines but not the
-          other. `access_suite` and `operand_suite` both already have the
-          harness. If it reproduces there, the PROM is not needed to fix it.
+  - [x] **Refuted: misaligned long access is fine.** Step 18 is
+        `MOVE.W SR,-(A7)`, a word push, so every later long push and pop sits at
+        2 mod 4 and the failing read at `01000172` spans the lines at
+        `01000170` and `01000174`. Tested directly rather than through the PROM:
+        write a long at 2 mod 4, read it back, sweep 4 KB of other addresses to
+        disturb the cache, read again. It round-trips. The test is kept as a
+        regression test — misaligned data is legal on this part and the path is
+        now covered either way.
+  - [ ] Three hypotheses down. What is established: the `BSR` at step 30 should
+        leave `00000620` at `01000172`, nothing between it and step 57 writes
+        there, the stack arithmetic is right, and reading that address
+        misaligned works. So **verify the memory directly** rather than
+        hypothesising a fourth mechanism — dump the long at `01000172`
+        immediately after step 30 and again before step 57, and find which end
+        of the gap is wrong. `--boot-trace` already proves how cheap one more
+        observable is; this needs a `--boot-watch ADDR` reporting a location's
+        contents per step.
+        - Do not guess a fourth mechanism first. Each of the three refutations
+          cost one small addition to the instrumentation and each was decisive;
+          the reasoning that produced them was not.
   - [ ] Whether the PROM *should* reach `00090000` at all is a separate
         question from what happens when it does. Check what it tests before
         jumping — do not assume the jump is unconditional.
