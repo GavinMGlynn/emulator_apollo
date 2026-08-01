@@ -151,10 +151,49 @@ static void test_a_delivered_byte_reaches_the_program(void) {
       0x5Au, ap_sio_read(&sio, AP_SIO2_ADDR + (AP_MC68681_RB_TB_A * 2u)));
 }
 
+
+/* The board's rate- and parity-aware path, end to end through the registers a
+ * program writes. A device with its own configuration says so, and the DUART
+ * decides whether the link works rather than the caller assuming it does. */
+static void test_a_mis_rated_sender_reaches_the_port_as_an_error(void) {
+  ap_sio_t sio;
+  ap_sio_reset(&sio);
+  ap_sio_write(&sio, AP_SIO2_ADDR + (AP_MC68681_CR_A * 2u), 0x01u);
+  ap_sio_write(&sio, AP_SIO2_ADDR + (AP_MC68681_SR_CSR_A * 2u), 0x77u);
+  ap_sio_write(&sio, AP_SIO2_ADDR + (AP_MC68681_MR_A * 2u), 0x07u);
+
+  ap_sio_receive_framed(&sio, 1u, 0u, 0x41u, 0xBBu, 0x07u);
+
+  const uint8_t sr = ap_sio_read(&sio, AP_SIO2_ADDR + (AP_MC68681_SR_CSR_A * 2u));
+  TEST_ASSERT_TRUE((sr & AP_MC68681_SR_FRAMING) != 0u);
+  /* And the byte is still there, so a driver can tell a wrong rate from
+   * silence — which is the whole reason the part does not discard it. */
+  TEST_ASSERT_TRUE((sr & AP_MC68681_SR_RXRDY) != 0u);
+}
+
+/* A correctly configured sender produces neither error, which is the control:
+ * a board path that always flagged would satisfy the test above. */
+static void test_a_matching_sender_reaches_the_port_cleanly(void) {
+  ap_sio_t sio;
+  ap_sio_reset(&sio);
+  ap_sio_write(&sio, AP_SIO2_ADDR + (AP_MC68681_CR_A * 2u), 0x01u);
+  ap_sio_write(&sio, AP_SIO2_ADDR + (AP_MC68681_SR_CSR_A * 2u), 0x77u);
+  ap_sio_write(&sio, AP_SIO2_ADDR + (AP_MC68681_MR_A * 2u), 0x07u);
+
+  ap_sio_receive_framed(&sio, 1u, 0u, 0x41u, 0x77u, 0x07u);
+
+  const uint8_t sr = ap_sio_read(&sio, AP_SIO2_ADDR + (AP_MC68681_SR_CSR_A * 2u));
+  TEST_ASSERT_FALSE((sr & (AP_MC68681_SR_FRAMING | AP_MC68681_SR_PARITY)) != 0u);
+  TEST_ASSERT_EQUAL_HEX8(
+      0x41u, ap_sio_read(&sio, AP_SIO2_ADDR + (AP_MC68681_RB_TB_A * 2u)));
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_what_the_program_transmits_reaches_the_caller);
   RUN_TEST(test_a_delivered_byte_reaches_the_program);
+  RUN_TEST(test_a_mis_rated_sender_reaches_the_port_as_an_error);
+  RUN_TEST(test_a_matching_sender_reaches_the_port_cleanly);
   RUN_TEST(test_both_ports_decode_at_stride_two);
   RUN_TEST(test_the_paired_bytes_reach_one_register);
   RUN_TEST(test_the_two_ports_are_independent);

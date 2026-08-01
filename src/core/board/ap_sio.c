@@ -79,3 +79,13 @@ void ap_sio_receive_at(ap_sio_t *sio, unsigned unit, unsigned channel,
   }
   ap_mc68681_receive_at(&sio->port[unit], channel, byte, sender_csr);
 }
+
+void ap_sio_receive_framed(ap_sio_t *sio, unsigned unit, unsigned channel,
+                           uint8_t byte, uint8_t sender_csr,
+                           uint8_t sender_mr1) {
+  if (unit >= 2u) {
+    return;
+  }
+  ap_mc68681_receive_framed(&sio->port[unit], channel, byte, sender_csr,
+                            sender_mr1);
+}

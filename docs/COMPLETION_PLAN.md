@@ -2777,10 +2777,20 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
           receiver's own `MR1` to say "the same" would be asserting a fact it
           does not have.
 
+        - `ap_sio_receive_framed` carries rate *and* parity through the board,
+          so a modelled device can state its own configuration and let the DUART
+          decide whether the link works. `sio_suite`, 2 tests through the
+          registers a program actually writes, with a control that a correctly
+          configured sender produces neither error.
+
     That completes the item's original list — baud rates, start and stop bits,
     parity, and the automatic echo and loopback modes — except that stop bits
     are decoded and reported rather than timed, which needs the tick loop before
     it can mean anything.
+
+    **This unblocks the keyboard item below**, which was waiting on "the framing
+    above, or a device on the other end". The framing exists now; what the
+    keyboard still needs is its scan codes.
         - **The values are no longer unknown.** `FINDINGS.md` C39 and C42 read
           them off the running oracle: `sio1 ACR E0`, `sio1 CSRB 77`,
           `sio2 ACR 80`, `sio2 CSRA 77` at reset, and the firmware then

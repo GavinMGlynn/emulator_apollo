@@ -104,6 +104,18 @@ void ap_sio_receive(ap_sio_t *sio, unsigned unit, unsigned channel,
 void ap_sio_receive_at(ap_sio_t *sio, unsigned unit, unsigned channel,
                        uint8_t byte, uint8_t sender_csr);
 
+/* Deliver a byte whose sender states its whole framing — rate in `sender_csr`,
+ * parity in `sender_mr1`. A disagreement on either leaves the byte in the FIFO
+ * with the matching error bit set, which is what a driver reads to discover a
+ * mis-cabled link.
+ *
+ * This is the form a modelled *device* should use: a keyboard or a terminal has
+ * its own configuration, and saying so lets the DUART decide whether the link
+ * works rather than assuming it does. */
+void ap_sio_receive_framed(ap_sio_t *sio, unsigned unit, unsigned channel,
+                           uint8_t byte, uint8_t sender_csr,
+                           uint8_t sender_mr1);
+
 /* Whether a port's receiver already holds a byte the program has not taken.
  * A caller feeding a script uses this to deliver the next byte only when the
  * previous one has been read, which is what a real terminal's flow looks like
