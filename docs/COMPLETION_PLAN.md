@@ -2539,10 +2539,22 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         single write of the CPU's mask swept: taken at mask 5, blocked at mask
         6, so the level is 6. Reproduced twice at each bracketing mask and
         confirmed by the master's ISR. `FINDINGS.md` C12.
-  - [ ] Whether the acknowledge is autovectored or a CPU-space cycle a program
-        space tap cannot see. `008778-03` §3.2 says the latter; no read appears
-        on the controller's range either way. Separate from the level and does
-        not block wiring.
+  - [x] **Answered, and it is both — by level.** `008778-03` §3.2 said the
+        acknowledge is a CPU-space cycle, and the oracle confirms it: MAME's
+        `dn3500` installs a `cpu_space_map` covering `FFFFFFF2-FFFFFFFF`, which
+        is CPU space and therefore invisible to a program-space tap. That is why
+        no read ever appeared on the controller's range.
+        - The handler is not uniform. At **level 6 it returns the 8259's
+          vector**; at every other level it returns the autovector. So this
+          machine mixes the two, and level 6 is exactly the CPU interrupt level
+          this project measured separately — the two findings meet.
+        - What that means for us: `ap_m68030_iack_t`'s three outcomes
+          (autovector, device vector, spurious) are the right shape, and the
+          board's acknowledge must answer *device vector* for level 6 and
+          *autovector* for the rest, rather than choosing one policy.
+        - Read off the oracle's source rather than measured from a run, because
+          an idle boot never requests an interrupt — the same reason the level
+          itself needed a deliberate probe.
 - [ ] Two AT DMA controllers. *Verification: transfer probes; device request
       lines gate DMA at block granularity, not per word.*
   - [x] Placement measured before writing anything: DMA 1 at `010C00` **stride
