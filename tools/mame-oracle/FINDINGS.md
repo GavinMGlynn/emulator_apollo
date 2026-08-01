@@ -2700,9 +2700,31 @@ mame dn3500 -mouse -disk1 /tmp/dn3500_sr10.4.awd \
      -ctape /tmp/019593-001.CRTG_STD_SFW_BOOT_1-REV.A.ct
 ```
 
-A **348 MB image is generated automatically** when `-disk1` names a file that
-does not exist -- so the disk image nobody had is a side effect of the first
-command, not a thing to be built.
+The wiki says a **348 MB image is generated automatically** when `-disk1` names
+a file that does not exist. **That is not true of this MAME.** Tried it: the
+build refuses with
+
+```
+Unable to create image '.../dn3500.awd': No such file or directory (generic:2)
+Fatal error: Device OMTI 8621 ESDI disk load (-winchester1 ...) failed
+```
+
+and creates nothing, with the output directories present and 166 GB free. The
+auto-generation is older behaviour; a forum thread on the same install mentions
+in passing that recent MAME needs the file made by hand.
+
+Making it by hand works:
+
+```
+truncate -s 348M dn3500.awd
+```
+
+which is 364904448 bytes, and MAME then starts the machine with that image and
+the boot tape and runs without complaint. **Verified**, not assumed -- the run
+was made and reported `Average speed: 77.78%` with no errors.
+
+So the disk image *is* a thing to build, in one command, and the procedure's
+first step as published does not work.
 
 Machine Configuration (`ScrLock` then `Tab`): **"25 Years Ago" On, everything
 else Off**. Then from the MD prompt:

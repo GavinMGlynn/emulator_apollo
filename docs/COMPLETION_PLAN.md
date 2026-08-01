@@ -112,10 +112,14 @@ file the moment they are found, not when someone remembers.
         install rather than by hand.*
         - **Smaller than recorded, and the procedure already exists**
           (`FINDINGS.md` C47). MAMEDEV's own `Driver:Apollo` wiki carries a
-          step-by-step SR10.4 install for `dn3500`, and a **348 MB image is
-          generated automatically** when `-disk1` names a file that does not
-          exist — so the blank disk nobody had is a side effect of the first
-          command rather than a thing to build.
+          step-by-step SR10.4 install for `dn3500`.
+        - The wiki's claim that a 348 MB image is **auto-generated** does not
+          hold for this MAME — it refuses and creates nothing. `truncate -s 348M
+          dn3500.awd` (364904448 bytes) works, and MAME then starts with that
+          image and the boot tape cleanly. **Verified by running it**, not
+          inferred.
+        - **Media prepared**: all five tapes decompressed in `media/domainos/`,
+          originals kept.
         - **We already hold all five tapes it names**, filename for filename, in
           `media/domainos/`. Nothing needs downloading.
         - The sequence is driven from the **MD prompt** (`re`, `di c`,
