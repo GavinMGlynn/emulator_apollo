@@ -3721,6 +3721,15 @@ discipline throughout.
     others were taken from address-space tables and the reset vectors agree with
     them independently, which is a check on both. The DN2500's was a guess
     filling a gap, and a guess is what the check caught.
+  - **A second DN2500 discrepancy fell out of the same listing.** Its PROM is
+    **131072 bytes**, and `AP_BOARD_PROM_SIZE` is `0x010000` — 64 KB. Every
+    other image fits (DN3000 is 32 KB, the rest exactly 64 KB), so
+    `ap_board_load_prom` would refuse the Series 2500's outright.
+  - Not a defect in the board: `ap_board` is the **DN3500** and its 64 KB region
+    is `008778-03` Table 2-8's, correctly. It is a Phase 7 item — the board's
+    PROM extent is model variance and belongs in the model table with
+    `ram_base`, not as a constant in a DN3500 header. Recorded here because it
+    was found here; the work belongs with the model range.
 - [ ] DN4500 Matrox graphics. *Verification: PNG inspection; no oracle, so
       documented as paper-verified.*
 - [ ] DSP variants confirmed as true subsets. *Verification: `dsp3500` boots
