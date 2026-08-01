@@ -415,9 +415,22 @@ file the moment they are found, not when someone remembers.
         - The handbook gives `D <start> <end> <items/line>` and **no example**,
           so separators, radix and argument optionality are unstated. `D` is
           marked `+` ("not in DNx60"), so it is present on a DN3500.
-        - **Next, and it should have been first:** send `H`. The command list
-          carries a help command, and it is the machine's own statement of its
-          syntax — one run against a prompt that already works.
+        - **`H` settles it: this PROM has no `D`.** The help output is
+          `ABRVPICOH` — nine letters, the complete command set of
+          `3500_BOOT_12191_7`. `D` produced nothing because the command does not
+          exist here.
+        - The handbook's markers distinguish machine *families*, not PROM
+          *revisions*, so a command listed for the DN3500 can still be absent
+          from a particular DN3500 image. It named something that is not there,
+          and every attempt to use it therefore looked like a syntax problem
+          rather than an absence — the most expensive way for a document to be
+          wrong.
+        - **So `A` is the only memory-examining command this PROM has**, and the
+          address-and-prompt format already captured is the format the parser
+          must read rather than a stepping-stone to a nicer one. The contents
+          field appears when `A` is given input that displays rather than
+          advances; the command set is now small enough to settle that from the
+          machine.
         - **A result worth having on the way** (`FINDINGS.md` C39): the oracle's
           four configuration writes, decoded — `sio1 ACR E0`, `sio1 CSRB 77`,
           `sio2 ACR 80`, `sio2 CSRA 77`. Both ports get the same clock select,

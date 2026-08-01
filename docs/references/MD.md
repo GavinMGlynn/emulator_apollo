@@ -161,6 +161,31 @@ radix and whether the third argument is optional are all unstated -- the same
 gap that made this whole document necessary for the `A` line. `D` is marked `+`,
 "not in DNx60", so it is present on a DN3500 and the command is not the problem.
 
-What would settle it: `H`, the help command, which the same list carries and
-which is the machine's own statement of its syntax. That is one run, and it
-should have been the first thing tried on a live prompt.
+## `H` settles it: this PROM has no `D`
+
+Sending `H` returns:
+
+```
+ABRVPICOH
+```
+
+Nine letters, no separators. **That is the complete command set of this boot
+PROM** -- `A`, `B`, `R`, `V`, `P`, `I`, `C`, `O`, `H` -- and `D` is not in it.
+
+So `D` produced nothing because **the command does not exist here**. The
+handbook's list at `002398-04` describes a fuller MD than this image carries;
+its per-command markers distinguish machine *families* (`+` not in DNx60, `•`
+DN3000 only) and do not distinguish PROM *revisions*, so a command marked
+available for DN3500 may still be absent from a particular DN3500 image. This
+one is `3500_BOOT_12191_7`.
+
+That is worth more than the answer it gave. A document listing a machine's
+commands was wrong about this machine, in the direction that costs the most --
+it named something that is not there, so every attempt to use it looked like a
+syntax problem rather than an absence.
+
+**`A` is therefore the only memory-examining command this PROM has**, which
+makes the address-and-prompt format captured above the format the parser must
+read, not a stepping-stone to a nicer one. The contents field appears when `A`
+is given input that displays rather than advances, and the command set is now
+small enough to establish that from the machine itself.
