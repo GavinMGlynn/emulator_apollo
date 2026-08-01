@@ -41,6 +41,7 @@
 #ifndef APOLLO_MACHINE_AP_MACHINE_H
 #define APOLLO_MACHINE_AP_MACHINE_H
 
+#include "time/ap_time.h"
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -81,6 +82,12 @@ typedef struct {
    * flat memory cost it: 5634 accesses that read as zero because the device
    * addresses fell inside the RAM. */
   struct ap_board *board;
+  /* The CPU's clock, and the time it has produced. Kept here rather than on the
+   * CPU because time is the *machine's*: the processor counts its own cycles,
+   * and only something that knows every clock in the box can turn those into a
+   * shared unit. */
+  ap_clock_t cpu_clock;
+  ap_time_t now;
 } ap_machine_t;
 
 /* Wire a machine over `ram`, which the caller owns and must keep alive for as
@@ -141,5 +148,30 @@ typedef struct {
  * because a run that left different memory behind is a different run however
  * well its registers agree. */
 [[nodiscard]] uint64_t ap_machine_hash(const ap_machine_t *machine);
+
+/* ## The machine's clock
+ *
+ * `ap_machine_now` is absolute time since reset, in `AP_TIME_BASE_HZ` units --
+ * never CPU cycles. Several nodes of different models share one 12 Mbit/s ring,
+ * so no CPU's cycle is a legal unit of account, and a machine that counted in
+ * them would have to convert at every boundary that matters.
+ *
+ * It advances by the CPU's own clock rate: each step reports the clocks it
+ * cost, and those are converted once, here, through `ap_clock_duration`. That
+ * conversion is the *only* place a CPU cycle becomes a time, which is what
+ * keeps the rest of the machine honest about its units.
+ *
+ * This is the first piece of the tick loop and not the loop itself. Nothing
+ * else advances inside it yet: the devices are still inert, and the five things
+ * waiting on them are named in `docs/COMPLETION_PLAN.md`. What exists is a
+ * clock that is correct and in the right units, so that when subsystems are
+ * added they have something true to advance against rather than a number
+ * invented alongside them. */
+[[nodiscard]] ap_time_t ap_machine_now(const ap_machine_t *machine);
+
+/* Set the CPU's clock rate. Fails, rather than rounding, when the base cannot
+ * represent it -- `ap_clock_init`'s rule, and the reason the base is derived
+ * from every clock in the machine instead of chosen. */
+[[nodiscard]] bool ap_machine_set_cpu_hz(ap_machine_t *machine, uint32_t hz);
 
 #endif /* APOLLO_MACHINE_AP_MACHINE_H */

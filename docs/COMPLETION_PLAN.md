@@ -3509,6 +3509,24 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         - That list is the difference between "owed eventually" and "next". Each
           entry names a module already written that is incomplete *only* because
           nothing advances.
+        - **Started: the machine keeps time.** `ap_machine_now` is absolute time
+          since reset in `AP_TIME_BASE_HZ` units, advanced from each step's CPU
+          clocks through `ap_clock_duration`. That conversion is the **only**
+          place a CPU cycle becomes a time, which is what keeps the rest honest
+          about its units. `machine_suite`, 3 tests.
+        - `ap_machine_set_cpu_hz` **refuses** a rate the base cannot represent
+          rather than rounding it. Rounding would put a machine a fraction of a
+          cycle out per tick and hide it in a unit nobody reads directly — which
+          is exactly why the base is derived from every clock in the machine
+          instead of chosen.
+        - A machine whose clock was never set produces **no time at all**, and
+          that is tested. A default rate would be a figure nobody chose
+          appearing in every measurement, which is the failure this project's
+          `PROVISIONAL` discipline exists to prevent.
+        - This is the clock, not the loop. Nothing else advances inside it yet;
+          the five things above still wait. What exists is something true for
+          them to advance against, rather than a number invented alongside the
+          first subsystem that needed one.
         - This is the project's central design item, deferred until something
           needed it, and the firmware now does: *"one `tick()` per machine
           cycle, every subsystem advancing inside it, no batching, no event

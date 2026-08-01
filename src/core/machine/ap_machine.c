@@ -265,7 +265,14 @@ ap_machine_run_t ap_machine_run(ap_machine_t *machine, unsigned limit) {
   ap_machine_run_t out = {.status = AP_M68030_STEP_EXECUTED};
 
   for (unsigned i = 0; i < limit; i++) {
+    const uint64_t before = machine->cpu.clocks;
     const ap_m68030_step_result_t result = ap_m68030_step(&machine->cpu);
+    /* Converted once, here. The step reports CPU clocks; the machine keeps
+     * time. A `cpu_clock` that was never initialised has a zero rate and
+     * produces no time at all, which is visibly wrong rather than quietly
+     * approximate. */
+    machine->now += ap_clock_duration(&machine->cpu_clock,
+                                      machine->cpu.clocks - before);
     out.status = result.status;
 
     /* An exception is progress: the handler runs next. Everything else that is
@@ -294,4 +301,10 @@ uint64_t ap_machine_hash(const ap_machine_t *machine) {
 
 void ap_machine_set_board(ap_machine_t *machine, struct ap_board *board) {
   machine->board = board;
+}
+
+ap_time_t ap_machine_now(const ap_machine_t *machine) { return machine->now; }
+
+bool ap_machine_set_cpu_hz(ap_machine_t *machine, uint32_t hz) {
+  return ap_clock_init(&machine->cpu_clock, hz);
 }

@@ -687,8 +687,68 @@ static void test_bsr_is_priced_as_a_call_not_as_an_untaken_branch(void) {
   TEST_ASSERT_EQUAL_UINT(4u, untaken->timing.cache_case);
 }
 
+
+/* Time is counted in `AP_TIME_BASE_HZ` units, never CPU cycles: several nodes of
+ * different models share one ring, so no CPU's cycle is a legal unit of account.
+ * The conversion happens once, in the run loop, and this pins that it happens at
+ * all and at the right rate. */
+static void test_the_machine_keeps_time_in_base_units(void) {
+  static const uint16_t program[] = {0x4E71u, 0x4E71u, 0x4E71u, 0x4E71u};
+  blank();
+  ap_machine_t m;
+  ap_machine_init(&m, ram, RAM_BYTES);
+  ap_machine_reset(&m, PROGRAM, STACK);
+  load(&m, program, 4);
+  TEST_ASSERT_TRUE(ap_machine_set_cpu_hz(&m, 25000000u));
+
+  TEST_ASSERT_EQUAL_UINT64(0u, ap_machine_now(&m));
+  const ap_machine_run_t run = ap_machine_run(&m, 2u);
+  TEST_ASSERT_EQUAL_UINT(2u, run.executed);
+
+  /* Whatever the instructions cost, the machine's clock is that many CPU
+   * cycles expressed in base units — not the cycle count itself. */
+  const ap_time_t expected =
+      ap_clock_duration(&m.cpu_clock, m.cpu.clocks);
+  TEST_ASSERT_EQUAL_UINT64(expected, ap_machine_now(&m));
+  TEST_ASSERT_TRUE(ap_machine_now(&m) > 0u);
+}
+
+/* A rate the base cannot represent is refused rather than rounded. Rounding
+ * would put a machine a fraction of a cycle out per tick and hide it in a unit
+ * nobody reads directly — which is the whole reason the base is derived from
+ * every clock in the machine instead of chosen. */
+static void test_an_unrepresentable_cpu_rate_is_refused(void) {
+  static const uint16_t program[] = {0x4E71u, 0x4E71u};
+  blank();
+  ap_machine_t m;
+  ap_machine_init(&m, ram, RAM_BYTES);
+  ap_machine_reset(&m, PROGRAM, STACK);
+  load(&m, program, 2);
+
+  TEST_ASSERT_TRUE(ap_machine_set_cpu_hz(&m, 25000000u));
+  TEST_ASSERT_FALSE(ap_machine_set_cpu_hz(&m, 7u));
+}
+
+/* A machine whose clock was never set produces no time at all, which is
+ * visibly wrong rather than quietly approximate. A default rate would be a
+ * figure nobody chose appearing in every measurement. */
+static void test_an_unset_clock_produces_no_time(void) {
+  static const uint16_t program[] = {0x4E71u, 0x4E71u};
+  blank();
+  ap_machine_t m;
+  ap_machine_init(&m, ram, RAM_BYTES);
+  ap_machine_reset(&m, PROGRAM, STACK);
+  load(&m, program, 2);
+
+  (void)ap_machine_run(&m, 2u);
+  TEST_ASSERT_EQUAL_UINT64(0u, ap_machine_now(&m));
+}
+
 int main(void) {
   UNITY_BEGIN();
+  RUN_TEST(test_the_machine_keeps_time_in_base_units);
+  RUN_TEST(test_an_unrepresentable_cpu_rate_is_refused);
+  RUN_TEST(test_an_unset_clock_produces_no_time);
   RUN_TEST(test_a_probe_can_set_up_run_and_read_back);
   RUN_TEST(test_every_transcribed_row_matches_both_published_columns);
   RUN_TEST(test_the_footnoted_memory_forms_are_declined_not_part_priced);
