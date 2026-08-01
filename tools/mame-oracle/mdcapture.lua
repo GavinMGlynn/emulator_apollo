@@ -171,8 +171,19 @@ local function install()
 						local reg = ((addr - base) >> 1) & 15
 						local byte = (data >> shift) & 0xFF
 						chars = chars + 1
-						out("W sio%d %-9s %02X  (%06X)\n",
-						    label, WRITE_NAME[reg] or "?", byte, addr)
+						if reg == 3 or reg == 11 then
+							-- A transmitted character. Emitted as its own line,
+							-- byte first, so the transcript can be reassembled
+							-- exactly -- the printable form is a convenience
+							-- and the hexadecimal is the record.
+							out("TX sio%d %s %02X %s\n", label,
+							    reg == 3 and "A" or "B", byte,
+							    (byte >= 0x20 and byte < 0x7F)
+							        and string.format("%c", byte) or ".")
+						else
+							out("W sio%d %-9s %02X  (%06X)\n",
+							    label, WRITE_NAME[reg] or "?", byte, addr)
+						end
 					end
 				end
 				-- Unchanged: an instrument that altered the data would change

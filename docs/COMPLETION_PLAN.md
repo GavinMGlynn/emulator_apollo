@@ -377,10 +377,18 @@ file the moment they are found, not when someone remembers.
           enable, so the firmware only enables the transmitter once it has found
           a working rate. That is why every earlier run saw nothing — and why
           `ap_mc68681` dropping writes with `tx_enabled` clear matches.
-        - Remaining, and mechanical: run long enough for a full prompt and a
-          command response, and write the bytes out as a transcript rather than
-          a register trace. *Verification stands: byte-exact in
-          `docs/references/MD.md`.*
+        - **`docs/references/MD.md` exists, byte-exact.** Sign-on is
+          `0D 0A 4D 44 37 0D 0A` — `CR LF "MD7" CR LF`. Each carriage return
+          received produces exactly `0D 0A 0D 0A 3E` — `CR LF CR LF '>'`.
+        - Settled: the prompt is a bare `>` with no trailing space; the
+          terminator is `CR LF` in that order; **a blank line precedes each
+          prompt**, so a parser expecting one terminator reads it as a response;
+          and there is no banner or copyright header to skip past.
+        - Still open, narrowly: the `A` command's **address-and-contents line**,
+          which is the format the parser actually has to read. The session so
+          far only sends carriage returns, so MD only ever answers with a
+          prompt. Same harness, different input. `MD.md` records that its
+          layout remains unknown rather than extrapolating it from the prompt.
         - **A result worth having on the way** (`FINDINGS.md` C39): the oracle's
           four configuration writes, decoded — `sio1 ACR E0`, `sio1 CSRB 77`,
           `sio2 ACR 80`, `sio2 CSRA 77`. Both ports get the same clock select,
