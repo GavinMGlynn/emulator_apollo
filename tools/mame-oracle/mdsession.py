@@ -497,6 +497,14 @@ def follow_commands(session: Session, path: Path, timeout: float,
         chunk = raw.decode("latin-1")
 
         if not chunk:
+            # The machine is checked here too, not only after a command. With
+            # the check only on the command path, a driver whose emulator had
+            # died went on polling an idle file forever -- and because it never
+            # exited, it never reaped the child, which then sat as a zombie
+            # looking like a second live emulator. Seen twice.
+            if session.closed:
+                sys.stderr.write("mdsession: the machine exited\n")
+                return
             time.sleep(poll)
             continue
 
