@@ -2181,3 +2181,43 @@ The lesson is the one the retraction above already paid for, arriving from the
 other side: a difference between two runs is not evidence of a fault until the
 runs are known to be comparable. Checking whether `dsp3500` was running at all
 took one dump and should have come before any theory about why it was quiet.
+
+## C36 -- APOLLO_XXL is bit-rotted, and enabling it does not make the PROM talk
+
+`apollo.h:66` carries `// #define APOLLO_XXL`, commented out. Uncommenting it is
+the only way to attach MAME's stdio terminal, because `-listslots dn3500` offers
+ISA slots and no serial one.
+
+It does not build. Two call sites have rotted against current MAME:
+
+- `apollo_m.cpp:1274`, `m_tx_w.resolve()` -- `devcb_write_line` has no
+  `resolve()` any more; MAME resolves devcb objects automatically.
+- `apollo.cpp:908`, `omti8621_device::set_verbose(...)` -- no longer a member.
+
+Both are inside `#ifdef APOLLO_XXL`, so nothing in a default build touches them
+and the rot went unnoticed. Removing both calls builds cleanly, and the
+incremental rebuild is three translation units and a link -- minutes, not the
+full-tree build the plan budgeted for.
+
+**And it changes nothing.** With the stdio terminal compiled in, `dn3500` still
+makes two SIO writes in ten emulated seconds -- auxiliary control and mode
+register B -- and neither is a transmit buffer. The PROM does not print on
+serial with a terminal present any more than without one.
+
+That is consistent rather than disappointing: the terminal is wired to serial 1
+channel *B* as an input, and this machine's console is its display. Attaching a
+terminal does not change what the firmware decides its console is; that decision
+comes from what it found while probing.
+
+### The oracle's checkout is modified, and this says so
+
+Two lines in `ext/mame` are changed and the binary is rebuilt with `APOLLO_XXL`
+defined. That is deliberate and it is recorded here rather than left silent,
+because a reading taken against a differently-built oracle is not comparable to
+one taken before it, and the difference would otherwise be invisible to the next
+person -- including a later me.
+
+The next step for the MD item is *not* another oracle build. It is to find what
+makes the firmware choose a serial console: on a real DN3500 that is a
+configuration setting, and MAME models one -- `apollo_config`. Read that before
+running anything else.

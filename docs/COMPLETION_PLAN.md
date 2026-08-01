@@ -273,9 +273,21 @@ file the moment they are found, not when someone remembers.
           recovering characters means decoding a bitmap. That is OCR, not a
           capture, and it cannot give the byte-exact transcript this item asks
           for.
-        - Cost: a MAME rebuild on this machine cannot use `make -j$(nproc)` —
-          the luaengine and emumem translation units peak around 2.5 Gbyte each.
-          Plan the build scope before starting it.
+        - Done, and it was cheap: the incremental rebuild is three translation
+          units and a link, not the full tree. But `APOLLO_XXL` is
+          **bit-rotted** — `m_tx_w.resolve()` and `omti8621_device::set_verbose`
+          no longer exist, both inside the guard, so nothing in a default build
+          touches them. Removing both calls builds cleanly (`FINDINGS.md` C36).
+        - **And it changes nothing.** With the stdio terminal compiled in,
+          `dn3500` still makes two SIO writes in ten emulated seconds and
+          neither is a transmit buffer. Attaching a terminal does not change
+          what the firmware decides its console is.
+        - `ext/mame` is now modified and rebuilt with `APOLLO_XXL`. Recorded in
+          C36 rather than left silent: a reading against a differently-built
+          oracle is not comparable to one taken before it.
+        - Next: find what makes the firmware choose a *serial* console. On a
+          real DN3500 that is a configuration setting and MAME models one,
+          `apollo_config`. Read it before running anything else.
         - MAME refuses a write tap that is not dword-aligned and its message
           names a *different* address ("did you mean 10404"). Take the whole
           device range and filter; accepting the suggestion taps the wrong
