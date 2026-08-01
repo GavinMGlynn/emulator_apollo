@@ -474,15 +474,27 @@ def follow_commands(session: Session, path: Path, timeout: float,
             sys.stderr.write("mdsession: command file timeout, ending\n")
             return
 
-        # `newline=""` matters: without it Python's universal-newline handling
-        # turns a `\r` in the file into a line break, so a directive carrying a
-        # carriage return is silently split in two and the return never reaches
-        # the machine. Found the hard way, mid-install, on the one answer that
-        # had to be a bare return.
-        with open(path, "r", newline="") as handle:
+        # Read as **bytes** and decode latin-1, tracking a plain byte offset.
+        #
+        # Two reasons, and the second cost a session. Text mode applies
+        # universal-newline handling, which turns a `\r` in the file into a line
+        # break and silently splits a directive carrying a carriage return --
+        # `newline=""` fixed that. But text mode also decodes as UTF-8 and
+        # `tell()` returns an opaque cookie rather than a byte position, and
+        # seeking a cookie from one handle into a freshly opened one on a file
+        # that is being appended to is not a contract Python offers. It raised
+        # `UnicodeDecodeError` on a byte that is not in the file, killed the
+        # driver, and took the emulator with it -- at MINST's first tape prompt,
+        # which is forty minutes in.
+        #
+        # latin-1 cannot fail: every byte maps to a character. A command file is
+        # a control channel, and a control channel that can be killed by its own
+        # contents is worse than no channel at all.
+        with open(path, "rb") as handle:
             handle.seek(offset)
-            chunk = handle.read()
-            offset = handle.tell()
+            raw = handle.read()
+            offset += len(raw)
+        chunk = raw.decode("latin-1")
 
         if not chunk:
             time.sleep(poll)
@@ -701,6 +713,17 @@ def main(argv=None) -> int:
         status = 1
     except KeyboardInterrupt:
         sys.stderr.write("\nmdsession: interrupted\n")
+        status = 1
+    except Exception as exc:
+        # Deliberately broad. A driver fault used to propagate out of main(),
+        # skip every diagnostic, and kill a machine that was forty minutes into
+        # an install -- with a bare traceback as the only explanation. Naming it
+        # as a driver fault, rather than something the machine did, is the whole
+        # point.
+        import traceback
+        sys.stderr.write("\nmdsession: driver fault, not the machine: %s\n"
+                         % exc)
+        traceback.print_exc()
         status = 1
     finally:
         session.close()
