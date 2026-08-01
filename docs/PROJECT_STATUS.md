@@ -86,7 +86,19 @@ crash — the display controller's lesson a second time, found the same way.
 
 Reading `FF` gives `FFFF`, an F-line word, and with the **line 1010 and line
 1111 emulator traps** now raised the machine takes vector 11 the way the
-hardware does. The PROM reaches **2788 instructions**, then stops at `FFFF060E` — a PC far outside anything the map allocates, so a wild jump rather than a probe of a known address. Bisected with the new `--boot-limit`: the PC leaves the PROM on instruction 2788 at `00002502`, an `RTS`. Every instruction in that subroutine advances the PC by its own length and its push and pop balance, so the return address was **already wrong on entry** — the `RTS` is where the damage shows, not where it happens. The corruption is earlier and is a wrong value rather than a missing device.
+hardware does. **The boot PROM runs 100000 instructions with zero bus errors** and is still
+executing when the limit stops it — the first run that has ended because we
+stopped it rather than because it broke.
+
+Getting there needed `--boot-trace` (PC and A7 per step) and one fix. A7 was the
+observable: the PROM's `CLR.B $00011600` bus errored on every pass through its
+reset path, each fault drained a frame off a 384-byte supervisor stack, and 2788
+instructions later the stack ran past `01000000` and an `RTS` popped garbage. The
+cause and the symptom were thousands of instructions apart. `011600` is the
+master request register and `011300` the latch-page register; `ap_boardreg.h`
+defined both, and the map routed only the four contiguous registers at
+`010000-0103FF`. Two registers existed, had passing tests, and were unreachable
+through the machine.
 
 Both traps were defined and classified and simply never taken; reporting them
 `UNIMPLEMENTED` said the gap was ours when taking the trap is the whole

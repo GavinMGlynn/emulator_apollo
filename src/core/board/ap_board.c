@@ -12,7 +12,19 @@ ap_board_region_t ap_board_region(uint32_t address) {
   if (in(address, AP_BOARD_PROM_BASE, AP_BOARD_PROM_SIZE)) {
     return AP_BOARD_REGION_PROM;
   }
-  if (in(address, AP_BOARDREG_CPU_STATUS_ADDR, 4u * AP_BOARDREG_RANGE)) {
+  /* Four contiguous registers from `010000`, and two more that are *not*
+   * adjacent to them or to each other. `ap_boardreg.h` has carried all six
+   * since it was written; only the first four were routed here, so the latch
+   * page and master request registers existed and were unreachable.
+   *
+   * That is the failure mode a contiguous range invites: it looks like it
+   * covers a device, and it silently covers only the part that happens to be
+   * contiguous. The boot PROM's `CLR.B $00011600` bus errored on every pass
+   * through its reset path, and each fault drained another frame off a 384-byte
+   * supervisor stack until it ran out. */
+  if (in(address, AP_BOARDREG_CPU_STATUS_ADDR, 4u * AP_BOARDREG_RANGE) ||
+      in(address, AP_BOARDREG_LATCH_PAGE_ADDR, AP_BOARDREG_RANGE) ||
+      in(address, AP_BOARDREG_MASTER_REQUEST_ADDR, AP_BOARDREG_RANGE)) {
     return AP_BOARD_REGION_CORE_REGISTER;
   }
   if (in(address, AP_SIO1_ADDR, 2u * AP_SIO_RANGE)) {

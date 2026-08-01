@@ -29,7 +29,9 @@ static void print_usage(const char *program_name) {
           "  --time-instructions   report per-instruction clocks, for oracle\n"
           "                        comparison\n"
           "  --boot-limit N        stop a boot after N instructions, to find\n"
-          "                        where one goes wrong\n");
+          "                        where one goes wrong\n"
+          "  --boot-trace          report pc and a7 per step: a7 is where a\n"
+          "                        stack goes wrong, pc only where it shows\n");
 }
 
 /* The probes' RAM. Static rather than automatic because it is large, and
@@ -153,7 +155,7 @@ static uint8_t *read_file(const char *path, long *size_out) {
  * machine has no physical memory at the boot image's load address, and the
  * addresses in its header are logical (`FINDINGS.md` C28). The PROM is what
  * enables translation, so it is what has to run first. */
-static int boot_from_prom(const char *path, unsigned limit) {
+static int boot_from_prom(const char *path, unsigned limit, bool trace) {
   long size = 0;
   uint8_t *prom = read_file(path, &size);
   if (prom == NULL) {
@@ -206,7 +208,32 @@ static int boot_from_prom(const char *path, unsigned limit) {
   ap_machine_set_board(&machine, board);
   ap_machine_reset(&machine, pc, stack);
 
-  ap_machine_run_t run = ap_machine_run(&machine, limit);
+  ap_machine_run_t run;
+  if (trace) {
+    /* Step by step, reporting the program counter and the active stack pointer.
+     *
+     * A7 is the observable this exists for. A wrong PC is where damage becomes
+     * visible; a stack pointer that stops matching the call depth is where it
+     * happens, and the two can be thousands of instructions apart. Printing
+     * both together is what lets one be found from the other. */
+    run = (ap_machine_run_t){.status = AP_M68030_STEP_EXECUTED};
+    printf("# step pc a7 instruction status\n");
+    for (unsigned i = 0; i < limit; i++) {
+      const uint32_t step_pc = machine.cpu.regs.pc;
+      const ap_m68030_step_result_t r = ap_m68030_step(&machine.cpu);
+      printf("%u %08X %08X %04X %s\n", i, step_pc,
+             ap_m68030_read_a7(&machine.cpu.regs), r.instruction,
+             ap_probe_status_name(r.status));
+      run.status = r.status;
+      if (r.status != AP_M68030_STEP_EXECUTED &&
+          r.status != AP_M68030_STEP_EXCEPTION) {
+        break;
+      }
+      run.executed++;
+    }
+  } else {
+    run = ap_machine_run(&machine, limit);
+  }
   printf("  executed     %u instruction(s)\n", run.executed);
   printf("  stopped      %s\n", ap_probe_status_name(run.status));
   printf("  final PC     %08X (%s)\n", machine.cpu.regs.pc,
@@ -380,6 +407,7 @@ int main(int argc, char **argv) {
   ap_common_options_t opt;
   ap_common_options_init(&opt);
 
+  bool boot_trace = false;
   bool run_probe_suite = false;
   bool report_timing = false;
   const char *boot_tape = NULL;
@@ -404,6 +432,11 @@ int main(int argc, char **argv) {
     if (strcmp(argv[i], "--boot-limit") == 0 && i + 1 < argc) {
       boot_limit = (unsigned)strtoul(argv[i + 1], NULL, 0);
       i += 2;
+      continue;
+    }
+    if (strcmp(argv[i], "--boot-trace") == 0) {
+      boot_trace = true;
+      i += 1;
       continue;
     }
     if (strcmp(argv[i], "--run-probes") == 0) {
@@ -444,7 +477,7 @@ int main(int argc, char **argv) {
   }
 
   if (boot_prom != NULL) {
-    return boot_from_prom(boot_prom, boot_limit);
+    return boot_from_prom(boot_prom, boot_limit, boot_trace);
   }
 
   if (boot_tape != NULL) {

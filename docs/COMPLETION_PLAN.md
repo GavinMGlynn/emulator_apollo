@@ -2573,14 +2573,27 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         mis-decoded, and the push and pop balance. **The return address on the
         stack is therefore already wrong when this subroutine is entered** — the
         `RTS` is where the damage becomes visible, not where it happens.
-  - [ ] Find where the stack was corrupted. It is *before* `0024F6`, so bisect
-        on A7 rather than on the PC: the useful observable is the first step at
-        which A7 stops matching the call depth. Consider a `--boot-trace` that
-        reports PC and A7 per step — the same argument that justified
-        `--boot-limit` applies again, one level down.
-        - Do **not** assume this is another missing device. A wild PC from an
-          `RTS` is a wrong *value*, and the four blockers before it were all
-          absent hardware; that pattern does not apply here.
+  - [x] `--boot-trace`, reporting **PC and A7** per step. A7 is the observable
+        it exists for: a wrong PC is where damage becomes visible, a stack
+        pointer that stops matching the call depth is where it happens, and here
+        the two were 2788 instructions apart.
+  - [x] **Found it, and my "not another absent device" call was wrong.** The
+        trace shows `CLR.B $00011600` bus erroring on every pass through the
+        PROM's reset path, each fault draining a frame off a 384-byte supervisor
+        stack until A7 descended past `01000000` and the `RTS` popped garbage.
+        `011600` is the **master request register** and `011300` the latch-page
+        register: `ap_boardreg.h` has defined both since it was written, and the
+        map routed only the four contiguous ones at `010000-0103FF`. Two
+        registers existed, had their own `boardreg_suite` tests, and were
+        unreachable through the machine.
+        - That is the failure a contiguous range invites: it looks like it
+          covers a device and silently covers only the contiguous part.
+        - **The boot PROM now runs 100000 instructions with zero bus errors**,
+          up from 2788, and is still executing at the limit. `board_suite` has a
+          test that all six registers are reachable.
+  - [ ] Raise the limit and find where the PROM actually goes. 100000 with no
+        faults is the first run that has ended because we stopped it rather than
+        because it broke.
   - [ ] Whether the PROM *should* reach `00090000` at all is a separate
         question from what happens when it does. Check what it tests before
         jumping — do not assume the jump is unconditional.

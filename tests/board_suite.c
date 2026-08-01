@@ -223,6 +223,40 @@ static void test_main_memory_s_name_stops_where_its_address_space_does(void) {
   TEST_ASSERT_FALSE(ok);
 }
 
+/* All six core-board registers are reachable, not just the four that happen to
+ * be contiguous. `ap_boardreg.h` has defined the latch-page register at
+ * `011300` and the master request register at `011600` since it was written,
+ * and the map routed only `010000-0103FF` -- so two registers existed, had
+ * their own tests in `boardreg_suite`, and could not be reached through the
+ * machine.
+ *
+ * That is the failure a contiguous range invites: it looks like it covers a
+ * device and silently covers only the contiguous part. The boot PROM's
+ * `CLR.B $00011600` bus errored on every pass through its reset path, and each
+ * fault drained a frame off a 384-byte supervisor stack until it ran out --
+ * 2788 instructions later, and thousands of instructions from the cause. */
+static void test_every_core_board_register_is_reachable_through_the_map(void) {
+  const uint32_t registers[] = {
+      AP_BOARDREG_CPU_STATUS_ADDR,     AP_BOARDREG_CPU_CONTROL_ADDR,
+      AP_BOARDREG_CACHE_CONTROL_ADDR,  AP_BOARDREG_TASK_ALIAS_ADDR,
+      AP_BOARDREG_LATCH_PAGE_ADDR,     AP_BOARDREG_MASTER_REQUEST_ADDR,
+  };
+  ap_board_t b;
+  bool ok = false;
+  init(&b);
+
+  for (unsigned i = 0; i < sizeof registers / sizeof registers[0]; i++) {
+    TEST_ASSERT_EQUAL_UINT(AP_BOARD_REGION_CORE_REGISTER,
+                           ap_board_region(registers[i]));
+    (void)ap_board_read(&b, registers[i], &ok);
+    TEST_ASSERT_TRUE(ok);
+    ap_board_write(&b, registers[i], 0x00u, &ok);
+    TEST_ASSERT_TRUE(ok);
+  }
+  TEST_ASSERT_EQUAL_UINT(0u, b.unmapped_reads);
+  TEST_ASSERT_EQUAL_UINT(0u, b.unmapped_writes);
+}
+
 static void test_the_boot_prom_region_is_reported_absent(void) {
   ap_board_t b;
   bool ok = true;
@@ -258,6 +292,7 @@ int main(void) {
   RUN_TEST(test_an_empty_at_bus_window_reads_ff_rather_than_faulting);
   RUN_TEST(test_the_windows_do_not_swallow_the_devices_inside_them);
   RUN_TEST(test_main_memory_s_name_stops_where_its_address_space_does);
+  RUN_TEST(test_every_core_board_register_is_reachable_through_the_map);
   RUN_TEST(test_the_boot_prom_region_is_reported_absent);
   RUN_TEST(test_every_region_has_a_name);
   return UNITY_END();
