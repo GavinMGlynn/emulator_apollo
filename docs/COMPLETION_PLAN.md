@@ -392,10 +392,22 @@ file the moment they are found, not when someone remembers.
           addresses the trailing space is **absent** (`31 30 3A` is `10:`). The
           field is space-padded to a fixed width, not colon-then-always-space,
           so splitting on `": "` fails from address `10` onward.
-        - Still not captured: **the contents**. Every line ends after the
-          separator, because MD prompts at each address and our carriage returns
-          advance it. Reaching a displayed value is a question about MD's
-          command set, not about the harness, which now works end to end.
+        - **The handbook settles which command displays.** `002398-04`'s MD
+          command list gives `A <location>` as *Access location* — an examine
+          and alter loop, exactly what was captured — and
+          `D <start> <end> <items/line>` as **Dump Memory**. `D`'s output is the
+          format the parser needs.
+        - **MD echoes its input**, confirmed: sending `D 1000 1020` a character
+          at a time returns `31 30 30 30 31 30 32 0D`. A harness sees its own
+          input interleaved with MD's output, and a parser assuming everything
+          arriving is a response will mis-read every command it sends.
+        - **Characters are dropped**: the `D`, both spaces and one digit never
+          arrived at 0.3 s spacing, though a burst produced no echo at all.
+          Delivery is rate-sensitive.
+        - So `D`'s format is not yet captured and the obstacle is **delivery,
+          not the command**. Direction is known: pace input against the emulated
+          baud rate, or drive the DUART's receiver directly rather than through
+          the host's standard input.
         - **A result worth having on the way** (`FINDINGS.md` C39): the oracle's
           four configuration writes, decoded — `sio1 ACR E0`, `sio1 CSRB 77`,
           `sio2 ACR 80`, `sio2 CSRA 77`. Both ports get the same clock select,

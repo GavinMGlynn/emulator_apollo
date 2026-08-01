@@ -105,7 +105,42 @@ so nothing was ever displayed to the right of the separator. The handbook's
 "prints address and contents" describes a case this capture did not reach.
 
 So the parser can be written against the address field and the separator's
-width rule, and **cannot** yet be written against the contents field. Getting
-that needs a run whose input makes MD display rather than step -- and that is a
-question about MD's command set, not about the harness, which now works end to
-end.
+width rule, and **cannot** yet be written against the contents field.
+
+## `A` is not the display command
+
+From the Engineering Handbook (`002398-04`, "MNEMONIC DEBUGGER (PROM)"), the
+command list resolves this rather than experiment:
+
+```
+A <location>                  Access location
+D <start> <end> <items/line>  Dump Memory
+```
+
+`A` *accesses* -- an examine and alter loop, which is exactly the address-then-
+prompt behaviour captured above. **`D` is the display command**, and its output
+is the format the parser actually needs.
+
+## MD echoes its input
+
+Sending `D 1000 1020` one character at a time, 0.3 s apart, brings back:
+
+```
+31 30 30 30 31 30 32 0D      '1' '0' '0' '0' '1' '0' '2' CR
+```
+
+Two things follow.
+
+- **MD echoes received characters.** A harness reading this stream sees its own
+  input interleaved with MD's output and must account for it; a parser that
+  assumes everything arriving is a response will mis-read every command it
+  sends.
+- **Characters are being dropped.** The `D`, both spaces and one digit never
+  arrived. Per-character pacing got further than a burst did -- a burst produced
+  no echo at all -- so delivery is rate-sensitive and 0.3 s apart is still not
+  reliable.
+
+`D`'s output format is therefore **not yet captured**, and the obstacle is
+delivery rather than the command. That is a harness problem with a known
+direction: pace input against the emulated baud rate, or drive the DUART's
+receiver directly instead of through the host's standard input.
