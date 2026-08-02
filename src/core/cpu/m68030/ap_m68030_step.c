@@ -2803,13 +2803,31 @@ static bool execute_misc(ap_m68030_cpu_t *cpu, const ap_m68030_misc_t *misc,
         (int32_t)ap_m68030_sign_extend(raw_bound, operand_size);
 
     /* "N -- Set if Dn < 0; cleared if Dn > effective address operand;
-     * undefined otherwise." Z, V and C are all undefined, so only N is set. */
+     * undefined otherwise." */
     uint16_t ccr = ap_m68030_read_ccr(&cpu->regs);
     if (value < 0) {
       ccr |= (uint16_t)(1u << AP_M68030_SR_N_BIT);
     } else if (value > bound) {
       ccr &= (uint16_t)~(1u << AP_M68030_SR_N_BIT);
     }
+
+    /* Z, V and C are documented undefined, and the part sets them definitely:
+     * "Z is set if the register operand (the second operand; not the effective
+     * address operand) is 0", and V and C are "always cleared". Same class of
+     * finding as `ABCD`'s undefined flags, from the same body of hardware
+     * testing -- and the parenthesis is the load-bearing part, since `Z` from
+     * the *bound* would be the plausible wrong reading.
+     *
+     * `PROVISIONAL` for the same reason: measured on a 68000, applied to a
+     * 68030 as the best evidence there is. A reference core has to be
+     * deterministic either way, so the choice is between a cited rule and an
+     * invented one. */
+    if (value == 0) {
+      ccr |= (uint16_t)(1u << AP_M68030_SR_Z_BIT);
+    } else {
+      ccr &= (uint16_t)~(1u << AP_M68030_SR_Z_BIT);
+    }
+    ccr &= (uint16_t)~((1u << AP_M68030_SR_V_BIT) | (1u << AP_M68030_SR_C_BIT));
     ap_m68030_write_ccr(&cpu->regs, ccr);
 
     if (value < 0 || value > bound) {

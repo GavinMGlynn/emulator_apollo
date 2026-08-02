@@ -4474,8 +4474,50 @@ static void test_cas_still_declines(void) {
                         ap_m68030_step(&m.cpu).status);
 }
 
+
+/* CHK's Z, V and C, which the manual leaves undefined and the hardware sets.
+ * "Z is set if the register operand (the second operand; not the effective
+ * address operand) is 0"; V and C are "always cleared".
+ *
+ * The parenthesis is the load-bearing part: `Z` from the *bound* is the
+ * plausible wrong reading, so the test uses a zero bound with a non-zero
+ * register and the reverse. */
+static void test_chk_sets_z_from_the_register_not_the_bound(void) {
+  /* CHK.W #<bound>,D0 : 0100 000 110 111 100 = $41BC */
+  static const uint16_t zero_register[] = {0x41BCu, 0x0005u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, zero_register, 3);
+  m.cpu.regs.d[0] = 0u;
+  ap_m68030_write_ccr(&m.cpu.regs, (uint16_t)((1u << AP_M68030_SR_V_BIT) |
+                                              (1u << AP_M68030_SR_C_BIT)));
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&m.cpu).status);
+  uint16_t ccr = ap_m68030_read_ccr(&m.cpu.regs);
+  TEST_ASSERT_EQUAL_UINT(1u, (ccr >> AP_M68030_SR_Z_BIT) & 1u);
+  /* And "always cleared", from a state where both were set. */
+  TEST_ASSERT_EQUAL_UINT(0u, (ccr >> AP_M68030_SR_V_BIT) & 1u);
+  TEST_ASSERT_EQUAL_UINT(0u, (ccr >> AP_M68030_SR_C_BIT) & 1u);
+
+  /* A zero *bound* with a non-zero register clears Z -- which is the case a
+   * model reading the effective address operand would get backwards. */
+  static const uint16_t zero_bound[] = {0x41BCu, 0x0000u, 0x4E71u};
+  machine_t n = {0};
+  load(&n, zero_bound, 3);
+  n.cpu.regs.d[0] = 0u;
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&n.cpu).status);
+  /* Register 0 against bound 0: in bounds, and Z set from the register. */
+  TEST_ASSERT_EQUAL_UINT(
+      1u, (ap_m68030_read_ccr(&n.cpu.regs) >> AP_M68030_SR_Z_BIT) & 1u);
+
+  machine_t nonzero = {0};
+  load(&nonzero, zero_bound, 3);
+  nonzero.cpu.regs.d[0] = 1u; /* above the bound: traps, and Z clear */
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXCEPTION,
+                        ap_m68030_step(&nonzero.cpu).status);
+}
+
 int main(void) {
   UNITY_BEGIN();
+  RUN_TEST(test_chk_sets_z_from_the_register_not_the_bound);
   RUN_TEST(test_cmp2_reports_in_bounds_without_trapping);
   RUN_TEST(test_cmp2_sets_z_on_either_bound);
   RUN_TEST(test_cmp2_sets_carry_out_of_bounds_and_does_not_trap);

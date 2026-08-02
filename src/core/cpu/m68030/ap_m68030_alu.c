@@ -285,10 +285,14 @@ ap_m68030_alu_result_t ap_m68030_alu_abcd(uint32_t destination, uint32_t source,
   /* "Z -- Cleared if the result is nonzero; unchanged otherwise." */
   out.z = z_in && (out.result == 0u);
 
-  /* N and V are documented undefined; see the header for why these particular
-   * values and what may depend on them (nothing). */
+  /* N and V are documented undefined, and the part still does something
+   * definite. See the header: `N` is bit 7 of the result, and `V` is the
+   * ordinary addition overflow taken between the *uncorrected* binary sum and
+   * the corrected result -- `(~ss & rr) >> 7`, set when the correction carries
+   * the result's sign bit from 0 to 1. */
+  const unsigned uncorrected = (d + s + (x_in ? 1u : 0u)) & 0xFFu;
   out.n = (out.result & 0x80u) != 0u;
-  out.v = false;
+  out.v = ((~uncorrected & out.result) & 0x80u) != 0u;
   return out;
 }
 
@@ -318,9 +322,23 @@ ap_m68030_alu_result_t ap_m68030_alu_sbcd(uint32_t destination, uint32_t source,
   out.sets_x = true;
   out.x = borrow;
 
+  /* The subtraction form of the same undefined-flag rule, and it is symmetric
+   * with the addition's: "the V flag is set if the MSB changes from 1 to 0"
+   * between the **unadjusted** difference and the corrected result.
+   *
+   * The uncorrected difference and not the destination, which is the reading
+   * two sources had to be compared to settle. One writes the rule as
+   * `(dd & ~rr) >> 7`, which reads as the destination; the other states it as
+   * the MSB *changing*, which can only be between the unadjusted and adjusted
+   * results. `NBCD` decides it: it is this same subtract from a destination of
+   * zero, so a destination-based `V` could never be set at all, and `NBCD` is
+   * one of the instructions both sources describe the flag for. */
+  const uint32_t uncorrected =
+      (uint32_t)((d - s - (x_in ? 1 : 0)) & 0xFF);
+  out.v = (uncorrected & ~out.result & 0x80u) != 0u;
+
   out.z = z_in && (out.result == 0u);
   out.n = (out.result & 0x80u) != 0u;
-  out.v = false;
   return out;
 }
 

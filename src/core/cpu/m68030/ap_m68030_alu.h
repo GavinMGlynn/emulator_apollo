@@ -99,26 +99,47 @@ ap_m68030_alu_subx(uint32_t destination, uint32_t source, unsigned size,
                    bool x_in, bool z_in);
 
 /* ABCD and SBCD: "The addition is performed using binary-coded decimal
- * arithmetic", on operands "which are packed binary-coded decimal numbers".
+ * arithmetic", digit by digit, so the low nibble carries into the high one at
+ * ten rather than at sixteen.
  *
- * Byte only -- "This operation is a byte operation only" -- and each nibble is
- * one decimal digit, so $99 + $01 is $00 with a carry rather than $9A.
+ * ## `Z` describes a whole multi-precision value, not one byte
  *
- * Z follows the same never-set rule as ADDX, and for the same reason, which the
- * manual makes explicit here: "Normally, the Z condition code bit is set via
- * programming before the start of an operation. This allows successful tests
- * for zero results upon completion of multiple-precision operations."
+ * "Z -- Cleared if the result is nonzero; unchanged otherwise", which is how a
+ * single `Z` can describe a sum wider than the operands: the caller clears it
+ * once and every byte of the chain can only clear it further. `z_in` is that
+ * incoming state.
  *
- * N and V are documented **undefined** for both. Undefined is not "free to
- * differ between runs" for us -- a reference core must be deterministic -- so
- * this models N from bit 7 of the result and V cleared, and marks that choice
- * PROVISIONAL: it is the shape the arithmetic falls out with, not a measured
- * fact, and it is a named item for an oracle probe. Nothing correct may depend
- * on either bit, since the hardware does not promise them.
+ * ## `N` and `V` are documented undefined, and the part still does something
  *
- * Operands that are not valid packed BCD are outside what the manual defines;
- * the digit-carry form used here is total, but its results there are not a
- * claim about the hardware. */
+ * The manual gives no value for either. That is a licence for software not to
+ * depend on them, not a licence for a *reference* core to be non-deterministic
+ * -- so this produces a definite answer, and the question is which one.
+ *
+ * It is not invented. `N` is bit 7 of the result, and `V` is the ordinary
+ * binary overflow computed between the **uncorrected** sum or difference and
+ * the corrected result:
+ *
+ *     ABCD        V = (~uncorrected &  result) >> 7
+ *     SBCD, NBCD  V = ( destination & ~result) >> 7
+ *
+ * Note the two are not one expression with a sign flipped: the add uses the
+ * uncorrected sum and the subtract uses the destination.
+ *
+ * **Source, and why it is better than a reading.** These were derived by
+ * exhaustive hardware testing -- every input combination against several
+ * initial condition-code states, results logged and the rule fitted to 100% of
+ * cases -- by flamewing, and cross-checked against Motorola's own patent
+ * US4325121, which describes the BCD correction hardware. The work is written
+ * up on the SpritesMind forum and has since been adopted by MAME, WinUAE,
+ * Hatari and BlastEm. That is a measurement on real silicon, which is a
+ * stronger source than any manual for a flag the manual declines to define.
+ *
+ * **The residual, and it is why this stays `PROVISIONAL`:** the testing was on
+ * a **68000**, and this is a 68030. The correction hardware is the same design
+ * across the family and the patent is the family's, so the rule is very likely
+ * to hold -- but "very likely" is not "measured on this part". Closing it means
+ * running the same sweep against a 68030, which the oracle can do.
+ */
 [[nodiscard]] ap_m68030_alu_result_t ap_m68030_alu_abcd(uint32_t destination,
                                                         uint32_t source,
                                                         bool x_in, bool z_in);

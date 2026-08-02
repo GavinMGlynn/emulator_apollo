@@ -773,11 +773,20 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         multi-precision value rather than just its last word.
         Division by zero now raises vector 5 through the exception machinery
         rather than declining, so the only thing left under this item is
-        `ABCD`/`SBCD`'s **`N` and `V`, which the manual documents as
-        undefined**. A reference
-        core must still be deterministic, so `N` is taken from bit 7 and `V`
-        cleared, marked `PROVISIONAL` in code; nothing correct may depend on
-        either, and an oracle probe would settle what the part actually does.
+        `ABCD`/`SBCD`'s **`N` and `V`, which every manual documents as
+        undefined** -- and which real silicon sets definitely. `N` is bit 7 of
+        the result and `V` is the binary overflow between the *unadjusted* and
+        corrected results, from an exhaustive hardware sweep cross-checked
+        against Motorola's patent US4325121. `CHK`'s undocumented `Z`, `V` and
+        `C` came from the same body of work. Both are `PROVISIONAL` only
+        because the sweep was on a 68000.
+        Detail in `PROJECT_STATUS.md`.
+        *Verification: `alu_suite`, 3 further tests (20 total) -- the addition
+        and subtraction forms shown to use different operands, and a sweep of
+        the whole byte space establishing both `V` states are reachable, which
+        a hardcoded `false` satisfied for years. `step_suite`, 1 further test --
+        `CHK`'s `Z` taken from the register and not the bound, which is the
+        plausible wrong reading.*
         *Verification: `step_suite`, 16 further tests (80 total); then probes
         against the oracle for the timing, which is data-dependent for both the
         multiplies and the divides and so is not yet modelled.*

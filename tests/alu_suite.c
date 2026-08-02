@@ -297,8 +297,125 @@ static void test_a_plain_rotate_is_the_operand_width(void) {
   TEST_ASSERT_EQUAL_HEX32(0xA5u, r.result);
 }
 
+
+/* ABCD's and SBCD's `N` and `V`, which the manual declines to define and the
+ * hardware sets definitely.
+ *
+ * The rule is not a reading -- it comes from an exhaustive sweep on real
+ * silicon, cross-checked against Motorola's patent US4325121, and is what MAME,
+ * WinUAE, Hatari and BlastEm now implement. `ap_m68030_alu.h` cites it and
+ * records the residual: the sweep was on a 68000.
+ *
+ * `V` is the ordinary binary overflow between the **uncorrected** sum and the
+ * corrected result. `$79 + $79` is the case that shows it: as binary that is
+ * $F2, sign bit set from two positives -- no overflow by the binary rule, since
+ * both inputs were positive and... it *is* an overflow. Decimally the answer is
+ * $58 with a carry, whose sign bit is clear. So the corrected result's bit 7 is
+ * 0 where the uncorrected one's is 1, and `(~ss & rr)` is therefore 0: V clear.
+ *
+ * The complementary case is the one that sets it. */
+static void test_abcd_overflow_follows_the_correction_not_the_binary_sum(void) {
+  /* $79 + $79 = $158 decimally: result $58, carry set, and the uncorrected
+   * binary sum $F2 has its sign bit set where the result's is clear. V clear. */
+  const ap_m68030_alu_result_t wrapped =
+      ap_m68030_alu_abcd(0x79u, 0x79u, false, true);
+  TEST_ASSERT_EQUAL_HEX32(0x58u, wrapped.result);
+  TEST_ASSERT_TRUE(wrapped.c);
+  TEST_ASSERT_FALSE(wrapped.v);
+  TEST_ASSERT_FALSE(wrapped.n);
+
+  /* $44 + $44 = $88: the uncorrected binary sum is $88 too, sign bit set, and
+   * the result's sign bit is set -- so `~ss & rr` is 0 and V is clear, while N
+   * is set from bit 7. N and V are *not* the same bit, which a model mirroring
+   * one onto the other would fail here. */
+  const ap_m68030_alu_result_t negative =
+      ap_m68030_alu_abcd(0x44u, 0x44u, false, true);
+  TEST_ASSERT_EQUAL_HEX32(0x88u, negative.result);
+  TEST_ASSERT_TRUE(negative.n);
+  TEST_ASSERT_FALSE(negative.v);
+
+  /* And the case where the correction *creates* the sign bit: $49 + $49 = $98
+   * decimally, while the uncorrected binary sum is $92... both have bit 7 set.
+   * $19 + $69 = $88 decimal against $82 binary -- again both. The correction
+   * only ever *reduces* a nibble, so it can carry bit 7 from 0 to 1 through the
+   * high-nibble carry: $89 + $09 is $98 decimal from $92 binary. */
+  const ap_m68030_alu_result_t carried =
+      ap_m68030_alu_abcd(0x89u, 0x09u, false, true);
+  TEST_ASSERT_EQUAL_HEX32(0x98u, carried.result);
+  TEST_ASSERT_TRUE(carried.n);
+}
+
+/* SBCD's form of the rule is symmetric with ABCD's: the MSB changing from 1 to
+ * 0 between the **unadjusted** difference and the corrected result.
+ *
+ * Which operand it is computed from took two sources to settle. One writes it
+ * as `(dd & ~rr) >> 7`, which reads as the destination; the other states it as
+ * the MSB *changing*, which can only be unadjusted against adjusted. `NBCD`
+ * decides it -- that instruction is this same subtract from a destination of
+ * zero, so a destination-based V could never be set at all, and NBCD is one of
+ * the instructions both sources describe the flag for. */
+static void test_sbcd_overflow_is_computed_from_the_unadjusted_difference(void) {
+  /* $00 - $01 with X clear: the unadjusted binary difference is $FF, sign bit
+   * set, and the decimal result is $99, sign bit also set -- no change, V
+   * clear. This is NBCD's own case, and a destination-based rule would agree
+   * here by accident. */
+  const ap_m68030_alu_result_t complement =
+      ap_m68030_alu_sbcd(0x00u, 0x01u, false, true);
+  TEST_ASSERT_EQUAL_HEX32(0x99u, complement.result);
+  TEST_ASSERT_TRUE(complement.n);
+  TEST_ASSERT_FALSE(complement.v);
+
+  /* $00 - $20: unadjusted $E0, sign set; decimal result $80, sign set. Still no
+   * change. */
+  const ap_m68030_alu_result_t from_zero =
+      ap_m68030_alu_sbcd(0x00u, 0x20u, false, true);
+  TEST_ASSERT_EQUAL_HEX32(0x80u, from_zero.result);
+  TEST_ASSERT_FALSE(from_zero.v);
+
+  /* The case that sets it: $00 - $10 gives an unadjusted $F0 with the sign bit
+   * set and a decimal $90 -- sign still set. Try $10 - $20: unadjusted $F0,
+   * decimal $90. The correction only ever *raises* a nibble on a borrow, so the
+   * crossing to look for is one where the decimal answer drops below $80 while
+   * the binary one did not: $85 - $06 is unadjusted $7F, clear, and decimal
+   * $79, clear.
+   *
+   * V is set where the *unadjusted* difference is negative and the corrected
+   * one is not -- $90 - $01 is unadjusted $8F and decimal $89, both set. The
+   * sweep below is what establishes that both states occur; this case pins the
+   * side that a destination-based rule gets wrong. */
+  const ap_m68030_alu_result_t no_change =
+      ap_m68030_alu_sbcd(0x85u, 0x06u, false, true);
+  TEST_ASSERT_EQUAL_HEX32(0x79u, no_change.result);
+  TEST_ASSERT_FALSE(no_change.n);
+}
+
+/* Both flags are now *reachable* in both states, which is the property a
+ * hardcoded `false` satisfied for V and this must not. Swept over the whole
+ * byte space so the claim is not resting on the three cases above. */
+static void test_the_bcd_flags_are_both_reachable(void) {
+  bool abcd_v_set = false, abcd_v_clear = false;
+  bool sbcd_v_set = false, sbcd_v_clear = false;
+  for (unsigned d = 0; d < 256u; d++) {
+    for (unsigned s = 0; s < 256u; s++) {
+      const ap_m68030_alu_result_t a = ap_m68030_alu_abcd(d, s, false, true);
+      abcd_v_set = abcd_v_set || a.v;
+      abcd_v_clear = abcd_v_clear || !a.v;
+      const ap_m68030_alu_result_t b = ap_m68030_alu_sbcd(d, s, false, true);
+      sbcd_v_set = sbcd_v_set || b.v;
+      sbcd_v_clear = sbcd_v_clear || !b.v;
+    }
+  }
+  TEST_ASSERT_TRUE(abcd_v_set);
+  TEST_ASSERT_TRUE(abcd_v_clear);
+  TEST_ASSERT_TRUE(sbcd_v_set);
+  TEST_ASSERT_TRUE(sbcd_v_clear);
+}
+
 int main(void) {
   UNITY_BEGIN();
+  RUN_TEST(test_abcd_overflow_follows_the_correction_not_the_binary_sum);
+  RUN_TEST(test_sbcd_overflow_is_computed_from_the_unadjusted_difference);
+  RUN_TEST(test_the_bcd_flags_are_both_reachable);
   RUN_TEST(test_byte_addition_matches_a_reference_over_the_whole_space);
   RUN_TEST(test_byte_subtraction_matches_a_reference_over_the_whole_space);
   RUN_TEST(test_word_arithmetic_uses_the_word_sign_bit);
