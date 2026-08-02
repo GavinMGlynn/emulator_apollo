@@ -4,7 +4,11 @@ The single source of truth for **what works**. Updated in the same commit as the
 code it describes. If this file and the code disagree, the file is the bug.
 
 **Accuracy claim: none yet, and the reason is now specific rather than
-general.**
+general.** What exists is a 68030 that executes, a core board that answers, and
+— as of this update — a Domain/OS SR10.4 system installed and booting under the
+oracle, which is the reference the accuracy claim will eventually be made
+against. None of that is a timing claim, and nothing timed may be measured
+through the install, which is paced by the host.
 
 **What runs.** `ap_m68030_step` fetches through the pipe and the instruction
 cache, decodes, executes, takes exceptions and advances the PC. The opcode map
@@ -373,11 +377,65 @@ master reaches main memory through. Present on DN3500/4500/5500, absent on
 DN3000, and that difference is now a model-table field rather than a conditional.
 The golden regression harness now pins **emulated behaviour** as well as the
 model table: `--run-probes` runs eight probes on the constructed machine and its
-report is a committed golden, checked under every build preset. This section will state exactly what backs the
-claim when there is one.
+report is a committed golden, checked under every build preset. This section
+will state exactly what backs the claim when there is one.
 
-Last updated: 2026-08-01 (Phase 3 boundary; subsystem table audited; the
-interactive oracle session added).
+Last updated: 2026-08-02 — Domain/OS SR10.4 installed and booted from its own
+disk, closing the first-boot gate; the completion plan's finished items
+summarised, with their reasoning moved to the end of this file.
+
+## Domain/OS SR10.4 is installed, and boots from its own disk
+
+The gate this file carried from the start — *"no bootable Domain/OS media: all
+we hold is installation media"* — is closed. There is now an installed system on
+a disk built from nothing but the five distribution cartridges.
+
+**What it is.** `media/dn3500-sr10.4-installed.awd`, 348 Mbyte of which
+263,408,657 bytes are non-zero, against a blank image that was entirely zero.
+Gitignored and it stays that way: we made the volume, its contents are Apollo's.
+It is pinned instead by SHA-256 in `docs/references/DOMAINOS_IMAGE.md`, together
+with the SHA-256 of all five source cartridges, so a rebuild can be checked and
+anyone holding the same media can confirm theirs matches before starting.
+
+**How it was made.** INVOL options 7, 1 and 8 to initialise the volume; the
+calendar; `ex domain_os` to restore the Phase II environment; then `MINST` with
+the `large` template, which loaded 10,992 files from four cartridges and
+hard-linked 8,452 of them into place with 3,687 soft links. The command file
+that drove it is `tools/mame-oracle/install-domainos.cmds`.
+
+**That it boots is checked rather than assumed**, and by three things that a
+merely-noisy console could not fake:
+
+- `error: sysboot not found` is **gone**. That is exactly what `ex domain_os`
+  from disk answered before `MINST` ran: the boot-volume restore leaves
+  `sysboot.m68k` in the filesystem and the PROM wants `sysboot`, which the
+  install creates. The same command, on either side of the thing that was
+  supposed to fix it.
+- The kernel is a **different image** — it loads to `010E986C` from disk where
+  the cartridge loaded to `01111FFF`.
+- The Phase II banner carries **no `RBAK version` suffix**, so it is the
+  installed environment rather than the restore tool's.
+
+Logged in over the serial console as `user`, `bldt` reports
+`**** Node 12345 **** "//node_12345"` — the name INVOL gave the volume, so the
+node runs under the identity this project created for it.
+
+**Three rules were learned the expensive way** and each is now in the procedure:
+
+- **No `re` between stages.** `apollo_state::machine_reset` shifts the RTC year
+  on *every* reset rather than once at power-on, and the kernel refuses to boot
+  when the calendar is behind the volume's timestamp.
+- **Change a cartridge only when the drive is idle**, waiting for the complete
+  prompt rather than the first words of it.
+- **Checkpoint before every irreversible step, and shut down cleanly before
+  copying.** A checkpoint taken from a live volume asks to be salvaged on next
+  boot; one taken after `shut` does not. Three separate sessions were saved by a
+  checkpoint, and one was lost to a checkpoint taken while the machine ran.
+
+**What it does not claim.** The install is a conversation paced by the host and
+the volume carries timestamps, so a rebuild is not expected to be bit-identical
+and nothing timed may be measured through an image built this way. The hash
+identifies *this* image; it is not a reproducibility claim.
 
 ## Subsystems
 
@@ -457,7 +515,7 @@ interactive oracle session added).
 | Cartridge tape images (`image/ap_ct.c`) | working: block addressing over a raw `.ct` image, refusing any size that is not a whole number of 512-byte blocks, and boot-record parsing that returns the four header words. Their reading as load address and entry point is now **confirmed by the boot code itself** — its first instruction, a PC-relative `LEA`, computes word 0 exactly when executed at word 1, so the image proves its own layout. `ap_ct_boot_image` therefore *names* load address, entry point and length, and refuses a cartridge that does not announce itself, or whose header describes more than the file holds. Takes memory, never a filename, so `src/core` keeps its zero file I/O and the tests need no gitignored media | `ct_suite`, 8 tests; `FINDINGS.md` C24 |
 | Apollo display controller identification (`05D800`, `05E800`) | working for **identification only**: both register blocks decode whether or not a screen is fitted, and the device ID at offset 1 reports `C4P=8`, `19I=9`, `C8P=10` or `15I=11` for the fitted family and `FF` for the other. An absent screen reads `FF` and does **not** bus error — "nothing is fitted" and "nothing is there" are different answers, and getting that wrong cost an investigation. Drawing, the blitter, the lookup table and the graphics memories are not modelled, and the header says so; unmodelled registers read `FF` rather than zero because zero is a value several of them can hold | `graphics_suite`, 6 tests; `FINDINGS.md` C31-C32 |
 | Apollo cartridge tape (`050000`) | working, **controller joined to the drive**: a data-register write with the request bit set is a QIC-02 command, reads deliver the cartridge a byte at a time across the drive's block boundary, and a refused command or the end of tape raises Exception. The command handshake's **three entry conditions** are modelled — ready, exception, device-holds-the-bus, one figure each — as an *ordering*. Its timings are not: every figure in §1.13.2 publishes bounds rather than values, so modelling them means `PROVISIONAL` figures and that work is not done. The ordering is right about everything a polling driver observes. Four registers at stride 1, the upper four of each eight floating to `FF`, aliased through the range, on IRQ5 through to vector `A5`. The measured reset dump is reproduced over two aliasing periods | `tape_suite`, 6 tests; `FINDINGS.md` C16-C19 |
-| Archive SC-499 cartridge tape controller (the part) | **register model complete**: all four addresses of `[SC499]` §1.9 — data/command, control-on-write and status-on-read, and the two write-triggered DMA commands — plus the derived interrupt flag, the tri-stated IRQ line, and RSTDMA's documented identity with power-on reset. The QIC-02 command set itself, tape motion and the drive behind it are not modelled. Not yet wired to the board at `050000` | `sc499_suite`, 9 tests, `Archive SC-499 Information Guide` |
+| Archive SC-499 cartridge tape controller (the part) | **register model complete**: all four addresses of `[SC499]` §1.9 — data/command, control-on-write and status-on-read, and the two write-triggered DMA commands — plus the derived interrupt flag, the tri-stated IRQ line, and RSTDMA's documented identity with power-on reset. The QIC-02 command set itself, tape motion and the drive behind it are not modelled. Not yet wired to the board at `050000` | `sc499_suite`, 9 tests, `Archive SC-499 Information Guide` | **Oracle note:** MAME's own SC-499 models no media change at all, so a cartridge swapped while Domain/OS holds the drive crashes it; `ext/mame` carries a local edit treating insertion as a QIC-02 RESET, per `FINDINGS.md` C56.
 | Apollo disk and floppy (`04D000`, `05F800`) | working: both halves of the one card, placed **74 KB apart** by measurement, each aliased through 1 KB on its own period — four registers for the fixed disk, an eight-address block for the floppy. Interrupts on IRQ14 and IRQ6, separate lines eight apart. The gap is pinned as arithmetic, not constants: the AT window maps `Apollo = 0x040000 + AT × 0x80` | `disk_suite`, 6 tests; `FINDINGS.md` C20, C22, C23 |
 | OMTI command descriptor blocks | working: the 6-byte CDB decoded with the **cylinder reassembled from three bytes** (C10 in byte 1, C09/C08 in byte 2, low eight in byte 3), the command byte exposed both whole and split into class and opcode, and acceptance checked against the ESDI command set — which **refuses** `0C INITIALIZE DRIVE CHARACTERISTICS`, an ST506-only command that would make ESDI geometry look settable | `omti_cdb_suite`, 7 tests; `FINDINGS.md` C27 |
 | OMTI 862X ESDI/floppy controller (the part) | **register model complete for both halves**: the fixed disk's four ports with their read/write asymmetries and the status register's fixed bits, and the floppy's five at the standard PC layout. Modelled as two independent register sets sharing nothing, as `[OMTI]` §4.1 and §3.4 describe. Both measured dumps reproduced as tests. The **command sets** (§5, §6) are not modelled — they want a drive and a disk image. Not yet wired to the board | `omti_suite`, 9 tests, `OMTI AT Controller Series Jan87` |
@@ -467,7 +525,7 @@ interactive oracle session added).
 | Mono and colour graphics controllers | not started | — |
 | 3c505 802.3 Ethernet | not started | — |
 | MAME oracle harness | working and used throughout. Beyond the dumper there are now four probe tools — `regprobe.lua` drives every bit of a register in both directions, `writetrace.lua` taps writes to watch firmware program a device, `steptime.lua` single-steps for instruction timing, `mdcapture.lua` traces the serial registers byte-exact — and findings C10 through C14 are all measurements taken with them | `oracle_driver` (19 checks, stub MAME) and `oracle_dump_format` (19 checks, mock machine); `./apollo -listfull` lists all eleven apollo machines |
-| Interactive boot-PROM session (`mdsession.py`, `mdsession.lua`) | working: holds a machine open across stages, reads the console and answers it. stdin is a **pty**, which removes the reason the earlier capture had to pace characters at a fixed rate — a pty never reaches EOF, so a command is written when its prompt appears. `--commands FILE` is followed while the run continues, so an unpublished dialogue can be answered as it is read rather than guessed at in advance. `!swap` changes a mounted cartridge **without stopping the machine** — safe because `sc499_ctape_image_device` inherits `magtape_image_device`, whose `is_reset_on_load()` is false — over a two-file channel whose sequence number is what stops a second request being satisfied by the first one's acknowledgement. A killed driver takes its emulator with it, which `close()` alone did not: an orphan holds the log open and the next run's writes interleave with NUL padding. Runs `re`, `re`, `di c`, `ex invol`, and drove INVOL through options 7, 1 and 8 to an initialised disk. The knock is a **carriage return** at 0.4 s, both measured: a space-prefixed knock never reaches the prompt at all, and a 2 s interval gets a sign-on out of `re` about one run in four. **Deliberately not reproducible in the oracle-reading sense**: it is paced by the host, so nothing timed may be measured through it — its products are a disk image and a transcript | `oracle_session`, 20 checks against a stub MAME that goes deaf on `re` as the real machine does; `FINDINGS.md` C49, C50 |
+| Interactive boot-PROM session (`mdsession.py`, `mdsession.lua`) | working, and it performed the Domain/OS install end to end. Holds a machine open across stages, reads the console and answers it; stdin is a **pty**, so a command is written when its prompt appears rather than trickled at a fixed rate. `--commands FILE` is followed while the run continues, so an unpublished dialogue can be answered as it is read. `!swap` changes a cartridge without stopping the machine. A killed driver takes its emulator with it. **Deliberately not reproducible in the oracle-reading sense**: it is paced by the host, so nothing timed may be measured through it — its products are a disk image and a transcript | `oracle_session`, 31 checks against a stub MAME that goes deaf on `re` as the real machine does; `FINDINGS.md` C49-C58 |
 | Golden regression harness | working | `golden_model_table`, run under every build preset; drift, `-O3` identity and regeneration all verified |
 | Shared frontend layer (`frontend/common/`) | working | `frontend_common_suite`, 10 tests |
 | Headless frontend | `--model`, `--list-models`, `--help` | `golden_model_table`, which supersedes the old smoke test |
@@ -812,34 +870,25 @@ Two ring board generations are visible: part `10666` on the 3500/4500 and HP
 part `1818-4882` on the 3000/5500. Both identify as
 `Apollo Token Ring Network Controller-AT`.
 
-### Media in hand — installation tapes, and no bootable disk image
-
-This is the constraint that shapes Phase 1's first milestone, so it is recorded
-before the work rather than discovered inside it.
+### Media in hand
 
 | Item | What it is |
 | --- | --- |
 | `Apollo_DOMAINOS_SR10.3.5.tgz` | 5 tapes, 176 numbered `.img` files |
-| `019593-001.CRTG_STD_SFW_BOOT_1-REV.A.ct.gz` | bootable QIC install cartridge |
-| `019594-001..004.CRTG_STD_SFW_{1..4}.ct.gz` | QIC install cartridges 1–4 |
+| `019593-001.CRTG_STD_SFW_BOOT_1-REV.A.ct` | bootable QIC boot cartridge |
+| `019594-001..004.CRTG_STD_SFW_{1..4}.ct` | QIC install cartridges 1-4 |
 | `cptape.hlp` | Apollo `cptape` help text, rev 9.0, 1986-12-17 |
+| `dn3500-sr10.4-installed.awd` | **built here**: an installed, bootable system |
 
 The `.img` files are **tape files, not disk images** — one file per tape mark,
 the layout `cptape` writes. `tape1/00.img` is 8192 bytes beginning
 `00 13 d8 00 … "SYSBOOT REV" … " M68K    "` followed by 68000 code: the Apollo
-tape boot record. `tape1/02.img` at 50 MB is the install payload.
+tape boot record.
 
-**So we hold no pre-installed, bootable Domain/OS disk image — only the media to
-create one.** Phase 1's first item is written as "MAME boots Domain/OS from an
-SR10.x image to a login prompt", which assumes an image that does not exist.
-Reaching a login prompt actually requires installing Domain/OS from tape onto a
-blank disk image under the oracle first, which is a substantially larger task
-than booting one. Recorded as a tail in `docs/COMPLETION_PLAN.md` rather than
-absorbed silently into the item.
-
-It also pulls `.ct` cartridge support forward in importance: Phase 4 lists it as
-a storage item, but the install path makes it the format the first boot depends
-on.
+All of it except the last row is *installation* media. The last row is what this
+project made from it, and the section below says how. Everything here is
+gitignored; the built image is pinned instead by
+`docs/references/DOMAINOS_IMAGE.md`.
 
 ### Model figures confirmed from `[CFG]`
 
@@ -890,58 +939,88 @@ This is the same discipline as the MD grammar, where the OCR damage *was*
 recoverable because the manual expanded every token in prose below the figure.
 Here it is not, so it stays open.
 
-## Domain/OS SR10.4 is installed, and boots from its own disk
+## Deliberate approximations
 
-The gate this file carried from the start — *"no bootable Domain/OS media: all
-we hold is installation media"* — is closed. There is now an installed system on
-a disk built from nothing but the five distribution cartridges.
+Each carries its reason and cost to close. Distinct from the `PROVISIONAL`
+figures below: those are *numbers* modelled from a documented bound where no
+measurement exists, these are *behaviours* knowingly modelled differently from
+the hardware.
 
-**What it is.** `media/dn3500-sr10.4-installed.awd`, 348 Mbyte of which
-263,408,657 bytes are non-zero, against a blank image that was entirely zero.
-Gitignored and it stays that way: we made the volume, its contents are Apollo's.
-It is pinned instead by SHA-256 in `docs/references/DOMAINOS_IMAGE.md`, together
-with the SHA-256 of all five source cartridges, so a rebuild can be checked and
-anyone holding the same media can confirm theirs matches before starting.
+| Approximation | What it does instead | Why | Cost to close |
+| --- | --- | --- | --- |
+| 68030 `RTE` from a bus fault frame | **Re-executes** the faulted instruction from the start rather than resuming mid-instruction | The real part resumes from the internal registers it saved, and this model has none to save | Needs the long frame's internal registers, which need a microsequencer model. Exact meanwhile when the faulted access precedes any side effect — every case the boot PROM reaches — and wrong for an instruction that had already committed one |
 
-**How it was made.** INVOL options 7, 1 and 8 to initialise the volume; the
-calendar; `ex domain_os` to restore the Phase II environment; then `MINST` with
-the `large` template, which loaded 10,992 files from four cartridges and
-hard-linked 8,452 of them into place with 3,687 soft links. The command file
-that drove it is `tools/mame-oracle/install-domainos.cmds`.
+## PROVISIONAL figures
 
-**That it boots is checked rather than assumed**, and by three things that a
-merely-noisy console could not fake:
+Every entry is also a named item in `docs/COMPLETION_PLAN.md`, and every
+`PROVISIONAL` in the source is one of these. Audited in both directions: each
+table row has a plan item, and each plan item points back here.
 
-- `error: sysboot not found` is **gone**. That is exactly what `ex domain_os`
-  from disk answered before `MINST` ran: the boot-volume restore leaves
-  `sysboot.m68k` in the filesystem and the PROM wants `sysboot`, which the
-  install creates. The same command, on either side of the thing that was
-  supposed to fix it.
-- The kernel is a **different image** — it loads to `010E986C` from disk where
-  the cartridge loaded to `01111FFF`.
-- The Phase II banner carries **no `RBAK version` suffix**, so it is the
-  installed environment rather than the restore tool's.
+The plan names several of them in its own words rather than this table's — the
+MC146818A rates appear as "whether to recompute the time base to admit the six
+fast rates", the SC-499 handshake as its `§1.13.2` figures — so a literal search
+for a row's title finds nothing and means nothing. Check the concept, not the
+phrase.
 
-Logged in over the serial console as `user`, `bldt` reports
-`**** Node 12345 **** "//node_12345"` — the name INVOL gave the volume, so the
-node runs under the identity this project created for it.
+| Figure | Current value | Why provisional | Cost to close |
+| --- | --- | --- | --- |
+| 68030 ATC replacement algorithm | first-invalid, then first entry with a clear history bit, sweeping when all are set | **Narrowed.** What the history bit *means* is no longer provisional: `MC68851 PMMU User's Manual` §5.2.1.3, describing the compatible ATC, says it indicates "that the entry has been recently used", so a translating hit now marks it. What remains unstated in both manuals is which entry is chosen *among those whose history bit is clear*. The `MC68030 Data Sheet 1991` is less specific still — "a variation of the least recently used algorithm" — and is a dead end rather than a lead | Measure eviction order against the oracle, or find a Motorola application note stating the rule; medium. Affects hit rates and therefore timing, never the translation a hit produces |
+| SC-499 command handshake timings | the documented bounds | `[SC499]` §1.13.2 publishes *bounds*, not values — "0 us < T3->T4 < 150 us" says the device hands the bus back within 150 microseconds and nothing about when. Modelled at the bound, so every handshake runs at its slowest permitted speed: wrong in a knowable direction and by a knowable amount. All nine convert exactly to base units, so none is rounded on top of being provisional | Measure edge timings against a running drive, which needs the oracle's tape path exercised; small. Affects only a driver watching for the edges themselves — a polling driver cannot observe the difference |
+| 68030 asynchronous input synchroniser | two clocks | `[030]` §7.7.4 publishes a bound and not a value: "all asynchronous inputs to the MC68030 are internally synchronized in a maximum of two cycles of the processor clock". The actual delay depends on where the input edge falls relative to the clock, so it is genuinely a range and one clock is as legal as two. Modelled at the documented maximum. Currently reached only by the arbitration unit's BR and BGACK, but it is the part's rule for every asynchronous input and will be shared once devices drive them | Measure grant latency against the oracle across many request phases; small once a second master exists to request the bus. Affects arbitration latency and therefore contention, never which master wins |
+| MC146818A periodic interrupt, six fastest rates | not modelled | `[146818]` Table 5's rates are 32768/2^n Hz. `AP_TIME_BASE_HZ` factors as 2^9·3·5^8·11, so 1.024 kHz through 32.768 kHz are not exactly representable and `ap_clock_init` refuses them. Not an approximation — the nine slower rates are exact and implemented, and the fast six are reported unsupported rather than rounded | Recompute the time base: including 32.768 kHz costs a factor of 64 and drops the representable span from 88.6 years to 505 days. Including the part's own 4.194304 MHz crystal would cost 8192x and leave 3.95 days, so the crystal can never be a clock domain in a 64-bit base at all. Cheap to do, and deliberately not done while nothing is observed using those rates |
+| 68030 long bus fault frame's internal registers | Stacked as **zero**. This model has no microsequencer state to save, so the fields Table 8-6 labels INTERNAL REGISTER are written rather than skipped — a stated value, where a skipped word would leave whatever the stack already held | `[030]` Table 8-6 | An `RTE` resuming a fault *mid-instruction* cannot work from a zeroed frame |
+| DN2500 RAM base | `0x4000000` — **corrected**, was assumed `0x1000000` | Derived from the Series 2500 boot PROM's own reset vector, exactly as this row's cost-to-close said to: `2500_BOOT_16182_8` starts with SSP `040007D0`, where `3500_BOOT_12191_7` starts with `01000180` and its RAM is at `01000000`. A reset stack pointer must land in usable memory, so the DN2500's is at `04000000` and the assumption that it matched the other 68030 models was wrong | Still `PROVISIONAL`: the reset SSP proves memory exists *there*, not where the region begins or ends. A Series 2500 allocation table would settle the extent; the oracle cannot, having no 2500 driver |
 
-**Three rules were learned the expensive way** and each is now in the procedure:
+### Resolved discrepancies
 
-- **No `re` between stages.** `apollo_state::machine_reset` shifts the RTC year
-  on *every* reset rather than once at power-on, and the kernel refuses to boot
-  when the calendar is behind the volume's timestamp.
-- **Change a cartridge only when the drive is idle**, waiting for the complete
-  prompt rather than the first words of it.
-- **Checkpoint before every irreversible step, and shut down cleanly before
-  copying.** A checkpoint taken from a live volume asks to be salvaged on next
-  boot; one taken after `shut` does not. Three separate sessions were saved by a
-  checkpoint, and one was lost to a checkpoint taken while the machine ran.
+Kept rather than discarded, so a future contradiction has a documented history.
 
-**What it does not claim.** The install is a conversation paced by the host and
-the volume carries timestamps, so a rebuild is not expected to be bit-identical
-and nothing timed may be measured through an image built this way. The hash
-identifies *this* image; it is not a reproducibility claim.
+- **DN4500 CPU clock: 33 MHz, not 30 MHz.** `[CFG]`'s Series 4500 Product
+  Summary (p. D-108) states "32-bit MC68030 33 MHz CPU with MC68882 33 MHz",
+  and its narrative section says "the 33MHz MC68030" — but its own overview
+  table at p. A-11 says `MC68030@30MHZ`. 33 MHz taken as correct: two
+  independent statements against one, the ordering-level summary outranks the
+  marketing summary, and Motorola never binned a 30 MHz 68030 (16/20/25/33/40/50
+  only). Both figures divide the time base, so nothing rests on it structurally.
+  If a probe ever contradicts 33 MHz, that overview table is the reason to
+  revisit.
+- **DSP4500 is headless despite its heading.** `[CFG]` heads the section
+  "DSP4500 Monochrome Workstation", copied from the DN4500 page. Its country kit
+  (`DSPCK-*`) contains only a power cord, where the DN4500's (`DN3CK-*`) includes
+  keyboard, keyboard cable and mouse. Modelled headless, like every other DSP.
+
+## Known gaps
+
+- **Nothing advances in time.** `ap_machine_run` steps the CPU and nothing else,
+  so no device clock ticks and no status bit changes on its own. The firmware
+  has not yet needed it — it stops to ask which console it has before starting
+  anything timed — but every device with a counter is inert until the tick loop
+  exists.
+- **The display draws nothing.** Its registers, both graphics memories and the
+  screen identification are modelled; the blitter and the colour lookup table
+  are not. A fitted `c8p` takes 803 writes from the firmware that nothing
+  answers.
+- **The keyboard sends nothing.** Serial 1 channel A is wired and reachable, and
+  the PROM's scan-code table at `000021D2` is read, but no scan codes are
+  generated — so the machine can be typed at only through the oracle.
+- **Serial framing is absent**: no baud rate, start/stop bits or parity, so a
+  character crosses the DUART whole. The firmware autobauds its console by
+  cycling clock select and waiting for a byte to *fail* to decode, which this
+  core cannot yet make happen.
+- No DMA transfers, and no shared arbitration point for them to contend at.
+- The ring controller's register-level interface is not yet recovered; the
+  manuals give its address window and block diagram but not its registers.
+
+- No SDL frontend. Deliberately absent rather than stubbed.
+- **The oracle carries a fourth local edit.** `ext/mame`'s SC-499 now treats a
+  cartridge insertion as a QIC-02 RESET, because it modelled no media change at
+  all and swapping a tape under a running Domain/OS crashed it
+  (`FINDINGS.md` C56). Readings taken against this build are not comparable with
+  ones taken before it, which is the standing rule for every `ext/mame` edit.
+- **The install is not reproducible in the oracle-reading sense.** It is a
+  conversation paced by the host and the volume carries timestamps, so a rebuild
+  will not be bit-identical. The image is identified by hash rather than claimed
+  to be reproducible.
 
 ## Detail moved from the completion plan
 
@@ -2135,77 +2214,3 @@ fails. Four findings in this chain resolved that way.
 
 33 MHz, from `[CFG]`'s Series 4500 Product Summary; the conflicting 30 MHz
 in `[CFG]`'s own overview table is recorded as a resolved discrepancy.
-
-## Deliberate approximations
-
-Each carries its reason and cost to close. Distinct from the `PROVISIONAL`
-figures below: those are *numbers* modelled from a documented bound where no
-measurement exists, these are *behaviours* knowingly modelled differently from
-the hardware.
-
-| Approximation | What it does instead | Why | Cost to close |
-| --- | --- | --- | --- |
-| 68030 `RTE` from a bus fault frame | **Re-executes** the faulted instruction from the start rather than resuming mid-instruction | The real part resumes from the internal registers it saved, and this model has none to save | Needs the long frame's internal registers, which need a microsequencer model. Exact meanwhile when the faulted access precedes any side effect — every case the boot PROM reaches — and wrong for an instruction that had already committed one |
-
-## PROVISIONAL figures
-
-Every entry is also a named item in `docs/COMPLETION_PLAN.md`, and every
-`PROVISIONAL` in the source is one of these. Audited in both directions: each
-table row has a plan item, and each plan item points back here.
-
-The plan names several of them in its own words rather than this table's — the
-MC146818A rates appear as "whether to recompute the time base to admit the six
-fast rates", the SC-499 handshake as its `§1.13.2` figures — so a literal search
-for a row's title finds nothing and means nothing. Check the concept, not the
-phrase.
-
-| Figure | Current value | Why provisional | Cost to close |
-| --- | --- | --- | --- |
-| 68030 ATC replacement algorithm | first-invalid, then first entry with a clear history bit, sweeping when all are set | **Narrowed.** What the history bit *means* is no longer provisional: `MC68851 PMMU User's Manual` §5.2.1.3, describing the compatible ATC, says it indicates "that the entry has been recently used", so a translating hit now marks it. What remains unstated in both manuals is which entry is chosen *among those whose history bit is clear*. The `MC68030 Data Sheet 1991` is less specific still — "a variation of the least recently used algorithm" — and is a dead end rather than a lead | Measure eviction order against the oracle, or find a Motorola application note stating the rule; medium. Affects hit rates and therefore timing, never the translation a hit produces |
-| SC-499 command handshake timings | the documented bounds | `[SC499]` §1.13.2 publishes *bounds*, not values — "0 us < T3->T4 < 150 us" says the device hands the bus back within 150 microseconds and nothing about when. Modelled at the bound, so every handshake runs at its slowest permitted speed: wrong in a knowable direction and by a knowable amount. All nine convert exactly to base units, so none is rounded on top of being provisional | Measure edge timings against a running drive, which needs the oracle's tape path exercised; small. Affects only a driver watching for the edges themselves — a polling driver cannot observe the difference |
-| 68030 asynchronous input synchroniser | two clocks | `[030]` §7.7.4 publishes a bound and not a value: "all asynchronous inputs to the MC68030 are internally synchronized in a maximum of two cycles of the processor clock". The actual delay depends on where the input edge falls relative to the clock, so it is genuinely a range and one clock is as legal as two. Modelled at the documented maximum. Currently reached only by the arbitration unit's BR and BGACK, but it is the part's rule for every asynchronous input and will be shared once devices drive them | Measure grant latency against the oracle across many request phases; small once a second master exists to request the bus. Affects arbitration latency and therefore contention, never which master wins |
-| MC146818A periodic interrupt, six fastest rates | not modelled | `[146818]` Table 5's rates are 32768/2^n Hz. `AP_TIME_BASE_HZ` factors as 2^9·3·5^8·11, so 1.024 kHz through 32.768 kHz are not exactly representable and `ap_clock_init` refuses them. Not an approximation — the nine slower rates are exact and implemented, and the fast six are reported unsupported rather than rounded | Recompute the time base: including 32.768 kHz costs a factor of 64 and drops the representable span from 88.6 years to 505 days. Including the part's own 4.194304 MHz crystal would cost 8192x and leave 3.95 days, so the crystal can never be a clock domain in a 64-bit base at all. Cheap to do, and deliberately not done while nothing is observed using those rates |
-| 68030 long bus fault frame's internal registers | Stacked as **zero**. This model has no microsequencer state to save, so the fields Table 8-6 labels INTERNAL REGISTER are written rather than skipped — a stated value, where a skipped word would leave whatever the stack already held | `[030]` Table 8-6 | An `RTE` resuming a fault *mid-instruction* cannot work from a zeroed frame |
-| DN2500 RAM base | `0x4000000` — **corrected**, was assumed `0x1000000` | Derived from the Series 2500 boot PROM's own reset vector, exactly as this row's cost-to-close said to: `2500_BOOT_16182_8` starts with SSP `040007D0`, where `3500_BOOT_12191_7` starts with `01000180` and its RAM is at `01000000`. A reset stack pointer must land in usable memory, so the DN2500's is at `04000000` and the assumption that it matched the other 68030 models was wrong | Still `PROVISIONAL`: the reset SSP proves memory exists *there*, not where the region begins or ends. A Series 2500 allocation table would settle the extent; the oracle cannot, having no 2500 driver |
-
-### Resolved discrepancies
-
-Kept rather than discarded, so a future contradiction has a documented history.
-
-- **DN4500 CPU clock: 33 MHz, not 30 MHz.** `[CFG]`'s Series 4500 Product
-  Summary (p. D-108) states "32-bit MC68030 33 MHz CPU with MC68882 33 MHz",
-  and its narrative section says "the 33MHz MC68030" — but its own overview
-  table at p. A-11 says `MC68030@30MHZ`. 33 MHz taken as correct: two
-  independent statements against one, the ordering-level summary outranks the
-  marketing summary, and Motorola never binned a 30 MHz 68030 (16/20/25/33/40/50
-  only). Both figures divide the time base, so nothing rests on it structurally.
-  If a probe ever contradicts 33 MHz, that overview table is the reason to
-  revisit.
-- **DSP4500 is headless despite its heading.** `[CFG]` heads the section
-  "DSP4500 Monochrome Workstation", copied from the DN4500 page. Its country kit
-  (`DSPCK-*`) contains only a power cord, where the DN4500's (`DN3CK-*`) includes
-  keyboard, keyboard cable and mouse. Modelled headless, like every other DSP.
-
-## Known gaps
-
-- **Nothing advances in time.** `ap_machine_run` steps the CPU and nothing else,
-  so no device clock ticks and no status bit changes on its own. The firmware
-  has not yet needed it — it stops to ask which console it has before starting
-  anything timed — but every device with a counter is inert until the tick loop
-  exists.
-- **The display draws nothing.** Its registers, both graphics memories and the
-  screen identification are modelled; the blitter and the colour lookup table
-  are not. A fitted `c8p` takes 803 writes from the firmware that nothing
-  answers.
-- **The keyboard sends nothing.** Serial 1 channel A is wired and reachable, and
-  the PROM's scan-code table at `000021D2` is read, but no scan codes are
-  generated — so the machine can be typed at only through the oracle.
-- **Serial framing is absent**: no baud rate, start/stop bits or parity, so a
-  character crosses the DUART whole. The firmware autobauds its console by
-  cycling clock select and waiting for a byte to *fail* to decode, which this
-  core cannot yet make happen.
-- No DMA transfers, and no shared arbitration point for them to contend at.
-- The ring controller's register-level interface is not yet recovered; the
-  manuals give its address window and block diagram but not its registers.
-
-- No SDL frontend. Deliberately absent rather than stubbed.
