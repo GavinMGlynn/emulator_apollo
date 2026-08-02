@@ -1935,6 +1935,30 @@ direction is preferable to being wrong in an invented one.
 
 
 
+### The 68882 is complete as an implementation, not yet as a verification
+
+Every instruction and every data format executes. The arithmetic is checked
+against mathematical truth — expectations generated to 120 and 400 decimal
+digits — which for *accuracy* is a stronger statement than the oracle could
+make, since this project expects to out-accurate it.
+
+**What is missing is the oracle comparison, and it was found by audit rather
+than noticed.** The 68882's plan item asks for "a probe suite over each
+operation and rounding mode; note the oracle's admitted FPU gaps as a divergence
+class". `src/core/probe/ap_probe.c` has **no floating-point probe at all**, so
+nothing has ever compared this part's behaviour with MAME's inside a running
+machine, and the divergence classes have not been drawn.
+
+The determinism golden does not close it and should not be mistaken for it. Its
+FNV-1a digest over 38,880 results proves that every build type and platform
+produces the same answer — portability, which is a different property from
+agreeing with anything outside this project. Both are wanted; only one is done.
+
+So the item is `[~]` rather than `[x]`: the implementation is finished and the
+verification it was filed under is not. Recorded this way because the alternative
+— leaving it ticked — would make the plan claim a measurement that was never
+taken.
+
 ### FSAVE and FRESTORE, and the frame this part can never produce
 
 The last 68882 forms, and the only ones that compute nothing: they move the

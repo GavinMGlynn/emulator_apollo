@@ -1179,7 +1179,7 @@ Split out of Phase 2. Each is a subsystem in its own right rather than a tail of
 the 68030, and none is on the DN3500's critical path: the DN3500 is a 68030 with
 a 68882, and the 68882 is the only one of these it has.
 
-- [x] 68882 FPU. The conditional predicates and `BSUN` were found missing by
+- [~] 68882 FPU.
       the same audit and are now in: §4.4's thirty-two tests are sixteen
       equations plus one bit, and `BSUN` is bit 4 against the NAN condition
       code with no special cases. Audited against this verification line after the
@@ -1189,6 +1189,22 @@ a 68882, and the 68882 is the only one of these it has.
       overflow threshold that was missing. Detail in `PROJECT_STATUS.md`.
       *Verification: probe suite over each operation and rounding
       mode; note the oracle's admitted FPU gaps as a divergence class.*
+  - [ ] **The verification line above is not met, and this was found by
+        audit rather than assumed.** Every 68882 instruction and data format
+        executes, and the arithmetic is checked against *mathematical* truth —
+        120- and 400-digit references, which is a stronger statement than the
+        oracle could make about accuracy. What does not exist is the **probe
+        suite against the oracle**: `src/core/probe/ap_probe.c` has no
+        floating-point entry at all, so nothing has ever compared this part's
+        behaviour with MAME's in a running machine, and the "oracle's admitted
+        FPU gaps as a divergence class" have not been classified.
+        The determinism golden is not a substitute: its FNV-1a digest over
+        38,880 results proves the *same answer on every build and platform*,
+        which is portability, not agreement with anything outside this project.
+        *Verification: probes over each operation and rounding mode, side-loaded
+        into the oracle by the technique already used elsewhere, with each
+        difference classified — hardware-truer than the oracle, sub-poll-slack
+        equal, or actually wrong.*
   - [x] **The programming model** (`src/core/cpu/m68882/ap_m68882_regs.c`),
         `[68881]` §2 and Figures 2-2 to 2-7: the three control registers, the
         eight extended-precision data registers, Table 2-1's condition codes and
