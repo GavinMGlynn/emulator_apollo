@@ -892,8 +892,44 @@ field is not". A reset that cleared the counts would silently rearm every
 breakpoint to fire on its first pass, which is the opposite of what a debugger
 holding a partly-consumed count expects.
 
-What the 68851 still owes: the DN3000 boot, which is also the 68020 item's
-outstanding verification. Appendix A's bit rows have to come from page images --
+**The CPU family now changes behaviour rather than merely being described.**
+Until this point `ap_cpu_features()` was read only by its own tests -- the
+features were declared and nothing consulted them, which is a table pretending
+to be a model. `ap_cpu_decode()` closes that: it asks the shared decoder and
+upgrades `$06C0`-`$06FF` to a module call only where `has_module_calls` says so.
+
+It is a wrapper rather than a second decoder or a parameterised one, and both
+alternatives were rejected for a reason. Copying the 68030's table would leave
+two to keep in step, and the one no booting machine exercises would drift.
+Threading a family argument through `ap_m68030_decode()` would put 68020
+variance inside the 68030's module, which `CLAUDE.md` forbids. The wrapper only
+ever upgrades *illegal* to a module call, so it cannot claim a word the shared
+decoder already understands.
+
+A sweep of all 65536 opcodes asserts the shape of the difference: the families
+disagree on exactly 44 words -- 16 `RTM` forms and 28 legal `CALLM` ones -- and
+every disagreement is the 68020 accepting what the 68030 refuses. The subset
+relation runs one way, which is what "68020 subset" has to mean if it means
+anything.
+
+### The DN3000 boot moves to Phase 4
+
+Phase 2b's 68020 and 68851 items both carried "`dn3000` boots" as their
+verification, and that was **out of order with this plan** rather than blocked
+by anything in those items. A boot needs a board; `board/ap_board.c` is the
+DN3500's and Phase 3 is the phase whose subject is the core board; Phase 4 is
+titled "Storage, then a first boot". So the verification has moved to Phase 4,
+where a DN3000 board is now its own item.
+
+The reference is in hand, so this is a scheduling correction and not a gap:
+`008778-03` Table 2-6 gives the DS3000's 16 MB physical map, the counterpart to
+Table 2-8 that the DN3500 board is already built from. Two differences are
+structural -- main memory starts at `100000` rather than `1000000`, and the
+Series 3000 has no address translation map, so its DMA reaches physical memory
+directly rather than through the map at `017000`.
+
+Nothing in the 68020 or 68851 work blocks that boot, and nothing in it was left
+undone for want of one. Appendix A's bit rows have to come from page images --
 `pdftotext` renders them with zeros as letters and columns collapsed, the same
 failure that cost a bit position in the 68020's module entry word.
 

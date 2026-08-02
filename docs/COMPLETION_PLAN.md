@@ -1963,8 +1963,20 @@ a 68882, and the 68882 is the only one of these it has.
         extracted text of the module entry word had lost a column.
         `m68020_cache_suite` 16 tests, `m68020_module_suite` 17 tests,
         `model_suite` +5.
-  - [ ] The boot verification carries to the 68851 item below: a DN3000 cannot
-        boot without its PMMU, so there is nothing to boot until that lands.
+  - [x] The family wired into decode, so the features table changes behaviour
+        rather than merely describing it: `ap_cpu_decode()` asks the shared
+        decoder and upgrades `$06C0`-`$06FF` to a module call only where
+        `has_module_calls` says so. A sweep of all 65536 opcodes asserts the two
+        families differ on exactly 44 words -- 16 `RTM` and 28 legal `CALLM`
+        forms -- and that every difference is the 68020 accepting what the
+        68030 refuses, never the reverse. `m68020_decode_suite`, 8 tests.
+  - [ ] The boot verification is **out of order with this plan** and moves to
+        Phase 4. Booting a DN3000 needs a DN3000 core board, which is Phase 3's
+        subject (`ap_board.c` is the DN3500's and cites `008778-03` Table 2-8;
+        the DS3000's map is Table 2-6 in the same document, so the reference
+        exists and the work does not). Phase 4 is titled "Storage, then a first
+        boot", so a boot in Phase 2b was always ahead of its dependencies.
+        Nothing about the 68020 or the 68851 blocks it.
 - [ ] 68851 external PMMU as its own subsystem. *Verification: `MC68851 PMMU
       User's Manual 3ed` cited per figure; oracle diff.*
   - [x] The translation control registers: `TC` with its consistency check
@@ -2498,6 +2510,17 @@ a 68882, and the 68882 is the only one of these it has.
         an exclusive-or.
         Detail in `PROJECT_STATUS.md`.
 ## Phase 4 — Storage, then a first boot
+
+- [ ] **A DN3000 core board, and `dn3000` boots.** Carried here from Phase 2b's
+      68020 and 68851 items, whose verification it was: a boot needs a board,
+      and a board is Phase 3's subject while a first boot is this phase's. The
+      reference is in hand -- `008778-03` Table 2-6 gives the DS3000's 16 MB
+      map, the counterpart to Table 2-8 that `board/ap_board.c` already builds
+      the DN3500 from. Two differences are structural rather than cosmetic: main
+      memory starts at `100000` rather than `1000000`, and there is no address
+      translation map ("the Series 4000, unlike the Series 3000, incorporates an
+      address translation map in its architecture"), so DMA reaches physical
+      memory directly. *Verification: `dn3000` boots; oracle diff.*
 
 - [ ] **OMTI 8621 ESDI/floppy controller** — one controller for both, and the
       DN3500's.
