@@ -1001,7 +1001,43 @@ that prevented one being found.
 
 Figure 3-6's glyph between `M` and `W` is a reserved **zero**, not a field named
 `O`: the manual's field list runs in descending bit order -- B, G, U1, U0, S,
-CM, M, W, T, R -- and skips bit 3 entirely. Appendix A's bit rows have to come from page images --
+CM, M, W, T, R -- and skips bit 3 entirely.
+
+**The caches are in, and this is the third organisation the core models.**
+
+| | size | arrangement | tag |
+| --- | --- | --- | --- |
+| 68020 | 256 B | 64 entries of one long word, direct mapped | logical + FC2 |
+| 68030 | 256 B each | 16 lines of four long words, direct mapped | logical |
+| 68040 | 4 KB each | 64 sets x 4 ways x four long words | **physical** |
+
+The physical tag is the change that matters beyond size: an earlier part caches
+by logical address and can alias across a context switch, while the 68040 caches
+what the MMU produced, so its lines survive a switch and its snoop logic can
+compare against bus addresses directly.
+
+Two details would be invisible if modelled loosely:
+
+- **A dirty bit per long word, not per line.** "Four additional bits to indicate
+  dirty status for each long word in the line", and "only the data cache
+  supports dirty cache lines". A copyback of a partly-written line writes back
+  only what changed; one bit per line would write back clean data -- identical
+  in memory contents and wrong in the bus traffic a probe measures.
+- **"Pseudo-random" replacement is fully deterministic.** "Each cache contains a
+  2-bit counter, which is incremented for each access to the cache ... the line
+  pointed to by the current counter" is replaced. One counter per *cache*, not
+  per set, so activity in one set moves the victim chosen in another. Motorola's
+  name for it is misleading and the behaviour is exactly reproducible, which is
+  what a reference core needs. An invalid line is always preferred, so the
+  counter only matters once a set is full.
+
+And a third reset trap in this part, after the `TCR` page size and the ATCs:
+"both caches should be explicitly cleared after a hardware reset of the
+processor since reset does not invalidate the cache lines."
+
+The tests caught two of my own errors, both in constants rather than code: a tag
+that lost a hex digit, and a pair of addresses I had assumed were in different
+sets when the index is bits 9-4 and they differ only above it. Appendix A's bit rows have to come from page images --
 `pdftotext` renders them with zeros as letters and columns collapsed, the same
 failure that cost a bit position in the 68020's module entry word.
 

@@ -2068,6 +2068,10 @@ a 68882, and the 68882 is the only one of these it has.
         the 68851 -- writing `TCR` does not flush the ATCs, `PFLUSH` works with
         translation disabled, and reset leaves the page size untouched while
         clearing the enable. `m68040_regs_suite`, 16 tests.
+  - [x] The instruction and data caches: 64 sets of four 16-byte lines, four-way
+        set associative, **physically** tagged, with a dirty bit *per long word*
+        in the data cache. The "pseudo-random" replacement is a 2-bit counter
+        per cache and entirely deterministic. `m68040_cache_suite`, 17 tests.
 
 ## Phase 3 — Core board
 
