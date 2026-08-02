@@ -1838,8 +1838,34 @@ a 68882, and the 68882 is the only one of these it has.
         boundary fold into that decision rather than being rounded away first,
         which is the classic double-rounding error and gives a different answer
         near a tie.
-  - [ ] The arithmetic and the transcendentals, which now have a rounding stage
-        to end in.
+  - [x] **The four arithmetic operations** (`ap_m68882_arith.c`): add,
+        subtract, multiply, divide and compare, on extended values, ending in
+        the rounding stage. The special cases are the specification -- Table 6-2
+        lists the combinations that are *errors*, and every other infinity or
+        zero combination has a defined value, so a model treating all of them as
+        errors traps where the hardware computes and one treating none of them
+        as errors computes where it traps.
+        *Verification: `m68882_arith_suite`, 20 tests -- Table 6-2's four rows
+        for these operations, and **properties** rather than values where a
+        value would not discriminate: addition and multiplication commutative
+        over a set of operands, a value divided by itself being one, and
+        multiply and divide inverting each other.*
+  - [x] Three defects the property tests caught, none of which a single worked
+        value would have. **The multiply's exponent was one low** -- two
+        mantissas in [1,2) give a product in [1,4), so the unshifted case is the
+        larger, and `3 * 4` came to 6. **The divide lost a quotient bit** when
+        the dividend was smaller than the divisor, halving the answer. And
+        **the alignment swap flipped both signs**, which made addition
+        non-commutative for mixed-sign operands -- caught by the commutativity
+        sweep and invisible to any single example.
+  - [x] Two distinctions that are separate exceptions with separate vectors.
+        **`DZ` is not `OPERR`**: `1/0` is *defined* as an infinity of the right
+        sign and only `0/0` is an operand error, so folding them would trap the
+        wrong handler on every division by zero. And **a signalling NAN raises
+        once and comes out quiet**, since leaving it signalling would raise the
+        exception again on every later operation -- one invalid operand becoming
+        an exception per instruction for the rest of the calculation.
+  - [ ] The transcendentals, and the instruction decode that reaches all of it.
 - [ ] 68020 subset: no on-chip MMU or cache differences, external 68851.
       *Verification: `dn3000` boots under both; oracle diff.*
 - [ ] 68851 external PMMU as its own subsystem. *Verification: `MC68851 PMMU

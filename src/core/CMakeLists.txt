@@ -2,6 +2,7 @@
 # Frontends depend on this; it never depends on them.
 
 add_library(apollo_core STATIC
+  cpu/m68882/ap_m68882_arith.c
   cpu/m68882/ap_m68882_cir.c
   cpu/m68882/ap_m68882_round.c
   cpu/m68882/ap_m68882_format.c
