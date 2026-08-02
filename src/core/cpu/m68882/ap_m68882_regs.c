@@ -42,6 +42,19 @@ bool ap_m68882_exception_enabled(const ap_m68882_regs_t *regs,
          ((regs->fpsr >> exception_bit) & 1u) != 0u;
 }
 
+bool ap_m68882_inexact_trap(const ap_m68882_regs_t *regs) {
+  const uint32_t exc = regs->fpsr;
+  const uint32_t enable = regs->fpcr;
+  const bool overflow = ((exc >> AP_M68882_EXC_OVFL) & 1u) != 0u;
+  const bool inexact2 = ((exc >> AP_M68882_EXC_INEX2) & 1u) != 0u;
+  const bool inexact1 = ((exc >> AP_M68882_EXC_INEX1) & 1u) != 0u;
+  const bool enable2 = ((enable >> AP_M68882_EXC_INEX2) & 1u) != 0u;
+  const bool enable1 = ((enable >> AP_M68882_EXC_INEX1) & 1u) != 0u;
+  /* §6.1.10, transcribed: the overflow term is the part that a plain
+   * bit-against-bit test would lose. */
+  return ((overflow || inexact2) && enable2) || (inexact1 && enable1);
+}
+
 void ap_m68882_set_condition(ap_m68882_regs_t *regs, ap_m68882_result_t kind,
                              bool negative) {
   uint32_t fpsr = regs->fpsr;
