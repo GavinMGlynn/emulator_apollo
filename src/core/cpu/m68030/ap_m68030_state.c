@@ -204,6 +204,11 @@ void ap_m68030_hash_cpu(ap_hash_t *st, const ap_m68030_cpu_t *cpu) {
   ap_m68030_hash_pipe(st, &cpu->fetch.pipe);
   ap_hash_u32(st, cpu->fetch.address);
   ap_hash_u8(st, cpu->fetch.function_code);
+  /* What prefetching has cost, which is timing state in the same sense as
+   * `cpu->clocks` and is not derivable from it: two runs reaching the same
+   * total by different splits between instruction and operand cycles are
+   * different runs, and the split is exactly what §11.6's model turns on. */
+  ap_hash_u64(st, cpu->fetch.bus_clocks);
   ap_hash_u8(st, cpu->data_function_code);
 
   /* Instruction side then data side, in that order, so a machine with the two

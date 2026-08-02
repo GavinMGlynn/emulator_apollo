@@ -32,6 +32,21 @@ typedef struct {
   ap_m68030_access_ctx_t *access; /* the instruction side of the machine */
   uint32_t address;               /* the next word to prefetch */
   uint8_t function_code;
+
+  /* Clocks spent on *instruction* bus cycles since reset, running total.
+   *
+   * Kept apart from `ap_m68030_cpu_t::clocks` because §11.6's timing model
+   * treats the two differently and this core cannot otherwise tell them apart:
+   * an operand access is waited on by the microcode that consumes it, while a
+   * prefetch is not, and how much of a prefetch hides is a published
+   * per-instruction quantity (`ap_m68030_prefetch_exposure`). Summing them into
+   * one figure loses exactly the distinction the model turns on.
+   *
+   * A running total rather than per-step scratch, so it is honest state that
+   * hashes with the rest: a step reads it either side of its work and takes the
+   * difference. It also answers "what did prefetching cost this run", which is
+   * the quantity `FINDINGS.md` C7's alternation is about. */
+  uint64_t bus_clocks;
 } ap_m68030_fetch_t;
 
 typedef struct {

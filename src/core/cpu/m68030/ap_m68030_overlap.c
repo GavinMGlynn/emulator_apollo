@@ -79,15 +79,23 @@ unsigned ap_m68030_microcode_clocks(const ap_m68030_timing_t *timing) {
   return timing->cache_case > bus ? timing->cache_case - bus : 0u;
 }
 
-unsigned ap_m68030_prefetch_exposure(const ap_m68030_timing_t *timing) {
-  /* Half the published difference is the odd-aligned case, which for a
-   * single-word instruction runs no fetch at all; the even-aligned case is
-   * therefore twice the average. See the header for where this does not
-   * apply. */
+unsigned ap_m68030_prefetch_exposure(const ap_m68030_timing_t *timing,
+                                     ap_m68030_prefetch_class_t klass) {
   const unsigned difference = timing->no_cache_case > timing->cache_case
                                   ? timing->no_cache_case - timing->cache_case
                                   : 0u;
-  return difference * 2u;
+  switch (klass) {
+  case AP_M68030_PREFETCH_SINGLE_WORD:
+    /* Half the published difference is the odd-aligned case, which runs no
+     * fetch at all, so the even-aligned case is twice the average. */
+    return difference * 2u;
+  case AP_M68030_PREFETCH_EVEN_WORDS:
+    /* Both alignments run the same fetches, so nothing was averaged. */
+    return difference;
+  case AP_M68030_PREFETCH_UNKNOWN:
+    break;
+  }
+  return 0u;
 }
 
 uint64_t ap_m68030_no_cache_total(const ap_m68030_timing_t *components,

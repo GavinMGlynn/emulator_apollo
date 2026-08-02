@@ -366,62 +366,24 @@ static void test_the_decomposition_separates_the_predecrement_extra_clock(void) 
  *
  * A bus cycle is two clocks, so that quantity can only be 0 or 2: such a
  * prefetch either hides completely under the instruction's microcode or not at
- * all. If any applicable row gave 4, the reasoning would be wrong.
+ * all. If any row of that class gave 4, the reasoning would be wrong.
  *
- * Computed over **every** row, with the inapplicable ones named here and why --
- * the same discipline the withdrawn `(NCC−CC)/p` claim had to be given after it
- * was stated from eleven rows and falsified by three others in the same
- * table. */
+ * Computed over **every** row of the class, which the table now carries as data
+ * rather than this test carrying a list of names -- the applicability belongs
+ * where the figure is used, not only where it is checked. */
 static void test_a_single_word_prefetch_either_hides_completely_or_not_at_all(
     void) {
-  /* Rows this cannot apply to, each for one of two reasons.
-   *
-   * **Multi-word**: both alignments may need a fetch, so the average is not
-   * half of one case. **Change of flow**: the pipe refills at the target
-   * whatever the instruction's own alignment, and it is the target's alignment
-   * that decides the count. */
-  static const char *const NOT_APPLICABLE[] = {
-      "RTS",                                /* change of flow */
-      "RTR",                                /* change of flow */
-      "RTD",                                /* change of flow, and multi-word */
-      "LINK.W",                             /* multi-word */
-      "LINK.L",                             /* multi-word */
-      "ANDI/EORI/ORI to SR or CCR",         /* multi-word, and refills the pipe */
-      "Bcc (Taken)",                        /* change of flow */
-      "Bcc.W (Not Taken)",                  /* multi-word */
-      "Bcc.L (Not Taken)",                  /* multi-word */
-      "BSR",                                /* change of flow, and multi-word */
-      "DBcc (cc False, Count Not Expired)", /* change of flow, multi-word */
-      "DBcc (cc False, Count Expired)",     /* multi-word */
-      "DBcc (cc True)",                     /* multi-word */
-  };
-
   unsigned count = 0;
   const ap_m68030_table_entry_t *table = ap_m68030_timing_table(&count);
-  unsigned excluded_seen = 0;
   unsigned exposed = 0;
   unsigned hidden = 0;
 
   for (unsigned i = 0; i < count; i++) {
-    bool applicable = true;
-    for (unsigned k = 0; k < sizeof NOT_APPLICABLE / sizeof NOT_APPLICABLE[0];
-         k++) {
-      const char *a = table[i].form;
-      const char *b = NOT_APPLICABLE[k];
-      unsigned j = 0;
-      while (a[j] != '\0' && b[j] != '\0' && a[j] == b[j]) {
-        j++;
-      }
-      if (a[j] == '\0' && b[j] == '\0') {
-        applicable = false;
-        excluded_seen++;
-      }
-    }
-    if (!applicable) {
+    if (table[i].prefetch_class != AP_M68030_PREFETCH_SINGLE_WORD) {
       continue;
     }
-
-    const unsigned exposure = ap_m68030_prefetch_exposure(&table[i].timing);
+    const unsigned exposure = ap_m68030_prefetch_exposure(
+        &table[i].timing, table[i].prefetch_class);
     TEST_ASSERT_TRUE_MESSAGE(exposure == 0u || exposure == 2u, table[i].form);
     if (exposure == 2u) {
       exposed++;
@@ -430,15 +392,75 @@ static void test_a_single_word_prefetch_either_hides_completely_or_not_at_all(
     }
   }
 
-  /* The exclusion list is not stale in either direction. */
-  TEST_ASSERT_EQUAL_UINT(sizeof NOT_APPLICABLE / sizeof NOT_APPLICABLE[0],
-                         excluded_seen);
-
-  /* And both outcomes actually occur. A rule that only ever produced one of
-   * them would satisfy every assertion above and say nothing: the whole point
-   * is that some instructions hide their prefetch and some do not. */
+  /* Both outcomes actually occur. A rule that only ever produced one of them
+   * would satisfy every assertion above and say nothing: the whole point is
+   * that some instructions hide their prefetch and some do not. */
   TEST_ASSERT_TRUE(exposed > 0u);
   TEST_ASSERT_TRUE(hidden > 0u);
+}
+
+/* The classification itself, which is the part that could be wrong without any
+ * arithmetic being wrong. It is a claim about each instruction's *length* and
+ * whether it changes flow, so it is checked against those facts rather than
+ * against the figures it is used with.
+ *
+ * A row misclassified as single-word would have its published difference
+ * doubled, which is the largest error this model can make -- so the rows that
+ * are not single-word are named here individually. */
+static void test_the_rows_that_are_not_single_word_are_classified_as_such(void) {
+  static const struct {
+    const char *form;
+    ap_m68030_prefetch_class_t klass;
+    const char *why;
+  } EXPECTED[] = {
+      {"RTS", AP_M68030_PREFETCH_UNKNOWN, "change of flow"},
+      {"RTR", AP_M68030_PREFETCH_UNKNOWN, "change of flow"},
+      {"RTD", AP_M68030_PREFETCH_UNKNOWN, "change of flow"},
+      {"BSR", AP_M68030_PREFETCH_UNKNOWN, "change of flow"},
+      {"Bcc (Taken)", AP_M68030_PREFETCH_UNKNOWN, "change of flow"},
+      {"DBcc (cc False, Count Not Expired)", AP_M68030_PREFETCH_UNKNOWN,
+       "it branches"},
+      {"LINK.L", AP_M68030_PREFETCH_UNKNOWN, "three words"},
+      {"Bcc.L (Not Taken)", AP_M68030_PREFETCH_UNKNOWN, "three words"},
+      {"LINK.W", AP_M68030_PREFETCH_EVEN_WORDS, "two words"},
+      {"Bcc.W (Not Taken)", AP_M68030_PREFETCH_EVEN_WORDS, "two words"},
+      {"DBcc (cc True)", AP_M68030_PREFETCH_EVEN_WORDS, "two words"},
+      {"DBcc (cc False, Count Expired)", AP_M68030_PREFETCH_EVEN_WORDS,
+       "two words, and it falls through"},
+      {"ANDI/EORI/ORI to SR or CCR", AP_M68030_PREFETCH_EVEN_WORDS,
+       "two words"},
+      {"ADDI #<data>,Dn", AP_M68030_PREFETCH_EVEN_WORDS, "two words"},
+  };
+
+  unsigned count = 0;
+  const ap_m68030_table_entry_t *table = ap_m68030_timing_table(&count);
+  unsigned matched = 0;
+  unsigned non_single = 0;
+
+  for (unsigned i = 0; i < count; i++) {
+    if (table[i].prefetch_class != AP_M68030_PREFETCH_SINGLE_WORD) {
+      non_single++;
+    }
+    for (unsigned k = 0; k < sizeof EXPECTED / sizeof EXPECTED[0]; k++) {
+      const char *a = table[i].form;
+      const char *b = EXPECTED[k].form;
+      unsigned j = 0;
+      while (a[j] != '\0' && b[j] != '\0' && a[j] == b[j]) {
+        j++;
+      }
+      if (a[j] == '\0' && b[j] == '\0') {
+        matched++;
+        TEST_ASSERT_EQUAL_INT_MESSAGE(EXPECTED[k].klass,
+                                      table[i].prefetch_class, EXPECTED[k].why);
+      }
+    }
+  }
+
+  /* Every named row was found, and no *other* row is anything but single word
+   * -- so a row that quietly stops being single-word fails here rather than
+   * being priced by a rule that does not apply to it. */
+  TEST_ASSERT_EQUAL_UINT(sizeof EXPECTED / sizeof EXPECTED[0], matched);
+  TEST_ASSERT_EQUAL_UINT(sizeof EXPECTED / sizeof EXPECTED[0], non_single);
 }
 
 /* Which rows they are, and it is the memory destinations. `ADD Dn,EA` and
@@ -461,7 +483,8 @@ static void test_the_rows_that_expose_a_prefetch_are_the_memory_forms(void) {
         ap_m68030_timing_for_word(CASES[i].word);
     TEST_ASSERT_NOT_NULL_MESSAGE(row, CASES[i].what);
     TEST_ASSERT_EQUAL_UINT_MESSAGE(
-        CASES[i].exposure, ap_m68030_prefetch_exposure(&row->timing),
+        CASES[i].exposure,
+        ap_m68030_prefetch_exposure(&row->timing, row->prefetch_class),
         CASES[i].what);
   }
 }
@@ -499,6 +522,7 @@ int main(void) {
   RUN_TEST(test_no_rows_bus_time_exceeds_its_published_total);
   RUN_TEST(test_the_decomposition_separates_the_predecrement_extra_clock);
   RUN_TEST(test_a_single_word_prefetch_either_hides_completely_or_not_at_all);
+  RUN_TEST(test_the_rows_that_are_not_single_word_are_classified_as_such);
   RUN_TEST(test_the_rows_that_expose_a_prefetch_are_the_memory_forms);
   RUN_TEST(test_an_exact_prefetch_cost_is_not_always_zero_or_one);
   RUN_TEST(test_the_figures_compose_through_the_overlap_rule);

@@ -193,29 +193,64 @@ ap_m68030_prefetch_cost(const ap_m68030_timing_t *timing);
 [[nodiscard]] unsigned ap_m68030_microcode_clocks(
     const ap_m68030_timing_t *timing);
 
-/* What one instruction prefetch costs when it happens, in clocks.
+/* How a row's prefetch activity divides between the two alignment cases, which
+ * is what decides whether `NCC - CC` can be turned into a cost this core can
+ * apply. It follows from the instruction's length in words and from whether it
+ * changes flow -- both facts about the instruction, not fitted numbers.
+ *
+ * The cache holding register serves a long word, so a word at an odd offset
+ * within one was fetched by the *previous* instruction's cycle and is free to
+ * this one. Counting fetches for an n-word instruction at each alignment:
+ *
+ *   n = 1   even: 1, odd: 0   -- they differ, and the odd case is free
+ *   n = 2   even: 1, odd: 1   -- alike
+ *   n = 3   even: 2, odd: 1   -- differ by one
+ *   n = 4   even: 2, odd: 2   -- alike
+ *
+ * so an even word count makes the two alignments identical and an odd one makes
+ * them differ. */
+typedef enum {
+  /* One word, no change of flow. The odd alignment runs no fetch at all, so the
+   * published average is half the even case. */
+  AP_M68030_PREFETCH_SINGLE_WORD,
+  /* An even number of words, no change of flow. Both alignments run the same
+   * number of fetches, so there is nothing being averaged and the published
+   * difference is the exposure itself. */
+  AP_M68030_PREFETCH_EVEN_WORDS,
+  /* Everything else: three or more words at an odd count, where the two
+   * alignments differ by one fetch and recovering a per-fetch cost needs the
+   * quantity `docs/references/M68030_TIMING.md` withdrew; and every change of
+   * flow, where it is the *target's* alignment that decides the count and the
+   * pipe refills either way. */
+  AP_M68030_PREFETCH_UNKNOWN,
+} ap_m68030_prefetch_class_t;
+
+/* What one instruction's prefetch activity costs when it happens, in clocks.
  *
  * `NCC - CC` is the published difference between the two cache cases, and
  * §11.3.3 says what it is a difference *of*: the no-cache figure is "the
  * average of the odd-word-aligned case and the even-word-aligned case (rounded
- * up)". For a **single-word instruction that is not a change of flow** the odd
- * alignment needs no external fetch at all -- the cache holding register's long
- * word already holds the word -- so the average is half the even case, and
+ * up)". So the class above is what turns that average back into a value:
  *
- *     exposure = 2 (NCC - CC)
+ *   SINGLE_WORD   exposure = 2 (NCC - CC)   -- half the average is the odd
+ *                                              case, which is zero
+ *   EVEN_WORDS    exposure =    NCC - CC    -- no averaging to undo
+ *   UNKNOWN       exposure = 0, declined
  *
- * which comes to 0 or 2: such a prefetch either hides completely under the
- * instruction's microcode or not at all. That is a falsifiable claim about the
- * published tables and `timing_table_suite` computes it over every row, with
- * the rows it cannot apply to named there rather than assumed.
+ * For `SINGLE_WORD` the answer comes to 0 or 2 -- such a prefetch either hides
+ * completely under the instruction's microcode or not at all -- which is a
+ * falsifiable claim about the published tables. `timing_table_suite` computes
+ * it over every row.
  *
- * It does **not** hold for a multi-word instruction, where both alignments may
- * need a fetch, nor for a change of flow, where the alignment that matters is
- * the target's and the pipe must refill either way. `BSR` at 1.5 and `LINK.L`
- * at 0.5 clocks per prefetch are what those rows look like when the published
- * pair is divided by `p`, and this is why that division was withdrawn. */
+ * **`UNKNOWN` declines rather than approximating**, which leaves those rows
+ * exact in a warm cache and a lower bound in a cold one. That is the same
+ * convention the footnoted rows had before their tables existed: a figure short
+ * by a known amount, marked, rather than a plausible one that is wrong. `BSR`
+ * at 1.5 clocks per prefetch and `LINK.L` at 0.5 are what these rows look like
+ * when the published pair is divided by `p`, and why that division was
+ * withdrawn. */
 [[nodiscard]] unsigned ap_m68030_prefetch_exposure(
-    const ap_m68030_timing_t *timing);
+    const ap_m68030_timing_t *timing, ap_m68030_prefetch_class_t klass);
 
 /* "The total overlap time between instructions A and B consists of the lesser
  * of the tail of instruction A or the head of instruction B." */

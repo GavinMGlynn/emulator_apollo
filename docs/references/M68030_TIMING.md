@@ -651,6 +651,67 @@ measures the read and the write itself at 2 clocks each, so the warm total is 6;
 the exposure from the operation's row is 2, so the even-aligned cold total is 8
 and the odd-aligned 6, averaging **7** — the manual's figure and the oracle's.
 
-What remains is wiring it into the step, which needs the instruction's
-addressing mode at the point the figure is applied so the effective address row
-can be looked up. That is plumbing rather than an open question.
+### Wired in, and C9's row closed
+
+The step now prices a transcribed row as
+
+```
+  total = microcode + measured operand bus + prefetch cost
+```
+
+and `ADD.B D0,(A0)` comes to **6 warm** and **7 cold averaged over both
+alignments** — the manual's composed figure and the oracle's measurement. The
+effective address is taken from bits 5-0 of the instruction word, which is where
+it is for every row this applies to: the arithmetic forms' operand, and MOVE's
+*source*, §11.6.6's own figures already including the destination address.
+
+Three things had to be got right beyond the arithmetic, and each was found by
+the numbers moving when they should not have.
+
+**The `*` and `**` footnotes name different tables.** They had been one boolean
+meaning "this figure is a component", which was fine while both were declined.
+`*` is §11.6.1, transcribed; `**` is §11.6.2, Fetch Immediate Effective Address,
+which is not. Collapsed, a `**` row would have been priced off the wrong page —
+a plausible number, wrongly sourced. They are now separate values and the `**`
+rows still decline.
+
+**The exposure rule was being applied to rows it was derived to exclude.** The
+test named those rows; the step did not, so `DBcc` and `BSR` were being charged
+`2(NCC − CC)` by a formula whose derivation assumes a single-word instruction
+that does not change flow. The applicability is now data on the row —
+`ap_m68030_prefetch_class_t` — because it belongs where the figure is *used*,
+not only where it is checked. Three classes, each following from the
+instruction's length in words and whether it changes flow rather than from any
+figure:
+
+| Class | Fetches, even vs odd alignment | Exposure |
+| --- | --- | --- |
+| single word, no change of flow | 1 vs 0 | `2(NCC − CC)`, which comes to 0 or 2 |
+| even word count, no change of flow | alike | `NCC − CC`, nothing being averaged |
+| odd count ≥ 3, or any change of flow | differ, or the target decides | declined |
+
+**A pipe refill is not the row's own prefetch.** Substituting the published
+exposure for *measured* instruction-bus time is only valid for the one cycle
+that keeps a full pipe full. An instruction that ran more than one is refilling
+a pipe some change of flow emptied, and §11.6 charges that refill to the branch —
+`Bcc` taken is 6 clocks against an untaken byte branch's 4 for exactly that
+reason. Substituting there made the refill vanish twice over: the target
+discarded it, and the branch that caused it is a change of flow, which declines.
+The step now charges a refill where it happens, at what it measured.
+
+That does put the cost on the target instruction rather than on the branch, and
+it is worth being explicit that this is a *shift between adjacent instructions*
+and not a change to the total — which is precisely what §11.3.3 says alignment
+does, and why it says the pair is stable at 16 clocks while the individual
+instructions are 8 or 10. A per-instruction figure from this core is not
+comparable to a published one; a sequence is.
+
+### What is still open
+
+- The **full-format extension word rows** of §11.6.1 and §11.6.3, without which
+  nothing composes over a memory indirect mode.
+- §11.6.2, Fetch Immediate Effective Address, which the `**` rows need.
+- The **change-of-flow rows' prefetch cost**, declined above. Their warm figures
+  are exact and their cold ones a lower bound.
+- The rows §11.6 marks `+`, whose figures are maxima: the four divides, already
+  `PROVISIONAL`.

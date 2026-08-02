@@ -6,6 +6,10 @@
 void ap_m68030_fetch_reset(ap_m68030_fetch_t *fetch, uint32_t address) {
   ap_m68030_pipe_reset(&fetch->pipe);
   fetch->address = address;
+  /* `bus_clocks` deliberately survives a reset. A branch empties the pipe; it
+   * does not un-spend the clocks already spent fetching, and a counter that
+   * restarted at every change of flow would report a fraction of a run's
+   * prefetch cost. `ap_m68030_cpu_reset` is where a run's counters begin. */
 }
 
 ap_m68030_fetch_result_t ap_m68030_fetch_prefetch(ap_m68030_fetch_t *fetch) {
@@ -35,6 +39,7 @@ ap_m68030_fetch_result_t ap_m68030_fetch_prefetch(ap_m68030_fetch_t *fetch) {
     ap_m68030_pipe_fill(&fetch->pipe, address, 0, true);
     out.fault = true;
     out.clocks = access.clocks;
+    fetch->bus_clocks += access.clocks;
     fetch->address = address + 2u;
     return out;
   }
@@ -42,6 +47,7 @@ ap_m68030_fetch_result_t ap_m68030_fetch_prefetch(ap_m68030_fetch_t *fetch) {
   ap_m68030_pipe_fill(&fetch->pipe, address, access.value, false);
   out.ok = true;
   out.clocks = access.clocks;
+  fetch->bus_clocks += access.clocks;
   fetch->address = address + 2u;
   return out;
 }

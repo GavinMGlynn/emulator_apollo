@@ -5,6 +5,7 @@
 
 #include "cpu/m68030/ap_m68030_step.h"
 
+#include "cpu/m68030/ap_m68030_ea_timing.h"
 #include "cpu/m68030/ap_m68030_timing_table.h"
 
 #include "cpu/m68030/ap_m68030_branch.h"
@@ -89,6 +90,9 @@ void ap_m68030_cpu_reset(ap_m68030_cpu_t *cpu, uint32_t pc) {
   cpu->regs.pc = pc;
   ap_m68030_fetch_reset(&cpu->fetch, pc);
   cpu->clocks = 0;
+  /* Both counters begin here, and only here. `ap_m68030_fetch_reset` is also a
+   * branch's pipe flush, which must not un-spend clocks already spent. */
+  cpu->fetch.bus_clocks = 0;
 }
 
 /* Fill the pipe until its decoded stage holds a word, reporting the clocks the
@@ -3387,6 +3391,13 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
   uint16_t word = 0;
   bool abnormal = false;
 
+  /* Where prefetching stood before this instruction, so what it spends can be
+   * told from what its operands spend. §11.6's model prices the two
+   * differently -- an operand access is waited on by the microcode that
+   * consumes it and a prefetch is not -- and `out.clocks` alone cannot
+   * distinguish them. */
+  const uint64_t instruction_bus_before = cpu->fetch.bus_clocks;
+
   /* This describes the instruction about to run, so it starts clear. Leaving a
    * previous instruction's fault standing would make the *next* unimplemented
    * instruction report as a fault -- the same conflation this flag exists to
@@ -3760,20 +3771,103 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
   } else {
     published = ap_m68030_timing_for_word(out.instruction);
   }
-  /* A row footnoted "Add Fetch Effective Address Time" publishes a *component*,
-   * not a total: `ADD Dn,EA` is 3, and the effective address it reads through
-   * is another 3 or 4 from §11.6.1. Until those tables are composed in, such a
-   * row is declined rather than applied -- `FINDINGS.md` C9 measured the gap at
-   * 7 clocks against our 4 for `ADD.B D0,(A0)`.
+  /* A row footnoted `*` publishes a *component*: `ADD Dn,EA` is 3 clocks, and
+   * the effective address it reads through is another 3 or 4 from §11.6.1. Both
+   * halves are now transcribed, so such a row is composed through Equation
+   * (11-2) rather than declined -- which is what `FINDINGS.md` C9 asked for
+   * after measuring 7 clocks against our 4 for `ADD.B D0,(A0)`.
    *
-   * Declining leaves the instruction at bus time alone, which `--time-instructions`
-   * shows as an *alternating* figure rather than a steady one -- visibly a lower
-   * bound, exactly as every instruction with no published figure at all reads.
-   * Reporting the component instead would produce a steady number that looks
-   * like a measurement and is short by a whole memory access, which is the one
-   * outcome this core's conventions rule out everywhere else. */
-  if (published != nullptr && !published->needs_effective_address_time) {
-    out.clocks = ap_m68030_schedule(published->timing.cache_case, out.clocks);
+   * The effective address is bits 5-0 of the instruction word for every row
+   * this applies to: the arithmetic forms' operand, and `MOVE`'s *source* --
+   * §11.6.6's own figures already include the destination address, which is why
+   * only the source is added separately.
+   *
+   * `**` rows are still declined. That footnote names §11.6.2, Fetch Immediate
+   * Effective Address, which is a different table and not transcribed; pricing
+   * one off §11.6.1 would produce a plausible number from the wrong page. */
+  const ap_m68030_ea_timing_t *ea_timing = nullptr;
+  if (published != nullptr &&
+      published->effective_address_time == AP_M68030_EA_TIME_FETCH) {
+    const ap_m68030_ea_t ea =
+        ap_m68030_ea_decode((out.instruction >> 3) & 7u, out.instruction & 7u);
+    /* The size is read only for the immediate rows, which §11.6.1 splits by
+     * operand size. No row this applies to can *take* an immediate -- every one
+     * of them writes its effective address back -- so the figure passed here is
+     * never the one used, and a long is the safe reading if that ever changes:
+     * it is the larger of the two. */
+    ea_timing = ap_m68030_ea_fetch_timing(ea.kind, 4u);
+  }
+
+  const bool priceable =
+      published != nullptr &&
+      (published->effective_address_time == AP_M68030_EA_TIME_NONE ||
+       (published->effective_address_time == AP_M68030_EA_TIME_FETCH &&
+        ea_timing != nullptr));
+
+  if (priceable) {
+    /* The published cache case, composed if it has two components, then split
+     * into the microcode and the operand bus cycles it contains. §11.6 states
+     * both halves of that split at the head of every table: the `(r/p/w)`
+     * counts "are included in the total clock cycle number", and "all timing
+     * data assumes two-clock reads and writes".
+     *
+     * Only the microcode is taken from the manual. The operand bus time is
+     * whatever this core just measured, so a wait state, a cache hit or a slow
+     * device still moves the answer -- which is the difference between this and
+     * a cycle-table model, and the whole reason the figures were decomposed
+     * rather than used whole. */
+    ap_m68030_overlap_state_t composed = ap_m68030_overlap_begin();
+    ap_m68030_ea_timing_compose(&composed, ea_timing, &published->timing);
+
+    unsigned published_bus =
+        (published->timing.reads + published->timing.writes) * 2u;
+    if (ea_timing != nullptr) {
+      published_bus += (ea_timing->timing.reads + ea_timing->timing.writes) * 2u;
+    }
+    const uint64_t total = ap_m68030_overlap_total(&composed);
+    const uint32_t microcode =
+        total > published_bus ? (uint32_t)(total - published_bus) : 0u;
+
+    /* What this instruction spent on its own prefetches, told apart from what
+     * it spent on operands -- the two are priced differently and `out.clocks`
+     * cannot distinguish them. */
+    const uint32_t instruction_bus =
+        (uint32_t)(cpu->fetch.bus_clocks - instruction_bus_before);
+    const uint32_t operand_bus =
+        out.clocks > instruction_bus ? out.clocks - instruction_bus : 0u;
+
+    /* And a prefetch costs what the published pair says it costs *for this
+     * instruction*, not what it costs on the bus. §11.3.3's no-cache figure is
+     * the average of the two alignment cases, and for the rows this applies to
+     * the odd-aligned case runs no fetch at all -- so the even-aligned case is
+     * twice the published difference, and comes to 0 or 2. Zero is a prefetch
+     * that ran entirely under the microcode; two is one that hid behind
+     * nothing. `ap_m68030_prefetch_exposure` and its test carry the reasoning
+     * and the rows it cannot apply to. */
+    /* ...and only for *one* prefetch, which is what a row's published
+     * difference is about: the cycle that keeps a full pipe full. An
+     * instruction that ran more than one is refilling a pipe some change of
+     * flow emptied, and §11.6 charges that refill to the branch -- `Bcc`
+     * taken is 6 clocks against an untaken byte branch's 4 for exactly that
+     * reason. This core cannot move the cost to the branch, so it charges the
+     * refill where it happens, at what it measured. That is the same
+     * convention as declining an unknown: report the measurement rather than
+     * substitute a figure derived for something else.
+     *
+     * Without this the refill would vanish entirely -- the target instruction
+     * would discard it in favour of its own exposure, and the branch that
+     * caused it is a change of flow, whose class is UNKNOWN and declines. */
+    const uint32_t one_bus_cycle = 2u;
+    uint32_t prefetch_cost = instruction_bus;
+    if (instruction_bus <= one_bus_cycle) {
+      prefetch_cost =
+          instruction_bus > 0u
+              ? ap_m68030_prefetch_exposure(&published->timing,
+                                            published->prefetch_class)
+              : 0u;
+    }
+
+    out.clocks = microcode + operand_bus + prefetch_cost;
   }
 
   /* A taken branch, jump or return has already set the PC and emptied the pipe;

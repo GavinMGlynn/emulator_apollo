@@ -311,6 +311,17 @@ static void test_the_pipe_and_holding_register_reach_the_hash(void) {
     m.cpu.fetch.address = 0x1000u;
     TEST_ASSERT_NOT_EQUAL_UINT64(before, ap_m68030_state_hash(&m.cpu));
   }
+  {
+    /* What prefetching has cost. Timing state in the same sense as
+     * `cpu->clocks`, and not derivable from it: two runs reaching the same
+     * total by different splits between instruction and operand bus cycles are
+     * different runs, and that split is what §11.6's model turns on. */
+    machine_t m = {0};
+    make_machine(&m);
+    const uint64_t before = ap_m68030_state_hash(&m.cpu);
+    m.cpu.fetch.bus_clocks += 2u;
+    TEST_ASSERT_NOT_EQUAL_UINT64(before, ap_m68030_state_hash(&m.cpu));
+  }
 }
 
 /* The caches and the ATC, and the two caches told apart from each other: a

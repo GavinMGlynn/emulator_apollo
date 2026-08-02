@@ -52,6 +52,13 @@
 
 #include "cpu/m68030/ap_m68030_overlap.h"
 
+/* Which effective address table a row's footnote sends the reader to. */
+typedef enum {
+  AP_M68030_EA_TIME_NONE = 0,  /* the figure is the whole cost */
+  AP_M68030_EA_TIME_FETCH,     /* `*`  -- §11.6.1, transcribed */
+  AP_M68030_EA_TIME_FETCH_IMMEDIATE, /* `**` -- §11.6.2, not transcribed */
+} ap_m68030_ea_time_t;
+
 typedef struct {
   /* The form exactly as §11.6 writes it, so a row can be found in the manual
    * without decoding what someone thought it meant. */
@@ -63,10 +70,22 @@ typedef struct {
    * dependent. PROVISIONAL — see the header comment. */
   bool data_dependent;
 
-  /* The table's `*` or `**`: an effective address time is to be added from a
-   * separate table. Carried so a caller cannot mistake the figure for the whole
-   * cost of a memory form. */
-  bool needs_effective_address_time;
+  /* The table's `*` or `**`, kept apart rather than folded into one flag: they
+   * name *different tables*. `*` is "Add Fetch Effective Address Time",
+   * §11.6.1, which this project transcribes; `**` is "Add Fetch Immediate
+   * Effective Address Time", §11.6.2, which it does not.
+   *
+   * They were one boolean until the composition needed to act on it, and that
+   * was fine while both meant only "this figure is a component". Now that one
+   * of them can be priced and the other cannot, collapsing them would price a
+   * `**` row off the wrong table -- a plausible number, from the wrong page. */
+  ap_m68030_ea_time_t effective_address_time;
+
+  /* How this row's prefetch activity divides between the two alignment cases,
+   * which decides whether `NCC - CC` can be turned into a cost. A fact about
+   * the instruction -- its length in words, and whether it changes flow -- so
+   * it is carried here rather than derived from the figures it is used with. */
+  ap_m68030_prefetch_class_t prefetch_class;
 } ap_m68030_table_entry_t;
 
 [[nodiscard]] const ap_m68030_table_entry_t *

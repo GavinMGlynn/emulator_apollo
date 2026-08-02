@@ -417,21 +417,23 @@ static void sample_memory_form(uint16_t word, bool warm, uint64_t *out,
   }
 }
 
-/* The arithmetic memory-destination forms are **not** priced, and this asserts
- * that they are not.
+/* **C9's row, closed.** §11.6.8 footnotes `ADD Dn,EA` with "Add Fetch Effective
+ * Address Time", so its published 3 is a *component*; §11.6.1 gives `(An)`
+ * another 3, and Equation (11-2) composes them to 6 in the cache case. The
+ * oracle measures the whole instruction at 7.
  *
- * `FINDINGS.md` C9: §11.6.8 footnotes `ADD Dn,EA` with "Add Fetch Effective
- * Address Time", so its published 3 is a *component* — the effective address it
- * reads through is another 3 from §11.6.1, and the oracle measures the whole
- * instruction at 7. Until those tables are composed in, applying the component
- * would produce a steady number that looks like a measurement and is short by a
- * memory access.
+ * Both are now asserted here: **warm 6, and cold averaging 7**. The second is
+ * the one that could not be checked before, and it is checked as an average
+ * because §11.3.3 says the published no-cache figure is one -- "the average of
+ * the odd-word-aligned case and the even-word-aligned case (rounded up)". Our
+ * core alternates 6 and 8 with alignment, which is the behaviour §11.3.3
+ * describes and the oracle's flat 7 does not (`FINDINGS.md` C7).
  *
  * An earlier version of this test compared our total against `CC` and `NCC` and
  * passed — because both sides were the same component. That is precisely the
  * blind spot C9 records: a check that compares like with like cannot see that
  * the like is partial. */
-static void test_the_footnoted_memory_forms_are_declined_not_part_priced(void) {
+static void test_the_footnoted_memory_forms_compose_to_the_manuals_total(void) {
   static const struct {
     uint16_t word;
     const char *what;
@@ -445,31 +447,45 @@ static void test_the_footnoted_memory_forms_are_declined_not_part_priced(void) {
     const ap_m68030_table_entry_t *row =
         ap_m68030_timing_for_word(CASES[c].word);
     TEST_ASSERT_NOT_NULL_MESSAGE(row, CASES[c].what);
-    /* The row exists and says it is partial. */
-    TEST_ASSERT_TRUE_MESSAGE(row->needs_effective_address_time, CASES[c].what);
+    /* The row says it is partial, and which table completes it. */
+    TEST_ASSERT_EQUAL_INT_MESSAGE(AP_M68030_EA_TIME_FETCH,
+                                  row->effective_address_time, CASES[c].what);
 
-    /* And the core is short of the manual's *composed* total, which is the
-     * instruction's own CC plus the fetch effective address time for `(An)`:
-     * 3 + 3 = 6 in the cache case, and the oracle measures 7 uncached.
-     *
-     * Note what cannot be asserted here. With the data cache off, this
-     * instruction's bus time alone -- an operand read and a write, four clocks
-     * -- already exceeds its 3-clock component, so `max(3, 4)` and a plain 4
-     * are the same number: applying the component or declining it is
-     * *unobservable* on these rows. The decline matters for correctness of
-     * intent rather than of arithmetic here, and what is checkable is the gap
-     * against the composed figure. */
     const ap_m68030_ea_timing_t *fea =
         ap_m68030_ea_fetch_timing(AP_M68030_EA_ADDRESS_INDIRECT, 1u);
     TEST_ASSERT_NOT_NULL(fea);
-    const uint64_t composed =
-        row->timing.cache_case + fea->timing.cache_case;
+
+    /* Equation (11-2): CCea + [CCop - min(Hop,Tea)] = 3 + [3 - min(0,1)] = 6. */
+    ap_m68030_overlap_state_t composed = ap_m68030_overlap_begin();
+    ap_m68030_ea_timing_compose(&composed, fea, &row->timing);
+    TEST_ASSERT_EQUAL_UINT64_MESSAGE(6u, ap_m68030_overlap_total(&composed),
+                                     CASES[c].what);
 
     uint64_t warm[4];
     sample_memory_form(CASES[c].word, true, warm, 4u);
     for (unsigned i = 0; i < 4u; i++) {
-      TEST_ASSERT_TRUE_MESSAGE(warm[i] < composed, CASES[c].what);
+      TEST_ASSERT_EQUAL_UINT64_MESSAGE(6u, warm[i], CASES[c].what);
     }
+
+    /* And the no-cache case: NCCop + NCCea = 4 + 3 = 7, by §11.3.3's plain
+     * addition, which is also what the oracle measured. */
+    uint64_t cold[4];
+    sample_memory_form(CASES[c].word, false, cold, 4u);
+    const uint64_t total = cold[0] + cold[1] + cold[2] + cold[3];
+    TEST_ASSERT_EQUAL_UINT64_MESSAGE(7u, (total + 3u) / 4u, CASES[c].what);
+
+    /* The alternation is real and not an artefact of averaging four equal
+     * numbers: the two alignments differ by exactly the prefetch's two
+     * clocks. A flat model would average to 7 as well and would be wrong about
+     * every individual instruction, which is the distinction C7 records. */
+    bool saw_six = false;
+    bool saw_eight = false;
+    for (unsigned i = 0; i < 4u; i++) {
+      saw_six = saw_six || cold[i] == 6u;
+      saw_eight = saw_eight || cold[i] == 8u;
+    }
+    TEST_ASSERT_TRUE_MESSAGE(saw_six, CASES[c].what);
+    TEST_ASSERT_TRUE_MESSAGE(saw_eight, CASES[c].what);
   }
 }
 
@@ -490,7 +506,8 @@ static void test_the_unfootnoted_memory_moves_match_both_columns(void) {
     const ap_m68030_table_entry_t *row =
         ap_m68030_timing_for_word(CASES[c].word);
     TEST_ASSERT_NOT_NULL_MESSAGE(row, CASES[c].what);
-    TEST_ASSERT_FALSE_MESSAGE(row->needs_effective_address_time, CASES[c].what);
+    TEST_ASSERT_EQUAL_INT_MESSAGE(AP_M68030_EA_TIME_NONE,
+                                  row->effective_address_time, CASES[c].what);
     TEST_ASSERT_TRUE_MESSAGE(row->timing.no_cache_case >
                                  row->timing.cache_case,
                              CASES[c].what);
@@ -960,7 +977,7 @@ int main(void) {
   RUN_TEST(test_an_unset_clock_produces_no_time);
   RUN_TEST(test_a_probe_can_set_up_run_and_read_back);
   RUN_TEST(test_every_transcribed_row_matches_both_published_columns);
-  RUN_TEST(test_the_footnoted_memory_forms_are_declined_not_part_priced);
+  RUN_TEST(test_the_footnoted_memory_forms_compose_to_the_manuals_total);
   RUN_TEST(test_the_unfootnoted_memory_moves_match_both_columns);
   RUN_TEST(test_the_predecrement_move_costs_more_than_the_postincrement);
   RUN_TEST(test_the_left_arithmetic_shift_costs_more_than_the_right);
