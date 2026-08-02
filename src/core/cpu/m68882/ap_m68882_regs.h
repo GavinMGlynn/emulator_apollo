@@ -164,6 +164,48 @@ ap_m68882_rounding_precision(const ap_m68882_regs_t *regs);
  * is transcribed so it does not have to. */
 [[nodiscard]] bool ap_m68882_inexact_trap(const ap_m68882_regs_t *regs);
 
+/* ---------------------------------------------------------------------------
+ * The conditional predicates, §4.4.
+ *
+ * "The FPCP supports 32 conditional tests that are separated into two groups --
+ * 16 that cause an exception if an unordered condition is present when the
+ * conditional test is attempted, and 16 that do not."
+ *
+ * The two groups are *the same sixteen equations twice*, and the encodings say
+ * so: every predicate in `$10-$1F` is its partner in `$00-$0F` with bit 4 set,
+ * and the pair share an equation exactly. `OGT` at `$02` and `GT` at `$12` are
+ * both `~(NAN v Z v N)`; `OR` at `$07` and `GLE` at `$17` are both `~NAN`. What
+ * bit 4 selects is not a different test but a different *attitude* to an
+ * unordered operand: §4.4.2's IEEE-aware tests "do not set the BSUN bit ...
+ * under any circumstances", while §4.4.1's non-aware ones do, so a program
+ * written without the IEEE unordered concept "is interrupted if something
+ * unexpected occurs".
+ *
+ * That reduces the whole table to sixteen equations plus one bit, which is
+ * worth saying because a transcription of all thirty-two rows would be
+ * thirty-two chances to mistype an equation and no way to notice.
+ *
+ * `EQ` and `NE` appear in both §4.4.1's and §4.4.2's tables. They are not
+ * duplicated encodings -- both are the low-group `$01` and `$0E` -- and §6.1.1
+ * names them as the exception when it says the non-aware set raises `BSUN`,
+ * because a program can use them from either mindset without penalty. */
+typedef struct {
+  bool taken;
+  /* Set when the predicate is one of the sixteen that raise `BSUN` *and* the
+   * NAN condition code is set. Returned rather than written into the FPSR so
+   * the caller can decide the trap -- §6.1.1's exception is reported by the
+   * main processor, and the FPU's job ends at saying it happened. */
+  bool bsun;
+} ap_m68882_condition_t;
+
+/* Evaluate one of the 32 predicates against the current condition codes.
+ *
+ * Predicates above `$1F` are not in Table 4-8 at all. They are reported as
+ * untaken with no `BSUN`, which is the containable reading: the alternative is
+ * to index a table with an encoding the manual never defines. */
+[[nodiscard]] ap_m68882_condition_t
+ap_m68882_evaluate_condition(const ap_m68882_regs_t *regs, unsigned predicate);
+
 /* The result data types Table 2-1 enumerates. "Because of the mutually
  * exclusive nature of the data types described by the condition code bits, the
  * FPCP generates only eight of the 16 possible combinations", so this is what a

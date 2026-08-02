@@ -55,6 +55,54 @@ bool ap_m68882_inexact_trap(const ap_m68882_regs_t *regs) {
   return ((overflow || inexact2) && enable2) || (inexact1 && enable1);
 }
 
+ap_m68882_condition_t
+ap_m68882_evaluate_condition(const ap_m68882_regs_t *regs,
+                             unsigned predicate) {
+  const bool n = ((regs->fpsr >> AP_M68882_FPCC_N) & 1u) != 0u;
+  const bool z = ((regs->fpsr >> AP_M68882_FPCC_Z) & 1u) != 0u;
+  const bool nan = ((regs->fpsr >> AP_M68882_FPCC_NAN) & 1u) != 0u;
+
+  if (predicate > 0x1Fu) {
+    return (ap_m68882_condition_t){false, false};
+  }
+
+  bool taken;
+  /* §4.4's sixteen equations, transcribed from the tables on pages 4-9 and
+   * 4-10. The `I` condition code takes no part in any of them: an infinity is
+   * an ordered value and compares like one. */
+  switch (predicate & 0xFu) {
+  case 0x0: taken = false; break;                        /* F,  SF   */
+  case 0x1: taken = z; break;                            /* EQ, SEQ  */
+  case 0x2: taken = !(nan || z || n); break;             /* OGT, GT  */
+  case 0x3: taken = z || !(nan || n); break;             /* OGE, GE  */
+  case 0x4: taken = n && !(nan || z); break;             /* OLT, LT  */
+  case 0x5: taken = z || (n && !nan); break;             /* OLE, LE  */
+  case 0x6: taken = !(nan || z); break;                  /* OGL, GL  */
+  case 0x7: taken = !nan; break;                         /* OR,  GLE */
+  case 0x8: taken = nan; break;                          /* UN,  NGLE*/
+  case 0x9: taken = nan || z; break;                     /* UEQ, NGL */
+  /* The overbar spans the whole parenthesis, not `N` alone: `UGT` is "unordered
+   * or greater than", so at *equal* it must be false, and `NAN v (~N v Z)`
+   * would make it true. Caught by stating the meaning independently of the
+   * equation -- a mistyped equation agrees with itself. */
+  case 0xA: taken = nan || !(n || z); break;             /* UGT, NLE */
+  case 0xB: taken = nan || (z || !n); break;             /* UGE, NLT */
+  case 0xC: taken = nan || (n && !z); break;             /* ULT, NGE */
+  case 0xD: taken = nan || z || n; break;                /* ULE, NGT */
+  case 0xE: taken = !z; break;                           /* NE,  SNE */
+  default:  taken = true; break;                         /* T,   ST  */
+  }
+
+  /* "All of the conditional tests in the following table, except EQ and NE, set
+   * the BSUN bit ... if the NAN condition code bit is set when a conditional
+   * instruction is executed" -- and the exception for `EQ` and `NE` is already
+   * expressed by the encoding, since both live in the low group. So the rule is
+   * exactly bit 4 against the NAN condition code, with no special cases at
+   * all. */
+  const bool bsun = (predicate & 0x10u) != 0u && nan;
+  return (ap_m68882_condition_t){taken, bsun};
+}
+
 void ap_m68882_set_condition(ap_m68882_regs_t *regs, ap_m68882_result_t kind,
                              bool negative) {
   uint32_t fpsr = regs->fpsr;

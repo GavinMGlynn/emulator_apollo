@@ -373,6 +373,151 @@ static void test_both_inexact_bits_share_one_vector(void) {
   TEST_ASSERT_TRUE(ap_m68882_inexact_trap(&only_one));
 }
 
+/* The condition-code state a comparison leaves: `N`, `Z` and `NAN`. */
+static ap_m68882_regs_t with_condition(bool n, bool z, bool nan) {
+  ap_m68882_regs_t regs;
+  ap_m68882_regs_reset(&regs);
+  if (n) regs.fpsr |= 1u << AP_M68882_FPCC_N;
+  if (z) regs.fpsr |= 1u << AP_M68882_FPCC_Z;
+  if (nan) regs.fpsr |= 1u << AP_M68882_FPCC_NAN;
+  return regs;
+}
+
+static void test_the_thirty_two_predicates_over_every_condition(void) {
+  /* §4.4's three tables, checked against an independent statement of what each
+   * predicate *means* rather than against a second copy of its equation.
+   *
+   * The four states a comparison can leave are: greater (nothing set), equal
+   * (`Z`), less (`N`), and unordered (`NAN`). Naming the answer in those terms
+   * and letting the table decide is what makes this a test rather than a
+   * transcription of the same booleans twice -- a mistyped equation would agree
+   * with itself and disagree with the column below. */
+  enum { GREATER, EQUAL, LESS, UNORDERED, STATES };
+  const struct { bool n, z, nan; } state[STATES] = {
+      {false, false, false}, {false, true, false},
+      {true, false, false},  {false, false, true}};
+
+  const struct {
+    unsigned predicate;
+    const char *name;
+    bool expect[STATES]; /* greater, equal, less, unordered */
+  } rows[] = {
+      /* The ordered (IEEE-aware) half: an unordered operand answers plainly. */
+      {0x00u, "F",    {false, false, false, false}},
+      {0x01u, "EQ",   {false, true,  false, false}},
+      {0x02u, "OGT",  {true,  false, false, false}},
+      {0x03u, "OGE",  {true,  true,  false, false}},
+      {0x04u, "OLT",  {false, false, true,  false}},
+      {0x05u, "OLE",  {false, true,  true,  false}},
+      {0x06u, "OGL",  {true,  false, true,  false}},
+      {0x07u, "OR",   {true,  true,  true,  false}},
+      {0x08u, "UN",   {false, false, false, true}},
+      {0x09u, "UEQ",  {false, true,  false, true}},
+      {0x0Au, "UGT",  {true,  false, false, true}},
+      {0x0Bu, "UGE",  {true,  true,  false, true}},
+      {0x0Cu, "ULT",  {false, false, true,  true}},
+      {0x0Du, "ULE",  {false, true,  true,  true}},
+      {0x0Eu, "NE",   {true,  false, true,  true}},
+      {0x0Fu, "T",    {true,  true,  true,  true}},
+  };
+
+  for (unsigned r = 0; r < 16u; r++) {
+    for (unsigned st = 0; st < STATES; st++) {
+      const ap_m68882_regs_t regs =
+          with_condition(state[st].n, state[st].z, state[st].nan);
+      const ap_m68882_condition_t low =
+          ap_m68882_evaluate_condition(&regs, rows[r].predicate);
+      TEST_ASSERT_EQUAL_MESSAGE(rows[r].expect[st], low.taken, rows[r].name);
+
+      /* The high half is the same sixteen equations: every predicate in
+       * `$10-$1F` must answer identically to its partner in `$00-$0F`. If that
+       * ever stops holding, one of the thirty-two rows has been mistyped. */
+      const ap_m68882_condition_t high =
+          ap_m68882_evaluate_condition(&regs, rows[r].predicate | 0x10u);
+      TEST_ASSERT_EQUAL_MESSAGE(
+          low.taken, high.taken,
+          "a high predicate disagreed with its low partner");
+    }
+  }
+}
+
+static void test_bsun_is_bit_four_against_the_nan_condition(void) {
+  /* §4.4.2: the IEEE-aware tests "do not set the BSUN bit in the status
+   * register exception byte under any circumstances". §4.4.1: the non-aware
+   * ones do, "if the NAN condition code bit is set when a conditional
+   * instruction is executed". §4.4.3 puts `F` and `T` in the first group and
+   * `SF`, `ST`, `SEQ` and `SNE` in the second.
+   *
+   * §6.1.1 phrases the rule as "except EQ and NE", which reads like a special
+   * case and is not one: both live at `$01` and `$0E`, in the low group, so the
+   * encoding already excludes them. The whole rule is one bit against one
+   * condition code. */
+  for (unsigned p = 0; p <= 0x1Fu; p++) {
+    const ap_m68882_regs_t unordered = with_condition(false, false, true);
+    const ap_m68882_condition_t got =
+        ap_m68882_evaluate_condition(&unordered, p);
+    TEST_ASSERT_EQUAL_MESSAGE((p & 0x10u) != 0u, got.bsun,
+                              "BSUN should follow bit 4 exactly");
+
+    /* And never without an unordered operand, whatever the predicate. */
+    for (unsigned st = 0; st < 3u; st++) {
+      const ap_m68882_regs_t ordered =
+          with_condition(st == 2u, st == 1u, false);
+      TEST_ASSERT_FALSE_MESSAGE(
+          ap_m68882_evaluate_condition(&ordered, p).bsun,
+          "an ordered comparison can never raise BSUN");
+    }
+  }
+
+  /* The four §4.4.3 names the manual calls out, spelled out so the claim is
+   * checkable against the sentence rather than only against the loop. */
+  const ap_m68882_regs_t nan = with_condition(false, false, true);
+  TEST_ASSERT_FALSE(ap_m68882_evaluate_condition(&nan, 0x00u).bsun); /* F  */
+  TEST_ASSERT_FALSE(ap_m68882_evaluate_condition(&nan, 0x0Fu).bsun); /* T  */
+  TEST_ASSERT_TRUE(ap_m68882_evaluate_condition(&nan, 0x10u).bsun);  /* SF */
+  TEST_ASSERT_TRUE(ap_m68882_evaluate_condition(&nan, 0x1Fu).bsun);  /* ST */
+  TEST_ASSERT_TRUE(ap_m68882_evaluate_condition(&nan, 0x11u).bsun);  /* SEQ*/
+  TEST_ASSERT_TRUE(ap_m68882_evaluate_condition(&nan, 0x1Eu).bsun);  /* SNE*/
+  /* `EQ` and `NE`, §6.1.1's named exception, are in the low group. */
+  TEST_ASSERT_FALSE(ap_m68882_evaluate_condition(&nan, 0x01u).bsun);
+  TEST_ASSERT_FALSE(ap_m68882_evaluate_condition(&nan, 0x0Eu).bsun);
+}
+
+static void test_the_branches_lack_trichotomy(void) {
+  /* The manual's own warning, and the reason the aware set exists: "compiler
+   * programmers should be particularly careful of the lack of trichotomy in the
+   * floating-point branches since it is common for compilers to invert the
+   * sense of conditions."
+   *
+   * With an unordered operand, `FBGT` and `FBLE` are **both false** -- so a
+   * compiler that emitted `NOT greater than` where it meant `less or equal`
+   * would take the wrong branch. `FBNGT` is true where `FBGT` is false, which
+   * is what "not greater than" has to mean once unordered exists. */
+  const ap_m68882_regs_t unordered = with_condition(false, false, true);
+  TEST_ASSERT_FALSE_MESSAGE(
+      ap_m68882_evaluate_condition(&unordered, 0x12u).taken, "GT");
+  TEST_ASSERT_FALSE_MESSAGE(
+      ap_m68882_evaluate_condition(&unordered, 0x15u).taken, "LE");
+  TEST_ASSERT_TRUE_MESSAGE(
+      ap_m68882_evaluate_condition(&unordered, 0x1Du).taken, "NGT");
+  /* Both of the first two raise `BSUN`, which is exactly how the non-aware
+   * program finds out that something unexpected happened. */
+  TEST_ASSERT_TRUE(ap_m68882_evaluate_condition(&unordered, 0x12u).bsun);
+  TEST_ASSERT_TRUE(ap_m68882_evaluate_condition(&unordered, 0x15u).bsun);
+}
+
+static void test_an_undefined_predicate_is_not_indexed(void) {
+  /* Table 4-8 defines `$00-$1F` and nothing above it. A six-bit field can hold
+   * more, and reading a table with an encoding the manual never defines is how
+   * a decoder invents behaviour. */
+  const ap_m68882_regs_t regs = with_condition(false, false, true);
+  for (unsigned p = 0x20u; p <= 0x3Fu; p++) {
+    const ap_m68882_condition_t got = ap_m68882_evaluate_condition(&regs, p);
+    TEST_ASSERT_FALSE(got.taken);
+    TEST_ASSERT_FALSE(got.bsun);
+  }
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_reset_leaves_nans_rather_than_zeros);
@@ -388,6 +533,10 @@ int main(void) {
   RUN_TEST(test_the_accrued_byte_survives_the_exception_byte_clearing);
   RUN_TEST(test_the_quotient_byte_is_seven_bits_and_a_sign);
   RUN_TEST(test_the_enable_and_status_bytes_share_their_positions);
+  RUN_TEST(test_the_thirty_two_predicates_over_every_condition);
+  RUN_TEST(test_bsun_is_bit_four_against_the_nan_condition);
+  RUN_TEST(test_the_branches_lack_trichotomy);
+  RUN_TEST(test_an_undefined_predicate_is_not_indexed);
   RUN_TEST(test_the_inexact_trap_has_its_own_equation);
   RUN_TEST(test_both_inexact_bits_share_one_vector);
   return UNITY_END();

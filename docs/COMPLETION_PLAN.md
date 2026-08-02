@@ -1785,7 +1785,10 @@ Split out of Phase 2. Each is a subsystem in its own right rather than a tail of
 the 68030, and none is on the DN3500's critical path: the DN3500 is a 68030 with
 a 68882, and the 68882 is the only one of these it has.
 
-- [x] 68882 FPU. Audited against this verification line after the
+- [x] 68882 FPU. The conditional predicates and `BSUN` were found missing by
+      the same audit and are now in: §4.4's thirty-two tests are sixteen
+      equations plus one bit, and `BSUN` is bit 4 against the NAN condition
+      code with no special cases. Audited against this verification line after the
       transcendentals landed, which found that only round-to-nearest had ever
       been measured -- and closing that gap found §6.1.4's mode-dependent
       overflow result wrong across the whole core, plus a precision-dependent

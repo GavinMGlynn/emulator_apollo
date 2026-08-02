@@ -1608,6 +1608,42 @@ Nothing else on this thread turned out to be wrong: the accrued byte's five
 equations match §6.1.10 exactly, including `AEXC(UNFL)`'s AND where every other
 is an OR, and `AEXC(INEX)`'s own overflow term.
 
+**The conditional predicates were missing entirely, and with them `BSUN`.**
+The decoder recognised `FBcc`, `FDBcc`, `FScc` and `FTRAPcc`, §10.7.1 priced
+them, and `BSUN` had a bit position and accrued into `AEXC(IOP)` -- but nothing
+could answer whether a condition was true, and nothing ever set `BSUN`. A whole
+corner of the programming model was named without being implemented.
+
+§4.4's three tables give thirty-two predicates, and the useful discovery is that
+they are **sixteen equations twice**. Every predicate in `$10-$1F` is its
+partner in `$00-$0F` with bit 4 set, and the pair share an equation exactly:
+`OGT` at `$02` and `GT` at `$12` are both `~(NAN v Z v N)`. What bit 4 selects is
+not a different test but a different attitude to an unordered operand -- §4.4.2's
+aware tests "do not set the BSUN bit ... under any circumstances", §4.4.1's
+non-aware ones do. So the implementation is sixteen equations plus one bit, and
+`BSUN` reduces to bit 4 against the NAN condition code with **no special cases
+at all**.
+
+§6.1.1 phrases that rule as "except EQ and NE", which reads like a special case
+and is not one: both live at `$01` and `$0E`, in the low group, so the encoding
+already excludes them. Recognising that is the difference between a rule and a
+list of exceptions.
+
+**The test design caught a transcription error immediately.** Rather than
+restating each equation -- where a mistyped one agrees with itself -- the test
+names what each predicate *means* over the four states a comparison can leave
+(greater, equal, less, unordered) and lets the table answer. `UGT` at *equal*
+came back true, and "unordered or greater than" cannot be. The overbar in the
+manual spans `(N v Z)` and I had read it over `N` alone. Thirty-one rows were
+right; one was not, and only an independent statement of meaning could tell
+which.
+
+The suite also pins the manual's own warning, since it is the reason the aware
+set exists: "compiler programmers should be particularly careful of the lack of
+trichotomy in the floating-point branches". With an unordered operand `FBGT` and
+`FBLE` are **both false**, so inverting a condition is not the same as negating
+it -- and both raise `BSUN`, which is how a non-aware program finds out.
+
 **One approximation is recorded rather than closed.** At *extended* precision
 all four rounding modes return the same value here, because the model computes a
 64-bit approximation directly and has no bits below the destination left to
