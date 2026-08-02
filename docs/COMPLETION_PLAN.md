@@ -2084,6 +2084,11 @@ a 68882, and the 68882 is the only one of these it has.
         concatenation identities in §3.2.1 -- and the tests check the two
         against each other rather than each against my reading.
         `m68040_search_suite`, 15 tests.
+  - [x] The integrated FPU's *subset*: Table 9-10's unimplemented list, the
+        three-way classification of an F-line word, and the shared vector whose
+        only discriminator is the stack frame format. Table 9-10 omits `FLOG2`
+        and Appendix E's Table E-2 proves it should be there -- a defect
+        resolved without leaving the manual. `m68040_fpu_suite`, 12 tests.
 
 ## Phase 3 — Core board
 

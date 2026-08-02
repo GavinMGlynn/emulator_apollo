@@ -1101,7 +1101,50 @@ pointed to by an indirect descriptor", so a chain terminates instead of looping.
 Like the 68851's, the search walks and decides without touching the bus:
 descriptor fetches go through a callback, so the whole algorithm is tested
 against real trees built in an array and the cycle-stepped core can later drive
-it one bus cycle at a time. Appendix A's bit rows have to come from page images --
+it one bus cycle at a time.
+
+**The integrated FPU's interesting property is what it refuses.** The 68882
+executes forty-odd operations in silicon; the 68040 executes a subset and traps
+the rest to the `M68040FPSP`. Table 9-10 names them, and the list is worth
+reading twice: every transcendental, as expected -- but also `FINT`, `FINTRZ`,
+`FGETEXP`, `FGETMAN`, `FSCALE`, `FMOD` and `FREM`, which are *exactly specified*
+and which this core already computes bit-exactly for the 68882.
+
+That resolves a tension rather than creating one. The 68882's transcendentals
+are a documented divergence because Motorola publishes bounds and no algorithm.
+On the 68040 there is no such problem: **refusing these instructions is the
+hardware's behaviour**, so a model that computed them would be wrong in a way no
+accuracy could fix -- it would skip an exception Domain/OS on a DN5500 supplies
+a handler for. The same instruction is a gap on one part and a feature on the
+other, which is why this lives in its own module.
+
+`FSQRT` is the instructive survivor: IEEE specifies it exactly, like `FGETEXP`
+and `FINT`, and unlike them it stayed in silicon. So "exactly specified" does
+not predict which side of the line an operation falls on -- only the table does,
+which is why the table is transcribed rather than reasoned about.
+
+### Table 9-10 omits `FLOG2`, and the same manual proves it
+
+The table lists `FLOG10`, `FLOGN` and `FLOGNP1` and not `FLOG2`. Confirmed in
+the page image, so not an extraction artefact -- and implausible on its face,
+since log base 10 and natural log are log base 2 times a constant, so hardware
+holding `FLOG2` would get the other two nearly free.
+
+Appendix E settles it without leaving the document. Table E-2, listing what the
+`M68040FPSP` provides, includes `FLOG2` among the transcendentals alongside
+`FLOG10`, `FLOGN` and `FLOGNP1`, and *without* the asterisk that marks
+instructions the hardware does implement except for special data types. An
+instruction the software package provides outright is one the hardware lacks.
+So `FLOG2` is unimplemented and Table 9-10 is defective. The resolution order
+paid off inside a single document: the sibling section answered what the obvious
+table got wrong.
+
+One trap for the exception path: the unimplemented-instruction exception and the
+F-line illegal exception **share vector 11**, and "the exception handler uses the
+stack frame format ($0 or $2) to distinguish between the two". The frame format
+is the only discriminator, so pushing the wrong one would send a legal `FSIN` to
+the illegal-instruction handler and kill a process that should have had its sine
+computed in software. Appendix A's bit rows have to come from page images --
 `pdftotext` renders them with zeros as letters and columns collapsed, the same
 failure that cost a bit position in the 68020's module entry word.
 
