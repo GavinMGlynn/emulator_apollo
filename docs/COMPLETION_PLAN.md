@@ -2104,8 +2104,14 @@ a 68882, and the 68882 is the only one of these it has.
         *typical* per the section's own notes. Extraction renders `MOVEQ` as
         `MOVEa`, which would have handed `MOVE` the wrong instruction's timing.
         `m68040_misc_timing_suite`, 15 tests.
-  - [ ] The remaining per-instruction tables (§10.3, §10.4 and §10.6 onward,
-        some fifty pages). Bulk transcription against the composition above,
+  - [x] §10.3's `CINV` and `CPUSH` timing, which are formulae rather than
+        numbers: `Idle` depends on the preceding instruction stream and `Line`
+        on the user's memory, and for `CPUSH` the manual refuses an equation
+        outright. Each best case turns out to be its own worst-case formula at
+        the cheapest line transfer, which checks both rows exactly.
+        `m68040_cache_timing_suite`, 10 tests.
+  - [ ] The remaining per-instruction tables (§10.4 and §10.6 onward, some
+        forty-five pages). Bulk transcription against the composition above,
         and the last thing standing between Phase 2b and complete. Every figure
         is a *best case* by §10.1's suppositions: "all memory accesses hit in
         the caches", and misaligned `<ea>` fetch timing is left to the reader.

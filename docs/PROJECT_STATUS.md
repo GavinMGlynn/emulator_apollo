@@ -1214,8 +1214,36 @@ MOVE16 instructions each add eight clocks to the <ea> calculate and execute
 times", a cost that depends on the *previous* instruction. It is flagged on the
 `MOVE16` rows so a scheduler knows to look rather than trusting the row alone.
 
-What remains of the 68040 item is the other per-instruction tables -- §10.3,
-§10.4 and §10.6 onward, some fifty pages. That is bulk transcription against the
+**§10.3's cache maintenance timings are formulae, not numbers**, and the
+section says why. `Idle` is "the number of clocks required for all pending
+writes and instruction prefetches to complete" and depends on what ran before;
+`Line` is "the number of clocks required in the user's system for a line
+transfer" and depends on the memory the part is soldered to. For `CPUSH` the
+manual declines an equation outright: "it is impossible to provide an equation
+for execution time that works for all code sequences." So both parameters stay
+the caller's to supply -- folding a guessed `Line` into a constant would invent
+the one number the manual explicitly withholds.
+
+Two structural facts fell out of the transcription and both check it:
+
+- **`CPUSHP`'s worst case is `11 + 256 x Line + Idle`,** and 256 is every line
+  in the cache -- 64 sets of four ways from §4.1. The timing table and the cache
+  chapter state the same geometry without either citing the other, so the test
+  asserts they agree rather than hard-coding 256 twice.
+- **Each best case is its own worst-case formula** at the cheapest line transfer
+  that form allows: `CPUSHL`'s 6 is the formula at `Line = 0`, and `CPUSHP`'s
+  267 is `11 + 256 x 1`. The difference is real -- with no dirty entries
+  `CPUSHL` transfers nothing, while the page form must still examine all 256
+  lines to discover they are clean. An exact match on a three-digit figure is
+  strong evidence both rows were read correctly.
+
+One oddity worth noting from Table 10-3: **`CINVA` costs no more than `CINVL`**
+(9 clocks each) while `CINVP` costs 266. Invalidating everything needs no
+search; invalidating one page must examine every line to find the ones that
+page owns.
+
+What remains of the 68040 item is §10.4 and §10.6 onward, some forty-five
+pages. That is bulk transcription against the
 composition already in place, and the last thing standing between Phase 2b and
 complete. Appendix A's bit rows have to come from page images --
 `pdftotext` renders them with zeros as letters and columns collapsed, the same
