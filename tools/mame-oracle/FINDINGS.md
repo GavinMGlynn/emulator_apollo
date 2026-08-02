@@ -4003,3 +4003,39 @@ plainly: it is not "carry guard bits through every kernel" but "carry them
 through every kernel *and every argument reduction*", with the pair arithmetic
 tested in its own right first. Still one unit in the last place of benefit, still
 inside §4.3.2's published bound without it.
+
+## C66 -- the lost bit is one line, and the reduction was already half-fixed
+
+**Class: `open`, narrowed to a single statement.**
+
+C65 said the next attempt should start at `exp_reduced` rather than the series.
+Reading it shows the reduction is *already* two-piece, so the precedent the
+exponential family "did not follow" was in fact followed -- C65's phrasing was
+wrong about that and is corrected here:
+
+    const int n = nx_round_to_int(nx_mul(x, c_log2e));
+    ap_m68882_extended_t r = nx_sub(x, nx_mul(n_value, c_ln2_hi));
+    r = nx_sub(r, nx_mul(n_value, c_ln2_lo));
+
+The first subtraction is exact and the comment says why: `n * ln2_hi` is exact,
+and `x` and it are within `ln2` of each other, so nothing is lost. **The second
+one is not.** `n * ln2_lo` is the small correction that makes the split worth
+having, and subtracting it from `r` rounds to 64 bits -- discarding precisely the
+tail the split was constructed to supply. The reduction goes to the trouble of
+carrying `ln2` in two pieces and then throws the second piece's contribution away
+at the last step.
+
+For `e^1` that is the whole story: `n` is 1, `r` is about `0.30685`, and a
+half-unit error in `r` maps to about a unit in the last place of `e^r * 2`, which
+is the `A2BB4A9A` against `A2BB4A9B` the sweep measures.
+
+**So the fix is smaller than C64 or C65 supposed**: not every kernel, and not
+every reduction -- carry the residual of *this* subtraction, hand the pair to the
+series, and round once at the end. The same shape will apply to the logarithms
+and the trigonometric family, whose reductions have the same construction, but
+each is one statement rather than a rewrite.
+
+**What has not changed** is that the pair arithmetic needs its own tests first.
+C65's regression came from the compensation, not from where it was applied, and
+that lesson survives this correction intact: `nx_exact_mul` and any two-sum want
+unit tests against known-exact cases before a kernel depends on them.
