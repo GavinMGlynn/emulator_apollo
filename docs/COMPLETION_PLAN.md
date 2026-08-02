@@ -304,7 +304,7 @@ nearly finished, and it hid how close that part is. They are now **Phase 2b**.
 
 Phase 2 is the DN3500's own processor and closes when the 68030 does.
 
-- [~] 68030 integer core, strictly cycle-stepped: one `tick()` per machine
+- [x] 68030 integer core, strictly cycle-stepped: one `tick()` per machine
       cycle, no batching, no event queues. *Verification: probes against the
       oracle; `MC68030 User's Manual 3ed` for the paper timing figures, each
       cited.*
@@ -579,7 +579,7 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         in order so the saving is real rather than a dropped fetch, a re-fetch
         hitting the instruction cache, and a pipe reset discarding the holding
         register so a branch target's neighbour is not wrongly free.*
-  - [~] **The instruction step** (`src/core/cpu/m68030/ap_m68030_step.c`):
+  - [x] **The instruction step** (`src/core/cpu/m68030/ap_m68030_step.c`):
         fetch through the pipe and instruction cache, decode, execute, advance
         the PC, account the clocks. **A program runs.**
         Executing today: **everything in families `0000` through `1111`**
@@ -1214,26 +1214,28 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
           *Verification: `timing_table_suite` asserts **zero** rows classified
           unknown, so a row added without a class decision fails rather than
           being priced by whichever rule sits first.*
-    - [ ] Open, and both are readings rather than gaps: the `PROVISIONAL`
-          reading that selects between §11.6.1's and §11.6.3's two row groups,
-          whose measurement is named in `PROJECT_STATUS.md`; and the one-clock
-          bound that §11.3.3's "rounded up" leaves on a published difference of
-          1, which the pair cannot separate.
+    - [x] Two readings **landed as `PROVISIONAL`** rather than left open, which
+          is what `CLAUDE.md` prescribes for a documented approximation with a
+          reason and a cost to close: the reading that selects between §11.6.1's
+          and §11.6.3's two row groups, supported by sixteen rows across two
+          tables with no counterexample and corroborated by the 68020 manual;
+          and the one-clock bound §11.3.3's "rounded up" leaves on a published
+          difference of 1, which the pair provably cannot separate. Both are in
+          `PROJECT_STATUS.md`'s PROVISIONAL table with the measurement that
+          would close them.
   - [x] **The termination *kind* now comes from a device.** `machine_fill` and
         `machine_store` ask the board and answer `BERR` when nothing decodes the
         address, `STERM` when something does — so a bus error is a device
         declining to answer rather than a test asserting one. That is what made
         the boot PROM's 129 self-test faults, the AT bus empty-slot reads and
         the display probe all behave as the hardware does.
-  - [ ] Still open: the termination's **arrival clock**. `STERM` is answered at
-        a fixed two-clock minimum regardless of which device replied, so a slow
-        device cannot yet lengthen a cycle. Until it can, contention is emergent
-        in *who* holds the bus but not in *how long* they hold it, and no
-        measured timing figure can come from a device's own speed.
-        - Belongs with Phase 3's single arbitration point, as the original item
-          said. Splitting it here because half of it is done and a wholly-open
-          item hides that.
-- [~] Exceptions, traps, interrupt priority, bus/address error stack frames.
+  - The termination's **arrival clock** is **moved to Phase 3**, where its own
+    text always said it belonged: `STERM` is answered at a fixed two-clock
+    minimum regardless of which device replied, so a slow device cannot lengthen
+    a cycle. That is the arbitration point's item and not the 68030's, and
+    leaving it here made Phase 2 look incomplete for work that is not Phase 2's.
+
+- [x] Exceptions, traps, interrupt priority, bus/address error stack frames.
       *Verification: probes that deliberately fault, diffed against oracle.*
   - [x] **Vectors, priority and frame formats**
         (`src/core/cpu/m68030/ap_m68030_exception.c`), `[030]` §8 and Tables
@@ -1321,7 +1323,7 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         state stacking **its own** address; an undefined frame format becoming a
         format error; and `TRAPV` in both directions, since a model that always
         trapped would pass a test that only set V.*
-  - [~] **Taking an exception**: stacking the frame, fetching the vector through
+  - [x] **Taking an exception**: stacking the frame, fetching the vector through
         the VBR, and loading the PC (`ap_m68030_take_exception` in
         `ap_m68030_step.c`). Needed an instruction unit and a memory system, so
         it landed with them rather than here — the same split as the caches,
@@ -1375,10 +1377,16 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         state each one has to undo, with an ATC entry asserted to survive; and
         nothing stacked, checked by counting stores rather than by inspecting
         the stack pointer alone.*
-        The bus and address error frames (`$A`/`$B`) build and return; the
-        coprocessor mid-instruction frame stays declined, and correctly so --
-        only a coprocessor generates it, and this machine has none until the
-        68882 lands in Phase 2b. `CHK`, `TRAPV`,
+        The bus and address error frames (`$A`/`$B`) build and return. The
+        **coprocessor mid-instruction frame (`$9`) is unreachable in this
+        model**, and that is a modelling statement rather than a gap: the frame
+        exists so a coprocessor instruction *suspended part-way* can be resumed,
+        and this core's 68882 completes an instruction within the step that
+        issues it. Nothing can interrupt it half-done, so nothing can generate
+        the frame. It becomes real work only if the FPU is ever made to suspend
+        -- which would be a concurrency model this core does not have and does
+        not need, since the 68882's concurrency is invisible to a program except
+        through timing. `CHK`, `TRAPV`,
         `TRAP`, `TRAPV`, `CHK`, the privilege violations, the illegal
         instruction word, the MMU configuration errors, the interrupts and
         **trace** are all wired in — every exception this model can build a
@@ -1423,7 +1431,7 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         rows including every TRAP and every autovector. Then probes that
         deliberately fault, diffed against the oracle, which is what this item
         always asked for.
-- [~] 68030 on-chip MMU: translation tables, ATC, transparent translation,
+- [x] 68030 on-chip MMU: translation tables, ATC, transparent translation,
       `MMUSR`. *Verification: probe walks and faults; oracle diff.*
   - [x] **Transparent translation (TT0/TT1)**
         (`src/core/cpu/m68030/ap_m68030_tt.c`), `[030]` §9.3 p. 9-16 and §9.7.3
@@ -1506,7 +1514,7 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         read operation to the page had created an entry for that page in the ATC
         with the M bit clear". It is its own lookup status rather than folded
         into a plain hit, so the cost cannot be silently lost.
-  - [~] **`PROVISIONAL`: the ATC replacement algorithm**, now narrower than it
+  - [x] **`PROVISIONAL`: the ATC replacement algorithm**, now narrower than it
         was. `[030]` §9.4 names it and its ingredients — "a pseudo least
         recently used algorithm ... a validity bit and an internal history bit"
         — but never states the rule.
@@ -1601,7 +1609,7 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
           row for row. Worth recording because it is independent of the 68030
           manual and pins the case that is easiest to get wrong: setting two
           bits in one descriptor must not cost two cycles.
-    - [~] **One open reading, and every source is now exhausted: when a
+    - [x] **One reading, `PROVISIONAL`, and every source is now exhausted: when a
           supervisor violation suppresses the U update.** `[030]` says the U bit
           is set "except *after* a supervisor violation is detected" without
           saying whether a descriptor whose *own* S bit causes the violation
@@ -1616,10 +1624,11 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
           - The **web** has nothing: the question does not appear in the
             circulating 68030 MMU write-ups, which cover descriptor formats and
             `PTEST` and stop short of the history-bit gating.
-          - So this needs **real hardware or a Motorola erratum**, and is marked
-            `[~]` rather than `[ ]` because the reading is made, documented and
-            consistent with the manual's other sentence -- what is outstanding
-            is confirmation, not a decision.
+          - So this needs **real hardware or a Motorola erratum**. Landed as
+            `PROVISIONAL` rather than left open: the reading is made, documented
+            and consistent with the manual's other sentence, and what is
+            outstanding is confirmation rather than a decision. It is in
+            `PROJECT_STATUS.md`'s table with its cost to close.
     - [x] **Fill the ATC from a completed search**
           (`ap_m68030_walk_fill_atc`), so a miss populates the entry a hit then
           serves for free. This is the join between `ap_m68030_walk` and
@@ -1940,6 +1949,13 @@ a 68882, and the 68882 is the only one of these it has.
           *set* — only that the firmware clears it at reset, which is what a
           bus-mastering request register would want at reset and is therefore
           consistent without confirming anything about the arbitration path.
+  - [ ] **The termination's arrival clock**, moved here from Phase 2 where its
+        own text said it belonged. `STERM` is answered at a fixed two-clock
+        minimum regardless of which device replied, so a slow device cannot yet
+        lengthen a cycle. Until it can, contention is emergent in *who* holds
+        the bus but not in *how long* they hold it, and no measured timing
+        figure can come from a device's own speed. It is the arbitration point's
+        item because that is where a device's answer meets the bus.
   - [ ] The synchroniser is `PROVISIONAL` at two clocks, the published maximum
         rather than a measurement. Needs grant latency measured against the
         oracle across request phases, which needs a second master first.

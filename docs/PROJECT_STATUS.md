@@ -458,26 +458,41 @@ a milestone: everything after it can be checked. A subsystem landing in Phase 3
 gets a golden, a probe against the oracle, and one number that says whether two
 runs of it were the same run.
 
-**Phase 2 has been re-scoped to the 68030 alone.** It previously carried the
-68882, the 68020, the 68851 and the 68040 behind the same checkbox — four
-processors that do not exist yet, each the size of the MMU or the instruction
-step. That kept the phase open for months while the part it was really tracking
-was nearly finished, and it hid how close that part is. Those four are now
-**Phase 2b**, and none of them is on the DN3500's critical path: a DN3500 is a
-68030 with a 68882, and the 68882 is the only one of the four it has.
+**Phase 2 (the MC68030) is done.** Every item states a verification and every
+one is met. The integer core decodes and executes the whole opcode map;
+exceptions, traps, interrupt priority and both fault frame formats build and
+return; the MMU translates, walks, caches and reports; the caches price
+themselves through the bus state machine; and instruction execution time is
+composed from the published figures, with `FINDINGS.md` C9's row closing at 6
+warm and 7 cold.
 
-What genuinely remains in Phase 2 is small in number and not small in
-difficulty. **Instruction execution time is the headline gap**: the step
-accumulates bus and cache time only, so a register-to-register `ADD` costs zero
-clocks today and every figure this core reports is a lower bound. Fifty-nine
-rows of §11.6 are scheduled, but *composition* is unsolved — `FINDINGS.md` C9
-shows `max(microcode, hideable) + blocking` gives 6 for `ADD.B D0,(A0)` uncached
-where both the manual and the oracle say 7, because a prefetch's marginal cost
-is fractional and per-instruction. That is a research item rather than a coding
-one, and effective-address time composition is blocked behind the same
-arithmetic. The termination's arrival clock is the third, and it belongs with
-Phase 3's arbitration point: every device answers at a fixed two-clock `STERM`,
-so a slow device cannot yet lengthen a cycle.
+**Nothing in the step is unimplemented.** The suite keeps one
+unimplemented-instruction placeholder as a live test of the distinction between
+"the machine does this" and "we have not finished"; that role has passed from
+`BKPT` to `CAS2` to an undefined MMU extension class, each of the first two
+having been implemented in turn.
+
+**Four `PROVISIONAL` figures remain, and they are landings rather than gaps** --
+`CLAUDE.md`'s "deliberate approximations are fine, documented, with reason and
+cost to close". Each is in the PROVISIONAL table below with the measurement or
+document that would close it: the ATC's victim choice among clear-history
+entries, the U-bit's behaviour after a supervisor violation, which of §11.6.1's
+two row groups an encoding selects, and the one-clock bound §11.3.3's rounding
+leaves on a published difference of 1. Two of the four need real hardware or an
+erratum; the manuals, the sibling manuals, the oracle and the web have each been
+taken to their end on them.
+
+**One item moved rather than closed.** The bus termination's *arrival clock* is
+now Phase 3's, where its own text always said it belonged: it is the arbitration
+point's business, not the processor's, and leaving it in Phase 2 made the phase
+look incomplete for work that was never Phase 2's.
+
+**Phase 2b (the rest of the CPU family) is under way**, starting with the 68882
+because it is the only one of the four on the DN3500's critical path. Six pieces
+land so far -- the programming model, the three binary real formats, the
+coprocessor interface registers, the rounding stage, the four arithmetic
+operations and the instruction decode. What remains is the transcendentals and
+wiring the part to the 68030's F-line path.
 
 ## Subsystems
 
