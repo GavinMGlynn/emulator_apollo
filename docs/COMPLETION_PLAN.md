@@ -1189,7 +1189,7 @@ a 68882, and the 68882 is the only one of these it has.
       overflow threshold that was missing. Detail in `PROJECT_STATUS.md`.
       *Verification: probe suite over each operation and rounding
       mode; note the oracle's admitted FPU gaps as a divergence class.*
-  - [~] **The verification line above was not met, and the audit found why:
+  - [~] **The verification line was not met, and the audit found why:
         the 68882 was not reachable from a running machine at all.**
         `ap_machine_init` never attached one, so `cpu->fpu` was null on every
         machine this core builds and every F-line instruction took the line 1111
@@ -1209,23 +1209,33 @@ a 68882, and the 68882 is the only one of these it has.
               conforming transcendentals and an extended one can (C61, C62);
               five functions swept and adjudicated against 140-digit truth
               (C63); and the difference diagnosed (C64).
-        - [ ] **Close the transcendental bias, which the sweep measured.** The
-              kernels compute each step at 64 bits — the destination width —
-              where §3.4 has the part carry 67 "for rounding purposes" and round
-              once at the end. So the final rounding has nothing below the
-              destination to round from, and a series of decreasing positive
-              terms accumulates *downwards*: 1 ULP low on `FSIN`, `FTAN` and
-              `FETOX` at argument 1.0, never high, and the whole of why MAME is
-              the closer implementation there. Already `PROVISIONAL` with "carry
-              guard bits through every kernel and round once from them" as its
-              cost to close; what the sweep added is evidence it is worth paying.
-              Inside §4.3.2's published bound either way.
-              *Verification: `fpu_sweep.py` reading "both exact" on all five,
-              then widened to all nineteen over a spread of arguments; the
-              accuracy suite's 3.1 ULP ceiling should fall with it.*
-        - [ ] **Widen the sweep** past the single argument the constant ROM
-              makes cheap, and enumerate "the oracle's admitted FPU gaps as a
-              divergence class", which the verification line asks for by name.
+        - [x] **The transcendental difference is settled, and it is not a
+              defect.** Four candidate sites were each eliminated -- the
+              argument reduction bounded by arithmetic, the series and the
+              `1 + expm1(r)` addition each compensated and measured, the final
+              rounding exact by construction. Compensating any one leaves the
+              total where it was, because every site loses a fraction of a unit
+              and none loses a whole one: the ordinary behaviour of arithmetic
+              done at the destination's own width, which §3.4 says the part
+              avoids by carrying 67 bits. One unit in the last place is inside
+              the accuracy suite's 3.1 ceiling and far inside §4.3.2's 64.
+              Reclassified `sub-poll-slack` in `FINDINGS.md` C70, with the
+              standing `PROVISIONAL` unchanged and its benefit now priced --
+              along with the finding that no cheaper subset of it buys
+              anything.
+        - [ ] **Widen the sweep**, which is the last thing between this item
+              and done. It runs five functions at the one argument the constant
+              ROM makes cheap; the line asks for "each operation and rounding
+              mode". With the transcendentals' divergence class now settled the
+              remaining value is in the *other* families -- the exactly
+              specified operations, where §4.3.2's bound does not apply and a
+              difference would be a real defect on one side rather than a
+              resolution limit, and the store conversions, where the answer is
+              a bit pattern neither implementation may choose.
+              *Verification: a sweep whose transcendental rows are expected to
+              read `sub-poll-slack` and whose exact-operation rows are expected
+              to read `both exact`; any exact-operation row that does not is a
+              finding.*
         - [ ] **Gating the coprocessor on the model.** It is attached
               unconditionally, which is a statement about this harness rather
               than the range: `ap_machine_init` takes no model, so the machine is
