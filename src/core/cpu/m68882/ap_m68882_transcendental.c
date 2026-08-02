@@ -1310,13 +1310,22 @@ static ap_m68882_extended_t nx_half(ap_m68882_extended_t v) {
 /* The exponential of an intermediate, at round-to-nearest and extended
  * precision whatever the caller asked for -- the caller's mode applies to the
  * *result*, and an overflow here is reported so the caller can substitute
- * §6.1.4's mode-dependent value rather than propagate this one. */
+ * §6.1.4's mode-dependent value rather than propagate this one.
+ *
+ * **Only** the overflow. An underflow here belongs to the intermediate and not
+ * to the answer: `cosh` is never less than one and `sinh` reaches this path
+ * only for `|x| >= 1`, so neither result can be too small to represent -- but
+ * both form `e^-|x|`, which underflows for any large argument. Collecting that
+ * made `FCOSH` report `UNFL` on a result of several thousand. §6.1.5 defines
+ * underflow by "the intermediate result of an arithmetic operation ... too
+ * small to be represented", meaning the operation's own result, and an
+ * exception raised for a step the caller cannot see is worse than none: a
+ * handler would trap on an answer that is perfectly representable. */
 static ap_m68882_extended_t exp_of(ap_m68882_extended_t x,
                                    uint32_t *exceptions) {
   const ap_m68882_op_t out =
       ap_m68882_etox(&x, AP_M68882_ROUND_NEAREST, AP_M68882_PRECISION_EXTENDED);
-  *exceptions |= out.exceptions & ((1u << AP_M68882_EXC_OVFL) |
-                                   (1u << AP_M68882_EXC_UNFL));
+  *exceptions |= out.exceptions & (1u << AP_M68882_EXC_OVFL);
   return out.value;
 }
 

@@ -844,6 +844,70 @@ static void test_the_minimum_exponent_is_a_legal_one_not_an_underflow(void) {
       "a normalized number at the minimum exponent does not underflow");
 }
 
+static void test_underflow_is_measured_against_the_rounding_precision(void) {
+  /* The mirror of §6.1.4's overflow threshold, and it was missing for the same
+   * reason: extended's limits look like the only ones there are.
+   *
+   * §6.1.5's NOTE: "an underflow can occur when the destination is a
+   * floating-point data register and the selected rounding precision is single
+   * or double **even if the intermediate result is large enough to be
+   * represented as an extended precision number**." §3.6 gives the normalized
+   * ranges -- `0 < e < 2047` biased by 1023 for double, so a minimum of -1022,
+   * and -126 for single by the same construction.
+   *
+   * `2^-200` is an ordinary extended number, subnormal at single precision and
+   * perfectly normal at double. Without the threshold it kept an extended
+   * exponent no single-precision destination could hold, and reported
+   * nothing. */
+  const ap_m68882_extended_t one = {false, 0x3FFF, 0x8000000000000000ULL};
+  const ap_m68882_extended_t small = {
+      false, (uint16_t)(AP_M68882_BIAS_EXTENDED - 200),
+      0x8000000000000000ULL};
+  const ap_m68882_extended_t tiny = {
+      false, (uint16_t)(AP_M68882_BIAS_EXTENDED - 2000),
+      0x8000000000000000ULL};
+
+  /* Extended holds both without complaint. */
+  TEST_ASSERT_EQUAL_UINT(0u, ap_m68882_mul(&small, &one,
+                                           AP_M68882_ROUND_NEAREST,
+                                           AP_M68882_PRECISION_EXTENDED)
+                                 .exceptions &
+                                 (1u << AP_M68882_EXC_UNFL));
+  TEST_ASSERT_EQUAL_UINT(0u, ap_m68882_mul(&tiny, &one,
+                                           AP_M68882_ROUND_NEAREST,
+                                           AP_M68882_PRECISION_EXTENDED)
+                                 .exceptions &
+                                 (1u << AP_M68882_EXC_UNFL));
+
+  /* Single precision cannot: both are below its minimum exponent, and the
+   * result is denormalised into its subnormal range rather than keeping an
+   * exponent the format has no encoding for. */
+  const ap_m68882_op_t narrow = ap_m68882_mul(&small, &one,
+                                              AP_M68882_ROUND_NEAREST,
+                                              AP_M68882_PRECISION_SINGLE);
+  TEST_ASSERT_NOT_EQUAL_UINT_MESSAGE(
+      0u, narrow.exceptions & (1u << AP_M68882_EXC_UNFL),
+      "2^-200 is subnormal at single precision");
+  TEST_ASSERT_EQUAL_UINT_MESSAGE(
+      (unsigned)(AP_M68882_BIAS_EXTENDED - 126), narrow.value.exponent,
+      "the result is denormalised to single's minimum exponent");
+
+  /* Double holds `2^-200` and not `2^-2000`, which is what makes this a
+   * *precision* threshold rather than one more constant. */
+  TEST_ASSERT_EQUAL_UINT_MESSAGE(
+      0u, ap_m68882_mul(&small, &one, AP_M68882_ROUND_NEAREST,
+                        AP_M68882_PRECISION_DOUBLE)
+              .exceptions &
+              (1u << AP_M68882_EXC_UNFL),
+      "2^-200 is an ordinary double");
+  const ap_m68882_op_t wide = ap_m68882_mul(&tiny, &one,
+                                            AP_M68882_ROUND_NEAREST,
+                                            AP_M68882_PRECISION_DOUBLE);
+  TEST_ASSERT_NOT_EQUAL_UINT(0u, wide.exceptions & (1u << AP_M68882_EXC_UNFL));
+  TEST_ASSERT_EQUAL_UINT((unsigned)(AP_M68882_BIAS_EXTENDED - 1022),
+                         wide.value.exponent);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_a_square_root_is_exact_for_perfect_squares);
@@ -878,6 +942,7 @@ int main(void) {
   RUN_TEST(test_an_overflow_is_not_always_an_infinity);
   RUN_TEST(test_an_underflow_is_not_always_a_zero);
   RUN_TEST(test_the_minimum_exponent_is_a_legal_one_not_an_underflow);
+  RUN_TEST(test_underflow_is_measured_against_the_rounding_precision);
   RUN_TEST(test_a_value_extended_can_hold_still_overflows_a_single);
   return UNITY_END();
 }

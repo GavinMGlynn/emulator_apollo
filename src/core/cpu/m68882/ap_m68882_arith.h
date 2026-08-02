@@ -74,6 +74,21 @@ ap_m68882_overflow_result(bool sign, ap_m68882_rounding_t mode,
 [[nodiscard]] uint16_t
 ap_m68882_overflow_exponent(ap_m68882_precision_t precision);
 
+/* The smallest biased exponent at which the rounding precision can hold a
+ * *normalized* number. Below it a result is denormalised into that precision's
+ * subnormal range and `UNFL` is reported -- §6.1.5's NOTE: "an underflow can
+ * occur when the destination is a floating-point data register and the selected
+ * rounding precision is single or double **even if the intermediate result is
+ * large enough to be represented as an extended precision number**."
+ *
+ * Extended's is zero, and that is the asymmetry the format's explicit integer
+ * bit creates: single and double reach their minimum exponent and then trade
+ * significand bits for range, while extended can hold a normalized number at
+ * its own minimum. §3.6 gives the normalized ranges -- `0 < e < 2047` biased by
+ * 1023 for double, so -1022; -126 for single by the same construction. */
+[[nodiscard]] uint16_t
+ap_m68882_underflow_exponent(ap_m68882_precision_t precision);
+
 [[nodiscard]] ap_m68882_op_t ap_m68882_add(const ap_m68882_extended_t *a,
                                            const ap_m68882_extended_t *b,
                                            ap_m68882_rounding_t mode,

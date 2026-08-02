@@ -123,6 +123,19 @@ uint16_t ap_m68882_overflow_exponent(ap_m68882_precision_t precision) {
   return MAX_EXPONENT;
 }
 
+uint16_t ap_m68882_underflow_exponent(ap_m68882_precision_t precision) {
+  switch (precision) {
+  case AP_M68882_PRECISION_SINGLE:
+    return (uint16_t)(AP_M68882_BIAS_EXTENDED - 126);
+  case AP_M68882_PRECISION_DOUBLE:
+    return (uint16_t)(AP_M68882_BIAS_EXTENDED - 1022);
+  case AP_M68882_PRECISION_EXTENDED:
+  case AP_M68882_PRECISION_RESERVED:
+    break;
+  }
+  return 0u;
+}
+
 ap_m68882_extended_t ap_m68882_overflow_result(bool sign,
                                                ap_m68882_rounding_t mode,
                                                ap_m68882_precision_t precision) {
@@ -174,6 +187,32 @@ static ap_m68882_op_t finish(ap_m68882_extended_t value, bool guard,
   }
 
   normalise(&value, &guard, &round_bit, &sticky);
+
+  /* "At the end of any operation that could potentially underflow, the
+   * intermediate result is checked for underflow, rounded, and checked for
+   * overflow before it is stored at the destination." So the denormalisation
+   * happens *here*, before the rounding -- §6.1.5 again: "denormalization is
+   * accomplished by shifting the mantissa of the intermediate result to the
+   * right while incrementing the exponent until it is equal to the denormalized
+   * exponent value for the destination format. The denormalized intermediate
+   * result is [then] rounded to the selected rounding precision."
+   *
+   * Doing it the other way round would round twice: once at the intermediate's
+   * own position and again after shifting, which is the classic double-rounding
+   * error and gives a different answer near a tie.
+   *
+   * The threshold is the *rounding precision's*, not extended's. A result that
+   * extended holds perfectly well is subnormal at single precision, and without
+   * this it kept an extended exponent no single-precision destination could
+   * represent and reported nothing at all. */
+  const uint16_t minimum = ap_m68882_underflow_exponent(precision);
+  if (value.exponent < minimum && value.mantissa != 0u) {
+    shift_right_sticky(&value.mantissa,
+                       (unsigned)(minimum - value.exponent), &guard,
+                       &round_bit, &sticky);
+    value.exponent = minimum;
+    out.exceptions |= UINT32_C(1) << AP_M68882_EXC_UNFL;
+  }
 
   const ap_m68882_round_result_t rounded =
       ap_m68882_round(value, guard, round_bit, sticky, mode, precision);

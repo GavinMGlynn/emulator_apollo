@@ -1543,6 +1543,44 @@ The constructed NAN stays where it belongs: an *operand error* -- `FLOGN` of a
 negative, `FASIN` outside the unit interval -- has no source NAN to carry
 forward, and §6.1.3's trap-disabled result is a fresh one.
 
+**Underflow was measured against extended's limits rather than the rounding
+precision's**, which is the exact mirror of the overflow gap and was missed for
+the same reason: extended's thresholds look like the only ones there are.
+§6.1.5's NOTE says otherwise -- "an underflow can occur when the destination is
+a floating-point data register and the selected rounding precision is single or
+double **even if the intermediate result is large enough to be represented as an
+extended precision number**" -- and §3.6 gives the ranges, `0 < e < 2047` biased
+by 1023 for double so a minimum of -1022, and -126 for single. `2^-200` is an
+ordinary extended number, subnormal at single and perfectly normal at double;
+without the threshold it kept an exponent no single-precision destination could
+encode and reported nothing at all.
+
+The order matters as much as the threshold. §6.1.5: "the intermediate result is
+checked for underflow, rounded, and checked for overflow before it is stored",
+and "the denormalized intermediate result is [then] rounded to the selected
+rounding precision". So the denormalising shift happens *before* the rounding.
+Doing it after would round twice -- once at the intermediate's own position and
+again after shifting -- which is the double-rounding error this core already
+takes care to avoid elsewhere.
+
+**Chasing the golden's change then found a spurious exception.** The digest
+moved, which was expected, but the scan of *which* results moved showed `FCOSH`
+reporting `UNFL` -- and `cosh` is never less than one. It forms `e^-|x|`, which
+underflows for any large argument, and was collecting that. §6.1.5 defines
+underflow by "the intermediate result of an arithmetic operation ... too small
+to be represented", meaning the operation's own result; an exception raised for
+a step the caller cannot see is worse than none, since a handler traps on an
+answer that is perfectly representable and nothing in the value hints at why.
+`sinh` had the same fault on the same path. Only `OVFL` now propagates from
+those internal exponentials, which is the one that genuinely does reach the
+result.
+
+The golden was re-taken only after both builds were checked against each other
+again -- `-O0` and `-O3` agree at `0xDFE1312935332E88` -- and the scan that
+identified the moved results is what distinguished the intended change from the
+accidental one. A digest that had simply been updated to whatever the new build
+produced would have committed the `FCOSH` bug alongside the fix.
+
 **One approximation is recorded rather than closed.** At *extended* precision
 all four rounding modes return the same value here, because the model computes a
 64-bit approximation directly and has no bits below the destination left to

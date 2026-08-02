@@ -1893,7 +1893,7 @@ static void test_the_family_is_bit_identical_in_every_build(void) {
   }
 
   TEST_ASSERT_EQUAL_HEX64_MESSAGE(
-      0x794C36B690FFECAFULL, hash,
+      0xDFE1312935332E88ULL, hash,
       "the transcendental family changed, or this build is not bit-identical "
       "to the one this golden was taken from");
 }
@@ -2062,6 +2062,44 @@ static void test_a_signalling_nan_is_quietened_the_same_way_everywhere(void) {
   }
 }
 
+static void test_cosh_never_reports_an_underflow_it_did_not_have(void) {
+  /* `cosh` is never less than one, so it cannot underflow -- but it forms
+   * `e^-|x|`, which underflows for any large argument. Collecting that made
+   * `FCOSH` report `UNFL` on a result of several thousand.
+   *
+   * §6.1.5 defines underflow by "the intermediate result of an arithmetic
+   * operation ... too small to be represented", meaning the *operation's* own
+   * result. An exception raised for a step the caller cannot see is worse than
+   * none: a handler traps on an answer that is perfectly representable, and
+   * nothing in the value hints at why. */
+  const ap_m68882_extended_t big = {false, AP_M68882_BIAS_EXTENDED + 9,
+                                    0xFA00000000000000ULL}; /* 1000 */
+  const ap_m68882_op_t got = ap_m68882_cosh(
+      &big, AP_M68882_ROUND_NEAREST, AP_M68882_PRECISION_EXTENDED);
+  TEST_ASSERT_TRUE_MESSAGE(got.value.exponent > AP_M68882_BIAS_EXTENDED,
+                           "cosh of a large argument is large");
+  TEST_ASSERT_EQUAL_UINT_MESSAGE(
+      0u, got.exceptions & (1u << AP_M68882_EXC_UNFL),
+      "cosh cannot underflow: its own e^-|x| did, and that is not the result");
+
+  /* `sinh` reaches the same path and is equally incapable of underflowing
+   * there: it uses the direct difference only for `|x| >= 1`, where the answer
+   * is at least 1.17. */
+  const ap_m68882_op_t hyperbolic = ap_m68882_sinh(
+      &big, AP_M68882_ROUND_NEAREST, AP_M68882_PRECISION_EXTENDED);
+  TEST_ASSERT_EQUAL_UINT(0u,
+                         hyperbolic.exceptions & (1u << AP_M68882_EXC_UNFL));
+
+  /* An exponential that genuinely does become too small still reports it. */
+  ap_m68882_extended_t negative = big;
+  negative.sign = true;
+  const ap_m68882_op_t real = ap_m68882_etox(
+      &negative, AP_M68882_ROUND_NEAREST, AP_M68882_PRECISION_SINGLE);
+  TEST_ASSERT_NOT_EQUAL_UINT_MESSAGE(
+      0u, real.exceptions & (1u << AP_M68882_EXC_UNFL),
+      "a genuine underflow must still be reported");
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_the_exponential_is_inside_the_typical_error_bound);
@@ -2096,6 +2134,7 @@ int main(void) {
   RUN_TEST(test_the_mode_is_a_no_op_where_there_is_nothing_left_to_round);
   RUN_TEST(test_an_overflowing_transcendental_follows_6_1_4);
   RUN_TEST(test_a_denormal_argument_survives_every_function);
+  RUN_TEST(test_cosh_never_reports_an_underflow_it_did_not_have);
   RUN_TEST(test_a_nan_argument_comes_back_with_its_payload);
   RUN_TEST(test_a_signalling_nan_is_quietened_the_same_way_everywhere);
   RUN_TEST(test_the_family_is_bit_identical_in_every_build);
