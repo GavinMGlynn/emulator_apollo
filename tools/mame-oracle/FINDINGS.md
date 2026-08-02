@@ -4039,3 +4039,40 @@ each is one statement rather than a rewrite.
 C65's regression came from the compensation, not from where it was applied, and
 that lesson survives this correction intact: `nx_exact_mul` and any two-sum want
 unit tests against known-exact cases before a kernel depends on them.
+
+## C67 -- the reduction's residual is real, and an eighth of what is missing
+
+**Class: `open`, narrowed again by arithmetic rather than by another attempt.**
+
+C66 identified the one rounding statement in `exp_reduced` and predicted that
+carrying its residual would close the gap. Written, tested green on all 112
+suites, measured against the oracle -- and `FETOX` did not move: still
+`A2BB4A9A` against the true `A2BB4A9B`. The change was reverted, because a
+change that does not move the measurement it was made for has not earned its
+complexity, whatever else is true of it.
+
+**Why it cannot have worked, which the arithmetic says without another run.**
+For `e^1` the reduction gives `n = 1` and `r` about `0.30685`, whose exponent is
+`-2`, so `r`'s last bit is `2^-65`. The correction `n * ln2_lo` is around
+`2^-67`. Subtracting it therefore rounds away a residual of about `2^-67` -- real,
+and worth carrying -- but the result `e^r * 2` is about `2.718`, whose last bit
+is `2^-62`. The residual propagates to roughly `2^-65.5` of the answer: **an
+eighth of one unit in the last place.** It can only change the result when the
+value already sits within an eighth of a rounding boundary, which at this
+argument it does not.
+
+So C66's diagnosis was right about the mechanism and wrong about the magnitude.
+One eighth of an ULP cannot account for a full one.
+
+**Where the missing bit must therefore be.** Not the reduction, now bounded. Not
+the final rounding, which C64 established is exact. That leaves the eighteen-term
+series between them: thirty-six roundings at 64 bits, each discarding the tail of
+a smaller addend, accumulating downwards -- which is C64's original reading, and
+which C65's failed attempt tested *only in combination with a compensation bug*
+that made its result uninterpretable.
+
+**So the next attempt is C65's, done correctly**: a pair-carrying Horner, with the
+pair arithmetic unit-tested against known-exact cases *first* -- which is what
+C65 said and what it did not do. Three hypotheses have now been priced, two
+eliminated by measurement and one by arithmetic, and the survivor is the one the
+first diagnosis named.
