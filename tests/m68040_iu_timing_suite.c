@@ -616,7 +616,8 @@ static void test_chk_accepts_an_immediate_bound(void) {
 static void test_only_the_qualified_columns_are_marked(void) {
   /* Everything transcribed so far is exact except `CAS`, `CHK` and `CHK2`, and
    * a column that lost its marking would report a typical figure as a fact. */
-  const char *const qualified_names[] = {"CAS", "CHK", "CHK2", "CMP2"};
+  const char *const qualified_names[] = {"CAS", "CHK", "CHK2", "CMP2",
+                                        "MOVE to SR"};
   for (size_t g = 0; g < ap_m68040_iu_group_count(); g++) {
     const ap_m68040_iu_group_t *group = ap_m68040_iu_group(g);
     bool qualified = false;
@@ -1021,6 +1022,75 @@ static void test_move_from_ccr_writes_and_so_refuses_pc_relative(void) {
   TEST_ASSERT_TRUE(at("MOVE from CCR", AP_M68040_IU_DN).valid);
 }
 
+
+/* ---------------------------------------------------------------------------
+ * Page 10-22, and a cell the manual leaves blank for a legal mode.
+ * ------------------------------------------------------------------------- */
+
+static void test_move_to_sr_dashes_a_mode_the_prm_allows(void) {
+  /* §10.6 dashes `MOVE to SR (BR,Xn)` while pricing the mode above it
+   * (`(d8,PC,Xn)`, 12) and the mode below it (`(bd,BR,Xn)`, 14). Read at 450
+   * dpi. `MOVE from SR` on the same page prices `(BR,Xn)` at 6.
+   *
+   * The dash is provably wrong. The `M68000 Family Programmer's Reference
+   * Manual` says `MOVE to SR` takes "only data addressing modes" and lists
+   * `(bd,An,Xn)` among them for the 68020/030/040 -- and `(BR,Xn)` is that same
+   * mode field, 110, with the base displacement suppressed in the full
+   * extension word. A mode cannot be illegal two rows above where the manual
+   * prices it with a displacement attached.
+   *
+   * But proving a cell wrong is not the same as knowing what it should be, and
+   * no source gives the figure. So the dash is transcribed as printed and the
+   * gap is recorded here rather than being filled with a guess -- interpolating
+   * from `(bd,BR,Xn)` would put a number in the core that no document
+   * supports.
+   *
+   * This refines the rule the `JMP` anomaly established: correct a figure only
+   * when a source proves it impossible **and** supplies the replacement. */
+  TEST_ASSERT_FALSE(at("MOVE to SR", AP_M68040_IU_BASE_INDEXED).valid);
+
+  /* The neighbours that make the gap visible. */
+  TEST_ASSERT_TRUE(at("MOVE to SR", AP_M68040_IU_PC_INDEXED).valid);
+  TEST_ASSERT_TRUE(at("MOVE to SR", AP_M68040_IU_BASE_DISPLACEMENT).valid);
+  TEST_ASSERT_TRUE(at("MOVE from SR", AP_M68040_IU_BASE_INDEXED).valid);
+}
+
+static void test_move_to_sr_is_a_minimum(void) {
+  /* Note b: "times listed are minimum. This instruction interlocks the <ea>
+   * calculate and execute stages and synchronizes some portions of the
+   * processor before execution." Writing the status register can change the
+   * privilege state, so the pipeline has to drain -- and how long that takes
+   * depends on what was in it. */
+  const ap_m68040_iu_group_t *g = ap_m68040_iu_find("MOVE to SR");
+  TEST_ASSERT_NOT_NULL(g);
+  TEST_ASSERT_EQUAL_INT(AP_M68040_IU_FIGURE_MINIMUM, g->confidence);
+}
+
+static void test_writing_the_status_register_costs_far_more_than_reading(void) {
+  /* `MOVE to SR (An)` is 10 and `2L + 8` against `MOVE from SR (An)` at 2 and
+   * `1L + 2` -- five times the work, because only the write can change the
+   * privilege state and force a synchronisation. */
+  TEST_ASSERT_EQUAL_UINT(
+      2u, ap_m68040_iu_calculate(at("MOVE from SR", AP_M68040_IU_INDIRECT),
+                                 false, AP_M68040_IU_NO_CONDITIONS));
+  TEST_ASSERT_EQUAL_UINT(
+      10u, ap_m68040_iu_calculate(at("MOVE to SR", AP_M68040_IU_INDIRECT),
+                                  false, AP_M68040_IU_NO_CONDITIONS));
+}
+
+static void test_the_ccr_and_sr_directions_follow_the_read_write_pattern(void) {
+  /* `MOVE to CCR` and `MOVE to SR` read a source, so both take the PC-relative
+   * and immediate modes. `MOVE from SR` writes a destination and takes
+   * neither. The pattern now holds on six consecutive pages. */
+  TEST_ASSERT_TRUE(at("MOVE to CCR", AP_M68040_IU_PC_DISPLACEMENT).valid);
+  TEST_ASSERT_TRUE(at("MOVE to CCR", AP_M68040_IU_IMMEDIATE).valid);
+  TEST_ASSERT_TRUE(at("MOVE to SR", AP_M68040_IU_PC_DISPLACEMENT).valid);
+  TEST_ASSERT_TRUE(at("MOVE to SR", AP_M68040_IU_IMMEDIATE).valid);
+
+  TEST_ASSERT_FALSE(at("MOVE from SR", AP_M68040_IU_PC_DISPLACEMENT).valid);
+  TEST_ASSERT_FALSE(at("MOVE from SR", AP_M68040_IU_IMMEDIATE).valid);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_instructions_sharing_a_column_share_a_group);
@@ -1085,5 +1155,9 @@ int main(void) {
   RUN_TEST(test_jsr_costs_no_more_than_jmp_for_simple_modes);
   RUN_TEST(test_lea_computes_an_address_without_fetching_it);
   RUN_TEST(test_move_from_ccr_writes_and_so_refuses_pc_relative);
+  RUN_TEST(test_move_to_sr_dashes_a_mode_the_prm_allows);
+  RUN_TEST(test_move_to_sr_is_a_minimum);
+  RUN_TEST(test_writing_the_status_register_costs_far_more_than_reading);
+  RUN_TEST(test_the_ccr_and_sr_directions_follow_the_read_write_pattern);
   return UNITY_END();
 }

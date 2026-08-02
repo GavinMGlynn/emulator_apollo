@@ -1488,8 +1488,32 @@ not affect either <ea> calculate or execute stages" -- so the push happens in a
 stage this table does not price. The subroutine call really is free in the two
 stages measured here.
 
-What remains of the 68040 item is seven more pages of §10.6 and §10.7's ten
-pages of floating-point timings. That is bulk transcription against the
+### A cell left blank for a mode that exists
+
+§10.6 dashes `MOVE to SR (BR,Xn)` while pricing the mode above it
+(`(d8,PC,Xn)`, 12) and the one below it (`(bd,BR,Xn)`, 14), and `MOVE from SR`
+on the same page prices `(BR,Xn)` at 6. Read at 450 dpi.
+
+The dash is provably wrong: the PRM says `MOVE to SR` takes "only data
+addressing modes" and lists `(bd,An,Xn)` among them for the 68020/030/040, and
+`(BR,Xn)` is that same mode field -- 110 -- with the base displacement
+suppressed in the full extension word. A mode cannot be illegal two rows above
+where the manual prices it with a displacement attached.
+
+But **proving a cell wrong is not the same as knowing what it should be**, and
+no source gives the figure. The dash is transcribed as printed and the gap
+recorded, rather than interpolating from `(bd,BR,Xn)` and putting a number in
+the core that no document supports.
+
+That refines the rule the `JMP` anomaly established into its final form:
+**correct a figure only when a source proves it impossible *and* supplies the
+replacement.** Of §10's five suspect cells, `FLOG2`'s omission and `CMP2`'s
+zeros met both halves; the misdirected note letter met them via page 10-15's
+identical figures; `JMP`'s repeated row meets neither; and this one meets the
+first half only.
+
+What remains of the 68040 item is six more pages of §10.6 and §10.7's ten pages
+of floating-point timings. That is bulk transcription against the
 composition already in place, and the last thing standing between Phase 2b and
 complete. Appendix A's bit rows have to come from page images --
 `pdftotext` renders them with zeros as letters and columns collapsed, the same

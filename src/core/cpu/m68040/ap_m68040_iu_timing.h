@@ -132,6 +132,8 @@ typedef enum {
   AP_M68040_IU_FIGURE_EXACT,
   /* "Times listed are typical." */
   AP_M68040_IU_FIGURE_TYPICAL,
+  /* "Times listed are minimum." */
+  AP_M68040_IU_FIGURE_MINIMUM,
   /* "Times listed are for Dn within bounds" -- the `CHK` figures assume the
    * check *passes*. A failing check traps, and the trap costs what §10.5's
    * `TRAPcc` row costs, which this column does not include. So these are not
