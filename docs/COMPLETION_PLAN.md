@@ -1201,11 +1201,31 @@ a 68882, and the 68882 is the only one of these it has.
               appear in `probes.txt` with a state hash, and **no existing probe
               line changed**, so attaching the coprocessor perturbed nothing.
               Release and debug agree bit for bit.
-        - [ ] **The oracle comparison itself.** Side-load these probes into
-              `ext/mame` by the technique already used elsewhere and classify
-              each difference — hardware-truer than the oracle, sub-poll-slack
-              equal, or actually wrong — including "the oracle's admitted FPU
-              gaps as a divergence class", which the item asks for by name.
+        - [x] **The oracle comparison is running and has produced its first
+              divergence class.** Six campaigns, `FINDINGS.md` C59-C64: the
+              coprocessor was not attached at all (C59); the rounding mode is
+              honoured and the constant ROM has its first external witness
+              (C60); a double-precision comparison cannot separate two
+              conforming transcendentals and an extended one can (C61, C62);
+              five functions swept and adjudicated against 140-digit truth
+              (C63); and the difference diagnosed (C64).
+        - [ ] **Close the transcendental bias, which the sweep measured.** The
+              kernels compute each step at 64 bits — the destination width —
+              where §3.4 has the part carry 67 "for rounding purposes" and round
+              once at the end. So the final rounding has nothing below the
+              destination to round from, and a series of decreasing positive
+              terms accumulates *downwards*: 1 ULP low on `FSIN`, `FTAN` and
+              `FETOX` at argument 1.0, never high, and the whole of why MAME is
+              the closer implementation there. Already `PROVISIONAL` with "carry
+              guard bits through every kernel and round once from them" as its
+              cost to close; what the sweep added is evidence it is worth paying.
+              Inside §4.3.2's published bound either way.
+              *Verification: `fpu_sweep.py` reading "both exact" on all five,
+              then widened to all nineteen over a spread of arguments; the
+              accuracy suite's 3.1 ULP ceiling should fall with it.*
+        - [ ] **Widen the sweep** past the single argument the constant ROM
+              makes cheap, and enumerate "the oracle's admitted FPU gaps as a
+              divergence class", which the verification line asks for by name.
         - [ ] **Gating the coprocessor on the model.** It is attached
               unconditionally, which is a statement about this harness rather
               than the range: `ap_machine_init` takes no model, so the machine is
