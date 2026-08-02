@@ -1678,6 +1678,47 @@ register track slightly more often, and that is the alternative if this turns
 out wrong. Nothing observable distinguishes them today, because the conditional
 instruction types are not yet executed.
 
+### FMOVECR, and a value the documents cannot settle
+
+`FMOVECR` completes the general type: every general-type *instruction* now
+executes, and what remains is a data format rather than an instruction.
+
+It reads the part's own ROM and touches no memory, which is why it lives inside
+the memory-to-register opclass with `RX = 7` and needs no effective address at
+all. And it **rounds to the FPCR's precision** — the exact mirror of the store
+rule, worth holding as a pair: a store to memory ignores the PREC bits because
+the destination format decides, while here the destination is a register and
+PREC is the whole of it. Only `INEX2` can be raised; the instruction page lists
+`OVFL` and `UNFL` as Cleared, so a constant outside the selected precision's
+*range* is not an overflow.
+
+**The offsets are published and the values are not.** Neither the part's own
+manual nor the `M68000 Family Programmer's Reference Manual` prints a bit
+pattern — both print a name: `$00` is "π", `$30` is "1n(2)", `$3F` is 10^4096.
+So the resolution order ran out at step two, and the values are computed
+independently to 200 decimal digits and correctly rounded, the same route the
+transcendentals took.
+
+That leaves one thing open and it is worth being exact about what: the computed
+values agree with the canonical 80-bit constants — π is `$4000
+C90FDAA22168C235`, ln(2) is `$3FFE B17217F7D1CF79AC` — which is agreement with
+something outside this project and a real check. What it is *not* is proof that a
+particular 68881 mask set holds those bits. A ROM is not obliged to be correctly
+rounded, and this one is not documented either way. **Closing route: instrument
+the oracle and read all 22 back**, then classify the difference the way every
+other oracle disagreement is classified. It is deliberately not done here,
+because the documents were the cheaper source and they answered everything
+except this.
+
+The undefined offsets are a **documented absence of a right answer** rather than
+a gap in the model: "The values contained at offsets other than those defined
+above are reserved for the use of Motorola, and may be different on various mask
+sets of the FPCP." There is no value to be correct about. The PRM names the only
+convention that exists — "These undefined values yield the value 0.0 in the
+M68040FPSP" — and that is what a reserved offset returns, so a program reading
+one sees a stated value rather than whatever the register held. The instruction
+still executes; it is not an illegal encoding.
+
 ### The transcendentals
 
 All nineteen transcendentals are computed, and the `PROVISIONAL` that stood over
@@ -2883,7 +2924,7 @@ failure that cost a bit position in the 68020's module entry word.
 | 68030 translation table search (the walk) | working: search, U/M writeback, and ATC fill | `walk_suite`, 40 tests, `MC68030 User's Manual 3ed` §9.2, §9.4, §9.5, §11; writeback cost cross-checked against `MC68851 PMMU User's Manual 3ed` §5.1.5.3.11 |
 | MC68851 PMMU | working as its own subsystem: the translation control and root pointers, the six descriptor formats and Figure 5-10's type determination, the status and protection registers, the 64-entry ATC, and the table search with §5.1.5.3.11's U/M write-back. The **68030's** own MMU is separate and has its own rows above | `m68851_tc_suite` 13, `m68851_rp_suite` 13, `m68851_descriptor_suite` 21, `m68851_regs_suite` 22, `m68851_atc_suite` 22, `m68851_search_suite` 26, `m68851_suite` 43; `MC68851 PMMU User's Manual 3ed` |
 | 68040 MMU | not started | — |
-| MC68882 FPU | working, and attached to the 68030 as a *pointer* so a machine without one keeps its line 1111 trap. Every general-type operation executes: the four arithmetic operations, the exactly-specified monadics, the remainders, the single-precision pair, and **all nineteen transcendentals** to within §4.3.2's published bound. All three operand paths run — register-to-register, **`<ea>` to `FPn`** and **`FPn` to `<ea>`**, in all six binary formats from every legal addressing mode. `FMOVEM` of the data registers runs in both directions with its reversed mask orderings, and so do the system control registers, with the FPIAR tracking under §2.4's two conditions. Open: packed decimal, `FMOVECR`, and the branch/conditional instruction *types* — for which the coprocessor's own half (`ap_m68882_condition`) is done and the 68030's dialog is not | `m68882_regs_suite` 19, `m68882_format_suite` 18, `m68882_cir_suite` 8, `m68882_round_suite` 11, `m68882_arith_suite` 41, `m68882_decode_suite` 12, `m68882_accuracy_suite` 10, `m68882_transcendental_suite` 36, `m68882_store_suite` 11, plus 28 tests in `step_suite`; `MC68881/MC68882 User's Manual 1ed` |
+| MC68882 FPU | working, and attached to the 68030 as a *pointer* so a machine without one keeps its line 1111 trap. Every general-type operation executes: the four arithmetic operations, the exactly-specified monadics, the remainders, the single-precision pair, and **all nineteen transcendentals** to within §4.3.2's published bound. All three operand paths run — register-to-register, **`<ea>` to `FPn`** and **`FPn` to `<ea>`**, in all six binary formats from every legal addressing mode. `FMOVEM` of the data registers runs in both directions with its reversed mask orderings, and so do the system control registers, with the FPIAR tracking under §2.4's two conditions. `FMOVECR` returns all 22 published constants, computed and correctly rounded. **Every general-type instruction executes.** Open: packed decimal -- a data format rather than an instruction -- and the branch/conditional instruction *types* — for which the coprocessor's own half (`ap_m68882_condition`) is done and the 68030's dialog is not | `m68882_regs_suite` 19, `m68882_format_suite` 18, `m68882_cir_suite` 8, `m68882_round_suite` 11, `m68882_arith_suite` 41, `m68882_decode_suite` 12, `m68882_accuracy_suite` 10, `m68882_transcendental_suite` 36, `m68882_store_suite` 11, plus 33 tests in `step_suite`; `MC68881/MC68882 User's Manual 1ed` |
 | MC68040 FPU | timing tables only — §10.6, §10.7.1/§10.7.2 and §10.7.3's pipeline stages are transcribed; no 68040 arithmetic | `m68040_iu_timing_suite` 99, `m68040_fpu_timing_suite` 32, `m68040_fp_pipeline_suite` 18 |
 | Core-board registers (`010000`-`011600`) | working for the four that could be measured: CPU status (bit 15 stuck, writes clear the latched bits), CPU control and latch-page-on-parity (16 bits of storage), cache control (a *byte*, mirrored into both halves of a 16-bit read, one writable bit), each aliased across its 256-byte range. No manual here lays out these bits, so all of it is measured. **Width and storage only — no bit has a known meaning, and nothing may depend on one.** Task alias and master request are absent from the oracle and stay declined rather than modelled as all-ones | `boardreg_suite`, 12 tests; `FINDINGS.md` C10, `tools/mame-oracle/regprobe.lua`, two probe runs byte-identical |
 | Address translation map (`017000`) | working: the translation itself, both DMA widths, and the register file. Between the AT bus and physical memory, not the CPU's MMU -- a DMA controller has no MMU, and this is what lets it see scattered physical pages as one contiguous run. Present on DN3500/4500/5500 and absent on DN3000, from the model table | `atmap_suite`, 15 tests, `019411-A00` §4.2.1.4, `008778-03` §1.2, §2.5 |
@@ -3409,14 +3450,20 @@ Kept rather than discarded, so a future contradiction has a documented history.
 - The ring controller's register-level interface is not yet recovered; the
   manuals give its address window and block diagram but not its registers.
 
-- **`FMOVECR` is not implemented**, and is the one remaining general-type
-  encoding. Every transfer runs: opclass `010` (`<ea>` to `FPn`), opclass `011`
-  (`FPn` to `<ea>`) in all six binary formats, `FMOVEM` of the data registers,
-  and opclasses `100`/`101` for `FPCR`/`FPSR`/`FPIAR`. `FMOVECR` is different in
-  kind -- it reads a constant out of the part's **own ROM**, so what it needs is
-  that ROM's 64 entries rather than any more plumbing, and Motorola published
-  the offsets without the values. **Packed decimal** is unimplemented in both
-  directions and declines rather than decoding as binary.
+- **Packed decimal is not implemented**, in either direction, and is now the
+  only gap left in the general type -- a data *format* rather than an
+  instruction. Every general-type instruction executes: both single-operand
+  transfers in all six binary formats, `FMOVEM` of the data registers, the
+  system control registers, and `FMOVECR`. §3.6's binary-to-decimal conversion is
+  separate arithmetic from anything else in the part, with its own operand error
+  condition ("Result Exponent > 999 (Decimal) or k-Factor > +17") and its own
+  `INEX1` exception for decimal input. It declines rather than decoding as
+  binary, which would turn a BCD operand into a plausible wrong number.
+- **`FMOVECR`'s constant values are not established against hardware.** They are
+  computed and correctly rounded, and agree with the canonical 80-bit constants;
+  what is unproven is that a given 68881 mask set holds those exact bits, since
+  neither manual prints one. Closing route recorded above: instrument the oracle
+  and read all 22 back.
 - **`FBcc`, `FDBcc`, `FScc` and `FTRAPcc` do not execute**, though the
   coprocessor's whole contribution to them does (`ap_m68882_condition`, all 32
   predicates with `BSUN`). What is missing is the 68030's half of §9's dialog —

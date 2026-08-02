@@ -249,6 +249,26 @@ ap_m68882_control_transfer(const ap_m68882_t *fpu, uint16_t operation_word,
                                               unsigned bit);
 void ap_m68882_control_write(ap_m68882_t *fpu, unsigned bit, uint32_t value);
 
+/* One entry of the on-chip constant ROM, `FMOVECR`'s source.
+ *
+ * The offsets are published and **the values are not** -- neither the part's own
+ * manual nor the `M68000 Family Programmer's Reference Manual` prints a bit
+ * pattern, only a name: `$00` is "pi", `$30` is "1n(2)". So these are computed
+ * independently to 200 decimal digits and correctly rounded, the same route the
+ * transcendentals took, and bit-exact agreement with a particular mask set is
+ * not something the documents can settle. See `PROJECT_STATUS.md`.
+ *
+ * `defined` is false for the offsets the manual leaves to Motorola: "The values
+ * contained at offsets other than those defined above are reserved for the use
+ * of Motorola, and may be different on various mask sets of the FPCP." That is
+ * a documented absence of a right answer, not a gap in this model -- there is no
+ * value to be correct about. The PRM names the one convention that exists:
+ * "These undefined values yield the value 0.0 in the M68040FPSP", and that is
+ * what `*out` gets, so a program reading one sees a stated value rather than
+ * whatever was in the register. */
+[[nodiscard]] bool ap_m68882_constant(unsigned offset,
+                                      ap_m68882_extended_t *out);
+
 /* Record an instruction's address in the FPIAR, if this is one that records it.
  *
  * §2.4, and both of its conditions are easy to miss. "For the subset of the

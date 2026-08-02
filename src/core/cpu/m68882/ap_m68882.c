@@ -375,6 +375,86 @@ static ap_m68882_status_t decode_general(const ap_m68882_t *fpu,
   return AP_M68882_EXECUTED;
 }
 
+/* ---------------------------------------------------------------------------
+ * The constant ROM
+ *
+ * Twenty-two published offsets. The values are computed rather than
+ * transcribed, because there is nothing to transcribe -- see the header.
+ */
+typedef struct {
+  unsigned offset;
+  ap_m68882_extended_t value;
+} rom_entry_t;
+
+static const rom_entry_t constant_rom[] = {
+    {0x00u, {false, 0x4000u, UINT64_C(0xC90FDAA22168C235)}}, /* pi */
+    {0x0Bu, {false, 0x3FFDu, UINT64_C(0x9A209A84FBCFF799)}}, /* Log10(2) */
+    {0x0Cu, {false, 0x4000u, UINT64_C(0xADF85458A2BB4A9B)}}, /* e */
+    {0x0Du, {false, 0x3FFFu, UINT64_C(0xB8AA3B295C17F0BC)}}, /* Log2(e) */
+    {0x0Eu, {false, 0x3FFDu, UINT64_C(0xDE5BD8A937287195)}}, /* Log10(e) */
+    {0x0Fu, {false, 0x0000u, UINT64_C(0x0000000000000000)}}, /* 0.0 */
+    {0x30u, {false, 0x3FFEu, UINT64_C(0xB17217F7D1CF79AC)}}, /* ln(2) */
+    {0x31u, {false, 0x4000u, UINT64_C(0x935D8DDDAAA8AC17)}}, /* ln(10) */
+    /* The powers of ten. `10^0` through `10^16` are exact -- 5^16 fits a 64-bit
+     * significand with room to spare -- and everything above is rounded. */
+    {0x32u, {false, 0x3FFFu, UINT64_C(0x8000000000000000)}}, /* 10^0 */
+    {0x33u, {false, 0x4002u, UINT64_C(0xA000000000000000)}}, /* 10^1 */
+    {0x34u, {false, 0x4005u, UINT64_C(0xC800000000000000)}}, /* 10^2 */
+    {0x35u, {false, 0x400Cu, UINT64_C(0x9C40000000000000)}}, /* 10^4 */
+    {0x36u, {false, 0x4019u, UINT64_C(0xBEBC200000000000)}}, /* 10^8 */
+    {0x37u, {false, 0x4034u, UINT64_C(0x8E1BC9BF04000000)}}, /* 10^16 */
+    {0x38u, {false, 0x4069u, UINT64_C(0x9DC5ADA82B70B59E)}}, /* 10^32 */
+    {0x39u, {false, 0x40D3u, UINT64_C(0xC2781F49FFCFA6D5)}}, /* 10^64 */
+    {0x3Au, {false, 0x41A8u, UINT64_C(0x93BA47C980E98CE0)}}, /* 10^128 */
+    {0x3Bu, {false, 0x4351u, UINT64_C(0xAA7EEBFB9DF9DE8E)}}, /* 10^256 */
+    {0x3Cu, {false, 0x46A3u, UINT64_C(0xE319A0AEA60E91C7)}}, /* 10^512 */
+    {0x3Du, {false, 0x4D48u, UINT64_C(0xC976758681750C17)}}, /* 10^1024 */
+    {0x3Eu, {false, 0x5A92u, UINT64_C(0x9E8B3B5DC53D5DE5)}}, /* 10^2048 */
+    {0x3Fu, {false, 0x7525u, UINT64_C(0xC46052028A20979B)}}, /* 10^4096 */
+};
+
+bool ap_m68882_constant(unsigned offset, ap_m68882_extended_t *out) {
+  for (unsigned i = 0; i < sizeof constant_rom / sizeof constant_rom[0]; i++) {
+    if (constant_rom[i].offset == (offset & 0x7Fu)) {
+      *out = constant_rom[i].value;
+      return true;
+    }
+  }
+  /* Reserved to Motorola and mask-set dependent, so there is no value to be
+   * right about. The PRM's convention, stated rather than left to chance. */
+  *out = (ap_m68882_extended_t){0};
+  return false;
+}
+
+/* FMOVECR, which is opclass `010` with RX = 7 and reads no memory at all.
+ *
+ * "Fetches an extended precision constant from the FPCP on-chip ROM, **rounds
+ * it to the precision specified in the FPCR mode control byte**, and stores it
+ * in the destination floating-point data register" -- the mirror of the store
+ * rule, where the destination format overrides PREC and PREC is ignored. Here
+ * there is no destination format, so PREC is the whole of it.
+ *
+ * The exception byte is emphatic: everything Cleared except "INEX2: Refer to
+ * 6.1.7 Inexact Result". So rounding pi to single precision is inexact and
+ * nothing else, and even a constant far outside single's *range* raises no
+ * overflow -- OVFL is listed as Cleared, so the range is not checked. */
+static ap_m68882_status_t execute_move_constant(
+    ap_m68882_t *fpu, const ap_m68882_command_word_t *command) {
+  ap_m68882_extended_t value = {0};
+  (void)ap_m68882_constant(command->extension, &value);
+
+  const ap_m68882_round_result_t rounded = ap_m68882_round(
+      value, false, false, false, ap_m68882_rounding_mode(&fpu->regs),
+      ap_m68882_rounding_precision(&fpu->regs));
+
+  fpu->regs.fp[command->ry] = rounded.value;
+  set_condition_from(&fpu->regs, &rounded.value);
+  apply_exceptions(&fpu->regs, rounded.inexact
+                                  ? (UINT32_C(1) << AP_M68882_EXC_INEX2)
+                                  : 0u);
+  return AP_M68882_EXECUTED;
+}
+
 ap_m68882_status_t ap_m68882_execute(ap_m68882_t *fpu, uint16_t operation_word,
                                      uint16_t command_word) {
   ap_m68882_command_word_t command = {0};
@@ -382,6 +462,13 @@ ap_m68882_status_t ap_m68882_execute(ap_m68882_t *fpu, uint16_t operation_word,
       decode_general(fpu, operation_word, command_word, &command);
   if (decoded != AP_M68882_EXECUTED) {
     return decoded;
+  }
+
+  if (command.opclass == AP_M68882_OPCLASS_MEMORY_TO_REGISTER &&
+      command.rx == 7u) {
+    /* FMOVECR. It lives in the memory-to-register opclass and touches no
+     * memory, which is why it arrives here rather than through a transfer. */
+    return execute_move_constant(fpu, &command);
   }
 
   if (command.opclass != AP_M68882_OPCLASS_REGISTER) {

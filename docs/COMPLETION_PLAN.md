@@ -2034,6 +2034,33 @@ a 68882, and the 68882 is the only one of these it has.
         anything but the FPIAR, each against its legal neighbour; and the FPIAR
         recording only with a trap enabled, then surviving the `FMOVE` that
         reads it.*
+  - [x] **`FMOVECR` and the constant ROM**, which completes the general type:
+        every general-type *instruction* now executes, and what remains is a
+        data format rather than an instruction. The 22 published offsets, with
+        `FMOVECR` rounding to the **FPCR's precision** — the exact mirror of the
+        store rule, where the destination format overrides PREC and PREC is
+        ignored; here the destination is a register and PREC is the whole of it.
+        Only `INEX2` can be raised: the instruction page lists `OVFL` and `UNFL`
+        as Cleared, so a constant outside the selected precision's *range* is
+        not an overflow.
+        **The offsets are published and the values are not** — neither the
+        part's manual nor the `M68000 Family PRM` prints a bit pattern, only a
+        name — so they are computed independently to 200 decimal digits and
+        correctly rounded, the route the transcendentals took. Bit-exact
+        agreement with a particular mask set is not something the documents can
+        settle; recorded in `PROJECT_STATUS.md` with its closing route. The
+        undefined offsets are a *documented absence* of a right answer, "reserved
+        for the use of Motorola, and may be different on various mask sets", and
+        take the PRM's stated convention of 0.0.
+        *Verification: `step_suite`, 5 further tests (229 total) — pi and ln(2)
+        against the canonical 80-bit patterns, which agrees with something
+        outside this project; rounding to single reproducing `$40490FDB` bit for
+        bit, so "rounded to single" is checked from outside as well as in; the
+        two exact entries raising nothing; a reserved offset executing and
+        yielding the stated value; and all 128 offsets classified with exactly
+        22 defined, plus the powers of ten checked as a *progression* — each the
+        square of the last — so a displaced entry cannot pass as a plausible
+        number.*
   - [x] **The exactly-specified monadic operations**: `FSQRT`, `FGETEXP`,
         `FGETMAN`, `FINT`, `FINTRZ` and `FSCALE`. §4.3.2 puts square root under
         the IEEE bound rather than with the transcendentals -- "except square

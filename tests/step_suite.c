@@ -4980,14 +4980,15 @@ static void test_an_undefined_extension_traps_with_a_coprocessor_fitted(void) {
  * would outlast any single instruction. That closed too, when the 68030 took up
  * §10.4.9's half of the transfer.
  *
- * So the boundary keeps moving one step rather than vanishing: the store
- * direction closed, then `FMOVEM` did. What is left here is **`FMOVECR`**,
- * which is not a transfer at all -- opclass `010` with RX = 7 reads a constant
- * out of the part's own ROM, and what it needs is that ROM's contents rather
- * than any more plumbing. */
+ * The example has moved five times, and this is where it stops moving in the
+ * way it had been: every general-type *instruction* now executes. What is left
+ * is a **data format** rather than an instruction -- packed decimal, which
+ * §3.6's binary-to-decimal conversion makes a separate piece of arithmetic from
+ * anything else in the part. Both directions decline, and this is the store
+ * one; `test_a_packed_decimal_source_is_reported_as_our_gap` is the other. */
 static void test_an_unimplemented_coprocessor_form_is_reported_as_our_gap(void) {
-  /* FMOVECR #$00,FP0 -- opclass 010, RX 111, offset $00 (pi). */
-  static const uint16_t program[] = {0xF200u, 0x5C00u, 0x4E71u};
+  /* FMOVE.P FP1,(A0) -- opclass 011, destination format 011, source FP1. */
+  static const uint16_t program[] = {0xF210u, 0x6C80u, 0x4E71u};
   machine_t m = {0};
   load(&m, program, 3);
 
@@ -5715,6 +5716,167 @@ static void test_the_instruction_address_register_tracks_only_when_useful(void) 
   TEST_ASSERT_EQUAL_HEX32(PROGRAM_BASE, n.cpu.regs.d[0]);
 }
 
+/* `FMOVECR` reads the part's own constant ROM and touches no memory, which is
+ * why it lives inside the memory-to-register opclass and needs no effective
+ * address at all: RX = 7 is what says so.
+ *
+ * The offsets are published and the values are not, so these are computed
+ * independently and correctly rounded. They are asserted against the canonical
+ * 80-bit patterns, which is a real check rather than a restatement: pi at
+ * $4000 C90FDAA22168C235 is the extended-precision constant every
+ * implementation of the format arrives at, so agreeing with it is agreeing with
+ * something outside this project. */
+static void test_the_constant_rom_returns_its_published_constants(void) {
+  /* FMOVECR #$00,FP0 then FMOVECR #$30,FP1 -- pi and ln(2). */
+  static const uint16_t program[] = {0xF200u, 0x5C00u, 0xF200u, 0x5CB0u,
+                                     0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 5);
+  ap_m68882_t fpu;
+  ap_m68882_reset(&fpu);
+  m.cpu.fpu = &fpu;
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&m.cpu).status);
+  TEST_ASSERT_EQUAL_HEX16(0x4000u, fpu.regs.fp[0].exponent);
+  TEST_ASSERT_EQUAL_HEX64(UINT64_C(0xC90FDAA22168C235), fpu.regs.fp[0].mantissa);
+  TEST_ASSERT_FALSE(fpu.regs.fp[0].sign);
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&m.cpu).status);
+  TEST_ASSERT_EQUAL_HEX16(0x3FFEu, fpu.regs.fp[1].exponent);
+  TEST_ASSERT_EQUAL_HEX64(UINT64_C(0xB17217F7D1CF79AC), fpu.regs.fp[1].mantissa);
+
+  /* Neither is exact in the format, so both are inexact and nothing else.
+   * "OVFL Cleared, UNFL Cleared ... INEX2 Refer to 6.1.7 Inexact Result" --
+   * except that at extended precision there is nothing below the destination to
+   * round away, so even INEX2 stays clear here. */
+  TEST_ASSERT_EQUAL_HEX32(0u, fpu.regs.fpsr & (UINT32_C(0xFF) << 8));
+}
+
+/* **`FMOVECR` rounds to the FPCR's precision** -- the exact mirror of the store
+ * rule, and worth stating as the pair: a store to memory "ignores the PREC
+ * bits" because the destination format decides, while here the destination *is*
+ * a register and PREC is the whole of it. "Fetches an extended precision
+ * constant from the FPCP on-chip ROM, rounds it to the precision specified in
+ * the FPCR mode control byte, and stores it." */
+static void test_a_constant_rounds_to_the_selected_precision(void) {
+  static const uint16_t program[] = {0xF200u, 0x5C00u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 3);
+  ap_m68882_t fpu;
+  ap_m68882_reset(&fpu);
+  m.cpu.fpu = &fpu;
+  /* Single precision: PREC = 01 at bits 7-6. */
+  fpu.regs.fpcr = UINT32_C(1) << 6;
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&m.cpu).status);
+  /* Twenty-four significand bits kept, forty discarded, and pi rounds up at
+   * that boundary. The value is checked from outside as well as inside: it is
+   * bit for bit the single-precision encoding of pi, $40490FDB, which is what
+   * "rounded to single" has to mean. */
+  TEST_ASSERT_EQUAL_HEX16(0x4000u, fpu.regs.fp[0].exponent);
+  TEST_ASSERT_EQUAL_HEX64(UINT64_C(0xC90FDB0000000000), fpu.regs.fp[0].mantissa);
+  TEST_ASSERT_EQUAL_HEX32(0x40490FDBu, ap_m68882_to_single(&fpu.regs.fp[0]));
+  TEST_ASSERT_TRUE((fpu.regs.fpsr & (UINT32_C(1) << AP_M68882_EXC_INEX2)) != 0u);
+}
+
+/* Two entries that are exact, which is what makes the inexact ones meaningful:
+ * `$0F` is 0.0 and sets the zero condition code, and `$32` is 10^0, exactly
+ * 1.0. The powers of ten are exact up to 10^16, since 5^16 fits a 64-bit
+ * significand with room to spare. */
+static void test_the_exact_constants_raise_nothing(void) {
+  /* FMOVECR #$0F,FP0 then FMOVECR #$32,FP1. */
+  static const uint16_t program[] = {0xF200u, 0x5C0Fu, 0xF200u, 0x5CB2u,
+                                     0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 5);
+  ap_m68882_t fpu;
+  ap_m68882_reset(&fpu);
+  m.cpu.fpu = &fpu;
+  /* Single precision, so an inexact constant would say so. */
+  fpu.regs.fpcr = UINT32_C(1) << 6;
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&m.cpu).status);
+  TEST_ASSERT_EQUAL_INT(AP_M68882_TYPE_ZERO,
+                        ap_m68882_classify(&fpu.regs.fp[0]));
+  TEST_ASSERT_TRUE((fpu.regs.fpsr & (UINT32_C(1) << AP_M68882_FPCC_Z)) != 0u);
+  TEST_ASSERT_EQUAL_HEX32(0u, fpu.regs.fpsr & (UINT32_C(0xFF) << 8));
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&m.cpu).status);
+  TEST_ASSERT_EQUAL_HEX32(0x3F800000u, ap_m68882_to_single(&fpu.regs.fp[1]));
+  TEST_ASSERT_EQUAL_HEX32(0u, fpu.regs.fpsr & (UINT32_C(0xFF) << 8));
+}
+
+/* An offset the manual does not define. "The values contained at offsets other
+ * than those defined above are reserved for the use of Motorola, and may be
+ * different on various mask sets of the FPCP" -- so there is no value to be
+ * correct about, and this is a *documented absence* rather than a gap in the
+ * model. The PRM names the only convention that exists: "These undefined values
+ * yield the value 0.0 in the M68040FPSP".
+ *
+ * The instruction executes either way, which is the part that matters: it is
+ * not an illegal encoding. */
+static void test_an_undefined_rom_offset_yields_a_stated_value(void) {
+  /* FMOVECR #$01,FP0 -- between pi at $00 and Log10(2) at $0B. */
+  static const uint16_t program[] = {0xF200u, 0x5C01u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 3);
+  ap_m68882_t fpu;
+  ap_m68882_reset(&fpu);
+  m.cpu.fpu = &fpu;
+  fpu.regs.fp[0] = ap_m68882_from_single(0x40490FDBu);
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&m.cpu).status);
+  TEST_ASSERT_EQUAL_INT(AP_M68882_TYPE_ZERO,
+                        ap_m68882_classify(&fpu.regs.fp[0]));
+}
+
+/* Every one of the 128 ROM offsets classified, and **exactly the twenty-two the
+ * manual lists** are defined. A transcription check: the offsets are not
+ * contiguous and not evenly spaced -- `$00`, then a gap to `$0B`-`$0F`, then a
+ * gap to `$30`-`$3F` -- so a table built by counting rather than by reading
+ * would land the powers of ten in the wrong places and every one of them would
+ * still look like a plausible number. */
+static void test_the_constant_rom_defines_exactly_the_published_offsets(void) {
+  static const unsigned published[] = {
+      0x00u, 0x0Bu, 0x0Cu, 0x0Du, 0x0Eu, 0x0Fu, 0x30u, 0x31u,
+      0x32u, 0x33u, 0x34u, 0x35u, 0x36u, 0x37u, 0x38u, 0x39u,
+      0x3Au, 0x3Bu, 0x3Cu, 0x3Du, 0x3Eu, 0x3Fu};
+
+  unsigned defined = 0;
+  for (unsigned offset = 0; offset < 128u; offset++) {
+    ap_m68882_extended_t value = {0};
+    const bool is_defined = ap_m68882_constant(offset, &value);
+
+    bool expected = false;
+    for (unsigned i = 0; i < sizeof published / sizeof published[0]; i++) {
+      expected = expected || published[i] == offset;
+    }
+    TEST_ASSERT_EQUAL_INT(expected, is_defined);
+    if (is_defined) {
+      defined++;
+    } else {
+      /* A reserved offset has no right answer, so the model states one. */
+      TEST_ASSERT_EQUAL_INT(AP_M68882_TYPE_ZERO, ap_m68882_classify(&value));
+    }
+  }
+  TEST_ASSERT_EQUAL_UINT(22u, defined);
+
+  /* The powers of ten double their exponent's distance from the last: each
+   * offset from $33 up is the square of the one before, so a table with an
+   * entry displaced would break the progression. Checked as the *relationship*
+   * rather than as twelve constants. */
+  for (unsigned offset = 0x34u; offset <= 0x3Fu; offset++) {
+    ap_m68882_extended_t here = {0};
+    ap_m68882_extended_t before = {0};
+    TEST_ASSERT_TRUE(ap_m68882_constant(offset, &here));
+    TEST_ASSERT_TRUE(ap_m68882_constant(offset - 1u, &before));
+    const int previous = (int)before.exponent - AP_M68882_BIAS_EXTENDED;
+    const int current = (int)here.exponent - AP_M68882_BIAS_EXTENDED;
+    /* Squaring doubles the exponent, give or take the significand's carry. */
+    TEST_ASSERT_TRUE(current == 2 * previous || current == 2 * previous + 1);
+  }
+}
+
 /* Packed decimal is a source format the encoding allows and this model has not
  * got to. Reported as our gap rather than decoded as binary, which would turn a
  * BCD operand into a plausible wrong number. */
@@ -5762,6 +5924,11 @@ int main(void) {
   RUN_TEST(test_the_control_registers_move_in_one_fixed_order);
   RUN_TEST(test_register_direct_needs_a_single_control_register);
   RUN_TEST(test_the_instruction_address_register_tracks_only_when_useful);
+  RUN_TEST(test_the_constant_rom_returns_its_published_constants);
+  RUN_TEST(test_a_constant_rounds_to_the_selected_precision);
+  RUN_TEST(test_the_exact_constants_raise_nothing);
+  RUN_TEST(test_an_undefined_rom_offset_yields_a_stated_value);
+  RUN_TEST(test_the_constant_rom_defines_exactly_the_published_offsets);
   RUN_TEST(test_reset_performs_all_ten_documented_steps);
   RUN_TEST(test_reset_stacks_nothing);
   RUN_TEST(test_bkpt_takes_an_illegal_instruction_when_nothing_answers);
