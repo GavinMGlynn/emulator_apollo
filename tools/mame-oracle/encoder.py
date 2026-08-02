@@ -395,6 +395,30 @@ def movem_probe(address: int = SENTINEL_ADDRESS) -> list[int]:
     )
 
 
+def divide_probe(address: int = SENTINEL_ADDRESS) -> list[int]:
+    """`DIVU.W` and the register it packs two answers into.
+
+    A word divide puts the **quotient in the low half and the remainder in the
+    high half** of the same register, which is a convention rather than a
+    consequence and is exactly as easy to write backwards as forwards. Both
+    halves are non-zero and different here so a swap cannot hide: 100 over 7 is
+    14 remainder 2, so `D0` must be `$0002000E` -- `$000E0002` is the same
+    arithmetic and the wrong instruction.
+
+    It also exercises the only integer operation on this part that can leave a
+    register *untouched*: a quotient too wide for sixteen bits sets `V` and
+    writes nothing. That case is not probed here -- it needs the condition codes,
+    which the sentinel machinery cannot read -- and is named so its absence is
+    deliberate.
+    """
+    return assemble(
+        [0x203C, 0x0000, 0x0064],                          # MOVE.L #100,D0
+        [0x80FC, 0x0007],                                  # DIVU.W #7,D0
+        [0x23C0, (address >> 16) & 0xFFFF, address & 0xFFFF],
+        stop(0x2700),
+    )
+
+
 if __name__ == "__main__":
     import sys
     print(to_hex(sentinel_probe()), file=sys.stdout)

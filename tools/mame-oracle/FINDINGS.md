@@ -4587,3 +4587,31 @@ C63's sweep). What it does not yet reach: `BSR`/`RTS`, `MULU`/`DIVU`, and the MM
 instructions, each of which has a probe in `ap_probe.c` that has never been run
 against the oracle -- the suite and the harness are still separate instruments,
 which is the standing tail rather than a gap in any item.
+
+## C78 -- DIVU packs its two answers the same way on both
+
+**Class: agree.**
+
+    MOVE.L #100,D0 ; DIVU.W #7,D0 ; store D0
+
+| Check | Ours | Oracle | |
+| --- | --- | --- | --- |
+| `D0` after the divide | `0002000E` | `0002000E` | agree |
+| against the M68000 convention | `0002000E` | -- | agree |
+
+Run with `python3 tools/mame-oracle/probe_compare.py --program divide`.
+
+A word divide puts the **quotient in the low half and the remainder in the high
+half** of one register, which is a convention rather than a consequence and is as
+easy to write backwards as forwards. Both halves are non-zero and different here
+so a swap cannot hide: `$000E0002` is the same arithmetic and the wrong
+instruction.
+
+**One case is deliberately not probed**, and saying so is the point of the row.
+`DIVU` is the only integer operation on this part that can leave its destination
+*untouched*: a quotient too wide for sixteen bits sets `V` and writes nothing.
+Probing that needs the condition codes, and the sentinel machinery reads memory
+rather than the status register -- so a probe would see an unchanged `D0` and be
+unable to tell "overflow, correctly declined" from "the instruction did nothing".
+Closing it means the harness reporting `SR`, which is a change to both sides and
+is not attempted here.

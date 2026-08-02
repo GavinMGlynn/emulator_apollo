@@ -142,13 +142,21 @@ def main(argv=None) -> int:
     parser.add_argument("--timeout", type=float, default=300.0)
     parser.add_argument("--work", type=Path, default=Path("/tmp"))
     parser.add_argument(
-        "--program", choices=("sentinel", "fpu", "fpu-rounding", "fpu-sine", "fpu-sine-x", "fault", "bus-fault", "dbcc", "movem"),
+        "--program", choices=("sentinel", "fpu", "fpu-rounding", "fpu-sine", "fpu-sine-x", "fault", "bus-fault", "dbcc", "movem", "divide"),
         default="sentinel",
         help="which probe to run; `fpu` exercises the coprocessor's constant "
              "ROM, an FADD and the store conversion in one")
     args = parser.parse_args(argv)
 
-    if args.program == "movem":
+    if args.program == "divide":
+        ours_words = E.divide_probe(OURS_BASE + SENTINEL_OFFSET)
+        oracle_words = E.divide_probe(ORACLE_BASE + SENTINEL_OFFSET)
+        print("probe:  MOVE.L #100,D0 ; DIVU.W #7,D0 ; store D0 ; STOP")
+        print("        100 over 7 is 14 remainder 2, packed as remainder:"
+              "quotient --")
+        print("        $0002000E. $000E0002 is the same arithmetic and the"
+              " wrong instruction")
+    elif args.program == "movem":
         ours_words = E.movem_probe(OURS_BASE + SENTINEL_OFFSET)
         oracle_words = E.movem_probe(ORACLE_BASE + SENTINEL_OFFSET)
         print("probe:  MOVEM.L D0-D2,-(A7) ; MOVEM.L (A7)+,D3-D5 ;"
@@ -242,6 +250,7 @@ def main(argv=None) -> int:
                 # rather than restated here.
                 "dbcc": "0000FFFF",
                 "movem": "00000003",
+                "divide": "0002000E",
                 "fault": "00000010",
                 # No expected value: which frame a data fault produces is the
                 # thing being compared, not something to assert in advance.
