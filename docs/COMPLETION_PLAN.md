@@ -1780,9 +1780,29 @@ a 68882, and the 68882 is the only one of these it has.
         leaves the data registers as NANs, not zeros**: a zeroed register reads
         as `+0`, which is a perfectly good operand, so a program that forgot to
         load one would produce plausible answers rather than propagating a NAN.
-  - [ ] The extended, single and double formats and the conversions between
-        them; the arithmetic; the transcendentals; and the coprocessor
-        interface that reaches all of it.
+  - [x] **The three binary real formats** (`ap_m68882_format.c`), §3.2 and
+        Figures 3-2 to 3-4: single, double and extended, the five data types,
+        and the conversions. Not a convenience -- "since all FPCP internal
+        operations are performed in extended precision, single and double
+        precision operands are converted to extended precision values before the
+        specified operation is performed", so these are on the path of every
+        operand at those precisions.
+        *Verification: `m68882_format_suite`, 12 tests, including 1.0 in each
+        format to pin its bias, and single precision swept across exponents and
+        fractions rather than sampled -- a shift written one place out survives
+        some values and not others.*
+  - [x] Four traps, each documented and each silent when wrong. **An extended
+        exponent of zero is not always denormalized**: the manual's own NOTE
+        says such a number "may have an explicit integer bit equal to one, which
+        results in a normalized number", so the rule that holds for the other
+        two formats misreads exactly what extended exists to hold. **An infinity
+        is told from a NAN by the fraction with the integer bit ignored**, since
+        real 68881 output sets that bit on infinities. **Signalling is the top
+        *fraction* bit**, one below the integer bit -- reading bit 63 would call
+        every NAN signalling. And **a denormal's true exponent is `1 - bias`**,
+        not `0 - bias`, an error small enough to look like rounding.
+  - [ ] The arithmetic, the transcendentals, and the coprocessor interface that
+        reaches all of it.
 - [ ] 68020 subset: no on-chip MMU or cache differences, external 68851.
       *Verification: `dn3000` boots under both; oracle diff.*
 - [ ] 68851 external PMMU as its own subsystem. *Verification: `MC68851 PMMU
