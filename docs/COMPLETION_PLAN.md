@@ -1980,6 +1980,13 @@ a 68882, and the 68882 is the only one of these it has.
         `DT` -- so the same bits are a table descriptor at one level and an
         indirect descriptor at the next. Figures 5-10 and 5-12 through 5-20 read
         from the page images. `m68851_descriptor_suite`, 21 tests.
+  - [x] The status and protection registers: `PCSR`, `PSR`, `AC`, and the
+        `CAL`/`VAL`/`SCC` trio the 68020's `CALLM` and `RTM` drive -- so this
+        closes the seam with the module-call layer above. `SCC`'s rule is a
+        range test over a bitmap ("any bit of SCC between n and m inclusive"),
+        not a comparison, and `MDS = $0` invalidates every module descriptor
+        rather than accepting any alignment. Figures 6-2 and 6-4 through 6-7
+        from the page images. `m68851_regs_suite`, 22 tests.
 - [ ] 68040 for DN5500: different pipeline, caches, and MMU descriptor format;
       integrated FPU. *Verification: `MC68040 User's Manual 1993` cited;
       `dn5500` oracle diff, expecting to exceed the oracle's FPU coverage.*

@@ -608,6 +608,36 @@ upper long word at bits 33-32 where every short format puts it at bits 1-0 --
 an asymmetry a reader of the figures is likely to smooth over, so it has its own
 test.
 
+**The status and protection registers close the seam with the 68020.** §6.1 is
+explicit: "the MC68020 instructions CALLM and RTM can read and alter CAL and
+VAL under control of the MC68851 access level protection mechanism." The
+external hardware the 68020 manual defers to *is* this part, so
+`ap_m68020_module.c` and `ap_m68851_regs.c` are two ends of one mechanism. `AC`
+even carries `MDS`, which fixes the boundary a 68020 module descriptor may fall
+on -- a rule about the CPU's data structure, enforced by the MMU.
+
+Three encodings are worth naming because the obvious reading of each is wrong:
+
+- **`SCC` is a range test over a bitmap, not a comparison.** "If the current
+  access level is n and the MC68020 requests a call to a module of privilege m
+  where m < n, the MC68851 will instruct the CPU to change stack pointers if
+  **any** bit of SCC between n and m (inclusive) is set." A bit at neither
+  endpoint still forces the change -- calling from level 5 to level 1 with only
+  level 3 set changes the stack, because the call crosses level 3. Reading it as
+  "check the destination's bit" would skip exactly the calls the intermediate
+  bits exist to catch.
+- **`ALC = $0` disables access checking**, rather than selecting one level. The
+  field counts *address bits*, so the level count is two raised to it, and the
+  eight-level ceiling is why `CAL` and `VAL` implement only three bits.
+- **`MDS = $0` makes every module descriptor invalid**, rather than accepting
+  any alignment. No address satisfies it -- which is how the mechanism is
+  switched off, and is the opposite of what "no alignment requirement" would
+  mean.
+
+`CAL` and `VAL` hold their three-bit level in the *upper* bits of an eight-bit
+register, so it lines up with the high-order logical address field it is
+compared against instead of needing a shift.
+
 ## Subsystems
 
 | Subsystem | Status | Verification |
