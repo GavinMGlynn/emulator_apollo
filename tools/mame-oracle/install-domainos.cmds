@@ -1,0 +1,82 @@
+# The Domain/OS SR10.4 install, as it was actually driven, end to end.
+#
+# Replayable with:
+#
+#   truncate -s 348M media/dn3500.awd
+#   python3 tools/mame-oracle/mdsession.py --stage prompt \
+#       --disk media/dn3500.awd \
+#       --ctape media/domainos/019593-001.CRTG_STD_SFW_BOOT_1-REV.A.ct \
+#       --rundir tools/mame-oracle/out/install --keep-rundir \
+#       --timeout 3600 --commands <a copy of this file> --log install.log
+#
+# and INVOL first (FINDINGS.md C50) on a blank image. This file starts from a
+# volume that INVOL has already initialised and that was cleanly shut down.
+#
+# Requires the ext/mame SC-499 edit of C56: without it a cartridge changed
+# while Domain/OS holds the drive crashes the machine.
+#
+# Two rules are load-bearing and both cost a session to learn:
+#   * no `re` -- machine_reset shifts the RTC year, and the kernel refuses to
+#     boot when the calendar is behind the volume (C53);
+#   * swap only when the drive is idle -- wait for the *complete* prompt and
+#     settle, or the swap races the drive (C56).
+#
+# Finish MINST. The driver bug that typed a cartridge at the machine (C57) is
+# fixed, so the swaps can now be scripted rather than driven a step at a time.
+di c
+!expect \n\n>
+ex domain_os
+!expect \(Y/N\)
+Y
+!expect Restore complete
+!expect \)
+sh
+!expect login:
+user
+!expect Password:
+!cr
+!expect \$
+/install/tools/minst
+!expect Press <RETURN>
+!cr
+!expect MINST>
+continue
+!expect MINST>
+novice
+!expect Press <RETURN>
+!cr
+!expect MINST>
+!cr
+!expect MINST>
+!cr
+!expect MINST>
+yes
+!expect MINST>
+ct
+!expect key when ready:
+!wait 6
+!swap ctape /home/gavin/Development/emulators/apollo/media/domainos/019594-001.CRTG_STD_SFW_1.ct
+!cr
+!expect done reading all release notes
+!cr
+!expect MINST>
+11
+yes
+!wait 6
+!swap ctape /home/gavin/Development/emulators/apollo/media/domainos/019594-002.CRTG_STD_SFW_2.ct
+!cr
+!wait 6
+!swap ctape /home/gavin/Development/emulators/apollo/media/domainos/019594-003.CRTG_STD_SFW_3.ct
+!cr
+!wait 6
+!swap ctape /home/gavin/Development/emulators/apollo/media/domainos/019594-004.CRTG_STD_SFW_4.ct
+!cr
+!cr
+select
+shut
+ls /etc/shutdown /com/shut /sau11/shut
+exit
+ld /com/shut*
+!raw 
+shut
+!quit

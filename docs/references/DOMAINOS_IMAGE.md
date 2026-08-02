@@ -14,13 +14,13 @@ wondering why their result does not.
 
 ## The image
 
-Stage: **Domain/OS SR10.4 restored from the boot cartridge, cleanly shut down; MINST not yet run**
+Stage: **Domain/OS SR10.4, 'large' template, installed by MINST from all four cartridges and cleanly shut down**
 
 | Field | Value |
 | --- | --- |
-| File | `media/dn3500-osclean.awd` (gitignored) |
+| File | `media/dn3500-sr10.4-installed.awd` (gitignored) |
 | Size | 364904448 bytes |
-| SHA-256 | `74f399fe5f435508ca6f58bec2ca73a9a2c5ec6cb6fe2e69bdedc6dee44334f0` |
+| SHA-256 | `35cb5185853a5295fcbee42bf7195f6b361d0f643fcd7b0fc8f34141a7a20b9c` |
 
 ## What produced it
 
@@ -28,7 +28,7 @@ Stage: **Domain/OS SR10.4 restored from the boot cartridge, cleanly shut down; M
 | --- | --- |
 | Oracle | MAME pinned at `309427678b6939b354ad3bdb5c40b4aa648a18f4`, built `SUBTARGET=apollo`, with `APOLLO_XXL` enabled |
 | Machine | `dn3500` |
-| Driver | `tools/mame-oracle/mdsession.py` at commit `958e382` |
+| Driver | `tools/mame-oracle/mdsession.py` at commit `5de6767` |
 | Procedure | `FINDINGS.md` C47-C54, and the plan's first-boot item |
 
 **A rebuild is not expected to be bit-identical.** The install is a
