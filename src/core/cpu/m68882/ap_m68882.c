@@ -446,6 +446,60 @@ ap_m68882_status_t ap_m68882_execute_source(
   return execute_general(fpu, &command, source);
 }
 
+ap_m68882_status_t ap_m68882_movem_transfer(const ap_m68882_t *fpu,
+                                            uint16_t operation_word,
+                                            uint16_t command_word,
+                                            bool *is_movem,
+                                            ap_m68882_movem_t *movem) {
+  *is_movem = false;
+
+  ap_m68882_command_word_t command = {0};
+  const ap_m68882_status_t decoded =
+      decode_general(fpu, operation_word, command_word, &command);
+  if (decoded != AP_M68882_EXECUTED) {
+    return decoded;
+  }
+
+  if (command.opclass != AP_M68882_OPCLASS_MOVEM_TO_REGISTERS &&
+      command.opclass != AP_M68882_OPCLASS_MOVEM_FROM_REGISTERS) {
+    return AP_M68882_EXECUTED; /* not this instruction; some other path is */
+  }
+
+  *movem = ap_m68882_decode_movem(command_word);
+  *is_movem = true;
+  return AP_M68882_EXECUTED;
+}
+
+void ap_m68882_movem_read(const ap_m68882_t *fpu, unsigned reg,
+                          uint8_t *bytes) {
+  uint32_t high = 0;
+  uint64_t mantissa = 0;
+  ap_m68882_to_extended(&fpu->regs.fp[reg & 7u], &high, &mantissa);
+  for (unsigned i = 0; i < 4u; i++) {
+    bytes[i] = (uint8_t)(high >> (8u * (3u - i)));
+  }
+  for (unsigned i = 0; i < 8u; i++) {
+    bytes[4u + i] = (uint8_t)(mantissa >> (8u * (7u - i)));
+  }
+}
+
+void ap_m68882_movem_write(ap_m68882_t *fpu, unsigned reg,
+                           const uint8_t *bytes) {
+  uint32_t high = 0;
+  uint64_t mantissa = 0;
+  for (unsigned i = 0; i < 4u; i++) {
+    high = (high << 8) | bytes[i];
+  }
+  for (unsigned i = 0; i < 8u; i++) {
+    mantissa = (mantissa << 8) | bytes[4u + i];
+  }
+  /* Straight into the register file. Not through `apply_exceptions` and not
+   * through `set_condition_from`: "the FPSR is not affected by the
+   * instruction", which is what makes FMOVEM the only way to move a signalling
+   * NAN without turning it into a quiet one. */
+  fpu->regs.fp[reg & 7u] = ap_m68882_from_extended(high, mantissa);
+}
+
 ap_m68882_status_t ap_m68882_destination_transfer(const ap_m68882_t *fpu,
                                                   uint16_t operation_word,
                                                   uint16_t command_word,

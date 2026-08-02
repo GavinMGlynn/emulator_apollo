@@ -220,6 +220,70 @@ static void test_move_constant_uses_no_effective_address(void) {
   }
 }
 
+/* FMOVEM's command word does not decompose the way every other one does:
+ * `11 dr | MODE (2) | 0 0 0 | REGISTER LIST (8)`. The register list crosses the
+ * boundary the general decode draws between RY and the extension field, and the
+ * mode sits where RX does but is two bits rather than three -- so decoding it as
+ * a general command word and reassembling the pieces leaves the list a bit
+ * short. */
+static void test_the_fmovem_command_word_has_its_own_layout(void) {
+  /* $E0FF: dr = 1, MODE 00 (static, predecrement), every register. */
+  const ap_m68882_movem_t store = ap_m68882_decode_movem(0xE0FFu);
+  TEST_ASSERT_TRUE(store.to_memory);
+  TEST_ASSERT_TRUE(store.predecrement);
+  TEST_ASSERT_FALSE(store.dynamic);
+  TEST_ASSERT_EQUAL_HEX32(0xFFu, store.mask);
+
+  /* $D0FF: dr = 0, MODE 10 (static, postincrement or control). */
+  const ap_m68882_movem_t load = ap_m68882_decode_movem(0xD0FFu);
+  TEST_ASSERT_FALSE(load.to_memory);
+  TEST_ASSERT_FALSE(load.predecrement);
+  TEST_ASSERT_FALSE(load.dynamic);
+
+  /* $F820: dr = 1, MODE 11 (dynamic), and the list field is `0 r r r 0 0 0 0`
+   * -- a pointer to a mask rather than a mask. */
+  const ap_m68882_movem_t dynamic = ap_m68882_decode_movem(0xF820u);
+  TEST_ASSERT_TRUE(dynamic.dynamic);
+  TEST_ASSERT_FALSE(dynamic.predecrement);
+  TEST_ASSERT_EQUAL_UINT(2u, dynamic.dynamic_register);
+
+  /* MODE 01 is the dynamic predecrement case, which exists precisely because
+   * the mask ordering differs and so a dynamic mask needs both spellings. */
+  const ap_m68882_movem_t dynamic_down = ap_m68882_decode_movem(0xE870u);
+  TEST_ASSERT_TRUE(dynamic_down.dynamic);
+  TEST_ASSERT_TRUE(dynamic_down.predecrement);
+  TEST_ASSERT_EQUAL_UINT(7u, dynamic_down.dynamic_register);
+}
+
+/* **The register list's bit order reverses with the addressing mode**, printed
+ * as two rows:
+ *
+ *     Static, -(An)             --  FP7 FP6 FP5 FP4 FP3 FP2 FP1 FP0
+ *     Static, (An)+ or Control  --  FP0 FP1 FP2 FP3 FP4 FP5 FP6 FP7
+ *
+ * Transcribed here as the two rows rather than as the formula, so that a
+ * formula which happened to be self-consistent could not satisfy it. The
+ * manual's own programming note is what makes this consequential: a procedure
+ * passing a live-register mask has to pass two of them. */
+static void test_the_two_register_list_orderings_are_reversed(void) {
+  static const unsigned predecrement_row[8] = {7u, 6u, 5u, 4u, 3u, 2u, 1u, 0u};
+  static const unsigned ascending_row[8] = {0u, 1u, 2u, 3u, 4u, 5u, 6u, 7u};
+
+  /* Both rows are printed most significant bit first, so index 0 is bit 7. */
+  for (unsigned i = 0; i < 8u; i++) {
+    const unsigned bit = 7u - i;
+    TEST_ASSERT_EQUAL_UINT(predecrement_row[i],
+                           ap_m68882_movem_register(true, bit));
+    TEST_ASSERT_EQUAL_UINT(ascending_row[i],
+                           ap_m68882_movem_register(false, bit));
+  }
+
+  /* The rule that unifies them: bit 7 is the register transferred first in
+   * *both* modes, and only which register that is differs. */
+  TEST_ASSERT_EQUAL_UINT(7u, ap_m68882_movem_register(true, 7u));
+  TEST_ASSERT_EQUAL_UINT(0u, ap_m68882_movem_register(false, 7u));
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_the_operation_word_fields);
@@ -232,5 +296,7 @@ int main(void) {
   RUN_TEST(test_fsincos_occupies_eight_encodings);
   RUN_TEST(test_only_some_opclasses_use_the_effective_address);
   RUN_TEST(test_move_constant_uses_no_effective_address);
+  RUN_TEST(test_the_fmovem_command_word_has_its_own_layout);
+  RUN_TEST(test_the_two_register_list_orderings_are_reversed);
   return UNITY_END();
 }

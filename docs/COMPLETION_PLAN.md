@@ -1979,6 +1979,32 @@ a 68882, and the 68882 is the only one of these it has.
         word reaching a data register with the twelve-byte refusal beside it,
         and a nonalterable destination violating the protocol while the same
         mode reads fine.*
+  - [x] **`FMOVEM` of the data registers**, opclasses `110` and `111` — a
+        register *list* rather than another transfer, and deliberately not the
+        store path with a loop around it. "No conversion or rounding is
+        performed during this operation, and the FPSR is not affected", which
+        makes it "the only mechanism for moving a floating-point data item
+        between the FPCP and memory without ... affecting the condition code and
+        exception status bits" — so a signalling NAN survives one intact, where
+        `FMOVE` would quieten it and raise.
+        Three rules of its own: the command word does not decompose the way
+        every other one does (`11 dr | MODE | 000 | LIST`, the list crossing the
+        RY/extension boundary); **the mask's bit order reverses between
+        predecrement and every other mode**, which the manual prints as two rows
+        and its own programming note calls out as needing two masks; and the
+        address register steps twelve bytes *per register*, before each store
+        and after each load. A dynamic list takes the mask from the low eight
+        bits of a main processor data register.
+        *Verification: `m68882_decode_suite` +2 (12 total) — the command word's
+        own layout including both dynamic modes, and the two ordering rows
+        transcribed as rows rather than as a formula. `step_suite` +5 (219
+        total) — a `-(A0)` store and `(A0)+` load round-tripping all eight
+        registers, which uses *both* orderings and so only passes if they agree,
+        with the memory layout asserted so a symmetric mistake cannot cancel;
+        a partial mask through both spellings of FP1; a dynamic list ignoring
+        the register's high bits; a signalling NAN surviving with the FPSR
+        untouched; and each increment mode refused in the direction it is not
+        allowed.*
   - [x] **The exactly-specified monadic operations**: `FSQRT`, `FGETEXP`,
         `FGETMAN`, `FINT`, `FINTRZ` and `FSCALE`. §4.3.2 puts square root under
         the IEEE bound rather than with the transcendentals -- "except square

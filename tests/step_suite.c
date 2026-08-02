@@ -4980,14 +4980,14 @@ static void test_an_undefined_extension_traps_with_a_coprocessor_fitted(void) {
  * would outlast any single instruction. That closed too, when the 68030 took up
  * §10.4.9's half of the transfer.
  *
- * So the boundary keeps moving one step rather than vanishing. The store
- * direction closed too. What is left is **`FMOVEM`**, opclass `110` and `111`,
- * which is not one transfer but a list of them -- a register mask, a direction,
- * and a predecrement order that runs the list backwards. Nothing about it is
- * the single-operand transfer seen again. */
+ * So the boundary keeps moving one step rather than vanishing: the store
+ * direction closed, then `FMOVEM` did. What is left here is **`FMOVECR`**,
+ * which is not a transfer at all -- opclass `010` with RX = 7 reads a constant
+ * out of the part's own ROM, and what it needs is that ROM's contents rather
+ * than any more plumbing. */
 static void test_an_unimplemented_coprocessor_form_is_reported_as_our_gap(void) {
-  /* FMOVEM.X (A0),FP7-FP0 -- opclass 110, static register list. */
-  static const uint16_t program[] = {0xF210u, 0xD0FFu, 0x4E71u};
+  /* FMOVECR #$00,FP0 -- opclass 010, RX 111, offset $00 (pi). */
+  static const uint16_t program[] = {0xF200u, 0x5C00u, 0x4E71u};
   machine_t m = {0};
   load(&m, program, 3);
 
@@ -5311,6 +5311,218 @@ static void test_storing_to_a_nonalterable_address_violates_the_protocol(void) {
   TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&n.cpu).status);
 }
 
+/* Eight distinguishable values, so a transfer that scrambled the order would
+ * show it: 1.0 through 8.0 as singles. */
+static const uint32_t FP_MARKERS[8] = {0x3F800000u, 0x40000000u, 0x40400000u,
+                                       0x40800000u, 0x40A00000u, 0x40C00000u,
+                                       0x40E00000u, 0x41000000u};
+
+static void plant_markers(ap_m68882_t *fpu) {
+  for (unsigned i = 0; i < 8u; i++) {
+    fpu->regs.fp[i] = ap_m68882_from_single(FP_MARKERS[i]);
+  }
+}
+
+/* **`FMOVEM`'s two mask orderings are reversed, and a round trip is what proves
+ * both are right.** The manual prints them as two rows:
+ *
+ *     Static, -(An)             --  FP7 FP6 FP5 FP4 FP3 FP2 FP1 FP0
+ *     Static, (An)+ or Control  --  FP0 FP1 FP2 FP3 FP4 FP5 FP6 FP7
+ *
+ * Storing with `-(A0)` and loading back with `(A0)+` therefore uses *both*
+ * tables, and only agreeing tables return the registers unchanged -- a model
+ * using one ordering for both would reverse all eight and still move the
+ * address register the right distance.
+ *
+ * The layout is asserted too, because a symmetric mistake could cancel out: FP0
+ * ends up at the *lowest* address, since predecrement stores FP7 first and
+ * works downwards. */
+static void test_fmovem_round_trips_through_both_mask_orderings(void) {
+  /* FMOVEM.X FP7-FP0,-(A0) : $F220 is `-(A0)`; $E0FF is dr = 1, static
+   * predecrement, every register. Then FMOVEM.X (A0)+,FP0-FP7 : $F218 is
+   * `(A0)+`, $D0FF is dr = 0, static postincrement, every register. */
+  static const uint16_t program[] = {0xF220u, 0xE0FFu, 0xF218u, 0xD0FFu,
+                                     0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 5);
+
+  ap_m68882_t fpu;
+  ap_m68882_reset(&fpu);
+  m.cpu.fpu = &fpu;
+  plant_markers(&fpu);
+  const uint32_t top = FP_OPERAND + 96u;
+  m.cpu.regs.a[0] = top;
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&m.cpu).status);
+  /* Eight registers of twelve bytes each, and the register points at the image
+   * it stored *last* rather than one slot past it. */
+  TEST_ASSERT_EQUAL_HEX32(top - 96u, m.cpu.regs.a[0]);
+
+  /* FP0 at the lowest address, FP7 at the highest -- the order the transfer
+   * runs is FP7 first and downwards. */
+  TEST_ASSERT_EQUAL_HEX32(0x3FFF0000u, read_ram_long(&m, top - 96u));
+  TEST_ASSERT_EQUAL_HEX32(0x80000000u, read_ram_long(&m, top - 96u + 4u));
+  /* FP7 is 8.0, whose extended exponent is $4002. */
+  TEST_ASSERT_EQUAL_HEX32(0x40020000u, read_ram_long(&m, top - 12u));
+
+  /* Scramble the registers, then load them back. */
+  for (unsigned i = 0; i < 8u; i++) {
+    fpu.regs.fp[i] = ap_m68882_from_single(0x7F800000u);
+  }
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&m.cpu).status);
+  TEST_ASSERT_EQUAL_HEX32(top, m.cpu.regs.a[0]);
+  for (unsigned i = 0; i < 8u; i++) {
+    TEST_ASSERT_EQUAL_HEX32(FP_MARKERS[i],
+                            ap_m68882_to_single(&fpu.regs.fp[i]));
+  }
+}
+
+/* A partial mask moves only the named registers, and names them by the
+ * ordering its own mode uses. FP1 is bit 6 in a control mode's mask and bit 1
+ * in a predecrement one -- the same register through two encodings, which is
+ * the cleanest single statement of the reversal. */
+static void test_a_partial_mask_moves_only_its_registers(void) {
+  /* FMOVEM.X FP1,(A0) : $F210 is `(A0)`, $F040 is dr = 1, static control mode,
+   * mask bit 6. Control modes use the FP0..FP7 ordering. */
+  static const uint16_t program[] = {0xF210u, 0xF040u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 3);
+  write_ram_long(&m, FP_OPERAND + 12u, 0xDEADBEEFu);
+
+  ap_m68882_t fpu;
+  ap_m68882_reset(&fpu);
+  m.cpu.fpu = &fpu;
+  plant_markers(&fpu);
+  m.cpu.regs.a[0] = FP_OPERAND;
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&m.cpu).status);
+  /* FP1 is 2.0: exponent $4000, integer bit set. It lands at the base address,
+   * because it is the only register moved and offsets count transfers rather
+   * than register numbers. */
+  TEST_ASSERT_EQUAL_HEX32(0x40000000u, read_ram_long(&m, FP_OPERAND));
+  TEST_ASSERT_EQUAL_HEX32(0x80000000u, read_ram_long(&m, FP_OPERAND + 4u));
+  /* And nothing was written past it. */
+  TEST_ASSERT_EQUAL_HEX32(0xDEADBEEFu, read_ram_long(&m, FP_OPERAND + 12u));
+  /* A control mode leaves the address register alone. */
+  TEST_ASSERT_EQUAL_HEX32(FP_OPERAND, m.cpu.regs.a[0]);
+
+  /* The same register through the predecrement ordering is bit 1. */
+  static const uint16_t descending[] = {0xF220u, 0xE002u, 0x4E71u};
+  machine_t n = {0};
+  load(&n, descending, 3);
+  ap_m68882_t second;
+  ap_m68882_reset(&second);
+  n.cpu.fpu = &second;
+  plant_markers(&second);
+  n.cpu.regs.a[0] = FP_OPERAND + 12u;
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&n.cpu).status);
+  TEST_ASSERT_EQUAL_HEX32(FP_OPERAND, n.cpu.regs.a[0]);
+  TEST_ASSERT_EQUAL_HEX32(0x40000000u, read_ram_long(&n, FP_OPERAND));
+}
+
+/* "a dynamic value in the least significant 8-bits of a main processor data
+ * register (the remaining bits of the register are ignored)". The register
+ * number is in bits 6-4 of the list field, laid out as `0 r r r 0 0 0 0` -- so
+ * the field that would be a mask is instead a pointer to one. */
+static void test_a_dynamic_register_list_reads_its_mask_from_a_data_register(
+    void) {
+  /* FMOVEM.X D2,(A0) : $F820 is dr = 1, MODE 11 (dynamic, control), rrr = 2. */
+  static const uint16_t program[] = {0xF210u, 0xF820u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 3);
+  write_ram_long(&m, FP_OPERAND + 12u, 0xDEADBEEFu);
+
+  ap_m68882_t fpu;
+  ap_m68882_reset(&fpu);
+  m.cpu.fpu = &fpu;
+  plant_markers(&fpu);
+  m.cpu.regs.a[0] = FP_OPERAND;
+  /* Bit 6 is FP1 in a control mode's ordering. The high bits are deliberately
+   * noise, since the manual says they are ignored. */
+  m.cpu.regs.d[2] = 0xFFFFFF40u;
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&m.cpu).status);
+  TEST_ASSERT_EQUAL_HEX32(0x40000000u, read_ram_long(&m, FP_OPERAND));
+  TEST_ASSERT_EQUAL_HEX32(0xDEADBEEFu, read_ram_long(&m, FP_OPERAND + 12u));
+}
+
+/* **`FMOVEM` performs no conversion and raises nothing**, which is the whole
+ * reason it is not the store path with a loop around it: "the FMOVEM
+ * instruction provides the only mechanism for moving a floating-point data item
+ * between the FPCP and memory without performing any data conversions or
+ * affecting the condition code and exception status bits", and §6.1.2 adds that
+ * it and FSAVE "cannot generate exceptions. Therefore, these instructions are
+ * useful for manipulating SNANs."
+ *
+ * So a signalling NAN survives one intact. Routed through `FMOVE`'s conversion
+ * it would come back quiet with `SNAN` set, which is a different value and a
+ * different FPSR. */
+static void test_fmovem_moves_a_signalling_nan_without_touching_the_fpsr(void) {
+  static const uint16_t program[] = {0xF210u, 0xF080u, 0xF210u, 0xD080u,
+                                     0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 5);
+
+  ap_m68882_t fpu;
+  ap_m68882_reset(&fpu);
+  m.cpu.fpu = &fpu;
+  m.cpu.regs.a[0] = FP_OPERAND;
+  /* Maximum exponent, integer bit set, **quiet bit clear**: signalling. */
+  fpu.regs.fp[0] = (ap_m68882_extended_t){
+      .sign = false, .exponent = 0x7FFFu, .mantissa = UINT64_C(0x8000DEADBEEF00)};
+  const uint32_t fpsr_before = fpu.regs.fpsr;
+
+  /* Store FP0 (control mode mask bit 7), then load it back. */
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&m.cpu).status);
+  fpu.regs.fp[0] = ap_m68882_from_single(0u);
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&m.cpu).status);
+
+  TEST_ASSERT_EQUAL_HEX16(0x7FFFu, fpu.regs.fp[0].exponent);
+  TEST_ASSERT_EQUAL_HEX64(UINT64_C(0x8000DEADBEEF00), fpu.regs.fp[0].mantissa);
+  TEST_ASSERT_TRUE(ap_m68882_is_signalling_nan(&fpu.regs.fp[0]));
+  /* Not one bit of the FPSR moved: no exception, no condition code. */
+  TEST_ASSERT_EQUAL_HEX32(fpsr_before, fpu.regs.fpsr);
+}
+
+/* The two increment modes are legal in **one direction each**: "If the effective
+ * address is the predecrement mode, only a register to memory operation is
+ * allowed", and postincrement only a memory to register one. No addressing
+ * category expresses that, so it is its own rule -- and a mode field that
+ * disagrees with the effective address names no transfer at all. */
+static void test_fmovem_allows_each_increment_mode_in_one_direction_only(void) {
+  /* FMOVEM.X (A0)+,... in the *store* direction: dr = 1 with postincrement. */
+  static const uint16_t program[] = {0xF218u, 0xF0FFu, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 3);
+  plant_vector(&m, AP_M68030_VECTOR_COPROCESSOR_PROTOCOL, HANDLER);
+  m.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
+  m.cpu.regs.isp = SUPERVISOR_STACK;
+
+  ap_m68882_t fpu;
+  ap_m68882_reset(&fpu);
+  m.cpu.fpu = &fpu;
+  m.cpu.regs.a[0] = FP_OPERAND;
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXCEPTION, ap_m68030_step(&m.cpu).status);
+  TEST_ASSERT_EQUAL_HEX32(HANDLER, m.cpu.regs.pc);
+
+  /* And `-(A0)` in the *load* direction is refused the same way. */
+  static const uint16_t loading[] = {0xF220u, 0xC0FFu, 0x4E71u};
+  machine_t n = {0};
+  load(&n, loading, 3);
+  plant_vector(&n, AP_M68030_VECTOR_COPROCESSOR_PROTOCOL, HANDLER);
+  n.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
+  n.cpu.regs.isp = SUPERVISOR_STACK;
+  ap_m68882_t second;
+  ap_m68882_reset(&second);
+  n.cpu.fpu = &second;
+  n.cpu.regs.a[0] = FP_OPERAND;
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXCEPTION, ap_m68030_step(&n.cpu).status);
+  TEST_ASSERT_EQUAL_HEX32(HANDLER, n.cpu.regs.pc);
+}
+
 /* Packed decimal is a source format the encoding allows and this model has not
  * got to. Reported as our gap rather than decoded as binary, which would turn a
  * BCD operand into a plausible wrong number. */
@@ -5348,6 +5560,11 @@ int main(void) {
   RUN_TEST(test_a_store_leaves_the_condition_codes_alone);
   RUN_TEST(test_a_long_word_result_reaches_a_data_register);
   RUN_TEST(test_storing_to_a_nonalterable_address_violates_the_protocol);
+  RUN_TEST(test_fmovem_round_trips_through_both_mask_orderings);
+  RUN_TEST(test_a_partial_mask_moves_only_its_registers);
+  RUN_TEST(test_a_dynamic_register_list_reads_its_mask_from_a_data_register);
+  RUN_TEST(test_fmovem_moves_a_signalling_nan_without_touching_the_fpsr);
+  RUN_TEST(test_fmovem_allows_each_increment_mode_in_one_direction_only);
   RUN_TEST(test_reset_performs_all_ten_documented_steps);
   RUN_TEST(test_reset_stacks_nothing);
   RUN_TEST(test_bkpt_takes_an_illegal_instruction_when_nothing_answers);

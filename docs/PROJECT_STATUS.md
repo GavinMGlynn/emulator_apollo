@@ -1562,6 +1562,62 @@ is separate arithmetic from everything here, and it carries its own operand erro
 condition — "Result Exponent > 999 (Decimal) or k-Factor > +17" — that belongs
 with it.
 
+### FMOVEM: a list, and three rules of its own
+
+`FMOVEM` of the data registers is deliberately **not** the store path with a
+loop around it, and the manual is unusually explicit about why. "No conversion
+or rounding is performed during this operation, and the FPSR is not affected by
+the instruction. This instruction does not cause pending exceptions (other than
+protocol violations) to be reported to the main processor." And the consequence,
+stated as a note: it "provides the only mechanism for moving a floating-point
+data item between the FPCP and memory without performing any data conversions or
+affecting the condition code and exception status bits". §6.1.2 agrees from the
+other end — `FMOVEM` and `FSAVE` "cannot generate exceptions. Therefore, these
+instructions are useful for manipulating SNANs."
+
+So routing it through `ap_m68882_store_encode` would have been wrong in a way
+that looks right: a signalling NAN would come back quiet with `SNAN` set, which
+is a different value *and* a different FPSR. `ap_m68882_movem_read`/`_write` copy
+twelve bytes and touch nothing else.
+
+**The mask's bit order reverses with the addressing mode.** This is the trap the
+instruction carries, and the manual prints it as two rows:
+
+    Static, -(An)             --  FP7 FP6 FP5 FP4 FP3 FP2 FP1 FP0
+    Static, (An)+ or Control  --  FP0 FP1 FP2 FP3 FP4 FP5 FP6 FP7
+
+One rule unifies them and is the one worth holding: **bit 7 is always the
+register transferred first**, and the transfer runs from bit 7 down to bit 0 in
+every mode. Predecrement goes FP7 through FP0 down through lower addresses; the
+others go FP0 through FP7 up through higher ones. So the walk is one loop, and
+`ap_m68882_movem_register` is where the reversal lives entirely.
+
+The manual's own programming note is the proof it matters: a procedure passing a
+live-register mask to a callee has to pass *two* of them, "due to the different
+transfer order used by the predecrement and postincrement addressing modes" —
+which is also why `MODE` has separate dynamic encodings for the two.
+
+The test that pins it is a round trip: store all eight with `-(A0)`, load them
+back with `(A0)+`. That uses both tables, and a model using one ordering for
+both would reverse all eight registers while still moving the address register
+exactly the right distance. The memory layout is asserted alongside it, because
+a symmetric mistake would otherwise cancel out.
+
+Two smaller rules. The command word does not decompose the way every other one
+does — `11 dr | MODE (2) | 0 0 0 | REGISTER LIST (8)`, where the list crosses the
+boundary the general decode draws between `RY` and the extension field and the
+mode sits where `RX` does but is two bits wide. And the address register steps
+twelve bytes *per register* rather than once for the instruction: before each
+store in the predecrement case, after each load in the postincrement one, so a
+predecrement store leaves the register pointing at the image it wrote last and a
+postincrement load leaves it one byte past the image it read last.
+
+The addressing modes are a category *plus one mode*, differently in each
+direction: reading allows the control modes and `(An)+`, writing the control
+alterable modes and `-(An)`. No category expresses that, so it is its own check —
+"If the effective address is the predecrement mode, only a register to memory
+operation is allowed."
+
 ### The transcendentals
 
 All nineteen transcendentals are computed, and the `PROVISIONAL` that stood over
@@ -2767,7 +2823,7 @@ failure that cost a bit position in the 68020's module entry word.
 | 68030 translation table search (the walk) | working: search, U/M writeback, and ATC fill | `walk_suite`, 40 tests, `MC68030 User's Manual 3ed` §9.2, §9.4, §9.5, §11; writeback cost cross-checked against `MC68851 PMMU User's Manual 3ed` §5.1.5.3.11 |
 | MC68851 PMMU | working as its own subsystem: the translation control and root pointers, the six descriptor formats and Figure 5-10's type determination, the status and protection registers, the 64-entry ATC, and the table search with §5.1.5.3.11's U/M write-back. The **68030's** own MMU is separate and has its own rows above | `m68851_tc_suite` 13, `m68851_rp_suite` 13, `m68851_descriptor_suite` 21, `m68851_regs_suite` 22, `m68851_atc_suite` 22, `m68851_search_suite` 26, `m68851_suite` 43; `MC68851 PMMU User's Manual 3ed` |
 | 68040 MMU | not started | — |
-| MC68882 FPU | working, and attached to the 68030 as a *pointer* so a machine without one keeps its line 1111 trap. Every general-type operation executes: the four arithmetic operations, the exactly-specified monadics, the remainders, the single-precision pair, and **all nineteen transcendentals** to within §4.3.2's published bound. All three operand paths run — register-to-register, **`<ea>` to `FPn`** and **`FPn` to `<ea>`**, in all six binary formats from every legal addressing mode. Open: packed decimal, the control-register and `FMOVEM` opclasses, `FMOVECR`, and the branch/conditional instruction *types* — for which the coprocessor's own half (`ap_m68882_condition`) is done and the 68030's dialog is not | `m68882_regs_suite` 19, `m68882_format_suite` 18, `m68882_cir_suite` 8, `m68882_round_suite` 11, `m68882_arith_suite` 41, `m68882_decode_suite` 10, `m68882_accuracy_suite` 10, `m68882_transcendental_suite` 36, `m68882_store_suite` 11, plus 18 tests in `step_suite`; `MC68881/MC68882 User's Manual 1ed` |
+| MC68882 FPU | working, and attached to the 68030 as a *pointer* so a machine without one keeps its line 1111 trap. Every general-type operation executes: the four arithmetic operations, the exactly-specified monadics, the remainders, the single-precision pair, and **all nineteen transcendentals** to within §4.3.2's published bound. All three operand paths run — register-to-register, **`<ea>` to `FPn`** and **`FPn` to `<ea>`**, in all six binary formats from every legal addressing mode. `FMOVEM` of the data registers runs in both directions, with the reversed mask orderings and without touching the FPSR. Open: packed decimal, the control-register opclasses, `FMOVECR`, and the branch/conditional instruction *types* — for which the coprocessor's own half (`ap_m68882_condition`) is done and the 68030's dialog is not | `m68882_regs_suite` 19, `m68882_format_suite` 18, `m68882_cir_suite` 8, `m68882_round_suite` 11, `m68882_arith_suite` 41, `m68882_decode_suite` 12, `m68882_accuracy_suite` 10, `m68882_transcendental_suite` 36, `m68882_store_suite` 11, plus 23 tests in `step_suite`; `MC68881/MC68882 User's Manual 1ed` |
 | MC68040 FPU | timing tables only — §10.6, §10.7.1/§10.7.2 and §10.7.3's pipeline stages are transcribed; no 68040 arithmetic | `m68040_iu_timing_suite` 99, `m68040_fpu_timing_suite` 32, `m68040_fp_pipeline_suite` 18 |
 | Core-board registers (`010000`-`011600`) | working for the four that could be measured: CPU status (bit 15 stuck, writes clear the latched bits), CPU control and latch-page-on-parity (16 bits of storage), cache control (a *byte*, mirrored into both halves of a 16-bit read, one writable bit), each aliased across its 256-byte range. No manual here lays out these bits, so all of it is measured. **Width and storage only — no bit has a known meaning, and nothing may depend on one.** Task alias and master request are absent from the oracle and stay declined rather than modelled as all-ones | `boardreg_suite`, 12 tests; `FINDINGS.md` C10, `tools/mame-oracle/regprobe.lua`, two probe runs byte-identical |
 | Address translation map (`017000`) | working: the translation itself, both DMA widths, and the register file. Between the AT bus and physical memory, not the CPU's MMU -- a DMA controller has no MMU, and this is what lets it see scattered physical pages as one contiguous run. Present on DN3500/4500/5500 and absent on DN3000, from the model table | `atmap_suite`, 15 tests, `019411-A00` §4.2.1.4, `008778-03` §1.2, §2.5 |
@@ -3293,14 +3349,15 @@ Kept rather than discarded, so a future contradiction has a documented history.
 - The ring controller's register-level interface is not yet recovered; the
   manuals give its address window and block diagram but not its registers.
 
-- **`FMOVEM`, the control-register opclasses and `FMOVECR` are not
-  implemented.** Both single-operand transfers run -- opclass `010` (`<ea>` to
-  `FPn`) and opclass `011` (`FPn` to `<ea>`), in all six binary formats. What is
-  left is not another transfer: `FMOVEM` is a register *list* with a mask, a
-  direction and a predecrement order that runs the list backwards, and the
-  control-register opclasses move `FPCR`/`FPSR`/`FPIAR` rather than data.
-  **Packed decimal** is unimplemented in both directions and declines rather
-  than decoding as binary.
+- **The control-register opclasses and `FMOVECR` are not implemented.** Every
+  data transfer runs -- opclass `010` (`<ea>` to `FPn`), opclass `011` (`FPn` to
+  `<ea>`) in all six binary formats, and `FMOVEM` of the data registers in both
+  directions. What is left moves something other than data: opclasses `100` and
+  `101` move `FPCR`/`FPSR`/`FPIAR`, and `FMOVECR` reads a constant out of the
+  part's own ROM -- which needs that ROM's contents rather than any more
+  plumbing, and Motorola never published them. **Packed decimal** is
+  unimplemented in both directions and declines rather than decoding as
+  binary.
 - **`FBcc`, `FDBcc`, `FScc` and `FTRAPcc` do not execute**, though the
   coprocessor's whole contribution to them does (`ap_m68882_condition`, all 32
   predicates with `BSUN`). What is missing is the 68030's half of §9's dialog —

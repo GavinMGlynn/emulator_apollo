@@ -103,3 +103,29 @@ bool ap_m68882_command_uses_memory(const ap_m68882_command_word_t *command) {
   }
   return false;
 }
+
+ap_m68882_movem_t ap_m68882_decode_movem(uint16_t command_word) {
+  ap_m68882_movem_t out = {0};
+  /* Bit 13 is `dr`, which the opclass carries: 110 is memory to the FPCP and
+   * 111 is the FPCP to memory. */
+  out.to_memory = (command_word & (1u << 13)) != 0u;
+
+  const unsigned mode = (unsigned)((command_word >> 11) & 0x3u);
+  out.predecrement = (mode & 0x2u) == 0u;
+  out.dynamic = (mode & 0x1u) != 0u;
+
+  /* Bits 10-8 are shown as zero in the instruction format and carry nothing. */
+  out.mask = (unsigned)(command_word & 0xFFu);
+  /* "Dynamic list -- contains the main processor data register number, rrr",
+   * laid out as `0 r r r 0 0 0 0` across the same eight bits. */
+  out.dynamic_register = (out.mask >> 4) & 0x7u;
+  return out;
+}
+
+unsigned ap_m68882_movem_register(bool predecrement, unsigned bit) {
+  /* The whole of the reversal, in one line. Predecrement's mask reads FP7 down
+   * to FP0 across bits 7 to 0; every other mode's reads FP0 up to FP7 across the
+   * same bits. Both start at bit 7, and bit 7 is the register that moves
+   * first. */
+  return predecrement ? (bit & 7u) : (7u - (bit & 7u));
+}

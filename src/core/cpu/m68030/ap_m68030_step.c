@@ -3680,6 +3680,119 @@ static fp_source_result_t store_fp_destination(
              : FP_SOURCE_FAILED;
 }
 
+/* FMOVEM, which is a *list* of transfers and not one seen eight times.
+ *
+ * Three things differ from the single-operand path and each is its own rule:
+ *
+ * - **The addressing modes are the union of a category and one mode.** Reading,
+ *   the table allows the control modes and `(An)+`; writing, the control
+ *   alterable modes and `-(An)`. So `(An)+` is legal in one direction only and
+ *   `-(An)` in the other, which no category expresses -- the manual states it
+ *   as "If the effective address is the predecrement mode, only a register to
+ *   memory operation is allowed."
+ * - **The address register steps per register**, twelve bytes at a time, and
+ *   the step happens *before* the store in the predecrement case and *after*
+ *   the load in the postincrement one. Handing this to `ap_m68030_address_
+ *   calculate` would step it once for the whole instruction.
+ * - **The mask's bit order reverses with the mode.** Handled entirely by
+ *   `ap_m68882_movem_register`, which is why the loop below is one loop.
+ */
+static fp_source_result_t execute_fmovem(ap_m68030_cpu_t *cpu,
+                                         const ap_m68030_coproc_t *coproc,
+                                         const ap_m68882_movem_t *movem,
+                                         uint32_t *clocks) {
+  const ap_m68030_ea_kind_t kind = coproc->ea.kind;
+  const bool control = ap_m68030_ea_is_control(kind);
+
+  if (movem->to_memory) {
+    if (!(ap_m68030_ea_is_control_alterable(kind) ||
+          kind == AP_M68030_EA_PREDECREMENT)) {
+      return FP_SOURCE_PROTOCOL_VIOLATION;
+    }
+  } else {
+    if (!(control || kind == AP_M68030_EA_POSTINCREMENT)) {
+      return FP_SOURCE_PROTOCOL_VIOLATION;
+    }
+  }
+  /* The mode field and the effective address have to agree. MODE says
+   * predecrement or "postincrement or control", and an instruction whose two
+   * halves disagree names no transfer at all. */
+  if (movem->predecrement != (kind == AP_M68030_EA_PREDECREMENT)) {
+    return FP_SOURCE_PROTOCOL_VIOLATION;
+  }
+
+  /* "a dynamic value in the least significant 8-bits of a main processor data
+   * register (the remaining bits of the register are ignored)". */
+  const unsigned mask =
+      movem->dynamic ? (unsigned)(cpu->regs.d[movem->dynamic_register] & 0xFFu)
+                     : movem->mask;
+
+  /* A control mode resolves once, and every register sits at a fixed offset
+   * above it: "the registers are transferred between the FPCP and memory
+   * starting at the specified address and up through higher addresses". */
+  uint32_t base = 0;
+  if (control) {
+    ap_m68030_address_input_t input = {0};
+    if (!gather_address_input(cpu, kind, 12u, clocks, &input)) {
+      return FP_SOURCE_FAILED;
+    }
+    const ap_m68030_address_t where =
+        resolve_address(cpu, clocks, coproc->ea, &input);
+    if (!where.valid) {
+      return FP_SOURCE_FAILED;
+    }
+    base = where.address;
+  }
+
+  /* Bit 7 first in every mode -- see ap_m68882_movem_register. What changes is
+   * which register that bit names and which way memory runs. */
+  unsigned transferred = 0;
+  for (int bit = 7; bit >= 0; bit--) {
+    if ((mask & (1u << (unsigned)bit)) == 0u) {
+      continue;
+    }
+    const unsigned reg =
+        ap_m68882_movem_register(movem->predecrement, (unsigned)bit);
+
+    uint32_t address = 0;
+    if (control) {
+      address = base + 12u * transferred;
+    } else if (movem->predecrement) {
+      /* "Before each register is stored, the address register is decremented
+       * by 12 ... and the floating-point data register is then stored at the
+       * resultant address." So the register is left pointing at the image it
+       * stored last, not one slot past it. */
+      cpu->regs.a[coproc->ea.reg] -= 12u;
+      address = cpu->regs.a[coproc->ea.reg];
+    } else {
+      address = cpu->regs.a[coproc->ea.reg];
+    }
+
+    const ap_m68030_address_t where = {.address = address, .valid = true};
+    uint8_t bytes[12] = {0};
+    if (movem->to_memory) {
+      ap_m68882_movem_read(cpu->fpu, reg, bytes);
+      if (!write_operand_bytes(cpu, clocks, &where, 12u, bytes)) {
+        return FP_SOURCE_FAILED;
+      }
+    } else {
+      if (!read_operand_bytes(cpu, clocks, &where, 12u, bytes)) {
+        return FP_SOURCE_FAILED;
+      }
+      ap_m68882_movem_write(cpu->fpu, reg, bytes);
+    }
+
+    if (!control && !movem->predecrement) {
+      /* "After each register is loaded, the address register is incremented by
+       * 12 ... the address register points to the byte immediately following
+       * the image of the last floating-point data register loaded." */
+      cpu->regs.a[coproc->ea.reg] += 12u;
+    }
+    transferred++;
+  }
+  return FP_SOURCE_FETCHED;
+}
+
 /* Whether an instruction "forces a change of flow", which is what the T1=0,
  * T0=1 trace mode watches. `[030]` §8.1.7: "Instructions that are traced in this
  * mode include all branches, jumps, instruction traps, returns, and coprocessor
@@ -4428,8 +4541,33 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
             }
           }
         } else if (executed == AP_M68882_EXECUTED) {
-          /* Both operands already in the part: opclass `000`. */
-          executed = ap_m68882_execute(cpu->fpu, out.instruction, command);
+          bool is_movem = false;
+          ap_m68882_movem_t movem = {0};
+          executed = ap_m68882_movem_transfer(cpu->fpu, out.instruction, command,
+                                              &is_movem, &movem);
+
+          if (executed == AP_M68882_EXECUTED && is_movem) {
+            bool violated = false;
+            switch (execute_fmovem(cpu, coproc, &movem, &out.clocks)) {
+            case FP_SOURCE_FETCHED:
+              break;
+            case FP_SOURCE_PROTOCOL_VIOLATION:
+              cpu->pending_vector = AP_M68030_VECTOR_COPROCESSOR_PROTOCOL;
+              violated = true;
+              break;
+            case FP_SOURCE_FAILED:
+              out.status =
+                  fault_or_unimplemented(cpu, &out, instruction_address);
+              cpu->clocks += out.clocks;
+              return out;
+            }
+            if (violated) {
+              break;
+            }
+          } else if (executed == AP_M68882_EXECUTED) {
+            /* Both operands already in the part: opclass `000`. */
+            executed = ap_m68882_execute(cpu->fpu, out.instruction, command);
+          }
         }
       }
 

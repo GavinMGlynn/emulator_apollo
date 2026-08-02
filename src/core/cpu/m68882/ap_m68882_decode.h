@@ -146,4 +146,56 @@ ap_m68882_decode_command(uint16_t word);
 [[nodiscard]] bool ap_m68882_command_uses_memory(
     const ap_m68882_command_word_t *command);
 
+/* ---------------------------------------------------------------------------
+ * FMOVEM's command word, which does not decompose the way every other one does
+ *
+ * `11 dr | MODE (2 bits) | 0 0 0 | REGISTER LIST (8 bits)`. The register list
+ * spans bits 7-0, so it crosses the boundary the general decode draws between
+ * `RY` and the extension field, and the mode sits where `RX` does but is two
+ * bits rather than three. Decoding it as a general command word and then
+ * reassembling the pieces is how the list ends up one bit short.
+ */
+typedef struct {
+  /* The `dr` field: "0 -- Move the listed registers from memory to the FPCP.
+   * 1 -- Move the listed registers from the FPCP to memory." Carried in the
+   * opclass, which is why 110 and 111 are one instruction and not two. */
+  bool to_memory;
+  /* MODE's high bit: clear selects predecrement addressing, set selects
+   * "postincrement or control". The two are separate rules and not two spellings
+   * of one -- they disagree about the transfer order *and* about which register
+   * each mask bit names. */
+  bool predecrement;
+  /* MODE's low bit: "Dynamic register list", the mask taken from the low eight
+   * bits of a main processor data register rather than from the instruction. */
+  bool dynamic;
+  /* Which main processor data register holds it, from bits 6-4 of the list
+   * field: the format is "0 r r r 0 0 0 0". Meaningful when `dynamic`. */
+  unsigned dynamic_register;
+  /* The static mask, bits 7-0. Meaningful when `dynamic` is false. */
+  unsigned mask;
+} ap_m68882_movem_t;
+
+[[nodiscard]] ap_m68882_movem_t ap_m68882_decode_movem(uint16_t command_word);
+
+/* Which floating-point register a mask bit names.
+ *
+ * **The two orderings are reversed**, and this is the trap the instruction
+ * carries:
+ *
+ *     Static, -(An)             --  FP7 FP6 FP5 FP4 FP3 FP2 FP1 FP0
+ *     Static, (An)+ or Control  --  FP0 FP1 FP2 FP3 FP4 FP5 FP6 FP7
+ *
+ * One rule unifies them, and it is the one to hold on to: **bit 7 is always the
+ * register transferred first**, and the transfer runs from bit 7 down to bit 0
+ * whichever mode it is. Predecrement goes FP7 through FP0 down through lower
+ * addresses; the others go FP0 through FP7 up through higher ones. So a caller
+ * iterating from bit 7 to bit 0 and asking this for each set bit is walking
+ * memory in one direction the whole time.
+ *
+ * The manual's own programming note is the proof that this matters: a procedure
+ * passing a live-register mask has to pass *two* of them, "due to the different
+ * transfer order used by the predecrement and postincrement addressing modes". */
+[[nodiscard]] unsigned ap_m68882_movem_register(bool predecrement,
+                                                unsigned bit);
+
 #endif /* APOLLO_CPU_M68882_AP_M68882_DECODE_H */

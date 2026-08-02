@@ -145,6 +145,45 @@ ap_m68882_destination_transfer(const ap_m68882_t *fpu, uint16_t operation_word,
 ap_m68882_execute_store(ap_m68882_t *fpu, uint16_t operation_word,
                         uint16_t command_word, ap_m68882_store_t *out);
 
+/* ---------------------------------------------------------------------------
+ * FMOVEM: a list of transfers rather than one
+ *
+ * "Moves one or more extended precision numbers to or from a list of
+ * floating-point data registers. **No conversion or rounding is performed**
+ * during this operation, and the FPSR is **not affected** by the instruction.
+ * This instruction does not cause pending exceptions (other than protocol
+ * violations) to be reported to the main processor."
+ *
+ * Every one of those negatives is load-bearing, and together they are why this
+ * does not reuse the store and load paths above. Routing `FMOVEM` through
+ * `ap_m68882_store_encode` would quieten a signalling NAN and raise `SNAN` --
+ * and the manual's note is that this instruction is the *only* way to move a
+ * value without that happening: "the FMOVEM instruction provides the only
+ * mechanism for moving a floating-point data item between the FPCP and memory
+ * without performing any data conversions or affecting the condition code and
+ * exception status bits". §6.1.2 says the same from the other end: FMOVEM and
+ * FSAVE "cannot generate exceptions. Therefore, these instructions are useful
+ * for manipulating SNANs."
+ *
+ * So the format is always extended, the transfer is a copy, and the register
+ * file is the only state touched.
+ */
+
+/* Whether this instruction is an `FMOVEM` of the data registers, and how.
+ * Same contract as the transfer queries above: the status is the decode's and
+ * `*is_movem` is separate from it. */
+[[nodiscard]] ap_m68882_status_t
+ap_m68882_movem_transfer(const ap_m68882_t *fpu, uint16_t operation_word,
+                         uint16_t command_word, bool *is_movem,
+                         ap_m68882_movem_t *movem);
+
+/* One register's twelve bytes, in memory order. Copies: no rounding, no
+ * exception, no condition code, and a signalling NAN stays signalling. */
+void ap_m68882_movem_read(const ap_m68882_t *fpu, unsigned reg,
+                          uint8_t *bytes);
+void ap_m68882_movem_write(ap_m68882_t *fpu, unsigned reg,
+                           const uint8_t *bytes);
+
 /* Evaluate a conditional predicate and report whether the condition holds.
  *
  * This is the *whole* of the part's contribution to `FBcc`, `FDBcc`, `FScc` and
