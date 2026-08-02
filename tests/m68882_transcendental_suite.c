@@ -1982,6 +1982,86 @@ static void test_a_denormal_argument_survives_every_function(void) {
   }
 }
 
+static void test_a_nan_argument_comes_back_with_its_payload(void) {
+  /* §4.5.4 opens by saying the operation tables carry no NAN row "because NANs
+   * are handled the same way in all operations" -- and the transcendentals are
+   * operations. Then: "if either, but not both, operand of an operation is a
+   * NAN, and it is a non-signaling NAN, then **that NAN is returned as the
+   * result**."
+   *
+   * So the payload and the sign survive. That is the whole point of a payload:
+   * it says where the trouble started, and a function that substituted its own
+   * would erase that at the first transcendental in a chain -- turning a
+   * traceable NAN into an anonymous one, silently, because both still classify
+   * as NANs and every existing test was satisfied by that.
+   *
+   * `FADD` had this right and the nineteen did not; they returned a fixed
+   * pattern with a cleared sign. The comparison against `FADD` is the assertion
+   * that matters, since §4.5.4's claim is precisely that the two behave
+   * alike. */
+  const ap_m68882_extended_t payload = {true, 0x7FFFu, 0xDEADBEEFCAFEF00DULL};
+  const ap_m68882_extended_t one = {false, AP_M68882_BIAS_EXTENDED,
+                                    0x8000000000000000ULL};
+  const ap_m68882_op_t reference =
+      ap_m68882_add(&payload, &one, AP_M68882_ROUND_NEAREST,
+                    AP_M68882_PRECISION_EXTENDED);
+  TEST_ASSERT_EQUAL_UINT64(payload.mantissa, reference.value.mantissa);
+
+  for (unsigned i = 0; i < EVERY_COUNT; i++) {
+    const ap_m68882_op_t got = every_transcendental[i](
+        &payload, AP_M68882_ROUND_NEAREST, AP_M68882_PRECISION_EXTENDED);
+    TEST_ASSERT_EQUAL_UINT64_MESSAGE(reference.value.mantissa,
+                                     got.value.mantissa,
+                                     "a transcendental lost the NAN payload");
+    TEST_ASSERT_EQUAL_MESSAGE(reference.value.sign, got.value.sign,
+                              "a transcendental lost the NAN sign");
+    TEST_ASSERT_EQUAL_UINT_MESSAGE(
+        0u, got.exceptions & (1u << AP_M68882_EXC_SNAN),
+        "a quiet NAN raises nothing");
+  }
+
+  /* `FSINCOS` writes two results and both must carry it. */
+  ap_m68882_op_t sine, cosine;
+  ap_m68882_sincos(&payload, AP_M68882_ROUND_NEAREST,
+                   AP_M68882_PRECISION_EXTENDED, &sine, &cosine);
+  TEST_ASSERT_EQUAL_UINT64(payload.mantissa, sine.value.mantissa);
+  TEST_ASSERT_EQUAL_UINT64(payload.mantissa, cosine.value.mantissa);
+}
+
+static void test_a_signalling_nan_is_quietened_the_same_way_everywhere(void) {
+  /* §4.5.4.2: "the SNAN is converted to a non-signaling NAN (by setting the
+   * SNAN bit in the operand to a one), and the operation continues as described
+   * in the preceding section for non-signaling NANs."
+   *
+   * So it is the *same value* with one bit set, not a fresh NAN -- the payload
+   * survives being quietened. And it is raised once: the result is no longer
+   * signalling, so a chain of operations reports one exception rather than one
+   * per instruction. */
+  const ap_m68882_extended_t signalling = {false, 0x7FFFu,
+                                           0x2000000000000001ULL};
+  const ap_m68882_extended_t one = {false, AP_M68882_BIAS_EXTENDED,
+                                    0x8000000000000000ULL};
+  const ap_m68882_op_t reference =
+      ap_m68882_add(&signalling, &one, AP_M68882_ROUND_NEAREST,
+                    AP_M68882_PRECISION_EXTENDED);
+
+  for (unsigned i = 0; i < EVERY_COUNT; i++) {
+    const ap_m68882_op_t got = every_transcendental[i](
+        &signalling, AP_M68882_ROUND_NEAREST, AP_M68882_PRECISION_EXTENDED);
+    TEST_ASSERT_EQUAL_UINT64_MESSAGE(
+        reference.value.mantissa, got.value.mantissa,
+        "quietening must match the arithmetic's, bit for bit");
+    TEST_ASSERT_NOT_EQUAL_UINT_MESSAGE(
+        0u, got.exceptions & (1u << AP_M68882_EXC_SNAN),
+        "a signalling NAN must raise SNAN");
+    TEST_ASSERT_FALSE_MESSAGE(ap_m68882_is_signalling_nan(&got.value),
+                              "the result must not still be signalling");
+    /* The low bits of the payload are untouched by quietening. */
+    TEST_ASSERT_EQUAL_UINT64(signalling.mantissa & 0xFFFFFFFFULL,
+                             got.value.mantissa & 0xFFFFFFFFULL);
+  }
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_the_exponential_is_inside_the_typical_error_bound);
@@ -2016,6 +2096,8 @@ int main(void) {
   RUN_TEST(test_the_mode_is_a_no_op_where_there_is_nothing_left_to_round);
   RUN_TEST(test_an_overflowing_transcendental_follows_6_1_4);
   RUN_TEST(test_a_denormal_argument_survives_every_function);
+  RUN_TEST(test_a_nan_argument_comes_back_with_its_payload);
+  RUN_TEST(test_a_signalling_nan_is_quietened_the_same_way_everywhere);
   RUN_TEST(test_the_family_is_bit_identical_in_every_build);
   RUN_TEST(test_the_result_precision_is_the_callers_and_the_steps_are_not);
   return UNITY_END();

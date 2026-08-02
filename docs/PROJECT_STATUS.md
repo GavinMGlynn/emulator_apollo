@@ -1516,6 +1516,33 @@ The determinism golden earned its place here: it still reads
 known to be untouched. A fix at the bottom of the exponent range that quietly
 moved an ordinary result would otherwise be invisible.
 
+**A NAN argument now comes back with its payload, which it did not before.**
+§4.5.4 opens by saying the operation tables carry no NAN row "because NANs are
+handled the same way in all operations" -- transcendentals included -- and then:
+"if either, but not both, operand of an operation is a NAN, and it is a
+non-signaling NAN, then **that NAN is returned as the result**."
+
+`FADD` had this right and all nineteen transcendentals did not: they returned a
+fixed pattern with a cleared sign, discarding both the payload and the sign of
+the argument. Nothing caught it, because the result still *classified* as a NAN
+and every existing assertion was satisfied by that. What is lost is the point of
+a payload -- it records where the trouble started, and a chain of operations
+that passed through one transcendental turned a traceable NAN into an anonymous
+one.
+
+§4.5.4.2 settles the signalling case the same way: "the SNAN is converted to a
+non-signaling NAN (by setting the SNAN bit in the operand to a one), and the
+operation continues as described in the preceding section". So it is the same
+value with one bit set, not a fresh NAN, and the payload survives quietening.
+Both are now asserted **against `FADD`'s own result** rather than against a
+written-down expectation, since §4.5.4's claim is precisely that the two behave
+alike -- a test that pinned the transcendentals' answer independently could
+drift from the arithmetic without failing.
+
+The constructed NAN stays where it belongs: an *operand error* -- `FLOGN` of a
+negative, `FASIN` outside the unit interval -- has no source NAN to carry
+forward, and §6.1.3's trap-disabled result is a fresh one.
+
 **One approximation is recorded rather than closed.** At *extended* precision
 all four rounding modes return the same value here, because the model computes a
 64-bit approximation directly and has no bits below the destination left to

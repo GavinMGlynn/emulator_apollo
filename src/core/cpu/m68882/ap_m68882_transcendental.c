@@ -259,9 +259,35 @@ static ap_m68882_extended_t nx_infinity(bool sign) {
   return (ap_m68882_extended_t){sign, 0x7FFFu, 0u};
 }
 
-/* The non-signalling NAN §6.1.3 gives as the trap-disabled result. */
+/* The non-signalling NAN §6.1.3 gives as the trap-disabled result. Used where
+ * the *operation* fails -- an operand error -- and there is no source NAN to
+ * carry forward. */
 static ap_m68882_extended_t nx_nan(void) {
   return (ap_m68882_extended_t){false, 0x7FFFu, 0xFFFFFFFFFFFFFFFFULL};
+}
+
+/* A NAN *argument*, returned as the result.
+ *
+ * §4.5.4 opens by saying the operation tables have no NAN row "because NANs are
+ * handled the same way in all operations" -- the transcendentals included --
+ * and then: "if either, but not both, operand of an operation is a NAN, and it
+ * is a non-signaling NAN, then **that NAN is returned as the result**."
+ *
+ * So the payload and the sign survive, which is the whole point of a NAN
+ * payload: it identifies where the trouble started, and a function that
+ * substituted its own would erase that at the first transcendental in a chain.
+ * §4.5.4.2 adds the signalling case -- "the SNAN is converted to a
+ * non-signaling NAN (by setting the SNAN bit in the operand to a one), and the
+ * operation continues as described in the preceding section" -- so the same
+ * value comes back quietened, raising `SNAN` once rather than at every later
+ * step. This is exactly what `propagate_nan` does for the arithmetic; the two
+ * had drifted apart. */
+static ap_m68882_op_t nx_source_nan(const ap_m68882_extended_t *x) {
+  ap_m68882_extended_t value = *x;
+  const bool signalling = ap_m68882_is_signalling_nan(x);
+  value.mantissa |= 1ULL << 62; /* the quiet bit: the fraction's top bit */
+  return (ap_m68882_op_t){value,
+                          signalling ? (1u << AP_M68882_EXC_SNAN) : 0u};
 }
 
 /* Multiply by a power of two by adjusting the exponent. Exact where it fits,
@@ -473,10 +499,7 @@ static bool exp_special(const ap_m68882_extended_t *x, bool zero_is_one,
                         bool negative_infinity_is_zero, ap_m68882_op_t *out) {
   switch (ap_m68882_classify(x)) {
   case AP_M68882_TYPE_NAN:
-    *out = (ap_m68882_op_t){nx_nan(),
-                            ap_m68882_is_signalling_nan(x)
-                                ? (1u << AP_M68882_EXC_SNAN)
-                                : 0u};
+    *out = nx_source_nan(x);
     return true;
   case AP_M68882_TYPE_INFINITY:
     if (x->sign && negative_infinity_is_zero) {
@@ -646,9 +669,7 @@ static ap_m68882_extended_t log_reduce(ap_m68882_extended_t x, int *k_out) {
 static bool log_special(const ap_m68882_extended_t *x, ap_m68882_op_t *out) {
   switch (ap_m68882_classify(x)) {
   case AP_M68882_TYPE_NAN:
-    *out = (ap_m68882_op_t){nx_nan(), ap_m68882_is_signalling_nan(x)
-                                          ? (1u << AP_M68882_EXC_SNAN)
-                                          : 0u};
+    *out = nx_source_nan(x);
     return true;
   case AP_M68882_TYPE_ZERO:
     /* "Set if the source is (+ or -)0" -- both signs of zero, and the result is
@@ -753,9 +774,7 @@ ap_m68882_op_t ap_m68882_lognp1(const ap_m68882_extended_t *x,
                                 ap_m68882_precision_t precision) {
   switch (ap_m68882_classify(x)) {
   case AP_M68882_TYPE_NAN:
-    return (ap_m68882_op_t){nx_nan(), ap_m68882_is_signalling_nan(x)
-                                          ? (1u << AP_M68882_EXC_SNAN)
-                                          : 0u};
+    return nx_source_nan(x);
   case AP_M68882_TYPE_ZERO:
     /* "+0.0" and "-0.0" in the operation table: the sign is kept, and nothing
      * is raised. */
@@ -973,9 +992,7 @@ static bool trig_special(const ap_m68882_extended_t *x, bool zero_is_one,
                          ap_m68882_op_t *out) {
   switch (ap_m68882_classify(x)) {
   case AP_M68882_TYPE_NAN:
-    *out = (ap_m68882_op_t){nx_nan(), ap_m68882_is_signalling_nan(x)
-                                          ? (1u << AP_M68882_EXC_SNAN)
-                                          : 0u};
+    *out = nx_source_nan(x);
     return true;
   case AP_M68882_TYPE_INFINITY:
     *out = (ap_m68882_op_t){nx_nan(), 1u << AP_M68882_EXC_OPERR};
@@ -1173,9 +1190,7 @@ ap_m68882_op_t ap_m68882_atan(const ap_m68882_extended_t *x,
                               ap_m68882_precision_t precision) {
   switch (ap_m68882_classify(x)) {
   case AP_M68882_TYPE_NAN:
-    return (ap_m68882_op_t){nx_nan(), ap_m68882_is_signalling_nan(x)
-                                          ? (1u << AP_M68882_EXC_SNAN)
-                                          : 0u};
+    return nx_source_nan(x);
   case AP_M68882_TYPE_ZERO:
     return (ap_m68882_op_t){*x, 0u};
   case AP_M68882_TYPE_INFINITY: {
@@ -1199,9 +1214,7 @@ ap_m68882_op_t ap_m68882_atan(const ap_m68882_extended_t *x,
 static bool inverse_domain(const ap_m68882_extended_t *x, ap_m68882_op_t *out) {
   switch (ap_m68882_classify(x)) {
   case AP_M68882_TYPE_NAN:
-    *out = (ap_m68882_op_t){nx_nan(), ap_m68882_is_signalling_nan(x)
-                                          ? (1u << AP_M68882_EXC_SNAN)
-                                          : 0u};
+    *out = nx_source_nan(x);
     return true;
   case AP_M68882_TYPE_INFINITY:
     *out = (ap_m68882_op_t){nx_nan(), 1u << AP_M68882_EXC_OPERR};
@@ -1316,9 +1329,7 @@ static bool hyperbolic_special(const ap_m68882_extended_t *x, ap_m68882_op_t *ou
                                bool infinity_keeps_sign, bool zero_keeps_sign) {
   switch (ap_m68882_classify(x)) {
   case AP_M68882_TYPE_NAN:
-    *out = (ap_m68882_op_t){nx_nan(), ap_m68882_is_signalling_nan(x)
-                                          ? (1u << AP_M68882_EXC_SNAN)
-                                          : 0u};
+    *out = nx_source_nan(x);
     return true;
   case AP_M68882_TYPE_ZERO:
     if (zero_keeps_sign) {
@@ -1458,9 +1469,7 @@ ap_m68882_op_t ap_m68882_atanh(const ap_m68882_extended_t *x,
                                ap_m68882_precision_t precision) {
   switch (ap_m68882_classify(x)) {
   case AP_M68882_TYPE_NAN:
-    return (ap_m68882_op_t){nx_nan(), ap_m68882_is_signalling_nan(x)
-                                          ? (1u << AP_M68882_EXC_SNAN)
-                                          : 0u};
+    return nx_source_nan(x);
   case AP_M68882_TYPE_ZERO:
     return (ap_m68882_op_t){*x, 0u}; /* "+0.0" and "-0.0" */
   case AP_M68882_TYPE_INFINITY:
