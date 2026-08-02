@@ -3,6 +3,7 @@
 
 add_library(apollo_core STATIC
   cpu/m68851/ap_m68851_atc.c
+  cpu/m68851/ap_m68851_decode.c
   cpu/m68851/ap_m68851_search.c
   cpu/m68851/ap_m68851_descriptor.c
   cpu/m68851/ap_m68851_regs.c

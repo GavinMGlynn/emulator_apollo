@@ -710,6 +710,41 @@ tested against real translation trees built in an array, and what will let the
 cycle-stepped core drive it one bus cycle at a time without this logic
 changing.
 
+**Instruction decode has started with the piece four instructions share.** The
+five-bit function code specification field is a *prefix code*, and that is the
+trap in it: `00000` is the SFC form while `01000` is data register 0, so a
+decoder that tested the top bit and then the next would get SFC and DFC right by
+accident and register `R0` wrong. Three of its four encodings name something
+outside the MMU -- a CPU data register, `SFC`, or `DFC` -- which is why it is a
+*specification* rather than a value, and why resolving one needs the coprocessor
+interface. One consequence is recorded because it changes what an instruction
+can do: "since the SFC of the MC68020 has only three implemented bits, only
+function codes $0 through $7 can be specified in this manner", so only the
+immediate form can name a DMA function code and only it can flush DMA entries.
+
+`PFLUSH`'s command word is `001 | Mode(3) | 0 | Mask(4) | FC(5)`. Its mask makes
+a flush name a *set* of function codes -- "(ATC function code bits and <mask>) =
+(<fc> and <mask>)" -- so a zero mask flushes every function code and an all-ones
+mask exactly one. Three mode encodings (`000`, `010`, `011`) appear in no list
+and are undefined rather than combinations; the mode is not a field of
+independent option bits. And a flush-all is *required* to carry a zero mask and
+a zero function code, because a flush-all that names a function code contradicts
+itself -- the manual forbids the encoding rather than ignoring the fields.
+
+Also worth recording from §6.1.8: **`PSR`'s bit order is deliberate.** "The bits
+of the PSR are ordered to allow use of the MC68020 'bit field find first one'
+(BFFO) instruction to determine the cause of a fault", with the manual giving
+the dispatch sequence. So `B`, `L`, `S`, `A`, `W`, `I` at the top of the
+register are in fault-priority order, not arbitrary -- which is a constraint on
+any future rewrite of that struct.
+
+What the 68851 still owes: the remaining instruction encodings (`PMOVE`,
+`PTEST`, `PLOAD`, `PVALID`, the conditionals, `PSAVE`/`PRESTORE`), the
+coprocessor interface, and the wiring of the parts into one device on the
+68020's coprocessor path. Appendix A's bit rows have to come from page images --
+`pdftotext` renders them with zeros as letters and columns collapsed, which is
+the same failure that cost a bit position in the 68020's module entry word.
+
 ## Subsystems
 
 | Subsystem | Status | Verification |
