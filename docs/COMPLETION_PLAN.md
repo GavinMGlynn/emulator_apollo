@@ -2125,8 +2125,13 @@ a 68882, and the 68882 is the only one of these it has.
         **three different** selectors (shift count, bit number, bit field
         operands), and the bit-field groups carry a conditional penalty for a
         field spanning a long-word boundary -- a property of the operand's
-        address, which no static table can fold in. Thirteen pages of column
-        groups remain, then §10.7's ten pages of floating-point timings. Bulk transcription against the composition above,
+        address, which no static table can fold in. Page 10-16 added a third
+        model fact and a **manual defect**: its `Dn` row's superscript points at
+        a long-word-boundary note, which a register operand cannot have.
+        Modelled as page 10-15 prints the identical figures; the reasoning and
+        the sources exhausted are in `PROJECT_STATUS.md`. `m68040_iu_timing_suite`,
+        30 tests. Twelve pages of column groups remain, then §10.7's ten pages
+        of floating-point timings. Bulk transcription against the composition above,
         and the last thing standing between Phase 2b and complete. Every figure
         is a *best case* by §10.1's suppositions: "all memory accesses hit in
         the caches", and misaligned `<ea>` fetch timing is left to the reader.

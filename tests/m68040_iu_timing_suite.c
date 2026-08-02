@@ -410,6 +410,106 @@ static void test_only_the_reading_bit_field_group_allows_pc_relative(void) {
   TEST_ASSERT_FALSE(at("BFCHG", AP_M68040_IU_PC_INDEXED).valid);
 }
 
+
+/* ---------------------------------------------------------------------------
+ * Page 10-16, and a note whose letter points at the wrong text.
+ * ------------------------------------------------------------------------- */
+
+static void test_the_dn_row_selector_is_read_as_page_10_15_prints_it(void) {
+  /* Page 10-16 marks its `Dn` row `3/4^d` and `6/7^d`, and its note `d` reads
+   * "if the bit field spans a long-word boundary, add ten and nine clocks...".
+   * A data register has no long-word boundary, so that cannot be what the
+   * superscript means. Read at 500 dpi to rule out a misread glyph.
+   *
+   * The correct reading is the one page 10-15 prints for the identical figures:
+   * `BFCHG Dn` is also `3/4` and `6/7`, marked `e`, whose note is "immediate
+   * count specified for both width and offset and width and/or offset
+   * specified in register, respectively".
+   *
+   * Three further facts support it. No group header on page 10-16 references
+   * note `d` -- they carry `a,b`, `a,c` and `a` -- so `d` exists solely for the
+   * `Dn` row, which is exactly where a selector note belongs. The `MC68040
+   * Designer's Handbook` summarises §10.6 without the per-instruction notes.
+   * And neither official errata document (`MC68040UMAD`, `MC68040UMAD2`)
+   * mentions §10.6.
+   *
+   * So the letter is wrong in the manual and the modelling follows page 10-15.
+   * This test exists to record that decision where a future reader will find
+   * it. */
+  const ap_m68040_iu_cell_t bfffo = at("BFFFO", AP_M68040_IU_DN);
+  TEST_ASSERT_EQUAL_INT(AP_M68040_IU_ALTERNATE_BITFIELD_OPERAND,
+                        bfffo.alternate);
+  TEST_ASSERT_EQUAL_UINT(3u, ap_m68040_iu_calculate(bfffo, false, false));
+  TEST_ASSERT_EQUAL_UINT(4u, ap_m68040_iu_calculate(bfffo, true, false));
+  TEST_ASSERT_EQUAL_UINT(
+      6u, ap_m68040_execute_total(ap_m68040_iu_execute(bfffo, false, false)));
+  TEST_ASSERT_EQUAL_UINT(
+      7u, ap_m68040_execute_total(ap_m68040_iu_execute(bfffo, true, false)));
+
+  /* And the figures match page 10-15's for the same operand shape. */
+  const ap_m68040_iu_cell_t bfchg = at("BFCHG", AP_M68040_IU_DN);
+  TEST_ASSERT_EQUAL_UINT(ap_m68040_iu_calculate(bfchg, false, false),
+                         ap_m68040_iu_calculate(bfffo, false, false));
+  TEST_ASSERT_EQUAL_UINT(
+      ap_m68040_execute_total(ap_m68040_iu_execute(bfchg, false, false)),
+      ap_m68040_execute_total(ap_m68040_iu_execute(bfffo, false, false)));
+}
+
+static void test_a_register_operand_never_pays_the_boundary_penalty(void) {
+  /* The corollary of the reading above: whatever the note letters say, a `Dn`
+   * operand cannot straddle a long word, so asking for the penalty there must
+   * not change the answer. This is the assertion that would have caught the
+   * mistake had I taken note `d` at face value. */
+  const char *const bitfield[] = {"BFCHG", "BFEXTS", "BFFFO", "BFINS",
+                                  "BFTST"};
+  for (unsigned i = 0; i < sizeof bitfield / sizeof bitfield[0]; i++) {
+    const ap_m68040_iu_cell_t c = at(bitfield[i], AP_M68040_IU_DN);
+    TEST_ASSERT_EQUAL_UINT(0u, c.boundary_calculate_penalty);
+    TEST_ASSERT_EQUAL_UINT(0u, c.boundary_execute_penalty);
+  }
+}
+
+static void test_the_three_bit_field_boundary_penalties_differ(void) {
+  /* Each group's header names its own note, and the three penalties are
+   * genuinely different amounts of work:
+   *
+   *   BFCHG/BFCLR/BFSET   +10 calculate, +9 execute   read and write two words
+   *   BFINS               +7 both                     write two words
+   *   BFFFO               +2 execute                  read two words
+   *   BFTST               none                        header carries note a only
+   *
+   * A single shared penalty would be wrong for four of the five groups. */
+  TEST_ASSERT_EQUAL_UINT(
+      10u, at("BFCHG", AP_M68040_IU_INDIRECT).boundary_calculate_penalty);
+  TEST_ASSERT_EQUAL_UINT(
+      9u, at("BFCHG", AP_M68040_IU_INDIRECT).boundary_execute_penalty);
+
+  TEST_ASSERT_EQUAL_UINT(
+      7u, at("BFINS", AP_M68040_IU_INDIRECT).boundary_calculate_penalty);
+  TEST_ASSERT_EQUAL_UINT(
+      7u, at("BFINS", AP_M68040_IU_INDIRECT).boundary_execute_penalty);
+
+  TEST_ASSERT_EQUAL_UINT(
+      0u, at("BFFFO", AP_M68040_IU_INDIRECT).boundary_calculate_penalty);
+  TEST_ASSERT_EQUAL_UINT(
+      2u, at("BFFFO", AP_M68040_IU_INDIRECT).boundary_execute_penalty);
+
+  /* `BFTST`'s header carries note `a` alone -- no boundary note at all. */
+  TEST_ASSERT_EQUAL_UINT(
+      0u, at("BFTST", AP_M68040_IU_INDIRECT).boundary_execute_penalty);
+}
+
+static void test_the_writing_bit_field_instructions_reject_pc_relative(void) {
+  /* `BFINS` writes a field, so it has no PC-relative mode, exactly as `BFCHG`
+   * has none -- while `BFFFO` and `BFTST` read and do. The pattern established
+   * on page 10-15 holds on page 10-16, which is a check that the columns were
+   * not transposed. */
+  TEST_ASSERT_FALSE(at("BFINS", AP_M68040_IU_PC_DISPLACEMENT).valid);
+  TEST_ASSERT_FALSE(at("BFINS", AP_M68040_IU_PC_INDEXED).valid);
+  TEST_ASSERT_TRUE(at("BFFFO", AP_M68040_IU_PC_DISPLACEMENT).valid);
+  TEST_ASSERT_TRUE(at("BFTST", AP_M68040_IU_PC_DISPLACEMENT).valid);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_instructions_sharing_a_column_share_a_group);
@@ -438,5 +538,9 @@ int main(void) {
   RUN_TEST(test_only_the_bit_field_groups_carry_a_boundary_penalty);
   RUN_TEST(test_the_bit_field_groups_reject_the_incrementing_modes);
   RUN_TEST(test_only_the_reading_bit_field_group_allows_pc_relative);
+  RUN_TEST(test_the_dn_row_selector_is_read_as_page_10_15_prints_it);
+  RUN_TEST(test_a_register_operand_never_pays_the_boundary_penalty);
+  RUN_TEST(test_the_three_bit_field_boundary_penalties_differ);
+  RUN_TEST(test_the_writing_bit_field_instructions_reject_pc_relative);
   return UNITY_END();
 }

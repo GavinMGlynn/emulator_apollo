@@ -1339,7 +1339,36 @@ One protection fact surfaces in the timing table: `BFEXTS`/`BFEXTU` accept the
 PC-relative modes and `BFCHG`/`BFCLR`/`BFSET` do not, because the first pair
 reads a field and the second writes one.
 
-What remains of the 68040 item is thirteen more pages of §10.6 and §10.7's ten
+### A note whose letter points at the wrong text
+
+Page 10-16 marks its `Dn` row `3/4^d` and `6/7^d`, and its note `d` reads "if
+the bit field spans a long-word boundary, add ten and nine clocks…". **A data
+register has no long-word boundary**, so that cannot be what the superscript
+means. The glyph was read at 500 dpi to rule out a misread letter.
+
+The correct reading is the one page 10-15 prints for the identical figures:
+`BFCHG Dn` is also `3/4` and `6/7`, marked `e`, whose note is "immediate count
+specified for both width and offset and width and/or offset specified in
+register, respectively". Three further facts support it -- no group header on
+page 10-16 references note `d` (they carry `a,b`, `a,c` and `a`), so `d` exists
+solely for the `Dn` row, which is where a selector note belongs.
+
+Sources exhausted in order: the `MC68040 Designer's Handbook` summarises §10.6
+without the per-instruction notes, and neither official errata document --
+`MC68040UMAD` nor `MC68040UMAD2`, both fetched -- mentions §10.6 at all. So the
+letter is wrong in the manual, and the modelling follows page 10-15.
+
+That reading earned its keep immediately. The test asserting *"a register
+operand never pays the boundary penalty"* caught a real bug in the table
+generator, which had applied each group's penalty to every row including `Dn`.
+Had I taken note `d` at face value the bug would have looked correct.
+
+The three bit-field groups also carry genuinely different penalties -- `+10/+9`
+for the changing group, `+7/+7` for `BFINS`, `+2` execute-only for `BFFFO`, and
+none at all for `BFTST` -- so a single shared penalty would be wrong for four of
+the five.
+
+What remains of the 68040 item is twelve more pages of §10.6 and §10.7's ten
 pages of floating-point timings. That is bulk transcription against the
 composition already in place, and the last thing standing between Phase 2b and
 complete. Appendix A's bit rows have to come from page images --

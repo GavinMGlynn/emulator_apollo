@@ -156,7 +156,7 @@ static const ap_m68040_iu_cell_t cells_6[AP_M68040_IU_MODE_COUNT] = {
 
 static const char *const names_7[] = {"BFCHG", "BFCLR", "BFSET", NULL};
 static const ap_m68040_iu_cell_t cells_7[AP_M68040_IU_MODE_COUNT] = {
-    [0] = {true, 3u, {0u,6u}, AP_M68040_IU_ALTERNATE_BITFIELD_OPERAND, 4u, {0u,7u}, 10u, 9u},
+    [0] = {true, 3u, {0u,6u}, AP_M68040_IU_ALTERNATE_BITFIELD_OPERAND, 4u, {0u,7u}, 0u, 0u},
     [1] = {false, 0u, {0u,0u}, AP_M68040_IU_ALTERNATE_NONE, 0u, {0u,0u}, 0u, 0u},
     [2] = {true, 9u, {2u,8u}, AP_M68040_IU_ALTERNATE_NONE, 0u, {0u,0u}, 10u, 9u},
     [3] = {false, 0u, {0u,0u}, AP_M68040_IU_ALTERNATE_NONE, 0u, {0u,0u}, 0u, 0u},
@@ -177,7 +177,7 @@ static const ap_m68040_iu_cell_t cells_7[AP_M68040_IU_MODE_COUNT] = {
 
 static const char *const names_8[] = {"BFEXTS", "BFEXTU", NULL};
 static const ap_m68040_iu_cell_t cells_8[AP_M68040_IU_MODE_COUNT] = {
-    [0] = {true, 1u, {0u,4u}, AP_M68040_IU_ALTERNATE_BITFIELD_OPERAND, 2u, {0u,5u}, 0u, 2u},
+    [0] = {true, 1u, {0u,4u}, AP_M68040_IU_ALTERNATE_BITFIELD_OPERAND, 2u, {0u,5u}, 0u, 0u},
     [1] = {false, 0u, {0u,0u}, AP_M68040_IU_ALTERNATE_NONE, 0u, {0u,0u}, 0u, 0u},
     [2] = {true, 9u, {2u,7u}, AP_M68040_IU_ALTERNATE_NONE, 0u, {0u,0u}, 0u, 2u},
     [3] = {false, 0u, {0u,0u}, AP_M68040_IU_ALTERNATE_NONE, 0u, {0u,0u}, 0u, 0u},
@@ -196,6 +196,69 @@ static const ap_m68040_iu_cell_t cells_8[AP_M68040_IU_MODE_COUNT] = {
     [16] = {true, 18u, {3u,15u}, AP_M68040_IU_ALTERNATE_NONE, 0u, {0u,0u}, 0u, 2u},
 };
 
+static const char *const names_9[] = {"BFFFO", NULL};
+static const ap_m68040_iu_cell_t cells_9[AP_M68040_IU_MODE_COUNT] = {
+    [0] = {true, 3u, {0u,6u}, AP_M68040_IU_ALTERNATE_BITFIELD_OPERAND, 4u, {0u,7u}, 0u, 0u},
+    [1] = {false, 0u, {0u,0u}, AP_M68040_IU_ALTERNATE_NONE, 0u, {0u,0u}, 0u, 0u},
+    [2] = {true, 9u, {2u,9u}, AP_M68040_IU_ALTERNATE_NONE, 0u, {0u,0u}, 0u, 2u},
+    [3] = {false, 0u, {0u,0u}, AP_M68040_IU_ALTERNATE_NONE, 0u, {0u,0u}, 0u, 0u},
+    [4] = {false, 0u, {0u,0u}, AP_M68040_IU_ALTERNATE_NONE, 0u, {0u,0u}, 0u, 0u},
+    [5] = {true, 9u, {2u,9u}, AP_M68040_IU_ALTERNATE_NONE, 0u, {0u,0u}, 0u, 2u},
+    [6] = {true, 10u, {3u,9u}, AP_M68040_IU_ALTERNATE_NONE, 0u, {0u,0u}, 0u, 2u},
+    [7] = {true, 9u, {2u,9u}, AP_M68040_IU_ALTERNATE_NONE, 0u, {0u,0u}, 0u, 2u},
+    [8] = {false, 0u, {0u,0u}, AP_M68040_IU_ALTERNATE_NONE, 0u, {0u,0u}, 0u, 0u},
+    [9] = {true, 10u, {0u,12u}, AP_M68040_IU_ALTERNATE_NONE, 0u, {0u,0u}, 0u, 2u},
+    [10] = {true, 11u, {1u,12u}, AP_M68040_IU_ALTERNATE_NONE, 0u, {0u,0u}, 0u, 2u},
+    [11] = {true, 13u, {1u,14u}, AP_M68040_IU_ALTERNATE_NONE, 0u, {0u,0u}, 0u, 2u},
+    [12] = {true, 14u, {1u,15u}, AP_M68040_IU_ALTERNATE_NONE, 0u, {0u,0u}, 0u, 2u},
+    [13] = {true, 16u, {1u,17u}, AP_M68040_IU_ALTERNATE_NONE, 0u, {0u,0u}, 0u, 2u},
+    [14] = {true, 17u, {1u,18u}, AP_M68040_IU_ALTERNATE_NONE, 0u, {0u,0u}, 0u, 2u},
+    [15] = {true, 17u, {3u,16u}, AP_M68040_IU_ALTERNATE_NONE, 0u, {0u,0u}, 0u, 2u},
+    [16] = {true, 18u, {3u,17u}, AP_M68040_IU_ALTERNATE_NONE, 0u, {0u,0u}, 0u, 2u},
+};
+
+static const char *const names_10[] = {"BFINS", NULL};
+static const ap_m68040_iu_cell_t cells_10[AP_M68040_IU_MODE_COUNT] = {
+    [0] = {true, 2u, {0u,5u}, AP_M68040_IU_ALTERNATE_BITFIELD_OPERAND, 3u, {0u,6u}, 0u, 0u},
+    [1] = {false, 0u, {0u,0u}, AP_M68040_IU_ALTERNATE_NONE, 0u, {0u,0u}, 0u, 0u},
+    [2] = {true, 9u, {2u,7u}, AP_M68040_IU_ALTERNATE_NONE, 0u, {0u,0u}, 7u, 7u},
+    [3] = {false, 0u, {0u,0u}, AP_M68040_IU_ALTERNATE_NONE, 0u, {0u,0u}, 0u, 0u},
+    [4] = {false, 0u, {0u,0u}, AP_M68040_IU_ALTERNATE_NONE, 0u, {0u,0u}, 0u, 0u},
+    [5] = {true, 9u, {2u,7u}, AP_M68040_IU_ALTERNATE_NONE, 0u, {0u,0u}, 7u, 7u},
+    [6] = {false, 0u, {0u,0u}, AP_M68040_IU_ALTERNATE_NONE, 0u, {0u,0u}, 0u, 0u},
+    [7] = {true, 9u, {2u,7u}, AP_M68040_IU_ALTERNATE_NONE, 0u, {0u,0u}, 7u, 7u},
+    [8] = {false, 0u, {0u,0u}, AP_M68040_IU_ALTERNATE_NONE, 0u, {0u,0u}, 0u, 0u},
+    [9] = {true, 10u, {0u,10u}, AP_M68040_IU_ALTERNATE_NONE, 0u, {0u,0u}, 7u, 7u},
+    [10] = {false, 0u, {0u,0u}, AP_M68040_IU_ALTERNATE_NONE, 0u, {0u,0u}, 0u, 0u},
+    [11] = {true, 13u, {1u,12u}, AP_M68040_IU_ALTERNATE_NONE, 0u, {0u,0u}, 7u, 7u},
+    [12] = {true, 14u, {1u,13u}, AP_M68040_IU_ALTERNATE_NONE, 0u, {0u,0u}, 7u, 7u},
+    [13] = {true, 16u, {1u,15u}, AP_M68040_IU_ALTERNATE_NONE, 0u, {0u,0u}, 7u, 7u},
+    [14] = {true, 17u, {1u,16u}, AP_M68040_IU_ALTERNATE_NONE, 0u, {0u,0u}, 7u, 7u},
+    [15] = {true, 17u, {3u,14u}, AP_M68040_IU_ALTERNATE_NONE, 0u, {0u,0u}, 7u, 7u},
+    [16] = {true, 18u, {3u,15u}, AP_M68040_IU_ALTERNATE_NONE, 0u, {0u,0u}, 7u, 7u},
+};
+
+static const char *const names_11[] = {"BFTST", NULL};
+static const ap_m68040_iu_cell_t cells_11[AP_M68040_IU_MODE_COUNT] = {
+    [0] = {true, 1u, {0u,3u}, AP_M68040_IU_ALTERNATE_BITFIELD_OPERAND, 2u, {0u,4u}, 0u, 0u},
+    [1] = {false, 0u, {0u,0u}, AP_M68040_IU_ALTERNATE_NONE, 0u, {0u,0u}, 0u, 0u},
+    [2] = {true, 9u, {2u,7u}, AP_M68040_IU_ALTERNATE_NONE, 0u, {0u,0u}, 0u, 0u},
+    [3] = {false, 0u, {0u,0u}, AP_M68040_IU_ALTERNATE_NONE, 0u, {0u,0u}, 0u, 0u},
+    [4] = {false, 0u, {0u,0u}, AP_M68040_IU_ALTERNATE_NONE, 0u, {0u,0u}, 0u, 0u},
+    [5] = {true, 9u, {2u,7u}, AP_M68040_IU_ALTERNATE_NONE, 0u, {0u,0u}, 0u, 0u},
+    [6] = {true, 10u, {3u,7u}, AP_M68040_IU_ALTERNATE_NONE, 0u, {0u,0u}, 0u, 0u},
+    [7] = {true, 9u, {2u,7u}, AP_M68040_IU_ALTERNATE_NONE, 0u, {0u,0u}, 0u, 0u},
+    [8] = {false, 0u, {0u,0u}, AP_M68040_IU_ALTERNATE_NONE, 0u, {0u,0u}, 0u, 0u},
+    [9] = {true, 10u, {0u,10u}, AP_M68040_IU_ALTERNATE_NONE, 0u, {0u,0u}, 0u, 0u},
+    [10] = {true, 11u, {1u,10u}, AP_M68040_IU_ALTERNATE_NONE, 0u, {0u,0u}, 0u, 0u},
+    [11] = {true, 13u, {1u,12u}, AP_M68040_IU_ALTERNATE_NONE, 0u, {0u,0u}, 0u, 0u},
+    [12] = {true, 14u, {1u,13u}, AP_M68040_IU_ALTERNATE_NONE, 0u, {0u,0u}, 0u, 0u},
+    [13] = {true, 16u, {1u,15u}, AP_M68040_IU_ALTERNATE_NONE, 0u, {0u,0u}, 0u, 0u},
+    [14] = {true, 17u, {1u,16u}, AP_M68040_IU_ALTERNATE_NONE, 0u, {0u,0u}, 0u, 0u},
+    [15] = {true, 17u, {3u,14u}, AP_M68040_IU_ALTERNATE_NONE, 0u, {0u,0u}, 0u, 0u},
+    [16] = {true, 18u, {3u,15u}, AP_M68040_IU_ALTERNATE_NONE, 0u, {0u,0u}, 0u, 0u},
+};
+
 static const ap_m68040_iu_group_t groups[] = {
     {names_0, cells_0},
     {names_1, cells_1},
@@ -206,6 +269,9 @@ static const ap_m68040_iu_group_t groups[] = {
     {names_6, cells_6},
     {names_7, cells_7},
     {names_8, cells_8},
+    {names_9, cells_9},
+    {names_10, cells_10},
+    {names_11, cells_11},
 };
 
 size_t ap_m68040_iu_group_count(void) {
