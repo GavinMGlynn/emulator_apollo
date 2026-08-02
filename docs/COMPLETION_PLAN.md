@@ -2078,6 +2078,12 @@ a 68882, and the 68882 is the only one of these it has.
         width two contradictory ways in one sentence; sixteen is derived from
         its own geometry and recorded in `PROJECT_STATUS.md`.
         `m68040_atc_suite`, 16 tests.
+  - [x] The table search: three fixed levels indexed by `RI`/`PI`/`PGI`, one
+        indirection at most, and protection accumulating down the tree. The
+        manual states the geometry twice -- as field widths in Figure 3-8 and as
+        concatenation identities in §3.2.1 -- and the tests check the two
+        against each other rather than each against my reading.
+        `m68040_search_suite`, 15 tests.
 
 ## Phase 3 — Core board
 

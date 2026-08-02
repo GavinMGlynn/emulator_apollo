@@ -1076,7 +1076,32 @@ criterion.
 One polarity is inverted and worth its own test: the 68040's `R` is set when a
 search *succeeded*, where the 68851's `B` is set when one *failed*. An entry
 copied across without inverting would turn every good translation into a bus
-error. Appendix A's bit rows have to come from page images --
+error.
+
+**The table search is in, and the manual states its geometry twice.** Figure
+3-8 gives the field widths -- `RI` bits 31-25, `PI` bits 24-18, `PGI` bits 17-12
+at 4K or 17-13 at 8K -- and §3.2.1 restates the same shape as concatenation
+identities: the `PI` field "multiplied by 4 ... concatenated with the fetched
+root-level descriptor's **upper 23 bits**", and at 8K the `PGI` field with "the
+**upper 25 bits**". Each identity comes to 32 against the address-field widths
+transcribed from Figure 3-11, so the two statements confirm each other, and the
+tests check them against *each other* rather than each against my reading.
+
+The tree is three levels and fixed: none of the 68851's four `TIx` fields, its
+initial shift or its per-level limits exist. What the page size changes is where
+`PGI` ends and nothing else about the shape -- one bit moves between the index
+and the offset.
+
+Two rules carry over from the 68851 stated from the other side. Protection
+accumulates down the tree -- "setting the W-bit in a table descriptor write
+protects all pages accessed with that descriptor" -- and an indirection is
+followed exactly once, because "this encoding is invalid for a page descriptor
+pointed to by an indirect descriptor", so a chain terminates instead of looping.
+
+Like the 68851's, the search walks and decides without touching the bus:
+descriptor fetches go through a callback, so the whole algorithm is tested
+against real trees built in an array and the cycle-stepped core can later drive
+it one bus cycle at a time. Appendix A's bit rows have to come from page images --
 `pdftotext` renders them with zeros as letters and columns collapsed, the same
 failure that cost a bit position in the 68020's module entry word.
 

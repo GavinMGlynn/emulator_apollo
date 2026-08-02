@@ -77,6 +77,10 @@ typedef struct {
   uint32_t table_address;
 } ap_m68040_table_descriptor_t;
 
+/* A root table is 512 bytes -- 128 descriptors of four bytes, since the root
+ * index is seven bits -- so the root pointer is 512-byte aligned. */
+#define AP_M68040_ROOT_TABLE_MASK 0xFFFFFE00u
+
 /* The root table descriptor's address is bits 31-9: a pointer table is 512
  * bytes, so it is 512-byte aligned. */
 [[nodiscard]] ap_m68040_table_descriptor_t
