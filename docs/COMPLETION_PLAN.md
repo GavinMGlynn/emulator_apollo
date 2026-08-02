@@ -2093,10 +2093,18 @@ a 68882, and the 68882 is the only one of these it has.
         so outright and `m68040_fp_model_suite` is the evidence, checking the
         68040 manual's own encodings against the modules already in the core
         rather than duplicating them. 7 tests.
-  - [ ] The pipeline. §9.1 is prose about concurrency and defers its numbers to
-        §10 Instruction Timings, so this is a transcription job of the same
-        shape as the 68030's §11.6 in Phase 2 -- and the only part of the 68040
-        item still open.
+  - [x] The pipeline's timing *composition*, §10.1 and Table 10-2: three stages
+        priced separately, a fetch stage the tables omit and floor at one clock,
+        and an execute time given as lead-plus-base with an interlock that
+        charges only the stall beyond the lead. A different shape from the
+        68030's Equations 11-1 and 11-2, so the tables cannot be read as if it
+        were. `m68040_timing_suite`, 14 tests.
+  - [ ] The per-instruction timing tables themselves (§10.3 onward, some fifty
+        pages). The composition above is what they are written against, so this
+        is now bulk transcription rather than modelling -- and it is the last
+        thing standing between Phase 2b and complete. Every figure is a *best
+        case* by §10.1's own suppositions: "all memory accesses hit in the
+        caches", and misaligned `<ea>` fetch timing is left to the reader.
 
 ## Phase 3 — Core board
 

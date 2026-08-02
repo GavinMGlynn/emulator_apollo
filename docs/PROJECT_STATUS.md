@@ -1161,11 +1161,42 @@ The distinction the suite keeps straight: the programming model is common and
 the *instruction set* is not. `FSIN` uses the same registers, rounding mode and
 exception bits on both parts -- and executes on one while trapping on the other.
 
-What the 68040 item still owes is the **pipeline**. §9.1 is prose about
-concurrency ("instructions can execute nonsequentially as long as there are no
-register dependencies") and defers its numbers to §10 Instruction Timings, so
-this is a transcription job of the same shape as the 68030's §11.6 in Phase 2 --
-substantial, and the last thing standing between Phase 2b and complete. Appendix A's bit rows have to come from page images --
+**The pipeline's timing composition is in, and it is a different shape from the
+68030's.** Phase 2 modelled the 68030 as §11.6's `(r/p/w)` triples composed by
+Equations 11-1 and 11-2 with head and tail overlap. The 68040's tables cannot be
+read that way:
+
+- **Three stages are priced separately** -- `<ea> calculate`, `<ea> fetch`,
+  `execute` -- rather than one figure per instruction.
+- **The fetch stage is not in the tables at all.** It is derived from Table
+  10-2's access counts, "and an instruction requires one clock to pass through
+  the <ea> fetch stage even if no operand is fetched" -- the floor is what a
+  naive reading of "one clock per access" drops, since `Dn` costs zero accesses
+  and one clock.
+- **Execute time is two numbers.** "Presented as a lead time and a base time",
+  written `nL + b`, where the lead is how long the instruction may stall on
+  entering the execute stage for free.
+
+The lead is worth carrying because of the interlock: for the brief and full
+extension word modes, a stall *beyond* the lead lengthens the `<ea> calculate`
+stage by the excess. The manual's worked example writes that as "3 - 1 = 2L",
+which is loose arithmetic -- three clocks of stall against two of lead gives one
+clock of increase -- but the rule it states in words is unambiguous, and that
+rule is what is modelled. A related consequence: `BR = PC` adds "1 and 1L clocks
+to the <ea> calculate and execution times", so its execution cost lands on the
+*lead* and buys stall tolerance rather than costing a clock outright.
+
+Two of §10.1's four suppositions bound how far any of these numbers can be
+trusted, and both are recorded rather than silently assumed: "all memory
+accesses hit in the caches; no table searches occur as a result of ATC misses",
+and misaligned `<ea>` fetch timing is left to the reader entirely. So a table
+figure is a best case, not a measurement -- which matters for a core whose whole
+claim is that its timing is provable.
+
+What remains of the 68040 item is the per-instruction tables themselves, some
+fifty pages of §10.3 onward. The composition above is what they are written
+against, so that is now bulk transcription rather than modelling, and it is the
+last thing standing between Phase 2b and complete. Appendix A's bit rows have to come from page images --
 `pdftotext` renders them with zeros as letters and columns collapsed, the same
 failure that cost a bit position in the 68020's module entry word.
 
