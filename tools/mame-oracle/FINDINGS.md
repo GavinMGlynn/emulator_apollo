@@ -4237,3 +4237,47 @@ oracle is closer to the part" is not measurable from here and is not asserted.
 
 That is thirteen campaigns, C59 to C71, from a coprocessor that was not attached
 to a machine at all.
+
+## C72 -- what a fault probe needs that the FPU probes did not
+
+**Class: `open`, with the obstacle identified so the next attempt starts past
+it.**
+
+The exception item's verification asks for "probes that deliberately fault,
+diffed against oracle", and the audit found it unmet. The side-loading harness
+now exists and works, so this looks like a small extension of C59-C71. It is
+not, and the reason is worth writing down before someone spends a session
+finding it.
+
+**The FPU probes were map-independent. Fault probes are not.** Every probe so far
+computes its own answer from registers and the constant ROM, and writes it to an
+address the encoder parameterises -- which is why `probe_compare.py` can assemble
+the same program twice at two bases and compare the results. A fault probe has to
+*name an address that faults*, and the two machines disagree about which
+addresses those are: this core's probe harness is 64K of RAM from zero, a DN3500
+is main memory at `01000000` inside a much larger map with devices in it. "Read
+something unmapped" is not one program assembled twice; it is two different
+questions.
+
+Worse, the interesting content is the frame, and a bus fault frame carries the
+*fault address* -- so even a successful comparison would find two different
+values there for a reason that has nothing to do with the model being tested,
+exactly as raw PCs would. The comparison has to be field-by-field with the
+address fields excluded or rebased, which the current single-long-word readback
+cannot express.
+
+**What can be probed today, without settling any of that.** The faults whose
+frames carry no address of their own are map-independent and available now:
+illegal instruction (`$4AFC`, vector 4, four-word frame), divide by zero (vector
+5, six-word), `CHK`, `TRAPV`, and the privilege violations. Each exercises the
+whole path -- vector fetch through the VBR, frame built, handler entered, `RTE`
+back -- and each is one program assembled twice, exactly like the probes that
+already work. A handler that stores the frame's *format word* to the sentinel
+makes it readable through the existing machinery unchanged.
+
+**What needs a decision first**: the bus and address error frames, which are the
+ones the item names and the ones carrying the SSW, fault address and data output
+buffer. Either the harness gains a wider readback and address-aware comparison,
+or the probe arranges a fault at an address both maps agree is bad. Neither is
+hard; both are choices, and neither should be made by accident inside an
+implementation.
