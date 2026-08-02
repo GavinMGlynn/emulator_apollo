@@ -60,4 +60,20 @@ typedef enum {
                                                    uint16_t operation_word,
                                                    uint16_t command_word);
 
+/* Evaluate a conditional predicate and report whether the condition holds.
+ *
+ * This is the *whole* of the part's contribution to `FBcc`, `FDBcc`, `FScc` and
+ * `FTRAPcc`: §9's protocol has the main processor write the predicate to the
+ * condition CIR at `$0E` and read the answer back, and everything after that --
+ * fetching a displacement, decrementing a register, taking a trap, writing a
+ * byte of ones or zeros -- is the MPU's own work. So `ap_m68882_execute` still
+ * reports those instruction *types* unimplemented, and that is not the same
+ * gap: the coprocessor side is here, and what is missing is the 68030's half of
+ * a dialog it does not yet hold.
+ *
+ * `BSUN` is raised into the FPSR and accrued when §4.4's rule demands it, which
+ * is what makes this an operation rather than a query. Whether the exception
+ * becomes a trap is the enable byte's business and the MPU's. */
+[[nodiscard]] bool ap_m68882_condition(ap_m68882_t *fpu, unsigned predicate);
+
 #endif /* APOLLO_CPU_M68882_AP_M68882_H */

@@ -186,12 +186,71 @@ static void test_an_implemented_operation_is_not_reported_as_a_gap(void) {
                                           command_for(AP_M68882_OP_FSQRT)));
 }
 
+static void test_a_conditional_reaches_the_status_register(void) {
+  /* The evaluator is one thing; a part that *uses* it is another. Two
+   * iterations ago a write-back was built and left uncalled, and the unit test
+   * of the helper could not see it -- so this drives `ap_m68882_condition`
+   * against a real part and reads the FPSR back, rather than testing the
+   * predicate table again.
+   *
+   * `FTST` of a NAN leaves the NAN condition code set; a non-aware predicate
+   * then raises `BSUN`, and §6.1.10 folds it into `AEXC(IOP)`. Checking the
+   * accrued bit is the part that a direct assignment to the exception byte
+   * would fail: the accrued byte is the history, and it is what a handler reads
+   * after the fact. */
+  ap_m68882_t fpu;
+  ap_m68882_reset(&fpu);
+  /* A NAN in FP0, then FTST to set the condition codes from it. */
+  fpu.regs.fp[0] = (ap_m68882_extended_t){false, 0x7FFFu,
+                                          0xC000000000000000ULL};
+  TEST_ASSERT_EQUAL_INT(AP_M68882_EXECUTED,
+                        ap_m68882_execute(&fpu, 0xF200u,
+                                          command_for(AP_M68882_OP_FTST)));
+  TEST_ASSERT_NOT_EQUAL_UINT_MESSAGE(
+      0u, fpu.regs.fpsr & (1u << AP_M68882_FPCC_NAN),
+      "FTST of a NAN should leave the unordered condition");
+
+  /* `GT` at $12: IEEE non-aware, so an unordered comparison raises BSUN. */
+  TEST_ASSERT_FALSE_MESSAGE(ap_m68882_condition(&fpu, 0x12u),
+                            "GT is false when unordered");
+  TEST_ASSERT_NOT_EQUAL_UINT_MESSAGE(
+      0u, fpu.regs.fpsr & (1u << AP_M68882_EXC_BSUN),
+      "a non-aware predicate must raise BSUN into the FPSR");
+  TEST_ASSERT_NOT_EQUAL_UINT_MESSAGE(
+      0u, fpu.regs.fpsr & (1u << AP_M68882_AEXC_IOP),
+      "BSUN accrues into AEXC(IOP), which is the history a handler reads");
+
+  /* `OGT` at $02 asks the same question of the same operands and raises
+   * nothing: the difference between the two halves of Table 4-8 is visible in
+   * the status register and nowhere else. */
+  ap_m68882_t aware;
+  ap_m68882_reset(&aware);
+  aware.regs.fp[0] = fpu.regs.fp[0];
+  (void)ap_m68882_execute(&aware, 0xF200u, command_for(AP_M68882_OP_FTST));
+  TEST_ASSERT_FALSE(ap_m68882_condition(&aware, 0x02u));
+  TEST_ASSERT_EQUAL_UINT_MESSAGE(
+      0u, aware.regs.fpsr & (1u << AP_M68882_EXC_BSUN),
+      "an IEEE-aware predicate never raises BSUN");
+
+  /* And an ordered comparison raises nothing even from the non-aware half. */
+  ap_m68882_t ordered;
+  ap_m68882_reset(&ordered);
+  ordered.regs.fp[0] = (ap_m68882_extended_t){false, 0x3FFF,
+                                              0x8000000000000000ULL};
+  (void)ap_m68882_execute(&ordered, 0xF200u, command_for(AP_M68882_OP_FTST));
+  TEST_ASSERT_TRUE_MESSAGE(ap_m68882_condition(&ordered, 0x12u),
+                           "GT is true for an ordered positive result");
+  TEST_ASSERT_EQUAL_UINT(0u,
+                         ordered.regs.fpsr & (1u << AP_M68882_EXC_BSUN));
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_the_four_families_are_exactly_what_4_3_2_names);
   RUN_TEST(test_a_square_root_is_not_a_transcendental);
   RUN_TEST(test_the_manual_gives_two_worst_case_figures_that_disagree);
   RUN_TEST(test_the_typical_bound_is_far_tighter_than_the_worst_case);
+  RUN_TEST(test_a_conditional_reaches_the_status_register);
   RUN_TEST(test_every_transcendental_is_now_computed);
   RUN_TEST(test_the_remaining_gaps_are_not_transcendentals);
   RUN_TEST(test_an_implemented_operation_is_not_reported_as_a_gap);

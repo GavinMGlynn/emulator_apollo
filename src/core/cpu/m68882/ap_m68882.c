@@ -47,6 +47,21 @@ static void apply_exceptions(ap_m68882_regs_t *regs, uint32_t exceptions) {
   ap_m68882_accrue(regs);
 }
 
+bool ap_m68882_condition(ap_m68882_t *fpu, unsigned predicate) {
+  const ap_m68882_condition_t evaluated =
+      ap_m68882_evaluate_condition(&fpu->regs, predicate);
+  /* The exception byte describes the instruction that just ran, so a
+   * conditional clears it like any other operation and then sets `BSUN` if the
+   * predicate earned it. Going through `apply_exceptions` rather than setting
+   * the bit directly is what keeps `AEXC(IOP)` accruing -- §6.1.10 folds `BSUN`
+   * into it alongside `SNAN` and `OPERR`, and a conditional that set the
+   * exception byte without accruing would lose the history the accrued byte
+   * exists to keep. */
+  apply_exceptions(&fpu->regs,
+                   evaluated.bsun ? (UINT32_C(1) << AP_M68882_EXC_BSUN) : 0u);
+  return evaluated.taken;
+}
+
 static ap_m68882_status_t execute_register_to_register(
     ap_m68882_t *fpu, const ap_m68882_command_word_t *command) {
   const ap_m68882_rounding_t mode = ap_m68882_rounding_mode(&fpu->regs);
@@ -262,7 +277,13 @@ ap_m68882_status_t ap_m68882_execute(ap_m68882_t *fpu, uint16_t operation_word,
 
   if (operation.type != AP_M68882_TYPE_GENERAL) {
     /* The branches, FSAVE, FRESTORE and the conditionals are their own
-     * instruction dialogs. Not implemented, and not F-line either. */
+     * instruction dialogs. Not implemented here, and not F-line either.
+     *
+     * For the conditionals the *coprocessor's* half is implemented and reachable
+     * as `ap_m68882_condition`: §9's protocol has the MPU write the predicate to
+     * the condition CIR and read the answer, and the branching, decrementing,
+     * trapping or byte-writing that follows is the 68030's. What is missing is
+     * that dialog, not the condition. */
     return AP_M68882_UNIMPLEMENTED;
   }
 

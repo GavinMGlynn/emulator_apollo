@@ -1644,6 +1644,35 @@ trichotomy in the floating-point branches". With an unordered operand `FBGT` and
 `FBLE` are **both false**, so inverting a condition is not the same as negating
 it -- and both raise `BSUN`, which is how a non-aware program finds out.
 
+**The predicate evaluator was built and left uncalled -- the same mistake as
+the 68851 write-back, two iterations after learning it.** `ap_m68882_execute`
+rejects anything that is not a general-type instruction, so nothing in the core
+could reach the thirty-two predicates at all. Running the check that caught it
+last time -- *does anything call it?* -- found it immediately, which is the
+argument for keeping that check as a habit rather than as a one-off.
+
+It is wired now through `ap_m68882_condition`, and that entry point is the
+*whole* of the part's contribution to `FBcc`, `FDBcc`, `FScc` and `FTRAPcc`.
+§9's protocol has the main processor write the predicate to the condition CIR at
+`$0E` and read the answer back; fetching a displacement, decrementing a
+register, taking a trap or writing a byte of ones is the MPU's own work. So
+`ap_m68882_execute` still reports those instruction *types* unimplemented, and
+that is now an honest boundary rather than a gap: the coprocessor side is
+complete, and what is missing is the 68030's half of a dialog it does not yet
+hold.
+
+`BSUN` goes through the same `apply_exceptions` path as every other exception
+rather than being written into the FPSR directly, which is what keeps it
+accruing into `AEXC(IOP)`. The test drives a real part -- `FTST` of a NAN, then
+a non-aware predicate -- and reads the status register back, because a unit test
+of the evaluator is exactly what could not see the wiring was missing.
+
+Two functions remain reachable only from tests, and deliberately:
+`ap_m68882_exception_enabled` and `ap_m68882_inexact_trap` are predicates for
+the *MPU* to consult when deciding whether an exception becomes a trap. They are
+interface, not mechanism, and there is no 68030-side FPU trap path yet to call
+them.
+
 **One approximation is recorded rather than closed.** At *extended* precision
 all four rounding modes return the same value here, because the model computes a
 64-bit approximation directly and has no bits below the destination left to
