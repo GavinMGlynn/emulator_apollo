@@ -468,6 +468,28 @@ def divide_overflow_probe(address: int = SENTINEL_ADDRESS) -> list[int]:
     )
 
 
+def pmove_probe(address: int = SENTINEL_ADDRESS) -> list[int]:
+    """Read the translation control register out to memory with `PMOVE`.
+
+    The last of `ap_probe.c`'s classes to reach the oracle, and the one C79
+    called unreachable before C80 showed that a register only has to be moved to
+    memory by the *program* rather than reported by the harness. `PMOVE TC,(An)`
+    does exactly that in one instruction.
+
+    What is compared is the MMU's reset state, which is a real claim about both
+    implementations rather than a formality: `TC` must come out of reset with
+    translation *disabled*, and a machine that powered up translating would fault
+    on its first instruction. It is also the only probe here that reads a
+    register the program never wrote, so a value appearing at all is evidence
+    the coprocessor answered.
+    """
+    return assemble(
+        [0x207C, (address >> 16) & 0xFFFF, address & 0xFFFF],  # MOVEA.L #a,A0
+        [0xF010, 0x4200],                                      # PMOVE TC,(A0)
+        stop(0x2700),
+    )
+
+
 if __name__ == "__main__":
     import sys
     print(to_hex(sentinel_probe()), file=sys.stdout)

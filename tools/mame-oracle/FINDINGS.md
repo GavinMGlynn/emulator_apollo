@@ -4687,3 +4687,49 @@ harness limit, and this one -- and they share a shape: a conclusion drawn from a
 failed or unattempted first approach, stated as a property of the system. The
 pattern is worth naming because the cost is asymmetric. A wrong "this agrees"
 gets caught by the next probe; a wrong "this cannot be probed" is never revisited.
+
+## C81 -- PMOVE agrees, and every probe class now reaches the oracle
+
+**Class: agree. The campaign's coverage goal is met.**
+
+    MOVEA.L #sentinel,A0 ; PMOVE TC,(A0) ; STOP
+
+| Check | Ours | Oracle | |
+| --- | --- | --- | --- |
+| instructions executed | 3 | 3 | agree |
+| `TC` at reset | `00000000` | `00000000` | agree |
+
+Run with `python3 tools/mame-oracle/probe_compare.py --program pmove`.
+
+The last of `ap_probe.c`'s classes to reach the oracle, and the one C79 called
+unreachable before C80 showed a register only has to be moved to memory *by the
+program*. `PMOVE TC,(An)` does it in one instruction.
+
+The value is a real claim rather than a formality: `TC` must come out of reset
+with translation **disabled**, and a machine that powered up translating would
+fault on its first instruction. It is also the only probe here that reads a
+register the program never wrote, so a value arriving at all is evidence the
+coprocessor answered rather than the memory being untouched -- the oracle's
+sentinel defaults to `55555555`, not zero.
+
+**Coverage, which was the point.** Every class in `ap_probe.c` now runs on both
+implementations and agrees:
+
+| class | probe |
+| --- | --- |
+| register write | `sentinel` |
+| operand write-through and read-back | `sentinel` |
+| counted loop, low-word decrement | `dbcc` |
+| call and return through the stack | `subroutine` |
+| 32-bit divide, packed two results | `divide` |
+| divide overflow leaving the destination alone | `divide-overflow` |
+| register list, both mask orderings | `movem` |
+| MMU register read | `pmove` |
+| exception path, four-word frame | `fault` |
+| exception path, long bus fault frame | `bus-fault` |
+| floating point: constant ROM, add, store | `fpu` |
+| floating point: rounding mode honoured | `fpu-rounding` |
+| floating point: seven functions adjudicated | `fpu_sweep.py` |
+
+Twenty-three campaigns, C59 to C81. It began with a coprocessor that had never
+been attached to a machine and a verification line that had never been run.

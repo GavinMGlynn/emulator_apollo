@@ -142,13 +142,21 @@ def main(argv=None) -> int:
     parser.add_argument("--timeout", type=float, default=300.0)
     parser.add_argument("--work", type=Path, default=Path("/tmp"))
     parser.add_argument(
-        "--program", choices=("sentinel", "fpu", "fpu-rounding", "fpu-sine", "fpu-sine-x", "fault", "bus-fault", "dbcc", "movem", "divide", "divide-overflow", "subroutine"),
+        "--program", choices=("sentinel", "fpu", "fpu-rounding", "fpu-sine", "fpu-sine-x", "fault", "bus-fault", "dbcc", "movem", "divide", "divide-overflow", "subroutine", "pmove"),
         default="sentinel",
         help="which probe to run; `fpu` exercises the coprocessor's constant "
              "ROM, an FADD and the store conversion in one")
     args = parser.parse_args(argv)
 
-    if args.program == "divide-overflow":
+    if args.program == "pmove":
+        ours_words = E.pmove_probe(OURS_BASE + SENTINEL_OFFSET)
+        oracle_words = E.pmove_probe(ORACLE_BASE + SENTINEL_OFFSET)
+        print("probe:  MOVEA.L #sentinel,A0 ; PMOVE TC,(A0) ; STOP")
+        print("        the MMU's reset state, read out by the program rather"
+              " than reported by")
+        print("        the harness -- and the only probe that reads a register"
+              " it never wrote")
+    elif args.program == "divide-overflow":
         ours_words = E.divide_overflow_probe(OURS_BASE + SENTINEL_OFFSET)
         oracle_words = E.divide_overflow_probe(ORACLE_BASE + SENTINEL_OFFSET)
         print("probe:  MOVE.L #$100003,D0 ; DIVU.W #1,D0 ; store D0 ; STOP")
@@ -273,6 +281,9 @@ def main(argv=None) -> int:
                 "divide": "0002000E",
                 "subroutine": "0000002A",
                 "divide-overflow": "00100003",
+                # Not asserted: what TC holds at reset is what is being
+                # compared, not something to state in advance.
+                "pmove": None,
                 "fault": "00000010",
                 # No expected value: which frame a data fault produces is the
                 # thing being compared, not something to assert in advance.
