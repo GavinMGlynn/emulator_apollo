@@ -97,4 +97,42 @@
                                               ap_m68882_rounding_t mode,
                                               ap_m68882_precision_t precision);
 
+/* The logarithms.
+ *
+ * All four reduce `x` to `m * 2^k` with `m` in `[1/sqrt2, sqrt2)` and evaluate
+ * `ln(m)` as `2 atanh((m-1)/(m+1))`. The substitution is what makes the family
+ * cheap: it maps the whole reduced range onto `|s| <= 0.1716` and leaves only
+ * odd powers, so fourteen terms suffice where a series in `m - 1` would need
+ * far more and would be at its worst exactly where `x` is near one.
+ *
+ * `FLOG2` is not `FLOGN` divided by `ln 2`. Its exponent term stays an exact
+ * integer and only the significand's contribution is scaled, so `log2` of a
+ * power of two is that power exactly -- which a final division would round
+ * along with everything else.
+ *
+ * `FLOGNP1` is not `FLOGN` of `1 + x`, for the same reason `FETOXM1` is not
+ * `FETOX` minus one: for a small argument `1 + x` rounds back to one and takes
+ * the answer with it. It uses the identity `ln(1+x) = 2 atanh(x/(x+2))`, where
+ * `x + 2` cannot cancel.
+ *
+ * Their singularities differ, and the manual is explicit about it. `FLOGN(0)`
+ * raises `DZ` and returns a *negative infinity*; `FLOGNP1(-1)` raises `DZ` and
+ * returns a *NAN*, per the note on page 4-58. Same mathematical pole, two
+ * different documented results. */
+[[nodiscard]] ap_m68882_op_t ap_m68882_logn(const ap_m68882_extended_t *x,
+                                            ap_m68882_rounding_t mode,
+                                            ap_m68882_precision_t precision);
+
+[[nodiscard]] ap_m68882_op_t ap_m68882_lognp1(const ap_m68882_extended_t *x,
+                                              ap_m68882_rounding_t mode,
+                                              ap_m68882_precision_t precision);
+
+[[nodiscard]] ap_m68882_op_t ap_m68882_log2(const ap_m68882_extended_t *x,
+                                            ap_m68882_rounding_t mode,
+                                            ap_m68882_precision_t precision);
+
+[[nodiscard]] ap_m68882_op_t ap_m68882_log10(const ap_m68882_extended_t *x,
+                                             ap_m68882_rounding_t mode,
+                                             ap_m68882_precision_t precision);
+
 #endif /* APOLLO_CPU_M68882_AP_M68882_TRANSCENDENTAL_H */

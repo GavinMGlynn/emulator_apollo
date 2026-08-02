@@ -38,6 +38,23 @@ static const ap_m68882_extended_t c_log2_10_lo = {false, 0x3FBF,
                                                   0x9257EDFE9B5FB69AULL};
 static const ap_m68882_extended_t c_one = {false, 0x3FFF,
                                            0x8000000000000000ULL};
+static const ap_m68882_extended_t c_two = {false, 0x4000,
+                                           0x8000000000000000ULL};
+/* `log10(2)`, split like `ln2` and for the same reason: `FLOG10` multiplies it
+ * by an exponent as large as 16384, and the low half keeps that product from
+ * inheriting the constant's rounding error. */
+static const ap_m68882_extended_t c_log10_2_hi = {false, 0x3FFD,
+                                                  0x9A209A8400000000ULL};
+static const ap_m68882_extended_t c_log10_2_lo = {false, 0x3FDD,
+                                                  0xFBCFF7988F8959ACULL};
+static const ap_m68882_extended_t c_ln10_recip = {false, 0x3FFD,
+                                                  0xDE5BD8A937287195ULL};
+
+/* The mantissa of the square root of two, which is where the logarithm's
+ * reduction splits: bringing the significand into `[1/sqrt2, sqrt2)` rather
+ * than `[1, 2)` halves the series argument and is what lets fourteen terms
+ * reach below one unit in the last place instead of thirty. */
+#define SQRT2_MANTISSA 0xB504F333F9DE6484ULL
 
 /* `1/(k+1)!` for k = 0..17: the coefficients of `(e^r - 1)/r`.
  *
@@ -69,6 +86,32 @@ static const ap_m68882_extended_t expm1_coefficients[] = {
 
 #define EXPM1_TERMS (sizeof expm1_coefficients / sizeof expm1_coefficients[0])
 
+/* `2/(2k+1)`: the coefficients of `2 atanh(s) = ln((1+s)/(1-s))`.
+ *
+ * The logarithm is computed through `atanh` rather than from a series in
+ * `m - 1`, because the substitution `s = (m-1)/(m+1)` maps the reduced
+ * significand's whole range onto `|s| <= 0.1716` and the series has only odd
+ * powers. Fourteen terms put the first omitted one at about 1.6e-22, four
+ * orders of magnitude below a unit in the last place. */
+static const ap_m68882_extended_t log_coefficients[] = {
+    {false, 0x4000, 0x8000000000000000ULL}, /* 2/1 */
+    {false, 0x3FFE, 0xAAAAAAAAAAAAAAABULL}, /* 2/3 */
+    {false, 0x3FFD, 0xCCCCCCCCCCCCCCCDULL}, /* 2/5 */
+    {false, 0x3FFD, 0x9249249249249249ULL}, /* 2/7 */
+    {false, 0x3FFC, 0xE38E38E38E38E38EULL}, /* 2/9 */
+    {false, 0x3FFC, 0xBA2E8BA2E8BA2E8CULL}, /* 2/11 */
+    {false, 0x3FFC, 0x9D89D89D89D89D8AULL}, /* 2/13 */
+    {false, 0x3FFC, 0x8888888888888889ULL}, /* 2/15 */
+    {false, 0x3FFB, 0xF0F0F0F0F0F0F0F1ULL}, /* 2/17 */
+    {false, 0x3FFB, 0xD79435E50D79435EULL}, /* 2/19 */
+    {false, 0x3FFB, 0xC30C30C30C30C30CULL}, /* 2/21 */
+    {false, 0x3FFB, 0xB21642C8590B2164ULL}, /* 2/23 */
+    {false, 0x3FFB, 0xA3D70A3D70A3D70AULL}, /* 2/25 */
+    {false, 0x3FFB, 0x97B425ED097B425FULL}, /* 2/27 */
+};
+
+#define LOG_TERMS (sizeof log_coefficients / sizeof log_coefficients[0])
+
 /* ---------------------------------------------------------------------------
  * Working arithmetic.
  *
@@ -98,6 +141,13 @@ static ap_m68882_extended_t nx_sub(ap_m68882_extended_t a,
 static ap_m68882_extended_t nx_mul(ap_m68882_extended_t a,
                                    ap_m68882_extended_t b) {
   return ap_m68882_mul(&a, &b, AP_M68882_ROUND_NEAREST,
+                       AP_M68882_PRECISION_EXTENDED)
+      .value;
+}
+
+static ap_m68882_extended_t nx_div(ap_m68882_extended_t a,
+                                   ap_m68882_extended_t b) {
+  return ap_m68882_div(&a, &b, AP_M68882_ROUND_NEAREST,
                        AP_M68882_PRECISION_EXTENDED)
       .value;
 }
@@ -410,4 +460,231 @@ ap_m68882_op_t ap_m68882_tentox(const ap_m68882_extended_t *x,
   ap_m68882_extended_t r = nx_mul(f, c_ln2_hi);
   r = nx_add(r, nx_mul(f, c_ln2_lo));
   return exp_finish(r, n, mode, precision);
+}
+
+/* ---------------------------------------------------------------------------
+ * The logarithms.
+ * ------------------------------------------------------------------------- */
+
+/* `ln(m)` for `m` in `[1/sqrt2, sqrt2)`, as `2 atanh(s)` with
+ * `s = (m - 1)/(m + 1)`.
+ *
+ * `m - 1` is exact over that whole range by Sterbenz's rule, so the
+ * substitution costs nothing even when `m` is a hair from one -- which is the
+ * case a series in `m - 1` would handle worst and this one handles best. */
+static ap_m68882_extended_t log_kernel(ap_m68882_extended_t m) {
+  const ap_m68882_extended_t s =
+      nx_div(nx_sub(m, c_one), nx_add(m, c_one));
+  const ap_m68882_extended_t s2 = nx_mul(s, s);
+  ap_m68882_extended_t acc = log_coefficients[LOG_TERMS - 1u];
+  for (size_t i = LOG_TERMS - 1u; i > 0u; i--) {
+    acc = nx_add(log_coefficients[i - 1u], nx_mul(acc, s2));
+  }
+  return nx_mul(s, acc);
+}
+
+/* Split a finite positive value into `m * 2^k` with `m` in `[1/sqrt2, sqrt2)`.
+ * Denormals are normalised first, which is why `k` can run below the exponent
+ * field's range. */
+static ap_m68882_extended_t log_reduce(ap_m68882_extended_t x, int *k_out) {
+  int k = (int)x.exponent - AP_M68882_BIAS_EXTENDED;
+  uint64_t mantissa = x.mantissa;
+  if (x.exponent == 0u) {
+    /* A denormal: shift up until the integer bit is set, and pay for it in the
+     * exponent. Skipping this would take the logarithm of a significand that
+     * is not in `[1, 2)` at all. */
+    k = 1 - AP_M68882_BIAS_EXTENDED;
+    while ((mantissa & (1ULL << 63)) == 0u) {
+      mantissa <<= 1;
+      k--;
+    }
+  }
+  if (mantissa >= SQRT2_MANTISSA) {
+    /* Halving the significand costs nothing -- it is an exponent adjustment --
+     * and brings `s` back inside the series' range. */
+    k += 1;
+    *k_out = k;
+    return (ap_m68882_extended_t){false,
+                                  (uint16_t)(AP_M68882_BIAS_EXTENDED - 1),
+                                  mantissa};
+  }
+  *k_out = k;
+  return (ap_m68882_extended_t){false, AP_M68882_BIAS_EXTENDED, mantissa};
+}
+
+/* Table 6-2 and the `FLOGN` operation table, page 4-56: "this function is not
+ * defined for input values less than zero". A negative source is an operand
+ * error; a zero is a divide by zero returning a negative infinity; a positive
+ * infinity is itself. Returns true when the answer is one of those. */
+static bool log_special(const ap_m68882_extended_t *x, ap_m68882_op_t *out) {
+  switch (ap_m68882_classify(x)) {
+  case AP_M68882_TYPE_NAN:
+    *out = (ap_m68882_op_t){nx_nan(), ap_m68882_is_signalling_nan(x)
+                                          ? (1u << AP_M68882_EXC_SNAN)
+                                          : 0u};
+    return true;
+  case AP_M68882_TYPE_ZERO:
+    /* "Set if the source is (+ or -)0" -- both signs of zero, and the result is
+     * a negative infinity rather than a NAN. `FLOGNP1` differs here, which is
+     * the trap that module's own guard records. */
+    *out = (ap_m68882_op_t){nx_infinity(true), 1u << AP_M68882_EXC_DZ};
+    return true;
+  case AP_M68882_TYPE_INFINITY:
+    *out = x->sign ? (ap_m68882_op_t){nx_nan(), 1u << AP_M68882_EXC_OPERR}
+                   : (ap_m68882_op_t){nx_infinity(false), 0u};
+    return true;
+  case AP_M68882_TYPE_NORMALIZED:
+  case AP_M68882_TYPE_DENORMALIZED:
+    if (x->sign) {
+      *out = (ap_m68882_op_t){nx_nan(), 1u << AP_M68882_EXC_OPERR};
+      return true;
+    }
+    break;
+  }
+  return false;
+}
+
+/* `ln(x)` as an extended value, with the reduction's exponent term formed
+ * against the split `ln2` so a large exponent costs nothing. */
+static ap_m68882_extended_t logn_value(ap_m68882_extended_t x) {
+  int k = 0;
+  const ap_m68882_extended_t m = log_reduce(x, &k);
+  const ap_m68882_extended_t kv = nx_from_int(k);
+  ap_m68882_extended_t out = nx_add(nx_mul(kv, c_ln2_hi), log_kernel(m));
+  return nx_add(out, nx_mul(kv, c_ln2_lo));
+}
+
+/* Round once, at the end, to the caller's mode and precision. `INEX2` is raised
+ * because a logarithm of anything but an exact power of the base is irrational
+ * -- and the exact cases are the ones that return before reaching here. */
+static ap_m68882_op_t log_finish(ap_m68882_extended_t value,
+                                 ap_m68882_rounding_t mode,
+                                 ap_m68882_precision_t precision,
+                                 bool inexact) {
+  ap_m68882_op_t out = ap_m68882_mul(&value, &c_one, mode, precision);
+  if (inexact) {
+    out.exceptions |= 1u << AP_M68882_EXC_INEX2;
+  }
+  return out;
+}
+
+ap_m68882_op_t ap_m68882_logn(const ap_m68882_extended_t *x,
+                              ap_m68882_rounding_t mode,
+                              ap_m68882_precision_t precision) {
+  ap_m68882_op_t special;
+  if (log_special(x, &special)) {
+    return special;
+  }
+  /* `ln(1)` is exactly zero and raises nothing: the reduction gives `k = 0` and
+   * a kernel argument of zero, so this falls out rather than being special
+   * cased -- but the exactness has to survive the final rounding, which is why
+   * `INEX2` is conditional. */
+  const bool exact = x->exponent == AP_M68882_BIAS_EXTENDED &&
+                     x->mantissa == 0x8000000000000000ULL;
+  return log_finish(logn_value(*x), mode, precision, !exact);
+}
+
+ap_m68882_op_t ap_m68882_log2(const ap_m68882_extended_t *x,
+                              ap_m68882_rounding_t mode,
+                              ap_m68882_precision_t precision) {
+  ap_m68882_op_t special;
+  if (log_special(x, &special)) {
+    return special;
+  }
+  /* Not `ln(x)/ln2`: the exponent stays an exact integer and only the
+   * significand's contribution is scaled, so a power of two comes out as its
+   * exponent with no error at all. Dividing at the end would round the integer
+   * along with everything else. */
+  int k = 0;
+  const ap_m68882_extended_t m = log_reduce(*x, &k);
+  const bool exact = m.mantissa == 0x8000000000000000ULL;
+  const ap_m68882_extended_t value =
+      nx_add(nx_from_int(k), nx_mul(log_kernel(m), c_log2e));
+  return log_finish(value, mode, precision, !exact);
+}
+
+ap_m68882_op_t ap_m68882_log10(const ap_m68882_extended_t *x,
+                               ap_m68882_rounding_t mode,
+                               ap_m68882_precision_t precision) {
+  ap_m68882_op_t special;
+  if (log_special(x, &special)) {
+    return special;
+  }
+  /* `k log10(2) + ln(m)/ln10`, with `log10(2)` split so the exponent term does
+   * not inherit a rounding error the significand term cannot cancel. */
+  int k = 0;
+  const ap_m68882_extended_t m = log_reduce(*x, &k);
+  const ap_m68882_extended_t kv = nx_from_int(k);
+  ap_m68882_extended_t value =
+      nx_add(nx_mul(kv, c_log10_2_hi), nx_mul(log_kernel(m), c_ln10_recip));
+  value = nx_add(value, nx_mul(kv, c_log10_2_lo));
+  return log_finish(value, mode, precision, true);
+}
+
+ap_m68882_op_t ap_m68882_lognp1(const ap_m68882_extended_t *x,
+                                ap_m68882_rounding_t mode,
+                                ap_m68882_precision_t precision) {
+  switch (ap_m68882_classify(x)) {
+  case AP_M68882_TYPE_NAN:
+    return (ap_m68882_op_t){nx_nan(), ap_m68882_is_signalling_nan(x)
+                                          ? (1u << AP_M68882_EXC_SNAN)
+                                          : 0u};
+  case AP_M68882_TYPE_ZERO:
+    /* "+0.0" and "-0.0" in the operation table: the sign is kept, and nothing
+     * is raised. */
+    return (ap_m68882_op_t){*x, 0u};
+  case AP_M68882_TYPE_INFINITY:
+    return x->sign
+               ? (ap_m68882_op_t){nx_nan(), 1u << AP_M68882_EXC_OPERR}
+               : (ap_m68882_op_t){nx_infinity(false), 0u};
+  case AP_M68882_TYPE_NORMALIZED:
+  case AP_M68882_TYPE_DENORMALIZED:
+    break;
+  }
+
+  if (x->sign) {
+    /* The page-4-58 note, and it does **not** mirror `FLOGN`'s zero case: "if
+     * the source is -1, sets the DZ bit in the FPSR exception byte and returns
+     * a NAN. If the source is < -1, sets the OPERR bit ... and returns a NAN."
+     *
+     * So a divide by zero here yields a NAN where `FLOGN(0)` yields a negative
+     * infinity, for the same mathematical singularity. Modelling the two alike
+     * would return an infinity from an instruction the manual says returns a
+     * NAN, and the difference is invisible until a program compares against
+     * one. */
+    if (x->exponent == AP_M68882_BIAS_EXTENDED &&
+        x->mantissa == 0x8000000000000000ULL) {
+      return (ap_m68882_op_t){nx_nan(), 1u << AP_M68882_EXC_DZ};
+    }
+    if (x->exponent > AP_M68882_BIAS_EXTENDED ||
+        (x->exponent == AP_M68882_BIAS_EXTENDED &&
+         x->mantissa > 0x8000000000000000ULL)) {
+      return (ap_m68882_op_t){nx_nan(), 1u << AP_M68882_EXC_OPERR};
+    }
+  }
+
+  /* `ln(1+x) = 2 atanh(x/(x+2))`, an identity rather than an approximation.
+   * Below a quarter it is used directly, because `1 + x` would round away the
+   * argument's low bits and there is no cancellation in `x + 2`. That is the
+   * whole reason the instruction exists separately from `FLOGN`.
+   *
+   * The threshold is a quarter and not a half, and the difference matters. What
+   * bounds this path is not where `1 + x` starts rounding but where the series
+   * stops converging fast enough: `s = x/(x+2)` reaches `-1/3` at `x = -1/2`,
+   * twice the `0.1716` the fourteen coefficients were chosen for, and the
+   * truncation error there is some four thousand units in the last place. At a
+   * quarter, `s` stays inside `[-0.1429, 0.1111]` and the first omitted term is
+   * negligible. Above it, `1 + x` is at least `3/4` and loses at most a couple
+   * of bits, so `FLOGN` handles it to within a unit or two. */
+  const int e = (int)x->exponent - AP_M68882_BIAS_EXTENDED;
+  if (x->exponent != 0u && e <= -3) {
+    const ap_m68882_extended_t s = nx_div(*x, nx_add(*x, c_two));
+    const ap_m68882_extended_t s2 = nx_mul(s, s);
+    ap_m68882_extended_t acc = log_coefficients[LOG_TERMS - 1u];
+    for (size_t i = LOG_TERMS - 1u; i > 0u; i--) {
+      acc = nx_add(log_coefficients[i - 1u], nx_mul(acc, s2));
+    }
+    return log_finish(nx_mul(s, acc), mode, precision, true);
+  }
+  return log_finish(logn_value(nx_add(*x, c_one)), mode, precision, true);
 }

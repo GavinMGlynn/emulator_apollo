@@ -1,4 +1,5 @@
-/* MC68882 §4.3.2's exponential family, measured against the published bound.
+/* MC68882 §4.3.2's exponentials and logarithms, measured against the published
+ * bound.
  *
  * The vectors below are `(argument, expected)` pairs computed to a hundred and
  * twenty decimal digits and rounded once to extended precision. They are not
@@ -190,6 +191,157 @@ static const vector_t tentox_vectors[] = {
     {{false, 0x400A, 0xDDD98D12D2FAD97FULL}, {false, 0x6E0E, 0xB5BFD5A9B25C4C70ULL}},
     {{true, 0x400B, 0x91585D049060EC92ULL}, {false, 0x03A4, 0xBCE8DDF0E9D394ABULL}},
     {{false, 0x400A, 0xFBB7DBED4B61991DULL}, {false, 0x7442, 0x833F5CF3E55D44ECULL}},
+};
+
+static const vector_t logn_vectors[] = {
+    {{false, 0x4000, 0x8000000000000000ULL}, {false, 0x3FFE, 0xB17217F7D1CF79ACULL}},
+    {{false, 0x4000, 0xC000000000000000ULL}, {false, 0x3FFF, 0x8C9F53D5681854BBULL}},
+    {{false, 0x4002, 0xA000000000000000ULL}, {false, 0x4000, 0x935D8DDDAAA8AC17ULL}},
+    {{false, 0x3FFE, 0x8000000000000000ULL}, {true, 0x3FFE, 0xB17217F7D1CF79ACULL}},
+    {{false, 0x3FFF, 0xC000000000000000ULL}, {false, 0x3FFD, 0xCF991F65FCC25F96ULL}},
+    {{false, 0x3FFF, 0x800346DC5D638866ULL}, {false, 0x3FF1, 0xD1B46832C0002060ULL}},
+    {{false, 0x3FFE, 0xFFF972474538EF35ULL}, {true, 0x3FF1, 0xD1B9C69678FF6E39ULL}},
+    {{false, 0x4005, 0xC800000000000000ULL}, {false, 0x4001, 0x935D8DDDAAA8AC17ULL}},
+    {{false, 0x3F9B, 0xA2425FF75E14FC32ULL}, {true, 0x4005, 0x8A27B4FFCFFE2155ULL}},
+    {{false, 0x43E3, 0xBF21E44003ACDD2DULL}, {false, 0x4008, 0xACB1A23FC3FDA9ABULL}},
+    {{false, 0x43C0, 0xEB0BAE068ED04000ULL}, {false, 0x4008, 0xA6AE385BF7045A3FULL}},
+    {{false, 0x515B, 0xC833D9BF4CE86800ULL}, {false, 0x400A, 0xC08CB1A46E92E00CULL}},
+    {{false, 0x3ED2, 0xBD4DE8F03311C000ULL}, {true, 0x4006, 0xD03EF842A14D4142ULL}},
+    {{false, 0x5CA8, 0x854B9495A4FAA800ULL}, {false, 0x400B, 0x9EED4A8C14326A3BULL}},
+    {{false, 0x605E, 0xB116250A16403800ULL}, {false, 0x400B, 0xB3837B7B167E6F95ULL}},
+    {{false, 0x38CB, 0xB5F09A20599D1000ULL}, {true, 0x4009, 0x9FB9F9E5C41072C9ULL}},
+    {{false, 0x4724, 0x9AC3D3D594096800ULL}, {false, 0x4009, 0x9E7E98212A1BBF8FULL}},
+    {{false, 0x374A, 0x81D67A1ED29BB000ULL}, {true, 0x4009, 0xC120588DAE23FF5BULL}},
+    {{false, 0x58D8, 0xAC4E435A0378B000ULL}, {false, 0x400B, 0x89CB406BC9F35495ULL}},
+    {{false, 0x2FDD, 0xE72AECC99C93C800ULL}, {true, 0x400A, 0xB2E1B537CADC4BB2ULL}},
+    {{false, 0x5199, 0x84E6F57378AFD000ULL}, {false, 0x400A, 0xC335BD8EC3BC72A2ULL}},
+    {{false, 0x499A, 0xF4CCDFEA507AD000ULL}, {false, 0x4009, 0xD5231D52B4113DD0ULL}},
+    {{false, 0x5882, 0x9D2AFA157BE3D000ULL}, {false, 0x400B, 0x87EDA1780ED0C545ULL}},
+    {{false, 0x2EA6, 0xF85E68F2DA907800ULL}, {true, 0x400A, 0xC059A8EFED456E0CULL}},
+    {{false, 0x4ED5, 0xBEB3EE1E90810800ULL}, {false, 0x400A, 0xA48F8BFE335F9A17ULL}},
+    {{false, 0x369E, 0xA569D7AF047B1800ULL}, {true, 0x4009, 0xCFFFADC6457B7663ULL}},
+    {{false, 0x51E9, 0xA2BDE06B6FB3F800ULL}, {false, 0x400A, 0xC6B035ACA505A0BEULL}},
+    {{false, 0x3845, 0x9E3A37A0FA927800ULL}, {true, 0x4009, 0xAB5AA8EB7C785AB2ULL}},
+    {{false, 0x50F7, 0xE242BC0BA619F800ULL}, {false, 0x400A, 0xBC399DBC89E0A60DULL}},
+    {{false, 0x220C, 0xE51A93B110EC7000ULL}, {true, 0x400B, 0xA60E37E2F7212348ULL}},
+    {{false, 0x1F5C, 0xBB7A2F53BF0B3000ULL}, {true, 0x400B, 0xB4F6E78F3A2105FBULL}},
+    {{false, 0x3E02, 0xF2C38E0472342800ULL}, {true, 0x4007, 0xB015FF5F745C2EC8ULL}},
+    {{false, 0x45BC, 0xD2FD5DCEC932D000ULL}, {false, 0x4008, 0xFEAEE943CC41C11AULL}},
+    {{false, 0x52C4, 0xC119EDFFDD1EC800ULL}, {false, 0x400A, 0xD02FBBF43381D9FBULL}},
+    {{false, 0x4742, 0x996BF38CD1658800ULL}, {false, 0x4009, 0xA117BC91957FD6F8ULL}},
+};
+
+static const vector_t log2_vectors[] = {
+    {{false, 0x4000, 0x8000000000000000ULL}, {false, 0x3FFF, 0x8000000000000000ULL}},
+    {{false, 0x4000, 0xC000000000000000ULL}, {false, 0x3FFF, 0xCAE00D1CFDEB43D0ULL}},
+    {{false, 0x4002, 0xA000000000000000ULL}, {false, 0x4000, 0xD49A784BCD1B8AFEULL}},
+    {{false, 0x3FFE, 0x8000000000000000ULL}, {true, 0x3FFF, 0x8000000000000000ULL}},
+    {{false, 0x3FFF, 0xC000000000000000ULL}, {false, 0x3FFE, 0x95C01A39FBD687A0ULL}},
+    {{false, 0x3FFF, 0x800346DC5D638866ULL}, {false, 0x3FF2, 0x97451D28210C6B96ULL}},
+    {{false, 0x3FFE, 0xFFF972474538EF35ULL}, {true, 0x3FF2, 0x9748FC91B9DBCD1BULL}},
+    {{false, 0x4005, 0xC800000000000000ULL}, {false, 0x4001, 0xD49A784BCD1B8AFEULL}},
+    {{false, 0x3F9B, 0xA2425FF75E14FC32ULL}, {true, 0x4005, 0xC750D0C71049D24EULL}},
+    {{false, 0x43E3, 0xBF21E44003ACDD2DULL}, {false, 0x4008, 0xF92504F8D45C46E2ULL}},
+    {{false, 0x3A64, 0xD4D5DB58AAD35000ULL}, {true, 0x4009, 0xB348866584D540A2ULL}},
+    {{false, 0x584B, 0xEC14BDEBD5107800ULL}, {false, 0x400B, 0xC26710AACBB66843ULL}},
+    {{false, 0x36DD, 0xB6DB075B4FF0C800ULL}, {true, 0x400A, 0x9217C45BD78BCB97ULL}},
+    {{false, 0x2EF8, 0xB863D013E5E89000ULL}, {true, 0x400B, 0x8833C97DAB2805FDULL}},
+    {{false, 0x480A, 0x82F77FA90F7E0800ULL}, {false, 0x400A, 0x80B0876705B63343ULL}},
+    {{false, 0x5862, 0xA7C03C26F9319000ULL}, {false, 0x400B, 0xC31B1F150A511E5BULL}},
+    {{false, 0x2DC5, 0xD74F0FB614191800ULL}, {true, 0x400B, 0x91C9FF75BEC8D961ULL}},
+    {{false, 0x375B, 0xA5E8342E701C1800ULL}, {true, 0x400A, 0x8A3A0325FCECD349ULL}},
+    {{false, 0x2540, 0x91415E7547E47000ULL}, {true, 0x400B, 0xD5F68A58FB7C288FULL}},
+    {{false, 0x331A, 0xC3FBBBDFB0AA6800ULL}, {true, 0x400A, 0xCE462AA6A3047AD5ULL}},
+    {{false, 0x3021, 0x8A2BEB88CA8AE800ULL}, {true, 0x400A, 0xFDDE3C245528BC0EULL}},
+    {{false, 0x3B09, 0xDB11BD13BADAC800ULL}, {true, 0x4009, 0x9EA73134A39F9B71ULL}},
+    {{false, 0x274B, 0xAF24A0217C027800ULL}, {true, 0x400B, 0xC59C61814F0C291FULL}},
+    {{false, 0x413F, 0xC3A5C8552F0D0000ULL}, {false, 0x4007, 0xA04E59BC53BB0DC9ULL}},
+    {{false, 0x57E5, 0xEF49228F8FBAD800ULL}, {false, 0x400B, 0xBF3738813FC8A83BULL}},
+    {{false, 0x5A93, 0x966D1C9B8F929800ULL}, {false, 0x400B, 0xD4A1DD0115C733CDULL}},
+    {{false, 0x54AF, 0x82ECBCE37D0C8800ULL}, {false, 0x400B, 0xA58042C0B4A09198ULL}},
+    {{false, 0x51FB, 0xA5F7868777E90000ULL}, {false, 0x400B, 0x8FE2FF7DD20D7BFEULL}},
+    {{false, 0x25EF, 0xC8EFC41F69FAE800ULL}, {true, 0x400B, 0xD07ACB9414FB7243ULL}},
+    {{false, 0x4082, 0x96B002C1E71B0000ULL}, {false, 0x4006, 0x833C443EC2837256ULL}},
+    {{false, 0x3CDE, 0x87C49A36FD402000ULL}, {true, 0x4008, 0xC83A8F5E82FC3810ULL}},
+    {{false, 0x5C43, 0x83D42267BB7BC800ULL}, {false, 0x400B, 0xE2205714CB6E577BULL}},
+    {{false, 0x35E2, 0xDAAFE9B7A4DEC800ULL}, {true, 0x400A, 0xA1C3A2EB6B21300FULL}},
+    {{false, 0x336B, 0xC4144DD3489CC800ULL}, {true, 0x400A, 0xC93627C1FB29FAE5ULL}},
+    {{false, 0x3973, 0x80D12EECAE64F800ULL}, {true, 0x4009, 0xD17FB4CAF994D935ULL}},
+};
+
+static const vector_t log10_vectors[] = {
+    {{false, 0x4000, 0x8000000000000000ULL}, {false, 0x3FFD, 0x9A209A84FBCFF799ULL}},
+    {{false, 0x4000, 0xC000000000000000ULL}, {false, 0x3FFD, 0xF4493CB27EAFE846ULL}},
+    {{false, 0x4002, 0xA000000000000000ULL}, {false, 0x3FFF, 0x8000000000000000ULL}},
+    {{false, 0x3FFE, 0x8000000000000000ULL}, {true, 0x3FFD, 0x9A209A84FBCFF799ULL}},
+    {{false, 0x3FFF, 0xC000000000000000ULL}, {false, 0x3FFC, 0xB451445B05BFE15BULL}},
+    {{false, 0x3FFF, 0x800346DC5D638866ULL}, {false, 0x3FF0, 0xB625AEF7E1BCDB3DULL}},
+    {{false, 0x3FFE, 0xFFF972474538EF35ULL}, {true, 0x3FF0, 0xB62A58BF74CD9F8EULL}},
+    {{false, 0x4005, 0xC800000000000000ULL}, {false, 0x4000, 0x8000000000000000ULL}},
+    {{false, 0x3F9B, 0xA2425FF75E14FC32ULL}, {true, 0x4003, 0xF000000000000000ULL}},
+    {{false, 0x43E3, 0xBF21E44003ACDD2DULL}, {false, 0x4007, 0x9600000000000000ULL}},
+    {{false, 0x22B5, 0x9FF9778E59B9E000ULL}, {true, 0x400A, 0x8D106AC4F7CF2547ULL}},
+    {{false, 0x6287, 0x90B6FAC90C753000ULL}, {false, 0x400A, 0xA65289121D5FCB54ULL}},
+    {{false, 0x2643, 0xBC7A954E78A38800ULL}, {true, 0x4009, 0xF7E08FD77A0E75B9ULL}},
+    {{false, 0x2400, 0xED1A5CCBEBB88000ULL}, {true, 0x400A, 0x86D36D9362223A5CULL}},
+    {{false, 0x37C9, 0x816F22962ECF6000ULL}, {true, 0x4008, 0x9E30A7508BF8E92FULL}},
+    {{false, 0x281F, 0xE2AAFB9CCA95B800ULL}, {true, 0x4009, 0xE5F4B57B235C29E0ULL}},
+    {{false, 0x331D, 0xEC9CCE63DBF32800ULL}, {true, 0x4008, 0xF821ED1FE9BB4880ULL}},
+    {{false, 0x31FF, 0xEC40BCD891C52800ULL}, {true, 0x4009, 0x86D402C366A7CD90ULL}},
+    {{false, 0x2CE8, 0xA20953FF8EEB1800ULL}, {true, 0x4009, 0xB7E0FF79F9A47B31ULL}},
+    {{false, 0x20BC, 0x9A7265A3A062C800ULL}, {true, 0x400A, 0x9690FBD8ED9CCD56ULL}},
+    {{false, 0x33E4, 0x94D8AC6FF3982800ULL}, {true, 0x4008, 0xE934E43352AB1E63ULL}},
+    {{false, 0x4529, 0x881248A4BA8A0800ULL}, {false, 0x4007, 0xC6FE7DB487BE43FCULL}},
+    {{false, 0x40CB, 0xEE465190EA544800ULL}, {false, 0x4004, 0xF6B84E86190281ADULL}},
+    {{false, 0x24B9, 0xE75D938E6FC27800ULL}, {true, 0x400A, 0x83588CA92F32836FULL}},
+    {{false, 0x37C3, 0xCF994B3C5E8B8800ULL}, {true, 0x4008, 0x9E971E29A2F5A8F6ULL}},
+    {{false, 0x3535, 0x90CA696D5DEBF800ULL}, {true, 0x4008, 0xCFD90B582FF8DB84ULL}},
+    {{false, 0x5969, 0xE67CECDF4CF51000ULL}, {false, 0x4009, 0xF4D835FC7B8CE052ULL}},
+    {{false, 0x56F7, 0x9CD4DF2DF6235000ULL}, {false, 0x4009, 0xDD44A08BCE9145F8ULL}},
+    {{false, 0x38AF, 0x9E93407693DE1800ULL}, {true, 0x4008, 0x8CDBD91D25D6FD85ULL}},
+    {{false, 0x564F, 0xC81A1FB79A796000ULL}, {false, 0x4009, 0xD6F5AD1218C280DBULL}},
+    {{false, 0x2DFF, 0xD7EE04926E1A2000ULL}, {true, 0x4009, 0xAD5D6969168E0C16ULL}},
+    {{false, 0x3167, 0xDC98B0AA9B37A000ULL}, {true, 0x4009, 0x8C8D2C719809A8ABULL}},
+    {{false, 0x3614, 0x9BD32DCB2C99D000ULL}, {true, 0x4008, 0xBF0EB3EE139AEEB6ULL}},
+    {{false, 0x4A87, 0xBC28314C29535000ULL}, {false, 0x4008, 0xCAEFA09FCE2DBA05ULL}},
+    {{false, 0x1EC6, 0xE3AA1B6E7365B800ULL}, {true, 0x400A, 0xA0002912EC4F517EULL}},
+};
+
+static const vector_t lognp1_vectors[] = {
+    {{false, 0x3FB9, 0x8000000000000000ULL}, {false, 0x3FB9, 0x8000000000000000ULL}},
+    {{false, 0x3FCD, 0x8000000000000000ULL}, {false, 0x3FCC, 0xFFFFFFFFFFFFE000ULL}},
+    {{false, 0x3FE1, 0x8000000000000000ULL}, {false, 0x3FE0, 0xFFFFFFFE00000005ULL}},
+    {{false, 0x3FF5, 0x8000000000000000ULL}, {false, 0x3FF4, 0xFFE0055455887DE0ULL}},
+    {{false, 0x3FFC, 0x8000000000000000ULL}, {false, 0x3FFB, 0xF1383B7157972F4FULL}},
+    {{true, 0x3FB9, 0x8000000000000000ULL}, {true, 0x3FB9, 0x8000000000000000ULL}},
+    {{true, 0x3FD7, 0x8000000000000000ULL}, {true, 0x3FD7, 0x8000000000400000ULL}},
+    {{true, 0x3FEB, 0x8000000000000000ULL}, {true, 0x3FEB, 0x80000400002AAAADULL}},
+    {{true, 0x3FFC, 0x8000000000000000ULL}, {true, 0x3FFC, 0x88BC74113F23DEF2ULL}},
+    {{false, 0x3FFE, 0x8000000000000000ULL}, {false, 0x3FFD, 0xCF991F65FCC25F96ULL}},
+    {{true, 0x3FFE, 0x8000000000000000ULL}, {true, 0x3FFE, 0xB17217F7D1CF79ACULL}},
+    {{false, 0x3FFF, 0x8000000000000000ULL}, {false, 0x3FFE, 0xB17217F7D1CF79ACULL}},
+    {{false, 0x4000, 0xC000000000000000ULL}, {false, 0x3FFF, 0xB17217F7D1CF79ACULL}},
+    {{true, 0x3FFE, 0xE666666666666666ULL}, {true, 0x4000, 0x935D8DDDAAA8AC16ULL}},
+    {{true, 0x3FFE, 0xFD70A3D70A3D70A4ULL}, {true, 0x4001, 0x935D8DDDAAA8AC19ULL}},
+    {{false, 0x4004, 0xC800000000000000ULL}, {false, 0x4000, 0xFBA307FA8807F8D6ULL}},
+    {{false, 0x3FFF, 0xC2CC8272CF309000ULL}, {false, 0x3FFE, 0xECCCBEABDC662C50ULL}},
+    {{false, 0x4002, 0xD2CDF27C3E1F2000ULL}, {false, 0x4000, 0xA9B22B6999ABCB23ULL}},
+    {{false, 0x4002, 0xF3BE1C5C4649E000ULL}, {false, 0x4000, 0xB25FE3261AC173E4ULL}},
+    {{false, 0x4002, 0xECC9DDEE780CB000ULL}, {false, 0x4000, 0xB0A342A248F5B65EULL}},
+    {{false, 0x4001, 0xFA167BE477BC1000ULL}, {false, 0x4000, 0x8B4B7D889E04A4FAULL}},
+    {{false, 0x4003, 0x9C07DA9B3FA90000ULL}, {false, 0x4000, 0xC151B4BC34982ADBULL}},
+    {{false, 0x4000, 0xE0DDC452220B9800ULL}, {false, 0x3FFF, 0xC0E805F42AE23F7BULL}},
+    {{false, 0x4002, 0x8C48592B44DA4000ULL}, {false, 0x4000, 0x91DC66D62644109AULL}},
+    {{false, 0x4002, 0x96F48FD0A41D6000ULL}, {false, 0x4000, 0x9616BB9F5DB0EF50ULL}},
+    {{false, 0x4002, 0xFED1CB0C7EF87000ULL}, {false, 0x4000, 0xB50C1AED55484EBBULL}},
+    {{false, 0x4002, 0x813020CFEEB7D800ULL}, {false, 0x4000, 0x8D25F0E768B3A553ULL}},
+    {{true, 0x3FFE, 0xC1AD07A72C814800ULL}, {true, 0x3FFF, 0xB4D79687CF8426C0ULL}},
+    {{false, 0x4001, 0xC4E4E3874A999000ULL}, {false, 0x3FFF, 0xFBD7CFA942F4460AULL}},
+    {{false, 0x4003, 0x9B7F9CD2009A0800ULL}, {false, 0x4000, 0xC11C7650542247B3ULL}},
+    {{false, 0x4003, 0x959DE054076B6000ULL}, {false, 0x4000, 0xBEC43133D78F83B0ULL}},
+    {{false, 0x4001, 0x8C4AD9B223A3D000ULL}, {false, 0x3FFF, 0xD77B85302E5768BFULL}},
+    {{false, 0x4002, 0xE666006C0E1DF000ULL}, {false, 0x4000, 0xAEFFC618290A7462ULL}},
+    {{false, 0x4000, 0xEF860CB29308C800ULL}, {false, 0x3FFF, 0xC73DE520F7C3399FULL}},
 };
 
 /* Distance between two extended values in units of the last place of the
@@ -468,6 +620,189 @@ static void test_the_result_precision_is_the_callers_and_the_steps_are_not(void)
                                    ulp_distance(narrow.value, wide.value));
 }
 
+static void test_the_logarithms_are_inside_the_typical_error_bound(void) {
+  /* All four, over arguments spanning `2^-9000` to `2^9000` -- the whole
+   * representable range, not a neighbourhood of one. */
+  TEST_ASSERT_LESS_OR_EQUAL_UINT64_MESSAGE(
+      AP_M68882_TRANSCENDENTAL_TYPICAL_ULP_EXTENDED,
+      sweep(ap_m68882_logn, logn_vectors, COUNT(logn_vectors)),
+      "FLOGN left the typical error bound");
+  TEST_ASSERT_LESS_OR_EQUAL_UINT64_MESSAGE(
+      AP_M68882_TRANSCENDENTAL_TYPICAL_ULP_EXTENDED,
+      sweep(ap_m68882_log2, log2_vectors, COUNT(log2_vectors)),
+      "FLOG2 left the typical error bound");
+  TEST_ASSERT_LESS_OR_EQUAL_UINT64_MESSAGE(
+      AP_M68882_TRANSCENDENTAL_TYPICAL_ULP_EXTENDED,
+      sweep(ap_m68882_log10, log10_vectors, COUNT(log10_vectors)),
+      "FLOG10 left the typical error bound");
+  TEST_ASSERT_LESS_OR_EQUAL_UINT64_MESSAGE(
+      AP_M68882_TRANSCENDENTAL_TYPICAL_ULP_EXTENDED,
+      sweep(ap_m68882_lognp1, lognp1_vectors, COUNT(lognp1_vectors)),
+      "FLOGNP1 left the typical error bound");
+}
+
+static void test_log_base_two_of_a_power_of_two_is_exact(void) {
+  /* The reason `FLOG2` is not `FLOGN` divided by `ln 2`. Its exponent term
+   * stays an exact integer and only the significand's contribution is scaled,
+   * so a power of two returns its exponent with no error and no `INEX2`. A
+   * final division would round the integer along with everything else and turn
+   * `log2(256)` into eight-and-a-bit. */
+  for (int k = -60; k <= 60; k++) {
+    const ap_m68882_extended_t x = {
+        false, (uint16_t)(AP_M68882_BIAS_EXTENDED + k), 0x8000000000000000ULL};
+    const ap_m68882_op_t got = ap_m68882_log2(&x, AP_M68882_ROUND_NEAREST,
+                                              AP_M68882_PRECISION_EXTENDED);
+    if (k == 0) {
+      TEST_ASSERT_EQUAL_INT_MESSAGE(AP_M68882_TYPE_ZERO,
+                                    ap_m68882_classify(&got.value),
+                                    "log2(1) should be zero");
+      continue;
+    }
+    const int magnitude = k < 0 ? -k : k;
+    int e = 0;
+    while ((1 << (e + 1)) <= magnitude) e++;
+    TEST_ASSERT_EQUAL_UINT_MESSAGE(
+        (unsigned)(AP_M68882_BIAS_EXTENDED + e), got.value.exponent,
+        "log2 of a power of two lost its exponent");
+    TEST_ASSERT_EQUAL_MESSAGE(k < 0, got.value.sign, "log2 sign");
+    TEST_ASSERT_EQUAL_UINT_MESSAGE(
+        0u, got.exceptions & (1u << AP_M68882_EXC_INEX2),
+        "an exact log2 reported itself inexact");
+  }
+}
+
+static void test_lognp1_keeps_the_bits_a_leading_one_would_swallow(void) {
+  /* `FLOGNP1`'s reason to exist, and the mirror of `FETOXM1`'s. For
+   * `x = 2^-70`, `ln(1+x)` is about `2^-70` -- but `1 + x` rounds back to one
+   * in extended precision, so computing it as `FLOGN(1+x)` returns exactly
+   * zero. The identity `ln(1+x) = 2 atanh(x/(x+2))` never forms `1 + x` at
+   * all. */
+  const ap_m68882_extended_t tiny = {false, AP_M68882_BIAS_EXTENDED - 70,
+                                     0x8000000000000000ULL};
+  const ap_m68882_op_t got = ap_m68882_lognp1(
+      &tiny, AP_M68882_ROUND_NEAREST, AP_M68882_PRECISION_EXTENDED);
+  TEST_ASSERT_NOT_EQUAL_UINT64_MESSAGE(0u, got.value.mantissa,
+                                       "FLOGNP1 collapsed a small argument");
+  /* `ln(1+x)` is `x - x^2/2 + ...`, so at `2^-70` it rounds to exactly `x`. */
+  TEST_ASSERT_EQUAL_UINT(tiny.exponent, got.value.exponent);
+  TEST_ASSERT_EQUAL_UINT64(tiny.mantissa, got.value.mantissa);
+
+  /* And `FLOGN` of `1 + x` really does return zero there, which is what makes
+   * the separate instruction necessary rather than merely tidy. */
+  const ap_m68882_extended_t one = {false, AP_M68882_BIAS_EXTENDED,
+                                    0x8000000000000000ULL};
+  const ap_m68882_op_t collapsed = ap_m68882_logn(
+      &one, AP_M68882_ROUND_NEAREST, AP_M68882_PRECISION_EXTENDED);
+  TEST_ASSERT_EQUAL_INT(AP_M68882_TYPE_ZERO,
+                        ap_m68882_classify(&collapsed.value));
+}
+
+static void test_a_negative_argument_is_an_operand_error(void) {
+  /* The `FLOGN` operation table, page 4-56: "this function is not defined for
+   * input values less than zero", and the exception byte says `OPERR` is "set
+   * if the source operand is < 0". A negative infinity is the same error. */
+  const ap_m68882_extended_t negative = {true, AP_M68882_BIAS_EXTENDED,
+                                         0xC000000000000000ULL};
+  const ap_m68882_extended_t minus_infinity = {true, 0x7FFFu, 0u};
+  ap_m68882_op_t (*const all[])(const ap_m68882_extended_t *,
+                                ap_m68882_rounding_t,
+                                ap_m68882_precision_t) = {
+      ap_m68882_logn, ap_m68882_log2, ap_m68882_log10};
+  for (unsigned i = 0; i < 3; i++) {
+    const ap_m68882_op_t bad = all[i](&negative, AP_M68882_ROUND_NEAREST,
+                                      AP_M68882_PRECISION_EXTENDED);
+    TEST_ASSERT_EQUAL_INT(AP_M68882_TYPE_NAN, ap_m68882_classify(&bad.value));
+    TEST_ASSERT_NOT_EQUAL_UINT(0u, bad.exceptions & (1u << AP_M68882_EXC_OPERR));
+    const ap_m68882_op_t inf = all[i](&minus_infinity, AP_M68882_ROUND_NEAREST,
+                                      AP_M68882_PRECISION_EXTENDED);
+    TEST_ASSERT_EQUAL_INT(AP_M68882_TYPE_NAN, ap_m68882_classify(&inf.value));
+    TEST_ASSERT_NOT_EQUAL_UINT(0u, inf.exceptions & (1u << AP_M68882_EXC_OPERR));
+  }
+}
+
+static void test_the_two_singularities_return_different_things(void) {
+  /* The trap this family carries, and it is stated outright in the manual.
+   *
+   * `FLOGN(0)` raises `DZ` and returns a **negative infinity** -- its operation
+   * table's Zero column, with the note "sets the DZ bit". `FLOGNP1(-1)` raises
+   * `DZ` and returns a **NAN** -- page 4-58's note 1: "if the source is -1,
+   * sets the DZ bit in the FPSR exception byte and returns a NAN".
+   *
+   * The same mathematical pole, two different documented results. Modelling
+   * them alike returns an infinity from an instruction the manual says returns
+   * a NAN, and nothing catches it until a program compares against one. */
+  const ap_m68882_extended_t zero = {false, 0u, 0u};
+  const ap_m68882_extended_t minus_zero = {true, 0u, 0u};
+  for (unsigned s = 0; s < 2; s++) {
+    const ap_m68882_op_t got =
+        ap_m68882_logn(s ? &minus_zero : &zero, AP_M68882_ROUND_NEAREST,
+                       AP_M68882_PRECISION_EXTENDED);
+    TEST_ASSERT_EQUAL_INT_MESSAGE(AP_M68882_TYPE_INFINITY,
+                                  ap_m68882_classify(&got.value),
+                                  "FLOGN(0) should be an infinity");
+    TEST_ASSERT_TRUE_MESSAGE(got.value.sign, "FLOGN(0) should be negative");
+    TEST_ASSERT_NOT_EQUAL_UINT(0u, got.exceptions & (1u << AP_M68882_EXC_DZ));
+  }
+
+  const ap_m68882_extended_t minus_one = {true, AP_M68882_BIAS_EXTENDED,
+                                          0x8000000000000000ULL};
+  const ap_m68882_op_t pole = ap_m68882_lognp1(
+      &minus_one, AP_M68882_ROUND_NEAREST, AP_M68882_PRECISION_EXTENDED);
+  TEST_ASSERT_EQUAL_INT_MESSAGE(AP_M68882_TYPE_NAN,
+                                ap_m68882_classify(&pole.value),
+                                "FLOGNP1(-1) should be a NAN, not an infinity");
+  TEST_ASSERT_NOT_EQUAL_UINT(0u, pole.exceptions & (1u << AP_M68882_EXC_DZ));
+  TEST_ASSERT_EQUAL_UINT_MESSAGE(
+      0u, pole.exceptions & (1u << AP_M68882_EXC_OPERR),
+      "the pole is a divide by zero, not an operand error");
+
+  /* And below -1 it is an operand error rather than a divide by zero: "if the
+   * source is < -1, sets the OPERR bit ... and returns a NAN". */
+  const ap_m68882_extended_t below = {true, AP_M68882_BIAS_EXTENDED,
+                                      0xC000000000000000ULL};
+  const ap_m68882_op_t outside = ap_m68882_lognp1(
+      &below, AP_M68882_ROUND_NEAREST, AP_M68882_PRECISION_EXTENDED);
+  TEST_ASSERT_EQUAL_INT(AP_M68882_TYPE_NAN,
+                        ap_m68882_classify(&outside.value));
+  TEST_ASSERT_NOT_EQUAL_UINT(0u,
+                             outside.exceptions & (1u << AP_M68882_EXC_OPERR));
+  TEST_ASSERT_EQUAL_UINT(0u, outside.exceptions & (1u << AP_M68882_EXC_DZ));
+}
+
+static void test_lognp1_keeps_the_sign_of_a_zero(void) {
+  /* Its operation table prints "+0.0" and "-0.0" in the Zero column, so the
+   * sign is carried through and nothing is raised -- unlike `FLOGN`, where a
+   * zero of either sign is the pole. */
+  const ap_m68882_extended_t zero = {false, 0u, 0u};
+  const ap_m68882_extended_t minus_zero = {true, 0u, 0u};
+  const ap_m68882_op_t plus = ap_m68882_lognp1(&zero, AP_M68882_ROUND_NEAREST,
+                                               AP_M68882_PRECISION_EXTENDED);
+  const ap_m68882_op_t minus = ap_m68882_lognp1(
+      &minus_zero, AP_M68882_ROUND_NEAREST, AP_M68882_PRECISION_EXTENDED);
+  TEST_ASSERT_EQUAL_INT(AP_M68882_TYPE_ZERO, ap_m68882_classify(&plus.value));
+  TEST_ASSERT_FALSE(plus.value.sign);
+  TEST_ASSERT_EQUAL_UINT(0u, plus.exceptions);
+  TEST_ASSERT_EQUAL_INT(AP_M68882_TYPE_ZERO, ap_m68882_classify(&minus.value));
+  TEST_ASSERT_TRUE(minus.value.sign);
+  TEST_ASSERT_EQUAL_UINT(0u, minus.exceptions);
+}
+
+static void test_a_denormal_argument_is_normalised_before_reduction(void) {
+  /* A denormal's significand is not in `[1, 2)`, so taking its logarithm
+   * without normalising first would reduce the wrong number -- and denormals
+   * are exactly where a logarithm is most likely to be asked for, since they
+   * are the values a program is trying to find the magnitude of. */
+  const ap_m68882_extended_t denormal = {false, 0u, 0x4000000000000000ULL};
+  const ap_m68882_op_t got = ap_m68882_logn(&denormal, AP_M68882_ROUND_NEAREST,
+                                            AP_M68882_PRECISION_EXTENDED);
+  TEST_ASSERT_EQUAL_INT(AP_M68882_TYPE_NORMALIZED,
+                        ap_m68882_classify(&got.value));
+  TEST_ASSERT_TRUE_MESSAGE(got.value.sign,
+                           "the logarithm of a tiny value is negative");
+  /* `ln(2^-16383)` is about -11356, which has an exponent of 13. */
+  TEST_ASSERT_EQUAL_UINT(AP_M68882_BIAS_EXTENDED + 13, got.value.exponent);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_the_exponential_is_inside_the_typical_error_bound);
@@ -479,6 +814,13 @@ int main(void) {
   RUN_TEST(test_a_nan_propagates_and_a_signalling_one_is_reported);
   RUN_TEST(test_ten_to_the_one_is_exactly_ten_and_the_part_disagrees);
   RUN_TEST(test_an_overflowing_argument_reports_rather_than_wraps);
+  RUN_TEST(test_the_logarithms_are_inside_the_typical_error_bound);
+  RUN_TEST(test_log_base_two_of_a_power_of_two_is_exact);
+  RUN_TEST(test_lognp1_keeps_the_bits_a_leading_one_would_swallow);
+  RUN_TEST(test_a_negative_argument_is_an_operand_error);
+  RUN_TEST(test_the_two_singularities_return_different_things);
+  RUN_TEST(test_lognp1_keeps_the_sign_of_a_zero);
+  RUN_TEST(test_a_denormal_argument_is_normalised_before_reduction);
   RUN_TEST(test_the_result_precision_is_the_callers_and_the_steps_are_not);
   return UNITY_END();
 }

@@ -111,6 +111,22 @@ static ap_m68882_status_t execute_register_to_register(
   case AP_M68882_OP_FTENTOX:
     result = ap_m68882_tentox(&source, mode, precision);
     break;
+
+  /* §4.3.2's logarithms. `FLOG2` and `FLOGNP1` are not compositions of
+   * `FLOGN` -- see the transcendental module's header for why each is its own
+   * reduction. */
+  case AP_M68882_OP_FLOGN:
+    result = ap_m68882_logn(&source, mode, precision);
+    break;
+  case AP_M68882_OP_FLOGNP1:
+    result = ap_m68882_lognp1(&source, mode, precision);
+    break;
+  case AP_M68882_OP_FLOG2:
+    result = ap_m68882_log2(&source, mode, precision);
+    break;
+  case AP_M68882_OP_FLOG10:
+    result = ap_m68882_log10(&source, mode, precision);
+    break;
   case AP_M68882_OP_FGETEXP:
     result = ap_m68882_getexp(&source);
     break;
@@ -164,16 +180,12 @@ static ap_m68882_status_t execute_register_to_register(
    * these, and dressing our gap up as the machine's behaviour would make it
    * invisible. */
   case AP_M68882_OP_FSINH:
-  case AP_M68882_OP_FLOGNP1:
   case AP_M68882_OP_FTANH:
   case AP_M68882_OP_FATAN:
   case AP_M68882_OP_FASIN:
   case AP_M68882_OP_FATANH:
   case AP_M68882_OP_FSIN:
   case AP_M68882_OP_FTAN:
-  case AP_M68882_OP_FLOGN:
-  case AP_M68882_OP_FLOG10:
-  case AP_M68882_OP_FLOG2:
   case AP_M68882_OP_FCOSH:
   case AP_M68882_OP_FACOS:
   case AP_M68882_OP_FCOS:

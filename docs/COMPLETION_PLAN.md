@@ -1957,7 +1957,16 @@ a 68882, and the 68882 is the only one of these it has.
               alone on every platform. *Verification:
               `m68882_transcendental_suite`, 10 tests. Detail in
               `PROJECT_STATUS.md`.*
-        - [ ] The logarithms: `FLOGN`, `FLOGNP1`, `FLOG10`, `FLOG2`.
+        - [x] The logarithms: `FLOGN`, `FLOGNP1`, `FLOG10`, `FLOG2`, worst
+              case **under 2 units in the last place** over arguments spanning
+              `2^-9000` to `2^9000`. `FLOG2` of a power of two is exact and
+              raises no `INEX2`. Landing them found a **live bug in `FDIV`**:
+              the quotient was halved whenever the dividend's significand was
+              the smaller, which is about half of all divides, and twenty-seven
+              existing tests missed it because `x/x` and the round-trip
+              properties never enter that branch. *Verification:
+              `m68882_transcendental_suite` 17 tests, `m68882_arith_suite` +2.
+              Detail in `PROJECT_STATUS.md`.*
         - [ ] The trigonometric: `FSIN`, `FCOS`, `FSINCOS`, `FTAN`.
         - [ ] The inverse trigonometric: `FATAN`, `FASIN`, `FACOS`.
         - [ ] The hyperbolic: `FSINH`, `FCOSH`, `FTANH`, `FATANH`.

@@ -434,15 +434,30 @@ ap_m68882_op_t ap_m68882_div(const ap_m68882_extended_t *a,
    * and a sticky built from whether any remainder is left. Bitwise rather than
    * by a wider type for the same portability reason as the multiply.
    *
-   * The dividend is normalised against the divisor **first**, so the quotient's
-   * leading one always lands at bit 63. Both mantissas are in [1,2), so their
-   * quotient is in [0.5,2) -- and without this the [0.5,1) half would produce a
-   * quotient one bit short and a value half what it should be. */
+   * Both mantissas are in [1,2), so their quotient is in [0.5,2) and the
+   * leading one lands in one of two places. The two cases are therefore
+   * *different lengths of division*, not merely different exponents:
+   *
+   *   dividend >= divisor: the first quotient bit is a one. Store it, then take
+   *   63 more, and the leading one is at bit 63 with the exponent unchanged.
+   *
+   *   dividend < divisor: the first quotient bit is a zero, which carries no
+   *   information and is not stored. The exponent drops by one to account for
+   *   it, and the division runs **64** times rather than 63 so that the leading
+   *   one still ends at bit 63.
+   *
+   * Adjusting the exponent without lengthening the division is the trap: it
+   * gives a quotient whose leading one sits at bit 62 *and* an exponent already
+   * reduced, so the answer comes out exactly half. That is what `2/3` and
+   * `0.25/2.25` did, while `x/x` and `4/2` -- where the dividend is not the
+   * smaller -- stayed correct and hid it. */
   uint64_t remainder = a->mantissa;
   uint64_t quotient = 0;
+  unsigned iterations = 63u;
   int exponent = (int)a->exponent - (int)b->exponent + AP_M68882_BIAS_EXTENDED;
   if (remainder < b->mantissa) {
     exponent -= 1;
+    iterations = 64u;
   } else {
     /* Halve the dividend rather than doubling it, since doubling would leave
      * the 64-bit register. The bit that falls off is always zero here: the
@@ -452,12 +467,11 @@ ap_m68882_op_t ap_m68882_div(const ap_m68882_extended_t *a,
     quotient = 1u;
   }
 
-  /* 63 more bits complete the 64-bit mantissa, its leading one already at the
-   * top by construction. A left shift of the remainder can lose its own top
-   * bit, so that bit is carried explicitly -- losing it silently makes the
-   * comparison wrong for exactly the operands whose remainder has grown large,
-   * which is most of them. */
-  for (unsigned i = 0; i < 63u; i++) {
+  /* A left shift of the remainder can lose its own top bit, so that bit is
+   * carried explicitly -- losing it silently makes the comparison wrong for
+   * exactly the operands whose remainder has grown large, which is most of
+   * them. */
+  for (unsigned i = 0; i < iterations; i++) {
     const bool carry = (remainder & (UINT64_C(1) << 63)) != 0u;
     remainder <<= 1;
     quotient <<= 1;

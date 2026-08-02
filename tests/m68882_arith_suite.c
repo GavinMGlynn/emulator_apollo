@@ -530,6 +530,78 @@ static void test_scale_is_exact_exponent_arithmetic(void) {
   TEST_ASSERT_TRUE(raised(&infinite, AP_M68882_EXC_OPERR));
 }
 
+static void test_a_divide_normalises_when_the_dividend_is_the_smaller(void) {
+  /* A regression, and one that had survived twenty tests in this file.
+   *
+   * Two significands are each in [1,2), so their quotient is in [0.5,2) and the
+   * leading one lands in one of two places. When the dividend's significand is
+   * the smaller, the first quotient bit is a zero, the exponent must drop by
+   * one to account for it, **and the division must run one bit longer** so the
+   * leading one still reaches bit 63. Dropping the exponent without lengthening
+   * the division halves the answer.
+   *
+   * That is what `ap_m68882_div` did, for roughly half of all divides. It
+   * survived because every property this suite checked happens to use operands
+   * where the dividend is not the smaller: `x / x` has equal significands,
+   * and the multiply-then-divide round trips were built from values that
+   * divided the other way. A property test is only as good as the operands it
+   * is given, and "commutative", "inverse" and "self" are all satisfiable
+   * without ever entering this branch.
+   *
+   * The values are chosen so the quotient is not representable, which is what
+   * makes the halving visible rather than hidden in an exact power of two. */
+  const ap_m68882_extended_t two = {false, 0x4000, 0x8000000000000000ULL};
+  const ap_m68882_extended_t three = {false, 0x4000, 0xC000000000000000ULL};
+  const ap_m68882_op_t two_thirds =
+      ap_m68882_div(&two, &three, AP_M68882_ROUND_NEAREST,
+                    AP_M68882_PRECISION_EXTENDED);
+  /* 2/3 is 1.333... x 2^-1. */
+  TEST_ASSERT_EQUAL_UINT(0x3FFEu, two_thirds.value.exponent);
+  TEST_ASSERT_EQUAL_UINT64(0xAAAAAAAAAAAAAAABULL, two_thirds.value.mantissa);
+  TEST_ASSERT_FALSE(two_thirds.value.sign);
+
+  /* And with different exponents as well as different significands, so the
+   * exponent arithmetic and the normalisation are both exercised. */
+  const ap_m68882_extended_t quarter = {false, 0x3FFD, 0x8000000000000000ULL};
+  const ap_m68882_extended_t two_and_a_quarter = {false, 0x4000,
+                                                  0x9000000000000000ULL};
+  const ap_m68882_op_t ninth =
+      ap_m68882_div(&quarter, &two_and_a_quarter, AP_M68882_ROUND_NEAREST,
+                    AP_M68882_PRECISION_EXTENDED);
+  /* 0.25/2.25 is 1/9, which is 1.777... x 2^-4. */
+  TEST_ASSERT_EQUAL_UINT(0x3FFBu, ninth.value.exponent);
+  TEST_ASSERT_EQUAL_UINT64(0xE38E38E38E38E38EULL, ninth.value.mantissa);
+}
+
+static void test_every_quotient_comes_back_normalised(void) {
+  /* The general form of the fault above: whatever the operands, the result of a
+   * finite non-zero divide must have its integer bit set. An unnormalised
+   * significand with a normal exponent is not a representable extended value at
+   * all, and it is the shape the halving bug produced. */
+  const ap_m68882_extended_t values[] = {
+      {false, 0x3FFF, 0x8000000000000000ULL}, /* 1 */
+      {false, 0x4000, 0xC000000000000000ULL}, /* 3 */
+      {false, 0x3FFD, 0x9000000000000000ULL},
+      {false, 0x4005, 0xFFFFFFFFFFFFFFFFULL},
+      {false, 0x3F00, 0x8000000000000001ULL},
+      {false, 0x4100, 0xB504F333F9DE6484ULL},
+  };
+  const unsigned n = sizeof values / sizeof values[0];
+  for (unsigned i = 0; i < n; i++) {
+    for (unsigned j = 0; j < n; j++) {
+      const ap_m68882_op_t q =
+          ap_m68882_div(&values[i], &values[j], AP_M68882_ROUND_NEAREST,
+                        AP_M68882_PRECISION_EXTENDED);
+      if (q.value.exponent == 0u || q.value.exponent == 0x7FFFu) {
+        continue; /* a denormal or an infinity is a different question */
+      }
+      TEST_ASSERT_TRUE_MESSAGE(
+          (q.value.mantissa & (1ULL << 63)) != 0u,
+          "a divide returned an unnormalised significand");
+    }
+  }
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_a_square_root_is_exact_for_perfect_squares);
@@ -559,5 +631,7 @@ int main(void) {
   RUN_TEST(test_multiplication_is_commutative);
   RUN_TEST(test_a_value_divided_by_itself_is_one);
   RUN_TEST(test_multiply_and_divide_invert_each_other);
+  RUN_TEST(test_a_divide_normalises_when_the_dividend_is_the_smaller);
+  RUN_TEST(test_every_quotient_comes_back_normalised);
   return UNITY_END();
 }

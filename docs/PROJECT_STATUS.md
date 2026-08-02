@@ -1250,8 +1250,47 @@ extended, not from the decimal literal. Rounding `7973.123456789012` to 64 bits
 moves it half a unit in the last place, and for an exponential that is a
 relative change of the same size in the answer.
 
-The remaining four families -- logarithmic, trigonometric, inverse
-trigonometric and hyperbolic -- are named plan items.
+**The logarithms are in too**, at a worst case under two units in the last
+place over arguments from `2^-9000` to `2^9000`. All four reduce `x` to
+`m * 2^k` with `m` in `[1/sqrt2, sqrt2)` and evaluate `ln(m)` as
+`2 atanh((m-1)/(m+1))` -- a substitution that maps the whole reduced range onto
+`|s| <= 0.1716`, leaves only odd powers, and is at its *best* exactly where a
+series in `m - 1` would be at its worst, because `m - 1` is exact there by
+Sterbenz's rule. `FLOG2` keeps its exponent term an exact integer rather than
+dividing at the end, so the logarithm of a power of two is that power exactly
+and raises no `INEX2`.
+
+**And landing them found a live bug in `FDIV`.** The quotient was halved
+whenever the dividend's significand was the smaller of the two -- roughly half
+of all divides. Two significands in `[1,2)` give a quotient in `[0.5,2)`, so
+that case needs the exponent to drop by one *and* the long division to run one
+bit longer; the code did the first without the second, leaving the leading one
+at bit 62 with an already-reduced exponent. `2/3` came out as `1/3`.
+
+Twenty-seven tests in `m68882_arith_suite` missed it, and the reason is worth
+recording: every property they check -- commutativity, `x/x = 1`, multiply and
+divide inverting each other -- is satisfiable without ever entering that branch.
+`x/x` has equal significands. The round trips were built from values that
+divided the other way. A property test is only as good as the operands it is
+given, and these were chosen to demonstrate the property rather than to reach
+the code. Two regression tests now pin the exact quotients and assert that every
+finite quotient comes back normalised.
+
+**Three findings from the logarithms themselves.** `FLOGNP1(-1)` raises `DZ` and
+returns a **NAN**, where `FLOGN(0)` raises `DZ` and returns a **negative
+infinity** -- page 4-58's note 1 against page 4-56's operation table, read from
+both page images. The same mathematical pole with two different documented
+results, and modelling them alike returns an infinity from an instruction the
+manual says returns a NAN. `FLOGNP1`'s direct path is bounded at a *quarter* and
+not a half, because what limits it is not where `1 + x` starts rounding but
+where the series stops converging: `s = x/(x+2)` reaches `-1/3` at `x = -1/2`,
+twice what the coefficients were chosen for, and the truncation error there was
+four thousand units in the last place. And a denormal argument has to be
+normalised before reduction, since its significand is not in `[1,2)` at all --
+and denormals are exactly where a program asks for a logarithm.
+
+The remaining three families -- trigonometric, inverse trigonometric and
+hyperbolic -- are named plan items.
 
 So the gap is now specified rather than merely declared. The nineteen
 transcendentals are classified by the four families §4.3.2 names, with `FSQRT`
