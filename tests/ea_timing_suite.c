@@ -538,8 +538,104 @@ static void test_the_worked_examples_memory_indirect_row_is_reachable(void) {
   TEST_ASSERT_EQUAL_UINT(10u, row->timing.cache_case);
 }
 
+
+/* §11.6.3's full-format rows, and the reason they matter beyond completeness:
+ * they **confirm the `PROVISIONAL` reading on a second, independently typeset
+ * table**. Every group A row equals its group B row with the base displacement
+ * dropped, in the calculate table exactly as in the fetch one -- so the pattern
+ * now holds over sixteen rows across two tables with no counterexample. */
+static void test_the_calculate_table_confirms_the_same_reading(void) {
+  const struct {
+    ap_m68030_bd_size_t bd;
+    ap_m68030_indirect_t indirect;
+    ap_m68030_od_size_t od;
+  } PAIRS[] = {
+      {AP_M68030_BD_NULL, AP_M68030_INDIRECT_NONE, AP_M68030_OD_NONE},
+      {AP_M68030_BD_NULL, AP_M68030_INDIRECT_MEMORY, AP_M68030_OD_NULL},
+      {AP_M68030_BD_NULL, AP_M68030_INDIRECT_MEMORY, AP_M68030_OD_WORD},
+      {AP_M68030_BD_NULL, AP_M68030_INDIRECT_MEMORY, AP_M68030_OD_LONG},
+  };
+
+  for (unsigned i = 0; i < sizeof PAIRS / sizeof PAIRS[0]; i++) {
+    /* The group B row: a null base displacement. */
+    const ap_m68030_extension_t dropped =
+        full(PAIRS[i].bd, false, PAIRS[i].indirect, PAIRS[i].od);
+    /* The group A row: a word base displacement with a register base, which the
+     * reading says is free -- so the two must cost the same. */
+    const ap_m68030_extension_t word =
+        full(AP_M68030_BD_WORD, false, PAIRS[i].indirect, PAIRS[i].od);
+
+    const ap_m68030_ea_timing_t *a = ap_m68030_ea_calculate_timing_full(&dropped);
+    const ap_m68030_ea_timing_t *b = ap_m68030_ea_calculate_timing_full(&word);
+    TEST_ASSERT_NOT_NULL(a);
+    TEST_ASSERT_NOT_NULL(b);
+    TEST_ASSERT_EQUAL_UINT_MESSAGE(a->timing.cache_case, b->timing.cache_case,
+                                   b->mode);
+
+    /* And the same relationship in the fetch table, which is the point: two
+     * tables, one pattern. */
+    const ap_m68030_ea_timing_t *fa = ap_m68030_ea_fetch_timing_full(&dropped);
+    const ap_m68030_ea_timing_t *fb = ap_m68030_ea_fetch_timing_full(&word);
+    TEST_ASSERT_NOT_NULL(fa);
+    TEST_ASSERT_NOT_NULL(fb);
+    TEST_ASSERT_EQUAL_UINT_MESSAGE(fa->timing.cache_case, fb->timing.cache_case,
+                                   fb->mode);
+  }
+}
+
+/* Calculating reads one fewer than fetching, at every full-format row: §11.6.3
+ * includes "fetch time ... only for the first level of indirection", and a
+ * non-indirect calculate reads nothing at all. Getting this backwards would
+ * cost or save a memory access on every indirect address -- the same size of
+ * error C9 measured, at every full-format mode rather than one. */
+static void test_calculating_reads_one_fewer_than_fetching(void) {
+  const ap_m68030_bd_size_t bds[] = {AP_M68030_BD_NULL, AP_M68030_BD_WORD,
+                                     AP_M68030_BD_LONG};
+  for (unsigned b = 0; b < 3u; b++) {
+    const ap_m68030_extension_t plain =
+        full(bds[b], false, AP_M68030_INDIRECT_NONE, AP_M68030_OD_NONE);
+    TEST_ASSERT_EQUAL_UINT(
+        0u, ap_m68030_ea_calculate_timing_full(&plain)->timing.reads);
+    TEST_ASSERT_EQUAL_UINT(
+        1u, ap_m68030_ea_fetch_timing_full(&plain)->timing.reads);
+
+    const ap_m68030_extension_t indirect =
+        full(bds[b], false, AP_M68030_INDIRECT_MEMORY, AP_M68030_OD_NULL);
+    TEST_ASSERT_EQUAL_UINT(
+        1u, ap_m68030_ea_calculate_timing_full(&indirect)->timing.reads);
+    TEST_ASSERT_EQUAL_UINT(
+        2u, ap_m68030_ea_fetch_timing_full(&indirect)->timing.reads);
+  }
+}
+
+/* `(B)` carries "6+op head" in the calculate table where its group A
+ * counterpart carries a plain 2. So the two groups differ in *kind* there and
+ * not only in value, which is corroboration the fetch table cannot give -- its
+ * heads are all plain numbers. */
+static void test_the_calculate_groups_differ_in_kind_not_only_value(void) {
+  const ap_m68030_extension_t general =
+      full(AP_M68030_BD_NULL, false, AP_M68030_INDIRECT_NONE,
+           AP_M68030_OD_NONE);
+  const ap_m68030_extension_t based =
+      full(AP_M68030_BD_WORD, false, AP_M68030_INDIRECT_NONE,
+           AP_M68030_OD_NONE);
+
+  const ap_m68030_ea_timing_t *b = ap_m68030_ea_calculate_timing_full(&general);
+  const ap_m68030_ea_timing_t *a = ap_m68030_ea_calculate_timing_full(&based);
+  TEST_ASSERT_NOT_NULL(a);
+  TEST_ASSERT_NOT_NULL(b);
+
+  TEST_ASSERT_TRUE(b->head_adds_operation);
+  TEST_ASSERT_FALSE(a->head_adds_operation);
+  TEST_ASSERT_EQUAL_UINT(6u, ap_m68030_ea_timing_head(b, 0u));
+  TEST_ASSERT_EQUAL_UINT(2u, ap_m68030_ea_timing_head(a, 4u));
+}
+
 int main(void) {
   UNITY_BEGIN();
+  RUN_TEST(test_the_calculate_table_confirms_the_same_reading);
+  RUN_TEST(test_calculating_reads_one_fewer_than_fetching);
+  RUN_TEST(test_the_calculate_groups_differ_in_kind_not_only_value);
   RUN_TEST(test_every_full_format_combination_has_a_row);
   RUN_TEST(test_a_word_base_displacement_is_free_with_a_register_base);
   RUN_TEST(test_a_long_base_displacement_is_never_free);

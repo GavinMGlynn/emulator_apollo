@@ -1102,8 +1102,23 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
           and the worked example's `fea ([B])` now reachable by lookup, so that
           test's hand-supplied inputs and this table agree from two different
           pages.*
-    - [ ] **Remaining, each named rather than left implicit:** §11.6.3's
-          full-format rows, the calculate half of the same pass; §11.6.2, Fetch
+    - [x] **§11.6.3's full-format rows too, and they confirm the reading on a
+          second table.** Every group A row equals its group B row with the base
+          displacement dropped in the calculate table exactly as in the fetch
+          one, so the pattern holds over sixteen rows across two independently
+          typeset tables with no counterexample. The head column corroborates it
+          in a way the fetch table cannot: there the group A rows carry a plain
+          head where `(B)` carries "6+op head", so the groups differ in *kind*
+          and not only in value.
+          *Verification: `ea_timing_suite`, 3 further tests (22 total) -- the
+          two tables' patterns asserted together rather than separately;
+          calculating reading one fewer than fetching at every row, which is
+          §11.6.3's "fetch time ... only for the first level of indirection";
+          and the head kinds told apart.*
+    - [x] Four more `p` counts corrected in the calculate table, the same defect
+          the fetch table had and found the same way -- by reading the page
+          rather than a text extraction of it.
+    - [ ] **Remaining, each named rather than left implicit:** §11.6.2, Fetch
           Immediate Effective Address, which the `**` rows need; and the
           **change-of-flow rows' prefetch cost**, declined because the target's
           alignment decides the fetch count -- their warm figures are exact and

@@ -58,13 +58,13 @@ static const ap_m68030_ea_timing_t CALCULATE_POSTINCREMENT = {
 static const ap_m68030_ea_timing_t CALCULATE_PREDECREMENT = {
     "-(An)", {2, 0, 2, 2, .prefetches = 0}, true, true};
 static const ap_m68030_ea_timing_t CALCULATE_DISPLACEMENT = {
-    "(d16,An) or (d16,PC)", {2, 0, 2, 2, .prefetches = 0}, true, true};
+    "(d16,An) or (d16,PC)", {2, 0, 2, 2, .prefetches = 1}, true, true};
 static const ap_m68030_ea_timing_t CALCULATE_ABSOLUTE_SHORT = {
-    "(xxx).W", {2, 0, 2, 2, .prefetches = 0}, true, true};
+    "(xxx).W", {2, 0, 2, 2, .prefetches = 1}, true, true};
 static const ap_m68030_ea_timing_t CALCULATE_ABSOLUTE_LONG = {
-    "(xxx).L", {4, 0, 4, 4, .prefetches = 0}, true, true};
+    "(xxx).L", {4, 0, 4, 4, .prefetches = 1}, true, true};
 static const ap_m68030_ea_timing_t CALCULATE_INDEXED = {
-    "(d8,An,Xn) or (d8,PC,Xn)", {4, 0, 4, 4, .prefetches = 0}, true, true};
+    "(d8,An,Xn) or (d8,PC,Xn)", {4, 0, 4, 4, .prefetches = 1}, true, true};
 
 /* §11.6.1's FULL FORMAT EXTENSION WORD(S) rows, transcribed from the page image.
  * Sixteen entries: four base-displacement cases against four outer-displacement
@@ -187,6 +187,125 @@ ap_m68030_ea_fetch_timing_full(const ap_m68030_extension_t *extension) {
        * when it is null. `NONE` means there is no indirection at all, which the
        * arm above handles -- so reaching here is an inconsistent decode rather
        * than a row this table lacks. */
+      break;
+    }
+    return nullptr;
+
+  case AP_M68030_INDIRECT_RESERVED:
+    break;
+  }
+  return nullptr;
+}
+
+
+/* §11.6.3's FULL FORMAT EXTENSION WORD(S) rows, from the page image.
+ *
+ * The same sixteen-way space as the fetch table's, and it **confirms the
+ * reading** that selects between the table's two groups on a second, entirely
+ * separate table: `(d16,An)` is 6 against `(B)`'s 6, `([d16,An])` 10 against
+ * `([B])`'s 10, `([d16,An],d16)` 12 against `([B],d16)`'s 12 -- every group A
+ * row equal to its group B row with the base displacement dropped, exactly as
+ * in §11.6.1. Sixteen rows across two tables with no counterexample.
+ *
+ * The head column corroborates it in a way the fetch table cannot: here the
+ * group A rows carry a *plain* head of 2 while `(B)` carries "6+op head", so
+ * the two groups differ in kind and not merely in value.
+ *
+ * Reads are one fewer than the fetch table's throughout, which is §11.6.3's own
+ * sentence: "Fetch time is only included for the first level of indirection on
+ * memory indirect addressing modes." A non-indirect calculate reads nothing at
+ * all. */
+static const ap_m68030_ea_timing_t CALC_FULL_NONE_BD_NULL = {
+    "(B)", {6, 0, 6, 6, .prefetches = 1}, true, true};
+static const ap_m68030_ea_timing_t CALC_FULL_NONE_BD_WORD_BASED = {
+    "(d16,An) or (d16,PC)", {2, 0, 6, 6, .prefetches = 1}, true, false};
+static const ap_m68030_ea_timing_t CALC_FULL_NONE_BD_WORD = {
+    "(d16,B)", {4, 0, 8, 9, .prefetches = 1}, true, false};
+static const ap_m68030_ea_timing_t CALC_FULL_NONE_BD_LONG = {
+    "(d32,B)", {4, 0, 12, 12, .prefetches = 2}, true, false};
+
+static const ap_m68030_ea_timing_t CALC_FULL_OD_NULL_BD_NULL = {
+    "([B])", {4, 0, 10, 10, .reads = 1, .prefetches = 1}, true, false};
+static const ap_m68030_ea_timing_t CALC_FULL_OD_NULL_BD_WORD_BASED = {
+    "([d16,An]) or ([d16,PC])", {2, 0, 10, 10, .reads = 1, .prefetches = 1},
+    true, false};
+static const ap_m68030_ea_timing_t CALC_FULL_OD_NULL_BD_WORD = {
+    "([d16,B])", {4, 0, 12, 13, .reads = 1, .prefetches = 1}, true, false};
+static const ap_m68030_ea_timing_t CALC_FULL_OD_NULL_BD_LONG = {
+    "([d32,B])", {4, 0, 16, 17, .reads = 1, .prefetches = 2}, true, false};
+
+static const ap_m68030_ea_timing_t CALC_FULL_OD_WORD_BD_NULL = {
+    "([B],d16)", {4, 0, 12, 13, .reads = 1, .prefetches = 1}, true, false};
+static const ap_m68030_ea_timing_t CALC_FULL_OD_WORD_BD_WORD_BASED = {
+    "([d16,An],d16)", {2, 0, 12, 13, .reads = 1, .prefetches = 2}, true, false};
+static const ap_m68030_ea_timing_t CALC_FULL_OD_WORD_BD_WORD = {
+    "([d16,B],d16)", {4, 0, 14, 16, .reads = 1, .prefetches = 2}, true, false};
+static const ap_m68030_ea_timing_t CALC_FULL_OD_WORD_BD_LONG = {
+    "([d32,B],d16)", {4, 0, 18, 20, .reads = 1, .prefetches = 2}, true, false};
+
+static const ap_m68030_ea_timing_t CALC_FULL_OD_LONG_BD_NULL = {
+    "([B],d32)", {4, 0, 12, 13, .reads = 1, .prefetches = 2}, true, false};
+static const ap_m68030_ea_timing_t CALC_FULL_OD_LONG_BD_WORD_BASED = {
+    "([d16,An],d32)", {2, 0, 12, 13, .reads = 1, .prefetches = 2}, true, false};
+static const ap_m68030_ea_timing_t CALC_FULL_OD_LONG_BD_WORD = {
+    "([d16,B],d32)", {4, 0, 14, 16, .reads = 1, .prefetches = 2}, true, false};
+static const ap_m68030_ea_timing_t CALC_FULL_OD_LONG_BD_LONG = {
+    "([d32,B],d32)", {4, 0, 18, 20, .reads = 1, .prefetches = 3}, true, false};
+
+const ap_m68030_ea_timing_t *
+ap_m68030_ea_calculate_timing_full(const ap_m68030_extension_t *extension) {
+  if (extension == nullptr || !extension->full_format || extension->reserved) {
+    return nullptr;
+  }
+  const bool word_based = extension->base_displacement_size == AP_M68030_BD_WORD &&
+                          !extension->base_suppressed;
+
+  switch (extension->indirect) {
+  case AP_M68030_INDIRECT_NONE:
+    switch (extension->base_displacement_size) {
+    case AP_M68030_BD_NULL: return &CALC_FULL_NONE_BD_NULL;
+    case AP_M68030_BD_WORD:
+      return word_based ? &CALC_FULL_NONE_BD_WORD_BASED : &CALC_FULL_NONE_BD_WORD;
+    case AP_M68030_BD_LONG: return &CALC_FULL_NONE_BD_LONG;
+    case AP_M68030_BD_RESERVED: break;
+    }
+    return nullptr;
+
+  case AP_M68030_INDIRECT_PREINDEXED:
+  case AP_M68030_INDIRECT_POSTINDEXED:
+  case AP_M68030_INDIRECT_MEMORY:
+    switch (extension->outer_displacement_size) {
+    case AP_M68030_OD_NULL:
+      switch (extension->base_displacement_size) {
+      case AP_M68030_BD_NULL: return &CALC_FULL_OD_NULL_BD_NULL;
+      case AP_M68030_BD_WORD:
+        return word_based ? &CALC_FULL_OD_NULL_BD_WORD_BASED
+                          : &CALC_FULL_OD_NULL_BD_WORD;
+      case AP_M68030_BD_LONG: return &CALC_FULL_OD_NULL_BD_LONG;
+      case AP_M68030_BD_RESERVED: break;
+      }
+      return nullptr;
+    case AP_M68030_OD_WORD:
+      switch (extension->base_displacement_size) {
+      case AP_M68030_BD_NULL: return &CALC_FULL_OD_WORD_BD_NULL;
+      case AP_M68030_BD_WORD:
+        return word_based ? &CALC_FULL_OD_WORD_BD_WORD_BASED
+                          : &CALC_FULL_OD_WORD_BD_WORD;
+      case AP_M68030_BD_LONG: return &CALC_FULL_OD_WORD_BD_LONG;
+      case AP_M68030_BD_RESERVED: break;
+      }
+      return nullptr;
+    case AP_M68030_OD_LONG:
+      switch (extension->base_displacement_size) {
+      case AP_M68030_BD_NULL: return &CALC_FULL_OD_LONG_BD_NULL;
+      case AP_M68030_BD_WORD:
+        return word_based ? &CALC_FULL_OD_LONG_BD_WORD_BASED
+                          : &CALC_FULL_OD_LONG_BD_WORD;
+      case AP_M68030_BD_LONG: return &CALC_FULL_OD_LONG_BD_LONG;
+      case AP_M68030_BD_RESERVED: break;
+      }
+      return nullptr;
+    case AP_M68030_OD_NONE:
       break;
     }
     return nullptr;

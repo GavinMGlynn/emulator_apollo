@@ -100,6 +100,18 @@ ap_m68030_ea_calculate_timing(ap_m68030_ea_kind_t kind);
 [[nodiscard]] const ap_m68030_ea_timing_t *
 ap_m68030_ea_fetch_timing_full(const ap_m68030_extension_t *extension);
 
+/* §11.6.3's full-format rows, the calculate half of the same pass.
+ *
+ * It **confirms the reading above on a second table**: every group A row equals
+ * its group B row with the base displacement dropped, exactly as in §11.6.1, so
+ * the pattern now holds over sixteen rows across two independently typeset
+ * tables with no counterexample. The head column corroborates it in a way the
+ * fetch table cannot -- here the group A rows carry a plain head of 2 while
+ * `(B)` carries "6+op head", so the groups differ in kind and not only in
+ * value. */
+[[nodiscard]] const ap_m68030_ea_timing_t *
+ap_m68030_ea_calculate_timing_full(const ap_m68030_extension_t *extension);
+
 /* ---------------------------------------------------------------------------
  * Equation (11-2): composing an effective address with its operation.
  * ------------------------------------------------------------------------- */
