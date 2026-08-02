@@ -119,6 +119,45 @@ def main() -> int:
           E.moveq(0x5A, 0) + E.move_l_dn_to_abs(0, 0x1800) + E.stop(0x2700))
     check("sentinel probe is six words", len(E.sentinel_probe()), 6)
 
+    # The probe programs the oracle campaign added, checked against the
+    # manual's bit layouts rather than against the encoder. They are
+    # hand-assembled hex, and nothing else checks them: a wrong opcode would
+    # surface only as a mysterious disagreement with the oracle -- the shape
+    # `FINDINGS.md` C75 shows is easy to mistake for a real finding.
+    #
+    # The *displacements* are what these check, because they are the fields
+    # computed rather than written and each has its own base.
+
+    # `DBcc`'s displacement is relative to the address of its own extension
+    # word -- the opcode word plus two -- so a loop back over a one-word body
+    # is -4, not -2. And the body exists at all only because a self-loop leaves
+    # the program counter unmoved, which the oracle harness reads as a halt.
+    dbcc = E.dbcc_probe(0x1800)
+    check("DBcc loop body is a NOP", dbcc[1], 0x4E71)
+    check("DBcc displacement is -4", dbcc[3], 0xFFFC)
+
+    # `BSR`'s is relative to the same place, and the subroutine sits after the
+    # `STOP` so the fall-through path never reaches it.
+    bsr = E.subroutine_probe(0x1800, 0x1000)
+    check("BSR displacement reaches the subroutine",
+          0x1000 + 2 + ((bsr[1] ^ 0x8000) - 0x8000), 0x1000 + 14)
+    check("subroutine returns", bsr[-1], 0x4E75)
+
+    # `MOVEM`'s two masks are the reversal itself: `D0-D2` is bits 15-13 going
+    # out through a predecrement and bits 0-2 coming back through a
+    # postincrement. Writing one mask for both is the mistake the probe exists
+    # to catch, and writing it here would hide it.
+    movem = E.movem_probe(0x1800)
+    check("MOVEM predecrement mask is D0-D2 at bits 15-13", movem[5], 0xE000)
+    check("MOVEM postincrement mask is D3-D5 at bits 3-5", movem[7], 0x0038)
+
+    # The fault probes plant one vector each, and at different offsets: vector
+    # 4 for an illegal instruction, vector 2 for a bus error.
+    check("illegal-instruction probe plants vector 4",
+          E.fault_probe(0x1000, 0x1800)[4], (0x1000 + 0x100 + 0x10) & 0xFFFF)
+    check("bus-fault probe plants vector 2",
+          E.bus_fault_probe(0x1000, 0x1800)[4], (0x1000 + 0x100 + 8) & 0xFFFF)
+
     if failures:
         sys.stderr.write("\n%d check(s) failed\n" % failures)
         return 1
