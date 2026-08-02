@@ -350,6 +350,142 @@ static void test_the_unused_opclasses_are_undefined(void) {
   }
 }
 
+
+/* ---------------------------------------------------------------------------
+ * The operation word's type field, and the conditions.
+ * ------------------------------------------------------------------------- */
+
+static void test_the_six_operation_word_types(void) {
+  /* The same encoding the 68882 uses on the same interface, which is what lets
+   * one F-line decoder serve both parts by cpID alone. Confirmed from the
+   * pages: PScc is type 001, PBcc 010/011 by its size bit, PSAVE 100 and
+   * PRESTORE 101. */
+  const struct { unsigned type; ap_m68851_type_t expected; } cases[] = {
+      {0u, AP_M68851_TYPE_GENERAL},     {1u, AP_M68851_TYPE_CONDITIONAL},
+      {2u, AP_M68851_TYPE_BRANCH_WORD}, {3u, AP_M68851_TYPE_BRANCH_LONG},
+      {4u, AP_M68851_TYPE_SAVE},        {5u, AP_M68851_TYPE_RESTORE},
+  };
+  for (unsigned i = 0; i < 6u; i++) {
+    const ap_m68851_operation_word_t w =
+        ap_m68851_decode_operation((uint16_t)(0xF000u | (cases[i].type << 6)));
+    TEST_ASSERT_TRUE(w.is_coprocessor);
+    TEST_ASSERT_EQUAL_UINT(AP_M68851_CPID, w.cpid);
+    TEST_ASSERT_EQUAL_INT(cases[i].expected, w.type);
+  }
+}
+
+static void test_the_operation_word_carries_the_cpid_and_an_address(void) {
+  const ap_m68851_operation_word_t w = ap_m68851_decode_operation(0xF23Au);
+  TEST_ASSERT_TRUE(w.is_coprocessor);
+  TEST_ASSERT_EQUAL_UINT(1u, w.cpid); /* the FPU, not the MMU */
+  TEST_ASSERT_EQUAL_UINT(0x3Au, w.effective_address);
+}
+
+static void test_pbcc_is_two_types_by_displacement_size(void) {
+  /* "Size field -- 0: the displacement is 16 bits; 1: 32 bits." The size bit is
+   * the low bit of the type field, so the two sizes are simply two types --
+   * which is why `PBcc.L` needs no extension word to say so. */
+  TEST_ASSERT_EQUAL_INT(AP_M68851_TYPE_BRANCH_WORD,
+                        ap_m68851_decode_operation(0xF080u).type);
+  TEST_ASSERT_EQUAL_INT(AP_M68851_TYPE_BRANCH_LONG,
+                        ap_m68851_decode_operation(0xF0C0u).type);
+}
+
+static void test_the_sixteen_conditions_are_eight_bits_tested_two_ways(void) {
+  /* `2k + (clear ? 1 : 0)` over B, L, S, A, W, I, G, C. Every even encoding
+   * tests set and every odd one tests clear. */
+  const ap_m68851_condition_bit_t order[8] = {
+      AP_M68851_COND_BUS_ERROR,
+      AP_M68851_COND_LIMIT_VIOLATION,
+      AP_M68851_COND_SUPERVISOR_ONLY,
+      AP_M68851_COND_ACCESS_LEVEL_VIOLATION,
+      AP_M68851_COND_WRITE_PROTECTED,
+      AP_M68851_COND_INVALID,
+      AP_M68851_COND_GATE,
+      AP_M68851_COND_GLOBALLY_SHARABLE};
+
+  for (unsigned k = 0; k < 8u; k++) {
+    const ap_m68851_condition_t set = ap_m68851_decode_condition(2u * k);
+    TEST_ASSERT_EQUAL_INT(order[k], set.bit);
+    TEST_ASSERT_FALSE(set.test_clear);
+
+    const ap_m68851_condition_t clear = ap_m68851_decode_condition(2u * k + 1u);
+    TEST_ASSERT_EQUAL_INT(order[k], clear.bit);
+    TEST_ASSERT_TRUE(clear.test_clear);
+  }
+}
+
+static void test_the_modified_bit_has_no_condition(void) {
+  /* `PSR` defines nine bits and only eight are testable: the condition list
+   * runs B, L, S, A, W, I, G, C with `M` skipped, and its encodings are
+   * contiguous from zero, leaving no gap where an `M` pair could sit. `M`
+   * reports a property of a page rather than the outcome of a test, and a
+   * program wanting it uses `PTEST` and reads the register. */
+  for (unsigned field = 0; field < 16u; field++) {
+    const ap_m68851_condition_t c = ap_m68851_decode_condition(field);
+    TEST_ASSERT_NOT_EQUAL_INT(AP_M68851_COND_UNDEFINED, c.bit);
+  }
+  /* Sixteen, and nothing above them. */
+  for (unsigned field = 16u; field < 64u; field++) {
+    TEST_ASSERT_EQUAL_INT(AP_M68851_COND_UNDEFINED,
+                          ap_m68851_decode_condition(field).bit);
+  }
+}
+
+static void test_a_condition_reads_the_psr_bit_it_names(void) {
+  /* The mapping is not one shift: `G` is PSR bit 8 and `C` bit 7, because `M`
+   * sits between them at bit 9 and is skipped. */
+  const uint16_t only_bus_error = 0x8000u;
+  const uint16_t only_gate = 0x0100u;
+  const uint16_t only_modified = 0x0200u;
+
+  TEST_ASSERT_TRUE(ap_m68851_condition_true(ap_m68851_decode_condition(0u),
+                                            only_bus_error));
+  TEST_ASSERT_FALSE(ap_m68851_condition_true(ap_m68851_decode_condition(1u),
+                                             only_bus_error));
+
+  TEST_ASSERT_TRUE(
+      ap_m68851_condition_true(ap_m68851_decode_condition(12u), only_gate));
+  /* The modified bit sets no condition at all -- if `G` were read one bit
+   * high it would fire here. */
+  TEST_ASSERT_FALSE(
+      ap_m68851_condition_true(ap_m68851_decode_condition(12u), only_modified));
+  TEST_ASSERT_FALSE(
+      ap_m68851_condition_true(ap_m68851_decode_condition(14u), only_modified));
+}
+
+static void test_every_condition_is_true_of_exactly_one_psr_bit(void) {
+  /* Sweeping all eight set-conditions against each of the nine PSR bits: each
+   * condition fires for one bit and no other, which pins the whole mapping
+   * including the skip over `M`. */
+  const uint16_t psr_bits[9] = {0x8000u, 0x4000u, 0x2000u, 0x1000u, 0x0800u,
+                                0x0400u, 0x0200u, 0x0100u, 0x0080u};
+  for (unsigned k = 0; k < 8u; k++) {
+    unsigned fired = 0;
+    for (unsigned b = 0; b < 9u; b++) {
+      if (ap_m68851_condition_true(ap_m68851_decode_condition(2u * k),
+                                   psr_bits[b])) {
+        fired++;
+      }
+    }
+    TEST_ASSERT_EQUAL_UINT(1u, fired);
+  }
+}
+
+static void test_the_three_psave_state_frame_sizes(void) {
+  /* 36 idle, 44 mid-coprocessor, 76 with breakpoints enabled. The sizes are
+   * how the restoring code knows which frame it has -- `PRESTORE` reads the
+   * length from the frame rather than being told. */
+  TEST_ASSERT_EQUAL_UINT(36u, AP_M68851_FRAME_IDLE_BYTES);
+  TEST_ASSERT_EQUAL_UINT(44u, AP_M68851_FRAME_MID_COPROCESSOR_BYTES);
+  TEST_ASSERT_EQUAL_UINT(76u, AP_M68851_FRAME_BREAKPOINTS_BYTES);
+  /* All three differ, which is what makes the length identify the frame. */
+  TEST_ASSERT_NOT_EQUAL_UINT(AP_M68851_FRAME_IDLE_BYTES,
+                             AP_M68851_FRAME_MID_COPROCESSOR_BYTES);
+  TEST_ASSERT_NOT_EQUAL_UINT(AP_M68851_FRAME_MID_COPROCESSOR_BYTES,
+                             AP_M68851_FRAME_BREAKPOINTS_BYTES);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_the_mmu_is_coprocessor_zero);
@@ -377,5 +513,13 @@ int main(void) {
   RUN_TEST(test_the_ptest_fields);
   RUN_TEST(test_a_ptest_level_of_zero_searches_only_the_atc);
   RUN_TEST(test_the_unused_opclasses_are_undefined);
+  RUN_TEST(test_the_six_operation_word_types);
+  RUN_TEST(test_the_operation_word_carries_the_cpid_and_an_address);
+  RUN_TEST(test_pbcc_is_two_types_by_displacement_size);
+  RUN_TEST(test_the_sixteen_conditions_are_eight_bits_tested_two_ways);
+  RUN_TEST(test_the_modified_bit_has_no_condition);
+  RUN_TEST(test_a_condition_reads_the_psr_bit_it_names);
+  RUN_TEST(test_every_condition_is_true_of_exactly_one_psr_bit);
+  RUN_TEST(test_the_three_psave_state_frame_sizes);
   return UNITY_END();
 }

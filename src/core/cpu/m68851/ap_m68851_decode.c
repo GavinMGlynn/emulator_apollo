@@ -27,6 +27,64 @@ bool ap_m68851_fc_reaches_dma(const ap_m68851_fc_spec_t *spec) {
          (spec->immediate & 0x8u) != 0u;
 }
 
+ap_m68851_operation_word_t ap_m68851_decode_operation(uint16_t word) {
+  return (ap_m68851_operation_word_t){
+      .is_coprocessor = (word & 0xF000u) == 0xF000u,
+      .cpid = (unsigned)((word >> 9) & 0x7u),
+      .type = (ap_m68851_type_t)((word >> 6) & 0x7u),
+      .effective_address = (unsigned)(word & 0x3Fu),
+  };
+}
+
+ap_m68851_condition_t ap_m68851_decode_condition(unsigned field) {
+  const unsigned index = (field >> 1) & 0x7u;
+  if (field > 0x0Fu) {
+    /* Only sixteen conditions are defined, in one contiguous run. */
+    return (ap_m68851_condition_t){.bit = AP_M68851_COND_UNDEFINED};
+  }
+  return (ap_m68851_condition_t){
+      .bit = (ap_m68851_condition_bit_t)index,
+      .test_clear = (field & 1u) != 0u,
+  };
+}
+
+bool ap_m68851_condition_true(ap_m68851_condition_t condition, uint16_t psr) {
+  /* The tested bits sit at PSR 15 down to 7, with `M` at bit 9 skipped -- so
+   * the mapping is not a single shift and has to be spelled out. */
+  uint16_t mask = 0;
+  switch (condition.bit) {
+  case AP_M68851_COND_BUS_ERROR:
+    mask = 0x8000u;
+    break;
+  case AP_M68851_COND_LIMIT_VIOLATION:
+    mask = 0x4000u;
+    break;
+  case AP_M68851_COND_SUPERVISOR_ONLY:
+    mask = 0x2000u;
+    break;
+  case AP_M68851_COND_ACCESS_LEVEL_VIOLATION:
+    mask = 0x1000u;
+    break;
+  case AP_M68851_COND_WRITE_PROTECTED:
+    mask = 0x0800u;
+    break;
+  case AP_M68851_COND_INVALID:
+    mask = 0x0400u;
+    break;
+  case AP_M68851_COND_GATE:
+    /* Bit 8, skipping `M` at bit 9. */
+    mask = 0x0100u;
+    break;
+  case AP_M68851_COND_GLOBALLY_SHARABLE:
+    mask = 0x0080u;
+    break;
+  case AP_M68851_COND_UNDEFINED:
+    return false;
+  }
+  const bool set = (psr & mask) != 0u;
+  return condition.test_clear ? !set : set;
+}
+
 bool ap_m68851_is_mmu_operation_word(uint16_t word) {
   /* `1111 000 000` then six bits of effective address. */
   return (word & 0xFFC0u) == 0xF000u;

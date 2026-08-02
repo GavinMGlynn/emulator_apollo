@@ -72,6 +72,99 @@
 #define AP_M68851_CPID 0u
 
 /* ---------------------------------------------------------------------------
+ * The operation word's type field, bits 8-6.
+ *
+ * The same encoding the 68882 uses on the same interface -- which is what
+ * "instruction extensions to M68000 Family processors using the M68000 Family
+ * coprocessor interface" means concretely, and why one F-line decoder can serve
+ * both parts by cpID alone.
+ * ------------------------------------------------------------------------- */
+
+typedef enum {
+  AP_M68851_TYPE_GENERAL = 0,   /* PLOAD, PFLUSH, PVALID, PMOVE, PTEST */
+  AP_M68851_TYPE_CONDITIONAL,   /* PDBcc, PScc, PTRAPcc */
+  AP_M68851_TYPE_BRANCH_WORD,   /* PBcc with a 16-bit displacement */
+  AP_M68851_TYPE_BRANCH_LONG,   /* PBcc with a 32-bit displacement */
+  AP_M68851_TYPE_SAVE,          /* PSAVE */
+  AP_M68851_TYPE_RESTORE,       /* PRESTORE */
+  AP_M68851_TYPE_RESERVED_6,
+  AP_M68851_TYPE_RESERVED_7,
+} ap_m68851_type_t;
+
+typedef struct {
+  bool is_coprocessor;  /* bits 15-12 are 1111 */
+  unsigned cpid;        /* bits 11-9 */
+  ap_m68851_type_t type; /* bits 8-6 */
+  unsigned effective_address; /* bits 5-0, meaning depends on the type */
+} ap_m68851_operation_word_t;
+
+[[nodiscard]] ap_m68851_operation_word_t
+ap_m68851_decode_operation(uint16_t word);
+
+/* ---------------------------------------------------------------------------
+ * Conditions, `PBcc`'s and `PScc`'s tables.
+ *
+ * Sixteen conditions in a contiguous run from `000000`, eight PSR bits each
+ * tested set and clear:
+ *
+ *     BS 000000  BC 000001    WS 001000  WC 001001
+ *     LS 000010  LC 000011    IS 001010  IC 001011
+ *     SS 000100  SC 000101    GS 001100  GC 001101
+ *     AS 000110  AC 000111    CS 001110  CC 001111
+ *
+ * So the encoding is `2k + (clear ? 1 : 0)` over B, L, S, A, W, I, G, C -- and
+ * the interesting part is what is *missing*. `PSR` has nine defined bits and
+ * only eight are testable: **`M`, the modified bit, has no condition.** It is
+ * the one `PSR` bit that reports a property of a page rather than the outcome
+ * of a test, and a program wanting it uses `PTEST` and reads the register.
+ * ------------------------------------------------------------------------- */
+
+/* The eight testable bits, in condition order -- which is also their order in
+ * `PSR` with `M` skipped. */
+typedef enum {
+  AP_M68851_COND_BUS_ERROR = 0,
+  AP_M68851_COND_LIMIT_VIOLATION,
+  AP_M68851_COND_SUPERVISOR_ONLY,
+  AP_M68851_COND_ACCESS_LEVEL_VIOLATION,
+  AP_M68851_COND_WRITE_PROTECTED,
+  AP_M68851_COND_INVALID,
+  AP_M68851_COND_GATE,
+  AP_M68851_COND_GLOBALLY_SHARABLE,
+  AP_M68851_COND_UNDEFINED,
+} ap_m68851_condition_bit_t;
+
+typedef struct {
+  ap_m68851_condition_bit_t bit;
+  /* False tests the bit set, true tests it clear -- the low bit of the
+   * encoding, which is why every condition comes in a pair. */
+  bool test_clear;
+} ap_m68851_condition_t;
+
+[[nodiscard]] ap_m68851_condition_t ap_m68851_decode_condition(unsigned field);
+
+/* Evaluate a condition against a `PSR` value. Takes the register rather than a
+ * decoded struct so this module stays independent of the register file. */
+[[nodiscard]] bool ap_m68851_condition_true(ap_m68851_condition_t condition,
+                                            uint16_t psr);
+
+/* ---------------------------------------------------------------------------
+ * PSAVE state frames, §6.2.7.3 by way of the PSAVE page.
+ * ------------------------------------------------------------------------- */
+
+/* "This state frame is 36 ($24) bytes long ... indicates that the MC68851 was
+ * in an idle state with no coprocessor operations in progress, and no
+ * breakpoints enabled." */
+#define AP_M68851_FRAME_IDLE_BYTES 36u
+/* "44 ($2C) bytes ... a coprocessor or module call operation in progress, and
+ * no breakpoints enabled." */
+#define AP_M68851_FRAME_MID_COPROCESSOR_BYTES 44u
+/* "76 ($4C) bytes ... one or more breakpoints were enabled." Note that this
+ * one says nothing about an operation in progress: "a coprocessor or module
+ * call operation may or may not have been in progress", so the breakpoint
+ * frame subsumes the other two rather than being a fourth combination. */
+#define AP_M68851_FRAME_BREAKPOINTS_BYTES 76u
+
+/* ---------------------------------------------------------------------------
  * The function code specification field.
  * ------------------------------------------------------------------------- */
 

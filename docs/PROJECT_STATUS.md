@@ -762,6 +762,30 @@ which is the one place a shared entry does not survive. And only `CRP`, `SRP`
 and `DRP` are 64 bits, which is why Appendix A footnotes that a register-direct
 `PMOVE` cannot carry them.
 
+The operation word's type field is the same six-type encoding the 68882 uses --
+general, conditional, branch word, branch long, save, restore -- which is what
+"instruction extensions to M68000 Family processors using the M68000 Family
+coprocessor interface" means concretely, and why one F-line decoder serves both
+parts by cpID alone. `PBcc`'s displacement size is the low bit of that field, so
+the two sizes are simply two types and `PBcc.L` needs no extension word to
+declare itself.
+
+The sixteen conditions are `2k + (clear ? 1 : 0)` over B, L, S, A, W, I, G, C --
+and the interesting part is what is missing. `PSR` defines nine bits and only
+eight are testable: **`M`, the modified bit, has no condition.** The encodings
+run contiguously from zero, so there is no gap where an `M` pair could sit. It
+is the one `PSR` bit reporting a property of a page rather than the outcome of a
+test, and a program wanting it uses `PTEST` and reads the register. The
+consequence for the model is that the condition-to-`PSR`-bit mapping is not a
+single shift: `G` is bit 8 and `C` is bit 7, because `M` sits between them at
+bit 9 and is stepped over.
+
+`PSAVE` produces one of three state frames -- 36 bytes idle, 44 mid-coprocessor,
+76 with breakpoints enabled -- and the lengths differ precisely so that the
+length identifies the frame. The breakpoint frame subsumes rather than
+complements the others: "a coprocessor or module call operation may or may not
+have been in progress".
+
 Also worth recording from §6.1.8: **`PSR`'s bit order is deliberate.** "The bits
 of the PSR are ordered to allow use of the MC68020 'bit field find first one'
 (BFFO) instruction to determine the cause of a fault", with the manual giving

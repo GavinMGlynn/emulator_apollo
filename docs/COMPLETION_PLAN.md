@@ -2010,9 +2010,11 @@ a 68882, and the 68882 is the only one of these it has.
         built from `PFLUSH`'s page alone rejects `PLOAD` and both `PVALID`
         forms as undefined. An earlier commit did exactly that; this corrects
         it. `m68851_decode_suite`, 25 tests.
-  - [ ] The conditionals (`PBcc`/`PDBcc`/`PScc`/`PTRAPcc`) and
-        `PSAVE`/`PRESTORE`, which use the operation word's type field rather
-        than the general `000` form.
+  - [x] The operation word's type field (the same six-type encoding the 68882
+        uses on the same interface), the sixteen branch/set conditions, and the
+        three `PSAVE` state frame sizes. `PSR` defines nine bits and only eight
+        are testable -- **`M` has no condition**, and the encodings are
+        contiguous from zero so there is no gap where a pair could sit.
   - [ ] The coprocessor interface: the MMU is cpID 0 on the same interface the
         68882 uses as cpID 1, so `[68851]` §9's CIRs and primitives sit
         alongside the 68882's already-landed Table 7-2.
