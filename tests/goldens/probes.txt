@@ -11,6 +11,8 @@ trap                  4 STOPPED        00000009 00001008       26    0 B31E6D44E
 wide-arithmetic       4 STOPPED        0003299B 00001012       10    0 50FBC871D7E03227
 movem                 7 STOPPED        00000001 00001014       22    0 59FD21C0F7A8881C
 pmove                 3 STOPPED        00000000 0000100E       10    0 9A8308BD3B6E3E7F
+fpu                   6 STOPPED        00000000 0000101A       18    0 DA6741A72D7E5178
+fpu-transfer          9 STOPPED        00000002 00001028       70    0 8F3407A5EA51AFD1
 
 # what each probe covers
 # moveq              one register write, the smallest thing that can be wrong
@@ -21,3 +23,5 @@ pmove                 3 STOPPED        00000000 0000100E       10    0 9A8308BD3
 # wide-arithmetic    MULU then DIVU, both halves of the register
 # movem              MOVEM out and back, the predecrement mask reversal
 # pmove              PMOVE into the translation control register
+# fpu                a ROM constant, an add, and the store conversion
+# fpu-transfer       both operand directions and an FMOVEM of the register file

@@ -1189,22 +1189,29 @@ a 68882, and the 68882 is the only one of these it has.
       overflow threshold that was missing. Detail in `PROJECT_STATUS.md`.
       *Verification: probe suite over each operation and rounding
       mode; note the oracle's admitted FPU gaps as a divergence class.*
-  - [ ] **The verification line above is not met, and this was found by
-        audit rather than assumed.** Every 68882 instruction and data format
-        executes, and the arithmetic is checked against *mathematical* truth —
-        120- and 400-digit references, which is a stronger statement than the
-        oracle could make about accuracy. What does not exist is the **probe
-        suite against the oracle**: `src/core/probe/ap_probe.c` has no
-        floating-point entry at all, so nothing has ever compared this part's
-        behaviour with MAME's in a running machine, and the "oracle's admitted
-        FPU gaps as a divergence class" have not been classified.
-        The determinism golden is not a substitute: its FNV-1a digest over
-        38,880 results proves the *same answer on every build and platform*,
-        which is portability, not agreement with anything outside this project.
-        *Verification: probes over each operation and rounding mode, side-loaded
-        into the oracle by the technique already used elsewhere, with each
-        difference classified — hardware-truer than the oracle, sub-poll-slack
-        equal, or actually wrong.*
+  - [~] **The verification line above was not met, and the audit found why:
+        the 68882 was not reachable from a running machine at all.**
+        `ap_machine_init` never attached one, so `cpu->fpu` was null on every
+        machine this core builds and every F-line instruction took the line 1111
+        trap. That is also why no floating-point probe existed — there was
+        nothing to probe.
+        - [x] **The part is attached and two probes cover it.** `fpu` runs a ROM
+              constant, an add and a store conversion; `fpu-transfer` runs both
+              operand directions and an `FMOVEM` of the register file. Both
+              appear in `probes.txt` with a state hash, and **no existing probe
+              line changed**, so attaching the coprocessor perturbed nothing.
+              Release and debug agree bit for bit.
+        - [ ] **The oracle comparison itself.** Side-load these probes into
+              `ext/mame` by the technique already used elsewhere and classify
+              each difference — hardware-truer than the oracle, sub-poll-slack
+              equal, or actually wrong — including "the oracle's admitted FPU
+              gaps as a divergence class", which the item asks for by name.
+        - [ ] **Gating the coprocessor on the model.** It is attached
+              unconditionally, which is a statement about this harness rather
+              than the range: `ap_machine_init` takes no model, so the machine is
+              the DN3500 — the reference superset, which has a 68882. A DN3000's
+              absent coprocessor is not expressible until the machine has a
+              model.
   - [x] **The programming model** (`src/core/cpu/m68882/ap_m68882_regs.c`),
         `[68881]` §2 and Figures 2-2 to 2-7: the three control registers, the
         eight extended-precision data registers, Table 2-1's condition codes and

@@ -49,6 +49,7 @@
 #include "cpu/m68030/ap_m68030_atc.h"
 #include "cpu/m68030/ap_m68030_cache.h"
 #include "cpu/m68030/ap_m68030_step.h"
+#include "cpu/m68882/ap_m68882.h"
 
 struct ap_board;
 #include "state/ap_hash.h"
@@ -71,6 +72,14 @@ typedef struct {
   ap_m68030_access_ctx_t data_access;
 
   ap_m68030_cpu_t cpu;
+  /* The floating-point coprocessor, which the CPU holds by pointer because
+   * fitted-or-not is a machine property. **It is attached unconditionally
+   * here**, and that is a statement about this harness rather than about the
+   * range: `ap_machine_init` takes no model, so this machine is the DN3500 --
+   * the reference superset, which has a 68882. Gating it belongs with whatever
+   * gives the machine a model, and until then a DN3000's absent coprocessor is
+   * not expressible. Recorded in `PROJECT_STATUS.md` as the tail it is. */
+  ap_m68882_t fpu;
 
   /* Optional: when set, every access is routed through the DN3500's address
    * map instead of the flat RAM above.

@@ -1942,8 +1942,25 @@ against mathematical truth — expectations generated to 120 and 400 decimal
 digits — which for *accuracy* is a stronger statement than the oracle could
 make, since this project expects to out-accurate it.
 
-**What is missing is the oracle comparison, and it was found by audit rather
-than noticed.** The 68882's plan item asks for "a probe suite over each
+**The audit found something larger than the missing probes: the 68882 was not
+reachable from a running machine at all.** `ap_machine_init` never attached one,
+so `cpu->fpu` was null on every machine this core builds, and every F-line
+instruction took the line 1111 trap — the behaviour of a correctly *unfitted*
+machine, which is exactly the trap this core is careful to distinguish from its
+own gaps, arriving here for the wrong reason. That is also why no floating-point
+probe existed: there was nothing to probe.
+
+The part is now attached and two probes cover it — a ROM constant, an add and a
+store conversion in one; both operand directions and an `FMOVEM` of the register
+file in the other. Neither perturbed any existing probe line, and debug and
+release agree bit for bit.
+
+It is attached **unconditionally**, which is a statement about the harness rather
+than about the range: `ap_machine_init` takes no model, so this machine is the
+DN3500, the reference superset. A DN3000's absent coprocessor is not expressible
+until the machine has a model, and that is a named tail rather than an oversight.
+
+**What is still missing is the oracle comparison.** The 68882's plan item asks for "a probe suite over each
 operation and rounding mode; note the oracle's admitted FPU gaps as a divergence
 class". `src/core/probe/ap_probe.c` has **no floating-point probe at all**, so
 nothing has ever compared this part's behaviour with MAME's inside a running

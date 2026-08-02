@@ -183,6 +183,8 @@ void ap_machine_init(ap_machine_t *machine, uint8_t *ram, uint32_t ram_bytes) {
   ap_m68030_atc_flush(&machine->atc);
 
   machine->cpu = (ap_m68030_cpu_t){0};
+  ap_m68882_reset(&machine->fpu);
+  machine->cpu.fpu = &machine->fpu;
 
   /* Both contexts point at the CPU's own MMU registers, so a PMOVE takes effect
    * on translation rather than only on a register nobody reads. */

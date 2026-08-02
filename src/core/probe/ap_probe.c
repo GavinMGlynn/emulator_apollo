@@ -102,6 +102,34 @@ static const uint16_t probe_pmove[] = {
     STOP_WORDS,
 };
 
+/* The floating-point coprocessor, which had no probe at all until the 68882's
+ * verification line was audited. `FMOVECR` loads pi, `FADD` doubles it, and
+ * `FMOVE.D` puts the result in memory where the state hash reaches it -- so one
+ * probe covers a constant, an arithmetic operation and the store conversion,
+ * and the hash changes if any of the three does. */
+static const uint16_t probe_fpu[] = {
+    0x207Cu, 0x0000u, 0x2000u, /* MOVEA.L #$2000,A0        */
+    0xF200u, 0x5C00u,          /* FMOVECR #$00,FP0  (pi)   */
+    0xF200u, 0x0000u,          /* FMOVE   FP0,FP0          */
+    0xF200u, 0x0022u,          /* FADD    FP0,FP0  (2 pi)  */
+    0xF210u, 0x7400u,          /* FMOVE.D FP0,(A0)         */
+    STOP_WORDS,
+};
+
+/* The transfer directions and the register file, which is where an operand
+ * length or a mask ordering goes wrong: a double loaded from memory, added to
+ * itself, and the whole register file written out and read back by FMOVEM. */
+static const uint16_t probe_fpu_transfer[] = {
+    0x207Cu, 0x0000u, 0x2000u, /* MOVEA.L #$2000,A0        */
+    0x20BCu, 0x4000u,          /* MOVE.L  #$40000000,(A0)  */
+    0x217Cu, 0x0000u, 0x0000u, 0x0004u, /* MOVE.L #0,4(A0) */
+    0xF210u, 0x5480u,          /* FMOVE.D (A0),FP1         */
+    0xF200u, 0x04A2u,          /* FADD    FP1,FP1          */
+    0x207Cu, 0x0000u, 0x2100u, /* MOVEA.L #$2100,A0        */
+    0xF210u, 0xF0FFu,          /* FMOVEM.X FP0-FP7,(A0)    */
+    STOP_WORDS,
+};
+
 #define PROBE(field_name, program, purpose_text, instruction_limit)            \
   {                                                                            \
       .name = field_name,                                                      \
@@ -123,6 +151,8 @@ static const ap_probe_t PROBES[] = {
     PROBE("wide-arithmetic", probe_wide_arithmetic, "MULU then DIVU, both halves of the register", 20),
     PROBE("movem", probe_movem, "MOVEM out and back, the predecrement mask reversal", 20),
     PROBE("pmove", probe_pmove, "PMOVE into the translation control register", 20),
+    PROBE("fpu", probe_fpu, "a ROM constant, an add, and the store conversion", 20),
+    PROBE("fpu-transfer", probe_fpu_transfer, "both operand directions and an FMOVEM of the register file", 30),
 };
 
 const ap_probe_t *ap_probe_all(unsigned *count) {
