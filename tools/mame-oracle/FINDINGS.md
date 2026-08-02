@@ -4111,3 +4111,40 @@ oracle 3, both exact 2, because no kernel uses the pair arithmetic yet. The valu
 is entirely in what comes next -- when the compensated Horner is written and the
 sweep moves or does not, the answer will mean something, which it did not the
 first time.
+
+## C69 -- C65 was misread, and the compensated series is not the answer either
+
+**Class: `open`, and a correction to this file.**
+
+Two findings, and the first is a correction of my own earlier reading.
+
+**C65's "regression" was the determinism golden, not a defect.** With the pair
+arithmetic now tested (C68), the compensated Horner was written again and the
+failing test named itself: `test_the_family_is_bit_identical_in_every_build`,
+the FNV-1a digest over 38,880 results. It fails whenever the family changes,
+which is exactly what an accuracy change does -- it is the golden doing its job,
+not a fault being reported.
+
+C65 reverted on the *assumption* that a failing suite meant a broken change,
+without reading which test failed. That was wrong, and it cost two campaigns:
+C66 and C67 both went looking for a compensation bug that was never there. A
+golden that detects intentional change looks identical to a regression until you
+read it, and this file now says so.
+
+**And the compensated series still does not fix `FETOX`.** With the corrected
+reading, the same change measures cleanly: the digest moves, 38,880 results
+change, the accuracy suite's bound still holds -- and `FETOX` at argument 1.0
+stays at `A2BB4A9A` against the true `A2BB4A9B`. Reverted, by the standard C67
+set: a change that does not move the measurement it was made for has not earned
+its complexity, and this one costs a golden update across two build types.
+
+**So all three hypotheses are now eliminated by measurement.** Not the argument
+reduction (C67, bounded at an eighth of a unit by arithmetic). Not the final
+rounding (C64, exact by construction). Not the series (this row, measured).
+
+**What has never been looked at** is what sits between the series and the
+answer: `nx_scale2`, which applies the `2^n` the reduction factored out, and the
+`nx_add(c_one, ...)` that forms `1 + expm1(r)` before it. For `e^1` that addition
+shifts the kernel's result down by two bits before `nx_scale2` shifts it back up
+-- a place where a bit can be lost that neither the kernel nor the reduction owns,
+and the only part of the path no campaign has yet questioned.
