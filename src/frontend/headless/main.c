@@ -275,6 +275,55 @@ static uint8_t *read_file(const char *path, long *size_out) {
   return bytes;
 }
 
+/* Give the machine its clock, from the model table rather than from a constant
+ * here.
+ *
+ * `board/ap_board.c` is the DN3500's core board, so a boot through it is a
+ * DN3500 run and its processor runs at the DN3500's rate. Taking that from the
+ * table keeps `CLAUDE.md`'s rule -- all machine variance lives in
+ * `src/core/model/` -- true of the frontend as well as the core, and means the
+ * clock follows the table when the board becomes model-driven rather than
+ * needing to be found and edited here.
+ *
+ * A machine whose rate was never set produces no time at all, so `elapsed`
+ * reads zero and is visibly wrong rather than quietly approximate. That is why
+ * this is a step and not a default. */
+static bool set_cpu_clock(ap_machine_t *machine) {
+  const ap_model_t *model = ap_model_by_name("dn3500");
+  if (model == NULL) {
+    return false;
+  }
+  /* Refuses rather than rounds a rate the base cannot represent --
+   * `ap_clock_init`'s rule, and the reason `AP_TIME_BASE_HZ` is derived from
+   * every clock in the machine instead of chosen. */
+  return ap_machine_set_cpu_hz(machine, model->cpu_hz);
+}
+
+/* The whole machine as one number, with the numbers that localise a
+ * disagreement beside it.
+ *
+ * A hash answers "are these two runs the same" and nothing else: when it says
+ * no, it says nothing about where they parted. The clock and the PC are what
+ * turn that into a place to look, which is why `ap_machine_state` reports them
+ * together and why every run here prints the block rather than the hash alone.
+ *
+ * The bus-error count is here rather than in the hash deliberately -- it is our
+ * record of watching the machine, not state the machine has. `ap_machine.h` has
+ * the reasoning; this is the "reported beside it" half of it. */
+static void report_state(const ap_machine_t *machine) {
+  const ap_machine_state_t state = ap_machine_state(machine);
+  printf("  state hash   %016llX\n", (unsigned long long)state.hash);
+  printf("  final PC     %08X (%s)\n", state.pc,
+         ap_board_region_name(ap_board_region(state.pc)));
+  printf("  clocks       %llu\n", (unsigned long long)state.clocks);
+  /* In AP_TIME_BASE_HZ units, never CPU cycles: several nodes of different
+   * models share one ring, so no CPU's cycle is a legal unit of account. A
+   * machine whose clock rate was never set has produced no time at all, which
+   * is visibly wrong here rather than quietly approximate. */
+  printf("  elapsed      %llu base units\n", (unsigned long long)state.now);
+  printf("  bus errors   %u\n", state.bus_errors);
+}
+
 /* Run the machine from its boot PROM, which is how a DN3500 actually starts.
  *
  * The side-loading route (`--boot-tape`) puts an image at an address it names
@@ -385,6 +434,13 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
   ap_machine_t machine;
   ap_machine_init(&machine, ram, ram_bytes);
   ap_machine_set_board(&machine, board);
+  if (!set_cpu_clock(&machine)) {
+    free(board);
+    free(ram);
+    free(prom);
+    fprintf(stderr, "apollo: the time base cannot represent this CPU clock\n");
+    return 1;
+  }
   ap_machine_reset(&machine, pc, stack);
 
   /* Scripted serial input, delivered a byte at a time as the firmware takes the
@@ -514,9 +570,7 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
   }
   printf("  executed     %u instruction(s)\n", run.executed);
   printf("  stopped      %s\n", ap_probe_status_name(run.status));
-  printf("  final PC     %08X (%s)\n", machine.cpu.regs.pc,
-         ap_board_region_name(ap_board_region(machine.cpu.regs.pc)));
-  printf("  bus errors   %u\n", machine.bus_errors);
+  report_state(&machine);
   printf("  unmapped     %u read, %u written\n", board->unmapped_reads,
          board->unmapped_writes);
   if (board->unmapped_reads > 0u) {
@@ -567,8 +621,6 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
              board->sio.register_reads[unit][reg]);
     }
   }
-  printf("  state hash   %016llX\n",
-         (unsigned long long)ap_machine_hash(&machine));
 
   free(board);
   free(ram);
@@ -669,6 +721,13 @@ static int boot_from_tape(const char *path, unsigned limit) {
   ap_machine_t machine;
   ap_machine_init(&machine, ram, ram_bytes);
   ap_machine_set_board(&machine, board);
+  if (!set_cpu_clock(&machine)) {
+    free(board);
+    free(ram);
+    free(bytes);
+    fprintf(stderr, "apollo: the time base cannot represent this CPU clock\n");
+    return 1;
+  }
   for (uint32_t i = 0; i < image.length; i++) {
     if (!ap_machine_write(&machine, image.load_address + i, 1u,
                           image.data[i])) {
@@ -690,10 +749,7 @@ static int boot_from_tape(const char *path, unsigned limit) {
   ap_machine_run_t run = ap_machine_run(&machine, limit);
   printf("  executed     %u instruction(s)\n", run.executed);
   printf("  stopped      %s\n", ap_probe_status_name(run.status));
-  printf("  state hash   %016llX\n",
-         (unsigned long long)ap_machine_hash(&machine));
-  printf("  final PC     %08X\n", machine.cpu.regs.pc);
-  printf("  bus errors   %u\n", machine.bus_errors);
+  report_state(&machine);
   printf("  unmapped     %u read, %u written\n", board->unmapped_reads,
          board->unmapped_writes);
   if (board->unmapped_reads > 0u) {

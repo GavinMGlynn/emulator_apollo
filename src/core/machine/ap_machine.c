@@ -4,6 +4,7 @@
 
 #include "cpu/m68030/ap_m68030_state.h"
 #include "board/ap_board.h"
+#include "board/ap_board_state.h"
 
 /* Big endian throughout, matching the operand layer, so a long word written by
  * the operator reads back through an instruction as the same number. */
@@ -295,8 +296,39 @@ uint64_t ap_machine_hash(const ap_machine_t *machine) {
    * however well its registers agree. */
   ap_hash_u32(&st, machine->ram_bytes);
   ap_hash_bytes(&st, machine->ram, machine->ram_bytes);
-  ap_hash_u32(&st, (uint32_t)machine->bus_errors);
+
+  /* The board's devices, when there is a board. Absence is a marker rather than
+   * nothing, so a probe machine on flat RAM does not hash as a DN3500 whose
+   * every device happens to be at reset. */
+  if (machine->board == NULL) {
+    ap_hash_u8(&st, 0xFFu);
+  } else {
+    ap_hash_u8(&st, 0x01u);
+    ap_board_hash(&st, machine->board);
+  }
+
+  /* The machine's clock, and the rate it runs at. `ap_machine_now` is the
+   * quantity every device will advance against once the tick loop exists, so a
+   * hash that omitted it would stop covering timing the moment a device kept
+   * time of its own. The rate is state as much as the elapsed time is: a
+   * machine at 25 MHz that has produced the same number of base units as one at
+   * 20 MHz has run a different number of cycles to get there. */
+  ap_hash_time(&st, machine->now);
+  ap_hash_u32(&st, machine->cpu_clock.hz);
+
+  /* `bus_errors` is deliberately absent -- see ap_machine.h. It is reported by
+   * `ap_machine_state` instead. */
   return ap_hash_end(&st);
+}
+
+ap_machine_state_t ap_machine_state(const ap_machine_t *machine) {
+  return (ap_machine_state_t){
+      .hash = ap_machine_hash(machine),
+      .clocks = machine->cpu.clocks,
+      .now = machine->now,
+      .pc = machine->cpu.regs.pc,
+      .bus_errors = machine->bus_errors,
+  };
 }
 
 void ap_machine_set_board(ap_machine_t *machine, struct ap_board *board) {

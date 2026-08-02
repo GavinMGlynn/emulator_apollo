@@ -7,7 +7,9 @@
  * and get the same answer twice.
  */
 
+#include "board/ap_board.h"
 #include "cpu/m68030/ap_m68030_ea_timing.h"
+#include "cpu/m68030/ap_m68030_state.h"
 #include "cpu/m68030/ap_m68030_timing_table.h"
 #include "machine/ap_machine.h"
 #include "unity.h"
@@ -744,6 +746,213 @@ static void test_an_unset_clock_produces_no_time(void) {
   TEST_ASSERT_EQUAL_UINT64(0u, ap_machine_now(&m));
 }
 
+/* ---------------------------------------------------------------------------
+ * The whole-machine state hash: the board's half, the clock, and what is
+ * reported beside the number.
+ *
+ * `board_state_suite` sweeps the devices field by field. What is checked here is
+ * the join: that a machine's hash reaches the board it is attached to, that the
+ * elapsed time counts, that the counters do not, and the property the item
+ * exists for -- the same workload twice gives the same number.
+ * ------------------------------------------------------------------------- */
+
+/* Two boards, so a workload can be run twice on two different sets of devices
+ * at two different addresses. Static because a board carries the translation
+ * map, the calendar's RAM and a tape block buffer. */
+static ap_board_t first_board;
+static ap_board_t second_board;
+
+static const ap_mc146818_time_t board_epoch = {
+    .year = 1987u, .month = 7u, .day = 31u, .day_of_week = 6u,
+    .hour = 21u, .minute = 9u, .second = 21u,
+};
+
+/* A program on a board machine lives in main memory at `AP_BOARD_RAM_BASE`, not
+ * at zero -- zero is the boot PROM. The operator's write is flat, so word `i` of
+ * the program is written at offset `i * 2` and executed at the RAM base. */
+#define BOARD_PROGRAM (AP_BOARD_RAM_BASE + 0x0100u)
+#define BOARD_STACK (AP_BOARD_RAM_BASE + 0x9000u)
+#define BOARD_PROGRAM_OFFSET 0x0100u
+
+static void build_board_machine(ap_machine_t *machine, ap_board_t *board,
+                                uint8_t *memory, const uint16_t *words,
+                                unsigned count) {
+  for (uint32_t i = 0; i < RAM_BYTES; i++) {
+    memory[i] = 0;
+  }
+  TEST_ASSERT_TRUE(
+      ap_board_init(board, memory, RAM_BYTES, &board_epoch, 0x012345u));
+
+  ap_machine_init(machine, memory, RAM_BYTES);
+  ap_machine_reset(machine, BOARD_PROGRAM, BOARD_STACK);
+  for (unsigned i = 0; i < count; i++) {
+    TEST_ASSERT_TRUE(ap_machine_write(
+        machine, BOARD_PROGRAM_OFFSET + i * 2u, 2u, words[i]));
+  }
+  /* Attached after the program is laid down, because the operator's write is
+   * flat and the board's is mapped. */
+  ap_machine_set_board(machine, board);
+}
+
+/* MOVE.B #$11,($00010401).L -- serial 1, channel A
+ * MOVE.B #$22,($00010801).L -- the interval timer's control register
+ * MOVE.B #$33,($00017000).L -- the address translation map
+ * STOP #$2700 */
+static const uint16_t device_workload[] = {
+    0x13FCu, 0x0011u, 0x0001u, 0x0401u, 0x13FCu, 0x0022u, 0x0001u, 0x0801u,
+    0x13FCu, 0x0033u, 0x0001u, 0x7000u, 0x4E72u, 0x2700u,
+};
+
+/* The item's own verification, and the reason the board half had to be built:
+ * the same workload twice gives the same number. Two machines on two different
+ * RAM buffers with two different boards, so anything of the host's that reached
+ * the hash would show here first. */
+static void test_the_same_workload_twice_gives_the_same_hash(void) {
+  ap_machine_t a;
+  ap_machine_t b;
+  build_board_machine(&a, &first_board, ram, device_workload,
+                      sizeof device_workload / sizeof device_workload[0]);
+  build_board_machine(&b, &second_board, other_ram, device_workload,
+                      sizeof device_workload / sizeof device_workload[0]);
+  TEST_ASSERT_TRUE(ap_machine_set_cpu_hz(&a, 25000000u));
+  TEST_ASSERT_TRUE(ap_machine_set_cpu_hz(&b, 25000000u));
+
+  const uint64_t start = ap_machine_hash(&a);
+  TEST_ASSERT_EQUAL_HEX64(start, ap_machine_hash(&b));
+
+  /* Step by step rather than only at the end: a hash that agreed at the end
+   * could still have taken two different routes there, and a divergence found
+   * on the step it happened is the difference between a bug and a search. */
+  for (unsigned i = 0; i < 4u; i++) {
+    (void)ap_machine_run(&a, 1u);
+    (void)ap_machine_run(&b, 1u);
+    TEST_ASSERT_EQUAL_HEX64(ap_machine_hash(&a), ap_machine_hash(&b));
+  }
+
+  /* And it moved. A hash that never changed would satisfy every equality above
+   * perfectly and detect nothing at all. */
+  TEST_ASSERT_NOT_EQUAL_UINT64(start, ap_machine_hash(&a));
+
+  /* The workload reached the devices, which is what makes this a test of the
+   * board's half rather than of the CPU's. A program that faulted on its first
+   * instruction would agree with itself just as well. */
+  TEST_ASSERT_TRUE(first_board.region_writes[AP_BOARD_REGION_SIO] > 0u);
+  TEST_ASSERT_TRUE(first_board.region_writes[AP_BOARD_REGION_TIMER] > 0u);
+  TEST_ASSERT_TRUE(
+      first_board.region_writes[AP_BOARD_REGION_TRANSLATION_MAP] > 0u);
+  TEST_ASSERT_EQUAL_UINT(first_board.region_writes[AP_BOARD_REGION_SIO],
+                         second_board.region_writes[AP_BOARD_REGION_SIO]);
+}
+
+/* The board is *in* the machine's hash. Without this the devices could diverge
+ * completely -- a different byte in a DUART, a different interrupt in service --
+ * while the machine reported itself unchanged. */
+static void test_the_machine_hash_covers_the_board(void) {
+  ap_machine_t m;
+  build_board_machine(&m, &first_board, ram, device_workload, 4u);
+  const uint64_t before = ap_machine_hash(&m);
+
+  first_board.registers.cpu_control ^= 0x0001u;
+  TEST_ASSERT_NOT_EQUAL_UINT64(before, ap_machine_hash(&m));
+}
+
+/* A probe machine on flat RAM must not hash as a DN3500 whose every device
+ * happens to be at reset. Absence is a marker, the same rule the processor
+ * applies to an absent access context. */
+static void test_a_machine_with_a_board_does_not_hash_as_one_without(void) {
+  ap_machine_t with;
+  build_board_machine(&with, &first_board, ram, device_workload, 4u);
+
+  ap_machine_t without;
+  ap_machine_init(&without, other_ram, RAM_BYTES);
+  ap_machine_reset(&without, BOARD_PROGRAM, BOARD_STACK);
+  for (unsigned i = 0; i < 4u; i++) {
+    TEST_ASSERT_TRUE(ap_machine_write(&without, BOARD_PROGRAM_OFFSET + i * 2u,
+                                      2u, device_workload[i]));
+  }
+
+  TEST_ASSERT_NOT_EQUAL_UINT64(ap_machine_hash(&with),
+                               ap_machine_hash(&without));
+}
+
+/* Elapsed time is state. Two machines that reach identical processor state --
+ * the same registers, the same caches, the same clock count -- at *different
+ * instants* are not the same machine, and on a core whose whole claim is
+ * emergent timing that is precisely the divergence a fast mode introduces.
+ *
+ * Run the same program at two clock rates: the processor's own hash agrees,
+ * because the CPU counts cycles and not time, and the machine's must not. */
+static void test_two_machines_at_different_clock_rates_hash_differently(void) {
+  static const uint16_t program[] = {0x7003u, 0x2200u, 0x4E71u};
+
+  ap_machine_t fast;
+  ap_machine_init(&fast, ram, RAM_BYTES);
+  ap_machine_reset(&fast, PROGRAM, STACK);
+  load(&fast, program, 3);
+  TEST_ASSERT_TRUE(ap_machine_set_cpu_hz(&fast, 25000000u));
+
+  ap_machine_t slow;
+  ap_machine_init(&slow, other_ram, RAM_BYTES);
+  ap_machine_reset(&slow, PROGRAM, STACK);
+  for (unsigned i = 0; i < 3u; i++) {
+    TEST_ASSERT_TRUE(
+        ap_machine_write(&slow, PROGRAM + i * 2u, 2u, program[i]));
+  }
+  TEST_ASSERT_TRUE(ap_machine_set_cpu_hz(&slow, 20000000u));
+
+  (void)ap_machine_run(&fast, 2u);
+  (void)ap_machine_run(&slow, 2u);
+
+  /* The processor reached the same place by the same number of cycles. */
+  TEST_ASSERT_EQUAL_HEX64(ap_m68030_state_hash(&fast.cpu),
+                          ap_m68030_state_hash(&slow.cpu));
+  TEST_ASSERT_NOT_EQUAL_UINT64(ap_machine_now(&fast), ap_machine_now(&slow));
+
+  /* And the machine did not. */
+  TEST_ASSERT_NOT_EQUAL_UINT64(ap_machine_hash(&fast), ap_machine_hash(&slow));
+}
+
+/* The counters are our record of watching the machine, not state it has. In the
+ * hash they would make adding an instrument change every golden with no
+ * emulated behaviour changing. Nothing is lost: `ap_machine_state` reports them
+ * beside the number, and `tests/goldens/probes.txt` pins the bus-error count as
+ * its own column. */
+static void test_the_counters_are_reported_beside_the_hash_not_inside_it(void) {
+  ap_machine_t m;
+  build_board_machine(&m, &first_board, ram, device_workload, 4u);
+  const uint64_t before = ap_machine_hash(&m);
+
+  m.bus_errors += 129u;
+  first_board.unmapped_reads += 129u;
+  first_board.region_reads[AP_BOARD_REGION_SIO] += 250244u;
+  TEST_ASSERT_EQUAL_HEX64(before, ap_machine_hash(&m));
+
+  TEST_ASSERT_EQUAL_UINT(129u, ap_machine_state(&m).bus_errors);
+}
+
+/* "With emulated cycle count and PC reported beside it." A hash says whether
+ * two runs are the same and nothing about where they parted; the clock and the
+ * PC are what turn a disagreement into a place to look. */
+static void test_the_state_report_carries_the_clock_and_the_pc(void) {
+  ap_machine_t m;
+  build_board_machine(&m, &first_board, ram, device_workload,
+                      sizeof device_workload / sizeof device_workload[0]);
+  TEST_ASSERT_TRUE(ap_machine_set_cpu_hz(&m, 25000000u));
+  (void)ap_machine_run(&m, 3u);
+
+  const ap_machine_state_t state = ap_machine_state(&m);
+  TEST_ASSERT_EQUAL_HEX64(ap_machine_hash(&m), state.hash);
+  TEST_ASSERT_EQUAL_UINT64(m.cpu.clocks, state.clocks);
+  TEST_ASSERT_EQUAL_UINT64(ap_machine_now(&m), state.now);
+  TEST_ASSERT_EQUAL_HEX32(m.cpu.regs.pc, state.pc);
+
+  /* The run actually went somewhere, so this is not three fields all agreeing
+   * at zero. */
+  TEST_ASSERT_TRUE(state.clocks > 0u);
+  TEST_ASSERT_TRUE(state.now > 0u);
+  TEST_ASSERT_NOT_EQUAL_UINT32(BOARD_PROGRAM, state.pc);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_the_machine_keeps_time_in_base_units);
@@ -768,5 +977,11 @@ int main(void) {
   RUN_TEST(test_the_machine_hash_covers_the_memory_a_run_left_behind);
   RUN_TEST(test_the_instruction_and_data_caches_are_not_the_same_cache);
   RUN_TEST(test_the_mmu_registers_the_machine_reads_are_the_ones_pmove_writes);
+  RUN_TEST(test_the_same_workload_twice_gives_the_same_hash);
+  RUN_TEST(test_the_machine_hash_covers_the_board);
+  RUN_TEST(test_a_machine_with_a_board_does_not_hash_as_one_without);
+  RUN_TEST(test_two_machines_at_different_clock_rates_hash_differently);
+  RUN_TEST(test_the_counters_are_reported_beside_the_hash_not_inside_it);
+  RUN_TEST(test_the_state_report_carries_the_clock_and_the_pc);
   return UNITY_END();
 }

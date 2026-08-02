@@ -439,12 +439,24 @@ identifies *this* image; it is not a reproducibility claim.
 
 ## Where the phases stand
 
-**Phase 1 (verification infrastructure) is two items from done**, and neither is
-blocked. The MAME build and the oracle harness are now ticked: both stated a
-verification — "boots Domain/OS to a login prompt" and "two runs produce
-identical dumps" — and both are met. What is left is the Python probe encoder,
-whose blockers closed when MD's grammar and output format were captured, and the
-board half of the full-machine state hash.
+**Phase 1 (verification infrastructure) is done.** Every item states a
+verification and every one is met: MAME builds and boots Domain/OS to a login
+prompt, the oracle harness produces byte-identical dumps from two runs of the
+same workload, `FINDINGS.md` classifies each campaign, the probe encoder runs one
+program identically on both sides, the probes side-load with `roms/` absent,
+`regress.py` pins goldens on every platform and build type, and the
+**full-machine state hash** now covers the board as well as the processor.
+
+The last of those was the one item whose remainder was written into the plan as
+"the board half", and it stayed open for the right reason: there were no devices
+to fold in. There are now, so it closed with them rather than being faked at the
+time it was written. What that means concretely is below, under *The board half
+of the state hash*.
+
+Phase 1 being finished is worth stating plainly for what it buys rather than as
+a milestone: everything after it can be checked. A subsystem landing in Phase 3
+gets a golden, a probe against the oracle, and one number that says whether two
+runs of it were the same run.
 
 **Phase 2 has been re-scoped to the 68030 alone.** It previously carried the
 68882, the 68020, the 68851 and the 68040 behind the same checkbox — four
@@ -475,6 +487,8 @@ so a slow device cannot yet lengthen a cycle.
 | Model table (`model/`) | working, 9 models | `model_suite`, 13 tests |
 | Time base (`time/`) | working | `time_suite`, 13 tests |
 | State hash (`state/`) | primitive working | `hash_suite`, 11 tests, incl. published FNV-1a 64 vectors |
+| Core board state hash (the identity harness's board half) | working: the board registers, the translation map, both interrupt controllers, the interval timer with its three clocks, the calendar with both cursors, both DMA controllers, both serial ports, the node ID, the disk and tape controllers, the graphics memories, the keyboard matrix and the boot PROM. The diagnostic counters are deliberately outside it and reported beside it | `board_state_suite`, 22 tests sweeping every device field by field |
+| Full-machine state hash (`ap_machine_hash`, `ap_machine_state`) | working: the processor, main memory, the board when one is attached, and elapsed time — with the clock, the PC and the bus-error count reported beside the number | `machine_suite`, 28 tests, incl. the same workload run twice on two boards agreeing at every step |
 | Ring medium interface | not started | — |
 | Ring controller | not started | — |
 | 68030 instruction pipe + cache holding register | working | `pipe_suite`, 14 tests, `MC68030 User's Manual 3ed` §11.2.2 |
@@ -1129,6 +1143,93 @@ does not — the harness would then report two diverging machines as one.
 So `state_suite` **sweeps every field individually**: perturb it, and
 the hash must change. A field added without a sweep entry is a gap
 visible in that file rather than one nobody can see.
+
+#### **The board half of the state hash**
+
+(`src/core/board/ap_board_state.c`), which closes Phase 1's last item.
+The CPU's half had been done for months; what was left was everything on
+the other side of the bus, and it could not be written until there were
+devices to write it about. Now there are: the board registers, the
+address translation map, both interrupt controllers, the interval timer
+with its three clock domains, the calendar with its separate one-second
+and periodic cursors, both DMA controllers, both serial ports, the node
+ID, the disk and tape controllers, the graphics memories, the keyboard
+matrix and the boot PROM.
+
+**The line that had to be drawn is between state and instrumentation.**
+`ap_board_t` carries both, side by side: the devices are the machine, and
+the counters beside them — `unmapped_reads`, `region_writes`, the
+per-register serial tallies, and `ap_machine_t`'s own `bus_errors` — are
+our record of *watching* it. Only the first kind is hashed, and the
+choice cuts both ways deliberately. A counter inside the hash would make
+adding an instrument change every golden with no emulated behaviour
+changing, and would make two machines that behave identically compare
+unequal because one was watched more closely — a false positive, and by
+the same argument as the cache-debris defect above, worse than a miss.
+Nothing is lost by leaving them out: `ap_machine_state` reports them
+beside the number, and `tests/goldens/probes.txt` already pins the
+bus-error count as its own column, where a divergence reads as a figure
+rather than as a hash that merely differs.
+
+That rule moved `bus_errors` *out* of `ap_machine_hash`, where it had
+been since before there was a board. The probe golden's hash column moved
+with it and **every other column did not** — instructions, status, D0,
+PC, clocks and the bus-error count are unchanged in all eight probes,
+which is what says the definition changed and the machine did not.
+
+**Two more exclusions, each with a reason rather than an omission.** Main
+memory's contents are hashed by `ap_machine_hash` and not again here: the
+board and the machine share one buffer and hashing megabytes twice buys
+nothing. Its *extent* is hashed, since 8 Mbyte fitted is a different
+machine from 16 however well the bytes in common agree. And the tape
+cartridge is hashed by extent alone — a `.ct` image is up to a hundred
+megabytes of read-only media no run can alter, so re-reading it on every
+hash would cost more than the run it measures. Everything a run *can*
+change is hashed in full: which block is buffered, where the head is,
+what the drive was told. The residual is named in code and here — two
+different cartridges of exactly equal size hash alike until one is read,
+and closing it needs a digest computed once at load time.
+
+The graphics memories are the opposite case and **are** hashed in full.
+Nothing else covers them, since they hang off the display controller
+rather than off the machine, and they are the machine's output: a run
+that drew a different picture is a different run.
+
+**Elapsed time joins the hash.** The CPU's clock count was already hashed
+with its registers; `ap_machine_now` and the CPU's clock rate are now
+hashed too, and they are not the same quantity — two machines that reach
+identical processor state at 25 MHz and at 20 MHz have taken the same
+cycles and different amounts of time, and once a device advances on a
+clock of its own that difference is where a fast mode would diverge.
+`machine_suite` checks exactly that pair: the processor's own hash agrees
+and the machine's does not.
+
+**And the numbers beside the number.** A hash says whether two runs are
+the same and nothing about where they parted, so `ap_machine_state`
+returns the clock, the elapsed time, the PC and the bus-error count with
+it, and the headless frontend prints the block rather than the hash
+alone. That is the plan item's "with emulated cycle count and PC reported
+beside it", and it is what turns a disagreement into a bisection.
+
+Printing `elapsed` immediately showed it reading **zero**, because no
+boot path had ever set the machine's clock rate — which is the behaviour
+`ap_machine.h` promises for a rate nobody chose, and is why the default
+is no time at all rather than a plausible number. The boot paths now take
+the rate from the **model table** (`ap_model_by_name("dn3500")->cpu_hz`),
+not from a constant in the frontend: `ap_board` is the DN3500's core
+board, so a boot through it is a DN3500 run, and taking the figure from
+the table keeps `CLAUDE.md`'s "all machine variance lives in
+`src/core/model/`" true of the frontend as well as the core. A 20000
+instruction PROM run now reports 75880 clocks and 20,032,320 base units,
+which is exactly 264 per clock — 6.6 GHz over 25 MHz, an integer, as
+`ap_clock_init` refusing to round guarantees.
+
+The failure this must not have is the CPU half's: a field that moves
+while the hash does not. `board_state_suite` therefore sweeps **every
+field of every device individually** — 22 tests, most of them loops over
+a device's members — and the sweep is per *field*, not per device,
+because a device fed as a whole struct passes a per-device test while
+quietly omitting half its members. That is how a hash goes hollow.
 
 #### **Instruction pipe and cache holding register**
 

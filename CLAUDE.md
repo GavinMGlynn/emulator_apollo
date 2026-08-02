@@ -43,6 +43,16 @@ reference core to chase speed** — that is the classic mistake.
   `docs/COMPLETION_PLAN.md` (tick the item, add any tails discovered while
   implementing it). Re-read both in full at every phase boundary — status docs
   rot fast.
+- **A completed plan item is a summary; the balance moves to
+  `PROJECT_STATUS.md`.** One line of what was done, its verification, and
+  "Detail in `PROJECT_STATUS.md`" — the reasoning, traps, measurements and
+  approximations belong in the status document. The two answer different
+  questions: the plan is read forwards to choose the next thing, the status is
+  read by whoever has to trust or change a subsystem. Detail left in the plan is
+  invisible to the second reader, noise to the first, and buries the open items
+  among the closed ones — which defeats the only job the plan has. An item still
+  in progress keeps its detail in the plan while it is live, and is compressed
+  in the same commit that ticks it.
 - **Deliberate approximations are fine** — documented, with reason and cost to
   close.
 - **Temporary instrumentation is always reverted** before commit, in our core

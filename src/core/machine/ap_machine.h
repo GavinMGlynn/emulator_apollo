@@ -142,12 +142,52 @@ typedef struct {
 [[nodiscard]] ap_machine_run_t ap_machine_run(ap_machine_t *machine,
                                               unsigned limit);
 
-/* The whole machine as one number: the processor's state and the RAM.
+/* The whole machine as one number: the processor's state, the RAM, the board's
+ * devices when one is attached, and the elapsed time.
  *
  * This is the identity harness's machine-level answer, and it includes the RAM
  * because a run that left different memory behind is a different run however
- * well its registers agree. */
+ * well its registers agree.
+ *
+ * ## What is in it, and what is beside it
+ *
+ * Everything the emulated machine holds. Not the counters -- `bus_errors` here,
+ * and the board's unmapped, empty-slot and per-region tallies -- which are our
+ * record of *watching* the machine rather than state it has. Two reasons, and
+ * `board/ap_board_state.h` gives them in full: a counter in the hash would make
+ * adding an instrument change every golden with no emulated behaviour changing,
+ * and would make two machines that behave identically compare unequal because
+ * one was watched more closely. Nothing is lost, because they are reported
+ * beside the hash by `ap_machine_state` and pinned as their own column in
+ * `tests/goldens/probes.txt`.
+ *
+ * Elapsed time *is* in it. The CPU's clock count is hashed with its registers
+ * for the reason `ap_m68030_state.h` gives, and the machine's own `now` is
+ * hashed here as well: they are not the same quantity once a device advances on
+ * a clock of its own, and a fast mode that reached the same registers at a
+ * different instant is exactly the divergence this must catch. */
 [[nodiscard]] uint64_t ap_machine_hash(const ap_machine_t *machine);
+
+/* The hash with the numbers that localise a disagreement, reported together.
+ *
+ * A hash answers "are these two runs the same" and nothing else: when it says
+ * no, it says nothing about where they parted. The instruction count, the clock
+ * and the PC are what turn that into a place to look -- two runs that agree for
+ * 40,000 instructions and diverge at one are found by bisection on the clock,
+ * not by staring at two 64-bit numbers. So a caller reporting a hash reports
+ * these beside it, and the frontends do.
+ *
+ * The counters are here for the same reason: they are excluded from the hash
+ * deliberately, and this is where they are not lost. */
+typedef struct {
+  uint64_t hash;      /* the whole machine as one number */
+  uint64_t clocks;    /* CPU clocks since reset */
+  ap_time_t now;      /* elapsed time since reset, in AP_TIME_BASE_HZ units */
+  uint32_t pc;        /* where the processor is */
+  unsigned bus_errors;/* how many accesses went unanswered */
+} ap_machine_state_t;
+
+[[nodiscard]] ap_machine_state_t ap_machine_state(const ap_machine_t *machine);
 
 /* ## The machine's clock
  *
