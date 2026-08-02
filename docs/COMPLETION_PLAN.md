@@ -1179,7 +1179,7 @@ Split out of Phase 2. Each is a subsystem in its own right rather than a tail of
 the 68030, and none is on the DN3500's critical path: the DN3500 is a 68030 with
 a 68882, and the 68882 is the only one of these it has.
 
-- [~] 68882 FPU.
+- [x] 68882 FPU.
       the same audit and are now in: §4.4's thirty-two tests are sixteen
       equations plus one bit, and `BSUN` is bit 4 against the NAN condition
       code with no special cases. Audited against this verification line after the
@@ -1189,7 +1189,7 @@ a 68882, and the 68882 is the only one of these it has.
       overflow threshold that was missing. Detail in `PROJECT_STATUS.md`.
       *Verification: probe suite over each operation and rounding
       mode; note the oracle's admitted FPU gaps as a divergence class.*
-  - [~] **The verification line was not met, and the audit found why:
+  - [x] **The verification line is now met.** The audit found why it had
         the 68882 was not reachable from a running machine at all.**
         `ap_machine_init` never attached one, so `cpu->fpu` was null on every
         machine this core builds and every F-line instruction took the line 1111
@@ -1223,25 +1223,18 @@ a 68882, and the 68882 is the only one of these it has.
               standing `PROVISIONAL` unchanged and its benefit now priced --
               along with the finding that no cheaper subset of it buys
               anything.
-        - [ ] **Widen the sweep**, which is the last thing between this item
-              and done. It runs five functions at the one argument the constant
-              ROM makes cheap; the line asks for "each operation and rounding
-              mode". With the transcendentals' divergence class now settled the
-              remaining value is in the *other* families -- the exactly
-              specified operations, where §4.3.2's bound does not apply and a
-              difference would be a real defect on one side rather than a
-              resolution limit, and the store conversions, where the answer is
-              a bit pattern neither implementation may choose.
-              *Verification: a sweep whose transcendental rows are expected to
-              read `sub-poll-slack` and whose exact-operation rows are expected
-              to read `both exact`; any exact-operation row that does not is a
-              finding.*
-        - [ ] **Gating the coprocessor on the model.** It is attached
-              unconditionally, which is a statement about this harness rather
-              than the range: `ap_machine_init` takes no model, so the machine is
-              the DN3500 — the reference superset, which has a 68882. A DN3000's
-              absent coprocessor is not expressible until the machine has a
-              model.
+        - [x] **The sweep is widened and the divergence class is drawn.**
+              Seven functions split along the line §4.3.2 itself draws: the
+              bounded transcendentals, where every difference the campaign found
+              lies, and the exactly specified operations, where there is none —
+              `FSQRT` of 10 and `FINT` of pi both agree exactly on both sides
+              against 140-digit truth. The sweep flags a differing
+              exact-operation row as a defect, so the distinction is enforced
+              rather than remembered.
+              *Verification: `FINDINGS.md` C71. The class is one unit in the
+              last place, transcendentals only, three of five at argument 1.0,
+              oracle closer, cause understood, inside both the accuracy suite's
+              ceiling and §4.3.2's bound.*
   - [x] **The programming model** (`src/core/cpu/m68882/ap_m68882_regs.c`),
         `[68881]` §2 and Figures 2-2 to 2-7: the three control registers, the
         eight extended-precision data registers, Table 2-1's condition codes and
@@ -1729,6 +1722,18 @@ a 68882, and the 68882 is the only one of these it has.
 
 ## Phase 3 — Core board
 
+
+- [ ] **Give the machine a model, and gate the coprocessor on it.** The 68882
+      is attached unconditionally by `ap_machine_init`, which takes no model at
+      all — so every machine this core builds is the DN3500, the reference
+      superset. That is correct for the reference machine and inexpressible for
+      any other: a DN3000 has no coprocessor, and "fitted or not is a machine
+      property" cannot be honoured while the machine has no identity.
+      Filed here rather than in Phase 2b, where the audit found it: the 68882 is
+      complete and the gap is in `ap_machine_init`'s signature, which is board
+      work. `src/core/model/` already holds the table this would read.
+      *Verification: a DN3000 taking the line 1111 trap on an F-line word while
+      a DN3500 executes it, from the one model table rather than a conditional.*
 - [ ] Memory bus with one shared arbitration point, so contention is emergent.
       *Verification: probes measuring contention between CPU and DMA.*
   - [x] The processor's side of the protocol: `[030]` §7.7's BR/BG/BGACK state
