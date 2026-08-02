@@ -1935,6 +1935,66 @@ direction is preferable to being wrong in an invented one.
 
 
 
+### FSAVE and FRESTORE, and the frame this part can never produce
+
+The last 68882 forms, and the only ones that compute nothing: they move the
+coprocessor's own internal state, which is why they are instruction *types*
+rather than opclasses. Both are privileged.
+
+**A busy frame is deliberately absent, and that is a modelling statement rather
+than a gap.** It exists so an instruction suspended part way can be resumed, and
+this core's 68882 completes every instruction inside the step that issues it —
+nothing can interrupt it half-done, so nothing can generate one. That is the same
+reasoning the 68030's stack frame `$9` once carried and lost, so it is worth
+being clear about why it holds here and did not there: `$9` was reachable because
+a *main processor* rule reached around the coprocessor, the main-detected
+protocol violation. No such rule reaches the busy frame — it is produced by the
+part, in a state the part never enters.
+
+**Which frame is saved is state, not a constant.** §6.4.2.1: "A save of the null
+state results when no FPCP instructions have been executed since the last null
+state restore or hardware reset." So the part carries an `executed` flag, set by
+*any* instruction and not only an arithmetic one — an `FMOVEM` that filled the
+register file is exactly the case where saying "nothing has run" would lose the
+programmer's model. A null frame is four bytes and an idle one sixty, so the
+frame's length is not fixed and a predecrement steps by whichever was produced.
+
+**The two frames differ in exactly what a context switch cares about.** Restoring
+a null frame is "equivalent to a hardware reset of the FPCP. The programmer's
+model is set to the reset state, with non-signaling NANs in the floating-point
+data registers and zeroes in the FPCR, FPSR and FPIAR." Restoring an idle one
+does the opposite: "The programmer's model is not affected by loading this type
+of state frame."
+
+**An unrecognised format word is a *format exception*, not a protocol
+violation** — "the MPU is instructed to take a format exception" — and the two
+refusals are kept apart because reporting one as the other sends a handler
+looking for the wrong fault.
+
+One apparent contradiction resolved rather than picked between: Figure 6-5 prints
+the null frame's size byte "(UNDEFINED)", FRESTORE's page calls the format word
+`$0000`, and the save CIR list gives `$0018`. §6.4.2.1 reconciles all three —
+"The size value of a null state frame is not assumed to be valid during a save
+operation and is ignored by the FPCP during a restore operation." The *version*
+identifies a null frame; the size is a don't care, and version 0 is the wild card
+"allowing this state frame type to be restored to a coprocessor of any version".
+
+**The version number is `PROVISIONAL` and there is nothing to transcribe.** "The
+version number is an 8-bit value that identifies the microcode version of the
+FPCP, and the format of this number is defined internally by the FPCP" — no
+manual publishes a value for any part. It is held as state on the part rather
+than as a constant, because that is what it is, and because the only behaviour a
+program can observe from the documents is self-consistency: what `FSAVE` writes,
+`FRESTORE` must accept, and version 0 must be accepted whatever it is. Both hold
+for any non-zero choice. Closing route: read it from a real part, or from the
+oracle.
+
+The idle frame's CU internal registers, operand register and BIU flags are
+written as zeros and marked `PROVISIONAL`, for the reason the 68030's stack
+frames give: this model has no microsequencer state to save. Written rather than
+skipped, so a handler cannot read the previous program's data from under a
+documented field name.
+
 ### The transcendentals
 
 All nineteen transcendentals are computed, and the `PROVISIONAL` that stood over
@@ -3140,7 +3200,7 @@ failure that cost a bit position in the 68020's module entry word.
 | 68030 translation table search (the walk) | working: search, U/M writeback, and ATC fill | `walk_suite`, 40 tests, `MC68030 User's Manual 3ed` §9.2, §9.4, §9.5, §11; writeback cost cross-checked against `MC68851 PMMU User's Manual 3ed` §5.1.5.3.11 |
 | MC68851 PMMU | working as its own subsystem: the translation control and root pointers, the six descriptor formats and Figure 5-10's type determination, the status and protection registers, the 64-entry ATC, and the table search with §5.1.5.3.11's U/M write-back. The **68030's** own MMU is separate and has its own rows above | `m68851_tc_suite` 13, `m68851_rp_suite` 13, `m68851_descriptor_suite` 21, `m68851_regs_suite` 22, `m68851_atc_suite` 22, `m68851_search_suite` 26, `m68851_suite` 43; `MC68851 PMMU User's Manual 3ed` |
 | 68040 MMU | not started | — |
-| MC68882 FPU | working, and attached to the 68030 as a *pointer* so a machine without one keeps its line 1111 trap. Every general-type operation executes: the four arithmetic operations, the exactly-specified monadics, the remainders, the single-precision pair, and **all nineteen transcendentals** to within §4.3.2's published bound. All three operand paths run — register-to-register, **`<ea>` to `FPn`** and **`FPn` to `<ea>`**, in all six binary formats from every legal addressing mode. `FMOVEM` of the data registers runs in both directions with its reversed mask orderings, and so do the system control registers, with the FPIAR tracking under §2.4's two conditions. `FMOVECR` returns all 22 published constants, computed and correctly rounded. **Every general-type instruction executes.** **Every instruction type executes**, the conditionals included. **Packed decimal converts both ways**, correctly rounded, with page 4-67's k-factor table reproduced row for row. Open: `FSAVE`/`FRESTORE` — for which the coprocessor's own half (`ap_m68882_condition`) is done and the 68030's dialog is not | `m68882_regs_suite` 19, `m68882_format_suite` 18, `m68882_cir_suite` 8, `m68882_round_suite` 11, `m68882_arith_suite` 41, `m68882_decode_suite` 12, `m68882_accuracy_suite` 10, `m68882_transcendental_suite` 36, `m68882_store_suite` 13, plus 47 tests in `step_suite`; `MC68881/MC68882 User's Manual 1ed` |
+| MC68882 FPU | working, and attached to the 68030 as a *pointer* so a machine without one keeps its line 1111 trap. Every general-type operation executes: the four arithmetic operations, the exactly-specified monadics, the remainders, the single-precision pair, and **all nineteen transcendentals** to within §4.3.2's published bound. All three operand paths run — register-to-register, **`<ea>` to `FPn`** and **`FPn` to `<ea>`**, in all six binary formats from every legal addressing mode. `FMOVEM` of the data registers runs in both directions with its reversed mask orderings, and so do the system control registers, with the FPIAR tracking under §2.4's two conditions. `FMOVECR` returns all 22 published constants, computed and correctly rounded. **Every general-type instruction executes.** **Every instruction type executes**, the conditionals included. **Every 68882 instruction and every data format executes**, `FSAVE` and `FRESTORE` included. A *busy* state frame is deliberately absent: this core's part never suspends, so nothing can generate one — for which the coprocessor's own half (`ap_m68882_condition`) is done and the 68030's dialog is not | `m68882_regs_suite` 19, `m68882_format_suite` 18, `m68882_cir_suite` 8, `m68882_round_suite` 11, `m68882_arith_suite` 41, `m68882_decode_suite` 12, `m68882_accuracy_suite` 10, `m68882_transcendental_suite` 36, `m68882_store_suite` 13, plus 51 tests in `step_suite`; `MC68881/MC68882 User's Manual 1ed` |
 | MC68040 FPU | timing tables only — §10.6, §10.7.1/§10.7.2 and §10.7.3's pipeline stages are transcribed; no 68040 arithmetic | `m68040_iu_timing_suite` 99, `m68040_fpu_timing_suite` 32, `m68040_fp_pipeline_suite` 18 |
 | Core-board registers (`010000`-`011600`) | working for the four that could be measured: CPU status (bit 15 stuck, writes clear the latched bits), CPU control and latch-page-on-parity (16 bits of storage), cache control (a *byte*, mirrored into both halves of a 16-bit read, one writable bit), each aliased across its 256-byte range. No manual here lays out these bits, so all of it is measured. **Width and storage only — no bit has a known meaning, and nothing may depend on one.** Task alias and master request are absent from the oracle and stay declined rather than modelled as all-ones | `boardreg_suite`, 12 tests; `FINDINGS.md` C10, `tools/mame-oracle/regprobe.lua`, two probe runs byte-identical |
 | Address translation map (`017000`) | working: the translation itself, both DMA widths, and the register file. Between the AT bus and physical memory, not the CPU's MMU -- a DMA controller has no MMU, and this is what lets it see scattered physical pages as one contiguous run. Present on DN3500/4500/5500 and absent on DN3000, from the model table | `atmap_suite`, 15 tests, `019411-A00` §4.2.1.4, `008778-03` §1.2, §2.5 |
@@ -3666,11 +3726,12 @@ Kept rather than discarded, so a future contradiction has a documented history.
 - The ring controller's register-level interface is not yet recovered; the
   manuals give its address window and block diagram but not its registers.
 
-- **`FSAVE` and `FRESTORE` are not implemented**, and are the only 68882 forms
-  left. They save and restore the coprocessor's own mid-instruction state rather
-  than computing anything, so they need §6.4.2's state frame — a model of the
-  part's internals rather than of its arithmetic. Every general-type instruction
-  and every data format executes, packed decimal in both directions included.
+- **The 68882's version number is `PROVISIONAL`.** No manual publishes one for
+  any part — "the format of this number is defined internally by the FPCP" — so
+  the value a state frame carries is a stated choice. Only self-consistency is
+  observable from the documents: `FRESTORE` accepts what `FSAVE` wrote, and
+  version 0 as the wild card. Closing route: read it from a real part or the
+  oracle.
 - **`FMOVECR`'s constant values are not established against hardware.** They are
   computed and correctly rounded, and agree with the canonical 80-bit constants;
   what is unproven is that a given 68881 mask set holds those exact bits, since

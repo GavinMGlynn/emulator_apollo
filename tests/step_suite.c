@@ -4972,30 +4972,21 @@ static void test_an_undefined_extension_traps_with_a_coprocessor_fitted(void) {
 /* **An unimplemented form is reported as ours, not as the machine's.** These
  * are instructions the hardware executes, so raising F-line for one would be
  * indistinguishable from a correct unfitted machine and the gap would stop
- * being visible -- the same rule the MMU's own unimplemented forms follow.
+ * being visible.
  *
- * The example has moved three times: from `FSIN` when the transcendentals
- * landed, to `FMOD` when the remainder forms did, then to opclass `010` -- the
- * memory *source* operand -- on the reasoning that an architectural boundary
- * would outlast any single instruction. That closed too, when the 68030 took up
- * §10.4.9's half of the transfer.
- *
- * The example has moved six times, and this is the last move it can make
- * inside the general type: **every general-type instruction and every data
- * format now executes**, packed decimal in both directions included. What is
- * left is outside it -- `FSAVE`, instruction type `100`, which does not compute
- * anything but saves the coprocessor's own mid-instruction state, and its
- * `FRESTORE` counterpart. Those need §6.4.2's state frame, which is a model of
- * the part's internals rather than of its arithmetic. */
-static void test_an_unimplemented_coprocessor_form_is_reported_as_our_gap(void) {
-  /* FSAVE -(A0) -- type 100, predecrement. */
-  static const uint16_t program[] = {0xF320u, 0x4E71u, 0x4E71u};
+ * The example moved six times through the 68882 and has now left it entirely:
+ * **every 68882 instruction and every data format executes**, `FSAVE` and
+ * `FRESTORE` included. So the subject is the *other* coprocessor -- an MMU
+ * instruction this model has not got to, which sits at cpID 0 and is fitted, so
+ * the real 68030 would execute it. That distinction is the whole point of the
+ * test and does not depend on which instruction carries it. */
+static void test_an_unimplemented_form_is_reported_as_our_gap(void) {
+  /* cpID 0, general type, with an extension class the MMU dispatch declines. */
+  static const uint16_t program[] = {0xF000u, 0xA000u, 0x4E71u};
   machine_t m = {0};
   load(&m, program, 3);
-
-  ap_m68882_t fpu;
-  ap_m68882_reset(&fpu);
-  m.cpu.fpu = &fpu;
+  m.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
+  m.cpu.regs.isp = SUPERVISOR_STACK;
 
   const ap_m68030_step_result_t r = ap_m68030_step(&m.cpu);
   TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_UNIMPLEMENTED, r.status);
@@ -5922,6 +5913,163 @@ static void test_a_packed_decimal_result_is_stored_with_its_k_factor(void) {
   TEST_ASSERT_EQUAL_HEX32(0x3FA00000u, ap_m68882_to_single(&second.regs.fp[1]));
 }
 
+/* **A null frame is four bytes and an idle one is sixty**, and which one is
+ * saved depends on whether anything has run: "A save of the null state results
+ * when no FPCP instructions have been executed since the last null state
+ * restore or hardware reset." So the frame's *length* is not a constant, and a
+ * predecrement steps by whichever the part produced.
+ *
+ * The null frame's version is zero -- the wild card "allowing this state frame
+ * type to be restored to a coprocessor of any version" -- and its size byte is
+ * deliberately not asserted here, because §6.4.2.1 leaves it undefined on save
+ * and ignored on restore. That is what reconciles Figure 6-5 printing it
+ * "(UNDEFINED)" with FRESTORE's page calling the format word `$0000`. */
+static void test_fsave_writes_a_null_frame_until_something_runs(void) {
+  /* FSAVE -(A0) : $F320 is cpID 1, type 100, predecrement. */
+  static const uint16_t program[] = {0xF320u, 0x4E71u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 3);
+  m.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
+  ap_m68882_t fpu;
+  ap_m68882_reset(&fpu);
+  m.cpu.fpu = &fpu;
+  m.cpu.regs.a[0] = FP_OPERAND + 64u;
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&m.cpu).status);
+  /* Four bytes, so the register stepped by four and the version byte is zero. */
+  TEST_ASSERT_EQUAL_HEX32(FP_OPERAND + 60u, m.cpu.regs.a[0]);
+  TEST_ASSERT_EQUAL_HEX8(0x00u, m.memory.bytes[FP_OPERAND + 60u]);
+
+  /* Run one instruction, and the same FSAVE now saves the idle frame -- sixty
+   * bytes, with the version and the `$38` size byte. `FMOVECR #$0F,FP0` is the
+   * least eventful instruction there is: it loads 0.0. */
+  static const uint16_t after[] = {0xF200u, 0x5C0Fu, 0xF320u, 0x4E71u};
+  machine_t n = {0};
+  load(&n, after, 4);
+  n.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
+  ap_m68882_t second;
+  ap_m68882_reset(&second);
+  n.cpu.fpu = &second;
+  n.cpu.regs.a[0] = FP_OPERAND + 64u;
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&n.cpu).status);
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&n.cpu).status);
+  TEST_ASSERT_EQUAL_HEX32(FP_OPERAND + 4u, n.cpu.regs.a[0]);
+  TEST_ASSERT_EQUAL_HEX8(AP_M68882_DEFAULT_VERSION,
+                         n.memory.bytes[FP_OPERAND + 4u]);
+  TEST_ASSERT_EQUAL_HEX8(AP_M68882_FRAME_IDLE_SIZE_BYTE,
+                         n.memory.bytes[FP_OPERAND + 5u]);
+}
+
+/* **Restoring a null frame is a reset**: "equivalent to a hardware reset of the
+ * FPCP. The programmer's model is set to the reset state, with non-signaling
+ * NANs in the floating-point data registers and zeroes in the FPCR, FPSR and
+ * FPIAR." An idle frame does the opposite -- "The programmer's model is not
+ * affected by loading this type of state frame" -- so the two differ in exactly
+ * the thing a context switch cares about. */
+static void test_frestore_resets_on_null_and_preserves_on_idle(void) {
+  /* FRESTORE (A0)+ : $F358 is type 101, postincrement. */
+  static const uint16_t program[] = {0xF358u, 0x4E71u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 3);
+  m.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
+  ap_m68882_t fpu;
+  ap_m68882_reset(&fpu);
+  m.cpu.fpu = &fpu;
+  m.cpu.regs.a[0] = FP_OPERAND;
+  fpu.regs.fp[3] = ap_m68882_from_single(0x3F800000u);
+  fpu.regs.fpcr = 0x0000FFF0u;
+  for (unsigned i = 0; i < 4u; i++) {
+    m.memory.bytes[FP_OPERAND + i] = 0u; /* a null frame */
+  }
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&m.cpu).status);
+  TEST_ASSERT_EQUAL_HEX32(FP_OPERAND + 4u, m.cpu.regs.a[0]);
+  TEST_ASSERT_EQUAL_HEX32(0u, fpu.regs.fpcr);
+  /* Non-signalling NANs, which is the reset state and not zeros. */
+  TEST_ASSERT_EQUAL_INT(AP_M68882_TYPE_NAN,
+                        ap_m68882_classify(&fpu.regs.fp[3]));
+  TEST_ASSERT_FALSE(ap_m68882_is_signalling_nan(&fpu.regs.fp[3]));
+
+  /* An idle frame leaves the programmer's model alone. */
+  machine_t n = {0};
+  load(&n, program, 3);
+  n.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
+  ap_m68882_t second;
+  ap_m68882_reset(&second);
+  n.cpu.fpu = &second;
+  n.cpu.regs.a[0] = FP_OPERAND;
+  second.regs.fp[3] = ap_m68882_from_single(0x3F800000u);
+  n.memory.bytes[FP_OPERAND] = AP_M68882_DEFAULT_VERSION;
+  n.memory.bytes[FP_OPERAND + 1u] = AP_M68882_FRAME_IDLE_SIZE_BYTE;
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&n.cpu).status);
+  TEST_ASSERT_EQUAL_HEX32(FP_OPERAND + 0x3Cu, n.cpu.regs.a[0]);
+  TEST_ASSERT_EQUAL_HEX32(0x3F800000u, ap_m68882_to_single(&second.regs.fp[3]));
+}
+
+/* A format word the part does not recognise takes the **format exception**, not
+ * the protocol violation an illegal addressing mode takes: "If the format word
+ * is invalid for the FPCP (either because the size of the frame is not
+ * recognized, or the revision number does not match the revision of the
+ * processor), the MPU is instructed to take a format exception." Reporting one
+ * as the other would send a handler looking for the wrong fault.
+ *
+ * And version zero is accepted whatever its size byte says, which is the wild
+ * card rule from the other side. */
+static void test_an_unrecognised_state_frame_takes_a_format_exception(void) {
+  static const uint16_t program[] = {0xF358u, 0x4E71u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 3);
+  plant_vector(&m, AP_M68030_VECTOR_FORMAT_ERROR, HANDLER);
+  m.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
+  m.cpu.regs.isp = SUPERVISOR_STACK;
+  ap_m68882_t fpu;
+  ap_m68882_reset(&fpu);
+  m.cpu.fpu = &fpu;
+  m.cpu.regs.a[0] = FP_OPERAND;
+  /* A busy frame's size, which this part never writes and cannot honestly
+   * accept. */
+  m.memory.bytes[FP_OPERAND] = AP_M68882_DEFAULT_VERSION;
+  m.memory.bytes[FP_OPERAND + 1u] = 0xD4u;
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXCEPTION, ap_m68030_step(&m.cpu).status);
+  TEST_ASSERT_EQUAL_HEX32(HANDLER, m.cpu.regs.pc);
+
+  /* Version zero with a nonsense size byte is still a null frame. */
+  machine_t n = {0};
+  load(&n, program, 3);
+  n.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
+  ap_m68882_t second;
+  ap_m68882_reset(&second);
+  n.cpu.fpu = &second;
+  n.cpu.regs.a[0] = FP_OPERAND;
+  n.memory.bytes[FP_OPERAND] = 0x00u;
+  n.memory.bytes[FP_OPERAND + 1u] = 0xD4u;
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&n.cpu).status);
+  TEST_ASSERT_EQUAL_HEX32(FP_OPERAND + 4u, n.cpu.regs.a[0]);
+}
+
+/* Both are privileged: "If in supervisor state ... else TRAP". */
+static void test_the_state_frame_instructions_are_privileged(void) {
+  static const uint16_t saving[] = {0xF320u, 0x4E71u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, saving, 3);
+  plant_vector(&m, AP_M68030_VECTOR_PRIVILEGE_VIOLATION, HANDLER);
+  m.cpu.regs.sr = 0u; /* user state */
+  m.cpu.regs.isp = SUPERVISOR_STACK;
+  ap_m68882_t fpu;
+  ap_m68882_reset(&fpu);
+  m.cpu.fpu = &fpu;
+  m.cpu.regs.a[0] = FP_OPERAND + 64u;
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXCEPTION, ap_m68030_step(&m.cpu).status);
+  TEST_ASSERT_EQUAL_HEX32(HANDLER, m.cpu.regs.pc);
+  /* And nothing was written, so the trap came before the transfer. */
+  TEST_ASSERT_EQUAL_HEX32(FP_OPERAND + 64u, m.cpu.regs.a[0]);
+}
+
 /* `FBcc` is its own instruction *type* rather than an opclass, so it never
  * reaches the general path: the operation word carries the predicate in bits
  * 5-0 and the size in bit 6, and a displacement follows.
@@ -6471,7 +6619,7 @@ int main(void) {
   RUN_TEST(test_a_fitted_coprocessor_executes_an_f_line_instruction);
   RUN_TEST(test_a_fitted_coprocessor_ignores_another_cpid);
   RUN_TEST(test_an_undefined_extension_traps_with_a_coprocessor_fitted);
-  RUN_TEST(test_an_unimplemented_coprocessor_form_is_reported_as_our_gap);
+  RUN_TEST(test_an_unimplemented_form_is_reported_as_our_gap);
   RUN_TEST(test_a_single_source_operand_is_fetched_from_memory);
   RUN_TEST(test_an_extended_source_operand_spans_three_long_words);
   RUN_TEST(test_a_postincrement_steps_by_the_source_format_length);
@@ -6483,6 +6631,10 @@ int main(void) {
   RUN_TEST(test_a_packed_infinity_and_nan_need_all_three_markers);
   RUN_TEST(test_a_zero_mantissa_is_a_zero_whatever_the_exponent);
   RUN_TEST(test_a_packed_decimal_result_is_stored_with_its_k_factor);
+  RUN_TEST(test_fsave_writes_a_null_frame_until_something_runs);
+  RUN_TEST(test_frestore_resets_on_null_and_preserves_on_idle);
+  RUN_TEST(test_an_unrecognised_state_frame_takes_a_format_exception);
+  RUN_TEST(test_the_state_frame_instructions_are_privileged);
   RUN_TEST(test_a_result_is_stored_to_memory);
   RUN_TEST(test_a_predecrement_store_steps_by_the_destination_length);
   RUN_TEST(test_a_store_leaves_the_condition_codes_alone);

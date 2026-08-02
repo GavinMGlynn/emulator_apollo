@@ -3945,6 +3945,101 @@ static fp_source_result_t transfer_fp_control(ap_m68030_cpu_t *cpu,
   return FP_SOURCE_FETCHED;
 }
 
+/* `FSAVE` and `FRESTORE`. The frame's *length* is what the addressing has to
+ * know, and it is not fixed: a null frame is four bytes and an idle one sixty,
+ * so a predecrement steps by whichever the part produced and a restore reads
+ * the format word before it knows how much follows.
+ *
+ * `*format_error` distinguishes the two refusals a restore can make. An
+ * addressing mode the instruction may not name is a protocol violation like any
+ * other; a *format word* the part does not recognise is the **format
+ * exception** FRESTORE's own page names -- "the MPU is instructed to take a
+ * format exception" -- and reporting one as the other would send a handler
+ * looking for the wrong fault. */
+static fp_source_result_t execute_fp_state(ap_m68030_cpu_t *cpu,
+                                           const ap_m68030_coproc_t *coproc,
+                                           bool saving, uint32_t *clocks,
+                                           bool *format_error) {
+  const ap_m68030_ea_kind_t kind = coproc->ea.kind;
+  *format_error = false;
+
+  if (saving) {
+    /* Control alterable or predecrement, as for a register-to-memory FMOVEM. */
+    if (!(ap_m68030_ea_is_control_alterable(kind) ||
+          kind == AP_M68030_EA_PREDECREMENT)) {
+      return FP_SOURCE_PROTOCOL_VIOLATION;
+    }
+    uint8_t frame[AP_M68882_FRAME_IDLE_BYTES] = {0};
+    const unsigned length = ap_m68882_save(cpu->fpu, frame);
+
+    uint32_t base = 0;
+    if (kind == AP_M68030_EA_PREDECREMENT) {
+      cpu->regs.a[coproc->ea.reg] -= length;
+      base = cpu->regs.a[coproc->ea.reg];
+    } else {
+      ap_m68030_address_input_t input = {0};
+      if (!gather_address_input(cpu, kind, length, clocks, &input)) {
+        return FP_SOURCE_FAILED;
+      }
+      const ap_m68030_address_t where =
+          resolve_address(cpu, clocks, coproc->ea, &input);
+      if (!where.valid) {
+        return FP_SOURCE_FAILED;
+      }
+      base = where.address;
+    }
+    const ap_m68030_address_t where = {.address = base, .valid = true};
+    return write_operand_bytes(cpu, clocks, &where, length, frame)
+               ? FP_SOURCE_FETCHED
+               : FP_SOURCE_FAILED;
+  }
+
+  /* Restoring: control modes or postincrement, the mirror of the save. */
+  if (!(ap_m68030_ea_is_control(kind) ||
+        kind == AP_M68030_EA_POSTINCREMENT)) {
+    return FP_SOURCE_PROTOCOL_VIOLATION;
+  }
+  uint32_t base = 0;
+  if (kind == AP_M68030_EA_POSTINCREMENT) {
+    base = cpu->regs.a[coproc->ea.reg];
+  } else {
+    ap_m68030_address_input_t input = {0};
+    if (!gather_address_input(cpu, kind, 4u, clocks, &input)) {
+      return FP_SOURCE_FAILED;
+    }
+    const ap_m68030_address_t where =
+        resolve_address(cpu, clocks, coproc->ea, &input);
+    if (!where.valid) {
+      return FP_SOURCE_FAILED;
+    }
+    base = where.address;
+  }
+
+  /* "The first word at the specified address is the format word of the state
+   * frame, which specifies the size of the frame and the revision number of the
+   * FPCP", so the length is read before the rest can be. */
+  uint8_t frame[AP_M68882_FRAME_IDLE_BYTES] = {0};
+  const ap_m68030_address_t head = {.address = base, .valid = true};
+  if (!read_operand_bytes(cpu, clocks, &head, 2u, frame)) {
+    return FP_SOURCE_FAILED;
+  }
+  const uint16_t format_word =
+      (uint16_t)(((uint16_t)frame[0] << 8) | frame[1]);
+  const unsigned length = ap_m68882_frame_length(cpu->fpu, format_word);
+  if (length == 0u) {
+    *format_error = true;
+    return FP_SOURCE_PROTOCOL_VIOLATION;
+  }
+  if (length > 2u && !read_operand_bytes(cpu, clocks, &head, length, frame)) {
+    return FP_SOURCE_FAILED;
+  }
+  ap_m68882_restore(cpu->fpu, frame);
+  if (kind == AP_M68030_EA_POSTINCREMENT) {
+    cpu->regs.a[coproc->ea.reg] += length;
+  }
+  return FP_SOURCE_FETCHED;
+}
+
 /* `FDBcc`, `FScc` and `FTRAPcc`: one instruction type (`001`), one command word
  * format, and Table 4-19's instruction-specific field to tell them apart.
  *
@@ -4742,6 +4837,33 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
      * operation word: the operation word gets as far as "a coprocessor
      * instruction for this cpID" and cannot tell `FADD` from `FSIN`. */
     if (cpu->fpu != nullptr && coproc->cpid == cpu->fpu->cpid) {
+      /* `FSAVE` and `FRESTORE`, §6.4.2's state frames. Both are **privileged**
+       * -- "If in supervisor state ... else TRAP" -- and neither computes
+       * anything: they move the coprocessor's own internal state, which is why
+       * they are their own instruction types rather than opclasses. */
+      if (coproc->type == AP_M68030_CP_SAVE ||
+          coproc->type == AP_M68030_CP_RESTORE) {
+        if (!ap_m68030_supervisor(&cpu->regs)) {
+          cpu->pending_vector = AP_M68030_VECTOR_PRIVILEGE_VIOLATION;
+          break;
+        }
+        bool violated = false;
+        switch (execute_fp_state(cpu, coproc, coproc->type == AP_M68030_CP_SAVE,
+                                 &out.clocks, &violated)) {
+        case FP_SOURCE_FETCHED:
+          break;
+        case FP_SOURCE_PROTOCOL_VIOLATION:
+          cpu->pending_vector = violated ? AP_M68030_VECTOR_FORMAT_ERROR
+                                         : AP_M68030_VECTOR_COPROCESSOR_PROTOCOL;
+          break;
+        case FP_SOURCE_FAILED:
+          out.status = fault_or_unimplemented(cpu, &out, instruction_address);
+          cpu->clocks += out.clocks;
+          return out;
+        }
+        break;
+      }
+
       /* `FBcc`, which is its own instruction *type* rather than an opclass and
        * so never reaches the general path below. The operation word carries the
        * conditional predicate in bits 5-0 and the size in bit 6; the

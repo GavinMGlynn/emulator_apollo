@@ -33,7 +33,52 @@ typedef struct {
    * ID = 1 for the FPCP", and a system may hold several coprocessors, so this
    * is configured rather than assumed. */
   unsigned cpid;
+  /* The microcode version this part reports in a state frame's format word.
+   * **`PROVISIONAL`**: "The version number is an 8-bit value that identifies the
+   * microcode version of the FPCP, and the format of this number is defined
+   * internally by the FPCP" -- so the manual publishes no value, and there is
+   * nothing to transcribe. Held as state rather than a constant because that is
+   * what it is on the part, and because the only behaviour a program can
+   * observe is *self-consistency*: what `FSAVE` writes, `FRESTORE` must accept.
+   * See `PROJECT_STATUS.md` for the closing measurement. */
+  unsigned version;
+  /* Whether any instruction has run since the last reset or null restore, which
+   * is exactly what decides a null save from an idle one: "A save of the null
+   * state results when no FPCP instructions have been executed since the last
+   * null state restore or hardware reset." */
+  bool executed;
 } ap_m68882_t;
+
+/* §6.4.2's state frames, as far as this part produces them.
+ *
+ * A **busy** frame is deliberately absent, and that is a modelling statement
+ * rather than a gap: it exists so an instruction suspended *part way* can be
+ * resumed, and this core's 68882 completes every instruction inside the step
+ * that issues it. Nothing can interrupt it half-done, so nothing can generate
+ * one -- the same reasoning the 68030's stack frame `$9` once carried, and here
+ * it holds, because no main processor rule reaches around it. */
+enum {
+  /* Figure 6-5: the null frame is one long word and the idle frame is `$3C`
+   * bytes, "60 ($3C) bytes long in the MC68882". The size *byte* in the format
+   * word counts what follows it: `$38` is 56, and 56 + 4 is 60. */
+  AP_M68882_FRAME_NULL_BYTES = 4,
+  AP_M68882_FRAME_IDLE_BYTES = 0x3C,
+  AP_M68882_FRAME_IDLE_SIZE_BYTE = 0x38,
+};
+
+/* Write the state frame this part would save. Returns its length in bytes, so
+ * the caller knows how far a predecrement steps. */
+[[nodiscard]] unsigned ap_m68882_save(const ap_m68882_t *fpu, uint8_t *bytes);
+
+/* How long a frame the format word describes, or zero if it is not one this
+ * part will accept -- "the FPCP checks the version number and frame size values
+ * for validity and signals a format exception if they are not valid for this
+ * particular device". */
+[[nodiscard]] unsigned ap_m68882_frame_length(const ap_m68882_t *fpu,
+                                              uint16_t format_word);
+
+/* Load a state frame. `bytes` holds `ap_m68882_frame_length` bytes. */
+void ap_m68882_restore(ap_m68882_t *fpu, const uint8_t *bytes);
 
 void ap_m68882_reset(ap_m68882_t *fpu);
 

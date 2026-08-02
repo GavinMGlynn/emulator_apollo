@@ -52,6 +52,17 @@
  * interface at all. */
 #define AP_M68882_DEFAULT_CPID 1u
 
+/* The microcode version reported in a state frame's format word.
+ *
+ * **`PROVISIONAL`.** "The version number is an 8-bit value that identifies the
+ * microcode version of the FPCP, and the format of this number is defined
+ * internally by the FPCP" -- the manual publishes no value for any part, so
+ * there is nothing to transcribe and nothing to be correct about from the
+ * documents. What a program *can* observe is self-consistency: a frame written
+ * by `FSAVE` must be accepted by `FRESTORE`, and version zero must be accepted
+ * whatever this is. Both hold for any non-zero choice. */
+#define AP_M68882_DEFAULT_VERSION 0x1Fu
+
 typedef enum {
   AP_M68882_CIR_RESPONSE,            /* $00, 16-bit, read */
   AP_M68882_CIR_CONTROL,             /* $02, 16-bit, write */

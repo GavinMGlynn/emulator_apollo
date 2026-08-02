@@ -8,6 +8,88 @@
 void ap_m68882_reset(ap_m68882_t *fpu) {
   ap_m68882_regs_reset(&fpu->regs);
   fpu->cpid = AP_M68882_DEFAULT_CPID;
+  fpu->version = AP_M68882_DEFAULT_VERSION;
+  /* "A save of the null state results when no FPCP instructions have been
+   * executed since the last null state restore or hardware reset." */
+  fpu->executed = false;
+}
+
+unsigned ap_m68882_save(const ap_m68882_t *fpu, uint8_t *bytes) {
+  for (unsigned i = 0; i < AP_M68882_FRAME_IDLE_BYTES; i++) {
+    bytes[i] = 0;
+  }
+
+  if (!fpu->executed) {
+    /* The null frame. Its version is zero -- "Version number 0 is a wild card
+     * number, allowing this state frame type to be restored to a coprocessor of
+     * any version" -- and its size byte is deliberately left alone: "The size
+     * value of a null state frame is not assumed to be valid during a save
+     * operation and is ignored by the FPCP during a restore operation." Which is
+     * what reconciles Figure 6-5 printing it "(UNDEFINED)" with FRESTORE's page
+     * calling the format word `$0000`: the version identifies the frame and the
+     * size is a don't care. */
+    return AP_M68882_FRAME_NULL_BYTES;
+  }
+
+  bytes[0] = (uint8_t)fpu->version;
+  bytes[1] = AP_M68882_FRAME_IDLE_SIZE_BYTE;
+
+  /* The command/condition register image at `$04`. The condition codes are the
+   * part of it this model has, and they are the part an exception handler reads
+   * -- "it contains information that is useful to most floating-point exception
+   * handlers". */
+  const uint32_t condition = (fpu->regs.fpsr >> 24) & 0x0Fu;
+  bytes[4] = (uint8_t)condition;
+
+  /* `$08`-`$27` are the CU internal registers, `$34` the operand register and
+   * `$38` the BIU flags. All `PROVISIONAL` zeros, for the reason the 68030's
+   * stack frames give: this model has no microsequencer state to save. Written
+   * rather than skipped, so a handler cannot read the previous program's data
+   * from under a documented field name.
+   *
+   * The exceptional operand at `$28` is the one field with a real value when
+   * there is one, and there is not: it is defined only for a *taken* trap, and
+   * §6.1.7 notes even the part leaves it undefined for an inexact. */
+  return AP_M68882_FRAME_IDLE_BYTES;
+}
+
+unsigned ap_m68882_frame_length(const ap_m68882_t *fpu, uint16_t format_word) {
+  const unsigned version = (unsigned)(format_word >> 8);
+  const unsigned size = (unsigned)(format_word & 0xFFu);
+
+  if (version == 0u) {
+    /* The wild card, whatever its size byte says. */
+    return AP_M68882_FRAME_NULL_BYTES;
+  }
+  if (version == fpu->version && size == AP_M68882_FRAME_IDLE_SIZE_BYTE) {
+    return AP_M68882_FRAME_IDLE_BYTES;
+  }
+  /* "the FPCP checks the version number and frame size values for validity and
+   * signals a format exception if they are not valid for this particular
+   * device" -- including the busy frame's size, which this part never writes and
+   * therefore cannot honestly accept. */
+  return 0u;
+}
+
+void ap_m68882_restore(ap_m68882_t *fpu, const uint8_t *bytes) {
+  if (bytes[0] == 0u) {
+    /* "An FRESTORE operation with this size state frame is equivalent to a
+     * hardware reset of the FPCP. The programmer's model is set to the reset
+     * state, with non-signaling NANs in the floating-point data registers and
+     * zeroes in the FPCR, FPSR and FPIAR." */
+    const unsigned cpid = fpu->cpid;
+    const unsigned version = fpu->version;
+    ap_m68882_reset(fpu);
+    fpu->cpid = cpid;
+    fpu->version = version;
+    return;
+  }
+
+  /* An idle frame. "The programmer's model is not affected by loading this type
+   * of state frame" -- so the data registers and control registers are left
+   * exactly as they are, and what changes is only that the part is no longer in
+   * its null state. */
+  fpu->executed = true;
 }
 
 /* Set the condition codes from a result, Table 2-1. Every arithmetic
@@ -48,6 +130,7 @@ static void apply_exceptions(ap_m68882_regs_t *regs, uint32_t exceptions) {
 }
 
 bool ap_m68882_condition(ap_m68882_t *fpu, unsigned predicate) {
+  fpu->executed = true;
   const ap_m68882_condition_t evaluated =
       ap_m68882_evaluate_condition(&fpu->regs, predicate);
 
@@ -554,6 +637,12 @@ void ap_m68882_note_instruction(ap_m68882_t *fpu, uint16_t operation_word,
       AP_M68882_EXECUTED) {
     return;
   }
+
+  /* The part is no longer in its null state, whatever this instruction is --
+   * §6.4.2.1 counts *any* FPCP instruction, not only an arithmetic one, and an
+   * `FMOVEM` that filled the register file is exactly the case where saying
+   * "nothing has run" would lose the programmer's model. */
+  fpu->executed = true;
 
   switch (command.opclass) {
   case AP_M68882_OPCLASS_REGISTER:

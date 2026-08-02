@@ -1381,9 +1381,16 @@ a 68882, and the 68882 is the only one of these it has.
         table reproduced character for character, and `step_suite` +1 (242)
         round-tripping a stored string back through the load conversion. Detail
         in `PROJECT_STATUS.md`.*
-  - [ ] **`FSAVE` and `FRESTORE`**, the coprocessor state frames — instruction
-        types `100` and `101`, and the only 68882 forms left outside the general
-        type. §6.4.2's state frame is what an exception handler saves; the null
+  - [x] **`FSAVE` and `FRESTORE`**, §6.4.2's state frames, which completes the
+        68882: every instruction and every data format now executes. Null and
+        idle frames, whose *length* differs and so is state rather than a
+        constant; a null restore is a hardware reset while an idle one leaves
+        the programmer's model alone; an unrecognised format word is the format
+        exception rather than a protocol violation; both privileged. A **busy**
+        frame is deliberately absent — this core's part never suspends, so
+        nothing can generate one. The version number is `PROVISIONAL` because no
+        manual publishes one.
+        *Verification: `step_suite` +4 (246). Detail in `PROJECT_STATUS.md`.*
         frame is what a reset or an idle part returns.
   - [x] **`FDBcc`, `FScc` and `FTRAPcc`** — one instruction type, one encoding,
         told apart by Table 4-19. `FDBcc`'s branch base is a third rule (the
