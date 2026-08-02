@@ -553,3 +553,335 @@ ap_m68882_compare_t ap_m68882_compare(const ap_m68882_extended_t *a,
   out.equal = true;
   return out;
 }
+
+/* ---------------------------------------------------------------------------
+ * The exactly-specified monadic operations. See the header for why these are
+ * not transcendentals.
+ * ------------------------------------------------------------------------- */
+
+/* A 128-bit value as two halves. Written out rather than using
+ * `unsigned __int128`, which is a compiler extension: this core is C23 on three
+ * platforms and the emulated result must be identical on all of them. */
+typedef struct {
+  uint64_t high;
+  uint64_t low;
+} ap_m68882_u128_t;
+
+static bool u128_at_least(ap_m68882_u128_t a, ap_m68882_u128_t b) {
+  return a.high != b.high ? a.high > b.high : a.low >= b.low;
+}
+
+static ap_m68882_u128_t u128_subtract(ap_m68882_u128_t a,
+                                      ap_m68882_u128_t b) {
+  ap_m68882_u128_t out = {.high = a.high - b.high, .low = a.low - b.low};
+  if (a.low < b.low) {
+    out.high -= 1u;
+  }
+  return out;
+}
+
+static ap_m68882_u128_t u128_shift_left(ap_m68882_u128_t a, unsigned count) {
+  if (count == 0u) {
+    return a;
+  }
+  if (count >= 64u) {
+    return (ap_m68882_u128_t){.high = a.low << (count - 64u), .low = 0u};
+  }
+  return (ap_m68882_u128_t){
+      .high = (a.high << count) | (a.low >> (64u - count)),
+      .low = a.low << count};
+}
+
+static ap_m68882_u128_t u128_bit(unsigned position) {
+  return position >= 64u
+             ? (ap_m68882_u128_t){.high = UINT64_C(1) << (position - 64u),
+                                  .low = 0u}
+             : (ap_m68882_u128_t){.high = 0u, .low = UINT64_C(1) << position};
+}
+
+static ap_m68882_u128_t u128_add(ap_m68882_u128_t a, ap_m68882_u128_t b) {
+  ap_m68882_u128_t out = {.high = a.high + b.high, .low = a.low + b.low};
+  if (out.low < a.low) {
+    out.high += 1u;
+  }
+  return out;
+}
+
+ap_m68882_op_t ap_m68882_sqrt(const ap_m68882_extended_t *a,
+                              ap_m68882_rounding_t mode,
+                              ap_m68882_precision_t precision) {
+  ap_m68882_op_t out = {0};
+  const ap_m68882_extended_t self = *a;
+  if (propagate_nan(a, &self, &out)) {
+    return out;
+  }
+
+  const ap_m68882_type_t kind = ap_m68882_classify(a);
+  if (kind == AP_M68882_TYPE_ZERO) {
+    /* "sqrt(-0) = -0", IEEE's rule and not an oversight: a zero's sign is
+     * information and the square root preserves it. Checked *before* the sign
+     * test below, or negative zero would be an operand error. */
+    out.value = *a;
+    return out;
+  }
+  if (a->sign) {
+    return operand_error(); /* Table 6-2: "FSQRT: Source <0" */
+  }
+  if (kind == AP_M68882_TYPE_INFINITY) {
+    out.value = *a;
+    return out;
+  }
+
+  /* The mantissa is `M / 2^63` in [1,2) and the value is `m * 2^e`.
+   *
+   *   e even:  sqrt = sqrt(m)  * 2^(e/2),     sqrt(m)  in [1, 1.415)
+   *   e odd:   sqrt = sqrt(2m) * 2^((e-1)/2), sqrt(2m) in [1.415, 2)
+   *
+   * so the root's mantissa is normalised either way, and the exponent is
+   * `floor(e/2)` in both -- which an arithmetic shift gives directly. Halving
+   * the mantissa instead, as this first did, leaves it in [0.5,1) and produces
+   * a root a factor of two out: `sqrt(9)` came to 6. */
+  const int exponent = (int)a->exponent - AP_M68882_BIAS_EXTENDED;
+  const bool odd = (exponent & 1) != 0;
+  ap_m68882_u128_t radicand = {.high = 0u, .low = a->mantissa};
+  radicand = u128_shift_left(radicand, odd ? 64u : 63u);
+
+  /* Restoring square root, one bit at a time from the top. At each step, test
+   * whether setting bit `b` keeps the root's square within the radicand:
+   * `(root + 2^b)^2 - root^2` is `2*root*2^b + 2^2b`, which is the trial
+   * below. */
+  uint64_t root = 0;
+  ap_m68882_u128_t remainder = radicand;
+  for (unsigned b = 64u; b-- > 0u;) {
+    ap_m68882_u128_t trial =
+        u128_shift_left((ap_m68882_u128_t){.high = 0u, .low = root}, b + 1u);
+    trial = u128_add(trial, u128_bit(2u * b));
+    if (u128_at_least(remainder, trial)) {
+      remainder = u128_subtract(remainder, trial);
+      root |= UINT64_C(1) << b;
+    }
+  }
+
+  ap_m68882_extended_t result = {
+      .sign = false,
+      .exponent = (uint16_t)((exponent >> 1) + AP_M68882_BIAS_EXTENDED),
+      .mantissa = root};
+  /* Anything left over means the root was not exact. There is no guard or round
+   * bit to give: the loop produced all 64 mantissa bits and stopped, so what
+   * remains is entirely below them -- which is what sticky means. */
+  const bool inexact = remainder.high != 0u || remainder.low != 0u;
+  return finish(result, false, false, inexact, mode, precision, 0u);
+}
+
+ap_m68882_op_t ap_m68882_getexp(const ap_m68882_extended_t *a) {
+  ap_m68882_op_t out = {0};
+  const ap_m68882_extended_t self = *a;
+  if (propagate_nan(a, &self, &out)) {
+    return out;
+  }
+
+  const ap_m68882_type_t kind = ap_m68882_classify(a);
+  if (kind == AP_M68882_TYPE_ZERO) {
+    /* The operation table gives `+0.0` for a positive zero and `-0.0` for a
+     * negative one: the sign is carried through rather than the exponent being
+     * computed. */
+    out.value = *a;
+    return out;
+  }
+  if (kind == AP_M68882_TYPE_INFINITY) {
+    /* Table 6-2: "FGETEXP: Source is +/- infinity". */
+    return operand_error();
+  }
+
+  int32_t unbiased = (int32_t)a->exponent - AP_M68882_BIAS_EXTENDED;
+  if (unbiased == 0) {
+    out.value = make_zero(false);
+    return out;
+  }
+
+  /* "converts the exponent to an extended precision floating-point number" --
+   * so the answer is a float holding an integer, not an integer. */
+  ap_m68882_extended_t result = {.sign = unbiased < 0};
+  uint32_t magnitude = (uint32_t)(unbiased < 0 ? -unbiased : unbiased);
+  unsigned shift = 0;
+  while ((magnitude >> shift) > 1u) {
+    shift++;
+  }
+  result.exponent = (uint16_t)(AP_M68882_BIAS_EXTENDED + shift);
+  result.mantissa = (uint64_t)magnitude << (63u - shift);
+  out.value = result;
+  return out;
+}
+
+ap_m68882_op_t ap_m68882_getman(const ap_m68882_extended_t *a) {
+  ap_m68882_op_t out = {0};
+  const ap_m68882_extended_t self = *a;
+  if (propagate_nan(a, &self, &out)) {
+    return out;
+  }
+
+  const ap_m68882_type_t kind = ap_m68882_classify(a);
+  if (kind == AP_M68882_TYPE_ZERO) {
+    out.value = *a;
+    return out;
+  }
+  if (kind == AP_M68882_TYPE_INFINITY) {
+    return operand_error(); /* Table 6-2: "FGETMAN: Source is +/- infinity" */
+  }
+
+  /* "The result is in the range [1.0 ... 2.0) **with the sign of the source
+   * mantissa**" -- the sign is kept, which is what makes this the mantissa
+   * rather than its magnitude. */
+  out.value.sign = a->sign;
+  out.value.exponent = AP_M68882_BIAS_EXTENDED;
+  out.value.mantissa = a->mantissa;
+  return out;
+}
+
+/* Truncate a value to its integer part, reporting the bits discarded so the
+ * caller can round them. Shared by FINT and FINTRZ, which differ only in
+ * whether the mode is consulted. */
+static ap_m68882_op_t integer_part(const ap_m68882_extended_t *a,
+                                   ap_m68882_rounding_t mode, bool truncate) {
+  ap_m68882_op_t out = {0};
+  const ap_m68882_extended_t self = *a;
+  if (propagate_nan(a, &self, &out)) {
+    return out;
+  }
+
+  const ap_m68882_type_t kind = ap_m68882_classify(a);
+  if (kind == AP_M68882_TYPE_ZERO || kind == AP_M68882_TYPE_INFINITY) {
+    /* Both are already integers, and an infinity is *not* an operand error
+     * here -- Table 6-2 does not list FINT, and the operation table gives the
+     * infinity straight back. */
+    out.value = *a;
+    return out;
+  }
+
+  const int exponent = (int)a->exponent - AP_M68882_BIAS_EXTENDED;
+  if (exponent >= 63) {
+    out.value = *a; /* already an integer: no fraction bits remain */
+    return out;
+  }
+  if (exponent < 0) {
+    /* Below one in magnitude: the integer part is zero before rounding, and
+     * rounding can only lift it to one. Handled through the same path so the
+     * directed modes behave. */
+    const uint64_t fraction = a->mantissa;
+    ap_m68882_extended_t zero = make_zero(a->sign);
+    if (truncate || fraction == 0u) {
+      out.value = zero;
+      return out;
+    }
+    const bool up = (mode == AP_M68882_ROUND_PLUS_INFINITY && !a->sign) ||
+                    (mode == AP_M68882_ROUND_MINUS_INFINITY && a->sign) ||
+                    (mode == AP_M68882_ROUND_NEAREST && exponent == -1 &&
+                     (a->mantissa & ~INTEGER_BIT) != 0u);
+    out.value = zero;
+    if (up) {
+      out.value.exponent = AP_M68882_BIAS_EXTENDED;
+      out.value.mantissa = INTEGER_BIT;
+    }
+    return out;
+  }
+
+  const unsigned fraction_bits = (unsigned)(63 - exponent);
+  const uint64_t fraction_mask = (UINT64_C(1) << fraction_bits) - 1u;
+  const uint64_t fraction = a->mantissa & fraction_mask;
+  if (fraction == 0u) {
+    out.value = *a;
+    return out;
+  }
+
+  ap_m68882_extended_t result = *a;
+  result.mantissa = a->mantissa & ~fraction_mask;
+
+  if (!truncate) {
+    /* FINT rounds by the current mode, so it reuses the rounding stage rather
+     * than reimplementing round-half-to-even -- which is the whole reason that
+     * stage is a module. The guard is the fraction's top bit and the sticky is
+     * everything below it. */
+    const bool guard =
+        (fraction & (UINT64_C(1) << (fraction_bits - 1u))) != 0u;
+    const bool sticky =
+        (fraction & ((UINT64_C(1) << (fraction_bits - 1u)) - 1u)) != 0u;
+    ap_m68882_extended_t shifted = result;
+    shifted.mantissa >>= fraction_bits;
+    const ap_m68882_round_result_t rounded =
+        ap_m68882_round(shifted, guard, false, sticky, mode,
+                        AP_M68882_PRECISION_EXTENDED);
+    result.mantissa = rounded.value.mantissa << fraction_bits;
+    if (rounded.value.exponent != shifted.exponent) {
+      /* The rounding carried, so the value grew a bit. */
+      result.exponent = (uint16_t)(result.exponent + 1u);
+      result.mantissa = INTEGER_BIT;
+    }
+  }
+
+  out.value = result;
+  return out;
+}
+
+ap_m68882_op_t ap_m68882_int(const ap_m68882_extended_t *a,
+                             ap_m68882_rounding_t mode) {
+  return integer_part(a, mode, false);
+}
+
+ap_m68882_op_t ap_m68882_intrz(const ap_m68882_extended_t *a) {
+  /* "Integer Part (Truncated)": always toward zero, whatever the mode says.
+   * The mode argument is unused deliberately -- passing the current one would
+   * make this the same instruction as FINT. */
+  return integer_part(a, AP_M68882_ROUND_ZERO, true);
+}
+
+ap_m68882_op_t ap_m68882_scale(const ap_m68882_extended_t *a,
+                               const ap_m68882_extended_t *b) {
+  ap_m68882_op_t out = {0};
+  if (propagate_nan(a, b, &out)) {
+    return out;
+  }
+
+  const ap_m68882_type_t a_kind = ap_m68882_classify(a);
+  const ap_m68882_type_t b_kind = ap_m68882_classify(b);
+
+  if (b_kind == AP_M68882_TYPE_INFINITY) {
+    /* Table 6-2: "FSCALE: Source is +/- infinity, Other Operand is Not a
+     * NAN" -- the NAN case having been taken above. */
+    return operand_error();
+  }
+  if (a_kind == AP_M68882_TYPE_ZERO || a_kind == AP_M68882_TYPE_INFINITY) {
+    out.value = *a; /* scaling either leaves it what it was */
+    return out;
+  }
+
+  /* "Converts the source operand to an integer ... and adds that integer to the
+   * exponent". Exponent arithmetic, so it is exact and cannot round -- which is
+   * the point of the instruction rather than multiplying by a power of two. */
+  const ap_m68882_op_t truncated = ap_m68882_intrz(b);
+  int32_t amount = 0;
+  const int b_exponent = (int)truncated.value.exponent - AP_M68882_BIAS_EXTENDED;
+  if (ap_m68882_classify(&truncated.value) != AP_M68882_TYPE_ZERO &&
+      b_exponent >= 0 && b_exponent < 31) {
+    amount = (int32_t)(truncated.value.mantissa >> (63 - b_exponent));
+    if (truncated.value.sign) {
+      amount = -amount;
+    }
+  }
+
+  const int scaled = (int)a->exponent + amount;
+  ap_m68882_extended_t result = *a;
+  if (scaled >= (int)MAX_EXPONENT) {
+    out.value = make_infinity(a->sign);
+    out.exceptions = (UINT32_C(1) << AP_M68882_EXC_OVFL) |
+                     (UINT32_C(1) << AP_M68882_EXC_INEX2);
+    return out;
+  }
+  if (scaled <= 0) {
+    out.value = make_zero(a->sign);
+    out.exceptions = UINT32_C(1) << AP_M68882_EXC_UNFL;
+    return out;
+  }
+  result.exponent = (uint16_t)scaled;
+  out.value = result;
+  return out;
+}

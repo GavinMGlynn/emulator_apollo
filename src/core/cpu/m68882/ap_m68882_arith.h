@@ -82,4 +82,51 @@ typedef struct {
 ap_m68882_compare(const ap_m68882_extended_t *a,
                   const ap_m68882_extended_t *b);
 
+/* ---------------------------------------------------------------------------
+ * The exactly-specified monadic operations.
+ *
+ * These are the ones §4.3.1 puts under the IEEE error bound rather than
+ * §4.3.2's transcendentals: "the IEEE specification does not define the error
+ * bound to which transcendental (**except square root**) functions are to be
+ * performed". So a square root has one right answer to within half a unit in
+ * the last place, and so do the exponent and mantissa extractions, the integer
+ * parts and the scale -- none of which is even approximate.
+ * ------------------------------------------------------------------------- */
+
+/* "Calculates the square root of that value". IEEE-specified, so correctly
+ * rounded rather than approximated -- and `OPERR` for a negative source, which
+ * Table 6-2 lists as "Source <0, Source = -infinity". */
+[[nodiscard]] ap_m68882_op_t ap_m68882_sqrt(const ap_m68882_extended_t *a,
+                                            ap_m68882_rounding_t mode,
+                                            ap_m68882_precision_t precision);
+
+/* "Extracts the binary exponent. Removes the exponent bias, converts the
+ * exponent to an extended precision floating-point number." So the *result* is
+ * a float holding an integer, not an integer -- and `OPERR` for an infinity,
+ * which has no meaningful exponent. */
+[[nodiscard]] ap_m68882_op_t ap_m68882_getexp(const ap_m68882_extended_t *a);
+
+/* "Extracts the mantissa ... The result is in the range [1.0 ... 2.0) with the
+ * sign of the source mantissa, zero, or is a NAN." The sign is *kept*, which is
+ * what makes this the mantissa rather than its magnitude. */
+[[nodiscard]] ap_m68882_op_t ap_m68882_getman(const ap_m68882_extended_t *a);
+
+/* "Extracts the integer part ... by rounding the extended precision number to
+ * an integer using the current rounding mode". So `FINT` follows the mode --
+ * "the integer part of 137.57 is 137.0 for the round-to-zero and round-to-minus
+ * infinity modes, and 138.0 for the round-to-nearest and round-to-plus infinity
+ * modes" -- while `FINTRZ` always truncates whatever the mode says. Two
+ * instructions because the mode-following one is not always what a program
+ * wants. */
+[[nodiscard]] ap_m68882_op_t ap_m68882_int(const ap_m68882_extended_t *a,
+                                           ap_m68882_rounding_t mode);
+[[nodiscard]] ap_m68882_op_t ap_m68882_intrz(const ap_m68882_extended_t *a);
+
+/* "FPn x INT(2^Source) -> FPn": the source is converted to an integer and added
+ * to the destination's exponent. A power of two by exponent arithmetic, so it
+ * is exact and cannot round -- which is the point of having it at all rather
+ * than multiplying. */
+[[nodiscard]] ap_m68882_op_t ap_m68882_scale(const ap_m68882_extended_t *a,
+                                             const ap_m68882_extended_t *b);
+
 #endif /* APOLLO_CPU_M68882_AP_M68882_ARITH_H */

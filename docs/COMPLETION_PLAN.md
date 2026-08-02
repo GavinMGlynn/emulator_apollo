@@ -1924,7 +1924,33 @@ a 68882, and the 68882 is the only one of these it has.
         undefined extension trapping *with* one fitted, which is the same vector
         arriving for a different reason; and an unimplemented form reported as
         our gap rather than as the machine's trap.*
-  - [ ] The transcendentals.
+  - [x] **The exactly-specified monadic operations**: `FSQRT`, `FGETEXP`,
+        `FGETMAN`, `FINT`, `FINTRZ` and `FSCALE`. §4.3.2 puts square root under
+        the IEEE bound rather than with the transcendentals -- "except square
+        root" -- so these have one right answer and are checked against it.
+        *Verification: `m68882_arith_suite`, 7 further tests (27 total) --
+        perfect squares coming back exactly across a sweep, since an
+        off-by-one in the exponent halving survives some values and not others;
+        `sqrt(-0)` being `-0` while any other negative is an operand error;
+        `FINT` following the mode against `FINTRZ` truncating, on the manual's
+        own 137.57 example; and `FSCALE` exact.*
+  - [x] Two defects the exactness tests caught. **The square root halved its
+        mantissa where it should have doubled the radicand**, so `sqrt(9)` came
+        to 6 -- fixed by shifting the radicand into a 128-bit value and taking
+        the exponent as `floor(e/2)`, which is right for both parities. And the
+        128-bit arithmetic is written out rather than using `unsigned __int128`,
+        which is a compiler extension: this core is C23 on three platforms and
+        the emulated result must be identical on all of them.
+  - [~] **The transcendentals are not implemented, and that is a `PROVISIONAL`
+        with a reason rather than an omission.** §4.3.2: "the IEEE specification
+        does not define the error bound to which transcendental (except square
+        root) functions are to be performed", and Motorola publishes no
+        algorithm -- only bounds, up to "4096 units in the last place of
+        extended precision". A correctly-rounded implementation would be *more*
+        accurate than the part and differ from it in almost every result, which
+        for a reference core is a divergence rather than an improvement.
+        Reporting unimplemented keeps that visible.
+        Detail and cost to close in `PROJECT_STATUS.md`.
 - [ ] 68020 subset: no on-chip MMU or cache differences, external 68851.
       *Verification: `dn3000` boots under both; oracle diff.*
 - [ ] 68851 external PMMU as its own subsystem. *Verification: `MC68851 PMMU

@@ -357,8 +357,188 @@ static void test_multiply_and_divide_invert_each_other(void) {
   TEST_ASSERT_EQUAL_HEX16(a.exponent, back.value.exponent);
 }
 
+
+/* ---------------------------------------------------------------------------
+ * The exactly-specified monadic operations.
+ *
+ * §4.3.2 excludes square root from the transcendentals -- "the IEEE
+ * specification does not define the error bound to which transcendental
+ * (except square root) functions are to be performed" -- so these have one
+ * right answer and can be checked against it rather than against a bound.
+ * ------------------------------------------------------------------------- */
+
+/* Perfect squares come back exactly, which is the property a correctly rounded
+ * square root has and an approximation does not. Swept over powers of two and
+ * the squares between them, because an off-by-one in the exponent halving
+ * survives some values and not others -- an *odd* exponent is the case that
+ * needs its extra factor of two folded into the mantissa first. */
+static void test_a_square_root_is_exact_for_perfect_squares(void) {
+  const struct {
+    uint32_t square;
+    uint32_t root;
+    const char *what;
+  } CASES[] = {
+      {0x3F800000u, 0x3F800000u, "1"},      /* sqrt(1) = 1 */
+      {0x40800000u, 0x40000000u, "4"},      /* sqrt(4) = 2 */
+      {0x41100000u, 0x40400000u, "9"},      /* sqrt(9) = 3 */
+      {0x41800000u, 0x40800000u, "16"},     /* sqrt(16) = 4 */
+      {0x42C80000u, 0x41200000u, "100"},    /* sqrt(100) = 10 */
+      {0x40000000u, 0x3FB504F3u, "2"},      /* sqrt(2), inexact */
+  };
+
+  for (unsigned i = 0; i < 5u; i++) { /* the exact ones */
+    const ap_m68882_extended_t in = single(CASES[i].square);
+    const ap_m68882_op_t root = ap_m68882_sqrt(&in, RN, PX);
+    TEST_ASSERT_EQUAL_HEX32_MESSAGE(CASES[i].root,
+                                    ap_m68882_to_single(&root.value),
+                                    CASES[i].what);
+    TEST_ASSERT_EQUAL_UINT32_MESSAGE(0u, root.exceptions, CASES[i].what);
+  }
+
+  /* And an irrational one is inexact rather than silently wrong. */
+  const ap_m68882_extended_t two = single(CASES[5].square);
+  const ap_m68882_op_t root_two = ap_m68882_sqrt(&two, RN, PX);
+  TEST_ASSERT_TRUE(raised(&root_two, AP_M68882_EXC_INEX2));
+  TEST_ASSERT_EQUAL_HEX32(CASES[5].root, ap_m68882_to_single(&root_two.value));
+}
+
+/* **`sqrt(-0)` is `-0`**, which is IEEE's rule and not an oversight: a zero's
+ * sign is information and the square root preserves it. But any *other*
+ * negative source is Table 6-2's "FSQRT: Source <0" operand error, so the two
+ * cases must be told apart -- a model checking the sign alone would trap on
+ * negative zero. */
+static void test_a_square_root_of_negative_zero_is_negative_zero(void) {
+  const ap_m68882_extended_t minus_zero = single(0x80000000u);
+  const ap_m68882_op_t zero_root = ap_m68882_sqrt(&minus_zero, RN, PX);
+  TEST_ASSERT_EQUAL_UINT32(0u, zero_root.exceptions);
+  TEST_ASSERT_EQUAL_INT(AP_M68882_TYPE_ZERO,
+                        ap_m68882_classify(&zero_root.value));
+  TEST_ASSERT_TRUE(zero_root.value.sign);
+
+  const ap_m68882_extended_t minus_four = single(0xC0800000u);
+  const ap_m68882_op_t error = ap_m68882_sqrt(&minus_four, RN, PX);
+  TEST_ASSERT_TRUE(raised(&error, AP_M68882_EXC_OPERR));
+  TEST_ASSERT_EQUAL_INT(AP_M68882_TYPE_NAN, ap_m68882_classify(&error.value));
+}
+
+/* `FGETEXP` returns the *unbiased* exponent as a floating-point number --
+ * "removes the exponent bias, converts the exponent to an extended precision
+ * floating-point number". Returning the biased one, or an integer, would both
+ * be plausible and both wrong. */
+static void test_getexp_returns_the_unbiased_exponent_as_a_float(void) {
+  const struct {
+    uint32_t value;
+    uint32_t exponent;
+    const char *what;
+  } CASES[] = {
+      {0x3F800000u, 0x00000000u, "1.0 -> 0"},
+      {0x40000000u, 0x3F800000u, "2.0 -> 1"},
+      {0x40800000u, 0x40000000u, "4.0 -> 2"},
+      {0x3F000000u, 0xBF800000u, "0.5 -> -1"},
+  };
+  for (unsigned i = 0; i < sizeof CASES / sizeof CASES[0]; i++) {
+    const ap_m68882_extended_t in = single(CASES[i].value);
+    const ap_m68882_op_t got = ap_m68882_getexp(&in);
+    TEST_ASSERT_EQUAL_HEX32_MESSAGE(CASES[i].exponent,
+                                    ap_m68882_to_single(&got.value),
+                                    CASES[i].what);
+  }
+
+  /* An infinity has no meaningful exponent: Table 6-2's operand error. */
+  const ap_m68882_extended_t infinity = single(0x7F800000u);
+  const ap_m68882_op_t infinite = ap_m68882_getexp(&infinity);
+  TEST_ASSERT_TRUE(raised(&infinite, AP_M68882_EXC_OPERR));
+}
+
+/* `FGETMAN` returns the mantissa in [1,2) **with the source's sign**. Dropping
+ * the sign would make it the magnitude, which is a different function. */
+static void test_getman_keeps_the_sign(void) {
+  const ap_m68882_extended_t negative = single(0xC0A00000u); /* -5.0 */
+  const ap_m68882_op_t mantissa = ap_m68882_getman(&negative);
+
+  /* -5.0 is -1.25 x 2^2, so the mantissa is -1.25. */
+  TEST_ASSERT_EQUAL_HEX32(0xBFA00000u, ap_m68882_to_single(&mantissa.value));
+  TEST_ASSERT_TRUE(mantissa.value.sign);
+}
+
+/* **`FINT` follows the rounding mode and `FINTRZ` does not**, which is the only
+ * difference between them and the reason there are two instructions. The
+ * manual's own example: "the integer part of 137.57 is 137.0 for the
+ * round-to-zero and round-to-minus infinity modes, and 138.0 for the
+ * round-to-nearest and round-to-plus infinity modes". */
+static void test_fint_follows_the_mode_and_fintrz_does_not(void) {
+  /* 137.57 in single precision. */
+  const ap_m68882_extended_t value = single(0x43099eb8u);
+
+  const ap_m68882_op_t nearest = ap_m68882_int(&value, RN);
+  TEST_ASSERT_EQUAL_HEX32(0x430A0000u, /* 138.0 */
+                          ap_m68882_to_single(&nearest.value));
+
+  const ap_m68882_op_t toward_zero =
+      ap_m68882_int(&value, AP_M68882_ROUND_ZERO);
+  TEST_ASSERT_EQUAL_HEX32(0x43090000u, /* 137.0 */
+                          ap_m68882_to_single(&toward_zero.value));
+
+  const ap_m68882_op_t upward =
+      ap_m68882_int(&value, AP_M68882_ROUND_PLUS_INFINITY);
+  TEST_ASSERT_EQUAL_HEX32(0x430A0000u, ap_m68882_to_single(&upward.value));
+
+  /* FINTRZ truncates whatever the mode says -- which is what makes it a
+   * different instruction rather than a shorthand. */
+  const ap_m68882_op_t truncated = ap_m68882_intrz(&value);
+  TEST_ASSERT_EQUAL_HEX32(0x43090000u, ap_m68882_to_single(&truncated.value));
+}
+
+/* A value that is already an integer comes back untouched, and one below 1 in
+ * magnitude goes to zero -- or to one under a directed mode, which is the case
+ * a truncating-only implementation gets wrong. */
+static void test_integer_part_at_the_boundaries(void) {
+  const ap_m68882_extended_t four = single(0x40800000u);
+  const ap_m68882_op_t already = ap_m68882_intrz(&four);
+  TEST_ASSERT_EQUAL_HEX32(0x40800000u, ap_m68882_to_single(&already.value));
+
+  const ap_m68882_extended_t half = single(0x3F000000u); /* 0.5 */
+  const ap_m68882_op_t truncated_half = ap_m68882_intrz(&half);
+  TEST_ASSERT_EQUAL_INT(AP_M68882_TYPE_ZERO,
+                        ap_m68882_classify(&truncated_half.value));
+
+  /* Toward plus infinity, 0.5 becomes 1.0. */
+  const ap_m68882_op_t up = ap_m68882_int(&half, AP_M68882_ROUND_PLUS_INFINITY);
+  TEST_ASSERT_EQUAL_HEX32(0x3F800000u, ap_m68882_to_single(&up.value));
+}
+
+/* `FSCALE` adds to the exponent, so it is **exact** -- that is the point of
+ * having it rather than multiplying by a power of two, which would round. */
+static void test_scale_is_exact_exponent_arithmetic(void) {
+  const ap_m68882_extended_t three = single(0x40400000u); /* 3.0 */
+  const ap_m68882_extended_t two = single(0x40000000u);   /* 2 */
+  const ap_m68882_op_t scaled = ap_m68882_scale(&three, &two);
+
+  /* 3.0 x 2^2 = 12.0, exactly and with no exception. */
+  TEST_ASSERT_EQUAL_HEX32(0x41400000u, ap_m68882_to_single(&scaled.value));
+  TEST_ASSERT_EQUAL_UINT32(0u, scaled.exceptions);
+
+  /* A negative scale divides. */
+  const ap_m68882_extended_t minus_one = single(0xBF800000u);
+  const ap_m68882_op_t halved = ap_m68882_scale(&three, &minus_one);
+  TEST_ASSERT_EQUAL_HEX32(0x3FC00000u, /* 1.5 */
+                          ap_m68882_to_single(&halved.value));
+
+  /* Table 6-2: an infinite scale factor is an operand error. */
+  const ap_m68882_extended_t infinity = single(0x7F800000u);
+  const ap_m68882_op_t infinite = ap_m68882_scale(&three, &infinity);
+  TEST_ASSERT_TRUE(raised(&infinite, AP_M68882_EXC_OPERR));
+}
+
 int main(void) {
   UNITY_BEGIN();
+  RUN_TEST(test_a_square_root_is_exact_for_perfect_squares);
+  RUN_TEST(test_a_square_root_of_negative_zero_is_negative_zero);
+  RUN_TEST(test_getexp_returns_the_unbiased_exponent_as_a_float);
+  RUN_TEST(test_getman_keeps_the_sign);
+  RUN_TEST(test_fint_follows_the_mode_and_fintrz_does_not);
+  RUN_TEST(test_integer_part_at_the_boundaries);
+  RUN_TEST(test_scale_is_exact_exponent_arithmetic);
   RUN_TEST(test_one_plus_one_is_two);
   RUN_TEST(test_a_subtraction_borrows_from_the_guard_bits);
   RUN_TEST(test_x_minus_x_is_positive_zero);

@@ -88,6 +88,27 @@ static ap_m68882_status_t execute_register_to_register(
     result.value.sign = !source.sign;
     break;
 
+  case AP_M68882_OP_FSQRT:
+    result = ap_m68882_sqrt(&source, mode, precision);
+    break;
+  case AP_M68882_OP_FGETEXP:
+    result = ap_m68882_getexp(&source);
+    break;
+  case AP_M68882_OP_FGETMAN:
+    result = ap_m68882_getman(&source);
+    break;
+  case AP_M68882_OP_FINT:
+    result = ap_m68882_int(&source, mode);
+    break;
+  case AP_M68882_OP_FINTRZ:
+    result = ap_m68882_intrz(&source);
+    break;
+  case AP_M68882_OP_FSCALE:
+    /* Dyadic: "FPn x INT(2^Source) -> FPn", so the destination is scaled by the
+     * source and not the other way round. */
+    result = ap_m68882_scale(&destination, &source);
+    break;
+
   case AP_M68882_OP_FTST:
     /* "FTST" sets the condition codes from the source and writes nothing --
      * which is what makes it a test rather than a move. */
@@ -122,10 +143,7 @@ static ap_m68882_status_t execute_register_to_register(
    * Reported as unimplemented and **not** as F-line: the hardware executes
    * these, and dressing our gap up as the machine's behaviour would make it
    * invisible. */
-  case AP_M68882_OP_FINT:
   case AP_M68882_OP_FSINH:
-  case AP_M68882_OP_FINTRZ:
-  case AP_M68882_OP_FSQRT:
   case AP_M68882_OP_FLOGNP1:
   case AP_M68882_OP_FETOXM1:
   case AP_M68882_OP_FTANH:
@@ -143,12 +161,9 @@ static ap_m68882_status_t execute_register_to_register(
   case AP_M68882_OP_FCOSH:
   case AP_M68882_OP_FACOS:
   case AP_M68882_OP_FCOS:
-  case AP_M68882_OP_FGETEXP:
-  case AP_M68882_OP_FGETMAN:
   case AP_M68882_OP_FMOD:
   case AP_M68882_OP_FSGLDIV:
   case AP_M68882_OP_FREM:
-  case AP_M68882_OP_FSCALE:
   case AP_M68882_OP_FSGLMUL:
   case AP_M68882_OP_FSINCOS:
     return AP_M68882_UNIMPLEMENTED;
