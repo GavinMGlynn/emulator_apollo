@@ -11,24 +11,14 @@ file the moment they are found, not when someone remembers.
 - [x] C23 + CMake/Ninja/Clang build, presets per platform, matching test presets
       for every build preset. *Verification: `cmake --preset` and `ctest
       --preset` succeed for each; CI runs all four platforms.*
-  - [x] Supported set pinned to three 64-bit platforms — Linux x86-64 (Red Hat
-        and Debian derived), Windows x86-64, macOS arm64 — with Clang the
-        default and only supported compiler. 64-bit is enforced at configure
-        time because time is a `uint64_t` in base units; a non-Clang compiler or
-        unlisted platform warns instead. *Verification: `cmake/Platform.cmake`;
-        the configure line names the resolved platform, compiler and width.*
+  - [x] Supported set pinned to three 64-bit platforms, Clang only, 64-bit
+        enforced at configure time. *Verification: `cmake/Platform.cmake`; the
+        configure line names the resolved platform, compiler and width.*
 - [x] Warning set applied to first-party targets only, `-Werror` **in every
-      build type**, not debug and CI alone. `APOLLO_WERROR` now defaults to `ON`
-      and `release-base` sets it explicitly. In an emulator a warning is rarely
-      cosmetic — `-Wconversion` and `-Wsign-conversion` fire on exactly the
-      silent width and signedness changes that make a cycle count or an address
-      wrap differ between platforms, which is the one thing this project claims
-      cannot happen. A warning that is an error in Debug and a note in Release
-      is a warning that gets through in Release. Vendored code is unaffected:
-      `apollo_set_warnings()` is never called on anything in `ext/`.
-      *Verification: `build.ninja` carries `-Werror` for the release preset, and
-      both `linux-debug` and `linux-release` build clean and pass 7/7 from a
-      wiped build tree.*
+      build type**, not debug and CI alone. Vendored code is unaffected.
+      Reasoning in `PROJECT_STATUS.md`. *Verification: `build.ninja` carries
+      `-Werror` for the release preset, and both `linux-debug` and
+      `linux-release` build clean from a wiped build tree.*
 - [x] GitHub Actions matrix: ubuntu, rockylinux:9 container, windows
       clang-in-MSVC, macos arm64, plus an `-O0` vs `-O3` output-identity job.
       *Verification: matrix green.*
@@ -51,9 +41,7 @@ file the moment they are found, not when someone remembers.
       configures, builds and passes `ctest`.*
   - [x] All four linked submodules moved from branch tips to release tags —
         unity `v2.7.0`, zlib `v1.3.2`, libpng `v1.6.58`, sdl `release-3.4.12`.
-        They had been on `develop`, `libpng18` and `main`, which pin a SHA but
-        name a commit upstream never released. *Verification: `ext/README.md`
-        records each tag; the suites pass on the new unity.*
+        *Verification: `ext/README.md` records each tag.*
   - [x] MIT/GPL boundary asserted at configure time rather than by review:
         `cmake/GplBoundary.cmake` rejects a `mame`/`musashi` include in any
         first-party source, and any target that acquires one in its link
@@ -61,9 +49,8 @@ file the moment they are found, not when someone remembers.
         a deliberate violation; both fail with a named message.*
 
 - [x] Shared frontend layer in `src/frontend/common/`: part naming, the
-      `--list-models` report, and the options every frontend accepts
-      (`--model`, `--list-models`, `--help`), parsed one argument at a time so
-      each frontend keeps its own flags. *Verification:
+      `--list-models` report, and the options every frontend accepts, parsed one
+      argument at a time so each frontend keeps its own flags. *Verification:
       `frontend_common_suite` — every model selectable by name, a typo rejected
       rather than silently emulating the wrong machine, a frontend-specific flag
       passed through untouched, and the report byte-identical across calls.*
@@ -101,169 +88,21 @@ file the moment they are found, not when someone remembers.
         build is bounded by *memory* rather than cores, at a measured ~2.5 Gbyte
         for the peak translation unit, so `-j"$(nproc)"` is the wrong instinct
         on a small machine.
-  - [ ] **Tail, found while assembling the media: there is no bootable image to
-        boot.** All Domain/OS media we hold is *installation* media — `cptape`
-        tape files (`tape1/00.img` is the `SYSBOOT` tape boot record) and QIC
-        install cartridges. Reaching a login prompt therefore requires
-        installing Domain/OS from tape onto a blank disk image under the oracle
-        first. That is a much larger task than this item's wording implies, and
-        it is the real gate on the first boot. *Verification: a disk image that
-        boots to a login prompt under MAME, produced by a recorded, repeatable
-        install rather than by hand.*
-        - **Smaller than recorded, and the procedure already exists**
-          (`FINDINGS.md` C47). MAMEDEV's own `Driver:Apollo` wiki carries a
-          step-by-step SR10.4 install for `dn3500`.
-        - The wiki's claim that a 348 MB image is **auto-generated** does not
-          hold for this MAME — it refuses and creates nothing. `truncate -s 348M
-          dn3500.awd` (364904448 bytes) works, and MAME then starts with that
-          image and the boot tape cleanly. **Verified by running it**, not
-          inferred.
-        - **Media prepared**: all five tapes decompressed in `media/domainos/`,
-          originals kept.
-        - **The install is drivable** (`FINDINGS.md` C48). The machine boots to
-          MD's prompt with the image and boot tape attached, and sending `re`
-          produces a **second `MD7` sign-on** — the command executing, not
-          echoing, since that banner is output MD makes only on entry.
-        - Not reached: `di c` onward. The full sequence is `re`, `di c`,
-          `ex invol`, the calendar, then Domain/OS and `MINST` taking five tapes
-          in turn, then `shut` — interactive and slow, with tape swaps between
-          stages. Driving it needs a session that holds state across stages and
-          checks each one's output before sending the next.
-        - Nothing structural blocks it: media unpacked, image command known,
-          console captured byte-exact, and MD executes what it is sent.
-        - **The session exists** (`FINDINGS.md` C49):
-          `tools/mame-oracle/mdsession.py` with `mdsession.lua`. stdin is a
-          **pty**, which ends the pacing workaround rather than tuning it — a
-          pty never reaches EOF, so a command is written at the moment its
-          prompt appears and the character rate stops being a parameter. stdout
-          is the console, because `apollo_stdio_device::rcv_complete` puts it
-          there, so the script taps nothing and prints its own notes to stderr.
-          - Tested against a stub MAME, `oracle_session`, 17 checks, on the same
-            split as `oracle_driver`: whether the install *works* needs a real
-            emulator, but reaching a prompt, sending the right commands in
-            order, refusing to match a stale prompt, and failing loudly rather
-            than hanging are ordinary program logic. It found two latent defects
-            (a cooked pty rewriting `\r` to `\n`, and pty echo filling a buffer
-            nobody drains) and one race, twice.
-          - `re`, `re`, `di c`, `ex invol` all run, each reset answering with a
-            fresh sign-on, and **INVOL loads and prints its menu**.
-          - The knock interval is `C45`'s measured 0.4 s and not a chosen
-            number: at 2 s the reset sign-on arrived once in four runs.
-          - `--commands FILE` makes the session *follow* a file, so answers can
-            be appended as the dialogue is read. Reaching INVOL's first menu
-            costs ten minutes of emulated cartridge scan, and killing the run to
-            edit a script pays it again.
-        - The machine settled a source disagreement: the wiki's INVOL options
-          are **7, 1, 8**, a newsgroup thread says 7, 1, 8, 10, and INVOL's own
-          menu prints `10 - OBSOLETE`. Revision 10.4 takes the wiki's list.
-        - [x] **The disk is initialised** (`FINDINGS.md` C50). INVOL options 7,
-          1 and 8 all ran, and the image went from **every byte zero** to
-          347,471,186 non-zero bytes: physical volume `dn3500`, one logical
-          volume of 329,399 kbyte, a 640 kbyte OS paging file, and INVOL's own
-          `Initialization complete.` Checkpointed to
-          `media/dn3500-invol-done.awd`.
-          - The dialogue is in C50 prompt by prompt with the reason for each
-            answer, because no manual we hold prints a single one of INVOL's
-            prompts. Two of them state their own default, and both were
-            answered by *typing the stated value* rather than sending an empty
-            line — exact, and needing no directive.
-          - `no verification` and `no automated badspot entry` are chosen, not
-            skipped: the medium is a file, and MAME's own driver notes list
-            Winchester bad-track formatting as a known gap.
-        - [x] **The calendar**, `di c` / `ex calendar` (`FINDINGS.md` C52). Disk
-              `w`, time zone left at **UTC** — deliberately, since a local zone
-              is a host fact and the one setting here that would make an image
-              built on this machine differ from one built on another.
-        - [ ] **The Domain/OS restore**, `ex domain_os`. Three attempts, and the
-              first two are recorded because each named a real property of
-              installing across process lifetimes rather than a mistake in the
-              procedure:
-          - Attempt 1 halted on `The calendar is more than a minute slow`
-            (`FINDINGS.md` C53). The volume carries a timestamp, the RTC carries
-            a time, and the kernel refuses to boot when the second is behind the
-            first — so a clock the harness restarts, compared against a disk it
-            does not, fails this way in any harness that runs a machine across
-            more than one sitting. **The mechanism first recorded for it was
-            withdrawn**: it predicted two `CALENDAR` readings would be identical
-            and they were 28 minutes apart. Where MAME's RTC seed comes from is
-            now marked *not established*.
-          - Attempt 2 cleared the calendar and met `BOOT VOLUME NEEDS
-            SALVAGING` (`FINDINGS.md` C54), because attempt 1's kernel had
-            written 1790 sectors before being stopped. **A failed stage is not a
-            no-op** — with persistent storage the next attempt does not start
-            where the last one did.
-          - Declined `Proceed to bring up OS (and risk volume)?` and **reverted
-            rather than salvaged**. `SALVOL` is the documented remedy and costs a
-            ten-minute tape load to *repair*; the checkpoint costs a file copy to
-            *have the volume back*, and "never mounted" is a better property for
-            a reference artifact than "repaired".
-        - **Answered by measurement**: the Domain/OS kernel's banner appears on
-          the **serial console**, so the OS does not move the console to the
-          display and the whole install is drivable headless.
-        - Two harness rules follow, both now in force: `--keep-rundir`, because
-          the calendar lives in NVRAM and wiping it between sessions un-sets it;
-          and **no `re` between stages**, because
-          `apollo_state::machine_reset` shifts the RTC year on *every* reset
-          rather than once at power-on, and a fresh power-on already is one.
-        - [ ] Then `MINST` over four tapes, then `shut`. Two driver capabilities
-              were wanted first, and both are now done:
-          - [x] `!knock`, `!cr` and `!raw` escapes. The session was lost trying
-                to improvise a knock out of a space — see below, it is not a
-                knock at all.
-          - [x] **Tape swapping**, `!swap NAME PATH`. Safe on this device for a
-                stated reason rather than because it appeared to work:
-                `sc499_ctape_image_device` derives from `magtape_image_device`,
-                whose `is_reset_on_load()` is **false**, so changing a cartridge
-                does not reset the machine — which, at the moment `MINST` asks
-                for the next tape, would throw the install away.
-                - A two-file protocol carrying a **sequence number**, because
-                  the driver and the script share nothing else: MAME's stdout is
-                  the console and its stderr is not readable from the driver.
-                  The sequence is what makes waiting mean anything — the same
-                  tape can be asked for twice, and without it the second request
-                  would be satisfied by the first one's acknowledgement.
-                - A refused load **fails the run**. A tape that did not mount
-                  looks exactly like a tape that mounted and holds nothing the
-                  installer wants, and the second is far harder to diagnose.
-                - Verified against real MAME, two swaps acknowledged with the
-                  machine still running, and in `oracle_session` against a stub.
-          - [x] Checkpoint the image at every stage boundary. Each stage costs
-                ten minutes of emulated cartridge scan to reach, and what ends a
-                session is not what was being attempted. Four so far, and three
-                have already been needed:
-                - `dn3500-invol-done.awd` — the initialised volume, never
-                  mounted by an OS. **Used**, to escape the salvage prompt.
-                - `dn3500-preos.awd` — the unclean volume attempt 1 left, kept
-                  as evidence rather than deleted.
-                - `dn3500-osrestored.awd` — the OS restored, at the `)` prompt.
-                - `dn3500-osclean.awd` — after `shut`. **Used**, to revert the
-                  `re` that broke the calendar again.
-                - Pinned by `tools/mame-oracle/manifest.py` into
-                  `docs/references/DOMAINOS_IMAGE.md`: SHA-256 of the image and
-                  of all five cartridges, the MAME pin, the driver commit. The
-                  image itself is **not** committed and will not be — the volume
-                  is ours, its contents are Apollo's.
-        - **The autobaud wants a carriage return, not merely "a character"**
-          (`FINDINGS.md` C50), which narrows `C45`. Measured as an A/B pair:
-          knocking with `\r` reaches the prompt and gets a sign-on out of `re`;
-          knocking with a space followed by `\r` **never reaches the prompt at
-          all**, not even at power-on. The firmware is matching a known byte to
-          decide whether a candidate rate decoded, so a different first byte is
-          not a weaker signal, it is the wrong one. `--knock-char` exists so the
-          claim stays testable.
-        - **We already hold all five tapes it names**, filename for filename, in
-          `media/domainos/`. Nothing needs downloading.
-        - The sequence is driven from the **MD prompt** (`re`, `di c`,
-          `ex invol`, then `MINST` taking each tape), which is exactly what
-          `docs/references/MD.md` now records byte-exact — so a *scripted*
-          install, which is what this item's verification asks for, has its
-          parser input already captured.
-        - Why it was missed: the item reasoned correctly from "all our media is
-          installation media" to "an install is needed" to "that is large", and
-          never asked whether anyone had written the procedure down. This
-          project treats the oracle as a binary to instrument; its
-          **documentation** is a source too, and it answered a gate estimated at
-          weeks with one page.
+  - [x] **The first-boot gate: closed.** All the Domain/OS media we hold is
+        *installation* media, so reaching a login prompt required performing the
+        install under the oracle first. Done, and the result boots.
+        *Verification: `ex domain_os` from the disk alone — no `di c`, no
+        cartridge — brings up the kernel and the Phase II environment, `user`
+        logs in over the serial console, and `bldt` reports
+        `**** Node 12345 **** "//node_12345"`.*
+        - Artifact: `media/dn3500-sr10.4-installed.awd`, gitignored, pinned by
+          SHA-256 in `docs/references/DOMAINOS_IMAGE.md` together with all five
+          source cartridges.
+        - Procedure: `tools/mame-oracle/install-domainos.cmds`, replayable, plus
+          INVOL first on a blank image.
+        - Needs the `ext/mame` SC-499 edit of `FINDINGS.md` C56.
+        - Told in full in `FINDINGS.md` C47-C58 and summarised in
+          `PROJECT_STATUS.md`; the tooling it required is the next item.
   - This also pulls `.ct` cartridge support (Phase 4) forward in importance: it
     is the format the first boot depends on, not merely a storage item.
   - [x] **Answered: the 68040 path does have an oracle.**
@@ -325,14 +164,11 @@ file the moment they are found, not when someone remembers.
     `-video none -sound none -nothrottle`, and `-seconds_to_run` as an
     emulated-time watchdog so a never-reached dump point fails instead of
     hanging.
-- [x] `tools/mame-oracle/FINDINGS.md`: one row per probe campaign — ours, the
-      oracle's, status, and the story. *Verification: the file exists and every
-      closed row cites its evidence — vacuously true today, since no campaign
-      has run and the campaign table is deliberately empty rather than
-      pre-populated.* The ledger and its discipline exist: the four
-      discrepancy classes (`ours-wrong`, `oracle-wrong`, `sub-poll-slack`,
+- [x] `tools/mame-oracle/FINDINGS.md`: one entry per probe campaign, with its
+      four discrepancy classes (`ours-wrong`, `oracle-wrong`, `sub-poll-slack`,
       `open`), the ban on closing a row by tuning our timing to match, and the
-      rule that an oracle number alone never closes a row.
+      rule that an oracle number alone never closes a row. *Verification: every
+      closed row cites its evidence.*
 - [ ] Python probe encoder emitting hand-assembled 68000 probes — no cross
       toolchain. *Verification: a trivial probe that stores a sentinel runs
       identically under both.*
@@ -374,251 +210,25 @@ file the moment they are found, not when someone remembers.
         is called out, and the reconstruction rests on the handbook expanding
         every token in prose immediately below the grammar rather than on
         inference.*
-  - [ ] **Still open: the output format.** The handbook says `A` "prints address
-        and contents" and never shows a literal line, so column layout,
-        separators, prompt and terminator remain unknown — and the harness must
-        parse exactly those bytes. Capture a real MD session under the oracle.
-        *Verification: a captured session transcript in
-        `docs/references/MD.md`, byte-exact.* The no-guessing rule still applies
-        to the parser; it no longer blocks the encoder's input side.
-        - Progress (`FINDINGS.md` C34): `writetrace.lua` already does the
-          capture -- no new probe was needed. Tapping `010400-0104FF` on
-          `dn3500` for six emulated seconds yields **two** writes, to the
-          auxiliary control and mode B registers, and **neither is a transmit
-          buffer**. The oracle's DN3500 does not print on serial at boot either,
-          which corroborates our own core's silence rather than leaving it a
-          suspicion.
-        - So MD cannot be captured from DN3500 serial: with a display and
-          keyboard fitted the console is the display. The **`dsp` variants** are
-          the candidate -- diskless server nodes with no display, which must use
-          serial as console.
-        - Partly diagnosed. "no dump ... the Lua script did not run to
-          completion" is a **harness artefact**: `oracle.py` already passes
-          `-autoboot_script dump.lua`, so adding another appends a second flag
-          and MAME takes the last. Every substituted script reports this.
-        - **Retracted** (`FINDINGS.md` C34): the claim that the tap installed at
-          "20 emulated seconds" on a screenless machine was a misread of
-          `20000000000000000` attoseconds, which is **0.02 s**. A second is
-          10^18 attos. The tap was early on both machines all along, and the fix
-          written for the imagined defect was reverted.
-        - Actual position: `dsp3500` makes **zero** SIO writes in six emulated
-          seconds where `dn3500` makes two. A fact about the machine, not the
-          harness, and unexplained.
-        - **Answered, and it is not a fault** (`FINDINGS.md` C35). `dsp3500`
-          runs fine. At six emulated seconds its state is
-          `A0 00010401, A1 0005D800, A3 00010400, A5 000A0000, A6 01000180,
-          PC 00000794, SR 00002704` — every value one our own core holds at the
-          same point, and the PCs are the two ends of the same three-instruction
-          console poll loop. Feeding our core a character on SIO1 channel A puts
-          it at `00000794` exactly.
-        - That is the **first direct state comparison against the oracle on real
-          firmware** rather than on a probe: eight registers and a PC agree.
-          Everything before it compared our numbers against published ones, or
-          our behaviour against MAME's source.
-        - So the MD transcript still needs a console to read, and both machines
-          agree there is none until a display or a terminal is attached.
-        - **The route is now known and it is a rebuild.** `-listslots dn3500`
-          offers only ISA slots — `3c505`, `ctape`, `wdc` — and **no serial
-          terminal slot**, so a terminal cannot be attached from the command
-          line. MAME's `apollo_stdio_device` is inside `#ifdef APOLLO_XXL`, so
-          the transcript needs the oracle rebuilt with that defined.
-        - The other route, reading the transcript out of the frame buffer, is
-          not equivalent: MD renders text through the display controller, so
-          recovering characters means decoding a bitmap. That is OCR, not a
-          capture, and it cannot give the byte-exact transcript this item asks
-          for.
-        - Done, and it was cheap: the incremental rebuild is three translation
-          units and a link, not the full tree. But `APOLLO_XXL` is
-          **bit-rotted** — `m_tx_w.resolve()` and `omti8621_device::set_verbose`
-          no longer exist, both inside the guard, so nothing in a default build
-          touches them. Removing both calls builds cleanly (`FINDINGS.md` C36).
-        - **And it changes nothing.** With the stdio terminal compiled in,
-          `dn3500` still makes two SIO writes in ten emulated seconds and
-          neither is a transmit buffer. Attaching a terminal does not change
-          what the firmware decides its console is.
-        - `ext/mame` is now modified and rebuilt with `APOLLO_XXL`. Recorded in
-          C36 rather than left silent: a reading against a differently-built
-          oracle is not comparable to one taken before it.
-        - **Found the setting.** `apollo.h` defines `APOLLO_CONF_DISPLAY` as
-          `0x001E` — a *mask* over `8_PLANES` (2), `4_PLANES` (4), `MONO_15I`
-          (8) and `MONO_19I` (0x10). With none of those bits set the machine has
-          **no display**, and the console has nowhere to go but serial. Bit 0 is
-          `APOLLO_CONF_SERVICE_MODE`, which is the other candidate for reaching
-          MD.
-        - That explains every silent run so far without any of them being
-          wrong: MAME's `dn3500` defaults to a display fitted, so its console is
-          the display, exactly as ours is. Nothing was misconfigured; the
-          default is a workstation.
-        - **But it cannot be set to "no display".** The `conf` port's "Graphics
-          Controller" offers exactly three settings — 8-plane colour, 4-plane
-          colour and 15-inch monochrome — and no *none*. (19-inch is present but
-          commented out.) So MAME's `dn3500` always has a display, its console
-          is always the display, and **a serial MD transcript cannot be captured
-          from `dn3500` by configuration at all.** The earlier reading that the
-          mask permits zero was right about the bits and wrong about the port.
-        - **Tried, and service mode is not it** (`FINDINGS.md` C37).
-          `tools/mame-oracle/mdcapture.lua` sets the configuration and taps
-          serial 1's transmit buffers. With `# Normal/Service = 1` confirmed in
-          the output, both `dn3500` and `dsp3500` send **zero** characters in
-          10-12 emulated seconds.
-        - Four routes now closed by measurement: a plain run, the `APOLLO_XXL`
-          terminal build, configuring the display away (impossible), and service
-          mode.
-        - **The unfiltered dump answers it** (`FINDINGS.md` C38). On `dsp3500`,
-          ten emulated seconds, service mode: **zero writes to either serial
-          port** — not zero characters, zero writes of any kind, including the
-          mode and clock-select registers a driver must set before sending.
-        - So the oracle has not got as far as configuring its serial port. C35
-          already said where it is: PC `00000794`, the console poll loop,
-          reading a status bit that never sets. **It is waiting for the same
-          character our core was**, because MAME's keyboard sends nothing
-          unattended.
-        - Feeding via MAME's natural keyboard is **closed** (`FINDINGS.md`
-          C40). Thirty emulated seconds produce the same four writes as eight.
-          `apollo_kbd.cpp` has **zero `PORT_CHAR` entries**, and the natural
-          keyboard translates characters to keys through exactly those — so
-          `natkeyboard:post` has nothing to map to and silently does nothing.
-          The longer run was worth doing first: a short window and a post that
-          never arrives look identical.
-        - **Done, and the firmware responds** (`FINDINGS.md` C41). Pressing
-          `ESC` — found by `PORT_NAME` across `:kbd:keyboard1..4`, held 0.2 s,
-          released — makes serial 1's clock select go `77` → `BB` → `77` with
-          both DUARTs reconfigured after. The machine changed a baud rate on
-          receiving a keystroke: a rate probe, not a console echo, but the first
-          response to input this project has got out of the oracle.
-        - The release matters as much as the press: this keyboard scans and
-          reports transitions, so a key never released gives one event and then
-          reads as stuck.
-        - **`Numpad Enter` gives the same shape, and the repetition reads it**
-          (`FINDINGS.md` C42): `CSRB` — serial 1 **channel B**'s clock select —
-          toggles `77` → `BB` → `77` → `BB` on every key event. That is
-          **baud-rate detection**. The firmware is cycling channel B's rate and
-          waiting for a character that decodes.
-        - The keyboard is on channel **A**, so a keystroke *prompts* the probe
-          and can never *answer* it. The machine has been asking a question the
-          whole time on a port nothing was answering.
-        - `APOLLO_XXL`'s stdio terminal is wired to `rx_b_w` — **channel B**, the
-          port being probed. C36 called that rebuild a dead end because no
-          output followed; it was right about the output and wrong about the
-          build, which is the only route to the input the firmware wants.
-        - **Tried, and nothing changed** (`FINDINGS.md` C43). The trace with
-          characters on stdin is byte-identical to the run without: same ten
-          writes, same `CSRB` toggling, no transmit.
-        - Three explanations remain and one run cannot separate them:
-          `oracle.py` may not forward stdin; `apollo_stdio_device` may not be
-          instantiated even in the `APOLLO_XXL` build (which was confirmed only
-          by the absence of compile errors, never by seeing the device exist);
-          or the rate is wrong and the character decodes as noise.
-        - **Done, and two of the three are out** (`FINDINGS.md` C44). `:stdio`
-          is present, so the `APOLLO_XXL` rebuild did instantiate the terminal;
-          and `apollo_stdio_device::poll_timer` contains
-          `while (::read(STDIN_FILENO, &data, 1) == 1)`, so it reads the
-          process's real stdin on a timer with no MAME-side abstraction between.
-          Cost: one two-second run and four lines of lua.
-        - What remains: whether the bytes reach MAME's stdin at all — a pipe
-          through a Python wrapper is one more place to lose them, and
-          `oracle.py` says nothing about stdin — and whether the rate is right,
-          since the firmware cycles `CSRB` between `77` and `BB`.
-        - **MD TALKS** (`FINDINGS.md` C45). `W sio1 THRB 0D 0A 4D 44 37 0D` —
-          `CR LF "MD7" CR`, the Mnemonic Debugger's banner, on serial 1 channel
-          B's transmit buffer.
-        - The missing ingredient was **timing**, not rate and not stdin.
-          `subprocess.run` passes no `stdin`, so a pipe does reach MAME — but
-          `poll_timer` drains a ready pipe in one callback and hits EOF, seconds
-          before the autobaud starts. Feeding one character every half second
-          keeps stdin open and puts bytes in front of the probe *while it runs*.
-        - `CRB 45` appears immediately before the banner: bit 2 is transmitter
-          enable, so the firmware only enables the transmitter once it has found
-          a working rate. That is why every earlier run saw nothing — and why
-          `ap_mc68681` dropping writes with `tx_enabled` clear matches.
-        - **`docs/references/MD.md` exists, byte-exact.** Sign-on is
-          `0D 0A 4D 44 37 0D 0A` — `CR LF "MD7" CR LF`. Each carriage return
-          received produces exactly `0D 0A 0D 0A 3E` — `CR LF CR LF '>'`.
-        - Settled: the prompt is a bare `>` with no trailing space; the
-          terminator is `CR LF` in that order; **a blank line precedes each
-          prompt**, so a parser expecting one terminator reads it as a response;
-          and there is no banner or copyright header to skip past.
-        - **The `A` command's line is captured too.** `0D 0A 34 3A 20` is
-          `CR LF '4' ':' ' '`, and the walk steps by 2 — `4`, `6`, `8`, `A`,
-          `C`, `E`, `10`, `1A`. Addresses are bare upper-case hex with no
-          leading zeros.
-        - The catch, and it would have broken the parser: for two-digit
-          addresses the trailing space is **absent** (`31 30 3A` is `10:`). The
-          field is space-padded to a fixed width, not colon-then-always-space,
-          so splitting on `": "` fails from address `10` onward.
-        - **The handbook settles which command displays.** `002398-04`'s MD
-          command list gives `A <location>` as *Access location* — an examine
-          and alter loop, exactly what was captured — and
-          `D <start> <end> <items/line>` as **Dump Memory**. `D`'s output is the
-          format the parser needs.
-        - **MD echoes its input**, confirmed: sending `D 1000 1020` a character
-          at a time returns `31 30 30 30 31 30 32 0D`. A harness sees its own
-          input interleaved with MD's output, and a parser assuming everything
-          arriving is a response will mis-read every command it sends.
-        - **Corrected: the echo is selective, not lossy.** The same characters
-          are absent at 0.3 s and 0.9 s spacing — command letter, both spaces,
-          trailing digit — and a rate problem would vary with pacing. That is
-          the shape of MD echoing parsed *arguments*, not raw input. Slowing the
-          input threefold is the measurement that distinguishes them and should
-          have preceded the first conclusion.
-        - So `D`'s format is not captured and the obstacle is **not delivery**.
-          The open question is what MD does with a command it has received:
-          wrong syntax, rejected range, or an echoed line never executed. Those
-          are questions about MD rather than about the harness — a better place
-          to be stuck than the previous one.
-        - The handbook gives `D <start> <end> <items/line>` and **no example**,
-          so separators, radix and argument optionality are unstated. `D` is
-          marked `+` ("not in DNx60"), so it is present on a DN3500.
-        - `H` returns `ABRVPICOH`. It **is** a command list, by inference from
-          three observations rather than a fourth run: `H` returns the string
-          and `A` walks memory, so two of the nine are confirmed commands, and a
-          help command emitting its own letter plus the memory-examine letter
-          plus seven more has no other plausible reading. `R` returning `E` is a
-          command rejecting bare invocation — `A1000` returns the same `E` and
-          `A` unquestionably exists.
-        - Marked inference, not measurement. What is measured and independent of
-          it: `D` is absent from the string and `D` produces nothing.
-        - The handbook's markers distinguish machine *families*, not PROM
-          *revisions*, so a command listed for the DN3500 can still be absent
-          from a particular DN3500 image. It named something that is not there,
-          and every attempt to use it therefore looked like a syntax problem
-          rather than an absence — the most expensive way for a document to be
-          wrong.
-        - **So `A` is the only memory-examining command this PROM has**, and the
-          address-and-prompt format already captured is the format the parser
-          must read rather than a stepping-stone to a nicer one. The contents
-          field appears when `A` is given input that displays rather than
-          advances; the command set is now small enough to settle that from the
-          machine.
-        - `A1000` returns `E`. The crash-code table at `002398-04` §4 lists
-          `A B C F I J o T U V W X Y` and **no `E`**, so `E` is a
-          command-syntax response rather than a crash code — wrong table.
-        - **But the lookup found a better route.** Every crash entry in that
-          table prints two lines, the second of which is `<PC> <Contents>` —
-          **the address-and-contents line**, printed without any command being
-          typed. So the format the parser needs can be captured by *causing a
-          fault*, not by finding `A`'s argument syntax.
-        - That is also the case the harness most needs: crash analysis is what
-          MD is for, so the crash-entry format matters more than the interactive
-          one. Do that next.
-        - **A result worth having on the way** (`FINDINGS.md` C39): the oracle's
-          four configuration writes, decoded — `sio1 ACR E0`, `sio1 CSRB 77`,
-          `sio2 ACR 80`, `sio2 CSRA 77`. Both ports get the same clock select,
-          and every address is **odd**, confirming from a running machine that
-          the DUART sits on the odd byte lane — which `ap_sio_decode` already
-          assumes. First serial configuration this project has read off the
-          hardware rather than inferred, and a concrete thing to check our core
-          against.
-        - Four routes were closed on the way here and every one was a theory
-          about why the machine would not *speak*. It was never about speaking:
-          it was waiting to be spoken to, which our own core had already shown.
-        - The `dsp` variants remain the other route — no display in their
-          machine configuration — but `dsp3500` showed zero serial writes at six
-          seconds (C35), so it needs either longer or service mode too.
-        - MAME refuses a write tap that is not dword-aligned and its message
-          names a *different* address ("did you mean 10404"). Take the whole
-          device range and filter; accepting the suggestion taps the wrong
-          register.
+  - [x] **The output format: captured, byte-exact.** The handbook never shows a
+        literal MD line, so the harness had nothing to parse against.
+        `docs/references/MD.md` now records the bytes: the `CR LF` terminator,
+        the blank line before each prompt, the bare `>` prompt, the `A`
+        command's address field and its width rule, and the full sign-on
+        `MD7C REV 8.00, 1989/08/16.17:23:52`. *Verification: transcripts in
+        `MD.md`, captured through `mdcapture.lua` and `mdsession.py`.*
+        - Getting a console at all took five closed routes and is the whole of
+          `FINDINGS.md` C34-C45: the DN3500's console is its display, not
+          serial; `dsp3500` is no different; `APOLLO_XXL` must be compiled in
+          for a serial terminal to exist at all; MAME's natural keyboard cannot
+          type on this machine (`apollo_kbd.cpp` has no `PORT_CHAR` entries);
+          and the firmware autobauds, so it needs characters *during* the probe
+          rather than before it.
+        - One correction is kept rather than deleted, because of how it felt:
+          the sign-on was first recorded as bare `MD7` with no version or
+          banner. That reading came from a capture stopped mid-line by
+          `APOLLO_MD_UNTIL=45`. **A bounded capture proves what it contains and
+          nothing about what follows.**
 - [x] Probes side-loadable into post-boot machine state, so CI needs no
       copyrighted firmware. *Verification: the probe suite runs in CI with
       `roms/` absent* — which it does: `apollo-headless --run-probes` reads no
@@ -626,21 +236,10 @@ file the moment they are found, not when someone remembers.
       `tests/goldens/probes.txt` under every build preset. Confirmed
       byte-identical between the `-O0` and `-O3` builds.
   - [x] **The machine to side-load into** (`src/core/machine/ap_machine.c`): a
-        68030 wired to flat RAM and nothing else. Construct, poke memory and
-        registers, run to a limit, read back — the whole cycle a probe performs,
-        with no firmware and no boot. Built **first** rather than after the MD
-        route, on C4's evidence.
-        Not the DN3500: no I/O, no device, no arbitration point. Those are
-        Phase 3, and machine variance belongs in the model table.
-        **RAM is supplied, not allocated** — the core allocates nothing, so a
-        probe picks its size and a test can put one on the stack.
-        **Outside the RAM is a bus error**, counted rather than merely refused.
-        Wrapping would invent an alias the hardware does not have; reading zero
-        would make an out-of-range probe look like a working one that found
-        empty memory. The range is checked as a *range*, so a long word
-        straddling the top is refused rather than reading past the buffer.
-        **A run takes a limit**, because a probe that loops forever must end as
-        a failed probe rather than as a hung harness.
+        68030 on flat RAM and nothing else — construct, poke, run to a limit,
+        read back, with no firmware and no boot. RAM is supplied rather than
+        allocated; an out-of-range access is a counted bus error rather than a
+        wrap or a zero; a run takes a limit. Rationale in `PROJECT_STATUS.md`.
         *Verification: `machine_suite`, 10 tests — the whole probe cycle; reset
         leaving supervisor state with interrupts masked at 7; an out-of-range
         access faulting rather than wrapping, including the straddling case; a
@@ -652,24 +251,10 @@ file the moment they are found, not when someone remembers.
   - [x] **The probes themselves** (`src/core/probe/ap_probe.c`), eight small
         programs covering one thing each: a register write, a store and reload,
         a `DBcc` loop, `BSR`/`RTS`, a `TRAP` taken and returned from, the
-        multiplies and divides, `MOVEM` out and back, and a `PMOVE`.
-        **A probe reports rather than judges.** Nothing in the module knows what
-        any result *should* be — a unit test asserts what someone expected, and
-        a golden pins what the emulator did, byte for byte, on every platform
-        and both build types. That is the cross-platform identity claim, and the
-        only mechanism that catches one platform quietly disagreeing with three.
-        **Every probe ends with `STOP`**, so it finishes because its program said
-        so rather than because it ran out of limit. Two were built without a
-        terminator and their first goldens showed it: a loop reporting 20
-        instructions for six iterations of work, and a subroutine that returned
-        and then fell into its own callee. A probe that hits its limit reports
-        whatever it happened to be doing.
-        The runner blanks the RAM and plants a returning handler on every vector
-        before each probe, so a result cannot depend on what ran before it and
-        an unexpected fault lands somewhere legible instead of in blank memory.
-        The reported clock is **bus and cache time only**, said so in the report
-        itself. It is pinned anyway: when instruction execution time arrives the
-        golden moves, and the diff says by how much for every probe at once.
+        multiplies and divides, `MOVEM` out and back, and a `PMOVE`. A probe
+        reports rather than judges, every probe ends with `STOP`, and the runner
+        blanks RAM and plants a returning handler on every vector between
+        probes. Rationale in `PROJECT_STATUS.md`.
         *Verification: `tests/goldens/probes.txt`, checked under every build
         preset and confirmed identical between `-O0` and `-O3`; plus
         `probe_suite`, 7 tests for what a golden cannot express — a golden will

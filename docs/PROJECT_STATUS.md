@@ -543,6 +543,46 @@ numbers we produce.
 
 Nothing from ch. 11 is in code. This is reference only.
 
+### Why the constructed machine and the probes are shaped as they are
+
+Moved here from the plan, which now states the items and points at this.
+
+**The machine** (`ap_machine.c`) is a 68030 on flat RAM and nothing else, built
+*before* the boot-PROM route rather than after it, on the evidence of
+`FINDINGS.md` C4. It is deliberately not a DN3500: no I/O, no device, no
+arbitration point, because a probe harness that had to be a whole machine would
+be a worse probe harness, and machine variance belongs in the model table.
+
+- **RAM is supplied, not allocated.** The core allocates nothing, so a probe
+  picks its own size and a test can put one on the stack.
+- **Outside the RAM is a bus error, counted rather than merely refused.**
+  Wrapping would invent an alias the hardware does not have; reading zero would
+  make an out-of-range probe look like a working one that found empty memory.
+  The range is checked as a *range*, so a long word straddling the top is
+  refused rather than reading past the buffer.
+- **A run takes a limit**, because a probe that loops forever must end as a
+  failed probe rather than as a hung harness.
+
+**The probes** (`ap_probe.c`) follow one rule: *a probe reports rather than
+judges*. Nothing in the module knows what any result should be. A unit test
+asserts what someone expected; a golden pins what the emulator did, byte for
+byte, on every platform and both build types — which is the cross-platform
+identity claim, and the only mechanism that catches one platform quietly
+disagreeing with three.
+
+**Every probe ends with `STOP`**, so it finishes because its program said so
+rather than because it ran out of limit. Two were built without a terminator and
+their first goldens showed it: a loop reporting 20 instructions for six
+iterations of work, and a subroutine that returned and then fell into its own
+callee. A probe that hits its limit reports whatever it happened to be doing.
+
+The runner blanks the RAM and plants a returning handler on every vector between
+probes, so a result cannot depend on what ran before it and an unexpected fault
+lands somewhere legible instead of in blank memory. The reported clock is bus
+and cache time only, and says so in the report; it is pinned anyway, so that
+when instruction execution time arrives the diff says by how much for every
+probe at once.
+
 ### Golden result blocks
 
 - A *result block* is any deterministic report the emulator prints. Each is
@@ -584,6 +624,15 @@ Nothing from ch. 11 is in code. This is reference only.
 - *Verification: the configure prints the resolved triple and compiler
   (`apollo: Linux/x86_64, Clang 21.1.8, 64-bit`); the CI matrix builds all three
   platforms plus the `-O0` vs `-O3` identity job.*
+- **`-Werror` in every build type, not debug and CI alone.** In an emulator a
+  warning is rarely cosmetic: `-Wconversion` and `-Wsign-conversion` fire on
+  exactly the silent width and signedness changes that make a cycle count or an
+  address wrap differ between platforms, which is the one thing this project
+  claims cannot happen. A warning that is an error in Debug and a note in
+  Release is a warning that gets through in Release, so `APOLLO_WERROR` defaults
+  to `ON` and `release-base` sets it explicitly. The warning set is applied by
+  `apollo_set_warnings()`, which is never called on anything in `ext/`, so
+  vendored code is unaffected.
 
 ### Third-party dependencies
 
@@ -740,6 +789,59 @@ This is the same discipline as the MD grammar, where the OCR damage *was*
 recoverable because the manual expanded every token in prose below the figure.
 Here it is not, so it stays open.
 
+## Domain/OS SR10.4 is installed, and boots from its own disk
+
+The gate this file carried from the start — *"no bootable Domain/OS media: all
+we hold is installation media"* — is closed. There is now an installed system on
+a disk built from nothing but the five distribution cartridges.
+
+**What it is.** `media/dn3500-sr10.4-installed.awd`, 348 Mbyte of which
+263,408,657 bytes are non-zero, against a blank image that was entirely zero.
+Gitignored and it stays that way: we made the volume, its contents are Apollo's.
+It is pinned instead by SHA-256 in `docs/references/DOMAINOS_IMAGE.md`, together
+with the SHA-256 of all five source cartridges, so a rebuild can be checked and
+anyone holding the same media can confirm theirs matches before starting.
+
+**How it was made.** INVOL options 7, 1 and 8 to initialise the volume; the
+calendar; `ex domain_os` to restore the Phase II environment; then `MINST` with
+the `large` template, which loaded 10,992 files from four cartridges and
+hard-linked 8,452 of them into place with 3,687 soft links. The command file
+that drove it is `tools/mame-oracle/install-domainos.cmds`.
+
+**That it boots is checked rather than assumed**, and by three things that a
+merely-noisy console could not fake:
+
+- `error: sysboot not found` is **gone**. That is exactly what `ex domain_os`
+  from disk answered before `MINST` ran: the boot-volume restore leaves
+  `sysboot.m68k` in the filesystem and the PROM wants `sysboot`, which the
+  install creates. The same command, on either side of the thing that was
+  supposed to fix it.
+- The kernel is a **different image** — it loads to `010E986C` from disk where
+  the cartridge loaded to `01111FFF`.
+- The Phase II banner carries **no `RBAK version` suffix**, so it is the
+  installed environment rather than the restore tool's.
+
+Logged in over the serial console as `user`, `bldt` reports
+`**** Node 12345 **** "//node_12345"` — the name INVOL gave the volume, so the
+node runs under the identity this project created for it.
+
+**Three rules were learned the expensive way** and each is now in the procedure:
+
+- **No `re` between stages.** `apollo_state::machine_reset` shifts the RTC year
+  on *every* reset rather than once at power-on, and the kernel refuses to boot
+  when the calendar is behind the volume's timestamp.
+- **Change a cartridge only when the drive is idle**, waiting for the complete
+  prompt rather than the first words of it.
+- **Checkpoint before every irreversible step, and shut down cleanly before
+  copying.** A checkpoint taken from a live volume asks to be salvaged on next
+  boot; one taken after `shut` does not. Three separate sessions were saved by a
+  checkpoint, and one was lost to a checkpoint taken while the machine ran.
+
+**What it does not claim.** The install is a conversation paced by the host and
+the volume carries timestamps, so a rebuild is not expected to be bit-identical
+and nothing timed may be measured through an image built this way. The hash
+identifies *this* image; it is not a reproducibility claim.
+
 ## Deliberate approximations
 
 Each carries its reason and cost to close. Distinct from the `PROVISIONAL`
@@ -811,12 +913,5 @@ Kept rather than discarded, so a future contradiction has a documented history.
 - No DMA transfers, and no shared arbitration point for them to contend at.
 - The ring controller's register-level interface is not yet recovered; the
   manuals give its address window and block diagram but not its registers.
-- No bootable Domain/OS media: all we hold is installation media, so reaching a
-  login prompt needs an install performed under the oracle first. **In
-  progress, and the disk is now initialised** — INVOL options 7, 1 and 8 ran
-  under the session driver and the image went from every byte zero to
-  347,471,186 non-zero bytes: physical volume `dn3500`, one logical volume of
-  329,399 kbyte, a 640 kbyte paging file. Still to come: the calendar,
-  `ex domain_os`, and `MINST` over four cartridges — which wants tape swapping,
-  the one driver capability still missing.
+
 - No SDL frontend. Deliberately absent rather than stubbed.
