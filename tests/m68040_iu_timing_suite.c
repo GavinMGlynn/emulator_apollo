@@ -1091,6 +1091,84 @@ static void test_the_ccr_and_sr_directions_follow_the_read_write_pattern(void) {
   TEST_ASSERT_FALSE(at("MOVE from SR", AP_M68040_IU_IMMEDIATE).valid);
 }
 
+
+/* ---------------------------------------------------------------------------
+ * Page 10-23: figures that depend on the register list.
+ * ------------------------------------------------------------------------- */
+
+static void test_movem_costs_depend_on_the_register_list(void) {
+  /* `MOVEM` prints `2 + D' + A'` where every other column prints a number.
+   * Note c: "D' and A' indicate the number of data and address registers,
+   * respectively." The cost therefore depends on part of the instruction that
+   * is neither its opcode nor its addressing mode -- no column could hold it,
+   * which is why the terms are carried and applied by the caller. */
+  const ap_m68040_iu_cell_t c = at("MOVEM to memory", AP_M68040_IU_INDIRECT);
+  TEST_ASSERT_TRUE(c.has_register_terms);
+  TEST_ASSERT_EQUAL_UINT(2u, ap_m68040_iu_calculate(
+                                 c, false, AP_M68040_IU_NO_CONDITIONS));
+  /* Three data and two address registers: 2 + 3 + 2. */
+  TEST_ASSERT_EQUAL_UINT(5u, ap_m68040_iu_register_terms(c, 3u, 2u));
+}
+
+static void test_the_data_register_term_floors_at_one(void) {
+  /* Note c's parenthetical: "(if no data registers specified the number one)".
+   * So a `MOVEM` of address registers alone still pays for a notional data
+   * register -- a saving-registers-on-entry sequence that moves only address
+   * registers costs one clock more than the arithmetic suggests. */
+  TEST_ASSERT_EQUAL_UINT(1u, ap_m68040_iu_data_register_term(0u));
+  TEST_ASSERT_EQUAL_UINT(1u, ap_m68040_iu_data_register_term(1u));
+  TEST_ASSERT_EQUAL_UINT(7u, ap_m68040_iu_data_register_term(7u));
+
+  const ap_m68040_iu_cell_t c = at("MOVEM to memory", AP_M68040_IU_INDIRECT);
+  TEST_ASSERT_EQUAL_UINT(1u + 4u, ap_m68040_iu_register_terms(c, 0u, 4u));
+}
+
+static void test_only_movem_carries_register_terms(void) {
+  /* Every other column's figures are complete as printed. */
+  for (size_t g = 0; g < ap_m68040_iu_group_count(); g++) {
+    const ap_m68040_iu_group_t *group = ap_m68040_iu_group(g);
+    const bool movem = group == ap_m68040_iu_find("MOVEM to memory") ||
+                       group == ap_m68040_iu_find("MOVEM.L to registers");
+    for (unsigned m = 0; m < AP_M68040_IU_MODE_COUNT; m++) {
+      if (!group->cells[m].valid) {
+        continue;
+      }
+      TEST_ASSERT_EQUAL_INT(movem, group->cells[m].has_register_terms);
+    }
+  }
+}
+
+static void test_the_movem_directions_take_opposite_incrementing_modes(void) {
+  /* Storing registers walks down and loading walks up, so `MOVEM <list>,<ea>`
+   * takes `-(An)` and not `(An)+`, and `MOVEM <ea>,<list>` the reverse. That
+   * asymmetry is a check on the two columns not being swapped. */
+  TEST_ASSERT_TRUE(at("MOVEM to memory", AP_M68040_IU_PREDECREMENT).valid);
+  TEST_ASSERT_FALSE(at("MOVEM to memory", AP_M68040_IU_POSTINCREMENT).valid);
+
+  TEST_ASSERT_TRUE(
+      at("MOVEM.L to registers", AP_M68040_IU_POSTINCREMENT).valid);
+  TEST_ASSERT_FALSE(
+      at("MOVEM.L to registers", AP_M68040_IU_PREDECREMENT).valid);
+}
+
+static void test_only_the_loading_direction_reads_program_space(void) {
+  /* Loading registers may read from program space; storing them cannot write
+   * there. The read/write pattern once more. */
+  TEST_ASSERT_TRUE(
+      at("MOVEM.L to registers", AP_M68040_IU_PC_DISPLACEMENT).valid);
+  TEST_ASSERT_FALSE(at("MOVEM to memory", AP_M68040_IU_PC_DISPLACEMENT).valid);
+}
+
+static void test_movea_takes_every_source_mode(void) {
+  /* `MOVEA` reads any source into an address register, so unlike `MOVEM` it
+   * has no dashes at all -- including `An` and `#<xxx>`. */
+  for (unsigned m = 0; m < AP_M68040_IU_MODE_COUNT; m++) {
+    TEST_ASSERT_TRUE(at("MOVEA.L", (ap_m68040_iu_mode_t)m).valid);
+  }
+}
+
+
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_instructions_sharing_a_column_share_a_group);
@@ -1159,5 +1237,11 @@ int main(void) {
   RUN_TEST(test_move_to_sr_is_a_minimum);
   RUN_TEST(test_writing_the_status_register_costs_far_more_than_reading);
   RUN_TEST(test_the_ccr_and_sr_directions_follow_the_read_write_pattern);
+  RUN_TEST(test_movem_costs_depend_on_the_register_list);
+  RUN_TEST(test_the_data_register_term_floors_at_one);
+  RUN_TEST(test_only_movem_carries_register_terms);
+  RUN_TEST(test_the_movem_directions_take_opposite_incrementing_modes);
+  RUN_TEST(test_only_the_loading_direction_reads_program_space);
+  RUN_TEST(test_movea_takes_every_source_mode);
   return UNITY_END();
 }

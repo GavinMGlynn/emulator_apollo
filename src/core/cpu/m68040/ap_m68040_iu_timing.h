@@ -117,6 +117,16 @@ typedef struct {
   unsigned alternate_calculate;
   ap_m68040_execute_t alternate_execute;
 
+  /* `MOVEM` alone: its figures carry `+ D' + A'`, where note c defines "D' and
+   * A' indicate the number of data and address registers, respectively (if no
+   * data registers specified the number one)".
+   *
+   * So the cost depends on the *register list*, which is part of the
+   * instruction but not part of its addressing mode -- no column could hold it.
+   * The parenthetical matters: `D'` floors at one, so moving only address
+   * registers still pays for a notional data register. */
+  bool has_register_terms;
+
   /* Conditional penalties. These are not second figures: each depends on
    * something a static table cannot see -- the operand's address, or a runtime
    * relation between two operands -- so the caller has to say whether the
@@ -201,5 +211,14 @@ ap_m68040_iu_timing(const char *instruction, ap_m68040_iu_mode_t mode);
 [[nodiscard]] unsigned
 ap_m68040_iu_zero_divide_clocks(const ap_m68040_iu_group_t *group,
                                 ap_m68040_iu_mode_t mode);
+
+/* Note c's `D'`: "if no data registers specified the number one". */
+[[nodiscard]] unsigned ap_m68040_iu_data_register_term(unsigned data_registers);
+
+/* The register-list contribution to a `MOVEM` figure, `D' + A'`, or zero for a
+ * cell that carries no such terms. Added to both stages alike. */
+[[nodiscard]] unsigned
+ap_m68040_iu_register_terms(ap_m68040_iu_cell_t cell, unsigned data_registers,
+                            unsigned address_registers);
 
 #endif /* APOLLO_CPU_M68040_AP_M68040_IU_TIMING_H */
