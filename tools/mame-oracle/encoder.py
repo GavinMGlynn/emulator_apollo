@@ -300,6 +300,43 @@ def fault_probe(load_at: int, address: int = SENTINEL_ADDRESS) -> list[int]:
     )
 
 
+def bus_fault_probe(load_at: int, address: int = SENTINEL_ADDRESS,
+                    bad: int = 0xF0000000) -> list[int]:
+    """Read an address neither machine maps, and store the frame's format word.
+
+    C72 said comparing bus fault frames needed "a fault at an address both maps
+    agree is bad", and treated that as an obstacle. It is not much of one: the
+    two machines disagree about which addresses are *valid*, but `$F0000000` is
+    above everything either of them maps -- 64K of probe RAM here, main memory
+    and devices on a DN3500 -- so the same literal faults on both. And because
+    it is the same literal, the frame's fault address field holds the same value
+    on both sides too, which was the other half of C72's worry.
+
+    What is stored is again the format word at `SP + 6`, and here it is the
+    interesting field rather than a formality. A bus error is vector 2, offset
+    `$08`, but the *format nibble* is a real modelling decision: `$A` is the
+    short frame, "Execution Unit at Instruction Boundary", and `$B` the long
+    one, "Instruction Execution in Progress". This core produces `$B` for every
+    data fault, on the reasoning that an operand access that failed partway
+    through an unfinished instruction is the second case. Whether the oracle
+    agrees has never been checked.
+    """
+    handler = load_at + 26
+    table = load_at + 0x100
+    return assemble(
+        [0x23FC, (handler >> 16) & 0xFFFF, handler & 0xFFFF,
+         ((table + 8) >> 16) & 0xFFFF, (table + 8) & 0xFFFF],
+        [0x203C, (table >> 16) & 0xFFFF, table & 0xFFFF],  # MOVE.L #table,D0
+        [0x4E7B, 0x0801],                                  # MOVEC D0,VBR
+        [0x2239, (bad >> 16) & 0xFFFF, bad & 0xFFFF],      # MOVE.L (bad).L,D1
+        # handler, at load_at + 26
+        [0x7000],                                          # MOVEQ #0,D0
+        [0x302F, 0x0006],                                  # MOVE.W 6(SP),D0
+        [0x23C0, (address >> 16) & 0xFFFF, address & 0xFFFF],
+        stop(0x2700),
+    )
+
+
 if __name__ == "__main__":
     import sys
     print(to_hex(sentinel_probe()), file=sys.stdout)

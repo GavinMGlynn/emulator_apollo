@@ -4441,3 +4441,41 @@ the item names in its title, which are the ones carrying an SSW, a fault address
 and a data output buffer. Those need the field-by-field readback C72 identified,
 and a fault at an address both memory maps agree is bad. That is the item's last
 open question, and it is now the *only* one.
+
+## C74 -- the bus fault frame agrees, and a modelling decision is corroborated
+
+**Class: agree.** This closes the exception item's verification line.
+
+    plant vector 2 ; MOVEC VBR ; read $F0000000 ; handler stores the format word
+
+| Check | Ours | Oracle | |
+| --- | --- | --- | --- |
+| instructions executed | 8 | 8 | agree |
+| stacked format word | `0000B008` | `0000B008` | agree |
+
+Run with `python3 tools/mame-oracle/probe_compare.py --program bus-fault`.
+
+**C72's obstacle was smaller than it looked.** It said comparing bus fault frames
+needed "a fault at an address both maps agree is bad", and that the frames'
+address fields would differ for reasons unrelated to the model. Both dissolve
+with one choice: `$F0000000` is above everything either machine maps -- 64K of
+probe RAM here, main memory and devices on a DN3500 -- so the same *literal*
+faults on both, and being the same literal, any address the frame records is the
+same value on both sides. The problem was the assumption that a bad address had
+to be found per-machine.
+
+**And the result is a real corroboration, not a formality.** Vector 2 at offset
+`$08` is fixed by the architecture, but the format nibble is a modelling
+decision this core made and documented: `$A` is the short frame, "Execution Unit
+at Instruction Boundary", `$B` the long one, "Instruction Execution in Progress",
+and `ap_m68030_step.c` chooses `$B` for every data fault on the reasoning that an
+operand access failing partway through an unfinished instruction is the second
+case. That reading was taken from Table 8-6 and had never been checked against
+anything. The oracle produces `$B` too.
+
+**So the item's verification line is met.** "Probes that deliberately fault,
+diffed against oracle" -- two of them now, an illegal instruction (C73) and a bus
+error (here), covering both the four-word frame and the long bus fault frame the
+item names in its title. Sixteen campaigns from C59, and the last four went from
+"no probe has ever been run against the oracle" to a frame-format agreement on
+the exception path.

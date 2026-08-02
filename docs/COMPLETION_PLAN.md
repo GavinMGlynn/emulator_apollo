@@ -842,10 +842,10 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
     a cycle. That is the arbitration point's item and not the 68030's, and
     leaving it here made Phase 2 look incomplete for work that is not Phase 2's.
 
-- [~] Exceptions, traps, interrupt priority, bus/address error stack frames.
+- [x] Exceptions, traps, interrupt priority, bus/address error stack frames.
       *Verification: probes that deliberately fault, diffed against oracle.*
-  - [ ] **That verification line is not met, found by the same audit that
-        caught the 68882's.** The behaviour is implemented and heavily tested
+  - [x] **That verification line is now met.** It was not, and the same audit
+        that caught the 68882's found it: The behaviour is implemented and heavily tested
         from the inside — vectors, priority, every frame format this model can
         build, `exception_suite` and ten tests in `step_suite`. What does not
         exist is the *outside* half the line asks for: no probe deliberately
@@ -861,9 +861,14 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         rather than deferring: the FPU campaign built the side-loading path and
         proved it works, so this is a probe program and a comparison, not new
         infrastructure.
-        *Verification: a probe that reads an unmapped address, run on both
-        sides, with the stacked frame compared field by field — and each
-        difference classified as the FPU campaign's were.*
+        Closed by `FINDINGS.md` C73 and C74: an illegal instruction and a
+        read of `$F0000000`, each run on both sides, agreeing on the stacked
+        format word — `$0010` for the four-word frame and `$B008` for the long
+        bus fault frame. The second corroborates a modelling decision that had
+        never been checked: this core chooses format `$B` for every data fault,
+        read from Table 8-6, and the oracle agrees.
+        *Verification: `probe_compare.py --program fault` and `--program
+        bus-fault`.*
   - [x] **Vectors, priority and frame formats**
         (`src/core/cpu/m68030/ap_m68030_exception.c`), `[030]` §8 and Tables
         8-1, 8-5, 8-6. The part that is pure fact, and that everything else will

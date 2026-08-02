@@ -142,13 +142,23 @@ def main(argv=None) -> int:
     parser.add_argument("--timeout", type=float, default=300.0)
     parser.add_argument("--work", type=Path, default=Path("/tmp"))
     parser.add_argument(
-        "--program", choices=("sentinel", "fpu", "fpu-rounding", "fpu-sine", "fpu-sine-x", "fault"),
+        "--program", choices=("sentinel", "fpu", "fpu-rounding", "fpu-sine", "fpu-sine-x", "fault", "bus-fault"),
         default="sentinel",
         help="which probe to run; `fpu` exercises the coprocessor's constant "
              "ROM, an FADD and the store conversion in one")
     args = parser.parse_args(argv)
 
-    if args.program == "fault":
+    if args.program == "bus-fault":
+        ours_words = E.bus_fault_probe(OURS_BASE, OURS_BASE + SENTINEL_OFFSET)
+        oracle_words = E.bus_fault_probe(ORACLE_BASE,
+                                         ORACLE_BASE + SENTINEL_OFFSET)
+        print("probe:  plant vector 2 ; MOVEC VBR ; read $F0000000 ;"
+              " handler stores the format word")
+        print("        vector 2 is offset $08; the format nibble is the"
+              " question --")
+        print("        $A is the short bus fault frame, $B the long one, and"
+              " this core says $B")
+    elif args.program == "fault":
         ours_words = E.fault_probe(OURS_BASE, OURS_BASE + SENTINEL_OFFSET)
         oracle_words = E.fault_probe(ORACLE_BASE, ORACLE_BASE + SENTINEL_OFFSET)
         print("probe:  plant vector 4 ; MOVEC VBR ; ILLEGAL ;"
@@ -214,6 +224,9 @@ def main(argv=None) -> int:
                 # `m68882_transcendental_suite` against 120-digit references
                 # rather than restated here.
                 "fault": "00000010",
+                # No expected value: which frame a data fault produces is the
+                # thing being compared, not something to assert in advance.
+                "bus-fault": None,
                 "fpu-sine-x": None}.get(
         args.program, "%08X" % args.sentinel)
     checks = [
