@@ -208,6 +208,88 @@ static void test_an_instruction_priced_elsewhere_is_not_found_here(void) {
   TEST_ASSERT_FALSE(at("NOP", AP_M68040_IU_DN).valid);
 }
 
+
+/* ---------------------------------------------------------------------------
+ * The shift and rotate groups, and the cells that print two figures.
+ * ------------------------------------------------------------------------- */
+
+static void test_a_register_shift_count_costs_one_more_clock(void) {
+  /* §10.6's footnote: "immediate count specified for shift count/shift count
+   * specified in register, respectively". `ASL Dn` prints `3/4` and
+   * `ASR`/`LSL`/`LSR` print `2/3`, so a register count costs one clock more in
+   * both -- the count has to be read before the shift can begin.
+   *
+   * A model with one figure per cell would under-price exactly the
+   * register-count shifts a compiler emits most. */
+  const ap_m68040_iu_cell_t asl = at("ASL", AP_M68040_IU_DN);
+  TEST_ASSERT_TRUE(asl.has_register_count);
+  TEST_ASSERT_EQUAL_UINT(3u, ap_m68040_execute_total(
+                                 ap_m68040_iu_execute(asl, false)));
+  TEST_ASSERT_EQUAL_UINT(4u, ap_m68040_execute_total(
+                                 ap_m68040_iu_execute(asl, true)));
+
+  const ap_m68040_iu_cell_t asr = at("ASR", AP_M68040_IU_DN);
+  TEST_ASSERT_TRUE(asr.has_register_count);
+  TEST_ASSERT_EQUAL_UINT(2u, ap_m68040_execute_total(
+                                 ap_m68040_iu_execute(asr, false)));
+  TEST_ASSERT_EQUAL_UINT(3u, ap_m68040_execute_total(
+                                 ap_m68040_iu_execute(asr, true)));
+}
+
+static void test_only_the_register_row_prints_two_figures(void) {
+  /* A memory shift is always by one, so the distinction cannot arise there --
+   * and the table prints a single figure for every mode but `Dn`. */
+  for (unsigned m = 0; m < AP_M68040_IU_MODE_COUNT; m++) {
+    const ap_m68040_iu_cell_t c = at("ASL", (ap_m68040_iu_mode_t)m);
+    if (!c.valid) {
+      continue;
+    }
+    TEST_ASSERT_EQUAL_INT(m == AP_M68040_IU_DN, c.has_register_count);
+  }
+}
+
+static void test_a_single_figure_cell_ignores_the_count_argument(void) {
+  /* Where the table prints one figure the caller may pass either value and get
+   * the same answer, which is what lets a scheduler call it unconditionally. */
+  const ap_m68040_iu_cell_t add = at("ADD", AP_M68040_IU_DN);
+  TEST_ASSERT_FALSE(add.has_register_count);
+  TEST_ASSERT_EQUAL_UINT(
+      ap_m68040_execute_total(ap_m68040_iu_execute(add, false)),
+      ap_m68040_execute_total(ap_m68040_iu_execute(add, true)));
+}
+
+static void test_an_arithmetic_left_shift_costs_more_than_the_others(void) {
+  /* `ASL` is its own group at 3 clocks where `ASR`, `LSL` and `LSR` share one
+   * at 2 -- the only left shift that must detect overflow, which the others
+   * have no `V` to set. */
+  TEST_ASSERT_NOT_EQUAL(ap_m68040_iu_find("ASL"), ap_m68040_iu_find("ASR"));
+  TEST_ASSERT_EQUAL_PTR(ap_m68040_iu_find("ASR"), ap_m68040_iu_find("LSL"));
+  TEST_ASSERT_EQUAL_PTR(ap_m68040_iu_find("ASR"), ap_m68040_iu_find("LSR"));
+  TEST_ASSERT_TRUE(
+      ap_m68040_execute_total(at("ASL", AP_M68040_IU_INDIRECT).execute) >
+      ap_m68040_execute_total(at("ASR", AP_M68040_IU_INDIRECT).execute));
+}
+
+static void test_the_quick_forms_reject_an_immediate_mode(void) {
+  /* `ADDQ`/`SUBQ` carry their immediate in the opcode, so there is no `#<xxx>`
+   * addressing mode for the *other* operand -- and no PC-relative mode either,
+   * since the destination must be alterable. */
+  TEST_ASSERT_FALSE(at("ADDQ", AP_M68040_IU_IMMEDIATE).valid);
+  TEST_ASSERT_FALSE(at("ADDQ", AP_M68040_IU_PC_DISPLACEMENT).valid);
+  TEST_ASSERT_FALSE(at("ADDQ", AP_M68040_IU_PC_INDEXED).valid);
+  /* But unlike `ADDI` they do accept `An`, which is what makes them a separate
+   * column rather than sharing one. */
+  TEST_ASSERT_TRUE(at("ADDQ", AP_M68040_IU_AN).valid);
+  TEST_ASSERT_FALSE(at("ADDI", AP_M68040_IU_AN).valid);
+}
+
+static void test_the_shift_groups_reject_the_register_direct_address_mode(void) {
+  /* A shift has no `An` form at all: shifting an address register is not an
+   * encoding the family provides. */
+  TEST_ASSERT_FALSE(at("ASL", AP_M68040_IU_AN).valid);
+  TEST_ASSERT_FALSE(at("LSR", AP_M68040_IU_AN).valid);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_instructions_sharing_a_column_share_a_group);
@@ -222,5 +304,11 @@ int main(void) {
   RUN_TEST(test_where_adda_costs_the_same_as_add);
   RUN_TEST(test_every_valid_cell_costs_at_least_one_clock);
   RUN_TEST(test_an_instruction_priced_elsewhere_is_not_found_here);
+  RUN_TEST(test_a_register_shift_count_costs_one_more_clock);
+  RUN_TEST(test_only_the_register_row_prints_two_figures);
+  RUN_TEST(test_a_single_figure_cell_ignores_the_count_argument);
+  RUN_TEST(test_an_arithmetic_left_shift_costs_more_than_the_others);
+  RUN_TEST(test_the_quick_forms_reject_an_immediate_mode);
+  RUN_TEST(test_the_shift_groups_reject_the_register_direct_address_mode);
   return UNITY_END();
 }

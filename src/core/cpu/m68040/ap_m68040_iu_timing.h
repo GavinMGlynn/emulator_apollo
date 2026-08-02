@@ -63,6 +63,16 @@ typedef struct {
   bool valid;
   unsigned calculate;
   ap_m68040_execute_t execute;
+  /* Some shift and rotate cells print two figures, as `3/4`, with the footnote
+   * "immediate count specified for shift count/shift count specified in
+   * register, respectively". The first is `execute`; this is the second, and
+   * `has_register_count` says whether the distinction applies at all.
+   *
+   * It applies only to the `Dn` row -- a shift of a memory operand is always by
+   * one -- so most cells leave it false, and a caller that ignored it would
+   * under-price exactly the register-count shifts a compiler emits most. */
+  bool has_register_count;
+  ap_m68040_execute_t register_count_execute;
 } ap_m68040_iu_cell_t;
 
 typedef struct {
@@ -85,5 +95,11 @@ ap_m68040_iu_find(const char *instruction);
  * must check it before reading the figures. */
 [[nodiscard]] ap_m68040_iu_cell_t
 ap_m68040_iu_timing(const char *instruction, ap_m68040_iu_mode_t mode);
+
+/* The execute figure for a cell, choosing between the two the table prints when
+ * it prints two. `register_count` is ignored where the distinction does not
+ * apply, so a caller may pass it unconditionally. */
+[[nodiscard]] ap_m68040_execute_t
+ap_m68040_iu_execute(ap_m68040_iu_cell_t cell, bool register_count);
 
 #endif /* APOLLO_CPU_M68040_AP_M68040_IU_TIMING_H */

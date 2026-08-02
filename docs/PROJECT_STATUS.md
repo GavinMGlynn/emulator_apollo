@@ -1287,7 +1287,25 @@ structural properties that a displaced row or column would break:
 The table is generated from the figures as read, one designated initialiser per
 cell, so a misplaced row cannot shift a whole column silently.
 
-What remains of the 68040 item is §10.6 onward, some forty pages. That is bulk transcription against the
+**§10.6 is under way, and page 10-14 forced a model change.** The shift and
+rotate rows print *two* figures in one cell -- `ASL Dn` is `3/4` -- under the
+footnote "immediate count specified for shift count/shift count specified in
+register, respectively". A cell type with one execute figure cannot hold that,
+and picking either value would be wrong half the time: a model that took the
+first would under-price exactly the register-count shifts a compiler emits most.
+
+The distinction applies only to the `Dn` row, because a memory shift is always
+by one, and a test asserts that -- so a caller may ask for the register-count
+figure unconditionally and get the right answer for every other mode.
+
+Two groupings in this section carry information beyond the timings. `ASL` is
+alone in its column at 3 clocks where `ASR`, `LSL` and `LSR` share one at 2 --
+it is the only shift that must detect overflow, the others having no `V` to
+set. And `ADDQ`/`SUBQ` are a separate column from `ADDI` and friends precisely
+because they *do* accept an `An` destination where the immediate forms do not.
+
+What remains of the 68040 item is fourteen more pages of §10.6 and §10.7's ten
+pages of floating-point timings. That is bulk transcription against the
 composition already in place, and the last thing standing between Phase 2b and
 complete. Appendix A's bit rows have to come from page images --
 `pdftotext` renders them with zeros as letters and columns collapsed, the same

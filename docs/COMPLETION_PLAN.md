@@ -2120,8 +2120,11 @@ a 68882, and the 68882 is the only one of these it has.
         addressing modes over `ADD`/`AND`/`EOR`/`OR`/`SUB`/`TST`, `ADDA`, and
         the immediate forms -- with a dash modelled as *invalid* rather than
         zero, so a decoder cannot price an encoding it should reject.
-        `m68040_iu_timing_suite`, 12 tests. Fifteen pages of column groups
-        remain, then §10.7's ten pages of floating-point timings. Bulk transcription against the composition above,
+        `m68040_iu_timing_suite`, 18 tests. Page 10-14 added the shift and
+        rotate groups and forced a model change: some cells print *two* figures
+        (`3/4`), selected by whether the shift count is immediate or in a
+        register. Fourteen pages of column groups remain, then §10.7's ten
+        pages of floating-point timings. Bulk transcription against the composition above,
         and the last thing standing between Phase 2b and complete. Every figure
         is a *best case* by §10.1's suppositions: "all memory accesses hit in
         the caches", and misaligned `<ea>` fetch timing is left to the reader.
