@@ -111,11 +111,23 @@ typedef struct {
 } ap_m68851_translation_t;
 
 /* Translate one logical address. `fetch` reads descriptors during a table
- * search and is unused on an ATC hit. */
+ * search and is unused on an ATC hit.
+ *
+ * `store` writes the `U` and `M` bits back into the descriptors the search
+ * read, which §5.1.5.3.11 requires before the page may be accessed: "updates of
+ * the U and M bits are performed before the MC68851 allows a page to be
+ * accessed or written". It may be NULL, and then the tables are left
+ * unchanged -- which is what a probe harness with no write path wants, and is
+ * *not* what a running machine wants: an operating system reads those bits to
+ * choose which page to evict.
+ *
+ * Nothing is written on an ATC hit. The bits were set when the entry was made,
+ * and the hardware has no reason to walk the tree again to set them twice. */
 [[nodiscard]] ap_m68851_translation_t
 ap_m68851_translate(ap_m68851_t *mmu, uint32_t logical_address,
                     unsigned function_code, bool is_write,
-                    ap_m68851_fetch_fn fetch, void *fetch_context);
+                    ap_m68851_fetch_fn fetch, void *fetch_context,
+                    ap_m68851_store_fn store, void *store_context);
 
 /* ---------------------------------------------------------------------------
  * Instructions.
@@ -171,7 +183,8 @@ ap_m68851_pflush(ap_m68851_t *mmu, const ap_m68851_instruction_t *instruction,
 [[nodiscard]] ap_m68851_status_t
 ap_m68851_pload(ap_m68851_t *mmu, const ap_m68851_instruction_t *instruction,
                 unsigned function_code, uint32_t address,
-                ap_m68851_fetch_fn fetch, void *fetch_context);
+                ap_m68851_fetch_fn fetch, void *fetch_context,
+                ap_m68851_store_fn store, void *store_context);
 
 /* Execute a `PTEST`, which leaves its answer in `PSR` rather than returning it.
  *
@@ -181,6 +194,11 @@ ap_m68851_pload(ap_m68851_t *mmu, const ap_m68851_instruction_t *instruction,
  * "always clear" because no table was walked. A model that treated level zero
  * as a zero-deep search would report a fault where the hardware reports a
  * cache miss. */
+/* `PTEST` takes no store, and the omission is the specification: "U and M bits
+ * in the translation table are not modified by this instruction." A probe that
+ * marked a page used would make the operating system's own diagnostic change
+ * the history it was diagnosing. Not offering the parameter is how that is made
+ * impossible rather than merely discouraged. */
 [[nodiscard]] ap_m68851_status_t
 ap_m68851_ptest(ap_m68851_t *mmu, const ap_m68851_instruction_t *instruction,
                 unsigned function_code, uint32_t address,

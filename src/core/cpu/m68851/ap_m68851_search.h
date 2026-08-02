@@ -216,6 +216,18 @@ ap_m68851_status_writes(const ap_m68851_search_result_t *result,
 typedef bool (*ap_m68851_fetch_fn)(void *context, uint32_t address,
                                    unsigned bytes, uint64_t *value);
 
+/* How the status write-back reaches memory. A single byte, always: §4.3.2.2
+ * says "the only write cycles initiated by the MC68851 are byte operations to
+ * update the used bit, modified bit, or both".
+ *
+ * `read_modify_write` is passed through rather than resolved here because it is
+ * a property of the *bus cycle*, not of the value: the part holds the bus for
+ * the read and the write together so that another MC68851 sharing the tree
+ * cannot slip between them. A model with no other bus master can ignore it; one
+ * with arbitration cannot. */
+typedef void (*ap_m68851_store_fn)(void *context, uint32_t address,
+                                   uint8_t value, bool read_modify_write);
+
 typedef struct {
   const ap_m68851_tc_t *tc;
   const ap_m68851_rp_t *root;

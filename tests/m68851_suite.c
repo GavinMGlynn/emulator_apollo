@@ -24,7 +24,30 @@ void tearDown(void) {}
 typedef struct {
   uint32_t word[MEMORY_LONGS];
   unsigned fetches;
+  /* The status write-back's own record, so a test can ask what reached memory
+   * rather than only what the API offered to write. */
+  unsigned stores;
+  unsigned read_modify_writes;
 } memory_t;
+
+/* A byte store into the same toy memory. Big-endian, matching `memory_fetch`:
+ * byte 3 of a long word is its least significant. */
+static void memory_store(void *context, uint32_t address, uint8_t value,
+                         bool read_modify_write) {
+  memory_t *m = (memory_t *)context;
+  m->stores++;
+  if (read_modify_write) {
+    m->read_modify_writes++;
+  }
+  const uint32_t index = (address - MEMORY_BASE) / 4u;
+  if (index >= MEMORY_LONGS) {
+    return;
+  }
+  const unsigned byte = address & 3u;
+  const unsigned shift = (3u - byte) * 8u;
+  m->word[index] =
+      (m->word[index] & ~(0xFFu << shift)) | ((uint32_t)value << shift);
+}
 
 static bool memory_fetch(void *context, uint32_t address, unsigned bytes,
                          uint64_t *value) {
@@ -76,7 +99,7 @@ static void test_a_reset_part_translates_nothing(void) {
   ap_m68851_reset(&mmu);
 
   const ap_m68851_translation_t t =
-      ap_m68851_translate(&mmu, 0x12345u, 5u, false, memory_fetch, &m);
+      ap_m68851_translate(&mmu, 0x12345u, 5u, false, memory_fetch, &m, NULL, NULL);
   TEST_ASSERT_EQUAL_INT(AP_M68851_TRANSLATE_OK, t.status);
   TEST_ASSERT_EQUAL_HEX32(0x12345u, t.physical_address);
   /* No table was walked and, crucially, no ATC entry was made: a disabled MMU
@@ -91,7 +114,7 @@ static void test_a_miss_walks_the_tables_and_a_second_access_hits(void) {
   configure(&mmu, &m);
 
   const ap_m68851_translation_t first =
-      ap_m68851_translate(&mmu, 0x00000123u, 5u, false, memory_fetch, &m);
+      ap_m68851_translate(&mmu, 0x00000123u, 5u, false, memory_fetch, &m, NULL, NULL);
   TEST_ASSERT_EQUAL_INT(AP_M68851_TRANSLATE_OK, first.status);
   TEST_ASSERT_EQUAL_HEX32(0x50123u, first.physical_address);
   TEST_ASSERT_FALSE(first.cache_hit);
@@ -100,7 +123,7 @@ static void test_a_miss_walks_the_tables_and_a_second_access_hits(void) {
   /* The second access is answered by the cache: no further descriptor reads. */
   const unsigned after_walk = m.fetches;
   const ap_m68851_translation_t second =
-      ap_m68851_translate(&mmu, 0x00000456u, 5u, false, memory_fetch, &m);
+      ap_m68851_translate(&mmu, 0x00000456u, 5u, false, memory_fetch, &m, NULL, NULL);
   TEST_ASSERT_TRUE(second.cache_hit);
   TEST_ASSERT_EQUAL_HEX32(0x50456u, second.physical_address);
   TEST_ASSERT_EQUAL_UINT(after_walk, m.fetches);
@@ -115,11 +138,11 @@ static void test_the_page_offset_survives_translation(void) {
 
   TEST_ASSERT_EQUAL_HEX32(
       0x50000u,
-      ap_m68851_translate(&mmu, 0u, 5u, false, memory_fetch, &m)
+      ap_m68851_translate(&mmu, 0u, 5u, false, memory_fetch, &m, NULL, NULL)
           .physical_address);
   TEST_ASSERT_EQUAL_HEX32(
       0x50FFFu,
-      ap_m68851_translate(&mmu, 0xFFFu, 5u, false, memory_fetch, &m)
+      ap_m68851_translate(&mmu, 0xFFFu, 5u, false, memory_fetch, &m, NULL, NULL)
           .physical_address);
 }
 
@@ -133,12 +156,12 @@ static void test_a_denial_is_cached_so_it_is_not_walked_twice(void) {
   put_short(&m, 0x2000u, 0x0u); /* an invalid descriptor */
 
   const ap_m68851_translation_t first =
-      ap_m68851_translate(&mmu, 0u, 5u, false, memory_fetch, &m);
+      ap_m68851_translate(&mmu, 0u, 5u, false, memory_fetch, &m, NULL, NULL);
   TEST_ASSERT_EQUAL_INT(AP_M68851_TRANSLATE_BUS_ERROR, first.status);
   const unsigned after_walk = m.fetches;
 
   const ap_m68851_translation_t second =
-      ap_m68851_translate(&mmu, 0x100u, 5u, false, memory_fetch, &m);
+      ap_m68851_translate(&mmu, 0x100u, 5u, false, memory_fetch, &m, NULL, NULL);
   TEST_ASSERT_EQUAL_INT(AP_M68851_TRANSLATE_BUS_ERROR, second.status);
   TEST_ASSERT_TRUE(second.cache_hit);
   TEST_ASSERT_EQUAL_UINT(after_walk, m.fetches);
@@ -154,10 +177,10 @@ static void test_a_write_to_a_protected_page_is_refused_and_a_read_is_not(void) 
 
   TEST_ASSERT_EQUAL_INT(
       AP_M68851_TRANSLATE_OK,
-      ap_m68851_translate(&mmu, 0u, 5u, false, memory_fetch, &m).status);
+      ap_m68851_translate(&mmu, 0u, 5u, false, memory_fetch, &m, NULL, NULL).status);
   TEST_ASSERT_EQUAL_INT(
       AP_M68851_TRANSLATE_WRITE_PROTECTED,
-      ap_m68851_translate(&mmu, 0u, 5u, true, memory_fetch, &m).status);
+      ap_m68851_translate(&mmu, 0u, 5u, true, memory_fetch, &m, NULL, NULL).status);
 }
 
 static void test_a_supervisor_access_uses_the_srp_only_when_sre_is_set(void) {
@@ -176,14 +199,14 @@ static void test_a_supervisor_access_uses_the_srp_only_when_sre_is_set(void) {
   /* Function code 6 is supervisor program. */
   TEST_ASSERT_EQUAL_HEX32(
       0x50000u,
-      ap_m68851_translate(&mmu, 0u, 6u, false, memory_fetch, &m)
+      ap_m68851_translate(&mmu, 0u, 6u, false, memory_fetch, &m, NULL, NULL)
           .physical_address);
 
   mmu.tc.supervisor_root_pointer_enable = true;
   ap_m68851_atc_flush(&mmu.atc);
   TEST_ASSERT_EQUAL_HEX32(
       0x60000u,
-      ap_m68851_translate(&mmu, 0u, 6u, false, memory_fetch, &m)
+      ap_m68851_translate(&mmu, 0u, 6u, false, memory_fetch, &m, NULL, NULL)
           .physical_address);
 }
 
@@ -198,7 +221,7 @@ static void test_writing_tc_with_the_enable_clear_flushes_the_atc(void) {
   ap_m68851_t mmu;
   memory_t m;
   configure(&mmu, &m);
-  (void)ap_m68851_translate(&mmu, 0u, 5u, false, memory_fetch, &m);
+  (void)ap_m68851_translate(&mmu, 0u, 5u, false, memory_fetch, &m, NULL, NULL);
   TEST_ASSERT_NOT_NULL(ap_m68851_atc_lookup(&mmu.atc, 0u, 5u, 4096u));
 
   TEST_ASSERT_EQUAL_INT(AP_M68851_EXECUTED,
@@ -282,7 +305,7 @@ static void test_writing_crp_reports_a_flush_in_pcsr(void) {
   ap_m68851_t mmu;
   memory_t m;
   configure(&mmu, &m);
-  (void)ap_m68851_translate(&mmu, 0u, 5u, false, memory_fetch, &m);
+  (void)ap_m68851_translate(&mmu, 0u, 5u, false, memory_fetch, &m, NULL, NULL);
 
   TEST_ASSERT_EQUAL_INT(
       AP_M68851_EXECUTED,
@@ -342,7 +365,7 @@ static void test_flush_all_empties_the_cache(void) {
   ap_m68851_t mmu;
   memory_t m;
   configure(&mmu, &m);
-  (void)ap_m68851_translate(&mmu, 0u, 5u, false, memory_fetch, &m);
+  (void)ap_m68851_translate(&mmu, 0u, 5u, false, memory_fetch, &m, NULL, NULL);
 
   const ap_m68851_instruction_t all = flush(1u, 0u);
   TEST_ASSERT_EQUAL_INT(AP_M68851_EXECUTED,
@@ -455,13 +478,13 @@ static void test_pload_installs_an_entry_nothing_referenced(void) {
 
   const ap_m68851_instruction_t r = pload(true);
   TEST_ASSERT_EQUAL_INT(AP_M68851_EXECUTED,
-                        ap_m68851_pload(&mmu, &r, 5u, 0u, memory_fetch, &m));
+                        ap_m68851_pload(&mmu, &r, 5u, 0u, memory_fetch, &m, NULL, NULL));
   TEST_ASSERT_NOT_NULL(ap_m68851_atc_lookup(&mmu.atc, 0u, 5u, 4096u));
 
   /* And the translation that follows is a hit. */
   const unsigned after = m.fetches;
   TEST_ASSERT_TRUE(
-      ap_m68851_translate(&mmu, 0u, 5u, false, memory_fetch, &m).cache_hit);
+      ap_m68851_translate(&mmu, 0u, 5u, false, memory_fetch, &m, NULL, NULL).cache_hit);
   TEST_ASSERT_EQUAL_UINT(after, m.fetches);
 }
 
@@ -476,13 +499,13 @@ static void test_ploadw_marks_the_entry_modified_and_ploadr_does_not(void) {
   configure(&mmu, &m);
   const ap_m68851_instruction_t r = pload(true);
   TEST_ASSERT_EQUAL_INT(AP_M68851_EXECUTED,
-                        ap_m68851_pload(&mmu, &r, 5u, 0u, memory_fetch, &m));
+                        ap_m68851_pload(&mmu, &r, 5u, 0u, memory_fetch, &m, NULL, NULL));
   TEST_ASSERT_FALSE(ap_m68851_atc_lookup(&mmu.atc, 0u, 5u, 4096u)->modified);
 
   configure(&mmu, &m);
   const ap_m68851_instruction_t w = pload(false);
   TEST_ASSERT_EQUAL_INT(AP_M68851_EXECUTED,
-                        ap_m68851_pload(&mmu, &w, 5u, 0u, memory_fetch, &m));
+                        ap_m68851_pload(&mmu, &w, 5u, 0u, memory_fetch, &m, NULL, NULL));
   TEST_ASSERT_TRUE(ap_m68851_atc_lookup(&mmu.atc, 0u, 5u, 4096u)->modified);
 }
 
@@ -496,7 +519,7 @@ static void test_pload_is_refused_while_translation_is_disabled(void) {
 
   const ap_m68851_instruction_t r = pload(true);
   TEST_ASSERT_EQUAL_INT(AP_M68851_CONFIGURATION_ERROR,
-                        ap_m68851_pload(&mmu, &r, 5u, 0u, memory_fetch, &m));
+                        ap_m68851_pload(&mmu, &r, 5u, 0u, memory_fetch, &m, NULL, NULL));
 }
 
 static void test_ptest_reports_a_good_translation_in_the_psr(void) {
@@ -580,7 +603,7 @@ static void test_a_level_zero_ptest_searches_only_the_atc(void) {
   TEST_ASSERT_EQUAL_UINT(0u, mmu.psr.levels);
 
   /* With the entry present it hits, and still walks nothing. */
-  (void)ap_m68851_translate(&mmu, 0u, 5u, false, memory_fetch, &m);
+  (void)ap_m68851_translate(&mmu, 0u, 5u, false, memory_fetch, &m, NULL, NULL);
   const unsigned after = m.fetches;
   (void)ap_m68851_ptest(&mmu, &t, 5u, 0u, memory_fetch, &m);
   TEST_ASSERT_EQUAL_UINT(after, m.fetches);
@@ -786,6 +809,118 @@ static void test_reset_clears_the_enable_but_not_the_skip_count(void) {
       0x4E71u, ap_m68851_pmove_read_numbered(&mmu, AP_M68851_PREG_BAD, 4u));
 }
 
+/* ---------------------------------------------------------------------------
+ * The status write-back reaching memory.
+ * ------------------------------------------------------------------------- */
+
+static uint8_t status_byte_at(const memory_t *m, uint32_t descriptor) {
+  return (uint8_t)(m->word[(descriptor - MEMORY_BASE) / 4u] & 0xFFu);
+}
+
+static void test_a_translation_writes_the_used_bits_into_the_tables(void) {
+  /* §5.1.5.3.11: "updates of the U and M bits are performed before the MC68851
+   * allows a page to be accessed or written". Until this test the model built
+   * the write list and nobody called it -- the mechanism existed and the tables
+   * in memory were still untouched, which is a gap that a unit test of the
+   * *helper* cannot see. This one reads the memory back. */
+  ap_m68851_t mmu;
+  memory_t m;
+  configure(&mmu, &m);
+  TEST_ASSERT_EQUAL_UINT(0u, status_byte_at(&m, 0x1000u) & AP_M68851_STATUS_USED);
+  TEST_ASSERT_EQUAL_UINT(0u, status_byte_at(&m, 0x2000u) & AP_M68851_STATUS_USED);
+
+  const ap_m68851_translation_t t = ap_m68851_translate(
+      &mmu, 0x00000123u, 5u, false, memory_fetch, &m, memory_store, &m);
+  TEST_ASSERT_EQUAL_INT(AP_M68851_TRANSLATE_OK, t.status);
+
+  /* Both descriptors -- the pointer and the page -- come back used. */
+  TEST_ASSERT_NOT_EQUAL_UINT_MESSAGE(
+      0u, status_byte_at(&m, 0x1000u) & AP_M68851_STATUS_USED,
+      "the pointer was walked and must be marked used");
+  TEST_ASSERT_NOT_EQUAL_UINT_MESSAGE(
+      0u, status_byte_at(&m, 0x2000u) & AP_M68851_STATUS_USED,
+      "the page was accessed and must be marked used");
+  /* A read leaves `M` alone. */
+  TEST_ASSERT_EQUAL_UINT_MESSAGE(
+      0u, status_byte_at(&m, 0x2000u) & AP_M68851_STATUS_MODIFIED,
+      "a read must not mark a page modified");
+  TEST_ASSERT_EQUAL_UINT(2u, m.stores);
+  /* The page's cycle is a read-modify-write, because it sets `U` without
+   * disturbing an `M` it is not itself setting; the pointer's is a plain
+   * write, having no `M` at all. */
+  TEST_ASSERT_EQUAL_UINT(1u, m.read_modify_writes);
+}
+
+static void test_a_write_access_marks_the_page_modified(void) {
+  ap_m68851_t mmu;
+  memory_t m;
+  configure(&mmu, &m);
+  const ap_m68851_translation_t t = ap_m68851_translate(
+      &mmu, 0x00000123u, 5u, true, memory_fetch, &m, memory_store, &m);
+  TEST_ASSERT_EQUAL_INT(AP_M68851_TRANSLATE_OK, t.status);
+  TEST_ASSERT_NOT_EQUAL_UINT(
+      0u, status_byte_at(&m, 0x2000u) & AP_M68851_STATUS_MODIFIED);
+  /* The pointer above is *not* modified: only page descriptors carry `M`, and
+   * setting bit 4 of a pointer would corrupt whatever field owns it. */
+  TEST_ASSERT_EQUAL_UINT_MESSAGE(
+      0u, status_byte_at(&m, 0x1000u) & AP_M68851_STATUS_MODIFIED,
+      "a pointer must never gain a modified bit");
+  /* Both bits set from clear in one cycle, so no read-modify-write is needed
+   * for the page this time. */
+  TEST_ASSERT_EQUAL_UINT(0u, m.read_modify_writes);
+}
+
+static void test_an_atc_hit_writes_nothing(void) {
+  /* The bits were written when the entry was made. Walking the tree again to
+   * set them a second time would be bus traffic the hardware never generates,
+   * and would make a hot loop over one page rewrite its descriptors forever. */
+  ap_m68851_t mmu;
+  memory_t m;
+  configure(&mmu, &m);
+  (void)ap_m68851_translate(&mmu, 0x00000123u, 5u, false, memory_fetch, &m,
+                            memory_store, &m);
+  const unsigned after_first = m.stores;
+  TEST_ASSERT_TRUE(after_first > 0u);
+
+  const ap_m68851_translation_t second = ap_m68851_translate(
+      &mmu, 0x00000456u, 5u, false, memory_fetch, &m, memory_store, &m);
+  TEST_ASSERT_TRUE_MESSAGE(second.cache_hit, "the second access should hit");
+  TEST_ASSERT_EQUAL_UINT_MESSAGE(after_first, m.stores,
+                                 "an ATC hit must not touch the tables");
+}
+
+static void test_a_second_walk_writes_nothing_more(void) {
+  /* "Only performing write cycles to modify these bits are required." Once the
+   * bits are set, a fresh walk of the same tree costs no write cycles at all --
+   * which is what makes the write-back affordable rather than a tax on every
+   * miss. */
+  ap_m68851_t mmu;
+  memory_t m;
+  configure(&mmu, &m);
+  (void)ap_m68851_translate(&mmu, 0u, 5u, true, memory_fetch, &m, memory_store,
+                            &m);
+  const unsigned after_first = m.stores;
+  ap_m68851_atc_flush(&mmu.atc);
+  (void)ap_m68851_translate(&mmu, 0u, 5u, true, memory_fetch, &m, memory_store,
+                            &m);
+  TEST_ASSERT_EQUAL_UINT_MESSAGE(
+      after_first, m.stores,
+      "a descriptor already carrying its bits costs no cycle");
+}
+
+static void test_a_null_store_leaves_the_tables_alone(void) {
+  /* The documented escape for a caller with no write path. It must be a
+   * deliberate choice rather than a silent default, which is why every test
+   * above passes a real store and only this one does not. */
+  ap_m68851_t mmu;
+  memory_t m;
+  configure(&mmu, &m);
+  (void)ap_m68851_translate(&mmu, 0u, 5u, true, memory_fetch, &m, NULL, NULL);
+  TEST_ASSERT_EQUAL_UINT(0u, m.stores);
+  TEST_ASSERT_EQUAL_UINT(0u,
+                         status_byte_at(&m, 0x2000u) & AP_M68851_STATUS_USED);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_a_reset_part_translates_nothing);
@@ -826,5 +961,10 @@ int main(void) {
   RUN_TEST(test_the_eight_breakpoints_are_independent);
   RUN_TEST(test_the_bac_reserved_bits_read_as_zeros);
   RUN_TEST(test_reset_clears_the_enable_but_not_the_skip_count);
+  RUN_TEST(test_a_translation_writes_the_used_bits_into_the_tables);
+  RUN_TEST(test_a_write_access_marks_the_page_modified);
+  RUN_TEST(test_an_atc_hit_writes_nothing);
+  RUN_TEST(test_a_second_walk_writes_nothing_more);
+  RUN_TEST(test_a_null_store_leaves_the_tables_alone);
   return UNITY_END();
 }

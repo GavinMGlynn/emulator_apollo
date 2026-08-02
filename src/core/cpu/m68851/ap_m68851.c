@@ -48,12 +48,34 @@ static const ap_m68851_rp_t *select_root(const ap_m68851_t *mmu,
   return &mmu->crp;
 }
 
+/* Apply §5.1.5.3.11's status updates to the descriptors a search read.
+ *
+ * Silently does nothing without a store, which is the documented behaviour for
+ * a caller with no write path -- and the reason the `PTEST` entry point does
+ * not take one at all. */
+static void write_back_status(const ap_m68851_search_result_t *found,
+                              bool is_write, ap_m68851_store_fn store,
+                              void *store_context) {
+  if (store == NULL) {
+    return;
+  }
+  ap_m68851_status_write_t writes[AP_M68851_SEARCH_MAX_PATH];
+  const unsigned count = ap_m68851_status_writes(
+      found, is_write, writes, AP_M68851_SEARCH_MAX_PATH);
+  for (unsigned i = 0; i < count; i++) {
+    store(store_context, writes[i].address, writes[i].value,
+          writes[i].read_modify_write);
+  }
+}
+
 ap_m68851_translation_t ap_m68851_translate(ap_m68851_t *mmu,
                                             uint32_t logical_address,
                                             unsigned function_code,
                                             bool is_write,
                                             ap_m68851_fetch_fn fetch,
-                                            void *fetch_context) {
+                                            void *fetch_context,
+                                            ap_m68851_store_fn store,
+                                            void *store_context) {
   ap_m68851_translation_t out = {0};
 
   if (!mmu->tc.enable) {
@@ -101,6 +123,12 @@ ap_m68851_translation_t ap_m68851_translate(ap_m68851_t *mmu,
   };
   const ap_m68851_search_result_t found =
       ap_m68851_search(&config, logical_address, function_code);
+
+  /* "Updates of the U and M bits are performed **before** the MC68851 allows a
+   * page to be accessed or written", so the write-back happens here and not
+   * after the access is permitted -- and it happens even when the search ends
+   * denied, because the pointers above the denial were still walked. */
+  write_back_status(&found, is_write, store, store_context);
 
   /* Build the entry the search earned, denial or not. */
   ap_m68851_atc_entry_t entry = {
@@ -411,7 +439,9 @@ ap_m68851_status_t ap_m68851_pload(ap_m68851_t *mmu,
                                    const ap_m68851_instruction_t *instruction,
                                    unsigned function_code, uint32_t address,
                                    ap_m68851_fetch_fn fetch,
-                                   void *fetch_context) {
+                                   void *fetch_context,
+                                   ap_m68851_store_fn store,
+                                   void *store_context) {
   if (instruction->opcode != AP_M68851_OP_PLOAD) {
     return AP_M68851_TAKE_LINE_F;
   }
@@ -427,11 +457,20 @@ ap_m68851_status_t ap_m68851_pload(ap_m68851_t *mmu,
   const ap_m68851_search_result_t found =
       ap_m68851_search(&config, address, function_code);
 
-  /* "PLOADW causes U and M bits in the translation tables to be updated as if a
-   * write access had taken place." The write-back of `U` and `M` into the
-   * tables is not modelled -- see `PROJECT_STATUS.md` -- but the direction
-   * still decides the entry's `M`, which is what a later write through this
-   * entry consults. */
+  /* §6.2.4: "if the write attribute is selected (PLOADW), the MC68851 performs
+   * the table search and updates all history information in the translation
+   * tables (used and modified bits) as if a write operation to that address had
+   * occurred. Similarly, if the read attribute is selected (PLOADR), the
+   * history information in the translation table (used bit) is updated as if a
+   * read operation had occurred."
+   *
+   * So a `PLOAD` is not a warming hint that leaves the tables alone: it writes
+   * exactly what the access it imitates would have written, and the direction
+   * bit decides which. */
+  /* `!read_from_mmu` is this decoder's "W form", the same expression the ATC
+   * entry's own `modified` uses just below -- so the table and the cache cannot
+   * disagree about which direction a `PLOAD` imitated. */
+  write_back_status(&found, !instruction->read_from_mmu, store, store_context);
   const ap_m68851_atc_entry_t entry = {
       .logical_address = address,
       .function_code = function_code,
