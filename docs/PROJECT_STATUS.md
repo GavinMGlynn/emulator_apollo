@@ -3529,6 +3529,654 @@ reasoning that used to sit beneath those items lives here, in the order the
 plan lists them. Nothing was discarded: an item whose claim already said
 everything simply has no entry below.
 
+#### Effective address times and Equation (11-2)
+
+    through Equation (11-2). `FINDINGS.md` C9 is the reason this is now a
+    named item rather than a later refinement: without it the footnoted rows
+    report a component as a total, and the oracle already shows the size of
+    the gap — 7 clocks against our 4 for `ADD.B D0,(A0)`.
+    This is where `head` and `tail` finally earn their place. Equation
+    (11-2) overlaps the effective address's tail against the operation's
+    head — `CCea + [CCop - min(Hop,Tea)] + ...` — which is why both columns
+    were transcribed from the start even though Equation (11-1) does not use
+    them per-instruction.
+    **First question, settled: the step declines.** A footnoted row is left
+    at bus time alone, which `--time-instructions` shows as an *alternating*
+    figure — visibly a lower bound, exactly as an instruction with no
+    published figure at all reads. Reporting the component would have given
+    a steady number that looks like a measurement and is short by a whole
+    memory access, which every other convention in this core rules out.
+    A test now asserts the decline; the one it replaced compared our total
+    against `CC` and `NCC` and *passed*, because both sides were the same
+    component — the blind spot C9 records, made concrete.
+    **Second question, now recorded:** `max(microcode, bus)` cannot be
+    extended to these rows. `docs/references/M68030_TIMING.md` works it
+    through — the warm case needs a smaller answer against a smaller bus and
+    the cold a larger one against a larger, which `max` cannot give from one
+    microcode figure because it is monotonic in both. The refinement is one
+    question per bus cycle, *is the microcode waiting on this?* — a prefetch
+    is not, an operand read feeding the current operation is — giving
+    `max(microcode, hideable) + blocking`. That is a two-bucket change
+    rather than a rewrite, but it is not to be made before the effective
+    address tables exist, so that both sides of the composition are
+    published numbers rather than one published and one inferred.
+- [x] **A methodological correction the tables forced.** §11.6's assumption
+      list includes "The data cache is not enabled", and the sampling
+      helpers had it on. Comparing a figure measured with it on against one
+      computed with it off is not like-for-like, and the difference is an
+      operand read per repeat — invisible for the register forms, which is
+      why a dozen rows passed the two-sided check before this surfaced. A
+      published table's *assumptions* need transcribing as carefully as its
+      numbers.
+- [x] **The tables themselves**
+      (`src/core/cpu/m68030/ap_m68030_ea_timing.c`): §11.6.1's fetch and
+      §11.6.3's calculate rows for the modes without a full-format
+      extension word.
+      Detail in `PROJECT_STATUS.md`.
+      *Verification: `ea_timing_suite`, 8 tests — a register operand costing
+      nothing either way and its head marked inapplicable; fetching never
+      costing less than calculating, for every mode, which a swapped
+      transcription would break everywhere at once; the two tables differing
+      by exactly the operand read; the relative heads distinguished from the
+      plain ones; an immediate costing by the words it occupies, with byte
+      and word alike per Table 2-3; the immediate absent from the calculate
+      table; and the long absolute being the one fetch row whose two columns
+      differ.*
+- [x] **Composing them.** Half of the verification this item names is now
+      met: **the second worked example of §11.3.4 comes to 40 clocks**,
+      which is Motorola's arithmetic on Motorola's figures and the only
+      published number that exercises Equation (11-2) rather than (11-1).
+      Detail in `PROJECT_STATUS.md` and
+      `docs/references/M68030_TIMING.md`.
+      *Verification: `ea_timing_suite`, 4 further tests (12 total) — the
+      40-clock example with the components fed in **as the example prints
+      them** rather than from our tables, since feeding the transcription in
+      would move both sides of the comparison together; a register operand
+      contributing no component at all, checked on a case where a zero-cost
+      one would over-count; the "2+op head" notation resolving against its
+      operation; and four of our transcribed rows agreeing with the same
+      example, which is a check against a different page from the one they
+      were read off. `overlap_suite`, 3 further tests (15 total) — the
+      no-cache case composing by addition against §11.3.3's own "2 + 7 = 9"
+      and "9 + 7 = 16", and the two columns shown not to be the same
+      function.*
+- [x] **Equation (11-2) is Equation (11-1) over *components*.** It reads as
+      a second rule and is not one: every term is a component's cache case
+      less the lesser of its own head and the previous component's tail, and
+      (11-2) only adds that an instruction contributes *two* components. One
+      accumulator therefore serves both, which is why
+      `ap_m68030_overlap_add_component` now sits beneath
+      `ap_m68030_overlap_add`.
+- [x] **The no-cache case composes by plain addition**, per §11.3.3, and
+      `ap_m68030_no_cache_total` is that second rule. Kept a separate
+      function deliberately: running `NCC` figures through head and tail
+      would subtract an overlap the published number already excludes.
+- [x] **A per-instruction comparison against a published `NCC` is the wrong
+      comparison, permanently.** §11.3.3 works an instruction that costs
+      "eight clocks for even alignment and 10 clocks for odd alignment, an
+      average of nine" while the *pair* it belongs to costs "16 clocks for
+      both even and odd alignment". So the alignment difference moves
+      between adjacent instructions rather than adding to the stream, 9 is a
+      figure the hardware never exhibits, and the right unit of comparison
+      is a sequence. This core already exhibits that alternation
+      (`FINDINGS.md` C7).
+- [x] **Composed into the step, and `FINDINGS.md` C9 closes.**
+      `total = microcode + measured operand bus + prefetch cost`, where the
+      microcode is `CC − 2(r + w)` from the published `(r/p/w)` and the bus
+      half is what this core measures -- so a wait state or a cache hit
+      still moves the answer, which is the difference between this and a
+      cycle-table model.
+      Detail in `PROJECT_STATUS.md` and
+      `docs/references/M68030_TIMING.md`.
+      *Verification: `ADD.B D0,(A0)` at **6 warm and 7 cold averaged over
+      both alignments** -- the manual's composed figure and the oracle's
+      measurement -- with both 6 and 8 asserted to occur, so the average is
+      not four equal numbers. `machine_suite`'s decline test became this
+      one.*
+- [x] Three things the wiring forced, each found by a number moving that
+      should not have: the `*` and `**` footnotes name **different tables**
+      and can no longer share a flag; the exposure rule was being applied to
+      rows it was derived to exclude, so applicability is now data on the
+      row rather than a list in a test; and a **pipe refill is not the row's
+      own prefetch**, so it is charged where it happens rather than replaced
+      by a published figure derived for something else.
+      *Verification: `timing_table_suite`, 16 tests, including the
+      classification checked against each instruction's length and whether
+      it changes flow rather than against the figures it is used with.*
+- [x] **§11.6.1's full-format rows, transcribed and selectable by the
+      extension word** -- sixteen entries covering every combination of base
+      and outer displacement, which is the whole space a full-format word
+      can encode. The reading that decides between the table's two
+      contradictory groups is `PROVISIONAL` with its measurement named.
+      Detail in `PROJECT_STATUS.md` and
+      `docs/references/M68030_TIMING.md`.
+      *Verification: `ea_timing_suite`, 7 further tests (19 total) -- every
+      combination resolving to a consistent row; the reading isolated in a
+      test of its own rather than buried in a sweep, with a long base
+      displacement as the control that a transcription making *every*
+      displacement free would fail; an indirection costing a second read at
+      every base displacement; the three indirection kinds sharing their
+      figures, which the table's own note about Xn says from the other side;
+      and the worked example's `fea ([B])` now reachable by lookup, so that
+      test's hand-supplied inputs and this table agree from two different
+      pages.*
+- [x] **§11.6.3's full-format rows too, and they confirm the reading on a
+      second table.** Every group A row equals its group B row with the base
+      displacement dropped in the calculate table exactly as in the fetch
+      one, so the pattern holds over sixteen rows across two independently
+      typeset tables with no counterexample. The head column corroborates it
+      in a way the fetch table cannot: there the group A rows carry a plain
+      head where `(B)` carries "6+op head", so the groups differ in *kind*
+      and not only in value.
+      *Verification: `ea_timing_suite`, 3 further tests (22 total) -- the
+      two tables' patterns asserted together rather than separately;
+      calculating reading one fewer than fetching at every row, which is
+      §11.6.3's "fetch time ... only for the first level of indirection";
+      and the head kinds told apart.*
+- [x] Four more `p` counts corrected in the calculate table, the same defect
+      the fetch table had and found the same way -- by reading the page
+      rather than a text extraction of it.
+- [x] **§11.6.2, Fetch Immediate Effective Address, transcribed and wired**
+      -- so the `**` rows are priced rather than declined. It is keyed by the
+      immediate's size *and* the destination mode together, because one
+      entry covers both halves, which is exactly why such a row could never
+      have been priced off §11.6.1.
+      *Verification: `ea_timing_suite`, 4 further tests (26 total) --
+      including that the two size columns are **not** a scaling of each
+      other, `(An)` differing by one clock and `(An)+` by two, so a model
+      scaling one column by operand size would be wrong in both directions;
+      a long immediate never costing less than a word one, which a swapped
+      column would break everywhere at once; the absent `An` destination row
+      reported absent, the table agreeing with the opcode map rather than
+      having a gap; and the `%` relative heads distinguished from the plain
+      ones.*
+- [x] **Every row is now priced; none declines.** The change-of-flow rows
+      fell to §11.3.3's page: the target's alignment decides *where* the
+      refill reads, not how many bus cycles it takes -- a three-deep pipe
+      wants two either way -- so nothing is averaged and the published
+      difference is the exposure. The three-word rows fell to the same
+      arithmetic as a single word, the two alignments differing by one
+      fetch, so the larger case is twice the published average and the
+      smaller is free.
+      Detail in `docs/references/M68030_TIMING.md`.
+      *Verification: `timing_table_suite` asserts **zero** rows classified
+      unknown, so a row added without a class decision fails rather than
+      being priced by whichever rule sits first.*
+- [x] Two readings **landed as `PROVISIONAL`** rather than left open, which
+      is what `CLAUDE.md` prescribes for a documented approximation with a
+      reason and a cost to close: the reading that selects between §11.6.1's
+      and §11.6.3's two row groups, supported by sixteen rows across two
+      tables with no counterexample and corroborated by the 68020 manual;
+      and the one-clock bound §11.3.3's "rounded up" leaves on a published
+      difference of 1, which the pair provably cannot separate. Both are in
+      `PROJECT_STATUS.md`'s PROVISIONAL table with the measurement that
+      would close them.
+
+#### The 68030 table walk
+
+    `ap_m68030_desc`'s rules, and fill the ATC. This is the piece that joins
+    the four MMU modules together, and the first one whose *timing* is
+    interesting, since it is where the bus cycles are. The manual states ATC
+    translation "is always completely overlapped by other operations; thus,
+    no performance penalty is associated with ATC searches" — so an ATC hit
+    must cost nothing in our timing, and a *miss* is where the table walk's
+    bus cycles appear.
+- [x] **The table search** (`src/core/cpu/m68030/ap_m68030_walk.c`),
+      `[030]` §9.2 and §9.5. Splits the logical address with
+      `ap_m68030_tc`, walks the tree, applies `ap_m68030_desc`'s rules to
+      each descriptor, and reports `descriptor_fetches` — the quantity a
+      timing probe measures, and the reason a three-level tree costs more
+      than an early-terminating one.
+      *Verification: `walk_suite`, 13 tests — one fetch per level, an
+      invalid descriptor stopping the search where it is found, early
+      termination both shortening the search and taking the unconsumed
+      index bits as offset, an indirect descriptor costing its extra fetch
+      and being rejected unless it points at a page descriptor, WP/S/CI
+      accumulating down the tree, a limit violation aborting *before* the
+      fetch it would have indexed (0 fetches, not 1), a bus error ending
+      the search, and the 8-byte stride of a long-format table.*
+- [x] **Descriptor writeback: the U and M bits.** "During a table search,
+      the U bit in each descriptor that is encountered is checked and set if
+      it is not already set", and M is set for a write access under
+      `ap_m68030_desc`'s rule. Each update is a bus *write*, so this is
+      timing rather than bookkeeping: `[030]` §11 p. 11-56 counts a table
+      search in reads and writes separately and states that "an RMC cycle to
+      set the U bit is counted as one read and one write". The update is
+      expressed as "set U / set M at this address" rather than as a long
+      word, for the same reason the fetch returns a decoded descriptor —
+      the status bit positions are deferred, not guessed.
+      *Verification: `walk_suite`, 13 further tests — one write per
+      descriptor with U clear and none when it is already set, a write
+      access costing exactly one more than a read of the same tree, an
+      already-modified page costing nothing, WP and a supervisor violation
+      each suppressing M, the read half of a read-modify-write still
+      setting it, an invalid descriptor getting no write at all, the M bit
+      landing on an indirect descriptor's target rather than on the
+      indirect itself, and a bus error on the write half setting B.*
+- [x] Corroborated against the `MC68851 PMMU User's Manual 3ed` §5.1.5.3.11,
+      whose update table is explicit where `[030]` is prose — U clear with M
+      unchanged is an RMW, U and M together are a *single* operation, U
+      already set with M clear on a write is one write, and both already set
+      is no write at all. Our one-write-per-descriptor cost model matches it
+      row for row. Worth recording because it is independent of the 68030
+      manual and pins the case that is easiest to get wrong: setting two
+      bits in one descriptor must not cost two cycles.
+- [x] **One reading, `PROVISIONAL`, and every source is now exhausted: when a
+      supervisor violation suppresses the U update.** `[030]` says the U bit
+      is set "except *after* a supervisor violation is detected" without
+      saying whether a descriptor whose *own* S bit causes the violation
+      still gets its own U set. We fold that descriptor's S in first, so it
+      does not.
+      - The **68851 manual** repeats the sentence about a pointer being
+        fetched for an address denied at *another* level and drops the
+        supervisor clause entirely, so it does not arbitrate.
+      - The **oracle has no opinion**: `FINDINGS.md` C2 found
+        `update_descriptor()` never consults supervisor state at all, so it
+        cannot distinguish the two readings -- it implements neither.
+      - The **web** has nothing: the question does not appear in the
+        circulating 68030 MMU write-ups, which cover descriptor formats and
+        `PTEST` and stop short of the history-bit gating.
+      - So this needs **real hardware or a Motorola erratum**. Landed as
+        `PROVISIONAL` rather than left open: the reading is made, documented
+        and consistent with the manual's other sentence, and what is
+        outstanding is confirmation rather than a decision. It is in
+        `PROJECT_STATUS.md`'s table with its cost to close.
+- [x] **Fill the ATC from a completed search**
+      (`ap_m68030_walk_fill_atc`), so a miss populates the entry a hit then
+      serves for free. This is the join between `ap_m68030_walk` and
+      `ap_m68030_atc`, and the point at which the "hit costs nothing, miss
+      costs the search" claim becomes measurable end to end.
+      Detail in `PROJECT_STATUS.md`.
+      *Verification: `walk_suite`, 7 further tests — a filled entry turning
+      the next access into a hit at the right physical address, WP and CI
+      reaching the entry, each of the three fault kinds cached as a faulting
+      entry (including a supervisor violation, where the search itself
+      succeeded and only the access was illegal), and the end-to-end form of
+      the §9.4 timing rule: a read fills M clear, so a later write is a hit
+      that still forces a search, and refilling after that search makes the
+      write free.*
+- [x] **Descriptor status bit positions: derived, and labelled as derived.**
+      Detail in `PROJECT_STATUS.md`.
+      *Verification: `walk_suite`, 7 further tests — short table and page
+      descriptors decoding their different address widths and status sets, a
+      table descriptor not decoding CI or M (page-descriptor fields whose bit
+      positions fall inside its ADDRESS), an indirect descriptor having no
+      status bits at all and so costing no history write, long-format LIMIT
+      as fifteen bits under the L/U flag, and a three-level tree built from
+      real memory words walking to the same physical address as the
+      hand-built one.*
+- [x] **Confirmed against the oracle** (`FINDINGS.md` campaign C1). Every
+      derived position matches `m68kmmu.h`'s field constants field for
+      field — DT, WP, U, M, CI, S, and both address masks — which is a sixth
+      source independent of the five that produced the derivation. Two
+      behaviours derived from prose are confirmed as code besides: U and M
+      are written in a *single* store, and no history bit is written to an
+      invalid descriptor.
+- [x] **Divergence found and classified `oracle-wrong`** (C2): `[030]`
+      §9.5.1.1 gates the U update on "except after a supervisor violation is
+      detected" and the M update on "or a supervisor violation", and the
+      oracle implements neither — `update_descriptor()` never consults
+      supervisor state. We keep ours, since the manual states the condition
+      twice for two separate bits. It changes history bits only on a search
+      that already faults, but that is exactly a supervisor-only tree probed
+      from user state.
+- Cross-reference: the supervisor-violation U-bit reading above is the
+  same question, recorded once there rather than twice.
+- [x] 68030 on-chip instruction and data caches, and their effect on bus timing.
+  *Verification: hit-vs-miss measured through the bus state machine — a hit
+  costs 0 clocks, a burst line fill 5, a non-bursting miss 2. A probe
+  against the oracle remains worthwhile and is listed under the probe suite,
+  but the claim no longer rests on one.*
+
+#### Taking an exception on the 68030
+
+    the VBR, and loading the PC (`ap_m68030_take_exception` in
+    `ap_m68030_step.c`). Needed an instruction unit and a memory system, so
+    it landed with them rather than here — the same split as the caches,
+    where structure and cost were separable.
+    §8.1's four steps, and their **order** is the whole of the difficulty:
+    the status register is copied *before* S is set, and it is the copy that
+    is stacked. Stacking the modified one survives casual testing — the
+    handler runs, RTE returns — but returns to a user program with S still
+    set. Nothing faults; the privilege boundary is simply gone. The frame
+    goes on the *active* supervisor stack, read after S is set, so a
+    user-state exception builds on the ISP and leaves the USP alone.
+    Which frame comes from Table 8-6, transcribed into
+    `ap_m68030_frame_for_vector`: the six-word frame's extra long word is
+    "the address of the instruction that caused the exception", distinct
+    from the stacked PC, which points at the *next* one. A six-word
+    exception given a four-word frame leaves RTE reading a vector offset out
+    of an address.
+    Wired in so far: **divide by zero** (the tail of the instruction
+    semantics item above, now closed) and **TRAP #N**, whose four-bit field
+    is an index into Table 8-1's trap range and not a vector number.
+    **Interrupts land here too**, and they differ from every other exception
+    in three ways. The status register copy is taken **before** the priority
+    mask is raised — stacking the raised mask instead leaves the interrupted
+    code running at the handler's priority for ever after, never receiving
+    another interrupt at its own level, and nothing faults. The vector comes
+    off the bus through an acknowledge cycle, with `AVEC` selecting an
+    autovector and a bus error during the cycle meaning *spurious* rather
+    than a fault — which is what keeps a machine with a misbehaving device
+    running. And "If the M bit of the status register is set, the processor
+    clears the M bit and creates a throwaway exception stack frame on top of
+    the interrupt stack": one interrupt, **two frames on two different
+    stacks**, and clearing M first is what moves A7 between them, so the
+    order is not an implementation detail.
+    Level 7 is recognised on the *transition* to 7, not on the level, so
+    holding the line there does not re-interrupt — a model that read the
+    level alone would never let the handler make progress. An interrupt also
+    ends a `STOP`, which is what `STOP` was waiting for.
+    **Reset now performs §8.1.1's ten steps** and is no longer declined.
+    Four of them are the ones a plausible implementation drops, none of
+    which faults when missed: "setting the supervisor bit **and clearing the
+    master bit**"; the vector base register zeroed; the caches' freeze and
+    **write-allocate** bits cleared along with their enables; and
+    translation disabled in the TC *and* in both transparent registers.
+    Two explicit negatives are as load-bearing as the steps -- reset "does
+    **not** flush the address translation cache (ATC), nor does it save the
+    value of either the program counter or the status register" -- so there
+    is no frame, and an ATC entry must survive. A model that flushed it
+    would be tidier and wrong.
+    *Verification: `step_suite`, 2 further tests (193 total) -- the ten
+    steps checked as a whole from a processor deliberately left in the
+    state each one has to undo, with an ATC entry asserted to survive; and
+    nothing stacked, checked by counting stores rather than by inspecting
+    the stack pointer alone.*
+    The bus and address error frames (`$A`/`$B`) build and return, and so
+    does the **coprocessor mid-instruction frame (`$9`)** — which this item
+    once called unreachable on the reasoning that the frame exists to resume
+    a *suspended* instruction and this core's 68882 never suspends. That was
+    right about suspension and wrong about the frame: Table 8-6 puts
+    **main-detected protocol violation** in the same row, and that one is
+    raised by the 68030 before the coprocessor is involved at all. It became
+    reachable the moment the source operand transfer landed. Detail in
+    `PROJECT_STATUS.md`. `CHK`, `TRAPV`,
+    `TRAP`, `TRAPV`, `CHK`, the privilege violations, the illegal
+    instruction word, the MMU configuration errors, the interrupts and
+    **trace** are all wired in — every exception this model can build a
+    frame for.
+    Trace's rule is an ordering one: "The state of these bits when an
+    instruction begins execution determines whether the instruction
+    generates a trace exception after the instruction completes." So the
+    mode is captured *before* the instruction runs, and an instruction that
+    turns tracing off still traces — which is what lets a debugger step
+    through the line that disables it. The stacked status register is the
+    one that instruction left behind, so tracing is already off in the
+    frame; the trace happened anyway.
+    The change-of-flow mode counts **status register manipulations** as
+    changes of flow, for a hardware reason rather than a logical one:
+    "the processor must re-prefetch instruction words to fill the pipe again
+    any time an instruction that can modify the status register is
+    executed". A model tracing only actual branches would silently skip
+    every `MOVE to SR` a debugger asked to see.
+    An illegal or unimplemented instruction is **not** traced, "since it is
+    not executed" — the distinction an emulation routine depends on, since
+    it must raise the trace itself and would otherwise trace twice. And "if
+    an instruction forces an exception as part of its normal execution, the
+    forced exception processing occurs before the trace exception is
+    processed", so a traced `TRAP` stacks *both*, trace on top, and the
+    trace handler runs first and returns into the trap's.
+    **Table 8-6's bracketed column is a second fact, separate from the frame
+    size**: the stacked PC is the *next* instruction for an interrupt, a
+    `TRAP` and everything in the six-word row, but the *faulting*
+    instruction for illegal instruction, A-line, F-line, privilege violation
+    ("First word of instruction causing Privilege Violation") and format
+    error ("RTE or cpRESTORE instruction"). Defaulting to "next" has a
+    privilege-violation handler emulate the instruction and return past it,
+    and a format-error handler return past the `RTE` it was called to
+    diagnose. Both run; neither faults.
+    *Verification: `step_suite`, 10 further tests (89 total) — the stacked
+    SR being the pre-change copy, tracing turned off, the frame on the
+    supervisor stack with the USP untouched, the vector fetched through the
+    VBR at offset rather than number, the six-word frame carrying two
+    different addresses, the unbuildable frames declined with the stack
+    pointer unmoved, and the handler's first instruction actually executing
+    next; `exception_suite`, 2 further tests (16 total) sweeping Table 8-6's
+    rows including every TRAP and every autovector. Then probes that
+    deliberately fault, diffed against the oracle, which is what this item
+    always asked for.
+- [x] 68030 on-chip MMU: translation tables, ATC, transparent translation,
+  `MMUSR`. *Verification: probe walks and faults; oracle diff.*
+
+#### Instruction execution time: the microcode clocks
+
+    cycles.** **Closed.** Every transcribed row is priced as
+    `microcode + measured operand bus + prefetch cost`, where the microcode
+    is `CC − 2(r + w)` from the published `(r/p/w)` and the bus half is what
+    this core measures -- so a wait state or a cache hit still moves the
+    answer. `FINDINGS.md` C9's row, `ADD.B D0,(A0)`, comes to 6 warm and 7
+    cold averaged over both alignments: the manual's composed figure and the
+    oracle's measurement. What remains under it are two *readings* rather
+    than gaps, both named below. Named here because it was missing from this plan entirely,
+    which is worse than being open: the step accumulates bus and cache time
+    only, so a register-to-register `ADD` costs **zero** clocks today and
+    every figure the core reports is a lower bound. The core's headline
+    claim is emergent timing, and this is the part of it not yet built.
+    **Not to be closed by transcribing §11.6's NCC column** — that one is a
+    mean of the odd- and even-aligned cases, rounded up, so a core adding it
+    would reproduce an average the hardware never exhibits.
+    **But the `CC` column is a different quantity, and it is the one we
+    need.** `docs/references/M68030_TIMING.md` now records the distinction:
+    §11.6's legend gives each entry as `total(reads/instruction-bus/writes)`,
+    and a register-to-register form reads `CC 2(0/0/0)` — no operand reads,
+    no writes, and no instruction bus cycles, because the instruction is in
+    the cache. There is nothing in that number but microcode, and §11.3.1
+    defines CC without any averaging. So the route here is the project's
+    other permitted one: **a documented value with a cited page**, not a
+    measurement.
+    The same legend independently confirms C7, saying the published
+    prefetch count "is always greater than or equal to the actual number of
+    bus cycles (one bus cycle per two instruction prefetches)" — the actual
+    rule being exactly our alternation.
+    The route is the project's own rule: measure against the oracle, or
+    take a documented value with a cited page and mark it `PROVISIONAL`.
+    **The route now exists on both sides** — see `FINDINGS.md` C5. Our
+    machine side-loads and steps (`ap_machine`, `ap_probe`); the oracle
+    does too, with `-debug -debugger none` making `cpu.debug:step()`
+    available headlessly, and Lua reading and writing memory and registers.
+    Neither needs firmware, so C4's PROM problem no longer gates this.
+    Both of C5's prerequisites are now **settled** — `FINDINGS.md` C6 and
+    `tools/mame-oracle/steptime.lua`. Time advances in whole cycles: every
+    `NOP` step is exactly 80,000,000,000 attoseconds against a 40 ns clock,
+    and the script prints the raw attoseconds beside the derived count and
+    flags any remainder `FRACTIONAL` rather than rounding it away. The
+    side-load guard reads the probe back and refuses if it disagrees, which
+    is what stops a harness aimed at the PROM's range measuring the PROM
+    while reporting the probe.
+    First four measurements, oracle-side: `NOP` 2, `MOVEQ` 2,
+    `ADD.L D0,D1` 2, `LSR.L #1,D0` 4 clocks.
+    **The first comparison is done, and it settles the shape of this item**
+    — `FINDINGS.md` C7. Our bus time *alternates* 0/2 per instruction where
+    the oracle is a flat constant, and the manual says ours is right:
+    §11.3.3 computes the no-cache case "assuming ... one external bus cycle
+    per two instruction prefetches", which is the cache holding register
+    serving two instruction words per fetch, and then says the published
+    figure is "the **average** of the odd-word-aligned case and the
+    even-word-aligned case". The oracle's flat number is what a cycle-table
+    model produces; ours exhibits the alignment dependence the manual calls
+    real. Classified `oracle-wrong`, ours kept.
+    **So the target for this item is not a per-instruction constant.** It is
+    a microcode time added to a bus time that keeps alternating, and the
+    check is that our average over both alignments matches `[030]` §11.6 —
+    not that our per-instruction figure matches MAME's. That the same 0/2
+    appears for `LSR.L #1,D0` as for `NOP`, where the oracle charges 4
+    against 2, is precisely the execution time this item is about.
+    Both halves of the comparison are now runnable and pinned:
+    `apollo-headless --time-instructions` with a golden, and
+    `tools/mame-oracle/steptime.lua` for the oracle.
+- [x] **Wiring the figures in is a *scheduling* problem, not an addition**,
+      and the scheduling model now exists: `ap_m68030_schedule`, which is
+      `max(microcode, bus)` and is applied to every transcribed form.
+      The three transcribed instructions in `--time-instructions` went from
+      alternating 0/2 to a **steady 2**, which is what the manual predicts:
+      `MOVEQ` is `CC 2` and `NCC 2`, the same figure cached or not, because
+      its two-clock fetch hides entirely under its two clocks of microcode.
+      The untranscribed ones still alternate, visibly bus-only.
+      **A test had to be restated rather than repaired.** One asserted that
+      a second pass over cached instructions costs *zero*, which was right
+      while the clock was bus time alone. It now costs the published `CC`,
+      and — because `CC` equals `NCC` for `MOVEQ` — costs the *same* as the
+      uncached pass. So what the cache buys there is bus cycles, not clocks,
+      and the test says that instead: no further line fills, and four
+      `MOVEQ`s costing 8.
+      It remains a **two-resource approximation** of §11.2's eight, kept
+      because it reproduces both published columns for every transcribed row
+      and because the alternative is inventing structure the manual does not
+      publish. The remaining work is the two-sided check across more rows:
+      cold-cache totals equalling `NCC`, warm-cache totals `CC`. A row where
+      they stop agreeing is where this runs out, and is a measurement worth
+      having.
+      *Verification: `overlap_suite`, 4 further tests (12 total) — a bus
+      cycle wholly hidden costing nothing, bus time beyond the microcode
+      being what costs, a 44-clock divide swallowing its fetch, and an
+      untranscribed instruction remaining its bus time. Both goldens moved
+      and were regenerated, byte-identical between `-O0` and `-O3`.*
+- [x] **The original addition, implemented and backed out.**
+      Detail in `PROJECT_STATUS.md`.
+      *Verification: per transcribed row, cold-cache total equals `NCC` and
+      warm-cache total equals `CC`, both from `[030]` §11.6.*
+- [x] **The published figures, transcribed**
+      (`src/core/cpu/m68030/ap_m68030_timing_table.c`). Nineteen rows from
+      §11.6.8 and §11.6.9 whose instruction-cache case reads `n(0/0/0)` —
+      no operand reads, no writes, and no instruction bus cycles because the
+      instruction is in the cache, so `n` is pure microcode. The `NCC`
+      column is not transcribed at all, and neither are the rows with a
+      non-zero read or write count: their `CC` includes operand bus cycles
+      this core produces itself, so adding them whole would count twice.
+      Detail in `PROJECT_STATUS.md`.
+      *Verification: `timing_table_suite`, 7 tests — a transcription cannot
+      be checked by re-reading it, so these check it against structure:
+      every row satisfying the head ≤ CC rule a dropped or doubled digit
+      usually breaks; the word-address-forms-cost-4 pattern that showed
+      §11.3.4's example to be mislabelled, pinned so the table cannot drift
+      back towards it; the seven register operations agreeing with each
+      other, so one mistyped row stands out; the divides marked and **only**
+      the divides, since a marker applied too widely makes every figure look
+      provisional; what is not transcribed reported absent rather than
+      approximated by a neighbouring row; and the figures composing through
+      Equation (11-1), which is what they were transcribed for.*
+- [x] **The composition rule, built without the numbers**
+      (`src/core/cpu/m68030/ap_m68030_overlap.c`). Equation (11-1) and
+      §11.2's eight resources are arithmetic and vocabulary rather than
+      measurement, so they land now and the figures have somewhere to
+      arrive.
+      Detail in `PROJECT_STATUS.md`.
+      *Verification: `overlap_suite`, 8 tests — §11.3.4's **worked example**
+      checked verbatim at 6 clocks, which is an external number rather than
+      one of ours; the directional pairing; an instruction fully absorbed
+      costing nothing; the first instruction overlapping with nothing;
+      overlap being pairwise rather than cumulative across three
+      instructions; and a head or tail longer than its instruction reported
+      inconsistent, since such an entry was mis-transcribed.*
+    *Verification: self-timing probes against the oracle, per instruction
+    and per addressing mode, with `[030]` §11.6 as an independent check and
+    every discrepancy classified before anything is changed.*
+
+#### The 68030 instruction step
+
+fetch through the pipe and instruction cache, decode, execute, advance
+the PC, account the clocks. **A program runs.**
+Executing today: **everything in families `0000` through `1111`**
+except `BKPT`, `CAS`, `CAS2`, `CMP2`, `CHK2` and the coprocessor
+instructions other than the MMU's. Every addressing mode the part has
+resolves, full-format indexed and memory indirect included. Exceptions
+are taken *and returned from*, including bus error, address error and
+the line 1010 and 1111 emulator traps.
+
+(This paragraph read "`NOP`, `MOVEQ`, and the 8-bit forms of `BRA` and
+`Bcc`" until it was corrected. That was true when the item was written
+and had been false for a long time — the tables below were updated
+commit by commit and the prose describing them was not, which is the
+same rot found in `PROJECT_STATUS.md`'s "no CPU" line.)
+**Unimplemented is a distinct outcome from illegal**, and that is what
+lets this ship incomplete. Silently doing nothing would make a program
+appear to run while producing wrong results *and* a wrong clock count;
+reporting illegal would be a lie about the hardware and would send a
+probe down an exception path the real machine never takes. So an
+unimplemented instruction stops the step, says so, and leaves the PC
+where it was — "how far did this program get" is then a real measure.
+`-Wswitch-enum` keeps it honest: every decoded kind is listed
+explicitly, so adding a family to the decoder forces a decision here
+rather than letting a `default` make it silently.
+*Verification: `step_suite`, **178 tests** — including `MOVEQ` sign-extending `$FF` to
+−1 and setting exactly the documented condition codes (with X asserted
+to *survive*), a four-instruction program running to its end, `BRA`
+landing on its target and the instruction there being the expected one,
+a conditional branch reading the flags the previous instruction set —
+the first interaction between two instructions — an unimplemented
+instruction reported rather than skipped, an illegal encoding distinct
+from it, and a second pass over the same code costing **zero** clocks
+because the instruction cache answers.*
+
+**What stops it being `[x]`**, and why each is a *reason* rather than an
+omission:
+- `BKPT` **now executes**, running its breakpoint acknowledge cycle in
+  **CPU space** per §7.4.2. The breakpoint number rides on **A2-A4**,
+  not on the low address lines: putting it elsewhere acknowledges a
+  different breakpoint, and external hardware answers with the wrong
+  instruction word rather than faulting.
+  On a DN3500 nothing decodes CPU space, so the cycle takes a bus error
+  and "the processor takes an illegal instruction exception" -- the
+  machine's behaviour, not an error path, which is why declining was the
+  wrong report.
+  *Verification: `step_suite`, 2 further tests (191 total) -- the
+  illegal instruction taken when nothing answers, and the acknowledge
+  cycle's address and function code checked directly, since a wrong
+  breakpoint number is a legal address that no fault would reveal. The
+  harness records the **first** CPU-space cycle, because the vector
+  fetch that follows would otherwise be the one pinned.*
+- `CAS` **now executes**, and the bus asserts `RMC` across the pair.
+  The signal lives on the access context rather than on a bus object,
+  because each access creates its own cycle and the signal spans two of
+  them. §7.3.6's "the burst mode is never used during read-modify-write
+  cycles" is enforced at the request rather than at the acceptance, so
+  `CBREQ` is never raised inside one.
+  *Verification: `bus_suite`, 2 further tests (25 total) -- `RMC`
+  surviving the cycle boundary inside an operation, and a burst refused
+  with `CBACK` offered anyway so the refusal is not cosmetic.
+  `step_suite`, 4 further tests (189 total) -- the swap on a match; the
+  **write that still happens on a mismatch**, going the other way into
+  the compare register, which a model that skipped the store would turn
+  into a retry loop that spins forever; and the lock released on both
+  outcomes, since `RMC` held past the instruction would refuse every
+  later bus grant.*
+- `CAS2` **now executes too, and the reason it had been declined was a
+  misreading.** Its addresses come from *registers* -- "Rn1, Rn2 fields:
+  specify the numbers of the registers that contain the addresses of the
+  first and second memory operands" -- not from an addressing mode. The
+  `<ea>` in the operation word is the immediate encoding used purely as
+  an escape, and reading it as an address is what made the instruction
+  look like something the operand path could not express.
+  Both comparisons happen before either write, so a failure leaves
+  memory untouched rather than half updated -- which is the corruption
+  the instruction exists to prevent. And the two register writes go in
+  **reverse** order, because "if Dc1 and Dc2 specify the same data
+  register and the comparison fails, memory operand 1 is stored in the
+  data register": operand 1 must be the one that remains, so it is
+  written last. The obvious order leaves operand 2 there, and only in
+  the colliding case, which no ordinary test reaches.
+  *Verification: `step_suite`, 4 further tests (196 total) -- both
+  operands swapped or neither, nothing written when the *second*
+  comparison fails, the colliding-register case, and the lock released.*
+- **Nothing in the step is unimplemented now.** The suite's
+  unimplemented-instruction placeholder has passed from BKPT to `CAS2`
+  to an undefined MMU extension class, each of the first two having been
+  implemented in turn -- which is what the placeholder is for.
+- `CMP2` and `CHK2` decode and have no semantics yet. **Not blocked** —
+  simply not done, and the smallest remaining piece of this item.
+- The non-MMU coprocessor instructions take the line 1111 emulator trap,
+  which is **correct** on a machine with no coprocessor fitted rather
+  than a gap. If an FPU is ever modelled they become real work.
+
+**All four are now done or reasoned.** `CMP2`/`CHK2` execute, `CAS`
+executes with `RMC` asserted across its pair, `BKPT` executes its
+acknowledge cycle, and the non-MMU coprocessor instructions take the
+line 1111 trap, which is correct on a machine with no coprocessor
+fitted. `CAS2` alone declines, and for a stated reason rather than a
+pending one: two independent memory operands under one locked sequence
+is a two-address atomic this operand path cannot express.
+
 #### The narrow build itself (`SUBTARGET=apollo`, `REGENIE=1`, `NOWERROR=1`)
 
 Built and running: MAME v0.289, one driver, no tools.
