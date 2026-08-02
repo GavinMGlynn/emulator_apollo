@@ -1152,9 +1152,57 @@ one reading.
 That manual also has nothing further to offer on the transcendentals'
 *accuracy*: its §3.5 on computational accuracy covers only the IEEE-specified
 operations, and the per-instruction pages give no algorithm. So the 68882's
-transcendental `PROVISIONAL` stands unchanged -- Motorola publishes bounds and
-no algorithm, and the two routes to closing it are still the ones already
-recorded.
+transcendental `PROVISIONAL` stands -- Motorola publishes bounds and no
+algorithm, and the two routes to closing it are still the ones already recorded.
+
+**But re-reading §4.3.2 from the page image turned a prose decision into a
+checkable specification** (`ap_m68882_accuracy.h`, `m68882_accuracy_suite`).
+Page 4-7 gives three figures the earlier note did not carry, and one fact that
+settles the argument.
+
+The worst case is stated twice: "one unit in the last place of double precision
+(which is equal to 4096 units in the last place of extended precision)". The
+*double* form is the useful one -- these instructions deliver a
+double-precision answer in an extended register, and the extra bits extended
+precision would buy are noise. Separately, and not previously recorded, "the
+typical error bound for these instructions is approximately 64 units in the last
+place of extended precision" -- sixty-four times better than the worst case. And
+the hardware reason is given: "an ALU with a finite precision of 67 bits", three
+guard bits over the 64-bit significand.
+
+The two worst-case figures **disagree**, and both are transcribed as printed. A
+double significand is 53 bits and an extended one 64, so one ULP of double is
+2^11 = 2048 ULP of extended, not 4096. One reading closes it -- a bound of ±1
+ULP spans a window of 2 ULP -- but that is a guess about intent and the
+parenthesis reads as an equality. Neither the Programmer's Reference Manual nor
+the 68040's Appendix E, both on disk and both searched, restates the conversion.
+A test asserts the discrepancy so nobody quietly reconciles the constants.
+
+The typical figure carries the session's clearest OCR trap. The manual's worked
+example makes the error "2^6 times the value of the least-significant bit", and
+2^6 is the 64. Both `pdftotext` **and the page image at ordinary resolution**
+flatten the superscript to "26"; only the arithmetic recovers it. Had the figure
+been taken at face value the typical bound would have been recorded as 26.
+
+**And the manual names a concrete divergence, which is what turns the decision
+from an argument into a fact.** §4.3.2 closes: "the exponential functions check
+for a zero input value, but do not check for exact integer values. Thus, raising
+a number to an exact integer value may not produce an exact result (e.g., the
+instruction FTENTOX #1,FP0 does not produce an extended precision value of
+exactly 10.0), and the INEX2 bit in the FPSR may be set even if an exact result
+is produced." Ten to the power of one is not ten. Any implementation computing a
+correctly-rounded `FTENTOX` returns exactly 10.0 and is therefore *visibly* not
+this part -- not by a rounding mode, but in the value a program reads back.
+
+So the gap is now specified rather than merely declared. The nineteen
+transcendentals are classified by the four families §4.3.2 names, with `FSQRT`
+excluded by its own parenthesis; the bounds are constants; and a test asserts
+that each of the nineteen still reports `UNIMPLEMENTED` rather than
+`TAKE_LINE_F` (which would claim a valid encoding invalid) or `EXECUTED` (which
+would mean an approximation had been added without meeting the criterion). A
+control test on `FSQRT` stops that passing for the wrong reason. Closing the gap
+now costs a failing test that points at the acceptance criterion; leaving it
+honestly open costs nothing.
 
 One trap for the exception path: the unimplemented-instruction exception and the
 F-line illegal exception **share vector 11**, and "the exception handler uses the

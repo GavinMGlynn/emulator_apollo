@@ -29,6 +29,7 @@ add_library(apollo_core STATIC
   cpu/m68020/ap_m68020_module.c
   cpu/m68882/ap_m68882.c
   cpu/m68882/ap_m68882_arith.c
+  cpu/m68882/ap_m68882_accuracy.c
   cpu/m68882/ap_m68882_decode.c
   cpu/m68882/ap_m68882_cir.c
   cpu/m68882/ap_m68882_round.c

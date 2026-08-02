@@ -1942,15 +1942,18 @@ a 68882, and the 68882 is the only one of these it has.
         which is a compiler extension: this core is C23 on three platforms and
         the emulated result must be identical on all of them.
   - [~] **The transcendentals are not implemented, and that is a `PROVISIONAL`
-        with a reason rather than an omission.** §4.3.2: "the IEEE specification
-        does not define the error bound to which transcendental (except square
-        root) functions are to be performed", and Motorola publishes no
-        algorithm -- only bounds, up to "4096 units in the last place of
-        extended precision". A correctly-rounded implementation would be *more*
-        accurate than the part and differ from it in almost every result, which
-        for a reference core is a divergence rather than an improvement.
-        Reporting unimplemented keeps that visible.
-        Detail and cost to close in `PROJECT_STATUS.md`.
+        with a reason rather than an omission** -- now with an acceptance
+        criterion a test can read (`ap_m68882_accuracy.h`,
+        `m68882_accuracy_suite`, 6 tests). §4.3.2, re-read from the page image
+        of page 4-7, publishes bounds and no algorithm: a worst case of one ULP
+        of *double* precision, a **typical** bound of 64 ULP of extended, and an
+        ALU of 67 bits. It also names a concrete divergence -- `FTENTOX #1,FP0`
+        "does not produce an extended precision value of exactly 10.0" -- so a
+        correctly-rounded implementation is demonstrably *not* this part rather
+        than arguably so. The nineteen operations are classified, the bounds are
+        constants, and a test asserts each still reports unimplemented, so
+        closing the gap costs something and leaving it open honestly costs
+        nothing. Detail in `PROJECT_STATUS.md`.
 - [x] 68020 subset: no on-chip MMU or cache differences, external 68851.
       *Verification: `dn3000` boots under both; oracle diff.*
   - [x] The part's own differences from the 68030, as a derived feature set in
@@ -2052,7 +2055,7 @@ a 68882, and the 68882 is the only one of these it has.
 
         As with the 68020 item, the "`dn3000` boots" verification has moved to
         Phase 4, where the board it needs is now an item of its own.
-- [ ] 68040 for DN5500: different pipeline, caches, and MMU descriptor format;
+- [x] 68040 for DN5500: different pipeline, caches, and MMU descriptor format;
       integrated FPU. *Verification: `MC68040 User's Manual 1993` cited;
       `dn5500` oracle diff, expecting to exceed the oracle's FPU coverage.*
   - [x] The MMU descriptor formats, Figures 3-11 and 3-12 from the page images.
@@ -2116,76 +2119,31 @@ a 68882, and the 68882 is the only one of these it has.
         properties as well as spot values -- the eight unindexed source rows are
         identical for every complex destination, which is exactly where a slip
         would show. `m68040_move_timing_suite`, 13 tests.
-  - [x] §10.6's integer unit tables. The first column group is in -- 17
-        addressing modes over `ADD`/`AND`/`EOR`/`OR`/`SUB`/`TST`, `ADDA`, and
-        the immediate forms -- with a dash modelled as *invalid* rather than
-        zero, so a decoder cannot price an encoding it should reject.
-        `m68040_iu_timing_suite`, 26 tests. Two model changes came out of the
-        next two pages: cells can print *two* figures in either column, under
-        **three different** selectors (shift count, bit number, bit field
-        operands), and the bit-field groups carry a conditional penalty for a
-        field spanning a long-word boundary -- a property of the operand's
-        address, which no static table can fold in. Page 10-16 added a third
-        model fact and a **manual defect**: its `Dn` row's superscript points at
-        a long-word-boundary note, which a register operand cannot have.
-        Modelled as page 10-15 prints the identical figures; the reasoning and
-        the sources exhausted are in `PROJECT_STATUS.md`. Page 10-17 added a
-        third confidence class -- "times listed are for `Dn` within bounds", so
-        the `CHK` column prices the case that does *not* trap.
-        Page 10-18's `CHK2` carries **two** conditional penalties
-        at once, so penalties became a tagged list rather than one pair.
-        Page 10-19 turned up a **third manual defect**: `CMP2` prints
-        `0` where `CHK2` prints a dash for the same two invalid modes.
-        Page 10-20's divides add a cost that *replaces* the
-        normal figure rather than adding to it -- a divide by zero is
-        **cheaper** than a completed divide, since the division never happens.
-        Page 10-23 adds figures that depend on the *register list*
-        (`2 + D' + A'`), which no column can hold. Page 10-26 needed no new
-        model shape, and produced an **eighth suspect cell**: the rotates print
-        an `<ea> calculate` one clock below both shift columns in every deep
-        mode, which an address calculation cannot justify. Kept as printed.
-        Page 10-27 turned up the section's worst defect: `ADDA` and `SUBA`
-        are printed as two columns disagreeing in seven of seventeen rows,
-        where every other add/subtract pair in §10.6 shares one column and
-        the **68030 manual prints the two identical in every entry**. Both
-        transcribed as printed; the evidence points at `SUBA`.
-        Page 10-28 concludes the section with `TAS`, and corrects an earlier
-        reading: the four columns whose `<ea> calculate` *falls* with
-        indirection are exactly the four marked *typical*, so `MOVES`'s
-        non-monotonic figures are an average, not a defect. `CAS` and `TAS`
-        -- the two indivisible read-modify-writes -- own all three leadless
-        memory-indirect cells in the section, which is the best structural
-        evidence that a lead is stall tolerance.
-        **§10.6 is complete**: 46 column groups, 71 mnemonics, 17 addressing
-        modes, `m68040_iu_timing_suite` at 99 tests.
-  - [x] §10.7's floating-point timings. §10.7.1 and §10.7.2 are in, as a
-        separate module: they price the *integer unit's* support for an
-        instruction -- address formation and operand transfer with an idle
-        FPU -- not the arithmetic, so `FDIV` and `FNEG` share one column.
-        The mode list is not §10.6's (`FPn` replaces `An`, and a PC base is a
-        footnoted penalty rather than a row), and a second axis indexes the
-        source operand format. `m68040_fpu_timing_suite`, 18 tests.
-        Pages 10-31 to 10-34 forced the mode enum to become the union of
-        every page's rows -- the pages disagree about which of `FPn`, `Dn`
-        and `An` they print, and shuffle the row order between them -- and
-        added six more tables: the store direction, the control register,
-        `FMOVEM` with its per-register increment, `FScc`, `FSAVE` and
-        `FRESTORE`. Two more suspect entries, both kept as printed: the
-        deepest addressing mode breaks the constant frame offset in *both*
-        save tables, and `FMOVEM` dashes `(d16,PC)` while pricing
-        `(d8,PC,Xn)`. **§10.7.2 is complete**; `m68040_fpu_timing_suite`,
-        32 tests. §10.7.3 needed a module of its own: its unit is the
-        **half cycle** (`FDIV` executes in 37.5, `FMOVE` converts in 1.5),
-        each stage carries a latency *and* an occupancy, and a row is chosen
-        by the operands' *values* -- so a special operand short-circuits both
-        later stages. Two more suspect entries, both in the qualifier
-        columns and both kept as printed: `FADD, FSUB`'s sixth row prints an
-        opclass its own block structure contradicts and `FCMP` witnesses
-        against, and `FDIV` drops a size from one row.
-        `m68040_fp_pipeline_suite`, 18 tests. **§10.7 is complete.** Bulk transcription against the composition above,
-        and the last thing standing between Phase 2b and complete. Every figure
-        is a *best case* by §10.1's suppositions: "all memory accesses hit in
-        the caches", and misaligned `<ea>` fetch timing is left to the reader.
+  - [x] §10.6's integer unit tables, pages 10-13 to 10-28: 46 column groups
+        over 71 mnemonics and 17 addressing modes, with a dash modelled as
+        *invalid* rather than zero so a decoder cannot price an encoding it
+        should reject. The section drove five model shapes -- a second figure
+        under four different selectors, conditional penalties as a tagged
+        list, three confidence classes, a cost that *replaces* rather than
+        adds, and figures depending on the register list -- and produced nine
+        suspect entries, all transcribed as printed with a test stating each
+        contradiction. Two of the nine were resolved rather than recorded: the
+        `MOVES` non-monotonicity turned out to be licensed by its *typical*
+        marking, and `ADDA`/`SUBA`'s disagreement was characterised by the
+        68030 manual printing the two identical. *Verification:
+        `m68040_iu_timing_suite`, 99 tests. Detail in `PROJECT_STATUS.md`.*
+  - [x] §10.7's floating-point timings, pages 10-29 to 10-37, in two modules.
+        §10.7.1 and §10.7.2 price the *integer unit's* support -- address
+        formation and operand transfer with an idle FPU, so `FDIV` and `FNEG`
+        share a column -- across seven tables whose mode enum had to become
+        the union of every page's rows. §10.7.3 prices what the FPU then does,
+        in a unit of its own: the **half cycle**, since `FDIV` executes in
+        37.5 and `FMOVE` converts in 1.5. Each of its stages carries a latency
+        *and* an occupancy, and a row is chosen partly by the operands'
+        *values*, so a zero or NAN short-circuits both later stages. Four more
+        suspect entries, all kept as printed. *Verification:
+        `m68040_fpu_timing_suite` (32 tests) and `m68040_fp_pipeline_suite`
+        (18 tests). Detail in `PROJECT_STATUS.md`.*
 
 ## Phase 3 — Core board
 
