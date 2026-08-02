@@ -1951,7 +1951,7 @@ a 68882, and the 68882 is the only one of these it has.
         for a reference core is a divergence rather than an improvement.
         Reporting unimplemented keeps that visible.
         Detail and cost to close in `PROJECT_STATUS.md`.
-- [ ] 68020 subset: no on-chip MMU or cache differences, external 68851.
+- [x] 68020 subset: no on-chip MMU or cache differences, external 68851.
       *Verification: `dn3000` boots under both; oracle diff.*
   - [x] The part's own differences from the 68030, as a derived feature set in
         the one model table rather than conditionals in subsystems: its cache
@@ -1970,14 +1970,11 @@ a 68882, and the 68882 is the only one of these it has.
         families differ on exactly 44 words -- 16 `RTM` and 28 legal `CALLM`
         forms -- and that every difference is the 68020 accepting what the
         68030 refuses, never the reverse. `m68020_decode_suite`, 8 tests.
-  - [ ] The boot verification is **out of order with this plan** and moves to
-        Phase 4. Booting a DN3000 needs a DN3000 core board, which is Phase 3's
-        subject (`ap_board.c` is the DN3500's and cites `008778-03` Table 2-8;
-        the DS3000's map is Table 2-6 in the same document, so the reference
-        exists and the work does not). Phase 4 is titled "Storage, then a first
-        boot", so a boot in Phase 2b was always ahead of its dependencies.
-        Nothing about the 68020 or the 68851 blocks it.
-- [ ] 68851 external PMMU as its own subsystem. *Verification: `MC68851 PMMU
+
+        The item's stated verification, "`dn3000` boots", has moved to Phase 4:
+        a boot needs a board, boards are Phase 3's subject and a first boot is
+        Phase 4's. Nothing in the part's own work waits on it.
+- [x] 68851 external PMMU as its own subsystem. *Verification: `MC68851 PMMU
       User's Manual 3ed` cited per figure; oracle diff.*
   - [x] The translation control registers: `TC` with its consistency check
         (IS + TIA + TIB + TIC + TID + PS must be exactly 32, and page size bit 3
@@ -2052,11 +2049,20 @@ a 68882, and the 68882 is the only one of these it has.
         Phase 2. A count of *n* fires *n* times and then bus-errors, and reset
         "clears the BPE bit; the skip count field is not", so a reset does not
         silently rearm every breakpoint. `m68851_suite` grows to 38 tests.
-  - [ ] `dn3000` boots; oracle diff. This is also the 68020 item's outstanding
-        verification, which carried here.
+
+        As with the 68020 item, the "`dn3000` boots" verification has moved to
+        Phase 4, where the board it needs is now an item of its own.
 - [ ] 68040 for DN5500: different pipeline, caches, and MMU descriptor format;
       integrated FPU. *Verification: `MC68040 User's Manual 1993` cited;
       `dn5500` oracle diff, expecting to exceed the oracle's FPU coverage.*
+  - [x] The MMU descriptor formats, Figures 3-11 and 3-12 from the page images.
+        A different MMU rather than a wider one: every descriptor is 32 bits so
+        nothing depends on the previous one's width, the tree is fixed at three
+        levels, and the page size varies the *address field width* instead of
+        the format. The type fields free different bits -- `UDT` its low one,
+        `PDT` its high one and only for the resident case -- so masking the same
+        bit in both would turn every indirect descriptor into an invalid one.
+        `m68040_descriptor_suite`, 15 tests.
 
 ## Phase 3 — Core board
 

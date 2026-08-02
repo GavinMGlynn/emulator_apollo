@@ -929,7 +929,43 @@ Series 3000 has no address translation map, so its DMA reaches physical memory
 directly rather than through the map at `017000`.
 
 Nothing in the 68020 or 68851 work blocks that boot, and nothing in it was left
-undone for want of one. Appendix A's bit rows have to come from page images --
+undone for want of one.
+
+## Phase 2b: the 68040 has started
+
+**Its MMU descriptors are in, and it is a different MMU rather than a wider
+one.** Three differences shape the module, and each removes something that
+complicated the 68851:
+
+- **Every descriptor is 32 bits.** There is no long/short format, so nothing in
+  a table search depends on the *previous* descriptor's width -- the single fact
+  that most complicated the 68851's walk.
+- **The tree is fixed at three levels** (root, pointer, page) rather than
+  configurable through four table index fields.
+- **Page size varies the address field width, not the layout.** A pointer table
+  descriptor's address is bits 31-8 at 4K and 31-7 at 8K, because an 8K page
+  table holds half as many descriptors. The page descriptor goes the other way,
+  31-12 at 4K and 31-13 at 8K -- and the bit the narrower address gives up
+  becomes a *second* `UR` bit rather than being reserved.
+
+The trap is that the two type fields free **different** bits. `UDT` reads "00 or
+01 = Invalid ... 10 or 11 = Resident", so its low bit is spare. `PDT` reads "01
+or 11 = Resident", so its *high* bit is spare -- but only there, because `00` is
+invalid and `10` is indirect, which are entirely different. A decoder that
+masked the same bit in both fields would turn every indirect page descriptor
+into an invalid one and silently lose a level of the tree.
+
+`CM` is four cache policies where the earlier parts had one inhibit bit, and the
+distinction is real: write-through and copyback are *both* cachable and differ
+in when a store reaches memory, which a `CI` bit cannot express.
+
+One state is named but not enforced: "page descriptors must not have an encoding
+of U-bit = 0, M-bit = 1 and PDT field = 01 or 11 ... the processor's table
+search algorithm never leaves a descriptor in this state." It is reachable only
+by an operating system writing it directly and the manual gives no defined
+behaviour for it, so `ap_m68040_page_descriptor_is_incoherent()` is a query
+rather than a fault -- there is nothing to implement, only something worth being
+able to name. Appendix A's bit rows have to come from page images --
 `pdftotext` renders them with zeros as letters and columns collapsed, the same
 failure that cost a bit position in the 68020's module entry word.
 
