@@ -2072,6 +2072,12 @@ a 68882, and the 68882 is the only one of these it has.
         set associative, **physically** tagged, with a dirty bit *per long word*
         in the data cache. The "pseudo-random" replacement is a 2-bit counter
         per cache and entirely deterministic. `m68040_cache_suite`, 17 tests.
+  - [x] The two ATCs: 16 sets of four ways each, tagged with `FC2` alone and no
+        task alias -- `G` is the 68040's substitute, overriding a nonglobal
+        flush rather than being one more criterion. The manual states the tag
+        width two contradictory ways in one sentence; sixteen is derived from
+        its own geometry and recorded in `PROJECT_STATUS.md`.
+        `m68040_atc_suite`, 16 tests.
 
 ## Phase 3 — Core board
 

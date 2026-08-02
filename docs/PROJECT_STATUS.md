@@ -1037,7 +1037,46 @@ processor since reset does not invalidate the cache lines."
 
 The tests caught two of my own errors, both in constants rather than code: a tag
 that lost a hex digit, and a pair of addresses I had assumed were in different
-sets when the index is bits 9-4 and they differ only above it. Appendix A's bit rows have to come from page images --
+sets when the index is bits 9-4 and they differ only above it.
+
+**The two ATCs are in, and the manual contradicts itself about the tag width.**
+
+§3.3's `Logical Address` field definition reads -- in the page image, not merely
+in an extraction -- "This **13-bit** field contains the most significant logical
+address bits for this entry. All **16** bits of this field are used in the
+comparison ... when the page size is 4 Kbytes." Both numbers are in one
+sentence and they cannot both be right.
+
+Following the resolution order: the `MC68040 Designer's Handbook` on disk does
+not describe the field, and a web search surfaced no transcription or erratum
+that settles it. So it is derived from numbers the same manual states:
+
+- 64 entries, four-way set associative, so **16 sets** -- and Figure 3-20 draws
+  them as `SET 0` through `SET 15`, an independent confirmation. Sixteen sets
+  need four select bits.
+- At 4 Kbytes the page number is address bits 31-12, twenty bits.
+- Twenty less four leaves **sixteen** for the tag.
+
+The 8-Kbyte case checks it from the other side: nineteen page-number bits less
+four leaves fifteen, and the manual says "for 8-Kbyte pages, the least
+significant bit of this field is ignored" -- sixteen stored, fifteen compared.
+So sixteen is the width and "13-bit" is an error in the manual. The test states
+the derivation rather than the constant, so it would fail if the geometry ever
+changed under it.
+
+Two structural differences from the 68851 matter more than the associativity.
+The tag carries **`FC2` alone**, not the whole function code -- the 68040 has a
+separate ATC for instructions and data, so it never needs to tell the spaces
+apart in a tag. And there is **no task alias**: where the 68851 keeps several
+tasks resident by tagging them, the 68040 flushes on a context switch and keeps
+only *global* entries. `G` overrides a nonglobal flush "even when all other
+selection criteria are satisfied", which makes it a veto rather than one more
+criterion.
+
+One polarity is inverted and worth its own test: the 68040's `R` is set when a
+search *succeeded*, where the 68851's `B` is set when one *failed*. An entry
+copied across without inverting would turn every good translation into a bus
+error. Appendix A's bit rows have to come from page images --
 `pdftotext` renders them with zeros as letters and columns collapsed, the same
 failure that cost a bit position in the 68020's module entry word.
 

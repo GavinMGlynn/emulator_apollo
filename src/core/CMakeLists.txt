@@ -11,6 +11,7 @@ add_library(apollo_core STATIC
   cpu/m68851/ap_m68851_regs.c
   cpu/m68851/ap_m68851_rp.c
   cpu/m68851/ap_m68851_tc.c
+  cpu/m68040/ap_m68040_atc.c
   cpu/m68040/ap_m68040_cache.c
   cpu/m68040/ap_m68040_descriptor.c
   cpu/m68040/ap_m68040_regs.c
