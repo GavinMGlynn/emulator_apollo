@@ -49,6 +49,19 @@
 #include "cpu/m68851/ap_m68851_search.h"
 #include "cpu/m68851/ap_m68851_tc.h"
 
+/* §6.1.9 and §6.1.10, Figures 6-8 and 6-9. Eight of each, one per 68020
+ * breakpoint. `BADx` is sixteen bits of replacement opcode with no other
+ * fields; `BACx` is an enable at bit 15 and a skip count at bits 7-0, with
+ * bits 14-8 "always read as zeros and must be written as zeros". */
+typedef struct {
+  uint16_t replacement_opcode; /* BADx */
+  bool enable;                 /* BACx bit 15 */
+  unsigned skip_count;         /* BACx bits 7-0 */
+} ap_m68851_breakpoint_t;
+
+#define AP_M68851_BREAKPOINTS 8u
+#define AP_M68851_BAC_IMPLEMENTED_MASK 0x80FFu
+
 typedef struct {
   ap_m68851_tc_t tc;
   ap_m68851_rp_t crp;
@@ -63,6 +76,7 @@ typedef struct {
   uint8_t scc;
   ap_m68851_ac_t ac;
   ap_m68851_atc_t atc;
+  ap_m68851_breakpoint_t breakpoint[AP_M68851_BREAKPOINTS];
   /* "Motorola assemblers default to ID = 0 for the PMMU", and a system may hold
    * several coprocessors, so this is configured rather than assumed. */
   unsigned cpid;
@@ -130,6 +144,17 @@ typedef enum {
 [[nodiscard]] uint64_t ap_m68851_pmove_read(const ap_m68851_t *mmu,
                                             ap_m68851_preg_t preg);
 
+/* The same, for the registers that come in eights. `BADx` and `BACx` need the
+ * breakpoint number from the command word's `Num` field, which the other
+ * registers have no equivalent of -- hence a separate entry point rather than
+ * an argument every caller would pass as zero. */
+[[nodiscard]] ap_m68851_status_t
+ap_m68851_pmove_write_numbered(ap_m68851_t *mmu, ap_m68851_preg_t preg,
+                               unsigned number, uint64_t value);
+[[nodiscard]] uint64_t ap_m68851_pmove_read_numbered(const ap_m68851_t *mmu,
+                                                     ap_m68851_preg_t preg,
+                                                     unsigned number);
+
 /* Execute a `PFLUSH`. `address` is the evaluated effective address, used only
  * by the modes that match on one; `function_code` is the resolved value of the
  * instruction's `FC` field, since resolving it may need the CPU's registers. */
@@ -180,5 +205,30 @@ typedef enum {
 [[nodiscard]] ap_m68851_pvalid_result_t
 ap_m68851_pvalid(const ap_m68851_t *mmu, uint32_t operand, bool use_surrogate,
                  uint8_t surrogate);
+
+/* ---------------------------------------------------------------------------
+ * Breakpoints, §6.1.9, §6.1.10 and §8.1.
+ *
+ * The other half of a mechanism whose CPU side landed in Phase 2: the 68020's
+ * `BKPT` runs a breakpoint acknowledge cycle, and this part answers it.
+ * ------------------------------------------------------------------------- */
+
+typedef enum {
+  /* "The MC68851 will return the corresponding replacement opcode and assert
+   * DSACKx" -- the CPU executes the opcode in place of the `BKPT`. */
+  AP_M68851_BREAKPOINT_REPLACED,
+  /* "The MC68851 terminates the cycle by asserting bus error, causing the
+   * MC68020 to initiate illegal instruction exception processing." Reached
+   * either because the breakpoint is disabled or because its count ran out. */
+  AP_M68851_BREAKPOINT_BUS_ERROR,
+} ap_m68851_breakpoint_result_t;
+
+/* Answer a breakpoint acknowledge cycle for breakpoint `number`. Mutating,
+ * because "during the breakpoint cycle, the skip count is decremented by one"
+ * -- a breakpoint that fires changes what the next one does, which is the
+ * whole mechanism. */
+[[nodiscard]] ap_m68851_breakpoint_result_t
+ap_m68851_breakpoint_acknowledge(ap_m68851_t *mmu, unsigned number,
+                                 uint16_t *replacement_opcode);
 
 #endif /* APOLLO_CPU_M68851_AP_M68851_H */

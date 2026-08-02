@@ -659,6 +659,133 @@ static void test_pvalid_permits_everything_when_access_levels_are_disabled(void)
                         ap_m68851_pvalid(&mmu, 0x00000000u, false, 0u));
 }
 
+
+/* ---------------------------------------------------------------------------
+ * Breakpoints, §6.1.9, §6.1.10 and §8.1.
+ *
+ * The other half of the mechanism whose CPU side landed in Phase 2: the
+ * 68020's `BKPT` runs an acknowledge cycle and this part answers it.
+ * ------------------------------------------------------------------------- */
+
+static void test_a_disabled_breakpoint_bus_errors(void) {
+  /* "The BPE bit is cleared at reset", and with it clear the acknowledge cycle
+   * is terminated by bus error -- which is how an unconfigured `BKPT` becomes
+   * an illegal instruction rather than doing nothing. */
+  ap_m68851_t mmu;
+  memory_t m;
+  configure(&mmu, &m);
+
+  uint16_t opcode = 0x1234u;
+  TEST_ASSERT_EQUAL_INT(AP_M68851_BREAKPOINT_BUS_ERROR,
+                        ap_m68851_breakpoint_acknowledge(&mmu, 3u, &opcode));
+}
+
+static void test_an_enabled_breakpoint_returns_its_replacement_opcode(void) {
+  ap_m68851_t mmu;
+  memory_t m;
+  configure(&mmu, &m);
+  TEST_ASSERT_EQUAL_INT(
+      AP_M68851_EXECUTED,
+      ap_m68851_pmove_write_numbered(&mmu, AP_M68851_PREG_BAD, 3u, 0x4E71u));
+  TEST_ASSERT_EQUAL_INT(
+      AP_M68851_EXECUTED,
+      ap_m68851_pmove_write_numbered(&mmu, AP_M68851_PREG_BAC, 3u, 0x8005u));
+
+  uint16_t opcode = 0;
+  TEST_ASSERT_EQUAL_INT(AP_M68851_BREAKPOINT_REPLACED,
+                        ap_m68851_breakpoint_acknowledge(&mmu, 3u, &opcode));
+  TEST_ASSERT_EQUAL_HEX16(0x4E71u, opcode);
+}
+
+static void test_the_skip_count_counts_down_to_a_bus_error(void) {
+  /* "The breakpoint skip count ... specifies the number of times that the
+   * replacement opcode ... is returned ... before the MC68851 signals the
+   * MC68020 to initiate exception processing." A count of three fires three
+   * times and then traps -- so a breakpoint can be armed to skip the first N
+   * passes through a loop. */
+  ap_m68851_t mmu;
+  memory_t m;
+  configure(&mmu, &m);
+  (void)ap_m68851_pmove_write_numbered(&mmu, AP_M68851_PREG_BAD, 0u, 0x4E71u);
+  (void)ap_m68851_pmove_write_numbered(&mmu, AP_M68851_PREG_BAC, 0u, 0x8003u);
+
+  uint16_t opcode = 0;
+  for (unsigned i = 0; i < 3u; i++) {
+    TEST_ASSERT_EQUAL_INT(AP_M68851_BREAKPOINT_REPLACED,
+                          ap_m68851_breakpoint_acknowledge(&mmu, 0u, &opcode));
+  }
+  TEST_ASSERT_EQUAL_INT(AP_M68851_BREAKPOINT_BUS_ERROR,
+                        ap_m68851_breakpoint_acknowledge(&mmu, 0u, &opcode));
+  /* And it stays trapped rather than wrapping. */
+  TEST_ASSERT_EQUAL_INT(AP_M68851_BREAKPOINT_BUS_ERROR,
+                        ap_m68851_breakpoint_acknowledge(&mmu, 0u, &opcode));
+}
+
+static void test_a_disabled_and_an_exhausted_breakpoint_are_indistinguishable(void) {
+  /* §8.1 names both routes to one outcome: the bus error is asserted "due to
+   * either the corresponding enable bit being clear or the skip count having
+   * been decremented to zero". The CPU cannot tell them apart, and neither
+   * should the model. */
+  ap_m68851_t mmu;
+  memory_t m;
+  configure(&mmu, &m);
+  (void)ap_m68851_pmove_write_numbered(&mmu, AP_M68851_PREG_BAC, 0u, 0x8000u);
+  (void)ap_m68851_pmove_write_numbered(&mmu, AP_M68851_PREG_BAC, 1u, 0x0005u);
+
+  uint16_t opcode = 0;
+  TEST_ASSERT_EQUAL_INT(AP_M68851_BREAKPOINT_BUS_ERROR,
+                        ap_m68851_breakpoint_acknowledge(&mmu, 0u, &opcode));
+  TEST_ASSERT_EQUAL_INT(AP_M68851_BREAKPOINT_BUS_ERROR,
+                        ap_m68851_breakpoint_acknowledge(&mmu, 1u, &opcode));
+}
+
+static void test_the_eight_breakpoints_are_independent(void) {
+  ap_m68851_t mmu;
+  memory_t m;
+  configure(&mmu, &m);
+  for (unsigned i = 0; i < AP_M68851_BREAKPOINTS; i++) {
+    (void)ap_m68851_pmove_write_numbered(&mmu, AP_M68851_PREG_BAD, i,
+                                         0x1000u + i);
+    (void)ap_m68851_pmove_write_numbered(&mmu, AP_M68851_PREG_BAC, i,
+                                         0x8001u);
+  }
+  for (unsigned i = 0; i < AP_M68851_BREAKPOINTS; i++) {
+    uint16_t opcode = 0;
+    TEST_ASSERT_EQUAL_INT(AP_M68851_BREAKPOINT_REPLACED,
+                          ap_m68851_breakpoint_acknowledge(&mmu, i, &opcode));
+    TEST_ASSERT_EQUAL_HEX16(0x1000u + i, opcode);
+  }
+}
+
+static void test_the_bac_reserved_bits_read_as_zeros(void) {
+  /* "All unimplemented bits (bits [8-14]) are always read as zeros and must be
+   * written as zeros." */
+  ap_m68851_t mmu;
+  memory_t m;
+  configure(&mmu, &m);
+  (void)ap_m68851_pmove_write_numbered(&mmu, AP_M68851_PREG_BAC, 2u, 0xFFFFu);
+  TEST_ASSERT_EQUAL_HEX64(
+      0x80FFu, ap_m68851_pmove_read_numbered(&mmu, AP_M68851_PREG_BAC, 2u));
+}
+
+static void test_reset_clears_the_enable_but_not_the_skip_count(void) {
+  /* §8.1, and the reason it is worth its own test: "The BPE bit is cleared at
+   * reset; the skip count field is not." A reset that cleared the counts would
+   * silently rearm every breakpoint to fire on its first pass. */
+  ap_m68851_t mmu;
+  memory_t m;
+  configure(&mmu, &m);
+  (void)ap_m68851_pmove_write_numbered(&mmu, AP_M68851_PREG_BAD, 4u, 0x4E71u);
+  (void)ap_m68851_pmove_write_numbered(&mmu, AP_M68851_PREG_BAC, 4u, 0x8007u);
+
+  ap_m68851_reset(&mmu);
+
+  TEST_ASSERT_EQUAL_HEX64(
+      0x0007u, ap_m68851_pmove_read_numbered(&mmu, AP_M68851_PREG_BAC, 4u));
+  TEST_ASSERT_EQUAL_HEX64(
+      0x4E71u, ap_m68851_pmove_read_numbered(&mmu, AP_M68851_PREG_BAD, 4u));
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_a_reset_part_translates_nothing);
@@ -692,5 +819,12 @@ int main(void) {
   RUN_TEST(test_pvalid_refuses_a_pointer_more_privileged_than_the_caller);
   RUN_TEST(test_pvalid_can_test_against_a_surrogate_level);
   RUN_TEST(test_pvalid_permits_everything_when_access_levels_are_disabled);
+  RUN_TEST(test_a_disabled_breakpoint_bus_errors);
+  RUN_TEST(test_an_enabled_breakpoint_returns_its_replacement_opcode);
+  RUN_TEST(test_the_skip_count_counts_down_to_a_bus_error);
+  RUN_TEST(test_a_disabled_and_an_exhausted_breakpoint_are_indistinguishable);
+  RUN_TEST(test_the_eight_breakpoints_are_independent);
+  RUN_TEST(test_the_bac_reserved_bits_read_as_zeros);
+  RUN_TEST(test_reset_clears_the_enable_but_not_the_skip_count);
   return UNITY_END();
 }

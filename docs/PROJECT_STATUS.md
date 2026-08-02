@@ -878,7 +878,22 @@ down:
   pointer it could not itself have made. The comparison is strict: an equal
   level passes.
 
-What the 68851 still owes: the breakpoint registers, and then the DN3000 boot. Appendix A's bit rows have to come from page images --
+**The breakpoint registers close the mechanism whose CPU half landed in Phase
+2.** The 68020's `BKPT` runs an acknowledge cycle and this part answers it: with
+the enable set and a non-zero skip count it "returns the corresponding
+replacement opcode and asserts DSACKx" and decrements, and with the enable clear
+*or* the count exhausted it asserts bus error and the CPU takes an illegal
+instruction. §8.1 names both routes to that one outcome, so a disabled
+breakpoint and a spent one are indistinguishable to the CPU -- and the model
+does not distinguish them either.
+
+One detail earns its own test: "the BPE bit is cleared at reset; the skip count
+field is not". A reset that cleared the counts would silently rearm every
+breakpoint to fire on its first pass, which is the opposite of what a debugger
+holding a partly-consumed count expects.
+
+What the 68851 still owes: the DN3000 boot, which is also the 68020 item's
+outstanding verification. Appendix A's bit rows have to come from page images --
 `pdftotext` renders them with zeros as letters and columns collapsed, the same
 failure that cost a bit position in the 68020's module entry word.
 

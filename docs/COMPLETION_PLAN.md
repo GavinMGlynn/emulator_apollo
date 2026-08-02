@@ -2035,8 +2035,11 @@ a 68882, and the 68882 is the only one of these it has.
         privileged: the confused-deputy guard. `m68851_suite` grows to 31 tests.
         One `PROVISIONAL`: `PLOAD`'s write-back of `U` and `M` into the tables
         is not modelled.
-  - [ ] The breakpoint registers `BADx`/`BACx`, which answer the 68020's `BKPT`
-        acknowledge cycle -- the CPU's half of that mechanism landed in Phase 2.
+  - [x] The breakpoint registers `BADx`/`BACx` and the acknowledge cycle they
+        answer -- the other half of the mechanism whose CPU side landed in
+        Phase 2. A count of *n* fires *n* times and then bus-errors, and reset
+        "clears the BPE bit; the skip count field is not", so a reset does not
+        silently rearm every breakpoint. `m68851_suite` grows to 38 tests.
   - [ ] `dn3000` boots; oracle diff. This is also the 68020 item's outstanding
         verification, which carried here.
 - [ ] 68040 for DN5500: different pipeline, caches, and MMU descriptor format;

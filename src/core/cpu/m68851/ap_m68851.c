@@ -7,8 +7,22 @@
 
 void ap_m68851_reset(ap_m68851_t *mmu) {
   const unsigned cpid = mmu->cpid;
+  /* §8.1: "The BPE bit is cleared at reset; the skip count field is not." So
+   * the counts have to be carried across the zeroing -- a reset that cleared
+   * them would silently rearm every breakpoint at its first fire. */
+  unsigned counts[AP_M68851_BREAKPOINTS];
+  uint16_t opcodes[AP_M68851_BREAKPOINTS];
+  for (unsigned i = 0; i < AP_M68851_BREAKPOINTS; i++) {
+    counts[i] = mmu->breakpoint[i].skip_count;
+    opcodes[i] = mmu->breakpoint[i].replacement_opcode;
+  }
+
   memset(mmu, 0, sizeof *mmu);
   mmu->cpid = cpid;
+  for (unsigned i = 0; i < AP_M68851_BREAKPOINTS; i++) {
+    mmu->breakpoint[i].skip_count = counts[i];
+    mmu->breakpoint[i].replacement_opcode = opcodes[i];
+  }
   /* `E` clear and `ALC` zero fall out of the zeroing, which is what the manual
    * describes rather than a coincidence: a reset part translates nothing and
    * checks no access levels. */
@@ -153,6 +167,13 @@ static void flush_by_root(ap_m68851_t *mmu, ap_m68851_root_t root) {
 ap_m68851_status_t ap_m68851_pmove_write(ap_m68851_t *mmu,
                                          ap_m68851_preg_t preg,
                                          uint64_t value) {
+  return ap_m68851_pmove_write_numbered(mmu, preg, 0u, value);
+}
+
+ap_m68851_status_t ap_m68851_pmove_write_numbered(ap_m68851_t *mmu,
+                                                  ap_m68851_preg_t preg,
+                                                  unsigned number,
+                                                  uint64_t value) {
   switch (preg) {
   case AP_M68851_PREG_TC: {
     const ap_m68851_tc_t written = ap_m68851_tc_decode((uint32_t)value);
@@ -222,11 +243,15 @@ ap_m68851_status_t ap_m68851_pmove_write(ap_m68851_t *mmu,
     return AP_M68851_EXECUTED;
 
   case AP_M68851_PREG_BAD:
+    mmu->breakpoint[number & 0x7u].replacement_opcode = (uint16_t)value;
+    return AP_M68851_EXECUTED;
+
   case AP_M68851_PREG_BAC:
-    /* The breakpoint registers exist to answer the 68020's `BKPT` acknowledge
-     * cycle. Not implemented here: the acknowledge path is the CPU's and this
-     * part's halves of one mechanism, and the CPU's half landed in Phase 2. */
-    return AP_M68851_UNIMPLEMENTED;
+    /* "All unimplemented bits (bits [8-14]) are always read as zeros and must
+     * be written as zeros." */
+    mmu->breakpoint[number & 0x7u].enable = (value & 0x8000u) != 0u;
+    mmu->breakpoint[number & 0x7u].skip_count = (unsigned)(value & 0xFFu);
+    return AP_M68851_EXECUTED;
 
   case AP_M68851_PREG_UNDEFINED:
     return AP_M68851_TAKE_LINE_F;
@@ -262,6 +287,56 @@ uint64_t ap_m68851_pmove_read(const ap_m68851_t *mmu, ap_m68851_preg_t preg) {
     return 0u;
   }
   return 0u;
+}
+
+uint64_t ap_m68851_pmove_read_numbered(const ap_m68851_t *mmu,
+                                       ap_m68851_preg_t preg,
+                                       unsigned number) {
+  switch (preg) {
+  case AP_M68851_PREG_BAD:
+    return mmu->breakpoint[number & 0x7u].replacement_opcode;
+  case AP_M68851_PREG_BAC: {
+    const ap_m68851_breakpoint_t *b = &mmu->breakpoint[number & 0x7u];
+    return (b->enable ? 0x8000u : 0u) | (b->skip_count & 0xFFu);
+  }
+  /* Every other register is numberless; deferring keeps one description of
+   * each rather than two that could drift apart. */
+  case AP_M68851_PREG_TC:
+  case AP_M68851_PREG_DRP:
+  case AP_M68851_PREG_SRP:
+  case AP_M68851_PREG_CRP:
+  case AP_M68851_PREG_CAL:
+  case AP_M68851_PREG_VAL:
+  case AP_M68851_PREG_SCC:
+  case AP_M68851_PREG_AC:
+  case AP_M68851_PREG_PSR:
+  case AP_M68851_PREG_PCSR:
+  case AP_M68851_PREG_UNDEFINED:
+    break;
+  }
+  return ap_m68851_pmove_read(mmu, preg);
+}
+
+ap_m68851_breakpoint_result_t
+ap_m68851_breakpoint_acknowledge(ap_m68851_t *mmu, unsigned number,
+                                 uint16_t *replacement_opcode) {
+  ap_m68851_breakpoint_t *b = &mmu->breakpoint[number & 0x7u];
+
+  /* §8.1: the bus error is reached "either because the corresponding enable bit
+   * being clear or the skip count having been decremented to zero" -- two
+   * routes to one outcome, which is why a disabled breakpoint and an exhausted
+   * one are indistinguishable to the CPU. */
+  if (!b->enable || b->skip_count == 0u) {
+    return AP_M68851_BREAKPOINT_BUS_ERROR;
+  }
+
+  /* "If, at the beginning of a breakpoint acknowledge cycle, the breakpoint
+   * skip count is non-zero, the MC68851 will return the corresponding
+   * replacement opcode and assert DSACKx. During the breakpoint cycle, the skip
+   * count is decremented by one." */
+  *replacement_opcode = b->replacement_opcode;
+  b->skip_count--;
+  return AP_M68851_BREAKPOINT_REPLACED;
 }
 
 ap_m68851_status_t ap_m68851_pflush(ap_m68851_t *mmu,
