@@ -1743,6 +1743,69 @@ is a precision selection rather than a separate opcode, and every `FMOVEM` waits
 for the pipe to idle before starting -- which is why `FMOVEM` is absent from the
 ten-instruction column and cannot be priced by table lookup at all.
 
+**§10.7.2 is complete** -- pages 10-30 to 10-34, seven tables,
+`m68040_fpu_timing_suite` at 32 tests. Pages 10-31 to 10-34 forced the mode enum
+to become the *union* of every page's rows, because the pages disagree about
+which of `FPn`, `Dn` and `An` they print: the load table has `FPn` and no `An`,
+the store table has `Dn` and `An` and no `FPn`, and `FSAVE`/`FRESTORE` print all
+three. The row *order* also shuffles -- 10-33 prints `(xxx)` and `#<xxx>` before
+`(d16,An)`, 10-34 after -- so each page's labels were read individually rather
+than carried over.
+
+**Storing an integer costs five times what loading one costs.** Loading a long
+word into an FPU register is `2/2` at `(An)`; storing one back out is
+`8/9L + 2`. The direction is asymmetric because the work is: a load hands the
+FPU a bit pattern to convert at leisure inside its own pipeline, while a store
+must have the converted integer in hand before the bus cycle can start, so the
+extended-to-integer conversion lands in the integer unit's figure. The `9L` lead
+is that conversion. Storing a single or double is `2/1L + 2` again -- a repack,
+not an arithmetic change.
+
+**The format columns regroup between the two directions, and the regrouping is
+the finding.** Going in, the columns are `B/W`, `L`, `S`, `D`, `E`: what matters
+is how many bytes are fetched, so a long word and a single cost alike. Going
+out, they are `B/W/L`, `S/D`, `E`: what matters is whether a conversion happened
+at all, so every integer width costs alike and the single joins the double. Two
+different questions, two different groupings.
+
+Smaller facts, each pinned by a test. The control-register move is the only
+§10.7.2 table that prices an `An` row, because `FPCR`/`FPSR`/`FPIAR` are
+ordinary 32-bit registers and moving one is an ordinary 32-bit move. `FMOVEM`'s
+cell prices *one* register and note b adds three clocks per additional one and
+one for a dynamic list -- so the count starts at one, and an eight-register move
+costs seven increments, not eight; a zero-register list is refused rather than
+discounted. `FSAVE` takes `-(An)` and dashes `(An)+` while `FRESTORE` does the
+exact reverse, which is a stack pushed and popped. And which of the pair is
+dearer *crosses over*: with real state to move, saving costs more (50 against 40
+at a long frame) because the state must be gathered before any of it reaches the
+bus; with a null or idle frame the order reverses (12 to save, 13 to restore),
+because what is left is fixed cost and a restore must read the frame's format
+word to learn what it is looking at.
+
+Two more suspect entries, both transcribed as printed.
+
+**Tenth: the deepest addressing mode is unreliable in both save tables.**
+`([bd,An],Xn,od)` breaks the constant frame offset in `FSAVE` and in `FRESTORE`
+alike, on different stages -- `FSAVE`'s calculate steps +24/+43 where its other
+ten modes step +21/+38, and `FRESTORE`'s execute steps +12/+26 where its other
+ten step +13/+27, because its short and long columns fail to increment from the
+row above where the idle column does. Each table is the other's witness:
+`FRESTORE`'s calculate holds its constant in all eleven modes, so the
+constant-offset structure is real, and `FSAVE`'s holds in ten, so the exception
+is not the structure. An `<ea> calculate` is address formation and cannot depend
+on how many bytes of state follow it. `FSAVE`'s excess differs between its two
+columns (+3 short, +5 long) with both stages moving together, so it is a row
+derived differently rather than a digit slipping.
+
+**Eleventh: `FMOVEM` dashes one program-space mode and prices the other.**
+`(d16,PC)` is dashed while `(d8,PC,Xn)` is priced at `20/1L + 18`. The column
+covers both directions, and the load direction legitimately takes the control
+modes with both PC forms among them; there is no reading under which a PC
+displacement is illegal and a PC index is legal. The neighbouring columns are
+each internally consistent -- `FScc` writes and dashes both, the control-register
+move reads and prices both -- which is what isolates `FMOVEM`. Same class as
+§10.6's `MOVE to SR (BR,Xn)`.
+
 What remains of the 68040 item is §10.7.3, the timings inside the FPU itself. That is bulk transcription against the
 composition already in place, and the last thing standing between Phase 2b and
 complete. Appendix A's bit rows have to come from page images --

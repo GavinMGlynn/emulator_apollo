@@ -2165,7 +2165,16 @@ a 68882, and the 68882 is the only one of these it has.
         The mode list is not §10.6's (`FPn` replaces `An`, and a PC base is a
         footnoted penalty rather than a row), and a second axis indexes the
         source operand format. `m68040_fpu_timing_suite`, 18 tests.
-        §10.7.3, the timings inside the FPU, remains. Bulk transcription against the composition above,
+        Pages 10-31 to 10-34 forced the mode enum to become the union of
+        every page's rows -- the pages disagree about which of `FPn`, `Dn`
+        and `An` they print, and shuffle the row order between them -- and
+        added six more tables: the store direction, the control register,
+        `FMOVEM` with its per-register increment, `FScc`, `FSAVE` and
+        `FRESTORE`. Two more suspect entries, both kept as printed: the
+        deepest addressing mode breaks the constant frame offset in *both*
+        save tables, and `FMOVEM` dashes `(d16,PC)` while pricing
+        `(d8,PC,Xn)`. **§10.7.2 is complete**; `m68040_fpu_timing_suite`,
+        32 tests. §10.7.3, the timings inside the FPU, remains. Bulk transcription against the composition above,
         and the last thing standing between Phase 2b and complete. Every figure
         is a *best case* by §10.1's suppositions: "all memory accesses hit in
         the caches", and misaligned `<ea>` fetch timing is left to the reader.
