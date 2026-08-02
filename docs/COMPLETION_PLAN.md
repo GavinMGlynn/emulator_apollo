@@ -1806,10 +1806,19 @@ a 68882, and the 68882 is the only one of these it has.
             stack frame: building it, the argument copy across a stack pointer
             change, the access level change through the 68851's
             `CAL`/`VAL`/`SCC` trio that `m68851_regs_suite` already covers, and
-            `RTM` unwinding all of it. That is the `M68000 Family PRM`'s CALLM
-            frame read from the page images and a step arm to build it — a
-            subsystem rather than a seam, and the only item left in these two
-            phases that is one.
+            `RTM` unwinding all of it. **And the frame layout is already
+            transcribed too** — `AP_M68020_FRAME_*`, Figure D-3's offsets in
+            full, with Figure D-2's module entry word beside them. The previous
+            sentence of this item said the frame had to be read from the page
+            images and called the work "a subsystem rather than a seam". That
+            was wrong, and wrong in the way this session's `FINDINGS.md`
+            corrections keep being wrong: a scope inferred from a header's
+            function list without reading its constants.
+            What is actually left is a step arm — read the descriptor, validate
+            it, build the frame at the new stack pointer from the offsets
+            already defined, save the entry word's register and load it with the
+            data area pointer, and `RTM` in reverse. Every field it writes has a
+            name already.
             *Verification: `step_suite` +1 (247) -- `$06C0` reported `ILLEGAL`
             on a DN3500 and `UNIMPLEMENTED` on a DN3000, from the one model
             table.*
