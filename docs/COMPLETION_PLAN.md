@@ -2158,7 +2158,7 @@ a 68882, and the 68882 is the only one of these it has.
         evidence that a lead is stall tolerance.
         **§10.6 is complete**: 46 column groups, 71 mnemonics, 17 addressing
         modes, `m68040_iu_timing_suite` at 99 tests.
-  - [~] §10.7's floating-point timings. §10.7.1 and §10.7.2 are in, as a
+  - [x] §10.7's floating-point timings. §10.7.1 and §10.7.2 are in, as a
         separate module: they price the *integer unit's* support for an
         instruction -- address formation and operand transfer with an idle
         FPU -- not the arithmetic, so `FDIV` and `FNEG` share one column.
@@ -2174,7 +2174,15 @@ a 68882, and the 68882 is the only one of these it has.
         deepest addressing mode breaks the constant frame offset in *both*
         save tables, and `FMOVEM` dashes `(d16,PC)` while pricing
         `(d8,PC,Xn)`. **§10.7.2 is complete**; `m68040_fpu_timing_suite`,
-        32 tests. §10.7.3, the timings inside the FPU, remains. Bulk transcription against the composition above,
+        32 tests. §10.7.3 needed a module of its own: its unit is the
+        **half cycle** (`FDIV` executes in 37.5, `FMOVE` converts in 1.5),
+        each stage carries a latency *and* an occupancy, and a row is chosen
+        by the operands' *values* -- so a special operand short-circuits both
+        later stages. Two more suspect entries, both in the qualifier
+        columns and both kept as printed: `FADD, FSUB`'s sixth row prints an
+        opclass its own block structure contradicts and `FCMP` witnesses
+        against, and `FDIV` drops a size from one row.
+        `m68040_fp_pipeline_suite`, 18 tests. **§10.7 is complete.** Bulk transcription against the composition above,
         and the last thing standing between Phase 2b and complete. Every figure
         is a *best case* by §10.1's suppositions: "all memory accesses hit in
         the caches", and misaligned `<ea>` fetch timing is left to the reader.

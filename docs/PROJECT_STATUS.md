@@ -1806,7 +1806,88 @@ each internally consistent -- `FScc` writes and dashes both, the control-registe
 move reads and prices both -- which is what isolates `FMOVEM`. Same class as
 §10.6's `MOVE to SR (BR,Xn)`.
 
-What remains of the 68040 item is §10.7.3, the timings inside the FPU itself. That is bulk transcription against the
+**§10.7.3 is complete, and with it Section 10 and the 68040 timing item.**
+Pages 10-35 to 10-37, 91 rows across eight instruction groups, in a module of
+its own (`m68040_fp_pipeline`, `m68040_fp_pipeline_suite` at 18 tests).
+
+**Half cycles are real, so the unit of this one table is the half cycle.**
+`FDIV` executes in 37.5 cycles, `FMOVE` to an integer converts in 1.5 and
+executes in 4.5, and one busy time is printed 12.5. Every figure is a whole
+multiple of a half cycle and many are not whole cycles, so they are held as
+exact integers in half cycles rather than as a floating count that would make
+`37.5 + 37.5` a question about rounding. Every accessor says `_halves`: this is
+the only table in Section 10 whose unit is not the clock, and a reader who
+forgets is off by a factor of two.
+
+**A stage has two times, and both are needed.** §10.7.3's opening sentence
+defines a notation used nowhere else in Section 10: "times in parentheses are
+the total time that the stage uses to execute an instruction even though the
+stage can pass data to the next stage earlier ... `2(3)` means that the
+instruction takes two cycles to execute, but this stage is actually busy for
+three". The bare figure is *latency* -- when the next stage may start -- and the
+parenthesised one is *occupancy* -- when another instruction may enter this one.
+Keeping only the first would let two instructions share a stage; keeping only
+the second would serialise a pipeline that overlaps. Both are stored, and an
+unparenthesised figure has them equal, which is the honest reading rather than a
+missing value.
+
+**The cost depends on the operands' values, which is why this table could not be
+folded into §10.7.2's.** A row is chosen by mnemonic, opclass, source size,
+rounding precision *and* the class of the operands -- normalised, zero, infinite
+or NAN. When an operand is special the result is known without arithmetic, so
+execution and normalisation are priced at zero and only the conversion is paid:
+a divide by zero costs 4 cycles against a real divide's 37.5 plus its stages.
+Over 40 of the 91 rows short-circuit this way, and every row with a zero
+execution also has a zero normalisation -- a stage that did nothing leaves
+nothing to normalise.
+
+Figures worth keeping. `FSQRT` executes in **103 cycles**, nearly three times a
+divide and twenty times a multiply, and it is the largest single figure in
+Section 10; its conversion and normalisation are the same `2(3)` an addition
+pays, so the whole difference is the iteration. `FCMP` normalises in 1 cycle
+where `FADD` takes `2(3)`, with identical conversion and execution -- a compare
+performs the subtraction and discards the difference, so there is a condition
+code to settle and no result to renormalise. An extended source costs exactly
+one more conversion cycle than a single or double throughout, and never changes
+the execution stage, because by then the operand is extended whatever it started
+as. And `FMOVE` between an integer and a floating-point register prices the
+*sign*: 11 cycles of occupancy for a positive source against 11.5 for a
+negative, `3(9)` against `3(10)` in the other direction. It is the only place in
+Section 10 where an operand's sign changes a figure -- a negation is a real step
+in the conversion, not a flag.
+
+**The two `FMOVEM` tables count registers differently, and this is a trap.**
+§10.7.2's cell prices *one* register with note b adding three clocks for "each
+additional" one, so its count starts at one. §10.7.3 prints "2 + (2 per reg)" --
+an explicit base plus a term -- so its count starts at *zero*. Reading either
+convention onto the other misprices every list, and by a different amount at
+each end. The two accessors are deliberately not shared.
+
+Two final suspect entries, twelfth and thirteenth, both in the qualifier columns
+rather than the figures, and both transcribed as printed.
+
+**Twelfth: `FADD, FSUB` prints an opclass its own block structure contradicts,
+and `FCMP` is the witness.** The group is fifteen rows: three blocks of five
+operand cases, one block per (opclass, size) pair. The sixth row is the
+`Norm,Norm` case of the second block and prints opclass **0** with size `S,D`,
+which leaves the first block with six rows and the second with four -- missing
+the only case that actually computes. `FCMP` is the same fifteen-row shape with
+the same five operand cases, printed two pages later, and its sixth row reads
+opclass **2**; `FMUL` and `FDIV` have the same three-block structure and are
+consistent throughout. So the section supplies its own replacement. The
+consequence is a lookup that fails for `FADD` at opclass 2 with a double source
+and two normalised operands -- the combination a program is most likely to
+execute.
+
+**Thirteenth: `FDIV` drops a size from one row.** Its opclass 2 extended block
+is five rows and the `-,Inf` row prints a dash where the four around it print
+`X`. A dash means "no size field applies", true of opclass 0 and false of
+opclass 2 by definition. The figure itself is the block's 5 cycles, so only the
+qualifier is at fault.
+
+Both were kept as printed for consistency with the eleven entries before them,
+each with a test that states the contradiction so that fixing it means deleting
+a finding rather than quietly editing a number. That is bulk transcription against the
 composition already in place, and the last thing standing between Phase 2b and
 complete. Appendix A's bit rows have to come from page images --
 `pdftotext` renders them with zeros as letters and columns collapsed, the same
