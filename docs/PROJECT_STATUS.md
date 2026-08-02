@@ -830,11 +830,37 @@ violation 13) from post-instruction (configuration error 56, illegal operation
 the table prints both decimal numbers and hex offsets, so the two columns check
 each other.
 
-What the 68851 still owes: wiring the registers, ATC, search, decode and
-interface into one device on the 68020's coprocessor path, and then the DN3000
-boot. Appendix A's bit rows have to come from page images -- `pdftotext` renders
-them with zeros as letters and columns collapsed, the same failure that cost a
-bit position in the 68020's module entry word.
+**The parts are fitted into one device.** `ap_m68851_translate()` is the whole
+read path: match the ATC, and on a miss run the table search and install what it
+found -- including a denial, cached with `B` set, so a second access to a
+restricted page costs no descriptor reads. A test asserts exactly that, since
+the fetch counter makes it observable.
+
+Three behaviours only appear once the parts compose:
+
+- **A disabled MMU is not a transparent one that caches.** With `E` clear
+  "logical addresses are routed directly from the logical address bus to the
+  physical address bus" -- no table is walked *and no ATC entry is made*, so
+  enabling translation later finds an empty cache rather than a set of identity
+  mappings.
+- **A rejected `TC` write still writes.** An inconsistent geometry raises the
+  configuration error and "the TC register is updated with the data except that
+  the E bit is cleared", which is how software reads back what it tried.
+- **`PMOVE` to `SRP` or `DRP` invalidates entries "even globally shared".**
+  This is the one place a shared entry does not survive, so it cannot reuse the
+  ordinary flush -- doing so would leave stale supervisor mappings behind. The
+  test pairs it against a `PFLUSH` that *does* spare shared entries.
+
+One approximation is recorded in the PROVISIONAL table: §5.3's root pointer
+table is not implemented, so a `CRP` write flushes the current task's entries
+rather than replacing an alias. It is a performance mechanism -- no translation
+returns a different address, only the hit rate differs.
+
+What the 68851 still owes: `PTEST`, `PLOAD` and `PVALID` execution (their
+encodings are decoded, their effects are not), the breakpoint registers, and
+then the DN3000 boot. Appendix A's bit rows have to come from page images --
+`pdftotext` renders them with zeros as letters and columns collapsed, the same
+failure that cost a bit position in the 68020's module entry word.
 
 ## Subsystems
 
@@ -1370,6 +1396,7 @@ phrase.
 | 68030 `+` rows not yet transcribed | absent, so the instructions are unpriced rather than priced wrongly | §11.6 marks more instructions data-dependent than the four divides: the four multiplies, `CMP2`, `CHK2`, `CHK` with the exception taken, and `CAS2`. None is in the transcription -- the multiplies and `CMP2`/`CHK2` are footnoted for an effective address time as well, and `CAS`/`CAS2` do not execute at all. `ap_m68030_timing_for_word` returns NULL for them, so the step leaves them at bus time alone, which reads as an alternating figure and is visibly a lower bound | Transcribe them with the same `data_dependent` marker once the instructions they belong to are priced. Small, and blocked on nothing except its own turn |
 | 68030 `ABCD`/`SBCD`/`NBCD` `N` and `V`, and `CHK`'s `Z`/`V`/`C` | The rules real silicon follows. `N` is bit 7 of the result. `V` is the binary overflow between the **unadjusted** and corrected results -- set when the MSB goes 0→1 for `ABCD` and 1→0 for `SBCD`/`NBCD`. `CHK` sets `Z` from the *register* operand being zero and always clears `V` and `C` | Every manual consulted says only "undefined": the `M68000 Family PRM`, the perihelion instruction-set reference and prb28's instruction documentation all mark `N` and `V` as `U`. Undefined licenses *software* not to depend on them; it does not license a reference core to be non-deterministic, so the choice is between a cited rule and an invented one. The rules here come from an exhaustive hardware sweep -- every input permutation against several initial CCR states, fitted to 100% of cases -- cross-checked against Motorola's patent US4325121 for the BCD correction hardware, and since adopted by MAME, WinUAE, Hatari and BlastEm. **One reading had to be settled between sources**: the sweep's notation `(dd & ~rr)` reads as the destination, while the write-up states it as the MSB *changing*, which can only be unadjusted against adjusted. `NBCD` decides it -- it is the same subtract from a destination of zero, so a destination-based `V` could never be set at all | Run the same sweep against a **68030**. The sweep was on a 68000; the correction hardware is the family's and so is the patent, so the rule is very likely to carry, but likely is not measured. Small: the oracle steps side-loaded instructions already. Affects only flags the manual says nothing may depend on |
 | 68882 transcendental functions | **Not implemented.** `FSIN`, `FCOS`, `FTAN`, `FATAN`, `FETOX`, `FLOGN` and the rest report unimplemented rather than approximating | §4.3.2 is explicit that there is nothing to transcribe: "the IEEE specification does not define the error bound to which transcendental (**except square root**) functions are to be performed", and Motorola publishes no algorithm -- only bounds. "The worst-case accuracy of any transcendental function is one unit in the last place of double precision (which is equal to 4096 units in the last place of extended precision). The typical error bound ... is approximately 64 units in the last place of extended precision." So a correctly-rounded implementation would be *more* accurate than the part and would differ from it in the low bits of almost every result -- which for a reference core is a divergence, not an improvement. Reporting unimplemented keeps that visible; approximating would hide it | Either recover the algorithms from a 68881 ROM disassembly, or accept a correctly-rounded implementation as a **named divergence class** with the published bound as its size. The second is cheap and the first is the only one that reproduces the hardware's bits. Affects only the transcendentals; every IEEE-specified operation, square root included, is exact |
+| 68851 root pointer table | **Not implemented.** §5.3's eight-entry cache of recently-used `CRP` values with a task alias each. A `PMOVE` to `CRP` takes the conservative branch instead: it flushes the current task's ATC entries and sets `PCSR`'s `F`, which is what a replacement would do when the table holds one live alias | The RPT is a *performance* mechanism -- "the root pointer caching and task alias maintenance performed by the RPT allows translation descriptors for multiple tasks to reside in the ATC simultaneously". Without it every task switch flushes, which is slower than the hardware and never wrong: the entries flushed are exactly those a real replacement could have invalidated, plus some it might have kept. No translation returns a different physical address; only the hit rate differs | Implement §5.3's eight-entry RPT with its own replacement, and let the task alias vary. Needed before any ATC hit-rate measurement is meaningful, and before a probe could compare ATC occupancy against the oracle. Does not affect correctness of any single translation |
 | SC-499 command handshake timings | the documented bounds | `[SC499]` §1.13.2 publishes *bounds*, not values — "0 us < T3->T4 < 150 us" says the device hands the bus back within 150 microseconds and nothing about when. Modelled at the bound, so every handshake runs at its slowest permitted speed: wrong in a knowable direction and by a knowable amount. All nine convert exactly to base units, so none is rounded on top of being provisional | Measure edge timings against a running drive, which needs the oracle's tape path exercised; small. Affects only a driver watching for the edges themselves — a polling driver cannot observe the difference |
 | 68030 asynchronous input synchroniser | two clocks | `[030]` §7.7.4 publishes a bound and not a value: "all asynchronous inputs to the MC68030 are internally synchronized in a maximum of two cycles of the processor clock". The actual delay depends on where the input edge falls relative to the clock, so it is genuinely a range and one clock is as legal as two. Modelled at the documented maximum. Currently reached only by the arbitration unit's BR and BGACK, but it is the part's rule for every asynchronous input and will be shared once devices drive them | Measure grant latency against the oracle across many request phases; small once a second master exists to request the bus. Affects arbitration latency and therefore contention, never which master wins |
 | MC146818A periodic interrupt, six fastest rates | not modelled | `[146818]` Table 5's rates are 32768/2^n Hz. `AP_TIME_BASE_HZ` factors as 2^9·3·5^8·11, so 1.024 kHz through 32.768 kHz are not exactly representable and `ap_clock_init` refuses them. Not an approximation — the nine slower rates are exact and implemented, and the fast six are reported unsupported rather than rounded | Recompute the time base: including 32.768 kHz costs a factor of 64 and drops the representable span from 88.6 years to 505 days. Including the part's own 4.194304 MHz crystal would cost 8192x and leave 3.95 days, so the crystal can never be a clock domain in a 64-bit base at all. Cheap to do, and deliberately not done while nothing is observed using those rates |

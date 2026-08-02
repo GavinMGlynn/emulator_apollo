@@ -2021,8 +2021,19 @@ a 68882, and the 68882 is the only one of these it has.
         `$1C` and not `$18` -- so one shared CIR table would be wrong in both
         directions. `m68851_cir_suite`, 18 tests, one of which checks both
         parts' tables against each other.
-  - [ ] Wiring: the ATC, the search and the registers into one part, and that
-        part onto the 68020's coprocessor path.
+  - [x] Wiring: the registers, ATC, search and decode into one part, with
+        `ap_m68851_translate()` as the whole read path -- match the ATC, and on
+        a miss walk and install, denials included. `PMOVE`'s side effects and
+        `PFLUSH`'s execution land with it. `m68851_suite`, 19 tests. One
+        approximation, `PROVISIONAL` in `PROJECT_STATUS.md`: §5.3's root
+        pointer table is not implemented, so a `CRP` write flushes rather than
+        replacing an alias -- a hit-rate difference, not a correctness one.
+  - [ ] `PTEST`, `PLOAD` and `PVALID` execution: their encodings decode, their
+        effects are not yet carried out.
+  - [ ] The breakpoint registers `BADx`/`BACx`, which answer the 68020's `BKPT`
+        acknowledge cycle -- the CPU's half of that mechanism landed in Phase 2.
+  - [ ] `dn3000` boots; oracle diff. This is also the 68020 item's outstanding
+        verification, which carried here.
 - [ ] 68040 for DN5500: different pipeline, caches, and MMU descriptor format;
       integrated FPU. *Verification: `MC68040 User's Manual 1993` cited;
       `dn5500` oracle diff, expecting to exceed the oracle's FPU coverage.*
