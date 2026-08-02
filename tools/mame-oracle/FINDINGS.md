@@ -4281,3 +4281,33 @@ buffer. Either the harness gains a wider readback and address-aware comparison,
 or the probe arranges a fault at an address both maps agree is bad. Neither is
 hard; both are choices, and neither should be made by accident inside an
 implementation.
+
+### C72 addendum -- "available today" was wrong, and the first step is the oracle side
+
+Checked rather than assumed, one turn later. C72 said the map-independent faults
+-- illegal instruction, divide by zero, `CHK`, `TRAPV` -- could be probed without
+settling the memory-map question. They cannot, and the reason is on the *other*
+side of the harness.
+
+`ap_probe_run` plants an exception table before every probe: an `RTE` at a fixed
+address, with all sixty-two vectors pointing at it, "so a probe that faults
+unexpectedly reports EXECUTED from the handler rather than running off into blank
+memory". `probe.lua` plants **nothing** -- it writes the program words at
+`load_at` and single-steps. Its whole body is one `space:write_u16` loop.
+
+So the two sides are asymmetric for *any* exception, not just the ones carrying a
+fault address. Ours lands in a known handler; the oracle's runs without firmware
+and lands in whatever a DN3500's vector table holds at reset, which is not
+something a probe should be reading. A divide-by-zero probe written today would
+compare a handled exception against an undefined jump and the difference would
+say nothing.
+
+**So the first step is on the oracle side and is small**: `probe.lua` should
+plant the same table our harness does -- an `RTE` at a chosen address, every
+vector pointing at it -- rebased like everything else. That is a handful of
+`write_u32` calls, and it is a prerequisite for every fault probe rather than for
+any particular one. Only after that does C72's map question become the *next*
+obstacle rather than the second of two.
+
+Recorded because the correction cost nothing to find and would have cost a
+session to discover from a probe whose output looked like a real divergence.
