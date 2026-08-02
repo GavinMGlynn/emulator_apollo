@@ -2116,7 +2116,12 @@ a 68882, and the 68882 is the only one of these it has.
         properties as well as spot values -- the eight unindexed source rows are
         identical for every complex destination, which is exactly where a slip
         would show. `m68040_move_timing_suite`, 13 tests.
-  - [ ] The remaining per-instruction tables (§10.6 onward, some forty pages). Bulk transcription against the composition above,
+  - [~] §10.6's integer unit tables. The first column group is in -- 17
+        addressing modes over `ADD`/`AND`/`EOR`/`OR`/`SUB`/`TST`, `ADDA`, and
+        the immediate forms -- with a dash modelled as *invalid* rather than
+        zero, so a decoder cannot price an encoding it should reject.
+        `m68040_iu_timing_suite`, 12 tests. Fifteen pages of column groups
+        remain, then §10.7's ten pages of floating-point timings. Bulk transcription against the composition above,
         and the last thing standing between Phase 2b and complete. Every figure
         is a *best case* by §10.1's suppositions: "all memory accesses hit in
         the caches", and misaligned `<ea>` fetch timing is left to the reader.

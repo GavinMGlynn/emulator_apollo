@@ -36,6 +36,13 @@
  * This is the resolution order paying off inside a single document: the
  * sibling section answered what the obvious table got wrong.
  *
+ * A **third** source settles it beyond argument. `M68000 Family Programmer's
+ * Reference Manual (1992)` Table 5-2, "Indirectly Supported Floating-Point
+ * Instructions", is that manual's own list of what the 68040 does not execute
+ * in hardware -- and it is Table 9-10 plus `FLOG2`, twenty-seven entries
+ * against twenty-six. Two manuals from different years agree with each other;
+ * the one that disagrees is missing a row.
+ *
  * ## What that means for this core
  *
  * The 68882's transcendentals are a documented divergence: not implemented,

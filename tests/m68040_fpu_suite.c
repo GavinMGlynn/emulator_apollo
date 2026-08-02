@@ -38,6 +38,59 @@ static void test_every_transcendental_is_unimplemented(void) {
   }
 }
 
+static void test_the_prm_indirectly_supported_list_agrees(void) {
+  /* A third source, and the decisive one. `M68000 Family Programmer's Reference
+   * Manual (1992)` Table 5-2, "Indirectly Supported Floating-Point
+   * Instructions", is that manual's list of what the 68040 does *not* execute
+   * in hardware. It names, in full:
+   *
+   *   FACOS FASIN FATAN FATANH FCOS FCOSH FETOX FETOXM1 FGETEXP FGETMAN
+   *   FINT FINTRZ FLOG10 **FLOG2** FLOGN FLOGNP1 FMOD FMOVECR FREM FSCALE
+   *   FSIN FSINCOS FSINH FTAN FTANH FTENTOX FTWOTOX
+   *
+   * That is the 68040 manual's Table 9-10 *plus* `FLOG2` -- twenty-seven
+   * entries against Table 9-10's twenty-six -- which settles the omission
+   * independently of the Appendix E argument. Two manuals from different years
+   * agree, and the one that disagrees is missing a row.
+   *
+   * This test enumerates that list and asserts every entry is refused, so the
+   * two sources are checked against each other rather than each against my
+   * reading of one. `FMOVECR` is absent only because it is an opclass rather
+   * than an extension-field operation in this core's decode. */
+  const ap_m68882_operation_t table_5_2[] = {
+      AP_M68882_OP_FACOS,   AP_M68882_OP_FASIN,   AP_M68882_OP_FATAN,
+      AP_M68882_OP_FATANH,  AP_M68882_OP_FCOS,    AP_M68882_OP_FCOSH,
+      AP_M68882_OP_FETOX,   AP_M68882_OP_FETOXM1, AP_M68882_OP_FGETEXP,
+      AP_M68882_OP_FGETMAN, AP_M68882_OP_FINT,    AP_M68882_OP_FINTRZ,
+      AP_M68882_OP_FLOG10,  AP_M68882_OP_FLOG2,   AP_M68882_OP_FLOGN,
+      AP_M68882_OP_FLOGNP1, AP_M68882_OP_FMOD,    AP_M68882_OP_FREM,
+      AP_M68882_OP_FSCALE,  AP_M68882_OP_FSIN,    AP_M68882_OP_FSINCOS,
+      AP_M68882_OP_FSINH,   AP_M68882_OP_FTAN,    AP_M68882_OP_FTANH,
+      AP_M68882_OP_FTENTOX, AP_M68882_OP_FTWOTOX};
+
+  for (unsigned i = 0; i < sizeof table_5_2 / sizeof table_5_2[0]; i++) {
+    TEST_ASSERT_TRUE(ap_m68040_fpu_is_unimplemented(table_5_2[i]));
+  }
+
+  /* And the converse: nothing outside that list is refused. Table 5-1 names the
+   * directly supported set, and every operation this core knows which is not in
+   * Table 5-2 must execute. */
+  const ap_m68882_operation_t directly_supported[] = {
+      AP_M68882_OP_FMOVE_TO_FPN, AP_M68882_OP_FSQRT,   AP_M68882_OP_FABS,
+      AP_M68882_OP_FNEG,         AP_M68882_OP_FDIV,    AP_M68882_OP_FADD,
+      AP_M68882_OP_FMUL,         AP_M68882_OP_FSGLDIV, AP_M68882_OP_FSGLMUL,
+      AP_M68882_OP_FSUB,         AP_M68882_OP_FCMP,    AP_M68882_OP_FTST};
+  for (unsigned i = 0;
+       i < sizeof directly_supported / sizeof directly_supported[0]; i++) {
+    TEST_ASSERT_FALSE(ap_m68040_fpu_is_unimplemented(directly_supported[i]));
+  }
+
+  /* The two lists together account for every operation the decode knows. */
+  TEST_ASSERT_EQUAL_UINT(
+      26u + 12u, (sizeof table_5_2 / sizeof table_5_2[0]) +
+                     (sizeof directly_supported / sizeof directly_supported[0]));
+}
+
 static void test_flog2_is_unimplemented_despite_table_9_10(void) {
   /* Table 9-10 lists FLOG10, FLOGN and FLOGNP1 and omits FLOG2 -- confirmed in
    * the page image, so not an extraction artefact. Appendix E's Table E-2
@@ -174,6 +227,7 @@ int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_every_transcendental_is_unimplemented);
   RUN_TEST(test_flog2_is_unimplemented_despite_table_9_10);
+  RUN_TEST(test_the_prm_indirectly_supported_list_agrees);
   RUN_TEST(test_the_exactly_specified_operations_are_also_unimplemented);
   RUN_TEST(test_the_four_arithmetic_operations_stay_in_hardware);
   RUN_TEST(test_square_root_survives_where_the_extractions_did_not);

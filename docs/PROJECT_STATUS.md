@@ -1139,6 +1139,23 @@ So `FLOG2` is unimplemented and Table 9-10 is defective. The resolution order
 paid off inside a single document: the sibling section answered what the obvious
 table got wrong.
 
+**A third source settles it beyond argument.** `M68000 Family Programmer's
+Reference Manual (1992)` Table 5-2, "Indirectly Supported Floating-Point
+Instructions", is that manual's own list of what the 68040 does not execute in
+hardware -- and it is the 68040 manual's Table 9-10 *plus* `FLOG2`,
+twenty-seven entries against twenty-six. Two manuals from different years agree
+with each other; the one that disagrees is missing a row. The test enumerates
+Table 5-2 in full and asserts the two lists partition every operation the decode
+knows, so the sources are checked against each other rather than each against
+one reading.
+
+That manual also has nothing further to offer on the transcendentals'
+*accuracy*: its §3.5 on computational accuracy covers only the IEEE-specified
+operations, and the per-instruction pages give no algorithm. So the 68882's
+transcendental `PROVISIONAL` stands unchanged -- Motorola publishes bounds and
+no algorithm, and the two routes to closing it are still the ones already
+recorded.
+
 One trap for the exception path: the unimplemented-instruction exception and the
 F-line illegal exception **share vector 11**, and "the exception handler uses the
 stack frame format ($0 or $2) to distinguish between the two". The frame format
