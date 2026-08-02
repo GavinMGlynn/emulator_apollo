@@ -112,6 +112,67 @@ static const ap_m68882_extended_t log_coefficients[] = {
 
 #define LOG_TERMS (sizeof log_coefficients / sizeof log_coefficients[0])
 
+/* Pi over two, to about 199 bits in three exactly-representable pieces.
+ *
+ * One 64-bit `pi/2` is nowhere near enough. The trigonometric reduction
+ * subtracts `n * pi/2` from an argument whose own magnitude sets how large `n`
+ * gets, and the constant's truncation error is multiplied by `n`: at
+ * `n = 2^63` a 64-bit `pi/2` leaves an absolute error of about 0.8 radians,
+ * which is not an inaccurate answer but a meaningless one.
+ *
+ * Three pieces put the residual at about `2^-199`, so the reduction stays
+ * accurate while `n` fits in a 64-bit significand -- arguments up to roughly
+ * `1.4e19`. Beyond that it degrades, which is what the part does too: the
+ * `FSIN` page says "large arguments may lose accuracy during reduction, and
+ * very large arguments (greater than approximately 10^20) lose all accuracy".
+ * The threshold this model reaches and the one the manual quotes are within a
+ * factor of ten of each other, so the degradation is modelled rather than
+ * merely tolerated. */
+static const ap_m68882_extended_t c_pio2_1 = {false, 0x3FFF,
+                                              0xC90FDAA22168C235ULL};
+static const ap_m68882_extended_t c_pio2_2 = {true, 0x3FBD,
+                                              0xECE675D1FC8F8CBBULL};
+static const ap_m68882_extended_t c_pio2_3 = {true, 0x3F7C,
+                                              0xB7ED8FBBACC19C60ULL};
+static const ap_m68882_extended_t c_two_over_pi = {false, 0x3FFE,
+                                                   0xA2F9836E4E44152AULL};
+
+/* `(-1)^k/(2k+1)!` and `(-1)^k/(2k)!`: the sine and cosine series. Twelve terms
+ * each, where the reduced argument satisfies `|r| <= pi/4` and the first
+ * omitted terms are about 1.5e-28 and 4.9e-27 -- both far below a unit in the
+ * last place. */
+static const ap_m68882_extended_t sin_coefficients[] = {
+    {false, 0x3FFF, 0x8000000000000000ULL},
+    {true, 0x3FFC, 0xAAAAAAAAAAAAAAABULL},
+    {false, 0x3FF8, 0x8888888888888889ULL},
+    {true, 0x3FF2, 0xD00D00D00D00D00DULL},
+    {false, 0x3FEC, 0xB8EF1D2AB6399C7DULL},
+    {true, 0x3FE5, 0xD7322B3FAA271C7FULL},
+    {false, 0x3FDE, 0xB092309D43684BE5ULL},
+    {true, 0x3FD6, 0xD73F9F399DC0F88FULL},
+    {false, 0x3FCE, 0xCA963B81856A5359ULL},
+    {true, 0x3FC6, 0x97A4DA340A0AB926ULL},
+    {false, 0x3FBD, 0xB8DC77B6E7AB8C5FULL},
+    {true, 0x3FB4, 0xBB0DA098B1C0CECCULL},
+};
+
+static const ap_m68882_extended_t cos_coefficients[] = {
+    {false, 0x3FFF, 0x8000000000000000ULL},
+    {true, 0x3FFE, 0x8000000000000000ULL},
+    {false, 0x3FFA, 0xAAAAAAAAAAAAAAABULL},
+    {true, 0x3FF5, 0xB60B60B60B60B60BULL},
+    {false, 0x3FEF, 0xD00D00D00D00D00DULL},
+    {true, 0x3FE9, 0x93F27DBBC4FAE397ULL},
+    {false, 0x3FE2, 0x8F76C77FC6C4BDAAULL},
+    {true, 0x3FDA, 0xC9CBA54603E4E906ULL},
+    {false, 0x3FD2, 0xD73F9F399DC0F88FULL},
+    {true, 0x3FCA, 0xB413C31DCBECBBDEULL},
+    {false, 0x3FC1, 0xF2A15D201011283DULL},
+    {true, 0x3FB9, 0x8671CB6DBFC294A3ULL},
+};
+
+#define TRIG_TERMS (sizeof sin_coefficients / sizeof sin_coefficients[0])
+
 /* ---------------------------------------------------------------------------
  * Working arithmetic.
  *
@@ -687,4 +748,254 @@ ap_m68882_op_t ap_m68882_lognp1(const ap_m68882_extended_t *x,
     return log_finish(nx_mul(s, acc), mode, precision, true);
   }
   return log_finish(logn_value(nx_add(*x, c_one)), mode, precision, true);
+}
+
+/* ---------------------------------------------------------------------------
+ * The trigonometric functions.
+ * ------------------------------------------------------------------------- */
+
+/* Build an extended value from a 64-bit magnitude. */
+static ap_m68882_extended_t nx_from_uint64(uint64_t magnitude, bool sign) {
+  if (magnitude == 0u) {
+    return nx_zero(sign);
+  }
+  int e = 63;
+  while ((magnitude & (1ULL << 63)) == 0u) {
+    magnitude <<= 1;
+    e--;
+  }
+  return (ap_m68882_extended_t){sign, (uint16_t)(AP_M68882_BIAS_EXTENDED + e),
+                                magnitude};
+}
+
+/* Round to the nearest integer, staying in extended precision. Unlike
+ * `nx_round_to_int` this has no range limit, which the trigonometric reduction
+ * needs: its quotient is the argument divided by `pi/2` and can be far larger
+ * than anything an `int` holds. */
+static ap_m68882_extended_t nx_round_integer(ap_m68882_extended_t v) {
+  if (v.mantissa == 0u || v.exponent == 0x7FFFu) {
+    return v;
+  }
+  const int e = (int)v.exponent - AP_M68882_BIAS_EXTENDED;
+  if (e >= 63) {
+    return v; /* every mantissa bit is already integral */
+  }
+  if (e < -1) {
+    return nx_zero(v.sign); /* |v| < 1/2 */
+  }
+  const int shift = 63 - e;
+  uint64_t whole, fraction, half;
+  if (shift >= 64) {
+    whole = 0u;
+    fraction = v.mantissa;
+    half = 1ULL << 63;
+  } else {
+    whole = v.mantissa >> shift;
+    fraction = v.mantissa & ((1ULL << shift) - 1u);
+    half = 1ULL << (shift - 1);
+  }
+  if (fraction >= half) {
+    whole++;
+  }
+  return nx_from_uint64(whole, v.sign);
+}
+
+/* An integral extended value modulo four, as 0..3.
+ *
+ * Only the two lowest integral bits matter, and where they sit depends on the
+ * exponent: at or above `2^65` every value is a multiple of four and the answer
+ * is zero without looking at the mantissa at all. */
+static unsigned nx_mod4(ap_m68882_extended_t v) {
+  if (v.mantissa == 0u) {
+    return 0u;
+  }
+  const int e = (int)v.exponent - AP_M68882_BIAS_EXTENDED;
+  unsigned low;
+  if (e >= 65) {
+    return 0u;
+  }
+  if (e >= 63) {
+    low = (unsigned)((v.mantissa << (unsigned)(e - 63)) & 3u);
+  } else {
+    low = (unsigned)((v.mantissa >> (unsigned)(63 - e)) & 3u);
+  }
+  if (v.sign && low != 0u) {
+    low = 4u - low;
+  }
+  return low;
+}
+
+/* `x = n*(pi/2) + r` with `|r| <= pi/4`, returning the quadrant `n mod 4`.
+ *
+ * Each `n * pi/2_i` is formed as an unevaluated exact pair, so the only error
+ * in the reduction is the 199-bit truncation of the constant itself. The first
+ * subtraction cancels almost everything and is exact for that reason; the rest
+ * are ordinary. */
+static unsigned trig_reduce(ap_m68882_extended_t x,
+                            ap_m68882_extended_t *r_out) {
+  const ap_m68882_extended_t n = nx_round_integer(nx_mul(x, c_two_over_pi));
+  const ap_m68882_extended_t parts[3] = {c_pio2_1, c_pio2_2, c_pio2_3};
+  ap_m68882_extended_t r = x;
+  for (unsigned i = 0; i < 3u; i++) {
+    ap_m68882_extended_t hi, lo;
+    nx_exact_mul(n, parts[i], &hi, &lo);
+    r = nx_sub(r, hi);
+    r = nx_sub(r, lo);
+  }
+  *r_out = r;
+  return nx_mod4(n);
+}
+
+/* `sin(r)` for `|r| <= pi/4`, as `r * P(r^2)`. */
+static ap_m68882_extended_t sin_kernel(ap_m68882_extended_t r) {
+  const ap_m68882_extended_t r2 = nx_mul(r, r);
+  ap_m68882_extended_t acc = sin_coefficients[TRIG_TERMS - 1u];
+  for (size_t i = TRIG_TERMS - 1u; i > 0u; i--) {
+    acc = nx_add(sin_coefficients[i - 1u], nx_mul(acc, r2));
+  }
+  return nx_mul(r, acc);
+}
+
+/* `cos(r)` for `|r| <= pi/4`, as `Q(r^2)`.
+ *
+ * There is no cancellation to worry about here: over that range `cos` stays in
+ * `[0.707, 1]`, so the leading one never has to be recovered from a difference
+ * of nearly equal terms. */
+static ap_m68882_extended_t cos_kernel(ap_m68882_extended_t r) {
+  const ap_m68882_extended_t r2 = nx_mul(r, r);
+  ap_m68882_extended_t acc = cos_coefficients[TRIG_TERMS - 1u];
+  for (size_t i = TRIG_TERMS - 1u; i > 0u; i--) {
+    acc = nx_add(cos_coefficients[i - 1u], nx_mul(acc, r2));
+  }
+  return acc;
+}
+
+static ap_m68882_extended_t nx_negate(ap_m68882_extended_t v) {
+  v.sign = !v.sign;
+  return v;
+}
+
+/* The operation tables for `FSIN`, `FCOS` and `FTAN` all agree on the two
+ * special cases: a zero passes through with its sign (a cosine returning one
+ * instead), and an infinity of either sign is an operand error. None of the
+ * three has a divide by zero -- `FTAN` at `pi/2` is a *finite* number, because
+ * `pi/2` is not representable. */
+static bool trig_special(const ap_m68882_extended_t *x, bool zero_is_one,
+                         ap_m68882_op_t *out) {
+  switch (ap_m68882_classify(x)) {
+  case AP_M68882_TYPE_NAN:
+    *out = (ap_m68882_op_t){nx_nan(), ap_m68882_is_signalling_nan(x)
+                                          ? (1u << AP_M68882_EXC_SNAN)
+                                          : 0u};
+    return true;
+  case AP_M68882_TYPE_INFINITY:
+    *out = (ap_m68882_op_t){nx_nan(), 1u << AP_M68882_EXC_OPERR};
+    return true;
+  case AP_M68882_TYPE_ZERO:
+    *out = (ap_m68882_op_t){zero_is_one ? c_one : *x, 0u};
+    return true;
+  case AP_M68882_TYPE_NORMALIZED:
+  case AP_M68882_TYPE_DENORMALIZED:
+    break;
+  }
+  return false;
+}
+
+static ap_m68882_op_t trig_finish(ap_m68882_extended_t value,
+                                  ap_m68882_rounding_t mode,
+                                  ap_m68882_precision_t precision) {
+  ap_m68882_op_t out = ap_m68882_mul(&value, &c_one, mode, precision);
+  out.exceptions |= 1u << AP_M68882_EXC_INEX2;
+  return out;
+}
+
+/* Both results at once, which is what makes `FSINCOS` a single instruction
+ * rather than two: the reduction is the expensive part and it is shared. */
+static void sincos_value(ap_m68882_extended_t x, ap_m68882_extended_t *sine,
+                         ap_m68882_extended_t *cosine) {
+  ap_m68882_extended_t r;
+  const unsigned quadrant = trig_reduce(x, &r);
+  const ap_m68882_extended_t s = sin_kernel(r);
+  const ap_m68882_extended_t c = cos_kernel(r);
+  switch (quadrant) {
+  case 0u:
+    *sine = s;
+    *cosine = c;
+    break;
+  case 1u:
+    *sine = c;
+    *cosine = nx_negate(s);
+    break;
+  case 2u:
+    *sine = nx_negate(s);
+    *cosine = nx_negate(c);
+    break;
+  default:
+    *sine = nx_negate(c);
+    *cosine = s;
+    break;
+  }
+}
+
+ap_m68882_op_t ap_m68882_sin(const ap_m68882_extended_t *x,
+                             ap_m68882_rounding_t mode,
+                             ap_m68882_precision_t precision) {
+  ap_m68882_op_t special;
+  if (trig_special(x, false, &special)) {
+    return special;
+  }
+  ap_m68882_extended_t sine, cosine;
+  sincos_value(*x, &sine, &cosine);
+  return trig_finish(sine, mode, precision);
+}
+
+ap_m68882_op_t ap_m68882_cos(const ap_m68882_extended_t *x,
+                             ap_m68882_rounding_t mode,
+                             ap_m68882_precision_t precision) {
+  ap_m68882_op_t special;
+  if (trig_special(x, true, &special)) {
+    return special;
+  }
+  ap_m68882_extended_t sine, cosine;
+  sincos_value(*x, &sine, &cosine);
+  return trig_finish(cosine, mode, precision);
+}
+
+void ap_m68882_sincos(const ap_m68882_extended_t *x, ap_m68882_rounding_t mode,
+                      ap_m68882_precision_t precision, ap_m68882_op_t *sine,
+                      ap_m68882_op_t *cosine) {
+  ap_m68882_op_t special;
+  if (trig_special(x, false, &special)) {
+    *sine = special;
+    /* The cosine of a zero is one and of an infinity is the same operand
+     * error, so only the zero case differs between the two results. */
+    *cosine = special;
+    if (ap_m68882_classify(x) == AP_M68882_TYPE_ZERO) {
+      cosine->value = c_one;
+    }
+    return;
+  }
+  ap_m68882_extended_t s, c;
+  sincos_value(*x, &s, &c);
+  *sine = trig_finish(s, mode, precision);
+  *cosine = trig_finish(c, mode, precision);
+}
+
+ap_m68882_op_t ap_m68882_tan(const ap_m68882_extended_t *x,
+                             ap_m68882_rounding_t mode,
+                             ap_m68882_precision_t precision) {
+  ap_m68882_op_t special;
+  if (trig_special(x, false, &special)) {
+    return special;
+  }
+  ap_m68882_extended_t r;
+  const unsigned quadrant = trig_reduce(*x, &r);
+  const ap_m68882_extended_t s = sin_kernel(r);
+  const ap_m68882_extended_t c = cos_kernel(r);
+  /* An odd quadrant is a quarter turn away, where the tangent is the negated
+   * reciprocal. Dividing the kernels rather than the reconstructed sine and
+   * cosine keeps both operands well scaled. */
+  const ap_m68882_extended_t value =
+      (quadrant & 1u) ? nx_negate(nx_div(c, s)) : nx_div(s, c);
+  return trig_finish(value, mode, precision);
 }

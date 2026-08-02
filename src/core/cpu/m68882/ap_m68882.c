@@ -127,6 +127,35 @@ static ap_m68882_status_t execute_register_to_register(
   case AP_M68882_OP_FLOG10:
     result = ap_m68882_log10(&source, mode, precision);
     break;
+
+  /* §4.3.2's trigonometric functions. */
+  case AP_M68882_OP_FSIN:
+    result = ap_m68882_sin(&source, mode, precision);
+    break;
+  case AP_M68882_OP_FCOS:
+    result = ap_m68882_cos(&source, mode, precision);
+    break;
+  case AP_M68882_OP_FTAN:
+    result = ap_m68882_tan(&source, mode, precision);
+    break;
+  case AP_M68882_OP_FSINCOS: {
+    /* Two destinations. Page 4-101: bits 9-7 are "DESTINATION REGISTER, FPs.
+     * The sine result is stored in this register", and bits 2-0 are FPc, which
+     * takes the cosine -- which is why `$30-$37` are eight encodings of one
+     * instruction.
+     *
+     * The cosine is written here and the sine by the shared tail below, and
+     * that order is the specification rather than a convenience: "if FPc and
+     * FPs specify the same floating-point data register, the sine result is
+     * stored in the register, and the cosine result is discarded". Writing the
+     * cosine last would silently invert that. */
+    ap_m68882_op_t sine, cosine;
+    ap_m68882_sincos(&source, mode, precision, &sine, &cosine);
+    fpu->regs.fp[command->extension & 7u] = cosine.value;
+    result = sine;
+    result.exceptions |= cosine.exceptions;
+    break;
+  }
   case AP_M68882_OP_FGETEXP:
     result = ap_m68882_getexp(&source);
     break;
@@ -184,16 +213,12 @@ static ap_m68882_status_t execute_register_to_register(
   case AP_M68882_OP_FATAN:
   case AP_M68882_OP_FASIN:
   case AP_M68882_OP_FATANH:
-  case AP_M68882_OP_FSIN:
-  case AP_M68882_OP_FTAN:
   case AP_M68882_OP_FCOSH:
   case AP_M68882_OP_FACOS:
-  case AP_M68882_OP_FCOS:
   case AP_M68882_OP_FMOD:
   case AP_M68882_OP_FSGLDIV:
   case AP_M68882_OP_FREM:
   case AP_M68882_OP_FSGLMUL:
-  case AP_M68882_OP_FSINCOS:
     return AP_M68882_UNIMPLEMENTED;
   }
 

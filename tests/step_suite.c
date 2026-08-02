@@ -4924,14 +4924,19 @@ static void test_an_undefined_extension_traps_with_a_coprocessor_fitted(void) {
   TEST_ASSERT_EQUAL_HEX32(HANDLER, m.cpu.regs.pc);
 }
 
-/* **An unimplemented form is reported as ours, not as the machine's.** A
- * transcendental is an instruction the hardware executes, so raising F-line for
- * it would be indistinguishable from a correct unfitted machine and the gap
- * would stop being visible -- the same rule the MMU's own unimplemented forms
- * follow. */
+/* **An unimplemented form is reported as ours, not as the machine's.** These
+ * are instructions the hardware executes, so raising F-line for one would be
+ * indistinguishable from a correct unfitted machine and the gap would stop
+ * being visible -- the same rule the MMU's own unimplemented forms follow.
+ *
+ * The example used to be `FSIN`, which is now computed. It is `FMOD` instead:
+ * a remainder form, which this model has not got to and which is not part of
+ * the transcendental work. Picking a still-open gap on purpose, rather than
+ * whichever one happened to be open, is what stops this test needing an edit
+ * every time a family lands. */
 static void test_an_unimplemented_coprocessor_form_is_reported_as_our_gap(void) {
-  /* FSIN, extension $0E: defined by the part, not implemented here. */
-  static const uint16_t program[] = {0xF200u, 0x000Eu, 0x4E71u};
+  /* FMOD, extension $21: defined by the part, not implemented here. */
+  static const uint16_t program[] = {0xF200u, 0x0021u, 0x4E71u};
   machine_t m = {0};
   load(&m, program, 3);
 

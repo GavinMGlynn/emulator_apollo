@@ -1,5 +1,5 @@
-/* MC68882 §4.3.2's exponentials and logarithms, measured against the published
- * bound.
+/* MC68882 §4.3.2's exponentials, logarithms and trigonometric functions,
+ * measured against the published bound.
  *
  * The vectors below are `(argument, expected)` pairs computed to a hundred and
  * twenty decimal digits and rounded once to extended precision. They are not
@@ -342,6 +342,120 @@ static const vector_t lognp1_vectors[] = {
     {{false, 0x4001, 0x8C4AD9B223A3D000ULL}, {false, 0x3FFF, 0xD77B85302E5768BFULL}},
     {{false, 0x4002, 0xE666006C0E1DF000ULL}, {false, 0x4000, 0xAEFFC618290A7462ULL}},
     {{false, 0x4000, 0xEF860CB29308C800ULL}, {false, 0x3FFF, 0xC73DE520F7C3399FULL}},
+};
+
+static const vector_t sin_vectors[] = {
+    {{false, 0x3FFE, 0x8000000000000000ULL}, {false, 0x3FFD, 0xF57743A2582F7F44ULL}},
+    {{true, 0x3FFE, 0x8000000000000000ULL}, {true, 0x3FFD, 0xF57743A2582F7F44ULL}},
+    {{false, 0x3FFF, 0x8000000000000000ULL}, {false, 0x3FFE, 0xD76AA47848677021ULL}},
+    {{true, 0x3FFF, 0x8000000000000000ULL}, {true, 0x3FFE, 0xD76AA47848677021ULL}},
+    {{false, 0x4000, 0x8000000000000000ULL}, {false, 0x3FFE, 0xE8C7B7568DA22EFDULL}},
+    {{false, 0x4000, 0xC000000000000000ULL}, {false, 0x3FFC, 0x9081C36DB6AADA79ULL}},
+    {{false, 0x4001, 0x8000000000000000ULL}, {true, 0x3FFE, 0xC1BDCEEEE0F57386ULL}},
+    {{false, 0x4001, 0xC8F5C28F5C28F5C3ULL}, {true, 0x3FF6, 0xD0C07F0787FF1EC2ULL}},
+    {{false, 0x4005, 0xC800000000000000ULL}, {true, 0x3FFE, 0x81A12DBC626DC038ULL}},
+    {{false, 0x4008, 0xFA00000000000000ULL}, {false, 0x3FFE, 0xD3AE60A851035AC9ULL}},
+    {{false, 0x4012, 0xF424000000000000ULL}, {true, 0x3FFD, 0xB332592B46C33A4DULL}},
+    {{false, 0x4026, 0xE8D4A51000000000ULL}, {true, 0x3FFE, 0x9C7A23BCC21A90D4ULL}},
+    {{false, 0x403A, 0xDE0B6B3A76400000ULL}, {true, 0x3FFE, 0xFE333CC682E96D39ULL}},
+    {{true, 0x4001, 0xAD9794378DC84B57ULL}, {false, 0x3FFE, 0xC1BEDD72DDC09C62ULL}},
+    {{false, 0x4001, 0xBFF3DF0D7AFC2A01ULL}, {true, 0x3FFD, 0x8FC9D67DDB67D68BULL}},
+    {{false, 0x4002, 0x8D43FBBA5C1FD8F1ULL}, {false, 0x3FFE, 0x8FA26CC47DE9D10BULL}},
+    {{true, 0x4000, 0x9910F8CCC6E53F13ULL}, {true, 0x3FFE, 0xAE7C9B25071E8223ULL}},
+    {{false, 0x4003, 0x8C08940E6E562639ULL}, {true, 0x3FFE, 0xF985D3CDF8B86836ULL}},
+    {{true, 0x4002, 0xA86CC7A9C13CC849ULL}, {false, 0x3FFE, 0xE45AF9E6BDA70BF6ULL}},
+    {{true, 0x4001, 0xBEE4E9A1F3DA903BULL}, {false, 0x3FFD, 0x9FF5CFA206B37A84ULL}},
+    {{true, 0x3FFE, 0x8590721C6104ABF2ULL}, {true, 0x3FFD, 0xFF2C5CAE59DD0ED6ULL}},
+    {{true, 0x4002, 0xA3385E2E0C5CE7F6ULL}, {false, 0x3FFE, 0xB36602CD5DDA26D1ULL}},
+    {{false, 0x3FFF, 0xAF8ADF9262344050ULL}, {false, 0x3FFE, 0xFAEDD2C864CA42D2ULL}},
+    {{false, 0x4002, 0xB4CE51DEA2729B02ULL}, {true, 0x3FFE, 0xF4334FF90EA164B6ULL}},
+    {{true, 0x4003, 0x9C4DD5AD46B450DBULL}, {true, 0x3FFE, 0xA2A5ABC839829120ULL}},
+    {{true, 0x4026, 0xC90049D39782F000ULL}, {false, 0x3FFA, 0xF560134A34523621ULL}},
+    {{false, 0x4025, 0xF42BE5ED365B4000ULL}, {true, 0x3FFC, 0xE9E1105DF3A24064ULL}},
+    {{true, 0x4026, 0xD587D15E5803B000ULL}, {false, 0x3FFD, 0xBC38DBF50ACCB846ULL}},
+    {{true, 0x4026, 0xB7B74017F6ADD000ULL}, {true, 0x3FFC, 0xB7D9DCC9D60F39B1ULL}},
+    {{false, 0x4026, 0xCFFA45984FD69000ULL}, {true, 0x3FFE, 0x984D435F2240DFA9ULL}},
+    {{true, 0x4026, 0x870214AB098D8800ULL}, {false, 0x3FFE, 0xF8C7BF3860DCC70CULL}},
+    {{true, 0x4025, 0xD400AB134875B000ULL}, {true, 0x3FFE, 0xFAF0A1994D1D9946ULL}},
+    {{false, 0x4023, 0xF32E4A9FEDF10000ULL}, {false, 0x3FFD, 0xF60F863CC98CB606ULL}},
+    {{true, 0x4026, 0xC5432A464B1D3000ULL}, {false, 0x3FFD, 0xE48A1E9BF5ABF3FCULL}},
+    {{false, 0x4024, 0xA6F097CD22070000ULL}, {false, 0x3FFE, 0xBFA13AAA112A3A99ULL}},
+};
+
+static const vector_t cos_vectors[] = {
+    {{false, 0x3FFE, 0x8000000000000000ULL}, {false, 0x3FFE, 0xE0A94032DBEA7CEEULL}},
+    {{true, 0x3FFE, 0x8000000000000000ULL}, {false, 0x3FFE, 0xE0A94032DBEA7CEEULL}},
+    {{false, 0x3FFF, 0x8000000000000000ULL}, {false, 0x3FFE, 0x8A51407DA8345C92ULL}},
+    {{true, 0x3FFF, 0x8000000000000000ULL}, {false, 0x3FFE, 0x8A51407DA8345C92ULL}},
+    {{false, 0x4000, 0x8000000000000000ULL}, {true, 0x3FFD, 0xD51132BA9B902522ULL}},
+    {{false, 0x4000, 0xC000000000000000ULL}, {true, 0x3FFE, 0xFD7025F42F2E9308ULL}},
+    {{false, 0x4001, 0x8000000000000000ULL}, {true, 0x3FFE, 0xA7553036D9260623ULL}},
+    {{false, 0x4001, 0xC8F5C28F5C28F5C3ULL}, {false, 0x3FFE, 0xFFFFAAE342446FBAULL}},
+    {{false, 0x4005, 0xC800000000000000ULL}, {false, 0x3FFE, 0xDCC0EDFB32FEFB20ULL}},
+    {{false, 0x4008, 0xFA00000000000000ULL}, {false, 0x3FFE, 0x8FF8133C9F8DDBB8ULL}},
+    {{false, 0x4012, 0xF424000000000000ULL}, {false, 0x3FFE, 0xEFCEFCC836996357ULL}},
+    {{false, 0x4026, 0xE8D4A51000000000ULL}, {false, 0x3FFE, 0xCA9C398EFF911B7DULL}},
+    {{false, 0x403A, 0xDE0B6B3A76400000ULL}, {false, 0x3FFB, 0xF26D039603ACD38CULL}},
+    {{true, 0x4001, 0xAD9794378DC84B57ULL}, {false, 0x3FFE, 0xA753F6FF6C8F0767ULL}},
+    {{false, 0x4001, 0xBFF3DF0D7AFC2A01ULL}, {false, 0x3FFE, 0xF5B28A14542FA666ULL}},
+    {{false, 0x4002, 0x8D43FBBA5C1FD8F1ULL}, {true, 0x3FFE, 0xD3E88804BF6DD278ULL}},
+    {{true, 0x4000, 0x9910F8CCC6E53F13ULL}, {true, 0x3FFE, 0xBB53026B13D4EBBDULL}},
+    {{false, 0x4003, 0x8C08940E6E562639ULL}, {false, 0x3FFC, 0xE4E3A07670333B0FULL}},
+    {{true, 0x4002, 0xA86CC7A9C13CC849ULL}, {true, 0x3FFD, 0xE76DC5D9E52212F3ULL}},
+    {{true, 0x4001, 0xBEE4E9A1F3DA903BULL}, {false, 0x3FFE, 0xF32F7C6BB72F18D6ULL}},
+    {{true, 0x3FFE, 0x8590721C6104ABF2ULL}, {false, 0x3FFE, 0xDDF0CDD8F0205797ULL}},
+    {{true, 0x4002, 0xA3385E2E0C5CE7F6ULL}, {true, 0x3FFE, 0xB6A034DE8E098BA4ULL}},
+    {{false, 0x3FFF, 0xAF8ADF9262344050ULL}, {false, 0x3FFC, 0xCACE4BE948C8034FULL}},
+    {{false, 0x4002, 0xB4CE51DEA2729B02ULL}, {false, 0x3FFD, 0x99A69DCDDAA213C6ULL}},
+    {{true, 0x4003, 0x9C4DD5AD46B450DBULL}, {false, 0x3FFE, 0xC5B101F06B731E63ULL}},
+    {{true, 0x4026, 0xC90049D39782F000ULL}, {true, 0x3FFE, 0xFF8A4C6CB170CDE5ULL}},
+    {{false, 0x4025, 0xF42BE5ED365B4000ULL}, {true, 0x3FFE, 0xF93BBF96EA93351CULL}},
+    {{true, 0x4026, 0xD587D15E5803B000ULL}, {true, 0x3FFE, 0xEE12E12CD29E9C66ULL}},
+    {{true, 0x4026, 0xB7B74017F6ADD000ULL}, {false, 0x3FFE, 0xFBD70F5EEC8ADAA8ULL}},
+    {{false, 0x4026, 0xCFFA45984FD69000ULL}, {true, 0x3FFE, 0xCDC46A222E3865B6ULL}},
+    {{true, 0x4026, 0x870214AB098D8800ULL}, {false, 0x3FFC, 0xF1798FCFEBEB1C8EULL}},
+    {{true, 0x4025, 0xD400AB134875B000ULL}, {true, 0x3FFC, 0xCA96ADDE473866C1ULL}},
+    {{false, 0x4023, 0xF32E4A9FEDF10000ULL}, {false, 0x3FFE, 0xE07F9862485241E8ULL}},
+    {{true, 0x4026, 0xC5432A464B1D3000ULL}, {false, 0x3FFE, 0xE514E9A8C6FDE3E1ULL}},
+    {{false, 0x4024, 0xA6F097CD22070000ULL}, {false, 0x3FFE, 0xA9BF369B28CA6088ULL}},
+};
+
+static const vector_t tan_vectors[] = {
+    {{false, 0x3FFE, 0x8000000000000000ULL}, {false, 0x3FFE, 0x8BDA7ADF9A3A5219ULL}},
+    {{true, 0x3FFE, 0x8000000000000000ULL}, {true, 0x3FFE, 0x8BDA7ADF9A3A5219ULL}},
+    {{false, 0x3FFF, 0x8000000000000000ULL}, {false, 0x3FFF, 0xC75922E5F71D2DC5ULL}},
+    {{true, 0x3FFF, 0x8000000000000000ULL}, {true, 0x3FFF, 0xC75922E5F71D2DC5ULL}},
+    {{false, 0x4000, 0x8000000000000000ULL}, {true, 0x4000, 0x8BD7B1704A87C1DBULL}},
+    {{false, 0x4000, 0xC000000000000000ULL}, {true, 0x3FFC, 0x91F7B892A5C37866ULL}},
+    {{false, 0x4001, 0x8000000000000000ULL}, {false, 0x3FFF, 0x94337CDF26F09B87ULL}},
+    {{false, 0x4001, 0xC8F5C28F5C28F5C3ULL}, {true, 0x3FF6, 0xD0C0C46EF904B70EULL}},
+    {{false, 0x4005, 0xC800000000000000ULL}, {true, 0x3FFE, 0x9653A6B15AE9BD7DULL}},
+    {{false, 0x4008, 0xFA00000000000000ULL}, {false, 0x3FFF, 0xBC3394F9A188CF7AULL}},
+    {{false, 0x4012, 0xF424000000000000ULL}, {true, 0x3FFD, 0xBF4BB455B9A60084ULL}},
+    {{false, 0x4026, 0xE8D4A51000000000ULL}, {true, 0x3FFE, 0xC5B5D80BA1CC78CDULL}},
+    {{false, 0x403A, 0xDE0B6B3A76400000ULL}, {true, 0x4002, 0x86377FDEB0569285ULL}},
+    {{true, 0x4001, 0xAD9794378DC84B57ULL}, {false, 0x3FFF, 0x94356138530ADF44ULL}},
+    {{false, 0x4001, 0xBFF3DF0D7AFC2A01ULL}, {true, 0x3FFD, 0x95D158F1A5F2109DULL}},
+    {{false, 0x4002, 0x8D43FBBA5C1FD8F1ULL}, {true, 0x3FFE, 0xAD853B3ED9F53E65ULL}},
+    {{true, 0x4000, 0x9910F8CCC6E53F13ULL}, {false, 0x3FFE, 0xEE74C1143A90A801ULL}},
+    {{false, 0x4003, 0x8C08940E6E562639ULL}, {true, 0x4001, 0x8B89ED10DB8624D4ULL}},
+    {{true, 0x4002, 0xA86CC7A9C13CC849ULL}, {true, 0x3FFF, 0xFC99AAF143A39436ULL}},
+    {{true, 0x4001, 0xBEE4E9A1F3DA903BULL}, {false, 0x3FFD, 0xA863A2C3FB83D56EULL}},
+    {{true, 0x3FFE, 0x8590721C6104ABF2ULL}, {true, 0x3FFE, 0x932A9210B9B7594CULL}},
+    {{true, 0x4002, 0xA3385E2E0C5CE7F6ULL}, {true, 0x3FFE, 0xFB79DC6B39796FE1ULL}},
+    {{false, 0x3FFF, 0xAF8ADF9262344050ULL}, {false, 0x4001, 0x9E5F6A0350DB4A91ULL}},
+    {{false, 0x4002, 0xB4CE51DEA2729B02ULL}, {true, 0x4000, 0xCB6EDAB19C787366ULL}},
+    {{true, 0x4003, 0x9C4DD5AD46B450DBULL}, {true, 0x3FFE, 0xD29E976FE2BBA3D5ULL}},
+    {{true, 0x4026, 0xC90049D39782F000ULL}, {true, 0x3FFA, 0xF5D11848F424F4EFULL}},
+    {{false, 0x4025, 0xF42BE5ED365B4000ULL}, {false, 0x3FFC, 0xF03A994427302ED0ULL}},
+    {{true, 0x4026, 0xD587D15E5803B000ULL}, {true, 0x3FFD, 0xCA65097F11E4F730ULL}},
+    {{true, 0x4026, 0xB7B74017F6ADD000ULL}, {true, 0x3FFC, 0xBAE34D2D49CC557FULL}},
+    {{false, 0x4026, 0xCFFA45984FD69000ULL}, {false, 0x3FFE, 0xBD7B7BF83EBFDE94ULL}},
+    {{true, 0x4026, 0x870214AB098D8800ULL}, {false, 0x4001, 0x83DF57112E4465C5ULL}},
+    {{true, 0x4025, 0xD400AB134875B000ULL}, {false, 0x4001, 0x9E8CAAB3D71AEF3FULL}},
+    {{false, 0x4023, 0xF32E4A9FEDF10000ULL}, {false, 0x3FFE, 0x8C4B3E093C7B49FCULL}},
+    {{true, 0x4026, 0xC5432A464B1D3000ULL}, {false, 0x3FFD, 0xFF64E5DD1C737D58ULL}},
+    {{false, 0x4024, 0xA6F097CD22070000ULL}, {false, 0x3FFF, 0x908046E57D4BC5D6ULL}},
 };
 
 /* Distance between two extended values in units of the last place of the
@@ -803,6 +917,170 @@ static void test_a_denormal_argument_is_normalised_before_reduction(void) {
   TEST_ASSERT_EQUAL_UINT(AP_M68882_BIAS_EXTENDED + 13, got.value.exponent);
 }
 
+static void test_the_trigonometric_functions_are_inside_the_bound(void) {
+  /* Arguments out to `1e18`, where the reduction's `n` is near the limit of a
+   * 64-bit significand -- so this covers the whole range in which the part
+   * itself claims accuracy, not just a neighbourhood of zero. */
+  TEST_ASSERT_LESS_OR_EQUAL_UINT64_MESSAGE(
+      AP_M68882_TRANSCENDENTAL_TYPICAL_ULP_EXTENDED,
+      sweep(ap_m68882_sin, sin_vectors, COUNT(sin_vectors)),
+      "FSIN left the typical error bound");
+  TEST_ASSERT_LESS_OR_EQUAL_UINT64_MESSAGE(
+      AP_M68882_TRANSCENDENTAL_TYPICAL_ULP_EXTENDED,
+      sweep(ap_m68882_cos, cos_vectors, COUNT(cos_vectors)),
+      "FCOS left the typical error bound");
+  TEST_ASSERT_LESS_OR_EQUAL_UINT64_MESSAGE(
+      AP_M68882_TRANSCENDENTAL_TYPICAL_ULP_EXTENDED,
+      sweep(ap_m68882_tan, tan_vectors, COUNT(tan_vectors)),
+      "FTAN left the typical error bound");
+}
+
+static void test_a_large_argument_is_still_reduced_correctly(void) {
+  /* The reduction is the whole accuracy story for this family, and it is where
+   * a single 64-bit `pi/2` would fail invisibly: the constant's truncation is
+   * multiplied by the quotient, so at `1e18` an error of `2^-64` in `pi/2`
+   * becomes about a tenth of a radian in the reduced argument -- a plausible
+   * wrong answer rather than an obviously wrong one.
+   *
+   * With `pi/2` to 199 bits the answer is still right to within a couple of
+   * units in the last place. This checks the identity `sin^2 + cos^2 = 1` at a
+   * large argument, which no amount of reduction error can fake: a
+   * mis-reduced pair are the sine and cosine of the *same* wrong angle and
+   * would satisfy it, so the vector sweep above is what proves the angle, and
+   * this proves the pair are consistent. */
+  const ap_m68882_extended_t big = {false, AP_M68882_BIAS_EXTENDED + 59,
+                                    0xDE0B6B3A76400000ULL}; /* about 1e18 */
+  const ap_m68882_op_t s =
+      ap_m68882_sin(&big, AP_M68882_ROUND_NEAREST, AP_M68882_PRECISION_EXTENDED);
+  const ap_m68882_op_t c =
+      ap_m68882_cos(&big, AP_M68882_ROUND_NEAREST, AP_M68882_PRECISION_EXTENDED);
+  const ap_m68882_op_t s2 = ap_m68882_mul(&s.value, &s.value,
+                                          AP_M68882_ROUND_NEAREST,
+                                          AP_M68882_PRECISION_EXTENDED);
+  const ap_m68882_op_t c2 = ap_m68882_mul(&c.value, &c.value,
+                                          AP_M68882_ROUND_NEAREST,
+                                          AP_M68882_PRECISION_EXTENDED);
+  const ap_m68882_op_t sum = ap_m68882_add(&s2.value, &c2.value,
+                                           AP_M68882_ROUND_NEAREST,
+                                           AP_M68882_PRECISION_EXTENDED);
+  /* Measured as `|sum - 1|` rather than by pinning the exponent: a sum a hair
+   * below one is represented with the exponent one lower and a mantissa near
+   * all-ones, which is correct and would fail an exponent check. */
+  const ap_m68882_extended_t one = {false, AP_M68882_BIAS_EXTENDED,
+                                    0x8000000000000000ULL};
+  const ap_m68882_op_t error = ap_m68882_sub(&sum.value, &one,
+                                             AP_M68882_ROUND_NEAREST,
+                                             AP_M68882_PRECISION_EXTENDED);
+  if (error.value.mantissa != 0u) {
+    /* Anything within a few units in the last place of one has an exponent at
+     * least sixty below it. */
+    TEST_ASSERT_LESS_THAN_UINT_MESSAGE(
+        AP_M68882_BIAS_EXTENDED - 60, error.value.exponent,
+        "sin^2 + cos^2 drifted from one");
+  }
+  /* And both are genuinely in range, so the identity is not being satisfied by
+   * two tiny numbers. */
+  TEST_ASSERT_TRUE(s.value.exponent <= AP_M68882_BIAS_EXTENDED);
+  TEST_ASSERT_TRUE(c.value.exponent <= AP_M68882_BIAS_EXTENDED);
+}
+
+static void test_the_trigonometric_special_cases_match_the_tables(void) {
+  /* All three operation tables agree: a zero passes through with its sign -- a
+   * cosine returning `+1.0` instead -- and an infinity of either sign is an
+   * operand error. None of the three has a divide by zero, because `pi/2` is
+   * not representable and the tangent's pole is never reached exactly. */
+  const ap_m68882_extended_t zero = {false, 0u, 0u};
+  const ap_m68882_extended_t minus_zero = {true, 0u, 0u};
+  const ap_m68882_extended_t plus_infinity = {false, 0x7FFFu, 0u};
+  const ap_m68882_extended_t minus_infinity = {true, 0x7FFFu, 0u};
+
+  for (unsigned s = 0; s < 2u; s++) {
+    const ap_m68882_extended_t *z = s ? &minus_zero : &zero;
+    const ap_m68882_op_t sine =
+        ap_m68882_sin(z, AP_M68882_ROUND_NEAREST, AP_M68882_PRECISION_EXTENDED);
+    TEST_ASSERT_EQUAL_INT(AP_M68882_TYPE_ZERO, ap_m68882_classify(&sine.value));
+    TEST_ASSERT_EQUAL_MESSAGE(s != 0u, sine.value.sign,
+                              "FSIN should keep the sign of a zero");
+    TEST_ASSERT_EQUAL_UINT(0u, sine.exceptions);
+
+    const ap_m68882_op_t tangent =
+        ap_m68882_tan(z, AP_M68882_ROUND_NEAREST, AP_M68882_PRECISION_EXTENDED);
+    TEST_ASSERT_EQUAL_INT(AP_M68882_TYPE_ZERO,
+                          ap_m68882_classify(&tangent.value));
+    TEST_ASSERT_EQUAL(s != 0u, tangent.value.sign);
+
+    /* "+1.0" for both signs of zero -- the cosine is even, so the sign does
+     * not carry. */
+    const ap_m68882_op_t cosine =
+        ap_m68882_cos(z, AP_M68882_ROUND_NEAREST, AP_M68882_PRECISION_EXTENDED);
+    TEST_ASSERT_EQUAL_UINT(AP_M68882_BIAS_EXTENDED, cosine.value.exponent);
+    TEST_ASSERT_EQUAL_UINT64(0x8000000000000000ULL, cosine.value.mantissa);
+    TEST_ASSERT_FALSE(cosine.value.sign);
+    TEST_ASSERT_EQUAL_UINT(0u, cosine.exceptions);
+  }
+
+  ap_m68882_op_t (*const all[])(const ap_m68882_extended_t *,
+                                ap_m68882_rounding_t, ap_m68882_precision_t) = {
+      ap_m68882_sin, ap_m68882_cos, ap_m68882_tan};
+  for (unsigned i = 0; i < 3u; i++) {
+    for (unsigned s = 0; s < 2u; s++) {
+      const ap_m68882_op_t got =
+          all[i](s ? &minus_infinity : &plus_infinity, AP_M68882_ROUND_NEAREST,
+                 AP_M68882_PRECISION_EXTENDED);
+      TEST_ASSERT_EQUAL_INT_MESSAGE(AP_M68882_TYPE_NAN,
+                                    ap_m68882_classify(&got.value),
+                                    "an infinite angle should be an error");
+      TEST_ASSERT_NOT_EQUAL_UINT(0u,
+                                 got.exceptions & (1u << AP_M68882_EXC_OPERR));
+      TEST_ASSERT_EQUAL_UINT_MESSAGE(
+          0u, got.exceptions & (1u << AP_M68882_EXC_DZ),
+          "no trigonometric function has a divide by zero");
+    }
+  }
+}
+
+static void test_sincos_returns_the_pair_the_two_instructions_would(void) {
+  /* `FSINCOS` is one instruction because the reduction is shared, not because
+   * the results differ from the separate ones. They must agree exactly, or a
+   * program that computed a sine two ways would get two answers. */
+  const ap_m68882_extended_t angles[] = {
+      {false, AP_M68882_BIAS_EXTENDED, 0x8000000000000000ULL},      /* 1 */
+      {true, AP_M68882_BIAS_EXTENDED + 1, 0xC000000000000000ULL},   /* -3 */
+      {false, AP_M68882_BIAS_EXTENDED + 9, 0xFA00000000000000ULL},  /* 1000 */
+      {false, AP_M68882_BIAS_EXTENDED - 3, 0xB000000000000000ULL},
+  };
+  for (unsigned i = 0; i < 4u; i++) {
+    ap_m68882_op_t sine, cosine;
+    ap_m68882_sincos(&angles[i], AP_M68882_ROUND_NEAREST,
+                     AP_M68882_PRECISION_EXTENDED, &sine, &cosine);
+    const ap_m68882_op_t separate_sine =
+        ap_m68882_sin(&angles[i], AP_M68882_ROUND_NEAREST,
+                      AP_M68882_PRECISION_EXTENDED);
+    const ap_m68882_op_t separate_cosine =
+        ap_m68882_cos(&angles[i], AP_M68882_ROUND_NEAREST,
+                      AP_M68882_PRECISION_EXTENDED);
+    TEST_ASSERT_EQUAL_UINT64(separate_sine.value.mantissa,
+                             sine.value.mantissa);
+    TEST_ASSERT_EQUAL_UINT(separate_sine.value.exponent, sine.value.exponent);
+    TEST_ASSERT_EQUAL(separate_sine.value.sign, sine.value.sign);
+    TEST_ASSERT_EQUAL_UINT64(separate_cosine.value.mantissa,
+                             cosine.value.mantissa);
+    TEST_ASSERT_EQUAL_UINT(separate_cosine.value.exponent,
+                           cosine.value.exponent);
+    TEST_ASSERT_EQUAL(separate_cosine.value.sign, cosine.value.sign);
+  }
+
+  /* Its zero case is the one place the two results differ: the sine of zero is
+   * zero and the cosine of zero is one, from the same argument. */
+  const ap_m68882_extended_t zero = {false, 0u, 0u};
+  ap_m68882_op_t sine, cosine;
+  ap_m68882_sincos(&zero, AP_M68882_ROUND_NEAREST,
+                   AP_M68882_PRECISION_EXTENDED, &sine, &cosine);
+  TEST_ASSERT_EQUAL_INT(AP_M68882_TYPE_ZERO, ap_m68882_classify(&sine.value));
+  TEST_ASSERT_EQUAL_UINT(AP_M68882_BIAS_EXTENDED, cosine.value.exponent);
+  TEST_ASSERT_EQUAL_UINT64(0x8000000000000000ULL, cosine.value.mantissa);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_the_exponential_is_inside_the_typical_error_bound);
@@ -821,6 +1099,10 @@ int main(void) {
   RUN_TEST(test_the_two_singularities_return_different_things);
   RUN_TEST(test_lognp1_keeps_the_sign_of_a_zero);
   RUN_TEST(test_a_denormal_argument_is_normalised_before_reduction);
+  RUN_TEST(test_the_trigonometric_functions_are_inside_the_bound);
+  RUN_TEST(test_a_large_argument_is_still_reduced_correctly);
+  RUN_TEST(test_the_trigonometric_special_cases_match_the_tables);
+  RUN_TEST(test_sincos_returns_the_pair_the_two_instructions_would);
   RUN_TEST(test_the_result_precision_is_the_callers_and_the_steps_are_not);
   return UNITY_END();
 }

@@ -135,4 +135,45 @@
                                              ap_m68882_rounding_t mode,
                                              ap_m68882_precision_t precision);
 
+/* The trigonometric functions.
+ *
+ * All four share one reduction, `x = n*(pi/2) + r` with `|r| <= pi/4`, and one
+ * pair of series. The quadrant `n mod 4` then selects which of `+/-sin` and
+ * `+/-cos` each answer is, which is why `FSINCOS` is one instruction: the
+ * reduction is the expensive part and both results fall out of it.
+ *
+ * The reduction is the whole accuracy story. `pi/2` is held to about 199 bits
+ * in three pieces and each `n * pi/2_i` is formed as an exact pair, because the
+ * constant's truncation error is multiplied by `n` -- and `n` is as large as
+ * the argument. A single 64-bit `pi/2` would leave an error near a radian for a
+ * large argument, which is not an inaccurate answer but a meaningless one.
+ *
+ * Accuracy therefore holds while `n` fits in a 64-bit significand, to arguments
+ * around `1.4e19`, and degrades beyond. That matches the part: the `FSIN` page
+ * says "large arguments may lose accuracy during reduction, and very large
+ * arguments (greater than approximately 10^20) lose all accuracy". The
+ * degradation is modelled, not merely tolerated.
+ *
+ * None of the three has a divide by zero. `FTAN` at `pi/2` is a large finite
+ * number, because `pi/2` is not representable and the argument is never exactly
+ * at the pole. */
+[[nodiscard]] ap_m68882_op_t ap_m68882_sin(const ap_m68882_extended_t *x,
+                                           ap_m68882_rounding_t mode,
+                                           ap_m68882_precision_t precision);
+
+[[nodiscard]] ap_m68882_op_t ap_m68882_cos(const ap_m68882_extended_t *x,
+                                           ap_m68882_rounding_t mode,
+                                           ap_m68882_precision_t precision);
+
+[[nodiscard]] ap_m68882_op_t ap_m68882_tan(const ap_m68882_extended_t *x,
+                                           ap_m68882_rounding_t mode,
+                                           ap_m68882_precision_t precision);
+
+/* `FSINCOS` writes two registers, so it returns two results rather than one.
+ * Its eight encodings `$30-$37` differ only in which register takes the
+ * cosine. */
+void ap_m68882_sincos(const ap_m68882_extended_t *x, ap_m68882_rounding_t mode,
+                      ap_m68882_precision_t precision, ap_m68882_op_t *sine,
+                      ap_m68882_op_t *cosine);
+
 #endif /* APOLLO_CPU_M68882_AP_M68882_TRANSCENDENTAL_H */

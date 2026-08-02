@@ -1967,7 +1967,18 @@ a 68882, and the 68882 is the only one of these it has.
               properties never enter that branch. *Verification:
               `m68882_transcendental_suite` 17 tests, `m68882_arith_suite` +2.
               Detail in `PROJECT_STATUS.md`.*
-        - [ ] The trigonometric: `FSIN`, `FCOS`, `FSINCOS`, `FTAN`.
+        - [x] The trigonometric: `FSIN`, `FCOS`, `FSINCOS`, `FTAN`, worst
+              case **under 3 units in the last place** out to arguments of
+              `1e18`. One reduction `x = n(pi/2) + r` shared by all four, with
+              `pi/2` held to 199 bits in three pieces and each `n * pi/2_i`
+              formed as an exact pair -- a single 64-bit `pi/2` leaves nearly a
+              radian of error at large arguments. Accuracy holds while `n` fits
+              a 64-bit significand and degrades beyond, which is what the part
+              does: "very large arguments (greater than approximately 10^20)
+              lose all accuracy". `FSINCOS` writes two registers, and the sine
+              wins when both name the same one. *Verification:
+              `m68882_transcendental_suite`, 21 tests. Detail in
+              `PROJECT_STATUS.md`.*
         - [ ] The inverse trigonometric: `FATAN`, `FASIN`, `FACOS`.
         - [ ] The hyperbolic: `FSINH`, `FCOSH`, `FTANH`, `FATANH`.
 - [x] 68020 subset: no on-chip MMU or cache differences, external 68851.

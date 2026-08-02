@@ -1289,8 +1289,45 @@ four thousand units in the last place. And a denormal argument has to be
 normalised before reduction, since its significand is not in `[1,2)` at all --
 and denormals are exactly where a program asks for a logarithm.
 
-The remaining three families -- trigonometric, inverse trigonometric and
-hyperbolic -- are named plan items.
+**The trigonometric family is in**, at under three units in the last place out
+to arguments of `1e18`. All four share one reduction, `x = n(pi/2) + r` with
+`|r| <= pi/4`, and one pair of series; the quadrant `n mod 4` then selects which
+of `+/-sin` and `+/-cos` each answer is. That sharing is why `FSINCOS` is a
+single instruction rather than two, and a test asserts its results are
+bit-identical to the separate ones -- a program computing a sine two ways must
+not get two answers.
+
+**The reduction is the entire accuracy story here.** `pi/2` is held to about 199
+bits in three pieces, and each `n * pi/2_i` is formed as an exact pair, because
+the constant's truncation error is multiplied by `n` and `n` is as large as the
+argument. A single 64-bit `pi/2` leaves an absolute error near a *radian* at
+`n = 2^63` -- not an inaccurate answer but a meaningless one, and one that would
+look entirely plausible. Accuracy therefore holds while `n` fits in a 64-bit
+significand, to arguments around `1.4e19`, and degrades beyond. That is the
+part's own behaviour: the `FSIN` page says "large arguments may lose accuracy
+during reduction, and very large arguments (greater than approximately 10^20)
+lose all accuracy". The two thresholds are within a factor of ten, so the
+degradation is modelled rather than merely tolerated.
+
+`FSINCOS` needed the second destination register, which the decoder had folded
+away. Page 4-101 read from the image: bits 9-7 are FPs and take the sine, bits
+2-0 are FPc and take the cosine, and "if FPc and FPs specify the same
+floating-point data register, the sine result is stored in the register, and the
+cosine result is discarded". The cosine is therefore written first and the sine
+second, and the order is the specification rather than a convenience -- writing
+them the other way round would silently invert the documented tie-break.
+
+None of the three has a divide by zero, which is worth stating because it looks
+like it should: `FTAN` at `pi/2` is a large finite number, since `pi/2` is not
+representable and the argument never lands exactly on the pole.
+
+`step_suite` had used `FSIN` as its example of an instruction this model does
+not implement. It now uses `FMOD` -- a remainder form, outside the
+transcendental work -- so the test stops needing an edit every time a family
+lands.
+
+The remaining two families -- inverse trigonometric and hyperbolic -- are named
+plan items.
 
 So the gap is now specified rather than merely declared. The nineteen
 transcendentals are classified by the four families §4.3.2 names, with `FSQRT`
