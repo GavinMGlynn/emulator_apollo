@@ -184,6 +184,100 @@ void ap_m68882_movem_read(const ap_m68882_t *fpu, unsigned reg,
 void ap_m68882_movem_write(ap_m68882_t *fpu, unsigned reg,
                            const uint8_t *bytes);
 
+/* ---------------------------------------------------------------------------
+ * The system control registers, opclasses `100` and `101`
+ *
+ * `FMOVE` of one and `FMOVEM` of several are **the same encoding**, which the
+ * manual says outright: "if a single register is selected, the opcode generated
+ * is the same as for the FMOVE single system control register instruction". So
+ * they are one path here, and the count is what changes.
+ *
+ * `10 dr | REGISTER SELECT (3) | 0 ...`, and the select bits are their own
+ * numbering: **12 is FPCR, 11 is FPSR, 10 is FPIAR**, transferred in that
+ * order "regardless of the addressing mode used" -- so unlike the data
+ * registers there is no reversal, and unlike them the order does not depend on
+ * the mode at all.
+ *
+ * Always long: "A 32-bit transfer is always performed, even though the system
+ * control register may not have 32 implemented bits."
+ */
+enum {
+  AP_M68882_CONTROL_FPCR = 12,
+  AP_M68882_CONTROL_FPSR = 11,
+  AP_M68882_CONTROL_FPIAR = 10,
+};
+
+/* Which bits exist. "Unimplemented bits of a control register are read as zeros
+ * and are ignored during writes (but must be zero for compatability with future
+ * devices)" -- so a program that writes all ones and reads back gets these, and
+ * a model without the masks would hand back bits the part does not have.
+ *
+ * FPCR is two bytes: the enable byte at 15-8, and Figure 2-3's mode control
+ * byte, which is PREC at 7-6, RND at 5-4 and **zero at 3-0**. FPSR is four,
+ * with Figure 2-4's condition code byte using only 27-24 -- "31 30 29 28" are
+ * printed as a single `0` field -- and the accrued exception byte only 7-3.
+ * FPIAR is an address and has all thirty-two. */
+#define AP_M68882_FPCR_IMPLEMENTED UINT32_C(0x0000FFF0)
+#define AP_M68882_FPSR_IMPLEMENTED UINT32_C(0x0FFFFFF8)
+
+typedef struct {
+  bool to_memory;  /* the `dr` field, as for FMOVEM */
+  unsigned select; /* bits 12-10, still in place */
+} ap_m68882_control_t;
+
+/* Whether this instruction moves system control registers, and which way. */
+[[nodiscard]] ap_m68882_status_t
+ap_m68882_control_transfer(const ap_m68882_t *fpu, uint16_t operation_word,
+                           uint16_t command_word, bool *is_control,
+                           ap_m68882_control_t *control);
+
+/* How many registers the select names, which is what a predecrement steps by
+ * and what an immediate operand's length is. */
+[[nodiscard]] unsigned ap_m68882_control_count(unsigned select);
+
+/* One control register by its select *bit* -- 12, 11 or 10 -- so that a caller
+ * walking the select field never needs a second numbering.
+ *
+ * Neither raises an exception nor sets a condition code: "This instruction does
+ * not cause pending exceptions (other than protocol violations) to be reported
+ * to the main processor. Furthermore, a write to the FPCR exception enable byte
+ * or the FPSR exception status byte **cannot generate a new exception**,
+ * regardless of the value written." The one thing a write does do is stated
+ * separately and is not an exception at all: writing the FPSR replaces the
+ * condition codes wholesale, because they are part of the register. */
+[[nodiscard]] uint32_t ap_m68882_control_read(const ap_m68882_t *fpu,
+                                              unsigned bit);
+void ap_m68882_control_write(ap_m68882_t *fpu, unsigned bit, uint32_t value);
+
+/* Record an instruction's address in the FPIAR, if this is one that records it.
+ *
+ * §2.4, and both of its conditions are easy to miss. "For the subset of the
+ * FPCP instructions that generate floating-point exception traps, the 32-bit
+ * floating-point instruction address (FPIAR) register is loaded with the
+ * logical address of an instruction **before** the instruction is executed
+ * (**unless all arithmetic exceptions are disabled**)."
+ *
+ * The first condition excludes the transfers: "Since the FPCP FMOVE to/from the
+ * FPCR, FPSR, or FPIAR and FMOVEM instructions cannot generate floating-point
+ * exceptions, these instructions do not modify the FPIAR. These instructions
+ * can be used to read the FPIAR in the trap handler without changing the
+ * previous value" -- which is what the register is *for*, so a model that
+ * updated it on every instruction would destroy the value on the way to reading
+ * it.
+ *
+ * The second is a live condition on the enable byte, not a one-off: with every
+ * arithmetic trap disabled the register simply does not track, because nothing
+ * could ask it where the fault was. `BSUN` is deliberately not counted among
+ * them -- the manual says *arithmetic* exceptions, and BSUN is the
+ * branch-on-unordered one, raised by a conditional test rather than by an
+ * operation. Reading it the other way would make the register track slightly
+ * more often and is the alternative if this turns out wrong.
+ *
+ * Called before executing, which is what the "before the instruction is
+ * executed" clause means for a handler that has to find it. */
+void ap_m68882_note_instruction(ap_m68882_t *fpu, uint16_t operation_word,
+                                uint16_t command_word, uint32_t address);
+
 /* Evaluate a conditional predicate and report whether the condition holds.
  *
  * This is the *whole* of the part's contribution to `FBcc`, `FDBcc`, `FScc` and

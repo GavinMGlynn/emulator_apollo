@@ -1618,6 +1618,66 @@ alterable modes and `-(An)`. No category expresses that, so it is its own check 
 "If the effective address is the predecrement mode, only a register to memory
 operation is allowed."
 
+### The system control registers, and what makes the FPIAR worth having
+
+Opclasses `100` and `101` are one instruction wearing two names: "if a single
+register is selected, the opcode generated is the same as for the FMOVE single
+system control register instruction". So `FMOVE.L D0,FPCR` and
+`FMOVEM.L (A0),FPCR/FPSR/FPIAR` are the same path here, and the register count
+is the only thing that changes.
+
+Three rules, each stated by the manual and none inferable from the data-register
+transfers:
+
+- **Unimplemented bits read as zeros and are ignored on the way in.** "A 32-bit
+  transfer is always performed, even though the system control register may not
+  have 32 implemented bits." FPCR is two bytes -- the enable byte at 15-8, and
+  Figure 2-3's mode control byte, which is PREC at 7-6, RND at 5-4 and *zero at
+  3-0*. FPSR's condition code byte uses only 27-24, since Figure 2-4 prints
+  31-28 as one `0` field, and its accrued exception byte only 7-3. FPIAR is an
+  address and has all thirty-two. A model that stored the whole word would hand
+  the extra bits back on the next read and contradict itself rather than fault.
+- **The order is fixed at FPCR, FPSR, FPIAR** "regardless of the addressing mode
+  used" -- no reversal, and no dependence on the mode at all, which is the
+  opposite of the data registers a page earlier.
+- **The address register steps once**, by four times the register count: "the
+  address register is first decremented by the total size of the register images
+  to be moved (i.e., 4 times the number of registers) and then the registers are
+  transferred starting at the resultant address". So a predecrement here runs
+  *upwards* from the decremented base, where the data-register `FMOVEM`'s
+  predecrement runs downwards twelve bytes at a time. Two instructions, adjacent
+  in the manual, with opposite stepping rules.
+
+Writing the FPSR replaces every bit including the condition codes -- "all bits
+are modified to reflect the value of the source operand" -- which is what a
+context restore needs and what a merge would get wrong. And no write can raise
+anything: "a write to the FPCR exception enable byte or the FPSR exception
+status byte cannot generate a new exception, regardless of the value written",
+so enabling a trap whose exception bit is already set does not fire it.
+
+**The FPIAR now tracks**, which it had to before the transfer could move
+anything but zero. §2.4 gates it twice, and the second gate is the one worth
+naming: the register "is loaded with the logical address of an instruction
+before the instruction is executed (**unless all arithmetic exceptions are
+disabled**)". With the enable byte clear it does not move at all -- a condition
+easily dropped, because a register that always records looks perfectly
+plausible.
+
+The first gate is what the register is *for*: "Since the FPCP FMOVE to/from the
+FPCR, FPSR, or FPIAR and FMOVEM instructions cannot generate floating-point
+exceptions, these instructions do not modify the FPIAR. These instructions can
+be used to read the FPIAR in the trap handler without changing the previous
+value." A model that updated it on every instruction would destroy the value on
+the way to reading it.
+
+One judgement is recorded rather than hidden: `BSUN` is **not** counted among
+the arithmetic enables that gate the tracking. The manual says *arithmetic*
+exceptions, and BSUN is the branch-on-unordered one, raised by a conditional
+test rather than by an operation. Reading it the other way would make the
+register track slightly more often, and that is the alternative if this turns
+out wrong. Nothing observable distinguishes them today, because the conditional
+instruction types are not yet executed.
+
 ### The transcendentals
 
 All nineteen transcendentals are computed, and the `PROVISIONAL` that stood over
@@ -2823,7 +2883,7 @@ failure that cost a bit position in the 68020's module entry word.
 | 68030 translation table search (the walk) | working: search, U/M writeback, and ATC fill | `walk_suite`, 40 tests, `MC68030 User's Manual 3ed` §9.2, §9.4, §9.5, §11; writeback cost cross-checked against `MC68851 PMMU User's Manual 3ed` §5.1.5.3.11 |
 | MC68851 PMMU | working as its own subsystem: the translation control and root pointers, the six descriptor formats and Figure 5-10's type determination, the status and protection registers, the 64-entry ATC, and the table search with §5.1.5.3.11's U/M write-back. The **68030's** own MMU is separate and has its own rows above | `m68851_tc_suite` 13, `m68851_rp_suite` 13, `m68851_descriptor_suite` 21, `m68851_regs_suite` 22, `m68851_atc_suite` 22, `m68851_search_suite` 26, `m68851_suite` 43; `MC68851 PMMU User's Manual 3ed` |
 | 68040 MMU | not started | — |
-| MC68882 FPU | working, and attached to the 68030 as a *pointer* so a machine without one keeps its line 1111 trap. Every general-type operation executes: the four arithmetic operations, the exactly-specified monadics, the remainders, the single-precision pair, and **all nineteen transcendentals** to within §4.3.2's published bound. All three operand paths run — register-to-register, **`<ea>` to `FPn`** and **`FPn` to `<ea>`**, in all six binary formats from every legal addressing mode. `FMOVEM` of the data registers runs in both directions, with the reversed mask orderings and without touching the FPSR. Open: packed decimal, the control-register opclasses, `FMOVECR`, and the branch/conditional instruction *types* — for which the coprocessor's own half (`ap_m68882_condition`) is done and the 68030's dialog is not | `m68882_regs_suite` 19, `m68882_format_suite` 18, `m68882_cir_suite` 8, `m68882_round_suite` 11, `m68882_arith_suite` 41, `m68882_decode_suite` 12, `m68882_accuracy_suite` 10, `m68882_transcendental_suite` 36, `m68882_store_suite` 11, plus 23 tests in `step_suite`; `MC68881/MC68882 User's Manual 1ed` |
+| MC68882 FPU | working, and attached to the 68030 as a *pointer* so a machine without one keeps its line 1111 trap. Every general-type operation executes: the four arithmetic operations, the exactly-specified monadics, the remainders, the single-precision pair, and **all nineteen transcendentals** to within §4.3.2's published bound. All three operand paths run — register-to-register, **`<ea>` to `FPn`** and **`FPn` to `<ea>`**, in all six binary formats from every legal addressing mode. `FMOVEM` of the data registers runs in both directions with its reversed mask orderings, and so do the system control registers, with the FPIAR tracking under §2.4's two conditions. Open: packed decimal, `FMOVECR`, and the branch/conditional instruction *types* — for which the coprocessor's own half (`ap_m68882_condition`) is done and the 68030's dialog is not | `m68882_regs_suite` 19, `m68882_format_suite` 18, `m68882_cir_suite` 8, `m68882_round_suite` 11, `m68882_arith_suite` 41, `m68882_decode_suite` 12, `m68882_accuracy_suite` 10, `m68882_transcendental_suite` 36, `m68882_store_suite` 11, plus 28 tests in `step_suite`; `MC68881/MC68882 User's Manual 1ed` |
 | MC68040 FPU | timing tables only — §10.6, §10.7.1/§10.7.2 and §10.7.3's pipeline stages are transcribed; no 68040 arithmetic | `m68040_iu_timing_suite` 99, `m68040_fpu_timing_suite` 32, `m68040_fp_pipeline_suite` 18 |
 | Core-board registers (`010000`-`011600`) | working for the four that could be measured: CPU status (bit 15 stuck, writes clear the latched bits), CPU control and latch-page-on-parity (16 bits of storage), cache control (a *byte*, mirrored into both halves of a 16-bit read, one writable bit), each aliased across its 256-byte range. No manual here lays out these bits, so all of it is measured. **Width and storage only — no bit has a known meaning, and nothing may depend on one.** Task alias and master request are absent from the oracle and stay declined rather than modelled as all-ones | `boardreg_suite`, 12 tests; `FINDINGS.md` C10, `tools/mame-oracle/regprobe.lua`, two probe runs byte-identical |
 | Address translation map (`017000`) | working: the translation itself, both DMA widths, and the register file. Between the AT bus and physical memory, not the CPU's MMU -- a DMA controller has no MMU, and this is what lets it see scattered physical pages as one contiguous run. Present on DN3500/4500/5500 and absent on DN3000, from the model table | `atmap_suite`, 15 tests, `019411-A00` §4.2.1.4, `008778-03` §1.2, §2.5 |
@@ -3349,15 +3409,14 @@ Kept rather than discarded, so a future contradiction has a documented history.
 - The ring controller's register-level interface is not yet recovered; the
   manuals give its address window and block diagram but not its registers.
 
-- **The control-register opclasses and `FMOVECR` are not implemented.** Every
-  data transfer runs -- opclass `010` (`<ea>` to `FPn`), opclass `011` (`FPn` to
-  `<ea>`) in all six binary formats, and `FMOVEM` of the data registers in both
-  directions. What is left moves something other than data: opclasses `100` and
-  `101` move `FPCR`/`FPSR`/`FPIAR`, and `FMOVECR` reads a constant out of the
-  part's own ROM -- which needs that ROM's contents rather than any more
-  plumbing, and Motorola never published them. **Packed decimal** is
-  unimplemented in both directions and declines rather than decoding as
-  binary.
+- **`FMOVECR` is not implemented**, and is the one remaining general-type
+  encoding. Every transfer runs: opclass `010` (`<ea>` to `FPn`), opclass `011`
+  (`FPn` to `<ea>`) in all six binary formats, `FMOVEM` of the data registers,
+  and opclasses `100`/`101` for `FPCR`/`FPSR`/`FPIAR`. `FMOVECR` is different in
+  kind -- it reads a constant out of the part's **own ROM**, so what it needs is
+  that ROM's 64 entries rather than any more plumbing, and Motorola published
+  the offsets without the values. **Packed decimal** is unimplemented in both
+  directions and declines rather than decoding as binary.
 - **`FBcc`, `FDBcc`, `FScc` and `FTRAPcc` do not execute**, though the
   coprocessor's whole contribution to them does (`ap_m68882_condition`, all 32
   predicates with `BSUN`). What is missing is the 68030's half of §9's dialog —

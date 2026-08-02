@@ -5523,6 +5523,198 @@ static void test_fmovem_allows_each_increment_mode_in_one_direction_only(void) {
   TEST_ASSERT_EQUAL_HEX32(HANDLER, n.cpu.regs.pc);
 }
 
+/* **Unimplemented control-register bits read as zeros and are ignored on the
+ * way in.** "A 32-bit transfer is always performed, even though the system
+ * control register may not have 32 implemented bits. Unimplemented bits of a
+ * control register are read as zeros and are ignored during writes."
+ *
+ * So a program writing all ones and reading back gets the mask, and a model
+ * that stored the whole word would hand back bits the part does not have --
+ * which would contradict its own next read rather than fault. */
+static void test_the_control_registers_mask_their_unimplemented_bits(void) {
+  /* FMOVE.L D0,FPCR then FMOVE.L FPCR,D1 : $9000 is dr = 0 selecting FPCR,
+   * $B000 is dr = 1. $F200 is `D0`, $F201 is `D1`. */
+  static const uint16_t program[] = {0xF200u, 0x9000u, 0xF201u, 0xB000u,
+                                     0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 5);
+
+  ap_m68882_t fpu;
+  ap_m68882_reset(&fpu);
+  m.cpu.fpu = &fpu;
+  m.cpu.regs.d[0] = 0xFFFFFFFFu;
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&m.cpu).status);
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&m.cpu).status);
+  /* The enable byte at 15-8, PREC at 7-6 and RND at 5-4; bits 3-0 are printed
+   * as zero in Figure 2-3 and bits 31-16 do not exist. */
+  TEST_ASSERT_EQUAL_HEX32(0x0000FFF0u, m.cpu.regs.d[1]);
+
+  /* The FPSR's mask is its own: Figure 2-4 prints bits 31-28 as a single zero
+   * field, and Figure 2-7 the accrued byte's bits 2-0. */
+  static const uint16_t status[] = {0xF200u, 0x8800u, 0xF201u, 0xA800u,
+                                    0x4E71u};
+  machine_t n = {0};
+  load(&n, status, 5);
+  ap_m68882_t second;
+  ap_m68882_reset(&second);
+  n.cpu.fpu = &second;
+  n.cpu.regs.d[0] = 0xFFFFFFFFu;
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&n.cpu).status);
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&n.cpu).status);
+  TEST_ASSERT_EQUAL_HEX32(0x0FFFFFF8u, n.cpu.regs.d[1]);
+}
+
+/* Writing the FPSR **replaces** it, condition codes included: "Changed only if
+ * the destination is the FPSR; in which case all bits are modified to reflect
+ * the value of the source operand." A merge would leave an earlier comparison's
+ * codes standing, which is the opposite of what a context restore wants. */
+static void test_writing_the_status_register_replaces_every_bit(void) {
+  static const uint16_t program[] = {0xF200u, 0x8800u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 3);
+
+  ap_m68882_t fpu;
+  ap_m68882_reset(&fpu);
+  m.cpu.fpu = &fpu;
+  /* Condition codes and an exception bit standing from earlier work. */
+  fpu.regs.fpsr = (UINT32_C(1) << AP_M68882_FPCC_Z) |
+                  (UINT32_C(1) << AP_M68882_FPCC_N) |
+                  (UINT32_C(1) << AP_M68882_EXC_OVFL);
+  m.cpu.regs.d[0] = 0u;
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&m.cpu).status);
+  TEST_ASSERT_EQUAL_HEX32(0u, fpu.regs.fpsr);
+}
+
+/* `FMOVEM` of the control registers moves them "always ... in the same order,
+ * regardless of the addressing mode used; with the FPCR moved first, followed
+ * by the FPSR, and the FPIAR moved last" -- no reversal, unlike the data
+ * registers, and no dependence on the mode at all.
+ *
+ * And **the address register steps once**, by four times the register count,
+ * where the data registers' predecrement steps twelve at a time. That makes a
+ * predecrement here run *upwards* through memory from the decremented base,
+ * which is the opposite of the data-register case and the easiest thing to
+ * carry across wrongly. */
+static void test_the_control_registers_move_in_one_fixed_order(void) {
+  /* FMOVEM.L FPCR/FPSR/FPIAR,-(A0) : $F220 is `-(A0)`, $BC00 is dr = 1 with
+   * all three selected. */
+  static const uint16_t program[] = {0xF220u, 0xBC00u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 3);
+
+  ap_m68882_t fpu;
+  ap_m68882_reset(&fpu);
+  m.cpu.fpu = &fpu;
+  fpu.regs.fpcr = 0x0000FFF0u;
+  fpu.regs.fpsr = 0x0F000000u;
+  fpu.regs.fpiar = 0x12345678u;
+  m.cpu.regs.a[0] = FP_OPERAND + 12u;
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&m.cpu).status);
+  /* Decremented once by 4 x 3, then written upwards from there. */
+  TEST_ASSERT_EQUAL_HEX32(FP_OPERAND, m.cpu.regs.a[0]);
+  TEST_ASSERT_EQUAL_HEX32(0x0000FFF0u, read_ram_long(&m, FP_OPERAND));
+  TEST_ASSERT_EQUAL_HEX32(0x0F000000u, read_ram_long(&m, FP_OPERAND + 4u));
+  TEST_ASSERT_EQUAL_HEX32(0x12345678u, read_ram_long(&m, FP_OPERAND + 8u));
+}
+
+/* The register direct modes are allowed only for a *single* register -- "If a
+ * single system control register is selected, the data register direct
+ * addressing mode may be used; or, if the only register selected is the FPIAR,
+ * then the address register direct addressing mode is allowed."
+ *
+ * Two refusals and two permissions, and the FPIAR's is the interesting one: it
+ * is the only control register that holds an address, which is why it is the
+ * only one an address register may carry. */
+static void test_register_direct_needs_a_single_control_register(void) {
+  /* FMOVE.L FPIAR,A1 -- allowed. $F209 is `A1`, $A400 is dr = 1, FPIAR only. */
+  static const uint16_t program[] = {0xF209u, 0xA400u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 3);
+  ap_m68882_t fpu;
+  ap_m68882_reset(&fpu);
+  m.cpu.fpu = &fpu;
+  fpu.regs.fpiar = 0x0000ABCDu;
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&m.cpu).status);
+  TEST_ASSERT_EQUAL_HEX32(0x0000ABCDu, m.cpu.regs.a[1]);
+
+  /* FMOVE.L FPCR,A1 -- refused: an address register carries only the FPIAR. */
+  static const uint16_t wrong_register[] = {0xF209u, 0xB000u, 0x4E71u};
+  machine_t n = {0};
+  load(&n, wrong_register, 3);
+  plant_vector(&n, AP_M68030_VECTOR_COPROCESSOR_PROTOCOL, HANDLER);
+  n.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
+  n.cpu.regs.isp = SUPERVISOR_STACK;
+  ap_m68882_t second;
+  ap_m68882_reset(&second);
+  n.cpu.fpu = &second;
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXCEPTION, ap_m68030_step(&n.cpu).status);
+  TEST_ASSERT_EQUAL_HEX32(HANDLER, n.cpu.regs.pc);
+
+  /* FMOVEM.L FPCR/FPSR,D0 -- refused: two registers into one data register. */
+  static const uint16_t two[] = {0xF200u, 0xB800u, 0x4E71u};
+  machine_t o = {0};
+  load(&o, two, 3);
+  plant_vector(&o, AP_M68030_VECTOR_COPROCESSOR_PROTOCOL, HANDLER);
+  o.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
+  o.cpu.regs.isp = SUPERVISOR_STACK;
+  ap_m68882_t third;
+  ap_m68882_reset(&third);
+  o.cpu.fpu = &third;
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXCEPTION, ap_m68030_step(&o.cpu).status);
+  TEST_ASSERT_EQUAL_HEX32(HANDLER, o.cpu.regs.pc);
+}
+
+/* **The FPIAR tracks only when a trap could use it.** §2.4: the register "is
+ * loaded with the logical address of an instruction before the instruction is
+ * executed (unless all arithmetic exceptions are disabled)" -- so with the
+ * enable byte clear it does not move at all, which is the condition most easily
+ * dropped because the register still looks plausible without it.
+ *
+ * And the transfers never load it: "Since the FPCP FMOVE to/from the FPCR,
+ * FPSR, or FPIAR and FMOVEM instructions cannot generate floating-point
+ * exceptions, these instructions do not modify the FPIAR. These instructions
+ * can be used to read the FPIAR in the trap handler without changing the
+ * previous value" -- which is the register's whole purpose, and a model that
+ * updated it on every instruction would destroy the value on the way to
+ * reading it. */
+static void test_the_instruction_address_register_tracks_only_when_useful(void) {
+  /* FADD FP0,FP1, then FMOVE.L FPIAR,D0. */
+  static const uint16_t program[] = {0xF200u, 0x00A2u, 0xF200u, 0xA400u,
+                                     0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 5);
+  ap_m68882_t fpu;
+  ap_m68882_reset(&fpu);
+  m.cpu.fpu = &fpu;
+
+  /* Every arithmetic trap disabled, which is the reset state. */
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&m.cpu).status);
+  TEST_ASSERT_EQUAL_HEX32(0u, fpu.regs.fpiar);
+
+  /* Enable one, and the same instruction now records its address. */
+  machine_t n = {0};
+  load(&n, program, 5);
+  ap_m68882_t second;
+  ap_m68882_reset(&second);
+  n.cpu.fpu = &second;
+  second.regs.fpcr = UINT32_C(1) << AP_M68882_EXC_OVFL;
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&n.cpu).status);
+  TEST_ASSERT_EQUAL_HEX32(PROGRAM_BASE, second.regs.fpiar);
+
+  /* The following FMOVE reads it without disturbing it -- the second
+   * instruction is at PROGRAM_BASE + 4, and the register still names the
+   * first. */
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&n.cpu).status);
+  TEST_ASSERT_EQUAL_HEX32(PROGRAM_BASE, second.regs.fpiar);
+  TEST_ASSERT_EQUAL_HEX32(PROGRAM_BASE, n.cpu.regs.d[0]);
+}
+
 /* Packed decimal is a source format the encoding allows and this model has not
  * got to. Reported as our gap rather than decoded as binary, which would turn a
  * BCD operand into a plausible wrong number. */
@@ -5565,6 +5757,11 @@ int main(void) {
   RUN_TEST(test_a_dynamic_register_list_reads_its_mask_from_a_data_register);
   RUN_TEST(test_fmovem_moves_a_signalling_nan_without_touching_the_fpsr);
   RUN_TEST(test_fmovem_allows_each_increment_mode_in_one_direction_only);
+  RUN_TEST(test_the_control_registers_mask_their_unimplemented_bits);
+  RUN_TEST(test_writing_the_status_register_replaces_every_bit);
+  RUN_TEST(test_the_control_registers_move_in_one_fixed_order);
+  RUN_TEST(test_register_direct_needs_a_single_control_register);
+  RUN_TEST(test_the_instruction_address_register_tracks_only_when_useful);
   RUN_TEST(test_reset_performs_all_ten_documented_steps);
   RUN_TEST(test_reset_stacks_nothing);
   RUN_TEST(test_bkpt_takes_an_illegal_instruction_when_nothing_answers);

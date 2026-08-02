@@ -3793,6 +3793,152 @@ static fp_source_result_t execute_fmovem(ap_m68030_cpu_t *cpu,
   return FP_SOURCE_FETCHED;
 }
 
+/* The system control registers: `FMOVE` of one and `FMOVEM` of several, which
+ * are one encoding and so one routine.
+ *
+ * **The address register steps once, not per register**, and that is the rule
+ * that differs from the data-register FMOVEM directly above: "If the addressing
+ * mode is predecrement, the address register is first decremented by the total
+ * size of the register images to be moved (i.e., 4 times the number of
+ * registers) and then the registers are transferred starting at the resultant
+ * address. For the postincrement addressing mode, the selected registers are
+ * transferred to or from the specified address, and then the address register is
+ * incremented by the total size." So both increment modes run *upwards* through
+ * memory here, where the data registers' predecrement runs downwards.
+ *
+ * The register direct modes are allowed only for a single register, and the
+ * address registers only for the FPIAR -- which is the one control register that
+ * holds an address. */
+static fp_source_result_t transfer_fp_control(ap_m68030_cpu_t *cpu,
+                                              const ap_m68030_coproc_t *coproc,
+                                              const ap_m68882_control_t *control,
+                                              uint32_t *clocks) {
+  const ap_m68030_ea_kind_t kind = coproc->ea.kind;
+  const unsigned count = ap_m68882_control_count(control->select);
+  const unsigned bytes_total = count * 4u;
+
+  if (count == 0u) {
+    /* A select of zero names nothing. Nothing is transferred and no address is
+     * evaluated, which is what "if a register is to be moved, the corresponding
+     * bit in the list is set" leaves when none is. */
+    return FP_SOURCE_FETCHED;
+  }
+
+  const bool single_register_direct =
+      kind == AP_M68030_EA_DATA_REGISTER && count == 1u;
+  /* "Only if the FPIAR is the single register selected" -- the footnote is on
+   * the address register row in both directions. */
+  const bool fpiar_only =
+      kind == AP_M68030_EA_ADDRESS_REGISTER &&
+      control->select == (1u << AP_M68882_CONTROL_FPIAR);
+
+  if (!single_register_direct && !fpiar_only) {
+    /* Everything else must be a memory mode -- alterable too, when the transfer
+     * is outward. */
+    const bool allowed = control->to_memory
+                             ? ap_m68030_ea_is_memory_alterable(kind)
+                             : ap_m68030_ea_is_memory(kind);
+    if (!allowed) {
+      return FP_SOURCE_PROTOCOL_VIOLATION;
+    }
+  }
+
+  /* A register direct destination or source, which by the rules above is
+   * exactly one register. */
+  if (single_register_direct || fpiar_only) {
+    unsigned bit = AP_M68882_CONTROL_FPCR;
+    while ((control->select & (1u << bit)) == 0u) {
+      bit--;
+    }
+    uint32_t *const reg = (kind == AP_M68030_EA_DATA_REGISTER)
+                              ? &cpu->regs.d[coproc->ea.reg]
+                              : &cpu->regs.a[coproc->ea.reg];
+    if (control->to_memory) {
+      *reg = ap_m68882_control_read(cpu->fpu, bit);
+    } else {
+      ap_m68882_control_write(cpu->fpu, bit, *reg);
+    }
+    return FP_SOURCE_FETCHED;
+  }
+
+  /* An immediate source is in the instruction stream: four bytes per register,
+   * and only ever inward, since the register-to-memory table has no `#<data>`
+   * row at all. */
+  uint32_t base = 0;
+  if (kind == AP_M68030_EA_IMMEDIATE) {
+    if (control->to_memory) {
+      return FP_SOURCE_PROTOCOL_VIOLATION;
+    }
+    for (unsigned bit = AP_M68882_CONTROL_FPCR;
+         bit + 1u > AP_M68882_CONTROL_FPIAR; bit--) {
+      if ((control->select & (1u << bit)) == 0u) {
+        continue;
+      }
+      uint16_t high = 0;
+      uint16_t low = 0;
+      if (!next_word(cpu, clocks, &high) || !next_word(cpu, clocks, &low)) {
+        return FP_SOURCE_FAILED;
+      }
+      ap_m68882_control_write(cpu->fpu, bit,
+                              ((uint32_t)high << 16) | (uint32_t)low);
+    }
+    return FP_SOURCE_FETCHED;
+  }
+
+  if (kind == AP_M68030_EA_PREDECREMENT) {
+    cpu->regs.a[coproc->ea.reg] -= bytes_total;
+    base = cpu->regs.a[coproc->ea.reg];
+  } else if (kind == AP_M68030_EA_POSTINCREMENT) {
+    base = cpu->regs.a[coproc->ea.reg];
+    cpu->regs.a[coproc->ea.reg] += bytes_total;
+  } else {
+    ap_m68030_address_input_t input = {0};
+    if (!gather_address_input(cpu, kind, bytes_total, clocks, &input)) {
+      return FP_SOURCE_FAILED;
+    }
+    const ap_m68030_address_t where =
+        resolve_address(cpu, clocks, coproc->ea, &input);
+    if (!where.valid) {
+      return FP_SOURCE_FAILED;
+    }
+    base = where.address;
+  }
+
+  /* "The registers are always moved in the same order, regardless of the
+   * addressing mode used; with the FPCR moved first, followed by the FPSR, and
+   * the FPIAR moved last", at successively higher addresses. Bit 12 down to bit
+   * 10 is that order, so the walk is the same shape as FMOVEM's and without its
+   * reversal. */
+  unsigned transferred = 0;
+  for (unsigned bit = AP_M68882_CONTROL_FPCR;
+       bit + 1u > AP_M68882_CONTROL_FPIAR; bit--) {
+    if ((control->select & (1u << bit)) == 0u) {
+      continue;
+    }
+    const ap_m68030_address_t where = {.address = base + 4u * transferred,
+                                       .valid = true};
+    if (control->to_memory) {
+      const ap_m68030_operand_result_t wrote = step_operand_write(
+          cpu, &cpu->regs, cpu->data, &where, 4u,
+          ap_m68882_control_read(cpu->fpu, bit), cpu->data_function_code);
+      *clocks += wrote.clocks;
+      if (!wrote.ok) {
+        return FP_SOURCE_FAILED;
+      }
+    } else {
+      const ap_m68030_operand_result_t read = step_operand_read(
+          cpu, &cpu->regs, cpu->data, &where, 4u, cpu->data_function_code);
+      *clocks += read.clocks;
+      if (!read.ok) {
+        return FP_SOURCE_FAILED;
+      }
+      ap_m68882_control_write(cpu->fpu, bit, read.value);
+    }
+    transferred++;
+  }
+  return FP_SOURCE_FETCHED;
+}
+
 /* Whether an instruction "forces a change of flow", which is what the T1=0,
  * T0=1 trace mode watches. `[030]` §8.1.7: "Instructions that are traced in this
  * mode include all branches, jumps, instruction traps, returns, and coprocessor
@@ -4473,6 +4619,12 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
         return out;
       }
 
+      /* §2.4's "before the instruction is executed", which is the only time it
+       * is any use to a handler trying to find the instruction. The part
+       * decides whether this one records at all -- the transfers do not. */
+      ap_m68882_note_instruction(cpu->fpu, out.instruction, command,
+                                 instruction_address);
+
       /* Ask the part what it needs before executing anything. For opclass
        * `010` the answer is a data format, and the main processor fetches the
        * operand -- which is the whole of §10.4.9's division of labour, and the
@@ -4565,8 +4717,34 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
               break;
             }
           } else if (executed == AP_M68882_EXECUTED) {
-            /* Both operands already in the part: opclass `000`. */
-            executed = ap_m68882_execute(cpu->fpu, out.instruction, command);
+            bool is_control = false;
+            ap_m68882_control_t control = {0};
+            executed = ap_m68882_control_transfer(
+                cpu->fpu, out.instruction, command, &is_control, &control);
+
+            if (executed == AP_M68882_EXECUTED && is_control) {
+              bool violated = false;
+              switch (
+                  transfer_fp_control(cpu, coproc, &control, &out.clocks)) {
+              case FP_SOURCE_FETCHED:
+                break;
+              case FP_SOURCE_PROTOCOL_VIOLATION:
+                cpu->pending_vector = AP_M68030_VECTOR_COPROCESSOR_PROTOCOL;
+                violated = true;
+                break;
+              case FP_SOURCE_FAILED:
+                out.status =
+                    fault_or_unimplemented(cpu, &out, instruction_address);
+                cpu->clocks += out.clocks;
+                return out;
+              }
+              if (violated) {
+                break;
+              }
+            } else if (executed == AP_M68882_EXECUTED) {
+              /* Both operands already in the part: opclass `000`. */
+              executed = ap_m68882_execute(cpu->fpu, out.instruction, command);
+            }
           }
         }
       }

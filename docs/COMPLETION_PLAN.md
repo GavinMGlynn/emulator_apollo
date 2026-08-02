@@ -2005,6 +2005,35 @@ a 68882, and the 68882 is the only one of these it has.
         the register's high bits; a signalling NAN surviving with the FPSR
         untouched; and each increment mode refused in the direction it is not
         allowed.*
+  - [x] **The system control registers**, opclasses `100` and `101`, where
+        `FMOVE` of one and `FMOVEM` of several are the *same encoding* -- "if a
+        single register is selected, the opcode generated is the same as for the
+        FMOVE single system control register instruction" -- so they are one
+        path and the count is what changes. Always a 32-bit transfer, with
+        unimplemented bits reading as zeros and ignored on the way in; the
+        order is fixed at FPCR, FPSR, FPIAR "regardless of the addressing mode
+        used", with no reversal and no dependence on the mode. **The address
+        register steps once**, by four times the count, so a predecrement here
+        runs *upwards* from the decremented base -- the opposite of the
+        data-register `FMOVEM` directly above it, and the easiest thing to carry
+        across wrongly. Writing the FPSR replaces every bit including the
+        condition codes, and no write can raise an exception: "a write to the
+        FPCR exception enable byte or the FPSR exception status byte cannot
+        generate a new exception, regardless of the value written."
+        **The FPIAR now tracks**, which it had to before the transfer moved
+        anything but zero. §2.4 gates it twice: only the instructions that can
+        trap record an address, and none of them records it "unless all
+        arithmetic exceptions are disabled" -- so with the enable byte clear the
+        register does not move, which is the condition most easily dropped
+        because the register looks plausible without it.
+        *Verification: `step_suite`, 5 further tests (224 total) -- both
+        registers' unimplemented-bit masks through a write-then-read; the FPSR
+        replaced rather than merged; all three stored through a predecrement in
+        their fixed order, which pins the once-only step; register direct
+        refused for two registers and address register direct refused for
+        anything but the FPIAR, each against its legal neighbour; and the FPIAR
+        recording only with a trap enabled, then surviving the `FMOVE` that
+        reads it.*
   - [x] **The exactly-specified monadic operations**: `FSQRT`, `FGETEXP`,
         `FGETMAN`, `FINT`, `FINTRZ` and `FSCALE`. §4.3.2 puts square root under
         the IEEE bound rather than with the transcendentals -- "except square

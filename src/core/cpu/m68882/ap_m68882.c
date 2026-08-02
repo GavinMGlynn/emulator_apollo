@@ -446,6 +446,126 @@ ap_m68882_status_t ap_m68882_execute_source(
   return execute_general(fpu, &command, source);
 }
 
+void ap_m68882_note_instruction(ap_m68882_t *fpu, uint16_t operation_word,
+                                uint16_t command_word, uint32_t address) {
+  ap_m68882_command_word_t command = {0};
+  if (decode_general(fpu, operation_word, command_word, &command) !=
+      AP_M68882_EXECUTED) {
+    return;
+  }
+
+  switch (command.opclass) {
+  case AP_M68882_OPCLASS_REGISTER:
+  case AP_M68882_OPCLASS_MEMORY_TO_REGISTER:
+  case AP_M68882_OPCLASS_REGISTER_TO_MEMORY:
+    /* The arithmetic opclasses, which includes the store: narrowing to a
+     * destination format raises `OPERR`, `OVFL`, `UNFL` and `INEX2`, so a store
+     * is one of the instructions a handler may have to locate. */
+    break;
+  case AP_M68882_OPCLASS_RESERVED_1:
+  case AP_M68882_OPCLASS_MOVE_TO_CONTROL:
+  case AP_M68882_OPCLASS_MOVE_FROM_CONTROL:
+  case AP_M68882_OPCLASS_MOVEM_TO_REGISTERS:
+  case AP_M68882_OPCLASS_MOVEM_FROM_REGISTERS:
+    /* "these instructions do not modify the FPIAR" -- which is what lets a trap
+     * handler read it. */
+    return;
+  }
+
+  /* "unless all arithmetic exceptions are disabled". The enable byte is FPCR
+   * bits 15-8; `BSUN` at bit 15 is excluded because it is not an arithmetic
+   * exception. See the header. */
+  const uint32_t arithmetic_enables =
+      fpu->regs.fpcr & ((UINT32_C(1) << AP_M68882_EXC_SNAN) |
+                        (UINT32_C(1) << AP_M68882_EXC_OPERR) |
+                        (UINT32_C(1) << AP_M68882_EXC_OVFL) |
+                        (UINT32_C(1) << AP_M68882_EXC_UNFL) |
+                        (UINT32_C(1) << AP_M68882_EXC_DZ) |
+                        (UINT32_C(1) << AP_M68882_EXC_INEX2) |
+                        (UINT32_C(1) << AP_M68882_EXC_INEX1));
+  if (arithmetic_enables == 0u) {
+    return;
+  }
+  fpu->regs.fpiar = address;
+}
+
+ap_m68882_status_t ap_m68882_control_transfer(const ap_m68882_t *fpu,
+                                              uint16_t operation_word,
+                                              uint16_t command_word,
+                                              bool *is_control,
+                                              ap_m68882_control_t *control) {
+  *is_control = false;
+
+  ap_m68882_command_word_t command = {0};
+  const ap_m68882_status_t decoded =
+      decode_general(fpu, operation_word, command_word, &command);
+  if (decoded != AP_M68882_EXECUTED) {
+    return decoded;
+  }
+
+  if (command.opclass != AP_M68882_OPCLASS_MOVE_TO_CONTROL &&
+      command.opclass != AP_M68882_OPCLASS_MOVE_FROM_CONTROL) {
+    return AP_M68882_EXECUTED; /* not this instruction */
+  }
+
+  control->to_memory = command.opclass == AP_M68882_OPCLASS_MOVE_FROM_CONTROL;
+  control->select = (unsigned)(command_word & 0x1C00u);
+  *is_control = true;
+  return AP_M68882_EXECUTED;
+}
+
+unsigned ap_m68882_control_count(unsigned select) {
+  unsigned count = 0;
+  for (unsigned bit = AP_M68882_CONTROL_FPIAR; bit <= AP_M68882_CONTROL_FPCR;
+       bit++) {
+    if ((select & (1u << bit)) != 0u) {
+      count++;
+    }
+  }
+  return count;
+}
+
+uint32_t ap_m68882_control_read(const ap_m68882_t *fpu, unsigned bit) {
+  switch (bit) {
+  case AP_M68882_CONTROL_FPCR:
+    return fpu->regs.fpcr & AP_M68882_FPCR_IMPLEMENTED;
+  case AP_M68882_CONTROL_FPSR:
+    return fpu->regs.fpsr & AP_M68882_FPSR_IMPLEMENTED;
+  case AP_M68882_CONTROL_FPIAR:
+    return fpu->regs.fpiar;
+  default:
+    break;
+  }
+  return 0u;
+}
+
+void ap_m68882_control_write(ap_m68882_t *fpu, unsigned bit, uint32_t value) {
+  switch (bit) {
+  case AP_M68882_CONTROL_FPCR:
+    /* Masked on the way in as well as out: "ignored during writes". A model
+     * that stored the whole word would hand the extra bits back on the next
+     * read and contradict "read as zeros". */
+    fpu->regs.fpcr = value & AP_M68882_FPCR_IMPLEMENTED;
+    break;
+  case AP_M68882_CONTROL_FPSR:
+    /* "Changed only if the destination is the FPSR; in which case **all bits
+     * are modified** to reflect the value of the source operand." So this is a
+     * replacement and not a merge -- the condition codes included, which is the
+     * one way a control move touches them. */
+    fpu->regs.fpsr = value & AP_M68882_FPSR_IMPLEMENTED;
+    break;
+  case AP_M68882_CONTROL_FPIAR:
+    fpu->regs.fpiar = value;
+    break;
+  default:
+    break;
+  }
+  /* No `apply_exceptions`. "a write to the FPCR exception enable byte or the
+   * FPSR exception status byte cannot generate a new exception, regardless of
+   * the value written" -- so enabling a trap whose exception bit is already set
+   * does not fire it here. */
+}
+
 ap_m68882_status_t ap_m68882_movem_transfer(const ap_m68882_t *fpu,
                                             uint16_t operation_word,
                                             uint16_t command_word,
