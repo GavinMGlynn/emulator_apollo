@@ -1911,8 +1911,20 @@ a 68882, and the 68882 is the only one of these it has.
         operation word's low six bits are an effective address depends on the
         *command* word**, with move constant the exception inside its own
         opclass: it reads the FPCP's ROM and touches no memory.
-  - [ ] The transcendentals, and wiring the whole part to the 68030's F-line
-        path.
+  - [x] **Wired to the 68030's F-line path** (`ap_m68882.c`), so an `FADD`
+        actually runs. The part is a *pointer* on the CPU rather than a member,
+        because fitted-or-not is a machine property: a DN3500 has a 68882 and a
+        DN3000 does not, and the only thing software can see is that an F-line
+        word otherwise takes the line 1111 emulator exception. Attaching one
+        must not change that for a machine without one.
+        *Verification: `step_suite`, 5 further tests (201 total) -- the trap
+        with none fitted; the instruction executing with one, its source
+        untouched and the program counter past **both** words; a different cpID
+        still trapping, since a machine may hold several coprocessors; an
+        undefined extension trapping *with* one fitted, which is the same vector
+        arriving for a different reason; and an unimplemented form reported as
+        our gap rather than as the machine's trap.*
+  - [ ] The transcendentals.
 - [ ] 68020 subset: no on-chip MMU or cache differences, external 68851.
       *Verification: `dn3000` boots under both; oracle diff.*
 - [ ] 68851 external PMMU as its own subsystem. *Verification: `MC68851 PMMU

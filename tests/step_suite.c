@@ -4829,8 +4829,131 @@ static void test_reset_stacks_nothing(void) {
   TEST_ASSERT_EQUAL_UINT(stores_before, m.memory.stores);
 }
 
+
+/* ---------------------------------------------------------------------------
+ * The floating-point coprocessor, reached through the F-line path.
+ * ------------------------------------------------------------------------- */
+
+/* With no coprocessor fitted an F-line word takes the line 1111 emulator
+ * exception, `[030]` §8.1 -- which is a DN3000, and is what this core did
+ * before there was an FPU to attach. Attaching one must not change it, which is
+ * why the part is a pointer on the CPU rather than a member. */
+static void test_an_f_line_word_traps_when_no_coprocessor_is_fitted(void) {
+  /* FADD FP0,FP1 : operation word $F200, command word $00A2 -- opclass 000,
+   * RX (source) 000 at bits 12-10, RY (destination) 001 at bits 9-7, and $22
+   * in the extension. */
+  static const uint16_t program[] = {0xF200u, 0x00A2u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 3);
+  plant_vector(&m, AP_M68030_VECTOR_LINE_F, HANDLER);
+  m.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
+  m.cpu.regs.isp = SUPERVISOR_STACK;
+  TEST_ASSERT_NULL(m.cpu.fpu);
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXCEPTION, ap_m68030_step(&m.cpu).status);
+  TEST_ASSERT_EQUAL_HEX32(HANDLER, m.cpu.regs.pc);
+}
+
+/* With one fitted, the instruction executes. `FADD FP0,FP1` adds the source
+ * register into the destination -- "FPn + Source -> FPn" -- and the condition
+ * codes come from the result. */
+static void test_a_fitted_coprocessor_executes_an_f_line_instruction(void) {
+  static const uint16_t program[] = {0xF200u, 0x00A2u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 3);
+
+  ap_m68882_t fpu;
+  ap_m68882_reset(&fpu);
+  m.cpu.fpu = &fpu;
+
+  /* 1.0 in both registers, so the sum is 2.0. */
+  fpu.regs.fp[0] = ap_m68882_from_single(0x3F800000u);
+  fpu.regs.fp[1] = ap_m68882_from_single(0x3F800000u);
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&m.cpu).status);
+  TEST_ASSERT_EQUAL_HEX32(0x40000000u, ap_m68882_to_single(&fpu.regs.fp[1]));
+  /* And the source is untouched, which is what makes it FPn + Source and not a
+   * swap. */
+  TEST_ASSERT_EQUAL_HEX32(0x3F800000u, ap_m68882_to_single(&fpu.regs.fp[0]));
+
+  /* The program counter moved past **both** words: the command word is part of
+   * the instruction, and a step that consumed only the operation word would
+   * decode the command word as the next instruction. */
+  TEST_ASSERT_EQUAL_HEX32(PROGRAM_BASE + 4u, m.cpu.regs.pc);
+}
+
+/* A coprocessor answering a *different* cpID does not answer this one. A
+ * machine may hold several, and the FPU takes only its own -- so an instruction
+ * for cpID 3 still traps with a 68882 fitted at cpID 1. */
+static void test_a_fitted_coprocessor_ignores_another_cpid(void) {
+  /* cpID 3: operation word $F600. */
+  static const uint16_t program[] = {0xF600u, 0x00A2u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 3);
+  plant_vector(&m, AP_M68030_VECTOR_LINE_F, HANDLER);
+  m.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
+  m.cpu.regs.isp = SUPERVISOR_STACK;
+
+  ap_m68882_t fpu;
+  ap_m68882_reset(&fpu);
+  m.cpu.fpu = &fpu;
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXCEPTION, ap_m68030_step(&m.cpu).status);
+  TEST_ASSERT_EQUAL_HEX32(HANDLER, m.cpu.regs.pc);
+}
+
+/* **An undefined extension traps even with a coprocessor fitted**, and it is
+ * the *same* vector an unfitted machine takes -- Table 4-13's footnote 2 has
+ * the FPCP itself ask the MPU for an F-line trap. So the two arrive at one
+ * handler for different reasons, which is the hardware's behaviour and not a
+ * conflation. */
+static void test_an_undefined_extension_traps_with_a_coprocessor_fitted(void) {
+  /* Extension $7F, which Table 4-13 leaves undefined. */
+  static const uint16_t program[] = {0xF200u, 0x007Fu, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 3);
+  plant_vector(&m, AP_M68030_VECTOR_LINE_F, HANDLER);
+  m.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
+  m.cpu.regs.isp = SUPERVISOR_STACK;
+
+  ap_m68882_t fpu;
+  ap_m68882_reset(&fpu);
+  m.cpu.fpu = &fpu;
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXCEPTION, ap_m68030_step(&m.cpu).status);
+  TEST_ASSERT_EQUAL_HEX32(HANDLER, m.cpu.regs.pc);
+}
+
+/* **An unimplemented form is reported as ours, not as the machine's.** A
+ * transcendental is an instruction the hardware executes, so raising F-line for
+ * it would be indistinguishable from a correct unfitted machine and the gap
+ * would stop being visible -- the same rule the MMU's own unimplemented forms
+ * follow. */
+static void test_an_unimplemented_coprocessor_form_is_reported_as_our_gap(void) {
+  /* FSIN, extension $0E: defined by the part, not implemented here. */
+  static const uint16_t program[] = {0xF200u, 0x000Eu, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 3);
+
+  ap_m68882_t fpu;
+  ap_m68882_reset(&fpu);
+  m.cpu.fpu = &fpu;
+
+  const ap_m68030_step_result_t r = ap_m68030_step(&m.cpu);
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_UNIMPLEMENTED, r.status);
+  TEST_ASSERT_NOT_EQUAL_INT(AP_M68030_STEP_EXCEPTION, r.status);
+  /* And the program counter did not move, so "how far did this get" stays a
+   * real measure. */
+  TEST_ASSERT_EQUAL_HEX32(PROGRAM_BASE, m.cpu.regs.pc);
+}
+
 int main(void) {
   UNITY_BEGIN();
+  RUN_TEST(test_an_f_line_word_traps_when_no_coprocessor_is_fitted);
+  RUN_TEST(test_a_fitted_coprocessor_executes_an_f_line_instruction);
+  RUN_TEST(test_a_fitted_coprocessor_ignores_another_cpid);
+  RUN_TEST(test_an_undefined_extension_traps_with_a_coprocessor_fitted);
+  RUN_TEST(test_an_unimplemented_coprocessor_form_is_reported_as_our_gap);
   RUN_TEST(test_reset_performs_all_ten_documented_steps);
   RUN_TEST(test_reset_stacks_nothing);
   RUN_TEST(test_bkpt_takes_an_illegal_instruction_when_nothing_answers);
