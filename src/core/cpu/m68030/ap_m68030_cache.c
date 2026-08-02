@@ -284,6 +284,11 @@ ap_m68030_cache_read(ap_m68030_cache_t *cache, uint32_t address,
   fill(context, burst ? line_address : cycle_address, function_code, &answer);
 
   ap_m68030_bus_t bus;
+  /* The RMC the caller is running under: `read_modify_write` is already this
+   * signal at the cache level, and §7.3.6 says burst "is never used during
+   * read-modify-write cycles" -- which ap_m68030_bus_request_burst now enforces
+   * from the same flag rather than from a second one that could disagree. */
+  bus.rmc = read_modify_write;
   ap_m68030_bus_begin(&bus, cycle_address, function_code, AP_M68030_SIZE_LONG,
                       true, true);
   if (burst) {

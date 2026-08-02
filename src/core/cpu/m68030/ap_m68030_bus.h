@@ -122,6 +122,21 @@ typedef struct {
   bool bursting;          /* the burst was accepted and is under way */
   unsigned burst_beats;   /* long words transferred, including the first */
 
+  /* RMC, `[030]` §7.3.5 and §7.3.6. Asserted for the *whole* read-modify-write
+   * operation rather than per cycle -- "the read-modify-write operation is
+   * indivisible", and RMC is what tells the rest of the system so. It is
+   * therefore begun and ended by the caller around a pair of cycles, not by
+   * `ap_m68030_bus_begin`, which knows only about one.
+   *
+   * Two consequences the model must carry rather than infer. **Burst is never
+   * used**: "although the operation is synchronous, the burst mode is never
+   * used during read-modify-write cycles", so a line fill cannot happen inside
+   * one. And an arbitration grant is refused for the duration, which
+   * `ap_m68030_arb` already implements -- that is the whole point of the
+   * signal, and without it a DMA controller could take the bus between the read
+   * and the write. */
+  bool rmc;
+
   bool ecs;  /* external cycle start */
   bool ocs;  /* operand cycle start */
   bool as;   /* address strobe */
@@ -135,6 +150,12 @@ typedef struct {
 void ap_m68030_bus_begin(ap_m68030_bus_t *bus, uint32_t address,
                          uint8_t function_code, ap_m68030_size_t size, bool read,
                          bool first_operand);
+
+/* Assert and negate RMC around an indivisible operation. `[030]` §7.3.5's
+ * flowchart begins "ASSERT READ-MODIFY-WRITE CYCLE (RMC)" before the read and
+ * ends "NEGATE RMC" after the write, so it spans both cycles and neither of
+ * them owns it. */
+void ap_m68030_bus_set_rmc(ap_m68030_bus_t *bus, bool asserted);
 
 /* The number of long words a full burst transfers: "The MC68030 allows a burst
  * of as many as four long words." */

@@ -617,8 +617,25 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         - `BKPT` runs a breakpoint acknowledge cycle in **CPU space**, which is
           a bus transaction this step does not issue. Blocked on the bus, not on
           the step.
-        - `CAS` and `CAS2` are an indivisible read-modify-write: executing them
-          honestly means the bus asserting `RMC` for the pair. Also the bus.
+        - `CAS` **now executes**, and the bus asserts `RMC` across the pair.
+          The signal lives on the access context rather than on a bus object,
+          because each access creates its own cycle and the signal spans two of
+          them. §7.3.6's "the burst mode is never used during read-modify-write
+          cycles" is enforced at the request rather than at the acceptance, so
+          `CBREQ` is never raised inside one.
+          *Verification: `bus_suite`, 2 further tests (25 total) -- `RMC`
+          surviving the cycle boundary inside an operation, and a burst refused
+          with `CBACK` offered anyway so the refusal is not cosmetic.
+          `step_suite`, 4 further tests (189 total) -- the swap on a match; the
+          **write that still happens on a mismatch**, going the other way into
+          the compare register, which a model that skipped the store would turn
+          into a retry loop that spins forever; and the lock released on both
+          outcomes, since `RMC` held past the instruction would refuse every
+          later bus grant.*
+        - `CAS2` still declines: two independent memory operands under one
+          locked sequence is a two-address atomic this operand path cannot
+          express, and running it as two `CAS` operations would be a different
+          instruction with the same mnemonic.
         - `CMP2` and `CHK2` decode and have no semantics yet. **Not blocked** —
           simply not done, and the smallest remaining piece of this item.
         - The non-MMU coprocessor instructions take the line 1111 emulator trap,

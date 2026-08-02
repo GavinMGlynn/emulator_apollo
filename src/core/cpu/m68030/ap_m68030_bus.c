@@ -61,6 +61,10 @@ static void apply_signals(ap_m68030_bus_t *bus) {
   }
 }
 
+void ap_m68030_bus_set_rmc(ap_m68030_bus_t *bus, bool asserted) {
+  bus->rmc = asserted;
+}
+
 void ap_m68030_bus_begin(ap_m68030_bus_t *bus, uint32_t address,
                          uint8_t function_code, ap_m68030_size_t size, bool read,
                          bool first_operand) {
@@ -87,9 +91,22 @@ void ap_m68030_bus_begin(ap_m68030_bus_t *bus, uint32_t address,
   bus->ocs = first_operand;
   bus->ecs = false;
   bus->as = bus->ds = bus->dben = false;
+  /* RMC is deliberately *not* cleared here: it spans the read and the write
+   * of one indivisible operation, so a cycle beginning inside one must not
+   * drop it. `ap_m68030_bus_set_rmc` is what ends it. */
 }
 
-void ap_m68030_bus_request_burst(ap_m68030_bus_t *bus) { bus->cbreq = true; }
+void ap_m68030_bus_request_burst(ap_m68030_bus_t *bus) {
+  /* "Although the operation is synchronous, the burst mode is never used during
+   * read-modify-write cycles" (§7.3.6). Refused here rather than at the
+   * acceptance test below, so the request is never even made -- CBREQ is a pin,
+   * and a model that asserted it and then ignored CBACK would be describing a
+   * processor that changes its mind. */
+  if (bus->rmc) {
+    return;
+  }
+  bus->cbreq = true;
+}
 
 void ap_m68030_bus_acknowledge_burst(ap_m68030_bus_t *bus, bool acknowledged) {
   bus->cback = acknowledged;

@@ -38,7 +38,7 @@ ap_m68030_access_result_t ap_m68030_access_read(ap_m68030_access_ctx_t *access,
   const ap_m68030_access_t tt_access = {.address = logical,
                                      .function_code = function_code,
                                      .read = true,
-                                     .read_modify_write = false};
+                                     .read_modify_write = access->rmc};
   const ap_m68030_tt_result_t transparent =
       ap_m68030_tt_translate(access->tt0, access->tt1, &tt_access);
 
@@ -64,7 +64,7 @@ ap_m68030_access_result_t ap_m68030_access_read(ap_m68030_access_ctx_t *access,
     } else {
       const ap_m68030_search_access_t search_access = {
           .write = false,
-          .read_modify_write = false,
+          .read_modify_write = access->rmc,
           .supervisor = (function_code & 4u) != 0u};
       const ap_m68030_walk_result_t walk =
           ap_m68030_walk(access->tc, access->root, logical, &search_access,
@@ -126,7 +126,7 @@ ap_m68030_access_result_t ap_m68030_access_write(ap_m68030_access_ctx_t *access,
   const ap_m68030_access_t tt_access = {.address = logical,
                                         .function_code = function_code,
                                         .read = false,
-                                        .read_modify_write = false};
+                                        .read_modify_write = access->rmc};
   const ap_m68030_tt_result_t transparent =
       ap_m68030_tt_translate(access->tt0, access->tt1, &tt_access);
 
@@ -161,7 +161,7 @@ ap_m68030_access_result_t ap_m68030_access_write(ap_m68030_access_ctx_t *access,
     if (search) {
       const ap_m68030_search_access_t search_access = {
           .write = true,
-          .read_modify_write = false,
+          .read_modify_write = access->rmc,
           .supervisor = (function_code & 4u) != 0u};
       const ap_m68030_walk_result_t walk =
           ap_m68030_walk(access->tc, access->root, logical, &search_access,
@@ -215,6 +215,9 @@ ap_m68030_access_result_t ap_m68030_access_write(ap_m68030_access_ctx_t *access,
    * this longer by itself, which is the point of counting ticks rather than
    * asserting a number. */
   ap_m68030_bus_t write_bus;
+  /* The context's RMC, so a cycle inside an indivisible operation carries the
+   * signal the operation asserted. */
+  write_bus.rmc = access->rmc;
   ap_m68030_bus_begin(&write_bus, physical, function_code,
                       size == 4u ? AP_M68030_SIZE_LONG
                                  : (size == 2u ? AP_M68030_SIZE_WORD

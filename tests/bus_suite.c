@@ -364,8 +364,62 @@ static void test_a_bus_error_ends_a_burst_early(void) {
   TEST_ASSERT_LESS_THAN_UINT(AP_M68030_BURST_BEATS, bus.burst_beats);
 }
 
+
+/* RMC spans a *pair* of cycles, `[030]` §7.3.5's flowchart beginning "ASSERT
+ * READ-MODIFY-WRITE CYCLE (RMC)" before the read and ending "NEGATE RMC" after
+ * the write. So beginning a new cycle inside one must not drop it -- a model
+ * that cleared the signal with the rest at S0 would leave the write half
+ * unprotected, which is exactly the window a DMA controller would take. */
+static void test_rmc_survives_the_cycle_boundary_inside_it(void) {
+  ap_m68030_bus_t bus = {0};
+  ap_m68030_bus_set_rmc(&bus, true);
+
+  ap_m68030_bus_begin(&bus, 0x1000u, 5u, AP_M68030_SIZE_LONG, true, true);
+  for (unsigned i = 0; i < 3u && !bus.complete; i++) {
+    ap_m68030_bus_terminate(&bus, AP_M68030_TERM_STERM);
+    (void)ap_m68030_bus_tick(&bus);
+  }
+  TEST_ASSERT_TRUE(bus.complete);
+  TEST_ASSERT_TRUE(bus.rmc);
+
+  /* The write half of the same operation. */
+  ap_m68030_bus_begin(&bus, 0x1000u, 5u, AP_M68030_SIZE_LONG, false, false);
+  TEST_ASSERT_TRUE(bus.rmc);
+
+  ap_m68030_bus_set_rmc(&bus, false);
+  TEST_ASSERT_FALSE(bus.rmc);
+}
+
+/* "Although the operation is synchronous, the burst mode is never used during
+ * read-modify-write cycles" (§7.3.6). The request is refused outright rather
+ * than asserted and then ignored: CBREQ is a pin, and a processor that raised
+ * it and disregarded CBACK would be a different processor. */
+static void test_a_burst_is_never_requested_inside_an_rmc_operation(void) {
+  ap_m68030_bus_t bus = {0};
+  ap_m68030_bus_begin(&bus, 0x2000u, 5u, AP_M68030_SIZE_LONG, true, true);
+  ap_m68030_bus_request_burst(&bus);
+  TEST_ASSERT_TRUE(bus.cbreq); /* the control: outside an RMC it is requested */
+
+  ap_m68030_bus_t locked = {0};
+  ap_m68030_bus_set_rmc(&locked, true);
+  ap_m68030_bus_begin(&locked, 0x2000u, 5u, AP_M68030_SIZE_LONG, true, true);
+  ap_m68030_bus_request_burst(&locked);
+  TEST_ASSERT_FALSE(locked.cbreq);
+
+  /* And with CBACK offered anyway, the cycle stays an ordinary one rather than
+   * becoming a burst -- so the refusal is not merely cosmetic. */
+  ap_m68030_bus_acknowledge_burst(&locked, true);
+  for (unsigned i = 0; i < 3u && !locked.complete; i++) {
+    ap_m68030_bus_terminate(&locked, AP_M68030_TERM_STERM);
+    (void)ap_m68030_bus_tick(&locked);
+  }
+  TEST_ASSERT_FALSE(locked.bursting);
+}
+
 int main(void) {
   UNITY_BEGIN();
+  RUN_TEST(test_rmc_survives_the_cycle_boundary_inside_it);
+  RUN_TEST(test_a_burst_is_never_requested_inside_an_rmc_operation);
   RUN_TEST(test_a_minimum_asynchronous_read_takes_three_clocks);
   RUN_TEST(test_a_synchronous_read_terminated_by_sterm_takes_two_clocks);
   RUN_TEST(test_a_synchronous_cycle_with_one_wait_state_takes_three_clocks);

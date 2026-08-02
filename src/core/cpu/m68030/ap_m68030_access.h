@@ -71,7 +71,14 @@ typedef struct {
   bool burst_enabled; /* IBE or DBE */
   bool write_allocate; /* CACR's WA, for the data cache's write misses */
   bool cache_disable; /* the CDIS signal, which overrides CACR */
-  bool translation_enabled; /* TC's E bit */
+  bool translation_enabled;
+
+  /* RMC, held across the read and the write of an indivisible operation. It
+   * lives on the context rather than on a bus object because each access
+   * creates its own cycle -- the signal spans two of them, so nothing shorter
+   * than the context can hold it. `[030]` §7.3.5: assert before the read,
+   * negate after the write. */
+  bool rmc; /* TC's E bit */
 
   /* The table search's bus access, and the fill's, as callbacks -- the same
    * shape `ap_m68030_walk` and `ap_m68030_cache_read` already use. */

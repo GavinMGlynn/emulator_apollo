@@ -4461,15 +4461,81 @@ static void test_an_address_register_is_checked_over_all_32_bits(void) {
       1u, (ap_m68030_read_ccr(&as_address.cpu.regs) >> AP_M68030_SR_C_BIT) & 1u);
 }
 
-/* CAS still declines rather than running without the indivisible read-modify-
- * write its whole purpose rests on. Reported unimplemented, not illegal: the
- * encoding is a real instruction. */
-static void test_cas_still_declines(void) {
-  /* CAS.W D0,D1,(A0): 0000 1 10 011 010 000 = $0CD0 */
+/* CAS on a match: the update register goes to memory, and Z is set.
+ *
+ * CAS.W Dc=D0,Du=D1,(A0) -- the extension word is `0000 000 001 000 000`, Du in
+ * bits 8-6 and Dc in bits 2-0, so D1 updates and D0 compares. */
+static void test_cas_swaps_when_the_comparison_matches(void) {
   static const uint16_t program[] = {0x0CD0u, 0x0040u, 0x4E71u};
   machine_t m = {0};
   load(&m, program, 3);
   m.cpu.regs.a[0] = BOUNDS_AT;
+  write_ram_word(&m, BOUNDS_AT, 0x1234u);
+  m.cpu.regs.d[0] = 0x1234u; /* compare: matches memory */
+  m.cpu.regs.d[1] = 0xABCDu; /* update */
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&m.cpu).status);
+  TEST_ASSERT_EQUAL_UINT(
+      1u, (ap_m68030_read_ccr(&m.cpu.regs) >> AP_M68030_SR_Z_BIT) & 1u);
+  /* The update reached memory. */
+  const uint32_t stored =
+      ((uint32_t)m.memory.bytes[BOUNDS_AT] << 8) | m.memory.bytes[BOUNDS_AT + 1u];
+  TEST_ASSERT_EQUAL_HEX32(0xABCDu, stored);
+  /* And the compare register is untouched on a match. */
+  TEST_ASSERT_EQUAL_HEX32(0x1234u, m.cpu.regs.d[0] & 0xFFFFu);
+}
+
+/* **On a mismatch the write still happens, and it goes the other way**: "the
+ * instruction writes the effective address operand to the compare operand".
+ * A model that simply skipped the store would leave Dc holding what the caller
+ * expected rather than what was actually there -- which is precisely the value
+ * the caller needs in order to retry, so the loop would spin forever. */
+static void test_cas_loads_the_compare_register_when_it_fails(void) {
+  static const uint16_t program[] = {0x0CD0u, 0x0040u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 3);
+  m.cpu.regs.a[0] = BOUNDS_AT;
+  write_ram_word(&m, BOUNDS_AT, 0x1234u);
+  m.cpu.regs.d[0] = 0x9999u; /* compare: does not match */
+  m.cpu.regs.d[1] = 0xABCDu;
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&m.cpu).status);
+  TEST_ASSERT_EQUAL_UINT(
+      0u, (ap_m68030_read_ccr(&m.cpu.regs) >> AP_M68030_SR_Z_BIT) & 1u);
+  /* Memory is unchanged... */
+  const uint32_t stored =
+      ((uint32_t)m.memory.bytes[BOUNDS_AT] << 8) | m.memory.bytes[BOUNDS_AT + 1u];
+  TEST_ASSERT_EQUAL_HEX32(0x1234u, stored);
+  /* ...and the compare register now holds what memory had. */
+  TEST_ASSERT_EQUAL_HEX32(0x1234u, m.cpu.regs.d[0] & 0xFFFFu);
+}
+
+/* The lock is released either way. RMC held past the instruction would refuse
+ * every later bus grant, so a DMA controller would never run again -- a failure
+ * that appears only once something else wants the bus. */
+static void test_cas_releases_the_lock_on_both_outcomes(void) {
+  static const uint16_t program[] = {0x0CD0u, 0x0040u, 0x4E71u};
+  for (unsigned matching = 0; matching < 2u; matching++) {
+    machine_t m = {0};
+    load(&m, program, 3);
+    m.cpu.regs.a[0] = BOUNDS_AT;
+    write_ram_word(&m, BOUNDS_AT, 0x1234u);
+    m.cpu.regs.d[0] = matching != 0u ? 0x1234u : 0x9999u;
+    TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED,
+                          ap_m68030_step(&m.cpu).status);
+    TEST_ASSERT_FALSE(m.data_access.rmc);
+  }
+}
+
+/* CAS2 still declines. It names *two* independent memory operands held under
+ * one locked sequence, which is a two-address atomic this operand path cannot
+ * express -- and running it as two separate CAS operations would be a different
+ * instruction with the same mnemonic. */
+static void test_cas2_still_declines(void) {
+  /* CAS2.W: the immediate escape, $0CFC, then two extension words. */
+  static const uint16_t program[] = {0x0CFCu, 0x0040u, 0x1040u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 4);
   TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_UNIMPLEMENTED,
                         ap_m68030_step(&m.cpu).status);
 }
@@ -4524,7 +4590,10 @@ int main(void) {
   RUN_TEST(test_chk2_traps_out_of_bounds_where_cmp2_does_not);
   RUN_TEST(test_cmp2_handles_signed_bounds);
   RUN_TEST(test_an_address_register_is_checked_over_all_32_bits);
-  RUN_TEST(test_cas_still_declines);
+  RUN_TEST(test_cas_swaps_when_the_comparison_matches);
+  RUN_TEST(test_cas_loads_the_compare_register_when_it_fails);
+  RUN_TEST(test_cas_releases_the_lock_on_both_outcomes);
+  RUN_TEST(test_cas2_still_declines);
   RUN_TEST(test_ori_to_the_status_register_sets_the_interrupt_mask);
   RUN_TEST(test_andi_to_the_condition_codes_leaves_the_high_byte);
   RUN_TEST(test_ori_to_the_status_register_is_privileged);

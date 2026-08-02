@@ -3405,6 +3405,95 @@ static bool changes_flow(const ap_m68030_decoded_t *decoded, bool branch_taken,
 }
 
 
+/* CAS, `M68000 Family PRM` 4-65.
+ *
+ * "CAS compares the effective address operand to the compare operand (Dc). If
+ * the operands are equal, the instruction writes the update operand (Du) to the
+ * effective address operand; otherwise, the instruction writes the effective
+ * address operand to the compare operand (Dc)."
+ *
+ * ## The lock is the instruction
+ *
+ * "Both operations access memory using locked or read-modify-write transfer
+ * sequences, providing a means of synchronizing several processors." So the
+ * read and the write are one indivisible operation, and `RMC` is what says so
+ * to the rest of the machine: `ap_m68030_arb` refuses a bus grant while it is
+ * asserted, which is what stops a DMA controller taking the bus between the two
+ * halves. Running the read and the write without it would produce the right
+ * bytes and the wrong instruction -- a compare-and-swap that is not atomic is
+ * not a compare-and-swap, and the failure only appears under contention.
+ *
+ * ## The write happens on *failure* too, and it is a different write
+ *
+ * On a match the update register goes to memory. On a mismatch the *memory*
+ * goes to the compare register -- a register write, not a memory one. A model
+ * that simply skipped the store on mismatch would leave `Dc` holding the value
+ * the caller expected rather than the one that was actually there, which is
+ * precisely the value the caller needs in order to retry. */
+static bool execute_cas(ap_m68030_cpu_t *cpu, const ap_m68030_bounds_t *bounds,
+                        uint16_t extension, uint32_t *clocks) {
+  ap_m68030_address_input_t input = {0};
+  if (!gather_address_input(cpu, bounds->ea.kind, bounds->size, clocks,
+                            &input)) {
+    return false;
+  }
+  ap_m68030_address_t where = resolve_address(cpu, clocks, bounds->ea, &input);
+  if (!where.valid || where.in_register || where.immediate) {
+    /* "Memory alterable" only: the operand is compared and conditionally
+     * written back, so a register or an immediate is not one of its modes. */
+    return false;
+  }
+
+  const unsigned compare_reg = ap_m68030_cas_compare_register(extension);
+  const unsigned update_reg = ap_m68030_cas_update_register(extension);
+
+  /* RMC spans both halves. Asserted before the read and negated after the
+   * write, exactly as §7.3.5's flowchart has it. */
+  cpu->data->rmc = true;
+
+  const ap_m68030_operand_result_t read = step_operand_read(
+      cpu, &cpu->regs, cpu->data, &where, bounds->size,
+      cpu->data_function_code);
+  *clocks += read.clocks;
+  if (!read.ok) {
+    cpu->data->rmc = false;
+    return false;
+  }
+
+  /* The comparison is an ordinary subtract and sets all four codes -- "N set if
+   * the result is negative", V and C included -- unlike CMP2, whose N and V are
+   * undefined. */
+  const uint16_t ccr = ap_m68030_read_ccr(&cpu->regs);
+  const ap_m68030_alu_result_t compared = ap_m68030_alu_sub(
+      read.value, cpu->regs.d[compare_reg], bounds->size);
+  ap_m68030_write_ccr(&cpu->regs, ap_m68030_alu_apply(ccr, &compared));
+
+  bool ok = true;
+  if (compared.z) {
+    const ap_m68030_operand_result_t wrote = step_operand_write(
+        cpu, &cpu->regs, cpu->data, &where, bounds->size,
+        cpu->regs.d[update_reg], cpu->data_function_code);
+    *clocks += wrote.clocks;
+    ok = wrote.ok;
+  } else {
+    /* "otherwise, the instruction writes the effective address operand to the
+     * compare operand" -- into the register, at the operand's width, leaving
+     * the rest of Dc alone as any partial data-register write does. */
+    ap_m68030_address_t into_register = {0};
+    into_register.valid = true;
+    into_register.in_register = true;
+    into_register.reg = compare_reg;
+    const ap_m68030_operand_result_t back = step_operand_write(
+        cpu, &cpu->regs, cpu->data, &into_register, bounds->size, read.value,
+        cpu->data_function_code);
+    *clocks += back.clocks;
+    ok = back.ok;
+  }
+
+  cpu->data->rmc = false;
+  return ok;
+}
+
 /* CMP2 and CHK2, `M68000 Family PRM` pages 4-70 and 4-81.
  *
  * "Compares the value in Rn to each bound. The effective address contains the
@@ -3450,10 +3539,17 @@ static bool execute_bounds(ap_m68030_cpu_t *cpu,
 
   const ap_m68030_bounds_kind_t kind =
       ap_m68030_bounds_kind(bounds, extension);
+
+  if (kind == AP_M68030_BOUNDS_CAS) {
+    return execute_cas(cpu, bounds, extension, clocks);
+  }
   if (kind != AP_M68030_BOUNDS_CMP2 && kind != AP_M68030_BOUNDS_CHK2) {
-    /* CAS and CAS2 need the bus to assert RMC across their read and write, and
-     * that is the bus module's item. Declined rather than run without the
-     * indivisibility, which is the whole point of the instruction. */
+    /* CAS2 alone still declines. It names *two* independent memory operands and
+     * holds both under one locked sequence -- "if either comparison fails, the
+     * instruction writes the memory operands to the compare operands" -- which
+     * is a two-address atomic this operand path cannot express. Declined rather
+     * than run as two separate CAS operations, which would be a different
+     * instruction with the same mnemonic. */
     return false;
   }
 
