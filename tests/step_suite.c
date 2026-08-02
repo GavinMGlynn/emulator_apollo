@@ -4289,8 +4289,200 @@ static void test_ori_to_the_status_register_is_privileged(void) {
   TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXCEPTION, ap_m68030_step(&m.cpu).status);
 }
 
+
+/* ---------------------------------------------------------------------------
+ * CMP2 and CHK2, `M68000 Family PRM` 4-70 and 4-81.
+ * ------------------------------------------------------------------------- */
+
+/* The bounds pair, well clear of the program image. */
+#define BOUNDS_AT 0x00003000u
+
+static void write_ram_word(machine_t *m, uint32_t address, uint16_t value) {
+  TEST_ASSERT_TRUE_MESSAGE(address + 2u <= RAM_BYTES,
+                           "address outside the harness RAM");
+  m->memory.bytes[address] = (uint8_t)(value >> 8);
+  m->memory.bytes[address + 1u] = (uint8_t)value;
+}
+
+/* The pair in memory, the register between them, and Z set only on a bound.
+ * `CMP2.W (A0),D1` with bounds 10..20.
+ *
+ * The instruction is `0000 0 SIZE 011 <ea>` with the register in the extension
+ * word's bits 14-12 and D/A in bit 15. */
+static void test_cmp2_reports_in_bounds_without_trapping(void) {
+  /* CMP2.W (A0),D1 : 0000 0 01 011 010 000 = $02D0, extension $1000 */
+  static const uint16_t program[] = {0x02D0u, 0x1000u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 3);
+  m.cpu.regs.a[0] = BOUNDS_AT;
+  write_ram_word(&m, BOUNDS_AT, 10u);
+  write_ram_word(&m, BOUNDS_AT + 2u, 20u);
+  m.cpu.regs.d[1] = 15u;
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&m.cpu).status);
+  const uint16_t ccr = ap_m68030_read_ccr(&m.cpu.regs);
+  /* In bounds and on neither: C and Z both clear. */
+  TEST_ASSERT_EQUAL_UINT(0u, (ccr >> AP_M68030_SR_C_BIT) & 1u);
+  TEST_ASSERT_EQUAL_UINT(0u, (ccr >> AP_M68030_SR_Z_BIT) & 1u);
+}
+
+/* "Z -- Set if Rn is equal to either bound". Either, and the test is run on
+ * both so a model checking only the lower one fails. */
+static void test_cmp2_sets_z_on_either_bound(void) {
+  static const uint16_t program[] = {0x02D0u, 0x1000u, 0x4E71u};
+  for (unsigned which = 0; which < 2u; which++) {
+    machine_t m = {0};
+    load(&m, program, 3);
+    m.cpu.regs.a[0] = BOUNDS_AT;
+    write_ram_word(&m, BOUNDS_AT, 10u);
+    write_ram_word(&m, BOUNDS_AT + 2u, 20u);
+    m.cpu.regs.d[1] = which == 0u ? 10u : 20u;
+
+    TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&m.cpu).status);
+    const uint16_t ccr = ap_m68030_read_ccr(&m.cpu.regs);
+    TEST_ASSERT_EQUAL_UINT(1u, (ccr >> AP_M68030_SR_Z_BIT) & 1u);
+    TEST_ASSERT_EQUAL_UINT(0u, (ccr >> AP_M68030_SR_C_BIT) & 1u);
+  }
+}
+
+/* Out of bounds sets C, and CMP2 does **not** trap -- "it sets condition codes
+ * rather than taking an exception", which is the entire difference from CHK2
+ * and the thing a shared implementation gets wrong. */
+static void test_cmp2_sets_carry_out_of_bounds_and_does_not_trap(void) {
+  static const uint16_t program[] = {0x02D0u, 0x1000u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 3);
+  m.cpu.regs.a[0] = BOUNDS_AT;
+  write_ram_word(&m, BOUNDS_AT, 10u);
+  write_ram_word(&m, BOUNDS_AT + 2u, 20u);
+  m.cpu.regs.d[1] = 25u;
+
+  const ap_m68030_step_result_t result = ap_m68030_step(&m.cpu);
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, result.status);
+  TEST_ASSERT_EQUAL_UINT(
+      1u, (ap_m68030_read_ccr(&m.cpu.regs) >> AP_M68030_SR_C_BIT) & 1u);
+}
+
+/* CHK2 is the same instruction and traps, vector 6. Bit 11 of the *extension*
+ * word is what tells them apart -- nothing in the instruction word does, so a
+ * decoder that never read the extension would run every CHK2 as a CMP2 and
+ * silently skip the trap. */
+static void test_chk2_traps_out_of_bounds_where_cmp2_does_not(void) {
+  /* Same instruction word; extension $1800 sets bit 11. */
+  static const uint16_t program[] = {0x02D0u, 0x1800u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 3);
+  m.cpu.regs.a[0] = BOUNDS_AT;
+  write_ram_word(&m, BOUNDS_AT, 10u);
+  write_ram_word(&m, BOUNDS_AT + 2u, 20u);
+  m.cpu.regs.d[1] = 25u;
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXCEPTION, ap_m68030_step(&m.cpu).status);
+
+  /* And in bounds it does not trap, so the trap is the bounds test and not the
+   * instruction. */
+  machine_t inside = {0};
+  load(&inside, program, 3);
+  inside.cpu.regs.a[0] = BOUNDS_AT;
+  write_ram_word(&inside, BOUNDS_AT, 10u);
+  write_ram_word(&inside, BOUNDS_AT + 2u, 20u);
+  inside.cpu.regs.d[1] = 15u;
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED,
+                        ap_m68030_step(&inside.cpu).status);
+}
+
+/* **Signed bounds work through the same comparison as unsigned ones.** The
+ * manual gives the processor no signedness mode -- it tells the programmer
+ * which ordering to use -- so one test must serve both. Bounds -5..5 with a
+ * register of -10 is out; with -1 it is in. A model comparing unsigned would
+ * call -1 enormous and report it out of bounds. */
+static void test_cmp2_handles_signed_bounds(void) {
+  static const uint16_t program[] = {0x02D0u, 0x1000u, 0x4E71u};
+  const struct {
+    uint16_t value;
+    unsigned carry;
+  } CASES[] = {
+      {0xFFF6u, 1u}, /* -10, below the lower bound */
+      {0xFFFFu, 0u}, /* -1, inside */
+      {0x0000u, 0u}, /* 0, inside */
+      {0x000Au, 1u}, /* 10, above the upper bound */
+  };
+
+  for (unsigned i = 0; i < sizeof CASES / sizeof CASES[0]; i++) {
+    machine_t m = {0};
+    load(&m, program, 3);
+    m.cpu.regs.a[0] = BOUNDS_AT;
+    write_ram_word(&m, BOUNDS_AT, 0xFFFBu); /* -5 */
+    write_ram_word(&m, BOUNDS_AT + 2u, 5u);
+    m.cpu.regs.d[1] = CASES[i].value;
+
+    TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&m.cpu).status);
+    TEST_ASSERT_EQUAL_UINT(
+        CASES[i].carry,
+        (ap_m68030_read_ccr(&m.cpu.regs) >> AP_M68030_SR_C_BIT) & 1u);
+  }
+}
+
+/* An **address** register is compared over all 32 bits against sign-extended
+ * bounds, where a data register is compared only at the operand's width. Same
+ * instruction, same bounds, same bit pattern in the register -- and different
+ * answers, which is what makes this worth its own test.
+ *
+ * Bounds -5..5 as words. A0 holds $FFFFFFF6, which is -10 over 32 bits and out
+ * of bounds; D1 holds the same bits, whose low word is -10 and also out. So the
+ * discriminating value is one whose *upper half* matters: $0001FFFF is +131071
+ * over 32 bits (out) and -1 in its low word (in). */
+static void test_an_address_register_is_checked_over_all_32_bits(void) {
+  static const uint16_t data_form[] = {0x02D0u, 0x1000u, 0x4E71u};
+  static const uint16_t address_form[] = {0x02D0u, 0x9000u, 0x4E71u};
+
+  machine_t as_data = {0};
+  load(&as_data, data_form, 3);
+  as_data.cpu.regs.a[0] = BOUNDS_AT;
+  write_ram_word(&as_data, BOUNDS_AT, 0xFFFBu); /* -5 */
+  write_ram_word(&as_data, BOUNDS_AT + 2u, 5u);
+  as_data.cpu.regs.d[1] = 0x0001FFFFu;
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED,
+                        ap_m68030_step(&as_data.cpu).status);
+  /* Only the low word is checked: -1, inside. */
+  TEST_ASSERT_EQUAL_UINT(
+      0u, (ap_m68030_read_ccr(&as_data.cpu.regs) >> AP_M68030_SR_C_BIT) & 1u);
+
+  machine_t as_address = {0};
+  load(&as_address, address_form, 3);
+  as_address.cpu.regs.a[0] = BOUNDS_AT;
+  write_ram_word(&as_address, BOUNDS_AT, 0xFFFBu);
+  write_ram_word(&as_address, BOUNDS_AT + 2u, 5u);
+  as_address.cpu.regs.a[1] = 0x0001FFFFu;
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED,
+                        ap_m68030_step(&as_address.cpu).status);
+  /* All 32 bits: +131071, well outside. */
+  TEST_ASSERT_EQUAL_UINT(
+      1u, (ap_m68030_read_ccr(&as_address.cpu.regs) >> AP_M68030_SR_C_BIT) & 1u);
+}
+
+/* CAS still declines rather than running without the indivisible read-modify-
+ * write its whole purpose rests on. Reported unimplemented, not illegal: the
+ * encoding is a real instruction. */
+static void test_cas_still_declines(void) {
+  /* CAS.W D0,D1,(A0): 0000 1 10 011 010 000 = $0CD0 */
+  static const uint16_t program[] = {0x0CD0u, 0x0040u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 3);
+  m.cpu.regs.a[0] = BOUNDS_AT;
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_UNIMPLEMENTED,
+                        ap_m68030_step(&m.cpu).status);
+}
+
 int main(void) {
   UNITY_BEGIN();
+  RUN_TEST(test_cmp2_reports_in_bounds_without_trapping);
+  RUN_TEST(test_cmp2_sets_z_on_either_bound);
+  RUN_TEST(test_cmp2_sets_carry_out_of_bounds_and_does_not_trap);
+  RUN_TEST(test_chk2_traps_out_of_bounds_where_cmp2_does_not);
+  RUN_TEST(test_cmp2_handles_signed_bounds);
+  RUN_TEST(test_an_address_register_is_checked_over_all_32_bits);
+  RUN_TEST(test_cas_still_declines);
   RUN_TEST(test_ori_to_the_status_register_sets_the_interrupt_mask);
   RUN_TEST(test_andi_to_the_condition_codes_leaves_the_high_byte);
   RUN_TEST(test_ori_to_the_status_register_is_privileged);

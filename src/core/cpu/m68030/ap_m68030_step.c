@@ -3386,6 +3386,145 @@ static bool changes_flow(const ap_m68030_decoded_t *decoded, bool branch_taken,
   return false;
 }
 
+
+/* CMP2 and CHK2, `M68000 Family PRM` pages 4-70 and 4-81.
+ *
+ * "Compares the value in Rn to each bound. The effective address contains the
+ * bounds pair: the upper bound following the lower bound."
+ *
+ * ## One comparison serves both signed and unsigned bounds
+ *
+ * The manual does not give the processor a signedness mode; it tells the
+ * *programmer* which ordering to use -- "For signed comparisons, the
+ * arithmetically smaller value should be used as the lower bound. For unsigned
+ * comparisons, the logically smaller value should be the lower bound." So the
+ * instruction cannot be looking at the sign of anything: it must be a test that
+ * is correct under both readings given the stated ordering.
+ *
+ * The range check that satisfies exactly that is one unsigned comparison of the
+ * offsets from the lower bound:
+ *
+ *     out of bounds  <=>  (unsigned)(Rn - LB) > (unsigned)(UB - LB)
+ *
+ * Signed bounds -5..5 with Rn = -10 gives an offset of -5, which as an unsigned
+ * value is enormous and exceeds the span of 10 -- out. Unsigned bounds 10..20
+ * with Rn = 5 gives the same, and is out for the same reason. A model that
+ * chose signed or unsigned by inspecting the operands would have to invent the
+ * rule for choosing, and would differ from this on the wrapped cases that are
+ * precisely the ones the idiom exists to get right.
+ *
+ * ## The address register case reaches further than the operand size
+ *
+ * "If Rn is a data register and the operation size is byte or word, only the
+ * appropriate low-order part of Rn is checked. If Rn is an address register and
+ * the operation size is byte or word, the bounds operands are sign-extended to
+ * 32 bits, and the resultant operands are compared to the full 32 bits of An."
+ *
+ * So the same instruction compares 8 bits of a data register and 32 bits of an
+ * address register, and a model that masked both to the operand size would let
+ * a large negative An pass every byte-sized check. */
+static bool execute_bounds(ap_m68030_cpu_t *cpu,
+                           const ap_m68030_bounds_t *bounds, uint32_t *clocks) {
+  uint16_t extension = 0;
+  if (!next_word(cpu, clocks, &extension)) {
+    return false;
+  }
+
+  const ap_m68030_bounds_kind_t kind =
+      ap_m68030_bounds_kind(bounds, extension);
+  if (kind != AP_M68030_BOUNDS_CMP2 && kind != AP_M68030_BOUNDS_CHK2) {
+    /* CAS and CAS2 need the bus to assert RMC across their read and write, and
+     * that is the bus module's item. Declined rather than run without the
+     * indivisibility, which is the whole point of the instruction. */
+    return false;
+  }
+
+  ap_m68030_address_input_t input = {0};
+  if (!gather_address_input(cpu, bounds->ea.kind, bounds->size, clocks,
+                            &input)) {
+    return false;
+  }
+  ap_m68030_address_t where = resolve_address(cpu, clocks, bounds->ea, &input);
+  if (!where.valid || where.in_register || where.immediate) {
+    /* Both pages give a control addressing mode only: the bounds are a *pair*
+     * in memory, so a register operand has nowhere to hold the second. */
+    return false;
+  }
+
+  const ap_m68030_operand_result_t lower_read = step_operand_read(
+      cpu, &cpu->regs, cpu->data, &where, bounds->size,
+      cpu->data_function_code);
+  *clocks += lower_read.clocks;
+  if (!lower_read.ok) {
+    return false;
+  }
+
+  /* "the upper bound following the lower bound" -- one operand's width along,
+   * not one byte. */
+  ap_m68030_address_t upper_where = where;
+  upper_where.address = where.address + bounds->size;
+  const ap_m68030_operand_result_t upper_read = step_operand_read(
+      cpu, &cpu->regs, cpu->data, &upper_where, bounds->size,
+      cpu->data_function_code);
+  *clocks += upper_read.clocks;
+  if (!upper_read.ok) {
+    return false;
+  }
+
+  const bool is_address = ap_m68030_bounds_register_is_address(extension);
+  const unsigned reg = ap_m68030_bounds_register(extension);
+
+  uint32_t value = 0;
+  uint32_t lower = lower_read.value;
+  uint32_t upper = upper_read.value;
+  if (is_address) {
+    /* The full 32 bits of An against sign-extended bounds. */
+    value = cpu->regs.a[reg & 7u];
+    if (reg == 7u) {
+      value = ap_m68030_read_a7(&cpu->regs);
+    }
+    lower = ap_m68030_sign_extend(lower, bounds->size);
+    upper = ap_m68030_sign_extend(upper, bounds->size);
+  } else {
+    /* "only the appropriate low-order part of Rn is checked", so the register
+     * and the bounds are all taken at the operand's width. */
+    const uint32_t mask = (bounds->size >= 4u)
+                              ? UINT32_C(0xFFFFFFFF)
+                              : ((UINT32_C(1) << (bounds->size * 8u)) - 1u);
+    value = cpu->regs.d[reg] & mask;
+    lower &= mask;
+    upper &= mask;
+  }
+
+  const bool out_of_bounds = (value - lower) > (upper - lower);
+
+  uint16_t ccr = ap_m68030_read_ccr(&cpu->regs);
+  /* "Z -- Set if Rn is equal to either bound; cleared otherwise." Either, not
+   * both, and not "within": a value in the middle of a wide range clears Z. */
+  if (value == lower || value == upper) {
+    ccr |= (uint16_t)(1u << AP_M68030_SR_Z_BIT);
+  } else {
+    ccr &= (uint16_t)~(1u << AP_M68030_SR_Z_BIT);
+  }
+  if (out_of_bounds) {
+    ccr |= (uint16_t)(1u << AP_M68030_SR_C_BIT);
+  } else {
+    ccr &= (uint16_t)~(1u << AP_M68030_SR_C_BIT);
+  }
+  /* N and V are undefined and X is unaffected, so neither is written. A model
+   * that cleared N and V would be inventing a guarantee software could come to
+   * depend on. */
+  ap_m68030_write_ccr(&cpu->regs, ccr);
+
+  if (kind == AP_M68030_BOUNDS_CHK2 && out_of_bounds) {
+    /* "a CHK instruction exception (vector number 6) occurs" -- the same vector
+     * CHK uses, which is why the two share a handler. CMP2 sets the codes and
+     * returns, which is the only difference between them. */
+    cpu->pending_vector = AP_M68030_VECTOR_CHK;
+  }
+  return true;
+}
+
 ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
   ap_m68030_step_result_t out = {.status = AP_M68030_STEP_FAULT};
   uint16_t word = 0;
@@ -3664,10 +3803,17 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
   }
 
   case AP_M68030_DECODED_BOUNDS:
-    /* CMP2/CHK2/CAS/CAS2 decode but have no semantics here yet. CAS and CAS2
-     * are the ones that need more than arithmetic: their read and write are
-     * indivisible, so executing them honestly means the bus asserting RMC for
-     * the pair, and that is the bus module's item rather than this one. */
+    /* CMP2 and CHK2 execute. CAS and CAS2 still decline: their read and write
+     * are indivisible, so executing them honestly means the bus asserting RMC
+     * for the pair, and that is the bus module's item rather than this one --
+     * `execute_bounds` refuses them rather than running them without it. */
+    if (execute_bounds(cpu, &decoded.as.bounds, &out.clocks)) {
+      break;
+    }
+    out.status = fault_or_unimplemented(cpu, &out, instruction_address);
+    cpu->clocks += out.clocks;
+    return out;
+
   case AP_M68030_DECODED_ILLEGAL:
     out.status = fault_or_unimplemented(cpu, &out, instruction_address);
     cpu->clocks += out.clocks;
