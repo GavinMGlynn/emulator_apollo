@@ -2144,8 +2144,13 @@ a 68882, and the 68882 is the only one of these it has.
         model shape, and produced an **eighth suspect cell**: the rotates print
         an `<ea> calculate` one clock below both shift columns in every deep
         mode, which an address calculation cannot justify. Kept as printed.
+        Page 10-27 turned up the section's worst defect: `ADDA` and `SUBA`
+        are printed as two columns disagreeing in seven of seventeen rows,
+        where every other add/subtract pair in §10.6 shares one column and
+        the **68030 manual prints the two identical in every entry**. Both
+        transcribed as printed; the evidence points at `SUBA`.
         `m68040_iu_timing_suite`,
-        90 tests. Two pages of column groups remain, then §10.7's ten pages
+        94 tests. One page of column groups remains, then §10.7's ten pages
         of floating-point timings. Bulk transcription against the composition above,
         and the last thing standing between Phase 2b and complete. Every figure
         is a *best case* by §10.1's suppositions: "all memory accesses hit in

@@ -1594,6 +1594,164 @@ static void test_the_rotates_calculate_an_address_sooner_than_the_shifts(void) {
                              AP_M68040_IU_NO_CONDITIONS));
 }
 
+static void test_the_extend_rotate_inverts_the_plain_one(void) {
+  /* `ROXL, ROXR` against `ROL, ROR`, and the two swap places depending on where
+   * the operand lives. In a register the extend rotate prints `5/6` against the
+   * plain rotate's `3/4` -- two clocks dearer. In every simple memory mode it
+   * prints 2 against the plain rotate's 3 -- one clock *cheaper*.
+   *
+   * The figures are the fact; the reading is that a memory rotate is by one,
+   * where routing a bit through X is no harder than dropping it, while a
+   * register rotate is by a count, where each step has to wait for the previous
+   * step's X. Recorded as a reading rather than a source: §10.6 prints the
+   * numbers and explains none of them. */
+  const ap_m68040_iu_cell_t xr = at("ROXL", AP_M68040_IU_DN);
+  const ap_m68040_iu_cell_t r = at("ROL", AP_M68040_IU_DN);
+  TEST_ASSERT_EQUAL_UINT(5u, ap_m68040_execute_total(ap_m68040_iu_execute(
+                                 xr, false, AP_M68040_IU_NO_CONDITIONS)));
+  TEST_ASSERT_EQUAL_UINT(6u, ap_m68040_execute_total(ap_m68040_iu_execute(
+                                 xr, true, AP_M68040_IU_NO_CONDITIONS)));
+  TEST_ASSERT_EQUAL_UINT(3u, ap_m68040_execute_total(ap_m68040_iu_execute(
+                                 r, false, AP_M68040_IU_NO_CONDITIONS)));
+  /* Both carry the shift-count selector, and both cost one clock to fetch the
+   * count out of a register. */
+  TEST_ASSERT_EQUAL_INT(AP_M68040_IU_ALTERNATE_SHIFT_COUNT, xr.alternate);
+  TEST_ASSERT_EQUAL_INT(AP_M68040_IU_ALTERNATE_SHIFT_COUNT, r.alternate);
+
+  const ap_m68040_iu_mode_t memory[] = {
+      AP_M68040_IU_INDIRECT,     AP_M68040_IU_POSTINCREMENT,
+      AP_M68040_IU_PREDECREMENT, AP_M68040_IU_DISPLACEMENT,
+      AP_M68040_IU_ABSOLUTE};
+  for (unsigned i = 0; i < sizeof memory / sizeof memory[0]; i++) {
+    TEST_ASSERT_EQUAL_UINT(2u, ap_m68040_execute_total(ap_m68040_iu_execute(
+                                   at("ROXL", memory[i]), false,
+                                   AP_M68040_IU_NO_CONDITIONS)));
+    TEST_ASSERT_EQUAL_UINT(3u, ap_m68040_execute_total(ap_m68040_iu_execute(
+                                   at("ROL", memory[i]), false,
+                                   AP_M68040_IU_NO_CONDITIONS)));
+  }
+}
+
+static void test_scc_writes_a_byte_and_so_refuses_program_space(void) {
+  /* `Scc` sets a byte from a condition, so it is a write: the PC-relative modes
+   * and the immediate are dashed, and every other mode -- including `Dn`, since
+   * the destination may be a register -- costs a flat 1/2 in the simple rows.
+   * `An` is dashed too, which no other alterable column does for a byte
+   * destination: an address register has no byte. */
+  TEST_ASSERT_FALSE(at("Scc", AP_M68040_IU_AN).valid);
+  TEST_ASSERT_FALSE(at("Scc", AP_M68040_IU_PC_DISPLACEMENT).valid);
+  TEST_ASSERT_FALSE(at("Scc", AP_M68040_IU_PC_INDEXED).valid);
+  TEST_ASSERT_FALSE(at("Scc", AP_M68040_IU_IMMEDIATE).valid);
+  const ap_m68040_iu_mode_t flat[] = {
+      AP_M68040_IU_DN,           AP_M68040_IU_INDIRECT,
+      AP_M68040_IU_POSTINCREMENT, AP_M68040_IU_PREDECREMENT,
+      AP_M68040_IU_DISPLACEMENT, AP_M68040_IU_ABSOLUTE};
+  for (unsigned i = 0; i < sizeof flat / sizeof flat[0]; i++) {
+    const ap_m68040_iu_cell_t c = at("Scc", flat[i]);
+    TEST_ASSERT_EQUAL_UINT(
+        1u, ap_m68040_iu_calculate(c, false, AP_M68040_IU_NO_CONDITIONS));
+    TEST_ASSERT_EQUAL_UINT(2u,
+                           ap_m68040_execute_total(ap_m68040_iu_execute(
+                               c, false, AP_M68040_IU_NO_CONDITIONS)));
+  }
+}
+
+static void test_adda_and_suba_are_printed_as_different_columns(void) {
+  /* §10.6 gives `ADDA` and `SUBA` separate columns -- page 10-13 and page 10-27
+   * -- and they disagree in seven of the seventeen rows. They cannot both be
+   * right, and the manual does not say which is.
+   *
+   * Everything else in §10.6 pairs an add with its subtract in **one** column:
+   * `ADD, AND, EOR, OR, SUB, TST`; `ADDI, ANDI, EORI, ORI, SUBI`; `ADDQ, SUBQ`.
+   * `ADDA`/`SUBA` is the only add/subtract pair split apart. The 68030 manual
+   * -- checked because a sibling often settles what ours leaves ambiguous --
+   * prints the two identical in every entry of §11.6.8 (`ADDA.W Rn,An` and
+   * `SUBA.W Rn,An` both `4 0 4(0/0/0) 4(0/1/0)`, and so on for all four rows),
+   * and its §11.6 preamble names them as one pair: "the instructions with
+   * immediate operands and the ADDA and SUBA instructions".
+   *
+   * So one 68040 column is corrupt. Which one is not proven, but the evidence
+   * points at `SUBA`: `ADDA` is exactly "`ADD`'s calculate, `ADD`'s execute plus
+   * one" in all six deep modes, a clean relationship `SUBA` breaks in the last
+   * four. And the `Dn`/`An` figures are transposed between the two columns,
+   * which is what a typesetting slip looks like.
+   *
+   * Both are transcribed as printed. Proving a cell wrong is not the same as
+   * knowing its value, and this test exists so the disagreement is loud rather
+   * than quietly reconciled by a later reader. */
+  unsigned differing = 0;
+  for (unsigned m = 0; m < AP_M68040_IU_MODE_COUNT; m++) {
+    const ap_m68040_iu_cell_t a = at("ADDA", (ap_m68040_iu_mode_t)m);
+    const ap_m68040_iu_cell_t s = at("SUBA", (ap_m68040_iu_mode_t)m);
+    TEST_ASSERT_EQUAL_MESSAGE(a.valid, s.valid,
+                              "ADDA and SUBA should take the same modes");
+    if (!a.valid) continue;
+    const ap_m68040_execute_t ae =
+        ap_m68040_iu_execute(a, false, AP_M68040_IU_NO_CONDITIONS);
+    const ap_m68040_execute_t se =
+        ap_m68040_iu_execute(s, false, AP_M68040_IU_NO_CONDITIONS);
+    if (ap_m68040_iu_calculate(a, false, AP_M68040_IU_NO_CONDITIONS) !=
+            ap_m68040_iu_calculate(s, false, AP_M68040_IU_NO_CONDITIONS) ||
+        ae.lead != se.lead || ae.base != se.base)
+      differing++;
+  }
+  TEST_ASSERT_EQUAL_UINT(7u, differing);
+
+  /* The transposition, pinned exactly: a data-register source is the dearer of
+   * the two for `ADDA` and the cheaper for `SUBA`. */
+  TEST_ASSERT_EQUAL_UINT(2u, ap_m68040_execute_total(ap_m68040_iu_execute(
+                                 at("ADDA", AP_M68040_IU_DN), false,
+                                 AP_M68040_IU_NO_CONDITIONS)));
+  TEST_ASSERT_EQUAL_UINT(1u, ap_m68040_execute_total(ap_m68040_iu_execute(
+                                 at("ADDA", AP_M68040_IU_AN), false,
+                                 AP_M68040_IU_NO_CONDITIONS)));
+  TEST_ASSERT_EQUAL_UINT(1u, ap_m68040_execute_total(ap_m68040_iu_execute(
+                                 at("SUBA", AP_M68040_IU_DN), false,
+                                 AP_M68040_IU_NO_CONDITIONS)));
+  TEST_ASSERT_EQUAL_UINT(2u, ap_m68040_execute_total(ap_m68040_iu_execute(
+                                 at("SUBA", AP_M68040_IU_AN), false,
+                                 AP_M68040_IU_NO_CONDITIONS)));
+}
+
+static void test_adda_tracks_the_add_column_where_suba_does_not(void) {
+  /* The evidence behind the previous test, made checkable. In all six deep
+   * modes `ADDA` prints `ADD`'s `<ea> calculate` unchanged and `ADD`'s execute
+   * plus exactly one clock -- the cost of writing an address register instead
+   * of a data one. `SUBA` follows the same rule for the first two deep modes
+   * and then departs from it for the last four. A column that obeys a rule for
+   * two rows and breaks it for four is the one to suspect. */
+  const ap_m68040_iu_mode_t deep[] = {
+      AP_M68040_IU_BASE_INDEXED,       AP_M68040_IU_BASE_DISPLACEMENT,
+      AP_M68040_IU_MEMORY_PREINDEXED,  AP_M68040_IU_MEMORY_PREINDEXED_OD,
+      AP_M68040_IU_MEMORY_POSTINDEXED, AP_M68040_IU_MEMORY_POSTINDEXED_OD};
+  unsigned suba_follows = 0;
+  for (unsigned i = 0; i < 6; i++) {
+    const unsigned add_calc = ap_m68040_iu_calculate(
+        at("ADD", deep[i]), false, AP_M68040_IU_NO_CONDITIONS);
+    const unsigned add_exec = ap_m68040_execute_total(ap_m68040_iu_execute(
+        at("ADD", deep[i]), false, AP_M68040_IU_NO_CONDITIONS));
+
+    TEST_ASSERT_EQUAL_UINT_MESSAGE(
+        add_calc,
+        ap_m68040_iu_calculate(at("ADDA", deep[i]), false,
+                               AP_M68040_IU_NO_CONDITIONS),
+        "ADDA should share ADD's calculate");
+    TEST_ASSERT_EQUAL_UINT_MESSAGE(
+        add_exec + 1u,
+        ap_m68040_execute_total(ap_m68040_iu_execute(
+            at("ADDA", deep[i]), false, AP_M68040_IU_NO_CONDITIONS)),
+        "ADDA should cost ADD plus one");
+
+    if (ap_m68040_iu_calculate(at("SUBA", deep[i]), false,
+                               AP_M68040_IU_NO_CONDITIONS) == add_calc &&
+        ap_m68040_execute_total(ap_m68040_iu_execute(
+            at("SUBA", deep[i]), false, AP_M68040_IU_NO_CONDITIONS)) ==
+            add_exec + 1u)
+      suba_follows++;
+  }
+  TEST_ASSERT_EQUAL_UINT(2u, suba_follows);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_instructions_sharing_a_column_share_a_group);
@@ -1685,6 +1843,10 @@ int main(void) {
   RUN_TEST(test_three_modes_push_for_free_and_not_all_the_same_way);
   RUN_TEST(test_the_shift_count_selector_now_covers_the_rotates);
   RUN_TEST(test_the_rotate_changes_which_shift_it_agrees_with);
+  RUN_TEST(test_the_extend_rotate_inverts_the_plain_one);
+  RUN_TEST(test_scc_writes_a_byte_and_so_refuses_program_space);
+  RUN_TEST(test_adda_and_suba_are_printed_as_different_columns);
+  RUN_TEST(test_adda_tracks_the_add_column_where_suba_does_not);
   RUN_TEST(test_the_rotates_calculate_an_address_sooner_than_the_shifts);
   return UNITY_END();
 }

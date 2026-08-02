@@ -1602,7 +1602,50 @@ the same as knowing its value. Page 10-14 was re-rendered to confirm `ASL`'s
 side of the comparison before recording this, rather than trusting the earlier
 transcription.
 
-What remains of the 68040 item is two more pages of §10.6 and §10.7's ten
+Page 10-27 -- `ROXL, ROXR`, `Scc`, `SUBA` -- produced the most serious defect
+found in §10.6 so far, and the sibling-manual step is what found it.
+
+**`ADDA` and `SUBA` are printed as two columns that disagree in seven of the
+seventeen rows.** They cannot both be right. Everything else in §10.6 pairs an
+add with its subtract in *one* column -- `ADD, AND, EOR, OR, SUB, TST`;
+`ADDI, ANDI, EORI, ORI, SUBI`; `ADDQ, SUBQ` -- and `ADDA`/`SUBA` is the only
+such pair split apart. Both pages were re-rendered and re-read before this was
+recorded, so neither figure is a transcription slip of ours.
+
+The 68030 manual settles the shape of it. §11.6.8 prints `ADDA` and `SUBA`
+**identical in every entry** -- `ADDA.W Rn,An` and `SUBA.W Rn,An` are both
+`4 0 4(0/0/0) 4(0/1/0)`, `ADDA.L`/`SUBA.L Rn,An` both `2 0 2(0/0/0) 2(0/1/0)`,
+and likewise for the two `EA,An` rows -- and its §11.6 preamble names them as a
+single pair: "the instructions with immediate operands and the ADDA and SUBA
+instructions". Motorola holds the two to be timing-identical in this family.
+
+Which 68040 column is corrupt is not proven, but the evidence points at `SUBA`.
+`ADDA` is exactly "`ADD`'s calculate, `ADD`'s execute plus one" -- the cost of
+writing an address register rather than a data one -- in all six deep modes.
+`SUBA` follows that same rule for the first two deep modes and departs from it
+for the last four. And the `Dn`/`An` execute figures are transposed between the
+columns (`ADDA` 2/1, `SUBA` 1/2), which is what a typesetting slip looks like
+rather than a real asymmetry: there is no mechanism by which a data-register
+source would be dearer than an address-register one for one of the pair and
+cheaper for the other.
+
+Both are transcribed as printed, under the standing rule -- the sources prove a
+column wrong without supplying its replacement, and the 68030's figures are in
+a different unit and cannot be carried across. Two tests pin the disagreement
+and the evidence behind it, so a later reader finds it loudly rather than
+quietly reconciling it. This is the ninth suspect entry and the first that is a
+whole **column pair** rather than a cell or a row.
+
+Two smaller facts. **The extend rotate inverts the plain one.** `ROXL, ROXR` in
+a register prints `5/6` against `ROL, ROR`'s `3/4` -- two clocks dearer -- and
+in every simple memory mode prints 2 against the plain rotate's 3, one clock
+*cheaper*. The reading, recorded as a reading and not as a source, is that a
+memory rotate is by one, where routing a bit through X is no harder than
+dropping it, while a register rotate is by a count, where each step waits on the
+previous step's X. And `Scc` dashes `An` as well as the program-space modes:
+it writes a byte, and an address register has no byte.
+
+What remains of the 68040 item is one more page of §10.6 and §10.7's ten
 pages of floating-point timings. That is bulk transcription against the
 composition already in place, and the last thing standing between Phase 2b and
 complete. Appendix A's bit rows have to come from page images --
