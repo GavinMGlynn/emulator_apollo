@@ -1554,8 +1554,26 @@ a 68882, and the 68882 is the only one of these it has.
               which no other suspect entry has had. *Verification:
               `m68882_transcendental_suite`, 29 tests. Detail in
               `PROJECT_STATUS.md`.*
-- [x] 68020 subset: no on-chip MMU or cache differences, external 68851.
+- [~] 68020 subset: no on-chip MMU or cache differences, external 68851.
       *Verification: `dn3000` boots under both; oracle diff.*
+  - [ ] **Neither half of that verification is met, and both are blocked on the
+        same thing.** The part's own work is done and tested — its cache, its
+        module calls, its decode differences, each with a suite — but nothing
+        has run *as a 68020*. `ap_machine_t` holds an `ap_m68030_cpu_t` and
+        `ap_machine_init` takes no model, so this core cannot construct a
+        DN3000 at all: there is no machine for a `dn3000` to boot on and no
+        machine for an oracle probe to run on. The audit that found this is the
+        third of its kind this session, after the 68882's and the exception
+        item's.
+        The boot half was already noted as moved to Phase 4. The **oracle
+        diff** half was not, and it is not a Phase 4 concern: it needs only a
+        machine with a model, which is the Phase 3 item this audit already
+        moved there. Recorded as a dependency rather than a separate gap, so
+        closing that one closes this.
+        *Verification: the probe suite of `FINDINGS.md` C59-C82, run on a
+        machine built as a DN3000, with the 68020's own differences —
+        `CALLM`/`RTM` and its single-long-word cache lines — probed
+        specifically.*
   - [x] The part's own differences from the 68030, as a derived feature set in
         the one model table rather than conditionals in subsystems: its cache
         (256 bytes as **64 single-long-word entries**, not the 68030's sixteen
