@@ -306,7 +306,7 @@ const ap_m68040_fp_row_t *ap_m68040_fp_find(const char *instruction,
      * a zero precision mask is matched the same way. */
     const bool size_ok = size == AP_M68040_FP_SIZE_NONE
                              ? row->size == AP_M68040_FP_SIZE_NONE
-                             : (row->size & (unsigned)size) != 0u;
+                             : ((unsigned)row->size & (unsigned)size) != 0u;
     const bool precision_ok = precision == AP_M68040_FP_SIZE_NONE
                                   ? row->precision == 0u
                                   : (row->precision & (unsigned)precision) != 0u;
