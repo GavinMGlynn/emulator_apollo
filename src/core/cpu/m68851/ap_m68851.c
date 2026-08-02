@@ -313,3 +313,163 @@ ap_m68851_status_t ap_m68851_pflush(ap_m68851_t *mmu,
   }
   return AP_M68851_EXECUTED;
 }
+
+/* Shared by `PLOAD` and `PTEST`: build a search for one address. */
+static ap_m68851_search_config_t search_for(const ap_m68851_t *mmu,
+                                            unsigned function_code,
+                                            unsigned max_levels,
+                                            ap_m68851_fetch_fn fetch,
+                                            void *fetch_context,
+                                            bool *root_is_drp) {
+  const ap_m68851_rp_t *root = select_root(mmu, function_code, root_is_drp);
+  return (ap_m68851_search_config_t){
+      .tc = &mmu->tc,
+      .root = root,
+      .root_is_drp = *root_is_drp,
+      .fetch = fetch,
+      .fetch_context = fetch_context,
+      .max_levels = max_levels,
+  };
+}
+
+ap_m68851_status_t ap_m68851_pload(ap_m68851_t *mmu,
+                                   const ap_m68851_instruction_t *instruction,
+                                   unsigned function_code, uint32_t address,
+                                   ap_m68851_fetch_fn fetch,
+                                   void *fetch_context) {
+  if (instruction->opcode != AP_M68851_OP_PLOAD) {
+    return AP_M68851_TAKE_LINE_F;
+  }
+  if (!mmu->tc.enable) {
+    /* §6.1.3.1: with `E` clear the part "terminates all PTEST, PLOAD, and
+     * CALLM/RTM (type $1) instructions with an exception". */
+    return AP_M68851_CONFIGURATION_ERROR;
+  }
+
+  bool root_is_drp = false;
+  const ap_m68851_search_config_t config = search_for(
+      mmu, function_code, 0u, fetch, fetch_context, &root_is_drp);
+  const ap_m68851_search_result_t found =
+      ap_m68851_search(&config, address, function_code);
+
+  /* "PLOADW causes U and M bits in the translation tables to be updated as if a
+   * write access had taken place." The write-back of `U` and `M` into the
+   * tables is not modelled -- see `PROJECT_STATUS.md` -- but the direction
+   * still decides the entry's `M`, which is what a later write through this
+   * entry consults. */
+  const ap_m68851_atc_entry_t entry = {
+      .logical_address = address,
+      .function_code = function_code,
+      .task_alias = mmu->atc.task_alias,
+      .shared_globally = found.shared_globally,
+      .physical_address = found.physical_address,
+      .write_protect = found.write_protect,
+      .cache_inhibit = found.cache_inhibit,
+      .modified = found.modified || !instruction->read_from_mmu,
+      .gate = found.gate,
+      .lock = found.lock,
+      .bus_error = found.type == AP_M68851_SEARCH_TYPE_INVALID,
+  };
+  ap_m68851_atc_fill(&mmu->atc, ap_m68851_atc_select_victim(&mmu->atc), entry);
+  return AP_M68851_EXECUTED;
+}
+
+ap_m68851_status_t ap_m68851_ptest(ap_m68851_t *mmu,
+                                   const ap_m68851_instruction_t *instruction,
+                                   unsigned function_code, uint32_t address,
+                                   ap_m68851_fetch_fn fetch,
+                                   void *fetch_context) {
+  if (instruction->opcode != AP_M68851_OP_PTEST) {
+    return AP_M68851_TAKE_LINE_F;
+  }
+  if (!mmu->tc.enable) {
+    return AP_M68851_CONFIGURATION_ERROR;
+  }
+
+  ap_m68851_psr_t psr = {0};
+
+  if (instruction->level == 0u) {
+    /* "Search ATC only." A different operation, not a shallow search: nothing
+     * is walked and most bits report the entry rather than the tables. */
+    const ap_m68851_atc_entry_t *hit = ap_m68851_atc_lookup(
+        &mmu->atc, address, function_code, ap_m68851_tc_page_bytes(&mmu->tc));
+    if (hit == NULL) {
+      /* "Set if ... the PTEST instruction requested a level zero search (search
+       * ATC only) and no corresponding entry was found in the ATC." A miss is
+       * reported as invalid, which is the same bit a genuinely absent
+       * translation sets -- the instruction cannot tell them apart and neither
+       * should this. */
+      psr.invalid = true;
+    } else {
+      psr.bus_error = hit->bus_error;
+      psr.invalid = hit->bus_error;
+      psr.write_protected = hit->write_protect;
+      psr.modified = hit->modified;
+      psr.gate = hit->gate;
+      psr.globally_sharable = hit->shared_globally;
+    }
+    /* "For the PTEST instruction with a level specification of zero, this field
+     * is always zero", and `L`, `S` and `A` "always clear". */
+    psr.levels = 0u;
+    mmu->psr = psr;
+    return AP_M68851_EXECUTED;
+  }
+
+  bool root_is_drp = false;
+  const ap_m68851_search_config_t config = search_for(
+      mmu, function_code, instruction->level, fetch, fetch_context,
+      &root_is_drp);
+  const ap_m68851_search_result_t found =
+      ap_m68851_search(&config, address, function_code);
+
+  psr.bus_error = found.fault == AP_M68851_SEARCH_FAULT_BUS_ERROR;
+  psr.limit_violation = found.fault == AP_M68851_SEARCH_FAULT_LIMIT_VIOLATION;
+  /* "Set if the address has no translation in the table (i.e., an 'invalid'
+   * descriptor type, bus error, or limit violation was encountered during the
+   * table search)". A search stopped by the level ceiling has found no such
+   * thing, so it is not invalid. */
+  psr.invalid = found.type == AP_M68851_SEARCH_TYPE_INVALID;
+  psr.write_protected = found.write_protect;
+  psr.modified = found.modified;
+  psr.gate = found.gate;
+  psr.globally_sharable = found.shared_globally;
+  /* "Set to the number of tables used in the translation of an address." */
+  psr.levels = found.levels & 0x7u;
+  mmu->psr = psr;
+  return AP_M68851_EXECUTED;
+}
+
+ap_m68851_pvalid_result_t ap_m68851_pvalid(const ap_m68851_t *mmu,
+                                           uint32_t operand,
+                                           bool use_surrogate,
+                                           uint8_t surrogate) {
+  /* §6.1.7.1: "the PVALID instruction will always cause an exception when MC is
+   * clear." Checked first, because with module operations disabled the access
+   * levels mean nothing to compare. */
+  if (!mmu->ac.module_control) {
+    return AP_M68851_PVALID_ACCESS_VIOLATION;
+  }
+
+  const unsigned bits = (unsigned)mmu->ac.access_level_control;
+  if (bits == 0u) {
+    /* `ALC = $0` disables access level checking, so no address is more
+     * privileged than another and nothing can violate. */
+    return AP_M68851_PVALID_OK;
+  }
+
+  /* "The number of bits compared is defined by the ALC field of the AC
+   * register", taken from the top of the logical address -- which is where the
+   * access level lives, and why `CAL` and `VAL` keep theirs in their upper
+   * bits. */
+  const unsigned shift = 32u - bits;
+  const unsigned operand_level = (unsigned)(operand >> shift);
+  const unsigned against =
+      ap_m68851_access_level_decode(use_surrogate ? surrogate : mmu->val) >>
+      (3u - bits);
+
+  /* "If the operand bits are arithmetically less than the VAL (or surrogate
+   * VAL) bits, this instruction causes a trap." Lower is more privileged, so
+   * this refuses a pointer more privileged than the caller. */
+  return (operand_level < against) ? AP_M68851_PVALID_ACCESS_VIOLATION
+                                   : AP_M68851_PVALID_OK;
+}

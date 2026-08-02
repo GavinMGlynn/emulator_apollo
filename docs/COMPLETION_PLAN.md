@@ -2028,8 +2028,13 @@ a 68882, and the 68882 is the only one of these it has.
         approximation, `PROVISIONAL` in `PROJECT_STATUS.md`: §5.3's root
         pointer table is not implemented, so a `CRP` write flushes rather than
         replacing an alias -- a hit-rate difference, not a correctness one.
-  - [ ] `PTEST`, `PLOAD` and `PVALID` execution: their encodings decode, their
-        effects are not yet carried out.
+  - [x] `PTEST`, `PLOAD` and `PVALID` execution. `PTEST`'s level is a ceiling on
+        the search, and level *zero* is a different operation rather than a
+        shallow one -- it searches only the ATC and fetches nothing. `PVALID`
+        traps when the operand is *less* than `VAL`, because lower means more
+        privileged: the confused-deputy guard. `m68851_suite` grows to 31 tests.
+        One `PROVISIONAL`: `PLOAD`'s write-back of `U` and `M` into the tables
+        is not modelled.
   - [ ] The breakpoint registers `BADx`/`BACx`, which answer the 68020's `BKPT`
         acknowledge cycle -- the CPU's half of that mechanism landed in Phase 2.
   - [ ] `dn3000` boots; oracle diff. This is also the 68020 item's outstanding

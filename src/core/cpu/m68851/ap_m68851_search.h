@@ -88,6 +88,11 @@ typedef enum {
   /* An invalid descriptor, a limit violation, or a bus error. The ATC entry is
    * still made -- with its `B` bit set -- so the denial is cached. */
   AP_M68851_SEARCH_TYPE_INVALID,
+  /* `max_levels` was reached before the tables terminated. Only `PTEST` can
+   * produce this, and it is not a fault: the search was *asked* to stop, so
+   * nothing about the mapping has been disproved. Reporting it apart from
+   * `INVALID` is what keeps a truncated `PTEST` from looking like one. */
+  AP_M68851_SEARCH_TYPE_TRUNCATED,
 } ap_m68851_search_type_t;
 
 /* Why a search ended invalid. All of them make the same kind of ATC entry;
@@ -132,6 +137,13 @@ typedef struct {
   bool root_is_drp;
   ap_m68851_fetch_fn fetch;
   void *fetch_context;
+  /* A ceiling on descriptor fetches, for `PTEST`: "the PTEST instruction
+   * continues searching the translation tables until the requested level is
+   * reached or until a condition occurs that makes further searching
+   * impossible". Zero means no ceiling, which is what an ordinary translation
+   * wants -- a translation stops when the tables say so, not when a count runs
+   * out. */
+  unsigned max_levels;
 } ap_m68851_search_config_t;
 
 /* Walk the tree for one logical address. */

@@ -184,6 +184,14 @@ ap_m68851_search(const ap_m68851_search_config_t *config,
 
   /* "ENTERING A LEVEL TABLE SEARCH": y <- 'A'. */
   for (;;) {
+    /* `PTEST`'s ceiling, checked before the fetch that would exceed it. */
+    if (config->max_levels != 0u && levels >= config->max_levels) {
+      out.type = AP_M68851_SEARCH_TYPE_TRUNCATED;
+      out.levels = levels;
+      out.write_protect = write_protect;
+      return out;
+    }
+
     const unsigned index = ap_m68851_search_index(tc, logical_address, x);
 
     /* "PERFORM LIMIT CHECK". The limit bounding this index belongs to the

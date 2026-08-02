@@ -137,4 +137,48 @@ typedef enum {
 ap_m68851_pflush(ap_m68851_t *mmu, const ap_m68851_instruction_t *instruction,
                  unsigned function_code, uint32_t address);
 
+/* Execute a `PLOAD`: search the tables for one address and install the result
+ * in the ATC, whether or not anything referenced it. "PLOADR causes U bits in
+ * the translation tables to be updated as if a read access had taken place.
+ * PLOADW causes U and M bits ... as if a write access had taken place" -- so
+ * the direction bit decides which table bits are written back, which is why a
+ * `PLOAD` is not simply a warming hint. */
+[[nodiscard]] ap_m68851_status_t
+ap_m68851_pload(ap_m68851_t *mmu, const ap_m68851_instruction_t *instruction,
+                unsigned function_code, uint32_t address,
+                ap_m68851_fetch_fn fetch, void *fetch_context);
+
+/* Execute a `PTEST`, which leaves its answer in `PSR` rather than returning it.
+ *
+ * The level is the instruction's, and zero is a different operation rather than
+ * a shallow one: §6.1.8 says throughout "for the PTEST instruction with a level
+ * specification of zero" the bits report what the *ATC* held, and several are
+ * "always clear" because no table was walked. A model that treated level zero
+ * as a zero-deep search would report a fault where the hardware reports a
+ * cache miss. */
+[[nodiscard]] ap_m68851_status_t
+ap_m68851_ptest(ap_m68851_t *mmu, const ap_m68851_instruction_t *instruction,
+                unsigned function_code, uint32_t address,
+                ap_m68851_fetch_fn fetch, void *fetch_context);
+
+/* Execute a `PVALID`. `operand` is the logical address being validated and
+ * `surrogate` the access level to test against for the register form -- already
+ * extracted from the address register by the caller, since reading it is the
+ * main processor's job.
+ *
+ * "If the operand bits are arithmetically less than the VAL (or surrogate VAL)
+ * bits, this instruction causes a trap with the access level violation
+ * exception." Lower is *more* privileged, so this traps when a caller passes a
+ * pointer more privileged than the caller itself -- which is the confused
+ * deputy it exists to prevent. */
+typedef enum {
+  AP_M68851_PVALID_OK,
+  /* Table 9-6's vector 58, post-instruction. */
+  AP_M68851_PVALID_ACCESS_VIOLATION,
+} ap_m68851_pvalid_result_t;
+
+[[nodiscard]] ap_m68851_pvalid_result_t
+ap_m68851_pvalid(const ap_m68851_t *mmu, uint32_t operand, bool use_surrogate,
+                 uint8_t surrogate);
+
 #endif /* APOLLO_CPU_M68851_AP_M68851_H */

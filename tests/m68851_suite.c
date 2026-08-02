@@ -429,6 +429,236 @@ static void test_a_malformed_flush_all_is_refused(void) {
                         ap_m68851_pflush(&mmu, &bad, 0u, 0u));
 }
 
+
+/* ---------------------------------------------------------------------------
+ * PLOAD, PTEST and PVALID.
+ * ------------------------------------------------------------------------- */
+
+static ap_m68851_instruction_t pload(bool read) {
+  return ap_m68851_decode_command(
+      (uint16_t)((1u << 13) | (0u << 10) | ((read ? 1u : 0u) << 9)));
+}
+
+static ap_m68851_instruction_t ptest(unsigned level, bool read) {
+  return ap_m68851_decode_command(
+      (uint16_t)((4u << 13) | (level << 10) | ((read ? 1u : 0u) << 9)));
+}
+
+static void test_pload_installs_an_entry_nothing_referenced(void) {
+  /* A `PLOAD` warms the cache for an address the program has not touched, which
+   * is the point: an operating system can install a mapping before the fault
+   * that would otherwise create it. */
+  ap_m68851_t mmu;
+  memory_t m;
+  configure(&mmu, &m);
+  TEST_ASSERT_NULL(ap_m68851_atc_lookup(&mmu.atc, 0u, 5u, 4096u));
+
+  const ap_m68851_instruction_t r = pload(true);
+  TEST_ASSERT_EQUAL_INT(AP_M68851_EXECUTED,
+                        ap_m68851_pload(&mmu, &r, 5u, 0u, memory_fetch, &m));
+  TEST_ASSERT_NOT_NULL(ap_m68851_atc_lookup(&mmu.atc, 0u, 5u, 4096u));
+
+  /* And the translation that follows is a hit. */
+  const unsigned after = m.fetches;
+  TEST_ASSERT_TRUE(
+      ap_m68851_translate(&mmu, 0u, 5u, false, memory_fetch, &m).cache_hit);
+  TEST_ASSERT_EQUAL_UINT(after, m.fetches);
+}
+
+static void test_ploadw_marks_the_entry_modified_and_ploadr_does_not(void) {
+  /* "PLOADR causes U bits ... to be updated as if a read access had taken
+   * place. PLOADW causes U and M bits ... as if a write access had taken
+   * place." So the direction bit is not a hint -- it decides what a later
+   * write through this entry finds. */
+  ap_m68851_t mmu;
+  memory_t m;
+
+  configure(&mmu, &m);
+  const ap_m68851_instruction_t r = pload(true);
+  TEST_ASSERT_EQUAL_INT(AP_M68851_EXECUTED,
+                        ap_m68851_pload(&mmu, &r, 5u, 0u, memory_fetch, &m));
+  TEST_ASSERT_FALSE(ap_m68851_atc_lookup(&mmu.atc, 0u, 5u, 4096u)->modified);
+
+  configure(&mmu, &m);
+  const ap_m68851_instruction_t w = pload(false);
+  TEST_ASSERT_EQUAL_INT(AP_M68851_EXECUTED,
+                        ap_m68851_pload(&mmu, &w, 5u, 0u, memory_fetch, &m));
+  TEST_ASSERT_TRUE(ap_m68851_atc_lookup(&mmu.atc, 0u, 5u, 4096u)->modified);
+}
+
+static void test_pload_is_refused_while_translation_is_disabled(void) {
+  /* §6.1.3.1: with `E` clear the part "terminates all PTEST, PLOAD, and
+   * CALLM/RTM (type $1) instructions with an exception". */
+  ap_m68851_t mmu;
+  memory_t m;
+  configure(&mmu, &m);
+  mmu.tc.enable = false;
+
+  const ap_m68851_instruction_t r = pload(true);
+  TEST_ASSERT_EQUAL_INT(AP_M68851_CONFIGURATION_ERROR,
+                        ap_m68851_pload(&mmu, &r, 5u, 0u, memory_fetch, &m));
+}
+
+static void test_ptest_reports_a_good_translation_in_the_psr(void) {
+  ap_m68851_t mmu;
+  memory_t m;
+  configure(&mmu, &m);
+
+  const ap_m68851_instruction_t t = ptest(7u, true);
+  TEST_ASSERT_EQUAL_INT(AP_M68851_EXECUTED,
+                        ap_m68851_ptest(&mmu, &t, 5u, 0u, memory_fetch, &m));
+  TEST_ASSERT_FALSE(mmu.psr.invalid);
+  TEST_ASSERT_FALSE(mmu.psr.bus_error);
+  TEST_ASSERT_FALSE(mmu.psr.limit_violation);
+  /* "Set to the number of tables used in the translation of an address." */
+  TEST_ASSERT_EQUAL_UINT(2u, mmu.psr.levels);
+}
+
+static void test_ptest_reports_an_invalid_descriptor(void) {
+  ap_m68851_t mmu;
+  memory_t m;
+  configure(&mmu, &m);
+  put_short(&m, 0x2000u, 0x0u);
+
+  const ap_m68851_instruction_t t = ptest(7u, true);
+  (void)ap_m68851_ptest(&mmu, &t, 5u, 0u, memory_fetch, &m);
+  TEST_ASSERT_TRUE(mmu.psr.invalid);
+}
+
+static void test_ptest_reports_a_limit_violation_apart_from_invalidity(void) {
+  /* `L` and `I` are different bits precisely so the operating system can tell
+   * an addressing error by a task -- which may be a request for stack
+   * extension -- from a page that is simply not there. */
+  ap_m68851_t mmu;
+  memory_t m;
+  configure(&mmu, &m);
+  mmu.crp.limit = 0u;
+  mmu.crp.lower_limit = false;
+
+  const ap_m68851_instruction_t t = ptest(7u, true);
+  (void)ap_m68851_ptest(&mmu, &t, 5u, 0x00800000u, memory_fetch, &m);
+  TEST_ASSERT_TRUE(mmu.psr.limit_violation);
+  TEST_ASSERT_TRUE(mmu.psr.invalid);
+}
+
+static void test_a_level_ceiling_stops_the_search_without_reporting_a_fault(void) {
+  /* "Continues searching the translation tables until the requested level is
+   * reached." Stopping because the instruction asked has disproved nothing, so
+   * `I` must stay clear -- otherwise every shallow `PTEST` would look like a
+   * missing translation. */
+  ap_m68851_t mmu;
+  memory_t m;
+  configure(&mmu, &m);
+
+  const ap_m68851_instruction_t one = ptest(1u, true);
+  TEST_ASSERT_EQUAL_INT(AP_M68851_EXECUTED,
+                        ap_m68851_ptest(&mmu, &one, 5u, 0u, memory_fetch, &m));
+  TEST_ASSERT_FALSE(mmu.psr.invalid);
+  TEST_ASSERT_EQUAL_UINT(1u, mmu.psr.levels);
+
+  /* The same address to full depth reaches the page and reports two levels. */
+  const ap_m68851_instruction_t deep = ptest(7u, true);
+  (void)ap_m68851_ptest(&mmu, &deep, 5u, 0u, memory_fetch, &m);
+  TEST_ASSERT_EQUAL_UINT(2u, mmu.psr.levels);
+}
+
+static void test_a_level_zero_ptest_searches_only_the_atc(void) {
+  /* Level zero is a different operation rather than a shallow search: no
+   * descriptor is fetched at all, and a miss reports `I`. */
+  ap_m68851_t mmu;
+  memory_t m;
+  configure(&mmu, &m);
+
+  const ap_m68851_instruction_t t = ptest(0u, true);
+  const unsigned before = m.fetches;
+  TEST_ASSERT_EQUAL_INT(AP_M68851_EXECUTED,
+                        ap_m68851_ptest(&mmu, &t, 5u, 0u, memory_fetch, &m));
+  TEST_ASSERT_EQUAL_UINT(before, m.fetches);
+  TEST_ASSERT_TRUE(mmu.psr.invalid);
+  /* "For the PTEST instruction with a level specification of zero, this field
+   * is always zero." */
+  TEST_ASSERT_EQUAL_UINT(0u, mmu.psr.levels);
+
+  /* With the entry present it hits, and still walks nothing. */
+  (void)ap_m68851_translate(&mmu, 0u, 5u, false, memory_fetch, &m);
+  const unsigned after = m.fetches;
+  (void)ap_m68851_ptest(&mmu, &t, 5u, 0u, memory_fetch, &m);
+  TEST_ASSERT_EQUAL_UINT(after, m.fetches);
+  TEST_ASSERT_FALSE(mmu.psr.invalid);
+  TEST_ASSERT_EQUAL_UINT(0u, mmu.psr.levels);
+}
+
+static void test_pvalid_always_violates_when_module_control_is_clear(void) {
+  /* §6.1.7.1: "the PVALID instruction will always cause an exception when MC is
+   * clear." With module operations disabled the levels mean nothing to
+   * compare, so the instruction cannot succeed. */
+  ap_m68851_t mmu;
+  memory_t m;
+  configure(&mmu, &m);
+  mmu.ac.module_control = false;
+  mmu.ac.access_level_control = AP_M68851_ALC_THREE_BITS;
+
+  TEST_ASSERT_EQUAL_INT(AP_M68851_PVALID_ACCESS_VIOLATION,
+                        ap_m68851_pvalid(&mmu, 0xFFFFFFFFu, false, 0u));
+}
+
+static void test_pvalid_refuses_a_pointer_more_privileged_than_the_caller(void) {
+  /* "If the operand bits are arithmetically less than the VAL bits, this
+   * instruction causes a trap with the access level violation exception."
+   * Lower is more privileged, so this is the confused-deputy guard: a caller
+   * may not hand on a pointer it could not itself have made. */
+  ap_m68851_t mmu;
+  memory_t m;
+  configure(&mmu, &m);
+  mmu.ac.module_control = true;
+  mmu.ac.access_level_control = AP_M68851_ALC_THREE_BITS;
+  mmu.val = ap_m68851_access_level_encode(4u);
+
+  /* Operand at level 2: more privileged than the caller's 4. Refused. */
+  TEST_ASSERT_EQUAL_INT(AP_M68851_PVALID_ACCESS_VIOLATION,
+                        ap_m68851_pvalid(&mmu, 0x40000000u, false, 0u));
+  /* Operand at level 4: equal. Allowed -- the comparison is strict. */
+  TEST_ASSERT_EQUAL_INT(AP_M68851_PVALID_OK,
+                        ap_m68851_pvalid(&mmu, 0x80000000u, false, 0u));
+  /* Operand at level 6: less privileged. Allowed. */
+  TEST_ASSERT_EQUAL_INT(AP_M68851_PVALID_OK,
+                        ap_m68851_pvalid(&mmu, 0xC0000000u, false, 0u));
+}
+
+static void test_pvalid_can_test_against_a_surrogate_level(void) {
+  /* The register form supplies the level from a main processor address register
+   * instead of `VAL`, which is how a routine validates against something other
+   * than its own caller. */
+  ap_m68851_t mmu;
+  memory_t m;
+  configure(&mmu, &m);
+  mmu.ac.module_control = true;
+  mmu.ac.access_level_control = AP_M68851_ALC_THREE_BITS;
+  mmu.val = ap_m68851_access_level_encode(0u); /* would allow everything */
+
+  TEST_ASSERT_EQUAL_INT(AP_M68851_PVALID_OK,
+                        ap_m68851_pvalid(&mmu, 0x40000000u, false, 0u));
+  /* The surrogate is stricter and refuses the same operand. */
+  TEST_ASSERT_EQUAL_INT(
+      AP_M68851_PVALID_ACCESS_VIOLATION,
+      ap_m68851_pvalid(&mmu, 0x40000000u, true,
+                       ap_m68851_access_level_encode(4u)));
+}
+
+static void test_pvalid_permits_everything_when_access_levels_are_disabled(void) {
+  /* `ALC = $0` is "access level checking is disabled", so no address is more
+   * privileged than another and nothing can violate. */
+  ap_m68851_t mmu;
+  memory_t m;
+  configure(&mmu, &m);
+  mmu.ac.module_control = true;
+  mmu.ac.access_level_control = AP_M68851_ALC_DISABLED;
+  mmu.val = ap_m68851_access_level_encode(7u);
+
+  TEST_ASSERT_EQUAL_INT(AP_M68851_PVALID_OK,
+                        ap_m68851_pvalid(&mmu, 0x00000000u, false, 0u));
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_a_reset_part_translates_nothing);
@@ -450,5 +680,17 @@ int main(void) {
   RUN_TEST(test_an_ordinary_flush_spares_shared_entries_and_pflushs_does_not);
   RUN_TEST(test_a_flush_by_address_spares_other_pages);
   RUN_TEST(test_a_malformed_flush_all_is_refused);
+  RUN_TEST(test_pload_installs_an_entry_nothing_referenced);
+  RUN_TEST(test_ploadw_marks_the_entry_modified_and_ploadr_does_not);
+  RUN_TEST(test_pload_is_refused_while_translation_is_disabled);
+  RUN_TEST(test_ptest_reports_a_good_translation_in_the_psr);
+  RUN_TEST(test_ptest_reports_an_invalid_descriptor);
+  RUN_TEST(test_ptest_reports_a_limit_violation_apart_from_invalidity);
+  RUN_TEST(test_a_level_ceiling_stops_the_search_without_reporting_a_fault);
+  RUN_TEST(test_a_level_zero_ptest_searches_only_the_atc);
+  RUN_TEST(test_pvalid_always_violates_when_module_control_is_clear);
+  RUN_TEST(test_pvalid_refuses_a_pointer_more_privileged_than_the_caller);
+  RUN_TEST(test_pvalid_can_test_against_a_surrogate_level);
+  RUN_TEST(test_pvalid_permits_everything_when_access_levels_are_disabled);
   return UNITY_END();
 }
