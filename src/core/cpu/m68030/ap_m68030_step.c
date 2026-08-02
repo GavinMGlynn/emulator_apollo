@@ -4166,6 +4166,124 @@ static fp_source_result_t execute_fp_conditional(
   return wrote.ok ? FP_SOURCE_FETCHED : FP_SOURCE_FAILED;
 }
 
+/* `CALLM`, `[PRM]` Figure D-1 and D-3. The descriptor is read, validated and
+ * turned into a module stack frame; the entry word names the register that
+ * receives the data area pointer, and execution continues at the word after it.
+ *
+ * **Only the form that does not change the stack pointer.** Figure D-1's type
+ * `$01` supplies its own stack pointer and the arguments are copied across to
+ * it, which needs `ap_m68020_module_copies_arguments`' answer acted on rather
+ * than merely available. Declined here rather than half-built, and declined as
+ * *our* gap: a 68020 executes it.
+ *
+ * The access level is saved into the frame and not otherwise acted on. Changing
+ * it is the 68851's `CAL`/`VAL`/`SCC` work, which `m68851_regs_suite` covers as
+ * registers and which nothing yet drives from an instruction. */
+static bool execute_callm(ap_m68030_cpu_t *cpu,
+                          const ap_m68020_module_decode_t *module,
+                          uint32_t *clocks) {
+  uint16_t argument_count = 0;
+  if (!next_word(cpu, clocks, &argument_count)) {
+    return false;
+  }
+
+  const ap_m68030_ea_t ea = ap_m68030_ea_decode(module->mode, module->reg);
+  ap_m68030_address_input_t input = {0};
+  if (!gather_address_input(cpu, ea.kind, 4u, clocks, &input)) {
+    return false;
+  }
+  const ap_m68030_address_t descriptor = resolve_address(cpu, clocks, ea, &input);
+  if (!descriptor.valid) {
+    return false;
+  }
+
+  uint32_t fields[4] = {0};
+  for (unsigned i = 0; i < 4u; i++) {
+    const ap_m68030_address_t at = {.address = descriptor.address + i * 4u,
+                                    .valid = true};
+    const ap_m68030_operand_result_t read = step_operand_read(
+        cpu, &cpu->regs, cpu->data, &at, 4u, cpu->data_function_code);
+    *clocks += read.clocks;
+    if (!read.ok) {
+      return false;
+    }
+    fields[i] = read.value;
+  }
+
+  const ap_m68020_module_control_t control =
+      ap_m68020_module_control(fields[AP_M68020_DESCRIPTOR_CONTROL / 4u]);
+  if (ap_m68020_module_validate(&control) != AP_M68020_MODULE_OK) {
+    /* A format error on the real part. Declined here, because reporting the
+     * exception without the rest of the instruction would be a guess about
+     * which frame it stacks. */
+    return false;
+  }
+  /* Type `$01` is the form that supplies its own stack pointer, and it is the
+   * *type* that decides -- not the option, which only says whether arguments
+   * move once a change is happening. Asking
+   * `ap_m68020_module_copies_arguments(&control, true)` declines option 000
+   * whether or not the stack moves, which is every descriptor this test
+   * builds. */
+  if (control.type == 0x01u) {
+    return false; /* the stack-changing form; see the header comment */
+  }
+
+  const uint32_t entry = fields[AP_M68020_DESCRIPTOR_ENTRY_WORD_POINTER / 4u];
+  const uint32_t data_area = fields[AP_M68020_DESCRIPTOR_DATA_AREA_POINTER / 4u];
+
+  uint16_t entry_word = 0;
+  const ap_m68030_address_t entry_at = {.address = entry, .valid = true};
+  const ap_m68030_operand_result_t read_entry = step_operand_read(
+      cpu, &cpu->regs, cpu->data, &entry_at, 2u, cpu->data_function_code);
+  *clocks += read_entry.clocks;
+  if (!read_entry.ok) {
+    return false;
+  }
+  entry_word = (uint16_t)read_entry.value;
+  const ap_m68020_module_entry_t receiver = ap_m68020_module_entry(entry_word);
+  uint32_t *const saved = receiver.address_register
+                              ? &cpu->regs.a[receiver.reg]
+                              : &cpu->regs.d[receiver.reg];
+
+  /* Figure D-3, built downward from the current stack pointer. */
+  const uint32_t frame = ap_m68030_read_a7(&cpu->regs) - AP_M68020_FRAME_BYTES;
+  const uint32_t words[] = {
+      ((uint32_t)control.opt << 13) | ((uint32_t)control.type << 8) |
+          control.access_level,
+      ap_m68030_read_ccr(&cpu->regs),
+      argument_count & 0xFFu,
+      descriptor.address,
+      /* The next instruction: `CONSUMED_LENGTH`'s expression, written out
+       * because that macro is scoped to the step below. */
+      cpu->regs.pc + 2u + 2u * cpu->extension_words,
+      *saved,
+      ap_m68030_read_a7(&cpu->regs),
+  };
+  static const unsigned offsets[] = {
+      AP_M68020_FRAME_OPT_TYPE,   AP_M68020_FRAME_CCR,
+      AP_M68020_FRAME_ARGUMENT_COUNT, AP_M68020_FRAME_DESCRIPTOR_POINTER,
+      AP_M68020_FRAME_SAVED_PC,   AP_M68020_FRAME_SAVED_DATA_AREA,
+      AP_M68020_FRAME_SAVED_SP};
+  static const unsigned sizes[] = {2u, 2u, 4u, 4u, 4u, 4u, 4u};
+  for (unsigned i = 0; i < 7u; i++) {
+    const ap_m68030_address_t at = {.address = frame + offsets[i],
+                                    .valid = true};
+    const ap_m68030_operand_result_t wrote =
+        step_operand_write(cpu, &cpu->regs, cpu->data, &at, sizes[i], words[i],
+                           cpu->data_function_code);
+    *clocks += wrote.clocks;
+    if (!wrote.ok) {
+      return false;
+    }
+  }
+
+  ap_m68030_write_a7(&cpu->regs, frame);
+  *saved = data_area;
+  cpu->regs.pc = entry + 2u;
+  ap_m68030_fetch_reset(&cpu->fetch, cpu->regs.pc);
+  return true;
+}
+
 /* Whether an instruction "forces a change of flow", which is what the T1=0,
  * T0=1 trace mode watches. `[030]` §8.1.7: "Instructions that are traced in this
  * mode include all branches, jumps, instruction traps, returns, and coprocessor
@@ -4657,11 +4775,32 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
     module_call = family.is_module_call;
   }
   if (module_call) {
-    /* Decoded, and not executed. On a 68020 this is a real instruction, so
-     * reporting the illegal-instruction trap a 68030 takes would be wrong in
-     * the direction this core is careful about -- it would look like correct
-     * hardware behaviour. `m68020_module_suite` covers the decode and the
-     * descriptor; what is missing is the execution. */
+    const ap_m68020_module_decode_t module =
+        ap_m68020_module_decode(out.instruction);
+
+    if (module.opcode == AP_M68020_MODULE_CALLM &&
+        !execute_callm(cpu, &module, &out.clocks)) {
+      /* A descriptor this model declines, or a form it has not got to. Reported
+       * as *our* gap and not as the 68030's illegal-instruction verdict: on a
+       * 68020 the instruction is real, so the machine's trap would dress an
+       * unfinished implementation up as correct hardware. */
+      out.status = fault_or_unimplemented(cpu, &out, instruction_address);
+      cpu->clocks += out.clocks;
+      return out;
+    }
+    if (module.opcode == AP_M68020_MODULE_CALLM) {
+      /* Returned from here rather than broken out to the tail, because this
+       * decode sits *before* the instruction switch and there is nothing to
+       * break out of. `out` is initialised to FAULT, so the status is set
+       * explicitly -- the omission that once made a protocol violation report a
+       * memory fault. The tail's trace handling is skipped, which is a stated
+       * gap: `CALLM` forces a change of flow and would be traced. */
+      out.status = AP_M68030_STEP_EXECUTED;
+      out.branch_taken = true;
+      cpu->clocks += out.clocks;
+      return out;
+    }
+    /* `RTM` unwinds what `CALLM` built, and is not yet written. */
     out.status = fault_or_unimplemented(cpu, &out, instruction_address);
     cpu->clocks += out.clocks;
     return out;

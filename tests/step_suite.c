@@ -18,6 +18,7 @@
 #include "cpu/m68030/ap_m68030_ssw.h"
 #include "cpu/m68030/ap_m68030_mmusr.h"
 #include "cpu/m68030/ap_m68030_state.h"
+#include "cpu/m68020/ap_m68020_module.h"
 #include "unity.h"
 
 void setUp(void) {}
@@ -6655,6 +6656,59 @@ static void test_a_dn3000_decodes_a_module_call_where_a_dn3500_does_not(void) {
   TEST_ASSERT_EQUAL_HEX32(PROGRAM_BASE, n.cpu.regs.pc);
 }
 
+/* **`CALLM` builds a module stack frame**, `[PRM]` Figures D-1 and D-3.
+ *
+ * The descriptor names an entry point and a data area; the entry *word* names
+ * the register that receives the data area pointer, and execution continues at
+ * the word after it. The frame records what has to be undone: the caller's PC,
+ * the register the callee is about to overwrite, and the stack pointer.
+ *
+ * Checked through the frame rather than through the program counter alone,
+ * because a `CALLM` that jumped correctly and saved nothing would look right
+ * until the `RTM` that is not yet written tried to come back. */
+static void test_callm_builds_a_module_stack_frame(void) {
+  /* CALLM #0,(descriptor).L -- $06F9 is mode 111 register 001, absolute long. */
+  static const uint16_t program[] = {0x06F9u, 0x0000u, 0x0000u, 0x3000u,
+                                     0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 5);
+  m.cpu.has_module_calls = true;
+  m.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
+  m.cpu.regs.isp = SUPERVISOR_STACK;
+  m.cpu.regs.d[3] = 0xDEADBEEFu;
+
+  /* Figure D-1 at $3000: opt 000, type $00, access level 0; then the entry
+   * word pointer and the data area pointer. */
+  write_ram_long(&m, 0x3000u, 0x00000000u);
+  write_ram_long(&m, 0x3004u, 0x00003100u);  /* entry word pointer */
+  write_ram_long(&m, 0x3008u, 0x00004000u);  /* data area pointer  */
+  /* Figure D-2's entry word: D3 receives the data area pointer. */
+  m.memory.bytes[0x3100u] = 0x30u;
+  m.memory.bytes[0x3101u] = 0x00u;
+
+  const ap_m68030_step_result_t r = ap_m68030_step(&m.cpu);
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, r.status);
+  TEST_ASSERT_TRUE(r.branch_taken);
+
+  /* Execution continues at the word *after* the entry word. */
+  TEST_ASSERT_EQUAL_HEX32(0x00003102u, m.cpu.regs.pc);
+  /* The named register now holds the data area pointer, and the frame holds
+   * what it used to. */
+  TEST_ASSERT_EQUAL_HEX32(0x00004000u, m.cpu.regs.d[3]);
+  const uint32_t frame = SUPERVISOR_STACK - AP_M68020_FRAME_BYTES;
+  TEST_ASSERT_EQUAL_HEX32(frame, m.cpu.regs.isp);
+  TEST_ASSERT_EQUAL_HEX32(0xDEADBEEFu,
+                          read_ram_long(&m, frame + AP_M68020_FRAME_SAVED_DATA_AREA));
+  TEST_ASSERT_EQUAL_HEX32(SUPERVISOR_STACK,
+                          read_ram_long(&m, frame + AP_M68020_FRAME_SAVED_SP));
+  /* The caller's return point is the instruction after the CALLM: two words of
+   * absolute address and one of argument count follow the opcode. */
+  TEST_ASSERT_EQUAL_HEX32(PROGRAM_BASE + 8u,
+                          read_ram_long(&m, frame + AP_M68020_FRAME_SAVED_PC));
+  TEST_ASSERT_EQUAL_HEX32(0x3000u,
+                          read_ram_long(&m, frame + AP_M68020_FRAME_DESCRIPTOR_POINTER));
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_an_f_line_word_traps_when_no_coprocessor_is_fitted);
@@ -6663,6 +6717,7 @@ int main(void) {
   RUN_TEST(test_an_undefined_extension_traps_with_a_coprocessor_fitted);
   RUN_TEST(test_an_unimplemented_form_is_reported_as_our_gap);
   RUN_TEST(test_a_dn3000_decodes_a_module_call_where_a_dn3500_does_not);
+  RUN_TEST(test_callm_builds_a_module_stack_frame);
   RUN_TEST(test_a_single_source_operand_is_fetched_from_memory);
   RUN_TEST(test_an_extended_source_operand_spans_three_long_words);
   RUN_TEST(test_a_postincrement_steps_by_the_source_format_length);
