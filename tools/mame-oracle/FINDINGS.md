@@ -4403,3 +4403,41 @@ two sides then differ only in the base, as every working probe does.
 zero, where the VBR already points, so the probe's `MOVEC` is a no-op there and
 load-bearing on the oracle. Harmless, and worth knowing before someone reads the
 `MOVEC` as dead code on the side they happen to be debugging.
+
+## C73 -- the first fault probe runs on both sides and agrees
+
+**Class: agree.**
+
+    plant vector 4 ; MOVEC VBR ; ILLEGAL ; handler stores the format word
+
+| Check | Ours | Oracle | |
+| --- | --- | --- | --- |
+| instructions executed | 8 | 8 | agree |
+| stacked format word | `00000010` | `00000010` | agree |
+| against the M68000 encoding | `00000010` | -- | agree |
+
+Run with `python3 tools/mame-oracle/probe_compare.py --program fault`.
+
+`$0010` is a four-word frame -- format nibble 0 -- and vector 4 at offset `$10`.
+That value is fixed by the architecture rather than by either implementation, so
+agreeing on it is agreeing with something outside both, as the FPU probes were.
+
+**Four obstacles stood in front of this and three dissolved into one program.**
+The oracle planted no exception table (addendum 1, fixed and verified in addendum
+3); the table could not go at address zero because a DN3500's low addresses are
+boot PROM and C5 measured that writes there silently do nothing; the VBR points
+at zero and had to be moved; and the harness's blanket `RTE` handler would have
+looped forever, because a fault stacks the *faulting* instruction's address.
+Planting the probe's own handler answers the last three at once -- one vector
+instead of sixty-two, a `STOP` instead of an `RTE`, and the VBR pointed at
+whatever the probe wrote.
+
+**What this closes and what it does not.** The exception item's verification asks
+for "probes that deliberately fault, diffed against oracle", and an illegal
+instruction is exactly that: the whole path runs on both sides -- vector fetched
+through the VBR, frame built, handler entered -- and the frame's identifying
+field matches. What is still not compared is the **bus and address error frames**
+the item names in its title, which are the ones carrying an SSW, a fault address
+and a data output buffer. Those need the field-by-field readback C72 identified,
+and a fault at an address both memory maps agree is bad. That is the item's last
+open question, and it is now the *only* one.

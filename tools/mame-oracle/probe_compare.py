@@ -142,13 +142,22 @@ def main(argv=None) -> int:
     parser.add_argument("--timeout", type=float, default=300.0)
     parser.add_argument("--work", type=Path, default=Path("/tmp"))
     parser.add_argument(
-        "--program", choices=("sentinel", "fpu", "fpu-rounding", "fpu-sine", "fpu-sine-x"),
+        "--program", choices=("sentinel", "fpu", "fpu-rounding", "fpu-sine", "fpu-sine-x", "fault"),
         default="sentinel",
         help="which probe to run; `fpu` exercises the coprocessor's constant "
              "ROM, an FADD and the store conversion in one")
     args = parser.parse_args(argv)
 
-    if args.program == "fpu-sine-x":
+    if args.program == "fault":
+        ours_words = E.fault_probe(OURS_BASE, OURS_BASE + SENTINEL_OFFSET)
+        oracle_words = E.fault_probe(ORACLE_BASE, ORACLE_BASE + SENTINEL_OFFSET)
+        print("probe:  plant vector 4 ; MOVEC VBR ; ILLEGAL ;"
+              " handler stores the format word")
+        print("        $0010 is a four-word frame, format 0, vector 4 at"
+              " offset $10 --")
+        print("        the same on any M68000 machine, which is what makes it"
+              " worth comparing")
+    elif args.program == "fpu-sine-x":
         ours_words = E.fpu_sine_extended_probe(OURS_BASE + SENTINEL_OFFSET)
         oracle_words = E.fpu_sine_extended_probe(ORACLE_BASE + SENTINEL_OFFSET)
         print("probe:  FMOVECR #$32,FP0 (1.0) ; FSIN FP0,FP0 ;"
@@ -204,6 +213,7 @@ def main(argv=None) -> int:
                 # and the correctly rounded extended sin(1) is asserted by
                 # `m68882_transcendental_suite` against 120-digit references
                 # rather than restated here.
+                "fault": "00000010",
                 "fpu-sine-x": None}.get(
         args.program, "%08X" % args.sentinel)
     checks = [

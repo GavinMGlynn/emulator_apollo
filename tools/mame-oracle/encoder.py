@@ -260,6 +260,46 @@ def fpu_sine_extended_probe(address: int = SENTINEL_ADDRESS) -> list[int]:
     )
 
 
+def fault_probe(load_at: int, address: int = SENTINEL_ADDRESS) -> list[int]:
+    """Take an illegal instruction and store the stacked format word.
+
+    `FINDINGS.md` C72 and its addenda, as one program. The exception item's
+    verification asks for "probes that deliberately fault, diffed against
+    oracle", and four obstacles stood in the way; three of them dissolve here.
+
+    The probe plants its **own** handler rather than using the harness's, which
+    is a bare `RTE` and would loop forever: a fault stacks the address of the
+    instruction that faulted, so returning to it faults again. This handler ends
+    in `STOP`, so the probe terminates like every other.
+
+    It therefore needs one vector rather than sixty-two -- vector 4, at
+    `VBR + $10` -- and it points the VBR at its own table. On this core's side
+    that `MOVEC` is very nearly a no-op, because the probe harness plants its
+    table at zero where the VBR already points; on the oracle it is what makes
+    the fault land anywhere at all.
+
+    What it stores is the **format word** at `SP + 6`: the frame format nibble
+    and the vector offset, which is what the verification line is really about
+    and is map-independent. `$0010` is the answer -- a four-word frame, format
+    0, and vector 4 at offset `$10` -- and it is the same on any M68000 machine,
+    which is what makes it worth comparing.
+    """
+    handler = load_at + 22
+    table = load_at + 0x100
+    return assemble(
+        [0x23FC, (handler >> 16) & 0xFFFF, handler & 0xFFFF,
+         ((table + 0x10) >> 16) & 0xFFFF, (table + 0x10) & 0xFFFF],
+        [0x203C, (table >> 16) & 0xFFFF, table & 0xFFFF],  # MOVE.L #table,D0
+        [0x4E7B, 0x0801],                                  # MOVEC D0,VBR
+        [0x4AFC],                                          # ILLEGAL
+        # handler, at load_at + 22
+        [0x7000],                                          # MOVEQ #0,D0
+        [0x302F, 0x0006],                                  # MOVE.W 6(SP),D0
+        [0x23C0, (address >> 16) & 0xFFFF, address & 0xFFFF],
+        stop(0x2700),
+    )
+
+
 if __name__ == "__main__":
     import sys
     print(to_hex(sentinel_probe()), file=sys.stdout)
