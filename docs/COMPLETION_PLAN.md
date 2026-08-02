@@ -1798,7 +1798,18 @@ a 68882, and the 68882 is the only one of these it has.
             core exists to keep: on a 68020 the instruction is real, so raising
             the machine's trap would dress an unfinished implementation up as
             correct hardware. Executing `CALLM`/`RTM` remains open and is now
-            the only thing between the 68020 and its oracle diff.
+            the only thing between the 68020 and its oracle diff. Scoped rather
+            than left as a name: `ap_m68020_module.h` supplies the decode, the
+            control word, `ap_m68020_module_validate` and the two predicates for
+            whether an access change and an argument copy are wanted — **all of
+            the reading, and none of the doing**. What is missing is the module
+            stack frame: building it, the argument copy across a stack pointer
+            change, the access level change through the 68851's
+            `CAL`/`VAL`/`SCC` trio that `m68851_regs_suite` already covers, and
+            `RTM` unwinding all of it. That is the `M68000 Family PRM`'s CALLM
+            frame read from the page images and a step arm to build it — a
+            subsystem rather than a seam, and the only item left in these two
+            phases that is one.
             *Verification: `step_suite` +1 (247) -- `$06C0` reported `ILLEGAL`
             on a DN3500 and `UNIMPLEMENTED` on a DN3000, from the one model
             table.*
