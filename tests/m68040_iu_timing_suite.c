@@ -1253,6 +1253,102 @@ static void test_loading_an_address_register_costs_more_than_a_data_one(void) {
                                   false, AP_M68040_IU_NO_CONDITIONS));
 }
 
+
+/* ---------------------------------------------------------------------------
+ * Page 10-25: a fourth meaning for `a/b`, and a lead that goes missing.
+ * ------------------------------------------------------------------------- */
+
+static void test_the_multiply_alternate_is_the_operand_size(void) {
+  /* "Multiply <ea> calculate and execute times; T1/T2 apply to word/long-word
+   * operand size." A fourth distinct meaning for `a/b`, and the first that
+   * depends on the instruction's *size field* rather than on where an operand
+   * lives. `MULS.W` is 16 clocks and `MULS.L` 20. */
+  const ap_m68040_iu_cell_t c = at("MULS", AP_M68040_IU_DN);
+  TEST_ASSERT_EQUAL_INT(AP_M68040_IU_ALTERNATE_OPERAND_SIZE, c.alternate);
+  TEST_ASSERT_EQUAL_UINT(
+      16u, ap_m68040_execute_total(
+               ap_m68040_iu_execute(c, false, AP_M68040_IU_NO_CONDITIONS)));
+  TEST_ASSERT_EQUAL_UINT(
+      20u, ap_m68040_execute_total(
+               ap_m68040_iu_execute(c, true, AP_M68040_IU_NO_CONDITIONS)));
+}
+
+static void test_four_different_things_now_share_the_slash_notation(void) {
+  /* Shift count, bit number, bit-field operands, operand size. Four unrelated
+   * distinctions, one notation, and a cell that recorded the wrong one would
+   * answer a question nobody asked. */
+  TEST_ASSERT_EQUAL_INT(AP_M68040_IU_ALTERNATE_SHIFT_COUNT,
+                        at("ASL", AP_M68040_IU_DN).alternate);
+  TEST_ASSERT_EQUAL_INT(AP_M68040_IU_ALTERNATE_BIT_NUMBER,
+                        at("BCHG", AP_M68040_IU_DN).alternate);
+  TEST_ASSERT_EQUAL_INT(AP_M68040_IU_ALTERNATE_BITFIELD_OPERAND,
+                        at("BFEXTS", AP_M68040_IU_DN).alternate);
+  TEST_ASSERT_EQUAL_INT(AP_M68040_IU_ALTERNATE_OPERAND_SIZE,
+                        at("MULS", AP_M68040_IU_DN).alternate);
+}
+
+static void test_a_signed_multiply_costs_more_than_an_unsigned_word(void) {
+  /* 16 against 14 at word size -- and *the same* 20 at long. Sign costs two
+   * clocks only where the operand is short enough for it to matter. */
+  TEST_ASSERT_EQUAL_UINT(
+      16u, ap_m68040_execute_total(ap_m68040_iu_execute(
+               at("MULS", AP_M68040_IU_DN), false, AP_M68040_IU_NO_CONDITIONS)));
+  TEST_ASSERT_EQUAL_UINT(
+      14u, ap_m68040_execute_total(ap_m68040_iu_execute(
+               at("MULU", AP_M68040_IU_DN), false, AP_M68040_IU_NO_CONDITIONS)));
+  TEST_ASSERT_EQUAL_UINT(
+      20u, ap_m68040_execute_total(ap_m68040_iu_execute(
+               at("MULS", AP_M68040_IU_DN), true, AP_M68040_IU_NO_CONDITIONS)));
+  TEST_ASSERT_EQUAL_UINT(
+      20u, ap_m68040_execute_total(ap_m68040_iu_execute(
+               at("MULU", AP_M68040_IU_DN), true, AP_M68040_IU_NO_CONDITIONS)));
+}
+
+static void test_mulu_loses_the_lead_that_muls_keeps(void) {
+  /* `MULS (d16,PC)` prints `2L + 16/2L + 20`; `MULU (d16,PC)` prints plain
+   * `14/20` with no lead, read at 450 dpi. Every other row pairs the two with
+   * the same lead structure and `MULU` two clocks cheaper in the base.
+   *
+   * Transcribed as printed. Nothing proves a missing lead impossible -- a lead
+   * is stall tolerance, and the manual states no rule forcing two columns to
+   * share one. Seventh suspect cell in §10, and like `JMP`'s repeated row it
+   * fails the first half of the rule, so it stands as printed with the oddity
+   * recorded here. */
+  const ap_m68040_iu_cell_t muls = at("MULS", AP_M68040_IU_PC_DISPLACEMENT);
+  const ap_m68040_iu_cell_t mulu = at("MULU", AP_M68040_IU_PC_DISPLACEMENT);
+  TEST_ASSERT_EQUAL_UINT(2u, muls.execute.lead);
+  TEST_ASSERT_EQUAL_UINT(0u, mulu.execute.lead);
+  /* The calculate figures do agree, which is what makes the execute
+   * difference stand out rather than looking like a whole-row divergence. */
+  TEST_ASSERT_EQUAL_UINT(
+      ap_m68040_iu_calculate(muls, false, AP_M68040_IU_NO_CONDITIONS),
+      ap_m68040_iu_calculate(mulu, false, AP_M68040_IU_NO_CONDITIONS));
+}
+
+static void test_the_multiplies_have_a_dual_calculate_for_displacement_modes(void) {
+  /* `(d16,An)` and `(xxx)` print `1/2` for calculate: a long-word multiply
+   * needs one more clock to form the address, because it reads four bytes
+   * rather than two. */
+  const ap_m68040_iu_cell_t c = at("MULS", AP_M68040_IU_DISPLACEMENT);
+  TEST_ASSERT_EQUAL_UINT(1u, ap_m68040_iu_calculate(
+                                 c, false, AP_M68040_IU_NO_CONDITIONS));
+  TEST_ASSERT_EQUAL_UINT(2u, ap_m68040_iu_calculate(
+                                 c, true, AP_M68040_IU_NO_CONDITIONS));
+}
+
+static void test_nbcd_costs_more_in_a_register_than_in_memory(void) {
+  /* `NBCD Dn` executes in 3 clocks and `NBCD (An)` in 2 -- the only column in
+   * §10.6 where the register form is *dearer* than the memory one. Recorded
+   * because it inverts the assumption every other row supports. */
+  TEST_ASSERT_EQUAL_UINT(
+      3u, ap_m68040_execute_total(ap_m68040_iu_execute(
+              at("NBCD", AP_M68040_IU_DN), false, AP_M68040_IU_NO_CONDITIONS)));
+  TEST_ASSERT_EQUAL_UINT(
+      2u, ap_m68040_execute_total(ap_m68040_iu_execute(
+              at("NBCD", AP_M68040_IU_INDIRECT), false,
+              AP_M68040_IU_NO_CONDITIONS)));
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_instructions_sharing_a_column_share_a_group);
@@ -1332,5 +1428,11 @@ int main(void) {
   RUN_TEST(test_moves_needs_a_memory_operand_in_every_direction);
   RUN_TEST(test_reading_alternate_space_costs_more_than_writing_it);
   RUN_TEST(test_loading_an_address_register_costs_more_than_a_data_one);
+  RUN_TEST(test_the_multiply_alternate_is_the_operand_size);
+  RUN_TEST(test_four_different_things_now_share_the_slash_notation);
+  RUN_TEST(test_a_signed_multiply_costs_more_than_an_unsigned_word);
+  RUN_TEST(test_mulu_loses_the_lead_that_muls_keeps);
+  RUN_TEST(test_the_multiplies_have_a_dual_calculate_for_displacement_modes);
+  RUN_TEST(test_nbcd_costs_more_in_a_register_than_in_memory);
   return UNITY_END();
 }

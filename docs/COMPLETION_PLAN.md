@@ -2141,8 +2141,8 @@ a 68882, and the 68882 is the only one of these it has.
         **cheaper** than a completed divide, since the division never happens.
         Page 10-23 adds figures that depend on the *register list*
         (`2 + D' + A'`), which no column can hold. `m68040_iu_timing_suite`,
-        77 tests. Four pages of column groups remain, then §10.7's ten pages of
-        floating-point timings. Bulk transcription against the composition above,
+        83 tests. Three pages of column groups remain, then §10.7's ten pages
+        of floating-point timings. Bulk transcription against the composition above,
         and the last thing standing between Phase 2b and complete. Every figure
         is a *best case* by §10.1's suppositions: "all memory accesses hit in
         the caches", and misaligned `<ea>` fetch timing is left to the reader.

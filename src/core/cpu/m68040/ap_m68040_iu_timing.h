@@ -77,6 +77,11 @@ typedef enum {
   AP_M68040_IU_ALTERNATE_SHIFT_COUNT,
   AP_M68040_IU_ALTERNATE_BIT_NUMBER,
   AP_M68040_IU_ALTERNATE_BITFIELD_OPERAND,
+  /* "Multiply <ea> calculate and execute times; T1/T2 apply to
+   * word/long-word operand size." A fourth distinct meaning for the same
+   * `a/b` notation, and the first that depends on the instruction's *size*
+   * field rather than on where an operand lives. */
+  AP_M68040_IU_ALTERNATE_OPERAND_SIZE,
 } ap_m68040_iu_alternate_t;
 
 /* What a conditional penalty is conditional *on*. Each is stated in a column's
