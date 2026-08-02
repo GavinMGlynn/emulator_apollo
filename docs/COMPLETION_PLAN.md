@@ -2015,9 +2015,12 @@ a 68882, and the 68882 is the only one of these it has.
         three `PSAVE` state frame sizes. `PSR` defines nine bits and only eight
         are testable -- **`M` has no condition**, and the encodings are
         contiguous from zero so there is no gap where a pair could sit.
-  - [ ] The coprocessor interface: the MMU is cpID 0 on the same interface the
-        68882 uses as cpID 1, so `[68851]` §9's CIRs and primitives sit
-        alongside the 68882's already-landed Table 7-2.
+  - [x] The coprocessor interface: Table 9-2's CIR map, Table 9-3's three null
+        primitives and Table 9-6's five vectors. The two coprocessors implement
+        **complementary** subsets -- the FPU has `$18` and not `$1C`, the MMU
+        `$1C` and not `$18` -- so one shared CIR table would be wrong in both
+        directions. `m68851_cir_suite`, 18 tests, one of which checks both
+        parts' tables against each other.
   - [ ] Wiring: the ATC, the search and the registers into one part, and that
         part onto the 68020's coprocessor path.
 - [ ] 68040 for DN5500: different pipeline, caches, and MMU descriptor format;

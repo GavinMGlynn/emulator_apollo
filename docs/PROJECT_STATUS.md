@@ -793,12 +793,48 @@ the dispatch sequence. So `B`, `L`, `S`, `A`, `W`, `I` at the top of the
 register are in fault-priority order, not arbitrary -- which is a constraint on
 any future rewrite of that struct.
 
-What the 68851 still owes: the remaining instruction encodings (`PMOVE`,
-`PTEST`, `PLOAD`, `PVALID`, the conditionals, `PSAVE`/`PRESTORE`), the
-coprocessor interface, and the wiring of the parts into one device on the
-68020's coprocessor path. Appendix A's bit rows have to come from page images --
-`pdftotext` renders them with zeros as letters and columns collapsed, which is
-the same failure that cost a bit position in the 68020's module entry word.
+**The coprocessor interface is in, and its finding is a comparison.** The 68851
+and the 68882 sit on the same M68000 coprocessor interface at cpID 0 and 1, and
+Table 9-2's footnote marks which registers each leaves unimplemented. They are
+not the same two:
+
+| CIR | 68851 | 68882 |
+| --- | --- | --- |
+| `$08` operation word | unimplemented | unimplemented |
+| `$18` instruction address | unimplemented | implemented |
+| `$1C` operand address | implemented | unimplemented |
+
+The reason is concurrency. The instruction address CIR "is used to support
+concurrent processor/coprocessor instruction execution and is not implemented by
+the MC68851. Primitives returned by the MC68851 do not have the PC bit set" --
+the MMU never runs concurrently, so it never has to say which instruction an
+exception belongs to. The operand address CIR exists here because `PFLUSH`,
+`PLOAD`, `PTEST` and `PVALID` each evaluate an effective address the MMU then
+uses, which no floating-point instruction does. A single shared CIR table would
+be wrong in both directions, and a test checks the two parts' tables against
+each other rather than asserting each alone.
+
+One behaviour is the opposite of the intuitive arrangement: **the register that
+is implemented is the one that can fault.** Both unimplemented CIRs are
+explicitly exempt -- "accessing this register will not cause a protocol
+violation" -- while the operand address CIR raises one on any write outside its
+primitive, ignores the cycle and aborts the instruction.
+
+Table 9-3's null primitives come to three of thirty-two encodings, and two of
+the three coincide: the idle form and a *false* condition result are the same
+bits, told apart by whether the read follows a write to the condition CIR. A
+classifier working from bits alone cannot separate them and the model does not
+pretend to. Table 9-6's five vectors split pre-instruction (F-line 11, protocol
+violation 13) from post-instruction (configuration error 56, illegal operation
+57, access violation 58), which decides the stack frame and the resume point;
+the table prints both decimal numbers and hex offsets, so the two columns check
+each other.
+
+What the 68851 still owes: wiring the registers, ATC, search, decode and
+interface into one device on the 68020's coprocessor path, and then the DN3000
+boot. Appendix A's bit rows have to come from page images -- `pdftotext` renders
+them with zeros as letters and columns collapsed, the same failure that cost a
+bit position in the 68020's module entry word.
 
 ## Subsystems
 
