@@ -134,12 +134,22 @@ def main(argv=None) -> int:
     parser.add_argument("--timeout", type=float, default=300.0)
     parser.add_argument("--work", type=Path, default=Path("/tmp"))
     parser.add_argument(
-        "--program", choices=("sentinel", "fpu"), default="sentinel",
+        "--program", choices=("sentinel", "fpu", "fpu-rounding"), default="sentinel",
         help="which probe to run; `fpu` exercises the coprocessor's constant "
              "ROM, an FADD and the store conversion in one")
     args = parser.parse_args(argv)
 
-    if args.program == "fpu":
+    if args.program == "fpu-rounding":
+        ours_words = E.fpu_rounding_probe(OURS_BASE + SENTINEL_OFFSET)
+        oracle_words = E.fpu_rounding_probe(ORACLE_BASE + SENTINEL_OFFSET)
+        print("probe:  FMOVE.L #$10,FPCR (round to zero) ; FMOVECR #$31,FP0"
+              " (ln 10) ;")
+        print("        FMOVE.D FP0,(A0) ; STOP #$2700")
+        print("        ln(10) is 40026BB1BBB55516 to nearest, ...5515 toward"
+              " zero;")
+        print("        the store is aimed four bytes low so the differing half"
+              " is read")
+    elif args.program == "fpu":
         ours_words = E.fpu_probe(OURS_BASE + SENTINEL_OFFSET)
         oracle_words = E.fpu_probe(ORACLE_BASE + SENTINEL_OFFSET)
         expected_note = "2*pi as an IEEE double is 401921FB54442D18"
@@ -161,7 +171,8 @@ def main(argv=None) -> int:
     oracle = run_oracle(oracle_words, ORACLE_BASE, ORACLE_BASE + SENTINEL_OFFSET,
                         args.limit, args.timeout)
 
-    expected = "401921FB" if args.program == "fpu" else "%08X" % args.sentinel
+    expected = {"fpu": "401921FB", "fpu-rounding": "BBB55515"}.get(
+        args.program, "%08X" % args.sentinel)
     checks = [
         ("instructions executed", ours.get("ran"), oracle.get("ran")),
         ("sentinel in memory", ours.get("read"), oracle.get("read")),

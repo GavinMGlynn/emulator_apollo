@@ -3745,3 +3745,42 @@ modes, packed decimal and the exception byte have not been compared, and the
 oracle's *admitted* FPU gaps have not been enumerated as a divergence class. What
 would settle it is more probes through the same harness -- the mechanism now
 exists and is the part that was missing.
+
+## C60 -- the rounding mode agrees, and the constant ROM gets its first witness
+
+**Class: agree.**
+
+C59's probe could not reach the rounding *mode*, which is half of what the
+68882's verification line asks for. Reaching it took some care: rounding happens
+at bit 52 of a double, so a change of mode moves the **high** long word only when
+a carry propagates through all thirty-two low bits, and the harness reads one
+long word. Of the constant ROM's entries, `ln(10)` at offset `$31` is one whose
+*low* word moves -- `40026BB1BBB55516` to the nearest against `...5515` toward
+zero -- so the store is aimed four bytes low and the sentinel read lands on the
+half that actually differs.
+
+    MOVEQ #$10,D0 ; FMOVE.L D0,FPCR ; FMOVECR #$31,FP0 ; FMOVE.D FP0,(A0)
+
+| Check | Ours | Oracle | |
+| --- | --- | --- | --- |
+| instructions executed | 6 | 6 | agree |
+| stored low long word | `BBB55515` | `BBB55515` | agree |
+| against the round-to-zero value | `BBB55515` | -- | agree |
+
+Run with `python3 tools/mame-oracle/probe_compare.py --program fpu-rounding`.
+
+Four things at once, and the probe fails differently for each: `FMOVE.L` to the
+FPCR has to work, the mode has to be *honoured* rather than ignored, the constant
+has to be right, and the store conversion has to round by the mode rather than to
+nearest. `...5516` would mean the mode was ignored.
+
+**The result worth naming is the third one.** `FMOVECR`'s values are computed
+here to 200 decimal digits, not read from any manual -- neither the part's own
+nor the `M68000 Family PRM` prints a bit pattern, which `PROJECT_STATUS.md`
+records as an open question with "instrument the oracle and read all 22 back" as
+its closing route. This is one of the twenty-two, read back, agreeing to the
+fifty-three bits a double holds. It does not close the question -- a double sees
+none of the eleven low bits where a ROM is most likely to differ from a correctly
+rounded value, and one constant is not twenty-two -- but it is the first evidence
+from outside this project that the table is right, and it narrows what a full
+readback would have to disagree about.

@@ -182,6 +182,32 @@ def fpu_probe(address: int = SENTINEL_ADDRESS) -> list[int]:
     )
 
 
+def fpu_rounding_probe(address: int = SENTINEL_ADDRESS) -> list[int]:
+    """Round-to-zero, then `ln(10)` stored as a double, low long word first.
+
+    The rounding *mode* is the half of the verification line a single result
+    cannot reach, and picking a value for it takes care: rounding happens at
+    bit 52 of a double, so a change of mode reaches the *high* long word only
+    when a carry propagates through all thirty-two low bits. Of the constant
+    ROM's entries, `ln(10)` at offset `$31` is one whose low word moves --
+    `40026BB1BBB55516` to the nearest against `...5515` toward zero -- so the
+    store is aimed four bytes low and the sentinel read lands on the half that
+    actually differs.
+
+    Which makes this probe fail if either side ignores the mode, and fail
+    differently if either rounds the wrong way.
+    """
+    return assemble(
+        [0x7010],                                              # MOVEQ #$10,D0
+        [0xF200, 0x9000],                                      # FMOVE.L D0,FPCR
+        [0xF200, 0x5C31],                                      # FMOVECR #$31,FP0
+        [0x207C, ((address - 4) >> 16) & 0xFFFF,
+         (address - 4) & 0xFFFF],                              # MOVEA.L #a-4,A0
+        [0xF210, 0x7400],                                      # FMOVE.D FP0,(A0)
+        stop(0x2700),
+    )
+
+
 if __name__ == "__main__":
     import sys
     print(to_hex(sentinel_probe()), file=sys.stdout)
