@@ -5,6 +5,7 @@
 
 #include "cpu/m68030/ap_m68030_step.h"
 
+#include "cpu/m68020/ap_m68020_decode.h"
 #include "cpu/m68030/ap_m68030_ea_timing.h"
 #include "cpu/m68030/ap_m68030_timing_table.h"
 
@@ -4644,7 +4645,27 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
   }
 
   out.instruction = word;
-  const ap_m68030_decoded_t decoded = ap_m68030_decode(word);
+  /* The family-aware decoder, which until now was tested and never called: a
+   * sweep of all 65536 opcodes pins the two families as differing on exactly 44
+   * words, and `ap_m68030_step` asked none of them. Joining the two is what
+   * makes the model table change behaviour rather than describe it. */
+  ap_m68030_decoded_t decoded = ap_m68030_decode(word);
+  bool module_call = false;
+  if (cpu->has_module_calls) {
+    const ap_cpu_decoded_t family = ap_cpu_decode(word, AP_CPU_M68020);
+    decoded = family.base;
+    module_call = family.is_module_call;
+  }
+  if (module_call) {
+    /* Decoded, and not executed. On a 68020 this is a real instruction, so
+     * reporting the illegal-instruction trap a 68030 takes would be wrong in
+     * the direction this core is careful about -- it would look like correct
+     * hardware behaviour. `m68020_module_suite` covers the decode and the
+     * descriptor; what is missing is the execution. */
+    out.status = fault_or_unimplemented(cpu, &out, instruction_address);
+    cpu->clocks += out.clocks;
+    return out;
+  }
   out.kind = decoded.kind;
 
   if (decoded.kind == AP_M68030_DECODED_ILLEGAL) {

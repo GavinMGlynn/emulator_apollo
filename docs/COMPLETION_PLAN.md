@@ -1778,7 +1778,7 @@ a 68882, and the 68882 is the only one of these it has.
             the 68882's concurrency "is invisible to a program except through
             timing". Attaching one to every machine is therefore correct, not
             an approximation.
-      - [ ] **The model is held but not yet consulted**, which is what the
+      - [x] **The model is consulted, and changes behaviour.** Was: what the
             68020's oracle diff waits on. Located precisely rather than left as
             a direction: `ap_cpu_decode(instruction, family)` exists in
             `src/core/cpu/m68020/ap_m68020_decode.h` and is tested — a sweep of
@@ -1788,10 +1788,20 @@ a 68882, and the 68882 is the only one of these it has.
             So the family-aware decoder and the step have never been joined,
             exactly as `ap_probe.c`'s suite and the oracle harness had never
             been joined before C59.
-            The change is: carry the family on `ap_m68030_cpu_t`, set it from
-            `machine->model`, call `ap_cpu_decode` in the step, and give
-            `execute` an arm for the two decoded kinds `m68020_module_suite`
-            already covers.
+            Done: `ap_m68030_cpu_t` carries `has_module_calls`, set from the
+            model's features, and the step calls `ap_cpu_decode` when it is set.
+            A **bool defaulting false** rather than an `ap_cpu_t`, so a
+            zero-initialised CPU is still a 68030 and no existing caller changed
+            behaviour by omission.
+            A module call decodes and reports **our gap** rather than the
+            68030's illegal-instruction verdict, which is the distinction this
+            core exists to keep: on a 68020 the instruction is real, so raising
+            the machine's trap would dress an unfinished implementation up as
+            correct hardware. Executing `CALLM`/`RTM` remains open and is now
+            the only thing between the 68020 and its oracle diff.
+            *Verification: `step_suite` +1 (247) -- `$06C0` reported `ILLEGAL`
+            on a DN3500 and `UNIMPLEMENTED` on a DN3000, from the one model
+            table.*
             *Verification: a DN3000 accepting `CALLM` where a DN3500 refuses it,
             from the one model table rather than a conditional — the 44-opcode
             difference `m68020_decode_suite` already pins, reached through a

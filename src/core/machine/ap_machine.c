@@ -189,6 +189,11 @@ void ap_machine_init_model(ap_machine_t *machine, uint8_t *ram,
   ap_m68030_atc_flush(&machine->atc);
 
   machine->cpu = (ap_m68030_cpu_t){0};
+  /* The one place a model changes the CPU's behaviour, read from the table
+   * rather than decided here. */
+  machine->cpu.has_module_calls =
+      machine->model != NULL &&
+      ap_cpu_features(machine->model->cpu).has_module_calls;
   ap_m68882_reset(&machine->fpu);
   /* **Every model in the table has a coprocessor**, so attaching one is not the
    * approximation it was once recorded as. `ap_m68882.h` says "a DN3500 has a

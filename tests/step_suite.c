@@ -6613,6 +6613,48 @@ static void test_a_zero_mantissa_is_a_zero_whatever_the_exponent(void) {
   TEST_ASSERT_EQUAL_HEX32(0u, fpu.regs.fpsr & (UINT32_C(0xFF) << 8));
 }
 
+/* **The model table changes behaviour, rather than describing it.** `CALLM` and
+ * `RTM` exist on the 68020 and on nothing else, so `$06C0` is a module call on a
+ * DN3000 and an illegal instruction on a DN3500 -- and the two must not report
+ * the same thing.
+ *
+ * The DN3500 takes the *machine's* trap, which is correct hardware behaviour.
+ * The DN3000 reports **our** gap: the instruction is real there, so raising the
+ * illegal-instruction exception would dress an unfinished implementation up as
+ * a correct machine, which is the one confusion this core spends most of its
+ * care avoiding.
+ *
+ * This is the seam that `ap_cpu_decode`'s 65536-opcode sweep had always pinned
+ * and that the step had never asked about. */
+static void test_a_dn3000_decodes_a_module_call_where_a_dn3500_does_not(void) {
+  static const uint16_t program[] = {0x06C0u, 0x0000u, 0x4E71u};
+
+  machine_t m = {0};
+  load(&m, program, 3);
+  m.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
+  m.cpu.regs.isp = SUPERVISOR_STACK;
+  /* `load` builds the reference machine, which is a DN3500. */
+  TEST_ASSERT_FALSE(m.cpu.has_module_calls);
+  /* `ILLEGAL`, which this step reports as a status rather than by raising the
+   * vector -- "the hardware would fault too". That is the *machine's* verdict,
+   * and it is what a 68030 gives for a word no 68030 instruction claims. */
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_ILLEGAL, ap_m68030_step(&m.cpu).status);
+
+  /* The same word on a machine whose model says the family has them. */
+  machine_t n = {0};
+  load(&n, program, 3);
+  n.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
+  n.cpu.regs.isp = SUPERVISOR_STACK;
+  n.cpu.has_module_calls = true;
+
+  const ap_m68030_step_result_t r = ap_m68030_step(&n.cpu);
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_UNIMPLEMENTED, r.status);
+  TEST_ASSERT_NOT_EQUAL_INT(AP_M68030_STEP_EXCEPTION, r.status);
+  /* And the program counter did not move, so "how far did this get" stays a
+   * real measure. */
+  TEST_ASSERT_EQUAL_HEX32(PROGRAM_BASE, n.cpu.regs.pc);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_an_f_line_word_traps_when_no_coprocessor_is_fitted);
@@ -6620,6 +6662,7 @@ int main(void) {
   RUN_TEST(test_a_fitted_coprocessor_ignores_another_cpid);
   RUN_TEST(test_an_undefined_extension_traps_with_a_coprocessor_fitted);
   RUN_TEST(test_an_unimplemented_form_is_reported_as_our_gap);
+  RUN_TEST(test_a_dn3000_decodes_a_module_call_where_a_dn3500_does_not);
   RUN_TEST(test_a_single_source_operand_is_fetched_from_memory);
   RUN_TEST(test_an_extended_source_operand_spans_three_long_words);
   RUN_TEST(test_a_postincrement_steps_by_the_source_format_length);

@@ -218,6 +218,16 @@ typedef struct {
    * instruction's address and the next one's. Zero means none -- vector 0 is
    * the reset stack pointer, which no instruction can raise. */
   unsigned pending_vector;
+  /* Whether this part has the 68020's module calls, which is the whole of what
+   * the family changes about *decode*: `CALLM` and `RTM` exist on the 68020 and
+   * on nothing else, so `$06C0`-`$06FF` is a module call there and an illegal
+   * instruction here.
+   *
+   * A **bool defaulting false** rather than an `ap_cpu_t`, deliberately: a
+   * zero-initialised CPU is then a 68030, which is what every caller built
+   * before the machine had a model. An enum would have made the zero value a
+   * 68020 and changed behaviour everywhere by omission. */
+  bool has_module_calls;
 } ap_m68030_cpu_t;
 
 typedef struct {
