@@ -1967,6 +1967,13 @@ a 68882, and the 68882 is the only one of these it has.
         boot without its PMMU, so there is nothing to boot until that lands.
 - [ ] 68851 external PMMU as its own subsystem. *Verification: `MC68851 PMMU
       User's Manual 3ed` cited per figure; oracle diff.*
+  - [x] The translation control registers: `TC` with its consistency check
+        (IS + TIA + TIB + TIC + TID + PS must be exactly 32, and page size bit 3
+        must be one), and the three root pointers `CRP`/`SRP`/`DRP` with the
+        limit field's two directions, both documented ways to suppress it, the
+        four descriptor types and the `FCL` interaction that a `DT = $1` page
+        descriptor overrides. Figures 6-1 and 6-3 read from the page images.
+        `m68851_tc_suite` 13 tests, `m68851_rp_suite` 13 tests.
 - [ ] 68040 for DN5500: different pipeline, caches, and MMU descriptor format;
       integrated FPU. *Verification: `MC68040 User's Manual 1993` cited;
       `dn5500` oracle diff, expecting to exceed the oracle's FPU coverage.*

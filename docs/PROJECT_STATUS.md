@@ -540,6 +540,40 @@ What the 68020 item still owes is its **boot verification**, which carries to
 the 68851 item: a DN3000 has no on-chip MMU, so there is nothing to boot until
 the external PMMU lands. That is a dependency, not a deferral.
 
+**The 68851 has started, with its translation control registers.** The part is
+the DN3000's MMU and is also the "external hardware" the 68020 manual defers to
+for access-level checking -- §6.1 names `CAL`, `VAL` and `SCC` as the registers
+`CALLM` and `RTM` drive, which is the other end of the module-call layer landed
+above. The two subsystems are one mechanism split across two chips.
+
+`TC` (§6.1.3, Figure 6-3) carries the whole tree geometry in one equation:
+"the TIx fields are added together, and this sum is added to PS and IS. The
+total must be 32." Discarded bits, index bits and page offset must account for
+a logical address exactly once, or the write raises an MMU configuration
+exception -- and the register still takes the value, with only `E` cleared, so
+software can read back what it tried. Two further rules make most bit patterns
+illegal: page size bit 3 must be one (so 256 bytes is the floor and `PS` is a
+logarithm), and a zero `TIx` is a *terminator* rather than a level indexing
+nothing. The terminator does not excuse a field from the sum, which is why
+software must zero the levels it does not use.
+
+The root pointers (§6.1.1, Figure 6-1) are three registers of one format for
+user, supervisor and DMA -- the DMA tree being the thing the 68030 has no
+equivalent for. The limit field's `L/U` bit reverses the sense of the
+comparison rather than selecting a second field, and the manual gives *two*
+ways to switch the check off (`$7FFF` with `L/U` clear, `$8000` with it set);
+both are modelled, because recognising only the first would enforce a lower
+bound of zero and be harmlessly right for the wrong reason. One interaction is
+worth its own note: `FCL` suppresses the limit check, except for a `DT = $1`
+page descriptor, where it runs "regardless of the state of the FCL bit" -- the
+case that most needs it, since a page descriptor walks no table and the limit is
+the only bound on the direct mapping it creates.
+
+Both figures were read from the page images. That caught a defect the extracted
+text would not have: `TC`'s implemented-bit mask, written from the prose,
+claimed bit 30, and the figure shows bits 30-26 as a single run of
+unimplemented zeros between `E` and `SRE`.
+
 ## Subsystems
 
 | Subsystem | Status | Verification |
