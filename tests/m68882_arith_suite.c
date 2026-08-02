@@ -781,6 +781,69 @@ static void test_an_underflow_is_not_always_a_zero(void) {
   }
 }
 
+static void test_the_minimum_exponent_is_a_legal_one_not_an_underflow(void) {
+  /* The bug this pins made every product at the bottom of the range come back
+   * halved, and the smallest denormal come back as zero.
+   *
+   * Extended precision is not single or double here, and §6.1.5's own footnote
+   * says why: "underflow is NOT detected for intermediate result exponents that
+   * are equal to the extended precision minimum exponent, since the explicit
+   * integer part bit of extended precision permits representation of normalized
+   * numbers with a minimum exponent". An exponent field of zero is a *legal*
+   * exponent, not the first one below the range -- which is the same NOTE that
+   * makes `ap_m68882_classify` refuse the single/double rule.
+   *
+   * So a denormalising shift belongs to a *negative* exponent only, and its
+   * size is `-exponent` rather than one more. Getting either half wrong shifts
+   * every such result one place too far, and silently: the value is still a
+   * plausible small number. */
+  const ap_m68882_extended_t one = {false, 0x3FFF, 0x8000000000000000ULL};
+  const ap_m68882_extended_t denormal = {false, 0u, 0x4000000000000000ULL};
+  const ap_m68882_extended_t smallest = {false, 0u, 1u};
+
+  /* Multiplying by one changes nothing, whichever way round. */
+  const ap_m68882_op_t a = ap_m68882_mul(&denormal, &one,
+                                         AP_M68882_ROUND_NEAREST,
+                                         AP_M68882_PRECISION_EXTENDED);
+  TEST_ASSERT_EQUAL_UINT(0u, a.value.exponent);
+  TEST_ASSERT_EQUAL_UINT64_MESSAGE(0x4000000000000000ULL, a.value.mantissa,
+                                   "a denormal times one came back halved");
+  const ap_m68882_op_t b = ap_m68882_mul(&one, &denormal,
+                                         AP_M68882_ROUND_NEAREST,
+                                         AP_M68882_PRECISION_EXTENDED);
+  TEST_ASSERT_EQUAL_UINT64(0x4000000000000000ULL, b.value.mantissa);
+
+  /* And the smallest representable value survives it, which is the case that
+   * showed the fault most plainly: one unit in the last place became zero. */
+  const ap_m68882_op_t c = ap_m68882_mul(&smallest, &one,
+                                         AP_M68882_ROUND_NEAREST,
+                                         AP_M68882_PRECISION_EXTENDED);
+  TEST_ASSERT_EQUAL_UINT64_MESSAGE(1u, c.value.mantissa,
+                                   "the smallest denormal was lost entirely");
+
+  /* Dividing by one likewise: the same fault was in both. */
+  const ap_m68882_op_t d = ap_m68882_div(&denormal, &one,
+                                         AP_M68882_ROUND_NEAREST,
+                                         AP_M68882_PRECISION_EXTENDED);
+  TEST_ASSERT_EQUAL_UINT64(0x4000000000000000ULL, d.value.mantissa);
+  const ap_m68882_op_t e = ap_m68882_div(&smallest, &one,
+                                         AP_M68882_ROUND_NEAREST,
+                                         AP_M68882_PRECISION_EXTENDED);
+  TEST_ASSERT_EQUAL_UINT64(1u, e.value.mantissa);
+
+  /* A number at the minimum exponent with its integer bit *set* is normalized
+   * -- the NOTE's own case -- so it raises no underflow at all. */
+  const ap_m68882_extended_t minimum_normal = {false, 0u,
+                                               0x8000000000000000ULL};
+  const ap_m68882_op_t f = ap_m68882_mul(&minimum_normal, &one,
+                                         AP_M68882_ROUND_NEAREST,
+                                         AP_M68882_PRECISION_EXTENDED);
+  TEST_ASSERT_EQUAL_UINT64(0x8000000000000000ULL, f.value.mantissa);
+  TEST_ASSERT_EQUAL_UINT_MESSAGE(
+      0u, f.exceptions & (1u << AP_M68882_EXC_UNFL),
+      "a normalized number at the minimum exponent does not underflow");
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_a_square_root_is_exact_for_perfect_squares);
@@ -814,6 +877,7 @@ int main(void) {
   RUN_TEST(test_every_quotient_comes_back_normalised);
   RUN_TEST(test_an_overflow_is_not_always_an_infinity);
   RUN_TEST(test_an_underflow_is_not_always_a_zero);
+  RUN_TEST(test_the_minimum_exponent_is_a_legal_one_not_an_underflow);
   RUN_TEST(test_a_value_extended_can_hold_still_overflows_a_single);
   return UNITY_END();
 }

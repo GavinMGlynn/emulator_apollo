@@ -277,13 +277,30 @@ static ap_m68882_extended_t nx_scale2(ap_m68882_extended_t v, int n,
     *overflow = true;
     return nx_infinity(v.sign);
   }
-  if (e <= 0) {
-    /* Denormalising here would need a shift and a sticky bit; the family's
-     * callers report underflow and a zero of the right sign, which is what
-     * §6.1.5's trap-disabled result is once the value is below the range the
-     * exponent field can express. */
-    *underflow = true;
-    return nx_zero(v.sign);
+  if (e < 0) {
+    /* Gradual underflow rather than flush to zero: "the result mantissa is
+     * shifted right (denormalized) while the result exponent is incremented
+     * until the result exponent reaches the minimum value".
+     *
+     * Flushing here cost `FSINH` and `FATANH` their whole answer for a denormal
+     * argument, because both halve a value at the end and a halved denormal was
+     * being thrown away rather than denormalised.
+     *
+     * The test is `< 0` and not `<= 0` for the reason the multiply gives:
+     * exponent zero is a legal extended exponent, not the first one below the
+     * range. */
+    const unsigned shift = (unsigned)(-e);
+    if (shift >= 64u) {
+      *underflow = true;
+      return nx_zero(v.sign);
+    }
+    const uint64_t lost = v.mantissa & ((1ULL << shift) - 1u);
+    v.mantissa >>= shift;
+    v.exponent = 0u;
+    if (lost != 0u || (v.mantissa & (1ULL << 63)) == 0u) {
+      *underflow = true;
+    }
+    return v;
   }
   v.exponent = (uint16_t)e;
   return v;
@@ -787,7 +804,30 @@ ap_m68882_op_t ap_m68882_lognp1(const ap_m68882_extended_t *x,
    * negligible. Above it, `1 + x` is at least `3/4` and loses at most a couple
    * of bits, so `FLOGN` handles it to within a unit or two. */
   const int e = (int)x->exponent - AP_M68882_BIAS_EXTENDED;
-  if (x->exponent != 0u && e <= -3) {
+  /* A denormal has an exponent *field* of zero, which is not an exponent of
+   * zero -- so testing the field alone excluded the very smallest arguments
+   * from the path that exists for small arguments, and sent them through
+   * `1 + x` instead, where they vanished. */
+  if (x->exponent == 0u || e <= -3) {
+    /* Below `2^-64` this series is its first term. The threshold is *not* the
+     * arc tangent's, and the difference is the whole point: `ln(1+x)` is
+     * `x(1 - x/2 + ...)`, so its correction is `x/2` *relative* to the answer,
+     * while `atan(t)` is `t(1 - t^2/3 + ...)` and its correction is `t^2/3`.
+     * One needs `x` below `2^-64` to be negligible in a 64-bit significand; the
+     * other needs only `2^-32`.
+     *
+     * Taking the arc tangent's threshold here cost twenty bits: at `2^-43` the
+     * correction is `2^-44` relative, which is a million units in the last
+     * place, and the accuracy sweep caught it immediately.
+     *
+     * The guard exists because forming `x/(x+2)` halves the argument, and a
+     * halved denormal is gone before the series that would double it back has
+     * run. */
+    if (x->mantissa != 0u && e < -64) {
+      ap_m68882_op_t direct = ap_m68882_mul(x, &c_one, mode, precision);
+      direct.exceptions |= 1u << AP_M68882_EXC_INEX2;
+      return direct;
+    }
     const ap_m68882_extended_t s = nx_div(*x, nx_add(*x, c_two));
     const ap_m68882_extended_t s2 = nx_mul(s, s);
     ap_m68882_extended_t acc = log_coefficients[LOG_TERMS - 1u];
@@ -1076,6 +1116,16 @@ static ap_m68882_extended_t atan_series(ap_m68882_extended_t u) {
  * square root is worth one divide and one root because the series' convergence
  * is geometric in the argument and every halving buys a great many terms. */
 static ap_m68882_extended_t atan_kernel(ap_m68882_extended_t t) {
+  /* Below `2^-40` the whole series is its first term: `atan(t) = t - t^3/3 +
+   * ...` and `t^3` is already beyond the significand. Returned directly because
+   * the half-angle step would otherwise *destroy* such an argument -- halving
+   * the smallest denormal gives zero, and the doubling that follows cannot
+   * bring it back. The reduction that buys accuracy in the middle of the range
+   * is what loses everything at the bottom of it. */
+  if (t.mantissa != 0u &&
+      (int)t.exponent - AP_M68882_BIAS_EXTENDED < -40) {
+    return t;
+  }
   const ap_m68882_extended_t root = nx_sqrt(nx_add(c_one, nx_mul(t, t)));
   const ap_m68882_extended_t u = nx_div(t, nx_add(c_one, root));
   return nx_add(atan_series(u), atan_series(u));

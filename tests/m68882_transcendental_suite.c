@@ -1898,6 +1898,90 @@ static void test_the_family_is_bit_identical_in_every_build(void) {
       "to the one this golden was taken from");
 }
 
+static void test_a_denormal_argument_survives_every_function(void) {
+  /* Denormals are where an implementation with reductions in it breaks, and all
+   * nineteen of these have reductions. For an argument this small every one of
+   * them has a first-order answer that is either the argument itself, one, or
+   * a large logarithm -- and *none* of them is zero.
+   *
+   * Four separate faults were found here, each hidden by the fact that a wrong
+   * answer near zero still looks like a small number:
+   *
+   *   - `FMUL` and `FDIV` denormalised at the minimum exponent, which is legal,
+   *     so every result there came back halved. That was a core arithmetic bug,
+   *     not a transcendental one, and it moved most of this family.
+   *   - `nx_scale2` flushed a halved denormal to zero instead of denormalising
+   *     it, which cost `FSINH` and `FATANH` their whole answer.
+   *   - `FLOGNP1` tested the exponent *field* for its small-argument path, so a
+   *     denormal -- whose field is zero -- was excluded from the very path that
+   *     exists for small arguments and sent through `1 + x`, where it vanished.
+   *   - `FATAN` halves its argument before the series, and halving the smallest
+   *     denormal gives zero, which the doubling afterwards cannot undo.
+   *
+   * The accuracy sweeps could not have found any of them: their vectors are
+   * normal numbers, because an expectation generated at the bottom of the
+   * exponent range is dominated by the denormalisation rather than by the
+   * function. */
+  const ap_m68882_extended_t smallest = {false, 0u, 1u};
+  const ap_m68882_extended_t middling = {false, 0u, 0x4000000000000000ULL};
+
+  /* These return their argument to first order: every series here begins with
+   * its linear term. */
+  const unary_fn_t identity_like[] = {ap_m68882_etoxm1, ap_m68882_lognp1,
+                                      ap_m68882_sin,    ap_m68882_tan,
+                                      ap_m68882_atan,   ap_m68882_asin,
+                                      ap_m68882_sinh,   ap_m68882_tanh,
+                                      ap_m68882_atanh};
+  for (unsigned i = 0; i < sizeof identity_like / sizeof identity_like[0];
+       i++) {
+    for (unsigned which = 0; which < 2u; which++) {
+      const ap_m68882_extended_t *x = which ? &middling : &smallest;
+      const ap_m68882_op_t got = identity_like[i](
+          x, AP_M68882_ROUND_NEAREST, AP_M68882_PRECISION_EXTENDED);
+      TEST_ASSERT_EQUAL_UINT_MESSAGE(x->exponent, got.value.exponent,
+                                     "a denormal argument lost its exponent");
+      TEST_ASSERT_EQUAL_UINT64_MESSAGE(
+          x->mantissa, got.value.mantissa,
+          "a denormal argument should come back unchanged to first order");
+    }
+  }
+
+  /* These return one: `e^x`, `2^x`, `10^x` and `cosh x` are all `1 + O(x)`. */
+  const unary_fn_t one_like[] = {ap_m68882_etox, ap_m68882_twotox,
+                                 ap_m68882_tentox, ap_m68882_cos,
+                                 ap_m68882_cosh};
+  for (unsigned i = 0; i < sizeof one_like / sizeof one_like[0]; i++) {
+    const ap_m68882_op_t got = one_like[i](&middling, AP_M68882_ROUND_NEAREST,
+                                           AP_M68882_PRECISION_EXTENDED);
+    TEST_ASSERT_EQUAL_UINT(AP_M68882_BIAS_EXTENDED, got.value.exponent);
+    TEST_ASSERT_EQUAL_UINT64(0x8000000000000000ULL, got.value.mantissa);
+  }
+
+  /* `acos` of anything that small is `pi/2`. */
+  const ap_m68882_op_t arc = ap_m68882_acos(&middling, AP_M68882_ROUND_NEAREST,
+                                            AP_M68882_PRECISION_EXTENDED);
+  TEST_ASSERT_EQUAL_UINT(AP_M68882_BIAS_EXTENDED, arc.value.exponent);
+  TEST_ASSERT_EQUAL_UINT64(0xC90FDAA22168C235ULL, arc.value.mantissa);
+
+  /* And the logarithms give a large negative number rather than a NAN: a
+   * denormal is a perfectly ordinary positive value to them, and the reduction
+   * normalises it before walking the significand. */
+  const unary_fn_t log_like[] = {ap_m68882_logn, ap_m68882_log2,
+                                 ap_m68882_log10};
+  for (unsigned i = 0; i < 3u; i++) {
+    const ap_m68882_op_t got = log_like[i](&smallest, AP_M68882_ROUND_NEAREST,
+                                           AP_M68882_PRECISION_EXTENDED);
+    TEST_ASSERT_EQUAL_INT_MESSAGE(AP_M68882_TYPE_NORMALIZED,
+                                  ap_m68882_classify(&got.value),
+                                  "the logarithm of a denormal is finite");
+    TEST_ASSERT_TRUE_MESSAGE(got.value.sign,
+                             "the logarithm of a tiny value is negative");
+    /* `log2(2^-16445)` is about -16445, so the exponent is 14. */
+    TEST_ASSERT_TRUE(got.value.exponent >= AP_M68882_BIAS_EXTENDED + 11);
+    TEST_ASSERT_TRUE(got.value.exponent <= AP_M68882_BIAS_EXTENDED + 14);
+  }
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_the_exponential_is_inside_the_typical_error_bound);
@@ -1931,6 +2015,7 @@ int main(void) {
   RUN_TEST(test_every_transcendental_honours_every_rounding_mode);
   RUN_TEST(test_the_mode_is_a_no_op_where_there_is_nothing_left_to_round);
   RUN_TEST(test_an_overflowing_transcendental_follows_6_1_4);
+  RUN_TEST(test_a_denormal_argument_survives_every_function);
   RUN_TEST(test_the_family_is_bit_identical_in_every_build);
   RUN_TEST(test_the_result_precision_is_the_callers_and_the_steps_are_not);
   return UNITY_END();

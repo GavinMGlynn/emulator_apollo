@@ -1477,6 +1477,45 @@ The two builds were compared before the constant was committed rather than
 after: `-O0` and `-O3` produce `0x794C36B690FFECAF` alike. That is the check
 being asserted, not an assumption being recorded.
 
+**Denormal arguments found four bugs, and the first was in the core
+arithmetic.** Testing every transcendental at the bottom of the exponent range
+-- which nothing had done, because the accuracy vectors are all normal numbers
+-- turned up wrong answers in nine of the nineteen. Chasing them found the cause
+was not in the transcendentals at all.
+
+`ap_m68882_mul` and `ap_m68882_div` denormalised at exponent **zero**, which is
+a *legal* extended exponent rather than the first one below the range. §6.1.5's
+own footnote settles it: "underflow is NOT detected for intermediate result
+exponents that are equal to the extended precision minimum exponent, since the
+explicit integer part bit of extended precision permits representation of
+normalized numbers with a minimum exponent" -- the same NOTE that makes
+`ap_m68882_classify` refuse the single/double rule. Both used `exponent <= 0`
+with a shift of `1 - exponent`, so every result at the minimum exponent came
+back **halved** and the smallest denormal came back as **zero**. That is `FMUL`
+and `FDIV`, not a transcendental fault, and it is silent: a halved denormal is
+still a plausible small number.
+
+Three faults in the transcendentals survived that fix. `nx_scale2` flushed a
+halved denormal to zero rather than denormalising it, costing `FSINH` and
+`FATANH` their whole answer. `FLOGNP1` tested the exponent *field* for its
+small-argument path, so a denormal -- whose field is zero -- was excluded from
+the very path that exists for small arguments and sent through `1 + x`, where it
+vanished. And `FATAN` halves its argument before its series, which destroys the
+smallest denormal outright, so it now returns the argument directly below
+`2^-40`.
+
+That last threshold had to be derived rather than copied, and copying it was a
+fifth bug caught by the accuracy sweep within a minute. `atan(t)` is
+`t(1 - t^2/3 + ...)`, so its correction is `t^2/3` and `2^-40` is ample;
+`ln(1+x)` is `x(1 - x/2 + ...)`, so its correction is `x/2` *relative* and needs
+`2^-64`. Taking the arc tangent's threshold for the logarithm was wrong by
+twenty bits -- a million units in the last place at `2^-43`.
+
+The determinism golden earned its place here: it still reads
+`0x794C36B690FFECAF` after all five changes, which is how the normal range is
+known to be untouched. A fix at the bottom of the exponent range that quietly
+moved an ordinary result would otherwise be invisible.
+
 **One approximation is recorded rather than closed.** At *extended* precision
 all four rounding modes return the same value here, because the model computes a
 64-bit approximation directly and has no bits below the destination left to

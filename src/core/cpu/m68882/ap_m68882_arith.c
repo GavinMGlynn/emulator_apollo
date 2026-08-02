@@ -436,10 +436,27 @@ ap_m68882_op_t ap_m68882_mul(const ap_m68882_extended_t *a,
     exponent -= 1;
   }
 
-  if (exponent <= 0) {
-    /* Underflow past the representable range: shift the mantissa down to the
-     * minimum exponent, which is gradual underflow rather than flush to zero. */
-    shift_right_sticky(&high, (unsigned)(1 - exponent), &guard, &round_bit,
+  if (exponent < 0) {
+    /* Below the representable range: shift the mantissa down until the exponent
+     * reaches its minimum, which is gradual underflow rather than flush to
+     * zero -- "the result mantissa is shifted right (denormalized) while the
+     * result exponent is incremented until the result exponent reaches the
+     * minimum value".
+     *
+     * The test is `< 0` and the shift `-exponent`, and both halves matter.
+     * Exponent zero is a *legal* extended exponent, not the first one below the
+     * range: §6.1.5's own footnote says "underflow is NOT detected for
+     * intermediate result exponents that are equal to the extended precision
+     * minimum exponent, since the explicit integer part bit of extended
+     * precision permits representation of normalized numbers with a minimum
+     * exponent". Treating it as underflow shifted every such result down one
+     * more place -- so a denormal multiplied by one came back halved, and the
+     * smallest denormal came back as zero.
+     *
+     * `finish` still reports the genuine denormals: a result that lands at
+     * exponent zero with its integer bit clear is denormalized and raises
+     * `UNFL` there, which is where that decision belongs. */
+    shift_right_sticky(&high, (unsigned)(-exponent), &guard, &round_bit,
                        &sticky);
     exponent = 0;
     out.exceptions |= UINT32_C(1) << AP_M68882_EXC_UNFL;
@@ -559,11 +576,15 @@ ap_m68882_op_t ap_m68882_div(const ap_m68882_extended_t *a,
   const bool sticky = remainder != 0u;
 
   ap_m68882_extended_t result = {.sign = sign};
-  if (exponent <= 0) {
+  if (exponent < 0) {
+    /* The same rule as the multiply, and for the same reason: exponent zero is
+     * a legal extended exponent, so only a *negative* one needs denormalising
+     * and the shift is `-exponent` rather than one more. See the multiply for
+     * the footnote that settles it. */
     bool g = guard;
     bool r = round_bit;
     bool s = sticky;
-    shift_right_sticky(&quotient, (unsigned)(1 - exponent), &g, &r, &s);
+    shift_right_sticky(&quotient, (unsigned)(-exponent), &g, &r, &s);
     result.exponent = 0u;
     result.mantissa = quotient;
     out.exceptions |= UINT32_C(1) << AP_M68882_EXC_UNFL;
