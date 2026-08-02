@@ -855,3 +855,42 @@ what this section first said: there is no subset where the two groups agree, so
 there is no half that can be taken without the mapping. The plain rows and the
 memory indirect rows are ambiguous in exactly the same way and by exactly the
 same 2 clocks.
+
+
+## §11.3.3's page: two things the extraction lost
+
+Read as a page image, per the resolution order.
+
+**`p` is an average too.** "Similarly, the number of prefetch bus cycles is the
+average of these two cases rounded up to an integral number of bus cycles." The
+caveat that had been recorded as a hedge is verbatim, and it is why dividing
+`NCC − CC` by `p` was never going to give a per-prefetch constant.
+
+**Head and tail do not apply to `NCC`, stated outright:** "Because the
+no-cache-case times assume no overlap, the head and tail values listed in these
+tables do not apply to the no-cache-case values." That is `ap_m68030_no_cache_total`'s
+design confirmed rather than inferred.
+
+**And the rounding bounds what is recoverable.** The average is "rounded up to
+an integral number of clocks", so a published difference of 1 means a true
+even-aligned exposure of *either* 1 or 2 — `ceil(1/2)` and `ceil(2/2)` are both
+1. The published pair cannot separate them and both satisfy the two-sided check.
+This core takes 2, so such a row may be over-charged by one clock in the
+even-aligned case only.
+
+## Change-of-flow rows: derivable after all
+
+They had been declined on the grounds that the target's alignment decides the
+fetch count. It does — and it does not matter, because a three-deep pipe needs
+the same *number* of bus cycles either way: a target at long-word offset 0 wants
+words 0, 2 and 4, which is a fetch at 0 and one at 4; a target at offset 2 wants
+2, 4 and 6, which is again two. Nothing is averaged, so the published difference
+is the exposure itself.
+
+So `RTS`, `RTR`, `RTD`, `BSR`, `Bcc` taken and a looping `DBcc` are priced, and
+the class they share with the even-word instructions is named for the property
+rather than the cause: `ALIGNMENT_INVARIANT`.
+
+**Two rows still decline**, both for one reason: `LINK.L` and `Bcc.L` untaken
+are three words, where the alignments genuinely differ by one fetch and the
+published pair admits several splits. They are the whole remaining gap.

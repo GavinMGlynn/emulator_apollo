@@ -413,23 +413,31 @@ static void test_the_rows_that_are_not_single_word_are_classified_as_such(void) 
     ap_m68030_prefetch_class_t klass;
     const char *why;
   } EXPECTED[] = {
-      {"RTS", AP_M68030_PREFETCH_UNKNOWN, "change of flow"},
-      {"RTR", AP_M68030_PREFETCH_UNKNOWN, "change of flow"},
-      {"RTD", AP_M68030_PREFETCH_UNKNOWN, "change of flow"},
-      {"BSR", AP_M68030_PREFETCH_UNKNOWN, "change of flow"},
-      {"Bcc (Taken)", AP_M68030_PREFETCH_UNKNOWN, "change of flow"},
-      {"DBcc (cc False, Count Not Expired)", AP_M68030_PREFETCH_UNKNOWN,
-       "it branches"},
+      /* Change of flow. §11.3.3 averages over "the alignment of prefetches
+       * associated with an instruction", and for these those are the refill at
+       * the target -- but a three-deep pipe needs two fetches whichever
+       * alignment the target has, so nothing is averaged. */
+      {"RTS", AP_M68030_PREFETCH_ALIGNMENT_INVARIANT, "change of flow"},
+      {"RTR", AP_M68030_PREFETCH_ALIGNMENT_INVARIANT, "change of flow"},
+      {"RTD", AP_M68030_PREFETCH_ALIGNMENT_INVARIANT, "change of flow"},
+      {"BSR", AP_M68030_PREFETCH_ALIGNMENT_INVARIANT, "change of flow"},
+      {"Bcc (Taken)", AP_M68030_PREFETCH_ALIGNMENT_INVARIANT, "change of flow"},
+      {"DBcc (cc False, Count Not Expired)",
+       AP_M68030_PREFETCH_ALIGNMENT_INVARIANT, "it branches"},
+      /* An even word count: 2 words is one fetch at either alignment. */
+      {"LINK.W", AP_M68030_PREFETCH_ALIGNMENT_INVARIANT, "two words"},
+      {"Bcc.W (Not Taken)", AP_M68030_PREFETCH_ALIGNMENT_INVARIANT,
+       "two words"},
+      {"DBcc (cc True)", AP_M68030_PREFETCH_ALIGNMENT_INVARIANT, "two words"},
+      {"DBcc (cc False, Count Expired)", AP_M68030_PREFETCH_ALIGNMENT_INVARIANT,
+       "two words, and it falls through"},
+      {"ANDI/EORI/ORI to SR or CCR", AP_M68030_PREFETCH_ALIGNMENT_INVARIANT,
+       "two words"},
+      {"ADDI #<data>,Dn", AP_M68030_PREFETCH_ALIGNMENT_INVARIANT, "two words"},
+      /* The only rows left unknown: an odd word count of three, where the two
+       * alignments genuinely differ by one fetch. */
       {"LINK.L", AP_M68030_PREFETCH_UNKNOWN, "three words"},
       {"Bcc.L (Not Taken)", AP_M68030_PREFETCH_UNKNOWN, "three words"},
-      {"LINK.W", AP_M68030_PREFETCH_EVEN_WORDS, "two words"},
-      {"Bcc.W (Not Taken)", AP_M68030_PREFETCH_EVEN_WORDS, "two words"},
-      {"DBcc (cc True)", AP_M68030_PREFETCH_EVEN_WORDS, "two words"},
-      {"DBcc (cc False, Count Expired)", AP_M68030_PREFETCH_EVEN_WORDS,
-       "two words, and it falls through"},
-      {"ANDI/EORI/ORI to SR or CCR", AP_M68030_PREFETCH_EVEN_WORDS,
-       "two words"},
-      {"ADDI #<data>,Dn", AP_M68030_PREFETCH_EVEN_WORDS, "two words"},
   };
 
   unsigned count = 0;
@@ -456,11 +464,18 @@ static void test_the_rows_that_are_not_single_word_are_classified_as_such(void) 
     }
   }
 
-  /* Every named row was found, and no *other* row is anything but single word
-   * -- so a row that quietly stops being single-word fails here rather than
-   * being priced by a rule that does not apply to it. */
   TEST_ASSERT_EQUAL_UINT(sizeof EXPECTED / sizeof EXPECTED[0], matched);
   TEST_ASSERT_EQUAL_UINT(sizeof EXPECTED / sizeof EXPECTED[0], non_single);
+
+  /* Only two rows in the whole table now decline, and both for the same
+   * reason -- an odd word count of three. Every change of flow is priced. */
+  unsigned unknown = 0;
+  for (unsigned i = 0; i < count; i++) {
+    if (table[i].prefetch_class == AP_M68030_PREFETCH_UNKNOWN) {
+      unknown++;
+    }
+  }
+  TEST_ASSERT_EQUAL_UINT(2u, unknown);
 }
 
 /* Which rows they are, and it is the memory destinations. `ADD Dn,EA` and

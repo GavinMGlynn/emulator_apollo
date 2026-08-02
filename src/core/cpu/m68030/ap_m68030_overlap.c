@@ -89,7 +89,7 @@ unsigned ap_m68030_prefetch_exposure(const ap_m68030_timing_t *timing,
     /* Half the published difference is the odd-aligned case, which runs no
      * fetch at all, so the even-aligned case is twice the average. */
     return difference * 2u;
-  case AP_M68030_PREFETCH_EVEN_WORDS:
+  case AP_M68030_PREFETCH_ALIGNMENT_INVARIANT:
     /* Both alignments run the same fetches, so nothing was averaged. */
     return difference;
   case AP_M68030_PREFETCH_UNKNOWN:

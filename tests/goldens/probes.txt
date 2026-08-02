@@ -5,8 +5,8 @@
 probe               ran status         d0       pc         clocks berr hash            
 moveq                 2 STOPPED        00000042 00001006        4    0 21F610CD50DB51C9
 store-reload          4 STOPPED        00000042 00001012       14    0 567ABEB0B6B20588
-loop                 14 STOPPED        00000006 0000100C       56    0 57AFDF958659D76A
-subroutine            4 STOPPED        00000007 00001008       19    0 41049C9F334123B0
+loop                 14 STOPPED        00000006 0000100C       60    0 66E5B0AB5CD44EAE
+subroutine            4 STOPPED        00000007 00001008       22    0 3A9AC4A33F92B03F
 trap                  4 STOPPED        00000009 00001008       26    0 B31E6D44ECB4322B
 wide-arithmetic       4 STOPPED        0003299B 00001012       10    0 50FBC871D7E03227
 movem                 7 STOPPED        00000001 00001014       22    0 59FD21C0F7A8881C

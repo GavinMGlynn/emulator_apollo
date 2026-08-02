@@ -213,15 +213,24 @@ typedef enum {
   /* One word, no change of flow. The odd alignment runs no fetch at all, so the
    * published average is half the even case. */
   AP_M68030_PREFETCH_SINGLE_WORD,
-  /* An even number of words, no change of flow. Both alignments run the same
-   * number of fetches, so there is nothing being averaged and the published
-   * difference is the exposure itself. */
-  AP_M68030_PREFETCH_EVEN_WORDS,
-  /* Everything else: three or more words at an odd count, where the two
-   * alignments differ by one fetch and recovering a per-fetch cost needs the
-   * quantity `docs/references/M68030_TIMING.md` withdrew; and every change of
-   * flow, where it is the *target's* alignment that decides the count and the
-   * pipe refills either way. */
+  /* Both alignments run the *same* number of fetches, so there is nothing being
+   * averaged and the published difference is the exposure itself.
+   *
+   * Two quite different instructions qualify, and it is worth being explicit
+   * that they qualify for the same reason. An **even word count** does: the
+   * table above shows 2 and 2, 4 and 4. And so does a **change of flow**, which
+   * looks as though it should not -- §11.3.3 averages over "the alignment of
+   * prefetches associated with an instruction", and for a branch those are the
+   * refill at the target. But a three-deep pipe needs three words either way: a
+   * target at long-word offset 0 wants words 0, 2 and 4, which is a fetch at 0
+   * and one at 4; a target at offset 2 wants 2, 4 and 6, which is again two.
+   * The refill costs the same number of bus cycles whatever the target's
+   * alignment, so nothing is averaged there either. */
+  AP_M68030_PREFETCH_ALIGNMENT_INVARIANT,
+  /* An odd word count of three or more, where the two alignments differ by one
+   * fetch and recovering a per-fetch cost needs the quantity
+   * `docs/references/M68030_TIMING.md` withdrew. `LINK.L` and `Bcc.L` untaken
+   * are the two. */
   AP_M68030_PREFETCH_UNKNOWN,
 } ap_m68030_prefetch_class_t;
 
@@ -232,15 +241,24 @@ typedef enum {
  * average of the odd-word-aligned case and the even-word-aligned case (rounded
  * up)". So the class above is what turns that average back into a value:
  *
- *   SINGLE_WORD   exposure = 2 (NCC - CC)   -- half the average is the odd
- *                                              case, which is zero
- *   EVEN_WORDS    exposure =    NCC - CC    -- no averaging to undo
- *   UNKNOWN       exposure = 0, declined
+ *   SINGLE_WORD          exposure = 2 (NCC - CC)  -- half the average is the
+ *                                                     odd case, which is zero
+ *   ALIGNMENT_INVARIANT  exposure =    NCC - CC   -- no averaging to undo
+ *   UNKNOWN              exposure = 0, declined
  *
  * For `SINGLE_WORD` the answer comes to 0 or 2 -- such a prefetch either hides
  * completely under the instruction's microcode or not at all -- which is a
  * falsifiable claim about the published tables. `timing_table_suite` computes
  * it over every row.
+ *
+ * **With one bounded approximation, which §11.3.3 states and the transcription
+ * had recorded only as a hedge.** The average is "rounded up to an integral
+ * number of clocks", so a published difference of 1 means a true even-aligned
+ * exposure of *either* 1 or 2 -- `ceil(1/2)` and `ceil(2/2)` are both 1. The
+ * published pair cannot tell those apart, and both satisfy the two-sided check.
+ * This takes 2, so a row of that kind may be over-charged by **one clock in the
+ * even-aligned case only**, and never in the odd-aligned or cached ones. Named
+ * in `PROJECT_STATUS.md` with the rest.
  *
  * **`UNKNOWN` declines rather than approximating**, which leaves those rows
  * exact in a warm cache and a lower bound in a cold one. That is the same

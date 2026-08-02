@@ -196,11 +196,11 @@ static const ap_m68030_table_entry_t TABLE[ROW_COUNT] = {
      * includes two clocks of bus. Under `max(microcode, bus)` that is still the
      * microcode figure, since every one of these exceeds its own bus time. */
     [ROW_NOP] = {"NOP", {0, 0, 2, 2, .prefetches = 1}, false, AP_M68030_EA_TIME_NONE, AP_M68030_PREFETCH_SINGLE_WORD},
-    [ROW_RTS] = {"RTS", {1, 0, 9, 11, .reads = 1, .prefetches = 2}, false, AP_M68030_EA_TIME_NONE, AP_M68030_PREFETCH_UNKNOWN},
-    [ROW_RTR] = {"RTR", {1, 0, 12, 14, .reads = 2, .prefetches = 2}, false, AP_M68030_EA_TIME_NONE, AP_M68030_PREFETCH_UNKNOWN},
-    [ROW_RTD] = {"RTD", {2, 0, 10, 12, .reads = 1, .prefetches = 2}, false, AP_M68030_EA_TIME_NONE, AP_M68030_PREFETCH_UNKNOWN},
+    [ROW_RTS] = {"RTS", {1, 0, 9, 11, .reads = 1, .prefetches = 2}, false, AP_M68030_EA_TIME_NONE, AP_M68030_PREFETCH_ALIGNMENT_INVARIANT},
+    [ROW_RTR] = {"RTR", {1, 0, 12, 14, .reads = 2, .prefetches = 2}, false, AP_M68030_EA_TIME_NONE, AP_M68030_PREFETCH_ALIGNMENT_INVARIANT},
+    [ROW_RTD] = {"RTD", {2, 0, 10, 12, .reads = 1, .prefetches = 2}, false, AP_M68030_EA_TIME_NONE, AP_M68030_PREFETCH_ALIGNMENT_INVARIANT},
     [ROW_UNLK] = {"UNLK", {0, 0, 5, 5, .reads = 1, .prefetches = 1}, false, AP_M68030_EA_TIME_NONE, AP_M68030_PREFETCH_SINGLE_WORD},
-    [ROW_LINK_W] = {"LINK.W", {0, 0, 4, 5, .writes = 1, .prefetches = 1}, false, AP_M68030_EA_TIME_NONE, AP_M68030_PREFETCH_EVEN_WORDS},
+    [ROW_LINK_W] = {"LINK.W", {0, 0, 4, 5, .writes = 1, .prefetches = 1}, false, AP_M68030_EA_TIME_NONE, AP_M68030_PREFETCH_ALIGNMENT_INVARIANT},
     [ROW_LINK_L] = {"LINK.L", {2, 0, 6, 7, .writes = 1, .prefetches = 2}, false, AP_M68030_EA_TIME_NONE, AP_M68030_PREFETCH_UNKNOWN},
 
     /* The six logical-immediate-to-status forms share one row at 12 clocks.
@@ -209,7 +209,7 @@ static const ap_m68030_table_entry_t TABLE[ROW_COUNT] = {
      * refill -- the same fact §8.1.7 gives as the reason those instructions
      * count as a change of flow for tracing. */
     [ROW_LOGICAL_TO_SR] = {"ANDI/EORI/ORI to SR or CCR", {4, 0, 12, 14, .prefetches = 2},
-                           false, AP_M68030_EA_TIME_NONE, AP_M68030_PREFETCH_EVEN_WORDS},
+                           false, AP_M68030_EA_TIME_NONE, AP_M68030_PREFETCH_ALIGNMENT_INVARIANT},
 
     /* §11.6.15, Conditional Branch Instructions. "Complete execution times
      * given. No additional tables are needed" -- so unlike most rows these are
@@ -219,19 +219,19 @@ static const ap_m68030_table_entry_t TABLE[ROW_COUNT] = {
      * one distinguishes byte, word and long. That asymmetry is the pipe: a
      * taken branch throws it away regardless of how far it jumped, while an
      * untaken one has merely read a displacement of some length. */
-    [ROW_BCC_TAKEN] = {"Bcc (Taken)", {6, 0, 6, 8, .prefetches = 2}, false, AP_M68030_EA_TIME_NONE, AP_M68030_PREFETCH_UNKNOWN},
+    [ROW_BCC_TAKEN] = {"Bcc (Taken)", {6, 0, 6, 8, .prefetches = 2}, false, AP_M68030_EA_TIME_NONE, AP_M68030_PREFETCH_ALIGNMENT_INVARIANT},
     [ROW_BCC_B_NOT_TAKEN] = {"Bcc.B (Not Taken)", {4, 0, 4, 4, .prefetches = 1}, false, AP_M68030_EA_TIME_NONE, AP_M68030_PREFETCH_SINGLE_WORD},
-    [ROW_BCC_W_NOT_TAKEN] = {"Bcc.W (Not Taken)", {6, 0, 6, 6, .prefetches = 1}, false, AP_M68030_EA_TIME_NONE, AP_M68030_PREFETCH_EVEN_WORDS},
+    [ROW_BCC_W_NOT_TAKEN] = {"Bcc.W (Not Taken)", {6, 0, 6, 6, .prefetches = 1}, false, AP_M68030_EA_TIME_NONE, AP_M68030_PREFETCH_ALIGNMENT_INVARIANT},
     [ROW_BCC_L_NOT_TAKEN] = {"Bcc.L (Not Taken)", {6, 0, 6, 8, .prefetches = 2}, false, AP_M68030_EA_TIME_NONE, AP_M68030_PREFETCH_UNKNOWN},
-    [ROW_BSR] = {"BSR", {2, 0, 6, 9, .writes = 1, .prefetches = 2}, false, AP_M68030_EA_TIME_NONE, AP_M68030_PREFETCH_UNKNOWN},
+    [ROW_BSR] = {"BSR", {2, 0, 6, 9, .writes = 1, .prefetches = 2}, false, AP_M68030_EA_TIME_NONE, AP_M68030_PREFETCH_ALIGNMENT_INVARIANT},
 
     /* DBcc has three cases, and the expensive one is *leaving* the loop with
      * the counter expired: 10 clocks against 6 for going round again. */
     [ROW_DBCC_LOOPING] = {"DBcc (cc False, Count Not Expired)", {6, 0, 6, 8, .prefetches = 2},
-                          false, AP_M68030_EA_TIME_NONE, AP_M68030_PREFETCH_UNKNOWN},
+                          false, AP_M68030_EA_TIME_NONE, AP_M68030_PREFETCH_ALIGNMENT_INVARIANT},
     [ROW_DBCC_EXPIRED] = {"DBcc (cc False, Count Expired)", {10, 0, 10, 13, .prefetches = 3},
-                          false, AP_M68030_EA_TIME_NONE, AP_M68030_PREFETCH_EVEN_WORDS},
-    [ROW_DBCC_TRUE] = {"DBcc (cc True)", {6, 0, 6, 8, .prefetches = 1}, false, AP_M68030_EA_TIME_NONE, AP_M68030_PREFETCH_EVEN_WORDS},
+                          false, AP_M68030_EA_TIME_NONE, AP_M68030_PREFETCH_ALIGNMENT_INVARIANT},
+    [ROW_DBCC_TRUE] = {"DBcc (cc True)", {6, 0, 6, 8, .prefetches = 1}, false, AP_M68030_EA_TIME_NONE, AP_M68030_PREFETCH_ALIGNMENT_INVARIANT},
 
     /* §11.6.9, Immediate Arithmetical/Logical Instructions. */
     [ROW_MOVEQ] = {"MOVEQ #<data>,Dn", {.head = 2, .tail = 0, .cache_case = 2, .no_cache_case = 2, .prefetches = 1}, false, AP_M68030_EA_TIME_NONE, AP_M68030_PREFETCH_SINGLE_WORD},
@@ -239,7 +239,7 @@ static const ap_m68030_table_entry_t TABLE[ROW_COUNT] = {
     [ROW_SUBQ] = {"SUBQ #<data>,Rn", {.head = 2, .tail = 0, .cache_case = 2, .no_cache_case = 2, .prefetches = 1}, false, AP_M68030_EA_TIME_NONE, AP_M68030_PREFETCH_SINGLE_WORD},
     /* `**` in the table: the immediate is fetched through a separate effective
      * address time, so this figure is not the whole cost. */
-    [ROW_ADDI_DN] = {"ADDI #<data>,Dn", {.head = 2, .tail = 0, .cache_case = 2, .no_cache_case = 2, .prefetches = 1}, false, AP_M68030_EA_TIME_FETCH_IMMEDIATE, AP_M68030_PREFETCH_EVEN_WORDS},
+    [ROW_ADDI_DN] = {"ADDI #<data>,Dn", {.head = 2, .tail = 0, .cache_case = 2, .no_cache_case = 2, .prefetches = 1}, false, AP_M68030_EA_TIME_FETCH_IMMEDIATE, AP_M68030_PREFETCH_ALIGNMENT_INVARIANT},
 };
 
 #define TABLE_COUNT (sizeof TABLE / sizeof TABLE[0])
