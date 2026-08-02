@@ -4648,3 +4648,42 @@ privileged and reads a register the sentinel machinery cannot reach, and the
 `DIVU` overflow case C78 named for the same reason: both need the harness to
 report registers other than through memory, which is one change serving two
 gaps.
+
+## C80 -- the case C78 called unreachable took four words, and C79 was wrong too
+
+**Class: agree, and a correction to the two rows above it.**
+
+C78 said `DIVU`'s overflow case "needs the condition codes, and the sentinel
+machinery reads memory rather than the status register", so a probe could not
+tell "overflow, correctly declined" from "the instruction did nothing". C79
+generalised that into a harness limitation covering `PMOVE` as well -- "both need
+the harness to report registers other than through memory, which is one change
+serving two gaps".
+
+**Both were wrong, and wrong the same way as C75**: a limit was inferred from one
+framing of the problem without checking whether another framing avoided it. The
+*program* can move any register to memory itself. `MOVE.W SR,Dn` reads the status
+register; `PMOVE TC,(mem)` writes an MMU register straight out. Nothing about the
+harness stands in the way, and no change to either side was needed.
+
+Nor were the condition codes needed at all. The documented behaviour is that an
+overflowing divide **leaves its destination untouched**, so storing the
+destination *is* the test:
+
+    MOVE.L #$100003,D0 ; DIVU.W #1,D0 ; store D0
+
+| Check | Ours | Oracle | |
+| --- | --- | --- | --- |
+| `D0` after the overflow | `00100003` | `00100003` | agree |
+| against the dividend | `00100003` | -- | unchanged, as documented |
+
+`$00100003` over 1 is a quotient too wide for sixteen bits. Both implementations
+set `V` and wrote nothing; an implementation that stored a truncated quotient
+would have returned something else, and that is exactly the failure the row was
+worried about.
+
+**Three corrections now in this file** -- C65's misread golden, C75's overbroad
+harness limit, and this one -- and they share a shape: a conclusion drawn from a
+failed or unattempted first approach, stated as a property of the system. The
+pattern is worth naming because the cost is asymmetric. A wrong "this agrees"
+gets caught by the next probe; a wrong "this cannot be probed" is never revisited.

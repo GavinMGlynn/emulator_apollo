@@ -444,6 +444,30 @@ def subroutine_probe(address: int = SENTINEL_ADDRESS,
     )
 
 
+def divide_overflow_probe(address: int = SENTINEL_ADDRESS) -> list[int]:
+    """A `DIVU.W` whose quotient will not fit, which must write **nothing**.
+
+    C78 named this case and said it could not be probed because it needs the
+    condition codes and the harness reads memory. That was wrong, and the
+    correction is worth more than the probe: the *program* can move any register
+    to memory itself -- `MOVE.W SR,Dn`, `PMOVE TC,(mem)` -- so nothing about the
+    harness stands in the way. Only the sentinel's single long word does, and
+    that is a choice of what to store rather than a limit on what is reachable.
+
+    `$00100003` over 1 is a quotient of `$00100003`, which does not fit sixteen
+    bits, so `V` is set and the destination is left alone. Storing `D0` is
+    therefore the direct test of "left alone": the answer is the dividend
+    unchanged, and any implementation that wrote a truncated quotient would
+    return something else.
+    """
+    return assemble(
+        [0x203C, 0x0010, 0x0003],                          # MOVE.L #$100003,D0
+        [0x80FC, 0x0001],                                  # DIVU.W #1,D0
+        [0x23C0, (address >> 16) & 0xFFFF, address & 0xFFFF],
+        stop(0x2700),
+    )
+
+
 if __name__ == "__main__":
     import sys
     print(to_hex(sentinel_probe()), file=sys.stdout)

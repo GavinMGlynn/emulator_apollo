@@ -142,13 +142,21 @@ def main(argv=None) -> int:
     parser.add_argument("--timeout", type=float, default=300.0)
     parser.add_argument("--work", type=Path, default=Path("/tmp"))
     parser.add_argument(
-        "--program", choices=("sentinel", "fpu", "fpu-rounding", "fpu-sine", "fpu-sine-x", "fault", "bus-fault", "dbcc", "movem", "divide", "subroutine"),
+        "--program", choices=("sentinel", "fpu", "fpu-rounding", "fpu-sine", "fpu-sine-x", "fault", "bus-fault", "dbcc", "movem", "divide", "divide-overflow", "subroutine"),
         default="sentinel",
         help="which probe to run; `fpu` exercises the coprocessor's constant "
              "ROM, an FADD and the store conversion in one")
     args = parser.parse_args(argv)
 
-    if args.program == "subroutine":
+    if args.program == "divide-overflow":
+        ours_words = E.divide_overflow_probe(OURS_BASE + SENTINEL_OFFSET)
+        oracle_words = E.divide_overflow_probe(ORACLE_BASE + SENTINEL_OFFSET)
+        print("probe:  MOVE.L #$100003,D0 ; DIVU.W #1,D0 ; store D0 ; STOP")
+        print("        the quotient will not fit sixteen bits, so V is set and"
+              " the destination")
+        print("        is left alone -- the answer is the dividend unchanged,"
+              " $00100003")
+    elif args.program == "subroutine":
         ours_words = E.subroutine_probe(OURS_BASE + SENTINEL_OFFSET, OURS_BASE)
         oracle_words = E.subroutine_probe(ORACLE_BASE + SENTINEL_OFFSET,
                                           ORACLE_BASE)
@@ -264,6 +272,7 @@ def main(argv=None) -> int:
                 "movem": "00000003",
                 "divide": "0002000E",
                 "subroutine": "0000002A",
+                "divide-overflow": "00100003",
                 "fault": "00000010",
                 # No expected value: which frame a data fault produces is the
                 # thing being compared, not something to assert in advance.
