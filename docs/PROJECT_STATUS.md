@@ -1242,8 +1242,35 @@ One oddity worth noting from Table 10-3: **`CINVA` costs no more than `CINVL`**
 search; invalidating one page must examine every line to find the ones that
 page owns.
 
-What remains of the 68040 item is §10.4 and §10.6 onward, some forty-five
-pages. That is bulk transcription against the
+**§10.4's `MOVE` cross product is transcribed** -- 15 source modes against 12
+destinations, 180 cells. `MOVE` is the only instruction the manual prices this
+way, because it is the only one whose two effective addresses are both general.
+
+The source and destination columns name different things and it is not an
+inconsistency: sources are `BR`-relative (`(bd,BR,Xn)`) and destinations are
+address-register-relative (`(bd,An,Xn)`), because a `MOVE` destination cannot be
+program-counter relative. That is why the table has `(d16,PC)` and `(d8,PC,Xn)`
+source rows and no PC-relative destination at all, and why §10.1's supposition 1
+applies to the source alone.
+
+At 180 cells, spot checks are not enough on their own, so the suite also asserts
+structural properties that a displaced row or column would break:
+
+- For every destination from `(bd,An,Xn)` onward, the eight source rows with no
+  index register carry **identical** figures -- the destination's own address
+  calculation dominates. One displaced row in a column of eight identical values
+  shows up here and nowhere else.
+- A `(d16,PC)` source costs more than `(d16,An)` in *every* column, by a margin
+  that grows with the destination's complexity -- supposition 1's `1L`
+  compounding through the interlock rather than a flat penalty.
+- Every postindexed `([bd,...],Xn)` form carries a three-clock lead where the
+  preindexed forms carry one: the extra indirection must complete before the
+  index applies, and the lead is where that shows.
+
+The table is generated from the figures as read, one designated initialiser per
+cell, so a misplaced row cannot shift a whole column silently.
+
+What remains of the 68040 item is §10.6 onward, some forty pages. That is bulk transcription against the
 composition already in place, and the last thing standing between Phase 2b and
 complete. Appendix A's bit rows have to come from page images --
 `pdftotext` renders them with zeros as letters and columns collapsed, the same

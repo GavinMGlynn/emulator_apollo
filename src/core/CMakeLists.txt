@@ -16,6 +16,7 @@ add_library(apollo_core STATIC
   cpu/m68040/ap_m68040_timing.c
   cpu/m68040/ap_m68040_cache_timing.c
   cpu/m68040/ap_m68040_misc_timing.c
+  cpu/m68040/ap_m68040_move_timing.c
   cpu/m68040/ap_m68040_fpu.c
   cpu/m68040/ap_m68040_search.c
   cpu/m68040/ap_m68040_descriptor.c
