@@ -5877,6 +5877,172 @@ static void test_the_constant_rom_defines_exactly_the_published_offsets(void) {
   }
 }
 
+/* `FBcc` is its own instruction *type* rather than an opclass, so it never
+ * reaches the general path: the operation word carries the predicate in bits
+ * 5-0 and the size in bit 6, and a displacement follows.
+ *
+ * **The branch is relative to the instruction's address plus two**, not to
+ * where the displacement sits and not to the next instruction: "The value of the
+ * PC used to calculate the destination address is the address of the branch
+ * instruction plus two." A base taken from the wrong place is off by a constant,
+ * which a self-consistent assembler-and-emulator pair would hide entirely. */
+static void test_a_floating_point_branch_is_relative_to_the_opcode_plus_two(
+    void) {
+  /* FBEQ.W +4 : $F281 is cpID 1, type 010 (FBcc.W), predicate $01 (EQ). */
+  static const uint16_t program[] = {0xF281u, 0x0004u, 0x4E71u, 0x4E71u,
+                                     0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 5);
+  ap_m68882_t fpu;
+  ap_m68882_reset(&fpu);
+  m.cpu.fpu = &fpu;
+  ap_m68882_set_condition(&fpu.regs, AP_M68882_RESULT_ZERO, false);
+
+  const ap_m68030_step_result_t taken = ap_m68030_step(&m.cpu);
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, taken.status);
+  TEST_ASSERT_TRUE(taken.branch_taken);
+  /* Base is PROGRAM_BASE + 2, plus a displacement of 4. */
+  TEST_ASSERT_EQUAL_HEX32(PROGRAM_BASE + 6u, m.cpu.regs.pc);
+
+  /* Untaken, the displacement is still consumed and the program counter lands
+   * past it -- four bytes on, not two. */
+  machine_t n = {0};
+  load(&n, program, 5);
+  ap_m68882_t second;
+  ap_m68882_reset(&second);
+  n.cpu.fpu = &second;
+  ap_m68882_set_condition(&second.regs, AP_M68882_RESULT_NORMAL, false);
+
+  const ap_m68030_step_result_t untaken = ap_m68030_step(&n.cpu);
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, untaken.status);
+  TEST_ASSERT_FALSE(untaken.branch_taken);
+  TEST_ASSERT_EQUAL_HEX32(PROGRAM_BASE + 4u, n.cpu.regs.pc);
+}
+
+/* The long form takes two displacement words, and a negative displacement
+ * reaches backwards -- which is what a loop is made of, and the case where a
+ * sign-extension error stops being invisible. */
+static void test_a_long_floating_point_branch_reaches_backwards(void) {
+  /* FBNE.L -6 : $F2CE is type 011 (FBcc.L), predicate $0E (NE). */
+  static const uint16_t program[] = {0xF2CEu, 0xFFFFu, 0xFFFAu, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 4);
+  ap_m68882_t fpu;
+  ap_m68882_reset(&fpu);
+  m.cpu.fpu = &fpu;
+  ap_m68882_set_condition(&fpu.regs, AP_M68882_RESULT_NORMAL, false);
+
+  const ap_m68030_step_result_t r = ap_m68030_step(&m.cpu);
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, r.status);
+  TEST_ASSERT_TRUE(r.branch_taken);
+  TEST_ASSERT_EQUAL_HEX32(PROGRAM_BASE + 2u - 6u, m.cpu.regs.pc);
+
+  /* Untaken, the program counter clears **both** displacement words. */
+  machine_t n = {0};
+  load(&n, program, 4);
+  ap_m68882_t second;
+  ap_m68882_reset(&second);
+  n.cpu.fpu = &second;
+  ap_m68882_set_condition(&second.regs, AP_M68882_RESULT_ZERO, false);
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&n.cpu).status);
+  TEST_ASSERT_EQUAL_HEX32(PROGRAM_BASE + 6u, n.cpu.regs.pc);
+}
+
+/* **A conditional does not clear the exception byte**, and it is the only
+ * instruction in the part of which that is true. `FBcc`'s page lists SNAN,
+ * OPERR, OVFL, UNFL, DZ, INEX2 and INEX1 as "Not Affected", where every
+ * arithmetic page lists them as "Cleared" -- and the accrued byte narrows the
+ * same way: "The IOP bit is set if the BSUN bit is set in the exception byte. No
+ * other bit is affected."
+ *
+ * So testing a condition must not wipe the record of whatever last raised an
+ * exception, which is exactly what routing it through the common result path
+ * would do -- silently, and on every branch a program takes. */
+static void test_a_branch_leaves_the_exception_byte_standing(void) {
+  /* FBEQ.W +0, with the condition false so nothing else happens. */
+  static const uint16_t program[] = {0xF281u, 0x0000u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 3);
+  ap_m68882_t fpu;
+  ap_m68882_reset(&fpu);
+  m.cpu.fpu = &fpu;
+
+  const uint32_t standing = (UINT32_C(1) << AP_M68882_EXC_OVFL) |
+                            (UINT32_C(1) << AP_M68882_EXC_INEX2);
+  fpu.regs.fpsr |= standing;
+  ap_m68882_set_condition(&fpu.regs, AP_M68882_RESULT_NORMAL, false);
+  const uint32_t before = fpu.regs.fpsr;
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&m.cpu).status);
+  TEST_ASSERT_EQUAL_HEX32(before, fpu.regs.fpsr);
+}
+
+/* `BSUN` is the one bit a conditional does set: "Set if the NAN condition code
+ * is set and the condition selected is an IEEE non-aware test", and with it
+ * "The IOP bit is set ... No other bit is affected".
+ *
+ * **Bit 4 of the predicate is which half of Table 4-22 it comes from, and the
+ * halves are the opposite way round from the obvious guess.** The *low* half is
+ * IEEE aware -- `EQ`, `OGT`, `UN`, whose names say what they do about unordered
+ * operands -- and raises nothing. The *high* half is the non-aware one, and the
+ * table gives its entries "Signaling" names for exactly this reason: `SF`,
+ * `SEQ`, `SNE`, `ST`. So `$01` is `EQ` and silent while `$11` is `SEQ` and
+ * signals, which is the pairing this test states -- the same NAN against two
+ * spellings of one comparison. */
+static void test_an_unordered_comparison_raises_bsun_only_when_unaware(void) {
+  /* FBSEQ.W -- predicate $11, "Signaling Equal", the non-aware half. */
+  static const uint16_t program[] = {0xF291u, 0x0000u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 3);
+  ap_m68882_t fpu;
+  ap_m68882_reset(&fpu);
+  m.cpu.fpu = &fpu;
+  ap_m68882_set_condition(&fpu.regs, AP_M68882_RESULT_NAN, false);
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&m.cpu).status);
+  TEST_ASSERT_TRUE((fpu.regs.fpsr & (UINT32_C(1) << AP_M68882_EXC_BSUN)) != 0u);
+  TEST_ASSERT_TRUE((fpu.regs.fpsr & (UINT32_C(1) << AP_M68882_AEXC_IOP)) != 0u);
+
+  /* $01 is `EQ`, the same comparison from the aware half, which expects
+   * unordered operands and does not signal. */
+  static const uint16_t aware[] = {0xF281u, 0x0000u, 0x4E71u};
+  machine_t n = {0};
+  load(&n, aware, 3);
+  ap_m68882_t second;
+  ap_m68882_reset(&second);
+  n.cpu.fpu = &second;
+  ap_m68882_set_condition(&second.regs, AP_M68882_RESULT_NAN, false);
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&n.cpu).status);
+  TEST_ASSERT_EQUAL_HEX32(
+      0u, second.regs.fpsr & (UINT32_C(1) << AP_M68882_EXC_BSUN));
+}
+
+/* `FNOP` costs nothing extra: "FNOP uses the same opcode as the FBcc.W <label>
+ * instruction, with cc = F (non-signalling false) and a displacement of zero."
+ * So the never-taken predicate with a zero displacement falls out of the branch
+ * already written, and is worth a test because an assembler emits it and a
+ * model that special-cased `FNOP` would have two implementations of one word. */
+static void test_fnop_is_a_never_taken_branch_of_zero(void) {
+  /* $F280 is predicate $00 (false), displacement zero. */
+  static const uint16_t program[] = {0xF280u, 0x0000u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 3);
+  ap_m68882_t fpu;
+  ap_m68882_reset(&fpu);
+  m.cpu.fpu = &fpu;
+  /* Even against a NAN: `F` is the non-signalling false, so no BSUN. */
+  ap_m68882_set_condition(&fpu.regs, AP_M68882_RESULT_NAN, false);
+  const uint32_t before = fpu.regs.fpsr;
+
+  const ap_m68030_step_result_t r = ap_m68030_step(&m.cpu);
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, r.status);
+  TEST_ASSERT_FALSE(r.branch_taken);
+  TEST_ASSERT_EQUAL_HEX32(PROGRAM_BASE + 4u, m.cpu.regs.pc);
+  TEST_ASSERT_EQUAL_HEX32(before, fpu.regs.fpsr);
+}
+
 /* Packed decimal is a source format the encoding allows and this model has not
  * got to. Reported as our gap rather than decoded as binary, which would turn a
  * BCD operand into a plausible wrong number. */
@@ -5929,6 +6095,11 @@ int main(void) {
   RUN_TEST(test_the_exact_constants_raise_nothing);
   RUN_TEST(test_an_undefined_rom_offset_yields_a_stated_value);
   RUN_TEST(test_the_constant_rom_defines_exactly_the_published_offsets);
+  RUN_TEST(test_a_floating_point_branch_is_relative_to_the_opcode_plus_two);
+  RUN_TEST(test_a_long_floating_point_branch_reaches_backwards);
+  RUN_TEST(test_a_branch_leaves_the_exception_byte_standing);
+  RUN_TEST(test_an_unordered_comparison_raises_bsun_only_when_unaware);
+  RUN_TEST(test_fnop_is_a_never_taken_branch_of_zero);
   RUN_TEST(test_reset_performs_all_ten_documented_steps);
   RUN_TEST(test_reset_stacks_nothing);
   RUN_TEST(test_bkpt_takes_an_illegal_instruction_when_nothing_answers);

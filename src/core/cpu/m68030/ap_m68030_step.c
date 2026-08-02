@@ -4611,6 +4611,58 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
      * operation word: the operation word gets as far as "a coprocessor
      * instruction for this cpID" and cannot tell `FADD` from `FSIN`. */
     if (cpu->fpu != nullptr && coproc->cpid == cpu->fpu->cpid) {
+      /* `FBcc`, which is its own instruction *type* rather than an opclass and
+       * so never reaches the general path below. The operation word carries the
+       * conditional predicate in bits 5-0 and the size in bit 6; the
+       * displacement follows.
+       *
+       * §9's dialog for this one has the main processor write the predicate to
+       * the condition CIR and read the answer, and everything after -- fetching
+       * a displacement and moving the program counter -- is the MPU's. The
+       * coprocessor's whole half is `ap_m68882_condition`. */
+      if (coproc->type == AP_M68030_CP_BRANCH_WORD ||
+          coproc->type == AP_M68030_CP_BRANCH_LONG) {
+        /* "The value of the PC used to calculate the destination address is the
+         * address of the branch instruction plus two" -- the operation word's
+         * own address, not where the displacement sits and not where the next
+         * instruction starts. */
+        const uint32_t base = instruction_address + 2u;
+
+        uint16_t high = 0;
+        if (!next_word(cpu, &out.clocks, &high)) {
+          out.status = fault_or_unimplemented(cpu, &out, instruction_address);
+          cpu->clocks += out.clocks;
+          return out;
+        }
+        uint32_t displacement = (uint32_t)(int32_t)(int16_t)high;
+        if (coproc->type == AP_M68030_CP_BRANCH_LONG) {
+          uint16_t low = 0;
+          if (!next_word(cpu, &out.clocks, &low)) {
+            out.status = fault_or_unimplemented(cpu, &out, instruction_address);
+            cpu->clocks += out.clocks;
+            return out;
+          }
+          displacement = ((uint32_t)high << 16) | (uint32_t)low;
+        }
+
+        /* The predicate is evaluated *after* the displacement is fetched, so
+         * that an untaken branch has still consumed its extension words and the
+         * program counter lands past them.
+         *
+         * Bits 5-0 are the conditional predicate. They are *not* an effective
+         * address here, however much they look like one -- reading
+         * `coproc->ea` would decode a predicate as an addressing mode. */
+        const unsigned predicate = (unsigned)(out.instruction & 0x3Fu);
+        if (ap_m68882_condition(cpu->fpu, predicate)) {
+          cpu->regs.pc = base + displacement;
+          ap_m68030_fetch_reset(&cpu->fetch, cpu->regs.pc);
+          /* The tail leaves the program counter alone when this is set: "A
+           * taken branch ... has already set the PC and emptied the pipe". */
+          out.branch_taken = true;
+        }
+        break;
+      }
+
       uint16_t command = 0;
       if (coproc->type == AP_M68030_CP_GENERAL &&
           !next_word(cpu, &out.clocks, &command)) {

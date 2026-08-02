@@ -2061,6 +2061,32 @@ a 68882, and the 68882 is the only one of these it has.
         22 defined, plus the powers of ten checked as a *progression* — each the
         square of the last — so a displaced entry cannot pass as a plausible
         number.*
+  - [x] **`FBcc`, and a defect it exposed in the conditional evaluation.** The
+        branch is its own instruction *type* rather than an opclass, so §9's
+        dialog is the only one where the coprocessor's half was already done —
+        `ap_m68882_condition`, all 32 predicates — and only the 68030's was
+        missing. Word and long displacements, relative to **the instruction's
+        address plus two** rather than to the displacement or the next
+        instruction. `FNOP` falls out for free: it "uses the same opcode as the
+        FBcc.W <label> instruction, with cc = F and a displacement of zero".
+        **The defect:** a conditional does not clear the exception byte, and it
+        is the only instruction in the part of which that is true. `FBcc`'s page
+        lists the other seven bits as "Not Affected" where every arithmetic page
+        lists them as "Cleared", and the accrued byte narrows the same way —
+        "The IOP bit is set if the BSUN bit is set ... No other bit is
+        affected". `ap_m68882_condition` had gone through the common result
+        path, so testing a condition wiped the record of whatever last raised an
+        exception. Unreachable until now, because nothing executed a
+        conditional.
+        *Verification: `step_suite`, 5 further tests (234 total) — the branch
+        base pinned at opcode-plus-two in both taken and untaken forms, since a
+        wrong base is off by a constant that a self-consistent
+        assembler-and-emulator pair would hide; a long backward branch, where a
+        sign-extension error stops being invisible; the exception byte standing
+        across a branch; `BSUN` raised by `$11` (`SEQ`) and not by `$01` (`EQ`),
+        which is the same comparison from Table 4-22's two halves — and they are
+        the opposite way round from the obvious guess, the *low* half being the
+        IEEE-aware one; and `FNOP` as the never-taken branch of zero.*
   - [x] **The exactly-specified monadic operations**: `FSQRT`, `FGETEXP`,
         `FGETMAN`, `FINT`, `FINTRZ` and `FSCALE`. §4.3.2 puts square root under
         the IEEE bound rather than with the transcendentals -- "except square

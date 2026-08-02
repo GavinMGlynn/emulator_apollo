@@ -50,15 +50,28 @@ static void apply_exceptions(ap_m68882_regs_t *regs, uint32_t exceptions) {
 bool ap_m68882_condition(ap_m68882_t *fpu, unsigned predicate) {
   const ap_m68882_condition_t evaluated =
       ap_m68882_evaluate_condition(&fpu->regs, predicate);
-  /* The exception byte describes the instruction that just ran, so a
-   * conditional clears it like any other operation and then sets `BSUN` if the
-   * predicate earned it. Going through `apply_exceptions` rather than setting
-   * the bit directly is what keeps `AEXC(IOP)` accruing -- §6.1.10 folds `BSUN`
-   * into it alongside `SNAN` and `OPERR`, and a conditional that set the
-   * exception byte without accruing would lose the history the accrued byte
-   * exists to keep. */
-  apply_exceptions(&fpu->regs,
-                   evaluated.bsun ? (UINT32_C(1) << AP_M68882_EXC_BSUN) : 0u);
+
+  /* **A conditional does not clear the exception byte**, and this is the one
+   * place in the part where that is true. Every arithmetic instruction's page
+   * lists the seven other bits as "Cleared"; `FBcc`'s lists them as "Not
+   * Affected", with only "BSUN: Set if the NAN condition code is set and the
+   * condition selected is an IEEE non-aware test".
+   *
+   * The accrued byte narrows the same way: "The IOP bit is set if the BSUN bit
+   * is set in the exception byte. **No other bit is affected**" -- so this does
+   * not call `ap_m68882_accrue` either, which recomputes all five AEXC bits
+   * from an exception byte that here still holds an *earlier* instruction's
+   * results and would accrue them a second time.
+   *
+   * So the whole effect of a conditional on the FPSR is two bits, and only when
+   * the predicate earns them. Routing it through `apply_exceptions` -- which is
+   * what this did -- wiped the record of whatever last raised an exception,
+   * every time a program tested a condition. */
+  if (!evaluated.bsun) {
+    return evaluated.taken;
+  }
+  fpu->regs.fpsr |= (UINT32_C(1) << AP_M68882_EXC_BSUN) |
+                    (UINT32_C(1) << AP_M68882_AEXC_IOP);
   return evaluated.taken;
 }
 
