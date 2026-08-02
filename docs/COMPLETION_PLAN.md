@@ -1974,6 +1974,12 @@ a 68882, and the 68882 is the only one of these it has.
         four descriptor types and the `FCL` interaction that a `DT = $1` page
         descriptor overrides. Figures 6-1 and 6-3 read from the page images.
         `m68851_tc_suite` 13 tests, `m68851_rp_suite` 13 tests.
+  - [x] The six translation descriptor formats and Figure 5-10's type
+        determination table. A descriptor does not know its own type or its own
+        width -- both come from the search state and the *previous* descriptor's
+        `DT` -- so the same bits are a table descriptor at one level and an
+        indirect descriptor at the next. Figures 5-10 and 5-12 through 5-20 read
+        from the page images. `m68851_descriptor_suite`, 21 tests.
 - [ ] 68040 for DN5500: different pipeline, caches, and MMU descriptor format;
       integrated FPU. *Verification: `MC68040 User's Manual 1993` cited;
       `dn5500` oracle diff, expecting to exceed the oracle's FPU coverage.*

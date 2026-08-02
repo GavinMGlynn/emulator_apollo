@@ -574,6 +574,40 @@ text would not have: `TC`'s implemented-bit mask, written from the prose,
 claimed bit 30, and the figure shows bits 30-26 as a single run of
 unimplemented zeros between `E` and `SRE`.
 
+**The six descriptor formats are in, and the interesting fact about them is
+that a descriptor does not know what it is.** §5.1.5.2.1: "the exact
+interpretation of the bits in a descriptor is determined by three factors: the
+value of the DT field of the descriptor, the state of the table search, and the
+value of the DT field of the **previous** descriptor used in the search."
+
+Two things therefore arrive from outside the descriptor, and modelling either
+one from the descriptor alone produces a core that walks tables plausibly and
+wrongly:
+
+- **Its width.** `DT = $2` in the *previous* descriptor makes this one four
+  bytes and `$3` makes it eight. Read at the wrong width it is not a descriptor
+  with one bad field -- it is a misaligned read of the entire table.
+- **Its type.** `DT = $2` is a *table* descriptor while table index fields
+  remain and an *indirect* descriptor once they are exhausted. Identical bits,
+  decided by how far the search has got. Figure 5-10 is transcribed in full,
+  including its two "illegal" cells -- an indirect descriptor naming another
+  indirect descriptor -- which "are treated as the 'invalid' type by the
+  MC68851", so a chain terminates instead of looping.
+
+The type-1/type-2 split follows from the same idea: a type-2 page descriptor
+arises when the search ends early, so there are still levels beneath it for a
+limit to bound, and it carries one; a type-1 arises when the indices are spent
+and there is nothing left to bound, so it does not. In short format the two are
+byte-for-byte identical, which is why one decoder serves both and takes no type
+argument.
+
+Three alignments fall out of what each descriptor points at: a table address is
+16-byte aligned, a page frame 256-byte (the smallest supported page), and an
+indirect descriptor's target 4-byte. And every *long* format puts `DT` in the
+upper long word at bits 33-32 where every short format puts it at bits 1-0 --
+an asymmetry a reader of the figures is likely to smooth over, so it has its own
+test.
+
 ## Subsystems
 
 | Subsystem | Status | Verification |
