@@ -6648,12 +6648,15 @@ static void test_a_dn3000_decodes_a_module_call_where_a_dn3500_does_not(void) {
   n.cpu.regs.isp = SUPERVISOR_STACK;
   n.cpu.has_module_calls = true;
 
+  /* `$06C0` is `RTM` -- the two instructions share a prefix and are told apart
+   * by a field `CALLM` cannot legally use, and mode 000 is one. So the DN3000
+   * *executes* it where the DN3500 calls the same word illegal, which is the
+   * family difference stated as sharply as it can be: not "we have not
+   * finished" against "the machine faults", but two machines disagreeing about
+   * whether a word is an instruction. */
   const ap_m68030_step_result_t r = ap_m68030_step(&n.cpu);
-  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_UNIMPLEMENTED, r.status);
-  TEST_ASSERT_NOT_EQUAL_INT(AP_M68030_STEP_EXCEPTION, r.status);
-  /* And the program counter did not move, so "how far did this get" stays a
-   * real measure. */
-  TEST_ASSERT_EQUAL_HEX32(PROGRAM_BASE, n.cpu.regs.pc);
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, r.status);
+  TEST_ASSERT_NOT_EQUAL_INT(AP_M68030_STEP_ILLEGAL, r.status);
 }
 
 /* **`CALLM` builds a module stack frame**, `[PRM]` Figures D-1 and D-3.
@@ -6709,6 +6712,44 @@ static void test_callm_builds_a_module_stack_frame(void) {
                           read_ram_long(&m, frame + AP_M68020_FRAME_DESCRIPTOR_POINTER));
 }
 
+/* **`CALLM` and `RTM` as a pair**, which is the only way either can be checked
+ * properly: the frame one writes is the frame the other reads, and a matched
+ * pair of mistakes in the offsets would leave both looking right. The round
+ * trip has to put the caller back exactly where it was. */
+static void test_callm_and_rtm_return_the_caller_to_where_it_was(void) {
+  /* CALLM #0,(descriptor).L at the top, and the module is `RTM D3` -- $06C3,
+   * mode 000 naming D3, which is the register the entry word gave the data
+   * area pointer to. */
+  static const uint16_t program[] = {0x06F9u, 0x0000u, 0x0000u, 0x3000u,
+                                     0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 5);
+  m.cpu.has_module_calls = true;
+  m.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
+  m.cpu.regs.isp = SUPERVISOR_STACK;
+  m.cpu.regs.d[3] = 0xDEADBEEFu;
+
+  write_ram_long(&m, 0x3000u, 0x00000000u);
+  write_ram_long(&m, 0x3004u, 0x00003100u);
+  write_ram_long(&m, 0x3008u, 0x00004000u);
+  m.memory.bytes[0x3100u] = 0x30u;  /* entry word: D3 */
+  m.memory.bytes[0x3101u] = 0x00u;
+  /* The module's body, at the word after the entry word: return at once. */
+  m.memory.bytes[0x3102u] = 0x06u;
+  m.memory.bytes[0x3103u] = 0xC3u;  /* RTM D3 */
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&m.cpu).status);
+  TEST_ASSERT_EQUAL_HEX32(0x00003102u, m.cpu.regs.pc);
+  TEST_ASSERT_EQUAL_HEX32(0x00004000u, m.cpu.regs.d[3]);
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&m.cpu).status);
+  /* Everything back: the register, the stack pointer, and the instruction
+   * after the call. */
+  TEST_ASSERT_EQUAL_HEX32(0xDEADBEEFu, m.cpu.regs.d[3]);
+  TEST_ASSERT_EQUAL_HEX32(SUPERVISOR_STACK, m.cpu.regs.isp);
+  TEST_ASSERT_EQUAL_HEX32(PROGRAM_BASE + 8u, m.cpu.regs.pc);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_an_f_line_word_traps_when_no_coprocessor_is_fitted);
@@ -6718,6 +6759,7 @@ int main(void) {
   RUN_TEST(test_an_unimplemented_form_is_reported_as_our_gap);
   RUN_TEST(test_a_dn3000_decodes_a_module_call_where_a_dn3500_does_not);
   RUN_TEST(test_callm_builds_a_module_stack_frame);
+  RUN_TEST(test_callm_and_rtm_return_the_caller_to_where_it_was);
   RUN_TEST(test_a_single_source_operand_is_fetched_from_memory);
   RUN_TEST(test_an_extended_source_operand_spans_three_long_words);
   RUN_TEST(test_a_postincrement_steps_by_the_source_format_length);

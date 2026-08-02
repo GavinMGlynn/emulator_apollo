@@ -4284,6 +4284,63 @@ static bool execute_callm(ap_m68030_cpu_t *cpu,
   return true;
 }
 
+/* `RTM`, which reads back what `execute_callm` wrote and puts it all where it
+ * came from.
+ *
+ * The register it restores is named by the *instruction*, not by the frame:
+ * "D/A field -- specifies whether the module data pointer is in a data or an
+ * address register". `CALLM` learned the same register from the module's entry
+ * word, so a mismatched pair restores the wrong register and neither
+ * instruction can tell -- which is why the round trip is what the test checks
+ * rather than either half alone.
+ *
+ * The argument count is read and **not** acted on: it says how many bytes of
+ * the caller's arguments sit above the frame, and popping them belongs with the
+ * argument *copy* that type `$01` needs and that `execute_callm` declines. A
+ * frame this core built has no arguments, so the saved stack pointer is the
+ * whole answer. Stated rather than silent, because the field is right there and
+ * its absence would otherwise read as an oversight. */
+static bool execute_rtm(ap_m68030_cpu_t *cpu,
+                        const ap_m68020_module_decode_t *module,
+                        uint32_t *clocks) {
+  const uint32_t frame = ap_m68030_read_a7(&cpu->regs);
+  uint32_t saved[3] = {0};
+  static const unsigned offsets[] = {AP_M68020_FRAME_SAVED_PC,
+                                     AP_M68020_FRAME_SAVED_DATA_AREA,
+                                     AP_M68020_FRAME_SAVED_SP};
+  for (unsigned i = 0; i < 3u; i++) {
+    const ap_m68030_address_t at = {.address = frame + offsets[i],
+                                    .valid = true};
+    const ap_m68030_operand_result_t read = step_operand_read(
+        cpu, &cpu->regs, cpu->data, &at, 4u, cpu->data_function_code);
+    *clocks += read.clocks;
+    if (!read.ok) {
+      return false;
+    }
+    saved[i] = read.value;
+  }
+
+  const ap_m68030_address_t ccr_at = {.address = frame + AP_M68020_FRAME_CCR,
+                                      .valid = true};
+  const ap_m68030_operand_result_t ccr = step_operand_read(
+      cpu, &cpu->regs, cpu->data, &ccr_at, 2u, cpu->data_function_code);
+  *clocks += ccr.clocks;
+  if (!ccr.ok) {
+    return false;
+  }
+
+  ap_m68030_write_ccr(&cpu->regs, (uint16_t)ccr.value);
+  if (module->rtm_address_register) {
+    cpu->regs.a[module->rtm_register] = saved[1];
+  } else {
+    cpu->regs.d[module->rtm_register] = saved[1];
+  }
+  ap_m68030_write_a7(&cpu->regs, saved[2]);
+  cpu->regs.pc = saved[0];
+  ap_m68030_fetch_reset(&cpu->fetch, cpu->regs.pc);
+  return true;
+}
+
 /* Whether an instruction "forces a change of flow", which is what the T1=0,
  * T0=1 trace mode watches. `[030]` §8.1.7: "Instructions that are traced in this
  * mode include all branches, jumps, instruction traps, returns, and coprocessor
@@ -4800,8 +4857,13 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
       cpu->clocks += out.clocks;
       return out;
     }
-    /* `RTM` unwinds what `CALLM` built, and is not yet written. */
-    out.status = fault_or_unimplemented(cpu, &out, instruction_address);
+    if (!execute_rtm(cpu, &module, &out.clocks)) {
+      out.status = fault_or_unimplemented(cpu, &out, instruction_address);
+      cpu->clocks += out.clocks;
+      return out;
+    }
+    out.status = AP_M68030_STEP_EXECUTED;
+    out.branch_taken = true;
     cpu->clocks += out.clocks;
     return out;
   }

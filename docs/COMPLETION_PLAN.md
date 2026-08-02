@@ -1800,16 +1800,22 @@ a 68882, and the 68882 is the only one of these it has.
             correct hardware. **`CALLM` now executes**: it builds the module
             stack frame from Figure D-3's offsets, loads the entry word's
             register with the data area pointer and continues at the word
-            after it. Two forms are declined, as *our* gap rather than as the
-            68030's illegal-instruction verdict: descriptor type `$01`, which
-            supplies its own stack pointer and needs the argument copy, and
-            `RTM`, which unwinds what this builds. Those two are the only
-            thing left between the 68020 and its oracle diff.
+            after it, and **`RTM` unwinds it** — restoring the register named by
+            the instruction, the condition codes, the stack pointer and the
+            caller's program counter. One form is declined, as *our* gap rather
+            than as the 68030's illegal-instruction verdict: descriptor type
+            `$01`, which supplies its own stack pointer and needs the argument
+            copy across it. That is the only thing left between the 68020 and
+            its oracle diff.
             *Verification: `step_suite` +1 (248) — the frame checked through
             its saved PC, saved register, saved stack pointer and descriptor
             pointer, not the program counter alone, because a `CALLM` that
             jumped correctly and saved nothing would look right until an
-            `RTM` tried to return.*
+            `RTM` tried to return; and `step_suite` +1 (249) for the pair as a
+            **round trip**, which is the only way either can be checked
+            properly — the frame one writes is the frame the other reads, and a
+            matched pair of mistakes in the offsets would leave both looking
+            right.*
             than left as a name: `ap_m68020_module.h` supplies the decode, the
             control word, `ap_m68020_module_validate` and the two predicates for
             whether an access change and an argument copy are wanted — **all of
