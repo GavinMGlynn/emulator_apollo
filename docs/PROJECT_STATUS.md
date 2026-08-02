@@ -1793,6 +1793,75 @@ reserved rows, `111 101` through `111 111`, do take Note 3's F-line trap, and th
 test checks them beside the accepted ones so the reading is a *distinction*
 rather than a blanket permission.
 
+### Packed decimal: the specification is settled, the conversion is not written
+
+This is the last gap in the 68882 and the only one that is a *data format* rather
+than an instruction. The references have been read to the end and the design is
+no longer an open question; what remains is arithmetic.
+
+**The format**, Figure 3-11 and Table 3-4, ninety-six bits over six words:
+
+| Field | Bits | Meaning |
+| --- | --- | --- |
+| `SM` | 95 | sign of mantissa |
+| `SE` | 94 | sign of exponent |
+| `y y` | 93-92 | "used only for +/-infinity or NAN(s); zero otherwise" |
+| `EXP2 EXP1 EXP0` | 91-80 | the three exponent digits |
+| `(EXP3)` | 79-76 | written on a move *out* only, "if the source operand exceeds the magnitude of a three digit exponent"; a don't care on input |
+| `XXXX XXXX` | 75-68 | "don't care bits, which are zero when written and ignored when read" |
+| `MANT16` | 67-64 | the integer digit, with the decimal point implicit after it |
+| `MANT15`..`MANT0` | 63-0 | the sixteen fraction digits |
+
+Table 3-4's type rows are what distinguish the five data types, and the
+distinguishing field is *not* the one the binary formats use: an infinity or NAN
+has `SE` and both `y` bits set **and** an exponent of `$FFF`, and infinity is
+then told from NAN by the fraction being zero. A zero is an in-range string with
+`MANT16` and every fraction digit zero, at any exponent.
+
+**A NAN is copied, not converted.** Note 1: "the fraction part of the NAN is
+moved bit-for-bit into the extended precision mantissa ... but no
+decimal-to-binary conversion or any other conversion is performed". And the
+signalling bit falls exactly where the extended format puts it: the
+most-significant bit of `MANT15` becomes the extended integer bit and is a don't
+care "as in extended NANs", and the bit below it is the SNAN bit — extended bit
+62, the same quiet bit every other path uses.
+
+**Non-decimal digits are not policed.** Note 2: `$A`-`$F` in the exponent of a
+*zero* converts to a true zero, but "The FPCP does not detect non-decimal digits
+in the exponent, integer, or fraction digits of an in-range decimal string. These
+non-decimal digits are converted to binary in the same manner as decimal digits;
+however, the result is probably useless, although it is repeatable." Repeatable is
+the operative word: this is defined behaviour to reproduce, not an error to
+raise.
+
+**Conversion in cannot overflow.** Note 3: "Since in-range numbers cannot
+overflow or underflow when converted to extended precision, normalized extended
+precision numbers are always produced." The widest string is about
+`9.9e999`, comfortably inside extended's `1.19e4932`.
+
+**The rounding rule is a third variant**, and the three now form a set worth
+holding together:
+
+- a store to memory rounds to the **destination format**, ignoring `PREC`;
+- `FMOVECR` rounds to **`PREC`**, since its destination is a register;
+- a decimal *input* rounds to **extended, regardless of `PREC`** — §6.1.8: "the
+  result of the decimal-to-binary conversion is rounded to extended precision
+  (regardless of FPSR mode byte rounding precision)".
+
+`INEX1` exists solely for this: "the condition that exists when a packed decimal
+operand cannot be converted exactly to extended precision in the current rounding
+mode", kept separate from `INEX2` so a program can tell a decimal input error
+from an arithmetic one.
+
+**Why it is not yet written.** §6.1.8 specifies *correct rounding*, not a bound —
+unlike the transcendentals, where a published interval let an independent
+algorithm conform. Correct rounding of `M x 10^E`, with `M` a 17-digit integer and
+`E` running from -1015 to +999, needs the exact product: `5^999` alone is some
+2322 bits. So it needs multi-word integer arithmetic, and an approximation
+through the extended multiplier would be off in the last bits in a way no test
+could call correct. That is the whole of the remaining work, and it is
+arithmetic rather than research.
+
 ### The transcendentals
 
 All nineteen transcendentals are computed, and the `PROVISIONAL` that stood over

@@ -1363,6 +1363,29 @@ a 68882, and the 68882 is the only one of these it has.
         the exception byte, and `ap_m68882_condition` had been clearing it on
         every branch.
         *Verification: `step_suite` +5 (234). Detail in `PROJECT_STATUS.md`.*
+  - [ ] **Packed decimal**, the last gap in the part and the only one that is a
+        data *format* rather than an instruction. **The specification is
+        settled** — Figure 3-11's field layout, Table 3-4's five type rows, the
+        bit-for-bit NAN copy, the undetected non-decimal digits, and §6.1.8's
+        rounding rule — so what remains is arithmetic, not research. Detail in
+        `PROJECT_STATUS.md`.
+        - The input conversion must be **correctly rounded to extended,
+          regardless of `PREC`**, which needs the exact product `M x 10^E` with
+          `E` from -1015 to +999: multi-word integer arithmetic, since `5^999`
+          is some 2322 bits. An approximation through the extended multiplier
+          would be wrong in the last bits with no test able to call it.
+        - The output conversion additionally needs the **k-factor**, which
+          selects significant digits or decimal places, and `EXP3` — written
+          only on the way out, "if the source operand exceeds the magnitude of a
+          three digit exponent". Its operand error is its own: "Result Exponent
+          > 999 (Decimal) or k-Factor > +17".
+        *Verification: both directions round-tripping, and the conversion
+        checked against expectations generated to high precision, as the
+        transcendentals were.*
+  - [ ] **`FSAVE` and `FRESTORE`**, the coprocessor state frames — instruction
+        types `100` and `101`, and the only 68882 forms left outside the general
+        type. §6.4.2's state frame is what an exception handler saves; the null
+        frame is what a reset or an idle part returns.
   - [x] **`FDBcc`, `FScc` and `FTRAPcc`** — one instruction type, one encoding,
         told apart by Table 4-19. `FDBcc`'s branch base is a third rule (the
         displacement word's address) and its counter is a low-word decrement.
