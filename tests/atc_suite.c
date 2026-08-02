@@ -325,8 +325,43 @@ static void test_a_repeatedly_hit_entry_outlives_an_idle_one(void) {
   TEST_ASSERT_NOT_EQUAL_INT(hit.index, victim);
 }
 
+
+/* The replacement *order*, which `MC68851 PMMU User's Manual` §5.2.1.3 states
+ * for the compatible ATC: "locate an invalid entry and use it. If no invalid
+ * entries are found, use a psuedo least-recently-used (LRU) algorithm".
+ *
+ * So an invalid entry is taken before any valid one, whatever the history bits
+ * say -- a model that consulted history first would evict a live translation
+ * while an empty slot sat beside it. Checked by marking *every* entry used and
+ * then invalidating one in the middle: history offers no candidate at all, and
+ * the invalid entry must still be the one chosen. */
+static void test_an_invalid_entry_is_taken_before_any_valid_one(void) {
+  ap_m68030_atc_t atc;
+  ap_m68030_atc_flush(&atc);
+
+  for (unsigned i = 0; i < AP_M68030_ATC_ENTRIES; i++) {
+    const int index = ap_m68030_atc_insert(&atc, 1u, 0x10000u + i * 0x1000u,
+                                           12u, 0x20000u + i * 0x1000u, false,
+                                           false, false, false);
+    TEST_ASSERT_TRUE(index >= 0);
+    ap_m68030_atc_mark_used(&atc, index);
+  }
+
+  /* One hole, and it is not the first entry -- so "the first invalid" and "the
+   * first entry" are different answers and the test can tell them apart. */
+  const unsigned hole = 7u;
+  const uint32_t hole_logical = 0x10000u + hole * 0x1000u;
+  ap_m68030_atc_flush_entry(&atc, 1u, hole_logical, 12u);
+
+  const int chosen = ap_m68030_atc_insert(&atc, 1u, 0x90000u, 12u, 0xA0000u,
+                                          false, false, false, false);
+  TEST_ASSERT_TRUE(chosen >= 0);
+  TEST_ASSERT_EQUAL_UINT(hole, (unsigned)chosen);
+}
+
 int main(void) {
   UNITY_BEGIN();
+  RUN_TEST(test_an_invalid_entry_is_taken_before_any_valid_one);
   RUN_TEST(test_a_flushed_cache_misses_everything);
   RUN_TEST(test_a_hit_merges_the_page_offset_into_the_frame);
   RUN_TEST(test_every_address_in_a_page_hits_the_same_entry);

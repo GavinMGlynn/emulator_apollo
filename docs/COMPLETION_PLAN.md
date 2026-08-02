@@ -856,8 +856,15 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         to no category. `step_suite`, 3 further tests (142 total) — `LEA (A0)+`
         refused **with A0 unmoved**, `MOVE.W D0,(d16,PC)` refused with nothing
         stored, and `PMOVE (A0)+,TC` refused.*
-  - [ ] **Instruction execution time — the microcode clocks between the bus
-        cycles.** Named here because it was missing from this plan entirely,
+  - [x] **Instruction execution time — the microcode clocks between the bus
+        cycles.** **Closed.** Every transcribed row is priced as
+        `microcode + measured operand bus + prefetch cost`, where the microcode
+        is `CC − 2(r + w)` from the published `(r/p/w)` and the bus half is what
+        this core measures -- so a wait state or a cache hit still moves the
+        answer. `FINDINGS.md` C9's row, `ADD.B D0,(A0)`, comes to 6 warm and 7
+        cold averaged over both alignments: the manual's composed figure and the
+        oracle's measurement. What remains under it are two *readings* rather
+        than gaps, both named below. Named here because it was missing from this plan entirely,
         which is worse than being open: the step accumulates bus and cache time
         only, so a register-to-register `ADD` costs **zero** clocks today and
         every figure the core reports is a lower bound. The core's headline
@@ -914,7 +921,7 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         Both halves of the comparison are now runnable and pinned:
         `apollo-headless --time-instructions` with a golden, and
         `tools/mame-oracle/steptime.lua` for the oracle.
-    - [~] **Wiring the figures in is a *scheduling* problem, not an addition**,
+    - [x] **Wiring the figures in is a *scheduling* problem, not an addition**,
           and the scheduling model now exists: `ap_m68030_schedule`, which is
           `max(microcode, bus)` and is applied to every transcribed form.
           The three transcribed instructions in `--time-instructions` went from
@@ -981,7 +988,7 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         *Verification: self-timing probes against the oracle, per instruction
         and per addressing mode, with `[030]` §11.6 as an independent check and
         every discrepancy classified before anything is changed.*
-  - [~] **Effective address times, §11.6.1–§11.6.5**, and composing them
+  - [x] **Effective address times, §11.6.1–§11.6.5**, and composing them
         through Equation (11-2). `FINDINGS.md` C9 is the reason this is now a
         named item rather than a later refinement: without it the footnoted rows
         report a component as a total, and the oracle already shows the size of
@@ -1033,7 +1040,7 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
           and word alike per Table 2-3; the immediate absent from the calculate
           table; and the long absolute being the one fetch row whose two columns
           differ.*
-    - [~] **Composing them.** Half of the verification this item names is now
+    - [x] **Composing them.** Half of the verification this item names is now
           met: **the second worked example of §11.3.4 comes to 40 clocks**,
           which is Motorola's arithmetic on Motorola's figures and the only
           published number that exercises Equation (11-2) rather than (11-1).
@@ -1445,8 +1452,16 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         lookup is also how `PTEST` probes, and "The PTEST instruction does not
         alter the ATC". Putting it at the call site is what keeps a diagnostic
         instruction from perturbing the state it exists to report.
+        **The sibling manual also documents the *order*.** §5.2.1.3 states the
+        algorithm outright -- "locate an invalid entry and use it. If no invalid
+        entries are found, use a psuedo least-recently-used (LRU) algorithm to
+        select an entry ... and replace that entry" -- so the two steps this
+        core performs are transcribed rather than inferred. The 68851's L bit
+        has no counterpart here, the 68030 being unable to lock an entry, so
+        that clause drops out rather than being modelled as always false.
         **What remains PROVISIONAL** is only which entry is chosen among those
-        whose history bit is clear. That is genuinely unstated in both manuals.
+        whose history bit is clear. That is genuinely unstated in both manuals,
+        and is a tie-break rather than an algorithm.
         *Verification: `atc_suite`, 3 further tests (20 total) — a hit marking
         through the explicit call and *not* through the lookup alone; marking a
         miss touching nothing; and a repeatedly hit entry surviving a sweep that

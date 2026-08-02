@@ -135,14 +135,22 @@ ap_m68030_atc_result_t ap_m68030_atc_lookup(const ap_m68030_atc_t *atc,
  * manual names a "pseudo least recently used algorithm" built from "a validity
  * bit and an internal history bit" and stops there.
  *
- * One half of that has since been closed from the sibling manual: the
- * `MC68851 PMMU User's Manual` §5.2.1.3 says the history bit indicates "that
- * the entry has been recently used", which is why `ap_m68030_atc_mark_used`
- * exists and why the access path calls it on a hit. What the bit *means* is
- * documented; what remains PROVISIONAL is narrower than it was.
+ * The sibling manual has since closed most of it. `MC68851 PMMU User's Manual`
+ * §5.2.1.3 states the algorithm outright for the compatible ATC: "locate an
+ * invalid entry and use it. If no invalid entries are found, use a psuedo
+ * least-recently-used (LRU) algorithm to select an entry without its L bit set
+ * and replace that entry." So the **two-step order below is documented rather
+ * than inferred** -- invalid first, history bit second -- and the same section
+ * says the history bit indicates "that the entry has been recently used", which
+ * is why `ap_m68030_atc_mark_used` exists and why the access path calls it on a
+ * hit.
  *
- * Still undocumented, and therefore still an approximation: which entry is
- * chosen among those whose history bit is clear. Implemented as the first such
+ * The 68851's L bit has no counterpart here: that part can lock an entry
+ * against replacement and the 68030's ATC cannot, so the exclusion drops out
+ * rather than being modelled as always false.
+ *
+ * Still undocumented after all of that, and the whole of what remains: which
+ * entry is chosen among those whose history bit is clear. Implemented as the first such
  * entry, and when every entry has been used since the last sweep, clear them
  * all and start again. A stated approximation rather than an invented
  * precision. */
