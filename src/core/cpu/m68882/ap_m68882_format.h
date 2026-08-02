@@ -103,4 +103,53 @@ ap_m68882_classify(const ap_m68882_extended_t *value);
 void ap_m68882_to_extended(const ap_m68882_extended_t *value, uint32_t *high,
                            uint64_t *mantissa);
 
+/* Signed two's complement integers, §3.1 Figure 3-1: "identical to those
+ * supported by the M68000 Family architecture". Byte and word operands are
+ * sign-extended by the caller, so one entry point covers all three widths.
+ *
+ * Exact for every input -- a 32-bit integer fits the 64-bit mantissa with 32
+ * bits to spare -- so this raises no exception and needs no rounding mode. */
+[[nodiscard]] ap_m68882_extended_t ap_m68882_from_integer(int32_t value);
+
+/* The source specifier's data formats, §4.8.4: "If R/M = 1, it specifies the
+ * source operand data format." The encoding is not ordered by width and not
+ * ordered by kind -- the three integer formats are at 000, 100 and 110 with the
+ * reals interleaved -- so it is transcribed rather than computed.
+ *
+ * $7 is not a source format. In the store direction it is packed decimal with a
+ * dynamic k-factor, and as a *source* specifier the value means FMOVECR, which
+ * fetches no operand at all. */
+typedef enum {
+  AP_M68882_FORMAT_LONG = 0,
+  AP_M68882_FORMAT_SINGLE = 1,
+  AP_M68882_FORMAT_EXTENDED = 2,
+  AP_M68882_FORMAT_PACKED = 3,
+  AP_M68882_FORMAT_WORD = 4,
+  AP_M68882_FORMAT_DOUBLE = 5,
+  AP_M68882_FORMAT_BYTE = 6,
+  AP_M68882_FORMAT_PACKED_DYNAMIC = 7,
+} ap_m68882_format_t;
+
+/* How many bytes the format occupies in memory. This is what decides the bus
+ * traffic an operand transfer generates, so it is a hardware figure and not a
+ * buffer size: extended is **twelve**, the 80 used bits plus the 16 unused
+ * ones, and packed decimal is twelve as well (§3.3 Figure 3-9 runs bit 91 down
+ * to bit 0). */
+[[nodiscard]] unsigned ap_m68882_format_size(ap_m68882_format_t format);
+
+/* Decode an operand as it lies in memory into the internal extended value.
+ *
+ * `bytes` holds `ap_m68882_format_size(format)` bytes in memory order, which §3
+ * states for every format: "the most-significant byte is located at the lowest
+ * address ... The least-significant byte is located at the highest address".
+ * Taking them as bytes rather than as assembled words keeps the extended
+ * format's sixteen unused bits a fact of this module, where the rest of the
+ * format already lives, instead of one the main processor has to know.
+ *
+ * Returns false for the two packed decimal formats, which this model has not
+ * got to -- the caller reports that as our gap, not as the machine's trap. */
+[[nodiscard]] bool ap_m68882_operand_decode(ap_m68882_format_t format,
+                                            const uint8_t *bytes,
+                                            ap_m68882_extended_t *out);
+
 #endif /* APOLLO_CPU_M68882_AP_M68882_FORMAT_H */

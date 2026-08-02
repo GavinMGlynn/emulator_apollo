@@ -62,13 +62,20 @@ bool ap_m68882_condition(ap_m68882_t *fpu, unsigned predicate) {
   return evaluated.taken;
 }
 
-static ap_m68882_status_t execute_register_to_register(
-    ap_m68882_t *fpu, const ap_m68882_command_word_t *command) {
+/* The general type's arithmetic, once the source operand is in hand.
+ *
+ * `source` is passed rather than read from `command->rx` because for opclass
+ * `010` that field is a data *format* and not a register number -- using it as
+ * an index there would read a floating-point register the instruction never
+ * names. Both callers below supply the operand their opclass says to. */
+static ap_m68882_status_t execute_general(
+    ap_m68882_t *fpu, const ap_m68882_command_word_t *command,
+    const ap_m68882_extended_t *supplied_source) {
   const ap_m68882_rounding_t mode = ap_m68882_rounding_mode(&fpu->regs);
   const ap_m68882_precision_t precision =
       ap_m68882_rounding_precision(&fpu->regs);
 
-  const ap_m68882_extended_t source = fpu->regs.fp[command->rx];
+  const ap_m68882_extended_t source = *supplied_source;
   const ap_m68882_extended_t destination = fpu->regs.fp[command->ry];
 
   ap_m68882_op_t result = {0};
@@ -295,8 +302,15 @@ static ap_m68882_status_t execute_register_to_register(
   return AP_M68882_EXECUTED;
 }
 
-ap_m68882_status_t ap_m68882_execute(ap_m68882_t *fpu, uint16_t operation_word,
-                                     uint16_t command_word) {
+/* Decode and validate a general-type instruction, stopping short of executing
+ * it. Shared by every entry point below so that the F-line and unimplemented
+ * decisions are made once: an encoding that traps when its operands are in
+ * registers must trap identically when one is in memory, and two copies of
+ * Table 4-13's footnotes would not stay that way. */
+static ap_m68882_status_t decode_general(const ap_m68882_t *fpu,
+                                         uint16_t operation_word,
+                                         uint16_t command_word,
+                                         ap_m68882_command_word_t *out) {
   const ap_m68882_operation_word_t operation =
       ap_m68882_decode_operation(operation_word);
 
@@ -321,6 +335,27 @@ ap_m68882_status_t ap_m68882_execute(ap_m68882_t *fpu, uint16_t operation_word,
 
   const ap_m68882_command_word_t command =
       ap_m68882_decode_command(command_word);
+  *out = command;
+
+  /* Table 4-13 tabulates the extension field *as an operation*, which it is
+   * only for the two arithmetic opclasses -- `000` and `010`, the forms that
+   * name a source and a destination register. Elsewhere those seven bits are a
+   * different field entirely: a k-factor for a packed decimal store, a register
+   * select for the control registers, a register list for FMOVEM. Reading them
+   * against Table 4-13 there would raise F-line on a k-factor that happened to
+   * fall in one of the table's gaps -- a trap for an instruction the hardware
+   * executes, on a value that is not an opcode at all.
+   *
+   * FMOVECR is the same exception from inside opclass `010`: RX = 7 makes the
+   * extension a ROM offset rather than an operation, which is why the test is
+   * not simply on the opclass. */
+  const bool extension_is_an_operation =
+      command.opclass == AP_M68882_OPCLASS_REGISTER ||
+      (command.opclass == AP_M68882_OPCLASS_MEMORY_TO_REGISTER &&
+       command.rx != 7u);
+  if (!extension_is_an_operation) {
+    return AP_M68882_EXECUTED;
+  }
 
   if (command.extension_class == AP_M68882_EXTENSION_UNDEFINED) {
     /* Table 4-13 footnote 2: "the FPCP issues the take pre-instruction
@@ -337,11 +372,74 @@ ap_m68882_status_t ap_m68882_execute(ap_m68882_t *fpu, uint16_t operation_word,
     return AP_M68882_UNIMPLEMENTED;
   }
 
+  return AP_M68882_EXECUTED;
+}
+
+ap_m68882_status_t ap_m68882_execute(ap_m68882_t *fpu, uint16_t operation_word,
+                                     uint16_t command_word) {
+  ap_m68882_command_word_t command = {0};
+  const ap_m68882_status_t decoded =
+      decode_general(fpu, operation_word, command_word, &command);
+  if (decoded != AP_M68882_EXECUTED) {
+    return decoded;
+  }
+
   if (command.opclass != AP_M68882_OPCLASS_REGISTER) {
-    /* Every other opclass needs the main processor to fetch or store an
-     * operand, which is a dialog through the coprocessor interface. */
+    /* This entry point is the register-to-register one. Every other opclass
+     * needs an operand the main processor has to move, so it belongs to
+     * `ap_m68882_source_transfer` and its caller -- answering it here would
+     * execute against whatever `rx` happened to select. */
     return AP_M68882_UNIMPLEMENTED;
   }
 
-  return execute_register_to_register(fpu, &command);
+  /* Opclass `000`: RX is a register number, and the source is that register. */
+  const ap_m68882_extended_t source = fpu->regs.fp[command.rx];
+  return execute_general(fpu, &command, &source);
+}
+
+ap_m68882_status_t ap_m68882_source_transfer(const ap_m68882_t *fpu,
+                                             uint16_t operation_word,
+                                             uint16_t command_word,
+                                             bool *needs_source,
+                                             ap_m68882_format_t *format) {
+  *needs_source = false;
+
+  ap_m68882_command_word_t command = {0};
+  const ap_m68882_status_t decoded =
+      decode_general(fpu, operation_word, command_word, &command);
+  if (decoded != AP_M68882_EXECUTED) {
+    return decoded;
+  }
+
+  if (command.opclass == AP_M68882_OPCLASS_REGISTER) {
+    return AP_M68882_EXECUTED; /* nothing to fetch */
+  }
+  if (command.opclass != AP_M68882_OPCLASS_MEMORY_TO_REGISTER ||
+      !ap_m68882_command_uses_memory(&command)) {
+    /* The store direction, the control registers, FMOVEM -- and FMOVECR, which
+     * is opclass `010` with RX = 7 and reads the part's own ROM rather than
+     * memory. None of them is a source fetch, and none is implemented; saying
+     * so is what keeps them from being answered as one. */
+    return AP_M68882_UNIMPLEMENTED;
+  }
+
+  /* §4.8.4: "If R/M = 1, it specifies the source operand data format." */
+  *format = (ap_m68882_format_t)command.rx;
+  *needs_source = true;
+  return AP_M68882_EXECUTED;
+}
+
+ap_m68882_status_t ap_m68882_execute_source(
+    ap_m68882_t *fpu, uint16_t operation_word, uint16_t command_word,
+    const ap_m68882_extended_t *source) {
+  ap_m68882_command_word_t command = {0};
+  const ap_m68882_status_t decoded =
+      decode_general(fpu, operation_word, command_word, &command);
+  if (decoded != AP_M68882_EXECUTED) {
+    return decoded;
+  }
+  if (command.opclass != AP_M68882_OPCLASS_MEMORY_TO_REGISTER) {
+    return AP_M68882_UNIMPLEMENTED;
+  }
+  return execute_general(fpu, &command, source);
 }

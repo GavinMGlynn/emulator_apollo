@@ -1397,6 +1397,101 @@ logarithm argument was negative.
 
 ## The 68882 is complete
 
+### The source operand transfer: `FADD.S (A0),FP1` now runs
+
+Until this landed, every 68882 *operation* worked and almost no real
+floating-point code did — because a compiler emits far more memory operands than
+register-to-register ones, and opclass `010` reported our gap. The gap was never
+arithmetic. §4.8.3's R/M bit says only that the operand is external; `[030]`
+§10.4.9 says whose job it is to go and get it: "the processor calculates the
+effective address using the appropriate effective address extension words at the
+current scanPC ... The main processor then transfers the number of bytes
+specified in the primitive."
+
+**The division of labour is modelled; the primitive exchange is not.** On
+hardware the FPCP answers the command word with an *evaluate effective address
+and transfer data* response primitive naming a length and a direction, and the
+68030 obliges through the CIRs. Nothing on this machine can observe that
+exchange — the CIRs live in CPU space and Domain/OS reaches the part only through
+F-line instructions — so the primitives are not encoded. What is modelled is the
+*shape* they impose, and it is the reason the interface is two calls rather than
+one: `ap_m68882_source_transfer` asks the part what to fetch, the 68030 fetches
+it, and `ap_m68882_execute_source` runs the operation on it.
+
+That ordering is forced, not stylistic. **The format decides the address.** A
+postincrement steps by the operand's length, so a model that fetched before
+asking would have to guess a length, and `(A0)+` would leave the address register
+wrong for every format but the guessed one — while still producing the right sum
+on the first iteration of a loop, which is how it would survive a casual test.
+
+Three details that are easy to get wrong and are each a test:
+
+- **Extended is twelve bytes, not ten.** The first long word holds the sign and
+  exponent and then *sixteen unused bits*; the mantissa is the other two. A
+  decoder packing the 80 used bits contiguously reads every mantissa two bytes
+  out of place while still getting the sign and exponent right — so the value is
+  wrong and nothing faults. The test poisons those bits with `$AAAA`.
+- **Integer sources are signed.** §3.1: "The three signed (twos complement)
+  integer data formats ... are identical to those supported by the M68000 Family
+  architecture." A byte of `$FF` is `-1`. A converter that widened without
+  sign-extending would be right for exactly half of every integer operand.
+- **An immediate operand is counted in words.** §4.7: "All FPCP instructions are
+  from two to eight words in length ... the longest case is for an immediate
+  operand of six words - the X or P format." So a byte operand still occupies a
+  whole word, and advancing the program counter by one byte instead would leave
+  it odd and fault the next fetch.
+
+**Two refusals arrived with it, and both are the machine's trap rather than our
+gap** — a distinction worth the tests, because reporting either as F-line or as
+unimplemented would look entirely plausible. A data register may not hold an
+operand longer than four bytes (`FADD`'s own page: "Only if <fmt> is Byte, Word,
+Long, or Single"; §10.4.9 states the same rule as lengths *and* names the
+consequence: "all other lengths ... cause the main processor to initiate protocol
+violation exception processing"). An address register may not hold one at all —
+its row in that table carries dashes instead of an encoding. Each is tested
+against a legal neighbour, so what the test pins is the *rule* and not the
+addressing mode.
+
+**That made stack frame format `$9` reachable, and the plan had recorded it as
+unreachable.** The old reasoning was that the coprocessor mid-instruction frame
+exists to resume a *suspended* instruction, and this core's 68882 completes
+within the step that issues it — true, and beside the point: Table 8-6 puts
+**main-detected protocol violation** in the same row, and the 68030 raises that
+one before the coprocessor is involved at all. The frame is ten words, the
+six-word frame's two addresses plus four INTERNAL REGISTERS words, which are
+written as zero and marked `PROVISIONAL` for the same reason the bus fault frames
+make the same approximation: there is no microsequencer state to save. They are
+*written* rather than skipped, so a handler cannot read the previous program's
+data out from under a documented field name. What it costs is stated where it is
+paid — an `RTE` from this frame is still declined, because resuming needs the
+dialog those words describe.
+
+Format `$9` also has a **PC rule of its own**: Table 8-6 gives it "[Next word to
+be fetched from instruction stream]", not the next instruction. Here the two
+coincide, because the violation is detected before any extension word is read,
+and `ap_m68030_stacks_next_instruction` records why rather than relying on the
+coincidence.
+
+**A latent decode bug surfaced while wiring this.** Table 4-13 tabulates the
+command word's low seven bits *as an operation*, which they are only for the two
+arithmetic opclasses. For a packed decimal store they are a k-factor, for the
+control registers a register select, for `FMOVEM` a register list — and
+`FMOVECR` is the same exception from inside opclass `010`, where RX = 7 makes
+them a ROM offset. The check had been applied to all of them, so a k-factor
+landing in one of Table 4-13's gaps would have raised F-line on an instruction
+the hardware executes. It was unreachable before, because nothing had ever
+decoded a non-arithmetic opclass far enough to be asked.
+
+Still open on the source side: **packed decimal**, which declines rather than
+being decoded as binary — §3.6's decimal-to-binary conversion is separate
+arithmetic from everything else in the part, and turning a BCD operand into a
+plausible wrong number would hide the gap. The boundary has moved one step rather
+than vanished: the *store* direction (opclass `011`) needs the reverse of every
+conversion, plus the rounding and exceptions that come with narrowing an extended
+value on the way out.
+
+### The transcendentals
+
 All nineteen transcendentals are computed, and the `PROVISIONAL` that stood over
 them is closed. The worst error measured anywhere in the family is **under 3.1
 units in the last place** of extended precision, against expectations generated
@@ -2557,7 +2652,7 @@ failure that cost a bit position in the 68020's module entry word.
 | 68030 bus arbitration control unit | working: the five-state machine of `[030]` §7.7.4, the processor at lowest priority, both documented deferrals (a committed bus cycle, and a locked read-modify-write) and the single-wire BGACK-alone path. Figure 7-61 did not survive the scan and the states are recovered from the prose walking it; one edge is marked `INFERRED` in code against the two passages supporting it. The input synchroniser is `PROVISIONAL` | `arb_suite`, 15 tests, `MC68030 User's Manual 3ed` §7.7 |
 | 68030 on-chip instruction and data caches | working, including the bus-timing join: a hit costs 0 clocks, a burst line fill 5 | `cache_suite`, 29 tests and `bus_suite`, 23 tests, `MC68030 User's Manual 3ed` §6, §7.3.7 |
 | 68030 integer ALU (results and condition codes) | working: ADD, SUB, CMP, AND, OR, EOR, NEG, NOT, and the shifts and rotates | `alu_suite`, 17 tests, `M68000 Family Programmer's Reference Manual 1992` Table 3-18; the byte space verified exhaustively |
-| 68030 exception taking (stack the frame, fetch the vector through the VBR, load the PC) | working for the four- and six-word frames and the throwaway frame, wired to divide-by-zero, `TRAP #N`, `TRAPV`, `CHK`, `ILLEGAL`, privilege violations, MMU configuration errors, **interrupts** and **trace**; **the fault frames now build and return**, wired to bus error (vector 2) on any faulted access and address error (vector 3) on a prefetch from an odd program counter; reset, the coprocessor frame and the interrupt M-bit second frame decline rather than approximate | `step_suite` (10 of its tests), `exception_suite`, 16 tests, `[030]` §8.1 and Table 8-6 |
+| 68030 exception taking (stack the frame, fetch the vector through the VBR, load the PC) | working for the four- and six-word frames and the throwaway frame, wired to divide-by-zero, `TRAP #N`, `TRAPV`, `CHK`, `ILLEGAL`, privilege violations, MMU configuration errors, **interrupts** and **trace**; **the fault frames now build and return**, wired to bus error (vector 2) on any faulted access and address error (vector 3) on a prefetch from an odd program counter; **the coprocessor mid-instruction frame (`$9`) now builds too**, wired to the main-detected protocol violation the source operand transfer raises, with its four INTERNAL REGISTER words written as zero and marked `PROVISIONAL`; reset and the interrupt M-bit second frame decline rather than approximate | `step_suite` (10 of its tests), `exception_suite`, 16 tests, `[030]` §8.1 and Table 8-6 |
 | 68030 family `0000` size-11 escape (`CMP2`/`CHK2`/`CAS`/`CAS2`) | decoded; the opcode map now has no holes. Semantics open: `CAS`/`CAS2` need an indivisible read-modify-write | `bounds_suite`, 9 tests, `M68000 Family Programmer's Reference Manual 1992` |
 | Per-instruction timing report (`--time-instructions`) | bus and cache time only, pinned as a golden; the 0/2 alternation is the cache holding register serving two instruction words per fetch | `tests/goldens/timing.txt`; oracle side by `tools/mame-oracle/steptime.lua` |
 | Probe suite (`probe/`, `--run-probes`) | 8 probes on the constructed machine, needing no firmware; results pinned as a golden under every build preset, identical between `-O0` and `-O3` | `tests/goldens/probes.txt`, `probe_suite`, 7 tests |
@@ -2598,8 +2693,10 @@ failure that cost a bit position in the 68020's module entry word.
 | 68030 transparent translation (TT0/TT1) | working, bit layout now transcribed | `tt_suite`, 21 tests, `MC68030 User's Manual 3ed` §9.3, §9.7.3; layout from `M68000 Family Programmer's Reference Manual 1992` Figure 1-9 |
 | 68030 MMU status register (`MMUSR`) | working, both PTEST forms, bit layout transcribed | `mmusr_suite`, 16 tests, `MC68030 User's Manual 3ed` Table 9-3; layout from `M68000 Family Programmer's Reference Manual 1992` PTEST p. 6-64 |
 | 68030 translation table search (the walk) | working: search, U/M writeback, and ATC fill | `walk_suite`, 40 tests, `MC68030 User's Manual 3ed` §9.2, §9.4, §9.5, §11; writeback cost cross-checked against `MC68851 PMMU User's Manual 3ed` §5.1.5.3.11 |
-| 68851 PMMU and 68040 MMU | not started. The **68030's** MMU is done and has its own rows above — translation control, transparent translation, the ATC, the table walk and `MMUSR` | — |
-| 68881 / 68882 / 68040 FPU | not started | — |
+| MC68851 PMMU | working as its own subsystem: the translation control and root pointers, the six descriptor formats and Figure 5-10's type determination, the status and protection registers, the 64-entry ATC, and the table search with §5.1.5.3.11's U/M write-back. The **68030's** own MMU is separate and has its own rows above | `m68851_tc_suite` 13, `m68851_rp_suite` 13, `m68851_descriptor_suite` 21, `m68851_regs_suite` 22, `m68851_atc_suite` 22, `m68851_search_suite` 26, `m68851_suite` 43; `MC68851 PMMU User's Manual 3ed` |
+| 68040 MMU | not started | — |
+| MC68882 FPU | working, and attached to the 68030 as a *pointer* so a machine without one keeps its line 1111 trap. Every general-type operation executes: the four arithmetic operations, the exactly-specified monadics, the remainders, the single-precision pair, and **all nineteen transcendentals** to within §4.3.2's published bound. Both operand paths run — register-to-register, and **`<ea>` to `FPn` in all six binary formats from every data addressing mode**. Open: packed decimal, the store direction (opclass `011`), the control-register and `FMOVEM` opclasses, `FMOVECR`, and the branch/conditional instruction *types* — for which the coprocessor's own half (`ap_m68882_condition`) is done and the 68030's dialog is not | `m68882_regs_suite` 19, `m68882_format_suite` 18, `m68882_cir_suite` 8, `m68882_round_suite` 11, `m68882_arith_suite` 41, `m68882_decode_suite` 10, `m68882_accuracy_suite` 10, `m68882_transcendental_suite` 36, plus 13 tests in `step_suite`; `MC68881/MC68882 User's Manual 1ed` |
+| MC68040 FPU | timing tables only — §10.6, §10.7.1/§10.7.2 and §10.7.3's pipeline stages are transcribed; no 68040 arithmetic | `m68040_iu_timing_suite` 99, `m68040_fpu_timing_suite` 32, `m68040_fp_pipeline_suite` 18 |
 | Core-board registers (`010000`-`011600`) | working for the four that could be measured: CPU status (bit 15 stuck, writes clear the latched bits), CPU control and latch-page-on-parity (16 bits of storage), cache control (a *byte*, mirrored into both halves of a 16-bit read, one writable bit), each aliased across its 256-byte range. No manual here lays out these bits, so all of it is measured. **Width and storage only — no bit has a known meaning, and nothing may depend on one.** Task alias and master request are absent from the oracle and stay declined rather than modelled as all-ones | `boardreg_suite`, 12 tests; `FINDINGS.md` C10, `tools/mame-oracle/regprobe.lua`, two probe runs byte-identical |
 | Address translation map (`017000`) | working: the translation itself, both DMA widths, and the register file. Between the AT bus and physical memory, not the CPU's MMU -- a DMA controller has no MMU, and this is what lets it see scattered physical pages as one contiguous run. Present on DN3500/4500/5500 and absent on DN3000, from the model table | `atmap_suite`, 15 tests, `019411-A00` §4.2.1.4, `008778-03` §1.2, §2.5 |
 | Board cache (`012000` RAM, `014000` condition codes) | not started. The shared **bus arbitration point** is done and has its own row above | — |
@@ -3074,6 +3171,7 @@ phrase.
 | 68030 `+` rows not yet transcribed | absent, so the instructions are unpriced rather than priced wrongly | §11.6 marks more instructions data-dependent than the four divides: the four multiplies, `CMP2`, `CHK2`, `CHK` with the exception taken, and `CAS2`. None is in the transcription -- the multiplies and `CMP2`/`CHK2` are footnoted for an effective address time as well, and `CAS`/`CAS2` do not execute at all. `ap_m68030_timing_for_word` returns NULL for them, so the step leaves them at bus time alone, which reads as an alternating figure and is visibly a lower bound | Transcribe them with the same `data_dependent` marker once the instructions they belong to are priced. Small, and blocked on nothing except its own turn |
 | 68030 `ABCD`/`SBCD`/`NBCD` `N` and `V`, and `CHK`'s `Z`/`V`/`C` | The rules real silicon follows. `N` is bit 7 of the result. `V` is the binary overflow between the **unadjusted** and corrected results -- set when the MSB goes 0→1 for `ABCD` and 1→0 for `SBCD`/`NBCD`. `CHK` sets `Z` from the *register* operand being zero and always clears `V` and `C` | Every manual consulted says only "undefined": the `M68000 Family PRM`, the perihelion instruction-set reference and prb28's instruction documentation all mark `N` and `V` as `U`. Undefined licenses *software* not to depend on them; it does not license a reference core to be non-deterministic, so the choice is between a cited rule and an invented one. The rules here come from an exhaustive hardware sweep -- every input permutation against several initial CCR states, fitted to 100% of cases -- cross-checked against Motorola's patent US4325121 for the BCD correction hardware, and since adopted by MAME, WinUAE, Hatari and BlastEm. **One reading had to be settled between sources**: the sweep's notation `(dd & ~rr)` reads as the destination, while the write-up states it as the MSB *changing*, which can only be unadjusted against adjusted. `NBCD` decides it -- it is the same subtract from a destination of zero, so a destination-based `V` could never be set at all | Run the same sweep against a **68030**. The sweep was on a 68000; the correction hardware is the family's and so is the patent, so the rule is very likely to carry, but likely is not measured. Small: the oracle steps side-loaded instructions already. Affects only flags the manual says nothing may depend on |
 | 68882 transcendental functions | **All nineteen are implemented**, to within §4.3.2's published bound: worst measured error under 3.1 units in the last place of extended precision against expectations generated to 120 decimal digits, which is some twenty times inside the typical bound of 64 and three orders of magnitude inside the worst case of 4096. Two things remain provisional and neither is the accuracy. **(a) Bit-exact agreement with the part is not attainable**, because Motorola publishes a bound and no algorithm -- so our results differ from the hardware's in the low bits of almost every value, within the interval the manual guarantees. The one place this is *visible* rather than hidden in the last bits is the case §4.3.2 names itself: `FTENTOX #1` returns exactly 10.0 here and the manual says the hardware's does not. **(b) Directed rounding at extended precision is a no-op**, because this model computes a 64-bit approximation directly and has no bits below the destination left to round, where the part carries 67 internally; at single and double precision all four modes work correctly | §4.3.2 is explicit that there is nothing to transcribe: "the IEEE specification does not define the error bound to which transcendental (**except square root**) functions are to be performed", and Motorola publishes no algorithm -- only bounds. "The worst-case accuracy of any transcendental function is one unit in the last place of double precision (which is equal to 4096 units in the last place of extended precision). The typical error bound ... is approximately 64 units in the last place of extended precision." So a correctly-rounded implementation would be *more* accurate than the part and would differ from it in the low bits of almost every result -- which for a reference core is a divergence, not an improvement. Reporting unimplemented keeps that visible; approximating would hide it | **(a)** Only a 68881 ROM disassembly recovers the actual algorithm; every software route -- Motorola's own `M68040FPSP` included -- meets the same bound by a different recurrence and so cannot be bit-exact, which is the finding recorded at length in the middle column. **(b)** Carry guard bits through every kernel and round once from them. Bounded by one unit in the last place, so a sixty-fourth of the typical bound -- and the part's own directed rounding of a transcendental is accurate only to that same bound, so the gain is smaller than it looks |
+| 68030 stack frame INTERNAL REGISTER words | written as zero, in the bus fault frames (`$A`/`$B`) and now in the coprocessor mid-instruction frame (`$9`) | Table 8-6 names the fields but gives them no defined contents — they hold microsequencer state, and this model has none to save. Written rather than skipped, because a frame that left them holding whatever the stack already had would hand a handler the previous program's data under a documented field name. Zero is a stated value; a skipped word is an unstated one | Only a microsequencer model closes it. What it costs today is bounded and named: an `RTE` from format `$9` is declined rather than resumed, since resuming is exactly what those words are for |
 | 68851 root pointer table | **Not implemented.** §5.3's eight-entry cache of recently-used `CRP` values with a task alias each. A `PMOVE` to `CRP` takes the conservative branch instead: it flushes the current task's ATC entries and sets `PCSR`'s `F`, which is what a replacement would do when the table holds one live alias | The RPT is a *performance* mechanism -- "the root pointer caching and task alias maintenance performed by the RPT allows translation descriptors for multiple tasks to reside in the ATC simultaneously". Without it every task switch flushes, which is slower than the hardware and never wrong: the entries flushed are exactly those a real replacement could have invalidated, plus some it might have kept. No translation returns a different physical address; only the hit rate differs | Implement §5.3's eight-entry RPT with its own replacement, and let the task alias vary. Needed before any ATC hit-rate measurement is meaningful, and before a probe could compare ATC occupancy against the oracle. Does not affect correctness of any single translation |
 | 68851 `U` and `M` write-back | **Implemented and wired.** A search returns the path of descriptors it read; `ap_m68851_status_writes` produces the byte cycles §5.1.5.3.11's table calls for; and `ap_m68851_translate` and `ap_m68851_pload` drive them through a `store` callback so the bits reach memory. The status byte is the fourth of the descriptor in both formats -- `U` is bit 35 of a long descriptor and bit 3 of a short one, `M` bit 36 and bit 4, and in each case that is bit 3 and bit 4 of `address + 3` | No longer provisional. Four readings, each sourced. **A descriptor already carrying the right bits produces no cycle**: the part "only performs write cycles to modify these bits are required". **The cycle type is specification**: a read-modify-write "whenever it is required to set the used bit but not affect the state of the modified bit", so two MMUs sharing a tree cannot lose each other's `M`; pointer descriptors, which "do not contain modified bits, are not referenced using read-modify-write sequences". **The path survives a fault** -- "a pointer may be fetched, and its U bit set, for an address to which access is denied at another level of the tree". And **`PTEST` must not write at all**: "U and M bits in the translation table are not modified by this instruction", where `PLOADW` updates "as if a write operation to that address had occurred" and `PLOADR` as if a read | Closed. `ap_m68851_ptest` takes no `store` parameter, so a probe *cannot* mark a page used -- the omission is how the manual's rule is enforced rather than merely documented. Two judgements remain readings rather than quotations: the descriptor that *causes* a denial is not marked (the manual covers the pointers above it and is silent on it, and `U` exists for page replacement, which an invalid descriptor has no part in), and a `NULL` store leaves the tables unchanged for a caller with no write path |
 | SC-499 command handshake timings | the documented bounds | `[SC499]` §1.13.2 publishes *bounds*, not values — "0 us < T3->T4 < 150 us" says the device hands the bus back within 150 microseconds and nothing about when. Modelled at the bound, so every handshake runs at its slowest permitted speed: wrong in a knowable direction and by a knowable amount. All nine convert exactly to base units, so none is rounded on top of being provisional | Measure edge timings against a running drive, which needs the oracle's tape path exercised; small. Affects only a driver watching for the edges themselves — a polling driver cannot observe the difference |
@@ -3123,6 +3221,23 @@ Kept rather than discarded, so a future contradiction has a documented history.
 - The ring controller's register-level interface is not yet recovered; the
   manuals give its address window and block diagram but not its registers.
 
+- **The 68882's store direction is not implemented.** Opclass `010` (`<ea>` to
+  `FPn`) runs in all six binary formats; opclass `011` (`FPn` to `<ea>`) does
+  not, nor do the control-register opclasses, `FMOVEM` or `FMOVECR`. Storing is
+  not the load path read backwards: narrowing an extended value raises the
+  rounding and exception behaviour that loading never touches. **Packed
+  decimal** is unimplemented in both directions and declines rather than
+  decoding as binary.
+- **`FBcc`, `FDBcc`, `FScc` and `FTRAPcc` do not execute**, though the
+  coprocessor's whole contribution to them does (`ap_m68882_condition`, all 32
+  predicates with `BSUN`). What is missing is the 68030's half of §9's dialog —
+  fetching a displacement, decrementing, trapping, writing a byte of ones or
+  zeros — not the condition.
+- **An `RTE` from stack frame format `$9` is declined.** The frame now *builds*,
+  for the main-detected protocol violation, but resuming from it needs the
+  coprocessor mid-instruction state its four INTERNAL REGISTERS words describe,
+  and this model writes those as zero. A handler that diagnoses and does not
+  resume works from the real fields.
 - No SDL frontend. Deliberately absent rather than stubbed.
 - **The oracle carries a fourth local edit.** `ext/mame`'s SC-499 now treats a
   cartridge insertion as a QIC-02 RESET, because it modelled no media change at

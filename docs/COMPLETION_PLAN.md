@@ -1377,16 +1377,15 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         state each one has to undo, with an ATC entry asserted to survive; and
         nothing stacked, checked by counting stores rather than by inspecting
         the stack pointer alone.*
-        The bus and address error frames (`$A`/`$B`) build and return. The
-        **coprocessor mid-instruction frame (`$9`) is unreachable in this
-        model**, and that is a modelling statement rather than a gap: the frame
-        exists so a coprocessor instruction *suspended part-way* can be resumed,
-        and this core's 68882 completes an instruction within the step that
-        issues it. Nothing can interrupt it half-done, so nothing can generate
-        the frame. It becomes real work only if the FPU is ever made to suspend
-        -- which would be a concurrency model this core does not have and does
-        not need, since the 68882's concurrency is invisible to a program except
-        through timing. `CHK`, `TRAPV`,
+        The bus and address error frames (`$A`/`$B`) build and return, and so
+        does the **coprocessor mid-instruction frame (`$9`)** — which this item
+        once called unreachable on the reasoning that the frame exists to resume
+        a *suspended* instruction and this core's 68882 never suspends. That was
+        right about suspension and wrong about the frame: Table 8-6 puts
+        **main-detected protocol violation** in the same row, and that one is
+        raised by the 68030 before the coprocessor is involved at all. It became
+        reachable the moment the source operand transfer landed. Detail in
+        `PROJECT_STATUS.md`. `CHK`, `TRAPV`,
         `TRAP`, `TRAPV`, `CHK`, the privilege violations, the illegal
         instruction word, the MMU configuration errors, the interrupts and
         **trace** are all wired in — every exception this model can build a
@@ -1932,6 +1931,25 @@ a 68882, and the 68882 is the only one of these it has.
         undefined extension trapping *with* one fitted, which is the same vector
         arriving for a different reason; and an unimplemented form reported as
         our gap rather than as the machine's trap.*
+  - [x] **The source operand transfer**, which is what makes `FADD.S (A0),FP1`
+        run — and with it most real floating-point code, since a compiler emits
+        far more memory operands than register-to-register ones. Opclass `010`
+        in all six binary formats, from every data addressing mode. The work is
+        split the way the hardware splits it: the part is asked what to fetch,
+        the 68030 fetches it, and the operand comes back as an extended value.
+        Two rules that are traps rather than gaps arrived with it — a data
+        register may not hold an operand longer than four bytes, and an address
+        register may not hold one at all — and both take the **coprocessor
+        protocol violation**, which needed frame format `$9` built. Packed
+        decimal declines and is the one source format still open.
+        *Verification: `step_suite`, 8 further tests (209 total) — a single
+        fetched from `(A0)`; an extended operand spanning three long words with
+        its sixteen unused bits poisoned; `(A0)+` stepping by the *format's*
+        length and not a fixed one; a signed word immediate taken from the
+        instruction stream; both protocol violations, each against a legal
+        neighbour so it is the rule and not the mode being refused; packed
+        decimal reported as ours; and format `$9`'s ten words with its two
+        distinct addresses. `m68882_format_suite` +6 (18 total).*
   - [x] **The exactly-specified monadic operations**: `FSQRT`, `FGETEXP`,
         `FGETMAN`, `FINT`, `FINTRZ` and `FSCALE`. §4.3.2 puts square root under
         the IEEE bound rather than with the transcendentals -- "except square
@@ -3186,7 +3204,10 @@ a 68882, and the 68882 is the only one of these it has.
         to.
   - [~] The long frame's INTERNAL REGISTER fields are stacked as zero — a
         deliberate approximation, since this model has no microsequencer state
-        to save. Cost to close: an `RTE` resuming a fault *mid-instruction*
+        to save. **The coprocessor mid-instruction frame (`$9`) makes the same
+        approximation for the same reason**, in its four INTERNAL REGISTERS
+        words, and pays the same stated cost: an `RTE` from that frame is
+        declined rather than resumed. Cost to close: an `RTE` resuming a fault *mid-instruction*
         cannot work from a zeroed frame, so the rerun must reconstruct the
         access from the SSW and fault address instead of from internal state.
         - **Landed, and now recorded as the convention requires**: marked

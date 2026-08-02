@@ -1753,14 +1753,15 @@ static ap_m68030_exception_result_t take_exception_with(
   ap_m68030_exception_result_t out = {0};
 
   /* Reset stacks nothing -- "For all exceptions other than reset" -- and the
-   * fault and coprocessor frames carry state this model does not have. Each is
-   * declined rather than built wrong. */
+   * two bus fault frames are built by take_bus_fault_with instead, which has
+   * the special status word this one has no way to supply. */
   if (vector == AP_M68030_VECTOR_RESET_SP ||
       vector == AP_M68030_VECTOR_RESET_PC) {
     return out;
   }
   const ap_m68030_frame_format_t format = ap_m68030_frame_for_vector(vector);
-  if (format != AP_M68030_FRAME_SHORT && format != AP_M68030_FRAME_SIX_WORD) {
+  if (format != AP_M68030_FRAME_SHORT && format != AP_M68030_FRAME_SIX_WORD &&
+      format != AP_M68030_FRAME_COPROCESSOR_MID) {
     return out;
   }
 
@@ -1785,11 +1786,29 @@ static ap_m68030_exception_result_t take_exception_with(
   wrote = wrote && write_frame_field(
                        cpu, frame + 6u, 2u,
                        ap_m68030_frame_format_word(format, vector), &out.clocks);
-  if (format == AP_M68030_FRAME_SIX_WORD) {
+  if (format == AP_M68030_FRAME_SIX_WORD ||
+      format == AP_M68030_FRAME_COPROCESSOR_MID) {
     /* "INSTRUCTION ADDRESS is the address of the instruction that caused the
-     * exception", which is not the stacked PC: that one points at the next. */
+     * exception", which is not the stacked PC: that one points at the next.
+     * Both frames carry the field at the same offset. */
     wrote = wrote && write_frame_field(cpu, frame + 8u, 4u, instruction_address,
                                        &out.clocks);
+  }
+  if (format == AP_M68030_FRAME_COPROCESSOR_MID) {
+    /* Format $9's remaining four words are "INTERNAL REGISTERS", written as
+     * zero. `PROVISIONAL`, and the same deliberate approximation the bus fault
+     * frames make for the same reason: this model has no microsequencer state
+     * to save. Written rather than skipped -- a frame that left them holding
+     * whatever the stack already had would give a handler the previous
+     * program's data under a documented field name.
+     *
+     * What that costs is stated where it is paid: an RTE from this frame is
+     * declined, because resuming needs the coprocessor dialog these words
+     * describe and this model does not carry it. A handler that diagnoses and
+     * does not resume -- which is what a protocol violation calls for -- works
+     * from the fields above, and those are real. */
+    wrote = wrote && write_frame_field(cpu, frame + 12u, 4u, 0u, &out.clocks);
+    wrote = wrote && write_frame_field(cpu, frame + 16u, 4u, 0u, &out.clocks);
   }
   if (!wrote) {
     /* A fault while stacking is a double fault on the real part, which halts
@@ -3463,6 +3482,130 @@ static bool execute_mmu(ap_m68030_cpu_t *cpu, const ap_m68030_coproc_t *coproc,
   return false;
 }
 
+/* ---------------------------------------------------------------------------
+ * Fetching a floating-point source operand
+ *
+ * `[68881]` §4.8.3: "a one in this field indicates that the source operand is
+ * external to the FPCP" -- and moving it is the *main processor's* job.
+ * `[030]` §10.4.9 is that job stated as hardware: the coprocessor answers with
+ * an evaluate effective address and transfer data primitive, "the processor
+ * calculates the effective address using the appropriate effective address
+ * extension words at the current scanPC", and transfers the named number of
+ * bytes. The primitive exchange itself is not modelled -- see
+ * ap_m68882_source_transfer -- but the work it asks for is exactly this.
+ */
+typedef enum {
+  FP_SOURCE_FETCHED,
+  /* §10.4.9 names this failure specifically, and it is a *trap* rather than a
+   * gap: "all other lengths (zero, for example) cause the main processor to
+   * initiate protocol violation exception processing". */
+  FP_SOURCE_PROTOCOL_VIOLATION,
+  /* A bus fault, or an addressing mode this step cannot yet supply. */
+  FP_SOURCE_FAILED,
+} fp_source_result_t;
+
+/* Read `size` bytes from `where` into `bytes`, most significant first.
+ *
+ * §10.4.9: the transfer uses "long-word transfers whenever possible", so the
+ * twelve-byte extended operand is three long words and not some other division
+ * -- which is the bus traffic an observer would see, and the reason this loops
+ * over long words rather than reading byte by byte. */
+static bool read_operand_bytes(ap_m68030_cpu_t *cpu, uint32_t *clocks,
+                               const ap_m68030_address_t *where, unsigned size,
+                               uint8_t *bytes) {
+  unsigned done = 0;
+  while (done < size) {
+    const unsigned chunk = (size - done >= 4u) ? 4u : (size - done);
+    const ap_m68030_address_t at = {.address = where->address + done,
+                                    .valid = true};
+    const ap_m68030_operand_result_t read = step_operand_read(
+        cpu, &cpu->regs, cpu->data, &at, chunk, cpu->data_function_code);
+    *clocks += read.clocks;
+    if (!read.ok) {
+      return false;
+    }
+    for (unsigned i = 0; i < chunk; i++) {
+      bytes[done + i] = (uint8_t)(read.value >> (8u * (chunk - 1u - i)));
+    }
+    done += chunk;
+  }
+  return true;
+}
+
+static fp_source_result_t fetch_fp_source(ap_m68030_cpu_t *cpu,
+                                          const ap_m68030_coproc_t *coproc,
+                                          ap_m68882_format_t format,
+                                          uint32_t *clocks,
+                                          ap_m68882_extended_t *source) {
+  const unsigned size = ap_m68882_format_size(format);
+  uint8_t bytes[12] = {0};
+
+  /* The FADD page's table, and every other arithmetic page's: the source is a
+   * *data* addressing mode. Address register direct is the one mode with no
+   * encoding shown at all -- its row carries dashes -- because an address
+   * register cannot hold a floating-point operand. Checked as the category so
+   * that the whole family of modes is covered by the one rule. */
+  if (!ap_m68030_ea_is_data(coproc->ea.kind)) {
+    return FP_SOURCE_PROTOCOL_VIOLATION;
+  }
+
+  if (coproc->ea.kind == AP_M68030_EA_DATA_REGISTER) {
+    /* The footnote under that table: "Only if <fmt> is Byte, Word, Long, or
+     * Single". §10.4.9 gives the same restriction from the other side, as
+     * lengths rather than formats -- "If the effective address is a main
+     * processor register (register direct mode), only operand lengths of one,
+     * two, or four bytes are valid" -- and names what a longer one does. */
+    if (size > 4u) {
+      return FP_SOURCE_PROTOCOL_VIOLATION;
+    }
+    const uint32_t value = cpu->regs.d[coproc->ea.reg];
+    for (unsigned i = 0; i < size; i++) {
+      bytes[i] = (uint8_t)(value >> (8u * (size - 1u - i)));
+    }
+  } else if (coproc->ea.kind == AP_M68030_EA_IMMEDIATE) {
+    /* An immediate operand is in the instruction stream rather than at an
+     * address, and §4.7 counts it in *words*: "the longest case is for an
+     * immediate operand of six words - the X or P format", the stream itself
+     * being "1-6 words". So a byte operand still occupies a whole word, and
+     * Table 2-3's rule for the main processor applies to it -- the byte is the
+     * low-order half. Advancing by one byte instead would leave the program
+     * counter odd and fault the next instruction fetch. */
+    for (unsigned done = 0; done < size; done += 2u) {
+      uint16_t word = 0;
+      if (!next_word(cpu, clocks, &word)) {
+        return FP_SOURCE_FAILED;
+      }
+      if (size == 1u) {
+        bytes[0] = (uint8_t)(word & 0xFFu);
+        break;
+      }
+      bytes[done] = (uint8_t)(word >> 8);
+      bytes[done + 1u] = (uint8_t)(word & 0xFFu);
+    }
+  } else {
+    /* A memory mode. The operand's *size* is an input to the address and not
+     * just to the read that follows it: a postincrement steps by the operand's
+     * length, so the format has to be known before the address is calculated
+     * and not after. */
+    ap_m68030_address_input_t input = {0};
+    if (!gather_address_input(cpu, coproc->ea.kind, size, clocks, &input)) {
+      return FP_SOURCE_FAILED;
+    }
+    const ap_m68030_address_t where =
+        resolve_address(cpu, clocks, coproc->ea, &input);
+    if (!where.valid) {
+      return FP_SOURCE_FAILED;
+    }
+    if (!read_operand_bytes(cpu, clocks, &where, size, bytes)) {
+      return FP_SOURCE_FAILED;
+    }
+  }
+
+  /* Packed decimal declines here, which is this model's gap and not a trap. */
+  return ap_m68882_operand_decode(format, bytes, source) ? FP_SOURCE_FETCHED
+                                                         : FP_SOURCE_FAILED;
+}
+
 /* Whether an instruction "forces a change of flow", which is what the T1=0,
  * T0=1 trace mode watches. `[030]` §8.1.7: "Instructions that are traced in this
  * mode include all branches, jumps, instruction traps, returns, and coprocessor
@@ -4143,8 +4286,48 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
         return out;
       }
 
-      const ap_m68882_status_t executed =
-          ap_m68882_execute(cpu->fpu, out.instruction, command);
+      /* Ask the part what it needs before executing anything. For opclass
+       * `010` the answer is a data format, and the main processor fetches the
+       * operand -- which is the whole of §10.4.9's division of labour, and the
+       * reason an `FADD.S (a0),FP0` runs at all. */
+      bool needs_source = false;
+      ap_m68882_format_t format = AP_M68882_FORMAT_LONG;
+      ap_m68882_status_t executed = ap_m68882_source_transfer(
+          cpu->fpu, out.instruction, command, &needs_source, &format);
+
+      if (executed == AP_M68882_EXECUTED && needs_source) {
+        ap_m68882_extended_t source = {0};
+        bool violated = false;
+        switch (fetch_fp_source(cpu, coproc, format, &out.clocks, &source)) {
+        case FP_SOURCE_FETCHED:
+          executed = ap_m68882_execute_source(cpu->fpu, out.instruction,
+                                              command, &source);
+          break;
+        case FP_SOURCE_PROTOCOL_VIOLATION:
+          /* §10.4.9's own failure, so it is the machine's trap and not our
+           * gap -- an addressing mode the instruction may not name, caught by
+           * the main processor before the coprocessor ever sees an operand.
+           *
+           * Left as a *pending vector* rather than returned from here: the
+           * tail below is what turns one into a taken exception, and a step
+           * that returned early would report the fault status this result was
+           * initialised with and never stack a frame. */
+          cpu->pending_vector = AP_M68030_VECTOR_COPROCESSOR_PROTOCOL;
+          violated = true;
+          break;
+        case FP_SOURCE_FAILED:
+          out.status = fault_or_unimplemented(cpu, &out, instruction_address);
+          cpu->clocks += out.clocks;
+          return out;
+        }
+        if (violated) {
+          break;
+        }
+      } else if (executed == AP_M68882_EXECUTED) {
+        /* Both operands already in the part: opclass `000`. */
+        executed = ap_m68882_execute(cpu->fpu, out.instruction, command);
+      }
+
       if (executed == AP_M68882_EXECUTED) {
         break;
       }

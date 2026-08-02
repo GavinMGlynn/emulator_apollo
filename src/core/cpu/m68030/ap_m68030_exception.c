@@ -185,7 +185,16 @@ bool ap_m68030_stacks_next_instruction(unsigned vector) {
     break;
   }
   /* Everything else -- the interrupts, TRAP #N, and the whole six-word row,
-   * "[Next instruction for all these exceptions]". */
+   * "[Next instruction for all these exceptions]".
+   *
+   * Format $9 is in this arm for a *different* reason, and the difference is
+   * worth naming because it will stop coinciding: Table 8-6 gives it "[Next
+   * word to be fetched from instruction stream]", not the next instruction.
+   * The two agree only while the exception is detected before any further word
+   * is consumed -- which is the case for a main-detected protocol violation,
+   * where the main processor rejects the effective address before it fetches
+   * anything with it. A mid-instruction exception raised after extension words
+   * had been read would need the scanPC and not this. */
   return true;
 }
 

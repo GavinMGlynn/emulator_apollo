@@ -2364,16 +2364,61 @@ static void test_a_zero_divide_gets_the_six_word_frame_with_both_addresses(
                           read_ram_long(&m, r.frame_address + 8u));
 }
 
-/* Reset "does not save old context" at all, and the fault frames carry internal
- * state this model does not have. Each is declined rather than built wrong -- a
- * four-word frame where a 16-word one belongs would leave RTE reading a return
- * address out of the middle of the fault information. */
+/* Format $9, the coprocessor mid-instruction frame: ten words, and the six-word
+ * frame's two addresses plus four "INTERNAL REGISTERS" words.
+ *
+ * Those four are written as zero and marked `PROVISIONAL` -- this model has no
+ * microsequencer state to put in them -- but they are *written*, which is the
+ * part that matters here: a frame that stopped at the instruction address would
+ * leave four words of whatever the stack already held sitting under documented
+ * field names, and would put the stack pointer eight bytes wrong. */
+static void test_the_coprocessor_frame_is_ten_words(void) {
+  static const uint16_t program[] = {0x4E71u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 2);
+  m.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
+  m.cpu.regs.isp = SUPERVISOR_STACK;
+  plant_vector(&m, AP_M68030_VECTOR_COPROCESSOR_PROTOCOL, HANDLER);
+  /* Poison the words the frame will occupy, so "written as zero" is a real
+   * assertion rather than one the harness would satisfy on its own. */
+  for (unsigned i = 0; i < 20u; i += 4u) {
+    write_ram_long(&m, SUPERVISOR_STACK - 20u + i, 0xDEADBEEFu);
+  }
+
+  const ap_m68030_exception_result_t r = ap_m68030_take_exception(
+      &m.cpu, AP_M68030_VECTOR_COPROCESSOR_PROTOCOL, PROGRAM_BASE + 4u,
+      PROGRAM_BASE);
+
+  TEST_ASSERT_TRUE(r.ok);
+  TEST_ASSERT_EQUAL_HEX32(SUPERVISOR_STACK - 20u, m.cpu.regs.isp);
+
+  /* The format nibble is $9 and the vector offset is 13 * 4. */
+  const uint16_t format_word = read_ram_word(&m, r.frame_address + 6u);
+  TEST_ASSERT_EQUAL_INT(AP_M68030_FRAME_COPROCESSOR_MID,
+                        ap_m68030_frame_format_of(format_word));
+  TEST_ASSERT_EQUAL_HEX32(AP_M68030_VECTOR_COPROCESSOR_PROTOCOL * 4u,
+                          ap_m68030_frame_vector_offset_of(format_word));
+
+  /* "[Next word to be fetched from instruction stream]" at +$02, and
+   * "INSTRUCTION ADDRESS is the address of the instruction that caused the
+   * exception" at +$08 -- two different addresses, which is why the frame is
+   * wider than four words. */
+  TEST_ASSERT_EQUAL_HEX32(PROGRAM_BASE + 4u, read_ram_long(&m, r.frame_address + 2u));
+  TEST_ASSERT_EQUAL_HEX32(PROGRAM_BASE, read_ram_long(&m, r.frame_address + 8u));
+
+  TEST_ASSERT_EQUAL_HEX32(0u, read_ram_long(&m, r.frame_address + 12u));
+  TEST_ASSERT_EQUAL_HEX32(0u, read_ram_long(&m, r.frame_address + 16u));
+}
+
+/* Reset "does not save old context" at all, and the two bus fault frames carry
+ * internal state this model does not have. Each is declined rather than built
+ * wrong -- a four-word frame where a 16-word one belongs would leave RTE
+ * reading a return address out of the middle of the fault information. */
 static void test_the_frames_this_model_cannot_build_are_declined(void) {
   static const uint16_t program[] = {0x4E71u, 0x4E71u};
   const unsigned declined[] = {
       AP_M68030_VECTOR_RESET_SP, AP_M68030_VECTOR_RESET_PC,
-      AP_M68030_VECTOR_BUS_ERROR, AP_M68030_VECTOR_ADDRESS_ERROR,
-      AP_M68030_VECTOR_COPROCESSOR_PROTOCOL};
+      AP_M68030_VECTOR_BUS_ERROR, AP_M68030_VECTOR_ADDRESS_ERROR};
 
   for (unsigned i = 0; i < sizeof declined / sizeof declined[0]; i++) {
     machine_t m = {0};
@@ -4929,21 +4974,20 @@ static void test_an_undefined_extension_traps_with_a_coprocessor_fitted(void) {
  * indistinguishable from a correct unfitted machine and the gap would stop
  * being visible -- the same rule the MMU's own unimplemented forms follow.
  *
- * The example has moved twice: from `FSIN` when the transcendentals landed, to
- * `FMOD` when the remainder forms did. Both times the reasoning was "pick a
- * gap that will stay open", and both times it closed -- so the third choice is
- * not an instruction at all but an **architectural boundary**: an opclass `010`
- * form, whose operand comes from memory.
+ * The example has moved three times: from `FSIN` when the transcendentals
+ * landed, to `FMOD` when the remainder forms did, then to opclass `010` -- the
+ * memory *source* operand -- on the reasoning that an architectural boundary
+ * would outlast any single instruction. That closed too, when the 68030 took up
+ * §10.4.9's half of the transfer.
  *
- * That one cannot close by implementing an operation. §9's protocol has the
- * *main processor* evaluate the effective address and transfer the operand
- * through the coprocessor interface, so this stays unimplemented until the
- * 68030 holds up its half of that dialog -- at which point the test should be
- * deleted rather than repointed. */
+ * So the boundary has moved one step rather than vanished, and it is now the
+ * *store* direction: opclass `011`, `FPn` to `<ea>`. Storing needs the reverse
+ * of every conversion loading needed, and the rounding and exceptions that come
+ * with narrowing an extended value on the way out -- which is why it is a
+ * separate piece of work and not the same one seen from the other end. */
 static void test_an_unimplemented_coprocessor_form_is_reported_as_our_gap(void) {
-  /* FADD with opclass 010: the operand is external, which the part cannot
-   * fetch for itself. */
-  static const uint16_t program[] = {0xF200u, 0x4922u, 0x4E71u};
+  /* FMOVE.S FP1,(A0) -- opclass 011, destination format 001, source FP1. */
+  static const uint16_t program[] = {0xF210u, 0x64C0u, 0x4E71u};
   machine_t m = {0};
   load(&m, program, 3);
 
@@ -4959,6 +5003,190 @@ static void test_an_unimplemented_coprocessor_form_is_reported_as_our_gap(void) 
   TEST_ASSERT_EQUAL_HEX32(PROGRAM_BASE, m.cpu.regs.pc);
 }
 
+#define FP_OPERAND 0x00003000u
+
+/* **A source operand comes from memory**, which is what makes most real
+ * floating-point code run: `FADD.S (A0),FP1`. §4.8.3's R/M bit says the operand
+ * is external, and `[030]` §10.4.9 makes fetching it the main processor's work
+ * -- so this passes through both parts, and neither could do it alone. */
+static void test_a_single_source_operand_is_fetched_from_memory(void) {
+  /* Operation word $F210: cpID 1, general type, `(A0)`. Command word $44A2:
+   * opclass 010, source format 001 (S), destination FP1, extension $22 (FADD). */
+  static const uint16_t program[] = {0xF210u, 0x44A2u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 3);
+  write_ram_long(&m, FP_OPERAND, 0x3F800000u); /* 1.0 single */
+
+  ap_m68882_t fpu;
+  ap_m68882_reset(&fpu);
+  m.cpu.fpu = &fpu;
+  m.cpu.regs.a[0] = FP_OPERAND;
+  fpu.regs.fp[1] = ap_m68882_from_single(0x3F800000u);
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&m.cpu).status);
+  TEST_ASSERT_EQUAL_HEX32(0x40000000u, ap_m68882_to_single(&fpu.regs.fp[1]));
+  /* Two words: the operand was at an address, not in the instruction stream. */
+  TEST_ASSERT_EQUAL_HEX32(PROGRAM_BASE + 4u, m.cpu.regs.pc);
+}
+
+/* The extended format is **twelve** bytes and not ten: sign and exponent in the
+ * first long word, sixteen unused bits below them, then the mantissa. A fetch
+ * that packed the 80 used bits would read the mantissa two bytes out of place
+ * while still getting the sign and exponent right -- so the value would be
+ * wrong and nothing would fault. */
+static void test_an_extended_source_operand_spans_three_long_words(void) {
+  /* $48A2: opclass 010, source format 010 (X), destination FP1, FADD. */
+  static const uint16_t program[] = {0xF210u, 0x48A2u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 3);
+  /* 1.0 extended, with the unused field deliberately non-zero so that reading
+   * it as part of the mantissa could not go unnoticed. */
+  write_ram_long(&m, FP_OPERAND, 0x3FFFAAAAu);
+  write_ram_long(&m, FP_OPERAND + 4u, 0x80000000u);
+  write_ram_long(&m, FP_OPERAND + 8u, 0x00000000u);
+
+  ap_m68882_t fpu;
+  ap_m68882_reset(&fpu);
+  m.cpu.fpu = &fpu;
+  m.cpu.regs.a[0] = FP_OPERAND;
+  fpu.regs.fp[1] = ap_m68882_from_single(0x3F800000u);
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&m.cpu).status);
+  TEST_ASSERT_EQUAL_HEX32(0x40000000u, ap_m68882_to_single(&fpu.regs.fp[1]));
+}
+
+/* **The format decides the address**, not just the read. A postincrement steps
+ * by the operand's length, so `(A0)+` with a double advances A0 by eight and
+ * with a single by four -- a fetch that assumed one length would leave the
+ * address register wrong for every other format, and the arithmetic would still
+ * come out right on the first iteration of a loop. */
+static void test_a_postincrement_steps_by_the_source_format_length(void) {
+  /* $54A2: opclass 010, source format 101 (D), destination FP1, FADD. */
+  static const uint16_t program[] = {0xF218u, 0x54A2u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 3);
+  write_ram_long(&m, FP_OPERAND, 0x3FF00000u); /* 1.0 double */
+  write_ram_long(&m, FP_OPERAND + 4u, 0x00000000u);
+
+  ap_m68882_t fpu;
+  ap_m68882_reset(&fpu);
+  m.cpu.fpu = &fpu;
+  m.cpu.regs.a[0] = FP_OPERAND;
+  fpu.regs.fp[1] = ap_m68882_from_single(0x3F800000u);
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&m.cpu).status);
+  TEST_ASSERT_EQUAL_HEX32(0x40000000u, ap_m68882_to_single(&fpu.regs.fp[1]));
+  TEST_ASSERT_EQUAL_HEX32(FP_OPERAND + 8u, m.cpu.regs.a[0]);
+}
+
+/* An integer source is converted on the way in -- "all external operands,
+ * regardless of data format, are converted to extended precision values before
+ * the specified operation is performed" -- and §3.1's integers are *signed*, so
+ * an immediate of $FFFF is -1 and the sum comes out at zero rather than 65536.
+ *
+ * Also the one case where the operand is in the instruction stream: §4.7 counts
+ * it in words, so a word operand is one extension word and the program counter
+ * lands six bytes on. */
+static void test_a_word_immediate_source_is_signed_and_in_the_stream(void) {
+  /* $50A2: opclass 010, source format 100 (W), destination FP1, FADD.
+   * Operation word $F23C is `#<data>`. */
+  static const uint16_t program[] = {0xF23Cu, 0x50A2u, 0xFFFFu, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 4);
+
+  ap_m68882_t fpu;
+  ap_m68882_reset(&fpu);
+  m.cpu.fpu = &fpu;
+  fpu.regs.fp[1] = ap_m68882_from_single(0x3F800000u); /* 1.0 */
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&m.cpu).status);
+  TEST_ASSERT_EQUAL_INT(AP_M68882_TYPE_ZERO,
+                        ap_m68882_classify(&fpu.regs.fp[1]));
+  TEST_ASSERT_EQUAL_HEX32(PROGRAM_BASE + 6u, m.cpu.regs.pc);
+}
+
+/* **A data register cannot hold a twelve-byte operand.** The FADD page's table
+ * marks `Dn` "Only if <fmt> is Byte, Word, Long, or Single", and `[030]`
+ * §10.4.9 gives the same rule as lengths together with what breaking it does:
+ * "If the effective address is a main processor register (register direct
+ * mode), only operand lengths of one, two, or four bytes are valid; all other
+ * lengths ... cause the main processor to initiate protocol violation exception
+ * processing".
+ *
+ * So this is the machine's trap and not our gap, and it is *not* F-line -- a
+ * distinction worth a test, because reporting either of the other two would
+ * look entirely plausible. */
+static void test_an_extended_operand_from_a_data_register_violates_the_protocol(
+    void) {
+  /* $F200 is `D0`; $48A2 asks for the extended format from it. */
+  static const uint16_t program[] = {0xF200u, 0x48A2u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 3);
+  plant_vector(&m, AP_M68030_VECTOR_COPROCESSOR_PROTOCOL, HANDLER);
+  m.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
+  m.cpu.regs.isp = SUPERVISOR_STACK;
+
+  ap_m68882_t fpu;
+  ap_m68882_reset(&fpu);
+  m.cpu.fpu = &fpu;
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXCEPTION, ap_m68030_step(&m.cpu).status);
+  TEST_ASSERT_EQUAL_HEX32(HANDLER, m.cpu.regs.pc);
+
+  /* A single from the same register is legal -- four bytes -- so it is the
+   * length that is refused and not register direct addressing itself. */
+  static const uint16_t legal[] = {0xF200u, 0x44A2u, 0x4E71u};
+  machine_t n = {0};
+  load(&n, legal, 3);
+  ap_m68882_t second;
+  ap_m68882_reset(&second);
+  n.cpu.fpu = &second;
+  n.cpu.regs.d[0] = 0x3F800000u;
+  second.regs.fp[1] = ap_m68882_from_single(0x3F800000u);
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&n.cpu).status);
+  TEST_ASSERT_EQUAL_HEX32(0x40000000u, ap_m68882_to_single(&second.regs.fp[1]));
+}
+
+/* Address register direct is the one mode whose row in the FADD table carries
+ * dashes instead of an encoding: an address register cannot hold a
+ * floating-point operand at any length. Checked separately from the length rule
+ * above because they are different refusals -- this one has no legal format. */
+static void test_an_address_register_is_never_a_floating_point_source(void) {
+  static const uint16_t program[] = {0xF208u, 0x44A2u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 3);
+  plant_vector(&m, AP_M68030_VECTOR_COPROCESSOR_PROTOCOL, HANDLER);
+  m.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
+  m.cpu.regs.isp = SUPERVISOR_STACK;
+
+  ap_m68882_t fpu;
+  ap_m68882_reset(&fpu);
+  m.cpu.fpu = &fpu;
+  m.cpu.regs.a[0] = 0x3F800000u;
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXCEPTION, ap_m68030_step(&m.cpu).status);
+  TEST_ASSERT_EQUAL_HEX32(HANDLER, m.cpu.regs.pc);
+}
+
+/* Packed decimal is a source format the encoding allows and this model has not
+ * got to. Reported as our gap rather than decoded as binary, which would turn a
+ * BCD operand into a plausible wrong number. */
+static void test_a_packed_decimal_source_is_reported_as_our_gap(void) {
+  /* $4CA2: opclass 010, source format 011 (P), destination FP1, FADD. */
+  static const uint16_t program[] = {0xF210u, 0x4CA2u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 3);
+
+  ap_m68882_t fpu;
+  ap_m68882_reset(&fpu);
+  m.cpu.fpu = &fpu;
+  m.cpu.regs.a[0] = FP_OPERAND;
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_UNIMPLEMENTED,
+                        ap_m68030_step(&m.cpu).status);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_an_f_line_word_traps_when_no_coprocessor_is_fitted);
@@ -4966,6 +5194,13 @@ int main(void) {
   RUN_TEST(test_a_fitted_coprocessor_ignores_another_cpid);
   RUN_TEST(test_an_undefined_extension_traps_with_a_coprocessor_fitted);
   RUN_TEST(test_an_unimplemented_coprocessor_form_is_reported_as_our_gap);
+  RUN_TEST(test_a_single_source_operand_is_fetched_from_memory);
+  RUN_TEST(test_an_extended_source_operand_spans_three_long_words);
+  RUN_TEST(test_a_postincrement_steps_by_the_source_format_length);
+  RUN_TEST(test_a_word_immediate_source_is_signed_and_in_the_stream);
+  RUN_TEST(test_an_extended_operand_from_a_data_register_violates_the_protocol);
+  RUN_TEST(test_an_address_register_is_never_a_floating_point_source);
+  RUN_TEST(test_a_packed_decimal_source_is_reported_as_our_gap);
   RUN_TEST(test_reset_performs_all_ten_documented_steps);
   RUN_TEST(test_reset_stacks_nothing);
   RUN_TEST(test_bkpt_takes_an_illegal_instruction_when_nothing_answers);
@@ -5143,6 +5378,7 @@ int main(void) {
   RUN_TEST(test_the_frame_is_built_on_the_supervisor_stack_not_the_user_one);
   RUN_TEST(test_the_vector_is_fetched_through_the_vector_base_register);
   RUN_TEST(test_a_zero_divide_gets_the_six_word_frame_with_both_addresses);
+  RUN_TEST(test_the_coprocessor_frame_is_ten_words);
   RUN_TEST(test_the_frames_this_model_cannot_build_are_declined);
   RUN_TEST(test_the_next_step_executes_the_handlers_first_instruction);
   RUN_TEST(test_exg_swaps_two_data_registers_whole);

@@ -23,6 +23,7 @@
 #include "cpu/m68882/ap_m68882_arith.h"
 #include "cpu/m68882/ap_m68882_cir.h"
 #include "cpu/m68882/ap_m68882_decode.h"
+#include "cpu/m68882/ap_m68882_format.h"
 #include "cpu/m68882/ap_m68882_regs.h"
 
 typedef struct {
@@ -47,18 +48,66 @@ typedef enum {
   AP_M68882_UNIMPLEMENTED,
 } ap_m68882_status_t;
 
-/* Execute a general-type instruction from its operation and command words.
- *
- * Register-to-register only so far, which is opclass `000`: the forms whose
- * operands are both already in the part. Anything needing an external operand
- * reports unimplemented rather than guessing at an address, because fetching it
- * is the *main processor's* job -- "the MPU evaluates the source/destination
- * effective address ... and transfers operand(s) to/from the FPCP" -- and that
- * is a dialog through the coprocessor interface rather than something the FPU
- * can do alone. */
+/* Execute a general-type instruction whose operands are both already in the
+ * part -- opclass `000`, register to register. A form needing an external
+ * operand reports unimplemented here rather than guessing at an address:
+ * fetching it is the *main processor's* job, and the two entry points below are
+ * how it does that. */
 [[nodiscard]] ap_m68882_status_t ap_m68882_execute(ap_m68882_t *fpu,
                                                    uint16_t operation_word,
                                                    uint16_t command_word);
+
+/* ---------------------------------------------------------------------------
+ * The source operand transfer
+ *
+ * "The MPU evaluates the source/destination effective address ... and transfers
+ * operand(s) to/from the FPCP." On hardware that is §9's dialog: the FPCP
+ * answers the command with an *evaluate effective address and transfer data*
+ * response primitive naming a length, and the MPU obliges. The primitive
+ * exchange itself is not modelled -- nothing on this machine can observe it,
+ * because the CIRs live in CPU space and Domain/OS reaches the part only
+ * through F-line instructions -- but the *division of labour* it describes is,
+ * and it is the reason this is two calls rather than one.
+ *
+ * So the main processor asks what to fetch, fetches it, and hands it back:
+ *
+ *     switch (ap_m68882_source_transfer(fpu, op, cmd, &format)) { ... }
+ *     ... evaluate the operation word's effective address, read
+ *         ap_m68882_format_size(format) bytes, ap_m68882_operand_decode() ...
+ *     ap_m68882_execute_source(fpu, op, cmd, &source);
+ *
+ * The decision has to come first because the *format decides the address*: a
+ * postincrement steps by the operand's length, so a model that fetched before
+ * asking would have to guess a length and would leave the address register
+ * wrong for every format but the one it guessed.
+ */
+
+/* Whether this instruction needs the main processor to fetch a source operand,
+ * and in what format.
+ *
+ * The status is the decode's: `AP_M68882_TAKE_LINE_F` for an encoding Table
+ * 4-13 leaves undefined, `AP_M68882_UNIMPLEMENTED` for the opclasses this model
+ * has not got to, and `AP_M68882_EXECUTED` for one it will run. `*needs_source`
+ * is separate from that status and not folded into it, because "decoded fine,
+ * fetch nothing" and "decoded fine, fetch a double" are both successes and a
+ * caller that could not tell them apart would either fetch an operand the
+ * instruction has no address for, or execute one with a source of zero.
+ *
+ * `*format` is written only when `*needs_source` is true. */
+[[nodiscard]] ap_m68882_status_t
+ap_m68882_source_transfer(const ap_m68882_t *fpu, uint16_t operation_word,
+                          uint16_t command_word, bool *needs_source,
+                          ap_m68882_format_t *format);
+
+/* Execute with the source operand the main processor fetched. The command
+ * word's source specifier named its *format*, so by the time it arrives here it
+ * is an extended value like any other and the operation does not know where it
+ * came from -- "all external operands, regardless of data format, are converted
+ * to extended precision values before the specified operation is performed". */
+[[nodiscard]] ap_m68882_status_t
+ap_m68882_execute_source(ap_m68882_t *fpu, uint16_t operation_word,
+                         uint16_t command_word,
+                         const ap_m68882_extended_t *source);
 
 /* Evaluate a conditional predicate and report whether the condition holds.
  *

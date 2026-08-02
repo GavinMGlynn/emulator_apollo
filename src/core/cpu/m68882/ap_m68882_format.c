@@ -183,3 +183,91 @@ void ap_m68882_to_extended(const ap_m68882_extended_t *value, uint32_t *high,
                      ((uint32_t)(value->exponent & 0x7FFFu) << 16));
   *mantissa = value->mantissa;
 }
+
+ap_m68882_extended_t ap_m68882_from_integer(int32_t value) {
+  ap_m68882_extended_t out = {0};
+  if (value == 0) {
+    return out; /* +0: sign clear, exponent zero, mantissa zero. */
+  }
+
+  out.sign = value < 0;
+  /* Negated in unsigned arithmetic. `-(int32_t)INT32_MIN` is undefined and this
+   * is the one input that reaches it. */
+  uint64_t magnitude = out.sign ? UINT64_C(0) - (uint64_t)(int64_t)value
+                                : (uint64_t)(int64_t)value;
+
+  /* Normalize: shift the magnitude up until its top bit lands on the explicit
+   * integer bit. The value is `mantissa * 2^(exponent - BIAS - 63)`, so moving
+   * the mantissa left by `shift` moves the exponent down by the same. */
+  unsigned shift = 0u;
+  while ((magnitude & (UINT64_C(1) << 63)) == 0u) {
+    magnitude <<= 1;
+    shift++;
+  }
+  out.mantissa = magnitude;
+  out.exponent = (uint16_t)(AP_M68882_BIAS_EXTENDED + 63 - (int)shift);
+  return out;
+}
+
+unsigned ap_m68882_format_size(ap_m68882_format_t format) {
+  switch (format) {
+  case AP_M68882_FORMAT_BYTE:
+    return 1u;
+  case AP_M68882_FORMAT_WORD:
+    return 2u;
+  case AP_M68882_FORMAT_LONG:
+  case AP_M68882_FORMAT_SINGLE:
+    return 4u;
+  case AP_M68882_FORMAT_DOUBLE:
+    return 8u;
+  case AP_M68882_FORMAT_EXTENDED:
+  case AP_M68882_FORMAT_PACKED:
+  case AP_M68882_FORMAT_PACKED_DYNAMIC:
+    return 12u;
+  }
+  return 0u;
+}
+
+/* Assemble `count` bytes, most significant first. */
+static uint64_t big_endian(const uint8_t *bytes, unsigned count) {
+  uint64_t value = 0;
+  for (unsigned i = 0; i < count; i++) {
+    value = (value << 8) | bytes[i];
+  }
+  return value;
+}
+
+bool ap_m68882_operand_decode(ap_m68882_format_t format, const uint8_t *bytes,
+                              ap_m68882_extended_t *out) {
+  switch (format) {
+  case AP_M68882_FORMAT_BYTE:
+    *out = ap_m68882_from_integer((int32_t)(int8_t)bytes[0]);
+    return true;
+  case AP_M68882_FORMAT_WORD:
+    *out = ap_m68882_from_integer((int32_t)(int16_t)big_endian(bytes, 2u));
+    return true;
+  case AP_M68882_FORMAT_LONG:
+    *out = ap_m68882_from_integer((int32_t)(uint32_t)big_endian(bytes, 4u));
+    return true;
+  case AP_M68882_FORMAT_SINGLE:
+    *out = ap_m68882_from_single((uint32_t)big_endian(bytes, 4u));
+    return true;
+  case AP_M68882_FORMAT_DOUBLE:
+    *out = ap_m68882_from_double(big_endian(bytes, 8u));
+    return true;
+  case AP_M68882_FORMAT_EXTENDED:
+    /* The first long word carries the sign and exponent -- and the sixteen
+     * unused bits, which is why the mantissa starts at byte 4 and not at the
+     * eightieth bit. */
+    *out = ap_m68882_from_extended((uint32_t)big_endian(bytes, 4u),
+                                   big_endian(bytes + 4, 8u));
+    return true;
+  case AP_M68882_FORMAT_PACKED:
+  case AP_M68882_FORMAT_PACKED_DYNAMIC:
+    /* Not yet modelled. §3.6's decimal-to-binary conversion is a separate piece
+     * of arithmetic from everything else in this part, and reporting it as a
+     * gap keeps it visible; silently decoding it as something else would not. */
+    return false;
+  }
+  return false;
+}
