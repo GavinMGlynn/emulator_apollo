@@ -110,7 +110,7 @@ static void time_instructions(FILE *out) {
 /* A fixed-width report, because it is read as a golden diff by a person: a
  * column that moves when one field widens turns a one-line change into a
  * whole-file one. */
-static void run_probes(FILE *out) {
+static void run_probes(FILE *out, ap_model_id_t model) {
   unsigned count = 0;
   const ap_probe_t *probes = ap_probe_all(&count);
 
@@ -153,7 +153,8 @@ static void run_probes(FILE *out) {
  * returned by `ap_probe_run`: a probe result reports registers, and a probe
  * that proves a *store* has to be checked where the store landed.
  */
-static int run_probe_file(FILE *out, const char *program_name,
+static int run_probe_file(FILE *out, ap_model_id_t model,
+                          const char *program_name,
                           const char *path) {
   FILE *file = fopen(path, "r");
   if (file == NULL) {
@@ -959,11 +960,12 @@ int main(int argc, char **argv) {
   }
 
   if (probe_file_path != nullptr) {
-    return run_probe_file(stdout, program_name, probe_file_path);
+    return run_probe_file(stdout, opt.model->id, program_name,
+                          probe_file_path);
   }
 
   if (run_probe_suite) {
-    run_probes(stdout);
+    run_probes(stdout, opt.model->id);
     return 0;
   }
 

@@ -27,7 +27,7 @@ static void test_every_probe_terminates_on_its_own(void) {
   TEST_ASSERT_TRUE(count > 0u);
 
   for (unsigned i = 0; i < count; i++) {
-    const ap_probe_result_t result = ap_probe_run(&probes[i], ram, RAM_BYTES);
+    const ap_probe_result_t result = ap_probe_run(&probes[i], ram, RAM_BYTES, AP_MODEL_DN3500);
     TEST_ASSERT_EQUAL_INT_MESSAGE(AP_M68030_STEP_STOPPED, result.status,
                                   probes[i].name);
     TEST_ASSERT_TRUE_MESSAGE(result.executed < probes[i].limit,
@@ -42,7 +42,7 @@ static void test_no_probe_runs_off_its_memory(void) {
   const ap_probe_t *probes = ap_probe_all(&count);
 
   for (unsigned i = 0; i < count; i++) {
-    const ap_probe_result_t result = ap_probe_run(&probes[i], ram, RAM_BYTES);
+    const ap_probe_result_t result = ap_probe_run(&probes[i], ram, RAM_BYTES, AP_MODEL_DN3500);
     TEST_ASSERT_EQUAL_UINT_MESSAGE(0u, result.bus_errors, probes[i].name);
   }
 }
@@ -55,9 +55,9 @@ static void test_a_probe_gives_the_same_answer_twice(void) {
   const ap_probe_t *probes = ap_probe_all(&count);
 
   for (unsigned i = 0; i < count; i++) {
-    const ap_probe_result_t first = ap_probe_run(&probes[i], ram, RAM_BYTES);
+    const ap_probe_result_t first = ap_probe_run(&probes[i], ram, RAM_BYTES, AP_MODEL_DN3500);
     const ap_probe_result_t second =
-        ap_probe_run(&probes[i], other_ram, RAM_BYTES);
+        ap_probe_run(&probes[i], other_ram, RAM_BYTES, AP_MODEL_DN3500);
 
     TEST_ASSERT_EQUAL_HEX64_MESSAGE(first.hash, second.hash, probes[i].name);
     TEST_ASSERT_EQUAL_UINT_MESSAGE(first.executed, second.executed,
@@ -77,14 +77,14 @@ static void test_a_probes_result_does_not_depend_on_what_ran_before(void) {
 
   /* The last probe, run alone. */
   const ap_probe_result_t alone = ap_probe_run(&probes[count - 1u], ram,
-                                               RAM_BYTES);
+                                               RAM_BYTES, AP_MODEL_DN3500);
 
   /* And the same probe after every other one has used the same memory. */
   for (unsigned i = 0; i < count - 1u; i++) {
-    (void)ap_probe_run(&probes[i], ram, RAM_BYTES);
+    (void)ap_probe_run(&probes[i], ram, RAM_BYTES, AP_MODEL_DN3500);
   }
   const ap_probe_result_t after = ap_probe_run(&probes[count - 1u], ram,
-                                               RAM_BYTES);
+                                               RAM_BYTES, AP_MODEL_DN3500);
 
   TEST_ASSERT_EQUAL_HEX64(alone.hash, after.hash);
 }
@@ -97,9 +97,9 @@ static void test_no_two_probes_are_the_same_probe(void) {
   const ap_probe_t *probes = ap_probe_all(&count);
 
   for (unsigned i = 0; i < count; i++) {
-    const ap_probe_result_t a = ap_probe_run(&probes[i], ram, RAM_BYTES);
+    const ap_probe_result_t a = ap_probe_run(&probes[i], ram, RAM_BYTES, AP_MODEL_DN3500);
     for (unsigned j = i + 1u; j < count; j++) {
-      const ap_probe_result_t b = ap_probe_run(&probes[j], other_ram, RAM_BYTES);
+      const ap_probe_result_t b = ap_probe_run(&probes[j], other_ram, RAM_BYTES, AP_MODEL_DN3500);
       TEST_ASSERT_NOT_EQUAL_UINT64(a.hash, b.hash);
     }
   }
