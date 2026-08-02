@@ -614,10 +614,12 @@ static void test_chk_accepts_an_immediate_bound(void) {
 }
 
 static void test_only_the_qualified_columns_are_marked(void) {
-  /* Everything transcribed so far is exact except `CAS`, `CHK` and `CHK2`, and
-   * a column that lost its marking would report a typical figure as a fact. */
-  const char *const qualified_names[] = {"CAS", "CHK", "CHK2", "CMP2",
-                                        "MOVE to SR"};
+  /* A column that lost its marking would report a typical or minimum figure as
+   * a fact, so the qualified set is enumerated rather than assumed. It grows
+   * as §10.6 is transcribed; every addition here is a footnote read. */
+  const char *const qualified_names[] = {
+      "CAS",          "CHK",           "CHK2",         "CMP2",
+      "MOVE to SR",   "MOVES to An",   "MOVES to Dn",  "MOVES from Rn"};
   for (size_t g = 0; g < ap_m68040_iu_group_count(); g++) {
     const ap_m68040_iu_group_t *group = ap_m68040_iu_group(g);
     bool qualified = false;
@@ -1169,6 +1171,88 @@ static void test_movea_takes_every_source_mode(void) {
 
 
 
+
+/* ---------------------------------------------------------------------------
+ * Page 10-24: MOVES, and figures that do not increase with complexity.
+ * ------------------------------------------------------------------------- */
+
+static void test_moves_is_typical_in_every_direction(void) {
+  /* All three `MOVES` columns carry the same footnote: "times listed are
+   * typical. This instruction interlocks the <ea> calculate and execute stages
+   * and synchronizes some portions of the processor before execution." It
+   * drives a bus cycle with an alternate function code, so it has to
+   * synchronise -- and none of its figures is exact. */
+  const char *const directions[] = {"MOVES to An", "MOVES to Dn",
+                                    "MOVES from Rn"};
+  for (unsigned i = 0; i < 3u; i++) {
+    const ap_m68040_iu_group_t *g = ap_m68040_iu_find(directions[i]);
+    TEST_ASSERT_NOT_NULL(g);
+    TEST_ASSERT_EQUAL_INT(AP_M68040_IU_FIGURE_TYPICAL, g->confidence);
+  }
+}
+
+static void test_moves_costs_are_not_monotonic_in_addressing_complexity(void) {
+  /* `([bd,BR,Xn])` costs *more* than `([bd,BR,Xn],od)` in all three columns --
+   * 35 against 31 for the `An` direction -- where every earlier page increases
+   * when an outer displacement is added.
+   *
+   * Transcribed as printed and not corrected. Unlike `CMP2`'s zeros no source
+   * says the figure is impossible, and unlike `JMP`'s repeated row this one has
+   * a ready explanation: the column is explicitly *typical* for an instruction
+   * that synchronises the processor, so its figures are averages over a
+   * variable stall and need not be ordered at all. Marking them typical is
+   * exactly the manual declining to promise monotonicity. */
+  TEST_ASSERT_EQUAL_UINT(
+      35u, ap_m68040_iu_calculate(at("MOVES to An",
+                                     AP_M68040_IU_MEMORY_PREINDEXED),
+                                  false, AP_M68040_IU_NO_CONDITIONS));
+  TEST_ASSERT_EQUAL_UINT(
+      31u, ap_m68040_iu_calculate(at("MOVES to An",
+                                     AP_M68040_IU_MEMORY_PREINDEXED_OD),
+                                  false, AP_M68040_IU_NO_CONDITIONS));
+}
+
+static void test_moves_needs_a_memory_operand_in_every_direction(void) {
+  /* `MOVES` moves between a register and *alternate address space*, so one
+   * side is always memory: no `Dn`, no `An`, no immediate. And no PC-relative
+   * either -- program space is not an alternate space it can name. */
+  const char *const directions[] = {"MOVES to An", "MOVES to Dn",
+                                    "MOVES from Rn"};
+  for (unsigned i = 0; i < 3u; i++) {
+    TEST_ASSERT_FALSE(at(directions[i], AP_M68040_IU_DN).valid);
+    TEST_ASSERT_FALSE(at(directions[i], AP_M68040_IU_AN).valid);
+    TEST_ASSERT_FALSE(at(directions[i], AP_M68040_IU_IMMEDIATE).valid);
+    TEST_ASSERT_FALSE(at(directions[i], AP_M68040_IU_PC_DISPLACEMENT).valid);
+    TEST_ASSERT_FALSE(at(directions[i], AP_M68040_IU_PC_INDEXED).valid);
+    TEST_ASSERT_TRUE(at(directions[i], AP_M68040_IU_INDIRECT).valid);
+  }
+}
+
+static void test_reading_alternate_space_costs_more_than_writing_it(void) {
+  /* `MOVES <ea>,An` is 28 to calculate `(An)` where `MOVES Rn,<ea>` is 13 --
+   * more than twice. A read has to complete before the register can be
+   * written, while a write can be posted, which is the same asymmetry the
+   * status-register moves showed on page 10-22 in the other direction. */
+  TEST_ASSERT_EQUAL_UINT(
+      28u, ap_m68040_iu_calculate(at("MOVES to An", AP_M68040_IU_INDIRECT),
+                                  false, AP_M68040_IU_NO_CONDITIONS));
+  TEST_ASSERT_EQUAL_UINT(
+      13u, ap_m68040_iu_calculate(at("MOVES from Rn", AP_M68040_IU_INDIRECT),
+                                  false, AP_M68040_IU_NO_CONDITIONS));
+}
+
+static void test_loading_an_address_register_costs_more_than_a_data_one(void) {
+  /* 28 against 20 for `(An)`: an address register load is longer because the
+   * value is sign-extended to 32 bits before it lands, the same reason `ADDA`
+   * and `CMPA` are dearer than `ADD` and `CMP`. */
+  TEST_ASSERT_EQUAL_UINT(
+      28u, ap_m68040_iu_calculate(at("MOVES to An", AP_M68040_IU_INDIRECT),
+                                  false, AP_M68040_IU_NO_CONDITIONS));
+  TEST_ASSERT_EQUAL_UINT(
+      20u, ap_m68040_iu_calculate(at("MOVES to Dn", AP_M68040_IU_INDIRECT),
+                                  false, AP_M68040_IU_NO_CONDITIONS));
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_instructions_sharing_a_column_share_a_group);
@@ -1243,5 +1327,10 @@ int main(void) {
   RUN_TEST(test_the_movem_directions_take_opposite_incrementing_modes);
   RUN_TEST(test_only_the_loading_direction_reads_program_space);
   RUN_TEST(test_movea_takes_every_source_mode);
+  RUN_TEST(test_moves_is_typical_in_every_direction);
+  RUN_TEST(test_moves_costs_are_not_monotonic_in_addressing_complexity);
+  RUN_TEST(test_moves_needs_a_memory_operand_in_every_direction);
+  RUN_TEST(test_reading_alternate_space_costs_more_than_writing_it);
+  RUN_TEST(test_loading_an_address_register_costs_more_than_a_data_one);
   return UNITY_END();
 }
