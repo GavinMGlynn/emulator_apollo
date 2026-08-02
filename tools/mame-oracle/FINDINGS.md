@@ -3872,3 +3872,51 @@ transcendentals, which is now a loop over the encoder rather than new machinery.
 A per-function count of which side is closer is the measurement that would turn
 this single row into a divergence *class*, which is what the 68882's verification
 line asks for by name.
+
+## C63 -- five transcendentals swept, and the difference is a *bias*, not noise
+
+**Class: `ours-wrong`, systematic.** This is the divergence class the 68882's
+verification line asks for by name, and the first one this project has measured
+for the FPU.
+
+C62 was one function at one argument. The sweep runs five, all at 1.0 from the
+constant ROM, comparing the extended significand's low long word, and
+adjudicating **against neither implementation** -- the truth column is computed
+here to 140 decimal digits, because §4.3.2 publishes a bound and no algorithm and
+so the mathematics is the only fixed point.
+
+| function | truth | ours | oracle | closer |
+| --- | --- | --- | --- | --- |
+| `FSIN` | `48677021` | `48677020` | `48677021` | oracle |
+| `FCOS` | `A8345C92` | `A8345C92` | `A8345C92` | both exact |
+| `FTAN` | `F71D2DC5` | `F71D2DC4` | `F71D2DC5` | oracle |
+| `FETOX` | `A2BB4A9B` | `A2BB4A9A` | `A2BB4A9B` | oracle |
+| `FATAN` | `2168C235` | `2168C235` | `2168C235` | both exact |
+
+Run with `python3 tools/mame-oracle/fpu_sweep.py`.
+
+**The oracle is exactly correct on all five. We are one unit in the last place
+low on three, and never high.** That direction is the finding. Random rounding
+error would scatter above and below; a consistent low bias in three of five
+points at a *mechanism* -- a kernel that truncates where it should round, or a
+sticky bit that is not being collected from a discarded tail before the final
+rounding. Two functions landing exactly right does not contradict that: a value
+whose discarded tail happens to be small rounds correctly either way.
+
+**Still inside specification, and that is not the point.** §4.3.2 allows 64 units
+in the last place typical and 4096 worst case; the accuracy suite measures this
+core under 3.1 ULP against 120-digit references across its whole tested range.
+Nothing here fails a published requirement. What the sweep establishes is
+narrower and had never been measured: **on these arguments the oracle is the more
+accurate implementation**, so the standing expectation that this core
+out-accurates MAME does not hold for the transcendentals, and should not be
+repeated until it does.
+
+Neither side can be checked against the *part*: Motorola published no algorithm,
+so the 68882's own sine may be further from the truth than both. The truth column
+is the only claim being made.
+
+**Next**, in order: find the mechanism behind the low bias -- the final rounding
+in `ap_m68882_transcendental.c`'s kernels is where a discarded tail would go
+uncollected -- then re-run the sweep, then widen it to all nineteen functions and
+a spread of arguments rather than the single value the constant ROM makes cheap.
