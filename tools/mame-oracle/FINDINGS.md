@@ -3961,3 +3961,45 @@ value was previously stated as "bounded by one unit in the last place, so a
 sixty-fourth of the typical bound". The sweep turns that from an estimate into an
 observation: it is one unit in the last place, on three functions out of five,
 and it is the whole of the difference from the oracle.
+
+## C65 -- the obvious fix for C64 is not the fix, and the attempt is recorded
+
+**Class: `open`.** A failed attempt, kept because it removes a wrong hypothesis
+from the next one.
+
+C64 diagnosed the one-unit-low bias as arithmetic done in the destination's own
+64 bits where §3.4 has the part carry 67. The apparently direct fix is to carry a
+residual through the series: a Horner whose accumulator is a `(hi, lo)` pair,
+every product formed by the `nx_exact_mul` that already exists, every addition's
+discarded tail folded back by a two-sum, and the final `1 + expm1(r)` rounded
+once from the pair.
+
+That was written for `FETOX` and it **did not move the result**. `FETOX` at
+argument 1.0 stayed at `A2BB4A9A` against the true `A2BB4A9B`. It also regressed
+`m68882_transcendental_suite`, so the change was reverted rather than left in a
+red tree.
+
+**Two things learned, and the first is the useful one.**
+
+*The kernel is not where the bit is lost.* `e^x` is computed as `2^n * e^r` with
+`r = x - n ln2`, and for `x = 1` that reduction is the delicate step: `n` is 1
+and `r` is `1 - ln2`, a subtraction of two nearly equal quantities whose result
+is then fed to the series. A residual carried through the *series* cannot recover
+precision the *reduction* has already discarded. So compensating the kernel alone
+is provably insufficient, and the next attempt should start at `exp_reduced` --
+which is also where the trigonometric family's `pi/2` reduction already holds
+three pieces for exactly this reason, a precedent inside this file that the
+exponential family did not follow.
+
+*And the compensation itself needs care.* The regression means the pair
+arithmetic was wrong somewhere -- most likely `nx_exact_mul`'s contract when the
+low half is zero or denormal, which a Dekker split does not have to handle
+gracefully. Whatever the next attempt does, it wants its own unit tests on the
+pair operations before any kernel is converted, rather than discovering the
+problem through nineteen functions at once.
+
+**Cost to close is therefore higher than C64 implied**, and that is worth saying
+plainly: it is not "carry guard bits through every kernel" but "carry them
+through every kernel *and every argument reduction*", with the pair arithmetic
+tested in its own right first. Still one unit in the last place of benefit, still
+inside §4.3.2's published bound without it.
