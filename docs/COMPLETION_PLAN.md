@@ -2001,16 +2001,18 @@ a 68882, and the 68882 is the only one of these it has.
         supplied function so the cycle-stepped core can drive it one bus cycle
         at a time later without this logic changing. `m68851_search_suite`,
         21 tests.
-  - [x] The function code specification field shared by `PFLUSH`, `PLOAD`,
-        `PTEST` and `PVALID`, and the `PFLUSH` family's command word. The field
-        is a *prefix code* -- `00000` is the SFC form and `01000` is data
-        register 0 -- and three of its four encodings name something outside the
-        MMU. `m68851_decode_suite`, 15 tests.
-  - [ ] The remaining instruction encodings: `PMOVE`, `PTEST`, `PLOAD`,
-        `PVALID`, the conditionals (`PBcc`/`PDBcc`/`PScc`/`PTRAPcc`) and
-        `PSAVE`/`PRESTORE`. Appendix A's bit rows must come from the page
-        images -- the extracted text turns zeros into letters and collapses
-        columns, so it is unusable for these.
+  - [x] Instruction decode for `PLOAD`, `PFLUSH`/`PFLUSHA`/`PFLUSHS`, `PVALID`,
+        `PMOVE` (all three formats) and `PTEST`, plus the function code
+        specification field they share. Two things only a full read of Appendix
+        A shows: the field is a *prefix code* (`00000` is the SFC form,
+        `01000` is data register 0), and **opclass `001` carries four different
+        instructions** -- all eight of its mode values are used, so a decoder
+        built from `PFLUSH`'s page alone rejects `PLOAD` and both `PVALID`
+        forms as undefined. An earlier commit did exactly that; this corrects
+        it. `m68851_decode_suite`, 25 tests.
+  - [ ] The conditionals (`PBcc`/`PDBcc`/`PScc`/`PTRAPcc`) and
+        `PSAVE`/`PRESTORE`, which use the operation word's type field rather
+        than the general `000` form.
   - [ ] The coprocessor interface: the MMU is cpID 0 on the same interface the
         68882 uses as cpID 1, so `[68851]` §9's CIRs and primitives sit
         alongside the 68882's already-landed Table 7-2.

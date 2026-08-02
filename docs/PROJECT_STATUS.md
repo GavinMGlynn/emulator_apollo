@@ -710,7 +710,32 @@ tested against real translation trees built in an array, and what will let the
 cycle-stepped core drive it one bus cycle at a time without this logic
 changing.
 
-**Instruction decode has started with the piece four instructions share.** The
+**Instruction decode covers `PLOAD`, `PFLUSH`, `PVALID`, `PMOVE` and `PTEST`.**
+
+The finding worth recording is a mistake this work made and then corrected.
+The command word's top three bits are an opclass, and **opclass `001` carries
+four different instructions**:
+
+```
+001 | 000 | R/W | 0000 | FC      PLOAD
+001 | 001 | 0   | mask | FC      PFLUSHA
+001 | 010 | 0000000000           PVALID  (against VAL)
+001 | 011 | 0000000 | Reg        PVALID  (against An)
+001 | 100..111 | 0 | mask | FC   PFLUSH / PFLUSHS
+```
+
+All eight mode values are used. `PFLUSH`'s own page lists five of them, and an
+earlier commit -- having read only that page -- concluded the other three were
+undefined. They are `PLOAD` and the two `PVALID` forms. The rule in `CLAUDE.md`
+about exhausting the sibling documents has an instruction-level corollary: one
+instruction's page is not the encoding.
+
+Opclass `011` holds two `PMOVE` formats told apart by `PReg` (`000`/`001` are
+the status registers, `100`/`101` the breakpoint registers), and the three bits
+below the opclass are a register number under `PMOVE` and a *level* under
+`PTEST` -- the same position meaning different things by opclass alone.
+
+The
 five-bit function code specification field is a *prefix code*, and that is the
 trap in it: `00000` is the SFC form while `01000` is data register 0, so a
 decoder that tested the top bit and then the next would get SFC and DFC right by
@@ -722,14 +747,20 @@ can do: "since the SFC of the MC68020 has only three implemented bits, only
 function codes $0 through $7 can be specified in this manner", so only the
 immediate form can name a DMA function code and only it can flush DMA entries.
 
-`PFLUSH`'s command word is `001 | Mode(3) | 0 | Mask(4) | FC(5)`. Its mask makes
-a flush name a *set* of function codes -- "(ATC function code bits and <mask>) =
-(<fc> and <mask>)" -- so a zero mask flushes every function code and an all-ones
-mask exactly one. Three mode encodings (`000`, `010`, `011`) appear in no list
-and are undefined rather than combinations; the mode is not a field of
-independent option bits. And a flush-all is *required* to carry a zero mask and
-a zero function code, because a flush-all that names a function code contradicts
-itself -- the manual forbids the encoding rather than ignoring the fields.
+`PFLUSH`'s mask makes a flush name a *set* of function codes -- "(ATC function
+code bits and <mask>) = (<fc> and <mask>)" -- so a zero mask flushes every
+function code and an all-ones mask exactly one. A flush-all is *required* to
+carry a zero mask and a zero function code, because a flush-all that names a
+function code contradicts itself: the manual forbids the encoding rather than
+ignoring the fields.
+
+`PMOVE`'s writes have side effects the register modules will need: a `CRP`
+write searches the root pointer table and, on a miss, replaces an entry and
+invalidates every ATC entry associated with the replaced one; `SRP` and `DRP`
+writes invalidate every entry formed with them **"even globally shared"** --
+which is the one place a shared entry does not survive. And only `CRP`, `SRP`
+and `DRP` are 64 bits, which is why Appendix A footnotes that a register-direct
+`PMOVE` cannot carry them.
 
 Also worth recording from §6.1.8: **`PSR`'s bit order is deliberate.** "The bits
 of the PSR are ordered to allow use of the MC68020 'bit field find first one'
