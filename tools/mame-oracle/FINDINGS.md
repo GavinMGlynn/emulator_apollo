@@ -4076,3 +4076,38 @@ pair arithmetic unit-tested against known-exact cases *first* -- which is what
 C65 said and what it did not do. Three hypotheses have now been priced, two
 eliminated by measurement and one by arithmetic, and the survivor is the one the
 first diagnosis named.
+
+## C68 -- the pair arithmetic is tested, which is what C65 skipped
+
+**Class: prerequisite landed.** Not a comparison against the oracle; the step
+C67 named as the reason the next comparison will be readable.
+
+C65 converted a kernel to compensated arithmetic without ever checking the
+compensation, and its regression could not be attributed: the pair operations and
+the place they were applied were equally plausible causes, so the attempt taught
+nothing about either. That is now fixed at the root rather than worked around.
+
+`nx_exact_mul` and a new `nx_two_sum` are exposed for testing and checked on
+their own:
+
+- **An exact product must have a residual when one is due, and none when it is
+  not.** Two all-ones mantissas need 128 significand bits, so the low half must
+  be non-zero -- a split that silently produced zero would satisfy any test
+  written only in terms of the high half. And `hi + lo` must round back to `hi`,
+  since the residual is a correction rather than a second value. `1.5 x 2 = 3`
+  checks the other direction: exactly representable, so no residual at all.
+- **The two-sum must sort its addends, and the test proves it by handing them
+  over the wrong way round.** Knuth's fast form needs the larger first; reversed,
+  its subtractions stop being exact and the residual is *silently wrong* rather
+  than absent. Passing the same pair both ways and requiring identical answers is
+  what catches that -- and silent wrongness in a primitive is precisely how an
+  untested compensation regresses something far away, which is C65 in one
+  sentence.
+
+Both pass. 112 suites green on `linux-debug` and `linux-release`.
+
+**What this does not do** is move any measurement: `fpu_sweep.py` still reads
+oracle 3, both exact 2, because no kernel uses the pair arithmetic yet. The value
+is entirely in what comes next -- when the compensated Horner is written and the
+sweep moves or does not, the answer will mean something, which it did not the
+first time.

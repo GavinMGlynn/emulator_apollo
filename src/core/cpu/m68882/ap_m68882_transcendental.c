@@ -426,6 +426,49 @@ static void nx_exact_mul(ap_m68882_extended_t a, ap_m68882_extended_t b,
   *lo = err;
 }
 
+/* The exact residual of an addition, the other half of the pair arithmetic.
+ *
+ * Knuth's two-sum in its fast form, which requires the larger addend first:
+ * with `|a| >= |b|`, both `s - a` and `b - (s - a)` are exact, so `err` is the
+ * whole of what `s` discarded. Ordering them is not an optimisation -- get it
+ * wrong and the residual is silently garbage, which is how `FINDINGS.md` C65's
+ * attempt regressed. */
+static bool nx_abs_at_least(ap_m68882_extended_t a, ap_m68882_extended_t b) {
+  if (a.exponent != b.exponent) {
+    return a.exponent > b.exponent;
+  }
+  return a.mantissa >= b.mantissa;
+}
+
+static void nx_two_sum(ap_m68882_extended_t a, ap_m68882_extended_t b,
+                       ap_m68882_extended_t *sum, ap_m68882_extended_t *err) {
+  if (!nx_abs_at_least(a, b)) {
+    const ap_m68882_extended_t swap = a;
+    a = b;
+    b = swap;
+  }
+  *sum = nx_add(a, b);
+  *err = nx_sub(b, nx_sub(*sum, a));
+}
+
+/* Exposed for testing only. C65 converted a kernel to pair arithmetic without
+ * ever checking the pair operations themselves, and the resulting regression
+ * was uninterpretable: it could have been the compensation or the place it was
+ * applied. These two are the foundation everything else in that direction
+ * stands on, so they are checked in their own right first. */
+void ap_m68882_exact_mul_for_test(ap_m68882_extended_t a,
+                                  ap_m68882_extended_t b,
+                                  ap_m68882_extended_t *hi,
+                                  ap_m68882_extended_t *lo) {
+  nx_exact_mul(a, b, hi, lo);
+}
+
+void ap_m68882_two_sum_for_test(ap_m68882_extended_t a, ap_m68882_extended_t b,
+                                ap_m68882_extended_t *sum,
+                                ap_m68882_extended_t *err) {
+  nx_two_sum(a, b, sum, err);
+}
+
 /* `(e^r - 1)` for `|r| <= ln2/2`, by Horner on the coefficient table.
  *
  * Evaluated as `r * P(r)` rather than as a series in `r` directly, so that the

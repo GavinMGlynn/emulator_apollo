@@ -242,4 +242,21 @@ void ap_m68882_sincos(const ap_m68882_extended_t *x, ap_m68882_rounding_t mode,
                                              ap_m68882_rounding_t mode,
                                              ap_m68882_precision_t precision);
 
+/* ---------------------------------------------------------------------------
+ * Exposed for testing only
+ *
+ * The pair arithmetic the compensated kernels will stand on. `FINDINGS.md` C65
+ * converted a kernel to use it without checking it first, and the regression
+ * that followed could not be attributed -- the compensation or the place it was
+ * applied were equally plausible. Testing these two on their own is what makes
+ * the next attempt's result readable.
+ */
+void ap_m68882_exact_mul_for_test(ap_m68882_extended_t a,
+                                  ap_m68882_extended_t b,
+                                  ap_m68882_extended_t *hi,
+                                  ap_m68882_extended_t *lo);
+void ap_m68882_two_sum_for_test(ap_m68882_extended_t a, ap_m68882_extended_t b,
+                                ap_m68882_extended_t *sum,
+                                ap_m68882_extended_t *err);
+
 #endif /* APOLLO_CPU_M68882_AP_M68882_TRANSCENDENTAL_H */

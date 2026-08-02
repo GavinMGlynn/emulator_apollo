@@ -2100,8 +2100,92 @@ static void test_cosh_never_reports_an_underflow_it_did_not_have(void) {
       "a genuine underflow must still be reported");
 }
 
+/* The pair arithmetic, checked on its own before anything is built on it.
+ *
+ * `FINDINGS.md` C65 converted a kernel to compensated arithmetic without ever
+ * testing the compensation, and the regression that followed could not be
+ * attributed: the pair operations and the place they were applied were equally
+ * plausible causes. These tests exist so the next attempt's result is readable.
+ *
+ * An exact product is checked by *reconstruction*: `hi + lo` must be the true
+ * product, and the way to know that without a wider type is to pick operands
+ * whose product needs more than 64 bits and verify the low half carries exactly
+ * the bits the high half could not. */
+static void test_an_exact_product_reconstructs_what_a_multiply_discards(void) {
+  /* Two values whose product needs 128 significand bits: all-ones mantissas. */
+  const ap_m68882_extended_t a = {false, AP_M68882_BIAS_EXTENDED,
+                                  UINT64_C(0xFFFFFFFFFFFFFFFF)};
+  const ap_m68882_extended_t b = {false, AP_M68882_BIAS_EXTENDED,
+                                  UINT64_C(0xFFFFFFFFFFFFFFFF)};
+  ap_m68882_extended_t hi = {0};
+  ap_m68882_extended_t lo = {0};
+  ap_m68882_exact_mul_for_test(a, b, &hi, &lo);
+
+  /* The rounded product alone is not the answer, so the residual must exist --
+   * a split that silently produced zero would pass every reconstruction test
+   * written in terms of `hi` and be useless. */
+  TEST_ASSERT_NOT_EQUAL_UINT64(0u, lo.mantissa);
+
+  /* And `hi + lo` must round back to `hi`, since `lo` is below its last bit:
+   * the residual is a correction, not a second value. */
+  const ap_m68882_op_t back =
+      ap_m68882_add(&hi, &lo, AP_M68882_ROUND_NEAREST,
+                    AP_M68882_PRECISION_EXTENDED);
+  TEST_ASSERT_EQUAL_HEX64(hi.mantissa, back.value.mantissa);
+
+  /* An exactly representable product has *no* residual, which is the other half
+   * of the contract: 1.5 x 2 is 3. */
+  const ap_m68882_extended_t one_and_half = {false, AP_M68882_BIAS_EXTENDED,
+                                             UINT64_C(0xC000000000000000)};
+  const ap_m68882_extended_t two = {false, AP_M68882_BIAS_EXTENDED + 1,
+                                    UINT64_C(0x8000000000000000)};
+  ap_m68882_exact_mul_for_test(one_and_half, two, &hi, &lo);
+  TEST_ASSERT_EQUAL_HEX64(0u, lo.mantissa);
+  TEST_ASSERT_EQUAL_HEX16(AP_M68882_BIAS_EXTENDED + 1, hi.exponent);
+  TEST_ASSERT_EQUAL_HEX64(UINT64_C(0xC000000000000000), hi.mantissa);
+}
+
+/* **The two-sum must order its addends, and the test proves it by handing them
+ * over the wrong way round.** With `|a| >= |b|` both subtractions in Knuth's
+ * fast form are exact; reversed, they are not, and the residual is silently
+ * wrong rather than absent -- which is exactly the failure mode that makes an
+ * untested compensation regress something far away. */
+static void test_a_two_sum_recovers_the_bit_the_addition_dropped(void) {
+  const ap_m68882_extended_t big = {false, AP_M68882_BIAS_EXTENDED,
+                                    UINT64_C(0x8000000000000000)}; /* 1.0 */
+  /* 2^-70, far below 1.0's last bit, so adding it changes nothing and the
+   * residual is the whole of it. */
+  const ap_m68882_extended_t tiny = {false,
+                                     (uint16_t)(AP_M68882_BIAS_EXTENDED - 70),
+                                     UINT64_C(0x8000000000000000)};
+
+  ap_m68882_extended_t sum = {0};
+  ap_m68882_extended_t err = {0};
+  ap_m68882_two_sum_for_test(big, tiny, &sum, &err);
+  TEST_ASSERT_EQUAL_HEX64(big.mantissa, sum.mantissa);
+  TEST_ASSERT_EQUAL_HEX16(big.exponent, sum.exponent);
+  TEST_ASSERT_EQUAL_HEX16(tiny.exponent, err.exponent);
+  TEST_ASSERT_EQUAL_HEX64(tiny.mantissa, err.mantissa);
+
+  /* The same pair the other way round: the routine sorts them, so the answer
+   * must be identical rather than garbage. */
+  ap_m68882_extended_t swapped_sum = {0};
+  ap_m68882_extended_t swapped_err = {0};
+  ap_m68882_two_sum_for_test(tiny, big, &swapped_sum, &swapped_err);
+  TEST_ASSERT_EQUAL_HEX64(sum.mantissa, swapped_sum.mantissa);
+  TEST_ASSERT_EQUAL_HEX64(err.mantissa, swapped_err.mantissa);
+  TEST_ASSERT_EQUAL_HEX16(err.exponent, swapped_err.exponent);
+
+  /* An exact sum leaves nothing behind. */
+  ap_m68882_two_sum_for_test(big, big, &sum, &err);
+  TEST_ASSERT_EQUAL_HEX16(AP_M68882_BIAS_EXTENDED + 1, sum.exponent);
+  TEST_ASSERT_EQUAL_HEX64(0u, err.mantissa);
+}
+
 int main(void) {
   UNITY_BEGIN();
+  RUN_TEST(test_an_exact_product_reconstructs_what_a_multiply_discards);
+  RUN_TEST(test_a_two_sum_recovers_the_bit_the_addition_dropped);
   RUN_TEST(test_the_exponential_is_inside_the_typical_error_bound);
   RUN_TEST(test_the_other_three_exponentials_share_the_bound);
   RUN_TEST(test_the_family_is_far_inside_the_worst_case_bound);
