@@ -2099,12 +2099,16 @@ a 68882, and the 68882 is the only one of these it has.
         charges only the stall beyond the lead. A different shape from the
         68030's Equations 11-1 and 11-2, so the tables cannot be read as if it
         were. `m68040_timing_suite`, 14 tests.
-  - [ ] The per-instruction timing tables themselves (§10.3 onward, some fifty
-        pages). The composition above is what they are written against, so this
-        is now bulk transcription rather than modelling -- and it is the last
-        thing standing between Phase 2b and complete. Every figure is a *best
-        case* by §10.1's own suppositions: "all memory accesses hit in the
-        caches", and misaligned `<ea>` fetch timing is left to the reader.
+  - [x] §10.5's miscellaneous integer table, 75 rows over 44 instructions, from
+        the page images -- with each figure marked exact, *minimum* or
+        *typical* per the section's own notes. Extraction renders `MOVEQ` as
+        `MOVEa`, which would have handed `MOVE` the wrong instruction's timing.
+        `m68040_misc_timing_suite`, 15 tests.
+  - [ ] The remaining per-instruction tables (§10.3, §10.4 and §10.6 onward,
+        some fifty pages). Bulk transcription against the composition above,
+        and the last thing standing between Phase 2b and complete. Every figure
+        is a *best case* by §10.1's suppositions: "all memory accesses hit in
+        the caches", and misaligned `<ea>` fetch timing is left to the reader.
 
 ## Phase 3 — Core board
 

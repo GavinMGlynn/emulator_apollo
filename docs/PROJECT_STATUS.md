@@ -1193,10 +1193,31 @@ and misaligned `<ea>` fetch timing is left to the reader entirely. So a table
 figure is a best case, not a measurement -- which matters for a core whose whole
 claim is that its timing is provable.
 
-What remains of the 68040 item is the per-instruction tables themselves, some
-fifty pages of §10.3 onward. The composition above is what they are written
-against, so that is now bulk transcription rather than modelling, and it is the
-last thing standing between Phase 2b and complete. Appendix A's bit rows have to come from page images --
+**§10.5's table is transcribed** -- 75 rows over 44 instructions -- and it
+produced the sharpest illustration yet of why the page images are mandatory.
+`pdftotext` renders this table's `Bcc` as `Bee` and `NOP` as `NOpa`, which are
+obvious damage. It also renders **`MOVEQ` as `MOVEa`**, which is not: `MOVE` is
+a real instruction with its own row in §10.4, so a table built from the
+extraction would silently have given `MOVE` the timing of `MOVEQ`. The figures
+survive extraction; the instruction names do not.
+
+Three of the section's six notes qualify figures rather than explaining them, so
+each row carries how far it can be trusted: note `a` makes a figure a
+**minimum**, note `b` a **typical**, and note `e` marks `PTESTR`/`PTESTW` as a
+"typical measurement for three-level table search with no descriptor writes, no
+entries cached, and four-clock memory access times" -- one search against one
+memory, which a different machine would not reproduce. Reporting any of those as
+exact would claim a precision the manual withholds.
+
+Note `d` is the one no per-instruction figure can carry: "successive in-line
+MOVE16 instructions each add eight clocks to the <ea> calculate and execute
+times", a cost that depends on the *previous* instruction. It is flagged on the
+`MOVE16` rows so a scheduler knows to look rather than trusting the row alone.
+
+What remains of the 68040 item is the other per-instruction tables -- §10.3,
+§10.4 and §10.6 onward, some fifty pages. That is bulk transcription against the
+composition already in place, and the last thing standing between Phase 2b and
+complete. Appendix A's bit rows have to come from page images --
 `pdftotext` renders them with zeros as letters and columns collapsed, the same
 failure that cost a bit position in the 68020's module entry word.
 
