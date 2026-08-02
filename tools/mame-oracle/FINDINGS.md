@@ -4864,3 +4864,31 @@ count and disagreement only in the result.
 `probe_suite.c` against a machine built as a DN3000. One of the four links is
 dropping it, and the test that would have caught it does not exist -- every
 existing test sets the field rather than deriving it.
+
+### C85 addendum -- the probe cannot tell which of two failures it hit
+
+Narrowing C85 ran into a limit of the comparison itself, which is worth more than
+the narrowing was.
+
+The chain checks out by inspection at every link: `ap_cpu_features(AP_CPU_M68020)`
+sets `.has_module_calls = true`, the DN3000's table entry is `AP_CPU_M68020`,
+`ap_machine_init_model` reads the feature into the CPU, and `ap_machine_reset`
+does not clear it -- it sets named fields rather than blanking the struct. So the
+flag *should* arrive, and the fault may instead be inside `execute_callm`.
+
+**And the probe cannot distinguish those two.** A `CALLM` refused for want of the
+family flag reports `ILLEGAL` and leaves the program counter at the instruction;
+a `CALLM` this model declines reports `UNIMPLEMENTED` and leaves it in exactly
+the same place. `probe_compare.py` compares the instruction count, `D0` and the
+sentinel -- none of which separates them. The `--probe-file` output *does* carry
+the status, and the comparison simply does not read it.
+
+That is the fix, and it is worth making for its own sake rather than for this
+bug: a probe that ends early currently reports "stopped somewhere" and the reason
+is one field away. Every campaign from C59 has been reading around it -- C75's
+stalled loop, C83's unlanded vector table, and now this -- each diagnosed by
+noticing something *other* than the status the harness already had in hand.
+
+**Next, in order**: compare the status field, then re-run this probe, and the
+answer will name itself. That is one line of `probe_compare.py` and it retires a
+class of ambiguity three campaigns have worked around.
