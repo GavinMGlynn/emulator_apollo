@@ -568,18 +568,89 @@ Two consequences for the item:
    this. The brief-format row we *do* carry is `6(1/1/0)`, and the two being one
    apart is the extension word.
 
+## The decomposition: `microcode = CC - 2(r + w)`
+
+The question the section above left open, answered from the tables themselves.
+
+Every table in §11.6 states two things at its head that together make a
+published figure decomposable:
+
+> The number of read, prefetch, and write cycles is given inside the parentheses
+> as (r/p/w). The read, prefetch, and write cycles **are included in the total
+> clock cycle number**.
+>
+> All timing data assumes **two-clock reads and writes**.
+
+So `CC` is not pure microcode for any row that touches memory — it is microcode
+*plus* its own operand cycles at two clocks each. That is precisely why
+`CC + bus time` over-counted, and why the original transcription took only the
+`(0/0/0)` rows: those are the ones where the distinction does not arise.
+
+`r` and `w` are now transcribed beside `p`, and
+
+```
+  microcode = CC - 2(r + w)
+```
+
+is the quantity this core was missing. The bus half it measures for itself, so a
+wait-stated cycle or a cache hit still moves the answer — which is the whole
+difference between this and a cycle-table model.
+
+**It separates things the totals hide.** `MOVE Rn,(An)` and `MOVE Rn,-(An)` are
+3 and 4 clocks; after the write's two come out they are 1 and 2 clocks of
+microcode, and that difference is exactly the predecrement's extra work.
+
+### The marginal cost of a prefetch, recovered for one class of row
+
+The withdrawn claim tried to get a per-prefetch cost by dividing `NCC − CC` by
+`p`. What was missing was not arithmetic but §11.3.3's definition of what `NCC`
+*is*: "the average of the odd-word-aligned case and the even-word-aligned case
+(rounded up)".
+
+For a **single-word instruction that is not a change of flow**, the odd-aligned
+case runs no external fetch at all — the cache holding register's long word
+already holds the word — so the published difference is half the even case:
+
+```
+  exposure = 2 (NCC - CC)
+```
+
+A bus cycle is two clocks, so this can only come to **0 or 2**: such a prefetch
+either hides completely under the instruction's microcode or not at all. That is
+a falsifiable claim about the published tables, and `timing_table_suite`
+computes it over **every** row — the discipline the withdrawn claim had to be
+given after it was stated from eleven rows and falsified by three others sitting
+in the same table. It survives: no applicable row gives 4, and both outcomes
+occur, so the rule discriminates rather than being vacuous.
+
+Which rows expose and which hide is itself a check on the reasoning. The
+register forms hide; the memory destinations expose — *except* `MOVE Rn,-(An)`,
+whose extra clock of microcode is exactly what covers its fetch. A rule that got
+that pair the same way round would be describing "writes to memory" rather than
+"has microcode to spare".
+
+**Where it does not apply, and why**, both named in the test rather than
+assumed: a multi-word instruction, where both alignments may need a fetch so the
+average is not half of one case; and a change of flow, where the pipe refills at
+the target whatever the instruction's own alignment. `BSR` at 1.5 clocks per
+prefetch and `LINK.L` at 0.5 are what those rows look like under the withdrawn
+division, and they are exactly the rows this excludes.
+
 ### What is still open
 
-The composition arithmetic is now verified on both sides; what is not built is
-the join to this core's own emergent bus time. `CC` and `NCC` both contain
-operand bus cycles at the table's assumed two clocks each, and this core
-produces those itself — so composing published totals and adding measured bus
-time double-counts, which is the trap `CC + bus time` fell into. The footnoted
-rows therefore still decline rather than reporting a component, and
-`ADD.B D0,(A0)` still costs 4 here against the oracle's 7.
+The model, stated in full:
 
-What has changed is that the arithmetic is no longer the unknown part. The
-remaining question is a single one: **how much of each published figure is bus
-time**, so that the rest can be scheduled against what this core measures. That
-is `(r/p/w)` — published beside every figure in both tables, and not yet
-transcribed for anything but `p`.
+```
+  total = microcode + measured operand bus + (a prefetch ran ? exposure : 0)
+```
+
+Worked for `ADD.B D0,(A0)`, which is `FINDINGS.md` C9's open row: the operation
+composes with `fea (An)` through Equation (11-2) to `CC 6`, of which 4 clocks
+are the published read and write, leaving **2 clocks of microcode**. Our core
+measures the read and the write itself at 2 clocks each, so the warm total is 6;
+the exposure from the operation's row is 2, so the even-aligned cold total is 8
+and the odd-aligned 6, averaging **7** — the manual's figure and the oracle's.
+
+What remains is wiring it into the step, which needs the instruction's
+addressing mode at the point the figure is applied so the effective address row
+can be looked up. That is plumbing rather than an open question.

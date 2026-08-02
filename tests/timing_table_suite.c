@@ -304,6 +304,168 @@ static void test_every_inexact_prefetch_cost_is_named(void) {
                          inexact_seen);
 }
 
+/* ---------------------------------------------------------------------------
+ * The decomposition: how much of a published figure is bus, and how much is
+ * microcode.
+ * ------------------------------------------------------------------------- */
+
+/* `CC` contains the instruction's own operand cycles -- "the read, prefetch,
+ * and write cycles are included in the total clock cycle number" -- at two
+ * clocks each. So no row can have more bus time than total time, and one that
+ * does was mistranscribed: a stray `r` or `w` shows up here rather than as an
+ * instruction silently priced at nothing.
+ *
+ * This is a real check and not a tautology, because `reads` and `writes` were
+ * transcribed independently of `cache_case`, off the same table line. */
+static void test_no_rows_bus_time_exceeds_its_published_total(void) {
+  unsigned count = 0;
+  const ap_m68030_table_entry_t *table = ap_m68030_timing_table(&count);
+
+  for (unsigned i = 0; i < count; i++) {
+    const unsigned bus =
+        (table[i].timing.reads + table[i].timing.writes) * 2u;
+    TEST_ASSERT_TRUE_MESSAGE(bus <= table[i].timing.cache_case, table[i].form);
+
+    /* And the microcode is what is left, which for these rows is never the
+     * whole figure and never none of it: every transcribed row does *some*
+     * work beyond its bus cycles. */
+    const unsigned microcode = ap_m68030_microcode_clocks(&table[i].timing);
+    TEST_ASSERT_EQUAL_UINT_MESSAGE(table[i].timing.cache_case - bus, microcode,
+                                   table[i].form);
+    TEST_ASSERT_TRUE_MESSAGE(microcode > 0u, table[i].form);
+  }
+}
+
+/* The memory-destination rows are the ones that make the decomposition worth
+ * having, and the two `MOVE` rows are the pair that shows it working. Both
+ * write one operand; `MOVE Rn,(An)` is 3 clocks and `MOVE Rn,-(An)` is 4, so
+ * after the write's two clocks come out they are 1 and 2 clocks of microcode.
+ *
+ * That difference is exactly what the predecrement does extra, and it is
+ * invisible in the totals until the bus half is removed. */
+static void test_the_decomposition_separates_the_predecrement_extra_clock(void) {
+  const ap_m68030_table_entry_t *indirect =
+      ap_m68030_timing_for_word(0x2080u); /* MOVE.L D0,(A0) */
+  const ap_m68030_table_entry_t *predecrement =
+      ap_m68030_timing_for_word(0x2100u); /* MOVE.L D0,-(A0) */
+  TEST_ASSERT_NOT_NULL(indirect);
+  TEST_ASSERT_NOT_NULL(predecrement);
+
+  TEST_ASSERT_EQUAL_UINT(1u, indirect->timing.writes);
+  TEST_ASSERT_EQUAL_UINT(1u, predecrement->timing.writes);
+  TEST_ASSERT_EQUAL_UINT(1u, ap_m68030_microcode_clocks(&indirect->timing));
+  TEST_ASSERT_EQUAL_UINT(2u, ap_m68030_microcode_clocks(&predecrement->timing));
+}
+
+/* **The claim this test exists to falsify.** §11.3.3 gives the no-cache figure
+ * as "the average of the odd-word-aligned case and the even-word-aligned case
+ * (rounded up)". For a single-word instruction that is not a change of flow the
+ * odd alignment runs no external fetch at all -- the cache holding register's
+ * long word already holds the word -- so the published difference is half the
+ * even case, and the even case is `2(NCC − CC)`.
+ *
+ * A bus cycle is two clocks, so that quantity can only be 0 or 2: such a
+ * prefetch either hides completely under the instruction's microcode or not at
+ * all. If any applicable row gave 4, the reasoning would be wrong.
+ *
+ * Computed over **every** row, with the inapplicable ones named here and why --
+ * the same discipline the withdrawn `(NCC−CC)/p` claim had to be given after it
+ * was stated from eleven rows and falsified by three others in the same
+ * table. */
+static void test_a_single_word_prefetch_either_hides_completely_or_not_at_all(
+    void) {
+  /* Rows this cannot apply to, each for one of two reasons.
+   *
+   * **Multi-word**: both alignments may need a fetch, so the average is not
+   * half of one case. **Change of flow**: the pipe refills at the target
+   * whatever the instruction's own alignment, and it is the target's alignment
+   * that decides the count. */
+  static const char *const NOT_APPLICABLE[] = {
+      "RTS",                                /* change of flow */
+      "RTR",                                /* change of flow */
+      "RTD",                                /* change of flow, and multi-word */
+      "LINK.W",                             /* multi-word */
+      "LINK.L",                             /* multi-word */
+      "ANDI/EORI/ORI to SR or CCR",         /* multi-word, and refills the pipe */
+      "Bcc (Taken)",                        /* change of flow */
+      "Bcc.W (Not Taken)",                  /* multi-word */
+      "Bcc.L (Not Taken)",                  /* multi-word */
+      "BSR",                                /* change of flow, and multi-word */
+      "DBcc (cc False, Count Not Expired)", /* change of flow, multi-word */
+      "DBcc (cc False, Count Expired)",     /* multi-word */
+      "DBcc (cc True)",                     /* multi-word */
+  };
+
+  unsigned count = 0;
+  const ap_m68030_table_entry_t *table = ap_m68030_timing_table(&count);
+  unsigned excluded_seen = 0;
+  unsigned exposed = 0;
+  unsigned hidden = 0;
+
+  for (unsigned i = 0; i < count; i++) {
+    bool applicable = true;
+    for (unsigned k = 0; k < sizeof NOT_APPLICABLE / sizeof NOT_APPLICABLE[0];
+         k++) {
+      const char *a = table[i].form;
+      const char *b = NOT_APPLICABLE[k];
+      unsigned j = 0;
+      while (a[j] != '\0' && b[j] != '\0' && a[j] == b[j]) {
+        j++;
+      }
+      if (a[j] == '\0' && b[j] == '\0') {
+        applicable = false;
+        excluded_seen++;
+      }
+    }
+    if (!applicable) {
+      continue;
+    }
+
+    const unsigned exposure = ap_m68030_prefetch_exposure(&table[i].timing);
+    TEST_ASSERT_TRUE_MESSAGE(exposure == 0u || exposure == 2u, table[i].form);
+    if (exposure == 2u) {
+      exposed++;
+    } else {
+      hidden++;
+    }
+  }
+
+  /* The exclusion list is not stale in either direction. */
+  TEST_ASSERT_EQUAL_UINT(sizeof NOT_APPLICABLE / sizeof NOT_APPLICABLE[0],
+                         excluded_seen);
+
+  /* And both outcomes actually occur. A rule that only ever produced one of
+   * them would satisfy every assertion above and say nothing: the whole point
+   * is that some instructions hide their prefetch and some do not. */
+  TEST_ASSERT_TRUE(exposed > 0u);
+  TEST_ASSERT_TRUE(hidden > 0u);
+}
+
+/* Which rows they are, and it is the memory destinations. `ADD Dn,EA` and
+ * `MOVE Rn,(An)` expose their prefetch; `ADD Rn,Dn` and `MOVE Rn,-(An)` hide
+ * it. The last pair is the interesting one -- both write to memory, and the
+ * predecrement's extra clock of microcode is what covers the fetch. */
+static void test_the_rows_that_expose_a_prefetch_are_the_memory_forms(void) {
+  const struct {
+    uint16_t word;
+    unsigned exposure;
+    const char *what;
+  } CASES[] = {
+      {0xD200u, 0u, "ADD.B D0,D1"},   {0xD110u, 2u, "ADD.B D0,(A0)"},
+      {0x2080u, 2u, "MOVE.L D0,(A0)"}, {0x2100u, 0u, "MOVE.L D0,-(A0)"},
+      {0x7000u, 0u, "MOVEQ #0,D0"},
+  };
+
+  for (unsigned i = 0; i < sizeof CASES / sizeof CASES[0]; i++) {
+    const ap_m68030_table_entry_t *row =
+        ap_m68030_timing_for_word(CASES[i].word);
+    TEST_ASSERT_NOT_NULL_MESSAGE(row, CASES[i].what);
+    TEST_ASSERT_EQUAL_UINT_MESSAGE(
+        CASES[i].exposure, ap_m68030_prefetch_exposure(&row->timing),
+        CASES[i].what);
+  }
+}
+
 /* And the values the exact rows take are *not* confined to 0 and 1, which is
  * the substance of what was withdrawn. `DBcc` with the condition true divides
  * exactly and gives 2. */
@@ -334,6 +496,10 @@ int main(void) {
   RUN_TEST(test_the_control_instructions_are_found_by_their_encodings);
   RUN_TEST(test_a_status_register_write_costs_a_pipe_refill);
   RUN_TEST(test_every_inexact_prefetch_cost_is_named);
+  RUN_TEST(test_no_rows_bus_time_exceeds_its_published_total);
+  RUN_TEST(test_the_decomposition_separates_the_predecrement_extra_clock);
+  RUN_TEST(test_a_single_word_prefetch_either_hides_completely_or_not_at_all);
+  RUN_TEST(test_the_rows_that_expose_a_prefetch_are_the_memory_forms);
   RUN_TEST(test_an_exact_prefetch_cost_is_not_always_zero_or_one);
   RUN_TEST(test_the_figures_compose_through_the_overlap_rule);
   return UNITY_END();

@@ -10,22 +10,22 @@
 static const ap_m68030_ea_timing_t FETCH_REGISTER = {
     "Dn or An", {0, 0, 0, 0, .prefetches = 0}, false, false};
 static const ap_m68030_ea_timing_t FETCH_INDIRECT = {
-    "(An)", {1, 1, 3, 3, .prefetches = 0}, true, false};
+    "(An)", {1, 1, 3, 3, .reads = 1, .prefetches = 0}, true, false};
 static const ap_m68030_ea_timing_t FETCH_POSTINCREMENT = {
-    "(An)+", {0, 1, 3, 3, .prefetches = 0}, true, false};
+    "(An)+", {0, 1, 3, 3, .reads = 1, .prefetches = 0}, true, false};
 static const ap_m68030_ea_timing_t FETCH_PREDECREMENT = {
-    "-(An)", {2, 2, 4, 4, .prefetches = 0}, true, false};
+    "-(An)", {2, 2, 4, 4, .reads = 1, .prefetches = 0}, true, false};
 static const ap_m68030_ea_timing_t FETCH_DISPLACEMENT = {
-    "(d16,An) or (d16,PC)", {2, 2, 4, 4, .prefetches = 0}, true, false};
+    "(d16,An) or (d16,PC)", {2, 2, 4, 4, .reads = 1, .prefetches = 0}, true, false};
 static const ap_m68030_ea_timing_t FETCH_ABSOLUTE_SHORT = {
-    "(xxx).W", {2, 2, 4, 4, .prefetches = 0}, true, false};
+    "(xxx).W", {2, 2, 4, 4, .reads = 1, .prefetches = 0}, true, false};
 /* The long absolute is the one row whose two columns differ: 4 to fetch from
  * the cache and 5 without it, because its second extension word is another
  * prefetch. */
 static const ap_m68030_ea_timing_t FETCH_ABSOLUTE_LONG = {
-    "(xxx).L", {1, 0, 4, 5, .prefetches = 1}, true, false};
+    "(xxx).L", {1, 0, 4, 5, .reads = 1, .prefetches = 1}, true, false};
 static const ap_m68030_ea_timing_t FETCH_INDEXED = {
-    "(d8,An,Xn) or (d8,PC,Xn)", {4, 2, 6, 6, .prefetches = 0}, true, false};
+    "(d8,An,Xn) or (d8,PC,Xn)", {4, 2, 6, 6, .reads = 1, .prefetches = 0}, true, false};
 
 /* The immediate rows are split by operand size, and byte and word cost the
  * same: Table 2-3's "Low-order byte of the extension word" means a byte

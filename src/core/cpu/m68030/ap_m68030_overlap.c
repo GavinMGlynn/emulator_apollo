@@ -70,6 +70,26 @@ ap_m68030_prefetch_cost(const ap_m68030_timing_t *timing) {
   return out;
 }
 
+/* "All timing data assumes two-clock reads and writes", at the head of every
+ * table in §11.6. */
+#define BUS_CYCLE_CLOCKS 2u
+
+unsigned ap_m68030_microcode_clocks(const ap_m68030_timing_t *timing) {
+  const unsigned bus = (timing->reads + timing->writes) * BUS_CYCLE_CLOCKS;
+  return timing->cache_case > bus ? timing->cache_case - bus : 0u;
+}
+
+unsigned ap_m68030_prefetch_exposure(const ap_m68030_timing_t *timing) {
+  /* Half the published difference is the odd-aligned case, which for a
+   * single-word instruction runs no fetch at all; the even-aligned case is
+   * therefore twice the average. See the header for where this does not
+   * apply. */
+  const unsigned difference = timing->no_cache_case > timing->cache_case
+                                  ? timing->no_cache_case - timing->cache_case
+                                  : 0u;
+  return difference * 2u;
+}
+
 uint64_t ap_m68030_no_cache_total(const ap_m68030_timing_t *components,
                                   unsigned count) {
   uint64_t total = 0;

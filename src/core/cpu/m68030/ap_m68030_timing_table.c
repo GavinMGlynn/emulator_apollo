@@ -118,15 +118,15 @@ static const ap_m68030_table_entry_t TABLE[ROW_COUNT] = {
      * Under `max(microcode, bus)` the microcode is `CC` here as elsewhere --
      * max(3,2) = 3 and max(3,4) = 4 -- and the core's own bus time supplies the
      * rest. They are what exercises the model where the register forms cannot. */
-    [ROW_ADD_DN_EA] = {"ADD Dn,EA", {.head = 0, .tail = 1, .cache_case = 3, .no_cache_case = 4, .prefetches = 1},
+    [ROW_ADD_DN_EA] = {"ADD Dn,EA", {.head = 0, .tail = 1, .cache_case = 3, .no_cache_case = 4, .writes = 1, .prefetches = 1},
      false, true},
-    [ROW_SUB_DN_EA] = {"SUB Dn,EA", {.head = 0, .tail = 1, .cache_case = 3, .no_cache_case = 4, .prefetches = 1},
+    [ROW_SUB_DN_EA] = {"SUB Dn,EA", {.head = 0, .tail = 1, .cache_case = 3, .no_cache_case = 4, .writes = 1, .prefetches = 1},
      false, true},
-    [ROW_AND_DN_EA] = {"AND Dn,EA", {.head = 0, .tail = 1, .cache_case = 3, .no_cache_case = 4, .prefetches = 1},
+    [ROW_AND_DN_EA] = {"AND Dn,EA", {.head = 0, .tail = 1, .cache_case = 3, .no_cache_case = 4, .writes = 1, .prefetches = 1},
      false, true},
-    [ROW_OR_DN_EA] = {"OR Dn,EA", {.head = 0, .tail = 1, .cache_case = 3, .no_cache_case = 4, .prefetches = 1},
+    [ROW_OR_DN_EA] = {"OR Dn,EA", {.head = 0, .tail = 1, .cache_case = 3, .no_cache_case = 4, .writes = 1, .prefetches = 1},
      false, true},
-    [ROW_EOR_DN_EA] = {"EOR Dn,EA", {.head = 0, .tail = 1, .cache_case = 3, .no_cache_case = 4, .prefetches = 1},
+    [ROW_EOR_DN_EA] = {"EOR Dn,EA", {.head = 0, .tail = 1, .cache_case = 3, .no_cache_case = 4, .writes = 1, .prefetches = 1},
      false, true},
 
     /* §11.6.6, the MOVE instruction, register-source forms.
@@ -143,13 +143,13 @@ static const ap_m68030_table_entry_t TABLE[ROW_COUNT] = {
                          .no_cache_case = 2, .prefetches = 1},
                         false, false},
     [ROW_MOVE_RN_IND] = {"MOVE Rn,(An)", {.head = 0, .tail = 1, .cache_case = 3,
-                          .no_cache_case = 4, .prefetches = 1},
+                          .no_cache_case = 4, .writes = 1, .prefetches = 1},
                          false, false},
     [ROW_MOVE_RN_POSTINC] = {"MOVE Rn,(An)+", {.head = 0, .tail = 1, .cache_case = 3,
-                              .no_cache_case = 4, .prefetches = 1},
+                              .no_cache_case = 4, .writes = 1, .prefetches = 1},
                              false, false},
     [ROW_MOVE_RN_PREDEC] = {"MOVE Rn,-(An)", {.head = 0, .tail = 2, .cache_case = 4,
-                             .no_cache_case = 4, .prefetches = 1},
+                             .no_cache_case = 4, .writes = 1, .prefetches = 1},
                             false, false},
 
     /* §11.6.11, Single Operand Instructions, register forms. */
@@ -196,12 +196,12 @@ static const ap_m68030_table_entry_t TABLE[ROW_COUNT] = {
      * includes two clocks of bus. Under `max(microcode, bus)` that is still the
      * microcode figure, since every one of these exceeds its own bus time. */
     [ROW_NOP] = {"NOP", {0, 0, 2, 2, .prefetches = 1}, false, false},
-    [ROW_RTS] = {"RTS", {1, 0, 9, 11, .prefetches = 2}, false, false},
-    [ROW_RTR] = {"RTR", {1, 0, 12, 14, .prefetches = 2}, false, false},
-    [ROW_RTD] = {"RTD", {2, 0, 10, 12, .prefetches = 2}, false, false},
-    [ROW_UNLK] = {"UNLK", {0, 0, 5, 5, .prefetches = 1}, false, false},
-    [ROW_LINK_W] = {"LINK.W", {0, 0, 4, 5, .prefetches = 1}, false, false},
-    [ROW_LINK_L] = {"LINK.L", {2, 0, 6, 7, .prefetches = 2}, false, false},
+    [ROW_RTS] = {"RTS", {1, 0, 9, 11, .reads = 1, .prefetches = 2}, false, false},
+    [ROW_RTR] = {"RTR", {1, 0, 12, 14, .reads = 2, .prefetches = 2}, false, false},
+    [ROW_RTD] = {"RTD", {2, 0, 10, 12, .reads = 1, .prefetches = 2}, false, false},
+    [ROW_UNLK] = {"UNLK", {0, 0, 5, 5, .reads = 1, .prefetches = 1}, false, false},
+    [ROW_LINK_W] = {"LINK.W", {0, 0, 4, 5, .writes = 1, .prefetches = 1}, false, false},
+    [ROW_LINK_L] = {"LINK.L", {2, 0, 6, 7, .writes = 1, .prefetches = 2}, false, false},
 
     /* The six logical-immediate-to-status forms share one row at 12 clocks.
      * That is six times the cost of the same operation on a data register,
@@ -223,7 +223,7 @@ static const ap_m68030_table_entry_t TABLE[ROW_COUNT] = {
     [ROW_BCC_B_NOT_TAKEN] = {"Bcc.B (Not Taken)", {4, 0, 4, 4, .prefetches = 1}, false, false},
     [ROW_BCC_W_NOT_TAKEN] = {"Bcc.W (Not Taken)", {6, 0, 6, 6, .prefetches = 1}, false, false},
     [ROW_BCC_L_NOT_TAKEN] = {"Bcc.L (Not Taken)", {6, 0, 6, 8, .prefetches = 2}, false, false},
-    [ROW_BSR] = {"BSR", {2, 0, 6, 9, .prefetches = 2}, false, false},
+    [ROW_BSR] = {"BSR", {2, 0, 6, 9, .writes = 1, .prefetches = 2}, false, false},
 
     /* DBcc has three cases, and the expensive one is *leaving* the loop with
      * the counter expired: 10 clocks against 6 for going round again. */

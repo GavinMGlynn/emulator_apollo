@@ -119,6 +119,26 @@ typedef struct {
    * stronger check on a transcription than either alone. */
   unsigned no_cache_case;
 
+  /* The `r` and `w` of the *cache* case's `(r/p/w)`: the operand read and write
+   * cycles the published figure contains. "The read, prefetch, and write cycles
+   * are included in the total clock cycle number", and "all timing data assumes
+   * two-clock reads and writes" -- both stated at the head of every table in
+   * §11.6.
+   *
+   * These are what make a published figure decomposable. `CC` is not pure
+   * microcode for any row that touches memory; it is microcode *plus* its own
+   * operand bus cycles at two clocks each, and this core produces those itself
+   * from real bus state. Transcribing `r` and `w` is what lets the bus half be
+   * subtracted out and the remainder scheduled against what the core actually
+   * measured -- which is the difference between a cycle-table model and one
+   * whose bus time is emergent.
+   *
+   * Taken from the cache case rather than the no-cache case because the two
+   * differ only in `p`: no row in §11.6 reads or writes a different number of
+   * operands depending on whether its instruction was cached. */
+  unsigned reads;
+  unsigned writes;
+
   /* The `p` of the no-cache case's `(r/p/w)`: "the maximum number of
    * instruction bus cycles performed by the instruction, including all
    * prefetches to keep the instruction pipe filled".
@@ -148,6 +168,54 @@ typedef struct {
 
 [[nodiscard]] ap_m68030_prefetch_cost_t
 ap_m68030_prefetch_cost(const ap_m68030_timing_t *timing);
+
+/* ---------------------------------------------------------------------------
+ * Decomposing a published figure into microcode and bus.
+ *
+ * This is the quantity the execution-time item was missing, and the reason
+ * `CC + bus time` over-counted: `CC` already contains the instruction's own
+ * operand cycles. §11.6's tables give them beside every figure as `(r/p/w)` and
+ * state the price -- "all timing data assumes two-clock reads and writes" -- so
+ * the split is arithmetic on published numbers rather than a model.
+ *
+ *     microcode = CC - 2(r + w)
+ *
+ * What is left is the microsequencer's own time, which is what this core has no
+ * other way to know. The bus half it measures for itself, so a wait-stated
+ * cycle or a cache hit still moves the answer.
+ * ------------------------------------------------------------------------- */
+
+/* The microcode time inside a published cache-case figure. Zero rather than a
+ * negative for a row whose bus cycles exceed its total, which cannot happen in
+ * a correct transcription -- `timing_table_suite` asserts it over every row, so
+ * a mistyped `r` or `w` fails there rather than silently pricing an instruction
+ * at nothing. */
+[[nodiscard]] unsigned ap_m68030_microcode_clocks(
+    const ap_m68030_timing_t *timing);
+
+/* What one instruction prefetch costs when it happens, in clocks.
+ *
+ * `NCC - CC` is the published difference between the two cache cases, and
+ * §11.3.3 says what it is a difference *of*: the no-cache figure is "the
+ * average of the odd-word-aligned case and the even-word-aligned case (rounded
+ * up)". For a **single-word instruction that is not a change of flow** the odd
+ * alignment needs no external fetch at all -- the cache holding register's long
+ * word already holds the word -- so the average is half the even case, and
+ *
+ *     exposure = 2 (NCC - CC)
+ *
+ * which comes to 0 or 2: such a prefetch either hides completely under the
+ * instruction's microcode or not at all. That is a falsifiable claim about the
+ * published tables and `timing_table_suite` computes it over every row, with
+ * the rows it cannot apply to named there rather than assumed.
+ *
+ * It does **not** hold for a multi-word instruction, where both alignments may
+ * need a fetch, nor for a change of flow, where the alignment that matters is
+ * the target's and the pipe must refill either way. `BSR` at 1.5 and `LINK.L`
+ * at 0.5 clocks per prefetch are what those rows look like when the published
+ * pair is divided by `p`, and this is why that division was withdrawn. */
+[[nodiscard]] unsigned ap_m68030_prefetch_exposure(
+    const ap_m68030_timing_t *timing);
 
 /* "The total overlap time between instructions A and B consists of the lesser
  * of the tail of instruction A or the head of instruction B." */
