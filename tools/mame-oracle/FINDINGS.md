@@ -4311,3 +4311,31 @@ obstacle rather than the second of two.
 
 Recorded because the correction cost nothing to find and would have cost a
 session to discover from a probe whose output looked like a real divergence.
+
+### C72 addendum 2 -- the vector table is planted, and its landing is unverified
+
+The oracle side now plants what this core's harness always did: an `RTE` and
+sixty-two vectors pointing at it, written before the probe words. The existing
+sentinel probe still runs identically under both, so nothing is broken.
+
+**Two things are deliberately not claimed.** The table is planted *in RAM beside
+the handler*, not at address zero, because C5 measured that a write to the boot
+PROM's range silently does nothing and reports success -- and on a DN3500 the
+low addresses are exactly that. A table at zero would appear to take and would
+not be there. This core's own probe RAM starts at zero, which is why that
+asymmetry is invisible from this side and had to be reasoned about from C5 rather
+than observed.
+
+And **it has not been confirmed to land.** The code reads one vector back and
+prints `planted` or `NOT RAM -- vectors will not take`, but that line has not
+been seen in a run: `probe_compare.py` does not surface the oracle's comment
+output, and a direct invocation was not got working in the time available. The
+diagnostic exists so that the next run answers the question in one line rather
+than by inspection.
+
+**And a table in RAM is only half of it**: the 68030 reaches its vectors through
+the VBR, which is zero at reset. A probe that faults must set the VBR to
+`table_at` first -- one `MOVEC` in supervisor state -- or the machine will look
+at address zero regardless of what was planted. That instruction belongs in the
+fault probe's own program, and is named here so it is not discovered from a probe
+that jumps somewhere unexplained.

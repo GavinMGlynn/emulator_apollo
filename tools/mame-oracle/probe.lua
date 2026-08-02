@@ -56,6 +56,16 @@ local stack_at   = hex("APOLLO_PROBE_STACK", 0x01002000)
 local read_at    = hex("APOLLO_PROBE_READ", nil)
 local limit      = tonumber(env("APOLLO_PROBE_LIMIT", "64"))
 local at_seconds = tonumber(env("APOLLO_PROBE_AT", "3.0"))
+-- Where to plant the exception handler, and therefore what every vector points
+-- at. `FINDINGS.md` C72's addendum: this core's own harness plants such a table
+-- before every probe and this side planted nothing, so the two were asymmetric
+-- for *any* exception -- ours landing in a known handler and the oracle's in
+-- whatever a DN3500 holds at reset, with no firmware to have written it. A
+-- probe that faulted would have compared a handled exception against an
+-- undefined jump and the difference would have said nothing.
+--
+-- Zero disables it, for a caller that wants the machine's own table.
+local handler_at = hex("APOLLO_PROBE_HANDLER", 0x01003000)
 
 local words = {}
 for token in words_text:gmatch("%S+") do
@@ -112,6 +122,29 @@ emu.register_periodic(function()
 		if manager.machine.time.seconds < at_seconds then return end
 		if #words == 0 then
 			out("# no probe words given\n"); manager.machine:exit(); return
+		end
+
+		-- The exception table first, so a probe that faults reports from a
+		-- handler rather than running off into memory it did not write.
+		-- Vectors 2 upward: 0 and 1 are the reset stack pointer and program
+		-- counter, which this machine has already consumed.
+		if handler_at ~= 0 then
+			-- The table goes in RAM, next to the handler, and the probe is
+			-- expected to point the VBR at it. **Not at address zero**: C5
+			-- measured that a write to the boot PROM's range silently does
+			-- nothing and reports success, and on a DN3500 the low addresses
+			-- are exactly that -- so a table planted at zero would appear to
+			-- take and would not be there. This core's own probe RAM starts at
+			-- zero, which is why the asymmetry is easy to miss from that side.
+			local table_at = handler_at + 0x100
+			space:write_u16(handler_at, 0x4E73)          -- RTE
+			for vector = 2, 63 do
+				space:write_u32(table_at + vector * 4, handler_at)
+			end
+			local planted = space:read_u32(table_at + 4 * 4) == handler_at
+			out("# exception table at %08X, handler %08X, %s\n",
+			    table_at, handler_at,
+			    planted and "planted" or "NOT RAM -- vectors will not take")
 		end
 
 		for i, word in ipairs(words) do
