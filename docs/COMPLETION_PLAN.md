@@ -1801,8 +1801,24 @@ a 68882, and the 68882 is the only one of these it has.
         *fraction* bit**, one below the integer bit -- reading bit 63 would call
         every NAN signalling. And **a denormal's true exponent is `1 - bias`**,
         not `0 - bias`, an error small enough to look like rounding.
-  - [ ] The arithmetic, the transcendentals, and the coprocessor interface that
-        reaches all of it.
+  - [x] **The coprocessor interface registers** (`ap_m68882_cir.c`), §7.2 and
+        Table 7-2 -- how the 68030 reaches the FPU at all. Not memory mapped:
+        the decode "uses the MPU function codes (FC0-FC2), the CPU space type
+        field (A16-A19), and the Cp-ID field (A13-A15)", and then A0-A4 selects
+        the register. The type field is `0010`, next door to the `0000` this
+        core already runs for `BKPT`.
+        *Verification: `m68882_cir_suite`, 8 tests -- every one of the 32 select
+        values classified; the don't-care bits exercised on both values, since
+        decoding all five exactly would leave every odd address undecoded; the
+        32-bit registers spanning four addresses each; and all three selectors
+        required together, each shown to match something else on its own.*
+  - [x] Two more transcription traps. **A read of a write-only register returns
+        all ones**, not zero -- zero is a legal value for most of these, so a
+        driver could not tell it from data. And **two registers in the map do
+        not exist on this part**: Table 7-2's footnote excludes the operation
+        word and operand address CIRs, "since they are not used by the MC68881",
+        so a map transcribed without its footnote gives them storage.
+  - [ ] The arithmetic and the transcendentals.
 - [ ] 68020 subset: no on-chip MMU or cache differences, external 68851.
       *Verification: `dn3000` boots under both; oracle diff.*
 - [ ] 68851 external PMMU as its own subsystem. *Verification: `MC68851 PMMU

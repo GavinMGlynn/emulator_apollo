@@ -31,6 +31,7 @@ endfunction()
 
 apollo_add_suite(m68882_regs_suite)
 apollo_add_suite(m68882_format_suite)
+apollo_add_suite(m68882_cir_suite)
 apollo_add_suite(bus_suite)
 apollo_add_suite(overlap_suite)
 apollo_add_suite(pipe_suite)
