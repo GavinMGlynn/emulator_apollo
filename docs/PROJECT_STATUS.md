@@ -1563,7 +1563,46 @@ printed -- a lead is stall tolerance and no rule forces two columns to share
 one, so like `JMP`'s repeated row it fails the first half of the correction
 rule.
 
-What remains of the 68040 item is three more pages of §10.6 and §10.7's ten
+Page 10-26 -- `NEG, NEGX, NOT`, `PEA`, `ROL, ROR` -- added no new figure shapes,
+and gave two facts and an eighth suspect cell.
+
+**`PEA` is `LEA` plus a push, and three modes give the push away.** Both take
+exactly the control modes, and `PEA` is never cheaper in any of the twelve they
+share -- but only nine are strictly dearer. `(d16,An)` and `(d16,PC)` cost the
+same with the shape unchanged: they already carry a lead, and the push fits
+inside a stall the displacement fetch was paying for anyway. `(d8,An,Xn)` costs
+the same with the shape *changed* -- `LEA` prints `4/4` and `PEA` prints
+`1L + 3`, so a base clock became a lead clock and the total stood still. The
+obvious generalisation from the first pair, "a mode with a lead pushes for
+free", is refuted by the third, which has no `LEA` lead at all. Both mechanisms
+are named in the test, because a reader who learns only the first will
+mispredict the third.
+
+**The rotate changes which shift it agrees with, halfway down the column.** On
+the simple modes `ROL, ROR` costs 3 clocks and so does `ASL`, while
+`ASR, LSL, LSR` cost 2 -- so the dividing line reads as "a bit has to be
+watched": `ASL` checks for overflow, a rotate feeds the bit back round, a plain
+shift drops it. On the deep modes the alignment swaps: `ROL` and `LSL` become
+identical in *both* lead and base -- `1L + 7`, `1L + 8`, `1L + 10`, `1L + 11`,
+`3L + 9`, `3L + 10` -- and `ASL` alone stays one clock dearer than both.
+Whatever costs `ASL` its extra clock therefore survives into the deep addressing
+modes and whatever costs a rotate its extra clock does not, which is the
+opposite of what the simple rows suggest. Pinned rather than explained; no
+source read so far accounts for the crossover.
+
+Eighth suspect cell, and the first to fail on principle rather than on
+arithmetic: `ROL, ROR` prints an `<ea> calculate` one clock *lower* than both
+shift columns in all six deep modes -- 6 against 7 at `(BR,Xn)`, and so on down.
+An address calculation cannot depend on what the ALU will later do with the
+operand, so one of the two columns is mistyped. The page does not say which, and
+nothing else in the manual repeats the figures. Both values have company:
+`NEG` and `LEA` print the rotates' 6, `ADDQ, SUBQ` and `ASR, LSL, LSR` print the
+shifts' 7. Kept as printed under the standing rule -- proving a cell wrong is not
+the same as knowing its value. Page 10-14 was re-rendered to confirm `ASL`'s
+side of the comparison before recording this, rather than trusting the earlier
+transcription.
+
+What remains of the 68040 item is two more pages of §10.6 and §10.7's ten
 pages of floating-point timings. That is bulk transcription against the
 composition already in place, and the last thing standing between Phase 2b and
 complete. Appendix A's bit rows have to come from page images --

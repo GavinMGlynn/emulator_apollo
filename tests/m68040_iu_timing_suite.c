@@ -1349,6 +1349,251 @@ static void test_nbcd_costs_more_in_a_register_than_in_memory(void) {
               AP_M68040_IU_NO_CONDITIONS)));
 }
 
+static void test_negating_costs_the_same_wherever_the_operand_lives(void) {
+  /* `NEG`, `NEGX` and `NOT` share a column, and it is the cheapest read-modify-
+   * write column in §10.6: 1/1 for `Dn` and 1/1 for every simple memory mode
+   * alike. A one-clock ALU pass over a single operand, with nothing to align
+   * and no second source to wait for. */
+  const ap_m68040_iu_mode_t simple[] = {
+      AP_M68040_IU_DN,          AP_M68040_IU_INDIRECT,
+      AP_M68040_IU_POSTINCREMENT, AP_M68040_IU_PREDECREMENT,
+      AP_M68040_IU_DISPLACEMENT, AP_M68040_IU_ABSOLUTE};
+  for (unsigned i = 0; i < sizeof simple / sizeof simple[0]; i++) {
+    const ap_m68040_iu_cell_t c = at("NEG", simple[i]);
+    TEST_ASSERT_TRUE(c.valid);
+    TEST_ASSERT_EQUAL_UINT(
+        1u, ap_m68040_iu_calculate(c, false, AP_M68040_IU_NO_CONDITIONS));
+    TEST_ASSERT_EQUAL_UINT(1u,
+                           ap_m68040_execute_total(ap_m68040_iu_execute(
+                               c, false, AP_M68040_IU_NO_CONDITIONS)));
+  }
+  /* `NEGX` and `NOT` are the same column, not merely similar ones. */
+  TEST_ASSERT_EQUAL_PTR(ap_m68040_iu_find("NEG"), ap_m68040_iu_find("NEGX"));
+  TEST_ASSERT_EQUAL_PTR(ap_m68040_iu_find("NEG"), ap_m68040_iu_find("NOT"));
+}
+
+static void test_pea_and_lea_take_the_same_addressing_modes(void) {
+  /* Both compute an address and neither dereferences it, so both take exactly
+   * the control modes -- including the PC-relative ones, which the alterable
+   * columns refuse. The pair differ in what they do with the address, never in
+   * which ones they will form. */
+  for (unsigned m = 0; m < AP_M68040_IU_MODE_COUNT; m++) {
+    TEST_ASSERT_EQUAL_MESSAGE(at("LEA", (ap_m68040_iu_mode_t)m).valid,
+                              at("PEA", (ap_m68040_iu_mode_t)m).valid,
+                              "PEA and LEA disagree about a mode");
+  }
+  /* And the modes with no address to take are refused by both. */
+  TEST_ASSERT_FALSE(at("PEA", AP_M68040_IU_DN).valid);
+  TEST_ASSERT_FALSE(at("PEA", AP_M68040_IU_AN).valid);
+  TEST_ASSERT_FALSE(at("PEA", AP_M68040_IU_IMMEDIATE).valid);
+  /* The incrementing modes have an address, but it is not a *control* one:
+   * a side effect on An makes the pushed value ambiguous. */
+  TEST_ASSERT_FALSE(at("PEA", AP_M68040_IU_POSTINCREMENT).valid);
+  TEST_ASSERT_FALSE(at("PEA", AP_M68040_IU_PREDECREMENT).valid);
+}
+
+static void test_pea_is_never_cheaper_than_lea(void) {
+  /* `PEA` is `LEA` plus a long-word push, so it cannot be cheaper -- and the
+   * table agrees in all twelve shared modes. Nine of them are strictly dearer;
+   * the three that are not are pinned by the next test. */
+  unsigned shared = 0, dearer = 0;
+  for (unsigned m = 0; m < AP_M68040_IU_MODE_COUNT; m++) {
+    const ap_m68040_iu_cell_t l = at("LEA", (ap_m68040_iu_mode_t)m);
+    const ap_m68040_iu_cell_t p = at("PEA", (ap_m68040_iu_mode_t)m);
+    if (!l.valid) continue;
+    shared++;
+    const unsigned lt =
+        ap_m68040_iu_calculate(l, false, AP_M68040_IU_NO_CONDITIONS) +
+        ap_m68040_execute_total(
+            ap_m68040_iu_execute(l, false, AP_M68040_IU_NO_CONDITIONS));
+    const unsigned pt =
+        ap_m68040_iu_calculate(p, false, AP_M68040_IU_NO_CONDITIONS) +
+        ap_m68040_execute_total(
+            ap_m68040_iu_execute(p, false, AP_M68040_IU_NO_CONDITIONS));
+    TEST_ASSERT_TRUE_MESSAGE(pt >= lt, "PEA came out cheaper than LEA");
+    if (pt > lt) dearer++;
+  }
+  TEST_ASSERT_EQUAL_UINT(12u, shared);
+  TEST_ASSERT_EQUAL_UINT(9u, dearer);
+}
+
+static void test_three_modes_push_for_free_and_not_all_the_same_way(void) {
+  /* Three of the twelve shared modes charge `PEA` exactly what they charge
+   * `LEA`, and they do it by two different mechanisms.
+   *
+   * `(d16,An)` and `(d16,PC)` are free with the *shape* unchanged: same
+   * calculate, same lead, same base. Both already carry a lead, and the push
+   * fits inside a stall the displacement fetch was paying for anyway.
+   *
+   * `(d8,An,Xn)` is free with the shape *changed*: `LEA` prints `4/4` and `PEA`
+   * prints `1L+3`, so a base clock has become a lead clock and the total stands
+   * still. The push is not absorbed here -- it is overlapped, and the operand
+   * arrives one clock later in exchange.
+   *
+   * Recorded with both mechanisms named because the obvious generalisation from
+   * the first pair -- "a mode with a lead pushes for free" -- is refuted by the
+   * third, which has no `LEA` lead at all. */
+  const ap_m68040_iu_mode_t unchanged[] = {AP_M68040_IU_DISPLACEMENT,
+                                           AP_M68040_IU_PC_DISPLACEMENT};
+  for (unsigned i = 0; i < 2; i++) {
+    const ap_m68040_execute_t le = ap_m68040_iu_execute(
+        at("LEA", unchanged[i]), false, AP_M68040_IU_NO_CONDITIONS);
+    const ap_m68040_execute_t pe = ap_m68040_iu_execute(
+        at("PEA", unchanged[i]), false, AP_M68040_IU_NO_CONDITIONS);
+    TEST_ASSERT_EQUAL_UINT(le.lead, pe.lead);
+    TEST_ASSERT_EQUAL_UINT(le.base, pe.base);
+    TEST_ASSERT_TRUE(le.lead > 0u);
+  }
+
+  const ap_m68040_execute_t traded_lea = ap_m68040_iu_execute(
+      at("LEA", AP_M68040_IU_INDEXED), false, AP_M68040_IU_NO_CONDITIONS);
+  const ap_m68040_execute_t traded_pea = ap_m68040_iu_execute(
+      at("PEA", AP_M68040_IU_INDEXED), false, AP_M68040_IU_NO_CONDITIONS);
+  TEST_ASSERT_EQUAL_UINT(0u, traded_lea.lead);
+  TEST_ASSERT_EQUAL_UINT(4u, traded_lea.base);
+  TEST_ASSERT_EQUAL_UINT(1u, traded_pea.lead);
+  TEST_ASSERT_EQUAL_UINT(3u, traded_pea.base);
+  TEST_ASSERT_EQUAL_UINT(ap_m68040_execute_total(traded_lea),
+                         ap_m68040_execute_total(traded_pea));
+
+  /* `(An)` has neither a lead to hide in nor a base to trade away, and there
+   * the push costs its full clock. */
+  const ap_m68040_execute_t plain =
+      ap_m68040_iu_execute(at("LEA", AP_M68040_IU_INDIRECT), false,
+                           AP_M68040_IU_NO_CONDITIONS);
+  const ap_m68040_execute_t pushed =
+      ap_m68040_iu_execute(at("PEA", AP_M68040_IU_INDIRECT), false,
+                           AP_M68040_IU_NO_CONDITIONS);
+  TEST_ASSERT_EQUAL_UINT(0u, plain.lead);
+  TEST_ASSERT_EQUAL_UINT(1u, pushed.lead);
+  TEST_ASSERT_EQUAL_UINT(plain.base, pushed.base);
+}
+
+static void test_the_shift_count_selector_now_covers_the_rotates(void) {
+  /* `ROL, ROR` carry the same footnote as the shifts: "immediate count
+   * specified for shift count/shift count specified in register,
+   * respectively", so `Dn` prints `3/4`. Reading the count out of a register
+   * costs the extra clock; the memory forms rotate by one and print a single
+   * figure with no selector at all. */
+  const ap_m68040_iu_cell_t reg = at("ROL", AP_M68040_IU_DN);
+  TEST_ASSERT_EQUAL_UINT(3u, ap_m68040_execute_total(ap_m68040_iu_execute(
+                                 reg, false, AP_M68040_IU_NO_CONDITIONS)));
+  TEST_ASSERT_EQUAL_UINT(4u, ap_m68040_execute_total(ap_m68040_iu_execute(
+                                 reg, true, AP_M68040_IU_NO_CONDITIONS)));
+  TEST_ASSERT_EQUAL_INT(AP_M68040_IU_ALTERNATE_SHIFT_COUNT, reg.alternate);
+  /* Identical to `ASL`'s register form, footnote and all. */
+  const ap_m68040_iu_cell_t asl = at("ASL", AP_M68040_IU_DN);
+  TEST_ASSERT_EQUAL_INT(AP_M68040_IU_ALTERNATE_SHIFT_COUNT, asl.alternate);
+  TEST_ASSERT_EQUAL_UINT(4u, ap_m68040_execute_total(ap_m68040_iu_execute(
+                                 asl, true, AP_M68040_IU_NO_CONDITIONS)));
+  /* A memory rotate has no count to select. */
+  const ap_m68040_iu_cell_t mem = at("ROL", AP_M68040_IU_INDIRECT);
+  TEST_ASSERT_EQUAL_INT(AP_M68040_IU_ALTERNATE_NONE, mem.alternate);
+  TEST_ASSERT_EQUAL_UINT(3u, ap_m68040_execute_total(ap_m68040_iu_execute(
+                                 mem, true, AP_M68040_IU_NO_CONDITIONS)));
+}
+
+static void test_the_rotate_changes_which_shift_it_agrees_with(void) {
+  /* Three columns, and the rotate does not stay with either neighbour.
+   *
+   * On the simple modes `ROL, ROR` costs 3 and so does `ASL`, while `ASR, LSL,
+   * LSR` cost 2 -- so a rotate looks like an arithmetic left shift, and the
+   * dividing line reads as "a bit has to be watched": `ASL` checks for
+   * overflow, a rotate feeds the bit back round, a plain shift drops it.
+   *
+   * On the deep modes the alignment swaps. `ROL` and `LSL` become identical in
+   * execute -- `1L+7`, `1L+8`, `1L+10`, `1L+11`, `3L+9`, `3L+10` -- and `ASL`
+   * alone stays one clock dearer than both.
+   *
+   * Whatever costs `ASL` its extra clock therefore survives into the deep
+   * addressing modes and whatever costs a rotate its extra clock does not,
+   * which is the opposite of what the simple rows suggest. Pinned rather than
+   * explained: it is the shape of the printed table, and no source read so far
+   * accounts for the crossover. */
+  const ap_m68040_iu_mode_t simple[] = {
+      AP_M68040_IU_DN,           AP_M68040_IU_INDIRECT,
+      AP_M68040_IU_POSTINCREMENT, AP_M68040_IU_PREDECREMENT,
+      AP_M68040_IU_DISPLACEMENT, AP_M68040_IU_ABSOLUTE,
+      AP_M68040_IU_INDEXED};
+  for (unsigned i = 0; i < sizeof simple / sizeof simple[0]; i++) {
+    const unsigned r = ap_m68040_execute_total(ap_m68040_iu_execute(
+        at("ROL", simple[i]), false, AP_M68040_IU_NO_CONDITIONS));
+    const unsigned a = ap_m68040_execute_total(ap_m68040_iu_execute(
+        at("ASL", simple[i]), false, AP_M68040_IU_NO_CONDITIONS));
+    const unsigned l = ap_m68040_execute_total(ap_m68040_iu_execute(
+        at("LSL", simple[i]), false, AP_M68040_IU_NO_CONDITIONS));
+    TEST_ASSERT_EQUAL_UINT_MESSAGE(a, r, "rotate should match ASL when simple");
+    TEST_ASSERT_EQUAL_UINT_MESSAGE(l + 1u, r, "rotate should beat LSL by one");
+  }
+
+  const ap_m68040_iu_mode_t deep[] = {
+      AP_M68040_IU_BASE_INDEXED,       AP_M68040_IU_BASE_DISPLACEMENT,
+      AP_M68040_IU_MEMORY_PREINDEXED,  AP_M68040_IU_MEMORY_PREINDEXED_OD,
+      AP_M68040_IU_MEMORY_POSTINDEXED, AP_M68040_IU_MEMORY_POSTINDEXED_OD};
+  for (unsigned i = 0; i < 6; i++) {
+    const ap_m68040_execute_t r = ap_m68040_iu_execute(
+        at("ROL", deep[i]), false, AP_M68040_IU_NO_CONDITIONS);
+    const ap_m68040_execute_t a = ap_m68040_iu_execute(
+        at("ASL", deep[i]), false, AP_M68040_IU_NO_CONDITIONS);
+    const ap_m68040_execute_t l = ap_m68040_iu_execute(
+        at("LSL", deep[i]), false, AP_M68040_IU_NO_CONDITIONS);
+    /* The rotate has changed sides: lead and base both match the logical
+     * shift exactly, not merely the total. */
+    TEST_ASSERT_EQUAL_UINT_MESSAGE(l.lead, r.lead, "deep rotate lead vs LSL");
+    TEST_ASSERT_EQUAL_UINT_MESSAGE(l.base, r.base, "deep rotate base vs LSL");
+    TEST_ASSERT_EQUAL_UINT_MESSAGE(
+        ap_m68040_execute_total(r) + 1u, ap_m68040_execute_total(a),
+        "ASL should stay one dearer in the deep modes");
+  }
+
+  /* All three columns take the same modes throughout, so the crossover is a
+   * change of figures and not a change of what is legal. */
+  for (unsigned m = 0; m < AP_M68040_IU_MODE_COUNT; m++) {
+    TEST_ASSERT_EQUAL(at("ASL", (ap_m68040_iu_mode_t)m).valid,
+                      at("ROL", (ap_m68040_iu_mode_t)m).valid);
+    TEST_ASSERT_EQUAL(at("LSL", (ap_m68040_iu_mode_t)m).valid,
+                      at("ROL", (ap_m68040_iu_mode_t)m).valid);
+  }
+}
+
+static void test_the_rotates_calculate_an_address_sooner_than_the_shifts(void) {
+  /* Transcribed as printed, and it should not be reconciled away. `ROL` and
+   * `ASL` agree on execute for every simple mode, then diverge by exactly one
+   * clock of `<ea> calculate` in all six deep modes -- `(BR,Xn)` is 6 for the
+   * rotates and 7 for the shifts. An address calculation cannot depend on what
+   * the ALU will later do with the operand, so one of the two columns is
+   * mistyped; the page does not say which, and nothing else in the manual
+   * repeats the figures. `NEG` and `LEA` print the rotates' 6, `ADDQ` and
+   * `ASR, LSL, LSR` print the shifts' 7, so both values have company. Kept as
+   * printed under the standing rule: proving a cell wrong is not the same as
+   * knowing its value. */
+  const ap_m68040_iu_mode_t deep[] = {
+      AP_M68040_IU_BASE_INDEXED,          AP_M68040_IU_BASE_DISPLACEMENT,
+      AP_M68040_IU_MEMORY_PREINDEXED,     AP_M68040_IU_MEMORY_PREINDEXED_OD,
+      AP_M68040_IU_MEMORY_POSTINDEXED,    AP_M68040_IU_MEMORY_POSTINDEXED_OD};
+  for (unsigned i = 0; i < 6; i++) {
+    const unsigned rot = ap_m68040_iu_calculate(at("ROL", deep[i]), false,
+                                                AP_M68040_IU_NO_CONDITIONS);
+    const unsigned shift = ap_m68040_iu_calculate(at("ASL", deep[i]), false,
+                                                  AP_M68040_IU_NO_CONDITIONS);
+    TEST_ASSERT_EQUAL_UINT(shift - 1u, rot);
+    /* The rotates keep company with the columns that print the lower figure. */
+    TEST_ASSERT_EQUAL_UINT(rot, ap_m68040_iu_calculate(
+                                    at("NEG", deep[i]), false,
+                                    AP_M68040_IU_NO_CONDITIONS));
+    TEST_ASSERT_EQUAL_UINT(shift, ap_m68040_iu_calculate(
+                                      at("LSL", deep[i]), false,
+                                      AP_M68040_IU_NO_CONDITIONS));
+  }
+  /* On the simple modes the two agree exactly, which is what makes the deep
+   * divergence stand out rather than looking like a whole-column offset. */
+  TEST_ASSERT_EQUAL_UINT(
+      ap_m68040_iu_calculate(at("ASL", AP_M68040_IU_INDIRECT), false,
+                             AP_M68040_IU_NO_CONDITIONS),
+      ap_m68040_iu_calculate(at("ROL", AP_M68040_IU_INDIRECT), false,
+                             AP_M68040_IU_NO_CONDITIONS));
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_instructions_sharing_a_column_share_a_group);
@@ -1434,5 +1679,12 @@ int main(void) {
   RUN_TEST(test_mulu_loses_the_lead_that_muls_keeps);
   RUN_TEST(test_the_multiplies_have_a_dual_calculate_for_displacement_modes);
   RUN_TEST(test_nbcd_costs_more_in_a_register_than_in_memory);
+  RUN_TEST(test_negating_costs_the_same_wherever_the_operand_lives);
+  RUN_TEST(test_pea_and_lea_take_the_same_addressing_modes);
+  RUN_TEST(test_pea_is_never_cheaper_than_lea);
+  RUN_TEST(test_three_modes_push_for_free_and_not_all_the_same_way);
+  RUN_TEST(test_the_shift_count_selector_now_covers_the_rotates);
+  RUN_TEST(test_the_rotate_changes_which_shift_it_agrees_with);
+  RUN_TEST(test_the_rotates_calculate_an_address_sooner_than_the_shifts);
   return UNITY_END();
 }
