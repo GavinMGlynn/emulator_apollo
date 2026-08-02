@@ -4148,3 +4148,49 @@ answer: `nx_scale2`, which applies the `2^n` the reduction factored out, and the
 shifts the kernel's result down by two bits before `nx_scale2` shifts it back up
 -- a place where a bit can be lost that neither the kernel nor the reduction owns,
 and the only part of the path no campaign has yet questioned.
+
+## C70 -- no single site holds the missing bit, and that is the answer
+
+**Class: `sub-poll-slack`, promoted from `open`.** The question is settled, and
+the settlement is that there was never a defect to find.
+
+C69 left one step unexamined: `1 + expm1(r)`, which for `e^1` shifts the kernel's
+result two bits below the sum's last place. Carrying the pair through *that*
+addition -- the one thing C69 built the pair for and then collapsed one line
+early -- was written and measured. `FETOX` stayed at `A2BB4A9A`.
+
+**And the digest came out bit-identical to C69's**, `2726433C1F0DB458` both
+times. That is the decisive datum: wiring the residual through the addition
+changed *nothing at all*, across 38,880 results, so the addition was never losing
+anything either. Four candidate sites, four eliminations:
+
+| site | eliminated by |
+| --- | --- |
+| argument reduction | C67, bounded at an eighth of a unit by arithmetic |
+| the series | C69, compensated and measured |
+| `1 + expm1(r)` | this row, compensated and measured -- identical digest |
+| final rounding | C64, exact by construction |
+
+**So the missing unit is not anywhere. It is everywhere.** Each site loses a
+fraction of a unit in the last place; no single one loses a whole one; and
+compensating any one of them leaves the total where it was. That is the ordinary
+behaviour of an implementation whose working precision equals its destination
+precision, which is what §3.4 says the part avoids by carrying 67 bits and
+rounding once.
+
+**Which means this was never a defect.** The accuracy suite's ceiling is 3.1
+units in the last place and §4.3.2's bound is 64 typical; one unit is inside both
+by a wide margin, and the implementation is doing exactly what it was built to
+do. The oracle is exact here because MAME computes these in the host's own wider
+type, not because it models the part more faithfully -- and neither of us can
+claim to match the 68882, whose algorithm Motorola never published.
+
+**Reclassified accordingly.** This is not `ours-wrong` awaiting a fix; it is
+`sub-poll-slack` -- the resolution limit of an implementation that computes in
+64 bits, recorded so it is not re-litigated. The `PROVISIONAL` in
+`PROJECT_STATUS.md` already names the only thing that would change it: carry
+guard bits through *every* kernel and *every* reduction, and round once from
+them, which is a rewrite of the module rather than a fix to a line. Its benefit
+is now known precisely -- one unit in the last place, on three functions of five,
+at this argument -- and so is the fact that no cheaper subset of it buys
+anything.
