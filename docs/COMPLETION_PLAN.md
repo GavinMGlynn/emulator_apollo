@@ -57,9 +57,11 @@ file the moment they are found, not when someone remembers.
 
 ## Phase 1 — Verification infrastructure, before the subsystems it checks
 
-- [~] Build MAME with only the apollo driver and assemble the `dn3500` ROM set
+- [x] Build MAME with only the apollo driver and assemble the `dn3500` ROM set
       from `roms/firmware/`. *Verification: MAME boots Domain/OS from an SR10.x
-      image to a login prompt.*
+      image to a login prompt — done, on an SR10.4 system this project installed
+      itself; `ex domain_os` from the disk alone reaches `login:` and `user`
+      logs in.*
   - [x] ROM sets assembled by `tools/mame-oracle/romset.py`, which parses the
         table out of `apollo.cpp` rather than transcribing it, and matches our
         files to MAME's by SHA-1 rather than by name — so it cannot drift when
@@ -109,9 +111,10 @@ file the moment they are found, not when someone remembers.
         Detail in `PROJECT_STATUS.md`.
         to run it. *Verification: an attempted `dn5500` run under the built
         oracle, recorded in `FINDINGS.md` either way.*
-- [~] Oracle harness: drive MAME headless, run N frames/cycles, dump RAM and
+- [x] Oracle harness: drive MAME headless, run N frames/cycles, dump RAM and
       device state in our hex format. *Verification: two runs of the same
-      workload produce identical dumps.*
+      workload produce identical dumps — done, `dn3500` at 1.0, 3.5, 5.0 and 8.0
+      emulated seconds and `dn5500` besides.*
   - [x] `tools/mame-oracle/dump.lua`, the state dumper MAME loads as
         `-autoboot_script`: sorted register dump widthed from each entry's own
         `datasize`, `read_u8`-based hex ranges, and a stop-notifier so a machine
@@ -150,6 +153,12 @@ file the moment they are found, not when someone remembers.
 - [ ] Python probe encoder emitting hand-assembled 68000 probes — no cross
       toolchain. *Verification: a trivial probe that stores a sentinel runs
       identically under both.*
+  - **Unblocked.** Both halves it was waiting on are closed: MD's input grammar
+    is transcribed and its output is byte-exact in `docs/references/MD.md`, and
+    `mdsession.py` can hold a session and answer it. What remains is ordinary
+    work — encode the instruction words, drive MD through the session, parse the
+    address-and-contents lines, and diff one sentinel probe against the same
+    probe side-loaded into `ap_machine`.
   - **The route's assumption is now in doubt, and that is recorded rather than
     left implicit.** `tools/mame-oracle/FINDINGS.md` C4: the boot PROM does not
     reach the MD prompt under the oracle. `dsp3500` with a `null_modem` on the
@@ -270,6 +279,10 @@ file the moment they are found, not when someone remembers.
       host pointers, with emulated cycle count and PC reported beside it.
       *Verification: same workload twice → same hash; a boot collapses to one
       number.*
+  - **What is left is the board half.** The primitive and the CPU's contribution
+    are done and tested; the devices, the board registers and the accumulated
+    clock are not yet folded in, and nothing reports cycle count and PC beside
+    the hash.
   - [x] The hashing primitive itself (`src/core/state/`): FNV-1a 64-bit with an
         explicit little-endian feed and width-tagged typed helpers, so the same
         state hashes identically on a big-endian host and a re-typed field
@@ -303,9 +316,15 @@ file the moment they are found, not when someone remembers.
   - The device and bus parts stay open until there are devices and a bus. That
     is a Phase 3 tail, not something to fake now.
 
-## Phase 2 — CPU family
+## Phase 2 — The MC68030
 
-Build the 68030 first (DN3500 is the superset), then subset and extend.
+**Re-scoped.** This phase was "CPU family", which put the 68882, the 68020, the
+68851 and the 68040 behind the same checkbox as the 68030 — four processors that
+do not exist yet, each the size of the MMU or the instruction step. That kept
+the phase open for months while the thing it was really tracking, the 68030, was
+nearly finished, and it hid how close that part is. They are now **Phase 2b**.
+
+Phase 2 is the DN3500's own processor and closes when the 68030 does.
 
 - [~] 68030 integer core, strictly cycle-stepped: one `tick()` per machine
       cycle, no batching, no event queues. *Verification: probes against the
@@ -1579,6 +1598,17 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         disabled cache paying 2 on every access. The self-timing probe on real
         hardware remains worth doing, but that is a **measurement** of the part
         rather than the modelling this item asked for.*
+- [ ] Data-dependent instruction timings published only as ranges are modelled
+      at the documented value and marked `PROVISIONAL`. No invented point
+      numbers. *Verification: each such instruction appears in the PROVISIONAL
+      table with its manual page.*
+
+## Phase 2b — The rest of the CPU family
+
+Split out of Phase 2. Each is a subsystem in its own right rather than a tail of
+the 68030, and none is on the DN3500's critical path: the DN3500 is a 68030 with
+a 68882, and the 68882 is the only one of these it has.
+
 - [ ] 68882 FPU. *Verification: probe suite over each operation and rounding
       mode; note the oracle's admitted FPU gaps as a divergence class.*
 - [ ] 68020 subset: no on-chip MMU or cache differences, external 68851.
@@ -1588,10 +1618,6 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
 - [ ] 68040 for DN5500: different pipeline, caches, and MMU descriptor format;
       integrated FPU. *Verification: `MC68040 User's Manual 1993` cited;
       `dn5500` oracle diff, expecting to exceed the oracle's FPU coverage.*
-- [ ] Data-dependent instruction timings published only as ranges are modelled
-      at the documented value and marked `PROVISIONAL`. No invented point
-      numbers. *Verification: each such instruction appears in the PROVISIONAL
-      table with its manual page.*
 
 ## Phase 3 — Core board
 

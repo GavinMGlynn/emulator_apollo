@@ -437,6 +437,36 @@ the volume carries timestamps, so a rebuild is not expected to be bit-identical
 and nothing timed may be measured through an image built this way. The hash
 identifies *this* image; it is not a reproducibility claim.
 
+## Where the phases stand
+
+**Phase 1 (verification infrastructure) is two items from done**, and neither is
+blocked. The MAME build and the oracle harness are now ticked: both stated a
+verification — "boots Domain/OS to a login prompt" and "two runs produce
+identical dumps" — and both are met. What is left is the Python probe encoder,
+whose blockers closed when MD's grammar and output format were captured, and the
+board half of the full-machine state hash.
+
+**Phase 2 has been re-scoped to the 68030 alone.** It previously carried the
+68882, the 68020, the 68851 and the 68040 behind the same checkbox — four
+processors that do not exist yet, each the size of the MMU or the instruction
+step. That kept the phase open for months while the part it was really tracking
+was nearly finished, and it hid how close that part is. Those four are now
+**Phase 2b**, and none of them is on the DN3500's critical path: a DN3500 is a
+68030 with a 68882, and the 68882 is the only one of the four it has.
+
+What genuinely remains in Phase 2 is small in number and not small in
+difficulty. **Instruction execution time is the headline gap**: the step
+accumulates bus and cache time only, so a register-to-register `ADD` costs zero
+clocks today and every figure this core reports is a lower bound. Fifty-nine
+rows of §11.6 are scheduled, but *composition* is unsolved — `FINDINGS.md` C9
+shows `max(microcode, hideable) + blocking` gives 6 for `ADD.B D0,(A0)` uncached
+where both the manual and the oracle say 7, because a prefetch's marginal cost
+is fractional and per-instruction. That is a research item rather than a coding
+one, and effective-address time composition is blocked behind the same
+arithmetic. The termination's arrival clock is the third, and it belongs with
+Phase 3's arbitration point: every device answers at a fixed two-clock `STERM`,
+so a slow device cannot yet lengthen a cycle.
+
 ## Subsystems
 
 | Subsystem | Status | Verification |
