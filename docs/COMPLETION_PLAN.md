@@ -78,7 +78,7 @@ file the moment they are found, not when someone remembers.
         verification that stops at "we produced files" cannot see that the files
         are unusable.
   - [x] The narrow build itself (`SUBTARGET=apollo`, `REGENIE=1`, `NOWERROR=1`).
-        Built and running: MAME v0.289, one driver, no tools.
+        Detail in `PROJECT_STATUS.md`.
         *Verification: `./apollo -listfull` lists all eleven apollo machines,
         `dn3000` through `dn5500`, and `test_oracle.py` passes against it.*
         Two tails recorded in `FINDINGS.md` rather than left to bite the next
@@ -106,21 +106,7 @@ file the moment they are found, not when someone remembers.
   - This also pulls `.ct` cartridge support (Phase 4) forward in importance: it
     is the format the first boot depends on, not merely a storage item.
   - [x] **Answered: the 68040 path does have an oracle.**
-        `dn5500` starts and dumps reproducibly under the built binary (985
-        bytes, two runs byte-identical) *despite* `MACHINE_NOT_WORKING`. So the
-        flag is not grounds to move DN5500/DSP5500 to `paper` in the model
-        table, and Phase 2's "`dn5500` oracle diff" stands as written — but the
-        flag is MAME's own statement that it does not vouch for the result, so
-        DN5500 readings are a divergence class to treat with suspicion rather
-        than a missing oracle. Recorded in `FINDINGS.md`. The original wording
-        of this item is kept below, because the reasoning it rejected — acting
-        on the flag alone — is the part worth remembering.
-        *Original:* **Verify empirically whether the 68040 path has an oracle at all.**
-        `apollo.cpp` declares `dn5500`, `dsp5500` and `dn5500_19i`
-        `MACHINE_NOT_WORKING` while no 3000 or 3500 machine carries the flag. If
-        it holds, Phase 2's "`dn5500` oracle diff" is unachievable as written and
-        DN5500/DSP5500 move from `mame` to `paper` in the model table (which is
-        a golden change). Not acted on from the flag alone — the honest test is
+        Detail in `PROJECT_STATUS.md`.
         to run it. *Verification: an attempted `dn5500` run under the built
         oracle, recorded in `FINDINGS.md` either way.*
 - [~] Oracle harness: drive MAME headless, run N frames/cycles, dump RAM and
@@ -155,15 +141,7 @@ file the moment they are found, not when someone remembers.
         memory range was ever dumped; and the dumper triggered on frame
         notifications, which stop arriving at 3.246948 emulated seconds, so every
         later sampling point silently produced nothing while MAME still exited 0.
-        Both were concealed by a report that echoed its own input.
-  - Determinism is the whole point, so the driver's flags are load-bearing and
-    each closes one way a second run could differ: `-noreadconfig` (ignore
-    `~/.mame/mame.ini`, which no one reviews), redirected and wiped
-    `nvram`/`cfg`/`state`/`diff` directories (they persist across runs by
-    design, so run 2 would otherwise start from a different machine than run 1),
-    `-video none -sound none -nothrottle`, and `-seconds_to_run` as an
-    emulated-time watchdog so a never-reached dump point fails instead of
-    hanging.
+        Detail in `PROJECT_STATUS.md`.
 - [x] `tools/mame-oracle/FINDINGS.md`: one entry per probe campaign, with its
       four discrepancy classes (`ours-wrong`, `oracle-wrong`, `sub-poll-slack`,
       `open`), the ban on closing a row by tuning our timing to match, and the
@@ -212,9 +190,7 @@ file the moment they are found, not when someone remembers.
         inference.*
   - [x] **The output format: captured, byte-exact.** The handbook never shows a
         literal MD line, so the harness had nothing to parse against.
-        `docs/references/MD.md` now records the bytes: the `CR LF` terminator,
-        the blank line before each prompt, the bare `>` prompt, the `A`
-        command's address field and its width rule, and the full sign-on
+        Detail in `PROJECT_STATUS.md`.
         `MD7C REV 8.00, 1989/08/16.17:23:52`. *Verification: transcripts in
         `MD.md`, captured through `mdcapture.lua` and `mdsession.py`.*
         - Getting a console at all took five closed routes and is the whole of
@@ -265,20 +241,7 @@ file the moment they are found, not when someone remembers.
         every probe carrying a name and a purpose.*
   - [x] **A defect in the state hash, found by building on it.** Two machines
         constructed identically on two different buffers hashed *differently*.
-        `ap_m68030_cache_clear` clears valid bits and leaves the tag and data
-        behind — by design, and documented — so an invalid entry holds whatever
-        the last occupant left, which no lookup can reach. The hash fed it
-        anyway, and `ap_m68030_atc_flush` leaves the same debris.
-        That is a **false positive**, and worse than a miss: a harness that
-        rejects identical machines cannot be used at all, so every item gated on
-        it would have been gated on something unusable. The hash now covers what
-        an access can reach — a line's tag only when some entry is valid, an
-        entry's data only when that entry is — with one deliberate exception,
-        the ATC's history bit, which the replacement algorithm reads whatever the
-        valid bit says.
-        `ap_machine_init` also now defines *every* field rather than the ones it
-        sets: a machine whose behaviour depended on what was in the caller's
-        stack beforehand is not reproducible, which is the one thing it must be.
+        Detail in `PROJECT_STATUS.md`.
         *Verification: `state_suite`, 2 further tests (12 total) — stale data
         behind an invalid cache entry not counting until the entry is validated,
         and an invalid ATC entry contributing its history bit and nothing else.*
@@ -326,17 +289,7 @@ file the moment they are found, not when someone remembers.
         registers by different numbers of bus cycles are not the same run on a
         machine whose whole claim is emergent timing, and that is precisely the
         divergence a fast mode introduces.
-        The instruction and data sides are fed in that order, so a machine with
-        the two caches exchanged does not hash the same as one without; an
-        absent access context feeds a marker rather than nothing, since "no data
-        side" and "a data side whose cache is empty" are different machines; and
-        an *invalid* ATC entry still contributes its history bit, which is what
-        the replacement algorithm reads.
-        The failure mode this must not have is a field that moves while the hash
-        does not — the harness would then report two diverging machines as one.
-        So `state_suite` **sweeps every field individually**: perturb it, and
-        the hash must change. A field added without a sweep entry is a gap
-        visible in that file rather than one nobody can see.
+        Detail in `PROJECT_STATUS.md`.
         *Verification: `state_suite`, 10 tests — two identically built machines
         at different addresses agreeing, which is where a leaked host pointer
         would show; the register, processor, MMU, pipe, cache and ATC sweeps;
@@ -395,9 +348,7 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         "the instruction word for the next sequential prefetch can then be
         accessed directly from the cache holding register, and no external bus
         cycle or instruction cache access is required".
-        This is the mechanism §11.3.3 averages over when it publishes a
-        no-cache-case time, so modelling it is what lets this core produce the
-        per-run number instead of the published mean.
+        Detail in `PROJECT_STATUS.md`.
         *Verification: `pipe_suite`, 14 tests. The headline one counts bus
         cycles for four sequential words and gets 2 when long-word aligned
         against 3 when starting on an odd word — the difference counted rather
@@ -411,12 +362,7 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         §1.3.2, whose Figure 1-8 survives intact where the 68030 manual's does
         not — so the SR layout, the trace-mode table and the stack-selection
         table are all transcribed rather than derived.
-        **A7 names one of three registers**, and in user state M is *ignored*
-        rather than required to be zero: the PRM's table reads `S 0, M x → USP`,
-        `1 0 → ISP`, `1 1 → MSP`. Switching on the pair as four cases invents a
-        fourth stack. This is the 68020-and-later addition — on the 68000 "the
-        M-bit is always zero" and there is one supervisor stack — so it is
-        precisely what a 68000-shaped model gets wrong.
+        Detail in `PROJECT_STATUS.md`.
         *Verification: `regs_suite`, 10 tests — the S/M table, the `x` being
         load-bearing (S=0 M=1 is still the USP), A7 reads and writes reaching
         the active stack while leaving the other two untouched, changing
@@ -447,12 +393,7 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
   - [x] **Conditional tests** (`src/core/cpu/m68030/ap_m68030_cond.c`), the
         sixteen conditions `Bcc`, `Scc`, `DBcc` and `TRAPcc` share,
         `M68000 Family PRM` Table 3-19.
-        **The table's overbars do not survive the scan** — `HI` reads as "C^ Z"
-        where the manual means not-C and not-Z — so this is the first table
-        whose *content* is damaged rather than its layout. It is recovered from
-        structure rather than guessed: the encoding lays the conditions out in
-        complementary pairs (`2k` against `2k+1`), so a misplaced bar must make
-        some pair agree for some CCR value.
+        Detail in `PROJECT_STATUS.md`.
         *Verification: `cond_suite`, 9 tests. The headline one exhausts the
         whole space — all sixteen conditions against all thirty-two CCR states —
         asserting every pair complementary, which is what turns the
@@ -465,18 +406,7 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
   - [x] **Operation code map** (`src/core/cpu/m68030/ap_m68030_opcode.c`),
         `M68000 Family PRM` Table 8-2 — bits 15-12 select the instruction
         family, and everything below decodes per family.
-        **The MOVE families are not in size order**: `0001` byte, `0010`
-        **long**, `0011` **word**. Assuming byte/word/long yields a decoder that
-        runs and moves the wrong number of bytes for two thirds of all MOVE
-        instructions, which is why the size is exposed here rather than left for
-        each caller to re-derive — there is no arithmetic on the family number
-        that produces it.
-        Families `1010` and `1111` are named rather than lumped in as invalid,
-        because they are exception *generators*: `[030]` Table 8-1 gives vector
-        10 to the "Line 1010 Emulator" and 11 to the "Line 1111 Emulator", which
-        is what lets an OS emulate an absent coprocessor in software. Those
-        vector numbers come from `ap_m68030_exception.h`, so the two modules
-        agree by construction rather than by two copies of a constant.
+        Detail in `PROJECT_STATUS.md`.
         *Verification: `opcode_suite`, 6 tests — the whole published map with
         the low twelve bits varied to prove they do not influence the family,
         the move sizes asserted as sizes rather than names, and both emulator
@@ -484,17 +414,7 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
   - [x] **Branch family decode** (`src/core/cpu/m68030/ap_m68030_branch.c`),
         family `0110`, the first per-family decoder and the one that consumes
         `ap_m68030_cond`. `M68000 Family PRM` §8.2 and the Bcc/BRA/BSR pages.
-        **The branch base and the BSR return address are different addresses.**
-        The PRM gives the branch as "PC + dn → PC" with PC the instruction
-        address *plus two*, while BSR pushes "PC" meaning the instruction that
-        follows — a whole instruction length away. They coincide only for the
-        8-bit form, which is exactly why the mistake survives casual testing:
-        computing the return address as the base gives a BSR that returns into
-        its own displacement words for the 16- and 32-bit forms.
-        `$00` and `$FF` are escapes rather than displacements, so the 8-bit
-        field cannot encode 0 or −1 — and the manual's own NOTE gives the
-        visible consequence: "A branch to the immediately following instruction
-        automatically uses the 16-bit displacement format".
+        Detail in `PROJECT_STATUS.md`.
         *Verification: `branch_suite`, 8 tests — conditions 0 and 1 decoding as
         BRA and BSR (the encodings Table 3-19 marks unavailable to `Bcc`), both
         escapes, length following displacement size, the base being +2
@@ -510,15 +430,7 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         the EA *mode* field separates the rest **by reusing encodings `Scc`
         cannot legally take**: `Scc` writes a byte, so an address register
         destination is meaningless, and that is exactly where `DBcc` lives.
-        Neither it nor `TRAPcc` is a special case bolted on; both are holes in
-        `Scc`'s own address space.
-        Two traps, each tested. The quick data field's **zero means eight** —
-        a decoder passing it through turns every add-8 into an add-0, an
-        instruction that runs, sets condition codes and does nothing. And
-        `DBcc` terminates on **−1 after decrementing**, so a starting count of
-        zero decrements to `$FFFF` and stops after one pass rather than
-        wrapping to 65535; zero is explicitly *not* the terminator, which is
-        asserted directly.
+        Detail in `PROJECT_STATUS.md`.
         *Verification: `quick_suite`, 10 tests.*
   - [~] **Family `0100` ("Miscellaneous")**, the largest in the map. Being taken
         as coherent subtrees rather than claimed whole in one pass.
@@ -528,15 +440,7 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
           subtree narrows in stages rather than by one field — bits 7-6 take
           JSR and JMP with a six-bit effective address between them, and `01`
           opens the control group where bits 5-3 choose the rest.
-          **TRAP's four-bit field is an index, not a vector number**: Table 8-1
-          puts TRAP #0-15 at vectors 32-47, so returning the field itself sends
-          TRAP #0 to the reset vector. The vector comes from
-          `ap_m68030_exception.h`, so the two modules agree by construction.
-          **Four are privileged** — RESET, STOP, RTE and both directions of MOVE
-          USP — and this is a class whose failure mode is silent: a user program
-          able to execute them could halt the processor or forge a return from
-          exception. The test states the distinction that matters, that RTS and
-          RTR are ordinary while RTE is not.
+          Detail in `PROJECT_STATUS.md`.
           *Verification: `control_suite`, 10 tests — the `$4E70`-`$4E77` run
           checked as a whole so a transposition inside it cannot pass, all
           sixteen TRAP numbers, LINK/UNLK and MOVE USP splitting on bit 3,
@@ -545,19 +449,7 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
     - [x] **The LEA/CHK and `$48`/`$4C` subtree**
           (`src/core/cpu/m68030/ap_m68030_misc.c`): LEA, CHK.W, CHK.L, PEA,
           SWAP, BKPT, EXT.W, EXT.L, EXTB.L, NBCD and MOVEM.
-          **The same trick appears three more times here**, and getting the
-          decode *order* wrong is how it bites: an instruction that takes only
-          some addressing modes leaves holes, and other instructions live in
-          them. `PEA` cannot push a register, so mode `000` there is `SWAP` and
-          `001` is `BKPT`. `MOVEM` moves registers to or from memory, so mode
-          `000` is `EXT`. `LEA` loads an address, so mode `000` under its opmode
-          is `EXTB.L`. In each case the register-direct form must be recognised
-          *before* falling through, and a decoder checking the wider instruction
-          first produces a working instruction doing the wrong thing.
-          `EXT`'s encoding also fixes bits 11-9 at `100`, which is `MOVEM`'s
-          registers-to-memory direction — the other direction has no `EXT` at
-          all, so a data register operand there is invalid rather than a third
-          `EXT` form.
+          Detail in `PROJECT_STATUS.md`.
           *Verification: `misc_suite`, 11 tests, including each hole against the
           instruction whose space it sits in, and the `MOVEM` direction that has
           no `EXT`.*
@@ -565,118 +457,40 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
           (`src/core/cpu/m68030/ap_m68030_single.c`): NEGX, CLR, NEG, NOT, TST,
           TAS, `MOVE to/from SR`, `MOVE to/from CCR` and ILLEGAL. **Family
           `0100` is now complete.**
-          Size field `11` is an escape rather than a size, and what it escapes
-          *to* differs per row — `$40C0` is `MOVE from SR`, `$42C0` `MOVE from
-          CCR`, `$44C0` `MOVE to CCR`, `$46C0` `MOVE to SR`, `$4AC0` `TAS`. So
-          the bit pattern meaning "long" one row up means an entirely different
-          instruction here. That is the third distinct place in the encoding
-          where an illegal size selects something else, after `ADDQ`'s
-          conditional group and `Bcc`'s displacement escapes, and it is worth
-          treating as a family idiom rather than five special cases.
-          `ILLEGAL` (`$4AFC`) is a *defined* word inside TAS's range, not an
-          absence of one — its purpose is to take the illegal instruction
-          exception.
-          Privilege reads backwards and is tested as such: `MOVE to SR` is
-          privileged because it writes the S bit, `MOVE to CCR` is not; and
-          `MOVE from SR` became privileged on the 68010 (a user program that can
-          read S learns whether it is supervised) while `MOVE from CCR`, which
-          the 68000 lacked, is unprivileged.
+          Detail in `PROJECT_STATUS.md`.
           *Verification: `single_suite`, 7 tests.*
     - [x] **Correction: `$4E7A`/`$4E7B` are MOVEC, not unassigned.** The `$4E`
           control group first landed with the whole `$4E78`-`$4E7F` run decoded
           as invalid, and a test that asserted it. That would have made every
           `MOVEC` an illegal instruction — and with it `VBR`, `CACR` and the MMU
           root pointers unreachable, since `MOVEC` is the only way to load them.
-          Both the decoder and the test that endorsed the error are fixed, and
-          MOVEC is privileged along with the rest.
+          Detail in `PROJECT_STATUS.md`.
   - [x] **MOVE and MOVEA decode** (`src/core/cpu/m68030/ap_m68030_move.c`),
         families `0001`, `0010` and `0011` — one per operand size.
-        **The destination field is reversed**: source is `MODE` then `REGISTER`
-        as everywhere else, destination is `REGISTER` then `MODE`. A decoder
-        reading them the same way round gets a plausible wrong instruction
-        rather than a fault, and the suite pins the reversal in a single
-        comparison — the same bits are the immediate mode at `$29C0` and
-        absolute short at `$21C0`.
-        The size comes from `ap_m68030_opcode_move_size` rather than a second
-        table, because these bits *are* the low half of the family number; a
-        local copy could disagree with the map.
-        `MOVEA` is not a separate encoding but the one destination mode that
-        changes behaviour — it does not affect the condition codes, which is why
-        it is worth distinguishing — and there is **no byte MOVEA**, so a
-        byte-sized address register destination is not an instruction.
+        Detail in `PROJECT_STATUS.md`.
         *Verification: `move_suite`, 8 tests.*
   - [x] **Family `0000` decode** (`src/core/cpu/m68030/ap_m68030_immediate.c`):
         ORI, ANDI, SUBI, ADDI, EORI, CMPI, MOVES, the static and dynamic bit
         operations, MOVEP, and the `to CCR`/`to SR` forms. Bit 8 splits the
         family — clear selects an immediate row, set makes the bit number
         dynamic.
-        **MOVEP is the strongest instance yet of this encoding's idiom.** It
-        uses *the same four opmodes* as the dynamic bit operations and is
-        separated only by the effective address mode: a bit operation cannot
-        address an address register, so mode `001` there is MOVEP. The overlap
-        is **total** rather than partial — there is no opmode that is MOVEP and
-        not also a bit operation — which the suite checks by walking all four.
-        The `to CCR`/`to SR` forms are likewise not separate opcodes but the
-        immediate-*destination* encoding, meaningless as an address, with the
-        size field choosing byte (CCR) or word (SR). SUBI, ADDI and CMPI have no
-        such forms, so for them that encoding stays unassigned rather than
-        aliasing — also tested.
+        Detail in `PROJECT_STATUS.md`.
         *Verification: `immediate_suite`, 10 tests.*
   - [x] **The arithmetic and logic families**
         (`src/core/cpu/m68030/ap_m68030_arith.c`): `1000` OR/DIV/SBCD, `1001`
         SUB/SUBX, `1011` CMP/EOR, `1100` AND/MUL/ABCD/EXG, `1101` ADD/ADDX.
-        Five families with one shape, which is why they are one module —
-        `family | register | opmode | effective address`, with opmodes `000`-
-        `010` the register direction, `100`-`110` the memory direction, and
-        `011`/`111` the wide forms.
-        **The wide opmodes share a position but not a meaning**: `011` is a word
-        `DIVU` in family `1000`, a word `MULU` in `1100`, and a word `SUBA`,
-        `CMPA` or `ADDA` in the other three. The suite asserts all five at the
-        same opmode, since a decoder assuming one shape for all of them gets
-        four families wrong.
-        The memory-direction opmodes leave register-direct **holes**, filled
-        differently per family — SUBX, ADDX, ABCD, SBCD, CMPM and EXG — the same
-        idiom as SWAP inside PEA, now in five families at once. Tested against
-        the ordinary instruction at the same opmode with a real memory mode, so
-        the holes are shown to be holes rather than special cases.
-        `CMP` and `EOR` share family `1011` **without overlapping**: CMP has the
-        register direction, EOR the memory one, and there is no
-        `<ea> EOR Dn -> Dn` form at all — asserted as the absence it is.
+        Detail in `PROJECT_STATUS.md`.
         *Verification: `arith_suite`, 9 tests.*
   - [x] **Family `1110` decode** (`src/core/cpu/m68030/ap_m68030_shift.c`):
         shifts, rotates and the 68020's bit field instructions. **This completes
         the integer opcode map** — every family from `0000` to `1110` now
         decodes, with `1010` being the Line A trap the map itself handles.
-        One family, three shapes. Bits 7-6 other than `11` is a register shift;
-        `11` is not a size, and bit 11 then chooses between a memory shift (one
-        word, by one) and a bit field instruction. That is the *fourth* place in
-        the encoding where an illegal size selects something else.
-        **The type field moves between the two shift forms**: bits 4-3 in the
-        register form, bits 11-9 in the memory form — where the register form
-        keeps its shift count. Reading one position for both gives a working
-        shift of the wrong kind, so the suite checks all four types in each
-        position and asserts that the same bits are a *count* in one form.
-        The immediate count's **zero means eight**, the same quirk as `ADDQ`'s
-        quick data — but only when `i/r` is clear; with it set the field is a
-        register number where zero means register 0, so the substitution must
-        *not* happen. Both directions tested.
+        Detail in `PROJECT_STATUS.md`.
         *Verification: `shift_suite`, 10 tests.*
   - [x] **Family `1111` decode** (`src/core/cpu/m68030/ap_m68030_coproc.c`):
         the coprocessor interface, and with it **the operation code map is
         complete** — every family from `0000` to `1111` now decodes.
-        cpID 0 is the 68030's *own MMU*: "The MMU instructions use the same
-        opcodes and coprocessor identification (CpID) as the corresponding
-        instructions of the MC68851", so `PMOVE`, `PTEST` and `PFLUSH` are
-        F-line words — which is how the MMU registers this project already
-        models get written. The 68882 sits at a different ID alongside.
-        **The same instruction word takes different vectors depending on
-        privilege**, which is unusual enough to be the module's headline:
-        an unsupported cpID-0 word is an F-line exception (vector 11) from
-        supervisor state and a **privilege violation** (vector 8) from user
-        state. Almost everywhere else in this architecture the exception a word
-        takes is a property of the word alone. Reporting F-line in both cases
-        would let a user program distinguish "unimplemented" from "not
-        allowed" — exactly what the privilege violation exists to prevent.
+        Detail in `PROJECT_STATUS.md`.
         *Verification: `coproc_suite`, 6 tests, including the two vectors from
         one word and the rule holding for cpID 0 against all seven others.*
   - [x] **Decode dispatcher** (`src/core/cpu/m68030/ap_m68030_decode.c`) and
@@ -686,9 +500,7 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         first (a fixed top byte), then LEA/CHK and `$48`/`$4C` (bit 8 set), then
         the single-operand group (bit 8 clear) — and that ordering is stated in
         the header rather than left to be rediscovered.
-        A word no family claims is reported **illegal rather than absorbed by a
-        fallback**, which is the failure mode every family module was written to
-        avoid.
+        Detail in `PROJECT_STATUS.md`.
         *Verification: `decode_suite`, 7 tests, including the property no family
         suite can check — a sweep of the **entire** 16-bit space asserting every
         word classifies, and that the wholesale families (`1010`, `1111`,
@@ -704,27 +516,12 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         advances the PC. A wrong count here does not fault — it desynchronises
         every following instruction, which is why it is pinned per mode rather
         than derived at each call site.
-        Table 2-3 is the part worth stating: a **byte immediate still occupies a
-        whole extension word** ("Low-order byte of the extension word"), so byte
-        and word both cost one and only long costs two. The indexed modes cost
-        their own extension word *plus* whatever base and outer displacements it
-        declares — one word for the brief format, up to five in total for the
-        widest full format.
+        Detail in `PROJECT_STATUS.md`.
         *Verification: `ea_suite`, 6 further tests (17 total).*
   - [x] **Total instruction length** (`ap_m68030_instruction_length`), joining
         `ap_m68030_ea_words` to each family's own extension words. **The PC can
         now advance.**
-        **MOVE needs two extension words, and the second is at a variable
-        offset.** It is the only instruction with two effective addresses, and
-        the source's extension words come first — so the destination's is not at
-        a fixed position but after however many words the source took, which the
-        caller cannot know until it has sized the source. Hence two parameters,
-        with the second documented as "the word following the source's
-        extensions" rather than "the second word of the instruction".
-        Zero means *cannot be sized* — an illegal encoding, or a coprocessor
-        instruction whose format varies by coprocessor and is declined rather
-        than guessed. Zero is never a real instruction length, so it cannot be
-        mistaken for one.
+        Detail in `PROJECT_STATUS.md`.
         *Verification: `decode_suite`, 10 further tests (17 total), including a
         second full 65536-word sweep asserting every sizeable instruction has an
         even, non-zero length — instructions are whole words, and that is the
@@ -732,19 +529,7 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
   - [x] **Effective address calculation**
         (`src/core/cpu/m68030/ap_m68030_addr.c`): decoded fields into an
         address, with the increment modes' register side effects applied.
-        **A7 is not an ordinary address register.** "If the address register is
-        the stack pointer and the operand size is byte, the address is
-        incremented by two to keep the stack pointer aligned to a word
-        boundary", and likewise decremented. A model that misses this keeps
-        running — the stack merely drifts odd, and every later word or long
-        access to it is misaligned, which on a 68030 does not fault. The symptom
-        is silent corruption a long way from the cause, so it is the one rule in
-        the module worth knowing by heart. Tested in both directions, against
-        an ordinary register doing the opposite, and across the privilege
-        switch so it follows whichever of the three stacks A7 currently names.
-        The PC-relative modes are relative to the **extension word**, not the
-        instruction word and not the next instruction — the same base `Bcc`
-        uses.
+        Detail in `PROJECT_STATUS.md`.
         *Verification: `addr_suite`, 13 tests.*
   - [x] **Memory indirect address calculation**, the full-format modes with an
         indirect action. They need a bus read partway through the calculation,
@@ -762,19 +547,7 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         (`src/core/cpu/m68030/ap_m68030_access.c`), joining the caches, TTx, the
         ATC, the table walk and the bus. Its whole content is the *order*, and
         the order is the reverse of the intuitive one.
-        **A cache hit does not consult the MMU at all**: "Whenever a read access
-        occurs and the required instruction word or data operand is resident in
-        the appropriate on-chip cache (no external bus cycle is required), the
-        MMU is completely ignored ... The MMU is used to validate all accesses
-        that require external bus cycles." That is only possible because the
-        68030's caches are **logically** addressed — their tag is the logical
-        address with the function code — so the cache can answer before anything
-        has been translated.
-        Two consequences that look like bugs and are not: a page's protection is
-        **not** checked on a cache hit, and the MMU's CI bit is irrelevant there,
-        because the MMU is not asked. A model that translates first and then
-        looks in the cache produces the same values with the wrong timing *and*
-        the wrong faults.
+        Detail in `PROJECT_STATUS.md`.
         *Verification: `access_suite`, 7 tests — a cache hit asserted to cost
         zero clocks **and** to leave the table-fetch and fill counters
         untouched, which are separate claims; one burst fill serving a whole
@@ -789,11 +562,7 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         happens and the MMU is therefore always consulted. That is also what
         makes write protection work at all: if a write could be answered from
         the cache, a write-protected page already resident would be writable.
-        **A write to a page that has only been read costs a table search the
-        read did not**, which is §9.4's consequence visible end to end: an ATC
-        entry created by a read has M clear, and a write to it "aborts the
-        access and initiates a table search". Paid once — a second write to the
-        same page is an ordinary hit.
+        Detail in `PROJECT_STATUS.md`.
         *Verification: `access_suite`, 5 further tests (12 total) — a write to a
         fully warm address still consulting the MMU where the read before it did
         not; the first write paying a search while a second *read* to the same
@@ -805,15 +574,7 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         `ap_m68030_access`. `pipe_suite` pins the pipe against words a test
         hands it; this pins the same behaviour when the words come from the
         memory path, which is where the cost actually is.
-        **Half of all sequential prefetches are free, and which half depends on
-        alignment.** The holding register holds one *long word*, so a prefetch
-        of its odd half needs no bus cycle and no cache access. Four sequential
-        words therefore cost **two** fetches from a long-word-aligned start and
-        **three** from an odd one — no single number describes both, which is
-        precisely why the manual publishes an average and why
-        `docs/references/M68030_TIMING.md` says the published figure "is not a
-        value any single execution ever takes". That claim is now produced by
-        the memory path rather than asserted.
+        Detail in `PROJECT_STATUS.md`.
         *Verification: `fetch_suite`, 5 tests — the second word of a long word
         costing nothing, the two-against-three count, the words reaching stage D
         in order so the saving is real rather than a dropped fetch, a re-fetch
@@ -915,9 +676,7 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         what makes stage C's word the decoded one — rather than from a separate
         read, so they cost what the manual says they cost and share the holding
         register's savings.
-        The source's extension words are consumed before the destination's,
-        which is the ordering `ap_m68030_instruction_length`'s two parameters
-        exist to describe and this is where it is actually performed.
+        Detail in `PROJECT_STATUS.md`.
         *Verification: `step_suite`, 6 further tests (22 total) — a long
         immediate as two words high-half-first; a byte immediate taking the
         *low* half of a whole word, Table 2-3 seen in running code; a negative
@@ -927,8 +686,7 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         displacements so a swapped read produces the wrong address.*
   - [x] **The MMU instructions**, which are how every MMU register and the ATC
         actually get driven: `PMOVE`, `PFLUSH`, `PFLUSHA`, `PLOAD` and `PTEST`.
-        The encoding traps each one hides — and each was a wrong answer that
-        would not have faulted — are recorded in `PROJECT_STATUS.md`.
+        Detail in `PROJECT_STATUS.md`.
         *Verification: `step_suite`, 15 further tests (139 total) — `PFLUSHA`
         across differing function codes; the mask selecting by agreement; a
         flush by address leaving the neighbour; a function code from a data
@@ -945,25 +703,7 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         extension word declares its own base and outer displacement sizes, so
         the number of words to read is not known until that word has been read —
         and neither, therefore, is the instruction's length.
-        **So the PC no longer advances by a predicted length.** It advances by
-        the instruction word plus however many extension words the step actually
-        took, which makes the fetch and the PC agree by construction rather than
-        by two calculations matching. `ap_m68030_instruction_length` remains the
-        decoder-level answer for anything disassembling rather than executing;
-        the step had been calling it with zeroed extension words, which silently
-        means "brief format".
-        **The two memory indirect modes differ in where the index goes and in
-        nothing else** — `([bd,An,Xn],od)` against `([bd,An],Xn,od)` — so the
-        address calculation now reports the intermediate address *without* the
-        index for the postindexed mode and carries what is still owed in
-        `post_indirection`. Indexing in both places, or in neither, lands a
-        scaled register away, and for a small index that is a *nearby* address.
-        The indirection itself is performed in the step, not the calculation:
-        "The processor accesses a long word at this address", and the bus
-        belongs there. One resolver now sits in front of every address the step
-        computes, so no call site can forget it.
-        A **reserved** base displacement size is refused rather than treated as
-        null, as `ap_m68030_ea.h` always insisted.
+        Detail in `PROJECT_STATUS.md`.
         *Verification: `step_suite`, 5 further tests (124 total) — a full-format
         base and index reaching an operand with the following instruction still
         running, which is the length check; the preindexed and postindexed forms
@@ -973,15 +713,7 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         displacement size declined with the PC unmoved.*
   - [x] **Integer ALU** (`src/core/cpu/m68030/ap_m68030_alu.c`): ADD, SUB, CMP,
         AND, OR and EOR, with their condition codes.
-        **Table 3-18's overbars are lost to the scan**, exactly as Table 3-19's
-        were — `ADD`'s overflow reads as "V = Sm Λ Dm Λ Rm V Sm Λ Dm Λ Rm",
-        whose two halves are identical as written and therefore unreadable. So
-        the formulas are *not* transcribed. They are written in the standard
-        equivalent form and then **verified exhaustively**: all 65536 byte
-        operand pairs for both add and subtract, against references computed
-        independently in wider arithmetic where no truncation can hide a carry.
-        A misplaced overbar cannot survive that, and neither can a formula that
-        is right everywhere except one boundary.
+        Detail in `PROJECT_STATUS.md`.
         *Verification: `alu_suite`, 8 tests — the two exhaustive sweeps; word
         and long cases that would catch a hardcoded byte sign bit; all four
         combinations of carry and overflow shown reachable, since a single
@@ -991,11 +723,7 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
   - [x] **The ALU wired into the step**: `ADD`, `SUB`, `CMP`, `AND`, `OR` and
         `EOR` execute in both directions, over every addressing mode extension
         words reach.
-        **The direction bit decides which operand is the destination**, and with
-        it which way round a subtraction goes — `SUB.L D0,D1` is `D1 - D0`.
-        Reversing it merely negates the result, which looks almost right, and
-        inverts the carry in a way that only shows up in a later conditional
-        branch. Tested in both directions and at the borrow boundary.
+        Detail in `PROJECT_STATUS.md`.
         *Verification: `step_suite`, 8 further tests (30 total) — accumulation
         into a register; subtraction in the documented order and its borrow;
         `CMP` leaving both operands alone while setting Z; **a compare followed
@@ -1006,12 +734,7 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         path; and the logical operations clearing V and C while X survives.*
   - [x] **The immediate family and the single-operand group execute**: `ORI`,
         `ANDI`, `SUBI`, `ADDI`, `EORI`, `CMPI`, and `CLR`, `NEG`, `NOT`, `TST`.
-        `NEG` is implemented as `0 - destination` rather than as a second
-        formula, because Table 3-18 gives it "V = Dm Λ Rm, C = Dm V Rm" — which
-        is exactly what subtracting from zero produces, so reusing the
-        subtraction means the two cannot drift apart. `NOT` is a *logical*
-        operation for condition code purposes despite looking arithmetic: V and
-        C cleared, X untouched.
+        Detail in `PROJECT_STATUS.md`.
         *Verification: `step_suite`, 11 further tests (41 total) — including
         `SUBI` subtracting *from* the destination rather than the reverse,
         `CMPI` and `TST` writing nothing, byte forms leaving a register's upper
@@ -1020,35 +743,13 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         and **a countdown loop that terminates** — five instruction kinds
         cooperating, and the first program here whose control flow repeats.*
   - [x] **`ADDQ`, `SUBQ`, `Scc` and `DBcc` execute.**
-        **ADDQ to an address register is a double special case**, and both
-        halves are silent when missed: "the condition codes are not altered, and
-        the entire destination address register is used regardless of the
-        operation size". So `ADDQ.W #1,A0` changes all 32 bits *and* leaves the
-        flags alone — which is what lets a pointer be bumped inside a loop
-        without clobbering the comparison the loop branches on. Both halves are
-        tested, against a data register destination that *does* set the flags.
-        `Scc` writes **all ones**, not one, which is what makes its result
-        usable directly as a mask. `DBcc` decrements only the **low word**, so a
-        loop counter cannot borrow into the register's upper half.
+        Detail in `PROJECT_STATUS.md`.
         *Verification: `step_suite`, 10 further tests (51 total), including a
         `DBcc` loop running the documented number of times — a count of three
         runs the body four times, three decrements that branch and a fourth that
         reaches −1 and falls through.*
   - [x] **The address-register forms and the bit operations execute.**
-        A word A-form is **not a word operation**: the source is sign-extended
-        and the whole register takes part, so `ADDA.W` with a negative operand
-        subtracts from the full address rather than wrapping in its low half.
-        `ADDA` and `SUBA` alter **no** condition codes — an address calculation
-        must not disturb the flags a following branch depends on — while `CMPA`
-        does, which is the whole reason a compare against an address register is
-        a separate instruction.
-        For the bit operations the operand size comes from the **destination
-        kind**, not an encoding field: a data register is a *long* operation
-        with the bit number modulo 32, memory is a *byte* operation modulo 8. A
-        model picking one width addresses the wrong bit for half of all uses,
-        silently. And Z reflects the bit as it was **before** the operation, so
-        `BSET` on an already-set bit clears Z — testing after the write inverts
-        it.
+        Detail in `PROJECT_STATUS.md`.
         *Verification: `step_suite`, 10 further tests (61 total), including bit
         31 reachable on a register, the bit number wrapping modulo the width,
         and only Z affected with X, N, V and C all asserted to survive.*
@@ -1059,15 +760,7 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         C — *except* for `ROXL`/`ROXR`, where Table 3-18 gives "C ?  X=C", so C
         takes X's value. A model returning early on a zero count is right four
         times out of six.
-        **Only the arithmetic *left* shift sets V**, and it is set "if the most
-        significant bit is changed at **any time** during the shift" — not if
-        the sign differs at the end. A value whose sign shifts out and back in
-        sets V despite finishing as it started, which is tested directly.
-        **The rotates split on X**: `ROL`/`ROR` leave it alone, `ROXL`/`ROXR`
-        rotate *through* it. Treating all four alike breaks multi-precision
-        shifts, which are why the extend forms exist — verified by a nine-step
-        `ROXL` on a byte returning both operand and extend bit to their starting
-        values, against an eight-step `ROL` doing the same.
+        Detail in `PROJECT_STATUS.md`.
         *Verification: `alu_suite`, 9 further tests (17 total); `step_suite`, 3
         more (64), including a register count taken modulo 64 so a count of 64
         shifts by nothing.*
@@ -1123,27 +816,7 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         in family `0000`'s immediate rows. **The opcode map now has no holes
         left in it.** Their *semantics* are still open: `CAS` and `CAS2` need an
         indivisible read-modify-write, which is the bus module's item.
-        **The two halves count their sizes differently.** `CMP2`/`CHK2` use the
-        family's ordinary "00 Byte, 01 Word, 10 Long"; `CAS` uses "01 Byte,
-        10 Word, 11 Long", one higher throughout. The same three bits in the
-        same position mean a byte in one half and a word in the other, so a
-        decoder reading the size once for the whole escape gives every `CAS` the
-        wrong operand width, silently. The unassigned value moves with it: `11`
-        for `CMP2`/`CHK2`, `00` for `CAS`.
-        **And `CAS` size `00` is not merely unassigned — it is the static bit
-        operations.** `BSET #n,(A0)` is `$08D0`, which has the escape's shape
-        exactly: family `0000`, bit 8 clear, bits 7-6 reading `11`. So the two
-        subtrees interleave at one point, and a decoder that stops at the escape
-        turns every static `BTST`/`BCHG`/`BCLR`/`BSET` into an illegal
-        instruction — which is how this was found, three suites going red at
-        once. The escape declines and the decode falls through.
-        **`CMP2` and `CHK2` are separated by the extension word**, not the
-        instruction word — "identical to CHK2 except that it sets condition
-        codes rather than taking an exception" — so the decode reports the pair
-        and a second call resolves it, the same two-stage shape the indexed
-        addressing modes need. **`CAS2` hides behind the immediate mode's
-        encoding**, `111100`, which `CAS` cannot use because its operand must be
-        memory alterable.
+        Detail in `PROJECT_STATUS.md`.
         *Verification: `bounds_suite`, 9 tests — the two size encodings side by
         side on the same bit pattern; each half's unassigned value being the
         other's valid one; the static bit operations declined and a byte `CAS`
@@ -1160,17 +833,7 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         68000-family boot ROM sets itself up. Four is enough: rather than wait
         for a fifth failing test, every `gather_address_input` call site was
         checked against its instruction's own page.
-        Two more were found. The **arithmetic forms' register direction** takes
-        an immediate source — "If the location specified is a source operand,
-        all addressing modes can be used" — so `ADD.W #$10,D0` in family `1101`
-        is a real instruction, distinct from the `ADDI` that assembles to the
-        same thing, and it was declining. And **`TST #<data>`** is marked
-        "MC68020, MC68030, MC68040, and CPU32" on its page: the 68000 had no
-        such form, which is exactly why a 68000-shaped model refuses it.
-        The remaining sites are correct by category rather than by accident: the
-        `100`-`110` opmodes, `MOVE`'s destination, `Scc`, the memory shifts, the
-        MMU instructions and `JMP`/`JSR` all take categories an immediate is not
-        in, and the addressing mode category module now says so.
+        Detail in `PROJECT_STATUS.md`.
         *Verification: `step_suite`, 3 further tests (158 total) — an immediate
         source accepted in two different families with the following
         instruction still running, which is the length check; the memory
@@ -1178,33 +841,7 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         and negative cases.*
   - [x] **Addressing mode categories** (`src/core/cpu/m68030/ap_m68030_category.c`),
         which decide whether a decoded mode is *legal* for an instruction.
-        **Table 2-4 is not transcribed**, because its Alterable column does not
-        survive the scan — and it fails in a way that is not a plausible
-        reading. The extraction gives absolute addressing `—` and Program
-        Counter Memory Indirect `X`, which is the truth of both rows exchanged;
-        the same rows also give Absolute Long a register field of `000` where
-        `MOVEM`'s, `PMOVE`'s and `PFLUSH`'s own tables all give `001`.
-        So the table is **derived** from §2.3's four definitions, which survive
-        intact: data is everything but `An`; memory is everything but the two
-        register direct modes; control is memory *without an associated size*,
-        so not the increment modes and not the immediate; alterable is
-        everything but the PC-relative modes and the immediate. The derivation
-        agrees with every surviving cell.
-        Two independent checks confirm the exchanged column: `MOVE.W D0,$1234`
-        is a legal instruction and `MOVE`'s destination must be data alterable,
-        so absolute *is* alterable; and nothing PC-relative is a legal `MOVE`
-        destination, so the PC modes are not.
-        Applied where it was already being approximated: the MMU instructions
-        had "not a register and not an immediate", which let `(An)+`, `-(An)`
-        and every PC-relative mode through. `LEA` and `PEA` take control modes,
-        `JMP`/`JSR` take control modes, `MOVE`'s destination must be data
-        alterable and `NBCD`'s operand too, and `CHK` takes any data mode
-        including the immediate.
-        **The check must precede the address calculation**, which was a real
-        defect the first version had: the calculation applies the increment and
-        decrement side effects, so a refusal that came afterwards had already
-        moved the register. An instruction the processor refuses must leave no
-        trace.
+        Detail in `PROJECT_STATUS.md`.
         *Verification: `category_suite`, 8 tests — each of the four definitions
         swept over every mode, plus the two independent cross-checks against
         `MOVE`'s and the MMU instructions' own pages, `LEA` admitting the
@@ -1299,21 +936,7 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
           untranscribed instruction remaining its bus time. Both goldens moved
           and were regenerated, byte-identical between `-O0` and `-O3`.*
     - [x] **The original addition, implemented and backed out.**
-          Adding each instruction's `CC` to the bus time the core accumulated
-          was implemented and backed out: the tables contradict it.
-          `ADD Rn,Dn` is `CC 2(0/0/0)` and `NCC 2(0/1/0)` — one more instruction
-          bus cycle, **the same total** — so that prefetch cost nothing, having
-          happened while the microcode ran. `ADD Dn,EA` is `CC 3(0/0/1)` against
-          `NCC 4(0/1/1)`, where the extra prefetch costs *one* clock rather than
-          zero or two. How much of a fetch is hidden depends on how much
-          execution there is to hide it in, which is §11.2's "eight
-          independently scheduled resources ... very little of the scheduling is
-          directly related to instruction boundaries".
-          **The target is now two-sided and needs no oracle**: for any
-          transcribed row, a cold-cache run must come to that row's `NCC` and a
-          warm-cache run to its `CC`. Two published numbers bracketing the same
-          execution. A model satisfying both schedules the resources correctly;
-          one satisfying neither is adding where it should overlap.
+          Detail in `PROJECT_STATUS.md`.
           *Verification: per transcribed row, cold-cache total equals `NCC` and
           warm-cache total equals `CC`, both from `[030]` §11.6.*
     - [x] **The published figures, transcribed**
@@ -1324,12 +947,7 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
           column is not transcribed at all, and neither are the rows with a
           non-zero read or write count: their `CC` includes operand bus cycles
           this core produces itself, so adding them whole would count twice.
-          The table's own markers are kept rather than flattened. The four
-          divides carry `+`, "Indicates Maximum Time (Actual time is data
-          dependent)", and are **`PROVISIONAL`**: using 56 clocks for every
-          `DIVS.W` would be slow by a data-dependent amount rather than wrong by
-          a fixed one, which is much harder to notice. Closing that needs
-          measurement per operand pair.
+          Detail in `PROJECT_STATUS.md`.
           *Verification: `timing_table_suite`, 7 tests — a transcription cannot
           be checked by re-reading it, so these check it against structure:
           every row satisfying the head ≤ CC rule a dropped or doubled digit
@@ -1346,21 +964,7 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
           §11.2's eight resources are arithmetic and vocabulary rather than
           measurement, so they land now and the figures have somewhere to
           arrive.
-          The pairing is **directional** — the *following* instruction's head
-          against the *preceding* instruction's tail — and reversing it reads
-          plausibly, costs nothing on any single instruction, and only shows up
-          on a sequence whose entries have asymmetric heads and tails, which is
-          most of them. A test picks a pair where the two orders differ.
-          **Zero net execution time is a documented outcome**: "the heads of
-          some instructions equal the total instruction-cache-case time for
-          those instructions makes a zero net execution time possible". A model
-          clamping every instruction to at least one clock would be wrong in the
-          direction that *hides* a fast mode's error — it would make the
-          reference core slower than the hardware, so a fast mode that skipped
-          work would look closer to correct rather than further from it.
-          Head and tail compose only with CC; §11.3.3 says they do not apply to
-          NCC, so feeding no-cache figures through this rule would subtract a
-          saving the published number already excludes.
+          Detail in `PROJECT_STATUS.md`.
           *Verification: `overlap_suite`, 8 tests — §11.3.4's **worked example**
           checked verbatim at 6 clocks, which is an external number rather than
           one of ours; the directional pairing; an instruction fully absorbed
@@ -1413,22 +1017,7 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
           (`src/core/cpu/m68030/ap_m68030_ea_timing.c`): §11.6.1's fetch and
           §11.6.3's calculate rows for the modes without a full-format
           extension word.
-          **Which of the two an instruction uses is load-bearing**, not a
-          formality: `(An)` is `3(1/0/0)` to fetch and `2(0/0/0)` to calculate,
-          the difference being the operand read. Using the wrong table costs or
-          saves a memory access, which is the size of error C9 measured.
-          Two notations are carried rather than flattened. The register-direct
-          rows give head and tail as **`-`**, not 0 — there is no address
-          computation to overlap *with*, which is a different statement from an
-          overlap of zero. And the calculate table writes several heads as
-          **"2+op head"**: the head is the *operation's* head plus a figure, the
-          table expressing a dependency between the two halves of Equation
-          (11-2). Flattening that to 2 would drop whatever the operation
-          contributes.
-          The calculate table has **no immediate row**, and the lookup returns
-          absent rather than zero: an operand in the instruction stream has no
-          address to compute, so zero would read as "free" rather than as "not a
-          thing".
+          Detail in `PROJECT_STATUS.md`.
           *Verification: `ea_timing_suite`, 8 tests — a register operand costing
           nothing either way and its head marked inapplicable; fetching never
           costing less than calculating, for every mode, which a swapped
@@ -1505,11 +1094,7 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         *within* group 1, each frame format's documented size, and only the six
         formats the 68030 defines being valid.*
   - [x] Two details that would produce a frame `RTE` accepts and mishandles.
-        The word at `+$06` carries the vector **offset**, not the vector number
-        — TRAP #0 stacks `$2080`, not `$2020`. And formats `$3`, `$4` and `$7`
-        are defined by *other* M68000 family members but not by the 68030, so
-        accepting them would silently import another processor's frame; they are
-        a format error, vector 14.
+        Detail in `PROJECT_STATUS.md`.
   - [x] Level 7 interrupts, which cannot be expressed as a comparison against
         the mask. "Level 7 interrupts cannot be masked by the interrupt priority
         mask, and they are transition sensitive ... recognizes an interrupt
@@ -1518,12 +1103,7 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         recognition needs the *previous* level, which the interface takes: held
         at 7 is not a new interrupt, dropped and re-raised is. The manual's own
         level 6 contrast is tested alongside it.
-  - Note on the priority table's wording, which reads as a contradiction and is
-    not: "0.0 is the highest priority, 4.2 is the lowest", then "the lower the
-    priority of an exception, the sooner the handler routine for that exception
-    executes". The higher-priority exception is *processed* first, which stacks
-    it deeper, so the lower-priority handler runs first and returns into it.
-    Reset is the stated exception to its own rule.
+        Detail in `PROJECT_STATUS.md`.
   - [x] **Family `0100` executes**, completing the family the decoder finished
         earlier: `LEA`, `PEA`, `SWAP`, the three `EXT` forms, `NBCD`, `CHK`,
         `MOVEM` both directions, `NEGX`, `TAS`, `MOVE` to and from `SR` and
@@ -1549,10 +1129,7 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         nothing-happens-inside semantics are in `PROJECT_STATUS.md`.
   - [x] **The wider branch displacements**: `BRA`/`Bcc`/`BSR` at 16 and 32 bits,
         all three sizes sharing one base, "the instruction address plus two".
-        An **untaken** wide branch still consumes its displacement words — the
-        read has to happen before the condition is tested, or the PC lands
-        inside the displacement and executes it as an instruction, which decodes
-        as something.
+        Detail in `PROJECT_STATUS.md`.
         *Verification: `step_suite`, 8 further tests (119 total) — a `MOVEC`
         round trip through `VBR`, `$800` leaving `$002` alone, an undefined code
         raising vector 4, `MOVEC` privileged and not taking effect when it
@@ -1697,18 +1274,7 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         match rather than refining it, so it is checked before the address
         comparison and tested in both directions.
   - [x] **Closed: the TTx register bit layout, deferred and then transcribed.**
-        `[030]` Figure 9-37's lower half does not survive the scan — the bit
-        positions of E, CI, R/W, RWM, FC BASE and FC MASK OCR to nothing but a
-        stray "FC MASK", under both `pdftotext` modes — so the register was
-        modelled as decoded fields with *no* packing rather than an invented
-        one. The `M68000 Family Programmer's Reference Manual 1992` Figure 1-9
-        gives it intact: `31-24 ADDRESS BASE`, `23-16 ADDRESS MASK`, then
-        `E(15) 0(14-11) CI(10) R/W(9) RWM(8) 0(7) FC BASE(6-4) 0(3) FC
-        MASK(2-0)`, with prose agreeing field for field with §9.7.3's. That is
-        exactly the cross-check this item asked for, so the packing is
-        transcribed from two agreeing sources rather than reconstructed. The
-        decoded struct stays the interface every other module uses; the packing
-        exists because `PMOVE` moves a register image, not a struct.
+        Detail in `PROJECT_STATUS.md`.
         *Verification: `tt_suite`, 6 further tests — every field packing to its
         own bit checked individually, the unassigned bits 14-11/7/3 never set
         and ignored on unpack, the easily-inverted R/W and R/WM senses pinned in
@@ -1737,22 +1303,10 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         TIx *after* a zero one must not contribute — summing all four
         unconditionally would accept configurations the hardware rejects with an
         MMU configuration exception. Tested directly.
-  - Note: unlike TT, this register's bit layout *is* pinned — the prose states
-    "the E bit (bit 31)", the figure's column markers (31, 25, 24, 20, 16, 15,
-    12) survived, and the field widths are given in prose. `ap_m68030_tc.h`
-    records that reasoning bit by bit, so the difference from TT's deferred
-    packing is a documented judgement rather than an inconsistency.
+        Detail in `PROJECT_STATUS.md`.
   - [x] **Descriptor semantics and accumulated search state**
         (`src/core/cpu/m68030/ap_m68030_desc.c`), `[030]` §9.5.1.1 pp. 9-20 ff.
-        Two facts that are easy to implement wrongly and that surface only once
-        an OS is running, so both are pinned before the walk exists:
-        the DT field is **context-dependent** — `$2`/`$3` describe the next
-        table's format in a pointer table but are *indirect descriptors* in a
-        page table, so a walk that ignores its level would follow an indirect
-        descriptor as though it were a table; and protection **accumulates**
-        down the tree, since "the states of all WP bits encountered during a
-        table search are logically ORed", making a permissive page reached
-        through a protected pointer still protected.
+        Detail in `PROJECT_STATUS.md`.
         *Verification: `desc_suite`, 23 tests — role resolution at both levels,
         the 4/8-byte next-table stride, upper and lower LIMIT with only its 15
         bits used, PAGE ADDRESS masking by `PS - 8`, WP/S/CI accumulation, WP
@@ -1768,10 +1322,7 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         `[030]` §9.4 pp. 9-17 ff. 22 entries, fully associative, with the tag
         (V, FC, 24-bit logical) and data (B, CI, WP, M, 24-bit physical)
         portions the manual specifies.
-        **An ATC hit must cost zero clocks** — "the translation time of the ATC
-        is always completely overlapped by other operations; thus, no
-        performance penalty is associated with ATC searches" — so all the time
-        lives in the miss, in the table search's bus cycles.
+        Detail in `PROJECT_STATUS.md`.
         *Verification: `atc_suite`, 17 tests — offset merged into the frame
         without translation, page size deciding how much of the tag is compared,
         FC as part of the tag, B faulting reads as well as writes, WP faulting
@@ -1811,18 +1362,7 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         against the oracle for the last undocumented half.*
   - [x] **MMU status register (`MMUSR`)**
         (`src/core/cpu/m68030/ap_m68030_mmusr.c`), `[030]` §9.7.4 pp. 9-59 f.
-        and Table 9-3. One name over two different registers: the bits mean
-        different things depending on whether `PTEST` searched the ATC (level 0)
-        or the tables (levels 1-7), and a bit one form defines the other clears
-        outright. Two constructors rather than one with a mode flag, so neither
-        can produce the other's answer.
-        **The bit layout is transcribed, not deferred** — Figure 9-38 lost its
-        field boxes to the scan exactly as Figure 9-37 did, but the `M68000
-        Family Programmer's Reference Manual 1992` gives it intact on the
-        `PTEST` page (p. 6-64): `B(15) L(14) S(13) 0(12) W(11) I(10) M(9) 0(8)
-        0(7) T(6) 0(5) 0(4) 0(3) N(2-0)`. The two documents cross-check — the
-        PRM's last named single bit is T, and the 68030 manual's surviving
-        column markers stop at 6.
+        Detail in `PROJECT_STATUS.md`.
         *Verification: `mmusr_suite`, 16 tests — every field packing to its own
         bit checked individually so a transposition cannot hide, the unassigned
         bits never set, round-trip through pack/unpack, and each column of
@@ -1834,11 +1374,7 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         hidden. §9.4's single B bit folds a bus error together with an invalid
         descriptor, but Table 9-3 reports them as different bits, so the walk
         now records the *cause* as well as the effect.
-  - "Undefined" is represented as zero, and it is a representation decision
-    rather than a claim: Table 9-3 marks W, S and M undefined when I is set, and
-    every other bit undefined when T is set. Clearing them keeps our output from
-    implying a guarantee the manual does not make — so an oracle diff must mask
-    those bits rather than treat a difference as a fault.
+        Detail in `PROJECT_STATUS.md`.
   - [x] The table walk itself: fetch descriptors through the bus, apply
         `ap_m68030_desc`'s rules, and fill the ATC. This is the piece that joins
         the four MMU modules together, and the first one whose *timing* is
@@ -1906,13 +1442,7 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
           serves for free. This is the join between `ap_m68030_walk` and
           `ap_m68030_atc`, and the point at which the "hit costs nothing, miss
           costs the search" claim becomes measurable end to end.
-          A *failed* search fills an entry too, rather than leaving the address
-          uncached: "If a limit violation is detected, the ATC is loaded with an
-          entry having the bus error (B) bit set." So a faulting address does not
-          re-run the table search on every access — the fault itself is cached,
-          which is a timing claim as much as a correctness one. B folds in all
-          four conditions §9.4 names: bus error, invalid descriptor, supervisor
-          violation, limit violation.
+          Detail in `PROJECT_STATUS.md`.
           *Verification: `walk_suite`, 7 further tests — a filled entry turning
           the next access into a hit at the right physical address, WP and CI
           reaching the entry, each of the three fault kinds cached as a faulting
@@ -1922,24 +1452,7 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
           that still forces a search, and refilling after that search makes the
           write free.*
     - [x] **Descriptor status bit positions: derived, and labelled as derived.**
-          `[030]` Figures 9-10 and 9-11 did not survive the scan below the
-          address fields, so unlike TTx and `MMUSR` there is no second document
-          that simply states the 68030's. The positions are therefore *derived*,
-          from five sources that agree, and `ap_m68030_walk.h` records the
-          argument so it can be checked rather than trusted:
-          the `MC68851 PMMU User's Manual 3ed` §5.1.5.3 gives every position in
-          prose; `[030]` §9.6 says the 68030 "is program compatible with the
-          MC68020/MC68851 combination" and its list of MMU differences does not
-          include descriptor format, which it could not omit if the bits moved;
-          the features it *does* list as absent — access levels, gates, lockable
-          entries, shared-globally — are exactly the 68851 bits the 68030 has no
-          field for, leaving precisely the 68030's set; `[030]` Figure 9-10 does
-          survive in raw extraction as far as `TABLE ADDRESS` at 31-4 over a
-          **4-bit** status, matching the 68851's U/WP/DT being the only status
-          bits a table descriptor carries; and `[030]` Table 9-3 independently
-          says `MMUSR`'s S comes from "the S bit of a **long** format table
-          descriptor or long format page descriptor", confirming the 68851's
-          placement of S at bit 40, long format only.
+          Detail in `PROJECT_STATUS.md`.
           *Verification: `walk_suite`, 7 further tests — short table and page
           descriptors decoding their different address widths and status sets, a
           table descriptor not decoding CI or M (page-descriptor fields whose bit
@@ -1981,8 +1494,7 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         shapes the module: per-line validity would make a burst fill and a
         single-entry fill indistinguishable, and those cost very different
         numbers of bus cycles. It would also make `CEI`/`CED` unimplementable.
-        The function code is part of the tag in *both* caches, which is what
-        lets them survive a supervisor/user switch unflushed.
+        Detail in `PROJECT_STATUS.md`.
         *Verification: `cache_suite`, 19 tests — the A7-A4/A3-A2 split, the
         function code distinguishing otherwise identical addresses, a
         single-entry fill leaving its three neighbours invalid against a burst
@@ -2001,12 +1513,7 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         invalidate a previously valid entry or entries"). Both halves are tested
         separately, including that a sub-long-word write miss *removes*
         information rather than adding it.
-  - Note: `CACR`'s bit positions are transcribed from §6.3.1's prose ("Bit 13,
-    the WA bit", "Bit 9, the FD bit", …) rather than from Figure 6-14, so this
-    register needed no derivation. `CD`, `CED`, `CI` and `CEI` are modelled as
-    *actions* performed by the write rather than as fields, since all four "are
-    always read as zero" — storing them would invent a readable bit the hardware
-    does not have.
+        Detail in `PROJECT_STATUS.md`.
   - [x] **The cache's half of the timing join: the `CBREQ` decision**, `[030]`
         §7.3.7. Whether a miss asks the memory system for a whole *line* rather
         than one long word, which is worth 5 clocks against 8 and so misprices a
@@ -2016,8 +1523,7 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         invalid". The second is the one easily left out — a line whose tag
         matches but whose entries were all cleared still bursts, and without it
         a cleared cache would refill an entry at a time and never burst at all.
-        Suppressed by a clear `DBE`/`IBE`, a disabled cache, a frozen cache, or
-        any read-modify-write cycle.
+        Detail in `PROJECT_STATUS.md`.
         *Verification: `cache_suite`, 4 further tests — each condition on its
         own, the matching-tag-all-invalid case against its complement (one valid
         entry is enough to stop the burst), and all four suppressors checked
@@ -2100,9 +1606,7 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         external priority encoder §7.7 requires the board to supply, with
         `008778-03` §2.4.6's order — "DRQO having the highest priority and DRQ7
         having the lowest" — and the processor beneath all of them.
-        `arbiter_suite`, 9 tests, including the contention measurement Phase 3
-        asks for. Grant and acknowledgement are kept as separate instants, and
-        a master is never pre-empted mid-transfer.
+        Detail in `PROJECT_STATUS.md`.
   - [ ] Remaining: the two routes `008778-03` §2.4.7 gives an I/O adapter for
         *reaching* the arbiter — a DMA channel in cascade mode plus MASTER.L,
         and the Series 4000 Master Request Register. Both need transfers, and
@@ -2164,9 +1668,7 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         `008778-03` Table 2-8 gives addresses only, and the handbook carrying
         the bit layouts is not in `docs/references/`. `tools/mame-oracle/regprobe.lua`
         drives every bit in both directions; `FINDINGS.md` C10 has the table.
-        Width, aliasing and which bits are storage are now known — the cache
-        control register is a *byte* mirrored across a 16-bit read, which a
-        transcription would have got wrong.
+        Detail in `PROJECT_STATUS.md`.
   - [x] The four registers measurement covers: CPU status (bit 15 stuck,
         write-clears the latched bits), CPU control and latch-page-on-parity
         (16 bits of storage each), cache control (a mirrored byte, one writable
@@ -2201,8 +1703,7 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         three operation command words, fully nested priority with both
         rotations, edge and level triggering, special mask mode, special fully
         nested mode, poll, automatic EOI, and the spurious level 7.
-        `i8259_suite`, 28 tests against `8259A` 231468-003. MCS-80/85 vectoring
-        is refused rather than approximated.
+        Detail in `PROJECT_STATUS.md`.
   - [x] The Apollo pairing at `011000` and `011100`, cascaded on **IR3** —
         not IR2 — with vector bases `A0` and `A8` giving the sixteen levels the
         contiguous range `A0`-`AF`. `intr_suite`, 12 tests.
@@ -2211,8 +1712,7 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         `tools/mame-oracle/writetrace.lua` watched the boot PROM write them:
         master ICW3 `08`, slave ICW3 `03`, agreeing on IR3. With the cascade
         there, Table 2-3 is plain fixed priority and carries no anomaly at all.
-        What had been imported was the AT convention that the cascade lives on
-        IR2. `FINDINGS.md` C11.
+        Detail in `PROJECT_STATUS.md`.
   - [x] **The CPU interrupt level is 6**, measured. Neither manual states it,
         and an idle boot cannot show it because nothing requests — so the
         interval timer was started by hand to make something request, and a
@@ -2224,17 +1724,7 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         `dn3500` installs a `cpu_space_map` covering `FFFFFFF2-FFFFFFFF`, which
         is CPU space and therefore invisible to a program-space tap. That is why
         no read ever appeared on the controller's range.
-        - The handler is not uniform. At **level 6 it returns the 8259's
-          vector**; at every other level it returns the autovector. So this
-          machine mixes the two, and level 6 is exactly the CPU interrupt level
-          this project measured separately — the two findings meet.
-        - What that means for us: `ap_m68030_iack_t`'s three outcomes
-          (autovector, device vector, spurious) are the right shape, and the
-          board's acknowledge must answer *device vector* for level 6 and
-          *autovector* for the rest, rather than choosing one policy.
-        - Read off the oracle's source rather than measured from a run, because
-          an idle boot never requests an interrupt — the same reason the level
-          itself needed a deliberate probe.
+        Detail in `PROJECT_STATUS.md`.
 - [ ] Two AT DMA controllers. *Verification: transfer probes; device request
       lines gate DMA at block granularity, not per word.*
   - [x] Placement measured before writing anything: DMA 1 at `010C00` **stride
@@ -2248,7 +1738,7 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         four channels with base and current registers, the single shared
         first/last flip-flop, command/mode/request/mask/status/temporary,
         master clear, autoinitialise reload and mask-on-terminal-count.
-        `i8237_suite`, 18 tests.
+        Detail in `PROJECT_STATUS.md`.
   - [ ] Transfers. Blocked on the shared arbitration point below, and cleanly
         so: every register above is programmable and observable without a byte
         moving, which is exactly what firmware does to a controller it has not
@@ -2299,9 +1789,7 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         with a full Gregorian carry (century rule included, since the part's
         two-digit year cannot distinguish 1900 from 2000), the alarm with
         `11XXXXXX` don't-care codes, and Register C's read-to-clear.
-        `mc146818_suite`, 21 tests. Time comes from the caller — the oracle
-        seeds its calendar from the **host clock**, and copying that would make
-        the state hash differ on every run.
+        Detail in `PROJECT_STATUS.md`.
   - [x] The calendar wired into the board at `010900`: stride 1 and byte
         consecutive (measured — the timer beside it is odd-address stride 2, so
         neither could be inferred from the other), sixty-four registers aliased
@@ -2548,29 +2036,7 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         computes `data[2] + data[4] + data[6]` and compares it against
         `data[30]`. Three bytes summed, not sixteen, and a **sum** rather than
         an exclusive-or.
-        - The byte positions corroborate the placement this project measured
-          independently: the identifier sits at even offsets `2`, `4`, `6` — the
-          node ID PROM reads zero on odd bytes, which is the decode that had to
-          be corrected after being copied from the SIO — and the checksum is at
-          offset `30`, the last even byte of sixteen registers.
-        - The item said "a PROM with a non-zero byte elsewhere would settle it".
-          It did not need one: the oracle's loader states the rule directly, and
-          reading it cost one grep against a question that had been waiting for
-          media that may not exist.
-        - **Then verified on the real PROM we hold.** `3500_NI_1C874.bin` is 32
-          bytes: `00 00 01 00 C8 00 74 00` then zeros, with `3D` at offset 30.
-          `01 + C8 + 74 = 13D`, and `3D` is what offset 30 contains. The rule
-          taken from the oracle's source is confirmed against hardware data.
-        - Two more things fall out of the same eight bytes. The node ID reads
-          `01C874` from offsets 2, 4 and 6 — and the file is named
-          `3500_NI_1C874.bin`, so the identifier is confirmed by its own
-          filename. And every odd byte is zero, which is the decode this project
-          had to *correct* after copying the SIO's byte-pairing: the node ID
-          reads zero on odd bytes, and here is the PROM saying so.
-        - Three confirmations from one 32-byte file that has been in `roms/`
-          throughout: the checksum rule, the identifier's placement, and the odd
-          byte decode.
-
+        Detail in `PROJECT_STATUS.md`.
 ## Phase 4 — Storage, then a first boot
 
 - [ ] **OMTI 8621 ESDI/floppy controller** — one controller for both, and the
@@ -2592,42 +2058,7 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         aliased through 1 KB on its own period, on IRQ14 and IRQ6. The 74 KB gap
         is asserted as the window's arithmetic rather than as two constants, so
         the *rule* is what is pinned. `disk_suite`, 6 tests.
- Placement characterised (`FINDINGS.md` C20): `04D000`, aliased
-      on an eight-byte period, offsets 1-3 driven, offsets 0 and 4-7 reading
-      `FF` which a read sweep cannot tell from undriven. **No manual for this part has been found yet**, and three plausible
-      candidates have been eliminated (`FINDINGS.md` C20): bitsavers'
-      `8621_AT_ESDI/` holds only ROM dumps and photographs; the *OMTI 8000
-      Series* reference covers models 8100/8200/8500/8600, not the 86xx; and the
-      *OMTI 8640* manual covers only the 8640 and describes the standard AT task
-      file at `1F0`, which does not match Table 2-9's `1A0` or C20's measured
-      three driven registers. The oracle calls the part "OMTI 8621 ESDI/floppy
-      controller **(Apollo)**", so it is likely an Apollo variant with its own
-      interface. **But the fourth candidate is the right family:**
-      `OMTI_AT_Controller_Series_Jan87` covers the **OMTI 8620**, "Winchesters
-      ESDI and ST506/412 (MFM) and Flexible Disks" — the DN3500's part in all but
-      its last digit, and the only candidate describing a combined ESDI/floppy
-      controller. §4.1 addresses the **862X**
-      family, not just the 8620, so the 8621 is covered outright. §4.2 gives the
-      fixed disk **four registers** with different meanings read and written,
-      "normally located at the I/O address listed in table 4-1 but may be altered
-      by jumpers" — which matches C20's three-driven-of-four and accounts for
-      Apollo's `1A0` without an Apollo-specific variant. Tables 4-1 and 4-2 are
-      **transcribed** in `FINDINGS.md` C21 — four ports with distinct read and
-      write meanings, the status register's bits, and the C/D bit that switches
-      the data register between 8 and 16 bits wide. The measured `C0` at the
-      status port is exactly Table 4-2's two "Not Used (Set to 1)" bits for an
-      idle controller, so manual and machine agree on a byte. Table 4-3 is transcribed too
-      (`FINDINGS.md` C22): the floppy half is a **conventional PC floppy
-      interface** at `3F2`-`3F7` or `372`-`377`, quite unlike the fixed-disk
-      side — one card, two programming models. Still to transcribe: Sections 5
-      and 6, the two command sets. And still to **measure**: where Apollo maps
-      the floppy half. **Found at `05F800`** — 74 KB from the
-      fixed-disk half, not beside it. Decodes against Table 4-3 with the block
-      base at AT `3F0`, and the Digital Input Register reads `80`, the
-      no-media bit the manual predicts. This also yielded the window's general
-      rule, `Apollo = 0x040000 + AT x 0x80`, fitting all three placed devices
-      (C22, C23).
-      Note §4.1's shape — floppy and fixed disk are **two independent register
+        Detail in `PROJECT_STATUS.md`.
       sets** running concurrently, not one controller with a mode bit. *Verification: DMA-completion device shape — transfer now,
       schedule completion in emulated time; oracle diff.*
       **Corrected at the Phase 4 boundary.** This item used to read "Winchester
@@ -2673,8 +2104,7 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         accesses** (`FINDINGS.md` C29).
   - [x] `ORI`/`ANDI`/`EORI` to `SR` and `CCR` implemented — all six were
         missing together. The PROM goes from 20 instructions to **35**.
-        `step_suite`, 3 new tests including the `ANDI to CCR` case that would
-        otherwise drop the machine out of supervisor state.
+        Detail in `PROJECT_STATUS.md`.
   - [x] Investigated the `000028D0` stop, and it was **neither** `CMPI` nor
         `(d16,An)`: the step was reporting a **bus fault as an unimplemented
         instruction**. Executors signal both with a bare `false`, and the caller
@@ -2699,16 +2129,7 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         the device ID register at offset 1 of each. The four screen types are
         `C4P=8`, `19I=9`, `C8P=10`, `15I=11`, which is exactly what the boot PROM
         compares against at `000028D0` onward. `graphics_suite`, 6 tests.
-        - **The blocks decode whether or not a screen is fitted.** With none, the
-          ID reads `FF`, matches no type, and the firmware moves on. This is the
-          fact whose absence sent an investigation after a phantom bug in the
-          exception path: "nothing is fitted" and "nothing is there" are
-          different answers, and only the second is a bus error.
-        - Each block answers only for its own family, which is how the firmware
-          tells which controller is present — it reads both.
-        - Only identification is modelled, and the header says so. Unmodelled
-          registers read `FF` rather than zero, because zero is a value several
-          of them can legitimately hold.
+        Detail in `PROJECT_STATUS.md`.
   - [x] The boot PROM reaches **425 instructions**, up from 89, with the display
         probe answered.
   - [x] `00090000` is **AT bus memory**, not unmapped. The oracle's map gives
@@ -2726,25 +2147,9 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         ours when taking the trap *is* the complete behaviour. No `A000-AFFF`
         word is an instruction on any member of the family; the range exists to
         be trapped. `step_suite`, 3 tests.
-        - The third test is the one that matters: an **MMU** instruction this
-          model has not implemented must still report `UNIMPLEMENTED`, because
-          the MMU is fitted and the real part would execute it. Raising F-line
-          there would dress our own gap up as correct hardware behaviour, and
-          convincingly — firmware would take a plausible exception and carry on,
-          and the gap would stop being visible.
-        - The PROM goes from 425 instructions to **2788**.
+        Detail in `PROJECT_STATUS.md`.
   - [x] Main memory's *name* now stops where its address space does.
-        `AP_BOARD_RAM_LIMIT` is `03FFFFFF`, the largest RAM a DN3500 takes —
-        the oracle builds its map with `DN3500_RAM_END` at `017FFFFF`,
-        `01FFFFFF` or `03FFFFFF` for 8, 16 or 32 Mbyte, so the base is fixed and
-        the *space* ends at the largest. `FFFF060E` now prints "unmapped".
-        - Inside the space but past the memory fitted is still *named* main
-          memory: the address decodes to memory, there is simply no SIMM there,
-          and the read refuses it. The same shape as an empty AT bus slot.
-        - Only the name was ever wrong; the read path bounds-checked correctly
-          throughout. That is why it was worth fixing rather than shrugging at —
-          the region enum exists to answer "what did the firmware reach for",
-          and a confident wrong name is what a reader acts on. `board_suite`.
+        Detail in `PROJECT_STATUS.md`.
   - [x] `--boot-limit N` on the headless frontend, to stop a boot short. Without
         it the only observable is the end state, and an end state cannot say
         which instruction produced it — a wild PC looks identical however far
@@ -2771,16 +2176,7 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         trace shows `CLR.B $00011600` bus erroring on every pass through the
         PROM's reset path, each fault draining a frame off a 384-byte supervisor
         stack until A7 descended past `01000000` and the `RTS` popped garbage.
-        `011600` is the **master request register** and `011300` the latch-page
-        register: `ap_boardreg.h` has defined both since it was written, and the
-        map routed only the four contiguous ones at `010000-0103FF`. Two
-        registers existed, had their own `boardreg_suite` tests, and were
-        unreachable through the machine.
-        - That is the failure a contiguous range invites: it looks like it
-          covers a device and silently covers only the contiguous part.
-        - **The boot PROM now runs 100000 instructions with zero bus errors**,
-          up from 2788, and is still executing at the limit. `board_suite` has a
-          test that all six registers are reachable.
+        Detail in `PROJECT_STATUS.md`.
   - [x] Raised the limit. **5000000 instructions, zero bus errors, zero unmapped
         accesses, zero empty-slot accesses.** The machine is executing real
         firmware cleanly through its own address map for as long as we let it.
@@ -2788,12 +2184,7 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         entries against 7399 `DBF` executions in 20000 instructions, so ~493 per
         entry. **`DBF` terminates correctly** and the spin is above it.
   - [x] **Found it, and it retracts the "5000000 clean instructions" reading.**
-        At step **57** an `RTS` at `00002946` returns to `00000000`. Everything
-        after that is the machine walking the vector table at address 0 as
-        `ORI.B` instructions, four bytes at a time, forever. It never faults —
-        `ORI.B` on D0 over readable PROM is harmless — which is exactly why five
-        million instructions with zero bus errors looked like success.
-        **The zero-fault run was a runaway, not a boot.**
+        Detail in `PROJECT_STATUS.md`.
   - [x] Tested the A6/stack-overlap hypothesis by tracing A6, and **it is
         refuted**. A6 is `01000180`, set deliberately by a `LEA` at step 8, and
         the firmware indexes it with *positive* offsets while the supervisor
@@ -2838,20 +2229,7 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         along with the ones it had. The entry held neither the old value nor the
         new one. The written bytes are now merged into their own lanes,
         big-endian, and the rest of the entry is left alone.
-        - "Regardless of the operand size" means the write reaches the cache
-          whatever its size, not that it replaces the whole entry.
-        - A blanket invalidate was tried first and was **too crude**: it made a
-          byte write hit lose the rest of the line, which `access_suite` caught.
-          Invalidating looks safe — it can only remove information — and is
-          still wrong when the manual says the data is written.
-        - `access_suite` was passing `true` as the *size* argument of a write.
-          The old whole-entry overwrite made a one-byte write of a long value
-          behave like a long write, so that test passed for the wrong reason for
-          as long as the bug existed. Corrected to `4u`. A test a bug keeps
-          green deserves more suspicion than one it turns red.
-        - The reproduction is back in `step_suite` as a passing test, and also
-          asserts the neighbouring bytes survive — a fix that invalidated rather
-          than merged would satisfy the value assertion and fail that one.
+        Detail in `PROJECT_STATUS.md`.
   - [x] Characterised the 129 bus errors, and **they are the PROM's self-test**
         (`FINDINGS.md` C33). MAME's `apollo_unmapped_r` calls
         `apollo_bus_error()`, so an unmapped read really does fault on a DN3500
@@ -2865,17 +2243,7 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         defect; an address can. The first unmapped read is `FFF90000`, high
         space, in the range MAME leaves commented out as `apollo_f8_r/w`.
   - [x] Characterised `FFF90000`, and **our behaviour matches the oracle**.
-        `F8000000-FFFFFFFF` has a handler in MAME's source, `apollo_f8_r`,
-        returning `FFFFFFFF` without a fault — but the map line that would
-        install it is **commented out**, so the catch-all applies and a DN3500
-        bus errors there. That is what we do.
-        - MAME labels the region "used by fpa and/or color7?" — with the
-          question mark. The oracle is *itself* unsure what lives there, so the
-          identity is recorded as uncertain rather than asserted. What is not
-          uncertain is the behaviour, which is what we needed.
-        - So the firmware probes for a floating-point accelerator, gets a bus
-          error, and concludes none is fitted. Consistent with C33: this is a
-          probe answered correctly, not a device missing.
+        Detail in `PROJECT_STATUS.md`.
   - [ ] If an FPA is ever modelled, `F8000000-FFFFFFFF` is its space — and the
         commented-out handler is a hint that returning `FFFFFFFF` there was
         tried and not kept. Find out why before repeating it.
@@ -2891,28 +2259,13 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         `ap_sio_decode` shifts the offset right by one, giving register 1 —
         the MC68681's **status register A**, whose bit 0 is **RxRDY**. The
         firmware is waiting for a character on the second serial port.
-        - The `MOVE.L #$F0,D4` just above looks like a timeout counter, but the
-          `BEQ` returns to `0000078E`, *before* the instruction that loads it,
-          so D4 is reloaded every pass. The wait is genuinely unbounded.
-        - So both the firmware and our machine are behaving correctly. What is
-          missing is a character, and `src/frontend/headless` has no host input
-          by design — "deterministic: no wall clock, no host input, no threads".
+        Detail in `PROJECT_STATUS.md`.
   - [x] `--boot-input TEXT`, delivering a byte sequence to SIO2 channel A as the
         firmware takes each one. `ap_sio_receive` and `ap_sio_receiver_ready`
         expose the DUART's receiver through the board; the bytes are decided
         before the run starts, so determinism is untouched — a `getchar()` here
         would have ended the reason this frontend exists.
-        - Delivery **retries until the receiver accepts**. A DUART whose
-          receiver is still disabled drops the byte, and the firmware enables it
-          long after reset, so a script that advanced regardless delivered its
-          whole text into a switched-off port and then waited forever for the
-          first character. That is exactly what the first attempt did, and it
-          looked identical to the input never being wired up at all.
-        - Readiness is read through the **status register the program polls**,
-          not from the FIFO, so the helper cannot disagree with the machine
-          about whether a byte is waiting.
-        - With a newline delivered, the PROM leaves `000007AE` and reaches
-          `00000794`. Without input it still stops at `000007AE`, unchanged.
+        Detail in `PROJECT_STATUS.md`.
   - [x] Established: it is a **console read loop**, and it is responsive. The
         loop polls *both* ports — `BTST #0,($2,A0)` is SIO1's status register A
         and `BTST #0,($102,A0)` is SIO2's — so the firmware waits for a
@@ -2924,10 +2277,7 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         stream, drained from both ports and both channels every step and written
         straight to stdout. `sio_suite` covers the path in both directions,
         through the registers a program actually writes and reads.
-        - The output test exists because **a silent run is ambiguous**. It can
-          mean the firmware has not printed, or that the path from the
-          transmitter is broken, and those need opposite responses. With the
-          path proven, silence is evidence about the firmware.
+        Detail in `PROJECT_STATUS.md`.
   - [x] **And the PROM is silent** — 300000 instructions, nothing transmitted on
         either port or channel. That is now a fact about the firmware, and the
         next question. Possibilities, none yet established:
@@ -2936,10 +2286,7 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         - it has decided neither port is the console, having found something it
           did not expect while probing;
         - its console is not a DUART port at all on this configuration.
-        Watch writes to the transmit buffers rather than guessing — the same
-        move that has settled every other question here.
-        - Answered: it is waiting for a character, not unable to print. Fed one on
-          the port it autobauds, the oracle prints `CR LF "MD7"` (`FINDINGS.md` C45).
+        Detail in `PROJECT_STATUS.md`.
   - [x] Per-region access counts on the board, reported by the frontend. The
         completion of C33: a count of *failures* cannot answer "what did the
         firmware want", because the interesting case is usually a device that
@@ -2954,19 +2301,7 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
   - [x] The table also shows what the firmware has *not* touched, which is the
         half a total cannot give: **no timer and no calendar accesses at all**,
         and the interrupt controllers written 10 times but never read.
-        **Expected**, and answered by work done since rather than by a new run:
-        that trace ends in the console poll loop at `000007AE`, waiting for a
-        character. The firmware configures the interrupt controllers, probes its
-        buses and its display, and then *stops* to ask which console it has. It
-        has not begun anything that needs a clock, so a timer never read and a
-        calendar never touched is what a machine at that point looks like.
-        - The interrupt controllers being written and never read fits the same
-          picture: initialisation command words are write-only on the 8259A
-          (which is why `writetrace.lua` exists at all), so ten writes and zero
-          reads is a part configured and not yet serviced.
-        - Worth keeping as a check rather than deleting: if a later run reaches
-          past the console poll and *still* shows zero timer accesses, that is a
-          real absence rather than an early one, and this line says what changed.
+        Detail in `PROJECT_STATUS.md`.
   - [x] `--boot-input-port N`, because the poll tests *both* DUARTs and branches
         differently for each — which port carries the console is a question the
         firmware answers, not one to assume. Every run until now fed SIO2, which
@@ -2975,7 +2310,7 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         moves the PROM from the poll loop to `0000220C`, an entirely new region,
         and the serial region goes from 38 writes to **11839**. Main memory
         writes go from 43328 to 177894 and core register writes from 7 to 2368.
-        The firmware is doing substantial work it was not doing before.
+        Detail in `PROJECT_STATUS.md`.
   - [x] **Settled: the PROM never transmits.** Per-register write counts show
         register 3 and register 11 — the two transmit buffers — with **zero
         writes on both ports**. Our capture was correct and there was nothing to
@@ -2988,8 +2323,7 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         preload registers written once each. That is the shape of something
         driving the DUART's **counter/timer**, which in this model never
         advances because nothing ticks.
-        - Answered: not a counter/timer — its registers have zero *reads*. It is
-          the firmware cycling `CSRB` between `77` and `BB` (`FINDINGS.md` C42).
+        Detail in `PROJECT_STATUS.md`.
   - [x] **Refuted: it is not the counter/timer.** Per-register *read* counts —
         which matter more than writes on this part, since reading register 14
         starts the counter and 15 stops it — show the counter registers 6 and 7
@@ -3001,13 +2335,7 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         auxiliary control register once and clock-select B twice, about 2362
         times — with **no reads at all** on those registers. A loop that writes
         and never reads is not testing anything it can see.
-        - The interrupt controllers are **written 10 times and never read**, and
-          this machine delivers no interrupts because nothing ticks. A loop that
-          cannot end on anything it reads may be waiting to be interrupted.
-        - The tick loop is *not* established as the answer either. Reading the
-          code came first, and it says something else.
-        - Answered: it is the channel B autobaud, a rate search rather than a
-          wait for anything readable (`FINDINGS.md` C42).
+        Detail in `PROJECT_STATUS.md`.
   - [x] Read the loop at `0000220C`. It is three instructions —
         `CMP.B (d8,PC,Xn),D1`, `BEQ`, `DBF` — a **table search**, comparing the
         received byte against a table at `000021D2`. The table is
@@ -3025,50 +2353,18 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
   - [x] **Established: the display is the console.** MAME's `dn3500()` wires the
         stdio terminal only inside `#ifdef APOLLO_XXL`, so a stock DN3500 has
         **no serial terminal at all** — just the keyboard on serial 1 channel A.
-        Nothing consumes the SIO's transmit. That is why registers 3 and 11 have
-        zero writes: the firmware has nowhere to print *because there is no
-        terminal*, not because it is stuck.
-        - The two hints that pointed here are now one confirmed fact, and the
-          confirmation came from a preprocessor guard rather than from anything
-          the machine did. Worth noting: no amount of tracing our own run could
-          have found it.
+        Detail in `PROJECT_STATUS.md`.
   - [x] The **graphics memories decode**: `0A0000-0BFFFF` colour and
         `FA0000-FDFFFF` monochrome, matched *before* the AT bus windows.
-        - Both sit **inside** the AT bus memory window, so the board was
-          reporting the machine's own frame buffer as an empty expansion slot.
-          The I/O window had this hazard and a test; the memory window had the
-          hazard and no test, because until the memories were named there was
-          nothing inside it to swallow.
-        - No device suite could have caught it — they call the device directly
-          and the device was right. Only a test of the *map* sees it, and
-          `board_suite` has one now.
-        - It was not hypothetical: in the PROM run 384 accesses move from
-          "AT bus (empty slot)" to "display controller". The firmware was
-          touching its frame buffer and we were mislabelling it.
+        Detail in `PROJECT_STATUS.md`.
   - [x] The graphics memories **store**, caller-owned as main memory is — this
         core allocates nothing. `ap_graphics_attach_memory` takes either or
         both, which is what a machine with one controller and not the other has.
-        - Three distinct ways to have nothing behind an address — no card of
-          that family, no memory attached, an offset past what was attached —
-          all read `FF`, and each has its own assertion. It would be easy to
-          handle the first and leave the others reading whatever the pointer
-          happened to be.
-        - The bound is **checked, not assumed from the region size**: a region
-          is 128 or 256 Kbyte and an attached buffer need not be, so a write
-          past the end would run off it.
-        - Storage only. A write and read back proves the memory works and says
-          nothing about a display; the header and the test both say so, because
-          a green round-trip is exactly what a working screen would also
-          produce.
+        Detail in `PROJECT_STATUS.md`.
   - [x] `--screen c4p|c8p|19i|15i` fits a display, allocating the graphics
         memories in the frontend — only when one is fitted, so a machine without
         a screen has *no* frame buffer rather than an empty one.
-        - The firmware behaves differently per type, which is the check that the
-          ID register is being read and believed: `19i` reaches `00000798`,
-          `c8p` reaches `000046BC`.
-        - With `c8p` fitted the display controller takes **803 writes**, up from
-          zero. The firmware initialises a display it has found, and every one
-          of those writes previously had nowhere to go.
+        Detail in `PROJECT_STATUS.md`.
   - [x] The **control register mode fields**: `CR0` bits 7-5 select one of eight
         operating modes, `CR2` bits 7-6 one of four access modes. A pure data
         module — names and bit positions — because that part can be got right
@@ -3076,26 +2372,11 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         defect that survives every test of the thing above it: the blitter would
         run a real mode, just not the one asked for, and only a picture would
         show it. `graphics_suite`, 2 tests.
-        - CR0 modes 5 and 6 and CR2 access 2 are `???` in the oracle's own
-          source. That is the state of the knowledge, not a gap in the
-          transcription, so they are named **UNKNOWN** rather than given a
-          plausible label — a guess would be indistinguishable from a fact until
-          firmware exercised it. Asserted, so it cannot be quietly filled in.
+        Detail in `PROJECT_STATUS.md`.
   - [x] `CR0`'s **shift field** (bits 4-0) and `CR1`'s bits. Two gaps in the
         mode-field commit above, found by reading the oracle's definitions
         rather than by using them.
-        - `CR0` carries *two* fields. Decoding only the mode left bits 4-0
-          reading as part of neither, and the test now pins both together — a
-          mode decode that forgot to shift would pick up the shift bits, and a
-          shift that forgot to mask would pick up the mode.
-        - `CR1`'s top two bits **mean different things per family**: `INV` and
-          `DADDR_16` on monochrome, `AD_BIT` and `DV_CK` on 4- and 8-plane
-          colour. Named per family rather than one set of names with a comment,
-          because a single name would be silently wrong on half the machines —
-          and wrong in the direction that still runs, since the bit would be
-          read, believed, and mean something else.
-        - Both registers are asserted to account for **every** bit, so a field
-          added later cannot overlap one already there.
+        Detail in `PROJECT_STATUS.md`.
   - [ ] The rest of those 803 writes: `CR2`/`CR3`'s remaining fields, the
         blitter's five defined modes and the colour lookup table. Verify on a
         decoded PNG, not on register round-trips.
@@ -3205,25 +2486,7 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         the count — read-only writes and both AT bus empty-slot directions,
         matching the unmapped pair. Applied before an investigation needed it
         rather than during one, which is the point of C33's rule.
-        - It paid immediately: the empty-slot scan's first read is `00080000`,
-          exactly `AP_BOARD_ATBUS_MEMORY_BASE`, so the firmware's 15872 reads
-          are a systematic sweep of AT bus memory from its base — an expansion
-          ROM search, as suspected when the window was added, and now shown
-          rather than assumed.
-        - `board_suite` asserts the address for each counter, including that the
-          *first* rom write survives a second one.
-        question from what happens when it does. Check what it tests before
-        jumping — do not assume the jump is unconditional.
-        - **Answered from the counters, not a new run.** The AT bus empty-slot
-          reads begin at exactly `00080000`, `AP_BOARD_ATBUS_MEMORY_BASE`, and
-          number 15872 — a systematic sweep of the window from its base. A jump
-          to `00090000` is a step *within* that sweep, so it is conditional on
-          what the scan found there and not an unconditional branch into empty
-          space.
-        - Which also explains why it stopped mattering: once the window decoded
-          and read `FF`, the scan found nothing at `00090000`, the `FFFF` there
-          took the F-line trap, and the firmware carried on. The question was
-          worth asking and the answer is that the machine was already right.
+        Detail in `PROJECT_STATUS.md`.
   - [ ] The rest of the display controllers: the blitter and the colour lookup
         table. Verify on a decoded PNG rather than on register round-trips — a
         controller that passes register tests and draws nothing is the standard
@@ -3245,34 +2508,14 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         encoding that counts bytes *remaining* (so a long word is zero), the
         FC2-FC0 address space, and Table 8-6's field offsets for both fault
         frames. `ssw_suite`, 11 tests.
-        - The encoder applies "a rerun bit is always set when the corresponding
-          fault bit is set" itself, rather than trusting call sites: FB without
-          RB claims stage B is invalid but needs no prefetch, leaving a stale
-          word in the pipe on RTE.
-        - A rerun *without* a fault stays expressible, because that is exactly
-          how an address error is distinguished from a bus error.
-        - `ap_m68030_bus_fault_frame()` decides the frame from the SSW rather
-          than taking it as a parameter, because §8.2.2's "data read faults only
-          generate the long bus fault frame" is structural — the short frame has
-          no data input buffer, so a read fault stacked into it is unrepairable.
-        - Fields Table 8-6 labels INTERNAL REGISTER are deliberately not named.
-          This model has no source for the processor's microsequencer state, and
-          naming an offset for a field we would fill with a guess is how a guess
-          becomes load-bearing.
+        Detail in `PROJECT_STATUS.md`.
   - [x] `ap_m68030_take_bus_fault()` — a faulting access now **takes** vector 2
         rather than stopping the step, building the `$A` or `$B` frame the SSW
         selects. The CPU records what faulted (address, size, direction,
         address space, and the value a faulted write carried) at the access,
         because by the time a status is chosen that detail is gone and a handler
         given the wrong address repairs the wrong location.
-        - Every word of the frame is *written*, internal registers as zero.
-          Filling only named fields would leave whatever the stack already held
-          in the gaps, and a handler reading those acts on the previous
-          program's data. Zero is a stated value; a skipped word is not.
-        - The stacked PC differs by frame, and Table 8-6 is explicit: `$A` is
-          "at instruction boundary" and stacks the *next* instruction, `$B` is
-          "instruction execution in progress" and stacks the instruction that
-          was running.
+        Detail in `PROJECT_STATUS.md`.
   - [x] `RTE` from a `$A`/`$B` frame. Returning to the stacked PC re-executes
         the faulted instruction from the start, which is **exact** when the
         faulted access precedes any side effect — the common case, and every
@@ -3284,17 +2527,9 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         had no way to refuse it — no write could raise a bus error, and an
         exception frame stacked into undecoded space succeeded. A signal a
         callee cannot send is one the caller assumes never happens.
-        - `ap_m68030_access` reports the fault **before** updating the cache. A
-          cache holding a value external memory refused hands it back on a later
-          read, which is how a silently dropped write becomes a wrong *read*.
-        - This closes the "write side of `access_faulted` is unreachable" tail
-          recorded two items ago: `step_suite` now covers a faulted write taking
-          the **short** frame (its value is in the data output buffer, which the
-          short frame carries) and the refused write not surviving in the cache.
+        Detail in `PROJECT_STATUS.md`.
   - [x] The boot PROM reaches **89 instructions** — an honest reading this time.
-        The fault at `000028D0` is taken, the PROM's own handler at `00000404`
-        runs, and the run ends in a **double fault** when the exception stack
-        runs off the bottom of main memory. Bounded and deterministic.
+        Detail in `PROJECT_STATUS.md`.
   - [x] **Address error (vector 3)**, which shares these frames and was defined
         but never raised. §8.1.3: "An address error exception occurs when the
         processor attempts to prefetch an instruction from an odd address."
@@ -3303,43 +2538,15 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
           check is on the program counter alone. Applying it to operands would
           fault programs the hardware runs, and there is a test for exactly that
           so the 68000's rule cannot creep back in.
-        - "A bus cycle is not executed", so the check happens before the pipe is
-          touched: no prefetch is attempted and no bus error is counted. Tested
-          by counting fills — an implementation that let the prefetch go out
-          first would pass every other assertion.
-        - The SSW carries the rerun bits **without** the fault bits, which is
-          what distinguishes an address error from a bus error in the frame.
-        - `step_suite`, 3 tests. The PROM is unchanged at 89 with an identical
-          state hash, which is the check that the change is additive.
+        Detail in `PROJECT_STATUS.md`.
   - [x] **A write to a read-only memory is absorbed, not refused** — a defect
         introduced when the store path gained the ability to fault, and caught
         by asking the oracle rather than by reasoning. `ap_board_write` returned
         `ok = false` for the PROM and node ID, which was harmless while no write
         could fault and became a spurious bus error the moment one could.
-        - MAME's DN3500 maps the boot ROM for **write** as well as read, to a
-          handler that only logs — and names our exact image in a comment about
-          a write to address `4` from PC `2c1c`. This firmware writes to its own
-          boot ROM and the hardware shrugs, so faulting there would break a
-          program the machine runs.
-        - Counted as `rom_writes`, apart from `unmapped_writes`: the two mean
-          opposite things. An unmapped write is an address nothing answers; this
-          is an address something answers and cannot store.
-        - A *missing* PROM is still unmapped in both directions. A board whose
-          absent PROM refuses reads but absorbs writes describes no hardware,
-          and that is the hole this rule grows if it is applied by region name
-          rather than by what is fitted. `board_suite`, 2 tests.
-        - The PROM run is unchanged at 89 with an identical state hash, so its
-          two unmapped writes were the stack leaving RAM, not PROM writes.
+        Detail in `PROJECT_STATUS.md`.
   - [x] **Resolved: there was never a handler bug** (`FINDINGS.md` C32).
-        `dn3500_map` maps the graphics controller registers, so a real DN3500
-        **answers** at `0005E801` and never faults there. The re-entry, the
-        stack running off the bottom of RAM and the double fault are all
-        artefacts of a device we have not built. Reading the PROM's handler felt
-        like progress and could not have reached this; one grep of the oracle's
-        map did.
-        - Recorded as a working rule: when the question is what the hardware
-          does, ask the oracle **before** reasoning, not after the reasoning
-          fails. Four findings in this chain resolved that way.
+        Detail in `PROJECT_STATUS.md`.
   - [x] The reset SSP question is answered by the same finding: the stack only
         ran off the bottom of RAM because faults were being raised that the real
         machine does not raise. `01000180` is not a stack the firmware is
@@ -3547,8 +2754,7 @@ discipline throughout.
 ## Phase 7 — Completing the model range
 
 - [x] Close the DN4500 clock `PROVISIONAL` from a cited configuration guide.
-      33 MHz, from `[CFG]`'s Series 4500 Product Summary; the conflicting 30 MHz
-      in `[CFG]`'s own overview table is recorded as a resolved discrepancy.
+      Detail in `PROJECT_STATUS.md`.
       *Verification: two independent citations in the same document, both
       recorded in `docs/PROJECT_STATUS.md`.*
 - [x] Add DSP4500, which `[CFG]` documents and the table was missing.
