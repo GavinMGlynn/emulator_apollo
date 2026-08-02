@@ -445,28 +445,93 @@ static const ap_m68040_iu_cell_t cells_20[AP_M68040_IU_MODE_COUNT] = {
     [15] = {true, 22u, {4u,18u}, AP_M68040_IU_ALTERNATE_NONE, 0u, {0u,0u}, {{AP_M68040_IU_CONDITION_NONE,0u,0u},{AP_M68040_IU_CONDITION_NONE,0u,0u}}},
     [16] = {true, 23u, {4u,19u}, AP_M68040_IU_ALTERNATE_NONE, 0u, {0u,0u}, {{AP_M68040_IU_CONDITION_NONE,0u,0u},{AP_M68040_IU_CONDITION_NONE,0u,0u}}},
 };
+static const char *const names_21[] = {"DIVS.W", "DIVU.W", NULL};
+static const ap_m68040_iu_cell_t cells_21[AP_M68040_IU_MODE_COUNT] = {
+    [0] = {true, 8u, {0u,27u}, AP_M68040_IU_ALTERNATE_NONE, 0u, {0u,0u}, {{AP_M68040_IU_CONDITION_NONE,0u,0u},{AP_M68040_IU_CONDITION_NONE,0u,0u}}},
+    [1] = {false, 0u, {0u,0u}, AP_M68040_IU_ALTERNATE_NONE, 0u, {0u,0u}, {{AP_M68040_IU_CONDITION_NONE,0u,0u},{AP_M68040_IU_CONDITION_NONE,0u,0u}}},
+    [2] = {true, 8u, {0u,27u}, AP_M68040_IU_ALTERNATE_NONE, 0u, {0u,0u}, {{AP_M68040_IU_CONDITION_NONE,0u,0u},{AP_M68040_IU_CONDITION_NONE,0u,0u}}},
+    [3] = {true, 8u, {0u,27u}, AP_M68040_IU_ALTERNATE_NONE, 0u, {0u,0u}, {{AP_M68040_IU_CONDITION_NONE,0u,0u},{AP_M68040_IU_CONDITION_NONE,0u,0u}}},
+    [4] = {true, 8u, {0u,27u}, AP_M68040_IU_ALTERNATE_NONE, 0u, {0u,0u}, {{AP_M68040_IU_CONDITION_NONE,0u,0u},{AP_M68040_IU_CONDITION_NONE,0u,0u}}},
+    [5] = {true, 8u, {0u,27u}, AP_M68040_IU_ALTERNATE_NONE, 0u, {0u,0u}, {{AP_M68040_IU_CONDITION_NONE,0u,0u},{AP_M68040_IU_CONDITION_NONE,0u,0u}}},
+    [6] = {true, 11u, {3u,27u}, AP_M68040_IU_ALTERNATE_NONE, 0u, {0u,0u}, {{AP_M68040_IU_CONDITION_NONE,0u,0u},{AP_M68040_IU_CONDITION_NONE,0u,0u}}},
+    [7] = {true, 8u, {0u,27u}, AP_M68040_IU_ALTERNATE_NONE, 0u, {0u,0u}, {{AP_M68040_IU_CONDITION_NONE,0u,0u},{AP_M68040_IU_CONDITION_NONE,0u,0u}}},
+    [8] = {true, 8u, {0u,27u}, AP_M68040_IU_ALTERNATE_NONE, 0u, {0u,0u}, {{AP_M68040_IU_CONDITION_NONE,0u,0u},{AP_M68040_IU_CONDITION_NONE,0u,0u}}},
+    [9] = {true, 11u, {0u,30u}, AP_M68040_IU_ALTERNATE_NONE, 0u, {0u,0u}, {{AP_M68040_IU_CONDITION_NONE,0u,0u},{AP_M68040_IU_CONDITION_NONE,0u,0u}}},
+    [10] = {true, 12u, {1u,30u}, AP_M68040_IU_ALTERNATE_NONE, 0u, {0u,0u}, {{AP_M68040_IU_CONDITION_NONE,0u,0u},{AP_M68040_IU_CONDITION_NONE,0u,0u}}},
+    [11] = {true, 13u, {1u,31u}, AP_M68040_IU_ALTERNATE_NONE, 0u, {0u,0u}, {{AP_M68040_IU_CONDITION_NONE,0u,0u},{AP_M68040_IU_CONDITION_NONE,0u,0u}}},
+    [12] = {true, 14u, {1u,32u}, AP_M68040_IU_ALTERNATE_NONE, 0u, {0u,0u}, {{AP_M68040_IU_CONDITION_NONE,0u,0u},{AP_M68040_IU_CONDITION_NONE,0u,0u}}},
+    [13] = {true, 17u, {1u,35u}, AP_M68040_IU_ALTERNATE_NONE, 0u, {0u,0u}, {{AP_M68040_IU_CONDITION_NONE,0u,0u},{AP_M68040_IU_CONDITION_NONE,0u,0u}}},
+    [14] = {true, 18u, {1u,36u}, AP_M68040_IU_ALTERNATE_NONE, 0u, {0u,0u}, {{AP_M68040_IU_CONDITION_NONE,0u,0u},{AP_M68040_IU_CONDITION_NONE,0u,0u}}},
+    [15] = {true, 18u, {3u,34u}, AP_M68040_IU_ALTERNATE_NONE, 0u, {0u,0u}, {{AP_M68040_IU_CONDITION_NONE,0u,0u},{AP_M68040_IU_CONDITION_NONE,0u,0u}}},
+    [16] = {true, 19u, {3u,35u}, AP_M68040_IU_ALTERNATE_NONE, 0u, {0u,0u}, {{AP_M68040_IU_CONDITION_NONE,0u,0u},{AP_M68040_IU_CONDITION_NONE,0u,0u}}},
+};
+
+static const char *const names_22[] = {"DIVS.L", "DIVU.L", "DIVSL.L", "DIVUL.L", NULL};
+static const ap_m68040_iu_cell_t cells_22[AP_M68040_IU_MODE_COUNT] = {
+    [0] = {true, 9u, {0u,44u}, AP_M68040_IU_ALTERNATE_NONE, 0u, {0u,0u}, {{AP_M68040_IU_CONDITION_NONE,0u,0u},{AP_M68040_IU_CONDITION_NONE,0u,0u}}},
+    [1] = {false, 0u, {0u,0u}, AP_M68040_IU_ALTERNATE_NONE, 0u, {0u,0u}, {{AP_M68040_IU_CONDITION_NONE,0u,0u},{AP_M68040_IU_CONDITION_NONE,0u,0u}}},
+    [2] = {true, 9u, {0u,44u}, AP_M68040_IU_ALTERNATE_NONE, 0u, {0u,0u}, {{AP_M68040_IU_CONDITION_NONE,0u,0u},{AP_M68040_IU_CONDITION_NONE,0u,0u}}},
+    [3] = {true, 9u, {0u,44u}, AP_M68040_IU_ALTERNATE_NONE, 0u, {0u,0u}, {{AP_M68040_IU_CONDITION_NONE,0u,0u},{AP_M68040_IU_CONDITION_NONE,0u,0u}}},
+    [4] = {true, 9u, {0u,44u}, AP_M68040_IU_ALTERNATE_NONE, 0u, {0u,0u}, {{AP_M68040_IU_CONDITION_NONE,0u,0u},{AP_M68040_IU_CONDITION_NONE,0u,0u}}},
+    [5] = {true, 11u, {2u,44u}, AP_M68040_IU_ALTERNATE_NONE, 0u, {0u,0u}, {{AP_M68040_IU_CONDITION_NONE,0u,0u},{AP_M68040_IU_CONDITION_NONE,0u,0u}}},
+    [6] = {true, 12u, {3u,44u}, AP_M68040_IU_ALTERNATE_NONE, 0u, {0u,0u}, {{AP_M68040_IU_CONDITION_NONE,0u,0u},{AP_M68040_IU_CONDITION_NONE,0u,0u}}},
+    [7] = {true, 11u, {2u,44u}, AP_M68040_IU_ALTERNATE_NONE, 0u, {0u,0u}, {{AP_M68040_IU_CONDITION_NONE,0u,0u},{AP_M68040_IU_CONDITION_NONE,0u,0u}}},
+    [8] = {true, 10u, {1u,44u}, AP_M68040_IU_ALTERNATE_NONE, 0u, {0u,0u}, {{AP_M68040_IU_CONDITION_NONE,0u,0u},{AP_M68040_IU_CONDITION_NONE,0u,0u}}},
+    [9] = {true, 12u, {0u,47u}, AP_M68040_IU_ALTERNATE_NONE, 0u, {0u,0u}, {{AP_M68040_IU_CONDITION_NONE,0u,0u},{AP_M68040_IU_CONDITION_NONE,0u,0u}}},
+    [10] = {true, 13u, {1u,47u}, AP_M68040_IU_ALTERNATE_NONE, 0u, {0u,0u}, {{AP_M68040_IU_CONDITION_NONE,0u,0u},{AP_M68040_IU_CONDITION_NONE,0u,0u}}},
+    [11] = {true, 14u, {1u,48u}, AP_M68040_IU_ALTERNATE_NONE, 0u, {0u,0u}, {{AP_M68040_IU_CONDITION_NONE,0u,0u},{AP_M68040_IU_CONDITION_NONE,0u,0u}}},
+    [12] = {true, 15u, {1u,49u}, AP_M68040_IU_ALTERNATE_NONE, 0u, {0u,0u}, {{AP_M68040_IU_CONDITION_NONE,0u,0u},{AP_M68040_IU_CONDITION_NONE,0u,0u}}},
+    [13] = {true, 18u, {1u,52u}, AP_M68040_IU_ALTERNATE_NONE, 0u, {0u,0u}, {{AP_M68040_IU_CONDITION_NONE,0u,0u},{AP_M68040_IU_CONDITION_NONE,0u,0u}}},
+    [14] = {true, 19u, {1u,53u}, AP_M68040_IU_ALTERNATE_NONE, 0u, {0u,0u}, {{AP_M68040_IU_CONDITION_NONE,0u,0u},{AP_M68040_IU_CONDITION_NONE,0u,0u}}},
+    [15] = {true, 19u, {3u,51u}, AP_M68040_IU_ALTERNATE_NONE, 0u, {0u,0u}, {{AP_M68040_IU_CONDITION_NONE,0u,0u},{AP_M68040_IU_CONDITION_NONE,0u,0u}}},
+    [16] = {true, 20u, {3u,52u}, AP_M68040_IU_ALTERNATE_NONE, 0u, {0u,0u}, {{AP_M68040_IU_CONDITION_NONE,0u,0u},{AP_M68040_IU_CONDITION_NONE,0u,0u}}},
+};
+
+static const char *const names_23[] = {"JMP", NULL};
+static const ap_m68040_iu_cell_t cells_23[AP_M68040_IU_MODE_COUNT] = {
+    [0] = {false, 0u, {0u,0u}, AP_M68040_IU_ALTERNATE_NONE, 0u, {0u,0u}, {{AP_M68040_IU_CONDITION_NONE,0u,0u},{AP_M68040_IU_CONDITION_NONE,0u,0u}}},
+    [1] = {false, 0u, {0u,0u}, AP_M68040_IU_ALTERNATE_NONE, 0u, {0u,0u}, {{AP_M68040_IU_CONDITION_NONE,0u,0u},{AP_M68040_IU_CONDITION_NONE,0u,0u}}},
+    [2] = {true, 3u, {2u,1u}, AP_M68040_IU_ALTERNATE_NONE, 0u, {0u,0u}, {{AP_M68040_IU_CONDITION_NONE,0u,0u},{AP_M68040_IU_CONDITION_NONE,0u,0u}}},
+    [3] = {false, 0u, {0u,0u}, AP_M68040_IU_ALTERNATE_NONE, 0u, {0u,0u}, {{AP_M68040_IU_CONDITION_NONE,0u,0u},{AP_M68040_IU_CONDITION_NONE,0u,0u}}},
+    [4] = {false, 0u, {0u,0u}, AP_M68040_IU_ALTERNATE_NONE, 0u, {0u,0u}, {{AP_M68040_IU_CONDITION_NONE,0u,0u},{AP_M68040_IU_CONDITION_NONE,0u,0u}}},
+    [5] = {true, 4u, {3u,1u}, AP_M68040_IU_ALTERNATE_NONE, 0u, {0u,0u}, {{AP_M68040_IU_CONDITION_NONE,0u,0u},{AP_M68040_IU_CONDITION_NONE,0u,0u}}},
+    [6] = {true, 6u, {5u,1u}, AP_M68040_IU_ALTERNATE_NONE, 0u, {0u,0u}, {{AP_M68040_IU_CONDITION_NONE,0u,0u},{AP_M68040_IU_CONDITION_NONE,0u,0u}}},
+    [7] = {true, 3u, {2u,1u}, AP_M68040_IU_ALTERNATE_NONE, 0u, {0u,0u}, {{AP_M68040_IU_CONDITION_NONE,0u,0u},{AP_M68040_IU_CONDITION_NONE,0u,0u}}},
+    [8] = {false, 0u, {0u,0u}, AP_M68040_IU_ALTERNATE_NONE, 0u, {0u,0u}, {{AP_M68040_IU_CONDITION_NONE,0u,0u},{AP_M68040_IU_CONDITION_NONE,0u,0u}}},
+    [9] = {true, 6u, {0u,6u}, AP_M68040_IU_ALTERNATE_NONE, 0u, {0u,0u}, {{AP_M68040_IU_CONDITION_NONE,0u,0u},{AP_M68040_IU_CONDITION_NONE,0u,0u}}},
+    [10] = {true, 7u, {1u,6u}, AP_M68040_IU_ALTERNATE_NONE, 0u, {0u,0u}, {{AP_M68040_IU_CONDITION_NONE,0u,0u},{AP_M68040_IU_CONDITION_NONE,0u,0u}}},
+    [11] = {true, 8u, {1u,7u}, AP_M68040_IU_ALTERNATE_NONE, 0u, {0u,0u}, {{AP_M68040_IU_CONDITION_NONE,0u,0u},{AP_M68040_IU_CONDITION_NONE,0u,0u}}},
+    [12] = {true, 9u, {1u,8u}, AP_M68040_IU_ALTERNATE_NONE, 0u, {0u,0u}, {{AP_M68040_IU_CONDITION_NONE,0u,0u},{AP_M68040_IU_CONDITION_NONE,0u,0u}}},
+    [13] = {true, 12u, {1u,11u}, AP_M68040_IU_ALTERNATE_NONE, 0u, {0u,0u}, {{AP_M68040_IU_CONDITION_NONE,0u,0u},{AP_M68040_IU_CONDITION_NONE,0u,0u}}},
+    [14] = {true, 12u, {1u,11u}, AP_M68040_IU_ALTERNATE_NONE, 0u, {0u,0u}, {{AP_M68040_IU_CONDITION_NONE,0u,0u},{AP_M68040_IU_CONDITION_NONE,0u,0u}}},
+    [15] = {true, 13u, {3u,10u}, AP_M68040_IU_ALTERNATE_NONE, 0u, {0u,0u}, {{AP_M68040_IU_CONDITION_NONE,0u,0u},{AP_M68040_IU_CONDITION_NONE,0u,0u}}},
+    [16] = {true, 14u, {3u,11u}, AP_M68040_IU_ALTERNATE_NONE, 0u, {0u,0u}, {{AP_M68040_IU_CONDITION_NONE,0u,0u},{AP_M68040_IU_CONDITION_NONE,0u,0u}}},
+};
 static const ap_m68040_iu_group_t groups[] = {
-    {names_0, cells_0, AP_M68040_IU_FIGURE_EXACT},
-    {names_1, cells_1, AP_M68040_IU_FIGURE_EXACT},
-    {names_2, cells_2, AP_M68040_IU_FIGURE_EXACT},
-    {names_3, cells_3, AP_M68040_IU_FIGURE_EXACT},
-    {names_4, cells_4, AP_M68040_IU_FIGURE_EXACT},
-    {names_5, cells_5, AP_M68040_IU_FIGURE_EXACT},
-    {names_6, cells_6, AP_M68040_IU_FIGURE_EXACT},
-    {names_7, cells_7, AP_M68040_IU_FIGURE_EXACT},
-    {names_8, cells_8, AP_M68040_IU_FIGURE_EXACT},
-    {names_9, cells_9, AP_M68040_IU_FIGURE_EXACT},
-    {names_10, cells_10, AP_M68040_IU_FIGURE_EXACT},
-    {names_11, cells_11, AP_M68040_IU_FIGURE_EXACT},
-    {names_12, cells_12, AP_M68040_IU_FIGURE_EXACT},
-    {names_13, cells_13, AP_M68040_IU_FIGURE_TYPICAL},
-    {names_14, cells_14, AP_M68040_IU_FIGURE_WITHIN_BOUNDS},
-    {names_15, cells_15, AP_M68040_IU_FIGURE_WITHIN_BOUNDS},
-    {names_16, cells_16, AP_M68040_IU_FIGURE_EXACT},
-    {names_17, cells_17, AP_M68040_IU_FIGURE_EXACT},
-    {names_18, cells_18, AP_M68040_IU_FIGURE_EXACT},
-    {names_19, cells_19, AP_M68040_IU_FIGURE_EXACT},
-    {names_20, cells_20, AP_M68040_IU_FIGURE_TYPICAL},
+    {names_0, cells_0, AP_M68040_IU_FIGURE_EXACT, false},
+    {names_1, cells_1, AP_M68040_IU_FIGURE_EXACT, false},
+    {names_2, cells_2, AP_M68040_IU_FIGURE_EXACT, false},
+    {names_3, cells_3, AP_M68040_IU_FIGURE_EXACT, false},
+    {names_4, cells_4, AP_M68040_IU_FIGURE_EXACT, false},
+    {names_5, cells_5, AP_M68040_IU_FIGURE_EXACT, false},
+    {names_6, cells_6, AP_M68040_IU_FIGURE_EXACT, false},
+    {names_7, cells_7, AP_M68040_IU_FIGURE_EXACT, false},
+    {names_8, cells_8, AP_M68040_IU_FIGURE_EXACT, false},
+    {names_9, cells_9, AP_M68040_IU_FIGURE_EXACT, false},
+    {names_10, cells_10, AP_M68040_IU_FIGURE_EXACT, false},
+    {names_11, cells_11, AP_M68040_IU_FIGURE_EXACT, false},
+    {names_12, cells_12, AP_M68040_IU_FIGURE_EXACT, false},
+    {names_13, cells_13, AP_M68040_IU_FIGURE_TYPICAL, false},
+    {names_14, cells_14, AP_M68040_IU_FIGURE_WITHIN_BOUNDS, false},
+    {names_15, cells_15, AP_M68040_IU_FIGURE_WITHIN_BOUNDS, false},
+    {names_16, cells_16, AP_M68040_IU_FIGURE_EXACT, false},
+    {names_17, cells_17, AP_M68040_IU_FIGURE_EXACT, false},
+    {names_18, cells_18, AP_M68040_IU_FIGURE_EXACT, false},
+    {names_19, cells_19, AP_M68040_IU_FIGURE_EXACT, false},
+    {names_20, cells_20, AP_M68040_IU_FIGURE_TYPICAL, false},
+    {names_21, cells_21, AP_M68040_IU_FIGURE_EXACT, true},
+    {names_22, cells_22, AP_M68040_IU_FIGURE_EXACT, true},
+    {names_23, cells_23, AP_M68040_IU_FIGURE_EXACT, false},
 };
 
 size_t ap_m68040_iu_group_count(void) {
@@ -536,4 +601,15 @@ ap_m68040_execute_t ap_m68040_iu_execute(
           : cell.execute;
   e.base += penalty_for(cell, conditions, condition_count, true);
   return e;
+}
+
+unsigned ap_m68040_iu_zero_divide_clocks(const ap_m68040_iu_group_t *group,
+                                         ap_m68040_iu_mode_t mode) {
+  if (group == NULL || !group->traps_on_zero_divide ||
+      mode >= AP_M68040_IU_MODE_COUNT || !group->cells[mode].valid) {
+    return 0u;
+  }
+  /* The `<ea>` calculate of the *normal* figure: the address still has to be
+   * formed before the divisor can be found to be zero. */
+  return AP_M68040_IU_ZERO_DIVIDE_BASE + group->cells[mode].calculate;
 }

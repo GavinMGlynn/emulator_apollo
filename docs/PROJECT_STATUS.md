@@ -1438,8 +1438,30 @@ so it always reads a long word where `CMP` may read a word. Twice now a
 "the A form is the base plus a constant" rule has proved false, which is a
 reason to keep transcribing rather than interpolating.
 
-What remains of the 68040 item is nine more pages of §10.6 and §10.7's ten pages
-of floating-point timings. That is bulk transcription against the
+Page 10-20 introduced a fourth kind of conditional cost, and the first that
+**replaces** a figure instead of adding to it. The divide columns note:
+"execution time for a DIV/0 exception taken and exception processing is
+approximately 16 + <ea> calculate clocks."
+
+The trap is the direction. `DIV.W #0,Dn` costs about 24 clocks, which is *less*
+than the 27 a completed `DIV.W` costs -- the division never happens. Modelling
+this as a penalty added to the normal time would give 51: more than twice the
+truth, and wrong in sign. The manual's own worked example is what pins the
+reading, since 16 + 8 = 24 comes out even only if the 16 is added to the
+*calculate* figure and not the execute one.
+
+It is also explicitly approximate -- the note says "approximately" twice -- so
+it is exposed as its own accessor rather than as a figure among the exact ones.
+
+Two smaller observations. The divides are the first columns where the execute
+stage dominates the whole instruction: 27 clocks for a word divide and 44 for a
+long, against one for `ADD`. And `JMP (d16,PC)` is `5L + 1` -- five clocks of
+stall tolerance against one of work -- which is the clearest case in §10.6 of
+why the lead is carried separately rather than folded into a total: a change of
+flow has almost nothing to execute and everything to wait for.
+
+What remains of the 68040 item is eight more pages of §10.6 and §10.7's ten
+pages of floating-point timings. That is bulk transcription against the
 composition already in place, and the last thing standing between Phase 2b and
 complete. Appendix A's bit rows have to come from page images --
 `pdftotext` renders them with zeros as letters and columns collapsed, the same

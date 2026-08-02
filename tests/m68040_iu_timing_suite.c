@@ -829,6 +829,107 @@ static void test_where_cmpa_costs_more_than_cmp(void) {
   }
 }
 
+
+/* ---------------------------------------------------------------------------
+ * Page 10-20: the divides, and a cost that replaces rather than adds.
+ * ------------------------------------------------------------------------- */
+
+static void test_the_manuals_divide_by_zero_worked_example(void) {
+  /* "Execution time for a DIV/0 exception taken and exception processing is
+   * approximately 16 + <ea> calculate clocks. For example, DIV.W #0,Dn takes
+   * approximately 24 clocks in both the <ea> calculate and execute times."
+   *
+   * `DIV.W`'s immediate `<ea>` calculate is 8, and 16 + 8 = 24 exactly. The
+   * worked example is the check that the formula was read the right way round
+   * -- it would not come out even if the 16 were added to the *execute*
+   * figure, which is 27. */
+  const ap_m68040_iu_group_t *divw = ap_m68040_iu_find("DIVS.W");
+  TEST_ASSERT_NOT_NULL(divw);
+  TEST_ASSERT_EQUAL_UINT(
+      8u, ap_m68040_iu_calculate(at("DIVS.W", AP_M68040_IU_IMMEDIATE), false,
+                                 AP_M68040_IU_NO_CONDITIONS));
+  TEST_ASSERT_EQUAL_UINT(
+      24u, ap_m68040_iu_zero_divide_clocks(divw, AP_M68040_IU_IMMEDIATE));
+}
+
+static void test_a_divide_by_zero_replaces_the_figure_rather_than_adding(void) {
+  /* The trap: 24 is *less* than the 27 a completed `DIV.W` costs, because the
+   * division never happens. Modelling this as a penalty added to the normal
+   * time would give 51 -- more than twice the truth, and in the wrong
+   * direction. */
+  const ap_m68040_iu_group_t *divw = ap_m68040_iu_find("DIVS.W");
+  const unsigned normal = ap_m68040_execute_total(ap_m68040_iu_execute(
+      at("DIVS.W", AP_M68040_IU_IMMEDIATE), false, AP_M68040_IU_NO_CONDITIONS));
+  TEST_ASSERT_EQUAL_UINT(27u, normal);
+  TEST_ASSERT_TRUE(
+      ap_m68040_iu_zero_divide_clocks(divw, AP_M68040_IU_IMMEDIATE) < normal);
+}
+
+static void test_only_the_divide_columns_can_divide_by_zero(void) {
+  /* Every other column returns zero, which is how a caller can ask
+   * unconditionally. */
+  TEST_ASSERT_EQUAL_UINT(0u, ap_m68040_iu_zero_divide_clocks(
+                                 ap_m68040_iu_find("ADD"), AP_M68040_IU_DN));
+  TEST_ASSERT_EQUAL_UINT(0u, ap_m68040_iu_zero_divide_clocks(
+                                 ap_m68040_iu_find("JMP"), AP_M68040_IU_INDIRECT));
+  TEST_ASSERT_TRUE(ap_m68040_iu_zero_divide_clocks(
+                       ap_m68040_iu_find("DIVU.L"), AP_M68040_IU_DN) > 0u);
+}
+
+static void test_an_invalid_mode_has_no_divide_by_zero_cost(void) {
+  /* `DIVS.W An` is a dash, so there is no instruction to trap. */
+  TEST_ASSERT_EQUAL_UINT(0u, ap_m68040_iu_zero_divide_clocks(
+                                 ap_m68040_iu_find("DIVS.W"), AP_M68040_IU_AN));
+}
+
+static void test_a_long_divide_costs_far_more_than_a_word_divide(void) {
+  /* 44 clocks against 27 -- the divides are the first columns where the
+   * *execute* stage dominates everything else in the instruction, and the
+   * long form is not merely a little dearer. */
+  TEST_ASSERT_EQUAL_UINT(
+      27u, ap_m68040_execute_total(ap_m68040_iu_execute(
+               at("DIVS.W", AP_M68040_IU_DN), false, AP_M68040_IU_NO_CONDITIONS)));
+  TEST_ASSERT_EQUAL_UINT(
+      44u, ap_m68040_execute_total(ap_m68040_iu_execute(
+               at("DIVS.L", AP_M68040_IU_DN), false, AP_M68040_IU_NO_CONDITIONS)));
+}
+
+static void test_the_signed_and_unsigned_divides_share_a_column(void) {
+  /* `DIVS` and `DIVU` cost the same, so the sign of the operands is free --
+   * and all four long forms share one column, including the `SL`/`UL` variants
+   * that produce a remainder. */
+  TEST_ASSERT_EQUAL_PTR(ap_m68040_iu_find("DIVS.W"),
+                        ap_m68040_iu_find("DIVU.W"));
+  const char *const longs[] = {"DIVU.L", "DIVSL.L", "DIVUL.L"};
+  for (unsigned i = 0; i < 3u; i++) {
+    TEST_ASSERT_EQUAL_PTR(ap_m68040_iu_find("DIVS.L"),
+                          ap_m68040_iu_find(longs[i]));
+  }
+}
+
+static void test_jmp_takes_only_the_control_modes(void) {
+  /* A jump needs an address, not a value, so every mode that would fetch an
+   * operand is dashed -- including `Dn`, `#<xxx>` and both incrementing forms.
+   * `JMP (An)` is the whole point of the instruction. */
+  TEST_ASSERT_TRUE(at("JMP", AP_M68040_IU_INDIRECT).valid);
+  TEST_ASSERT_TRUE(at("JMP", AP_M68040_IU_PC_DISPLACEMENT).valid);
+  TEST_ASSERT_FALSE(at("JMP", AP_M68040_IU_DN).valid);
+  TEST_ASSERT_FALSE(at("JMP", AP_M68040_IU_AN).valid);
+  TEST_ASSERT_FALSE(at("JMP", AP_M68040_IU_IMMEDIATE).valid);
+  TEST_ASSERT_FALSE(at("JMP", AP_M68040_IU_POSTINCREMENT).valid);
+  TEST_ASSERT_FALSE(at("JMP", AP_M68040_IU_PREDECREMENT).valid);
+}
+
+static void test_jmp_carries_a_large_lead_for_a_small_base(void) {
+  /* `JMP (d16,PC)` is `5L + 1`: five clocks of stall tolerance against one of
+   * work. A change of flow has almost nothing to execute and everything to
+   * wait for, which is the clearest case in §10.6 of why the lead is carried
+   * separately rather than folded into a total. */
+  const ap_m68040_iu_cell_t c = at("JMP", AP_M68040_IU_PC_DISPLACEMENT);
+  TEST_ASSERT_EQUAL_UINT(5u, c.execute.lead);
+  TEST_ASSERT_EQUAL_UINT(1u, c.execute.base);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_instructions_sharing_a_column_share_a_group);
@@ -880,5 +981,13 @@ int main(void) {
   RUN_TEST(test_cmpi_reads_and_so_takes_pc_relative);
   RUN_TEST(test_cmpa_is_never_cheaper_than_cmp);
   RUN_TEST(test_where_cmpa_costs_more_than_cmp);
+  RUN_TEST(test_the_manuals_divide_by_zero_worked_example);
+  RUN_TEST(test_a_divide_by_zero_replaces_the_figure_rather_than_adding);
+  RUN_TEST(test_only_the_divide_columns_can_divide_by_zero);
+  RUN_TEST(test_an_invalid_mode_has_no_divide_by_zero_cost);
+  RUN_TEST(test_a_long_divide_costs_far_more_than_a_word_divide);
+  RUN_TEST(test_the_signed_and_unsigned_divides_share_a_column);
+  RUN_TEST(test_jmp_takes_only_the_control_modes);
+  RUN_TEST(test_jmp_carries_a_large_lead_for_a_small_base);
   return UNITY_END();
 }

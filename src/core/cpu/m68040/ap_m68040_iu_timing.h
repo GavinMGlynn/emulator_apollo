@@ -146,6 +146,15 @@ typedef struct {
   const char *const *instructions;
   const ap_m68040_iu_cell_t *cells; /* AP_M68040_IU_MODE_COUNT of them */
   ap_m68040_iu_confidence_t confidence;
+  /* The divide columns alone: "execution time for a DIV/0 exception taken and
+   * exception processing is approximately 16 + <ea> calculate clocks."
+   *
+   * That is not a penalty added to the normal figure -- it *replaces* it. A
+   * divide by zero never performs the division, so the 27 or 44 clocks the
+   * column prints are exactly what does not happen. And the manual says
+   * "approximately" twice, so it is an estimate even for the case it
+   * describes. */
+  bool traps_on_zero_divide;
 } ap_m68040_iu_group_t;
 
 [[nodiscard]] size_t ap_m68040_iu_group_count(void);
@@ -177,5 +186,18 @@ ap_m68040_iu_timing(const char *instruction, ap_m68040_iu_mode_t mode);
 
 /* The common case: no condition holds. */
 #define AP_M68040_IU_NO_CONDITIONS NULL, 0u
+
+/* "16 + <ea> calculate clocks", for both stages. The manual's worked example
+ * checks it: `DIV.W #0,Dn` has an `<ea>` calculate of 8, and it says the
+ * instruction "takes approximately 24 clocks in both the <ea> calculate and
+ * execute times to execute the divide instruction, perform exception stacking,
+ * fetch the exception vector, and prefetch the next instruction". 16 + 8 = 24.
+ *
+ * Returns zero for a column that cannot divide by zero, which is every column
+ * but the two divide ones. */
+#define AP_M68040_IU_ZERO_DIVIDE_BASE 16u
+[[nodiscard]] unsigned
+ap_m68040_iu_zero_divide_clocks(const ap_m68040_iu_group_t *group,
+                                ap_m68040_iu_mode_t mode);
 
 #endif /* APOLLO_CPU_M68040_AP_M68040_IU_TIMING_H */
