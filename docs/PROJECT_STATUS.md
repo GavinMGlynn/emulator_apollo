@@ -472,7 +472,24 @@ person does not have to take this paragraph's word for it.
 
 The lesson is recorded rather than tidied away: **in this plan, a tick has not
 reliably meant the verification happened.** Auditing verification lines rather
-than counting boxes is cheap and has a hit rate worth the time. The integer core decodes and executes the whole opcode map;
+than counting boxes is cheap and has a hit rate worth the time.
+
+**All eight of Phase 2 and Phase 2b's externally-dependent verification lines
+have now been traced**, so a fourth audit does not have to re-derive them:
+
+| line | settled by |
+| --- | --- |
+| 68030 integer core, "probes against the oracle" | C59-C84, every `ap_probe.c` class |
+| exceptions, "probes that deliberately fault" | C73 illegal instruction, C74 long bus fault frame |
+| 68882, "probe suite over each operation and rounding mode" | C59-C71, with C70's divergence class |
+| 68020, "`dn3000` boots under both; oracle diff" | C84 for the diff; the boot half is Phase 4's, recorded there |
+| the two `probe_compare.py` lines | run, and re-runnable as `--program all` |
+| timing, "`timing_suite` and the probe goldens" | goldens pinned on every platform and build type |
+| multiplies and divides, "then probes for the timing" | **deferred, and the line says so**: the times are data-dependent and unmodelled, which is a named `PROVISIONAL` above |
+
+The last row is the only one not met, and it is the only one whose own text
+explains why. That is the difference between a deferral and an omission, and it
+is what the first three audits were looking for. The integer core decodes and executes the whole opcode map;
 exceptions, traps, interrupt priority and both fault frame formats build and
 return; the MMU translates, walks, caches and reports; the caches price
 themselves through the bus state machine; and instruction execution time is
