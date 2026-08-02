@@ -350,10 +350,19 @@ def dbcc_probe(address: int = SENTINEL_ADDRESS) -> list[int]:
     high word untouched at zero. A full-width decrement would leave
     `$FFFFFFFF`, which is one bit of difference and a completely different
     instruction.
+
+    **The loop has a `NOP` in it deliberately.** `DBRA` branching to *itself*
+    leaves the program counter unmoved, and the oracle harness reads two
+    consecutive unmoved PCs as a halt -- which is how it tells a `STOP` from a
+    running program without asking the debugger. A self-loop is therefore
+    indistinguishable from a stopped machine from outside, and the first version
+    of this probe hit exactly that (`FINDINGS.md` C75). One instruction of body
+    is enough to make the loop visible.
     """
     return assemble(
         [0x7003],                                          # MOVEQ #3,D0
-        [0x51C8, 0xFFFE],                                  # DBRA D0,self
+        [0x4E71],                                          # loop: NOP
+        [0x51C8, 0xFFFC],                                  # DBRA D0,loop
         [0x23C0, (address >> 16) & 0xFFFF, address & 0xFFFF],
         stop(0x2700),
     )

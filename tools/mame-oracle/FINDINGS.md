@@ -4517,3 +4517,39 @@ is 1. The next person to add a looping probe will see this first.
 **And the probe is worth keeping**, both because it is right and because it is
 the reproducer: `probe_compare.py --program dbcc` demonstrates the limitation in
 one command.
+
+## C76 -- C75 was too broad, and the loop probe agrees
+
+**Class: agree, and a correction to the row above it.**
+
+C75 called this "the harness cannot yet run a probe that branches backwards" and
+left the cause undiagnosed. Reading `probe.lua` settles it in one line, and the
+limitation is far narrower.
+
+The harness detects a halt by watching the program counter: **two consecutive
+steps with an unmoved PC** is how it tells a `STOP` from a running program
+without asking the debugger for a halt reason. `DBRA D0,self` branches to its own
+address, so the PC does not move -- and a self-loop is therefore
+indistinguishable from a stopped machine from outside. Backward branching is
+fine; a *degenerate* loop is not, and my probe was one.
+
+One instruction of body fixes it, and the comparison then runs:
+
+| Check | Ours | Oracle | |
+| --- | --- | --- | --- |
+| instructions executed | 9 | 9 | agree |
+| `D0` after the loop | `0000FFFF` | `0000FFFF` | agree |
+| against the architecture | `0000FFFF` | -- | agree |
+
+`DBcc` decrements the **low word only** and terminates at `-1`, so `MOVEQ #3`'s
+sign extension leaves the high word untouched. A full-width decrement would give
+`$FFFFFFFF` and a terminate-at-zero loop would run one iteration short -- two
+mistakes that nothing in a straight-line probe can catch, and both now excluded
+on both implementations.
+
+**The correction is the more useful half of this row.** C75 generalised from one
+failure to a whole class of programs and would have deterred the next looping
+probe entirely; the real constraint is a single degenerate case with a one-word
+workaround. Diagnosing it cost one `sed` of the harness. Recording an
+undiagnosed limitation as though it were a boundary is its own kind of error, and
+this file now carries the example.
