@@ -741,28 +741,57 @@ spelled out; the second uses `B`, defined by the table's own footnote as "Base
 Address; 0, An, PC, Xn, An + Xn, PC + Xn. Form does not affect timing", with a
 note that "Xn cannot be in B and I at the same time".
 
-Every **memory indirect** row agrees between the two groups — `([d16,An])` and
-`([B])` are both `10(2/0/0)`, `([d16,An],d16)` and `([B],d16)` both `12(2/0/0)`,
-and so on down the table. The two groups differ only in head, 2 against 4, and
-in the rows with no indirection:
+**Correction: an earlier version of this section said the two groups "agree on
+every memory indirect row". They do not, and the error was comparing the wrong
+pairs** — `([d16,An])` against `([B])`, which differ in base displacement. Set
+side by side properly, the groups differ by 2 clocks everywhere:
 
-| Row | Head | I-Cache | No-Cache |
+| Row | Group A | Group B (same displacement) |
+| --- | --- | --- |
+| `(d16,An)` / `(d16,B)` | 6 | 8 |
+| `([d16,An])` / `([d16,B])` | 10 | 12 |
+| `([d16,An],d16)` / `([d16,B],d16)` | 12 | 14 |
+
+### The pattern that does resolve it
+
+Comparing each group A row against the group B row **with the base displacement
+dropped** rather than kept:
+
+| Group A row | I-Cache | Group B row | I-Cache |
 | --- | --- | --- | --- |
-| `(d16,An)` or `(d16,PC)` | 2 | `6(1/0/0)` | `7(1/1/0)` |
-| `(d16,An,Xn)` or `(d16,PC,Xn)` | 4 | `6(1/0/0)` | `7(1/1/0)` |
-| `(B)` | 4 | `6(1/0/0)` | `7(1/1/0)` |
-| `(d16,B)` | 4 | `8(1/0/0)` | `10(1/1/0)` |
+| `(d16,An)` | 6 | `(B)` | 6 |
+| `(d16,An,Xn)` | 6 | `(B)` | 6 |
+| `([d16,An])` | 10 | `([B])` | 10 |
+| `([d16,An],Xn)` | 10 | `([B],I)` | 10 |
+| `([d16,An],d16)` | 12 | `([B],d16)` | 12 |
+| `([d16,An],Xn,d16)` | 12 | `([B],I,d16)` | 12 |
+| `([d16,An],d32)` | 12 | `([B],d32)` | 12 |
+| `([d16,An],Xn,d32)` | 12 | `([B],I,d32)` | 12 |
 
-If `B` may be a plain `An`, then `(d16,B)` and `(d16,An)` describe the same
-addressing mode and cost 8 and 6. If `B` means specifically a base that includes
-an index, then `(d16,B)` and `(d16,An,Xn)` describe the same mode and cost 8 and
-6. Either reading makes one pair of rows contradict, and the footnote's "form
-does not affect timing" rules out the obvious escape.
+**Every group A row equals its group B row with the base displacement removed —
+all eight of them, with no exception.** So the reading that makes the whole
+table consistent is:
 
-**So the rows are transcribed and the *mapping from encoding to row* is not.**
-Guessing it would put a two-clock error on every full-format effective address,
-in a direction no test here could see — which is precisely the shape of mistake
-this document exists to record rather than repeat.
+> With a plain `An` or `PC` base, a **word base displacement is free**. It costs
+> 2 clocks only where the base is something the processor has to compute — an
+> index folded in, or a suppressed base.
+
+A **long** base displacement is never free: `(d32,B)` is 12 against `(B)`'s 6,
+and group A has no `d32` row at all, which is what that reading predicts. The
+head figures agree with it too — 2 for the fast rows against 4 for the general
+ones.
+
+That also says exactly what the 68030 added over the 68020, and it matches the
+sibling manual below: the 68020 has no `d16,An` group because it had no such
+fast path, and its `(d16,An)` costs 2 more than its `(B)`.
+
+**Stated as a derived reading, not as settled fact.** It is supported by eight
+rows with no counterexample and by the head column, which is a great deal
+stronger than a guess — but it is still our reading of a table Motorola wrote
+ambiguously, and the residual is real: `(d16,An,Xn)` at 6 and `(d16,B)` at 8
+remain hard to tell apart by encoding if `B` may be `An + Xn`. The measurement
+below is what would close it, and until it does the reading is marked here and
+the rows stay untranscribed.
 
 ### What the sibling manual and the web add
 
@@ -821,6 +850,8 @@ side-loads an instruction and reports the interval between steps:
    a disagreement there would mean the whole transcription is wrong rather than
    the mapping.
 
-Until then the memory indirect rows — where the two groups agree, so there is
-nothing to resolve — are the transcribable half, and they are the half the
-composition needs first.
+Until then **nothing in the full format is transcribed**, which is a change from
+what this section first said: there is no subset where the two groups agree, so
+there is no half that can be taken without the mapping. The plain rows and the
+memory indirect rows are ambiguous in exactly the same way and by exactly the
+same 2 clocks.
