@@ -1797,8 +1797,19 @@ a 68882, and the 68882 is the only one of these it has.
             68030's illegal-instruction verdict, which is the distinction this
             core exists to keep: on a 68020 the instruction is real, so raising
             the machine's trap would dress an unfinished implementation up as
-            correct hardware. Executing `CALLM`/`RTM` remains open and is now
-            the only thing between the 68020 and its oracle diff. Scoped rather
+            correct hardware. **`CALLM` now executes**: it builds the module
+            stack frame from Figure D-3's offsets, loads the entry word's
+            register with the data area pointer and continues at the word
+            after it. Two forms are declined, as *our* gap rather than as the
+            68030's illegal-instruction verdict: descriptor type `$01`, which
+            supplies its own stack pointer and needs the argument copy, and
+            `RTM`, which unwinds what this builds. Those two are the only
+            thing left between the 68020 and its oracle diff.
+            *Verification: `step_suite` +1 (248) — the frame checked through
+            its saved PC, saved register, saved stack pointer and descriptor
+            pointer, not the program counter alone, because a `CALLM` that
+            jumped correctly and saved nothing would look right until an
+            `RTM` tried to return.*
             than left as a name: `ap_m68020_module.h` supplies the decode, the
             control word, `ap_m68020_module_validate` and the two predicates for
             whether an access change and an argument copy are wanted — **all of
