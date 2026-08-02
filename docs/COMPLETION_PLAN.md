@@ -1987,6 +1987,14 @@ a 68882, and the 68882 is the only one of these it has.
         not a comparison, and `MDS = $0` invalidates every module descriptor
         rather than accepting any alignment. Figures 6-2 and 6-4 through 6-7
         from the page images. `m68851_regs_suite`, 22 tests.
+  - [x] The address translation cache: 64 fully-associative entries, the
+        three-part match rule (logical address above the page offset, function
+        code exactly, and *either* the task alias or the entry's `SG`), the
+        replacement order (invalid first, then pseudo-LRU among the unlocked),
+        and the 63-entry lock ceiling that keeps one entry always replaceable.
+        Modelled as named fields rather than a packed word: Figures 5-21 and
+        5-22 give no bit numbers, because the ATC is not programmer-visible.
+        `m68851_atc_suite`, 22 tests.
 - [ ] 68040 for DN5500: different pipeline, caches, and MMU descriptor format;
       integrated FPU. *Verification: `MC68040 User's Manual 1993` cited;
       `dn5500` oracle diff, expecting to exceed the oracle's FPU coverage.*

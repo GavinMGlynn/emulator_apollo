@@ -638,6 +638,40 @@ Three encodings are worth naming because the obvious reading of each is wrong:
 register, so it lines up with the high-order logical address field it is
 compared against instead of needing a shift.
 
+**The ATC is in.** It is 64 fully-associative entries, and the first modelling
+decision was to *not* invent a bit layout: Figures 5-21 and 5-22 draw named
+fields with no bit numbers, because "the information contained in the ATC is not
+directly accessible to the programmer". A packed word would make the state hash
+depend on a choice the hardware never made, so the entry is a struct of fields.
+
+A match needs three things, and the third is an escape hatch: the logical
+address above the page offset, the function code *exactly*, and either the task
+alias matching or the entry's `SG` bit set. The task alias is what lets several
+tasks' entries be resident at once; `SG` is what lets one entry serve all of
+them, which is the performance reason a root pointer carries the bit. The offset
+excluded is the *current* page size rather than one stored in the entry -- so
+the same entry covers more or less ground as `TC` changes, which is why writing
+`TC` flushes the cache.
+
+Two behaviours are worth stating because a reasonable model gets them backwards:
+
+- **The ATC caches denials, not just translations.** "If access is to be denied,
+  an ATC entry is made with the B bit set." The entry *matches* -- it has to, or
+  the denial would never be found -- and it is `B` rather than the absence of an
+  entry that refuses the access. Protection is evaluated once when the entry is
+  made rather than stored and re-checked, which is why `RAL` and `S` are not in
+  the entry at all.
+- **The lock ceiling is 63 of 64.** "It will not be a copy of the page
+  descriptor L bit if there are already 63 entries with set L bits" -- so one
+  entry always stays replaceable and the cache cannot deadlock against its own
+  locks. A fill that asks for a lock at the ceiling silently gets none; no
+  fault, just a cleared bit. That is the same condition `PCSR`'s `LW` reports.
+
+Replacement is invalid-first, then pseudo-LRU among the unlocked. The history
+bit is a single generation rather than an ordering, so when every unlocked entry
+is marked used the cache starts a new generation instead of refusing -- which is
+exactly what makes it *pseudo*-LRU.
+
 ## Subsystems
 
 | Subsystem | Status | Verification |
