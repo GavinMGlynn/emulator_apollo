@@ -715,3 +715,60 @@ comparable to a published one; a sequence is.
   are exact and their cold ones a lower bound.
 - The rows §11.6 marks `+`, whose figures are maxima: the four divides, already
   `PROVISIONAL`.
+
+## §11.6.1's full-format rows, and the ambiguity in them
+
+Read off the page image rather than the text extraction, which is what the next
+step of the composition needs and which turned up a defect on the way.
+
+### A transcription defect, found by reading the page
+
+Five rows of §11.6.1 carry `p = 1` in their **no-cache** column and had been
+transcribed as zero: `(d16,An)` and `(xxx).W` are `4(1/0/0)` cached against
+`4(1/1/0)` uncached, the brief-format `(d8,An,Xn)` is `6(1/0/0)` against
+`6(1/1/0)`, and both immediate rows are `(0/0/0)` against `(0/1/0)`.
+
+Their totals are equal in the two columns, which is the point: an effective
+address calculation has enough microcode to hide its own extension word's fetch.
+A `p` of zero says something different — that there is no fetch to hide — and
+that is the reading a text extraction rendering `4(1/1/0)` as `4(1/010)` had
+left behind. Corrected.
+
+### The ambiguity, which is not ours to resolve from the page
+
+The full-format table is in two groups. The first names its rows with `d16,An`
+spelled out; the second uses `B`, defined by the table's own footnote as "Base
+Address; 0, An, PC, Xn, An + Xn, PC + Xn. Form does not affect timing", with a
+note that "Xn cannot be in B and I at the same time".
+
+Every **memory indirect** row agrees between the two groups — `([d16,An])` and
+`([B])` are both `10(2/0/0)`, `([d16,An],d16)` and `([B],d16)` both `12(2/0/0)`,
+and so on down the table. The two groups differ only in head, 2 against 4, and
+in the rows with no indirection:
+
+| Row | Head | I-Cache | No-Cache |
+| --- | --- | --- | --- |
+| `(d16,An)` or `(d16,PC)` | 2 | `6(1/0/0)` | `7(1/1/0)` |
+| `(d16,An,Xn)` or `(d16,PC,Xn)` | 4 | `6(1/0/0)` | `7(1/1/0)` |
+| `(B)` | 4 | `6(1/0/0)` | `7(1/1/0)` |
+| `(d16,B)` | 4 | `8(1/0/0)` | `10(1/1/0)` |
+
+If `B` may be a plain `An`, then `(d16,B)` and `(d16,An)` describe the same
+addressing mode and cost 8 and 6. If `B` means specifically a base that includes
+an index, then `(d16,B)` and `(d16,An,Xn)` describe the same mode and cost 8 and
+6. Either reading makes one pair of rows contradict, and the footnote's "form
+does not affect timing" rules out the obvious escape.
+
+**So the rows are transcribed and the *mapping from encoding to row* is not.**
+Guessing it would put a two-clock error on every full-format effective address,
+in a direction no test here could see — which is precisely the shape of mistake
+this document exists to record rather than repeat.
+
+It is settleable by measurement, and the harness for it exists: `steptime.lua`
+side-loads an instruction and reports the interval between steps, so a
+`(d16,An)` against a `(d16,An,Xn)` against a `(d16,An,Xn)` with the index in the
+base is three readings that decide it. That is the next campaign for this item,
+and it is `FINDINGS.md`'s kind of question rather than a reading one.
+
+Until then the memory indirect rows — where the groups agree, so there is
+nothing to resolve — are the transcribable half.

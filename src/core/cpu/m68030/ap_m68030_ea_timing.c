@@ -4,9 +4,20 @@
 
 #include "cpu/m68030/ap_m68030_ea_timing.h"
 
-/* §11.6.1, Fetch Effective Address. The `(r/p/w)` triple is `(1/0/0)` for every
- * memory mode -- one operand read, which is what makes this the *fetch* table
- * rather than the calculate one. */
+/* §11.6.1, Fetch Effective Address. The cache case's `(r/p/w)` triple is
+ * `(1/0/0)` for every memory mode -- one operand read, which is what makes this
+ * the *fetch* table rather than the calculate one.
+ *
+ * The `p` counts below are the **no-cache** column's, and five of them were
+ * transcribed as zero until the page image was read: `(d16,An)`, `(xxx).W`, the
+ * brief-format indexed row and both immediates are `(1/1/0)` or `(0/1/0)` there
+ * against `(1/0/0)` or `(0/0/0)` cached. Their totals are the same in both
+ * columns, which is the point -- an effective address calculation has enough
+ * microcode to hide its own extension word's fetch -- and a `p` of zero would
+ * have said there was no fetch to hide.
+ *
+ * Found by going to the page rather than to the text extraction, which had
+ * rendered `4(1/1/0)` as `4(1/010)` and lost the distinction. */
 static const ap_m68030_ea_timing_t FETCH_REGISTER = {
     "Dn or An", {0, 0, 0, 0, .prefetches = 0}, false, false};
 static const ap_m68030_ea_timing_t FETCH_INDIRECT = {
@@ -16,24 +27,24 @@ static const ap_m68030_ea_timing_t FETCH_POSTINCREMENT = {
 static const ap_m68030_ea_timing_t FETCH_PREDECREMENT = {
     "-(An)", {2, 2, 4, 4, .reads = 1, .prefetches = 0}, true, false};
 static const ap_m68030_ea_timing_t FETCH_DISPLACEMENT = {
-    "(d16,An) or (d16,PC)", {2, 2, 4, 4, .reads = 1, .prefetches = 0}, true, false};
+    "(d16,An) or (d16,PC)", {2, 2, 4, 4, .reads = 1, .prefetches = 1}, true, false};
 static const ap_m68030_ea_timing_t FETCH_ABSOLUTE_SHORT = {
-    "(xxx).W", {2, 2, 4, 4, .reads = 1, .prefetches = 0}, true, false};
+    "(xxx).W", {2, 2, 4, 4, .reads = 1, .prefetches = 1}, true, false};
 /* The long absolute is the one row whose two columns differ: 4 to fetch from
  * the cache and 5 without it, because its second extension word is another
  * prefetch. */
 static const ap_m68030_ea_timing_t FETCH_ABSOLUTE_LONG = {
     "(xxx).L", {1, 0, 4, 5, .reads = 1, .prefetches = 1}, true, false};
 static const ap_m68030_ea_timing_t FETCH_INDEXED = {
-    "(d8,An,Xn) or (d8,PC,Xn)", {4, 2, 6, 6, .reads = 1, .prefetches = 0}, true, false};
+    "(d8,An,Xn) or (d8,PC,Xn)", {4, 2, 6, 6, .reads = 1, .prefetches = 1}, true, false};
 
 /* The immediate rows are split by operand size, and byte and word cost the
  * same: Table 2-3's "Low-order byte of the extension word" means a byte
  * immediate still occupies a whole word of instruction stream. */
 static const ap_m68030_ea_timing_t FETCH_IMMEDIATE_WORD = {
-    "#<data>.B or .W", {2, 0, 2, 2, .prefetches = 0}, true, false};
+    "#<data>.B or .W", {2, 0, 2, 2, .prefetches = 1}, true, false};
 static const ap_m68030_ea_timing_t FETCH_IMMEDIATE_LONG = {
-    "#<data>.L", {4, 0, 4, 4, .prefetches = 0}, true, false};
+    "#<data>.L", {4, 0, 4, 4, .prefetches = 1}, true, false};
 
 /* §11.6.3, Calculate Effective Address. No reads anywhere -- `(0/0/0)` for
  * every row -- which is the whole difference from the fetch table. Several
