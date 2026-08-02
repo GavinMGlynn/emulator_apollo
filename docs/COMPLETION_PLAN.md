@@ -614,9 +614,21 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
 
         **What stops it being `[x]`**, and why each is a *reason* rather than an
         omission:
-        - `BKPT` runs a breakpoint acknowledge cycle in **CPU space**, which is
-          a bus transaction this step does not issue. Blocked on the bus, not on
-          the step.
+        - `BKPT` **now executes**, running its breakpoint acknowledge cycle in
+          **CPU space** per §7.4.2. The breakpoint number rides on **A2-A4**,
+          not on the low address lines: putting it elsewhere acknowledges a
+          different breakpoint, and external hardware answers with the wrong
+          instruction word rather than faulting.
+          On a DN3500 nothing decodes CPU space, so the cycle takes a bus error
+          and "the processor takes an illegal instruction exception" -- the
+          machine's behaviour, not an error path, which is why declining was the
+          wrong report.
+          *Verification: `step_suite`, 2 further tests (191 total) -- the
+          illegal instruction taken when nothing answers, and the acknowledge
+          cycle's address and function code checked directly, since a wrong
+          breakpoint number is a legal address that no fault would reveal. The
+          harness records the **first** CPU-space cycle, because the vector
+          fetch that follows would otherwise be the one pinned.*
         - `CAS` **now executes**, and the bus asserts `RMC` across the pair.
           The signal lives on the access context rather than on a bus object,
           because each access creates its own cycle and the signal spans two of
@@ -642,8 +654,13 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
           which is **correct** on a machine with no coprocessor fitted rather
           than a gap. If an FPU is ever modelled they become real work.
 
-        So three of the four are waiting on the bus asserting `RMC` and one is a
-        morning's work. Nothing here is waiting on a decision.
+        **All four are now done or reasoned.** `CMP2`/`CHK2` execute, `CAS`
+        executes with `RMC` asserted across its pair, `BKPT` executes its
+        acknowledge cycle, and the non-MMU coprocessor instructions take the
+        line 1111 trap, which is correct on a machine with no coprocessor
+        fitted. `CAS2` alone declines, and for a stated reason rather than a
+        pending one: two independent memory operands under one locked sequence
+        is a two-address atomic this operand path cannot express.
   - [x] **Operand access** (`src/core/cpu/m68030/ap_m68030_operand.c`), the
         layer between address calculation and memory. It exists mostly to hold
         two register rules that are opposites of each other and are easy to

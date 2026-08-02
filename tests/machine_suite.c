@@ -135,8 +135,9 @@ static void test_a_runaway_program_ends_at_its_limit(void) {
 /* A run ends when the processor stops making progress, and reports why — which
  * is what makes "how far did this probe get" answerable. */
 static void test_a_run_stops_on_an_unimplemented_instruction_and_says_so(void) {
-  /* MOVEQ, then BKPT #0, which decodes and has no semantics. */
-  static const uint16_t program[] = {0x7005u, 0x4848u, 0x4E71u};
+  /* MOVEQ, then `CAS2`, which decodes and has no semantics -- BKPT held this
+   * role until its breakpoint acknowledge cycle landed. */
+  static const uint16_t program[] = {0x7005u, 0x0CFCu, 0x4E71u};
   blank();
   ap_machine_t m;
   ap_machine_init(&m, ram, RAM_BYTES);

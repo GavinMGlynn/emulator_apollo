@@ -47,6 +47,23 @@ typedef struct {
    * means never, which is what every test that does not set it wants -- and
    * `load` resets it, so one test cannot leave a hole in the next one's RAM. */
   uint32_t berr_from;
+
+  /* The **first CPU-space** fill's address, so a test can check which cycle the
+   * processor ran rather than only that one faulted. A wrong breakpoint number
+   * is a legal address naming a different breakpoint, which no fault reveals.
+   *
+   * The first and not the last: an unanswered breakpoint acknowledge is
+   * followed by the illegal-instruction vector fetch, so the last fill of the
+   * step is the vector's and recording that would pin the wrong cycle. */
+  uint32_t cpu_space_address;
+  unsigned cpu_space_cycles;
+
+  /* When set, CPU space answers BERR -- which is the DN3500, where nothing
+   * decodes it. Kept separate from `berr_from` because CPU space is selected by
+   * the function code and not by an address range: a breakpoint acknowledge
+   * runs at a very low address, so no address bound can refuse it without also
+   * refusing the vector table. */
+  bool berr_on_cpu_space;
 } memory_t;
 
 static bool memory_store(void *context, uint32_t physical, uint32_t value,
@@ -77,9 +94,19 @@ static bool memory_store(void *context, uint32_t physical, uint32_t value,
 
 static void memory_fill(void *context, uint32_t line_address,
                         uint8_t function_code, ap_m68030_fill_answer_t *out) {
-  (void)function_code;
   memory_t *memory = (memory_t *)context;
   memory->fills++;
+  if (function_code == 7u) {
+    if (memory->cpu_space_cycles == 0u) {
+      memory->cpu_space_address = line_address;
+    }
+    memory->cpu_space_cycles++;
+  }
+  if (memory->berr_on_cpu_space && function_code == 7u) {
+    out->termination = AP_M68030_TERM_BERR;
+    out->burst_acknowledge = false;
+    return;
+  }
   if (memory->berr_from != 0u && line_address >= memory->berr_from) {
     out->termination = AP_M68030_TERM_BERR;
     out->burst_acknowledge = false;
@@ -143,6 +170,9 @@ static void load(machine_t *m, const uint16_t *words, unsigned count) {
   m->memory.fills = 0;
   m->memory.stores = 0;
   m->memory.berr_from = 0u;
+  m->memory.berr_on_cpu_space = false;
+  m->memory.cpu_space_address = 0u;
+  m->memory.cpu_space_cycles = 0u;
   m->access = (ap_m68030_access_ctx_t){
       .cache = &m->cache,
       .atc = &m->atc,
@@ -333,9 +363,11 @@ static void test_an_unimplemented_instruction_is_reported_not_skipped(void) {
    * step does not issue. ADD served this test first, then MULU, then LEA, each
    * until it started working. A placeholder that keeps needing replacement
    * because the thing it stood in for now runs is the right kind of churn --
-   * and BKPT is a better one than its predecessors, since what it waits on is
-   * a different subsystem rather than more of this one. */
-  static const uint16_t program[] = {0x4848u, 0x4E71u, 0x4E71u, 0x4E71u};
+   * and `CAS2` is the current one -- BKPT held the role until its breakpoint
+   * acknowledge cycle landed. What `CAS2` waits on is a two-address atomic this
+   * operand path cannot express, which is a different subsystem rather than
+   * more of this one. */
+  static const uint16_t program[] = {0x0CFCu, 0x4E71u, 0x4E71u, 0x4E71u};
   machine_t m = {0};
   load(&m, program, 4);
 
@@ -345,7 +377,7 @@ static void test_an_unimplemented_instruction_is_reported_not_skipped(void) {
   TEST_ASSERT_NOT_EQUAL_INT(AP_M68030_STEP_ILLEGAL, r.status);
   TEST_ASSERT_NOT_EQUAL_INT(AP_M68030_STEP_EXECUTED, r.status);
   /* It decoded correctly -- the gap is in execution, not decode. */
-  TEST_ASSERT_EQUAL_INT(AP_M68030_DECODED_MISC, r.kind);
+  TEST_ASSERT_EQUAL_INT(AP_M68030_DECODED_BOUNDS, r.kind);
   /* And the PC did not move past it. */
   TEST_ASSERT_EQUAL_HEX32(PROGRAM_BASE, m.cpu.regs.pc);
 }
@@ -763,7 +795,7 @@ static void test_a_write_updates_a_line_that_is_already_resident(void) {
 static void test_a_fault_does_not_leak_into_the_following_instruction(void) {
   /* CMPI.B #$08,(1,A5) over faulting memory, then BKPT #0, which is
    * unimplemented and touches no memory at all. */
-  static const uint16_t program[] = {0x0C2Du, 0x0008u, 0x0001u, 0x4848u};
+  static const uint16_t program[] = {0x0C2Du, 0x0008u, 0x0001u, 0x0CFCu};
   machine_t m = {0};
   load(&m, program, 4);
   plant_vector(&m, AP_M68030_VECTOR_BUS_ERROR, HANDLER);
@@ -4041,7 +4073,7 @@ static void test_the_instruction_that_disables_tracing_is_still_traced(void) {
  * -- if the processor had already traced, it would trace twice. */
 static void test_an_unexecuted_instruction_is_not_traced(void) {
   /* BKPT #0: decoded, not executed. */
-  static const uint16_t program[] = {0x4848u, 0x4E71u, 0x4E71u, 0x4E71u};
+  static const uint16_t program[] = {0x0CFCu, 0x4E71u, 0x4E71u, 0x4E71u};
   machine_t m = {0};
   load(&m, program, 4);
   plant_vector(&m, AP_M68030_VECTOR_TRACE, HANDLER);
@@ -4581,8 +4613,50 @@ static void test_chk_sets_z_from_the_register_not_the_bound(void) {
                         ap_m68030_step(&nonzero.cpu).status);
 }
 
+
+/* BKPT runs a breakpoint acknowledge cycle in **CPU space**, `[030]` §7.4.2.
+ *
+ * On the DN3500 nothing answers it -- no breakpoint hardware is fitted -- so
+ * the cycle takes a bus error and "the processor takes an illegal instruction
+ * exception". That is the machine's behaviour and not an error path, which is
+ * why this is now an exception rather than the unimplemented report it used to
+ * be: declining would have said the gap was ours. */
+static void test_bkpt_takes_an_illegal_instruction_when_nothing_answers(void) {
+  /* BKPT #3: 0100 1000 0100 1011 = $484B */
+  static const uint16_t program[] = {0x484Bu, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 2);
+  /* CPU space faults, which is what an unfitted breakpoint responder looks
+   * like from the processor's side -- and what a DN3500 is. */
+  m.memory.berr_on_cpu_space = true;
+  write_ram_long(&m, 4u * AP_M68030_VECTOR_ILLEGAL_INSTRUCTION, HANDLER);
+
+  const ap_m68030_step_result_t result = ap_m68030_step(&m.cpu);
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXCEPTION, result.status);
+  TEST_ASSERT_EQUAL_HEX32(HANDLER, m.cpu.regs.pc);
+}
+
+/* The breakpoint number rides on **A2-A4**, not on the low address lines.
+ * Putting it anywhere else acknowledges a different breakpoint, and external
+ * hardware answers with the wrong instruction word rather than faulting -- so
+ * this is checked by watching the address the cycle actually presents. */
+static void test_the_breakpoint_number_is_on_a2_to_a4(void) {
+  static const uint16_t program[] = {0x484Bu, 0x4E71u}; /* BKPT #3 */
+  machine_t m = {0};
+  load(&m, program, 2);
+  m.memory.berr_on_cpu_space = true;
+  write_ram_long(&m, 4u * AP_M68030_VECTOR_ILLEGAL_INSTRUCTION, HANDLER);
+  (void)ap_m68030_step(&m.cpu);
+
+  /* Exactly one CPU-space cycle ran, and #3 rode on A2-A4: $0C, not $03. */
+  TEST_ASSERT_EQUAL_UINT(1u, m.memory.cpu_space_cycles);
+  TEST_ASSERT_EQUAL_HEX32(0x0Cu, m.memory.cpu_space_address);
+}
+
 int main(void) {
   UNITY_BEGIN();
+  RUN_TEST(test_bkpt_takes_an_illegal_instruction_when_nothing_answers);
+  RUN_TEST(test_the_breakpoint_number_is_on_a2_to_a4);
   RUN_TEST(test_chk_sets_z_from_the_register_not_the_bound);
   RUN_TEST(test_cmp2_reports_in_bounds_without_trapping);
   RUN_TEST(test_cmp2_sets_z_on_either_bound);
