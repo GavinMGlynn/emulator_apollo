@@ -68,6 +68,7 @@
 #include "cpu/m68030/ap_m68030_tt.h"
 #include "cpu/m68030/ap_m68030_walk.h"
 #include "cpu/m68030/ap_m68030_regs.h"
+#include "cpu/m68882/ap_m68882.h"
 
 typedef enum {
   AP_M68030_STEP_EXECUTED,
@@ -108,6 +109,14 @@ typedef struct {
    * instruction side even when it shares a memory system. */
   ap_m68030_access_ctx_t *data;
   uint8_t data_function_code;
+  /* The floating-point coprocessor, when one is fitted. NULL is a real
+   * configuration -- a DN3000 has none -- and the difference is visible to
+   * software in exactly one way: an F-line word then takes the line 1111
+   * emulator exception, which is what this core already did before there was an
+   * FPU to attach. Attaching one must not change that for a machine without
+   * one, which is why this is a pointer and not a member. */
+  ap_m68882_t *fpu;
+
   uint64_t clocks; /* accumulated across steps */
 
   /* The MMU registers, which `PMOVE` writes and reads. They live here because

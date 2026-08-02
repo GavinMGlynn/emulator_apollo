@@ -3506,6 +3506,131 @@ static bool changes_flow(const ap_m68030_decoded_t *decoded, bool branch_taken,
 }
 
 
+/* CAS2, `M68000 Family PRM` 4-67.
+ *
+ * "CAS2 compares memory operand 1 (Rn1) to compare operand 1 (Dc1). If the
+ * operands are equal, the instruction compares memory operand 2 (Rn2) to
+ * compare operand 2 (Dc2). If these operands are also equal, the instruction
+ * writes the update operands (Du1 and Du2) to the memory operands (Rn1 and
+ * Rn2). If either comparison fails, the instruction writes the memory operands
+ * (Rn1 and Rn2) to the compare operands (Dc1 and Dc2)."
+ *
+ * ## The addresses are registers, not effective addresses
+ *
+ * This had been declined as "a two-address atomic this operand path cannot
+ * express", and that was wrong: the instruction's own format gives each operand
+ * an `Rn` field and nothing else -- "Rn1, Rn2 fields: Specify the numbers of
+ * the registers that contain the addresses of the first and second memory
+ * operands". There is no addressing mode to evaluate, so what looked like a
+ * missing capability was a misreading of the encoding.
+ *
+ * The `<ea>` in the *operation* word is `111100`, the immediate mode, which CAS
+ * cannot legally take -- so the pattern is free and CAS2 uses it purely as an
+ * escape. Reading it as an address is what makes this instruction look harder
+ * than it is.
+ *
+ * ## One lock across four accesses
+ *
+ * Both comparisons and both writes happen under a single `RMC`, which is the
+ * point of the instruction: it is what lets two ends of a linked list be
+ * swapped atomically. Two separate CAS operations would be a different
+ * instruction with the same mnemonic.
+ *
+ * ## The failure case writes to a register, and may write only one
+ *
+ * "If Dc1 and Dc2 specify the same data register and the comparison fails,
+ * memory operand 1 is stored in the data register." So the two register writes
+ * happen in order and the first wins when they collide -- a model writing the
+ * second last would leave the wrong value in a case the manual calls out
+ * explicitly. */
+static bool execute_cas2(ap_m68030_cpu_t *cpu, const ap_m68030_bounds_t *bounds,
+                         uint16_t first_extension, uint32_t *clocks) {
+  uint16_t second_extension = 0;
+  if (!next_word(cpu, clocks, &second_extension)) {
+    return false;
+  }
+
+  const uint16_t extensions[2] = {first_extension, second_extension};
+  ap_m68030_address_t where[2] = {0};
+  uint32_t memory[2] = {0};
+  unsigned compare_reg[2] = {0};
+  unsigned update_reg[2] = {0};
+
+  cpu->data->rmc = true;
+
+  for (unsigned i = 0; i < 2u; i++) {
+    const uint16_t word = extensions[i];
+    const bool address_register = (word & 0x8000u) != 0u;
+    const unsigned reg = (unsigned)((word >> 12) & 7u);
+    update_reg[i] = (unsigned)((word >> 6) & 7u);
+    compare_reg[i] = (unsigned)(word & 7u);
+
+    where[i].valid = true;
+    where[i].address = address_register
+                           ? (reg == 7u ? ap_m68030_read_a7(&cpu->regs)
+                                        : cpu->regs.a[reg])
+                           : cpu->regs.d[reg];
+
+    const ap_m68030_operand_result_t read = step_operand_read(
+        cpu, &cpu->regs, cpu->data, &where[i], bounds->size,
+        cpu->data_function_code);
+    *clocks += read.clocks;
+    if (!read.ok) {
+      cpu->data->rmc = false;
+      return false;
+    }
+    memory[i] = read.value;
+  }
+
+  /* Both comparisons before either write: the instruction is all-or-nothing,
+   * and comparing one at a time with a write between them would leave memory
+   * half updated if the second failed. */
+  const uint16_t ccr = ap_m68030_read_ccr(&cpu->regs);
+  const ap_m68030_alu_result_t first = ap_m68030_alu_sub(
+      memory[0], cpu->regs.d[compare_reg[0]], bounds->size);
+  bool matched = first.z;
+  ap_m68030_alu_result_t codes = first;
+
+  if (matched) {
+    const ap_m68030_alu_result_t second = ap_m68030_alu_sub(
+        memory[1], cpu->regs.d[compare_reg[1]], bounds->size);
+    matched = second.z;
+    codes = second;
+  }
+  ap_m68030_write_ccr(&cpu->regs, ap_m68030_alu_apply(ccr, &codes));
+
+  bool ok = true;
+  if (matched) {
+    for (unsigned i = 0; i < 2u && ok; i++) {
+      const ap_m68030_operand_result_t wrote = step_operand_write(
+          cpu, &cpu->regs, cpu->data, &where[i], bounds->size,
+          cpu->regs.d[update_reg[i]], cpu->data_function_code);
+      *clocks += wrote.clocks;
+      ok = wrote.ok;
+    }
+  } else {
+    /* **Second operand first.** "If Dc1 and Dc2 specify the same data register
+     * and the comparison fails, memory operand 1 is stored in the data
+     * register" -- so operand 1 must be the one that *remains*, which means it
+     * is written last. Writing them in the obvious order leaves operand 2
+     * there, and only in the colliding case, which no ordinary test reaches. */
+    for (unsigned i = 2u; i-- > 0u && ok;) {
+      ap_m68030_address_t into_register = {0};
+      into_register.valid = true;
+      into_register.in_register = true;
+      into_register.reg = compare_reg[i];
+      const ap_m68030_operand_result_t back = step_operand_write(
+          cpu, &cpu->regs, cpu->data, &into_register, bounds->size, memory[i],
+          cpu->data_function_code);
+      *clocks += back.clocks;
+      ok = back.ok;
+    }
+  }
+
+  cpu->data->rmc = false;
+  return ok;
+}
+
 /* CAS, `M68000 Family PRM` 4-65.
  *
  * "CAS compares the effective address operand to the compare operand (Dc). If
@@ -3644,13 +3769,10 @@ static bool execute_bounds(ap_m68030_cpu_t *cpu,
   if (kind == AP_M68030_BOUNDS_CAS) {
     return execute_cas(cpu, bounds, extension, clocks);
   }
+  if (kind == AP_M68030_BOUNDS_CAS2) {
+    return execute_cas2(cpu, bounds, extension, clocks);
+  }
   if (kind != AP_M68030_BOUNDS_CMP2 && kind != AP_M68030_BOUNDS_CHK2) {
-    /* CAS2 alone still declines. It names *two* independent memory operands and
-     * holds both under one locked sequence -- "if either comparison fails, the
-     * instruction writes the memory operands to the compare operands" -- which
-     * is a two-address atomic this operand path cannot express. Declined rather
-     * than run as two separate CAS operations, which would be a different
-     * instruction with the same mnemonic. */
     return false;
   }
 
@@ -4004,10 +4126,46 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
       return out;
     }
 
-    /* Not the MMU, so it addresses a coprocessor this machine does not have.
-     * `[030]` §8.1: an F-line word takes the line 1111 emulator exception when
-     * no coprocessor responds -- which is the case for every cpID but the
-     * MMU's on a DN3500 with no floating-point coprocessor fitted.
+    /* A floating-point coprocessor, if one is fitted. The DN3500 has a 68882
+     * and a DN3000 does not, and that difference is the whole of what software
+     * can see here -- so the part is attached to the CPU rather than compiled
+     * into it, and a machine without one keeps exactly the trap it had.
+     *
+     * The general type needs its *command word*, which is the word after the
+     * operation word: the operation word gets as far as "a coprocessor
+     * instruction for this cpID" and cannot tell `FADD` from `FSIN`. */
+    if (cpu->fpu != nullptr && coproc->cpid == cpu->fpu->cpid) {
+      uint16_t command = 0;
+      if (coproc->type == AP_M68030_CP_GENERAL &&
+          !next_word(cpu, &out.clocks, &command)) {
+        out.status = fault_or_unimplemented(cpu, &out, instruction_address);
+        cpu->clocks += out.clocks;
+        return out;
+      }
+
+      const ap_m68882_status_t executed =
+          ap_m68882_execute(cpu->fpu, out.instruction, command);
+      if (executed == AP_M68882_EXECUTED) {
+        break;
+      }
+      if (executed == AP_M68882_UNIMPLEMENTED) {
+        /* A form the part executes and this model has not got to. Reported as
+         * *our* gap and not as the machine's trap -- raising F-line here would
+         * be indistinguishable from a correct unfitted machine, and the gap
+         * would stop being visible. */
+        out.status = fault_or_unimplemented(cpu, &out, instruction_address);
+        cpu->clocks += out.clocks;
+        return out;
+      }
+      /* AP_M68882_TAKE_LINE_F falls through to the trap below, which is where
+       * an undefined encoding belongs: Table 4-13's footnote 2 has the FPCP
+       * itself ask the MPU for an F-line trap, so the vector is the same one an
+       * unfitted machine takes and arrives for a different reason. */
+    }
+
+    /* No coprocessor answered. `[030]` §8.1: an F-line word takes the line 1111
+     * emulator exception when no coprocessor responds -- which is every cpID
+     * but the MMU's on a machine with none fitted.
      *
      * This is correct hardware behaviour rather than a stand-in for missing
      * work, and the distinction from the MMU case above is the whole point: one

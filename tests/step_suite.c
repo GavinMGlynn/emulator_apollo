@@ -363,13 +363,18 @@ static void test_an_unimplemented_instruction_is_reported_not_skipped(void) {
    * step does not issue. ADD served this test first, then MULU, then LEA, each
    * until it started working. A placeholder that keeps needing replacement
    * because the thing it stood in for now runs is the right kind of churn --
-   * and `CAS2` is the current one -- BKPT held the role until its breakpoint
-   * acknowledge cycle landed. What `CAS2` waits on is a two-address atomic this
-   * operand path cannot express, which is a different subsystem rather than
-   * more of this one. */
-  static const uint16_t program[] = {0x0CFCu, 0x4E71u, 0x4E71u, 0x4E71u};
+   * and an **undefined MMU extension class** is the current one. BKPT held the
+   * role until its acknowledge cycle landed, and `CAS2` until its addresses
+   * turned out to be registers rather than effective addresses -- every
+   * placeholder so far has been implemented in turn, which is the point of
+   * keeping one. */
+  /* An MMU instruction whose extension class the 68030 does not define. The
+   * step reports it as *our* gap rather than as an F-line trap, which is the
+   * distinction this test exists for. Privileged, so supervisor state first. */
+  static const uint16_t program[] = {0xF010u, 0xA000u, 0x4E71u, 0x4E71u};
   machine_t m = {0};
   load(&m, program, 4);
+  ap_m68030_write_sr(&m.cpu.regs, (uint16_t)(1u << AP_M68030_SR_S_BIT));
 
   const ap_m68030_step_result_t r = ap_m68030_step(&m.cpu);
 
@@ -377,7 +382,7 @@ static void test_an_unimplemented_instruction_is_reported_not_skipped(void) {
   TEST_ASSERT_NOT_EQUAL_INT(AP_M68030_STEP_ILLEGAL, r.status);
   TEST_ASSERT_NOT_EQUAL_INT(AP_M68030_STEP_EXECUTED, r.status);
   /* It decoded correctly -- the gap is in execution, not decode. */
-  TEST_ASSERT_EQUAL_INT(AP_M68030_DECODED_BOUNDS, r.kind);
+  TEST_ASSERT_EQUAL_INT(AP_M68030_DECODED_COPROC, r.kind);
   /* And the PC did not move past it. */
   TEST_ASSERT_EQUAL_HEX32(PROGRAM_BASE, m.cpu.regs.pc);
 }
@@ -795,7 +800,7 @@ static void test_a_write_updates_a_line_that_is_already_resident(void) {
 static void test_a_fault_does_not_leak_into_the_following_instruction(void) {
   /* CMPI.B #$08,(1,A5) over faulting memory, then BKPT #0, which is
    * unimplemented and touches no memory at all. */
-  static const uint16_t program[] = {0x0C2Du, 0x0008u, 0x0001u, 0x0CFCu};
+  static const uint16_t program[] = {0x0C2Du, 0x0008u, 0x0001u, 0xF010u};
   machine_t m = {0};
   load(&m, program, 4);
   plant_vector(&m, AP_M68030_VECTOR_BUS_ERROR, HANDLER);
@@ -4072,8 +4077,10 @@ static void test_the_instruction_that_disables_tracing_is_still_traced(void) {
  * routine, which must handle the trace itself after emulating the instruction
  * -- if the processor had already traced, it would trace twice. */
 static void test_an_unexecuted_instruction_is_not_traced(void) {
-  /* BKPT #0: decoded, not executed. */
-  static const uint16_t program[] = {0x0CFCu, 0x4E71u, 0x4E71u, 0x4E71u};
+  /* An MMU instruction whose extension class the 68030 does not define:
+   * decoded, not executed. Supervisor state is set below, which this needs
+   * anyway for the trace frame. */
+  static const uint16_t program[] = {0xF010u, 0xA000u, 0x4E71u, 0x4E71u};
   machine_t m = {0};
   load(&m, program, 4);
   plant_vector(&m, AP_M68030_VECTOR_TRACE, HANDLER);
@@ -4559,17 +4566,96 @@ static void test_cas_releases_the_lock_on_both_outcomes(void) {
   }
 }
 
-/* CAS2 still declines. It names *two* independent memory operands held under
- * one locked sequence, which is a two-address atomic this operand path cannot
- * express -- and running it as two separate CAS operations would be a different
- * instruction with the same mnemonic. */
-static void test_cas2_still_declines(void) {
-  /* CAS2.W: the immediate escape, $0CFC, then two extension words. */
-  static const uint16_t program[] = {0x0CFCu, 0x0040u, 0x1040u, 0x4E71u};
+/* CAS2 swaps **both** operands or neither, under one lock.
+ *
+ * Its addresses come from registers -- "Rn1, Rn2 fields: specify the numbers of
+ * the registers that contain the addresses of the first and second memory
+ * operands" -- and not from an addressing mode. That is why this turned out to
+ * be implementable after being declined as a two-address atomic the operand
+ * path could not express: the `<ea>` in the operation word is the immediate
+ * encoding used purely as an escape, and reading it as an address is what made
+ * the instruction look harder than it is. */
+static void test_cas2_swaps_both_operands_or_neither(void) {
+  /* CAS2.W: $0CFC, then two extension words. Each carries D/A at 15, Rn at
+   * 14-12, Du at 8-6 and Dc at 2-0 -- so A0 and A1 hold the addresses, D2 and
+   * D3 the updates, D0 and D1 the comparands. */
+  static const uint16_t program[] = {0x0CFCu, 0x8080u, 0x90C1u, 0x4E71u};
   machine_t m = {0};
   load(&m, program, 4);
-  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_UNIMPLEMENTED,
-                        ap_m68030_step(&m.cpu).status);
+  m.cpu.regs.a[0] = BOUNDS_AT;
+  m.cpu.regs.a[1] = BOUNDS_AT + 0x10u;
+  write_ram_word(&m, BOUNDS_AT, 0x1111u);
+  write_ram_word(&m, BOUNDS_AT + 0x10u, 0x2222u);
+  m.cpu.regs.d[0] = 0x1111u;
+  m.cpu.regs.d[1] = 0x2222u;
+  m.cpu.regs.d[2] = 0xAAAAu;
+  m.cpu.regs.d[3] = 0xBBBBu;
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&m.cpu).status);
+
+  const uint32_t first =
+      ((uint32_t)m.memory.bytes[BOUNDS_AT] << 8) | m.memory.bytes[BOUNDS_AT + 1u];
+  const uint32_t second = ((uint32_t)m.memory.bytes[BOUNDS_AT + 0x10u] << 8) |
+                          m.memory.bytes[BOUNDS_AT + 0x11u];
+  TEST_ASSERT_EQUAL_HEX32(0xAAAAu, first);
+  TEST_ASSERT_EQUAL_HEX32(0xBBBBu, second);
+}
+
+/* **If either comparison fails, neither write happens.** All or nothing is the
+ * whole point: comparing one at a time with a write between them would leave
+ * memory half updated when the second failed, which is precisely the corruption
+ * the instruction exists to prevent. Here the *second* comparison fails, so the
+ * first operand must be left alone even though it matched. */
+static void test_cas2_writes_nothing_when_the_second_comparison_fails(void) {
+  static const uint16_t program[] = {0x0CFCu, 0x8080u, 0x90C1u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 4);
+  m.cpu.regs.a[0] = BOUNDS_AT;
+  m.cpu.regs.a[1] = BOUNDS_AT + 0x10u;
+  write_ram_word(&m, BOUNDS_AT, 0x1111u);
+  write_ram_word(&m, BOUNDS_AT + 0x10u, 0x2222u);
+  m.cpu.regs.d[0] = 0x1111u; /* matches */
+  m.cpu.regs.d[1] = 0x9999u; /* does not */
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&m.cpu).status);
+
+  const uint32_t first =
+      ((uint32_t)m.memory.bytes[BOUNDS_AT] << 8) | m.memory.bytes[BOUNDS_AT + 1u];
+  TEST_ASSERT_EQUAL_HEX32(0x1111u, first);
+  /* And both memory operands went into their compare registers. */
+  TEST_ASSERT_EQUAL_HEX32(0x1111u, m.cpu.regs.d[0] & 0xFFFFu);
+  TEST_ASSERT_EQUAL_HEX32(0x2222u, m.cpu.regs.d[1] & 0xFFFFu);
+}
+
+/* "If Dc1 and Dc2 specify the same data register and the comparison fails,
+ * memory operand 1 is stored in the data register." The two register writes
+ * happen in order and the *first* wins when they collide -- a model writing the
+ * second last leaves the wrong value in a case the manual calls out by name. */
+static void test_cas2_leaves_the_first_operand_when_the_registers_collide(void) {
+  /* Both Dc fields name D0. */
+  static const uint16_t program[] = {0x0CFCu, 0x8080u, 0x90C0u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 4);
+  m.cpu.regs.a[0] = BOUNDS_AT;
+  m.cpu.regs.a[1] = BOUNDS_AT + 0x10u;
+  write_ram_word(&m, BOUNDS_AT, 0x1111u);
+  write_ram_word(&m, BOUNDS_AT + 0x10u, 0x2222u);
+  m.cpu.regs.d[0] = 0x9999u; /* fails at once */
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&m.cpu).status);
+  TEST_ASSERT_EQUAL_HEX32(0x1111u, m.cpu.regs.d[0] & 0xFFFFu);
+}
+
+/* The lock is released either way, as for CAS: held past the instruction it
+ * would refuse every later bus grant. */
+static void test_cas2_releases_the_lock(void) {
+  static const uint16_t program[] = {0x0CFCu, 0x8080u, 0x90C1u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 4);
+  m.cpu.regs.a[0] = BOUNDS_AT;
+  m.cpu.regs.a[1] = BOUNDS_AT + 0x10u;
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&m.cpu).status);
+  TEST_ASSERT_FALSE(m.data_access.rmc);
 }
 
 
@@ -4759,7 +4845,10 @@ int main(void) {
   RUN_TEST(test_cas_swaps_when_the_comparison_matches);
   RUN_TEST(test_cas_loads_the_compare_register_when_it_fails);
   RUN_TEST(test_cas_releases_the_lock_on_both_outcomes);
-  RUN_TEST(test_cas2_still_declines);
+  RUN_TEST(test_cas2_swaps_both_operands_or_neither);
+  RUN_TEST(test_cas2_writes_nothing_when_the_second_comparison_fails);
+  RUN_TEST(test_cas2_leaves_the_first_operand_when_the_registers_collide);
+  RUN_TEST(test_cas2_releases_the_lock);
   RUN_TEST(test_ori_to_the_status_register_sets_the_interrupt_mask);
   RUN_TEST(test_andi_to_the_condition_codes_leaves_the_high_byte);
   RUN_TEST(test_ori_to_the_status_register_is_privileged);

@@ -646,10 +646,28 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
           into a retry loop that spins forever; and the lock released on both
           outcomes, since `RMC` held past the instruction would refuse every
           later bus grant.*
-        - `CAS2` still declines: two independent memory operands under one
-          locked sequence is a two-address atomic this operand path cannot
-          express, and running it as two `CAS` operations would be a different
-          instruction with the same mnemonic.
+        - `CAS2` **now executes too, and the reason it had been declined was a
+          misreading.** Its addresses come from *registers* -- "Rn1, Rn2 fields:
+          specify the numbers of the registers that contain the addresses of the
+          first and second memory operands" -- not from an addressing mode. The
+          `<ea>` in the operation word is the immediate encoding used purely as
+          an escape, and reading it as an address is what made the instruction
+          look like something the operand path could not express.
+          Both comparisons happen before either write, so a failure leaves
+          memory untouched rather than half updated -- which is the corruption
+          the instruction exists to prevent. And the two register writes go in
+          **reverse** order, because "if Dc1 and Dc2 specify the same data
+          register and the comparison fails, memory operand 1 is stored in the
+          data register": operand 1 must be the one that remains, so it is
+          written last. The obvious order leaves operand 2 there, and only in
+          the colliding case, which no ordinary test reaches.
+          *Verification: `step_suite`, 4 further tests (196 total) -- both
+          operands swapped or neither, nothing written when the *second*
+          comparison fails, the colliding-register case, and the lock released.*
+        - **Nothing in the step is unimplemented now.** The suite's
+          unimplemented-instruction placeholder has passed from BKPT to `CAS2`
+          to an undefined MMU extension class, each of the first two having been
+          implemented in turn -- which is what the placeholder is for.
         - `CMP2` and `CHK2` decode and have no semantics yet. **Not blocked** —
           simply not done, and the smallest remaining piece of this item.
         - The non-MMU coprocessor instructions take the line 1111 emulator trap,
