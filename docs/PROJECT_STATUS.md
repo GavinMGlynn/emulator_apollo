@@ -1388,8 +1388,27 @@ The read/write pattern held for a third page and in its cleanest form:
 Same bit, same addressing, different protection -- because one tests and the
 others write back.
 
-What remains of the 68040 item is eleven more pages of §10.6 and §10.7's ten
-pages of floating-point timings. That is bulk transcription against the
+Page 10-18 forced the penalty model open. `CHK2`'s footnote carries **two**
+conditions at once: "for UB < LB, add three clocks to <ea> calculate and execute
+times. For Rn = An, add one clock". Neither is derivable from the encoding --
+`UB < LB` is a relation between two bounds held in memory -- and both can hold
+together, so a single pair of numbers cannot express them. Penalties are now a
+tagged list, and a caller may pass every condition it knows about because only
+the ones a cell names take effect.
+
+That tagging also made an existing test more precise. It had asserted "only the
+bit-field groups carry a penalty", which `CHK2` immediately falsified; the
+honest statement is that only they carry a *spans-long-word* penalty, and the
+tag is what lets the test say so.
+
+Two smaller observations from the same page. `CHK2` has no register or immediate
+form at all, where `CHK` has both -- it compares against a bound *pair* in
+memory. And `CLR` and `CMP` share every figure they both define: `CLR` lacks the
+PC-relative, immediate and `An` modes because it only writes, but where both are
+valid the cost is the addressing rather than the operation.
+
+What remains of the 68040 item is ten more pages of §10.6 and §10.7's ten pages
+of floating-point timings. That is bulk transcription against the
 composition already in place, and the last thing standing between Phase 2b and
 complete. Appendix A's bit rows have to come from page images --
 `pdftotext` renders them with zeros as letters and columns collapsed, the same

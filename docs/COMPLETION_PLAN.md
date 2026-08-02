@@ -2132,8 +2132,10 @@ a 68882, and the 68882 is the only one of these it has.
         the sources exhausted are in `PROJECT_STATUS.md`. Page 10-17 added a
         third confidence class -- "times listed are for `Dn` within bounds", so
         the `CHK` column prices the case that does *not* trap.
-        `m68040_iu_timing_suite`, 39 tests. Eleven pages of column groups
-        remain, then §10.7's ten pages of floating-point timings. Bulk transcription against the composition above,
+        Page 10-18's `CHK2` carries **two** conditional penalties
+        at once, so penalties became a tagged list rather than one pair.
+        `m68040_iu_timing_suite`, 43 tests. Ten pages of column groups remain,
+        then §10.7's ten pages of floating-point timings. Bulk transcription against the composition above,
         and the last thing standing between Phase 2b and complete. Every figure
         is a *best case* by §10.1's suppositions: "all memory accesses hit in
         the caches", and misaligned `<ea>` fetch timing is left to the reader.

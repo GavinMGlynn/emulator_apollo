@@ -224,16 +224,16 @@ static void test_a_register_shift_count_costs_one_more_clock(void) {
   const ap_m68040_iu_cell_t asl = at("ASL", AP_M68040_IU_DN);
   TEST_ASSERT_TRUE(asl.alternate != AP_M68040_IU_ALTERNATE_NONE);
   TEST_ASSERT_EQUAL_UINT(3u, ap_m68040_execute_total(
-                                 ap_m68040_iu_execute(asl, false, false)));
+                                 ap_m68040_iu_execute(asl, false, AP_M68040_IU_NO_CONDITIONS)));
   TEST_ASSERT_EQUAL_UINT(4u, ap_m68040_execute_total(
-                                 ap_m68040_iu_execute(asl, true, false)));
+                                 ap_m68040_iu_execute(asl, true, AP_M68040_IU_NO_CONDITIONS)));
 
   const ap_m68040_iu_cell_t asr = at("ASR", AP_M68040_IU_DN);
   TEST_ASSERT_TRUE(asr.alternate != AP_M68040_IU_ALTERNATE_NONE);
   TEST_ASSERT_EQUAL_UINT(2u, ap_m68040_execute_total(
-                                 ap_m68040_iu_execute(asr, false, false)));
+                                 ap_m68040_iu_execute(asr, false, AP_M68040_IU_NO_CONDITIONS)));
   TEST_ASSERT_EQUAL_UINT(3u, ap_m68040_execute_total(
-                                 ap_m68040_iu_execute(asr, true, false)));
+                                 ap_m68040_iu_execute(asr, true, AP_M68040_IU_NO_CONDITIONS)));
 }
 
 static void test_only_the_register_row_prints_two_figures(void) {
@@ -255,8 +255,8 @@ static void test_a_single_figure_cell_ignores_the_count_argument(void) {
   const ap_m68040_iu_cell_t add = at("ADD", AP_M68040_IU_DN);
   TEST_ASSERT_FALSE(add.alternate != AP_M68040_IU_ALTERNATE_NONE);
   TEST_ASSERT_EQUAL_UINT(
-      ap_m68040_execute_total(ap_m68040_iu_execute(add, false, false)),
-      ap_m68040_execute_total(ap_m68040_iu_execute(add, true, false)));
+      ap_m68040_execute_total(ap_m68040_iu_execute(add, false, AP_M68040_IU_NO_CONDITIONS)),
+      ap_m68040_execute_total(ap_m68040_iu_execute(add, true, AP_M68040_IU_NO_CONDITIONS)));
 }
 
 static void test_an_arithmetic_left_shift_costs_more_than_the_others(void) {
@@ -320,9 +320,9 @@ static void test_a_bit_number_in_a_register_costs_one_more_execute_clock(void) {
    * #<xxx>/Dn bit numbers." So the *first* figure is the immediate form. */
   const ap_m68040_iu_cell_t c = at("BCHG", AP_M68040_IU_INDIRECT);
   TEST_ASSERT_EQUAL_UINT(
-      3u, ap_m68040_execute_total(ap_m68040_iu_execute(c, false, false)));
+      3u, ap_m68040_execute_total(ap_m68040_iu_execute(c, false, AP_M68040_IU_NO_CONDITIONS)));
   TEST_ASSERT_EQUAL_UINT(
-      4u, ap_m68040_execute_total(ap_m68040_iu_execute(c, true, false)));
+      4u, ap_m68040_execute_total(ap_m68040_iu_execute(c, true, AP_M68040_IU_NO_CONDITIONS)));
 }
 
 static void test_a_bit_number_in_a_register_costs_one_fewer_calculate_clock(void) {
@@ -332,13 +332,16 @@ static void test_a_bit_number_in_a_register_costs_one_fewer_calculate_clock(void
    * express that, and one that assumed both columns move together would get
    * the sign wrong. */
   const ap_m68040_iu_cell_t c = at("BCHG", AP_M68040_IU_DISPLACEMENT);
-  TEST_ASSERT_EQUAL_UINT(2u, ap_m68040_iu_calculate(c, false, false));
-  TEST_ASSERT_EQUAL_UINT(1u, ap_m68040_iu_calculate(c, true, false));
+  TEST_ASSERT_EQUAL_UINT(2u, ap_m68040_iu_calculate(c, false, AP_M68040_IU_NO_CONDITIONS));
+  TEST_ASSERT_EQUAL_UINT(1u, ap_m68040_iu_calculate(c, true, AP_M68040_IU_NO_CONDITIONS));
   TEST_ASSERT_EQUAL_UINT(
-      3u, ap_m68040_iu_execute(c, false, false).base);
+      3u, ap_m68040_iu_execute(c, false, AP_M68040_IU_NO_CONDITIONS).base);
   TEST_ASSERT_EQUAL_UINT(
-      4u, ap_m68040_iu_execute(c, true, false).base);
+      4u, ap_m68040_iu_execute(c, true, AP_M68040_IU_NO_CONDITIONS).base);
 }
+
+static const ap_m68040_iu_condition_t spans[] = {
+    AP_M68040_IU_CONDITION_SPANS_LONG_WORD};
 
 static void test_a_bit_field_spanning_a_long_word_costs_extra(void) {
   /* Note c: "if the bit field spans a long-word boundary, add ten and nine
@@ -350,12 +353,12 @@ static void test_a_bit_field_spanning_a_long_word_costs_extra(void) {
    * fold it in, and a scheduler that ignored it would be out by nineteen
    * clocks on an unaligned field. */
   const ap_m68040_iu_cell_t c = at("BFCHG", AP_M68040_IU_INDIRECT);
-  TEST_ASSERT_EQUAL_UINT(9u, ap_m68040_iu_calculate(c, false, false));
-  TEST_ASSERT_EQUAL_UINT(19u, ap_m68040_iu_calculate(c, false, true));
+  TEST_ASSERT_EQUAL_UINT(9u, ap_m68040_iu_calculate(c, false, AP_M68040_IU_NO_CONDITIONS));
+  TEST_ASSERT_EQUAL_UINT(19u, ap_m68040_iu_calculate(c, false, spans, 1u));
   TEST_ASSERT_EQUAL_UINT(
-      10u, ap_m68040_execute_total(ap_m68040_iu_execute(c, false, false)));
+      10u, ap_m68040_execute_total(ap_m68040_iu_execute(c, false, AP_M68040_IU_NO_CONDITIONS)));
   TEST_ASSERT_EQUAL_UINT(
-      19u, ap_m68040_execute_total(ap_m68040_iu_execute(c, false, true)));
+      19u, ap_m68040_execute_total(ap_m68040_iu_execute(c, false, spans, 1u)));
 }
 
 static void test_the_extract_instructions_pay_a_smaller_boundary_penalty(void) {
@@ -364,16 +367,19 @@ static void test_the_extract_instructions_pay_a_smaller_boundary_penalty(void) {
    * and write them both. Sharing one penalty between the groups would be wrong
    * by a factor of nine. */
   const ap_m68040_iu_cell_t c = at("BFEXTS", AP_M68040_IU_INDIRECT);
-  TEST_ASSERT_EQUAL_UINT(ap_m68040_iu_calculate(c, false, false),
-                         ap_m68040_iu_calculate(c, false, true));
+  TEST_ASSERT_EQUAL_UINT(ap_m68040_iu_calculate(c, false, AP_M68040_IU_NO_CONDITIONS),
+                         ap_m68040_iu_calculate(c, false, spans, 1u));
   TEST_ASSERT_EQUAL_UINT(
-      9u, ap_m68040_execute_total(ap_m68040_iu_execute(c, false, false)));
+      9u, ap_m68040_execute_total(ap_m68040_iu_execute(c, false, AP_M68040_IU_NO_CONDITIONS)));
   TEST_ASSERT_EQUAL_UINT(
-      11u, ap_m68040_execute_total(ap_m68040_iu_execute(c, false, true)));
+      11u, ap_m68040_execute_total(ap_m68040_iu_execute(c, false, spans, 1u)));
 }
 
-static void test_only_the_bit_field_groups_carry_a_boundary_penalty(void) {
-  /* Nothing else in §10.6 has an operand that can straddle a long word. */
+static void test_only_the_bit_field_groups_span_a_long_word(void) {
+  /* Nothing else in §10.6 has an operand that can straddle a long word. Other
+   * columns do carry conditional penalties -- `CHK2` has two of its own -- so
+   * this checks the *condition* rather than merely the presence of a penalty,
+   * which is the distinction the tagged conditions exist to make. */
   for (size_t g = 0; g < ap_m68040_iu_group_count(); g++) {
     const ap_m68040_iu_group_t *group = ap_m68040_iu_group(g);
     const bool bitfield = group->cells[AP_M68040_IU_DN].alternate ==
@@ -383,9 +389,12 @@ static void test_only_the_bit_field_groups_carry_a_boundary_penalty(void) {
       if (!c.valid) {
         continue;
       }
-      if (!bitfield) {
-        TEST_ASSERT_EQUAL_UINT(0u, c.boundary_calculate_penalty);
-        TEST_ASSERT_EQUAL_UINT(0u, c.boundary_execute_penalty);
+      for (unsigned pi = 0; pi < AP_M68040_IU_MAX_PENALTIES; pi++) {
+        if (c.penalty[pi].condition !=
+            AP_M68040_IU_CONDITION_SPANS_LONG_WORD) {
+          continue;
+        }
+        TEST_ASSERT_TRUE(bitfield);
       }
     }
   }
@@ -439,20 +448,20 @@ static void test_the_dn_row_selector_is_read_as_page_10_15_prints_it(void) {
   const ap_m68040_iu_cell_t bfffo = at("BFFFO", AP_M68040_IU_DN);
   TEST_ASSERT_EQUAL_INT(AP_M68040_IU_ALTERNATE_BITFIELD_OPERAND,
                         bfffo.alternate);
-  TEST_ASSERT_EQUAL_UINT(3u, ap_m68040_iu_calculate(bfffo, false, false));
-  TEST_ASSERT_EQUAL_UINT(4u, ap_m68040_iu_calculate(bfffo, true, false));
+  TEST_ASSERT_EQUAL_UINT(3u, ap_m68040_iu_calculate(bfffo, false, AP_M68040_IU_NO_CONDITIONS));
+  TEST_ASSERT_EQUAL_UINT(4u, ap_m68040_iu_calculate(bfffo, true, AP_M68040_IU_NO_CONDITIONS));
   TEST_ASSERT_EQUAL_UINT(
-      6u, ap_m68040_execute_total(ap_m68040_iu_execute(bfffo, false, false)));
+      6u, ap_m68040_execute_total(ap_m68040_iu_execute(bfffo, false, AP_M68040_IU_NO_CONDITIONS)));
   TEST_ASSERT_EQUAL_UINT(
-      7u, ap_m68040_execute_total(ap_m68040_iu_execute(bfffo, true, false)));
+      7u, ap_m68040_execute_total(ap_m68040_iu_execute(bfffo, true, AP_M68040_IU_NO_CONDITIONS)));
 
   /* And the figures match page 10-15's for the same operand shape. */
   const ap_m68040_iu_cell_t bfchg = at("BFCHG", AP_M68040_IU_DN);
-  TEST_ASSERT_EQUAL_UINT(ap_m68040_iu_calculate(bfchg, false, false),
-                         ap_m68040_iu_calculate(bfffo, false, false));
+  TEST_ASSERT_EQUAL_UINT(ap_m68040_iu_calculate(bfchg, false, AP_M68040_IU_NO_CONDITIONS),
+                         ap_m68040_iu_calculate(bfffo, false, AP_M68040_IU_NO_CONDITIONS));
   TEST_ASSERT_EQUAL_UINT(
-      ap_m68040_execute_total(ap_m68040_iu_execute(bfchg, false, false)),
-      ap_m68040_execute_total(ap_m68040_iu_execute(bfffo, false, false)));
+      ap_m68040_execute_total(ap_m68040_iu_execute(bfchg, false, AP_M68040_IU_NO_CONDITIONS)),
+      ap_m68040_execute_total(ap_m68040_iu_execute(bfffo, false, AP_M68040_IU_NO_CONDITIONS)));
 }
 
 static void test_a_register_operand_never_pays_the_boundary_penalty(void) {
@@ -464,8 +473,8 @@ static void test_a_register_operand_never_pays_the_boundary_penalty(void) {
                                   "BFTST"};
   for (unsigned i = 0; i < sizeof bitfield / sizeof bitfield[0]; i++) {
     const ap_m68040_iu_cell_t c = at(bitfield[i], AP_M68040_IU_DN);
-    TEST_ASSERT_EQUAL_UINT(0u, c.boundary_calculate_penalty);
-    TEST_ASSERT_EQUAL_UINT(0u, c.boundary_execute_penalty);
+    TEST_ASSERT_EQUAL_UINT(0u, c.penalty[0].calculate);
+    TEST_ASSERT_EQUAL_UINT(0u, c.penalty[0].execute);
   }
 }
 
@@ -480,23 +489,23 @@ static void test_the_three_bit_field_boundary_penalties_differ(void) {
    *
    * A single shared penalty would be wrong for four of the five groups. */
   TEST_ASSERT_EQUAL_UINT(
-      10u, at("BFCHG", AP_M68040_IU_INDIRECT).boundary_calculate_penalty);
+      10u, at("BFCHG", AP_M68040_IU_INDIRECT).penalty[0].calculate);
   TEST_ASSERT_EQUAL_UINT(
-      9u, at("BFCHG", AP_M68040_IU_INDIRECT).boundary_execute_penalty);
+      9u, at("BFCHG", AP_M68040_IU_INDIRECT).penalty[0].execute);
 
   TEST_ASSERT_EQUAL_UINT(
-      7u, at("BFINS", AP_M68040_IU_INDIRECT).boundary_calculate_penalty);
+      7u, at("BFINS", AP_M68040_IU_INDIRECT).penalty[0].calculate);
   TEST_ASSERT_EQUAL_UINT(
-      7u, at("BFINS", AP_M68040_IU_INDIRECT).boundary_execute_penalty);
+      7u, at("BFINS", AP_M68040_IU_INDIRECT).penalty[0].execute);
 
   TEST_ASSERT_EQUAL_UINT(
-      0u, at("BFFFO", AP_M68040_IU_INDIRECT).boundary_calculate_penalty);
+      0u, at("BFFFO", AP_M68040_IU_INDIRECT).penalty[0].calculate);
   TEST_ASSERT_EQUAL_UINT(
-      2u, at("BFFFO", AP_M68040_IU_INDIRECT).boundary_execute_penalty);
+      2u, at("BFFFO", AP_M68040_IU_INDIRECT).penalty[0].execute);
 
   /* `BFTST`'s header carries note `a` alone -- no boundary note at all. */
   TEST_ASSERT_EQUAL_UINT(
-      0u, at("BFTST", AP_M68040_IU_INDIRECT).boundary_execute_penalty);
+      0u, at("BFTST", AP_M68040_IU_INDIRECT).penalty[0].execute);
 }
 
 static void test_the_writing_bit_field_instructions_reject_pc_relative(void) {
@@ -532,11 +541,11 @@ static void test_btst_is_cheaper_than_the_bit_changing_instructions(void) {
   TEST_ASSERT_EQUAL_UINT(
       1u, ap_m68040_execute_total(
               ap_m68040_iu_execute(at("BTST", AP_M68040_IU_INDIRECT), false,
-                                   false)));
+                                   AP_M68040_IU_NO_CONDITIONS)));
   TEST_ASSERT_EQUAL_UINT(
       3u, ap_m68040_execute_total(
               ap_m68040_iu_execute(at("BCHG", AP_M68040_IU_INDIRECT), false,
-                                   false)));
+                                   AP_M68040_IU_NO_CONDITIONS)));
 }
 
 static void test_btst_indexed_modes_have_a_dual_calculate_too(void) {
@@ -544,8 +553,8 @@ static void test_btst_indexed_modes_have_a_dual_calculate_too(void) {
    * calculate here, exactly as it is for `BCHG (d16,An)`. The dual calculate
    * is not confined to one row of one column. */
   const ap_m68040_iu_cell_t c = at("BTST", AP_M68040_IU_BASE_INDEXED);
-  TEST_ASSERT_EQUAL_UINT(7u, ap_m68040_iu_calculate(c, false, false));
-  TEST_ASSERT_EQUAL_UINT(6u, ap_m68040_iu_calculate(c, true, false));
+  TEST_ASSERT_EQUAL_UINT(7u, ap_m68040_iu_calculate(c, false, AP_M68040_IU_NO_CONDITIONS));
+  TEST_ASSERT_EQUAL_UINT(6u, ap_m68040_iu_calculate(c, true, AP_M68040_IU_NO_CONDITIONS));
 }
 
 static void test_cas_is_typical_rather_than_exact(void) {
@@ -563,7 +572,7 @@ static void test_cas_is_the_most_expensive_column_so_far(void) {
    * and one for `ADD (An)`. The indivisible read-modify-write is not a variant
    * of an ordinary access -- it is two orders of magnitude of work. */
   const ap_m68040_iu_cell_t c = at("CAS", AP_M68040_IU_INDIRECT);
-  TEST_ASSERT_EQUAL_UINT(36u, ap_m68040_iu_calculate(c, false, false));
+  TEST_ASSERT_EQUAL_UINT(36u, ap_m68040_iu_calculate(c, false, AP_M68040_IU_NO_CONDITIONS));
   TEST_ASSERT_EQUAL_UINT(6u, c.execute.lead);
   TEST_ASSERT_EQUAL_UINT(31u, c.execute.base);
 }
@@ -597,22 +606,109 @@ static void test_chk_accepts_an_immediate_bound(void) {
   const ap_m68040_iu_cell_t imm = at("CHK", AP_M68040_IU_IMMEDIATE);
   const ap_m68040_iu_cell_t reg = at("CHK", AP_M68040_IU_DN);
   TEST_ASSERT_TRUE(imm.valid);
-  TEST_ASSERT_EQUAL_UINT(ap_m68040_iu_calculate(reg, false, false),
-                         ap_m68040_iu_calculate(imm, false, false));
+  TEST_ASSERT_EQUAL_UINT(ap_m68040_iu_calculate(reg, false, AP_M68040_IU_NO_CONDITIONS),
+                         ap_m68040_iu_calculate(imm, false, AP_M68040_IU_NO_CONDITIONS));
   TEST_ASSERT_EQUAL_UINT(
-      ap_m68040_execute_total(ap_m68040_iu_execute(reg, false, false)),
-      ap_m68040_execute_total(ap_m68040_iu_execute(imm, false, false)));
+      ap_m68040_execute_total(ap_m68040_iu_execute(reg, false, AP_M68040_IU_NO_CONDITIONS)),
+      ap_m68040_execute_total(ap_m68040_iu_execute(imm, false, AP_M68040_IU_NO_CONDITIONS)));
 }
 
 static void test_only_the_qualified_columns_are_marked(void) {
-  /* Everything transcribed so far is exact except `CAS` and `CHK`, and a
-   * column that lost its marking would report a typical figure as a fact. */
+  /* Everything transcribed so far is exact except `CAS`, `CHK` and `CHK2`, and
+   * a column that lost its marking would report a typical figure as a fact. */
+  const char *const qualified_names[] = {"CAS", "CHK", "CHK2"};
   for (size_t g = 0; g < ap_m68040_iu_group_count(); g++) {
     const ap_m68040_iu_group_t *group = ap_m68040_iu_group(g);
-    const bool qualified = ap_m68040_iu_find("CAS") == group ||
-                           ap_m68040_iu_find("CHK") == group;
+    bool qualified = false;
+    for (unsigned i = 0; i < 3u; i++) {
+      if (ap_m68040_iu_find(qualified_names[i]) == group) {
+        qualified = true;
+      }
+    }
     TEST_ASSERT_EQUAL_INT(qualified,
                           group->confidence != AP_M68040_IU_FIGURE_EXACT);
+  }
+}
+
+
+/* ---------------------------------------------------------------------------
+ * Page 10-18: CHK2's two conditions.
+ * ------------------------------------------------------------------------- */
+
+static void test_chk2_carries_two_independent_penalties(void) {
+  /* Its footnote: "timing for Dn within bounds, UB > LB. For UB < LB, add three
+   * clocks to <ea> calculate and execute times. For Rn = An, add one clock to
+   * <ea> calculate and execute times."
+   *
+   * Two conditions, neither derivable from the encoding alone -- `UB < LB` is a
+   * relation between two operands in memory, and both can hold at once. This is
+   * why penalties are a tagged list rather than one pair of numbers. */
+  const ap_m68040_iu_cell_t c = at("CHK2", AP_M68040_IU_INDIRECT);
+  TEST_ASSERT_EQUAL_UINT(11u,
+                         ap_m68040_iu_calculate(c, false,
+                                                AP_M68040_IU_NO_CONDITIONS));
+
+  const ap_m68040_iu_condition_t reversed[] = {
+      AP_M68040_IU_CONDITION_BOUNDS_REVERSED};
+  TEST_ASSERT_EQUAL_UINT(14u,
+                         ap_m68040_iu_calculate(c, false, reversed, 1u));
+
+  const ap_m68040_iu_condition_t an[] = {
+      AP_M68040_IU_CONDITION_ADDRESS_REGISTER};
+  TEST_ASSERT_EQUAL_UINT(12u, ap_m68040_iu_calculate(c, false, an, 1u));
+
+  /* Both at once: three plus one. */
+  const ap_m68040_iu_condition_t both[] = {
+      AP_M68040_IU_CONDITION_BOUNDS_REVERSED,
+      AP_M68040_IU_CONDITION_ADDRESS_REGISTER};
+  TEST_ASSERT_EQUAL_UINT(15u, ap_m68040_iu_calculate(c, false, both, 2u));
+  TEST_ASSERT_EQUAL_UINT(
+      9u + 4u,
+      ap_m68040_iu_execute(c, false, both, 2u).base);
+}
+
+static void test_an_unrelated_condition_changes_nothing(void) {
+  /* A caller may pass every condition it knows about; only the ones a cell
+   * names take effect. That is what lets one scheduler call this for every
+   * instruction without knowing which conditions apply to which. */
+  const ap_m68040_iu_cell_t c = at("CHK2", AP_M68040_IU_INDIRECT);
+  const ap_m68040_iu_condition_t irrelevant[] = {
+      AP_M68040_IU_CONDITION_SPANS_LONG_WORD};
+  TEST_ASSERT_EQUAL_UINT(
+      ap_m68040_iu_calculate(c, false, AP_M68040_IU_NO_CONDITIONS),
+      ap_m68040_iu_calculate(c, false, irrelevant, 1u));
+}
+
+static void test_chk2_needs_a_memory_operand(void) {
+  /* `CHK2` compares against a bound *pair* held in memory, so unlike `CHK` it
+   * has no register or immediate form at all. */
+  TEST_ASSERT_FALSE(at("CHK2", AP_M68040_IU_DN).valid);
+  TEST_ASSERT_FALSE(at("CHK2", AP_M68040_IU_IMMEDIATE).valid);
+  TEST_ASSERT_TRUE(at("CHK", AP_M68040_IU_DN).valid);
+  TEST_ASSERT_TRUE(at("CHK", AP_M68040_IU_IMMEDIATE).valid);
+}
+
+static void test_clr_and_cmp_differ_only_where_reading_matters(void) {
+  /* `CLR` writes a zero and never reads, so it has no PC-relative, no
+   * immediate and no `An` form; `CMP` reads both operands and has all three.
+   * Where both are valid the figures are identical -- the cost is the
+   * addressing, not the operation. */
+  TEST_ASSERT_FALSE(at("CLR", AP_M68040_IU_PC_DISPLACEMENT).valid);
+  TEST_ASSERT_FALSE(at("CLR", AP_M68040_IU_IMMEDIATE).valid);
+  TEST_ASSERT_FALSE(at("CLR", AP_M68040_IU_AN).valid);
+  TEST_ASSERT_TRUE(at("CMP", AP_M68040_IU_PC_DISPLACEMENT).valid);
+  TEST_ASSERT_TRUE(at("CMP", AP_M68040_IU_IMMEDIATE).valid);
+  TEST_ASSERT_TRUE(at("CMP", AP_M68040_IU_AN).valid);
+
+  for (unsigned m = 0; m < AP_M68040_IU_MODE_COUNT; m++) {
+    const ap_m68040_iu_cell_t clr = at("CLR", (ap_m68040_iu_mode_t)m);
+    const ap_m68040_iu_cell_t cmp = at("CMP", (ap_m68040_iu_mode_t)m);
+    if (!clr.valid || !cmp.valid) {
+      continue;
+    }
+    TEST_ASSERT_EQUAL_UINT(
+        ap_m68040_iu_calculate(cmp, false, AP_M68040_IU_NO_CONDITIONS),
+        ap_m68040_iu_calculate(clr, false, AP_M68040_IU_NO_CONDITIONS));
   }
 }
 
@@ -641,7 +737,7 @@ int main(void) {
   RUN_TEST(test_a_bit_number_in_a_register_costs_one_fewer_calculate_clock);
   RUN_TEST(test_a_bit_field_spanning_a_long_word_costs_extra);
   RUN_TEST(test_the_extract_instructions_pay_a_smaller_boundary_penalty);
-  RUN_TEST(test_only_the_bit_field_groups_carry_a_boundary_penalty);
+  RUN_TEST(test_only_the_bit_field_groups_span_a_long_word);
   RUN_TEST(test_the_bit_field_groups_reject_the_incrementing_modes);
   RUN_TEST(test_only_the_reading_bit_field_group_allows_pc_relative);
   RUN_TEST(test_the_dn_row_selector_is_read_as_page_10_15_prints_it);
@@ -657,5 +753,9 @@ int main(void) {
   RUN_TEST(test_chk_figures_assume_the_check_passes);
   RUN_TEST(test_chk_accepts_an_immediate_bound);
   RUN_TEST(test_only_the_qualified_columns_are_marked);
+  RUN_TEST(test_chk2_carries_two_independent_penalties);
+  RUN_TEST(test_an_unrelated_condition_changes_nothing);
+  RUN_TEST(test_chk2_needs_a_memory_operand);
+  RUN_TEST(test_clr_and_cmp_differ_only_where_reading_matters);
   return UNITY_END();
 }

@@ -79,6 +79,31 @@ typedef enum {
   AP_M68040_IU_ALTERNATE_BITFIELD_OPERAND,
 } ap_m68040_iu_alternate_t;
 
+/* What a conditional penalty is conditional *on*. Each is stated in a column's
+ * footnote and none can be folded into a figure:
+ *
+ *   spans long word   the bit field straddles a long-word boundary, so two
+ *                     memory addresses are accessed
+ *   bounds reversed   `CHK2` with `UB < LB`, which is a legal encoding
+ *                     describing an empty range
+ *   address register  `CHK2` with `Rn = An` rather than a data register
+ */
+typedef enum {
+  AP_M68040_IU_CONDITION_NONE,
+  AP_M68040_IU_CONDITION_SPANS_LONG_WORD,
+  AP_M68040_IU_CONDITION_BOUNDS_REVERSED,
+  AP_M68040_IU_CONDITION_ADDRESS_REGISTER,
+} ap_m68040_iu_condition_t;
+
+typedef struct {
+  ap_m68040_iu_condition_t condition;
+  unsigned calculate;
+  unsigned execute;
+} ap_m68040_iu_penalty_t;
+
+/* `CHK2` needs two; nothing so far needs more. */
+#define AP_M68040_IU_MAX_PENALTIES 2u
+
 typedef struct {
   /* False where the table prints a dash: the mode is invalid for this group. */
   bool valid;
@@ -92,12 +117,13 @@ typedef struct {
   unsigned alternate_calculate;
   ap_m68040_execute_t alternate_execute;
 
-  /* Notes c and d: "if the bit field spans a long-word boundary, add ... Two
-   * memory addresses are accessed in this case." A conditional penalty rather
-   * than a second figure, because it depends on the *operand's address* and
-   * not on the encoding -- so no static table could fold it in. */
-  unsigned boundary_calculate_penalty;
-  unsigned boundary_execute_penalty;
+  /* Conditional penalties. These are not second figures: each depends on
+   * something a static table cannot see -- the operand's address, or a runtime
+   * relation between two operands -- so the caller has to say whether the
+   * condition holds.
+   *
+   * `CHK2` carries two at once, which is why this is an array. */
+  ap_m68040_iu_penalty_t penalty[AP_M68040_IU_MAX_PENALTIES];
 } ap_m68040_iu_cell_t;
 
 /* How far a column's figures can be trusted. §10.6's notes qualify whole
@@ -142,11 +168,14 @@ ap_m68040_iu_timing(const char *instruction, ap_m68040_iu_mode_t mode);
  *
  * `spans_long_word` applies notes c and d, and is likewise ignored by cells
  * that carry no penalty. */
-[[nodiscard]] unsigned ap_m68040_iu_calculate(ap_m68040_iu_cell_t cell,
-                                              bool alternate,
-                                              bool spans_long_word);
-[[nodiscard]] ap_m68040_execute_t
-ap_m68040_iu_execute(ap_m68040_iu_cell_t cell, bool alternate,
-                     bool spans_long_word);
+[[nodiscard]] unsigned ap_m68040_iu_calculate(
+    ap_m68040_iu_cell_t cell, bool alternate,
+    const ap_m68040_iu_condition_t *conditions, size_t condition_count);
+[[nodiscard]] ap_m68040_execute_t ap_m68040_iu_execute(
+    ap_m68040_iu_cell_t cell, bool alternate,
+    const ap_m68040_iu_condition_t *conditions, size_t condition_count);
+
+/* The common case: no condition holds. */
+#define AP_M68040_IU_NO_CONDITIONS NULL, 0u
 
 #endif /* APOLLO_CPU_M68040_AP_M68040_IU_TIMING_H */
