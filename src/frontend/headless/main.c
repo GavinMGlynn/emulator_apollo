@@ -29,6 +29,8 @@ static void print_usage(const char *program_name) {
   /* Headless-only flags are listed here as they are implemented. */
   fprintf(stdout,
           "  --run-probes          run the built-in probe suite and report\n"
+          "  --probe-file PATH     run one probe described by a file, so a\n"
+          "                        probe can come from outside this binary\n"
           "  --time-instructions   report per-instruction clocks, for oracle\n"
           "                        comparison\n"
           "  --boot-limit N        stop a boot after N instructions, to find\n"
@@ -139,6 +141,110 @@ static void run_probes(FILE *out) {
   }
 }
 
+/* Run one probe described by a file, so a probe can come from outside this
+ * binary.
+ *
+ * `tools/mame-oracle/encoder.py` hand-assembles the words and
+ * `tools/mame-oracle/probe.lua` writes the same words into the oracle's RAM, so
+ * the two sides run the identical program by construction rather than by two
+ * people transcribing it. Neither path needs firmware or a boot.
+ *
+ * The sentinel is read back from the RAM this frontend owns rather than
+ * returned by `ap_probe_run`: a probe result reports registers, and a probe
+ * that proves a *store* has to be checked where the store landed.
+ */
+static int run_probe_file(FILE *out, const char *program_name,
+                          const char *path) {
+  FILE *file = fopen(path, "r");
+  if (file == NULL) {
+    fprintf(stderr, "%s: cannot open probe file %s\n", program_name, path);
+    return 2;
+  }
+
+  uint16_t words[256];
+  unsigned word_count = 0;
+  uint32_t load = 0, entry = 0, stack = 0, read_at = 0;
+  unsigned limit = 64;
+  bool have_read = false;
+
+  char line[1024];
+  while (fgets(line, (int)sizeof line, file) != NULL) {
+    char *cursor = line;
+    while (*cursor == ' ' || *cursor == '\t') { cursor++; }
+    if (*cursor == '#' || *cursor == '\n' || *cursor == '\0') { continue; }
+
+    if (strncmp(cursor, "words", 5) == 0) {
+      cursor += 5;
+      while (*cursor != '\0' && *cursor != '\n') {
+        while (*cursor == ' ' || *cursor == '\t') { cursor++; }
+        if (*cursor == '\0' || *cursor == '\n') { break; }
+        char *end = NULL;
+        const unsigned long value = strtoul(cursor, &end, 16);
+        if (end == cursor) { break; }
+        if (word_count >= sizeof words / sizeof words[0]) {
+          fprintf(stderr, "%s: probe has more than %zu words\n", program_name,
+                  sizeof words / sizeof words[0]);
+          fclose(file);
+          return 2;
+        }
+        words[word_count++] = (uint16_t)(value & 0xFFFFu);
+        cursor = end;
+      }
+      continue;
+    }
+
+    char key[32];
+    unsigned long value = 0;
+    if (sscanf(cursor, "%31s %lx", key, &value) != 2) { continue; }
+    if (strcmp(key, "load") == 0) { load = (uint32_t)value; }
+    else if (strcmp(key, "entry") == 0) { entry = (uint32_t)value; }
+    else if (strcmp(key, "stack") == 0) { stack = (uint32_t)value; }
+    else if (strcmp(key, "limit") == 0) { limit = (unsigned)value; }
+    else if (strcmp(key, "read") == 0) { read_at = (uint32_t)value; have_read = true; }
+  }
+  fclose(file);
+
+  if (word_count == 0) {
+    fprintf(stderr, "%s: probe file %s has no words\n", program_name, path);
+    return 2;
+  }
+
+  const ap_probe_t probe = {
+      .name = "file",
+      .purpose = "a probe supplied from outside this binary",
+      .words = words,
+      .word_count = word_count,
+      .load_address = load,
+      .entry = entry,
+      .stack = stack,
+      .limit = limit,
+  };
+  const ap_probe_result_t result =
+      ap_probe_run(&probe, probe_ram, PROBE_RAM_BYTES);
+
+  fprintf(out, "# apollo probe file result\n");
+  fprintf(out, "words     %u\n", word_count);
+  fprintf(out, "ran       %u\n", result.executed);
+  fprintf(out, "status    %s\n", ap_probe_status_name(result.status));
+  fprintf(out, "d0        %08X\n", (unsigned)result.d0);
+  fprintf(out, "pc        %08X\n", (unsigned)result.pc);
+  fprintf(out, "berr      %u\n", result.bus_errors);
+
+  if (have_read) {
+    if ((uint64_t)read_at + 4u > (uint64_t)PROBE_RAM_BYTES) {
+      fprintf(stderr, "%s: read address %08X is outside the probe RAM\n",
+              program_name, (unsigned)read_at);
+      return 2;
+    }
+    /* Big-endian, as the part stores it. */
+    const uint32_t stored = (uint32_t)((uint32_t)probe_ram[read_at] << 24 |
+                                       (uint32_t)probe_ram[read_at + 1u] << 16 |
+                                       (uint32_t)probe_ram[read_at + 2u] << 8 |
+                                       (uint32_t)probe_ram[read_at + 3u]);
+    fprintf(out, "read      %08X %08X\n", (unsigned)read_at, (unsigned)stored);
+  }
+  return 0;
+}
 
 
 /* Read a whole file into memory. The frontend does this because `src/core` has
@@ -648,6 +754,7 @@ int main(int argc, char **argv) {
   unsigned boot_key = AP_KBD_KEYS; /* none */
   ap_screen_kind_t boot_screen = AP_SCREEN_NONE;
   bool run_probe_suite = false;
+  const char *probe_file_path = nullptr;
   bool report_timing = false;
   const char *boot_tape = NULL;
   const char *boot_prom = NULL;
@@ -743,6 +850,15 @@ int main(int argc, char **argv) {
       i += 1;
       continue;
     }
+    if (strcmp(argv[i], "--probe-file") == 0) {
+      if (i + 1 >= argc) {
+        fprintf(stderr, "%s: --probe-file needs a path\n", program_name);
+        return 2;
+      }
+      probe_file_path = argv[i + 1];
+      i += 2;
+      continue;
+    }
     if (strcmp(argv[i], "--time-instructions") == 0) {
       report_timing = true;
       i += 1;
@@ -784,6 +900,10 @@ int main(int argc, char **argv) {
 
   if (boot_tape != NULL) {
     return boot_from_tape(boot_tape, boot_limit);
+  }
+
+  if (probe_file_path != nullptr) {
+    return run_probe_file(stdout, program_name, probe_file_path);
   }
 
   if (run_probe_suite) {

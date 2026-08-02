@@ -129,6 +129,14 @@ if(Python3_Interpreter_FOUND AND NOT WIN32)
            COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/mame-oracle/test_oracle.py)
   set_tests_properties(oracle_driver PROPERTIES LABELS tools)
 
+  # The probe encoder's opcodes, checked against the manual's bit layouts
+  # rather than against the encoder's own output -- a test comparing the
+  # encoder with itself passes on any consistent mistake. Needs no MAME and no
+  # ROMs, so it runs everywhere the suite does.
+  add_test(NAME probe_encoder
+           COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/mame-oracle/test_encoder.py)
+  set_tests_properties(probe_encoder PROPERTIES LABELS tools)
+
   # The interactive session driver's logic, against a stub MAME. Same split as
   # oracle_driver above and the same platform scope: it drives stub executables
   # and a pty, and the tool it tests only ever runs where the oracle is built.

@@ -1,0 +1,179 @@
+#!/usr/bin/env python3
+"""Run one hand-assembled probe on both sides and diff the result.
+
+This is the Phase 1 item's verification made executable: *"a trivial probe that
+stores a sentinel runs identically under both"*. The probe is encoded once by
+`encoder.py`, then run
+
+  - on this project's core, through `apollo-headless --probe-file`, and
+  - on the oracle, through `probe.lua`, which writes the same words into MAME's
+    RAM and single-steps them.
+
+Neither side needs firmware, a boot or the Mnemonic Debugger.
+
+## What is compared, and what deliberately is not
+
+Compared: the instructions executed, the value left in D0, and the sentinel read
+back from memory. Those are properties of the *program*.
+
+Not compared: the addresses. The two machines put RAM in different places — this
+core's probe RAM starts at zero, a DN3500's main memory at `01000000` — so the
+same program is assembled twice at two bases, and a PC that differs by the base
+is not a disagreement. Comparing raw PCs would fail every time for a reason that
+has nothing to do with the instruction under test.
+
+Not compared either: **clocks**. This core does not yet model instruction
+execution time (a named plan item), so its figure is a lower bound and the two
+are not comparable. Saying so here is cheaper than someone discovering it from a
+mismatch.
+
+    python3 tools/mame-oracle/probe_compare.py
+"""
+
+from __future__ import annotations
+
+import argparse
+import os
+import re
+import subprocess
+import sys
+from pathlib import Path
+
+HERE = Path(__file__).resolve().parent
+REPO = HERE.parent.parent
+sys.path.insert(0, str(HERE))
+import encoder as E  # noqa: E402
+
+MAME_NAMES = ("apollo", "mameapollo")
+DEFAULT_ROMS = HERE / "out" / "roms"
+PROBE_LUA = HERE / "probe.lua"
+
+# Where each side has usable RAM. Not a preference: `FINDINGS.md` C5 measured
+# that a write to the DN3500's boot PROM range succeeds and does nothing, so a
+# probe loaded low on the oracle would run the PROM while the harness believed
+# it ran the probe.
+OURS_BASE = 0x00001000
+ORACLE_BASE = 0x01001000
+SENTINEL_OFFSET = 0x800
+
+
+def find_headless() -> Path:
+    for preset in ("linux-debug", "linux-release"):
+        candidate = REPO / "build" / preset / "src" / "frontend" / "headless" / "apollo-headless"
+        if candidate.is_file():
+            return candidate
+    sys.stderr.write("probe_compare: no apollo-headless built; run cmake --build first\n")
+    raise SystemExit(2)
+
+
+def find_mame() -> Path:
+    for name in MAME_NAMES:
+        candidate = REPO / "ext" / "mame" / name
+        if candidate.is_file():
+            return candidate
+    sys.stderr.write("probe_compare: no oracle binary in ext/mame; see oracle.py\n")
+    raise SystemExit(2)
+
+
+def parse_fields(text: str) -> dict:
+    """Both sides print `key value` lines, so one parser reads both."""
+    out = {}
+    for line in text.splitlines():
+        if line.startswith("#") or not line.strip():
+            continue
+        parts = line.split()
+        if len(parts) == 2:
+            out[parts[0]] = parts[1]
+        elif len(parts) == 3 and parts[0] == "read":
+            out["read_addr"], out["read"] = parts[1], parts[2]
+    return out
+
+
+def run_ours(words, base, sentinel_at, limit, work: Path) -> dict:
+    spec = work / "probe.spec"
+    spec.write_text(
+        "load  %X\nentry %X\nstack %X\nlimit %d\nread  %X\nwords %s\n"
+        % (base, base, base + 0x1000, limit, sentinel_at, E.to_hex(words)))
+    proc = subprocess.run([str(find_headless()), "--probe-file", str(spec)],
+                          capture_output=True, text=True, timeout=120)
+    if proc.returncode != 0:
+        sys.stderr.write(proc.stderr)
+        raise SystemExit(1)
+    return parse_fields(proc.stdout)
+
+
+def run_oracle(words, base, sentinel_at, limit, timeout: float) -> dict:
+    mame = find_mame()
+    env = dict(os.environ)
+    env.update({
+        "APOLLO_PROBE_WORDS": E.to_hex(words),
+        "APOLLO_PROBE_LOAD": "%X" % base,
+        "APOLLO_PROBE_STACK": "%X" % (base + 0x1000),
+        "APOLLO_PROBE_READ": "%X" % sentinel_at,
+        "APOLLO_PROBE_LIMIT": str(limit),
+        "APOLLO_PROBE_AT": "3.0",
+    })
+    command = [str(mame), "dn3500", "-noreadconfig",
+               "-rompath", str(DEFAULT_ROMS),
+               "-video", "none", "-sound", "none", "-nothrottle",
+               "-debug", "-debugger", "none", "-seconds_to_run", "10",
+               "-autoboot_script", str(PROBE_LUA)]
+    proc = subprocess.run(command, capture_output=True, text=True,
+                          env=env, cwd=str(mame.parent), timeout=timeout)
+    if "readback ok" not in proc.stdout:
+        sys.stderr.write("probe_compare: the oracle did not accept the probe\n")
+        sys.stderr.write(proc.stdout[-2000:])
+        raise SystemExit(1)
+    return parse_fields(proc.stdout)
+
+
+def main(argv=None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("--sentinel", type=lambda s: int(s, 0), default=E.SENTINEL)
+    parser.add_argument("--limit", type=int, default=20)
+    parser.add_argument("--timeout", type=float, default=300.0)
+    parser.add_argument("--work", type=Path, default=Path("/tmp"))
+    args = parser.parse_args(argv)
+
+    ours_words = E.sentinel_probe(OURS_BASE + SENTINEL_OFFSET, args.sentinel)
+    oracle_words = E.sentinel_probe(ORACLE_BASE + SENTINEL_OFFSET, args.sentinel)
+
+    print("probe:  MOVEQ #$%02X,D0 ; MOVE.L D0,(sentinel).L ; STOP #$2700"
+          % args.sentinel)
+    print("ours:   %s  at %08X" % (E.to_hex(ours_words), OURS_BASE))
+    print("oracle: %s  at %08X" % (E.to_hex(oracle_words), ORACLE_BASE))
+    print()
+
+    ours = run_ours(ours_words, OURS_BASE, OURS_BASE + SENTINEL_OFFSET,
+                    args.limit, args.work)
+    oracle = run_oracle(oracle_words, ORACLE_BASE, ORACLE_BASE + SENTINEL_OFFSET,
+                        args.limit, args.timeout)
+
+    expected = "%08X" % args.sentinel
+    checks = [
+        ("instructions executed", ours.get("ran"), oracle.get("ran")),
+        ("D0", ours.get("d0"), oracle.get("d0")),
+        ("sentinel in memory", ours.get("read"), oracle.get("read")),
+        ("sentinel is the encoded value", expected, ours.get("read")),
+    ]
+    print("%-32s %-12s %-12s %s" % ("check", "ours", "oracle", ""))
+    failed = 0
+    for name, a, b in checks:
+        same = a == b
+        failed += 0 if same else 1
+        print("%-32s %-12s %-12s %s" % (name, a, b, "ok" if same else "DIFFER"))
+
+    # Reported, never compared -- see the module docstring.
+    print("\nnot compared: pc (%s vs %s) differs by the RAM base; clocks, since "
+          "instruction\n              execution time is not yet modelled on this "
+          "side." % (ours.get("pc"), oracle.get("pc")))
+
+    if failed:
+        print("\n%d check(s) differ" % failed)
+        return 1
+    print("\nthe same probe ran identically under both")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

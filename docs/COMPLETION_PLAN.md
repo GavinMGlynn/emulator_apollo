@@ -150,70 +150,30 @@ file the moment they are found, not when someone remembers.
       `open`), the ban on closing a row by tuning our timing to match, and the
       rule that an oracle number alone never closes a row. *Verification: every
       closed row cites its evidence.*
-- [ ] Python probe encoder emitting hand-assembled 68000 probes — no cross
+- [x] Python probe encoder emitting hand-assembled 68000 probes — no cross
       toolchain. *Verification: a trivial probe that stores a sentinel runs
-      identically under both.*
-  - **Unblocked.** Both halves it was waiting on are closed: MD's input grammar
-    is transcribed and its output is byte-exact in `docs/references/MD.md`, and
-    `mdsession.py` can hold a session and answer it. What remains is ordinary
-    work — encode the instruction words, drive MD through the session, parse the
-    address-and-contents lines, and diff one sentinel probe against the same
-    probe side-loaded into `ap_machine`.
-  - **The route's assumption is now in doubt, and that is recorded rather than
-    left implicit.** `tools/mame-oracle/FINDINGS.md` C4: the boot PROM does not
-    reach the MD prompt under the oracle. `dsp3500` with a `null_modem` on the
-    serial port transmits **zero bytes** at 20 and 90 emulated seconds, while
-    the CPU sits in a short loop around `$7AE` with interrupts masked at 7 and
-    the MMU never configured. The syntax work below stands; what is unproven is
-    that there is a prompt to send it to. Next step is to disassemble
-    `$780`-`$7C0` of the boot PROM and read what the loop waits on, which needs
-    no further oracle runs. **Done, and it narrows the finding without closing
-    it:** the loop polls three serial status bits through `A0` = `$10401`, which
-    `apollo.cpp` maps to the SIO, so the PROM has reached its console code
-    rather than failed a self-test. Supplying keystrokes through the
-    `null_modem`'s input side changes nothing in either direction. The open
-    question is now about `apollo_sio`'s ready reporting, not about the PROM.
-    **Consequence for the plan: build the side-loading path first.** Phase 1
-    already lists injecting probe state directly into a constructed machine as
-    the CI path, precisely because it needs no firmware; on this evidence it is
-    also the path that should come first, with MD as development-time
-    confirmation rather than the foundation everything else is gated on.
-  - **Route settled, and it is simpler than "Apollo's executable/boot format".**
-    The boot PROM holds the Mnemonic Debugger (`008778-03` §1.5.1), whose `A`
-    (access/deposit) and `G` (jump) commands take hand-assembled instruction
-    words straight over the serial console — no object file, no executable
-    format to recover first, and no Domain/OS boot, which is what keeps probes a
-    Phase 1 deliverable instead of one gated on Phase 4. Command set recorded in
-    `docs/references/MD.md` from `002398-04` ch. 5.
-  - [x] **Input syntax: closed from the manual, not the oracle.** The blocker
-        was recorded as "MD's syntax is not in the handbook's command list",
-        which was true and misleading — the handbook continues *past* the list
-        into a per-command reference (`[EH4]` pp. 5-7 on) and then states the
-        grammar formally at pp. 5-13/5-14. It is now transcribed in
-        `docs/references/MD.md`: the full BNF, hexadecimal-by-default input,
-        `<size_spec>`/`<base_spec>` placement, `*` as current location, and the
-        `AR` control-register names that are the Phase 2 MMU and cache probe
-        surface. *Verification: cited to page; the OCR damage to `|` and `::=`
-        is called out, and the reconstruction rests on the handbook expanding
-        every token in prose immediately below the grammar rather than on
-        inference.*
-  - [x] **The output format: captured, byte-exact.** The handbook never shows a
-        literal MD line, so the harness had nothing to parse against.
-        Detail in `PROJECT_STATUS.md`.
-        `MD7C REV 8.00, 1989/08/16.17:23:52`. *Verification: transcripts in
-        `MD.md`, captured through `mdcapture.lua` and `mdsession.py`.*
-        - Getting a console at all took five closed routes and is the whole of
-          `FINDINGS.md` C34-C45: the DN3500's console is its display, not
-          serial; `dsp3500` is no different; `APOLLO_XXL` must be compiled in
-          for a serial terminal to exist at all; MAME's natural keyboard cannot
-          type on this machine (`apollo_kbd.cpp` has no `PORT_CHAR` entries);
-          and the firmware autobauds, so it needs characters *during* the probe
-          rather than before it.
-        - One correction is kept rather than deleted, because of how it felt:
-          the sign-on was first recorded as bare `MD7` with no version or
-          banner. That reading came from a capture stopped mid-line by
-          `APOLLO_MD_UNTIL=45`. **A bounded capture proves what it contains and
-          nothing about what follows.**
+      identically under both — `probe_compare.py` encodes it once, runs it on
+      this core through `--probe-file` and on the oracle through `probe.lua`,
+      and the instruction count, D0 and the sentinel read back from memory all
+      agree.*
+  - [x] `tools/mame-oracle/encoder.py`: every opcode is a bit pattern cited to
+        the PRM, so a wrong encoding is a wrong citation rather than a build
+        problem. *Verification: `probe_encoder`, 20 checks, each asserting the
+        manual's layout assembled field by field rather than the constant the
+        encoder produces — a test comparing the encoder with itself passes on
+        any consistent mistake.*
+  - [x] `--probe-file` on the headless frontend and `tools/mame-oracle/probe.lua`
+        for the oracle: the same words, written into RAM on both sides, needing
+        no firmware, no boot and no Mnemonic Debugger.
+  - Addresses are **not** compared: this core's probe RAM starts at zero and a
+    DN3500's main memory at `01000000`, so the program is assembled twice at two
+    bases and a PC differing by the base is not a disagreement. Clocks are not
+    compared either, since instruction execution time is not yet modelled here.
+  - Two harness traps, both of which reported a probe that had not run.
+    `cpu.debug:step()` is **asynchronous** — the scheduler runs it after the Lua
+    callback returns, so the result must be read on the *next* callback. And the
+    first step after taking the machine over leaves the PC where it was put, so
+    one unchanged PC is not a halt; two are.
 - [x] Probes side-loadable into post-boot machine state, so CI needs no
       copyrighted firmware. *Verification: the probe suite runs in CI with
       `roms/` absent* — which it does: `apollo-headless --run-probes` reads no
