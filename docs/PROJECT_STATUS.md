@@ -583,6 +583,107 @@ and cache time only, and says so in the report; it is pinned anyway, so that
 when instruction execution time arrives the diff says by how much for every
 probe at once.
 
+### 68030 MMU instruction encoding: five traps that do not fault
+
+Moved from the plan. Every one of these produces a *plausible* wrong answer —
+nothing raises an exception, so the mistake surfaces later as a translation
+going somewhere strange.
+
+- **`PFLUSH` and `PLOAD` share the extension prefix `001`** and are told apart
+  by the MODE field below it: PFLUSH is `001`, `100`, `110`; PLOAD is `000`. A
+  decoder stopping at the prefix does the *opposite* of what was asked — PLOAD
+  adds a translation where PFLUSH removes one.
+- **The flush mask says which bits must agree, not which codes to flush.** "Each
+  bit in the mask that is set to one indicates that the corresponding bit of the
+  FC operand applies", so a *zero* mask selects every function code rather than
+  none. Read the other way, `PFLUSH #0,#0` becomes a no-op where the hardware
+  flushes everything.
+- **The FC field is not a plain number**: `10XXX` is an immediate code, `01DDD`
+  is *data register DDD's* low three bits, `00000` is SFC and `00001` DFC.
+  Reading the low three bits directly makes `01DDD` name a function code that
+  happens to be the register number — for D5 that is 5, an ordinary supervisor
+  data code, so nothing looks wrong.
+- **`PFLUSH` and `PLOAD` use the calculated address as the operand**, never
+  reading through it: the address field "must provide the memory management unit
+  with the effective address to be flushed ... not the effective address
+  describing where the PFLUSH operand is located".
+- **`PMOVE`'s three formats are told apart by the extension word's top three
+  bits**, and P-REGISTER is not enough on its own: `010` names the *supervisor
+  root pointer* under prefix `010` and *TT0* under prefix `000`. A decoder
+  reading only P-REGISTER writes a transparent translation register where a root
+  pointer belongs, and both hold plausible 32-bit values.
+
+Three consequences worth keeping:
+
+- **Two writes fault *after* landing.** An invalid root pointer descriptor type
+  and an inconsistent TC both take an MMU configuration exception "after moving
+  the operand", and TC additionally has its E bit cleared. Refusing the write
+  instead would leave the operating system unable to see what it wrote wrong.
+- **`PTEST` at level 0 probes the ATC; levels 1-7 walk the tree with a NULL
+  history-update callback** — which is what `ap_m68030_walk`'s nullable `update`
+  exists for — so it alters neither the ATC nor the tree, and is therefore usable
+  inside a fault handler without changing the state being diagnosed. A level-0
+  `PTEST` with the A bit set is an F-line exception, since an ATC probe never
+  fetched a descriptor whose address it could return.
+- **The FD bit makes `PMOVEFD` a different instruction in one bit** — "if the FD
+  bit equals one, the ATC is not flushed" — and the status register's format
+  carries no FD bit at all, so flushing is not something a write to it does.
+
+The MMU registers live on the CPU rather than in whatever the caller supplied,
+because there is one MMU and two access paths through it. The root pointers are
+unpacked by the *walk's* own long-descriptor code, so the two cannot drift
+apart.
+
+### 68030 instruction semantics that would otherwise be silently wrong
+
+Moved from the plan, which now states the items and points here. Each of these
+produces a plausible result rather than a fault, so nothing catches it at the
+time.
+
+**`MOVEM`'s mask is reversed for predecrement** — "bit 0 A7 … bit 15 D0" against
+"bit 0 D0 … bit 15 A7" — which lets one loop over bits 0-15 give both documented
+orders. Reading it the same way round for both saves the right number of
+registers into the right amount of space with every one in the wrong place, and
+a matching postincrement `MOVEM` restores them anyway, so only an outside
+observer of memory can see it. Two more `MOVEM` facts are this part's rather
+than the 68000's: a word transfer **sign-extends into the whole register**, data
+registers included, unlike every other data register write; and if the address
+register is itself moved to memory, the value written is the *decremented* one,
+where the 68000 and 68010 write the initial value.
+
+**`CHK`'s comparisons are signed** — "the upper bound is a twos complement
+integer" — so an unsigned model lets a negative register pass any bound whose
+top bit is clear, which is nearly every bound anyone writes.
+
+**`TAS` flags the value before setting the bit.** The other order makes it always
+report an already-taken semaphore, and everything built on it deadlocks.
+
+**`MOVE from SR` is privileged and `MOVE from CCR` is not**, which reads
+backwards from the 68000 and is why it is stated rather than assumed.
+
+**`MOVEC`'s control register codes are not a dense index**: bit 11 separates the
+68010's SFC/DFC/USP/VBR from the 68020's CACR/CAAR/MSP/ISP, so `$800` is not
+`$002` with a different index. A model treating the field as a small number puts
+the USP where CACR belongs, and both hold plausible 32-bit values. An undefined
+code is an illegal instruction rather than a silent no-op, which is how the
+68040-only MMU codes stay out — and this is what makes `VBR` and `CACR`
+reachable at all, both of which the boot PROM sets.
+
+**`STOP` loads the status register first**, interrupt mask included: that is the
+whole point of the instruction, and loading the mask after halting would leave a
+window at the old priority. A stopped processor does not prefetch, so the step
+returns before touching the pipe.
+
+**`RESET` changes nothing inside the processor** — "the processor state, other
+than the program counter, is unaffected, and execution continues with the next
+instruction" — so it is counted rather than acted on. A model that halted or
+reset itself here would stop the boot PROM at its first line, since resetting
+the devices is among the first things it does.
+
+**An untaken wide branch still consumes its displacement words.** The read has to
+happen before the condition is tested, or the PC lands inside the displacement
+and executes it as an instruction.
+
 ### Golden result blocks
 
 - A *result block* is any deterministic report the emulator prints. Each is

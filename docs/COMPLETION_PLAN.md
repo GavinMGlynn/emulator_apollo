@@ -926,82 +926,21 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
         taking their words **in order**, checked by giving them different
         displacements so a swapped read produces the wrong address.*
   - [x] **The MMU instructions**, which are how every MMU register and the ATC
-        this project already models actually get driven: `PMOVE`, `PFLUSH`,
-        `PFLUSHA`, `PLOAD` and `PTEST`.
-        **`PFLUSH` and `PLOAD` share the extension prefix `001`** and are told
-        apart by the MODE field below it — PFLUSH's modes are `001`, `100` and
-        `110`, and PLOAD is `000`. A decoder stopping at the prefix does the
-        *opposite* of what was asked: PLOAD adds a translation where PFLUSH
-        removes one.
-        **The flush mask says which bits must agree, not which codes to flush.**
-        "Each bit in the mask that is set to one indicates that the
-        corresponding bit of the FC operand applies", so a *zero* mask selects
-        every function code rather than none. Read the other way,
-        `PFLUSH #0,#0` becomes a no-op where the hardware flushes everything.
-        **The FC field is not a plain number**: `10XXX` is an immediate code,
-        `01DDD` is *data register DDD's* low three bits, `00000` is SFC and
-        `00001` DFC. Reading the low three bits directly makes `01DDD` name a
-        function code that happens to be the register number — for D5 that is 5,
-        an ordinary supervisor data code, so nothing looks wrong.
-        **`PFLUSH` and `PLOAD` use the calculated address as the operand**, never
-        reading through it: "The address field must provide the memory
-        management unit with the effective address to be flushed ... not the
-        effective address describing where the PFLUSH operand is located."
-        `PTEST` at level 0 probes the ATC and at levels 1–7 walks the tree with
-        a NULL history-update callback — which is what `ap_m68030_walk`'s
-        nullable `update` was built for — so it "does not alter the ATC" and
-        does not disturb the tree either. That is what makes it usable inside a
-        fault handler without changing the state being diagnosed. A level-0
-        `PTEST` with the A bit set is an F-line exception, since an ATC probe
-        never fetched a descriptor whose address it could return.
-        `ap_m68030_walk_result_t` gained `last_descriptor_address` for that
-        return value, and `ap_m68030_atc` gained a mask-based flush.
-        *Verification: `step_suite`, 8 further tests (139 total) — `PFLUSHA`
-        clearing entries of differing function codes; the mask selecting by
-        agreement, with a partial mask taking every supervisor code and leaving
-        the user ones; a flush by address leaving the neighbouring page; a
-        function code from a data register that is not the register's number;
-        `PLOAD` adding where `PFLUSH` removes; `PTEST` level 0 in both the
-        resident and non-resident cases; the level-0-with-A combination refused;
-        and a table-search `PTEST` succeeding while leaving the ATC empty and
-        returning the descriptor's own address.*
-        **`PMOVE` has three instruction formats, told apart by the extension
-        word's top three bits**, and the P-REGISTER field below them is not
-        enough on its own: `010` names the *supervisor root pointer* under
-        prefix `010` and *TT0* under prefix `000`. A decoder reading only
-        P-REGISTER writes a transparent translation register where a root
-        pointer belongs — and both hold plausible 32-bit values, so nothing
-        faults until a translation goes somewhere strange.
-        Sizes differ per register: quad for the root pointers, long for TC and
-        the TTx pair, word for the status register.
-        **Two writes fault *after* landing.** An invalid root pointer descriptor
-        type and an inconsistent TC both take an MMU configuration exception
-        "after moving the operand", and TC additionally has its E bit cleared.
-        Refusing the write instead would leave the operating system unable to
-        see what it wrote wrong. The invalid-root case also forced a fix: the
-        long-descriptor unpack stops early on DT zero, so the root pointer's
-        table address is taken from the lower long word directly, per Figure
-        9-35's "Bits 3-0 of the root pointer are not used and are ignored when
-        written".
-        **The FD bit makes `PMOVEFD` a different instruction in one bit** —
-        "If the FD bit equals one, the ATC is not flushed" — and the status
-        register's format carries no FD bit at all, so flushing is not something
-        a write to it does.
-        The MMU registers now live on the CPU rather than in whatever the caller
-        supplied, because there is one MMU and two access paths through it; a
-        caller wanting translation to follow a `PMOVE` points both access
-        contexts at them. The root pointers are unpacked by the *walk's* own
-        long-descriptor code — "The field descriptions in the preceding section
-        apply to corresponding fields of the CRP and SRP" — so the two cannot
-        drift apart, and `ap_m68030_root_pack_upper` inverts it beside it.
-        *Verification: `step_suite`, 7 further tests (131 total) — a TC round
-        trip through memory; the same P-REGISTER field reaching two different
-        registers under two prefixes, each leaving the other alone; an invalid
-        root pointer faulting with the address already landed; an inconsistent
-        TC landing with `E` cleared; the ATC surviving `PMOVEFD` and not
-        surviving `PMOVE`; an MMU instruction in user state taking a privilege
-        violation rather than F-line; and a register-direct operand refused,
-        since only control alterable modes are legal.*
+        actually get driven: `PMOVE`, `PFLUSH`, `PFLUSHA`, `PLOAD` and `PTEST`.
+        The encoding traps each one hides — and each was a wrong answer that
+        would not have faulted — are recorded in `PROJECT_STATUS.md`.
+        *Verification: `step_suite`, 15 further tests (139 total) — `PFLUSHA`
+        across differing function codes; the mask selecting by agreement; a
+        flush by address leaving the neighbour; a function code from a data
+        register that is not the register's number; `PLOAD` adding where
+        `PFLUSH` removes; `PTEST` level 0 resident and not; level-0-with-A
+        refused; a table-search `PTEST` leaving the ATC empty and returning the
+        descriptor's address; a TC round trip; one P-REGISTER field reaching two
+        registers under two prefixes; an invalid root pointer faulting with the
+        address already landed; an inconsistent TC landing with `E` cleared; the
+        ATC surviving `PMOVEFD` and not `PMOVE`; an MMU instruction in user
+        state taking a privilege violation rather than F-line; and a
+        register-direct operand refused.*
   - [x] **Full-format indexed addressing and the memory indirect modes**. The
         extension word declares its own base and outer displacement sizes, so
         the number of words to read is not known until that word has been read —
@@ -1586,74 +1525,28 @@ Build the 68030 first (DN3500 is the superset), then subset and extend.
     it deeper, so the lower-priority handler runs first and returns into it.
     Reset is the stated exception to its own rule.
   - [x] **Family `0100` executes**, completing the family the decoder finished
-        some commits ago. `LEA`, `PEA`, `SWAP`, `EXT.W`/`EXT.L`/`EXTB.L`,
-        `NBCD`, `CHK.W`/`CHK.L`, `MOVEM` in both directions, `NEGX`, `TAS`,
-        `MOVE` to and from both `SR` and `CCR`, and the `ILLEGAL` word.
-        **`MOVEM`'s mask is reversed for the predecrement mode** — "bit 0 A7 …
-        bit 15 D0" against "bit 0 D0 … bit 15 A7" — which makes one loop over
-        bits 0 to 15 give both documented orders, "from D0 to D7, then from A0
-        to A7" for the control modes and "from A7 to A0, then from D7 to D0" for
-        predecrement. Reading it the same way round for both saves the right
-        number of registers into the right amount of space with every one in the
-        wrong place, and a matching postincrement `MOVEM` restores them anyway —
-        so only an outside observer of memory can see it.
-        Two more `MOVEM` facts that are this part's rather than the 68000's: a
-        word transfer **sign-extends into the whole register**, data registers
-        included, which is unlike every other data register write; and "if the
-        addressing register is also moved to memory, the value written is the
-        initial register value decremented by the size of the operation. The
-        MC68000 and MC68010 write the initial register value (not decremented)."
-        **`CHK`'s comparisons are signed** — "The upper bound is a twos
-        complement integer" — so an unsigned model lets a negative register pass
-        any bound whose top bit is clear, which is nearly every bound written.
-        **`TAS` flags the value before setting the bit**; the other order makes
-        it always report an already-taken semaphore, and everything built on it
-        deadlocks. **`MOVE from SR` is privileged and `MOVE from CCR` is not**,
-        which reads backwards from the 68000 and is why it is stated.
-        `BKPT` is the one form left: it runs a breakpoint acknowledge cycle in
-        CPU space, a bus transaction this step does not issue, so it is declined
-        rather than called illegal — which is what it becomes only if nothing
-        answers. It is now the step suite's unimplemented-instruction
-        placeholder, replacing `LEA`, which replaced `MULU`, which replaced
-        `ADD`.
-        The single-operand escapes also gained their **sizes in the decoder**:
-        the size field was the escape that selected them, but `TAS` is still
-        "Size = (Byte)" and the four transfers "Size = (Word)". Reporting zero
-        conflated "carries no size field" with "has no size" and left every
-        executor re-deriving it.
+        earlier: `LEA`, `PEA`, `SWAP`, the three `EXT` forms, `NBCD`, `CHK`,
+        `MOVEM` both directions, `NEGX`, `TAS`, `MOVE` to and from `SR` and
+        `CCR`, and `ILLEGAL`. `BKPT` is declined rather than called illegal — it
+        runs a breakpoint acknowledge cycle this step does not issue — and is
+        now the suite's unimplemented-instruction placeholder. The single-operand
+        escapes also gained their sizes in the decoder. Semantics that would
+        otherwise be silently wrong are in `PROJECT_STATUS.md`.
         *Verification: `step_suite`, 14 further tests (111 total) — `LEA` against
-        `MOVEA` on the same operand, one indirection apart and both plausible;
-        the predecrement mask reversal seen in memory; a save/restore round trip;
-        a word `MOVEM` reaching the whole register; `CHK` inside, above and
-        below its bound, with the negative case distinguished by `N`; `TAS`
-        reporting a free semaphore and taking it; `MOVE from SR` trapping in
-        user state while `MOVE from CCR` does not; `MOVE to CCR` unable to reach
-        the system byte; `ILLEGAL` taking vector 4 with its own address stacked;
-        `NBCD` in both the tens and nines complement; and the three `EXT` forms
-        reaching different distances from the same source byte.*
+        `MOVEA` on the same operand; the predecrement mask reversal seen in
+        memory; a save/restore round trip; a word `MOVEM` reaching the whole
+        register; `CHK` inside, above and below its bound with the negative case
+        distinguished by `N`; `TAS` reporting a free semaphore and taking it;
+        `MOVE from SR` trapping in user state while `MOVE from CCR` does not;
+        `MOVE to CCR` unable to reach the system byte; `ILLEGAL` taking vector 4
+        with its own address stacked; `NBCD` in both complements; and the three
+        `EXT` forms reaching different distances from the same source byte.*
   - [x] **The `$4E` control group executes in full**: `JSR`, `JMP`, `BSR`,
         `RTS`, `RTR`, `RTD`, `RTE`, `LINK`, `UNLK`, `TRAP`, `TRAPV`, both
-        directions of `MOVE USP`, both directions of `MOVEC`, `STOP` and
-        `RESET`, with the privileged ones raising a privilege violation in user
-        state.
-        **`MOVEC`'s control register codes are not a dense index**: bit 11
-        separates the 68010's SFC/DFC/USP/VBR from the 68020's CACR/CAAR/MSP/
-        ISP, so `$800` is not `$002` with a different index. A model treating
-        the field as a small number puts the USP where CACR belongs, and both
-        hold plausible 32-bit values. A code this part does not define is an
-        illegal instruction rather than a silent no-op — which is how the
-        68040-only MMU codes are kept out. This is also what makes `VBR` and
-        `CACR` reachable at all, and the boot PROM sets both.
-        **`STOP` loads the status register first**, interrupt mask included:
-        that is the whole point of the instruction, and loading the mask after
-        halting would leave a window at the old priority. A stopped processor
-        does not prefetch, so the step returns before touching the pipe.
-        **`RESET` changes nothing inside the processor** — "The processor state,
-        other than the program counter, is unaffected, and execution continues
-        with the next instruction" — so it is counted rather than acted on. A
-        model that halted or reset itself here would stop the boot PROM at its
-        first line, since resetting the devices is among the first things it
-        does.
+        directions of `MOVE USP` and `MOVEC`, `STOP` and `RESET`, with the
+        privileged ones raising a privilege violation in user state. `MOVEC`'s
+        sparse register codes, `STOP`'s ordering and `RESET`'s
+        nothing-happens-inside semantics are in `PROJECT_STATUS.md`.
   - [x] **The wider branch displacements**: `BRA`/`Bcc`/`BSR` at 16 and 32 bits,
         all three sizes sharing one base, "the instruction address plus two".
         An **untaken** wide branch still consumes its displacement words — the
