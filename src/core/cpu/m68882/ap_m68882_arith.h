@@ -110,6 +110,55 @@ ap_m68882_underflow_exponent(ap_m68882_precision_t precision);
                                            ap_m68882_precision_t precision);
 
 /* ---------------------------------------------------------------------------
+ * The single-precision pair.
+ *
+ * `FSGLMUL` and `FSGLDIV` are the ordinary multiply and divide with two
+ * differences, and both come from §6.1.4's paragraph on them: "the rounding
+ * precision programmed in the mode control byte is **ignored** (although the
+ * selected rounding mode is used). The input operands ... are assumed to be
+ * single precision values, but no checking is performed to verify the inputs
+ * (each mantissa is truncated to 23 bits, and the exponent is accepted as an
+ * extended precision value)."
+ *
+ * So the significands are cut down on the way in and the answer is rounded to
+ * single on the way out, whatever the FPCR says. But the *range* stays
+ * extended: "the mantissa of the intermediate result is rounded to single
+ * precision, [yet] the exponent remains an extended format exponent. Therefore,
+ * those instructions can never report an overflow as long as the intermediate
+ * result is small enough to be represented in extended precision format."
+ * §6.1.4 puts it as "the final result generated has the range of an extended
+ * precision number with a mantissa accurate to only 23 bits".
+ *
+ * ## How many bits the truncation keeps is a reading
+ *
+ * §6.1.4 says "truncated to 23 bits". The `FSGLMUL` page says the operands are
+ * "assumed to be representable in the single precision format" and that "if
+ * either operand requires more than **24** bits of mantissa to be accurately
+ * represented, the accuracy of the result is not guaranteed".
+ *
+ * Twenty-four is single precision's significand -- one integer bit and 23 of
+ * fraction -- so the two statements reconcile if §6.1.4 is counting the
+ * *fraction* field, which is what a single-precision number stores and what an
+ * extended significand carries below its explicit integer bit. Read literally
+ * as 23 significand bits instead, the truncation would discard a bit the
+ * instruction page says is representable, and the two pages would contradict
+ * each other.
+ *
+ * So 24 significand bits are kept, and this is recorded as a reading rather
+ * than a quotation: no page states the count in both vocabularies at once. It
+ * affects only operands the manual already says are outside the instruction's
+ * contract, where "the accuracy of the result is not guaranteed".
+ * ------------------------------------------------------------------------- */
+
+[[nodiscard]] ap_m68882_op_t ap_m68882_single_mul(
+    const ap_m68882_extended_t *a, const ap_m68882_extended_t *b,
+    ap_m68882_rounding_t mode);
+
+[[nodiscard]] ap_m68882_op_t ap_m68882_single_div(
+    const ap_m68882_extended_t *a, const ap_m68882_extended_t *b,
+    ap_m68882_rounding_t mode);
+
+/* ---------------------------------------------------------------------------
  * The remainder pair.
  *
  * `FREM` is the IEEE remainder and `FMOD` the modulo, and the *only* difference

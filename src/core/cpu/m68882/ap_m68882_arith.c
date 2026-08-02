@@ -174,11 +174,21 @@ ap_m68882_extended_t ap_m68882_overflow_result(bool sign,
 
 /* Finish an operation: normalise, round, and report overflow or underflow.
  * Shared by all four so the exception rules cannot drift between them. */
-static ap_m68882_op_t finish(ap_m68882_extended_t value, bool guard,
-                             bool round_bit, bool sticky,
-                             ap_m68882_rounding_t mode,
-                             ap_m68882_precision_t precision,
-                             uint32_t exceptions) {
+/* `precision` rounds the significand; `range` decides the overflow and
+ * underflow thresholds. They are the same for every ordinary operation and
+ * differ for exactly two: §6.1.4 and §6.1.5 both carry a NOTE saying that for
+ * `FSGLMUL` and `FSGLDIV`, "although the mantissa of the intermediate result is
+ * rounded to single precision, the exponent remains an extended format
+ * exponent. Therefore, those instructions can never report an overflow as long
+ * as the intermediate result is small enough to be represented in extended
+ * precision format." Folding the two into one parameter is what would make
+ * those two instructions overflow where the part does not. */
+static ap_m68882_op_t finish_in_range(ap_m68882_extended_t value, bool guard,
+                                      bool round_bit, bool sticky,
+                                      ap_m68882_rounding_t mode,
+                                      ap_m68882_precision_t precision,
+                                      ap_m68882_precision_t range,
+                                      uint32_t exceptions) {
   ap_m68882_op_t out = {.exceptions = exceptions};
 
   if (value.mantissa == 0u && !guard && !round_bit && !sticky) {
@@ -205,7 +215,7 @@ static ap_m68882_op_t finish(ap_m68882_extended_t value, bool guard,
    * extended holds perfectly well is subnormal at single precision, and without
    * this it kept an extended exponent no single-precision destination could
    * represent and reported nothing at all. */
-  const uint16_t minimum = ap_m68882_underflow_exponent(precision);
+  const uint16_t minimum = ap_m68882_underflow_exponent(range);
   if (value.exponent < minimum && value.mantissa != 0u) {
     shift_right_sticky(&value.mantissa,
                        (unsigned)(minimum - value.exponent), &guard,
@@ -221,7 +231,7 @@ static ap_m68882_op_t finish(ap_m68882_extended_t value, bool guard,
     out.exceptions |= UINT32_C(1) << AP_M68882_EXC_INEX2;
   }
 
-  if (out.value.exponent >= ap_m68882_overflow_exponent(precision)) {
+  if (out.value.exponent >= ap_m68882_overflow_exponent(range)) {
     /* "Overflow is detected ... when the intermediate result exponent is
      * greater than or equal to the maximum exponent value of the selected
      * rounding precision" -- so a value extended could hold still overflows a
@@ -231,7 +241,7 @@ static ap_m68882_op_t finish(ap_m68882_extended_t value, bool guard,
      * `ap_m68882_overflow_result`. `INEX2` comes with it either way, since an
      * overflowed result is not the exact one -- which is also why `AEXC(INEX)`
      * is set by `OVFL`. */
-    out.value = ap_m68882_overflow_result(out.value.sign, mode, precision);
+    out.value = ap_m68882_overflow_result(out.value.sign, mode, range);
     out.exceptions |= (UINT32_C(1) << AP_M68882_EXC_OVFL) |
                       (UINT32_C(1) << AP_M68882_EXC_INEX2);
     return out;
@@ -247,6 +257,15 @@ static ap_m68882_op_t finish(ap_m68882_extended_t value, bool guard,
     out.exceptions |= UINT32_C(1) << AP_M68882_EXC_UNFL;
   }
   return out;
+}
+
+static ap_m68882_op_t finish(ap_m68882_extended_t value, bool guard,
+                             bool round_bit, bool sticky,
+                             ap_m68882_rounding_t mode,
+                             ap_m68882_precision_t precision,
+                             uint32_t exceptions) {
+  return finish_in_range(value, guard, round_bit, sticky, mode, precision,
+                         precision, exceptions);
 }
 
 /* Add two values of the *same* sign, or subtract when they differ. Both
@@ -375,6 +394,49 @@ static ap_m68882_op_t add_or_subtract(const ap_m68882_extended_t *a,
   return add_magnitudes(*a, rhs, a->sign != rhs.sign, mode, precision);
 }
 
+/* Forward declarations: the wrappers below come before the ranged bodies, so
+ * that the public entry points sit beside each other in reading order. */
+static ap_m68882_op_t multiply_ranged(const ap_m68882_extended_t *a,
+                                      const ap_m68882_extended_t *b,
+                                      ap_m68882_rounding_t mode,
+                                      ap_m68882_precision_t precision,
+                                      ap_m68882_precision_t range);
+static ap_m68882_op_t divide_ranged(const ap_m68882_extended_t *a,
+                                    const ap_m68882_extended_t *b,
+                                    ap_m68882_rounding_t mode,
+                                    ap_m68882_precision_t precision,
+                                    ap_m68882_precision_t range);
+
+ap_m68882_op_t ap_m68882_mul(const ap_m68882_extended_t *a,
+                             const ap_m68882_extended_t *b,
+                             ap_m68882_rounding_t mode,
+                             ap_m68882_precision_t precision) {
+  return multiply_ranged(a, b, mode, precision, precision);
+}
+
+ap_m68882_op_t ap_m68882_div(const ap_m68882_extended_t *a,
+                             const ap_m68882_extended_t *b,
+                             ap_m68882_rounding_t mode,
+                             ap_m68882_precision_t precision) {
+  return divide_ranged(a, b, mode, precision, precision);
+}
+
+/* Rounded to single, ranged as extended -- the two halves §6.1.4 splits for
+ * `FSGLMUL` and `FSGLDIV` and for nothing else. */
+static ap_m68882_op_t single_range_multiply(const ap_m68882_extended_t *a,
+                                            const ap_m68882_extended_t *b,
+                                            ap_m68882_rounding_t mode) {
+  return multiply_ranged(a, b, mode, AP_M68882_PRECISION_SINGLE,
+                         AP_M68882_PRECISION_EXTENDED);
+}
+
+static ap_m68882_op_t single_range_divide(const ap_m68882_extended_t *a,
+                                          const ap_m68882_extended_t *b,
+                                          ap_m68882_rounding_t mode) {
+  return divide_ranged(a, b, mode, AP_M68882_PRECISION_SINGLE,
+                       AP_M68882_PRECISION_EXTENDED);
+}
+
 ap_m68882_op_t ap_m68882_add(const ap_m68882_extended_t *a,
                              const ap_m68882_extended_t *b,
                              ap_m68882_rounding_t mode,
@@ -414,10 +476,11 @@ static void multiply_64(uint64_t x, uint64_t y, uint64_t *high, uint64_t *low) {
   *high = high_high + (cross_a >> 32) + (cross_b >> 32) + (middle >> 32);
 }
 
-ap_m68882_op_t ap_m68882_mul(const ap_m68882_extended_t *a,
+static ap_m68882_op_t multiply_ranged(const ap_m68882_extended_t *a,
                              const ap_m68882_extended_t *b,
                              ap_m68882_rounding_t mode,
-                             ap_m68882_precision_t precision) {
+                             ap_m68882_precision_t precision,
+                                    ap_m68882_precision_t range) {
   ap_m68882_op_t out = {0};
   if (propagate_nan(a, b, &out)) {
     return out;
@@ -503,14 +566,15 @@ ap_m68882_op_t ap_m68882_mul(const ap_m68882_extended_t *a,
   result.exponent = (uint16_t)(exponent > (int)MAX_EXPONENT ? (int)MAX_EXPONENT
                                                             : exponent);
   result.mantissa = high;
-  return finish(result, guard, round_bit, sticky, mode, precision,
-                out.exceptions);
+  return finish_in_range(result, guard, round_bit, sticky, mode,
+                         precision, range, out.exceptions);
 }
 
-ap_m68882_op_t ap_m68882_div(const ap_m68882_extended_t *a,
+static ap_m68882_op_t divide_ranged(const ap_m68882_extended_t *a,
                              const ap_m68882_extended_t *b,
                              ap_m68882_rounding_t mode,
-                             ap_m68882_precision_t precision) {
+                             ap_m68882_precision_t precision,
+                                    ap_m68882_precision_t range) {
   ap_m68882_op_t out = {0};
   if (propagate_nan(a, b, &out)) {
     return out;
@@ -627,12 +691,14 @@ ap_m68882_op_t ap_m68882_div(const ap_m68882_extended_t *a,
     result.exponent = 0u;
     result.mantissa = quotient;
     out.exceptions |= UINT32_C(1) << AP_M68882_EXC_UNFL;
-    return finish(result, g, r, s, mode, precision, out.exceptions);
+    return finish_in_range(result, g, r, s, mode, precision, range,
+                           out.exceptions);
   }
   result.exponent = (uint16_t)(exponent > (int)MAX_EXPONENT ? (int)MAX_EXPONENT
                                                             : exponent);
   result.mantissa = quotient;
-  return finish(result, guard, round_bit, sticky, mode, precision, 0u);
+  return finish_in_range(result, guard, round_bit, sticky, mode,
+                         precision, range, 0u);
 }
 
 ap_m68882_compare_t ap_m68882_compare(const ap_m68882_extended_t *a,
@@ -1175,4 +1241,36 @@ ap_m68882_remainder(const ap_m68882_extended_t *destination,
     out.value = make_zero(destination->sign);
   }
   return out;
+}
+
+/* "Each mantissa is truncated to 23 bits" -- see the header for why that is
+ * read as 24 significand bits, and why the reading only matters for operands
+ * the instruction page already places outside its contract. Truncation, not
+ * rounding: the manual says truncated, and rounding here would make the
+ * instruction more accurate than the part in a way a caller could detect. */
+static ap_m68882_extended_t truncate_to_single(ap_m68882_extended_t v) {
+  if (ap_m68882_classify(&v) == AP_M68882_TYPE_NAN ||
+      ap_m68882_classify(&v) == AP_M68882_TYPE_INFINITY) {
+    return v;
+  }
+  v.mantissa &= ~((UINT64_C(1) << (64u - 24u)) - 1u);
+  return v;
+}
+
+ap_m68882_op_t ap_m68882_single_mul(const ap_m68882_extended_t *a,
+                                    const ap_m68882_extended_t *b,
+                                    ap_m68882_rounding_t mode) {
+  const ap_m68882_extended_t x = truncate_to_single(*a);
+  const ap_m68882_extended_t y = truncate_to_single(*b);
+  /* Rounded to single, ranged as extended: `single_range_multiply` is the
+   * ordinary multiply with those two split apart. */
+  return single_range_multiply(&x, &y, mode);
+}
+
+ap_m68882_op_t ap_m68882_single_div(const ap_m68882_extended_t *a,
+                                    const ap_m68882_extended_t *b,
+                                    ap_m68882_rounding_t mode) {
+  const ap_m68882_extended_t x = truncate_to_single(*a);
+  const ap_m68882_extended_t y = truncate_to_single(*b);
+  return single_range_divide(&x, &y, mode);
 }

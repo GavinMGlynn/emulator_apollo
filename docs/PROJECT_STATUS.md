@@ -1749,10 +1749,48 @@ implementing an operation, since §9 has the main processor evaluate the address
 and transfer the operand, so when it does close the test should be deleted
 rather than repointed.
 
-What remains unimplemented in the 68882 is the two single-precision forms --
-`FSGLDIV` and `FSGLMUL` -- which are not §4.3.2 transcendentals, so
-the accuracy bound above has nothing to say about them and closing them is
-separate work with a separate acceptance criterion. A test pins that distinction
+**`FSGLMUL` and `FSGLDIV` are in, and they forced a distinction the rest of the
+core did not need.** §6.1.4: for these two "the rounding precision programmed in
+the mode control byte is **ignored** (although the selected rounding mode is
+used)", and both §6.1.4 and §6.1.5 add that "although the mantissa of the
+intermediate result is rounded to single precision, the exponent remains an
+extended format exponent. Therefore, those instructions can never report an
+overflow as long as the intermediate result is small enough to be represented in
+extended precision format."
+
+So a single parameter cannot serve: `finish` now takes a rounding precision
+*and* a range, which are the same for every other operation and differ only
+here. `2^200` is the case that separates them -- an ordinary multiply at single
+precision overflows it to an infinity, `FSGLMUL` keeps it. Folding the two
+together would have agreed with the part on every ordinary operand and differed
+on exactly the ones these instructions exist for.
+
+**How many bits the input truncation keeps is a reading, and it is recorded as
+one.** §6.1.4 says "each mantissa is truncated to 23 bits"; the `FSGLMUL` page
+says operands are "assumed to be representable in the single precision format"
+and that accuracy is unguaranteed if one "requires more than **24** bits of
+mantissa". Twenty-four is single precision's significand -- one integer bit and
+23 of fraction -- so the two reconcile if §6.1.4 counts the *fraction* field,
+which is what a single-precision number stores. Read literally as 23 significand
+bits, the truncation would discard a bit the instruction page calls
+representable and the two pages would contradict each other. Twenty-four are
+kept. It affects only operands the manual already places outside the
+instruction's contract.
+
+**A stale build produced a false green, and the timestamps caught it.** After
+wiring the two instructions I ran `ctest` without rebuilding -- the edit and the
+standalone check had happened in one step, the cmake build in another -- and 111
+suites passed against a binary that predated the change. The guard asserting
+those instructions were still unimplemented should have failed and could not.
+Comparing the test binary's mtime against the source's is what showed it; a
+green run is only evidence if the thing that ran is the thing that changed.
+
+Every general-type operation the 68882 defines now executes. What remains is not
+an operation but a *dialog*: §9 has the main processor evaluate an effective
+address and transfer the operand, so any opclass other than register-to-register
+still reports our gap. The guard now asserts that **boundary** rather than a
+list of instruction names -- it needed editing twice for exactly that reason --
+and it closes when the 68030 holds up its half.
 so the two kinds of gap are not conflated.
 
 So the gap is now specified rather than merely declared. The nineteen

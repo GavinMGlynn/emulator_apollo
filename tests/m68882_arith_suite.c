@@ -1061,6 +1061,85 @@ static void test_an_exact_division_leaves_the_dividends_zero(void) {
                            "an exact remainder keeps the dividend's sign");
 }
 
+static void test_the_single_forms_round_the_mantissa_but_not_the_range(void) {
+  /* The two halves §6.1.4 splits, and the reason `finish` had to take them
+   * apart. The *mantissa* is rounded to single "regardless of the current
+   * rounding precision", while the *exponent* stays extended: "although the
+   * mantissa of the intermediate result is rounded to single precision, the
+   * exponent remains an extended format exponent. Therefore, those instructions
+   * can never report an overflow as long as the intermediate result is small
+   * enough to be represented in extended precision format."
+   *
+   * `2^200` is the case that separates them. `FMUL` at single precision
+   * overflows it to an infinity; `FSGLMUL` keeps it, because only its
+   * significand is single. An implementation that reused one precision for both
+   * would agree with the part on every ordinary operand and differ on exactly
+   * the ones these instructions exist for. */
+  const ap_m68882_extended_t one = {false, AP_M68882_BIAS_EXTENDED,
+                                    0x8000000000000000ULL};
+  const ap_m68882_extended_t big = {
+      false, (uint16_t)(AP_M68882_BIAS_EXTENDED + 200),
+      0x8000000000000000ULL};
+
+  const ap_m68882_op_t kept =
+      ap_m68882_single_mul(&big, &one, AP_M68882_ROUND_NEAREST);
+  TEST_ASSERT_EQUAL_UINT_MESSAGE(
+      (unsigned)(AP_M68882_BIAS_EXTENDED + 200), kept.value.exponent,
+      "FSGLMUL keeps an extended exponent");
+  TEST_ASSERT_EQUAL_UINT_MESSAGE(0u,
+                                 kept.exceptions & (1u << AP_M68882_EXC_OVFL),
+                                 "FSGLMUL cannot overflow inside extended");
+
+  const ap_m68882_op_t overflowed = ap_m68882_mul(
+      &big, &one, AP_M68882_ROUND_NEAREST, AP_M68882_PRECISION_SINGLE);
+  TEST_ASSERT_NOT_EQUAL_UINT_MESSAGE(
+      0u, overflowed.exceptions & (1u << AP_M68882_EXC_OVFL),
+      "an ordinary single-precision multiply does overflow there");
+
+  /* And the significand really is cut to single: 1/3 comes back with 24 bits
+   * and forty of zeros, whatever the FPCR's precision would have said. */
+  const ap_m68882_extended_t three = {false, AP_M68882_BIAS_EXTENDED + 1,
+                                      0xC000000000000000ULL};
+  const ap_m68882_op_t third =
+      ap_m68882_single_div(&one, &three, AP_M68882_ROUND_NEAREST);
+  TEST_ASSERT_EQUAL_UINT64_MESSAGE(
+      0u, third.value.mantissa & 0x000000FFFFFFFFFFULL,
+      "the result is rounded to a 24-bit significand");
+  /* Which is the same significand an ordinary divide gives at single
+   * precision -- only the range differs between the two instructions. */
+  const ap_m68882_op_t ordinary = ap_m68882_div(
+      &one, &three, AP_M68882_ROUND_NEAREST, AP_M68882_PRECISION_SINGLE);
+  TEST_ASSERT_EQUAL_UINT64(ordinary.value.mantissa, third.value.mantissa);
+}
+
+static void test_the_single_forms_truncate_their_inputs(void) {
+  /* "The input operands ... are assumed to be single precision values, but no
+   * checking is performed to verify the inputs (each mantissa is truncated ...
+   * and the exponent is accepted as an extended precision value)."
+   *
+   * Truncated, not rounded, and not rejected. An operand carrying more
+   * significand than single precision holds is quietly cut down, which is why
+   * the instruction page says that for such an operand "the accuracy of the
+   * result is not guaranteed" rather than that it is an error.
+   *
+   * The check: a value whose extra bits are all ones gives the same answer as
+   * the same value with those bits cleared. Rounding the input instead would
+   * carry into the kept bits and give a different one. */
+  const ap_m68882_extended_t one = {false, AP_M68882_BIAS_EXTENDED,
+                                    0x8000000000000000ULL};
+  const ap_m68882_extended_t wide = {false, AP_M68882_BIAS_EXTENDED,
+                                     0x800000FFFFFFFFFFULL};
+  const ap_m68882_extended_t cut = {false, AP_M68882_BIAS_EXTENDED,
+                                    0x8000000000000000ULL};
+  const ap_m68882_op_t from_wide =
+      ap_m68882_single_mul(&wide, &one, AP_M68882_ROUND_NEAREST);
+  const ap_m68882_op_t from_cut =
+      ap_m68882_single_mul(&cut, &one, AP_M68882_ROUND_NEAREST);
+  TEST_ASSERT_EQUAL_UINT64_MESSAGE(
+      from_cut.value.mantissa, from_wide.value.mantissa,
+      "the extra significand is truncated away, not rounded in");
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_a_square_root_is_exact_for_perfect_squares);
@@ -1097,6 +1176,8 @@ int main(void) {
   RUN_TEST(test_the_minimum_exponent_is_a_legal_one_not_an_underflow);
   RUN_TEST(test_underflow_is_measured_against_the_rounding_precision);
   RUN_TEST(test_a_value_extended_can_hold_still_overflows_a_single);
+  RUN_TEST(test_the_single_forms_round_the_mantissa_but_not_the_range);
+  RUN_TEST(test_the_single_forms_truncate_their_inputs);
   RUN_TEST(test_the_remainder_is_exact_and_never_rounds);
   RUN_TEST(test_the_two_remainders_round_the_quotient_differently);
   RUN_TEST(test_the_quotient_sign_is_the_operands_exclusive_or);

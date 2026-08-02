@@ -154,23 +154,48 @@ static void test_every_transcendental_is_now_computed(void) {
   }
 }
 
-static void test_the_remaining_gaps_are_not_transcendentals(void) {
-  /* What is still unimplemented is the two single-precision forms, and neither
-   * is a §4.3.2 transcendental -- so the accuracy bound in this header
-   * has nothing to say about them, and closing them is a different piece of
-   * work with a different acceptance criterion. Pinned so the two kinds of gap
-   * do not get conflated. */
-  const ap_m68882_operation_t pending[] = {AP_M68882_OP_FSGLDIV,
-                                           AP_M68882_OP_FSGLMUL};
-  for (unsigned i = 0; i < 2u; i++) {
-    TEST_ASSERT_FALSE(ap_m68882_is_transcendental(pending[i]));
+static void test_every_defined_operation_now_executes(void) {
+  /* The last of the general-type instructions landed. `FMOD`, `FREM`,
+   * `FSGLDIV` and `FSGLMUL` were the four this model still reported as gaps,
+   * and calling them "honest boundaries" was wrong: none has an external
+   * dependency and all four are exactly specified.
+   *
+   * What remains unimplemented is not an operation but a *dialog*. §9 has the
+   * main processor evaluate an effective address and transfer the operand
+   * through the coprocessor interface, so any opclass other than
+   * register-to-register still reports our gap -- and that closes when the
+   * 68030 holds up its half, not by writing more arithmetic here. Asserting the
+   * boundary rather than a list of instruction names is what stops this test
+   * needing an edit every time one lands; it needed two. */
+  const ap_m68882_operation_t previously_missing[] = {
+      AP_M68882_OP_FMOD, AP_M68882_OP_FREM, AP_M68882_OP_FSGLDIV,
+      AP_M68882_OP_FSGLMUL};
+  for (unsigned i = 0; i < 4u; i++) {
+    TEST_ASSERT_FALSE_MESSAGE(
+        ap_m68882_is_transcendental(previously_missing[i]),
+        "none of these is a §4.3.2 transcendental");
     ap_m68882_t fpu;
     ap_m68882_reset(&fpu);
+    fpu.regs.fp[0] = (ap_m68882_extended_t){false, AP_M68882_BIAS_EXTENDED + 1,
+                                            0x8000000000000000ULL};
+    fpu.regs.fp[1] = (ap_m68882_extended_t){false, AP_M68882_BIAS_EXTENDED + 1,
+                                            0xC000000000000000ULL};
     TEST_ASSERT_EQUAL_INT_MESSAGE(
-        AP_M68882_UNIMPLEMENTED,
-        ap_m68882_execute(&fpu, 0xF200u, command_for(pending[i])),
-        "a remaining gap should report unimplemented, not F-line");
+        AP_M68882_EXECUTED,
+        ap_m68882_execute(&fpu, 0xF200u, command_for(previously_missing[i])),
+        "a defined general-type operation should execute");
   }
+
+  /* The boundary that remains: an external operand, which the part cannot
+   * fetch for itself. Reported as our gap and not as F-line, because the
+   * hardware executes it perfectly well. */
+  const uint16_t external = (uint16_t)((2u << 13) | (2u << 10) | (1u << 7) |
+                                       (unsigned)AP_M68882_OP_FADD);
+  ap_m68882_t fpu;
+  ap_m68882_reset(&fpu);
+  TEST_ASSERT_EQUAL_INT_MESSAGE(
+      AP_M68882_UNIMPLEMENTED, ap_m68882_execute(&fpu, 0xF200u, external),
+      "an external operand is the MPU's half of the dialog, not ours");
 }
 
 static void test_an_implemented_operation_is_not_reported_as_a_gap(void) {
@@ -376,7 +401,7 @@ int main(void) {
   RUN_TEST(test_a_comparison_reaches_a_branch_decision);
   RUN_TEST(test_a_conditional_reaches_the_status_register);
   RUN_TEST(test_every_transcendental_is_now_computed);
-  RUN_TEST(test_the_remaining_gaps_are_not_transcendentals);
+  RUN_TEST(test_every_defined_operation_now_executes);
   RUN_TEST(test_an_implemented_operation_is_not_reported_as_a_gap);
   return UNITY_END();
 }

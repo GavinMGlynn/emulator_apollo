@@ -208,6 +208,16 @@ static ap_m68882_status_t execute_register_to_register(
   case AP_M68882_OP_FINTRZ:
     result = ap_m68882_intrz(&source);
     break;
+  case AP_M68882_OP_FSGLMUL:
+    /* The rounding *precision* is ignored and single is used regardless -- but
+     * the rounding *mode* still comes from the FPCR, which is why the mode is
+     * passed and the precision is not. */
+    result = ap_m68882_single_mul(&destination, &source, mode);
+    break;
+  case AP_M68882_OP_FSGLDIV:
+    result = ap_m68882_single_div(&destination, &source, mode);
+    break;
+
   case AP_M68882_OP_FMOD:
   case AP_M68882_OP_FREM: {
     /* The IEEE remainder and the modulo differ only in how the implied
@@ -274,8 +284,6 @@ static ap_m68882_status_t execute_register_to_register(
    * Reported as unimplemented and **not** as F-line: the hardware executes
    * these, and dressing our gap up as the machine's behaviour would make it
    * invisible. */
-  case AP_M68882_OP_FSGLDIV:
-  case AP_M68882_OP_FSGLMUL:
     return AP_M68882_UNIMPLEMENTED;
   }
 
