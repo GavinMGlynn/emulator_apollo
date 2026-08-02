@@ -1817,8 +1817,16 @@ a 68882, and the 68882 is the only one of these it has.
             What is actually left is a step arm — read the descriptor, validate
             it, build the frame at the new stack pointer from the offsets
             already defined, save the entry word's register and load it with the
-            data area pointer, and `RTM` in reverse. Every field it writes has a
-            name already.
+            data area pointer, and `RTM` in reverse.
+            **Nothing remains to be read.** `AP_M68020_DESCRIPTOR_CONTROL`,
+            `_ENTRY_WORD_POINTER`, `_DATA_AREA_POINTER` and `_STACK_POINTER`
+            give Figure D-1; `AP_M68020_FRAME_*` gives Figure D-3;
+            `ap_m68020_module_decode_t` gives the opcode and the effective
+            address fields; `ap_m68020_module_validate` and the two predicates
+            give the decisions. Every value the arm reads and every field it
+            writes already has a name and a test. The reference step of this
+            item — the expensive half of `CLAUDE.md`'s resolution order — is
+            done, and what is left is only the writing.
             *Verification: `step_suite` +1 (247) -- `$06C0` reported `ILLEGAL`
             on a DN3500 and `UNIMPLEMENTED` on a DN3000, from the one model
             table.*
