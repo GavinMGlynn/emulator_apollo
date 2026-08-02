@@ -120,6 +120,14 @@ def run_oracle(words, base, sentinel_at, limit, timeout: float) -> dict:
                "-autoboot_script", str(PROBE_LUA)]
     proc = subprocess.run(command, capture_output=True, text=True,
                           env=env, cwd=str(mame.parent), timeout=timeout)
+    # The oracle side comments on what it planted and what it read back. Those
+    # lines are the only window into the far machine's setup -- C72's addendum
+    # spent a turn unable to tell whether an exception table had landed, because
+    # this output was captured and then discarded.
+    for line in proc.stdout.splitlines():
+        if line.startswith("#") and "loaded" not in line:
+            print("oracle: %s" % line[1:].strip())
+
     if "readback ok" not in proc.stdout:
         sys.stderr.write("probe_compare: the oracle did not accept the probe\n")
         sys.stderr.write(proc.stdout[-2000:])

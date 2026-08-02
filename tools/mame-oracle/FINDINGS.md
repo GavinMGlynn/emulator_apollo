@@ -4339,3 +4339,28 @@ the VBR, which is zero at reset. A probe that faults must set the VBR to
 at address zero regardless of what was planted. That instruction belongs in the
 fault probe's own program, and is named here so it is not discovered from a probe
 that jumps somewhere unexplained.
+
+### C72 addendum 3 -- the table lands, verified
+
+    oracle: exception table at 01003100, handler 01003000, planted
+
+The first of C72's three obstacles is closed, and closed by *observation* rather
+than by reasoning: the vector table lands in RAM on the oracle, beside the
+handler and clear of the boot PROM's range.
+
+Seeing it needed one change worth keeping. `probe_compare.py` captured the
+oracle's stdout and checked it for a single string, discarding everything else --
+including every comment the far side makes about what it planted and read back.
+Those lines are the only window into a machine running in another process, and an
+entire turn was spent unable to answer "did the table land" because they were
+thrown away. They are now echoed, prefixed `oracle:`, which is how the answer
+above was got.
+
+**Two obstacles remain, in order.** The 68030 reaches its vectors through the
+VBR, zero at reset, so a fault probe must `MOVEC` the VBR to `01003100` before
+faulting -- and on this core's side to its own table, which the probe harness
+plants at zero where the VBR already points. That asymmetry is now the *only*
+thing standing between here and a working fault probe for any map-independent
+fault. After that, C72's original question: the bus and address error frames
+carry a fault address, and comparing those needs a field-by-field readback the
+harness does not have.
