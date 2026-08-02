@@ -2063,6 +2063,11 @@ a 68882, and the 68882 is the only one of these it has.
         `PDT` its high one and only for the resident case -- so masking the same
         bit in both would turn every indirect descriptor into an invalid one.
         `m68040_descriptor_suite`, 15 tests.
+  - [x] The MMU registers: `URP`/`SRP`, `TCR`, the four `TTR`s and `MMUSR`,
+        Figures 3-3 through 3-6 from the page images. Three rules *contradict*
+        the 68851 -- writing `TCR` does not flush the ATCs, `PFLUSH` works with
+        translation disabled, and reset leaves the page size untouched while
+        clearing the enable. `m68040_regs_suite`, 16 tests.
 
 ## Phase 3 — Core board
 

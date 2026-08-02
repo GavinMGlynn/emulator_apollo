@@ -965,7 +965,43 @@ search algorithm never leaves a descriptor in this state." It is reachable only
 by an operating system writing it directly and the manual gives no defined
 behaviour for it, so `ap_m68040_page_descriptor_is_incoherent()` is a query
 rather than a fault -- there is nothing to implement, only something worth being
-able to name. Appendix A's bit rows have to come from page images --
+able to name.
+
+**The MMU registers are in, and three of their rules contradict the 68851.**
+Writing the third MMU in this project means the danger is carrying the second
+one's assumptions into it, so each contradiction has its own test:
+
+- **Writing `TCR` does not flush the ATCs.** "The operating system must flush
+  the ATCs before enabling address translation since the TCR accesses and reset
+  do not flush the ATCs." The 68851 flushes its whole ATC on any `TC` write with
+  the enable clear. A model that helpfully flushed here would hide exactly the
+  bug that warning exists for.
+- **`PFLUSH` works with translation disabled.** "The MMU instruction, PFLUSH,
+  can be executed successfully despite the state of the E-bit", where the 68851
+  terminates `PTEST`, `PLOAD` and the module calls with an exception when its
+  `E` is clear.
+- **Reset does not clear the page size.** "A reset operation does not affect
+  this bit. The bit must be initialized after a reset", while `E` *is* cleared
+  -- the same shape as the 68851's breakpoint skip count surviving reset, and
+  the same trap for a model that zeroes a struct.
+
+Two encodings read against intuition. A `TTR`'s **mask widens** the block it
+names rather than narrowing it -- "setting a bit in this field causes the
+corresponding bit in the Logical Address Base field to be ignored ... blocks of
+memory larger than 16 Mbytes can be transparently translated by setting some of
+the logical address mask bits to ones". And the `S` field is one meaning in two
+encodings: `00` user, `01` supervisor, `1X` either, so the low bit is a
+don't-care *only* when the high bit is set.
+
+In `MMUSR`, two bits are whole answers rather than flags among flags: "if the
+B-bit is set, all other bits are zero", and a `T` hit sets `R` "and all other
+bits are zero". Both are therefore constructed rather than assembled field by
+field, so a caller cannot report a physical address alongside a transfer error
+that prevented one being found.
+
+Figure 3-6's glyph between `M` and `W` is a reserved **zero**, not a field named
+`O`: the manual's field list runs in descending bit order -- B, G, U1, U0, S,
+CM, M, W, T, R -- and skips bit 3 entirely. Appendix A's bit rows have to come from page images --
 `pdftotext` renders them with zeros as letters and columns collapsed, the same
 failure that cost a bit position in the 68020's module entry word.
 
