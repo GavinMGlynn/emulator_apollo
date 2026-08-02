@@ -201,7 +201,7 @@ static const ap_m68030_table_entry_t TABLE[ROW_COUNT] = {
     [ROW_RTD] = {"RTD", {2, 0, 10, 12, .reads = 1, .prefetches = 2}, false, AP_M68030_EA_TIME_NONE, AP_M68030_PREFETCH_ALIGNMENT_INVARIANT},
     [ROW_UNLK] = {"UNLK", {0, 0, 5, 5, .reads = 1, .prefetches = 1}, false, AP_M68030_EA_TIME_NONE, AP_M68030_PREFETCH_SINGLE_WORD},
     [ROW_LINK_W] = {"LINK.W", {0, 0, 4, 5, .writes = 1, .prefetches = 1}, false, AP_M68030_EA_TIME_NONE, AP_M68030_PREFETCH_ALIGNMENT_INVARIANT},
-    [ROW_LINK_L] = {"LINK.L", {2, 0, 6, 7, .writes = 1, .prefetches = 2}, false, AP_M68030_EA_TIME_NONE, AP_M68030_PREFETCH_UNKNOWN},
+    [ROW_LINK_L] = {"LINK.L", {2, 0, 6, 7, .writes = 1, .prefetches = 2}, false, AP_M68030_EA_TIME_NONE, AP_M68030_PREFETCH_ODD_WORDS},
 
     /* The six logical-immediate-to-status forms share one row at 12 clocks.
      * That is six times the cost of the same operation on a data register,
@@ -222,7 +222,7 @@ static const ap_m68030_table_entry_t TABLE[ROW_COUNT] = {
     [ROW_BCC_TAKEN] = {"Bcc (Taken)", {6, 0, 6, 8, .prefetches = 2}, false, AP_M68030_EA_TIME_NONE, AP_M68030_PREFETCH_ALIGNMENT_INVARIANT},
     [ROW_BCC_B_NOT_TAKEN] = {"Bcc.B (Not Taken)", {4, 0, 4, 4, .prefetches = 1}, false, AP_M68030_EA_TIME_NONE, AP_M68030_PREFETCH_SINGLE_WORD},
     [ROW_BCC_W_NOT_TAKEN] = {"Bcc.W (Not Taken)", {6, 0, 6, 6, .prefetches = 1}, false, AP_M68030_EA_TIME_NONE, AP_M68030_PREFETCH_ALIGNMENT_INVARIANT},
-    [ROW_BCC_L_NOT_TAKEN] = {"Bcc.L (Not Taken)", {6, 0, 6, 8, .prefetches = 2}, false, AP_M68030_EA_TIME_NONE, AP_M68030_PREFETCH_UNKNOWN},
+    [ROW_BCC_L_NOT_TAKEN] = {"Bcc.L (Not Taken)", {6, 0, 6, 8, .prefetches = 2}, false, AP_M68030_EA_TIME_NONE, AP_M68030_PREFETCH_ODD_WORDS},
     [ROW_BSR] = {"BSR", {2, 0, 6, 9, .writes = 1, .prefetches = 2}, false, AP_M68030_EA_TIME_NONE, AP_M68030_PREFETCH_ALIGNMENT_INVARIANT},
 
     /* DBcc has three cases, and the expensive one is *leaving* the loop with

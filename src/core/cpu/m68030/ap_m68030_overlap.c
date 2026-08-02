@@ -92,6 +92,11 @@ unsigned ap_m68030_prefetch_exposure(const ap_m68030_timing_t *timing,
   case AP_M68030_PREFETCH_ALIGNMENT_INVARIANT:
     /* Both alignments run the same fetches, so nothing was averaged. */
     return difference;
+  case AP_M68030_PREFETCH_ODD_WORDS:
+    /* As SINGLE_WORD: the two alignments differ by one fetch, so the larger
+     * case is twice the published average. The caller decides which case this
+     * run was by counting fetches, not by whether one happened. */
+    return difference * 2u;
   case AP_M68030_PREFETCH_UNKNOWN:
     break;
   }

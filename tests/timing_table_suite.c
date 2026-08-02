@@ -436,8 +436,8 @@ static void test_the_rows_that_are_not_single_word_are_classified_as_such(void) 
       {"ADDI #<data>,Dn", AP_M68030_PREFETCH_ALIGNMENT_INVARIANT, "two words"},
       /* The only rows left unknown: an odd word count of three, where the two
        * alignments genuinely differ by one fetch. */
-      {"LINK.L", AP_M68030_PREFETCH_UNKNOWN, "three words"},
-      {"Bcc.L (Not Taken)", AP_M68030_PREFETCH_UNKNOWN, "three words"},
+      {"LINK.L", AP_M68030_PREFETCH_ODD_WORDS, "three words"},
+      {"Bcc.L (Not Taken)", AP_M68030_PREFETCH_ODD_WORDS, "three words"},
   };
 
   unsigned count = 0;
@@ -467,15 +467,16 @@ static void test_the_rows_that_are_not_single_word_are_classified_as_such(void) 
   TEST_ASSERT_EQUAL_UINT(sizeof EXPECTED / sizeof EXPECTED[0], matched);
   TEST_ASSERT_EQUAL_UINT(sizeof EXPECTED / sizeof EXPECTED[0], non_single);
 
-  /* Only two rows in the whole table now decline, and both for the same
-   * reason -- an odd word count of three. Every change of flow is priced. */
+  /* **No row declines any more.** Every row in the table is priced by one of
+   * the three derived rules, so `UNKNOWN` exists only to catch a row added
+   * without a class decision. */
   unsigned unknown = 0;
   for (unsigned i = 0; i < count; i++) {
     if (table[i].prefetch_class == AP_M68030_PREFETCH_UNKNOWN) {
       unknown++;
     }
   }
-  TEST_ASSERT_EQUAL_UINT(2u, unknown);
+  TEST_ASSERT_EQUAL_UINT(0u, unknown);
 }
 
 /* Which rows they are, and it is the memory destinations. `ADD Dn,EA` and

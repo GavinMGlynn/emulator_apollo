@@ -3879,7 +3879,16 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
      * caused it is a change of flow, whose class is UNKNOWN and declines. */
     const uint32_t one_bus_cycle = 2u;
     uint32_t prefetch_cost = instruction_bus;
-    if (instruction_bus <= one_bus_cycle) {
+    if (published->prefetch_class == AP_M68030_PREFETCH_ODD_WORDS) {
+      /* Three words: both alignments run a fetch, and it is the *count* that
+       * differs -- two when aligned, one when not. So the published average is
+       * undone by charging the larger case and nothing for the smaller, which
+       * is why this cannot go through the "did a prefetch happen" test below. */
+      prefetch_cost = instruction_bus > one_bus_cycle
+                          ? ap_m68030_prefetch_exposure(
+                                &published->timing, published->prefetch_class)
+                          : 0u;
+    } else if (instruction_bus <= one_bus_cycle) {
       prefetch_cost =
           instruction_bus > 0u
               ? ap_m68030_prefetch_exposure(&published->timing,

@@ -1132,11 +1132,23 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
           reported absent, the table agreeing with the opcode map rather than
           having a gap; and the `%` relative heads distinguished from the plain
           ones.*
-    - [ ] **Remaining:** the **change-of-flow rows' prefetch cost**, declined
-          because the target's alignment decides the fetch count -- their warm
-          figures are exact and their cold ones a lower bound. And the
-          `PROVISIONAL` reading that selects between §11.6.1's and §11.6.3's two
-          row groups, whose measurement is named in `PROJECT_STATUS.md`.
+    - [x] **Every row is now priced; none declines.** The change-of-flow rows
+          fell to §11.3.3's page: the target's alignment decides *where* the
+          refill reads, not how many bus cycles it takes -- a three-deep pipe
+          wants two either way -- so nothing is averaged and the published
+          difference is the exposure. The three-word rows fell to the same
+          arithmetic as a single word, the two alignments differing by one
+          fetch, so the larger case is twice the published average and the
+          smaller is free.
+          Detail in `docs/references/M68030_TIMING.md`.
+          *Verification: `timing_table_suite` asserts **zero** rows classified
+          unknown, so a row added without a class decision fails rather than
+          being priced by whichever rule sits first.*
+    - [ ] Open, and both are readings rather than gaps: the `PROVISIONAL`
+          reading that selects between §11.6.1's and §11.6.3's two row groups,
+          whose measurement is named in `PROJECT_STATUS.md`; and the one-clock
+          bound that §11.3.3's "rounded up" leaves on a published difference of
+          1, which the pair cannot separate.
   - [x] **The termination *kind* now comes from a device.** `machine_fill` and
         `machine_store` ask the board and answer `BERR` when nothing decodes the
         address, `STERM` when something does — so a bus error is a device

@@ -228,9 +228,17 @@ typedef enum {
    * alignment, so nothing is averaged there either. */
   AP_M68030_PREFETCH_ALIGNMENT_INVARIANT,
   /* An odd word count of three or more, where the two alignments differ by one
-   * fetch and recovering a per-fetch cost needs the quantity
-   * `docs/references/M68030_TIMING.md` withdrew. `LINK.L` and `Bcc.L` untaken
-   * are the two. */
+   * fetch: three words want a fetch at 0 and one at 4 when aligned, and only
+   * one at 4 when not. The published difference is therefore an average of two
+   * unequal cases again, exactly as for a single word -- so the larger case is
+   * twice it, and the smaller is free. `LINK.L` and `Bcc.L` untaken are the
+   * two rows.
+   *
+   * Unlike `SINGLE_WORD` the caller cannot tell the cases apart by "did a
+   * prefetch happen", since both run one; it has to compare the *count*. */
+  AP_M68030_PREFETCH_ODD_WORDS,
+  /* Nothing left uses this. Kept so a row added without a class decision fails
+   * visibly rather than being priced by whichever rule sits first. */
   AP_M68030_PREFETCH_UNKNOWN,
 } ap_m68030_prefetch_class_t;
 
@@ -244,6 +252,8 @@ typedef enum {
  *   SINGLE_WORD          exposure = 2 (NCC - CC)  -- half the average is the
  *                                                     odd case, which is zero
  *   ALIGNMENT_INVARIANT  exposure =    NCC - CC   -- no averaging to undo
+ *   ODD_WORDS            exposure = 2 (NCC - CC)  -- charged only on the run
+ *                                                    that took the extra fetch
  *   UNKNOWN              exposure = 0, declined
  *
  * For `SINGLE_WORD` the answer comes to 0 or 2 -- such a prefetch either hides
