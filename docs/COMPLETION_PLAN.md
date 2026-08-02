@@ -1663,10 +1663,16 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         disabled cache paying 2 on every access. The self-timing probe on real
         hardware remains worth doing, but that is a **measurement** of the part
         rather than the modelling this item asked for.*
-- [ ] Data-dependent instruction timings published only as ranges are modelled
+- [x] Data-dependent instruction timings published only as ranges are modelled
       at the documented value and marked `PROVISIONAL`. No invented point
-      numbers. *Verification: each such instruction appears in the PROVISIONAL
-      table with its manual page.*
+      numbers. *Verification: two rows in `PROJECT_STATUS.md`'s PROVISIONAL
+      table -- the four divides that **are** transcribed, at §11.6.8's published
+      maxima with its own footnote quoted, and the `+` rows that are **not**
+      (the multiplies, `CMP2`, `CHK2`, `CHK` with the exception taken, `CAS2`),
+      which are absent from the table and therefore unpriced rather than priced
+      wrongly. Plus `timing_table_suite`, which asserts that exactly four rows
+      carry the marker -- a marker applied too widely would make every figure
+      look provisional and none of them actionable.*
 
 ## Phase 2b — The rest of the CPU family
 
