@@ -4615,3 +4615,36 @@ rather than the status register -- so a probe would see an unchanged `D0` and be
 unable to tell "overflow, correctly declined" from "the instruction did nothing".
 Closing it means the harness reporting `SR`, which is a change to both sides and
 is not attempted here.
+
+## C79 -- BSR and RTS agree, and the integer core's probe classes are covered
+
+**Class: agree.**
+
+    BSR.W sub ; MOVE.L D0,(sentinel) ; STOP ; sub: MOVEQ #$2A,D0 ; RTS
+
+| Check | Ours | Oracle | |
+| --- | --- | --- | --- |
+| instructions executed | 5 | 5 | agree |
+| sentinel | `0000002A` | `0000002A` | agree |
+
+Run with `python3 tools/mame-oracle/probe_compare.py --program subroutine`.
+
+The only probe here whose correctness depends on a value the program never names:
+the return address, pushed by one instruction and consumed by another. Everything
+else writes what it later reads.
+
+**The sentinel is checked rather than the program counter, deliberately.** A
+`BSR` with a wrong displacement lands somewhere wrong and the probe stops without
+storing; an `RTS` popping the wrong width returns somewhere wrong and does the
+same. Both failures look like *a probe that did not run* rather than one that ran
+differently -- the shape C75 already caught once. `$2A` in memory means the
+subroutine was entered **and** returned from, and nothing else produces it.
+
+**That covers `ap_probe.c`'s integer classes.** Straight-line register and memory
+work, a counted loop, a register list in both directions, a packed two-result
+divide, and now a call and return -- each run on both implementations and each
+agreeing. What remains uncompared is the MMU instruction (`PMOVE`), which is
+privileged and reads a register the sentinel machinery cannot reach, and the
+`DIVU` overflow case C78 named for the same reason: both need the harness to
+report registers other than through memory, which is one change serving two
+gaps.

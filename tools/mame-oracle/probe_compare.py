@@ -142,13 +142,25 @@ def main(argv=None) -> int:
     parser.add_argument("--timeout", type=float, default=300.0)
     parser.add_argument("--work", type=Path, default=Path("/tmp"))
     parser.add_argument(
-        "--program", choices=("sentinel", "fpu", "fpu-rounding", "fpu-sine", "fpu-sine-x", "fault", "bus-fault", "dbcc", "movem", "divide"),
+        "--program", choices=("sentinel", "fpu", "fpu-rounding", "fpu-sine", "fpu-sine-x", "fault", "bus-fault", "dbcc", "movem", "divide", "subroutine"),
         default="sentinel",
         help="which probe to run; `fpu` exercises the coprocessor's constant "
              "ROM, an FADD and the store conversion in one")
     args = parser.parse_args(argv)
 
-    if args.program == "divide":
+    if args.program == "subroutine":
+        ours_words = E.subroutine_probe(OURS_BASE + SENTINEL_OFFSET, OURS_BASE)
+        oracle_words = E.subroutine_probe(ORACLE_BASE + SENTINEL_OFFSET,
+                                          ORACLE_BASE)
+        print("probe:  BSR.W sub ; MOVE.L D0,(sentinel) ; STOP ;"
+              " sub: MOVEQ #$2A,D0 ; RTS")
+        print("        $2A in memory means the subroutine was entered *and*"
+              " returned from;")
+        print("        a wrong displacement or a wrong pop width both look like"
+              " a probe that")
+        print("        never ran, which is why the sentinel is checked and not"
+              " the PC")
+    elif args.program == "divide":
         ours_words = E.divide_probe(OURS_BASE + SENTINEL_OFFSET)
         oracle_words = E.divide_probe(ORACLE_BASE + SENTINEL_OFFSET)
         print("probe:  MOVE.L #100,D0 ; DIVU.W #7,D0 ; store D0 ; STOP")
@@ -251,6 +263,7 @@ def main(argv=None) -> int:
                 "dbcc": "0000FFFF",
                 "movem": "00000003",
                 "divide": "0002000E",
+                "subroutine": "0000002A",
                 "fault": "00000010",
                 # No expected value: which frame a data fault produces is the
                 # thing being compared, not something to assert in advance.

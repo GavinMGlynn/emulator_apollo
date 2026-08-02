@@ -419,6 +419,31 @@ def divide_probe(address: int = SENTINEL_ADDRESS) -> list[int]:
     )
 
 
+def subroutine_probe(address: int = SENTINEL_ADDRESS,
+                     load_at: int = 0) -> list[int]:
+    """`BSR` out and `RTS` back, which is the stack used in both directions.
+
+    The only probe so far whose correctness depends on a value the program never
+    names: the return address, pushed by one instruction and consumed by
+    another. Everything else here writes what it later reads.
+
+    A `BSR` whose displacement is off lands somewhere wrong and the probe stops
+    without storing; an `RTS` that pops the wrong width returns somewhere wrong
+    and does the same. Both failures look like a probe that did not run rather
+    than one that ran differently -- which is why the *sentinel* is what is
+    checked and not the program counter: `$2A` in memory means the subroutine
+    was entered **and** returned from, and nothing else produces it.
+    """
+    subroutine = load_at + 14
+    return assemble(
+        [0x6100, (subroutine - (load_at + 2)) & 0xFFFF],   # BSR.W subroutine
+        [0x23C0, (address >> 16) & 0xFFFF, address & 0xFFFF],
+        stop(0x2700),
+        [0x702A],                                          # sub: MOVEQ #$2A,D0
+        [0x4E75],                                          # RTS
+    )
+
+
 if __name__ == "__main__":
     import sys
     print(to_hex(sentinel_probe()), file=sys.stdout)
