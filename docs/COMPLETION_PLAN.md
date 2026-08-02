@@ -1758,8 +1758,31 @@ Split out of Phase 2. Each is a subsystem in its own right rather than a tail of
 the 68030, and none is on the DN3500's critical path: the DN3500 is a 68030 with
 a 68882, and the 68882 is the only one of these it has.
 
-- [ ] 68882 FPU. *Verification: probe suite over each operation and rounding
+- [~] 68882 FPU. *Verification: probe suite over each operation and rounding
       mode; note the oracle's admitted FPU gaps as a divergence class.*
+  - [x] **The programming model** (`src/core/cpu/m68882/ap_m68882_regs.c`),
+        `[68881]` §2 and Figures 2-2 to 2-7: the three control registers, the
+        eight extended-precision data registers, Table 2-1's condition codes and
+        the five accrued-exception equations. Started here for the same reason
+        the 68030 started with its registers -- it is the part that is pure
+        transcription, so it can be got right before any arithmetic exists to
+        get wrong.
+        *Verification: `m68882_regs_suite`, 13 tests. Table 2-1 checked in full,
+        all eight rows; the IEEE conditions swept over **every** combination of
+        the four condition bits, including the eight the part never generates,
+        because an `FMOVE` to the status register can write any of them; and
+        each accrued equation on its own.*
+  - [x] Three details that would each be wrong without ever faulting.
+        **`AEXC(UNFL)` is an AND** where every other equation is an OR -- an
+        underflow that was *exact* does not accrue, and the obvious OR produces
+        a sticky bit set far too often. **`AEXC(INEX)` is set by `OVFL`**, an
+        overflowed result being by definition not the exact one. And **reset
+        leaves the data registers as NANs, not zeros**: a zeroed register reads
+        as `+0`, which is a perfectly good operand, so a program that forgot to
+        load one would produce plausible answers rather than propagating a NAN.
+  - [ ] The extended, single and double formats and the conversions between
+        them; the arithmetic; the transcendentals; and the coprocessor
+        interface that reaches all of it.
 - [ ] 68020 subset: no on-chip MMU or cache differences, external 68851.
       *Verification: `dn3000` boots under both; oracle diff.*
 - [ ] 68851 external PMMU as its own subsystem. *Verification: `MC68851 PMMU

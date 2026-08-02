@@ -29,6 +29,7 @@ function(apollo_add_suite name)
   add_test(NAME ${name} COMMAND ${name})
 endfunction()
 
+apollo_add_suite(m68882_regs_suite)
 apollo_add_suite(bus_suite)
 apollo_add_suite(overlap_suite)
 apollo_add_suite(pipe_suite)
