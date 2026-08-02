@@ -4762,3 +4762,36 @@ harness produced the shape of a real finding.
 the standing `PROVISIONAL` in `PROJECT_STATUS.md`, priced at one unit in the last
 place across three functions -- this suite will say so on the next run rather
 than quietly going green.
+
+## C83 -- the comparison can name a machine, and a DN3000's RAM is not where a DN3500's is
+
+**Class: `open`, with the obstacle measured rather than predicted.**
+
+`probe_compare.py` now takes `--machine`, passing it to `apollo-headless --model`
+on this side and using it as MAME's driver name on the other. That was the last
+piece of plumbing the 68020 subset's verification line needed: it asks for an
+oracle diff, and until this session nothing either side built was ever a 68020.
+
+Running it says so immediately:
+
+    python3 tools/mame-oracle/probe_compare.py --machine dn3000
+
+    oracle: exception table at 01003100, handler 01003000,
+            NOT RAM -- vectors will not take
+
+**`ORACLE_BASE` is the DN3500's.** `01000000` is where a DN3500 puts main
+memory, and the harness has hard-coded it since the first probe because every
+probe until now ran on one. A DN3000 puts its memory somewhere else, and the
+diagnostic added in C72's addendum -- the one that spent a turn unwritten --
+caught it on the first run rather than leaving a probe to fail obscurely.
+
+**What this needs is a base per machine**, which is a table rather than a
+discovery: MAME's `dn3000` driver states its map, and `--listxml` or the driver
+source gives it without guessing. The `sentinel` probe's own program is already
+assembled twice at two bases, so nothing else in the harness has to change --
+`ORACLE_BASE` simply stops being a constant.
+
+Worth noting what *did* work: the model reached both sides, MAME started the
+right machine, and the failure was reported by the harness rather than surfacing
+as a mysterious disagreement. The plumbing is right and the address is wrong,
+which is the better of the two ways for this to have gone.

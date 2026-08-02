@@ -89,12 +89,14 @@ def parse_fields(text: str) -> dict:
     return out
 
 
-def run_ours(words, base, sentinel_at, limit, work: Path) -> dict:
+def run_ours(words, base, sentinel_at, limit, work: Path,
+             machine: str = "dn3500") -> dict:
     spec = work / "probe.spec"
     spec.write_text(
         "load  %X\nentry %X\nstack %X\nlimit %d\nread  %X\nwords %s\n"
         % (base, base, base + 0x1000, limit, sentinel_at, E.to_hex(words)))
-    proc = subprocess.run([str(find_headless()), "--probe-file", str(spec)],
+    proc = subprocess.run([str(find_headless()), "--model", machine,
+                           "--probe-file", str(spec)],
                           capture_output=True, text=True, timeout=120)
     if proc.returncode != 0:
         sys.stderr.write(proc.stderr)
@@ -102,7 +104,8 @@ def run_ours(words, base, sentinel_at, limit, work: Path) -> dict:
     return parse_fields(proc.stdout)
 
 
-def run_oracle(words, base, sentinel_at, limit, timeout: float) -> dict:
+def run_oracle(words, base, sentinel_at, limit, timeout: float,
+               machine: str = "dn3500") -> dict:
     mame = find_mame()
     env = dict(os.environ)
     env.update({
@@ -113,7 +116,7 @@ def run_oracle(words, base, sentinel_at, limit, timeout: float) -> dict:
         "APOLLO_PROBE_LIMIT": str(limit),
         "APOLLO_PROBE_AT": "3.0",
     })
-    command = [str(mame), "dn3500", "-noreadconfig",
+    command = [str(mame), machine, "-noreadconfig",
                "-rompath", str(DEFAULT_ROMS),
                "-video", "none", "-sound", "none", "-nothrottle",
                "-debug", "-debugger", "none", "-seconds_to_run", "10",
@@ -193,6 +196,11 @@ def main(argv=None, recursing=False) -> int:
     parser.add_argument("--limit", type=int, default=20)
     parser.add_argument("--timeout", type=float, default=300.0)
     parser.add_argument("--work", type=Path, default=Path("/tmp"))
+    parser.add_argument(
+        "--machine", default="dn3500",
+        help="which model to run on *both* sides -- `dn3000` probes a 68020, "
+             "which is what the 68020 subset's verification line asks for and "
+             "what no machine this core built could do until it had a model")
     parser.add_argument(
         "--program", choices=("sentinel", "fpu", "fpu-rounding", "fpu-sine", "fpu-sine-x", "fault", "bus-fault", "dbcc", "movem", "divide", "divide-overflow", "subroutine", "pmove", "all"),
         default="sentinel",
@@ -321,9 +329,9 @@ def main(argv=None, recursing=False) -> int:
     print()
 
     ours = run_ours(ours_words, OURS_BASE, OURS_BASE + SENTINEL_OFFSET,
-                    args.limit, args.work)
+                    args.limit, args.work, args.machine)
     oracle = run_oracle(oracle_words, ORACLE_BASE, ORACLE_BASE + SENTINEL_OFFSET,
-                        args.limit, args.timeout)
+                        args.limit, args.timeout, args.machine)
 
     expected = {"fpu": "401921FB", "fpu-rounding": "BBB55515",
                 "fpu-sine": "8F090CEE",
