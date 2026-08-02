@@ -1779,9 +1779,19 @@ a 68882, and the 68882 is the only one of these it has.
             timing". Attaching one to every machine is therefore correct, not
             an approximation.
       - [ ] **The model is held but not yet consulted**, which is what the
-            68020's oracle diff waits on: `ap_machine_t` holds an
-            `ap_m68030_cpu_t`, so a machine built as a DN3000 is still a 68030
-            underneath and `ap_cpu_decode` is not asked which family it is.
+            68020's oracle diff waits on. Located precisely rather than left as
+            a direction: `ap_cpu_decode(instruction, family)` exists in
+            `src/core/cpu/m68020/ap_m68020_decode.h` and is tested — a sweep of
+            all 65536 opcodes pins the two families as differing on exactly 44
+            words, 16 `RTM` and 28 legal `CALLM` forms — but
+            `ap_m68030_step.c` calls `ap_m68030_decode(word)` and never asks.
+            So the family-aware decoder and the step have never been joined,
+            exactly as `ap_probe.c`'s suite and the oracle harness had never
+            been joined before C59.
+            The change is: carry the family on `ap_m68030_cpu_t`, set it from
+            `machine->model`, call `ap_cpu_decode` in the step, and give
+            `execute` an arm for the two decoded kinds `m68020_module_suite`
+            already covers.
             *Verification: a DN3000 accepting `CALLM` where a DN3500 refuses it,
             from the one model table rather than a conditional — the 44-opcode
             difference `m68020_decode_suite` already pins, reached through a
