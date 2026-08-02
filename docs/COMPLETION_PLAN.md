@@ -429,8 +429,10 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         destination is meaningless, and that is exactly where `DBcc` lives.
         Detail in `PROJECT_STATUS.md`.
         *Verification: `quick_suite`, 10 tests.*
-  - [~] **Family `0100` ("Miscellaneous")**, the largest in the map. Being taken
-        as coherent subtrees rather than claimed whole in one pass.
+  - [x] **Family `0100` ("Miscellaneous")**, the largest in the map. Taken as
+        coherent subtrees rather than claimed whole in one pass, and now
+        complete in both decode and execution -- `BKPT` was the last piece, and
+        it needed a CPU-space bus cycle rather than more of this family.
     - [x] **The `$4E` control group**
           (`src/core/cpu/m68030/ap_m68030_control.c`): TRAP, LINK, UNLK, MOVE
           USP, RESET, NOP, STOP, RTE, RTD, RTS, TRAPV, RTR, JSR and JMP. The
@@ -795,7 +797,7 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         *Verification: `alu_suite`, 9 further tests (17 total); `step_suite`, 3
         more (64), including a register count taken modulo 64 so a count of 64
         shifts by nothing.*
-  - [~] The last of the instruction semantics: divides and multiplies, and the
+  - [x] The last of the instruction semantics: divides and multiplies, and the
         register-to-register extended forms (`ADDX`/`SUBX`/`ABCD`/`SBCD`/
         `CMPM`/`EXG`).
         `MULU`/`MULS` (word × word → long, the whole register), `DIVU`/`DIVS`
@@ -1581,20 +1583,25 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
           row for row. Worth recording because it is independent of the 68030
           manual and pins the case that is easiest to get wrong: setting two
           bits in one descriptor must not cost two cycles.
-    - [ ] **Open reading, to settle against the oracle: when a supervisor
-          violation suppresses the U update.** `[030]` says the U bit is set
-          "except *after* a supervisor violation is detected" without saying
-          whether a descriptor whose own S bit causes the violation still gets
-          its own U set. We evaluate the violation with the current descriptor's
-          S already folded in, so it does not — which is consistent with the
-          hardware being able to do it (the RMC write half follows the read) and
-          with the manual's other sentence, that "a pointer may be fetched, and
-          its U bit set, for an address to which access is denied at *another*
-          level of the tree". The 68851 manual repeats that sentence and drops
-          the supervisor clause entirely, so it does not arbitrate. This is a
-          documented reading, not a measurement. *Verification: a user-mode
-          access to a supervisor-only tree under the oracle, comparing whether
-          the root descriptor's U bit changed.*
+    - [~] **One open reading, and every source is now exhausted: when a
+          supervisor violation suppresses the U update.** `[030]` says the U bit
+          is set "except *after* a supervisor violation is detected" without
+          saying whether a descriptor whose *own* S bit causes the violation
+          still gets its own U set. We fold that descriptor's S in first, so it
+          does not.
+          - The **68851 manual** repeats the sentence about a pointer being
+            fetched for an address denied at *another* level and drops the
+            supervisor clause entirely, so it does not arbitrate.
+          - The **oracle has no opinion**: `FINDINGS.md` C2 found
+            `update_descriptor()` never consults supervisor state at all, so it
+            cannot distinguish the two readings -- it implements neither.
+          - The **web** has nothing: the question does not appear in the
+            circulating 68030 MMU write-ups, which cover descriptor formats and
+            `PTEST` and stop short of the history-bit gating.
+          - So this needs **real hardware or a Motorola erratum**, and is marked
+            `[~]` rather than `[ ]` because the reading is made, documented and
+            consistent with the manual's other sentence -- what is outstanding
+            is confirmation, not a decision.
     - [x] **Fill the ATC from a completed search**
           (`ap_m68030_walk_fill_atc`), so a miss populates the entry a hit then
           serves for free. This is the join between `ap_m68030_walk` and
@@ -1634,11 +1641,8 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
           twice for two separate bits. It changes history bits only on a search
           that already faults, but that is exactly a supervisor-only tree probed
           from user state.
-    - [ ] **Still open, and not settleable from the oracle:** whether a
-          descriptor whose *own* S bit causes the violation gets its own U set.
-          We fold that descriptor's S in first, so it does not. The oracle omits
-          the clause entirely and therefore has no opinion, so this needs real
-          hardware or a Motorola erratum rather than another reading.
+    - Cross-reference: the supervisor-violation U-bit reading above is the
+      same question, recorded once there rather than twice.
 - [x] 68030 on-chip instruction and data caches, and their effect on bus timing.
       *Verification: hit-vs-miss measured through the bus state machine — a hit
       costs 0 clocks, a burst line fill 5, a non-bursting miss 2. A probe
