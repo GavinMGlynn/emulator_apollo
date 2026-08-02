@@ -4,6 +4,8 @@
 
 #include "cpu/m68882/ap_m68882_format.h"
 
+#include "cpu/m68882/ap_m68882_packed.h"
+
 #define EXTENDED_MAX_EXPONENT 0x7FFFu
 #define INTEGER_BIT (UINT64_C(1) << 63)
 /* The most significant *fraction* bit, which is one below the integer bit. */
@@ -238,7 +240,9 @@ static uint64_t big_endian(const uint8_t *bytes, unsigned count) {
 }
 
 bool ap_m68882_operand_decode(ap_m68882_format_t format, const uint8_t *bytes,
-                              ap_m68882_extended_t *out) {
+                              ap_m68882_rounding_t mode,
+                              ap_m68882_extended_t *out,
+                              uint32_t *exceptions) {
   switch (format) {
   case AP_M68882_FORMAT_BYTE:
     *out = ap_m68882_from_integer((int32_t)(int8_t)bytes[0]);
@@ -264,10 +268,12 @@ bool ap_m68882_operand_decode(ap_m68882_format_t format, const uint8_t *bytes,
     return true;
   case AP_M68882_FORMAT_PACKED:
   case AP_M68882_FORMAT_PACKED_DYNAMIC:
-    /* Not yet modelled. §3.6's decimal-to-binary conversion is a separate piece
-     * of arithmetic from everything else in this part, and reporting it as a
-     * gap keeps it visible; silently decoding it as something else would not. */
-    return false;
+    /* §3.6's decimal-to-binary conversion, the one source format that is
+     * arithmetic rather than field extraction and the one that can be inexact.
+     * `$7` reaches here as a *destination* format only, but decoding it the
+     * same way costs nothing and keeps the two rows together. */
+    ap_m68882_packed_decode(bytes, mode, out, exceptions);
+    return true;
   }
   return false;
 }

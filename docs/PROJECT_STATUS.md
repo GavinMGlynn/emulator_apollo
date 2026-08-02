@@ -1793,7 +1793,7 @@ reserved rows, `111 101` through `111 111`, do take Note 3's F-line trap, and th
 test checks them beside the accepted ones so the reading is a *distinction*
 rather than a blanket permission.
 
-### Packed decimal: the specification is settled, the conversion is not written
+### Packed decimal: the input conversion, and the bignum it needed
 
 This is the last gap in the 68882 and the only one that is a *data format* rather
 than an instruction. The references have been read to the end and the design is
@@ -1853,14 +1853,46 @@ operand cannot be converted exactly to extended precision in the current roundin
 mode", kept separate from `INEX2` so a program can tell a decimal input error
 from an arithmetic one.
 
-**Why it is not yet written.** §6.1.8 specifies *correct rounding*, not a bound —
-unlike the transcendentals, where a published interval let an independent
-algorithm conform. Correct rounding of `M x 10^E`, with `M` a 17-digit integer and
-`E` running from -1015 to +999, needs the exact product: `5^999` alone is some
-2322 bits. So it needs multi-word integer arithmetic, and an approximation
+**The input conversion is implemented, and it needed a bignum.** §6.1.8
+specifies *correct rounding*, not a bound — unlike the transcendentals, where a
+published interval let an independent algorithm conform. Correct rounding of
+`M x 10^E`, with `M` a 17-digit integer and `E` running from -1015 to +999,
+needs the exact product, and `5^999` alone is some 2322 bits. An approximation
 through the extended multiplier would be off in the last bits in a way no test
-could call correct. That is the whole of the remaining work, and it is
-arithmetic rather than research.
+could call correct, because the expected values would come from the same
+approximation.
+
+So `ap_m68882_packed.c` carries 160 thirty-two-bit limbs — 5120 bits, clear of
+the widest intermediate. Limbs are 32 bits so a multiply-accumulate fits a
+64-bit product without `unsigned __int128`, a compiler extension this core does
+not use, for the same reason the square root writes its own 128-bit arithmetic.
+
+`M x 10^E` is `M x 5^E` scaled by `2^E`, so a positive exponent is a multiply
+and a negative one a divide. The division is **bit-serial** rather than
+quotient-estimated: only about 65 quotient bits are wanted, so the schoolbook
+shift-and-compare is short enough, and it avoids the digit estimation that makes
+long division subtly wrong — subtly wrong here would move the last bit, which is
+exactly the bit `INEX1` is about.
+
+Two things caught in testing, both worth recording. **The seventeen mantissa
+digits start at nibble 7, not nibble 15**: `MANT16` is bits 67-64, the *low*
+nibble of byte 3, because bytes 2 and 3 hold the don't-care field above it. The
+first version read past the operand entirely. And the conversion's `INEX1` has
+to be **merged with the operation's own exceptions** rather than applied
+separately, since the exception byte is cleared once per instruction — §6.1.8
+puts them in one instruction: "If the instruction is not an FMOVE, the rounded
+result is used in the calculation."
+
+Values are checked against expectations computed to 400 decimal digits, the
+route the transcendentals took, since neither manual prints a bit pattern for
+any of it. `0.1` arriving as `$3FFB CCCCCCCCCCCCCCCD` is agreement with
+something outside this project.
+
+**What remains is the output direction**: binary to decimal, with the k-factor
+selecting significant digits or decimal places, `EXP3` written only on the way
+out "if the source operand exceeds the magnitude of a three digit exponent", and
+its own operand error — "Result Exponent > 999 (Decimal) or k-Factor > +17".
+
 
 ### The transcendentals
 
@@ -3067,7 +3099,7 @@ failure that cost a bit position in the 68020's module entry word.
 | 68030 translation table search (the walk) | working: search, U/M writeback, and ATC fill | `walk_suite`, 40 tests, `MC68030 User's Manual 3ed` §9.2, §9.4, §9.5, §11; writeback cost cross-checked against `MC68851 PMMU User's Manual 3ed` §5.1.5.3.11 |
 | MC68851 PMMU | working as its own subsystem: the translation control and root pointers, the six descriptor formats and Figure 5-10's type determination, the status and protection registers, the 64-entry ATC, and the table search with §5.1.5.3.11's U/M write-back. The **68030's** own MMU is separate and has its own rows above | `m68851_tc_suite` 13, `m68851_rp_suite` 13, `m68851_descriptor_suite` 21, `m68851_regs_suite` 22, `m68851_atc_suite` 22, `m68851_search_suite` 26, `m68851_suite` 43; `MC68851 PMMU User's Manual 3ed` |
 | 68040 MMU | not started | — |
-| MC68882 FPU | working, and attached to the 68030 as a *pointer* so a machine without one keeps its line 1111 trap. Every general-type operation executes: the four arithmetic operations, the exactly-specified monadics, the remainders, the single-precision pair, and **all nineteen transcendentals** to within §4.3.2's published bound. All three operand paths run — register-to-register, **`<ea>` to `FPn`** and **`FPn` to `<ea>`**, in all six binary formats from every legal addressing mode. `FMOVEM` of the data registers runs in both directions with its reversed mask orderings, and so do the system control registers, with the FPIAR tracking under §2.4's two conditions. `FMOVECR` returns all 22 published constants, computed and correctly rounded. **Every general-type instruction executes.** **Every instruction type executes**, the conditionals included. Open: packed decimal -- a data format rather than an instruction -- and `FSAVE`/`FRESTORE` — for which the coprocessor's own half (`ap_m68882_condition`) is done and the 68030's dialog is not | `m68882_regs_suite` 19, `m68882_format_suite` 18, `m68882_cir_suite` 8, `m68882_round_suite` 11, `m68882_arith_suite` 41, `m68882_decode_suite` 12, `m68882_accuracy_suite` 10, `m68882_transcendental_suite` 36, `m68882_store_suite` 11, plus 42 tests in `step_suite`; `MC68881/MC68882 User's Manual 1ed` |
+| MC68882 FPU | working, and attached to the 68030 as a *pointer* so a machine without one keeps its line 1111 trap. Every general-type operation executes: the four arithmetic operations, the exactly-specified monadics, the remainders, the single-precision pair, and **all nineteen transcendentals** to within §4.3.2's published bound. All three operand paths run — register-to-register, **`<ea>` to `FPn`** and **`FPn` to `<ea>`**, in all six binary formats from every legal addressing mode. `FMOVEM` of the data registers runs in both directions with its reversed mask orderings, and so do the system control registers, with the FPIAR tracking under §2.4's two conditions. `FMOVECR` returns all 22 published constants, computed and correctly rounded. **Every general-type instruction executes.** **Every instruction type executes**, the conditionals included. Packed decimal converts **in**, correctly rounded against 400-digit references. Open: packed decimal *out* (the k-factor), and `FSAVE`/`FRESTORE` — for which the coprocessor's own half (`ap_m68882_condition`) is done and the 68030's dialog is not | `m68882_regs_suite` 19, `m68882_format_suite` 18, `m68882_cir_suite` 8, `m68882_round_suite` 11, `m68882_arith_suite` 41, `m68882_decode_suite` 12, `m68882_accuracy_suite` 10, `m68882_transcendental_suite` 36, `m68882_store_suite` 11, plus 46 tests in `step_suite`; `MC68881/MC68882 User's Manual 1ed` |
 | MC68040 FPU | timing tables only — §10.6, §10.7.1/§10.7.2 and §10.7.3's pipeline stages are transcribed; no 68040 arithmetic | `m68040_iu_timing_suite` 99, `m68040_fpu_timing_suite` 32, `m68040_fp_pipeline_suite` 18 |
 | Core-board registers (`010000`-`011600`) | working for the four that could be measured: CPU status (bit 15 stuck, writes clear the latched bits), CPU control and latch-page-on-parity (16 bits of storage), cache control (a *byte*, mirrored into both halves of a 16-bit read, one writable bit), each aliased across its 256-byte range. No manual here lays out these bits, so all of it is measured. **Width and storage only — no bit has a known meaning, and nothing may depend on one.** Task alias and master request are absent from the oracle and stay declined rather than modelled as all-ones | `boardreg_suite`, 12 tests; `FINDINGS.md` C10, `tools/mame-oracle/regprobe.lua`, two probe runs byte-identical |
 | Address translation map (`017000`) | working: the translation itself, both DMA widths, and the register file. Between the AT bus and physical memory, not the CPU's MMU -- a DMA controller has no MMU, and this is what lets it see scattered physical pages as one contiguous run. Present on DN3500/4500/5500 and absent on DN3000, from the model table | `atmap_suite`, 15 tests, `019411-A00` §4.2.1.4, `008778-03` §1.2, §2.5 |
@@ -3593,15 +3625,13 @@ Kept rather than discarded, so a future contradiction has a documented history.
 - The ring controller's register-level interface is not yet recovered; the
   manuals give its address window and block diagram but not its registers.
 
-- **Packed decimal is not implemented**, in either direction, and is now the
-  only gap left in the general type -- a data *format* rather than an
-  instruction. Every general-type instruction executes: both single-operand
-  transfers in all six binary formats, `FMOVEM` of the data registers, the
-  system control registers, and `FMOVECR`. §3.6's binary-to-decimal conversion is
-  separate arithmetic from anything else in the part, with its own operand error
-  condition ("Result Exponent > 999 (Decimal) or k-Factor > +17") and its own
-  `INEX1` exception for decimal input. It declines rather than decoding as
-  binary, which would turn a BCD operand into a plausible wrong number.
+- **Packed decimal's output direction is not implemented.** The input
+  conversion is, correctly rounded with `INEX1`. The way out additionally needs
+  the **k-factor** — which selects significant digits or decimal places — and
+  `EXP3`, written only on a move out "if the source operand exceeds the
+  magnitude of a three digit exponent", plus its own operand error: "Result
+  Exponent > 999 (Decimal) or k-Factor > +17". A store to `P` still declines
+  rather than writing something plausible.
 - **`FMOVECR`'s constant values are not established against hardware.** They are
   computed and correctly rounded, and agree with the canonical 80-bit constants;
   what is unproven is that a given 68881 mask set holds those exact bits, since

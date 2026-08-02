@@ -222,15 +222,16 @@ static void test_single_precision_round_trips_across_the_range(void) {
 static void test_integer_operands_are_signed(void) {
   const uint8_t minus_one_byte[1] = {0xFF};
   ap_m68882_extended_t value;
+  uint32_t raised = 0;
   TEST_ASSERT_TRUE(
-      ap_m68882_operand_decode(AP_M68882_FORMAT_BYTE, minus_one_byte, &value));
+      ap_m68882_operand_decode(AP_M68882_FORMAT_BYTE, minus_one_byte, AP_M68882_ROUND_NEAREST, &value, &raised));
   TEST_ASSERT_TRUE(value.sign);
   TEST_ASSERT_EQUAL_HEX16(AP_M68882_BIAS_EXTENDED, value.exponent);
   TEST_ASSERT_EQUAL_HEX64(UINT64_C(0x8000000000000000), value.mantissa);
 
   const uint8_t minus_one_word[2] = {0xFF, 0xFF};
   TEST_ASSERT_TRUE(
-      ap_m68882_operand_decode(AP_M68882_FORMAT_WORD, minus_one_word, &value));
+      ap_m68882_operand_decode(AP_M68882_FORMAT_WORD, minus_one_word, AP_M68882_ROUND_NEAREST, &value, &raised));
   TEST_ASSERT_TRUE(value.sign);
   TEST_ASSERT_EQUAL_HEX16(AP_M68882_BIAS_EXTENDED, value.exponent);
 }
@@ -291,8 +292,10 @@ static void test_an_operand_is_most_significant_byte_first(void) {
   const uint8_t one[12] = {0x3F, 0xFF, 0xAA, 0xAA, 0x80, 0x00,
                            0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
   ap_m68882_extended_t value;
+  uint32_t raised = 0;
   TEST_ASSERT_TRUE(
-      ap_m68882_operand_decode(AP_M68882_FORMAT_EXTENDED, one, &value));
+      ap_m68882_operand_decode(AP_M68882_FORMAT_EXTENDED, one,
+                               AP_M68882_ROUND_NEAREST, &value, &raised));
   TEST_ASSERT_FALSE(value.sign);
   TEST_ASSERT_EQUAL_HEX16(AP_M68882_BIAS_EXTENDED, value.exponent);
   /* The $AAAA at bytes 2-3 is the unused field and reaches nothing. */
@@ -303,24 +306,23 @@ static void test_an_operand_is_most_significant_byte_first(void) {
                                  0x00, 0x00, 0x00, 0x00};
   ap_m68882_extended_t as_double;
   TEST_ASSERT_TRUE(
-      ap_m68882_operand_decode(AP_M68882_FORMAT_DOUBLE, one_double, &as_double));
+      ap_m68882_operand_decode(AP_M68882_FORMAT_DOUBLE, one_double, AP_M68882_ROUND_NEAREST, &as_double, &raised));
   TEST_ASSERT_EQUAL_HEX16(value.exponent, as_double.exponent);
   TEST_ASSERT_EQUAL_HEX64(value.mantissa, as_double.mantissa);
 }
 
-/* Packed decimal is reported as our gap rather than decoded as something else.
- * A decoder that fell through to the binary path would turn $12345 BCD into a
- * plausible wrong number and the gap would stop being visible. */
-static void test_packed_decimal_reports_the_gap(void) {
-  const uint8_t operand[12] = {0};
+/* Packed decimal converts like any other source format, and is the only one that
+ * can be inexact on the way in. A string of all zeros is Table 3-4's zero row --
+ * the one packed value whose answer needs no arithmetic at all. */
+static void test_packed_decimal_decodes(void) {
+  const uint8_t zero[12] = {0};
   ap_m68882_extended_t value = {.sign = true, .exponent = 0x1234u};
-  TEST_ASSERT_FALSE(
-      ap_m68882_operand_decode(AP_M68882_FORMAT_PACKED, operand, &value));
-  TEST_ASSERT_FALSE(ap_m68882_operand_decode(AP_M68882_FORMAT_PACKED_DYNAMIC,
-                                             operand, &value));
-  /* And the caller's value is left alone rather than half-written. */
-  TEST_ASSERT_TRUE(value.sign);
-  TEST_ASSERT_EQUAL_HEX16(0x1234u, value.exponent);
+  uint32_t raised = 0;
+  TEST_ASSERT_TRUE(ap_m68882_operand_decode(AP_M68882_FORMAT_PACKED, zero,
+                                            AP_M68882_ROUND_NEAREST, &value,
+                                            &raised));
+  TEST_ASSERT_EQUAL_INT(AP_M68882_TYPE_ZERO, ap_m68882_classify(&value));
+  TEST_ASSERT_EQUAL_HEX32(0u, raised);
 }
 
 /* Every integer the three widths can hold, converted and read back by scaling
@@ -349,7 +351,7 @@ int main(void) {
   RUN_TEST(test_the_integer_extremes_convert_exactly);
   RUN_TEST(test_the_source_specifier_encoding_is_not_ordered_by_width);
   RUN_TEST(test_an_operand_is_most_significant_byte_first);
-  RUN_TEST(test_packed_decimal_reports_the_gap);
+  RUN_TEST(test_packed_decimal_decodes);
   RUN_TEST(test_integers_round_trip_across_their_range);
   RUN_TEST(test_one_point_zero_pins_each_bias);
   RUN_TEST(test_the_implied_one_becomes_explicit);

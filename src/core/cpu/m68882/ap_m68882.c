@@ -83,7 +83,8 @@ bool ap_m68882_condition(ap_m68882_t *fpu, unsigned predicate) {
  * names. Both callers below supply the operand their opclass says to. */
 static ap_m68882_status_t execute_general(
     ap_m68882_t *fpu, const ap_m68882_command_word_t *command,
-    const ap_m68882_extended_t *supplied_source) {
+    const ap_m68882_extended_t *supplied_source,
+    uint32_t conversion_exceptions) {
   const ap_m68882_rounding_t mode = ap_m68882_rounding_mode(&fpu->regs);
   const ap_m68882_precision_t precision =
       ap_m68882_rounding_precision(&fpu->regs);
@@ -308,7 +309,7 @@ static ap_m68882_status_t execute_general(
   }
 
   set_condition_from(&fpu->regs, &result.value);
-  apply_exceptions(&fpu->regs, result.exceptions);
+  apply_exceptions(&fpu->regs, result.exceptions | conversion_exceptions);
   if (writes_destination) {
     fpu->regs.fp[command->ry] = result.value;
   }
@@ -494,7 +495,7 @@ ap_m68882_status_t ap_m68882_execute(ap_m68882_t *fpu, uint16_t operation_word,
 
   /* Opclass `000`: RX is a register number, and the source is that register. */
   const ap_m68882_extended_t source = fpu->regs.fp[command.rx];
-  return execute_general(fpu, &command, &source);
+  return execute_general(fpu, &command, &source, 0u);
 }
 
 ap_m68882_status_t ap_m68882_source_transfer(const ap_m68882_t *fpu,
@@ -533,7 +534,7 @@ ap_m68882_status_t ap_m68882_source_transfer(const ap_m68882_t *fpu,
 
 ap_m68882_status_t ap_m68882_execute_source(
     ap_m68882_t *fpu, uint16_t operation_word, uint16_t command_word,
-    const ap_m68882_extended_t *source) {
+    const ap_m68882_extended_t *source, uint32_t conversion_exceptions) {
   ap_m68882_command_word_t command = {0};
   const ap_m68882_status_t decoded =
       decode_general(fpu, operation_word, command_word, &command);
@@ -543,7 +544,7 @@ ap_m68882_status_t ap_m68882_execute_source(
   if (command.opclass != AP_M68882_OPCLASS_MEMORY_TO_REGISTER) {
     return AP_M68882_UNIMPLEMENTED;
   }
-  return execute_general(fpu, &command, source);
+  return execute_general(fpu, &command, source, conversion_exceptions);
 }
 
 void ap_m68882_note_instruction(ap_m68882_t *fpu, uint16_t operation_word,

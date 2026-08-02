@@ -3536,7 +3536,8 @@ static fp_source_result_t fetch_fp_source(ap_m68030_cpu_t *cpu,
                                           const ap_m68030_coproc_t *coproc,
                                           ap_m68882_format_t format,
                                           uint32_t *clocks,
-                                          ap_m68882_extended_t *source) {
+                                          ap_m68882_extended_t *source,
+                                          uint32_t *conversion_exceptions) {
   const unsigned size = ap_m68882_format_size(format);
   uint8_t bytes[12] = {0};
 
@@ -3601,9 +3602,14 @@ static fp_source_result_t fetch_fp_source(ap_m68030_cpu_t *cpu,
     }
   }
 
-  /* Packed decimal declines here, which is this model's gap and not a trap. */
-  return ap_m68882_operand_decode(format, bytes, source) ? FP_SOURCE_FETCHED
-                                                         : FP_SOURCE_FAILED;
+  /* Packed decimal converts here like any other format, and is the only one
+   * that can raise -- `INEX1`, which the part accrues as the conversion's own
+   * exception rather than the operation's. */
+  return ap_m68882_operand_decode(format, bytes,
+                                  ap_m68882_rounding_mode(&cpu->fpu->regs),
+                                  source, conversion_exceptions)
+             ? FP_SOURCE_FETCHED
+             : FP_SOURCE_FAILED;
 }
 
 /* Write `size` bytes of `bytes` at `where`, most significant first -- the
@@ -4831,11 +4837,13 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
 
       if (executed == AP_M68882_EXECUTED && needs_source) {
         ap_m68882_extended_t source = {0};
+        uint32_t conversion = 0;
         bool violated = false;
-        switch (fetch_fp_source(cpu, coproc, format, &out.clocks, &source)) {
+        switch (fetch_fp_source(cpu, coproc, format, &out.clocks, &source,
+                                &conversion)) {
         case FP_SOURCE_FETCHED:
           executed = ap_m68882_execute_source(cpu->fpu, out.instruction,
-                                              command, &source);
+                                              command, &source, conversion);
           break;
         case FP_SOURCE_PROTOCOL_VIOLATION:
           /* §10.4.9's own failure, so it is the machine's trap and not our

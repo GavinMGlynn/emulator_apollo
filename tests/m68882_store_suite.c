@@ -324,8 +324,10 @@ static void test_an_extended_store_is_exact_and_twelve_bytes(void) {
   /* And it round-trips through the load path, which is the strongest statement
    * available without asserting a constant: the two conversions are inverse. */
   ap_m68882_extended_t back = {0};
+  uint32_t raised = 0;
   TEST_ASSERT_TRUE(
-      ap_m68882_operand_decode(AP_M68882_FORMAT_EXTENDED, out.bytes, &back));
+      ap_m68882_operand_decode(AP_M68882_FORMAT_EXTENDED, out.bytes,
+                               AP_M68882_ROUND_NEAREST, &back, &raised));
   TEST_ASSERT_EQUAL_HEX16(value.exponent, back.exponent);
   TEST_ASSERT_EQUAL_HEX64(value.mantissa, back.mantissa);
   TEST_ASSERT_TRUE(back.sign);

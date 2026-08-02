@@ -139,6 +139,10 @@ typedef enum {
 
 /* Decode an operand as it lies in memory into the internal extended value.
  *
+ * `mode` and `exceptions` matter for exactly one format: packed decimal, whose
+ * conversion is arithmetic and can be inexact. Every binary format is exact on
+ * the way in and ignores both.
+ *
  * `bytes` holds `ap_m68882_format_size(format)` bytes in memory order, which §3
  * states for every format: "the most-significant byte is located at the lowest
  * address ... The least-significant byte is located at the highest address".
@@ -146,10 +150,11 @@ typedef enum {
  * format's sixteen unused bits a fact of this module, where the rest of the
  * format already lives, instead of one the main processor has to know.
  *
- * Returns false for the two packed decimal formats, which this model has not
- * got to -- the caller reports that as our gap, not as the machine's trap. */
+ * Returns false only for a format that is not a source format at all. */
 [[nodiscard]] bool ap_m68882_operand_decode(ap_m68882_format_t format,
                                             const uint8_t *bytes,
-                                            ap_m68882_extended_t *out);
+                                            ap_m68882_rounding_t mode,
+                                            ap_m68882_extended_t *out,
+                                            uint32_t *exceptions);
 
 #endif /* APOLLO_CPU_M68882_AP_M68882_FORMAT_H */

@@ -108,7 +108,8 @@ ap_m68882_source_transfer(const ap_m68882_t *fpu, uint16_t operation_word,
 [[nodiscard]] ap_m68882_status_t
 ap_m68882_execute_source(ap_m68882_t *fpu, uint16_t operation_word,
                          uint16_t command_word,
-                         const ap_m68882_extended_t *source);
+                         const ap_m68882_extended_t *source,
+                         uint32_t conversion_exceptions);
 
 /* ---------------------------------------------------------------------------
  * The destination operand transfer
