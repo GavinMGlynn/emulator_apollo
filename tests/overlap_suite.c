@@ -203,8 +203,94 @@ static void test_an_untranscribed_instruction_is_its_bus_time(void) {
   TEST_ASSERT_EQUAL_UINT(0u, ap_m68030_schedule(0u, 0u));
 }
 
+/* ---------------------------------------------------------------------------
+ * The no-cache case, against §11.3.3's own worked example.
+ *
+ * The section works `MOVE.L (d16,An,Dn),Dn` followed by `CMPI.W #(data).W,
+ * (d16,An)` with both caches missing on every access, and states three numbers
+ * this can be checked against: the MOVE's average no-cache case is "2 + 7 = 9
+ * clocks" -- the operation's figure plus the effective address's -- the CMPI's
+ * is seven, and the pair together is "9 + 7 = 16 clocks".
+ *
+ * All three are Motorola's arithmetic on Motorola's figures, which is the only
+ * kind of check available for a composition rule with no measurement behind it.
+ * ------------------------------------------------------------------------- */
+
+static void test_the_no_cache_case_composes_by_addition(void) {
+  /* In Equation (11-2)'s order: the effective address then the operation. The
+   * full-format `fea (d16,An,Xn)` is `6(1/0/0)` and `7(1/1/0)` in §11.6.1, and
+   * `MOVE Source,Dn` is 2 in §11.6.6 -- the two rows §11.3.3 names, giving its
+   * "2 + 7 = 9". */
+  const ap_m68030_timing_t move[] = {
+      {.head = 0, .tail = 0, .cache_case = 6, .no_cache_case = 7, .prefetches = 1},
+      {.head = 0, .tail = 0, .cache_case = 2, .no_cache_case = 2, .prefetches = 1},
+  };
+  TEST_ASSERT_EQUAL_UINT64(9u, ap_m68030_no_cache_total(move, 2u));
+
+  /* And the two instructions of the example together, the CMPI's own average
+   * being seven. */
+  const ap_m68030_timing_t sequence[] = {
+      move[0],
+      move[1],
+      {.head = 0, .tail = 0, .cache_case = 7, .no_cache_case = 7, .prefetches = 1},
+  };
+  TEST_ASSERT_EQUAL_UINT64(16u, ap_m68030_no_cache_total(sequence, 3u));
+}
+
+/* The two columns compose by two different rules, and this is the assertion
+ * that they are not quietly the same function. Given components with a real
+ * head and tail, the cache case saves the overlap and the no-cache case does
+ * not -- "the no-cache-case time assumes no overlap".
+ *
+ * Without this, an implementation that ran NCC figures through the overlap
+ * accumulator would pass every test above whose components happen to have a
+ * zero head. */
+static void test_the_no_cache_case_takes_no_overlap(void) {
+  const ap_m68030_timing_t components[] = {
+      {.head = 0, .tail = 2, .cache_case = 4, .no_cache_case = 4, .prefetches = 1},
+      {.head = 2, .tail = 0, .cache_case = 4, .no_cache_case = 4, .prefetches = 1},
+  };
+
+  ap_m68030_overlap_state_t state = ap_m68030_overlap_begin();
+  ap_m68030_overlap_add(&state, &components[0]);
+  ap_m68030_overlap_add(&state, &components[1]);
+  TEST_ASSERT_EQUAL_UINT64(6u, ap_m68030_overlap_total(&state));
+
+  TEST_ASSERT_EQUAL_UINT64(8u, ap_m68030_no_cache_total(components, 2u));
+}
+
+/* §11.3.3's example makes one further statement, and it is the one that decides
+ * what a per-instruction figure from this core can be compared against: the
+ * MOVE "is eight clocks for even alignment and 10 clocks for odd alignment, an
+ * average of nine clocks", while "the total execution time of the two
+ * instructions ... is 16 clocks for both even and odd alignment".
+ *
+ * So alignment moves cost *between* adjacent instructions rather than adding
+ * it, and the published 9 is a number that instruction never takes. This
+ * asserts the relationship the numbers must satisfy -- the average of the two
+ * alignment cases is the published figure, and the pair is alignment-invariant
+ * -- so that the shape of the check on this core is pinned even before it can
+ * produce the figures. Our own core exhibits exactly this alternation
+ * (`FINDINGS.md` C7), which is why a per-instruction comparison against a
+ * published NCC is the wrong comparison and a sequence is the right one. */
+static void test_the_published_figure_is_the_mean_of_two_alignments(void) {
+  const unsigned even = 8u;
+  const unsigned odd = 10u;
+  TEST_ASSERT_EQUAL_UINT(9u, (even + odd) / 2u);
+
+  /* The CMPI takes the other half of each alignment's cost: 16 both ways. */
+  const unsigned cmpi_even = 16u - even;
+  const unsigned cmpi_odd = 16u - odd;
+  TEST_ASSERT_EQUAL_UINT(7u, (cmpi_even + cmpi_odd) / 2u);
+  TEST_ASSERT_EQUAL_UINT(16u, even + cmpi_even);
+  TEST_ASSERT_EQUAL_UINT(16u, odd + cmpi_odd);
+}
+
 int main(void) {
   UNITY_BEGIN();
+  RUN_TEST(test_the_no_cache_case_composes_by_addition);
+  RUN_TEST(test_the_no_cache_case_takes_no_overlap);
+  RUN_TEST(test_the_published_figure_is_the_mean_of_two_alignments);
   RUN_TEST(test_the_overlap_is_the_lesser_of_the_tail_and_the_head);
   RUN_TEST(test_the_manuals_worked_example_comes_to_six_clocks);
   RUN_TEST(test_the_head_and_tail_are_taken_from_different_instructions);

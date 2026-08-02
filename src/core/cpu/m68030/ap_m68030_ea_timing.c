@@ -55,6 +55,33 @@ static const ap_m68030_ea_timing_t CALCULATE_ABSOLUTE_LONG = {
 static const ap_m68030_ea_timing_t CALCULATE_INDEXED = {
     "(d8,An,Xn) or (d8,PC,Xn)", {4, 0, 4, 4, .prefetches = 0}, true, true};
 
+unsigned ap_m68030_ea_timing_head(const ap_m68030_ea_timing_t *ea,
+                                  unsigned operation_head) {
+  if (ea == nullptr || !ea->head_applies) {
+    return 0u;
+  }
+  return ea->timing.head + (ea->head_adds_operation ? operation_head : 0u);
+}
+
+void ap_m68030_ea_timing_compose(ap_m68030_overlap_state_t *state,
+                                 const ap_m68030_ea_timing_t *ea,
+                                 const ap_m68030_timing_t *operation) {
+  /* The effective address component first. Skipped entirely for a register
+   * operand -- see the header on why a zero-cost component is not the same
+   * thing and would over-count. */
+  if (ea != nullptr && ea->head_applies) {
+    ap_m68030_overlap_add_component(
+        state, ap_m68030_ea_timing_head(ea, operation->head), ea->timing.tail,
+        ea->timing.cache_case);
+  }
+
+  /* Then the operation, which overlaps against whatever tail now precedes it:
+   * its own effective address's, or -- when there is none -- the previous
+   * instruction's operation. Equation (11-2) writes those as two different
+   * terms and they are the same rule. */
+  ap_m68030_overlap_add(state, operation);
+}
+
 const ap_m68030_ea_timing_t *
 ap_m68030_ea_fetch_timing(ap_m68030_ea_kind_t kind, unsigned operand_size) {
   switch (kind) {

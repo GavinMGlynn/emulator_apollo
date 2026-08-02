@@ -48,6 +48,33 @@
  * instruction." A model that clamped every instruction to at least one clock
  * would be wrong, and wrong in the direction that hides a fast mode's error.
  *
+ * ## Equation (11-2) is Equation (11-1) over *components*
+ *
+ * §11.3.4 gives a second, "more specific" formula for the instructions whose
+ * effective address time must be added from a separate table:
+ *
+ *     CCea1 + [CCop1 - min(Hop1,Tea1)] + [CCea2 - min(Hea2,Top1)] +
+ *       [CCop2 - min(Hop2,Tea2)] + [CCea3 - min(Hea3,Top2)] + ...
+ *
+ * It reads as a different rule and it is not one. Every term has the same
+ * shape — a component's cache case less the lesser of its own head and the
+ * *previous component's* tail — and the only thing (11-2) adds is that an
+ * instruction contributes **two** components, its effective address and its
+ * operation, in that order. So one accumulator serves both equations, and
+ * (11-1) is simply (11-2) for instructions whose effective address costs
+ * nothing.
+ *
+ * That is why `ap_m68030_overlap_add_component` exists beneath
+ * `ap_m68030_overlap_add`: the component is the unit the manual actually
+ * composes, and an instruction is a pair of them. Writing (11-2) as its own
+ * accumulator would duplicate the rule and leave two places for it to drift.
+ *
+ * A register operand contributes **no component at all**, rather than one
+ * costing zero. §11.6.1 writes its head and tail as `-` and not as 0, and the
+ * manual's own five-instruction example ends with `NEG D3` reaching back past
+ * the previous instruction's operation for its overlap. Injecting a zero-tail
+ * component there would consume that overlap and silently over-count.
+ *
  * ## Head and tail compose only with CC
  *
  * §11.3.3: the average no-cache case assumes no overlap either, so the head and
@@ -136,9 +163,19 @@ typedef struct {
 
 [[nodiscard]] ap_m68030_overlap_state_t ap_m68030_overlap_begin(void);
 
-/* Add one instruction. The first contributes its whole cache-case time -- there
- * is nothing before it to overlap with -- and each later one contributes its
- * cache case less the overlap with its predecessor. */
+/* Add one *component* -- an effective address or an operation. The first
+ * contributes its whole cache-case time, there being nothing before it to
+ * overlap with, and each later one contributes its cache case less the overlap
+ * with its predecessor. This is the whole of both equations; see the header. */
+void ap_m68030_overlap_add_component(ap_m68030_overlap_state_t *state,
+                                     unsigned head, unsigned tail,
+                                     unsigned cache_case);
+
+/* Add one instruction whose effective address costs nothing, which is
+ * Equation (11-1)'s case. An instruction needing an effective address time
+ * composes through `ap_m68030_ea_timing_compose` instead -- it lives with the
+ * effective address tables because resolving the "2+op head" notation needs
+ * them, and this module deliberately holds no figures. */
 void ap_m68030_overlap_add(ap_m68030_overlap_state_t *state,
                            const ap_m68030_timing_t *timing);
 
@@ -187,6 +224,35 @@ ap_m68030_overlap_total(const ap_m68030_overlap_state_t *state);
  * bus activity takes `bus_clocks`, run concurrently. */
 [[nodiscard]] uint32_t ap_m68030_schedule(uint32_t microcode_clocks,
                                           uint32_t bus_clocks);
+
+/* ---------------------------------------------------------------------------
+ * The no-cache case, which composes by plain addition.
+ *
+ * §11.3.3 states it and works it: for `MOVE.L (d16,An,Dn),Dn` the average
+ * no-cache-case time is "2 + 7 = 9 clocks", the operation's own figure plus the
+ * effective address's, with no overlap term at all -- "it should be noted again
+ * that the no-cache-case time assumes no overlap". The same section adds the
+ * two instructions of its example the same way: "9 + 7 = 16 clocks".
+ *
+ * So the two published columns compose by two different rules, and this is the
+ * second one. It is deliberately not the same function as the accumulator
+ * above: feeding NCC figures through head and tail would subtract an overlap
+ * the published number already excludes.
+ *
+ * **What such a total is, and is not.** Each NCC is "the average of the
+ * odd-word-aligned case and the even-word-aligned case (rounded up)", so a sum
+ * of them is a sum of averages -- an estimate of a stream, not a figure any
+ * single execution takes. §11.3.3's own example is the demonstration: the MOVE
+ * costs 8 clocks even-aligned and 10 odd, and the published 9 is neither. A
+ * core reporting 9 for it would be reporting a number the hardware never
+ * exhibits, which is why this exists to be *checked against* rather than used.
+ * ------------------------------------------------------------------------- */
+
+/* Sum the no-cache-case times of `count` components, in order. Components, not
+ * instructions: an instruction needing an effective address time contributes
+ * two, exactly as in Equation (11-2). */
+[[nodiscard]] uint64_t ap_m68030_no_cache_total(
+    const ap_m68030_timing_t *components, unsigned count);
 
 /* Whether a set of figures is self-consistent: "the heads of some instructions
  * equal the total instruction-cache-case time", so head may equal the cache

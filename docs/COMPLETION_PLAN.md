@@ -1024,44 +1024,60 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
           and word alike per Table 2-3; the immediate absent from the calculate
           table; and the long absolute being the one fetch row whose two columns
           differ.*
-    - [ ] **Composing them.** C9's second question proposed
-          `max(microcode, hideable) + blocking`; working it through shows that
-          **does not work either**, and `docs/references/M68030_TIMING.md`
-          records the arithmetic. Both splits of the bus give 6 for
-          `ADD.B D0,(A0)` uncached where the manual and the oracle say 7,
-          because the extra prefetch is worth two clocks and the answer must
-          move by *one*. No all-or-nothing split produces a partial cost.
-          The marginal cost of a prefetch is therefore fractional and
-          per-instruction — and it is **published**: `NCC − CC` is 0 for
-          `ADD Rn,Dn`, 1 for `ADD Dn,EA`, 2 for a taken `Bcc`. That is the slack
-          Motorola measured, not a rule to invent.
-          **A check was proposed, appeared to pass, and did not.** Dividing
-          `NCC−CC` by the published `p` was claimed to give 0 or 1 uniformly
-          across eleven rows. Run over *every* transcribed row it does not:
-          `BSR` gives 1.5, `DBcc` with the condition true gives 2, and `LINK.L`
-          gives 0.5 — all three already in the table when the claim was made.
-          `docs/references/M68030_TIMING.md` records the withdrawal and the
-          method error: a pattern found on a subset and stated generally is a
-          hypothesis presented as a result, and computing it mechanically over
-          everything is what overturned it.
-          So there is **no licence** to apply `NCC−CC` per prefetch, which is
-          what the composition needed it for. The `p`-is-a-rounded-average
-          caveat is now load-bearing rather than a hedge: 1.5 and 0.5 are what a
-          rounded denominator looks like, which would mean the per-prefetch cost
-          is not recoverable from the published pair for those rows at all.
-          **`p` is now transcribed and the division runs in code.**
-          `ap_m68030_prefetch_cost` reports `exact` false where `NCC − CC` is
-          not divisible by `p`, and `timing_table_suite` requires every inexact
-          row to be *named in the test* — `BSR` and `LINK.L` are; a new one
-          fails, and so does a stale name for a row that is no longer inexact.
-          That is the property the prose claim could not have: it was true of
-          the rows its author happened to look at, and nothing made the others
-          speak up.
-          A second test pins the substance of the withdrawal: an exact cost of
-          **2** exists (`DBcc` with the condition true), which the claim denied.
+    - [~] **Composing them.** Half of the verification this item names is now
+          met: **the second worked example of §11.3.4 comes to 40 clocks**,
+          which is Motorola's arithmetic on Motorola's figures and the only
+          published number that exercises Equation (11-2) rather than (11-1).
+          Detail in `PROJECT_STATUS.md` and
+          `docs/references/M68030_TIMING.md`.
+          *Verification: `ea_timing_suite`, 4 further tests (12 total) — the
+          40-clock example with the components fed in **as the example prints
+          them** rather than from our tables, since feeding the transcription in
+          would move both sides of the comparison together; a register operand
+          contributing no component at all, checked on a case where a zero-cost
+          one would over-count; the "2+op head" notation resolving against its
+          operation; and four of our transcribed rows agreeing with the same
+          example, which is a check against a different page from the one they
+          were read off. `overlap_suite`, 3 further tests (15 total) — the
+          no-cache case composing by addition against §11.3.3's own "2 + 7 = 9"
+          and "9 + 7 = 16", and the two columns shown not to be the same
+          function.*
+    - [x] **Equation (11-2) is Equation (11-1) over *components*.** It reads as
+          a second rule and is not one: every term is a component's cache case
+          less the lesser of its own head and the previous component's tail, and
+          (11-2) only adds that an instruction contributes *two* components. One
+          accumulator therefore serves both, which is why
+          `ap_m68030_overlap_add_component` now sits beneath
+          `ap_m68030_overlap_add`.
+    - [x] **The no-cache case composes by plain addition**, per §11.3.3, and
+          `ap_m68030_no_cache_total` is that second rule. Kept a separate
+          function deliberately: running `NCC` figures through head and tail
+          would subtract an overlap the published number already excludes.
+    - [x] **A per-instruction comparison against a published `NCC` is the wrong
+          comparison, permanently.** §11.3.3 works an instruction that costs
+          "eight clocks for even alignment and 10 clocks for odd alignment, an
+          average of nine" while the *pair* it belongs to costs "16 clocks for
+          both even and odd alignment". So the alignment difference moves
+          between adjacent instructions rather than adding to the stream, 9 is a
+          figure the hardware never exhibits, and the right unit of comparison
+          is a sequence. This core already exhibits that alternation
+          (`FINDINGS.md` C7).
+    - [ ] **What remains is one question, and it is the only one left.**
+          `CC` and `NCC` both contain operand bus cycles at two clocks each, and
+          this core produces those itself — so composing published totals and
+          adding measured bus time double-counts, which is the trap
+          `CC + bus time` fell into. What is needed is **how much of each
+          published figure is bus time**, and that is `(r/p/w)`, printed beside
+          every figure in both tables and transcribed so far only for `p`.
+          Until then the footnoted rows still decline, and `ADD.B D0,(A0)` still
+          costs 4 here against the oracle's 7.
           *Verification: `ADD.B D0,(A0)` coming to 7 against the oracle and
-          against `NCC + fea`; and the second worked example of §11.3.4, which
-          exists precisely to exercise Equation (11-2).*
+          against `NCC + fea`.*
+    - [ ] Tail found while doing this: the **full-format extension word rows**
+          of §11.6.1 and §11.6.3 are still untranscribed, so the worked
+          example's `fea ([B])` had to be supplied by the test rather than
+          looked up. Nothing composes over a memory indirect mode until they
+          are.
   - [x] **The termination *kind* now comes from a device.** `machine_fill` and
         `machine_store` ask the board and answer `BERR` when nothing decodes the
         address, `STERM` when something does — so a bus error is a device

@@ -505,7 +505,7 @@ so a slow device cannot yet lengthen a cycle.
 | 68030 ATC replacement | the history bit now means *recently used*, per `MC68851 PMMU User's Manual` §5.2.1.3 — a translating hit marks it, a `PTEST` probe does not. `PROVISIONAL` narrowed to victim choice among clear-history entries | `atc_suite`, 20 tests |
 | 68030 prefetch marginal cost | `NCC − CC` over the published prefetch count, computed in code across every row; the two rows where it is not integral are named in the test rather than rounded away | `timing_table_suite`, 11 tests |
 | 68030 effective address timings (§11.6.1, §11.6.3) | fetch and calculate rows for the non-full-format modes, with the table's `-` and "2+op head" notations carried rather than flattened. Not yet composed into the step | `ea_timing_suite`, 8 tests |
-| 68030 instruction overlap (§11.3's Equation 11-1) | the composition rule only, deliberately without §11.6's per-instruction figures — those must be measured, not transcribed | `overlap_suite`, 8 tests, including the manual's own worked example |
+| 68030 instruction overlap (§11.3's Equations 11-1 and 11-2) | both compositions, deliberately without §11.6's per-instruction figures — those must be measured, not transcribed. The cache case through head and tail, the no-cache case by plain addition, and (11-2) shown to be (11-1) over *components* rather than a second rule | `overlap_suite`, 15 tests and `ea_timing_suite`, 12 — including both of the manual's own worked examples, at 6 clocks and **40** |
 | 68030 state hash (the identity harness's CPU half) | working: every architectural register, the MMU and cache control registers, the pipe, both caches, the ATC, and the accumulated clock — host pointers excluded by construction, since `ap_hash.h` has no pointer helper | `state_suite`, 12 tests sweeping every field; `step_suite`'s same-program-twice check |
 | 68030 addressing mode categories (Data / Memory / Control / Alterable) | working; derived from §2.3's definitions rather than transcribed from Table 2-4, whose Alterable column is exchanged between two row pairs in the scan | `category_suite`, 8 tests, `M68000 Family Programmer's Reference Manual 1992` §2.3 |
 | 68030 operand access (read/write through an effective address) | working; a sub-long-word operand is selected from the long word by position, and one straddling two long words is split into a bus cycle per long word in address order | `operand_suite`, 13 tests, `M68000 Family Programmer's Reference Manual 1992` |
@@ -1230,6 +1230,77 @@ field of every device individually** — 22 tests, most of them loops over
 a device's members — and the sweep is per *field*, not per device,
 because a device fed as a whole struct passes a per-device test while
 quietly omitting half its members. That is how a hash goes hollow.
+
+#### **Both timing compositions, from the manual's own worked examples**
+
+The instruction execution time item's arithmetic is now verified on both
+sides, and the reasoning is in `docs/references/M68030_TIMING.md`. Three
+results, each from going back to §11.3.3 and §11.3.4 in the PDF rather
+than to the notes this project had accumulated about them.
+
+**Equation (11-2) is Equation (11-1) over *components*.** The manual
+prints it as a separate, "more specific" formula for the instructions
+whose effective address time comes from another table. Every term has the
+same shape — a component's cache case less the lesser of its own head and
+the *previous component's* tail — and the only thing (11-2) adds is that
+an instruction contributes two components, its effective address then its
+operation. So there is one rule, and `ap_m68030_overlap_add_component`
+now sits beneath `ap_m68030_overlap_add` with
+`ap_m68030_ea_timing_compose` adding the pair. Writing (11-2) as its own
+accumulator would have duplicated the rule and left two places for it to
+drift.
+
+Verified against the manual's five-instruction example, which exists
+precisely to exercise (11-2) and prints its answer: **40 clock periods**.
+The components are fed in *as the example prints them* rather than read
+from our tables — feeding the transcription in would check the
+composition against our own numbers, and a mistranscribed row would move
+both sides of the comparison together. A separate test then checks four
+of our rows against the same example, which is a check against a
+different page from the one they were transcribed off.
+
+**A register operand contributes no component at all**, not one costing
+zero. The example's last instruction, `NEG D3`, overlaps against the
+*previous operation's* tail, reaching past where an address component
+would have been. A zero-cost component there costs nothing itself and
+still consumes that tail, over-counting by up to its length. The tables
+say the same thing by writing a register row's head and tail as `-`
+rather than 0, which is why `head_applies` was carried from the first
+transcription; this is the first thing that needed it.
+
+**The no-cache case composes by plain addition**, per §11.3.3's "2 + 7 =
+9 clocks" and "9 + 7 = 16 clocks", so the two published columns compose
+by two different rules. `ap_m68030_no_cache_total` is the second, kept a
+separate function deliberately: running `NCC` figures through head and
+tail would subtract an overlap the published figure already excludes.
+
+**And the finding that decides what this core can ever be compared
+against.** §11.3.3 works an instruction costing "eight clocks for even
+alignment and 10 clocks for odd alignment, an average of nine", while the
+*pair* it belongs to costs "16 clocks for both even and odd alignment".
+The alignment difference therefore moves *between adjacent instructions*
+rather than adding to the stream: whichever of 8 or 10 the MOVE costs,
+the CMPI after it costs 8 or 6 to match. So a published `NCC` is not
+merely an average — it is a figure the hardware never exhibits for that
+instruction, and the right unit of comparison is a **sequence**, where
+the alternation cancels. This core already exhibits exactly that
+alternation (`FINDINGS.md` C7), which had been classified as the oracle's
+error; §11.3.3 is the manual saying so directly.
+
+**What remains is one question.** `CC` and `NCC` both contain operand bus
+cycles at the table's assumed two clocks each, and this core produces
+those itself — so composing published totals and adding measured bus time
+double-counts, which is the trap `CC + bus time` fell into. What is
+needed is how much of each published figure is bus time, and that is
+`(r/p/w)`, printed beside every figure in both tables and transcribed so
+far only for `p`. Until then the footnoted rows still decline rather than
+report a component, and `ADD.B D0,(A0)` still costs 4 here against the
+oracle's 7.
+
+A tail found while doing this: §11.6.1's and §11.6.3's **full-format
+extension word rows** are still untranscribed, so the worked example's
+`fea ([B])` had to be supplied by the test rather than looked up. Nothing
+composes over a memory indirect mode until they are.
 
 #### **Instruction pipe and cache holding register**
 

@@ -11,27 +11,34 @@ ap_m68030_overlap_state_t ap_m68030_overlap_begin(void) {
   return (ap_m68030_overlap_state_t){0};
 }
 
-void ap_m68030_overlap_add(ap_m68030_overlap_state_t *state,
-                           const ap_m68030_timing_t *timing) {
+void ap_m68030_overlap_add_component(ap_m68030_overlap_state_t *state,
+                                     unsigned head, unsigned tail,
+                                     unsigned cache_case) {
   if (!state->started) {
-    /* "CC1 + ..." -- the first instruction has nothing before it to overlap
+    /* "CC1 + ..." -- the first component has nothing before it to overlap
      * with, so it contributes its whole cache-case time. */
-    state->total = timing->cache_case;
-    state->previous_tail = timing->tail;
+    state->total = cache_case;
+    state->previous_tail = tail;
     state->started = true;
     return;
   }
 
-  /* "[CCn - min(Hn,Tn-1)]": the *following* instruction's head against the
-   * *preceding* instruction's tail. */
-  const unsigned saved = ap_m68030_overlap(state->previous_tail, timing->head);
+  /* "[CCn - min(Hn,Tn-1)]": the *following* component's head against the
+   * *preceding* component's tail. */
+  const unsigned saved = ap_m68030_overlap(state->previous_tail, head);
 
   /* The subtraction cannot go below zero, because a consistent entry has
    * head <= cache_case and the overlap is at most the head. Clamping anyway
    * keeps an inconsistent table from producing a total that wraps -- and
    * ap_m68030_timing_consistent is how such an entry is meant to be caught. */
-  state->total += (timing->cache_case > saved) ? (timing->cache_case - saved) : 0u;
-  state->previous_tail = timing->tail;
+  state->total += (cache_case > saved) ? (cache_case - saved) : 0u;
+  state->previous_tail = tail;
+}
+
+void ap_m68030_overlap_add(ap_m68030_overlap_state_t *state,
+                           const ap_m68030_timing_t *timing) {
+  ap_m68030_overlap_add_component(state, timing->head, timing->tail,
+                                  timing->cache_case);
 }
 
 uint64_t ap_m68030_overlap_total(const ap_m68030_overlap_state_t *state) {
@@ -61,6 +68,17 @@ ap_m68030_prefetch_cost(const ap_m68030_timing_t *timing) {
   out.clocks = out.difference / timing->prefetches;
   out.exact = (out.difference % timing->prefetches) == 0u;
   return out;
+}
+
+uint64_t ap_m68030_no_cache_total(const ap_m68030_timing_t *components,
+                                  unsigned count) {
+  uint64_t total = 0;
+  for (unsigned i = 0; i < count; i++) {
+    /* No head, no tail, no minimum: "the no-cache-case time assumes no
+     * overlap". */
+    total += components[i].no_cache_case;
+  }
+  return total;
 }
 
 bool ap_m68030_timing_consistent(const ap_m68030_timing_t *timing) {

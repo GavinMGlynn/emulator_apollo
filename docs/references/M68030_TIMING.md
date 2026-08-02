@@ -478,3 +478,108 @@ A second test asserts what the withdrawal was actually about — that an exact
 cost of **2** exists, which the claim said it did not. `DBcc` with the condition
 true divides cleanly and gives 2, so the values are not confined to 0 and 1 even
 where the division is well behaved.
+
+## Both compositions, from the manual's own worked examples
+
+Found by going back to §11.3.3 and §11.3.4 in the PDF rather than to the notes
+above, and it settled two things the notes had been circling.
+
+### Equation (11-2) is Equation (11-1) over *components*
+
+§11.3.4 prints it as a separate, "more specific" formula:
+
+```
+  CCea1 + [CCop1 - min(Hop1,Tea1)] + [CCea2 - min(Hea2,Top1)] +
+    [CCop2 - min(Hop2,Tea2)] + [CCea3 - min(Hea3,Top2)] + ...
+```
+
+Every term has the same shape as (11-1)'s — a component's cache case less the
+lesser of its own head and the *previous component's* tail. The only thing
+(11-2) adds is that an instruction contributes **two** components, its effective
+address then its operation. So there is one rule, not two, and (11-1) is (11-2)
+for instructions whose effective address costs nothing.
+
+That collapses what looked like a second accumulator into
+`ap_m68030_overlap_add_component`, with `ap_m68030_overlap_add` as its
+one-component wrapper and `ap_m68030_ea_timing_compose` adding the pair. Writing
+(11-2) separately would have duplicated the rule and left two places for it to
+drift.
+
+**Verified against the manual's own five-instruction example**, which exists
+precisely to exercise (11-2) and prints its answer: **40 clock periods** for
+
+```
+  ADD.L -(A1),D1 ; AND.L D1,([A2]) ; MOVE.L (A6),(8,A1) ; TAS (A3)+ ; NEG D3
+```
+
+`ea_timing_suite` runs it and gets 40. The components are fed in **as the
+example prints them**, not read from our tables: feeding the transcription in
+would check the composition against our own numbers, and a mistranscribed row
+would move both sides of the comparison together.
+
+**A register operand contributes no component at all** — not one costing zero.
+The example's last instruction, `NEG D3`, reaches back past where an address
+component would have been, `[CCop5 - min(Hop5,Top4)]`, and overlaps against the
+*previous operation's* tail. A zero-cost component in its place costs nothing
+itself and still consumes that tail, so it over-counts by up to the tail. The
+tables say so too, writing a register row's head and tail as `-` rather than 0 —
+which is why `head_applies` was carried from the first transcription, and this
+is the first thing that needed it.
+
+### The no-cache case composes by addition, and the published figure is a mean
+
+§11.3.3 works `MOVE.L (d16,An,Dn),Dn` followed by `CMPI.W #(data).W,(d16,An)`
+with both caches missing throughout, and prints processor-activity diagrams for
+both alignments (Figures 11-4 and 11-5). Three numbers come out of it:
+
+- The MOVE's average no-cache case is "**2 + 7 = 9 clocks**" — its own figure
+  from §11.6.6 plus its effective address's from §11.6.1, with no overlap term.
+  "It should be noted again that the no-cache-case time assumes no overlap."
+- The two instructions together are "9 + 7 = 16 clocks", the same plain sum.
+- And the one that matters most here: the MOVE "is **eight clocks for even
+  alignment and 10 clocks for odd alignment**, an average of nine clocks",
+  while "the total execution time of the two instructions ... is **16 clocks for
+  both even and odd alignment**".
+
+So the two published columns compose by two different rules — `CC` through head
+and tail, `NCC` by addition — and `ap_m68030_no_cache_total` is the second,
+deliberately not the same function as the accumulator.
+
+**The third bullet is the useful one, and it is stronger than the averaging rule
+already recorded above.** It is not merely that a published `NCC` is a mean of
+two alignment cases; it is that the difference between those cases *moves
+between adjacent instructions rather than adding to the stream*. The MOVE costs
+8 or 10 depending on where it sits, and whichever it costs, the CMPI after it
+costs 8 or 6 to match. That is the cache holding register's long word being paid
+for by one instruction or the other, and it is exactly the alternation this core
+already exhibits (`FINDINGS.md` C7).
+
+Two consequences for the item:
+
+1. **A per-instruction comparison against a published `NCC` is the wrong
+   comparison**, and no refinement of this core will make it right — 9 is a
+   number that instruction never takes on real hardware. The right unit is a
+   *sequence*, where the alternation cancels. `machine_suite` already averages
+   over alignments for the single-instruction rows, which is the same statement
+   for a stream of one repeated instruction.
+2. It is an independent confirmation of the fea table's full-format rows, which
+   this project has not transcribed: the "7" in "2 + 7" is
+   `fea (d16,An,Xn)` full format, `7(1/1/0)`, read off §11.6.1 while checking
+   this. The brief-format row we *do* carry is `6(1/1/0)`, and the two being one
+   apart is the extension word.
+
+### What is still open
+
+The composition arithmetic is now verified on both sides; what is not built is
+the join to this core's own emergent bus time. `CC` and `NCC` both contain
+operand bus cycles at the table's assumed two clocks each, and this core
+produces those itself — so composing published totals and adding measured bus
+time double-counts, which is the trap `CC + bus time` fell into. The footnoted
+rows therefore still decline rather than reporting a component, and
+`ADD.B D0,(A0)` still costs 4 here against the oracle's 7.
+
+What has changed is that the arithmetic is no longer the unknown part. The
+remaining question is a single one: **how much of each published figure is bus
+time**, so that the rest can be scheduled against what this core measures. That
+is `(r/p/w)` — published beside every figure in both tables, and not yet
+transcribed for anything but `p`.
