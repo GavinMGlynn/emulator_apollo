@@ -58,21 +58,46 @@ typedef enum {
   AP_M68040_IU_MODE_COUNT,
 } ap_m68040_iu_mode_t;
 
+/* What a cell's *second* figure means, where it prints two. §10.6 uses three
+ * different distinctions and they are not interchangeable:
+ *
+ *   shift count      "immediate count specified for shift count/shift count
+ *                     specified in register, respectively"
+ *   bit number       "bit instruction <ea> calculate and execute times T1/T2
+ *                     apply to #<xxx>/Dn bit numbers"
+ *   bit field        "immediate count specified for both width and offset and
+ *                     width and/or offset specified in register, respectively"
+ *
+ * The last is the subtlest: it is *not* "the offset is in a register" but
+ * "width and/or offset", so one register operand out of two already costs the
+ * higher figure. A model that asked only about the offset would under-price
+ * half the bit-field instructions a compiler emits. */
+typedef enum {
+  AP_M68040_IU_ALTERNATE_NONE,
+  AP_M68040_IU_ALTERNATE_SHIFT_COUNT,
+  AP_M68040_IU_ALTERNATE_BIT_NUMBER,
+  AP_M68040_IU_ALTERNATE_BITFIELD_OPERAND,
+} ap_m68040_iu_alternate_t;
+
 typedef struct {
   /* False where the table prints a dash: the mode is invalid for this group. */
   bool valid;
   unsigned calculate;
   ap_m68040_execute_t execute;
-  /* Some shift and rotate cells print two figures, as `3/4`, with the footnote
-   * "immediate count specified for shift count/shift count specified in
-   * register, respectively". The first is `execute`; this is the second, and
-   * `has_register_count` says whether the distinction applies at all.
-   *
-   * It applies only to the `Dn` row -- a shift of a memory operand is always by
-   * one -- so most cells leave it false, and a caller that ignored it would
-   * under-price exactly the register-count shifts a compiler emits most. */
-  bool has_register_count;
-  ap_m68040_execute_t register_count_execute;
+
+  /* The second figure, where the table prints one. Both columns can be dual --
+   * `BCHG (d16,An)` prints `2/1` for calculate as well as `1L + 3/4` for
+   * execute -- so the alternate carries both. */
+  ap_m68040_iu_alternate_t alternate;
+  unsigned alternate_calculate;
+  ap_m68040_execute_t alternate_execute;
+
+  /* Notes c and d: "if the bit field spans a long-word boundary, add ... Two
+   * memory addresses are accessed in this case." A conditional penalty rather
+   * than a second figure, because it depends on the *operand's address* and
+   * not on the encoding -- so no static table could fold it in. */
+  unsigned boundary_calculate_penalty;
+  unsigned boundary_execute_penalty;
 } ap_m68040_iu_cell_t;
 
 typedef struct {
@@ -96,10 +121,17 @@ ap_m68040_iu_find(const char *instruction);
 [[nodiscard]] ap_m68040_iu_cell_t
 ap_m68040_iu_timing(const char *instruction, ap_m68040_iu_mode_t mode);
 
-/* The execute figure for a cell, choosing between the two the table prints when
- * it prints two. `register_count` is ignored where the distinction does not
- * apply, so a caller may pass it unconditionally. */
+/* The figures for a cell, choosing between the two the table prints when it
+ * prints two. `alternate` selects the second figure and is ignored where the
+ * cell prints only one, so a caller may pass it unconditionally.
+ *
+ * `spans_long_word` applies notes c and d, and is likewise ignored by cells
+ * that carry no penalty. */
+[[nodiscard]] unsigned ap_m68040_iu_calculate(ap_m68040_iu_cell_t cell,
+                                              bool alternate,
+                                              bool spans_long_word);
 [[nodiscard]] ap_m68040_execute_t
-ap_m68040_iu_execute(ap_m68040_iu_cell_t cell, bool register_count);
+ap_m68040_iu_execute(ap_m68040_iu_cell_t cell, bool alternate,
+                     bool spans_long_word);
 
 #endif /* APOLLO_CPU_M68040_AP_M68040_IU_TIMING_H */

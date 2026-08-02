@@ -222,18 +222,18 @@ static void test_a_register_shift_count_costs_one_more_clock(void) {
    * A model with one figure per cell would under-price exactly the
    * register-count shifts a compiler emits most. */
   const ap_m68040_iu_cell_t asl = at("ASL", AP_M68040_IU_DN);
-  TEST_ASSERT_TRUE(asl.has_register_count);
+  TEST_ASSERT_TRUE(asl.alternate != AP_M68040_IU_ALTERNATE_NONE);
   TEST_ASSERT_EQUAL_UINT(3u, ap_m68040_execute_total(
-                                 ap_m68040_iu_execute(asl, false)));
+                                 ap_m68040_iu_execute(asl, false, false)));
   TEST_ASSERT_EQUAL_UINT(4u, ap_m68040_execute_total(
-                                 ap_m68040_iu_execute(asl, true)));
+                                 ap_m68040_iu_execute(asl, true, false)));
 
   const ap_m68040_iu_cell_t asr = at("ASR", AP_M68040_IU_DN);
-  TEST_ASSERT_TRUE(asr.has_register_count);
+  TEST_ASSERT_TRUE(asr.alternate != AP_M68040_IU_ALTERNATE_NONE);
   TEST_ASSERT_EQUAL_UINT(2u, ap_m68040_execute_total(
-                                 ap_m68040_iu_execute(asr, false)));
+                                 ap_m68040_iu_execute(asr, false, false)));
   TEST_ASSERT_EQUAL_UINT(3u, ap_m68040_execute_total(
-                                 ap_m68040_iu_execute(asr, true)));
+                                 ap_m68040_iu_execute(asr, true, false)));
 }
 
 static void test_only_the_register_row_prints_two_figures(void) {
@@ -244,7 +244,8 @@ static void test_only_the_register_row_prints_two_figures(void) {
     if (!c.valid) {
       continue;
     }
-    TEST_ASSERT_EQUAL_INT(m == AP_M68040_IU_DN, c.has_register_count);
+    TEST_ASSERT_EQUAL_INT(m == AP_M68040_IU_DN,
+                          c.alternate == AP_M68040_IU_ALTERNATE_SHIFT_COUNT);
   }
 }
 
@@ -252,10 +253,10 @@ static void test_a_single_figure_cell_ignores_the_count_argument(void) {
   /* Where the table prints one figure the caller may pass either value and get
    * the same answer, which is what lets a scheduler call it unconditionally. */
   const ap_m68040_iu_cell_t add = at("ADD", AP_M68040_IU_DN);
-  TEST_ASSERT_FALSE(add.has_register_count);
+  TEST_ASSERT_FALSE(add.alternate != AP_M68040_IU_ALTERNATE_NONE);
   TEST_ASSERT_EQUAL_UINT(
-      ap_m68040_execute_total(ap_m68040_iu_execute(add, false)),
-      ap_m68040_execute_total(ap_m68040_iu_execute(add, true)));
+      ap_m68040_execute_total(ap_m68040_iu_execute(add, false, false)),
+      ap_m68040_execute_total(ap_m68040_iu_execute(add, true, false)));
 }
 
 static void test_an_arithmetic_left_shift_costs_more_than_the_others(void) {
@@ -290,6 +291,125 @@ static void test_the_shift_groups_reject_the_register_direct_address_mode(void) 
   TEST_ASSERT_FALSE(at("LSR", AP_M68040_IU_AN).valid);
 }
 
+
+/* ---------------------------------------------------------------------------
+ * The bit and bit-field groups, page 10-15.
+ * ------------------------------------------------------------------------- */
+
+static void test_three_different_things_are_selected_by_a_second_figure(void) {
+  /* §10.6 prints `a/b` cells for three unrelated reasons, and conflating them
+   * would silently price one instruction by another's rule:
+   *
+   *   ASL     shift count immediate or in a register
+   *   BCHG    bit number given as `#<xxx>` or in `Dn`
+   *   BFEXTS  bit field width and offset both immediate, or either in a
+   *           register
+   *
+   * The cell records which distinction applies, so a caller cannot ask the
+   * wrong question of a cell. */
+  TEST_ASSERT_EQUAL_INT(AP_M68040_IU_ALTERNATE_SHIFT_COUNT,
+                        at("ASL", AP_M68040_IU_DN).alternate);
+  TEST_ASSERT_EQUAL_INT(AP_M68040_IU_ALTERNATE_BIT_NUMBER,
+                        at("BCHG", AP_M68040_IU_DN).alternate);
+  TEST_ASSERT_EQUAL_INT(AP_M68040_IU_ALTERNATE_BITFIELD_OPERAND,
+                        at("BFEXTS", AP_M68040_IU_DN).alternate);
+}
+
+static void test_a_bit_number_in_a_register_costs_one_more_execute_clock(void) {
+  /* Note a: "bit instruction <ea> calculate and execute times T1/T2 apply to
+   * #<xxx>/Dn bit numbers." So the *first* figure is the immediate form. */
+  const ap_m68040_iu_cell_t c = at("BCHG", AP_M68040_IU_INDIRECT);
+  TEST_ASSERT_EQUAL_UINT(
+      3u, ap_m68040_execute_total(ap_m68040_iu_execute(c, false, false)));
+  TEST_ASSERT_EQUAL_UINT(
+      4u, ap_m68040_execute_total(ap_m68040_iu_execute(c, true, false)));
+}
+
+static void test_a_bit_number_in_a_register_costs_one_fewer_calculate_clock(void) {
+  /* The calculate column is dual too, and runs the *other* way: `BCHG
+   * (d16,An)` prints `2/1`, so a register bit number is cheaper to calculate
+   * and dearer to execute. A model with a single calculate figure could not
+   * express that, and one that assumed both columns move together would get
+   * the sign wrong. */
+  const ap_m68040_iu_cell_t c = at("BCHG", AP_M68040_IU_DISPLACEMENT);
+  TEST_ASSERT_EQUAL_UINT(2u, ap_m68040_iu_calculate(c, false, false));
+  TEST_ASSERT_EQUAL_UINT(1u, ap_m68040_iu_calculate(c, true, false));
+  TEST_ASSERT_EQUAL_UINT(
+      3u, ap_m68040_iu_execute(c, false, false).base);
+  TEST_ASSERT_EQUAL_UINT(
+      4u, ap_m68040_iu_execute(c, true, false).base);
+}
+
+static void test_a_bit_field_spanning_a_long_word_costs_extra(void) {
+  /* Note c: "if the bit field spans a long-word boundary, add ten and nine
+   * clocks to the <ea> calculate and execute times, respectively. Two memory
+   * addresses are accessed in this case."
+   *
+   * This is a penalty and not a second figure, because it depends on the
+   * operand's *address* rather than on the encoding -- no static table could
+   * fold it in, and a scheduler that ignored it would be out by nineteen
+   * clocks on an unaligned field. */
+  const ap_m68040_iu_cell_t c = at("BFCHG", AP_M68040_IU_INDIRECT);
+  TEST_ASSERT_EQUAL_UINT(9u, ap_m68040_iu_calculate(c, false, false));
+  TEST_ASSERT_EQUAL_UINT(19u, ap_m68040_iu_calculate(c, false, true));
+  TEST_ASSERT_EQUAL_UINT(
+      10u, ap_m68040_execute_total(ap_m68040_iu_execute(c, false, false)));
+  TEST_ASSERT_EQUAL_UINT(
+      19u, ap_m68040_execute_total(ap_m68040_iu_execute(c, false, true)));
+}
+
+static void test_the_extract_instructions_pay_a_smaller_boundary_penalty(void) {
+  /* Note d: "add two clocks to the execute time" -- and nothing to calculate,
+   * where note c adds ten. An extract reads two long words; a change must read
+   * and write them both. Sharing one penalty between the groups would be wrong
+   * by a factor of nine. */
+  const ap_m68040_iu_cell_t c = at("BFEXTS", AP_M68040_IU_INDIRECT);
+  TEST_ASSERT_EQUAL_UINT(ap_m68040_iu_calculate(c, false, false),
+                         ap_m68040_iu_calculate(c, false, true));
+  TEST_ASSERT_EQUAL_UINT(
+      9u, ap_m68040_execute_total(ap_m68040_iu_execute(c, false, false)));
+  TEST_ASSERT_EQUAL_UINT(
+      11u, ap_m68040_execute_total(ap_m68040_iu_execute(c, false, true)));
+}
+
+static void test_only_the_bit_field_groups_carry_a_boundary_penalty(void) {
+  /* Nothing else in §10.6 has an operand that can straddle a long word. */
+  for (size_t g = 0; g < ap_m68040_iu_group_count(); g++) {
+    const ap_m68040_iu_group_t *group = ap_m68040_iu_group(g);
+    const bool bitfield = group->cells[AP_M68040_IU_DN].alternate ==
+                          AP_M68040_IU_ALTERNATE_BITFIELD_OPERAND;
+    for (unsigned m = 0; m < AP_M68040_IU_MODE_COUNT; m++) {
+      const ap_m68040_iu_cell_t c = group->cells[m];
+      if (!c.valid) {
+        continue;
+      }
+      if (!bitfield) {
+        TEST_ASSERT_EQUAL_UINT(0u, c.boundary_calculate_penalty);
+        TEST_ASSERT_EQUAL_UINT(0u, c.boundary_execute_penalty);
+      }
+    }
+  }
+}
+
+static void test_the_bit_field_groups_reject_the_incrementing_modes(void) {
+  /* A bit field is described by an offset and a width, so postincrement and
+   * predecrement have no meaning for it -- the table dashes both. */
+  TEST_ASSERT_FALSE(at("BFCHG", AP_M68040_IU_POSTINCREMENT).valid);
+  TEST_ASSERT_FALSE(at("BFCHG", AP_M68040_IU_PREDECREMENT).valid);
+  TEST_ASSERT_FALSE(at("BFEXTS", AP_M68040_IU_POSTINCREMENT).valid);
+}
+
+static void test_only_the_reading_bit_field_group_allows_pc_relative(void) {
+  /* `BFEXTS`/`BFEXTU` read a field and so may take it from program space;
+   * `BFCHG`/`BFCLR`/`BFSET` write one and cannot. The table dashes the
+   * PC-relative rows for the second group alone, which is a protection fact
+   * showing up in a timing table. */
+  TEST_ASSERT_TRUE(at("BFEXTS", AP_M68040_IU_PC_DISPLACEMENT).valid);
+  TEST_ASSERT_TRUE(at("BFEXTS", AP_M68040_IU_PC_INDEXED).valid);
+  TEST_ASSERT_FALSE(at("BFCHG", AP_M68040_IU_PC_DISPLACEMENT).valid);
+  TEST_ASSERT_FALSE(at("BFCHG", AP_M68040_IU_PC_INDEXED).valid);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_instructions_sharing_a_column_share_a_group);
@@ -310,5 +430,13 @@ int main(void) {
   RUN_TEST(test_an_arithmetic_left_shift_costs_more_than_the_others);
   RUN_TEST(test_the_quick_forms_reject_an_immediate_mode);
   RUN_TEST(test_the_shift_groups_reject_the_register_direct_address_mode);
+  RUN_TEST(test_three_different_things_are_selected_by_a_second_figure);
+  RUN_TEST(test_a_bit_number_in_a_register_costs_one_more_execute_clock);
+  RUN_TEST(test_a_bit_number_in_a_register_costs_one_fewer_calculate_clock);
+  RUN_TEST(test_a_bit_field_spanning_a_long_word_costs_extra);
+  RUN_TEST(test_the_extract_instructions_pay_a_smaller_boundary_penalty);
+  RUN_TEST(test_only_the_bit_field_groups_carry_a_boundary_penalty);
+  RUN_TEST(test_the_bit_field_groups_reject_the_incrementing_modes);
+  RUN_TEST(test_only_the_reading_bit_field_group_allows_pc_relative);
   return UNITY_END();
 }

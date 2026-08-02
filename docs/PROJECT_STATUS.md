@@ -1304,7 +1304,42 @@ it is the only shift that must detect overflow, the others having no `V` to
 set. And `ADDQ`/`SUBQ` are a separate column from `ADDI` and friends precisely
 because they *do* accept an `An` destination where the immediate forms do not.
 
-What remains of the 68040 item is fourteen more pages of §10.6 and §10.7's ten
+Page 10-15 forced the model wider again, twice over.
+
+**Three different distinctions share the `a/b` notation.** §10.6 prints two
+figures in a cell for three unrelated reasons, and conflating them would price
+one instruction by another's rule:
+
+| group | what the second figure means |
+| --- | --- |
+| `ASL`, `ASR`… | shift count in a register rather than immediate |
+| `BCHG`, `BCLR`, `BSET` | bit number in `Dn` rather than `#<xxx>` |
+| `BFCHG`, `BFEXTS`… | width **and/or** offset in a register |
+
+The last is the subtlest: it is not "the offset is in a register" but "width
+and/or offset", so *one* register operand out of two already costs the higher
+figure. The cell records which distinction applies, so a caller cannot ask the
+wrong question of a cell.
+
+**And the calculate column can be dual too, running the other way.** `BCHG
+(d16,An)` prints `2/1` for calculate against `1L + 3/4` for execute -- a
+register bit number is *cheaper* to calculate and dearer to execute. A model
+with one calculate figure could not express it, and one that assumed both
+columns move together would get the sign wrong.
+
+**The bit-field boundary penalty is a penalty, not a figure.** Note c: "if the
+bit field spans a long-word boundary, add ten and nine clocks to the <ea>
+calculate and execute times, respectively." That depends on the operand's
+*address*, not its encoding, so no static table can fold it in. Note d gives
+the extract instructions a different penalty -- two clocks, and to execute only
+-- because an extract reads two long words where a change must read and write
+both. Sharing one penalty between the groups would be wrong by a factor of nine.
+
+One protection fact surfaces in the timing table: `BFEXTS`/`BFEXTU` accept the
+PC-relative modes and `BFCHG`/`BFCLR`/`BFSET` do not, because the first pair
+reads a field and the second writes one.
+
+What remains of the 68040 item is thirteen more pages of §10.6 and §10.7's ten
 pages of floating-point timings. That is bulk transcription against the
 composition already in place, and the last thing standing between Phase 2b and
 complete. Appendix A's bit rows have to come from page images --
