@@ -1766,17 +1766,26 @@ a 68882, and the 68882 is the only one of these it has.
 ## Phase 3 — Core board
 
 
-- [ ] **Give the machine a model, and gate the coprocessor on it.** The 68882
-      is attached unconditionally by `ap_machine_init`, which takes no model at
-      all — so every machine this core builds is the DN3500, the reference
-      superset. That is correct for the reference machine and inexpressible for
-      any other: a DN3000 has no coprocessor, and "fitted or not is a machine
-      property" cannot be honoured while the machine has no identity.
-      Filed here rather than in Phase 2b, where the audit found it: the 68882 is
-      complete and the gap is in `ap_machine_init`'s signature, which is board
-      work. `src/core/model/` already holds the table this would read.
-      *Verification: a DN3000 taking the line 1111 trap on an F-line word while
-      a DN3500 executes it, from the one model table rather than a conditional.*
+- [~] **Give the machine a model.** The 68882
+      - [x] `ap_machine_init_model` takes one, and `ap_machine_init` is that
+            with the DN3500 — so every existing caller keeps the machine it had
+            and the machine now knows what it is.
+      - [x] **The coprocessor needed no gating, and the item that said it did
+            was wrong.** Every model in the table has one: `ap_m68882.h`'s "a
+            DN3500 has a 68882 and a DN3000 does not" is about the *part*, and
+            a DN3000 carries an MC68881. What is genuinely unexpressed is 68881
+            versus 68882, which this core already records as nearly nothing —
+            the 68882's concurrency "is invisible to a program except through
+            timing". Attaching one to every machine is therefore correct, not
+            an approximation.
+      - [ ] **The model is held but not yet consulted**, which is what the
+            68020's oracle diff waits on: `ap_machine_t` holds an
+            `ap_m68030_cpu_t`, so a machine built as a DN3000 is still a 68030
+            underneath and `ap_cpu_decode` is not asked which family it is.
+            *Verification: a DN3000 accepting `CALLM` where a DN3500 refuses it,
+            from the one model table rather than a conditional — the 44-opcode
+            difference `m68020_decode_suite` already pins, reached through a
+            machine rather than through the decoder directly.*
 - [ ] Memory bus with one shared arbitration point, so contention is emergent.
       *Verification: probes measuring contention between CPU and DMA.*
   - [x] The processor's side of the protocol: `[030]` §7.7's BR/BG/BGACK state

@@ -166,6 +166,12 @@ static bool machine_table_update(void *context, uint32_t physical,
 }
 
 void ap_machine_init(ap_machine_t *machine, uint8_t *ram, uint32_t ram_bytes) {
+  ap_machine_init_model(machine, ram, ram_bytes, AP_MODEL_DN3500);
+}
+
+void ap_machine_init_model(ap_machine_t *machine, uint8_t *ram,
+                           uint32_t ram_bytes, ap_model_id_t model) {
+  machine->model = ap_model_by_id(model);
   /* Every field, not merely the ones set below. A machine is a value the caller
    * creates -- usually on the stack -- and one whose behaviour depended on what
    * was in that memory beforehand would be a machine that is not reproducible,
@@ -184,6 +190,16 @@ void ap_machine_init(ap_machine_t *machine, uint8_t *ram, uint32_t ram_bytes) {
 
   machine->cpu = (ap_m68030_cpu_t){0};
   ap_m68882_reset(&machine->fpu);
+  /* **Every model in the table has a coprocessor**, so attaching one is not the
+   * approximation it was once recorded as. `ap_m68882.h` says "a DN3500 has a
+   * 68882 and a DN3000 does not", and that is about the *part*, not about
+   * having one: a DN3000 carries an MC68881. Reading it as "no coprocessor"
+   * produced a Phase 3 item to gate something that never needed gating.
+   *
+   * What is genuinely not expressed is 68881 *versus* 68882, and this core
+   * already records why that is nearly nothing: the 68882's concurrency "is
+   * invisible to a program except through timing". So the same module serves
+   * both, and the model is consulted to say so rather than to choose. */
   machine->cpu.fpu = &machine->fpu;
 
   /* Both contexts point at the CPU's own MMU registers, so a PMOVE takes effect

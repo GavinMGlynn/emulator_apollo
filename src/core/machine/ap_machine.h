@@ -50,6 +50,7 @@
 #include "cpu/m68030/ap_m68030_cache.h"
 #include "cpu/m68030/ap_m68030_step.h"
 #include "cpu/m68882/ap_m68882.h"
+#include "model/ap_model.h"
 
 struct ap_board;
 #include "state/ap_hash.h"
@@ -73,13 +74,13 @@ typedef struct {
 
   ap_m68030_cpu_t cpu;
   /* The floating-point coprocessor, which the CPU holds by pointer because
-   * fitted-or-not is a machine property. **It is attached unconditionally
-   * here**, and that is a statement about this harness rather than about the
-   * range: `ap_machine_init` takes no model, so this machine is the DN3500 --
-   * the reference superset, which has a 68882. Gating it belongs with whatever
-   * gives the machine a model, and until then a DN3000's absent coprocessor is
-   * not expressible. Recorded in `PROJECT_STATUS.md` as the tail it is. */
+   * fitted-or-not is a machine property -- and now *is* one: `cpu.fpu` points
+   * here only when the model's CPU family has a coprocessor to point at. */
   ap_m68882_t fpu;
+  /* Which machine this is. Held rather than derived because every other
+   * variance in this core comes from the one table in `src/core/model/`, and a
+   * machine that did not know its own model could not consult it. */
+  const ap_model_t *model;
 
   /* Optional: when set, every access is routed through the DN3500's address
    * map instead of the flat RAM above.
@@ -107,6 +108,16 @@ typedef struct {
  * Both access contexts point at the CPU's own MMU registers, so a `PMOVE` takes
  * effect on translation rather than only on a register nobody reads. */
 void ap_machine_init(ap_machine_t *machine, uint8_t *ram, uint32_t ram_bytes);
+
+/* The same, as a named model. `ap_machine_init` is this with the DN3500 -- the
+ * reference superset -- so every existing caller keeps the machine it had.
+ *
+ * This is what makes "fitted or not is a machine property" true rather than
+ * aspirational: a DN3000 is a 68020 without a coprocessor, and until the machine
+ * could be told which model it was, that difference was not expressible and an
+ * F-line instruction executed on every machine this core built. */
+void ap_machine_init_model(ap_machine_t *machine, uint8_t *ram,
+                           uint32_t ram_bytes, ap_model_id_t model);
 
 /* Route this machine's accesses through a core-board address map. Pass NULL to
  * return it to flat RAM. The board is caller-owned, as the RAM is. */
