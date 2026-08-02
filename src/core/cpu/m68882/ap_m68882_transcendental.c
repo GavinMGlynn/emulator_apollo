@@ -1222,3 +1222,228 @@ ap_m68882_op_t ap_m68882_acos(const ap_m68882_extended_t *x,
   const ap_m68882_extended_t half = atan_value(nx_sqrt(ratio));
   return trig_finish(nx_add(half, half), mode, precision);
 }
+
+/* ---------------------------------------------------------------------------
+ * The hyperbolic functions.
+ * ------------------------------------------------------------------------- */
+
+/* Halving is an exponent adjustment, so it is exact and cannot round. */
+static ap_m68882_extended_t nx_half(ap_m68882_extended_t v) {
+  bool overflow = false, underflow = false;
+  return nx_scale2(v, -1, &overflow, &underflow);
+}
+
+static ap_m68882_extended_t exp_of(ap_m68882_extended_t x,
+                                   uint32_t *exceptions) {
+  const ap_m68882_op_t out =
+      ap_m68882_etox(&x, AP_M68882_ROUND_NEAREST, AP_M68882_PRECISION_EXTENDED);
+  *exceptions |= out.exceptions & ((1u << AP_M68882_EXC_OVFL) |
+                                   (1u << AP_M68882_EXC_UNFL));
+  return out.value;
+}
+
+/* `FSINH`, `FCOSH` and `FTANH` share an exception byte with `OPERR` cleared:
+ * every real argument is in their domain, and an infinity is a limit rather
+ * than an error. Only the *values* differ. */
+static bool hyperbolic_special(const ap_m68882_extended_t *x, ap_m68882_op_t *out,
+                               ap_m68882_extended_t at_zero,
+                               ap_m68882_extended_t at_infinity,
+                               bool infinity_keeps_sign, bool zero_keeps_sign) {
+  switch (ap_m68882_classify(x)) {
+  case AP_M68882_TYPE_NAN:
+    *out = (ap_m68882_op_t){nx_nan(), ap_m68882_is_signalling_nan(x)
+                                          ? (1u << AP_M68882_EXC_SNAN)
+                                          : 0u};
+    return true;
+  case AP_M68882_TYPE_ZERO:
+    if (zero_keeps_sign) {
+      at_zero.sign = x->sign;
+    }
+    *out = (ap_m68882_op_t){at_zero, 0u};
+    return true;
+  case AP_M68882_TYPE_INFINITY:
+    if (infinity_keeps_sign) {
+      at_infinity.sign = x->sign;
+    }
+    *out = (ap_m68882_op_t){at_infinity, 0u};
+    return true;
+  case AP_M68882_TYPE_NORMALIZED:
+  case AP_M68882_TYPE_DENORMALIZED:
+    break;
+  }
+  return false;
+}
+
+ap_m68882_op_t ap_m68882_sinh(const ap_m68882_extended_t *x,
+                              ap_m68882_rounding_t mode,
+                              ap_m68882_precision_t precision) {
+  ap_m68882_op_t out;
+  /* Zero keeps its sign and an infinity keeps its sign: `sinh` is odd. */
+  if (hyperbolic_special(x, &out, nx_zero(false), nx_infinity(false), true,
+                         true)) {
+    return out;
+  }
+  const bool negative = x->sign;
+  ap_m68882_extended_t a = *x;
+  a.sign = false;
+  uint32_t exceptions = 0u;
+  ap_m68882_extended_t value;
+
+  if (a.exponent < AP_M68882_BIAS_EXTENDED) {
+    /* Below one, `e^x - e^-x` would cancel: both terms are near one and the
+     * answer is near `x`. `u + u/(u+1)` with `u = e^x - 1` is the same
+     * quantity with the ones removed algebraically, so nothing has to cancel.
+     * Below `2^-32` the answer is `x` to within a unit in the last place
+     * anyway, and the expression degenerates gracefully rather than needing
+     * its own case. */
+    const ap_m68882_op_t u_op = ap_m68882_etoxm1(
+        &a, AP_M68882_ROUND_NEAREST, AP_M68882_PRECISION_EXTENDED);
+    const ap_m68882_extended_t u = u_op.value;
+    value = nx_half(nx_add(u, nx_div(u, nx_add(u, c_one))));
+  } else {
+    /* At or above one, `e^x` is at least `e` and `e^-x` at most `1/e`, so the
+     * difference loses nothing and the direct form is both simpler and more
+     * accurate than carrying `expm1` through a large argument. */
+    ap_m68882_extended_t minus = a;
+    minus.sign = true;
+    value = nx_half(nx_sub(exp_of(a, &exceptions), exp_of(minus, &exceptions)));
+  }
+
+  value.sign ^= negative;
+  ap_m68882_op_t result = ap_m68882_mul(&value, &c_one, mode, precision);
+  result.exceptions |= exceptions | (1u << AP_M68882_EXC_INEX2);
+  return result;
+}
+
+ap_m68882_op_t ap_m68882_cosh(const ap_m68882_extended_t *x,
+                              ap_m68882_rounding_t mode,
+                              ap_m68882_precision_t precision) {
+  ap_m68882_op_t out;
+  /* `cosh` is even, so neither the zero nor the infinity carries a sign: the
+   * operation table prints `+1.0` for both zeros and `+inf` for both
+   * infinities. */
+  if (hyperbolic_special(x, &out, c_one, nx_infinity(false), false, false)) {
+    return out;
+  }
+  ap_m68882_extended_t a = *x;
+  a.sign = false;
+  ap_m68882_extended_t minus = a;
+  minus.sign = true;
+  uint32_t exceptions = 0u;
+  /* No cancellation anywhere: both terms are positive, so the sum is safe for
+   * every argument and one path serves the whole range. */
+  ap_m68882_extended_t value =
+      nx_half(nx_add(exp_of(a, &exceptions), exp_of(minus, &exceptions)));
+  ap_m68882_op_t result = ap_m68882_mul(&value, &c_one, mode, precision);
+  result.exceptions |= exceptions | (1u << AP_M68882_EXC_INEX2);
+  return result;
+}
+
+ap_m68882_op_t ap_m68882_tanh(const ap_m68882_extended_t *x,
+                              ap_m68882_rounding_t mode,
+                              ap_m68882_precision_t precision) {
+  ap_m68882_op_t out;
+  /* The operation table's infinity column is `+1.0` and `-1.0`, not an
+   * infinity: `tanh` has horizontal asymptotes. */
+  if (hyperbolic_special(x, &out, nx_zero(false), c_one, true, true)) {
+    return out;
+  }
+  const bool negative = x->sign;
+  ap_m68882_extended_t a = *x;
+  a.sign = false;
+
+  /* Beyond about 23, `tanh` differs from one by less than a unit in the last
+   * place, and computing it would divide one huge number by another. Returned
+   * as exactly one -- which is what rounding the true value gives -- rather
+   * than risking an infinity over an infinity. */
+  if ((int)a.exponent - AP_M68882_BIAS_EXTENDED >= 5) {
+    ap_m68882_extended_t value = c_one;
+    value.sign = negative;
+    ap_m68882_op_t result = ap_m68882_mul(&value, &c_one, mode, precision);
+    result.exceptions |= 1u << AP_M68882_EXC_INEX2;
+    return result;
+  }
+
+  /* `tanh(x) = u/(u+2)` with `u = e^(2x) - 1`, which needs no cancellation at
+   * either end: near zero `u` is about `2x` and the quotient about `x`. */
+  bool overflow = false, underflow = false;
+  const ap_m68882_extended_t doubled = nx_scale2(a, 1, &overflow, &underflow);
+  const ap_m68882_op_t u_op = ap_m68882_etoxm1(
+      &doubled, AP_M68882_ROUND_NEAREST, AP_M68882_PRECISION_EXTENDED);
+  ap_m68882_extended_t value =
+      nx_div(u_op.value, nx_add(u_op.value, c_two));
+  value.sign ^= negative;
+  ap_m68882_op_t result = ap_m68882_mul(&value, &c_one, mode, precision);
+  result.exceptions |= 1u << AP_M68882_EXC_INEX2;
+  return result;
+}
+
+ap_m68882_op_t ap_m68882_atanh(const ap_m68882_extended_t *x,
+                               ap_m68882_rounding_t mode,
+                               ap_m68882_precision_t precision) {
+  switch (ap_m68882_classify(x)) {
+  case AP_M68882_TYPE_NAN:
+    return (ap_m68882_op_t){nx_nan(), ap_m68882_is_signalling_nan(x)
+                                          ? (1u << AP_M68882_EXC_SNAN)
+                                          : 0u};
+  case AP_M68882_TYPE_ZERO:
+    return (ap_m68882_op_t){*x, 0u}; /* "+0.0" and "-0.0" */
+  case AP_M68882_TYPE_INFINITY:
+    /* Its operation table's Infinity column is `NAN` with note 1, "sets the
+     * OPERR bit" -- an infinity is outside `(-1 ... +1)` like any other value
+     * out of range. */
+    return (ap_m68882_op_t){nx_nan(), 1u << AP_M68882_EXC_OPERR};
+  case AP_M68882_TYPE_NORMALIZED:
+  case AP_M68882_TYPE_DENORMALIZED:
+    break;
+  }
+
+  if (is_unit_magnitude(x)) {
+    /* The poles, and **the manual has them the wrong way round.**
+     *
+     * Page 4-26's description reads: "the result is equal to -infinity or
+     * +infinity if the source is equal to +1 or -1, respectively". Taken at
+     * face value that maps `+1` to a *negative* infinity.
+     *
+     * It cannot be right. `atanh` is odd and strictly increasing on
+     * `(-1, +1)`, and `atanh(x) = (1/2) ln((1+x)/(1-x))`, whose numerator
+     * grows and denominator vanishes as `x` rises to one -- so `atanh(+1)` is
+     * `+infinity`. The page's own exception byte and operation table are both
+     * consistent with that; only the sentence is transposed.
+     *
+     * This is the one place in the session where a manual defect is corrected
+     * rather than transcribed, and it is corrected because the standing rule's
+     * second half is satisfied for once: the mathematics does not merely prove
+     * the printed text impossible, it supplies the unique replacement. There is
+     * no third assignment of two signs to two arguments. `DZ` is raised either
+     * way -- "set if the source is equal to +1 or -1" -- so only the sign of
+     * the result is at issue. */
+    ap_m68882_extended_t value = nx_infinity(x->sign);
+    return (ap_m68882_op_t){value, 1u << AP_M68882_EXC_DZ};
+  }
+
+  /* "Set if the source is > +1 or < -1". Both halves are needed: a magnitude
+   * just above one has the *same* exponent as one and only a larger
+   * significand, so testing the exponent alone lets `1 + 2^-63` through to a
+   * computation whose logarithm argument is negative. */
+  if (x->exponent > AP_M68882_BIAS_EXTENDED ||
+      (x->exponent == AP_M68882_BIAS_EXTENDED &&
+       x->mantissa > 0x8000000000000000ULL)) {
+    return (ap_m68882_op_t){nx_nan(), 1u << AP_M68882_EXC_OPERR};
+  }
+
+  /* `atanh(x) = (1/2) ln1p(2x/(1-x))`, using `FLOGNP1`'s kernel rather than a
+   * logarithm of a ratio: near zero the argument `2x/(1-x)` is about `2x` and
+   * `ln1p` keeps every bit of it, where `ln((1+x)/(1-x))` would form a ratio
+   * near one and throw them away. */
+  bool overflow = false, underflow = false;
+  const ap_m68882_extended_t doubled = nx_scale2(*x, 1, &overflow, &underflow);
+  const ap_m68882_extended_t argument =
+      nx_div(doubled, nx_sub(c_one, *x));
+  const ap_m68882_op_t log_op = ap_m68882_lognp1(
+      &argument, AP_M68882_ROUND_NEAREST, AP_M68882_PRECISION_EXTENDED);
+  ap_m68882_extended_t value = nx_half(log_op.value);
+  ap_m68882_op_t result = ap_m68882_mul(&value, &c_one, mode, precision);
+  result.exceptions |= 1u << AP_M68882_EXC_INEX2;
+  return result;
+}

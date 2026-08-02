@@ -1785,7 +1785,7 @@ Split out of Phase 2. Each is a subsystem in its own right rather than a tail of
 the 68030, and none is on the DN3500's critical path: the DN3500 is a 68030 with
 a 68882, and the 68882 is the only one of these it has.
 
-- [~] 68882 FPU. *Verification: probe suite over each operation and rounding
+- [x] 68882 FPU. *Verification: probe suite over each operation and rounding
       mode; note the oracle's admitted FPU gaps as a divergence class.*
   - [x] **The programming model** (`src/core/cpu/m68882/ap_m68882_regs.c`),
         `[68881]` §2 and Figures 2-2 to 2-7: the three control registers, the
@@ -1941,7 +1941,11 @@ a 68882, and the 68882 is the only one of these it has.
         128-bit arithmetic is written out rather than using `unsigned __int128`,
         which is a compiler extension: this core is C23 on three platforms and
         the emulated result must be identical on all of them.
-  - [~] **The transcendentals, computed to §4.3.2's published bound.** The
+  - [x] **The transcendentals, computed to §4.3.2's published bound.** All
+        nineteen, at a worst case under 3.1 units in the last place against
+        expectations generated to 120 decimal digits -- twenty times inside the
+        typical bound and three orders of magnitude inside the worst case.
+        Nothing calls `libm`, so results are identical on every platform. The
         earlier decision to report them unimplemented was wrong, and re-reading
         page 4-7 from the image is what showed it: §4.3.2 specifies a *bound*,
         not a result, so an implementation inside it conforms to everything the
@@ -1990,7 +1994,16 @@ a 68882, and the 68882 is the only one of these it has.
               `FACOS` treat it as one. *Verification:
               `m68882_transcendental_suite`, 25 tests. Detail in
               `PROJECT_STATUS.md`.*
-        - [ ] The hyperbolic: `FSINH`, `FCOSH`, `FTANH`, `FATANH`.
+        - [x] The hyperbolic: `FSINH`, `FCOSH`, `FTANH`, `FATANH`, worst
+              case **under 3.1 units in the last place**. Each is written in
+              the form that does not cancel -- `FSINH` as `(u + u/(u+1))/2`
+              below one, `FTANH` as `u/(u+2)`, `FATANH` as `ln1p(2x/(1-x))/2`.
+              This family carries the **one manual defect corrected rather
+              than transcribed**: page 4-26 gives `FATANH`'s poles the wrong
+              way round, and the mathematics supplies the unique replacement,
+              which no other suspect entry has had. *Verification:
+              `m68882_transcendental_suite`, 29 tests. Detail in
+              `PROJECT_STATUS.md`.*
 - [x] 68020 subset: no on-chip MMU or cache differences, external 68851.
       *Verification: `dn3000` boots under both; oracle diff.*
   - [x] The part's own differences from the 68030, as a derived feature set in

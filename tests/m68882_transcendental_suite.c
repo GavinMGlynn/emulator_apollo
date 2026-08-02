@@ -1,5 +1,5 @@
-/* MC68882 §4.3.2's exponentials, logarithms and trigonometric functions,
- * measured against the published bound.
+/* MC68882 §4.3.2's nineteen transcendentals, measured against the published
+ * bound.
  *
  * The vectors below are `(argument, expected)` pairs computed to a hundred and
  * twenty decimal digits and rounded once to extended precision. They are not
@@ -560,6 +560,137 @@ static const vector_t acos_vectors[] = {
     {{false, 0x3FFE, 0xE9BA57D38055921AULL}, {false, 0x3FFD, 0xD726F1CCD04CF19CULL}},
     {{false, 0x3FFE, 0xD644CEF097AC1EB0ULL}, {false, 0x3FFE, 0x943C13D2B43B38B6ULL}},
     {{false, 0x3FFB, 0xC30478B67A346D0DULL}, {false, 0x3FFF, 0xBCDAD6F6BD8C42F5ULL}},
+};
+
+static const vector_t sinh_vectors[] = {
+    {{false, 0x3FFE, 0x8000000000000000ULL}, {false, 0x3FFE, 0x8566807F31DCB652ULL}},
+    {{true, 0x3FFE, 0x8000000000000000ULL}, {true, 0x3FFE, 0x8566807F31DCB652ULL}},
+    {{false, 0x3FFF, 0x8000000000000000ULL}, {false, 0x3FFF, 0x966CFE2275CC12D4ULL}},
+    {{true, 0x3FFF, 0x8000000000000000ULL}, {true, 0x3FFF, 0x966CFE2275CC12D4ULL}},
+    {{false, 0x4000, 0x8000000000000000ULL}, {false, 0x4000, 0xE81E7B1DB70CFB7AULL}},
+    {{false, 0x4002, 0xA000000000000000ULL}, {false, 0x400C, 0xAC14EE76B4CC8F9FULL}},
+    {{true, 0x4002, 0xA000000000000000ULL}, {true, 0x400C, 0xAC14EE76B4CC8F9FULL}},
+    {{false, 0x4005, 0xC800000000000000ULL}, {false, 0x408E, 0x9A4A54D8B8DFA566ULL}},
+    {{true, 0x4005, 0xC800000000000000ULL}, {true, 0x408E, 0x9A4A54D8B8DFA566ULL}},
+    {{false, 0x3FDD, 0xDBE6FECEBDEDD5BFULL}, {false, 0x3FDD, 0xDBE6FECEBDEDD5BFULL}},
+    {{false, 0x3FFD, 0x8000000000000000ULL}, {false, 0x3FFD, 0x815666CE84080F33ULL}},
+    {{false, 0x4006, 0xFBF807CA42D4C01CULL}, {false, 0x4169, 0xB6D08A626E32B5AFULL}},
+    {{true, 0x4007, 0xE67BD9C917175884ULL}, {true, 0x4297, 0x8333BDA53CD17A62ULL}},
+    {{false, 0x4008, 0x9D3206B8438C011CULL}, {false, 0x4389, 0x8D0FCDEF20BD138EULL}},
+    {{true, 0x4008, 0x9B54401C1BA9E535ULL}, {true, 0x437E, 0xA56EFB4A5F241DBDULL}},
+    {{false, 0x4007, 0xE4C2CC163AB0E5D6ULL}, {false, 0x4292, 0x85DA710B8BBE6E70ULL}},
+    {{true, 0x4007, 0x81BEB53F25CBC68EULL}, {true, 0x4174, 0xA4D37AE9EA6A6ECEULL}},
+    {{false, 0x4005, 0x9970572EEF0C82E7ULL}, {false, 0x406C, 0xCD75FAFC9376105CULL}},
+    {{false, 0x4008, 0x8EE6A66CF62CF896ULL}, {false, 0x4336, 0xC8DEE49BBBA497CAULL}},
+    {{false, 0x4008, 0x8AD06405CE63AF84ULL}, {false, 0x431F, 0x85EB8D4517DD7B3FULL}},
+    {{true, 0x4006, 0xEFAB61843E9817A8ULL}, {true, 0x4157, 0xDA43D3F62546E27EULL}},
+    {{true, 0x4006, 0xE7407673639B4C1FULL}, {true, 0x414B, 0xC58472A6A48D4C45ULL}},
+    {{true, 0x4008, 0xAC9F2E26379F5C75ULL}, {true, 0x43E2, 0x8F416C421695F7BEULL}},
+    {{true, 0x4007, 0x9CB8C963D6821FB8ULL}, {true, 0x41C2, 0x93666C40B7FCD006ULL}},
+    {{true, 0x4001, 0xDEB6D25CE73B04BAULL}, {true, 0x4008, 0x83AE13D76663138AULL}},
+    {{false, 0x4006, 0xB67F6336C982E172ULL}, {false, 0x4105, 0x9C52E3B038619DD3ULL}},
+    {{false, 0x4007, 0xF0BC76C5B4F66346ULL}, {false, 0x42B4, 0xC46BD72C8BAA540BULL}},
+    {{false, 0x4007, 0x84C09D7A9B90E367ULL}, {false, 0x417D, 0x83D2E2DA699D1CD6ULL}},
+    {{true, 0x4004, 0xD30B032006C50724ULL}, {true, 0x404A, 0x8AE0DE1851550C50ULL}},
+    {{true, 0x4007, 0xE136BBF10345BDE0ULL}, {true, 0x4287, 0xE37E4617FAD7381CULL}},
+    {{true, 0x4007, 0xEFA0BA612A919FE2ULL}, {true, 0x42B1, 0xAB3B428BE4D58BD8ULL}},
+};
+
+static const vector_t cosh_vectors[] = {
+    {{false, 0x3FFE, 0x8000000000000000ULL}, {false, 0x3FFF, 0x90560C3157468323ULL}},
+    {{true, 0x3FFE, 0x8000000000000000ULL}, {false, 0x3FFF, 0x90560C3157468323ULL}},
+    {{false, 0x3FFF, 0x8000000000000000ULL}, {false, 0x3FFF, 0xC583AA8ECFAA8261ULL}},
+    {{true, 0x3FFF, 0x8000000000000000ULL}, {false, 0x3FFF, 0xC583AA8ECFAA8261ULL}},
+    {{false, 0x4000, 0x8000000000000000ULL}, {false, 0x4000, 0xF0C7D06F96CDE14AULL}},
+    {{false, 0x4002, 0xA000000000000000ULL}, {false, 0x400C, 0xAC14EE829B896A51ULL}},
+    {{true, 0x4002, 0xA000000000000000ULL}, {false, 0x400C, 0xAC14EE829B896A51ULL}},
+    {{false, 0x4005, 0xC800000000000000ULL}, {false, 0x408E, 0x9A4A54D8B8DFA566ULL}},
+    {{true, 0x4005, 0xC800000000000000ULL}, {false, 0x408E, 0x9A4A54D8B8DFA566ULL}},
+    {{false, 0x3FDD, 0xDBE6FECEBDEDD5BFULL}, {false, 0x3FFF, 0x8000000000000000ULL}},
+    {{false, 0x3FFD, 0x8000000000000000ULL}, {false, 0x3FFF, 0x8405582E530A2F6EULL}},
+    {{false, 0x4006, 0xFBF807CA42D4C01CULL}, {false, 0x4169, 0xB6D08A626E32B5AFULL}},
+    {{true, 0x4007, 0xE67BD9C917175884ULL}, {false, 0x4297, 0x8333BDA53CD17A62ULL}},
+    {{false, 0x4008, 0x9D3206B8438C011CULL}, {false, 0x4389, 0x8D0FCDEF20BD138EULL}},
+    {{true, 0x4008, 0x9B54401C1BA9E535ULL}, {false, 0x437E, 0xA56EFB4A5F241DBDULL}},
+    {{false, 0x4007, 0xE4C2CC163AB0E5D6ULL}, {false, 0x4292, 0x85DA710B8BBE6E70ULL}},
+    {{true, 0x4007, 0x81BEB53F25CBC68EULL}, {false, 0x4174, 0xA4D37AE9EA6A6ECEULL}},
+    {{false, 0x4005, 0x9970572EEF0C82E7ULL}, {false, 0x406C, 0xCD75FAFC9376105CULL}},
+    {{false, 0x4008, 0x8EE6A66CF62CF896ULL}, {false, 0x4336, 0xC8DEE49BBBA497CAULL}},
+    {{false, 0x4008, 0x8AD06405CE63AF84ULL}, {false, 0x431F, 0x85EB8D4517DD7B3FULL}},
+    {{true, 0x4006, 0xEFAB61843E9817A8ULL}, {false, 0x4157, 0xDA43D3F62546E27EULL}},
+    {{true, 0x4006, 0xE7407673639B4C1FULL}, {false, 0x414B, 0xC58472A6A48D4C45ULL}},
+    {{true, 0x4008, 0xAC9F2E26379F5C75ULL}, {false, 0x43E2, 0x8F416C421695F7BEULL}},
+    {{true, 0x4007, 0x9CB8C963D6821FB8ULL}, {false, 0x41C2, 0x93666C40B7FCD006ULL}},
+    {{true, 0x4001, 0xDEB6D25CE73B04BAULL}, {false, 0x4008, 0x83AE2364ED79D5C3ULL}},
+    {{false, 0x4006, 0xB67F6336C982E172ULL}, {false, 0x4105, 0x9C52E3B038619DD3ULL}},
+    {{false, 0x4007, 0xF0BC76C5B4F66346ULL}, {false, 0x42B4, 0xC46BD72C8BAA540BULL}},
+    {{false, 0x4007, 0x84C09D7A9B90E367ULL}, {false, 0x417D, 0x83D2E2DA699D1CD6ULL}},
+    {{true, 0x4004, 0xD30B032006C50724ULL}, {false, 0x404A, 0x8AE0DE1851550C50ULL}},
+    {{true, 0x4007, 0xE136BBF10345BDE0ULL}, {false, 0x4287, 0xE37E4617FAD7381CULL}},
+    {{true, 0x4007, 0xEFA0BA612A919FE2ULL}, {false, 0x42B1, 0xAB3B428BE4D58BD8ULL}},
+};
+
+static const vector_t tanh_vectors[] = {
+    {{false, 0x3FFE, 0x8000000000000000ULL}, {false, 0x3FFD, 0xEC9A9EBAB4579B29ULL}},
+    {{true, 0x3FFE, 0x8000000000000000ULL}, {true, 0x3FFD, 0xEC9A9EBAB4579B29ULL}},
+    {{false, 0x3FFF, 0x8000000000000000ULL}, {false, 0x3FFE, 0xC2F7D5A8A79CA2ACULL}},
+    {{true, 0x3FFF, 0x8000000000000000ULL}, {true, 0x3FFE, 0xC2F7D5A8A79CA2ACULL}},
+    {{false, 0x4001, 0xA000000000000000ULL}, {false, 0x3FFE, 0xFFFA0CB346F889A8ULL}},
+    {{true, 0x4001, 0xA000000000000000ULL}, {true, 0x3FFE, 0xFFFA0CB346F889A8ULL}},
+    {{false, 0x3FF5, 0x83126E978D4FDF3BULL}, {false, 0x3FF5, 0x83126BBA8B670FE3ULL}},
+    {{false, 0x3FD7, 0x8CBCCC096F5088CCULL}, {false, 0x3FD7, 0x8CBCCC096F5088CCULL}},
+    {{false, 0x4002, 0xF000000000000000ULL}, {false, 0x3FFE, 0xFFFFFFFFFFCB523EULL}},
+    {{true, 0x4001, 0xBEA8AC1631D5B46FULL}, {true, 0x3FFE, 0xFFFF1FCF681D6C20ULL}},
+    {{true, 0x4002, 0xC6F9DB7593BAA9C5ULL}, {true, 0x3FFE, 0xFFFFFFFFDD4A2FE4ULL}},
+    {{false, 0x4003, 0x96F636DE46D8FA38ULL}, {false, 0x3FFE, 0xFFFFFFFFFFFFFA23ULL}},
+    {{true, 0x4002, 0xE01E67C30BF18E6DULL}, {true, 0x3FFE, 0xFFFFFFFFFE807D76ULL}},
+    {{false, 0x4002, 0xC1F747768CC1B8C4ULL}, {false, 0x3FFE, 0xFFFFFFFFBF123471ULL}},
+    {{true, 0x4001, 0xDC2207A7E3C1E02CULL}, {true, 0x3FFE, 0xFFFFDC78624E6877ULL}},
+    {{true, 0x4003, 0x8DB0C1C93429F0A2ULL}, {true, 0x3FFE, 0xFFFFFFFFFFFFC474ULL}},
+    {{false, 0x4002, 0xE8382F3A43FBCD43ULL}, {false, 0x3FFE, 0xFFFFFFFFFF74ADEBULL}},
+    {{true, 0x4000, 0xB4AC7D4417D35E2EULL}, {true, 0x3FFE, 0xFE32C242D023B5EDULL}},
+    {{false, 0x4002, 0xC013448311D462B0ULL}, {false, 0x3FFE, 0xFFFFFFFFADC2E276ULL}},
+    {{true, 0x4001, 0xB18ED64EE8CC1849ULL}, {true, 0x3FFE, 0xFFFE03968B7B7B62ULL}},
+    {{false, 0x4002, 0x92E1DF2FC1281207ULL}, {false, 0x3FFE, 0xFFFFFFA4C0D16C87ULL}},
+    {{true, 0x4003, 0x87409DF39BCE70FCULL}, {true, 0x3FFE, 0xFFFFFFFFFFFED63EULL}},
+    {{false, 0x3FFC, 0xEC5E3DDE72C7669CULL}, {false, 0x3FFC, 0xE841F78A66F1EF8CULL}},
+    {{true, 0x4001, 0x88574C13B3634D25ULL}, {true, 0x3FFE, 0xFFE5E608A524F8B0ULL}},
+    {{false, 0x4001, 0xD9C5B27A2D94403DULL}, {false, 0x3FFE, 0xFFFFD6D25859FC9CULL}},
+    {{false, 0x4003, 0x80597EA17BD34492ULL}, {false, 0x3FFE, 0xFFFFFFFFFFF977A3ULL}},
+    {{true, 0x3FFF, 0xA504A8C909DC5E71ULL}, {true, 0x3FFE, 0xDBE20E8B102639EDULL}},
+    {{false, 0x4002, 0xAC951AD014A48A68ULL}, {false, 0x3FFE, 0xFFFFFFFC53ABE2F3ULL}},
+    {{false, 0x4002, 0xF7633A4EEF8E7387ULL}, {false, 0x3FFE, 0xFFFFFFFFFFEB142FULL}},
+};
+
+static const vector_t atanh_vectors[] = {
+    {{false, 0x3FFE, 0x8000000000000000ULL}, {false, 0x3FFE, 0x8C9F53D5681854BBULL}},
+    {{true, 0x3FFE, 0x8000000000000000ULL}, {true, 0x3FFE, 0x8C9F53D5681854BBULL}},
+    {{false, 0x3FFE, 0xE666666666666666ULL}, {false, 0x3FFF, 0xBC71B0302599638FULL}},
+    {{true, 0x3FFE, 0xE666666666666666ULL}, {true, 0x3FFF, 0xBC71B0302599638FULL}},
+    {{false, 0x3FFE, 0xFFBE76C8B4395810ULL}, {false, 0x4000, 0xF3367EF4E3E1730EULL}},
+    {{false, 0x3FF5, 0x83126E978D4FDF3BULL}, {false, 0x3FF5, 0x831271748F68B868ULL}},
+    {{false, 0x3FCD, 0x901D7CF73AB0ACD9ULL}, {false, 0x3FCD, 0x901D7CF73AB0ACD9ULL}},
+    {{true, 0x3FCD, 0x901D7CF73AB0ACD9ULL}, {true, 0x3FCD, 0x901D7CF73AB0ACD9ULL}},
+    {{true, 0x3FFE, 0xBE78DAD08CB98E48ULL}, {true, 0x3FFE, 0xF59E89DB0F8D065EULL}},
+    {{true, 0x3FFE, 0x83B6F40AF7D8DEB5ULL}, {true, 0x3FFE, 0x919FD03E2B487D51ULL}},
+    {{true, 0x3FFE, 0xFE0B330F79727599ULL}, {true, 0x4000, 0xB207E9EDE488A06CULL}},
+    {{false, 0x3FFA, 0xF24D8B7742E66161ULL}, {false, 0x3FFA, 0xF2960D9919781F3CULL}},
+    {{true, 0x3FFD, 0xFC6EF6005C14FB45ULL}, {true, 0x3FFE, 0x8A416E62152847AAULL}},
+    {{false, 0x3FFE, 0xEE7814983835B872ULL}, {false, 0x3FFF, 0xD5BAA7A88F44ED64ULL}},
+    {{true, 0x3FFE, 0xAC66859AF9E60A7BULL}, {true, 0x3FFE, 0xD127967E0546CACEULL}},
+    {{false, 0x3FFE, 0xE0874D5441EF6A33ULL}, {false, 0x3FFF, 0xAE7396AE06B0B032ULL}},
+    {{true, 0x3FFE, 0x87F5D274F7591E5BULL}, {true, 0x3FFE, 0x977799B00120AB31ULL}},
+    {{false, 0x3FFD, 0xA7906D281E63298CULL}, {false, 0x3FFD, 0xADF695D966AF8504ULL}},
+    {{true, 0x3FFE, 0xA913B54F1AE562DCULL}, {true, 0x3FFE, 0xCB2AECB542C50E51ULL}},
+    {{false, 0x3FFA, 0xB849B0D843D4A46AULL}, {false, 0x3FFA, 0xB86990380E138C4BULL}},
+    {{false, 0x3FFE, 0xCE46D546C1D25942ULL}, {false, 0x3FFF, 0x8EB33CE55331DC5FULL}},
+    {{true, 0x3FFE, 0xE8330E81963748AFULL}, {true, 0x3FFF, 0xC1584EE6CD428F0AULL}},
+    {{false, 0x3FFE, 0xE861A32E16AE2776ULL}, {false, 0x3FFF, 0xC1DC26A87B93B25CULL}},
+    {{false, 0x3FFD, 0xB8BF001CA2B32B41ULL}, {false, 0x3FFD, 0xC1748DE19A17E3C7ULL}},
+    {{false, 0x3FFE, 0x9C0CF0DBE999A6D7ULL}, {false, 0x3FFE, 0xB54F43E11B7CCD57ULL}},
+    {{false, 0x3FFE, 0xA09AC91C35EF247EULL}, {false, 0x3FFE, 0xBCAF8EEABB66DC90ULL}},
+    {{true, 0x3FFD, 0xF923248E8D6AB04AULL}, {true, 0x3FFE, 0x881657594AD42531ULL}},
+    {{true, 0x3FFE, 0x9123F61298E73232ULL}, {true, 0x3FFE, 0xA49D36DFF24D3B0EULL}},
 };
 
 /* Distance between two extended values in units of the last place of the
@@ -1332,6 +1463,168 @@ static void test_acos_keeps_its_bits_where_the_subtraction_would_not(void) {
   (void)one;
 }
 
+static void test_the_hyperbolic_functions_are_inside_the_bound(void) {
+  TEST_ASSERT_LESS_OR_EQUAL_UINT64_MESSAGE(
+      AP_M68882_TRANSCENDENTAL_TYPICAL_ULP_EXTENDED,
+      sweep(ap_m68882_sinh, sinh_vectors, COUNT(sinh_vectors)),
+      "FSINH left the typical error bound");
+  TEST_ASSERT_LESS_OR_EQUAL_UINT64_MESSAGE(
+      AP_M68882_TRANSCENDENTAL_TYPICAL_ULP_EXTENDED,
+      sweep(ap_m68882_cosh, cosh_vectors, COUNT(cosh_vectors)),
+      "FCOSH left the typical error bound");
+  TEST_ASSERT_LESS_OR_EQUAL_UINT64_MESSAGE(
+      AP_M68882_TRANSCENDENTAL_TYPICAL_ULP_EXTENDED,
+      sweep(ap_m68882_tanh, tanh_vectors, COUNT(tanh_vectors)),
+      "FTANH left the typical error bound");
+  TEST_ASSERT_LESS_OR_EQUAL_UINT64_MESSAGE(
+      AP_M68882_TRANSCENDENTAL_TYPICAL_ULP_EXTENDED,
+      sweep(ap_m68882_atanh, atanh_vectors, COUNT(atanh_vectors)),
+      "FATANH left the typical error bound");
+}
+
+static void test_the_manual_has_atanhs_poles_the_wrong_way_round(void) {
+  /* The one manual defect in this work that is **corrected** rather than
+   * transcribed, and the reasoning is why.
+   *
+   * Page 4-26's description of `FATANH` reads: "the result is equal to
+   * -infinity or +infinity if the source is equal to +1 or -1, respectively".
+   * Read as written, `atanh(+1)` is a *negative* infinity.
+   *
+   * It cannot be. `atanh` is odd and strictly increasing on `(-1, +1)`, and
+   * `atanh(x) = (1/2) ln((1+x)/(1-x))` -- whose numerator grows and denominator
+   * vanishes as `x` rises to one. `atanh(+1)` is `+infinity`. The same page's
+   * exception byte and operation table are both consistent with that; only the
+   * sentence is transposed.
+   *
+   * Every other suspect entry in this project is transcribed as printed,
+   * because proving a figure wrong is not the same as knowing its value. Here
+   * it is: the mathematics does not merely refute the printed text, it supplies
+   * the unique replacement, since there is no third way to assign two signs to
+   * two arguments. That is the standing rule's second half satisfied for the
+   * first time, and it is the only reason this one is changed. */
+  const ap_m68882_extended_t one = {false, AP_M68882_BIAS_EXTENDED,
+                                    0x8000000000000000ULL};
+  ap_m68882_extended_t minus_one = one;
+  minus_one.sign = true;
+
+  const ap_m68882_op_t at_plus =
+      ap_m68882_atanh(&one, AP_M68882_ROUND_NEAREST,
+                      AP_M68882_PRECISION_EXTENDED);
+  TEST_ASSERT_EQUAL_INT(AP_M68882_TYPE_INFINITY,
+                        ap_m68882_classify(&at_plus.value));
+  TEST_ASSERT_FALSE_MESSAGE(at_plus.value.sign,
+                            "atanh(+1) is a positive infinity");
+
+  const ap_m68882_op_t at_minus =
+      ap_m68882_atanh(&minus_one, AP_M68882_ROUND_NEAREST,
+                      AP_M68882_PRECISION_EXTENDED);
+  TEST_ASSERT_EQUAL_INT(AP_M68882_TYPE_INFINITY,
+                        ap_m68882_classify(&at_minus.value));
+  TEST_ASSERT_TRUE_MESSAGE(at_minus.value.sign,
+                           "atanh(-1) is a negative infinity");
+
+  /* The exception is the same either way -- "set if the source is equal to +1
+   * or -1" -- so only the sign of the result was ever at issue. */
+  TEST_ASSERT_NOT_EQUAL_UINT(0u, at_plus.exceptions & (1u << AP_M68882_EXC_DZ));
+  TEST_ASSERT_NOT_EQUAL_UINT(0u,
+                             at_minus.exceptions & (1u << AP_M68882_EXC_DZ));
+  TEST_ASSERT_EQUAL_UINT(0u,
+                         at_plus.exceptions & (1u << AP_M68882_EXC_OPERR));
+
+  /* And the function really is increasing on the way there, which is the
+   * property the printed text violates. */
+  const ap_m68882_extended_t near = {false, AP_M68882_BIAS_EXTENDED - 1,
+                                     0xFF00000000000000ULL};
+  const ap_m68882_op_t inside = ap_m68882_atanh(
+      &near, AP_M68882_ROUND_NEAREST, AP_M68882_PRECISION_EXTENDED);
+  TEST_ASSERT_FALSE_MESSAGE(inside.value.sign,
+                            "atanh of a positive argument is positive");
+}
+
+static void test_the_hyperbolic_domain_and_limits(void) {
+  /* `FSINH`, `FCOSH` and `FTANH` have `OPERR` cleared: every real argument is
+   * in range and an infinity is a limit. Their limits differ, and each comes
+   * from its own operation table -- `sinh` goes to an infinity keeping the
+   * sign, `cosh` to `+inf` for both signs because it is even, and `tanh` to
+   * `+/-1.0` rather than to an infinity at all. */
+  const ap_m68882_extended_t plus = {false, 0x7FFFu, 0u};
+  const ap_m68882_extended_t minus = {true, 0x7FFFu, 0u};
+
+  const ap_m68882_op_t sinh_up =
+      ap_m68882_sinh(&plus, AP_M68882_ROUND_NEAREST,
+                     AP_M68882_PRECISION_EXTENDED);
+  TEST_ASSERT_EQUAL_INT(AP_M68882_TYPE_INFINITY,
+                        ap_m68882_classify(&sinh_up.value));
+  TEST_ASSERT_FALSE(sinh_up.value.sign);
+  const ap_m68882_op_t sinh_down =
+      ap_m68882_sinh(&minus, AP_M68882_ROUND_NEAREST,
+                     AP_M68882_PRECISION_EXTENDED);
+  TEST_ASSERT_TRUE(sinh_down.value.sign);
+
+  for (unsigned s = 0; s < 2u; s++) {
+    const ap_m68882_op_t even =
+        ap_m68882_cosh(s ? &minus : &plus, AP_M68882_ROUND_NEAREST,
+                       AP_M68882_PRECISION_EXTENDED);
+    TEST_ASSERT_EQUAL_INT(AP_M68882_TYPE_INFINITY,
+                          ap_m68882_classify(&even.value));
+    TEST_ASSERT_FALSE_MESSAGE(even.value.sign,
+                              "cosh is even, so both infinities go up");
+    TEST_ASSERT_EQUAL_UINT(0u, even.exceptions & (1u << AP_M68882_EXC_OPERR));
+
+    const ap_m68882_op_t bounded =
+        ap_m68882_tanh(s ? &minus : &plus, AP_M68882_ROUND_NEAREST,
+                       AP_M68882_PRECISION_EXTENDED);
+    TEST_ASSERT_EQUAL_UINT_MESSAGE(AP_M68882_BIAS_EXTENDED,
+                                   bounded.value.exponent,
+                                   "tanh of an infinity is one, not infinity");
+    TEST_ASSERT_EQUAL_UINT64(0x8000000000000000ULL, bounded.value.mantissa);
+    TEST_ASSERT_EQUAL(s != 0u, bounded.value.sign);
+  }
+
+  /* `FATANH` is the only one of the four with a domain error. */
+  const ap_m68882_extended_t over = {false, AP_M68882_BIAS_EXTENDED,
+                                     0x8000000000000001ULL};
+  const ap_m68882_op_t outside = ap_m68882_atanh(
+      &over, AP_M68882_ROUND_NEAREST, AP_M68882_PRECISION_EXTENDED);
+  TEST_ASSERT_EQUAL_INT(AP_M68882_TYPE_NAN,
+                        ap_m68882_classify(&outside.value));
+  TEST_ASSERT_NOT_EQUAL_UINT(0u,
+                             outside.exceptions & (1u << AP_M68882_EXC_OPERR));
+  const ap_m68882_op_t at_infinity = ap_m68882_atanh(
+      &plus, AP_M68882_ROUND_NEAREST, AP_M68882_PRECISION_EXTENDED);
+  TEST_ASSERT_EQUAL_INT(AP_M68882_TYPE_NAN,
+                        ap_m68882_classify(&at_infinity.value));
+  TEST_ASSERT_NOT_EQUAL_UINT(
+      0u, at_infinity.exceptions & (1u << AP_M68882_EXC_OPERR));
+}
+
+static void test_sinh_and_atanh_keep_their_bits_near_zero(void) {
+  /* Both are written in the form that does not cancel, and this is the check
+   * that it worked. For a tiny argument `sinh(x)` and `atanh(x)` are both `x`
+   * to within a unit in the last place -- so an implementation that formed
+   * `(e^x - e^-x)/2` or `ln((1+x)/(1-x))/2` directly would return something
+   * with most of its significand gone, and the failure would look like a
+   * plausible small number rather than an obvious wrong one. */
+  const ap_m68882_extended_t tiny = {false, AP_M68882_BIAS_EXTENDED - 60,
+                                     0xC000000000000000ULL};
+  const ap_m68882_op_t s = ap_m68882_sinh(&tiny, AP_M68882_ROUND_NEAREST,
+                                          AP_M68882_PRECISION_EXTENDED);
+  TEST_ASSERT_EQUAL_UINT(tiny.exponent, s.value.exponent);
+  TEST_ASSERT_EQUAL_UINT64(tiny.mantissa, s.value.mantissa);
+
+  const ap_m68882_op_t a = ap_m68882_atanh(&tiny, AP_M68882_ROUND_NEAREST,
+                                           AP_M68882_PRECISION_EXTENDED);
+  TEST_ASSERT_EQUAL_UINT(tiny.exponent, a.value.exponent);
+  TEST_ASSERT_EQUAL_UINT64(tiny.mantissa, a.value.mantissa);
+
+  /* `cosh` of the same argument is one, which is the correct rounding and not
+   * a lost result: it differs from one by about `2^-121`. */
+  const ap_m68882_op_t c = ap_m68882_cosh(&tiny, AP_M68882_ROUND_NEAREST,
+                                          AP_M68882_PRECISION_EXTENDED);
+  TEST_ASSERT_EQUAL_UINT(AP_M68882_BIAS_EXTENDED, c.value.exponent);
+  TEST_ASSERT_EQUAL_UINT64(0x8000000000000000ULL, c.value.mantissa);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_the_exponential_is_inside_the_typical_error_bound);
@@ -1358,6 +1651,10 @@ int main(void) {
   RUN_TEST(test_an_infinite_tangent_is_a_limit_and_not_an_error);
   RUN_TEST(test_outside_the_unit_interval_is_an_operand_error);
   RUN_TEST(test_acos_keeps_its_bits_where_the_subtraction_would_not);
+  RUN_TEST(test_the_hyperbolic_functions_are_inside_the_bound);
+  RUN_TEST(test_the_manual_has_atanhs_poles_the_wrong_way_round);
+  RUN_TEST(test_the_hyperbolic_domain_and_limits);
+  RUN_TEST(test_sinh_and_atanh_keep_their_bits_near_zero);
   RUN_TEST(test_the_result_precision_is_the_callers_and_the_steps_are_not);
   return UNITY_END();
 }

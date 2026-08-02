@@ -1358,7 +1358,69 @@ exponent of one rather than of a half, producing a value near *two*, which is
 outside the domain and correctly returned a NAN. The failure looked like an
 implementation fault and was a constant written at the wrong exponent.
 
-The remaining family -- hyperbolic -- is a named plan item.
+**The hyperbolic family is in**, at under 3.1 units in the last place, and with
+it all nineteen of §4.3.2's transcendentals. Each is written in the form that
+does not cancel: `FSINH` as `(u + u/(u+1))/2` with `u = e^x - 1` below one --
+where `e^x - e^-x` is a difference of two numbers both near one -- and the
+direct difference above one, where it is safe and simpler; `FTANH` as
+`u/(u+2)` with `u = e^(2x) - 1`; `FATANH` as `ln1p(2x/(1-x))/2` rather than a
+logarithm of a ratio. `FCOSH` needs no such care, both its terms being positive,
+and so has one path for the whole range.
+
+**This family carries the one manual defect this work corrects rather than
+transcribes.** Page 4-26's description of `FATANH` reads: "the result is equal
+to -infinity or +infinity if the source is equal to +1 or -1, respectively".
+Read as written, `atanh(+1)` is a *negative* infinity. It cannot be: `atanh` is
+odd and strictly increasing on `(-1, +1)`, and `atanh(x) = (1/2)ln((1+x)/(1-x))`
+has a numerator that grows and a denominator that vanishes as `x` rises to one.
+The same page's exception byte and operation table are both consistent with
+`atanh(+1) = +infinity`; only the sentence is transposed.
+
+Fourteen suspect entries have been recorded across this work and thirteen were
+transcribed as printed, because proving a figure wrong is not the same as
+knowing its value. This one is different: the mathematics does not merely refute
+the printed text, it supplies the *unique* replacement -- there is no third way
+to assign two signs to two arguments. That is the standing rule's second half
+satisfied for the first time, and it is the only reason this one is changed. A
+test states the defect and the reasoning so the correction cannot be mistaken
+for a transcription error of ours.
+
+Two smaller findings. The three forward hyperbolic functions have `OPERR`
+cleared -- every real argument is in range and an infinity is a limit -- but
+their limits all differ, and each was read from its own operation table: `sinh`
+goes to an infinity keeping the sign, `cosh` to `+inf` for both signs because it
+is even, and `tanh` to `+/-1.0` rather than to an infinity at all. And
+`FATANH`'s domain check needed both halves of the comparison: a magnitude just
+above one has the *same* exponent as one and only a larger significand, so
+testing the exponent alone let `1 + 2^-63` through to a computation whose
+logarithm argument was negative.
+
+## The 68882 is complete
+
+All nineteen transcendentals are computed, and the `PROVISIONAL` that stood over
+them is closed. The worst error measured anywhere in the family is **under 3.1
+units in the last place** of extended precision, against expectations generated
+to 120 decimal digits -- twenty times inside §4.3.2's typical bound of 64 and
+three orders of magnitude inside its worst case of 4096. Nothing calls `libm`,
+so a result is a function of its input and nothing else on every platform and
+build type.
+
+They remain *classified* as transcendentals, and that is deliberate rather than
+a leftover: §4.3.2's bound still applies, because these are approximations
+conforming to a published interval and not exactly-rounded operations like
+`FSQRT`. Erasing the marking because the functions now return answers would lose
+the only record that they are approximate at all.
+
+The one divergence from the part that is visible rather than hidden in the last
+bits stays as recorded: `FTENTOX #1` returns exactly 10.0 here, and §4.3.2 says
+the hardware's does not. It is not closable without the algorithm Motorola never
+published, and it is in the direction of being more correct than the part.
+
+What remains unimplemented in the 68882 is the rounding and remainder forms --
+`FMOD`, `FREM`, `FSGLDIV`, `FSGLMUL` -- which are not §4.3.2 transcendentals, so
+the accuracy bound above has nothing to say about them and closing them is
+separate work with a separate acceptance criterion. A test pins that distinction
+so the two kinds of gap are not conflated.
 
 So the gap is now specified rather than merely declared. The nineteen
 transcendentals are classified by the four families §4.3.2 names, with `FSQRT`

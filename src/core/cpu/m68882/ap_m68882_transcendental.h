@@ -206,4 +206,40 @@ void ap_m68882_sincos(const ap_m68882_extended_t *x, ap_m68882_rounding_t mode,
                                             ap_m68882_rounding_t mode,
                                             ap_m68882_precision_t precision);
 
+/* The hyperbolic functions.
+ *
+ * Each is written in the form that does not cancel. `FSINH` uses
+ * `(u + u/(u+1))/2` with `u = e^x - 1` below one, because `e^x - e^-x` there is
+ * a difference of two numbers both near one; above one the direct difference is
+ * safe and simpler. `FTANH` is `u/(u+2)` with `u = e^(2x) - 1`. `FATANH` is
+ * `ln1p(2x/(1-x))/2` rather than a logarithm of a ratio, for the same reason
+ * `FLOGNP1` exists at all. `FCOSH` needs no such care -- both its terms are
+ * positive -- and so has one path for the whole range.
+ *
+ * `FSINH`, `FCOSH` and `FTANH` have no domain error: every real argument is in
+ * range and an infinity is a limit, so their `OPERR` is cleared. `FATANH` is
+ * the exception, with a domain of `(-1 ... +1)`, `OPERR` outside it and `DZ` at
+ * the endpoints.
+ *
+ * **`FATANH`'s poles are printed the wrong way round in the manual**, and this
+ * is the one defect in this work that is corrected rather than transcribed. See
+ * the implementation for the reasoning; in short, the mathematics supplies the
+ * unique replacement, which the standing rule requires and which no other
+ * suspect entry has had. */
+[[nodiscard]] ap_m68882_op_t ap_m68882_sinh(const ap_m68882_extended_t *x,
+                                            ap_m68882_rounding_t mode,
+                                            ap_m68882_precision_t precision);
+
+[[nodiscard]] ap_m68882_op_t ap_m68882_cosh(const ap_m68882_extended_t *x,
+                                            ap_m68882_rounding_t mode,
+                                            ap_m68882_precision_t precision);
+
+[[nodiscard]] ap_m68882_op_t ap_m68882_tanh(const ap_m68882_extended_t *x,
+                                            ap_m68882_rounding_t mode,
+                                            ap_m68882_precision_t precision);
+
+[[nodiscard]] ap_m68882_op_t ap_m68882_atanh(const ap_m68882_extended_t *x,
+                                             ap_m68882_rounding_t mode,
+                                             ap_m68882_precision_t precision);
+
 #endif /* APOLLO_CPU_M68882_AP_M68882_TRANSCENDENTAL_H */

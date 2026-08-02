@@ -121,51 +121,56 @@ static void test_the_typical_bound_is_far_tighter_than_the_worst_case(void) {
   TEST_ASSERT_EQUAL_UINT(3u, AP_M68882_ALU_PRECISION_BITS - 64u);
 }
 
-static void test_the_exponential_family_is_computed_and_the_rest_is_not(void) {
-  /* The PROVISIONAL, tracked as it closes. §4.3.2's nineteen transcendentals
-   * are being implemented a family at a time; each is computed to within the
-   * published bound (`m68882_transcendental_suite` measures that) and the rest
-   * still report `UNIMPLEMENTED`.
+static void test_every_transcendental_is_now_computed(void) {
+  /* The `PROVISIONAL` is closed. All nineteen of §4.3.2's transcendentals are
+   * computed to within its published bound -- `m68882_transcendental_suite`
+   * measures that against expectations generated to 120 decimal digits -- and
+   * none of them reports `UNIMPLEMENTED` any more.
    *
-   * The distinction matters more than the count. An unimplemented operation
-   * must report `UNIMPLEMENTED` and never `TAKE_LINE_F`: the encoding is
-   * perfectly valid and the gap is ours, and dressing it up as the machine's
-   * behaviour would make it invisible. This test fails whenever a family lands,
-   * which is intended -- the failure points at the acceptance criterion. */
-  const ap_m68882_operation_t computed[] = {
-      AP_M68882_OP_FETOX,  AP_M68882_OP_FETOXM1, AP_M68882_OP_FTWOTOX,
-      AP_M68882_OP_FTENTOX, AP_M68882_OP_FLOGN,  AP_M68882_OP_FLOGNP1,
-      AP_M68882_OP_FLOG10, AP_M68882_OP_FLOG2,  AP_M68882_OP_FSIN,
-      AP_M68882_OP_FCOS,   AP_M68882_OP_FTAN,   AP_M68882_OP_FSINCOS,
-      AP_M68882_OP_FATAN,  AP_M68882_OP_FASIN,  AP_M68882_OP_FACOS};
-  const ap_m68882_operation_t pending[] = {
-      AP_M68882_OP_FSINH,  AP_M68882_OP_FCOSH,  AP_M68882_OP_FTANH,
-      AP_M68882_OP_FATANH};
-
-  /* Every one of the nineteen is still classified as transcendental: computing
-   * one does not make it stop being an approximation under a published bound. */
-  for (unsigned i = 0; i < 15u; i++)
-    TEST_ASSERT_TRUE(ap_m68882_is_transcendental(computed[i]));
-  for (unsigned i = 0; i < 4u; i++)
-    TEST_ASSERT_TRUE(ap_m68882_is_transcendental(pending[i]));
-  TEST_ASSERT_EQUAL_UINT(19u, 15u + 4u);
+   * They remain *classified* as transcendentals, and that is not a leftover.
+   * §4.3.2's bound still applies to them: these are approximations conforming
+   * to a published interval, not exactly-rounded operations like `FSQRT`. The
+   * classification is what marks the difference, and erasing it because the
+   * functions now return answers would lose the only record that they are
+   * approximate at all. */
+  const ap_m68882_operation_t transcendental[] = {
+      AP_M68882_OP_FSIN,   AP_M68882_OP_FCOS,     AP_M68882_OP_FTAN,
+      AP_M68882_OP_FASIN,  AP_M68882_OP_FACOS,    AP_M68882_OP_FATAN,
+      AP_M68882_OP_FSINCOS, AP_M68882_OP_FSINH,   AP_M68882_OP_FCOSH,
+      AP_M68882_OP_FTANH,  AP_M68882_OP_FATANH,   AP_M68882_OP_FLOGN,
+      AP_M68882_OP_FLOGNP1, AP_M68882_OP_FLOG10,  AP_M68882_OP_FLOG2,
+      AP_M68882_OP_FETOX,  AP_M68882_OP_FETOXM1,  AP_M68882_OP_FTWOTOX,
+      AP_M68882_OP_FTENTOX};
   TEST_ASSERT_EQUAL_UINT(19u, ap_m68882_transcendental_count());
-
-  for (unsigned i = 0; i < 15u; i++) {
+  for (unsigned i = 0; i < 19u; i++) {
+    TEST_ASSERT_TRUE_MESSAGE(ap_m68882_is_transcendental(transcendental[i]),
+                             "a computed transcendental lost its marking");
     ap_m68882_t fpu;
     ap_m68882_reset(&fpu);
     TEST_ASSERT_EQUAL_INT_MESSAGE(
         AP_M68882_EXECUTED,
-        ap_m68882_execute(&fpu, 0xF200u, command_for(computed[i])),
-        "an implemented transcendental did not execute");
+        ap_m68882_execute(&fpu, 0xF200u, command_for(transcendental[i])),
+        "a transcendental did not execute");
   }
+}
+
+static void test_the_remaining_gaps_are_not_transcendentals(void) {
+  /* What is still unimplemented is the rounding and remainder forms, and none
+   * of them is a §4.3.2 transcendental -- so the accuracy bound in this header
+   * has nothing to say about them, and closing them is a different piece of
+   * work with a different acceptance criterion. Pinned so the two kinds of gap
+   * do not get conflated. */
+  const ap_m68882_operation_t pending[] = {
+      AP_M68882_OP_FMOD, AP_M68882_OP_FREM, AP_M68882_OP_FSGLDIV,
+      AP_M68882_OP_FSGLMUL};
   for (unsigned i = 0; i < 4u; i++) {
+    TEST_ASSERT_FALSE(ap_m68882_is_transcendental(pending[i]));
     ap_m68882_t fpu;
     ap_m68882_reset(&fpu);
     TEST_ASSERT_EQUAL_INT_MESSAGE(
         AP_M68882_UNIMPLEMENTED,
         ap_m68882_execute(&fpu, 0xF200u, command_for(pending[i])),
-        "a pending transcendental should report unimplemented, not F-line");
+        "a remaining gap should report unimplemented, not F-line");
   }
 }
 
@@ -187,7 +192,8 @@ int main(void) {
   RUN_TEST(test_a_square_root_is_not_a_transcendental);
   RUN_TEST(test_the_manual_gives_two_worst_case_figures_that_disagree);
   RUN_TEST(test_the_typical_bound_is_far_tighter_than_the_worst_case);
-  RUN_TEST(test_the_exponential_family_is_computed_and_the_rest_is_not);
+  RUN_TEST(test_every_transcendental_is_now_computed);
+  RUN_TEST(test_the_remaining_gaps_are_not_transcendentals);
   RUN_TEST(test_an_implemented_operation_is_not_reported_as_a_gap);
   return UNITY_END();
 }

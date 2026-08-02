@@ -149,6 +149,20 @@ static ap_m68882_status_t execute_register_to_register(
   case AP_M68882_OP_FACOS:
     result = ap_m68882_acos(&source, mode, precision);
     break;
+
+  /* §4.3.2's hyperbolic functions, and the last of the nineteen. */
+  case AP_M68882_OP_FSINH:
+    result = ap_m68882_sinh(&source, mode, precision);
+    break;
+  case AP_M68882_OP_FCOSH:
+    result = ap_m68882_cosh(&source, mode, precision);
+    break;
+  case AP_M68882_OP_FTANH:
+    result = ap_m68882_tanh(&source, mode, precision);
+    break;
+  case AP_M68882_OP_FATANH:
+    result = ap_m68882_atanh(&source, mode, precision);
+    break;
   case AP_M68882_OP_FSINCOS: {
     /* Two destinations. Page 4-101: bits 9-7 are "DESTINATION REGISTER, FPs.
      * The sine result is stored in this register", and bits 2-0 are FPc, which
@@ -210,8 +224,8 @@ static ap_m68882_status_t execute_register_to_register(
     return AP_M68882_EXECUTED;
   }
 
-  /* Every other defined operation is a transcendental, a rounding form or one
-   * of the remainder forms, which this model has not got to. Listed
+  /* What is left is the rounding and remainder forms -- `FMOD`, `FREM`,
+   * `FSGLDIV`, `FSGLMUL`. Every transcendental is now computed. Listed
    * individually rather than caught by a `default`, because `-Wswitch-enum` is
    * what will force a decision here when one of them lands -- the same
    * discipline the 68030's step uses for its own families.
@@ -219,10 +233,6 @@ static ap_m68882_status_t execute_register_to_register(
    * Reported as unimplemented and **not** as F-line: the hardware executes
    * these, and dressing our gap up as the machine's behaviour would make it
    * invisible. */
-  case AP_M68882_OP_FSINH:
-  case AP_M68882_OP_FTANH:
-  case AP_M68882_OP_FATANH:
-  case AP_M68882_OP_FCOSH:
   case AP_M68882_OP_FMOD:
   case AP_M68882_OP_FSGLDIV:
   case AP_M68882_OP_FREM:
