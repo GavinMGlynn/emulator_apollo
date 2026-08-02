@@ -1684,7 +1684,66 @@ marking and is likewise not recorded as a defect. The implication runs one way
 only: `CAS` and `CMP2` are typical and monotonic, so the marking permits a fall
 without predicting one. The suspect count therefore stays at nine.
 
-What remains of the 68040 item is §10.7's ten pages of floating-point timings. That is bulk transcription against the
+§10.7 is under way, and its first two sub-sections are in
+(`m68040_fpu_timing_suite`, 18 tests). They needed a new module rather than an
+extension of §10.6's, because they answer a different question and index it
+differently.
+
+**§10.7.2 does not price floating-point arithmetic.** Its opening paragraph is
+explicit: the integer pipeline "supports the floating-point unit by calculating
+effective addresses and transferring operands", and the listed times "show the
+overhead required by the integer unit to support the floating-point unit,
+assuming the floating-point unit is not busy". The footnote repeats it --
+"timings are for an idle FPU". So `FDIV` and `FNEG` share a single column here,
+and a model that read these as the cost of an `FADD` would report a divide and a
+negate as costing the same, because to the integer unit they do. What the FPU
+then does is §10.7.3 and adds separately.
+
+**The mode list is not §10.6's, in two ways.** §10.6's `An` row is replaced by
+an `FPn` row -- a floating-point operation takes no address register as an
+operand and does take a floating-point one -- so the two tables index different
+things at that position and the enum could not be shared. And §10.6 names the
+base register `BR` and prices the PC as one of its *rows*, where §10.7.2 names
+it `An` and pushes the PC into a footnote: "for BR = PC, add one clock to both
+`<ea>` calculate and execute times". Same six modes, opposite convention. The
+added clock is modelled onto the execute *base* rather than the lead: a lead is
+stall tolerance, and forming a longer address does not make the following
+instruction more able to overlap.
+
+Three facts fall out of the format axis, and each is a hardware property rather
+than a timing choice. `FPn` is priced only at extended precision, because the
+register file holds nothing else -- an `FPn` source *is* extended however the
+size field reads. `Dn` is priced for byte/word, long word and single and dashed
+for double and extended, which is the 32-bit register width and nothing more.
+And the long-word and single-precision columns are **identical in all seventeen
+rows**: both move 32 bits, and converting an integer or reinterpreting a single
+is the FPU's work, not the integer unit's. That identity is the clearest
+demonstration that §10.7.2 measures transfer.
+
+The byte/word column differs from the long-word column in exactly one row --
+`#<xxx>`, `5/3L + 2` against `3/1L + 2`. It is the one place where a *narrower*
+operand is the dearer one: an immediate is fetched from the instruction stream,
+so a byte or word must be extracted and widened where a long word is already
+aligned to fetch.
+
+**§10.7.1 catches a reader who trusts the mnemonic.** `FDBcc` continues its loop
+when the condition is *false*, so `cc False` is the branch-taken case and prints
+`11/1L + 9` against `cc True`'s `9/1L + 7`. Reading it like `FBcc` gets both
+figures backwards and would make a loop cheap on every iteration but the last.
+`FBcc` itself carries no lead in either direction -- a branch resolves the
+instruction stream, leaving nothing behind it to overlap -- while both `FDBcc`
+cases do, the decrement being work that can overlap. `FTRAPcc` is priced only
+for the untaken case; taking the trap costs the exception, which §10.7 does not
+price and this module does not invent.
+
+Four preamble statements are recorded in the module header because they
+constrain any later fast path: operand order is not significant for timing,
+rounding *modes* never cost anything (only precision does), an `S` or `D` suffix
+is a precision selection rather than a separate opcode, and every `FMOVEM` waits
+for the pipe to idle before starting -- which is why `FMOVEM` is absent from the
+ten-instruction column and cannot be priced by table lookup at all.
+
+What remains of the 68040 item is §10.7.3, the timings inside the FPU itself. That is bulk transcription against the
 composition already in place, and the last thing standing between Phase 2b and
 complete. Appendix A's bit rows have to come from page images --
 `pdftotext` renders them with zeros as letters and columns collapsed, the same

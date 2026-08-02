@@ -2157,8 +2157,15 @@ a 68882, and the 68882 is the only one of these it has.
         memory-indirect cells in the section, which is the best structural
         evidence that a lead is stall tolerance.
         **§10.6 is complete**: 46 column groups, 71 mnemonics, 17 addressing
-        modes, `m68040_iu_timing_suite` at 99 tests. Then §10.7's ten pages
-        of floating-point timings. Bulk transcription against the composition above,
+        modes, `m68040_iu_timing_suite` at 99 tests.
+  - [~] §10.7's floating-point timings. §10.7.1 and §10.7.2 are in, as a
+        separate module: they price the *integer unit's* support for an
+        instruction -- address formation and operand transfer with an idle
+        FPU -- not the arithmetic, so `FDIV` and `FNEG` share one column.
+        The mode list is not §10.6's (`FPn` replaces `An`, and a PC base is a
+        footnoted penalty rather than a row), and a second axis indexes the
+        source operand format. `m68040_fpu_timing_suite`, 18 tests.
+        §10.7.3, the timings inside the FPU, remains. Bulk transcription against the composition above,
         and the last thing standing between Phase 2b and complete. Every figure
         is a *best case* by §10.1's suppositions: "all memory accesses hit in
         the caches", and misaligned `<ea>` fetch timing is left to the reader.
