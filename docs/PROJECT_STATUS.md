@@ -1144,7 +1144,28 @@ F-line illegal exception **share vector 11**, and "the exception handler uses th
 stack frame format ($0 or $2) to distinguish between the two". The frame format
 is the only discriminator, so pushing the wrong one would send a legal `FSIN` to
 the illegal-instruction handler and kill a process that should have had its sine
-computed in software. Appendix A's bit rows have to come from page images --
+computed in software.
+
+**The floating-point programming model is shared, and that is recorded as
+evidence rather than assumed.** §9.1 states it: "The MC68040 FPU is compatible
+with the MC68881/MC68882." Duplicating `FPCR`, `FPSR` and their encodings would
+create two descriptions of one thing, and the copy no booting machine exercised
+would drift -- the same argument that made `ap_cpu_decode()` a wrapper rather
+than a second decoder. So `m68040_fp_model_suite` checks the 68040 manual's own
+statements (Table 9-1's rounding encodings, §9.2.2.2's 24/53/64-bit boundaries,
+Figure 9-5's exception bit positions, §9.2.2's reset defaults) against the 68882
+modules already in the core. If the parts ever turn out to differ, a test fails
+and the sharing gets revisited instead of being silently wrong.
+
+The distinction the suite keeps straight: the programming model is common and
+the *instruction set* is not. `FSIN` uses the same registers, rounding mode and
+exception bits on both parts -- and executes on one while trapping on the other.
+
+What the 68040 item still owes is the **pipeline**. §9.1 is prose about
+concurrency ("instructions can execute nonsequentially as long as there are no
+register dependencies") and defers its numbers to §10 Instruction Timings, so
+this is a transcription job of the same shape as the 68030's §11.6 in Phase 2 --
+substantial, and the last thing standing between Phase 2b and complete. Appendix A's bit rows have to come from page images --
 `pdftotext` renders them with zeros as letters and columns collapsed, the same
 failure that cost a bit position in the 68020's module entry word.
 

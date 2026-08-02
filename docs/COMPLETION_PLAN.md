@@ -2089,6 +2089,14 @@ a 68882, and the 68882 is the only one of these it has.
         only discriminator is the stack frame format. Table 9-10 omits `FLOG2`
         and Appendix E's Table E-2 proves it should be there -- a defect
         resolved without leaving the manual. `m68040_fpu_suite`, 12 tests.
+  - [x] The floating-point programming model, which is the 68882's -- §9.1 says
+        so outright and `m68040_fp_model_suite` is the evidence, checking the
+        68040 manual's own encodings against the modules already in the core
+        rather than duplicating them. 7 tests.
+  - [ ] The pipeline. §9.1 is prose about concurrency and defers its numbers to
+        §10 Instruction Timings, so this is a transcription job of the same
+        shape as the 68030's §11.6 in Phase 2 -- and the only part of the 68040
+        item still open.
 
 ## Phase 3 — Core board
 
