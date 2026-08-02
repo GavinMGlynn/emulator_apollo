@@ -134,13 +134,22 @@ def main(argv=None) -> int:
     parser.add_argument("--timeout", type=float, default=300.0)
     parser.add_argument("--work", type=Path, default=Path("/tmp"))
     parser.add_argument(
-        "--program", choices=("sentinel", "fpu", "fpu-rounding", "fpu-sine"),
+        "--program", choices=("sentinel", "fpu", "fpu-rounding", "fpu-sine", "fpu-sine-x"),
         default="sentinel",
         help="which probe to run; `fpu` exercises the coprocessor's constant "
              "ROM, an FADD and the store conversion in one")
     args = parser.parse_args(argv)
 
-    if args.program == "fpu-sine":
+    if args.program == "fpu-sine-x":
+        ours_words = E.fpu_sine_extended_probe(OURS_BASE + SENTINEL_OFFSET)
+        oracle_words = E.fpu_sine_extended_probe(ORACLE_BASE + SENTINEL_OFFSET)
+        print("probe:  FMOVECR #$32,FP0 (1.0) ; FSIN FP0,FP0 ;"
+              " FMOVE.X FP0,(A0) ; STOP")
+        print("        the *low* mantissa long word is read -- bits 31-0 of the"
+              " extended")
+        print("        significand, where two sines within a few ULP are free"
+              " to differ")
+    elif args.program == "fpu-sine":
         ours_words = E.fpu_sine_probe(OURS_BASE + SENTINEL_OFFSET)
         oracle_words = E.fpu_sine_probe(ORACLE_BASE + SENTINEL_OFFSET)
         print("probe:  FMOVECR #$32,FP0 (1.0) ; FSIN FP0,FP0 ;"
@@ -182,12 +191,21 @@ def main(argv=None) -> int:
                         args.limit, args.timeout)
 
     expected = {"fpu": "401921FB", "fpu-rounding": "BBB55515",
-                "fpu-sine": "8F090CEE"}.get(
+                "fpu-sine": "8F090CEE",
+                # No expected value: this is a cross-implementation comparison,
+                # and the correctly rounded extended sin(1) is asserted by
+                # `m68882_transcendental_suite` against 120-digit references
+                # rather than restated here.
+                "fpu-sine-x": None}.get(
         args.program, "%08X" % args.sentinel)
     checks = [
         ("instructions executed", ours.get("ran"), oracle.get("ran")),
         ("sentinel in memory", ours.get("read"), oracle.get("read")),
-        ("sentinel is the encoded value", expected, ours.get("read")),
+    ]
+    if expected is not None:
+        checks.append(
+            ("sentinel is the encoded value", expected, ours.get("read")))
+    checks += [
     ]
     if args.program == "sentinel":
         # D0 is only a *result* for the program that writes it. The FPU probe

@@ -232,6 +232,34 @@ def fpu_sine_probe(address: int = SENTINEL_ADDRESS) -> list[int]:
     )
 
 
+def fpu_sine_extended_probe(address: int = SENTINEL_ADDRESS) -> list[int]:
+    """`FSIN` of 1.0 stored as *extended*, reading the low mantissa long word.
+
+    C61 recorded that comparing a double cannot separate two conforming sines:
+    one unit in the last place of a double is 2048 of extended, and both
+    implementations are far inside that. The sharp comparison needs the extended
+    value -- and it needs no wider readback, because `FMOVE.X` writes twelve
+    bytes and the harness can be pointed at whichever long word matters.
+
+    That is the *third*: bytes 8-11 are mantissa bits 31-0, which is exactly
+    where two sines accurate to a few units in the last place are free to
+    disagree. So the store is aimed eight bytes low.
+
+    This probe is expected to be the one that finds a difference. If it does,
+    the difference is not automatically ours: §4.3.2 publishes a bound and no
+    algorithm, so both may conform and disagree, and the row records which is
+    closer to the true sine rather than which matches the other.
+    """
+    return assemble(
+        [0xF200, 0x5C32],                                      # FMOVECR #$32,FP0
+        [0xF200, 0x000E],                                      # FSIN    FP0,FP0
+        [0x207C, ((address - 8) >> 16) & 0xFFFF,
+         (address - 8) & 0xFFFF],                              # MOVEA.L #a-8,A0
+        [0xF210, 0x6800],                                      # FMOVE.X FP0,(A0)
+        stop(0x2700),
+    )
+
+
 if __name__ == "__main__":
     import sys
     print(to_hex(sentinel_probe()), file=sys.stdout)

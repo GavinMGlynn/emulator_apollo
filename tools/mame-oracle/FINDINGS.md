@@ -3823,3 +3823,52 @@ reading twelve bytes, which needs the harness's single-long-word readback
 widened. That is the measurement that would turn this row into a real comparison
 of the transcendentals, and it is named here so the limit is not re-litigated
 from a passing probe.
+
+## C62 -- the sharp sine probe finds a real difference, and we are the further one
+
+**Class: `ours-wrong`, with a qualification that matters: both conform.**
+
+C61 predicted that comparing at double precision could not separate the two
+implementations and named the sharper measurement. It needed no wider readback
+after all: `FMOVE.X` writes twelve bytes, so aiming the store eight bytes low
+puts mantissa bits 31-0 -- exactly where two sines accurate to a few units in the
+last place are free to disagree -- under the existing single-long-word read.
+
+    FMOVECR #$32,FP0 (1.0) ; FSIN FP0,FP0 ; FMOVE.X FP0,(A0)
+
+| Check | Ours | Oracle | |
+| --- | --- | --- | --- |
+| instructions executed | 5 | 5 | agree |
+| extended mantissa, bits 31-0 | `48677020` | `48677021` | **DIFFER** |
+
+Run with `python3 tools/mame-oracle/probe_compare.py --program fpu-sine-x`.
+
+**Adjudicated against neither implementation.** `sin(1)` to 120 decimal digits is
+`0.84147098480789650665250232163029899962...`, whose correctly rounded extended
+significand is `D76AA47848677021`. The oracle has it exactly; this core is one
+unit in the last place low.
+
+So the first sharp comparison of a transcendental found a real difference on its
+first argument, and it is ours. That is the campaign working: three probes agreed
+and taught us little, and the fourth -- built specifically to be able to fail --
+failed.
+
+**The qualification is not an excuse and should not be read as one.** §4.3.2's
+bound is 64 units in the last place typical and 4096 worst case, so 1 ULP
+conforms comfortably, and this core's sine is measured under 3.1 ULP against
+120-digit references across its whole tested range. Nothing here is out of
+specification. What the row records is narrower and still worth having: **at this
+argument MAME is closer to the true sine than we are**, so a claim that this core
+out-accurates the oracle on the transcendentals is not supported, and was never
+measured before now.
+
+What it does *not* establish is which is closer to the **part**, which is the
+only question that finally matters and which neither side can answer: Motorola
+published a bound and no algorithm, so the 68882's own sine may be further from
+the truth than both.
+
+**Next**: the same probe across a spread of arguments and the other eighteen
+transcendentals, which is now a loop over the encoder rather than new machinery.
+A per-function count of which side is closer is the measurement that would turn
+this single row into a divergence *class*, which is what the 68882's verification
+line asks for by name.
