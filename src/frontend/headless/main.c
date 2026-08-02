@@ -124,7 +124,7 @@ static void run_probes(FILE *out) {
 
   for (unsigned i = 0; i < count; i++) {
     const ap_probe_result_t result =
-        ap_probe_run(&probes[i], probe_ram, PROBE_RAM_BYTES);
+        ap_probe_run(&probes[i], probe_ram, PROBE_RAM_BYTES, model);
     fprintf(out, "%-18s %4u %-14s %08X %08X %8llu %4u %016llX\n",
             probes[i].name, result.executed,
             ap_probe_status_name(result.status), (unsigned)result.d0,
@@ -220,7 +220,7 @@ static int run_probe_file(FILE *out, const char *program_name,
       .limit = limit,
   };
   const ap_probe_result_t result =
-      ap_probe_run(&probe, probe_ram, PROBE_RAM_BYTES);
+      ap_probe_run(&probe, probe_ram, PROBE_RAM_BYTES, model);
 
   fprintf(out, "# apollo probe file result\n");
   fprintf(out, "words     %u\n", word_count);

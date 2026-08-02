@@ -34,6 +34,7 @@
 #include <stdint.h>
 
 #include "cpu/m68030/ap_m68030_step.h"
+#include "model/ap_model.h"
 
 typedef struct {
   const char *name;
@@ -69,8 +70,15 @@ typedef struct {
 /* Run one probe over caller-owned RAM. The RAM is blanked first, so a probe's
  * result cannot depend on what the previous probe left — which is the whole
  * reason a probe suite is worth running in a fixed order. */
+/* `model` decides which machine the probe runs on, which for a probe means
+ * which *CPU family*: a DN3000 is a 68020 and accepts `CALLM` where a DN3500
+ * refuses it. Passed rather than assumed so `--model dn3000 --run-probes`
+ * probes the part it names, which is what the 68020's verification line has
+ * always asked for and what could not be run while every machine was a
+ * DN3500. */
 [[nodiscard]] ap_probe_result_t ap_probe_run(const ap_probe_t *probe,
-                                             uint8_t *ram, uint32_t ram_bytes);
+                                             uint8_t *ram, uint32_t ram_bytes,
+                                             ap_model_id_t model);
 
 /* ---------------------------------------------------------------------------
  * Per-instruction timing, measured the way the oracle's harness measures it.

@@ -182,7 +182,7 @@ const char *ap_probe_status_name(ap_m68030_step_status_t status) {
 }
 
 ap_probe_result_t ap_probe_run(const ap_probe_t *probe, uint8_t *ram,
-                               uint32_t ram_bytes) {
+                               uint32_t ram_bytes, ap_model_id_t model) {
   ap_probe_result_t out = {0};
 
   /* Blanked first: a probe's result must not depend on what the previous probe
@@ -192,7 +192,7 @@ ap_probe_result_t ap_probe_run(const ap_probe_t *probe, uint8_t *ram,
   }
 
   ap_machine_t machine;
-  ap_machine_init(&machine, ram, ram_bytes);
+  ap_machine_init_model(&machine, ram, ram_bytes, model);
   ap_machine_reset(&machine, probe->entry, probe->stack);
 
   for (unsigned i = 0; i < probe->word_count; i++) {
