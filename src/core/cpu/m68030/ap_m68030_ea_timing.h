@@ -67,6 +67,39 @@ ap_m68030_ea_fetch_timing(ap_m68030_ea_kind_t kind, unsigned operand_size);
 [[nodiscard]] const ap_m68030_ea_timing_t *
 ap_m68030_ea_calculate_timing(ap_m68030_ea_kind_t kind);
 
+/* §11.6.1's FULL FORMAT EXTENSION WORD(S) rows, selected by the extension word
+ * rather than by the addressing mode -- a full-format extension can express
+ * sixteen distinct costs behind one mode field, from 6 clocks to 18.
+ *
+ * ## The reading this depends on, which is `PROVISIONAL`
+ *
+ * The table publishes its full-format rows in two groups, one written with
+ * `d16,An` spelled out and one with `B`, defined by the table's own footnote as
+ * "Base Address; 0, An, PC, Xn, An + Xn, PC + Xn. Form does not affect timing".
+ * Taken literally those groups overlap and contradict: `(d16,An)` is 6 clocks
+ * and `(d16,B)` is 8, and `B` may be `An`.
+ *
+ * What resolves it is that **every** group A row equals its group B row with
+ * the base displacement dropped -- all eight, with no exception -- so the
+ * reading is that a *word* base displacement is free when the base is a
+ * register and costs 2 clocks when it is not. A long base displacement is never
+ * free, which is why group A has no `d32` row at all, and the head column
+ * agrees: 2 for the free rows against 4 for the rest.
+ *
+ * The `MC68020 User's Manual` §9.2.1 corroborates it from outside: it has the
+ * same table with the same footnotes and **no `d16,An` group**, its `(d16,An)`
+ * costing 2 more than its `(B)`. So the free word displacement is something the
+ * 68030 added, which is exactly why only its table needs two groups.
+ *
+ * Eight rows with no counterexample, a corroborating sibling manual and an
+ * agreeing head column is a documented reading rather than a guess -- but it is
+ * still a reading, so it is marked `PROVISIONAL` in `PROJECT_STATUS.md` with
+ * the measurement that would close it. `docs/references/M68030_TIMING.md` has
+ * the full derivation.
+ */
+[[nodiscard]] const ap_m68030_ea_timing_t *
+ap_m68030_ea_fetch_timing_full(const ap_m68030_extension_t *extension);
+
 /* ---------------------------------------------------------------------------
  * Equation (11-2): composing an effective address with its operation.
  * ------------------------------------------------------------------------- */

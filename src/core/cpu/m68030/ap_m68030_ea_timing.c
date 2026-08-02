@@ -66,6 +66,137 @@ static const ap_m68030_ea_timing_t CALCULATE_ABSOLUTE_LONG = {
 static const ap_m68030_ea_timing_t CALCULATE_INDEXED = {
     "(d8,An,Xn) or (d8,PC,Xn)", {4, 0, 4, 4, .prefetches = 0}, true, true};
 
+/* §11.6.1's FULL FORMAT EXTENSION WORD(S) rows, transcribed from the page image.
+ * Sixteen entries: four base-displacement cases against four outer-displacement
+ * cases, which is the whole space a full-format extension word can express.
+ *
+ * The row names are the manual's own, so a figure can be traced to a line. Where
+ * a row is named twice in the table -- `([B])` and `([B],I)` are both
+ * `10(2/0/0)`, the index making no difference -- the name here is the first.
+ *
+ * `PROVISIONAL`: which of the table's two groups an encoding selects is a
+ * reading, not a statement. See the header. */
+
+/* No memory indirect action. */
+static const ap_m68030_ea_timing_t FULL_NONE_BD_NULL = {
+    "(B)", {4, 0, 6, 7, .reads = 1, .prefetches = 1}, true, false};
+static const ap_m68030_ea_timing_t FULL_NONE_BD_WORD_BASED = {
+    "(d16,An) or (d16,PC)", {2, 0, 6, 7, .reads = 1, .prefetches = 1}, true,
+    false};
+static const ap_m68030_ea_timing_t FULL_NONE_BD_WORD = {
+    "(d16,B)", {4, 0, 8, 10, .reads = 1, .prefetches = 1}, true, false};
+static const ap_m68030_ea_timing_t FULL_NONE_BD_LONG = {
+    "(d32,B)", {4, 0, 12, 13, .reads = 1, .prefetches = 2}, true, false};
+
+/* Memory indirect, no outer displacement. */
+static const ap_m68030_ea_timing_t FULL_OD_NULL_BD_NULL = {
+    "([B])", {4, 0, 10, 10, .reads = 2, .prefetches = 1}, true, false};
+static const ap_m68030_ea_timing_t FULL_OD_NULL_BD_WORD_BASED = {
+    "([d16,An]) or ([d16,PC])", {2, 0, 10, 10, .reads = 2, .prefetches = 1},
+    true, false};
+static const ap_m68030_ea_timing_t FULL_OD_NULL_BD_WORD = {
+    "([d16,B])", {4, 0, 12, 13, .reads = 2, .prefetches = 1}, true, false};
+static const ap_m68030_ea_timing_t FULL_OD_NULL_BD_LONG = {
+    "([d32,B])", {4, 0, 16, 17, .reads = 2, .prefetches = 2}, true, false};
+
+/* Memory indirect with a word outer displacement. */
+static const ap_m68030_ea_timing_t FULL_OD_WORD_BD_NULL = {
+    "([B],d16)", {4, 0, 12, 13, .reads = 2, .prefetches = 1}, true, false};
+static const ap_m68030_ea_timing_t FULL_OD_WORD_BD_WORD_BASED = {
+    "([d16,An],d16)", {2, 0, 12, 13, .reads = 2, .prefetches = 2}, true, false};
+static const ap_m68030_ea_timing_t FULL_OD_WORD_BD_WORD = {
+    "([d16,B],d16)", {4, 0, 14, 16, .reads = 2, .prefetches = 2}, true, false};
+static const ap_m68030_ea_timing_t FULL_OD_WORD_BD_LONG = {
+    "([d32,B],d16)", {4, 0, 18, 20, .reads = 2, .prefetches = 2}, true, false};
+
+/* Memory indirect with a long outer displacement. */
+static const ap_m68030_ea_timing_t FULL_OD_LONG_BD_NULL = {
+    "([B],d32)", {4, 0, 12, 14, .reads = 2, .prefetches = 2}, true, false};
+static const ap_m68030_ea_timing_t FULL_OD_LONG_BD_WORD_BASED = {
+    "([d16,An],d32)", {2, 0, 12, 14, .reads = 2, .prefetches = 2}, true, false};
+static const ap_m68030_ea_timing_t FULL_OD_LONG_BD_WORD = {
+    "([d16,B],d32)", {4, 0, 14, 17, .reads = 2, .prefetches = 2}, true, false};
+static const ap_m68030_ea_timing_t FULL_OD_LONG_BD_LONG = {
+    "([d32,B],d32)", {4, 0, 18, 21, .reads = 2, .prefetches = 3}, true, false};
+
+const ap_m68030_ea_timing_t *
+ap_m68030_ea_fetch_timing_full(const ap_m68030_extension_t *extension) {
+  if (extension == nullptr || !extension->full_format || extension->reserved) {
+    return nullptr;
+  }
+
+  /* A word base displacement is free when the base is a register, and costs two
+   * clocks when it is not -- the reading the header sets out. `base_suppressed`
+   * is what separates them: with BS set there is no register to fold the
+   * displacement into. */
+  const bool word_based = extension->base_displacement_size == AP_M68030_BD_WORD &&
+                          !extension->base_suppressed;
+
+  switch (extension->indirect) {
+  case AP_M68030_INDIRECT_NONE:
+    switch (extension->base_displacement_size) {
+    case AP_M68030_BD_NULL:
+      return &FULL_NONE_BD_NULL;
+    case AP_M68030_BD_WORD:
+      return word_based ? &FULL_NONE_BD_WORD_BASED : &FULL_NONE_BD_WORD;
+    case AP_M68030_BD_LONG:
+      return &FULL_NONE_BD_LONG;
+    case AP_M68030_BD_RESERVED:
+      break;
+    }
+    return nullptr;
+
+  case AP_M68030_INDIRECT_PREINDEXED:
+  case AP_M68030_INDIRECT_POSTINDEXED:
+  case AP_M68030_INDIRECT_MEMORY:
+    /* The index makes no difference to the figures: `([B])` and `([B],I)` are
+     * both `10(2/0/0)`, and the same holds at every outer displacement. So
+     * preindexed, postindexed and index-suppressed share a row, and the table's
+     * note that "scaling and size of Xn do not affect timing" is the same
+     * statement from the other side. */
+    switch (extension->outer_displacement_size) {
+    case AP_M68030_OD_NULL:
+      switch (extension->base_displacement_size) {
+      case AP_M68030_BD_NULL: return &FULL_OD_NULL_BD_NULL;
+      case AP_M68030_BD_WORD:
+        return word_based ? &FULL_OD_NULL_BD_WORD_BASED : &FULL_OD_NULL_BD_WORD;
+      case AP_M68030_BD_LONG: return &FULL_OD_NULL_BD_LONG;
+      case AP_M68030_BD_RESERVED: break;
+      }
+      return nullptr;
+    case AP_M68030_OD_WORD:
+      switch (extension->base_displacement_size) {
+      case AP_M68030_BD_NULL: return &FULL_OD_WORD_BD_NULL;
+      case AP_M68030_BD_WORD:
+        return word_based ? &FULL_OD_WORD_BD_WORD_BASED : &FULL_OD_WORD_BD_WORD;
+      case AP_M68030_BD_LONG: return &FULL_OD_WORD_BD_LONG;
+      case AP_M68030_BD_RESERVED: break;
+      }
+      return nullptr;
+    case AP_M68030_OD_LONG:
+      switch (extension->base_displacement_size) {
+      case AP_M68030_BD_NULL: return &FULL_OD_LONG_BD_NULL;
+      case AP_M68030_BD_WORD:
+        return word_based ? &FULL_OD_LONG_BD_WORD_BASED : &FULL_OD_LONG_BD_WORD;
+      case AP_M68030_BD_LONG: return &FULL_OD_LONG_BD_LONG;
+      case AP_M68030_BD_RESERVED: break;
+      }
+      return nullptr;
+    case AP_M68030_OD_NONE:
+      /* A memory indirect action always has an outer displacement size, even
+       * when it is null. `NONE` means there is no indirection at all, which the
+       * arm above handles -- so reaching here is an inconsistent decode rather
+       * than a row this table lacks. */
+      break;
+    }
+    return nullptr;
+
+  case AP_M68030_INDIRECT_RESERVED:
+    break;
+  }
+  return nullptr;
+}
+
 unsigned ap_m68030_ea_timing_head(const ap_m68030_ea_timing_t *ea,
                                   unsigned operation_head) {
   if (ea == nullptr || !ea->head_applies) {

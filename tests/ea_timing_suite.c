@@ -338,8 +338,215 @@ static void test_our_transcription_agrees_with_the_examples_own_figures(void) {
   TEST_ASSERT_EQUAL_UINT(2u, neg->timing.cache_case);
 }
 
+
+/* ---------------------------------------------------------------------------
+ * §11.6.1's full-format rows.
+ *
+ * A transcription cannot be checked by re-reading it, so these check structure:
+ * the relationships that must hold across the sixteen rows, and the reading
+ * that selects between the table's two groups.
+ * ------------------------------------------------------------------------- */
+
+static ap_m68030_extension_t full(ap_m68030_bd_size_t bd, bool base_suppressed,
+                                  ap_m68030_indirect_t indirect,
+                                  ap_m68030_od_size_t od) {
+  return (ap_m68030_extension_t){
+      .full_format = true,
+      .base_suppressed = base_suppressed,
+      .base_displacement_size = bd,
+      .indirect = indirect,
+      .outer_displacement_size = od,
+  };
+}
+
+/* The whole space resolves, and every row is internally consistent. Sixteen
+ * combinations of base and outer displacement, each of which a full-format
+ * extension word can encode -- a gap here would be an addressing mode the core
+ * could decode and not price. */
+static void test_every_full_format_combination_has_a_row(void) {
+  const ap_m68030_bd_size_t bds[] = {AP_M68030_BD_NULL, AP_M68030_BD_WORD,
+                                     AP_M68030_BD_LONG};
+  const ap_m68030_od_size_t ods[] = {AP_M68030_OD_NULL, AP_M68030_OD_WORD,
+                                     AP_M68030_OD_LONG};
+
+  for (unsigned b = 0; b < 3u; b++) {
+    for (unsigned suppressed = 0; suppressed < 2u; suppressed++) {
+      const ap_m68030_extension_t plain =
+          full(bds[b], suppressed != 0u, AP_M68030_INDIRECT_NONE,
+               AP_M68030_OD_NONE);
+      const ap_m68030_ea_timing_t *row = ap_m68030_ea_fetch_timing_full(&plain);
+      TEST_ASSERT_NOT_NULL(row);
+      TEST_ASSERT_TRUE_MESSAGE(ap_m68030_timing_consistent(&row->timing),
+                               row->mode);
+
+      for (unsigned o = 0; o < 3u; o++) {
+        const ap_m68030_extension_t indirect =
+            full(bds[b], suppressed != 0u, AP_M68030_INDIRECT_PREINDEXED,
+                 ods[o]);
+        const ap_m68030_ea_timing_t *entry =
+            ap_m68030_ea_fetch_timing_full(&indirect);
+        TEST_ASSERT_NOT_NULL(entry);
+        TEST_ASSERT_TRUE_MESSAGE(ap_m68030_timing_consistent(&entry->timing),
+                                 entry->mode);
+      }
+    }
+  }
+}
+
+/* **The reading, isolated.** A word base displacement is free when the base is a
+ * register and costs two clocks when it is suppressed. That single difference is
+ * what the table's two groups are, and it is the thing marked `PROVISIONAL` --
+ * so it gets a test of its own rather than being buried in a sweep. */
+static void test_a_word_base_displacement_is_free_with_a_register_base(void) {
+  const ap_m68030_extension_t based =
+      full(AP_M68030_BD_WORD, false, AP_M68030_INDIRECT_NONE,
+           AP_M68030_OD_NONE);
+  const ap_m68030_extension_t suppressed =
+      full(AP_M68030_BD_WORD, true, AP_M68030_INDIRECT_NONE,
+           AP_M68030_OD_NONE);
+  const ap_m68030_extension_t none =
+      full(AP_M68030_BD_NULL, false, AP_M68030_INDIRECT_NONE,
+           AP_M68030_OD_NONE);
+
+  const ap_m68030_ea_timing_t *with_base = ap_m68030_ea_fetch_timing_full(&based);
+  const ap_m68030_ea_timing_t *without =
+      ap_m68030_ea_fetch_timing_full(&suppressed);
+  const ap_m68030_ea_timing_t *null_displacement =
+      ap_m68030_ea_fetch_timing_full(&none);
+  TEST_ASSERT_NOT_NULL(with_base);
+  TEST_ASSERT_NOT_NULL(without);
+  TEST_ASSERT_NOT_NULL(null_displacement);
+
+  /* Free: the same 6 clocks as no displacement at all. */
+  TEST_ASSERT_EQUAL_UINT(6u, null_displacement->timing.cache_case);
+  TEST_ASSERT_EQUAL_UINT(6u, with_base->timing.cache_case);
+  /* And two clocks when there is no register to fold it into. */
+  TEST_ASSERT_EQUAL_UINT(8u, without->timing.cache_case);
+
+  /* The head column agrees, which is the independent half of the reading: the
+   * free rows are the ones the table gives a head of 2 and the rest 4. */
+  TEST_ASSERT_EQUAL_UINT(2u, with_base->timing.head);
+  TEST_ASSERT_EQUAL_UINT(4u, without->timing.head);
+  TEST_ASSERT_EQUAL_UINT(4u, null_displacement->timing.head);
+}
+
+/* A long base displacement is never free -- group A has no `d32` row at all,
+ * which is what the reading predicts and is the control on it. Without this a
+ * transcription that made *every* displacement free would pass the test above. */
+static void test_a_long_base_displacement_is_never_free(void) {
+  const ap_m68030_extension_t based =
+      full(AP_M68030_BD_LONG, false, AP_M68030_INDIRECT_NONE,
+           AP_M68030_OD_NONE);
+  const ap_m68030_extension_t suppressed =
+      full(AP_M68030_BD_LONG, true, AP_M68030_INDIRECT_NONE,
+           AP_M68030_OD_NONE);
+
+  const ap_m68030_ea_timing_t *a = ap_m68030_ea_fetch_timing_full(&based);
+  const ap_m68030_ea_timing_t *b = ap_m68030_ea_fetch_timing_full(&suppressed);
+  TEST_ASSERT_NOT_NULL(a);
+  TEST_ASSERT_NOT_NULL(b);
+  TEST_ASSERT_EQUAL_UINT(12u, a->timing.cache_case);
+  TEST_ASSERT_EQUAL_UINT(12u, b->timing.cache_case);
+}
+
+/* An indirection costs a second operand read, everywhere. `(B)` reads once and
+ * `([B])` twice, and that holds at every base displacement -- which is the
+ * property that distinguishes this table from the calculate one, where the
+ * first level of indirection is the *only* read. */
+static void test_an_indirection_costs_a_second_read(void) {
+  const ap_m68030_bd_size_t bds[] = {AP_M68030_BD_NULL, AP_M68030_BD_WORD,
+                                     AP_M68030_BD_LONG};
+  for (unsigned b = 0; b < 3u; b++) {
+    const ap_m68030_extension_t plain =
+        full(bds[b], false, AP_M68030_INDIRECT_NONE, AP_M68030_OD_NONE);
+    const ap_m68030_extension_t indirect =
+        full(bds[b], false, AP_M68030_INDIRECT_MEMORY, AP_M68030_OD_NULL);
+    const ap_m68030_ea_timing_t *direct = ap_m68030_ea_fetch_timing_full(&plain);
+    const ap_m68030_ea_timing_t *through =
+        ap_m68030_ea_fetch_timing_full(&indirect);
+    TEST_ASSERT_NOT_NULL(direct);
+    TEST_ASSERT_NOT_NULL(through);
+    TEST_ASSERT_EQUAL_UINT_MESSAGE(1u, direct->timing.reads, direct->mode);
+    TEST_ASSERT_EQUAL_UINT_MESSAGE(2u, through->timing.reads, through->mode);
+    TEST_ASSERT_TRUE_MESSAGE(
+        through->timing.cache_case > direct->timing.cache_case, through->mode);
+  }
+}
+
+/* Whether the index is inside the brackets, outside them or absent makes no
+ * difference to the figures -- `([B])` and `([B],I)` are both `10(2/0/0)`, and
+ * the table says so itself in the note that "scaling and size of Xn do not
+ * affect timing". So the three indirection kinds share a row, and a model that
+ * gave preindexed and postindexed different costs would be inventing a
+ * difference the manual denies. */
+static void test_the_indirection_kinds_share_their_figures(void) {
+  const ap_m68030_indirect_t kinds[] = {AP_M68030_INDIRECT_PREINDEXED,
+                                        AP_M68030_INDIRECT_POSTINDEXED,
+                                        AP_M68030_INDIRECT_MEMORY};
+  const ap_m68030_ea_timing_t *first = nullptr;
+  for (unsigned i = 0; i < 3u; i++) {
+    const ap_m68030_extension_t extension =
+        full(AP_M68030_BD_NULL, false, kinds[i], AP_M68030_OD_WORD);
+    const ap_m68030_ea_timing_t *row =
+        ap_m68030_ea_fetch_timing_full(&extension);
+    TEST_ASSERT_NOT_NULL(row);
+    if (first == nullptr) {
+      first = row;
+    }
+    TEST_ASSERT_EQUAL_PTR(first, row);
+  }
+}
+
+/* A reserved encoding gets no row, and neither does a brief-format word. Both
+ * are the honest answer: the first is not an addressing mode, and the second
+ * has its own row in the table above. Returning a full-format figure for a
+ * brief-format word would over-charge by up to twelve clocks. */
+static void test_a_reserved_or_brief_extension_has_no_full_format_row(void) {
+  ap_m68030_extension_t reserved =
+      full(AP_M68030_BD_RESERVED, false, AP_M68030_INDIRECT_NONE,
+           AP_M68030_OD_NONE);
+  TEST_ASSERT_NULL(ap_m68030_ea_fetch_timing_full(&reserved));
+
+  ap_m68030_extension_t flagged =
+      full(AP_M68030_BD_WORD, false, AP_M68030_INDIRECT_NONE,
+           AP_M68030_OD_NONE);
+  flagged.reserved = true;
+  TEST_ASSERT_NULL(ap_m68030_ea_fetch_timing_full(&flagged));
+
+  ap_m68030_extension_t brief =
+      full(AP_M68030_BD_WORD, false, AP_M68030_INDIRECT_NONE,
+           AP_M68030_OD_NONE);
+  brief.full_format = false;
+  TEST_ASSERT_NULL(ap_m68030_ea_fetch_timing_full(&brief));
+
+  TEST_ASSERT_NULL(ap_m68030_ea_fetch_timing_full(nullptr));
+}
+
+/* The worked example's `fea ([B])` -- head 4, tail 0, 10 clocks -- which
+ * §11.3.4 prints inline for `AND.L D1,([A2])`. It had to be supplied by hand
+ * when the composition was first checked because these rows did not exist; now
+ * it can be looked up, which makes that test's inputs and this table agree from
+ * two different pages of the manual. */
+static void test_the_worked_examples_memory_indirect_row_is_reachable(void) {
+  const ap_m68030_extension_t indirect =
+      full(AP_M68030_BD_NULL, false, AP_M68030_INDIRECT_MEMORY,
+           AP_M68030_OD_NULL);
+  const ap_m68030_ea_timing_t *row = ap_m68030_ea_fetch_timing_full(&indirect);
+  TEST_ASSERT_NOT_NULL(row);
+  TEST_ASSERT_EQUAL_UINT(4u, row->timing.head);
+  TEST_ASSERT_EQUAL_UINT(0u, row->timing.tail);
+  TEST_ASSERT_EQUAL_UINT(10u, row->timing.cache_case);
+}
+
 int main(void) {
   UNITY_BEGIN();
+  RUN_TEST(test_every_full_format_combination_has_a_row);
+  RUN_TEST(test_a_word_base_displacement_is_free_with_a_register_base);
+  RUN_TEST(test_a_long_base_displacement_is_never_free);
+  RUN_TEST(test_an_indirection_costs_a_second_read);
+  RUN_TEST(test_the_indirection_kinds_share_their_figures);
+  RUN_TEST(test_a_reserved_or_brief_extension_has_no_full_format_row);
+  RUN_TEST(test_the_worked_examples_memory_indirect_row_is_reachable);
   RUN_TEST(test_the_worked_example_of_equation_11_2_comes_to_40_clocks);
   RUN_TEST(test_a_register_operand_contributes_no_component_at_all);
   RUN_TEST(test_a_relative_head_resolves_against_its_operation);

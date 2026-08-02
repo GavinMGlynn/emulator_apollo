@@ -1085,9 +1085,25 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
           *Verification: `timing_table_suite`, 16 tests, including the
           classification checked against each instruction's length and whether
           it changes flow rather than against the figures it is used with.*
-    - [ ] **Remaining, each named rather than left implicit:** the
-          **full-format extension word rows** of §11.6.1 and §11.6.3, without
-          which nothing composes over a memory indirect mode; §11.6.2, Fetch
+    - [x] **§11.6.1's full-format rows, transcribed and selectable by the
+          extension word** -- sixteen entries covering every combination of base
+          and outer displacement, which is the whole space a full-format word
+          can encode. The reading that decides between the table's two
+          contradictory groups is `PROVISIONAL` with its measurement named.
+          Detail in `PROJECT_STATUS.md` and
+          `docs/references/M68030_TIMING.md`.
+          *Verification: `ea_timing_suite`, 7 further tests (19 total) -- every
+          combination resolving to a consistent row; the reading isolated in a
+          test of its own rather than buried in a sweep, with a long base
+          displacement as the control that a transcription making *every*
+          displacement free would fail; an indirection costing a second read at
+          every base displacement; the three indirection kinds sharing their
+          figures, which the table's own note about Xn says from the other side;
+          and the worked example's `fea ([B])` now reachable by lookup, so that
+          test's hand-supplied inputs and this table agree from two different
+          pages.*
+    - [ ] **Remaining, each named rather than left implicit:** §11.6.3's
+          full-format rows, the calculate half of the same pass; §11.6.2, Fetch
           Immediate Effective Address, which the `**` rows need; and the
           **change-of-flow rows' prefetch cost**, declined because the target's
           alignment decides the fetch count -- their warm figures are exact and
