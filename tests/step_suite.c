@@ -4653,8 +4653,100 @@ static void test_the_breakpoint_number_is_on_a2_to_a4(void) {
   TEST_ASSERT_EQUAL_HEX32(0x0Cu, m.memory.cpu_space_address);
 }
 
+
+/* The reset exception, `[030]` §8.1.1's ten steps -- checked as a whole,
+ * because every one of them is a state a later exception or a first instruction
+ * depends on and none of them faults when missed. */
+static void test_reset_performs_all_ten_documented_steps(void) {
+  static const uint16_t program[] = {0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 1);
+
+  /* Put the processor in the state each step has to undo: tracing on, master
+   * mode, an open interrupt mask, a stale vector base, caches enabled and
+   * translation on. */
+  ap_m68030_write_sr(&m.cpu.regs,
+                     (uint16_t)((1u << AP_M68030_SR_T1_BIT) |
+                                (1u << AP_M68030_SR_S_BIT) |
+                                (1u << AP_M68030_SR_M_BIT)));
+  m.cpu.regs.vbr = 0x00004000u;
+  m.cpu.cacr.enable_instruction = true;
+  m.cpu.cacr.enable_data = true;
+  m.cpu.cacr.freeze_data = true;
+  m.cpu.cacr.write_allocate = true;
+  m.cpu.cacr.data_burst_enable = true;
+  m.cpu.tc.enable = true;
+  m.cpu.tt0.enabled = true;
+  m.cpu.tt1.enabled = true;
+
+  /* The vector at offset zero: stack pointer then program counter. */
+  write_ram_long(&m, 0u, SUPERVISOR_STACK);
+  write_ram_long(&m, 4u, HANDLER);
+
+  /* An ATC entry, which reset must *not* remove. */
+  const int entry = ap_m68030_atc_insert(&m.atc, 5u, 0x8000u, 12u, 0x9000u,
+                                         false, false, false, false);
+  TEST_ASSERT_TRUE(entry >= 0);
+
+  TEST_ASSERT_TRUE(ap_m68030_take_reset(&m.cpu));
+
+  /* 1. Tracing off. */
+  TEST_ASSERT_EQUAL_INT(AP_M68030_TRACE_NONE,
+                        ap_m68030_trace_mode(&m.cpu.regs));
+  /* 2. Supervisor *interrupt* mode: S set and M **clear**. Leaving M set puts
+   *    the machine on the master stack when every later exception expects the
+   *    interrupt stack. */
+  TEST_ASSERT_TRUE(ap_m68030_supervisor(&m.cpu.regs));
+  TEST_ASSERT_EQUAL_UINT(0u, (m.cpu.regs.sr >> AP_M68030_SR_M_BIT) & 1u);
+  /* 3. Mask at 7. */
+  TEST_ASSERT_EQUAL_UINT(7u, ap_m68030_interrupt_mask(&m.cpu.regs));
+  /* 4. Vector base zeroed -- a stale one sends every later vector fetch into
+   *    whatever the previous system used. */
+  TEST_ASSERT_EQUAL_HEX32(0u, m.cpu.regs.vbr);
+  /* 5. Both caches disabled, unfrozen, not bursting, write allocation off. */
+  TEST_ASSERT_FALSE(m.cpu.cacr.enable_instruction);
+  TEST_ASSERT_FALSE(m.cpu.cacr.enable_data);
+  TEST_ASSERT_FALSE(m.cpu.cacr.freeze_data);
+  TEST_ASSERT_FALSE(m.cpu.cacr.write_allocate);
+  TEST_ASSERT_FALSE(m.cpu.cacr.data_burst_enable);
+  /* 7. Translation off, in the TC and in **both** transparent registers. */
+  TEST_ASSERT_FALSE(m.cpu.tc.enable);
+  TEST_ASSERT_FALSE(m.cpu.tt0.enabled);
+  TEST_ASSERT_FALSE(m.cpu.tt1.enabled);
+  /* 9, 10. Both long words of the vector. */
+  TEST_ASSERT_EQUAL_HEX32(SUPERVISOR_STACK, m.cpu.regs.isp);
+  TEST_ASSERT_EQUAL_HEX32(HANDLER, m.cpu.regs.pc);
+
+  /* And the two explicit negatives, which are as load-bearing as the steps:
+   * "The reset exception does not flush the address translation cache (ATC),
+   * nor does it save the value of either the program counter or the status
+   * register." A model that flushed the ATC would be tidier and wrong. */
+  const ap_m68030_atc_result_t survived =
+      ap_m68030_atc_lookup(&m.atc, 5u, 0x8000u, 12u, false, false);
+  TEST_ASSERT_EQUAL_INT(AP_M68030_ATC_HIT, survived.status);
+}
+
+/* No frame is built: reset "does not save the value of either the program
+ * counter or the status register", so the stack pointer it loads is the one
+ * from the vector and nothing has been pushed below it. */
+static void test_reset_stacks_nothing(void) {
+  static const uint16_t program[] = {0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 1);
+  write_ram_long(&m, 0u, SUPERVISOR_STACK);
+  write_ram_long(&m, 4u, HANDLER);
+
+  const unsigned stores_before = m.memory.stores;
+  TEST_ASSERT_TRUE(ap_m68030_take_reset(&m.cpu));
+
+  TEST_ASSERT_EQUAL_HEX32(SUPERVISOR_STACK, ap_m68030_read_a7(&m.cpu.regs));
+  TEST_ASSERT_EQUAL_UINT(stores_before, m.memory.stores);
+}
+
 int main(void) {
   UNITY_BEGIN();
+  RUN_TEST(test_reset_performs_all_ten_documented_steps);
+  RUN_TEST(test_reset_stacks_nothing);
   RUN_TEST(test_bkpt_takes_an_illegal_instruction_when_nothing_answers);
   RUN_TEST(test_the_breakpoint_number_is_on_a2_to_a4);
   RUN_TEST(test_chk_sets_z_from_the_register_not_the_bound);

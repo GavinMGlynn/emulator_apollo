@@ -1339,10 +1339,26 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         holding the line there does not re-interrupt — a model that read the
         level alone would never let the handler make progress. An interrupt also
         ends a `STOP`, which is what `STOP` was waiting for.
-        Still open, each declined rather than approximated: reset (stacks
-        nothing), the bus and address error frames (formats `$A`/`$B`, which
-        carry internal state this model does not have), and the coprocessor
-        mid-instruction frame. `CHK`, `TRAPV`,
+        **Reset now performs §8.1.1's ten steps** and is no longer declined.
+        Four of them are the ones a plausible implementation drops, none of
+        which faults when missed: "setting the supervisor bit **and clearing the
+        master bit**"; the vector base register zeroed; the caches' freeze and
+        **write-allocate** bits cleared along with their enables; and
+        translation disabled in the TC *and* in both transparent registers.
+        Two explicit negatives are as load-bearing as the steps -- reset "does
+        **not** flush the address translation cache (ATC), nor does it save the
+        value of either the program counter or the status register" -- so there
+        is no frame, and an ATC entry must survive. A model that flushed it
+        would be tidier and wrong.
+        *Verification: `step_suite`, 2 further tests (193 total) -- the ten
+        steps checked as a whole from a processor deliberately left in the
+        state each one has to undo, with an ATC entry asserted to survive; and
+        nothing stacked, checked by counting stores rather than by inspecting
+        the stack pointer alone.*
+        The bus and address error frames (`$A`/`$B`) build and return; the
+        coprocessor mid-instruction frame stays declined, and correctly so --
+        only a coprocessor generates it, and this machine has none until the
+        68882 lands in Phase 2b. `CHK`, `TRAPV`,
         `TRAP`, `TRAPV`, `CHK`, the privilege violations, the illegal
         instruction word, the MMU configuration errors, the interrupts and
         **trace** are all wired in — every exception this model can build a

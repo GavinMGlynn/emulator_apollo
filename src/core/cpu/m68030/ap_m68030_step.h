@@ -222,6 +222,38 @@ typedef struct {
 /* Point the processor at an address, emptying the pipe. */
 void ap_m68030_cpu_reset(ap_m68030_cpu_t *cpu, uint32_t pc);
 
+/* The reset exception, `[030]` §8.1.1's ten numbered steps.
+ *
+ * Distinct from `ap_m68030_cpu_reset`, which places a program counter and empties
+ * the pipe: that is a harness operation and this is the *exception*, which reads
+ * its stack pointer and program counter from the vector at offset zero and puts
+ * the whole processor into a defined state on the way.
+ *
+ * Four of the ten are the ones a plausible implementation drops, and none of
+ * them faults when missed:
+ *
+ *  - "setting the supervisor bit **and clearing the master bit**" -- leaving M
+ *    set puts the machine on the master stack when every later exception
+ *    expects the interrupt stack.
+ *  - "Initializes the vector base register to zero" -- a stale VBR sends every
+ *    subsequent vector fetch into whatever the previous system used.
+ *  - "Clears the enable, freeze, and burst enable bits for both on-chip caches
+ *    **and the write-allocate bit** for the data cache".
+ *  - "Clears the enable bit in the translation control register and the enable
+ *    bits in **both** transparent translation registers" -- a machine that
+ *    reset with translation still on would fetch its first instruction through
+ *    a tree the new system has not built.
+ *
+ * And two explicit negatives, which are as load-bearing as the steps: "The
+ * reset exception does **not** flush the address translation cache (ATC), nor
+ * does it save the value of either the program counter or the status register."
+ * So there is no frame, and the ATC survives -- a model that flushed it would
+ * be tidier and wrong.
+ *
+ * Returns false if the vector could not be read, which is a machine with no
+ * memory at zero rather than a defect here. */
+[[nodiscard]] bool ap_m68030_take_reset(ap_m68030_cpu_t *cpu);
+
 /* Execute one instruction. */
 [[nodiscard]] ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu);
 

@@ -86,6 +86,60 @@ step_operand_write(ap_m68030_cpu_t *cpu, ap_m68030_regs_t *regs,
   return result;
 }
 
+bool ap_m68030_take_reset(ap_m68030_cpu_t *cpu) {
+  /* Steps 1-3: trace off, supervisor *interrupt* mode -- S set and M clear --
+   * and the mask at 7. */
+  uint16_t sr = cpu->regs.sr;
+  sr &= (uint16_t)~((1u << AP_M68030_SR_T1_BIT) | (1u << AP_M68030_SR_T0_BIT));
+  sr |= (uint16_t)(1u << AP_M68030_SR_S_BIT);
+  sr &= (uint16_t)~(1u << AP_M68030_SR_M_BIT);
+  sr |= (uint16_t)(AP_M68030_SR_INTERRUPT_MASK << AP_M68030_SR_INTERRUPT_SHIFT);
+  ap_m68030_write_sr(&cpu->regs, sr);
+
+  /* Step 4. */
+  cpu->regs.vbr = 0u;
+
+  /* Step 5: both caches disabled, unfrozen, not bursting, and the data cache's
+   * write allocation off. */
+  cpu->cacr = (ap_m68030_cacr_t){0};
+
+  /* Step 6: "Invalidates all entries in the instruction and data caches." Only
+   * the caches -- step 7's own text and the closing paragraph are explicit that
+   * the ATC is *not* flushed. */
+  if (cpu->fetch.access != nullptr && cpu->fetch.access->cache != nullptr) {
+    ap_m68030_cache_clear(cpu->fetch.access->cache);
+  }
+  if (cpu->data != nullptr && cpu->data->cache != nullptr) {
+    ap_m68030_cache_clear(cpu->data->cache);
+  }
+
+  /* Step 7. */
+  cpu->tc.enable = false;
+  cpu->tt0.enabled = false;
+  cpu->tt1.enabled = false;
+
+  /* Steps 8-10: the two long words at offset zero, in supervisor *program*
+   * space. Read through the ordinary path, so a machine with nothing at zero
+   * reports the failure rather than starting from whatever was in the
+   * registers. */
+  const ap_m68030_access_result_t stack = ap_m68030_access_read(
+      cpu->fetch.access, 0u, AP_M68030_FC_SUPERVISOR_PROGRAM);
+  const ap_m68030_access_result_t start = ap_m68030_access_read(
+      cpu->fetch.access, 4u, AP_M68030_FC_SUPERVISOR_PROGRAM);
+  if (!stack.ok || !start.ok) {
+    return false;
+  }
+
+  cpu->regs.isp = stack.value;
+  cpu->stopped = false;
+  cpu->pending_vector = 0;
+  cpu->interrupt_level = 0;
+  cpu->previous_interrupt_level = 0;
+  ap_m68030_fetch_reset(&cpu->fetch, start.value);
+  cpu->regs.pc = start.value;
+  return true;
+}
+
 void ap_m68030_cpu_reset(ap_m68030_cpu_t *cpu, uint32_t pc) {
   cpu->regs.pc = pc;
   ap_m68030_fetch_reset(&cpu->fetch, pc);
