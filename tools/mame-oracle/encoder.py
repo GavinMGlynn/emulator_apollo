@@ -208,6 +208,30 @@ def fpu_rounding_probe(address: int = SENTINEL_ADDRESS) -> list[int]:
     )
 
 
+def fpu_sine_probe(address: int = SENTINEL_ADDRESS) -> list[int]:
+    """`FSIN` of 1.0, stored as a double, low long word first.
+
+    The transcendentals are where the two implementations are *least* obliged to
+    agree: §4.3.2 publishes an error bound and no algorithm, so any conforming
+    sine may differ from any other in the low bits, and MAME's driver admits
+    gaps "in some FPU operations and operands". This probe is therefore the one
+    most likely to find a difference -- which is why it reads the low long word,
+    where a difference would appear, rather than the high one where two answers
+    within a hundred units in the last place would still look identical.
+
+    1.0 comes from the constant ROM at `$32` (`10^0`) so the probe needs no
+    immediate operand, and `sin(1)` is `3FEAED548F090CEE` correctly rounded.
+    """
+    return assemble(
+        [0xF200, 0x5C32],                                      # FMOVECR #$32,FP0
+        [0xF200, 0x000E],                                      # FSIN    FP0,FP0
+        [0x207C, ((address - 4) >> 16) & 0xFFFF,
+         (address - 4) & 0xFFFF],                              # MOVEA.L #a-4,A0
+        [0xF210, 0x7400],                                      # FMOVE.D FP0,(A0)
+        stop(0x2700),
+    )
+
+
 if __name__ == "__main__":
     import sys
     print(to_hex(sentinel_probe()), file=sys.stdout)

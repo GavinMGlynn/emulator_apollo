@@ -134,12 +134,22 @@ def main(argv=None) -> int:
     parser.add_argument("--timeout", type=float, default=300.0)
     parser.add_argument("--work", type=Path, default=Path("/tmp"))
     parser.add_argument(
-        "--program", choices=("sentinel", "fpu", "fpu-rounding"), default="sentinel",
+        "--program", choices=("sentinel", "fpu", "fpu-rounding", "fpu-sine"),
+        default="sentinel",
         help="which probe to run; `fpu` exercises the coprocessor's constant "
              "ROM, an FADD and the store conversion in one")
     args = parser.parse_args(argv)
 
-    if args.program == "fpu-rounding":
+    if args.program == "fpu-sine":
+        ours_words = E.fpu_sine_probe(OURS_BASE + SENTINEL_OFFSET)
+        oracle_words = E.fpu_sine_probe(ORACLE_BASE + SENTINEL_OFFSET)
+        print("probe:  FMOVECR #$32,FP0 (1.0) ; FSIN FP0,FP0 ;"
+              " FMOVE.D FP0,(A0) ; STOP")
+        print("        sin(1) correctly rounded is 3FEAED548F090CEE; the low"
+              " long word is read,")
+        print("        because that is where two conforming sines are free to"
+              " differ")
+    elif args.program == "fpu-rounding":
         ours_words = E.fpu_rounding_probe(OURS_BASE + SENTINEL_OFFSET)
         oracle_words = E.fpu_rounding_probe(ORACLE_BASE + SENTINEL_OFFSET)
         print("probe:  FMOVE.L #$10,FPCR (round to zero) ; FMOVECR #$31,FP0"
@@ -171,7 +181,8 @@ def main(argv=None) -> int:
     oracle = run_oracle(oracle_words, ORACLE_BASE, ORACLE_BASE + SENTINEL_OFFSET,
                         args.limit, args.timeout)
 
-    expected = {"fpu": "401921FB", "fpu-rounding": "BBB55515"}.get(
+    expected = {"fpu": "401921FB", "fpu-rounding": "BBB55515",
+                "fpu-sine": "8F090CEE"}.get(
         args.program, "%08X" % args.sentinel)
     checks = [
         ("instructions executed", ours.get("ran"), oracle.get("ran")),

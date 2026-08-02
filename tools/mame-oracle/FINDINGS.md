@@ -3784,3 +3784,42 @@ none of the eleven low bits where a ROM is most likely to differ from a correctl
 rounded value, and one constant is not twenty-two -- but it is the first evidence
 from outside this project that the table is right, and it narrows what a full
 readback would have to disagree about.
+
+## C61 -- the sine agrees, and the comparison cannot yet be sharp enough to matter
+
+**Class: `sub-poll-slack`** -- the resolution limit is the point of this row.
+
+`FSIN` is where the two implementations are *least* obliged to agree. §4.3.2
+publishes an error bound and no algorithm, so any conforming sine may differ from
+any other in the low bits, and MAME's driver admits gaps "in some FPU operations
+and operands". This is the probe most likely to find a difference.
+
+    FMOVECR #$32,FP0 (1.0) ; FSIN FP0,FP0 ; FMOVE.D FP0,(A0)
+
+| Check | Ours | Oracle | |
+| --- | --- | --- | --- |
+| instructions executed | 5 | 5 | agree |
+| stored low long word | `8F090CEE` | `8F090CEE` | agree |
+| against `sin(1)` correctly rounded | `8F090CEE` | -- | agree |
+
+Run with `python3 tools/mame-oracle/probe_compare.py --program fpu-sine`.
+
+**And the agreement proves less than it appears to.** The comparison is made at
+*double* precision, and one unit in the last place of a double is 2048 units in
+the last place of extended. This core's sine is measured under 3 ULP of extended
+against 120-digit references; anything within about a thousand times that error
+would round to the same double. So the probe cannot distinguish the two
+implementations at all unless one of them is wrong by a margin far outside the
+bound §4.3.2 publishes.
+
+What it does establish is real, and is worth having for that reason alone: both
+are inside double precision of the true sine, which is the accuracy the IEEE
+standard actually specifies for this conversion, and neither has a gross error at
+this argument. What it cannot establish is which of the two is closer to the
+part.
+
+**Sharpening it means comparing extended, not double** -- storing `FMOVE.X` and
+reading twelve bytes, which needs the harness's single-long-word readback
+widened. That is the measurement that would turn this row into a real comparison
+of the transcendentals, and it is named here so the limit is not re-litigated
+from a passing probe.
