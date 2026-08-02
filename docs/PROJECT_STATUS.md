@@ -1755,6 +1755,44 @@ this reason: `SF`, `SEQ`, `SNE`, `ST`. So `$01` is `EQ` and silent while `$11` i
 `SEQ` and signals, and the test states the pair: one NAN, two spellings of one
 comparison, two different answers.
 
+### FDBcc, FScc and FTRAPcc, and a defect in Table 4-19
+
+Three instructions, one type (`001`), one command word format, and Table 4-19's
+instruction-specific field to tell them apart. §4.7.2 states the division of
+labour plainly: "the MPU writes a conditional predicate to the FPCP condition CIR
+for evaluation ... The true or false result is returned to the main processor
+with the null primitive." So the coprocessor's whole half was already
+`ap_m68882_condition`, and decrementing a register, writing a byte and taking a
+trap are all the main processor's.
+
+**`FDBcc`'s branch base is a third rule.** "The value of the PC used in the
+branch address calculation is the address of the displacement word" — where
+`FBcc`, two pages earlier, uses the instruction's address plus two. The predicate
+word sitting between them is the whole difference, so a base carried across from
+`FBcc` is off by exactly its width. The counter is decremented in its **low
+sixteen bits only**, which is right for every count that never borrows and wrong
+for the one that does.
+
+`FTRAPcc` discards its optional immediate operand when the condition is false —
+discarded, but still *consumed*, or the operand decodes as the next instruction.
+
+**Table 4-19 has a defect at `111 000` and `111 001`.** It marks both
+"(Undefined, reserved)", which by its own Note 3 would take an F-line trap. Two
+per-instruction statements disagree, and they are the more specific ones:
+`FScc`'s own page lists `(xxx).W` at `111 000` and `(xxx).L` at `111 001` in its
+addressing mode table, and the `M68000 Family Programmer's Reference Manual` says
+of the same instruction "Only data alterable addressing modes can be used" and
+lists both. Absolute addressing *is* data alterable.
+
+Two sources against one summary table, so absolute addressing is accepted and
+Table 4-19 is recorded as the suspect entry — the same treatment every other
+suspect entry in this project gets, transcribed as printed unless something
+supplies the unique replacement. Here the replacement is unique: the encodings
+are named by two independent tables that agree with each other. The genuinely
+reserved rows, `111 101` through `111 111`, do take Note 3's F-line trap, and the
+test checks them beside the accepted ones so the reading is a *distinction*
+rather than a blanket permission.
+
 ### The transcendentals
 
 All nineteen transcendentals are computed, and the `PROVISIONAL` that stood over
@@ -2960,7 +2998,7 @@ failure that cost a bit position in the 68020's module entry word.
 | 68030 translation table search (the walk) | working: search, U/M writeback, and ATC fill | `walk_suite`, 40 tests, `MC68030 User's Manual 3ed` §9.2, §9.4, §9.5, §11; writeback cost cross-checked against `MC68851 PMMU User's Manual 3ed` §5.1.5.3.11 |
 | MC68851 PMMU | working as its own subsystem: the translation control and root pointers, the six descriptor formats and Figure 5-10's type determination, the status and protection registers, the 64-entry ATC, and the table search with §5.1.5.3.11's U/M write-back. The **68030's** own MMU is separate and has its own rows above | `m68851_tc_suite` 13, `m68851_rp_suite` 13, `m68851_descriptor_suite` 21, `m68851_regs_suite` 22, `m68851_atc_suite` 22, `m68851_search_suite` 26, `m68851_suite` 43; `MC68851 PMMU User's Manual 3ed` |
 | 68040 MMU | not started | — |
-| MC68882 FPU | working, and attached to the 68030 as a *pointer* so a machine without one keeps its line 1111 trap. Every general-type operation executes: the four arithmetic operations, the exactly-specified monadics, the remainders, the single-precision pair, and **all nineteen transcendentals** to within §4.3.2's published bound. All three operand paths run — register-to-register, **`<ea>` to `FPn`** and **`FPn` to `<ea>`**, in all six binary formats from every legal addressing mode. `FMOVEM` of the data registers runs in both directions with its reversed mask orderings, and so do the system control registers, with the FPIAR tracking under §2.4's two conditions. `FMOVECR` returns all 22 published constants, computed and correctly rounded. **Every general-type instruction executes.** `FBcc` and `FNOP` execute. Open: packed decimal -- a data format rather than an instruction -- and the `FDBcc`/`FScc`/`FTRAPcc` instruction type — for which the coprocessor's own half (`ap_m68882_condition`) is done and the 68030's dialog is not | `m68882_regs_suite` 19, `m68882_format_suite` 18, `m68882_cir_suite` 8, `m68882_round_suite` 11, `m68882_arith_suite` 41, `m68882_decode_suite` 12, `m68882_accuracy_suite` 10, `m68882_transcendental_suite` 36, `m68882_store_suite` 11, plus 38 tests in `step_suite`; `MC68881/MC68882 User's Manual 1ed` |
+| MC68882 FPU | working, and attached to the 68030 as a *pointer* so a machine without one keeps its line 1111 trap. Every general-type operation executes: the four arithmetic operations, the exactly-specified monadics, the remainders, the single-precision pair, and **all nineteen transcendentals** to within §4.3.2's published bound. All three operand paths run — register-to-register, **`<ea>` to `FPn`** and **`FPn` to `<ea>`**, in all six binary formats from every legal addressing mode. `FMOVEM` of the data registers runs in both directions with its reversed mask orderings, and so do the system control registers, with the FPIAR tracking under §2.4's two conditions. `FMOVECR` returns all 22 published constants, computed and correctly rounded. **Every general-type instruction executes.** **Every instruction type executes**, the conditionals included. Open: packed decimal -- a data format rather than an instruction -- and `FSAVE`/`FRESTORE` — for which the coprocessor's own half (`ap_m68882_condition`) is done and the 68030's dialog is not | `m68882_regs_suite` 19, `m68882_format_suite` 18, `m68882_cir_suite` 8, `m68882_round_suite` 11, `m68882_arith_suite` 41, `m68882_decode_suite` 12, `m68882_accuracy_suite` 10, `m68882_transcendental_suite` 36, `m68882_store_suite` 11, plus 42 tests in `step_suite`; `MC68881/MC68882 User's Manual 1ed` |
 | MC68040 FPU | timing tables only — §10.6, §10.7.1/§10.7.2 and §10.7.3's pipeline stages are transcribed; no 68040 arithmetic | `m68040_iu_timing_suite` 99, `m68040_fpu_timing_suite` 32, `m68040_fp_pipeline_suite` 18 |
 | Core-board registers (`010000`-`011600`) | working for the four that could be measured: CPU status (bit 15 stuck, writes clear the latched bits), CPU control and latch-page-on-parity (16 bits of storage), cache control (a *byte*, mirrored into both halves of a 16-bit read, one writable bit), each aliased across its 256-byte range. No manual here lays out these bits, so all of it is measured. **Width and storage only — no bit has a known meaning, and nothing may depend on one.** Task alias and master request are absent from the oracle and stay declined rather than modelled as all-ones | `boardreg_suite`, 12 tests; `FINDINGS.md` C10, `tools/mame-oracle/regprobe.lua`, two probe runs byte-identical |
 | Address translation map (`017000`) | working: the translation itself, both DMA widths, and the register file. Between the AT bus and physical memory, not the CPU's MMU -- a DMA controller has no MMU, and this is what lets it see scattered physical pages as one contiguous run. Present on DN3500/4500/5500 and absent on DN3000, from the model table | `atmap_suite`, 15 tests, `019411-A00` §4.2.1.4, `008778-03` §1.2, §2.5 |
@@ -3500,12 +3538,10 @@ Kept rather than discarded, so a future contradiction has a documented history.
   what is unproven is that a given 68881 mask set holds those exact bits, since
   neither manual prints one. Closing route recorded above: instrument the oracle
   and read all 22 back.
-- **`FDBcc`, `FScc` and `FTRAPcc` do not execute.** `FBcc` now does, and with
-  it `FNOP`. The coprocessor's whole contribution to all four is done
-  (`ap_m68882_condition`, all 32 predicates with `BSUN`); what is missing for
-  the other three is the 68030's half — decrementing a register and looping,
-  writing a byte of ones or zeros, taking a trap — not the condition. They share
-  one instruction type (`001`) and one encoding, so they are one item.
+- **Packed decimal is the only gap left in the 68882.** Every instruction the
+  part has now executes: the general type entire, and `FBcc`, `FNOP`, `FDBcc`,
+  `FScc` and `FTRAPcc`. What remains outside it is `FSAVE`/`FRESTORE`, which are
+  the coprocessor state frames rather than instructions in the ordinary sense.
 - **An `RTE` from stack frame format `$9` is declined.** The frame now *builds*,
   for the main-detected protocol violation, but resuming from it needs the
   coprocessor mid-instruction state its four INTERNAL REGISTERS words describe,

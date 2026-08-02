@@ -6043,6 +6043,183 @@ static void test_fnop_is_a_never_taken_branch_of_zero(void) {
   TEST_ASSERT_EQUAL_HEX32(before, fpu.regs.fpsr);
 }
 
+/* `FScc` writes a byte of ones or zeros. The condition codes are untouched, and
+ * so is the rest of the register: a byte operation on this family never widens.
+ */
+static void test_fscc_writes_a_byte_of_ones_or_zeros(void) {
+  /* FSEQ D0 : $F240 is type 001 with mode 000, register 0; $0001 is predicate
+   * $01 (EQ). */
+  static const uint16_t program[] = {0xF240u, 0x0001u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 3);
+  ap_m68882_t fpu;
+  ap_m68882_reset(&fpu);
+  m.cpu.fpu = &fpu;
+  m.cpu.regs.d[0] = 0xDEADBEEFu;
+  ap_m68882_set_condition(&fpu.regs, AP_M68882_RESULT_ZERO, false);
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&m.cpu).status);
+  TEST_ASSERT_EQUAL_HEX32(0xDEADBEFFu, m.cpu.regs.d[0]);
+  TEST_ASSERT_EQUAL_HEX32(PROGRAM_BASE + 4u, m.cpu.regs.pc);
+
+  /* False writes zeros, and only the byte. */
+  machine_t n = {0};
+  load(&n, program, 3);
+  ap_m68882_t second;
+  ap_m68882_reset(&second);
+  n.cpu.fpu = &second;
+  n.cpu.regs.d[0] = 0xDEADBEEFu;
+  ap_m68882_set_condition(&second.regs, AP_M68882_RESULT_NORMAL, false);
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&n.cpu).status);
+  TEST_ASSERT_EQUAL_HEX32(0xDEADBE00u, n.cpu.regs.d[0]);
+}
+
+/* **Table 4-19 has a defect, and this is the test that records the reading.**
+ * It marks `111 000` and `111 001` "(Undefined, reserved)", which by its own
+ * Note 3 would take an F-line trap. Two per-instruction statements disagree:
+ * `FScc`'s own page lists `(xxx).W` and `(xxx).L` at exactly those encodings,
+ * and the `M68000 Family PRM` says of the same instruction "Only data alterable
+ * addressing modes can be used" and lists both. Absolute addressing is data
+ * alterable, so it is accepted -- two sources against one summary table.
+ *
+ * The genuinely reserved rows, `111 101` upwards, do take the F-line trap, and
+ * are checked beside it so the reading is a *distinction* rather than a blanket
+ * permission. */
+static void test_absolute_addressing_is_a_legal_fscc_destination(void) {
+  /* FSEQ (FP_OPERAND).W : $F278 is mode 111, register 000. */
+  static const uint16_t program[] = {0xF278u, 0x0001u, 0x3000u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 4);
+  ap_m68882_t fpu;
+  ap_m68882_reset(&fpu);
+  m.cpu.fpu = &fpu;
+  ap_m68882_set_condition(&fpu.regs, AP_M68882_RESULT_ZERO, false);
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&m.cpu).status);
+  TEST_ASSERT_EQUAL_HEX8(0xFFu, m.memory.bytes[FP_OPERAND]);
+
+  /* $F27D is mode 111, register 101 -- reserved, and Note 3's F-line trap. */
+  static const uint16_t reserved[] = {0xF27Du, 0x0001u, 0x4E71u};
+  machine_t n = {0};
+  load(&n, reserved, 3);
+  plant_vector(&n, AP_M68030_VECTOR_LINE_F, HANDLER);
+  n.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
+  n.cpu.regs.isp = SUPERVISOR_STACK;
+  ap_m68882_t second;
+  ap_m68882_reset(&second);
+  n.cpu.fpu = &second;
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXCEPTION, ap_m68030_step(&n.cpu).status);
+  TEST_ASSERT_EQUAL_HEX32(HANDLER, n.cpu.regs.pc);
+}
+
+/* `FDBcc` is a looping primitive of three parameters, and its branch base is a
+ * *third* rule: "The value of the PC used in the branch address calculation is
+ * the address of the displacement word" -- where `FBcc`, two pages earlier, uses
+ * the instruction's address plus two. The predicate word between them is the
+ * whole difference, and a base carried across from `FBcc` is off by exactly its
+ * width.
+ *
+ * The counter is decremented in its **low sixteen bits only**, so the upper half
+ * survives -- right for every count that never borrows, and wrong for the one
+ * that does. */
+static void test_fdbcc_loops_on_its_low_word_from_the_displacement(void) {
+  /* FDBEQ D0,-2 : $F248 is mode 001, register 0; $0001 is EQ; $FFFE is -2. */
+  static const uint16_t program[] = {0xF248u, 0x0001u, 0xFFFEu, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 4);
+  ap_m68882_t fpu;
+  ap_m68882_reset(&fpu);
+  m.cpu.fpu = &fpu;
+  m.cpu.regs.d[0] = 0xDEAD0003u;
+  ap_m68882_set_condition(&fpu.regs, AP_M68882_RESULT_NORMAL, false);
+
+  const ap_m68030_step_result_t r = ap_m68030_step(&m.cpu);
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, r.status);
+  TEST_ASSERT_TRUE(r.branch_taken);
+  /* The upper half is untouched and the low word counted down. */
+  TEST_ASSERT_EQUAL_HEX32(0xDEAD0002u, m.cpu.regs.d[0]);
+  /* Displacement word is at PROGRAM_BASE + 4; -2 from there. */
+  TEST_ASSERT_EQUAL_HEX32(PROGRAM_BASE + 2u, m.cpu.regs.pc);
+
+  /* At zero the decrement reaches -1 and the loop falls through, having still
+   * consumed all three words. */
+  machine_t n = {0};
+  load(&n, program, 4);
+  ap_m68882_t second;
+  ap_m68882_reset(&second);
+  n.cpu.fpu = &second;
+  n.cpu.regs.d[0] = 0xDEAD0000u;
+  ap_m68882_set_condition(&second.regs, AP_M68882_RESULT_NORMAL, false);
+
+  const ap_m68030_step_result_t done = ap_m68030_step(&n.cpu);
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, done.status);
+  TEST_ASSERT_FALSE(done.branch_taken);
+  TEST_ASSERT_EQUAL_HEX32(0xDEADFFFFu, n.cpu.regs.d[0]);
+  TEST_ASSERT_EQUAL_HEX32(PROGRAM_BASE + 6u, n.cpu.regs.pc);
+
+  /* A true condition is the loop's *termination*: no decrement at all. */
+  machine_t o = {0};
+  load(&o, program, 4);
+  ap_m68882_t third;
+  ap_m68882_reset(&third);
+  o.cpu.fpu = &third;
+  o.cpu.regs.d[0] = 0xDEAD0003u;
+  ap_m68882_set_condition(&third.regs, AP_M68882_RESULT_ZERO, false);
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&o.cpu).status);
+  TEST_ASSERT_EQUAL_HEX32(0xDEAD0003u, o.cpu.regs.d[0]);
+  TEST_ASSERT_EQUAL_HEX32(PROGRAM_BASE + 6u, o.cpu.regs.pc);
+}
+
+/* `FTRAPcc` takes the cpTRAPcc exception when the condition holds, and
+ * otherwise "proceeds to the next instruction, **discarding the optional
+ * immediate operand**" -- discarded, but still *consumed*, or the operand would
+ * decode as the next instruction. The three encodings differ only in how many
+ * words that is. */
+static void test_ftrapcc_traps_or_steps_over_its_operand(void) {
+  /* FTRAPEQ.L #$12345678 : $F27B is mode 111, register 011. */
+  static const uint16_t program[] = {0xF27Bu, 0x0001u, 0x1234u, 0x5678u,
+                                     0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 5);
+  plant_vector(&m, AP_M68030_VECTOR_TRAPCC, HANDLER);
+  m.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
+  m.cpu.regs.isp = SUPERVISOR_STACK;
+  ap_m68882_t fpu;
+  ap_m68882_reset(&fpu);
+  m.cpu.fpu = &fpu;
+  ap_m68882_set_condition(&fpu.regs, AP_M68882_RESULT_ZERO, false);
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXCEPTION, ap_m68030_step(&m.cpu).status);
+  TEST_ASSERT_EQUAL_HEX32(HANDLER, m.cpu.regs.pc);
+
+  /* False: the four operand bytes are stepped over, so the program counter
+   * lands eight bytes on and not four. */
+  machine_t n = {0};
+  load(&n, program, 5);
+  ap_m68882_t second;
+  ap_m68882_reset(&second);
+  n.cpu.fpu = &second;
+  ap_m68882_set_condition(&second.regs, AP_M68882_RESULT_NORMAL, false);
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&n.cpu).status);
+  TEST_ASSERT_EQUAL_HEX32(PROGRAM_BASE + 8u, n.cpu.regs.pc);
+
+  /* The no-parameter form, $F27C, consumes only the predicate word. */
+  static const uint16_t bare[] = {0xF27Cu, 0x0001u, 0x4E71u};
+  machine_t o = {0};
+  load(&o, bare, 3);
+  ap_m68882_t third;
+  ap_m68882_reset(&third);
+  o.cpu.fpu = &third;
+  ap_m68882_set_condition(&third.regs, AP_M68882_RESULT_NORMAL, false);
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&o.cpu).status);
+  TEST_ASSERT_EQUAL_HEX32(PROGRAM_BASE + 4u, o.cpu.regs.pc);
+}
+
 /* Packed decimal is a source format the encoding allows and this model has not
  * got to. Reported as our gap rather than decoded as binary, which would turn a
  * BCD operand into a plausible wrong number. */
@@ -6100,6 +6277,10 @@ int main(void) {
   RUN_TEST(test_a_branch_leaves_the_exception_byte_standing);
   RUN_TEST(test_an_unordered_comparison_raises_bsun_only_when_unaware);
   RUN_TEST(test_fnop_is_a_never_taken_branch_of_zero);
+  RUN_TEST(test_fscc_writes_a_byte_of_ones_or_zeros);
+  RUN_TEST(test_absolute_addressing_is_a_legal_fscc_destination);
+  RUN_TEST(test_fdbcc_loops_on_its_low_word_from_the_displacement);
+  RUN_TEST(test_ftrapcc_traps_or_steps_over_its_operand);
   RUN_TEST(test_reset_performs_all_ten_documented_steps);
   RUN_TEST(test_reset_stacks_nothing);
   RUN_TEST(test_bkpt_takes_an_illegal_instruction_when_nothing_answers);

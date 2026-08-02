@@ -3939,6 +3939,131 @@ static fp_source_result_t transfer_fp_control(ap_m68030_cpu_t *cpu,
   return FP_SOURCE_FETCHED;
 }
 
+/* `FDBcc`, `FScc` and `FTRAPcc`: one instruction type (`001`), one command word
+ * format, and Table 4-19's instruction-specific field to tell them apart.
+ *
+ * §4.7.2: "For these instruction types, the MPU writes a conditional predicate
+ * to the FPCP condition CIR for evaluation ... The true or false result is
+ * returned to the main processor with the null primitive." So the coprocessor's
+ * whole half is `ap_m68882_condition`, and everything below -- decrementing a
+ * register, writing a byte, taking a trap -- is the main processor's.
+ *
+ * **Table 4-19 has a defect at `111 000` and `111 001`.** It marks both
+ * "(Undefined, reserved)", which by its own Note 3 would take an F-line trap.
+ * Two other statements disagree, and they are the per-instruction ones: `FScc`'s
+ * page lists `(xxx).W` at `111 000` and `(xxx).L` at `111 001` in its addressing
+ * mode table, and the `M68000 Family Programmer's Reference Manual` says of the
+ * same instruction "Only data alterable addressing modes can be used" and lists
+ * both. Absolute addressing *is* data alterable. Two sources against one
+ * summary table, so absolute addressing is accepted here and Table 4-19 is
+ * recorded as the suspect entry. */
+static fp_source_result_t execute_fp_conditional(
+    ap_m68030_cpu_t *cpu, const ap_m68030_coproc_t *coproc,
+    uint16_t operation_word, uint32_t *clocks, bool *branch_taken) {
+  const unsigned mode = (unsigned)((operation_word >> 3) & 0x7u);
+  const unsigned reg = (unsigned)(operation_word & 0x7u);
+
+  /* The command word carries the predicate in bits 5-0; §4.7.2 shows bits 15-6
+   * as zero. */
+  uint16_t command = 0;
+  if (!next_word(cpu, clocks, &command)) {
+    return FP_SOURCE_FAILED;
+  }
+  const unsigned predicate = (unsigned)(command & 0x3Fu);
+
+  if (mode == 0x1u) {
+    /* FDBcc. Note 2: "If the condition is true, the MPU proceeds to the next
+     * instruction. Otherwise, the counter register Dn.W ... is decremented, and
+     * the new value is compared with -1. If it is equal to -1, the MPU proceeds
+     * to the next instruction; otherwise, the 16-bit displacement is sign
+     * extended and added to the PC."
+     *
+     * The displacement is fetched either way, so an untaken loop still lands
+     * past it. */
+    uint16_t displacement = 0;
+    const uint32_t displacement_address = cpu->regs.pc + 2u + 2u * cpu->extension_words;
+    if (!next_word(cpu, clocks, &displacement)) {
+      return FP_SOURCE_FAILED;
+    }
+    if (ap_m68882_condition(cpu->fpu, predicate)) {
+      return FP_SOURCE_FETCHED; /* the loop's termination condition was met */
+    }
+    /* "the low order 16-bits of the counter register are decremented by one",
+     * so the upper half is left alone -- a full-width decrement would be right
+     * for every count that never borrows and wrong for the one that does. */
+    const uint16_t counter =
+        (uint16_t)((cpu->regs.d[reg] & 0xFFFFu) - 1u);
+    cpu->regs.d[reg] = (cpu->regs.d[reg] & 0xFFFF0000u) | counter;
+    if (counter == 0xFFFFu) {
+      return FP_SOURCE_FETCHED; /* the count is exhausted */
+    }
+    /* "The value of the PC used in the branch address calculation is the
+     * address of the displacement word" -- *not* the operation word plus two,
+     * which is `FBcc`'s rule two pages earlier. The two instructions differ by
+     * the predicate word that sits between. */
+    cpu->regs.pc = displacement_address + (uint32_t)(int32_t)(int16_t)displacement;
+    ap_m68030_fetch_reset(&cpu->fetch, cpu->regs.pc);
+    *branch_taken = true;
+    return FP_SOURCE_FETCHED;
+  }
+
+  if (mode == 0x7u && (reg == 0x2u || reg == 0x3u || reg == 0x4u)) {
+    /* FTRAPcc, with a word operand, a long one, or none. Note 4: "If the
+     * condition is true, then the cpTRAPcc exception is taken. Otherwise, the
+     * MPU proceeds to the next instruction, **discarding the optional immediate
+     * operand**" -- discarded, but still consumed, or the operand would decode
+     * as the next instruction. */
+    const unsigned words = (reg == 0x2u) ? 1u : (reg == 0x3u) ? 2u : 0u;
+    for (unsigned i = 0; i < words; i++) {
+      uint16_t ignored = 0;
+      if (!next_word(cpu, clocks, &ignored)) {
+        return FP_SOURCE_FAILED;
+      }
+    }
+    if (ap_m68882_condition(cpu->fpu, predicate)) {
+      cpu->pending_vector = AP_M68030_VECTOR_TRAPCC;
+    }
+    return FP_SOURCE_FETCHED;
+  }
+
+  if (mode == 0x7u && reg > 0x1u) {
+    /* Table 4-19's genuinely reserved rows, `111 101` through `111 111`. Note
+     * 3: "The MPU takes an F-line emulation trap" -- the machine's behaviour
+     * and not our gap. */
+    cpu->pending_vector = AP_M68030_VECTOR_LINE_F;
+    return FP_SOURCE_FETCHED;
+  }
+
+  /* FScc. "If the specified floating-point condition is true, sets the byte
+   * integer operand at the destination to TRUE (all ones), otherwise sets the
+   * byte to FALSE (all zeroes)." */
+  if (!ap_m68030_ea_is_data_alterable(coproc->ea.kind)) {
+    return FP_SOURCE_PROTOCOL_VIOLATION;
+  }
+  const uint8_t value = ap_m68882_condition(cpu->fpu, predicate) ? 0xFFu : 0x00u;
+
+  if (coproc->ea.kind == AP_M68030_EA_DATA_REGISTER) {
+    cpu->regs.d[coproc->ea.reg] =
+        (cpu->regs.d[coproc->ea.reg] & 0xFFFFFF00u) | value;
+    return FP_SOURCE_FETCHED;
+  }
+
+  ap_m68030_address_input_t input = {0};
+  if (!gather_address_input(cpu, coproc->ea.kind, 1u, clocks, &input)) {
+    return FP_SOURCE_FAILED;
+  }
+  const ap_m68030_address_t where =
+      resolve_address(cpu, clocks, coproc->ea, &input);
+  if (!where.valid) {
+    return FP_SOURCE_FAILED;
+  }
+  const ap_m68030_operand_result_t wrote =
+      step_operand_write(cpu, &cpu->regs, cpu->data, &where, 1u, value,
+                         cpu->data_function_code);
+  *clocks += wrote.clocks;
+  return wrote.ok ? FP_SOURCE_FETCHED : FP_SOURCE_FAILED;
+}
+
 /* Whether an instruction "forces a change of flow", which is what the T1=0,
  * T0=1 trace mode watches. `[030]` §8.1.7: "Instructions that are traced in this
  * mode include all branches, jumps, instruction traps, returns, and coprocessor
@@ -4620,6 +4745,24 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
        * the condition CIR and read the answer, and everything after -- fetching
        * a displacement and moving the program counter -- is the MPU's. The
        * coprocessor's whole half is `ap_m68882_condition`. */
+      if (coproc->type == AP_M68030_CP_CONDITIONAL) {
+        bool branched = false;
+        switch (execute_fp_conditional(cpu, coproc, out.instruction,
+                                       &out.clocks, &branched)) {
+        case FP_SOURCE_FETCHED:
+          out.branch_taken = branched;
+          break;
+        case FP_SOURCE_PROTOCOL_VIOLATION:
+          cpu->pending_vector = AP_M68030_VECTOR_COPROCESSOR_PROTOCOL;
+          break;
+        case FP_SOURCE_FAILED:
+          out.status = fault_or_unimplemented(cpu, &out, instruction_address);
+          cpu->clocks += out.clocks;
+          return out;
+        }
+        break;
+      }
+
       if (coproc->type == AP_M68030_CP_BRANCH_WORD ||
           coproc->type == AP_M68030_CP_BRANCH_LONG) {
         /* "The value of the PC used to calculate the destination address is the

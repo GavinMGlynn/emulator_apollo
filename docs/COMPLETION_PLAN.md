@@ -1363,6 +1363,13 @@ a 68882, and the 68882 is the only one of these it has.
         the exception byte, and `ap_m68882_condition` had been clearing it on
         every branch.
         *Verification: `step_suite` +5 (234). Detail in `PROJECT_STATUS.md`.*
+  - [x] **`FDBcc`, `FScc` and `FTRAPcc`** — one instruction type, one encoding,
+        told apart by Table 4-19. `FDBcc`'s branch base is a third rule (the
+        displacement word's address) and its counter is a low-word decrement.
+        **Table 4-19 has a defect**: it reserves the two absolute addressing
+        encodings that `FScc`'s own page and the PRM both list as legal, and the
+        reading is recorded with the reserved rows tested beside it.
+        *Verification: `step_suite` +4 (238). Detail in `PROJECT_STATUS.md`.*
   - [x] **The exactly-specified monadic operations**: `FSQRT`, `FGETEXP`,
         `FGETMAN`, `FINT`, `FINTRZ` and `FSCALE`. §4.3.2 puts square root under
         the IEEE bound rather than with the transcendentals -- "except square
