@@ -53,7 +53,17 @@ PROBE_LUA = HERE / "probe.lua"
 # probe loaded low on the oracle would run the PROM while the harness believed
 # it ran the probe.
 OURS_BASE = 0x00001000
-ORACLE_BASE = 0x01001000
+# Where each machine puts main memory, plus the 4K the probe loads at. Taken
+# from MAME's own driver, which states both -- `DN3500_RAM_BASE 0x1000000` and
+# `DN3000_RAM_BASE 0x100000` -- rather than measured, because a memory map is a
+# fact about the machine and the driver is the oracle's statement of it.
+#
+# `FINDINGS.md` C83: this was one constant for a long time and it was the
+# DN3500's, which every probe until now ran on. A DN3000 has sixteen times less
+# address above zero before its RAM starts.
+ORACLE_RAM_BASE = {"dn3500": 0x01000000, "dn3000": 0x00100000,
+                   "dn5500": 0x01000000}
+ORACLE_BASE = ORACLE_RAM_BASE["dn3500"] + 0x1000
 SENTINEL_OFFSET = 0x800
 
 
@@ -114,6 +124,7 @@ def run_oracle(words, base, sentinel_at, limit, timeout: float,
         "APOLLO_PROBE_STACK": "%X" % (base + 0x1000),
         "APOLLO_PROBE_READ": "%X" % sentinel_at,
         "APOLLO_PROBE_LIMIT": str(limit),
+        "APOLLO_PROBE_HANDLER": "%X" % (base + 0x2000),
         "APOLLO_PROBE_AT": "3.0",
     })
     command = [str(mame), machine, "-noreadconfig",
@@ -207,6 +218,13 @@ def main(argv=None, recursing=False) -> int:
         help="which probe to run; `fpu` exercises the coprocessor's constant "
              "ROM, an FADD and the store conversion in one")
     args = parser.parse_args(argv)
+
+    global ORACLE_BASE  # noqa: PLW0603 -- the base is a property of the run
+    if args.machine not in ORACLE_RAM_BASE:
+        print("no RAM base recorded for %s; add it from MAME's driver"
+              % args.machine)
+        return 2
+    ORACLE_BASE = ORACLE_RAM_BASE[args.machine] + 0x1000
 
     if args.program == "all" and not recursing:
         return run_all(argv, parser)

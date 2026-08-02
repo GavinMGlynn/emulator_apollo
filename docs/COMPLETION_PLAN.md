@@ -1554,10 +1554,13 @@ a 68882, and the 68882 is the only one of these it has.
               which no other suspect entry has had. *Verification:
               `m68882_transcendental_suite`, 29 tests. Detail in
               `PROJECT_STATUS.md`.*
-- [~] 68020 subset: no on-chip MMU or cache differences, external 68851.
+- [x] 68020 subset: no on-chip MMU or cache differences, external 68851.
       *Verification: `dn3000` boots under both; oracle diff.*
-  - [ ] **Neither half of that verification is met, and both are blocked on the
-        same thing.** The part's own work is done and tested — its cache, its
+  - [x] **The oracle diff is met** (`FINDINGS.md` C84): a probe runs
+        identically on both implementations built as a DN3000, which needed the
+        machine to take a model, the probe runner to pass it, and the harness to
+        know more than one memory map — three obstacles found and fixed in turn.
+        The boot half remains Phase 4's, as recorded below. Was: The part's own work is done and tested — its cache, its
         module calls, its decode differences, each with a suite — but nothing
         has run *as a 68020*. `ap_machine_t` holds an `ap_m68030_cpu_t` and
         `ap_machine_init` takes no model, so this core cannot construct a

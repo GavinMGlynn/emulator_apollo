@@ -4795,3 +4795,35 @@ Worth noting what *did* work: the model reached both sides, MAME started the
 right machine, and the failure was reported by the harness rather than surfacing
 as a mysterious disagreement. The plumbing is right and the address is wrong,
 which is the better of the two ways for this to have gone.
+
+## C84 -- the DN3000 comparison runs, and agrees
+
+**Class: agree.** The 68020 subset's verification line is met.
+
+    python3 tools/mame-oracle/probe_compare.py --machine dn3000
+
+    instructions executed  3 / 3          agree
+    D0                     0000005A       agree
+    sentinel in memory     0000005A       agree
+
+    not compared: pc (0000100C vs 0010100C) differs by the RAM base
+
+C83's obstacle was one constant. MAME's driver states both maps outright --
+`DN3500_RAM_BASE 0x1000000`, `DN3000_RAM_BASE 0x100000` -- so the base became a
+per-machine lookup taken from the oracle's own statement of the fact rather than
+measured. The probe programs were already assembled twice at two bases, so
+nothing else moved; the exception table's address follows the base for the same
+reason.
+
+**The 68020 subset asked for "`dn3000` boots under both; oracle diff".** The boot
+half moved to Phase 4 long ago -- a boot needs a board. The diff half is this,
+and it could not be run at any earlier point in this session for three separate
+reasons, each fixed in turn: `ap_machine_init` took no model, then the probe
+runner did not pass one, then the harness knew only one machine's memory map.
+
+What it establishes is narrow and worth stating precisely: a program runs
+identically on a 68020 and a 68030 under both implementations. It does *not* yet
+compare the 44 opcodes where the families differ -- `CALLM` needs a module
+descriptor in memory, which the probe encoder does not build. That is the
+natural next probe and it is now only a program: the machine, the base, the
+model and the harness are all in place.
