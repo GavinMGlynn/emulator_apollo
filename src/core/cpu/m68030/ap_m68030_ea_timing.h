@@ -67,6 +67,22 @@ ap_m68030_ea_fetch_timing(ap_m68030_ea_kind_t kind, unsigned operand_size);
 [[nodiscard]] const ap_m68030_ea_timing_t *
 ap_m68030_ea_calculate_timing(ap_m68030_ea_kind_t kind);
 
+/* §11.6.2, Fetch Immediate Effective Address -- the table the `**` footnote
+ * names, and the reason a `**` row cannot be priced off §11.6.1.
+ *
+ * It is keyed by the immediate's size **and** the destination mode together,
+ * because one entry covers both halves: it "indicates the number of clock
+ * periods needed for the processor to fetch the immediate source operand and to
+ * calculate and fetch the specified destination operand". §11.6.1 knows nothing
+ * about the immediate, so a figure taken from it would be missing the source.
+ *
+ * The two size columns are not a factor of each other -- `(An)` costs 3 and 4,
+ * `(An)+` costs 5 and 7 -- so a model scaling one column by operand size would
+ * be wrong in both. */
+[[nodiscard]] const ap_m68030_ea_timing_t *
+ap_m68030_ea_fetch_immediate_timing(ap_m68030_ea_kind_t destination,
+                                    bool immediate_long);
+
 /* §11.6.1's FULL FORMAT EXTENSION WORD(S) rows, selected by the extension word
  * rather than by the addressing mode -- a full-format extension can express
  * sixteen distinct costs behind one mode field, from 6 clocks to 18.

@@ -631,8 +631,103 @@ static void test_the_calculate_groups_differ_in_kind_not_only_value(void) {
   TEST_ASSERT_EQUAL_UINT(2u, ap_m68030_ea_timing_head(a, 4u));
 }
 
+
+/* §11.6.2, and the property that makes it a separate table rather than a
+ * modifier on §11.6.1: its two size columns are not a factor of each other.
+ * `(An)` costs 3 word and 4 long -- one clock more -- while `(An)+` costs 5 and
+ * 7, which is two. A model that scaled one column by operand size would be
+ * wrong in both directions depending on the mode. */
+static void test_the_immediate_table_is_not_a_scaling_of_one_column(void) {
+  const ap_m68030_ea_timing_t *indirect_word =
+      ap_m68030_ea_fetch_immediate_timing(AP_M68030_EA_ADDRESS_INDIRECT, false);
+  const ap_m68030_ea_timing_t *indirect_long =
+      ap_m68030_ea_fetch_immediate_timing(AP_M68030_EA_ADDRESS_INDIRECT, true);
+  const ap_m68030_ea_timing_t *postinc_word =
+      ap_m68030_ea_fetch_immediate_timing(AP_M68030_EA_POSTINCREMENT, false);
+  const ap_m68030_ea_timing_t *postinc_long =
+      ap_m68030_ea_fetch_immediate_timing(AP_M68030_EA_POSTINCREMENT, true);
+  TEST_ASSERT_NOT_NULL(indirect_word);
+  TEST_ASSERT_NOT_NULL(indirect_long);
+  TEST_ASSERT_NOT_NULL(postinc_word);
+  TEST_ASSERT_NOT_NULL(postinc_long);
+
+  TEST_ASSERT_EQUAL_UINT(1u, indirect_long->timing.cache_case -
+                                 indirect_word->timing.cache_case);
+  TEST_ASSERT_EQUAL_UINT(2u, postinc_long->timing.cache_case -
+                                 postinc_word->timing.cache_case);
+}
+
+/* A long immediate never costs less than a word one, for every destination the
+ * table covers -- it is one more word of instruction stream. A swapped column
+ * would break this everywhere at once, which is the check a transcription can
+ * be given without re-reading it. */
+static void test_a_long_immediate_never_costs_less_than_a_word_one(void) {
+  const ap_m68030_ea_kind_t destinations[] = {
+      AP_M68030_EA_DATA_REGISTER,   AP_M68030_EA_ADDRESS_INDIRECT,
+      AP_M68030_EA_POSTINCREMENT,   AP_M68030_EA_PREDECREMENT,
+      AP_M68030_EA_DISPLACEMENT,    AP_M68030_EA_ABSOLUTE_SHORT,
+      AP_M68030_EA_ABSOLUTE_LONG,   AP_M68030_EA_INDEXED,
+  };
+  for (unsigned i = 0; i < sizeof destinations / sizeof destinations[0]; i++) {
+    const ap_m68030_ea_timing_t *word =
+        ap_m68030_ea_fetch_immediate_timing(destinations[i], false);
+    const ap_m68030_ea_timing_t *long_word =
+        ap_m68030_ea_fetch_immediate_timing(destinations[i], true);
+    TEST_ASSERT_NOT_NULL(word);
+    TEST_ASSERT_NOT_NULL(long_word);
+    TEST_ASSERT_TRUE_MESSAGE(
+        long_word->timing.cache_case >= word->timing.cache_case,
+        long_word->mode);
+    TEST_ASSERT_TRUE_MESSAGE(ap_m68030_timing_consistent(&long_word->timing),
+                             long_word->mode);
+  }
+}
+
+/* §11.6.2 has no `An` destination row, and the lookup says so. The instructions
+ * it serves are the `xxxI` immediate forms, which cannot take one -- so this is
+ * the table agreeing with the opcode map rather than a gap in the
+ * transcription. And its one immediate-destination row has a word source only,
+ * so a long immediate into an immediate is reported absent rather than given
+ * the word row's figure. */
+static void test_the_immediate_table_declines_what_it_does_not_publish(void) {
+  TEST_ASSERT_NULL(
+      ap_m68030_ea_fetch_immediate_timing(AP_M68030_EA_ADDRESS_REGISTER, false));
+  TEST_ASSERT_NULL(
+      ap_m68030_ea_fetch_immediate_timing(AP_M68030_EA_ADDRESS_REGISTER, true));
+  TEST_ASSERT_NULL(
+      ap_m68030_ea_fetch_immediate_timing(AP_M68030_EA_INVALID, false));
+
+  TEST_ASSERT_NOT_NULL(
+      ap_m68030_ea_fetch_immediate_timing(AP_M68030_EA_IMMEDIATE, false));
+  TEST_ASSERT_NULL(
+      ap_m68030_ea_fetch_immediate_timing(AP_M68030_EA_IMMEDIATE, true));
+}
+
+/* The register-destination rows carry the "+op head" notation, which is what
+ * the table's `%` footnote says: "Total head for fetch immediate effective
+ * address timing includes the head time for the operation." The memory ones do
+ * not. Flattening that would offer the wrong overlap to whatever precedes the
+ * instruction. */
+static void test_the_immediate_register_rows_have_relative_heads(void) {
+  const ap_m68030_ea_timing_t *to_register =
+      ap_m68030_ea_fetch_immediate_timing(AP_M68030_EA_DATA_REGISTER, false);
+  const ap_m68030_ea_timing_t *to_memory =
+      ap_m68030_ea_fetch_immediate_timing(AP_M68030_EA_ADDRESS_INDIRECT, false);
+  TEST_ASSERT_NOT_NULL(to_register);
+  TEST_ASSERT_NOT_NULL(to_memory);
+
+  TEST_ASSERT_TRUE(to_register->head_adds_operation);
+  TEST_ASSERT_FALSE(to_memory->head_adds_operation);
+  TEST_ASSERT_EQUAL_UINT(4u, ap_m68030_ea_timing_head(to_register, 2u));
+  TEST_ASSERT_EQUAL_UINT(1u, ap_m68030_ea_timing_head(to_memory, 2u));
+}
+
 int main(void) {
   UNITY_BEGIN();
+  RUN_TEST(test_the_immediate_table_is_not_a_scaling_of_one_column);
+  RUN_TEST(test_a_long_immediate_never_costs_less_than_a_word_one);
+  RUN_TEST(test_the_immediate_table_declines_what_it_does_not_publish);
+  RUN_TEST(test_the_immediate_register_rows_have_relative_heads);
   RUN_TEST(test_the_calculate_table_confirms_the_same_reading);
   RUN_TEST(test_calculating_reads_one_fewer_than_fetching);
   RUN_TEST(test_the_calculate_groups_differ_in_kind_not_only_value);

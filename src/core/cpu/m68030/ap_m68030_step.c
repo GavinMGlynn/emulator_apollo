@@ -3786,23 +3786,43 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
    * Effective Address, which is a different table and not transcribed; pricing
    * one off §11.6.1 would produce a plausible number from the wrong page. */
   const ap_m68030_ea_timing_t *ea_timing = nullptr;
-  if (published != nullptr &&
-      published->effective_address_time == AP_M68030_EA_TIME_FETCH) {
+  if (published != nullptr) {
     const ap_m68030_ea_t ea =
         ap_m68030_ea_decode((out.instruction >> 3) & 7u, out.instruction & 7u);
-    /* The size is read only for the immediate rows, which §11.6.1 splits by
-     * operand size. No row this applies to can *take* an immediate -- every one
-     * of them writes its effective address back -- so the figure passed here is
-     * never the one used, and a long is the safe reading if that ever changes:
-     * it is the larger of the two. */
-    ea_timing = ap_m68030_ea_fetch_timing(ea.kind, 4u);
+    switch (published->effective_address_time) {
+    case AP_M68030_EA_TIME_FETCH:
+      /* The size is read only for §11.6.1's immediate rows. No `*` row can
+       * *take* an immediate -- every one of them writes its effective address
+       * back -- so the figure passed here is never the one used, and a long is
+       * the safe reading if that ever changes: it is the larger of the two. */
+      ea_timing = ap_m68030_ea_fetch_timing(ea.kind, 4u);
+      break;
+    case AP_M68030_EA_TIME_FETCH_IMMEDIATE:
+      /* §11.6.2, whose entry covers the immediate *and* the destination
+       * together -- which is why a `**` row cannot be priced off §11.6.1, and
+       * why these declined until that table was transcribed.
+       *
+       * The immediate's size is the instruction's operand size, since the
+       * source is the operand: `ADDI.L` carries a long and `ADDI.W` a word.
+       * Table 2-3's byte case occupies a whole extension word and is therefore
+       * the word row, which is the same rule §11.6.1's immediate rows follow.
+       *
+       * The size comes from bits 7-6, which is where family `0000`'s immediate
+       * rows carry it -- `00` byte, `01` word, `10` long. Every `**` row in the
+       * transcription is one of those, so this is read where the manual puts it
+       * rather than inferred. */
+      ea_timing = ap_m68030_ea_fetch_immediate_timing(
+          ea.kind, ((out.instruction >> 6) & 3u) == 2u);
+      break;
+    case AP_M68030_EA_TIME_NONE:
+      break;
+    }
   }
 
   const bool priceable =
       published != nullptr &&
       (published->effective_address_time == AP_M68030_EA_TIME_NONE ||
-       (published->effective_address_time == AP_M68030_EA_TIME_FETCH &&
-        ea_timing != nullptr));
+       ea_timing != nullptr);
 
   if (priceable) {
     /* The published cache case, composed if it has two components, then split

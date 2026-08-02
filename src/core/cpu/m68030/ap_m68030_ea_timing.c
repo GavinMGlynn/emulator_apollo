@@ -66,6 +66,104 @@ static const ap_m68030_ea_timing_t CALCULATE_ABSOLUTE_LONG = {
 static const ap_m68030_ea_timing_t CALCULATE_INDEXED = {
     "(d8,An,Xn) or (d8,PC,Xn)", {4, 0, 4, 4, .prefetches = 1}, true, true};
 
+
+/* §11.6.2, Fetch Immediate Effective Address, from the page image.
+ *
+ * The table the `**` footnote names, and it is keyed differently from the other
+ * two: by the **immediate's size and the destination mode together**, because
+ * it "indicates the number of clock periods needed for the processor to fetch
+ * the immediate source operand *and* to calculate and fetch the specified
+ * destination operand". One table entry covers both halves, which is why a `**`
+ * row cannot be priced off §11.6.1 -- that table knows nothing about the
+ * immediate.
+ *
+ * The word and long columns are genuinely different figures and not a factor:
+ * `#<data>.W,(An)` is 3 and `#<data>.L,(An)` is 4, but `#<data>.W,(An)+` is 5
+ * against 7. So the long immediate costs one clock more in one mode and two in
+ * another, and a model scaling by operand size would be wrong in both.
+ *
+ * The `%` rows carry the table's own footnote, "Total head for fetch immediate
+ * effective address timing includes the head time for the operation" -- the
+ * same relative-head notation §11.6.3 uses. */
+static const ap_m68030_ea_timing_t FIEA_W_DN = {
+    "#<data>.W,Dn", {2, 0, 2, 2, .prefetches = 1}, true, true};
+static const ap_m68030_ea_timing_t FIEA_L_DN = {
+    "#<data>.L,Dn", {4, 0, 4, 4, .prefetches = 1}, true, true};
+static const ap_m68030_ea_timing_t FIEA_W_INDIRECT = {
+    "#<data>.W,(An)", {1, 1, 3, 4, .reads = 1, .prefetches = 1}, true, false};
+static const ap_m68030_ea_timing_t FIEA_L_INDIRECT = {
+    "#<data>.L,(An)", {1, 0, 4, 5, .reads = 1, .prefetches = 1}, true, false};
+static const ap_m68030_ea_timing_t FIEA_W_POSTINCREMENT = {
+    "#<data>.W,(An)+", {2, 1, 5, 5, .reads = 1, .prefetches = 1}, true, false};
+static const ap_m68030_ea_timing_t FIEA_L_POSTINCREMENT = {
+    "#<data>.L,(An)+", {4, 1, 7, 7, .reads = 1, .prefetches = 1}, true, false};
+static const ap_m68030_ea_timing_t FIEA_W_PREDECREMENT = {
+    "#<data>.W,-(An)", {2, 2, 4, 4, .reads = 1, .prefetches = 1}, true, false};
+static const ap_m68030_ea_timing_t FIEA_L_PREDECREMENT = {
+    "#<data>.L,-(An)", {2, 0, 4, 5, .reads = 1, .prefetches = 1}, true, false};
+static const ap_m68030_ea_timing_t FIEA_W_DISPLACEMENT = {
+    "#<data>.W,(d16,An)", {2, 0, 4, 5, .reads = 1, .prefetches = 1}, true, false};
+static const ap_m68030_ea_timing_t FIEA_L_DISPLACEMENT = {
+    "#<data>.L,(d16,An)", {4, 0, 6, 8, .reads = 1, .prefetches = 2}, true, false};
+static const ap_m68030_ea_timing_t FIEA_W_ABSOLUTE_SHORT = {
+    "#<data>.W,$XXX.W", {4, 2, 6, 6, .reads = 1, .prefetches = 1}, true, false};
+static const ap_m68030_ea_timing_t FIEA_L_ABSOLUTE_SHORT = {
+    "#<data>.L,$XXX.W", {6, 2, 8, 8, .reads = 1, .prefetches = 2}, true, false};
+static const ap_m68030_ea_timing_t FIEA_W_ABSOLUTE_LONG = {
+    "#<data>.W,$XXX.L", {3, 0, 6, 7, .reads = 1, .prefetches = 2}, true, false};
+static const ap_m68030_ea_timing_t FIEA_L_ABSOLUTE_LONG = {
+    "#<data>.L,$XXX.L", {5, 0, 8, 9, .reads = 1, .prefetches = 2}, true, false};
+static const ap_m68030_ea_timing_t FIEA_W_INDEXED = {
+    "#<data>.W,(d8,An,Xn) or (d8,PC,Xn)",
+    {6, 2, 8, 8, .reads = 1, .prefetches = 2}, true, false};
+static const ap_m68030_ea_timing_t FIEA_L_INDEXED = {
+    "#<data>.L,(d8,An,Xn) or (d8,PC,Xn)",
+    {8, 2, 10, 10, .reads = 1, .prefetches = 2}, true, false};
+/* The one row whose *destination* is itself an immediate, which is what a
+ * `CMPI #<data>,#<data>` would be. Its cache case reads nothing, since both
+ * operands are in the instruction stream. */
+static const ap_m68030_ea_timing_t FIEA_W_IMMEDIATE = {
+    "#<data>.W,#<data>.L", {6, 0, 6, 6, .prefetches = 2}, true, true};
+
+const ap_m68030_ea_timing_t *
+ap_m68030_ea_fetch_immediate_timing(ap_m68030_ea_kind_t destination,
+                                    bool immediate_long) {
+  switch (destination) {
+  case AP_M68030_EA_DATA_REGISTER:
+    return immediate_long ? &FIEA_L_DN : &FIEA_W_DN;
+  case AP_M68030_EA_ADDRESS_INDIRECT:
+    return immediate_long ? &FIEA_L_INDIRECT : &FIEA_W_INDIRECT;
+  case AP_M68030_EA_POSTINCREMENT:
+    return immediate_long ? &FIEA_L_POSTINCREMENT : &FIEA_W_POSTINCREMENT;
+  case AP_M68030_EA_PREDECREMENT:
+    return immediate_long ? &FIEA_L_PREDECREMENT : &FIEA_W_PREDECREMENT;
+  case AP_M68030_EA_DISPLACEMENT:
+  case AP_M68030_EA_PC_DISPLACEMENT:
+    return immediate_long ? &FIEA_L_DISPLACEMENT : &FIEA_W_DISPLACEMENT;
+  case AP_M68030_EA_ABSOLUTE_SHORT:
+    return immediate_long ? &FIEA_L_ABSOLUTE_SHORT : &FIEA_W_ABSOLUTE_SHORT;
+  case AP_M68030_EA_ABSOLUTE_LONG:
+    return immediate_long ? &FIEA_L_ABSOLUTE_LONG : &FIEA_W_ABSOLUTE_LONG;
+  case AP_M68030_EA_INDEXED:
+  case AP_M68030_EA_PC_INDEXED:
+    /* The brief format only, as in §11.6.1: the full-format rows are their own
+     * pass and returning a brief figure for one would under-count. */
+    return immediate_long ? &FIEA_L_INDEXED : &FIEA_W_INDEXED;
+  case AP_M68030_EA_IMMEDIATE:
+    /* The table's one immediate-destination row, and it has a word-source form
+     * only -- so a long immediate into an immediate has no published figure and
+     * is reported absent rather than given the word row's. */
+    return immediate_long ? nullptr : &FIEA_W_IMMEDIATE;
+  case AP_M68030_EA_ADDRESS_REGISTER:
+    /* §11.6.2 has no `An` destination row at all. The instructions it serves --
+     * the `xxxI` immediate forms -- cannot take one, so this is the table
+     * agreeing with the opcode map rather than a gap. */
+  case AP_M68030_EA_INVALID:
+    break;
+  }
+  return nullptr;
+}
+
 /* §11.6.1's FULL FORMAT EXTENSION WORD(S) rows, transcribed from the page image.
  * Sixteen entries: four base-displacement cases against four outer-displacement
  * cases, which is the whole space a full-format extension word can express.

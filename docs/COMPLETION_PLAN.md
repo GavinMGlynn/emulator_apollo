@@ -1118,11 +1118,25 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
     - [x] Four more `p` counts corrected in the calculate table, the same defect
           the fetch table had and found the same way -- by reading the page
           rather than a text extraction of it.
-    - [ ] **Remaining, each named rather than left implicit:** §11.6.2, Fetch
-          Immediate Effective Address, which the `**` rows need; and the
-          **change-of-flow rows' prefetch cost**, declined because the target's
-          alignment decides the fetch count -- their warm figures are exact and
-          their cold ones a lower bound.
+    - [x] **§11.6.2, Fetch Immediate Effective Address, transcribed and wired**
+          -- so the `**` rows are priced rather than declined. It is keyed by the
+          immediate's size *and* the destination mode together, because one
+          entry covers both halves, which is exactly why such a row could never
+          have been priced off §11.6.1.
+          *Verification: `ea_timing_suite`, 4 further tests (26 total) --
+          including that the two size columns are **not** a scaling of each
+          other, `(An)` differing by one clock and `(An)+` by two, so a model
+          scaling one column by operand size would be wrong in both directions;
+          a long immediate never costing less than a word one, which a swapped
+          column would break everywhere at once; the absent `An` destination row
+          reported absent, the table agreeing with the opcode map rather than
+          having a gap; and the `%` relative heads distinguished from the plain
+          ones.*
+    - [ ] **Remaining:** the **change-of-flow rows' prefetch cost**, declined
+          because the target's alignment decides the fetch count -- their warm
+          figures are exact and their cold ones a lower bound. And the
+          `PROVISIONAL` reading that selects between §11.6.1's and §11.6.3's two
+          row groups, whose measurement is named in `PROJECT_STATUS.md`.
   - [x] **The termination *kind* now comes from a device.** `machine_fill` and
         `machine_store` ask the board and answer `BERR` when nothing decodes the
         address, `STERM` when something does — so a bus error is a device
