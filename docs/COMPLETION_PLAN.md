@@ -2129,9 +2129,11 @@ a 68882, and the 68882 is the only one of these it has.
         model fact and a **manual defect**: its `Dn` row's superscript points at
         a long-word-boundary note, which a register operand cannot have.
         Modelled as page 10-15 prints the identical figures; the reasoning and
-        the sources exhausted are in `PROJECT_STATUS.md`. `m68040_iu_timing_suite`,
-        30 tests. Twelve pages of column groups remain, then §10.7's ten pages
-        of floating-point timings. Bulk transcription against the composition above,
+        the sources exhausted are in `PROJECT_STATUS.md`. Page 10-17 added a
+        third confidence class -- "times listed are for `Dn` within bounds", so
+        the `CHK` column prices the case that does *not* trap.
+        `m68040_iu_timing_suite`, 39 tests. Eleven pages of column groups
+        remain, then §10.7's ten pages of floating-point timings. Bulk transcription against the composition above,
         and the last thing standing between Phase 2b and complete. Every figure
         is a *best case* by §10.1's suppositions: "all memory accesses hit in
         the caches", and misaligned `<ea>` fetch timing is left to the reader.

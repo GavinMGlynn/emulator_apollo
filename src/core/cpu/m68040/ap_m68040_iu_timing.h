@@ -100,11 +100,26 @@ typedef struct {
   unsigned boundary_execute_penalty;
 } ap_m68040_iu_cell_t;
 
+/* How far a column's figures can be trusted. §10.6's notes qualify whole
+ * columns, not individual cells. */
+typedef enum {
+  AP_M68040_IU_FIGURE_EXACT,
+  /* "Times listed are typical." */
+  AP_M68040_IU_FIGURE_TYPICAL,
+  /* "Times listed are for Dn within bounds" -- the `CHK` figures assume the
+   * check *passes*. A failing check traps, and the trap costs what §10.5's
+   * `TRAPcc` row costs, which this column does not include. So these are not
+   * a lower bound on `CHK` in general: they are the cost of the case that does
+   * not branch. */
+  AP_M68040_IU_FIGURE_WITHIN_BOUNDS,
+} ap_m68040_iu_confidence_t;
+
 typedef struct {
   /* The instructions this column prices, NULL-terminated. They share a column
    * because their timings are identical. */
   const char *const *instructions;
   const ap_m68040_iu_cell_t *cells; /* AP_M68040_IU_MODE_COUNT of them */
+  ap_m68040_iu_confidence_t confidence;
 } ap_m68040_iu_group_t;
 
 [[nodiscard]] size_t ap_m68040_iu_group_count(void);

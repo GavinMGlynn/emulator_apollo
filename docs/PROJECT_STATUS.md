@@ -1368,7 +1368,27 @@ for the changing group, `+7/+7` for `BFINS`, `+2` execute-only for `BFFFO`, and
 none at all for `BFTST` -- so a single shared penalty would be wrong for four of
 the five.
 
-What remains of the 68040 item is twelve more pages of §10.6 and §10.7's ten
+Page 10-17 added a third way a column can be qualified. Note `d` on `CHK`
+reads "times listed are for `Dn` **within bounds**" -- so the column prices the
+case that does *not* trap. That is neither a minimum nor a typical figure: a
+failing check takes an exception whose cost is §10.5's, and adding the two would
+double-count the operand fetch. Recording it as its own class keeps a scheduler
+from treating the column as a lower bound on `CHK` in general.
+
+`CAS` is the first column marked *typical*, and the reason is in its note: it
+"synchronizes some portions of the processor before execution". An indivisible
+read-modify-write cannot have one figure. Its cost is also the largest yet
+transcribed -- 36 clocks to calculate and `6L + 31` to execute for `CAS (An)`,
+against one and one for `ADD (An)`. That is not a variant of an ordinary
+access; it is two orders of magnitude of work, which is worth knowing before
+any DN5500 lock contention is measured.
+
+The read/write pattern held for a third page and in its cleanest form:
+`BTST` takes the PC-relative modes that `BCHG`, `BCLR` and `BSET` are denied.
+Same bit, same addressing, different protection -- because one tests and the
+others write back.
+
+What remains of the 68040 item is eleven more pages of §10.6 and §10.7's ten
 pages of floating-point timings. That is bulk transcription against the
 composition already in place, and the last thing standing between Phase 2b and
 complete. Appendix A's bit rows have to come from page images --

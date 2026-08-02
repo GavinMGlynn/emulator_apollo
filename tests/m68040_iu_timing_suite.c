@@ -510,6 +510,112 @@ static void test_the_writing_bit_field_instructions_reject_pc_relative(void) {
   TEST_ASSERT_TRUE(at("BFTST", AP_M68040_IU_PC_DISPLACEMENT).valid);
 }
 
+
+/* ---------------------------------------------------------------------------
+ * Page 10-17: BTST, CAS and CHK.
+ * ------------------------------------------------------------------------- */
+
+static void test_btst_reads_and_so_accepts_pc_relative(void) {
+  /* The read/write pattern again, and the cleanest instance of it: `BTST` only
+   * tests a bit, so it takes the PC-relative modes that `BCHG`, `BCLR` and
+   * `BSET` -- which all write one back -- are denied. Same bit, same
+   * addressing, different protection. */
+  TEST_ASSERT_TRUE(at("BTST", AP_M68040_IU_PC_DISPLACEMENT).valid);
+  TEST_ASSERT_TRUE(at("BTST", AP_M68040_IU_PC_INDEXED).valid);
+  TEST_ASSERT_FALSE(at("BCHG", AP_M68040_IU_PC_DISPLACEMENT).valid);
+  TEST_ASSERT_FALSE(at("BSET", AP_M68040_IU_PC_INDEXED).valid);
+}
+
+static void test_btst_is_cheaper_than_the_bit_changing_instructions(void) {
+  /* `BTST (An)` is `1/2` where `BCHG (An)` is `3/4` -- a test needs no
+   * read-modify-write. */
+  TEST_ASSERT_EQUAL_UINT(
+      1u, ap_m68040_execute_total(
+              ap_m68040_iu_execute(at("BTST", AP_M68040_IU_INDIRECT), false,
+                                   false)));
+  TEST_ASSERT_EQUAL_UINT(
+      3u, ap_m68040_execute_total(
+              ap_m68040_iu_execute(at("BCHG", AP_M68040_IU_INDIRECT), false,
+                                   false)));
+}
+
+static void test_btst_indexed_modes_have_a_dual_calculate_too(void) {
+  /* `BTST (BR,Xn)` prints `7/6` for calculate: a `Dn` bit number is cheaper to
+   * calculate here, exactly as it is for `BCHG (d16,An)`. The dual calculate
+   * is not confined to one row of one column. */
+  const ap_m68040_iu_cell_t c = at("BTST", AP_M68040_IU_BASE_INDEXED);
+  TEST_ASSERT_EQUAL_UINT(7u, ap_m68040_iu_calculate(c, false, false));
+  TEST_ASSERT_EQUAL_UINT(6u, ap_m68040_iu_calculate(c, true, false));
+}
+
+static void test_cas_is_typical_rather_than_exact(void) {
+  /* Note b: "times listed are typical. This instruction interlocks the <ea>
+   * calculate and execute stages and synchronizes some portions of the
+   * processor before execution." A read-modify-write that has to synchronise
+   * cannot have one figure, so the column is marked rather than trusted. */
+  const ap_m68040_iu_group_t *cas = ap_m68040_iu_find("CAS");
+  TEST_ASSERT_NOT_NULL(cas);
+  TEST_ASSERT_EQUAL_INT(AP_M68040_IU_FIGURE_TYPICAL, cas->confidence);
+}
+
+static void test_cas_is_the_most_expensive_column_so_far(void) {
+  /* 36 clocks to calculate and `6L + 31` to execute for `CAS (An)`, against one
+   * and one for `ADD (An)`. The indivisible read-modify-write is not a variant
+   * of an ordinary access -- it is two orders of magnitude of work. */
+  const ap_m68040_iu_cell_t c = at("CAS", AP_M68040_IU_INDIRECT);
+  TEST_ASSERT_EQUAL_UINT(36u, ap_m68040_iu_calculate(c, false, false));
+  TEST_ASSERT_EQUAL_UINT(6u, c.execute.lead);
+  TEST_ASSERT_EQUAL_UINT(31u, c.execute.base);
+}
+
+static void test_cas_rejects_every_non_alterable_mode(void) {
+  /* `CAS` writes back, so no PC-relative and no immediate -- and no register
+   * modes either, since the operand must be in memory for the access to be
+   * indivisible. */
+  TEST_ASSERT_FALSE(at("CAS", AP_M68040_IU_DN).valid);
+  TEST_ASSERT_FALSE(at("CAS", AP_M68040_IU_AN).valid);
+  TEST_ASSERT_FALSE(at("CAS", AP_M68040_IU_PC_DISPLACEMENT).valid);
+  TEST_ASSERT_FALSE(at("CAS", AP_M68040_IU_PC_INDEXED).valid);
+  TEST_ASSERT_FALSE(at("CAS", AP_M68040_IU_IMMEDIATE).valid);
+}
+
+static void test_chk_figures_assume_the_check_passes(void) {
+  /* Note d: "times listed are for Dn within bounds." So this column prices the
+   * case that does *not* trap. A failing check takes an exception whose cost is
+   * §10.5's, and adding these figures to that would double-count the operand
+   * fetch -- which is why the confidence is recorded rather than the column
+   * being treated as a lower bound. */
+  const ap_m68040_iu_group_t *chk = ap_m68040_iu_find("CHK");
+  TEST_ASSERT_NOT_NULL(chk);
+  TEST_ASSERT_EQUAL_INT(AP_M68040_IU_FIGURE_WITHIN_BOUNDS, chk->confidence);
+}
+
+static void test_chk_accepts_an_immediate_bound(void) {
+  /* `CHK #<xxx>,Dn` is the common form -- a compile-time array bound -- and it
+   * costs the same 8 and `1L + 7` as the register form, since neither touches
+   * memory. */
+  const ap_m68040_iu_cell_t imm = at("CHK", AP_M68040_IU_IMMEDIATE);
+  const ap_m68040_iu_cell_t reg = at("CHK", AP_M68040_IU_DN);
+  TEST_ASSERT_TRUE(imm.valid);
+  TEST_ASSERT_EQUAL_UINT(ap_m68040_iu_calculate(reg, false, false),
+                         ap_m68040_iu_calculate(imm, false, false));
+  TEST_ASSERT_EQUAL_UINT(
+      ap_m68040_execute_total(ap_m68040_iu_execute(reg, false, false)),
+      ap_m68040_execute_total(ap_m68040_iu_execute(imm, false, false)));
+}
+
+static void test_only_the_qualified_columns_are_marked(void) {
+  /* Everything transcribed so far is exact except `CAS` and `CHK`, and a
+   * column that lost its marking would report a typical figure as a fact. */
+  for (size_t g = 0; g < ap_m68040_iu_group_count(); g++) {
+    const ap_m68040_iu_group_t *group = ap_m68040_iu_group(g);
+    const bool qualified = ap_m68040_iu_find("CAS") == group ||
+                           ap_m68040_iu_find("CHK") == group;
+    TEST_ASSERT_EQUAL_INT(qualified,
+                          group->confidence != AP_M68040_IU_FIGURE_EXACT);
+  }
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_instructions_sharing_a_column_share_a_group);
@@ -542,5 +648,14 @@ int main(void) {
   RUN_TEST(test_a_register_operand_never_pays_the_boundary_penalty);
   RUN_TEST(test_the_three_bit_field_boundary_penalties_differ);
   RUN_TEST(test_the_writing_bit_field_instructions_reject_pc_relative);
+  RUN_TEST(test_btst_reads_and_so_accepts_pc_relative);
+  RUN_TEST(test_btst_is_cheaper_than_the_bit_changing_instructions);
+  RUN_TEST(test_btst_indexed_modes_have_a_dual_calculate_too);
+  RUN_TEST(test_cas_is_typical_rather_than_exact);
+  RUN_TEST(test_cas_is_the_most_expensive_column_so_far);
+  RUN_TEST(test_cas_rejects_every_non_alterable_mode);
+  RUN_TEST(test_chk_figures_assume_the_check_passes);
+  RUN_TEST(test_chk_accepts_an_immediate_bound);
+  RUN_TEST(test_only_the_qualified_columns_are_marked);
   return UNITY_END();
 }
