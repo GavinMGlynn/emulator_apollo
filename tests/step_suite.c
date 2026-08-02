@@ -4929,14 +4929,21 @@ static void test_an_undefined_extension_traps_with_a_coprocessor_fitted(void) {
  * indistinguishable from a correct unfitted machine and the gap would stop
  * being visible -- the same rule the MMU's own unimplemented forms follow.
  *
- * The example used to be `FSIN`, which is now computed. It is `FMOD` instead:
- * a remainder form, which this model has not got to and which is not part of
- * the transcendental work. Picking a still-open gap on purpose, rather than
- * whichever one happened to be open, is what stops this test needing an edit
- * every time a family lands. */
+ * The example has moved twice: from `FSIN` when the transcendentals landed, to
+ * `FMOD` when the remainder forms did. Both times the reasoning was "pick a
+ * gap that will stay open", and both times it closed -- so the third choice is
+ * not an instruction at all but an **architectural boundary**: an opclass `010`
+ * form, whose operand comes from memory.
+ *
+ * That one cannot close by implementing an operation. §9's protocol has the
+ * *main processor* evaluate the effective address and transfer the operand
+ * through the coprocessor interface, so this stays unimplemented until the
+ * 68030 holds up its half of that dialog -- at which point the test should be
+ * deleted rather than repointed. */
 static void test_an_unimplemented_coprocessor_form_is_reported_as_our_gap(void) {
-  /* FMOD, extension $21: defined by the part, not implemented here. */
-  static const uint16_t program[] = {0xF200u, 0x0021u, 0x4E71u};
+  /* FADD with opclass 010: the operand is external, which the part cannot
+   * fetch for itself. */
+  static const uint16_t program[] = {0xF200u, 0x4922u, 0x4E71u};
   machine_t m = {0};
   load(&m, program, 3);
 

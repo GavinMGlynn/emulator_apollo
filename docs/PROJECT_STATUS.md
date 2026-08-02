@@ -1710,8 +1710,47 @@ given the part's own directed rounding of a transcendental is accurate only to
 the same published bound. A test asserts the no-op so that anyone who later adds
 guard bits finds it and deletes it deliberately.
 
-What remains unimplemented in the 68882 is the rounding and remainder forms --
-`FMOD`, `FREM`, `FSGLDIV`, `FSGLMUL` -- which are not §4.3.2 transcendentals, so
+**`FMOD` and `FREM` are in.** Calling them an "honest boundary" last iteration
+was wrong: unlike the MPU-side conditional dialog, they have no external
+dependency and are *exactly* specified, so §4.3.2's bound has nothing to say
+about them and neither did anything else. They were an unimplemented feature on
+a ticked item.
+
+The two differ in one thing only -- `N = INT(FPn / Source)` rounded to nearest
+for `FREM` and to zero for `FMOD` -- and the manual insists the difference
+matters: `FMOD` "uses the round-to-zero mode and thus returns a remainder that
+is different from the remainder required by the IEEE Specification". For `5` and
+`3` the modulo is `+2` and the IEEE remainder is `-1`.
+
+Both are **exact**, and that shapes the implementation. A remainder is always
+representable -- smaller than the divisor, sharing its exponent range -- so
+neither can round, overflow, or raise `INEX2`. They are computed by restoring
+long division on the significands rather than as `a - b * round(a/b)`, because
+the quotient can be astronomically large: `1e10 mod 3` needs a 34-bit quotient,
+and forming it as a floating-point value and multiplying would be wrong by more
+than the answer. Verified against a 80-digit reference over 144 cases, value and
+quotient byte, in both modes.
+
+The quotient byte is §2.3.2's, and two of its properties are easy to get
+backwards. Its sign "is the exclusive OR of the sign bits of the source and
+destination operands" -- the sign the *quotient* would have, not the remainder's,
+which follows the dividend; the two agree in exactly the half of cases that
+hides a mistake. And it is not cleared at the start of an operation the way the
+exception byte is: "the quotient bits remain set until they are cleared by the
+user, or until another FMOD or FREM instruction is executed", so it is written
+in the instruction rather than in the shared tail.
+
+**`step_suite`'s example of an unimplemented form has moved twice**, and the
+second move was the lesson. It was `FSIN` until the transcendentals landed, then
+`FMOD` -- chosen with the reasoning "pick a gap that will stay open" -- and that
+closed too. It now points at an *architectural* boundary instead: an opclass
+`010` form, whose operand comes from memory. That one cannot close by
+implementing an operation, since §9 has the main processor evaluate the address
+and transfer the operand, so when it does close the test should be deleted
+rather than repointed.
+
+What remains unimplemented in the 68882 is the two single-precision forms --
+`FSGLDIV` and `FSGLMUL` -- which are not §4.3.2 transcendentals, so
 the accuracy bound above has nothing to say about them and closing them is
 separate work with a separate acceptance criterion. A test pins that distinction
 so the two kinds of gap are not conflated.

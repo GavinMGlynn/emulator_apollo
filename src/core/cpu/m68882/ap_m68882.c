@@ -208,6 +208,32 @@ static ap_m68882_status_t execute_register_to_register(
   case AP_M68882_OP_FINTRZ:
     result = ap_m68882_intrz(&source);
     break;
+  case AP_M68882_OP_FMOD:
+  case AP_M68882_OP_FREM: {
+    /* The IEEE remainder and the modulo differ only in how the implied
+     * quotient is rounded -- to nearest for `FREM`, to zero for `FMOD` -- and
+     * the manual is explicit that this makes `FMOD`'s answer "different from
+     * the remainder required by the IEEE Specification". */
+    const ap_m68882_remainder_t r = ap_m68882_remainder(
+        &destination, &source, command->operation == AP_M68882_OP_FREM);
+    result.value = r.value;
+    result.exceptions = r.exceptions;
+    /* §2.3.2: the quotient byte is "set at the completion of the modulo (FMOD)
+     * or IEEE remainder (FREM) instructions", and only those two. It is not
+     * cleared at the start of an operation the way the exception byte is --
+     * "the quotient bits remain set until they are cleared by the user, or
+     * until another FMOD or FREM instruction is executed" -- so it is written
+     * here rather than in the shared tail. */
+    fpu->regs.fpsr &= ~((UINT32_C(1) << AP_M68882_QUOTIENT_SIGN) |
+                        ((uint32_t)AP_M68882_QUOTIENT_MASK
+                         << AP_M68882_QUOTIENT_SHIFT));
+    fpu->regs.fpsr |= (uint32_t)r.quotient << AP_M68882_QUOTIENT_SHIFT;
+    if (r.quotient_sign) {
+      fpu->regs.fpsr |= UINT32_C(1) << AP_M68882_QUOTIENT_SIGN;
+    }
+    break;
+  }
+
   case AP_M68882_OP_FSCALE:
     /* Dyadic: "FPn x INT(2^Source) -> FPn", so the destination is scaled by the
      * source and not the other way round. */
@@ -248,9 +274,7 @@ static ap_m68882_status_t execute_register_to_register(
    * Reported as unimplemented and **not** as F-line: the hardware executes
    * these, and dressing our gap up as the machine's behaviour would make it
    * invisible. */
-  case AP_M68882_OP_FMOD:
   case AP_M68882_OP_FSGLDIV:
-  case AP_M68882_OP_FREM:
   case AP_M68882_OP_FSGLMUL:
     return AP_M68882_UNIMPLEMENTED;
   }

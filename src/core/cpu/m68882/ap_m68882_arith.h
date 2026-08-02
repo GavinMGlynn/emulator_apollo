@@ -109,6 +109,48 @@ ap_m68882_underflow_exponent(ap_m68882_precision_t precision);
                                            ap_m68882_rounding_t mode,
                                            ap_m68882_precision_t precision);
 
+/* ---------------------------------------------------------------------------
+ * The remainder pair.
+ *
+ * `FREM` is the IEEE remainder and `FMOD` the modulo, and the *only* difference
+ * between them is how the implied quotient is rounded:
+ *
+ *     FPn - (Source x N),  where N = INT(FPn / Source)
+ *
+ * round-to-nearest for `FREM` and round-to-zero for `FMOD`. The manual is
+ * explicit that this is not a detail -- `FMOD` "uses the round-to-zero mode and
+ * thus returns a remainder that is different from the remainder required by the
+ * IEEE Specification for Binary Floating-Point Arithmetic".
+ *
+ * Both are **exact**. A remainder is always representable, whatever the
+ * operands, because it is smaller than the divisor and shares its exponent
+ * range -- so this cannot round, cannot overflow, and never raises `INEX2`.
+ * That is why it is computed by long division on the significands rather than
+ * as `a - b * round(a / b)`: the quotient can be astronomically large and the
+ * product would round away the very bits the remainder is made of.
+ * ------------------------------------------------------------------------- */
+
+typedef struct {
+  ap_m68882_extended_t value;
+  uint32_t exceptions;
+  /* §2.3.2's quotient byte: "the seven least-significant bits of the quotient
+   * (unsigned) and the sign of the entire quotient", where the sign "is the
+   * exclusive OR of the sign bits of the source and destination operands" --
+   * so it is the sign the quotient *would* have, not the sign of the remainder.
+   *
+   * Seven bits are kept because they are what the byte holds, and the manual
+   * says why they are enough: "the quotient bits can be used in argument
+   * reduction for transcendentals ... seven bits are more than enough to
+   * determine the quadrant of a circle in which an operand resides." */
+  bool quotient_sign;
+  unsigned quotient;
+} ap_m68882_remainder_t;
+
+/* `round_to_nearest` selects `FREM`; clear it for `FMOD`. */
+[[nodiscard]] ap_m68882_remainder_t
+ap_m68882_remainder(const ap_m68882_extended_t *destination,
+                    const ap_m68882_extended_t *source, bool round_to_nearest);
+
 /* Compare, which sets condition codes rather than producing a value.
  * `unordered` is the NAN case -- "an unordered condition occurs when one or
  * both of the operands in a floating-point compare operation is a NAN" -- and

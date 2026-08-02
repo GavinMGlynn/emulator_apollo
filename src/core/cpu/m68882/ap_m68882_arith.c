@@ -1016,3 +1016,163 @@ ap_m68882_op_t ap_m68882_scale(const ap_m68882_extended_t *a,
   out.value = result;
   return out;
 }
+
+/* Split a finite non-zero value into a normalised significand and an unbiased
+ * exponent, so a denormal and a normal are handled by one loop. */
+static void decompose(const ap_m68882_extended_t *v, uint64_t *mantissa,
+                      int *exponent) {
+  uint64_t m = v->mantissa;
+  int e = (int)v->exponent - AP_M68882_BIAS_EXTENDED;
+  while ((m & INTEGER_BIT) == 0u) {
+    m <<= 1;
+    e--;
+  }
+  *mantissa = m;
+  *exponent = e;
+}
+
+/* Build an extended value from a significand and an unbiased exponent,
+ * denormalising if the exponent has fallen below the format's minimum. */
+static ap_m68882_extended_t compose(bool sign, uint64_t mantissa,
+                                    int exponent) {
+  if (mantissa == 0u) {
+    return make_zero(sign);
+  }
+  while ((mantissa & INTEGER_BIT) == 0u) {
+    mantissa <<= 1;
+    exponent--;
+  }
+  int biased = exponent + AP_M68882_BIAS_EXTENDED;
+  if (biased < 0) {
+    const unsigned shift = (unsigned)(-biased);
+    mantissa = shift >= 64u ? 0u : (mantissa >> shift);
+    biased = 0;
+  }
+  return (ap_m68882_extended_t){sign, (uint16_t)biased, mantissa};
+}
+
+ap_m68882_remainder_t
+ap_m68882_remainder(const ap_m68882_extended_t *destination,
+                    const ap_m68882_extended_t *source,
+                    bool round_to_nearest) {
+  ap_m68882_remainder_t out = {0};
+  /* The quotient's sign is the operands' signs exclusive-ORed, whatever the
+   * remainder turns out to be. */
+  out.quotient_sign = destination->sign != source->sign;
+
+  ap_m68882_op_t nan_out = {0};
+  if (propagate_nan(destination, source, &nan_out)) {
+    out.value = nan_out.value;
+    out.exceptions = nan_out.exceptions;
+    return out;
+  }
+
+  const ap_m68882_type_t a_kind = ap_m68882_classify(destination);
+  const ap_m68882_type_t b_kind = ap_m68882_classify(source);
+
+  /* "Set if the source is zero, or the destination is infinity" -- the two
+   * cases the function is not defined for, and the operation table's whole
+   * bottom row and middle column. */
+  if (b_kind == AP_M68882_TYPE_ZERO || a_kind == AP_M68882_TYPE_INFINITY) {
+    out.value = make_nan();
+    out.exceptions = UINT32_C(1) << AP_M68882_EXC_OPERR;
+    return out;
+  }
+  if (a_kind == AP_M68882_TYPE_ZERO) {
+    /* "+0.0 / -0.0": a zero dividend keeps its sign through both a finite and
+     * an infinite modulus. */
+    out.value = make_zero(destination->sign);
+    return out;
+  }
+  if (b_kind == AP_M68882_TYPE_INFINITY) {
+    /* Note 2: "returns the value of FPn before the operation" -- nothing is
+     * taken away, because no multiple of an infinity fits inside a finite
+     * number. The quotient is zero, and so is its recorded value. */
+    out.value = *destination;
+    return out;
+  }
+
+  uint64_t ma, mb;
+  int ea, eb;
+  decompose(destination, &ma, &ea);
+  decompose(source, &mb, &eb);
+  const int difference = ea - eb;
+
+  uint64_t remainder;
+  int remainder_exponent;
+  uint64_t quotient = 0u;
+
+  if (difference < 0) {
+    /* The divisor is the larger, so the truncated quotient is zero and the
+     * remainder is the dividend untouched. */
+    remainder = ma;
+    remainder_exponent = ea;
+  } else {
+    /* Restoring long division on the significands, which is what makes this
+     * exact: every step is a subtraction of the divisor from a shifted
+     * remainder, and no product is ever formed. The carry is the 65th bit a
+     * doubled remainder needs -- dropping it makes the comparison wrong for
+     * exactly the operands whose remainder has grown large. */
+    remainder = ma;
+    remainder_exponent = eb;
+    for (int i = 0; i <= difference; i++) {
+      bool carry = false;
+      if (i > 0) {
+        carry = (remainder & INTEGER_BIT) != 0u;
+        remainder <<= 1;
+      }
+      quotient <<= 1;
+      if (carry || remainder >= mb) {
+        remainder -= mb;
+        quotient |= 1u;
+      }
+    }
+  }
+
+  bool sign = destination->sign;
+  if (round_to_nearest) {
+    /* `FREM` rounds the implied quotient to nearest, so the remainder may be
+     * the *negative* one: subtract the divisor once more when the remainder is
+     * more than half of it, or exactly half with an odd quotient -- the same
+     * round-half-to-even the arithmetic uses, applied to N rather than to a
+     * significand. */
+    bool take_one_more;
+    if (difference < 0) {
+      /* Compare 2|a| against |b| without forming either. */
+      const int doubled = ea + 1;
+      take_one_more = doubled > eb || (doubled == eb && ma > mb) ||
+                      (doubled == eb && ma == mb && (quotient & 1u) != 0u);
+    } else {
+      const uint64_t twice = remainder << 1;
+      const bool overflowed = (remainder & INTEGER_BIT) != 0u;
+      take_one_more = overflowed || twice > mb ||
+                      (twice == mb && (quotient & 1u) != 0u);
+    }
+    if (take_one_more) {
+      /* The remainder becomes `|a| - (N+1)|b|`, which is negative, so its
+       * magnitude is `|b| - r` and its sign is the dividend's flipped. */
+      if (difference < 0) {
+        /* Align the dividend to the divisor's exponent to subtract. */
+        const unsigned shift = (unsigned)(eb - ea);
+        const uint64_t aligned = shift >= 64u ? 0u : (ma >> shift);
+        remainder = mb - aligned;
+        remainder_exponent = eb;
+      } else {
+        remainder = mb - remainder;
+      }
+      sign = !sign;
+      quotient += 1u;
+    }
+  }
+
+  out.quotient = (unsigned)(quotient & 0x7Fu);
+  /* The significand sits at the divisor's exponent minus the 63 places the
+   * integer bit is above the least significant one. */
+  out.value = compose(sign, remainder, remainder_exponent);
+  if (out.value.mantissa == 0u) {
+    /* An exact division leaves a zero, and IEEE gives it the dividend's sign
+     * rather than the adjusted one. */
+    out.value = make_zero(destination->sign);
+  }
+  return out;
+}

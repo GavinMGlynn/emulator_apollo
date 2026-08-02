@@ -908,6 +908,159 @@ static void test_underflow_is_measured_against_the_rounding_precision(void) {
                          wide.value.exponent);
 }
 
+static ap_m68882_extended_t whole(int value) {
+  ap_m68882_extended_t out = {value < 0, 0u, 0u};
+  uint64_t magnitude = (uint64_t)(value < 0 ? -value : value);
+  if (magnitude == 0u) return out;
+  int e = 63;
+  while ((magnitude & (1ULL << 63)) == 0u) { magnitude <<= 1; e--; }
+  out.exponent = (uint16_t)(AP_M68882_BIAS_EXTENDED + e);
+  out.mantissa = magnitude;
+  return out;
+}
+
+static void test_the_remainder_is_exact_and_never_rounds(void) {
+  /* A remainder is always representable: it is smaller than the divisor and
+   * shares its exponent range. So `FREM` and `FMOD` cannot round, cannot
+   * overflow and never raise `INEX2` -- which is why they are computed by long
+   * division on the significands rather than as `a - b * round(a/b)`. The
+   * quotient can be astronomically large, and that product would round away the
+   * very bits the remainder is made of.
+   *
+   * `1e10 mod 3` is the case that shows it: the quotient needs 34 bits, so any
+   * implementation that formed it as a floating-point value and multiplied
+   * would be wrong by more than the answer. */
+  const ap_m68882_extended_t big = {false, AP_M68882_BIAS_EXTENDED + 33,
+                                    0x9502F90000000000ULL}; /* 1e10 */
+  const ap_m68882_extended_t three = whole(3);
+  const ap_m68882_remainder_t r =
+      ap_m68882_remainder(&big, &three, false);
+  /* 1e10 = 3 * 3333333333 + 1. */
+  const ap_m68882_extended_t one = whole(1);
+  TEST_ASSERT_EQUAL_UINT(one.exponent, r.value.exponent);
+  TEST_ASSERT_EQUAL_UINT64(one.mantissa, r.value.mantissa);
+  TEST_ASSERT_EQUAL_UINT_MESSAGE(0u, r.exceptions,
+                                 "a remainder is exact and raises nothing");
+  /* 3333333333 mod 128 = 21: the byte keeps the low seven bits. */
+  TEST_ASSERT_EQUAL_UINT(3333333333u & 0x7Fu, r.quotient);
+  TEST_ASSERT_FALSE(r.quotient_sign);
+}
+
+static void test_the_two_remainders_round_the_quotient_differently(void) {
+  /* The only difference between them, and the manual insists on it: `FMOD`
+   * "uses the round-to-zero mode and thus returns a remainder that is different
+   * from the remainder required by the IEEE Specification".
+   *
+   * `5 mod 3`: truncating the quotient to 1 leaves 2, rounding it to nearest
+   * gives 2 and leaves -1. The IEEE remainder is the one no larger than half
+   * the divisor, and it is *negative* here -- which is the property a caller
+   * doing argument reduction depends on and the modulo does not have. */
+  const ap_m68882_extended_t five = whole(5), three = whole(3);
+
+  const ap_m68882_remainder_t modulo =
+      ap_m68882_remainder(&five, &three, false);
+  TEST_ASSERT_FALSE_MESSAGE(modulo.value.sign, "5 mod 3 is +2");
+  TEST_ASSERT_EQUAL_UINT(whole(2).exponent, modulo.value.exponent);
+  TEST_ASSERT_EQUAL_UINT64(whole(2).mantissa, modulo.value.mantissa);
+  TEST_ASSERT_EQUAL_UINT(1u, modulo.quotient);
+
+  const ap_m68882_remainder_t ieee =
+      ap_m68882_remainder(&five, &three, true);
+  TEST_ASSERT_TRUE_MESSAGE(ieee.value.sign, "the IEEE remainder of 5 by 3 is -1");
+  TEST_ASSERT_EQUAL_UINT(whole(1).exponent, ieee.value.exponent);
+  TEST_ASSERT_EQUAL_UINT64(whole(1).mantissa, ieee.value.mantissa);
+  TEST_ASSERT_EQUAL_UINT_MESSAGE(2u, ieee.quotient,
+                                 "rounding the quotient up records the two");
+}
+
+static void test_the_quotient_sign_is_the_operands_exclusive_or(void) {
+  /* "The sign of the quotient is the exclusive OR of the sign bits of the
+   * source and destination operands" -- so it is the sign the *quotient* would
+   * have and not the sign of the remainder, which follows the dividend. The two
+   * differ whenever the operands' signs do, and a model that recorded the
+   * remainder's sign would agree in exactly the half of cases that hides it. */
+  const struct { int a, b; bool quotient_sign; } rows[] = {
+      {5, 3, false}, {-5, 3, true}, {5, -3, true}, {-5, -3, false}};
+  for (unsigned i = 0; i < 4u; i++) {
+    const ap_m68882_extended_t a = whole(rows[i].a), b = whole(rows[i].b);
+    const ap_m68882_remainder_t r = ap_m68882_remainder(&a, &b, false);
+    TEST_ASSERT_EQUAL_MESSAGE(rows[i].quotient_sign, r.quotient_sign,
+                              "the quotient sign is the operands' XOR");
+    /* And the remainder keeps the dividend's sign, whatever the divisor's. */
+    TEST_ASSERT_EQUAL_MESSAGE(rows[i].a < 0, r.value.sign,
+                              "the remainder follows the dividend");
+  }
+}
+
+static void test_the_remainder_operation_table(void) {
+  /* The whole table, including the two cells that are *not* errors.
+   *
+   * A zero dividend keeps its sign through both a finite and an infinite
+   * modulus, and an infinite modulus returns the dividend untouched -- "returns
+   * the value of FPn before the operation", because no multiple of an infinity
+   * fits inside a finite number. Only a zero source or an infinite destination
+   * are operand errors: "set if the source is zero, or the destination is
+   * infinity". */
+  const ap_m68882_extended_t two = whole(2);
+  const ap_m68882_extended_t zero = {false, 0u, 0u};
+  ap_m68882_extended_t minus_zero = zero; minus_zero.sign = true;
+  const ap_m68882_extended_t infinity = {false, 0x7FFFu, 0u};
+
+  /* Source zero: an operand error whatever the destination. */
+  const ap_m68882_remainder_t by_zero =
+      ap_m68882_remainder(&two, &zero, false);
+  TEST_ASSERT_EQUAL_INT(AP_M68882_TYPE_NAN,
+                        ap_m68882_classify(&by_zero.value));
+  TEST_ASSERT_NOT_EQUAL_UINT(0u,
+                             by_zero.exceptions & (1u << AP_M68882_EXC_OPERR));
+
+  /* Destination infinity: likewise. */
+  const ap_m68882_remainder_t of_infinity =
+      ap_m68882_remainder(&infinity, &two, false);
+  TEST_ASSERT_EQUAL_INT(AP_M68882_TYPE_NAN,
+                        ap_m68882_classify(&of_infinity.value));
+  TEST_ASSERT_NOT_EQUAL_UINT(
+      0u, of_infinity.exceptions & (1u << AP_M68882_EXC_OPERR));
+
+  /* Destination zero: the zero comes back with its own sign, and nothing is
+   * raised. */
+  for (unsigned negative = 0; negative < 2u; negative++) {
+    const ap_m68882_remainder_t r = ap_m68882_remainder(
+        negative ? &minus_zero : &zero, &two, false);
+    TEST_ASSERT_EQUAL_INT(AP_M68882_TYPE_ZERO, ap_m68882_classify(&r.value));
+    TEST_ASSERT_EQUAL(negative != 0u, r.value.sign);
+    TEST_ASSERT_EQUAL_UINT(0u, r.exceptions);
+  }
+
+  /* Source infinity with a finite destination: the destination, unchanged. */
+  const ap_m68882_remainder_t untouched =
+      ap_m68882_remainder(&two, &infinity, false);
+  TEST_ASSERT_EQUAL_UINT(two.exponent, untouched.value.exponent);
+  TEST_ASSERT_EQUAL_UINT64(two.mantissa, untouched.value.mantissa);
+  TEST_ASSERT_EQUAL_UINT(0u, untouched.exceptions);
+}
+
+static void test_an_exact_division_leaves_the_dividends_zero(void) {
+  /* `6 mod 3` is zero, and IEEE gives that zero the *dividend's* sign rather
+   * than the sign the adjusted remainder would have carried. Getting it from
+   * the adjustment instead would make `-6 mod 3` a positive zero, which
+   * compares equal but is not the same value. */
+  const ap_m68882_extended_t six = whole(6), minus_six = whole(-6),
+                             three = whole(3);
+  const ap_m68882_remainder_t positive =
+      ap_m68882_remainder(&six, &three, true);
+  TEST_ASSERT_EQUAL_INT(AP_M68882_TYPE_ZERO,
+                        ap_m68882_classify(&positive.value));
+  TEST_ASSERT_FALSE(positive.value.sign);
+
+  const ap_m68882_remainder_t negative =
+      ap_m68882_remainder(&minus_six, &three, true);
+  TEST_ASSERT_EQUAL_INT(AP_M68882_TYPE_ZERO,
+                        ap_m68882_classify(&negative.value));
+  TEST_ASSERT_TRUE_MESSAGE(negative.value.sign,
+                           "an exact remainder keeps the dividend's sign");
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_a_square_root_is_exact_for_perfect_squares);
@@ -944,5 +1097,10 @@ int main(void) {
   RUN_TEST(test_the_minimum_exponent_is_a_legal_one_not_an_underflow);
   RUN_TEST(test_underflow_is_measured_against_the_rounding_precision);
   RUN_TEST(test_a_value_extended_can_hold_still_overflows_a_single);
+  RUN_TEST(test_the_remainder_is_exact_and_never_rounds);
+  RUN_TEST(test_the_two_remainders_round_the_quotient_differently);
+  RUN_TEST(test_the_quotient_sign_is_the_operands_exclusive_or);
+  RUN_TEST(test_the_remainder_operation_table);
+  RUN_TEST(test_an_exact_division_leaves_the_dividends_zero);
   return UNITY_END();
 }

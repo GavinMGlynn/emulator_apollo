@@ -155,15 +155,14 @@ static void test_every_transcendental_is_now_computed(void) {
 }
 
 static void test_the_remaining_gaps_are_not_transcendentals(void) {
-  /* What is still unimplemented is the rounding and remainder forms, and none
-   * of them is a §4.3.2 transcendental -- so the accuracy bound in this header
+  /* What is still unimplemented is the two single-precision forms, and neither
+   * is a §4.3.2 transcendental -- so the accuracy bound in this header
    * has nothing to say about them, and closing them is a different piece of
    * work with a different acceptance criterion. Pinned so the two kinds of gap
    * do not get conflated. */
-  const ap_m68882_operation_t pending[] = {
-      AP_M68882_OP_FMOD, AP_M68882_OP_FREM, AP_M68882_OP_FSGLDIV,
-      AP_M68882_OP_FSGLMUL};
-  for (unsigned i = 0; i < 4u; i++) {
+  const ap_m68882_operation_t pending[] = {AP_M68882_OP_FSGLDIV,
+                                           AP_M68882_OP_FSGLMUL};
+  for (unsigned i = 0; i < 2u; i++) {
     TEST_ASSERT_FALSE(ap_m68882_is_transcendental(pending[i]));
     ap_m68882_t fpu;
     ap_m68882_reset(&fpu);
