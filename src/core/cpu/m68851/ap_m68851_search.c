@@ -4,6 +4,8 @@
 
 #include "cpu/m68851/ap_m68851_search.h"
 
+#include <stddef.h>
+
 ap_m68851_root_t ap_m68851_select_root(unsigned function_code, bool sre) {
   /* FC3 is the bus master: set for a logical bus master other than the CPU. */
   if ((function_code & 0x8u) != 0u) {
@@ -63,13 +65,46 @@ static bool limit_violated(const ap_m68851_search_config_t *config,
 /* Figure 5-23's terminal states, gathered so each exit sets the same fields. */
 static ap_m68851_search_result_t
 invalid_result(ap_m68851_search_fault_t fault, unsigned levels,
-               bool write_protect) {
-  return (ap_m68851_search_result_t){
+               bool write_protect, const ap_m68851_visited_t *path,
+               unsigned path_length) {
+  ap_m68851_search_result_t out = {
       .type = AP_M68851_SEARCH_TYPE_INVALID,
       .fault = fault,
       .levels = levels,
       .write_protect = write_protect,
   };
+  /* The path survives the fault. "A pointer may be fetched, and its U bit set,
+   * for an address to which access is denied at another level of the tree" --
+   * so the descriptors already read are still used, and dropping them here
+   * would leave the tables claiming they never were. */
+  for (unsigned i = 0; i < path_length && i < AP_M68851_SEARCH_MAX_PATH; i++) {
+    out.path[i] = path[i];
+  }
+  out.path_length = path_length;
+  return out;
+}
+
+static void copy_path(ap_m68851_search_result_t *out,
+                      const ap_m68851_visited_t *path, unsigned path_length) {
+  for (unsigned i = 0; i < path_length && i < AP_M68851_SEARCH_MAX_PATH; i++) {
+    out->path[i] = path[i];
+  }
+  out->path_length = path_length;
+}
+
+/* Record a descriptor the search has just read. The status byte is the fourth
+ * of the descriptor in both formats -- see `ap_m68851_visited_t`. */
+static void visit(ap_m68851_visited_t *path, unsigned *path_length,
+                  uint32_t address, unsigned size, uint64_t raw, bool is_page) {
+  if (*path_length >= AP_M68851_SEARCH_MAX_PATH) {
+    return;
+  }
+  path[*path_length] = (ap_m68851_visited_t){
+      .address = address,
+      .status = (uint8_t)((size == 4u ? raw : (raw >> 32)) & 0xFFu),
+      .is_page = is_page,
+  };
+  (*path_length)++;
 }
 
 /* Fill the result from a terminating page descriptor. */
@@ -105,6 +140,8 @@ ap_m68851_search(const ap_m68851_search_config_t *config,
   bool previous_lower_limit = config->root->lower_limit;
   unsigned previous_limit = config->root->limit;
   bool write_protect = false;
+  ap_m68851_visited_t path[AP_M68851_SEARCH_MAX_PATH];
+  unsigned path_length = 0;
   uint32_t table = config->root->table_address;
   unsigned levels = 0u;
 
@@ -129,7 +166,8 @@ ap_m68851_search(const ap_m68851_search_config_t *config,
     /* Not reachable through `PMOVE`, which refuses to load one, but reachable
      * through `PRESTORE`. The manual calls the result undefined; ending the
      * search invalid is the containable reading. */
-    return invalid_result(AP_M68851_SEARCH_FAULT_INVALID_DESCRIPTOR, 0u, false);
+    return invalid_result(AP_M68851_SEARCH_FAULT_INVALID_DESCRIPTOR, 0u,
+                           false, path, path_length);
   }
 
   /* "PERFORM FUNCTION CODE LOOKUP IF REQUIRED": FCL = 1 OR FC3 = 1. The DMA
@@ -140,7 +178,7 @@ ap_m68851_search(const ap_m68851_search_config_t *config,
     const uint32_t address = table + (function_code & 0xFu) * size;
     if (!config->fetch(config->fetch_context, address, size, &raw)) {
       return invalid_result(AP_M68851_SEARCH_FAULT_BUS_ERROR, levels,
-                            write_protect);
+                           write_protect, path, path_length);
     }
     levels++;
 
@@ -148,6 +186,15 @@ ap_m68851_search(const ap_m68851_search_config_t *config,
         (size == 4u) ? ap_m68851_short_table_descriptor((uint32_t)raw)
                      : ap_m68851_long_table_descriptor(raw);
     write_protect = write_protect || d.write_protect;
+    /* Recorded only now, because until the type field is decoded there is no
+     * telling whether this descriptor carries an `M` bit -- and an invalid one
+     * is not recorded at all: nothing was translated through it, so it is not
+     * what §5.1.5.3.11 calls used. The pointers *above* it still are, which is
+     * the case the manual singles out. */
+    if (d.dt != AP_M68851_DT_INVALID) {
+      visit(path, &path_length, address, size, raw,
+            d.dt == AP_M68851_DT_PAGE_DESCRIPTOR);
+    }
 
     switch (d.dt) {
     case AP_M68851_DT_PAGE_DESCRIPTOR: {
@@ -158,12 +205,13 @@ ap_m68851_search(const ap_m68851_search_config_t *config,
                        : ap_m68851_long_page_descriptor(raw, true);
       out.type = AP_M68851_SEARCH_TYPE_EARLY;
       out.levels = levels;
+      copy_path(&out, path, path_length);
       take_page(&out, &page, write_protect);
       return out;
     }
     case AP_M68851_DT_INVALID:
       return invalid_result(AP_M68851_SEARCH_FAULT_INVALID_DESCRIPTOR, levels,
-                            write_protect);
+                           write_protect, path, path_length);
     case AP_M68851_DT_VALID_4_BYTE:
       last_size = size;
       size = 4u;
@@ -188,6 +236,7 @@ ap_m68851_search(const ap_m68851_search_config_t *config,
     if (config->max_levels != 0u && levels >= config->max_levels) {
       out.type = AP_M68851_SEARCH_TYPE_TRUNCATED;
       out.levels = levels;
+      copy_path(&out, path, path_length);
       out.write_protect = write_protect;
       return out;
     }
@@ -199,24 +248,28 @@ ap_m68851_search(const ap_m68851_search_config_t *config,
     if (limit_violated(config, previous_is_root, last_size,
                        previous_lower_limit, previous_limit, index)) {
       return invalid_result(AP_M68851_SEARCH_FAULT_LIMIT_VIOLATION, levels,
-                            write_protect);
+                           write_protect, path, path_length);
     }
 
     uint64_t raw = 0;
     const uint32_t address = table + index * size;
     if (!config->fetch(config->fetch_context, address, size, &raw)) {
       return invalid_result(AP_M68851_SEARCH_FAULT_BUS_ERROR, levels,
-                            write_protect);
+                           write_protect, path, path_length);
     }
     levels++;
 
     const ap_m68851_descriptor_t d =
         (size == 4u) ? ap_m68851_short_table_descriptor((uint32_t)raw)
                      : ap_m68851_long_table_descriptor(raw);
+    if (d.dt != AP_M68851_DT_INVALID) {
+      visit(path, &path_length, address, size, raw,
+            d.dt == AP_M68851_DT_PAGE_DESCRIPTOR);
+    }
 
     if (d.dt == AP_M68851_DT_INVALID) {
       return invalid_result(AP_M68851_SEARCH_FAULT_INVALID_DESCRIPTOR, levels,
-                            write_protect);
+                           write_protect, path, path_length);
     }
 
     if (d.dt == AP_M68851_DT_PAGE_DESCRIPTOR) {
@@ -233,6 +286,7 @@ ap_m68851_search(const ap_m68851_search_config_t *config,
       out.type = early ? AP_M68851_SEARCH_TYPE_EARLY
                        : AP_M68851_SEARCH_TYPE_NORMAL;
       out.levels = levels;
+      copy_path(&out, path, path_length);
       take_page(&out, &page, write_protect || d.write_protect);
       return out;
     }
@@ -271,9 +325,10 @@ ap_m68851_search(const ap_m68851_search_config_t *config,
     if (!config->fetch(config->fetch_context, indirect.address, size,
                        &target)) {
       return invalid_result(AP_M68851_SEARCH_FAULT_BUS_ERROR, levels,
-                            write_protect);
+                           write_protect, path, path_length);
     }
     levels++;
+    visit(path, &path_length, indirect.address, size, raw, true);
 
     const ap_m68851_descriptor_t probe =
         (size == 4u) ? ap_m68851_short_table_descriptor((uint32_t)target)
@@ -283,7 +338,7 @@ ap_m68851_search(const ap_m68851_search_config_t *config,
      * 5-10's two illegal cells, which is what stops a chain of indirections. */
     if (probe.dt != AP_M68851_DT_PAGE_DESCRIPTOR) {
       return invalid_result(AP_M68851_SEARCH_FAULT_INVALID_DESCRIPTOR, levels,
-                            write_protect);
+                           write_protect, path, path_length);
     }
 
     const ap_m68851_descriptor_t page =
@@ -291,7 +346,56 @@ ap_m68851_search(const ap_m68851_search_config_t *config,
                      : ap_m68851_long_page_descriptor(target, false);
     out.type = AP_M68851_SEARCH_TYPE_INDIRECT;
     out.levels = levels;
+    copy_path(&out, path, path_length);
     take_page(&out, &page, write_protect);
     return out;
   }
+}
+
+unsigned ap_m68851_status_writes(const ap_m68851_search_result_t *result,
+                                 bool write_access,
+                                 ap_m68851_status_write_t *out,
+                                 unsigned capacity) {
+  unsigned count = 0;
+  if (result == NULL || out == NULL) {
+    return 0u;
+  }
+  for (unsigned i = 0; i < result->path_length && count < capacity; i++) {
+    const ap_m68851_visited_t *visited = &result->path[i];
+    const bool used = (visited->status & AP_M68851_STATUS_USED) != 0u;
+    const bool modified = (visited->status & AP_M68851_STATUS_MODIFIED) != 0u;
+
+    /* `M` belongs to page descriptors only, and only a write sets it. */
+    const bool needs_used = !used;
+    const bool needs_modified = visited->is_page && write_access && !modified;
+    if (!needs_used && !needs_modified) {
+      /* "Only performing write cycles to modify these bits are required" --
+       * a descriptor already carrying the right bits costs no bus cycle, which
+       * is why this loop produces fewer writes than there are levels. */
+      continue;
+    }
+
+    uint8_t value = visited->status | AP_M68851_STATUS_USED;
+    if (visited->is_page && write_access) {
+      value = (uint8_t)(value | AP_M68851_STATUS_MODIFIED);
+    }
+
+    /* When the same cycle sets `M` from clear there is nothing to preserve, so
+     * a plain write serves; when `U` must be set without disturbing an `M` the
+     * cycle is not itself setting, the byte has to be read back and merged.
+     * That is the whole reason the part has a read-modify-write at all here:
+     * two MMUs sharing a translation tree must not lose each other's `M`. */
+    const bool setting_modified_from_clear =
+        visited->is_page && write_access && !modified;
+    const bool read_modify_write =
+        visited->is_page && needs_used && !setting_modified_from_clear;
+
+    out[count++] = (ap_m68851_status_write_t){
+        /* The status byte, not the descriptor: `address + 3` in both formats. */
+        .address = visited->address + 3u,
+        .value = value,
+        .read_modify_write = read_modify_write,
+    };
+  }
+  return count;
 }

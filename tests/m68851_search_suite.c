@@ -455,6 +455,207 @@ static void test_formats_may_be_mixed_between_levels(void) {
   TEST_ASSERT_EQUAL_HEX32(0x50000u, r.physical_address);
 }
 
+/* ---------------------------------------------------------------------------
+ * §5.1.5.3.11's status write-back.
+ * ------------------------------------------------------------------------- */
+
+/* A two-level tree whose descriptors carry the given status bits. */
+static ap_m68851_search_result_t search_with_status(memory_t *m,
+                                                    uint32_t table_status,
+                                                    uint32_t page_status) {
+  put_short(m, 0x1000u, 0x2000u | 0x2u | table_status);
+  put_short(m, 0x2000u, 0x50000u | 0x1u | page_status);
+  static ap_m68851_tc_t tc;
+  static ap_m68851_rp_t root;
+  tc = two_level_tc();
+  root = root_at(0x1000u, AP_M68851_DT_VALID_4_BYTE);
+  const ap_m68851_search_config_t config = {
+      .tc = &tc, .root = &root, .fetch = memory_fetch, .fetch_context = m};
+  return ap_m68851_search(&config, 0u, 5u);
+}
+
+static void test_a_search_records_the_descriptors_it_read(void) {
+  /* The `U` bit has to be written back into each descriptor the search
+   * touched, and a result alone cannot say where they were. The path is that
+   * record: two levels here, at the two table addresses, with the page
+   * descriptor marked as such because only it carries an `M` bit. */
+  memory_t m = {0};
+  const ap_m68851_search_result_t r = search_with_status(&m, 0u, 0u);
+  TEST_ASSERT_EQUAL_INT(AP_M68851_SEARCH_TYPE_NORMAL, r.type);
+  TEST_ASSERT_EQUAL_UINT(2u, r.path_length);
+  TEST_ASSERT_EQUAL_UINT(r.levels, r.path_length);
+  TEST_ASSERT_EQUAL_HEX32(0x1000u, r.path[0].address);
+  TEST_ASSERT_FALSE_MESSAGE(r.path[0].is_page,
+                            "the first level is a pointer, not a page");
+  TEST_ASSERT_EQUAL_HEX32(0x2000u, r.path[1].address);
+  TEST_ASSERT_TRUE_MESSAGE(r.path[1].is_page,
+                           "the second level terminates the search");
+}
+
+static void test_the_path_survives_a_search_that_faults(void) {
+  /* §5.1.5.3.11 says so outright: "note that a pointer may be fetched, and its
+   * U bit set, for an address to which access is denied at another level of the
+   * tree." So a descriptor read before the fault is still used, and dropping
+   * the path on the way out would leave the tables claiming it never was. */
+  memory_t m = {0};
+  put_short(&m, 0x1000u, 0x2000u | 0x2u); /* a valid pointer */
+  put_short(&m, 0x2000u, 0x0u);           /* DT = $0: invalid */
+  const ap_m68851_tc_t tc = two_level_tc();
+  const ap_m68851_rp_t root = root_at(0x1000u, AP_M68851_DT_VALID_4_BYTE);
+  const ap_m68851_search_config_t config = {
+      .tc = &tc, .root = &root, .fetch = memory_fetch, .fetch_context = &m};
+
+  const ap_m68851_search_result_t r = ap_m68851_search(&config, 0u, 5u);
+  TEST_ASSERT_EQUAL_INT(AP_M68851_SEARCH_TYPE_INVALID, r.type);
+  TEST_ASSERT_EQUAL_INT(AP_M68851_SEARCH_FAULT_INVALID_DESCRIPTOR, r.fault);
+  TEST_ASSERT_TRUE_MESSAGE(r.path_length >= 1u,
+                           "the pointer already read is still on the path");
+  TEST_ASSERT_EQUAL_HEX32(0x1000u, r.path[0].address);
+
+  /* And its `U` bit is written, exactly as the manual says. */
+  ap_m68851_status_write_t writes[AP_M68851_SEARCH_MAX_PATH];
+  const unsigned count = ap_m68851_status_writes(
+      &r, false, writes, AP_M68851_SEARCH_MAX_PATH);
+  TEST_ASSERT_EQUAL_UINT(1u, count);
+  TEST_ASSERT_EQUAL_HEX32(0x1000u + 3u, writes[0].address);
+}
+
+static void test_the_page_descriptor_update_table(void) {
+  /* All eight rows of §5.1.5.3.11, which is the whole specification:
+   *
+   *     Action                              U  M  R/W   U' M'
+   *     RMW Cycle to Set U (M Not Changed)  0  0   R    1  X
+   *     Write to Set U and M                0  0   W    1  1
+   *     RMW to Set U                        0  1   R    1  1
+   *     RMW to Set U                        0  1   W    1  1
+   *     No Write                            1  0   R    1  0
+   *     Write to Set M (U Written Set)      1  0   W    1  1
+   *     No Write                            1  1   R    1  1
+   *     No Write                            1  1   W    1  1
+   *
+   * The read-modify-write column is not decoration. §4.3.1: the part "utilizes
+   * a read-modify-write sequence to update the descriptor status byte whenever
+   * it is required to set the used bit but not affect the state of the modified
+   * bit" -- so two MMUs sharing a tree cannot lose each other's `M`. A plain
+   * write is used only when the same cycle sets `M` too, and there is nothing
+   * to preserve. */
+  const struct {
+    bool used, modified, write_access;
+    bool expect_write, expect_rmw, expect_m;
+  } rows[] = {
+      {false, false, false, true, true, false},
+      {false, false, true, true, false, true},
+      {false, true, false, true, true, true},
+      {false, true, true, true, true, true},
+      {true, false, false, false, false, false},
+      {true, false, true, true, false, true},
+      {true, true, false, false, false, true},
+      {true, true, true, false, false, true},
+  };
+
+  for (unsigned i = 0; i < 8u; i++) {
+    memory_t m = {0};
+    const uint32_t page_status =
+        (rows[i].used ? AP_M68851_STATUS_USED : 0u) |
+        (rows[i].modified ? AP_M68851_STATUS_MODIFIED : 0u);
+    /* The pointer above is given a set `U` so it contributes no write and the
+     * page descriptor's row is the only one under test. */
+    const ap_m68851_search_result_t r =
+        search_with_status(&m, AP_M68851_STATUS_USED, page_status);
+    TEST_ASSERT_EQUAL_INT(AP_M68851_SEARCH_TYPE_NORMAL, r.type);
+
+    ap_m68851_status_write_t writes[AP_M68851_SEARCH_MAX_PATH];
+    const unsigned count = ap_m68851_status_writes(
+        &r, rows[i].write_access, writes, AP_M68851_SEARCH_MAX_PATH);
+
+    if (!rows[i].expect_write) {
+      TEST_ASSERT_EQUAL_UINT_MESSAGE(
+          0u, count, "this row of the table costs no bus cycle");
+      continue;
+    }
+    TEST_ASSERT_EQUAL_UINT_MESSAGE(1u, count,
+                                   "exactly the page descriptor is written");
+    TEST_ASSERT_EQUAL_HEX32_MESSAGE(0x2000u + 3u, writes[0].address,
+                                    "the status byte is the fourth of the "
+                                    "descriptor in both formats");
+    TEST_ASSERT_EQUAL_MESSAGE(rows[i].expect_rmw, writes[0].read_modify_write,
+                              "wrong cycle type for this row");
+    TEST_ASSERT_NOT_EQUAL_UINT_MESSAGE(
+        0u, writes[0].value & AP_M68851_STATUS_USED,
+        "every write of this table sets U");
+    TEST_ASSERT_EQUAL_MESSAGE(
+        rows[i].expect_m, (writes[0].value & AP_M68851_STATUS_MODIFIED) != 0u,
+        "wrong M in the written byte");
+  }
+}
+
+static void test_a_pointer_is_written_plainly_and_only_when_clear(void) {
+  /* Two rules for pointer descriptors, both from the manual and both different
+   * from the page case. §5.1.5.3.11: "for a pointer descriptor, a write cycle
+   * to set the U bit occurs only if the U bit was clear." And §4.3.1: "pointer
+   * table descriptors, which do not contain modified bits, are not referenced
+   * using read-modify-write sequences" -- there is no `M` to protect, so a
+   * plain write serves.
+   *
+   * A pointer must also never gain an `M` bit, whatever the access: bit 4 of a
+   * pointer's status byte is not a modified flag and setting it would corrupt
+   * whatever field it belongs to. */
+  memory_t m = {0};
+  /* The page below is given both bits so it contributes nothing and the
+   * pointer's own row is the only one under test -- with a *write* access, a
+   * page carrying only `U` would still need its `M` and would add a second
+   * write. */
+  const ap_m68851_search_result_t clear = search_with_status(
+      &m, 0u, AP_M68851_STATUS_USED | AP_M68851_STATUS_MODIFIED);
+  ap_m68851_status_write_t writes[AP_M68851_SEARCH_MAX_PATH];
+  unsigned count =
+      ap_m68851_status_writes(&clear, true, writes, AP_M68851_SEARCH_MAX_PATH);
+  TEST_ASSERT_EQUAL_UINT_MESSAGE(1u, count, "the pointer needs its U bit");
+  TEST_ASSERT_EQUAL_HEX32(0x1000u + 3u, writes[0].address);
+  TEST_ASSERT_FALSE_MESSAGE(writes[0].read_modify_write,
+                            "a pointer has no M to preserve");
+  TEST_ASSERT_EQUAL_UINT_MESSAGE(
+      0u, writes[0].value & AP_M68851_STATUS_MODIFIED,
+      "a pointer must never gain a modified bit");
+
+  /* Already used: no cycle at all, even for a write access. */
+  memory_t already = {0};
+  const ap_m68851_search_result_t set = search_with_status(
+      &already, AP_M68851_STATUS_USED,
+      AP_M68851_STATUS_USED | AP_M68851_STATUS_MODIFIED);
+  count = ap_m68851_status_writes(&set, true, writes,
+                                  AP_M68851_SEARCH_MAX_PATH);
+  TEST_ASSERT_EQUAL_UINT_MESSAGE(
+      0u, count, "a fully-marked path costs no bus cycles at all");
+}
+
+static void test_the_write_back_never_clears_a_bit(void) {
+  /* "The MC68851 never changes this bit from a one to a zero", and the same
+   * holds for `U`. Every byte written is the byte that was read with bits
+   * added -- so the rest of the status byte, which carries `DT`, `WP`, `CI`
+   * and the lock and gate bits, survives untouched. Writing a computed byte
+   * rather than a merged one is how a write-back quietly clears a write
+   * protect. */
+  memory_t m = {0};
+  const uint32_t decorated = 0x2u | 0x4u; /* DT plus a neighbouring bit */
+  put_short(&m, 0x1000u, 0x2000u | decorated);
+  put_short(&m, 0x2000u, 0x50000u | 0x1u);
+  const ap_m68851_tc_t tc = two_level_tc();
+  const ap_m68851_rp_t root = root_at(0x1000u, AP_M68851_DT_VALID_4_BYTE);
+  const ap_m68851_search_config_t config = {
+      .tc = &tc, .root = &root, .fetch = memory_fetch, .fetch_context = &m};
+  const ap_m68851_search_result_t r = ap_m68851_search(&config, 0u, 5u);
+
+  ap_m68851_status_write_t writes[AP_M68851_SEARCH_MAX_PATH];
+  const unsigned count = ap_m68851_status_writes(
+      &r, false, writes, AP_M68851_SEARCH_MAX_PATH);
+  TEST_ASSERT_TRUE(count >= 1u);
+  /* Every bit that was in the descriptor's status byte is still there. */
+  TEST_ASSERT_EQUAL_UINT_MESSAGE(
+      decorated, writes[0].value & decorated,
+      "the write-back dropped bits it did not own");
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_the_root_pointer_selection_truth_table);
@@ -478,5 +679,10 @@ int main(void) {
   RUN_TEST(test_the_page_descriptors_attributes_reach_the_result);
   RUN_TEST(test_a_long_format_tree_walks_the_same_way);
   RUN_TEST(test_formats_may_be_mixed_between_levels);
+  RUN_TEST(test_a_search_records_the_descriptors_it_read);
+  RUN_TEST(test_the_path_survives_a_search_that_faults);
+  RUN_TEST(test_the_page_descriptor_update_table);
+  RUN_TEST(test_a_pointer_is_written_plainly_and_only_when_clear);
+  RUN_TEST(test_the_write_back_never_clears_a_bit);
   return UNITY_END();
 }

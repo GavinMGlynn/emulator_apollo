@@ -104,6 +104,44 @@ typedef enum {
   AP_M68851_SEARCH_FAULT_BUS_ERROR,
 } ap_m68851_search_fault_t;
 
+/* Every descriptor a search read, in the order it read them.
+ *
+ * Recorded because §5.1.5.3.11 requires the `U` bit to be written back into
+ * *each* of them, and a result alone cannot say where they were: "in a pointer
+ * table, this bit is set to indicate that the pointer has been fetched by the
+ * MC68851 as part of a table search."
+ *
+ * The path is kept even when the search ends invalid, and that is the manual's
+ * rule rather than an accident: "note that a pointer may be fetched, and its U
+ * bit set, for an address to which access is denied at another level of the
+ * tree." Discarding it on a fault would leave the tables claiming a pointer was
+ * never walked. */
+typedef struct {
+  /* Where the descriptor itself was read from. */
+  uint32_t address;
+  /* The descriptor status byte as it was read.
+   *
+   * It sits at `address + 3` in both formats, which is not a coincidence worth
+   * hiding: `U` is bit 35 of a long descriptor and bit 3 of a short one, and
+   * `M` is bit 36 and bit 4 -- and in each case that is bit 3 and bit 4 of the
+   * fourth byte. One address arithmetic serves both, which is why the manual
+   * can speak of a single "descriptor status byte". */
+  uint8_t status;
+  /* A page descriptor carries `M` as well as `U`; a pointer carries only `U`,
+   * and §4.3.1 notes the consequence: "pointer table descriptors, which do not
+   * contain modified bits, are not referenced using read-modify-write
+   * sequences." */
+  bool is_page;
+} ap_m68851_visited_t;
+
+/* A function code lookup, four table levels and an indirection is the deepest
+ * a search can go. */
+#define AP_M68851_SEARCH_MAX_PATH 8u
+
+/* `U` and `M` within the status byte, in both descriptor formats. */
+#define AP_M68851_STATUS_USED (1u << 3)
+#define AP_M68851_STATUS_MODIFIED (1u << 4)
+
 typedef struct {
   ap_m68851_search_type_t type;
   ap_m68851_search_fault_t fault;
@@ -122,7 +160,56 @@ typedef struct {
   bool shared_globally;
   /* How many descriptors were fetched. `PSR`'s `N` field. */
   unsigned levels;
+  /* The descriptors themselves, for the status write-back. `path_length` can
+   * differ from `levels` only if a search is truncated by the path bound, which
+   * the tree's own depth limit makes unreachable. */
+  ap_m68851_visited_t path[AP_M68851_SEARCH_MAX_PATH];
+  unsigned path_length;
 } ap_m68851_search_result_t;
+
+/* One byte write the part would perform to keep the tables consistent with the
+ * ATC. §4.3.2.2: "the only write cycles initiated by the MC68851 are byte
+ * operations to update the used bit, modified bit, or both". */
+typedef struct {
+  uint32_t address; /* the status byte, not the descriptor */
+  uint8_t value;
+  /* True when the byte must be read back and merged rather than simply
+   * written. §4.3.1: the part "utilizes a read-modify-write sequence to update
+   * the descriptor status byte whenever it is required to set the used bit but
+   * not affect the state of the modified bit", so that two MMUs sharing a table
+   * cannot lose each other's `M`. A pointer has no `M` to protect and is
+   * written plainly. */
+  bool read_modify_write;
+} ap_m68851_status_write_t;
+
+/* The write cycles a completed search implies, from §5.1.5.3.11's table:
+ *
+ *     Action                              U  M  R/W   U' M'
+ *     RMW Cycle to Set U (M Not Changed)  0  0   R    1  X
+ *     Write to Set U and M                0  0   W    1  1
+ *     RMW to Set U                        0  1   R    1  1
+ *     RMW to Set U                        0  1   W    1  1
+ *     No Write                            1  0   R    1  0
+ *     Write to Set M (U Written Set)      1  0   W    1  1
+ *     No Write                            1  1   R    1  1
+ *     No Write                            1  1   W    1  1
+ *
+ * The part "optimizes its activity by examining the U and M bits in descriptors
+ * as they are fetched, and only performing write cycles to modify these bits
+ * are required", so a descriptor already carrying the right bits produces no
+ * entry at all -- which is why this returns a count rather than one write per
+ * level.
+ *
+ * `write_access` is the access being translated. "A bus cycle executed by a
+ * logical bus master is considered to be a write for updating purposes if
+ * either R/W or RMC is low", so a read-modify-write counts as a write here even
+ * though it reads first.
+ *
+ * Returns the number of writes, which is at most `AP_M68851_SEARCH_MAX_PATH`. */
+[[nodiscard]] unsigned
+ap_m68851_status_writes(const ap_m68851_search_result_t *result,
+                        bool write_access, ap_m68851_status_write_t *out,
+                        unsigned capacity);
 
 /* How the search reads a descriptor. Returns false for a bus error, which ends
  * the search with `B` set in the entry it makes. `bytes` is 4 or 8. */
