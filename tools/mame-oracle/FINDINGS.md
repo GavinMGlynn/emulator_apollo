@@ -4194,3 +4194,46 @@ them, which is a rewrite of the module rather than a fix to a line. Its benefit
 is now known precisely -- one unit in the last place, on three functions of five,
 at this argument -- and so is the fact that no cheaper subset of it buys
 anything.
+
+## C71 -- the exactly specified operations agree, which is the divergence class
+
+**Class: agree, and the campaign's conclusion.**
+
+C70 settled the transcendentals as a resolution limit. That left the question the
+68882's verification line actually asks: not "do the two agree" but "what *kind*
+of disagreement is there, and where". The sweep now answers it by splitting the
+operations along the line §4.3.2 itself draws.
+
+| function | truth | ours | oracle | |
+| --- | --- | --- | --- | --- |
+| `FSIN` | `48677021` | `48677020` | `48677021` | bounded -- oracle closer |
+| `FCOS` | `A8345C92` | `A8345C92` | `A8345C92` | bounded -- both exact |
+| `FTAN` | `F71D2DC5` | `F71D2DC4` | `F71D2DC5` | bounded -- oracle closer |
+| `FETOX` | `A2BB4A9B` | `A2BB4A9A` | `A2BB4A9B` | bounded -- oracle closer |
+| `FATAN` | `2168C235` | `2168C235` | `2168C235` | bounded -- both exact |
+| `FSQRT` | `D2DA9490` | `D2DA9490` | `D2DA9490` | **exact -- both exact** |
+| `FINT` | `00000000` | `00000000` | `00000000` | **exact -- both exact** |
+
+`FSQRT` of 10 and `FINT` of pi, both adjudicated against 140-digit truth.
+
+**The split is the finding.** §4.3.2 bounds the transcendentals -- "the IEEE
+specification does not define the error bound to which transcendental (**except
+square root**) functions are to be performed" -- and specifies everything else
+exactly. Every difference the campaign has found is on the bounded side, and
+there is none at all on the specified side. The sweep now flags an exact-operation
+row that differs as `DEFECT: no error bound licenses this`, so the distinction is
+enforced rather than remembered.
+
+**So the divergence class is:** one unit in the last place, transcendentals only,
+three of five at argument 1.0, oracle closer, cause understood (C70: arithmetic
+at the destination's own width where §3.4 has the part carry 67 bits), inside
+both the accuracy suite's 3.1 ceiling and §4.3.2's 64. Nothing outside that.
+
+**What the campaign does not claim.** Neither implementation has been compared
+with a real MC68882, and neither can be: Motorola published a bound and no
+algorithm, so the part's own sine may be further from the truth than both of
+ours. "The oracle is closer to the true value" is the whole of the claim; "the
+oracle is closer to the part" is not measurable from here and is not asserted.
+
+That is thirteen campaigns, C59 to C71, from a coprocessor that was not attached
+to a machine at all.

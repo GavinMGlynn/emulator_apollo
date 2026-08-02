@@ -95,20 +95,39 @@ def extended_low_word(value: Decimal) -> str:
     return "%08X" % (mi & 0xFFFFFFFF)
 
 
-# Table 4-13's extension for each, applied to 1.0 from constant ROM offset $32.
+def _sqrt(x: Decimal) -> Decimal:
+    return x.sqrt()
+
+
+def _int(x: Decimal) -> Decimal:
+    return Decimal(int(x))  # round-to-nearest is not exercised: 10 and pi both
+                            # sit far from a half
+
+
+# Table 4-13's extension for each, with the constant ROM offset supplying the
+# argument. `$32` is 1.0, `$33` is 10, `$00` is pi.
+#
+# The split matters more than the list. **The transcendentals are bounded, not
+# specified** -- §4.3.2 gives an error interval and no algorithm, so a difference
+# there is a resolution limit and `FINDINGS.md` C70 settled it as one. The
+# exactly specified operations have no such licence: "except square root" is the
+# manual's own phrasing, and `FINT` and `FGETEXP` have one right answer each. A
+# difference in *those* rows is a defect on one side.
 ROWS = [
-    ("FSIN", 0x0E, _sin),
-    ("FCOS", 0x1D, _cos),
-    ("FTAN", 0x0F, _tan),
-    ("FETOX", 0x10, _exp),
-    ("FATAN", 0x0A, _atan),
+    ("FSIN", 0x0E, 0x32, _sin, "bounded"),
+    ("FCOS", 0x1D, 0x32, _cos, "bounded"),
+    ("FTAN", 0x0F, 0x32, _tan, "bounded"),
+    ("FETOX", 0x10, 0x32, _exp, "bounded"),
+    ("FATAN", 0x0A, 0x32, _atan, "bounded"),
+    ("FSQRT", 0x04, 0x33, _sqrt, "exact"),
+    ("FINT", 0x01, 0x00, _int, "exact"),
 ]
 
 
-def probe_words(extension: int, address: int) -> list[int]:
-    """The C62 shape with one function substituted."""
+def probe_words(extension: int, rom: int, address: int) -> list[int]:
+    """The C62 shape with one function and one argument substituted."""
     return E.assemble(
-        [0xF200, 0x5C32],                                   # FMOVECR #$32,FP0
+        [0xF200, 0x5C00 | rom],                             # FMOVECR #rom,FP0
         [0xF200, extension],                                # F<op>   FP0,FP0
         [0x207C, ((address - 8) >> 16) & 0xFFFF,
          (address - 8) & 0xFFFF],                           # MOVEA.L #a-8,A0
@@ -118,18 +137,18 @@ def probe_words(extension: int, address: int) -> list[int]:
 
 
 def main() -> int:
-    one = Decimal(1)
     print("%-8s %-10s %-10s %-10s %s"
           % ("function", "truth", "ours", "oracle", "closer"))
     tally = {"ours": 0, "oracle": 0, "both exact": 0}
 
-    for name, extension, fn in ROWS:
-        truth = extended_low_word(fn(one))
+    args = {0x32: Decimal(1), 0x33: Decimal(10), 0x00: _pi()}
+    for name, extension, rom, fn, kind in ROWS:
+        truth = extended_low_word(fn(args[rom]))
         ours = PC.run_ours(
-            probe_words(extension, PC.OURS_BASE + PC.SENTINEL_OFFSET),
+            probe_words(extension, rom, PC.OURS_BASE + PC.SENTINEL_OFFSET),
             PC.OURS_BASE, PC.OURS_BASE + PC.SENTINEL_OFFSET, 30, Path("/tmp"))
         oracle = PC.run_oracle(
-            probe_words(extension, PC.ORACLE_BASE + PC.SENTINEL_OFFSET),
+            probe_words(extension, rom, PC.ORACLE_BASE + PC.SENTINEL_OFFSET),
             PC.ORACLE_BASE, PC.ORACLE_BASE + PC.SENTINEL_OFFSET, 30, 300.0)
         a, b = ours.get("read"), oracle.get("read")
 
@@ -144,7 +163,13 @@ def main() -> int:
             # only meaningful when neither wrapped, so say so rather than guess.
             verdict = "neither (both differ)"
         tally[verdict] = tally.get(verdict, 0) + 1
-        print("%-8s %-10s %-10s %-10s %s" % (name, truth, a, b, verdict))
+        # An exactly specified operation that differs is a *defect*, not a
+        # resolution limit: §4.3.2's bound does not cover it.
+        flag = ""
+        if kind == "exact" and verdict != "both exact":
+            flag = "  <-- DEFECT: no error bound licenses this"
+        print("%-8s %-10s %-10s %-10s %s%s"
+              % (name, truth, a, b, verdict, flag))
 
     print()
     print("closer to the true value: " +
