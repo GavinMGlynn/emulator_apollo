@@ -1995,6 +1995,12 @@ a 68882, and the 68882 is the only one of these it has.
         Modelled as named fields rather than a packed word: Figures 5-21 and
         5-22 give no bit numbers, because the ATC is not programmer-visible.
         `m68851_atc_suite`, 22 tests.
+  - [x] The table search, transcribed from Figure 5-23 with Figure 5-26's limit
+        check and the root pointer selection truth table. Walks and decides; it
+        does not touch the bus, taking descriptor fetches through a caller
+        supplied function so the cycle-stepped core can drive it one bus cycle
+        at a time later without this logic changing. `m68851_search_suite`,
+        21 tests.
 - [ ] 68040 for DN5500: different pipeline, caches, and MMU descriptor format;
       integrated FPU. *Verification: `MC68040 User's Manual 1993` cited;
       `dn5500` oracle diff, expecting to exceed the oracle's FPU coverage.*

@@ -672,6 +672,44 @@ bit is a single generation rather than an ordering, so when every unlocked entry
 is marked used the cache starts a new generation instead of refusing -- which is
 exactly what makes it *pseudo*-LRU.
 
+**The table search is in, transcribed from Figure 5-23.** That figure is not an
+illustration of prose stated elsewhere -- it is the only complete statement of
+the algorithm, and several of its rules appear nowhere in the text. The
+implementation follows the flowchart's own variable names (`x`, `y`, `SIZE`,
+`LAST_SIZE`) so the two can be read against each other.
+
+`LAST_SIZE` is the piece that looks unmotivated until Figure 5-26 explains it:
+**the limit check is skipped outright when `LAST_SIZE = 4`.** A short-format
+descriptor has no limit field, so whether level B is bounded is decided by the
+*format of the descriptor found at level A*. It starts at 8 because a root
+pointer is always 64 bits and always carries a limit. The root pointer's own
+check is additionally skipped on "FCL = 1 OR DRP IS RP" -- a DMA search always
+performs a function code lookup, so its first index is a function code rather
+than part of the logical address.
+
+The root pointer selection truth table has eight rows and reduces to two rules:
+`FC3` alone sends a non-CPU bus master to the DRP whatever else is set, and the
+SRP is reached only when a supervisor access meets an `SRE` that enables it.
+
+Two results confirm earlier work from the other direction. A page descriptor
+found with levels still below it makes the flowchart advance `x` and ask whether
+the next `TIx` is zero -- if not, levels were skipped and the type is `EARLY`,
+which is precisely the type-2 case §5.1.5.2.2 describes. And after following an
+indirection the flowchart accepts only `DT = 'PAGE DESCRIPTOR'`, making
+everything else invalid: Figure 5-10's two "illegal" cells, seen from the
+algorithm's side.
+
+Write protection accumulates down the tree rather than being copied from the
+leaf -- §5.2.1.2 calls the cached copy "the effective write protection
+determined during the translation table search" -- so a protected table protects
+everything beneath it and a clear bit lower down cannot undo it.
+
+The module walks and decides; it does not touch the bus. Descriptor fetches go
+through a caller-supplied function, which is what let the whole algorithm be
+tested against real translation trees built in an array, and what will let the
+cycle-stepped core drive it one bus cycle at a time without this logic
+changing.
+
 ## Subsystems
 
 | Subsystem | Status | Verification |
