@@ -135,18 +135,73 @@ def run_oracle(words, base, sentinel_at, limit, timeout: float) -> dict:
     return parse_fields(proc.stdout)
 
 
-def main(argv=None) -> int:
+# Every program this script knows how to run, in the order the campaign built
+# them. `--program all` walks the list, which is what turns thirteen one-off
+# measurements into a check someone can re-run after changing the core.
+ALL_PROGRAMS = ("sentinel", "dbcc", "subroutine", "divide", "divide-overflow",
+                "movem", "pmove", "fault", "bus-fault", "fpu", "fpu-rounding",
+                "fpu-sine", "fpu-sine-x")
+
+
+def run_all(argv, parser) -> int:
+    """Run every program and report a single verdict.
+
+    Each is a separate MAME launch, so this is minutes rather than seconds --
+    which is why it is opt-in rather than the default. The value is that a
+    regression in any class is one command away instead of thirteen, and that
+    the list itself records what has been compared.
+    """
+    # `fpu-sine-x` differs by one unit in the last place and is *expected* to:
+    # C70 settled it as a resolution limit rather than a defect -- arithmetic
+    # done at the destination's own width, where §3.4 has the part carry 67
+    # bits. Listing it here is what makes this a regression check instead of a
+    # measurement: a run is green when nothing has changed, and red only when
+    # something new has. A known difference that reddens the suite every time
+    # trains its reader to ignore it, which is the same mistake C75's dangerous
+    # output nearly caused.
+    KNOWN_DIFFER = {"fpu-sine-x": "C70, one ULP, settled sub-poll-slack"}
+
+    failed = []
+    expected = []
+    for name in ALL_PROGRAMS:
+        print("=" * 72)
+        print("== %s" % name)
+        rest = [a for a in (argv or []) if not a.startswith("--program")]
+        differed = main([*rest, "--program", name], recursing=True) != 0
+        if differed and name in KNOWN_DIFFER:
+            expected.append(name)
+        elif differed:
+            failed.append(name)
+        elif name in KNOWN_DIFFER:
+            # A known difference that stopped differing is also news.
+            failed.append("%s (expected to differ, did not)" % name)
+    print("=" * 72)
+    for name in expected:
+        print("known difference: %s -- %s" % (name, KNOWN_DIFFER[name]))
+    if failed:
+        print("UNEXPECTED: %s" % ", ".join(failed))
+        return 1
+    print("%d of %d probe programs ran identically; %d differed as recorded"
+          % (len(ALL_PROGRAMS) - len(expected), len(ALL_PROGRAMS),
+             len(expected)))
+    return 0
+
+
+def main(argv=None, recursing=False) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--sentinel", type=lambda s: int(s, 0), default=E.SENTINEL)
     parser.add_argument("--limit", type=int, default=20)
     parser.add_argument("--timeout", type=float, default=300.0)
     parser.add_argument("--work", type=Path, default=Path("/tmp"))
     parser.add_argument(
-        "--program", choices=("sentinel", "fpu", "fpu-rounding", "fpu-sine", "fpu-sine-x", "fault", "bus-fault", "dbcc", "movem", "divide", "divide-overflow", "subroutine", "pmove"),
+        "--program", choices=("sentinel", "fpu", "fpu-rounding", "fpu-sine", "fpu-sine-x", "fault", "bus-fault", "dbcc", "movem", "divide", "divide-overflow", "subroutine", "pmove", "all"),
         default="sentinel",
         help="which probe to run; `fpu` exercises the coprocessor's constant "
              "ROM, an FADD and the store conversion in one")
     args = parser.parse_args(argv)
+
+    if args.program == "all" and not recursing:
+        return run_all(argv, parser)
 
     if args.program == "pmove":
         ours_words = E.pmove_probe(OURS_BASE + SENTINEL_OFFSET)

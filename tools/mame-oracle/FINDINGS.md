@@ -4733,3 +4733,32 @@ implementations and agrees:
 
 Twenty-three campaigns, C59 to C81. It began with a coprocessor that had never
 been attached to a machine and a verification line that had never been run.
+
+## C82 -- the campaign becomes a regression check
+
+**Class: infrastructure.** The measurements of C59 to C81 are now one command.
+
+    python3 tools/mame-oracle/probe_compare.py --program all
+
+    known difference: fpu-sine-x -- C70, one ULP, settled sub-poll-slack
+    12 of 13 probe programs ran identically; 1 differed as recorded
+
+Thirteen separate invocations became one, which matters less for convenience than
+for what it changes about the result: a campaign is a measurement taken once,
+and this is a check someone can re-run after touching the core. The list itself
+records what has been compared, so a class that was never covered is visible in
+the source rather than only in this file.
+
+**The known difference is declared rather than tolerated.** `fpu-sine-x` differs
+by one unit in the last place and is *expected* to -- C70 settled it as a
+resolution limit, not a defect. It is listed with its reason, so a green run
+means nothing has changed and a red one means something new has. A suite that
+went red every time for a known reason would train its reader to ignore the
+colour, which is exactly the failure C75's output nearly caused when a stalled
+harness produced the shape of a real finding.
+
+**And the check runs both ways**: a program in the known-difference list that
+*stops* differing is also reported. If the transcendental bias is ever closed --
+the standing `PROVISIONAL` in `PROJECT_STATUS.md`, priced at one unit in the last
+place across three functions -- this suite will say so on the next run rather
+than quietly going green.
