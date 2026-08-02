@@ -458,8 +458,21 @@ a milestone: everything after it can be checked. A subsystem landing in Phase 3
 gets a golden, a probe against the oracle, and one number that says whether two
 runs of it were the same run.
 
-**Phase 2 (the MC68030) is done.** Every item states a verification and every
-one is met. The integer core decodes and executes the whole opcode map;
+**Phase 2 (the MC68030) is done — and this paragraph used to say so before it
+was true.** Every item states a verification and every one is *now* met, which
+is worth distinguishing from the tick count, because twice this claim was made
+on the ticks alone and twice an audit of the verification lines found one
+unmet. The 68882's asked for a probe suite against the oracle: there was none,
+and the coprocessor had never been attached to a running machine at all. The
+exception item's asked for probes that deliberately fault, diffed against the
+oracle: there were none, and *no* built-in probe had ever been run against the
+oracle. Both are closed now, by measurement rather than by assertion —
+`FINDINGS.md` C59 to C82 — and the campaign runs as one command so the next
+person does not have to take this paragraph's word for it.
+
+The lesson is recorded rather than tidied away: **in this plan, a tick has not
+reliably meant the verification happened.** Auditing verification lines rather
+than counting boxes is cheap and has a hit rate worth the time. The integer core decodes and executes the whole opcode map;
 exceptions, traps, interrupt priority and both fault frame formats build and
 return; the MMU translates, walks, caches and reports; the caches price
 themselves through the bus state machine; and instruction execution time is
