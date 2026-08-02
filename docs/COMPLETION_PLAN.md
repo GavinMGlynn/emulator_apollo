@@ -1865,7 +1865,27 @@ a 68882, and the 68882 is the only one of these it has.
         once and comes out quiet**, since leaving it signalling would raise the
         exception again on every later operation -- one invalid operand becoming
         an exception per instruction for the rest of the calculation.
-  - [ ] The transcendentals, and the instruction decode that reaches all of it.
+  - [x] **The instruction decode** (`ap_m68882_decode.c`), §4.7 and Tables 4-11
+        and 4-13: the operation word's type field, the command word's opclass
+        and register fields, and all forty-odd extension encodings. The 68030's
+        F-line decoder gets as far as "a coprocessor instruction for cpID 1";
+        everything past that is here.
+        *Verification: `m68882_decode_suite`, 10 tests -- every one of the 128
+        extension values classified, each type and opclass at its own encoding,
+        and Table 4-13's operations listed so a transposed pair fails here
+        rather than in a program's results.*
+  - [x] Three encoding traps. **The reserved encodings are not all illegal**:
+        footnote 3 lists nineteen that are "redundant with valid instructions
+        ... and do not cause an F-line exception if executed", so there are
+        three classes and not two, and a decoder with two traps on code the
+        hardware runs. **`FSINCOS` occupies eight encodings**, `$30-$37`, its
+        low three bits naming the second destination register -- taking only
+        `$30` would F-line trap on seven eighths of its uses. And **whether the
+        operation word's low six bits are an effective address depends on the
+        *command* word**, with move constant the exception inside its own
+        opclass: it reads the FPCP's ROM and touches no memory.
+  - [ ] The transcendentals, and wiring the whole part to the 68030's F-line
+        path.
 - [ ] 68020 subset: no on-chip MMU or cache differences, external 68851.
       *Verification: `dn3000` boots under both; oracle diff.*
 - [ ] 68851 external PMMU as its own subsystem. *Verification: `MC68851 PMMU
