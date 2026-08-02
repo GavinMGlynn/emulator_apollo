@@ -1287,20 +1287,72 @@ the alternation cancels. This core already exhibits exactly that
 alternation (`FINDINGS.md` C7), which had been classified as the oracle's
 error; §11.3.3 is the manual saying so directly.
 
-**What remains is one question.** `CC` and `NCC` both contain operand bus
-cycles at the table's assumed two clocks each, and this core produces
-those itself — so composing published totals and adding measured bus time
-double-counts, which is the trap `CC + bus time` fell into. What is
-needed is how much of each published figure is bus time, and that is
-`(r/p/w)`, printed beside every figure in both tables and transcribed so
-far only for `p`. Until then the footnoted rows still decline rather than
-report a component, and `ADD.B D0,(A0)` still costs 4 here against the
-oracle's 7.
+#### **The decomposition, and `FINDINGS.md` C9 closed**
 
-A tail found while doing this: §11.6.1's and §11.6.3's **full-format
-extension word rows** are still untranscribed, so the worked example's
-`fea ([B])` had to be supplied by the test rather than looked up. Nothing
-composes over a memory indirect mode until they are.
+`CC` and `NCC` both contain the instruction's own operand cycles, which
+is why `CC + bus time` over-counted. §11.6 states both halves of the
+split at the head of every table — the `(r/p/w)` counts "are included in
+the total clock cycle number", and "all timing data assumes two-clock
+reads and writes" — so
+
+```
+  microcode = CC - 2(r + w)
+```
+
+is arithmetic on published numbers rather than a model. `r` and `w` are
+now transcribed beside `p`, and the step prices a row as
+
+```
+  total = microcode + measured operand bus + prefetch cost
+```
+
+The microcode comes from the manual; the operand bus is what this core
+measured, so a wait state, a cache hit or a slow device still moves the
+answer. That is the whole difference between this and a cycle-table
+model, and the reason the figures were decomposed rather than used whole.
+
+**`ADD.B D0,(A0)` now costs 6 warm and averages 7 cold** — the manual's
+composed figure and the oracle's measurement, which C9 has been open on
+since it was first measured at 4 here. Our cold figure alternates 6 and 8
+with prefetch alignment where the oracle is flat; the average agrees, and
+that alternation is C7's classification standing rather than a residual
+disagreement.
+
+**The marginal cost of a prefetch, recovered for the rows where it is
+recoverable.** The withdrawn `(NCC−CC)/p` claim was missing not
+arithmetic but §11.3.3's definition of `NCC` as an average over the two
+alignment cases. For a single-word instruction that is not a change of
+flow, the odd-aligned case runs no fetch at all, so the even case is
+twice the published difference — and comes to 0 or 2, meaning such a
+prefetch either hides completely under the microcode or not at all.
+`timing_table_suite` computes that over every row of the class and it
+survives.
+
+Three things the wiring forced, each found by a number moving that should
+not have:
+
+- **The `*` and `**` footnotes name different tables**, and could no
+  longer share a flag once one of them could be priced. `**` is §11.6.2,
+  not transcribed; those rows still decline rather than being priced off
+  §11.6.1 — a plausible number from the wrong page.
+- **The exposure rule was being applied to rows it was derived to
+  exclude.** The test named them and the step did not. Applicability is
+  now data on the row, following from the instruction's length in words
+  and whether it changes flow, because it belongs where the figure is
+  *used* and not only where it is checked.
+- **A pipe refill is not the row's own prefetch.** Substituting a
+  published exposure for measured instruction-bus time is valid only for
+  the one cycle that keeps a full pipe full; §11.6 charges a refill to
+  the branch that caused it. This core charges it where it happens, which
+  shifts cost between adjacent instructions rather than changing the
+  total — exactly what §11.3.3 says alignment does, and why it reports a
+  stable 16 clocks for a pair whose members are 8 or 10.
+
+**Still open**, each named: §11.6.1's and §11.6.3's full-format extension
+word rows, without which nothing composes over a memory indirect mode;
+§11.6.2 for the `**` rows; and the change-of-flow rows' prefetch cost,
+declined because the target's alignment decides the count, leaving their
+warm figures exact and their cold ones a lower bound.
 
 #### **Instruction pipe and cache holding register**
 

@@ -1062,22 +1062,36 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
           figure the hardware never exhibits, and the right unit of comparison
           is a sequence. This core already exhibits that alternation
           (`FINDINGS.md` C7).
-    - [ ] **What remains is one question, and it is the only one left.**
-          `CC` and `NCC` both contain operand bus cycles at two clocks each, and
-          this core produces those itself — so composing published totals and
-          adding measured bus time double-counts, which is the trap
-          `CC + bus time` fell into. What is needed is **how much of each
-          published figure is bus time**, and that is `(r/p/w)`, printed beside
-          every figure in both tables and transcribed so far only for `p`.
-          Until then the footnoted rows still decline, and `ADD.B D0,(A0)` still
-          costs 4 here against the oracle's 7.
-          *Verification: `ADD.B D0,(A0)` coming to 7 against the oracle and
-          against `NCC + fea`.*
-    - [ ] Tail found while doing this: the **full-format extension word rows**
-          of §11.6.1 and §11.6.3 are still untranscribed, so the worked
-          example's `fea ([B])` had to be supplied by the test rather than
-          looked up. Nothing composes over a memory indirect mode until they
-          are.
+    - [x] **Composed into the step, and `FINDINGS.md` C9 closes.**
+          `total = microcode + measured operand bus + prefetch cost`, where the
+          microcode is `CC − 2(r + w)` from the published `(r/p/w)` and the bus
+          half is what this core measures -- so a wait state or a cache hit
+          still moves the answer, which is the difference between this and a
+          cycle-table model.
+          Detail in `PROJECT_STATUS.md` and
+          `docs/references/M68030_TIMING.md`.
+          *Verification: `ADD.B D0,(A0)` at **6 warm and 7 cold averaged over
+          both alignments** -- the manual's composed figure and the oracle's
+          measurement -- with both 6 and 8 asserted to occur, so the average is
+          not four equal numbers. `machine_suite`'s decline test became this
+          one.*
+    - [x] Three things the wiring forced, each found by a number moving that
+          should not have: the `*` and `**` footnotes name **different tables**
+          and can no longer share a flag; the exposure rule was being applied to
+          rows it was derived to exclude, so applicability is now data on the
+          row rather than a list in a test; and a **pipe refill is not the row's
+          own prefetch**, so it is charged where it happens rather than replaced
+          by a published figure derived for something else.
+          *Verification: `timing_table_suite`, 16 tests, including the
+          classification checked against each instruction's length and whether
+          it changes flow rather than against the figures it is used with.*
+    - [ ] **Remaining, each named rather than left implicit:** the
+          **full-format extension word rows** of §11.6.1 and §11.6.3, without
+          which nothing composes over a memory indirect mode; §11.6.2, Fetch
+          Immediate Effective Address, which the `**` rows need; and the
+          **change-of-flow rows' prefetch cost**, declined because the target's
+          alignment decides the fetch count -- their warm figures are exact and
+          their cold ones a lower bound.
   - [x] **The termination *kind* now comes from a device.** `machine_fill` and
         `machine_store` ask the board and answer `BERR` when nothing decodes the
         address, `STERM` when something does — so a bus error is a device

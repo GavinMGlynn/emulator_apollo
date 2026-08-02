@@ -435,7 +435,24 @@ the manual describes an alignment-dependent range.
 
 ### C9 — the first real disagreement, and it is ours
 
-**Status: open. Classification: `ours-wrong`. Named as a plan item.**
+**Status: CLOSED. Classification: `ours-wrong`, and ours is now fixed.**
+
+`ADD.B D0,(A0)` costs **6 clocks warm and 7 averaged over both alignments
+cold**, against the oracle's flat 7 and the manual's composed 6 and 7. The row
+that was reporting a component now composes through Equation (11-2) with
+§11.6.1's `fea (An)`, and the published figures are decomposed into microcode
+and bus before being applied -- `docs/references/M68030_TIMING.md` records the
+derivation and `machine_suite` asserts both figures.
+
+Note what the agreement is and is not. Our cold figure *alternates* 6 and 8 with
+prefetch alignment where the oracle is a flat 7; the average is what agrees.
+That is C7's classification standing, not a residual disagreement: §11.3.3 works
+an example whose instruction "is eight clocks for even alignment and 10 clocks
+for odd alignment, an average of nine clocks", so an alignment-dependent pair
+averaging the published figure is the behaviour the manual describes and a flat
+constant is not.
+
+The original entry follows, unchanged.
 
 C8 measured seven instructions against the oracle and got seven agreements,
 while recording that none of them could discriminate: every one had `CC == NCC`,
