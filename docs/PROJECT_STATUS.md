@@ -2343,7 +2343,12 @@ either half alone.
 **One approximation is recorded rather than closed.** At *extended* precision
 all four rounding modes return the same value here, because the model computes a
 64-bit approximation directly and has no bits below the destination left to
-round; the part carries 67 bits internally and its directed modes differ. The
+round; the part carries 67 bits internally and its directed modes differ.
+**Now measured rather than theoretical** (`FINDINGS.md` C63, C64): it costs
+one unit in the last place on `FSIN`, `FTAN` and `FETOX` at argument 1.0,
+always low and never high -- the kernels sum positive terms of decreasing
+size, so each discarded tail can only pull the running total down -- and it
+is the whole of why MAME is the closer implementation on those three. The
 divergence is at most one unit in the last place -- a sixty-fourth of §4.3.2's
 typical bound and a four-thousandth of its worst case -- and closing it would
 mean carrying guard bits through every kernel, for a gain smaller than it looks

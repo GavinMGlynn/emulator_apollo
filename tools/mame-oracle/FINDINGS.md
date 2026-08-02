@@ -3920,3 +3920,44 @@ is the only claim being made.
 in `ap_m68882_transcendental.c`'s kernels is where a discarded tail would go
 uncollected -- then re-run the sweep, then widen it to all nineteen functions and
 a spread of arguments rather than the single value the constant ROM makes cheap.
+
+## C64 -- the bias has a mechanism, and it was already written down
+
+**Class: `ours-wrong`, diagnosed.** C63 measured a one-unit-low bias on three of
+five transcendentals and predicted "a kernel that truncates where it should
+round, or a sticky bit not collected". Both guesses were wrong, and the real
+cause was already in `PROJECT_STATUS.md` as a `PROVISIONAL` -- unmeasured, and
+therefore easy to read as theoretical.
+
+The primitives are not at fault. `nx_mul`, `nx_add` and `nx_div` all round to
+nearest at extended precision, and the final `x 1.0` that applies the caller's
+mode is exact by construction, so it rounds nothing. Nothing truncates anywhere.
+
+**The cause is that there is nothing left to round.** §3.4: "the mantissa is
+maintained internally as 67 bits for rounding purposes, but is always rounded to
+64 bits (or less, depending on the selected rounding precision) before it is
+stored in a floating-point data register." The part computes in *67* bits and
+rounds once at the end. This core computes each kernel step in 64 -- the
+destination width -- so every step of an eighteen-term series rounds, the errors
+accumulate at the last bit, and the final rounding has no bits below the
+destination to round from.
+
+That is exactly the `PROVISIONAL` already recorded: "Directed rounding at extended
+precision is a no-op, because this model computes a 64-bit approximation directly
+and has no bits below the destination left to round; the part carries 67 bits
+internally." What was missing was any evidence that it *costs* anything. It does:
+1 ULP on `FSIN`, `FTAN` and `FETOX` at argument 1.0, and it is why the oracle is
+the closer implementation on those three.
+
+**The direction is explained too**, which is what makes this a diagnosis rather
+than a coincidence. Round-to-nearest at each step is unbiased in isolation, but
+the kernels sum a series of *positive* terms of rapidly decreasing size: each
+addition discards the tail of a smaller addend, and a discarded positive tail can
+only make the running total low. Hence low, never high.
+
+**Cost to close, now with a measured benefit.** Carry guard bits through every
+kernel and round once from them -- the fix the `PROVISIONAL` already named, whose
+value was previously stated as "bounded by one unit in the last place, so a
+sixty-fourth of the typical bound". The sweep turns that from an estimate into an
+observation: it is one unit in the last place, on three functions out of five,
+and it is the whole of the difference from the oracle.
