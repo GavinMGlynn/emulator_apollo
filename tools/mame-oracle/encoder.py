@@ -153,6 +153,35 @@ def sentinel_probe(address: int = SENTINEL_ADDRESS,
                     stop(0x2700))
 
 
+def fpu_probe(address: int = SENTINEL_ADDRESS) -> list[int]:
+    """FMOVECR pi, double it, store it, and leave the high long word behind.
+
+    The smallest program that makes the coprocessor prove three separate things
+    at once: `FMOVECR` reads the on-chip constant ROM, `FADD` is arithmetic, and
+    `FMOVE.D` is the store conversion. The answer is a bit pattern neither
+    implementation is free to choose -- 2*pi as an IEEE double is
+    $401921FB54442D18 on every machine that has ever computed it -- so the two
+    sides agreeing is agreement with something outside both.
+
+    Only the *high* long word is compared, because that is what the existing
+    sentinel machinery reads back, and it already contains the sign, the whole
+    exponent and the top twenty fraction bits: a wrong constant, a missing add
+    or a botched conversion all move it.
+
+    A0 is loaded rather than an absolute address used because `FMOVE.D FP0,(A0)`
+    is the form a compiler emits, and because the two machines put RAM at
+    different bases -- the address is a parameter here for the same reason the
+    sentinel probe's is.
+    """
+    return assemble(
+        [0x207C, (address >> 16) & 0xFFFF, address & 0xFFFF],  # MOVEA.L #a,A0
+        [0xF200, 0x5C00],                                      # FMOVECR #0,FP0
+        [0xF200, 0x0022],                                      # FADD    FP0,FP0
+        [0xF210, 0x7400],                                      # FMOVE.D FP0,(A0)
+        stop(0x2700),
+    )
+
+
 if __name__ == "__main__":
     import sys
     print(to_hex(sentinel_probe()), file=sys.stdout)

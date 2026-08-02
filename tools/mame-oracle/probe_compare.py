@@ -133,13 +133,25 @@ def main(argv=None) -> int:
     parser.add_argument("--limit", type=int, default=20)
     parser.add_argument("--timeout", type=float, default=300.0)
     parser.add_argument("--work", type=Path, default=Path("/tmp"))
+    parser.add_argument(
+        "--program", choices=("sentinel", "fpu"), default="sentinel",
+        help="which probe to run; `fpu` exercises the coprocessor's constant "
+             "ROM, an FADD and the store conversion in one")
     args = parser.parse_args(argv)
 
-    ours_words = E.sentinel_probe(OURS_BASE + SENTINEL_OFFSET, args.sentinel)
-    oracle_words = E.sentinel_probe(ORACLE_BASE + SENTINEL_OFFSET, args.sentinel)
-
-    print("probe:  MOVEQ #$%02X,D0 ; MOVE.L D0,(sentinel).L ; STOP #$2700"
-          % args.sentinel)
+    if args.program == "fpu":
+        ours_words = E.fpu_probe(OURS_BASE + SENTINEL_OFFSET)
+        oracle_words = E.fpu_probe(ORACLE_BASE + SENTINEL_OFFSET)
+        expected_note = "2*pi as an IEEE double is 401921FB54442D18"
+        print("probe:  FMOVECR #$00,FP0 ; FADD FP0,FP0 ; FMOVE.D FP0,(A0) ;"
+              " STOP #$2700")
+        print("        %s" % expected_note)
+    else:
+        ours_words = E.sentinel_probe(OURS_BASE + SENTINEL_OFFSET, args.sentinel)
+        oracle_words = E.sentinel_probe(ORACLE_BASE + SENTINEL_OFFSET,
+                                        args.sentinel)
+        print("probe:  MOVEQ #$%02X,D0 ; MOVE.L D0,(sentinel).L ; STOP #$2700"
+              % args.sentinel)
     print("ours:   %s  at %08X" % (E.to_hex(ours_words), OURS_BASE))
     print("oracle: %s  at %08X" % (E.to_hex(oracle_words), ORACLE_BASE))
     print()
@@ -149,13 +161,20 @@ def main(argv=None) -> int:
     oracle = run_oracle(oracle_words, ORACLE_BASE, ORACLE_BASE + SENTINEL_OFFSET,
                         args.limit, args.timeout)
 
-    expected = "%08X" % args.sentinel
+    expected = "401921FB" if args.program == "fpu" else "%08X" % args.sentinel
     checks = [
         ("instructions executed", ours.get("ran"), oracle.get("ran")),
-        ("D0", ours.get("d0"), oracle.get("d0")),
         ("sentinel in memory", ours.get("read"), oracle.get("read")),
         ("sentinel is the encoded value", expected, ours.get("read")),
     ]
+    if args.program == "sentinel":
+        # D0 is only a *result* for the program that writes it. The FPU probe
+        # never touches it, so comparing it there compares two reset states --
+        # ours starts at zero and the oracle's at $0000FFFF -- and reports a
+        # difference that says nothing about the instruction under test. That is
+        # a property of the probe, not a divergence, so the row is omitted
+        # rather than excused every time it is read.
+        checks.insert(1, ("D0", ours.get("d0"), oracle.get("d0")))
     print("%-32s %-12s %-12s %s" % ("check", "ours", "oracle", ""))
     failed = 0
     for name, a, b in checks:

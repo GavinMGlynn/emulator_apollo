@@ -3698,3 +3698,50 @@ built from nothing but the five distribution cartridges, and it has been booted
 from that disk and logged into. The image is pinned in
 `docs/references/DOMAINOS_IMAGE.md` and the procedure that produces it is
 `tools/mame-oracle/install-domainos.cmds`.
+
+## C59 -- the coprocessor was never attached, and its first probe agrees
+
+**Class: `ours-wrong`, found and fixed.** Then: **agree**.
+
+The 68882's plan item asks for "a probe suite over each operation and rounding
+mode; note the oracle's admitted FPU gaps as a divergence class". Auditing that
+line rather than trusting the tick found something before any probe could run:
+**`ap_machine_init` never attached a coprocessor.** `cpu->fpu` was null on every
+machine this core builds, so every F-line instruction took the line 1111 trap --
+the behaviour of a correctly *unfitted* machine, arriving for the wrong reason,
+and precisely the confusion this core is otherwise careful to prevent. There was
+no floating-point probe because there was nothing to probe.
+
+With the part attached, the first cross-implementation probe is:
+
+    FMOVECR #$00,FP0 ; FADD FP0,FP0 ; FMOVE.D FP0,(A0) ; STOP #$2700
+
+Three things in one program: the on-chip constant ROM, an arithmetic operation,
+and the store conversion. The answer is a bit pattern neither implementation is
+free to choose -- `2*pi` as an IEEE double is `401921FB54442D18` on every machine
+that has ever computed it -- so agreement here is agreement with something
+outside both.
+
+| Check | Ours | Oracle | |
+| --- | --- | --- | --- |
+| instructions executed | 5 | 5 | agree |
+| stored high long word | `401921FB` | `401921FB` | agree |
+| against the IEEE value | `401921FB` | -- | agree |
+
+Run with `python3 tools/mame-oracle/probe_compare.py --program fpu`.
+
+**One row was removed rather than excused.** `D0` differed -- ours `00000000`,
+the oracle's `0000FFFF` -- and it is not a divergence: this program never writes
+D0, so the comparison was between two *reset states*. The sentinel probe does
+write it, which is why the check exists at all, so the row is now conditional on
+the program rather than explained away every time someone reads the output. A
+check that cannot fail for a good reason is worse than no check, because it
+trains the reader to ignore a differing row.
+
+**What this campaign does not yet cover**, and the reason the item stays open:
+one probe is not "each operation and rounding mode". The constant ROM's value,
+`FADD`, and the double store agree; the transcendentals, the directed rounding
+modes, packed decimal and the exception byte have not been compared, and the
+oracle's *admitted* FPU gaps have not been enumerated as a divergence class. What
+would settle it is more probes through the same harness -- the mechanism now
+exists and is the part that was missing.
