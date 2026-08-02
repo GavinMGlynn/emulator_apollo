@@ -3,6 +3,8 @@
 
 #include "cpu/m68882/ap_m68882.h"
 
+#include "cpu/m68882/ap_m68882_transcendental.h"
+
 void ap_m68882_reset(ap_m68882_t *fpu) {
   ap_m68882_regs_reset(&fpu->regs);
   fpu->cpid = AP_M68882_DEFAULT_CPID;
@@ -91,6 +93,24 @@ static ap_m68882_status_t execute_register_to_register(
   case AP_M68882_OP_FSQRT:
     result = ap_m68882_sqrt(&source, mode, precision);
     break;
+
+  /* §4.3.2's exponential family. Computed to within the published error bound
+   * rather than reported unimplemented -- the reasoning is in the
+   * transcendental module's header, and the short form is that raising an
+   * unimplemented-instruction exception where the part returns an answer is a
+   * larger divergence than being sixty-four units in the last place from it. */
+  case AP_M68882_OP_FETOX:
+    result = ap_m68882_etox(&source, mode, precision);
+    break;
+  case AP_M68882_OP_FETOXM1:
+    result = ap_m68882_etoxm1(&source, mode, precision);
+    break;
+  case AP_M68882_OP_FTWOTOX:
+    result = ap_m68882_twotox(&source, mode, precision);
+    break;
+  case AP_M68882_OP_FTENTOX:
+    result = ap_m68882_tentox(&source, mode, precision);
+    break;
   case AP_M68882_OP_FGETEXP:
     result = ap_m68882_getexp(&source);
     break;
@@ -145,16 +165,12 @@ static ap_m68882_status_t execute_register_to_register(
    * invisible. */
   case AP_M68882_OP_FSINH:
   case AP_M68882_OP_FLOGNP1:
-  case AP_M68882_OP_FETOXM1:
   case AP_M68882_OP_FTANH:
   case AP_M68882_OP_FATAN:
   case AP_M68882_OP_FASIN:
   case AP_M68882_OP_FATANH:
   case AP_M68882_OP_FSIN:
   case AP_M68882_OP_FTAN:
-  case AP_M68882_OP_FETOX:
-  case AP_M68882_OP_FTWOTOX:
-  case AP_M68882_OP_FTENTOX:
   case AP_M68882_OP_FLOGN:
   case AP_M68882_OP_FLOG10:
   case AP_M68882_OP_FLOG2:

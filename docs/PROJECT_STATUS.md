@@ -1194,6 +1194,65 @@ is produced." Ten to the power of one is not ten. Any implementation computing a
 correctly-rounded `FTENTOX` returns exactly 10.0 and is therefore *visibly* not
 this part -- not by a rounding mode, but in the value a program reads back.
 
+**And then the specification showed the decision itself was wrong.** §4.3.2
+specifies a *bound*, not a result. An implementation that lands inside it
+conforms to everything the manual actually says -- and reporting these
+unimplemented is therefore the **larger** divergence, not the conservative
+choice. Real hardware given an `FSIN` computes a sine; a model that raises an
+unimplemented-instruction exception diverges by the whole result and kills a
+process that should have had an answer. Being 64 units in the last place from
+the part is a smaller error than not being a floating-point unit at all, and any
+program that could tell the difference could equally tell two conforming parts
+apart. The `FTENTOX #1` fact does not argue against computing them; it argues
+that we cannot be bit-identical, which no route makes possible anyway.
+
+So they are being computed, a family at a time, in `ap_m68882_transcendental.c`.
+
+**The exponential family is in** -- `FETOX`, `FETOXM1`, `FTWOTOX`, `FTENTOX` --
+at a worst case **under two units in the last place** across curated and random
+arguments spanning each function's whole representable range, measured against
+expectations computed to 120 decimal digits. That is 32 times inside §4.3.2's
+typical bound and three orders of magnitude inside its worst case.
+
+Nothing calls `libm`. The host's `expl` differs between glibc, musl and macOS
+and between versions of each, and a reference core whose results depend on which
+machine built it cannot have portable goldens -- which CI asserts. Every value
+is produced by this core's own extended arithmetic, so a result is a function of
+the input and nothing else.
+
+Three things were needed to get inside the bound, and each was a real finding.
+
+**The `ln2` used in the reduction is split at 32 bits** so that `n * ln2_hi` is
+exact for every integer the exponent range can produce, which makes the
+cancellation in `x - n*ln2` exact and costs the reduction nothing. Without the
+split, half the answer's bits are gone before the polynomial starts.
+
+**An exact product is only exact in the constant it was given.** `FTENTOX` first
+came out at 3129 units in the last place despite computing `x * log2(10)` as an
+unevaluated exact pair. The pair was exact -- verified against Python to the last
+digit -- but `c_log2_10` is `log2(10)` *rounded to 64 bits*, and for a product
+reaching 16384 the constant's own error dominates. Adding a second constant
+holding the residual took it to 1.04. Worth stating because the exactness of the
+product actively hides the problem.
+
+**A shift of 64 is not a shift.** `FETOX` returned an *infinity* for `e^0.5`,
+because the round-to-nearest-integer helper computed `mantissa >> (63 - e)` and
+`e = -1` makes that 64 -- undefined, and the wild integer then went into the
+exponent scaling. It affects every argument whose magnitude falls in a band
+around `[0.347, 0.693]`, a very common range, and the random sweep missed it
+while a curated vector for `e^0.5` caught it immediately. Curated edge cases and
+random sweeps are not substitutes for one another.
+
+One trap in the *test generator* is recorded alongside them, because it produced
+a confident four-thousand-unit error that looked exactly like an implementation
+fault: the expectation must be computed from the argument **after** rounding to
+extended, not from the decimal literal. Rounding `7973.123456789012` to 64 bits
+moves it half a unit in the last place, and for an exponential that is a
+relative change of the same size in the answer.
+
+The remaining four families -- logarithmic, trigonometric, inverse
+trigonometric and hyperbolic -- are named plan items.
+
 So the gap is now specified rather than merely declared. The nineteen
 transcendentals are classified by the four families §4.3.2 names, with `FSQRT`
 excluded by its own parenthesis; the bounds are constants; and a test asserts

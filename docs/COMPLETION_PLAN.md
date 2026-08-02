@@ -1941,19 +1941,26 @@ a 68882, and the 68882 is the only one of these it has.
         128-bit arithmetic is written out rather than using `unsigned __int128`,
         which is a compiler extension: this core is C23 on three platforms and
         the emulated result must be identical on all of them.
-  - [~] **The transcendentals are not implemented, and that is a `PROVISIONAL`
-        with a reason rather than an omission** -- now with an acceptance
-        criterion a test can read (`ap_m68882_accuracy.h`,
-        `m68882_accuracy_suite`, 6 tests). §4.3.2, re-read from the page image
-        of page 4-7, publishes bounds and no algorithm: a worst case of one ULP
-        of *double* precision, a **typical** bound of 64 ULP of extended, and an
-        ALU of 67 bits. It also names a concrete divergence -- `FTENTOX #1,FP0`
-        "does not produce an extended precision value of exactly 10.0" -- so a
-        correctly-rounded implementation is demonstrably *not* this part rather
-        than arguably so. The nineteen operations are classified, the bounds are
-        constants, and a test asserts each still reports unimplemented, so
-        closing the gap costs something and leaving it open honestly costs
-        nothing. Detail in `PROJECT_STATUS.md`.
+  - [~] **The transcendentals, computed to §4.3.2's published bound.** The
+        earlier decision to report them unimplemented was wrong, and re-reading
+        page 4-7 from the image is what showed it: §4.3.2 specifies a *bound*,
+        not a result, so an implementation inside it conforms to everything the
+        manual says. Reporting unimplemented is the **larger** divergence --
+        real hardware given an `FSIN` returns a sine, and raising an exception
+        instead is wrong by the whole answer rather than by 64 units in the last
+        place. The bounds are constants in `ap_m68882_accuracy.h` and are the
+        acceptance criterion the suites assert against.
+        - [x] The exponential family: `FETOX`, `FETOXM1`, `FTWOTOX`, `FTENTOX`,
+              worst case **under 2 units in the last place** against expectations
+              computed to 120 decimal digits -- 32 times inside the typical
+              bound. Nothing calls `libm`: results are a function of the input
+              alone on every platform. *Verification:
+              `m68882_transcendental_suite`, 10 tests. Detail in
+              `PROJECT_STATUS.md`.*
+        - [ ] The logarithms: `FLOGN`, `FLOGNP1`, `FLOG10`, `FLOG2`.
+        - [ ] The trigonometric: `FSIN`, `FCOS`, `FSINCOS`, `FTAN`.
+        - [ ] The inverse trigonometric: `FATAN`, `FASIN`, `FACOS`.
+        - [ ] The hyperbolic: `FSINH`, `FCOSH`, `FTANH`, `FATANH`.
 - [x] 68020 subset: no on-chip MMU or cache differences, external 68851.
       *Verification: `dn3000` boots under both; oracle diff.*
   - [x] The part's own differences from the 68030, as a derived feature set in
