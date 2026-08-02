@@ -4364,3 +4364,42 @@ thing standing between here and a working fault probe for any map-independent
 fault. After that, C72's original question: the bus and address error frames
 carry a fault address, and comparing those needs a field-by-field readback the
 harness does not have.
+
+### C72 addendum 4 -- the planted handler cannot be an RTE for a fault probe
+
+Designing the first fault probe found a constraint that neither side's harness
+implies, and that would have shown up as a hang rather than a message.
+
+**A bare `RTE` handler loops forever on a fault.** Both harnesses plant one -- an
+`RTE` with every vector pointing at it -- and for an *instruction* exception like
+`TRAP #n` that is right: the frame stacks the following instruction and the `RTE`
+resumes past it. For a **fault** it is not. An illegal instruction, a bus error
+and an address error all stack the address of the instruction that faulted, so
+the `RTE` returns to it, it faults again, and the probe spins until its
+instruction limit. The harness's own comment says the blanket handler exists "so
+a probe that faults unexpectedly reports EXECUTED from the handler rather than
+running off into blank memory" -- which is true of the exceptions it was written
+for and false of the ones this probe is about.
+
+**So a fault probe must plant its own handler**, and that turns out to simplify
+the rest rather than complicate it:
+
+- The handler ends in `STOP`, not `RTE`, so the probe terminates the way every
+  other probe does.
+- It only needs *one* vector, not sixty-two -- vector 4 for an illegal
+  instruction -- so the probe writes a single long word at `VBR + $10` rather
+  than building a table.
+- It can store something worth comparing before stopping: the stacked **format
+  word** at `SP + 6`, which carries the frame format nibble and the vector
+  offset. That is the field the exception item's verification is really about,
+  and it is map-independent -- unlike the fault address, which is C72's remaining
+  question and can be left for later.
+
+Which means the VBR obstacle and the handler obstacle collapse into one program:
+write the vector, point the VBR at it, fault, store the format word, stop. The
+two sides then differ only in the base, as every working probe does.
+
+**The one asymmetry left in it**: this core's probe harness plants its table at
+zero, where the VBR already points, so the probe's `MOVEC` is a no-op there and
+load-bearing on the oracle. Harmless, and worth knowing before someone reads the
+`MOVEC` as dead code on the side they happen to be debugging.
