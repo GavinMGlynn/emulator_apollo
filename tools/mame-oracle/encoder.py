@@ -337,6 +337,28 @@ def bus_fault_probe(load_at: int, address: int = SENTINEL_ADDRESS,
     )
 
 
+def dbcc_probe(address: int = SENTINEL_ADDRESS) -> list[int]:
+    """A `DBRA` counted to exhaustion, and the register it leaves behind.
+
+    `DBcc` decrements the **low word only** and terminates at `-1`, not at zero,
+    and both halves of that are easy to get wrong in a way nothing else catches:
+    a full-width decrement is right for every count that never borrows, and a
+    terminate-at-zero loop runs one iteration short forever.
+
+    `MOVEQ #3` sign-extends into all thirty-two bits, so a correct
+    implementation leaves `$0000FFFF` -- the low word wrapped to `-1` and the
+    high word untouched at zero. A full-width decrement would leave
+    `$FFFFFFFF`, which is one bit of difference and a completely different
+    instruction.
+    """
+    return assemble(
+        [0x7003],                                          # MOVEQ #3,D0
+        [0x51C8, 0xFFFE],                                  # DBRA D0,self
+        [0x23C0, (address >> 16) & 0xFFFF, address & 0xFFFF],
+        stop(0x2700),
+    )
+
+
 if __name__ == "__main__":
     import sys
     print(to_hex(sentinel_probe()), file=sys.stdout)

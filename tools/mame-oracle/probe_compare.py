@@ -142,13 +142,21 @@ def main(argv=None) -> int:
     parser.add_argument("--timeout", type=float, default=300.0)
     parser.add_argument("--work", type=Path, default=Path("/tmp"))
     parser.add_argument(
-        "--program", choices=("sentinel", "fpu", "fpu-rounding", "fpu-sine", "fpu-sine-x", "fault", "bus-fault"),
+        "--program", choices=("sentinel", "fpu", "fpu-rounding", "fpu-sine", "fpu-sine-x", "fault", "bus-fault", "dbcc"),
         default="sentinel",
         help="which probe to run; `fpu` exercises the coprocessor's constant "
              "ROM, an FADD and the store conversion in one")
     args = parser.parse_args(argv)
 
-    if args.program == "bus-fault":
+    if args.program == "dbcc":
+        ours_words = E.dbcc_probe(OURS_BASE + SENTINEL_OFFSET)
+        oracle_words = E.dbcc_probe(ORACLE_BASE + SENTINEL_OFFSET)
+        print("probe:  MOVEQ #3,D0 ; DBRA D0,self ; MOVE.L D0,(sentinel) ;"
+              " STOP")
+        print("        $0000FFFF: the low word wrapped to -1, the high word"
+              " untouched.")
+        print("        A full-width decrement would leave $FFFFFFFF")
+    elif args.program == "bus-fault":
         ours_words = E.bus_fault_probe(OURS_BASE, OURS_BASE + SENTINEL_OFFSET)
         oracle_words = E.bus_fault_probe(ORACLE_BASE,
                                          ORACLE_BASE + SENTINEL_OFFSET)
@@ -223,6 +231,7 @@ def main(argv=None) -> int:
                 # and the correctly rounded extended sin(1) is asserted by
                 # `m68882_transcendental_suite` against 120-digit references
                 # rather than restated here.
+                "dbcc": "0000FFFF",
                 "fault": "00000010",
                 # No expected value: which frame a data fault produces is the
                 # thing being compared, not something to assert in advance.

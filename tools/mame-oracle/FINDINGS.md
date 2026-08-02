@@ -4479,3 +4479,41 @@ error (here), covering both the four-word frame and the long bus fault frame the
 item names in its title. Sixteen campaigns from C59, and the last four went from
 "no probe has ever been run against the oracle" to a frame-format agreement on
 the exception path.
+
+## C75 -- the harness cannot yet run a probe that branches backwards
+
+**Class: harness limitation. Not a divergence, and it would read as one.**
+
+The first probe with a loop -- `MOVEQ #3,D0 ; DBRA D0,self` -- produced this:
+
+| Check | Ours | Oracle | |
+| --- | --- | --- | --- |
+| instructions executed | 7 | **1** | DIFFER |
+| sentinel in memory | `0000FFFF` | `55555555` | DIFFER |
+| against the architecture | `0000FFFF` | -- | ours correct |
+
+**Read carelessly this is a `DBcc` disagreement. It is not.** The oracle executed
+*one* instruction and stopped with its PC at `load + 2`, so it never reached the
+`DBRA` at all, let alone the store -- `55555555` is the untouched sentinel, not a
+computed answer. Nothing was compared. Our side ran the loop to exhaustion and
+left `$0000FFFF`, which is what the architecture requires: `DBcc` decrements the
+**low word only** and terminates at `-1`, so `MOVEQ #3` sign-extended into
+thirty-two bits leaves the high word untouched. A full-width decrement would have
+left `$FFFFFFFF`.
+
+So this row records a limitation of `probe.lua`, which every probe until now
+avoided by being straight-line: the sentinel, the FPU programs and both fault
+probes each run forwards and stop. A backward branch is the first thing to make
+the oracle side's stepping give up after one instruction, and why it does has not
+been diagnosed -- the step loop, its `at_seconds` window, or MAME's own handling
+of a tight self-loop are all candidates.
+
+**Recorded rather than fixed** because the diagnosis needs a MAME run to watch,
+and recorded rather than dropped because the output is *dangerous*: a differing
+instruction count and a differing sentinel is exactly the shape of a real
+finding, and the only thing distinguishing it is noticing that one side's count
+is 1. The next person to add a looping probe will see this first.
+
+**And the probe is worth keeping**, both because it is right and because it is
+the reproducer: `probe_compare.py --program dbcc` demonstrates the limitation in
+one command.
