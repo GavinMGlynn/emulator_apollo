@@ -1460,7 +1460,35 @@ stall tolerance against one of work -- which is the clearest case in §10.6 of
 why the lead is carried separately rather than folded into a total: a change of
 flow has almost nothing to execute and everything to wait for.
 
-What remains of the 68040 item is eight more pages of §10.6 and §10.7's ten
+### An anomaly transcribed rather than corrected
+
+`JMP` prints the *same* figures for `([bd,BR,Xn])` and `([bd,BR,Xn],od)` -- 12
+and `1L + 11` for both -- where every other column in §10.6 increments between
+those rows, and where `JSR`, computing the identical effective address, goes 12
+to 13. Read at 450 dpi.
+
+This is transcribed as printed and **not** corrected, which is the difference
+between it and the `CMP2` zeros. There the PRM proved the addressing mode does
+not exist, so the cell could not be a cost at all. Here the figure is merely
+surprising: `JMP` has nothing left to do once it has an address, so the outer
+displacement's extra add could genuinely be absorbed, and no source contradicts
+it. The test records the anomaly with the reasoning attached, so a later reader
+meets it as a known oddity rather than assuming a typo -- and so that any
+evidence which turns up has somewhere to land.
+
+The distinction is worth stating as a rule, since §10 has now produced four
+suspect cells: **correct a figure only when a source proves it impossible, and
+otherwise transcribe and flag.** `FLOG2`'s omission, the misdirected note letter
+and `CMP2`'s zeros all met that bar; this does not.
+
+One genuinely surprising figure that is *not* an anomaly: `JSR (An)` costs
+exactly what `JMP (An)` does, despite pushing a return address. §10.1 explains
+it -- write-back times "are not listed because they are system dependent and do
+not affect either <ea> calculate or execute stages" -- so the push happens in a
+stage this table does not price. The subroutine call really is free in the two
+stages measured here.
+
+What remains of the 68040 item is seven more pages of §10.6 and §10.7's ten
 pages of floating-point timings. That is bulk transcription against the
 composition already in place, and the last thing standing between Phase 2b and
 complete. Appendix A's bit rows have to come from page images --

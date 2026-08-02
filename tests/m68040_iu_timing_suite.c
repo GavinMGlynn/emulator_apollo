@@ -930,6 +930,97 @@ static void test_jmp_carries_a_large_lead_for_a_small_base(void) {
   TEST_ASSERT_EQUAL_UINT(1u, c.execute.base);
 }
 
+
+/* ---------------------------------------------------------------------------
+ * Page 10-21, and an anomaly transcribed rather than corrected.
+ * ------------------------------------------------------------------------- */
+
+static void test_jmp_repeats_a_row_where_jsr_increments(void) {
+  /* `JMP` prints the *same* figures for `([bd,BR,Xn])` and `([bd,BR,Xn],od)`
+   * -- 12 and `1L + 11` for both -- where every other column in §10.6
+   * increments between those two rows, and where `JSR`, which computes the
+   * identical effective address, goes 12 to 13. Read at 450 dpi.
+   *
+   * This is transcribed as printed and **not** corrected, which is the
+   * difference between it and the `CMP2` zeros. There the `M68000 Family
+   * Programmer's Reference Manual` proved the addressing mode does not exist,
+   * so the cell could not be a cost. Here the figure is merely *surprising*:
+   * `JMP` has nothing to do once it has an address, so the outer
+   * displacement's extra add could genuinely be absorbed by the pipeline, and
+   * no source says otherwise.
+   *
+   * Recorded so that a later reader meets the anomaly with the reasoning
+   * attached rather than assuming a typo -- and so that if evidence ever turns
+   * up, this test is where it lands. */
+  const ap_m68040_iu_cell_t plain = at("JMP", AP_M68040_IU_MEMORY_PREINDEXED);
+  const ap_m68040_iu_cell_t with_od =
+      at("JMP", AP_M68040_IU_MEMORY_PREINDEXED_OD);
+  TEST_ASSERT_EQUAL_UINT(12u, ap_m68040_iu_calculate(
+                                  plain, false, AP_M68040_IU_NO_CONDITIONS));
+  TEST_ASSERT_EQUAL_UINT(12u, ap_m68040_iu_calculate(
+                                  with_od, false, AP_M68040_IU_NO_CONDITIONS));
+  TEST_ASSERT_EQUAL_UINT(11u, plain.execute.base);
+  TEST_ASSERT_EQUAL_UINT(11u, with_od.execute.base);
+
+  /* `JSR` over the same two modes, for contrast. */
+  TEST_ASSERT_EQUAL_UINT(
+      12u, ap_m68040_iu_calculate(at("JSR", AP_M68040_IU_MEMORY_PREINDEXED),
+                                  false, AP_M68040_IU_NO_CONDITIONS));
+  TEST_ASSERT_EQUAL_UINT(
+      13u, ap_m68040_iu_calculate(at("JSR", AP_M68040_IU_MEMORY_PREINDEXED_OD),
+                                  false, AP_M68040_IU_NO_CONDITIONS));
+}
+
+static void test_jsr_and_jmp_accept_the_same_modes(void) {
+  /* Both need an address rather than a value, so both take only the control
+   * modes. A divergence here would mean one of the two columns was misread. */
+  for (unsigned m = 0; m < AP_M68040_IU_MODE_COUNT; m++) {
+    TEST_ASSERT_EQUAL_INT(at("JMP", (ap_m68040_iu_mode_t)m).valid,
+                          at("JSR", (ap_m68040_iu_mode_t)m).valid);
+  }
+}
+
+static void test_jsr_costs_no_more_than_jmp_for_simple_modes(void) {
+  /* The surprise of this page: `JSR (An)` costs exactly what `JMP (An)` does,
+   * 3 and `2L + 1`, despite pushing a return address. The push happens in the
+   * write-back stage, which §10.1 says is "not listed because [it is] system
+   * dependent and [does] not affect either <ea> calculate or execute stages" --
+   * so the subroutine call really is free in the two stages this table
+   * prices. */
+  const ap_m68040_iu_mode_t simple[] = {AP_M68040_IU_INDIRECT,
+                                        AP_M68040_IU_DISPLACEMENT,
+                                        AP_M68040_IU_ABSOLUTE};
+  for (unsigned i = 0; i < 3u; i++) {
+    TEST_ASSERT_EQUAL_UINT(
+        ap_m68040_iu_calculate(at("JMP", simple[i]), false,
+                               AP_M68040_IU_NO_CONDITIONS),
+        ap_m68040_iu_calculate(at("JSR", simple[i]), false,
+                               AP_M68040_IU_NO_CONDITIONS));
+  }
+}
+
+static void test_lea_computes_an_address_without_fetching_it(void) {
+  /* `LEA (An)` is 1 and 1 where `JMP (An)` is 3 and `2L + 1`: both form an
+   * address and only one changes the flow of control. And `LEA` takes the same
+   * control modes -- no `Dn`, no immediate, no incrementing forms. */
+  TEST_ASSERT_EQUAL_UINT(
+      1u, ap_m68040_iu_calculate(at("LEA", AP_M68040_IU_INDIRECT), false,
+                                 AP_M68040_IU_NO_CONDITIONS));
+  TEST_ASSERT_FALSE(at("LEA", AP_M68040_IU_DN).valid);
+  TEST_ASSERT_FALSE(at("LEA", AP_M68040_IU_IMMEDIATE).valid);
+  TEST_ASSERT_FALSE(at("LEA", AP_M68040_IU_POSTINCREMENT).valid);
+}
+
+static void test_move_from_ccr_writes_and_so_refuses_pc_relative(void) {
+  /* It stores the condition codes to its destination, so the PC-relative modes
+   * are dashed -- the same read/write pattern that has now held on five
+   * consecutive pages. */
+  TEST_ASSERT_FALSE(at("MOVE from CCR", AP_M68040_IU_PC_DISPLACEMENT).valid);
+  TEST_ASSERT_FALSE(at("MOVE from CCR", AP_M68040_IU_PC_INDEXED).valid);
+  TEST_ASSERT_FALSE(at("MOVE from CCR", AP_M68040_IU_IMMEDIATE).valid);
+  TEST_ASSERT_TRUE(at("MOVE from CCR", AP_M68040_IU_DN).valid);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_instructions_sharing_a_column_share_a_group);
@@ -989,5 +1080,10 @@ int main(void) {
   RUN_TEST(test_the_signed_and_unsigned_divides_share_a_column);
   RUN_TEST(test_jmp_takes_only_the_control_modes);
   RUN_TEST(test_jmp_carries_a_large_lead_for_a_small_base);
+  RUN_TEST(test_jmp_repeats_a_row_where_jsr_increments);
+  RUN_TEST(test_jsr_and_jmp_accept_the_same_modes);
+  RUN_TEST(test_jsr_costs_no_more_than_jmp_for_simple_modes);
+  RUN_TEST(test_lea_computes_an_address_without_fetching_it);
+  RUN_TEST(test_move_from_ccr_writes_and_so_refuses_pc_relative);
   return UNITY_END();
 }
