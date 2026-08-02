@@ -490,6 +490,43 @@ def pmove_probe(address: int = SENTINEL_ADDRESS) -> list[int]:
     )
 
 
+def module_call_probe(load_at: int, address: int = SENTINEL_ADDRESS) -> list[int]:
+    """`CALLM` into a module that stores its data area pointer.
+
+    The first probe that compares the *family difference* rather than something
+    both families share. `CALLM` exists on the 68020 and on nothing else, so
+    this program is an instruction sequence on a DN3000 and an illegal
+    instruction on a DN3500 -- which makes it the sharpest thing the oracle can
+    be asked about the 68020 subset.
+
+    It builds its own module descriptor and entry word at run time, so nothing
+    outside the probe has to be planted: three long words of descriptor, an
+    entry word naming `D3`, and a body that stores what `D3` was given.
+    `$00C0FFEE` arriving at the sentinel means the descriptor was read, the
+    frame was built, the entry word was honoured and execution continued at the
+    word after it -- the whole instruction, in one value.
+    """
+    descriptor = load_at + 0x200
+    entry = load_at + 42
+    return assemble(
+        [0x23FC, 0x0000, 0x0000,
+         (descriptor >> 16) & 0xFFFF, descriptor & 0xFFFF],
+        [0x23FC, (entry >> 16) & 0xFFFF, entry & 0xFFFF,
+         ((descriptor + 4) >> 16) & 0xFFFF, (descriptor + 4) & 0xFFFF],
+        [0x23FC, 0x00C0, 0xFFEE,
+         ((descriptor + 8) >> 16) & 0xFFFF, (descriptor + 8) & 0xFFFF],
+        # The argument count is the word *after the opcode*; the effective
+        # address's extension words follow it. Writing the address first runs
+        # the count as an address and stops the probe at the instruction, which
+        # is what the first version of this did on both implementations at once.
+        [0x06F9, 0x0000, (descriptor >> 16) & 0xFFFF, descriptor & 0xFFFF],
+        stop(0x2700),                                      # not reached
+        [0x3000],                                          # entry word: D3
+        [0x23C3, (address >> 16) & 0xFFFF, address & 0xFFFF],
+        stop(0x2700),
+    )
+
+
 if __name__ == "__main__":
     import sys
     print(to_hex(sentinel_probe()), file=sys.stdout)

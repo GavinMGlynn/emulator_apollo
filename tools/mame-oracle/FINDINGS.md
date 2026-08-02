@@ -4827,3 +4827,40 @@ compare the 44 opcodes where the families differ -- `CALLM` needs a module
 descriptor in memory, which the probe encoder does not build. That is the
 natural next probe and it is now only a program: the machine, the base, the
 model and the harness are all in place.
+
+## C85 -- the family-difference probe exists, and finds our own plumbing
+
+**Class: `ours-wrong`, open.** The first probe to compare the thing that actually
+differs between the two CPU families, and it fails on this side before it can
+compare anything.
+
+    build a module descriptor ; CALLM into it ; the module stores D3
+
+    instructions executed  3 / 5     DIFFER
+    sentinel               00000000 / 55555555
+
+Our side executes the three `MOVE.L`s that build the descriptor and stops at the
+`CALLM`, program counter at `load + 30`, which is the instruction itself. The
+oracle gets five instructions in. Neither reaches the store, so nothing about
+`CALLM` has been compared -- what the probe found is nearer home.
+
+**`step_suite` executes `CALLM` perfectly well**, in three tests, and it does so
+by setting `cpu.has_module_calls = true` on the CPU directly. The probe reaches
+the same flag through `--model dn3000` → `run_probe_file` → `ap_probe_run` →
+`ap_machine_init_model` → `ap_cpu_features(model->cpu).has_module_calls`, and
+somewhere along that chain it does not arrive. The instruction is not the
+suspect; the four links between a command-line flag and a struct field are.
+
+**Two things this establishes anyway.** The probe is written and both sides run
+it, so once the flag arrives the comparison is one command. And the argument
+count is the word *immediately after the opcode*, with the effective address's
+extension words following it -- the first version put the address first, which
+ran the count as an address and stopped the probe at the instruction on *both*
+implementations at once. That symmetric failure is worth remembering: a probe
+wrong in the same way on both sides looks like agreement on the instruction
+count and disagreement only in the result.
+
+**Next**: print `has_module_calls` from the probe-file path, or assert it in
+`probe_suite.c` against a machine built as a DN3000. One of the four links is
+dropping it, and the test that would have caught it does not exist -- every
+existing test sets the field rather than deriving it.

@@ -213,7 +213,8 @@ def main(argv=None, recursing=False) -> int:
              "which is what the 68020 subset's verification line asks for and "
              "what no machine this core built could do until it had a model")
     parser.add_argument(
-        "--program", choices=("sentinel", "fpu", "fpu-rounding", "fpu-sine", "fpu-sine-x", "fault", "bus-fault", "dbcc", "movem", "divide", "divide-overflow", "subroutine", "pmove", "all"),
+        "--program", choices=("sentinel", "fpu", "fpu-rounding", "fpu-sine", "fpu-sine-x", "fault", "bus-fault", "dbcc", "movem", "divide", "divide-overflow", "subroutine", "pmove", "module-call",
+                 "all"),
         default="sentinel",
         help="which probe to run; `fpu` exercises the coprocessor's constant "
              "ROM, an FADD and the store conversion in one")
@@ -229,7 +230,17 @@ def main(argv=None, recursing=False) -> int:
     if args.program == "all" and not recursing:
         return run_all(argv, parser)
 
-    if args.program == "pmove":
+    if args.program == "module-call":
+        ours_words = E.module_call_probe(OURS_BASE, OURS_BASE + SENTINEL_OFFSET)
+        oracle_words = E.module_call_probe(ORACLE_BASE,
+                                           ORACLE_BASE + SENTINEL_OFFSET)
+        print("probe:  build a module descriptor ; CALLM into it ; the module"
+              " stores D3")
+        print("        $00C0FFEE means the descriptor was read, the frame"
+              " built, the entry")
+        print("        word honoured and execution continued past it -- the"
+              " whole instruction")
+    elif args.program == "pmove":
         ours_words = E.pmove_probe(OURS_BASE + SENTINEL_OFFSET)
         oracle_words = E.pmove_probe(ORACLE_BASE + SENTINEL_OFFSET)
         print("probe:  MOVEA.L #sentinel,A0 ; PMOVE TC,(A0) ; STOP")
@@ -365,6 +376,7 @@ def main(argv=None, recursing=False) -> int:
                 # Not asserted: what TC holds at reset is what is being
                 # compared, not something to state in advance.
                 "pmove": None,
+                "module-call": "00C0FFEE",
                 "fault": "00000010",
                 # No expected value: which frame a data fault produces is the
                 # thing being compared, not something to assert in advance.
