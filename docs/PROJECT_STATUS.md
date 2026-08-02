@@ -1645,8 +1645,46 @@ dropping it, while a register rotate is by a count, where each step waits on the
 previous step's X. And `Scc` dashes `An` as well as the program-space modes:
 it writes a byte, and an address register has no byte.
 
-What remains of the 68040 item is one more page of §10.6 and §10.7's ten
-pages of floating-point timings. That is bulk transcription against the
+**§10.6 is complete**: pages 10-13 to 10-28, 46 column groups over 71 mnemonics
+and 17 addressing modes, `m68040_iu_timing_suite` at 99 tests. Page 10-28 is
+titled "Concluded" and carries one column with two empty groups beside it, so
+the count is final rather than a place a later page could extend. A test pins
+the group and mnemonic counts and checks that no mnemonic is priced by two
+columns -- `ap_m68040_iu_find` returns the first match, so a duplicate would
+leave one column permanently unreachable while silently serving the other's
+figures.
+
+That last column, `TAS`, is the most extreme in the section and the one that
+best corroborates the model. `TAS Dn` costs 1/2, as cheap as a `MOVE`;
+`TAS (An)` costs 26 and `2L + 24`, some seventeen times more, and it is the
+widest same-column spread in §10.6 by a long way. The footnote accounts for it:
+"this instruction interlocks the `<ea>` calculate and execute stages and
+synchronizes some portions of the processor before execution". The price is not
+the operation but the indivisible bus cycle around it, and a `TAS` to a data
+register has no bus cycle to make indivisible.
+
+**The lead means what §10.2 says it means, and `TAS` is the proof.** Across all
+of §10.6 exactly three memory-indirect cells print an execute with *no* lead,
+and all three belong to `CAS` and `TAS` -- the two indivisible read-modify-
+writes, and nothing else. A lead is stall tolerance: how much of the execute
+stage a following instruction may overlap. An operation that holds the bus
+indivisibly offers none, so a zero there is the honest figure rather than a
+missing one. Two atomic columns, and they are the only leadless ones in 46:
+that is the strongest structural corroboration the section offers.
+
+**Page 10-24's `MOVES` oddity was misread, and page 10-28 corrects it.** Four
+columns print an `<ea> calculate` that *falls* as the addressing mode grows
+more indirect -- the three `MOVES` directions and `TAS` -- and all four are
+marked *typical*. No column the manual presents as exact ever does it. So the
+non-monotonicity recorded earlier as an oddity is not a defect at all: a typical
+figure is an average over cases, and an average has no reason to be monotonic in
+anything. `TAS`'s 35 at `([bd,BR,Xn],od)` against 34 at `([bd,BR],Xn)` -- where
+all 41 exact columns print those two rows *equal* -- is licensed by the same
+marking and is likewise not recorded as a defect. The implication runs one way
+only: `CAS` and `CMP2` are typical and monotonic, so the marking permits a fall
+without predicting one. The suspect count therefore stays at nine.
+
+What remains of the 68040 item is §10.7's ten pages of floating-point timings. That is bulk transcription against the
 composition already in place, and the last thing standing between Phase 2b and
 complete. Appendix A's bit rows have to come from page images --
 `pdftotext` renders them with zeros as letters and columns collapsed, the same

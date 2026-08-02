@@ -2116,7 +2116,7 @@ a 68882, and the 68882 is the only one of these it has.
         properties as well as spot values -- the eight unindexed source rows are
         identical for every complex destination, which is exactly where a slip
         would show. `m68040_move_timing_suite`, 13 tests.
-  - [~] §10.6's integer unit tables. The first column group is in -- 17
+  - [x] §10.6's integer unit tables. The first column group is in -- 17
         addressing modes over `ADD`/`AND`/`EOR`/`OR`/`SUB`/`TST`, `ADDA`, and
         the immediate forms -- with a dash modelled as *invalid* rather than
         zero, so a decoder cannot price an encoding it should reject.
@@ -2149,8 +2149,15 @@ a 68882, and the 68882 is the only one of these it has.
         where every other add/subtract pair in §10.6 shares one column and
         the **68030 manual prints the two identical in every entry**. Both
         transcribed as printed; the evidence points at `SUBA`.
-        `m68040_iu_timing_suite`,
-        94 tests. One page of column groups remains, then §10.7's ten pages
+        Page 10-28 concludes the section with `TAS`, and corrects an earlier
+        reading: the four columns whose `<ea> calculate` *falls* with
+        indirection are exactly the four marked *typical*, so `MOVES`'s
+        non-monotonic figures are an average, not a defect. `CAS` and `TAS`
+        -- the two indivisible read-modify-writes -- own all three leadless
+        memory-indirect cells in the section, which is the best structural
+        evidence that a lead is stall tolerance.
+        **§10.6 is complete**: 46 column groups, 71 mnemonics, 17 addressing
+        modes, `m68040_iu_timing_suite` at 99 tests. Then §10.7's ten pages
         of floating-point timings. Bulk transcription against the composition above,
         and the last thing standing between Phase 2b and complete. Every figure
         is a *best case* by §10.1's suppositions: "all memory accesses hit in

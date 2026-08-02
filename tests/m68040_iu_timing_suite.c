@@ -619,7 +619,8 @@ static void test_only_the_qualified_columns_are_marked(void) {
    * as §10.6 is transcribed; every addition here is a footnote read. */
   const char *const qualified_names[] = {
       "CAS",          "CHK",           "CHK2",         "CMP2",
-      "MOVE to SR",   "MOVES to An",   "MOVES to Dn",  "MOVES from Rn"};
+      "MOVE to SR",   "MOVES to An",   "MOVES to Dn",  "MOVES from Rn",
+      "TAS"};
   for (size_t g = 0; g < ap_m68040_iu_group_count(); g++) {
     const ap_m68040_iu_group_t *group = ap_m68040_iu_group(g);
     bool qualified = false;
@@ -1752,6 +1753,170 @@ static void test_adda_tracks_the_add_column_where_suba_does_not(void) {
   TEST_ASSERT_EQUAL_UINT(2u, suba_follows);
 }
 
+/* ---------------------------------------------------------------------------
+ * Page 10-28: TAS, and §10.6 concluded.
+ * ------------------------------------------------------------------------- */
+
+static void test_tas_costs_a_register_nothing_and_memory_everything(void) {
+  /* `TAS Dn` is 1/2 -- as cheap as a `MOVE`. `TAS (An)` is 26 and `2L + 24`, so
+   * the memory form costs some seventeen times the register one, the widest
+   * same-column spread in §10.6 by a long way.
+   *
+   * The footnote says why: "this instruction interlocks the <ea> calculate and
+   * execute stages and synchronizes some portions of the processor before
+   * execution". A `TAS` to memory is an indivisible read-modify-write bus
+   * cycle, and the price is not the operation but the synchronisation around
+   * it. A `TAS` to a data register has no bus cycle to make indivisible, so it
+   * pays none of it. */
+  const ap_m68040_iu_cell_t reg = at("TAS", AP_M68040_IU_DN);
+  TEST_ASSERT_EQUAL_UINT(
+      1u, ap_m68040_iu_calculate(reg, false, AP_M68040_IU_NO_CONDITIONS));
+  TEST_ASSERT_EQUAL_UINT(2u, ap_m68040_execute_total(ap_m68040_iu_execute(
+                                 reg, false, AP_M68040_IU_NO_CONDITIONS)));
+
+  const ap_m68040_iu_mode_t memory[] = {
+      AP_M68040_IU_INDIRECT,     AP_M68040_IU_POSTINCREMENT,
+      AP_M68040_IU_PREDECREMENT, AP_M68040_IU_DISPLACEMENT,
+      AP_M68040_IU_ABSOLUTE};
+  for (unsigned i = 0; i < sizeof memory / sizeof memory[0]; i++) {
+    const ap_m68040_iu_cell_t c = at("TAS", memory[i]);
+    const ap_m68040_execute_t e =
+        ap_m68040_iu_execute(c, false, AP_M68040_IU_NO_CONDITIONS);
+    TEST_ASSERT_EQUAL_UINT(
+        26u, ap_m68040_iu_calculate(c, false, AP_M68040_IU_NO_CONDITIONS));
+    TEST_ASSERT_EQUAL_UINT(2u, e.lead);
+    TEST_ASSERT_EQUAL_UINT(24u, e.base);
+  }
+  /* Marked typical, not exact: a synchronisation cost is not a fixed one. */
+  TEST_ASSERT_EQUAL_INT(AP_M68040_IU_FIGURE_TYPICAL,
+                        ap_m68040_iu_find("TAS")->confidence);
+}
+
+static void test_tas_reads_and_writes_and_so_takes_neither_pc_nor_immediate(void) {
+  /* A read-modify-write on a byte: no program space, no immediate, and no `An`
+   * -- an address register has no byte to test. Everything else is legal,
+   * `Dn` included. */
+  TEST_ASSERT_TRUE(at("TAS", AP_M68040_IU_DN).valid);
+  TEST_ASSERT_FALSE(at("TAS", AP_M68040_IU_AN).valid);
+  TEST_ASSERT_FALSE(at("TAS", AP_M68040_IU_PC_DISPLACEMENT).valid);
+  TEST_ASSERT_FALSE(at("TAS", AP_M68040_IU_PC_INDEXED).valid);
+  TEST_ASSERT_FALSE(at("TAS", AP_M68040_IU_IMMEDIATE).valid);
+}
+
+static void test_the_atomic_instructions_are_the_leadless_ones(void) {
+  /* Across all of §10.6 exactly three memory-indirect cells print an execute
+   * with no lead, and they belong to `CAS` and `TAS` -- the two indivisible
+   * read-modify-writes. Nothing else in the section has one.
+   *
+   * A lead is stall tolerance: how much of the execute stage a following
+   * instruction can overlap. An operation that holds the bus indivisibly offers
+   * none, so a zero lead is the honest figure rather than a missing one. That
+   * the two atomic columns are also the only leadless ones is the strongest
+   * structural corroboration in §10.6 that the lead means what §10.2 says it
+   * means. */
+  const ap_m68040_iu_mode_t indirect[] = {AP_M68040_IU_MEMORY_PREINDEXED,
+                                          AP_M68040_IU_MEMORY_PREINDEXED_OD,
+                                          AP_M68040_IU_MEMORY_POSTINDEXED,
+                                          AP_M68040_IU_MEMORY_POSTINDEXED_OD};
+  unsigned leadless = 0;
+  for (size_t g = 0; g < ap_m68040_iu_group_count(); g++) {
+    const ap_m68040_iu_group_t *group = ap_m68040_iu_group(g);
+    for (unsigned i = 0; i < 4; i++) {
+      const ap_m68040_iu_cell_t c = group->cells[indirect[i]];
+      if (!c.valid) continue;
+      if (ap_m68040_iu_execute(c, false, AP_M68040_IU_NO_CONDITIONS).lead != 0u)
+        continue;
+      leadless++;
+      TEST_ASSERT_TRUE_MESSAGE(group == ap_m68040_iu_find("CAS") ||
+                                   group == ap_m68040_iu_find("TAS"),
+                               "a non-atomic column printed a leadless cell");
+    }
+  }
+  TEST_ASSERT_EQUAL_UINT(3u, leadless);
+}
+
+static void test_a_decreasing_calculate_only_appears_in_a_qualified_column(void) {
+  /* Four columns print an `<ea> calculate` that *falls* as the addressing mode
+   * grows more indirect -- the three `MOVES` directions and `TAS` -- and all
+   * four are marked typical. No column the manual presents as exact ever does
+   * it.
+   *
+   * This revises the earlier reading of page 10-24, where `MOVES`'s
+   * non-monotonic figures were recorded as an oddity. They are not a defect: a
+   * typical figure is an average over cases, and an average has no reason to be
+   * monotonic in anything. `TAS`'s `35` at `([bd,BR,Xn],od)` against `34` at
+   * `([bd,BR],Xn)` -- where all 41 exact columns print those two rows equal --
+   * is licensed by the same marking, so it is not recorded as a defect either.
+   *
+   * The implication runs one way only. `CAS` and `CMP2` are typical and
+   * monotonic, so the marking permits a fall without predicting one. */
+  const ap_m68040_iu_mode_t deep[] = {
+      AP_M68040_IU_BASE_INDEXED,       AP_M68040_IU_BASE_DISPLACEMENT,
+      AP_M68040_IU_MEMORY_PREINDEXED,  AP_M68040_IU_MEMORY_PREINDEXED_OD,
+      AP_M68040_IU_MEMORY_POSTINDEXED, AP_M68040_IU_MEMORY_POSTINDEXED_OD};
+  unsigned falling = 0;
+  for (size_t g = 0; g < ap_m68040_iu_group_count(); g++) {
+    const ap_m68040_iu_group_t *group = ap_m68040_iu_group(g);
+    unsigned previous = 0;
+    bool seen = false, falls = false;
+    for (unsigned i = 0; i < 6; i++) {
+      const ap_m68040_iu_cell_t c = group->cells[deep[i]];
+      if (!c.valid) continue;
+      const unsigned v =
+          ap_m68040_iu_calculate(c, false, AP_M68040_IU_NO_CONDITIONS);
+      if (seen && v < previous) falls = true;
+      previous = v;
+      seen = true;
+    }
+    if (!falls) continue;
+    falling++;
+    TEST_ASSERT_EQUAL_INT_MESSAGE(
+        AP_M68040_IU_FIGURE_TYPICAL, group->confidence,
+        "an unqualified column printed a falling calculate");
+  }
+  TEST_ASSERT_EQUAL_UINT(4u, falling);
+  /* Typical does not imply falling: two typical columns are monotonic. */
+  TEST_ASSERT_EQUAL_INT(AP_M68040_IU_FIGURE_TYPICAL,
+                        ap_m68040_iu_find("CAS")->confidence);
+  TEST_ASSERT_EQUAL_INT(AP_M68040_IU_FIGURE_TYPICAL,
+                        ap_m68040_iu_find("CMP2")->confidence);
+}
+
+static void test_section_10_6_is_fully_transcribed(void) {
+  /* §10.6 runs from page 10-13 to page 10-28 and is now complete: 46 column
+   * groups over 17 addressing modes. Page 10-28 is titled "Concluded" and
+   * carries one column, `TAS`, with two empty column groups beside it -- so the
+   * count is final and not a place a later page could extend.
+   *
+   * Pinned so that a regeneration that silently drops or duplicates a column
+   * fails here rather than being discovered as a wrong cycle count later. */
+  TEST_ASSERT_EQUAL_UINT(46u, (unsigned)ap_m68040_iu_group_count());
+
+  size_t names = 0;
+  for (size_t g = 0; g < ap_m68040_iu_group_count(); g++)
+    for (const char *const *n = ap_m68040_iu_group(g)->instructions; *n; n++)
+      names++;
+  TEST_ASSERT_EQUAL_UINT(71u, (unsigned)names);
+
+  /* And no mnemonic appears twice. `ap_m68040_iu_find` returns the first match,
+   * so a duplicate would make one of the two columns permanently unreachable --
+   * silently, and with the wrong figures served for the shadowed one. */
+  for (size_t g = 0; g < ap_m68040_iu_group_count(); g++)
+    for (const char *const *n = ap_m68040_iu_group(g)->instructions; *n; n++)
+      TEST_ASSERT_EQUAL_PTR_MESSAGE(ap_m68040_iu_group(g),
+                                    ap_m68040_iu_find(*n),
+                                    "a mnemonic is priced by two columns");
+
+  /* Every group prices at least one mode; an all-invalid column would be a
+   * generator fault that no other test would notice. */
+  for (size_t g = 0; g < ap_m68040_iu_group_count(); g++) {
+    bool any = false;
+    for (unsigned m = 0; m < AP_M68040_IU_MODE_COUNT; m++)
+      if (ap_m68040_iu_group(g)->cells[m].valid) any = true;
+    TEST_ASSERT_TRUE_MESSAGE(any, "a column prices no addressing mode at all");
+  }
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_instructions_sharing_a_column_share_a_group);
@@ -1847,6 +2012,11 @@ int main(void) {
   RUN_TEST(test_scc_writes_a_byte_and_so_refuses_program_space);
   RUN_TEST(test_adda_and_suba_are_printed_as_different_columns);
   RUN_TEST(test_adda_tracks_the_add_column_where_suba_does_not);
+  RUN_TEST(test_tas_costs_a_register_nothing_and_memory_everything);
+  RUN_TEST(test_tas_reads_and_writes_and_so_takes_neither_pc_nor_immediate);
+  RUN_TEST(test_the_atomic_instructions_are_the_leadless_ones);
+  RUN_TEST(test_a_decreasing_calculate_only_appears_in_a_qualified_column);
+  RUN_TEST(test_section_10_6_is_fully_transcribed);
   RUN_TEST(test_the_rotates_calculate_an_address_sooner_than_the_shifts);
   return UNITY_END();
 }
