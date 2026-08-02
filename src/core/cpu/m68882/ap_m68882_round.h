@@ -69,6 +69,24 @@ ap_m68882_round(ap_m68882_extended_t value, bool guard, bool round_bit,
                 bool sticky, ap_m68882_rounding_t mode,
                 ap_m68882_precision_t precision);
 
+/* The same rounding, keeping an explicit number of significand bits.
+ *
+ * A store to memory needs this because the number of bits a destination format
+ * can hold is not always its precision: **in the format's subnormal range it
+ * depends on how far below the minimum exponent the value sits**, one bit lost
+ * per power of two. Rounding to the format's full precision and then shifting
+ * would round twice, which is a different answer near a tie -- the same reason
+ * `ap_m68882_round` folds the discarded bits into guard, round and sticky
+ * instead of chopping them first.
+ *
+ * `keep` outside 1..64 returns the value unchanged and not inexact. Zero bits
+ * is not a rounding this can express -- the answer is the format's smallest
+ * magnitude or zero depending on mode and sign, which is the caller's decision
+ * because only the caller knows the format. */
+[[nodiscard]] ap_m68882_round_result_t
+ap_m68882_round_to_bits(ap_m68882_extended_t value, bool guard, bool round_bit,
+                        bool sticky, ap_m68882_rounding_t mode, unsigned keep);
+
 /* How many mantissa bits the precision keeps: 64, 24 or 53. The reserved
  * encoding keeps 64, which is the extended case -- it has to do *something*
  * deterministic, and widening is the choice that cannot silently lose bits. */

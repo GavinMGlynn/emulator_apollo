@@ -25,6 +25,7 @@
 #include "cpu/m68882/ap_m68882_decode.h"
 #include "cpu/m68882/ap_m68882_format.h"
 #include "cpu/m68882/ap_m68882_regs.h"
+#include "cpu/m68882/ap_m68882_store.h"
 
 typedef struct {
   ap_m68882_regs_t regs;
@@ -108,6 +109,41 @@ ap_m68882_source_transfer(const ap_m68882_t *fpu, uint16_t operation_word,
 ap_m68882_execute_source(ap_m68882_t *fpu, uint16_t operation_word,
                          uint16_t command_word,
                          const ap_m68882_extended_t *source);
+
+/* ---------------------------------------------------------------------------
+ * The destination operand transfer
+ *
+ * The same division of labour in the other direction, opclass `011`: the part
+ * converts, the main processor writes. Register-to-memory is only ever `FMOVE`,
+ * so there is no operation to dispatch -- "Rounds the source operand to the
+ * size of the specified destination format and stores it at the destination
+ * effective address."
+ *
+ * Asking first matters here for the same reason it does on the way in: the
+ * destination format's length is what a predecrement steps by.
+ */
+
+/* Whether this instruction needs the main processor to store a result, and in
+ * what format. Same contract as `ap_m68882_source_transfer`: the status is the
+ * decode's, and `*needs_store` is separate from it. */
+[[nodiscard]] ap_m68882_status_t
+ap_m68882_destination_transfer(const ap_m68882_t *fpu, uint16_t operation_word,
+                               uint16_t command_word, bool *needs_store,
+                               ap_m68882_format_t *format);
+
+/* Convert the named register into the destination format and report the bytes
+ * for the main processor to write.
+ *
+ * The exceptions are raised into the FPSR here, because they belong to the
+ * *conversion* and that is the part's work -- but **the condition codes are
+ * not touched**, which is the trap: the FMOVE page's Status Register section
+ * says "Condition Codes: Not affected" and "Quotient Byte: Not affected", where
+ * every arithmetic operation sets them. A store that went through the common
+ * result path would quietly rewrite the condition codes of whatever ran
+ * before it. */
+[[nodiscard]] ap_m68882_status_t
+ap_m68882_execute_store(ap_m68882_t *fpu, uint16_t operation_word,
+                        uint16_t command_word, ap_m68882_store_t *out);
 
 /* Evaluate a conditional predicate and report whether the condition holds.
  *

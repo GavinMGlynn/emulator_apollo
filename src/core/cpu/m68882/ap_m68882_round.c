@@ -24,9 +24,20 @@ ap_m68882_round_result_t ap_m68882_round(ap_m68882_extended_t value, bool guard,
                                          bool round_bit, bool sticky,
                                          ap_m68882_rounding_t mode,
                                          ap_m68882_precision_t precision) {
+  return ap_m68882_round_to_bits(value, guard, round_bit, sticky, mode,
+                                 ap_m68882_precision_bits(precision));
+}
+
+ap_m68882_round_result_t ap_m68882_round_to_bits(ap_m68882_extended_t value,
+                                                 bool guard, bool round_bit,
+                                                 bool sticky,
+                                                 ap_m68882_rounding_t mode,
+                                                 unsigned keep) {
   ap_m68882_round_result_t out = {.value = value, .inexact = false};
 
-  const unsigned keep = ap_m68882_precision_bits(precision);
+  if (keep < 1u || keep > 64u) {
+    return out; /* nothing the caller could mean; see the header */
+  }
   if (keep < 64u) {
     /* Range control: the boundary moves up the mantissa, and the bits below it
      * **fold into** guard, round and sticky rather than being discarded. That

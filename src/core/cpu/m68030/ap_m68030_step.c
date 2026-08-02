@@ -3606,6 +3606,80 @@ static fp_source_result_t fetch_fp_source(ap_m68030_cpu_t *cpu,
                                                          : FP_SOURCE_FAILED;
 }
 
+/* Write `size` bytes of `bytes` at `where`, most significant first -- the
+ * mirror of read_operand_bytes, in long words for the same reason. */
+static bool write_operand_bytes(ap_m68030_cpu_t *cpu, uint32_t *clocks,
+                                const ap_m68030_address_t *where, unsigned size,
+                                const uint8_t *bytes) {
+  unsigned done = 0;
+  while (done < size) {
+    const unsigned chunk = (size - done >= 4u) ? 4u : (size - done);
+    uint32_t value = 0;
+    for (unsigned i = 0; i < chunk; i++) {
+      value = (value << 8) | bytes[done + i];
+    }
+    const ap_m68030_address_t at = {.address = where->address + done,
+                                    .valid = true};
+    const ap_m68030_operand_result_t wrote = step_operand_write(
+        cpu, &cpu->regs, cpu->data, &at, chunk, value, cpu->data_function_code);
+    *clocks += wrote.clocks;
+    if (!wrote.ok) {
+      return false;
+    }
+    done += chunk;
+  }
+  return true;
+}
+
+/* The store direction. Same shape as fetch_fp_source and the same two refusals,
+ * with one addition that only applies here: §10.4.9's "the MC68030 initiates
+ * protocol violation exception processing if the primitive requests a write to
+ * a nonalterable effective address". */
+static fp_source_result_t store_fp_destination(
+    ap_m68030_cpu_t *cpu, const ap_m68030_coproc_t *coproc,
+    const ap_m68882_store_t *result, uint32_t *clocks) {
+  /* Data *alterable*: the write rules out the PC-relative modes and the
+   * immediate, which a read allows, as well as the address registers a read
+   * already ruled out. Checked as the category so the whole family is covered
+   * by one rule. */
+  if (!ap_m68030_ea_is_data_alterable(coproc->ea.kind)) {
+    return FP_SOURCE_PROTOCOL_VIOLATION;
+  }
+
+  if (coproc->ea.kind == AP_M68030_EA_DATA_REGISTER) {
+    if (result->size > 4u) {
+      return FP_SOURCE_PROTOCOL_VIOLATION; /* the same one-two-or-four rule */
+    }
+    uint32_t value = 0;
+    for (unsigned i = 0; i < result->size; i++) {
+      value = (value << 8) | result->bytes[i];
+    }
+    /* Only the operand's own bytes are replaced. A byte store leaves the upper
+     * 24 bits of the register alone, as every other byte operation on this
+     * family does. */
+    const uint32_t mask = (result->size >= 4u)
+                              ? UINT32_MAX
+                              : ((UINT32_C(1) << (result->size * 8u)) - 1u);
+    cpu->regs.d[coproc->ea.reg] =
+        (cpu->regs.d[coproc->ea.reg] & ~mask) | (value & mask);
+    return FP_SOURCE_FETCHED;
+  }
+
+  ap_m68030_address_input_t input = {0};
+  if (!gather_address_input(cpu, coproc->ea.kind, result->size, clocks,
+                            &input)) {
+    return FP_SOURCE_FAILED;
+  }
+  const ap_m68030_address_t where =
+      resolve_address(cpu, clocks, coproc->ea, &input);
+  if (!where.valid) {
+    return FP_SOURCE_FAILED;
+  }
+  return write_operand_bytes(cpu, clocks, &where, result->size, result->bytes)
+             ? FP_SOURCE_FETCHED
+             : FP_SOURCE_FAILED;
+}
+
 /* Whether an instruction "forces a change of flow", which is what the T1=0,
  * T0=1 trace mode watches. `[030]` §8.1.7: "Instructions that are traced in this
  * mode include all branches, jumps, instruction traps, returns, and coprocessor
@@ -4324,8 +4398,39 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
           break;
         }
       } else if (executed == AP_M68882_EXECUTED) {
-        /* Both operands already in the part: opclass `000`. */
-        executed = ap_m68882_execute(cpu->fpu, out.instruction, command);
+        /* Nothing to fetch. Either a result has to go the other way, or both
+         * operands are already in the part. */
+        bool needs_store = false;
+        executed = ap_m68882_destination_transfer(
+            cpu->fpu, out.instruction, command, &needs_store, &format);
+
+        if (executed == AP_M68882_EXECUTED && needs_store) {
+          ap_m68882_store_t result = {0};
+          executed = ap_m68882_execute_store(cpu->fpu, out.instruction, command,
+                                             &result);
+          if (executed == AP_M68882_EXECUTED) {
+            bool violated = false;
+            switch (store_fp_destination(cpu, coproc, &result, &out.clocks)) {
+            case FP_SOURCE_FETCHED:
+              break;
+            case FP_SOURCE_PROTOCOL_VIOLATION:
+              cpu->pending_vector = AP_M68030_VECTOR_COPROCESSOR_PROTOCOL;
+              violated = true;
+              break;
+            case FP_SOURCE_FAILED:
+              out.status =
+                  fault_or_unimplemented(cpu, &out, instruction_address);
+              cpu->clocks += out.clocks;
+              return out;
+            }
+            if (violated) {
+              break;
+            }
+          }
+        } else if (executed == AP_M68882_EXECUTED) {
+          /* Both operands already in the part: opclass `000`. */
+          executed = ap_m68882_execute(cpu->fpu, out.instruction, command);
+        }
       }
 
       if (executed == AP_M68882_EXECUTED) {

@@ -1490,6 +1490,78 @@ than vanished: the *store* direction (opclass `011`) needs the reverse of every
 conversion, plus the rounding and exceptions that come with narrowing an extended
 value on the way out.
 
+### The store direction: a result reaches memory
+
+Opclass `011` closed the pair, so load-compute-store — what a compiled loop
+actually is — now runs end to end. **Storing is not loading read backwards.**
+Loading is exact, because every source format fits in extended with room to
+spare. Storing *narrows*, and narrowing is where the rounding mode, three
+separate special-case tables and the exception byte all arrive at once.
+
+Three rules a symmetric implementation would get wrong, each of which fails
+quietly:
+
+- **A store rounds to the destination format, not to the FPCR's precision.**
+  §2.2.2: "If the destination is a memory location, the PREC bits are ignored.
+  In this case, a number in the extended precision format is taken from the
+  source floating-point data register, rounded to the destination format
+  precision, and written to memory." A model that consulted PREC — which is
+  right there in the register the rounding *mode* comes from — would double-round
+  every store made by a program that had set the mode byte. Correct for most
+  programs, wrong for the ones that use it, and invisible either way.
+- **A store leaves the condition codes alone.** The FMOVE page's Status Register
+  section is flat: "Condition Codes: Not affected", "Quotient Byte: Not
+  affected". Every arithmetic operation sets them, so a store routed through the
+  common result path would silently rewrite the codes an earlier compare had
+  left and send the branch after it the wrong way. This is why
+  `ap_m68882_execute_store` accrues exceptions but does not go near
+  `set_condition_from`.
+- **An integer destination clears `OVFL` and `UNFL` entirely.** It reports only
+  `OPERR` — "Set if the source operand is infinity, or if the destination size
+  is exceeded after conversion and rounding" — plus `INEX2` and `SNAN`. The
+  overflow of an integer store is an *operand error*, not an overflow, and the
+  saturated result comes with it: "the largest positive or negative integer that
+  can fit in the specified destination format size".
+
+**Gradual underflow is implemented rather than approximated.** A value below the
+destination's smallest normal becomes a subnormal there, not a zero — and
+flushing to zero would have been the invisible failure of the set, since the
+number stored is a perfectly ordinary zero that sets nothing a program can
+notice. Doing it properly needed the rounding stage generalised from a
+*precision* to a *bit count*, because a subnormal's available significand is not
+the format's precision: it loses one bit per power of two below the minimum
+exponent. Rounding to full precision and then shifting would round twice, which
+is a different answer near a tie — the same reason `ap_m68882_round` folds
+discarded bits into guard, round and sticky instead of chopping them first.
+
+The two NAN rules are §6.1.2's and differ by destination *kind* rather than
+width. For S, D and X: "the SNAN bit in the NAN is set to one and the resulting
+non-signaling NAN is transferred to the destination ... although the input NAN is
+**truncated** if necessary" — truncated, because a NAN's significand is a payload
+and rounding it would carry into neighbouring bits of whatever it encodes. For B,
+W and L: "the 8, 16, or 32 most significant bits of the SNAN significand, with
+the SNAN bit set". A *quiet* NAN into an integer is an operand error instead,
+which Table 6-2 states ("Source is Non-Signaling NAN") and the instruction page
+leaves to §4.5.4 — the two agree, and the table is the more specific.
+
+**A live defect in `FINT` and `FINTRZ` fell out of this.** An integer store
+reuses `ap_m68882_int` rather than reimplementing mode-following rounding, and
+the store's inexactness came back clear on `137.57`. Neither instruction reported
+`INEX2`, though both pages list it in the same words: "INEX2: Refer to 6.1.7
+Inexact Result". It had gone unnoticed because nothing had asked either
+instruction for its exceptions before — the arithmetic suite checked their
+*values*, which were right. Fixed with the store, and the store's own test of the
+manual's 137.57 example is what pins it.
+
+Extended is the one destination that cannot be inexact: it *is* the internal
+format. It still quietens a signalling NAN, because §6.1.2 lists X alongside S
+and D.
+
+Packed decimal declines in both directions. §3.6's binary-to-decimal conversion
+is separate arithmetic from everything here, and it carries its own operand error
+condition — "Result Exponent > 999 (Decimal) or k-Factor > +17" — that belongs
+with it.
+
 ### The transcendentals
 
 All nineteen transcendentals are computed, and the `PROVISIONAL` that stood over
@@ -2695,7 +2767,7 @@ failure that cost a bit position in the 68020's module entry word.
 | 68030 translation table search (the walk) | working: search, U/M writeback, and ATC fill | `walk_suite`, 40 tests, `MC68030 User's Manual 3ed` §9.2, §9.4, §9.5, §11; writeback cost cross-checked against `MC68851 PMMU User's Manual 3ed` §5.1.5.3.11 |
 | MC68851 PMMU | working as its own subsystem: the translation control and root pointers, the six descriptor formats and Figure 5-10's type determination, the status and protection registers, the 64-entry ATC, and the table search with §5.1.5.3.11's U/M write-back. The **68030's** own MMU is separate and has its own rows above | `m68851_tc_suite` 13, `m68851_rp_suite` 13, `m68851_descriptor_suite` 21, `m68851_regs_suite` 22, `m68851_atc_suite` 22, `m68851_search_suite` 26, `m68851_suite` 43; `MC68851 PMMU User's Manual 3ed` |
 | 68040 MMU | not started | — |
-| MC68882 FPU | working, and attached to the 68030 as a *pointer* so a machine without one keeps its line 1111 trap. Every general-type operation executes: the four arithmetic operations, the exactly-specified monadics, the remainders, the single-precision pair, and **all nineteen transcendentals** to within §4.3.2's published bound. Both operand paths run — register-to-register, and **`<ea>` to `FPn` in all six binary formats from every data addressing mode**. Open: packed decimal, the store direction (opclass `011`), the control-register and `FMOVEM` opclasses, `FMOVECR`, and the branch/conditional instruction *types* — for which the coprocessor's own half (`ap_m68882_condition`) is done and the 68030's dialog is not | `m68882_regs_suite` 19, `m68882_format_suite` 18, `m68882_cir_suite` 8, `m68882_round_suite` 11, `m68882_arith_suite` 41, `m68882_decode_suite` 10, `m68882_accuracy_suite` 10, `m68882_transcendental_suite` 36, plus 13 tests in `step_suite`; `MC68881/MC68882 User's Manual 1ed` |
+| MC68882 FPU | working, and attached to the 68030 as a *pointer* so a machine without one keeps its line 1111 trap. Every general-type operation executes: the four arithmetic operations, the exactly-specified monadics, the remainders, the single-precision pair, and **all nineteen transcendentals** to within §4.3.2's published bound. All three operand paths run — register-to-register, **`<ea>` to `FPn`** and **`FPn` to `<ea>`**, in all six binary formats from every legal addressing mode. Open: packed decimal, the control-register and `FMOVEM` opclasses, `FMOVECR`, and the branch/conditional instruction *types* — for which the coprocessor's own half (`ap_m68882_condition`) is done and the 68030's dialog is not | `m68882_regs_suite` 19, `m68882_format_suite` 18, `m68882_cir_suite` 8, `m68882_round_suite` 11, `m68882_arith_suite` 41, `m68882_decode_suite` 10, `m68882_accuracy_suite` 10, `m68882_transcendental_suite` 36, `m68882_store_suite` 11, plus 18 tests in `step_suite`; `MC68881/MC68882 User's Manual 1ed` |
 | MC68040 FPU | timing tables only — §10.6, §10.7.1/§10.7.2 and §10.7.3's pipeline stages are transcribed; no 68040 arithmetic | `m68040_iu_timing_suite` 99, `m68040_fpu_timing_suite` 32, `m68040_fp_pipeline_suite` 18 |
 | Core-board registers (`010000`-`011600`) | working for the four that could be measured: CPU status (bit 15 stuck, writes clear the latched bits), CPU control and latch-page-on-parity (16 bits of storage), cache control (a *byte*, mirrored into both halves of a 16-bit read, one writable bit), each aliased across its 256-byte range. No manual here lays out these bits, so all of it is measured. **Width and storage only — no bit has a known meaning, and nothing may depend on one.** Task alias and master request are absent from the oracle and stay declined rather than modelled as all-ones | `boardreg_suite`, 12 tests; `FINDINGS.md` C10, `tools/mame-oracle/regprobe.lua`, two probe runs byte-identical |
 | Address translation map (`017000`) | working: the translation itself, both DMA widths, and the register file. Between the AT bus and physical memory, not the CPU's MMU -- a DMA controller has no MMU, and this is what lets it see scattered physical pages as one contiguous run. Present on DN3500/4500/5500 and absent on DN3000, from the model table | `atmap_suite`, 15 tests, `019411-A00` §4.2.1.4, `008778-03` §1.2, §2.5 |
@@ -3221,13 +3293,14 @@ Kept rather than discarded, so a future contradiction has a documented history.
 - The ring controller's register-level interface is not yet recovered; the
   manuals give its address window and block diagram but not its registers.
 
-- **The 68882's store direction is not implemented.** Opclass `010` (`<ea>` to
-  `FPn`) runs in all six binary formats; opclass `011` (`FPn` to `<ea>`) does
-  not, nor do the control-register opclasses, `FMOVEM` or `FMOVECR`. Storing is
-  not the load path read backwards: narrowing an extended value raises the
-  rounding and exception behaviour that loading never touches. **Packed
-  decimal** is unimplemented in both directions and declines rather than
-  decoding as binary.
+- **`FMOVEM`, the control-register opclasses and `FMOVECR` are not
+  implemented.** Both single-operand transfers run -- opclass `010` (`<ea>` to
+  `FPn`) and opclass `011` (`FPn` to `<ea>`), in all six binary formats. What is
+  left is not another transfer: `FMOVEM` is a register *list* with a mask, a
+  direction and a predecrement order that runs the list backwards, and the
+  control-register opclasses move `FPCR`/`FPSR`/`FPIAR` rather than data.
+  **Packed decimal** is unimplemented in both directions and declines rather
+  than decoding as binary.
 - **`FBcc`, `FDBcc`, `FScc` and `FTRAPcc` do not execute**, though the
   coprocessor's whole contribution to them does (`ap_m68882_condition`, all 32
   predicates with `BSUN`). What is missing is the 68030's half of §9's dialog —

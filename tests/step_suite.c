@@ -4980,14 +4980,14 @@ static void test_an_undefined_extension_traps_with_a_coprocessor_fitted(void) {
  * would outlast any single instruction. That closed too, when the 68030 took up
  * §10.4.9's half of the transfer.
  *
- * So the boundary has moved one step rather than vanished, and it is now the
- * *store* direction: opclass `011`, `FPn` to `<ea>`. Storing needs the reverse
- * of every conversion loading needed, and the rounding and exceptions that come
- * with narrowing an extended value on the way out -- which is why it is a
- * separate piece of work and not the same one seen from the other end. */
+ * So the boundary keeps moving one step rather than vanishing. The store
+ * direction closed too. What is left is **`FMOVEM`**, opclass `110` and `111`,
+ * which is not one transfer but a list of them -- a register mask, a direction,
+ * and a predecrement order that runs the list backwards. Nothing about it is
+ * the single-operand transfer seen again. */
 static void test_an_unimplemented_coprocessor_form_is_reported_as_our_gap(void) {
-  /* FMOVE.S FP1,(A0) -- opclass 011, destination format 001, source FP1. */
-  static const uint16_t program[] = {0xF210u, 0x64C0u, 0x4E71u};
+  /* FMOVEM.X (A0),FP7-FP0 -- opclass 110, static register list. */
+  static const uint16_t program[] = {0xF210u, 0xD0FFu, 0x4E71u};
   machine_t m = {0};
   load(&m, program, 3);
 
@@ -5169,6 +5169,148 @@ static void test_an_address_register_is_never_a_floating_point_source(void) {
   TEST_ASSERT_EQUAL_HEX32(HANDLER, m.cpu.regs.pc);
 }
 
+/* **A result goes back to memory**: `FMOVE.S FP1,(A0)`, opclass `011`. The
+ * other direction of §10.4.9's transfer, and the pair is what a compiled loop
+ * actually emits -- load, compute, store. */
+static void test_a_result_is_stored_to_memory(void) {
+  /* $64C0: opclass 011, destination format 001 (S), source FP1, k-factor 0. */
+  static const uint16_t program[] = {0xF210u, 0x64C0u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 3);
+  write_ram_long(&m, FP_OPERAND, 0xDEADBEEFu);
+
+  ap_m68882_t fpu;
+  ap_m68882_reset(&fpu);
+  m.cpu.fpu = &fpu;
+  m.cpu.regs.a[0] = FP_OPERAND;
+  fpu.regs.fp[1] = ap_m68882_from_single(0x40000000u); /* 2.0 */
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&m.cpu).status);
+  TEST_ASSERT_EQUAL_HEX32(0x40000000u, read_ram_long(&m, FP_OPERAND));
+  TEST_ASSERT_EQUAL_HEX32(PROGRAM_BASE + 4u, m.cpu.regs.pc);
+}
+
+/* A predecrement steps by the *destination* format's length, the same rule the
+ * load side has and the same failure if it were guessed: `-(A0)` with an
+ * extended destination moves A0 back twelve, and the operand lands at the new
+ * address rather than the old one. */
+static void test_a_predecrement_store_steps_by_the_destination_length(void) {
+  /* $6800: opclass 011, destination format 010 (X), source FP0. Operation word
+   * $F220 is `-(A0)`. */
+  static const uint16_t program[] = {0xF220u, 0x6800u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 3);
+
+  ap_m68882_t fpu;
+  ap_m68882_reset(&fpu);
+  m.cpu.fpu = &fpu;
+  m.cpu.regs.a[0] = FP_OPERAND + 12u;
+  fpu.regs.fp[0] = ap_m68882_from_single(0x3F800000u); /* 1.0 */
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&m.cpu).status);
+  TEST_ASSERT_EQUAL_HEX32(FP_OPERAND, m.cpu.regs.a[0]);
+  /* 1.0 extended: exponent $3FFF, integer bit set, and the sixteen unused bits
+   * written as zero. */
+  TEST_ASSERT_EQUAL_HEX32(0x3FFF0000u, read_ram_long(&m, FP_OPERAND));
+  TEST_ASSERT_EQUAL_HEX32(0x80000000u, read_ram_long(&m, FP_OPERAND + 4u));
+  TEST_ASSERT_EQUAL_HEX32(0x00000000u, read_ram_long(&m, FP_OPERAND + 8u));
+}
+
+/* **A store does not touch the condition codes.** The FMOVE page's Status
+ * Register section says "Condition Codes: Not affected", where every arithmetic
+ * operation sets them -- so a store routed through the common result path would
+ * silently rewrite the codes an earlier compare had left, and the branch after
+ * it would go the wrong way. Checked by storing a value whose condition codes
+ * would differ from the ones already set. */
+static void test_a_store_leaves_the_condition_codes_alone(void) {
+  static const uint16_t program[] = {0xF210u, 0x64C0u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 3);
+
+  ap_m68882_t fpu;
+  ap_m68882_reset(&fpu);
+  m.cpu.fpu = &fpu;
+  m.cpu.regs.a[0] = FP_OPERAND;
+  fpu.regs.fp[1] = ap_m68882_from_single(0x40000000u); /* 2.0: not zero, not N */
+
+  /* Pretend a comparison just set Z and N. */
+  const uint32_t before = fpu.regs.fpsr;
+  fpu.regs.fpsr = before | (UINT32_C(1) << AP_M68882_FPCC_Z) |
+                  (UINT32_C(1) << AP_M68882_FPCC_N);
+  const uint32_t planted = fpu.regs.fpsr;
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&m.cpu).status);
+  TEST_ASSERT_EQUAL_HEX32(planted, fpu.regs.fpsr);
+}
+
+/* A data register is a legal destination only for an operand of one, two or
+ * four bytes -- the same §10.4.9 rule the load side has, and a protocol
+ * violation for the same reason. `FMOVE.L FP0,D0` is how a program gets a
+ * floating-point value into the integer unit, so the legal half matters. */
+static void test_a_long_word_result_reaches_a_data_register(void) {
+  /* $6000: opclass 011, destination format 000 (L), source FP0. */
+  static const uint16_t program[] = {0xF200u, 0x6000u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 3);
+
+  ap_m68882_t fpu;
+  ap_m68882_reset(&fpu);
+  m.cpu.fpu = &fpu;
+  m.cpu.regs.d[0] = 0xDEADBEEFu;
+  fpu.regs.fp[0] = ap_m68882_from_single(0x42F60000u); /* 123.0 */
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&m.cpu).status);
+  TEST_ASSERT_EQUAL_HEX32(123u, m.cpu.regs.d[0]);
+
+  /* Twelve bytes into the same register is the refusal. */
+  static const uint16_t wide[] = {0xF200u, 0x6800u, 0x4E71u};
+  machine_t n = {0};
+  load(&n, wide, 3);
+  plant_vector(&n, AP_M68030_VECTOR_COPROCESSOR_PROTOCOL, HANDLER);
+  n.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
+  n.cpu.regs.isp = SUPERVISOR_STACK;
+  ap_m68882_t second;
+  ap_m68882_reset(&second);
+  n.cpu.fpu = &second;
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXCEPTION, ap_m68030_step(&n.cpu).status);
+  TEST_ASSERT_EQUAL_HEX32(HANDLER, n.cpu.regs.pc);
+}
+
+/* A store needs a **data alterable** destination, which is stricter than the
+ * source side's data category: `(d16,PC)` is a legal place to read an operand
+ * from and not a legal place to put one. §10.4.9 names the failure -- "the
+ * MC68030 initiates protocol violation exception processing if the primitive
+ * requests a write to a nonalterable effective address". */
+static void test_storing_to_a_nonalterable_address_violates_the_protocol(void) {
+  /* $F23A is `(d16,PC)`: readable, never writable. */
+  static const uint16_t program[] = {0xF23Au, 0x64C0u, 0x0004u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 4);
+  plant_vector(&m, AP_M68030_VECTOR_COPROCESSOR_PROTOCOL, HANDLER);
+  m.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
+  m.cpu.regs.isp = SUPERVISOR_STACK;
+
+  ap_m68882_t fpu;
+  ap_m68882_reset(&fpu);
+  m.cpu.fpu = &fpu;
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXCEPTION, ap_m68030_step(&m.cpu).status);
+  TEST_ASSERT_EQUAL_HEX32(HANDLER, m.cpu.regs.pc);
+
+  /* The same mode is fine as a *source*, which is what makes this the
+   * direction's rule and not the addressing mode's. */
+  static const uint16_t reading[] = {0xF23Au, 0x44A2u, 0x0004u, 0x4E71u};
+  machine_t n = {0};
+  load(&n, reading, 4);
+  ap_m68882_t second;
+  ap_m68882_reset(&second);
+  n.cpu.fpu = &second;
+  second.regs.fp[1] = ap_m68882_from_single(0x3F800000u);
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&n.cpu).status);
+}
+
 /* Packed decimal is a source format the encoding allows and this model has not
  * got to. Reported as our gap rather than decoded as binary, which would turn a
  * BCD operand into a plausible wrong number. */
@@ -5201,6 +5343,11 @@ int main(void) {
   RUN_TEST(test_an_extended_operand_from_a_data_register_violates_the_protocol);
   RUN_TEST(test_an_address_register_is_never_a_floating_point_source);
   RUN_TEST(test_a_packed_decimal_source_is_reported_as_our_gap);
+  RUN_TEST(test_a_result_is_stored_to_memory);
+  RUN_TEST(test_a_predecrement_store_steps_by_the_destination_length);
+  RUN_TEST(test_a_store_leaves_the_condition_codes_alone);
+  RUN_TEST(test_a_long_word_result_reaches_a_data_register);
+  RUN_TEST(test_storing_to_a_nonalterable_address_violates_the_protocol);
   RUN_TEST(test_reset_performs_all_ten_documented_steps);
   RUN_TEST(test_reset_stacks_nothing);
   RUN_TEST(test_bkpt_takes_an_illegal_instruction_when_nothing_answers);

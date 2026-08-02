@@ -411,16 +411,18 @@ ap_m68882_status_t ap_m68882_source_transfer(const ap_m68882_t *fpu,
     return decoded;
   }
 
-  if (command.opclass == AP_M68882_OPCLASS_REGISTER) {
-    return AP_M68882_EXECUTED; /* nothing to fetch */
-  }
   if (command.opclass != AP_M68882_OPCLASS_MEMORY_TO_REGISTER ||
       !ap_m68882_command_uses_memory(&command)) {
-    /* The store direction, the control registers, FMOVEM -- and FMOVECR, which
-     * is opclass `010` with RX = 7 and reads the part's own ROM rather than
-     * memory. None of them is a source fetch, and none is implemented; saying
-     * so is what keeps them from being answered as one. */
-    return AP_M68882_UNIMPLEMENTED;
+    /* Not a source fetch: the store direction, the control registers, FMOVEM,
+     * register-to-register -- and FMOVECR, which is opclass `010` with RX = 7
+     * and reads the part's own ROM rather than memory.
+     *
+     * Reported as "nothing to fetch" and **not** as unimplemented, which is a
+     * distinction the caller depends on: it goes on to ask about the store
+     * direction and then about register-to-register, and each of those answers
+     * for itself. Declining here would make this call the one that decides what
+     * the other two can do. */
+    return AP_M68882_EXECUTED;
   }
 
   /* §4.8.4: "If R/M = 1, it specifies the source operand data format." */
@@ -442,4 +444,66 @@ ap_m68882_status_t ap_m68882_execute_source(
     return AP_M68882_UNIMPLEMENTED;
   }
   return execute_general(fpu, &command, source);
+}
+
+ap_m68882_status_t ap_m68882_destination_transfer(const ap_m68882_t *fpu,
+                                                  uint16_t operation_word,
+                                                  uint16_t command_word,
+                                                  bool *needs_store,
+                                                  ap_m68882_format_t *format) {
+  *needs_store = false;
+
+  ap_m68882_command_word_t command = {0};
+  const ap_m68882_status_t decoded =
+      decode_general(fpu, operation_word, command_word, &command);
+  if (decoded != AP_M68882_EXECUTED) {
+    return decoded;
+  }
+
+  if (command.opclass != AP_M68882_OPCLASS_REGISTER_TO_MEMORY) {
+    return AP_M68882_EXECUTED; /* nothing to store; some other path applies */
+  }
+
+  /* Bits 12-10 are the DESTINATION FORMAT here, where in opclass `010` the same
+   * field is the source format. Same encoding, opposite direction. */
+  *format = (ap_m68882_format_t)command.rx;
+  if (*format == AP_M68882_FORMAT_PACKED ||
+      *format == AP_M68882_FORMAT_PACKED_DYNAMIC) {
+    /* The k-factor in the extension field is the other half of what packed
+     * decimal needs, and neither half is implemented. */
+    return AP_M68882_UNIMPLEMENTED;
+  }
+  *needs_store = true;
+  return AP_M68882_EXECUTED;
+}
+
+ap_m68882_status_t ap_m68882_execute_store(ap_m68882_t *fpu,
+                                           uint16_t operation_word,
+                                           uint16_t command_word,
+                                           ap_m68882_store_t *out) {
+  ap_m68882_command_word_t command = {0};
+  const ap_m68882_status_t decoded =
+      decode_general(fpu, operation_word, command_word, &command);
+  if (decoded != AP_M68882_EXECUTED) {
+    return decoded;
+  }
+  if (command.opclass != AP_M68882_OPCLASS_REGISTER_TO_MEMORY) {
+    return AP_M68882_UNIMPLEMENTED;
+  }
+
+  /* Bits 9-7 are the SOURCE REGISTER, which is `ry` -- the same field that
+   * names the *destination* everywhere else. Reading it as a destination here
+   * would store whichever register the instruction was writing towards. */
+  const ap_m68882_extended_t *source = &fpu->regs.fp[command.ry];
+
+  if (!ap_m68882_store_encode((ap_m68882_format_t)command.rx, source,
+                              ap_m68882_rounding_mode(&fpu->regs), out)) {
+    return AP_M68882_UNIMPLEMENTED;
+  }
+
+  /* The conversion's exceptions are accrued; the condition codes are not
+   * touched. "Condition Codes: Not affected", "Quotient Byte: Not affected" --
+   * which is why this does not go through the common result path. */
+  apply_exceptions(&fpu->regs, out->exceptions);
+  return AP_M68882_EXECUTED;
 }

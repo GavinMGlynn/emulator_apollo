@@ -1950,6 +1950,35 @@ a 68882, and the 68882 is the only one of these it has.
         neighbour so it is the rule and not the mode being refused; packed
         decimal reported as ours; and format `$9`'s ten words with its two
         distinct addresses. `m68882_format_suite` +6 (18 total).*
+  - [x] **The destination operand transfer**, opclass `011`, so a computed
+        result reaches memory and the load-compute-store loop a compiler emits
+        runs end to end. Storing is not loading read backwards: it *narrows*, so
+        the rounding mode, three separate special-case tables and the exception
+        byte all come in. Three rules that a symmetric implementation would
+        miss — §2.2.2 has a store round to the **destination format** and ignore
+        the FPCR's precision bits; the FMOVE page has it leave the **condition
+        codes untouched**, where every arithmetic operation sets them; and an
+        integer destination clears `OVFL`/`UNFL` entirely, reporting only
+        `OPERR`, `INEX2` and `SNAN`. Gradual underflow is implemented, so a
+        value below the destination's smallest normal becomes a subnormal there
+        rather than a zero — which needed the rounding stage generalised from a
+        precision to a bit count, since a subnormal's available significand
+        depends on how far below the minimum exponent it sits.
+        **A live defect in `FINT` and `FINTRZ` fell out of it**: neither
+        reported `INEX2`, though both instruction pages list it. Detail in
+        `PROJECT_STATUS.md`.
+        *Verification: `m68882_store_suite`, 11 tests — 1.0 into every format;
+        the destination width deciding the rounding while the mode still
+        applies; gradual underflow down to the smallest subnormal and past it;
+        overflow following the mode rather than always giving infinity; a real
+        destination never raising an operand error where an integer one
+        saturates and does; the manual's own 137.57 example as a store; both
+        NAN rules; and a single-precision sweep round-tripping out and back.
+        `step_suite` +5 (214 total) — the store itself, a predecrement stepping
+        by the *destination's* length, the condition codes surviving, a long
+        word reaching a data register with the twelve-byte refusal beside it,
+        and a nonalterable destination violating the protocol while the same
+        mode reads fine.*
   - [x] **The exactly-specified monadic operations**: `FSQRT`, `FGETEXP`,
         `FGETMAN`, `FINT`, `FINTRZ` and `FSCALE`. §4.3.2 puts square root under
         the IEEE bound rather than with the transcendentals -- "except square

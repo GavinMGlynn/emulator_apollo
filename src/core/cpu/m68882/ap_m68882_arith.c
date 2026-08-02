@@ -966,6 +966,10 @@ static ap_m68882_op_t integer_part(const ap_m68882_extended_t *a,
      * directed modes behave. */
     const uint64_t fraction = a->mantissa;
     ap_m68882_extended_t zero = make_zero(a->sign);
+    /* Something was discarded -- a non-zero magnitude became an integer -- so
+     * the result is inexact. Both pages list `INEX2: Refer to 6.1.7 Inexact
+     * Result`, and neither makes an exception of the below-one case. */
+    out.exceptions |= UINT32_C(1) << AP_M68882_EXC_INEX2;
     if (truncate || fraction == 0u) {
       out.value = zero;
       return out;
@@ -992,6 +996,11 @@ static ap_m68882_op_t integer_part(const ap_m68882_extended_t *a,
 
   ap_m68882_extended_t result = *a;
   result.mantissa = a->mantissa & ~fraction_mask;
+  /* `FINT` and `FINTRZ` both list `INEX2: Refer to 6.1.7 Inexact Result` in
+   * their exception bytes, and the fraction being non-zero is exactly what
+   * makes the integer part differ from the source. The zero, infinity and
+   * already-integral paths above return before here and are exact. */
+  out.exceptions |= UINT32_C(1) << AP_M68882_EXC_INEX2;
 
   if (!truncate) {
     /* FINT rounds by the current mode, so it reuses the rounding stage rather
