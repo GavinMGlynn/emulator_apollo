@@ -1673,6 +1673,32 @@ the *MPU* to consult when deciding whether an exception becomes a trap. They are
 interface, not mechanism, and there is no 68030-side FPU trap path yet to call
 them.
 
+**The condition codes themselves came back correct against Table 2-1**, all ten
+data types including the two that catch a careless implementation: `N` is the
+sign of the mantissa and is set *independently of the type*, so a negative zero
+is `N` **and** `Z` and a negative NAN is `N` **and** `NAN`. A model that treated
+`N` as meaningful only for a normalized result would clear it in exactly the two
+places a program is most likely to be checking a sign. The manual's own framing
+is that "the FPCP generates only eight of the 16 possible combinations", the
+other eight being unreachable because `Z`, `I` and `NAN` are mutually exclusive
+-- and that exclusivity is now asserted rather than assumed.
+
+§2.3.1 also states the four IEEE conditions independently -- `EQ = Z`,
+`GT = ~(N v NAN v Z)`, `LT = N ^ ~(NAN v Z)`, `UN = NAN` -- which is a second
+statement of the aware predicates at `$01`, `$02`, `$04` and `$08`. The table
+transcribed from §4.4 agrees with it, which is the kind of corroboration worth
+having after a transcription error was found in that very table.
+
+**What had never been tested is the chain.** A comparison produces a result, the
+result's data type sets the condition codes, a predicate reads them, and the
+answer is what a branch acts on. Each half had been checked against the manual
+separately -- and two halves that are individually right can still disagree
+about what they mean by `N`. The suite now runs `FCMP` over greater, less,
+equal and both orders of unordered, and asserts that exactly one of the four
+IEEE conditions holds in every case. Exactly one is the property that makes them
+the IEEE conditions rather than four independent tests, and it is not implied by
+either half alone.
+
 **One approximation is recorded rather than closed.** At *extended* precision
 all four rounding modes return the same value here, because the model computes a
 64-bit approximation directly and has no bits below the destination left to

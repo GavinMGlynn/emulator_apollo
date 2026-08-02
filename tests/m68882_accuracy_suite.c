@@ -244,12 +244,137 @@ static void test_a_conditional_reaches_the_status_register(void) {
                          ordered.regs.fpsr & (1u << AP_M68882_EXC_BSUN));
 }
 
+/* Put `value` in FP0 and run `FTST`, which sets the condition codes from it. */
+static void set_condition_from(ap_m68882_t *fpu, ap_m68882_extended_t value) {
+  ap_m68882_reset(fpu);
+  fpu->regs.fp[0] = value;
+  (void)ap_m68882_execute(fpu, 0xF200u, command_for(AP_M68882_OP_FTST));
+}
+
+static void test_table_2_1_generates_only_eight_combinations(void) {
+  /* "The operation result data type determines how the four condition code bits
+   * are set ... Because of the mutually exclusive nature of the data types
+   * described by the condition code bits, the FPCP generates only eight of the
+   * 16 possible combinations."
+   *
+   * `N` is the sign of the mantissa and is set *independently of the type*, so
+   * a negative zero is `N` **and** `Z`, and a negative NAN is `N` **and**
+   * `NAN`. An implementation that treated `N` as meaningful only for a
+   * normalized result would clear it in exactly the two places a program is
+   * most likely to be checking a sign. */
+  const struct {
+    ap_m68882_extended_t value;
+    bool n, z, i, nan;
+    const char *what;
+  } rows[] = {
+      {{false, 0x3FFF, 0x8000000000000000ULL}, false, false, false, false,
+       "+normalized"},
+      {{true, 0x3FFF, 0x8000000000000000ULL}, true, false, false, false,
+       "-normalized"},
+      {{false, 0u, 0x4000000000000000ULL}, false, false, false, false,
+       "+denormalized"},
+      {{true, 0u, 0x4000000000000000ULL}, true, false, false, false,
+       "-denormalized"},
+      {{false, 0u, 0u}, false, true, false, false, "+0"},
+      {{true, 0u, 0u}, true, true, false, false, "-0"},
+      {{false, 0x7FFFu, 0u}, false, false, true, false, "+infinity"},
+      {{true, 0x7FFFu, 0u}, true, false, true, false, "-infinity"},
+      {{false, 0x7FFFu, 0xC000000000000000ULL}, false, false, false, true,
+       "+NAN"},
+      {{true, 0x7FFFu, 0xC000000000000000ULL}, true, false, false, true,
+       "-NAN"},
+  };
+  for (unsigned r = 0; r < sizeof rows / sizeof rows[0]; r++) {
+    ap_m68882_t fpu;
+    set_condition_from(&fpu, rows[r].value);
+    const uint32_t s = fpu.regs.fpsr;
+    TEST_ASSERT_EQUAL_MESSAGE(rows[r].n, ((s >> AP_M68882_FPCC_N) & 1u) != 0u,
+                              rows[r].what);
+    TEST_ASSERT_EQUAL_MESSAGE(rows[r].z, ((s >> AP_M68882_FPCC_Z) & 1u) != 0u,
+                              rows[r].what);
+    TEST_ASSERT_EQUAL_MESSAGE(rows[r].i, ((s >> AP_M68882_FPCC_I) & 1u) != 0u,
+                              rows[r].what);
+    TEST_ASSERT_EQUAL_MESSAGE(rows[r].nan,
+                              ((s >> AP_M68882_FPCC_NAN) & 1u) != 0u,
+                              rows[r].what);
+    /* Never more than one of Z, I and NAN: the data types are mutually
+     * exclusive, which is why only eight combinations occur. */
+    const unsigned exclusive = (unsigned)rows[r].z + (unsigned)rows[r].i +
+                               (unsigned)rows[r].nan;
+    TEST_ASSERT_TRUE_MESSAGE(exclusive <= 1u,
+                             "Z, I and NAN are mutually exclusive");
+  }
+}
+
+static void test_a_comparison_reaches_a_branch_decision(void) {
+  /* The whole chain, which nothing exercised end to end: `FCMP` produces a
+   * result, the result's data type sets the condition codes, a predicate reads
+   * them, and the answer is what a branch would act on. Each half was tested
+   * against the manual separately -- and two halves that are individually right
+   * can still disagree about what they mean by `N`.
+   *
+   * §2.3.1 states the four IEEE conditions the chain must produce:
+   * `EQ = Z`, `GT = ~(N v NAN v Z)`, `LT = N ^ ~(NAN v Z)`, `UN = NAN`. Those
+   * are the aware predicates `$01`, `$02`, `$04` and `$08`. */
+  const ap_m68882_extended_t one = {false, AP_M68882_BIAS_EXTENDED,
+                                    0x8000000000000000ULL};
+  const ap_m68882_extended_t two = {false, AP_M68882_BIAS_EXTENDED + 1,
+                                    0x8000000000000000ULL};
+  const ap_m68882_extended_t nan = {false, 0x7FFFu, 0xC000000000000000ULL};
+
+  const struct {
+    ap_m68882_extended_t destination, source;
+    bool eq, gt, lt, un;
+    const char *what;
+  } cases[] = {
+      {two, one, false, true, false, false, "2 compared with 1 is greater"},
+      {one, two, false, false, true, false, "1 compared with 2 is less"},
+      {one, one, true, false, false, false, "1 compared with 1 is equal"},
+      {one, nan, false, false, false, true, "anything against a NAN is "
+                                            "unordered"},
+      {nan, one, false, false, false, true, "and either way round"},
+  };
+
+  for (unsigned c = 0; c < sizeof cases / sizeof cases[0]; c++) {
+    ap_m68882_t fpu;
+    ap_m68882_reset(&fpu);
+    fpu.regs.fp[0] = cases[c].source;
+    fpu.regs.fp[1] = cases[c].destination;
+    /* Source FP0, destination FP1. */
+    TEST_ASSERT_EQUAL_INT(AP_M68882_EXECUTED,
+                          ap_m68882_execute(&fpu, 0xF200u,
+                                            command_for(AP_M68882_OP_FCMP)));
+
+    TEST_ASSERT_EQUAL_MESSAGE(cases[c].eq,
+                              ap_m68882_condition(&fpu, 0x01u),
+                              cases[c].what);
+    TEST_ASSERT_EQUAL_MESSAGE(cases[c].gt,
+                              ap_m68882_condition(&fpu, 0x02u),
+                              cases[c].what);
+    TEST_ASSERT_EQUAL_MESSAGE(cases[c].lt,
+                              ap_m68882_condition(&fpu, 0x04u),
+                              cases[c].what);
+    TEST_ASSERT_EQUAL_MESSAGE(cases[c].un,
+                              ap_m68882_condition(&fpu, 0x08u),
+                              cases[c].what);
+
+    /* Exactly one of the four holds, always: that is what makes them the IEEE
+     * conditions rather than four independent tests. */
+    const unsigned held = (unsigned)cases[c].eq + (unsigned)cases[c].gt +
+                          (unsigned)cases[c].lt + (unsigned)cases[c].un;
+    TEST_ASSERT_EQUAL_UINT_MESSAGE(1u, held,
+                                   "exactly one IEEE condition holds");
+  }
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_the_four_families_are_exactly_what_4_3_2_names);
   RUN_TEST(test_a_square_root_is_not_a_transcendental);
   RUN_TEST(test_the_manual_gives_two_worst_case_figures_that_disagree);
   RUN_TEST(test_the_typical_bound_is_far_tighter_than_the_worst_case);
+  RUN_TEST(test_table_2_1_generates_only_eight_combinations);
+  RUN_TEST(test_a_comparison_reaches_a_branch_decision);
   RUN_TEST(test_a_conditional_reaches_the_status_register);
   RUN_TEST(test_every_transcendental_is_now_computed);
   RUN_TEST(test_the_remaining_gaps_are_not_transcendentals);
