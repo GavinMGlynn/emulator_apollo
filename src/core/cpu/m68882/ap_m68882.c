@@ -138,6 +138,17 @@ static ap_m68882_status_t execute_register_to_register(
   case AP_M68882_OP_FTAN:
     result = ap_m68882_tan(&source, mode, precision);
     break;
+
+  /* §4.3.2's inverse trigonometric functions. */
+  case AP_M68882_OP_FATAN:
+    result = ap_m68882_atan(&source, mode, precision);
+    break;
+  case AP_M68882_OP_FASIN:
+    result = ap_m68882_asin(&source, mode, precision);
+    break;
+  case AP_M68882_OP_FACOS:
+    result = ap_m68882_acos(&source, mode, precision);
+    break;
   case AP_M68882_OP_FSINCOS: {
     /* Two destinations. Page 4-101: bits 9-7 are "DESTINATION REGISTER, FPs.
      * The sine result is stored in this register", and bits 2-0 are FPc, which
@@ -210,11 +221,8 @@ static ap_m68882_status_t execute_register_to_register(
    * invisible. */
   case AP_M68882_OP_FSINH:
   case AP_M68882_OP_FTANH:
-  case AP_M68882_OP_FATAN:
-  case AP_M68882_OP_FASIN:
   case AP_M68882_OP_FATANH:
   case AP_M68882_OP_FCOSH:
-  case AP_M68882_OP_FACOS:
   case AP_M68882_OP_FMOD:
   case AP_M68882_OP_FSGLDIV:
   case AP_M68882_OP_FREM:

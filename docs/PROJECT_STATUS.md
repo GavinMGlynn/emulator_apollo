@@ -1326,8 +1326,39 @@ not implement. It now uses `FMOD` -- a remainder form, outside the
 transcendental work -- so the test stops needing an edit every time a family
 lands.
 
-The remaining two families -- inverse trigonometric and hyperbolic -- are named
-plan items.
+**The inverse trigonometric family is in**, at under three units in the last
+place. `FATAN` carries the slowest-converging series in this file -- at
+`|t| = 1` it would need thousands of terms for extended precision -- so it
+reduces three times before evaluating: `pi/2 - atan(1/x)` for arguments above
+one, then `pi/4 + atan((t-1)/(t+1))` down to `tan(pi/8)`, then a half-angle
+identity down to `0.1989`. Sixteen terms then suffice. Each reduction was chosen
+so the correction is small against a constant offset, so none of them can cancel
+badly.
+
+**`FACOS` is `2 atan(sqrt((1-x)/(1+x)))` and deliberately not `pi/2 - asin(x)`.**
+As `x` approaches one the answer approaches zero, and the subtraction form would
+compute it as a difference of two numbers both near `pi/2` -- losing a bit of
+the result for every bit `x` is close to one. At `x = 1 - 2^-41` the answer is
+about `2^-20`, and a cancelling implementation would leave half the significand
+meaningless. The test checks the value against `sqrt(2(1-x))`, the leading term
+of the expansion, rather than merely checking it is non-zero.
+
+**Three functions on adjacent pages give three different answers to an infinite
+argument**, and all three were read from the manual rather than assumed.
+`FATAN(+/-inf)` is `+/-pi/2` and its exception byte reads `OPERR: Cleared` -- it
+has no domain error at all, because an infinite *tangent* is an ordinary limit.
+`FASIN` and `FACOS` read "set if the source is infinity, > +1 or < -1", so an
+infinity *is* an error there. And the forward `FSIN` treats an infinite *angle*
+as an error too. Neither `FASIN` nor `FACOS` has a divide by zero: their
+endpoints are finite results, and only `FATANH` -- whose poles really are at
+`+/-1` -- raises `DZ` there.
+
+One test bug worth recording: the first draft wrote `1 - 2^-41` with the
+exponent of one rather than of a half, producing a value near *two*, which is
+outside the domain and correctly returned a NAN. The failure looked like an
+implementation fault and was a constant written at the wrong exponent.
+
+The remaining family -- hyperbolic -- is a named plan item.
 
 So the gap is now specified rather than merely declared. The nineteen
 transcendentals are classified by the four families §4.3.2 names, with `FSQRT`

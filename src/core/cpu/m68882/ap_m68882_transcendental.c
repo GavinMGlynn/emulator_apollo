@@ -173,6 +173,44 @@ static const ap_m68882_extended_t cos_coefficients[] = {
 
 #define TRIG_TERMS (sizeof sin_coefficients / sizeof sin_coefficients[0])
 
+static const ap_m68882_extended_t c_pi = {false, 0x4000, 0xC90FDAA22168C235ULL};
+static const ap_m68882_extended_t c_pio2 = {false, 0x3FFF,
+                                            0xC90FDAA22168C235ULL};
+static const ap_m68882_extended_t c_pio4 = {false, 0x3FFE,
+                                            0xC90FDAA22168C235ULL};
+/* `tan(pi/8) = sqrt(2) - 1`, the point at which the arc tangent's second
+ * reduction pays for itself. */
+static const ap_m68882_extended_t c_tan_pio8 = {false, 0x3FFD,
+                                                0xD413CCCFE7799211ULL};
+
+/* `(-1)^k/(2k+1)`: the arc tangent series.
+ *
+ * Sixteen terms, which is only enough because the argument is reduced twice
+ * before it arrives -- to `|t| <= tan(pi/8)` by the addition formula and then
+ * to `|u| <= 0.1989` by the half-angle identity. Unreduced, the same accuracy
+ * at `|t| = 1` would need thousands of terms, since this series converges more
+ * slowly than any other in this file. */
+static const ap_m68882_extended_t atan_coefficients[] = {
+    {false, 0x3FFF, 0x8000000000000000ULL}, /* +1/1 */
+    {true, 0x3FFD, 0xAAAAAAAAAAAAAAABULL},  /* -1/3 */
+    {false, 0x3FFC, 0xCCCCCCCCCCCCCCCDULL}, /* +1/5 */
+    {true, 0x3FFC, 0x9249249249249249ULL},  /* -1/7 */
+    {false, 0x3FFB, 0xE38E38E38E38E38EULL}, /* +1/9 */
+    {true, 0x3FFB, 0xBA2E8BA2E8BA2E8CULL},  /* -1/11 */
+    {false, 0x3FFB, 0x9D89D89D89D89D8AULL}, /* +1/13 */
+    {true, 0x3FFB, 0x8888888888888889ULL},  /* -1/15 */
+    {false, 0x3FFA, 0xF0F0F0F0F0F0F0F1ULL}, /* +1/17 */
+    {true, 0x3FFA, 0xD79435E50D79435EULL},  /* -1/19 */
+    {false, 0x3FFA, 0xC30C30C30C30C30CULL}, /* +1/21 */
+    {true, 0x3FFA, 0xB21642C8590B2164ULL},  /* -1/23 */
+    {false, 0x3FFA, 0xA3D70A3D70A3D70AULL}, /* +1/25 */
+    {true, 0x3FFA, 0x97B425ED097B425FULL},  /* -1/27 */
+    {false, 0x3FFA, 0x8D3DCB08D3DCB08DULL}, /* +1/29 */
+    {true, 0x3FFA, 0x8421084210842108ULL},  /* -1/31 */
+};
+
+#define ATAN_TERMS (sizeof atan_coefficients / sizeof atan_coefficients[0])
+
 /* ---------------------------------------------------------------------------
  * Working arithmetic.
  *
@@ -998,4 +1036,189 @@ ap_m68882_op_t ap_m68882_tan(const ap_m68882_extended_t *x,
   const ap_m68882_extended_t value =
       (quadrant & 1u) ? nx_negate(nx_div(c, s)) : nx_div(s, c);
   return trig_finish(value, mode, precision);
+}
+
+/* ---------------------------------------------------------------------------
+ * The inverse trigonometric functions.
+ * ------------------------------------------------------------------------- */
+
+static ap_m68882_extended_t nx_sqrt(ap_m68882_extended_t v) {
+  return ap_m68882_sqrt(&v, AP_M68882_ROUND_NEAREST,
+                        AP_M68882_PRECISION_EXTENDED)
+      .value;
+}
+
+/* `atan(u)` for `|u| <= 0.1989`, straight from the series. */
+static ap_m68882_extended_t atan_series(ap_m68882_extended_t u) {
+  const ap_m68882_extended_t u2 = nx_mul(u, u);
+  ap_m68882_extended_t acc = atan_coefficients[ATAN_TERMS - 1u];
+  for (size_t i = ATAN_TERMS - 1u; i > 0u; i--) {
+    acc = nx_add(atan_coefficients[i - 1u], nx_mul(acc, u2));
+  }
+  return nx_mul(u, acc);
+}
+
+/* `atan(t)` for `|t| <= tan(pi/8)`, halving the argument once first.
+ *
+ * `atan(t) = 2 atan(t / (1 + sqrt(1 + t^2)))` takes `0.4142` down to `0.1989`,
+ * which is the difference between sixteen series terms and nearly sixty. The
+ * square root is worth one divide and one root because the series' convergence
+ * is geometric in the argument and every halving buys a great many terms. */
+static ap_m68882_extended_t atan_kernel(ap_m68882_extended_t t) {
+  const ap_m68882_extended_t root = nx_sqrt(nx_add(c_one, nx_mul(t, t)));
+  const ap_m68882_extended_t u = nx_div(t, nx_add(c_one, root));
+  return nx_add(atan_series(u), atan_series(u));
+}
+
+/* `atan(x)` for any finite `x`, by two range reductions onto the kernel.
+ *
+ * `atan(x) = pi/2 - atan(1/x)` brings anything above one down; then
+ * `atan(t) = pi/4 + atan((t-1)/(t+1))` brings the remaining `(tan(pi/8), 1]`
+ * down as well. Neither reduction can cancel badly: the results are near
+ * `pi/2` and `pi/4` respectively and the correction is small. */
+static ap_m68882_extended_t atan_value(ap_m68882_extended_t x) {
+  const bool negative = x.sign;
+  ap_m68882_extended_t a = x;
+  a.sign = false;
+
+  ap_m68882_extended_t base = nx_zero(false);
+  bool subtract = false;
+  if (a.exponent > AP_M68882_BIAS_EXTENDED ||
+      (a.exponent == AP_M68882_BIAS_EXTENDED &&
+       a.mantissa > 0x8000000000000000ULL)) {
+    base = c_pio2;
+    subtract = true;
+    a = nx_div(c_one, a);
+  }
+
+  if (a.exponent > c_tan_pio8.exponent ||
+      (a.exponent == c_tan_pio8.exponent &&
+       a.mantissa > c_tan_pio8.mantissa)) {
+    const ap_m68882_extended_t reduced =
+        nx_div(nx_sub(a, c_one), nx_add(a, c_one));
+    base = subtract ? nx_sub(base, c_pio4) : nx_add(base, c_pio4);
+    a = reduced;
+  }
+
+  const ap_m68882_extended_t term = atan_kernel(a);
+  ap_m68882_extended_t value =
+      subtract ? nx_sub(base, term) : nx_add(base, term);
+  value.sign ^= negative;
+  return value;
+}
+
+ap_m68882_op_t ap_m68882_atan(const ap_m68882_extended_t *x,
+                              ap_m68882_rounding_t mode,
+                              ap_m68882_precision_t precision) {
+  switch (ap_m68882_classify(x)) {
+  case AP_M68882_TYPE_NAN:
+    return (ap_m68882_op_t){nx_nan(), ap_m68882_is_signalling_nan(x)
+                                          ? (1u << AP_M68882_EXC_SNAN)
+                                          : 0u};
+  case AP_M68882_TYPE_ZERO:
+    return (ap_m68882_op_t){*x, 0u};
+  case AP_M68882_TYPE_INFINITY: {
+    /* Unlike the forward functions, an infinite argument is *not* an error
+     * here: the arc tangent has horizontal asymptotes, so `atan(+/-inf)` is
+     * `+/-pi/2` and the operation table prints it rather than a NAN. */
+    ap_m68882_extended_t value = c_pio2;
+    value.sign = x->sign;
+    return (ap_m68882_op_t){value, 1u << AP_M68882_EXC_INEX2};
+  }
+  case AP_M68882_TYPE_NORMALIZED:
+  case AP_M68882_TYPE_DENORMALIZED:
+    break;
+  }
+  return trig_finish(atan_value(*x), mode, precision);
+}
+
+/* `FASIN` and `FACOS` share a domain and a domain error. Their exception bytes
+ * both read "set if the source is infinity, > +1 or < -1", and neither has a
+ * divide by zero -- the endpoints are ordinary finite results. */
+static bool inverse_domain(const ap_m68882_extended_t *x, ap_m68882_op_t *out) {
+  switch (ap_m68882_classify(x)) {
+  case AP_M68882_TYPE_NAN:
+    *out = (ap_m68882_op_t){nx_nan(), ap_m68882_is_signalling_nan(x)
+                                          ? (1u << AP_M68882_EXC_SNAN)
+                                          : 0u};
+    return true;
+  case AP_M68882_TYPE_INFINITY:
+    *out = (ap_m68882_op_t){nx_nan(), 1u << AP_M68882_EXC_OPERR};
+    return true;
+  case AP_M68882_TYPE_ZERO:
+    return false;
+  case AP_M68882_TYPE_NORMALIZED:
+  case AP_M68882_TYPE_DENORMALIZED:
+    break;
+  }
+  if (x->exponent > AP_M68882_BIAS_EXTENDED ||
+      (x->exponent == AP_M68882_BIAS_EXTENDED &&
+       x->mantissa > 0x8000000000000000ULL)) {
+    *out = (ap_m68882_op_t){nx_nan(), 1u << AP_M68882_EXC_OPERR};
+    return true;
+  }
+  return false;
+}
+
+static bool is_unit_magnitude(const ap_m68882_extended_t *x) {
+  return x->exponent == AP_M68882_BIAS_EXTENDED &&
+         x->mantissa == 0x8000000000000000ULL;
+}
+
+ap_m68882_op_t ap_m68882_asin(const ap_m68882_extended_t *x,
+                              ap_m68882_rounding_t mode,
+                              ap_m68882_precision_t precision) {
+  ap_m68882_op_t out;
+  if (inverse_domain(x, &out)) {
+    return out;
+  }
+  if (ap_m68882_classify(x) == AP_M68882_TYPE_ZERO) {
+    return (ap_m68882_op_t){*x, 0u}; /* asin(+/-0) is +/-0 */
+  }
+  if (is_unit_magnitude(x)) {
+    /* `asin(+/-1)` is `+/-pi/2`. Taken directly rather than through the
+     * identity below, whose denominator would be zero here -- and it is *not* a
+     * divide by zero in the FPSR sense: the exception byte says `DZ` is
+     * cleared, because the value is finite. */
+    ap_m68882_extended_t value = c_pio2;
+    value.sign = x->sign;
+    return trig_finish(value, mode, precision);
+  }
+  /* `asin(x) = atan(x / sqrt(1 - x^2))`, with `1 - x^2` formed as
+   * `(1-x)(1+x)`. Squaring first and subtracting would cancel away most of the
+   * significand for `x` near one, which is exactly where the answer is
+   * changing fastest. */
+  const ap_m68882_extended_t magnitude = {false, x->exponent, x->mantissa};
+  const ap_m68882_extended_t product =
+      nx_mul(nx_sub(c_one, magnitude), nx_add(c_one, magnitude));
+  ap_m68882_extended_t value = atan_value(nx_div(*x, nx_sqrt(product)));
+  return trig_finish(value, mode, precision);
+}
+
+ap_m68882_op_t ap_m68882_acos(const ap_m68882_extended_t *x,
+                              ap_m68882_rounding_t mode,
+                              ap_m68882_precision_t precision) {
+  ap_m68882_op_t out;
+  if (inverse_domain(x, &out)) {
+    return out;
+  }
+  if (is_unit_magnitude(x)) {
+    /* `acos(1)` is exactly zero -- the one exact result this function has --
+     * and `acos(-1)` is `pi`. */
+    if (x->sign) {
+      return trig_finish(c_pi, mode, precision);
+    }
+    return (ap_m68882_op_t){nx_zero(false), 0u};
+  }
+  /* `acos(x) = 2 atan(sqrt((1-x)/(1+x)))`, and not `pi/2 - asin(x)`.
+   *
+   * The subtraction form cancels catastrophically as `x` approaches one, where
+   * `asin(x)` approaches `pi/2` and the answer approaches zero: the result
+   * would be a difference of two nearly equal numbers and would lose every
+   * significant bit exactly where it is smallest. This form produces the small
+   * answer directly, because `1 - x` is exact there by Sterbenz's rule. */
+  const ap_m68882_extended_t ratio =
+      nx_div(nx_sub(c_one, *x), nx_add(c_one, *x));
+  const ap_m68882_extended_t half = atan_value(nx_sqrt(ratio));
+  return trig_finish(nx_add(half, half), mode, precision);
 }

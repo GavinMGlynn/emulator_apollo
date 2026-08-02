@@ -136,22 +136,22 @@ static void test_the_exponential_family_is_computed_and_the_rest_is_not(void) {
       AP_M68882_OP_FETOX,  AP_M68882_OP_FETOXM1, AP_M68882_OP_FTWOTOX,
       AP_M68882_OP_FTENTOX, AP_M68882_OP_FLOGN,  AP_M68882_OP_FLOGNP1,
       AP_M68882_OP_FLOG10, AP_M68882_OP_FLOG2,  AP_M68882_OP_FSIN,
-      AP_M68882_OP_FCOS,   AP_M68882_OP_FTAN,   AP_M68882_OP_FSINCOS};
+      AP_M68882_OP_FCOS,   AP_M68882_OP_FTAN,   AP_M68882_OP_FSINCOS,
+      AP_M68882_OP_FATAN,  AP_M68882_OP_FASIN,  AP_M68882_OP_FACOS};
   const ap_m68882_operation_t pending[] = {
-      AP_M68882_OP_FASIN,  AP_M68882_OP_FACOS,  AP_M68882_OP_FATAN,
       AP_M68882_OP_FSINH,  AP_M68882_OP_FCOSH,  AP_M68882_OP_FTANH,
       AP_M68882_OP_FATANH};
 
   /* Every one of the nineteen is still classified as transcendental: computing
    * one does not make it stop being an approximation under a published bound. */
-  for (unsigned i = 0; i < 12u; i++)
+  for (unsigned i = 0; i < 15u; i++)
     TEST_ASSERT_TRUE(ap_m68882_is_transcendental(computed[i]));
-  for (unsigned i = 0; i < 7u; i++)
+  for (unsigned i = 0; i < 4u; i++)
     TEST_ASSERT_TRUE(ap_m68882_is_transcendental(pending[i]));
-  TEST_ASSERT_EQUAL_UINT(19u, 12u + 7u);
+  TEST_ASSERT_EQUAL_UINT(19u, 15u + 4u);
   TEST_ASSERT_EQUAL_UINT(19u, ap_m68882_transcendental_count());
 
-  for (unsigned i = 0; i < 12u; i++) {
+  for (unsigned i = 0; i < 15u; i++) {
     ap_m68882_t fpu;
     ap_m68882_reset(&fpu);
     TEST_ASSERT_EQUAL_INT_MESSAGE(
@@ -159,7 +159,7 @@ static void test_the_exponential_family_is_computed_and_the_rest_is_not(void) {
         ap_m68882_execute(&fpu, 0xF200u, command_for(computed[i])),
         "an implemented transcendental did not execute");
   }
-  for (unsigned i = 0; i < 7u; i++) {
+  for (unsigned i = 0; i < 4u; i++) {
     ap_m68882_t fpu;
     ap_m68882_reset(&fpu);
     TEST_ASSERT_EQUAL_INT_MESSAGE(

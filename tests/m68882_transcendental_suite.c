@@ -458,6 +458,110 @@ static const vector_t tan_vectors[] = {
     {{false, 0x4024, 0xA6F097CD22070000ULL}, {false, 0x3FFF, 0x908046E57D4BC5D6ULL}},
 };
 
+static const vector_t atan_vectors[] = {
+    {{false, 0x3FFF, 0x8000000000000000ULL}, {false, 0x3FFE, 0xC90FDAA22168C235ULL}},
+    {{true, 0x3FFF, 0x8000000000000000ULL}, {true, 0x3FFE, 0xC90FDAA22168C235ULL}},
+    {{false, 0x3FFE, 0x8000000000000000ULL}, {false, 0x3FFD, 0xED63382B0DDA7B45ULL}},
+    {{true, 0x3FFE, 0x8000000000000000ULL}, {true, 0x3FFD, 0xED63382B0DDA7B45ULL}},
+    {{false, 0x4000, 0x8000000000000000ULL}, {false, 0x3FFF, 0x8DB70C975DF22363ULL}},
+    {{true, 0x4000, 0x8000000000000000ULL}, {true, 0x3FFF, 0x8DB70C975DF22363ULL}},
+    {{false, 0x4008, 0xFA00000000000000ULL}, {false, 0x3FFF, 0xC8EF160732C5E60AULL}},
+    {{false, 0x4026, 0xE8D4A51000000000ULL}, {false, 0x3FFF, 0xC90FDAA220DC0569ULL}},
+    {{false, 0x3FD7, 0x8CBCCC096F5088CCULL}, {false, 0x3FD7, 0x8CBCCC096F5088CCULL}},
+    {{false, 0x3FFD, 0xD41205BC01A36E2FULL}, {false, 0x3FFD, 0xC90E5632C55B5B8BULL}},
+    {{false, 0x3FFD, 0xD41F212D77318FC5ULL}, {false, 0x3FFD, 0xC919862CA8AFD2BAULL}},
+    {{true, 0x3FFF, 0xBA5FE3C833758000ULL}, {true, 0x3FFE, 0xF80FDB5E1FB8589FULL}},
+    {{false, 0x3FE0, 0xC72C604672826000ULL}, {false, 0x3FE0, 0xC72C604672825FFDULL}},
+    {{false, 0x401B, 0xB1B20296EDFEC000ULL}, {false, 0x3FFF, 0xC90FDA9C5E2A4C1EULL}},
+    {{true, 0x4012, 0xA001112A820FE000ULL}, {true, 0x3FFF, 0xC90FCDD56A7640F2ULL}},
+    {{false, 0x3FF3, 0x8C77CB431B8D0000ULL}, {false, 0x3FF3, 0x8C77CB0AB818D222ULL}},
+    {{true, 0x3FF3, 0xF4F957A485DFE000ULL}, {true, 0x3FF3, 0xF4F956796BDF41C4ULL}},
+    {{false, 0x3FF4, 0xC0862B71AFECC000ULL}, {false, 0x3FF4, 0xC086292CF5257B3BULL}},
+    {{false, 0x4017, 0xE783182E6946D000ULL}, {false, 0x3FFF, 0xC90FDA5B5C694DDDULL}},
+    {{false, 0x3FF2, 0xCE654844F194A000ULL}, {false, 0x3FF2, 0xCE654818394CA327ULL}},
+    {{true, 0x3FEA, 0xA379A6531C52C000ULL}, {true, 0x3FEA, 0xA379A6531C3C878BULL}},
+    {{true, 0x4019, 0xED5C155D78642000ULL}, {true, 0x3FFF, 0xC90FDA90DFBE2259ULL}},
+    {{false, 0x3FF7, 0xA92C16A055F81000ULL}, {false, 0x3FF7, 0xA92BB4202CAEFFE9ULL}},
+    {{true, 0x4007, 0xA1406BE412013000ULL}, {true, 0x3FFF, 0xC8AA3FCB6DE289EFULL}},
+    {{true, 0x3FF1, 0xCB9F263167EC4000ULL}, {true, 0x3FF1, 0xCB9F2626ABB5094DULL}},
+    {{false, 0x401C, 0xA309BE76D2D00000ULL}, {false, 0x3FFF, 0xC90FDA9EFD7967F7ULL}},
+    {{true, 0x3FE8, 0xF7CF6BCE37D89000ULL}, {true, 0x3FE8, 0xF7CF6BCE37D3B98EULL}},
+    {{true, 0x400A, 0xBE7CF079BFFFC000ULL}, {true, 0x3FFF, 0xC9051A4AEEDCDF08ULL}},
+    {{true, 0x3FE0, 0xFDA363824E3E7000ULL}, {true, 0x3FE0, 0xFDA363824E3E6FFBULL}},
+    {{true, 0x3FE9, 0x839358B8283AB000ULL}, {true, 0x3FE9, 0x839358B82837CA83ULL}},
+    {{true, 0x3FED, 0xDC5F7384376F0000ULL}, {true, 0x3FED, 0xDC5F738429D33374ULL}},
+    {{false, 0x4015, 0xEDD82B5E5473E000ULL}, {false, 0x3FFF, 0xC90FD98E96CAA996ULL}},
+    {{true, 0x3FE6, 0x9F3CB873FF0E4000ULL}, {true, 0x3FE6, 0x9F3CB873FF0E2B77ULL}},
+    {{false, 0x3FE7, 0xEBB9DE22CBF39000ULL}, {false, 0x3FE7, 0xEBB9DE22CBF28582ULL}},
+    {{false, 0x3FE6, 0xA0D3014F2B951000ULL}, {false, 0x3FE6, 0xA0D3014F2B94FAD8ULL}},
+};
+
+static const vector_t asin_vectors[] = {
+    {{false, 0x3FFE, 0x8000000000000000ULL}, {false, 0x3FFE, 0x860A91C16B9B2C23ULL}},
+    {{true, 0x3FFE, 0x8000000000000000ULL}, {true, 0x3FFE, 0x860A91C16B9B2C23ULL}},
+    {{false, 0x3FFE, 0xE666666666666666ULL}, {false, 0x3FFF, 0x8F549B82FD0B8FA3ULL}},
+    {{true, 0x3FFE, 0xE666666666666666ULL}, {true, 0x3FFF, 0x8F549B82FD0B8FA3ULL}},
+    {{false, 0x3FFE, 0xFFFFEF39085F4A12ULL}, {false, 0x3FFF, 0xC8E1835960A04001ULL}},
+    {{false, 0x3FFB, 0xCCCCCCCCCCCCCCCDULL}, {false, 0x3FFB, 0xCD2493B01BC41E02ULL}},
+    {{true, 0x3FFB, 0xCCCCCCCCCCCCCCCDULL}, {true, 0x3FFB, 0xCD2493B01BC41E02ULL}},
+    {{false, 0x3FE1, 0x89705F4136B4A597ULL}, {false, 0x3FE1, 0x89705F4136B4A599ULL}},
+    {{false, 0x3FFD, 0xE72A00F4D1ED1A22ULL}, {false, 0x3FFD, 0xEFD6FE38CB737377ULL}},
+    {{true, 0x3FFE, 0x8E5AEEE8D8F377EDULL}, {true, 0x3FFE, 0x96F3AFC036FD4B7AULL}},
+    {{true, 0x3FFD, 0xBADD31B2040B4D98ULL}, {true, 0x3FFD, 0xBF4868FE5E495839ULL}},
+    {{true, 0x3FFD, 0x902F133167AA24F6ULL}, {true, 0x3FFD, 0x922937E9F1953A06ULL}},
+    {{false, 0x3FFE, 0xF2B1A9B52243EE38ULL}, {false, 0x3FFF, 0x9F9C912AE85EB3D4ULL}},
+    {{true, 0x3FFD, 0xB1A803FE35305916ULL}, {true, 0x3FFD, 0xB56DF1D5EDFA0683ULL}},
+    {{true, 0x3FFD, 0xF1F36E4362AA9302ULL}, {true, 0x3FFD, 0xFC00D10895F89BF6ULL}},
+    {{true, 0x3FFD, 0x89C2C1FBFAADD0CBULL}, {true, 0x3FFD, 0x8B7AC63E04BF009DULL}},
+    {{false, 0x3FFA, 0xE2FB72FEE1740E08ULL}, {false, 0x3FFA, 0xE3193B0913EA4AFCULL}},
+    {{false, 0x3FFC, 0xEFA2D62DB3760961ULL}, {false, 0x3FFC, 0xF1E10C69AA6D315EULL}},
+    {{false, 0x3FFE, 0x843DD9D746DE6DC0ULL}, {false, 0x3FFE, 0x8AF77B9C7FA46B56ULL}},
+    {{false, 0x3FFB, 0xD831F96BFC307088ULL}, {false, 0x3FFB, 0xD899497C61470C09ULL}},
+    {{true, 0x3FFD, 0xBF241CF5ED10DFD2ULL}, {true, 0x3FFD, 0xC3E28B5981329785ULL}},
+    {{false, 0x3FFD, 0xDE3FDD34ADFFE27FULL}, {false, 0x3FFD, 0xE5E5AC8D47C597BAULL}},
+    {{false, 0x3FFC, 0xC8BE369506C3C0E8ULL}, {false, 0x3FFC, 0xCA0D33A9491EB6A4ULL}},
+    {{false, 0x3FFC, 0xA5393A69679D3A9CULL}, {false, 0x3FFC, 0xA5F2F0F0DD284103ULL}},
+    {{true, 0x3FFC, 0xBA1FDE04DAF2471EULL}, {true, 0x3FFC, 0xBB2A350D790AF13EULL}},
+    {{false, 0x3FFC, 0xFBFC3B1943EB8AEBULL}, {false, 0x3FFC, 0xFE99B055B94B4DD1ULL}},
+    {{true, 0x3FFC, 0xEED25315945701B9ULL}, {true, 0x3FFC, 0xF10A9A25441A5A67ULL}},
+    {{false, 0x3FFE, 0xE9BA57D38055921AULL}, {false, 0x3FFF, 0x93461E2EED5585CEULL}},
+    {{false, 0x3FFE, 0xD644CEF097AC1EB0ULL}, {false, 0x3FFE, 0xFDE3A1718E964BB4ULL}},
+    {{false, 0x3FFB, 0xC30478B67A346D0DULL}, {false, 0x3FFB, 0xC3503AB63DC7F404ULL}},
+};
+
+static const vector_t acos_vectors[] = {
+    {{false, 0x3FFE, 0x8000000000000000ULL}, {false, 0x3FFF, 0x860A91C16B9B2C23ULL}},
+    {{true, 0x3FFE, 0x8000000000000000ULL}, {false, 0x4000, 0x860A91C16B9B2C23ULL}},
+    {{false, 0x3FFE, 0xE666666666666666ULL}, {false, 0x3FFD, 0xE6ECFC7C9174CA46ULL}},
+    {{true, 0x3FFE, 0xE666666666666666ULL}, {false, 0x4000, 0xAC323B128F3A28ECULL}},
+    {{false, 0x3FFE, 0xFFFFEF39085F4A12ULL}, {false, 0x3FF5, 0xB95D23032208D05CULL}},
+    {{false, 0x3FFB, 0xCCCCCCCCCCCCCCCDULL}, {false, 0x3FFF, 0xBC3D91671FAC8055ULL}},
+    {{true, 0x3FFB, 0xCCCCCCCCCCCCCCCDULL}, {false, 0x3FFF, 0xD5E223DD23250415ULL}},
+    {{false, 0x3FE1, 0x89705F4136B4A597ULL}, {false, 0x3FFF, 0xC90FDA9FFBA74530ULL}},
+    {{false, 0x3FFD, 0xE72A00F4D1ED1A22ULL}, {false, 0x3FFF, 0x8D1A1B13EE8BE557ULL}},
+    {{true, 0x3FFE, 0x8E5AEEE8D8F377EDULL}, {false, 0x4000, 0x8A44D9411E73B3F9ULL}},
+    {{true, 0x3FFD, 0xBADD31B2040B4D98ULL}, {false, 0x3FFF, 0xF8E1F4E1B8FB1843ULL}},
+    {{true, 0x3FFD, 0x902F133167AA24F6ULL}, {false, 0x3FFF, 0xED9A289C9DCE10B6ULL}},
+    {{false, 0x3FFE, 0xF2B1A9B52243EE38ULL}, {false, 0x3FFD, 0xA5CD25DCE4283984ULL}},
+    {{true, 0x3FFD, 0xB1A803FE35305916ULL}, {false, 0x3FFF, 0xF66B57179CE743D6ULL}},
+    {{true, 0x3FFD, 0xF1F36E4362AA9302ULL}, {false, 0x4000, 0x8408077223737499ULL}},
+    {{true, 0x3FFD, 0x89C2C1FBFAADD0CBULL}, {false, 0x3FFF, 0xEBEE8C31A298825CULL}},
+    {{false, 0x3FFA, 0xE2FB72FEE1740E08ULL}, {false, 0x3FFF, 0xC1F710C9D8C96FDDULL}},
+    {{false, 0x3FFC, 0xEFA2D62DB3760961ULL}, {false, 0x3FFF, 0xAAD3B914EC1B1C09ULL}},
+    {{false, 0x3FFE, 0x843DD9D746DE6DC0ULL}, {false, 0x3FFF, 0x83941CD3E1968C8AULL}},
+    {{false, 0x3FFB, 0xD831F96BFC307088ULL}, {false, 0x3FFF, 0xBB86460A5B545174ULL}},
+    {{true, 0x3FFD, 0xBF241CF5ED10DFD2ULL}, {false, 0x3FFF, 0xFA087D7881B56816ULL}},
+    {{false, 0x3FFD, 0xDE3FDD34ADFFE27FULL}, {false, 0x3FFF, 0x8F966F7ECF775C46ULL}},
+    {{false, 0x3FFC, 0xC8BE369506C3C0E8ULL}, {false, 0x3FFF, 0xAFCE342CF844EB60ULL}},
+    {{false, 0x3FFC, 0xA5393A69679D3A9CULL}, {false, 0x3FFF, 0xB4517C8405C3BA14ULL}},
+    {{true, 0x3FFC, 0xBA1FDE04DAF2471EULL}, {false, 0x3FFF, 0xE0752143D08A205DULL}},
+    {{false, 0x3FFC, 0xFBFC3B1943EB8AEBULL}, {false, 0x3FFF, 0xA93CA4976A3F587BULL}},
+    {{true, 0x3FFC, 0xEED25315945701B9ULL}, {false, 0x3FFF, 0xE7312DE6C9EC0D82ULL}},
+    {{false, 0x3FFE, 0xE9BA57D38055921AULL}, {false, 0x3FFD, 0xD726F1CCD04CF19CULL}},
+    {{false, 0x3FFE, 0xD644CEF097AC1EB0ULL}, {false, 0x3FFE, 0x943C13D2B43B38B6ULL}},
+    {{false, 0x3FFB, 0xC30478B67A346D0DULL}, {false, 0x3FFF, 0xBCDAD6F6BD8C42F5ULL}},
+};
+
 /* Distance between two extended values in units of the last place of the
  * expected one. Both are finite and of the same sign in every vector, so the
  * mantissas can be compared directly once the exponents are aligned. */
@@ -1081,6 +1185,153 @@ static void test_sincos_returns_the_pair_the_two_instructions_would(void) {
   TEST_ASSERT_EQUAL_UINT64(0x8000000000000000ULL, cosine.value.mantissa);
 }
 
+static void test_the_inverse_trigonometric_functions_are_inside_the_bound(void) {
+  TEST_ASSERT_LESS_OR_EQUAL_UINT64_MESSAGE(
+      AP_M68882_TRANSCENDENTAL_TYPICAL_ULP_EXTENDED,
+      sweep(ap_m68882_atan, atan_vectors, COUNT(atan_vectors)),
+      "FATAN left the typical error bound");
+  TEST_ASSERT_LESS_OR_EQUAL_UINT64_MESSAGE(
+      AP_M68882_TRANSCENDENTAL_TYPICAL_ULP_EXTENDED,
+      sweep(ap_m68882_asin, asin_vectors, COUNT(asin_vectors)),
+      "FASIN left the typical error bound");
+  TEST_ASSERT_LESS_OR_EQUAL_UINT64_MESSAGE(
+      AP_M68882_TRANSCENDENTAL_TYPICAL_ULP_EXTENDED,
+      sweep(ap_m68882_acos, acos_vectors, COUNT(acos_vectors)),
+      "FACOS left the typical error bound");
+}
+
+static void test_an_infinite_tangent_is_a_limit_and_not_an_error(void) {
+  /* The one place `FATAN` parts company with every other function in this
+   * family. An infinite *angle* is meaningless, so `FSIN` reports an operand
+   * error for it; an infinite *tangent* is an ordinary limit, so the `FATAN`
+   * operation table prints `+pi/2` and `-pi/2` rather than a NAN, and its
+   * exception byte reads `OPERR: Cleared` -- the function has no domain error
+   * at all.
+   *
+   * `FASIN` and `FACOS` are the opposite extreme: their exception bytes read
+   * "set if the source is infinity, > +1 or < -1", so an infinity *is* an
+   * error there. Three functions on the same page with three different answers
+   * to the same argument. */
+  const ap_m68882_extended_t plus = {false, 0x7FFFu, 0u};
+  const ap_m68882_extended_t minus = {true, 0x7FFFu, 0u};
+  for (unsigned s = 0; s < 2u; s++) {
+    const ap_m68882_op_t got =
+        ap_m68882_atan(s ? &minus : &plus, AP_M68882_ROUND_NEAREST,
+                       AP_M68882_PRECISION_EXTENDED);
+    TEST_ASSERT_EQUAL_INT_MESSAGE(AP_M68882_TYPE_NORMALIZED,
+                                  ap_m68882_classify(&got.value),
+                                  "atan of an infinity should be pi/2");
+    TEST_ASSERT_EQUAL_UINT(AP_M68882_BIAS_EXTENDED, got.value.exponent);
+    TEST_ASSERT_EQUAL_UINT64(0xC90FDAA22168C235ULL, got.value.mantissa);
+    TEST_ASSERT_EQUAL(s != 0u, got.value.sign);
+    TEST_ASSERT_EQUAL_UINT_MESSAGE(
+        0u, got.exceptions & (1u << AP_M68882_EXC_OPERR),
+        "FATAN has no operand error");
+
+    const ap_m68882_op_t sine =
+        ap_m68882_asin(s ? &minus : &plus, AP_M68882_ROUND_NEAREST,
+                       AP_M68882_PRECISION_EXTENDED);
+    TEST_ASSERT_EQUAL_INT(AP_M68882_TYPE_NAN, ap_m68882_classify(&sine.value));
+    TEST_ASSERT_NOT_EQUAL_UINT(0u,
+                               sine.exceptions & (1u << AP_M68882_EXC_OPERR));
+  }
+}
+
+static void test_outside_the_unit_interval_is_an_operand_error(void) {
+  /* "Set if the source is infinity, > +1 or < -1" for both. The endpoints
+   * themselves are legal and are *not* divide-by-zero cases: `asin(+/-1)` is
+   * `+/-pi/2` and `acos(-1)` is `pi`, all finite, and both exception bytes
+   * leave `DZ` clear. Only `FATANH` -- whose poles really are at the
+   * endpoints -- raises `DZ` there. */
+  const ap_m68882_extended_t just_over = {false, AP_M68882_BIAS_EXTENDED,
+                                          0x8000000000000001ULL};
+  const ap_m68882_extended_t one = {false, AP_M68882_BIAS_EXTENDED,
+                                    0x8000000000000000ULL};
+  ap_m68882_extended_t minus_one = one;
+  minus_one.sign = true;
+
+  for (unsigned s = 0; s < 2u; s++) {
+    ap_m68882_extended_t over = just_over;
+    over.sign = s != 0u;
+    const ap_m68882_op_t bad_sine =
+        ap_m68882_asin(&over, AP_M68882_ROUND_NEAREST,
+                       AP_M68882_PRECISION_EXTENDED);
+    TEST_ASSERT_EQUAL_INT(AP_M68882_TYPE_NAN,
+                          ap_m68882_classify(&bad_sine.value));
+    TEST_ASSERT_NOT_EQUAL_UINT(
+        0u, bad_sine.exceptions & (1u << AP_M68882_EXC_OPERR));
+    const ap_m68882_op_t bad_cosine =
+        ap_m68882_acos(&over, AP_M68882_ROUND_NEAREST,
+                       AP_M68882_PRECISION_EXTENDED);
+    TEST_ASSERT_EQUAL_INT(AP_M68882_TYPE_NAN,
+                          ap_m68882_classify(&bad_cosine.value));
+    TEST_ASSERT_NOT_EQUAL_UINT(
+        0u, bad_cosine.exceptions & (1u << AP_M68882_EXC_OPERR));
+  }
+
+  /* The endpoints, which are legal and exact where they can be. */
+  const ap_m68882_op_t at_one =
+      ap_m68882_asin(&one, AP_M68882_ROUND_NEAREST,
+                     AP_M68882_PRECISION_EXTENDED);
+  TEST_ASSERT_EQUAL_UINT(AP_M68882_BIAS_EXTENDED, at_one.value.exponent);
+  TEST_ASSERT_EQUAL_UINT64(0xC90FDAA22168C235ULL, at_one.value.mantissa);
+  TEST_ASSERT_EQUAL_UINT(0u, at_one.exceptions & (1u << AP_M68882_EXC_DZ));
+  TEST_ASSERT_EQUAL_UINT(0u, at_one.exceptions & (1u << AP_M68882_EXC_OPERR));
+
+  /* `acos(1)` is exactly zero -- this family's only exact result. */
+  const ap_m68882_op_t cos_one =
+      ap_m68882_acos(&one, AP_M68882_ROUND_NEAREST,
+                     AP_M68882_PRECISION_EXTENDED);
+  TEST_ASSERT_EQUAL_INT(AP_M68882_TYPE_ZERO,
+                        ap_m68882_classify(&cos_one.value));
+  TEST_ASSERT_EQUAL_UINT(0u, cos_one.exceptions);
+
+  const ap_m68882_op_t cos_minus_one =
+      ap_m68882_acos(&minus_one, AP_M68882_ROUND_NEAREST,
+                     AP_M68882_PRECISION_EXTENDED);
+  TEST_ASSERT_EQUAL_UINT(AP_M68882_BIAS_EXTENDED + 1,
+                         cos_minus_one.value.exponent);
+  TEST_ASSERT_EQUAL_UINT64(0xC90FDAA22168C235ULL,
+                           cos_minus_one.value.mantissa);
+}
+
+static void test_acos_keeps_its_bits_where_the_subtraction_would_not(void) {
+  /* Why `acos` is `2 atan(sqrt((1-x)/(1+x)))` and not `pi/2 - asin(x)`.
+   *
+   * As `x` approaches one the answer approaches zero, and the subtraction form
+   * would compute it as a difference of two numbers both near `pi/2` -- losing
+   * a bit of the result for every bit `x` is close to one. At
+   * `x = 1 - 2^-40` the true answer is about `2^-19.5`, so a subtraction in
+   * extended precision would leave roughly half the significand meaningless.
+   *
+   * The check is that the result is *accurate*, not merely non-zero: it is
+   * compared against `sqrt(2*(1-x))`, the leading term of the expansion, which
+   * agrees with `acos` to a relative `(1-x)/12` -- far tighter than anything a
+   * cancelling implementation could reach. */
+  /* `1 - 2^-41`: just below one, so the exponent is one less and the mantissa
+   * is `2^64 - 2^23`. Writing this at the wrong exponent gives a value near
+   * *two*, which is outside the domain and returns a NAN -- which is what the
+   * first draft of this test did. */
+  const ap_m68882_extended_t near_one = {false, AP_M68882_BIAS_EXTENDED - 1,
+                                         0xFFFFFFFFFF800000ULL};
+  const ap_m68882_op_t got =
+      ap_m68882_acos(&near_one, AP_M68882_ROUND_NEAREST,
+                     AP_M68882_PRECISION_EXTENDED);
+  const ap_m68882_extended_t one = {false, AP_M68882_BIAS_EXTENDED,
+                                    0x8000000000000000ULL};
+  /* `near_one` is `1 - 2^-41`, so `2(1-x)` is `2^-40`, whose square root is
+   * exactly `2^-20`. The answer must be within a few parts in a million of
+   * that -- the next term of the expansion. */
+  TEST_ASSERT_EQUAL_UINT_MESSAGE(AP_M68882_BIAS_EXTENDED - 20,
+                                 got.value.exponent,
+                                 "acos near one lost its exponent");
+  TEST_ASSERT_TRUE_MESSAGE(got.value.mantissa >= 0x8000000000000000ULL,
+                           "acos near one is not normalised");
+  TEST_ASSERT_TRUE_MESSAGE(got.value.mantissa < 0x8000100000000000ULL,
+                           "acos near one drifted from sqrt(2(1-x))");
+  (void)one;
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_the_exponential_is_inside_the_typical_error_bound);
@@ -1103,6 +1354,10 @@ int main(void) {
   RUN_TEST(test_a_large_argument_is_still_reduced_correctly);
   RUN_TEST(test_the_trigonometric_special_cases_match_the_tables);
   RUN_TEST(test_sincos_returns_the_pair_the_two_instructions_would);
+  RUN_TEST(test_the_inverse_trigonometric_functions_are_inside_the_bound);
+  RUN_TEST(test_an_infinite_tangent_is_a_limit_and_not_an_error);
+  RUN_TEST(test_outside_the_unit_interval_is_an_operand_error);
+  RUN_TEST(test_acos_keeps_its_bits_where_the_subtraction_would_not);
   RUN_TEST(test_the_result_precision_is_the_callers_and_the_steps_are_not);
   return UNITY_END();
 }

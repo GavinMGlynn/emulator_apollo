@@ -1979,7 +1979,17 @@ a 68882, and the 68882 is the only one of these it has.
               wins when both name the same one. *Verification:
               `m68882_transcendental_suite`, 21 tests. Detail in
               `PROJECT_STATUS.md`.*
-        - [ ] The inverse trigonometric: `FATAN`, `FASIN`, `FACOS`.
+        - [x] The inverse trigonometric: `FATAN`, `FASIN`, `FACOS`, worst
+              case **under 3 units in the last place**. `FATAN` reduces twice
+              onto the slowest-converging series in the file, turning thousands
+              of terms into sixteen. `FACOS` is `2 atan(sqrt((1-x)/(1+x)))` and
+              *not* `pi/2 - asin(x)`, which would cancel away the whole answer
+              as `x` approaches one. Three functions on one page with three
+              different answers to an infinite argument: `FATAN` returns
+              `+/-pi/2` and has no operand error at all, while `FASIN` and
+              `FACOS` treat it as one. *Verification:
+              `m68882_transcendental_suite`, 25 tests. Detail in
+              `PROJECT_STATUS.md`.*
         - [ ] The hyperbolic: `FSINH`, `FCOSH`, `FTANH`, `FATANH`.
 - [x] 68020 subset: no on-chip MMU or cache differences, external 68851.
       *Verification: `dn3000` boots under both; oracle diff.*

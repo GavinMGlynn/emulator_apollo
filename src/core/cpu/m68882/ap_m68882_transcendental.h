@@ -176,4 +176,34 @@ void ap_m68882_sincos(const ap_m68882_extended_t *x, ap_m68882_rounding_t mode,
                       ap_m68882_precision_t precision, ap_m68882_op_t *sine,
                       ap_m68882_op_t *cosine);
 
+/* The inverse trigonometric functions.
+ *
+ * `FATAN` reduces twice onto a series that converges more slowly than anything
+ * else here -- `pi/2 - atan(1/x)` for arguments above one, then
+ * `pi/4 + atan((t-1)/(t+1))`, then a half-angle identity -- which is what turns
+ * thousands of terms into sixteen.
+ *
+ * `FASIN` and `FACOS` are built on it, but not in the obvious way.
+ * `acos(x)` is `2 atan(sqrt((1-x)/(1+x)))` and **not** `pi/2 - asin(x)`: the
+ * subtraction cancels catastrophically as `x` approaches one, where the answer
+ * approaches zero and would be a difference of two nearly equal numbers.
+ *
+ * `FATAN` differs from the forward functions on infinities. An infinite angle
+ * is meaningless and `FSIN` reports an operand error for it; an infinite
+ * *tangent* is an ordinary limit, so `atan(+/-inf)` is `+/-pi/2`. `FASIN` and
+ * `FACOS` are stricter still -- their exception bytes read "set if the source
+ * is infinity, > +1 or < -1" -- and neither has a divide by zero, because their
+ * endpoints are finite results rather than poles. */
+[[nodiscard]] ap_m68882_op_t ap_m68882_atan(const ap_m68882_extended_t *x,
+                                            ap_m68882_rounding_t mode,
+                                            ap_m68882_precision_t precision);
+
+[[nodiscard]] ap_m68882_op_t ap_m68882_asin(const ap_m68882_extended_t *x,
+                                            ap_m68882_rounding_t mode,
+                                            ap_m68882_precision_t precision);
+
+[[nodiscard]] ap_m68882_op_t ap_m68882_acos(const ap_m68882_extended_t *x,
+                                            ap_m68882_rounding_t mode,
+                                            ap_m68882_precision_t precision);
+
 #endif /* APOLLO_CPU_M68882_AP_M68882_TRANSCENDENTAL_H */
