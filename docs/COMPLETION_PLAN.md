@@ -1950,7 +1950,11 @@ a 68882, and the 68882 is the only one of these it has.
         nineteen, at a worst case under 3.1 units in the last place against
         expectations generated to 120 decimal digits -- twenty times inside the
         typical bound and three orders of magnitude inside the worst case.
-        Nothing calls `libm`, so results are identical on every platform. The
+        Nothing calls `libm`, so results are identical on every platform.
+        *Final state: `m68882_transcendental_suite` 32 tests,
+        `m68882_accuracy_suite` 7, `m68882_arith_suite` 32. The per-family
+        counts below are snapshots at each landing, kept as a record of how the
+        work grew.* The
         earlier decision to report them unimplemented was wrong, and re-reading
         page 4-7 from the image is what showed it: §4.3.2 specifies a *bound*,
         not a result, so an implementation inside it conforms to everything the

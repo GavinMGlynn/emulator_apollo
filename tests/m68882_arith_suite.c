@@ -717,6 +717,70 @@ static void test_a_value_extended_can_hold_still_overflows_a_single(void) {
       "2^200 fits a double-precision destination");
 }
 
+static void test_an_underflow_is_not_always_a_zero(void) {
+  /* §6.1.5's trap-disabled table, the exact mirror of §6.1.4's:
+   *
+   *     RN   Zero, with the sign of the intermediate result
+   *     RZ   Zero, with the sign of the intermediate result
+   *     RM   For positive underflow, +zero
+   *          For negative underflow, smallest denormalized negative number
+   *     RP   For positive underflow, smallest denormalized positive number
+   *          For negative underflow, -zero
+   *
+   * A zero when the mode pulls *toward* zero in that direction, the smallest
+   * denormal when it pushes away.
+   *
+   * Unlike overflow this needed no special case in the implementation, and the
+   * asymmetry is the interesting part: rounding a tiny value toward plus
+   * infinity naturally produces the smallest representable denormal, because
+   * the denormal *is* representable. An overflowed value is not, so there the
+   * exponent field saturates and the documented result has to be substituted.
+   * The two halves of the same rule are reached by different routes, and only
+   * one of them could go wrong silently.
+   *
+   * Pinned because it had never been tested: this suite had only ever run at
+   * round-to-nearest. */
+  const ap_m68882_extended_t smallest = {false, 0u, 1u}; /* denormal, 1 ULP */
+  const ap_m68882_extended_t four = {false, 0x4001, 0x8000000000000000ULL};
+
+  const struct {
+    ap_m68882_rounding_t mode;
+    bool positive_keeps_a_bit;
+    bool negative_keeps_a_bit;
+  } table[] = {{AP_M68882_ROUND_NEAREST, false, false},
+               {AP_M68882_ROUND_ZERO, false, false},
+               {AP_M68882_ROUND_MINUS_INFINITY, false, true},
+               {AP_M68882_ROUND_PLUS_INFINITY, true, false}};
+
+  for (unsigned i = 0; i < 4u; i++) {
+    for (unsigned negative = 0; negative < 2u; negative++) {
+      ap_m68882_extended_t a = smallest;
+      a.sign = negative != 0u;
+      const ap_m68882_op_t got = ap_m68882_div(&a, &four, table[i].mode,
+                                               AP_M68882_PRECISION_EXTENDED);
+      const bool keeps = negative ? table[i].negative_keeps_a_bit
+                                  : table[i].positive_keeps_a_bit;
+      TEST_ASSERT_NOT_EQUAL_UINT_MESSAGE(
+          0u, got.exceptions & (1u << AP_M68882_EXC_UNFL),
+          "an underflow must be reported whatever the mode");
+      TEST_ASSERT_EQUAL_UINT_MESSAGE(0u, got.value.exponent,
+                                     "an underflowed result is denormal range");
+      if (keeps) {
+        TEST_ASSERT_EQUAL_UINT64_MESSAGE(
+            1u, got.value.mantissa,
+            "this mode pushes away from zero and keeps the smallest denormal");
+      } else {
+        TEST_ASSERT_EQUAL_UINT64_MESSAGE(0u, got.value.mantissa,
+                                         "this mode pulls in to zero");
+      }
+      /* The sign survives even when the magnitude does not: a negative
+       * underflow gives a *negative* zero, which is not the same value. */
+      TEST_ASSERT_EQUAL_MESSAGE(negative != 0u, got.value.sign,
+                                "an underflowed result keeps its sign");
+    }
+  }
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_a_square_root_is_exact_for_perfect_squares);
@@ -749,6 +813,7 @@ int main(void) {
   RUN_TEST(test_a_divide_normalises_when_the_dividend_is_the_smaller);
   RUN_TEST(test_every_quotient_comes_back_normalised);
   RUN_TEST(test_an_overflow_is_not_always_an_infinity);
+  RUN_TEST(test_an_underflow_is_not_always_a_zero);
   RUN_TEST(test_a_value_extended_can_hold_still_overflows_a_single);
   return UNITY_END();
 }

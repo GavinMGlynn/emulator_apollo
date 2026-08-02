@@ -1445,6 +1445,16 @@ precision. The threshold is now precision-dependent, and the substituted finite
 value is the largest of *that* precision -- 24 significand bits at exponent 127,
 not 64 bits at 16383.
 
+§6.1.5's underflow table is the exact mirror -- a zero when the mode pulls
+toward zero in that direction, the smallest denormal when it pushes away -- and
+that half was already correct, which is the interesting part. Rounding a tiny
+value toward plus infinity naturally produces the smallest denormal *because the
+denormal is representable*; an overflowed value is not, so there the exponent
+saturates and the documented result has to be substituted. The two halves of one
+rule are reached by different routes, and only the overflow half could go wrong
+silently. Both are now pinned; neither had been tested, because this suite had
+only ever run at round-to-nearest.
+
 **One approximation is recorded rather than closed.** At *extended* precision
 all four rounding modes return the same value here, because the model computes a
 64-bit approximation directly and has no bits below the destination left to
