@@ -842,8 +842,28 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
     a cycle. That is the arbitration point's item and not the 68030's, and
     leaving it here made Phase 2 look incomplete for work that is not Phase 2's.
 
-- [x] Exceptions, traps, interrupt priority, bus/address error stack frames.
+- [~] Exceptions, traps, interrupt priority, bus/address error stack frames.
       *Verification: probes that deliberately fault, diffed against oracle.*
+  - [ ] **That verification line is not met, found by the same audit that
+        caught the 68882's.** The behaviour is implemented and heavily tested
+        from the inside — vectors, priority, every frame format this model can
+        build, `exception_suite` and ten tests in `step_suite`. What does not
+        exist is the *outside* half the line asks for: no probe deliberately
+        takes a bus or address error, and **no built-in probe has ever been run
+        against the oracle at all** — `probe_compare.py` runs the sentinel and
+        floating-point programs only, so the suite in `ap_probe.c` and the
+        cross-implementation harness have never been joined.
+        The `trap` probe is not this: `TRAP #n` is an instruction asking for an
+        exception, not a *fault*, and the frames that carry real information —
+        the short and long bus fault formats, with their SSW, fault address and
+        data output buffer — are exactly the ones no probe reaches.
+        The machinery is all present now, which is why this is worth naming
+        rather than deferring: the FPU campaign built the side-loading path and
+        proved it works, so this is a probe program and a comparison, not new
+        infrastructure.
+        *Verification: a probe that reads an unmapped address, run on both
+        sides, with the stacked frame compared field by field — and each
+        difference classified as the FPU campaign's were.*
   - [x] **Vectors, priority and frame formats**
         (`src/core/cpu/m68030/ap_m68030_exception.c`), `[030]` §8 and Tables
         8-1, 8-5, 8-6. The part that is pure fact, and that everything else will
