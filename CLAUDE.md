@@ -19,6 +19,22 @@ reference core to chase speed** — that is the classic mistake.
   or from the oracle. *Never* by trial-and-error parameter search on our own
   code. Characterise the shape of a discrepancy — proportional? fixed?
   per-type? — before fixing it.
+- **The resolution order is mandatory: reference → web → oracle.** Exhaust the
+  documents before measuring anything.
+  1. The part's own manual, and **read the page image**, not a text extraction:
+     OCR mangles precisely what timing and register tables are made of, and
+     `4(1/1/0)` arriving as `4(1/010)` reads as plausible data.
+  2. **The sibling manuals already in `docs/references/`** — the 68020's,
+     the 68851's, the 68040's. The same table, typeset differently, often
+     carries the note that resolves an ambiguity in ours. This is the step most
+     often skipped and the files are already on disk.
+  3. The web: other transcriptions of the same tables, errata, archives.
+  4. **Only then the oracle.** Instrumenting an emulator to recover a number
+     that is printed in a book is the most expensive route and the least
+     conclusive — it says what MAME does, and this project expects to
+     out-accurate it.
+  The oracle's job is what the documents cannot answer. When they genuinely run
+  out, say so: name what was read and what it failed to settle, *then* measure.
 - **Complete modules, don't chase the boot.** Finish one subsystem with its
   tests before moving on. Boots are integration checks and thermometers, never
   milestones.

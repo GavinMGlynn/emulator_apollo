@@ -764,11 +764,63 @@ Guessing it would put a two-clock error on every full-format effective address,
 in a direction no test here could see — which is precisely the shape of mistake
 this document exists to record rather than repeat.
 
-It is settleable by measurement, and the harness for it exists: `steptime.lua`
-side-loads an instruction and reports the interval between steps, so a
-`(d16,An)` against a `(d16,An,Xn)` against a `(d16,An,Xn)` with the index in the
-base is three readings that decide it. That is the next campaign for this item,
-and it is `FINDINGS.md`'s kind of question rather than a reading one.
+### What the sibling manual and the web add
 
-Until then the memory indirect rows — where the groups agree, so there is
-nothing to resolve — are the transcribable half.
+Both were checked before any thought of measuring, which is the order
+`CLAUDE.md` now requires.
+
+**The web** (an Amiga-era transcription of the same table, and ManualsLib's scan
+of the manual itself) reproduces the figures exactly as read off the page here —
+so the transcription is confirmed by a source independent of our reading — and
+carries neither the footnotes nor any explanation of the notation.
+
+**The `MC68020 User's Manual` §9.2.1 is the more useful check**, and it is the
+step that should have come first. It has the same table with the *same* `B` and
+`I` footnotes and the same note that "Xn cannot be in B and I at the same
+time" — and, decisively, **no `([d16,An])` family at all**. Its memory indirect
+rows are written only in the general `([B],I)` form:
+
+| Row | 68020 cache case | 68030 cache case |
+| --- | --- | --- |
+| `(d16,An)` | 5 | 6 |
+| `(d8,An,Xn)` | 7 | 6 |
+| `(d16,An,Xn)` | 7 | 6 |
+| `(B)` | 7 | 6 |
+| `(d16,B)` | 9 | 8 |
+| `(d32,B)` | 13 | 12 |
+| `([B],I)` | 12 | 10 |
+
+So the `d16,An` rows are a **68030 addition**: a fast path for the full-format
+encodings whose base is a plain `An` or `PC`, which the 68020 did not have and
+which is why its table needs only one group. That is a real finding about the
+part, and it explains why the 68030's table has two groups at all.
+
+What it does *not* do is say which encoding selects which group, because the
+68020 never had to make the distinction. On the 68020 the two readings collapse:
+`(d16,An,Xn)` and `(B)` cost the same 7 clocks, so it does not matter whether an
+index in the base and an index outside it are the same row. On the 68030 they
+are 6 against 6 for one pair and 6 against 8 for the other, and the difference
+is live.
+
+### Where that leaves it: measurement, and exactly which one
+
+The documents are exhausted — the part's own manual is ambiguous, the sibling
+manual predates the distinction, and the web only reproduces the figures. That
+is the point at which measuring is the right move rather than the lazy one, and
+`FINDINGS.md` is where it belongs.
+
+The experiment is three readings through `steptime.lua`, which already
+side-loads an instruction and reports the interval between steps:
+
+1. `(d16,An)` encoded in the **full format** — mode 110, full-format extension
+   word, word base displacement, index suppressed. The two candidate rows give
+   6 and 8.
+2. The same with the index **not** suppressed, which is `(d16,An,Xn)` or
+   `(d16,B)` depending on the reading: 6 against 8 again.
+3. A **null** base displacement, `(B)`, as a control — both readings give 6, so
+   a disagreement there would mean the whole transcription is wrong rather than
+   the mapping.
+
+Until then the memory indirect rows — where the two groups agree, so there is
+nothing to resolve — are the transcribable half, and they are the half the
+composition needs first.
