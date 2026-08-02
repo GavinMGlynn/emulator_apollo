@@ -1814,6 +1814,90 @@ static void test_an_overflowing_transcendental_follows_6_1_4(void) {
   TEST_ASSERT_TRUE(held.value.sign);
 }
 
+/* ---------------------------------------------------------------------------
+ * Bit-exact determinism across build types and platforms.
+ * ------------------------------------------------------------------------- */
+
+/* FNV-1a over the raw result, so a single constant covers every function.
+ *
+ * The accuracy sweeps above assert a *bound*, which is what §4.3.2 specifies --
+ * but a bound is exactly what a build-type difference can hide inside. A result
+ * that moved by one unit in the last place between `-O0` and `-O3` would pass
+ * every one of them, and would mean the core's output depended on which
+ * compiler flags built it.
+ *
+ * CI asserts that emulated results are identical at `-O0` and `-O3` and on four
+ * platforms, and it does so by comparing each build against a committed golden.
+ * The probe golden covers the integer core and has no floating-point entry at
+ * all, so until this test the nineteen transcendentals sat outside that
+ * guarantee. This is their golden: one number over the whole family, checked in
+ * every build and on every platform the suite runs on.
+ *
+ * Everything it feeds in is derived arithmetically rather than drawn from a
+ * generator, so the argument set is part of the source and not a seed. */
+static uint64_t digest_step(uint64_t hash, uint64_t value) {
+  for (unsigned byte = 0; byte < 8u; byte++) {
+    hash ^= (value >> (byte * 8u)) & 0xFFu;
+    hash *= 0x100000001B3ULL;
+  }
+  return hash;
+}
+
+static uint64_t digest_result(uint64_t hash, ap_m68882_op_t r) {
+  hash = digest_step(hash, r.value.sign ? 1u : 0u);
+  hash = digest_step(hash, r.value.exponent);
+  hash = digest_step(hash, r.value.mantissa);
+  return digest_step(hash, r.exceptions);
+}
+
+static void test_the_family_is_bit_identical_in_every_build(void) {
+  uint64_t hash = 0xCBF29CE484222325ULL;
+
+  /* A deterministic spread: exponents across the whole range and a mantissa
+   * that walks its own bits, so no function is exercised only near one. */
+  for (int e = -60; e <= 60; e += 7) {
+    uint64_t mantissa = 0x8000000000000000ULL;
+    for (unsigned step = 0; step < 5u; step++) {
+      mantissa ^= (uint64_t)0x9E3779B97F4A7C15ULL >> step;
+      mantissa |= 0x8000000000000000ULL;
+      for (unsigned negative = 0; negative < 2u; negative++) {
+        const ap_m68882_extended_t x = {
+            negative != 0u, (uint16_t)(AP_M68882_BIAS_EXTENDED + e), mantissa};
+        for (unsigned i = 0; i < EVERY_COUNT; i++) {
+          for (unsigned mode = 0; mode < 4u; mode++) {
+            for (unsigned precision = 0; precision < 3u; precision++) {
+              static const ap_m68882_precision_t widths[3] = {
+                  AP_M68882_PRECISION_EXTENDED, AP_M68882_PRECISION_SINGLE,
+                  AP_M68882_PRECISION_DOUBLE};
+              hash = digest_result(
+                  hash, every_transcendental[i](
+                            &x, (ap_m68882_rounding_t)mode, widths[precision]));
+            }
+          }
+        }
+      }
+    }
+  }
+
+  /* `FSINCOS` writes two results and so cannot go through the table above; its
+   * cosine would otherwise never be hashed. */
+  for (int e = -8; e <= 8; e += 4) {
+    const ap_m68882_extended_t x = {false,
+                                    (uint16_t)(AP_M68882_BIAS_EXTENDED + e),
+                                    0xC90FDAA22168C235ULL};
+    ap_m68882_op_t sine, cosine;
+    ap_m68882_sincos(&x, AP_M68882_ROUND_NEAREST, AP_M68882_PRECISION_EXTENDED,
+                     &sine, &cosine);
+    hash = digest_result(hash, sine);
+    hash = digest_result(hash, cosine);
+  }
+
+  TEST_ASSERT_EQUAL_HEX64_MESSAGE(
+      0x794C36B690FFECAFULL, hash,
+      "the transcendental family changed, or this build is not bit-identical "
+      "to the one this golden was taken from");
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_the_exponential_is_inside_the_typical_error_bound);
@@ -1847,6 +1931,7 @@ int main(void) {
   RUN_TEST(test_every_transcendental_honours_every_rounding_mode);
   RUN_TEST(test_the_mode_is_a_no_op_where_there_is_nothing_left_to_round);
   RUN_TEST(test_an_overflowing_transcendental_follows_6_1_4);
+  RUN_TEST(test_the_family_is_bit_identical_in_every_build);
   RUN_TEST(test_the_result_precision_is_the_callers_and_the_steps_are_not);
   return UNITY_END();
 }

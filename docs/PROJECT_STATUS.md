@@ -1455,6 +1455,28 @@ rule are reached by different routes, and only the overflow half could go wrong
 silently. Both are now pinned; neither had been tested, because this suite had
 only ever run at round-to-nearest.
 
+**The family has a golden of its own, because the accuracy tests could not
+serve as one.** CI asserts that emulated results are identical at `-O0` and
+`-O3` and across four platforms, and it does so by comparing each build against
+a committed golden -- but the probe golden covers the integer core and contains
+no floating-point entry at all, so the nineteen transcendentals sat outside that
+guarantee entirely. The accuracy sweeps could not fill the gap: they assert
+§4.3.2's *bound*, and a result that moved by one unit in the last place between
+build types would satisfy every one of them while meaning the core's output
+depended on which flags built it.
+
+So there is one number over the whole family -- an FNV-1a digest of 38,880
+results: every function, over 180 arguments spanning exponents from `2^-60` to
+`2^60`, at all four rounding modes and all three precisions, with the exception
+flags hashed alongside the values so a change in what is *raised* is caught too.
+`FSINCOS` is hashed separately, since it returns two results and would otherwise
+have its cosine excluded. Every argument is derived arithmetically rather than
+drawn from a generator, so the set is part of the source and not a seed.
+
+The two builds were compared before the constant was committed rather than
+after: `-O0` and `-O3` produce `0x794C36B690FFECAF` alike. That is the check
+being asserted, not an assumption being recorded.
+
 **One approximation is recorded rather than closed.** At *extended* precision
 all four rounding modes return the same value here, because the model computes a
 64-bit approximation directly and has no bits below the destination left to
