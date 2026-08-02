@@ -152,6 +152,67 @@ static void test_every_model_declares_a_nonempty_main_memory(void) {
   }
 }
 
+
+/* ---------------------------------------------------------------------------
+ * Derived CPU features, `[68020]` §7.1.1 and Appendix D, `[68030]` §6 and §9.
+ * ------------------------------------------------------------------------- */
+
+/* Both parts hold 256 bytes of instruction cache and organise it differently:
+ * the 68020 is "a direct-mapped cache of 64 long word entries", the 68030 is
+ * sixteen lines of four. Same size, different line -- and the line is what
+ * decides how far one fill reaches. */
+static void test_the_68020_and_68030_caches_are_the_same_size_and_not_the_same(void) {
+  const ap_cpu_features_t m68020 = ap_cpu_features(AP_CPU_M68020);
+  const ap_cpu_features_t m68030 = ap_cpu_features(AP_CPU_M68030);
+
+  TEST_ASSERT_EQUAL_UINT(256u, m68020.instruction_cache_bytes);
+  TEST_ASSERT_EQUAL_UINT(256u, m68030.instruction_cache_bytes);
+  TEST_ASSERT_EQUAL_UINT(1u, m68020.instruction_cache_line_longs);
+  TEST_ASSERT_EQUAL_UINT(4u, m68030.instruction_cache_line_longs);
+}
+
+/* The 68020 caches instructions only. Giving it a data cache would make every
+ * operand access cheaper than the hardware's, and silently. */
+static void test_only_the_68020_lacks_a_data_cache(void) {
+  TEST_ASSERT_EQUAL_UINT(0u, ap_cpu_features(AP_CPU_M68020).data_cache_bytes);
+  TEST_ASSERT_TRUE(ap_cpu_features(AP_CPU_M68030).data_cache_bytes > 0u);
+  TEST_ASSERT_TRUE(ap_cpu_features(AP_CPU_M68040).data_cache_bytes > 0u);
+}
+
+/* Burst filling needs synchronous termination, so a part with no `STERM` cannot
+ * burst. The implication runs one way and must hold for every family. */
+static void test_no_cpu_bursts_without_a_synchronous_bus(void) {
+  const ap_cpu_t families[] = {AP_CPU_M68020, AP_CPU_M68030, AP_CPU_M68040};
+  for (unsigned i = 0; i < sizeof families / sizeof families[0]; i++) {
+    const ap_cpu_features_t features = ap_cpu_features(families[i]);
+    if (features.has_burst_fill) {
+      TEST_ASSERT_TRUE(features.has_synchronous_bus);
+    }
+  }
+}
+
+/* CALLM and RTM are marked "(MC68020)" in the PRM and exist on no other part.
+ * This is what makes the same opcode illegal on a DN3500 and legal on a
+ * DN3000. */
+static void test_only_the_68020_has_the_module_call_instructions(void) {
+  TEST_ASSERT_TRUE(ap_cpu_features(AP_CPU_M68020).has_module_calls);
+  TEST_ASSERT_FALSE(ap_cpu_features(AP_CPU_M68030).has_module_calls);
+  TEST_ASSERT_FALSE(ap_cpu_features(AP_CPU_M68040).has_module_calls);
+}
+
+/* The features are derived from the family, so the model table's own `mmu`
+ * field must agree with them: a model claiming a 68020 and an on-chip MMU is a
+ * table that contradicts the part. */
+static void test_every_models_mmu_agrees_with_its_cpus_features(void) {
+  for (size_t i = 0; i < ap_model_count(); i++) {
+    const ap_model_t *model = ap_model_by_id((ap_model_id_t)i);
+    TEST_ASSERT_NOT_NULL(model);
+    const ap_cpu_features_t features = ap_cpu_features(model->cpu);
+    const bool table_says_onchip = (model->mmu != AP_MMU_M68851);
+    TEST_ASSERT_EQUAL_INT(features.has_onchip_mmu, table_says_onchip);
+  }
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_the_table_holds_every_declared_model);
@@ -167,5 +228,10 @@ int main(void) {
   RUN_TEST(test_the_reference_superset_has_a_runnable_oracle);
   RUN_TEST(test_no_model_with_a_runnable_oracle_is_provisional);
   RUN_TEST(test_every_model_declares_a_nonempty_main_memory);
+  RUN_TEST(test_the_68020_and_68030_caches_are_the_same_size_and_not_the_same);
+  RUN_TEST(test_only_the_68020_lacks_a_data_cache);
+  RUN_TEST(test_no_cpu_bursts_without_a_synchronous_bus);
+  RUN_TEST(test_only_the_68020_has_the_module_call_instructions);
+  RUN_TEST(test_every_models_mmu_agrees_with_its_cpus_features);
   return UNITY_END();
 }

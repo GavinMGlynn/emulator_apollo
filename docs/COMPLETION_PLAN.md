@@ -1953,6 +1953,18 @@ a 68882, and the 68882 is the only one of these it has.
         Detail and cost to close in `PROJECT_STATUS.md`.
 - [ ] 68020 subset: no on-chip MMU or cache differences, external 68851.
       *Verification: `dn3000` boots under both; oracle diff.*
+  - [x] The part's own differences from the 68030, as a derived feature set in
+        the one model table rather than conditionals in subsystems: its cache
+        (256 bytes as **64 single-long-word entries**, not the 68030's sixteen
+        four-long-word lines, tagged with A8-A31 *and FC2*, and no data cache at
+        all), its asynchronous-only bus, and `CALLM`/`RTM` -- the two
+        instructions the PRM marks "(MC68020)", which exist on no other part.
+        Formats read from the page images of Figures D-1, D-2 and D-3; the
+        extracted text of the module entry word had lost a column.
+        `m68020_cache_suite` 16 tests, `m68020_module_suite` 17 tests,
+        `model_suite` +5.
+  - [ ] The boot verification carries to the 68851 item below: a DN3000 cannot
+        boot without its PMMU, so there is nothing to boot until that lands.
 - [ ] 68851 external PMMU as its own subsystem. *Verification: `MC68851 PMMU
       User's Manual 3ed` cited per figure; oracle diff.*
 - [ ] 68040 for DN5500: different pipeline, caches, and MMU descriptor format;

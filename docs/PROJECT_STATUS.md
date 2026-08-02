@@ -488,11 +488,57 @@ point's business, not the processor's, and leaving it in Phase 2 made the phase
 look incomplete for work that was never Phase 2's.
 
 **Phase 2b (the rest of the CPU family) is under way**, starting with the 68882
-because it is the only one of the four on the DN3500's critical path. Six pieces
-land so far -- the programming model, the three binary real formats, the
-coprocessor interface registers, the rounding stage, the four arithmetic
-operations and the instruction decode. What remains is the transcendentals and
-wiring the part to the 68030's F-line path.
+because it is the only one of the four on the DN3500's critical path. Seven
+pieces land -- the programming model, the three binary real formats, the
+coprocessor interface registers, the rounding stage, the arithmetic operations,
+the instruction decode and the fitted part on the 68030's F-line path. The
+transcendentals remain a documented divergence rather than an omission; see the
+PROVISIONAL table below.
+
+**The 68020's own differences from the 68030 are next, and are in.** The part
+is expressed as a *derived* feature set hanging off `ap_cpu_t` in
+`src/core/model/`, not as a second CPU and not as conditionals scattered
+through subsystems -- these are facts about the silicon rather than about the
+board it was soldered to, so every 68020 gets them whatever machine names it.
+
+Three differences are real enough to need code rather than a flag:
+
+- **The instruction cache is not the 68030's with a parameter changed.** Both
+  hold 256 bytes. `[68020]` §7.1.1 says the 68020's is "a direct-mapped cache of
+  **64 long word entries**" -- one long word to a line, indexed by A2-A7 with A1
+  choosing the word; the 68030's is sixteen lines of four, indexed by A4-A7.
+  One valid bit per long word here against four per line there, which is exactly
+  the distinction a burst fill needs and the 68020 has no burst to need it for.
+  The tag is A8-A31 **and FC2**, so a supervisor and a user fetch of one address
+  occupy different entries while program and data space do not.
+  `src/core/cpu/m68020/ap_m68020_cache.c`, `m68020_cache_suite`, 16 tests.
+- **There is no data cache at all.** Zero, not small: every operand access goes
+  to the bus. Modelling it as a small data cache would make data cheaper than
+  the hardware's, silently and everywhere.
+- **`CALLM` and `RTM` exist here and nowhere else.** The PRM heads both entries
+  "(MC68020)". They share ten bits of opcode -- `0000 0110 11` -- and are told
+  apart by a field `CALLM` is forbidden to use: its addressing is restricted to
+  control modes, so modes 000 and 001 are free for `RTM`. The descriptor and
+  frame layer is in, with the validation that is most of the specification:
+  only types `$00` and `$01` are recognised, only options `000` and `100` are,
+  and types `$10-$1F` are a *documented disable bit* rather than merely a
+  reserved range -- "a means of disabling any module by setting a single bit in
+  its descriptor, without loss of any descriptor information".
+  `src/core/cpu/m68020/ap_m68020_module.c`, `m68020_module_suite`, 17 tests.
+
+Two facts came from the **page images** of Figures D-1, D-2 and D-3 rather than
+extracted text, and one of them would have been wrong otherwise. The extracted
+Figure D-2 had lost its leading column, leaving `Register` apparently spanning
+bits 13-12; the image shows **D/A at bit 15 and Register at 14-12**, with bits
+11-0 zero. The second is a structural fact worth recording: the stack frame's
+first *word* is the descriptor's first *long word* shifted right sixteen --
+Opt, Type and access level keep their widths (3, 5, 8) and simply lose the
+descriptor's reserved half. That is what "copied to the frame from the module
+descriptor" means concretely.
+
+What the 68020 item still owes is its **boot verification**, which carries to
+the 68851 item: a DN3000 has no on-chip MMU, so there is nothing to boot until
+the external PMMU lands. That is a dependency, not a deferral.
 
 ## Subsystems
 

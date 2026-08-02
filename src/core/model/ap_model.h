@@ -112,6 +112,54 @@ typedef struct {
   const char *provisional;
 } ap_model_t;
 
+/* ---------------------------------------------------------------------------
+ * What a CPU family means for the core.
+ *
+ * These are *derived* from `ap_cpu_t`, not stored per model, because they are
+ * facts about the part and not about the machine it was soldered into: every
+ * 68020 has a 64-entry instruction cache whatever board it is on. Deriving them
+ * keeps the rule in CLAUDE.md -- all machine variance in one table -- without
+ * inviting a DN3000 entry that claims a 68020 with a data cache.
+ *
+ * Sources: `MC68020 User's Manual` §7.1.1 and §1 for the 68020's cache and the
+ * absence of an on-chip MMU; `MC68030 User's Manual` §6 and §9 for the 68030's
+ * two caches and burst; the `MC68020` PRM entries for `CALLM`/`RTM`, which are
+ * marked "(MC68020)" and exist on no later part.
+ * ------------------------------------------------------------------------- */
+typedef struct {
+  /* Instruction cache size in bytes, and the number of long words per line.
+   * Both parts hold 256 bytes and they are not the same cache: the 68020 is
+   * "a direct-mapped cache of 64 long word entries" (one long word per line),
+   * the 68030 is 16 lines of four. The line length is what decides how much a
+   * single fill covers and therefore the hit rate on straight-line code. */
+  unsigned instruction_cache_bytes;
+  unsigned instruction_cache_line_longs;
+
+  /* Zero on the 68020: it caches instructions only, so every operand access
+   * goes to the bus. A model that gave it a data cache would make data cheaper
+   * than the hardware's. */
+  unsigned data_cache_bytes;
+
+  /* The 68030 and 68040 translate on chip; the 68020 drives an external 68851
+   * over the coprocessor interface, so its MMU is a coprocessor and its
+   * translation is not in the CPU's own bus cycle. */
+  bool has_onchip_mmu;
+
+  /* Synchronous termination and burst filling arrived with the 68030: the
+   * 68020 has `DSACK` only, so it cannot burst and its cache fills one long
+   * word per bus cycle. */
+  bool has_synchronous_bus;
+  bool has_burst_fill;
+
+  /* `CALLM` and `RTM`, the module call instructions. Present on the 68020
+   * alone -- the PRM marks both "(MC68020)" -- and removed from the 68030
+   * onward, where their encodings take an F-line/illegal path instead. */
+  bool has_module_calls;
+} ap_cpu_features_t;
+
+/* Derive the features of a CPU family. Total: every `ap_cpu_t` has an entry. */
+[[nodiscard]] ap_cpu_features_t ap_cpu_features(ap_cpu_t cpu);
+
 /* Look up by id. Returns NULL for AP_MODEL_COUNT or out-of-range input. */
 [[nodiscard]] const ap_model_t *ap_model_by_id(ap_model_id_t id);
 

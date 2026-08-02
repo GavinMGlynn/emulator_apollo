@@ -191,6 +191,50 @@ static const ap_model_t k_models[AP_MODEL_COUNT] = {
     },
 };
 
+ap_cpu_features_t ap_cpu_features(ap_cpu_t cpu) {
+  switch (cpu) {
+  case AP_CPU_M68020:
+    return (ap_cpu_features_t){
+        /* "A direct-mapped cache of 64 long word entries": 256 bytes, one long
+         * word to a line, and no data cache at all. */
+        .instruction_cache_bytes = 256,
+        .instruction_cache_line_longs = 1,
+        .data_cache_bytes = 0,
+        .has_onchip_mmu = false,   /* external 68851 */
+        .has_synchronous_bus = false,
+        .has_burst_fill = false,
+        .has_module_calls = true,  /* CALLM and RTM */
+    };
+  case AP_CPU_M68030:
+    return (ap_cpu_features_t){
+        /* 256 bytes each, sixteen lines of four long words, and a burst that
+         * fills a whole line in one bus tenure. */
+        .instruction_cache_bytes = 256,
+        .instruction_cache_line_longs = 4,
+        .data_cache_bytes = 256,
+        .has_onchip_mmu = true,
+        .has_synchronous_bus = true,
+        .has_burst_fill = true,
+        .has_module_calls = false,
+    };
+  case AP_CPU_M68040:
+    return (ap_cpu_features_t){
+        /* Four kilobytes each, four-long-word lines, four-way set associative.
+         * The organisation beyond size is a Phase 2b concern; the sizes are
+         * here so a DN5500 does not silently inherit the 68030's. */
+        .instruction_cache_bytes = 4096,
+        .instruction_cache_line_longs = 4,
+        .data_cache_bytes = 4096,
+        .has_onchip_mmu = true,
+        .has_synchronous_bus = true,
+        .has_burst_fill = true,
+        .has_module_calls = false,
+    };
+  }
+  /* Unreachable for a valid `ap_cpu_t`; the 68030 is the reference superset. */
+  return ap_cpu_features(AP_CPU_M68030);
+}
+
 const ap_model_t *ap_model_by_id(ap_model_id_t id) {
   if ((size_t)id >= (size_t)AP_MODEL_COUNT) {
     return nullptr;
