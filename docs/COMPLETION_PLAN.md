@@ -1372,12 +1372,15 @@ a 68882, and the 68882 is the only one of these it has.
         *Verification: `step_suite` +4 (241) and `m68882_format_suite`, against
         expectations computed to 400 decimal digits. Detail in
         `PROJECT_STATUS.md`.*
-  - [ ] **Packed decimal out**, which needs the **k-factor** (significant digits
-        or decimal places), `EXP3` — written only on the way out, "if the source
-        operand exceeds the magnitude of a three digit exponent" — and its own
-        operand error, "Result Exponent > 999 (Decimal) or k-Factor > +17".
-        *Verification: round-tripping against the input conversion, and against
-        high-precision expectations as above.*
+  - [x] **Packed decimal out**, with the k-factor — whose two halves run in
+        opposite directions, `-64 to 0` counting digits right of the point and
+        `+1 to +17` counting significant digits — plus `EXP3` for an exponent
+        past 999 and the `OPERR` that comes with it, and `+18 to +63` raising
+        *and* being "treated as +17".
+        *Verification: `m68882_store_suite` +3 (13) with page 4-67's seven-row
+        table reproduced character for character, and `step_suite` +1 (242)
+        round-tripping a stored string back through the load conversion. Detail
+        in `PROJECT_STATUS.md`.*
   - [ ] **`FSAVE` and `FRESTORE`**, the coprocessor state frames — instruction
         types `100` and `101`, and the only 68882 forms left outside the general
         type. §6.4.2's state frame is what an exception handler saves; the null

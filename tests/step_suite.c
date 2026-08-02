@@ -4980,15 +4980,16 @@ static void test_an_undefined_extension_traps_with_a_coprocessor_fitted(void) {
  * would outlast any single instruction. That closed too, when the 68030 took up
  * §10.4.9's half of the transfer.
  *
- * The example has moved five times, and this is where it stops moving in the
- * way it had been: every general-type *instruction* now executes. What is left
- * is a **data format** rather than an instruction -- packed decimal, which
- * §3.6's binary-to-decimal conversion makes a separate piece of arithmetic from
- * anything else in the part. Both directions decline, and this is the store
- * one; `test_a_packed_decimal_source_is_reported_as_our_gap` is the other. */
+ * The example has moved six times, and this is the last move it can make
+ * inside the general type: **every general-type instruction and every data
+ * format now executes**, packed decimal in both directions included. What is
+ * left is outside it -- `FSAVE`, instruction type `100`, which does not compute
+ * anything but saves the coprocessor's own mid-instruction state, and its
+ * `FRESTORE` counterpart. Those need §6.4.2's state frame, which is a model of
+ * the part's internals rather than of its arithmetic. */
 static void test_an_unimplemented_coprocessor_form_is_reported_as_our_gap(void) {
-  /* FMOVE.P FP1,(A0) -- opclass 011, destination format 011, source FP1. */
-  static const uint16_t program[] = {0xF210u, 0x6C80u, 0x4E71u};
+  /* FSAVE -(A0) -- type 100, predecrement. */
+  static const uint16_t program[] = {0xF320u, 0x4E71u, 0x4E71u};
   machine_t m = {0};
   load(&m, program, 3);
 
@@ -5877,6 +5878,50 @@ static void test_the_constant_rom_defines_exactly_the_published_offsets(void) {
   }
 }
 
+/* And out again, with the k-factor. `FMOVE.P FP1,(A0){#3}` -- opclass 011,
+ * destination format 011, and a static k-factor of 3 in the extension field.
+ *
+ * The pair is what this asserts: a value stored and loaded back is unchanged
+ * when the k-factor keeps enough digits, which only holds if both conversions
+ * are right and they are written independently of each other. */
+static void test_a_packed_decimal_result_is_stored_with_its_k_factor(void) {
+  /* $6C83 is opclass 011, format 011 (P), source FP1, k-factor +3. */
+  static const uint16_t program[] = {0xF210u, 0x6C83u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 3);
+  ap_m68882_t fpu;
+  ap_m68882_reset(&fpu);
+  m.cpu.fpu = &fpu;
+  m.cpu.regs.a[0] = FP_OPERAND;
+  /* 1.25, which three significant digits hold exactly. */
+  fpu.regs.fp[1] = ap_m68882_from_single(0x3FA00000u);
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&m.cpu).status);
+  /* `+1.25 E+0`: sign clear, exponent zero, and the digits 1, 2, 5 from
+   * `MANT16` down. */
+  TEST_ASSERT_EQUAL_HEX8(0x00u, m.memory.bytes[FP_OPERAND]);
+  TEST_ASSERT_EQUAL_HEX8(0x00u, m.memory.bytes[FP_OPERAND + 1u]);
+  TEST_ASSERT_EQUAL_HEX8(0x01u, m.memory.bytes[FP_OPERAND + 3u]); /* MANT16 */
+  TEST_ASSERT_EQUAL_HEX8(0x25u, m.memory.bytes[FP_OPERAND + 4u]);
+  /* Exact, so nothing is raised. */
+  TEST_ASSERT_EQUAL_HEX32(0u, fpu.regs.fpsr & (UINT32_C(0xFF) << 8));
+
+  /* Load it back: the two conversions are independent and agree. */
+  static const uint16_t reading[] = {0xF210u, 0x4C80u, 0x4E71u};
+  machine_t n = {0};
+  load(&n, reading, 3);
+  for (unsigned i = 0; i < 12u; i++) {
+    n.memory.bytes[FP_OPERAND + i] = m.memory.bytes[FP_OPERAND + i];
+  }
+  ap_m68882_t second;
+  ap_m68882_reset(&second);
+  n.cpu.fpu = &second;
+  n.cpu.regs.a[0] = FP_OPERAND;
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&n.cpu).status);
+  TEST_ASSERT_EQUAL_HEX32(0x3FA00000u, ap_m68882_to_single(&second.regs.fp[1]));
+}
+
 /* `FBcc` is its own instruction *type* rather than an opclass, so it never
  * reaches the general path: the operation word carries the predicate in bits
  * 5-0 and the size in bit 6, and a displacement follows.
@@ -6437,6 +6482,7 @@ int main(void) {
   RUN_TEST(test_the_extremes_of_the_decimal_exponent_convert_exactly);
   RUN_TEST(test_a_packed_infinity_and_nan_need_all_three_markers);
   RUN_TEST(test_a_zero_mantissa_is_a_zero_whatever_the_exponent);
+  RUN_TEST(test_a_packed_decimal_result_is_stored_with_its_k_factor);
   RUN_TEST(test_a_result_is_stored_to_memory);
   RUN_TEST(test_a_predecrement_store_steps_by_the_destination_length);
   RUN_TEST(test_a_store_leaves_the_condition_codes_alone);

@@ -4873,9 +4873,15 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
             cpu->fpu, out.instruction, command, &needs_store, &format);
 
         if (executed == AP_M68882_EXECUTED && needs_store) {
+          /* A dynamic k-factor names a data register in bits 6-4 of the
+           * command word, and "only the least significant 7 bits are used". */
+          int dynamic_k = (int)(cpu->regs.d[(command >> 4) & 0x7u] & 0x7Fu);
+          if (dynamic_k >= 64) {
+            dynamic_k -= 128;
+          }
           ap_m68882_store_t result = {0};
           executed = ap_m68882_execute_store(cpu->fpu, out.instruction, command,
-                                             &result);
+                                             dynamic_k, &result);
           if (executed == AP_M68882_EXECUTED) {
             bool violated = false;
             switch (store_fp_destination(cpu, coproc, &result, &out.clocks)) {

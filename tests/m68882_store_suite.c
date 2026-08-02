@@ -7,6 +7,8 @@
  */
 
 #include "cpu/m68882/ap_m68882_store.h"
+
+#include <string.h>
 #include "unity.h"
 
 void setUp(void) {}
@@ -33,7 +35,7 @@ static ap_m68882_store_t encode(ap_m68882_format_t format,
                                 ap_m68882_extended_t value,
                                 ap_m68882_rounding_t mode) {
   ap_m68882_store_t out = {0};
-  TEST_ASSERT_TRUE(ap_m68882_store_encode(format, &value, mode, &out));
+  TEST_ASSERT_TRUE(ap_m68882_store_encode(format, &value, mode, 0, &out));
   return out;
 }
 
@@ -333,17 +335,154 @@ static void test_an_extended_store_is_exact_and_twelve_bytes(void) {
   TEST_ASSERT_TRUE(back.sign);
 }
 
-/* Packed decimal declines in both directions, so the gap stays visible rather
- * than becoming a plausible wrong number. */
-static void test_packed_decimal_declines_on_the_way_out_too(void) {
-  const ap_m68882_extended_t one = from_parts(false, 0, UINT64_C(1) << 63);
+/* Render a packed decimal string the way the manual's examples print one, so a
+ * test can state the destination string rather than twelve bytes. */
+static void render_packed(const ap_m68882_store_t *out, char *text) {
+  const bool sign = (out->bytes[0] & 0x80u) != 0u;
+  const bool exponent_sign = (out->bytes[0] & 0x40u) != 0u;
+  unsigned at = 0;
+  text[at++] = sign ? '-' : '+';
+  /* Seventeen mantissa digits from nibble 7, with the point after the first,
+   * and trailing zeros dropped the way the manual prints them. */
+  unsigned digits[17];
+  for (unsigned i = 0; i < 17u; i++) {
+    const unsigned nibble = 7u + i;
+    const uint8_t byte = out->bytes[nibble / 2u];
+    digits[i] = (nibble % 2u == 0u) ? (byte >> 4) : (byte & 0x0Fu);
+  }
+  unsigned last = 0;
+  for (unsigned i = 1; i < 17u; i++) {
+    if (digits[i] != 0u) {
+      last = i;
+    }
+  }
+  text[at++] = (char)('0' + digits[0]);
+  text[at++] = '.';
+  for (unsigned i = 1; i <= last; i++) {
+    text[at++] = (char)('0' + digits[i]);
+  }
+  text[at++] = ' ';
+  text[at++] = 'E';
+  text[at++] = exponent_sign ? '-' : '+';
+  const unsigned exponent = (unsigned)(out->bytes[0] & 0x0Fu) * 100u +
+                            (unsigned)(out->bytes[1] >> 4) * 10u +
+                            (unsigned)(out->bytes[1] & 0x0Fu);
+  if (exponent >= 100u) {
+    text[at++] = (char)('0' + exponent / 100u);
+  }
+  if (exponent >= 10u) {
+    text[at++] = (char)('0' + (exponent / 10u) % 10u);
+  }
+  text[at++] = (char)('0' + exponent % 10u);
+  text[at] = '\0';
+}
+
+/* **The manual's own k-factor table, reproduced row for row.** Page 4-67 prints
+ * seven conversions of one value, and they are the whole specification of what
+ * the k-factor does:
+ *
+ *     k-Factor   Source Operand Value   Destination String
+ *       -5        +12345.678765          +1.234567877 E+4
+ *       -3        +12345.678765          +1.2345679 E+4
+ *       -1        +12345.678765          +1.23457 E+4
+ *        0        +12345.678765          +1.2346 E+4
+ *       +1        +12345.678765          +1. E+4
+ *       +3        +12345.678765          +1.23 E+4
+ *       +5        +12345.678765          +1.2346 E+4
+ *
+ * A negative k counts digits to the *right of the decimal point* in the value's
+ * own scale -- Fortran "F" -- while a positive one counts *significant digits*
+ * -- Fortran "E". So they run in opposite directions, and the table is the only
+ * place that says so unambiguously: -5 gives eleven digits and +5 gives five. */
+static void test_the_k_factor_table_from_page_4_67(void) {
+  /* 12345.678765 rounded to extended, which is what the part would hold. */
+  const ap_m68882_extended_t value =
+      from_parts(false, 13, UINT64_C(0xC0E6B70E2C12AD82));
+
+  static const struct {
+    int k;
+    const char *expected;
+  } rows[] = {
+      {-5, "+1.234567877 E+4"}, {-3, "+1.2345679 E+4"}, {-1, "+1.23457 E+4"},
+      {0, "+1.2346 E+4"},       {1, "+1. E+4"},         {3, "+1.23 E+4"},
+      {5, "+1.2346 E+4"},
+  };
+
+  for (unsigned i = 0; i < sizeof rows / sizeof rows[0]; i++) {
+    ap_m68882_store_t out = {0};
+    TEST_ASSERT_TRUE(ap_m68882_store_encode(AP_M68882_FORMAT_PACKED, &value,
+                                            AP_M68882_ROUND_NEAREST, rows[i].k,
+                                            &out));
+    char text[40];
+    render_packed(&out, text);
+    TEST_ASSERT_EQUAL_STRING(rows[i].expected, text);
+  }
+}
+
+/* "+18 to +63 -- Sets the OPERR bit in the FPSR exception byte, **treated as
+ * +17**." Both halves of that row: the exception *and* a usable result. A model
+ * that raised and produced nothing, or produced something and stayed silent,
+ * would satisfy half of one sentence. */
+static void test_an_out_of_range_k_factor_raises_and_still_converts(void) {
+  const ap_m68882_extended_t value =
+      from_parts(false, 13, UINT64_C(0xC0E6B70E2C12AD82));
+
+  ap_m68882_store_t excessive = {0};
+  TEST_ASSERT_TRUE(ap_m68882_store_encode(AP_M68882_FORMAT_PACKED, &value,
+                                          AP_M68882_ROUND_NEAREST, 63,
+                                          &excessive));
+  TEST_ASSERT_TRUE((excessive.exceptions &
+                    (UINT32_C(1) << AP_M68882_EXC_OPERR)) != 0u);
+
+  ap_m68882_store_t seventeen = {0};
+  TEST_ASSERT_TRUE(ap_m68882_store_encode(AP_M68882_FORMAT_PACKED, &value,
+                                          AP_M68882_ROUND_NEAREST, 17,
+                                          &seventeen));
+  /* Treated as +17 means the *same string*, byte for byte. */
+  for (unsigned i = 0; i < 12u; i++) {
+    TEST_ASSERT_EQUAL_HEX8(seventeen.bytes[i], excessive.bytes[i]);
+  }
+  /* And +17 itself is in range, so it raises nothing. */
+  TEST_ASSERT_EQUAL_HEX32(
+      0u, seventeen.exceptions & (UINT32_C(1) << AP_M68882_EXC_OPERR));
+}
+
+/* Table 3-4's special rows on the way out, and a round trip through the input
+ * conversion -- which is the strongest statement available without asserting a
+ * constant, since the two conversions are written independently and only agree
+ * if both are right. */
+static void test_packed_specials_and_a_round_trip(void) {
+  const ap_m68882_extended_t infinity = special(true, UINT64_C(1) << 63);
   ap_m68882_store_t out = {0};
-  TEST_ASSERT_FALSE(
-      ap_m68882_store_encode(AP_M68882_FORMAT_PACKED, &one,
-                             AP_M68882_ROUND_NEAREST, &out));
-  TEST_ASSERT_FALSE(
-      ap_m68882_store_encode(AP_M68882_FORMAT_PACKED_DYNAMIC, &one,
-                             AP_M68882_ROUND_NEAREST, &out));
+  TEST_ASSERT_TRUE(ap_m68882_store_encode(AP_M68882_FORMAT_PACKED, &infinity,
+                                          AP_M68882_ROUND_NEAREST, 0, &out));
+  /* `SM` set, `SE` and both `y` bits set, exponent $FFF, fraction zero. */
+  TEST_ASSERT_EQUAL_HEX8(0xFFu, out.bytes[0]);
+  TEST_ASSERT_EQUAL_HEX8(0xFFu, out.bytes[1]);
+
+  ap_m68882_extended_t back = {0};
+  uint32_t raised = 0;
+  TEST_ASSERT_TRUE(ap_m68882_operand_decode(AP_M68882_FORMAT_PACKED, out.bytes,
+                                            AP_M68882_ROUND_NEAREST, &back,
+                                            &raised));
+  TEST_ASSERT_EQUAL_INT(AP_M68882_TYPE_INFINITY, ap_m68882_classify(&back));
+  TEST_ASSERT_TRUE(back.sign);
+
+  /* A value with seventeen exact digits round-trips unchanged, which is what
+   * makes the seventeen-digit width real rather than nominal: 1.0 at k = 17. */
+  const ap_m68882_extended_t one = from_parts(false, 0, UINT64_C(1) << 63);
+  ap_m68882_store_t stored_one = {0};
+  TEST_ASSERT_TRUE(ap_m68882_store_encode(AP_M68882_FORMAT_PACKED, &one,
+                                          AP_M68882_ROUND_NEAREST, 17,
+                                          &stored_one));
+  TEST_ASSERT_EQUAL_HEX32(0u, stored_one.exceptions);
+  ap_m68882_extended_t one_back = {0};
+  TEST_ASSERT_TRUE(ap_m68882_operand_decode(AP_M68882_FORMAT_PACKED,
+                                            stored_one.bytes,
+                                            AP_M68882_ROUND_NEAREST, &one_back,
+                                            &raised));
+  TEST_ASSERT_EQUAL_HEX16(one.exponent, one_back.exponent);
+  TEST_ASSERT_EQUAL_HEX64(one.mantissa, one_back.mantissa);
 }
 
 /* Every single-precision value survives a round trip out and back. Structural:
@@ -375,7 +514,9 @@ int main(void) {
   RUN_TEST(test_an_integer_store_follows_the_rounding_mode);
   RUN_TEST(test_a_signalling_nan_is_quietened_and_reported);
   RUN_TEST(test_an_extended_store_is_exact_and_twelve_bytes);
-  RUN_TEST(test_packed_decimal_declines_on_the_way_out_too);
+  RUN_TEST(test_the_k_factor_table_from_page_4_67);
+  RUN_TEST(test_an_out_of_range_k_factor_raises_and_still_converts);
+  RUN_TEST(test_packed_specials_and_a_round_trip);
   RUN_TEST(test_single_precision_round_trips_across_the_range);
   return UNITY_END();
 }

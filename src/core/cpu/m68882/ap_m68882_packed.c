@@ -12,14 +12,16 @@
 /* ---------------------------------------------------------------------------
  * Just enough big integer
  *
- * `5^999` is 2322 bits, and the widest intermediate is that plus the room a
- * division needs above it. 160 limbs is 5120 bits, comfortably clear of both.
+ * The input direction's widest intermediate is `5^999`, 2322 bits. The output
+ * direction's is far larger: converting `1e4932` to seventeen digits divides a
+ * number of some 11500 bits by another of the same size. 512 limbs is 16384
+ * bits, clear of both with room to spare.
  *
  * Limbs are 32 bits so that a multiply-accumulate fits a 64-bit product without
  * needing 128-bit arithmetic, which is a compiler extension this core does not
  * use -- the same reason the square root writes its own.
  */
-#define BN_LIMBS 160u
+#define BN_LIMBS 512u
 
 typedef struct {
   uint32_t limb[BN_LIMBS]; /* little endian: limb[0] is least significant */
@@ -161,7 +163,28 @@ static void bn_divide(const bignum_t *numerator, const bignum_t *denominator,
   bn_set(quotient, 0u);
 
   const unsigned bits = bn_bitlength(numerator);
-  for (unsigned i = bits; i-- > 0;) {
+  const unsigned denominator_bits = bn_bitlength(denominator);
+  /* The first `denominator_bits - 1` iterations of a bit-serial division only
+   * shift numerator bits into the remainder without ever producing a quotient
+   * bit, because the remainder cannot reach the divisor until it is as wide.
+   * Seeding those in one step leaves the loop proportional to the *quotient*'s
+   * width -- some 60 bits here -- rather than to the numerator's 11500. */
+  unsigned start = bits;
+  if (denominator_bits > 1u && bits >= denominator_bits) {
+    const unsigned seed = denominator_bits - 1u;
+    for (unsigned i = 0; i < seed; i++) {
+      bn_shift_left(&remainder, 1u);
+      if (bn_bit(numerator, bits - 1u - i)) {
+        if (remainder.used == 0u) {
+          remainder.used = 1u;
+        }
+        remainder.limb[0] |= 1u;
+      }
+    }
+    start = bits - seed;
+  }
+
+  for (unsigned i = start; i-- > 0;) {
     bn_shift_left(&remainder, 1u);
     if (bn_bit(numerator, i)) {
       if (remainder.used == 0u) {
@@ -338,4 +361,244 @@ void ap_m68882_packed_decode(const uint8_t *bytes, ap_m68882_rounding_t mode,
   if (rounded.inexact) {
     *exceptions |= UINT32_C(1) << AP_M68882_EXC_INEX1;
   }
+}
+
+/* ---------------------------------------------------------------------------
+ * Binary to decimal
+ */
+
+static void put_digit(uint8_t *bytes, unsigned nibble, unsigned value) {
+  if (nibble % 2u == 0u) {
+    bytes[nibble / 2u] =
+        (uint8_t)((bytes[nibble / 2u] & 0x0Fu) | ((value & 0xFu) << 4));
+  } else {
+    bytes[nibble / 2u] =
+        (uint8_t)((bytes[nibble / 2u] & 0xF0u) | (value & 0xFu));
+  }
+}
+
+/* Multiply by `2^power`, which is the shift a division by a power of two is
+ * not: kept separate so the caller's intent stays readable. */
+static void bn_mul_pow2(bignum_t *a, unsigned power) { bn_shift_left(a, power); }
+
+/* `round(numerator / denominator)` under `mode`, where the quotient is known to
+ * fit sixty-four bits. Returns whether anything was discarded. */
+static bool bn_rounded_quotient(bignum_t *numerator, const bignum_t *denominator,
+                                bool sign, ap_m68882_rounding_t mode,
+                                uint64_t *result) {
+  bignum_t quotient;
+  bool leftover = false;
+  bn_divide(numerator, denominator, &quotient, &leftover);
+
+  uint64_t value = 0;
+  for (unsigned i = 0; i < 2u && i < quotient.used; i++) {
+    value |= (uint64_t)quotient.limb[i] << (32u * i);
+  }
+
+  if (leftover) {
+    /* The discarded part is a fraction of one unit in the last place, and
+     * *which* fraction only matters to round-to-nearest -- so it is compared
+     * against half a unit by doubling the remainder rather than by forming it.
+     * The other three modes need only whether anything was discarded at all. */
+    bool round_up = false;
+    switch (mode) {
+    case AP_M68882_ROUND_ZERO:
+      break;
+    case AP_M68882_ROUND_PLUS_INFINITY:
+      round_up = !sign;
+      break;
+    case AP_M68882_ROUND_MINUS_INFINITY:
+      round_up = sign;
+      break;
+    case AP_M68882_ROUND_NEAREST: {
+      /* `2 x remainder` against the divisor: greater is up, equal is the tie,
+       * and a tie goes to even -- the decimal analogue of Figure 6-3's rule,
+       * which is what "the k factor specified is used to locate the decimal
+       * rounding boundary" leaves to the mode. */
+      /* Recovering the remainder as `numerator - quotient x denominator` is
+       * more work than dividing a doubled numerator, which answers the same
+       * question directly. */
+      bignum_t doubled = *numerator;
+      bn_shift_left(&doubled, 1u);
+      bignum_t doubled_quotient;
+      bool doubled_leftover = false;
+      bn_divide(&doubled, denominator, &doubled_quotient, &doubled_leftover);
+      uint64_t twice_value = 0;
+      for (unsigned i = 0; i < 2u && i < doubled_quotient.used; i++) {
+        twice_value |= (uint64_t)doubled_quotient.limb[i] << (32u * i);
+      }
+      /* `floor(2n/d) - 2 floor(n/d)` is 1 when the remainder is at least half
+       * and 0 otherwise, and the leftover of the doubled division tells a tie
+       * from a clear majority. */
+      const uint64_t half_or_more = twice_value - 2u * value;
+      if (half_or_more != 0u) {
+        round_up = doubled_leftover || ((value & 1u) != 0u);
+      }
+      break;
+    }
+    }
+    if (round_up) {
+      value++;
+    }
+  }
+  *result = value;
+  return leftover;
+}
+
+void ap_m68882_packed_encode(const ap_m68882_extended_t *value, int k_factor,
+                             ap_m68882_rounding_t mode, uint8_t *bytes,
+                             uint32_t *exceptions) {
+  for (unsigned i = 0; i < 12u; i++) {
+    bytes[i] = 0;
+  }
+  bytes[0] = value->sign ? 0x80u : 0x00u;
+
+  switch (ap_m68882_classify(value)) {
+  case AP_M68882_TYPE_INFINITY:
+    /* Table 3-4: `SE` and both `y` bits set, exponent `$FFF`, fraction zero. */
+    bytes[0] |= 0x7Fu;
+    bytes[1] = 0xFFu;
+    return;
+  case AP_M68882_TYPE_NAN: {
+    /* The same markers, and the mantissa copied bit for bit -- Note 1's rule
+     * read backwards, so a NAN survives a round trip through memory. */
+    bytes[0] |= 0x7Fu;
+    bytes[1] = 0xFFu;
+    for (unsigned i = 0; i < 8u; i++) {
+      bytes[4u + i] = (uint8_t)(value->mantissa >> (8u * (7u - i)));
+    }
+    return;
+  }
+  case AP_M68882_TYPE_ZERO:
+    return; /* every digit already zero, and the sign kept */
+  case AP_M68882_TYPE_NORMALIZED:
+  case AP_M68882_TYPE_DENORMALIZED:
+    break;
+  }
+
+  /* "+18 to +63 -- Sets the OPERR bit in the FPSR exception byte, treated as
+   * +17." Both halves: the exception *and* a usable result, rather than one or
+   * the other. */
+  int k = k_factor;
+  if (k > 17) {
+    *exceptions |= UINT32_C(1) << AP_M68882_EXC_OPERR;
+    k = 17;
+  }
+
+  /* Normalise, since a denormal's stored exponent understates it. */
+  uint64_t significand = value->mantissa;
+  int binary_exponent = (int)value->exponent - AP_M68882_BIAS_EXTENDED;
+  while ((significand & INTEGER_BIT) == 0u) {
+    significand <<= 1;
+    binary_exponent--;
+  }
+  /* The value is `significand x 2^(binary_exponent - 63)`. */
+  const int scale = binary_exponent - 63;
+
+  /* An estimate of `floor(log10)` from the binary exponent, corrected below by
+   * the digit count the conversion actually produces. `log10(2)` as 30103 over
+   * 100000 is exact enough that the correction is never more than one step. */
+  int decimal_exponent = (int)(((int64_t)binary_exponent * 30103) / 100000);
+  if (binary_exponent < 0 && ((int64_t)binary_exponent * 30103) % 100000 != 0) {
+    decimal_exponent--; /* C truncates toward zero; this wants the floor */
+  }
+
+  uint64_t digits_value = 0;
+  unsigned digits = 1;
+  bool inexact = false;
+
+  for (unsigned attempt = 0; attempt < 4u; attempt++) {
+    /* "- 64 to 0 -- Indicates the number of significant digit to the right of
+     * the decimal point (Fortran 'F' format). +1 to +17 -- Indicates the number
+     * of significant digits in the mantissa (Fortran 'E' format)." The second
+     * is a count outright; the first depends on where the point falls, which is
+     * why it needs the decimal exponent and this loop. */
+    int wanted = (k >= 1) ? k : (decimal_exponent + 1 - k);
+    if (wanted < 1) {
+      wanted = 1;
+    }
+    if (wanted > 17) {
+      wanted = 17;
+    }
+    digits = (unsigned)wanted;
+
+    /* `round(value x 10^p)` with `p` chosen so the result has `digits` digits.
+     * `10^p` is `5^p x 2^p`, and each factor lands on whichever side of the
+     * fraction its sign puts it -- so at most one real division is needed, and
+     * the powers of two are shifts. */
+    const int p = (int)digits - 1 - decimal_exponent;
+    const int two = scale + p;
+
+    bignum_t numerator;
+    bn_set(&numerator, significand);
+    bignum_t denominator;
+    bn_set(&denominator, 1u);
+
+    if (p >= 0) {
+      bn_mul_pow5(&numerator, (unsigned)p);
+    } else {
+      bn_mul_pow5(&denominator, (unsigned)(-p));
+    }
+    if (two >= 0) {
+      bn_mul_pow2(&numerator, (unsigned)two);
+    } else {
+      bn_mul_pow2(&denominator, (unsigned)(-two));
+    }
+
+    inexact = bn_rounded_quotient(&numerator, &denominator, value->sign, mode,
+                                  &digits_value);
+
+    /* The estimate is confirmed by the answer's width. Rounding can also carry
+     * a nine-run over -- 999 becoming 1000 -- which is the same correction. */
+    uint64_t limit = 1;
+    for (unsigned i = 0; i < digits; i++) {
+      limit *= 10u;
+    }
+    if (digits_value >= limit) {
+      decimal_exponent++;
+      continue;
+    }
+    if (digits_value < limit / 10u && digits_value != 0u) {
+      decimal_exponent--;
+      continue;
+    }
+    break;
+  }
+
+  if (inexact) {
+    /* §3.6 sends binary-to-decimal inaccuracy to §6.1.7, which is `INEX2` --
+     * `INEX1` is decimal *input* only, and the two are separate bits precisely
+     * so a program can tell the directions apart. */
+    *exceptions |= UINT32_C(1) << AP_M68882_EXC_INEX2;
+  }
+
+  /* The seventeen mantissa nibbles, most significant first, left-aligned so the
+   * integer digit is `MANT16` and the unused low digits are zero. */
+  uint8_t emitted[17] = {0};
+  for (unsigned i = 0; i < digits; i++) {
+    emitted[digits - 1u - i] = (uint8_t)(digits_value % 10u);
+    digits_value /= 10u;
+  }
+  for (unsigned i = 0; i < 17u; i++) {
+    put_digit(bytes, 7u + i, i < digits ? emitted[i] : 0u);
+  }
+
+  /* The exponent, as three BCD digits with its own sign. */
+  int magnitude = decimal_exponent < 0 ? -decimal_exponent : decimal_exponent;
+  if (decimal_exponent < 0) {
+    bytes[0] |= 0x40u;
+  }
+  if (magnitude > 999) {
+    /* "If the magnitude of the rounded decimal result exponent exceeds 999, the
+     * FPCP signals an operand error and calculates a fourth exponent digit,
+     * which is included in the destination operand" -- at nibble 4, which is
+     * the `EXP3` position Figure 3-11 shows and a don't care on the way in. */
+    *exceptions |= UINT32_C(1) << AP_M68882_EXC_OPERR;
+    put_digit(bytes, 4u, (unsigned)((magnitude / 1000) % 10));
+    magnitude %= 1000;
+  }
+  bytes[0] = (uint8_t)((bytes[0] & 0xF0u) |
+                       (unsigned)((magnitude / 100) % 10));
+  put_digit(bytes, 2u, (unsigned)((magnitude / 10) % 10));
+  put_digit(bytes, 3u, (unsigned)(magnitude % 10));
 }

@@ -742,12 +742,6 @@ ap_m68882_status_t ap_m68882_destination_transfer(const ap_m68882_t *fpu,
   /* Bits 12-10 are the DESTINATION FORMAT here, where in opclass `010` the same
    * field is the source format. Same encoding, opposite direction. */
   *format = (ap_m68882_format_t)command.rx;
-  if (*format == AP_M68882_FORMAT_PACKED ||
-      *format == AP_M68882_FORMAT_PACKED_DYNAMIC) {
-    /* The k-factor in the extension field is the other half of what packed
-     * decimal needs, and neither half is implemented. */
-    return AP_M68882_UNIMPLEMENTED;
-  }
   *needs_store = true;
   return AP_M68882_EXECUTED;
 }
@@ -755,6 +749,7 @@ ap_m68882_status_t ap_m68882_destination_transfer(const ap_m68882_t *fpu,
 ap_m68882_status_t ap_m68882_execute_store(ap_m68882_t *fpu,
                                            uint16_t operation_word,
                                            uint16_t command_word,
+                                           int dynamic_k_factor,
                                            ap_m68882_store_t *out) {
   ap_m68882_command_word_t command = {0};
   const ap_m68882_status_t decoded =
@@ -771,8 +766,21 @@ ap_m68882_status_t ap_m68882_execute_store(ap_m68882_t *fpu,
    * would store whichever register the instruction was writing towards. */
   const ap_m68882_extended_t *source = &fpu->regs.fp[command.ry];
 
+  /* §4.8: the extension field is the k-factor for a packed destination, seven
+   * bits two's complement -- and for a *dynamic* one it names a main processor
+   * data register, which the caller has already resolved. */
+  int k_factor = (int)(command.extension & 0x7Fu);
+  if (k_factor >= 64) {
+    k_factor -= 128;
+  }
+  if ((ap_m68882_format_t)command.rx == AP_M68882_FORMAT_PACKED_DYNAMIC) {
+    /* "$7 P{Dn} Packed Decimal Real with dynamic k-factor", whose field is
+     * `rrr0000` -- a register number, not a value. The caller resolved it. */
+    k_factor = dynamic_k_factor;
+  }
   if (!ap_m68882_store_encode((ap_m68882_format_t)command.rx, source,
-                              ap_m68882_rounding_mode(&fpu->regs), out)) {
+                              ap_m68882_rounding_mode(&fpu->regs), k_factor,
+                              out)) {
     return AP_M68882_UNIMPLEMENTED;
   }
 

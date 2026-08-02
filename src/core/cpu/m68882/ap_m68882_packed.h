@@ -72,4 +72,34 @@
 void ap_m68882_packed_decode(const uint8_t *bytes, ap_m68882_rounding_t mode,
                              ap_m68882_extended_t *out, uint32_t *exceptions);
 
+/* Encode an extended value as a packed decimal string.
+ *
+ * `k_factor` is the seven-bit signed field: "-64 to 0 -- Indicates the number of
+ * significant digit to the right of the decimal point (Fortran 'F' format).
+ * +1 to +17 -- Indicates the number of significant digits in the mantissa
+ * (Fortran 'E' format). +18 to +63 -- Sets the OPERR bit in the FPSR exception
+ * byte, treated as +17" -- both halves of that last row, so an out-of-range
+ * k-factor raises *and* still produces the result the part produces.
+ *
+ * `*exceptions` receives `OPERR` for that case and for a decimal exponent past
+ * 999, and `INEX2` when the string cannot represent the value exactly. `INEX2`
+ * rather than `INEX1`: §3.6 sends binary-to-decimal inaccuracy to §6.1.7, and
+ * the two bits are separate precisely so a program can tell the directions
+ * apart.
+ *
+ * **Accuracy, and a documented absence.** §3.6 is explicit that the part itself
+ * is not correctly rounded here: "the error bounds specified by the IEEE
+ * standard apply only to conversions of values in the range of the double
+ * precision format. The error bound for conversions by the FPCP of extended
+ * precision values which cannot be represented in double precision is
+ * significantly larger. Software must be provided to convert such extended
+ * precision values to decimal." No bound is published for that case, so there
+ * is no figure to model. This rounds correctly at every magnitude, which is
+ * inside the IEEE bound where one applies and better than the part where none
+ * does -- the same position the transcendentals take, and recorded in
+ * `PROJECT_STATUS.md` rather than left implicit. */
+void ap_m68882_packed_encode(const ap_m68882_extended_t *value, int k_factor,
+                             ap_m68882_rounding_t mode, uint8_t *bytes,
+                             uint32_t *exceptions);
+
 #endif /* APOLLO_CPU_M68882_AP_M68882_PACKED_H */

@@ -5,6 +5,7 @@
 #include "cpu/m68882/ap_m68882_store.h"
 
 #include "cpu/m68882/ap_m68882_arith.h"
+#include "cpu/m68882/ap_m68882_packed.h"
 #include "cpu/m68882/ap_m68882_round.h"
 
 #define INTEGER_BIT (UINT64_C(1) << 63)
@@ -266,7 +267,7 @@ static uint64_t encode_integer(unsigned size, const ap_m68882_extended_t *value,
 
 bool ap_m68882_store_encode(ap_m68882_format_t format,
                             const ap_m68882_extended_t *value,
-                            ap_m68882_rounding_t mode,
+                            ap_m68882_rounding_t mode, int k_factor,
                             ap_m68882_store_t *out) {
   *out = (ap_m68882_store_t){.size = ap_m68882_format_size(format)};
 
@@ -311,7 +312,12 @@ bool ap_m68882_store_encode(ap_m68882_format_t format,
 
   case AP_M68882_FORMAT_PACKED:
   case AP_M68882_FORMAT_PACKED_DYNAMIC:
-    return false;
+    /* The two rows differ only in where the k-factor came from -- the
+     * instruction or a data register -- and the main processor has already
+     * resolved that by the time it gets here. */
+    ap_m68882_packed_encode(value, k_factor, mode, out->bytes,
+                            &out->exceptions);
+    return true;
   }
   return false;
 }

@@ -39,9 +39,9 @@
  *
  * ## Packed decimal
  *
- * Declines, as it does on the way in. §3.6's binary-to-decimal conversion is
- * separate arithmetic from everything here, and its own operand error condition
- * ("Result Exponent > 999 (Decimal) or k-Factor > +17") belongs with it.
+ * Handled by `ap_m68882_packed_encode`, which is where its own operand error
+ * conditions live -- "Result Exponent > 999 (Decimal) or k-Factor > +17" -- and
+ * which needs the k-factor this interface therefore has to carry.
  */
 
 #ifndef APOLLO_CPU_M68882_AP_M68882_STORE_H
@@ -65,11 +65,12 @@ typedef struct {
 
 /* Convert `value` into `format`, rounding by `mode`.
  *
- * Returns false for the two packed decimal formats, which this model has not
- * got to; the caller reports that as our gap rather than as a machine trap. */
+ * `k_factor` is meaningful only for the two packed decimal formats, where it
+ * decides the string's shape; every binary format ignores it. */
 [[nodiscard]] bool ap_m68882_store_encode(ap_m68882_format_t format,
                                           const ap_m68882_extended_t *value,
                                           ap_m68882_rounding_t mode,
+                                          int k_factor,
                                           ap_m68882_store_t *out);
 
 #endif /* APOLLO_CPU_M68882_AP_M68882_STORE_H */

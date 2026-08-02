@@ -142,9 +142,15 @@ ap_m68882_destination_transfer(const ap_m68882_t *fpu, uint16_t operation_word,
  * every arithmetic operation sets them. A store that went through the common
  * result path would quietly rewrite the condition codes of whatever ran
  * before it. */
+/* `dynamic_k_factor` is used only when the destination format is `$7`, packed
+ * decimal with a dynamic k-factor, whose command field holds `rrr0000` -- a main
+ * processor data register number rather than a value, so the caller reads the
+ * register and passes what it found. "If a data register contains the k-factor,
+ * only the least significant 7 bits are used." */
 [[nodiscard]] ap_m68882_status_t
 ap_m68882_execute_store(ap_m68882_t *fpu, uint16_t operation_word,
-                        uint16_t command_word, ap_m68882_store_t *out);
+                        uint16_t command_word, int dynamic_k_factor,
+                        ap_m68882_store_t *out);
 
 /* ---------------------------------------------------------------------------
  * FMOVEM: a list of transfers rather than one
