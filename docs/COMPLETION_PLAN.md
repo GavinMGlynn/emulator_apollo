@@ -1806,7 +1806,19 @@ a 68882, and the 68882 is the only one of these it has.
             than as the 68030's illegal-instruction verdict: descriptor type
             `$01`, which supplies its own stack pointer and needs the argument
             copy across it. That is the only thing left between the 68020 and
-            its oracle diff.
+            its oracle diff, and it has **one unresolved reference question**
+            rather than being merely unwritten: where the copied arguments go.
+            `AP_M68020_FRAME_BYTES`'s comment has them *after* the frame —
+            "arguments follow, optionally" — while the option's own text says
+            "the arguments are to be left on the stack of the calling module on
+            the stack **just below** the module stack frame". Below in address
+            terms is the opposite of after. One of the two readings is a
+            paraphrase and the other is the layout, and which is which comes
+            from Figure D-3's page image, not from the header that quotes it.
+            Naming it because the rest of the form is mechanical — read the
+            module stack pointer at `AP_M68020_DESCRIPTOR_STACK_POINTER`, build
+            the frame there instead, copy `argument_count` bytes — and this is
+            the only part that could be written plausibly and wrongly.
             *Verification: `step_suite` +1 (248) — the frame checked through
             its saved PC, saved register, saved stack pointer and descriptor
             pointer, not the program counter alone, because a `CALLM` that
