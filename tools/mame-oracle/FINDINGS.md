@@ -3610,3 +3610,74 @@ removing the fix -- both checks fail without it.
 
 **A test that exercises a feature is not a test that the feature left the program
 in a working state.**
+
+
+## C58 -- it boots from its own disk
+
+The install is finished and the result boots. `ex domain_os` with **no `di c`**
+and **no cartridge in the drive**:
+
+```
+>ex domain_os
+low: 01002000 high: 010E986C start: 01002024
+
+Domain/OS kernel(7), revision 10.4, February 14, 1992  11:42:25 am
+
+Apollo Phase II Environment   Revision 10.4   Jan 25, 1992  12:59:03 pm
+
+)
+```
+
+Three details make that more than "it printed something":
+
+- **`error: sysboot not found` is gone.** That is exactly what this command
+  answered before MINST ran (`C55`): the boot-volume restore leaves
+  `sysboot.m68k` in the filesystem and the PROM wants `sysboot`, which the
+  install creates. The failure and its disappearance are the same test run
+  twice, on either side of the thing that was supposed to fix it.
+- **The kernel is a different image.** From the cartridge it loaded to
+  `01111FFF`; from the disk it loads to `010E986C`. Not the same bytes, so not
+  the tape being read by another name.
+- **The Phase II banner has no `RBAK version` suffix.** The tape's says
+  `Revision 10.4 RBAK version`; this one says `Revision 10.4`. It is the
+  installed environment rather than the restore tool's.
+
+And **no calendar complaint and no salvage prompt**, which is the clean
+shutdown of `C57` earning its place: a volume that was shut down properly boots
+without being repaired first.
+
+### It runs installed software
+
+Logged in over the serial console as `user`, empty password:
+
+```
+$ bldt
+
+     **** Node 12345 ****   "//node_12345"
+Domain/OS kernel(7), revision 10.4, February 14, 1992  11:42:25 am
+```
+
+`//node_12345` is the name INVOL gave the volume, so the node is running under
+the identity this project created for it.
+
+Two files placed by `install++` were checked directly and both are present --
+`/usr/X11/bin/uwm` and `/com/rbak`, each opened and read as an object module.
+Worth recording *how* that check landed: `ld` on this machine is the **linker**,
+not Aegis's list-directory, so it reported "Object module contains no relocation
+information". That is a file it successfully opened and parsed, which is a
+stronger existence proof than a directory listing would have been, and it is
+also why `ld /` and `ld /bsd4.3` had earlier answered "wrong type - can't
+operate on system objects": they are directories and variant links, and the
+linker was being asked to link them.
+
+### What this closes
+
+`PROJECT_STATUS.md` has carried this since the beginning: *"No bootable
+Domain/OS media: all we hold is installation media, so reaching a login prompt
+needs an install performed under the oracle first."*
+
+There is now an installed, bootable Domain/OS SR10.4 on a disk this project
+built from nothing but the five distribution cartridges, and it has been booted
+from that disk and logged into. The image is pinned in
+`docs/references/DOMAINOS_IMAGE.md` and the procedure that produces it is
+`tools/mame-oracle/install-domainos.cmds`.
