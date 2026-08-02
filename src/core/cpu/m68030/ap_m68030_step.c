@@ -4218,15 +4218,38 @@ static bool execute_callm(ap_m68030_cpu_t *cpu,
      * which frame it stacks. */
     return false;
   }
-  /* Type `$01` is the form that supplies its own stack pointer, and it is the
-   * *type* that decides -- not the option, which only says whether arguments
-   * move once a change is happening. Asking
-   * `ap_m68020_module_copies_arguments(&control, true)` declines option 000
-   * whether or not the stack moves, which is every descriptor this test
-   * builds. */
-  if (control.type == 0x01u) {
-    return false; /* the stack-changing form; see the header comment */
+  /* Type `$01` supplies its own stack pointer, and it is the *type* that
+   * decides -- not the option, which only says whether arguments move once a
+   * change is happening. */
+  const bool stack_changes = control.type == 0x01u;
+  uint32_t top = ap_m68030_read_a7(&cpu->regs);
+  if (stack_changes) {
+    const ap_m68030_address_t at = {
+        .address = descriptor.address + AP_M68020_DESCRIPTOR_STACK_POINTER,
+        .valid = true};
+    const ap_m68030_operand_result_t read = step_operand_read(
+        cpu, &cpu->regs, cpu->data, &at, 4u, cpu->data_function_code);
+    *clocks += read.clocks;
+    if (!read.ok) {
+      return false;
+    }
+    top = read.value;
   }
+
+  /* "The 000 option indicates that the called module expects to find arguments
+   * from the calling module on the stack just below the module stack frame. In
+   * cases where there is a change of stack pointer during the call, the MC68020
+   * will copy the arguments from the old stack to the new stack."
+   *
+   * "Just below" is the diagram's orientation and "arguments follow" is the
+   * address order, and they agree: the frame is built at the lower address and
+   * the arguments sit at `frame + AP_M68020_FRAME_BYTES`, where they were
+   * already sitting on the caller's stack. Reading the two as contradictory is
+   * what made this look like an open question. */
+  const unsigned arguments =
+      ap_m68020_module_copies_arguments(&control, stack_changes)
+          ? (argument_count & 0xFFu)
+          : 0u;
 
   const uint32_t entry = fields[AP_M68020_DESCRIPTOR_ENTRY_WORD_POINTER / 4u];
   const uint32_t data_area = fields[AP_M68020_DESCRIPTOR_DATA_AREA_POINTER / 4u];
@@ -4245,8 +4268,29 @@ static bool execute_callm(ap_m68030_cpu_t *cpu,
                               ? &cpu->regs.a[receiver.reg]
                               : &cpu->regs.d[receiver.reg];
 
-  /* Figure D-3, built downward from the current stack pointer. */
-  const uint32_t frame = ap_m68030_read_a7(&cpu->regs) - AP_M68020_FRAME_BYTES;
+  /* Copy first, so a fault leaves the caller's stack pointer untouched. */
+  for (unsigned i = 0; i < arguments; i++) {
+    const ap_m68030_address_t from = {
+        .address = ap_m68030_read_a7(&cpu->regs) + i, .valid = true};
+    const ap_m68030_operand_result_t got = step_operand_read(
+        cpu, &cpu->regs, cpu->data, &from, 1u, cpu->data_function_code);
+    *clocks += got.clocks;
+    if (!got.ok) {
+      return false;
+    }
+    const ap_m68030_address_t to = {.address = top - arguments + i,
+                                    .valid = true};
+    const ap_m68030_operand_result_t put =
+        step_operand_write(cpu, &cpu->regs, cpu->data, &to, 1u, got.value,
+                           cpu->data_function_code);
+    *clocks += put.clocks;
+    if (!put.ok) {
+      return false;
+    }
+  }
+
+  /* Figure D-3, built below whatever the arguments occupy. */
+  const uint32_t frame = top - arguments - AP_M68020_FRAME_BYTES;
   const uint32_t words[] = {
       ((uint32_t)control.opt << 13) | ((uint32_t)control.type << 8) |
           control.access_level,

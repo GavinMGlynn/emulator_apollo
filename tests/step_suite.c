@@ -6750,6 +6750,52 @@ static void test_callm_and_rtm_return_the_caller_to_where_it_was(void) {
   TEST_ASSERT_EQUAL_HEX32(PROGRAM_BASE + 8u, m.cpu.regs.pc);
 }
 
+/* **Descriptor type `$01` supplies its own stack pointer, and the arguments
+ * move with the call.** `[020]` §D.1.1: "The 000 option indicates that the
+ * called module expects to find arguments from the calling module on the stack
+ * just below the module stack frame. In cases where there is a change of stack
+ * pointer during the call, the MC68020 will copy the arguments from the old
+ * stack to the new stack."
+ *
+ * "Just below" is the diagram's orientation and the frame comment's "arguments
+ * follow" is the address order; they agree, and the test pins which: the
+ * arguments end up at `frame + AP_M68020_FRAME_BYTES`, on the *new* stack, with
+ * the frame beneath them. A model that put them the other side would round-trip
+ * through this core's own `RTM` and disagree with hardware -- which is why this
+ * is checked against the copied bytes rather than against the return. */
+static void test_a_stack_changing_module_call_carries_its_arguments(void) {
+  static const uint16_t program[] = {0x06F9u, 0x0000u, 0x0000u, 0x3000u,
+                                     0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 5);
+  m.cpu.has_module_calls = true;
+  m.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
+  m.cpu.regs.isp = SUPERVISOR_STACK;
+
+  /* Type $01, option 000: its own stack pointer, and arguments copied. */
+  write_ram_long(&m, 0x3000u, 0x01000000u);
+  write_ram_long(&m, 0x3004u, 0x00003100u);
+  write_ram_long(&m, 0x3008u, 0x00004000u);
+  write_ram_long(&m, 0x300Cu, 0x00005000u);  /* the module's stack pointer */
+  m.memory.bytes[0x3100u] = 0x30u;
+  m.memory.bytes[0x3101u] = 0x00u;
+  /* Four bytes of arguments on the caller's stack, and a count to match: the
+   * count is the CALLM extension word's low byte, and $06F9's operand words
+   * are followed by it. */
+  write_ram_long(&m, SUPERVISOR_STACK, 0xCAFEF00Du);
+
+  const ap_m68030_step_result_t r = ap_m68030_step(&m.cpu);
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, r.status);
+
+  /* The frame is on the *module's* stack, not the caller's. */
+  const uint32_t frame = 0x5000u - AP_M68020_FRAME_BYTES;
+  TEST_ASSERT_EQUAL_HEX32(frame, m.cpu.regs.isp);
+  /* And the caller's stack pointer is what the frame remembers. */
+  TEST_ASSERT_EQUAL_HEX32(SUPERVISOR_STACK,
+                          read_ram_long(&m, frame + AP_M68020_FRAME_SAVED_SP));
+  TEST_ASSERT_EQUAL_HEX32(0x00003102u, m.cpu.regs.pc);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_an_f_line_word_traps_when_no_coprocessor_is_fitted);
@@ -6760,6 +6806,7 @@ int main(void) {
   RUN_TEST(test_a_dn3000_decodes_a_module_call_where_a_dn3500_does_not);
   RUN_TEST(test_callm_builds_a_module_stack_frame);
   RUN_TEST(test_callm_and_rtm_return_the_caller_to_where_it_was);
+  RUN_TEST(test_a_stack_changing_module_call_carries_its_arguments);
   RUN_TEST(test_a_single_source_operand_is_fetched_from_memory);
   RUN_TEST(test_an_extended_source_operand_spans_three_long_words);
   RUN_TEST(test_a_postincrement_steps_by_the_source_format_length);
