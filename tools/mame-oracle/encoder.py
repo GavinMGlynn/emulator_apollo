@@ -368,6 +368,33 @@ def dbcc_probe(address: int = SENTINEL_ADDRESS) -> list[int]:
     )
 
 
+def movem_probe(address: int = SENTINEL_ADDRESS) -> list[int]:
+    """`MOVEM` out through a predecrement and back through a postincrement.
+
+    The register list's bit order **reverses** between the two modes -- for
+    `-(An)` bit 15 is `D0`, for `(An)+` bit 0 is -- and a model using one
+    ordering for both reverses every transfer while still moving the stack
+    pointer exactly the right distance. That is the integer core's version of
+    the trap the floating-point `FMOVEM` carries, and nothing straight-line
+    catches it.
+
+    Three registers out and three different ones back, so the *mapping* is what
+    is checked rather than a round trip that would survive a double reversal:
+    `D0`, `D1`, `D2` hold 1, 2, 3 going out, and `D3`, `D4`, `D5` receive them
+    coming back. `D5` is stored, and is 3 only if both orderings are right.
+    """
+    return assemble(
+        [0x7001],                                          # MOVEQ #1,D0
+        [0x7201],                                          # MOVEQ #1,D1
+        [0x5241],                                          # ADDQ.W #1,D1  -> 2
+        [0x7403],                                          # MOVEQ #3,D2
+        [0x48E7, 0xE000],                                  # MOVEM.L D0-D2,-(A7)
+        [0x4CDF, 0x0038],                                  # MOVEM.L (A7)+,D3-D5
+        [0x23C5, (address >> 16) & 0xFFFF, address & 0xFFFF],
+        stop(0x2700),
+    )
+
+
 if __name__ == "__main__":
     import sys
     print(to_hex(sentinel_probe()), file=sys.stdout)

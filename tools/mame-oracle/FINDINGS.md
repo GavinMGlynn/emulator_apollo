@@ -4553,3 +4553,37 @@ probe entirely; the real constraint is a single degenerate case with a one-word
 workaround. Diagnosing it cost one `sed` of the harness. Recording an
 undiagnosed limitation as though it were a boundary is its own kind of error, and
 this file now carries the example.
+
+## C77 -- MOVEM's mask reversal agrees, on the integer core's version of an FPU trap
+
+**Class: agree.**
+
+    MOVEM.L D0-D2,-(A7) ; MOVEM.L (A7)+,D3-D5 ; store D5
+
+| Check | Ours | Oracle | |
+| --- | --- | --- | --- |
+| instructions executed | 8 | 8 | agree |
+| `D5` after the round trip | `00000003` | `00000003` | agree |
+
+Run with `python3 tools/mame-oracle/probe_compare.py --program movem`.
+
+The register list's bit order **reverses** between the two modes -- for `-(An)`
+bit 15 is `D0`, for `(An)+` bit 0 is -- and a model using one ordering for both
+reverses every transfer while still moving the stack pointer exactly the right
+distance, which is the failure that looks correct from the outside. It is the
+integer core's version of the trap `FMOVEM` carries on the floating-point side,
+where the same reversal is printed as two rows of a table.
+
+**Three registers out and three *different* ones back**, deliberately: a round
+trip into the same registers survives a double reversal and proves nothing. `D0`,
+`D1`, `D2` carry 1, 2, 3 out; `D3`, `D4`, `D5` receive them; `D5` is 3 only if
+both orderings are right.
+
+**Where the comparison now reaches.** Straight-line integer work (the sentinel),
+a counted loop (`DBcc`, C76), a register list in both directions (here), the
+whole exception path through two different frames (C73, C74), and the
+floating-point unit across seven functions and a rounding mode (C60 to C71,
+C63's sweep). What it does not yet reach: `BSR`/`RTS`, `MULU`/`DIVU`, and the MMU
+instructions, each of which has a probe in `ap_probe.c` that has never been run
+against the oracle -- the suite and the harness are still separate instruments,
+which is the standing tail rather than a gap in any item.

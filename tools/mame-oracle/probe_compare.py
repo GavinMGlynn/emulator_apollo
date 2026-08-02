@@ -142,13 +142,22 @@ def main(argv=None) -> int:
     parser.add_argument("--timeout", type=float, default=300.0)
     parser.add_argument("--work", type=Path, default=Path("/tmp"))
     parser.add_argument(
-        "--program", choices=("sentinel", "fpu", "fpu-rounding", "fpu-sine", "fpu-sine-x", "fault", "bus-fault", "dbcc"),
+        "--program", choices=("sentinel", "fpu", "fpu-rounding", "fpu-sine", "fpu-sine-x", "fault", "bus-fault", "dbcc", "movem"),
         default="sentinel",
         help="which probe to run; `fpu` exercises the coprocessor's constant "
              "ROM, an FADD and the store conversion in one")
     args = parser.parse_args(argv)
 
-    if args.program == "dbcc":
+    if args.program == "movem":
+        ours_words = E.movem_probe(OURS_BASE + SENTINEL_OFFSET)
+        oracle_words = E.movem_probe(ORACLE_BASE + SENTINEL_OFFSET)
+        print("probe:  MOVEM.L D0-D2,-(A7) ; MOVEM.L (A7)+,D3-D5 ;"
+              " store D5 ; STOP")
+        print("        the mask bit order reverses between the two modes;"
+              " D5 is 3 only if")
+        print("        both orderings are right, and a double reversal would"
+              " not survive it")
+    elif args.program == "dbcc":
         ours_words = E.dbcc_probe(OURS_BASE + SENTINEL_OFFSET)
         oracle_words = E.dbcc_probe(ORACLE_BASE + SENTINEL_OFFSET)
         print("probe:  MOVEQ #3,D0 ; DBRA D0,self ; MOVE.L D0,(sentinel) ;"
@@ -232,6 +241,7 @@ def main(argv=None) -> int:
                 # `m68882_transcendental_suite` against 120-digit references
                 # rather than restated here.
                 "dbcc": "0000FFFF",
+                "movem": "00000003",
                 "fault": "00000010",
                 # No expected value: which frame a data fault produces is the
                 # thing being compared, not something to assert in advance.
