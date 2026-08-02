@@ -3,6 +3,7 @@
 
 add_library(apollo_core STATIC
   cpu/m68882/ap_m68882_cir.c
+  cpu/m68882/ap_m68882_round.c
   cpu/m68882/ap_m68882_format.c
   cpu/m68882/ap_m68882_regs.c
   cpu/m68030/ap_m68030_bounds.c

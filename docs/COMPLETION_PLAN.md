@@ -1818,7 +1818,28 @@ a 68882, and the 68882 is the only one of these it has.
         not exist on this part**: Table 7-2's footnote excludes the operation
         word and operand address CIRs, "since they are not used by the MC68881",
         so a map transcribed without its footnote gives them storage.
-  - [ ] The arithmetic and the transcendentals.
+  - [x] **Rounding** (`ap_m68882_round.c`), Figure 6-3's algorithm transcribed
+        and §6.1.7's intermediate format. Its own module because every
+        operation ends here: the add, the multiply, the divide and the
+        transcendentals all produce a result "as if to produce infinite
+        precision" and round it once, so this is the single place `INEX2` is
+        raised and the four modes are interpreted.
+        *Verification: `m68882_round_suite`, 11 tests, asserting the pseudocode's
+        **branches** rather than a handful of results -- the exact case in all
+        four modes, each directed mode on both signs, the tie, above and below
+        the tie, the chop, and the carry.*
+  - [x] Three properties that are the difference between an IEEE machine and an
+        approximation. **Round to nearest is round half to *even*** -- a model
+        rounding every tie up is wrong half the time on ties and biases a long
+        summation, which is why the standard specifies the case at all. **The
+        directed modes follow the sign, not the magnitude**, so rounding toward
+        minus infinity makes a negative number larger. And **rounding happens
+        once, from the full intermediate**: the bits below a single-precision
+        boundary fold into that decision rather than being rounded away first,
+        which is the classic double-rounding error and gives a different answer
+        near a tie.
+  - [ ] The arithmetic and the transcendentals, which now have a rounding stage
+        to end in.
 - [ ] 68020 subset: no on-chip MMU or cache differences, external 68851.
       *Verification: `dn3000` boots under both; oracle diff.*
 - [ ] 68851 external PMMU as its own subsystem. *Verification: `MC68851 PMMU
