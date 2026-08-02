@@ -1416,6 +1416,46 @@ bits stays as recorded: `FTENTOX #1` returns exactly 10.0 here, and §4.3.2 says
 the hardware's does not. It is not closable without the algorithm Motorola never
 published, and it is in the direction of being more correct than the part.
 
+**An audit against the item's own verification found a real gap, and closing it
+found a bug.** The 68882's verification line asks for "a probe suite over each
+operation and rounding mode", and the transcendentals had only ever been
+measured at round-to-nearest. Checking the other three turned up §6.1.4's
+trap-disabled overflow table, which the whole core had been getting wrong:
+
+    RN   Infinity, with the sign of the intermediate result
+    RZ   Largest magnitude number, with the sign of the intermediate result
+    RM   For positive overflow, largest positive number
+         For negative overflow, -infinity
+    RP   For positive overflow, +infinity
+         For negative overflow, largest negative number
+
+There is one rule underneath -- an infinity when the mode pushes *away* from
+zero in that direction, the largest finite number when it pulls back -- and
+`finish` had been returning an infinity unconditionally. So `FMUL` under
+round-to-zero produced a value the part never produces, and **silently**: `OVFL`
+is set either way and only the stored number differs. The same fault was in the
+transcendentals' own overflow path. Both now share
+`ap_m68882_overflow_result`.
+
+§6.1.4's NOTE turned up a second gap alongside it: overflow is detected against
+"the maximum exponent value of the **selected rounding precision**", not
+extended's, so a value extended can hold still overflows a single-precision
+destination. `2^200` is an ordinary extended number and an overflow at single
+precision. The threshold is now precision-dependent, and the substituted finite
+value is the largest of *that* precision -- 24 significand bits at exponent 127,
+not 64 bits at 16383.
+
+**One approximation is recorded rather than closed.** At *extended* precision
+all four rounding modes return the same value here, because the model computes a
+64-bit approximation directly and has no bits below the destination left to
+round; the part carries 67 bits internally and its directed modes differ. The
+divergence is at most one unit in the last place -- a sixty-fourth of §4.3.2's
+typical bound and a four-thousandth of its worst case -- and closing it would
+mean carrying guard bits through every kernel, for a gain smaller than it looks
+given the part's own directed rounding of a transcendental is accurate only to
+the same published bound. A test asserts the no-op so that anyone who later adds
+guard bits finds it and deletes it deliberately.
+
 What remains unimplemented in the 68882 is the rounding and remainder forms --
 `FMOD`, `FREM`, `FSGLDIV`, `FSGLMUL` -- which are not §4.3.2 transcendentals, so
 the accuracy bound above has nothing to say about them and closing them is

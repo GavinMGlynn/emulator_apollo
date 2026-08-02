@@ -602,6 +602,121 @@ static void test_every_quotient_comes_back_normalised(void) {
   }
 }
 
+static void test_an_overflow_is_not_always_an_infinity(void) {
+  /* §6.1.4's trap-disabled table, which the obvious reading of "overflow" gets
+   * wrong:
+   *
+   *     RN   Infinity, with the sign of the intermediate result
+   *     RZ   Largest magnitude number, with the sign of the intermediate result
+   *     RM   For positive overflow, largest positive number
+   *          For negative overflow, -infinity
+   *     RP   For positive overflow, +infinity
+   *          For negative overflow, largest negative number
+   *
+   * One rule underneath: an infinity when the mode pushes *away* from zero in
+   * that direction, the largest finite number when it pulls back. Returning an
+   * infinity unconditionally makes round-to-zero produce a value the part never
+   * produces -- and silently, because `OVFL` is set either way and only the
+   * stored number differs. */
+  const ap_m68882_extended_t largest = {false, 0x7FFE,
+                                        0xFFFFFFFFFFFFFFFFULL};
+  const ap_m68882_extended_t two = {false, 0x4000, 0x8000000000000000ULL};
+  const struct {
+    ap_m68882_rounding_t mode;
+    bool infinite;
+  } positive[] = {{AP_M68882_ROUND_NEAREST, true},
+                  {AP_M68882_ROUND_ZERO, false},
+                  {AP_M68882_ROUND_MINUS_INFINITY, false},
+                  {AP_M68882_ROUND_PLUS_INFINITY, true}};
+
+  for (unsigned i = 0; i < 4u; i++) {
+    const ap_m68882_op_t got = ap_m68882_mul(&largest, &two, positive[i].mode,
+                                             AP_M68882_PRECISION_EXTENDED);
+    TEST_ASSERT_NOT_EQUAL_UINT(0u, got.exceptions & (1u << AP_M68882_EXC_OVFL));
+    TEST_ASSERT_FALSE(got.value.sign);
+    if (positive[i].infinite) {
+      TEST_ASSERT_EQUAL_INT_MESSAGE(AP_M68882_TYPE_INFINITY,
+                                    ap_m68882_classify(&got.value),
+                                    "this mode overflows to an infinity");
+    } else {
+      TEST_ASSERT_EQUAL_INT_MESSAGE(AP_M68882_TYPE_NORMALIZED,
+                                    ap_m68882_classify(&got.value),
+                                    "this mode overflows to a finite number");
+      TEST_ASSERT_EQUAL_UINT(0x7FFEu, got.value.exponent);
+      TEST_ASSERT_EQUAL_UINT64(0xFFFFFFFFFFFFFFFFULL, got.value.mantissa);
+    }
+  }
+
+  /* The negative direction, where the two directed modes exchange roles --
+   * which is the half of the table a symmetric implementation would miss. */
+  ap_m68882_extended_t minus_two = two;
+  minus_two.sign = true;
+  const ap_m68882_op_t runaway =
+      ap_m68882_mul(&largest, &minus_two, AP_M68882_ROUND_MINUS_INFINITY,
+                    AP_M68882_PRECISION_EXTENDED);
+  TEST_ASSERT_EQUAL_INT(AP_M68882_TYPE_INFINITY,
+                        ap_m68882_classify(&runaway.value));
+  TEST_ASSERT_TRUE(runaway.value.sign);
+  const ap_m68882_op_t held =
+      ap_m68882_mul(&largest, &minus_two, AP_M68882_ROUND_PLUS_INFINITY,
+                    AP_M68882_PRECISION_EXTENDED);
+  TEST_ASSERT_EQUAL_INT(AP_M68882_TYPE_NORMALIZED,
+                        ap_m68882_classify(&held.value));
+  TEST_ASSERT_TRUE(held.value.sign);
+}
+
+static void test_a_value_extended_can_hold_still_overflows_a_single(void) {
+  /* §6.1.4's NOTE: "An overflow can occur when the destination is a
+   * floating-point data register and the selected rounding precision is single
+   * or double **even if the intermediate result is small enough to be
+   * represented as an extended precision number**."
+   *
+   * So the threshold is the rounding precision's maximum exponent, not
+   * extended's. `2^200` is an ordinary extended number and an overflow at
+   * single precision, where the largest exponent is 127. Checking the extended
+   * limit alone would store it happily and report nothing. */
+  const ap_m68882_extended_t big = {false,
+                                    (uint16_t)(AP_M68882_BIAS_EXTENDED + 200),
+                                    0x8000000000000000ULL};
+  const ap_m68882_extended_t one = {false, AP_M68882_BIAS_EXTENDED,
+                                    0x8000000000000000ULL};
+
+  const ap_m68882_op_t wide =
+      ap_m68882_mul(&big, &one, AP_M68882_ROUND_NEAREST,
+                    AP_M68882_PRECISION_EXTENDED);
+  TEST_ASSERT_EQUAL_UINT_MESSAGE(
+      0u, wide.exceptions & (1u << AP_M68882_EXC_OVFL),
+      "2^200 is an ordinary extended number");
+  TEST_ASSERT_EQUAL_UINT(AP_M68882_BIAS_EXTENDED + 200, wide.value.exponent);
+
+  const ap_m68882_op_t narrow =
+      ap_m68882_mul(&big, &one, AP_M68882_ROUND_NEAREST,
+                    AP_M68882_PRECISION_SINGLE);
+  TEST_ASSERT_NOT_EQUAL_UINT_MESSAGE(
+      0u, narrow.exceptions & (1u << AP_M68882_EXC_OVFL),
+      "2^200 overflows a single-precision destination");
+  TEST_ASSERT_EQUAL_INT(AP_M68882_TYPE_INFINITY,
+                        ap_m68882_classify(&narrow.value));
+
+  /* And the largest finite number substituted under round-to-zero is the
+   * largest of *that* precision, not of extended: 24 significand bits and an
+   * exponent of 127. */
+  const ap_m68882_op_t clamped =
+      ap_m68882_mul(&big, &one, AP_M68882_ROUND_ZERO,
+                    AP_M68882_PRECISION_SINGLE);
+  TEST_ASSERT_EQUAL_UINT(AP_M68882_BIAS_EXTENDED + 127,
+                         clamped.value.exponent);
+  TEST_ASSERT_EQUAL_UINT64(0xFFFFFF0000000000ULL, clamped.value.mantissa);
+
+  /* Double precision keeps 53 bits and an exponent of 1023. */
+  const ap_m68882_op_t doubled =
+      ap_m68882_mul(&big, &one, AP_M68882_ROUND_ZERO,
+                    AP_M68882_PRECISION_DOUBLE);
+  TEST_ASSERT_EQUAL_UINT_MESSAGE(
+      0u, doubled.exceptions & (1u << AP_M68882_EXC_OVFL),
+      "2^200 fits a double-precision destination");
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_a_square_root_is_exact_for_perfect_squares);
@@ -633,5 +748,7 @@ int main(void) {
   RUN_TEST(test_multiply_and_divide_invert_each_other);
   RUN_TEST(test_a_divide_normalises_when_the_dividend_is_the_smaller);
   RUN_TEST(test_every_quotient_comes_back_normalised);
+  RUN_TEST(test_an_overflow_is_not_always_an_infinity);
+  RUN_TEST(test_a_value_extended_can_hold_still_overflows_a_single);
   return UNITY_END();
 }

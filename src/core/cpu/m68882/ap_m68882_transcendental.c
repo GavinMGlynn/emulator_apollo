@@ -425,14 +425,23 @@ static ap_m68882_op_t exp_finish(ap_m68882_extended_t r, int n,
   bool overflow = false, underflow = false;
   const ap_m68882_extended_t scaled =
       nx_scale2(value, n, &overflow, &underflow);
+  if (overflow) {
+    /* §6.1.4's result is mode-dependent and is not always an infinity, so the
+     * saturation `nx_scale2` performs is only a marker: the value it produced
+     * is discarded and the documented one substituted. Rounding the saturated
+     * infinity instead would make round-to-zero return an infinity, which the
+     * part never does. */
+    ap_m68882_op_t out = {ap_m68882_overflow_result(scaled.sign, mode,
+                                                    precision),
+                          (1u << AP_M68882_EXC_OVFL) |
+                              (1u << AP_M68882_EXC_INEX2)};
+    return out;
+  }
   /* One rounding, at the end, from the extended intermediate -- which is what
    * §6.1's rounding discussion requires and what stops a single-precision
    * result being rounded twice. */
   const ap_m68882_extended_t one = scaled;
   ap_m68882_op_t out = ap_m68882_mul(&one, &c_one, mode, precision);
-  if (overflow) {
-    out.exceptions |= 1u << AP_M68882_EXC_OVFL;
-  }
   if (underflow) {
     out.exceptions |= 1u << AP_M68882_EXC_UNFL;
   }
@@ -514,11 +523,13 @@ ap_m68882_op_t ap_m68882_etoxm1(const ap_m68882_extended_t *x,
   bool overflow = false, underflow = false;
   const ap_m68882_extended_t scaled =
       nx_scale2(nx_add(c_one, expm1_kernel(r)), n, &overflow, &underflow);
+  if (overflow) {
+    return (ap_m68882_op_t){
+        ap_m68882_overflow_result(scaled.sign, mode, precision),
+        (1u << AP_M68882_EXC_OVFL) | (1u << AP_M68882_EXC_INEX2)};
+  }
   ap_m68882_extended_t value = nx_sub(scaled, c_one);
   ap_m68882_op_t out = ap_m68882_mul(&value, &c_one, mode, precision);
-  if (overflow) {
-    out.exceptions |= 1u << AP_M68882_EXC_OVFL;
-  }
   out.exceptions |= 1u << AP_M68882_EXC_INEX2;
   return out;
 }
@@ -1233,6 +1244,10 @@ static ap_m68882_extended_t nx_half(ap_m68882_extended_t v) {
   return nx_scale2(v, -1, &overflow, &underflow);
 }
 
+/* The exponential of an intermediate, at round-to-nearest and extended
+ * precision whatever the caller asked for -- the caller's mode applies to the
+ * *result*, and an overflow here is reported so the caller can substitute
+ * §6.1.4's mode-dependent value rather than propagate this one. */
 static ap_m68882_extended_t exp_of(ap_m68882_extended_t x,
                                    uint32_t *exceptions) {
   const ap_m68882_op_t out =
@@ -1310,6 +1325,16 @@ ap_m68882_op_t ap_m68882_sinh(const ap_m68882_extended_t *x,
   }
 
   value.sign ^= negative;
+  if ((exceptions & (1u << AP_M68882_EXC_OVFL)) != 0u) {
+    return (ap_m68882_op_t){
+        ap_m68882_overflow_result(value.sign, mode, precision),
+        (1u << AP_M68882_EXC_OVFL) | (1u << AP_M68882_EXC_INEX2)};
+  }
+  if ((exceptions & (1u << AP_M68882_EXC_OVFL)) != 0u) {
+    return (ap_m68882_op_t){
+        ap_m68882_overflow_result(value.sign, mode, precision),
+        (1u << AP_M68882_EXC_OVFL) | (1u << AP_M68882_EXC_INEX2)};
+  }
   ap_m68882_op_t result = ap_m68882_mul(&value, &c_one, mode, precision);
   result.exceptions |= exceptions | (1u << AP_M68882_EXC_INEX2);
   return result;

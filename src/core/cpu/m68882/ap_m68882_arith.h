@@ -46,6 +46,34 @@ typedef struct {
   uint32_t exceptions;
 } ap_m68882_op_t;
 
+/* §6.1.4's trap-disabled overflow result, which is **not** always an infinity.
+ *
+ *     RN   Infinity, with the sign of the intermediate result
+ *     RZ   Largest magnitude number, with the sign of the intermediate result
+ *     RM   For positive overflow, largest positive number
+ *          For negative overflow, -infinity
+ *     RP   For positive overflow, +infinity
+ *          For negative overflow, largest negative number
+ *
+ * The pattern is one rule: the result is an infinity when the rounding mode
+ * pushes *away* from zero in that direction, and the largest finite number when
+ * it pulls back. Returning an infinity unconditionally -- the obvious reading of
+ * "overflow" -- makes round-to-zero produce a value the part never produces,
+ * and silently, because the exception byte is identical either way.
+ *
+ * "Largest magnitude number" is the largest in the **rounding precision**, not
+ * in extended: §6.1.4 detects overflow against "the maximum exponent value of
+ * the selected rounding precision", and its NOTE spells out that a result small
+ * enough for extended can still overflow a single-precision destination. */
+[[nodiscard]] ap_m68882_extended_t
+ap_m68882_overflow_result(bool sign, ap_m68882_rounding_t mode,
+                          ap_m68882_precision_t precision);
+
+/* The largest biased exponent the rounding precision can hold. A result at or
+ * above this overflows that precision even when extended could represent it. */
+[[nodiscard]] uint16_t
+ap_m68882_overflow_exponent(ap_m68882_precision_t precision);
+
 [[nodiscard]] ap_m68882_op_t ap_m68882_add(const ap_m68882_extended_t *a,
                                            const ap_m68882_extended_t *b,
                                            ap_m68882_rounding_t mode,

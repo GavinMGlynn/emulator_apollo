@@ -1625,6 +1625,195 @@ static void test_sinh_and_atanh_keep_their_bits_near_zero(void) {
   TEST_ASSERT_EQUAL_UINT64(0x8000000000000000ULL, c.value.mantissa);
 }
 
+/* Order two finite extended values: -1, 0 or +1. Used by the rounding-mode
+ * tests, where what matters is which side of the true result each mode lands
+ * on rather than the distance. */
+static int compare_extended(ap_m68882_extended_t a, ap_m68882_extended_t b) {
+  const bool a_zero = a.mantissa == 0u && a.exponent == 0u;
+  const bool b_zero = b.mantissa == 0u && b.exponent == 0u;
+  if (a_zero && b_zero) return 0;
+  if (a.sign != b.sign) return a.sign ? -1 : 1;
+  int order;
+  if (a.exponent != b.exponent) {
+    order = a.exponent < b.exponent ? -1 : 1;
+  } else if (a.mantissa != b.mantissa) {
+    order = a.mantissa < b.mantissa ? -1 : 1;
+  } else {
+    return 0;
+  }
+  return a.sign ? -order : order;
+}
+
+typedef ap_m68882_op_t (*unary_fn_t)(const ap_m68882_extended_t *,
+                                     ap_m68882_rounding_t,
+                                     ap_m68882_precision_t);
+
+static const unary_fn_t every_transcendental[] = {
+    ap_m68882_etox,  ap_m68882_etoxm1, ap_m68882_twotox, ap_m68882_tentox,
+    ap_m68882_logn,  ap_m68882_lognp1, ap_m68882_log2,   ap_m68882_log10,
+    ap_m68882_sin,   ap_m68882_cos,    ap_m68882_tan,    ap_m68882_atan,
+    ap_m68882_asin,  ap_m68882_acos,   ap_m68882_sinh,   ap_m68882_cosh,
+    ap_m68882_tanh,  ap_m68882_atanh};
+
+#define EVERY_COUNT (sizeof every_transcendental / sizeof every_transcendental[0])
+
+static void test_every_transcendental_honours_every_rounding_mode(void) {
+  /* The 68882 item's own verification asks for "each operation and rounding
+   * mode", and until this test the whole family had only ever been measured at
+   * round-to-nearest. It is the check that the FPCR's mode reaches the result
+   * at all.
+   *
+   * The invariant is ordering rather than distance: whatever the true value,
+   * rounding toward minus infinity cannot land above rounding toward plus
+   * infinity, and round-to-zero cannot exceed either in magnitude. An
+   * implementation that ignored the mode would return the same value four
+   * times and satisfy the weak inequalities -- so the count of arguments where
+   * the modes genuinely *differ* is asserted too.
+   *
+   * Single precision is used because that is where the mode has bits to act
+   * on; see the next test for why extended is different. */
+  const ap_m68882_extended_t argument = {false, AP_M68882_BIAS_EXTENDED - 2,
+                                         0xC90FDAA22168C235ULL};
+  unsigned differing = 0;
+  for (unsigned i = 0; i < EVERY_COUNT; i++) {
+    const ap_m68882_extended_t down =
+        every_transcendental[i](&argument, AP_M68882_ROUND_MINUS_INFINITY,
+                                AP_M68882_PRECISION_SINGLE)
+            .value;
+    const ap_m68882_extended_t up =
+        every_transcendental[i](&argument, AP_M68882_ROUND_PLUS_INFINITY,
+                                AP_M68882_PRECISION_SINGLE)
+            .value;
+    const ap_m68882_extended_t near =
+        every_transcendental[i](&argument, AP_M68882_ROUND_NEAREST,
+                                AP_M68882_PRECISION_SINGLE)
+            .value;
+    const ap_m68882_extended_t zero =
+        every_transcendental[i](&argument, AP_M68882_ROUND_ZERO,
+                                AP_M68882_PRECISION_SINGLE)
+            .value;
+
+    TEST_ASSERT_TRUE_MESSAGE(compare_extended(down, up) <= 0,
+                             "rounding down landed above rounding up");
+    TEST_ASSERT_TRUE_MESSAGE(compare_extended(down, near) <= 0,
+                             "rounding down landed above nearest");
+    TEST_ASSERT_TRUE_MESSAGE(compare_extended(near, up) <= 0,
+                             "nearest landed above rounding up");
+    /* Round-to-zero is one of the two directed modes depending on the sign. */
+    TEST_ASSERT_TRUE_MESSAGE(
+        compare_extended(zero, zero.sign ? down : up) *
+                (zero.sign ? -1 : 1) <=
+            0,
+        "round to zero ran away from zero");
+    if (compare_extended(down, up) != 0) {
+      differing++;
+    }
+  }
+  TEST_ASSERT_TRUE_MESSAGE(
+      differing >= EVERY_COUNT - 2u,
+      "almost every transcendental should be inexact at this argument");
+}
+
+static void test_the_mode_is_a_no_op_where_there_is_nothing_left_to_round(void) {
+  /* A documented approximation, recorded because it is invisible otherwise.
+   *
+   * The part computes internally at 67 bits and rounds to the destination with
+   * the FPCR mode, so for an *extended* destination the directed modes give
+   * three different answers. This model computes a 64-bit approximation
+   * directly -- every intermediate rounds to nearest at the destination's own
+   * width -- so there are no bits below it left to round, and at extended
+   * precision all four modes return the same value.
+   *
+   * The divergence is at most one unit in the last place, which is a
+   * sixty-fourth of §4.3.2's typical bound and a four-thousandth of its worst
+   * case, so it is far inside the interval the manual guarantees. Closing it
+   * would mean carrying guard bits through every kernel -- and the part's own
+   * directed rounding of a transcendental is only accurate to the same
+   * published bound, so the gain would be smaller than it looks.
+   *
+   * Asserted rather than merely written down, so that anyone who later adds
+   * guard bits finds this test and deletes it deliberately. */
+  const ap_m68882_extended_t argument = {false, AP_M68882_BIAS_EXTENDED,
+                                         0x8000000000000000ULL};
+  for (unsigned i = 0; i < EVERY_COUNT; i++) {
+    const ap_m68882_extended_t near =
+        every_transcendental[i](&argument, AP_M68882_ROUND_NEAREST,
+                                AP_M68882_PRECISION_EXTENDED)
+            .value;
+    for (unsigned m = 0; m < 4u; m++) {
+      const ap_m68882_extended_t other =
+          every_transcendental[i](&argument, (ap_m68882_rounding_t)m,
+                                  AP_M68882_PRECISION_EXTENDED)
+              .value;
+      TEST_ASSERT_EQUAL_UINT_MESSAGE(near.exponent, other.exponent,
+                                     "extended rounding should be a no-op");
+      TEST_ASSERT_EQUAL_UINT64(near.mantissa, other.mantissa);
+    }
+  }
+}
+
+static void test_an_overflowing_transcendental_follows_6_1_4(void) {
+  /* §6.1.4's trap-disabled table, reached through a transcendental rather than
+   * an arithmetic operation -- the two paths substitute the result separately,
+   * so both need checking:
+   *
+   *     RN   Infinity, with the sign of the intermediate result
+   *     RZ   Largest magnitude number, with that sign
+   *     RM   positive overflow -> largest positive; negative -> -infinity
+   *     RP   positive overflow -> +infinity;        negative -> largest negative
+   *
+   * The exception byte is identical in all four cases, which is exactly why
+   * getting the value wrong is silent: a program sees `OVFL` either way and
+   * only the stored number differs. */
+  const ap_m68882_extended_t big = {false, AP_M68882_BIAS_EXTENDED + 14,
+                                    0x9C40000000000000ULL}; /* 20000 */
+  const struct {
+    ap_m68882_rounding_t mode;
+    bool infinite;
+  } expectation[] = {{AP_M68882_ROUND_NEAREST, true},
+                     {AP_M68882_ROUND_ZERO, false},
+                     {AP_M68882_ROUND_MINUS_INFINITY, false},
+                     {AP_M68882_ROUND_PLUS_INFINITY, true}};
+  for (unsigned i = 0; i < 4u; i++) {
+    const ap_m68882_op_t got =
+        ap_m68882_etox(&big, expectation[i].mode, AP_M68882_PRECISION_EXTENDED);
+    TEST_ASSERT_NOT_EQUAL_UINT_MESSAGE(
+        0u, got.exceptions & (1u << AP_M68882_EXC_OVFL),
+        "an overflow must be reported whatever the mode");
+    if (expectation[i].infinite) {
+      TEST_ASSERT_EQUAL_INT_MESSAGE(AP_M68882_TYPE_INFINITY,
+                                    ap_m68882_classify(&got.value),
+                                    "this mode overflows to an infinity");
+    } else {
+      TEST_ASSERT_EQUAL_INT_MESSAGE(AP_M68882_TYPE_NORMALIZED,
+                                    ap_m68882_classify(&got.value),
+                                    "this mode overflows to a finite number");
+      TEST_ASSERT_EQUAL_UINT(0x7FFEu, got.value.exponent);
+      TEST_ASSERT_EQUAL_UINT64(0xFFFFFFFFFFFFFFFFULL, got.value.mantissa);
+    }
+    TEST_ASSERT_FALSE(got.value.sign);
+  }
+
+  /* The negative direction, where `RM` and `RP` swap roles. `sinh` is odd, so
+   * a large negative argument overflows downward. */
+  ap_m68882_extended_t negative = big;
+  negative.sign = true;
+  const ap_m68882_op_t down =
+      ap_m68882_sinh(&negative, AP_M68882_ROUND_MINUS_INFINITY,
+                     AP_M68882_PRECISION_EXTENDED);
+  TEST_ASSERT_EQUAL_INT_MESSAGE(AP_M68882_TYPE_INFINITY,
+                                ap_m68882_classify(&down.value),
+                                "a negative overflow runs away under RM");
+  TEST_ASSERT_TRUE(down.value.sign);
+  const ap_m68882_op_t held =
+      ap_m68882_sinh(&negative, AP_M68882_ROUND_PLUS_INFINITY,
+                     AP_M68882_PRECISION_EXTENDED);
+  TEST_ASSERT_EQUAL_INT_MESSAGE(AP_M68882_TYPE_NORMALIZED,
+                                ap_m68882_classify(&held.value),
+                                "RP holds a negative overflow finite");
+  TEST_ASSERT_TRUE(held.value.sign);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_the_exponential_is_inside_the_typical_error_bound);
@@ -1655,6 +1844,9 @@ int main(void) {
   RUN_TEST(test_the_manual_has_atanhs_poles_the_wrong_way_round);
   RUN_TEST(test_the_hyperbolic_domain_and_limits);
   RUN_TEST(test_sinh_and_atanh_keep_their_bits_near_zero);
+  RUN_TEST(test_every_transcendental_honours_every_rounding_mode);
+  RUN_TEST(test_the_mode_is_a_no_op_where_there_is_nothing_left_to_round);
+  RUN_TEST(test_an_overflowing_transcendental_follows_6_1_4);
   RUN_TEST(test_the_result_precision_is_the_callers_and_the_steps_are_not);
   return UNITY_END();
 }

@@ -1785,7 +1785,12 @@ Split out of Phase 2. Each is a subsystem in its own right rather than a tail of
 the 68030, and none is on the DN3500's critical path: the DN3500 is a 68030 with
 a 68882, and the 68882 is the only one of these it has.
 
-- [x] 68882 FPU. *Verification: probe suite over each operation and rounding
+- [x] 68882 FPU. Audited against this verification line after the
+      transcendentals landed, which found that only round-to-nearest had ever
+      been measured -- and closing that gap found §6.1.4's mode-dependent
+      overflow result wrong across the whole core, plus a precision-dependent
+      overflow threshold that was missing. Detail in `PROJECT_STATUS.md`.
+      *Verification: probe suite over each operation and rounding
       mode; note the oracle's admitted FPU gaps as a divergence class.*
   - [x] **The programming model** (`src/core/cpu/m68882/ap_m68882_regs.c`),
         `[68881]` §2 and Figures 2-2 to 2-7: the three control registers, the

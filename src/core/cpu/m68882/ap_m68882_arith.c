@@ -3,6 +3,8 @@
 
 #include "cpu/m68882/ap_m68882_arith.h"
 
+#include "cpu/m68882/ap_m68882_format.h"
+
 #define INTEGER_BIT (UINT64_C(1) << 63)
 #define QUIET_BIT (UINT64_C(1) << 62)
 #define MAX_EXPONENT 0x7FFFu
@@ -107,6 +109,56 @@ static void normalise(ap_m68882_extended_t *value, bool *guard,
   }
 }
 
+uint16_t ap_m68882_overflow_exponent(ap_m68882_precision_t precision) {
+  switch (precision) {
+  case AP_M68882_PRECISION_SINGLE:
+    /* The largest single-precision exponent is 127 unbiased. */
+    return (uint16_t)(AP_M68882_BIAS_EXTENDED + 128);
+  case AP_M68882_PRECISION_DOUBLE:
+    return (uint16_t)(AP_M68882_BIAS_EXTENDED + 1024);
+  case AP_M68882_PRECISION_EXTENDED:
+  case AP_M68882_PRECISION_RESERVED:
+    break;
+  }
+  return MAX_EXPONENT;
+}
+
+ap_m68882_extended_t ap_m68882_overflow_result(bool sign,
+                                               ap_m68882_rounding_t mode,
+                                               ap_m68882_precision_t precision) {
+  bool infinite;
+  switch (mode) {
+  case AP_M68882_ROUND_NEAREST:
+    infinite = true;
+    break;
+  case AP_M68882_ROUND_ZERO:
+    infinite = false;
+    break;
+  case AP_M68882_ROUND_MINUS_INFINITY:
+    infinite = sign; /* only a negative overflow runs away downward */
+    break;
+  case AP_M68882_ROUND_PLUS_INFINITY:
+    infinite = !sign;
+    break;
+  default:
+    infinite = true;
+    break;
+  }
+  if (infinite) {
+    return make_infinity(sign);
+  }
+  /* The largest finite number of the rounding precision: every mantissa bit the
+   * precision keeps set, at one below its overflow exponent. */
+  const unsigned keep = ap_m68882_precision_bits(precision);
+  const uint64_t mantissa =
+      keep >= 64u ? UINT64_C(0xFFFFFFFFFFFFFFFF)
+                  : (UINT64_C(0xFFFFFFFFFFFFFFFF) << (64u - keep));
+  return (ap_m68882_extended_t){
+      .sign = sign,
+      .exponent = (uint16_t)(ap_m68882_overflow_exponent(precision) - 1u),
+      .mantissa = mantissa};
+}
+
 /* Finish an operation: normalise, round, and report overflow or underflow.
  * Shared by all four so the exception rules cannot drift between them. */
 static ap_m68882_op_t finish(ap_m68882_extended_t value, bool guard,
@@ -130,12 +182,17 @@ static ap_m68882_op_t finish(ap_m68882_extended_t value, bool guard,
     out.exceptions |= UINT32_C(1) << AP_M68882_EXC_INEX2;
   }
 
-  if (out.value.exponent >= MAX_EXPONENT) {
-    /* "Overflow is detected ... when the result exponent is greater than the
-     * maximum". The result is an infinity, and `INEX2` comes with it since an
-     * overflowed result is not the exact one -- which is also why
-     * `AEXC(INEX)` is set by `OVFL`. */
-    out.value = make_infinity(out.value.sign);
+  if (out.value.exponent >= ap_m68882_overflow_exponent(precision)) {
+    /* "Overflow is detected ... when the intermediate result exponent is
+     * greater than or equal to the maximum exponent value of the selected
+     * rounding precision" -- so a value extended could hold still overflows a
+     * single-precision destination, which is what §6.1.4's NOTE spells out.
+     *
+     * The *value* stored is mode-dependent and is not always an infinity; see
+     * `ap_m68882_overflow_result`. `INEX2` comes with it either way, since an
+     * overflowed result is not the exact one -- which is also why `AEXC(INEX)`
+     * is set by `OVFL`. */
+    out.value = ap_m68882_overflow_result(out.value.sign, mode, precision);
     out.exceptions |= (UINT32_C(1) << AP_M68882_EXC_OVFL) |
                       (UINT32_C(1) << AP_M68882_EXC_INEX2);
     return out;
