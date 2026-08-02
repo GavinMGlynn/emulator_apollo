@@ -1407,7 +1407,38 @@ memory. And `CLR` and `CMP` share every figure they both define: `CLR` lacks the
 PC-relative, immediate and `An` modes because it only writes, but where both are
 valid the cost is the addressing rather than the operation.
 
-What remains of the 68040 item is ten more pages of §10.6 and §10.7's ten pages
+### A cell that prints a cost where no instruction exists
+
+Page 10-19 prints **`0`** -- not a dash -- for `CMP2 (An)+` and `CMP2 -(An)`, in
+both columns, read at 500 dpi to be sure. `CHK2`'s column on the previous page
+dashes the same two rows, so §10.6 contradicts itself.
+
+The `M68000 Family Programmer's Reference Manual` settles it twice. `CHK2`'s
+effective address field takes "only control addressing modes" and its table
+dashes `(An)+` and `-(An)` explicitly; and of `CMP2` it says "this instruction
+is identical to CHK2 except that it sets condition codes rather than taking an
+exception when the value in Rn is out of bounds", so the two share their
+addressing modes by definition. A third argument needs no source: no valid cell
+anywhere in §10.6 costs zero clocks, because an instruction that executes takes
+at least one.
+
+So the `0` means "not applicable" and is modelled as invalid, with a test
+asserting `CMP2` and `CHK2` accept *exactly* the same modes -- which would catch
+a later page being misread before anything else did.
+
+One inversion worth noting: `CMP2` costs **more** than `CHK2` for the same
+addressing (13 against 11 to calculate `(An)`), which is the opposite of the
+intuition that a trapping instruction must be the dearer one. Setting condition
+codes is work; taking a trap that does not happen is not.
+
+A second plausible invariant of mine failed here, after `ADDA`: I assumed `CMPA`
+costs the same as `CMP`, since a comparison discards its result. The table
+refutes it at `(An)+`, `-(An)` and `(d16,An)` -- the column is headed `CMPA.L`,
+so it always reads a long word where `CMP` may read a word. Twice now a
+"the A form is the base plus a constant" rule has proved false, which is a
+reason to keep transcribing rather than interpolating.
+
+What remains of the 68040 item is nine more pages of §10.6 and §10.7's ten pages
 of floating-point timings. That is bulk transcription against the
 composition already in place, and the last thing standing between Phase 2b and
 complete. Appendix A's bit rows have to come from page images --

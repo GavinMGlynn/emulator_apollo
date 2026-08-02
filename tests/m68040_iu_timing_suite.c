@@ -616,11 +616,12 @@ static void test_chk_accepts_an_immediate_bound(void) {
 static void test_only_the_qualified_columns_are_marked(void) {
   /* Everything transcribed so far is exact except `CAS`, `CHK` and `CHK2`, and
    * a column that lost its marking would report a typical figure as a fact. */
-  const char *const qualified_names[] = {"CAS", "CHK", "CHK2"};
+  const char *const qualified_names[] = {"CAS", "CHK", "CHK2", "CMP2"};
   for (size_t g = 0; g < ap_m68040_iu_group_count(); g++) {
     const ap_m68040_iu_group_t *group = ap_m68040_iu_group(g);
     bool qualified = false;
-    for (unsigned i = 0; i < 3u; i++) {
+    for (unsigned i = 0;
+         i < sizeof qualified_names / sizeof qualified_names[0]; i++) {
       if (ap_m68040_iu_find(qualified_names[i]) == group) {
         qualified = true;
       }
@@ -712,6 +713,122 @@ static void test_clr_and_cmp_differ_only_where_reading_matters(void) {
   }
 }
 
+
+/* ---------------------------------------------------------------------------
+ * Page 10-19, and a cell that prints a cost where no instruction exists.
+ * ------------------------------------------------------------------------- */
+
+static void test_cmp2_rejects_the_incrementing_modes_despite_printing_zero(void) {
+  /* §10.6 prints **`0`** -- not a dash -- for `CMP2 (An)+` and `CMP2 -(An)`,
+   * in both columns. Read at 500 dpi to be sure it is a zero and not a dash
+   * rendered thinly. `CHK2`'s column on the previous page dashes the same two
+   * rows, so the section contradicts itself.
+   *
+   * The `M68000 Family Programmer's Reference Manual` settles it twice over.
+   * `CHK2`'s effective address field takes "only control addressing modes",
+   * and its table dashes `(An)+` and `-(An)` explicitly. And of `CMP2` it says:
+   * "this instruction is identical to CHK2 except that it sets condition codes
+   * rather than taking an exception when the value in Rn is out of bounds" --
+   * so the two have the same addressing modes by definition.
+   *
+   * A third argument needs no source at all: no valid cell anywhere in §10.6
+   * costs zero clocks, because an instruction that executes takes at least one.
+   *
+   * So the `0` means "not applicable" and is modelled as invalid. */
+  TEST_ASSERT_FALSE(at("CMP2", AP_M68040_IU_POSTINCREMENT).valid);
+  TEST_ASSERT_FALSE(at("CMP2", AP_M68040_IU_PREDECREMENT).valid);
+
+  /* And exactly as `CHK2` has them. */
+  TEST_ASSERT_FALSE(at("CHK2", AP_M68040_IU_POSTINCREMENT).valid);
+  TEST_ASSERT_FALSE(at("CHK2", AP_M68040_IU_PREDECREMENT).valid);
+}
+
+static void test_cmp2_and_chk2_accept_exactly_the_same_modes(void) {
+  /* The PRM's "identical to CHK2" is a strong claim, and this is the check
+   * that the two columns were transcribed consistently with it. If a later
+   * page were misread, the two would diverge here before anything else caught
+   * it. */
+  for (unsigned m = 0; m < AP_M68040_IU_MODE_COUNT; m++) {
+    TEST_ASSERT_EQUAL_INT(at("CHK2", (ap_m68040_iu_mode_t)m).valid,
+                          at("CMP2", (ap_m68040_iu_mode_t)m).valid);
+  }
+}
+
+static void test_cmp2_costs_more_than_chk2_for_the_same_addressing(void) {
+  /* Both read a bound pair; `CMP2` then sets condition codes where `CHK2` may
+   * trap. The condition-code work is what makes `CMP2` dearer -- 13 against 11
+   * to calculate `(An)` -- which is the opposite of the intuition that a
+   * trapping instruction must cost more. */
+  TEST_ASSERT_EQUAL_UINT(
+      11u, ap_m68040_iu_calculate(at("CHK2", AP_M68040_IU_INDIRECT), false,
+                                  AP_M68040_IU_NO_CONDITIONS));
+  TEST_ASSERT_EQUAL_UINT(
+      13u, ap_m68040_iu_calculate(at("CMP2", AP_M68040_IU_INDIRECT), false,
+                                  AP_M68040_IU_NO_CONDITIONS));
+}
+
+static void test_cmpi_reads_and_so_takes_pc_relative(void) {
+  /* `CMPI #<xxx>,<ea>` only reads its destination, so unlike the other
+   * immediate forms -- `ADDI`, `ANDI` and the rest, which write back -- it
+   * accepts the PC-relative modes. The `ADDI` group dashes them. */
+  TEST_ASSERT_TRUE(at("CMPI", AP_M68040_IU_PC_DISPLACEMENT).valid);
+  TEST_ASSERT_TRUE(at("CMPI", AP_M68040_IU_PC_INDEXED).valid);
+  TEST_ASSERT_FALSE(at("ADDI", AP_M68040_IU_PC_DISPLACEMENT).valid);
+}
+
+static void test_cmpa_is_never_cheaper_than_cmp(void) {
+  /* I first assumed `CMPA` costs the *same* as `CMP`, reasoning that a
+   * comparison discards its result and so needs no sign extension written
+   * back. The table refutes that at `(An)+`, `-(An)` and `(d16,An)`, where
+   * `CMPA` is one clock dearer -- the column is headed `CMPA.L`, so it always
+   * reads a long word where `CMP` may read a word.
+   *
+   * That is the second time a plausible "the A form costs the same plus a
+   * constant" invariant has failed here, after `ADDA`. The weak statement is
+   * the true one, and the specific differences are pinned below. */
+  for (unsigned m = 0; m < AP_M68040_IU_MODE_COUNT; m++) {
+    const ap_m68040_iu_cell_t cmp = at("CMP", (ap_m68040_iu_mode_t)m);
+    const ap_m68040_iu_cell_t cmpa = at("CMPA", (ap_m68040_iu_mode_t)m);
+    if (!cmp.valid || !cmpa.valid) {
+      continue;
+    }
+    TEST_ASSERT_TRUE(
+        ap_m68040_execute_total(
+            ap_m68040_iu_execute(cmpa, false, AP_M68040_IU_NO_CONDITIONS)) >=
+        ap_m68040_execute_total(
+            ap_m68040_iu_execute(cmp, false, AP_M68040_IU_NO_CONDITIONS)));
+  }
+}
+
+static void test_where_cmpa_costs_more_than_cmp(void) {
+  /* Exactly the three modes whose operand address has to be computed or
+   * updated: postincrement, predecrement and displacement. Register direct,
+   * plain indirect, absolute and immediate all cost the same in both. */
+  const ap_m68040_iu_mode_t dearer[] = {AP_M68040_IU_POSTINCREMENT,
+                                        AP_M68040_IU_PREDECREMENT,
+                                        AP_M68040_IU_DISPLACEMENT};
+  for (unsigned i = 0; i < 3u; i++) {
+    TEST_ASSERT_EQUAL_UINT(
+        1u, ap_m68040_execute_total(ap_m68040_iu_execute(
+                at("CMP", dearer[i]), false, AP_M68040_IU_NO_CONDITIONS)));
+    TEST_ASSERT_EQUAL_UINT(
+        2u, ap_m68040_execute_total(ap_m68040_iu_execute(
+                at("CMPA", dearer[i]), false, AP_M68040_IU_NO_CONDITIONS)));
+  }
+
+  const ap_m68040_iu_mode_t same[] = {AP_M68040_IU_DN, AP_M68040_IU_AN,
+                                      AP_M68040_IU_INDIRECT,
+                                      AP_M68040_IU_ABSOLUTE,
+                                      AP_M68040_IU_IMMEDIATE};
+  for (unsigned i = 0; i < 5u; i++) {
+    TEST_ASSERT_EQUAL_UINT(
+        ap_m68040_execute_total(ap_m68040_iu_execute(
+            at("CMP", same[i]), false, AP_M68040_IU_NO_CONDITIONS)),
+        ap_m68040_execute_total(ap_m68040_iu_execute(
+            at("CMPA", same[i]), false, AP_M68040_IU_NO_CONDITIONS)));
+  }
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_instructions_sharing_a_column_share_a_group);
@@ -757,5 +874,11 @@ int main(void) {
   RUN_TEST(test_an_unrelated_condition_changes_nothing);
   RUN_TEST(test_chk2_needs_a_memory_operand);
   RUN_TEST(test_clr_and_cmp_differ_only_where_reading_matters);
+  RUN_TEST(test_cmp2_rejects_the_incrementing_modes_despite_printing_zero);
+  RUN_TEST(test_cmp2_and_chk2_accept_exactly_the_same_modes);
+  RUN_TEST(test_cmp2_costs_more_than_chk2_for_the_same_addressing);
+  RUN_TEST(test_cmpi_reads_and_so_takes_pc_relative);
+  RUN_TEST(test_cmpa_is_never_cheaper_than_cmp);
+  RUN_TEST(test_where_cmpa_costs_more_than_cmp);
   return UNITY_END();
 }
