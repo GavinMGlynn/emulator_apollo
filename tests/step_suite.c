@@ -3773,6 +3773,67 @@ static void test_tst_reaches_every_mode_but_refuses_a_byte_address_register(
   TEST_ASSERT_EQUAL_HEX32(HANDLER, m.cpu.regs.pc);
 }
 
+/* **`TRAPcc` consumes its operand whether or not it traps.**
+ *
+ * `[PRM]` p. 4-189: "If the specified condition is true, causes a TRAPcc
+ * exception with a vector number 7 ... If the condition is not true, the
+ * processor performs no operation, and execution continues with the next
+ * instruction. The immediate data operand should be placed in the next word(s)
+ * following the operation word and is available to the trap handler."
+ *
+ * The instruction never *uses* that operand, which is what makes it easy to
+ * drop — and dropping it is invisible until something returns. Skipping the
+ * words only when the condition is false would run the operand as an
+ * instruction after every taken trap; skipping them only when it is true would
+ * do so after every untaken one. So both outcomes are checked for all three
+ * forms, and the taken case also checks the *stacked* program counter, which is
+ * where a handler finds the data. */
+static void test_trapcc_consumes_its_operand_either_way(void) {
+  const struct {
+    uint16_t word;
+    unsigned words;
+    uint32_t after;
+    const char *what;
+  } untaken[] = {
+      {0x51FCu, 1u, PROGRAM_BASE + 2u, "TRAPF"},
+      {0x51FAu, 2u, PROGRAM_BASE + 4u, "TRAPF.W #$1234"},
+      {0x51FBu, 3u, PROGRAM_BASE + 6u, "TRAPF.L #$12345678"},
+  };
+
+  for (unsigned i = 0; i < sizeof untaken / sizeof untaken[0]; i++) {
+    static const uint16_t body[] = {0x0000u, 0x1234u, 0x5678u, 0x4E71u};
+    machine_t m = {0};
+    load(&m, body, 4);
+    write_ram_word(&m, PROGRAM_BASE, untaken[i].word);
+    m.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
+    m.cpu.regs.isp = SUPERVISOR_STACK;
+
+    TEST_ASSERT_EQUAL_INT_MESSAGE(AP_M68030_STEP_EXECUTED,
+                                  ap_m68030_step(&m.cpu).status,
+                                  untaken[i].what);
+    TEST_ASSERT_EQUAL_HEX32_MESSAGE(untaken[i].after, m.cpu.regs.pc,
+                                    untaken[i].what);
+  }
+
+  /* Taken, long form: vector 7, and the stacked PC past the operand. */
+  static const uint16_t taken[] = {0x50FBu, 0x1234u, 0x5678u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, taken, 4);
+  plant_vector(&m, AP_M68030_VECTOR_TRAPCC, HANDLER);
+  m.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
+  m.cpu.regs.isp = SUPERVISOR_STACK;
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXCEPTION, ap_m68030_step(&m.cpu).status);
+  TEST_ASSERT_EQUAL_HEX32(HANDLER, m.cpu.regs.pc);
+
+  /* The six-word frame: the return PC at SP+2, the faulting instruction's own
+   * address at SP+8. The handler reaches its data through the first. */
+  const uint32_t stacked =
+      ((uint32_t)read_ram_word(&m, m.cpu.regs.isp + 2u) << 16) |
+      read_ram_word(&m, m.cpu.regs.isp + 4u);
+  TEST_ASSERT_EQUAL_HEX32(PROGRAM_BASE + 6u, stacked);
+}
+
 /* **`MOVES` reaches a different address space, and that is the whole point.**
  *
  * `[PRM]` p. 6-24: it moves an operand "to a location within the address space
@@ -7809,6 +7870,7 @@ int main(void) {
   RUN_TEST(test_an_interrupt_wakes_a_stopped_processor);
   RUN_TEST(test_an_interrupt_returns_to_the_instruction_it_preempted);
   RUN_TEST(test_tst_reaches_every_mode_but_refuses_a_byte_address_register);
+  RUN_TEST(test_trapcc_consumes_its_operand_either_way);
   RUN_TEST(test_moves_reads_through_the_source_function_code);
   RUN_TEST(test_moves_sign_extends_into_an_address_register_only);
   RUN_TEST(test_moves_is_privileged);

@@ -5823,3 +5823,62 @@ State ... Else TRAP") rather than by sweeping.
 
 **240 words remain `UNIMPLEMENTED`**: `TRAPcc`'s operand forms (48) and family
 F's coprocessor and MMU corners (192).
+
+## C102 -- TRAPcc, reserved coprocessor types, and an MMU pass reverted
+
+**Class: two missing instructions implemented; one attempted change withdrawn.**
+
+### `TRAPcc`, all three forms
+
+Not "the operand forms" as the plan had it -- **all 48 words**, the no-operand
+form included. `[PRM]` p. 4-189: the immediate "should be placed in the next
+word(s) following the operation word and is available to the trap handler", and
+the instruction never uses it. That is what makes dropping it easy and
+invisible: skipping the words only when the condition is false runs the operand
+as an instruction after every *taken* trap, and skipping them only when true
+does so after every untaken one. Both polarities are tested across all three
+forms, and the taken case checks the stacked program counter -- which is how a
+handler reaches the data at all.
+
+### Reserved coprocessor instruction types
+
+128 words, cpID 1 type 110/111. §10.2: "The M68000 coprocessor interface
+supports **four categories** of coprocessor instructions: general, conditional,
+context save, and context restore." Types 110 and 111 are none of them.
+
+Recorded as a **reading**, not a transcription: the manual defines what the four
+categories do and is silent on what a *fitted* coprocessor does with a fifth.
+Vector 11 is inferred from the two neighbouring cases -- an absent coprocessor
+takes the line 1111 emulator exception, and Table 4-13's footnote 2 has the FPCP
+ask for the same trap on an undefined *command* word.
+
+Before this they fell through to the general path, which fetches no command word
+for a non-general type -- so the FPU was asked to execute **command zero** and
+answered about an instruction the program had not written.
+
+### The MMU pass, attempted and withdrawn
+
+64 words remain, all cpID 0. Table 3-10 gives the 68030 five MMU operation codes
+(`PMOVE` in three forms, `PFLUSH`/`PLOAD`, `PTEST`), so codes 5-7 are undefined
+-- and p. 8-10 makes "undefined patterns in subsequent words" the F-line
+exception rather than this core's gap. The one unambiguous arm was implemented
+and **reverted**, for two reasons worth recording rather than pushing through:
+
+1. It broke three tests that use extension `$A000` -- operation code **5** -- as
+   their example of "an instruction the hardware executes that we have not
+   implemented". The manual contradicts that premise, so those tests need a new
+   subject, and choosing one requires knowing which patterns *are* defined.
+2. Looking for a replacement subject, `CAS.L` was observed **executing**, where
+   `PROJECT_STATUS.md` records `CAS`/`CAS2` as declining for want of `RMC`. One
+   of the two is wrong, and a sweep whose classification rests on an unsettled
+   fact is not worth trusting.
+
+Landing half a classification would have been the plausible-looking wrong answer
+this core spends most of its care avoiding -- it would have converted an unknown
+number of genuine gaps into a machine that *looks* correct. So the item is named
+with its scope instead: about two dozen `return false` sites across three MMU
+executors, several already carrying comments that say which kind they are (one
+reads "a register this part does not have: F-line, not a no-op"), and the two
+questions above to settle first.
+
+**64 words remain `UNIMPLEMENTED`**, from 2621 when the sweep began.

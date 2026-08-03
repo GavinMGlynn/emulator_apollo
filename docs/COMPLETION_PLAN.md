@@ -1012,8 +1012,32 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         forms were checked by a condition written out again inline, and `MOVES`
         was not checked at all, so a user program could have read supervisor
         memory with it. `step_suite` +3. Detail in `PROJECT_STATUS.md`.
-  - [ ] `TRAPcc`'s operand forms (48 words), and the coprocessor/MMU corners of
-        family F (192). The remaining 420.
+  - [x] **`TRAPcc`** (48 words — all three forms, not just the operand ones).
+        The operand is consumed whether or not the trap is taken: it is part of
+        the instruction and only *available* to the handler, so dropping it runs
+        it as an instruction after every trap of one polarity. `step_suite` +1.
+  - [x] **Reserved coprocessor instruction types** (128 words). §10.2 names four
+        categories — general, conditional, context save, context restore — and
+        types 110/111 are none of them, so they take the line 1111 emulator
+        exception. Marked a *reading*: the manual defines the four and is silent
+        on a fifth. Without it they fell through to the general path, which
+        fetches no command word for them, so the FPU was asked to execute
+        command zero.
+  - [ ] **Classify the MMU's remaining 64 words.** Table 3-10 gives the 68030
+        five MMU operation codes (`PMOVE` ×3, `PFLUSH`/`PLOAD`, `PTEST`); codes
+        5–7 and many extension sub-patterns are undefined, and p. 8-10 makes an
+        "undefined pattern in subsequent words" the F-line exception rather than
+        our gap. About two dozen `return false` sites in `execute_pmove`,
+        `execute_pflush_or_pload` and `execute_ptest` need classifying, several
+        already carrying comments that say which they are (one reads "a register
+        this part does not have: F-line, not a no-op").
+        **Two things to settle first.** Three `step_suite` tests use extension
+        `$A000` — operation code 5 — as their example of "an instruction the
+        hardware executes that we have not implemented"; that premise is wrong
+        and they need a new subject. And `CAS.L` was observed *executing* where
+        `PROJECT_STATUS.md` records `CAS`/`CAS2` as declining for want of `RMC`
+        — one of the two is wrong and it must be settled before the sweep is
+        trusted.
   - [x] **The eight bit field instructions** — `BFTST`, `BFEXTU`, `BFCHG`,
         `BFEXTS`, `BFCLR`, `BFFFO`, `BFSET`, `BFINS`, 488 words. The field is a
         span in a big-endian bit stream, not a mask on a word: a 32-bit field at

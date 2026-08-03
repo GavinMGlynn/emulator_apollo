@@ -1529,7 +1529,45 @@ static bool execute_quick(ap_m68030_cpu_t *cpu, const ap_m68030_quick_t *quick,
     return true;
   }
 
-  case AP_M68030_QUICK_TRAPCC:
+  case AP_M68030_QUICK_TRAPCC: {
+    /* `[PRM]` p. 4-189: "If the specified condition is true, causes a TRAPcc
+     * exception with a vector number 7 ... If the condition is not true, the
+     * processor performs no operation, and execution continues with the next
+     * instruction."
+     *
+     * **The operand words are consumed either way.** "The immediate data
+     * operand should be placed in the next word(s) following the operation word
+     * and is available to the trap handler" -- it is part of the instruction,
+     * not something the trap reads instead of executing. An implementation that
+     * skipped them only when the condition was false would run the operand as
+     * an instruction on every taken trap's return; one that skipped them only
+     * when it was true would do so on every untaken one. The instruction never
+     * *uses* the value, which is what makes that easy to get wrong and
+     * invisible until a handler returns.
+     *
+     * The handler finds the data through the stacked program counter, which is
+     * the next instruction -- `ap_m68030_stacks_next_instruction` already says
+     * so for this vector, and the six-word frame carries the address of the
+     * `TRAPcc` itself beside it. */
+    unsigned operand_words = 0;
+    if (quick->form == AP_M68030_TRAPCC_WORD) {
+      operand_words = 1;
+    } else if (quick->form == AP_M68030_TRAPCC_LONG) {
+      operand_words = 2;
+    }
+    for (unsigned i = 0; i < operand_words; i++) {
+      uint16_t ignored = 0;
+      if (!next_word(cpu, clocks, &ignored)) {
+        return false;
+      }
+    }
+
+    if (ap_m68030_condition(quick->condition, ap_m68030_read_ccr(&cpu->regs))) {
+      cpu->pending_vector = AP_M68030_VECTOR_TRAPCC;
+    }
+    return true;
+  }
+
   case AP_M68030_QUICK_INVALID:
     return false;
   }
@@ -4182,6 +4220,7 @@ static bool execute_mmu(ap_m68030_cpu_t *cpu, const ap_m68030_coproc_t *coproc,
   default:
     break;
   }
+
   return false;
 }
 
@@ -5854,6 +5893,31 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
        * more than it looks: `BSUN` is raised by exactly those instructions, so
        * a conditional that sets it is followed by a conditional that reports
        * it. */
+      /* `[030]` §10.2: "The M68000 coprocessor interface supports **four
+       * categories** of coprocessor instructions: general, conditional, context
+       * save, and context restore." Types 110 and 111 are none of them, so no
+       * dialogue is defined for them and the part has nothing to answer with.
+       *
+       * Taken as the line 1111 emulator exception, vector 11 -- the same answer
+       * an F-line word gets when no coprocessor responds at all, and the same
+       * one Table 4-13's footnote 2 has the FPCP itself ask for when a *command*
+       * word is undefined. **This is a reading**: the manual defines what the
+       * four categories do and is silent on what a fitted coprocessor does with
+       * a fifth, so the F-line trap is inference from the two neighbouring
+       * cases rather than a transcription. Recorded as such.
+       *
+       * Without it the reserved types fell through to the general path, which
+       * fetches no command word for them -- so the part was asked to execute
+       * command zero, and answered about an instruction the program had not
+       * written. */
+      if (coproc->type == AP_M68030_CP_RESERVED ||
+          coproc->type > AP_M68030_CP_RESERVED) {
+        cpu->refused_vector = AP_M68030_VECTOR_LINE_F;
+        out.status = fault_or_unimplemented(cpu, &out, instruction_address);
+        cpu->clocks += out.clocks;
+        return out;
+      }
+
       if (coproc->type != AP_M68030_CP_SAVE &&
           coproc->type != AP_M68030_CP_RESTORE &&
           coproc->type != AP_M68030_CP_GENERAL) {

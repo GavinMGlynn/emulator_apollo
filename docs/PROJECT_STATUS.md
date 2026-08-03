@@ -4473,6 +4473,41 @@ mean they were written with zero.
 **1204 words remain `UNIMPLEMENTED`**, from 2621 before C95. The bit-field group
 — 488 words in family E — is now the largest single remainder by some margin.
 
+**`TRAPcc` executes**, all three forms. The operand is consumed whether or not
+the trap is taken — it is part of the instruction and merely "available to the
+trap handler", never used by the instruction itself, which is exactly what makes
+dropping it easy and invisible. Skipping the words only when the condition is
+false would run the operand as an instruction after every *taken* trap;
+skipping them only when true would do so after every untaken one. Both
+polarities are tested for all three forms, and the taken case checks the stacked
+program counter, which is where a handler finds its data.
+
+**Reserved coprocessor instruction types take the F-line exception.** §10.2:
+"The M68000 coprocessor interface supports four categories of coprocessor
+instructions: general, conditional, context save, and context restore." Types
+110 and 111 are none of them. This is recorded as a **reading** rather than a
+transcription — the manual defines what the four categories do and is silent on
+what a fitted coprocessor does with a fifth, so vector 11 is inference from the
+two neighbouring cases (an absent coprocessor, and Table 4-13's footnote 2 where
+the FPCP asks for an F-line trap on an undefined *command* word). Without it
+those 128 words fell through to the general path, which fetches no command word
+for them — so the part was asked to execute command zero and answered about an
+instruction the program had not written.
+
+**64 words remain, and classifying them is an open item rather than a tail.**
+Table 3-10 gives the 68030 five MMU operation codes; codes 5–7 and many
+extension sub-patterns are undefined, and p. 8-10 makes an undefined pattern in
+a subsequent word the F-line exception rather than this core's gap. That
+classification was attempted and reverted: the one arm that is unambiguous broke
+three tests which use operation code 5 as their example of "an instruction the
+hardware executes that we have not implemented" — a premise the manual
+contradicts. Landing half of it would have been the plausible-looking wrong
+answer this core spends most of its care avoiding, so it is named with its scope
+instead: about two dozen sites, several already commented with which kind they
+are, and two questions to settle first (a new subject for those tests, and
+whether `CAS.L` executes — it was observed doing so, against what this document
+records).
+
 **`MOVES` executes**, and it is the only instruction in the set that reaches an
 *arbitrary* address space. Every other access this core makes carries a function
 code fixed by what it is — supervisor program for a fetch, supervisor or user
