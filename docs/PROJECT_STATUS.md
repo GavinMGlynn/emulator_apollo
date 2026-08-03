@@ -4434,6 +4434,50 @@ It does not move the boot: the PROM still stops in the console-selection poll at
 `000007AE`. What it does is make every later experiment run on the machine this
 core models rather than on a processor with the machine switched off.
 
+#### A rate mismatch has to corrupt the byte, and ours did not
+
+The boot PROM's console dispatcher compares the received byte against `FF`,
+`FE`, `C7`, `72` and `C0`, and this document read that as a *command* dispatcher
+with `72` as `'r'`. It is the **autobaud**. Each arm writes a different clock
+select to the port — `BB` for 9600, `99` for 4800, `88` for 2400 — and those
+five values are the shapes a carriage return takes at five wrong rates.
+
+**So the model was wrong in a way that made the negotiation impossible.** A rate
+mismatch set `SR[6]` and delivered the character *intact*: a note saying
+something went wrong rather than the thing that went wrong. A UART finds the
+start edge and samples at the bit centres its own clock predicts, so at the wrong
+rate it reads the sender's waveform at the wrong instants and returns a different
+value. With an intact `0D` the firmware matches none of its five arms and learns
+nothing, which is exactly what this core did through every console experiment
+ever run against it.
+
+`ap_mc68681_resample` models the sampling directly, and **two of the three fixed
+arms come out exactly right**: a carriage return sent at 9600 into a port
+receiving at 1050 resamples to `FF`, at 4800 to `FE` — and the firmware's answer
+to each is to switch to that very rate. The 2400 case gives `F9` where the
+firmware expects `C7`. That disagreement is recorded rather than tuned away: the
+mechanism is right and a detail is not, and a receiver resynchronising on edges
+or a different assumed character length would move it.
+
+Equal rates return the byte unchanged, so every correctly configured link is
+exactly as it was — which is what let this land without moving a single existing
+test.
+
+**Two smaller defects fell out, both the shape of `--boot-key`'s.** Scripted
+input was sent as soon as the FIFO was free, before `MR1` leaves its five-bit
+reset state and before the receiver is enabled. That matters more here than it
+looks: the autobaud identifies a rate *from what the wrong rate did to the
+character*, so a truncated byte arrives as a shape it has no case for and the
+negotiation cannot begin at all.
+
+And `rate_matches` compared the receiver's upper nibble against the **sender's
+upper nibble** — judging a sender by the rate it was listening on rather than
+transmitting at. Its own comment had stated the right rule since it was written,
+and the code had never done it; invisible for every symmetric `CSR`, which is all
+this project had used. It now compares *rates* rather than codes, so the four
+codes that are not a fixed rate — the timer and the two external clocks — match
+rather than inventing a disagreement this core cannot know about.
+
 #### A machine takes its identity from its disk
 
 `board/ap_nodeid.h` has always taken its identifier from a caller, deliberately:

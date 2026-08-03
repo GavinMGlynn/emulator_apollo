@@ -199,6 +199,48 @@ void ap_mc68681_receive_at(ap_mc68681_t *duart, unsigned channel, uint8_t byte,
 #define AP_MC68681_MR2_STOP_TWO 0x0Fu
 
 /* Bits per character, 5 to 8, from `MR1[1:0]`. */
+/* The bit rate a clock-select nibble names, `[68681]`'s baud rate generator
+ * table, or zero for the four codes that are not a fixed rate -- the timer and
+ * the two external-clock selections.
+ *
+ * `ACR[7]` picks between the two published sets. They agree on every code this
+ * machine's firmware uses, which is why the autobaud below can be reasoned
+ * about without settling which set is in force. */
+[[nodiscard]] unsigned ap_mc68681_baud(uint8_t csr_nibble, bool acr_set_two);
+
+/* The byte a receiver running at `receiver_baud` actually sees when a sender
+ * transmits `byte` at `sender_baud`.
+ *
+ * ## Why this exists, and what it fixes
+ *
+ * A rate mismatch was modelled as a *flag*: the byte arrived intact and `SR[6]`
+ * was set beside it. That is not what a UART does. The receiver finds the start
+ * edge and then samples at the bit centres its **own** clock predicts, so at the
+ * wrong rate it samples the sender's waveform at the wrong instants and returns
+ * a different value. The flag is a consequence of where the stop bit landed, not
+ * the whole of the effect.
+ *
+ * The difference is the entire boot PROM console negotiation. Its autobaud
+ * compares the received byte against `FF`, `FE`, `C7`, `72` and `C0` -- the
+ * shapes a carriage return takes at five wrong rates -- and writes a different
+ * clock select for each. A model delivering `0D` intact matches none of them,
+ * so the firmware loops forever having learned nothing, which is exactly what
+ * this core did. `FINDINGS.md` C109.
+ *
+ * ## The model
+ *
+ * Start bit low, `bits` data bits least significant first, stop bit high, each
+ * one sender-bit-time wide. The receiver samples bit `i` at `(i + 1.5)`
+ * receiver-bit-times after the start edge -- the middle of where it believes
+ * that bit to be. Sampling past the end of the sender's stop bit reads the idle
+ * line, which is high.
+ *
+ * Equal rates give the byte back unchanged, which is the property that keeps
+ * every existing correctly-configured link exactly as it was. */
+[[nodiscard]] uint8_t ap_mc68681_resample(uint8_t byte, unsigned bits,
+                                          unsigned sender_baud,
+                                          unsigned receiver_baud);
+
 [[nodiscard]] unsigned ap_mc68681_character_bits(uint8_t mr1);
 
 /* Whether `MR1` asks for a parity bit at all. Bit 2 **clear** means with

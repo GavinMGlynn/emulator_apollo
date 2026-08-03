@@ -589,7 +589,19 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
        * what a terminal's flow looks like and what stops a script from
        * overrunning the receiver. */
       if (input_sent < input_length &&
-          !ap_sio_receiver_ready(&board->sio, input_unit, input_channel)) {
+          !ap_sio_receiver_ready(&board->sio, input_unit, input_channel) &&
+          ap_sio_character_bits(&board->sio, input_unit, input_channel) == 8u &&
+          ap_sio_receiver_enabled(&board->sio, input_unit, input_channel)) {
+        /* The same three conditions `--boot-key` needs, and for the same
+         * reason: `MR1` resets to a five-bit link and a disabled receiver drops
+         * what arrives, so a script that sent as soon as the FIFO was free was
+         * sending into a port that could neither carry nor keep the byte.
+         *
+         * It matters more here than it looks. The firmware's autobaud
+         * identifies the sender's rate from *what the wrong rate did to the
+         * character*, so a byte truncated to five bits first arrives as a shape
+         * the autobaud has no case for -- and the negotiation cannot even
+         * begin. */
         /* Sent at the rate the terminal is set to. `77` is what the DN3500's
          * own firmware configures both ports to at reset, measured off the
          * oracle -- so a scripted terminal that used anything else would be

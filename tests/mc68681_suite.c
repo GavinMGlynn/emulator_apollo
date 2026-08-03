@@ -317,10 +317,18 @@ static void test_a_character_sent_at_the_right_rate_does_not(void) {
   TEST_ASSERT_EQUAL_HEX8(0x41u, ap_mc68681_read(&duart, AP_MC68681_RB_TB_A));
 }
 
-/* Only the receiver's nibble decides. The lower nibble is the *transmitter's*
- * clock select, and two ports agreeing on receive while differing on transmit
- * is an ordinary configuration -- flagging it would break every such link. */
-static void test_only_the_receiver_nibble_decides_the_match(void) {
+/* The comparison is our receive rate against the far end's **transmit** rate --
+ * the lower nibble of the sender's `CSR`, not its upper. This asserted the
+ * opposite for a while, on the reasoning that "two ports agreeing on receive
+ * while differing on transmit is an ordinary configuration"; it is an ordinary
+ * configuration and it says nothing about whether *this* link frames, since
+ * what reaches this receiver is what the far end transmitted.
+ *
+ * The case below still reports no error, and for a better reason: code `F` is
+ * the external clock, whose rate this core does not know. An unknown rate
+ * cannot be disagreed with, so no error is claimed -- a refusal to invent one
+ * rather than an assumption that the link is good. */
+static void test_an_unknown_sender_rate_claims_no_disagreement(void) {
   ap_mc68681_t duart;
   ap_mc68681_reset(&duart);
   ap_mc68681_write(&duart, AP_MC68681_CR_A, 0x01u);
@@ -603,7 +611,7 @@ int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_a_character_sent_at_the_wrong_rate_sets_a_framing_error);
   RUN_TEST(test_a_character_sent_at_the_right_rate_does_not);
-  RUN_TEST(test_only_the_receiver_nibble_decides_the_match);
+  RUN_TEST(test_an_unknown_sender_rate_claims_no_disagreement);
   RUN_TEST(test_a_disabled_receiver_reports_no_framing_error);
   RUN_TEST(test_character_length_is_five_plus_the_field);
   RUN_TEST(test_parity_is_enabled_when_the_bit_is_clear);

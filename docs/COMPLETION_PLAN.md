@@ -1939,18 +1939,16 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         *Verification: `mc146818_suite` +3 (29).*
 - [ ] SIO serial lines, keyboard and mouse. *Verification: console byte stream
       identical to the oracle's.*
-      **Awaiting:** one firmware path, and nothing in this core. `FINDINGS.md`
-      C109 maps the console state machine from the PROM's own code: the
-      selection poll, the diagnostic-code poster at `00251A`, the dispatcher's
-      constants, the MD sign-on string at `0008F4` and the `CMP.B #$0D` at
-      `0008D0` that prints it, and the two twenty-entry translation tables at
-      `0021D2`/`0021E6` proved from the addressing modes that index them. Three
-      defects on our side were found and fixed on the way — the boot advancing
-      no time, `--boot-key` never delivering a byte, and the 68681 counter's
-      terminal count. With a screen fitted the firmware writes 263,376 bytes to
-      the display, so "the PROM never transmits" was a machine with no console
-      being asked to choose one. What is left is which path reaches `0008C8`
-      with what byte: firmware disassembly, not emulator work.
+      **Awaiting:** the last step of the autobaud. `FINDINGS.md` C110 settles
+      what the dispatcher is — not a command table but the **rate search**,
+      whose five constants are the shapes a carriage return takes at five wrong
+      rates — and with it the defect that made the negotiation impossible: a
+      rate mismatch set a flag and delivered the byte *intact*, where a UART
+      returns a different value because it sampled at the wrong instants.
+      `ap_mc68681_resample` models the sampling and reproduces two of the three
+      fixed arms exactly. The byte now reaches the dispatcher; what the port's
+      clock select holds at the instant it lands is the next thing to check.
+      Superseded detail: C109's reading of `72` as `'r'`.
   - **The oracle's half of that comparison now exists.** `docs/references/MD.md`
     holds its console stream byte-exact — sign-on `0D 0A 4D 44 37 0D 0A`, prompt
     `0D 0A 0D 0A 3E`, and `A`'s address lines — captured through

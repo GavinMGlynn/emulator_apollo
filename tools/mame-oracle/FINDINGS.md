@@ -6108,6 +6108,69 @@ that path at all: something else reaches it. Which path, and with what byte, is
 the next thing to settle, and it is firmware disassembly rather than emulator
 work.
 
+## C110 -- the dispatcher is the autobaud, and a rate mismatch must corrupt
+
+**Class: our core, one defect of substance and two of timing; and the firmware's
+console negotiation, understood.**
+
+C109 read `0008xx`'s chain of `CMP.B` against `FF`, `FE`, `C7`, `72`, `C0` as a
+*command* dispatcher and `72` as `'r'`. It is not. Disassembling what each arm
+does settles it:
+
+| received | writes to the port's `CSR` | meaning |
+| --- | --- | --- |
+| `FF` | `BB` -- 9600 | the sender is at 9600 |
+| `FE` | `99` -- 4800 | the sender is at 4800 |
+| `C7` | `88` -- 2400 | the sender is at 2400 |
+| `72` | stores `66` -- 1200 | candidate, confirmed by the next byte |
+| `C0` | stores `44` -- 300 | candidate, confirmed by the next byte |
+
+Those five values are **the shapes a carriage return takes at five wrong rates**,
+and each arm reprograms the port to the rate that shape implies. `72` was never
+`'r'`.
+
+**So a rate mismatch has to corrupt the byte, and ours did not.** The model set
+`SR[6]` and delivered the character intact -- a note saying something went wrong
+rather than the thing that went wrong. A UART finds the start edge and samples at
+the bit centres its *own* clock predicts, so at the wrong rate it reads the
+sender's waveform at the wrong instants and returns a different value. With an
+intact `0D` the firmware matches none of the five arms, learns nothing, and loops
+forever, which is exactly what this core did.
+
+`ap_mc68681_resample` models it: start bit, data least significant first, stop
+bit, each a sender bit-time wide; the receiver samples bit `i` at `(i + 1.5)`
+receiver bit-times from the start edge; past the sender's stop bit is the idle
+line, high. Equal rates return the byte unchanged, so every correctly configured
+link is exactly as it was.
+
+**Two of the three fixed arms match the model exactly.** A carriage return sent
+at 9600 into a port receiving at 1050 resamples to `FF`, and at 4800 to `FE` --
+and the firmware's answer to each is to switch to that very rate. The 2400 case
+gives `F9` where the firmware expects `C7`, so the mechanism is right and a
+detail is not: a receiver that resynchronises on edges, or a different assumed
+character length, would move it. Recorded as a disagreement rather than tuned
+away.
+
+**Two smaller defects, both the same shape as `--boot-key`'s.** Scripted input
+was sent as soon as the FIFO was free -- before `MR1` leaves its five-bit reset
+state and before the receiver is enabled -- so the byte arrived truncated or was
+dropped. That matters more here than it looks: the autobaud identifies a rate
+*from what the wrong rate did to the character*, so a byte truncated first
+arrives as a shape it has no case for and the negotiation cannot begin.
+
+And `rate_matches` compared the receiver's upper nibble against the **sender's
+upper nibble**, judging a sender by the rate it was listening on rather than the
+rate it was transmitting at. Its own comment had said the right rule since it was
+written. Now compared as *rates* rather than codes, so the four codes that are
+not a fixed rate -- the timer and the two external clocks -- match rather than
+inventing a disagreement this core cannot know about.
+
+**Where it stands**: the byte now reaches the dispatcher and is compared against
+all five arms without matching, so the shape delivered is not the one the port's
+current rate implies. `ap_mc68681_resample` produces `FF` correctly in isolation
+for 9600-into-1050. What the port's clock select actually holds at the instant
+the byte lands is the next thing to check.
+
 ### Checked from now on
 
 `tools/check_doc_counts.py` compares every "`X_suite`, N tests" claim in the

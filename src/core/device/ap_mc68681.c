@@ -67,8 +67,28 @@ static void refresh_channel_interrupts(ap_mc68681_t *duart) {
  * transmitter's, and a sender's transmit rate is what this receiver must match.
  * Compared as the whole upper nibble rather than bit by bit: the codes are an
  * index into a baud-rate table, not a set of flags. */
-static bool rate_matches(uint8_t receiver_csr, uint8_t sender_csr) {
-  return (receiver_csr >> 4) == (sender_csr >> 4);
+static bool rate_matches(uint8_t receiver_csr, uint8_t sender_csr,
+                         bool acr_set_two) {
+  /* Our receive rate against the far end's **transmit** rate, which is what the
+   * comment above has always said and what the code did not do: it compared
+   * upper nibble against upper nibble, judging a sender by the rate it was
+   * *listening* on. Invisible for every symmetric `CSR` -- `77`, `BB` -- which
+   * is all this project had used.
+   *
+   * Compared as *rates* rather than as codes, because four of the sixteen codes
+   * are not a fixed rate at all: `D` is the counter/timer and `E` and `F` the
+   * external clock. This core does not know what those run at, so it cannot
+   * claim a disagreement with them -- an unknown rate matches, which is a
+   * refusal to invent an error rather than an assumption that the link is
+   * good. */
+  const unsigned receiving = ap_mc68681_baud((uint8_t)(receiver_csr >> 4),
+                                             acr_set_two);
+  const unsigned sending =
+      ap_mc68681_baud((uint8_t)(sender_csr & 0x0Fu), acr_set_two);
+  if (receiving == 0u || sending == 0u) {
+    return true;
+  }
+  return receiving == sending;
 }
 
 void ap_mc68681_receive_framed(ap_mc68681_t *duart, unsigned channel,
@@ -98,6 +118,57 @@ void ap_mc68681_receive_framed(ap_mc68681_t *duart, unsigned channel,
   }
 }
 
+/* `[68681]`'s baud rate generator table. Zero for the codes that are not a
+ * fixed rate: `D` is the counter/timer, `E` and `F` the external clock at
+ * sixteen times and one times. The two ACR sets differ only at codes 0 and 3,
+ * and this machine's firmware uses 4, 6, 7, 8, 9 and B, where they agree. */
+unsigned ap_mc68681_baud(uint8_t csr_nibble, bool acr_set_two) {
+  static const unsigned set_one[16] = {50,   110,  135,  200, 300, 600,
+                                       1200, 1050, 2400, 4800, 7200, 9600,
+                                       38400, 0,   0,    0};
+  static const unsigned set_two[16] = {75,   110,  135,  150, 300, 600,
+                                       1200, 1050, 2400, 4800, 7200, 9600,
+                                       38400, 0,   0,    0};
+  const unsigned code = csr_nibble & 0x0Fu;
+  return acr_set_two ? set_two[code] : set_one[code];
+}
+
+uint8_t ap_mc68681_resample(uint8_t byte, unsigned bits, unsigned sender_baud,
+                            unsigned receiver_baud) {
+  if (bits == 0u || bits > 8u || sender_baud == 0u || receiver_baud == 0u ||
+      sender_baud == receiver_baud) {
+    /* Equal rates, or a rate that is not a rate -- an external clock or the
+     * timer, where this model has nothing to say and must not invent a
+     * corruption. The byte is what was sent. */
+    return byte;
+  }
+
+  /* The sender's waveform, in units of its own bit time: index 0 is the start
+   * bit, 1..bits the data least significant first, and everything at or past
+   * `bits + 1` is stop or idle, which is high. */
+  uint8_t received = 0u;
+  for (unsigned i = 0; i < bits; i++) {
+    /* The middle of where the *receiver* believes bit `i` sits, measured from
+     * the start edge in receiver bit times, converted to sender bit times.
+     * Scaled by two so the half is exact in integers. */
+    const uint64_t position =
+        ((uint64_t)(2u * i + 3u) * sender_baud) / (2u * receiver_baud);
+
+    bool level;
+    if (position == 0u) {
+      level = false; /* still in the sender's start bit */
+    } else if (position <= bits) {
+      level = ((byte >> (unsigned)(position - 1u)) & 1u) != 0u;
+    } else {
+      level = true; /* stop bit, or the idle line beyond it */
+    }
+    if (level) {
+      received |= (uint8_t)(1u << i);
+    }
+  }
+  return received;
+}
+
 void ap_mc68681_receive_at(ap_mc68681_t *duart, unsigned channel, uint8_t byte,
                            uint8_t sender_csr) {
   if (channel >= AP_MC68681_CHANNELS) {
@@ -115,7 +186,26 @@ void ap_mc68681_receive_at(ap_mc68681_t *duart, unsigned channel, uint8_t byte,
    * silently altered stream rather than an error -- there is nothing for the
    * part to report, because nothing went wrong on the wire. */
   const unsigned bits = ap_mc68681_character_bits(ch->mr[0]);
-  const uint8_t framed = (uint8_t)(byte & ((1u << bits) - 1u));
+
+  /* What the wrong rate actually does to the bits, before the width is applied.
+   *
+   * The receiver samples at the bit centres *its own* clock predicts, so at a
+   * mismatched rate it reads the sender's waveform at the wrong instants and
+   * gets a different byte. Modelling that as a flag beside an intact character
+   * -- which this did -- is the difference between a UART and a note saying one
+   * went wrong, and it is what left the boot PROM's autobaud unable to learn
+   * anything: it compares the received byte against the shapes a carriage
+   * return takes at five wrong rates, and an intact `0D` matches none of them.
+   *
+   * `ACR[7]` selects the baud set. The two published sets agree on every code
+   * this machine's firmware uses. */
+  const bool acr_set_two = (duart->acr & 0x80u) != 0u;
+  const uint8_t resampled = ap_mc68681_resample(
+      byte, bits,
+      ap_mc68681_baud((uint8_t)(sender_csr & 0x0Fu), acr_set_two),
+      ap_mc68681_baud((uint8_t)(ch->csr >> 4), acr_set_two));
+
+  const uint8_t framed = (uint8_t)(resampled & ((1u << bits) - 1u));
 
   /* The two receive-side channel modes. Both retransmit what arrives; they
    * differ in whether the receiver also keeps it.
@@ -144,7 +234,7 @@ void ap_mc68681_receive_at(ap_mc68681_t *duart, unsigned channel, uint8_t byte,
   /* Set *after* delivery, and only if the byte was taken: a receiver that is
    * disabled or whose FIFO is full never sampled the character at all, so it
    * cannot have found its stop bit in the wrong place. */
-  if (ch->rx_enabled && !rate_matches(ch->csr, sender_csr)) {
+  if (ch->rx_enabled && !rate_matches(ch->csr, sender_csr, acr_set_two)) {
     ch->sr |= AP_MC68681_SR_FRAMING;
   }
 }
