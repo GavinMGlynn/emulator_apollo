@@ -6039,3 +6039,48 @@ same file created -- and `git status` confirmed it is now ignored.
 `CLAUDE.md` says temporary instrumentation is always reverted before commit.
 This was not instrumentation, which is exactly why it survived a dozen commits:
 it was a by-product nobody was looking for, in a directory nobody stages.
+
+## C106 -- the citations hold, and they cannot be checked the way the counts are
+
+**Class: audit result, negative; and a bound on what tooling can do.**
+
+C104 and C105 automated the two claim-classes in the living documents that are
+mechanical: test counts, and cited paths and symbols. The third class is the one
+the whole project rests on -- the manual citations, `§8.1.5`, `p. 8-10`,
+`Table 3-10` -- and this is why it is *not* automated.
+
+**Sampled and sound.** Three page citations made during this campaign were
+checked by locating the PDF page whose printed footer carries the cited number
+and confirming the passage is on it: `[030]` p. 8-10 (A-line and F-line
+emulator vectors), p. 8-5 (the reset exception's ten steps), and p. 9-51 (the
+68851 instructions a 68030 lacks). All three correct.
+
+### The third one appeared to fail, and that is the finding
+
+The checker reported `PVALID` absent from the page it cites. It is there. The
+manual's text layer renders it **`PVALlD`** -- capital I as lowercase L -- so a
+literal search misses it.
+
+That is exactly the damage `CLAUDE.md` mandates page images for, met in the
+wild:
+
+> "read the page image, not a text extraction: OCR mangles precisely what timing
+> and register tables are made of, and `4(1/1/0)` arriving as `4(1/010)` reads
+> as plausible data."
+
+A sweep of the same extraction finds `PHAlT`, `PDlNTS` and `PVALlD` among the
+instruction and signal names. Rare -- three in a 600-page manual -- and that
+rarity is the problem: a citation checker would be right often enough to be
+believed and would then report a correct citation as broken, or match a mangled
+name against a mangled document and agree with itself.
+
+**So the citations stay checked by reading, and the tooling stops here.** The
+line is not laziness: counts and symbols are *facts about this repository*,
+which a script can see in full; a citation is a claim about a scanned book,
+where the script's view of the book is itself the unreliable thing. Recording
+the boundary matters more than the three passing samples, because the obvious
+next step from C105 is to automate this too, and it would produce false alarms
+that train their reader to ignore the check.
+
+Phase 2 and Phase 2b have no open items. The evidence for that is machine-
+checked where the evidence is machine-checkable, and read where it is not.
