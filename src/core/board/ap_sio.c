@@ -133,3 +133,19 @@ bool ap_sio_refresh_output(const ap_sio_t *sio) {
   /* §3.9: serial 1's counter, "a square wave output on output OP3". */
   return sio->port[0].counter_output;
 }
+
+unsigned ap_sio_character_bits(const ap_sio_t *sio, unsigned unit,
+                               unsigned channel) {
+  if (unit >= 2u || channel >= 2u) {
+    return 0u;
+  }
+  return ap_mc68681_character_bits(sio->port[unit].channel[channel].mr[0]);
+}
+
+bool ap_sio_receiver_enabled(const ap_sio_t *sio, unsigned unit,
+                             unsigned channel) {
+  if (unit >= 2u || channel >= 2u) {
+    return false;
+  }
+  return sio->port[unit].channel[channel].rx_enabled;
+}

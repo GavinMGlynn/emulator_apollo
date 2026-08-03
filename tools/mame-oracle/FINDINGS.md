@@ -6049,11 +6049,43 @@ does not render. The colour controller taking 10 writes where the mono takes a
 quarter of a million is its own thread: the firmware probes both and only one
 answers the way it expects.
 
-**What is still open**, and it is now a much smaller question: which
-configuration the oracle's `MD.md` capture ran in, and whether the serial console
-is reachable at all on a machine with a screen. The dispatcher's `C7` and `C0`
-are scan codes rather than characters, so the console being negotiated may be the
-keyboard-and-screen pair rather than a terminal.
+**The MD sign-on is in the PROM at `0008F4`**, and so is the branch that prints
+it: `0008D0` is `CMP.B #$0D,D1` and, on a match, `0008D8` loads the string
+address and calls the print routine. The bytes read
+`0D 0A 4D 44 37 43 20 52 45 56 20 38 2E 30 30 2C 20 31 39 38 39 2F 30 38 2F 31 36 2E`
+-- "\r\nMD7C REV 8.00, 1989/08/16." -- against `MD.md`'s captured
+`0D 0A 4D 44 37 0D 0A`. So the two sides share a prefix and the comparison this
+item wants is a diff of two known strings rather than a search for one.
+
+The comparison at `0008D0` is reached only after `0008C8` calls `0021FA` -- the
+routine immediately after the scan-code table -- and masks the result with
+`AND.W #$7F`. So the byte the console dispatcher matches is a **scan code
+translated to ASCII**, not a character off the wire.
+
+**And `--boot-key` had never delivered a byte.** Three conditions had to hold
+and the frontend waited on one:
+
+- `MR1` resets to a **five-bit** link, so a make code loses its top three bits
+  and a release code -- the make code with bit 7 set -- cannot arrive at all.
+  Both became `00`.
+- A **disabled receiver drops** what arrives. Measured directly: the byte went
+  in at step 1223 and the FIFO stayed empty.
+- The receiver must also be free, which is the only thing it had checked.
+
+With all three, the firmware reads serial 1 channel A's receive buffer for the
+first time in this project and reaches `00220E`, the scan-code search. Every
+`--boot-key` run ever taken here delivered nothing and looked exactly like a
+machine ignoring its keyboard.
+
+A stale claim goes with it: the plan recorded that "the firmware has not enabled
+channel A's receiver at that point". It has. Measured after 400,000
+instructions, **all four receivers are enabled**, channel A carries eight bits,
+and its clock select is `66` where the other three are `77` and `BB`.
+
+**What is still open**: the firmware consumes both halves of a key and sits in
+the scan-code search at `00220E`. The search is over a 41-byte table whose
+structure -- runs of scan codes against runs of ASCII -- is read but not proved,
+and which index maps to which is the next thing to settle.
 
 ### Checked from now on
 

@@ -585,7 +585,26 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
        * firmware takes to enable its receiver, and would silently do nothing if
        * it took longer. */
       if (key < AP_KBD_KEYS && key_state < 2u &&
-          !ap_sio_receiver_ready(&board->sio, 0u, 0u)) {
+          !ap_sio_receiver_ready(&board->sio, 0u, 0u) &&
+          ap_sio_character_bits(&board->sio, 0u, 0u) == 8u &&
+          ap_sio_receiver_enabled(&board->sio, 0u, 0u)) {
+        /* Eight bits, not merely a free receiver.
+         *
+         * `MR1` resets to a **five-bit** link, and this sent as soon as the
+         * receiver was free -- which is immediately, thousands of instructions
+         * before the firmware programs the port. A make code arrived with its
+         * top three bits missing and a release code, which is the make code with
+         * bit 7 set, could not arrive at all: both became `00`. So every
+         * `--boot-key` run this project has taken delivered nothing, and looked
+         * exactly like a run where the firmware ignored the keyboard.
+         *
+         * And enabled as well as eight bits wide: a disabled receiver drops
+         * what arrives, so waiting only for the width delivered into a port
+         * that was not yet listening -- measured, the byte went in at step 1223
+         * and the FIFO stayed empty.
+         *
+         * The port's own configuration is the condition to wait on, which is
+         * what "self-timed" was always supposed to mean here. */
         const bool moved = (key_state == 0u) ? ap_board_key_press(board, key)
                                              : ap_board_key_release(board, key);
         if (moved) {

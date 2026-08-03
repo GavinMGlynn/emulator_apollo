@@ -135,6 +135,24 @@ void ap_sio_advance(ap_sio_t *sio, ap_time_t now);
  * *which* part and *which* output carry the refresh is board wiring. */
 [[nodiscard]] bool ap_sio_refresh_output(const ap_sio_t *sio);
 
+/* How many bits a channel's link currently carries, from its `MR1`.
+ *
+ * Exposed because a *scripted* sender has to wait for it. `MR1` resets to a
+ * five-bit link, so a keyboard scan code delivered before the firmware has
+ * programmed eight arrives with its top three bits missing -- and a release
+ * code, which is the make code with bit 7 set, cannot arrive at all. A script
+ * that sent as soon as the receiver was free would be sending into that
+ * window, and the byte would be lost silently rather than refused. */
+[[nodiscard]] unsigned ap_sio_character_bits(const ap_sio_t *sio, unsigned unit,
+                                             unsigned channel);
+
+/* Whether a channel's receiver is enabled. A disabled receiver **drops** what
+ * arrives -- it never sampled the character -- so a scripted sender that did
+ * not wait for this would deliver into a port that is not listening and see
+ * exactly what a machine ignoring the device looks like. */
+[[nodiscard]] bool ap_sio_receiver_enabled(const ap_sio_t *sio, unsigned unit,
+                                           unsigned channel);
+
 /* Deliver a byte to a port's receiver, as a terminal on the other end of the
  * wire would. The board has no host input of its own and must not acquire any:
  * a deterministic core cannot have a device reaching for a keyboard. The bytes
