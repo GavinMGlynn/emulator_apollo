@@ -4473,6 +4473,35 @@ mean they were written with zero.
 **1204 words remain `UNIMPLEMENTED`**, from 2621 before C95. The bit-field group
 — 488 words in family E — is now the largest single remainder by some margin.
 
+**The last three effective-address category holes are closed**, and they were
+found by *naming* the remaining unimplemented words rather than guessing at
+them: a sweep that reports each one's decoded kind turned "716 words" into five
+named groups, three of which were categories and two of which are genuinely
+absent instructions.
+
+- **`CHK`** had the check and no verdict — it returned `false` without setting
+  the refusal, so a bound in an address register reported this core's gap.
+- **`JMP`/`JSR`** had no check at all, and worse, resolved the effective address
+  *before* failing. Resolving applies the increment and decrement side effects,
+  so `JMP (A0)+` moved `A0` on its way to reporting a gap. `LEA`'s executor has
+  carried the reasoning for that ordering in a comment for a long time; the jump
+  did not follow it.
+- **`MOVEM`** checked that predecrement pairs with register-to-memory and
+  postincrement with memory-to-register, and never checked the category at all.
+  Its two directions differ in more than the increment mode: register-to-memory
+  is "control alterable … or the predecrement", memory-to-register is "control …
+  or the postincrement", so `MOVEM.W (d16,PC),D0` is legal and
+  `MOVEM.W D0,(d16,PC)` is not — the same addressing mode, legal reading and
+  illegal writing.
+
+`MOVEM` cannot encode a data-register operand at all, mode 000 being `EXT` and
+001 `EXTB`, so the cases that reach its check are the immediate and PC-relative
+modes rather than the obvious one.
+
+**420 words remain `UNIMPLEMENTED`**, and all of them are now named: `MOVES`
+(180), `TRAPcc`'s operand forms (48), and the coprocessor and MMU corners of
+family F (192). None is a category question; the category campaign is finished.
+
 **The eight bit field instructions execute**, which was the largest single
 block of unimplemented opcodes left — 488 words, all of family E's remainder.
 

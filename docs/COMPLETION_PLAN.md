@@ -997,6 +997,17 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         dynamic form is the one bit operation whose operand can be an immediate,
         so it is handled before the address path — there is no address to
         gather. `step_suite` +3, 264 words. Detail in `PROJECT_STATUS.md`.
+  - [x] The **last three category holes**, found by naming all 716 remaining
+        `UNIMPLEMENTED` words by decoded kind rather than guessing: `CHK` (whose
+        check existed but returned no verdict), `JMP`/`JSR` (which had none and
+        resolved the address *first*, moving `A0` on a refused `JMP (A0)+`), and
+        `MOVEM` (which checked the increment pairing but never the category).
+        296 words. `step_suite` +2. Detail in `PROJECT_STATUS.md`.
+  - [ ] `MOVES` (180 words) — a real 68010-and-later instruction, privileged,
+        moving between address spaces through the function code registers.
+        Decoded, not executed.
+  - [ ] `TRAPcc`'s operand forms (48 words), and the coprocessor/MMU corners of
+        family F (192). The remaining 420.
   - [x] **The eight bit field instructions** — `BFTST`, `BFEXTU`, `BFCHG`,
         `BFEXTS`, `BFCLR`, `BFFFO`, `BFSET`, `BFINS`, 488 words. The field is a
         span in a big-endian bit stream, not a mask on a word: a 32-bit field at

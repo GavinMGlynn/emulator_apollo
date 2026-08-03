@@ -2946,7 +2946,17 @@ static bool execute_control(ap_m68030_cpu_t *cpu,
   case AP_M68030_CTL_JMP: {
     /* Both jump to the effective *address*, not to what is there: "JMP <ea>"
      * loads the address itself into the PC. So the address is calculated and
-     * used, never read through. */
+     * used, never read through.
+     *
+     * "Only control addressing modes can be used", and the check goes **before**
+     * the calculation for the reason `LEA`'s does: resolving applies the
+     * increment and decrement side effects, so a refusal afterwards would
+     * already have moved the register. An instruction the processor refuses
+     * must leave no trace. Until this was here, `JMP D0` reported our gap and
+     * `JMP (A0)+` moved `A0` on the way to reporting it. */
+    if (!allow_ea(cpu, ap_m68030_ea_is_control(control->ea.kind))) {
+      return false;
+    }
     ap_m68030_address_input_t input = {0};
     if (!gather_address_input(cpu, control->ea.kind, 4u, clocks, &input)) {
       return false;
@@ -3157,11 +3167,21 @@ static bool execute_movem(ap_m68030_cpu_t *cpu, const ap_m68030_misc_t *misc,
   const bool predecrement = misc->ea.kind == AP_M68030_EA_PREDECREMENT;
   const bool postincrement = misc->ea.kind == AP_M68030_EA_POSTINCREMENT;
 
-  /* "only the control modes, the predecrement mode, and the postincrement mode
-   * are valid", and each direction takes only one of the two increment modes:
-   * predecrement is register-to-memory only, postincrement memory-to-register
-   * only. The other combinations are not this instruction. */
-  if ((predecrement && !to_memory) || (postincrement && to_memory)) {
+  /* The rule in full, from each direction's own sentence. Register-to-memory:
+   * "only control alterable addressing modes **or the predecrement** addressing
+   * mode can be used". Memory-to-register: "only control addressing modes **or
+   * the postincrement** addressing mode".
+   *
+   * So each direction takes one of the two increment modes and not the other,
+   * and the control half differs too -- *alterable* only when writing. The
+   * pairing was checked here and the category was not, which left a data
+   * register or an immediate reporting this core's gap rather than the
+   * machine's refusal. Same shape as `FMOVEM`'s rule, and for the same reason:
+   * an increment mode carries its own direction. */
+  const bool allowed =
+      to_memory ? (ap_m68030_ea_is_control_alterable(misc->ea.kind) || predecrement)
+                : (ap_m68030_ea_is_control(misc->ea.kind) || postincrement);
+  if (!allow_ea(cpu, allowed)) {
     return false;
   }
 
@@ -3327,7 +3347,7 @@ static bool execute_misc(ap_m68030_cpu_t *cpu, const ap_m68030_misc_t *misc,
   case AP_M68030_MISC_CHK_LONG:
     /* "CHK <ea>,Dn" only reads its bound, so every data mode is legal --
      * including the immediate, which is how the bound is usually written. */
-    if (!ap_m68030_ea_is_data(misc->ea.kind)) {
+    if (!allow_ea(cpu, ap_m68030_ea_is_data(misc->ea.kind))) {
       return false;
     }
     break;

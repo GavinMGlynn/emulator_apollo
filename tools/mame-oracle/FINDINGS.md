@@ -5718,3 +5718,57 @@ instruction actually executed.
 coprocessor and MMU corners of family F, and `CAS`/`CAS2` -- which decline for a
 stated reason rather than for want of work: their read and write are
 indivisible, and honouring that needs the bus to assert `RMC`.
+
+## C100 -- the last three category holes, found by naming the remainder
+
+**Class: defects in this core, three. Ends the category campaign.**
+
+716 words still reported `UNIMPLEMENTED` and I had been describing them as "the
+coprocessor corners and `CAS`" -- an impression, not a measurement. A sweep that
+reports each word's *decoded kind* turned it into five named groups in one run:
+
+    immediate kind 6 (MOVES)   180 words
+    misc kind 1/2 (CHK)        176 words
+    misc kind 10/11 (MOVEM)     80 words
+    control kind 15/16 (JSR/JMP) 40 words
+    quick kind 4 (TRAPcc)       48 words
+    coproc                     192 words
+
+Three of those were categories, and each had failed differently:
+
+* **`CHK` had the check and no verdict.** It tested `ap_m68030_ea_is_data` and
+  returned `false` without setting the refusal, so a bound in an address
+  register reported this core's gap instead of the machine's illegal
+  instruction. The rule was right and the *classification* was missing -- a
+  half-conversion left behind by C95.
+* **`JMP`/`JSR` had no check, and resolved first.** Resolving an effective
+  address applies the increment and decrement side effects, so `JMP (A0)+` moved
+  `A0` and *then* reported a gap. `LEA`'s executor carries that exact reasoning
+  in a comment -- "a refusal that happened afterwards would already have moved
+  the register" -- and the jump did not follow it.
+* **`MOVEM` checked the pairing and never the category.** It verified that
+  predecrement goes with register-to-memory and postincrement with
+  memory-to-register, which is the *interesting* half of the rule, and skipped
+  the ordinary half entirely.
+
+`MOVEM`'s two directions differ in more than the increment mode:
+register-to-memory is "control alterable ... or the predecrement",
+memory-to-register is "control ... or the postincrement". So
+`MOVEM.W (d16,PC),D0` is legal and `MOVEM.W D0,(d16,PC)` is not -- the same
+addressing mode, legal reading and illegal writing, which is what the test pins.
+
+### Two test cases were wrong before the code was
+
+`MOVEM.W D0,D0` looked like the obvious illegal case and it executed. `$4880` is
+**`EXT.W D0`**: mode 000 is `EXT` and 001 is `EXTB`, so `MOVEM` cannot encode a
+data-register operand at all and the cases that reach its check are the
+immediate and PC-relative modes. That is the third time this campaign that a
+hand-picked "obviously illegal" encoding turned out to be a different
+instruction -- after `Scc A0` (`DBcc`) and `$15C0` (`MOVE` to `(d16,PC)`, not
+`(d16,A2)`). Reading an encoding off a hex literal by eye has now been wrong
+more often than the code under test.
+
+**420 words remain, all named**: `MOVES` (180), `TRAPcc`'s operand forms (48),
+and family F's coprocessor and MMU corners (192). None is a category question.
+The category campaign that began at C95 is finished: every instruction group in
+the 68030 now enforces the effective-address rules its own page states.

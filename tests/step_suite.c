@@ -3767,6 +3767,86 @@ static void test_tst_reaches_every_mode_but_refuses_a_byte_address_register(
   TEST_ASSERT_EQUAL_HEX32(HANDLER, m.cpu.regs.pc);
 }
 
+/* **The last three category holes: `CHK`, `JMP`/`JSR`, and `MOVEM`.**
+ *
+ * Each from its own page. `CHK` — "Only data addressing modes can be used" for
+ * the upper bound, so the immediate is legal and is how a bound is usually
+ * written, and an address register is not. `JMP`/`JSR` — "Only control
+ * addressing modes". `MOVEM` states its rule per direction and the two differ
+ * in more than the increment mode: register-to-memory is "control alterable
+ * addressing modes **or the predecrement**", memory-to-register is "control
+ * addressing modes **or the postincrement**".
+ *
+ * That asymmetry is what `MOVEM.W (d16,PC),D0` against `MOVEM.W D0,(d16,PC)`
+ * pins: PC-relative is a control mode but not an alterable one, so the same
+ * addressing mode is legal reading and illegal writing.
+ *
+ * `MOVEM` cannot encode a *data register* operand at all — mode 000 is `EXT`
+ * and 001 is `EXTB` — so the cases that reach its check are the immediate and
+ * the PC-relative modes, not the obvious one. */
+static void test_chk_jmp_and_movem_refuse_what_their_pages_exclude(void) {
+  const struct {
+    uint16_t word[2];
+    unsigned words;
+    bool legal;
+    const char *what;
+  } cases[] = {
+      {{0x4180u, 0u}, 1u, true, "CHK.W D0,D0"},
+      {{0x41BCu, 0x0010u}, 2u, true, "CHK.W #$10,D0 -- immediate is data"},
+      {{0x4188u, 0u}, 1u, false, "CHK.W A0,D0 -- An is not"},
+      {{0x4ED0u, 0u}, 1u, true, "JMP (A0)"},
+      {{0x4EC0u, 0u}, 1u, false, "JMP D0"},
+      {{0x4ED8u, 0u}, 1u, false, "JMP (A0)+ -- not control"},
+      {{0x4E90u, 0u}, 1u, true, "JSR (A0)"},
+      {{0x4C98u, 0x0001u}, 2u, true, "MOVEM.W (A0)+,D0"},
+      {{0x48D8u, 0x0001u}, 2u, false, "MOVEM.W D0,(A0)+ -- wrong direction"},
+      {{0x4CBAu, 0x0001u}, 2u, true, "MOVEM.W (d16,PC),D0 -- control"},
+      {{0x48BAu, 0x0001u}, 2u, false, "MOVEM.W D0,(d16,PC) -- not alterable"},
+      {{0x48BCu, 0x0001u}, 2u, false, "MOVEM.W D0,#imm"},
+  };
+
+  for (unsigned i = 0; i < sizeof cases / sizeof cases[0]; i++) {
+    machine_t m = {0};
+    const uint16_t program[3] = {cases[i].word[0], cases[i].word[1], 0x4E71u};
+    load(&m, program, 3);
+    plant_vector(&m, AP_M68030_VECTOR_ILLEGAL_INSTRUCTION, HANDLER);
+    m.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
+    m.cpu.regs.isp = SUPERVISOR_STACK;
+    ap_m68030_write_a7(&m.cpu.regs, SUPERVISOR_STACK);
+    m.cpu.regs.a[0] = 0x00005000u;
+    m.cpu.regs.d[0] = 1u;
+
+    const ap_m68030_step_result_t r = ap_m68030_step(&m.cpu);
+    if (cases[i].legal) {
+      TEST_ASSERT_EQUAL_INT_MESSAGE(AP_M68030_STEP_EXECUTED, r.status,
+                                    cases[i].what);
+    } else {
+      TEST_ASSERT_EQUAL_INT_MESSAGE(AP_M68030_STEP_EXCEPTION, r.status,
+                                    cases[i].what);
+    }
+  }
+}
+
+/* **A refused jump leaves the register alone.** The check has to come before
+ * the address is calculated, because calculating applies the increment and
+ * decrement side effects — so a refusal afterwards would already have moved
+ * `A0`, and an instruction the processor refuses must leave no trace.
+ *
+ * `LEA`'s executor has carried that reasoning in a comment for a long time;
+ * `JMP` had no check at all, and resolved first. */
+static void test_a_refused_jump_does_not_move_the_address_register(void) {
+  static const uint16_t program[] = {0x4ED8u, 0x4E71u, 0x4E71u}; /* JMP (A0)+ */
+  machine_t m = {0};
+  load(&m, program, 3);
+  plant_vector(&m, AP_M68030_VECTOR_ILLEGAL_INSTRUCTION, HANDLER);
+  m.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
+  m.cpu.regs.isp = SUPERVISOR_STACK;
+  m.cpu.regs.a[0] = 0x00005000u;
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXCEPTION, ap_m68030_step(&m.cpu).status);
+  TEST_ASSERT_EQUAL_HEX32(0x00005000u, m.cpu.regs.a[0]);
+}
+
 /* ---------------------------------------------------------------------------
  * The bit field instructions.
  * ------------------------------------------------------------------------- */
@@ -7613,6 +7693,8 @@ int main(void) {
   RUN_TEST(test_an_interrupt_wakes_a_stopped_processor);
   RUN_TEST(test_an_interrupt_returns_to_the_instruction_it_preempted);
   RUN_TEST(test_tst_reaches_every_mode_but_refuses_a_byte_address_register);
+  RUN_TEST(test_chk_jmp_and_movem_refuse_what_their_pages_exclude);
+  RUN_TEST(test_a_refused_jump_does_not_move_the_address_register);
   RUN_TEST(test_a_bit_field_reads_across_five_bytes);
   RUN_TEST(test_a_negative_bit_field_offset_reaches_the_previous_byte);
   RUN_TEST(test_a_data_register_bit_field_wraps_around);
