@@ -255,7 +255,8 @@ ap_m68030_cache_access_t
 ap_m68030_cache_read(ap_m68030_cache_t *cache, uint32_t address,
                      uint8_t function_code, bool cache_enabled,
                      bool burst_enable, bool frozen, bool read_modify_write,
-                     ap_m68030_fill_fn fill, void *context) {
+                     ap_m68030_fill_fn fill,
+                     ap_m68030_wait_states_fn wait_states, void *context) {
   ap_m68030_cache_access_t result = {0};
 
   /* "Whenever a read access occurs and the required instruction word or data
@@ -296,8 +297,18 @@ ap_m68030_cache_read(ap_m68030_cache_t *cache, uint32_t address,
     ap_m68030_bus_acknowledge_burst(&bus, answer.burst_acknowledge);
   }
 
+  /* As the write path does, and for the same reason: the answer arrives when
+   * the device says it does, and the bus counts the wait states. A `BERR` is
+   * not withheld — a device that cannot answer at all is not a slow device, and
+   * making a fault wait would delay the exception rather than the data. */
+  const unsigned waits =
+      (wait_states != NULL && answer.termination != AP_M68030_TERM_BERR)
+          ? wait_states(context, cycle_address, true)
+          : 0u;
   while (ap_m68030_bus_active(&bus)) {
-    ap_m68030_bus_terminate(&bus, answer.termination);
+    ap_m68030_bus_terminate(&bus, bus.wait_states >= waits
+                                      ? answer.termination
+                                      : AP_M68030_TERM_NONE);
     (void)ap_m68030_bus_tick(&bus);
     result.clocks++;
     if (result.clocks > 64u) {

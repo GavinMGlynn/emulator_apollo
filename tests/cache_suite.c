@@ -452,6 +452,73 @@ static memory_t sterm_burst_memory(void) {
   return (memory_t){.termination = AP_M68030_TERM_STERM, .cback = true};
 }
 
+/* A memory that answers after a stated number of wait states. The fill and the
+ * wait-state source share one context, as they do in the access layer: both are
+ * the memory system's. */
+typedef struct {
+  memory_t memory;
+  unsigned waits;
+} waiting_t;
+
+static void waiting_fill(void *context, uint32_t line_address,
+                         uint8_t function_code, ap_m68030_fill_answer_t *out) {
+  waiting_t *waiting = (waiting_t *)context;
+  memory_fill(&waiting->memory, line_address, function_code, out);
+}
+
+static unsigned waiting_wait_states(void *context, uint32_t physical,
+                                    bool read) {
+  (void)physical;
+  (void)read;
+  return ((const waiting_t *)context)->waits;
+}
+
+/* **A slow device lengthens the cycle, and the bus counts it.**
+ *
+ * `[030]` §7.3.1: "If DSACKx is not recognized by the start of S3, the
+ * processor inserts wait states instead of proceeding to S4 and S5 ... the
+ * processor continues to sample the DSACKx signals on the falling edges of the
+ * clock until one is recognized." With none, "the bus cycle runs at its maximum
+ * speed (three clocks per cycle)".
+ *
+ * Until this, every device answered at the minimum whatever it was, so
+ * contention could be emergent in *who* held the bus and never in *how long* —
+ * and no measured figure could come from a device's own speed. The wait states
+ * are withheld from the bus rather than added to a total afterwards, so a cycle
+ * lengthened here lengthens the instruction, the probe and the golden without
+ * any of those layers being told.
+ *
+ * The burst is the sharper case: its four beats are one cycle held open, so the
+ * wait states are paid **once** and not per long word. Charging per beat would
+ * look right on a single read and quadruple a line fill. */
+static void test_a_slow_device_lengthens_the_cycle_by_its_wait_states(void) {
+  static const struct {
+    bool burst;
+    unsigned waits;
+    uint32_t clocks;
+  } cases[] = {
+      {false, 0u, 2u}, {false, 1u, 3u}, {false, 3u, 5u},
+      {true, 0u, 5u},  {true, 1u, 6u},  {true, 3u, 8u},
+  };
+
+  for (unsigned i = 0; i < sizeof cases / sizeof cases[0]; i++) {
+    ap_m68030_cache_t cache = empty_cache();
+    waiting_t waiting = {
+        .memory = {.termination = AP_M68030_TERM_STERM,
+                   .cback = cases[i].burst},
+        .waits = cases[i].waits,
+    };
+
+    const ap_m68030_cache_access_t got = ap_m68030_cache_read(
+        &cache, ADDRESS, FC_SUPERVISOR_DATA, true, cases[i].burst, false, false,
+        waiting_fill, waiting_wait_states, &waiting);
+
+    TEST_ASSERT_EQUAL_UINT_MESSAGE(cases[i].clocks, got.clocks,
+                                   "wait states not charged as documented");
+    TEST_ASSERT_EQUAL_UINT(cases[i].burst ? 1u : 0u, got.burst ? 1u : 0u);
+  }
+}
+
 /* The headline claim, now measured rather than asserted: a miss into an empty
  * cache costs a burst line fill, and the hit that follows costs nothing. */
 static void test_a_miss_costs_a_burst_and_the_next_hit_costs_nothing(void) {
@@ -460,7 +527,7 @@ static void test_a_miss_costs_a_burst_and_the_next_hit_costs_nothing(void) {
 
   const ap_m68030_cache_access_t miss = ap_m68030_cache_read(
       &cache, ADDRESS, FC_SUPERVISOR_DATA, true, true, false, false,
-      memory_fill, &memory);
+      memory_fill, nullptr, &memory);
 
   TEST_ASSERT_FALSE(miss.hit);
   TEST_ASSERT_TRUE(miss.burst);
@@ -471,7 +538,7 @@ static void test_a_miss_costs_a_burst_and_the_next_hit_costs_nothing(void) {
 
   const ap_m68030_cache_access_t hit = ap_m68030_cache_read(
       &cache, ADDRESS, FC_SUPERVISOR_DATA, true, true, false, false,
-      memory_fill, &memory);
+      memory_fill, nullptr, &memory);
 
   TEST_ASSERT_TRUE(hit.hit);
   TEST_ASSERT_EQUAL_UINT32(0, hit.clocks);
@@ -487,12 +554,12 @@ static void test_one_burst_fill_serves_the_whole_line(void) {
   memory_t memory = sterm_burst_memory();
 
   (void)ap_m68030_cache_read(&cache, ADDRESS, FC_SUPERVISOR_DATA, true, true,
-                             false, false, memory_fill, &memory);
+                             false, false, memory_fill, nullptr, &memory);
 
   for (unsigned e = 0; e < AP_M68030_BURST_BEATS; e++) {
     const ap_m68030_cache_access_t access = ap_m68030_cache_read(
         &cache, 0x00001010u + (e * 4u), FC_SUPERVISOR_DATA, true, true, false,
-        false, memory_fill, &memory);
+        false, memory_fill, nullptr, &memory);
     TEST_ASSERT_TRUE(access.hit);
     TEST_ASSERT_EQUAL_UINT32(0, access.clocks);
     TEST_ASSERT_EQUAL_HEX32(0xC0DE0000u + e, access.value);
@@ -509,7 +576,7 @@ static void test_a_miss_without_cback_costs_a_single_cycle(void) {
 
   const ap_m68030_cache_access_t miss = ap_m68030_cache_read(
       &cache, ADDRESS, FC_SUPERVISOR_DATA, true, true, false, false,
-      memory_fill, &memory);
+      memory_fill, nullptr, &memory);
 
   TEST_ASSERT_FALSE(miss.burst);
   TEST_ASSERT_EQUAL_UINT32(2, miss.clocks);
@@ -518,7 +585,7 @@ static void test_a_miss_without_cback_costs_a_single_cycle(void) {
   /* Only the accessed entry was filled: its neighbour still misses. */
   const ap_m68030_cache_access_t neighbour = ap_m68030_cache_read(
       &cache, 0x00001010u, FC_SUPERVISOR_DATA, true, true, false, false,
-      memory_fill, &memory);
+      memory_fill, nullptr, &memory);
   TEST_ASSERT_FALSE(neighbour.hit);
 }
 
@@ -532,7 +599,7 @@ static void test_a_disabled_cache_pays_for_every_access(void) {
   for (unsigned i = 0; i < 3; i++) {
     const ap_m68030_cache_access_t access = ap_m68030_cache_read(
         &cache, ADDRESS, FC_SUPERVISOR_DATA, false /* disabled */, true, false,
-        false, memory_fill, &memory);
+        false, memory_fill, nullptr, &memory);
     TEST_ASSERT_FALSE(access.hit);
     TEST_ASSERT_EQUAL_UINT32(2, access.clocks);
   }
@@ -547,13 +614,13 @@ static void test_a_frozen_cache_fetches_but_does_not_keep(void) {
 
   const ap_m68030_cache_access_t first = ap_m68030_cache_read(
       &cache, ADDRESS, FC_SUPERVISOR_DATA, true, true, true /* frozen */, false,
-      memory_fill, &memory);
+      memory_fill, nullptr, &memory);
   TEST_ASSERT_FALSE(first.hit);
   TEST_ASSERT_EQUAL_HEX32(0xC0DE0002u, first.value);
 
   const ap_m68030_cache_access_t second = ap_m68030_cache_read(
       &cache, ADDRESS, FC_SUPERVISOR_DATA, true, true, true, false, memory_fill,
-      &memory);
+      nullptr, &memory);
   TEST_ASSERT_FALSE(second.hit);
   TEST_ASSERT_EQUAL_UINT(2, memory.calls);
 }
@@ -567,7 +634,7 @@ static void test_a_bus_error_on_a_fill_caches_nothing(void) {
 
   const ap_m68030_cache_access_t access = ap_m68030_cache_read(
       &cache, ADDRESS, FC_SUPERVISOR_DATA, true, true, false, false,
-      memory_fill, &memory);
+      memory_fill, nullptr, &memory);
 
   TEST_ASSERT_TRUE(access.bus_error);
   TEST_ASSERT_EQUAL_UINT(0, access.long_words);
@@ -602,6 +669,7 @@ int main(void) {
   RUN_TEST(test_a_matching_tag_with_no_valid_entries_still_bursts);
   RUN_TEST(test_a_matching_tag_with_one_valid_entry_does_not_burst);
   RUN_TEST(test_each_condition_suppresses_the_burst_request);
+  RUN_TEST(test_a_slow_device_lengthens_the_cycle_by_its_wait_states);
   RUN_TEST(test_a_miss_costs_a_burst_and_the_next_hit_costs_nothing);
   RUN_TEST(test_one_burst_fill_serves_the_whole_line);
   RUN_TEST(test_a_miss_without_cback_costs_a_single_cycle);

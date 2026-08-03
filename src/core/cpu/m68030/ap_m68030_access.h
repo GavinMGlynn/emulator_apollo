@@ -90,6 +90,31 @@ typedef struct {
    * it, and an access module that omitted it would report writethrough while
    * behaving like writeback. */
   ap_m68030_store_fn store;
+
+  /* How long the addressed device takes to answer, in **wait states** — whole
+   * clocks inserted before the cycle may advance.
+   *
+   * `[030]` §7.3.1: "If DSACKx is not recognized by the start of S3, the
+   * processor inserts wait states instead of proceeding to S4 and S5 ... the
+   * processor continues to sample the DSACKx signals on the falling edges of
+   * the clock until one is recognized." With none, "the bus cycle runs at its
+   * maximum speed (three clocks per cycle)".
+   *
+   * **Why a callback rather than a field on the fill answer.** A write has no
+   * fill answer, and the two directions must charge the same device the same
+   * time or a program could be made faster by writing. It is also the truer
+   * shape: how long a port takes to answer is a property of the *port*, which
+   * is what drives `DSACK`/`STERM` in §7.3, not of the transfer.
+   *
+   * NULL means every device answers at the minimum — what this core did before
+   * there was any way to say otherwise, and what §11's tables assume
+   * throughout: "All memory accesses occur with two-clock bus cycles and no
+   * wait states." So the default changes no existing figure.
+   *
+   * Until a board supplies one, contention is emergent in *who* holds the bus
+   * and not in *how long*, which is what this exists to end. */
+  ap_m68030_wait_states_fn wait_states;
+
   void *context;
 } ap_m68030_access_ctx_t;
 

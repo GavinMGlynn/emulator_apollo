@@ -246,6 +246,16 @@ void ap_m68030_cacr_write(ap_m68030_cacr_t *cacr, uint32_t word,
  * the order in which a real device presents them relative to the requested one
  * is a property of the memory system rather than of the processor. Indexing by
  * position keeps that the device's business, which is where it belongs. */
+/* Wait states the addressed device inserts before it answers a cycle, whole
+ * clocks each. `read` distinguishes the two directions, since a port may answer
+ * a write faster than a read or the reverse.
+ *
+ * Declared here rather than beside the access context because this is where the
+ * cycle it lengthens is actually driven, and because `ap_m68030_access.h`
+ * includes this file and not the reverse. */
+typedef unsigned (*ap_m68030_wait_states_fn)(void *context, uint32_t physical,
+                                             bool read);
+
 typedef struct {
   ap_m68030_term_t termination; /* STERM, DSACK or BERR */
   bool burst_acknowledge;       /* CBACK -- only a 32-bit STERM port asserts it */
@@ -275,6 +285,7 @@ ap_m68030_cache_access_t
 ap_m68030_cache_read(ap_m68030_cache_t *cache, uint32_t address,
                      uint8_t function_code, bool cache_enabled,
                      bool burst_enable, bool frozen, bool read_modify_write,
-                     ap_m68030_fill_fn fill, void *context);
+                     ap_m68030_fill_fn fill,
+                     ap_m68030_wait_states_fn wait_states, void *context);
 
 #endif /* APOLLO_CPU_M68030_AP_M68030_CACHE_H */

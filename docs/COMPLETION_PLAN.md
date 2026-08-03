@@ -4,7 +4,11 @@ Phased road to done. Each item names **its verification** — an item without on
 cannot be ticked. Tails discovered while implementing something go into this
 file the moment they are found, not when someone remembers.
 
-`[x]` done · `[~]` in progress · `[ ]` not started
+`[x]` done · `[ ]` not started, or **In progress** where the text says so
+
+(A third checkbox state was tried, `[~]`. Markdown task lists recognise only
+`[ ]` and `[x]`, so those items rendered as literal text beside real controls
+everywhere the file is read.)
 
 ## Phase 0 — Foundations
 
@@ -1571,7 +1575,7 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
 ## Phase 3 — Core board
 
 
-- [~] **Give the machine a model.** The 68882
+- [ ] **In progress — Give the machine a model.** The 68882
       - [x] `ap_machine_init_model` takes one, and `ap_machine_init` is that
             with the DN3500 — so every existing caller keeps the machine it had
             and the machine now knows what it is.
@@ -1772,12 +1776,12 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         a real defect — the mode field is *not* three contiguous bits, and
         reading it as one had been declining `XX0000XX`, which is half of
         continuous mode.
-  - [~] Period and pulse-width measurement stay declined, now for a hardware
+  - [ ] **In progress.** Period and pulse-width measurement stay declined, now for a hardware
         reason rather than a transcription one: both time a signal applied to a
         timer's gate pin, and on this board the three gates have nothing
         connected. They are decoded and reported, so a caller learns which mode
         it asked for.
-        - Marked `[~]` rather than `[ ]`. An unticked box reads as work
+        - Marked **In progress** rather than simply unticked. An unticked box reads as work
           outstanding, and this is not: it is a mode the DN3500 cannot exercise,
           declined deliberately and reported honestly. It becomes real work only
           if a model appears whose board wires a gate — which is a Phase 7
@@ -1810,9 +1814,9 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         from 88.6 years to 505 days. Worth doing if anything is ever seen using
         them; the part's own 4.194304 MHz crystal is a separate matter and can
         never be a clock domain at all, since it would leave 3.95 days.
-  - [~] The square-wave output pin (nothing on this board is wired to it) and
+  - [ ] **In progress.** The square-wave output pin (nothing on this board is wired to it) and
         the daylight-savings shifts of `DSE` (stored but inert).
-        - Also `[~]`, and for the same reason as the timer's measurement modes:
+        - Also **In progress**, for the same reason as the timer's measurement modes:
           nothing on this board can observe either, so implementing them would
           add behaviour no test could distinguish from its absence.
 - [ ] SIO serial lines, keyboard and mouse. *Verification: console byte stream
@@ -1837,7 +1841,7 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         both channels with their FIFOs and mode-register pointer, the
         counter/timer with its two address-triggered commands, the interrupt
         registers, and the input and output ports. `mc68681_suite`, 15 tests.
-  - [~] Serial framing — baud rates, start/stop bits, parity, and the automatic
+  - [ ] **In progress.** Serial framing — baud rates, start/stop bits, parity, and the automatic
         echo and loopback modes.
         - **Started, with the piece the console negotiation needs.**
           `ap_mc68681_receive_at` takes the rate the *sender* used and compares
@@ -2397,11 +2401,11 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
   - [ ] The rest of those 803 writes: `CR2`/`CR3`'s remaining fields, the
         blitter's five defined modes and the colour lookup table. Verify on a
         decoded PNG, not on register round-trips.
-  - [~] **The display controller is the next module**, and now for a reason
+  - [ ] **In progress — The display controller is the next module**, and now for a reason
         rather than as the next thing on a list. It stops being a probe target:
         the four regions already recorded (`05D800`/`05E800` registers,
         `0FA0000`/`000A0000` graphics memory) become the machine's output.
-        - Kept as the *rationale* and marked `[~]`, because it is not a separate
+        - Kept as the *rationale* and marked **In progress**, because it is not a separate
           piece of work. The work is the item directly above — `CR2`/`CR3`, the
           blitter's five modes, the lookup table — and the Phase 5 line that
           says the same thing. Three unticked boxes for one job inflated the
@@ -2414,7 +2418,7 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         codes, and the PROM's table at `000021D2` is the map it decodes them
         with. `--boot-input-channel A` already reaches it; what is missing is
         the scan codes themselves.
-  - [~] Superseded reading, kept because it was right about the device and wrong
+  - [ ] **In progress.** Superseded reading, kept because it was right about the device and wrong
         about the consequence: **SIO1 is the keyboard, not a terminal.** If
         so, feeding it ASCII is the wrong thing entirely — `\n` and `\r` both
         fail to match, and `\r` is *in* the table — and the DN3500's console is
@@ -2569,7 +2573,7 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         machine does not raise. `01000180` is not a stack the firmware is
         expected to build four exception frames on, and now it will not have
         to.
-  - [~] The long frame's INTERNAL REGISTER fields are stacked as zero — a
+  - [ ] **In progress.** The long frame's INTERNAL REGISTER fields are stacked as zero — a
         deliberate approximation, since this model has no microsequencer state
         to save. **The coprocessor mid-instruction frame (`$9`) makes the same
         approximation for the same reason**, in its four INTERNAL REGISTERS
@@ -2582,7 +2586,7 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
           `PROJECT_STATUS.md`'s `PROVISIONAL` table, alongside the second
           approximation it produced — `RTE` re-executing the faulted
           instruction from the start rather than resuming mid-instruction.
-        - `[~]` rather than `[ ]`: the approximation is *made*, deliberately and
+        - **In progress** rather than simply unticked: the approximation is *made*, deliberately and
           documented in all three places. What remains open is closing it, which
           is the "cost to close" column of the table entry rather than an
           unstarted task. The item said "record it as `PROVISIONAL` when it
@@ -2782,7 +2786,7 @@ discipline throughout.
 - [x] Close most of the DN2500 `PROVISIONAL` set: 68030 @ 20 MHz, 68882 @ 20 MHz,
       on-board mono graphics, 4–16 MB RAM, all from `[CFG]`'s Series 2500 Product
       Summary. Only `ram_base` remains open.
-- [~] Close DN2500 `ram_base`, or record it as a documented gap with its cost to
+- [ ] **In progress.** Close DN2500 `ram_base`, or record it as a documented gap with its cost to
       close. *Verification: an address-space table for Series 2500, or the boot
       PROM's own memory sizing code.*
   - **Corrected from `01000000` to `04000000`**, from the boot PROM's own reset
@@ -2793,7 +2797,7 @@ discipline throughout.
   - So the previous value was not merely unverified, it was **wrong**: it
     assumed the DN2500 matched the other 68030 models, and the PROM that
     disproves it has been in `roms/` all along.
-  - Still `[~]` and still `PROVISIONAL`. The reset SSP proves memory exists at
+  - Still **In progress** and still `PROVISIONAL`. The reset SSP proves memory exists at
     that address; it does not give where the region begins or ends. The extent
     needs a Series 2500 allocation table, and the oracle cannot help — it has no
     2500 driver.

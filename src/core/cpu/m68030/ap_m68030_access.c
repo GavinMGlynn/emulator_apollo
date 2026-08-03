@@ -94,7 +94,8 @@ ap_m68030_access_result_t ap_m68030_access_read(ap_m68030_access_ctx_t *access,
 
   const ap_m68030_cache_access_t fetched = ap_m68030_cache_read(
       access->cache, logical, function_code, fillable, access->burst_enabled,
-      access->cache_frozen, false, access->fill, access->context);
+      access->cache_frozen, false, access->fill, access->wait_states,
+      access->context);
 
   out.value = fetched.value;
   out.clocks = fetched.clocks;
@@ -223,8 +224,21 @@ ap_m68030_access_result_t ap_m68030_access_write(ap_m68030_access_ctx_t *access,
                                  : (size == 2u ? AP_M68030_SIZE_WORD
                                                : AP_M68030_SIZE_BYTE),
                       false, true);
+  /* The device's answer arrives when the device says it does. Withholding
+   * termination is exactly what §7.3.1 describes — the processor "continues to
+   * sample the DSACKx signals on the falling edges of the clock until one is
+   * recognized" — so the wait states are *counted by the bus* rather than added
+   * to a total afterwards, and a cycle lengthened this way lengthens everything
+   * built on it without any of those layers knowing. */
+  const unsigned write_waits =
+      access->wait_states != NULL
+          ? access->wait_states(access->context, physical, false)
+          : 0u;
   while (ap_m68030_bus_active(&write_bus)) {
-    ap_m68030_bus_terminate(&write_bus, AP_M68030_TERM_STERM);
+    ap_m68030_bus_terminate(&write_bus,
+                            write_bus.wait_states >= write_waits
+                                ? AP_M68030_TERM_STERM
+                                : AP_M68030_TERM_NONE);
     (void)ap_m68030_bus_tick(&write_bus);
     out.clocks++;
     if (out.clocks > 64u) {
