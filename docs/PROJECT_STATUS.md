@@ -4322,6 +4322,50 @@ An implementation that set `Z` the usual way passes every single-word test and
 gets multi-precision comparison wrong in exactly the case the instructions exist
 for — a long value whose final word happens to be zero compares equal.
 
+#### The machine knows which model it is, and keeps that model's time
+
+`ap_machine_init_model` takes a model id and `ap_machine_init` is that with the
+DN3500 — the reference superset — so every caller that existed kept the machine
+it had. What makes that more than bookkeeping is that the row is *read*.
+
+**Two fields are consulted, and each was a table pretending to be a model until
+it was.** The first is `has_module_calls`, which the step now carries from
+`ap_cpu_features()`: a DN3000 executes `CALLM` where a DN3500 raises the illegal
+instruction exception, decided by the one table rather than by a conditional in
+the step. The second is `cpu_hz`, and it had sat in every model row since Phase
+0 with nothing in the core reading it.
+
+**A machine with no rate keeps no time.** `ap_clock_duration` multiplies by a
+period, and a period of zero is zero however many cycles it multiplies, so every
+machine a probe built ran at 12, 20, 25 or 33 MHz on paper and at no rate at all
+in fact — a DN3000 and a DN4500 returned the same elapsed time for the same
+program, which is exactly the number this core exists to get right. The rate now
+arrives with the model, and every probe hash in `tests/goldens/probes.txt` moved
+because of it while no other column did: the probes had been running with a
+zero-rate clock, and their timing is now counted.
+
+**There is deliberately no setter.** The frontend used to look `dn3500` up by
+name and hand the rate to a machine that already knew which model it was — a
+second place where machine variance lived, which `CLAUDE.md` puts in
+`src/core/model/` and nowhere else. The rate setter is gone rather than merely
+unused: with it in the header a caller can build a DN3500 whose processor runs at
+some other machine's speed, and the fact that nobody does today is not a property
+that holds itself.
+
+The refusal it carried is not lost, only moved to where it cannot be bypassed.
+`ap_clock_init` still refuses a frequency `AP_TIME_BASE_HZ` does not divide
+exactly rather than rounding it, and `time_suite` asserts the base divides every
+model's clock — so a model added with an unrepresentable rate reddens a test
+instead of quietly producing a machine that keeps no time. That is a stronger
+guarantee than the one it replaces, which only ever fired if a caller checked
+the return value.
+
+The verification is a ratio rather than a figure: a DN2500 and a DN3500 are both
+68030s, so the same program costs the identical number of cycles on each and the
+only thing that can differ is the rate. Their elapsed times stand at exactly
+25:20, cross-multiplied rather than divided because a ratio checked by division
+passes on two zeroes — which is the bug this item fixed.
+
 #### A probe can run on a board, not only on flat RAM
 
 Every probe until now ran on "a 68030 on flat RAM and nothing else", which is

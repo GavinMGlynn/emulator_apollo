@@ -1575,29 +1575,21 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
 ## Phase 3 — Core board
 
 
-- [ ] **In progress — Give the machine a model.** The 68882
-      - [x] `ap_machine_init_model` takes one, and `ap_machine_init` is that
-            with the DN3500 — so every existing caller keeps the machine it had
-            and the machine now knows what it is.
-      - [x] **The coprocessor needed no gating, and the item that said it did
-            was wrong.** Every model in the table has one: `ap_m68882.h`'s "a
-            DN3500 has a 68882 and a DN3000 does not" is about the *part*, and
-            a DN3000 carries an MC68881. What is genuinely unexpressed is 68881
-            versus 68882, which this core already records as nearly nothing —
-            the 68882's concurrency "is invisible to a program except through
-            timing". Attaching one to every machine is therefore correct, not
-            an approximation.
-      - [x] **The model is consulted, and changes behaviour.** `ap_cpu_decode`
-            existed and was tested, and `ap_m68030_step` never asked it — the
-            same shape as `ap_probe.c`'s suite and the oracle harness before
-            C59. The step now carries `has_module_calls` from the model's
-            features, so a DN3000 executes `CALLM` where a DN3500 refuses it,
-            from the one table rather than a conditional. Detail in
-            `PROJECT_STATUS.md`.
-            *Verification: `step_suite` +1 (247) — `$06C0` reported `ILLEGAL` on
-            a DN3500 and `UNIMPLEMENTED` on a DN3000, reached through a machine
-            rather than through the decoder directly; the 44-opcode difference
-            `m68020_decode_suite` already pins.*
+- [x] **Give the machine a model.** `ap_machine_init_model` takes one and
+      `ap_machine_init` is that with the DN3500, so every existing caller kept
+      the machine it had. The row is consulted rather than merely held: the step
+      carries `has_module_calls`, so a DN3000 executes `CALLM` where a DN3500
+      refuses it, and the processor's rate is the table's `cpu_hz` — which
+      nothing in the core had read, leaving every machine keeping no time at
+      all. There is now no way to set a rate that is not the model's. The
+      coprocessor needed no gating and the sub-item saying it did was wrong:
+      every model in the table has one. Detail in `PROJECT_STATUS.md`.
+      *Verification: `step_suite` +1 (247) — `$06C0` reported `ILLEGAL` on a
+      DN3500 and `UNIMPLEMENTED` on a DN3000, reached through a machine rather
+      than through the decoder. `machine_suite` — every model's rate against the
+      table, and a DN2500 taking exactly 25:20 of a DN3500's time over identical
+      cycles. Every hash in `tests/goldens/probes.txt` moved and no other column
+      did: a probe run had been keeping no time.*
 - [ ] Memory bus with one shared arbitration point, so contention is emergent.
       *Verification: probes measuring contention between CPU and DMA.*
   - [x] The processor's side of the protocol: `[030]` §7.7's BR/BG/BGACK state
@@ -2499,15 +2491,12 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
           clocks through `ap_clock_duration`. That conversion is the **only**
           place a CPU cycle becomes a time, which is what keeps the rest honest
           about its units. `machine_suite`, 3 tests.
-        - `ap_machine_set_cpu_hz` **refuses** a rate the base cannot represent
-          rather than rounding it. Rounding would put a machine a fraction of a
-          cycle out per tick and hide it in a unit nobody reads directly — which
-          is exactly why the base is derived from every clock in the machine
-          instead of chosen.
-        - A machine whose clock was never set produces **no time at all**, and
-          that is tested. A default rate would be a figure nobody chose
-          appearing in every measurement, which is the failure this project's
-          `PROVISIONAL` discipline exists to prevent.
+        - The rate is the **model's**, taken from the table by
+          `ap_machine_init_model`, and there is no setter to override it with.
+          A rate the base cannot represent is refused rather than rounded, at
+          `ap_clock_init`, and `time_suite` pins that the base divides every
+          model's clock — so an unrepresentable one is a red test rather than a
+          machine that quietly keeps no time.
         - This is the clock, not the loop. Nothing else advances inside it yet;
           the five things above still wait. What exists is something true for
           them to advance against, rather than a number invented alongside the

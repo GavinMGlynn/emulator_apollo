@@ -190,6 +190,22 @@ void ap_machine_init_model(ap_machine_t *machine, uint8_t *ram,
   machine->ram_bytes = ram_bytes;
   machine->bus_errors = 0;
 
+  /* The processor's rate, from the table rather than from whoever built the
+   * machine. `cpu_hz` has been in the model row since Phase 0 and nothing in
+   * the core read it: every machine a probe built ran at a rate of zero, which
+   * `ap_clock_duration` turns into no elapsed time at all, so a DN3000 at
+   * 12 MHz and a DN4500 at 33 MHz produced the same answer for the same
+   * program -- the same shape as the decoder the step never asked.
+   *
+   * The failure is unreachable and still not swallowed: `ap_clock_init` refuses
+   * a frequency `AP_TIME_BASE_HZ` does not divide exactly, and `time_suite`
+   * asserts that it divides every model's, so a model added with an
+   * unrepresentable rate fails there rather than quietly producing a zero-rate
+   * machine here. */
+  if (machine->model != NULL) {
+    (void)ap_clock_init(&machine->cpu_clock, machine->model->cpu_hz);
+  }
+
   ap_m68030_cache_clear(&machine->instruction_cache);
   ap_m68030_cache_clear(&machine->data_cache);
   ap_m68030_atc_flush(&machine->atc);
@@ -373,7 +389,3 @@ void ap_machine_set_board(ap_machine_t *machine, struct ap_board *board) {
 }
 
 ap_time_t ap_machine_now(const ap_machine_t *machine) { return machine->now; }
-
-bool ap_machine_set_cpu_hz(ap_machine_t *machine, uint32_t hz) {
-  return ap_clock_init(&machine->cpu_clock, hz);
-}

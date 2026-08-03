@@ -115,7 +115,10 @@ void ap_machine_init(ap_machine_t *machine, uint8_t *ram, uint32_t ram_bytes);
  * This is what makes "fitted or not is a machine property" true rather than
  * aspirational: a DN3000 is a 68020 without a coprocessor, and until the machine
  * could be told which model it was, that difference was not expressible and an
- * F-line instruction executed on every machine this core built. */
+ * F-line instruction executed on every machine this core built.
+ *
+ * The processor's clock rate comes from the same row, so a DN3000 machine keeps
+ * time at 12 MHz and a DN4500 at 33 MHz without anyone being told twice. */
 void ap_machine_init_model(ap_machine_t *machine, uint8_t *ram,
                            uint32_t ram_bytes, ap_model_id_t model);
 
@@ -229,9 +232,11 @@ typedef struct {
  * invented alongside them. */
 [[nodiscard]] ap_time_t ap_machine_now(const ap_machine_t *machine);
 
-/* Set the CPU's clock rate. Fails, rather than rounding, when the base cannot
- * represent it -- `ap_clock_init`'s rule, and the reason the base is derived
- * from every clock in the machine instead of chosen. */
-[[nodiscard]] bool ap_machine_set_cpu_hz(ap_machine_t *machine, uint32_t hz);
+/* There is deliberately no setter for the CPU's clock rate. It is a property of
+ * the model, `ap_machine_init_model` reads it from the table, and a caller that
+ * could override it could build a DN3500 whose processor runs at some other
+ * machine's rate -- which is exactly the variance `CLAUDE.md` requires to come
+ * from `src/core/model/` and nowhere else. The frontend used to look up
+ * `dn3500` by name and set the rate itself, in a machine that already knew. */
 
 #endif /* APOLLO_MACHINE_AP_MACHINE_H */

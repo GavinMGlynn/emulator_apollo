@@ -261,7 +261,6 @@ static int run_probe_file(FILE *out, ap_model_id_t model,
 
     ap_machine_init_model(&board_machine, board_ram, ram_bytes, model);
     ap_machine_set_board(&board_machine, board);
-    (void)ap_machine_set_cpu_hz(&board_machine, entry_model->cpu_hz);
 
     /* Through the *board*, not `ap_machine_write`: that is the operator's view
      * of flat RAM and knows nothing of where a model puts its memory. A
@@ -373,29 +372,13 @@ static uint8_t *read_file(const char *path, long *size_out) {
   return bytes;
 }
 
-/* Give the machine its clock, from the model table rather than from a constant
- * here.
- *
- * `board/ap_board.c` is the DN3500's core board, so a boot through it is a
- * DN3500 run and its processor runs at the DN3500's rate. Taking that from the
- * table keeps `CLAUDE.md`'s rule -- all machine variance lives in
- * `src/core/model/` -- true of the frontend as well as the core, and means the
- * clock follows the table when the board becomes model-driven rather than
- * needing to be found and edited here.
- *
- * A machine whose rate was never set produces no time at all, so `elapsed`
- * reads zero and is visibly wrong rather than quietly approximate. That is why
- * this is a step and not a default. */
-static bool set_cpu_clock(ap_machine_t *machine) {
-  const ap_model_t *model = ap_model_by_name("dn3500");
-  if (model == NULL) {
-    return false;
-  }
-  /* Refuses rather than rounds a rate the base cannot represent --
-   * `ap_clock_init`'s rule, and the reason `AP_TIME_BASE_HZ` is derived from
-   * every clock in the machine instead of chosen. */
-  return ap_machine_set_cpu_hz(machine, model->cpu_hz);
-}
+/* The machine's clock is not set here, and there is nothing to set it with.
+ * `ap_machine_init` reads the rate from the model row, so a run through
+ * `board/ap_board.c` -- the DN3500's core board -- keeps time at the DN3500's
+ * rate because the machine is a DN3500, not because this file looked the model
+ * up by name and said so. That is `CLAUDE.md`'s rule made true of the frontend
+ * as well as the core, and it means the clock follows the table when the board
+ * becomes model-driven rather than needing to be found and edited here. */
 
 /* The whole machine as one number, with the numbers that localise a
  * disagreement beside it.
@@ -532,13 +515,6 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
   ap_machine_t machine;
   ap_machine_init(&machine, ram, ram_bytes);
   ap_machine_set_board(&machine, board);
-  if (!set_cpu_clock(&machine)) {
-    free(board);
-    free(ram);
-    free(prom);
-    fprintf(stderr, "apollo: the time base cannot represent this CPU clock\n");
-    return 1;
-  }
   ap_machine_reset(&machine, pc, stack);
 
   /* Scripted serial input, delivered a byte at a time as the firmware takes the
@@ -819,13 +795,6 @@ static int boot_from_tape(const char *path, unsigned limit) {
   ap_machine_t machine;
   ap_machine_init(&machine, ram, ram_bytes);
   ap_machine_set_board(&machine, board);
-  if (!set_cpu_clock(&machine)) {
-    free(board);
-    free(ram);
-    free(bytes);
-    fprintf(stderr, "apollo: the time base cannot represent this CPU clock\n");
-    return 1;
-  }
   for (uint32_t i = 0; i < image.length; i++) {
     if (!ap_machine_write(&machine, image.load_address + i, 1u,
                           image.data[i])) {

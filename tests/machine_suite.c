@@ -15,6 +15,7 @@
 #include "cpu/m68030/ap_m68030_state.h"
 #include "cpu/m68030/ap_m68030_timing_table.h"
 #include "machine/ap_machine.h"
+#include "model/ap_model.h"
 #include "unity.h"
 
 void setUp(void) {}
@@ -827,7 +828,6 @@ static void test_the_machine_keeps_time_in_base_units(void) {
   ap_machine_init(&m, ram, RAM_BYTES);
   ap_machine_reset(&m, PROGRAM, STACK);
   load(&m, program, 4);
-  TEST_ASSERT_TRUE(ap_machine_set_cpu_hz(&m, 25000000u));
 
   TEST_ASSERT_EQUAL_UINT64(0u, ap_machine_now(&m));
   const ap_machine_run_t run = ap_machine_run(&m, 2u);
@@ -841,35 +841,71 @@ static void test_the_machine_keeps_time_in_base_units(void) {
   TEST_ASSERT_TRUE(ap_machine_now(&m) > 0u);
 }
 
-/* A rate the base cannot represent is refused rather than rounded. Rounding
- * would put a machine a fraction of a cycle out per tick and hide it in a unit
- * nobody reads directly — which is the whole reason the base is derived from
- * every clock in the machine instead of chosen. */
-static void test_an_unrepresentable_cpu_rate_is_refused(void) {
-  static const uint16_t program[] = {0x4E71u, 0x4E71u};
-  blank();
-  ap_machine_t m;
-  ap_machine_init(&m, ram, RAM_BYTES);
-  ap_machine_reset(&m, PROGRAM, STACK);
-  load(&m, program, 2);
+/* The rate is not the caller's to choose: it is the model's, and it arrives
+ * with the model. There is no setter to get this wrong with, and a machine that
+ * had to be told its own processor's speed was a machine that knew which model
+ * it was and still ran at whatever rate the frontend last mentioned. */
+static void test_the_cpu_rate_comes_from_the_model_table(void) {
+  for (unsigned id = 0; id < AP_MODEL_COUNT; id++) {
+    const ap_model_t *model = ap_model_by_id((ap_model_id_t)id);
+    TEST_ASSERT_NOT_NULL(model);
 
-  TEST_ASSERT_TRUE(ap_machine_set_cpu_hz(&m, 25000000u));
-  TEST_ASSERT_FALSE(ap_machine_set_cpu_hz(&m, 7u));
+    blank();
+    ap_machine_t m;
+    ap_machine_init_model(&m, ram, RAM_BYTES, (ap_model_id_t)id);
+
+    /* The table's figure, unrounded: the base divides every model's clock, so
+     * the period is exact and the rate survives the round trip. `time_suite`
+     * pins the divisibility itself. */
+    TEST_ASSERT_EQUAL_UINT32(model->cpu_hz, m.cpu_clock.hz);
+    TEST_ASSERT_EQUAL_UINT64(AP_TIME_BASE_HZ / model->cpu_hz,
+                             m.cpu_clock.period);
+  }
+
+  /* And the plain constructor is the DN3500, as it is for everything else. */
+  blank();
+  ap_machine_t reference;
+  ap_machine_init(&reference, ram, RAM_BYTES);
+  TEST_ASSERT_EQUAL_UINT32(ap_model_by_id(AP_MODEL_DN3500)->cpu_hz,
+                           reference.cpu_clock.hz);
 }
 
-/* A machine whose clock was never set produces no time at all, which is
- * visibly wrong rather than quietly approximate. A default rate would be a
- * figure nobody chose appearing in every measurement. */
-static void test_an_unset_clock_produces_no_time(void) {
-  static const uint16_t program[] = {0x4E71u, 0x4E71u};
-  blank();
-  ap_machine_t m;
-  ap_machine_init(&m, ram, RAM_BYTES);
-  ap_machine_reset(&m, PROGRAM, STACK);
-  load(&m, program, 2);
+/* What the rate is *for*: the same program on two models takes the same number
+ * of cycles and a different amount of time. Until the machine read `cpu_hz` it
+ * took no time at all on either, which is why this is the test the item lands
+ * with — a rate that is stored and never spent would satisfy the one above.
+ *
+ * DN2500 against DN3500 deliberately: both are 68030s, so the cycle counts are
+ * identical by construction and the only thing that can differ is the rate. A
+ * DN3000 would confound the two, being a 68020 as well as a slower one. */
+static void test_a_slower_model_takes_longer_over_the_same_cycles(void) {
+  static const uint16_t program[] = {0x4E71u, 0x4E71u, 0x4E71u, 0x4E71u};
 
-  (void)ap_machine_run(&m, 2u);
-  TEST_ASSERT_EQUAL_UINT64(0u, ap_machine_now(&m));
+  ap_machine_t fast;
+  blank();
+  ap_machine_init_model(&fast, ram, RAM_BYTES, AP_MODEL_DN3500);
+  ap_machine_reset(&fast, PROGRAM, STACK);
+  load(&fast, program, 4);
+  const ap_machine_run_t fast_run = ap_machine_run(&fast, 4u);
+
+  ap_machine_t slow;
+  blank();
+  ap_machine_init_model(&slow, ram, RAM_BYTES, AP_MODEL_DN2500);
+  ap_machine_reset(&slow, PROGRAM, STACK);
+  load(&slow, program, 4);
+  const ap_machine_run_t slow_run = ap_machine_run(&slow, 4u);
+
+  TEST_ASSERT_EQUAL_UINT(4u, fast_run.executed);
+  TEST_ASSERT_EQUAL_UINT(fast_run.executed, slow_run.executed);
+  TEST_ASSERT_EQUAL_UINT64(fast.cpu.clocks, slow.cpu.clocks);
+  TEST_ASSERT_TRUE(fast.cpu.clocks > 0u);
+
+  /* 25 MHz against 20 MHz, so the elapsed times are in that ratio exactly —
+   * cross-multiplied rather than divided, because a ratio checked by division
+   * passes on two zeroes. */
+  TEST_ASSERT_TRUE(ap_machine_now(&slow) > ap_machine_now(&fast));
+  TEST_ASSERT_EQUAL_UINT64(ap_machine_now(&fast) * 25000000u,
+                           ap_machine_now(&slow) * 20000000u);
 }
 
 /* ---------------------------------------------------------------------------
@@ -940,8 +976,6 @@ static void test_the_same_workload_twice_gives_the_same_hash(void) {
                       sizeof device_workload / sizeof device_workload[0]);
   build_board_machine(&b, &second_board, other_ram, device_workload,
                       sizeof device_workload / sizeof device_workload[0]);
-  TEST_ASSERT_TRUE(ap_machine_set_cpu_hz(&a, 25000000u));
-  TEST_ASSERT_TRUE(ap_machine_set_cpu_hz(&b, 25000000u));
 
   const uint64_t start = ap_machine_hash(&a);
   TEST_ASSERT_EQUAL_HEX64(start, ap_machine_hash(&b));
@@ -1006,25 +1040,25 @@ static void test_a_machine_with_a_board_does_not_hash_as_one_without(void) {
  * instants* are not the same machine, and on a core whose whole claim is
  * emergent timing that is precisely the divergence a fast mode introduces.
  *
- * Run the same program at two clock rates: the processor's own hash agrees,
- * because the CPU counts cycles and not time, and the machine's must not. */
+ * Run the same program on two models -- a DN3500 at 25 MHz and a DN2500 at
+ * 20 MHz, both 68030s so the cycle counts cannot differ: the processor's own
+ * hash agrees, because the CPU counts cycles and not time, and the machine's
+ * must not. */
 static void test_two_machines_at_different_clock_rates_hash_differently(void) {
   static const uint16_t program[] = {0x7003u, 0x2200u, 0x4E71u};
 
   ap_machine_t fast;
-  ap_machine_init(&fast, ram, RAM_BYTES);
+  ap_machine_init_model(&fast, ram, RAM_BYTES, AP_MODEL_DN3500);
   ap_machine_reset(&fast, PROGRAM, STACK);
   load(&fast, program, 3);
-  TEST_ASSERT_TRUE(ap_machine_set_cpu_hz(&fast, 25000000u));
 
   ap_machine_t slow;
-  ap_machine_init(&slow, other_ram, RAM_BYTES);
+  ap_machine_init_model(&slow, other_ram, RAM_BYTES, AP_MODEL_DN2500);
   ap_machine_reset(&slow, PROGRAM, STACK);
   for (unsigned i = 0; i < 3u; i++) {
     TEST_ASSERT_TRUE(
         ap_machine_write(&slow, PROGRAM + i * 2u, 2u, program[i]));
   }
-  TEST_ASSERT_TRUE(ap_machine_set_cpu_hz(&slow, 20000000u));
 
   (void)ap_machine_run(&fast, 2u);
   (void)ap_machine_run(&slow, 2u);
@@ -1063,7 +1097,6 @@ static void test_the_state_report_carries_the_clock_and_the_pc(void) {
   ap_machine_t m;
   build_board_machine(&m, &first_board, ram, device_workload,
                       sizeof device_workload / sizeof device_workload[0]);
-  TEST_ASSERT_TRUE(ap_machine_set_cpu_hz(&m, 25000000u));
   (void)ap_machine_run(&m, 3u);
 
   const ap_machine_state_t state = ap_machine_state(&m);
@@ -1111,8 +1144,8 @@ static void test_a_machine_derives_its_cpu_features_from_its_model(void) {
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_the_machine_keeps_time_in_base_units);
-  RUN_TEST(test_an_unrepresentable_cpu_rate_is_refused);
-  RUN_TEST(test_an_unset_clock_produces_no_time);
+  RUN_TEST(test_the_cpu_rate_comes_from_the_model_table);
+  RUN_TEST(test_a_slower_model_takes_longer_over_the_same_cycles);
   RUN_TEST(test_no_opcode_reports_an_unimplemented_instruction);
   RUN_TEST(test_a_warm_reset_restores_the_documented_state_but_not_the_atc);
   RUN_TEST(test_a_probe_can_set_up_run_and_read_back);
