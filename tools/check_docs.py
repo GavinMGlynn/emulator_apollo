@@ -129,6 +129,69 @@ def check_item_length(problems: list[str]) -> int:
     return checked
 
 
+def check_parent_residue(problems: list[str]) -> int:
+    """A parent whose children are all done must tick, or say what it awaits.
+
+    A top-level plan item carries a verification line of its own, and it is
+    deliberately not the sum of its children's: the children are "built, and
+    unit-tested against the manual", and the parent ticks when the oracle
+    comparison it names has actually been run. So a parent sitting unticked
+    over a complete implementation is legitimate -- and indistinguishable, to
+    anyone reading the plan forwards to choose the next thing, from one that has
+    simply been forgotten.
+
+    Both happened. The core-register item's verification was `FINDINGS.md` C10,
+    which had run: the children were ticked one at a time and nobody went back
+    to the parent, so a finished item advertised itself as open for months. Two
+    others were genuinely waiting and said nothing about what for.
+
+    So the rule is a convention with a check behind it, as the sixteen-line
+    limit is: state the residue with `**Awaiting:**`, or tick.
+    """
+    if not PLAN.is_file():
+        return 0
+
+    parent = re.compile(r"^- \[( |x)\] ")
+    child = re.compile(r"^ +- \[( |x)\] ")
+
+    lines = PLAN.read_text().splitlines()
+    checked = 0
+    open_parents = []  # (line number, title, body lines, child states)
+    cur = None
+    for i, line in enumerate(lines, start=1):
+        if line.startswith("## "):
+            if cur:
+                open_parents.append(cur)
+            cur = None
+            continue
+        m = parent.match(line)
+        if m:
+            if cur:
+                open_parents.append(cur)
+            cur = None if m.group(1) == "x" else [i, line.strip()[:56], [line], []]
+            continue
+        if cur is None:
+            continue
+        cur[2].append(line)
+        c = child.match(line)
+        if c:
+            cur[3].append(c.group(1) == "x")
+    if cur:
+        open_parents.append(cur)
+
+    for line_no, title, body, children in open_parents:
+        if not children or not all(children):
+            continue
+        checked += 1
+        if "**Awaiting:**" in "\n".join(body):
+            continue
+        problems.append(
+            f"COMPLETION_PLAN.md:{line_no}: every child is done and the parent "
+            f"is not -- tick it, or say what it awaits with `**Awaiting:**`: "
+            f"{title}")
+    return checked
+
+
 # Directories the repository deliberately does not carry. `CLAUDE.md`: the
 # vendor manuals are "reference only, vendor copyright" and the Apollo firmware
 # and media "are not ours to redistribute". They exist on a machine that has
@@ -202,6 +265,7 @@ def main() -> int:
 
     checked += check_references(problems)
     checked += check_item_length(problems)
+    checked += check_parent_residue(problems)
 
     for problem in sorted(set(problems)):
         print(problem)

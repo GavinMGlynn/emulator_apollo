@@ -1592,11 +1592,10 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
       did: a probe run had been keeping no time.*
 - [ ] Memory bus with one shared arbitration point, so contention is emergent.
       *Verification: probes measuring contention between CPU and DMA.*
-      **Every sub-item below is done and the item is not**, because its
-      verification needs a second master actually running cycles: the
-      contention probe is the DMA controllers' item further down this phase,
-      and this ticks when that one produces the measurement. Nothing else is
-      outstanding here.
+      **Awaiting:** a second master actually running cycles. Every sub-item
+      below is done; the contention probe belongs to the DMA controllers' item
+      further down this phase, and this ticks when that one produces the
+      measurement. Nothing else is outstanding here.
   - [x] The processor's side of the protocol: `[030]` §7.7's BR/BG/BGACK state
         machine, with the processor at the lowest priority. Both documented
         deferrals are in — a grant waits for a committed bus cycle to begin, and
@@ -1659,9 +1658,19 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         clock-stepped represents. Detail in `PROJECT_STATUS.md`.
         *Verification: `arb_suite` +1 — grant latency inside parameter 35's
         envelope, which a change to the synchroniser could leave.*
-- [ ] Address translation map (`0x017000`), CPU status/control, cache control,
+- [x] Address translation map (`0x017000`), CPU status/control, cache control,
       task alias, master request, latch-page-on-parity-error registers.
-      *Verification: `008778-03` cited per register; oracle diff.*
+      *Verification: the oracle diff is `FINDINGS.md` C10 — `regprobe.lua`
+      drove every bit of all six registers in both directions, with two
+      addresses from gaps in Table 2-8 as the control that established what
+      unmapped looks like. Four are characterised, and the two that match the
+      control exactly are declined rather than modelled. The map itself cites
+      `019411-A00` §4.2.1.4 per figure.*
+      **This was satisfied before it was ticked**, which is the drift the phase
+      boundary re-read exists to catch and did not: C10 ran, the children were
+      ticked one by one, and nobody went back to the parent.
+      `tools/check_docs.py` now fails a parent whose children are all done and
+      which neither ticks nor says what it is waiting for.
   - [x] The address translation map itself: the translation for both DMA
         widths, the entry format, and the register file. `atmap_suite`,
         15 tests. The source that settles it is `019411-A00` §4.2.1.4, an
@@ -1711,6 +1720,12 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         across their 256-byte ranges, and a modelled register not counted.*
 - [ ] Two 8259 interrupt controllers and the Apollo interrupt vector scheme.
       *Verification: probe-driven interrupt ordering vs oracle.*
+      **Awaiting:** the ordering probe itself, which is now *runnable* rather
+      than blocked — every piece it needed landed with the sub-item below. A
+      probe raises a real interrupt from two DUART register writes with no time
+      passing, and `--probe-file`'s `board 1` runs the same program on both
+      sides. What has not happened is running it: raise several lines, record
+      the order they are serviced in, and diff against the oracle.
   - [x] **The route to that verification exists at last: probes can run on a
         board.** `--probe-file` takes `board 1` and builds a whole core board —
         no boot PROM, since `ap_board_init` needs none and a probe is
@@ -2769,6 +2784,11 @@ discipline throughout.
       register map and dual-ported RAM layout. *Verification: every register
       recorded in `docs/references/RING.md` with the ROM address that proves it;
       cross-checked against both board generations.*
+      **Awaiting:** the recovery itself. The one child below is the *tool* — it
+      resolves the header, entry-point and string tables and runs clean over
+      all five ROMs — and not a single register has been recovered with it yet.
+      A disassembler that works is not a register map, and the parent's
+      verification is the map.
   - [x] `tools/ring-rom/disasm.py` resolves the option-ROM header, entry-point
         table and string table, and confines code to the checksummed image.
         *Verification: runs clean over all four ring ROMs and the 3C505 ROM;

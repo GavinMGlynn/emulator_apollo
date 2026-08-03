@@ -4410,6 +4410,37 @@ placement fingerprint. Neither is wrong: the datasheet defines no value. It is
 registered here so that the first board-backed oracle diff does not read it as a
 defect.
 
+#### A parent that ticks is not the sum of its children, and one had drifted
+
+A top-level plan item carries a verification line of its own, deliberately not
+the sum of its children's: the children are "built, and unit-tested against the
+manual", and the parent ticks when the **oracle comparison it names** has been
+run. That is what stops "the code exists" being read as "the behaviour is
+verified", and it is why a parent can legitimately sit unticked over a complete
+implementation.
+
+It is also indistinguishable, to anyone reading the plan forwards to choose the
+next thing, from a parent nobody went back to. Both were present:
+
+- **The core-register item was finished and never ticked.** Its verification is
+  `FINDINGS.md` C10, which had run — `regprobe.lua` drove every bit of all six
+  registers in both directions, with two addresses from gaps in Table 2-8 as the
+  control that established the unmapped signature. The children were ticked one
+  at a time and the parent was left open. It has advertised itself as
+  outstanding ever since.
+- **Three others were genuinely waiting and said what for in nothing but their
+  absence**: the memory bus on a second master running cycles, the 8259 pair on
+  an ordering probe, and the ring ROM item — whose one child is the
+  *disassembler*, not a recovered register, and a disassembler that works is not
+  a register map.
+
+The phase-boundary re-read `CLAUDE.md` prescribes is what should have caught
+this, and did not. So it is checked rather than remembered, as the sixteen-line
+limit is: `tools/check_docs.py` now fails a parent whose children are all done
+and which neither ticks nor states its residue with `**Awaiting:**`. It found
+the first two on the run that introduced it, and a third in Phase 6 that had not
+been noticed at all.
+
 #### The 8237's transfer cycle, and the off-by-one the datasheet warns about
 
 The part could be programmed and observed entire and could not move a byte,
