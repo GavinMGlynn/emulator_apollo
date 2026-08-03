@@ -4309,6 +4309,26 @@ everything simply has no entry below.
     state each one has to undo, with an ATC entry asserted to survive; and
     nothing stacked, checked by counting stores rather than by inspecting
     the stack pointer alone.*
+    **And the machine now uses that sequence, which for a long time it did
+    not.** `ap_m68030_take_reset` had no caller anywhere in `src`;
+    `ap_machine_reset` ran a shorter sequence of its own -- supervisor,
+    mask 7, trace clear -- which dropped steps 4, 5 and 7 and *added* an ATC
+    flush, the one thing the paragraph above says reset never does. The
+    rule was written down correctly here and contradicted by the code that
+    ran, which is C90's shape exactly. Steps 1-7 are now
+    `ap_m68030_reset_state`, shared by the exception (which reads the vector
+    for steps 8-10) and by the machine (which is *told* its program counter,
+    a board's PROM supplying it rather than a vector at zero).
+    The omission was invisible exactly once: `ap_machine_init` zeroes the
+    struct, so on a cold start VBR, CACR and every enable bit already hold
+    what reset would have written, and the two sequences agree. Every later
+    reset is on a machine that has been running, where a warm reset kept the
+    old VBR and the old translation tree. Detail in `FINDINGS.md` C93.
+    *Verification: `machine_suite`, 1 further test (30 total), which resets
+    a deliberately dirtied machine. Both halves were confirmed to fail
+    against the old code before being kept -- separately, since Unity stops
+    at the first failing assertion and one run would have proved only one of
+    them.*
     The bus and address error frames (`$A`/`$B`) build and return, and so
     does the **coprocessor mid-instruction frame (`$9`)** — which this item
     once called unreachable on the reasoning that the frame exists to resume

@@ -8,6 +8,7 @@
  */
 
 #include "board/ap_board.h"
+#include "cpu/m68030/ap_m68030_atc.h"
 #include "cpu/m68030/ap_m68030_ea_timing.h"
 #include "cpu/m68030/ap_m68030_state.h"
 #include "cpu/m68030/ap_m68030_timing_table.h"
@@ -38,6 +39,67 @@ static void load(ap_machine_t *machine, const uint16_t *words, unsigned count) {
 
 /* The whole cycle a probe performs: construct, poke, run, read back. If this
  * works, a probe needs no firmware and no boot. */
+/* **A warm reset puts the whole processor into `[030]` §8.1.1's state, and
+ * leaves the ATC alone.**
+ *
+ * Both halves are invisible on a cold start, which is why this test resets a
+ * machine that has been *used*. `ap_machine_init` zeroes the struct, so on a
+ * first reset the vector base register, the cache control register and every
+ * translation enable are already what reset would have made them — a partial
+ * reset sequence and the real one agree exactly once, and then never again.
+ *
+ * The negative is as load-bearing as the steps: "The reset exception does not
+ * flush the address translation cache (ATC), nor does it save the value of
+ * either the program counter or the status register" (p. 8-5). Flushing it is
+ * the tidier-looking choice and the wrong one — a real system resets with its
+ * translations still cached, and a model that emptied them would hide any
+ * dependence on that. */
+static void test_a_warm_reset_restores_the_documented_state_but_not_the_atc(
+    void) {
+  blank();
+  ap_machine_t m;
+  ap_machine_init(&m, ram, RAM_BYTES);
+  ap_machine_reset(&m, PROGRAM, STACK);
+
+  /* Dirty everything reset is supposed to clear, as a running machine would. */
+  m.cpu.regs.vbr = 0x00004000u;
+  m.cpu.cacr.enable_instruction = true;
+  m.cpu.cacr.enable_data = true;
+  m.cpu.cacr.write_allocate = true;
+  m.cpu.tc.enable = true;
+  m.cpu.tt0.enabled = true;
+  m.cpu.tt1.enabled = true;
+  /* And leave the master bit set, which puts later exceptions on the wrong
+   * stack if reset does not clear it. */
+  ap_m68030_write_sr(&m.cpu.regs,
+                     (uint16_t)(m.cpu.regs.sr | (1u << AP_M68030_SR_M_BIT)));
+
+  /* One ATC entry, which must survive. */
+  const int index = ap_m68030_atc_insert(&m.atc, AP_M68030_FC_SUPERVISOR_DATA,
+                                         0x00010000u, 12u, 0x00020u, false,
+                                         false, false, false);
+  TEST_ASSERT_TRUE(index >= 0);
+
+  ap_machine_reset(&m, PROGRAM, STACK);
+
+  /* Steps 2-7, each of which a shorter sequence drops silently. */
+  TEST_ASSERT_EQUAL_HEX32(0u, m.cpu.regs.vbr);
+  TEST_ASSERT_FALSE(m.cpu.cacr.enable_instruction);
+  TEST_ASSERT_FALSE(m.cpu.cacr.enable_data);
+  TEST_ASSERT_FALSE(m.cpu.cacr.write_allocate);
+  TEST_ASSERT_FALSE(m.cpu.tc.enable);
+  TEST_ASSERT_FALSE(m.cpu.tt0.enabled);
+  TEST_ASSERT_FALSE(m.cpu.tt1.enabled);
+  TEST_ASSERT_TRUE(ap_m68030_supervisor(&m.cpu.regs));
+  TEST_ASSERT_FALSE(ap_m68030_master(&m.cpu.regs));
+  TEST_ASSERT_EQUAL_UINT(7u, ap_m68030_interrupt_mask(&m.cpu.regs));
+
+  /* And the one thing it must not do. */
+  const ap_m68030_atc_result_t held = ap_m68030_atc_lookup(
+      &m.atc, AP_M68030_FC_SUPERVISOR_DATA, 0x00010000u, 12u, false, false);
+  TEST_ASSERT_EQUAL_INT(AP_M68030_ATC_HIT, held.status);
+}
+
 static void test_a_probe_can_set_up_run_and_read_back(void) {
   /* MOVEQ #$42,D0 ; MOVE.L D0,$2000 */
   static const uint16_t program[] = {0x7042u, 0x23C0u, 0x0000u, 0x2000u,
@@ -1006,6 +1068,7 @@ int main(void) {
   RUN_TEST(test_the_machine_keeps_time_in_base_units);
   RUN_TEST(test_an_unrepresentable_cpu_rate_is_refused);
   RUN_TEST(test_an_unset_clock_produces_no_time);
+  RUN_TEST(test_a_warm_reset_restores_the_documented_state_but_not_the_atc);
   RUN_TEST(test_a_probe_can_set_up_run_and_read_back);
   RUN_TEST(test_every_transcribed_row_matches_both_published_columns);
   RUN_TEST(test_the_footnoted_memory_forms_compose_to_the_manuals_total);

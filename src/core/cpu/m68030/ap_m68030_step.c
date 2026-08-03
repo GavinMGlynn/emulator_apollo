@@ -87,7 +87,7 @@ step_operand_write(ap_m68030_cpu_t *cpu, ap_m68030_regs_t *regs,
   return result;
 }
 
-bool ap_m68030_take_reset(ap_m68030_cpu_t *cpu) {
+void ap_m68030_reset_state(ap_m68030_cpu_t *cpu) {
   /* Steps 1-3: trace off, supervisor *interrupt* mode -- S set and M clear --
    * and the mask at 7. */
   uint16_t sr = cpu->regs.sr;
@@ -119,6 +119,22 @@ bool ap_m68030_take_reset(ap_m68030_cpu_t *cpu) {
   cpu->tt0.enabled = false;
   cpu->tt1.enabled = false;
 
+  /* And what reset does *not* do, which is as much a part of the sequence as
+   * the seven steps above: "The reset exception does not flush the address
+   * translation cache (ATC), nor does it save the value of either the program
+   * counter or the status register." The caches are invalidated by step 6 and
+   * the ATC is not -- the two are deliberately different, and flushing the ATC
+   * here would be inventing work the part does not do. */
+
+  cpu->stopped = false;
+  cpu->pending_vector = 0;
+  cpu->interrupt_level = 0;
+  cpu->previous_interrupt_level = 0;
+}
+
+bool ap_m68030_take_reset(ap_m68030_cpu_t *cpu) {
+  ap_m68030_reset_state(cpu);
+
   /* Steps 8-10: the two long words at offset zero, in supervisor *program*
    * space. Read through the ordinary path, so a machine with nothing at zero
    * reports the failure rather than starting from whatever was in the
@@ -132,10 +148,6 @@ bool ap_m68030_take_reset(ap_m68030_cpu_t *cpu) {
   }
 
   cpu->regs.isp = stack.value;
-  cpu->stopped = false;
-  cpu->pending_vector = 0;
-  cpu->interrupt_level = 0;
-  cpu->previous_interrupt_level = 0;
   ap_m68030_fetch_reset(&cpu->fetch, start.value);
   cpu->regs.pc = start.value;
   return true;

@@ -5307,3 +5307,61 @@ missing trap is invisible. The suite could not have caught it. It can now, and
 the thing it will catch is a *regression* -- because the probe is registered as
 an expected difference, a run where `fpu-trap` suddenly agrees with MAME means
 this core stopped trapping.
+
+## C93 -- two reset sequences, and the machine used the wrong one
+
+**Class: defect in this core, found by continuing the C90 sweep.**
+
+`ap_m68030_take_reset` implements `[030]` §8.1.1's ten steps carefully, with a
+header comment naming the four "a plausible implementation drops" and the two
+explicit negatives. It has **no caller anywhere in `src`** -- not even in its own
+translation unit.
+
+What the machine actually runs is `ap_machine_reset`, which had written its own
+shorter sequence: supervisor, mask 7, trace clear, and then straight to the
+program counter. Set aside were steps 4, 5 and 7 -- the vector base register,
+the cache control register, and the enable bits in the translation control
+register and *both* transparent translation registers. Added was a flush of the
+ATC.
+
+§8.1.1, p. 8-5, read from the page image, closes with:
+
+> After the initial instruction prefetches, program execution begins at the
+> address in the program counter. The reset exception **does not flush the
+> address translation cache (ATC)**, nor does it save the value of either the
+> program counter or the status register.
+
+So the machine's reset did something reset never does, and omitted three things
+it always does. The header of the *unused* function had already said as much --
+"a model that flushed it would be tidier and wrong" -- which is the same shape as
+C90: the rule written down in one place and contradicted by the code that runs.
+
+### Why nothing caught it
+
+**The omission is invisible exactly once.** `ap_machine_init` zeroes the whole
+struct, so on a cold start VBR, CACR and every enable bit are already what reset
+would have made them: the short sequence and the full one agree, and every test
+in the tree resets a freshly constructed machine. Every *later* reset is on a
+machine that has been running, and there they diverge -- a warm reset would keep
+the old VBR and the old translation tree and fetch its first instruction through
+them.
+
+The fix is structural rather than a patch: §8.1.1's steps 1-7 are now
+`ap_m68030_reset_state`, called by both `ap_m68030_take_reset` (which then reads
+the vector for steps 8-10) and by `ap_machine_reset` (which is *told* its program
+counter, because a board's PROM supplies it rather than a vector at zero). One
+sequence, one place.
+
+### The test was checked against the defect, not only against the fix
+
+`test_a_warm_reset_restores_the_documented_state_but_not_the_atc` resets a
+machine that has been dirtied. Both halves were confirmed live by putting the old
+behaviour back and watching them fail -- the VBR assertion against the partial
+sequence, and the ATC assertion against a re-added flush, separately, because
+Unity stops at the first failure and a single run would only ever have proved
+one of them. The instrumentation was reverted from a kept copy rather than by
+`git checkout`.
+
+That check is the point of the entry as much as the defect is: a test written
+*after* a fix passes against the fix by construction, and says nothing about
+whether it would have caught the bug.

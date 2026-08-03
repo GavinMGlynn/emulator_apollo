@@ -273,6 +273,17 @@ void ap_m68030_cpu_reset(ap_m68030_cpu_t *cpu, uint32_t pc);
  * memory at zero rather than a defect here. */
 [[nodiscard]] bool ap_m68030_take_reset(ap_m68030_cpu_t *cpu);
 
+/* Steps 1-7 alone: everything the reset exception puts into a defined state,
+ * without reading the vector.
+ *
+ * Split out because a machine that is *told* its reset program counter -- from
+ * a board's PROM rather than from a vector at address zero -- still owes the
+ * processor every one of those seven steps, and the two negatives with them.
+ * Having only `ap_m68030_take_reset` meant that caller wrote its own partial
+ * sequence, and a partial reset sequence is invisible on a cold start (the
+ * struct is already zero) and wrong on every later one. */
+void ap_m68030_reset_state(ap_m68030_cpu_t *cpu);
+
 /* Execute one instruction. */
 [[nodiscard]] ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu);
 

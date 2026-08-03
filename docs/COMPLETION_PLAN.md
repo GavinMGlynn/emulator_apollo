@@ -961,6 +961,12 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         coprocessor mid-instruction frame each carrying their own rules.
         *Verification: `exception_suite` 16 tests and 10 in `step_suite`,
         `[030]` §8.1 and Table 8-6. Detail in `PROJECT_STATUS.md`.*
+  - [x] The **machine** resets through §8.1.1's sequence rather than a shorter
+        one of its own, which had dropped the VBR, the CACR and the translation
+        enables and added an ATC flush reset never performs. Invisible on a cold
+        start — a zeroed struct already holds what reset writes — and wrong on
+        every later one. `machine_suite` +1, checked against the old code as
+        well as the new. Detail in `PROJECT_STATUS.md`.
   - [x] **Transparent translation (TT0/TT1)**
         (`src/core/cpu/m68030/ap_m68030_tt.c`), `[030]` §9.3 p. 9-16 and §9.7.3
         p. 9-57. On this machine's critical path rather than an optional extra:

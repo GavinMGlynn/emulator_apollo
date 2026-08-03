@@ -240,23 +240,31 @@ void ap_machine_init_model(ap_machine_t *machine, uint8_t *ram,
 }
 
 void ap_machine_reset(ap_machine_t *machine, uint32_t pc, uint32_t stack) {
-  /* "Supervisor state with interrupts masked at 7, which is what reset
-   * leaves." The trace bits are clear with it. */
-  ap_m68030_write_sr(&machine->cpu.regs,
-                     (uint16_t)((1u << AP_M68030_SR_S_BIT) |
-                                (AP_M68030_SR_INTERRUPT_MASK
-                                 << AP_M68030_SR_INTERRUPT_SHIFT)));
+  /* `[030]` §8.1.1's steps 1-7, from the one implementation of them. This used
+   * to be a second, shorter sequence written here -- supervisor and mask 7 and
+   * nothing else -- which set four of the ten steps aside: the master bit, the
+   * vector base register, the cache control register, and the translation
+   * control and transparent translation enables.
+   *
+   * That omission is invisible exactly once. A cold start runs on a zeroed
+   * `ap_machine_t`, so VBR, CACR and every enable bit are already what reset
+   * would have made them, and the short sequence and the real one agree. Every
+   * *later* reset is on a machine that has been running, and there they do not:
+   * a warm reset would have kept the old VBR and the old translation tree and
+   * fetched its first instruction through them. */
+  ap_m68030_reset_state(&machine->cpu);
   machine->cpu.regs.isp = stack;
-  machine->cpu.stopped = false;
-  machine->cpu.pending_vector = 0;
-  machine->cpu.interrupt_level = 0;
-  machine->cpu.previous_interrupt_level = 0;
   machine->cpu.clocks = 0;
   machine->bus_errors = 0;
 
+  /* Step 6, "Invalidates all entries in the instruction and data caches".
+   *
+   * The ATC is deliberately *not* flushed with them: "The reset exception does
+   * not flush the address translation cache (ATC)". It was flushed here, which
+   * is the tidier-looking thing and the wrong one -- `ap_m68030_step.h` had
+   * already written that down, and this path did it anyway. */
   ap_m68030_cache_clear(&machine->instruction_cache);
   ap_m68030_cache_clear(&machine->data_cache);
-  ap_m68030_atc_flush(&machine->atc);
 
   ap_m68030_cpu_reset(&machine->cpu, pc);
 }
