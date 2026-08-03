@@ -530,3 +530,61 @@ def module_call_probe(load_at: int, address: int = SENTINEL_ADDRESS) -> list[int
 if __name__ == "__main__":
     import sys
     print(to_hex(sentinel_probe()), file=sys.stdout)
+
+
+def fpu_trap_probe(load_at: int, address: int = SENTINEL_ADDRESS) -> list[int]:
+    """Enable a floating-point trap, cause it, and store the frame's format word.
+
+    The probe `FINDINGS.md` C91 said was missing. Every other FPU probe leaves
+    the FPCR at reset -- every trap disabled -- so all of them exercise the one
+    path where an undelivered trap is invisible, which is why the gap was found
+    by reading rather than by running.
+
+    The program enables `DZ` alone, divides 1.0 by 0.0, and then executes an
+    `FADD` that should never run. Three separate claims ride on the single value
+    that comes back:
+
+    * that an enabled exception traps at all;
+    * that it traps through **vector 50** -- `[030]` Table 8-1 gives divide by
+      zero offset `$C8`, which is neither `48 + the FPSR bit` nor `48 + the
+      position in the priority order`, so a wrong mapping lands on a different
+      vector and stores a different number;
+    * that it is a **four-word** frame, the format-0 nibble, which is what a
+      pre-instruction exception takes.
+
+    `$000000C8` is the whole answer: format 0, vector 50 at offset `$C8`.
+
+    The handler is the probe's own, ending in `STOP`, for the reason
+    `fault_probe` gives -- a pre-instruction exception stacks the address of the
+    instruction that was *attempted*, so the harness's bare `RTE` would return to
+    the `FADD` and trap again forever. That looping is correct hardware
+    behaviour on a 68882, which does not clear `EXC PEND` on acknowledge, and it
+    is exactly why the handler cannot be a bare `RTE`.
+    """
+    handler = load_at + 56
+    table = load_at + 0x100
+    # Vector 50, divide by zero: offset $C8.
+    slot = table + 50 * 4
+    return assemble(
+        [0x23FC, (handler >> 16) & 0xFFFF, handler & 0xFFFF,
+         (slot >> 16) & 0xFFFF, slot & 0xFFFF],
+        [0x203C, (table >> 16) & 0xFFFF, table & 0xFFFF],  # MOVE.L #table,D0
+        [0x4E7B, 0x0801],                                  # MOVEC D0,VBR
+        # FMOVE.L #$400,FPCR -- command word `10 dr | select`, and the select
+        # bits are their own numbering: 12 is FPCR. $400 is ENABLE(DZ), bit 10,
+        # sharing its position with EXC(DZ) as the two bytes always do.
+        [0xF23C, 0x9000, 0x0000, 0x0400],
+        [0xF23C, 0x4080, 0x0000, 0x0001],                  # FMOVE.L #1,FP1
+        [0xF23C, 0x4000, 0x0000, 0x0000],                  # FMOVE.L #0,FP0
+        [0xF200, 0x00A0],                                  # FDIV.X FP0,FP1
+        # The instruction that must not run: the trap is reported here, not on
+        # the divide, because the FPCP runs concurrently and reports pending
+        # exceptions when the *next* one is initiated.
+        [0xF200, 0x00A2],                                  # FADD.X FP0,FP1
+        stop(0x2700),                                      # not reached
+        # handler, at load_at + 56
+        [0x7000],                                          # MOVEQ #0,D0
+        [0x302F, 0x0006],                                  # MOVE.W 6(SP),D0
+        [0x23C0, (address >> 16) & 0xFFFF, address & 0xFFFF],
+        stop(0x2700),
+    )

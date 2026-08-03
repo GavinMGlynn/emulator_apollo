@@ -158,6 +158,25 @@ def main() -> int:
     check("bus-fault probe plants vector 2",
           E.bus_fault_probe(0x1000, 0x1800)[4], (0x1000 + 0x100 + 8) & 0xFFFF)
 
+    # The FPU trap probe is the one whose *arithmetic* can be wrong without the
+    # program looking wrong, so the two numbers it depends on are pinned here.
+    #
+    # Vector 50 is divide by zero, and 50 is not derivable from anything else in
+    # the encoding: it is neither `48 +` the FPSR bit (DZ is bit 10) nor `48 +`
+    # the position in §6.1.9's priority order (DZ is sixth). Getting it wrong
+    # plants a live handler on the wrong vector, and the probe then reports "no
+    # trap" exactly as an unimplemented trap path would.
+    fpu_trap = E.fpu_trap_probe(0x1000, 0x1800)
+    check("FPU trap probe plants vector 50",
+          fpu_trap[4], (0x1000 + 0x100 + 50 * 4) & 0xFFFF)
+    # ENABLE(DZ) is bit 10, sharing its position with EXC(DZ). Enabling the
+    # wrong bit gives a probe that runs cleanly and proves nothing.
+    check("FPU trap probe enables DZ and nothing else", fpu_trap[13], 0x0400)
+    # And the handler has to sit where the vector says it does: the offset is
+    # hand-counted, so a word added above it moves the entry point silently.
+    check("FPU trap probe's handler entry is its MOVEQ",
+          fpu_trap[(56 // 2)], 0x7000)
+
     if failures:
         sys.stderr.write("\n%d check(s) failed\n" % failures)
         return 1

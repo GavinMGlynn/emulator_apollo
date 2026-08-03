@@ -1221,13 +1221,14 @@ a 68882, and the 68882 is the only one of these it has.
       the instruction that caused it, and `FMOVEM`/`FMOVE` control/`FSAVE`/
       `FRESTORE` do not report it. Found by sweeping for public functions the
       product never calls. `step_suite` +3. Detail in `PROJECT_STATUS.md`.
-- [ ] An oracle probe that drives an **enabled** floating-point trap. Every
-      existing FPU probe leaves the FPCR at reset, so all of them exercise the
-      one path where a missing trap is invisible — which is why C91 was found by
-      reading rather than by running. Needs vectors 48–54 planted on both sides
-      and a handler that records which arrived, so the priority order and the
-      pre-instruction stacked PC are checked against the part and not only
-      against the manual.
+- [x] An oracle probe that drives an **enabled** floating-point trap:
+      `fpu-trap` enables `DZ`, divides 1.0 by 0.0, and stores the frame's format
+      word from the `FADD` that must not run. `$00C8` carries three claims at
+      once — that it trapped, through vector 50, in a four-word frame. Ours
+      returns it; MAME returns nothing, and its own `m68kfpu.cpp` raises no
+      vector in 48–54 at all, so this is a recorded oracle-wrong difference
+      rather than a measurement. `test_encoder` +3. Detail in
+      `PROJECT_STATUS.md`.
   - [x] **The verification line is now met.** The audit found why it had
         the 68882 was not reachable from a running machine at all.**
         `ap_machine_init` never attached one, so `cpu->fpu` was null on every

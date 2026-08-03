@@ -5243,3 +5243,67 @@ because doing it properly means planting vectors 48-54 on both sides and having
 the handler report which arrived. That is a real gap in the *verification* and
 is now a named plan item rather than an unstated one -- the whole lesson of this
 entry being that a gap nothing exercises is a gap nothing reports.
+
+## C92 -- the FPU trap probe, and MAME has no FPCP exception vectors
+
+**Class: oracle-wrong, settled from the oracle's source rather than its
+behaviour.**
+
+C91 closed the missing trap path and left the verification open, as a named plan
+item: no probe drove an *enabled* floating-point trap, so the whole mechanism
+rested on the manual and three unit tests. This closes it.
+
+### One value, three claims
+
+`fpu-trap` enables `DZ` alone, divides 1.0 by 0.0, and executes an `FADD` that
+must never run. Its own handler stores the stacked format word, and `$000000C8`
+is the answer:
+
+* **that it trapped at all** -- the sentinel is written only from the handler;
+* **through vector 50** -- offset `$C8`. That number is derivable from nothing
+  else in the encoding: `DZ` is FPSR bit 10 and sixth in §6.1.9's priority
+  order, so neither `48 + bit` nor `48 + priority` reaches 50. A wrong mapping
+  plants the live handler on a different vector, and the probe then reports "no
+  trap" *exactly as an unimplemented trap path would* -- which is why
+  `test_encoder` pins the planted offset, the enabled bit and the handler entry
+  separately;
+* **in a four-word frame** -- the format-0 nibble, which is what a
+  pre-instruction exception takes.
+
+The handler cannot be the harness's bare `RTE`. A pre-instruction exception
+stacks the address of the instruction that was *attempted*, so an `RTE` returns
+to the `FADD` and traps again -- forever, because a 68882 does not clear
+`EXC PEND` on acknowledge. That loop is correct hardware behaviour, and it is
+the reason this probe carries its own handler ending in `STOP`.
+
+### The oracle does not implement this at all
+
+MAME runs all nine instructions, including the `STOP` this core never reaches,
+and leaves the sentinel at its `55555555` fill.
+
+**Settled by reading `ext/mame`, not by inferring from that.** `m68kfpu.cpp`
+contains exactly two exception raises in its whole length: `m68ki_exception_1111`
+for an unimplemented encoding, and `m68ki_exception_trap(EXCEPTION_TRAPV)` for
+`FTRAPcc`. There is no path to any vector in 48-54. MAME's FPCP has no exception
+traps, so there is no version of this probe it could pass, and no instrumentation
+run would have told me more than the grep did.
+
+That distinction matters for how the entry should be trusted: "MAME did not trap"
+is an observation and could have a dozen causes -- a rejected FPCR write, a
+missing `DZ` in the divide, a vector planted somewhere MAME does not read.
+"MAME contains no code that could trap" is a fact about the program, and it
+disposes of all of them at once.
+
+    known difference: fpu-trap -- C92, oracle-wrong: MAME implements no FPCP
+                                  exception vectors
+    12 of 14 probe programs ran identically; 2 differed as recorded;
+        1 not applicable to a dn3500
+
+### Why this one is worth the entry
+
+C91 was found by reading rather than running, because every existing FPU probe
+leaves the FPCR at reset and therefore exercises precisely the path where a
+missing trap is invisible. The suite could not have caught it. It can now, and
+the thing it will catch is a *regression* -- because the probe is registered as
+an expected difference, a run where `fpu-trap` suddenly agrees with MAME means
+this core stopped trapping.

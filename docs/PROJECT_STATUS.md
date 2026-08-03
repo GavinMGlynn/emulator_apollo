@@ -2439,6 +2439,26 @@ the other two would let through: the divide-by-zero traps on the *following*
 *disabled* exception sets its FPSR bit and traps nothing — the last being the
 case nearly every real program is in.
 
+**And by an oracle probe, which is where it stops being our word for it.**
+`fpu-trap` enables `DZ`, divides 1.0 by 0.0, and has its own handler store the
+stacked format word from the `FADD` that must never run. `$000000C8` carries
+three separate claims in one value: that an enabled exception traps at all, that
+it traps through **vector 50** — neither `48 +` the FPSR bit (`DZ` is bit 10) nor
+`48 +` its place in the priority order (sixth), so a wrong mapping lands on a
+different vector and stores a different number — and that the frame is
+format 0, four words, which is what a pre-instruction exception takes.
+
+This core returns `$000000C8`. **MAME returns nothing**: it runs all nine
+instructions including the `STOP` this core never reaches, and leaves the
+sentinel at its fill. That is classified *oracle-wrong* from MAME's own source
+rather than inferred from the behaviour — `m68kfpu.cpp` raises exactly two
+exceptions, an F-line for an unimplemented encoding and a `TRAPV` for `FTRAPcc`,
+and never a vector in 48–54. Its FPCP has no exception traps at all.
+
+So this is the "hardware-truer than the oracle" class, with three citations and
+the oracle's source agreeing on what is absent: `[FPCP]` §6.4.2 for the delivery
+mechanism, §6.1.9 for the priority, `[030]` Table 8-1 for the vector.
+
 **The condition codes themselves came back correct against Table 2-1**, all ten
 data types including the two that catch a careless implementation: `N` is the
 sign of the mantissa and is set *independently of the type*, so a negative zero

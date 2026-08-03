@@ -154,7 +154,7 @@ def run_oracle(words, base, sentinel_at, limit, timeout: float,
 # measurements into a check someone can re-run after changing the core.
 ALL_PROGRAMS = ("sentinel", "dbcc", "subroutine", "divide", "divide-overflow",
                 "movem", "pmove", "fault", "bus-fault", "fpu", "fpu-rounding",
-                "fpu-sine", "fpu-sine-x", "module-call")
+                "fpu-sine", "fpu-sine-x", "module-call", "fpu-trap")
 
 
 def run_all(argv, parser, machine: str = "dn3500") -> int:
@@ -180,6 +180,14 @@ def run_all(argv, parser, machine: str = "dn3500") -> int:
         # measure the machine at all -- see NOT_APPLICABLE.
         **({"module-call": "C87, oracle-wrong: MAME does not implement CALLM"}
            if machine == "dn3000" else {}),
+        # C92, and settled from the oracle's own source rather than inferred
+        # from its behaviour: `m68kfpu.cpp` raises exactly two exceptions, an
+        # F-line for an unimplemented encoding and a TRAPV for `FTRAPcc`. It
+        # never raises a vector in 48-54, so MAME's FPCP has no exception traps
+        # at all. Ours takes vector 50 per `[030]` Table 8-1, which is what
+        # `[FPCP]` §6.4.2 and §6.1.9 require.
+        "fpu-trap": "C92, oracle-wrong: MAME implements no FPCP exception"
+                    " vectors",
     }
 
     # A third category, and the one whose absence made C88's correction wrong.
@@ -248,7 +256,7 @@ def main(argv=None, recursing=False) -> int:
              "which is what the 68020 subset's verification line asks for and "
              "what no machine this core built could do until it had a model")
     parser.add_argument(
-        "--program", choices=("sentinel", "fpu", "fpu-rounding", "fpu-sine", "fpu-sine-x", "fault", "bus-fault", "dbcc", "movem", "divide", "divide-overflow", "subroutine", "pmove", "module-call",
+        "--program", choices=("sentinel", "fpu", "fpu-rounding", "fpu-sine", "fpu-sine-x", "fault", "bus-fault", "dbcc", "movem", "divide", "divide-overflow", "subroutine", "pmove", "module-call", "fpu-trap",
                  "all"),
         default="sentinel",
         help="which probe to run; `fpu` exercises the coprocessor's constant "
@@ -338,6 +346,18 @@ def main(argv=None, recursing=False) -> int:
               " question --")
         print("        $A is the short bus fault frame, $B the long one, and"
               " this core says $B")
+    elif args.program == "fpu-trap":
+        ours_words = E.fpu_trap_probe(OURS_BASE, OURS_BASE + SENTINEL_OFFSET)
+        oracle_words = E.fpu_trap_probe(ORACLE_BASE,
+                                        ORACLE_BASE + SENTINEL_OFFSET)
+        print("probe:  FMOVE.L #$400,FPCR (enable DZ) ; FDIV 1.0/0.0 ;"
+              " FADD ; handler stores the format word")
+        print("        $00C8 is a four-word frame, format 0, and vector 50 at"
+              " offset $C8 --")
+        print("        the divide-by-zero vector, which is neither 48 + the"
+              " FPSR bit nor")
+        print("        48 + the position in the priority order, so a wrong"
+              " mapping lands elsewhere")
     elif args.program == "fault":
         ours_words = E.fault_probe(OURS_BASE, OURS_BASE + SENTINEL_OFFSET)
         oracle_words = E.fault_probe(ORACLE_BASE, ORACLE_BASE + SENTINEL_OFFSET)
@@ -419,6 +439,7 @@ def main(argv=None, recursing=False) -> int:
                 "module-call": ("00C0FFEE" if args.machine == "dn3000"
                                 else None),
                 "fault": "00000010",
+                "fpu-trap": "000000C8",
                 # No expected value: which frame a data fault produces is the
                 # thing being compared, not something to assert in advance.
                 "bus-fault": None,
