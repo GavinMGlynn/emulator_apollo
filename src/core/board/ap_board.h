@@ -372,6 +372,38 @@ void ap_board_bus_tick(ap_board_t *board);
  * holds the bus, which is the whole of how contention reaches the CPU. */
 [[nodiscard]] bool ap_board_processor_may_run(const ap_board_t *board);
 
+/* ---------------------------------------------------------------------------
+ * Time
+ *
+ * `CLAUDE.md` opens with "one `tick()` per machine cycle, every subsystem
+ * advancing inside it". This is that, for the devices that keep time: the
+ * interval timer and the calendar, each advanced to the machine's absolute
+ * `now`. Until it existed nothing in this core advanced on its own, so a
+ * counter reached terminal count only if a test reached in and advanced it, and
+ * four separate verifications were waiting on that.
+ *
+ * ## Absolute time, which is what makes the call rate not matter
+ *
+ * Every device here takes an absolute instant and carries its own remainder --
+ * `ap_timer_advance` issues one pulse per elapsed period of each timer's own
+ * rate, `ap_mc146818_advance` one update per second -- so advancing once per
+ * instruction reaches exactly the state advancing once per clock would. The
+ * device is a function of the instant, not of how often it was asked.
+ *
+ * What *is* quantised is the moment a change is noticed: an interrupt raised
+ * partway through an instruction is seen at the end of it. That is a documented
+ * approximation with a stated cost -- at 25 MHz an instruction is a handful of
+ * clocks, and the timers' fastest rate is 250 kHz, a hundred times slower --
+ * and it is bounded by the longest instruction rather than unbounded.
+ *
+ * ## The DUART's counter is not here
+ *
+ * `device/ap_mc68681.h` has no advance function: its counter/timer is modelled
+ * as registers and commands and nothing drives it. That is the memory refresh's
+ * item, and adding a call here for a device that cannot use it would be the
+ * pretence of a tick loop rather than one. */
+void ap_board_advance(ap_board_t *board, ap_time_t now);
+
 /* Read or write one byte. `ok` reports whether anything answered; an unmapped
  * access is counted and reported rather than quietly returning zero. */
 [[nodiscard]] uint8_t ap_board_read(ap_board_t *board, uint32_t address,

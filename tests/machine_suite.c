@@ -10,6 +10,7 @@
 #include <stdio.h>
 
 #include "board/ap_board.h"
+#include "board/ap_timer.h"
 #include "board/ap_disk.h"
 #include "board/ap_dma.h"
 #include "device/ap_mc68681.h"
@@ -1499,8 +1500,118 @@ static void test_two_interrupts_at_once_are_serviced_in_priority_order(void) {
   TEST_ASSERT_EQUAL_UINT(0u, m.bus_errors);
 }
 
+/* ---------------------------------------------------------------------------
+ * Time passes, and a device notices
+ *
+ * `CLAUDE.md` opens with "one `tick()` per machine cycle, every subsystem
+ * advancing inside it", and until now nothing in this core advanced on its own:
+ * a counter reached terminal count only if a test reached in and advanced it.
+ * Four separate verifications were waiting on that.
+ *
+ * The device is a function of the *instant*, not of how often it was asked --
+ * `ap_timer_advance` issues one pulse per elapsed period of each timer's own
+ * rate and carries the remainder -- so advancing once per instruction reaches
+ * exactly the state advancing once per clock would. What is quantised is the
+ * moment a change is noticed, not the change.
+ * ------------------------------------------------------------------------- */
+
+/* The interval timer, programmed the way `timer_suite` programs it, but through
+ * the board at the addresses a program uses: odd bytes, stride 2. Timer 1 runs
+ * at 250 kHz -- a hundred times slower than a 25 MHz instruction, which is the
+ * margin that makes instruction-granularity sampling harmless here. */
+static void program_timer_through_the_board(ap_board_t *board, uint16_t latch) {
+  bool ok = false;
+  const uint32_t rs0 = AP_TIMER_ADDR + 1u;
+  const uint32_t rs1 = AP_TIMER_ADDR + 3u;
+  const uint32_t rs2 = AP_TIMER_ADDR + 5u;
+  const uint32_t rs3 = AP_TIMER_ADDR + 7u;
+  ap_board_write(board, rs1, 0x01u, &ok);
+  ap_board_write(board, rs0, 0x01u, &ok); /* all timers preset */
+  ap_board_write(board, rs2, (uint8_t)(latch >> 8), &ok);
+  ap_board_write(board, rs3, (uint8_t)(latch & 0xFFu), &ok);
+  ap_board_write(board, rs1, 0x01u, &ok);
+  ap_board_write(board, rs0, 0x50u, &ok); /* continuous, IRQ enabled, running */
+}
+
+/* A program that touches nothing: the timer counts because time passed, which
+ * is the entire claim. A short latch so it expires inside a modest run. */
+static void test_a_timer_reaches_terminal_count_with_no_program_touching_it(
+    void) {
+  static const uint16_t spin[] = {0x4E71u, 0x4E71u, 0x60FCu}; /* NOP;NOP;BRA -4 */
+
+  ap_machine_t m;
+  build_board_machine(&m, &first_board, ram, spin, 3u);
+  program_timer_through_the_board(&first_board, 2u);
+
+  TEST_ASSERT_FALSE(ap_timer_irq(&first_board.timer));
+  const ap_time_t start = ap_machine_now(&m);
+
+  (void)ap_machine_run(&m, 4000u);
+
+  /* Time moved, and the timer noticed on its own. */
+  TEST_ASSERT_TRUE(ap_machine_now(&m) > start);
+  TEST_ASSERT_TRUE(ap_timer_irq(&first_board.timer));
+}
+
+/* And it is the *instant* that decides, not the number of calls: the same
+ * elapsed time reached by a program of few long instructions and one of many
+ * short ones leaves the timer in the same state. That is the property that
+ * makes advancing per instruction sound, and the one a fast mode will have to
+ * keep. */
+static void test_the_timer_follows_the_instant_not_the_instruction_count(void) {
+  /* `NOP` against `TST.L D0` -- different clocks, so the same run length in
+   * instructions is a different run length in time. Compared at equal *time*
+   * instead, which is the whole point. */
+  static const uint16_t nops[] = {0x4E71u, 0x60FCu};
+  static const uint16_t work[] = {0x4A80u, 0x60FCu};
+
+  ap_machine_t a;
+  build_board_machine(&a, &first_board, ram, nops, 2u);
+  program_timer_through_the_board(&first_board, 40u);
+  (void)ap_machine_run(&a, 2000u);
+  const ap_time_t a_now = ap_machine_now(&a);
+  const uint8_t a_status = ap_timer_read(&first_board.timer, AP_TIMER_ADDR + 3u);
+
+  ap_machine_t b;
+  build_board_machine(&b, &second_board, other_ram, work, 2u);
+  program_timer_through_the_board(&second_board, 40u);
+  /* Run until it has passed the same instant, however many instructions that
+   * takes -- which is a different number. */
+  unsigned steps = 0;
+  while (ap_machine_now(&b) < a_now && steps < 4000u) {
+    (void)ap_machine_run(&b, 1u);
+    steps++;
+  }
+  const uint8_t b_status = ap_timer_read(&second_board.timer, AP_TIMER_ADDR + 3u);
+
+  TEST_ASSERT_TRUE(ap_machine_now(&b) >= a_now);
+  /* Both reached the same instant and both timers say the same thing about it,
+   * although one machine executed a different number of instructions to get
+   * there. */
+  TEST_ASSERT_EQUAL_HEX8(a_status, b_status);
+}
+
+/* A machine with no board keeps its own time and advances nothing, which is
+ * what the probes depend on: a probe on flat RAM has no device to advance and
+ * must produce exactly the numbers it produced before any of this existed. */
+static void test_a_boardless_machine_advances_nothing(void) {
+  static const uint16_t spin[] = {0x4E71u, 0x4E71u, 0x4E72u, 0x2700u};
+  blank();
+  ap_machine_t m;
+  ap_machine_init(&m, ram, RAM_BYTES);
+  ap_machine_reset(&m, PROGRAM, STACK);
+  load(&m, spin, 4);
+
+  const ap_machine_run_t run = ap_machine_run(&m, 8u);
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_STOPPED, run.status);
+  TEST_ASSERT_TRUE(ap_machine_now(&m) > 0u);
+}
+
 int main(void) {
   UNITY_BEGIN();
+  RUN_TEST(test_a_timer_reaches_terminal_count_with_no_program_touching_it);
+  RUN_TEST(test_the_timer_follows_the_instant_not_the_instruction_count);
+  RUN_TEST(test_a_boardless_machine_advances_nothing);
   RUN_TEST(test_two_interrupts_at_once_are_serviced_in_priority_order);
   RUN_TEST(test_a_dma_transfer_costs_the_processor_clocks);
   RUN_TEST(test_an_idle_bus_costs_the_processor_nothing);

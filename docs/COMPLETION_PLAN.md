@@ -2005,26 +2005,31 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
           what made a carriage return fail to match while `0D` sat in the table.
         - The refresh half is unchanged and still needs the DUART's timer, which
           needs the tick loop.
-- [ ] **The tick loop: nothing in this core advances on its own.** `CLAUDE.md`
-      opens with "one `tick()` per machine cycle, every subsystem advancing
-      inside it", and Phase 3 has been built around its absence: devices hold
-      correct state and are only ever advanced by a caller that hands them an
-      absolute time. `ap_machine_run` samples the interrupt lines and ticks the
-      bus, and that is the whole of it.
+- [ ] **The tick loop.** `CLAUDE.md` opens with "one `tick()` per machine
+      cycle, every subsystem advancing inside it", and this core had none: a
+      counter reached terminal count only if a test reached in and advanced it.
       *Verification: a device counter reaching terminal count with no program
-      touching it, and the goldens that move when it does.*
-      **This is the phase's critical path**, and naming it is overdue — it was
-      a line in `PROJECT_STATUS.md`'s known gaps while four separate
-      verifications waited on it without saying so:
-      - the 8259 **ordering probe**, which needs a second synchronously-raisable
-        interrupt source and can only get one from the timer or the calendar;
-      - the interval timer and calendar's **self-timing probes**;
-      - the DUART's **memory refresh**, and stop bits timed rather than decoded;
-      - and the console stream, if the autobaud turns out to need real time.
-      The cost is known and is why it has not been done casually: every device
-      advancing changes what a long run produces, so the probe goldens and any
-      boot state hash move with it, and the identity harness has to be
-      re-established on the other side rather than assumed across.
+      touching it.*
+  - [x] **The devices that keep time now advance**, to the machine's absolute
+        `now`, after every instruction. Advancing per instruction reaches the
+        state advancing per clock would, because each device is a function of
+        the instant and carries its own remainder — pinned by two machines
+        running *different* programs to the same instant and leaving their
+        timers reading the same status. What is quantised is when a change is
+        *noticed*, bounded by the longest instruction against a 250 kHz fastest
+        rate. A boardless machine advances nothing, so no probe golden moved.
+        Detail in `PROJECT_STATUS.md`.
+        *Verification: `machine_suite` +3 (39) — a `BRA` loop that touches
+        nothing brings the interval timer to terminal count on its own.*
+  - [ ] Remaining: the **DUART's counter/timer**, which has no advance function
+        at all — registers and commands with nothing driving them — so calling
+        it from the tick would be the pretence of a tick loop rather than one.
+        It is the memory refresh's dependency and lands with that child.
+  - [ ] Remaining: the CPU is stepped by instruction, because `ap_m68030_step`
+        runs a whole one. A per-cycle processor is what "one `tick()` per
+        machine cycle" asks for literally, and it is a Phase 8 question rather
+        than a Phase 3 one — the identity harness has to exist before the run
+        loop is rewritten under it.
 
 - [ ] Node ID PROM (`0x011200`), including node ID taken from the logical volume
       label. *Verification: `lcnode`-visible node ID matches the configured

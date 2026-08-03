@@ -257,6 +257,15 @@ void ap_board_bus_tick(ap_board_t *board) {
   }
 }
 
+void ap_board_advance(ap_board_t *board, ap_time_t now) {
+  /* Each to the same instant, and each carrying its own remainder. Order does
+   * not matter and must not: two devices advanced to the same absolute time
+   * cannot influence each other through the advance itself, which is what makes
+   * this a tick rather than a schedule. */
+  ap_timer_advance(&board->timer, now);
+  ap_calendar_advance(&board->calendar, now);
+}
+
 bool ap_board_processor_may_run(const ap_board_t *board) {
   return ap_arbiter_processor_may_run(&board->arbiter);
 }

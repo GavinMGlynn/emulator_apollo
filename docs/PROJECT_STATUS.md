@@ -3346,7 +3346,7 @@ failure that cost a bit position in the 68020's module entry word.
 | Time base (`time/`) | working | `time_suite`, 15 tests |
 | State hash (`state/`) | primitive working | `hash_suite`, 11 tests, incl. published FNV-1a 64 vectors |
 | Core board state hash (the identity harness's board half) | working: the board registers, the translation map, both interrupt controllers, the interval timer with its three clocks, the calendar with both cursors, both DMA controllers, both serial ports, the node ID, the disk and tape controllers, the graphics memories, the keyboard matrix and the boot PROM. The diagnostic counters are deliberately outside it and reported beside it | `board_state_suite`, 22 tests sweeping every device field by field |
-| Full-machine state hash (`ap_machine_hash`, `ap_machine_state`) | working: the processor, main memory, the board when one is attached, and elapsed time — with the clock, the PC and the bus-error count reported beside the number | `machine_suite`, 36 tests, incl. the same workload run twice on two boards agreeing at every step |
+| Full-machine state hash (`ap_machine_hash`, `ap_machine_state`) | working: the processor, main memory, the board when one is attached, and elapsed time — with the clock, the PC and the bus-error count reported beside the number | `machine_suite`, 39 tests, incl. the same workload run twice on two boards agreeing at every step |
 | Ring medium interface | not started | — |
 | Ring controller | not started | — |
 | 68030 instruction pipe + cache holding register | working | `pipe_suite`, 14 tests, `MC68030 User's Manual 3ed` §11.2.2 |
@@ -3358,7 +3358,7 @@ failure that cost a bit position in the 68020's module entry word.
 | 68030 family `0000` size-11 escape (`CMP2`/`CHK2`/`CAS`/`CAS2`) | decoded; the opcode map now has no holes. Semantics open: `CAS`/`CAS2` need an indivisible read-modify-write | `bounds_suite`, 9 tests, `M68000 Family Programmer's Reference Manual 1992` |
 | Per-instruction timing report (`--time-instructions`) | bus and cache time only, pinned as a golden; the 0/2 alternation is the cache holding register serving two instruction words per fetch | `tests/goldens/timing.txt`; oracle side by `tools/mame-oracle/steptime.lua` |
 | Probe suite (`probe/`, `--run-probes`) | 8 probes on the constructed machine, needing no firmware; results pinned as a golden under every build preset, identical between `-O0` and `-O3` | `tests/goldens/probes.txt`, `probe_suite`, 7 tests |
-| Constructed machine (`machine/`) | a 68030 on flat RAM, with an out-of-range access faulting rather than wrapping; with a board attached it takes its model's clock, charges the AT bus's wait states and takes device interrupts on the Apollo vectors, and stalls while another master holds the bus | `machine_suite`, 36 tests |
+| Constructed machine (`machine/`) | a 68030 on flat RAM, with an out-of-range access faulting rather than wrapping; with a board attached it takes its model's clock, charges the AT bus's wait states and takes device interrupts on the Apollo vectors, and stalls while another master holds the bus, and advances the devices that keep time | `machine_suite`, 39 tests |
 | 68030 published timings (§11.6) | 59 rows from §11.6.6, §11.6.8, §11.6.9, §11.6.11, §11.6.12, §11.6.15 and §11.6.16, scheduled into the step as exposed microcode + measured operand bus + prefetch exposure, since the tables show a prefetch overlaps execution while an operand the operation consumes cannot (plain `max(microcode, bus)` was the retired first model — see above and `M68030_TIMING.md`). Branches are reached through their run-time outcome rather than by opcode. Seven instructions agree with the oracle (`FINDINGS.md` C8). Rows footnoted "Add Fetch Effective Address Time" are **declined**, not part-priced: their published figure is a component and the composition is open (C9). The four divides carry the manual's data-dependent marker and are `PROVISIONAL` | `timing_table_suite`, 16 tests; both published columns checked on a running machine by `machine_suite` |
 | 68030 ATC replacement | the history bit now means *recently used*, per `MC68851 PMMU User's Manual` §5.2.1.3 — a translating hit marks it, a `PTEST` probe does not. `PROVISIONAL` narrowed to victim choice among clear-history entries | `atc_suite`, 21 tests |
 | 68030 prefetch marginal cost | `NCC − CC` over the published prefetch count, computed in code across every row; the two rows where it is not integral are named in the test rather than rounded away | `timing_table_suite`, 16 tests |
@@ -4409,6 +4409,48 @@ paper over" — where MAME returns `0F`, which is what `FINDINGS.md` C13 used as
 placement fingerprint. Neither is wrong: the datasheet defines no value. It is
 registered here so that the first board-backed oracle diff does not read it as a
 defect.
+
+#### Time passes, and a device notices
+
+Nothing in this core advanced on its own. A counter reached terminal count only
+if a test reached in and advanced it, which is why four Phase 3 verifications
+were waiting. `ap_board_advance` now takes the machine's absolute `now` to the
+interval timer and the calendar, and `ap_machine_run` calls it after every
+instruction.
+
+**Advancing once per instruction reaches the state advancing once per clock
+would**, and that is a property of the devices rather than a hope. Each takes an
+absolute instant and carries its own remainder — `ap_timer_advance` issues one
+pulse per elapsed period of each timer's own rate, `ap_mc146818_advance` one
+update per second — so a device is a function of the instant, not of how often it
+was asked. The test that matters says exactly this: two machines running
+*different programs* to the same instant leave their timers reading the same
+status, although one executed a different number of instructions to get there.
+
+What is quantised is the moment a change is **noticed**, not the change. An
+interrupt raised partway through an instruction is seen at the end of it. That is
+a documented approximation with a stated bound — the longest instruction, against
+a fastest timer rate of 250 kHz on a 25 MHz machine, a hundred to one — rather
+than an unbounded one. It is also the honest distance between this and
+`CLAUDE.md`'s "one `tick()` per machine cycle": the devices are exact, the
+sampling is instruction-granular, and the CPU is stepped by instruction because
+`ap_m68030_step` runs a whole one.
+
+**The DUART's counter is deliberately not wired in.** `device/ap_mc68681.h` has
+no advance function at all — its counter/timer is registers and commands with
+nothing driving it — so calling it here would be the pretence of a tick loop
+rather than one. That is the memory refresh's item.
+
+**A boardless machine advances nothing**, which is what the probes depend on:
+their goldens are computed on flat RAM with no device to advance, and none of
+them moved.
+
+**And the boot does not move either — yet.** With the timer running, the PROM
+still stops at `000007AE`. That is worth recording rather than hiding: the
+firmware has not armed the interval timer at the point it gets stuck, so making
+time pass changes nothing about where it waits. What it unblocks is the
+*verifications* — a second synchronously-raisable interrupt source for the
+ordering probe, and self-timing probes for the timer and calendar — not the boot.
 
 #### Where our half of the console stream actually stops
 

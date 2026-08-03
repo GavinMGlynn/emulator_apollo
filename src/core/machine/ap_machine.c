@@ -437,6 +437,15 @@ ap_machine_run_t ap_machine_run(ap_machine_t *machine, unsigned limit) {
      * approximate. */
     machine->now += ap_clock_duration(&machine->cpu_clock,
                                       machine->cpu.clocks - before);
+
+    /* And every device that keeps time advances to that instant. After the
+     * step, so a device sees the effect of an instruction that programmed it
+     * before it counts; before the next iteration's interrupt sample, so
+     * anything it raises is seen on the next instruction rather than the one
+     * after. */
+    if (machine->board != NULL) {
+      ap_board_advance(machine->board, machine->now);
+    }
     out.status = result.status;
 
     /* An exception is progress: the handler runs next. Everything else that is
