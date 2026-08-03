@@ -6084,3 +6084,57 @@ that train their reader to ignore the check.
 
 Phase 2 and Phase 2b have no open items. The evidence for that is machine-
 checked where the evidence is machine-checkable, and read where it is not.
+
+## C107 -- the synchroniser: the oracle could never have answered, and the spec did
+
+**Class: `PROVISIONAL` narrowed from a document, plus a closing route that did
+not exist.**
+
+The synchroniser is modelled at two clocks because `[030]` §7.7.4 publishes a
+bound and not a value -- "all asynchronous inputs to the MC68030 are internally
+synchronized in a maximum of two cycles of the processor clock". The recorded
+cost to close was "measure grant latency against the oracle across many request
+phases; small once a second master exists".
+
+**That measurement was never possible.** MAME's 68000 family models no bus
+arbitration whatever: no `BR`, `BG` or `BGACK` anywhere in
+`ext/mame/src/devices/cpu/m68000/`, and nothing in the Apollo driver either. A
+second master in that emulator would have had no grant to time. The route had
+been written down as small and cheap, and it was infinite.
+
+### What did answer it
+
+`CLAUDE.md`'s order is reference → sibling manuals → **web** → oracle, and the
+web step is the one that paid. The sibling manuals corroborate without adding:
+the 68020's §5.2.7.4 gives the identical "maximum of two cycles" and the same
+`R`/`A` synchronised inputs feeding the same state machine.
+
+The user's manual defers to a separate document for timing -- "The timing
+parameters referred to are described in MC68030EC/D, MC68030 Electrical
+Specifications" -- which was not on disk. Fetched, and it states the quantity
+directly:
+
+> **35. BR Asserted to BG Asserted (RMC Not Asserted): 1.5 min, 3.5 max Clks**
+
+Identical at 20, 25, 33.33, 40 and 50 MHz; parameter 37 gives BGACK-asserted to
+BG-negated the same window. Read from the page image, since it is a numeric
+table.
+
+### What that buys, and what it does not
+
+A two-clock spread between min and max is exactly one synchroniser's worth of
+uncertainty -- the specification agreeing that this is a genuine range rather
+than a figure someone declined to print. Both plausible models sit inside it: a
+two-clock synchroniser plus an edge gives three clocks, a one-clock synchroniser
+gives two, and `1.5 <= 2 < 3 <= 3.5`.
+
+So the synchroniser itself is still not pinned, and no document will pin it. But
+the thing that matters is now checked: `arb_suite` asserts the grant latency
+stays inside the manufacturer's published envelope, which a change to the
+synchroniser could leave. The figure moved from "the published maximum, unbacked"
+to "inside the published measurement, asserted".
+
+**The remaining uncertainty is sub-clock phase**, which nothing clock-stepped
+represents -- so this is closable only from hardware, or by accepting the
+envelope as the answer. That is now what the row says, instead of naming an
+emulator that cannot be asked.

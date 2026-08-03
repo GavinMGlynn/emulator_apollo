@@ -67,6 +67,48 @@ static void test_a_bus_request_is_granted_the_bus(void) {
   TEST_ASSERT_TRUE(ap_m68030_arb_three_state(&arb));
 }
 
+/* **Grant latency lies inside the manufacturer's published envelope.**
+ *
+ * `MC68030EC/D` (`MC68030 Electrical Specifications`) p. 7, parameter **35**,
+ * "BR Asserted to BG Asserted (RMC Not Asserted)": **1.5 min, 3.5 max Clks** —
+ * and identically so at 20, 25, 33.33, 40 and 50 MHz. Parameter 37 gives BGACK
+ * asserted to BG negated the same 1.5-3.5 window.
+ *
+ * That envelope is what the user's manual leaves as prose. §7.7.4 says only
+ * that "all asynchronous inputs to the MC68030 are internally synchronized in a
+ * maximum of two cycles of the processor clock", which bounds the synchroniser
+ * and never states the latency it produces. The electrical specification states
+ * the latency directly, as a range, measured.
+ *
+ * A two-clock spread between min and max is exactly one synchroniser's worth of
+ * uncertainty, which is the specification agreeing that this genuinely is a
+ * range rather than a figure someone declined to publish. Both plausible models
+ * sit inside it: a two-clock synchroniser plus an edge gives three clocks, a
+ * one-clock synchroniser gives two, and 1.5 <= 2 < 3 <= 3.5.
+ *
+ * So this test cannot pin the synchroniser — nothing can, from documents — but
+ * it pins the thing that matters, which is that the choice keeps the part
+ * inside its own published timing. A change to the synchroniser that left the
+ * envelope would be wrong however defensible it looked. */
+static void test_grant_latency_is_within_the_published_envelope(void) {
+  ap_m68030_arb_t arb;
+  ap_m68030_arb_init(&arb);
+  ap_m68030_arb_set_request(&arb, true);
+
+  unsigned clocks = 0;
+  while (clocks < 8u && !ap_m68030_arb_bus_grant(&arb)) {
+    ap_m68030_arb_tick(&arb);
+    clocks++;
+  }
+
+  TEST_ASSERT_TRUE_MESSAGE(ap_m68030_arb_bus_grant(&arb),
+                           "no grant at all within eight clocks");
+  /* The envelope is 1.5 to 3.5 clocks. A clock-stepped model can only land on
+   * whole clocks, so the reachable part of it is 2 or 3. */
+  TEST_ASSERT_TRUE_MESSAGE(clocks >= 2u && clocks <= 3u,
+                           "grant latency outside MC68030EC/D parameter 35");
+}
+
 static void test_a_request_is_not_granted_in_the_clock_it_is_asserted(void) {
   ap_m68030_arb_t arb;
   ap_m68030_arb_init(&arb);
@@ -321,6 +363,7 @@ int main(void) {
   RUN_TEST(test_the_processor_is_bus_master_out_of_reset);
   RUN_TEST(test_an_idle_bus_never_leaves_the_processor_as_master);
   RUN_TEST(test_a_bus_request_is_granted_the_bus);
+  RUN_TEST(test_grant_latency_is_within_the_published_envelope);
   RUN_TEST(test_a_request_is_not_granted_in_the_clock_it_is_asserted);
   RUN_TEST(test_a_grant_is_held_until_the_request_is_answered);
   RUN_TEST(test_acknowledging_a_grant_negates_it);

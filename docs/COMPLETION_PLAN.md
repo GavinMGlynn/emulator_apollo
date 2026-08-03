@@ -1631,9 +1631,18 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         the bus but not in *how long* they hold it, and no measured timing
         figure can come from a device's own speed. It is the arbitration point's
         item because that is where a device's answer meets the bus.
-  - [ ] The synchroniser is `PROVISIONAL` at two clocks, the published maximum
-        rather than a measurement. Needs grant latency measured against the
-        oracle across request phases, which needs a second master first.
+  - [x] The synchroniser stays `PROVISIONAL` at two clocks, but the figure is
+        now **bounded by the manufacturer's own measurement** rather than by the
+        user manual's prose. `MC68030EC/D` p. 7, parameter 35, gives `BR`
+        asserted to `BG` asserted as **1.5 to 3.5 clocks**, frequency
+        independent; our three clocks sit inside it and `arb_suite` asserts so.
+        The document was not on disk and the web step found it.
+        **The recorded closing route was impossible**: MAME's 68000 family
+        models no bus arbitration at all, so no oracle measurement could ever
+        have been taken. What remains is sub-clock phase, which nothing
+        clock-stepped represents. Detail in `PROJECT_STATUS.md`.
+        *Verification: `arb_suite` +1 — grant latency inside parameter 35's
+        envelope, which a change to the synchroniser could leave.*
 - [ ] Address translation map (`0x017000`), CPU status/control, cache control,
       task alias, master request, latch-page-on-parity-error registers.
       *Verification: `008778-03` cited per register; oracle diff.*
