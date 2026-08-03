@@ -6082,10 +6082,31 @@ channel A's receiver at that point". It has. Measured after 400,000
 instructions, **all four receivers are enabled**, channel A carries eight bits,
 and its clock select is `66` where the other three are `77` and `BB`.
 
-**What is still open**: the firmware consumes both halves of a key and sits in
-the scan-code search at `00220E`. The search is over a 41-byte table whose
-structure -- runs of scan codes against runs of ASCII -- is read but not proved,
-and which index maps to which is the next thing to settle.
+**The table is now proved rather than read**, and from the addressing modes that
+index it rather than from the bytes. The search at `0021FA` compares with
+`CMP.B (-$38,PC,D0.W),D1` from an extension word at `00220A` -- `0021D2` -- and
+answers with `MOVE.B (-$30,PC,D0.W),D1` from `002216` -- `0021E6`. Twenty bytes
+apart, `MOVE.W #$0013,D0` counting nineteen down to zero: **two parallel
+twenty-entry tables**, scan codes and their characters at the same index.
+
+    CB DB -> 0D    FB -> 1B    C8 D8 F8 -> 5C    C9 D9 -> 7C    F9 -> 7F
+    5B -> 7B       5D -> 7D    7B -> 5B          7D -> 5D
+    CA DA FA -> 09 CC -> 2F    DC FC -> 3F       DE -> 08
+
+C46 read the table as 41 bytes with "triples on a fixed spacing interleaved with
+ASCII runs". It is 40, and the triples are three tables' worth of *release*
+codes sitting above four make codes in the first half; the "interleaving" was the
+second table beginning at index 20. Recorded in `device/ap_kbd.h`, since it is
+the only place a caller can learn which index to press to send a character.
+
+**Where the trail stops.** `0008D0`'s `CMP.B #$0D,D1` is reached and does not
+match, so the byte arriving there is not a translated `CB`. The translate's own
+guard is not the reason -- `BTST #1,($01C7,A6)` reads `21` during a boot, bit 1
+clear, translation running. And the dispatcher chain that handles a keyboard byte
+ends at `0008A4` with `BNE` back to the poll, so `CB` cannot reach `0008C8` by
+that path at all: something else reaches it. Which path, and with what byte, is
+the next thing to settle, and it is firmware disassembly rather than emulator
+work.
 
 ### Checked from now on
 

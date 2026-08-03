@@ -30,6 +30,37 @@
  * actually reads.
  */
 
+/* ## What the firmware does with these codes
+ *
+ * The boot PROM translates a subset of scan codes to ASCII through **two
+ * parallel twenty-entry tables**, and their addresses are not a reading of the
+ * bytes but of the addressing modes that index them: the search at `0021FA`
+ * compares with `CMP.B (-$38,PC,D0.W),D1` from an extension word at `00220A`,
+ * giving `0021D2`, and answers with `MOVE.B (-$30,PC,D0.W),D1` from `002216`,
+ * giving `0021E6`. Twenty bytes apart, so the first table is scan codes and the
+ * second their characters at the same index.
+ *
+ *     CB DB -> 0D    FB -> 1B    C8 D8 F8 -> 5C    C9 D9 -> 7C    F9 -> 7F
+ *     5B -> 7B       5D -> 7D    7B -> 5B          7D -> 5D
+ *     CA DA FA -> 09 CC -> 2F    DC FC -> 3F       DE -> 08
+ *
+ * Read as matrix indices, the entries with bit 7 set are *release* codes: `CB`
+ * is the release of key `4B`, and it is what the firmware turns into a carriage
+ * return. So a scripted press-and-release of index `4B` is how a caller sends
+ * `CR` from this keyboard, and the make code is not in the table at all --
+ * translation happens on the release.
+ *
+ * The search is guarded: `BTST #1,($01C7,A6)` returns without translating when
+ * that bit is set, so the firmware has a raw mode. Measured at `21` during a
+ * boot, which leaves the bit clear and translation running.
+ *
+ * None of this is behaviour of *this* module -- the part sends codes and knows
+ * nothing of ASCII. It is recorded here because it is the only place a caller
+ * can find out which index to press to send a given character, and because it
+ * was recovered from the firmware rather than from any manual. `FINDINGS.md`
+ * C109.
+ */
+
 #ifndef APOLLO_DEVICE_AP_KBD_H
 #define APOLLO_DEVICE_AP_KBD_H
 
