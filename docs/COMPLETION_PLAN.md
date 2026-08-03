@@ -990,9 +990,13 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         `SUBX`, `ADDX` and `ABCD`; `EOR`'s is *data* alterable, so its mode-000
         encoding is an ordinary instruction. `arith_suite`'s own test asserted
         the wrong verdict on the wrong reasoning.
-  - [ ] Two genuinely missing instructions the sweep named: `MOVEP`, and
-        `BTST Dn,#<data>` — the dynamic form the manual allows and this core
-        does not execute. Neither is a category question.
+  - [x] **`MOVEP` and `BTST Dn,#<data>`**, the two instructions the sweep named
+        as genuinely absent. `MOVEP` moves alternate bytes at increments of two,
+        high-order first; its word form replaces sixteen bits and leaves the
+        register's upper half, and it touches no condition code. `BTST`'s
+        dynamic form is the one bit operation whose operand can be an immediate,
+        so it is handled before the address path — there is no address to
+        gather. `step_suite` +3, 264 words. Detail in `PROJECT_STATUS.md`.
   - [ ] The bit-field instructions (`BFTST`, `BFEXTU`, `BFCHG`, …) are the
         largest single block still unimplemented — 488 words in family E, and
         the largest named remainder of the 1468.

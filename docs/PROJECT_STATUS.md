@@ -4441,6 +4441,38 @@ remainder is now the bit-field group — `BFTST`, `BFEXTU`, `BFCHG` and the rest
 488 words in family E — followed by the coprocessor gaps, `MOVEP` and
 `BTST Dn,#<data>`. All are open plan items; none is a category question.
 
+**`MOVEP` and `BTST Dn,#<data>` execute**, the two instructions the opcode
+sweep named as genuinely absent rather than misclassified.
+
+`MOVEP` "moves data between a data register and alternate bytes within the
+address space starting at the location specified and incrementing by two. The
+high-order byte of the data register is transferred first" — it exists for 8-bit
+peripherals on a 16-bit bus, whose registers land on one half of the data bus
+and so occupy every other byte address. The manual is candid that it outlived
+its purpose on a 32-bit part ("not useful for those processors with an external
+32-bit bus"), but a driver written for the earlier one still runs. Its
+addressing mode is fixed rather than decoded, so the displacement word is read
+directly and no effective address is gathered.
+
+Two details that a plausible implementation gets wrong and neither faults: the
+**word form replaces bits 15-0 and leaves 31-16 alone**, so assembling the two
+bytes into a long would silently clear the register's upper half; and
+**"Condition Codes: Not affected"** — all of them, which is unusual enough among
+the moves that setting `Z` would look right.
+
+`BTST Dn,#<data>` is the single bit operation whose operand can be an immediate:
+the dynamic form's table lists `#<data>` where the static form's dashes it, and
+none of the three that *write* can reach one at all. It is handled ahead of the
+address path because there is no address to gather — an immediate is a value in
+the instruction stream.
+
+The `MOVEP` test asserts the skipped odd bytes still hold the harness's `NOP`
+fill rather than zero, which is the stronger statement: a zero could equally
+mean they were written with zero.
+
+**1204 words remain `UNIMPLEMENTED`**, from 2621 before C95. The bit-field group
+— 488 words in family E — is now the largest single remainder by some margin.
+
 **And the machine now uses that sequence, which for a long time it did
     not.** `ap_m68030_take_reset` had no caller anywhere in `src`;
     `ap_machine_reset` ran a shorter sequence of its own -- supervisor,

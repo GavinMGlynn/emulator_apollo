@@ -5602,3 +5602,57 @@ checking that the new refusals were correct.
 remainder is the bit-field group -- 488 words in family E -- then the
 coprocessor gaps, `MOVEP` and `BTST Dn,#<data>`. None is a category question,
 and all are open plan items.
+
+## C98 -- MOVEP and BTST Dn,#<data>, the two the sweep named as absent
+
+**Class: missing instructions, implemented.**
+
+C95's opcode sweep separated words this core *misclassified* from words it
+genuinely could not execute. The category campaigns (C95-C97) closed the first
+kind entirely. These are the second kind, and there were only two.
+
+### `MOVEP`
+
+`[PRM]` p. 4-131: "Moves data between a data register and alternate bytes within
+the address space starting at the location specified and incrementing by two.
+The high-order byte of the data register is transferred first, and the low-order
+byte is transferred last."
+
+It exists for 8-bit peripherals on a 16-bit bus, whose registers appear on one
+half of the data bus and so occupy every *other* byte address. The manual is
+unusually candid that it outlived its purpose -- "although supported by the
+MC68020, MC68030, and MC68040, this instruction is not useful for those
+processors with an external 32-bit bus" -- but supported is supported, and a
+driver written for the earlier part still runs on this one.
+
+Its addressing mode is fixed rather than decoded ("the address register indirect
+plus 16-bit displacement addressing mode"), so the displacement is read directly
+and no effective address is gathered.
+
+**Two details a plausible implementation gets wrong, neither of which faults:**
+
+* The **word form replaces bits 15-0 and leaves 31-16 alone**. Assembling the
+  two bytes into a long and storing it would silently clear the register's upper
+  half -- invisible until something depended on what was there.
+* **"Condition Codes: Not affected"**, all of them. That is unusual enough among
+  the moves that setting `Z` would look right to anyone reading the code.
+
+### `BTST Dn,#<data>`
+
+The single bit operation whose operand can be an immediate: the dynamic form's
+table lists `#<data>` at mode 111 register 100 where the static form's dashes it
+(C96), and none of the three that *write* can reach one at all. It is handled
+ahead of the address path, because there is no address to gather -- an immediate
+is a value in the instruction stream, not somewhere a pointer points.
+
+### The test that got stronger by failing
+
+`MOVEP`'s test first asserted the skipped odd bytes were zero, and failed: the
+step harness fills all RAM with `NOP`, so an untouched odd byte holds `$71`.
+Asserting `$71` is the better check and not merely the passing one -- a zero
+could equally mean the byte *was* written, with zero. The distinction is the
+whole point of a test about *alternate* bytes.
+
+**1204 words remain `UNIMPLEMENTED`**, from 2621 before C95. The bit-field group
+-- `BFTST`, `BFEXTU`, `BFCHG` and the rest, 488 words in family E -- is now the
+largest single remainder by a wide margin, and is the one open item left.

@@ -811,6 +811,83 @@ static bool execute_immediate_to_status(ap_m68030_cpu_t *cpu,
   return true;
 }
 
+/* `MOVEP`, `[PRM]` p. 4-131. "Moves data between a data register and alternate
+ * bytes within the address space starting at the location specified and
+ * incrementing by two. The high-order byte of the data register is transferred
+ * first, and the low-order byte is transferred last."
+ *
+ * Designed for 8-bit peripherals on a 16-bit bus, where a device's registers
+ * appear on one half of the data bus and so occupy every *other* byte address.
+ * The manual is candid that it outlived its purpose -- "although supported by
+ * the MC68020, MC68030, and MC68040, this instruction is not useful for those
+ * processors with an external 32-bit bus" -- but supported is supported, and a
+ * driver written for the earlier part still runs.
+ *
+ * Two details that a plausible implementation gets wrong, and neither faults:
+ *
+ *  - **The word form leaves the register's upper half alone.** It transfers two
+ *    bytes into bits 15-8 and 7-0, so a model that wrote a zero-extended word
+ *    would silently clear the top of the register.
+ *  - **Condition codes are "Not affected"** -- all of them, including Z, which
+ *    every neighbouring move sets.
+ *
+ * The addressing mode is fixed rather than decoded: "The memory address is
+ * specified in the address register indirect plus 16-bit displacement
+ * addressing mode", so the displacement word is read here and no effective
+ * address is gathered. */
+static bool execute_movep(ap_m68030_cpu_t *cpu, const ap_m68030_immediate_t *imm,
+                          uint32_t *clocks) {
+  uint16_t displacement = 0;
+  if (!next_word(cpu, clocks, &displacement)) {
+    return false;
+  }
+  const uint32_t base =
+      ap_m68030_read_address_register(&cpu->regs, imm->address_register) +
+      (uint32_t)(int32_t)(int16_t)displacement;
+
+  const unsigned bytes = imm->size; /* 2 for word, 4 for long */
+
+  if (imm->movep_to_memory) {
+    for (unsigned i = 0; i < bytes; i++) {
+      /* High-order first: the most significant byte of the transfer goes to the
+       * lowest address, and each subsequent byte two further on. */
+      const unsigned shift = (bytes - 1u - i) * 8u;
+      const ap_m68030_address_t where = {.address = base + i * 2u,
+                                         .valid = true};
+      const ap_m68030_operand_result_t written = step_operand_write(
+          cpu, &cpu->regs, cpu->data, &where, 1u,
+          (cpu->regs.d[imm->reg] >> shift) & 0xFFu, cpu->data_function_code);
+      *clocks += written.clocks;
+      if (!written.ok) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  uint32_t assembled = 0;
+  for (unsigned i = 0; i < bytes; i++) {
+    const ap_m68030_address_t where = {.address = base + i * 2u, .valid = true};
+    const ap_m68030_operand_result_t read =
+        step_operand_read(cpu, &cpu->regs, cpu->data, &where, 1u,
+                          cpu->data_function_code);
+    *clocks += read.clocks;
+    if (!read.ok) {
+      return false;
+    }
+    assembled = (assembled << 8) | (read.value & 0xFFu);
+  }
+
+  if (bytes == 4u) {
+    cpu->regs.d[imm->reg] = assembled;
+  } else {
+    /* The word form replaces bits 15-0 and leaves 31-16 as they were. */
+    cpu->regs.d[imm->reg] =
+        (cpu->regs.d[imm->reg] & 0xFFFF0000u) | (assembled & 0xFFFFu);
+  }
+  return true;
+}
+
 static bool execute_immediate(ap_m68030_cpu_t *cpu,
                               const ap_m68030_immediate_t *imm,
                               uint32_t *clocks) {
@@ -847,8 +924,9 @@ static bool execute_immediate(ap_m68030_cpu_t *cpu,
   case AP_M68030_IMM_EORI_TO_CCR:
   case AP_M68030_IMM_EORI_TO_SR:
     return execute_immediate_to_status(cpu, imm, clocks);
-  case AP_M68030_IMM_MOVES:
   case AP_M68030_IMM_MOVEP:
+    return execute_movep(cpu, imm, clocks);
+  case AP_M68030_IMM_MOVES:
   case AP_M68030_IMM_INVALID:
     return false;
   case AP_M68030_IMM_BTST:
@@ -1463,6 +1541,29 @@ static bool execute_bit(ap_m68030_cpu_t *cpu, const ap_m68030_immediate_t *imm,
   const bool to_register = imm->ea.kind == AP_M68030_EA_DATA_REGISTER;
   const unsigned size = to_register ? 4u : 1u;
   bit_number %= to_register ? 32u : 8u;
+
+  /* `BTST Dn,#<data>`, and only that one: the dynamic form's table lists
+   * `#<data>` at mode 111 register 100 where the static form's dashes it, and
+   * none of the three that *write* can reach an immediate at all. So this is
+   * the sole bit operation whose operand is not somewhere an address points.
+   *
+   * It has to be handled before the address path rather than inside it,
+   * because there is no address to gather: an immediate is a value in the
+   * instruction stream. Table 2-3's byte immediate occupies a whole extension
+   * word, which `fetch_immediate` already knows. */
+  if (imm->ea.kind == AP_M68030_EA_IMMEDIATE) {
+    uint32_t operand = 0;
+    if (!fetch_immediate(cpu, size, clocks, &operand)) {
+      return false;
+    }
+    uint16_t immediate_ccr = ap_m68030_read_ccr(&cpu->regs);
+    immediate_ccr &= (uint16_t)~(1u << AP_M68030_SR_Z_BIT);
+    if ((operand & (UINT32_C(1) << bit_number)) == 0u) {
+      immediate_ccr |= (uint16_t)(1u << AP_M68030_SR_Z_BIT);
+    }
+    ap_m68030_write_ccr(&cpu->regs, immediate_ccr);
+    return true; /* `BTST` tests only, so there is nothing to write back. */
+  }
 
   ap_m68030_address_input_t input = {0};
   if (!gather_address_input(cpu, imm->ea.kind, size, clocks, &input)) {

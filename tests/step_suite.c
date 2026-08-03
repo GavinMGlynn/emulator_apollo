@@ -228,6 +228,18 @@ static uint32_t read_ram_long(const machine_t *m, uint32_t address) {
   return value;
 }
 
+static void write_ram_byte(machine_t *m, uint32_t address, uint8_t value) {
+  TEST_ASSERT_TRUE_MESSAGE(address < RAM_BYTES,
+                           "address outside the harness RAM");
+  m->memory.bytes[address] = value;
+}
+
+static uint8_t read_ram_byte(const machine_t *m, uint32_t address) {
+  TEST_ASSERT_TRUE_MESSAGE(address < RAM_BYTES,
+                           "address outside the harness RAM");
+  return m->memory.bytes[address];
+}
+
 static uint16_t read_ram_word(const machine_t *m, uint32_t address) {
   return (uint16_t)((m->memory.bytes[address] << 8) |
                     m->memory.bytes[address + 1u]);
@@ -3746,6 +3758,62 @@ static void test_tst_reaches_every_mode_but_refuses_a_byte_address_register(
   m.cpu.regs.isp = SUPERVISOR_STACK;
   TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXCEPTION, ap_m68030_step(&m.cpu).status);
   TEST_ASSERT_EQUAL_HEX32(HANDLER, m.cpu.regs.pc);
+}
+
+/* **`MOVEP` moves alternate bytes, high-order first.** `[PRM]` p. 4-131:
+ * "Moves data between a data register and alternate bytes within the address
+ * space starting at the location specified and incrementing by two. The
+ * high-order byte of the data register is transferred first, and the low-order
+ * byte is transferred last."
+ *
+ * It exists for 8-bit peripherals on a 16-bit bus, whose registers land on one
+ * half of the data bus and so occupy every other byte address. The manual is
+ * candid that it outlived its purpose on a 32-bit part — "not useful for those
+ * processors with an external 32-bit bus" — but a driver written for the
+ * earlier one still runs, and this core reported it unimplemented. */
+static void test_movep_writes_alternate_bytes_high_order_first(void) {
+  /* MOVEP.L D0,(0,A1): 0000 000 111 001 001. */
+  static const uint16_t program[] = {0x01C9u, 0x0000u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 3);
+  m.cpu.regs.a[1] = 0x00005000u;
+  m.cpu.regs.d[0] = 0x12345678u;
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&m.cpu).status);
+
+  /* Every other byte, and the skipped ones still holding the harness's `NOP`
+   * fill rather than zero — which is the stronger statement: it says the odd
+   * addresses were never written, where a zero could equally mean they were
+   * written with zero. Asserting the gaps at all is what separates "alternate
+   * bytes" from "four consecutive bytes". */
+  const uint8_t expected[8] = {0x12u, 0x71u, 0x34u, 0x71u,
+                               0x56u, 0x71u, 0x78u, 0x71u};
+  for (unsigned i = 0; i < 8u; i++) {
+    TEST_ASSERT_EQUAL_HEX8(expected[i], read_ram_byte(&m, 0x00005000u + i));
+  }
+}
+
+/* **The word form replaces sixteen bits and leaves the rest**, and touches no
+ * condition code.
+ *
+ * Two ways to be quietly wrong. A model that assembled the two bytes and stored
+ * them as a long would clear the register's upper half — invisible until a
+ * caller depended on what was there. And "Condition Codes: Not affected" is
+ * unusual enough among the moves that setting `Z` would look right. */
+static void test_movep_word_preserves_the_upper_half_and_the_flags(void) {
+  /* MOVEP.W (0,A1),D0: 0000 000 100 001 001. */
+  static const uint16_t program[] = {0x0109u, 0x0000u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 3);
+  m.cpu.regs.a[1] = 0x00005000u;
+  m.cpu.regs.d[0] = 0xAAAAAAAAu;
+  write_ram_byte(&m, 0x00005000u, 0xDEu);
+  write_ram_byte(&m, 0x00005002u, 0xADu);
+  ap_m68030_write_ccr(&m.cpu.regs, 0x1Fu);
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&m.cpu).status);
+  TEST_ASSERT_EQUAL_HEX32(0xAAAADEADu, m.cpu.regs.d[0]);
+  TEST_ASSERT_EQUAL_HEX8(0x1Fu, ap_m68030_read_ccr(&m.cpu.regs) & 0x1Fu);
 }
 
 /* **`ADDQ` and `SUBQ` are "alterable", not "data alterable"** -- one word of
@@ -7382,6 +7450,8 @@ int main(void) {
   RUN_TEST(test_an_interrupt_wakes_a_stopped_processor);
   RUN_TEST(test_an_interrupt_returns_to_the_instruction_it_preempted);
   RUN_TEST(test_tst_reaches_every_mode_but_refuses_a_byte_address_register);
+  RUN_TEST(test_movep_writes_alternate_bytes_high_order_first);
+  RUN_TEST(test_movep_word_preserves_the_upper_half_and_the_flags);
   RUN_TEST(test_addq_reaches_an_address_register_but_not_at_byte_size);
   RUN_TEST(test_cmpi_reads_pc_relative_and_never_sees_an_immediate);
   RUN_TEST(test_btst_takes_an_immediate_dynamically_but_not_statically);
