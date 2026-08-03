@@ -5951,3 +5951,48 @@ asserted over the whole instruction set instead -- `machine_suite` steps all
        0  after the MMU classification
 
 Phase 2 and Phase 2b have no open items.
+
+## C104 -- the verification counts had all gone stale, and nothing checked them
+
+**Class: documentation defect, twenty-three at once. Found by auditing the
+completion claim rather than the code.**
+
+Phase 2 and Phase 2b reached zero open items, and the natural next question is
+whether "complete" means anything -- the evidence for it is the Verification
+column of `PROJECT_STATUS.md`'s subsystem table, which names its proof as, for
+example, "`step_suite`, 175 tests".
+
+`step_suite` registers **270**. Twenty-three of the table's counts were wrong,
+some by a factor of two: `ea_timing_suite` said 8 against 26, `mc68681_suite` 15
+against 34, `graphics_suite` 6 against 14.
+
+**Every one understated**, which is why it survived. Suites only grow, so the
+drift is always in the harmless direction -- the document claims *less* evidence
+than exists. Nothing ever failed, nobody was misled into trusting an unverified
+subsystem, and ninety numbers quietly stopped being true. A claim that is wrong
+in the safe direction still teaches its reader that the numbers are decorative.
+
+### Checked from now on
+
+`tools/check_doc_counts.py` compares every "`X_suite`, N tests" claim in the
+table against the `RUN_TEST` registrations in `tests/X_suite.c`, and is a CTest
+entry. Adding a test without touching the table now reddens the tree and names
+the row.
+
+It counts `RUN_TEST` in the source rather than running the binaries: Unity
+reports exactly that number -- verified against four suites before relying on it
+-- so the check needs no build and takes a second. The gap is a test defined and
+never registered, which is invisible to this *and* to the suite itself, and
+which `-Wunused-function` already catches.
+
+### Why this is the right shape of finding to end on
+
+The whole campaign from C88 has been one failure repeated: a claim true when
+written, never re-run, and believed afterwards. C88's own correction was
+unverified; C90's timing rule described a retired model; C94's audit had never
+been run in the direction it asserted; C103 found a comment that had outlived
+the code by two commits and had been copied into this very document.
+
+Counts are the cheapest instance of that failure and the easiest to automate
+away. The rest still need someone to go and look -- which is the argument for
+`--program all`, for the 65536-opcode sweep, and now for this.
