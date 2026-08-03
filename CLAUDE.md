@@ -69,6 +69,11 @@ reference core to chase speed** — that is the classic mistake.
   among the closed ones — which defeats the only job the plan has. An item still
   in progress keeps its detail in the plan while it is live, and is compressed
   in the same commit that ticks it.
+  **This is checked, not remembered**: `tools/check_docs.py` fails a completed
+  item over sixteen lines and names it, and runs as the `doc_claims` CTest
+  entry. It drifted for months without it — items reached forty and eighty-one
+  lines, several of them carrying "Detail in `PROJECT_STATUS.md`" above the
+  detail they had never moved.
 - **Deliberate approximations are fine** — documented, with reason and cost to
   close.
 - **Temporary instrumentation is always reverted** before commit, in our core

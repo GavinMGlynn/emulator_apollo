@@ -102,9 +102,8 @@ file the moment they are found, not when someone remembers.
           source cartridges.
         - Procedure: `tools/mame-oracle/install-domainos.cmds`, replayable, plus
           INVOL first on a blank image.
-        - Needs the `ext/mame` SC-499 edit of `FINDINGS.md` C56.
         - Told in full in `FINDINGS.md` C47-C58 and summarised in
-          `PROJECT_STATUS.md`; the tooling it required is the next item.
+          `PROJECT_STATUS.md`; needs the `ext/mame` SC-499 edit of C56.
   - This also pulls `.ct` cartridge support (Phase 4) forward in importance: it
     is the format the first boot depends on, not merely a storage item.
   - [x] **Answered: the 68040 path does have an oracle.**
@@ -184,30 +183,20 @@ file the moment they are found, not when someone remembers.
         68030 on flat RAM and nothing else — construct, poke, run to a limit,
         read back, with no firmware and no boot. RAM is supplied rather than
         allocated; an out-of-range access is a counted bus error rather than a
-        wrap or a zero; a run takes a limit. Rationale in `PROJECT_STATUS.md`.
-        *Verification: `machine_suite`, 10 tests — the whole probe cycle; reset
-        leaving supervisor state with interrupts masked at 7; an out-of-range
-        access faulting rather than wrapping, including the straddling case; a
-        runaway program stopping at its limit; a run reporting *why* it ended;
-        an operator write not leaving a stale cache line; two machines on two
-        different RAM buffers hashing alike at every step; the machine hash
-        covering the RAM; the two caches being distinct; and a `PMOVE` reaching
-        the registers the machine actually translates through.*
+        wrap or a zero. Rationale in `PROJECT_STATUS.md`.
+        *Verification: `machine_suite`, 31 tests — the whole probe cycle, an
+        out-of-range access faulting rather than wrapping including the
+        straddling case, and two machines on different buffers hashing alike at
+        every step.*
   - [x] **The probes themselves** (`src/core/probe/ap_probe.c`), eight small
-        programs covering one thing each: a register write, a store and reload,
-        a `DBcc` loop, `BSR`/`RTS`, a `TRAP` taken and returned from, the
-        multiplies and divides, `MOVEM` out and back, and a `PMOVE`. A probe
-        reports rather than judges, every probe ends with `STOP`, and the runner
-        blanks RAM and plants a returning handler on every vector between
-        probes. Rationale in `PROJECT_STATUS.md`.
-        *Verification: `tests/goldens/probes.txt`, checked under every build
-        preset and confirmed identical between `-O0` and `-O3`; plus
-        `probe_suite`, 7 tests for what a golden cannot express — a golden will
-        happily pin a probe that never terminates, faults, or differs run to
-        run. Every probe terminating below its limit, none touching memory the
-        machine lacks, the same answer twice on different buffers, a result
-        independent of what ran before, no two probes being the same probe, and
-        every probe carrying a name and a purpose.*
+        programs covering one thing each. A probe reports rather than judges,
+        every probe ends with `STOP`, and the runner blanks RAM and plants a
+        returning handler on every vector between probes. Rationale in
+        `PROJECT_STATUS.md`.
+        *Verification: `tests/goldens/probes.txt` under every preset and
+        identical between `-O0` and `-O3`; plus `probe_suite`, 7 tests for what
+        a golden cannot express — a golden will happily pin a probe that never
+        terminates, faults, or differs run to run.*
   - [x] **A defect in the state hash, found by building on it.** Two machines
         constructed identically on two different buffers hashed *differently*.
         Detail in `PROJECT_STATUS.md`.
@@ -220,21 +209,14 @@ file the moment they are found, not when someone remembers.
       involved. The two are complements: MD is how a figure gets measured against
       real firmware, side-loading is how it gets regression-tested without it.
 - [x] `regress.py` wired into CTest, checking golden result blocks on every
-      platform. *Verification: goldens bit-identical on all four CI targets and
-      both build types.* `cmake/Goldens.cmake` registers each golden as an
-      ordinary CTest entry labelled `golden`, so every build preset checks it
-      and no bespoke CI step is needed. Locally verified four ways: a perturbed
-      golden fails with a named unified diff, restoring it passes, the release
-      (`-O3`) build matches the same golden as the `-O0` build, and
-      `goldens-update` regenerates byte-identically.
-  - One block is pinned today, `model_table.txt` from `--list-models`. It
-    supersedes the old `headless_lists_models` smoke test, which only checked
-    the exit status that `regress.py` already checks.
-  - Missing Python is a **fatal configure**, not a skipped test: a `ctest` run
-    reporting green while pinning nothing would defeat the portability claim.
-    `-DAPOLLO_GOLDENS=OFF` is the explicit opt-out, and says what it costs.
-  - Tail: goldens are regenerated by the `goldens-update` build target rather
-    than by hand, so a golden cannot be edited into agreement with a change.
+      platform. `cmake/Goldens.cmake` registers each golden as an ordinary CTest
+      entry labelled `golden`, so every preset checks it and no bespoke CI step
+      is needed. Missing Python is a **fatal configure**, not a skipped test:
+      green while pinning nothing would defeat the portability claim.
+      Detail in `PROJECT_STATUS.md`.
+      *Verification: goldens bit-identical on all four CI targets and both build
+      types; locally, a perturbed golden fails with a named diff and
+      `goldens-update` regenerates byte-identically.*
 - [x] Full-machine state hash over all architectural and timing state, excluding
       host pointers, with emulated cycle count and PC reported beside it.
       Detail in `PROJECT_STATUS.md`.
@@ -311,19 +293,12 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
   - [x] **Bus cycle state machine** (`src/core/cpu/m68030/ap_m68030_bus.c`),
         built first because it is the bottom of the timing stack: emergent
         timing means every clock an instruction takes is a clock some real bus
-        cycle took. Models the documented S0–S5 half-clock states, both
-        termination paths, and wait-state insertion at S3. One `tick()` is one
-        *clock* and runs that clock's two states in order, so the project's
-        cycle rule holds while the manual's granularity is preserved rather
-        than collapsed into a translation layer.
-        *Verification: `bus_suite`, 17 tests, each citing its manual section —
-        the three-clock asynchronous minimum (7.3.1), the two-clock STERM
-        minimum and three-clock STERM-plus-one-wait (7.3.4 p. 7-48), one clock
-        per wait state, ECS asserted for only its half-clock, DBEN trailing AS
-        by a clock, all strobes negated at S5, and a never-answered cycle that
-        must not quietly complete. Also asserts that every CPU clock in this
-        machine has an even period in base units, so a half-clock is exactly
-        representable — the state model would be silently lossy otherwise.*
+        cycle took. One `tick()` is one clock and runs that clock's two
+        half-clock states in order. Detail in `PROJECT_STATUS.md`.
+        *Verification: `bus_suite`, 25 tests, each citing its manual section —
+        including a never-answered cycle that must not quietly complete, and the
+        assertion that every CPU clock here has an even period in base units, so
+        a half-clock is exactly representable.*
   - [x] **Write-cycle strobe timing, closed from `[030]` 7.3.2.** The tail was
         recorded as one difference (DS) and turned out to be three, which is
         exactly why it was transcribed rather than inferred: on a write DS moves
@@ -348,18 +323,12 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         word, so a bus error faults where the word is *used*, not where it was
         fetched.*
   - [x] **Programming model** (`src/core/cpu/m68030/ap_m68030_regs.c`), `[030]`
-        §1.3 with the `M68000 Family Programmer's Reference Manual 1992`
-        §1.3.2, whose Figure 1-8 survives intact where the 68030 manual's does
-        not — so the SR layout, the trace-mode table and the stack-selection
-        table are all transcribed rather than derived.
-        Detail in `PROJECT_STATUS.md`.
-        *Verification: `regs_suite`, 10 tests — the S/M table, the `x` being
-        load-bearing (S=0 M=1 is still the USP), A7 reads and writes reaching
-        the active stack while leaving the other two untouched, changing
-        privilege reaching a different stack without copying anything between
-        them, all four trace encodings including `11` reported as UNDEFINED
-        rather than folded into another mode, the reserved bits never reading
-        back, and a CCR write being unable to reach S and escalate privilege.*
+        §1.3 with `[PRM]` §1.3.2, whose Figure 1-8 survives the scan where the
+        68030 manual's does not — so the SR layout and the two tables are
+        transcribed rather than derived. Detail in `PROJECT_STATUS.md`.
+        *Verification: `regs_suite`, 10 tests, including `S=0 M=1` still
+        selecting the USP and a CCR write being unable to reach `S` and
+        escalate privilege.*
   - [x] **Effective address decode** (`src/core/cpu/m68030/ap_m68030_ea.c`),
         `M68000 Family PRM` §2, Figure 2-2 and Tables 2-1, 2-2, 2-4 — all
         intact, so nothing here is derived. The decode only; turning a decoded
@@ -381,18 +350,12 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         accept an illegal instruction word as a legal one, so it is reported as
         reserved and tested against the legal null encoding beside it.
   - [x] **Conditional tests** (`src/core/cpu/m68030/ap_m68030_cond.c`), the
-        sixteen conditions `Bcc`, `Scc`, `DBcc` and `TRAPcc` share,
-        `M68000 Family PRM` Table 3-19.
-        Detail in `PROJECT_STATUS.md`.
+        sixteen conditions `Bcc`, `Scc`, `DBcc` and `TRAPcc` share, `[PRM]`
+        Table 3-19. Detail in `PROJECT_STATUS.md`, including the lost overbars.
         *Verification: `cond_suite`, 9 tests. The headline one exhausts the
-        whole space — all sixteen conditions against all thirty-two CCR states —
-        asserting every pair complementary, which is what turns the
-        transcription from trusted into verified. Also: X taking part in no
-        condition (checked over the same whole space), `HI`'s four input
-        combinations individually since it is the entry whose bars were lost,
-        the signed comparisons where a sign error hides, `GT` differing from
-        `GE` only by Z, and T/F unavailable to `Bcc` because those encodings are
-        `BRA` and `BSR`.*
+        space — sixteen conditions against all thirty-two CCR states, asserting
+        every pair complementary, which turns the transcription from trusted
+        into verified.*
   - [x] **Operation code map** (`src/core/cpu/m68030/ap_m68030_opcode.c`),
         `M68000 Family PRM` Table 8-2 — bits 15-12 select the instruction
         family, and everything below decodes per family.
@@ -538,20 +501,13 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         CDIS signal each forcing the MMU every time; a transparent access
         skipping the tables entirely; and the table search being paid once per
         *page* rather than once per line.*
-  - [x] **Writes through the same path.** The asymmetry with reads *is* the
-        content: a read can be answered from the cache alone, and a write never
-        can, because the data cache is writethrough — "the data is written both
-        to the cache and to external memory" — so an external cycle always
-        happens and the MMU is therefore always consulted. That is also what
-        makes write protection work at all: if a write could be answered from
-        the cache, a write-protected page already resident would be writable.
-        Detail in `PROJECT_STATUS.md`.
-        *Verification: `access_suite`, 5 further tests (12 total) — a write to a
-        fully warm address still consulting the MMU where the read before it did
-        not; the first write paying a search while a second *read* to the same
-        page pays nothing; the price paid once rather than per write; a write
-        hit updating the cached value so a later read sees it; and a transparent
-        write skipping the tables.*
+  - [x] **Writes through the same path**, and the asymmetry with reads *is* the
+        content: the data cache is writethrough, so a write always runs an
+        external cycle and the MMU is always consulted. That is also what makes
+        write protection work — a write answered from the cache would make a
+        write-protected resident page writable. Detail in `PROJECT_STATUS.md`.
+        *Verification: `access_suite`, 13 tests, including a write to a fully
+        warm address still consulting the MMU where the read before it did not.*
   - [x] **Instruction prefetch from real memory**
         (`src/core/cpu/m68030/ap_m68030_fetch.c`), joining `ap_m68030_pipe` to
         `ap_m68030_access`. `pipe_suite` pins the pipe against words a test
@@ -576,19 +532,12 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         and an immediate each reported as a fault rather than read as a zero
         that would look like a real operand.*
   - [x] **MOVE and MOVEA semantics**, in the addressing modes reachable without
-        an extension word — register direct, `(An)`, `(An)+`, `-(An)`. The
-        extension-word modes are excluded for a concrete reason rather than an
-        arbitrary one: the step does not yet fetch extension words, and MOVE is
-        the instruction that makes that hard, since its destination's extension
-        words sit after its source's. Those modes report unimplemented;
+        an extension word. The extension-word modes were excluded for a concrete
+        reason: `MOVE`'s destination extension words sit after its source's, and
         guessing a displacement of zero would run and be wrong.
-        *Verification: `step_suite`, 7 further tests (17 total) — a word MOVE
-        leaving the destination register's upper half intact against `MOVEA.W`
-        sign-extending all 32 bits, the same operand size in both, which is the
-        operand layer's two rules observed through running code; `MOVE` setting
-        exactly the documented condition codes against `MOVEA` touching none;
-        and a store-then-reload round trip through memory with the postincrement
-        and predecrement side effects applied.*
+        *Verification: `step_suite`, 7 further tests — a word `MOVE` leaving the
+        destination's upper half intact against `MOVEA.W` sign-extending all 32
+        bits, which is the operand layer's two rules seen through running code.*
   - [x] **Defect found by that round trip: the write path never wrote
         through.** `ap_m68030_access_write` translated the address and updated
         the data cache but never issued the external write cycle — so it
@@ -598,34 +547,18 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         twice to a *cached* line and asserts memory saw both, at the physical
         address rather than the logical one.
   - [x] **Extension word fetching**, which unblocks every addressing mode at
-        once rather than one family at a time. Extension words come from the
-        *same prefetch path* as the instruction word — advancing the pipe is
-        what makes stage C's word the decoded one — rather than from a separate
-        read, so they cost what the manual says they cost and share the holding
-        register's savings.
-        Detail in `PROJECT_STATUS.md`.
-        *Verification: `step_suite`, 6 further tests (22 total) — a long
-        immediate as two words high-half-first; a byte immediate taking the
-        *low* half of a whole word, Table 2-3 seen in running code; a negative
-        displacement source; an absolute long destination; `(xxx).W`
-        sign-extending so `$8000` addresses the top of memory; and both operands
+        once. They come from the *same prefetch path* as the instruction word,
+        so they cost what the manual says and share the holding register's
+        savings. Detail in `PROJECT_STATUS.md`.
+        *Verification: `step_suite`, 6 further tests — including both operands
         taking their words **in order**, checked by giving them different
         displacements so a swapped read produces the wrong address.*
   - [x] **The MMU instructions**, which are how every MMU register and the ATC
         actually get driven: `PMOVE`, `PFLUSH`, `PFLUSHA`, `PLOAD` and `PTEST`.
         Detail in `PROJECT_STATUS.md`.
-        *Verification: `step_suite`, 15 further tests (139 total) — `PFLUSHA`
-        across differing function codes; the mask selecting by agreement; a
-        flush by address leaving the neighbour; a function code from a data
-        register that is not the register's number; `PLOAD` adding where
-        `PFLUSH` removes; `PTEST` level 0 resident and not; level-0-with-A
-        refused; a table-search `PTEST` leaving the ATC empty and returning the
-        descriptor's address; a TC round trip; one P-REGISTER field reaching two
-        registers under two prefixes; an invalid root pointer faulting with the
-        address already landed; an inconsistent TC landing with `E` cleared; the
-        ATC surviving `PMOVEFD` and not `PMOVE`; an MMU instruction in user
-        state taking a privilege violation rather than F-line; and a
-        register-direct operand refused.*
+        *Verification: `step_suite`, 15 further tests — including a table-search
+        `PTEST` leaving the ATC empty and returning the descriptor's address,
+        and the ATC surviving `PMOVEFD` where `PMOVE` flushes it.*
   - [x] **Full-format indexed addressing and the memory indirect modes**. The
         extension word declares its own base and outer displacement sizes, so
         the number of words to read is not known until that word has been read —
@@ -713,10 +646,9 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         byte store clobber its three neighbours — and derives the cache's write
         allocation rule from the size and address together rather than trusting
         the caller to assert it.
-        *Verification: `operand_suite`, 2 further tests (13 total) — a
-        straddling long splitting into two cycles at the right addresses with
-        the right halves, and an aligned byte staying one cycle of its own size;
-        plus the `RTE` round trip in `step_suite`, which is the real output.*
+        *Verification: `operand_suite`, 2 further tests — a straddling long
+        splitting into two cycles at the right addresses, plus the `RTE` round
+        trip in `step_suite`, which is the real output.*
   - [x] **Sub-long-word operands are selected by position, not by mask.** Found
         while testing the memory `ABCD`: the access path answers in long words,
         and `ap_m68030_operand_read` masked the low bits of one instead of
@@ -734,15 +666,10 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         left in it.** Their *semantics* are still open: `CAS` and `CAS2` need an
         indivisible read-modify-write, which is the bus module's item.
         Detail in `PROJECT_STATUS.md`.
-        *Verification: `bounds_suite`, 9 tests — the two size encodings side by
-        side on the same bit pattern; each half's unassigned value being the
-        other's valid one; the static bit operations declined and a byte `CAS`
-        one size field higher accepted; the extension word separating `CMP2`
-        from `CHK2`; the checked register possibly being an address register;
-        `CAS2` behind the immediate encoding with two extension words and no
-        byte form; and each half taking the addressing mode category its operand
-        needs — control for the bounds pair it only reads, memory alterable for
-        the operand `CAS` swaps.*
+        *Verification: `bounds_suite`, 9 tests — including the two size
+        encodings side by side on the same bit pattern, each half's unassigned
+        value being the other's valid one, and each taking the addressing mode
+        category its operand needs.*
   - [x] **The immediate source, swept.** "An immediate is fetched, not
         addressed" had been fixed four separate times — in the arithmetic
         forms' address path, in the multiplies and divides, in `CHK`'s bound,
@@ -834,19 +761,10 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         earlier: `LEA`, `PEA`, `SWAP`, the three `EXT` forms, `NBCD`, `CHK`,
         `MOVEM` both directions, `NEGX`, `TAS`, `MOVE` to and from `SR` and
         `CCR`, and `ILLEGAL`. `BKPT` is declined rather than called illegal — it
-        runs a breakpoint acknowledge cycle this step does not issue — and is
-        now the suite's unimplemented-instruction placeholder. The single-operand
-        escapes also gained their sizes in the decoder. Semantics that would
-        otherwise be silently wrong are in `PROJECT_STATUS.md`.
-        *Verification: `step_suite`, 14 further tests (111 total) — `LEA` against
-        `MOVEA` on the same operand; the predecrement mask reversal seen in
-        memory; a save/restore round trip; a word `MOVEM` reaching the whole
-        register; `CHK` inside, above and below its bound with the negative case
-        distinguished by `N`; `TAS` reporting a free semaphore and taking it;
-        `MOVE from SR` trapping in user state while `MOVE from CCR` does not;
-        `MOVE to CCR` unable to reach the system byte; `ILLEGAL` taking vector 4
-        with its own address stacked; `NBCD` in both complements; and the three
-        `EXT` forms reaching different distances from the same source byte.*
+        runs a breakpoint acknowledge cycle this step does not issue. Detail in
+        `PROJECT_STATUS.md`.
+        *Verification: `step_suite`, 14 further tests, including `MOVEM`'s
+        register list order in both directions and `EXT`'s three widths.*
   - [x] **The `$4E` control group executes in full**: `JSR`, `JMP`, `BSR`,
         `RTS`, `RTR`, `RTD`, `RTE`, `LINK`, `UNLK`, `TRAP`, `TRAPV`, both
         directions of `MOVE USP` and `MOVEC`, `STOP` and `RESET`, with the
@@ -1078,12 +996,9 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         single-entry fill indistinguishable, and those cost very different
         numbers of bus cycles. It would also make `CEI`/`CED` unimplementable.
         Detail in `PROJECT_STATUS.md`.
-        *Verification: `cache_suite`, 19 tests — the A7-A4/A3-A2 split, the
-        function code distinguishing otherwise identical addresses, a
-        single-entry fill leaving its three neighbours invalid against a burst
-        validating all four, a tag change invalidating the rest of the line,
-        `CEI` clearing exactly one entry, and each `CACR` field packing to its
-        own documented bit.*
+        *Verification: `cache_suite`, 29 tests — including a single-entry fill
+        leaving its three neighbours invalid against a burst validating all
+        four, and a tag change invalidating the rest of the line.*
   - [x] The data cache's write rules, which are the easiest part to get
         backwards. It is **writethrough**: a write hit updates the entry "even
         if the cache is frozen", because freeze stops *replacement*, not
@@ -1120,12 +1035,9 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         both sides rather than asserting the ratio: a full burst line fill takes
         **5** clocks, and the same four long words fetched as four separate
         synchronous cycles take **8**. Also: a burst needs CBREQ, CBACK and STERM
-        together, with each missing on its own leaving an ordinary cycle (and a
-        DSACK port getting its three-clock cycle, since burst runs "only from
-        32-bit ports that terminate bus cycles with STERM"); CBREQ negated after
-        the third long word, "indicating that the MC68030 only requests one more";
-        a clock without STERM being a wait state that does not advance the burst;
-        and a bus error ending the fill short.*
+        together, each missing on its own leaving an ordinary cycle; `CBREQ`
+        negated after the third long word; and a bus error ending the fill
+        short.*
   - [x] **What a miss costs, end to end** (`ap_m68030_cache_read`): a hit costs
         no external bus cycle at all and the MMU is "completely ignored"; a miss
         pays translation, the bus, and the fill. That join is what makes the
@@ -1146,21 +1058,10 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         rather than the modelling this item asked for.*
 - [x] Data-dependent instruction timings published only as ranges are modelled
       at the documented value and marked `PROVISIONAL`. No invented point
-      numbers. *Verification: two rows in `PROJECT_STATUS.md`'s PROVISIONAL
-      table -- the four divides that **are** transcribed, at §11.6.8's published
-      maxima with its own footnote quoted, and the `+` rows that are **not**
-      (the multiplies, `CMP2`, `CHK2`, `CHK` with the exception taken, `CAS2`),
-      which are absent from the table and therefore unpriced rather than priced
-      wrongly. Plus `timing_table_suite`, which asserts that exactly four rows
-      carry the marker -- a marker applied too widely would make every figure
-      look provisional and none of them actionable.*
-
-## Phase 2b — The rest of the CPU family
-
-Split out of Phase 2. Each is a subsystem in its own right rather than a tail of
-the 68030, and none is on the DN3500's critical path: the DN3500 is a 68030 with
-a 68882, and the 68882 is the only one of these it has.
-
+      numbers. Detail in `PROJECT_STATUS.md`.
+      *Verification: two rows in its PROVISIONAL table — the four divides that
+      **are** transcribed at §11.6.8's published maxima, and the `+` rows that
+      are **not**, which stay unpriced rather than priced wrongly.*
 - [x] 68882 FPU.
       the same audit and are now in: §4.4's thirty-two tests are sixteen
       equations plus one bit, and `BSUN` is bit 4 against the NAN condition
@@ -1364,11 +1265,8 @@ a 68882, and the 68882 is the only one of these it has.
         must not change that for a machine without one.
         *Verification: `step_suite`, 5 further tests (201 total) -- the trap
         with none fitted; the instruction executing with one, its source
-        untouched and the program counter past **both** words; a different cpID
-        still trapping, since a machine may hold several coprocessors; an
-        undefined extension trapping *with* one fitted, which is the same vector
-        arriving for a different reason; and an unimplemented form reported as
-        our gap rather than as the machine's trap.*
+        untouched and the program counter past **both** words; and a different
+        cpID still trapping, since a machine may hold several coprocessors.*
   - [x] **The source operand transfer** (opclass `010`), so `FADD.S (A0),FP1`
         runs: all six binary formats from every data addressing mode, split the
         way §10.4.9 splits it between the part and the main processor. Made
@@ -1431,13 +1329,9 @@ a 68882, and the 68882 is the only one of these it has.
         the programmer's model alone; an unrecognised format word is the format
         exception rather than a protocol violation; both privileged. A **busy**
         frame is deliberately absent — this core's part never suspends, so
-        nothing can generate one. Two `PROVISIONAL` figures, both now rows in
-        `PROJECT_STATUS.md`'s table: the version number, because no manual
-        publishes one for any part; and the idle frame's CU internal registers,
-        operand register and BIU flags, written as zeros because this model has
-        no microsequencer state to save. The second had been recorded in the
-        status prose but was never a named plan item, which is the silent
-        deferral the `PROVISIONAL` discipline exists to prevent.
+        nothing can generate one. Two `PROVISIONAL` figures, both rows in
+        `PROJECT_STATUS.md`'s table: the version number, and the idle frame's
+        internal words.
         *Verification: `step_suite` +4 (246). Detail in `PROJECT_STATUS.md`.*
   - [x] **`FDBcc`, `FScc` and `FTRAPcc`** — one instruction type, one encoding,
         told apart by Table 4-19. `FDBcc`'s branch base is a third rule (the
@@ -1464,74 +1358,14 @@ a 68882, and the 68882 is the only one of these it has.
         which is a compiler extension: this core is C23 on three platforms and
         the emulated result must be identical on all of them.
   - [x] **The transcendentals, computed to §4.3.2's published bound.** All
-        nineteen, at a worst case under 3.1 units in the last place against
-        expectations generated to 120 decimal digits -- twenty times inside the
+        nineteen, worst case under 3.1 units in the last place against
+        expectations generated to 120 decimal digits — twenty times inside the
         typical bound and three orders of magnitude inside the worst case.
         Nothing calls `libm`, so results are identical on every platform.
-        *Final state: `m68882_transcendental_suite` 32 tests,
-        `m68882_accuracy_suite` 7, `m68882_arith_suite` 32. The per-family
-        counts below are snapshots at each landing, kept as a record of how the
-        work grew.* The
-        earlier decision to report them unimplemented was wrong, and re-reading
-        page 4-7 from the image is what showed it: §4.3.2 specifies a *bound*,
-        not a result, so an implementation inside it conforms to everything the
-        manual says. Reporting unimplemented is the **larger** divergence --
-        real hardware given an `FSIN` returns a sine, and raising an exception
-        instead is wrong by the whole answer rather than by 64 units in the last
-        place. The bounds are constants in `ap_m68882_accuracy.h` and are the
-        acceptance criterion the suites assert against.
-        - [x] The exponential family: `FETOX`, `FETOXM1`, `FTWOTOX`, `FTENTOX`,
-              worst case **under 2 units in the last place** against expectations
-              computed to 120 decimal digits -- 32 times inside the typical
-              bound. Nothing calls `libm`: results are a function of the input
-              alone on every platform. *Verification:
-              `m68882_transcendental_suite`, 10 tests. Detail in
-              `PROJECT_STATUS.md`.*
-        - [x] The logarithms: `FLOGN`, `FLOGNP1`, `FLOG10`, `FLOG2`, worst
-              case **under 2 units in the last place** over arguments spanning
-              `2^-9000` to `2^9000`. `FLOG2` of a power of two is exact and
-              raises no `INEX2`. Landing them found a **live bug in `FDIV`**:
-              the quotient was halved whenever the dividend's significand was
-              the smaller, which is about half of all divides, and twenty-seven
-              existing tests missed it because `x/x` and the round-trip
-              properties never enter that branch. *Verification:
-              `m68882_transcendental_suite` 17 tests, `m68882_arith_suite` +2.
-              Detail in `PROJECT_STATUS.md`.*
-        - [x] The trigonometric: `FSIN`, `FCOS`, `FSINCOS`, `FTAN`, worst
-              case **under 3 units in the last place** out to arguments of
-              `1e18`. One reduction `x = n(pi/2) + r` shared by all four, with
-              `pi/2` held to 199 bits in three pieces and each `n * pi/2_i`
-              formed as an exact pair -- a single 64-bit `pi/2` leaves nearly a
-              radian of error at large arguments. Accuracy holds while `n` fits
-              a 64-bit significand and degrades beyond, which is what the part
-              does: "very large arguments (greater than approximately 10^20)
-              lose all accuracy". `FSINCOS` writes two registers, and the sine
-              wins when both name the same one. *Verification:
-              `m68882_transcendental_suite`, 21 tests. Detail in
-              `PROJECT_STATUS.md`.*
-        - [x] The inverse trigonometric: `FATAN`, `FASIN`, `FACOS`, worst
-              case **under 3 units in the last place**. `FATAN` reduces twice
-              onto the slowest-converging series in the file, turning thousands
-              of terms into sixteen. `FACOS` is `2 atan(sqrt((1-x)/(1+x)))` and
-              *not* `pi/2 - asin(x)`, which would cancel away the whole answer
-              as `x` approaches one. Three functions on one page with three
-              different answers to an infinite argument: `FATAN` returns
-              `+/-pi/2` and has no operand error at all, while `FASIN` and
-              `FACOS` treat it as one. *Verification:
-              `m68882_transcendental_suite`, 25 tests. Detail in
-              `PROJECT_STATUS.md`.*
-        - [x] The hyperbolic: `FSINH`, `FCOSH`, `FTANH`, `FATANH`, worst
-              case **under 3.1 units in the last place**. Each is written in
-              the form that does not cancel -- `FSINH` as `(u + u/(u+1))/2`
-              below one, `FTANH` as `u/(u+2)`, `FATANH` as `ln1p(2x/(1-x))/2`.
-              This family carries the **one manual defect corrected rather
-              than transcribed**: page 4-26 gives `FATANH`'s poles the wrong
-              way round, and the mathematics supplies the unique replacement,
-              which no other suspect entry has had. *Verification:
-              `m68882_transcendental_suite`, 29 tests. Detail in
-              `PROJECT_STATUS.md`.*
-- [x] 68020 subset: no on-chip MMU or cache differences, external 68851.
-      *Verification: `dn3000` boots under both; oracle diff.*
+        Detail in `PROJECT_STATUS.md`.
+        *Verification: `m68882_transcendental_suite`, `m68882_accuracy_suite`
+        and `m68882_arith_suite`, with the per-function error bounds recorded in
+        the status document rather than here.*
   - [x] **The oracle diff is met** (`FINDINGS.md` C84): a probe runs identically
         on both implementations built as a DN3000, which needed the machine to
         take a model, the probe runner to pass it, and the harness to know more

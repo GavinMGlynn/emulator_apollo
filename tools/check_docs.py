@@ -68,6 +68,16 @@ def registered(suite: str) -> int | None:
     return len(re.findall(r"\bRUN_TEST\(", source.read_text()))
 
 
+# A completed plan item is a summary. Sixteen lines is not the rule -- the rule
+# is one line of what was done, its verification, and "Detail in
+# PROJECT_STATUS.md" -- it is the point past which an item is certainly carrying
+# detail that belongs in the status document. Items ran to forty and eighty-one
+# lines before anything looked, because nothing about a long item looks wrong
+# from inside it. In-progress items are exempt: they keep their detail while
+# they are live, and are compressed in the commit that ticks them.
+ITEM_LINES = 16
+ITEM = re.compile(r"^\s*- \[([x~ ])\]")
+
 PATH = re.compile(r"`((?:src|tools|tests|docs)/[A-Za-z0-9_./-]+)`")
 SYMBOL = re.compile(r"`(ap_[a-z0-9_]+)`")
 
@@ -80,6 +90,42 @@ def tree_symbols() -> set[str]:
                 continue
             found.update(re.findall(r"\bap_[a-z0-9_]+\b", path.read_text()))
     return found
+
+
+def check_item_length(problems: list[str]) -> int:
+    """Completed plan items, against the summarise-on-completion rule."""
+    if not PLAN.is_file():
+        return 0
+    lines = PLAN.read_text().splitlines()
+    items, cur, start = [], None, 0
+    for i, line in enumerate(lines):
+        if ITEM.match(line):
+            if cur:
+                items.append((start, cur))
+            cur, start = [line], i + 1
+        elif cur is not None:
+            # A heading or unindented paragraph ends the item.
+            if line and not line.startswith((" ", "\t")) and not line.lstrip().startswith("-"):
+                items.append((start, cur))
+                cur = None
+                continue
+            cur.append(line)
+    if cur:
+        items.append((start, cur))
+
+    checked = 0
+    for line_no, body in items:
+        while body and not body[-1].strip():
+            body.pop()
+        if ITEM.match(body[0]).group(1) != "x":
+            continue
+        checked += 1
+        if len(body) > ITEM_LINES:
+            title = body[0].strip()[:56]
+            problems.append(
+                f"COMPLETION_PLAN.md:{line_no}: completed item is {len(body)} lines "
+                f"(limit {ITEM_LINES}) -- move the detail to PROJECT_STATUS.md: {title}")
+    return checked
 
 
 def check_references(problems: list[str]) -> int:
@@ -125,6 +171,7 @@ def main() -> int:
                     f"{suite}: the table says {claimed}, the suite registers {actual}")
 
     checked += check_references(problems)
+    checked += check_item_length(problems)
 
     for problem in sorted(set(problems)):
         print(problem)
