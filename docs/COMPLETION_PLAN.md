@@ -1214,6 +1214,20 @@ a 68882, and the 68882 is the only one of these it has.
       overflow threshold that was missing. Detail in `PROJECT_STATUS.md`.
       *Verification: probe suite over each operation and rounding
       mode; note the oracle's admitted FPU gaps as a divergence class.*
+- [x] An enabled floating-point exception becomes a **trap**, which nothing
+      delivered before: §6.1.9's priority picks the exception, Table 8-1's own
+      ordering picks the vector, and §6.4.2 makes it a *pre-instruction*
+      exception on the next non-exempt FP instruction — so it is not taken by
+      the instruction that caused it, and `FMOVEM`/`FMOVE` control/`FSAVE`/
+      `FRESTORE` do not report it. Found by sweeping for public functions the
+      product never calls. `step_suite` +3. Detail in `PROJECT_STATUS.md`.
+- [ ] An oracle probe that drives an **enabled** floating-point trap. Every
+      existing FPU probe leaves the FPCR at reset, so all of them exercise the
+      one path where a missing trap is invisible — which is why C91 was found by
+      reading rather than by running. Needs vectors 48–54 planted on both sides
+      and a handler that records which arrived, so the priority order and the
+      pre-instruction stacked PC are checked against the part and not only
+      against the manual.
   - [x] **The verification line is now met.** The audit found why it had
         the 68882 was not reachable from a running machine at all.**
         `ap_machine_init` never attached one, so `cpu->fpu` was null on every

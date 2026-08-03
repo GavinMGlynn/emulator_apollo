@@ -5139,6 +5139,28 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
      * operation word: the operation word gets as far as "a coprocessor
      * instruction for this cpID" and cannot tell `FADD` from `FSIN`. */
     if (cpu->fpu != nullptr && coproc->cpid == cpu->fpu->cpid) {
+      /* A pending floating-point trap is delivered *here*, before the
+       * instruction that finds it runs -- see `ap_m68882.h` on `EXC PEND`. The
+       * exempt forms are "an FMOVEM, FMOVE control register, FSAVE, or
+       * FRESTORE"; of those, the two that are their own instruction type are
+       * ruled out now, and the two that are opclasses of the general type are
+       * ruled out below, once the command word that names the opclass has been
+       * read.
+       *
+       * `FBcc`, `FScc`, `FDBcc` and `FTRAPcc` are **not** exempt, which matters
+       * more than it looks: `BSUN` is raised by exactly those instructions, so
+       * a conditional that sets it is followed by a conditional that reports
+       * it. */
+      if (coproc->type != AP_M68030_CP_SAVE &&
+          coproc->type != AP_M68030_CP_RESTORE &&
+          coproc->type != AP_M68030_CP_GENERAL) {
+        const unsigned pending = ap_m68882_trap_exception(&cpu->fpu->regs);
+        if (pending != 0u) {
+          cpu->pending_vector = ap_m68030_fpu_trap_vector(pending);
+          break;
+        }
+      }
+
       /* `FSAVE` and `FRESTORE`, §6.4.2's state frames. Both are **privileged**
        * -- "If in supervisor state ... else TRAP" -- and neither computes
        * anything: they move the coprocessor's own internal state, which is why
@@ -5242,6 +5264,23 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
         out.status = fault_or_unimplemented(cpu, &out, instruction_address);
         cpu->clocks += out.clocks;
         return out;
+      }
+
+      /* The general type's half of the exemption. Opclasses `100` and `101` are
+       * `FMOVE` to and from a control register and `110`/`111` are `FMOVEM`, so
+       * everything from 4 up is exempt and everything below it -- the
+       * arithmetic forms, and the `FMOVE`s that move *data* -- is not.
+       *
+       * Read after the command word is consumed, which costs nothing: the trap
+       * is a pre-instruction exception and stacks the operation word's own
+       * address, so the extension word this has already fetched is fetched
+       * again when the handler returns. */
+      if ((command >> 13) < 4u) {
+        const unsigned pending = ap_m68882_trap_exception(&cpu->fpu->regs);
+        if (pending != 0u) {
+          cpu->pending_vector = ap_m68030_fpu_trap_vector(pending);
+          break;
+        }
       }
 
       /* §2.4's "before the instruction is executed", which is the only time it

@@ -164,6 +164,27 @@ ap_m68882_rounding_precision(const ap_m68882_regs_t *regs);
  * is transcribed so it does not have to. */
 [[nodiscard]] bool ap_m68882_inexact_trap(const ap_m68882_regs_t *regs);
 
+/* Which exception class traps, as an `AP_M68882_EXC_*` bit position, or 0 when
+ * none is enabled. Zero is unambiguous because the bits occupy 8-15.
+ *
+ * §6.1.9, p. 6-18: "When multiple exceptions occur with traps enabled for more
+ * than one exception class, only the highest priority exception trap is taken;
+ * the other enabled exceptions do not cause a trap." The priority runs `BSUN`,
+ * `SNAN`, `OPERR`, `OVFL`, `UNFL`, `DZ`, `INEX2`/`INEX1` -- highest first, and
+ * **not** the order the bits sit in, which is why this is a written-out list
+ * rather than a scan.
+ *
+ * This answers *which exception*, deliberately not *which vector*. The vector
+ * numbers are the MPU's -- `[030]` Table 8-1 -- and they run in a third order
+ * again, so mapping them here would both duplicate that table and invert the
+ * module dependency: `m68030` includes `m68882`, never the reverse. The MPU
+ * maps this answer through `ap_m68030_fpu_trap_vector`.
+ *
+ * The two inexact bits share one trap, so this reports `INEX2` for either and
+ * defers the decision to `ap_m68882_inexact_trap` -- whose equation also lets
+ * an *overflow* trap through `ENABLE(INEX2)`. */
+[[nodiscard]] unsigned ap_m68882_trap_exception(const ap_m68882_regs_t *regs);
+
 /* ---------------------------------------------------------------------------
  * The conditional predicates, §4.4.
  *

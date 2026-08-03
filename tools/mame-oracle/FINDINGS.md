@@ -5155,3 +5155,91 @@ it cannot see within-translation-unit calls, so its first answer flagged
 dead. Counting occurrences across `src/**.c` instead separates "the product
 never calls this" from "nothing calls this", and it is the first of those two
 that finds rules with two implementations.
+
+## C91 -- an enabled floating-point exception never trapped
+
+**Class: missing behaviour in this core, found by the C90 sweep.**
+
+The same sweep that produced C90 -- public functions the *product* never calls
+-- showed `ap_m68882_exception_enabled`, `ap_m68882_inexact_trap` and
+`ap_m68882_raise_exception` reachable only from tests, and nothing anywhere
+taking a vector in 48-54. `PROJECT_STATUS.md` had recorded the consequence
+honestly ("there is no 68030-side FPU trap path yet to call them") but it was
+neither an open plan item nor a deferred tail, and `CLAUDE.md` says nothing is
+deferred silently. So it was a hole rather than a decision.
+
+**Nothing failed, and nothing could have.** A trap that is never delivered
+breaks no test that does not ask for one, and no probe asks: the FPCR resets
+with every trap disabled, so every existing FPU probe exercises precisely the
+path where the gap is invisible. This is the argument for auditing by *coverage
+of the specification* and not only by running what exists.
+
+### Three orderings, none of them the bit order
+
+The shape of the implementation is dictated by the fact that the same seven
+conditions are ordered three different ways:
+
+| | order |
+|---|---|
+| FPSR `EXC` bits | BSUN 15, SNAN 14, OPERR 13, OVFL 12, UNFL 11, DZ 10, INEX2 9, INEX1 8 |
+| trap priority, §6.1.9 | BSUN, SNAN, OPERR, OVFL, UNFL, DZ, INEX2/INEX1 |
+| vector, `[030]` Table 8-1 | 48 BSUN, 49 Inexact, 50 DZ, 51 UNFL, 52 OPERR, 53 OVFL, 54 SNAN |
+
+`48 + bit` is wrong and `48 + position in the priority list` is also wrong. Both
+mappings are transcribed, and split so that the FPCP answers *which exception*
+and the MPU answers *which vector* -- which is also what keeps the module
+dependency one-way, `m68030` including `m68882` and never the reverse.
+
+### The trap is not taken by the instruction that caused it
+
+§6.4.2, p. 6-33, is the passage that decides the design: with `EXC PEND` true and
+"an attempt ... made to initiate an FPCP instruction (other than an FMOVEM,
+FMOVE control register, FSAVE, or FRESTORE), the response CIR is encoded to the
+take pre-instruction exception primitive".
+
+So the part runs concurrently and the trap waits for the *next* non-exempt
+floating-point instruction, arriving before it executes. Being a pre-instruction
+exception it stacks that instruction's own address, so `RTE` re-attempts it --
+`ap_m68030_stacks_next_instruction` gained the FPCP range, without which every
+handler would have returned one instruction too far on.
+
+The exempt four are exactly what a handler needs. §6.1.9 tells handlers to move
+data with `FMOVEM` because it "cannot generate further exceptions"; if `FMOVEM`
+reported the pending trap, the first instruction of every handler would re-enter
+the handler.
+
+### `EXC PEND` derived, not latched -- and the reading that costs
+
+Derived as `EXC & ENABLE`. The manual's account of *clearing* is what makes that
+truer rather than merely simpler: this part does not clear it on acknowledge at
+all -- "the MC68881 detects the exception acknowledge, [and] clears EXC PEND.
+However, the MC68882 does not clear the EXC PEND bit. It is the responsibility of
+the exception handler to clear EXC PEND" -- and what a handler clears it *with*
+is a write to the FPSR. Deriving makes that write do the job by construction,
+where a second latch would have to be cleared in step with a register it
+duplicates.
+
+**Stated cost:** enabling a trap in the FPCR *after* an exception was recorded
+arms it here, where a latch set at the moment of occurrence would not. §6.4.2
+leans this way -- "a programmer can make exceptions pending in the FPCP under
+software control. Or, conversely, a pending exception type may be changed or
+cleared if necessary" -- but it is a reading and is recorded as one rather than
+presented as settled.
+
+### Verification
+
+Three tests, each catching what the other two would let through: the
+divide-by-zero traps on the *following* `FADD` and not on the divide; `FMOVEM`
+runs to completion with the trap still pending; and a **disabled** exception sets
+its FPSR bit and traps nothing -- the last mattering most, since it is the case
+nearly every real program is in and the one an over-eager implementation breaks.
+
+112/112 on debug and release, and the `fpu`, `fpu-rounding` and `fpu-sine`
+probes still run identically against the oracle -- expected, since they leave
+every trap disabled, and checked rather than assumed.
+
+**Not yet measured against the oracle.** No probe drives an enabled FPU trap,
+because doing it properly means planting vectors 48-54 on both sides and having
+the handler report which arrived. That is a real gap in the *verification* and
+is now a named plan item rather than an unstated one -- the whole lesson of this
+entry being that a gap nothing exercises is a gap nothing reports.

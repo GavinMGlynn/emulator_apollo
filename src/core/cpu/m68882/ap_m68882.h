@@ -49,6 +49,44 @@ typedef struct {
   bool executed;
 } ap_m68882_t;
 
+/* ---------------------------------------------------------------------------
+ * `EXC PEND` and when a floating-point trap is actually taken.
+ *
+ * §6.4.2, p. 6-33: "If EXC PEND is true when an attempt is made to initiate an
+ * FPCP instruction (other than an FMOVEM, FMOVE control register, FSAVE, or
+ * FRESTORE), the response CIR is encoded to the take pre-instruction exception
+ * primitive ... otherwise, the dialog for the instruction is started."
+ *
+ * So the trap is **not** taken by the instruction that caused it. It waits, and
+ * arrives when the next non-exempt floating-point instruction is attempted --
+ * the FPCP runs concurrently with the MPU, and this is what that concurrency
+ * costs. The four exempt forms are exactly the ones a handler needs, which is
+ * why §6.1.9 tells handlers to move data with `FMOVEM`: it "cannot generate
+ * further exceptions or change the condition codes", and it cannot trip the
+ * trap it is running inside either.
+ *
+ * **EXC PEND is derived here rather than latched**, as `EXC & ENABLE` through
+ * `ap_m68882_trap_exception`. The manual's own account of clearing it is what
+ * makes that the truer model: on this part it is not cleared by the exception
+ * acknowledge at all -- "the MC68881 detects the exception acknowledge, [and]
+ * clears EXC PEND. However, the MC68882 does not clear the EXC PEND bit. It is
+ * the responsibility of the exception handler to clear EXC PEND" -- and what a
+ * handler clears it *with* is a write to the FPSR. Deriving makes that write do
+ * the job by construction, where a separate latch would need clearing in step
+ * with a register it duplicates.
+ *
+ * The cost of deriving is one stated difference: enabling a trap in the FPCR
+ * *after* an exception has already been recorded in the FPSR would arm it here,
+ * where a latch set at the moment of occurrence would not. §6.4.2 leans this
+ * way -- "a programmer can make exceptions pending in the FPCP under software
+ * control. Or, conversely, a pending exception type may be changed or cleared
+ * if necessary" -- but it is a reading, and it is recorded as one.
+ *
+ * The consequence a program sees: a handler that returns without clearing the
+ * FPSR traps again on its next arithmetic instruction. That is the 68882's
+ * documented behaviour, not a loop to defend against.
+ * ------------------------------------------------------------------------- */
+
 /* §6.4.2's state frames, as far as this part produces them.
  *
  * A **busy** frame is deliberately absent, and that is a modelling statement

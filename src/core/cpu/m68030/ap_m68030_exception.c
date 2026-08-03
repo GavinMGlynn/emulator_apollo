@@ -3,6 +3,12 @@
 
 #include "cpu/m68030/ap_m68030_exception.h"
 
+/* For the `AP_M68882_EXC_*` bit positions alone. The dependency runs this way
+ * round only -- `m68030` includes `m68882`, never the reverse -- which is why
+ * the coprocessor reports *which* exception and this file decides *where* it
+ * vectors. */
+#include "cpu/m68882/ap_m68882_regs.h"
+
 uint32_t ap_m68030_vector_offset(unsigned vector) {
   return (uint32_t)vector * 4u;
 }
@@ -51,6 +57,16 @@ ap_m68030_priority_t ap_m68030_exception_priority(unsigned vector) {
   case AP_M68030_VECTOR_LINE_A:
   case AP_M68030_VECTOR_LINE_F:
   case AP_M68030_VECTOR_PRIVILEGE_VIOLATION:
+  /* "cp pre-instruction", named in the group above and now reachable: an
+   * enabled FPCP exception is reported when the *next* coprocessor instruction
+   * is attempted, before it executes. */
+  case AP_M68030_VECTOR_FPCP_BSUN:
+  case AP_M68030_VECTOR_FPCP_INEXACT:
+  case AP_M68030_VECTOR_FPCP_DZ:
+  case AP_M68030_VECTOR_FPCP_UNFL:
+  case AP_M68030_VECTOR_FPCP_OPERR:
+  case AP_M68030_VECTOR_FPCP_OVFL:
+  case AP_M68030_VECTOR_FPCP_SNAN:
     return (ap_m68030_priority_t){3, 0};
 
   /* Group 4, "Exception processing begins when current instruction or previous
@@ -184,6 +200,18 @@ bool ap_m68030_stacks_next_instruction(unsigned vector) {
   default:
     break;
   }
+
+  /* The FPCP traps are *pre-instruction* exceptions, which is the one thing
+   * about them that a vector table cannot show. `[FPCP]` p. 6-33: when an
+   * exception is pending and "an attempt is made to initiate an FPCP
+   * instruction", the response is "the take pre-instruction exception
+   * primitive" -- so the instruction being attempted has *not* run, and the
+   * address to stack is its own. Stacking the next one would have `RTE` skip an
+   * instruction the machine never executed. */
+  if (vector >= AP_M68030_VECTOR_FPCP_BSUN &&
+      vector <= AP_M68030_VECTOR_FPCP_SNAN) {
+    return false;
+  }
   /* Everything else -- the interrupts, TRAP #N, and the whole six-word row,
    * "[Next instruction for all these exceptions]".
    *
@@ -219,4 +247,30 @@ bool ap_m68030_interrupt_recognised(unsigned level, unsigned previous_level,
   /* Levels 1-6 are recognised when the request "exceeds the current interrupt
    * priority mask". */
   return level > mask;
+}
+
+unsigned ap_m68030_fpu_trap_vector(unsigned exception_bit) {
+  /* Table 8-1, sheet 2, p. 8-3, read from the page image. The numbering is its
+   * own order: neither the FPSR bit order nor §6.1.9's priority order, so this
+   * is transcribed rather than computed. */
+  switch (exception_bit) {
+  case AP_M68882_EXC_BSUN:
+    return AP_M68030_VECTOR_FPCP_BSUN;
+  case AP_M68882_EXC_SNAN:
+    return AP_M68030_VECTOR_FPCP_SNAN;
+  case AP_M68882_EXC_OPERR:
+    return AP_M68030_VECTOR_FPCP_OPERR;
+  case AP_M68882_EXC_OVFL:
+    return AP_M68030_VECTOR_FPCP_OVFL;
+  case AP_M68882_EXC_UNFL:
+    return AP_M68030_VECTOR_FPCP_UNFL;
+  case AP_M68882_EXC_DZ:
+    return AP_M68030_VECTOR_FPCP_DZ;
+  /* "INEX1 and INEX2 share one exception vector" -- §6.1.10. */
+  case AP_M68882_EXC_INEX2:
+  case AP_M68882_EXC_INEX1:
+    return AP_M68030_VECTOR_FPCP_INEXACT;
+  default:
+    return 0u;
+  }
 }

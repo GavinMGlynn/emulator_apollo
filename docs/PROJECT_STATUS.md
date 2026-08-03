@@ -2385,11 +2385,59 @@ accruing into `AEXC(IOP)`. The test drives a real part -- `FTST` of a NAN, then
 a non-aware predicate -- and reads the status register back, because a unit test
 of the evaluator is exactly what could not see the wiring was missing.
 
-Two functions remain reachable only from tests, and deliberately:
-`ap_m68882_exception_enabled` and `ap_m68882_inexact_trap` are predicates for
-the *MPU* to consult when deciding whether an exception becomes a trap. They are
-interface, not mechanism, and there is no 68030-side FPU trap path yet to call
-them.
+**An enabled floating-point exception now becomes a trap.** `ap_m68882_exception_enabled`
+and `ap_m68882_inexact_trap` were for a long time reachable only from tests,
+recorded here as "interface, not mechanism, and there is no 68030-side FPU trap
+path yet to call them". There is now, and the gap was found by sweeping for
+public functions the *product* never calls rather than by anything failing —
+nothing failed, because a trap that is never delivered breaks no test that does
+not ask for one.
+
+Three orderings meet in this and none of them is the FPSR bit order, which is
+the trap the implementation is shaped around:
+
+- **Which exception traps** is `[FPCP]` §6.1.9's priority — `BSUN`, `SNAN`,
+  `OPERR`, `OVFL`, `UNFL`, `DZ`, `INEX2`/`INEX1`, highest first — and "only the
+  highest priority exception trap is taken; the other enabled exceptions do not
+  cause a trap".
+- **Which vector that is** is `[030]` Table 8-1 (p. 8-3): 48 `BSUN`,
+  49 Inexact, 50 `DZ`, 51 `UNFL`, 52 `OPERR`, 53 `OVFL`, 54 `SNAN`. `INEX1` and
+  `INEX2` share 49, §6.1.10.
+- Neither is the bit order, so `48 + bit` and `48 + priority` are both wrong.
+  The two mappings are written out, and split across the two modules: the FPCP
+  answers *which exception* (`ap_m68882_trap_exception`) and the MPU answers
+  *where it vectors* (`ap_m68030_fpu_trap_vector`). That split is also what
+  keeps the dependency one-way — `m68030` includes `m68882`, never the reverse.
+
+**The trap is not taken by the instruction that caused it.** §6.4.2 (p. 6-33):
+with `EXC PEND` true and "an attempt ... made to initiate an FPCP instruction
+(other than an FMOVEM, FMOVE control register, FSAVE, or FRESTORE), the response
+CIR is encoded to the take pre-instruction exception primitive". The part runs
+concurrently with the MPU, so delivery waits for the next non-exempt
+floating-point instruction — and being *pre-instruction*, it stacks that
+instruction's own address so `RTE` re-attempts it rather than skipping it.
+`ap_m68030_stacks_next_instruction` gained the FPCP range for exactly that.
+
+The exempt four are the ones a handler needs; §6.1.9 tells handlers to move data
+with `FMOVEM` because it "cannot generate further exceptions", and if `FMOVEM`
+reported the pending trap the first instruction of every handler would re-enter
+it.
+
+`EXC PEND` is **derived** as `EXC & ENABLE` rather than latched. The manual's own
+account of clearing it is what makes that truer: this part does not clear it on
+acknowledge at all — "the MC68881 detects the exception acknowledge, [and] clears
+EXC PEND. However, the MC68882 does not clear the EXC PEND bit" — and what a
+handler clears it *with* is a write to the FPSR, which deriving honours by
+construction. The stated cost: enabling a trap in the FPCR *after* an exception
+was recorded arms it here, where a latch set at the moment of occurrence would
+not. §6.4.2 leans that way ("a programmer can make exceptions pending in the
+FPCP under software control") but it is a reading, recorded as one.
+
+Verified by three tests in `step_suite`, chosen so that each catches an error
+the other two would let through: the divide-by-zero traps on the *following*
+`FADD` and not on the divide, `FMOVEM` runs with the trap still pending, and a
+*disabled* exception sets its FPSR bit and traps nothing — the last being the
+case nearly every real program is in.
 
 **The condition codes themselves came back correct against Table 2-1**, all ten
 data types including the two that catch a careless implementation: `N` is the

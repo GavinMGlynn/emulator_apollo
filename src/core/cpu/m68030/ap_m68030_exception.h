@@ -48,7 +48,18 @@ typedef enum {
   AP_M68030_VECTOR_SPURIOUS_INTERRUPT = 24,
   AP_M68030_VECTOR_AUTOVECTOR_BASE = 24, /* level N autovector is base + N */
   AP_M68030_VECTOR_TRAP_BASE = 32,       /* TRAP #N is base + N, N = 0..15 */
+  /* Table 8-1, sheet 2, p. 8-3. Named individually rather than derived from the
+   * base, because the order is neither the FPSR exception byte's bit order nor
+   * the trap priority order of `[FPCP]` §6.1.9 -- three orderings over the same
+   * seven conditions, and `48 + anything` is wrong for all of them. */
   AP_M68030_VECTOR_FPCP_BASE = 48,
+  AP_M68030_VECTOR_FPCP_BSUN = 48,    /* branch or set on unordered condition */
+  AP_M68030_VECTOR_FPCP_INEXACT = 49, /* INEX1 and INEX2 share this one */
+  AP_M68030_VECTOR_FPCP_DZ = 50,
+  AP_M68030_VECTOR_FPCP_UNFL = 51,
+  AP_M68030_VECTOR_FPCP_OPERR = 52,
+  AP_M68030_VECTOR_FPCP_OVFL = 53,
+  AP_M68030_VECTOR_FPCP_SNAN = 54,
   AP_M68030_VECTOR_MMU_CONFIGURATION = 56,
   AP_M68030_VECTOR_USER_BASE = 64,
 } ap_m68030_vector_t;
@@ -155,6 +166,20 @@ ap_m68030_frame_for_vector(unsigned vector);
  * and a format error handler would return past the RTE it was meant to
  * diagnose. Both run; neither faults. */
 [[nodiscard]] bool ap_m68030_stacks_next_instruction(unsigned vector);
+
+/* Table 8-1's vector for an `AP_M68882_EXC_*` exception bit, or 0 for a bit
+ * that has no trap of its own.
+ *
+ * The mapping lives on this side because the vector table is the MPU's, and it
+ * is a written-out list because the numbering follows neither the FPSR bit
+ * order nor `[FPCP]` §6.1.9's priority order -- three orderings over the same
+ * seven conditions. `INEX1` and `INEX2` both give 49: §6.1.10, "INEX1 and
+ * INEX2 share one exception vector".
+ *
+ * Takes the bare bit rather than the FPU's registers so this header keeps no
+ * dependency on the coprocessor's types; `ap_m68882_trap_exception` decides
+ * *which* bit, and this decides where it goes. */
+[[nodiscard]] unsigned ap_m68030_fpu_trap_vector(unsigned exception_bit);
 
 /* Whether an interrupt request at `level` is recognised against a status
  * register interrupt mask of `mask`.

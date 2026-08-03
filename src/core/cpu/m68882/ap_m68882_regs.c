@@ -42,6 +42,31 @@ bool ap_m68882_exception_enabled(const ap_m68882_regs_t *regs,
          ((regs->fpsr >> exception_bit) & 1u) != 0u;
 }
 
+unsigned ap_m68882_trap_exception(const ap_m68882_regs_t *regs) {
+  /* §6.1.9's order, highest first, so the first match wins and the rest "do
+   * not cause a trap". Written out because it is not the bit order. */
+  static const unsigned by_priority[] = {
+      AP_M68882_EXC_BSUN, AP_M68882_EXC_SNAN, AP_M68882_EXC_OPERR,
+      AP_M68882_EXC_OVFL, AP_M68882_EXC_UNFL, AP_M68882_EXC_DZ,
+  };
+
+  for (unsigned i = 0; i < sizeof by_priority / sizeof by_priority[0]; i++) {
+    if (ap_m68882_exception_enabled(regs, by_priority[i])) {
+      return by_priority[i];
+    }
+  }
+
+  /* Lowest priority, and the one case that is not a plain bit test: an
+   * *overflow* can trap through `ENABLE(INEX2)`. It is only reached here when
+   * `OVFL` itself was not enabled -- had it been, the loop already returned it,
+   * which is what "only the highest priority exception trap is taken"
+   * requires. */
+  if (ap_m68882_inexact_trap(regs)) {
+    return AP_M68882_EXC_INEX2;
+  }
+  return 0u;
+}
+
 bool ap_m68882_inexact_trap(const ap_m68882_regs_t *regs) {
   const uint32_t exc = regs->fpsr;
   const uint32_t enable = regs->fpcr;

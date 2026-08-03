@@ -4900,6 +4900,129 @@ static void test_an_f_line_word_traps_when_no_coprocessor_is_fitted(void) {
   TEST_ASSERT_EQUAL_HEX32(HANDLER, m.cpu.regs.pc);
 }
 
+/* **An enabled floating-point exception traps, and not on the instruction that
+ * caused it.**
+ *
+ * `[FPCP]` §6.4.2, p. 6-33: when `EXC PEND` is true and "an attempt is made to
+ * initiate an FPCP instruction (other than an FMOVEM, FMOVE control register,
+ * FSAVE, or FRESTORE), the response CIR is encoded to the take pre-instruction
+ * exception primitive". The FPCP runs concurrently with the MPU, so the trap
+ * waits for the *next* floating-point instruction.
+ *
+ * `FDIV` of 1.0 by 0.0 with `DZ` enabled: the divide itself completes, and the
+ * `FADD` after it is the instruction that never runs. Two facts a wrong
+ * implementation gets wrong in opposite directions -- trapping on the divide
+ * (too eager) or never trapping (what this core did before). */
+static void test_an_enabled_floating_point_exception_traps_on_the_next_one(
+    void) {
+  /* FDIV.X FP0,FP1 ; FADD.X FP0,FP1 ; NOP */
+  static const uint16_t program[] = {0xF200u, 0x00A0u, 0xF200u, 0x00A2u,
+                                     0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 5);
+  plant_vector(&m, AP_M68030_VECTOR_FPCP_DZ, HANDLER);
+  m.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
+  m.cpu.regs.isp = SUPERVISOR_STACK;
+
+  ap_m68882_t fpu;
+  ap_m68882_reset(&fpu);
+  m.cpu.fpu = &fpu;
+  fpu.regs.fp[0] = ap_m68882_from_single(0x00000000u); /* 0.0, the divisor */
+  fpu.regs.fp[1] = ap_m68882_from_single(0x3F800000u); /* 1.0 */
+  /* Enable the divide-by-zero trap. */
+  fpu.regs.fpcr |= (uint32_t)1u << AP_M68882_EXC_DZ;
+
+  /* The divide runs. It does *not* trap, however enabled the exception is. */
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&m.cpu).status);
+  TEST_ASSERT_TRUE((fpu.regs.fpsr & ((uint32_t)1u << AP_M68882_EXC_DZ)) != 0u);
+  TEST_ASSERT_NOT_EQUAL_HEX32(HANDLER, m.cpu.regs.pc);
+
+  /* The `FADD` is where it lands, and the `FADD` does not execute. */
+  const ap_m68030_step_result_t trapped = ap_m68030_step(&m.cpu);
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXCEPTION, trapped.status);
+  TEST_ASSERT_EQUAL_HEX32(HANDLER, m.cpu.regs.pc);
+
+  /* A *pre-instruction* exception stacks the address of the instruction that
+   * was attempted, not the one after it -- so `RTE` re-attempts the `FADD`
+   * rather than skipping an instruction the machine never ran. */
+  const uint32_t stacked =
+      ((uint32_t)read_ram_word(&m, m.cpu.regs.isp + 2u) << 16) |
+      read_ram_word(&m, m.cpu.regs.isp + 4u);
+  TEST_ASSERT_EQUAL_HEX32(PROGRAM_BASE + 4u, stacked);
+
+  const uint16_t format_word = read_ram_word(&m, m.cpu.regs.isp + 6u);
+  TEST_ASSERT_EQUAL_HEX32(AP_M68030_VECTOR_FPCP_DZ * 4u,
+                          ap_m68030_frame_vector_offset_of(format_word));
+}
+
+/* **`FMOVEM` is exempt, which is what makes a handler able to run at all.**
+ *
+ * The same page's parenthesis -- "other than an FMOVEM, FMOVE control register,
+ * FSAVE, or FRESTORE" -- and §6.1.9's advice that "the trap handler should use
+ * only the FMOVEM instruction to read or write the floating-point data
+ * registers". If `FMOVEM` reported the pending trap, the first instruction of
+ * every handler would re-enter the handler.
+ *
+ * Checked with the trap left pending from a divide by zero: the `FMOVEM` runs
+ * to completion with the exception still set and still enabled. */
+static void test_fmovem_does_not_report_a_pending_floating_point_trap(void) {
+  /* FDIV.X FP0,FP1 ; FMOVEM.X FP0,-(A7) ; NOP */
+  static const uint16_t program[] = {0xF200u, 0x00A0u, 0xF227u, 0xE001u,
+                                     0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 5);
+  plant_vector(&m, AP_M68030_VECTOR_FPCP_DZ, HANDLER);
+  m.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
+  m.cpu.regs.isp = SUPERVISOR_STACK;
+  ap_m68030_write_a7(&m.cpu.regs, SUPERVISOR_STACK);
+
+  ap_m68882_t fpu;
+  ap_m68882_reset(&fpu);
+  m.cpu.fpu = &fpu;
+  fpu.regs.fp[0] = ap_m68882_from_single(0x00000000u);
+  fpu.regs.fp[1] = ap_m68882_from_single(0x3F800000u);
+  fpu.regs.fpcr |= (uint32_t)1u << AP_M68882_EXC_DZ;
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&m.cpu).status);
+  TEST_ASSERT_TRUE((fpu.regs.fpsr & ((uint32_t)1u << AP_M68882_EXC_DZ)) != 0u);
+
+  /* Exempt: it executes, with the trap still pending behind it. */
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&m.cpu).status);
+  TEST_ASSERT_NOT_EQUAL_HEX32(HANDLER, m.cpu.regs.pc);
+  TEST_ASSERT_TRUE((fpu.regs.fpsr & ((uint32_t)1u << AP_M68882_EXC_DZ)) != 0u);
+}
+
+/* **A disabled exception never traps**, which is the case every ordinary
+ * program is in: §6.1's results "if traps are enabled or disabled" differ in
+ * what is *delivered*, not in what the FPSR records. The bit is set either way,
+ * and only `ENABLE` decides whether the MPU hears about it.
+ *
+ * Without this the previous two tests would pass against an implementation that
+ * trapped on every exception, which would break every program that relies on
+ * IEEE default handling -- the overwhelming majority. */
+static void test_a_disabled_floating_point_exception_does_not_trap(void) {
+  static const uint16_t program[] = {0xF200u, 0x00A0u, 0xF200u, 0x00A2u,
+                                     0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 5);
+  plant_vector(&m, AP_M68030_VECTOR_FPCP_DZ, HANDLER);
+  m.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
+  m.cpu.regs.isp = SUPERVISOR_STACK;
+
+  ap_m68882_t fpu;
+  ap_m68882_reset(&fpu);
+  m.cpu.fpu = &fpu;
+  fpu.regs.fp[0] = ap_m68882_from_single(0x00000000u);
+  fpu.regs.fp[1] = ap_m68882_from_single(0x3F800000u);
+  /* FPCR left at reset: every trap disabled. */
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&m.cpu).status);
+  /* The exception is recorded even though it is not delivered. */
+  TEST_ASSERT_TRUE((fpu.regs.fpsr & ((uint32_t)1u << AP_M68882_EXC_DZ)) != 0u);
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&m.cpu).status);
+  TEST_ASSERT_NOT_EQUAL_HEX32(HANDLER, m.cpu.regs.pc);
+}
+
 /* With one fitted, the instruction executes. `FADD FP0,FP1` adds the source
  * register into the destination -- "FPn + Source -> FPn" -- and the condition
  * codes come from the result. */
@@ -6871,6 +6994,9 @@ static void test_a_stack_changing_module_call_carries_its_arguments(void) {
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_an_f_line_word_traps_when_no_coprocessor_is_fitted);
+  RUN_TEST(test_an_enabled_floating_point_exception_traps_on_the_next_one);
+  RUN_TEST(test_fmovem_does_not_report_a_pending_floating_point_trap);
+  RUN_TEST(test_a_disabled_floating_point_exception_does_not_trap);
   RUN_TEST(test_a_fitted_coprocessor_executes_an_f_line_instruction);
   RUN_TEST(test_a_fitted_coprocessor_ignores_another_cpid);
   RUN_TEST(test_an_undefined_extension_traps_with_a_coprocessor_fitted);
