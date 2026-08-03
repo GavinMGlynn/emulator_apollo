@@ -14,7 +14,15 @@ build/
 /media/
 
 # Vendored hardware manuals stay local: reference only, vendor copyright.
+#
+# `*.txt` is here for a reason that cost nothing only because it was noticed:
+# `pdftotext file.pdf` without a `-` for stdout writes `file.txt` *beside the
+# input*, so a mistyped extraction leaves a copyrighted manual's text in the
+# working tree. It is not the PDF, but it is the same document and this
+# repository is public. The rule that covered `.pdf` and `.txt.gz` did not
+# cover the one extension a slip actually produces.
 docs/references/**/*.pdf
+docs/references/**/*.txt
 docs/references/**/*.txt.gz
 
 # Oracle scratch

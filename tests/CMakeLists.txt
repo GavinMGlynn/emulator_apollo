@@ -173,14 +173,14 @@ if(Python3_Interpreter_FOUND AND NOT WIN32)
            COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/mame-oracle/test_encoder.py)
   set_tests_properties(probe_encoder PROPERTIES LABELS tools)
 
-  # The test counts PROJECT_STATUS.md's subsystem table claims, against the
-  # suites that are supposed to back them. Twenty-three of them had drifted,
-  # `step_suite` reading 175 against 270, because nothing checked a number once
-  # it was written. Reads the sources rather than the binaries, so it needs no
-  # build and runs in a second.
-  add_test(NAME doc_test_counts
-           COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/check_doc_counts.py)
-  set_tests_properties(doc_test_counts PROPERTIES LABELS tools)
+  # What the living documents claim about the tree, against the tree: the
+  # subsystem table's test counts, and every source path and `ap_*` symbol they
+  # name. Twenty-three counts had drifted, `step_suite` reading 175 against 270,
+  # because nothing checked a number once it was written. Reads the sources
+  # rather than the binaries, so it needs no build and runs in a second.
+  add_test(NAME doc_claims
+           COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/check_docs.py)
+  set_tests_properties(doc_claims PROPERTIES LABELS tools)
 
   # The interactive session driver's logic, against a stub MAME. Same split as
   # oracle_driver above and the same platform scope: it drives stub executables

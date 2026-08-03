@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check the test counts `PROJECT_STATUS.md` claims against the suites.
+"""Check what the living documents claim about the tree, against the tree.
 
 The subsystem table's Verification column names its evidence as, for example,
 "`step_suite`, 175 tests". That is a *claim about the tree*, and until this
@@ -27,7 +27,21 @@ The cost is that a test *defined* but never registered is invisible to both this
 and the suite itself, which is a different defect and one `-Wunused-function`
 already catches.
 
-    python3 tools/check_doc_counts.py
+## Three claims, all mechanical
+
+Test counts, cited source paths, and cited `ap_*` symbols. All three are claims
+a reader takes on trust and none was checked until the counts turned out to be
+twenty-three-for-ninety wrong.
+
+Paths and symbols were clean when this was written -- 78 and 97 of them -- which
+is worth having a check for anyway: they are clean *now*, and the counts were
+clean once too.
+
+A path named only by an unticked plan item is allowed not to exist. Those items
+are frequently "write this document", and requiring the artefact before the work
+would make the plan unable to describe its own future.
+
+    python3 tools/check_docs.py
 """
 
 from __future__ import annotations
@@ -38,6 +52,7 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
 STATUS = REPO / "docs" / "PROJECT_STATUS.md"
+PLAN = REPO / "docs" / "COMPLETION_PLAN.md"
 TESTS = REPO / "tests"
 
 # "`name_suite`, N tests" or "`name_suite`, N test" inside a table row. Only
@@ -51,6 +66,42 @@ def registered(suite: str) -> int | None:
     if not source.is_file():
         return None
     return len(re.findall(r"\bRUN_TEST\(", source.read_text()))
+
+
+PATH = re.compile(r"`((?:src|tools|tests|docs)/[A-Za-z0-9_./-]+)`")
+SYMBOL = re.compile(r"`(ap_[a-z0-9_]+)`")
+
+
+def tree_symbols() -> set[str]:
+    found: set[str] = set()
+    for root in ("src", "tests", "tools"):
+        for path in (REPO / root).rglob("*"):
+            if path.suffix not in (".c", ".h", ".py"):
+                continue
+            found.update(re.findall(r"\bap_[a-z0-9_]+\b", path.read_text()))
+    return found
+
+
+def check_references(problems: list[str]) -> int:
+    """Paths and symbols the documents name, against what exists."""
+    symbols = tree_symbols()
+    checked = 0
+    for document in (STATUS, PLAN):
+        if not document.is_file():
+            continue
+        for line in document.read_text().splitlines():
+            # An unticked item may name an artefact it exists to create.
+            planned = line.lstrip().startswith("- [ ]")
+            for cited in PATH.findall(line):
+                checked += 1
+                if not (REPO / cited).exists() and not planned:
+                    problems.append(f"{document.name}: names {cited}, which does not exist")
+            for symbol in SYMBOL.findall(line):
+                checked += 1
+                if symbol not in symbols:
+                    problems.append(
+                        f"{document.name}: names `{symbol}`, which is nowhere in the tree")
+    return checked
 
 
 def main() -> int:
@@ -73,13 +124,14 @@ def main() -> int:
                 problems.append(
                     f"{suite}: the table says {claimed}, the suite registers {actual}")
 
+    checked += check_references(problems)
+
     for problem in sorted(set(problems)):
         print(problem)
     if problems:
-        print(f"\n{len(set(problems))} stale count(s) in PROJECT_STATUS.md's "
-              f"subsystem table")
+        print(f"\n{len(set(problems))} stale claim(s) in the living documents")
         return 1
-    print(f"{checked} test-count claims in PROJECT_STATUS.md all match")
+    print(f"{checked} claims in the living documents all check out")
     return 0
 
 

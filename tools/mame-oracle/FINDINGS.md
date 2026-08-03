@@ -5996,3 +5996,46 @@ the code by two commits and had been copied into this very document.
 Counts are the cheapest instance of that failure and the easiest to automate
 away. The rest still need someone to go and look -- which is the argument for
 `--program all`, for the 65536-opcode sweep, and now for this.
+
+## C105 -- the rest of the documents' claims, and a manual left in the tree
+
+**Class: verification tooling, plus a repository-hygiene defect I created.**
+
+C104 automated one of the three things the living documents assert about the
+tree. This does the other two and settles them: **78 source paths and 97 `ap_*`
+symbols**, all of which checked out. Worth a check anyway -- they are clean
+*now*, and the counts were clean once too.
+
+`tools/check_docs.py` (renamed from `check_doc_counts.py`, since the old name
+had stopped describing it) verifies all three and is the `doc_claims` CTest
+entry. **All three were proved to fail before being trusted**: a count changed
+to 999, a path changed to one that does not exist, and a symbol changed to one
+that is nowhere in the tree -- caught, named, and the document restored each
+time. A checker that has only ever passed is not evidence of anything.
+
+One allowance: a path named solely by an *unticked* plan item may not exist.
+Those items are often "write this document", and requiring the artefact first
+would stop the plan describing its own future. `docs/references/TEST_SHELF.md`
+is the live example.
+
+### A copyrighted manual was sitting in the working tree, and I put it there
+
+`git status` showed `docs/references/motorola/` untracked. Inside was a
+plain-text extraction of the M68000 Programmer's Reference Manual -- **created
+by me**, earlier in this same campaign, by a `pdftotext` invocation that omitted
+the `-` for stdout. Without it the tool writes `file.txt` *beside the input*
+rather than to the pipe. The command appeared to produce no output, I added the
+`-` and moved on, and the file stayed.
+
+`.gitignore` covered `docs/references/**/*.pdf` and `**/*.txt.gz` and **not
+`*.txt`** -- so the one extension a slip actually produces was the one not
+covered. This repository is public and the manuals are vendor copyright; only
+nobody having run `git add -A` stood between that file and a redistribution.
+
+Deleted, and the rule extended. The fix was then verified the way the checker
+was: the slip was **reproduced** -- the same malformed `pdftotext` re-run, the
+same file created -- and `git status` confirmed it is now ignored.
+
+`CLAUDE.md` says temporary instrumentation is always reverted before commit.
+This was not instrumentation, which is exactly why it survived a dozen commits:
+it was a by-product nobody was looking for, in a directory nobody stages.
