@@ -1632,6 +1632,267 @@ static bool execute_bit(ap_m68030_cpu_t *cpu, const ap_m68030_immediate_t *imm,
 
 /* Shifts and rotates. The register form shifts a data register by a count; the
  * memory form shifts one word in memory by exactly one. */
+/* The eight bit field instructions, `[PRM]` pp. 4-33 to 4-51.
+ *
+ * ## Where the field is, in memory
+ *
+ * §1.7.2 defines it in three sentences: "A base address that selects one byte in
+ * memory"; "a bit field offset that shows the leftmost (base) bit of the bit
+ * field in relation to the MSB of the base byte"; "a bit field width that
+ * determines how many bits to the right of the base bit are in the bit field".
+ * Then the one that decides the arithmetic: "The MSB of the base byte is bit
+ * field offset 0; the LSB of the base byte is bit field offset 7; and **the LSB
+ * of the previous byte in memory is bit field offset -1**."
+ *
+ * So the offset indexes a big-endian bit stream from the MSB of the base byte,
+ * and a register-supplied offset is *signed* over the whole 32-bit range -- it
+ * reaches backwards, before the effective address. A field of up to 32 bits at
+ * an arbitrary bit offset therefore spans **five** bytes.
+ *
+ * ## A data register is a different space, and it wraps
+ *
+ * §1.7.1: "For bit fields, the address of the MSB is zero ... If the width of
+ * the register plus the offset is greater than 32, **the bit field wraps around
+ * within the register**." So offset 0 is bit 31, the offset is modulo 32, and a
+ * field running off the bottom continues at the top. Memory does not wrap and a
+ * register does; modelling both the same way is wrong in one of them, whichever
+ * way it is chosen.
+ */
+typedef struct {
+  int32_t offset;
+  unsigned width; /* 1..32 */
+  unsigned reg;   /* the extension word's register field */
+  bool to_register;
+} bitfield_spec_t;
+
+/* Read the field's bits, most significant first, as the low `width` bits of the
+ * returned value. */
+static bool bitfield_read(ap_m68030_cpu_t *cpu, const ap_m68030_shift_t *shift,
+                          const bitfield_spec_t *spec, uint32_t base_address,
+                          uint32_t *out, uint32_t *clocks) {
+  if (spec->to_register) {
+    const uint32_t value = cpu->regs.d[shift->ea.reg];
+    uint32_t field = 0;
+    for (unsigned i = 0; i < spec->width; i++) {
+      /* Offset 0 is bit 31, and the walk wraps at 32. */
+      const unsigned bit = (unsigned)(((uint32_t)spec->offset + i) & 31u);
+      field = (field << 1) | ((value >> (31u - bit)) & 1u);
+    }
+    *out = field;
+    return true;
+  }
+
+  uint32_t field = 0;
+  for (unsigned i = 0; i < spec->width; i++) {
+    const int64_t bit = (int64_t)spec->offset + (int64_t)i;
+    /* Flooring division, because the offset may be negative: bit -1 is the LSB
+     * of the byte *before* the base, so -1/8 must be -1 and not 0. */
+    const int64_t byte = (bit >= 0) ? (bit / 8) : -((-bit + 7) / 8);
+    const unsigned within = (unsigned)(bit - byte * 8);
+    const ap_m68030_address_t where = {
+        .address = (uint32_t)((int64_t)base_address + byte), .valid = true};
+    const ap_m68030_operand_result_t read = step_operand_read(
+        cpu, &cpu->regs, cpu->data, &where, 1u, cpu->data_function_code);
+    *clocks += read.clocks;
+    if (!read.ok) {
+      return false;
+    }
+    field = (field << 1) | ((read.value >> (7u - within)) & 1u);
+  }
+  *out = field;
+  return true;
+}
+
+static bool bitfield_write(ap_m68030_cpu_t *cpu, const ap_m68030_shift_t *shift,
+                           const bitfield_spec_t *spec, uint32_t base_address,
+                           uint32_t field, uint32_t *clocks) {
+  if (spec->to_register) {
+    uint32_t value = cpu->regs.d[shift->ea.reg];
+    for (unsigned i = 0; i < spec->width; i++) {
+      const unsigned bit = (unsigned)(((uint32_t)spec->offset + i) & 31u);
+      const uint32_t mask = UINT32_C(1) << (31u - bit);
+      const uint32_t one = (field >> (spec->width - 1u - i)) & 1u;
+      value = one ? (value | mask) : (value & ~mask);
+    }
+    cpu->regs.d[shift->ea.reg] = value;
+    return true;
+  }
+
+  for (unsigned i = 0; i < spec->width; i++) {
+    const int64_t bit = (int64_t)spec->offset + (int64_t)i;
+    const int64_t byte = (bit >= 0) ? (bit / 8) : -((-bit + 7) / 8);
+    const unsigned within = (unsigned)(bit - byte * 8);
+    const ap_m68030_address_t where = {
+        .address = (uint32_t)((int64_t)base_address + byte), .valid = true};
+    const ap_m68030_operand_result_t read = step_operand_read(
+        cpu, &cpu->regs, cpu->data, &where, 1u, cpu->data_function_code);
+    *clocks += read.clocks;
+    if (!read.ok) {
+      return false;
+    }
+    const uint32_t mask = UINT32_C(1) << (7u - within);
+    const uint32_t one = (field >> (spec->width - 1u - i)) & 1u;
+    const uint32_t updated = one ? (read.value | mask) : (read.value & ~mask);
+    const ap_m68030_operand_result_t written =
+        step_operand_write(cpu, &cpu->regs, cpu->data, &where, 1u, updated,
+                           cpu->data_function_code);
+    *clocks += written.clocks;
+    if (!written.ok) {
+      return false;
+    }
+  }
+  return true;
+}
+
+static bool execute_bitfield(ap_m68030_cpu_t *cpu,
+                             const ap_m68030_shift_t *shift, uint32_t *clocks) {
+  uint16_t extension = 0;
+  if (!next_word(cpu, clocks, &extension)) {
+    return false;
+  }
+
+  const bool writes = shift->bitfield == AP_M68030_BF_CHG ||
+                      shift->bitfield == AP_M68030_BF_CLR ||
+                      shift->bitfield == AP_M68030_BF_SET ||
+                      shift->bitfield == AP_M68030_BF_INS;
+
+  /* "Only data register direct or control addressing modes can be used", and
+   * control *alterable* for the four that write. A data register is legal in
+   * both cases and is not a control mode, so it is named beside the category
+   * rather than folded into it. */
+  const bool register_direct = shift->ea.kind == AP_M68030_EA_DATA_REGISTER;
+  const bool allowed =
+      register_direct || (writes ? ap_m68030_ea_is_control_alterable(shift->ea.kind)
+                                 : ap_m68030_ea_is_control(shift->ea.kind));
+  if (!allow_ea(cpu, allowed)) {
+    return false;
+  }
+
+  bitfield_spec_t spec = {0};
+  spec.reg = (unsigned)((extension >> 12) & 7u);
+
+  /* "If Do = 0, the offset field is an immediate operand ... 0 - 31. If Do = 1,
+   * the offset field specifies a data register that contains the offset. The
+   * value is in the range of -2^31 to 2^31 - 1." */
+  if ((extension & (1u << 11)) != 0u) {
+    spec.offset = (int32_t)cpu->regs.d[(extension >> 6) & 7u];
+  } else {
+    spec.offset = (int32_t)((extension >> 6) & 31u);
+  }
+
+  /* "operand values in the range of 1 - 31 specify a field width of 1 - 31, and
+   * a value of zero specifies a width of 32", and a register width "is modulo
+   * 32" before that same rule applies. */
+  unsigned width = (extension & (1u << 5)) != 0u
+                       ? (unsigned)(cpu->regs.d[extension & 7u] & 31u)
+                       : (unsigned)(extension & 31u);
+  spec.width = (width == 0u) ? 32u : width;
+  spec.to_register = register_direct;
+
+  if (spec.to_register) {
+    /* Only within a register is the offset reduced: memory has no wrap. */
+    spec.offset = (int32_t)((uint32_t)spec.offset & 31u);
+  }
+
+  uint32_t base_address = 0;
+  if (!spec.to_register) {
+    ap_m68030_address_input_t input = {0};
+    if (!gather_address_input(cpu, shift->ea.kind, 1u, clocks, &input)) {
+      return false;
+    }
+    const ap_m68030_address_t where =
+        resolve_address(cpu, clocks, shift->ea, &input);
+    if (!where.valid) {
+      return false;
+    }
+    base_address = where.address;
+  }
+
+  uint32_t field = 0;
+  if (!bitfield_read(cpu, shift, &spec, base_address, &field, clocks)) {
+    return false;
+  }
+
+  /* "N - Set if the most significant bit of the field is set", "Z - Set if all
+   * bits of the field are zero", V and C always cleared, X not affected. The
+   * flags come from the field as *found*, before any modification -- these are
+   * "test bit field and ..." instructions. */
+  uint16_t ccr = ap_m68030_read_ccr(&cpu->regs);
+  ccr &= (uint16_t)~((1u << AP_M68030_SR_N_BIT) | (1u << AP_M68030_SR_Z_BIT) |
+                     (1u << AP_M68030_SR_V_BIT) | (1u << AP_M68030_SR_C_BIT));
+  if ((field >> (spec.width - 1u)) & 1u) {
+    ccr |= (uint16_t)(1u << AP_M68030_SR_N_BIT);
+  }
+  if (field == 0u) {
+    ccr |= (uint16_t)(1u << AP_M68030_SR_Z_BIT);
+  }
+  ap_m68030_write_ccr(&cpu->regs, ccr);
+
+  switch (shift->bitfield) {
+  case AP_M68030_BF_TST:
+    return true;
+
+  case AP_M68030_BF_EXTU:
+    cpu->regs.d[spec.reg] = field;
+    return true;
+
+  case AP_M68030_BF_EXTS: {
+    /* Sign-extended from the field's own width, which is why a 32-bit field is
+     * a separate case: shifting by 32 is undefined. */
+    if (spec.width == 32u) {
+      cpu->regs.d[spec.reg] = field;
+    } else {
+      const uint32_t sign = UINT32_C(1) << (spec.width - 1u);
+      cpu->regs.d[spec.reg] =
+          (field ^ sign) - sign; /* branchless sign extension */
+    }
+    return true;
+  }
+
+  case AP_M68030_BF_FFO: {
+    /* "The bit offset of that bit (the bit offset in the instruction plus the
+     * offset of the first one bit) is placed in Dn. If no bit in the bit field
+     * is set to one, the value in Dn is the field offset plus the field
+     * width." */
+    unsigned found = spec.width;
+    for (unsigned i = 0; i < spec.width; i++) {
+      if ((field >> (spec.width - 1u - i)) & 1u) {
+        found = i;
+        break;
+      }
+    }
+    cpu->regs.d[spec.reg] = (uint32_t)(spec.offset + (int32_t)found);
+    return true;
+  }
+
+  case AP_M68030_BF_CHG:
+    return bitfield_write(cpu, shift, &spec, base_address,
+                          ~field & (spec.width == 32u
+                                        ? UINT32_C(0xFFFFFFFF)
+                                        : ((UINT32_C(1) << spec.width) - 1u)),
+                          clocks);
+
+  case AP_M68030_BF_CLR:
+    return bitfield_write(cpu, shift, &spec, base_address, 0u, clocks);
+
+  case AP_M68030_BF_SET:
+    return bitfield_write(cpu, shift, &spec, base_address,
+                          spec.width == 32u
+                              ? UINT32_C(0xFFFFFFFF)
+                              : ((UINT32_C(1) << spec.width) - 1u),
+                          clocks);
+
+  case AP_M68030_BF_INS:
+    /* The source is the *low* `width` bits of Dn, and the condition codes have
+     * already been set from the field this overwrites -- which is what the
+     * other seven do too, and is why the flags are computed before the switch.
+     */
+    return bitfield_write(cpu, shift, &spec, base_address,
+                          cpu->regs.d[spec.reg], clocks);
+  }
+  return false;
+}
+
 static bool execute_shift(ap_m68030_cpu_t *cpu, const ap_m68030_shift_t *shift,
                           uint32_t *clocks) {
   const uint16_t ccr = ap_m68030_read_ccr(&cpu->regs);
@@ -1697,6 +1958,7 @@ static bool execute_shift(ap_m68030_cpu_t *cpu, const ap_m68030_shift_t *shift,
   }
 
   case AP_M68030_SHIFT_BITFIELD:
+    return execute_bitfield(cpu, shift, clocks);
   case AP_M68030_SHIFT_INVALID:
     return false;
   }

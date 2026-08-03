@@ -4473,6 +4473,46 @@ mean they were written with zero.
 **1204 words remain `UNIMPLEMENTED`**, from 2621 before C95. The bit-field group
 — 488 words in family E — is now the largest single remainder by some margin.
 
+**The eight bit field instructions execute**, which was the largest single
+block of unimplemented opcodes left — 488 words, all of family E's remainder.
+
+A bit field is a span in a **big-endian bit stream**, not a mask applied to a
+word, and three consequences follow that a word-shaped implementation gets
+wrong. §1.7.2: "The MSB of the base byte is bit field offset 0; the LSB of the
+base byte is bit field offset 7; and the LSB of the previous byte in memory is
+bit field offset –1."
+
+- **A 32-bit field at a non-zero offset spans five bytes.** Reading a long word
+  and shifting produces the right answer for every field that fits in four and
+  the wrong one here.
+- **A register-supplied offset is signed** over the full 32-bit range, so the
+  effective address is not a lower bound. The byte arithmetic has to *floor*:
+  −8/8 is −1 and so is −1/8, where C's truncation gives 0 and puts the field one
+  byte too high for every negative offset that is not a multiple of eight.
+- **In a data register the field wraps and memory does not.** §1.7.1: "the
+  address of the MSB is zero … If the width of the register plus the offset is
+  greater than 32, the bit field wraps around within the register." One model
+  cannot serve both spaces; choosing either for both is wrong in the other.
+
+The condition codes come from the field *as found*, before any modification —
+these are "test bit field and …" instructions, and `BFINS` sets them from the
+field it is about to overwrite. `BFEXTS` sign-extends from the field's own width
+rather than a byte, and `BFFFO` returns "the bit offset in the instruction plus
+the offset of the first one bit", a position in the field's space rather than a
+bit number.
+
+Verified by four `step_suite` tests whose expectations were computed by hand
+from the byte pattern `12 34 56 78 9A`: the five-byte read, the negative offset
+reaching the previous byte, the register wrap (`$12345678{28:8}` is `$81`, where
+clamping instead of wrapping gives `$80`), and the four writing forms — which
+produce four *different* results over the same field, so a write that hit the
+wrong bits could not pass more than one of them.
+
+**716 words remain `UNIMPLEMENTED`**, from 2621 before C95. What is left is the
+coprocessor and MMU corners of family F, and `CAS`/`CAS2`, which decline for a
+stated reason rather than for want of work: their read and write are
+indivisible, and honouring that means the bus asserting `RMC`.
+
 **And the machine now uses that sequence, which for a long time it did
     not.** `ap_m68030_take_reset` had no caller anywhere in `src`;
     `ap_machine_reset` ran a shorter sequence of its own -- supervisor,

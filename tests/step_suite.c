@@ -228,6 +228,13 @@ static uint32_t read_ram_long(const machine_t *m, uint32_t address) {
   return value;
 }
 
+static void write_ram_word(machine_t *m, uint32_t address, uint16_t value) {
+  TEST_ASSERT_TRUE_MESSAGE(address + 2u <= RAM_BYTES,
+                           "address outside the harness RAM");
+  m->memory.bytes[address] = (uint8_t)(value >> 8);
+  m->memory.bytes[address + 1u] = (uint8_t)value;
+}
+
 static void write_ram_byte(machine_t *m, uint32_t address, uint8_t value) {
   TEST_ASSERT_TRUE_MESSAGE(address < RAM_BYTES,
                            "address outside the harness RAM");
@@ -3760,6 +3767,169 @@ static void test_tst_reaches_every_mode_but_refuses_a_byte_address_register(
   TEST_ASSERT_EQUAL_HEX32(HANDLER, m.cpu.regs.pc);
 }
 
+/* ---------------------------------------------------------------------------
+ * The bit field instructions.
+ * ------------------------------------------------------------------------- */
+
+/* Lay down `12 34 56 78 9A` so a field can be read at any offset and checked by
+ * hand against the bit stream those five bytes make. */
+static void load_bitfield_bytes(machine_t *m, uint32_t at) {
+  static const uint8_t data[5] = {0x12u, 0x34u, 0x56u, 0x78u, 0x9Au};
+  for (unsigned i = 0; i < 5u; i++) {
+    write_ram_byte(m, at + i, data[i]);
+  }
+}
+
+/* The extension word: bit 15 clear, register at 14-12, `Do` at 11, offset at
+ * 10-6, `Dw` at 5, width at 4-0. */
+static uint16_t bitfield_extension(unsigned reg, unsigned dynamic_offset,
+                                   unsigned offset, unsigned dynamic_width,
+                                   unsigned width) {
+  return (uint16_t)((reg << 12) | (dynamic_offset << 11) |
+                    ((offset & 31u) << 6) | (dynamic_width << 5) |
+                    (width & 31u));
+}
+
+/* **A bit field is located in a big-endian bit stream, not in a word.**
+ *
+ * `[PRM]` §1.7.2: "The MSB of the base byte is bit field offset 0; the LSB of
+ * the base byte is bit field offset 7; and the LSB of the previous byte in
+ * memory is bit field offset –1." So the offset counts rightwards from the top
+ * of the base byte, a field can straddle any number of bytes, and a 32-bit
+ * field at a non-zero offset touches **five** of them.
+ *
+ * The five-byte case is the one worth having: a model that read a long word and
+ * shifted would produce the right answer for every field that fits inside four
+ * bytes and the wrong one here. */
+static void test_a_bit_field_reads_across_five_bytes(void) {
+  /* BFEXTU (A0){4:32},D1 -- width 0 encodes 32. */
+  static const uint16_t program[] = {0xE9D0u, 0x0000u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 3);
+  write_ram_word(&m, PROGRAM_BASE + 2u, bitfield_extension(1, 0, 4, 0, 0));
+  load_bitfield_bytes(&m, 0x00005000u);
+  m.cpu.regs.a[0] = 0x00005000u;
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&m.cpu).status);
+  TEST_ASSERT_EQUAL_HEX32(0x23456789u, m.cpu.regs.d[1]);
+}
+
+/* **A register-supplied offset is signed, and reaches backwards.** "If Do = 1,
+ * the offset field specifies a data register that contains the offset. The
+ * value is in the range of –2^31 to 2^31 – 1", and §1.7.2 makes offset –1 the
+ * LSB of the *previous* byte.
+ *
+ * So the base address is not a lower bound, and the byte arithmetic must floor
+ * rather than truncate: –8/8 is –1, but –1/8 must also be –1 and C would give
+ * 0. Truncating puts the field one byte too high for every negative offset that
+ * is not a multiple of eight. */
+static void test_a_negative_bit_field_offset_reaches_the_previous_byte(void) {
+  /* BFEXTU (A0){D2:8},D1 with A0 one byte past the data and D2 = -8. */
+  static const uint16_t program[] = {0xE9D0u, 0x0000u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 3);
+  write_ram_word(&m, PROGRAM_BASE + 2u, bitfield_extension(1, 1, 2, 0, 8));
+  load_bitfield_bytes(&m, 0x00005000u);
+  m.cpu.regs.a[0] = 0x00005001u;
+  m.cpu.regs.d[2] = (uint32_t)-8;
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&m.cpu).status);
+  TEST_ASSERT_EQUAL_HEX32(0x12u, m.cpu.regs.d[1]);
+}
+
+/* **In a data register the field wraps, and offset 0 is bit 31.**
+ *
+ * §1.7.1: "For bit fields, the address of the MSB is zero ... If the width of
+ * the register plus the offset is greater than 32, the bit field wraps around
+ * within the register." Memory does not wrap; a register does. One model cannot
+ * serve both, and picking either one for both is wrong in the other.
+ *
+ * `D0 = $12345678` at offset 28 width 8 takes the register's low nibble (`8`)
+ * and then, wrapping, its high nibble (`1`) — `1000` then `0001`, which is
+ * `$81`. Any implementation that clamped instead of wrapping returns `$80`. */
+static void test_a_data_register_bit_field_wraps_around(void) {
+  /* BFEXTU D0{28:8},D1 */
+  static const uint16_t program[] = {0xE9C0u, 0x0000u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 3);
+  write_ram_word(&m, PROGRAM_BASE + 2u, bitfield_extension(1, 0, 28, 0, 8));
+  m.cpu.regs.d[0] = 0x12345678u;
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&m.cpu).status);
+  TEST_ASSERT_EQUAL_HEX32(0x81u, m.cpu.regs.d[1]);
+}
+
+/* **The four that write touch only the field**, and `BFFFO` and `BFEXTS` carry
+ * their own arithmetic.
+ *
+ * Each case is checked against the bit stream by hand: `$1234` is
+ * `0001 0010 0011 0100`, and a field at offset 4 width 8 is the middle eight
+ * bits. Setting them gives `$1FF4`, clearing them `$1004`, inverting them
+ * `$1DC4`, and inserting `$A5` gives `$1A54` — four different answers over the
+ * same field, so a write that hit the wrong bits could not pass more than one.
+ *
+ * `BFEXTS` sign-extends from the *field's* width rather than from a byte, and
+ * `BFFFO` returns "the bit offset in the instruction plus the offset of the
+ * first one bit" — a position in the field's own space, not a bit number. */
+static void test_the_bit_field_operations_each_touch_only_their_field(void) {
+  const struct {
+    uint16_t opcode;
+    unsigned reg;
+    uint32_t source;
+    uint16_t expected;
+    const char *what;
+  } cases[] = {
+      {0xEED0u, 0u, 0u, 0x1FF4u, "BFSET"},
+      {0xECD0u, 0u, 0u, 0x1004u, "BFCLR"},
+      {0xEAD0u, 0u, 0u, 0x1DC4u, "BFCHG"},
+      {0xEFD0u, 1u, 0xA5u, 0x1A54u, "BFINS $A5"},
+  };
+
+  for (unsigned i = 0; i < sizeof cases / sizeof cases[0]; i++) {
+    static const uint16_t program[] = {0x4E71u, 0x0000u, 0x4E71u};
+    machine_t m = {0};
+    load(&m, program, 3);
+    write_ram_word(&m, PROGRAM_BASE, cases[i].opcode);
+    write_ram_word(&m, PROGRAM_BASE + 2u,
+                   bitfield_extension(cases[i].reg, 0, 4, 0, 8));
+    load_bitfield_bytes(&m, 0x00005000u);
+    m.cpu.regs.a[0] = 0x00005000u;
+    m.cpu.regs.d[cases[i].reg] = cases[i].source;
+
+    TEST_ASSERT_EQUAL_INT_MESSAGE(AP_M68030_STEP_EXECUTED,
+                                  ap_m68030_step(&m.cpu).status, cases[i].what);
+    TEST_ASSERT_EQUAL_HEX16_MESSAGE(cases[i].expected,
+                                    read_ram_word(&m, 0x00005000u),
+                                    cases[i].what);
+  }
+
+  /* BFEXTS of $9A: the field's own MSB is set, so it sign-extends. */
+  {
+    static const uint16_t program[] = {0xEBD0u, 0x0000u, 0x4E71u};
+    machine_t m = {0};
+    load(&m, program, 3);
+    write_ram_word(&m, PROGRAM_BASE + 2u, bitfield_extension(1, 0, 0, 0, 8));
+    load_bitfield_bytes(&m, 0x00005000u);
+    m.cpu.regs.a[0] = 0x00005004u; /* the $9A */
+    TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED,
+                          ap_m68030_step(&m.cpu).status);
+    TEST_ASSERT_EQUAL_HEX32(0xFFFFFF9Au, m.cpu.regs.d[1]);
+  }
+
+  /* BFFFO over $12 = 0001 0010: the first one is three bits in. */
+  {
+    static const uint16_t program[] = {0xEDD0u, 0x0000u, 0x4E71u};
+    machine_t m = {0};
+    load(&m, program, 3);
+    write_ram_word(&m, PROGRAM_BASE + 2u, bitfield_extension(1, 0, 0, 0, 8));
+    load_bitfield_bytes(&m, 0x00005000u);
+    m.cpu.regs.a[0] = 0x00005000u;
+    TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED,
+                          ap_m68030_step(&m.cpu).status);
+    TEST_ASSERT_EQUAL_HEX32(3u, m.cpu.regs.d[1]);
+  }
+}
+
 /* **`MOVEP` moves alternate bytes, high-order first.** `[PRM]` p. 4-131:
  * "Moves data between a data register and alternate bytes within the address
  * space starting at the location specified and incrementing by two. The
@@ -4661,13 +4831,6 @@ static void test_ori_to_the_status_register_is_privileged(void) {
 
 /* The bounds pair, well clear of the program image. */
 #define BOUNDS_AT 0x00003000u
-
-static void write_ram_word(machine_t *m, uint32_t address, uint16_t value) {
-  TEST_ASSERT_TRUE_MESSAGE(address + 2u <= RAM_BYTES,
-                           "address outside the harness RAM");
-  m->memory.bytes[address] = (uint8_t)(value >> 8);
-  m->memory.bytes[address + 1u] = (uint8_t)value;
-}
 
 /* The pair in memory, the register between them, and Z set only on a bound.
  * `CMP2.W (A0),D1` with bounds 10..20.
@@ -7450,6 +7613,10 @@ int main(void) {
   RUN_TEST(test_an_interrupt_wakes_a_stopped_processor);
   RUN_TEST(test_an_interrupt_returns_to_the_instruction_it_preempted);
   RUN_TEST(test_tst_reaches_every_mode_but_refuses_a_byte_address_register);
+  RUN_TEST(test_a_bit_field_reads_across_five_bytes);
+  RUN_TEST(test_a_negative_bit_field_offset_reaches_the_previous_byte);
+  RUN_TEST(test_a_data_register_bit_field_wraps_around);
+  RUN_TEST(test_the_bit_field_operations_each_touch_only_their_field);
   RUN_TEST(test_movep_writes_alternate_bytes_high_order_first);
   RUN_TEST(test_movep_word_preserves_the_upper_half_and_the_flags);
   RUN_TEST(test_addq_reaches_an_address_register_but_not_at_byte_size);

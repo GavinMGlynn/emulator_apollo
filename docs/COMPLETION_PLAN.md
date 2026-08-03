@@ -997,9 +997,14 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         dynamic form is the one bit operation whose operand can be an immediate,
         so it is handled before the address path — there is no address to
         gather. `step_suite` +3, 264 words. Detail in `PROJECT_STATUS.md`.
-  - [ ] The bit-field instructions (`BFTST`, `BFEXTU`, `BFCHG`, …) are the
-        largest single block still unimplemented — 488 words in family E, and
-        the largest named remainder of the 1468.
+  - [x] **The eight bit field instructions** — `BFTST`, `BFEXTU`, `BFCHG`,
+        `BFEXTS`, `BFCLR`, `BFFFO`, `BFSET`, `BFINS`, 488 words. The field is a
+        span in a big-endian bit stream, not a mask on a word: a 32-bit field at
+        a non-zero offset crosses **five** bytes, a register-supplied offset is
+        signed and reaches back before the base address, and in a data register
+        the field **wraps** where in memory it does not. `step_suite` +4, each
+        case computed by hand from the bit stream. Detail in
+        `PROJECT_STATUS.md`.
   - [x] The **machine** resets through §8.1.1's sequence rather than a shorter
         one of its own, which had dropped the VBR, the CACR and the translation
         enables and added an ATC flush reset never performs. Invisible on a cold

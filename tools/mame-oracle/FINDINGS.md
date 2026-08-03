@@ -5656,3 +5656,65 @@ whole point of a test about *alternate* bytes.
 **1204 words remain `UNIMPLEMENTED`**, from 2621 before C95. The bit-field group
 -- `BFTST`, `BFEXTU`, `BFCHG` and the rest, 488 words in family E -- is now the
 largest single remainder by a wide margin, and is the one open item left.
+
+## C99 -- the eight bit field instructions
+
+**Class: missing instructions, implemented. The last block the sweep named.**
+
+488 words, all of family E's remainder and the largest single block of
+unimplemented opcodes left. The decoder had recognised them for a long time --
+`ap_m68030_shift_decode` produces `AP_M68030_SHIFT_BITFIELD` with the operation
+in bits 11-8 -- and the executor returned `false`. Decode without semantics is
+the shape that reports UNIMPLEMENTED honestly, which is why this was visible as
+a number rather than as a mystery.
+
+### A field is a span in a bit stream, not a mask on a word
+
+§1.7.2 defines it in one sentence that decides all the arithmetic: "The MSB of
+the base byte is bit field offset 0; the LSB of the base byte is bit field
+offset 7; and **the LSB of the previous byte in memory is bit field offset -1**."
+
+Three consequences, each of which a word-shaped implementation gets wrong while
+looking right on the easy cases:
+
+* **A 32-bit field at a non-zero offset spans five bytes.** Reading a long word
+  and shifting gives the right answer for every field that fits inside four, and
+  the wrong one here.
+* **A register-supplied offset is signed** across the full 32-bit range, so the
+  effective address is not a lower bound. The byte arithmetic must *floor*:
+  `-8/8` is `-1` and so is `-1/8`, where C truncation gives `0` and puts the
+  field one byte too high for every negative offset that is not a multiple of
+  eight.
+* **A data register wraps and memory does not.** §1.7.1: "the address of the MSB
+  is zero ... If the width of the register plus the offset is greater than 32,
+  the bit field wraps around within the register." One model cannot serve both
+  spaces, and picking either for both is wrong in the other.
+
+### Details that do not fault when missed
+
+The condition codes come from the field **as found**, before modification --
+these are "test bit field and ..." instructions, and `BFINS` sets them from the
+field it is about to overwrite. `BFEXTS` sign-extends from the *field's* width
+rather than from a byte, so a 32-bit field needs its own case because shifting
+by 32 is undefined. `BFFFO` returns "the bit offset in the instruction plus the
+offset of the first one bit" -- a position in the field's own space, not a bit
+number, and the field offset plus the width when no bit is set.
+
+### The tests were computed, not observed
+
+Every expectation comes from the byte pattern `12 34 56 78 9A` worked out by
+hand as a bit stream, not from running the implementation and recording what it
+said. The four writing forms produce **four different results over the same
+field** -- `$1FF4`, `$1004`, `$1DC4`, `$1A54` -- so a write that touched the
+wrong bits could not pass more than one of them. The register-wrap case is `$81`
+where clamping instead of wrapping gives `$80`.
+
+One case did fail on the first run, and it was the test that was wrong: `BFSET`
+is `$EE` and I had written `$EF`, which is `BFINS`, and with the source register
+zero it cleared the field instead. The value returned was consistent with the
+instruction actually executed.
+
+**716 words remain `UNIMPLEMENTED`**, from 2621 before C95. What is left is the
+coprocessor and MMU corners of family F, and `CAS`/`CAS2` -- which decline for a
+stated reason rather than for want of work: their read and write are
+indivisible, and honouring that needs the bus to assert `RMC`.
