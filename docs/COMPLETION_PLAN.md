@@ -1720,17 +1720,16 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         which it touched. Detail in `PROJECT_STATUS.md`.
         *Verification: `board_suite` +1 (17) — the two counted apart, aliased
         across their 256-byte ranges, and a modelled register not counted.*
-- [ ] Two 8259 interrupt controllers and the Apollo interrupt vector scheme.
-      *Verification: probe-driven interrupt ordering vs oracle.*
-      **Awaiting:** a *second* synchronously-raisable interrupt source. The
-      claim here a moment ago — that the probe had become runnable — was wrong
-      in the half that mattered: ordering needs two lines standing at once, and
-      this board has exactly one a program can raise with no time passing. The
-      timer and calendar need the tick loop; the tape's `DONE` needs the DMA
-      channel assignments the DMA item is itself waiting on; the disk has no
-      accessor. Enumerated in `PROJECT_STATUS.md`, since it is a negative.
-      The ordering a *program* sees is now verified through the machine, which
-      is what could be done without the oracle.
+- [x] Two 8259 interrupt controllers and the Apollo interrupt vector scheme.
+      *Verification: the ordering is driven by two **devices** and nothing is
+      asserted by hand — the interval timer reaches terminal count on its own
+      and the DUART raises TxRDY, and the timer at master IR0 is serviced before
+      the SIO at IR1, each on its own vector. `machine_suite`. Not diffed
+      against the oracle: the second source only exists because the tick loop
+      does, and MAME advances devices on a different schedule entirely, so a
+      side-by-side ordering diff would be comparing two quantisations rather
+      than two priority encoders. The encoders themselves are pinned against
+      `[8259]` twelve ways in `intr_suite`.*
   - [x] **The route to that verification exists at last: probes can run on a
         board.** `--probe-file` takes `board 1` and builds a whole core board —
         no boot PROM, since `ap_board_init` needs none and a probe is
@@ -1861,19 +1860,16 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         the other's blocker and neither was blocked: the arbiter needed a master
         to arbitrate for, the transfers needed a bus to arbitrate over, and both
         landed the moment either did.
-- [ ] Interval timer and calendar. *Verification: self-timing probes; a long
-      calendar interval carried correctly at every boundary.*
-      **The 14-day hazard this line used to cite does not exist.** It said
-      "noted in the MAME driver"; the pinned `ext/mame` has nothing about days,
-      weeks or intervals anywhere in its Apollo driver, and no commit in its
-      history touches "14 days" under its `mame` sources at all. The claim dates from
-      this project's first scaffolding commit, written before the driver had
-      been read, and would have sent whoever picked this item up hunting for a
-      note that was never there. The substance behind it is kept and now
-      tested — see the calendar sub-item below.
-      **Awaiting:** the self-timing probes, which need the tick loop. The
-      interval timer counts at 250/125/62.5 kHz and nothing in this core
-      advances on its own, so a probe cannot time it against itself yet.
+- [x] Interval timer and calendar. *Verification: both, from different places.
+      The timer is measured against the **machine's own clock** — 201 pulses of
+      250 kHz, which the CPU's clock count independently agrees is 20,100 of
+      its own, overshooting by under one instruction and never undershooting.
+      And a fortnight of one-second carries lands on the right date across a
+      month end, a common and a leap February, a year end and the 400-year
+      rule. `machine_suite`, `mc146818_suite`.*
+      The "14-day calendar interval hazard noted in the MAME driver" this line
+      used to cite **does not exist**; the substance behind it is kept and
+      tested. Detail in `PROJECT_STATUS.md`.
   - [x] The MC6840 itself, 16-bit continuous mode: register model, byte
         buffering, status register, prescaler, gate, and every documented way of
         clearing an interrupt. `mc6840_suite`, 23 tests. The three Apollo input

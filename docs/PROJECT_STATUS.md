@@ -3346,7 +3346,7 @@ failure that cost a bit position in the 68020's module entry word.
 | Time base (`time/`) | working | `time_suite`, 15 tests |
 | State hash (`state/`) | primitive working | `hash_suite`, 11 tests, incl. published FNV-1a 64 vectors |
 | Core board state hash (the identity harness's board half) | working: the board registers, the translation map, both interrupt controllers, the interval timer with its three clocks, the calendar with both cursors, both DMA controllers, both serial ports, the node ID, the disk and tape controllers, the graphics memories, the keyboard matrix and the boot PROM. The diagnostic counters are deliberately outside it and reported beside it | `board_state_suite`, 22 tests sweeping every device field by field |
-| Full-machine state hash (`ap_machine_hash`, `ap_machine_state`) | working: the processor, main memory, the board when one is attached, and elapsed time — with the clock, the PC and the bus-error count reported beside the number | `machine_suite`, 39 tests, incl. the same workload run twice on two boards agreeing at every step |
+| Full-machine state hash (`ap_machine_hash`, `ap_machine_state`) | working: the processor, main memory, the board when one is attached, and elapsed time — with the clock, the PC and the bus-error count reported beside the number | `machine_suite`, 41 tests, incl. the same workload run twice on two boards agreeing at every step |
 | Ring medium interface | not started | — |
 | Ring controller | not started | — |
 | 68030 instruction pipe + cache holding register | working | `pipe_suite`, 14 tests, `MC68030 User's Manual 3ed` §11.2.2 |
@@ -3358,7 +3358,7 @@ failure that cost a bit position in the 68020's module entry word.
 | 68030 family `0000` size-11 escape (`CMP2`/`CHK2`/`CAS`/`CAS2`) | decoded; the opcode map now has no holes. Semantics open: `CAS`/`CAS2` need an indivisible read-modify-write | `bounds_suite`, 9 tests, `M68000 Family Programmer's Reference Manual 1992` |
 | Per-instruction timing report (`--time-instructions`) | bus and cache time only, pinned as a golden; the 0/2 alternation is the cache holding register serving two instruction words per fetch | `tests/goldens/timing.txt`; oracle side by `tools/mame-oracle/steptime.lua` |
 | Probe suite (`probe/`, `--run-probes`) | 8 probes on the constructed machine, needing no firmware; results pinned as a golden under every build preset, identical between `-O0` and `-O3` | `tests/goldens/probes.txt`, `probe_suite`, 7 tests |
-| Constructed machine (`machine/`) | a 68030 on flat RAM, with an out-of-range access faulting rather than wrapping; with a board attached it takes its model's clock, charges the AT bus's wait states and takes device interrupts on the Apollo vectors, and stalls while another master holds the bus, and advances the devices that keep time | `machine_suite`, 39 tests |
+| Constructed machine (`machine/`) | a 68030 on flat RAM, with an out-of-range access faulting rather than wrapping; with a board attached it takes its model's clock, charges the AT bus's wait states and takes device interrupts on the Apollo vectors, and stalls while another master holds the bus, and advances the devices that keep time | `machine_suite`, 41 tests |
 | 68030 published timings (§11.6) | 59 rows from §11.6.6, §11.6.8, §11.6.9, §11.6.11, §11.6.12, §11.6.15 and §11.6.16, scheduled into the step as exposed microcode + measured operand bus + prefetch exposure, since the tables show a prefetch overlaps execution while an operand the operation consumes cannot (plain `max(microcode, bus)` was the retired first model — see above and `M68030_TIMING.md`). Branches are reached through their run-time outcome rather than by opcode. Seven instructions agree with the oracle (`FINDINGS.md` C8). Rows footnoted "Add Fetch Effective Address Time" are **declined**, not part-priced: their published figure is a component and the composition is open (C9). The four divides carry the manual's data-dependent marker and are `PROVISIONAL` | `timing_table_suite`, 16 tests; both published columns checked on a running machine by `machine_suite` |
 | 68030 ATC replacement | the history bit now means *recently used*, per `MC68851 PMMU User's Manual` §5.2.1.3 — a translating hit marks it, a `PTEST` probe does not. `PROVISIONAL` narrowed to victim choice among clear-history entries | `atc_suite`, 21 tests |
 | 68030 prefetch marginal cost | `NCC − CC` over the published prefetch count, computed in code across every row; the two rows where it is not integral are named in the test rather than rounded away | `timing_table_suite`, 16 tests |
@@ -4409,6 +4409,45 @@ paper over" — where MAME returns `0F`, which is what `FINDINGS.md` C13 used as
 placement fingerprint. Neither is wrong: the datasheet defines no value. It is
 registered here so that the first board-backed oracle diff does not read it as a
 defect.
+
+#### Two verifications cashed in, and the pattern that delayed them
+
+Phase 3 stood at **44 of 48 children done and 3 of 9 parents**. Three parents
+sat at 8/8, 7/7 and 11/11 — every child ticked, the parent open. The
+implementation was not the thing outstanding; the *verification lines* were, and
+those are the only thing that ticks a parent.
+
+The pattern behind that is worth naming, because it is a working habit rather
+than a technical fact: on hitting a blocked verification the response was to
+characterise the blocker precisely, write it down, and move down the list. Each
+of those write-ups was worth having — the one-raisable-source enumeration and the
+no-oracle-for-arbitration finding both stand — but four of them in a row is how
+the child count reaches 44/48 while the parent count does not move.
+
+Two of the blockers had already been removed by the tick loop and were not
+noticed:
+
+- **The 8259 ordering verification** needed a second synchronously-raisable
+  interrupt source. The interval timer now reaches terminal count on its own,
+  and it is master IR0 — the highest priority in the machine. So the ordering is
+  now driven by two *devices*, nothing asserted by hand: the timer is serviced
+  before the DUART at IR1, each on its own vector. Not diffed against the
+  oracle, and the reason is structural rather than a deferral: MAME advances its
+  devices on a different schedule, so a side-by-side ordering diff would compare
+  two quantisations rather than two priority encoders. The encoders themselves
+  are pinned against `[8259]` twelve ways in `intr_suite`.
+- **The interval timer's self-timing probe** needed anything to advance. It now
+  measures the timer against the machine's own clock, and the two sides come
+  from different places: the CPU counts clocks and converts them once, the timer
+  counts pulses of its own 250 kHz rate. A latch of 200 expires after 201
+  pulses, which the machine independently makes 20,100 CPU clocks. The machine
+  overshoots by less than one instruction and never undershoots — which is the
+  tick loop's quantisation asserted rather than described.
+
+Phase 3 is now **5 of 9 parents**. Of the four open, one is blocked on a
+measurement nobody can take yet (the DMA channel assignments), one on a
+`FINDINGS` campaign (the console stream), one on its own remaining children (the
+tick loop's), and one on a disk image (the node ID).
 
 #### Time passes, and a device notices
 

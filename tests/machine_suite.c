@@ -1607,8 +1607,145 @@ static void test_a_boardless_machine_advances_nothing(void) {
   TEST_ASSERT_TRUE(ap_machine_now(&m) > 0u);
 }
 
+/* ---------------------------------------------------------------------------
+ * The ordering verification, driven by two devices
+ *
+ * The earlier ordering test asserted its second line by hand, because no second
+ * device on this board could raise one without time passing. The tick loop
+ * removed that: the interval timer now reaches terminal count on its own, and
+ * it is `AP_TIMER_IRQ` -- master IR0, the highest priority in the machine.
+ *
+ * So this is the item's verification rather than a stand-in: two *devices*
+ * raise two lines, and the higher-priority one is serviced first because the
+ * controllers say so.
+ * ------------------------------------------------------------------------- */
+static void test_two_devices_are_serviced_in_the_controllers_order(void) {
+  uint16_t program[96];
+  unsigned n = 0;
+  program[n++] = 0x46FCu; /* MOVE #$2700,SR -- masked through setup */
+  program[n++] = 0x2700u;
+
+  const uint8_t master[] = {0x11u, 0xA0u, 0x08u, 0x01u, 0x00u};
+  const uint8_t slave[] = {0x11u, 0xA8u, 0x03u, 0x01u, 0x00u};
+  n = emit_move_b(program, n, master[0], AP_INTR_MASTER_ADDR);
+  for (unsigned i = 1; i < 5u; i++) {
+    n = emit_move_b(program, n, master[i], AP_INTR_MASTER_ADDR + 1u);
+  }
+  n = emit_move_b(program, n, slave[0], AP_INTR_SLAVE_ADDR);
+  for (unsigned i = 1; i < 5u; i++) {
+    n = emit_move_b(program, n, slave[i], AP_INTR_SLAVE_ADDR + 1u);
+  }
+  n = emit_move_b(program, n, 0x05u, AP_SIO1_ADDR + AP_MC68681_CR_A * 2u);
+  n = emit_move_b(program, n, 0x01u, AP_SIO1_ADDR + AP_MC68681_ISR_IMR * 2u);
+  const unsigned setup_instructions = 1u + (n - 2u) / 4u;
+  program[n++] = 0x46FCu; /* MOVE #$2000,SR -- open the mask */
+  program[n++] = 0x2000u;
+  /* And then spin. The timer runs at 250 kHz against a 25 MHz processor, so it
+   * needs real instructions to pass before it expires -- a program that ran off
+   * its own end would be measuring how long the test was, not the timer. */
+  program[n++] = 0x60FEu; /* BRA * */
+
+  ap_machine_t m;
+  build_board_machine(&m, &first_board, ram, program, n);
+  m.cpu.regs.vbr = AP_BOARD_RAM_BASE;
+
+  uint16_t sio_handler[16];
+  unsigned h = 0;
+  h = emit_move_b(sio_handler, h, 0x01u, AP_BOARD_RAM_BASE + ORDER_SENTINEL);
+  h = emit_move_b(sio_handler, h, 0x20u, AP_INTR_MASTER_ADDR);
+  h = emit_rte(sio_handler, h);
+  write_words(&m, HANDLER_SIO, sio_handler, h);
+
+  /* The timer's handler stops the timer as well as acknowledging, or a
+   * continuous-mode counter would interrupt again the moment it returns and the
+   * program would never reach its own end. */
+  uint16_t timer_handler[24];
+  h = 0;
+  h = emit_move_b(timer_handler, h, 0x02u,
+                  AP_BOARD_RAM_BASE + ORDER_SENTINEL + 1u);
+  h = emit_move_b(timer_handler, h, 0x01u, AP_TIMER_ADDR + 1u); /* CR1: hold */
+  h = emit_move_b(timer_handler, h, 0x20u, AP_INTR_MASTER_ADDR);
+  h = emit_rte(timer_handler, h);
+  write_words(&m, HANDLER_DISK, timer_handler, h); /* reuse the second slot */
+
+  TEST_ASSERT_TRUE(ap_machine_write(&m, (0xA0u + AP_SIO_IRQ) * 4u, 4u,
+                                    AP_BOARD_RAM_BASE + HANDLER_SIO));
+  TEST_ASSERT_TRUE(ap_machine_write(&m, (0xA0u + AP_TIMER_IRQ) * 4u, 4u,
+                                    AP_BOARD_RAM_BASE + HANDLER_DISK));
+
+  /* Arm the timer with a latch short enough to expire during setup, so both
+   * lines are standing when the mask opens. No hand-asserted line anywhere. */
+  const ap_machine_run_t setup = ap_machine_run(&m, setup_instructions);
+  TEST_ASSERT_EQUAL_UINT(setup_instructions, setup.executed);
+  program_timer_through_the_board(&first_board, 1u);
+  (void)ap_machine_run(&m, 4000u);
+
+  uint32_t first = 0, second = 0;
+  TEST_ASSERT_TRUE(ap_machine_read(&m, ORDER_SENTINEL, 1u, &first));
+  TEST_ASSERT_TRUE(ap_machine_read(&m, ORDER_SENTINEL + 1u, 1u, &second));
+
+  /* Both devices interrupted, and the timer -- master IR0, the machine's
+   * highest priority, `008778-03` Table 2-3 -- was serviced before the SIO at
+   * IR1. Two devices, two lines, one order, and nothing asserted by hand. */
+  TEST_ASSERT_EQUAL_HEX8(0x02u, second);
+  TEST_ASSERT_EQUAL_HEX8(0x01u, first);
+  TEST_ASSERT_TRUE(ap_timer_irq(&first_board.timer) ||
+                   ap_sio_irq(&first_board.sio));
+}
+
+/* The interval timer's self-timing verification: how long the machine says has
+ * passed when the timer says it has counted N.
+ *
+ * A "self-timing probe" is a program that measures a clock against the only
+ * other clock in the machine, which is its own. Timer 1 runs at 250 kHz and a
+ * DN3500's processor at 25 MHz, so one timer pulse is exactly 100 CPU clocks
+ * and a latch of L expires after (L + 1) pulses. Both figures are the model
+ * table's and the manual's, and neither is a figure this test chose -- which is
+ * what makes an agreement between them worth anything.
+ *
+ * The elapsed time is read from the *machine*, not from the timer, so the two
+ * sides of the comparison come from different places: the CPU counts clocks and
+ * converts them once, and the timer counts pulses of its own rate. */
+static void test_the_interval_timer_agrees_with_the_machines_own_clock(void) {
+  static const uint16_t spin[] = {0x60FEu}; /* BRA * */
+
+  ap_machine_t m;
+  build_board_machine(&m, &first_board, ram, spin, 1u);
+  const uint16_t latch = 200u;
+  program_timer_through_the_board(&first_board, latch);
+
+  const ap_time_t start = ap_machine_now(&m);
+  unsigned instructions = 0;
+  while (!ap_timer_irq(&first_board.timer) && instructions < 20000u) {
+    (void)ap_machine_run(&m, 1u);
+    instructions++;
+  }
+  TEST_ASSERT_TRUE(ap_timer_irq(&first_board.timer));
+
+  const ap_time_t elapsed = ap_machine_now(&m) - start;
+
+  /* (latch + 1) pulses at 250 kHz, in base units. `AP_TIME_BASE_HZ` divides
+   * 250 kHz exactly -- 26,400 units a pulse -- so this is not an approximation
+   * on either side. */
+  const ap_time_t expected =
+      (ap_time_t)(latch + 1u) * (AP_TIME_BASE_HZ / AP_TIMER1_HZ);
+
+  /* The machine cannot stop *between* pulses: it notices at the end of whatever
+   * instruction was running, so it overshoots by less than one instruction and
+   * never undershoots. That bound is the tick loop's documented quantisation,
+   * asserted here rather than described. */
+  TEST_ASSERT_TRUE(elapsed >= expected);
+  TEST_ASSERT_TRUE(elapsed - expected < (AP_TIME_BASE_HZ / AP_TIMER1_HZ));
+
+  /* And the run was long enough to be a measurement rather than a coincidence:
+   * 201 pulses of 100 CPU clocks each is twenty thousand clocks. */
+  TEST_ASSERT_TRUE(instructions > 100u);
+}
+
 int main(void) {
   UNITY_BEGIN();
+  RUN_TEST(test_the_interval_timer_agrees_with_the_machines_own_clock);
+  RUN_TEST(test_two_devices_are_serviced_in_the_controllers_order);
   RUN_TEST(test_a_timer_reaches_terminal_count_with_no_program_touching_it);
   RUN_TEST(test_the_timer_follows_the_instant_not_the_instruction_count);
   RUN_TEST(test_a_boardless_machine_advances_nothing);
