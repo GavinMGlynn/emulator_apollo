@@ -1781,6 +1781,13 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         device is still asking.*
 - [ ] Two AT DMA controllers. *Verification: transfer probes; device request
       lines gate DMA at block granularity, not per word.*
+      **Awaiting:** a *device* driving a request line. Transfers run, block
+      granularity is measured, and the request path is the part's own — what is
+      missing is which peripheral sits on which channel, which this board has
+      not been measured for and `board/ap_dma.h` deliberately refuses to assume.
+      Until then the peripheral side of a transfer reads all ones and is
+      counted, and verify transfers carry the measurements. Closes with the disk
+      and tape controllers, whose own items own the answer.
   - [x] Placement measured before writing anything: DMA 1 at `010C00` **stride
         1** (sixteen registers aliased every sixteen bytes, the all-mask
         register reading `0F` as a reset part holds), DMA 2 at `010D00`
@@ -1836,8 +1843,11 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         **not** asserted — the equivalent assumption about the interrupt
         controllers was wrong here (C11) — and will be measured once transfers
         exist to measure.
-  - [ ] Then the shared arbitration point (Phase 3's first item), which has been
-        waiting on a second bus master to exist.
+  - [x] And the shared arbitration point it was pointing at — Phase 3's first
+        item, which had been waiting for a second bus master to exist. Each was
+        the other's blocker and neither was blocked: the arbiter needed a master
+        to arbitrate for, the transfers needed a bus to arbitrate over, and both
+        landed the moment either did.
 - [ ] Interval timer and calendar. *Verification: self-timing probes; the
       14-day calendar interval hazard noted in the MAME driver is reproduced or
       explained.*
