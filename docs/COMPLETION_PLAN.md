@@ -916,45 +916,16 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         sparse register codes, `STOP`'s ordering and `RESET`'s
         nothing-happens-inside semantics are in `PROJECT_STATUS.md`.
   - [x] **The wider branch displacements**: `BRA`/`Bcc`/`BSR` at 16 and 32 bits,
-        all three sizes sharing one base, "the instruction address plus two".
-        Detail in `PROJECT_STATUS.md`.
-        *Verification: `step_suite`, 8 further tests (119 total) — a `MOVEC`
-        round trip through `VBR`, `$800` leaving `$002` alone, an undefined code
-        raising vector 4, `MOVEC` privileged and not taking effect when it
-        traps, `STOP` masking interrupts and then not fetching at all, `RESET`
-        leaving the registers alone and continuing, a word branch landing where
-        a byte one would, an untaken word branch skipping its displacement, and
-        a long `BSR` pushing the address after **both** displacement words.*
-        `RTE` is the counterpart of taking an exception, and the throwaway frame
-        makes it a *loop* rather than a special case: "the processor reads the
-        status register value from the frame, increments the active stack
-        pointer by eight, updates the status register ... and then begins RTE
-        processing again", on whichever stack the restored S and M bits now
-        select, and the frame it finds "may be any format (even another
-        throwaway frame)". An undefined format is a format error, vector 14.
-        `RTR` restores **only** the condition codes — "The supervisor portion of
-        the status register is unaffected" — because `RTR` is unprivileged and
-        restoring the system byte would make it an instruction any user program
-        could use to enter supervisor state.
-        **`BSR`'s condition field is `F`**, the encoding that means *never* for
-        a `Bcc`. Testing the condition without excluding it pushes a return
-        address and then falls through, so every subroutine call leaks a stack
-        word and returns to the wrong place. Found while wiring `BSR` to the
-        stack this item provided.
-        `MOVE An,USP` writes the USP *directly* rather than through A7: it only
-        executes in supervisor state, where A7 names the ISP or MSP, so going
-        through A7 would move the wrong stack and leave the one being set up
-        untouched.
-        *Verification: `step_suite`, 8 further tests (97 total) — a `BSR`/`RTS`
-        round trip proving the return address is the instruction after the call;
-        `JMP` going to the address rather than to its contents, which for a jump
-        table is one indirection too many and lands somewhere plausible;
-        `LINK`/`UNLK` as exact inverses; a `TRAP` taken and returned from with
-        the privilege level restored and the user stack untouched; `RTR`
-        declining to restore a stacked S bit; a privileged instruction in user
-        state stacking **its own** address; an undefined frame format becoming a
-        format error; and `TRAPV` in both directions, since a model that always
-        trapped would pass a test that only set V.*
+        all three sizes sharing one base, "the instruction address plus two"; and
+        with them `RTE`/`RTR`, `LINK`/`UNLK`, `JMP`/`JSR`, `TRAP`/`TRAPV` and
+        `MOVE An,USP`. Detail in `PROJECT_STATUS.md`.
+        *Verification: `step_suite`, 16 further tests across the two landings —
+        a `BSR`/`RTS` round trip, a word branch landing where a byte one would,
+        a long `BSR` pushing the address after **both** displacement words,
+        `LINK`/`UNLK` as exact inverses, `RTR` declining to restore a stacked S
+        bit, an undefined frame format becoming a format error, and `TRAPV` in
+        both directions since a model that always trapped would pass a test that
+        only set V.*
   - [x] **Taking an exception**: stacking the frame, fetching the vector
         through the VBR, and loading the PC (`ap_m68030_take_exception`). Every
         frame this model can build, with the two bus fault frames and the
@@ -1130,38 +1101,16 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         read operation to the page had created an entry for that page in the ATC
         with the M bit clear". It is its own lookup status rather than folded
         into a plain hit, so the cost cannot be silently lost.
-  - [x] **`PROVISIONAL`: the ATC replacement algorithm**, now narrower than it
-        was. `[030]` §9.4 names it and its ingredients — "a pseudo least
-        recently used algorithm ... a validity bit and an internal history bit"
-        — but never states the rule.
-        **The sibling manual closes one half.** `MC68851 PMMU User's Manual`
-        §5.2.1.3, describing the compatible ATC, says the second bit is "a
-        history bit to indicate that the entry has been recently **used**" —
-        which the 68030's own text never says. Our implementation set it only on
-        *insert*, so "recently used" meant "recently loaded": an entry
-        translated a thousand times but never reloaded was evicted as though
-        untouched, the opposite of what a least-recently-used policy is for.
-        A translating hit now marks the entry, through
-        `ap_m68030_atc_mark_used` rather than inside the lookup — because a
-        lookup is also how `PTEST` probes, and "The PTEST instruction does not
-        alter the ATC". Putting it at the call site is what keeps a diagnostic
-        instruction from perturbing the state it exists to report.
-        **The sibling manual also documents the *order*.** §5.2.1.3 states the
-        algorithm outright -- "locate an invalid entry and use it. If no invalid
-        entries are found, use a psuedo least-recently-used (LRU) algorithm to
-        select an entry ... and replace that entry" -- so the two steps this
-        core performs are transcribed rather than inferred. The 68851's L bit
-        has no counterpart here, the 68030 being unable to lock an entry, so
-        that clause drops out rather than being modelled as always false.
-        **What remains PROVISIONAL** is only which entry is chosen among those
-        whose history bit is clear. That is genuinely unstated in both manuals,
-        and is a tie-break rather than an algorithm.
-        *Verification: `atc_suite`, 3 further tests (20 total) — a hit marking
-        through the explicit call and *not* through the lookup alone; marking a
-        miss touching nothing; and a repeatedly hit entry surviving a sweep that
-        evicts idle ones, which is the property the bit exists for and which was
-        absent while only inserts marked. Remaining: measure eviction order
-        against the oracle for the last undocumented half.*
+  - [x] **`PROVISIONAL`: the ATC replacement algorithm**, narrowed from "no
+        published rule" to a tie-break. `[030]` §9.4 names the ingredients and
+        never states the rule; `MC68851 PMMU User's Manual` §5.2.1.3, describing
+        the compatible ATC, supplies the half the 68030's own text omits — the
+        history bit means "recently **used**", so a translating hit marks it
+        where this core had only marked an insert. What remains provisional is
+        the choice among valid entries once all are marked.
+        *Verification: `atc_suite`; the row in `PROJECT_STATUS.md`'s PROVISIONAL
+        table carries the reasoning, the sibling-manual quotation and the cost
+        to close.*
   - [x] **MMU status register (`MMUSR`)**
         (`src/core/cpu/m68030/ap_m68030_mmusr.c`), `[030]` §9.7.4 pp. 9-59 f.
         Detail in `PROJECT_STATUS.md`.

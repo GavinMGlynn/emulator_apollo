@@ -4274,6 +4274,30 @@ everything simply has no entry below.
   against the oracle remains worthwhile and is listed under the probe suite,
   but the claim no longer rests on one.*
 
+#### Returning from an exception, and three traps in the neighbouring instructions
+
+**`RTE` is a loop, not a special case.** The throwaway frame is what makes it
+one: "the processor reads the status register value from the frame, increments
+the active stack pointer by eight, updates the status register ... and then
+begins RTE processing again" — on whichever stack the restored `S` and `M` bits
+now select, and the frame it then finds "may be any format (even another
+throwaway frame)". An undefined format is a format error, vector 14.
+
+**`RTR` restores only the condition codes.** "The supervisor portion of the
+status register is unaffected", because `RTR` is unprivileged and restoring the
+system byte would make it an instruction any user program could use to enter
+supervisor state.
+
+**`BSR`'s condition field is `F`** — the encoding that means *never* for a
+`Bcc`. Testing the condition without excluding it pushes a return address and
+then falls through, so every subroutine call leaks a stack word and returns to
+the wrong place. Found while wiring `BSR` to the stack.
+
+**`MOVE An,USP` writes the USP directly** rather than through `A7`. It only
+executes in supervisor state, where `A7` names the `ISP` or `MSP`, so going
+through `A7` would move the wrong stack and leave the one being set up
+untouched.
+
 #### Taking an exception on the 68030
 
     the VBR, and loading the PC (`ap_m68030_take_exception` in
