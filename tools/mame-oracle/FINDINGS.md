@@ -5772,3 +5772,54 @@ more often than the code under test.
 and family F's coprocessor and MMU corners (192). None is a category question.
 The category campaign that began at C95 is finished: every instruction group in
 the 68030 now enforces the effective-address rules its own page states.
+
+## C101 -- MOVES, and a privileged instruction that was not privileged
+
+**Class: missing instruction implemented, plus a defect its test exposed.**
+
+`MOVES` is the one instruction that reaches an **arbitrary** address space.
+Every other access this core makes carries a function code fixed by what it is;
+`MOVES` carries whatever the program last wrote into `SFC` or `DFC`. `[PRM]`
+p. 6-24: it moves an operand "to a location within the address space specified
+by the destination function code (DFC) register", or from one "within the
+address space specified by the source function code (SFC) register". An
+operating system uses it to read a *user* program's memory while running in
+supervisor state, which no ordinary `MOVE` can do because a `MOVE`'s function
+code follows the processor's own privilege.
+
+Modelling it as an ordinary move would work perfectly on this machine today and
+be wrong the moment anything distinguishes the spaces -- which is exactly what
+the MMU's function-code fields and the transparent translation registers'
+`FC BASE`/`FC MASK` exist to do.
+
+### The test had to watch the function code, not a value
+
+Flat RAM answers every function code alike, so a check on *what was read* cannot
+tell a correct `MOVES` from an ordinary move. The harness now records the code
+each fill carried, and the assertion is that a supervisor-state `MOVES` with
+`SFC = user data` reads **as user data** while the `MOVE` beside it, through the
+identical address, reads as supervisor data.
+
+Two attempts preceded that. The first tried to make the difference *behavioural*
+by seeding two ATC entries for one logical page under different function codes
+-- which is the right idea and will be the right test later, but the lookup
+takes its page size from the `TC` and the entry did not match one I had left
+zeroed. Recorded because the failure looked like a `MOVES` defect and was a test
+that had not finished setting up its machine.
+
+### The defect the test found
+
+`ap_m68030_immediate_privileged` had **no caller anywhere in `src`**. The three
+`to SR` forms were checked by a condition written out again inside
+`execute_immediate_to_status`, and `MOVES` -- which the helper also names, with
+the comment "MOVES reaches an arbitrary address space through SFC/DFC" -- was
+checked **nowhere**. A user program could have read supervisor memory with it.
+
+The helper is now asked once, at the top of `execute_immediate`. That is the
+fourth declared-and-unconsulted function this campaign to mark a real gap, after
+C90's timing rule, C91's FPU trap predicates and C93's reset sequence -- and the
+first found by writing a test from the instruction's own page ("If Supervisor
+State ... Else TRAP") rather than by sweeping.
+
+**240 words remain `UNIMPLEMENTED`**: `TRAPcc`'s operand forms (48) and family
+F's coprocessor and MMU corners (192).

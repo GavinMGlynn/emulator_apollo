@@ -4473,6 +4473,36 @@ mean they were written with zero.
 **1204 words remain `UNIMPLEMENTED`**, from 2621 before C95. The bit-field group
 — 488 words in family E — is now the largest single remainder by some margin.
 
+**`MOVES` executes**, and it is the only instruction in the set that reaches an
+*arbitrary* address space. Every other access this core makes carries a function
+code fixed by what it is — supervisor program for a fetch, supervisor or user
+data for an operand — while `MOVES` carries whatever the program last wrote into
+`SFC` or `DFC`. An operating system uses it to read a user program's memory
+while running in supervisor state, which no ordinary `MOVE` can do.
+
+Modelling it as an ordinary move would work perfectly on this machine today and
+be wrong the moment anything distinguishes the spaces — which is what the MMU's
+function-code fields and the transparent translation registers' `FC BASE` and
+`FC MASK` exist to do. Its test therefore watches the **function code the access
+carried** rather than a value: flat RAM answers every code alike, so a check on
+what was read could not tell a correct implementation from an ordinary move.
+A supervisor-state `MOVES` with `SFC = user data` must read as user data, and
+the `MOVE` beside it through the same address must read as supervisor data.
+
+Two details from the description that no fault would reveal: an **address
+register** destination is sign-extended to 32 bits where a data register
+"replaces the corresponding low-order bits ... depending on the size of the
+operation", and **condition codes are not affected**.
+
+**Writing that test found a second defect.** `ap_m68030_immediate_privileged`
+had no caller anywhere: the three `to SR` forms were checked by a condition
+written out again inside `execute_immediate_to_status`, and `MOVES` — which the
+helper also names — was checked **nowhere**. A user program could have read
+supervisor memory with it. The helper is now asked once, at the top of
+`execute_immediate`, so the rule is single. That is the fourth time this
+campaign a declared-and-unconsulted function has marked a real gap, and the
+first found by a test rather than by a sweep.
+
 **The last three effective-address category holes are closed**, and they were
 found by *naming* the remaining unimplemented words rather than guessing at
 them: a sweep that reports each one's decoded kind turned "716 words" into five

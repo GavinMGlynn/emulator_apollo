@@ -1003,9 +1003,15 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         resolved the address *first*, moving `A0` on a refused `JMP (A0)+`), and
         `MOVEM` (which checked the increment pairing but never the category).
         296 words. `step_suite` +2. Detail in `PROJECT_STATUS.md`.
-  - [ ] `MOVES` (180 words) — a real 68010-and-later instruction, privileged,
-        moving between address spaces through the function code registers.
-        Decoded, not executed.
+  - [x] **`MOVES`** (180 words), the one instruction that reaches an *arbitrary*
+        address space: it carries whatever `SFC`/`DFC` hold rather than a
+        function code fixed by what the access is. An address-register
+        destination is sign-extended and a data register keeps its upper bits;
+        condition codes are untouched. Writing its test found that
+        `ap_m68030_immediate_privileged` had **no caller** — the three `to SR`
+        forms were checked by a condition written out again inline, and `MOVES`
+        was not checked at all, so a user program could have read supervisor
+        memory with it. `step_suite` +3. Detail in `PROJECT_STATUS.md`.
   - [ ] `TRAPcc`'s operand forms (48 words), and the coprocessor/MMU corners of
         family F (192). The remaining 420.
   - [x] **The eight bit field instructions** — `BFTST`, `BFEXTU`, `BFCHG`,

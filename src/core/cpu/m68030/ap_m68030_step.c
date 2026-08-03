@@ -835,6 +835,95 @@ static bool execute_immediate_to_status(ap_m68030_cpu_t *cpu,
  * specified in the address register indirect plus 16-bit displacement
  * addressing mode", so the displacement word is read here and no effective
  * address is gathered. */
+/* `MOVES`, `[PRM]` p. 6-24. "Moves the byte, word, or long operand from the
+ * specified general register to a location within the address space specified
+ * by the destination function code (DFC) register, or ... from a location
+ * within the address space specified by the source function code (SFC)
+ * register to the specified general register."
+ *
+ * It is the only instruction that reaches an *arbitrary* address space. Every
+ * other access this core makes carries a function code fixed by what it is --
+ * supervisor program for a fetch, supervisor or user data for an operand -- and
+ * `MOVES` carries whatever the program last wrote into `SFC` or `DFC`. That is
+ * the whole instruction: an operating system uses it to read a user program's
+ * memory while running in supervisor state, which no ordinary `MOVE` can do
+ * because its function code follows the processor's own privilege.
+ *
+ * Modelling it as an ordinary move would work perfectly on this machine today
+ * and be wrong the moment anything distinguishes the spaces -- which is exactly
+ * what the MMU's function-code fields and the transparent translation
+ * registers' `FC BASE`/`FC MASK` exist to do.
+ *
+ * Two details from the description that no fault would reveal:
+ *
+ *  - "If the destination is an address register, the source operand is
+ *    **sign-extended to 32 bits** and then loaded into that address register" --
+ *    where a data register destination "replaces the corresponding low-order
+ *    bits ... depending on the size of the operation" and leaves the rest.
+ *  - **Condition codes: not affected.**
+ */
+static bool execute_moves(ap_m68030_cpu_t *cpu, const ap_m68030_immediate_t *imm,
+                          uint32_t *clocks) {
+  uint16_t extension = 0;
+  if (!next_word(cpu, clocks, &extension)) {
+    return false;
+  }
+
+  /* "Only memory alterable addressing modes can be used" -- and that is the
+   * category for *both* directions, so a read through `MOVES` still refuses a
+   * PC-relative source that an ordinary `MOVE` would accept. */
+  if (!allow_ea(cpu, ap_m68030_ea_is_memory_alterable(imm->ea.kind))) {
+    return false;
+  }
+
+  const bool to_memory = (extension & (1u << 11)) != 0u;
+  const bool address_register = (extension & (1u << 15)) != 0u;
+  const unsigned reg = (unsigned)((extension >> 12) & 7u);
+
+  ap_m68030_address_input_t input = {0};
+  if (!gather_address_input(cpu, imm->ea.kind, imm->size, clocks, &input)) {
+    return false;
+  }
+  const ap_m68030_address_t where =
+      resolve_address(cpu, clocks, imm->ea, &input);
+
+  if (to_memory) {
+    const uint32_t value = address_register
+                               ? ap_m68030_read_address_register(&cpu->regs, reg)
+                               : cpu->regs.d[reg];
+    const ap_m68030_operand_result_t written = step_operand_write(
+        cpu, &cpu->regs, cpu->data, &where, imm->size, value,
+        (uint8_t)(cpu->regs.dfc & 7u));
+    *clocks += written.clocks;
+    return written.ok;
+  }
+
+  const ap_m68030_operand_result_t read =
+      step_operand_read(cpu, &cpu->regs, cpu->data, &where, imm->size,
+                        (uint8_t)(cpu->regs.sfc & 7u));
+  *clocks += read.clocks;
+  if (!read.ok) {
+    return false;
+  }
+
+  if (address_register) {
+    uint32_t value = read.value;
+    if (imm->size == 1u) {
+      value = (uint32_t)(int32_t)(int8_t)value;
+    } else if (imm->size == 2u) {
+      value = (uint32_t)(int32_t)(int16_t)value;
+    }
+    ap_m68030_write_address_register(&cpu->regs, reg, value);
+    return true;
+  }
+
+  const uint32_t mask = (imm->size == 1u)   ? 0xFFu
+                        : (imm->size == 2u) ? 0xFFFFu
+                                            : 0xFFFFFFFFu;
+  cpu->regs.d[reg] = (cpu->regs.d[reg] & ~mask) | (read.value & mask);
+  return true;
+}
+
 static bool execute_movep(ap_m68030_cpu_t *cpu, const ap_m68030_immediate_t *imm,
                           uint32_t *clocks) {
   uint16_t displacement = 0;
@@ -891,6 +980,23 @@ static bool execute_movep(ap_m68030_cpu_t *cpu, const ap_m68030_immediate_t *imm
 static bool execute_immediate(ap_m68030_cpu_t *cpu,
                               const ap_m68030_immediate_t *imm,
                               uint32_t *clocks) {
+  /* "If Supervisor State ... Else TRAP", for all four privileged forms at once.
+   *
+   * `ap_m68030_immediate_privileged` had no caller: the three `to SR` forms
+   * were checked by a condition written out again inside
+   * `execute_immediate_to_status`, and `MOVES` -- which the helper also names,
+   * because it "reaches an arbitrary address space through SFC/DFC" -- was not
+   * checked anywhere. A user program could read supervisor memory with it.
+   *
+   * Asking the helper here is what makes the rule single. It was found by a
+   * test written from the instruction's own page ("If Supervisor State ... Else
+   * TRAP") rather than from the implementation. */
+  if (ap_m68030_immediate_privileged(imm->kind) &&
+      !ap_m68030_supervisor(&cpu->regs)) {
+    cpu->pending_vector = AP_M68030_VECTOR_PRIVILEGE_VIOLATION;
+    return true;
+  }
+
   switch (imm->kind) {
   case AP_M68030_IMM_ORI:
   case AP_M68030_IMM_ANDI:
@@ -927,6 +1033,7 @@ static bool execute_immediate(ap_m68030_cpu_t *cpu,
   case AP_M68030_IMM_MOVEP:
     return execute_movep(cpu, imm, clocks);
   case AP_M68030_IMM_MOVES:
+    return execute_moves(cpu, imm, clocks);
   case AP_M68030_IMM_INVALID:
     return false;
   case AP_M68030_IMM_BTST:

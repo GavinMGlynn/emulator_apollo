@@ -58,6 +58,7 @@ typedef struct {
    * step is the vector's and recording that would pin the wrong cycle. */
   uint32_t cpu_space_address;
   unsigned cpu_space_cycles;
+  uint8_t last_function_code;
 
   /* When set, CPU space answers BERR -- which is the DN3500, where nothing
    * decodes it. Kept separate from `berr_from` because CPU space is selected by
@@ -97,6 +98,11 @@ static void memory_fill(void *context, uint32_t line_address,
                         uint8_t function_code, ap_m68030_fill_answer_t *out) {
   memory_t *memory = (memory_t *)context;
   memory->fills++;
+  /* The function code of the most recent fill. Every ordinary access carries
+   * one fixed by what it is, so this is uninteresting until `MOVES`, which
+   * carries whatever `SFC` holds -- and that is the only way to see from
+   * outside that it reached a different address space. */
+  memory->last_function_code = function_code;
   if (function_code == 7u) {
     if (memory->cpu_space_cycles == 0u) {
       memory->cpu_space_address = line_address;
@@ -3763,6 +3769,116 @@ static void test_tst_reaches_every_mode_but_refuses_a_byte_address_register(
   plant_vector(&m, AP_M68030_VECTOR_ILLEGAL_INSTRUCTION, HANDLER);
   m.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
   m.cpu.regs.isp = SUPERVISOR_STACK;
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXCEPTION, ap_m68030_step(&m.cpu).status);
+  TEST_ASSERT_EQUAL_HEX32(HANDLER, m.cpu.regs.pc);
+}
+
+/* **`MOVES` reaches a different address space, and that is the whole point.**
+ *
+ * `[PRM]` p. 6-24: it moves an operand "to a location within the address space
+ * specified by the destination function code (DFC) register", or from one
+ * "within the address space specified by the source function code (SFC)
+ * register". Every other access this core makes carries a function code fixed
+ * by what it is; `MOVES` carries whatever the program last wrote into `SFC` or
+ * `DFC`. An operating system uses it to read a user program's memory while in
+ * supervisor state, which no ordinary `MOVE` can do.
+ *
+ * Modelling it as an ordinary move would pass every test that cannot see the
+ * function code — so this one watches it. The harness records the code each
+ * fill carried, and the assertion is that a supervisor-state `MOVES` with
+ * `SFC = user data` reads as **user data**, where the `MOVE` beside it reads as
+ * supervisor data through the identical address.
+ *
+ * Nothing in this machine yet *behaves* differently by space — flat RAM answers
+ * every code alike — which is precisely why the check has to be on the code
+ * itself rather than on a value. The MMU's function-code fields and the
+ * transparent translation registers' `FC BASE`/`FC MASK` are what will make it
+ * observable in behaviour later, and this is what keeps it correct until then.
+ */
+static void test_moves_reads_through_the_source_function_code(void) {
+  /* MOVES.L (A0),D1 -- size 10, mode 010 register 000; extension A/D = 0,
+   * register 1, dr = 0. */
+  static const uint16_t program[] = {0x0E90u, 0x1000u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 3);
+  m.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
+  m.cpu.regs.isp = SUPERVISOR_STACK;
+  m.cpu.regs.a[0] = 0x00005000u;
+  write_ram_long(&m, 0x00005000u, 0xC3C3C3C3u);
+
+  /* Read through the *user* space while the processor is in supervisor state,
+   * which is the case the instruction exists for. */
+  m.cpu.regs.sfc = AP_M68030_FC_USER_DATA;
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&m.cpu).status);
+  TEST_ASSERT_EQUAL_HEX32(0xC3C3C3C3u, m.cpu.regs.d[1]);
+  TEST_ASSERT_EQUAL_UINT8(AP_M68030_FC_USER_DATA, m.memory.last_function_code);
+
+  /* The control: an ordinary MOVE.L (A0),D1 through the same address carries
+   * the processor's own space instead. */
+  static const uint16_t ordinary[] = {0x2210u, 0x4E71u, 0x4E71u};
+  machine_t n = {0};
+  load(&n, ordinary, 3);
+  n.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
+  n.cpu.regs.isp = SUPERVISOR_STACK;
+  n.cpu.regs.a[0] = 0x00005000u;
+  n.cpu.regs.sfc = AP_M68030_FC_USER_DATA; /* which MOVE must ignore */
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&n.cpu).status);
+  TEST_ASSERT_EQUAL_UINT8(AP_M68030_FC_SUPERVISOR_DATA,
+                          n.memory.last_function_code);
+}
+
+/* **An address register destination is sign-extended; a data register keeps its
+ * upper bits.** "If the destination is a data register, the source operand
+ * replaces the corresponding low-order bits of that data register ... If the
+ * destination is an address register, the source operand is sign-extended to 32
+ * bits and then loaded into that address register."
+ *
+ * And "Condition Codes: Not affected", which is worth asserting because every
+ * neighbouring move sets them. */
+static void test_moves_sign_extends_into_an_address_register_only(void) {
+  /* MOVES.W (A0),A1 -- size 01, mode 010 register 000. */
+  static const uint16_t program[] = {0x0E50u, 0x9000u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 3);
+  m.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
+  m.cpu.regs.isp = SUPERVISOR_STACK;
+  m.cpu.regs.a[0] = 0x00005000u;
+  m.cpu.regs.sfc = AP_M68030_FC_SUPERVISOR_DATA;
+  write_ram_word(&m, 0x00005000u, 0x8001u);
+  ap_m68030_write_ccr(&m.cpu.regs, 0x1Fu);
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&m.cpu).status);
+  TEST_ASSERT_EQUAL_HEX32(0xFFFF8001u,
+                          ap_m68030_read_address_register(&m.cpu.regs, 1u));
+  TEST_ASSERT_EQUAL_HEX8(0x1Fu, ap_m68030_read_ccr(&m.cpu.regs) & 0x1Fu);
+
+  /* The same word into a data register replaces sixteen bits and no more. */
+  machine_t n = {0};
+  load(&n, program, 3);
+  write_ram_word(&n, PROGRAM_BASE + 2u, 0x1000u); /* A/D = 0, register 1 */
+  n.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
+  n.cpu.regs.isp = SUPERVISOR_STACK;
+  n.cpu.regs.a[0] = 0x00005000u;
+  n.cpu.regs.sfc = AP_M68030_FC_SUPERVISOR_DATA;
+  n.cpu.regs.d[1] = 0xAAAAAAAAu;
+  write_ram_word(&n, 0x00005000u, 0x8001u);
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&n.cpu).status);
+  TEST_ASSERT_EQUAL_HEX32(0xAAAA8001u, n.cpu.regs.d[1]);
+}
+
+/* `MOVES` is privileged: "If Supervisor State ... Else TRAP". */
+static void test_moves_is_privileged(void) {
+  static const uint16_t program[] = {0x0E90u, 0x1000u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 3);
+  plant_vector(&m, AP_M68030_VECTOR_PRIVILEGE_VIOLATION, HANDLER);
+  m.cpu.regs.sr = 0; /* user state */
+  m.cpu.regs.isp = SUPERVISOR_STACK;
+  m.cpu.regs.a[0] = 0x00005000u;
+
   TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXCEPTION, ap_m68030_step(&m.cpu).status);
   TEST_ASSERT_EQUAL_HEX32(HANDLER, m.cpu.regs.pc);
 }
@@ -7693,6 +7809,9 @@ int main(void) {
   RUN_TEST(test_an_interrupt_wakes_a_stopped_processor);
   RUN_TEST(test_an_interrupt_returns_to_the_instruction_it_preempted);
   RUN_TEST(test_tst_reaches_every_mode_but_refuses_a_byte_address_register);
+  RUN_TEST(test_moves_reads_through_the_source_function_code);
+  RUN_TEST(test_moves_sign_extends_into_an_address_register_only);
+  RUN_TEST(test_moves_is_privileged);
   RUN_TEST(test_chk_jmp_and_movem_refuse_what_their_pages_exclude);
   RUN_TEST(test_a_refused_jump_does_not_move_the_address_register);
   RUN_TEST(test_a_bit_field_reads_across_five_bytes);
