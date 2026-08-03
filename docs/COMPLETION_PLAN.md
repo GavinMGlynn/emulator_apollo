@@ -1722,12 +1722,15 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         across their 256-byte ranges, and a modelled register not counted.*
 - [ ] Two 8259 interrupt controllers and the Apollo interrupt vector scheme.
       *Verification: probe-driven interrupt ordering vs oracle.*
-      **Awaiting:** the ordering probe itself, which is now *runnable* rather
-      than blocked — every piece it needed landed with the sub-item below. A
-      probe raises a real interrupt from two DUART register writes with no time
-      passing, and `--probe-file`'s `board 1` runs the same program on both
-      sides. What has not happened is running it: raise several lines, record
-      the order they are serviced in, and diff against the oracle.
+      **Awaiting:** a *second* synchronously-raisable interrupt source. The
+      claim here a moment ago — that the probe had become runnable — was wrong
+      in the half that mattered: ordering needs two lines standing at once, and
+      this board has exactly one a program can raise with no time passing. The
+      timer and calendar need the tick loop; the tape's `DONE` needs the DMA
+      channel assignments the DMA item is itself waiting on; the disk has no
+      accessor. Enumerated in `PROJECT_STATUS.md`, since it is a negative.
+      The ordering a *program* sees is now verified through the machine, which
+      is what could be done without the oracle.
   - [x] **The route to that verification exists at last: probes can run on a
         board.** `--probe-file` takes `board 1` and builds a whole core board —
         no boot PROM, since `ap_board_init` needs none and a probe is
@@ -1765,6 +1768,16 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         is CPU space and therefore invisible to a program-space tap. That is why
         no read ever appeared on the controller's range.
         Detail in `PROJECT_STATUS.md`.
+  - [x] **The ordering a program sees**, which is not the ordering
+        `intr_suite` pins: two lines standing at once, resolved through the
+        board's sampling, the CPU's level, the acknowledge, the EOI a handler
+        owes and the second interrupt that only arrives because the first
+        finished. The SIO at master IR1 is serviced before the disk's slave
+        input 6 — losing on the cascade's position at IR3, not on its number —
+        each on its own vector, `A1` then `AE`. Detail in `PROJECT_STATUS.md`.
+        *Verification: `machine_suite` +1 (36). It found that `ICW1` clears the
+        request register, so a line asserted before the controllers are
+        programmed is wiped and, being edge-triggered, never returns.*
   - [x] **The subsystem is reachable at last, which it never was.** Five
         devices carried an IRQ accessor and a line constant and the board wired
         none of them; the CPU's `interrupt_level` is a caller's field and no

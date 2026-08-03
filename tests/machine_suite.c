@@ -10,6 +10,7 @@
 #include <stdio.h>
 
 #include "board/ap_board.h"
+#include "board/ap_disk.h"
 #include "board/ap_dma.h"
 #include "device/ap_mc68681.h"
 #include "board/ap_sio.h"
@@ -1374,8 +1375,133 @@ static void test_an_idle_bus_costs_the_processor_nothing(void) {
   TEST_ASSERT_EQUAL_UINT64(bare.cpu.clocks, boarded.cpu.clocks);
 }
 
+/* Two lines at once, through the whole machine: the controllers resolve, the
+ * processor takes the higher first, and each lands on its own vector.
+ *
+ * `intr_suite` has the priority resolution twelve ways and every one of them
+ * drives `ap_intr_set_request` directly. That is the *controller* ordering. This
+ * is the ordering a program sees, which is a different claim: it goes through
+ * the board's sampling, the CPU's level, the acknowledge cycle, the EOI a
+ * handler owes, and the second interrupt that only arrives because the first
+ * handler finished.
+ *
+ * The cascade is what makes it worth doing. The SIO is master IR1; the disk's
+ * fixed line is slave input 6, which reaches the master through IR3 -- so a
+ * slave interrupt of *higher* number is serviced second not because 14 > 1 but
+ * because the cascade sits at IR3. And it owes two EOIs, one to each part.
+ *
+ * Line 14 is chosen because `ap_board_sample_interrupts` does not drive it: the
+ * disk has no IRQ accessor, so nothing overwrites what the test asserts. A line
+ * the board samples would be cleared on the next instruction. */
+#define ORDER_SENTINEL 0x0600u
+#define HANDLER_SIO 0x0500u
+#define HANDLER_DISK 0x0540u
+
+static unsigned emit_rte(uint16_t *out, unsigned at) {
+  out[at] = 0x4E73u;
+  return at + 1u;
+}
+
+static void write_words(ap_machine_t *m, uint32_t offset, const uint16_t *w,
+                        unsigned n) {
+  for (unsigned i = 0; i < n; i++) {
+    TEST_ASSERT_TRUE(ap_machine_write(m, offset + i * 2u, 2u, w[i]));
+  }
+}
+
+static void test_two_interrupts_at_once_are_serviced_in_priority_order(void) {
+  uint16_t program[80];
+  unsigned n = 0;
+  /* Masked at 7 for the whole of setup, as a driver would be: it is what lets
+   * both sources be standing before either can be taken, which is the only way
+   * to ask a question about *priority* rather than about arrival order. */
+  program[n++] = 0x46FCu; /* MOVE #$2700,SR */
+  program[n++] = 0x2700u;
+
+  const uint8_t master[] = {0x11u, 0xA0u, 0x08u, 0x01u, 0x00u};
+  const uint8_t slave[] = {0x11u, 0xA8u, 0x03u, 0x01u, 0x00u};
+  n = emit_move_b(program, n, master[0], AP_INTR_MASTER_ADDR);
+  for (unsigned i = 1; i < 5u; i++) {
+    n = emit_move_b(program, n, master[i], AP_INTR_MASTER_ADDR + 1u);
+  }
+  n = emit_move_b(program, n, slave[0], AP_INTR_SLAVE_ADDR);
+  for (unsigned i = 1; i < 5u; i++) {
+    n = emit_move_b(program, n, slave[i], AP_INTR_SLAVE_ADDR + 1u);
+  }
+  /* The one device on this board a program can make interrupt with no time
+   * passing. The other line is asserted by the test, below, because there is
+   * no second such device -- see `PROJECT_STATUS.md`. */
+  n = emit_move_b(program, n, 0x05u, AP_SIO1_ADDR + AP_MC68681_CR_A * 2u);
+  n = emit_move_b(program, n, 0x01u, AP_SIO1_ADDR + AP_MC68681_ISR_IMR * 2u);
+  /* Thirteen instructions so far, and the test stops the run here to assert the
+   * second line. Then this one opens the mask and both arrive at once. */
+  /* One instruction per `MOVE.B` emitted plus the status-register write. */
+  const unsigned setup_instructions = 1u + (n - 2u) / 4u;
+  program[n++] = 0x46FCu; /* MOVE #$2000,SR -- mask 0 */
+  program[n++] = 0x2000u;
+  for (unsigned i = 0; i < 8u; i++) {
+    program[n++] = 0x4E71u; /* room for both handlers to run and return */
+  }
+  program[n++] = 0x4E72u;
+  program[n++] = 0x2700u;
+
+  ap_machine_t m;
+  build_board_machine(&m, &first_board, ram, program, n);
+  m.cpu.regs.vbr = AP_BOARD_RAM_BASE;
+
+  /* The SIO's handler: record, EOI the master, return. */
+  uint16_t sio_handler[16];
+  unsigned h = 0;
+  h = emit_move_b(sio_handler, h, 0x01u, AP_BOARD_RAM_BASE + ORDER_SENTINEL);
+  h = emit_move_b(sio_handler, h, 0x20u, AP_INTR_MASTER_ADDR); /* OCW2 EOI */
+  h = emit_rte(sio_handler, h);
+  write_words(&m, HANDLER_SIO, sio_handler, h);
+
+  /* The disk's: "An EOI command must be issued twice if in the Cascade mode,
+   * once for the master and once for the corresponding slave." */
+  uint16_t disk_handler[16];
+  h = 0;
+  h = emit_move_b(disk_handler, h, 0x02u,
+                  AP_BOARD_RAM_BASE + ORDER_SENTINEL + 1u);
+  h = emit_move_b(disk_handler, h, 0x20u, AP_INTR_SLAVE_ADDR);
+  h = emit_move_b(disk_handler, h, 0x20u, AP_INTR_MASTER_ADDR);
+  h = emit_rte(disk_handler, h);
+  write_words(&m, HANDLER_DISK, disk_handler, h);
+
+  TEST_ASSERT_TRUE(ap_machine_write(&m, (0xA0u + AP_SIO_IRQ) * 4u, 4u,
+                                    AP_BOARD_RAM_BASE + HANDLER_SIO));
+  TEST_ASSERT_TRUE(ap_machine_write(&m, (0xA8u + 6u) * 4u, 4u,
+                                    AP_BOARD_RAM_BASE + HANDLER_DISK));
+
+  /* Run the setup with the processor masked, then assert the second line.
+   *
+   * The order matters and cost a run to find: `ICW1` **clears the request
+   * register**, so a line raised before the controllers are programmed is wiped
+   * -- and on an edge-triggered input it never comes back, because the level
+   * never transitions again. The firmware's own sequence ends in `ICW1`, so
+   * anything asserted during a reset is lost by design. Correct hardware, and a
+   * trap for a test that sets its stimulus up first. */
+  const ap_machine_run_t setup = ap_machine_run(&m, setup_instructions);
+  TEST_ASSERT_EQUAL_UINT(setup_instructions, setup.executed);
+  ap_intr_set_request(&first_board.interrupts, AP_DISK_FIXED_IRQ, true);
+
+  const ap_machine_run_t run = ap_machine_run(&m, 128u);
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_STOPPED, run.status);
+
+  uint32_t first = 0, second = 0;
+  TEST_ASSERT_TRUE(ap_machine_read(&m, ORDER_SENTINEL, 1u, &first));
+  TEST_ASSERT_TRUE(ap_machine_read(&m, ORDER_SENTINEL + 1u, 1u, &second));
+
+  /* Both ran, and the master's IR1 was serviced before the cascade at IR3 --
+   * the slave's line losing on its *cascade position*, not on its number. */
+  TEST_ASSERT_EQUAL_HEX8(0x01u, first);
+  TEST_ASSERT_EQUAL_HEX8(0x02u, second);
+  TEST_ASSERT_EQUAL_UINT(0u, m.bus_errors);
+}
+
 int main(void) {
   UNITY_BEGIN();
+  RUN_TEST(test_two_interrupts_at_once_are_serviced_in_priority_order);
   RUN_TEST(test_a_dma_transfer_costs_the_processor_clocks);
   RUN_TEST(test_an_idle_bus_costs_the_processor_nothing);
   RUN_TEST(test_a_device_interrupt_reaches_the_processor_on_its_vector);
