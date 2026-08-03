@@ -7,6 +7,8 @@
 #include "unity.h"
 
 #include "board/ap_atmap.h"
+#include "device/ap_mc146818.h"
+#include "board/ap_board.h"
 #include "model/ap_model.h"
 
 void setUp(void) {}
@@ -257,8 +259,52 @@ static void test_a_headless_server_matches_the_board_it_is_built_from(void) {
   }
 }
 
+/* A map entry is sixteen bits and a 68030 writes it as two byte cycles, so the
+ * board has to put each byte in its own half -- big-endian, so the even address
+ * is the high one.
+ *
+ * It did not. Both halves were written with the whole byte, so an entry set the
+ * only way a program can ended up holding its *second* byte in both halves:
+ * every physical page number above `00FF` was silently truncated, and a DMA
+ * transfer aimed at main memory at `01000000` landed in the boot PROM at zero.
+ * Reads had the mirror of it, returning the low half whichever byte was asked
+ * for.
+ *
+ * Found by a transfer that did not arrive rather than by reading the code, and
+ * pinned here rather than only there: the board's byte lanes are the fact, and
+ * a DMA test proves it only by consequence. */
+static void test_an_entry_written_as_two_bytes_keeps_both_halves(void) {
+  static uint8_t ram[0x2000];
+  static const ap_mc146818_time_t epoch = {
+      .year = 1987u, .month = 7u, .day = 31u, .day_of_week = 6u,
+      .hour = 21u, .minute = 9u, .second = 21u,
+  };
+  static ap_board_t board;
+  TEST_ASSERT_TRUE(ap_board_init(&board, ram, sizeof ram, &epoch, 0x012345u));
+
+  bool ok = false;
+  ap_board_write(&board, AP_ATMAP_BASE + 0u, 0x40u, &ok);
+  TEST_ASSERT_TRUE(ok);
+  ap_board_write(&board, AP_ATMAP_BASE + 1u, 0x00u, &ok);
+  TEST_ASSERT_TRUE(ok);
+
+  /* The whole entry, not the last byte written twice. */
+  TEST_ASSERT_EQUAL_HEX16(0x4000u, ap_atmap_read(&board.translation_map,
+                                                 AP_ATMAP_BASE));
+  TEST_ASSERT_EQUAL_HEX8(0x40u, ap_board_read(&board, AP_ATMAP_BASE + 0u, &ok));
+  TEST_ASSERT_EQUAL_HEX8(0x00u, ap_board_read(&board, AP_ATMAP_BASE + 1u, &ok));
+
+  /* And it translates to where that page number points -- `4000 << 10` is
+   * `01000000`, which is where this machine's main memory begins. So the
+   * consequence the defect had is the thing asserted, not just the storage. */
+  TEST_ASSERT_EQUAL_HEX32(AP_BOARD_RAM_BASE + 0x40u,
+                          ap_atmap_translate(&board.translation_map, 0x0040u,
+                                             AP_ATMAP_TRANSFER_8BIT));
+}
+
 int main(void) {
   UNITY_BEGIN();
+  RUN_TEST(test_an_entry_written_as_two_bytes_keeps_both_halves);
   RUN_TEST(test_a_map_entry_supplies_the_high_sixteen_bits_of_the_address);
   RUN_TEST(test_the_map_translates_into_a_twenty_six_bit_address_space);
   RUN_TEST(test_an_eight_bit_transfer_indexes_sixty_four_entries);

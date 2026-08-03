@@ -172,6 +172,95 @@ uint8_t ap_board_interrupt_acknowledge(ap_board_t *board) {
   return ap_intr_acknowledge(&board->interrupts);
 }
 
+/* Which arbiter line each controller's HRQ appears on. The AT's DRQ0-3 /
+ * DRQ4-7 split, unmeasured on this board; it decides only which of the two
+ * wins a simultaneous request. */
+#define DMA1_ARBITER_LINE 0u
+#define DMA2_ARBITER_LINE 4u
+
+/* The memory side of a transfer. The part drives sixteen bits and the map
+ * supplies the rest -- `019411-A00` §4.2.1.4, and the reason a DMA address is
+ * not a physical one on this machine at all. */
+static uint32_t dma_physical(const ap_board_t *board, uint16_t dma_address) {
+  /* 8-bit, because that is what a channel programmed for byte transfers is and
+   * nothing here yet programs a 16-bit one. The map indexes differently for the
+   * two widths, which `ap_atmap.h` has and this passes through rather than
+   * deciding. */
+  return ap_atmap_translate(&board->translation_map, dma_address,
+                            AP_ATMAP_TRANSFER_8BIT);
+}
+
+static uint8_t dma_memory_read(void *context, uint16_t address) {
+  ap_board_t *board = (ap_board_t *)context;
+  const uint32_t physical = dma_physical(board, address);
+  bool ok = false;
+  return ap_board_read(board, physical, &ok);
+}
+
+static void dma_memory_write(void *context, uint16_t address, uint8_t value) {
+  ap_board_t *board = (ap_board_t *)context;
+  const uint32_t physical = dma_physical(board, address);
+  bool ok = false;
+  ap_board_write(board, physical, value, &ok);
+}
+
+/* The peripheral side, which no device is wired to. Counted, and answering what
+ * nothing driving this bus answers -- all ones, the same value an empty AT slot
+ * already reads here. See `ap_board.h`. */
+static uint8_t dma_device_read(void *context, unsigned channel) {
+  (void)channel;
+  ((ap_board_t *)context)->dma_unwired_transfers++;
+  return 0xFFu;
+}
+
+static void dma_device_write(void *context, unsigned channel, uint8_t value) {
+  (void)channel;
+  (void)value;
+  ((ap_board_t *)context)->dma_unwired_transfers++;
+}
+
+void ap_board_bus_tick(ap_board_t *board) {
+  const ap_i8237_bus_t bus = {
+      .memory_read = dma_memory_read,
+      .memory_write = dma_memory_write,
+      .device_read = dma_device_read,
+      .device_write = dma_device_write,
+      .context = board,
+  };
+
+  /* One request per controller, because an 8237A has one HRQ however many of
+   * its channels are asking. */
+  ap_arbiter_request(&board->arbiter, DMA1_ARBITER_LINE,
+                     ap_i8237_service_pending(&board->dma.controller[0]) >= 0);
+  ap_arbiter_request(&board->arbiter, DMA2_ARBITER_LINE,
+                     ap_i8237_service_pending(&board->dma.controller[1]) >= 0);
+
+  /* The arbitration resolves first, and the master then uses the bus it has
+   * just been given. The other order costs a clock at every handover and, worse,
+   * makes the *first* clock of mastership do nothing -- which reads as a real
+   * arbitration cost and is entirely this function's ordering. */
+  ap_arbiter_tick(&board->arbiter);
+
+  /* A transfer runs only while its controller *holds* the bus -- not while it
+   * is merely asking, and not while the grant is offered and unacknowledged.
+   * §7.7.3 puts real time between those, and collapsing them would make every
+   * handover free and delete the contention this exists to produce. */
+  const int master = ap_arbiter_master(&board->arbiter);
+  if (master == (int)DMA1_ARBITER_LINE) {
+    if (ap_i8237_transfer(&board->dma.controller[0], &bus).ran) {
+      board->dma_transfers++;
+    }
+  } else if (master == (int)DMA2_ARBITER_LINE) {
+    if (ap_i8237_transfer(&board->dma.controller[1], &bus).ran) {
+      board->dma_transfers++;
+    }
+  }
+}
+
+bool ap_board_processor_may_run(const ap_board_t *board) {
+  return ap_arbiter_processor_may_run(&board->arbiter);
+}
+
 const char *ap_board_region_name(ap_board_region_t region) {
   switch (region) {
   case AP_BOARD_REGION_UNMAPPED: return "unmapped";
@@ -218,6 +307,7 @@ bool ap_board_init(ap_board_t *board, uint8_t *ram, uint32_t ram_bytes,
   /* `PROVISIONAL`, and the field's comment says why. Set explicitly rather than
    * left to the `memset` above being zero: the value is a claim about this
    * board, and one that happens to be enumerator zero is still a claim. */
+  ap_arbiter_reset(&board->arbiter);
   board->at_bus_series = AP_ATBUS_SERIES_3000;
   board->ram = ram;
   board->ram_bytes = ram_bytes;
@@ -246,14 +336,21 @@ uint8_t ap_board_read(ap_board_t *board, uint32_t address, bool *ok) {
     return ap_intr_read(&board->interrupts, address);
   case AP_BOARD_REGION_NODE_ID:
     return ap_nodeid_read(&board->node_id, address);
-  case AP_BOARD_REGION_TRANSLATION_MAP:
+  case AP_BOARD_REGION_TRANSLATION_MAP: {
     if (!ap_atmap_decodes_to_entry(address)) {
       if (board->atmap_undescribed_reads == 0u) {
         board->first_atmap_undescribed_read = address;
       }
       board->atmap_undescribed_reads++;
     }
-    return (uint8_t)(ap_atmap_read(&board->translation_map, address) & 0xFFu);
+    /* A map entry is sixteen bits and this path is a byte, so the byte lane
+     * has to be chosen -- big-endian, so the even address is the *high* half.
+     * Returning the low half for both, which this did, makes every entry read
+     * back as its own low byte duplicated. */
+    const uint16_t entry = ap_atmap_read(&board->translation_map, address);
+    return (address & 1u) != 0u ? (uint8_t)(entry & 0xFFu)
+                                : (uint8_t)(entry >> 8);
+  }
   case AP_BOARD_REGION_DISK:
     return ap_disk_read(&board->disk, address);
   case AP_BOARD_REGION_TAPE:
@@ -325,15 +422,28 @@ void ap_board_write(ap_board_t *board, uint32_t address, uint8_t value,
   case AP_BOARD_REGION_INTERRUPT:
     ap_intr_write(&board->interrupts, address, value);
     return;
-  case AP_BOARD_REGION_TRANSLATION_MAP:
+  case AP_BOARD_REGION_TRANSLATION_MAP: {
     if (!ap_atmap_decodes_to_entry(address)) {
       if (board->atmap_undescribed_writes == 0u) {
         board->first_atmap_undescribed_write = address;
       }
       board->atmap_undescribed_writes++;
     }
-    ap_atmap_write(&board->translation_map, address, value);
+    /* Read-modify-write of the addressed half, for the reason the read gives.
+     * Writing the byte as the whole entry -- which this did -- means a program
+     * setting an entry the only way a 68030 can, two byte cycles, ends with the
+     * *second* byte in both halves. Every page number above `00FF` was silently
+     * truncated, so a DMA transfer aimed at main memory at `01000000` landed in
+     * the boot PROM at zero. Found by a transfer that did not arrive, not by
+     * reading this code. */
+    const uint16_t held = ap_atmap_read(&board->translation_map, address);
+    const uint16_t entry =
+        (address & 1u) != 0u
+            ? (uint16_t)((held & 0xFF00u) | (uint16_t)value)
+            : (uint16_t)((held & 0x00FFu) | ((unsigned)value << 8u));
+    ap_atmap_write(&board->translation_map, address, entry);
     return;
+  }
   case AP_BOARD_REGION_DISK:
     ap_disk_write(&board->disk, address, value);
     return;

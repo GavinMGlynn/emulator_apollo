@@ -1801,11 +1801,25 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         *Verification: `i8237_suite` +8 (26) — a count of 3 moving four bytes,
         both directions checked by where the byte landed, autoinitialise
         reloading and staying armed, and three modes that transfer nothing.*
-  - [ ] Remaining: the board driving it. The part moves a byte when asked; what
-        does not exist yet is the board composing the physical address through
-        the translation map, holding the bus at the arbiter for the transfer,
-        and the device request lines gating it at block granularity. That is
-        also what the memory-bus item's contention probe is waiting for.
+  - [x] **The board driving it.** One arbitration point on the board, each
+        controller's single HRQ into it, a transfer while it holds the bus, and
+        the address composed through the translation map. The peripheral side
+        is not wired — which device sits on which channel is unmeasured — so a
+        read or write transfer is counted and reads all ones, while a *verify*
+        transfer needs no device and runs normally, which is what lets the
+        contention measurement be taken before that is settled.
+        **It found a defect only a transfer could**: the board wrote both
+        halves of a 16-bit map entry with the whole byte, truncating every page
+        number above `00FF`, so a transfer aimed at `01000000` landed in the
+        boot PROM at zero. Detail in `PROJECT_STATUS.md`.
+        *Verification: `dma_suite` +4 (10) — the processor loses the bus and
+        gets it back at terminal count, a transfer lands where the map points,
+        and a verify transfer is not an unwired one. `atmap_suite` +1 (16) pins
+        the byte lanes directly.*
+  - [ ] Remaining: the machine stalling for it, and the contention probe. The
+        board holds the bus; what the processor does about it is
+        `ap_machine_run`'s, and the measurement the memory-bus item wants is a
+        probe timing the same program with and without a channel running.
   - [x] Both controllers wired into the board at `010C00` (stride 1) and
         `010D00` (stride 2). `dma_suite`, 6 tests. The AT convention that the
         first controller cascades onto channel 0 of the second is deliberately

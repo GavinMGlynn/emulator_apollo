@@ -32,6 +32,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#include "board/ap_arbiter.h"
 #include "board/ap_atbus.h"
 #include "board/ap_atmap.h"
 #include "board/ap_boardreg.h"
@@ -163,6 +164,27 @@ typedef struct ap_board {
    * driver writing to a PROM and make a harmless write look like a fault. */
   unsigned rom_writes;
   uint32_t first_rom_write;
+
+  /* The board's one arbitration point. Held here because there is one bus and
+   * one priority order for it, and a machine that gave each master its own
+   * would have no contention to be emergent. */
+  ap_arbiter_t arbiter;
+
+  /* DMA transfers this board has run, and the ones it could not complete
+   * because no device is wired to the channel.
+   *
+   * The second is an instrument, not an error path. Which peripheral sits on
+   * which DMA channel is board wiring this machine has not been measured for --
+   * `board/ap_dma.h` refuses to claim even the AT's cascade convention, having
+   * been wrong once already about the interrupt controllers (`FINDINGS.md`
+   * C11) -- so a read or write transfer has no device to move a byte to or
+   * from. It is counted rather than refused, and an unwired channel reads the
+   * value nothing driving this bus reads: all ones, which is what an empty AT
+   * slot already returns on this board. A verify transfer needs no device at
+   * all and runs normally, which is what lets a probe measure contention
+   * without any of this being settled first. */
+  unsigned dma_transfers;
+  unsigned dma_unwired_transfers;
 
   /* The two registers `board/ap_boardreg.h` **declines**: task alias
    * (`010300`) and master request (`011600`). Table 2-8 names both, so the
@@ -320,6 +342,35 @@ void ap_board_sample_interrupts(ap_board_t *board);
  * that autovectored would land on vector 24 + level and be wrong by a hundred
  * and something. */
 [[nodiscard]] uint8_t ap_board_interrupt_acknowledge(ap_board_t *board);
+
+/* ---------------------------------------------------------------------------
+ * The bus, and who is holding it
+ *
+ * One arbitration point, one priority order, and the processor at the bottom of
+ * it -- `[030]` §7.7: "the bus controller in the MC68030 manages the bus
+ * arbitration signals so that the processor has the lowest priority". A DMA
+ * controller with a channel to service asks for the bus, wins it, and runs
+ * transfers until it lets go. The processor does not run in the meantime, and
+ * that is contention: nothing here computes a delay or charges a penalty.
+ * ------------------------------------------------------------------------- */
+
+/* One bus clock. Drives each controller's request into the arbiter, advances
+ * the arbitration, and runs a transfer if a controller is holding the bus.
+ *
+ * ## Each controller asks once, because it has one request output
+ *
+ * An 8237A has a single HRQ, so a controller with any channel asking makes one
+ * request however many are. Which of the arbiter's eight lines each controller
+ * appears on is the AT's DRQ0-3 / DRQ4-7 split; this board has not been
+ * measured for it, and what it decides is only which of the two controllers
+ * wins a simultaneous request. Recorded rather than hidden -- see
+ * `PROJECT_STATUS.md` -- and nothing yet requests from both.
+ */
+void ap_board_bus_tick(ap_board_t *board);
+
+/* Whether the processor may run a cycle this clock. False while a controller
+ * holds the bus, which is the whole of how contention reaches the CPU. */
+[[nodiscard]] bool ap_board_processor_may_run(const ap_board_t *board);
 
 /* Read or write one byte. `ok` reports whether anything answered; an unmapped
  * access is counted and reported rather than quietly returning zero. */
