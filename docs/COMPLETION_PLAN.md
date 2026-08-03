@@ -1776,11 +1776,21 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         first/last flip-flop, command/mode/request/mask/status/temporary,
         master clear, autoinitialise reload and mask-on-terminal-count.
         Detail in `PROJECT_STATUS.md`.
-  - [ ] Transfers. Blocked on the shared arbitration point below, and cleanly
-        so: every register above is programmable and observable without a byte
-        moving, which is exactly what firmware does to a controller it has not
-        yet used. Rotating priority is stored and decoded but its rotation is
-        not kept, because nothing can rotate it until a transfer completes.
+  - [x] **The part's transfer cycle**, now that the arbitration point it was
+        blocked on exists. A service cycle moves a byte either way, verifies
+        without moving one, walks the address up or down, and ends on the
+        borrow out of zero — "the number of transfers is one more than the
+        number programmed", which a model ending at zero gets wrong every
+        time. Cascade and illegal modes run nothing, and memory-to-memory is
+        refused rather than half-run. Detail in `PROJECT_STATUS.md`.
+        *Verification: `i8237_suite` +8 (26) — a count of 3 moving four bytes,
+        both directions checked by where the byte landed, autoinitialise
+        reloading and staying armed, and three modes that transfer nothing.*
+  - [ ] Remaining: the board driving it. The part moves a byte when asked; what
+        does not exist yet is the board composing the physical address through
+        the translation map, holding the bus at the arbiter for the transfer,
+        and the device request lines gating it at block granularity. That is
+        also what the memory-bus item's contention probe is waiting for.
   - [x] Both controllers wired into the board at `010C00` (stride 1) and
         `010D00` (stride 2). `dma_suite`, 6 tests. The AT convention that the
         first controller cascades onto channel 0 of the second is deliberately

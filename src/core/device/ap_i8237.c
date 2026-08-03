@@ -62,6 +62,95 @@ void ap_i8237_set_request_pin(ap_i8237_t *dma, unsigned channel,
   }
 }
 
+ap_i8237_cycle_t ap_i8237_transfer(ap_i8237_t *dma,
+                                   const ap_i8237_bus_t *bus) {
+  ap_i8237_cycle_t out = {0};
+
+  /* "Memory-to-memory is declined" -- refused rather than half-run, so a caller
+   * cannot mistake a silent no-op for a byte moved. */
+  if ((dma->command & AP_I8237_CMD_MEM_TO_MEM) != 0u) {
+    return out;
+  }
+
+  const int pending = ap_i8237_service_pending(dma);
+  if (pending < 0) {
+    return out;
+  }
+  const unsigned channel = (unsigned)pending;
+
+  /* A cascade channel transfers nothing: it exists to pass the request up, and
+   * the bus it wins belongs to whatever asked through it. `board/ap_master.h`
+   * is that route. */
+  if (ap_i8237_mode_of(dma, channel) == AP_I8237_MODE_CASCADE) {
+    return out;
+  }
+
+  const ap_i8237_transfer_t direction = ap_i8237_transfer_of(dma, channel);
+  if (direction == AP_I8237_TRANSFER_ILLEGAL) {
+    /* `[8237]` Figure 5 marks `11` "Illegal". Refused for the same reason the
+     * all-mask register's read returns nothing invented: the datasheet defines
+     * no behaviour, and this core does not supply one. */
+    return out;
+  }
+
+  ap_i8237_channel_t *ch = &dma->channel[channel];
+  const uint16_t address = ch->current_address;
+
+  switch (direction) {
+  case AP_I8237_TRANSFER_WRITE:
+    /* "Write transfers move data from an I/O device to memory" -- named for
+     * what the *memory* sees, which is the opposite of what the name suggests
+     * to anyone reading it as the device's direction. */
+    if (bus->device_read != NULL && bus->memory_write != NULL) {
+      bus->memory_write(bus->context, address,
+                        bus->device_read(bus->context, channel));
+    }
+    out.wrote_memory = true;
+    break;
+  case AP_I8237_TRANSFER_READ:
+    if (bus->memory_read != NULL && bus->device_write != NULL) {
+      bus->device_write(bus->context, channel,
+                        bus->memory_read(bus->context, address));
+    }
+    break;
+  case AP_I8237_TRANSFER_VERIFY:
+    /* "Verify transfers are pseudo transfers. The 8237A operates as in Read or
+     * Write transfers generating addresses, and responding to EOP, etc.
+     * However, the memory and I/O control lines all remain inactive." So the
+     * address and the count advance and no byte moves -- which is why this is a
+     * case rather than an early return. */
+    break;
+  case AP_I8237_TRANSFER_ILLEGAL:
+    break;
+  }
+
+  /* "The Current Address register ... is automatically incremented or
+   * decremented after each transfer", the direction being the mode's bit 5. */
+  if ((ch->mode & AP_I8237_MODE_DECREMENT) != 0u) {
+    ch->current_address = (uint16_t)(ch->current_address - 1u);
+  } else {
+    ch->current_address = (uint16_t)(ch->current_address + 1u);
+  }
+
+  /* "The number of transfers is one more than the number programmed", and the
+   * terminal count "occurs when the value in the register goes from zero to
+   * FFFFH" -- so the decrement happens first and the borrow out of zero is the
+   * end. A model that ended at zero would move one byte too few, every time. */
+  const bool expired = ch->current_count == 0u;
+  ch->current_count = (uint16_t)(ch->current_count - 1u);
+
+  out.ran = true;
+  out.channel = channel;
+  out.address = address;
+  out.terminal_count = expired;
+  if (expired) {
+    /* Autoinitialise reload, the status bit and the mask-on-TC rule are all
+     * this one function's, already written and already tested. */
+    ap_i8237_terminal_count(dma, channel);
+  }
+  return out;
+}
+
 void ap_i8237_terminal_count(ap_i8237_t *dma, unsigned channel) {
   if (channel >= AP_I8237_CHANNELS) {
     return;

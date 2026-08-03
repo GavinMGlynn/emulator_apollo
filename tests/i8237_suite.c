@@ -261,8 +261,258 @@ static void test_two_controllers_reset_alike_hold_identical_state(void) {
   TEST_ASSERT_EQUAL_MEMORY(&a, &b, sizeof a);
 }
 
+/* ---------------------------------------------------------------------------
+ * The transfer cycle
+ * ------------------------------------------------------------------------- */
+
+#define DMA_MEM_BYTES 0x100u
+
+typedef struct {
+  uint8_t memory[DMA_MEM_BYTES];
+  uint8_t device_next;             /* what the peripheral hands over */
+  uint8_t device_taken[16];        /* what it was given */
+  unsigned device_reads;
+  unsigned device_writes;
+} rig_t;
+
+static uint8_t rig_memory_read(void *ctx, uint16_t address) {
+  return ((rig_t *)ctx)->memory[address % DMA_MEM_BYTES];
+}
+static void rig_memory_write(void *ctx, uint16_t address, uint8_t value) {
+  ((rig_t *)ctx)->memory[address % DMA_MEM_BYTES] = value;
+}
+static uint8_t rig_device_read(void *ctx, unsigned channel) {
+  (void)channel;
+  rig_t *r = (rig_t *)ctx;
+  r->device_reads++;
+  return r->device_next++;
+}
+static void rig_device_write(void *ctx, unsigned channel, uint8_t value) {
+  (void)channel;
+  rig_t *r = (rig_t *)ctx;
+  if (r->device_writes < 16u) {
+    r->device_taken[r->device_writes] = value;
+  }
+  r->device_writes++;
+}
+
+static ap_i8237_bus_t rig_bus(rig_t *r) {
+  return (ap_i8237_bus_t){
+      .memory_read = rig_memory_read,
+      .memory_write = rig_memory_write,
+      .device_read = rig_device_read,
+      .device_write = rig_device_write,
+      .context = r,
+  };
+}
+
+/* Program one channel: mode, address, count, unmasked, requesting. `[8237]`
+ * requires the flip-flop cleared before the two-byte pairs, which is the whole
+ * reason register 12 exists. */
+static void arm(ap_i8237_t *d, unsigned channel, uint8_t mode_bits,
+                uint16_t address, uint16_t count) {
+  ap_i8237_write(d, AP_I8237_REG_MODE, (uint8_t)(mode_bits | channel));
+  ap_i8237_write(d, AP_I8237_REG_CLEAR_FLIPFLOP, 0u);
+  ap_i8237_write(d, channel * 2u, (uint8_t)(address & 0xFFu));
+  ap_i8237_write(d, channel * 2u, (uint8_t)(address >> 8));
+  ap_i8237_write(d, channel * 2u + 1u, (uint8_t)(count & 0xFFu));
+  ap_i8237_write(d, channel * 2u + 1u, (uint8_t)(count >> 8));
+  ap_i8237_write(d, AP_I8237_REG_MASK_SINGLE, (uint8_t)channel);
+  ap_i8237_set_request_pin(d, channel, true);
+}
+
+/* "Write transfers move data from an I/O device to memory" -- named for what
+ * the memory sees, which is the opposite of how the word reads. */
+static void test_a_write_transfer_moves_a_device_byte_into_memory(void) {
+  ap_i8237_t d;
+  ap_i8237_reset(&d);
+  rig_t r = {0};
+  r.device_next = 0x5Au;
+  const ap_i8237_bus_t bus = rig_bus(&r);
+
+  /* Single mode, write transfer, increment. */
+  arm(&d, 2u, (uint8_t)((AP_I8237_MODE_SINGLE << 6) | (1u << 2)), 0x0040u, 3u);
+
+  const ap_i8237_cycle_t c = ap_i8237_transfer(&d, &bus);
+  TEST_ASSERT_TRUE(c.ran);
+  TEST_ASSERT_EQUAL_UINT(2u, c.channel);
+  TEST_ASSERT_EQUAL_HEX16(0x0040u, c.address);
+  TEST_ASSERT_TRUE(c.wrote_memory);
+  TEST_ASSERT_FALSE(c.terminal_count);
+  TEST_ASSERT_EQUAL_HEX8(0x5Au, r.memory[0x40]);
+  TEST_ASSERT_EQUAL_UINT(1u, r.device_reads);
+
+  /* "automatically incremented ... after each transfer" */
+  TEST_ASSERT_EQUAL_HEX16(0x0041u, d.channel[2].current_address);
+  TEST_ASSERT_EQUAL_HEX16(2u, d.channel[2].current_count);
+}
+
+/* And the other direction, which addresses memory and merely selects the
+ * device: the callback takes a channel, because `DACK` is what picks the
+ * peripheral and no address ever reaches it. */
+static void test_a_read_transfer_hands_a_memory_byte_to_the_device(void) {
+  ap_i8237_t d;
+  ap_i8237_reset(&d);
+  rig_t r = {0};
+  r.memory[0x10] = 0xC3u;
+  const ap_i8237_bus_t bus = rig_bus(&r);
+
+  arm(&d, 0u, (uint8_t)((AP_I8237_MODE_SINGLE << 6) | (2u << 2)), 0x0010u, 0u);
+
+  const ap_i8237_cycle_t c = ap_i8237_transfer(&d, &bus);
+  TEST_ASSERT_TRUE(c.ran);
+  TEST_ASSERT_FALSE(c.wrote_memory);
+  TEST_ASSERT_EQUAL_UINT(1u, r.device_writes);
+  TEST_ASSERT_EQUAL_HEX8(0xC3u, r.device_taken[0]);
+}
+
+/* "The number of transfers is one more than the number programmed", and the
+ * terminal count comes when the count "goes from zero to FFFFH". A model that
+ * ended at zero would move one byte too few every time, which is the sort of
+ * error that looks like an off-by-one in the driver. */
+static void test_a_count_of_n_moves_n_plus_one_bytes(void) {
+  ap_i8237_t d;
+  ap_i8237_reset(&d);
+  rig_t r = {0};
+  r.device_next = 1u;
+  const ap_i8237_bus_t bus = rig_bus(&r);
+
+  arm(&d, 1u, (uint8_t)((AP_I8237_MODE_BLOCK << 6) | (1u << 2)), 0x0000u, 3u);
+
+  unsigned moved = 0;
+  bool ended = false;
+  for (unsigned i = 0; i < 8u && !ended; i++) {
+    const ap_i8237_cycle_t c = ap_i8237_transfer(&d, &bus);
+    if (!c.ran) {
+      break;
+    }
+    moved++;
+    ended = c.terminal_count;
+  }
+
+  TEST_ASSERT_TRUE(ended);
+  TEST_ASSERT_EQUAL_UINT(4u, moved);
+  TEST_ASSERT_EQUAL_HEX8(1u, r.memory[0]);
+  TEST_ASSERT_EQUAL_HEX8(4u, r.memory[3]);
+
+  /* And the terminal count did what the register rules say: status bit set,
+   * and the channel masked because it is not autoinitialising. */
+  TEST_ASSERT_EQUAL_HEX8(0x02u, (uint8_t)(d.status & 0x0Fu));
+  TEST_ASSERT_EQUAL_HEX8(0x02u, (uint8_t)(d.mask & 0x02u));
+}
+
+/* Autoinitialise reloads and does *not* mask, so the channel free-runs -- the
+ * difference between a transfer that must be reprogrammed and one that does
+ * not. Already tested at the register level; here it is the transfer that
+ * reaches it. */
+static void test_an_autoinitialising_channel_reloads_and_stays_armed(void) {
+  ap_i8237_t d;
+  ap_i8237_reset(&d);
+  rig_t r = {0};
+  const ap_i8237_bus_t bus = rig_bus(&r);
+
+  arm(&d, 3u,
+      (uint8_t)((AP_I8237_MODE_BLOCK << 6) | AP_I8237_MODE_AUTOINIT | (1u << 2)),
+      0x0020u, 1u);
+
+  (void)ap_i8237_transfer(&d, &bus);
+  const ap_i8237_cycle_t last = ap_i8237_transfer(&d, &bus);
+  TEST_ASSERT_TRUE(last.terminal_count);
+
+  TEST_ASSERT_EQUAL_HEX16(0x0020u, d.channel[3].current_address);
+  TEST_ASSERT_EQUAL_HEX16(1u, d.channel[3].current_count);
+  TEST_ASSERT_EQUAL_HEX8(0u, (uint8_t)(d.mask & 0x08u));
+}
+
+/* Decrement mode walks the other way, which is bit 5 of the mode byte and not
+ * a property of the direction of the data. */
+static void test_decrement_mode_walks_the_address_downwards(void) {
+  ap_i8237_t d;
+  ap_i8237_reset(&d);
+  rig_t r = {0};
+  const ap_i8237_bus_t bus = rig_bus(&r);
+
+  arm(&d, 0u,
+      (uint8_t)((AP_I8237_MODE_SINGLE << 6) | AP_I8237_MODE_DECREMENT |
+                (1u << 2)),
+      0x0080u, 2u);
+
+  (void)ap_i8237_transfer(&d, &bus);
+  TEST_ASSERT_EQUAL_HEX16(0x007Fu, d.channel[0].current_address);
+}
+
+/* "Verify transfers are pseudo transfers ... the memory and I/O control lines
+ * all remain inactive." The address and count still advance, which is why this
+ * is a transfer that happened rather than one that was refused. */
+static void test_a_verify_transfer_advances_but_moves_nothing(void) {
+  ap_i8237_t d;
+  ap_i8237_reset(&d);
+  rig_t r = {0};
+  const ap_i8237_bus_t bus = rig_bus(&r);
+
+  arm(&d, 0u, (uint8_t)((AP_I8237_MODE_SINGLE << 6) | (0u << 2)), 0x0004u, 1u);
+
+  const ap_i8237_cycle_t c = ap_i8237_transfer(&d, &bus);
+  TEST_ASSERT_TRUE(c.ran);
+  TEST_ASSERT_EQUAL_UINT(0u, r.device_reads);
+  TEST_ASSERT_EQUAL_UINT(0u, r.device_writes);
+  TEST_ASSERT_EQUAL_HEX16(0x0005u, d.channel[0].current_address);
+}
+
+/* A cascade channel transfers nothing: it passes the request up, and the bus it
+ * wins belongs to whatever asked through it. An illegal mode transfers nothing
+ * either, because Figure 5 defines no behaviour for `11` and this core does not
+ * supply one. Memory-to-memory is refused outright rather than half-run. */
+static void test_three_modes_run_no_transfer_at_all(void) {
+  rig_t r = {0};
+  const ap_i8237_bus_t bus = rig_bus(&r);
+
+  ap_i8237_t cascade;
+  ap_i8237_reset(&cascade);
+  arm(&cascade, 0u, (uint8_t)(AP_I8237_MODE_CASCADE << 6), 0x0000u, 1u);
+  TEST_ASSERT_FALSE(ap_i8237_transfer(&cascade, &bus).ran);
+
+  ap_i8237_t illegal;
+  ap_i8237_reset(&illegal);
+  arm(&illegal, 0u, (uint8_t)((AP_I8237_MODE_SINGLE << 6) | (3u << 2)), 0u, 1u);
+  TEST_ASSERT_FALSE(ap_i8237_transfer(&illegal, &bus).ran);
+
+  ap_i8237_t mem_to_mem;
+  ap_i8237_reset(&mem_to_mem);
+  arm(&mem_to_mem, 0u, (uint8_t)((AP_I8237_MODE_BLOCK << 6) | (1u << 2)), 0u,
+      1u);
+  ap_i8237_write(&mem_to_mem, AP_I8237_REG_STATUS_COMMAND,
+                 AP_I8237_CMD_MEM_TO_MEM);
+  TEST_ASSERT_FALSE(ap_i8237_transfer(&mem_to_mem, &bus).ran);
+
+  TEST_ASSERT_EQUAL_UINT(0u, r.device_reads);
+  TEST_ASSERT_EQUAL_UINT(0u, r.device_writes);
+}
+
+/* A masked channel is not asking, so nothing runs however hard its pin is
+ * pulled -- the priority encoder's rule, reached through the transfer. */
+static void test_a_masked_channel_transfers_nothing(void) {
+  ap_i8237_t d;
+  ap_i8237_reset(&d);
+  rig_t r = {0};
+  const ap_i8237_bus_t bus = rig_bus(&r);
+
+  arm(&d, 2u, (uint8_t)((AP_I8237_MODE_SINGLE << 6) | (1u << 2)), 0x0040u, 3u);
+  ap_i8237_write(&d, AP_I8237_REG_MASK_SINGLE, (uint8_t)(0x04u | 2u));
+
+  TEST_ASSERT_FALSE(ap_i8237_transfer(&d, &bus).ran);
+}
+
 int main(void) {
   UNITY_BEGIN();
+  RUN_TEST(test_a_write_transfer_moves_a_device_byte_into_memory);
+  RUN_TEST(test_a_read_transfer_hands_a_memory_byte_to_the_device);
+  RUN_TEST(test_a_count_of_n_moves_n_plus_one_bytes);
+  RUN_TEST(test_an_autoinitialising_channel_reloads_and_stays_armed);
+  RUN_TEST(test_decrement_mode_walks_the_address_downwards);
+  RUN_TEST(test_a_verify_transfer_advances_but_moves_nothing);
+  RUN_TEST(test_three_modes_run_no_transfer_at_all);
+  RUN_TEST(test_a_masked_channel_transfers_nothing);
   RUN_TEST(test_reset_masks_every_channel);
   RUN_TEST(test_an_address_register_takes_two_bytes_low_first);
   RUN_TEST(test_one_flip_flop_serves_every_channel);

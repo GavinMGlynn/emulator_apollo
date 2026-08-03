@@ -138,6 +138,73 @@ void ap_i8237_set_request_pin(ap_i8237_t *dma, unsigned channel, bool asserted);
  * the hand-off point to the arbiter when one exists; nothing here moves data. */
 [[nodiscard]] int ap_i8237_service_pending(const ap_i8237_t *dma);
 
+/* ---------------------------------------------------------------------------
+ * The transfer cycle
+ *
+ * `[8237]`: a service cycle moves one byte between memory and the peripheral
+ * the acknowledge selects, adjusts the channel's current address and word
+ * count, and ends the whole transfer when the count expires.
+ *
+ * ## The part gives sixteen bits of address, and that is all it has
+ *
+ * An 8237A drives A0-A15. On an AT the upper bits come from a page register;
+ * on this machine they come from the address translation map, which is
+ * `board/ap_atmap.h`'s business and not this module's. So the cycle reports the
+ * 16-bit address it drove and the caller composes the physical one -- the same
+ * division as everywhere else here, where the part is the part and the board is
+ * the board.
+ *
+ * ## What the peripheral side is, and is not
+ *
+ * A DMA read or write does not address the device: it is selected by `DACK`
+ * and the data moves on `IOR`/`IOW` with no address at all. The callbacks
+ * therefore take a *channel*, not an address, which is what the hardware does
+ * and also what stops a caller inventing a register for a device to be read
+ * from.
+ *
+ * ## Memory-to-memory is declined
+ *
+ * `[8237]`'s command bit 0 pairs channel 0 with channel 1 through the temporary
+ * register. It is not modelled: the transfer is a two-cycle sequence with its
+ * own rules for the address-hold bit, and nothing on this board is known to use
+ * it. Declined rather than half-done -- `ap_i8237_transfer` refuses a service
+ * cycle while the bit is set and says so, so a caller cannot mistake silence
+ * for a transfer. Cost to close: implement the read-then-write pair with the
+ * temporary register; small, and blocked on nothing but a reason.
+ * ------------------------------------------------------------------------- */
+
+/* Memory is addressed; the peripheral is selected. */
+typedef uint8_t (*ap_i8237_memory_read_fn)(void *context, uint16_t address);
+typedef void (*ap_i8237_memory_write_fn)(void *context, uint16_t address,
+                                         uint8_t value);
+typedef uint8_t (*ap_i8237_device_read_fn)(void *context, unsigned channel);
+typedef void (*ap_i8237_device_write_fn)(void *context, unsigned channel,
+                                         uint8_t value);
+
+typedef struct {
+  ap_i8237_memory_read_fn memory_read;
+  ap_i8237_memory_write_fn memory_write;
+  ap_i8237_device_read_fn device_read;
+  ap_i8237_device_write_fn device_write;
+  void *context;
+} ap_i8237_bus_t;
+
+/* What one service cycle did. `ran` false means no channel was asking, or the
+ * one that was cannot transfer -- a cascade channel, or an illegal or
+ * memory-to-memory mode -- and the other fields are then meaningless. */
+typedef struct {
+  bool ran;
+  unsigned channel;
+  uint16_t address;    /* the sixteen bits the part drove */
+  bool wrote_memory;   /* which direction, for a caller that wants to know */
+  bool terminal_count; /* the count expired on this cycle */
+} ap_i8237_cycle_t;
+
+/* Run one transfer. Whether the part is *allowed* to run one -- whether it has
+ * the bus -- is the arbiter's question and the caller's to have answered; this
+ * moves the byte. */
+ap_i8237_cycle_t ap_i8237_transfer(ap_i8237_t *dma, const ap_i8237_bus_t *bus);
+
 /* Signal terminal count on a channel: the effect an EOP has on the registers.
  * Separated from any transfer so the register behaviour -- status bit, mask set
  * unless autoinitialise, reload from the base registers -- can be exercised

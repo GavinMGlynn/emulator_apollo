@@ -3407,7 +3407,7 @@ failure that cost a bit position in the 68020's module entry word.
 | DN3500 core-board address map (`board/ap_board.c`) | working: every device placed by `008778-03` Table 2-8 and by the measurement that confirmed it, main memory at `1000000`, and an unclaimed address reported **unmapped rather than zero** — the distinction flat RAM hid, which cost 5634 invisible accesses in the first firmware run. Regions are named, so a trace can say *what* the firmware reached for. The AT windows declare a cycle time and everything else answers at the minimum, and an access to the translation map's undescribed seven eighths is counted rather than silently aliased, and each of the two declined core registers is counted apart | `board_suite`, 17 tests; `atbus_suite`, 8 tests |
 | Shared bus arbitration point | working: the external priority encoder `[030]` §7.7 requires, DRQ0 through DRQ7 with the processor last, driving the CPU's own arbitration unit over the three-wire protocol. A grant and its acknowledgement are separate instants, so the processor stops driving the bus when it grants rather than when the grant is taken up; a master is never pre-empted mid-transfer | `arbiter_suite`, 9 tests, `MC68030 User's Manual 3ed` §7.7, `008778-03` §2.4.6 |
 | Apollo DMA controllers (`010C00`, `010D00`) | working: DMA 1 at **stride 1** and DMA 2 at **stride 2**, both measured, both aliased through their ranges. A read of a write-only register returns zero where the oracle returns `0F`; `[8237]` marks that read "Illegal", so neither is specified and ours does not invent a register value | `dma_suite`, 6 tests; `FINDINGS.md` C13 |
-| Intel 8237A DMA controller (the part) | **programming model complete**: all sixteen register addresses, four channels with base and current address/count, the single shared first/last flip-flop, command/mode/request/mask/status/temporary, master clear, autoinitialise reload and the mask-on-terminal-count rule. Transfers themselves are **not** modelled and cannot be until there is a shared arbitration point to run a cycle on — a real dependency, not a scoping choice. Not yet wired to the board | `i8237_suite`, 18 tests, `8237A` 231466 |
+| Intel 8237A DMA controller (the part) | **programming model and transfer cycle complete**: all sixteen register addresses, four channels with base and current address/count, the single shared first/last flip-flop, command/mode/request/mask/status/temporary, master clear, autoinitialise reload and the mask-on-terminal-count rule; and a service cycle that moves a byte either way, verifies without moving one, walks the address up or down, and ends on the borrow out of zero rather than at zero. Memory-to-memory is refused outright rather than half-run. The part drives sixteen bits of address and the board composes the rest — not yet wired to the board | `i8237_suite`, 26 tests, `8237A` 231466 |
 | Apollo interval timer (`010800`) | working: the part at **odd addresses, stride 2** (measured — the region reads `00 00 00 00 00 FF ...`, the `FFFF` latch default showing through), the three §3.8 input rates as exact time-base clock domains, and the IRQ0 route. Advancing is by whole pulses, so the rate cannot become a function of how often it is polled | `timer_suite`, 8 tests; `FINDINGS.md` C12 |
 | MC6840 interval timer (the part) | working for **both counting modes** — continuous and single shot, each in sixteen-bit and dual eight-bit operation — plus both control register aliases, the write/read byte buffering, the status register, the prescaler, the gate, and all five of `[6840]` §3.11's ways of clearing an interrupt. The two **measurement modes** are decoded and declined: they time a signal on a timer's gate pin, and nothing on this board drives the gates | `mc6840_suite`, 28 tests, `MC6840UM` (a scan with no text layer; read from page images) |
 | Apollo calendar (`010900`) | working: **stride 1, byte consecutive** (measured — and not the timer's odd-address stride 2, so neither placement could be inferred from the other), sixty-four registers aliased through the 256-byte range, and the IRQ8 route through to vector `A8` | `calendar_suite`, 5 tests; `FINDINGS.md` C12 |
@@ -4409,6 +4409,44 @@ paper over" — where MAME returns `0F`, which is what `FINDINGS.md` C13 used as
 placement fingerprint. Neither is wrong: the datasheet defines no value. It is
 registered here so that the first board-backed oracle diff does not read it as a
 defect.
+
+#### The 8237's transfer cycle, and the off-by-one the datasheet warns about
+
+The part could be programmed and observed entire and could not move a byte,
+which was a real dependency rather than a scoping choice: a transfer is a bus
+cycle run by something other than the processor, and there was no arbitration
+point. There is one now, so the cycle lands.
+
+**The count ends on the borrow, not at zero.** `[8237]`: "The number of
+transfers is one more than the number programmed", and the terminal count comes
+when the count "goes from zero to FFFFH". A model that stopped at zero would
+move one byte too few on every transfer — an error that surfaces as an
+off-by-one in whichever driver is being debugged rather than in the controller.
+The test arms a count of 3 and asserts four bytes moved.
+
+**"Write" is named for what the memory sees.** A write transfer moves data
+*from* the I/O device *to* memory, which reads backwards to anyone taking the
+word as the device's direction. Both directions are tested by where the byte
+ends up rather than by the enumerator's name.
+
+**The peripheral side takes a channel, not an address.** A DMA transfer selects
+its device with `DACK` and moves data on `IOR`/`IOW` with no address at all, so
+the callbacks are given the channel. That is what the hardware does, and it also
+removes the temptation to invent a register for a device to be read from.
+
+**The part drives sixteen bits and the board composes the rest.** An 8237A has
+A0-A15; on an AT the top comes from a page register and on this machine from the
+address translation map. The cycle reports the address it drove and stops there,
+which keeps the part the part.
+
+**Three modes run nothing, each for its own stated reason.** A cascade channel
+passes its request up and the bus belongs to whatever asked through it
+(`board/ap_master.h`). Figure 5 marks transfer type `11` "Illegal" and defines
+no behaviour, so this core supplies none. Memory-to-memory is refused outright:
+it is a two-cycle sequence through the temporary register with its own
+address-hold rules, nothing on this board is known to use it, and refusing means
+a caller cannot mistake silence for a transfer. That last is a recorded
+approximation with a cheap cost to close.
 
 #### A complete interrupt subsystem that nothing had ever reached
 
@@ -6415,7 +6453,7 @@ itself needed a deliberate probe.
 
 #### The 8237A's programming model, entire: all sixteen register addresses
 
-`i8237_suite`, 18 tests.
+`i8237_suite`, 26 tests.
 
 #### The MC146818A itself: clock bytes, registers, RAM, the update cycle
 
