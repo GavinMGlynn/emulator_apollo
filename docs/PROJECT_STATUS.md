@@ -3413,7 +3413,7 @@ failure that cost a bit position in the 68020's module entry word.
 | Apollo calendar (`010900`) | working: **stride 1, byte consecutive** (measured — and not the timer's odd-address stride 2, so neither placement could be inferred from the other), sixty-four registers aliased through the 256-byte range, and the IRQ8 route through to vector `A8` | `calendar_suite`, 5 tests; `FINDINGS.md` C12 |
 | MC146818A calendar (the part) | working: ten clock bytes, four registers, 50 RAM bytes, the once-per-second update with a full Gregorian carry, the alarm with don't-care codes, and Register C's read-to-clear. **Time is supplied by the caller, never the host** — the oracle seeds its calendar from the wall clock, which would rot every golden. The **periodic interrupt** is implemented for the nine rates that divide the time base (512 Hz to 2 Hz); the six fastest are refused rather than rounded, because `AP_TIME_BASE_HZ` factors as 2^9·3·5^8·11 and they need 2^15. Square wave and daylight-savings shifts are declined. Not yet wired to the board at `010900` | `mc146818_suite`, 29 tests, `MC146818A` (register figures read from page images) |
 | Node ID PROM (`011200`) | working: the layout measured from the oracle's own PROM — stride 2 with the **odd byte reading zero** (unlike the serial ports at the same stride), the identifier big-endian in registers 0-3, and a checksum in register 14 confirmed arithmetically (`01 + 23 + 45 = 69`). The identifier is supplied by the caller, never a constant: a device whose purpose is to be unique per machine must not be the same on every one | `nodeid_suite`, 6 tests |
-| Apollo serial ports (`010400`, `010500`) | working: both DUARTs at **stride 2** (measured), sixteen registers over thirty-two bytes and aliased, sharing IRQ1 through to vector `A1`. The memory-refresh square wave of §3.9 is pinned at exactly 99000 base units — its *frequency*, 66666.67 Hz, is not an integer, so a core counting in hertz could not represent this board's refresh clock at all | `sio_suite`, 10 tests; `FINDINGS.md` C14 |
+| Apollo serial ports (`010400`, `010500`) | working: both DUARTs at **stride 2** (measured), sixteen registers over thirty-two bytes and aliased, sharing IRQ1 through to vector `A1`. The memory-refresh square wave of §3.9 runs: the counter is clocked at the DUART's X1 and produces a 15 microsecond period from the boot PROM's own preload. Its *frequency*, 66666.67 Hz, is not an integer, so a core counting in hertz could not represent this board's refresh clock at all | `sio_suite`, 14 tests; `FINDINGS.md` C14 |
 | MC68681 / SCN2681 DUART (the part) | **programming model complete**: all sixteen register addresses of `[68681]` Table 4-1, both channels' mode registers with their shared pointer, clock-select, command and status registers, the three-deep receive FIFO with overrun, the interrupt status and mask registers, the input and output ports, and the counter/timer with both address-triggered commands. Serial framing itself — baud rates, start/stop bits, parity, the echo and loopback modes — is **not** modelled: a character is handed over whole. Not yet wired to the board | `mc68681_suite`, 34 tests, `MC68681 DUART Sep85` |
 | QIC-02 tape drive | working for the readable half of the command set: both SELECTs with the sticky selection and the soft lock, BOT, RETENSION, SELECT Q24, READ and READ STATUS. **Writing is refused rather than discarded** — there is no write-back path, and accepting a write would let an installation appear to succeed. The cartridge *type* is supplied by the caller, because the controller derives it from tape geometry a raw image does not carry. The two opcodes the scan lost are claimed by nothing | `qic_suite`, 12 tests; `FINDINGS.md` C25 |
 | Cartridge tape images (`image/ap_ct.c`) | working: block addressing over a raw `.ct` image, refusing any size that is not a whole number of 512-byte blocks, and boot-record parsing that returns the four header words. Their reading as load address and entry point is now **confirmed by the boot code itself** — its first instruction, a PC-relative `LEA`, computes word 0 exactly when executed at word 1, so the image proves its own layout. `ap_ct_boot_image` therefore *names* load address, entry point and length, and refuses a cartridge that does not announce itself, or whose header describes more than the file holds. Takes memory, never a filename, so `src/core` keeps its zero file I/O and the tests need no gitignored media | `ct_suite`, 12 tests; `FINDINGS.md` C24 |
@@ -3807,7 +3807,7 @@ Cited as `[CFG]` = HP-Apollo Products Configuration Guide, Dec 1989.
 
 ### Time base
 
-`AP_TIME_BASE_HZ = 6.6 GHz = LCM(12, 20, 24, 25, 33 MHz)`, giving exact integer
+`AP_TIME_BASE_HZ = 19.8 GHz = LCM(12, 20, 24, 25, 33 MHz)`, giving exact integer
 periods: 550 units at 12 MHz, 330 at 20 MHz, 275 at 24 MHz, 264 at 25 MHz, 200
 at 33 MHz, and a 12 Mbit/s ring bit cell of 550 units built from two 275-unit
 bi-phase windows. This is a *derived* constant — adding a clock it does not
@@ -3895,7 +3895,7 @@ phrase.
 | 68851 `U` and `M` write-back | **Implemented and wired.** A search returns the path of descriptors it read; `ap_m68851_status_writes` produces the byte cycles §5.1.5.3.11's table calls for; and `ap_m68851_translate` and `ap_m68851_pload` drive them through a `store` callback so the bits reach memory. The status byte is the fourth of the descriptor in both formats -- `U` is bit 35 of a long descriptor and bit 3 of a short one, `M` bit 36 and bit 4, and in each case that is bit 3 and bit 4 of `address + 3` | No longer provisional. Four readings, each sourced. **A descriptor already carrying the right bits produces no cycle**: the part "only performs write cycles to modify these bits are required". **The cycle type is specification**: a read-modify-write "whenever it is required to set the used bit but not affect the state of the modified bit", so two MMUs sharing a tree cannot lose each other's `M`; pointer descriptors, which "do not contain modified bits, are not referenced using read-modify-write sequences". **The path survives a fault** -- "a pointer may be fetched, and its U bit set, for an address to which access is denied at another level of the tree". And **`PTEST` must not write at all**: "U and M bits in the translation table are not modified by this instruction", where `PLOADW` updates "as if a write operation to that address had occurred" and `PLOADR` as if a read | Closed. `ap_m68851_ptest` takes no `store` parameter, so a probe *cannot* mark a page used -- the omission is how the manual's rule is enforced rather than merely documented. Two judgements remain readings rather than quotations: the descriptor that *causes* a denial is not marked (the manual covers the pointers above it and is silent on it, and `U` exists for page replacement, which an invalid descriptor has no part in), and a `NULL` store leaves the tables unchanged for a caller with no write path |
 | SC-499 command handshake timings | the documented bounds | `[SC499]` §1.13.2 publishes *bounds*, not values — "0 us < T3->T4 < 150 us" says the device hands the bus back within 150 microseconds and nothing about when. Modelled at the bound, so every handshake runs at its slowest permitted speed: wrong in a knowable direction and by a knowable amount. All nine convert exactly to base units, so none is rounded on top of being provisional | Measure edge timings against a running drive, which needs the oracle's tape path exercised; small. Affects only a driver watching for the edges themselves — a polling driver cannot observe the difference |
 | 68030 asynchronous input synchroniser | two clocks, giving a three-clock `BR`-to-`BG` grant latency | `[030]` §7.7.4 publishes a bound and not a value: "all asynchronous inputs to the MC68030 are internally synchronized in a maximum of two cycles of the processor clock". The actual delay depends on where the input edge falls relative to the clock, so it is genuinely a range and one clock is as legal as two. **Narrowed by the electrical specification**, which the user's manual defers to and which was not on disk until it was fetched: `MC68030EC/D` p. 7, parameter 35, "BR Asserted to BG Asserted (RMC Not Asserted)" is **1.5 to 3.5 clocks**, identical at 20 through 50 MHz, and parameter 37 gives the same window to BGACK-to-BG-negated. A two-clock spread between min and max is one synchroniser's worth of uncertainty — the specification agreeing this is a range rather than a figure withheld. Our three clocks sit inside it, and so would the two-clock alternative | **Not measurable against the oracle, and the previous entry here was wrong to say so**: MAME's 68000 family models no bus arbitration at all — no `BR`, `BG` or `BGACK` anywhere in `ext/mame/src/devices/cpu/m68000/` — so no second master in that emulator could ever produce a grant to time. What remains is sub-clock phase, which nothing clock-stepped represents. Closable only from hardware, or by accepting the published envelope as the answer; `arb_suite` now asserts we stay inside it |
-| MC146818A periodic interrupt, six fastest rates | not modelled | `[146818]` Table 5's rates are 32768/2^n Hz. `AP_TIME_BASE_HZ` factors as 2^9·3·5^8·11, so 1.024 kHz through 32.768 kHz are not exactly representable and `ap_clock_init` refuses them. Not an approximation — the nine slower rates are exact and implemented, and the fast six are reported unsupported rather than rounded | Recompute the time base: including 32.768 kHz costs a factor of 64 and drops the representable span from 88.6 years to 505 days. Including the part's own 4.194304 MHz crystal would cost 8192x and leave 3.95 days, so the crystal can never be a clock domain in a 64-bit base at all. Cheap to do, and deliberately not done while nothing is observed using those rates |
+| MC146818A periodic interrupt, six fastest rates | not modelled | `[146818]` Table 5's rates are 32768/2^n Hz. `AP_TIME_BASE_HZ` factors as 2^9·3^2·5^8·11, so 1.024 kHz through 32.768 kHz are not exactly representable and `ap_clock_init` refuses them. Not an approximation — the nine slower rates are exact and implemented, and the fast six are reported unsupported rather than rounded | Recompute the time base: including 32.768 kHz costs a factor of 64 and drops the representable span from 29.5 years to 168 days. Including the part's own 4.194304 MHz crystal would cost 8192x and leave about a day and a third, so the crystal can never be a clock domain in a 64-bit base at all. Cheap to do, and deliberately not done while nothing is observed using those rates |
 | 68030 long bus fault frame's internal registers | Stacked as **zero**. This model has no microsequencer state to save, so the fields Table 8-6 labels INTERNAL REGISTER are written rather than skipped — a stated value, where a skipped word would leave whatever the stack already held | `[030]` Table 8-6 | An `RTE` resuming a fault *mid-instruction* cannot work from a zeroed frame |
 | 68030 full-format effective address rows: which of §11.6.1's two groups an encoding selects | A **word** base displacement is free when the base is a register and costs 2 clocks when it is suppressed; a long one is never free | §11.6.1 publishes its full-format rows in two groups, one written `d16,An` and one written `B` — and its own footnote defines `B` as "0, An, PC, Xn, An + Xn, PC + Xn. Form does not affect timing", which makes the groups overlap and contradict: `(d16,An)` is 6 clocks and `(d16,B)` is 8. The reading is what makes the table consistent — **every** group A row equals its group B row with the base displacement dropped, all eight with no counterexample — and the head column agrees independently, 2 for the free rows against 4. `MC68020 User's Manual` §9.2.1 corroborates from outside: the same table with the same footnotes and *no* `d16,An` group at all, its `(d16,An)` costing 2 more than its `(B)`, so the free displacement is a 68030 addition. Strong, and still a reading | Three readings through `steptime.lua`: a full-format `(d16,An)` with the index suppressed, the same with it present, and a null base displacement as a control both readings agree on — so a disagreement there means the transcription is wrong rather than the mapping. Small, and the harness exists. Affects every full-format effective address by up to 2 clocks, never the address it computes |
 | 68882 microcode version number | a stated non-zero choice, carried in every `FSAVE` state frame's format word | "The version number is an 8-bit value that identifies the microcode version of the FPCP, and **the format of this number is defined internally by the FPCP**" -- so no manual publishes a value for any part and there is nothing to transcribe. The only property the documents make observable is self-consistency: `FRESTORE` must accept what `FSAVE` wrote, and version 0 is the wild card that must be accepted whatever the part reports. Both hold for any non-zero choice, which is exactly why the choice is unconstrained rather than merely unknown | Read it from a real part, or instrument the oracle and read back the format word MAME's 68882 writes. Cheap either way, and worth doing only if some firmware is found to test the field rather than round-trip it |
@@ -4409,6 +4409,51 @@ paper over" — where MAME returns `0F`, which is what `FINDINGS.md` C13 used as
 placement fingerprint. Neither is wrong: the datasheet defines no value. It is
 registered here so that the first board-backed oracle diff does not read it as a
 defect.
+
+#### The memory refresh, a derived crystal, and the off-by-one it caught
+
+§3.9 gives the DUART one job that has nothing to do with serial lines: the
+counter/timer "is set up in the timer mode to produce a square wave output on
+output OP3. The period of the output is 15 microseconds." Until something
+advanced the counter, that square wave had no period at all — the counter was a
+register model with no clock, which is why this was the tick loop's other open
+child as well as the SIO item's.
+
+**X1 is derived, and from two facts rather than one.** No manual here states the
+DUART's crystal. §3.9 states the output period; the firmware states the preload,
+read out of this core after a boot of `3500_BOOT_12191_7` — serial 1's `ACR` is
+`E0`, its counter preload is **27**, timer mode, running. `ACR[6:4]` of `110` is
+"Timer, clock source X1/CLK", and a square wave is two terminal counts, so 54
+counter clocks span 15 µs and **X1 is 3.6 MHz exactly**.
+
+The self-consistency is the evidence. At 3.6 MHz a preload of 27 gives *exactly*
+15 µs, where the part's conventional 3.6864 MHz crystal would give 14.65 and
+force §3.9's figure to be a rounding. And `sio_suite` asserts the agreement
+rather than restating the constant: change the period, the preload or the rate
+and the test fails instead of quietly redefining the crystal.
+
+**The time base is recomputed, for the second time.** 3.6 MHz does not divide
+6.6 GHz — 1833.33 units — so the refresh could not be a clock domain at all
+until `AP_TIME_BASE_HZ` was tripled to **19.8 GHz**. `CLAUDE.md` anticipates
+exactly this: the base is derived, and a clock it does not divide means
+recomputing it, which changes the unit and no behaviour. The tripling is safe by
+construction — every frequency that divided the old base divides three times it —
+and the span drops from 88.6 years to 29.5, which is not a constraint any run
+approaches. Ten base-unit literals moved with it, and every test asserting a
+period in units had to be retuned: that churn *is* the unit change, and it is
+what makes "no behaviour moved" checkable rather than asserted.
+
+**And the derivation caught a defect.** The counter tested for zero *before*
+decrementing, so each half period took `preload + 1` clocks instead of `preload`
+— 3.7% wrong at the boot PROM's 27, and 100% wrong at a preload of 1. The
+datasheet is unambiguous: "**Upon reaching** $0000 (terminal count), the timer
+inverts its output", which is the clock that produces zero and not the one after
+it, and the well-known 68681 relation is output frequency = X1 / (2 × preload).
+Nothing had noticed, because every existing test drove the counter by counting
+its own pulses and so agreed with whatever the model did. It took a *second,
+independent* figure — §3.9's stated period against the firmware's preload — to
+have something for the model to disagree with. A model checked only against
+itself is checked against nothing.
 
 #### A device's own bytes, moved by DMA
 
@@ -6061,7 +6106,7 @@ board, so a boot through it is a DN3500 run, and taking the figure from
 the table keeps `CLAUDE.md`'s "all machine variance lives in
 `src/core/model/`" true of the frontend as well as the core. A 20000
 instruction PROM run now reports 75880 clocks and 20,032,320 base units,
-which is exactly 264 per clock — 6.6 GHz over 25 MHz, an integer, as
+which is exactly 264 per clock — 19.8 GHz over 25 MHz, an integer, as
 `ap_clock_init` refusing to round guarantees.
 
 The failure this must not have is the CPU half's: a field that moves

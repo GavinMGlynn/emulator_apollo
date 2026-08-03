@@ -497,8 +497,8 @@ static void test_the_apollo_clock_rates_divide_the_time_base(void) {
 
   /* And the prescaled rate is the case that justifies counting in base units
    * rather than hertz: 62.5 kHz / 8 is 7812.5 Hz, not an integer frequency at
-   * all, yet its period is exactly 844800 base units. */
-  TEST_ASSERT_EQUAL_UINT64(844800u, (AP_TIME_BASE_HZ / 62500u) * 8u);
+   * all, yet its period is exactly 2,534,400 base units. */
+  TEST_ASSERT_EQUAL_UINT64(2534400u, (AP_TIME_BASE_HZ / 62500u) * 8u);
 }
 
 static void test_two_parts_reset_alike_hold_identical_state(void) {

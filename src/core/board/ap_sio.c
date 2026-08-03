@@ -1,8 +1,16 @@
 #include "board/ap_sio.h"
 
-void ap_sio_reset(ap_sio_t *sio) {
+bool ap_sio_reset(ap_sio_t *sio) {
   ap_mc68681_reset(&sio->port[0]);
   ap_mc68681_reset(&sio->port[1]);
+  sio->clocked_to[0] = 0u;
+  sio->clocked_to[1] = 0u;
+  /* Refuses rather than rounds, which is `ap_clock_init`'s rule and the reason
+   * `AP_TIME_BASE_HZ` was tripled to admit this rate at all: a refresh clock a
+   * fraction out per pulse would drift a machine's dynamic memory against its
+   * processor by an amount nobody could see. */
+  return ap_clock_init(&sio->x1[0], AP_SIO_X1_HZ) &&
+         ap_clock_init(&sio->x1[1], AP_SIO_X1_HZ);
 }
 
 bool ap_sio_decode(uint32_t address, unsigned *unit, unsigned *reg) {
@@ -100,4 +108,28 @@ uint8_t ap_sio_clock_select(ap_sio_t *sio, unsigned unit, unsigned channel) {
    * channel's stored value is the only source. */
   (void)reg;
   return sio->port[unit].channel[channel].csr;
+}
+
+void ap_sio_advance(ap_sio_t *sio, ap_time_t now) {
+  for (unsigned unit = 0; unit < 2u; unit++) {
+    if (sio->x1[unit].period == 0u || now <= sio->clocked_to[unit]) {
+      /* Monotonic: going backwards is ignored rather than wrapping, as every
+       * other advance here is. */
+      continue;
+    }
+    /* Whole pulses, with the remainder left behind in `clocked_to` -- so the
+     * rate does not depend on how often this is called, which is the property
+     * the whole tick loop rests on. */
+    const uint64_t pulses =
+        (now - sio->clocked_to[unit]) / sio->x1[unit].period;
+    for (uint64_t i = 0; i < pulses; i++) {
+      ap_mc68681_clock(&sio->port[unit]);
+    }
+    sio->clocked_to[unit] += pulses * sio->x1[unit].period;
+  }
+}
+
+bool ap_sio_refresh_output(const ap_sio_t *sio) {
+  /* §3.9: serial 1's counter, "a square wave output on output OP3". */
+  return sio->port[0].counter_output;
 }

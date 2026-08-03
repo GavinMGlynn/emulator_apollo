@@ -79,9 +79,9 @@ static void test_the_three_rates_are_representable_in_the_time_base(void) {
    * propagates that refusal, so this passing means all three rates are exact. */
   TEST_ASSERT_TRUE(ap_timer_reset(&timer));
 
-  TEST_ASSERT_EQUAL_UINT64(26400u, timer.clock[0].period);
-  TEST_ASSERT_EQUAL_UINT64(52800u, timer.clock[1].period);
-  TEST_ASSERT_EQUAL_UINT64(105600u, timer.clock[2].period);
+  TEST_ASSERT_EQUAL_UINT64(79200u, timer.clock[0].period);
+  TEST_ASSERT_EQUAL_UINT64(158400u, timer.clock[1].period);
+  TEST_ASSERT_EQUAL_UINT64(316800u, timer.clock[2].period);
 
   /* And the ratios `008778-03` §3.8 states: 4, 8 and 16 microseconds. */
   TEST_ASSERT_EQUAL_UINT64(timer.clock[0].period * 2u, timer.clock[1].period);
@@ -173,18 +173,18 @@ static void test_each_timer_keeps_its_own_rate(void) {
   ap_timer_write(&timer, rs0, 0x50); /* CR1: run */
 
   /* Ten pulses of timer 1 is 40 microseconds. */
-  ap_timer_advance(&timer, 26400u * 10u);
+  ap_timer_advance(&timer, timer.clock[0].period * 10u);
   TEST_ASSERT_TRUE(timer.ptm.timer[0].interrupt_flag);
   TEST_ASSERT_FALSE(timer.ptm.timer[1].interrupt_flag);
   TEST_ASSERT_FALSE(timer.ptm.timer[2].interrupt_flag);
 
   /* Twenty of timer 1 is ten of timer 2. */
-  ap_timer_advance(&timer, 26400u * 20u);
+  ap_timer_advance(&timer, timer.clock[0].period * 20u);
   TEST_ASSERT_TRUE(timer.ptm.timer[1].interrupt_flag);
   TEST_ASSERT_FALSE(timer.ptm.timer[2].interrupt_flag);
 
   /* Forty is ten of timer 3. */
-  ap_timer_advance(&timer, 26400u * 40u);
+  ap_timer_advance(&timer, timer.clock[0].period * 40u);
   TEST_ASSERT_TRUE(timer.ptm.timer[2].interrupt_flag);
 }
 

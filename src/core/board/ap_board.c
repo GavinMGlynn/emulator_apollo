@@ -343,6 +343,10 @@ void ap_board_advance(ap_board_t *board, ap_time_t now) {
    * this a tick rather than a schedule. */
   ap_timer_advance(&board->timer, now);
   ap_calendar_advance(&board->calendar, now);
+  /* §3.9's memory refresh, which is a serial part doing a job that has nothing
+   * to do with serial lines. It is here rather than absent because the counter
+   * now has a clock: `board/ap_sio.h` derives the rate. */
+  ap_sio_advance(&board->sio, now);
 }
 
 bool ap_board_processor_may_run(const ap_board_t *board) {
@@ -383,7 +387,9 @@ bool ap_board_init(ap_board_t *board, uint8_t *ram, uint32_t ram_bytes,
     return false;
   }
   ap_dma_reset(&board->dma);
-  ap_sio_reset(&board->sio);
+  if (!ap_sio_reset(&board->sio)) {
+    return false;
+  }
   ap_nodeid_init(&board->node_id, node_id);
   ap_disk_reset(&board->disk);
   ap_tape_reset(&board->tape);

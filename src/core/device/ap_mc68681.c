@@ -205,24 +205,35 @@ void ap_mc68681_clock(ap_mc68681_t *duart) {
   if (!duart->counter_running && !ap_mc68681_timer_mode(duart)) {
     return;
   }
-  if (duart->counter == 0u) {
-    /* §3: "Upon reaching $0000 (terminal count), the timer inverts its output,
-     * reinitializes itself with the preload value, and repeats the countdown
-     * sequence. After reaching terminal count this time, the timer sets the
-     * counter/timer-ready bit in the interrupt status register (ISR[3])."
-     *
-     * So the square wave is half the interrupt rate: two terminal counts to a
-     * period, which is what makes a square wave out of a countdown at all. The
-     * output inverts every time, and the flag is set on the second. */
-    duart->counter_output = !duart->counter_output;
-    if (duart->counter_second_half) {
-      duart->isr |= AP_MC68681_ISR_COUNTER;
-    }
-    duart->counter_second_half = !duart->counter_second_half;
-    duart->counter = duart->preload;
+  /* §3: "Upon reaching $0000 (terminal count), the timer inverts its output,
+   * reinitializes itself with the preload value, and repeats the countdown
+   * sequence. After reaching terminal count this time, the timer sets the
+   * counter/timer-ready bit in the interrupt status register (ISR[3])."
+   *
+   * So the square wave is half the interrupt rate: two terminal counts to a
+   * period, which is what makes a square wave out of a countdown at all. The
+   * output inverts every time, and the flag is set on the second.
+   *
+   * **"Upon reaching" is the clock that produces zero, not the one after it.**
+   * This tested the counter *before* decrementing, which spent `preload + 1`
+   * clocks on each half period instead of `preload` -- the well-known 68681
+   * timer relation is output frequency = X1 / (2 x preload), and an extra clock
+   * per half is 3.7% at the boot PROM's preload of 27 and 100% at a preload of
+   * 1. Nothing noticed until `board/ap_sio.h` derived X1 from §3.9's stated
+   * 15 microsecond period and the firmware's own preload: the two facts only
+   * agree at `preload` clocks a half, and the model disagreed with both. */
+  if (duart->counter > 0u) {
+    duart->counter--;
+  }
+  if (duart->counter != 0u) {
     return;
   }
-  duart->counter--;
+  duart->counter_output = !duart->counter_output;
+  if (duart->counter_second_half) {
+    duart->isr |= AP_MC68681_ISR_COUNTER;
+  }
+  duart->counter_second_half = !duart->counter_second_half;
+  duart->counter = duart->preload;
 }
 
 uint8_t ap_mc68681_read(ap_mc68681_t *duart, unsigned reg) {

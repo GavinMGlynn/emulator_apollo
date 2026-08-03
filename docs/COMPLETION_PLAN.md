@@ -1989,23 +1989,18 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         base units — a figure whose *frequency* is not an integer, so it is the
         second case (after the interval timer's prescaled rate) that a core
         counting in hertz could not represent at all. `sio_suite`, 6 tests.
-  - [ ] Drive the memory refresh from the DUART's timer. §3.9's period is
-        pinned at exactly 99000 base units and the counter/timer is modelled;
-        what is missing is anything advancing it, so this waits on the tick
-        loop item below and on nothing else. The keyboard half of this child is
-        done and ticked above.
-        - **"SIO line 0" is now precise: serial 1, channel A.** Confirmed twice
-          over — MAME's `dn3500` wires `m_keyboard->tx_cb()` to
-          `apollo_sio::rx_a_w` (`FINDINGS.md` C42 era), and the boot PROM's own
-          poll loop reads serial 1's status register A and looks the received
-          byte up in a **scan-code translation table at `000021D2`**, which this
-          project has read.
-        - So the keyboard's side of the wire is specified without needing the
-          oracle again: it sends Apollo scan codes, not ASCII, on channel A, and
-          the PROM's table is the map that decodes them. Feeding ASCII there is
-          what made a carriage return fail to match while `0D` sat in the table.
-        - The refresh half is unchanged and still needs the DUART's timer, which
-          needs the tick loop.
+  - [x] **The memory refresh runs.** The DUART's counter is clocked at X1 and
+        produces §3.9's 15 microsecond square wave on OP3 from the boot PROM's
+        own preload. X1 is in no manual here: it is derived from two facts that
+        agree at one rate only — §3.9's period, and the firmware's measured
+        preload of 27 with `ACR E0` — giving 3.6 MHz, which forced the time base
+        from 6.6 GHz to 19.8. It caught a defect in the part, the counter having
+        tested for zero before decrementing. Detail in `PROJECT_STATUS.md`.
+        *Verification: `sio_suite` +4 (14) — the derivation checked against both
+        facts it rests on, the square wave inverting each half period and
+        returning each whole one, the ready bit at half that rate, and ragged
+        advances reaching the same place as one.*
+
 - [ ] **The tick loop.** `CLAUDE.md` opens with "one `tick()` per machine
       cycle, every subsystem advancing inside it", and this core had none: a
       counter reached terminal count only if a test reached in and advanced it.
@@ -2022,10 +2017,11 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         Detail in `PROJECT_STATUS.md`.
         *Verification: `machine_suite` +3 (39) — a `BRA` loop that touches
         nothing brings the interval timer to terminal count on its own.*
-  - [ ] Remaining: the **DUART's counter/timer**, which has no advance function
-        at all — registers and commands with nothing driving them — so calling
-        it from the tick would be the pretence of a tick loop rather than one.
-        It is the memory refresh's dependency and lands with that child.
+  - [x] **The DUART's counter/timer advances too**, so the last device on this
+        board that kept time and could not is driven from the tick. It needed a
+        clock domain the time base could not represent, which is why it landed
+        with the memory refresh rather than with the first two. Detail in
+        `PROJECT_STATUS.md`.
   - [ ] Remaining: the CPU is stepped by instruction, because `ap_m68030_step`
         runs a whole one. A per-cycle processor is what "one `tick()` per
         machine cycle" asks for literally, and it is a Phase 8 question rather

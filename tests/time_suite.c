@@ -23,28 +23,28 @@ static void test_the_time_base_exactly_divides_both_ring_clocks(void) {
   TEST_ASSERT_TRUE(ap_time_base_divides(AP_RING_LINE_HZ));
 }
 
-static void test_a_12mhz_cycle_is_550_base_units(void) {
+static void test_a_12mhz_cycle_is_1650_base_units(void) {
   ap_clock_t clk;
   TEST_ASSERT_TRUE(ap_clock_init(&clk, 12000000u));
-  TEST_ASSERT_EQUAL_UINT64(550u, clk.period);
+  TEST_ASSERT_EQUAL_UINT64(1650u, clk.period);
 }
 
-static void test_a_25mhz_cycle_is_264_base_units(void) {
+static void test_a_25mhz_cycle_is_792_base_units(void) {
   ap_clock_t clk;
   TEST_ASSERT_TRUE(ap_clock_init(&clk, 25000000u));
-  TEST_ASSERT_EQUAL_UINT64(264u, clk.period);
+  TEST_ASSERT_EQUAL_UINT64(792u, clk.period);
 }
 
-static void test_a_33mhz_cycle_is_200_base_units(void) {
+static void test_a_33mhz_cycle_is_600_base_units(void) {
   ap_clock_t clk;
   TEST_ASSERT_TRUE(ap_clock_init(&clk, 33000000u));
-  TEST_ASSERT_EQUAL_UINT64(200u, clk.period);
+  TEST_ASSERT_EQUAL_UINT64(600u, clk.period);
 }
 
-static void test_a_ring_bit_cell_is_550_base_units(void) {
+static void test_a_ring_bit_cell_is_1650_base_units(void) {
   ap_clock_t ring;
   TEST_ASSERT_TRUE(ap_clock_init(&ring, AP_RING_DATA_HZ));
-  TEST_ASSERT_EQUAL_UINT64(550u, ring.period);
+  TEST_ASSERT_EQUAL_UINT64(1650u, ring.period);
 }
 
 /* "In the time it takes to transmit one bit (this is a bit cell, or 83.33 nsec),
@@ -53,7 +53,7 @@ static void test_a_ring_bit_cell_is_exactly_two_line_windows(void) {
   ap_clock_t bit, window;
   TEST_ASSERT_TRUE(ap_clock_init(&bit, AP_RING_DATA_HZ));
   TEST_ASSERT_TRUE(ap_clock_init(&window, AP_RING_LINE_HZ));
-  TEST_ASSERT_EQUAL_UINT64(275u, window.period);
+  TEST_ASSERT_EQUAL_UINT64(825u, window.period);
   TEST_ASSERT_EQUAL_UINT64(ap_clock_duration(&bit, 1u),
                            ap_clock_duration(&window, 2u));
 }
@@ -96,25 +96,25 @@ static void test_align_up_leaves_an_instant_already_on_a_boundary_unchanged(void
 static void test_align_up_advances_a_mid_cycle_instant_to_the_next_boundary(void) {
   ap_clock_t clk;
   TEST_ASSERT_TRUE(ap_clock_init(&clk, 25000000u));
-  /* One ring bit cell (550 units) lands 22 units into the third 264-unit
-   * cycle, so the next boundary a 25 MHz node may execute on is 792. */
-  TEST_ASSERT_EQUAL_UINT64(792u, ap_clock_align_up(&clk, 550u));
+  /* One ring bit cell (1650 units) lands 66 units into the third 792-unit
+   * cycle, so the next boundary a 25 MHz node may execute on is 2376. */
+  TEST_ASSERT_EQUAL_UINT64(2376u, ap_clock_align_up(&clk, 1650u));
 }
 
 static void test_align_down_truncates_to_the_previous_boundary(void) {
   ap_clock_t clk;
   TEST_ASSERT_TRUE(ap_clock_init(&clk, 25000000u));
-  TEST_ASSERT_EQUAL_UINT64(528u, ap_clock_align_down(&clk, 550u));
-  TEST_ASSERT_EQUAL_UINT64(0u, ap_clock_align_down(&clk, 263u));
+  TEST_ASSERT_EQUAL_UINT64(1584u, ap_clock_align_down(&clk, 1650u));
+  TEST_ASSERT_EQUAL_UINT64(0u, ap_clock_align_down(&clk, 791u));
 }
 
 /* A node may only execute whole cycles: a partial cycle has not happened. */
 static void test_cycles_in_truncates_a_partial_cycle(void) {
   ap_clock_t clk;
   TEST_ASSERT_TRUE(ap_clock_init(&clk, 25000000u));
-  TEST_ASSERT_EQUAL_UINT64(2u, ap_clock_cycles_in(&clk, 550u));
-  TEST_ASSERT_EQUAL_UINT64(0u, ap_clock_cycles_in(&clk, 263u));
-  TEST_ASSERT_EQUAL_UINT64(1u, ap_clock_cycles_in(&clk, 264u));
+  TEST_ASSERT_EQUAL_UINT64(2u, ap_clock_cycles_in(&clk, 1650u));
+  TEST_ASSERT_EQUAL_UINT64(0u, ap_clock_cycles_in(&clk, 791u));
+  TEST_ASSERT_EQUAL_UINT64(1u, ap_clock_cycles_in(&clk, 792u));
 }
 
 /* A one-second run must be the same number of units whichever clock counts it,
@@ -131,10 +131,10 @@ int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_the_time_base_exactly_divides_every_apollo_cpu_clock);
   RUN_TEST(test_the_time_base_exactly_divides_both_ring_clocks);
-  RUN_TEST(test_a_12mhz_cycle_is_550_base_units);
-  RUN_TEST(test_a_25mhz_cycle_is_264_base_units);
-  RUN_TEST(test_a_33mhz_cycle_is_200_base_units);
-  RUN_TEST(test_a_ring_bit_cell_is_550_base_units);
+  RUN_TEST(test_a_12mhz_cycle_is_1650_base_units);
+  RUN_TEST(test_a_25mhz_cycle_is_792_base_units);
+  RUN_TEST(test_a_33mhz_cycle_is_600_base_units);
+  RUN_TEST(test_a_ring_bit_cell_is_1650_base_units);
   RUN_TEST(test_a_ring_bit_cell_is_exactly_two_line_windows);
   RUN_TEST(test_a_25mhz_cpu_and_the_ring_realign_every_12_ring_bits);
   RUN_TEST(test_a_clock_the_time_base_cannot_represent_is_rejected);

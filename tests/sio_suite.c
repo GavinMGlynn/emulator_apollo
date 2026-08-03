@@ -38,7 +38,7 @@ static void test_both_ports_decode_at_stride_two(void) {
 
 static void test_the_paired_bytes_reach_one_register(void) {
   ap_sio_t sio;
-  ap_sio_reset(&sio);
+  TEST_ASSERT_TRUE(ap_sio_reset(&sio));
 
   /* Writing through the odd byte and reading through the even one must reach
    * the same register, which is what "stride 2" means and what the measured
@@ -49,7 +49,7 @@ static void test_the_paired_bytes_reach_one_register(void) {
 
 static void test_the_two_ports_are_independent(void) {
   ap_sio_t sio;
-  ap_sio_reset(&sio);
+  TEST_ASSERT_TRUE(ap_sio_reset(&sio));
 
   ap_sio_write(&sio, AP_SIO1_ADDR + 24u, 0x11); /* interrupt vector, port 1 */
   ap_sio_write(&sio, AP_SIO2_ADDR + 24u, 0x22);
@@ -59,7 +59,7 @@ static void test_the_two_ports_are_independent(void) {
 
 static void test_a_character_crosses_the_keyboard_port(void) {
   ap_sio_t sio;
-  ap_sio_reset(&sio);
+  TEST_ASSERT_TRUE(ap_sio_reset(&sio));
 
   /* §3.9: "SIO_O is used for the keyboard and supports full-duplex operation
    * for bidirectional keyboards." Channel A of the first part. */
@@ -82,7 +82,7 @@ static void test_the_refresh_period_is_exact_in_base_units(void) {
    * base units represents it exactly. Second such case after the interval
    * timer's prescaled 7812.5 Hz, and worth pinning so that a future change to
    * the time base has to break a test rather than a machine. */
-  TEST_ASSERT_EQUAL_UINT64(99000u, AP_SIO_REFRESH_PERIOD);
+  TEST_ASSERT_EQUAL_UINT64(297000u, AP_SIO_REFRESH_PERIOD);
   TEST_ASSERT_EQUAL_UINT64(0u, (AP_TIME_BASE_HZ * 15u) % 1000000u);
   TEST_ASSERT_EQUAL_UINT64(AP_SIO_REFRESH_PERIOD,
                            (AP_TIME_BASE_HZ * 15u) / 1000000u);
@@ -91,7 +91,7 @@ static void test_the_refresh_period_is_exact_in_base_units(void) {
 static void test_the_serial_ports_raise_the_second_priority_interrupt(void) {
   ap_sio_t sio;
   ap_intr_t intr;
-  ap_sio_reset(&sio);
+  TEST_ASSERT_TRUE(ap_sio_reset(&sio));
   ap_intr_reset(&intr);
 
   ap_intr_write(&intr, AP_INTR_MASTER_ADDR + 0u, 0x11);
@@ -121,7 +121,7 @@ static void test_the_serial_ports_raise_the_second_priority_interrupt(void) {
  * door, so the test exercises what the machine exercises. */
 static void test_what_the_program_transmits_reaches_the_caller(void) {
   ap_sio_t sio;
-  ap_sio_reset(&sio);
+  TEST_ASSERT_TRUE(ap_sio_reset(&sio));
 
   /* Enable the transmitter on port 2 channel A, the way a driver does: command
    * register, transmit enable. */
@@ -140,7 +140,7 @@ static void test_what_the_program_transmits_reaches_the_caller(void) {
  * reads, which is the other half of the same wire. */
 static void test_a_delivered_byte_reaches_the_program(void) {
   ap_sio_t sio;
-  ap_sio_reset(&sio);
+  TEST_ASSERT_TRUE(ap_sio_reset(&sio));
 
   ap_sio_write(&sio, AP_SIO2_ADDR + (AP_MC68681_CR_A * 2u), 0x01u); /* rx on */
   TEST_ASSERT_FALSE(ap_sio_receiver_ready(&sio, 1u, 0u));
@@ -157,7 +157,7 @@ static void test_a_delivered_byte_reaches_the_program(void) {
  * decides whether the link works rather than the caller assuming it does. */
 static void test_a_mis_rated_sender_reaches_the_port_as_an_error(void) {
   ap_sio_t sio;
-  ap_sio_reset(&sio);
+  TEST_ASSERT_TRUE(ap_sio_reset(&sio));
   ap_sio_write(&sio, AP_SIO2_ADDR + (AP_MC68681_CR_A * 2u), 0x01u);
   ap_sio_write(&sio, AP_SIO2_ADDR + (AP_MC68681_SR_CSR_A * 2u), 0x77u);
   ap_sio_write(&sio, AP_SIO2_ADDR + (AP_MC68681_MR_A * 2u), 0x07u);
@@ -175,7 +175,7 @@ static void test_a_mis_rated_sender_reaches_the_port_as_an_error(void) {
  * a board path that always flagged would satisfy the test above. */
 static void test_a_matching_sender_reaches_the_port_cleanly(void) {
   ap_sio_t sio;
-  ap_sio_reset(&sio);
+  TEST_ASSERT_TRUE(ap_sio_reset(&sio));
   ap_sio_write(&sio, AP_SIO2_ADDR + (AP_MC68681_CR_A * 2u), 0x01u);
   ap_sio_write(&sio, AP_SIO2_ADDR + (AP_MC68681_SR_CSR_A * 2u), 0x77u);
   ap_sio_write(&sio, AP_SIO2_ADDR + (AP_MC68681_MR_A * 2u), 0x07u);
@@ -188,8 +188,126 @@ static void test_a_matching_sender_reaches_the_port_cleanly(void) {
       0x41u, ap_sio_read(&sio, AP_SIO2_ADDR + (AP_MC68681_RB_TB_A * 2u)));
 }
 
+/* ---------------------------------------------------------------------------
+ * The memory refresh
+ *
+ * §3.9: the counter/timer "is set up in the timer mode to produce a square wave
+ * output on output OP3. The period of the output is 15 microseconds." Until
+ * something advanced the counter, that square wave had no period at all.
+ * ------------------------------------------------------------------------- */
+
+/* Program serial 1's counter exactly as the boot PROM does -- `ACR E0`, which
+ * is "Timer, clock source X1/CLK", and the preload read out of this core after
+ * a boot of `3500_BOOT_12191_7`. Then start it, which is a *read* of register
+ * 14 and not a write. */
+static void program_refresh_timer(ap_sio_t *sio) {
+  ap_sio_write(sio, AP_SIO1_ADDR + AP_MC68681_IPCR_ACR * 2u, 0xE0u);
+  ap_sio_write(sio, AP_SIO1_ADDR + AP_MC68681_CUR_CTUR * 2u,
+               (uint8_t)(AP_SIO_MEASURED_REFRESH_PRELOAD >> 8));
+  ap_sio_write(sio, AP_SIO1_ADDR + AP_MC68681_CLR_CTLR * 2u,
+               (uint8_t)(AP_SIO_MEASURED_REFRESH_PRELOAD & 0xFFu));
+  (void)ap_sio_read(sio, AP_SIO1_ADDR + AP_MC68681_START_OPR_SET * 2u);
+}
+
+/* The derivation, checked against both facts it rests on rather than restated.
+ *
+ * X1 is not in any manual here. §3.9 gives the output period and the firmware
+ * gives the preload; `AP_SIO_X1_HZ` is what makes those two agree. So this
+ * asserts the *agreement*: at that rate, with that preload, the square wave
+ * turns over exactly every `AP_SIO_REFRESH_PERIOD`. Change either input and
+ * this fails rather than quietly redefining the crystal. */
+static void test_the_firmwares_preload_gives_the_documented_refresh_period(void) {
+  ap_sio_t sio;
+  TEST_ASSERT_TRUE(ap_sio_reset(&sio));
+  program_refresh_timer(&sio);
+
+  /* Two terminal counts to a period -- §3: the timer inverts its output at
+   * terminal count, so a full square wave is two of them. */
+  TEST_ASSERT_EQUAL_UINT64(
+      AP_SIO_REFRESH_PERIOD,
+      2u * AP_SIO_MEASURED_REFRESH_PRELOAD * (AP_TIME_BASE_HZ / AP_SIO_X1_HZ));
+
+  /* And 15 microseconds is what that period is, exactly. */
+  TEST_ASSERT_EQUAL_UINT64(AP_SIO_REFRESH_PERIOD,
+                           (AP_TIME_BASE_HZ * 15u) / 1000000u);
+}
+
+/* The square wave itself, advanced by time rather than by a caller counting
+ * pulses: it inverts every half period and returns to where it started after a
+ * whole one. */
+static void test_the_refresh_output_is_a_square_wave_of_that_period(void) {
+  ap_sio_t sio;
+  TEST_ASSERT_TRUE(ap_sio_reset(&sio));
+  program_refresh_timer(&sio);
+
+  const bool start = ap_sio_refresh_output(&sio);
+
+  /* A hair under half a period: nothing has turned over. */
+  ap_sio_advance(&sio, AP_SIO_REFRESH_PERIOD / 2u - 1u);
+  TEST_ASSERT_EQUAL_INT(start, ap_sio_refresh_output(&sio));
+
+  /* Half a period: inverted. */
+  ap_sio_advance(&sio, AP_SIO_REFRESH_PERIOD / 2u);
+  TEST_ASSERT_NOT_EQUAL_INT(start, ap_sio_refresh_output(&sio));
+
+  /* A whole one: back where it began. That is what makes it a square wave and
+   * not a pulse. */
+  ap_sio_advance(&sio, AP_SIO_REFRESH_PERIOD);
+  TEST_ASSERT_EQUAL_INT(start, ap_sio_refresh_output(&sio));
+
+  /* Ten periods, to show it is periodic rather than merely symmetric once. */
+  ap_sio_advance(&sio, AP_SIO_REFRESH_PERIOD * 11u);
+  TEST_ASSERT_EQUAL_INT(start, ap_sio_refresh_output(&sio));
+}
+
+/* The counter-ready bit follows the wave at half its rate, which is §3's rule:
+ * the output inverts at every terminal count and the flag is set on the second.
+ * A model that raised it on both would interrupt a refresh driver twice as
+ * often as the hardware. */
+static void test_the_counter_ready_bit_comes_once_per_period(void) {
+  ap_sio_t sio;
+  TEST_ASSERT_TRUE(ap_sio_reset(&sio));
+  program_refresh_timer(&sio);
+
+  ap_sio_advance(&sio, AP_SIO_REFRESH_PERIOD / 2u);
+  TEST_ASSERT_EQUAL_HEX8(0u, (uint8_t)(sio.port[0].isr &
+                                       AP_MC68681_ISR_COUNTER));
+
+  ap_sio_advance(&sio, AP_SIO_REFRESH_PERIOD);
+  TEST_ASSERT_EQUAL_HEX8(AP_MC68681_ISR_COUNTER,
+                         (uint8_t)(sio.port[0].isr & AP_MC68681_ISR_COUNTER));
+}
+
+/* Advancing in ragged steps reaches the same place as advancing in one, because
+ * the remainder is carried. The refresh must not depend on how often the tick
+ * loop happens to ask. */
+static void test_the_refresh_does_not_depend_on_the_call_rate(void) {
+  ap_sio_t one;
+  ap_sio_t many;
+  TEST_ASSERT_TRUE(ap_sio_reset(&one));
+  TEST_ASSERT_TRUE(ap_sio_reset(&many));
+  program_refresh_timer(&one);
+  program_refresh_timer(&many);
+
+  const ap_time_t target = AP_SIO_REFRESH_PERIOD * 7u + 12345u;
+  ap_sio_advance(&one, target);
+  /* Steps that are not a whole X1 period, so the remainder is exercised. */
+  for (ap_time_t t = 137u; t < target; t += 137u) {
+    ap_sio_advance(&many, t);
+  }
+  ap_sio_advance(&many, target);
+
+  TEST_ASSERT_EQUAL_INT(ap_sio_refresh_output(&one),
+                        ap_sio_refresh_output(&many));
+  TEST_ASSERT_EQUAL_HEX16(one.port[0].counter, many.port[0].counter);
+}
+
 int main(void) {
   UNITY_BEGIN();
+  RUN_TEST(test_the_firmwares_preload_gives_the_documented_refresh_period);
+  RUN_TEST(test_the_refresh_output_is_a_square_wave_of_that_period);
+  RUN_TEST(test_the_counter_ready_bit_comes_once_per_period);
+  RUN_TEST(test_the_refresh_does_not_depend_on_the_call_rate);
   RUN_TEST(test_what_the_program_transmits_reaches_the_caller);
   RUN_TEST(test_a_delivered_byte_reaches_the_program);
   RUN_TEST(test_a_mis_rated_sender_reaches_the_port_as_an_error);

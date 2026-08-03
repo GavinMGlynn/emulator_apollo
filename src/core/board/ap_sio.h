@@ -54,7 +54,33 @@
 #define AP_SIO_IRQ 1u
 
 /* §3.9's refresh square wave, in base units. Exact; see the header. */
-#define AP_SIO_REFRESH_PERIOD 99000u
+#define AP_SIO_REFRESH_PERIOD 297000u
+
+/* The DUART's X1 crystal, which clocks the counter/timer.
+ *
+ * **Derived, not transcribed.** No manual here states it. What is stated is
+ * §3.9's output period -- 15 microseconds -- and what is measured is the
+ * firmware's own programming, read out of this core after a boot of
+ * `3500_BOOT_12191_7`: serial 1's `ACR` is `E0` and its counter preload is 27.
+ * `ACR[6:4]` of `110` is "Timer, clock source X1/CLK", and §3 makes the square
+ * wave two terminal counts to a period, so 54 counter clocks span 15 us and
+ * X1 is 3.6 MHz exactly.
+ *
+ * Two things make that worth more than an arithmetic identity. It is
+ * *self-consistent*: 3.6 MHz with a preload of 27 gives exactly 15 us, where
+ * the part's conventional 3.6864 MHz crystal would give 14.65 and force
+ * §3.9's figure to be a rounding. And it is *checked* -- `sio_suite` asserts
+ * that the firmware's own preload at this rate produces `AP_SIO_REFRESH_PERIOD`,
+ * so the derivation cannot drift from either of the two facts it rests on.
+ *
+ * It also cost the time base a recomputation: 3.6 MHz does not divide 6.6 GHz,
+ * so `AP_TIME_BASE_HZ` is now 19.8 GHz. `time/ap_time.h` has the discipline. */
+#define AP_SIO_X1_HZ 3600000u
+
+/* What the firmware programs, and the only preload this core has ever seen.
+ * Not a constant the model depends on -- the counter runs from whatever a
+ * driver loads -- but the one the derivation above is checked against. */
+#define AP_SIO_MEASURED_REFRESH_PRELOAD 27u
 
 /* §3.9: "SIO_O is used for the keyboard". Channel A of the first part. */
 #define AP_SIO_KEYBOARD_PORT 0u
@@ -62,6 +88,13 @@
 
 typedef struct {
   ap_mc68681_t port[2];
+  /* One clock domain per part, at `AP_SIO_X1_HZ`, with the instant each has
+   * been clocked up to. Per part rather than shared because the two are
+   * separate chips and a board could clock them differently -- this one does
+   * not, and modelling one cursor would make that an assumption instead of an
+   * observation. */
+  ap_clock_t x1[2];
+  ap_time_t clocked_to[2];
 
   /* Writes per port and register. The per-region counts said the firmware wrote
    * to serial 11839 times and said nothing about *which* registers, and a
@@ -76,7 +109,7 @@ typedef struct {
   unsigned register_reads[2][AP_MC68681_REGISTERS];
 } ap_sio_t;
 
-void ap_sio_reset(ap_sio_t *sio);
+[[nodiscard]] bool ap_sio_reset(ap_sio_t *sio);
 
 [[nodiscard]] bool ap_sio_decode(uint32_t address, unsigned *unit,
                                  unsigned *reg);
@@ -86,6 +119,21 @@ void ap_sio_write(ap_sio_t *sio, uint32_t address, uint8_t value);
 
 /* The IRQ line the two parts share. */
 [[nodiscard]] bool ap_sio_irq(const ap_sio_t *sio);
+
+/* Advance both parts' counter/timers to absolute time `now`, issuing one clock
+ * pulse per elapsed X1 period.
+ *
+ * This is what makes the memory refresh a real thing rather than a register
+ * value: §3.9 has the counter "set up in the timer mode to produce a square
+ * wave output on output OP3", and until something advanced it the square wave
+ * had no period at all. Idempotent for a `now` already reached, and monotonic,
+ * as every other advance here is. */
+void ap_sio_advance(ap_sio_t *sio, ap_time_t now);
+
+/* The refresh square wave itself: serial 1's counter output, which §3.9 puts on
+ * OP3. Named rather than left to a caller reading the part's field, because
+ * *which* part and *which* output carry the refresh is board wiring. */
+[[nodiscard]] bool ap_sio_refresh_output(const ap_sio_t *sio);
 
 /* Deliver a byte to a port's receiver, as a terminal on the other end of the
  * wire would. The board has no host input of its own and must not acquire any:
