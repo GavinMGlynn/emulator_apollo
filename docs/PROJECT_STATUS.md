@@ -3404,7 +3404,7 @@ failure that cost a bit position in the 68020's module entry word.
 | Board cache (`012000` RAM, `014000` condition codes) | not started. The shared **bus arbitration point** is done and has its own row above | — |
 | Apollo interrupt controllers (`011000`, `011100`) | working: the two 8259As cascaded on **IR3** (measured, not IR2 as the AT convention would have it), vector bases `A0`/`A8` from the boot PROM's own ICW2, giving levels `A0`-`AF`. Priority order matches `008778-03` Table 2-3, which with the cascade on IR3 has no anomaly. The CPU interrupt level is **6**, also measured — neither manual states it, and it took starting the interval timer by hand to make anything request at all | `intr_suite`, 13 tests; `FINDINGS.md` C11, `tools/mame-oracle/writetrace.lua` |
 | Intel 8259A interrupt controller (the part) | working: ICW1-4 sequence, all three OCWs, fully nested priority with rotation, edge and level triggering, special mask and special fully nested modes, poll, AEOI, and the spurious level 7. 8086-mode vectoring only — MCS-80/85's `CALL` sequence is refused rather than approximated, and this machine never uses it. The Apollo *pairing* is a separate module | `i8259_suite`, 28 tests, each citing `8259A` 231468-003 |
-| DN3500 core-board address map (`board/ap_board.c`) | working: every device placed by `008778-03` Table 2-8 and by the measurement that confirmed it, main memory at `1000000`, and an unclaimed address reported **unmapped rather than zero** — the distinction flat RAM hid, which cost 5634 invisible accesses in the first firmware run. Regions are named, so a trace can say *what* the firmware reached for | `board_suite`, 14 tests |
+| DN3500 core-board address map (`board/ap_board.c`) | working: every device placed by `008778-03` Table 2-8 and by the measurement that confirmed it, main memory at `1000000`, and an unclaimed address reported **unmapped rather than zero** — the distinction flat RAM hid, which cost 5634 invisible accesses in the first firmware run. Regions are named, so a trace can say *what* the firmware reached for. The AT windows declare a cycle time and everything else answers at the minimum, and an access to the translation map's undescribed seven eighths is counted rather than silently aliased | `board_suite`, 16 tests; `atbus_suite`, 8 tests |
 | Shared bus arbitration point | working: the external priority encoder `[030]` §7.7 requires, DRQ0 through DRQ7 with the processor last, driving the CPU's own arbitration unit over the three-wire protocol. A grant and its acknowledgement are separate instants, so the processor stops driving the bus when it grants rather than when the grant is taken up; a master is never pre-empted mid-transfer | `arbiter_suite`, 9 tests, `MC68030 User's Manual 3ed` §7.7, `008778-03` §2.4.6 |
 | Apollo DMA controllers (`010C00`, `010D00`) | working: DMA 1 at **stride 1** and DMA 2 at **stride 2**, both measured, both aliased through their ranges. A read of a write-only register returns zero where the oracle returns `0F`; `[8237]` marks that read "Illegal", so neither is specified and ours does not invent a register value | `dma_suite`, 6 tests; `FINDINGS.md` C13 |
 | Intel 8237A DMA controller (the part) | **programming model complete**: all sixteen register addresses, four channels with base and current address/count, the single shared first/last flip-flop, command/mode/request/mask/status/temporary, master clear, autoinitialise reload and the mask-on-terminal-count rule. Transfers themselves are **not** modelled and cannot be until there is a shared arbitration point to run a cycle on — a real dependency, not a scoping choice. Not yet wired to the board | `i8237_suite`, 18 tests, `8237A` 231466 |
@@ -4409,6 +4409,42 @@ paper over" — where MAME returns `0F`, which is what `FINDINGS.md` C13 used as
 placement fingerprint. Neither is wrong: the datasheet defines no value. It is
 registered here so that the first board-backed oracle diff does not read it as a
 defect.
+
+#### The map's undescribed seven eighths: a gap turned into an instrument
+
+`017000`-`0177FF` is 2 KB and 128 entries of 16 bits fill 256 bytes of it. What
+the other 1792 bytes decode to has been the open half of the translation map
+item, and the resolution order is now **exhausted** rather than untried:
+
+- `019411-A00` §4.2.1.4, read from the page image — the only source that names
+  the DS3500, and the one that settled the 64/128 entry question. It describes
+  the DMA-side indexing in full and says nothing whatever about the CPU-side
+  register window.
+- `008778-03` §1.2, §2.5 and Table 2-8 — the address range, and no decode.
+- The web — nothing; the searchable material on this machine is MAME's driver
+  and the same bitsavers scans already on disk.
+- **The oracle cannot witness it**, and that is not a scheduling problem. MAME
+  masks the whole region with `& 0x3ff`, modelling 1024 entries where the manual
+  gives 128 — the over-permissive decode already classified as hardware-truer on
+  our side. Asking it what the undescribed bytes do returns its own wrong
+  answer, so no campaign against it could settle this.
+
+So the decode stays an assumption: the entries alias every 256 bytes, which is
+this board's measured idiom everywhere else — "within a range the register is
+aliased", established for the core registers, the SIO, the timer and the
+calendar. Aliasing is also the *weaker* claim than refusing the access would be,
+since refusing is a decode assertion of its own and a less likely one.
+
+**What changed is that the assumption is now instrumented.** The board counts
+reads and writes to the part of the region no manual describes, with the first
+address of each, reported beside the hash and excluded from it for the reason
+every other counter is. Zero after a boot is the informative answer: it says
+nothing went anywhere the assumption could be wrong.
+
+That also removes a smaller failure this item had accumulated.
+`ap_atmap_decodes_to_entry` existed, carried the distinction between "outside the
+map" and "inside the undocumented part of it", had a test — and no caller. A
+predicate nothing asks is a comment with a test attached; the board asks it now.
 
 #### The first published wait states, and two tables that check each other
 

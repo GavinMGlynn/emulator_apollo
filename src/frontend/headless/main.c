@@ -670,6 +670,17 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
   if (board->atbus_empty_writes > 0u) {
     printf("    first write %08X\n", board->first_atbus_empty_write);
   }
+  /* The part of the translation map's region no manual describes. Reported even
+   * at zero, because zero is the informative answer here: it says the run never
+   * went anywhere our assumed decode could be wrong. */
+  printf("  atmap undoc  %u read, %u written\n",
+         board->atmap_undescribed_reads, board->atmap_undescribed_writes);
+  if (board->atmap_undescribed_reads > 0u) {
+    printf("    first read %08X\n", board->first_atmap_undescribed_read);
+  }
+  if (board->atmap_undescribed_writes > 0u) {
+    printf("    first write %08X\n", board->first_atmap_undescribed_write);
+  }
   /* Every region the firmware touched, and every one it did not. The zeros are
    * the informative half: a device with no accesses is one the firmware never
    * reached for, which a total cannot say. */
@@ -841,6 +852,17 @@ static int boot_from_tape(const char *path, unsigned limit) {
   }
   if (board->atbus_empty_writes > 0u) {
     printf("    first write %08X\n", board->first_atbus_empty_write);
+  }
+  /* The part of the translation map's region no manual describes. Reported even
+   * at zero, because zero is the informative answer here: it says the run never
+   * went anywhere our assumed decode could be wrong. */
+  printf("  atmap undoc  %u read, %u written\n",
+         board->atmap_undescribed_reads, board->atmap_undescribed_writes);
+  if (board->atmap_undescribed_reads > 0u) {
+    printf("    first read %08X\n", board->first_atmap_undescribed_read);
+  }
+  if (board->atmap_undescribed_writes > 0u) {
+    printf("    first write %08X\n", board->first_atmap_undescribed_write);
   }
   printf("  final region %s\n",
          ap_board_region_name(ap_board_region(machine.cpu.regs.pc)));

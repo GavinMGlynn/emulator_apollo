@@ -189,6 +189,12 @@ uint8_t ap_board_read(ap_board_t *board, uint32_t address, bool *ok) {
   case AP_BOARD_REGION_NODE_ID:
     return ap_nodeid_read(&board->node_id, address);
   case AP_BOARD_REGION_TRANSLATION_MAP:
+    if (!ap_atmap_decodes_to_entry(address)) {
+      if (board->atmap_undescribed_reads == 0u) {
+        board->first_atmap_undescribed_read = address;
+      }
+      board->atmap_undescribed_reads++;
+    }
     return (uint8_t)(ap_atmap_read(&board->translation_map, address) & 0xFFu);
   case AP_BOARD_REGION_DISK:
     return ap_disk_read(&board->disk, address);
@@ -261,6 +267,12 @@ void ap_board_write(ap_board_t *board, uint32_t address, uint8_t value,
     ap_intr_write(&board->interrupts, address, value);
     return;
   case AP_BOARD_REGION_TRANSLATION_MAP:
+    if (!ap_atmap_decodes_to_entry(address)) {
+      if (board->atmap_undescribed_writes == 0u) {
+        board->first_atmap_undescribed_write = address;
+      }
+      board->atmap_undescribed_writes++;
+    }
     ap_atmap_write(&board->translation_map, address, value);
     return;
   case AP_BOARD_REGION_DISK:

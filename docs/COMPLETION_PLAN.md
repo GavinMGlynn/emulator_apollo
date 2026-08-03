@@ -1592,6 +1592,11 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
       did: a probe run had been keeping no time.*
 - [ ] Memory bus with one shared arbitration point, so contention is emergent.
       *Verification: probes measuring contention between CPU and DMA.*
+      **Every sub-item below is done and the item is not**, because its
+      verification needs a second master actually running cycles: the
+      contention probe is the DMA controllers' item further down this phase,
+      and this ticks when that one produces the measurement. Nothing else is
+      outstanding here.
   - [x] The processor's side of the protocol: `[030]` §7.7's BR/BG/BGACK state
         machine, with the processor at the lowest priority. Both documented
         deferrals are in — a grant waits for a committed bus cycle to begin, and
@@ -1664,36 +1669,20 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         only one naming the DS3500 — the base manual describes the map as a
         Series 4000 feature and would have left our reference machine without
         one.
-  - [ ] Open on the map, and both are gaps in the manuals rather than in the
-        code: what the region decodes to beyond the entries (`017000`-`0177FF`
-        is 2 KB and 128 entries of 16 bits fill 256 bytes of it), and whether a
-        byte address within it selects entry `(address - base) / 2`, which is
-        assumed because it is the only reading with no gaps. Both are pinned by
-        tests so they cannot be closed by accident.
-        - **The oracle answers both, and disagrees with us on one.**
-          `apollo_address_translation_map_r` is
-          `address_translation_map[offset & 0x3ff]` on a 16-bit handler, so the
-          offset is in *words*: **1024 entries spanning the whole 2 KB**, and a
-          byte address selecting entry `(address - base) / 2`.
-        - The second half confirms our assumption. The first **contradicts** it:
-          we model 128 entries filling 256 bytes, the oracle models 1024 filling
-          all 2 KB.
-        - **Resolved, and our model is right.** `019411-A00` §4.2.1.4 gives
-          *both* numbers, for different transfer widths: during **8-bit** DMA
-          "address bits `<15:10>` provide an index ... they select one of the
-          **64** entries", and during **16-bit** DMA "address bits `<16:10>` ...
-          select one of the **128** entries". The map has 128 entries; 8-bit
-          transfers reach only the first 64.
-        - So our 128 is correct, and the sub-item above already implements "the
-          translation for both DMA widths" — the two facts were in the plan the
-          whole time, one line apart, describing each other.
-        - The oracle's `& 0x3ff` is **over-permissive**: 1024 entries where the
-          hardware has 128. Classified as hardware-truer on our side, with the
-          manual as the citation. It is the kind of mask an emulator writes to
-          avoid an out-of-bounds index rather than to model a decode.
-        - The remaining half of the original question — what the rest of the
-          2 KB region decodes to — is untouched by this. 128 entries of 16 bits
-          fill 256 bytes; §4.2.1.4 says nothing about the other 1792.
+  - [x] **Both open questions closed, one answered and one instrumented.** The
+        entry count is the manual's: §4.2.1.4 gives 64 for 8-bit DMA and 128 for
+        16-bit, so our 128 is right and the oracle's `& 0x3ff` — 1024 entries
+        spanning the whole 2 KB — is over-permissive, classified as
+        hardware-truer on our side. What the region decodes to beyond the
+        entries has **no answer available**: the addendum, the technical
+        reference and the web are all silent, and the oracle cannot witness it
+        because its own decode is the one already ruled wrong. The aliasing
+        assumption stays, and is now counted rather than silent — the board
+        records reads and writes to the undescribed seven eighths, with the
+        first address of each. Detail in `PROJECT_STATUS.md`.
+        *Verification: `board_suite` +2 (16) — an access inside the entries is
+        not counted and one past them is, and the first address recorded stays
+        the first. `atmap_suite` still pins the two figures that do not divide.*
   - [x] **Characterised** by measurement, since no manual here lays these out:
         `008778-03` Table 2-8 gives addresses only, and the handbook carrying
         the bit layouts is not in `docs/references/`. `tools/mame-oracle/regprobe.lua`

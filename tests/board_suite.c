@@ -345,8 +345,71 @@ static void test_every_region_has_a_name(void) {
   }
 }
 
+/* The seven eighths of the translation map's region that no manual describes.
+ *
+ * `019411-A00` §4.2.1.4 is the only source naming the DS3500 and says nothing
+ * about it; `008778-03` §1.2 and Table 2-8 give the range and no decode; the web
+ * step found nothing; and the oracle cannot witness it, masking the whole region
+ * with `& 0x3ff` and so modelling 1024 entries where the manual gives 128. So
+ * the aliasing decode is an assumption, and this counter is what will answer the
+ * question if anything real ever touches the region.
+ *
+ * Zero after a run is the informative answer, not a missing one: it says nothing
+ * went anywhere the assumption could be wrong. */
+static void test_touching_the_maps_undescribed_bytes_is_counted(void) {
+  ap_board_t b;
+  init(&b);
+
+  bool ok = false;
+  /* Inside the entries: not counted, and the region counter still moves, so
+   * this is a fact about the *sub*-region rather than about the map. */
+  (void)ap_board_read(&b, AP_ATMAP_BASE + 0x0FFu, &ok);
+  TEST_ASSERT_TRUE(ok);
+  TEST_ASSERT_EQUAL_UINT(0u, b.atmap_undescribed_reads);
+  TEST_ASSERT_EQUAL_UINT(1u, b.region_reads[AP_BOARD_REGION_TRANSLATION_MAP]);
+
+  /* The first byte past what 128 entries of 16 bits fill. */
+  (void)ap_board_read(&b, AP_ATMAP_BASE + 0x100u, &ok);
+  TEST_ASSERT_TRUE(ok);
+  TEST_ASSERT_EQUAL_UINT(1u, b.atmap_undescribed_reads);
+  TEST_ASSERT_EQUAL_HEX32(AP_ATMAP_BASE + 0x100u,
+                          b.first_atmap_undescribed_read);
+
+  ap_board_write(&b, AP_ATMAP_LIMIT - 1u, 0x5Au, &ok);
+  TEST_ASSERT_TRUE(ok);
+  TEST_ASSERT_EQUAL_UINT(1u, b.atmap_undescribed_writes);
+  TEST_ASSERT_EQUAL_HEX32(AP_ATMAP_LIMIT - 1u, b.first_atmap_undescribed_write);
+
+  /* And the first address is the *first*, not the last: a run that goes wrong
+   * tends to keep going wrong, and the earliest access has the fewest causes
+   * behind it. */
+  (void)ap_board_read(&b, AP_ATMAP_BASE + 0x400u, &ok);
+  TEST_ASSERT_EQUAL_UINT(2u, b.atmap_undescribed_reads);
+  TEST_ASSERT_EQUAL_HEX32(AP_ATMAP_BASE + 0x100u,
+                          b.first_atmap_undescribed_read);
+}
+
+/* The access still *works* -- the assumption is that the entries alias every
+ * 256 bytes, this board's measured idiom everywhere else, and the counter
+ * records that the assumption was exercised rather than refusing the access.
+ * Refusing would be a decode claim of its own, and a less likely one. */
+static void test_the_undescribed_bytes_alias_the_entries(void) {
+  ap_board_t b;
+  init(&b);
+
+  bool ok = false;
+  ap_board_write(&b, AP_ATMAP_BASE + 0x001u, 0x5Au, &ok);
+  TEST_ASSERT_TRUE(ok);
+
+  const uint8_t aliased = ap_board_read(&b, AP_ATMAP_BASE + 0x101u, &ok);
+  TEST_ASSERT_TRUE(ok);
+  TEST_ASSERT_EQUAL_HEX8(0x5Au, aliased);
+}
+
 int main(void) {
   UNITY_BEGIN();
+  RUN_TEST(test_touching_the_maps_undescribed_bytes_is_counted);
+  RUN_TEST(test_the_undescribed_bytes_alias_the_entries);
   RUN_TEST(test_every_device_lands_in_its_documented_region);
   RUN_TEST(test_an_unclaimed_address_is_unmapped_not_zero);
   RUN_TEST(test_main_memory_is_where_table_two_eight_puts_it);

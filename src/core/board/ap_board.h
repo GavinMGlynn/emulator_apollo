@@ -164,6 +164,29 @@ typedef struct ap_board {
   unsigned rom_writes;
   uint32_t first_rom_write;
 
+  /* Accesses to the seven eighths of the translation map's region that no
+   * manual describes. `board/ap_atmap.h` has the arithmetic: `017000`-`0177FF`
+   * is 2 KB, 128 entries of 16 bits fill 256 bytes of it, and `019411-A00`
+   * §4.2.1.4 -- the only source that names the DS3500 -- says nothing about the
+   * rest. Neither does `008778-03` §1.2 or Table 2-8, and the web step found
+   * nothing; the oracle cannot witness it either, since MAME masks the whole
+   * region with `& 0x3ff` and so models 1024 entries where the manual gives
+   * 128.
+   *
+   * So the decode is assumed -- the entries alias every 256 bytes, which is
+   * this board's measured idiom everywhere else -- and this counter is what
+   * turns an unanswerable question into one that answers itself the moment
+   * something real touches the region. Zero here after a boot says the firmware
+   * never went there, which is worth as much as a number would be.
+   *
+   * The alternative was to leave a tested predicate that nothing called, which
+   * is what this was: `ap_atmap_decodes_to_entry` existed, had a test, and no
+   * caller. */
+  unsigned atmap_undescribed_reads;
+  unsigned atmap_undescribed_writes;
+  uint32_t first_atmap_undescribed_read;
+  uint32_t first_atmap_undescribed_write;
+
   /* Accesses to an AT bus window with no card behind them. Not unmapped: the
    * board decodes the window, so these terminate normally and read `FF`.
    * Counted because "the firmware went looking in an empty slot" is worth
