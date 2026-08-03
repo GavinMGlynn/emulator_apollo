@@ -37,7 +37,41 @@
  * Modelling them as all-ones would copy an oracle gap into this core wearing
  * the clothes of a measurement. `ap_boardreg_is_declined` exists so a caller
  * can tell "no register here" from "a register we know exists and refuse to
- * guess at", which are very different facts about the machine.
+ * guess at", which are very different facts about the machine -- and
+ * `board/ap_board.h` now counts both, so a run says which one it touched.
+ *
+ * ## What the firmware says about them, which is more than the oracle does
+ *
+ * Every boot PROM in hand was scanned for absolute references to both
+ * addresses. The master request register is referenced **29 times across three
+ * images** -- nine in `3500_BOOT_12191_7`, nine in `4500_BOOT_13167_02`, eleven
+ * in `5500_BOOT_A1631-80046` -- and **not once** in either Series 3000 image or
+ * in the DN2500's. That matches `008778-03` §2.4.7 exactly: "In the Series
+ * 4000, an alternate method of bus arbitration exists that implements a Master
+ * Request Register." It also puts the DS3500 in the Series 4000 architecture
+ * group, which is the same set `019411-A00` §4.2.1.4 gives the address
+ * translation map to -- DS3500, DS4000, DS4500, DS5500. Two features, one
+ * model set, from two independent sources.
+ *
+ * Every one of those 29 sites is a **byte write**: `CLR.B`, or `MOVE.B` of
+ * `$00`, `$02`, `$08` or `$40`. So the register is byte-wide, and the firmware
+ * drives bits 1, 3 and 6. Two of the sites are the arms of one branch -- `$08`
+ * on one path and `$40` on the other -- so at least those two bits are
+ * alternatives rather than a sequence.
+ *
+ * **Not one site reads it**, in any image. That is the finding that matters,
+ * because the read-back value is precisely what could not be measured: no
+ * firmware in hand depends on it, so declining the read costs nothing that any
+ * software here would notice. A 400,000-instruction DS3500 boot confirms it
+ * from the other direction -- one write, no reads.
+ *
+ * **Task alias is at no absolute address in any of the five images**, and the
+ * same boot never touches it. So there is nothing to disassemble: this one
+ * needs the architecture handbook and only the handbook.
+ *
+ * None of this says what a bit *means*, and nothing may be built as though it
+ * did. Width, use, and the absence of a read are what the firmware can testify
+ * to.
  */
 
 #ifndef APOLLO_BOARD_AP_BOARDREG_H

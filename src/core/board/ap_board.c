@@ -115,6 +115,32 @@ ap_time_t ap_board_access_time(const ap_board_t *board, uint32_t address,
   return 0u;
 }
 
+/* The two registers Table 2-8 names and `ap_boardreg` declines. Counted here
+ * rather than in the register module because it is the *machine* that was
+ * watched, and a count is our record of watching rather than state the board
+ * has -- which is why these stay out of the hash, like every other counter. */
+static void count_declined(ap_board_t *board, uint32_t address, bool read) {
+  if (!ap_boardreg_is_declined(address)) {
+    return;
+  }
+  const bool task_alias =
+      address >= AP_BOARDREG_TASK_ALIAS_ADDR &&
+      address < AP_BOARDREG_TASK_ALIAS_ADDR + AP_BOARDREG_RANGE;
+  if (task_alias) {
+    if (read) {
+      board->task_alias_reads++;
+    } else {
+      board->task_alias_writes++;
+    }
+    return;
+  }
+  if (read) {
+    board->master_request_reads++;
+  } else {
+    board->master_request_writes++;
+  }
+}
+
 const char *ap_board_region_name(ap_board_region_t region) {
   switch (region) {
   case AP_BOARD_REGION_UNMAPPED: return "unmapped";
@@ -175,6 +201,7 @@ uint8_t ap_board_read(ap_board_t *board, uint32_t address, bool *ok) {
   }
   switch (counted) {
   case AP_BOARD_REGION_CORE_REGISTER:
+    count_declined(board, address, true);
     return ap_boardreg_read8(&board->registers, address);
   case AP_BOARD_REGION_SIO:
     return ap_sio_read(&board->sio, address);
@@ -249,6 +276,7 @@ void ap_board_write(ap_board_t *board, uint32_t address, uint8_t value,
   }
   switch (counted) {
   case AP_BOARD_REGION_CORE_REGISTER:
+    count_declined(board, address, false);
     ap_boardreg_write8(&board->registers, address, value);
     return;
   case AP_BOARD_REGION_SIO:

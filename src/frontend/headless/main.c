@@ -670,6 +670,12 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
   if (board->atbus_empty_writes > 0u) {
     printf("    first write %08X\n", board->first_atbus_empty_write);
   }
+  /* The two registers Table 2-8 names and this core declines. Printed even at
+   * zero for the same reason: "the firmware never touched task alias" is an
+   * answer, and the only one available until a handbook turns up. */
+  printf("  declined     task alias %u/%u, master request %u/%u (read/write)\n",
+         board->task_alias_reads, board->task_alias_writes,
+         board->master_request_reads, board->master_request_writes);
   /* The part of the translation map's region no manual describes. Reported even
    * at zero, because zero is the informative answer here: it says the run never
    * went anywhere our assumed decode could be wrong. */
@@ -853,6 +859,12 @@ static int boot_from_tape(const char *path, unsigned limit) {
   if (board->atbus_empty_writes > 0u) {
     printf("    first write %08X\n", board->first_atbus_empty_write);
   }
+  /* The two registers Table 2-8 names and this core declines. Printed even at
+   * zero for the same reason: "the firmware never touched task alias" is an
+   * answer, and the only one available until a handbook turns up. */
+  printf("  declined     task alias %u/%u, master request %u/%u (read/write)\n",
+         board->task_alias_reads, board->task_alias_writes,
+         board->master_request_reads, board->master_request_writes);
   /* The part of the translation map's region no manual describes. Reported even
    * at zero, because zero is the informative answer here: it says the run never
    * went anywhere our assumed decode could be wrong. */

@@ -1694,28 +1694,21 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         bit), each aliased across its 256-byte range. `boardreg_suite`,
         12 tests. Storage and width only — what the bits *mean* is still
         unknown, and **nothing may be built that depends on a meaning**.
-  - [ ] **Blocked, not deferred:** task alias (`010300`) and master request
-        (`011600`) are absent from the oracle — they match, exactly, the
-        all-ones signature that two known-unmapped control addresses produce.
-        Table 2-8 lists both, so the hardware has them and the oracle does not.
-        Needs the architecture handbook, or a boot-PROM disassembly showing what
-        the firmware writes there. Implementing all-ones would bake an oracle
-        gap in as though it were a measurement.
-        - **Partly answered, from evidence collected for something else.** The
-          boot PROM executes `CLR.B $00011600` — a byte write of zero to the
-          **master request register** — on every pass through its reset path.
-          That is the disassembly this item asked for, and it arrived while
-          chasing a stack exhaustion whose cause was the register being
-          unreachable through the map (`FINDINGS.md` C34 era).
-        - So the register is written, early, with zero, repeatedly. That does
-          not give its read-back value and does not settle task alias
-          (`010300`) at all, both of which still need the handbook or the
-          oracle. But it removes the "we have no idea what touches this" part
-          of the blockage for one of the two.
-        - Worth noting how it was found: not by looking for it. The trace that
-          named `CLR.B $00011600` was watching A7 for an unrelated defect, and
-          the answer to a blocked item was in it. That is an argument for
-          re-reading traces already taken before running new ones.
+  - [x] **Unblocked by the disassembly the item asked for, done across all five
+        boot PROMs.** The master request register is referenced 29 times in the
+        DS3500, DS4500 and DS5500 images and **not once** in either Series 3000
+        one — §2.4.7's "In the Series 4000, an alternate method of bus
+        arbitration exists" confirmed from the firmware, and the DS3500 placed
+        in the same model set `019411-A00` gives the translation map to. Every
+        site is a **byte write** of `$00`, `$02`, `$08` or `$40`, and **none is
+        a read** — so the read-back value, the one thing that could not be
+        measured, is something no firmware in hand depends on. Task alias is at
+        no absolute address in any image and a 400,000-instruction boot never
+        touches it: that one needs the architecture handbook and only the
+        handbook. Both stay declined, and both are now counted, so a run says
+        which it touched. Detail in `PROJECT_STATUS.md`.
+        *Verification: `board_suite` +1 (17) — the two counted apart, aliased
+        across their 256-byte ranges, and a modelled register not counted.*
 - [ ] Two 8259 interrupt controllers and the Apollo interrupt vector scheme.
       *Verification: probe-driven interrupt ordering vs oracle.*
   - [x] **The route to that verification exists at last: probes can run on a

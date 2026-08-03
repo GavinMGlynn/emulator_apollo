@@ -3404,7 +3404,7 @@ failure that cost a bit position in the 68020's module entry word.
 | Board cache (`012000` RAM, `014000` condition codes) | not started. The shared **bus arbitration point** is done and has its own row above | — |
 | Apollo interrupt controllers (`011000`, `011100`) | working: the two 8259As cascaded on **IR3** (measured, not IR2 as the AT convention would have it), vector bases `A0`/`A8` from the boot PROM's own ICW2, giving levels `A0`-`AF`. Priority order matches `008778-03` Table 2-3, which with the cascade on IR3 has no anomaly. The CPU interrupt level is **6**, also measured — neither manual states it, and it took starting the interval timer by hand to make anything request at all | `intr_suite`, 13 tests; `FINDINGS.md` C11, `tools/mame-oracle/writetrace.lua` |
 | Intel 8259A interrupt controller (the part) | working: ICW1-4 sequence, all three OCWs, fully nested priority with rotation, edge and level triggering, special mask and special fully nested modes, poll, AEOI, and the spurious level 7. 8086-mode vectoring only — MCS-80/85's `CALL` sequence is refused rather than approximated, and this machine never uses it. The Apollo *pairing* is a separate module | `i8259_suite`, 28 tests, each citing `8259A` 231468-003 |
-| DN3500 core-board address map (`board/ap_board.c`) | working: every device placed by `008778-03` Table 2-8 and by the measurement that confirmed it, main memory at `1000000`, and an unclaimed address reported **unmapped rather than zero** — the distinction flat RAM hid, which cost 5634 invisible accesses in the first firmware run. Regions are named, so a trace can say *what* the firmware reached for. The AT windows declare a cycle time and everything else answers at the minimum, and an access to the translation map's undescribed seven eighths is counted rather than silently aliased | `board_suite`, 16 tests; `atbus_suite`, 8 tests |
+| DN3500 core-board address map (`board/ap_board.c`) | working: every device placed by `008778-03` Table 2-8 and by the measurement that confirmed it, main memory at `1000000`, and an unclaimed address reported **unmapped rather than zero** — the distinction flat RAM hid, which cost 5634 invisible accesses in the first firmware run. Regions are named, so a trace can say *what* the firmware reached for. The AT windows declare a cycle time and everything else answers at the minimum, and an access to the translation map's undescribed seven eighths is counted rather than silently aliased, and each of the two declined core registers is counted apart | `board_suite`, 17 tests; `atbus_suite`, 8 tests |
 | Shared bus arbitration point | working: the external priority encoder `[030]` §7.7 requires, DRQ0 through DRQ7 with the processor last, driving the CPU's own arbitration unit over the three-wire protocol. A grant and its acknowledgement are separate instants, so the processor stops driving the bus when it grants rather than when the grant is taken up; a master is never pre-empted mid-transfer | `arbiter_suite`, 9 tests, `MC68030 User's Manual 3ed` §7.7, `008778-03` §2.4.6 |
 | Apollo DMA controllers (`010C00`, `010D00`) | working: DMA 1 at **stride 1** and DMA 2 at **stride 2**, both measured, both aliased through their ranges. A read of a write-only register returns zero where the oracle returns `0F`; `[8237]` marks that read "Illegal", so neither is specified and ours does not invent a register value | `dma_suite`, 6 tests; `FINDINGS.md` C13 |
 | Intel 8237A DMA controller (the part) | **programming model complete**: all sixteen register addresses, four channels with base and current address/count, the single shared first/last flip-flop, command/mode/request/mask/status/temporary, master clear, autoinitialise reload and the mask-on-terminal-count rule. Transfers themselves are **not** modelled and cannot be until there is a shared arbitration point to run a cycle on — a real dependency, not a scoping choice. Not yet wired to the board | `i8237_suite`, 18 tests, `8237A` 231466 |
@@ -4409,6 +4409,51 @@ paper over" — where MAME returns `0F`, which is what `FINDINGS.md` C13 used as
 placement fingerprint. Neither is wrong: the datasheet defines no value. It is
 registered here so that the first board-backed oracle diff does not read it as a
 defect.
+
+#### What five boot PROMs say about the two declined registers
+
+Task alias (`010300`) and master request (`011600`) are the two registers Table
+2-8 names, the oracle does not have, and this core declines rather than model as
+all-ones. The item asked for "the architecture handbook, or a boot-PROM
+disassembly showing what the firmware writes there". The disassembly is now
+done, across every image in hand, and it answers more than expected.
+
+**The master request register is referenced 29 times in three images and never
+in the other two.** Nine sites in `3500_BOOT_12191_7`, nine in
+`4500_BOOT_13167_02`, eleven in `5500_BOOT_A1631-80046` — and not one in either
+`3000_BOOT_8475` revision or in `2500_BOOT_16182_8`. That is `008778-03` §2.4.7
+confirmed from the other side: "In the Series 4000, an alternate method of bus
+arbitration exists that implements a Master Request Register." The firmware for
+the two Series 3000 machines never touches it because those machines have not
+got one.
+
+It also places the DS3500 in the Series 4000 architecture group — which is
+exactly the set `019411-A00` §4.2.1.4 gives the address translation map to:
+DS3500, DS4000, DS4500, DS5500. Two features, one model set, from two
+independent sources, neither of which mentions the other.
+
+**Every one of the 29 sites is a byte write.** `CLR.B`, or `MOVE.B` of `$00`,
+`$02`, `$08` or `$40`. So the register is byte-wide — the same discovery the
+cache control register needed a measurement for — and the firmware drives bits
+1, 3 and 6. Two of the sites are the arms of one branch, `$08` on one path and
+`$40` on the other, so at least those two are alternatives rather than a
+sequence.
+
+**Not one site reads it, in any image**, and that is the finding that unblocks
+the item. The read-back value is precisely what could not be measured, and no
+firmware in hand depends on it — so declining the read costs nothing any
+software here would notice. A 400,000-instruction DS3500 boot agrees from the
+other direction: one write, no reads.
+
+**Task alias is at no absolute address in any of the five images**, and the same
+boot never touches it. There is nothing left to disassemble; this one needs the
+architecture handbook and only the handbook.
+
+None of this says what a bit *means*, and nothing may be built as though it did.
+Width, use, and the absence of a read are the whole of what the firmware can
+testify to. The board now counts accesses to each register separately — the same
+instrument as the translation map's undescribed bytes, and the same smaller fix:
+`ap_boardreg_is_declined` had a test and no caller.
 
 #### The map's undescribed seven eighths: a gap turned into an instrument
 

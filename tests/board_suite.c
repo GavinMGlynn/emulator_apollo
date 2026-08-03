@@ -5,6 +5,7 @@
 #include <string.h>
 
 #include "board/ap_board.h"
+#include "board/ap_boardreg.h"
 
 void setUp(void) {}
 void tearDown(void) {}
@@ -406,8 +407,38 @@ static void test_the_undescribed_bytes_alias_the_entries(void) {
   TEST_ASSERT_EQUAL_HEX8(0x5Au, aliased);
 }
 
+/* The two registers Table 2-8 names and this core declines. Counted apart
+ * because they are in different states of evidence: the boot PROMs testify to
+ * the master request register -- 29 byte writes across three images and not one
+ * read -- and say nothing at all about task alias, which appears at no absolute
+ * address in any firmware in hand. A shared counter would hide which of the two
+ * a run had touched, which is the only question a run can answer. */
+static void test_the_two_declined_registers_are_counted_apart(void) {
+  ap_board_t b;
+  init(&b);
+
+  bool ok = false;
+  (void)ap_board_read(&b, AP_BOARDREG_TASK_ALIAS_ADDR, &ok);
+  ap_board_write(&b, AP_BOARDREG_MASTER_REQUEST_ADDR, 0x40u, &ok);
+  ap_board_write(&b, AP_BOARDREG_MASTER_REQUEST_ADDR + 0x0FFu, 0x00u, &ok);
+
+  TEST_ASSERT_EQUAL_UINT(1u, b.task_alias_reads);
+  TEST_ASSERT_EQUAL_UINT(0u, b.task_alias_writes);
+  TEST_ASSERT_EQUAL_UINT(0u, b.master_request_reads);
+  /* Both, because Table 2-8 gives each register a 256-byte range and this board
+   * aliases within a range -- measured, for every register that could be. */
+  TEST_ASSERT_EQUAL_UINT(2u, b.master_request_writes);
+
+  /* A register that is modelled is not counted here, or the counters would
+   * report the whole core-register region rather than the declined part of it. */
+  ap_board_write(&b, AP_BOARDREG_CPU_CONTROL_ADDR, 0x11u, &ok);
+  TEST_ASSERT_EQUAL_UINT(0u, b.task_alias_writes);
+  TEST_ASSERT_EQUAL_UINT(2u, b.master_request_writes);
+}
+
 int main(void) {
   UNITY_BEGIN();
+  RUN_TEST(test_the_two_declined_registers_are_counted_apart);
   RUN_TEST(test_touching_the_maps_undescribed_bytes_is_counted);
   RUN_TEST(test_the_undescribed_bytes_alias_the_entries);
   RUN_TEST(test_every_device_lands_in_its_documented_region);

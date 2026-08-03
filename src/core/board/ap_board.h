@@ -164,6 +164,27 @@ typedef struct ap_board {
   unsigned rom_writes;
   uint32_t first_rom_write;
 
+  /* The two registers `board/ap_boardreg.h` **declines**: task alias
+   * (`010300`) and master request (`011600`). Table 2-8 names both, so the
+   * hardware has them; the oracle has neither, and modelling them as all-ones
+   * would copy an oracle gap in wearing the clothes of a measurement.
+   *
+   * Counted separately because the two are in different states of evidence, and
+   * a shared counter would hide which. The boot PROMs settle the master request
+   * register's *use* -- nine write sites in the DS3500 image, none in either
+   * Series 3000 one -- and say nothing about task alias, which appears at no
+   * absolute address in any firmware in hand. A run that touches `010300`
+   * therefore has something to tell us that no disassembly has; a run that does
+   * not is itself the answer to "does this machine's firmware use it".
+   *
+   * The same reasoning as the translation map's undescribed bytes, and the same
+   * fix for the same smaller failure: `ap_boardreg_is_declined` had a test and
+   * no caller. */
+  unsigned task_alias_reads;
+  unsigned task_alias_writes;
+  unsigned master_request_reads;
+  unsigned master_request_writes;
+
   /* Accesses to the seven eighths of the translation map's region that no
    * manual describes. `board/ap_atmap.h` has the arithmetic: `017000`-`0177FF`
    * is 2 KB, 128 entries of 16 bits fill 256 bytes of it, and `019411-A00`
