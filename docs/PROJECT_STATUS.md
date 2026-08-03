@@ -3874,7 +3874,7 @@ discipline exists to prevent. An audit claim is worth exactly as much as the las
 time someone ran it, which is the argument for the count below rather than the
 adjective above.
 
-At the time of writing: **17 rows, each with a plan item, and no `PROVISIONAL`
+At the time of writing: **18 rows, each with a plan item, and no `PROVISIONAL`
 figure in `src/` outside them.**
 
 The plan names several of them in its own words rather than this table's — the
@@ -3901,6 +3901,7 @@ phrase.
 | 68882 microcode version number | a stated non-zero choice, carried in every `FSAVE` state frame's format word | "The version number is an 8-bit value that identifies the microcode version of the FPCP, and **the format of this number is defined internally by the FPCP**" -- so no manual publishes a value for any part and there is nothing to transcribe. The only property the documents make observable is self-consistency: `FRESTORE` must accept what `FSAVE` wrote, and version 0 is the wild card that must be accepted whatever the part reports. Both hold for any non-zero choice, which is exactly why the choice is unconstrained rather than merely unknown | Read it from a real part, or instrument the oracle and read back the format word MAME's 68882 writes. Cheap either way, and worth doing only if some firmware is found to test the field rather than round-trip it |
 | 68882 idle state frame's internal words (CU internal registers, operand register, BIU flags) | written as zeros | The same reason the 68030's stack frames give: this model has no microsequencer state to save, because its part never suspends mid-instruction. They are *written* rather than skipped so that a handler cannot read the previous program's data out from under a documented field name -- a zero is a stated value, uninitialised memory is not | Only reachable by modelling the coprocessor dialog at the CIR level, which would also be what produces a busy frame. Nothing observable depends on it until then: `FRESTORE` ignores these words on the way back in, so the round trip a program can see is already exact |
 | Apollo AT map: which entry a byte address selects | `(address - base) / 2` | Neither `008778-03` nor the `019411-A00` addendum says. The region `017000`-`0177FF` is 2 KB and 128 entries of 16 bits fill 256 bytes of it, so most of the window is undescribed; the assumed indexing is the only reading with no gaps. Pinned by tests so it cannot be closed by accident | The oracle answers it, and already disagrees on the neighbouring question -- see the open plan item, which carries both halves |
+| AT-compatible bus cycle times: which appendix a DS3500 keeps | `008778-03` Appendix A, the Series 3000 set — 6 MHz bus clock, so a 666 ns AT memory read, 500 ns write and 750 ns 8-bit I/O command | The manual's preface scopes it: "This document supports the Domain Series 3000 (DS3000) and Series 4000 (DS4000) systems". Our reference machine is a DS3500, and `019411-A00` — the addendum that does cover it — publishes no bus cycle times at all, nor does either engineering handbook on disk. What *is* pinned is the bracket, and it is narrow: the two published sets are 6 and 8 MHz bus clocks, every figure reduces to the same number of bus clocks in both, and the only row that differs is the memory read — four bus clocks against three. So the uncertainty is one bus clock on one cycle type, not an open range | A DS3500 hardware reference giving its BUS CLOCK, or an oracle measurement of an access to an AT device. Medium: the board-backed probe path exists, and MAME's ISA timing would need checking before its answer could be trusted. Affects how long every AT device access takes and nothing about what it returns |
 | DN2500 RAM base | `0x4000000` — **corrected**, was assumed `0x1000000` | Derived from the Series 2500 boot PROM's own reset vector, exactly as this row's cost-to-close said to: `2500_BOOT_16182_8` starts with SSP `040007D0`, where `3500_BOOT_12191_7` starts with `01000180` and its RAM is at `01000000`. A reset stack pointer must land in usable memory, so the DN2500's is at `04000000` and the assumption that it matched the other 68030 models was wrong | Still `PROVISIONAL`: the reset SSP proves memory exists *there*, not where the region begins or ends. A Series 2500 allocation table would settle the extent; the oracle cannot, having no 2500 driver |
 
 ### Resolved discrepancies
@@ -4408,6 +4409,92 @@ paper over" — where MAME returns `0F`, which is what `FINDINGS.md` C13 used as
 placement fingerprint. Neither is wrong: the datasheet defines no value. It is
 registered here so that the first board-backed oracle diff does not read it as a
 defect.
+
+#### The first published wait states, and two tables that check each other
+
+A device could lengthen its own cycle and nothing declared a figure, so every
+region answered at the minimum and contention was emergent in *who* held the bus
+but never in *how long*. `008778-03` Appendix A (Table A-1, Series 3000) and
+Appendix B (Table B-1, Series 4000) are the figures, and they are large: an AT
+card answers in hundreds of nanoseconds where the minimum cycle at 25 MHz is 80.
+
+**The two tables say the same thing at two clock rates, and that is checkable.**
+Appendix A is a 12 MHz machine and B a 16 MHz one, and the figures look
+unrelated until each is divided by its own table's BUS CLOCK period — `#26`, 166
+and 125 ns. Then almost every row is the same number of bus clocks in both:
+
+| Row | Series 3000 | Series 4000 |
+| --- | --- | --- |
+| `#30` memory write cycle | 500/166 = 3.0 | 375/125 = 3.0 |
+| `#37` 16-bit I/O command | 250/166 = 1.5 | 185/125 = 1.48 |
+| `#48` 8-bit I/O command | 750/166 = 4.5 | 560/125 = 4.48 |
+| `#17` MEMR.L width | 330/166 = 1.99 | 250/125 = 2.0 |
+| `#55` BALE width | 830/166 = 5.0 | 625/125 = 5.0 |
+| `#80` 0WS memory cycle | 415/166 = 2.5 | 313/125 = 2.5 |
+
+The residue is the tables printing whole nanoseconds for a 166.67 ns period.
+`atbus_suite` asserts the agreement to within 0.05 of a bus clock rather than
+describing it, so a digit wrong in either transcribed column fails a test — the
+transcription checks itself against a second, independently typeset copy.
+
+What it says is what an AT bus cycle *is*: a fixed number of bus clocks, the two
+appendices differing only because their bus clocks do. The one row that genuinely
+differs is the memory read cycle, `#18` — four bus clocks on the Series 3000 and
+three on the Series 4000, a real wait state on the slower board and not an
+artefact of the division. It is also the only row where the direction matters,
+which is why the callback takes one.
+
+**Which row is which cycle came from the diagrams, not the table.** Both tables
+carry *two* rows called "IOR.L, IOW.L Width Asserted", `#37` and `#48`, with no
+note distinguishing them. Figure B-3 "Bus 16-Bit I/O Read Cycle" annotates
+IOR.L's width with `37` and Figure B-7 "Bus 8-Bit I/O Read Cycle" with `48`.
+Those numbers are inside the drawings; no text extraction carries them, and
+reading the page images was the whole of settling it. The same figures label the
+two clocks "Internal signal on the CPU/Motherboard. Not available on the Bus",
+which confirms BUS CLOCK is CLOCK halved on both boards.
+
+**A published lower bound for I/O, used anyway.** Neither table gives an I/O
+*cycle* time — it gives the command width, and a cycle is that plus the address
+setup before it (`#44`) and the hold after (`#39`), published separately. The
+figure modelled is therefore the command width, deliberately not summed into a
+total: the same rule this project applied to the 68030's footnoted timing rows,
+where reporting the component as the lower bound it is beat constructing a total
+that would read as measured. The alternative is not "no approximation" but no
+wait states at all — 80 ns against a documented 750. Cost to close: a published
+AT I/O cycle time, or a measurement.
+
+**The board answers a duration; the machine converts it.** `ap_board_access_time`
+returns `AP_TIME_BASE_HZ` units, and `machine_wait_states` divides by the CPU's
+period and subtracts the two clocks §11.6 assumes anyway. That division of labour
+is the same one the machine's clock has — how long a port takes is the port's
+property, how many clocks that costs is the asking processor's — and it means the
+wait-state count is written down nowhere: a DN3500 pays 19 clocks and a DN3000
+pays 9 for the identical card, both falling out of one published figure and two
+rates. That only became expressible when the machine started reading `cpu_hz`.
+
+**Decided by address, not by device.** Table 2-8 puts the AT bus in two address
+windows, so the figure follows the address: the disk, the tape, the floppy and an
+empty slot are all inside the I/O window and get the I/O cycle without anyone
+deciding, device by device, which is an AT card. Eight bits wide, because that is
+what a card gets when it does not assert `MEM_CS16.L` or `IO_CS16.L` — the AT's
+default rather than a choice.
+
+The one consequence to watch is the display: both graphics memories decode inside
+the AT *memory* window, so a frame buffer access is charged an AT memory cycle. If
+the controller sits on a local bus instead, that is too slow by a large factor. It
+is recorded rather than guessed either way, and the region counters keep it
+visible.
+
+**`PROVISIONAL`: the DS3500 is in neither appendix.** `008778-03`'s preface says
+"This document supports the Domain Series 3000 (DS3000) and Series 4000 (DS4000)
+systems"; our reference machine is a DS3500, and `019411-A00`, the addendum that
+does cover it, publishes no bus cycle times at all. Neither sibling handbook on
+disk has wait states either. What *is* pinned is the bracket — an AT-compatible
+bus runs at one of these two rates, the cycle counts agree at both, and only the
+memory read differs. The board takes the Series 3000 set, and the disagreement the
+other choice could produce is one bus clock on a memory read. Cost to close: a
+DS3500 hardware reference giving its BUS CLOCK, or an oracle measurement of an AT
+device access.
 
 #### An I/O adapter's route to the arbiter, and the encoder that is really two
 

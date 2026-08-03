@@ -340,6 +340,14 @@ void ap_board_hash(ap_hash_t *st, const ap_board_t *board) {
   ap_board_hash_graphics(st, &board->graphics);
   ap_board_hash_keyboard(st, &board->keyboard);
 
+  /* Which appendix's AT bus cycle times this board keeps. Configuration rather
+   * than something a program can change, and in the hash for the same reason
+   * the CPU's clock rate is in the machine's: two boards that answer the same
+   * bytes at different speeds are not the same board, and a fast mode that
+   * reached the same state over a differently-timed bus is exactly what this
+   * must catch. */
+  ap_hash_u8(st, (uint8_t)board->at_bus_series);
+
   /* The boot PROM in full: which firmware is running is the largest single fact
    * about a boot, and the region is 64 Kbyte at most. Its absence is fed as a
    * marker rather than as nothing, because a machine with no PROM is a real

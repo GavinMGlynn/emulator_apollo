@@ -32,6 +32,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#include "board/ap_atbus.h"
 #include "board/ap_atmap.h"
 #include "board/ap_boardreg.h"
 #include "board/ap_calendar.h"
@@ -122,6 +123,15 @@ typedef struct ap_board {
   ap_graphics_t graphics;
   ap_kbd_t keyboard;
 
+  /* Which appendix's AT bus cycle times this board keeps. **`PROVISIONAL`**:
+   * `008778-03` covers the DS3000 and DS4000, our reference machine is a
+   * DS3500, and `019411-A00` -- the addendum that does cover it -- publishes no
+   * bus cycle times at all. `board/ap_atbus.h` states the bracket the two
+   * published sets give and what closing it needs. Series 3000 is the set here
+   * because this is a Series 3000-family board; the disagreement the other
+   * choice would produce is one bus clock on a memory read. */
+  ap_atbus_series_t at_bus_series;
+
   /* The boot PROM, caller-owned. NULL until one is loaded, and the region then
    * answers unmapped -- a machine with no PROM is a real configuration and must
    * not look like one with a blank PROM. */
@@ -196,6 +206,34 @@ typedef struct ap_board {
 
 [[nodiscard]] ap_board_region_t ap_board_region(uint32_t address);
 [[nodiscard]] const char *ap_board_region_name(ap_board_region_t region);
+
+/* How long this address takes to answer, in `AP_TIME_BASE_HZ` units. Zero means
+ * no document gives a figure, and the caller should charge its minimum.
+ *
+ * ## Decided by address, not by device
+ *
+ * Table 2-8 puts the AT-compatible bus in two address windows, and a card in
+ * either answers over that bus whatever it is. So the figure follows the
+ * *address*: the disk, the tape, the floppy and any empty slot are all inside
+ * the I/O window and all get the I/O cycle without this having to decide, one
+ * device at a time, which of them is an AT card. `board/ap_atbus.h` has the
+ * figures and where they come from.
+ *
+ * The one consequence to keep an eye on is the display: both graphics memories
+ * decode inside the AT *memory* window, so a frame buffer access is charged an
+ * AT memory cycle. If the controller turns out to sit on a local bus instead,
+ * that is too slow by a large factor -- recorded in `PROJECT_STATUS.md` rather
+ * than guessed at either way, and visible because the region counters separate
+ * graphics from the rest.
+ *
+ * ## Zero for everything else, and that is a statement
+ *
+ * Main memory, the boot PROM and the board's own registers at `010000`-`017000`
+ * are not on the AT bus and `008778-03` publishes no cycle time for them. They
+ * answer at the minimum, which is what this core did everywhere before there
+ * was a figure anywhere -- not because they are known to be that fast. */
+[[nodiscard]] ap_time_t ap_board_access_time(const ap_board_t *board,
+                                             uint32_t address, bool read);
 
 /* Read or write one byte. `ok` reports whether anything answered; an unmapped
  * access is counted and reported rather than quietly returning zero. */

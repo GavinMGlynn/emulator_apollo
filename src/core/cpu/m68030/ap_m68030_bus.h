@@ -82,6 +82,14 @@ typedef enum {
   AP_M68030_SIZE_THREE = 3,
 } ap_m68030_size_t;
 
+/* The shortest cycle this bus can run, and so the number a caller subtracts
+ * when it knows how long a device takes and wants the *wait states*: §7.3.4's
+ * "two-clock (minimum) bus cycle for 32-bit ports", which is also what §11.6's
+ * timing tables assume throughout. A device that answers inside it inserts
+ * none. Declared here because it is a property of the state machine below and
+ * not of whoever is converting a duration into clocks. */
+#define AP_M68030_MIN_BUS_CLOCKS 2u
+
 /* How the addressed device ended the cycle. AP_M68030_TERM_NONE means it has
  * not answered yet, which is what causes wait states. */
 typedef enum {

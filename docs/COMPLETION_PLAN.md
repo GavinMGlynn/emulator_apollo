@@ -1626,10 +1626,22 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         *Verification: `cache_suite` +1 across six cases, single and burst at 0,
         1 and 3 wait states — the burst paying them once, since its four beats
         are one cycle held open.*
-    - [ ] What no longer blocks it and now needs doing: a board that actually
-          declares them. Every region answers at the minimum until `008778-03`
-          or a measurement says otherwise, so contention is emergent in *how
-          long* only in principle.
+    - [x] **A board that actually declares them**, and `008778-03` said
+          otherwise where it could: Appendix A (Series 3000) and Appendix B
+          (Series 4000) give the AT bus cycle times, so the two AT windows now
+          answer in hundreds of nanoseconds where the minimum is eighty. The
+          board answers a *duration* and the machine converts it, so the
+          wait-state count is written down nowhere — a DN3500 pays 19 clocks
+          and a DN3000 pays 9 for the same card. Regions with no published
+          figure still answer at the minimum, and that is now a statement
+          rather than a default. One `PROVISIONAL`, in the table: the DS3500 is
+          in neither appendix, so the board keeps the Series 3000 set and the
+          bracket is one bus clock on a memory read. Detail in
+          `PROJECT_STATUS.md`.
+          *Verification: `atbus_suite`, 8 tests. The transcription checks
+          itself: the two appendices are the same bus at two clock rates, so
+          every figure but the memory read reduces to the same number of bus
+          clocks in both, asserted to 0.05 of a clock.*
   - [x] The synchroniser stays `PROVISIONAL` at two clocks, but the figure is
         now **bounded by the manufacturer's own measurement** rather than by the
         user manual's prose. `MC68030EC/D` p. 7, parameter 35, gives `BR`

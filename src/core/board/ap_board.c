@@ -86,6 +86,35 @@ ap_board_region_t ap_board_region(uint32_t address) {
   return AP_BOARD_REGION_UNMAPPED;
 }
 
+ap_time_t ap_board_access_time(const ap_board_t *board, uint32_t address,
+                               bool read) {
+  const ap_atbus_timing_t *timing = ap_atbus_timing(board->at_bus_series);
+
+  /* By address, not by device: a card in either window answers over the AT bus
+   * whatever it is, so the disk, the tape, the floppy, the display's memories
+   * and an empty slot all take the same figure without this deciding, one
+   * device at a time, which of them is an AT card.
+   *
+   * Eight bits wide because that is what a card gets when it does not assert
+   * `MEM_CS16.L` or `IO_CS16.L` -- the AT's default rather than a choice made
+   * here. A card that asserts one is faster, and nothing on this board is known
+   * to. */
+  if (in(address, AP_BOARD_ATBUS_IO_BASE,
+         AP_BOARD_ATBUS_IO_END - AP_BOARD_ATBUS_IO_BASE + 1u)) {
+    return ap_atbus_access_time(timing, AP_ATBUS_CYCLE_IO_8, read);
+  }
+  if (in(address, AP_BOARD_ATBUS_MEMORY_BASE,
+         AP_BOARD_ATBUS_MEMORY_END - AP_BOARD_ATBUS_MEMORY_BASE + 1u)) {
+    return ap_atbus_access_time(timing, AP_ATBUS_CYCLE_MEMORY, read);
+  }
+
+  /* "Zero for everything else, and that is a statement." Main memory, the PROM
+   * and the board's own registers have no published cycle time; they answer at
+   * the caller's minimum because nothing says otherwise, not because they are
+   * known to be that fast. */
+  return 0u;
+}
+
 const char *ap_board_region_name(ap_board_region_t region) {
   switch (region) {
   case AP_BOARD_REGION_UNMAPPED: return "unmapped";
@@ -129,6 +158,10 @@ bool ap_board_init(ap_board_t *board, uint8_t *ram, uint32_t ram_bytes,
    * register reads `FF`, which is how the firmware learns there is none. */
   ap_graphics_init(&board->graphics, AP_SCREEN_NONE);
   ap_kbd_reset(&board->keyboard);
+  /* `PROVISIONAL`, and the field's comment says why. Set explicitly rather than
+   * left to the `memset` above being zero: the value is a claim about this
+   * board, and one that happens to be enumerator zero is still a claim. */
+  board->at_bus_series = AP_ATBUS_SERIES_3000;
   board->ram = ram;
   board->ram_bytes = ram_bytes;
   return true;

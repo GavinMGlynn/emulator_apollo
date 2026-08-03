@@ -99,6 +99,41 @@ static void machine_fill(void *context, uint32_t line_address,
   out->data[0] = read_bytes(machine, line_address, 4u);
 }
 
+/* How many whole CPU clocks the addressed device makes the processor wait.
+ *
+ * The board answers a *duration* and this converts it, which is the same
+ * division of labour the machine's own clock has: how long a port takes is a
+ * property of the port, and how many clocks that costs is a property of the
+ * processor asking. A DN3000 at 12 MHz and a DN4500 at 33 MHz pay different
+ * numbers of wait states for the identical AT card, and neither figure is
+ * written down anywhere -- both fall out of one published nanosecond figure and
+ * two clock rates.
+ *
+ * Beyond the minimum, not the whole cycle. `[030]` §11.6 assumes "two-clock bus
+ * cycles and no wait states", so two clocks are already charged by the state
+ * machine and a device that answers within them inserts none. */
+static unsigned machine_wait_states(void *context, uint32_t physical,
+                                    bool read) {
+  const ap_machine_t *machine = (const ap_machine_t *)context;
+  if (machine->board == NULL || machine->cpu_clock.period == 0u) {
+    return 0u;
+  }
+
+  const ap_time_t needed = ap_board_access_time(machine->board, physical, read);
+  if (needed == 0u) {
+    return 0u; /* no published figure: the minimum */
+  }
+
+  /* Rounded *up*: a device that needs part of a clock still holds the bus for
+   * all of it, and a cycle counted short would make a slow card look faster
+   * than the manual says it is. */
+  const uint64_t clocks =
+      (needed + machine->cpu_clock.period - 1u) / machine->cpu_clock.period;
+  return clocks > AP_M68030_MIN_BUS_CLOCKS
+             ? (unsigned)(clocks - AP_M68030_MIN_BUS_CLOCKS)
+             : 0u;
+}
+
 static bool machine_store(void *context, uint32_t physical, uint32_t value,
                           unsigned size) {
   ap_machine_t *machine = (ap_machine_t *)context;
@@ -244,6 +279,12 @@ void ap_machine_init_model(ap_machine_t *machine, uint8_t *ram,
       .store = machine_store,
       .table_fetch = machine_table_fetch,
       .table_update = machine_table_update,
+      /* Always supplied, and it answers zero until a board is attached: a probe
+       * on flat RAM has no device with a published cycle time, so nothing it
+       * measures moves. Wiring it here rather than in `ap_machine_set_board`
+       * keeps one construction path -- a callback installed by a setter is a
+       * callback some caller forgets. */
+      .wait_states = machine_wait_states,
       .context = machine,
   };
   machine->data_access = machine->instruction_access;
