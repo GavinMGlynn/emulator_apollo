@@ -6138,3 +6138,52 @@ to "inside the published measurement, asserted".
 represents -- so this is closable only from hardware, or by accepting the
 envelope as the answer. That is now what the row says, instead of naming an
 emulator that cannot be asked.
+
+## C108 -- probes can run on a board, which is what every device verification needed
+
+**Class: capability, and a divergence class it surfaced within minutes.**
+
+Every Phase 3 device item carries a verification line of the same shape --
+"probe-driven interrupt ordering vs oracle", "transfer probes", "self-timing
+probes", "console byte stream" -- and not one of them had a route. The probe
+harness runs "a 68030 on flat RAM and nothing else", which is what made
+side-loading cheap in Phase 1 and what made every one of those lines
+unreachable: a device register is *unmapped* on flat RAM, so our side faults
+exactly where the oracle's `dn3500` answers.
+
+`--probe-file` now takes `board 1` and builds a whole core board. No boot PROM:
+`ap_board_init` does not need one, and a probe is side-loaded precisely so that
+no firmware runs.
+
+Two details that were wrong first and are worth keeping:
+
+* The probe must be written **through the board**, not with `ap_machine_write`.
+  That is the operator's view of flat RAM and knows nothing of where a model
+  puts its memory, so it refused a load at `01001000` on a machine whose board
+  maps RAM there.
+* Which is the consequence worth having: a board probe loads at the *model's*
+  RAM base, which is where the oracle's loads. Both sides then run the same
+  addresses, and the diff stops needing the base offset every existing probe
+  carries.
+
+Measured rather than asserted. The same probe, reading a DMA register:
+
+    board 1   3 instructions, STOPPED, 0 bus errors
+    flat RAM  50 instructions, EXECUTED, 25 bus errors, never terminated
+
+### The divergence it found immediately
+
+The probe read the 8237A's all-mask register and got zero, where C13 had
+recorded MAME returning `0F` and had used that as the placement fingerprint for
+the whole controller.
+
+Neither is wrong. `[8237]` Figure 6 marks reads of that register **"Illegal"**,
+so the datasheet defines no value; this core returns zero deliberately -- "the
+part drives nothing, and a caller reading here has a bug this core should not
+paper over" -- and MAME returns `0F`. Our reset mask *is* `0x0F`, so the value
+is not the disagreement; the read decode is.
+
+Recorded now, before the first board-backed diff runs, so that an
+undefined-behaviour difference is not read as a defect. This is the third
+divergence class in the log, after `fpu-sine-x`'s ULP and MAME's absent FPCP
+vectors -- and the first that is neither side being wrong.

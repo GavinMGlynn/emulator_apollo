@@ -1724,6 +1724,17 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
           re-reading traces already taken before running new ones.
 - [ ] Two 8259 interrupt controllers and the Apollo interrupt vector scheme.
       *Verification: probe-driven interrupt ordering vs oracle.*
+  - [x] **The route to that verification exists at last: probes can run on a
+        board.** `--probe-file` takes `board 1` and builds a whole core board —
+        no boot PROM, since `ap_board_init` needs none and a probe is
+        side-loaded precisely so no firmware runs. The probe loads at the
+        model's RAM base, which is where the oracle's loads, so both sides run
+        the same addresses. Detail in `PROJECT_STATUS.md`.
+        *Verification: the same probe reading a DMA register runs in 3
+        instructions with no bus error on a board, and on flat RAM takes 25 bus
+        errors and never terminates — the device range simply is not there.
+        This unblocks the device verification lines for interrupts, DMA, the
+        timers and the SIO, all of which needed a machine with devices in it.*
   - [x] The 8259A itself, with no Apollo in it: initialization sequence, all
         three operation command words, fully nested priority with both
         rotations, edge and level triggering, special mask mode, special fully

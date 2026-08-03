@@ -4322,6 +4322,38 @@ An implementation that set `Z` the usual way passes every single-word test and
 gets multi-precision comparison wrong in exactly the case the instructions exist
 for — a long value whose final word happens to be zero compares equal.
 
+#### A probe can run on a board, not only on flat RAM
+
+Every probe until now ran on "a 68030 on flat RAM and nothing else", which is
+what made side-loading cheap and is why the probe harness came before the boot
+PROM route. It also meant no probe could touch a *device*: the register is
+unmapped on flat RAM, so our side faults where the oracle's `dn3500` answers.
+That is what left the device verification lines — interrupt ordering, DMA
+transfers, timer self-timing, the SIO byte stream — with no route at all.
+
+`--probe-file` now takes `board 1`. It builds a whole core board and no boot
+PROM: `ap_board_init` does not need one, and a probe is side-loaded precisely so
+that no firmware runs. The probe is written through the *board* rather than
+`ap_machine_write`, which is the operator's view of flat RAM and knows nothing
+of where a model puts its memory.
+
+The consequence worth having is that a board probe loads at the model's RAM base
+— `01000000` on a DN3500 — which is where the oracle's loads. Both sides then
+run the *same addresses*, and the diff stops needing the base offset that every
+existing probe carries.
+
+Measured rather than asserted: the same probe reading a DMA register runs in
+three instructions with no bus error on a board, and on flat RAM takes 25 bus
+errors and never terminates.
+
+**And it immediately surfaced a divergence class.** Reading the 8237A's all-mask
+register is marked "Illegal" by `[8237]` Figure 6. This core returns zero — "the
+part drives nothing, and a caller reading here has a bug this core should not
+paper over" — where MAME returns `0F`, which is what `FINDINGS.md` C13 used as a
+placement fingerprint. Neither is wrong: the datasheet defines no value. It is
+registered here so that the first board-backed oracle diff does not read it as a
+defect.
+
 #### A device can lengthen its own bus cycle
 
 `STERM` used to be answered on the first sampling opportunity whatever replied,

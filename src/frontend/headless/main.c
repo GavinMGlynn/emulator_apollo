@@ -167,6 +167,16 @@ static int run_probe_file(FILE *out, ap_model_id_t model,
   uint32_t load = 0, entry = 0, stack = 0, read_at = 0;
   unsigned limit = 64;
   bool have_read = false;
+  /* Run against a whole core board rather than flat RAM. A probe that only
+   * touches memory does not care; one that touches a device register cannot
+   * work without it, because on flat RAM the register is simply unmapped and
+   * the probe faults where the oracle's machine answers. That is what kept
+   * every device verification line -- interrupt ordering, DMA transfers, timer
+   * self-timing -- from having a route.
+   *
+   * No boot PROM is attached: `ap_board_init` does not need one, and a probe is
+   * side-loaded precisely so that no firmware runs. */
+  bool on_board = false;
 
   char line[1024];
   while (fgets(line, (int)sizeof line, file) != NULL) {
@@ -202,6 +212,7 @@ static int run_probe_file(FILE *out, ap_model_id_t model,
     else if (strcmp(key, "stack") == 0) { stack = (uint32_t)value; }
     else if (strcmp(key, "limit") == 0) { limit = (unsigned)value; }
     else if (strcmp(key, "read") == 0) { read_at = (uint32_t)value; have_read = true; }
+    else if (strcmp(key, "board") == 0) { on_board = value != 0u; }
   }
   fclose(file);
 
@@ -220,8 +231,67 @@ static int run_probe_file(FILE *out, ap_model_id_t model,
       .stack = stack,
       .limit = limit,
   };
-  const ap_probe_result_t result =
-      ap_probe_run(&probe, probe_ram, PROBE_RAM_BYTES, model);
+  ap_probe_result_t result;
+  /* The board machine owns its RAM for the whole run, so both live until the
+   * result has been reported. */
+  uint8_t *board_ram = nullptr;
+  ap_board_t *board = nullptr;
+  ap_machine_t board_machine;
+
+  if (!on_board) {
+    result = ap_probe_run(&probe, probe_ram, PROBE_RAM_BYTES, model);
+  } else {
+    const ap_model_t *entry_model = ap_model_by_id(model);
+    const uint32_t ram_bytes = 0x400000u;
+    board_ram = calloc(1, ram_bytes);
+    board = calloc(1, sizeof *board);
+    /* The same epoch the boot path uses, so a probe that reads the calendar
+     * gets a stated time rather than whatever the host clock says. */
+    static const ap_mc146818_time_t epoch = {
+        .year = 1987u, .month = 7u, .day = 31u, .day_of_week = 6u,
+        .hour = 21u, .minute = 9u, .second = 21u,
+    };
+    if (entry_model == nullptr || board_ram == nullptr || board == nullptr ||
+        !ap_board_init(board, board_ram, ram_bytes, &epoch, 0x012345u)) {
+      free(board);
+      free(board_ram);
+      fprintf(stderr, "%s: cannot build the core board\n", program_name);
+      return 2;
+    }
+
+    ap_machine_init_model(&board_machine, board_ram, ram_bytes, model);
+    ap_machine_set_board(&board_machine, board);
+    (void)ap_machine_set_cpu_hz(&board_machine, entry_model->cpu_hz);
+
+    /* Through the *board*, not `ap_machine_write`: that is the operator's view
+     * of flat RAM and knows nothing of where a model puts its memory. A
+     * DN3500's RAM begins at `01000000`, so a board probe loads where the
+     * oracle's does — which is the point, since both sides then run the same
+     * addresses and the diff stops needing a base offset. */
+    for (unsigned i = 0; i < word_count; i++) {
+      bool hi = false, lo = false;
+      ap_board_write(board, load + i * 2u, (uint8_t)(words[i] >> 8), &hi);
+      ap_board_write(board, load + i * 2u + 1u, (uint8_t)words[i], &lo);
+      if (!hi || !lo) {
+        free(board);
+        free(board_ram);
+        fprintf(stderr, "%s: probe does not fit the board's RAM at %08X\n",
+                program_name, (unsigned)load);
+        return 2;
+      }
+    }
+    ap_machine_reset(&board_machine, entry, stack);
+
+    const ap_machine_run_t run = ap_machine_run(&board_machine, limit);
+    result = (ap_probe_result_t){
+        .executed = run.executed,
+        .status = run.status,
+        .d0 = board_machine.cpu.regs.d[0],
+        .pc = board_machine.cpu.regs.pc,
+        .bus_errors = board_machine.bus_errors,
+        .hash = ap_machine_hash(&board_machine),
+    };
+  }
 
   fprintf(out, "# apollo probe file result\n");
   fprintf(out, "words     %u\n", word_count);
@@ -230,6 +300,33 @@ static int run_probe_file(FILE *out, ap_model_id_t model,
   fprintf(out, "d0        %08X\n", (unsigned)result.d0);
   fprintf(out, "pc        %08X\n", (unsigned)result.pc);
   fprintf(out, "berr      %u\n", result.bus_errors);
+
+  if (have_read && on_board) {
+    uint32_t stored = 0;
+    bool all = true;
+    for (unsigned k = 0; k < 4u; k++) {
+      bool ok = false;
+      const uint8_t byte = ap_board_read(board, read_at + k, &ok);
+      all = all && ok;
+      stored = (stored << 8) | byte;
+    }
+    if (!all) {
+      free(board);
+      free(board_ram);
+      fprintf(stderr, "%s: read address %08X is not memory on this board\n",
+              program_name, (unsigned)read_at);
+      return 2;
+    }
+    fprintf(out, "read      %08X %08X\n", (unsigned)read_at, (unsigned)stored);
+    free(board);
+    free(board_ram);
+    return 0;
+  }
+  if (on_board) {
+    free(board);
+    free(board_ram);
+    return 0;
+  }
 
   if (have_read) {
     if ((uint64_t)read_at + 4u > (uint64_t)PROBE_RAM_BYTES) {
