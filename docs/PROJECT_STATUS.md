@@ -4410,6 +4410,56 @@ placement fingerprint. Neither is wrong: the datasheet defines no value. It is
 registered here so that the first board-backed oracle diff does not read it as a
 defect.
 
+#### Where our half of the console stream actually stops
+
+The oracle's console stream is captured byte-exact in `docs/references/MD.md`.
+Ours does not exist, because the boot PROM never transmits — and the plan has
+said so for a while without saying *where* it stops. Measured now:
+
+| run | final PC | what it is doing |
+| --- | --- | --- |
+| no input | `000007AE` | polling both ports' status registers, 487,558 reads each |
+| a byte on serial 1 **channel A** | `0000220E` | the keyboard translation loop |
+| repeated `\r` on channel B | `00000886` | not the same place, and not further |
+
+`0000220E` is just past the scan-code table at `000021D2` that `FINDINGS.md` C46
+recovered, so a byte on the keyboard's channel puts the firmware into the loop
+that searches it — the code and the table meeting where C46 said they would.
+
+And there it runs the autobaud, visible in the register counters rather than
+inferred: **27,365 writes to serial 1 register 9** — channel B's clock select —
+against **13,683 to the ACR**, on both ports. Two rate changes per pass, 13,683
+passes, never completing. That is C39's "cycles `CSRB` between `77` and `BB` on
+every keyboard event until a character decodes", counted.
+
+So our half is one campaign away rather than one feature away, and the framing
+work was not what was missing: the framing is complete and the firmware is
+cycling rates against a channel that never delivers a byte it accepts. Feeding
+carriage returns there does not close it, which is a result and not a
+non-result — it rules out the obvious explanation.
+
+#### Four verifications waiting on one unnamed thing
+
+`CLAUDE.md` opens with "one `tick()` per machine cycle, every subsystem
+advancing inside it". This core does not have it: devices hold correct state and
+advance only when a caller hands them an absolute time, and `ap_machine_run`
+samples the interrupt lines and ticks the bus, which is the whole of it.
+
+That was a line in the known-gaps list while **four** Phase 3 verifications
+waited on it, none of them saying so:
+
+- the 8259 **ordering probe**, which needs a second synchronously-raisable
+  interrupt source and can only get one from the timer or the calendar;
+- the interval timer and calendar's **self-timing probes**;
+- the DUART's **memory refresh**, and stop bits timed rather than decoded;
+- and possibly the console stream above.
+
+It is now a named plan item, which is the least it should have been. Its cost is
+also why it has not been done casually: every device advancing changes what a
+long run produces, so the probe goldens and any boot state hash move with it,
+and the identity harness has to be re-established on the far side rather than
+assumed across.
+
 #### A cited hazard that was never there, and what was kept of it
 
 This item's verification line asked for "the 14-day calendar interval hazard

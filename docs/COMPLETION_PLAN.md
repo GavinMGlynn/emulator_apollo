@@ -1938,6 +1938,16 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         *Verification: `mc146818_suite` +3 (29).*
 - [ ] SIO serial lines, keyboard and mouse. *Verification: console byte stream
       identical to the oracle's.*
+      **Awaiting:** our half of that stream. The oracle's is captured byte-exact
+      in `docs/references/MD.md`; ours does not exist because the PROM never
+      transmits. Where it stops is now measured rather than described: with no
+      input it polls both ports' status registers 487,558 times and stops at
+      `000007AE`; a byte on serial 1 **channel A** — the keyboard's — carries it
+      to `0000220E`, just past the scan-code table at `000021D2`, and there it
+      runs C39's autobaud, 27,365 writes to channel B's clock select against
+      13,683 to the ACR, two rate changes per pass, 13,683 passes, never
+      completing. Repeated carriage returns on channel B do not complete it
+      either. That is a `FINDINGS` campaign, not a coding item.
   - **The oracle's half of that comparison now exists.** `docs/references/MD.md`
     holds its console stream byte-exact — sign-on `0D 0A 4D 44 37 0D 0A`, prompt
     `0D 0A 0D 0A 3E`, and `A`'s address lines — captured through
@@ -1958,185 +1968,31 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         both channels with their FIFOs and mode-register pointer, the
         counter/timer with its two address-triggered commands, the interrupt
         registers, and the input and output ports. `mc68681_suite`, 15 tests.
-  - [ ] **In progress.** Serial framing — baud rates, start/stop bits, parity, and the automatic
-        echo and loopback modes.
-        - **Started, with the piece the console negotiation needs.**
-          `ap_mc68681_receive_at` takes the rate the *sender* used and compares
-          its receiver nibble against the channel's own `CSR`. A mismatch sets
-          `SR[6]`, framing error, and the byte still enters the FIFO — the part
-          does not discard it, and discarding would look identical to nothing
-          being sent. `mc68681_suite`, 4 tests.
-        - That failure is the point. The boot PROM autobauds by cycling channel
-          B's clock select and waiting for a byte that decodes cleanly, so a
-          model where every byte arrives intact whatever the rate would let the
-          negotiation succeed at the first rate tried.
-        - A disabled receiver reports no framing error: it never sampled the
-          character, so it cannot have mis-sampled a stop bit. Without that, the
-          flag would appear on a port nothing is listening to.
-        - The rate now flows end to end: `ap_sio_receive_at` on the board, and
-          `--boot-input-rate` on the frontend, defaulting to `0x77` because that
-          is what the firmware configures both ports to at reset (measured off
-          the oracle, `FINDINGS.md` C39). The rate-less `ap_sio_receive` remains
-          for callers that mean "assume the wire agrees", which the header now
-          calls a claim rather than a default.
-        - **No behavioural difference is observable yet**, and this is recorded
-          rather than glossed: feeding `\r` at `0x77` and at `0xBB` both leave
-          the PROM at `00002542`. The framing error is set, but the firmware
-          does not read the status bit at this point in its boot, so nothing
-          downstream changes. The mechanism is right and the demonstration is
-          not there — those are different claims.
-        - **The mode registers' framing fields are decoded**: `MR1[1:0]`
-          character length, `MR1[2]` parity enable, `MR1[4:3]` parity type, and
-          `MR2[3:0]` stop-bit length. Names and bit positions, the same shape as
-          the SSW and the display controller's mode fields, because that part is
-          settleable before any of it shapes a character on a wire.
-          `mc68681_suite`, 3 tests.
-        - Character length is a **count**, `5 + field`, not a table index. Both
-          readings give the same four answers, and only the count says why `11`
-          is eight rather than nine.
-        - Parity is enabled when bit 2 is **clear**. That inversion has its own
-          named function and its own test, because getting it backwards yields a
-          link that works until the first character with an odd number of set
-          bits — one that passes a test written with `0x00` and fails in
-          service.
-        - The stop-bit field is **sixteen encodings** from 0.5 to 2 stop bits,
-          not a one-or-two flag. Only the two common lengths are named and the
-          rest survive as their own code, because a driver that programmed 1.5
-          stop bits meant it.
-        - **Applied to a character**: a received byte now arrives with only as
-          many bits as the link carries, so a seven-bit port never sees an
-          eighth. That is the absence of a signal rather than truncation of a
-          value — the bit was not transmitted — which is why a seven-bit console
-          shows `A` for both `41` and `C1` and reports no error doing it.
-        - It immediately caught an assumption in an existing test. `MR1` resets
-          to `00`, which is a **five-bit** link, so an unprogrammed port
-          delivers `41` as `01`. A rate test had been asserting `41` came back
-          intact while quietly depending on framing not being modelled; it now
-          programs the eight bits it always meant.
-        - **The channel modes are decoded and local loopback works.**
-          `MR2[7:6]` gives normal, auto-echo, local loopback and remote
-          loopback. In local loopback a transmitted character returns on the
-          same channel, **framed by that channel's own settings** — a self-test
-          that bypassed framing would be checking the FIFO rather than the link.
-        - And it must *not* also reach the pin. A model that both looped back
-          and transmitted would let a self-test pass while the outside world saw
-          traffic it should never have seen, so there is a test that nothing is
-          transmitted outward — and a control that normal mode still does, since
-          a model that never transmitted would satisfy the first two.
-          `mc68681_suite`, 4 tests.
-        - **All four channel modes now act.** Auto-echo retransmits *and*
-          delivers — a terminal sees its own typing echoed by the part rather
-          than by software. Remote loopback retransmits and does **not**
-          deliver: the channel is a mirror for someone else's test, and a local
-          program must not see traffic never addressed to it. Delivering in both
-          would make remote loopback indistinguishable from auto-echo, which is
-          the one thing separating them. `mc68681_suite`, 3 more tests with a
-          normal-mode control that does neither.
-        - **Parity is checked.** `ap_mc68681_receive_framed` takes the sender's
-          `MR1` as well as its rate and sets `SR[5]` when the two disagree.
-          Compared as **enable and type together**: two ports both using parity
-          but differing on odd against even get a wrong bit on roughly half of
-          all characters, which is a link that works *intermittently* — worse
-          than one that never works, and invisible to a test that sends one
-          character.
-        - A receiver not using parity reports none, whatever the sender did. It
-          cannot find a bit it is not looking for, and without that rule a
-          no-parity console would report errors against any sender that used
-          parity — including ports the DN3500's own firmware configures.
-        - Kept separate from `ap_mc68681_receive_at` rather than replacing it,
-          because the two state different things: `receive_at` means "the sender
-          agrees about framing, check the rate", and a caller forced to pass the
-          receiver's own `MR1` to say "the same" would be asserting a fact it
-          does not have.
-
-        - `ap_sio_receive_framed` carries rate *and* parity through the board,
-          so a modelled device can state its own configuration and let the DUART
-          decide whether the link works. `sio_suite`, 2 tests through the
-          registers a program actually writes, with a control that a correctly
-          configured sender produces neither error.
-
-    That completes the item's original list — baud rates, start and stop bits,
-    parity, and the automatic echo and loopback modes — except that stop bits
-    are decoded and reported rather than timed, which needs the tick loop before
-    it can mean anything.
-
-    **This unblocks the keyboard item below**, which was waiting on "the framing
-    above, or a device on the other end". The framing exists now; what the
-    keyboard still needs is its scan codes.
-    - The PROM's table is captured as data in `FINDINGS.md` C46 — 41 bytes at
-      `000021D2`, found from the `CMP.B (d8,PC,Xn)` loop that searches it. Its
-      high bytes fall into triples on a fixed spacing (`CB DB FB`, `C8 D8 F8`,
-      …), interleaved with ASCII runs, and several characters repeat.
-    - **Settled** (`FINDINGS.md` C46): three separate keys. A scan code is
-      `port × 32 + bit` across `keyboard1..4`, bit 7 marks a release, and the
-      table's `4B 5B 7B` are `Numpad 1`, `F10` and one more — unrelated keys
-      whose codes happen to differ only in bits 4 and 5. The triple spacing is
-      matrix layout, not modifier encoding.
-    - So a keyboard module reports **the key that moved**, make and break, and
-      does not fold shift or control into the code. That is the whole interface,
-      and it is now specified rather than inferred.
-    - **Written**: `device/ap_kbd.c`. A press sends the key's index, a release
-      the index with bit 7 set, and the matrix stops at `0x80` *because* bit 7
-      is the flag — a key above it would have a make code indistinguishable from
-      another key's break code, so the bound is refused rather than masked.
-      `kbd_suite`, 5 tests.
-    - A repeated press, or a release of a key never pressed, sends **nothing**.
-      A real matrix scan cannot report a transition that did not happen, and
-      letting one through would desynchronise the firmware's own shift state —
-      which it tracks from these transitions and nothing else.
-    - No timer and no auto-repeat. The real part scans on a timer and repeats
-      held keys; neither is modelled, because nothing in this core advances time
-      and a repeat interval would be a number with no clock behind it. What is
-      modelled is the transition, which is what a caller can generate honestly.
-    - **Wired**: `ap_board_key_press` and `_release` deliver the scan code to
-      serial 1 channel A. `board_suite`, 2 tests — one that a press and its
-      release arrive as `4B` and `CB`, one that a repeated press puts *nothing*
-      on the port rather than being filtered later.
-    - The framing immediately produced a real constraint. `MR1` resets to a
-      **five-bit** link, so on an unconfigured port `4B` arrives as `0B` and a
-      release code — bit 7 set — cannot arrive at all. **The keyboard needs
-      eight bits**, and the firmware must configure them before it can read a
-      key. That is a fact about the machine, found by the framing work rather
-      than assumed by it.
-    - The link's *rate* is assumed rather than measured: the code goes out at
-      the port's own clock select, which models a correct link and makes the
-      rate check vacuous on this path. The real keyboard's line rate is unknown
-      — the firmware configures channel *B* in every trace we hold and leaves
-      channel A at reset — so a figure here would be invented. Recorded in the
-      board header.
-    - `--boot-key N` presses and releases a matrix index, self-timed the way
-      scripted input is: it acts once the port can take the code, because a
-      fixed step number would be a guess about how long the firmware takes to
-      enable its receiver and would silently do nothing if it took longer.
-    - **It changes nothing yet, and the counters say why.** The PROM still stops
-      at `000007AE` with 38 serial writes — configuration only. The firmware has
-      not enabled channel A's *receiver* at that point, so a scan code arriving
-      there is dropped by the DUART exactly as the hardware would drop it.
-    - That is the same state the console poll is in, seen from the other side:
-      the machine is waiting, and what it is waiting for is not a keystroke on a
-      port it has not opened. Recorded rather than treated as a defect in the
-      keyboard, which is now complete on its own terms.
-        - **The values are no longer unknown.** `FINDINGS.md` C39 and C42 read
-          them off the running oracle: `sio1 ACR E0`, `sio1 CSRB 77`,
-          `sio2 ACR 80`, `sio2 CSRA 77` at reset, and the firmware then
-          **autobauds** channel B by cycling `CSRB` between `77` and `BB` on
-          every keyboard event until a character decodes.
-        - That is the first serial configuration this project has measured
-          rather than inferred, and it makes the item concrete: the clock-select
-          codes to decode are `77` and `BB`, and the mode to implement is one
-          where a *wrong* rate yields a character that does not decode — because
-          the firmware's console depends on exactly that failing.
-        - It also fixes the order. Framing must come before the keyboard, not
-          with it: the keyboard is on channel A and the console negotiation
-          happens on channel B, so a keyboard that delivered bytes without
-          framing would let the autobaud succeed at any rate.
+  - [x] **Serial framing, the whole of the item's original list**: baud rates,
+        start and stop bits, parity, and the automatic echo and loopback modes.
+        A character arrives with only as many bits as the link carries, a rate
+        or parity mismatch sets its own status bit and the byte still enters the
+        FIFO, and all four channel modes act — auto-echo delivering *and*
+        retransmitting where remote loopback retransmits and does not deliver,
+        which is the only thing separating them. The keyboard is written and
+        wired with it: `device/ap_kbd.c` reports the key that moved, make and
+        break, on serial 1 channel A. Detail in `PROJECT_STATUS.md`.
+        Stop bits are decoded rather than **timed**, which needs the tick loop.
+        *Verification: `mc68681_suite` 15 → 29 across framing, parity and the
+        four modes; `sio_suite`; `kbd_suite`, 5; `board_suite`, 2. Framing gave
+        a fact about the machine, not only a model: `MR1` resets to a five-bit
+        link, so a release code cannot arrive until the firmware programs
+        eight.*
   - [x] Both ports wired into the board at `010400` and `010500`, stride 2,
         sharing IRQ1. §3.9's memory-refresh period is pinned at exactly 99000
         base units — a figure whose *frequency* is not an integer, so it is the
         second case (after the interval timer's prescaled rate) that a core
         counting in hertz could not represent at all. `sio_suite`, 6 tests.
-  - [ ] Drive the refresh from the DUART's timer, and the keyboard from
-        SIO line 0. Both need the framing above, or a device on the other end.
+  - [ ] Drive the memory refresh from the DUART's timer. §3.9's period is
+        pinned at exactly 99000 base units and the counter/timer is modelled;
+        what is missing is anything advancing it, so this waits on the tick
+        loop item below and on nothing else. The keyboard half of this child is
+        done and ticked above.
         - **"SIO line 0" is now precise: serial 1, channel A.** Confirmed twice
           over — MAME's `dn3500` wires `m_keyboard->tx_cb()` to
           `apollo_sio::rx_a_w` (`FINDINGS.md` C42 era), and the boot PROM's own
@@ -2149,6 +2005,27 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
           what made a carriage return fail to match while `0D` sat in the table.
         - The refresh half is unchanged and still needs the DUART's timer, which
           needs the tick loop.
+- [ ] **The tick loop: nothing in this core advances on its own.** `CLAUDE.md`
+      opens with "one `tick()` per machine cycle, every subsystem advancing
+      inside it", and Phase 3 has been built around its absence: devices hold
+      correct state and are only ever advanced by a caller that hands them an
+      absolute time. `ap_machine_run` samples the interrupt lines and ticks the
+      bus, and that is the whole of it.
+      *Verification: a device counter reaching terminal count with no program
+      touching it, and the goldens that move when it does.*
+      **This is the phase's critical path**, and naming it is overdue — it was
+      a line in `PROJECT_STATUS.md`'s known gaps while four separate
+      verifications waited on it without saying so:
+      - the 8259 **ordering probe**, which needs a second synchronously-raisable
+        interrupt source and can only get one from the timer or the calendar;
+      - the interval timer and calendar's **self-timing probes**;
+      - the DUART's **memory refresh**, and stop bits timed rather than decoded;
+      - and the console stream, if the autobaud turns out to need real time.
+      The cost is known and is why it has not been done casually: every device
+      advancing changes what a long run produces, so the probe goldens and any
+      boot state hash move with it, and the identity harness has to be
+      re-established on the other side rather than assumed across.
+
 - [ ] Node ID PROM (`0x011200`), including node ID taken from the logical volume
       label. *Verification: `lcnode`-visible node ID matches the configured
       value.*
