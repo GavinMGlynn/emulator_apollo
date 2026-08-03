@@ -385,6 +385,12 @@ def main(argv=None, recursing=False) -> int:
         args.program, "%08X" % args.sentinel)
     checks = [
         ("instructions executed", ours.get("ran"), oracle.get("ran")),
+        # Both sides have always printed this and the comparison never read it.
+        # `FINDINGS.md` C85's addendum: an instruction refused for want of a CPU
+        # feature and one this model declines both stop with the program counter
+        # at the instruction, and only the status tells them apart. Three
+        # campaigns diagnosed their way around a field that was in hand.
+        ("status", ours.get("status"), oracle.get("status")),
         ("sentinel in memory", ours.get("read"), oracle.get("read")),
     ]
     if expected is not None:

@@ -171,7 +171,6 @@ void ap_machine_init(ap_machine_t *machine, uint8_t *ram, uint32_t ram_bytes) {
 
 void ap_machine_init_model(ap_machine_t *machine, uint8_t *ram,
                            uint32_t ram_bytes, ap_model_id_t model) {
-  machine->model = ap_model_by_id(model);
   /* Every field, not merely the ones set below. A machine is a value the caller
    * creates -- usually on the stack -- and one whose behaviour depended on what
    * was in that memory beforehand would be a machine that is not reproducible,
@@ -179,6 +178,13 @@ void ap_machine_init_model(ap_machine_t *machine, uint8_t *ram,
    * valid bits rather than data, by design, so without this the leftovers would
    * be whatever the caller happened to have. */
   *machine = (ap_machine_t){0};
+
+  /* **After** the blanking above, not before. Setting it first and then
+   * zeroing the struct left `model` null while everything downstream read it,
+   * so a machine built as a DN3000 had no module calls and reported `CALLM`
+   * illegal -- which `FINDINGS.md` C85 spent two campaigns failing to see,
+   * because the probe compared everything except the status that said so. */
+  machine->model = ap_model_by_id(model);
 
   machine->ram = ram;
   machine->ram_bytes = ram_bytes;

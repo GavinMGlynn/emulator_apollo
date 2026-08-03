@@ -4892,3 +4892,47 @@ noticing something *other* than the status the harness already had in hand.
 **Next, in order**: compare the status field, then re-run this probe, and the
 answer will name itself. That is one line of `probe_compare.py` and it retires a
 class of ambiguity three campaigns have worked around.
+
+## C86 -- the status field named the bug in one run, and it was mine
+
+**Class: `ours-wrong`, found and fixed.**
+
+C85's addendum predicted that comparing the status would make the answer name
+itself. It did, on the first run:
+
+    status    ILLEGAL    None    DIFFER
+
+`ILLEGAL`, not `UNIMPLEMENTED`. So `CALLM` was being refused for want of the
+family flag, not declined by `execute_callm` -- and the flag genuinely was not
+arriving, despite a chain that checked out at every link by inspection.
+
+**The bug was two lines apart in code I had written an hour earlier.**
+`ap_machine_init_model` set `machine->model` and then, six lines later, blanked
+the whole struct:
+
+    machine->model = ap_model_by_id(model);
+    ...
+    *machine = (ap_machine_t){0};        /* every field, deliberately */
+
+The blanking is right and its comment explains why -- a machine whose behaviour
+depended on the caller's stack would not be reproducible. Setting the model
+before it was simply the wrong side of the line. Every machine built as a DN3000
+therefore had a null model, no module calls, and reported `CALLM` illegal.
+
+With the assignment moved after the blanking, our side executes the probe and
+stores `$00C0FFEE`: the descriptor read, the frame built, the entry word
+honoured, execution continued past it.
+
+**And the oracle does not.** MAME reaches five instructions, never stores, and
+its sentinel is untouched. That is now a real question rather than a plumbing
+fault, and the likely answer is that MAME's 68020 core does not implement `CALLM`
+at all -- it is the rarest instruction in the family and emulators commonly skip
+it. Left `open` and not asserted: proving it means reading the oracle's m68k core
+or watching the instruction, and this project's rule is that a difference is not
+automatically the oracle's fault either.
+
+**What the campaign should take from this.** Three campaigns diagnosed their way
+around a field both sides had always printed. The status was not a missing
+measurement; it was an unread one. When a comparison cannot separate two
+explanations, the first question is whether the harness already knows and is
+being asked the wrong thing.
