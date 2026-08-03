@@ -4401,6 +4401,46 @@ closing the gap will not falsify it.
 named remainder is family 5 — `ADDQ`, `SUBQ` and `Scc` enforce no categories at
 all — and two genuinely missing instructions, `MOVEP` and `BTST Dn,#<data>`.
 
+**The quick and ALU groups were the last two enforcing no categories**, and
+closing them stopped a further **1040 words** from executing instructions the
+hardware refuses. Two rule shapes that had not appeared before:
+
+- **`ADDQ` and `SUBQ` are "alterable", not "data alterable"** — one word of
+  difference from their neighbours, and it is what lets them reach an address
+  register. Refusing `ADDQ #1,A0` would break code that is everywhere. They
+  carry the same size restriction `TST` does, stated in the Description more
+  plainly than in the footnote: "Word and long operations are also allowed on
+  the address registers", so `ADDQ.B #1,A0` is illegal and `ADDQ.B #1,D0` is
+  not. That is the third instruction where a *size* rule decides legality for
+  one addressing mode, and no category expresses any of them.
+- **The six ALU instructions state their category per direction.** "a. If the
+  location specified is a source operand … b. If the location specified is a
+  destination operand, only memory alterable addressing modes can be used" —
+  and the source half differs between them: `ADD` and `SUB` say "all addressing
+  modes", `AND` and `OR` say "only data", because an address register holds an
+  address and ANDing one is not an operation the part offers.
+
+**`Scc` deliberately has no check**, and the reason is worth recording: `DBcc`
+occupies mode 001 and `TRAPcc` occupies mode 111 registers 010, 011 and 100,
+which between them are every non-data-alterable mode in the group. All 800
+words that reach the executor already satisfy the rule — enumerated rather than
+argued. A check there would have been a second copy that never runs, the same
+thing `CMPI`'s comment describes.
+
+**And `EOR Dn,Dn` was decoded as illegal**, which the verification of the above
+turned up. Four of the five memory-direction families need a *memory* alterable
+destination, and that is exactly what leaves the register-destination hole for
+`SBCD`, `SUBX`, `ADDX` and `ABCD`. `EOR`'s destination is *data* alterable, so
+its mode-000 encoding is an ordinary and common instruction rather than a hole
+to fill. `arith_suite` had a test asserting the wrong verdict, on the reasoning
+that "CMP has no memory-destination form to fall back on" — the fallback is not
+`CMP`, it is `EOR`.
+
+**1468 words remain `UNIMPLEMENTED`**, from 2621 before C95. The largest named
+remainder is now the bit-field group — `BFTST`, `BFEXTU`, `BFCHG` and the rest,
+488 words in family E — followed by the coprocessor gaps, `MOVEP` and
+`BTST Dn,#<data>`. All are open plan items; none is a category question.
+
 **And the machine now uses that sequence, which for a long time it did
     not.** `ap_m68030_take_reset` had no caller anywhere in `src`;
     `ap_machine_reset` ran a shorter sequence of its own -- supervisor,

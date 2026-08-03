@@ -5541,3 +5541,64 @@ gap will not falsify it.
 Family 5 -- `ADDQ`, `SUBQ`, `Scc` -- still enforces no categories, 240 words.
 With `MOVEP`, both are open plan items. 1772 words remain `UNIMPLEMENTED`, from
 2621 before C95.
+
+## C97 -- the last two groups, and a legal instruction decoded as illegal
+
+**Class: defect in this core, twice. Closes C96's tail.**
+
+The quick group (family 5) and the ALU group (families 8, 9, B, C, D) were the
+last two enforcing no effective-address categories. A further **1040 words**
+stopped executing instructions the hardware refuses.
+
+Two rule shapes that had not appeared in C96:
+
+* **`ADDQ` and `SUBQ` are "alterable", not "data alterable".** One word of
+  difference from their neighbours, and it is what lets them reach an address
+  register -- refusing `ADDQ #1,A0` would break code that is everywhere. They
+  carry the same size restriction `TST` does, and the *Description* states it
+  more plainly than the footnote: "Word and long operations are also allowed on
+  the address registers". Third instruction now where a **size** rule decides
+  legality for one addressing mode, and no category expresses any of them.
+* **The six ALU instructions state their category per direction.** "a. If the
+  location specified is a source operand ... b. If the location specified is a
+  destination operand, only memory alterable addressing modes can be used" --
+  and the source half differs: `ADD`/`SUB` say "all addressing modes",
+  `AND`/`OR` say "only data", because an address register holds an address and
+  ANDing one is not an operation the part offers.
+
+### `Scc` has no check, and that is the finding
+
+Its page says data alterable, and **no encoding can violate it**: `DBcc` takes
+mode 001, `TRAPcc` takes mode 111 registers 010, 011 and 100, and between them
+that is every non-data-alterable mode in the group. All 800 words reaching the
+executor already satisfy the rule -- *enumerated*, not argued, because that is
+the difference between knowing and assuming. The check I first wrote was
+deleted: it would have been a second copy that never runs, which is what C96
+said about the row `CMPI`'s decoder owns.
+
+### `EOR Dn,Dn` was illegal here, and is a common instruction
+
+Found while checking that the ALU change had not refused anything legal -- a
+fifteen-case table of forms that must still run, one of which did not.
+
+Four of the five memory-direction families require a *memory* alterable
+destination, and that is precisely what leaves the register-destination hole for
+`SBCD`, `SUBX`, `ADDX` and `ABCD`. `EOR`'s destination is **data** alterable, so
+its mode-000 encoding is an ordinary instruction rather than a hole to be
+filled. The decoder treated all five alike.
+
+`arith_suite` had a test asserting exactly the wrong verdict, and its comment
+gave the reasoning that produced it: "mode 000 in family 1011 is not an
+instruction, because CMP has no memory-destination form to fall back on". The
+fallback is not `CMP`. It is `EOR`, and the category difference on its page is
+the whole reason the hole is not there.
+
+**This is the second time in two campaigns that verifying a change found a
+defect the change did not cause** -- C96's `TST.B An`, and now this. Both were
+reached by writing down what must still work and running it, rather than by
+checking that the new refusals were correct.
+
+1468 words remain `UNIMPLEMENTED`, from 2621 before C95. The largest named
+remainder is the bit-field group -- 488 words in family E -- then the
+coprocessor gaps, `MOVEP` and `BTST Dn,#<data>`. None is a category question,
+and all are open plan items.

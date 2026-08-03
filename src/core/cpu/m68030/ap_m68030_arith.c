@@ -61,8 +61,17 @@ ap_m68030_arith_t ap_m68030_arith_decode(uint16_t instruction) {
 
   if (out.to_effective_address) {
     /* These write to the effective address, so a register destination is not a
-     * memory destination -- and each family fills that hole differently. */
-    if (mode == 0x0u || mode == 0x1u) {
+     * memory destination -- and each family fills that hole differently.
+     *
+     * **`EOR` is the exception, and it is not a hole at all.** Four of the five
+     * say "only memory alterable addressing modes can be used" of their
+     * destination, which is what makes `OR Dn,Dn` unencodable and leaves room
+     * for `SBCD`, `SUBX`, `ADDX` and `ABCD`. `EOR`'s page says **data**
+     * alterable, so `EOR Dn,Dn` is an ordinary instruction -- and a common one.
+     * Family B at mode 000 therefore skips this block and decodes normally.
+     * Treating all five alike made a legal instruction illegal. */
+    const bool eor_to_data_register = family == 0xBu && mode == 0x0u;
+    if ((mode == 0x0u || mode == 0x1u) && !eor_to_data_register) {
       switch (family) {
       case 0x8u:
         if (opmode == 0x4u) {
@@ -126,7 +135,8 @@ ap_m68030_arith_t ap_m68030_arith_decode(uint16_t instruction) {
     break;
   case 0xBu:
     /* CMP and EOR do not overlap: CMP takes the register direction, EOR the
-     * memory one. There is no <ea> EOR Dn -> Dn form at all. */
+     * memory one. `EOR Dn,Dn` reaches here rather than the hole above, because
+     * EOR's destination is data alterable. */
     out.kind = out.to_effective_address ? AP_M68030_ARITH_EOR
                                         : AP_M68030_ARITH_CMP;
     break;

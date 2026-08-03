@@ -516,6 +516,23 @@ static bool execute_move(ap_m68030_cpu_t *cpu, const ap_m68030_move_t *move,
 static bool fetch_immediate(ap_m68030_cpu_t *cpu, unsigned size,
                             uint32_t *clocks, uint32_t *value);
 
+/* The effective-address category an instruction's own page states, applied.
+ *
+ * `[PRM]` gives each instruction the sentence in its Instruction Fields section
+ * -- "Only data alterable addressing modes can be used", and so on -- and the
+ * table beneath it. A word failing that sentence is not a valid MC68030
+ * instruction, so the answer is §8.1.5's illegal instruction and not this
+ * core's UNIMPLEMENTED. Same mechanism as the `MOVE` and misc checks, and the
+ * same reason: the category tables are transcribed, so the refusal is the
+ * machine's verdict rather than an unfinished executor. */
+static bool allow_ea(ap_m68030_cpu_t *cpu, bool allowed) {
+  if (allowed) {
+    return true;
+  }
+  cpu->refused_vector = AP_M68030_VECTOR_ILLEGAL_INSTRUCTION;
+  return false;
+}
+
 static bool execute_arith(ap_m68030_cpu_t *cpu, const ap_m68030_arith_t *arith,
                           uint32_t *clocks) {
   switch (arith->kind) {
@@ -537,6 +554,40 @@ static bool execute_arith(ap_m68030_cpu_t *cpu, const ap_m68030_arith_t *arith,
   case AP_M68030_ARITH_ADD:
   case AP_M68030_ARITH_CMP:
   case AP_M68030_ARITH_EOR:
+    /* These six state their category *per direction*, which is the shape the
+     * rest of the instruction set does not have. `[PRM]`, on each page:
+     *
+     *   "a. If the location specified is a source operand, ... b. If the
+     *    location specified is a destination operand, only memory alterable
+     *    addressing modes can be used"
+     *
+     * and the source half differs between them: `ADD` and `SUB` say "all
+     * addressing modes", `AND` and `OR` say "only data addressing modes" --
+     * because an address register holds an address, and ANDing one is not an
+     * operation the part offers. `CMP`'s single direction is "all", `EOR`'s
+     * single direction is data alterable.
+     *
+     * `ADD`, `SUB` and `CMP` carry the same `*Word and Long only` on their
+     * address register row as `ADDQ` and `TST` do -- the third time that
+     * footnote decides a rule, and the third time no category expresses it. */
+    if (arith->to_effective_address) {
+      const bool eor = arith->kind == AP_M68030_ARITH_EOR;
+      if (!allow_ea(cpu, eor ? ap_m68030_ea_is_data_alterable(arith->ea.kind)
+                             : ap_m68030_ea_is_memory_alterable(arith->ea.kind))) {
+        return false;
+      }
+    } else {
+      const bool data_only = arith->kind == AP_M68030_ARITH_AND ||
+                             arith->kind == AP_M68030_ARITH_OR ||
+                             arith->kind == AP_M68030_ARITH_EOR;
+      const bool address_register =
+          arith->ea.kind == AP_M68030_EA_ADDRESS_REGISTER;
+      if (!allow_ea(cpu, (data_only ? ap_m68030_ea_is_data(arith->ea.kind)
+                                    : true) &&
+                             (!address_register || arith->size >= 2u))) {
+        return false;
+      }
+    }
     break;
   case AP_M68030_ARITH_ABCD:
   case AP_M68030_ARITH_SBCD:
@@ -690,23 +741,6 @@ static bool fetch_immediate(ap_m68030_cpu_t *cpu, unsigned size,
  * interrupts before it touches hardware (`FINDINGS.md` C29). `MOVE to SR`
  * already worked here; this is a different encoding, and the whole group was
  * missing together. */
-/* The effective-address category an instruction's own page states, applied.
- *
- * `[PRM]` gives each instruction the sentence in its Instruction Fields section
- * -- "Only data alterable addressing modes can be used", and so on -- and the
- * table beneath it. A word failing that sentence is not a valid MC68030
- * instruction, so the answer is §8.1.5's illegal instruction and not this
- * core's UNIMPLEMENTED. Same mechanism as the `MOVE` and misc checks, and the
- * same reason: the category tables are transcribed, so the refusal is the
- * machine's verdict rather than an unfinished executor. */
-static bool allow_ea(ap_m68030_cpu_t *cpu, bool allowed) {
-  if (allowed) {
-    return true;
-  }
-  cpu->refused_vector = AP_M68030_VECTOR_ILLEGAL_INSTRUCTION;
-  return false;
-}
-
 static bool execute_immediate_to_status(ap_m68030_cpu_t *cpu,
                                         const ap_m68030_immediate_t *imm,
                                         uint32_t *clocks) {
@@ -1190,6 +1224,20 @@ static bool execute_quick(ap_m68030_cpu_t *cpu, const ap_m68030_quick_t *quick,
   case AP_M68030_QUICK_SUBQ: {
     const bool to_address_register =
         quick->ea.kind == AP_M68030_EA_ADDRESS_REGISTER;
+    /* "Only **alterable** addressing modes can be used" -- alterable, not
+     * *data* alterable, which is the difference that lets these two reach an
+     * address register where `CLR` and `NEG` cannot. Getting that backwards
+     * would refuse `ADDQ #1,A0`, which is everywhere in real code.
+     *
+     * And a size rule that no category expresses, stated in the Description
+     * rather than only in the table's footnote: "The size of the operation may
+     * be specified as byte, word, or long. **Word and long operations are also
+     * allowed on the address registers**." So `ADDQ.B #1,A0` is illegal, the
+     * same shape as `TST.B An`. */
+    if (!allow_ea(cpu, ap_m68030_ea_is_alterable(quick->ea.kind) &&
+                           (!to_address_register || quick->size >= 2u))) {
+      return false;
+    }
     /* "the entire destination address register is used regardless of the
      * operation size" -- so the operation widens to a long. */
     const unsigned size = to_address_register ? 4u : quick->size;
@@ -1230,6 +1278,14 @@ static bool execute_quick(ap_m68030_cpu_t *cpu, const ap_m68030_quick_t *quick,
   }
 
   case AP_M68030_QUICK_SCC: {
+    /* `Scc`'s page says "Only data alterable addressing modes can be used", and
+     * **there is deliberately no check for it here**: the encoding cannot
+     * express a violation. `DBcc` occupies mode 001 and `TRAPcc` occupies mode
+     * 111 registers 010, 011 and 100, which between them are every non-data-
+     * alterable mode in the group -- so all 800 words that reach this executor
+     * already satisfy the rule, verified by enumerating them rather than
+     * argued. A check here would be a second copy that never runs, which is
+     * what `CMPI`'s comment says about the row the decoder owns. */
     /* "if the condition is true, sets the byte specified by the effective
      * address to TRUE (all ones). Otherwise, sets that byte to [zero]" -- all
      * ones, not one, which is what makes the result usable as a mask. */

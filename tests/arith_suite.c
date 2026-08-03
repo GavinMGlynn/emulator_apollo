@@ -130,13 +130,22 @@ static void test_a_memory_mode_gives_the_ordinary_instruction(void) {
                         ap_m68030_arith_decode(word_of(0xCu, 1, 4, 2, 0)).kind);
 }
 
-/* CMPM is postincrement only: mode 000 in family 1011 is not an instruction,
- * because CMP has no memory-destination form to fall back on. */
-static void test_cmpm_is_postincrement_only(void) {
+/* CMPM is postincrement only -- and what mode 000 falls back to is **EOR**,
+ * not nothing.
+ *
+ * This test asserted `INVALID` on the reasoning that "CMP has no
+ * memory-destination form to fall back on". The fallback is not `CMP`, it is
+ * `EOR`: four of the five families in this direction say their destination must
+ * be *memory* alterable, which is what leaves the register-destination hole for
+ * `SBCD`, `SUBX`, `ADDX` and `ABCD` -- but `EOR`'s page says **data** alterable,
+ * so `EOR Dn,Dn` is an ordinary instruction and a common one. Treating all five
+ * alike made it illegal here. */
+static void test_cmpm_is_postincrement_only_and_mode_zero_is_eor(void) {
   TEST_ASSERT_EQUAL_INT(AP_M68030_ARITH_CMPM,
                         ap_m68030_arith_decode(word_of(0xBu, 1, 5, 1, 2)).kind);
-  TEST_ASSERT_EQUAL_INT(AP_M68030_ARITH_INVALID,
-                        ap_m68030_arith_decode(word_of(0xBu, 1, 5, 0, 2)).kind);
+  const ap_m68030_arith_t eor = ap_m68030_arith_decode(word_of(0xBu, 1, 5, 0, 2));
+  TEST_ASSERT_EQUAL_INT(AP_M68030_ARITH_EOR, eor.kind);
+  TEST_ASSERT_TRUE(eor.to_effective_address);
 }
 
 /* The R/M bit distinguishes the register-register and memory-memory forms of
@@ -168,7 +177,7 @@ int main(void) {
   RUN_TEST(test_cmp_and_eor_split_family_1011_by_direction);
   RUN_TEST(test_each_family_fills_the_register_hole_differently);
   RUN_TEST(test_a_memory_mode_gives_the_ordinary_instruction);
-  RUN_TEST(test_cmpm_is_postincrement_only);
+  RUN_TEST(test_cmpm_is_postincrement_only_and_mode_zero_is_eor);
   RUN_TEST(test_the_rm_bit_selects_memory_operands);
   RUN_TEST(test_family_1010_is_not_arithmetic);
   return UNITY_END();

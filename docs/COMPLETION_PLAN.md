@@ -976,10 +976,26 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         `CMPI` is data rather than data alterable, and `BTST`'s two forms
         disagree about the immediate. `step_suite` +4. Detail in
         `PROJECT_STATUS.md`.
-  - [ ] The `ADDQ`/`SUBQ`/`Scc` group (family 5) still enforces no categories —
-        240 words report UNIMPLEMENTED there. And two genuinely missing
-        instructions the sweep named: `MOVEP`, and `BTST Dn,#<data>`, whose
-        dynamic form the manual allows and this core does not execute.
+  - [x] Categories in the **quick** group (family 5) and the **ALU** group
+        (families 8, 9, B, C, D), the last two that enforced none. `ADDQ`/`SUBQ`
+        are *alterable* rather than data alterable — so they reach an address
+        register, at word and long only — and the six ALU instructions state
+        their category **per direction**, the source half differing between
+        `ADD`/`SUB` ("all modes") and `AND`/`OR` ("data"). A further **1040
+        words** stopped executing instructions the hardware refuses.
+        `step_suite` +1, one test corrected. Detail in `PROJECT_STATUS.md`.
+  - [x] **`EOR Dn,Dn` was decoded as illegal**, found while verifying the above.
+        Four of the five memory-direction families need a *memory* alterable
+        destination, which leaves the register-destination hole for `SBCD`,
+        `SUBX`, `ADDX` and `ABCD`; `EOR`'s is *data* alterable, so its mode-000
+        encoding is an ordinary instruction. `arith_suite`'s own test asserted
+        the wrong verdict on the wrong reasoning.
+  - [ ] Two genuinely missing instructions the sweep named: `MOVEP`, and
+        `BTST Dn,#<data>` — the dynamic form the manual allows and this core
+        does not execute. Neither is a category question.
+  - [ ] The bit-field instructions (`BFTST`, `BFEXTU`, `BFCHG`, …) are the
+        largest single block still unimplemented — 488 words in family E, and
+        the largest named remainder of the 1468.
   - [x] The **machine** resets through §8.1.1's sequence rather than a shorter
         one of its own, which had dropped the VBR, the CACR and the translation
         enables and added an ATC flush reset never performs. Invisible on a cold

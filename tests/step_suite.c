@@ -3748,6 +3748,47 @@ static void test_tst_reaches_every_mode_but_refuses_a_byte_address_register(
   TEST_ASSERT_EQUAL_HEX32(HANDLER, m.cpu.regs.pc);
 }
 
+/* **`ADDQ` and `SUBQ` are "alterable", not "data alterable"** -- one word of
+ * difference from their neighbours, and it is what lets them reach an address
+ * register. Refusing `ADDQ #1,A0` would break code that is everywhere.
+ *
+ * They carry the same size rule `TST` does, and the Description states it more
+ * plainly than the table's footnote: "The size of the operation may be
+ * specified as byte, word, or long. Word and long operations are also allowed
+ * on the address registers." So `ADDQ.B #1,A0` is illegal while `ADDQ.B #1,D0`
+ * is not -- a restriction on one addressing mode at one size, which no category
+ * expresses. */
+static void test_addq_reaches_an_address_register_but_not_at_byte_size(void) {
+  static const struct { uint16_t word; bool legal; } cases[] = {
+      {0x5248u, true},  /* ADDQ.W #1,A0 */
+      {0x5288u, true},  /* ADDQ.L #1,A0 */
+      {0x5200u, true},  /* ADDQ.B #1,D0 -- byte is fine on a data register */
+      {0x5208u, false}, /* ADDQ.B #1,A0 */
+      {0x5308u, false}, /* SUBQ.B #1,A0 */
+      {0x523Cu, false}, /* ADDQ.B #1,#imm -- not alterable at all */
+  };
+
+  for (unsigned i = 0; i < sizeof cases / sizeof cases[0]; i++) {
+    machine_t m = {0};
+    const uint16_t program[] = {cases[i].word, 0x0001u, 0x4E71u};
+    load(&m, program, 3);
+    plant_vector(&m, AP_M68030_VECTOR_ILLEGAL_INSTRUCTION, HANDLER);
+    m.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
+    m.cpu.regs.isp = SUPERVISOR_STACK;
+    m.cpu.regs.a[0] = 0x00005000u;
+
+    const ap_m68030_step_result_t r = ap_m68030_step(&m.cpu);
+    if (cases[i].legal) {
+      TEST_ASSERT_EQUAL_INT_MESSAGE(AP_M68030_STEP_EXECUTED, r.status,
+                                    "a legal quick form was refused");
+    } else {
+      TEST_ASSERT_EQUAL_INT_MESSAGE(AP_M68030_STEP_EXCEPTION, r.status,
+                                    "an illegal quick form ran");
+      TEST_ASSERT_EQUAL_HEX32(HANDLER, m.cpu.regs.pc);
+    }
+  }
+}
+
 /* **`CMPI` is "data", not "data alterable" -- and the immediate is not this
  * check's business.**
  *
@@ -4367,16 +4408,25 @@ static void test_the_arithmetic_forms_take_an_immediate_source(void) {
 }
 
 /* The other direction has no immediate: the `100`-`110` opmodes write to the
- * effective address, and an immediate is not somewhere a result can go. */
+ * effective address, and an immediate is not somewhere a result can go. `ADD`'s
+ * page puts it as "If the location specified is a destination operand, only
+ * memory alterable addressing modes can be used".
+ *
+ * So this is the *machine's* refusal and takes §8.1.5's trap. It reported
+ * `UNIMPLEMENTED` until the category tables were enforced per direction, which
+ * said "this core is unfinished" about a word no 68030 executes. */
 static void test_the_memory_direction_refuses_an_immediate_destination(void) {
   /* ADD.W D0,#$10 -- encodable, and not an instruction. */
   static const uint16_t program[] = {0xD17Cu, 0x0010u, 0x4E71u, 0x4E71u};
   machine_t m = {0};
   load(&m, program, 4);
+  plant_vector(&m, AP_M68030_VECTOR_ILLEGAL_INSTRUCTION, HANDLER);
+  m.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
+  m.cpu.regs.isp = SUPERVISOR_STACK;
   m.cpu.regs.d[0] = 1u;
 
-  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_UNIMPLEMENTED,
-                        ap_m68030_step(&m.cpu).status);
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXCEPTION, ap_m68030_step(&m.cpu).status);
+  TEST_ASSERT_EQUAL_HEX32(HANDLER, m.cpu.regs.pc);
 }
 
 /* "TST #<data>" is marked "MC68020, MC68030, MC68040, and CPU32" on the TST
@@ -7332,6 +7382,7 @@ int main(void) {
   RUN_TEST(test_an_interrupt_wakes_a_stopped_processor);
   RUN_TEST(test_an_interrupt_returns_to_the_instruction_it_preempted);
   RUN_TEST(test_tst_reaches_every_mode_but_refuses_a_byte_address_register);
+  RUN_TEST(test_addq_reaches_an_address_register_but_not_at_byte_size);
   RUN_TEST(test_cmpi_reads_pc_relative_and_never_sees_an_immediate);
   RUN_TEST(test_btst_takes_an_immediate_dynamically_but_not_statically);
   RUN_TEST(test_a_memory_shift_refuses_a_data_register);
