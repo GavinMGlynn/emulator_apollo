@@ -690,29 +690,17 @@ static void test_an_f_line_word_with_no_coprocessor_takes_the_emulator_trap(void
   TEST_ASSERT_EQUAL_HEX32(HANDLER, m.cpu.regs.pc);
 }
 
-/* The distinction the F-line change turns on, and the one that would quietly
- * rot if it were not tested. An MMU instruction this model has not implemented
- * must still report UNIMPLEMENTED, because the MMU *is* fitted and the real
- * part would execute it. Raising F-line there would dress our own gap up as
- * correct hardware behaviour -- convincingly, since firmware would take a
- * plausible exception and carry on.
+/* The distinction this file used to carry with a single example -- an
+ * instruction this core had not implemented must never be reported as the
+ * machine's own refusal -- is now asserted over the *whole* instruction set by
+ * `test_no_opcode_reports_an_unimplemented_instruction` in `machine_suite`.
  *
- * `F000` with a zero extension word is cpID 0, the MMU's, and is not one of
- * the MMU instructions implemented here. */
-static void test_an_unimplemented_mmu_instruction_is_not_dressed_up_as_f_line(void) {
-  static const uint16_t program[] = {0xF000u, 0x0000u, 0x4E71u, 0x4E71u};
-  machine_t m = {0};
-  load(&m, program, 4);
-  plant_vector(&m, AP_M68030_VECTOR_LINE_F, HANDLER);
-  m.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
-  m.cpu.regs.isp = SUPERVISOR_STACK;
+ * The example is gone because its subject is: `F000` with a zero extension word
+ * names a register the 68030 does not have, which p. 9-51 puts among the forms
+ * that "must be avoided or emulated in the exception routine for F-line
+ * unimplemented instructions". It was never our gap. Every other candidate went
+ * the same way, and no opcode is now declined for want of work. */
 
-  const ap_m68030_step_result_t r = ap_m68030_step(&m.cpu);
-
-  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_UNIMPLEMENTED, r.status);
-  TEST_ASSERT_NOT_EQUAL_INT(AP_M68030_STEP_EXCEPTION, r.status);
-  TEST_ASSERT_EQUAL_HEX32(PROGRAM_BASE, m.cpu.regs.pc);
-}
 
 
 /* The case the boot PROM actually performs: a misaligned long write over two
@@ -843,8 +831,14 @@ static void test_a_fault_does_not_leak_into_the_following_instruction(void) {
   m.memory.berr_from = 0u;
   ap_m68030_cpu_reset(&m.cpu, PROGRAM_BASE + 6u);
 
+  /* The property is that the *fault* did not survive, not what the second
+   * instruction turned out to be. It used to be reported unimplemented and is
+   * now an F-line exception -- the MMU word names a register this part does not
+   * have -- and either way a leaked flag would say `FAULT`. Asserting the
+   * absence keeps the test about the flag rather than about its vehicle. */
   const ap_m68030_step_result_t after = ap_m68030_step(&m.cpu);
-  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_UNIMPLEMENTED, after.status);
+  TEST_ASSERT_NOT_EQUAL_INT(AP_M68030_STEP_FAULT, after.status);
+  TEST_ASSERT_FALSE(m.cpu.access_faulted);
 }
 
 /* An encoding no family claims is genuinely illegal, which is a different
@@ -3695,8 +3689,15 @@ static void test_a_level_zero_ptest_cannot_ask_for_a_descriptor_address(void) {
   m.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
   m.cpu.regs.a[0] = 0x0000A000u;
 
-  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_UNIMPLEMENTED,
-                        ap_m68030_step(&m.cpu).status);
+  /* The quotation above is the assertion: "The instruction takes an **F-line
+   * exception** when the level field is 0 and the A field is not 0." This test
+   * asserted `UNIMPLEMENTED` for a long time, contradicting the sentence in its
+   * own comment -- the executor had the rule written down and returned the
+   * status meaning "this core is unfinished" instead. */
+  plant_vector(&m, AP_M68030_VECTOR_LINE_F, HANDLER);
+  m.cpu.regs.isp = SUPERVISOR_STACK;
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXCEPTION, ap_m68030_step(&m.cpu).status);
+  TEST_ASSERT_EQUAL_HEX32(HANDLER, m.cpu.regs.pc);
 }
 
 /* Levels 1-7 walk the tree instead, and "The PTEST instruction does not alter
@@ -7788,7 +7789,6 @@ int main(void) {
   RUN_TEST(test_misaligned_long_round_trips_through_the_data_cache);
   RUN_TEST(test_a_line_1010_word_takes_the_emulator_trap);
   RUN_TEST(test_an_f_line_word_with_no_coprocessor_takes_the_emulator_trap);
-  RUN_TEST(test_an_unimplemented_mmu_instruction_is_not_dressed_up_as_f_line);
   RUN_TEST(test_a_prefetch_from_an_odd_address_is_an_address_error);
   RUN_TEST(test_an_address_error_runs_no_bus_cycle);
   RUN_TEST(test_a_misaligned_data_access_is_not_an_address_error);

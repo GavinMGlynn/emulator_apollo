@@ -4473,6 +4473,40 @@ mean they were written with zero.
 **1204 words remain `UNIMPLEMENTED`**, from 2621 before C95. The bit-field group
 — 488 words in family E — is now the largest single remainder by some margin.
 
+**No opcode is declined for want of work: 2621 → 0.** Every one of the 65536
+instruction words now either executes or is refused with the *machine's* own
+verdict, and `machine_suite` sweeps all of them in about two seconds to keep it
+that way. A new instruction landed without its refusal classified reddens that
+test immediately and names the word.
+
+The last 64 were the MMU's, and the rule is **transcribed rather than
+inferred**. p. 9-51 lists what a 68030 lacks against the 68020/68851 pair —
+`PVALID`, `PFLUSHR`, `PFLUSHS`, `PBcc`, `PDBcc`, `PScc`, `PTRAPcc`, `PSAVE`,
+`PRESTORE`, and "`PMOVE` for unsupported registers (CAL, VAL, SCC, BAD, BACx,
+DRP, and AC)" — and says they "must be avoided or emulated in the exception
+routine for **F-line unimplemented instructions**". Five sites were reclassified
+across `execute_pmove`, `execute_pflush_or_pload` and `execute_ptest`.
+
+**Two of those five already had the verdict written in a comment and returned
+the other one.** `execute_pmove`'s read "a register this part does not have:
+F-line, not a no-op" and returned `UNIMPLEMENTED`; `execute_ptest`'s quoted the
+manual outright — "The instruction takes an F-line exception when the level
+field is 0 and the A field is not 0" — and did the same. That is the same shape
+as `CHK`'s missing verdict in C100, and it is the fourth time this campaign that
+a rule was written down correctly beside code that did not act on it.
+
+Three `step_suite` tests had to change with them, and one could not be kept: its
+subject — `F000` with a zero extension word — names a register the part does not
+have, so it was never this core's gap. Its principle survives in a stronger
+form, as the whole-set sweep rather than one example.
+
+**And `CAS`/`CAS2` execute**, which this document had denied. The claim came from
+a comment in `ap_m68030_step.c` reading "CAS and CAS2 still decline", two lines
+above the dispatch to `execute_cas` and `execute_cas2`, and it outlived the
+commits that implemented them by a long way. It was repeated here by someone
+reading the comment instead of the code — a stale comment beside working code is
+worse than none, because it is the version a reader trusts.
+
 **`TRAPcc` executes**, all three forms. The operand is consumed whether or not
 the trap is taken — it is part of the instruction and merely "available to the
 trap handler", never used by the instruction itself, which is exactly what makes
@@ -4603,9 +4637,13 @@ produce four *different* results over the same field, so a write that hit the
 wrong bits could not pass more than one of them.
 
 **716 words remain `UNIMPLEMENTED`**, from 2621 before C95. What is left is the
-coprocessor and MMU corners of family F, and `CAS`/`CAS2`, which decline for a
-stated reason rather than for want of work: their read and write are
-indivisible, and honouring that means the bus asserting `RMC`.
+coprocessor and MMU corners of family F.
+
+*(That sentence originally also named `CAS`/`CAS2` as declining. They do not:
+both execute, `CAS` asserting `RMC` across its read-modify-write pair. The claim
+came from a stale comment in `ap_m68030_step.c` that had outlived the commits
+which implemented them, and was repeated here without checking the code it
+described — see `FINDINGS.md` C103.)*
 
 **And the machine now uses that sequence, which for a long time it did
     not.** `ap_m68030_take_reset` had no caller anywhere in `src`;
@@ -4917,9 +4955,10 @@ omission:
 executes with `RMC` asserted across its pair, `BKPT` executes its
 acknowledge cycle, and the non-MMU coprocessor instructions take the
 line 1111 trap, which is correct on a machine with no coprocessor
-fitted. `CAS2` alone declines, and for a stated reason rather than a
-pending one: two independent memory operands under one locked sequence
-is a two-address atomic this operand path cannot express.
+fitted. `CAS2` executes as well — the paragraph above records why the
+reason it had once been declined was a misreading, and this sentence is
+kept in its corrected form rather than deleted so the two readings stay
+visible together.
 
 #### The narrow build itself (`SUBTARGET=apollo`, `REGENIE=1`, `NOWERROR=1`)
 

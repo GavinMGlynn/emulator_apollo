@@ -3808,10 +3808,20 @@ static bool execute_pmove(ap_m68030_cpu_t *cpu, const ap_m68030_coproc_t *coproc
                           uint16_t extension, uint32_t *clocks) {
   const pmove_register_t which = pmove_register(extension);
   if (which == AP_PMOVE_NONE) {
-    return false; /* a register this part does not have: F-line, not a no-op */
+    /* A register this part does not have. p. 9-51 names the case and its
+     * answer: the 68851 instructions a 68030 lacks "must be avoided or emulated
+     * in the exception routine for F-line unimplemented instructions ... and
+     * **PMOVE for unsupported registers** (CAL, VAL, SCC, BAD, BACx, DRP, and
+     * AC)". The comment here said "F-line, not a no-op" and returned the status
+     * that means *this core is unfinished* -- the verdict was written down and
+     * not acted on. */
+    cpu->refused_vector = AP_M68030_VECTOR_LINE_F;
+    return false;
   }
-  /* Bits 7-0 are shown as zero in all three formats. */
+  /* Bits 7-0 are shown as zero in all three formats, so a word that sets them
+   * is an undefined pattern rather than an unfinished one. */
   if ((extension & 0x00FFu) != 0u) {
+    cpu->refused_vector = AP_M68030_VECTOR_LINE_F;
     return false;
   }
 
@@ -4026,6 +4036,7 @@ static bool execute_pflush_or_pload(ap_m68030_cpu_t *cpu,
    * "must be 00000". A word that sets them is not this instruction. */
   if (mode == 0x1u) {
     if (mask != 0u || fc_field != 0u) {
+      cpu->refused_vector = AP_M68030_VECTOR_LINE_F;
       return false;
     }
     ap_m68030_atc_flush(atc);
@@ -4034,6 +4045,11 @@ static bool execute_pflush_or_pload(ap_m68030_cpu_t *cpu,
 
   uint8_t function_code = 0;
   if (!resolve_function_code(cpu, fc_field, &function_code)) {
+    /* A function code field encoding the manual does not define, which is
+     * p. 8-10's "undefined patterns in subsequent words" -- the F-line
+     * exception rather than this core's gap. Set at the caller because the
+     * resolver is a pure query and reads a `const` processor. */
+    cpu->refused_vector = AP_M68030_VECTOR_LINE_F;
     return false;
   }
 
@@ -4075,6 +4091,10 @@ static bool execute_pflush_or_pload(ap_m68030_cpu_t *cpu,
   }
 
   if (mode != 0x0u) {
+    /* Modes the 68030's reduced set does not define -- p. 9-51 lists `PFLUSHR`
+     * and `PFLUSHS` among the 68851 instructions it lacks, and they are reached
+     * through this field. */
+    cpu->refused_vector = AP_M68030_VECTOR_LINE_F;
     return false;
   }
 
@@ -4119,11 +4139,20 @@ static bool execute_ptest(ap_m68030_cpu_t *cpu,
    * and the A field is not 0." An ATC probe has no descriptor address to
    * return, because it never fetched one. */
   if (level == 0u && (want_address || address_register != 0u)) {
+    /* The quotation above says it outright -- "The instruction takes an F-line
+     * exception when the level field is 0 and the A field is not 0" -- and this
+     * returned the status meaning *unfinished* instead. */
+    cpu->refused_vector = AP_M68030_VECTOR_LINE_F;
     return false;
   }
 
   uint8_t function_code = 0;
   if (!resolve_function_code(cpu, fc_field, &function_code)) {
+    /* A function code field encoding the manual does not define, which is
+     * p. 8-10's "undefined patterns in subsequent words" -- the F-line
+     * exception rather than this core's gap. Set at the caller because the
+     * resolver is a pure query and reads a `const` processor. */
+    cpu->refused_vector = AP_M68030_VECTOR_LINE_F;
     return false;
   }
 
@@ -6219,10 +6248,17 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
   }
 
   case AP_M68030_DECODED_BOUNDS:
-    /* CMP2 and CHK2 execute. CAS and CAS2 still decline: their read and write
-     * are indivisible, so executing them honestly means the bus asserting RMC
-     * for the pair, and that is the bus module's item rather than this one --
-     * `execute_bounds` refuses them rather than running them without it. */
+    /* All four execute. `CMP2`/`CHK2` read their bounds pair; `CAS` asserts
+     * `RMC` across its read-modify-write, and `CAS2` does the same across two
+     * independent addresses taken from *registers* rather than from an
+     * addressing mode.
+     *
+     * This comment said "CAS and CAS2 still decline" for a long time after both
+     * had landed, and it was believed: `PROJECT_STATUS.md` was given the same
+     * claim by someone reading here rather than reading `execute_bounds`, which
+     * dispatches to `execute_cas` and `execute_cas2` two lines below. A stale
+     * comment beside working code is worse than none -- it is the version a
+     * reader trusts. */
     if (execute_bounds(cpu, &decoded.as.bounds, &out.clocks)) {
       break;
     }

@@ -1023,21 +1023,18 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         on a fifth. Without it they fell through to the general path, which
         fetches no command word for them, so the FPU was asked to execute
         command zero.
-  - [ ] **Classify the MMU's remaining 64 words.** Table 3-10 gives the 68030
-        five MMU operation codes (`PMOVE` ×3, `PFLUSH`/`PLOAD`, `PTEST`); codes
-        5–7 and many extension sub-patterns are undefined, and p. 8-10 makes an
-        "undefined pattern in subsequent words" the F-line exception rather than
-        our gap. About two dozen `return false` sites in `execute_pmove`,
-        `execute_pflush_or_pload` and `execute_ptest` need classifying, several
-        already carrying comments that say which they are (one reads "a register
-        this part does not have: F-line, not a no-op").
-        **Two things to settle first.** Three `step_suite` tests use extension
-        `$A000` — operation code 5 — as their example of "an instruction the
-        hardware executes that we have not implemented"; that premise is wrong
-        and they need a new subject. And `CAS.L` was observed *executing* where
-        `PROJECT_STATUS.md` records `CAS`/`CAS2` as declining for want of `RMC`
-        — one of the two is wrong and it must be settled before the sweep is
-        trusted.
+  - [x] **The MMU's remaining 64 words classified**, and with them the last
+        `UNIMPLEMENTED` opcode in the instruction set: **2621 → 0**. The rule is
+        transcribed, not inferred — p. 9-51 lists the 68851 forms a 68030 lacks,
+        including "`PMOVE` for unsupported registers", and says they "must be
+        avoided or emulated in the exception routine for **F-line unimplemented
+        instructions**". Five sites across `execute_pmove`,
+        `execute_pflush_or_pload` and `execute_ptest`, two of which already had
+        the verdict in a comment and returned the other one. `machine_suite` +1,
+        which now sweeps all 65536 opcodes and asserts none reports our gap;
+        three `step_suite` tests corrected or superseded by it. Also settled:
+        `CAS`/`CAS2` **do** execute — a stale comment said otherwise and this
+        document had repeated it. Detail in `PROJECT_STATUS.md`.
   - [x] **The eight bit field instructions** — `BFTST`, `BFEXTU`, `BFCHG`,
         `BFEXTS`, `BFCLR`, `BFFFO`, `BFSET`, `BFINS`, 488 words. The field is a
         span in a big-endian bit stream, not a mask on a word: a 32-bit field at

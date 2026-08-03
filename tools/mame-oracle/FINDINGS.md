@@ -5882,3 +5882,72 @@ reads "a register this part does not have: F-line, not a no-op"), and the two
 questions above to settle first.
 
 **64 words remain `UNIMPLEMENTED`**, from 2621 when the sweep began.
+
+## C103 -- the last 64, and a stale comment that had been believed twice
+
+**Class: defects in this core, five; plus a documentation correction.**
+**Ends the opcode campaign: 2621 unimplemented words to zero.**
+
+### `CAS` executes, and the comment said it did not
+
+Settled first, because the previous entry had refused to classify anything while
+it stood. `execute_bounds` dispatches to `execute_cas` and `execute_cas2`, and
+two lines above that dispatch sat:
+
+> "CMP2 and CHK2 execute. CAS and CAS2 still decline: their read and write are
+> indivisible ... `execute_bounds` refuses them rather than running them without
+> it."
+
+Both had landed long before -- `55c85e0` "CAS executes, with RMC asserted across
+the pair" and `f6ad4a8` "CAS2 executes: the reason it was declined was a
+misreading". The comment outlived them, and **I repeated it into
+`PROJECT_STATUS.md` two campaigns ago** by reading it instead of the function it
+described. A stale comment beside working code is worse than none: it is the
+version a reader trusts, and it was trusted twice.
+
+### The MMU rule is transcribed, not inferred
+
+p. 9-51 lists what a 68030 lacks against the 68020/68851 pair -- `PVALID`,
+`PFLUSHR`, `PFLUSHS`, `PBcc`, `PDBcc`, `PScc`, `PTRAPcc`, `PSAVE`, `PRESTORE`,
+and "**PMOVE for unsupported registers** (CAL, VAL, SCC, BAD, BACx, DRP, and
+AC)" -- and says they "must be avoided or emulated in the exception routine for
+**F-line unimplemented instructions**".
+
+That sentence classifies every remaining site. Five were reclassified across
+`execute_pmove`, `execute_pflush_or_pload` and `execute_ptest`.
+
+**Two of the five already had the verdict in a comment and returned the other
+one.** `execute_pmove`'s read "a register this part does not have: F-line, not a
+no-op"; `execute_ptest`'s quoted the manual outright -- "The instruction takes an
+F-line exception when the level field is 0 and the A field is not 0". Both
+returned `UNIMPLEMENTED`. Same shape as `CHK`'s missing verdict in C100, and the
+fourth time this campaign that a rule was written down correctly beside code
+that did not act on it.
+
+### One test could not be kept, and its principle got stronger
+
+Three `step_suite` tests failed. `test_a_level_zero_ptest_cannot_ask_for_a_descriptor_address`
+had asserted `UNIMPLEMENTED` while quoting the F-line sentence **in its own
+comment** -- it contradicted itself and the contradiction had never mattered.
+`test_a_fault_does_not_leak_into_the_following_instruction` was about the fault
+flag and merely used an unimplemented instruction as its vehicle; it now asserts
+the property (no `FAULT`, flag clear) rather than the vehicle's status.
+
+`test_an_unimplemented_mmu_instruction_is_not_dressed_up_as_f_line` could not be
+repaired: its subject, `F000` with a zero extension word, names a register the
+part does not have and was **never** this core's gap. Its principle is now
+asserted over the whole instruction set instead -- `machine_suite` steps all
+65536 opcodes in about two seconds and fails, naming the word, if any reports
+`UNIMPLEMENTED`. One example became every one of them.
+
+### Where the number went
+
+    2621  before the effective-address category work (C95)
+    1830  after MOVE, the misc group and the MMU categories
+    1204  after the single-operand, immediate, shift, quick and ALU groups
+     716  after the bit field instructions
+     420  after MOVES
+     240  after TRAPcc and the reserved coprocessor types
+       0  after the MMU classification
+
+Phase 2 and Phase 2b have no open items.

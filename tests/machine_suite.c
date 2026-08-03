@@ -7,6 +7,8 @@
  * and get the same answer twice.
  */
 
+#include <stdio.h>
+
 #include "board/ap_board.h"
 #include "cpu/m68030/ap_m68030_atc.h"
 #include "cpu/m68030/ap_m68030_ea_timing.h"
@@ -39,6 +41,49 @@ static void load(ap_machine_t *machine, const uint16_t *words, unsigned count) {
 
 /* The whole cycle a probe performs: construct, poke, run, read back. If this
  * works, a probe needs no firmware and no boot. */
+/* **No opcode is declined for want of work.** All 65536, stepped on a real
+ * machine.
+ *
+ * `UNIMPLEMENTED` means "this core has not got to it" and is deliberately
+ * distinct from the machine's own refusals — the distinction the step module's
+ * header is built around, because reporting our gap as the hardware's verdict
+ * would make an unfinished corner look like a correctly-refusing processor.
+ * The counterpart, and the reason this is worth a whole-set sweep rather than
+ * an example: reporting the *hardware's* refusal as our gap stops a machine the
+ * real part would have carried on through a handler.
+ *
+ * The count went 2621 → 0 over the course of the effective-address category
+ * work and the instructions that followed it. Asserting zero is what stops it
+ * climbing again quietly: a new instruction landed without its refusal
+ * classified reddens this immediately, and names the word.
+ *
+ * It runs in about two seconds, which buys a statement no set of examples
+ * could — every one of them, not the ones someone thought to write down. */
+static void test_no_opcode_reports_an_unimplemented_instruction(void) {
+  for (unsigned word = 0; word <= 0xFFFFu; word++) {
+    blank();
+    ap_machine_t m;
+    ap_machine_init(&m, ram, RAM_BYTES);
+    ap_machine_reset(&m, PROGRAM, STACK);
+
+    /* The opcode, then benign extension words: `$0010` decodes as a small
+     * displacement or an in-range immediate for everything that reads one, so
+     * an instruction that needs extensions gets plausible ones rather than
+     * whatever the last test left. */
+    TEST_ASSERT_TRUE(ap_machine_write(&m, PROGRAM, 2u, word));
+    for (unsigned i = 1; i < 8u; i++) {
+      TEST_ASSERT_TRUE(ap_machine_write(&m, PROGRAM + i * 2u, 2u, 0x0010u));
+    }
+
+    if (ap_m68030_step(&m.cpu).status == AP_M68030_STEP_UNIMPLEMENTED) {
+      char message[64];
+      (void)snprintf(message, sizeof message,
+                     "opcode %04X reports UNIMPLEMENTED", word);
+      TEST_FAIL_MESSAGE(message);
+    }
+  }
+}
+
 /* **A warm reset puts the whole processor into `[030]` §8.1.1's state, and
  * leaves the ATC alone.**
  *
@@ -1068,6 +1113,7 @@ int main(void) {
   RUN_TEST(test_the_machine_keeps_time_in_base_units);
   RUN_TEST(test_an_unrepresentable_cpu_rate_is_refused);
   RUN_TEST(test_an_unset_clock_produces_no_time);
+  RUN_TEST(test_no_opcode_reports_an_unimplemented_instruction);
   RUN_TEST(test_a_warm_reset_restores_the_documented_state_but_not_the_atc);
   RUN_TEST(test_a_probe_can_set_up_run_and_read_back);
   RUN_TEST(test_every_transcribed_row_matches_both_published_columns);
