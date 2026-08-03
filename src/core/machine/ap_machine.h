@@ -151,12 +151,29 @@ bool ap_machine_write(ap_machine_t *machine, uint32_t address, unsigned size,
 /* Execute one instruction. */
 [[nodiscard]] ap_m68030_step_result_t ap_machine_step(ap_machine_t *machine);
 
+/* How many clocks a machine will stand stalled by another bus master before it
+ * gives up and runs anyway.
+ *
+ * Not a timeout: a master that never releases the bus is a broken machine, and
+ * a reference core that spun forever inside a bounded run would turn that into
+ * a hung harness instead of a visible fault -- the same reason the run below
+ * takes a limit at all. Generous enough that no real transfer reaches it. */
+#define AP_MACHINE_STALL_LIMIT 4096u
+
 /* Run until `limit` instructions have been executed or the processor stops
  * making progress -- an unimplemented or illegal instruction, a fault, or a
  * `STOP`. Returns how many executed, and reports why it ended.
  *
  * A limit is required rather than optional: a probe that loops forever must end
- * as a failed probe rather than as a hung harness. */
+ * as a failed probe rather than as a hung harness.
+ *
+ * ## With a board attached, the processor does not always get to run
+ *
+ * The bus advances at the processor's rate -- it is given the clocks the last
+ * instruction spent -- and while another master holds it the processor stalls,
+ * accumulating clocks without executing. That is the whole of how contention
+ * reaches a program: nothing computes a delay, and the processor is simply the
+ * lowest-priority claimant of a bus somebody else has. */
 typedef struct {
   unsigned executed;
   ap_m68030_step_status_t status; /* why it ended */

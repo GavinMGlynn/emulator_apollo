@@ -10,6 +10,7 @@
 #include <stdio.h>
 
 #include "board/ap_board.h"
+#include "board/ap_dma.h"
 #include "device/ap_mc68681.h"
 #include "board/ap_sio.h"
 #include "board/ap_intr.h"
@@ -1274,8 +1275,109 @@ static void test_an_unprogrammed_controller_delivers_nothing(void) {
   TEST_ASSERT_EQUAL_UINT(0u, m.cpu.interrupt_level);
 }
 
+/* ---------------------------------------------------------------------------
+ * Contention, measured: the same program, with and without a bus master
+ *
+ * This is the memory-bus item's whole verification, and the shape of it matters
+ * as much as the number. Nothing computes a delay. The DMA controller asks for
+ * the bus, wins it -- the processor is the lowest-priority claimant, `[030]`
+ * §7.7 -- and the processor's clocks advance while it does not execute. The
+ * cost is a *consequence* of the arbitration, which is what "emergent" has to
+ * mean if it means anything.
+ *
+ * There is no oracle for this and there cannot be: MAME's 68000 family models
+ * no bus arbitration at all -- no `BR`, `BG` or `BGACK` anywhere in its
+ * `cpu/m68000/` -- so no second master in that emulator could ever take a bus
+ * cycle to be timed. The same finding closed the synchroniser's supposed
+ * measurement route. This is measured against itself: the identical program,
+ * twice, on boards differing only in whether a channel is running.
+ * ------------------------------------------------------------------------- */
+
+/* A channel programmed for *verify*, which generates addresses and moves no
+ * data -- `[8237]`: "the memory and I/O control lines all remain inactive". It
+ * needs no device on the channel, which is what lets contention be measured
+ * before this board's channel assignments have been. */
+static void start_verify_channel(ap_board_t *board, unsigned channel,
+                                 uint16_t count) {
+  bool ok = false;
+  const uint32_t base = AP_DMA1_ADDR;
+  ap_board_write(board, base + AP_I8237_REG_MODE,
+                 (uint8_t)((AP_I8237_MODE_BLOCK << 6) | channel), &ok);
+  ap_board_write(board, base + AP_I8237_REG_CLEAR_FLIPFLOP, 0u, &ok);
+  ap_board_write(board, base + channel * 2u, 0u, &ok);
+  ap_board_write(board, base + channel * 2u, 0u, &ok);
+  ap_board_write(board, base + channel * 2u + 1u, (uint8_t)(count & 0xFFu), &ok);
+  ap_board_write(board, base + channel * 2u + 1u, (uint8_t)(count >> 8), &ok);
+  ap_board_write(board, base + AP_I8237_REG_MASK_SINGLE, (uint8_t)channel, &ok);
+  ap_board_write(board, base + AP_I8237_REG_REQUEST,
+                 (uint8_t)(0x04u | channel), &ok);
+}
+
+/* Eight NOPs and a STOP: nothing that touches a device, so any difference in
+ * clocks is the bus and not the program. */
+static const uint16_t idle_program[] = {
+    0x4E71u, 0x4E71u, 0x4E71u, 0x4E71u, 0x4E71u,
+    0x4E71u, 0x4E71u, 0x4E71u, 0x4E72u, 0x2700u,
+};
+
+static void test_a_dma_transfer_costs_the_processor_clocks(void) {
+  const unsigned words = sizeof idle_program / sizeof idle_program[0];
+
+  ap_machine_t quiet;
+  build_board_machine(&quiet, &first_board, ram, idle_program, words);
+  const ap_machine_run_t quiet_run = ap_machine_run(&quiet, 9u);
+
+  ap_machine_t busy;
+  build_board_machine(&busy, &second_board, other_ram, idle_program, words);
+  start_verify_channel(&second_board, 1u, 63u);
+  const ap_machine_run_t busy_run = ap_machine_run(&busy, 9u);
+
+  /* Both ran the same program to the same end. */
+  TEST_ASSERT_EQUAL_UINT(quiet_run.executed, busy_run.executed);
+  TEST_ASSERT_EQUAL_INT(quiet_run.status, busy_run.status);
+  TEST_ASSERT_EQUAL_HEX32(quiet.cpu.regs.pc, busy.cpu.regs.pc);
+
+  /* And the busy one took longer, in clocks and therefore in time. */
+  TEST_ASSERT_TRUE(busy.cpu.clocks > quiet.cpu.clocks);
+  TEST_ASSERT_TRUE(ap_machine_now(&busy) > ap_machine_now(&quiet));
+
+  /* The controller actually transferred, so this is contention and not a
+   * machine that stalled on nothing. */
+  TEST_ASSERT_TRUE(second_board.dma_transfers > 0u);
+  TEST_ASSERT_EQUAL_UINT(0u, first_board.dma_transfers);
+
+  /* The processor lost roughly one clock per transfer the controller ran --
+   * asserted as a bracket rather than a figure, because the exact count is the
+   * arbitration handshake's and a change to the synchroniser may move it. What
+   * must not happen is the cost being zero or unbounded. */
+  const uint64_t lost = busy.cpu.clocks - quiet.cpu.clocks;
+  TEST_ASSERT_TRUE(lost >= second_board.dma_transfers);
+  TEST_ASSERT_TRUE(lost <= second_board.dma_transfers * 4u + 16u);
+}
+
+/* And the converse, which is what stops the test above passing on a machine
+ * that simply charged for having a board: a board whose controllers are idle
+ * costs the identical program exactly nothing. */
+static void test_an_idle_bus_costs_the_processor_nothing(void) {
+  const unsigned words = sizeof idle_program / sizeof idle_program[0];
+
+  ap_machine_t bare;
+  ap_machine_init(&bare, ram, RAM_BYTES);
+  ap_machine_reset(&bare, PROGRAM, STACK);
+  load(&bare, idle_program, words);
+  (void)ap_machine_run(&bare, 9u);
+
+  ap_machine_t boarded;
+  build_board_machine(&boarded, &first_board, other_ram, idle_program, words);
+  (void)ap_machine_run(&boarded, 9u);
+
+  TEST_ASSERT_EQUAL_UINT64(bare.cpu.clocks, boarded.cpu.clocks);
+}
+
 int main(void) {
   UNITY_BEGIN();
+  RUN_TEST(test_a_dma_transfer_costs_the_processor_clocks);
+  RUN_TEST(test_an_idle_bus_costs_the_processor_nothing);
   RUN_TEST(test_a_device_interrupt_reaches_the_processor_on_its_vector);
   RUN_TEST(test_an_unprogrammed_controller_delivers_nothing);
   RUN_TEST(test_the_machine_keeps_time_in_base_units);

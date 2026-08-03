@@ -388,17 +388,49 @@ ap_m68030_step_result_t ap_machine_step(ap_machine_t *machine) {
 ap_machine_run_t ap_machine_run(ap_machine_t *machine, unsigned limit) {
   ap_machine_run_t out = {.status = AP_M68030_STEP_EXECUTED};
 
+  uint64_t last_instruction_clocks = 0;
+
   for (unsigned i = 0; i < limit; i++) {
     const uint64_t before = machine->cpu.clocks;
-    /* Sampled before every instruction, because the lines are levels and a
-     * program that has just written a device register has changed them. This
-     * is the whole of the tick loop that exists: nothing advances on its own,
-     * so an interrupt appears only where a program produced one. */
     if (machine->board != NULL) {
+      /* Sampled before every instruction, because the lines are levels and a
+       * program that has just written a device register has changed them. This
+       * is the whole of the tick loop that exists: nothing advances on its own,
+       * so an interrupt appears only where a program produced one. */
       ap_board_sample_interrupts(machine->board);
       machine->cpu.interrupt_level = ap_board_interrupt_level(machine->board);
+
+      /* The bus advances at the processor's rate, so it is given the clocks the
+       * previous instruction spent. Without this the arbiter would see one
+       * clock per *instruction* and a DMA controller would take as long to win
+       * the bus as the program took to run.
+       *
+       * Charged to the board and not to the CPU: these are clocks that already
+       * happened. */
+      for (uint64_t c = 0; c < last_instruction_clocks; c++) {
+        ap_board_bus_tick(machine->board);
+      }
+
+      /* And now the contention, which is not a penalty and not a figure: the
+       * processor is the lowest-priority claimant of a bus somebody else is
+       * holding (`[030]` §7.7), so it does not run, and the clocks pass anyway.
+       * Nothing here computes a delay -- the loop simply cannot exit until the
+       * arbiter says the processor may run.
+       *
+       * The guard is not a timeout in disguise. A master that never releases is
+       * a broken machine, and spinning forever inside a bounded `ap_machine_run`
+       * would turn that into a hung harness rather than a visible fault -- the
+       * same reason the run takes a limit at all. */
+      unsigned stalled = 0;
+      while (!ap_board_processor_may_run(machine->board) &&
+             stalled < AP_MACHINE_STALL_LIMIT) {
+        ap_board_bus_tick(machine->board);
+        machine->cpu.clocks++;
+        stalled++;
+      }
     }
     const ap_m68030_step_result_t result = ap_m68030_step(&machine->cpu);
+    last_instruction_clocks = machine->cpu.clocks - before;
     /* Converted once, here. The step reports CPU clocks; the machine keeps
      * time. A `cpu_clock` that was never initialised has a zero rate and
      * produces no time at all, which is visibly wrong rather than quietly

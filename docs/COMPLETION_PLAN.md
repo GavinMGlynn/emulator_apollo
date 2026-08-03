@@ -1590,12 +1590,14 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
       table, and a DN2500 taking exactly 25:20 of a DN3500's time over identical
       cycles. Every hash in `tests/goldens/probes.txt` moved and no other column
       did: a probe run had been keeping no time.*
-- [ ] Memory bus with one shared arbitration point, so contention is emergent.
-      *Verification: probes measuring contention between CPU and DMA.*
-      **Awaiting:** a second master actually running cycles. Every sub-item
-      below is done; the contention probe belongs to the DMA controllers' item
-      further down this phase, and this ticks when that one produces the
-      measurement. Nothing else is outstanding here.
+- [x] Memory bus with one shared arbitration point, so contention is emergent.
+      *Verification: measured, and against itself rather than the oracle —
+      MAME's 68000 family models no bus arbitration at all, so no second master
+      there could ever take a cycle to time. The same program costs 18 clocks on
+      an idle bus and 86 with a DMA channel running, 720 ns against 3440 ns at
+      25 MHz, and an idle board costs it nothing at all. Nothing computes the
+      difference: the processor is `[030]` §7.7's lowest-priority claimant and
+      loses the arbitration.*
   - [x] The processor's side of the protocol: `[030]` §7.7's BR/BG/BGACK state
         machine, with the processor at the lowest priority. Both documented
         deferrals are in — a grant waits for a committed bus cycle to begin, and
@@ -1816,10 +1818,18 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         gets it back at terminal count, a transfer lands where the map points,
         and a verify transfer is not an unwired one. `atmap_suite` +1 (16) pins
         the byte lanes directly.*
-  - [ ] Remaining: the machine stalling for it, and the contention probe. The
-        board holds the bus; what the processor does about it is
-        `ap_machine_run`'s, and the measurement the memory-bus item wants is a
-        probe timing the same program with and without a channel running.
+  - [x] **The machine stalls for it, and the contention is measured.** The bus
+        advances at the processor's rate and the processor does not run while
+        another master holds it — no penalty is computed, it simply loses the
+        arbitration. Eight `NOP`s and a `STOP` cost 18 clocks on an idle bus and
+        86 with a channel running: 68 lost to 64 transfers, 720 ns against
+        3440 ns at 25 MHz. Block mode holds the bus to terminal count, which is
+        the "block granularity, not per word" this item asks about.
+        Detail in `PROJECT_STATUS.md`.
+        *Verification: `machine_suite` +2 (35) — the same program on two boards
+        differing only in whether a channel runs, asserted as a bracket rather
+        than a figure since the handshake's exact cost is the synchroniser's;
+        and an idle board costing the identical program exactly nothing.*
   - [x] Both controllers wired into the board at `010C00` (stride 1) and
         `010D00` (stride 2). `dma_suite`, 6 tests. The AT convention that the
         first controller cascades onto channel 0 of the second is deliberately
