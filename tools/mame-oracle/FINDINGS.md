@@ -4972,3 +4972,38 @@ It also closes the 68020 subset properly. C84 established that a program runs
 identically on both as a DN3000; this establishes what happens at the 44 opcodes
 where the families differ -- we execute them and the oracle declines, from its
 source rather than from a guess.
+
+## C88 -- running the whole suite caught a check that cried wolf
+
+**Class: harness defect, mine, found and fixed.**
+
+Adding `module-call` to `--program all` and running it as a DN3000 reported
+**twelve unexpected differences**. None was real. The status check added two
+campaigns earlier compared `ours["status"]` against `oracle["status"]`, and the
+oracle prints the same fact under a different key -- `stopped WHY`, not
+`status WHY`. Every probe therefore differed on a field neither implementation
+disagreed about.
+
+It had been in the tree since C86 and nothing noticed, because C86 ran the one
+probe the check was written for and the difference there was genuine. Running
+fourteen programs is what exposed it, which is the argument for `--program all`
+existing at all: a check that is right for the case it was written for and wrong
+everywhere else looks correct until something sweeps.
+
+Fixed, and the run is now what a regression check should read like:
+
+    known difference: fpu-sine-x  -- C70, one ULP, settled sub-poll-slack
+    known difference: module-call -- C87, oracle-wrong: MAME does not
+                                     implement CALLM
+    12 of 14 probe programs ran identically; 2 differed as recorded
+
+**`module-call` is registered only on a DN3000**, which is the machine where the
+difference is real: on a DN3500 neither implementation executes `CALLM` -- it is
+not a 68030 instruction -- so the two agree by both refusing, and an
+unconditional entry would report an expected difference that never happened. A
+known-difference list that is wrong in the safe direction still teaches its
+reader to distrust it.
+
+**Three harness defects now, each found by using the harness rather than
+reading it**: C75's stalled loop, C83's DN3500-only memory map, and this. All
+three produced output that looked like a finding about the emulator.

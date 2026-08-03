@@ -154,10 +154,10 @@ def run_oracle(words, base, sentinel_at, limit, timeout: float,
 # measurements into a check someone can re-run after changing the core.
 ALL_PROGRAMS = ("sentinel", "dbcc", "subroutine", "divide", "divide-overflow",
                 "movem", "pmove", "fault", "bus-fault", "fpu", "fpu-rounding",
-                "fpu-sine", "fpu-sine-x")
+                "fpu-sine", "fpu-sine-x", "module-call")
 
 
-def run_all(argv, parser) -> int:
+def run_all(argv, parser, machine: str = "dn3500") -> int:
     """Run every program and report a single verdict.
 
     Each is a separate MAME launch, so this is minutes rather than seconds --
@@ -175,7 +175,13 @@ def run_all(argv, parser) -> int:
     # output nearly caused.
     KNOWN_DIFFER = {
         "fpu-sine-x": "C70, one ULP, settled sub-poll-slack",
-        "module-call": "C87, oracle-wrong: MAME does not implement CALLM",
+        # On a DN3000 both sides decode `CALLM` and only this one executes it.
+        # On a DN3500 neither does -- it is not a 68030 instruction -- so the
+        # two agree by both refusing, and this entry would wrongly report an
+        # expected difference that did not happen. Registered only where the
+        # difference is real.
+        **({"module-call": "C87, oracle-wrong: MAME does not implement CALLM"}
+           if machine == "dn3000" else {}),
     }
 
     failed = []
@@ -231,7 +237,7 @@ def main(argv=None, recursing=False) -> int:
     ORACLE_BASE = ORACLE_RAM_BASE[args.machine] + 0x1000
 
     if args.program == "all" and not recursing:
-        return run_all(argv, parser)
+        return run_all(argv, parser, args.machine)
 
     if args.program == "module-call":
         ours_words = E.module_call_probe(OURS_BASE, OURS_BASE + SENTINEL_OFFSET)
@@ -393,7 +399,12 @@ def main(argv=None, recursing=False) -> int:
         # feature and one this model declines both stop with the program counter
         # at the instruction, and only the status tells them apart. Three
         # campaigns diagnosed their way around a field that was in hand.
-        ("status", ours.get("status"), oracle.get("status")),
+        # Same fact, different key: this side prints `status`, the oracle
+        # prints `stopped`. Comparing them by name gave every probe a spurious
+        # difference the moment the check was added -- caught by running the
+        # whole suite rather than the one probe it was written for, which is
+        # the argument for `--program all` existing at all.
+        ("why it stopped", ours.get("status"), oracle.get("stopped")),
         ("sentinel in memory", ours.get("read"), oracle.get("read")),
     ]
     if expected is not None:
