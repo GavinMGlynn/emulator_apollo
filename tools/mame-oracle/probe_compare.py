@@ -176,17 +176,39 @@ def run_all(argv, parser, machine: str = "dn3500") -> int:
     KNOWN_DIFFER = {
         "fpu-sine-x": "C70, one ULP, settled sub-poll-slack",
         # On a DN3000 both sides decode `CALLM` and only this one executes it.
-        # On a DN3500 neither does -- it is not a 68030 instruction -- so the
-        # two agree by both refusing, and this entry would wrongly report an
-        # expected difference that did not happen. Registered only where the
-        # difference is real.
+        # Registered only there, because on a DN3500 the program does not
+        # measure the machine at all -- see NOT_APPLICABLE.
         **({"module-call": "C87, oracle-wrong: MAME does not implement CALLM"}
            if machine == "dn3000" else {}),
     }
 
+    # A third category, and the one whose absence made C88's correction wrong.
+    #
+    # A probe can be inapplicable to a machine rather than agreeing or differing
+    # on it. `module-call` on a DN3500 is the case: both sides correctly refuse
+    # `CALLM`, both vector to the planted handler, and that handler is an `RTE`
+    # which returns to the faulting instruction -- so both spin in an
+    # illegal-instruction loop until the step limit. What the counts then
+    # compare is each harness's bookkeeping for instructions during exception
+    # processing, not anything the hardware does. Recording that as a known
+    # difference would file harness accounting as a finding about the machine,
+    # and recording it as agreement would be luck.
+    #
+    # Skipping is not weakening the check: the program still runs on the DN3000,
+    # which is the machine it was written to interrogate.
+    NOT_APPLICABLE = {
+        "module-call": ("dn3500", "CALLM is not a 68030 instruction; both sides"
+                        " fault and loop in the handler, so the run measures"
+                        " step accounting rather than the machine"),
+    }
+
     failed = []
     expected = []
+    skipped = []
     for name in ALL_PROGRAMS:
+        if name in NOT_APPLICABLE and NOT_APPLICABLE[name][0] == machine:
+            skipped.append(name)
+            continue
         print("=" * 72)
         print("== %s" % name)
         rest = [a for a in (argv or []) if not a.startswith("--program")]
@@ -199,14 +221,18 @@ def run_all(argv, parser, machine: str = "dn3500") -> int:
             # A known difference that stopped differing is also news.
             failed.append("%s (expected to differ, did not)" % name)
     print("=" * 72)
+    for name in skipped:
+        print("not applicable to %s: %s -- %s"
+              % (machine, name, NOT_APPLICABLE[name][1]))
     for name in expected:
         print("known difference: %s -- %s" % (name, KNOWN_DIFFER[name]))
     if failed:
         print("UNEXPECTED: %s" % ", ".join(failed))
         return 1
-    print("%d of %d probe programs ran identically; %d differed as recorded"
-          % (len(ALL_PROGRAMS) - len(expected), len(ALL_PROGRAMS),
-             len(expected)))
+    ran = len(ALL_PROGRAMS) - len(skipped)
+    print("%d of %d probe programs ran identically; %d differed as recorded;"
+          " %d not applicable to a %s"
+          % (ran - len(expected), ran, len(expected), len(skipped), machine))
     return 0
 
 
@@ -385,7 +411,13 @@ def main(argv=None, recursing=False) -> int:
                 # Not asserted: what TC holds at reset is what is being
                 # compared, not something to state in advance.
                 "pmove": None,
-                "module-call": "00C0FFEE",
+                # $00C0FFEE is what a machine that *executes* `CALLM` stores.
+                # A DN3500 has no such instruction, so on that machine the
+                # probe is expected to store nothing at all, and asserting the
+                # DN3000's value there would fail for the one reason that is
+                # not a defect.
+                "module-call": ("00C0FFEE" if args.machine == "dn3000"
+                                else None),
                 "fault": "00000010",
                 # No expected value: which frame a data fault produces is the
                 # thing being compared, not something to assert in advance.

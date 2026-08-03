@@ -1598,6 +1598,13 @@ a 68882, and the 68882 is the only one of these it has.
         The item's stated verification, "`dn3000` boots", has moved to Phase 4:
         a boot needs a board, boards are Phase 3's subject and a first boot is
         Phase 4's. Nothing in the part's own work waits on it.
+  - [x] What the 68030 refuses, it refuses by **taking vector 4** rather than
+        stopping -- `[030]` §8.1.5. Narrow by design: only a word positively
+        identified as another family member's removed instruction traps, so an
+        unimplemented one still stops at the gap instead of impersonating a
+        correctly-refusing machine. `step_suite` +1, and `module-call` becomes
+        *not applicable* to a DN3500 in the oracle suite rather than a known
+        difference. Detail in `PROJECT_STATUS.md`.
 - [x] 68851 external PMMU as its own subsystem. *Verification: `MC68851 PMMU
       User's Manual 3ed` cited per figure; oracle diff.*
   - [x] The translation control registers: `TC` with its consistency check

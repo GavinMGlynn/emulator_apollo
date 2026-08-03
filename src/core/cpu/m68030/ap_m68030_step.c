@@ -4914,6 +4914,42 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
   out.kind = decoded.kind;
 
   if (decoded.kind == AP_M68030_DECODED_ILLEGAL) {
+    /* `[030]` §8.1.5, p. 8-9: "An illegal instruction is an instruction that
+     * contains any bit pattern in its first word that does not correspond to
+     * the bit pattern of the first word of a valid MC68030 instruction ... An
+     * illegal instruction exception corresponds to vector number 4 and occurs
+     * when the processor attempts to execute an illegal instruction."
+     *
+     * Taking that trap is correct only where the word is illegal *on the
+     * hardware* rather than merely unknown to this decoder, and those are not
+     * the same question. A word no decoder here claims may be an instruction
+     * this core has not implemented yet, and vectoring on it would dress our
+     * own gap up as the machine behaving correctly -- silently, and in the
+     * direction that hides work rather than the one that stops for it. So the
+     * trap is taken only where the word can be positively identified as an
+     * instruction *another member of the family* has and this model does not.
+     *
+     * `CALLM` and `RTM` are that case and, on this machine, the only one:
+     * `$06C0`-`$06FF` is a real 68020 encoding the 68030 removed, so a DN3500
+     * meeting one is hardware taking its documented trap, not us falling short.
+     * Every other undecodable word still reports ILLEGAL without vectoring,
+     * which stops the machine at the gap instead of running on past it. */
+    if (!cpu->has_module_calls &&
+        ap_m68020_module_decode(word).opcode !=
+            AP_M68020_MODULE_NOT_A_MODULE_INSTRUCTION) {
+      /* Vector 4 stacks the faulting instruction's own address rather than the
+       * following one -- `ap_m68030_stacks_next_instruction` returns false for
+       * it -- so both addresses are the PC as it stands. That is what lets the
+       * exception be raised here at all, ahead of the decode that would
+       * establish an instruction length. */
+      const ap_m68030_exception_result_t taken =
+          ap_m68030_take_exception(cpu, AP_M68030_VECTOR_ILLEGAL_INSTRUCTION,
+                                   instruction_address, instruction_address);
+      out.clocks += taken.clocks;
+      out.status = taken.ok ? AP_M68030_STEP_EXCEPTION : AP_M68030_STEP_FAULT;
+      cpu->clocks += out.clocks;
+      return out;
+    }
     out.status = AP_M68030_STEP_ILLEGAL;
     cpu->clocks += out.clocks;
     return out;

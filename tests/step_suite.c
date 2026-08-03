@@ -6636,10 +6636,13 @@ static void test_a_dn3000_decodes_a_module_call_where_a_dn3500_does_not(void) {
   m.cpu.regs.isp = SUPERVISOR_STACK;
   /* `load` builds the reference machine, which is a DN3500. */
   TEST_ASSERT_FALSE(m.cpu.has_module_calls);
-  /* `ILLEGAL`, which this step reports as a status rather than by raising the
-   * vector -- "the hardware would fault too". That is the *machine's* verdict,
-   * and it is what a 68030 gives for a word no 68030 instruction claims. */
-  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_ILLEGAL, ap_m68030_step(&m.cpu).status);
+  /* The DN3500 *takes vector 4*, rather than reporting a status and stopping.
+   * §8.1.5 leaves no room here -- a word that is not a valid MC68030
+   * instruction raises the illegal instruction exception -- and stopping made
+   * the machine halt where the hardware would have entered a handler. */
+  plant_vector(&m, AP_M68030_VECTOR_ILLEGAL_INSTRUCTION, HANDLER);
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXCEPTION, ap_m68030_step(&m.cpu).status);
+  TEST_ASSERT_EQUAL_HEX32(HANDLER, m.cpu.regs.pc);
 
   /* The same word on a machine whose model says the family has them. */
   machine_t n = {0};
@@ -6657,6 +6660,75 @@ static void test_a_dn3000_decodes_a_module_call_where_a_dn3500_does_not(void) {
   const ap_m68030_step_result_t r = ap_m68030_step(&n.cpu);
   TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, r.status);
   TEST_ASSERT_NOT_EQUAL_INT(AP_M68030_STEP_ILLEGAL, r.status);
+}
+
+/* **The trap names the instruction that caused it, and is taken only where the
+ * word is provably an instruction somewhere in the family.**
+ *
+ * Two halves, and the second is the one that keeps the first honest.
+ *
+ * `[030]` §8.1.5 (p. 8-9) defines an illegal instruction as one whose first
+ * word "does not correspond to the bit pattern of the first word of a valid
+ * MC68030 instruction", and Table 8-6 puts vector 4 in the row that stacks the
+ * *faulting* instruction rather than the one after it -- so a handler can
+ * report where the fault was, and `RTE` returns to re-execute or to emulate.
+ * Stacking the next instruction instead is the easy error and it points every
+ * such report one instruction too far on.
+ *
+ * The second half is the limit. This core's decoder is not the 68030's: a word
+ * it rejects may be an instruction nobody has implemented here yet, and
+ * vectoring on all of them would turn every unfinished corner into a machine
+ * that looks correct -- failing silently, and in the direction that hides the
+ * work. So only a word positively identified as *another family member's*
+ * instruction traps, and `$FFFF` -- which is nobody's -- must still stop. */
+static void
+test_a_module_call_on_a_68030_stacks_the_faulting_instruction(void) {
+  /* NOP, then `RTM D0`, so the faulting word is not the first in the program
+   * and an implementation that stacked the wrong address shows it. */
+  static const uint16_t program[] = {0x4E71u, 0x06C0u, 0x4E71u};
+
+  machine_t m = {0};
+  load(&m, program, 3);
+  plant_vector(&m, AP_M68030_VECTOR_ILLEGAL_INSTRUCTION, HANDLER);
+  m.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
+  m.cpu.regs.isp = SUPERVISOR_STACK;
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&m.cpu).status);
+
+  const ap_m68030_step_result_t r = ap_m68030_step(&m.cpu);
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXCEPTION, r.status);
+  TEST_ASSERT_EQUAL_HEX32(HANDLER, m.cpu.regs.pc);
+
+  /* The `$06C0`, at `PROGRAM_BASE + 2` -- not the NOP before it and not the
+   * NOP after. */
+  const uint32_t stacked = ((uint32_t)read_ram_word(&m, m.cpu.regs.isp + 2u)
+                            << 16) |
+                           read_ram_word(&m, m.cpu.regs.isp + 4u);
+  TEST_ASSERT_EQUAL_HEX32(PROGRAM_BASE + 2u, stacked);
+
+  const uint16_t format_word = read_ram_word(&m, m.cpu.regs.isp + 6u);
+  TEST_ASSERT_EQUAL_HEX32(AP_M68030_VECTOR_ILLEGAL_INSTRUCTION * 4u,
+                          ap_m68030_frame_vector_offset_of(format_word));
+
+  /* And the limit: a word no member of the family claims is still reported
+   * rather than vectored, so an unimplemented instruction cannot masquerade as
+   * a machine correctly refusing one.
+   *
+   * `$003D` is `ORI.B` with effective address mode 111 register 101 -- a
+   * register field that mode 111 has never assigned, on any member of the
+   * family. It cannot become valid later, which an `$FFFF` would not have
+   * given: that is F-line, and F-line words vector to the line 1111 emulator
+   * quite correctly, so it tested the opposite of what it looked like. */
+  static const uint16_t unknown[] = {0x003Du, 0x4E71u};
+  machine_t u = {0};
+  load(&u, unknown, 2);
+  plant_vector(&u, AP_M68030_VECTOR_ILLEGAL_INSTRUCTION, HANDLER);
+  u.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
+  u.cpu.regs.isp = SUPERVISOR_STACK;
+
+  const ap_m68030_step_result_t unclaimed = ap_m68030_step(&u.cpu);
+  TEST_ASSERT_NOT_EQUAL_INT(AP_M68030_STEP_EXCEPTION, unclaimed.status);
+  TEST_ASSERT_NOT_EQUAL_HEX32(HANDLER, u.cpu.regs.pc);
 }
 
 /* **`CALLM` builds a module stack frame**, `[PRM]` Figures D-1 and D-3.
@@ -6804,6 +6876,7 @@ int main(void) {
   RUN_TEST(test_an_undefined_extension_traps_with_a_coprocessor_fitted);
   RUN_TEST(test_an_unimplemented_form_is_reported_as_our_gap);
   RUN_TEST(test_a_dn3000_decodes_a_module_call_where_a_dn3500_does_not);
+  RUN_TEST(test_a_module_call_on_a_68030_stacks_the_faulting_instruction);
   RUN_TEST(test_callm_builds_a_module_stack_frame);
   RUN_TEST(test_callm_and_rtm_return_the_caller_to_where_it_was);
   RUN_TEST(test_a_stack_changing_module_call_carries_its_arguments);

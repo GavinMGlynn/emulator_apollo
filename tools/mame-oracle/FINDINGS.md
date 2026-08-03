@@ -4998,12 +4998,106 @@ Fixed, and the run is now what a regression check should read like:
     12 of 14 probe programs ran identically; 2 differed as recorded
 
 **`module-call` is registered only on a DN3000**, which is the machine where the
-difference is real: on a DN3500 neither implementation executes `CALLM` -- it is
-not a 68030 instruction -- so the two agree by both refusing, and an
-unconditional entry would report an expected difference that never happened. A
-known-difference list that is wrong in the safe direction still teaches its
-reader to distrust it.
+difference is real. A known-difference list that is wrong in the safe direction
+still teaches its reader to distrust it.
+
+> **Corrected by C89.** The sentence that stood here -- "on a DN3500 neither
+> implementation executes `CALLM`, so the two agree by both refusing" -- was
+> wrong, and was written without running it. The two did *not* agree: this core
+> stopped where the hardware takes vector 4. Registering the entry on the DN3000
+> only happened to be right, for a reason other than the one given. C89 has the
+> defect, the fix and the third category the DN3500 case actually needed.
 
 **Three harness defects now, each found by using the harness rather than
 reading it**: C75's stalled loop, C83's DN3500-only memory map, and this. All
 three produced output that looked like a finding about the emulator.
+
+## C89 -- an illegal instruction has to take its trap, and C88's correction was wrong
+
+**Class: defect in this core, found by disbelieving my own previous entry.**
+
+C88 asserted that on a DN3500 "both sides refuse `CALLM` and agree by both
+refusing", and registered the known difference on the DN3000 only. That claim
+was never run. Running it showed **four checks differing**, and the reason was a
+gap in this core rather than in the harness.
+
+### What §8.1.5 requires
+
+`[030]` §8.1.5, p. 8-9, read from the page image:
+
+> An illegal instruction is an instruction that contains any bit pattern in its
+> first word that does not correspond to the bit pattern of the first word of a
+> valid MC68030 instruction or is a MOVEC instruction with an undefined register
+> specification field in the first extension word. An illegal instruction
+> exception corresponds to vector number 4 and occurs when the processor
+> attempts to execute an illegal instruction.
+
+p. 8-10 adds the two neighbouring families: bits [15:12] = `$A` takes vector 10,
+and `$F` with bits [11:9] = 0 takes vector 11 in supervisor mode but a
+**privilege violation** in user mode.
+
+This core took none of them for an undecodable word. `$4AFC` -- the *deliberate*
+`ILLEGAL` instruction -- vectored correctly, and a word the decoder simply
+rejected returned a status and stopped the machine. `ap_m68030_opcode_emulator_vector`
+and `ap_m68030_coproc_unsupported_vector` both existed, both documented, and
+neither had a caller in `src/core`.
+
+### Why the fix is narrow, and must be
+
+Vectoring on *every* undecodable word would be wrong here, and wrong in the
+expensive direction. This decoder is not the 68030's: a word it rejects may be an
+instruction nobody has implemented yet, and raising vector 4 on it would turn
+every unfinished corner into a machine that looks correct -- failing silently,
+where the old behaviour failed loudly at the gap. That is the trap the existing
+`CALLM` comment already warned about in the other direction.
+
+So the trap is taken only where the word is positively identified as **another
+family member's instruction that this model removed**. `CALLM`/`RTM` at
+`$06C0`-`$06FF` is that case and, on this machine, the only one -- which
+`ap_model.h` had already written down: "removed from the 68030 onward, where
+their encodings take an F-line/illegal path instead". Every other undecodable
+word still reports `ILLEGAL` and stops.
+
+Vector 4 stacks the *faulting* instruction rather than the next one
+(`ap_m68030_stacks_next_instruction`), so both stacked addresses are the PC as it
+stands -- which is what lets the exception be raised before any instruction
+length has been established.
+
+### The test that nearly passed for the wrong reason
+
+The new test's second half asserts that an unclaimed word still stops. It was
+first written with `$FFFF`, which **failed** -- because `$FFFF` is F-line, and
+F-line words vector to the line 1111 emulator entirely correctly. The word that
+was chosen to prove "nothing else vectors" was itself a legitimate vector. It is
+now `$003D`: `ORI.B` with effective address mode 111 register 101, a register
+field mode 111 has never assigned on any member of the family and so cannot
+become valid later.
+
+### A third category the harness did not have
+
+With the fix in, a DN3500 and MAME both fault on `CALLM` and both vector to the
+planted handler -- which is an `RTE`, returning to the faulting instruction. Both
+therefore spin in an illegal-instruction loop until the step limit, and the
+counts then compare **each harness's bookkeeping for instructions during
+exception processing**, not the machine.
+
+That is neither agreement nor a known difference, and the harness had no way to
+say so. `module-call` is now marked *not applicable* to a DN3500 and skipped
+there, still running on the DN3000 it was written to interrogate:
+
+    not applicable to dn3500: module-call -- CALLM is not a 68030 instruction;
+        both sides fault and loop in the handler, so the run measures step
+        accounting rather than the machine
+    known difference: fpu-sine-x -- C70, one ULP, settled sub-poll-slack
+    12 of 13 probe programs ran identically; 1 differed as recorded;
+        1 not applicable to a dn3500
+
+Filing it as a known difference instead would have recorded harness accounting
+as a finding about the hardware -- the failure C88 named one entry earlier and
+then committed.
+
+**The lesson is about C88, not about the 68030.** C88's correction was itself
+asserted without running, in the same entry that criticised checks which are
+right for the one case they were written for. An unrun claim is unrun whether it
+appears in code or in a findings document, and a findings file is the worse place
+for one: the next reader has no failing test to catch it.

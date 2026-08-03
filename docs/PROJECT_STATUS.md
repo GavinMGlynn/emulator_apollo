@@ -942,6 +942,33 @@ every disagreement is the 68020 accepting what the 68030 refuses. The subset
 relation runs one way, which is what "68020 subset" has to mean if it means
 anything.
 
+**And what the 68030 refuses, it refuses by taking vector 4.** `[030]` §8.1.5
+(p. 8-9) is unconditional: a first word that is not a valid MC68030 instruction
+raises the illegal instruction exception. This core previously reported a status
+and *stopped* for such a word -- correct as a verdict, wrong as a machine, since
+the hardware enters a handler and Domain/OS relies on it. `$4AFC`, the
+deliberate `ILLEGAL` instruction, had always vectored; a word the decoder merely
+rejected had not.
+
+The fix is deliberately narrow, and the narrowness is the point. This decoder is
+not the 68030's, so a word it rejects may be an instruction not yet implemented
+here; vectoring on all of them would dress every unfinished corner up as a
+correctly-refusing machine, failing *silently* where stopping fails at the gap.
+The trap is therefore taken only where the word is positively identified as
+another family member's instruction that this model removed. `CALLM`/`RTM` is
+that case and, on this machine, the only one. Everything else still stops.
+
+Vector 4 stacks the faulting instruction rather than the following one, so both
+stacked addresses are the PC as it stands -- which is what allows the exception
+to be raised before any instruction length is known.
+
+Verified by `test_a_module_call_on_a_68030_stacks_the_faulting_instruction`,
+which also pins the limit: `$003D` (`ORI.B` with effective address mode 111
+register 101, a field mode 111 has never assigned) must still stop rather than
+vector. That guard was first written with `$FFFF` and failed -- `$FFFF` is
+F-line, which vectors to the line 1111 emulator quite correctly. Detail and the
+oracle consequence in `FINDINGS.md` C89.
+
 ### The DN3000 boot moves to Phase 4
 
 Phase 2b's 68020 and 68851 items both carried "`dn3000` boots" as their
