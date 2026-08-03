@@ -4322,6 +4322,41 @@ An implementation that set `Z` the usual way passes every single-word test and
 gets multi-precision comparison wrong in exactly the case the instructions exist
 for — a long value whose final word happens to be zero compares equal.
 
+#### A device can lengthen its own bus cycle
+
+`STERM` used to be answered on the first sampling opportunity whatever replied,
+so every device was equally fast. Contention could then be emergent in *who*
+held the bus and never in *how long*, and no measured figure could come from a
+device's own speed.
+
+`[030]` §7.3.1: "If DSACKx is not recognized by the start of S3, the processor
+inserts wait states instead of proceeding to S4 and S5 ... the processor
+continues to sample the DSACKx signals on the falling edges of the clock until
+one is recognized." With none, "the bus cycle runs at its maximum speed (three
+clocks per cycle)". The bus state machine already modelled wait states and a
+device that had not answered; nothing could say so.
+
+The memory system now declares how long it takes, through one callback on the
+access context — **not** a field on the fill answer. A write has no fill answer,
+and both directions must charge the same device the same time or a program could
+be made faster by writing. It is also the truer shape: how long a port takes to
+answer is a property of the port, which is what drives `DSACK`/`STERM` in §7.3.
+
+Termination is **withheld** from the bus rather than added to a total
+afterwards, so the wait states are counted by the state machine and a cycle
+lengthened here lengthens the instruction, the probe and the golden without any
+of those layers being told. A `BERR` is never withheld: a device that cannot
+answer is not a slow one, and delaying it would delay the exception rather than
+the data.
+
+`NULL` means the minimum — what this core did before, and what §11 assumes
+throughout ("All memory accesses occur with two-clock bus cycles and no wait
+states") — so no published figure moved and every golden is unchanged.
+
+A burst is the case worth checking: its four beats are one cycle held open, so
+the wait states are paid **once** and not per long word. Charging per beat would
+look right on a single read and quadruple a line fill.
+
 #### Returning from an exception, and three traps in the neighbouring instructions
 
 **`RTE` is a loop, not a special case.** The throwaway frame is what makes it

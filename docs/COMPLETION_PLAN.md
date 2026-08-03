@@ -1624,13 +1624,19 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
           *set* — only that the firmware clears it at reset, which is what a
           bus-mastering request register would want at reset and is therefore
           consistent without confirming anything about the arbitration path.
-  - [ ] **The termination's arrival clock**, moved here from Phase 2 where its
-        own text said it belonged. `STERM` is answered at a fixed two-clock
-        minimum regardless of which device replied, so a slow device cannot yet
-        lengthen a cycle. Until it can, contention is emergent in *who* holds
-        the bus but not in *how long* they hold it, and no measured timing
-        figure can come from a device's own speed. It is the arbitration point's
-        item because that is where a device's answer meets the bus.
+  - [x] **The termination's arrival clock.** A device can now lengthen its own
+        cycle: the memory system declares its wait states through one callback
+        on the access context, and termination is withheld from the bus rather
+        than added to a total afterwards, so the state machine counts them.
+        `NULL` means the minimum, which is what §11's tables assume, so no
+        existing figure moved. Detail in `PROJECT_STATUS.md`.
+        *Verification: `cache_suite` +1 across six cases, single and burst at 0,
+        1 and 3 wait states — the burst paying them once, since its four beats
+        are one cycle held open.*
+    - [ ] What no longer blocks it and now needs doing: a board that actually
+          declares them. Every region answers at the minimum until `008778-03`
+          or a measurement says otherwise, so contention is emergent in *how
+          long* only in principle.
   - [x] The synchroniser stays `PROVISIONAL` at two clocks, but the figure is
         now **bounded by the manufacturer's own measurement** rather than by the
         user manual's prose. `MC68030EC/D` p. 7, parameter 35, gives `BR`
