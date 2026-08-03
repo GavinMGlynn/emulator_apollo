@@ -5416,3 +5416,65 @@ The repaired claim now carries a **count** -- 17 rows, each with a plan item --
 rather than an adjective. An audit assertion is worth exactly as much as the
 last time someone ran it, and a number invites the next reader to re-run it in a
 way that "audited in both directions" does not.
+
+## C95 -- 791 encodings the processor refuses were reported as our own gap
+
+**Class: defect in this core, found by sweeping the specification rather than
+running the tests.**
+
+All 65536 opcodes, stepped on a real machine, counting outcomes. 2621 came back
+`UNIMPLEMENTED` -- "this model has not got to it". A large share were nothing of
+the kind.
+
+`MOVE`'s destination must be data alterable; `LEA`'s source must be control; the
+MMU's operand must be control alterable. Those are rules transcribed from the
+manual's own category tables, and a word failing one **is not a valid MC68030
+instruction** -- so §8.1.5's answer is the illegal instruction exception, not a
+report that this core is unfinished. The code already knew: the check by `MOVE`
+reads "an instruction the processor refuses, running here", and then returned
+the status that says the opposite.
+
+The consequence was not cosmetic. `UNIMPLEMENTED` stops the machine; the
+hardware enters a handler and carries on. **791 words** now take their trap.
+
+### The vector is not always 4, and a flag would have hidden that
+
+The refusal is carried as a *vector*, not a boolean. An F-line word with cpID 0
+-- the MMU's own encodings -- is p. 8-10's "unimplemented instruction with an
+F-line opcode" and takes **vector 11**. A single flag would have sent every
+`PMOVE` refusal to the illegal-instruction handler: the wrong handler, reached
+plausibly, with nothing to say so. The privilege check that precedes every MMU
+instruction already handles the other half of that same paragraph, a user-mode
+attempt taking the privilege violation.
+
+### Four tests were asserting the wrong verdict
+
+`test_lea_refuses_an_increment_mode_it_decodes_perfectly_well`,
+`test_a_move_cannot_write_through_the_program_counter` and the two `PMOVE`
+refusals all failed, each expecting `UNIMPLEMENTED`. Their *names* and their
+comments were right -- the instruction is refused -- and only the asserted status
+was wrong, which is what a test written against the implementation rather than
+against the manual looks like from the outside. They now assert the exception and
+the vector it arrived through.
+
+### Two things this sweep found that are not this fix
+
+**`NEGX.B #imm` is still `UNIMPLEMENTED`, and for a worse reason than it looks.**
+The single-operand, immediate and shift groups enforce **no** categories at all:
+that instruction is refused today only because writing to an immediate happens to
+fail somewhere downstream. It is the same defect one layer earlier -- a missing
+check rather than a mislabelled one -- and is now an open plan item.
+
+**`MOVEP` is genuinely absent**, not misclassified. It is in the remaining count
+as a real missing instruction.
+
+1830 words remain `UNIMPLEMENTED`. That is now a *measured* number with a named
+largest cause, where before it was an impression -- and the sweep that produced
+it is repeatable in a few seconds, which is the part worth keeping.
+
+**Method note.** I misread `$15C0` as `MOVE.B D0,(d16,A2)` and was two minutes
+from reporting that this core could not move to a displacement destination --
+one of the commonest instructions in 68k code. It is mode 111 register 2,
+`(d16,PC)`, and testing every destination mode is what caught it. Reading bit
+fields off a hex literal by eye failed here in the same way the phrase-versus-
+concept search failed in C94, and one step from the same outcome.

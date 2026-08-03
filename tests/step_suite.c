@@ -3481,8 +3481,12 @@ static void test_pmove_refuses_a_register_direct_operand(void) {
   m.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
   m.cpu.regs.d[0] = CONSISTENT_TC;
 
-  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_UNIMPLEMENTED,
+  /* Vector 11: an F-line word with cpID 0, per p. 8-10. */
+  plant_vector(&m, AP_M68030_VECTOR_LINE_F, HANDLER);
+  m.cpu.regs.isp = SUPERVISOR_STACK;
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXCEPTION,
                         ap_m68030_step(&m.cpu).status);
+  TEST_ASSERT_EQUAL_HEX32(HANDLER, m.cpu.regs.pc);
   TEST_ASSERT_FALSE(m.cpu.tc.enable);
 }
 
@@ -3712,8 +3716,15 @@ static void test_lea_refuses_an_increment_mode_it_decodes_perfectly_well(void) {
   load(&m, program, 4);
   m.cpu.regs.a[0] = 0x00005000u;
 
-  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_UNIMPLEMENTED,
+  /* The *processor's* verdict, so §8.1.5's illegal instruction and not this
+   * core reporting a gap. A word whose effective address fails a category the
+   * manual's own tables state is not a valid MC68030 instruction. */
+  plant_vector(&m, AP_M68030_VECTOR_ILLEGAL_INSTRUCTION, HANDLER);
+  m.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
+  m.cpu.regs.isp = SUPERVISOR_STACK;
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXCEPTION,
                         ap_m68030_step(&m.cpu).status);
+  TEST_ASSERT_EQUAL_HEX32(HANDLER, m.cpu.regs.pc);
   /* And A0 was not incremented on the way to refusing. */
   TEST_ASSERT_EQUAL_HEX32(0x00005000u, m.cpu.regs.a[0]);
 }
@@ -3730,9 +3741,16 @@ static void test_a_move_cannot_write_through_the_program_counter(void) {
   load(&m, program, 4);
   m.cpu.regs.d[0] = 0x1234u;
 
-  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_UNIMPLEMENTED,
+  plant_vector(&m, AP_M68030_VECTOR_ILLEGAL_INSTRUCTION, HANDLER);
+  m.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
+  m.cpu.regs.isp = SUPERVISOR_STACK;
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXCEPTION,
                         ap_m68030_step(&m.cpu).status);
-  TEST_ASSERT_EQUAL_UINT(0u, m.memory.stores);
+  TEST_ASSERT_EQUAL_HEX32(HANDLER, m.cpu.regs.pc);
+  /* The write never happened. Four stores, and all four are the short frame's
+   * own words -- so the count is not merely "nothing extra", it says the
+   * refusal came before the destination was touched. */
+  TEST_ASSERT_EQUAL_UINT(4u, m.memory.stores);
 }
 
 /* The MMU instructions take control alterable modes. "Not a register and not an
@@ -3748,8 +3766,15 @@ static void test_pmove_refuses_an_increment_mode(void) {
   m.cpu.regs.a[0] = 0x00005000u;
   write_ram_long(&m, 0x00005000u, CONSISTENT_TC);
 
-  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_UNIMPLEMENTED,
+  /* **Vector 11, not 4.** A `PMOVE` is an F-line word with cpID 0, and p. 8-10
+   * makes an undefined pattern in those encodings "an unimplemented instruction
+   * with an F-line opcode". Reporting the illegal instruction here would send a
+   * supervisor into the wrong handler. */
+  plant_vector(&m, AP_M68030_VECTOR_LINE_F, HANDLER);
+  m.cpu.regs.isp = SUPERVISOR_STACK;
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXCEPTION,
                         ap_m68030_step(&m.cpu).status);
+  TEST_ASSERT_EQUAL_HEX32(HANDLER, m.cpu.regs.pc);
   TEST_ASSERT_FALSE(m.cpu.tc.enable);
   TEST_ASSERT_EQUAL_HEX32(0x00005000u, m.cpu.regs.a[0]);
 }

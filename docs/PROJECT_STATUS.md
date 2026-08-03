@@ -4329,7 +4329,37 @@ everything simply has no entry below.
     state each one has to undo, with an ATC entry asserted to survive; and
     nothing stacked, checked by counting stores rather than by inspecting
     the stack pointer alone.*
-    **And the machine now uses that sequence, which for a long time it did
+    **An encoding the effective-address category tables forbid now takes the
+machine's trap.** `MOVE`'s destination must be data alterable, `LEA`'s source
+must be control, the MMU's operand must be control alterable — rules transcribed
+from the manual's own tables. A word failing one is not a valid MC68030
+instruction, so §8.1.5's answer is the illegal instruction exception. This core
+reported `UNIMPLEMENTED` instead, which says "this model has not finished" — the
+opposite of the truth, and it stopped a machine the hardware would have carried
+on through a handler.
+
+The refusal is carried as a **vector** rather than a flag, because the answer is
+not always the same one: an F-line word with cpID 0 — the MMU's own encodings —
+is p. 8-10's "unimplemented instruction with an F-line opcode" and takes **vector
+11**, not 4. A boolean would have sent every `PMOVE` refusal to the
+illegal-instruction handler, which is wrong in the way that looks right.
+
+Found by sweeping all 65536 opcodes through the step and counting the outcomes,
+which is the coverage-of-the-specification check rather than coverage of what
+runs. **791 words were reclassified.** Four `step_suite` tests had been asserting
+the old verdict and now assert the trap and its vector.
+
+The narrowness is deliberate and is C89's rule applied again: only a refusal
+coming from a transcribed category table becomes a trap. Every other `return
+false` still reports our gap, because that is what it is — and the sweep leaves
+**1830 words still `UNIMPLEMENTED`**, which is now a measured number rather than
+an impression. The largest remaining group is named as an open plan item: the
+single-operand, immediate and shift groups enforce no categories at all, so
+`NEGX.B #imm` is refused only because writing to an immediate happens to fail.
+`MOVEP` is in that count too, and is a genuinely missing instruction rather than
+a misclassification.
+
+**And the machine now uses that sequence, which for a long time it did
     not.** `ap_m68030_take_reset` had no caller anywhere in `src`;
     `ap_machine_reset` ran a shorter sequence of its own -- supervisor,
     mask 7, trace clear -- which dropped steps 4, 5 and 7 and *added* an ATC

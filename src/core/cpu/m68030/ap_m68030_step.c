@@ -473,6 +473,9 @@ static bool execute_move(ap_m68030_cpu_t *cpu, const ap_m68030_move_t *move,
    * processor refuses, running here. */
   if (move->kind != AP_M68030_MOVE_TO_ADDRESS_REGISTER &&
       !ap_m68030_ea_is_data_alterable(move->destination.kind)) {
+    /* The processor's verdict, not this core's gap: §8.1.5's illegal
+     * instruction, vector 4. */
+    cpu->refused_vector = AP_M68030_VECTOR_ILLEGAL_INSTRUCTION;
     return false;
   }
 
@@ -2044,6 +2047,17 @@ static ap_m68030_step_status_t fault_or_unimplemented(
     ap_m68030_cpu_t *cpu, ap_m68030_step_result_t *out,
     uint32_t instruction_address) {
   if (!cpu->access_faulted) {
+    /* Three outcomes, not two. An encoding the processor refuses is neither a
+     * memory fault nor a gap here: §8.1.5 makes it the illegal instruction
+     * exception, and vector 4 stacks the faulting instruction's own address so
+     * both addresses are the PC as it stands. See `refused_vector`. */
+    if (cpu->refused_vector != 0u) {
+      const ap_m68030_exception_result_t taken =
+          ap_m68030_take_exception(cpu, cpu->refused_vector,
+                                   instruction_address, instruction_address);
+      out->clocks += taken.clocks;
+      return taken.ok ? AP_M68030_STEP_EXCEPTION : AP_M68030_STEP_FAULT;
+    }
     return AP_M68030_STEP_UNIMPLEMENTED;
   }
   const ap_m68030_exception_result_t taken = ap_m68030_take_bus_fault(
@@ -2766,6 +2780,7 @@ static bool execute_misc(ap_m68030_cpu_t *cpu, const ap_m68030_misc_t *misc,
      * refusal that happened afterwards would already have moved the register.
      * An instruction the processor refuses must leave no trace. */
     if (!ap_m68030_ea_is_control(misc->ea.kind)) {
+      cpu->refused_vector = AP_M68030_VECTOR_ILLEGAL_INSTRUCTION;
       return false;
     }
     break;
@@ -2774,6 +2789,7 @@ static bool execute_misc(ap_m68030_cpu_t *cpu, const ap_m68030_misc_t *misc,
     /* "NBCD <ea>" writes its operand back, so its mode must be data
      * alterable. */
     if (!ap_m68030_ea_is_data_alterable(misc->ea.kind)) {
+      cpu->refused_vector = AP_M68030_VECTOR_ILLEGAL_INSTRUCTION;
       return false;
     }
     break;
@@ -3120,6 +3136,12 @@ static bool execute_pmove(ap_m68030_cpu_t *cpu, const ap_m68030_coproc_t *coproc
    * *category*, not as "not a register and not an immediate", which would let
    * `(An)+`, `-(An)` and every PC-relative mode through. */
   if (!ap_m68030_ea_is_control_alterable(coproc->ea.kind)) {
+    /* An F-line word with cpID 0, so **not** vector 4: p. 8-10 makes an
+     * undefined pattern in the MMU's own encodings "an unimplemented
+     * instruction with an F-line opcode", vector 11. The privilege check that
+     * precedes every MMU instruction has already sent a user-mode attempt to
+     * the privilege violation, which is the other half of the same paragraph. */
+    cpu->refused_vector = AP_M68030_VECTOR_LINE_F;
     return false;
   }
   const ap_m68030_address_t where =
@@ -3337,6 +3359,12 @@ static bool execute_pflush_or_pload(ap_m68030_cpu_t *cpu,
     return false;
   }
   if (!ap_m68030_ea_is_control_alterable(coproc->ea.kind)) {
+    /* An F-line word with cpID 0, so **not** vector 4: p. 8-10 makes an
+     * undefined pattern in the MMU's own encodings "an unimplemented
+     * instruction with an F-line opcode", vector 11. The privilege check that
+     * precedes every MMU instruction has already sent a user-mode attempt to
+     * the privilege violation, which is the other half of the same paragraph. */
+    cpu->refused_vector = AP_M68030_VECTOR_LINE_F;
     return false;
   }
   const ap_m68030_address_t where =
@@ -3410,6 +3438,12 @@ static bool execute_ptest(ap_m68030_cpu_t *cpu,
     return false;
   }
   if (!ap_m68030_ea_is_control_alterable(coproc->ea.kind)) {
+    /* An F-line word with cpID 0, so **not** vector 4: p. 8-10 makes an
+     * undefined pattern in the MMU's own encodings "an unimplemented
+     * instruction with an F-line opcode", vector 11. The privilege check that
+     * precedes every MMU instruction has already sent a user-mode attempt to
+     * the privilege violation, which is the other half of the same paragraph. */
+    cpu->refused_vector = AP_M68030_VECTOR_LINE_F;
     return false;
   }
   const ap_m68030_address_t where =
@@ -4813,6 +4847,7 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
    * instruction report as a fault -- the same conflation this flag exists to
    * end, merely pointing the other way. */
   cpu->access_faulted = false;
+  cpu->refused_vector = 0u;
 
   /* Interrupts are group 4.2, "Exception processing begins when current
    * instruction or previous exception processing is completed" -- so they are

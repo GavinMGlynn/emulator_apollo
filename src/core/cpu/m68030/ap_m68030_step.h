@@ -168,6 +168,35 @@ typedef struct {
    * machine, and a stale one would mislabel the next failure. */
   bool access_faulted;
 
+  /* The encoding is one the *processor* refuses, not one this core has yet to
+   * implement. The same distinction `access_faulted` draws, for the same
+   * reason, at the other end of the instruction.
+   *
+   * It is set where an executor rejects an effective address for its
+   * **category** -- "MOVE ... destination must be data alterable", "LEA's
+   * source must be control", the MMU's "control alterable addressing modes
+   * only". Those are rules transcribed from the manual's own tables, so a word
+   * that fails one is not a valid MC68030 instruction and §8.1.5's illegal
+   * instruction exception is the machine's answer. Reporting it UNIMPLEMENTED
+   * instead says "this core has not finished", which is false and stops a
+   * machine the hardware would have kept running through a handler.
+   *
+   * The narrowness is the point, and it is C89's rule applied a second time:
+   * the trap is taken only where the refusal comes from a transcribed category
+   * table. Every other `return false` still reports our gap, because that is
+   * what it is.
+   *
+   * Holds the *vector* rather than a flag, because the answer is not always
+   * the same one. §8.1.5 gives an invalid MC68030 encoding vector 4, but an
+   * F-line word with cpID 0 -- the MMU's -- is p. 8-10's "unimplemented
+   * instruction with an F-line opcode" and takes vector 11 instead. A single
+   * boolean would have made every MMU refusal report an illegal instruction,
+   * which is the wrong handler and a plausible-looking wrong answer.
+   *
+   * Zero means "not refused". Cleared at the top of every step, like
+   * `access_faulted`. */
+  unsigned refused_vector;
+
   /* What faulted, which is what the bus fault frame is made of. Recorded at the
    * access rather than reconstructed afterwards: by the time the step chooses a
    * status, the address and size are gone, and a handler given the wrong ones

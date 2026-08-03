@@ -961,6 +961,21 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         coprocessor mid-instruction frame each carrying their own rules.
         *Verification: `exception_suite` 16 tests and 10 in `step_suite`,
         `[030]` §8.1 and Table 8-6. Detail in `PROJECT_STATUS.md`.*
+  - [x] An encoding the manual's **effective-address category tables** forbid
+        takes the machine's trap instead of reporting our gap: vector 4 for
+        `MOVE` and the misc group, vector 11 for the MMU's F-line words (p. 8-10,
+        not vector 4 — the distinction a single flag would have lost). 791 of
+        the 65536 opcodes were reclassified. `step_suite` 4 tests updated, each
+        of which had been asserting the wrong verdict. Detail in
+        `PROJECT_STATUS.md`.
+  - [ ] Enforce those same category tables in the **single-operand, immediate
+        and shift** groups, which have none. `NEGX.B #imm` and its neighbours
+        are refused today only because the write to an immediate happens to
+        fail, so they report UNIMPLEMENTED — our gap — where the hardware takes
+        the illegal instruction trap. Found by the 65536-opcode sweep; the
+        remaining 1830 UNIMPLEMENTED words are the measure to drive down, and
+        `MOVEP` is among them as a genuinely missing instruction rather than a
+        misclassification.
   - [x] The **machine** resets through §8.1.1's sequence rather than a shorter
         one of its own, which had dropped the VBR, the CACR and the translation
         enables and added an ATC flush reset never performs. Invisible on a cold
