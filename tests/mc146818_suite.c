@@ -491,8 +491,134 @@ static void test_selecting_a_rate_late_delivers_no_backlog(void) {
                                 AP_MC146818_C_PF);
 }
 
+/* ---------------------------------------------------------------------------
+ * A long interval, carried the whole way
+ *
+ * This item's verification line asked for "the 14-day calendar interval hazard
+ * noted in the MAME driver" to be reproduced or explained. There is no such
+ * note: the pinned `ext/mame` has nothing about days, weeks or intervals
+ * anywhere in `src/mame/apollo/`, and no commit in its history touches "14
+ * days" under `src/mame` at all. The claim dates from this project's first
+ * scaffolding commit, written before the driver had been read.
+ *
+ * What is left when the citation goes is the substance behind it, and that is
+ * worth having on its own account: a calendar advanced across a long interval
+ * has to carry correctly at every boundary it crosses, and the part cannot be
+ * asked to -- `[146818]`'s update cycle advances one second at a time, so 14
+ * days is 1,209,600 carries and any one of them can be the wrong one.
+ * ------------------------------------------------------------------------- */
+
+/* Fourteen days from a date chosen so the interval crosses a month end: 31 July
+ * plus 14 days is 14 August, so the July/August boundary and the 31-day month
+ * are both inside it. */
+static void test_fourteen_days_of_carries_land_on_the_right_date(void) {
+  static const ap_mc146818_time_t start = {
+      .year = 1987u, .month = 7u, .day = 31u, .day_of_week = 6u,
+      .hour = 21u, .minute = 9u, .second = 21u,
+  };
+  ap_mc146818_t rtc;
+  TEST_ASSERT_TRUE(ap_mc146818_reset(&rtc, &start));
+
+  ap_mc146818_advance(&rtc, seconds(14u * 24u * 60u * 60u));
+  const ap_mc146818_time_t now = ap_mc146818_now(&rtc);
+
+  TEST_ASSERT_EQUAL_UINT(1987u, now.year);
+  TEST_ASSERT_EQUAL_UINT(8u, now.month);
+  TEST_ASSERT_EQUAL_UINT(14u, now.day);
+  /* Time of day untouched: 14 days is a whole number of days, so a carry that
+   * drifted by a second would show here and nowhere else. */
+  TEST_ASSERT_EQUAL_UINT(21u, now.hour);
+  TEST_ASSERT_EQUAL_UINT(9u, now.minute);
+  TEST_ASSERT_EQUAL_UINT(21u, now.second);
+  /* And the day of the week advanced by exactly two weeks, which is to say not
+   * at all -- the one field that a 14-day interval leaves invariant, and so the
+   * one a miscount cannot hide in. */
+  TEST_ASSERT_EQUAL_UINT(start.day_of_week, now.day_of_week);
+}
+
+/* The boundaries a fortnight can straddle, each crossed on its own so a failure
+ * names itself rather than arriving as "the date is wrong". */
+static void test_a_fortnight_across_every_boundary_it_can_cross(void) {
+  static const struct {
+    ap_mc146818_time_t start;
+    unsigned year, month, day;
+    const char *what;
+  } cases[] = {
+      /* February in a common year: 28 days, so 20 Feb + 14 is 6 March. */
+      {{.year = 1987u, .month = 2u, .day = 20u, .day_of_week = 6u,
+        .hour = 0u, .minute = 0u, .second = 0u}, 1987u, 3u, 6u,
+       "February, common year"},
+      /* And in a leap year, where the same sum is 5 March. 1988 is divisible
+       * by four and not by a hundred. */
+      {{.year = 1988u, .month = 2u, .day = 20u, .day_of_week = 0u,
+        .hour = 0u, .minute = 0u, .second = 0u}, 1988u, 3u, 5u,
+       "February, leap year"},
+      /* The year end, which carries the year as well as the month. */
+      {{.year = 1987u, .month = 12u, .day = 25u, .day_of_week = 5u,
+        .hour = 23u, .minute = 59u, .second = 0u}, 1988u, 1u, 8u,
+       "year end"},
+      /* 2000 is a leap year -- divisible by 400 -- and the part's two-digit
+       * year cannot tell it from 1900, which is not. The century rule this
+       * core carries is what decides it, and a fortnight from 20 February is
+       * where the two answers differ by a day. */
+      {{.year = 2000u, .month = 2u, .day = 20u, .day_of_week = 0u,
+        .hour = 0u, .minute = 0u, .second = 0u}, 2000u, 3u, 5u,
+       "the 400-year rule"},
+  };
+
+  for (unsigned i = 0; i < sizeof cases / sizeof cases[0]; i++) {
+    ap_mc146818_t rtc;
+    TEST_ASSERT_TRUE(ap_mc146818_reset(&rtc, &cases[i].start));
+    ap_mc146818_advance(&rtc, seconds(14u * 24u * 60u * 60u));
+    const ap_mc146818_time_t now = ap_mc146818_now(&rtc);
+
+    TEST_ASSERT_EQUAL_UINT_MESSAGE(cases[i].year, now.year, cases[i].what);
+    TEST_ASSERT_EQUAL_UINT_MESSAGE(cases[i].month, now.month, cases[i].what);
+    TEST_ASSERT_EQUAL_UINT_MESSAGE(cases[i].day, now.day, cases[i].what);
+  }
+}
+
+/* And the interval is a *sum*, not a jump: advancing in many small steps must
+ * reach the same instant as advancing in one. `ap_mc146818_advance` takes an
+ * absolute time and carries the remainder, so a caller polling often and one
+ * polling rarely must not disagree -- which is the property a real driver, and
+ * a fast mode, both depend on. */
+static void test_the_same_fortnight_reached_in_steps_agrees(void) {
+  static const ap_mc146818_time_t start = {
+      .year = 1987u, .month = 7u, .day = 31u, .day_of_week = 6u,
+      .hour = 21u, .minute = 9u, .second = 21u,
+  };
+  const uint64_t total = 14u * 24u * 60u * 60u;
+
+  ap_mc146818_t one_go;
+  TEST_ASSERT_TRUE(ap_mc146818_reset(&one_go, &start));
+  ap_mc146818_advance(&one_go, seconds(total));
+
+  ap_mc146818_t stepped;
+  TEST_ASSERT_TRUE(ap_mc146818_reset(&stepped, &start));
+  /* Steps that are not a whole second, so the remainder is exercised rather
+   * than avoided: 1,209,600 seconds in 999-second-and-a-third pieces. */
+  const ap_time_t step = seconds(999u) + AP_TIME_BASE_HZ / 3u;
+  for (ap_time_t t = step; t <= seconds(total); t += step) {
+    ap_mc146818_advance(&stepped, t);
+  }
+  ap_mc146818_advance(&stepped, seconds(total));
+
+  const ap_mc146818_time_t a = ap_mc146818_now(&one_go);
+  const ap_mc146818_time_t b = ap_mc146818_now(&stepped);
+  TEST_ASSERT_EQUAL_UINT(a.year, b.year);
+  TEST_ASSERT_EQUAL_UINT(a.month, b.month);
+  TEST_ASSERT_EQUAL_UINT(a.day, b.day);
+  TEST_ASSERT_EQUAL_UINT(a.hour, b.hour);
+  TEST_ASSERT_EQUAL_UINT(a.minute, b.minute);
+  TEST_ASSERT_EQUAL_UINT(a.second, b.second);
+}
+
 int main(void) {
   UNITY_BEGIN();
+  RUN_TEST(test_fourteen_days_of_carries_land_on_the_right_date);
+  RUN_TEST(test_a_fortnight_across_every_boundary_it_can_cross);
+  RUN_TEST(test_the_same_fortnight_reached_in_steps_agrees);
   RUN_TEST(test_the_clock_starts_where_the_caller_puts_it);
   RUN_TEST(test_two_clocks_started_alike_stay_identical);
   RUN_TEST(test_the_clock_reads_bcd_unless_told_otherwise);

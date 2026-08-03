@@ -1861,9 +1861,19 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         the other's blocker and neither was blocked: the arbiter needed a master
         to arbitrate for, the transfers needed a bus to arbitrate over, and both
         landed the moment either did.
-- [ ] Interval timer and calendar. *Verification: self-timing probes; the
-      14-day calendar interval hazard noted in the MAME driver is reproduced or
-      explained.*
+- [ ] Interval timer and calendar. *Verification: self-timing probes; a long
+      calendar interval carried correctly at every boundary.*
+      **The 14-day hazard this line used to cite does not exist.** It said
+      "noted in the MAME driver"; the pinned `ext/mame` has nothing about days,
+      weeks or intervals anywhere in its Apollo driver, and no commit in its
+      history touches "14 days" under its `mame` sources at all. The claim dates from
+      this project's first scaffolding commit, written before the driver had
+      been read, and would have sent whoever picked this item up hunting for a
+      note that was never there. The substance behind it is kept and now
+      tested — see the calendar sub-item below.
+      **Awaiting:** the self-timing probes, which need the tick loop. The
+      interval timer counts at 250/125/62.5 kHz and nothing in this core
+      advances on its own, so a probe cannot time it against itself yet.
   - [x] The MC6840 itself, 16-bit continuous mode: register model, byte
         buffering, status register, prescaler, gate, and every documented way of
         clearing an interrupt. `mc6840_suite`, 23 tests. The three Apollo input
@@ -1875,16 +1885,14 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         a real defect — the mode field is *not* three contiguous bits, and
         reading it as one had been declining `XX0000XX`, which is half of
         continuous mode.
-  - [ ] **In progress.** Period and pulse-width measurement stay declined, now for a hardware
-        reason rather than a transcription one: both time a signal applied to a
-        timer's gate pin, and on this board the three gates have nothing
-        connected. They are decoded and reported, so a caller learns which mode
-        it asked for.
-        - Marked **In progress** rather than simply unticked. An unticked box reads as work
-          outstanding, and this is not: it is a mode the DN3500 cannot exercise,
-          declined deliberately and reported honestly. It becomes real work only
-          if a model appears whose board wires a gate — which is a Phase 7
-          question, not a Phase 3 omission.
+  - [x] **Period and pulse-width measurement are declined, and that is a
+        decision rather than a gap.** Both time a signal applied to a timer's
+        gate pin and this board connects nothing to any of the three, so the
+        modes cannot be exercised, observed or tested. They are decoded and
+        reported, so a caller learns which mode it asked for. Reopens only if a
+        model appears whose board wires a gate, which is a Phase 7 question.
+        Was marked "In progress", which read as work outstanding above text
+        saying it was not.
   - [x] The timer's placement and interrupt route, measured: the part is at
         **odd addresses, stride 2** (`RS n` at `010801 + 2n`, confirmed by the
         `FFFF` latch default showing through), and its interrupt reaches the
@@ -1908,16 +1916,26 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         for the nine rates that divide the time base (512 Hz to 2 Hz). The six
         fastest are **refused, not rounded**: the rates are 32768/2^n Hz and
         `AP_TIME_BASE_HZ` carries only 2^9.
-  - [ ] Whether to recompute the time base to admit the six fast rates. The
-        cost is now measured, not guessed: x64, dropping the representable span
-        from 88.6 years to 505 days. Worth doing if anything is ever seen using
-        them; the part's own 4.194304 MHz crystal is a separate matter and can
-        never be a clock domain at all, since it would leave 3.95 days.
-  - [ ] **In progress.** The square-wave output pin (nothing on this board is wired to it) and
-        the daylight-savings shifts of `DSE` (stored but inert).
-        - Also **In progress**, for the same reason as the timer's measurement modes:
-          nothing on this board can observe either, so implementing them would
-          add behaviour no test could distinguish from its absence.
+  - [x] **Decided: not now.** The cost of admitting the six fast periodic rates
+        is measured rather than guessed — x64 on the time base, dropping the
+        representable span from 88.6 years to 505 days. The rates are refused
+        rather than rounded, so anything reaching for one fails loudly, and the
+        recomputation is a mechanical change whenever something is seen doing
+        so. The part's own 4.194304 MHz crystal is a separate matter and can
+        never be a clock domain at all: it would leave 3.95 days.
+  - [x] **The square-wave output and `DSE` are declined for the same reason**:
+        nothing on this board is wired to the square-wave pin, and `DSE`'s
+        daylight-savings shifts are stored but inert. Implementing either would
+        add behaviour no test could distinguish from its absence.
+  - [x] **A long calendar interval, carried at every boundary it can cross.**
+        Fourteen days is 1,209,600 one-second carries and any of them can be
+        the wrong one, so the fortnight is walked from a July date across the
+        month end, from February in a common year and a leap year, across a
+        year end, and across the 400-year rule that the part's two-digit year
+        cannot decide for itself. And the same fortnight reached in ragged
+        sub-second steps agrees with it reached in one, which is the property a
+        polling driver and a fast mode both depend on.
+        *Verification: `mc146818_suite` +3 (29).*
 - [ ] SIO serial lines, keyboard and mouse. *Verification: console byte stream
       identical to the oracle's.*
   - **The oracle's half of that comparison now exists.** `docs/references/MD.md`

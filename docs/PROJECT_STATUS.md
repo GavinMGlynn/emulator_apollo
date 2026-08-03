@@ -3411,7 +3411,7 @@ failure that cost a bit position in the 68020's module entry word.
 | Apollo interval timer (`010800`) | working: the part at **odd addresses, stride 2** (measured — the region reads `00 00 00 00 00 FF ...`, the `FFFF` latch default showing through), the three §3.8 input rates as exact time-base clock domains, and the IRQ0 route. Advancing is by whole pulses, so the rate cannot become a function of how often it is polled | `timer_suite`, 8 tests; `FINDINGS.md` C12 |
 | MC6840 interval timer (the part) | working for **both counting modes** — continuous and single shot, each in sixteen-bit and dual eight-bit operation — plus both control register aliases, the write/read byte buffering, the status register, the prescaler, the gate, and all five of `[6840]` §3.11's ways of clearing an interrupt. The two **measurement modes** are decoded and declined: they time a signal on a timer's gate pin, and nothing on this board drives the gates | `mc6840_suite`, 28 tests, `MC6840UM` (a scan with no text layer; read from page images) |
 | Apollo calendar (`010900`) | working: **stride 1, byte consecutive** (measured — and not the timer's odd-address stride 2, so neither placement could be inferred from the other), sixty-four registers aliased through the 256-byte range, and the IRQ8 route through to vector `A8` | `calendar_suite`, 5 tests; `FINDINGS.md` C12 |
-| MC146818A calendar (the part) | working: ten clock bytes, four registers, 50 RAM bytes, the once-per-second update with a full Gregorian carry, the alarm with don't-care codes, and Register C's read-to-clear. **Time is supplied by the caller, never the host** — the oracle seeds its calendar from the wall clock, which would rot every golden. The **periodic interrupt** is implemented for the nine rates that divide the time base (512 Hz to 2 Hz); the six fastest are refused rather than rounded, because `AP_TIME_BASE_HZ` factors as 2^9·3·5^8·11 and they need 2^15. Square wave and daylight-savings shifts are declined. Not yet wired to the board at `010900` | `mc146818_suite`, 26 tests, `MC146818A` (register figures read from page images) |
+| MC146818A calendar (the part) | working: ten clock bytes, four registers, 50 RAM bytes, the once-per-second update with a full Gregorian carry, the alarm with don't-care codes, and Register C's read-to-clear. **Time is supplied by the caller, never the host** — the oracle seeds its calendar from the wall clock, which would rot every golden. The **periodic interrupt** is implemented for the nine rates that divide the time base (512 Hz to 2 Hz); the six fastest are refused rather than rounded, because `AP_TIME_BASE_HZ` factors as 2^9·3·5^8·11 and they need 2^15. Square wave and daylight-savings shifts are declined. Not yet wired to the board at `010900` | `mc146818_suite`, 29 tests, `MC146818A` (register figures read from page images) |
 | Node ID PROM (`011200`) | working: the layout measured from the oracle's own PROM — stride 2 with the **odd byte reading zero** (unlike the serial ports at the same stride), the identifier big-endian in registers 0-3, and a checksum in register 14 confirmed arithmetically (`01 + 23 + 45 = 69`). The identifier is supplied by the caller, never a constant: a device whose purpose is to be unique per machine must not be the same on every one | `nodeid_suite`, 6 tests |
 | Apollo serial ports (`010400`, `010500`) | working: both DUARTs at **stride 2** (measured), sixteen registers over thirty-two bytes and aliased, sharing IRQ1 through to vector `A1`. The memory-refresh square wave of §3.9 is pinned at exactly 99000 base units — its *frequency*, 66666.67 Hz, is not an integer, so a core counting in hertz could not represent this board's refresh clock at all | `sio_suite`, 10 tests; `FINDINGS.md` C14 |
 | MC68681 / SCN2681 DUART (the part) | **programming model complete**: all sixteen register addresses of `[68681]` Table 4-1, both channels' mode registers with their shared pointer, clock-select, command and status registers, the three-deep receive FIFO with overrun, the interrupt status and mask registers, the input and output ports, and the counter/timer with both address-triggered commands. Serial framing itself — baud rates, start/stop bits, parity, the echo and loopback modes — is **not** modelled: a character is handed over whole. Not yet wired to the board | `mc68681_suite`, 34 tests, `MC68681 DUART Sep85` |
@@ -4409,6 +4409,50 @@ paper over" — where MAME returns `0F`, which is what `FINDINGS.md` C13 used as
 placement fingerprint. Neither is wrong: the datasheet defines no value. It is
 registered here so that the first board-backed oracle diff does not read it as a
 defect.
+
+#### A cited hazard that was never there, and what was kept of it
+
+This item's verification line asked for "the 14-day calendar interval hazard
+noted in the MAME driver" to be reproduced or explained. **There is no such
+note.** The pinned oracle checkout has nothing about days, weeks or intervals
+anywhere in its Apollo driver — the RTC section is four short functions and a
+comment giving the address — and no commit in its history touches "14 days" in
+its `mame` sources at all.
+
+`git log -S` on our own plan places the claim in this project's *first*
+scaffolding commit, written when the plan was drafted and before the driver had
+been read. It has sat there ever since, and would have sent whoever picked the
+item up hunting for a note that was never there. A citation is a promise that
+someone can go and look; this one could not be kept.
+
+**What was kept is the substance.** A calendar advanced across a long interval
+has to carry correctly at every boundary it crosses, and fourteen days is
+1,209,600 one-second carries with any of them able to be the wrong one. The part
+cannot be asked to jump — `[146818]`'s update cycle advances a second at a time —
+so the fortnight is walked:
+
+- from 31 July, across a month end and a 31-day month, landing on 14 August with
+  the time of day untouched and the **day of the week unchanged**, which is the
+  one field a fortnight leaves invariant and so the one a miscount cannot hide
+  in;
+- from 20 February in a common year and in a leap year, which differ by a day;
+- across a year end, which carries the year as well as the month;
+- across **the 400-year rule** — 2000 is a leap year and 1900 is not, and the
+  part's two-digit year cannot tell them apart, so this is the century rule
+  this core carries being exercised rather than merely present.
+
+And the same fortnight reached in ragged sub-second steps agrees with it reached
+in one. That is the property a polling driver depends on and the one a fast mode
+will have to preserve, and it is only true because `ap_mc146818_advance` takes
+an absolute time and carries the remainder rather than counting calls.
+
+**Two children were mislabelled, which is the same failure in a smaller form.**
+The timer's period and pulse-width modes and the calendar's square-wave output
+were both marked "In progress" above text explaining that they are deliberate
+declines — this board wires nothing to a timer gate or to the square-wave pin,
+so the behaviour could not be observed, tested or distinguished from its absence.
+An unticked box reads as work outstanding. They are decisions, and now tick as
+decisions, with the condition that would reopen them named.
 
 #### One raisable interrupt source, which is what blocks the ordering probe
 
