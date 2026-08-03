@@ -948,6 +948,12 @@ features were declared and nothing consulted them, which is a table pretending
 to be a model. `ap_cpu_decode()` closes that: it asks the shared decoder and
 upgrades `$06C0`-`$06FF` to a module call only where `has_module_calls` says so.
 
+The flag is a **bool defaulting false** rather than an `ap_cpu_t`, so a
+zero-initialised CPU is still a 68030 and no existing caller had to change. That
+is the conservative default in the right direction: a machine built without
+consulting the model behaves as the reference superset, not as an arbitrary
+family member.
+
 It is a wrapper rather than a second decoder or a parameterised one, and both
 alternatives were rejected for a reason. Copying the 68030's table would leave
 two to keep in step, and the one no booting machine exercises would drift.
@@ -4273,6 +4279,18 @@ everything simply has no entry below.
   costs 0 clocks, a burst line fill 5, a non-bursting miss 2. A probe
   against the oracle remains worthwhile and is listed under the probe suite,
   but the claim no longer rests on one.*
+
+#### The extended forms share one `Z`, and that is the point of them
+
+`ADDX`, `SUBX`, `ABCD`, `SBCD` and `CMPM` carry the documented "cleared if
+nonzero; unchanged otherwise" `Z` rather than the ordinary "set if zero". That
+is what lets a single `Z` describe a whole multi-precision value instead of just
+its last word: each step can only ever *clear* the flag, so a `Z` surviving to
+the end means every word was zero.
+
+An implementation that set `Z` the usual way passes every single-word test and
+gets multi-precision comparison wrong in exactly the case the instructions exist
+for — a long value whose final word happens to be zero compares equal.
 
 #### Returning from an exception, and three traps in the neighbouring instructions
 

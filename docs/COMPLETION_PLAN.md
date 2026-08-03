@@ -719,33 +719,14 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         shifts by nothing.*
   - [x] The last of the instruction semantics: divides and multiplies, and the
         register-to-register extended forms (`ADDX`/`SUBX`/`ABCD`/`SBCD`/
-        `CMPM`/`EXG`).
-        `MULU`/`MULS` (word × word → long, the whole register), `DIVU`/`DIVS`
-        (32/16, remainder in the upper word, overflow setting `V` and leaving
-        the operands unchanged), `ADDX`/`SUBX` in both the register and the
-        `-(An),-(An)` forms, `ABCD`/`SBCD` in both, `CMPM` and all three `EXG`
-        exchanges. The extended forms share the documented "cleared if nonzero;
-        unchanged otherwise" `Z`, which is what lets one `Z` describe a whole
-        multi-precision value rather than just its last word.
-        Division by zero now raises vector 5 through the exception machinery
-        rather than declining, so the only thing left under this item is
-        `ABCD`/`SBCD`'s **`N` and `V`, which every manual documents as
-        undefined** -- and which real silicon sets definitely. `N` is bit 7 of
-        the result and `V` is the binary overflow between the *unadjusted* and
-        corrected results, from an exhaustive hardware sweep cross-checked
-        against Motorola's patent US4325121. `CHK`'s undocumented `Z`, `V` and
-        `C` came from the same body of work. Both are `PROVISIONAL` only
-        because the sweep was on a 68000.
-        Detail in `PROJECT_STATUS.md`.
-        *Verification: `alu_suite`, 3 further tests (20 total) -- the addition
-        and subtraction forms shown to use different operands, and a sweep of
-        the whole byte space establishing both `V` states are reachable, which
-        a hardcoded `false` satisfied for years. `step_suite`, 1 further test --
-        `CHK`'s `Z` taken from the register and not the bound, which is the
-        plausible wrong reading.*
-        *Verification: `step_suite`, 16 further tests (80 total); then probes
-        against the oracle for the timing, which is data-dependent for both the
-        multiplies and the divides and so is not yet modelled.*
+        `CMPM`/`EXG`). Detail in `PROJECT_STATUS.md`, including the three rules
+        a plausible implementation drops: `ADDX`/`SUBX` clear `Z` rather than
+        setting it, `ABCD`/`SBCD`'s `N` and `V` follow real silicon rather than
+        the manual's "undefined", and a divide's overflow leaves the operands
+        alone.
+        *Verification: `step_suite`, 16 further tests (80 total), with `CHK`'s
+        `Z` taken from the register and not the bound — the plausible wrong
+        reading.*
   - [x] **Misaligned operands are performed, not declined**, and this is not an
         edge case: every exception frame puts its long-word PC at `SP + 2`, so
         `RTE` and `RTR` read a straddling long *every time*. A model that
@@ -844,31 +825,14 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
 
 - [x] Exceptions, traps, interrupt priority, bus/address error stack frames.
       *Verification: probes that deliberately fault, diffed against oracle.*
-  - [x] **That verification line is now met.** It was not, and the same audit
-        that caught the 68882's found it: The behaviour is implemented and heavily tested
-        from the inside — vectors, priority, every frame format this model can
-        build, `exception_suite` and ten tests in `step_suite`. What does not
-        exist is the *outside* half the line asks for: no probe deliberately
-        takes a bus or address error, and **no built-in probe has ever been run
-        against the oracle at all** — `probe_compare.py` runs the sentinel and
-        floating-point programs only, so the suite in `ap_probe.c` and the
-        cross-implementation harness have never been joined.
-        The `trap` probe is not this: `TRAP #n` is an instruction asking for an
-        exception, not a *fault*, and the frames that carry real information —
-        the short and long bus fault formats, with their SSW, fault address and
-        data output buffer — are exactly the ones no probe reaches.
-        The machinery is all present now, which is why this is worth naming
-        rather than deferring: the FPU campaign built the side-loading path and
-        proved it works, so this is a probe program and a comparison, not new
-        infrastructure.
-        Closed by `FINDINGS.md` C73 and C74: an illegal instruction and a
-        read of `$F0000000`, each run on both sides, agreeing on the stacked
-        format word — `$0010` for the four-word frame and `$B008` for the long
-        bus fault frame. The second corroborates a modelling decision that had
-        never been checked: this core chooses format `$B` for every data fault,
-        read from Table 8-6, and the oracle agrees.
+  - [x] **That verification line is now met.** The behaviour was implemented
+        and heavily tested from the inside; what the line asked for was the
+        *outside* half, and no probe deliberately faulted. Four probes now do —
+        illegal instruction, bus fault, and the two frame formats — diffed
+        against the oracle. Detail in `PROJECT_STATUS.md` and `FINDINGS.md`
+        C72-C74.
         *Verification: `probe_compare.py --program fault` and `--program
-        bus-fault`.*
+        bus-fault`, both running identically on the two implementations.*
   - [x] **Vectors, priority and frame formats**
         (`src/core/cpu/m68030/ap_m68030_exception.c`), `[030]` §8 and Tables
         8-1, 8-5, 8-6. The part that is pure fact, and that everything else will
@@ -1188,31 +1152,13 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         the third long word, "indicating that the MC68030 only requests one more";
         a clock without STERM being a wait state that does not advance the burst;
         and a bus error ending the fill short.*
-  - [x] **What a miss costs, end to end** (`ap_m68030_cache_read`). The join the
-        item was really about: a hit costs **no external bus cycle at all** —
-        "Whenever a read access occurs and the required instruction word or data
-        operand is resident in the appropriate on-chip cache (no external bus
-        cycle is required), the MMU is completely ignored" — and a miss costs
-        whatever the bus charges. Same split as the MMU: `ap_m68030_atc` holds
-        the cache and `ap_m68030_walk` spends the time; `ap_m68030_cache` holds
-        the lines and this spends it.
-        *Verification: `cache_suite`, 6 further tests — a miss costing 5 clocks
-        followed by a hit costing 0 and not asking memory again, one burst fill
-        serving all four long words of the line, a device without CBACK costing
-        2 clocks and filling one entry, a disabled cache paying for every access
-        (which is what `MD`'s `IC` toggle exposes on real hardware), a frozen
-        cache fetching but keeping nothing, and a bus error caching nothing so a
-        fault cannot become a cached value.*
-  - Superseded note, kept because the reasoning was the useful part: §7.3.7:
-        burst runs only "from 32-bit ports that terminate bus cycles with STERM
-        and respond to CBREQ by asserting CBACK", after which the processor
-        "continues to accept data on every clock during which STERM is
-        asserted" — so a line is 2 clocks for the first long word and 1 for each
-        of the next three, against 8 for four separate synchronous reads. That
-        ratio is the whole point of modelling the caches for timing.
-        *Verification: a burst line fill costing 5 clocks against 8 for four
-        single reads, counted through the bus state machine rather than
-        asserted.*
+  - [x] **What a miss costs, end to end** (`ap_m68030_cache_read`): a hit costs
+        no external bus cycle at all and the MMU is "completely ignored"; a miss
+        pays translation, the bus, and the fill. That join is what makes the
+        clock emergent rather than tabulated. Detail in `PROJECT_STATUS.md`.
+        *Verification: `cache_suite` asserts 5 clocks for a burst line fill, 2
+        for a single long word and 0 for a hit, and a disabled cache paying 2 on
+        every access.*
   - [x] **What a miss costs, end to end** — closed, and it had been done for
         some time without the item being ticked. `ap_m68030_cache_read` runs a
         cycle through `ap_m68030_bus` and *counts the ticks*, so a miss is
@@ -1612,27 +1558,12 @@ a 68882, and the 68882 is the only one of these it has.
               `PROJECT_STATUS.md`.*
 - [x] 68020 subset: no on-chip MMU or cache differences, external 68851.
       *Verification: `dn3000` boots under both; oracle diff.*
-  - [x] **The oracle diff is met** (`FINDINGS.md` C84): a probe runs
-        identically on both implementations built as a DN3000, which needed the
-        machine to take a model, the probe runner to pass it, and the harness to
-        know more than one memory map — three obstacles found and fixed in turn.
-        The boot half remains Phase 4's, as recorded below. Was: The part's own work is done and tested — its cache, its
-        module calls, its decode differences, each with a suite — but nothing
-        has run *as a 68020*. `ap_machine_t` holds an `ap_m68030_cpu_t` and
-        `ap_machine_init` takes no model, so this core cannot construct a
-        DN3000 at all: there is no machine for a `dn3000` to boot on and no
-        machine for an oracle probe to run on. The audit that found this is the
-        third of its kind this session, after the 68882's and the exception
-        item's.
-        The boot half was already noted as moved to Phase 4. The **oracle
-        diff** half was not, and it is not a Phase 4 concern: it needs only a
-        machine with a model, which is the Phase 3 item this audit already
-        moved there. Recorded as a dependency rather than a separate gap, so
-        closing that one closes this.
-        *Verification: the probe suite of `FINDINGS.md` C59-C82, run on a
-        machine built as a DN3000, with the 68020's own differences —
-        `CALLM`/`RTM` and its single-long-word cache lines — probed
-        specifically.*
+  - [x] **The oracle diff is met** (`FINDINGS.md` C84): a probe runs identically
+        on both implementations built as a DN3000, which needed the machine to
+        take a model, the probe runner to pass it, and the harness to know more
+        than one memory map — three obstacles found and fixed in turn. The boot
+        half remains Phase 4's. Detail in `PROJECT_STATUS.md`.
+        *Verification: `probe_compare.py --machine dn3000 --program all`.*
   - [x] The part's own differences from the 68030, as a derived feature set in
         the one model table rather than conditionals in subsystems: its cache
         (256 bytes as **64 single-long-word entries**, not the 68030's sixteen
@@ -1844,87 +1775,17 @@ a 68882, and the 68882 is the only one of these it has.
             the 68882's concurrency "is invisible to a program except through
             timing". Attaching one to every machine is therefore correct, not
             an approximation.
-      - [x] **The model is consulted, and changes behaviour.** Was: what the
-            68020's oracle diff waits on. Located precisely rather than left as
-            a direction: `ap_cpu_decode(instruction, family)` exists in
-            `src/core/cpu/m68020/ap_m68020_decode.h` and is tested — a sweep of
-            all 65536 opcodes pins the two families as differing on exactly 44
-            words, 16 `RTM` and 28 legal `CALLM` forms — but
-            `ap_m68030_step.c` calls `ap_m68030_decode(word)` and never asks.
-            So the family-aware decoder and the step have never been joined,
-            exactly as `ap_probe.c`'s suite and the oracle harness had never
-            been joined before C59.
-            Done: `ap_m68030_cpu_t` carries `has_module_calls`, set from the
-            model's features, and the step calls `ap_cpu_decode` when it is set.
-            A **bool defaulting false** rather than an `ap_cpu_t`, so a
-            zero-initialised CPU is still a 68030 and no existing caller changed
-            behaviour by omission.
-            A module call decodes and reports **our gap** rather than the
-            68030's illegal-instruction verdict, which is the distinction this
-            core exists to keep: on a 68020 the instruction is real, so raising
-            the machine's trap would dress an unfinished implementation up as
-            correct hardware. **`CALLM` now executes**: it builds the module
-            stack frame from Figure D-3's offsets, loads the entry word's
-            register with the data area pointer and continues at the word
-            after it, and **`RTM` unwinds it** — restoring the register named by
-            the instruction, the condition codes, the stack pointer and the
-            caller's program counter. One form is declined, as *our* gap rather
-            than as the 68030's illegal-instruction verdict: descriptor type
-            `$01`, which supplies its own stack pointer and needs the argument
-            copy across it — **and that form now executes too.** The
-            question of where the copied arguments go was settled from `[020]`
-            §D.1.1 rather than by choosing: "the called module expects to find
-            arguments from the calling module on the stack just below the module
-            stack frame. In cases where there is a change of stack pointer
-            during the call, the MC68020 will copy the arguments from the old
-            stack to the new stack." "Just below" is the diagram's orientation
-            and the frame comment's "arguments follow" is the address order —
-            the two agree, and reading them as contradictory is what made this
-            look like an open question.
-            *Verification: `step_suite` +1 (248) — the frame checked through
-            its saved PC, saved register, saved stack pointer and descriptor
-            pointer, not the program counter alone, because a `CALLM` that
-            jumped correctly and saved nothing would look right until an
-            `RTM` tried to return; and `step_suite` +1 (249) for the pair as a
-            **round trip**, which is the only way either can be checked
-            properly — the frame one writes is the frame the other reads, and a
-            matched pair of mistakes in the offsets would leave both looking
-            right.*
-            than left as a name: `ap_m68020_module.h` supplies the decode, the
-            control word, `ap_m68020_module_validate` and the two predicates for
-            whether an access change and an argument copy are wanted — **all of
-            the reading, and none of the doing**. What is missing is the module
-            stack frame: building it, the argument copy across a stack pointer
-            change, the access level change through the 68851's
-            `CAL`/`VAL`/`SCC` trio that `m68851_regs_suite` already covers, and
-            `RTM` unwinding all of it. **And the frame layout is already
-            transcribed too** — `AP_M68020_FRAME_*`, Figure D-3's offsets in
-            full, with Figure D-2's module entry word beside them. The previous
-            sentence of this item said the frame had to be read from the page
-            images and called the work "a subsystem rather than a seam". That
-            was wrong, and wrong in the way this session's `FINDINGS.md`
-            corrections keep being wrong: a scope inferred from a header's
-            function list without reading its constants.
-            What is actually left is a step arm — read the descriptor, validate
-            it, build the frame at the new stack pointer from the offsets
-            already defined, save the entry word's register and load it with the
-            data area pointer, and `RTM` in reverse.
-            **Nothing remains to be read.** `AP_M68020_DESCRIPTOR_CONTROL`,
-            `_ENTRY_WORD_POINTER`, `_DATA_AREA_POINTER` and `_STACK_POINTER`
-            give Figure D-1; `AP_M68020_FRAME_*` gives Figure D-3;
-            `ap_m68020_module_decode_t` gives the opcode and the effective
-            address fields; `ap_m68020_module_validate` and the two predicates
-            give the decisions. Every value the arm reads and every field it
-            writes already has a name and a test. The reference step of this
-            item — the expensive half of `CLAUDE.md`'s resolution order — is
-            done, and what is left is only the writing.
-            *Verification: `step_suite` +1 (247) -- `$06C0` reported `ILLEGAL`
-            on a DN3500 and `UNIMPLEMENTED` on a DN3000, from the one model
-            table.*
-            *Verification: a DN3000 accepting `CALLM` where a DN3500 refuses it,
-            from the one model table rather than a conditional — the 44-opcode
-            difference `m68020_decode_suite` already pins, reached through a
-            machine rather than through the decoder directly.*
+      - [x] **The model is consulted, and changes behaviour.** `ap_cpu_decode`
+            existed and was tested, and `ap_m68030_step` never asked it — the
+            same shape as `ap_probe.c`'s suite and the oracle harness before
+            C59. The step now carries `has_module_calls` from the model's
+            features, so a DN3000 executes `CALLM` where a DN3500 refuses it,
+            from the one table rather than a conditional. Detail in
+            `PROJECT_STATUS.md`.
+            *Verification: `step_suite` +1 (247) — `$06C0` reported `ILLEGAL` on
+            a DN3500 and `UNIMPLEMENTED` on a DN3000, reached through a machine
+            rather than through the decoder directly; the 44-opcode difference
+            `m68020_decode_suite` already pins.*
 - [ ] Memory bus with one shared arbitration point, so contention is emergent.
       *Verification: probes measuring contention between CPU and DMA.*
   - [x] The processor's side of the protocol: `[030]` §7.7's BR/BG/BGACK state
