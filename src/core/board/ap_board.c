@@ -141,6 +141,37 @@ static void count_declined(ap_board_t *board, uint32_t address, bool read) {
   }
 }
 
+void ap_board_sample_interrupts(ap_board_t *board) {
+  /* One line per device that has one, each from the device's own accessor and
+   * its own line constant, so a corrected placement cannot drift from here.
+   *
+   * Levels, sampled: a device that has stopped requesting clears its line here
+   * without anyone having to notice the moment it stopped. */
+  ap_intr_set_request(&board->interrupts, AP_TIMER_IRQ,
+                      ap_timer_irq(&board->timer));
+  ap_intr_set_request(&board->interrupts, AP_SIO_IRQ,
+                      ap_sio_irq(&board->sio));
+  ap_intr_set_request(&board->interrupts, AP_CALENDAR_IRQ,
+                      ap_calendar_irq(&board->calendar));
+  ap_intr_set_request(&board->interrupts, AP_TAPE_IRQ,
+                      ap_tape_irq(&board->tape));
+  /* The disk's two lines -- `AP_DISK_FIXED_IRQ` and `AP_DISK_FLOPPY_IRQ` -- are
+   * deliberately absent: `board/ap_disk.h` declares the constants and no IRQ
+   * accessor, so wiring them would mean inventing the condition that raises
+   * them. It lands with the controller's own item. */
+}
+
+unsigned ap_board_interrupt_level(const ap_board_t *board) {
+  /* Measured, not transcribed: `FINDINGS.md` C12 started the interval timer by
+   * hand and swept the CPU's mask -- taken at 5, blocked at 6. Zero is "no
+   * interrupt", which is what level zero means on this part. */
+  return ap_intr_pending(&board->interrupts) ? AP_INTR_CPU_LEVEL : 0u;
+}
+
+uint8_t ap_board_interrupt_acknowledge(ap_board_t *board) {
+  return ap_intr_acknowledge(&board->interrupts);
+}
+
 const char *ap_board_region_name(ap_board_region_t region) {
   switch (region) {
   case AP_BOARD_REGION_UNMAPPED: return "unmapped";

@@ -1748,6 +1748,20 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         is CPU space and therefore invisible to a program-space tap. That is why
         no read ever appeared on the controller's range.
         Detail in `PROJECT_STATUS.md`.
+  - [x] **The subsystem is reachable at last, which it never was.** Five
+        devices carried an IRQ accessor and a line constant and the board wired
+        none of them; the CPU's `interrupt_level` is a caller's field and no
+        caller drove it, so every controller test passed on a machine that
+        could not take an interrupt. The board now samples its devices' lines
+        and answers the level and the vector; the machine samples before each
+        instruction. It also makes the parent's verification runnable — the
+        DUART raises its line from two register writes with no time passing.
+        Detail in `PROJECT_STATUS.md`.
+        *Verification: `machine_suite` +2 (33) — a program that programs both
+        controllers and unmasks TxRDY is interrupted onto vector `A1`, told
+        apart from the level-6 autovector by a second handler at vector 30; and
+        the same program on unprogrammed controllers delivers nothing while the
+        device is still asking.*
 - [ ] Two AT DMA controllers. *Verification: transfer probes; device request
       lines gate DMA at block granularity, not per word.*
   - [x] Placement measured before writing anything: DMA 1 at `010C00` **stride

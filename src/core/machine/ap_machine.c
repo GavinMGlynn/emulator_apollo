@@ -134,6 +134,29 @@ static unsigned machine_wait_states(void *context, uint32_t physical,
              : 0u;
 }
 
+/* The interrupt acknowledge cycle, answered by the board's controllers.
+ *
+ * Vectored, never autovectored: the Apollo pair carries vector bases `A0` and
+ * `A8`, so the sixteen levels occupy `A0`-`AF`. `[030]` §8.1.9 gives three
+ * outcomes and this can produce one -- a machine with no board never gets here,
+ * because a machine with no board has nothing to raise a level in the first
+ * place. */
+static ap_m68030_iack_t machine_acknowledge(void *context, unsigned level) {
+  (void)level;
+  ap_machine_t *machine = (ap_machine_t *)context;
+  ap_m68030_iack_t out = {0};
+  if (machine->board == NULL) {
+    /* No device answers, which §8.1.9 makes a spurious interrupt rather than a
+     * reason not to take one. Unreachable while a level can only come from a
+     * board, and written rather than asserted because the unreachable branch is
+     * the one that gets reached later. */
+    out.bus_error = true;
+    return out;
+  }
+  out.vector = ap_board_interrupt_acknowledge(machine->board);
+  return out;
+}
+
 static bool machine_store(void *context, uint32_t physical, uint32_t value,
                           unsigned size) {
   ap_machine_t *machine = (ap_machine_t *)context;
@@ -290,6 +313,12 @@ void ap_machine_init_model(ap_machine_t *machine, uint8_t *ram,
   machine->data_access = machine->instruction_access;
   machine->data_access.cache = &machine->data_cache;
 
+  /* Installed unconditionally, like the wait-state callback and for the same
+   * reason: one construction path. It is only ever consulted when a level is
+   * standing, and only a board can raise one. */
+  machine->cpu.acknowledge = machine_acknowledge;
+  machine->cpu.acknowledge_context = machine;
+
   machine->cpu.fetch.access = &machine->instruction_access;
   machine->cpu.fetch.function_code = AP_M68030_FC_SUPERVISOR_PROGRAM;
   machine->cpu.data = &machine->data_access;
@@ -361,6 +390,14 @@ ap_machine_run_t ap_machine_run(ap_machine_t *machine, unsigned limit) {
 
   for (unsigned i = 0; i < limit; i++) {
     const uint64_t before = machine->cpu.clocks;
+    /* Sampled before every instruction, because the lines are levels and a
+     * program that has just written a device register has changed them. This
+     * is the whole of the tick loop that exists: nothing advances on its own,
+     * so an interrupt appears only where a program produced one. */
+    if (machine->board != NULL) {
+      ap_board_sample_interrupts(machine->board);
+      machine->cpu.interrupt_level = ap_board_interrupt_level(machine->board);
+    }
     const ap_m68030_step_result_t result = ap_m68030_step(&machine->cpu);
     /* Converted once, here. The step reports CPU clocks; the machine keeps
      * time. A `cpu_clock` that was never initialised has a zero rate and

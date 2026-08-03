@@ -279,6 +279,48 @@ typedef struct ap_board {
 [[nodiscard]] ap_time_t ap_board_access_time(const ap_board_t *board,
                                              uint32_t address, bool read);
 
+/* Sample every device's interrupt output onto the controllers' request lines.
+ *
+ * ## Why this is a call and not something a device does when it changes
+ *
+ * The lines are *levels*, not events: `[8259]`'s IRR follows its pins, and a
+ * device whose condition has gone away stops requesting whether or not anyone
+ * told the controller. Sampling them all in one place is the truthful shape,
+ * and it is what a wire does.
+ *
+ * It is also a call rather than an implicit part of every access because the
+ * machine is what owns the clock. This is the first piece of the tick loop to
+ * involve a device at all, and it stays a piece: nothing here advances a
+ * counter, so an interrupt appears only when something a program did produced
+ * one -- writing a DUART register, unmasking a timer output. That is enough for
+ * a probe to raise an interrupt on demand without any time passing, which is
+ * exactly what the ordering verification needs and could not have before.
+ *
+ * ## The lines
+ *
+ * Each device's module carries its own line number and its own IRQ accessor,
+ * and several of those headers say in as many words that "the board does the
+ * wiring". The board did not: every accessor and every constant existed, was
+ * tested, and was joined to nothing -- the same shape as a decoder the step
+ * never asked, or a model clock nothing read. The disk has two lines and no
+ * accessor yet, so it is absent here rather than wired to a guess. */
+void ap_board_sample_interrupts(ap_board_t *board);
+
+/* The 68030 interrupt level the board is asserting, or zero for none.
+ *
+ * `AP_INTR_CPU_LEVEL` when the master controller has something, which is a
+ * *measured* figure and not a manual's -- `FINDINGS.md` C12 swept the CPU mask
+ * to find it. Zero otherwise: level zero means no interrupt on this part. */
+[[nodiscard]] unsigned ap_board_interrupt_level(const ap_board_t *board);
+
+/* Run the acknowledge cycle and answer the vector the controllers supply.
+ *
+ * The Apollo scheme is vectored, not autovectored: the two controllers carry
+ * vector bases `A0` and `A8` so the sixteen levels occupy `A0`-`AF`. A caller
+ * that autovectored would land on vector 24 + level and be wrong by a hundred
+ * and something. */
+[[nodiscard]] uint8_t ap_board_interrupt_acknowledge(ap_board_t *board);
+
 /* Read or write one byte. `ok` reports whether anything answered; an unmapped
  * access is counted and reported rather than quietly returning zero. */
 [[nodiscard]] uint8_t ap_board_read(ap_board_t *board, uint32_t address,

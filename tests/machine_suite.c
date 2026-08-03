@@ -10,6 +10,9 @@
 #include <stdio.h>
 
 #include "board/ap_board.h"
+#include "device/ap_mc68681.h"
+#include "board/ap_sio.h"
+#include "board/ap_intr.h"
 #include "cpu/m68030/ap_m68030_atc.h"
 #include "cpu/m68030/ap_m68030_ea_timing.h"
 #include "cpu/m68030/ap_m68030_state.h"
@@ -1141,8 +1144,140 @@ static void test_a_machine_derives_its_cpu_features_from_its_model(void) {
                         plain.cpu.has_module_calls);
 }
 
+/* ---------------------------------------------------------------------------
+ * The interrupt path, end to end: a device raises, the controllers resolve, the
+ * processor takes it, and the vector is the Apollo scheme's.
+ *
+ * Every piece of this existed and none of it was joined. `ap_sio_irq`,
+ * `ap_timer_irq` and their line constants were written, tested, and wired to
+ * nothing -- two of those headers say "the board does the wiring" in as many
+ * words -- while `cpu.interrupt_level` is a field the manual makes a *caller's*
+ * to drive and no caller drove. So the machine had a complete, tested,
+ * unreachable interrupt subsystem, which is the same shape as a decoder the
+ * step never asked and a model clock nothing read.
+ * ------------------------------------------------------------------------- */
+
+/* `MOVE.B #imm,(addr).L` -- four words. Emitted rather than hand-transcribed
+ * because this program is twenty of them and a mistyped address in the middle
+ * of a wall of hex is not a mistake anyone finds by reading. */
+static unsigned emit_move_b(uint16_t *out, unsigned at, uint8_t value,
+                            uint32_t address) {
+  out[at + 0] = 0x13FCu;
+  out[at + 1] = value;
+  out[at + 2] = (uint16_t)(address >> 16);
+  out[at + 3] = (uint16_t)(address & 0xFFFFu);
+  return at + 4u;
+}
+
+#define HANDLER_OFFSET 0x0400u
+#define SIO_IRQ_VECTOR (0xA0u + AP_SIO_IRQ)
+
+static void test_a_device_interrupt_reaches_the_processor_on_its_vector(void) {
+  uint16_t program[80];
+  unsigned n = 0;
+
+  /* Reset leaves the mask at 7, which blocks the level this board asserts. A
+   * driver lowers it; so does this. */
+  program[n++] = 0x46FCu; /* MOVE #$2000,SR -- supervisor, mask 0 */
+  program[n++] = 0x2000u;
+
+  /* The firmware's own initialisation sequence, recovered by watching the boot
+   * PROM write it (`writetrace.lua`): cascade on IR3, bases A0 and A8. The last
+   * byte is the mask, and this unmasks where the firmware masks -- a driver
+   * enabling its device. */
+  const uint8_t master[] = {0x11u, 0xA0u, 0x08u, 0x01u, 0x00u};
+  const uint8_t slave[] = {0x11u, 0xA8u, 0x03u, 0x01u, 0x00u};
+  n = emit_move_b(program, n, master[0], AP_INTR_MASTER_ADDR);
+  for (unsigned i = 1; i < 5u; i++) {
+    n = emit_move_b(program, n, master[i], AP_INTR_MASTER_ADDR + 1u);
+  }
+  n = emit_move_b(program, n, slave[0], AP_INTR_SLAVE_ADDR);
+  for (unsigned i = 1; i < 5u; i++) {
+    n = emit_move_b(program, n, slave[i], AP_INTR_SLAVE_ADDR + 1u);
+  }
+
+  /* And now something to interrupt *with*, produced by writing two registers
+   * and no time passing at all: the DUART's transmitter is enabled and empty,
+   * so unmasking TxRDY raises the line the instant the mask is written. That is
+   * what makes a probe able to drive this against the oracle -- nothing in this
+   * core advances on its own, and nothing here needs to. */
+  n = emit_move_b(program, n, 0x05u, AP_SIO1_ADDR + AP_MC68681_CR_A * 2u);
+  n = emit_move_b(program, n, 0x01u, AP_SIO1_ADDR + AP_MC68681_ISR_IMR * 2u);
+
+  program[n++] = 0x4E71u; /* NOP -- never reached; the interrupt precedes it */
+  program[n++] = 0x4E72u; /* STOP #$2700 */
+  program[n++] = 0x2700u;
+
+  ap_machine_t m;
+  build_board_machine(&m, &first_board, ram, program, n);
+
+  /* Vector 0 is the boot PROM's, and no PROM is loaded, so the table goes in
+   * RAM and the VBR points at it. */
+  m.cpu.regs.vbr = AP_BOARD_RAM_BASE;
+  TEST_ASSERT_TRUE(ap_machine_write(&m, SIO_IRQ_VECTOR * 4u, 4u,
+                                    AP_BOARD_RAM_BASE + HANDLER_OFFSET));
+  TEST_ASSERT_TRUE(ap_machine_write(&m, HANDLER_OFFSET, 2u, 0x4E72u));
+  TEST_ASSERT_TRUE(ap_machine_write(&m, HANDLER_OFFSET + 2u, 2u, 0x2700u));
+
+  /* A *second* handler on the autovector for level 6 -- vector 24 + 6 -- so
+   * that "vectored" and "autovectored" land at different addresses and the PC
+   * below distinguishes them. Without this the test would pass on a machine
+   * that ignored the controllers' vector bases entirely, which is the one thing
+   * the Apollo scheme is. */
+  TEST_ASSERT_TRUE(ap_machine_write(&m, (24u + AP_INTR_CPU_LEVEL) * 4u, 4u,
+                                    AP_BOARD_RAM_BASE + HANDLER_OFFSET + 0x80u));
+  TEST_ASSERT_TRUE(ap_machine_write(&m, HANDLER_OFFSET + 0x80u, 2u, 0x4E72u));
+  TEST_ASSERT_TRUE(ap_machine_write(&m, HANDLER_OFFSET + 0x82u, 2u, 0x2700u));
+
+  const ap_machine_run_t run = ap_machine_run(&m, 64u);
+
+  /* It stopped in the *handler*, not at the program's own STOP: the two are at
+   * different addresses precisely so this cannot pass by arriving anywhere. */
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_STOPPED, run.status);
+  TEST_ASSERT_EQUAL_HEX32(AP_BOARD_RAM_BASE + HANDLER_OFFSET + 4u,
+                          m.cpu.regs.pc);
+  TEST_ASSERT_EQUAL_UINT(0u, m.bus_errors);
+
+  /* The line is no longer *pending*, because it is in service: the 8259
+   * moves the bit from IRR to ISR on the acknowledge and leaves it there until
+   * software issues an EOI, so a handler that has not finished does not
+   * re-interrupt itself. The level going back to zero is that, not the device
+   * going quiet -- it is still asking. */
+  TEST_ASSERT_TRUE(ap_sio_irq(&first_board.sio));
+  TEST_ASSERT_EQUAL_UINT(0u, ap_board_interrupt_level(&first_board));
+}
+
+/* The counterpart, and the one that stops the test above passing for the wrong
+ * reason: with the controllers left as reset leaves them the same program
+ * raises the same device line and the processor never sees a thing. A board out
+ * of reset has neither controller programmed, and firmware that had not run
+ * must not produce interrupts. */
+static void test_an_unprogrammed_controller_delivers_nothing(void) {
+  uint16_t program[16];
+  unsigned n = 0;
+  program[n++] = 0x46FCu;
+  program[n++] = 0x2000u;
+  n = emit_move_b(program, n, 0x05u, AP_SIO1_ADDR + AP_MC68681_CR_A * 2u);
+  n = emit_move_b(program, n, 0x01u, AP_SIO1_ADDR + AP_MC68681_ISR_IMR * 2u);
+  program[n++] = 0x4E72u;
+  program[n++] = 0x2700u;
+
+  ap_machine_t m;
+  build_board_machine(&m, &second_board, other_ram, program, n);
+  m.cpu.regs.vbr = AP_BOARD_RAM_BASE;
+
+  const ap_machine_run_t run = ap_machine_run(&m, 64u);
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_STOPPED, run.status);
+  /* The device *is* asking -- this is not a test that nothing happened. */
+  TEST_ASSERT_TRUE(ap_sio_irq(&second_board.sio));
+  TEST_ASSERT_EQUAL_UINT(0u, m.cpu.interrupt_level);
+}
+
 int main(void) {
   UNITY_BEGIN();
+  RUN_TEST(test_a_device_interrupt_reaches_the_processor_on_its_vector);
+  RUN_TEST(test_an_unprogrammed_controller_delivers_nothing);
   RUN_TEST(test_the_machine_keeps_time_in_base_units);
   RUN_TEST(test_the_cpu_rate_comes_from_the_model_table);
   RUN_TEST(test_a_slower_model_takes_longer_over_the_same_cycles);

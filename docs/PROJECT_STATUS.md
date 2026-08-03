@@ -3346,7 +3346,7 @@ failure that cost a bit position in the 68020's module entry word.
 | Time base (`time/`) | working | `time_suite`, 15 tests |
 | State hash (`state/`) | primitive working | `hash_suite`, 11 tests, incl. published FNV-1a 64 vectors |
 | Core board state hash (the identity harness's board half) | working: the board registers, the translation map, both interrupt controllers, the interval timer with its three clocks, the calendar with both cursors, both DMA controllers, both serial ports, the node ID, the disk and tape controllers, the graphics memories, the keyboard matrix and the boot PROM. The diagnostic counters are deliberately outside it and reported beside it | `board_state_suite`, 22 tests sweeping every device field by field |
-| Full-machine state hash (`ap_machine_hash`, `ap_machine_state`) | working: the processor, main memory, the board when one is attached, and elapsed time — with the clock, the PC and the bus-error count reported beside the number | `machine_suite`, 31 tests, incl. the same workload run twice on two boards agreeing at every step |
+| Full-machine state hash (`ap_machine_hash`, `ap_machine_state`) | working: the processor, main memory, the board when one is attached, and elapsed time — with the clock, the PC and the bus-error count reported beside the number | `machine_suite`, 33 tests, incl. the same workload run twice on two boards agreeing at every step |
 | Ring medium interface | not started | — |
 | Ring controller | not started | — |
 | 68030 instruction pipe + cache holding register | working | `pipe_suite`, 14 tests, `MC68030 User's Manual 3ed` §11.2.2 |
@@ -3358,7 +3358,7 @@ failure that cost a bit position in the 68020's module entry word.
 | 68030 family `0000` size-11 escape (`CMP2`/`CHK2`/`CAS`/`CAS2`) | decoded; the opcode map now has no holes. Semantics open: `CAS`/`CAS2` need an indivisible read-modify-write | `bounds_suite`, 9 tests, `M68000 Family Programmer's Reference Manual 1992` |
 | Per-instruction timing report (`--time-instructions`) | bus and cache time only, pinned as a golden; the 0/2 alternation is the cache holding register serving two instruction words per fetch | `tests/goldens/timing.txt`; oracle side by `tools/mame-oracle/steptime.lua` |
 | Probe suite (`probe/`, `--run-probes`) | 8 probes on the constructed machine, needing no firmware; results pinned as a golden under every build preset, identical between `-O0` and `-O3` | `tests/goldens/probes.txt`, `probe_suite`, 7 tests |
-| Constructed machine (`machine/`) | a 68030 on flat RAM, with an out-of-range access faulting rather than wrapping; no I/O, no device, no arbitration point | `machine_suite`, 31 tests |
+| Constructed machine (`machine/`) | a 68030 on flat RAM, with an out-of-range access faulting rather than wrapping; with a board attached it takes its model's clock, charges the AT bus's wait states and takes device interrupts on the Apollo vectors | `machine_suite`, 33 tests |
 | 68030 published timings (§11.6) | 59 rows from §11.6.6, §11.6.8, §11.6.9, §11.6.11, §11.6.12, §11.6.15 and §11.6.16, scheduled into the step as exposed microcode + measured operand bus + prefetch exposure, since the tables show a prefetch overlaps execution while an operand the operation consumes cannot (plain `max(microcode, bus)` was the retired first model — see above and `M68030_TIMING.md`). Branches are reached through their run-time outcome rather than by opcode. Seven instructions agree with the oracle (`FINDINGS.md` C8). Rows footnoted "Add Fetch Effective Address Time" are **declined**, not part-priced: their published figure is a component and the composition is open (C9). The four divides carry the manual's data-dependent marker and are `PROVISIONAL` | `timing_table_suite`, 16 tests; both published columns checked on a running machine by `machine_suite` |
 | 68030 ATC replacement | the history bit now means *recently used*, per `MC68851 PMMU User's Manual` §5.2.1.3 — a translating hit marks it, a `PTEST` probe does not. `PROVISIONAL` narrowed to victim choice among clear-history entries | `atc_suite`, 21 tests |
 | 68030 prefetch marginal cost | `NCC − CC` over the published prefetch count, computed in code across every row; the two rows where it is not integral are named in the test rather than rounded away | `timing_table_suite`, 16 tests |
@@ -4409,6 +4409,60 @@ paper over" — where MAME returns `0F`, which is what `FINDINGS.md` C13 used as
 placement fingerprint. Neither is wrong: the datasheet defines no value. It is
 registered here so that the first board-backed oracle diff does not read it as a
 defect.
+
+#### A complete interrupt subsystem that nothing had ever reached
+
+Every piece of the Apollo interrupt scheme was built, tested and joined to
+nothing. Five board devices carry an IRQ accessor and a line constant — the
+interval timer, the SIO, the calendar and the tape, plus the disk's two lines —
+and two of those headers say *"the board does the wiring"* in as many words. The
+board did not. On the other side, `cpu.interrupt_level` is a field `[030]` §7.5
+makes a **caller's** to drive, with an acknowledge callback beside it, and no
+caller drove it. So a machine could not take an interrupt, and every test of the
+controllers passed.
+
+That is the fourth instance of one failure this phase: a decoder the step never
+asked, a model clock nothing read, two predicates with tests and no callers, and
+now this. The pattern is worth naming — a subsystem is not landed when its own
+suite is green, it is landed when something upstream consults it.
+
+**The join, and where each half belongs.** `ap_board_sample_interrupts` drives
+the controllers' request lines from each device's own accessor and its own line
+constant. It is a call rather than something a device does when it changes,
+because the lines are *levels*: `[8259]`'s IRR follows its pins, and a device
+whose condition has gone away stops requesting whether or not anyone announced
+it. The machine samples before every instruction and sets the level, which is
+the whole of the tick loop that exists — nothing advances on its own, so an
+interrupt appears only where a program produced one.
+
+**The disk's two lines are deliberately absent.** `board/ap_disk.h` declares
+`AP_DISK_FIXED_IRQ` and `AP_DISK_FLOPPY_IRQ` and no accessor, so wiring them
+would mean inventing the condition that raises them. That lands with the
+controller's own item.
+
+**A probe can now raise an interrupt with no time passing**, which is what the
+ordering verification needed and could not have had. The DUART's transmitter is
+enabled and empty out of reset, so unmasking TxRDY asserts the line the instant
+the mask register is written — two register writes, no counter, no clock. That
+is the route by which the item's "probe-driven interrupt ordering vs oracle"
+becomes runnable at all.
+
+**What the end-to-end test pins, and the trap it avoids.** The program programs
+both controllers with the firmware's own recovered sequence, unmasks, enables
+the DUART and is interrupted onto vector `A1` — the master's base `A0` plus the
+SIO's line 1. A handler at that vector alone would pass on a machine that
+ignored the vector bases and autovectored, which is precisely the thing the
+Apollo scheme is not. So a *second* handler sits on the level-6 autovector,
+vector 30, and the two land at different addresses. The negative case is the
+same program on a board whose controllers reset has left unprogrammed: the
+device is still asking — asserted in the test, so this is not a check that
+nothing happened — and the processor sees nothing.
+
+One reading corrected while writing it: the level goes back to zero after the
+acknowledge, and that is the 8259 moving the bit from IRR to ISR and leaving it
+there until software issues an EOI. A handler that has not finished does not
+re-interrupt itself. The first version of the test asserted the level was still
+6 and was simply wrong about the part.
 
 #### What five boot PROMs say about the two declined registers
 
