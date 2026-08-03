@@ -173,7 +173,10 @@ def run_all(argv, parser) -> int:
     # something new has. A known difference that reddens the suite every time
     # trains its reader to ignore it, which is the same mistake C75's dangerous
     # output nearly caused.
-    KNOWN_DIFFER = {"fpu-sine-x": "C70, one ULP, settled sub-poll-slack"}
+    KNOWN_DIFFER = {
+        "fpu-sine-x": "C70, one ULP, settled sub-poll-slack",
+        "module-call": "C87, oracle-wrong: MAME does not implement CALLM",
+    }
 
     failed = []
     expected = []

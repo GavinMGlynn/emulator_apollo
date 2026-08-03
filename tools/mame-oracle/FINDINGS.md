@@ -4936,3 +4936,39 @@ around a field both sides had always printed. The status was not a missing
 measurement; it was an unread one. When a comparison cannot separate two
 explanations, the first question is whether the harness already knows and is
 being asked the wrong thing.
+
+## C87 -- we implement CALLM and the oracle does not
+
+**Class: `oracle-wrong`.** Settled from the oracle's own source, not inferred
+from its behaviour.
+
+C86 left the question open: our side executes the module-call probe and stores
+`$00C0FFEE`, MAME reaches five instructions and never stores. Reading the core
+answers it outright.
+
+`ext/mame/src/devices/cpu/m68000/m68kops.cpp`, in every `callm` handler:
+
+    logerror("%s at %08x: called unimplemented instruction %04x (callm)\\n", ...)
+
+and Musashi's own instruction table, `ext/musashi/m68k_in.c` line 504, is blunter
+still -- the `callm` row ends **"not properly emulated"**.
+
+So this is the divergence class `FINDINGS.md`'s opening rule exists for: "MAME's
+own driver notes admit gaps ... So every disagreement is *classified*, never
+silently 'fixed' by moving our number to match." `CALLM` and `RTM` are the two
+instructions unique to the 68020, they appear in no Apollo firmware this project
+has read, and an emulator serving hundreds of drivers has no reason to carry
+them. This core does, because the 68020 subset is a named plan item and the
+instructions are in the part.
+
+**Recorded as a known difference** in `probe_compare.py`, with its reason, so
+`--program all` stays green when nothing has changed and goes red when something
+new has. That is now two: `fpu-sine-x`, a resolution limit where the oracle is
+the more accurate of two conforming implementations; and `module-call`, where
+the oracle does not implement the instruction at all. **One in each direction**,
+which is a fair picture of what an oracle is for.
+
+It also closes the 68020 subset properly. C84 established that a program runs
+identically on both as a DN3000; this establishes what happens at the 44 opcodes
+where the families differ -- we execute them and the oracle declines, from its
+source rather than from a guess.
