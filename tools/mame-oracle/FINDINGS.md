@@ -5478,3 +5478,66 @@ one of the commonest instructions in 68k code. It is mode 111 register 2,
 `(d16,PC)`, and testing every destination mode is what caught it. Reading bit
 fields off a hex literal by eye failed here in the same way the phrase-versus-
 concept search failed in C94, and one step from the same outcome.
+
+## C96 -- 578 words were executing instructions the hardware refuses
+
+**Class: defect in this core, the expensive direction. Closes C95's tail.**
+
+C95 enforced the effective-address category tables where checks existed. The
+single-operand, immediate and shift groups had **none**, so `NEGX.B #imm` was
+refused only because writing to an immediate happens to fail somewhere
+downstream, and a great many invalid encodings simply *ran*.
+
+C95 moved 791 words from *our gap* to *the machine's refusal*. This moves **578
+words from executing to refusing**, and those are the ones that matter:
+`ap_m68030_category.h` has always said that accepting words the processor
+refuses is "the wrong direction to be wrong in, because a real program never
+contains them and only a broken one benefits". It was happening in three whole
+instruction groups.
+
+### The rules came from the pages, not from a neighbour
+
+The `[PRM]` states the category in prose on every instruction page -- "Only data
+alterable addressing modes can be used" -- so the extraction is that sentence
+per instruction rather than one rule generalised across a group. **Three
+instructions would have been got wrong by generalising**, and each is a
+different kind of exception:
+
+* **`TST` reaches every addressing mode**, immediate and PC-relative included --
+  a 68020 widening, its PC rows footnoted "PC relative addressing modes do not
+  apply to MC68000, MC680008, or MC68010". Its neighbours are data alterable, so
+  the group's rule would have refused three forms this processor runs. Its one
+  restriction is a **size** rule that no category can express: "Address register
+  direct allowed only for word and long". `TST.B An` is the single illegal
+  `TST`, and this core executed it.
+* **`CMPI` is data, not data alterable.** Its table also dashes the immediate --
+  but the *decoder* already owns that row, because `mode 111 register 100`
+  carries the `CCR`/`SR` forms and `CMPI` has none. A check here would have been
+  a second copy of the rule that never runs, which is the shape C90 was about.
+* **`BTST`'s two forms disagree about the immediate.** `BTST Dn,<ea>` lists
+  `#<data>`; the static `BTST #n,<ea>` on the facing page dashes it, having
+  already spent the immediate on its bit number. This one cannot live in the
+  decoder, because the bit-operation rows decode their effective address
+  directly instead of through that escape. The same operand, legal in one form
+  and not the other, ten bits apart.
+
+### Method, and why the extraction was trusted
+
+The category sentence and the mode tables were read with `pdftotext -layout`
+rather than as page images, against `CLAUDE.md`'s rule -- **after** validating
+the method on `TST`'s page, which had been read as an image first and which the
+extraction reproduced exactly, footnotes included. The rule exists because OCR
+mangles numeric tables; demonstrating fidelity on the very page in question is
+what made the cheaper route legitimate here, and it is recorded so the next
+person does not take the shortcut without the check.
+
+### What the sweep named on the way out
+
+`BTST Dn,#<data>` is **legal and unimplemented** -- the category check now
+allows it and the executor reports `UNIMPLEMENTED`, which is honest. Its test
+asserts the form is *not refused* rather than that it executes, so closing the
+gap will not falsify it.
+
+Family 5 -- `ADDQ`, `SUBQ`, `Scc` -- still enforces no categories, 240 words.
+With `MOVEP`, both are open plan items. 1772 words remain `UNIMPLEMENTED`, from
+2621 before C95.

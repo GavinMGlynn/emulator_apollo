@@ -690,6 +690,23 @@ static bool fetch_immediate(ap_m68030_cpu_t *cpu, unsigned size,
  * interrupts before it touches hardware (`FINDINGS.md` C29). `MOVE to SR`
  * already worked here; this is a different encoding, and the whole group was
  * missing together. */
+/* The effective-address category an instruction's own page states, applied.
+ *
+ * `[PRM]` gives each instruction the sentence in its Instruction Fields section
+ * -- "Only data alterable addressing modes can be used", and so on -- and the
+ * table beneath it. A word failing that sentence is not a valid MC68030
+ * instruction, so the answer is §8.1.5's illegal instruction and not this
+ * core's UNIMPLEMENTED. Same mechanism as the `MOVE` and misc checks, and the
+ * same reason: the category tables are transcribed, so the refusal is the
+ * machine's verdict rather than an unfinished executor. */
+static bool allow_ea(ap_m68030_cpu_t *cpu, bool allowed) {
+  if (allowed) {
+    return true;
+  }
+  cpu->refused_vector = AP_M68030_VECTOR_ILLEGAL_INSTRUCTION;
+  return false;
+}
+
 static bool execute_immediate_to_status(ap_m68030_cpu_t *cpu,
                                         const ap_m68030_immediate_t *imm,
                                         uint32_t *clocks) {
@@ -769,7 +786,25 @@ static bool execute_immediate(ap_m68030_cpu_t *cpu,
   case AP_M68030_IMM_SUBI:
   case AP_M68030_IMM_ADDI:
   case AP_M68030_IMM_EORI:
+    /* Each page: "Only data alterable addressing modes can be used". */
+    if (!allow_ea(cpu, ap_m68030_ea_is_data_alterable(imm->ea.kind))) {
+      return false;
+    }
+    break;
   case AP_M68030_IMM_CMPI:
+    /* CMPI's page says "Only **data** addressing modes" -- not alterable, so a
+     * PC-relative destination is legal here where it is not for `ADDI`, which
+     * is the 68020's own widening (its table footnotes the two PC rows).
+     *
+     * Its table also dashes the immediate, but that is **not** checked here:
+     * `CMPI` has already spent the immediate on its source, so the encoding is
+     * free, and `ap_m68030_immediate_decode` gives the whole `mode 111
+     * register 100` row to the `CCR`/`SR` forms -- returning invalid for the
+     * three rows that have none. Repeating the rule here would be a second
+     * copy that never runs. */
+    if (!allow_ea(cpu, ap_m68030_ea_is_data(imm->ea.kind))) {
+      return false;
+    }
     break;
   case AP_M68030_IMM_ORI_TO_CCR:
   case AP_M68030_IMM_ORI_TO_SR:
@@ -783,9 +818,31 @@ static bool execute_immediate(ap_m68030_cpu_t *cpu,
   case AP_M68030_IMM_INVALID:
     return false;
   case AP_M68030_IMM_BTST:
+    /* "Only data addressing modes can be used" -- `BTST` only reads, so unlike
+     * its three neighbours it reaches PC-relative operands.
+     *
+     * **And its two forms differ on the immediate**, which one category cannot
+     * express. `BTST Dn,<ea>` lists `#<data>` at mode 111 register 100; the
+     * static `BTST #n,<ea>` on the facing page dashes it. The reason is the
+     * same encoding argument as `CMPI`'s -- the static form has already spent
+     * the immediate on its bit number -- but here the decoder cannot own it,
+     * because the bit-operation rows decode their effective address directly
+     * rather than through the `CCR`/`SR` escape. So `BTST D0,#$40` runs and
+     * `BTST #1,#$40` does not. */
+    if (!allow_ea(cpu, ap_m68030_ea_is_data(imm->ea.kind) &&
+                           (imm->dynamic ||
+                            imm->ea.kind != AP_M68030_EA_IMMEDIATE))) {
+      return false;
+    }
+    return execute_bit(cpu, imm, clocks);
   case AP_M68030_IMM_BCHG:
   case AP_M68030_IMM_BCLR:
   case AP_M68030_IMM_BSET:
+    /* These three write, so "data alterable" -- the one-word difference from
+     * `BTST` on the facing pages. */
+    if (!allow_ea(cpu, ap_m68030_ea_is_data_alterable(imm->ea.kind))) {
+      return false;
+    }
     return execute_bit(cpu, imm, clocks);
   }
 
@@ -880,6 +937,51 @@ static bool execute_single(ap_m68030_cpu_t *cpu,
      * rejected by the decoder. */
     cpu->pending_vector = AP_M68030_VECTOR_ILLEGAL_INSTRUCTION;
     return true;
+  }
+
+  /* The category each instruction's own page states.
+   *
+   * `TST` is the exception and the reason this is a switch rather than one
+   * call: its table lists **every** addressing mode, immediate and PC-relative
+   * included, where its neighbours list only data alterable ones. That is a
+   * 68020 widening -- the PC rows carry "PC relative addressing modes do not
+   * apply to MC68000, MC680008, or MC68010" -- and applying the neighbours'
+   * rule to it would refuse three forms this processor runs.
+   *
+   * Its one restriction is a *size* rule rather than a category: "Address
+   * register direct allowed only for word and long", so `TST.B An` is the sole
+   * illegal `TST` and no category expresses it. */
+  switch (single->kind) {
+  case AP_M68030_SINGLE_TST:
+    if (single->ea.kind == AP_M68030_EA_ADDRESS_REGISTER) {
+      if (!allow_ea(cpu, single->size >= 2u)) {
+        return false;
+      }
+    }
+    break;
+  case AP_M68030_SINGLE_MOVE_TO_CCR:
+  case AP_M68030_SINGLE_MOVE_TO_SR:
+    /* These two *read* their operand into a status register, so their pages
+     * say "Only data addressing modes", and a PC-relative source is legal. */
+    if (!allow_ea(cpu, ap_m68030_ea_is_data(single->ea.kind))) {
+      return false;
+    }
+    break;
+  case AP_M68030_SINGLE_NEGX:
+  case AP_M68030_SINGLE_CLR:
+  case AP_M68030_SINGLE_NEG:
+  case AP_M68030_SINGLE_NOT:
+  case AP_M68030_SINGLE_TAS:
+  case AP_M68030_SINGLE_MOVE_FROM_SR:
+  case AP_M68030_SINGLE_MOVE_FROM_CCR:
+    /* "Only data alterable addressing modes can be used", on each page. */
+    if (!allow_ea(cpu, ap_m68030_ea_is_data_alterable(single->ea.kind))) {
+      return false;
+    }
+    break;
+  case AP_M68030_SINGLE_ILLEGAL:
+  case AP_M68030_SINGLE_INVALID:
+    break;
   }
 
   switch (single->kind) {
@@ -1402,6 +1504,14 @@ static bool execute_shift(ap_m68030_cpu_t *cpu, const ap_m68030_shift_t *shift,
   }
 
   case AP_M68030_SHIFT_MEMORY: {
+    /* "Only memory alterable addressing modes can be used" -- *memory*
+     * alterable rather than data alterable, so a data register is excluded as
+     * well as the immediate and the PC-relative modes. The register forms of
+     * these instructions are a different encoding entirely, which is why
+     * `ASL.W D0` is not reached through here. */
+    if (!allow_ea(cpu, ap_m68030_ea_is_memory_alterable(shift->ea.kind))) {
+      return false;
+    }
     ap_m68030_address_input_t input = {0};
     if (!gather_address_input(cpu, shift->ea.kind, 2u, clocks, &input)) {
       return false;

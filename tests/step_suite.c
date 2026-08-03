@@ -3705,6 +3705,143 @@ static void test_a_table_search_ptest_leaves_the_atc_alone(void) {
  * Addressing mode legality, applied.
  * ------------------------------------------------------------------------- */
 
+/* **`TST` is the exception to its own group, twice over.**
+ *
+ * Its neighbours in the single-operand group say "Only data alterable
+ * addressing modes can be used". `TST`'s table lists **every** mode --
+ * immediate and PC-relative included -- because the 68020 widened it, its PC
+ * rows carrying "PC relative addressing modes do not apply to MC68000,
+ * MC680008, or MC68010". Applying the group's rule to it would refuse three
+ * forms this processor runs, which is the expensive direction to be wrong in.
+ *
+ * And its one restriction is a **size** rule that no category can express:
+ * "Address register direct allowed only for word and long". So `TST.B An` is
+ * the single illegal `TST`, and this core executed it. */
+static void test_tst_reaches_every_mode_but_refuses_a_byte_address_register(
+    void) {
+  machine_t m = {0};
+  static const uint16_t nothing[] = {0x4E71u};
+  (void)nothing;
+
+  /* The three forms the group's rule would have refused. */
+  const uint16_t legal[][2] = {
+      {0x4A3Cu, 0x0001u}, /* TST.B #1        -- immediate  */
+      {0x4A3Au, 0x0004u}, /* TST.B (d16,PC)  -- PC relative */
+      {0x4A48u, 0x0000u}, /* TST.W A0        -- word, so allowed */
+  };
+  for (unsigned i = 0; i < 3u; i++) {
+    machine_t n = {0};
+    const uint16_t program[] = {legal[i][0], legal[i][1], 0x4E71u};
+    load(&n, program, 3);
+    n.cpu.regs.a[0] = 0x00005000u;
+    TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED,
+                          ap_m68030_step(&n.cpu).status);
+  }
+
+  /* And the one it must refuse: byte size on an address register. */
+  static const uint16_t byte_an[] = {0x4A08u, 0x4E71u, 0x4E71u};
+  load(&m, byte_an, 3);
+  plant_vector(&m, AP_M68030_VECTOR_ILLEGAL_INSTRUCTION, HANDLER);
+  m.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
+  m.cpu.regs.isp = SUPERVISOR_STACK;
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXCEPTION, ap_m68030_step(&m.cpu).status);
+  TEST_ASSERT_EQUAL_HEX32(HANDLER, m.cpu.regs.pc);
+}
+
+/* **`CMPI` is "data", not "data alterable" -- and the immediate is not this
+ * check's business.**
+ *
+ * The category is the looser one because `CMPI` only reads its destination, so
+ * a PC-relative operand is legal where it is not for `ADDI`. Its table also
+ * dashes the immediate, but the *decoder* owns that: the whole `mode 111
+ * register 100` row carries the `CCR`/`SR` forms, and `CMPI` has none, so the
+ * word never reaches an executor. Asserting both here is what keeps a later
+ * reader from adding a second copy of the rule.
+ *
+ * `CMPI.L` is used rather than `.W` because `$0C7C`'s low byte collides with
+ * the `to SR` encoding shape and would be refused for the wrong reason. */
+static void test_cmpi_reads_pc_relative_and_never_sees_an_immediate(void) {
+  /* CMPI.L #$1234,(d16,PC) */
+  static const uint16_t ok[] = {0x0CBAu, 0x0000u, 0x1234u, 0x0006u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, ok, 5);
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&m.cpu).status);
+
+  /* CMPI.L #$1234,#$5678 -- refused by the decoder, so ILLEGAL rather than the
+   * trap the executor's category check would raise. Both are refusals; the
+   * distinction is which layer noticed, and it is asserted so that moving the
+   * rule shows up here. */
+  static const uint16_t bad[] = {0x0CBCu, 0x0000u, 0x1234u,
+                                 0x0000u, 0x5678u, 0x4E71u};
+  machine_t n = {0};
+  load(&n, bad, 6);
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_ILLEGAL, ap_m68030_step(&n.cpu).status);
+}
+
+/* **`BTST`'s two forms disagree about the immediate**, which no single category
+ * expresses and which a decoder cannot own here.
+ *
+ * `BTST Dn,<ea>` lists `#<data>` at mode 111 register 100. The static
+ * `BTST #n,<ea>` on the facing page dashes it -- it has already spent the
+ * immediate on its bit number. Unlike `CMPI`'s, this cannot be settled in the
+ * decoder, because the bit-operation rows decode their effective address
+ * directly rather than through the `CCR`/`SR` escape that swallows that row for
+ * everything else.
+ *
+ * So the same operand is legal in one form and not the other, ten bits apart in
+ * the encoding. */
+static void test_btst_takes_an_immediate_dynamically_but_not_statically(void) {
+  /* BTST D0,#$40 -- dynamic: bit 8 set, mode 111 register 100.
+   *
+   * Asserted as *not refused* rather than as executed, because it is not
+   * executed: the dynamic form with an immediate operand is a gap in this core,
+   * and it reports `UNIMPLEMENTED` — our gap, honestly. What this test owns is
+   * that the category check does not turn it into the machine's refusal, which
+   * is what a "data alterable" or an immediate-excluding rule would have done.
+   * Written this way so that closing the gap does not falsify the test. */
+  static const uint16_t dynamic[] = {0x013Cu, 0x0040u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, dynamic, 3);
+  m.cpu.regs.d[0] = 6u;
+  const ap_m68030_step_result_t allowed = ap_m68030_step(&m.cpu);
+  TEST_ASSERT_NOT_EQUAL_INT(AP_M68030_STEP_EXCEPTION, allowed.status);
+  TEST_ASSERT_NOT_EQUAL_INT(AP_M68030_STEP_ILLEGAL, allowed.status);
+
+  /* BTST #1,#$40 -- static, and refused. */
+  static const uint16_t stat[] = {0x083Cu, 0x0001u, 0x0040u, 0x4E71u};
+  machine_t n = {0};
+  load(&n, stat, 4);
+  plant_vector(&n, AP_M68030_VECTOR_ILLEGAL_INSTRUCTION, HANDLER);
+  n.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
+  n.cpu.regs.isp = SUPERVISOR_STACK;
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXCEPTION, ap_m68030_step(&n.cpu).status);
+  TEST_ASSERT_EQUAL_HEX32(HANDLER, n.cpu.regs.pc);
+}
+
+/* **A memory shift takes memory alterable modes, which excludes a data
+ * register.** "Only memory alterable addressing modes can be used" -- so
+ * `ASL.W (A0)` is an instruction and the same encoding naming `D0` is not. The
+ * register forms are a different encoding entirely, which is what makes the
+ * distinction easy to lose: `ASL.W D0` is legal and reaches this executor
+ * never. */
+static void test_a_memory_shift_refuses_a_data_register(void) {
+  /* ASL.W (A0) is $E1D0; the same form with mode 000 register 0 is $E1C0. */
+  static const uint16_t ok[] = {0xE1D0u, 0x4E71u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, ok, 3);
+  m.cpu.regs.a[0] = 0x00005000u;
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&m.cpu).status);
+
+  static const uint16_t bad[] = {0xE1C0u, 0x4E71u, 0x4E71u};
+  machine_t n = {0};
+  load(&n, bad, 3);
+  plant_vector(&n, AP_M68030_VECTOR_ILLEGAL_INSTRUCTION, HANDLER);
+  n.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
+  n.cpu.regs.isp = SUPERVISOR_STACK;
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXCEPTION, ap_m68030_step(&n.cpu).status);
+  TEST_ASSERT_EQUAL_HEX32(HANDLER, n.cpu.regs.pc);
+}
+
 /* The categories are only worth having if something enforces them. `LEA` takes
  * control modes, so `LEA (A0),A1` is legal and `LEA (A0)+,A1` is not -- the
  * increment carries an operand size and there is no operand size in a load of
@@ -7194,6 +7331,10 @@ int main(void) {
   RUN_TEST(test_an_interrupt_in_master_state_builds_two_frames);
   RUN_TEST(test_an_interrupt_wakes_a_stopped_processor);
   RUN_TEST(test_an_interrupt_returns_to_the_instruction_it_preempted);
+  RUN_TEST(test_tst_reaches_every_mode_but_refuses_a_byte_address_register);
+  RUN_TEST(test_cmpi_reads_pc_relative_and_never_sees_an_immediate);
+  RUN_TEST(test_btst_takes_an_immediate_dynamically_but_not_statically);
+  RUN_TEST(test_a_memory_shift_refuses_a_data_register);
   RUN_TEST(test_lea_refuses_an_increment_mode_it_decodes_perfectly_well);
   RUN_TEST(test_a_move_cannot_write_through_the_program_counter);
   RUN_TEST(test_pmove_refuses_an_increment_mode);

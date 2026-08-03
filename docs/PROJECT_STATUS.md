@@ -4359,6 +4359,48 @@ single-operand, immediate and shift groups enforce no categories at all, so
 `MOVEP` is in that count too, and is a genuinely missing instruction rather than
 a misclassification.
 
+**The category tables are now enforced in the single-operand, immediate and
+shift groups too, and each rule came from its own instruction page.** The
+`[PRM]` states the category in prose on every page — "Only data alterable
+addressing modes can be used" — and that sentence, not a generalisation from a
+neighbour, is what each check transcribes.
+
+The numbers matter more than the mechanism. C95 moved 791 words from *our gap*
+to *the machine's refusal*; this moves **578 words that were executing** into
+refusing. Those are the expensive ones: the category header has always said that
+accepting words the processor refuses is "the wrong direction to be wrong in,
+because a real program never contains them and only a broken one benefits", and
+that is exactly what was happening.
+
+Three rules no single category expresses, and each would have been got wrong by
+applying a neighbour's:
+
+- **`TST` reaches every addressing mode**, immediate and PC-relative included —
+  a 68020 widening, its PC rows footnoted "do not apply to MC68000, MC680008, or
+  MC68010". Its neighbours are data alterable, so the group's rule would have
+  refused three forms this processor runs. Its one restriction is a *size* rule:
+  "Address register direct allowed only for word and long", so `TST.B An` is the
+  single illegal `TST` — and this core executed it.
+- **`CMPI` is data, not data alterable**, because it only reads. Its table also
+  dashes the immediate, but the decoder already owns that row: `mode 111
+  register 100` carries the `CCR`/`SR` forms, and `CMPI` has none. Checking it
+  again in the executor would have been a second copy that never runs.
+- **`BTST`'s two forms disagree about the immediate.** `BTST Dn,<ea>` lists
+  `#<data>`; the static `BTST #n,<ea>` on the facing page dashes it, having
+  spent the immediate on its bit number. Unlike `CMPI`'s, this one *cannot* live
+  in the decoder, because the bit-operation rows decode their effective address
+  directly instead of through that escape.
+
+Verified by four `step_suite` tests written against the pages rather than the
+implementation. The `BTST` test asserts the dynamic form is *not refused* rather
+than that it executes, because it does not execute — `BTST Dn,#<data>` is a
+named gap, reported as `UNIMPLEMENTED`, and writing the test that way means
+closing the gap will not falsify it.
+
+**1772 words remain `UNIMPLEMENTED`**, down from 2621 before C95. The largest
+named remainder is family 5 — `ADDQ`, `SUBQ` and `Scc` enforce no categories at
+all — and two genuinely missing instructions, `MOVEP` and `BTST Dn,#<data>`.
+
 **And the machine now uses that sequence, which for a long time it did
     not.** `ap_m68030_take_reset` had no caller anywhere in `src`;
     `ap_machine_reset` ran a shorter sequence of its own -- supervisor,
