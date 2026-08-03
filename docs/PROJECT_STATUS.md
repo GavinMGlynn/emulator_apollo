@@ -4410,6 +4410,30 @@ placement fingerprint. Neither is wrong: the datasheet defines no value. It is
 registered here so that the first board-backed oracle diff does not read it as a
 defect.
 
+#### The boot ran on a machine where no time passed
+
+The headless frontend's boot path -- the one every firmware experiment in this
+project has used -- stepped `ap_m68030_step` directly. That is the *processor*
+and nothing else: no interrupt sampling, no bus tick, no stall for another bus
+master, and no device advanced. So the boot ran on a machine where no time
+passed at all, and every timer the firmware programmed stood still while the
+firmware waited on one.
+
+The `elapsed` line in its own report said `0 base units`, run after run, and was
+read as a formatting detail rather than as the symptom it was. It is now
+3,370,481,136 units over 1.5 million instructions -- about a sixth of a second
+of emulated time.
+
+The fix is not to add the missing calls beside the step but to stop having a
+second stepping loop at all: the frontend now calls `ap_machine_run` with a
+limit of one, which is the machine's own loop once. A frontend that reimplements
+the run loop to add tracing will drift from it, and this one had -- silently,
+because everything it printed was still true of the processor.
+
+It does not move the boot: the PROM still stops in the console-selection poll at
+`000007AE`. What it does is make every later experiment run on the machine this
+core models rather than on a processor with the machine switched off.
+
 #### The memory refresh, a derived crystal, and the off-by-one it caught
 
 §3.9 gives the DUART one job that has nothing to do with serial lines: the

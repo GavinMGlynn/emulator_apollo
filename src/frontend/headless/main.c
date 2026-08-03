@@ -593,7 +593,26 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
         }
       }
       const uint32_t step_pc = machine.cpu.regs.pc;
-      const ap_m68030_step_result_t r = ap_m68030_step(&machine.cpu);
+      /* One instruction through the *machine*, not through the processor.
+       *
+       * This called `ap_m68030_step` directly, which is the CPU and nothing
+       * else: no interrupt sampling, no bus tick, no stall for another master,
+       * and no device advanced. So the boot -- the most important path this
+       * frontend has -- ran on a machine where no time passed at all, and every
+       * timer the firmware programmed stood still while it waited for one. The
+       * `elapsed` line reported zero for exactly that reason and nobody read
+       * it as the symptom it was.
+       *
+       * `ap_machine_run` with a limit of one is the whole of the machine's own
+       * loop, once. Keeping the frontend's stepping on that rather than beside
+       * it is what stops the two diverging again. */
+      const ap_machine_run_t one = ap_machine_run(&machine, 1u);
+      /* The instruction word is read back from where it executed, since the
+       * machine's loop reports why a run ended and not which word did it. */
+      uint32_t executed_word = 0;
+      (void)ap_machine_read(&machine, step_pc, 2u, &executed_word);
+      const ap_m68030_step_result_t r = {
+          .status = one.status, .instruction = (uint16_t)executed_word};
       /* A6 as well as A7: the firmware uses it as a base pointer for its own
        * data, and whether those two overlap is the question a trace has to be
        * able to answer. */
