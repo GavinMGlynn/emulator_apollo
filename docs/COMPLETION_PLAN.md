@@ -1946,8 +1946,13 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
       rate mismatch set a flag and delivered the byte *intact*, where a UART
       returns a different value because it sampled at the wrong instants.
       `ap_mc68681_resample` models the sampling and reproduces two of the three
-      fixed arms exactly. The byte now reaches the dispatcher; what the port's
-      clock select holds at the instant it lands is the next thing to check.
+      fixed arms exactly. Measured next: the firmware **sweeps** the port's rate
+      — `BB` at step 1234, `77` at 49763 — so a fixed-rate sender sometimes
+      coincides with it and wastes a byte, since a correctly framed `0D` matches
+      no arm. After a genuine mismatch the character sits unread with `RxRDY`
+      and the framing flag both set while the firmware dispatches in the chain
+      at `000886`, so something else is feeding it. Which channel, and why the
+      poll passes over a set `RxRDY`, is the next step.
       Superseded detail: C109's reading of `72` as `'r'`.
   - **The oracle's half of that comparison now exists.** `docs/references/MD.md`
     holds its console stream byte-exact — sign-on `0D 0A 4D 44 37 0D 0A`, prompt

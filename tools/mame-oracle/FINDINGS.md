@@ -6165,11 +6165,28 @@ written. Now compared as *rates* rather than codes, so the four codes that are
 not a fixed rate -- the timer and the two external clocks -- match rather than
 inventing a disagreement this core cannot know about.
 
-**Where it stands**: the byte now reaches the dispatcher and is compared against
-all five arms without matching, so the shape delivered is not the one the port's
-current rate implies. `ap_mc68681_resample` produces `FF` correctly in isolation
-for 9600-into-1050. What the port's clock select actually holds at the instant
-the byte lands is the next thing to check.
+**Where it stands, measured rather than guessed.** Instrumenting the port at the
+instant each scripted byte lands gives the sequence:
+
+| step | channel B `CSR` | what happened |
+| --- | --- | --- |
+| 1234 | `BB` (9600), `MR1` 8-bit, receiver off | the firmware's first configuration |
+| 1235 | `BB` | first byte sent -- **rates matched**, so it arrived as an intact `0D` and no arm has a case for that |
+| 49763 | `77` (1050), receiver on | the firmware moves the port |
+| 49790 | `77` | second byte sent at 9600 -- a genuine mismatch |
+
+So the firmware **sweeps** the port's rate, and a scripted sender at one fixed
+rate will sometimes coincide with it. A coincidence wastes the byte: a correctly
+framed `0D` matches none of the five arms, which is the firmware relying on the
+rate being wrong.
+
+After the second byte the port stays at `77` and the FIFO stays at one byte with
+`RxRDY` and the framing flag both set -- `SR` reads `4D` -- and the firmware
+**never reads it**, sitting in the dispatcher at `000886`. So the byte it is
+dispatching is not the one we delivered, and something else is feeding the chain
+while channel B's character waits. Which channel that is, and why the poll passes
+over a set `RxRDY` on channel B, is the next thing to establish and it is
+firmware disassembly rather than emulator work.
 
 ### Checked from now on
 
