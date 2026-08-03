@@ -3,6 +3,8 @@
 #include "unity.h"
 
 #include "board/ap_nodeid.h"
+#include <string.h>
+#include "image/ap_volume.h"
 
 void setUp(void) {}
 void tearDown(void) {}
@@ -96,8 +98,50 @@ static void test_the_prom_aliases_through_its_range(void) {
   TEST_ASSERT_FALSE(ap_nodeid_decode(0x011100u, &reg)); /* the slave PIC */
 }
 
+/* The volume is the *source* of the identifier this PROM holds.
+ *
+ * `ap_nodeid_init` takes it from a caller, deliberately -- "a device whose
+ * purpose is to be unique per machine must not be identical on every one" --
+ * and `image/ap_volume.h` is the caller's source: a Domain volume records the
+ * node that initialised it. This is the join, and it is worth a test because
+ * the two halves are twenty bits in different formats: a UID's low bits at one
+ * end, four PROM registers at the other. */
+static void test_a_volumes_node_reaches_the_proms_registers(void) {
+  /* The label eleven real images carry, built here because `media/` is
+   * gitignored -- see `volume_suite`. */
+  uint8_t blocks[AP_VOLUME_LABEL_BYTES];
+  memset(blocks, 0, sizeof blocks);
+  const uint32_t magic = AP_VOLUME_MAGIC;
+  blocks[AP_VOLUME_MAGIC_OFFSET + 0u] = (uint8_t)(magic >> 24);
+  blocks[AP_VOLUME_MAGIC_OFFSET + 1u] = (uint8_t)(magic >> 16);
+  blocks[AP_VOLUME_MAGIC_OFFSET + 2u] = (uint8_t)(magic >> 8);
+  blocks[AP_VOLUME_MAGIC_OFFSET + 3u] = (uint8_t)magic;
+  memset(&blocks[AP_VOLUME_NAME_OFFSET], ' ', AP_VOLUME_NAME_BYTES);
+  memcpy(&blocks[AP_VOLUME_NAME_OFFSET], "APOLLODN3500", 12u);
+  const uint8_t uid[8] = {0xA4u, 0x5Au, 0xA6u, 0x73u,
+                          0x10u, 0x01u, 0x23u, 0x45u};
+  memcpy(&blocks[AP_VOLUME_CREATOR_UID_OFFSET], uid, sizeof uid);
+
+  ap_volume_label_t label;
+  TEST_ASSERT_TRUE(ap_volume_read_label(blocks, sizeof blocks, &label));
+  TEST_ASSERT_EQUAL_HEX32(0x012345u, label.node_id);
+
+  /* And the PROM built from it presents that identifier, big-endian across
+   * registers 0-3, with the checksum the oracle computes. */
+  ap_nodeid_t prom;
+  ap_nodeid_init(&prom, label.node_id);
+
+  const uint32_t held =
+      ((uint32_t)ap_nodeid_read(&prom, AP_NODEID_ADDR + 0u * 2u) << 24) |
+      ((uint32_t)ap_nodeid_read(&prom, AP_NODEID_ADDR + 1u * 2u) << 16) |
+      ((uint32_t)ap_nodeid_read(&prom, AP_NODEID_ADDR + 2u * 2u) << 8) |
+      (uint32_t)ap_nodeid_read(&prom, AP_NODEID_ADDR + 3u * 2u);
+  TEST_ASSERT_EQUAL_HEX32(0x012345u, held);
+}
+
 int main(void) {
   UNITY_BEGIN();
+  RUN_TEST(test_a_volumes_node_reaches_the_proms_registers);
   RUN_TEST(test_the_measured_dump_is_reproduced);
   RUN_TEST(test_the_checksum_is_the_sum_of_the_identifier_bytes);
   RUN_TEST(test_the_checksum_truncates_rather_than_carrying);

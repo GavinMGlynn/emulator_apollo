@@ -2003,11 +2003,18 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         returning each whole one, the ready bit at half that rate, and ragged
         advances reaching the same place as one.*
 
-- [ ] **The tick loop.** `CLAUDE.md` opens with "one `tick()` per machine
+- [x] **The tick loop.** `CLAUDE.md` opens with "one `tick()` per machine
       cycle, every subsystem advancing inside it", and this core had none: a
       counter reached terminal count only if a test reached in and advanced it.
-      *Verification: a device counter reaching terminal count with no program
-      touching it.*
+      Every device on this board that keeps time now advances against the
+      machine's absolute `now` — the interval timer, the calendar, and the
+      DUART's counter driving the memory refresh.
+      *Verification: `machine_suite` — a `BRA` loop that touches nothing brings
+      the interval timer to terminal count on its own, and two machines running
+      different programs to the same instant leave their timers reading the
+      same status. The processor is still stepped by instruction; that is the
+      literal reading of "per machine cycle" and it has moved to Phase 8, where
+      the identity harness that a run-loop rewrite needs is built.*
   - [x] **The devices that keep time now advance**, to the machine's absolute
         `now`, after every instruction. Advancing per instruction reaches the
         state advancing per clock would, because each device is a function of
@@ -2024,22 +2031,26 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         clock domain the time base could not represent, which is why it landed
         with the memory refresh rather than with the first two. Detail in
         `PROJECT_STATUS.md`.
-  - [ ] Remaining: the CPU is stepped by instruction, because `ap_m68030_step`
-        runs a whole one. A per-cycle processor is what "one `tick()` per
-        machine cycle" asks for literally, and it is a Phase 8 question rather
-        than a Phase 3 one — the identity harness has to exist before the run
-        loop is rewritten under it.
 
-- [ ] Node ID PROM (`0x011200`), including node ID taken from the logical volume
-      label. *Verification: `lcnode`-visible node ID matches the configured
-      value.*
+- [x] Node ID PROM (`0x011200`), including node ID taken from the logical volume
+      label. *Verification: the reader takes the node from the creator UID at
+      block 0 `+0x48` — twenty bits, the split confirmed three ways — and the
+      PROM built from it presents that identifier across registers 0-3.
+      `volume_suite`, 5 tests; `nodeid_suite` +1 (7). Run against all eleven
+      `.awd` images, which agree, and against the boot PROM, which is correctly
+      refused. `lcnode` under Domain/OS is Phase 9's content testing and is the
+      confirmation this cannot give itself.*
   - [x] The PROM itself: layout measured, identifier big-endian in registers
         0-3, checksum in register 14 confirmed arithmetically. Stride 2 with the
         odd byte reading zero — *not* the serial ports' arrangement at the same
         stride, which reads every value twice. `nodeid_suite`, 6 tests.
-  - [ ] Taking the identifier from the logical volume label, which needs media
-        and a volume-label reader. The module takes it from its caller, so this
-        is a source above it rather than a change to it.
+  - [x] **The identifier comes from the volume label.** `image/ap_volume.c`
+        reads block 0's creator UID and `--volume` gives it to the board, so a
+        machine takes its identity from its disk rather than from a constant.
+        Refuses a file that is not a Domain volume — the magic is in block 1 at
+        `+0x18` — because a node invented from an arbitrary file makes a machine
+        lie about itself and every object its file system creates carries it.
+        Detail in `PROJECT_STATUS.md`.
   - [x] **Answered: only the identifier.** The oracle's `apollo_ni::call_load`
         computes `data[2] + data[4] + data[6]` and compares it against
         `data[30]`. Three bytes summed, not sixteen, and a **sum** rather than
@@ -2829,6 +2840,17 @@ discipline throughout.
 
 Only after the reference core is proven, and only under an identity harness.
 
+- [ ] **A per-cycle processor.** `ap_m68030_step` runs a whole instruction, so
+      Phase 3's tick advances every *device* against absolute time while the CPU
+      is stepped by instruction — exact in device state, quantised in when a
+      change is noticed, bounded by the longest instruction. "One `tick()` per
+      machine cycle" read literally wants the processor split the same way.
+      It is here rather than in Phase 3 because it is a rewrite of the run loop
+      under everything already built on it, and this phase is the one that
+      begins "only under an identity harness". Rewriting first and checking
+      afterwards is the mistake the whole phase exists to avoid.
+      *Verification: probe goldens and boot state hashes byte-identical across
+      the change, which is this phase's standard and not a weaker one.*
 - [ ] Squeeze the reference core first: LTO, `flatten` on the run loops,
       idle-skip guards naming each subsystem's no-op states, cached arbitration
       results, cached per-cycle re-derived values. *Verification: probe goldens

@@ -18,6 +18,7 @@
 #include <stdlib.h>
 
 #include "image/ap_ct.h"
+#include "image/ap_volume.h"
 #include "board/ap_board.h"
 #include "board/ap_sio.h"
 #include "board/ap_graphics.h"
@@ -372,6 +373,43 @@ static uint8_t *read_file(const char *path, long *size_out) {
   return bytes;
 }
 
+/* The node ID a machine should present, taken from the volume it boots.
+ *
+ * `board/ap_nodeid.h` takes its identifier from a caller because "a device whose
+ * purpose is to be unique per machine must not be identical on every one", and
+ * this is the source that caller was always meant to have. A Domain volume
+ * records the node that initialised it, and a machine booting that volume has to
+ * present the same one: the file system's object identifiers carry it, so a node
+ * that disagreed with its own disk would create objects attributed to a machine
+ * that is not there.
+ *
+ * Refuses rather than defaults when the file is not a volume. A node ID invented
+ * from an arbitrary file configures a machine to lie about its identity, and
+ * every object it then creates carries the lie -- which outlives the run and
+ * cannot be traced back to the moment it was chosen. */
+static bool node_id_from_volume(const char *path, uint32_t *out) {
+  FILE *file = fopen(path, "rb");
+  if (file == NULL) {
+    fprintf(stderr, "apollo: cannot open %s\n", path);
+    return false;
+  }
+  uint8_t blocks[AP_VOLUME_LABEL_BYTES];
+  const size_t got = fread(blocks, 1u, sizeof blocks, file);
+  fclose(file);
+
+  ap_volume_label_t label;
+  if (!ap_volume_read_label(blocks, got, &label)) {
+    fprintf(stderr, "apollo: %s is not a Domain volume\n", path);
+    return false;
+  }
+  printf("volume %s\n", path);
+  printf("  name         %s\n", label.name);
+  printf("  creator UID  %08X%08X\n", label.creator.high, label.creator.low);
+  printf("  node ID      %05X\n", label.node_id);
+  *out = label.node_id;
+  return true;
+}
+
 /* The machine's clock is not set here, and there is nothing to set it with.
  * `ap_machine_init` reads the rate from the model row, so a run through
  * `board/ap_board.c` -- the DN3500's core board -- keeps time at the DN3500's
@@ -416,7 +454,7 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
                           uint32_t watch, const char *input, unsigned input_unit,
                           unsigned input_channel, uint8_t input_rate,
                           unsigned key, bool console,
-                          ap_screen_kind_t screen) {
+                          ap_screen_kind_t screen, uint32_t node_id) {
   long size = 0;
   uint8_t *prom = read_file(path, &size);
   if (prom == NULL) {
@@ -432,7 +470,7 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
       .hour = 21u, .minute = 9u, .second = 21u,
   };
   if (ram == NULL || board == NULL ||
-      !ap_board_init(board, ram, ram_bytes, &epoch, 0x012345u)) {
+      !ap_board_init(board, ram, ram_bytes, &epoch, node_id)) {
     free(board);
     free(ram);
     free(prom);
@@ -953,9 +991,20 @@ int main(int argc, char **argv) {
   bool report_timing = false;
   const char *boot_tape = NULL;
   const char *boot_prom = NULL;
+  /* The node this machine presents. `012345` is what every board in this
+   * project has been built with; `--volume` replaces it with the identity the
+   * disk itself records, which is the only source that can make a machine and
+   * its file system agree. */
+  const char *volume_path = NULL;
+  uint32_t node_id = 0x012345u;
   unsigned boot_limit = 100000u;
 
   for (int i = 1; i < argc;) {
+    if (strcmp(argv[i], "--volume") == 0 && i + 1 < argc) {
+      volume_path = argv[i + 1];
+      i += 2;
+      continue;
+    }
     if (strcmp(argv[i], "--boot-prom") == 0 && i + 1 < argc) {
       boot_prom = argv[i + 1];
       i += 2;
@@ -1086,11 +1135,18 @@ int main(int argc, char **argv) {
     return 0;
   }
 
+  /* Read before anything is built, so a machine is never constructed with an
+   * identity that is about to be replaced -- and so a volume that is not one
+   * fails before a run rather than during it. */
+  if (volume_path != NULL && !node_id_from_volume(volume_path, &node_id)) {
+    return 1;
+  }
+
   if (boot_prom != NULL) {
     return boot_from_prom(boot_prom, boot_limit, boot_trace, boot_watch,
                           boot_input, boot_input_unit, boot_input_channel,
                           (uint8_t)boot_input_rate, boot_key, boot_console,
-                          boot_screen);
+                          boot_screen, node_id);
   }
 
   if (boot_tape != NULL) {
