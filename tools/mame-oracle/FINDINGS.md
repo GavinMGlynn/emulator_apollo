@@ -5972,6 +5972,68 @@ than exists. Nothing ever failed, nobody was misled into trusting an unverified
 subsystem, and ninety numbers quietly stopped being true. A claim that is wrong
 in the safe direction still teaches its reader that the numbers are decorative.
 
+## C109 -- the boot PROM's console state machine, mapped from its own code
+
+**Class: our core, one defect; and the firmware's structure, recovered.**
+
+The SIO item's verification is "console byte stream identical to the oracle's".
+The oracle's half is captured byte-exact in `docs/references/MD.md`; ours does
+not exist, and the plan has said "the PROM never transmits" without saying what
+it does instead. It does a great deal, and all of it is now legible.
+
+**First, a defect that made every previous firmware run meaningless as a
+measurement.** The headless boot path stepped `ap_m68030_step` directly -- the
+processor, with no interrupt sampling, no bus tick and no device advanced -- so
+the machine's own `elapsed` line read `0 base units` on every run this project
+has ever taken. Fixed by stepping `ap_machine_run` with a limit of one; the same
+run now reports 3,370,481,136 units over 1.5 million instructions. It does not
+move the boot, but everything below is measured on a machine with its clock
+running.
+
+**The console-selection poll**, at `00078E`-`0007AE`, is three `BTST #0` --
+RxRDY -- on three status registers, branching when any is set:
+
+| tested | port | on RxRDY |
+| --- | --- | --- |
+| `($0002,A0)` | serial 1 channel A, the keyboard | branch to `00080E` |
+| `($0012,A0)` | serial 1 channel B | branch to `0007E6` |
+| `($0102,A0)` | serial 2 channel A | fall through to `0007B0` |
+
+A0 is `010400`. So the firmware waits for a byte on any of the three and takes a
+different path for each -- it is choosing a console, which is why an idle
+machine sits here forever.
+
+**The status-post routine at `00251A`** takes its argument *inline*, reading a
+word from the return address and stepping over it, and ends `MOVE.B D0,(A1)`
+with A1 from `($015A,A6)`. Watching that pointer gives `00010100` -- the CPU
+control register -- and the byte is written **complemented**. This is the
+diagnostic code display, not console output. Codes observed in sequence: `03`,
+`04`, `07`, `08`, `0A`.
+
+**`0A` is "a byte arrived on the console channel".** `0007E6` posts it and the
+next instruction, `1228 0016`, reads `($0016,A0)` -- serial 1 channel B's
+receive buffer. So the code and the read are one step, and a machine posting
+`0A` repeatedly is one receiving console bytes repeatedly.
+
+**The character dispatcher** compares the received byte against `FF`, `FE`,
+`C7`, `72` -- `'r'` -- `C0`, and `0D`. Reaching those comparisons means the
+autobaud has completed and bytes are decoding: with a keyboard press first,
+serial 1 channel B's clock select is written twice rather than 27,365 times.
+
+**And the keyboard press is what starts it**, which `MD.md` recorded and this
+confirms from the other side: its capture recipe is "a key press on the Apollo
+keyboard to prompt the firmware's autobaud" and then "one carriage return every
+0.4 s". Sending the carriage returns without the key -- which is what every
+attempt here had done -- leaves the firmware cycling rates against a channel it
+has not been told to listen to.
+
+**What is still open.** The firmware takes the bytes, dispatches them, posts its
+codes and does not transmit: `sio1 reg 3` and `sio2 reg 3`, the transmit holding
+registers, are never written. The remaining question is what it wants that it is
+not getting, and the dispatcher's constants are the place to look -- `C7` and
+`C0` are scan codes rather than characters, so the console it is negotiating with
+may be the keyboard's rather than the terminal's.
+
 ### Checked from now on
 
 `tools/check_doc_counts.py` compares every "`X_suite`, N tests" claim in the
