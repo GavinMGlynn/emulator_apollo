@@ -3939,7 +3939,18 @@ Kept rather than discarded, so a future contradiction has a documented history.
   character crosses the DUART whole. The firmware autobauds its console by
   cycling clock select and waiting for a byte to *fail* to decode, which this
   core cannot yet make happen.
-- No DMA transfers, and no shared arbitration point for them to contend at.
+- No DMA transfers. The shared arbitration point exists (`board/ap_arbiter.c`)
+  and so does an I/O adapter's route into it (`board/ap_master.c`), but nothing
+  yet runs a bus cycle through either.
+- **The Series 4000 Master Request Register is unmodelled and stays that way
+  until a source names its bits.** `008778-03` §2.4.7's second route to bus
+  mastership is "setting a particular bit in this register", and the manual
+  never says which; the register at `011600` is absent from the oracle
+  (`FINDINGS.md` C10). All that is known is that the boot PROM clears it at
+  reset. Cost to close: a Series 4000 hardware reference naming the bit, or a
+  runnable DN4500 oracle. Until then `board/ap_boardreg.c` declines the address
+  rather than guessing a value, and the cascade-plus-MASTER.L route — which
+  every Series 3000 and 4000 has — is the one that is modelled.
 - The ring controller's register-level interface is not yet recovered; the
   manuals give its address window and block diagram but not its registers.
 
@@ -4397,6 +4408,71 @@ paper over" — where MAME returns `0F`, which is what `FINDINGS.md` C13 used as
 placement fingerprint. Neither is wrong: the datasheet defines no value. It is
 registered here so that the first board-backed oracle diff does not read it as a
 defect.
+
+#### An I/O adapter's route to the arbiter, and the encoder that is really two
+
+`board/ap_arbiter.c` answers *who gets the bus*. `008778-03` §2.4.7 answers how
+an AT card becomes one of the askers, and the answer is not "assert a request
+line" — the card requests through a **DMA channel**, and the bus it ends up with
+is only the card's because that channel was programmed in cascade mode.
+
+The paragraph is quoted in full in `board/ap_master.h`, and every rule in the
+module is one of its clauses:
+
+- **Cascade mode is the load-bearing part.** The same DRQ on a channel in any
+  other mode wins the same arbitration and gives the card a *transfer*, not the
+  bus: the controller drives, which is the DMA controllers' item rather than
+  this one. So ownership is gated on the mode, and the module reports the other
+  case as "the controllers may drive".
+- **DACK follows mastership, it does not precede it.** The board can only
+  acknowledge a channel it has won the bus for, so the acknowledgement is the
+  arbiter's answer read back rather than anything this module decides.
+- **Ownership ends when *both* signals are released** — "until it releases the
+  DRQx and MASTER.L signals". That is stronger than it looks: an adapter that
+  drops DRQ while still holding MASTER.L keeps the bus, so the module holds the
+  arbiter's request line asserted on its behalf once acknowledged. Passing the
+  bare DRQ line through would hand the bus back mid-transaction with the card
+  still driving it.
+- **MASTER.L inhibits AEN**, which is what lets the new master address I/O cards
+  at all: AEN asserted tells a card the address belongs to a DMA controller.
+- **The route runs through the part, not past it.** The request is decided by
+  `ap_i8237_service_pending`, which honours the mask and the controller-disable
+  bit, so software that has masked the channel has closed the route. That falls
+  out of asking the part rather than the pin.
+
+**Which DRQ line and which channel is not decided here.** The caller supplies
+both, because `board/ap_dma.h` refuses to claim this board's cascade wiring —
+the equivalent assumption about the interrupt controllers was wrong on this
+machine (`FINDINGS.md` C11), and the DMA cascade is to be measured once
+transfers exist. A module that hard-wired a channel would have made that
+measurement look unnecessary while being wrong the same way.
+
+**The finding worth keeping: there are two priority encoders in series, and the
+first one is not the arbiter's.** A test written to show two adapters ordered by
+the AT bus's "DRQO having the highest priority" order failed, and the model was
+right. A controller has one request output, so its own encoder resolves its four
+channels before anything downstream is asked — an adapter on a low-numbered
+arbiter line loses to one on a low-numbered *channel*. The AT's DRQ0-through-7
+order is what the cascaded pair of controllers implements, not a separate
+encoder sitting above them. Both halves are now pinned: two adapters on one
+controller are ordered by channel, two on different controllers by line.
+
+**The Series 4000 route is a recorded gap, not an omission.** §2.4.7's second
+paragraph gives an alternative — "In the Series 4000, an alternate method of bus
+arbitration exists that implements a Master Request Register. By setting a
+particular bit in this register, an external processor asserts its DMA Request
+signal to the system processor." Which bit is never stated; the register at
+`011600` is absent from the oracle (`FINDINGS.md` C10) and `board/ap_boardreg.h`
+declines it for that reason. Modelling it would mean choosing a bit number no
+source supplies. What is known and not enough: the boot PROM executes
+`CLR.B $00011600` on every pass through its reset path, which is what a
+bus-mastering request register would want at reset and confirms nothing about
+the arbitration path — not the read-back value, and not the effect of a set.
+Cost to close: a Series 4000 hardware reference naming the bit, or a runnable
+DN4500 oracle that has the register. The same paragraph also gives the one
+figure that *is* stated — "The address translation map in the Series 4000
+restricts external Masters to transfers of 512 KB to or from main memory" —
+which `board/ap_atmap.h` already carries.
 
 #### A device can lengthen its own bus cycle
 

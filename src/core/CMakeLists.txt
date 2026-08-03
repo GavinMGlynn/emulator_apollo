@@ -53,6 +53,7 @@ add_library(apollo_core STATIC
   board/ap_disk.c
   board/ap_dma.c
   board/ap_graphics.c
+  board/ap_master.c
   board/ap_nodeid.c
   board/ap_sio.c
   board/ap_tape.c

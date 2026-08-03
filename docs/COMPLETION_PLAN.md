@@ -1602,20 +1602,21 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         `008778-03` §2.4.6's order — "DRQO having the highest priority and DRQ7
         having the lowest" — and the processor beneath all of them.
         Detail in `PROJECT_STATUS.md`.
-  - [ ] Remaining: the two routes `008778-03` §2.4.7 gives an I/O adapter for
-        *reaching* the arbiter — a DMA channel in cascade mode plus MASTER.L,
-        and the Series 4000 Master Request Register. Both need transfers, and
-        the register is absent from the oracle (C10).
-        - The register's **absence from the oracle stands**, but its use no
-          longer has to be guessed: the boot PROM executes `CLR.B $00011600` on
-          every pass through its reset path, so the firmware clears the master
-          request register early and repeatedly. Same evidence as the Phase 3
-          core-register item, cross-referenced here because both were blocked on
-          the same unknown.
-        - What that does not give is the read-back value or the effect of a
-          *set* — only that the firmware clears it at reset, which is what a
-          bus-mastering request register would want at reset and is therefore
-          consistent without confirming anything about the arbitration path.
+  - [x] **The route an I/O adapter takes into the arbiter**, `008778-03`
+        §2.4.7's first method: DRQx to a channel programmed in cascade mode,
+        DACKx.L from the board once the arbitration is won, then MASTER.L, and
+        ownership until *both* signals are released. `board/ap_master.c`.
+        Neither route needed transfers after all — acquisition is a handshake,
+        and the transfer is the DMA controllers' item. The second route, the
+        Series 4000 Master Request Register, is now a **recorded gap**: the
+        manual never names the bit, the register is absent from the oracle
+        (C10), and all that is known is that the PROM clears it at reset.
+        Detail and cost to close in `PROJECT_STATUS.md`.
+        *Verification: `master_suite`, 10 tests, one per clause. The one that
+        changed the model's story: two adapters on one controller are ordered
+        by the **channel** encoder, not the arbiter's line order — a controller
+        has one request output, so the AT's DRQ0-highest order is what the
+        cascaded pair implements rather than an encoder above them.*
   - [x] **The termination's arrival clock.** A device can now lengthen its own
         cycle: the memory system declares its wait states through one callback
         on the access context, and termination is withheld from the bus rather
