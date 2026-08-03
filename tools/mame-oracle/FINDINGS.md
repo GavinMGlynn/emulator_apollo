@@ -5101,3 +5101,57 @@ asserted without running, in the same entry that criticised checks which are
 right for the one case they were written for. An unrun claim is unrun whether it
 appears in code or in a findings document, and a findings file is the worse place
 for one: the next reader has no failing test to catch it.
+
+## C90 -- the timing model was documented as one that had been retired
+
+**Class: documentation defect, three sites, no behaviour wrong.**
+
+Found by sweeping for public functions the *product* never calls -- the category
+that has now produced three findings, because in this codebase a declared-and-
+unconsulted function usually means a rule stated in one place and implemented
+differently in another.
+
+`ap_m68030_schedule` is `max(microcode, bus)`, is tested, and **nothing in the
+step calls it**. The step's own framing comment nonetheless said the cost was
+"the two *scheduled* rather than summed", and `PROJECT_STATUS.md` said so twice
+more -- once in the summary and once in the subsystem table, both naming
+`max(microcode, bus)` as what the machine runs.
+
+It is not, and `docs/references/M68030_TIMING.md` had already recorded why under
+"`max(microcode, bus)` does not survive the effective address tables": `max` is
+monotonic in both arguments, while warm and cold `ADD.B D0,(A0)` need 6 and 7
+against bus times of 4 and 6 -- answers that move the opposite way to their
+inputs, so no microcode figure reaches both.
+
+What the step actually implements is the refinement that document proposed --
+one question per bus cycle, *is the microcode waiting on this?* A prefetch is
+not waited on and can hide; an operand read the operation is about to consume
+cannot. So:
+
+    exposed microcode + measured operand bus + prefetch exposure
+
+The behaviour was never in doubt:
+`test_every_transcribed_row_matches_both_published_columns` checks all 59 rows
+against `CC` warm and `NCC` cold **on a running machine**, and passes. Only the
+description was wrong.
+
+**Why a wrong model description is a real defect here and not a nitpick.**
+`CLAUDE.md` makes `PROJECT_STATUS.md` the document "read by whoever has to trust
+or change a subsystem". Someone changing timing would have reasoned from `max`,
+found the code disagreeing with the document, and had to guess which was
+authoritative -- and the plausible guess is that the document is right and the
+code has drifted, which is backwards. A stale model description is worse than no
+description: it is confidently wrong at exactly the moment someone needs it.
+
+Also corrected: `ap_m68020_decode.h` described
+`ap_cpu_instruction_is_illegal` as "the question the step actually asks". The
+step has never called it -- it carries `has_module_calls`, not an `ap_cpu_t`,
+and reads the module decoder directly. The sweep is what the predicate is for.
+
+**The sweep itself is worth keeping as a technique.** `nm` alone is not enough:
+it cannot see within-translation-unit calls, so its first answer flagged
+`ap_m68030_take_interrupt` (called inside `ap_m68030_step`) and the twelve
+`ap_board_hash_*` helpers (aggregated by `ap_board_hash` in their own file) as
+dead. Counting occurrences across `src/**.c` instead separates "the product
+never calls this" from "nothing calls this", and it is the first of those two
+that finds rules with two implementations.

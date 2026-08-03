@@ -48,8 +48,13 @@ typedef struct {
                                              ap_cpu_t family);
 
 /* Whether this family would take an illegal instruction exception for the
- * word. The question the step actually asks, and the one that differs between
- * a DN3000 and a DN3500 for exactly two opcodes. */
+ * word: the question that differs between a DN3000 and a DN3500 for exactly two
+ * opcodes.
+ *
+ * It is asked by the opcode sweep rather than by `ap_m68030_step`, which has no
+ * `ap_cpu_t` to hand -- it carries `has_module_calls` and reads the module
+ * decoder directly. This once claimed to be "the question the step actually
+ * asks", which was never true; the sweep is what it is for. */
 [[nodiscard]] bool ap_cpu_instruction_is_illegal(uint16_t instruction,
                                                  ap_cpu_t family);
 

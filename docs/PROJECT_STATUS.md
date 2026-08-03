@@ -40,8 +40,28 @@ succeeding, so "how far a program got" is a real measure.
 covers bus and cache time — prefetches, operand accesses, table searches and
 line fills, each priced by the bus and cache modules against cited pages — plus
 instruction execution time for the **59 transcribed rows** of `[030]` §11.6,
-scheduled against the bus rather than added to it as `max(microcode, bus)`,
-which reproduces both the `CC` and `NCC` columns of every one of them.
+scheduled against the bus rather than added to it, which reproduces both the
+`CC` and `NCC` columns of every one of them.
+
+The rule is *not* `max(microcode, bus)`. That was the first model and it was
+retired before the effective address tables were transcribed — `max` is
+monotonic in both arguments, while warm and cold `ADD.B D0,(A0)` need answers
+that move the opposite way to their bus times, so no microcode figure reaches
+both. `docs/references/M68030_TIMING.md` carries the arithmetic under
+"`max(microcode, bus)` does not survive the effective address tables".
+
+What is implemented asks one question per bus cycle — *is the microcode waiting
+on this?* A prefetch is not waited on and can hide; an operand read the
+operation is about to consume cannot. So the published cache case is split into
+the microcode it leaves exposed and the operand bus it assumes, the measured bus
+is substituted for the assumed one, and the prefetch is charged only for the
+part that did not hide: **exposed microcode + measured operand bus + prefetch
+exposure**. That is what makes a wait state or a cache hit move the answer,
+which a table lookup could not.
+
+`ap_m68030_schedule` still computes plain `max` and is still tested, because the
+overlap module's own worked examples are stated in those terms — but nothing in
+the step calls it, and it is not the model the machine runs.
 
 So a register-to-register `ADD` costs its published 2 clocks. An instruction
 outside those 59 still costs bus time alone and is a lower bound, and
@@ -3265,7 +3285,7 @@ failure that cost a bit position in the 68020's module entry word.
 | Per-instruction timing report (`--time-instructions`) | bus and cache time only, pinned as a golden; the 0/2 alternation is the cache holding register serving two instruction words per fetch | `tests/goldens/timing.txt`; oracle side by `tools/mame-oracle/steptime.lua` |
 | Probe suite (`probe/`, `--run-probes`) | 8 probes on the constructed machine, needing no firmware; results pinned as a golden under every build preset, identical between `-O0` and `-O3` | `tests/goldens/probes.txt`, `probe_suite`, 7 tests |
 | Constructed machine (`machine/`) | a 68030 on flat RAM, with an out-of-range access faulting rather than wrapping; no I/O, no device, no arbitration point | `machine_suite`, 10 tests |
-| 68030 published timings (§11.6) | 59 rows from §11.6.6, §11.6.8, §11.6.9, §11.6.11, §11.6.12, §11.6.15 and §11.6.16, scheduled into the step as `max(microcode, bus)` since the tables show prefetch overlaps execution. Branches are reached through their run-time outcome rather than by opcode. Seven instructions agree with the oracle (`FINDINGS.md` C8). Rows footnoted "Add Fetch Effective Address Time" are **declined**, not part-priced: their published figure is a component and the composition is open (C9). The four divides carry the manual's data-dependent marker and are `PROVISIONAL` | `timing_table_suite`, 11 tests; both published columns checked on a running machine by `machine_suite` |
+| 68030 published timings (§11.6) | 59 rows from §11.6.6, §11.6.8, §11.6.9, §11.6.11, §11.6.12, §11.6.15 and §11.6.16, scheduled into the step as exposed microcode + measured operand bus + prefetch exposure, since the tables show a prefetch overlaps execution while an operand the operation consumes cannot (plain `max(microcode, bus)` was the retired first model — see above and `M68030_TIMING.md`). Branches are reached through their run-time outcome rather than by opcode. Seven instructions agree with the oracle (`FINDINGS.md` C8). Rows footnoted "Add Fetch Effective Address Time" are **declined**, not part-priced: their published figure is a component and the composition is open (C9). The four divides carry the manual's data-dependent marker and are `PROVISIONAL` | `timing_table_suite`, 11 tests; both published columns checked on a running machine by `machine_suite` |
 | 68030 ATC replacement | the history bit now means *recently used*, per `MC68851 PMMU User's Manual` §5.2.1.3 — a translating hit marks it, a `PTEST` probe does not. `PROVISIONAL` narrowed to victim choice among clear-history entries | `atc_suite`, 20 tests |
 | 68030 prefetch marginal cost | `NCC − CC` over the published prefetch count, computed in code across every row; the two rows where it is not integral are named in the test rather than rounded away | `timing_table_suite`, 11 tests |
 | 68030 effective address timings (§11.6.1, §11.6.3) | fetch and calculate rows for the non-full-format modes, with the table's `-` and "2+op head" notations carried rather than flattened. Not yet composed into the step | `ea_timing_suite`, 8 tests |

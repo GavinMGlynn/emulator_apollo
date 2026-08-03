@@ -5504,15 +5504,33 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
     return out;
   }
 
-  /* The microsequencer and the bus controller run concurrently, so the
-   * instruction's cost is the two *scheduled* rather than summed -- see
-   * ap_m68030_overlap.h, where the tables' own CC and NCC columns are what
-   * establish that. `out.clocks` holds the bus time this step actually
-   * incurred; the published figure is the microcode.
+  /* The microsequencer and the bus controller run concurrently, so an
+   * instruction's cost is not the two added together. It is also **not**
+   * `max(microcode, bus)`, which is what `ap_m68030_schedule` computes and what
+   * this comment used to claim happened here: that model was retired before the
+   * effective address tables were transcribed, and
+   * `docs/references/M68030_TIMING.md` has the proof under "`max(microcode,
+   * bus)` does not survive the effective address tables" -- `max` is monotonic
+   * in both arguments, and warm and cold `ADD.B D0,(A0)` need answers that move
+   * the opposite way to their bus times.
    *
-   * Only the transcribed forms are scheduled. Everything else keeps bus time
-   * alone, which is visibly a lower bound rather than a plausible guess, and
-   * `--time-instructions` shows which is which. */
+   * What replaced it is one question per bus cycle -- *is the microcode waiting
+   * on this?* A prefetch is not waited on and can hide; an operand read the
+   * operation is about to consume cannot. So the published cache case is split
+   * into the microcode it leaves exposed and the operand bus it assumes, the
+   * measured operand bus is substituted for the assumed one, and the prefetch
+   * is charged only for the part that did *not* hide:
+   *
+   *     exposed microcode + measured operand bus + prefetch exposure
+   *
+   * which is why a wait state, a cache hit or a slow device moves the answer at
+   * all. `test_every_transcribed_row_matches_both_published_columns` is the
+   * check that this still reproduces `CC` warm and `NCC` cold for all 59 rows,
+   * on a running machine rather than on the table in isolation.
+   *
+   * Only the transcribed forms are priced this way. Everything else keeps bus
+   * time alone, which is visibly a lower bound rather than a plausible guess,
+   * and `--time-instructions` shows which is which. */
   /* A branch's cost is not a function of its opcode: §11.6.15 gives a taken
    * `Bcc` 6 clocks and an untaken byte `Bcc` 4, and only the run this step just
    * performed knows which happened. DBcc has three such cases. Everything else
