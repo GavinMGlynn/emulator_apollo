@@ -38,6 +38,21 @@
 
 #include "device/ap_i8237.h"
 
+/* `008778-03` Table 2-4, as controller and channel. Controller 1 carries
+ * DRQ0-3 and controller 2 DRQ4-7, so a DRQ number `n` is controller `n / 4`,
+ * channel `n % 4`. */
+#define AP_DMA_TAPE_UNIT 0u        /* DRQ1 */
+#define AP_DMA_TAPE_CHANNEL 1u
+#define AP_DMA_FLOPPY_UNIT 0u      /* DRQ2 */
+#define AP_DMA_FLOPPY_CHANNEL 2u
+#define AP_DMA_WINCHESTER_UNIT 1u  /* DRQ7, and 16-bit */
+#define AP_DMA_WINCHESTER_CHANNEL 3u
+
+/* DRQ4: the second controller's channel 0, which the first controller's request
+ * output arrives on. "It is not available on the AT-compatible bus." */
+#define AP_DMA_CASCADE_UNIT 1u
+#define AP_DMA_CASCADE_CHANNEL 0u
+
 #define AP_DMA1_ADDR 0x010C00u
 #define AP_DMA2_ADDR 0x010D00u
 #define AP_DMA_RANGE 0x100u

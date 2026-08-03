@@ -172,11 +172,16 @@ uint8_t ap_board_interrupt_acknowledge(ap_board_t *board) {
   return ap_intr_acknowledge(&board->interrupts);
 }
 
-/* Which arbiter line each controller's HRQ appears on. The AT's DRQ0-3 /
- * DRQ4-7 split, unmeasured on this board; it decides only which of the two
- * wins a simultaneous request. */
-#define DMA1_ARBITER_LINE 0u
-#define DMA2_ARBITER_LINE 4u
+/* One line, because after the cascade there is one request output that reaches
+ * the processor. `008778-03` §2.4: "DRQ4 is used on the system board to cascade
+ * Channels 0 through 3 ... It is not available on the AT-compatible bus." So
+ * controller 1's request arrives on controller 2's channel 0, and only
+ * controller 2 asks the arbiter.
+ *
+ * The arbiter line is DRQ0's, the highest, because after the cascade the
+ * request standing there is whichever channel won both encoders -- there is no
+ * second DMA claimant for it to be ordered against. */
+#define DMA_ARBITER_LINE 0u
 
 /* The memory side of a transfer. The part drives sixteen bits and the map
  * supplies the rest -- `019411-A00` §4.2.1.4, and the reason a DMA address is
@@ -228,12 +233,20 @@ void ap_board_bus_tick(ap_board_t *board) {
       .context = board,
   };
 
-  /* One request per controller, because an 8237A has one HRQ however many of
-   * its channels are asking. */
-  ap_arbiter_request(&board->arbiter, DMA1_ARBITER_LINE,
-                     ap_i8237_service_pending(&board->dma.controller[0]) >= 0);
-  ap_arbiter_request(&board->arbiter, DMA2_ARBITER_LINE,
-                     ap_i8237_service_pending(&board->dma.controller[1]) >= 0);
+  /* The cascade, wired rather than encoded. Controller 1 has one HRQ however
+   * many of its channels are asking, and it lands on controller 2's channel 0 --
+   * which is that controller's *highest* priority. That is why Table 2-4's
+   * priority column runs 1-4 for DRQ0-3 and 5-7 for DRQ5-7 instead of following
+   * the line numbers: channels 0 through 3 outrank 5 through 7 because they
+   * arrive through the cascade. The order is a consequence here, not a table. */
+  ap_i8237_set_request_pin(&board->dma.controller[AP_DMA_CASCADE_UNIT],
+                           AP_DMA_CASCADE_CHANNEL,
+                           ap_i8237_service_pending(&board->dma.controller[0]) >=
+                               0);
+
+  const int selected =
+      ap_i8237_service_pending(&board->dma.controller[AP_DMA_CASCADE_UNIT]);
+  ap_arbiter_request(&board->arbiter, DMA_ARBITER_LINE, selected >= 0);
 
   /* The arbitration resolves first, and the master then uses the bus it has
    * just been given. The other order costs a clock at every handover and, worse,
@@ -245,15 +258,22 @@ void ap_board_bus_tick(ap_board_t *board) {
    * is merely asking, and not while the grant is offered and unacknowledged.
    * §7.7.3 puts real time between those, and collapsing them would make every
    * handover free and delete the contention this exists to produce. */
-  const int master = ap_arbiter_master(&board->arbiter);
-  if (master == (int)DMA1_ARBITER_LINE) {
-    if (ap_i8237_transfer(&board->dma.controller[0], &bus).ran) {
-      board->dma_transfers++;
-    }
-  } else if (master == (int)DMA2_ARBITER_LINE) {
-    if (ap_i8237_transfer(&board->dma.controller[1], &bus).ran) {
-      board->dma_transfers++;
-    }
+  if (ap_arbiter_master(&board->arbiter) != (int)DMA_ARBITER_LINE) {
+    return;
+  }
+
+  /* Whose transfer it is follows from which channel the second controller
+   * selected. Its channel 0 in cascade mode is not a transfer at all -- the
+   * part refuses one, and correctly -- it is the first controller's turn. */
+  const unsigned unit =
+      (selected == (int)AP_DMA_CASCADE_CHANNEL &&
+       ap_i8237_mode_of(&board->dma.controller[AP_DMA_CASCADE_UNIT],
+                        AP_DMA_CASCADE_CHANNEL) == AP_I8237_MODE_CASCADE)
+          ? 0u
+          : AP_DMA_CASCADE_UNIT;
+
+  if (ap_i8237_transfer(&board->dma.controller[unit], &bus).ran) {
+    board->dma_transfers++;
   }
 }
 

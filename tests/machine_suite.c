@@ -1302,6 +1302,17 @@ static void test_an_unprogrammed_controller_delivers_nothing(void) {
 static void start_verify_channel(ap_board_t *board, unsigned channel,
                                  uint16_t count) {
   bool ok = false;
+  /* The cascade first, or nothing on the first controller reaches the bus at
+   * all: `008778-03` §2.4 puts its request output on the second controller's
+   * channel 0, and that channel is masked out of reset. Firmware programs this
+   * at boot; a test that skipped it would be running on a machine whose BIOS
+   * had not. */
+  ap_board_write(board, AP_DMA2_ADDR + AP_I8237_REG_MODE * 2u,
+                 (uint8_t)((AP_I8237_MODE_CASCADE << 6) | AP_DMA_CASCADE_CHANNEL),
+                 &ok);
+  ap_board_write(board, AP_DMA2_ADDR + AP_I8237_REG_MASK_SINGLE * 2u,
+                 (uint8_t)AP_DMA_CASCADE_CHANNEL, &ok);
+
   const uint32_t base = AP_DMA1_ADDR;
   ap_board_write(board, base + AP_I8237_REG_MODE,
                  (uint8_t)((AP_I8237_MODE_BLOCK << 6) | channel), &ok);

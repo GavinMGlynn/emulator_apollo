@@ -154,12 +154,27 @@ static void arm_channel(ap_board_t *b, unsigned channel, uint8_t mode_bits,
                  (uint8_t)(0x04u | channel), &ok);
 }
 
+/* Controller 1's request output arrives on controller 2's channel 0, and that
+ * channel has to be programmed for cascade mode and unmasked before anything on
+ * controller 1 can reach the bus at all -- `008778-03` §2.4's DRQ4, and what an
+ * AT's firmware does at boot. A test that skipped it would be testing a machine
+ * whose BIOS had not run. */
+static void program_cascade(ap_board_t *b) {
+  bool ok = false;
+  ap_board_write(b, AP_DMA2_ADDR + AP_I8237_REG_MODE * 2u,
+                 (uint8_t)((AP_I8237_MODE_CASCADE << 6) | AP_DMA_CASCADE_CHANNEL),
+                 &ok);
+  ap_board_write(b, AP_DMA2_ADDR + AP_I8237_REG_MASK_SINGLE * 2u,
+                 (uint8_t)AP_DMA_CASCADE_CHANNEL, &ok);
+}
+
 static void build(void) {
   for (unsigned i = 0; i < DMA_RAM_BYTES; i++) {
     dma_ram[i] = 0;
   }
   TEST_ASSERT_TRUE(
       ap_board_init(&dma_board, dma_ram, DMA_RAM_BYTES, &DMA_EPOCH, 0x012345u));
+  program_cascade(&dma_board);
 }
 
 /* The whole point of the arbitration point: while a controller holds the bus
@@ -265,8 +280,100 @@ static void test_a_verify_transfer_is_not_an_unwired_one(void) {
   TEST_ASSERT_EQUAL_UINT(0u, dma_board.dma_unwired_transfers);
 }
 
+/* Without the cascade programmed, nothing on controller 1 reaches the bus --
+ * which is the hardware and not a limitation of this model. `008778-03` §2.4:
+ * "DRQ4 is used on the system board to cascade Channels 0 through 3." A machine
+ * whose firmware has not set that up has one working DMA controller, not two. */
+static void test_controller_one_cannot_reach_the_bus_without_the_cascade(void) {
+  for (unsigned i = 0; i < DMA_RAM_BYTES; i++) {
+    dma_ram[i] = 0;
+  }
+  TEST_ASSERT_TRUE(
+      ap_board_init(&dma_board, dma_ram, DMA_RAM_BYTES, &DMA_EPOCH, 0x012345u));
+  /* Deliberately no `program_cascade`. */
+  arm_channel(&dma_board, 1u, (uint8_t)((AP_I8237_MODE_BLOCK << 6) | (0u << 2)),
+              0x0000u, 7u);
+
+  for (unsigned i = 0; i < 64u; i++) {
+    ap_board_bus_tick(&dma_board);
+  }
+  TEST_ASSERT_EQUAL_UINT(0u, dma_board.dma_transfers);
+  TEST_ASSERT_TRUE(ap_board_processor_may_run(&dma_board));
+
+  /* And programming it opens the route with nothing else changing. */
+  program_cascade(&dma_board);
+  for (unsigned i = 0; i < 64u; i++) {
+    ap_board_bus_tick(&dma_board);
+  }
+  TEST_ASSERT_TRUE(dma_board.dma_transfers > 0u);
+}
+
+/* Table 2-4's priority column runs 1-4 for DRQ0-3 and 5-7 for DRQ5-7, which is
+ * not the numeric order of the lines. It falls out of the cascade: channels 0
+ * through 3 arrive on DRQ4, and DRQ4 is the second controller's *highest*
+ * channel, so all four outrank DRQ5 through DRQ7. Asserted as the consequence
+ * it is -- a controller-1 channel wins against a controller-2 channel of lower
+ * number. */
+static void test_the_cascade_puts_controller_ones_channels_first(void) {
+  build();
+
+  /* DRQ2 -- the floppy's line, controller 1 channel 2, Table 2-4 priority 3. */
+  arm_channel(&dma_board, AP_DMA_FLOPPY_CHANNEL,
+              (uint8_t)((AP_I8237_MODE_BLOCK << 6) | (0u << 2)), 0x0000u, 3u);
+
+  /* And DRQ5 -- controller 2 channel 1, priority 5. A *lower* channel number on
+   * the second controller than the cascade's neighbour, so a model that merely
+   * compared channel numbers within one part would pick it. */
+  bool ok = false;
+  ap_board_write(&dma_board, AP_DMA2_ADDR + AP_I8237_REG_MODE * 2u,
+                 (uint8_t)((AP_I8237_MODE_BLOCK << 6) | 1u), &ok);
+  ap_board_write(&dma_board, AP_DMA2_ADDR + AP_I8237_REG_CLEAR_FLIPFLOP * 2u, 0u,
+                 &ok);
+  ap_board_write(&dma_board, AP_DMA2_ADDR + 2u * 2u, 0u, &ok); /* address */
+  ap_board_write(&dma_board, AP_DMA2_ADDR + 2u * 2u, 0u, &ok);
+  ap_board_write(&dma_board, AP_DMA2_ADDR + 3u * 2u, 3u, &ok); /* count */
+  ap_board_write(&dma_board, AP_DMA2_ADDR + 3u * 2u, 0u, &ok);
+  ap_board_write(&dma_board, AP_DMA2_ADDR + AP_I8237_REG_MASK_SINGLE * 2u, 1u,
+                 &ok);
+  ap_board_write(&dma_board, AP_DMA2_ADDR + AP_I8237_REG_REQUEST * 2u,
+                 (uint8_t)(0x04u | 1u), &ok);
+
+  /* Tick until the floppy's channel reaches terminal count -- which masks it,
+   * since it is not autoinitialising -- and ask what the second controller's own
+   * channel has managed in the meantime. */
+  const uint8_t floppy_bit = (uint8_t)(1u << AP_DMA_FLOPPY_CHANNEL);
+  unsigned ticks = 0;
+  while ((dma_board.dma.controller[0].mask & floppy_bit) == 0u &&
+         ticks < 64u) {
+    ap_board_bus_tick(&dma_board);
+    ticks++;
+  }
+  TEST_ASSERT_TRUE((dma_board.dma.controller[0].mask & floppy_bit) != 0u);
+
+  /* Nothing. Four transfers, all the cascade's, while a channel of lower number
+   * on the other controller waited -- which is Table 2-4's priority column. */
+  TEST_ASSERT_EQUAL_UINT(4u, dma_board.dma_transfers);
+  TEST_ASSERT_EQUAL_HEX16(
+      3u, dma_board.dma.controller[1].channel[1].current_count);
+
+  /* And it is waiting rather than shut out: once the cascade goes quiet it gets
+   * the bus and runs to its own terminal count.
+   *
+   * Asked as "is it masked" rather than "has the count fallen", because the
+   * count does not stop at zero -- `[8237]`'s terminal count *is* the borrow out
+   * of zero, so a finished channel reads `FFFF`, which is larger than where it
+   * started. A count comparison here passes while the transfer is running and
+   * fails once it succeeds. */
+  for (unsigned i = 0; i < 64u; i++) {
+    ap_board_bus_tick(&dma_board);
+  }
+  TEST_ASSERT_TRUE((dma_board.dma.controller[1].mask & 0x02u) != 0u);
+}
+
 int main(void) {
   UNITY_BEGIN();
+  RUN_TEST(test_controller_one_cannot_reach_the_bus_without_the_cascade);
+  RUN_TEST(test_the_cascade_puts_controller_ones_channels_first);
   RUN_TEST(test_a_dma_controller_takes_the_bus_from_the_processor);
   RUN_TEST(test_the_processor_gets_the_bus_back_at_terminal_count);
   RUN_TEST(test_a_transfer_lands_where_the_map_points);

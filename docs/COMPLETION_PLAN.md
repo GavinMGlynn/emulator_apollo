@@ -1793,13 +1793,11 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         device is still asking.*
 - [ ] Two AT DMA controllers. *Verification: transfer probes; device request
       lines gate DMA at block granularity, not per word.*
-      **Awaiting:** a *device* driving a request line. Transfers run, block
-      granularity is measured, and the request path is the part's own — what is
-      missing is which peripheral sits on which channel, which this board has
-      not been measured for and `board/ap_dma.h` deliberately refuses to assume.
-      Until then the peripheral side of a transfer reads all ones and is
-      counted, and verify transfers carry the measurements. Closes with the disk
-      and tape controllers, whose own items own the answer.
+      **Awaiting:** a device's own data path — the tape's or the disk's byte
+      register moving under a transfer, which lands with those controllers.
+      The channel *assignments* are no longer the blocker and never needed
+      measuring: `008778-03` Table 2-4 gives all eight, and §2.4 states the
+      cascade outright. Detail in `PROJECT_STATUS.md`.
   - [x] Placement measured before writing anything: DMA 1 at `010C00` **stride
         1** (sixteen registers aliased every sixteen bytes, the all-mask
         register reading `0F` as a reset part holds), DMA 2 at `010D00`
@@ -1850,11 +1848,15 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         than a figure since the handshake's exact cost is the synchroniser's;
         and an idle board costing the identical program exactly nothing.*
   - [x] Both controllers wired into the board at `010C00` (stride 1) and
-        `010D00` (stride 2). `dma_suite`, 6 tests. The AT convention that the
-        first controller cascades onto channel 0 of the second is deliberately
-        **not** asserted — the equivalent assumption about the interrupt
-        controllers was wrong here (C11) — and will be measured once transfers
-        exist to measure.
+        `010D00` (stride 2). The cascade the module used to refuse is
+        `008778-03` §2.4's — "DRQ4 is used on the system board to cascade
+        Channels 0 through 3" — and Table 2-4 gives every channel's device, the
+        tape confirmed twice over by Table 8-1's jumper configuration. The
+        board wires the cascade rather than encoding the priority, so Table
+        2-4's order emerges. Detail in `PROJECT_STATUS.md`.
+        *Verification: `dma_suite` +2 (12) — a controller-1 channel beating a
+        lower-numbered channel on controller 2, and nothing on controller 1
+        reaching the bus at all until the cascade is programmed.*
   - [x] And the shared arbitration point it was pointing at — Phase 3's first
         item, which had been waiting for a second bus master to exist. Each was
         the other's blocker and neither was blocked: the arbiter needed a master

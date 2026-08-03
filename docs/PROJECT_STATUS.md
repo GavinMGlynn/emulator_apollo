@@ -3406,7 +3406,7 @@ failure that cost a bit position in the 68020's module entry word.
 | Intel 8259A interrupt controller (the part) | working: ICW1-4 sequence, all three OCWs, fully nested priority with rotation, edge and level triggering, special mask and special fully nested modes, poll, AEOI, and the spurious level 7. 8086-mode vectoring only — MCS-80/85's `CALL` sequence is refused rather than approximated, and this machine never uses it. The Apollo *pairing* is a separate module | `i8259_suite`, 28 tests, each citing `8259A` 231468-003 |
 | DN3500 core-board address map (`board/ap_board.c`) | working: every device placed by `008778-03` Table 2-8 and by the measurement that confirmed it, main memory at `1000000`, and an unclaimed address reported **unmapped rather than zero** — the distinction flat RAM hid, which cost 5634 invisible accesses in the first firmware run. Regions are named, so a trace can say *what* the firmware reached for. The AT windows declare a cycle time and everything else answers at the minimum, and an access to the translation map's undescribed seven eighths is counted rather than silently aliased, and each of the two declined core registers is counted apart | `board_suite`, 17 tests; `atbus_suite`, 8 tests |
 | Shared bus arbitration point | working: the external priority encoder `[030]` §7.7 requires, DRQ0 through DRQ7 with the processor last, driving the CPU's own arbitration unit over the three-wire protocol. A grant and its acknowledgement are separate instants, so the processor stops driving the bus when it grants rather than when the grant is taken up; a master is never pre-empted mid-transfer | `arbiter_suite`, 9 tests, `MC68030 User's Manual 3ed` §7.7, `008778-03` §2.4.6 |
-| Apollo DMA controllers (`010C00`, `010D00`) | working: DMA 1 at **stride 1** and DMA 2 at **stride 2**, both measured, both aliased through their ranges. A read of a write-only register returns zero where the oracle returns `0F`; `[8237]` marks that read "Illegal", so neither is specified and ours does not invent a register value. The board now runs transfers: each controller's HRQ into the one arbiter, the address through the translation map, and the processor stalled while a controller holds the bus | `dma_suite`, 10 tests; `FINDINGS.md` C13 |
+| Apollo DMA controllers (`010C00`, `010D00`) | working: DMA 1 at **stride 1** and DMA 2 at **stride 2**, both measured, both aliased through their ranges. A read of a write-only register returns zero where the oracle returns `0F`; `[8237]` marks that read "Illegal", so neither is specified and ours does not invent a register value. The board runs transfers: controller 1's request cascaded onto controller 2's channel 0 and one request reaching the arbiter, the address through the translation map, and the processor stalled while a controller holds the bus. The cascade and the channel assignments are `008778-03` Table 2-4's, so the AT convention this module used to refuse is now cited rather than assumed | `dma_suite`, 12 tests; `FINDINGS.md` C13 |
 | Intel 8237A DMA controller (the part) | **programming model and transfer cycle complete**: all sixteen register addresses, four channels with base and current address/count, the single shared first/last flip-flop, command/mode/request/mask/status/temporary, master clear, autoinitialise reload and the mask-on-terminal-count rule; and a service cycle that moves a byte either way, verifies without moving one, walks the address up or down, and ends on the borrow out of zero rather than at zero. Memory-to-memory is refused outright rather than half-run. The part drives sixteen bits of address and the board composes the rest — not yet wired to the board | `i8237_suite`, 26 tests, `8237A` 231466 |
 | Apollo interval timer (`010800`) | working: the part at **odd addresses, stride 2** (measured — the region reads `00 00 00 00 00 FF ...`, the `FFFF` latch default showing through), the three §3.8 input rates as exact time-base clock domains, and the IRQ0 route. Advancing is by whole pulses, so the rate cannot become a function of how often it is polled | `timer_suite`, 8 tests; `FINDINGS.md` C12 |
 | MC6840 interval timer (the part) | working for **both counting modes** — continuous and single shot, each in sixteen-bit and dual eight-bit operation — plus both control register aliases, the write/read byte buffering, the status register, the prescaler, the gate, and all five of `[6840]` §3.11's ways of clearing an interrupt. The two **measurement modes** are decoded and declined: they time a signal on a timer's gate pin, and nothing on this board drives the gates | `mc6840_suite`, 28 tests, `MC6840UM` (a scan with no text layer; read from page images) |
@@ -4409,6 +4409,57 @@ paper over" — where MAME returns `0F`, which is what `FINDINGS.md` C13 used as
 placement fingerprint. Neither is wrong: the datasheet defines no value. It is
 registered here so that the first board-backed oracle diff does not read it as a
 defect.
+
+#### The DMA channel assignments were in the manual all along
+
+The DMA item's `Awaiting` said the peripheral side could not be wired because
+"which peripheral sits on which channel is board wiring this machine has not
+been measured for", and `board/ap_dma.h` refused even the AT's cascade
+convention — reasonably, since the equivalent assumption about the interrupt
+controllers was wrong here (`FINDINGS.md` C11).
+
+The refusal was right in method and unnecessary in fact. `008778-03` **Table
+2-4** states the whole assignment, one page after the DRQ priority sentence the
+arbiter already cites:
+
+| DRQ | priority | width | controller | Domain system function |
+| --- | --- | --- | --- | --- |
+| 0 | 1 | 8 | 1 | User Device |
+| 1 | 2 | 8 | 1 | **Tape Drive** or User Device |
+| 2 | 3 | 8 | 1 | **Floppy Drive** or User Device |
+| 3 | 4 | 8 | 1 | 802.3 Network Controller-AT #2 |
+| 4 | – | – | 2 | **Cascade for Channels 0 – 3** |
+| 5 | 5 | 16 | 2 | PC Coprocessor or User Device |
+| 6 | 6 | 16 | 2 | 802.3 Network Controller-AT #2 |
+| 7 | 7 | 16 | 2 | **Reserved for Winchester** |
+
+And §2.4's prose settles the cascade outright: "DRQ4 is used on the system board
+to cascade Channels 0 through 3 ... It is not available on the AT-compatible
+bus." The tape is confirmed twice over — Table 2-4 gives it DRQ1, and §8.3.2's
+Table 8-1 configures the controller board itself at "Device Address 218, DMA
+Channel 1, Interrupt Request Level 5", of which this core already had the
+address and the interrupt from other evidence.
+
+**The order is now a consequence rather than a table.** Table 2-4's priority
+column runs 1–4 for DRQ0–3 and 5–7 for DRQ5–7, which is *not* the numeric order
+of the lines. It falls out of the cascade: channels 0 through 3 arrive on DRQ4,
+and DRQ4 is the second controller's **highest** channel, so all four outrank 5
+through 7. The board wires that and encodes nothing, and a test asserts the
+consequence — a controller-1 channel wins against a lower-numbered channel on
+controller 2, which a model comparing numbers within one part would get wrong.
+
+**And it produced a fact about the machine.** Nothing on controller 1 can reach
+the bus until firmware programs the cascade: controller 2's channel 0 is masked
+out of reset, so a Domain system whose boot has not run that step has one
+working DMA controller and not two. Two existing tests had to start programming
+it, which is the model becoming more demanding rather than less.
+
+The lesson is the one the resolution order exists for. This was filed as
+"unmeasured board wiring" and treated as blocked on an oracle campaign for as
+long as the item has existed, and the answer was a table in the manual the
+project already reads for everything else. **Reference before measurement** is
+not a preference for cheap evidence; it is that the expensive route can be
+blocked while the cheap one is simply unopened.
 
 #### Two verifications cashed in, and the pattern that delayed them
 
