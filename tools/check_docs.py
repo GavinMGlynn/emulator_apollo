@@ -47,6 +47,7 @@ would make the plan unable to describe its own future.
 from __future__ import annotations
 
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -128,6 +129,34 @@ def check_item_length(problems: list[str]) -> int:
     return checked
 
 
+# Directories the repository deliberately does not carry. `CLAUDE.md`: the
+# vendor manuals are "reference only, vendor copyright" and the Apollo firmware
+# and media "are not ours to redistribute". They exist on a machine that has
+# done the work and in no fresh clone, so citing them is correct and requiring
+# them to exist is not.
+#
+# An explicit list rather than a rule. Two cleverer tests were tried and both
+# were wrong: `git check-ignore` says these directories are not ignored (their
+# *contents* are), and "does git track anything here" skips a mistyped path
+# too, which made the check vacuous — it stopped catching the very thing it
+# exists for. A short list of known-absent prefixes catches typos and says why
+# each one is exempt.
+USER_SUPPLIED = (
+    "docs/references/archive/",
+    "docs/references/intel/",
+    "docs/references/motorola/",
+    "docs/references/omti/",
+    "docs/references/bitsavers/",
+    "tools/mame-oracle/out/",
+    "roms/",
+    "media/",
+)
+
+
+def deliberately_absent(cited: str) -> bool:
+    return cited.startswith(USER_SUPPLIED)
+
+
 def check_references(problems: list[str]) -> int:
     """Paths and symbols the documents name, against what exists."""
     symbols = tree_symbols()
@@ -140,7 +169,8 @@ def check_references(problems: list[str]) -> int:
             planned = line.lstrip().startswith("- [ ]")
             for cited in PATH.findall(line):
                 checked += 1
-                if not (REPO / cited).exists() and not planned:
+                if (not (REPO / cited).exists() and not planned
+                        and not deliberately_absent(cited)):
                     problems.append(f"{document.name}: names {cited}, which does not exist")
             for symbol in SYMBOL.findall(line):
                 checked += 1
