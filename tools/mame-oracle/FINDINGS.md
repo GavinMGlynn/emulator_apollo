@@ -6027,12 +6027,33 @@ keyboard to prompt the firmware's autobaud" and then "one carriage return every
 attempt here had done -- leaves the firmware cycling rates against a channel it
 has not been told to listen to.
 
-**What is still open.** The firmware takes the bytes, dispatches them, posts its
-codes and does not transmit: `sio1 reg 3` and `sio2 reg 3`, the transmit holding
-registers, are never written. The remaining question is what it wants that it is
-not getting, and the dispatcher's constants are the place to look -- `C7` and
-`C0` are scan codes rather than characters, so the console it is negotiating with
-may be the keyboard's rather than the terminal's.
+**And then the reason it never transmits: with a screen fitted, it does not
+want to.** Adding `--screen 19i` to the same run turns 0 display writes into
+**263,376**, and the firmware stops sitting in the poll. It is writing its
+console output to the frame buffer. The serial transmit holding registers stay
+untouched because the machine has a console already and it is not the serial
+line.
+
+That is measured across three configurations of one otherwise identical run:
+
+| display | display writes | where it ends |
+| --- | --- | --- |
+| none (default) | 0 | the console-selection poll, `0007AE` |
+| `19i` mono | 263,376 | the status poster, `002536` |
+| `c4p` colour | 10 | `0045E6` |
+
+So "the PROM never transmits" was never a defect in the serial path. It is a
+machine with no console being asked to choose one, and the byte stream this item
+wants to compare against the oracle exists -- it is going to a device this phase
+does not render. The colour controller taking 10 writes where the mono takes a
+quarter of a million is its own thread: the firmware probes both and only one
+answers the way it expects.
+
+**What is still open**, and it is now a much smaller question: which
+configuration the oracle's `MD.md` capture ran in, and whether the serial console
+is reachable at all on a machine with a screen. The dispatcher's `C7` and `C0`
+are scan codes rather than characters, so the console being negotiated may be the
+keyboard-and-screen pair rather than a terminal.
 
 ### Checked from now on
 

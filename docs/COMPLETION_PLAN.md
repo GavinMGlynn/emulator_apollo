@@ -1939,17 +1939,16 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         *Verification: `mc146818_suite` +3 (29).*
 - [ ] SIO serial lines, keyboard and mouse. *Verification: console byte stream
       identical to the oracle's.*
-      **Awaiting:** the firmware transmitting. Its console state machine is now
-      mapped from its own code — `FINDINGS.md` C109. The selection poll at
-      `00078E` tests RxRDY on three ports and branches differently for each; the
-      routine at `00251A` posts *diagnostic codes* to the CPU control register,
-      complemented, not console text; code `0A` is "a byte arrived on the
-      console channel"; and the dispatcher compares against `FF FE C7 72 C0 0D`.
-      With a keyboard press first — `MD.md`'s own recipe, confirmed from the
-      firmware side — the autobaud completes and bytes decode. What it still
-      does not do is write either transmit holding register. The dispatcher's
-      `C7` and `C0` are scan codes rather than characters, so the console being
-      negotiated may be the keyboard's; that is the next thread.
+      **Awaiting:** the comparison, and the reason it has not been possible is
+      not the serial path. `FINDINGS.md` C109 maps the firmware's console state
+      machine from its own code, and the finding that reframes the item is that
+      **with a screen fitted the firmware writes its console output to the
+      display** — 263,376 writes with `--screen 19i` against none without, and
+      the serial transmit registers untouched because the machine already has a
+      console. "The PROM never transmits" was a machine with no console being
+      asked to choose one. What remains is which configuration `MD.md`'s capture
+      ran in, and whether a serial console is reachable on a machine with a
+      screen — a `FINDINGS` question, not a coding one.
   - **The oracle's half of that comparison now exists.** `docs/references/MD.md`
     holds its console stream byte-exact — sign-on `0D 0A 4D 44 37 0D 0A`, prompt
     `0D 0A 0D 0A 3E`, and `A`'s address lines — captured through
