@@ -4280,6 +4280,36 @@ everything simply has no entry below.
   against the oracle remains worthwhile and is listed under the probe suite,
   but the claim no longer rests on one.*
 
+#### A data register write is partial and an address register write never is
+
+Two rules that look alike and are opposites. A data register write of a byte or
+word "only uses or changes the appropriate lower 8 or 16 bits" and leaves the
+rest alone; an address register write is always full width — "the source operand
+is sign-extended to a long operand and the operation is performed on the address
+register using all 32 bits".
+
+So `MOVE.W #$FFFF,D0` leaves `D0`'s upper half untouched, and
+`MOVEA.W #$FFFF,A0` sets `A0` to `$FFFFFFFF`.
+
+Each failure mode is silent and they point opposite ways. Applying the data rule
+to an address register leaves a stale upper half that later long operations use
+without complaint; applying the address rule to a data register destroys live
+data in the half that should not have moved. `operand_suite` applies both rules
+to the *same* operand value side by side, which is the comparison that catches
+one being used where the other belongs.
+
+#### Family `0100` needs three decoders, and the order they are tried in
+
+The `$4E` control group goes first because its top byte is fixed and so cannot
+be mistaken for anything else; then `LEA`/`CHK` and the `$48`/`$4C` forms, which
+all carry bit 8 set; then the single-operand group, which requires it clear. The
+last two cannot collide for that reason, and the first cannot collide with
+either.
+
+That ordering is a property of how the encodings nest rather than a preference,
+which is why it is stated in the decoder's header: a reader who reorders them to
+taste gets a decoder that still passes most tests.
+
 #### The extended forms share one `Z`, and that is the point of them
 
 `ADDX`, `SUBX`, `ABCD`, `SBCD` and `CMPM` carry the documented "cleared if

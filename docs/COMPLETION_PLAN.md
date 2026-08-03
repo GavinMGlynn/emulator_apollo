@@ -337,23 +337,16 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         write against a read directly, plus one that a new cycle clears the
         signals its predecessor held — so a write's DBEN cannot leak into the
         cycle that follows it.*
-  - [x] **Instruction pipe and cache holding register**
-        (`src/core/cpu/m68030/ap_m68030_pipe.c`), `[030]` §11.2.2 p. 11-2. The
-        three-word pipe (B → C → D, decoded at D), the per-stage abnormal-
-        termination status bit, and the 32-bit holding register that makes
-        alignment matter: an aligned prefetch loads the whole long word, so
-        "the instruction word for the next sequential prefetch can then be
-        accessed directly from the cache holding register, and no external bus
-        cycle or instruction cache access is required".
-        Detail in `PROJECT_STATUS.md`.
+  - [x] **Instruction pipe and cache holding register**, `[030]` §8.1 and
+        §11.3: a long-word fetch feeds two instruction words, so alignment
+        decides how many bus cycles a run costs. Detail in
+        `PROJECT_STATUS.md`.
         *Verification: `pipe_suite`, 14 tests. The headline one counts bus
-        cycles for four sequential words and gets 2 when long-word aligned
-        against 3 when starting on an odd word — the difference counted rather
-        than averaged. Others cover big-endian word selection, the three-stage
-        decode latency, order preservation, the status bit travelling with its
-        word (a bus error must fault where the word is *used*, not where it was
-        fetched), a clean fill clearing it, and a holding-register miss leaving
-        the stage empty rather than loading a stale word.*
+        cycles for four sequential words — 2 when long-word aligned against 3
+        when starting on an odd word, counted rather than averaged. Others cover
+        the three-stage decode latency and the status bit travelling with its
+        word, so a bus error faults where the word is *used*, not where it was
+        fetched.*
   - [x] **Programming model** (`src/core/cpu/m68030/ap_m68030_regs.c`), `[030]`
         §1.3 with the `M68000 Family Programmer's Reference Manual 1992`
         §1.3.2, whose Figure 1-8 survives intact where the 68030 manual's does
@@ -493,23 +486,14 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         *Verification: `coproc_suite`, 6 tests, including the two vectors from
         one word and the rule holding for cpID 0 against all seven others.*
   - [x] **Decode dispatcher** (`src/core/cpu/m68030/ap_m68030_decode.c`) and
-        MOVEQ, the one family that had no decoder. Given any 16-bit word: which
-        family claims it, and what that family made of it. Family `0100`'s three
-        subtrees are tried in the order their encodings nest — the `$4E` group
-        first (a fixed top byte), then LEA/CHK and `$48`/`$4C` (bit 8 set), then
-        the single-operand group (bit 8 clear) — and that ordering is stated in
-        the header rather than left to be rediscovered.
-        Detail in `PROJECT_STATUS.md`.
-        *Verification: `decode_suite`, 7 tests, including the property no family
-        suite can check — a sweep of the **entire** 16-bit space asserting every
-        word classifies, and that the wholesale families (`1010`, `1111`,
-        `0110`) claim all 4096 of their words.*
-        Measured coverage across all 65536 encodings: arith 29.0%, move 16.3%,
-        immediate 5.3%, quick/branch/shift/coproc/lineA 6.2% each, moveq 3.1%,
-        misc 2.9%, single 1.9%, control 0.3% — **89.9% claimed, 10.1%
-        illegal**. Neither number should move much without a reason; a
-        dispatcher that claimed everything would be as wrong as one claiming
-        nothing.
+        `MOVEQ`, the one family that had no decoder: which family claims a word,
+        and what that family made of it. Family `0100` needs three subtrees
+        tried in the order their encodings nest. Detail in `PROJECT_STATUS.md`.
+        *Verification: `decode_suite`, 17 tests, including the property no
+        family suite can check — a sweep of the **entire** 16-bit space
+        asserting every word classifies, and that the wholesale families
+        (`1010`, `1111`, `0110`) claim all 4096 of their words. 89.9% of
+        encodings claimed, 10.1% illegal; neither should move without a reason.*
   - [x] **Effective address extension word counts** (`ap_m68030_ea_words`),
         the piece an instruction's total length is built from and therefore what
         advances the PC. A wrong count here does not fault — it desynchronises
@@ -583,24 +567,14 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         and instruction cache, decode, execute, advance the PC, account the
         clocks. **A program runs.**
         *Verification: `step_suite`. Detail in `PROJECT_STATUS.md`.*
-  - [x] **Operand access** (`src/core/cpu/m68030/ap_m68030_operand.c`), the
-        layer between address calculation and memory. It exists mostly to hold
-        two register rules that are opposites of each other and are easy to
-        swap, neither of which faults when wrong:
-        **a data register write is partial** — a byte or word operation leaves
-        the rest of the register alone — while **an address register write never
-        is**: "the source operand is sign-extended to a long operand and the
-        operation is performed on the address register using all 32 bits". So
-        `MOVE.W #$FFFF,D0` leaves D0's upper half untouched and
-        `MOVEA.W #$FFFF,A0` sets A0 to `$FFFFFFFF`. Applying the data rule to an
-        address register leaves a stale upper half that later long operations
-        silently use; applying the address rule to a data register destroys live
-        data.
-        *Verification: `operand_suite`, 8 tests, including the two rules applied
-        to the **same** operand value side by side — the comparison that catches
-        using one where the other belongs — plus an unfinished address and an
-        immediate each reported as a fault rather than read as a zero that would
-        look like a real operand.*
+  - [x] **Operand access** (`src/core/cpu/m68030/ap_m68030_operand.c`): reading
+        and writing an operand through a decoded effective address, with the
+        data-register and address-register write rules, which look alike and are
+        opposites. Detail in `PROJECT_STATUS.md`.
+        *Verification: `operand_suite`, 13 tests, including the two rules applied
+        to the **same** operand value side by side, plus an unfinished address
+        and an immediate each reported as a fault rather than read as a zero
+        that would look like a real operand.*
   - [x] **MOVE and MOVEA semantics**, in the addressing modes reachable without
         an extension word — register direct, `(An)`, `(An)+`, `-(An)`. The
         extension-word modes are excluded for a concrete reason rather than an
