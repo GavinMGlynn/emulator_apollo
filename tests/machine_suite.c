@@ -972,6 +972,35 @@ static void test_the_state_report_carries_the_clock_and_the_pc(void) {
   TEST_ASSERT_NOT_EQUAL_UINT32(BOARD_PROGRAM, state.pc);
 }
 
+/* **A machine's features are derived from its model, and this is the test whose
+ * absence hid a real bug.** `FINDINGS.md` C86: `ap_machine_init_model` set
+ * `machine->model` and then blanked the whole struct six lines later, so every
+ * machine built as a DN3000 had a null model, no module calls, and reported
+ * `CALLM` illegal. Nothing caught it because every other test *sets*
+ * `has_module_calls` on the CPU rather than deriving it from a model -- the
+ * derivation had never been exercised.
+ *
+ * Checked in both directions, because a field that is always false passes any
+ * test that only looks at the machine which should have it false. */
+static void test_a_machine_derives_its_cpu_features_from_its_model(void) {
+  ap_machine_t dn3000;
+  ap_machine_init_model(&dn3000, ram, RAM_BYTES, AP_MODEL_DN3000);
+  TEST_ASSERT_NOT_NULL(dn3000.model);
+  TEST_ASSERT_TRUE(dn3000.cpu.has_module_calls);
+
+  ap_machine_t dn3500;
+  ap_machine_init_model(&dn3500, ram, RAM_BYTES, AP_MODEL_DN3500);
+  TEST_ASSERT_NOT_NULL(dn3500.model);
+  TEST_ASSERT_FALSE(dn3500.cpu.has_module_calls);
+
+  /* And the plain initialiser is the reference machine, so every caller that
+   * predates the model keeps the machine it had. */
+  ap_machine_t plain;
+  ap_machine_init(&plain, ram, RAM_BYTES);
+  TEST_ASSERT_EQUAL_INT(dn3500.cpu.has_module_calls,
+                        plain.cpu.has_module_calls);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_the_machine_keeps_time_in_base_units);
@@ -1002,5 +1031,6 @@ int main(void) {
   RUN_TEST(test_two_machines_at_different_clock_rates_hash_differently);
   RUN_TEST(test_the_counters_are_reported_beside_the_hash_not_inside_it);
   RUN_TEST(test_the_state_report_carries_the_clock_and_the_pc);
+  RUN_TEST(test_a_machine_derives_its_cpu_features_from_its_model);
   return UNITY_END();
 }
