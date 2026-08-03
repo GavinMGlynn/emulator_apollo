@@ -3851,8 +3851,25 @@ the hardware.
 ## PROVISIONAL figures
 
 Every entry is also a named item in `docs/COMPLETION_PLAN.md`, and every
-`PROVISIONAL` in the source is one of these. Audited in both directions: each
-table row has a plan item, and each plan item points back here.
+`PROVISIONAL` **figure** in the source is a row here. Audited in both
+directions: each table row has a plan item, and each plan item points back here.
+
+The word "figure" is doing work. Three source files say `PROVISIONAL` without
+naming one — `ap_time.h` points at the model clocks, and `ap_frontend.c/.h`
+*print* the marker for whichever models carry it — so a grep for the word
+returns more sites than this table has rows, and always will. What must be here
+is every quantity that was chosen rather than transcribed.
+
+**This claim was false when it was first written**, and stood for some time: the
+68882's version number, its idle state frame's internal words and the AT map's
+entry indexing were all `PROVISIONAL` in the source and none was a row, and the
+second of those was not a named plan item either — the silent deferral this
+discipline exists to prevent. An audit claim is worth exactly as much as the last
+time someone ran it, which is the argument for the count below rather than the
+adjective above.
+
+At the time of writing: **17 rows, each with a plan item, and no `PROVISIONAL`
+figure in `src/` outside them.**
 
 The plan names several of them in its own words rather than this table's — the
 MC146818A rates appear as "whether to recompute the time base to admit the six
@@ -3875,6 +3892,9 @@ phrase.
 | MC146818A periodic interrupt, six fastest rates | not modelled | `[146818]` Table 5's rates are 32768/2^n Hz. `AP_TIME_BASE_HZ` factors as 2^9·3·5^8·11, so 1.024 kHz through 32.768 kHz are not exactly representable and `ap_clock_init` refuses them. Not an approximation — the nine slower rates are exact and implemented, and the fast six are reported unsupported rather than rounded | Recompute the time base: including 32.768 kHz costs a factor of 64 and drops the representable span from 88.6 years to 505 days. Including the part's own 4.194304 MHz crystal would cost 8192x and leave 3.95 days, so the crystal can never be a clock domain in a 64-bit base at all. Cheap to do, and deliberately not done while nothing is observed using those rates |
 | 68030 long bus fault frame's internal registers | Stacked as **zero**. This model has no microsequencer state to save, so the fields Table 8-6 labels INTERNAL REGISTER are written rather than skipped — a stated value, where a skipped word would leave whatever the stack already held | `[030]` Table 8-6 | An `RTE` resuming a fault *mid-instruction* cannot work from a zeroed frame |
 | 68030 full-format effective address rows: which of §11.6.1's two groups an encoding selects | A **word** base displacement is free when the base is a register and costs 2 clocks when it is suppressed; a long one is never free | §11.6.1 publishes its full-format rows in two groups, one written `d16,An` and one written `B` — and its own footnote defines `B` as "0, An, PC, Xn, An + Xn, PC + Xn. Form does not affect timing", which makes the groups overlap and contradict: `(d16,An)` is 6 clocks and `(d16,B)` is 8. The reading is what makes the table consistent — **every** group A row equals its group B row with the base displacement dropped, all eight with no counterexample — and the head column agrees independently, 2 for the free rows against 4. `MC68020 User's Manual` §9.2.1 corroborates from outside: the same table with the same footnotes and *no* `d16,An` group at all, its `(d16,An)` costing 2 more than its `(B)`, so the free displacement is a 68030 addition. Strong, and still a reading | Three readings through `steptime.lua`: a full-format `(d16,An)` with the index suppressed, the same with it present, and a null base displacement as a control both readings agree on — so a disagreement there means the transcription is wrong rather than the mapping. Small, and the harness exists. Affects every full-format effective address by up to 2 clocks, never the address it computes |
+| 68882 microcode version number | a stated non-zero choice, carried in every `FSAVE` state frame's format word | "The version number is an 8-bit value that identifies the microcode version of the FPCP, and **the format of this number is defined internally by the FPCP**" -- so no manual publishes a value for any part and there is nothing to transcribe. The only property the documents make observable is self-consistency: `FRESTORE` must accept what `FSAVE` wrote, and version 0 is the wild card that must be accepted whatever the part reports. Both hold for any non-zero choice, which is exactly why the choice is unconstrained rather than merely unknown | Read it from a real part, or instrument the oracle and read back the format word MAME's 68882 writes. Cheap either way, and worth doing only if some firmware is found to test the field rather than round-trip it |
+| 68882 idle state frame's internal words (CU internal registers, operand register, BIU flags) | written as zeros | The same reason the 68030's stack frames give: this model has no microsequencer state to save, because its part never suspends mid-instruction. They are *written* rather than skipped so that a handler cannot read the previous program's data out from under a documented field name -- a zero is a stated value, uninitialised memory is not | Only reachable by modelling the coprocessor dialog at the CIR level, which would also be what produces a busy frame. Nothing observable depends on it until then: `FRESTORE` ignores these words on the way back in, so the round trip a program can see is already exact |
+| Apollo AT map: which entry a byte address selects | `(address - base) / 2` | Neither `008778-03` nor the `019411-A00` addendum says. The region `017000`-`0177FF` is 2 KB and 128 entries of 16 bits fill 256 bytes of it, so most of the window is undescribed; the assumed indexing is the only reading with no gaps. Pinned by tests so it cannot be closed by accident | The oracle answers it, and already disagrees on the neighbouring question -- see the open plan item, which carries both halves |
 | DN2500 RAM base | `0x4000000` — **corrected**, was assumed `0x1000000` | Derived from the Series 2500 boot PROM's own reset vector, exactly as this row's cost-to-close said to: `2500_BOOT_16182_8` starts with SSP `040007D0`, where `3500_BOOT_12191_7` starts with `01000180` and its RAM is at `01000000`. A reset stack pointer must land in usable memory, so the DN2500's is at `04000000` and the assumption that it matched the other 68030 models was wrong | Still `PROVISIONAL`: the reset SSP proves memory exists *there*, not where the region begins or ends. A Series 2500 allocation table would settle the extent; the oracle cannot, having no 2500 driver |
 
 ### Resolved discrepancies

@@ -1480,10 +1480,14 @@ a 68882, and the 68882 is the only one of these it has.
         the programmer's model alone; an unrecognised format word is the format
         exception rather than a protocol violation; both privileged. A **busy**
         frame is deliberately absent — this core's part never suspends, so
-        nothing can generate one. The version number is `PROVISIONAL` because no
-        manual publishes one.
+        nothing can generate one. Two `PROVISIONAL` figures, both now rows in
+        `PROJECT_STATUS.md`'s table: the version number, because no manual
+        publishes one for any part; and the idle frame's CU internal registers,
+        operand register and BIU flags, written as zeros because this model has
+        no microsequencer state to save. The second had been recorded in the
+        status prose but was never a named plan item, which is the silent
+        deferral the `PROVISIONAL` discipline exists to prevent.
         *Verification: `step_suite` +4 (246). Detail in `PROJECT_STATUS.md`.*
-        frame is what a reset or an idle part returns.
   - [x] **`FDBcc`, `FScc` and `FTRAPcc`** — one instruction type, one encoding,
         told apart by Table 4-19. `FDBcc`'s branch base is a third rule (the
         displacement word's address) and its counter is a low-word decrement.

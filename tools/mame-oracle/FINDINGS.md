@@ -5365,3 +5365,54 @@ one of them. The instrumentation was reverted from a kept copy rather than by
 That check is the point of the entry as much as the defect is: a test written
 *after* a fix passes against the fix by construction, and says nothing about
 whether it would have caught the bug.
+
+## C94 -- the PROVISIONAL audit claimed both directions and had never held one
+
+**Class: documentation-discipline defect, no behaviour wrong.**
+
+`CLAUDE.md` requires three things of a figure that was chosen rather than
+transcribed: mark it `PROVISIONAL` **in code**, record it in
+`PROJECT_STATUS.md`, and **make it a named plan item**. The status document's
+`PROVISIONAL figures` table opened by asserting the invariant had been checked:
+
+> Every entry is also a named item in `docs/COMPLETION_PLAN.md`, and every
+> `PROVISIONAL` in the source is one of these. Audited in both directions.
+
+Running that audit -- the same move that produced C89 -- found the reverse
+direction had three holes:
+
+* the **68882's microcode version number**, `PROVISIONAL` in two source files;
+* the **68882 idle state frame's internal words** (CU internal registers,
+  operand register, BIU flags), written as zeros;
+* the **Apollo AT map's entry indexing**, `(address - base) / 2`.
+
+None was a table row. The second was not a named plan item either, only prose in
+the status document -- which is precisely the silent deferral the discipline
+exists to prevent, and `CLAUDE.md` says nothing is deferred silently.
+
+All three are now rows, the idle-frame words are named in the `FSAVE`/`FRESTORE`
+plan item, and the claim is repaired rather than deleted: the invariant is worth
+having, it had simply never been run.
+
+**Two things about how the check went are worth keeping.**
+
+The claim said "every `PROVISIONAL` in the source", and that can never be true
+as written: three files say the word without naming a figure -- `ap_time.h`
+points at the model clocks, and `ap_frontend.c/.h` *print* the marker for
+whichever models carry one. A grep returns more sites than the table has rows
+and always will. The claim now says "every `PROVISIONAL` **figure**", and says
+why the word is doing work.
+
+And one apparent fourth hole was not one. The row "68030 `+` rows not yet
+transcribed" returned nothing for any keyword I tried, and the honest reading
+was a second missing item -- but the plan names it as "the `+` rows that are
+**not**" inside an item about data-dependent timings, which is a real named item
+and my searches simply missed. It is written down here because *nearly* filing a
+false defect is the same error as filing one, caught one step later: the table's
+own preamble had warned "check the concept, not the phrase", and I checked the
+phrase four times before the concept.
+
+The repaired claim now carries a **count** -- 17 rows, each with a plan item --
+rather than an adjective. An audit assertion is worth exactly as much as the
+last time someone ran it, and a number invites the next reader to re-run it in a
+way that "audited in both directions" does not.
