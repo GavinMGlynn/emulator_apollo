@@ -185,6 +185,12 @@ typedef struct ap_board {
    * without any of this being settled first. */
   unsigned dma_transfers;
   unsigned dma_unwired_transfers;
+  /* Which controller the cycle in progress is running on. The 8237 hands its
+   * callbacks a channel and nothing else -- a `DACK` is all a peripheral sees --
+   * so the board keeps the half of the address Table 2-4 needs to name a
+   * device: controller 1 channel 3 and controller 2 channel 3 are different
+   * lines. */
+  unsigned dma_transfer_unit;
 
   /* The two registers `board/ap_boardreg.h` **declines**: task alias
    * (`010300`) and master request (`011600`). Table 2-8 names both, so the

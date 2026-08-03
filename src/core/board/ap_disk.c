@@ -44,3 +44,19 @@ void ap_disk_write(ap_disk_t *disk, uint32_t address, uint8_t value) {
     ap_omti_disk_write(&disk->controller, reg, value);
   }
 }
+
+uint8_t ap_disk_dma_read(ap_disk_t *disk, bool is_floppy) {
+  /* The data port, reached through the acknowledge instead of through an
+   * address. Deferring to the same register call rather than reading the field
+   * keeps the read/write asymmetries `[OMTI]` documents true of both routes. */
+  return is_floppy ? ap_omti_fdc_read(&disk->controller, AP_OMTI_FDC_DATA)
+                   : ap_omti_disk_read(&disk->controller, AP_OMTI_DISK_DATA);
+}
+
+void ap_disk_dma_write(ap_disk_t *disk, bool is_floppy, uint8_t value) {
+  if (is_floppy) {
+    ap_omti_fdc_write(&disk->controller, AP_OMTI_FDC_DATA, value);
+  } else {
+    ap_omti_disk_write(&disk->controller, AP_OMTI_DISK_DATA, value);
+  }
+}

@@ -59,6 +59,27 @@ void ap_disk_reset(ap_disk_t *disk);
 [[nodiscard]] bool ap_disk_decode(uint32_t address, bool *is_floppy,
                                   unsigned *reg);
 
+/* ---------------------------------------------------------------------------
+ * The DMA side
+ *
+ * `008778-03` Table 2-4 puts the **floppy on DRQ2** -- controller 1, channel 2
+ * -- and reserves **DRQ7 for the Winchester**, which is controller 2, channel 3
+ * and a 16-bit line. As with every DMA path, the device is selected by `DACK`
+ * and no address reaches it, so these name the half rather than a register: it
+ * is the data port either way, `[OMTI]` §4.1's two independent register sets.
+ *
+ * **There is no request line here, and that is not an omission of wiring.**
+ * `device/ap_omti.h` models the two register sets and *not* the command sets --
+ * §5 and §6's Command Descriptor Blocks want a drive and a disk image behind
+ * them -- so nothing in this controller knows a transfer is in progress and
+ * there is no condition from which a `DRQ` could honestly be derived. A driver
+ * starts these channels with the 8237's software request, which is what the
+ * request register is for. It gains a line when the command sets do.
+ * ------------------------------------------------------------------------- */
+
+[[nodiscard]] uint8_t ap_disk_dma_read(ap_disk_t *disk, bool is_floppy);
+void ap_disk_dma_write(ap_disk_t *disk, bool is_floppy, uint8_t value);
+
 [[nodiscard]] uint8_t ap_disk_read(ap_disk_t *disk, uint32_t address);
 void ap_disk_write(ap_disk_t *disk, uint32_t address, uint8_t value);
 

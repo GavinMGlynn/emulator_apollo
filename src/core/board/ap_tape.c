@@ -108,3 +108,29 @@ void ap_tape_write(ap_tape_t *tape, uint32_t address, uint8_t value) {
 }
 
 bool ap_tape_irq(const ap_tape_t *tape) { return ap_sc499_irq(&tape->controller); }
+
+bool ap_tape_dma_request(const ap_tape_t *tape) {
+  /* Only while a read is actually in progress, which is the same boundary the
+   * data register keeps: the register is the *controller's* and the drive fills
+   * it during a transfer and at no other time. An idle controller that asked for
+   * DMA cycles would have the channel run away with the bus. */
+  if (!tape->drive.reading) {
+    return false;
+  }
+  /* Bytes left in the block in hand, or another block to fetch. The request is
+   * a level and stays up across the whole of it. */
+  return (tape->block_valid && tape->offset < AP_CT_BLOCK_SIZE) ||
+         tape->drive.position < ap_ct_blocks(&tape->drive.image);
+}
+
+uint8_t ap_tape_dma_read(ap_tape_t *tape) {
+  /* The data register, reached through `DACK` instead of through an address --
+   * which is why this defers to the same path rather than reaching into the
+   * block itself. Anything the programmed read does about running off the end
+   * of the cartridge, this does too. */
+  return ap_tape_read(tape, AP_TAPE_ADDR + AP_SC499_DATA);
+}
+
+void ap_tape_dma_write(ap_tape_t *tape, uint8_t value) {
+  ap_tape_write(tape, AP_TAPE_ADDR + AP_SC499_DATA, value);
+}

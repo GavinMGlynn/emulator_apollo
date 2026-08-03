@@ -84,4 +84,28 @@ void ap_tape_write(ap_tape_t *tape, uint32_t address, uint8_t value);
 
 [[nodiscard]] bool ap_tape_irq(const ap_tape_t *tape);
 
+/* ---------------------------------------------------------------------------
+ * The DMA side, which is the same data register reached a different way
+ *
+ * `008778-03` Table 2-4 puts the tape drive on **DRQ1** -- controller 1,
+ * channel 1 -- and §8.3.2's Table 8-1 configures the controller board itself to
+ * match: "Device Address 218, DMA Channel 1, Interrupt Request Level 5". All
+ * three now agree with what this core had already placed from other evidence.
+ *
+ * A DMA cycle does not address the device. It is selected by `DACK` and the byte
+ * moves on `IOR`/`IOW`, so these take no address: they are the data register
+ * reached through the acknowledge instead of through the bus. Routing them to
+ * anything else would model a second port the controller has not got.
+ * ------------------------------------------------------------------------- */
+
+/* Whether the drive is asking for a cycle. It asks while a read is in progress
+ * and there are bytes left to hand over, which is what makes the request a
+ * *block*-granular thing rather than a per-word one: the line stays asserted
+ * across the whole transfer and drops when the drive has nothing more. */
+[[nodiscard]] bool ap_tape_dma_request(const ap_tape_t *tape);
+
+/* One byte out of the drive, and one byte in. */
+[[nodiscard]] uint8_t ap_tape_dma_read(ap_tape_t *tape);
+void ap_tape_dma_write(ap_tape_t *tape, uint8_t value);
+
 #endif /* APOLLO_BOARD_AP_TAPE_H */

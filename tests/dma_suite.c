@@ -4,6 +4,11 @@
 #include "unity.h"
 
 #include "board/ap_board.h"
+#include "image/ap_ct.h"
+#include "device/ap_sc499.h"
+#include "device/ap_qic.h"
+#include "board/ap_disk.h"
+#include "board/ap_tape.h"
 #include "board/ap_dma.h"
 #include "device/ap_i8237.h"
 #include "device/ap_mc146818.h"
@@ -168,6 +173,24 @@ static void program_cascade(ap_board_t *b) {
                  (uint8_t)AP_DMA_CASCADE_CHANNEL, &ok);
 }
 
+/* The same as `arm_channel` without the software request, so the channel runs
+ * only when the *device* pulls its line. `[8237]`'s request register is how a
+ * driver starts a channel for a controller that cannot ask; using it here would
+ * make a test about device request lines drive itself. */
+static void arm_channel_for_device(ap_board_t *b, unsigned channel,
+                                   uint8_t mode_bits, uint16_t address,
+                                   uint16_t count) {
+  bool ok = false;
+  const uint32_t base = AP_DMA1_ADDR;
+  ap_board_write(b, base + AP_I8237_REG_MODE, (uint8_t)(mode_bits | channel), &ok);
+  ap_board_write(b, base + AP_I8237_REG_CLEAR_FLIPFLOP, 0u, &ok);
+  ap_board_write(b, base + channel * 2u, (uint8_t)(address & 0xFFu), &ok);
+  ap_board_write(b, base + channel * 2u, (uint8_t)(address >> 8), &ok);
+  ap_board_write(b, base + channel * 2u + 1u, (uint8_t)(count & 0xFFu), &ok);
+  ap_board_write(b, base + channel * 2u + 1u, (uint8_t)(count >> 8), &ok);
+  ap_board_write(b, base + AP_I8237_REG_MASK_SINGLE, (uint8_t)channel, &ok);
+}
+
 static void build(void) {
   for (unsigned i = 0; i < DMA_RAM_BYTES; i++) {
     dma_ram[i] = 0;
@@ -238,7 +261,10 @@ static void test_a_transfer_lands_where_the_map_points(void) {
    * nowhere and is counted -- but the *memory* side is the part under test, and
    * it is addressed through the map. */
   dma_ram[0x40] = 0x5Au;
-  arm_channel(&dma_board, 1u, (uint8_t)((AP_I8237_MODE_BLOCK << 6) | (2u << 2)),
+  /* DRQ0, which Table 2-4 leaves as "User Device" -- so nothing this core
+   * models answers the acknowledge and the transfer counts as unwired. Channel
+   * 1 would be the tape's and would move a real byte. */
+  arm_channel(&dma_board, 0u, (uint8_t)((AP_I8237_MODE_BLOCK << 6) | (2u << 2)),
               0x0040u, 0u);
 
   for (unsigned i = 0; i < 64u; i++) {
@@ -252,7 +278,7 @@ static void test_a_transfer_lands_where_the_map_points(void) {
   build();
   ap_board_write(&dma_board, AP_ATMAP_BASE + 0u, (uint8_t)(page >> 8), &ok);
   ap_board_write(&dma_board, AP_ATMAP_BASE + 1u, (uint8_t)(page & 0xFFu), &ok);
-  arm_channel(&dma_board, 1u, (uint8_t)((AP_I8237_MODE_BLOCK << 6) | (1u << 2)),
+  arm_channel(&dma_board, 0u, (uint8_t)((AP_I8237_MODE_BLOCK << 6) | (1u << 2)),
               0x0100u, 0u);
   for (unsigned i = 0; i < 64u; i++) {
     ap_board_bus_tick(&dma_board);
@@ -370,8 +396,164 @@ static void test_the_cascade_puts_controller_ones_channels_first(void) {
   TEST_ASSERT_TRUE((dma_board.dma.controller[1].mask & 0x02u) != 0u);
 }
 
+/* ---------------------------------------------------------------------------
+ * A device's own data, moved by DMA
+ *
+ * This is the item's verification. Everything before it moved bytes to or from
+ * nothing: a verify transfer with no peripheral, or a read that counted itself
+ * unwired. Here a cartridge's bytes reach main memory because the tape drive
+ * put them on the bus, on the channel `008778-03` Table 2-4 gives it.
+ * ------------------------------------------------------------------------- */
+
+static uint8_t cartridge[AP_CT_BLOCK_SIZE * 2u];
+
+/* Load a cartridge whose bytes are distinguishable from anything else in the
+ * machine, and start a READ so the drive has data to hand over. */
+static void start_tape_read(ap_board_t *b) {
+  for (unsigned i = 0; i < sizeof cartridge; i++) {
+    cartridge[i] = (uint8_t)(0x40u + (i & 0x3Fu));
+  }
+  TEST_ASSERT_TRUE(ap_tape_load(&b->tape, cartridge, sizeof cartridge,
+                                AP_QIC_CARTRIDGE_DC600A));
+  bool ok = false;
+  /* SELECT before READ: "The drive shall remain selected until changed by
+   * another SELECT command or RESET", so an unselected drive takes no READ and
+   * has nothing to hand over. */
+  ap_board_write(b, AP_TAPE_ADDR + 1u, AP_SC499_CTL_REQUEST, &ok);
+  ap_board_write(b, AP_TAPE_ADDR + 0u, AP_QIC_CMD_SELECT, &ok);
+  ap_board_write(b, AP_TAPE_ADDR + 1u, AP_SC499_CTL_REQUEST, &ok);
+  ap_board_write(b, AP_TAPE_ADDR + 0u, AP_QIC_CMD_READ, &ok);
+}
+
+/* Point map entry 0 at the page main memory begins on, so a DMA address is a
+ * real physical one. */
+static void map_entry_zero_to_ram(ap_board_t *b) {
+  bool ok = false;
+  const uint16_t page = (uint16_t)(AP_BOARD_RAM_BASE >> 10);
+  ap_board_write(b, AP_ATMAP_BASE + 0u, (uint8_t)(page >> 8), &ok);
+  ap_board_write(b, AP_ATMAP_BASE + 1u, (uint8_t)(page & 0xFFu), &ok);
+}
+
+static void test_the_tape_drives_its_own_request_line(void) {
+  build();
+  TEST_ASSERT_FALSE(ap_tape_dma_request(&dma_board.tape));
+
+  /* A loaded cartridge is not a request: the drive asks while a READ is in
+   * progress and at no other time, which is the same boundary the data register
+   * keeps. An idle controller that asked would run away with the bus. */
+  for (unsigned i = 0; i < sizeof cartridge; i++) {
+    cartridge[i] = (uint8_t)i;
+  }
+  TEST_ASSERT_TRUE(ap_tape_load(&dma_board.tape, cartridge, sizeof cartridge,
+                                AP_QIC_CARTRIDGE_DC600A));
+  TEST_ASSERT_FALSE(ap_tape_dma_request(&dma_board.tape));
+
+  bool ok = false;
+  ap_board_write(&dma_board, AP_TAPE_ADDR + 1u, AP_SC499_CTL_REQUEST, &ok);
+  ap_board_write(&dma_board, AP_TAPE_ADDR + 0u, AP_QIC_CMD_SELECT, &ok);
+  /* Selected and still not asking: it is the READ that gives it something to
+   * hand over, which is the same boundary the data register keeps. */
+  TEST_ASSERT_FALSE(ap_tape_dma_request(&dma_board.tape));
+
+  ap_board_write(&dma_board, AP_TAPE_ADDR + 1u, AP_SC499_CTL_REQUEST, &ok);
+  ap_board_write(&dma_board, AP_TAPE_ADDR + 0u, AP_QIC_CMD_READ, &ok);
+  TEST_ASSERT_TRUE(ap_tape_dma_request(&dma_board.tape));
+}
+
+/* The whole thing end to end: the drive's bytes in main memory, put there by a
+ * transfer the drive asked for. */
+static void test_a_cartridge_block_reaches_memory_by_dma(void) {
+  build();
+  map_entry_zero_to_ram(&dma_board);
+  start_tape_read(&dma_board);
+
+  /* Table 2-4's DRQ1. A *write* transfer in `[8237]`'s sense -- named for what
+   * the memory sees, so it moves the device's bytes into memory. Sixteen of
+   * them, at DMA address 0x200. */
+  arm_channel_for_device(&dma_board, AP_DMA_TAPE_CHANNEL,
+                         (uint8_t)((AP_I8237_MODE_BLOCK << 6) | (1u << 2)),
+                         0x0200u, 15u);
+
+  for (unsigned i = 0; i < 256u; i++) {
+    ap_board_bus_tick(&dma_board);
+  }
+
+  TEST_ASSERT_EQUAL_UINT(16u, dma_board.dma_transfers);
+  /* Nothing counted as unwired: a real device answered every acknowledge. */
+  TEST_ASSERT_EQUAL_UINT(0u, dma_board.dma_unwired_transfers);
+
+  /* And the bytes are the cartridge's, in order, at the physical address the
+   * translation map chose. */
+  for (unsigned i = 0; i < 16u; i++) {
+    TEST_ASSERT_EQUAL_HEX8(cartridge[i], dma_ram[0x200u + i]);
+  }
+}
+
+/* "Device request lines gate DMA at block granularity, not per word."
+ *
+ * The tape's line is a *level*: it stays asserted across the whole of the data
+ * it has and drops when the drive has nothing more. So a channel with a count
+ * larger than the cartridge stops when the *device* stops, not when the count
+ * runs out -- which is the difference between a request that gates a block and
+ * one that gates a word. */
+static void test_the_request_line_gates_a_block_not_a_word(void) {
+  build();
+  map_entry_zero_to_ram(&dma_board);
+  start_tape_read(&dma_board);
+
+  /* A count far larger than the cartridge holds: 4095 bytes wanted, 1024 on the
+   * tape. */
+  arm_channel_for_device(&dma_board, AP_DMA_TAPE_CHANNEL,
+                         (uint8_t)((AP_I8237_MODE_BLOCK << 6) | (1u << 2)),
+                         0x0000u, 4095u);
+
+  for (unsigned i = 0; i < 4096u; i++) {
+    ap_board_bus_tick(&dma_board);
+  }
+
+  /* It moved the cartridge and stopped: the count never reached terminal, and
+   * the channel is still armed waiting for a line that has gone away. */
+  TEST_ASSERT_EQUAL_UINT(sizeof cartridge, dma_board.dma_transfers);
+  TEST_ASSERT_FALSE(ap_tape_dma_request(&dma_board.tape));
+  TEST_ASSERT_EQUAL_UINT(0u, (unsigned)(dma_board.dma.controller[0].status &
+                                        (1u << AP_DMA_TAPE_CHANNEL)));
+
+  /* And the processor has the bus back, because the device let go of it. */
+  TEST_ASSERT_TRUE(ap_board_processor_may_run(&dma_board));
+}
+
+/* The disk's data port moves under DMA too, on Table 2-4's DRQ2 for the floppy.
+ * It has no request line of its own -- `board/ap_disk.h` says why -- so the
+ * transfer is started the way a driver starts one for such a controller, with
+ * the 8237's software request. */
+static void test_the_floppys_data_port_moves_under_dma(void) {
+  build();
+  map_entry_zero_to_ram(&dma_board);
+
+  bool ok = false;
+  dma_ram[0x300] = 0x5Au;
+  /* A read transfer: memory to the device, so the byte ends in the floppy's
+   * data register. */
+  arm_channel(&dma_board, AP_DMA_FLOPPY_CHANNEL,
+              (uint8_t)((AP_I8237_MODE_BLOCK << 6) | (2u << 2)), 0x0300u, 0u);
+
+  for (unsigned i = 0; i < 64u; i++) {
+    ap_board_bus_tick(&dma_board);
+  }
+
+  TEST_ASSERT_EQUAL_UINT(1u, dma_board.dma_transfers);
+  TEST_ASSERT_EQUAL_UINT(0u, dma_board.dma_unwired_transfers);
+  TEST_ASSERT_EQUAL_HEX8(0x5Au,
+                         ap_board_read(&dma_board, AP_DISK_FLOPPY_ADDR + 5u,
+                                       &ok));
+}
+
 int main(void) {
   UNITY_BEGIN();
+  RUN_TEST(test_the_tape_drives_its_own_request_line);
+  RUN_TEST(test_a_cartridge_block_reaches_memory_by_dma);
+  RUN_TEST(test_the_request_line_gates_a_block_not_a_word);
+  RUN_TEST(test_the_floppys_data_port_moves_under_dma);
   RUN_TEST(test_controller_one_cannot_reach_the_bus_without_the_cascade);
   RUN_TEST(test_the_cascade_puts_controller_ones_channels_first);
   RUN_TEST(test_a_dma_controller_takes_the_bus_from_the_processor);

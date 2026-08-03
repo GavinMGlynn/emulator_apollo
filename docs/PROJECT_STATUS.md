@@ -3406,7 +3406,7 @@ failure that cost a bit position in the 68020's module entry word.
 | Intel 8259A interrupt controller (the part) | working: ICW1-4 sequence, all three OCWs, fully nested priority with rotation, edge and level triggering, special mask and special fully nested modes, poll, AEOI, and the spurious level 7. 8086-mode vectoring only — MCS-80/85's `CALL` sequence is refused rather than approximated, and this machine never uses it. The Apollo *pairing* is a separate module | `i8259_suite`, 28 tests, each citing `8259A` 231468-003 |
 | DN3500 core-board address map (`board/ap_board.c`) | working: every device placed by `008778-03` Table 2-8 and by the measurement that confirmed it, main memory at `1000000`, and an unclaimed address reported **unmapped rather than zero** — the distinction flat RAM hid, which cost 5634 invisible accesses in the first firmware run. Regions are named, so a trace can say *what* the firmware reached for. The AT windows declare a cycle time and everything else answers at the minimum, and an access to the translation map's undescribed seven eighths is counted rather than silently aliased, and each of the two declined core registers is counted apart | `board_suite`, 17 tests; `atbus_suite`, 8 tests |
 | Shared bus arbitration point | working: the external priority encoder `[030]` §7.7 requires, DRQ0 through DRQ7 with the processor last, driving the CPU's own arbitration unit over the three-wire protocol. A grant and its acknowledgement are separate instants, so the processor stops driving the bus when it grants rather than when the grant is taken up; a master is never pre-empted mid-transfer | `arbiter_suite`, 9 tests, `MC68030 User's Manual 3ed` §7.7, `008778-03` §2.4.6 |
-| Apollo DMA controllers (`010C00`, `010D00`) | working: DMA 1 at **stride 1** and DMA 2 at **stride 2**, both measured, both aliased through their ranges. A read of a write-only register returns zero where the oracle returns `0F`; `[8237]` marks that read "Illegal", so neither is specified and ours does not invent a register value. The board runs transfers: controller 1's request cascaded onto controller 2's channel 0 and one request reaching the arbiter, the address through the translation map, and the processor stalled while a controller holds the bus. The cascade and the channel assignments are `008778-03` Table 2-4's, so the AT convention this module used to refuse is now cited rather than assumed | `dma_suite`, 12 tests; `FINDINGS.md` C13 |
+| Apollo DMA controllers (`010C00`, `010D00`) | working: DMA 1 at **stride 1** and DMA 2 at **stride 2**, both measured, both aliased through their ranges. A read of a write-only register returns zero where the oracle returns `0F`; `[8237]` marks that read "Illegal", so neither is specified and ours does not invent a register value. The board runs transfers: controller 1's request cascaded onto controller 2's channel 0 and one request reaching the arbiter, the address through the translation map, and the processor stalled while a controller holds the bus. The cascade and the channel assignments are `008778-03` Table 2-4's, so the AT convention this module used to refuse is now cited rather than assumed. **The peripheral side is wired**: the tape drives its own request line and its cartridge reaches memory by DMA, and the disk's two data ports move under an acknowledge | `dma_suite`, 16 tests; `FINDINGS.md` C13 |
 | Intel 8237A DMA controller (the part) | **programming model and transfer cycle complete**: all sixteen register addresses, four channels with base and current address/count, the single shared first/last flip-flop, command/mode/request/mask/status/temporary, master clear, autoinitialise reload and the mask-on-terminal-count rule; and a service cycle that moves a byte either way, verifies without moving one, walks the address up or down, and ends on the borrow out of zero rather than at zero. Memory-to-memory is refused outright rather than half-run. The part drives sixteen bits of address and the board composes the rest — not yet wired to the board | `i8237_suite`, 26 tests, `8237A` 231466 |
 | Apollo interval timer (`010800`) | working: the part at **odd addresses, stride 2** (measured — the region reads `00 00 00 00 00 FF ...`, the `FFFF` latch default showing through), the three §3.8 input rates as exact time-base clock domains, and the IRQ0 route. Advancing is by whole pulses, so the rate cannot become a function of how often it is polled | `timer_suite`, 8 tests; `FINDINGS.md` C12 |
 | MC6840 interval timer (the part) | working for **both counting modes** — continuous and single shot, each in sixteen-bit and dual eight-bit operation — plus both control register aliases, the write/read byte buffering, the status register, the prescaler, the gate, and all five of `[6840]` §3.11's ways of clearing an interrupt. The two **measurement modes** are decoded and declined: they time a signal on a timer's gate pin, and nothing on this board drives the gates | `mc6840_suite`, 28 tests, `MC6840UM` (a scan with no text layer; read from page images) |
@@ -4409,6 +4409,53 @@ paper over" — where MAME returns `0F`, which is what `FINDINGS.md` C13 used as
 placement fingerprint. Neither is wrong: the datasheet defines no value. It is
 registered here so that the first board-backed oracle diff does not read it as a
 defect.
+
+#### A device's own bytes, moved by DMA
+
+Everything before this moved bytes to or from nothing — a verify transfer with
+no peripheral, or a read that counted itself unwired. The peripheral side is now
+wired on Table 2-4's channels, and a cartridge's bytes reach main memory because
+the drive put them on the bus.
+
+**A DMA cycle does not address the device.** It is selected by `DACK` and the
+byte moves on `IOR`/`IOW`, so the device entry points take no address: they are
+the same data register reached through the acknowledge instead of through the
+bus, and they defer to the same register call rather than reaching into state
+behind it. Anything the programmed path does — the tape asserting `EXCEPTION`
+when the cartridge runs out, the OMTI's documented read/write asymmetries — the
+DMA path does too, because it is the same path.
+
+The board keeps the half of the address the part cannot supply. An 8237 hands
+its callbacks a channel and nothing else, so controller 1's channel 3 and
+controller 2's channel 3 are indistinguishable to it; the board records which
+controller the cycle is running on and Table 2-4 does the rest.
+
+**Only the tape has a request line, and that is a statement about the model.**
+It asks while a READ is in progress and there are bytes left, which is the same
+boundary its data register keeps — an idle controller that asked would run away
+with the bus. The disk's two channels have none: `device/ap_omti.h` models the
+register sets and not the Command Descriptor Blocks, so nothing in that
+controller knows a transfer is in progress and there is no condition a `DRQ`
+could honestly be derived from. A driver starts those with the 8237's software
+request, which is what the request register is for, and they gain a line when
+the command sets do.
+
+**"Block granularity, not per word", demonstrated rather than asserted.** The
+tape's line is a level: a channel armed for 4096 bytes against a 1024-byte
+cartridge moves 1024 and stops, its count nowhere near terminal and the channel
+still armed waiting for a line that has gone away. The processor gets the bus
+back because the *device* let go of it, not because the count ran out.
+
+Two things the tests had to learn, both the hardware's:
+
+- **`SELECT` precedes `READ`.** "The drive shall remain selected until changed
+  by another SELECT command or RESET", so an unselected drive takes no READ and
+  has nothing to hand over. The first version of these tests issued READ alone
+  and the drive correctly ignored it.
+- **A software request is not a device request.** `[8237]`'s request register
+  starts a channel whether or not anything is pulling its pin, so a test that
+  used it while asking a question *about* request lines would be driving itself.
+  These arm the channel and leave the request register alone.
 
 #### The DMA channel assignments were in the manual all along
 

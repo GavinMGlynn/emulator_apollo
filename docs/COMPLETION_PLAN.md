@@ -1791,13 +1791,16 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         apart from the level-6 autovector by a second handler at vector 30; and
         the same program on unprogrammed controllers delivers nothing while the
         device is still asking.*
-- [ ] Two AT DMA controllers. *Verification: transfer probes; device request
-      lines gate DMA at block granularity, not per word.*
-      **Awaiting:** a device's own data path — the tape's or the disk's byte
-      register moving under a transfer, which lands with those controllers.
-      The channel *assignments* are no longer the blocker and never needed
-      measuring: `008778-03` Table 2-4 gives all eight, and §2.4 states the
-      cascade outright. Detail in `PROJECT_STATUS.md`.
+- [x] Two AT DMA controllers. *Verification: a cartridge's bytes reach main
+      memory by DMA on Table 2-4's DRQ1, translated through the address map,
+      with nothing counted unwired — the drive put them on the bus. And the
+      request line gates a **block**: a channel armed for 4096 bytes against a
+      1024-byte cartridge moves 1024 and stops, count nowhere near terminal and
+      the processor given the bus back because the device let go of it rather
+      than because the count ran out. The disk's two data ports move under an
+      acknowledge on DRQ2 and DRQ7; neither has a request line, because
+      `ap_omti.h` models the register sets and not the command sets, so there is
+      no condition to derive one from. `dma_suite`, 16 tests.*
   - [x] Placement measured before writing anything: DMA 1 at `010C00` **stride
         1** (sixteen registers aliased every sixteen bytes, the all-mask
         register reading `0F` as a reset part holds), DMA 2 at `010D00`

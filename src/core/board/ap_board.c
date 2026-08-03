@@ -209,19 +209,66 @@ static void dma_memory_write(void *context, uint16_t address, uint8_t value) {
   ap_board_write(board, physical, value, &ok);
 }
 
-/* The peripheral side, which no device is wired to. Counted, and answering what
- * nothing driving this bus answers -- all ones, the same value an empty AT slot
- * already reads here. See `ap_board.h`. */
+/* Which device answers a DACK on this controller and channel, from `008778-03`
+ * Table 2-4. `unit` is the controller the transfer is running on, which the
+ * caller knows and the part does not.
+ *
+ * A channel Table 2-4 assigns to something this core does not model -- the PC
+ * coprocessor, either 802.3 controller, or a "User Device" -- is not an error
+ * and is not silently zero: it is counted, and reads what nothing driving this
+ * bus reads. */
+typedef enum {
+  DMA_PERIPHERAL_NONE,
+  DMA_PERIPHERAL_TAPE,
+  DMA_PERIPHERAL_FLOPPY,
+  DMA_PERIPHERAL_WINCHESTER,
+} dma_peripheral_t;
+
+static dma_peripheral_t dma_peripheral(unsigned unit, unsigned channel) {
+  if (unit == AP_DMA_TAPE_UNIT && channel == AP_DMA_TAPE_CHANNEL) {
+    return DMA_PERIPHERAL_TAPE;
+  }
+  if (unit == AP_DMA_FLOPPY_UNIT && channel == AP_DMA_FLOPPY_CHANNEL) {
+    return DMA_PERIPHERAL_FLOPPY;
+  }
+  if (unit == AP_DMA_WINCHESTER_UNIT && channel == AP_DMA_WINCHESTER_CHANNEL) {
+    return DMA_PERIPHERAL_WINCHESTER;
+  }
+  return DMA_PERIPHERAL_NONE;
+}
+
 static uint8_t dma_device_read(void *context, unsigned channel) {
-  (void)channel;
-  ((ap_board_t *)context)->dma_unwired_transfers++;
+  ap_board_t *board = (ap_board_t *)context;
+  switch (dma_peripheral(board->dma_transfer_unit, channel)) {
+  case DMA_PERIPHERAL_TAPE:
+    return ap_tape_dma_read(&board->tape);
+  case DMA_PERIPHERAL_FLOPPY:
+    return ap_disk_dma_read(&board->disk, true);
+  case DMA_PERIPHERAL_WINCHESTER:
+    return ap_disk_dma_read(&board->disk, false);
+  case DMA_PERIPHERAL_NONE:
+    break;
+  }
+  board->dma_unwired_transfers++;
   return 0xFFu;
 }
 
 static void dma_device_write(void *context, unsigned channel, uint8_t value) {
-  (void)channel;
-  (void)value;
-  ((ap_board_t *)context)->dma_unwired_transfers++;
+  ap_board_t *board = (ap_board_t *)context;
+  switch (dma_peripheral(board->dma_transfer_unit, channel)) {
+  case DMA_PERIPHERAL_TAPE:
+    ap_tape_dma_write(&board->tape, value);
+    return;
+  case DMA_PERIPHERAL_FLOPPY:
+    ap_disk_dma_write(&board->disk, true, value);
+    return;
+  case DMA_PERIPHERAL_WINCHESTER:
+    ap_disk_dma_write(&board->disk, false, value);
+    return;
+  case DMA_PERIPHERAL_NONE:
+    break;
+  }
+  board->dma_unwired_transfers++;
 }
 
 void ap_board_bus_tick(ap_board_t *board) {
@@ -239,6 +286,14 @@ void ap_board_bus_tick(ap_board_t *board) {
    * priority column runs 1-4 for DRQ0-3 and 5-7 for DRQ5-7 instead of following
    * the line numbers: channels 0 through 3 outrank 5 through 7 because they
    * arrive through the cascade. The order is a consequence here, not a table. */
+  /* The one device on this board that can derive a request of its own: the tape
+   * asks while a read is in progress and there are bytes left, Table 2-4's
+   * DRQ1. The disk's two channels have no line -- `board/ap_disk.h` says why --
+   * and a driver starts those with the 8237's software request. */
+  ap_i8237_set_request_pin(&board->dma.controller[AP_DMA_TAPE_UNIT],
+                           AP_DMA_TAPE_CHANNEL,
+                           ap_tape_dma_request(&board->tape));
+
   ap_i8237_set_request_pin(&board->dma.controller[AP_DMA_CASCADE_UNIT],
                            AP_DMA_CASCADE_CHANNEL,
                            ap_i8237_service_pending(&board->dma.controller[0]) >=
@@ -272,6 +327,10 @@ void ap_board_bus_tick(ap_board_t *board) {
           ? 0u
           : AP_DMA_CASCADE_UNIT;
 
+  /* Which controller the cycle is running on, so the device callbacks can tell
+   * controller 1's channel 3 from controller 2's. The part passes only a
+   * channel, because a `DACK` is all a peripheral sees. */
+  board->dma_transfer_unit = unit;
   if (ap_i8237_transfer(&board->dma.controller[unit], &bus).ran) {
     board->dma_transfers++;
   }
