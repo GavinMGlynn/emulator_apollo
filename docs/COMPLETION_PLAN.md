@@ -880,6 +880,11 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         start — a zeroed struct already holds what reset writes — and wrong on
         every later one. `machine_suite` +1, checked against the old code as
         well as the new. Detail in `PROJECT_STATUS.md`.
+- [x] **The MC68030's paged memory management unit.** Transparent
+      translation, the translation control register and logical address
+      decomposition, descriptor semantics, the address translation
+      cache, `MMUSR` and the table walk.
+
   - [x] **Transparent translation (TT0/TT1)**
         (`src/core/cpu/m68030/ap_m68030_tt.c`), `[030]` §9.3 p. 9-16 and §9.7.3
         p. 9-57. On this machine's critical path rather than an optional extra:
@@ -991,6 +996,10 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         four MMU modules together, and the first whose *timing* is a table
         search rather than an instruction.
         *Verification: `walk_suite`, 40 tests. Detail in `PROJECT_STATUS.md`.*
+- [x] **The MC68030's caches, and their half of the bus timing join.**
+      Structure and policy, the data cache's write rules, the `CBREQ`
+      decision, burst cycles, and what a miss costs end to end.
+
   - [x] **Cache structure and policy**
         (`src/core/cpu/m68030/ap_m68030_cache.c`), `[030]` §6. Both caches are
         "256-byte direct-mapped ... organized as 16 lines. Each line consists of
@@ -1091,6 +1100,13 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
       vector in 48–54 at all, so this is a recorded oracle-wrong difference
       rather than a measurement. `test_encoder` +3. Detail in
       `PROJECT_STATUS.md`.
+- [x] **MC68882 floating-point coprocessor.** The programming model, the
+      three binary real formats, the coprocessor interface registers,
+      rounding, the four arithmetic operations, instruction decode, the
+      operand transfers, `FMOVEM`, packed decimal both ways, `FSAVE`/
+      `FRESTORE`'s state frames, and the transcendentals to §4.3.2's
+      published bound.
+
   - [x] **The verification line is now met.** The audit found why it had
         the 68882 was not reachable from a running machine at all.**
         `ap_machine_init` never attached one, so `cpu->fpu` was null on every
@@ -1376,6 +1392,10 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         than one memory map — three obstacles found and fixed in turn. The boot
         half remains Phase 4's. Detail in `PROJECT_STATUS.md`.
         *Verification: `probe_compare.py --machine dn3000 --program all`.*
+- [x] **MC68020 for the DN3000.** The part's own differences from the
+      68030, expressed as a derived feature set in the one model table
+      rather than conditionals scattered through subsystems.
+
   - [x] The part's own differences from the 68030, as a derived feature set in
         the one model table rather than conditionals in subsystems: its cache
         (256 bytes as **64 single-long-word entries**, not the 68030's sixteen
