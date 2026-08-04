@@ -2862,22 +2862,16 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         firmware and is used.*
   - [x] **The stepped counters, and the self-test walks past the DAC check.**
         `DH_CK`, `DV_CK` and `DP_CK` step on the **falling edge**, the
-        horizontal carries into the vertical, it counts *words* so a step is
-        sixteen pixels, and `DV_CK` does not exist on a single-plane board.
-        The A/D reads through these rather than the running raster.
-        Detail in `PROJECT_STATUS.md`.
-        *Verification: `graphics_suite` +5 (82). The posted codes stop
-        alternating — `... 9D 8D 7D 0D 7D 0D` becomes `... 9D 8D 7D 6D 5D FC`,
-        with `7D 6D 5D` new and `FC` complementing to `03`, a code C109 saw on
-        the console path. It also caught a defect in the previous commit: the
-        counters were added to the struct and not to `ap_graphics_init`.*
-      **Awaiting:** driving the machine from a completed self-test to a disk
-      load. It gets there now — 80,000,000 instructions in normal mode ends at
-      `0000079A` with the posted codes finishing on `FC`, which complements to
-      `03`, a *console-path* code, and 1,049,450 blit cycles behind it. That is
-      a DN3500 sitting where a real one sits before an operator types at it. The
-      remaining question is the same one the service-mode path reached by a
-      different route: what a console does next to make it load `w0`.
+        horizontal carries into the vertical, it counts *words*, and `DV_CK`
+        does not exist on a single-plane board. The A/D reads through these
+        rather than the running raster. Detail in `PROJECT_STATUS.md`.
+        *Verification: `graphics_suite` +5 (82); the posted codes stop
+        alternating.*
+      **Awaiting:** driving a completed self-test to a disk load. The machine
+      gets there — 80,000,000 instructions ends at `0000079A` with the codes
+      finishing on `FC`, which complements to `03`, a *console-path* code, and
+      1,049,450 blit cycles behind it. That is a DN3500 sitting where a real one
+      sits before an operator types at it.
   - [x] **A disk can be fitted at all.** `ap_omti` modelled the controller and
         `ap_awd` read the image and nothing ever handed one to the other, so
         every boot experiment so far ran on a DN3500 with **no Winchester** —
