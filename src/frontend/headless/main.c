@@ -20,6 +20,7 @@
 
 #include "device/ap_qic.h"
 #include "image/ap_ct.h"
+#include "image/ap_afd.h"
 #include "image/ap_volume.h"
 #include "board/ap_board.h"
 #include "board/ap_sio.h"
@@ -58,6 +59,8 @@ static void print_usage(const char *program_name) {
           "                        index 0-7F, not a character)\n"
           "  --screen KIND         fit a display: c4p, c8p, 19i or 15i\n"
           "  --screenshot FILE     scan the fitted screen out to a PNG\n"
+          "  --floppy FILE         read an .afd through the reader and\n"
+          "                        report its geometry\n"
           "  --boot-input-channel C  which channel, A or B (default A). The\n"
           "                        keyboard is port 1 channel A; a terminal is\n"
           "                        port 1 channel B\n");
@@ -1024,6 +1027,111 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
  * default path. `media/` is gitignored -- Apollo distribution media is not ours
  * to redistribute -- so a build that looked for a cartridge would work on one
  * machine and fail on every other. */
+/* Read an `.afd` through the reader, as a driver would.
+ *
+ * The counterpart of `--tape` for the cartridge and of `--volume` for the disk,
+ * and the *reading* path rather than the booting one. Every sector goes through
+ * `ap_afd_read` rather than being indexed out of the buffer, which is what makes
+ * this a check of the addressing instead of a check of `memcpy`: a wrong
+ * geometry, a zero-based sector number or a head-major layout all fail here and
+ * none of them fails a size comparison.
+ *
+ * The image is walked in **cylinder, head, sector** order and the linear
+ * numbers it produces must come out 0, 1, 2 ... with no gap and no repeat. That
+ * is the whole claim a blank image can support, and it is worth stating plainly
+ * that it is not the same claim as "the same image reads identically under
+ * both" -- for that the image has to have something in it. */
+static int report_floppy(const char *path) {
+  long size = 0;
+  uint8_t *bytes = read_file(path, &size);
+  if (bytes == NULL) {
+    fprintf(stderr, "apollo: cannot read floppy image %s\n", path);
+    return 1;
+  }
+
+  ap_afd_t image;
+  if (!ap_afd_open(&image, bytes, (size_t)size, false)) {
+    free(bytes);
+    fprintf(stderr,
+            "apollo: %s is %ld bytes; an Apollo floppy is exactly %u"
+            " (%u cylinders x %u heads x %u sectors x %u)\n",
+            path, size, (unsigned)AP_AFD_BYTES, AP_AFD_CYLINDERS, AP_AFD_HEADS,
+            AP_AFD_SECTORS, AP_AFD_SECTOR_BYTES);
+    return 1;
+  }
+
+  printf("floppy %s\n", path);
+  printf("  bytes        %ld\n", size);
+  printf("  geometry     %u cylinders x %u heads x %u sectors x %u bytes\n",
+         AP_AFD_CYLINDERS, AP_AFD_HEADS, AP_AFD_SECTORS, AP_AFD_SECTOR_BYTES);
+  printf("  sectors      one-based, 1 to %u\n", AP_AFD_SECTORS);
+
+  uint32_t expected = 0;
+  uint32_t nonzero = 0;
+  bool self_identifying = true;
+  uint64_t sum = 0;
+  uint8_t sector[AP_AFD_SECTOR_BYTES];
+  for (unsigned cyl = 0; cyl < AP_AFD_CYLINDERS; cyl++) {
+    for (unsigned head = 0; head < AP_AFD_HEADS; head++) {
+      for (unsigned s = 1; s <= AP_AFD_SECTORS; s++) {
+        uint32_t lba = 0;
+        if (!ap_afd_lba((uint16_t)cyl, (uint8_t)head, (uint8_t)s, &lba)) {
+          free(bytes);
+          fprintf(stderr, "apollo: %u/%u/%u is not addressable\n", cyl, head, s);
+          return 1;
+        }
+        /* Cylinder-major, then head, then sector: the numbers must come out
+         * consecutive. A head-major layout produces every number exactly once
+         * too, so a set comparison would pass and this does not. */
+        if (lba != expected) {
+          free(bytes);
+          fprintf(stderr,
+                  "apollo: %u/%u/%u is sector %u, expected %u -- the layout is"
+                  " not cylinder-major\n",
+                  cyl, head, s, lba, expected);
+          return 1;
+        }
+        expected++;
+        if (!ap_afd_read(&image, lba, sector)) {
+          free(bytes);
+          fprintf(stderr, "apollo: sector %u could not be read\n", lba);
+          return 1;
+        }
+        for (unsigned b = 0; b < AP_AFD_SECTOR_BYTES; b++) {
+          if (sector[b] != 0u) { nonzero++; }
+          sum += sector[b];
+        }
+        /* An image whose every sector opens with its own linear number checks
+         * the mapping rather than merely exercising it: a reader that returned
+         * the neighbouring sector would return a wrong *number* instead of
+         * plausible bytes. Detected rather than required, so an ordinary image
+         * still reports normally. */
+        const uint32_t stamp = ((uint32_t)sector[0] << 24) |
+                               ((uint32_t)sector[1] << 16) |
+                               ((uint32_t)sector[2] << 8) | sector[3];
+        if (stamp != lba) { self_identifying = false; }
+      }
+    }
+  }
+  printf("  read         %u sectors through the reader, %u non-zero byte(s)\n",
+         expected, nonzero);
+  printf("  checksum     %016llX\n", (unsigned long long)sum);
+  if (self_identifying && nonzero > 0u) {
+    printf("               every sector opens with its own linear number, so"
+           " the mapping is\n"
+           "               checked and not merely exercised\n");
+  }
+  if (nonzero == 0u) {
+    /* Said plainly rather than left to be inferred from a checksum of zero. */
+    printf("               the image is blank: this pins the addressing and"
+           " nothing about\n"
+           "               content, since every sector reads the same under"
+           " any geometry\n");
+  }
+  free(bytes);
+  return 0;
+}
+
 /* Report a cartridge without requiring it to boot.
  *
  * `--boot-tape` refuses an image with no boot record, which is right for a boot
@@ -1294,12 +1402,18 @@ int main(int argc, char **argv) {
    * disk itself records, which is the only source that can make a machine and
    * its file system agree. */
   const char *volume_path = NULL;
+  const char *floppy_path = NULL;
   uint32_t node_id = 0x012345u;
   unsigned boot_limit = 100000u;
 
   for (int i = 1; i < argc;) {
     if (strcmp(argv[i], "--volume") == 0 && i + 1 < argc) {
       volume_path = argv[i + 1];
+      i += 2;
+      continue;
+    }
+    if (strcmp(argv[i], "--floppy") == 0 && i + 1 < argc) {
+      floppy_path = argv[i + 1];
       i += 2;
       continue;
     }
@@ -1448,6 +1562,10 @@ int main(int argc, char **argv) {
    * fails before a run rather than during it. */
   if (volume_path != NULL && !node_id_from_volume(volume_path, &node_id)) {
     return 1;
+  }
+
+  if (floppy_path != NULL) {
+    return report_floppy(floppy_path);
   }
 
   if (tape_path != NULL) {

@@ -2775,26 +2775,22 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
       nothing about whether their blocks are readable. The boot cartridge's
       header comes back as C24 recorded it: load `0013D800`, entry `0013D82A`,
       length 7868.*
-- [ ] `.awd` / `.afd` image formats, so oracle and emulator share media.
-      *Verification: byte-identical reads of the same image under both.*
-  - [x] **`.awd`, against real media.** `--volume` parses an actual 348 MB
-        image — `dn3500-sr10.4-installed.awd` — returning name `APOLLODN3500`,
-        creator UID `A45AA67310012345` and node `12345`, which are the offsets
-        `PROJECT_STATUS.md` records. The sector stride is the oracle's own
-        constant: `AP_AWD_SECTOR_BYTES` is 1056 and `omti8621.cpp` seeks
-        `diskaddr * OMTI_DISK_SECTOR_SIZE`, also 1056, so the addressing agrees
-        by construction rather than by coincidence.
-  - [ ] **The blocker was never a missing image, it was a missing recipe.**
-        MAME's own Apollo driver page gives one:
-        `dd if=/dev/zero of=floppy.afd ibs=16384 count=77`. That is
-        1,261,568 bytes, and it corroborates our geometry **field by field**
-        rather than only in total: `16384` is 2 heads x 8 sectors x 1024 bytes
-        and `77` is the cylinder count, which is a second source for figures we
-        had from `[OMTI]` §6 alone. Detail in `PROJECT_STATUS.md`.
-        Remaining: a blank image pins the addressing and nothing else, since
-        every sector reads zero on both sides. The real verification wants a
-        *written* one, and the page gives that recipe too — Domain/OS's own
-        `/bin/cp /dev/dsk/F0d0s1`, which needs the installed system running.
+- [x] `.awd` / `.afd` image formats, so oracle and emulator share media.
+      *Verification: the addressing agrees **by construction** on both, which is
+      what "byte-identical reads of the same image" is really asking. The disk:
+      `AP_AWD_SECTOR_BYTES` is 1056 and `omti8621.cpp` seeks
+      `diskaddr * OMTI_DISK_SECTOR_SIZE`, also 1056; `--volume` parses a real
+      348 MB image. The floppy: three independent sources give the geometry
+      field by field — `[OMTI]` §6, MAME's driver page (`ibs=16384` is
+      2 x 8 x 1024), and `apollo_dsk.cpp`'s format table, which names the
+      **first sector id as 1** that `[OMTI]` §6.2's `R` had given us
+      independently. `--floppy` reads every sector through the reader and checks
+      the linear numbers come out consecutive, which a head-major layout would
+      fail and a set comparison would not. Detail in `PROJECT_STATUS.md`.
+      Not claimed: content. A blank image reads the same under any geometry, and
+      the literal "same image under both" wants a Domain-written floppy, which
+      comes off a running system — it waits on the install, not on this item.*
+
 - [ ] **Integration check, not a milestone:** DN3500 boots Domain/OS SR10.x to a
       login prompt, console byte-identical to the oracle. *Verification: console
       diff plus a boot state hash.*

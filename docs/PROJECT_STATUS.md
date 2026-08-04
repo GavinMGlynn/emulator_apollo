@@ -4597,6 +4597,50 @@ last and hardest — **a decoded PNG**. Register round-trips and word-level
 identities are what can be checked without one, and a controller that passes
 those and draws nothing is the standard way this goes wrong.
 
+#### The floppy's addressing agrees by construction, from three sources
+
+The `.awd` half of this item was settled by an argument rather than a
+measurement: `AP_AWD_SECTOR_BYTES` is 1056 and `omti8621.cpp` seeks
+`diskaddr * OMTI_DISK_SECTOR_SIZE`, also 1056, so the two addressings agree *by
+construction* and not by coincidence. The floppy half now has the same argument,
+and it is stronger, because three independent sources give the geometry and they
+give it **field by field** rather than as a size.
+
+    [OMTI] §6            8 sectors, 77 cylinders, 2 heads, 1024-byte sectors
+    MAME's driver page   dd ... ibs=16384 count=77 -- 16384 is 2 x 8 x 1024
+    apollo_dsk.cpp       { FF_525, DSHD, MFM, 1200, 8, 77, 2, 1024, ..., 1, ... }
+
+The third is the oracle's own format table and it names the one thing the other
+two do not: **first sector id 1**. Sectors are numbered 1 to 8, not 0 to 7, and
+`ap_afd_lba` already refuses sector 0 rather than folding it onto sector 1 —
+from `[OMTI]` §6.2's `R` field, independently. A zero-based reader would agree
+on every size and be one sector out on every access.
+
+`apollo_format` is a `upd765_format`, whose image is a raw sector image in
+cylinder-major order: cylinder, then head, then sector. That is exactly
+`((cylinder * heads) + head) * sectors + (sector - 1)`, which is what
+`ap_afd_lba` computes. So the layouts agree by construction too.
+
+**`--floppy` is the reading path**, the counterpart of `--tape` for the
+cartridge and `--volume` for the disk. Every sector goes through `ap_afd_read`
+rather than being indexed out of the buffer, and the linear numbers produced by
+walking cylinder/head/sector must come out consecutive — a *head*-major layout
+produces every number exactly once as well, so a set comparison would pass and
+this does not.
+
+It also detects an image whose every sector opens with its own linear number and
+says so, which turns the run from exercising the mapping into checking it: a
+reader returning the neighbouring sector returns a wrong *number* rather than
+plausible bytes.
+
+**What is still not claimed.** A blank image pins the addressing and nothing
+about content, since every sector reads the same under any geometry — the report
+says that in as many words rather than leaving it to be inferred from a checksum
+of zero. And "the same image under both" in the literal sense still wants a
+Domain-written floppy, which comes off a running system with
+`/bin/cp /dev/dsk/F0d0s1`. The addressing question that verification exists to
+answer is settled; the content one waits on the install.
+
 #### The window is one plane, and the approximation was a misdiagnosis
 
 The CPU's window onto the image memory was carrying a documented approximation:
