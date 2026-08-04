@@ -4476,6 +4476,68 @@ not only in the decoder -- a decoder that says no beside an executor that says
 yes is worse than neither. And a controller with no drive answers "not ready"
 rather than looking like one with a blank disk.
 
+#### The keyboard has two code sets, and this core had read one as the other
+
+`008778-03` **Chapter 12** is the keyboard's own chapter, in the machine's own
+technical reference, on disk throughout. It opens by stating the thing that
+resolves the subject: the keyboard "generates scan codes from **one of two sets
+of character codes** ... One set of character codes uses ASCII-like code
+definitions (as with earlier Domain keyboards); the other set of codes uses
+keystate definitions." Which set is live is commanded by the CPU.
+
+- **Keystate** — a transition per key, release marked by bit 7. This is what
+  `device/ap_kbd.c` already modelled. "The keystate codes tell the CPU when each
+  key is pressed and released; they do not make interpretations about the
+  positions of the state keys."
+- **ASCII**, Table 12-1 — the key's *character* under the modifiers in force.
+  `A` sends `61`, shifted `41`, control `01`. Keys with no character send a code
+  above `7F`: RETURN `CB`, TAB `CA`, BACK SPACE `DE`. The numeric keypad sends
+  two bytes, `FE` then the character.
+
+**The recorded reading was wrong, and in a way that looked right.** The boot
+PROM's twenty-entry translation table had been recovered from the firmware
+(C109) — `CB DB -> 0D`, `CA DA FA -> 09`, `DE -> 08` — and, since every code on
+its left has bit 7 set, was read as *release* codes: "`CB` is the release of key
+`4B`, and it is what the firmware turns into a carriage return", so "translation
+happens on the release". Table 12-1 says `CB` is RETURN's unshifted ASCII code,
+sent on the press like any other character. Every entry lands exactly on a row:
+`CA`/`DA`/`FA` are TAB's three, `DE` is BACK SPACE's, `CC`/`DC`/`FC` the `? /`
+key's, `C8`/`C9` the `| \` key's.
+
+**`FINDINGS.md` C46 falls with it.** It saw `4B`, `5B` and `7B` differing only
+in bits 4 and 5, judged that "looks exactly like shift and control encoded into
+a base key", and ruled it out as three unrelated keys at neighbouring matrix
+positions. In the ASCII set they are exactly what they looked like: `5B` and
+`7B` are the `{ [` key's shifted and unshifted codes. The instinct was right and
+the conclusion inverted.
+
+That also explains the pair that had looked self-cancelling. The PROM table
+carries `5B -> 7B` beside `7B -> 5B`, and `5D -> 7D` beside `7D -> 5D`. Table
+12-1 shows the keyboard sending `7B` unshifted and `5B` shifted — the opposite
+way round from the US convention — so those four entries are the firmware
+correcting the bracket keys, not a mapping that undoes itself.
+
+**What is now implemented.** All 101 coded keys of Table 12-1, read from the
+**page images** of pages 12-3 and 12-4 — the text layer interleaves the seven
+columns into unlabelled runs of digits and mangles the keypad codes, `FE 38`
+arriving as `FE~)8` and `FE 2A` as `FE:2A`, both plausible and wrong. The state
+keys (CTRL, SHIFT, CAPS LOCK, REPEAT) are absent by design: Table 12-1 gives
+their rows words where the codes would be, and a keyboard that sent a code for
+them would send bytes the hardware does not.
+
+`ap_kbd_encode` is what a frontend needs to type at the machine, and it exists
+because the obvious approach is wrong: **a carriage return is not `0D` on the
+wire.** No key sends `0D` as a character; RETURN sends `CB` and the firmware
+translates. The same holds for a backslash, reachable only through the `| \`
+key as `C8`. The encoder prefers a code the firmware translates over one that
+merely looks right, and refuses a character no key produces rather than
+inventing a byte.
+
+The oracle agrees throughout — `apollo_kbd.cpp`'s `s_code_table` has the same
+seven columns and the same values — which is expected, since it is a
+transcription of this table. The document was the source here and the oracle
+only the corroboration.
+
 #### The FPA space, and why the oracle's own handler for it is switched off
 
 `F8000000`-`FFFFFFFF` is the floating-point accelerator's address space. No FPA

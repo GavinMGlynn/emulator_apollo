@@ -30,34 +30,58 @@
  * actually reads.
  */
 
-/* ## What the firmware does with these codes
+/* ## Two code sets, which is the thing this file used to get wrong
  *
- * The boot PROM translates a subset of scan codes to ASCII through **two
- * parallel twenty-entry tables**, and their addresses are not a reading of the
- * bytes but of the addressing modes that index them: the search at `0021FA`
- * compares with `CMP.B (-$38,PC,D0.W),D1` from an extension word at `00220A`,
- * giving `0021D2`, and answers with `MOVE.B (-$30,PC,D0.W),D1` from `002216`,
- * giving `0021E6`. Twenty bytes apart, so the first table is scan codes and the
- * second their characters at the same index.
+ * `008778-03` Chapter 12 -- the machine's own technical reference, on disk the
+ * whole time -- opens by saying it outright: "The Domain System keyboard
+ * generates scan codes from **one of two sets of character codes** ... One set
+ * of character codes uses ASCII-like code definitions (as with earlier Domain
+ * keyboards); the other set of codes uses keystate definitions." Which set is
+ * live is commanded: "These commands define the mode of operation for the
+ * keyboard and determine how data is sent."
  *
- *     CB DB -> 0D    FB -> 1B    C8 D8 F8 -> 5C    C9 D9 -> 7C    F9 -> 7F
- *     5B -> 7B       5D -> 7D    7B -> 5B          7D -> 5D
- *     CA DA FA -> 09 CC -> 2F    DC FC -> 3F       DE -> 08
+ *   - **Keystate**, described above: a transition per key, up marked by bit 7.
+ *     "The keystate codes tell the CPU when each key is pressed and released;
+ *     they do not make interpretations about the positions of the state keys."
+ *   - **ASCII**, Table 12-1: the key's *character* under the modifiers in force
+ *     -- `A` sends `61`, shifted `41`, control `01`. Keys with no character send
+ *     a code above `7F` instead: RETURN is `CB`, TAB `CA`, BACK SPACE `DE`.
+ *     The numeric keypad sends two bytes, `FE` then the character.
  *
- * Read as matrix indices, the entries with bit 7 set are *release* codes: `CB`
- * is the release of key `4B`, and it is what the firmware turns into a carriage
- * return. So a scripted press-and-release of index `4B` is how a caller sends
- * `CR` from this keyboard, and the make code is not in the table at all --
- * translation happens on the release.
+ * **This file previously described the second set as release codes of the
+ * first.** It read the boot PROM's translation table -- `CB DB -> 0D`,
+ * `CA DA FA -> 09`, `DE -> 08` -- and, seeing bit 7 set, concluded that `CB`
+ * was "the release of key `4B`, and it is what the firmware turns into a
+ * carriage return", so that "translation happens on the release". Table 12-1
+ * says `CB` is RETURN's *unshifted ASCII code* and `DB` its shifted one, sent
+ * on the press like any other character. Every entry of the recovered table
+ * lands exactly on a row: `CA`/`DA`/`FA` are TAB's three, `DE` is BACK SPACE's,
+ * `CC`/`DC`/`FC` are the `? /` key's, `C8`/`C9` the `| \` key's. The firmware
+ * table is a map from this keyboard's non-character codes to ASCII, and the
+ * pairs like `5B -> 7B` next to `7B -> 5B` are it correcting the `{ [` key,
+ * which Table 12-1 shows sending `7B` unshifted and `5B` shifted -- the
+ * opposite way round from the US convention.
  *
- * The search is guarded: `BTST #1,($01C7,A6)` returns without translating when
- * that bit is set, so the firmware has a raw mode. Measured at `21` during a
- * boot, which leaves the bit clear and translation running.
+ * `FINDINGS.md` C46's reading falls with it. It saw `4B`, `5B` and `7B`
+ * differing only in bits 4 and 5, judged that "looks exactly like shift and
+ * control encoded into a base key", and ruled it out as coincidence -- three
+ * unrelated keys at neighbouring matrix positions. In the ASCII set they are
+ * exactly what they looked like: `5B` and `7B` are one key's shifted and
+ * unshifted codes. The instinct was right and the conclusion was inverted, and
+ * what settled it was reading a chapter of a manual already in the repository.
  *
- * None of this is behaviour of *this* module -- the part sends codes and knows
- * nothing of ASCII. It is recorded here because it is the only place a caller
- * can find out which index to press to send a given character, and because it
- * was recovered from the firmware rather than from any manual. `FINDINGS.md`
+ * ## The firmware's own table, which is not this part's behaviour
+ *
+ * The boot PROM translates twenty of these codes through two parallel
+ * twenty-entry tables, at `0021D2` and `0021E6` -- addresses read from the
+ * addressing modes that index them rather than from the bytes: the search at
+ * `0021FA` compares with `CMP.B (-$38,PC,D0.W),D1` and answers with
+ * `MOVE.B (-$30,PC,D0.W),D1` at `002216`. The search is guarded by
+ * `BTST #1,($01C7,A6)`, which returns untranslated when set -- a raw mode,
+ * measured at `21` during a boot, so the bit is clear and translation runs.
+ *
+ * That is firmware, not hardware, and it is modelled separately
+ * (`ap_kbd_prom_ascii`) so the two cannot be confused again. `FINDINGS.md`
  * C109.
  */
 
@@ -87,8 +111,51 @@ void ap_kbd_reset(ap_kbd_t *kbd);
 
 /* Press or release a key. `*code` receives the scan code to transmit, and the
  * call answers false when the key was already in that state -- there is no
- * transition, so there is nothing to send. */
+ * transition, so there is nothing to send. This is the **keystate** set. */
 [[nodiscard]] bool ap_kbd_press(ap_kbd_t *kbd, unsigned key, uint8_t *code);
 [[nodiscard]] bool ap_kbd_release(ap_kbd_t *kbd, unsigned key, uint8_t *code);
+
+/* ---- The ASCII set, `008778-03` Table 12-1 -------------------------------- */
+
+/* A dash in the table: the key sends nothing under that modifier. Not zero,
+ * which is a code the table uses. */
+#define AP_KBD_NO_CODE 0xFFFFu
+
+/* The keypad's two-byte sequences are `FE` then the character, so a code is
+ * wider than a byte. A caller transmits the high byte first when it is set. */
+#define AP_KBD_PREFIX 0xFE00u
+
+typedef struct {
+  const char *key;    /* Table 12-1's key number: "D13", "B15", "RF3" */
+  const char *legend; /* its keycap legend */
+  uint16_t unshifted;
+  uint16_t shifted;
+  uint16_t control;
+  uint16_t caps_lock;
+  /* "Up Trans Code": the code sent on *release*, for the keys that have one.
+   * Most do not -- which is the distinction the release-code reading missed. */
+  uint16_t up_trans;
+  bool auto_repeat;
+} ap_kbd_ascii_t;
+
+/* The table, and its length. CTRL, SHIFT, CAPS LOCK and REPEAT are absent by
+ * design: Table 12-1 gives them no codes, listing them as "Control Key",
+ * "Shift Key" and so on. They are state, and a keyboard that sent a code for
+ * them would send bytes the hardware does not. */
+[[nodiscard]] unsigned ap_kbd_ascii_count(void);
+[[nodiscard]] const ap_kbd_ascii_t *ap_kbd_ascii_at(unsigned index);
+[[nodiscard]] const ap_kbd_ascii_t *ap_kbd_ascii_find(const char *key);
+
+/* What the boot PROM makes of a code the keyboard sends, per its own table.
+ * `AP_KBD_NO_CODE` when the code is not one of the twenty -- which for an
+ * ordinary character means it passes through unchanged, since the ASCII set
+ * already sends ASCII. Firmware behaviour, kept apart from the part's. */
+[[nodiscard]] uint16_t ap_kbd_prom_ascii(uint8_t code);
+
+/* The code to transmit so the firmware sees `ascii`, and whether shift is
+ * needed to produce it. False when no key on this keyboard can. This is what a
+ * frontend needs to type text at the machine, and it is the reason the two
+ * tables live side by side. */
+[[nodiscard]] bool ap_kbd_encode(char ascii, uint16_t *code, bool *shifted);
 
 #endif /* APOLLO_DEVICE_AP_KBD_H */

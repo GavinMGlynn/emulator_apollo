@@ -2321,7 +2321,11 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
 
 ### The PROM now needs time to pass
 
-- [ ] **The console: which device, which channel, and what it draws on.**
+- [x] **The console: which device, which channel, and what it draws on.** The
+      display is the console and the keyboard is its input, both established
+      against the oracle and then implemented — Table 12-1's codes on serial 1
+      channel A. The drawing engine those writes specify is the display
+      controller's own item.
 
   - [x] The PROM reaches `000007AE` and stays there at 300000, 1000000 and
         3000000 instructions, with the fault count settled at 129. The
@@ -2450,44 +2454,37 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         mode-field commit above, found by reading the oracle's definitions
         rather than by using them.
         Detail in `PROJECT_STATUS.md`.
-  - [ ] The rest of those 803 writes: `CR2`/`CR3`'s remaining fields, the
-        blitter's five defined modes and the colour lookup table. Verify on a
-        decoded PNG, not on register round-trips.
-  - [ ] **In progress — The display controller is the next module**, and now for a reason
-        rather than as the next thing on a list. It stops being a probe target:
-        the four regions already recorded (`05D800`/`05E800` registers,
-        `0FA0000`/`000A0000` graphics memory) become the machine's output.
-        - Kept as the *rationale* and marked **In progress**, because it is not a separate
-          piece of work. The work is the item directly above — `CR2`/`CR3`, the
-          blitter's five modes, the lookup table — and the Phase 5 line that
-          says the same thing. Three unticked boxes for one job inflated the
-          count and split the evidence between them.
-        - The Phase 5 line now carries the specification (the 803 writes a
-          fitted `c8p` provokes); this line carries why it matters; the item
-          above carries which registers. Cross-referenced rather than merged, so
-          none of the three loses what it uniquely says.
-  - [ ] The keyboard is the matching input module: serial 1 channel A takes scan
-        codes, and the PROM's table at `000021D2` is the map it decodes them
-        with. `--boot-input-channel A` already reaches it; what is missing is
-        the scan codes themselves.
-  - [ ] **In progress.** Superseded reading, kept because it was right about the device and wrong
-        about the consequence: **SIO1 is the keyboard, not a terminal.** If
-        so, feeding it ASCII is the wrong thing entirely — `\n` and `\r` both
-        fail to match, and `\r` is *in* the table — and the DN3500's console is
-        the graphics display plus keyboard rather than a serial terminal. With
-        only the display's ID register modelled, the PROM would have nowhere to
-        print, which fits it never transmitting.
-        - Confirm against the oracle before acting: what does MAME attach to
-          each `apollo_sio`, and does its DN3500 drive a keyboard there?
-        - If it holds, the console module is the **display**, not serial, and
-          the graphics controller stops being a probe target and becomes the
-          output device. That is a large module and the wrong one to start on a
-          reading this fresh.
-        - Checked: `ap_mc68681_write` does drop a transmit-buffer write when
-          `tx_enabled` is clear, and the command register's enable and disable
-          bits are handled correctly. So the mechanism exists; whether the
-          firmware trips it is still unestablished, and the per-register counts
-          are still the way to find out.
+  - [x] The rest of the 803 writes — `CR2`/`CR3`, the blitter's five modes and
+        the colour lookup table — is the **drawing engine**, and it has a parent
+        of its own now. Recorded here as what the console investigation
+        established was needed, and tracked there as the work.
+  - [x] Why the display controller matters, kept as the finding it is: it stops
+        being a probe target and becomes the machine's output, the four regions
+        already recorded (`05D800`/`05E800` registers, `0FA0000`/`000A0000`
+        graphics memory) turning from addresses into a screen. This line said of
+        itself that it "is not a separate piece of work", and it was carrying an
+        unticked box for a job tracked in two other places.
+  - [x] **The scan codes themselves, from `008778-03` Chapter 12** — the
+        keyboard's own chapter in the machine's own technical reference, on disk
+        the whole time. It states that the keyboard sends **one of two code
+        sets**, ASCII or keystate, and this core had read one as the other: the
+        PROM's translation table was taken for *release* codes because every
+        entry has bit 7 set, when Table 12-1 shows them as the ASCII set's codes
+        for keys with no character. `FINDINGS.md` C46 falls with it — `5B` and
+        `7B` are one key's two codes, exactly as they looked.
+        All 101 coded keys implemented, plus `ap_kbd_encode` for a frontend to
+        type with. Detail in `PROJECT_STATUS.md`.
+        *Verification: `kbd_suite`, 7 further tests (12 total) — including that
+        a carriage return is `CB` and not `0D`, which is the mistake the encoder
+        exists to prevent.*
+  - [x] Superseded, and its questions answered by the children below it. The
+        reading was **SIO1 is the keyboard, not a terminal**, and it asked what
+        MAME attaches to each `apollo_sio` and whether its DN3500 drives a
+        keyboard there. Both were then settled: *"Confirmed by the oracle, and
+        it names the channel"* and *"Established: the display is the console"*.
+        Right about the device, wrong about the consequence — feeding it ASCII
+        is not wrong, but the codes are the keyboard's own set rather than a
+        terminal's, which is what the item above now implements.
   - [x] **`--boot-watch` now refuses a non-memory address**, naming the region
         it landed in. It reads through `ap_board_read` every step, so watching a
         DUART would pop its receive FIFO and every read inflates the per-region
