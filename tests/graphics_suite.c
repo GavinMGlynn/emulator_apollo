@@ -572,7 +572,20 @@ static void test_the_data_path_runs_source_then_rop_then_write_enable(void) {
 
 /* ---- A blit, the plane loop around all of it ------------------------------- */
 
-static uint16_t image[64];
+/* One buffer, bytes, big-endian -- the *board's* memory, which the blitter and
+ * the scanout now share. It used to be a host-order `uint16_t` array here and a
+ * byte array there, and the end-to-end test had to serialise between them by
+ * hand. One memory is what the hardware has. */
+static uint8_t image[128];
+
+static uint16_t img(uint32_t word) {
+  return (uint16_t)(((uint16_t)image[word * 2u] << 8) | image[word * 2u + 1u]);
+}
+
+static void put_img(uint32_t word, uint16_t value) {
+  image[word * 2u] = (uint8_t)(value >> 8);
+  image[word * 2u + 1u] = (uint8_t)value;
+}
 static uint16_t latched[8];
 
 static ap_graphics_blit_t plain_blit(void) {
@@ -598,13 +611,13 @@ static void test_a_blit_writes_one_word_per_plane_at_its_stride(void) {
   }
   const ap_graphics_blit_t b = plain_blit();
 
-  TEST_ASSERT_EQUAL_UINT(4u, ap_graphics_blit(&b, image, 64u, 2u, 0xFFFFu, latched));
-  TEST_ASSERT_EQUAL_HEX16(0x1000u, image[2u]);
-  TEST_ASSERT_EQUAL_HEX16(0x1001u, image[2u + 8u]);
-  TEST_ASSERT_EQUAL_HEX16(0x1002u, image[2u + 16u]);
-  TEST_ASSERT_EQUAL_HEX16(0x1003u, image[2u + 24u]);
+  TEST_ASSERT_EQUAL_UINT(4u, ap_graphics_blit(&b, image, sizeof image, 2u, 0xFFFFu, latched));
+  TEST_ASSERT_EQUAL_HEX16(0x1000u, img(2u));
+  TEST_ASSERT_EQUAL_HEX16(0x1001u, img(2u + 8u));
+  TEST_ASSERT_EQUAL_HEX16(0x1002u, img(2u + 16u));
+  TEST_ASSERT_EQUAL_HEX16(0x1003u, img(2u + 24u));
   /* And nothing between the planes was touched. */
-  TEST_ASSERT_EQUAL_HEX16(0u, image[3u]);
+  TEST_ASSERT_EQUAL_HEX16(0u, img(3u));
 }
 
 /* `D_PLANE` masks planes out, and the address still advances for the ones it
@@ -618,11 +631,11 @@ static void test_a_masked_plane_is_skipped_without_moving_the_others(void) {
   ap_graphics_blit_t b = plain_blit();
   b.d_plane = 0x05u; /* bits 0 and 2 set: planes 0 and 2 masked out */
 
-  TEST_ASSERT_EQUAL_UINT(2u, ap_graphics_blit(&b, image, 64u, 0u, 0xFFFFu, latched));
-  TEST_ASSERT_EQUAL_HEX16(0x0000u, image[0u]);       /* plane 0 masked */
-  TEST_ASSERT_EQUAL_HEX16(0x7777u, image[8u]);       /* plane 1 written */
-  TEST_ASSERT_EQUAL_HEX16(0x0000u, image[16u]);      /* plane 2 masked */
-  TEST_ASSERT_EQUAL_HEX16(0x7777u, image[24u]);      /* plane 3 written */
+  TEST_ASSERT_EQUAL_UINT(2u, ap_graphics_blit(&b, image, sizeof image, 0u, 0xFFFFu, latched));
+  TEST_ASSERT_EQUAL_HEX16(0x0000u, img(0u));       /* plane 0 masked */
+  TEST_ASSERT_EQUAL_HEX16(0x7777u, img(8u));       /* plane 1 written */
+  TEST_ASSERT_EQUAL_HEX16(0x0000u, img(16u));      /* plane 2 masked */
+  TEST_ASSERT_EQUAL_HEX16(0x7777u, img(24u));      /* plane 3 written */
 }
 
 /* A destination past the memory is skipped, not wrapped. A blit that ran off
@@ -634,11 +647,11 @@ static void test_a_plane_past_the_memory_is_skipped_not_wrapped(void) {
   const ap_graphics_blit_t b = plain_blit();
 
   /* Plane 0 at word 60 fits; planes 1-3 are past the end of 64 words. */
-  TEST_ASSERT_EQUAL_UINT(1u, ap_graphics_blit(&b, image, 64u, 60u, 0xFFFFu, latched));
-  TEST_ASSERT_EQUAL_HEX16(0x1111u, image[60u]);
+  TEST_ASSERT_EQUAL_UINT(1u, ap_graphics_blit(&b, image, sizeof image, 60u, 0xFFFFu, latched));
+  TEST_ASSERT_EQUAL_HEX16(0x1111u, img(60u));
   /* Nothing wrapped to the start. */
-  TEST_ASSERT_EQUAL_HEX16(0x0000u, image[0u]);
-  TEST_ASSERT_EQUAL_HEX16(0x0000u, image[4u]);
+  TEST_ASSERT_EQUAL_HEX16(0x0000u, img(0u));
+  TEST_ASSERT_EQUAL_HEX16(0x0000u, img(4u));
 }
 
 /* With `AD_BIT` set every plane takes the *source plane's* word, which is how
@@ -653,9 +666,9 @@ static void test_the_ad_bit_broadcasts_one_source_to_every_plane(void) {
   b.cr1 |= AP_GRAPHICS_CR1_COLOUR_AD_BIT;
   b.s_plane = 2u;
 
-  TEST_ASSERT_EQUAL_UINT(4u, ap_graphics_blit(&b, image, 64u, 0u, 0xFFFFu, latched));
+  TEST_ASSERT_EQUAL_UINT(4u, ap_graphics_blit(&b, image, sizeof image, 0u, 0xFFFFu, latched));
   for (unsigned p = 0; p < 4u; p++) {
-    TEST_ASSERT_EQUAL_HEX16(0xA002u, image[p * 8u]);
+    TEST_ASSERT_EQUAL_HEX16(0xA002u, img(p * 8u));
   }
 }
 
@@ -664,7 +677,7 @@ static void test_the_ad_bit_broadcasts_one_source_to_every_plane(void) {
 static void test_each_plane_combines_by_its_own_operation(void) {
   memset(image, 0, sizeof image);
   for (unsigned p = 0; p < 4u; p++) {
-    image[p * 8u] = 0xFF00u;
+    put_img(p * 8u, 0xFF00u);
   }
   memset(latched, 0x0F, sizeof latched); /* 0x0F0F */
 
@@ -672,11 +685,11 @@ static void test_each_plane_combines_by_its_own_operation(void) {
   /* plane 0 SRC, plane 1 DST, plane 2 XOR, plane 3 ZERO */
   b.rop_register = 0x0653u;
 
-  TEST_ASSERT_EQUAL_UINT(4u, ap_graphics_blit(&b, image, 64u, 0u, 0xFFFFu, latched));
-  TEST_ASSERT_EQUAL_HEX16(0x0F0Fu, image[0u]);            /* source */
-  TEST_ASSERT_EQUAL_HEX16(0xFF00u, image[8u]);            /* destination kept */
-  TEST_ASSERT_EQUAL_HEX16(0x0F0Fu ^ 0xFF00u, image[16u]); /* xor */
-  TEST_ASSERT_EQUAL_HEX16(0x0000u, image[24u]);           /* zero */
+  TEST_ASSERT_EQUAL_UINT(4u, ap_graphics_blit(&b, image, sizeof image, 0u, 0xFFFFu, latched));
+  TEST_ASSERT_EQUAL_HEX16(0x0F0Fu, img(0u));            /* source */
+  TEST_ASSERT_EQUAL_HEX16(0xFF00u, img(8u));            /* destination kept */
+  TEST_ASSERT_EQUAL_HEX16(0x0F0Fu ^ 0xFF00u, img(16u)); /* xor */
+  TEST_ASSERT_EQUAL_HEX16(0x0000u, img(24u));           /* zero */
 }
 
 /* The write enable protects within the word, across every plane at once. */
@@ -686,9 +699,9 @@ static void test_the_write_enable_applies_to_every_plane(void) {
   ap_graphics_blit_t b = plain_blit();
   b.write_enable = 0xFF00u; /* high byte protected */
 
-  TEST_ASSERT_EQUAL_UINT(4u, ap_graphics_blit(&b, image, 64u, 0u, 0xFFFFu, latched));
+  TEST_ASSERT_EQUAL_UINT(4u, ap_graphics_blit(&b, image, sizeof image, 0u, 0xFFFFu, latched));
   for (unsigned p = 0; p < 4u; p++) {
-    TEST_ASSERT_EQUAL_HEX16(0x00FFu, image[p * 8u]);
+    TEST_ASSERT_EQUAL_HEX16(0x00FFu, img(p * 8u));
   }
 }
 
@@ -917,8 +930,6 @@ static void test_a_blit_lands_where_the_scanout_reads_it(void) {
    * ignored the plane size both land somewhere else. */
   const uint32_t dest = 2u * (geometry.buffer_width / 16u) + 1u;
 
-  static uint16_t blitted[8u * 65536u];
-  memset(blitted, 0, sizeof blitted);
   uint16_t source[8];
   /* Planes 0 and 2 carry the pattern, the rest are blank: index 5, which is
    * asymmetric in both directions. */
@@ -937,19 +948,15 @@ static void test_a_blit_lands_where_the_scanout_reads_it(void) {
       .d_plane = 0x00u,
       .s_plane = 0u,
       .planes = 8u,
-      .plane_stride = 65536u,
+      .plane_stride = geometry.plane_words,
   };
-  TEST_ASSERT_EQUAL_UINT(8u, ap_graphics_blit(&blit, blitted, 8u * 65536u,
-                                              dest, 0xFFFFu, source));
-
-  /* Store the words as the 68030 would have: high byte first. This is the step
-   * a wired board would not need. */
-  for (unsigned p = 0; p < geometry.planes; p++) {
-    const uint32_t word = p * 65536u + dest;
-    const uint32_t at = (p * geometry.plane_words + dest) * 2u;
-    scanout_memory[at] = (uint8_t)(blitted[word] >> 8);
-    scanout_memory[at + 1u] = (uint8_t)blitted[word];
-  }
+  /* Straight into the *board's* memory -- the same buffer the scanout reads.
+   * This used to blit into a separate host-order array and then serialise it
+   * here by hand, which was the seam. There is one memory now. */
+  TEST_ASSERT_EQUAL_UINT(8u,
+                         ap_graphics_blit(&blit, scanout_memory,
+                                          sizeof scanout_memory, dest, 0xFFFFu,
+                                          source));
 
   TEST_ASSERT_EQUAL_UINT32(1024u * 800u,
                            ap_graphics_scanout(&g, AP_GRAPHICS_CR1_DISP_EN,

@@ -1,4 +1,4 @@
-/* Apollo display controller identification.
+/* The Apollo display controller.
  *
  * Two register blocks on the DN3500's map, one per controller family:
  *
@@ -7,15 +7,18 @@
  *
  * ## What this module is, and what it deliberately is not
  *
- * Only **identification** is modelled: the device ID register, and the fact
- * that both blocks decode whether or not a screen is fitted. Drawing, the
- * blitter, the colour lookup table, the graphics memories at `0A0000` and
- * `0FA0000` -- none of that is here.
+ * Identification, the register file, the blitter's data path and plane loop,
+ * and the scanout. What is **not** here: the lookup table, which is a separate
+ * part (`device/ap_bt458.c`) and is not yet wired to a board; the status
+ * register, whose bits report states this core does not have; and the mode
+ * dispatch that turns a CPU write to the image memory into a blit cycle -- so
+ * a write to the graphics memory still *stores* rather than draws.
  *
- * That is a complete answer to a real question rather than a stub, because the
- * boot PROM's first contact with the display is a *probe*, and a probe only
- * needs to be answered correctly. Modelling the ID register and nothing else is
- * honest; modelling a blitter that draws nothing would not be.
+ * The module grew in that order for a reason. The boot PROM's first contact
+ * with the display is a *probe*, and a probe only needs to be answered
+ * correctly, so identification alone was a complete answer to a real question
+ * rather than a stub. Everything after it was added when it could be checked:
+ * modelling a blitter that draws nothing would not have been honest.
  *
  * ## The address answers even when no screen is fitted
  *
@@ -444,15 +447,22 @@ typedef struct {
   uint32_t plane_stride;
 } ap_graphics_blit_t;
 
-/* Perform one blit into `image`, `words` long. `dest` is the word offset of
- * plane 0's destination; each further plane is `plane_stride` beyond the last.
+/* Perform one blit into `image`, `bytes` long, addressed in **words** -- which
+ * is how the controller addresses it and how a caller's `dest` and
+ * `plane_stride` are counted. `dest` is the word offset of plane 0's
+ * destination; each further plane is `plane_stride` beyond the last.
+ *
+ * The image is the *board's* memory, bytes, big-endian as the 68030 wrote it.
+ * It used to be a host-order `uint16_t` array, which meant the blitter and the
+ * scanout could not share one buffer and the joining had to be done by hand in
+ * a test. One memory is what the hardware has.
  *
  * Returns how many planes were actually written, which is not the plane count:
  * `D_PLANE` masks planes out, and a destination past the end of the memory is
  * skipped rather than wrapped. A caller that assumed every plane landed would
  * not notice either. */
 [[nodiscard]] unsigned ap_graphics_blit(const ap_graphics_blit_t *blit,
-                                        uint16_t *image, uint32_t words,
+                                        uint8_t *image, uint32_t bytes,
                                         uint32_t dest, uint16_t mem_mask,
                                         const uint16_t *latched);
 

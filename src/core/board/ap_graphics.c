@@ -85,6 +85,11 @@ bool ap_graphics_decode_memory(uint32_t address, bool *colour,
   return false;
 }
 
+/* One 16-bit word of image memory, as the 68030 wrote it: high byte first.
+ * Declared here because both the blitter and the scanout read through it --
+ * which is the point of them sharing one buffer. */
+static uint16_t image_word(const uint8_t *memory, uint32_t word_index);
+
 /* `CR3A` and `CR3B` are not values but **bit ports**: with bit 7 clear, bits
  * 3-1 name a bit of the target register and bit 0 is the value to put there.
  * That is how a driver flips one control bit -- `DISP_EN`, say -- without a
@@ -391,9 +396,10 @@ uint16_t ap_graphics_combine(uint16_t write_enable, uint16_t mem_mask,
   return (uint16_t)((destination & protect) | (source & (uint16_t)~protect));
 }
 
-unsigned ap_graphics_blit(const ap_graphics_blit_t *blit, uint16_t *image,
-                          uint32_t words, uint32_t dest, uint16_t mem_mask,
+unsigned ap_graphics_blit(const ap_graphics_blit_t *blit, uint8_t *image,
+                          uint32_t bytes, uint32_t dest, uint16_t mem_mask,
                           const uint16_t *latched) {
+  const uint32_t words = bytes / 2u;
   if (blit == nullptr || image == nullptr || latched == nullptr) {
     return 0u;
   }
@@ -427,11 +433,13 @@ unsigned ap_graphics_blit(const ap_graphics_blit_t *blit, uint16_t *image,
         blit->cr0, blit->access, plane,
         latched[from < blit->planes ? from : 0u]);
 
-    const uint16_t destination = image[at];
+    const uint16_t destination = image_word(image, at);
     const uint16_t combined = ap_graphics_rop_apply(
         blit->cr1, blit->rop_register, plane, source, destination);
-    image[at] =
+    const uint16_t result =
         ap_graphics_combine(blit->write_enable, mem_mask, combined, destination);
+    image[at * 2u] = (uint8_t)(result >> 8);
+    image[at * 2u + 1u] = (uint8_t)result;
     written++;
   }
   return written;
@@ -489,7 +497,6 @@ bool ap_graphics_display_enabled(uint8_t cr1) {
   return (cr1 & AP_GRAPHICS_CR1_DISP_EN) != 0u;
 }
 
-/* One 16-bit word of image memory, as the 68030 wrote it: high byte first. */
 static uint16_t image_word(const uint8_t *memory, uint32_t word_index) {
   const uint32_t at = word_index * 2u;
   return (uint16_t)(((uint16_t)memory[at] << 8) | memory[at + 1u]);

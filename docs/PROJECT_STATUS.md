@@ -4597,6 +4597,25 @@ last and hardest — **a decoded PNG**. Register round-trips and word-level
 identities are what can be checked without one, and a controller that passes
 those and draws nothing is the standard way this goes wrong.
 
+#### One memory, which the blitter and the scanout now share
+
+`ap_graphics_blit` worked on a host-order `uint16_t` array and the image memory
+a board attaches is bytes. So the two halves of the drawing engine could not use
+one buffer, and the end-to-end test had to serialise between them by hand —
+which is how it recorded that the joining was still owed.
+
+It is closed. The blitter takes the board's byte memory, big-endian as the 68030
+wrote it, still *addressed* in words because that is how the controller
+addresses it. The end-to-end test now blits straight into the same buffer the
+scanout reads, and the hand serialisation is gone rather than rewritten.
+
+What that leaves for a real picture is the piece above it: a CPU write to the
+graphics memory is **not a store**, it is a blit cycle whose meaning depends on
+`CR0`'s mode — seven of them, from a single write that supplies data and address
+to two-cycle protocols where the first write latches a source and the second
+carries the write enables. Today the write stores, which is the last thing
+standing between the firmware's own drawing and a picture.
+
 #### The register file, and the byte lanes nothing predicts
 
 `CR0`-`CR2` and the raster operation used to be *arguments*: every function that

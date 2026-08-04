@@ -2593,12 +2593,24 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
           halves of the aliasing separately, the ROP's high half refused on a
           monochrome card, and the bit port setting and clearing one bit of
           `CR1` while leaving its neighbour alone.*
-        - Still open, and what a real picture now waits on: the blitter joined
-          to the image memory (it works on host-order words and the memory is
-          bytes), which plane the CPU's 128 KB window selects, and the lookup
-          table wired to the board so an index can become a colour. A 400,000
-          instruction boot with `--screen c8p` makes 803 register writes and
-          **no** graphics-memory write, so the screen is legitimately blank.
+        - **The blitter and the scanout share one memory now.** The blitter
+          took a host-order `uint16_t` array and the board's memory is bytes,
+          so the end-to-end test had to serialise between them by hand. It
+          takes the board's byte memory, still addressed in words because the
+          controller addresses it that way. Detail in `PROJECT_STATUS.md`.
+          *Verification: `graphics_suite`, unchanged at 47 — the end-to-end
+          test now blits straight into the buffer the scanout reads and the
+          hand serialisation is deleted rather than rewritten, which is the
+          point: the same assertions hold with the seam gone.*
+        - Still open, and what a real picture now waits on: **`CR0`'s mode
+          dispatch**, since a CPU write to the graphics memory is not a store
+          but a blit cycle — seven modes, from one write carrying data and
+          address to two-cycle protocols where the first latches a source and
+          the second carries the write enables. Then which plane the CPU's
+          128 KB window selects, and the lookup table wired to the board so an
+          index can become a colour. A 400,000 instruction boot with
+          `--screen c8p` makes 803 register writes and **no** graphics-memory
+          write, so the screen is legitimately blank.
         - **The scanout is done**, `ap_graphics_scanout`: the image memory
           read out as one pixel index per pixel. The four geometries are the
           manual's, and each **buffer** width — the part that looks like an
