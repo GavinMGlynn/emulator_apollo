@@ -3415,11 +3415,11 @@ failure that cost a bit position in the 68020's module entry word.
 | Node ID PROM (`011200`) | working: the layout measured from the oracle's own PROM — stride 2 with the **odd byte reading zero** (unlike the serial ports at the same stride), the identifier big-endian in registers 0-3, and a checksum in register 14 confirmed arithmetically (`01 + 23 + 45 = 69`). The identifier is supplied by the caller, never a constant: a device whose purpose is to be unique per machine must not be the same on every one | `nodeid_suite`, 7 tests |
 | Apollo serial ports (`010400`, `010500`) | working: both DUARTs at **stride 2** (measured), sixteen registers over thirty-two bytes and aliased, sharing IRQ1 through to vector `A1`. The memory-refresh square wave of §3.9 runs: the counter is clocked at the DUART's X1 and produces a 15 microsecond period from the boot PROM's own preload. Its *frequency*, 66666.67 Hz, is not an integer, so a core counting in hertz could not represent this board's refresh clock at all | `sio_suite`, 14 tests; `FINDINGS.md` C14 |
 | MC68681 / SCN2681 DUART (the part) | **programming model complete**: all sixteen register addresses of `[68681]` Table 4-1, both channels' mode registers with their shared pointer, clock-select, command and status registers, the three-deep receive FIFO with overrun, the interrupt status and mask registers, the input and output ports, and the counter/timer with both address-triggered commands. Serial framing itself — baud rates, start/stop bits, parity, the echo and loopback modes — is **not** modelled: a character is handed over whole. Not yet wired to the board | `mc68681_suite`, 34 tests, `MC68681 DUART Sep85` |
-| QIC-02 tape drive | working for the readable half of the command set: both SELECTs with the sticky selection and the soft lock, BOT, RETENSION, SELECT Q24, READ and READ STATUS. **Writing is refused rather than discarded** — there is no write-back path, and accepting a write would let an installation appear to succeed. The cartridge *type* is supplied by the caller, because the controller derives it from tape geometry a raw image does not carry. The two opcodes the scan lost are claimed by nothing | `qic_suite`, 12 tests; `FINDINGS.md` C25 |
+| QIC-02 tape drive | working for the readable half of the command set: both SELECTs with the sticky selection and the soft lock, BOT, RETENSION, SELECT Q24, READ and READ STATUS. **Writing is refused rather than discarded** — there is no write-back path, and accepting a write would let an installation appear to succeed. The cartridge *type* is supplied by the caller, because the controller derives it from tape geometry a raw image does not carry. The two opcodes the scan lost are claimed by nothing. **READ STATUS now transfers its block**: six bytes, the length `[SC499]` §1.13.1 gives outright, as three 16-bit fields LSB-first — exception flags, data-error count, underrun count — and reading it clears the power-on condition it reports | `qic_suite`, 18 tests; `FINDINGS.md` C25 |
 | Cartridge tape images (`image/ap_ct.c`) | working: block addressing over a raw `.ct` image, refusing any size that is not a whole number of 512-byte blocks, and boot-record parsing that returns the four header words. Their reading as load address and entry point is now **confirmed by the boot code itself** — its first instruction, a PC-relative `LEA`, computes word 0 exactly when executed at word 1, so the image proves its own layout. `ap_ct_boot_image` therefore *names* load address, entry point and length, and refuses a cartridge that does not announce itself, or whose header describes more than the file holds. Takes memory, never a filename, so `src/core` keeps its zero file I/O and the tests need no gitignored media | `ct_suite`, 12 tests; `FINDINGS.md` C24 |
 | Apollo display controller identification (`05D800`, `05E800`) | working for **identification only**: both register blocks decode whether or not a screen is fitted, and the device ID at offset 1 reports `C4P=8`, `19I=9`, `C8P=10` or `15I=11` for the fitted family and `FF` for the other. An absent screen reads `FF` and does **not** bus error — "nothing is fitted" and "nothing is there" are different answers, and getting that wrong cost an investigation. Drawing, the blitter, the lookup table and the graphics memories are not modelled, and the header says so; unmodelled registers read `FF` rather than zero because zero is a value several of them can hold | `graphics_suite`, 14 tests; `FINDINGS.md` C31-C32 |
 | Apollo cartridge tape (`050000`) | working, **controller joined to the drive**: a data-register write with the request bit set is a QIC-02 command, reads deliver the cartridge a byte at a time across the drive's block boundary, and a refused command or the end of tape raises Exception. The command handshake's **three entry conditions** are modelled — ready, exception, device-holds-the-bus, one figure each — as an *ordering*. Its timings are not: every figure in §1.13.2 publishes bounds rather than values, so modelling them means `PROVISIONAL` figures and that work is not done. The ordering is right about everything a polling driver observes. Four registers at stride 1, the upper four of each eight floating to `FF`, aliased through the range, on IRQ5 through to vector `A5`. The measured reset dump is reproduced over two aliasing periods | `tape_suite`, 14 tests; `FINDINGS.md` C16-C19 |
-| Archive SC-499 cartridge tape controller (the part) | **register model complete**: all four addresses of `[SC499]` §1.9 — data/command, control-on-write and status-on-read, and the two write-triggered DMA commands — plus the derived interrupt flag, the tri-stated IRQ line, and RSTDMA's documented identity with power-on reset. The QIC-02 command set itself, tape motion and the drive behind it are not modelled. Not yet wired to the board at `050000` | `sc499_suite`, 13 tests, `Archive SC-499 Information Guide` | **Oracle note:** MAME's own SC-499 models no media change at all, so a cartridge swapped while Domain/OS holds the drive crashes it; `ext/mame` carries a local edit treating insertion as a QIC-02 RESET, per `FINDINGS.md` C56.
+| Archive SC-499 cartridge tape controller (the part) | **register model complete**: all four addresses of `[SC499]` §1.9 — data/command, control-on-write and status-on-read, and the two write-triggered DMA commands — plus the derived interrupt flag, the tri-stated IRQ line, and RSTDMA's documented identity with power-on reset. **The status register's polarity is corrected**: RDY and EXC are asserted *low*, and the interrupt flag is a disjunction rather than a conjunction — see the section below. The QIC-02 command set itself, tape motion and the drive behind it are not modelled. Not yet wired to the board at `050000` | `sc499_suite`, 14 tests, `Archive SC-499 Information Guide` | **Oracle note:** MAME's own SC-499 models no media change at all, so a cartridge swapped while Domain/OS holds the drive crashes it; `ext/mame` carries a local edit treating insertion as a QIC-02 RESET, per `FINDINGS.md` C56.
 | Apollo disk and floppy (`04D000`, `05F800`) | working: both halves of the one card, placed **74 KB apart** by measurement, each aliased through 1 KB on its own period — four registers for the fixed disk, an eight-address block for the floppy. Interrupts on IRQ14 and IRQ6, separate lines eight apart. The gap is pinned as arithmetic, not constants: the AT window maps `Apollo = 0x040000 + AT × 0x80` | `disk_suite`, 6 tests; `FINDINGS.md` C20, C22, C23 |
 | OMTI command descriptor blocks | working: the 6-byte CDB decoded with the **cylinder reassembled from three bytes** (C10 in byte 1, C09/C08 in byte 2, low eight in byte 3), the command byte exposed both whole and split into class and opcode, and acceptance checked against the ESDI command set — which **refuses** `0C INITIALIZE DRIVE CHARACTERISTICS`, an ST506-only command that would make ESDI geometry look settable | `omti_cdb_suite`, 7 tests; `FINDINGS.md` C27 |
 | OMTI 862X ESDI/floppy controller (the part) | **register model complete for both halves**: the fixed disk's four ports with their read/write asymmetries and the status register's fixed bits, and the floppy's five at the standard PC layout. Modelled as two independent register sets sharing nothing, as `[OMTI]` §4.1 and §3.4 describe. Both measured dumps reproduced as tests. **Both command sets now modelled**: §5's fixed disk over `.awd`, and §6's floppy over `.afd` — ten commands and INVALID, with ST0–ST3 result bytes, and **no `WRITE DATA`**, which neither our §6 nor the sibling 8640's §5.3 lists. Wired to the board on IRQ14 and IRQ6 | `omti_suite`, 9 tests; `awd_suite`, 11; `afd_suite`, 26; `OMTI AT Controller Series Jan87` §6, `OMTI 8640 Jun89` §5 |
@@ -4475,6 +4475,96 @@ disk. `0C INITIALIZE DRIVE CHARACTERISTICS` is refused in the command phase and
 not only in the decoder -- a decoder that says no beside an executor that says
 yes is worse than neither. And a controller with no drive answers "not ready"
 rather than looking like one with a blank disk.
+
+#### The SC-499's polarity, and three conclusions built on one misread byte
+
+`[SC499]`'s status register was modelled from its **text layer**, which drops a
+column. The scan's prose lists five sources in order and gives no bit numbers,
+so the numbers were inferred from the oracle reading `40` at reset. Reading the
+**page image** (PDF page 15) gives a two-column table instead:
+
+```
+BIT 7   0 = IRQF     BIT 6   0 = RDY     BIT 5   0 = EXC
+BIT 4   1 = DONE     BIT 3   1 = DIRC
+```
+
+The inferred bit *positions* were right. The **polarity was never inferred at
+all**, and three separate conclusions rested on getting it wrong:
+
+1. **RDY and EXC are asserted low.** This core had all five active high, and set
+   `ready` at reset to reproduce the measured `40` — two errors that cancelled
+   into the right byte with the opposite meaning. `40` has bit 6 *set*, so it
+   means **not ready**, which is what a controller that has just been reset is.
+   A driver polling for readiness would have been told the exact opposite.
+2. **The interrupt flag is a disjunction, not a conjunction.** "ORing of RDY AND
+   EXC" is ambiguous English, and the conjunction was chosen because "a
+   disjunction would have interrupted on every idle controller" — which follows
+   only if `40` means Ready asserted. It does not, so a reset controller asserts
+   neither source and the disjunction is clear at reset exactly as measured. The
+   conjunction made an interrupt impossible in the state that matters most:
+   READY asserted with no exception is a *completed command*, precisely when a
+   driver expects to be interrupted.
+3. **DONE is set at reset after all.** The guide says RSTDMA "clears all Control
+   Register bits to 0, and sets DONE to 1" and that power-on reset "performs the
+   same functions". That was disbelieved on the grounds that the bit numbers
+   were unknown, so "DONE may simply not be the bit this core calls DONE". They
+   are known — bit 4, active high — so the sentence means what it says.
+
+**Two independent implementations confirm the polarity**, which is what makes
+this a correction rather than a differently-flavoured guess: Linux's
+`tpqic02.h` (`QIC_STAT_READY 0x40`, active low; `AR_STAT_DMADONE 0x10`, active
+high) and the oracle's own `sc499.cpp`, whose comments read `// active low` and
+`// active high` against the same five constants. The oracle also calls bit 7
+"('or' of rdy and exc)" in as many words, and raises the interrupt when it
+asserts READY *or* when it asserts EXCEPTION, at separate sites with neither
+conditioned on the other.
+
+**One dissent is recorded, not tidied away.** The page image prints `0 = IRQF`
+for bit 7; both implementations call it active high, and so does the machine —
+at reset `IEN` is clear, the IRQ line is tri-stated, and the measured bit 7 is
+`0`. Under the image's polarity that would mean an interrupt asserted by a
+controller that cannot drive the line. Modelled active high.
+
+**Where this core now differs from the oracle**, and the whole of it: the tape's
+status address reads `70` against MAME's `40`. Bit 4 is the deliberate one —
+the manual states DONE twice and MAME sets only RDY. Bit 5 is *not* claimed
+either way: MAME comes up with EXCEPTION asserted (its reset line is
+`m_status = SC499_STAT_RDY;` with `| SC499_STAT_EXC` commented out, and EXC
+being active low means omitting the term leaves it asserted), while `[SC499]`
+says nothing about EXCEPTION at reset. Raising it here would mean inferring
+hardware behaviour from a commented-out line in someone else's source, and it
+has a visible consequence rather than a quiet one — EXC feeds the interrupt
+flag, so an idle controller would report a pending interrupt. Left open in
+`ap_tape_reset`, settled by a driver that reads status after a reset.
+
+#### The tape's status block: six bytes, and the manual did say so
+
+`COMPLETION_PLAN.md` recorded the status block's length and contents as unknown,
+noting that Figure 1-10 "shows the protocol, not the payload" and that "the
+conventional QIC-02 length is not a source". The length is in the document after
+all — §1.13.1's READ STATUS entry reads "The device transfers the standard six
+bytes to the host." The search had been aimed at the figure; the sentence is on
+the command's own page.
+
+The layout comes from two implementations rather than from the QIC-02
+convention the plan refused: Linux's `struct tpstatus { unsigned short exs, dec,
+urc; }`, documented `LSB first` — exception flags, data error count ("nr of
+blocks rewritten/soft read errors"), underrun count ("nr of times streaming was
+interrupted") — and the oracle, which keeps exactly those three as
+`m_tape_status`, `m_data_error_counter` and `m_underrun_counter`. The exception
+word's bits are the oracle's transcription of the drive's two status bytes.
+
+Only conditions this core can genuinely be in are ever set: no cartridge,
+unselected, beginning of media, end of media, and power-on. The rest of the two
+status bytes describe faults — a marginal block, a parity error, an
+unrecoverable data error — that nothing here can produce, and setting one would
+report damage a driver would then act on. Both counts are genuinely zero rather
+than unmodelled: this core rewrites no block and never interrupts streaming.
+
+**Reading the status clears the condition it reports**, which is the point of
+the command — §1.12 has the drive report end of media "by means of an EXCEPTION
+and READ STATUS", and a power-on flag that outlived its own report would have a
+driver re-initialising forever.
 
 #### The floppy half, and a command set with no way to write a sector
 

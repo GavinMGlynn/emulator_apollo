@@ -107,7 +107,10 @@ static void test_reads_reach_the_devices_themselves(void) {
    * directly -- so the map is checked against the same dumps the devices are. */
   TEST_ASSERT_EQUAL_HEX8(0xC0u, ap_board_read(&b, 0x04D001u, &ok)); /* disk */
   TEST_ASSERT_TRUE(ok);
-  TEST_ASSERT_EQUAL_HEX8(0x40u, ap_board_read(&b, 0x050001u, &ok)); /* tape */
+  /* `70`, not the `40` the oracle reads: RDY and EXC are asserted low so both
+   * bits stand at one on an idle controller, and DONE is set by the reset
+   * because `[SC499]` says RSTDMA "sets DONE to 1". See `ap_sc499_reset`. */
+  TEST_ASSERT_EQUAL_HEX8(0x70u, ap_board_read(&b, 0x050001u, &ok)); /* tape */
   TEST_ASSERT_TRUE(ok);
   TEST_ASSERT_EQUAL_HEX8(0x80u, ap_board_read(&b, 0x05F807u, &ok)); /* floppy */
   TEST_ASSERT_TRUE(ok);

@@ -8,6 +8,22 @@ void ap_tape_reset(ap_tape_t *tape) {
   memset(tape->block, 0, sizeof tape->block);
   tape->offset = 0u;
   tape->block_valid = false;
+
+  /* **Open: whether the controller asserts EXCEPTION at reset.** The drive
+   * does hold a condition -- `ap_qic_reset` sets "power on/reset occurred",
+   * which a READ STATUS reports and clears -- and the oracle's controller comes
+   * up with EXC asserted, since `sc499.cpp` sets `m_status = SC499_STAT_RDY`
+   * with `| SC499_STAT_EXC` commented out and EXC is asserted *low*, so leaving
+   * the term out leaves the bit at zero.
+   *
+   * It is deliberately **not** modelled here. `[SC499]` describes what RSTDMA
+   * does -- initialise the DMA sequencer, clear the control register, set DONE
+   * -- and says nothing about EXCEPTION. Raising it on the strength of a
+   * commented-out line in the oracle would be inferring hardware behaviour from
+   * someone else's source, which is the one route this project does not take.
+   * It also has a visible consequence rather than a quiet one: EXC feeds the
+   * interrupt flag, so asserting it at reset makes an idle controller report a
+   * pending interrupt. Settled by a driver that reads status after a reset. */
 }
 
 bool ap_tape_load(ap_tape_t *tape, const uint8_t *data, size_t size,

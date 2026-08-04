@@ -9,20 +9,48 @@
 void setUp(void) {}
 void tearDown(void) {}
 
-static void test_a_reset_controller_is_ready_and_done(void) {
+/* Two of the five status bits are asserted **low**, which `[SC499]`'s page
+ * image gives in a polarity column its text layer drops entirely. Linux's
+ * `tpqic02.h` and the oracle's `sc499.cpp` both agree. This is the fact the
+ * rest of the suite's status assertions rest on, so it is asserted directly
+ * rather than left implicit in a hex constant. */
+static void test_ready_and_exception_are_asserted_low(void) {
   ap_sc499_t t;
   ap_sc499_reset(&t);
 
-  /* `[SC499]` on reset: it "sets DONE to 1". And the oracle's own idle
-   * controller reads `40` from the status register -- Ready at bit 6, which is
-   * where the measurement placed it because the manual's scan lost the bit
-   * numbers. */
+  /* Not ready, not in exception: both bits read as ones. */
+  TEST_ASSERT_EQUAL_HEX8(AP_SC499_ST_RDY | AP_SC499_ST_EXC,
+                         ap_sc499_read(&t, AP_SC499_CONTROL_STATUS) &
+                             (AP_SC499_ST_RDY | AP_SC499_ST_EXC));
+
+  /* Asserting them *clears* the bits. */
+  t.ready = true;
+  ap_sc499_set_exception(&t, true);
+  TEST_ASSERT_EQUAL_HEX8(0, ap_sc499_read(&t, AP_SC499_CONTROL_STATUS) &
+                                AP_SC499_ST_EXC);
+}
+
+static void test_a_reset_controller_is_not_ready_and_is_done(void) {
+  ap_sc499_t t;
+  ap_sc499_reset(&t);
   uint8_t status = ap_sc499_read(&t, AP_SC499_CONTROL_STATUS);
+
+  /* The oracle's idle controller reads `40`. That was read here as "Ready is
+   * asserted", which required RDY to be active high; it is active low, so `40`
+   * means the opposite -- a controller that has just been reset is **not
+   * ready**. The byte is unchanged and its meaning is inverted. */
   TEST_ASSERT_EQUAL_HEX8(AP_SC499_ST_RDY, status & AP_SC499_ST_RDY);
-  /* DONE is clear at reset in the measured part, against the guide; see
-   * `ap_sc499_reset`. */
-  TEST_ASSERT_EQUAL_HEX8(0, status & AP_SC499_ST_DONE);
-  TEST_ASSERT_EQUAL_HEX8(0, status & AP_SC499_ST_EXC);
+  TEST_ASSERT_FALSE(t.ready);
+
+  /* And DONE is set, which the guide states twice: RSTDMA "clears all Control
+   * Register bits to 0, and sets DONE to 1", and power-on reset "performs the
+   * same functions". It was disbelieved while the bit numbers were thought
+   * unknown. They are known -- bit 4, active high, from three agreeing sources
+   * -- so the sentence means what it says. The oracle sets only RDY at reset
+   * and so reads `40` where this reads `50`; the divergence is deliberate and
+   * recorded in `PROJECT_STATUS.md`. */
+  TEST_ASSERT_EQUAL_HEX8(AP_SC499_ST_DONE, status & AP_SC499_ST_DONE);
+  TEST_ASSERT_EQUAL_HEX8(AP_SC499_ST_EXC, status & AP_SC499_ST_EXC);
 }
 
 static void test_resetting_the_dma_is_the_same_as_a_power_on_reset(void) {
@@ -80,29 +108,44 @@ static void test_a_masked_controller_drives_no_interrupt(void) {
   TEST_ASSERT_FALSE(ap_sc499_irq(&t));
 
   ap_sc499_write(&t, AP_SC499_CONTROL_STATUS, AP_SC499_CTL_IEN);
-  t.exception = true; /* with Ready, the conjunction that raises the flag */
+  ap_sc499_set_exception(&t, true); /* either source alone raises the flag */
   TEST_ASSERT_TRUE(ap_sc499_irq(&t));
 }
 
-static void test_the_flag_is_a_conjunction_not_a_list(void) {
+/* "ORing of RDY AND EXC" is ambiguous English, and this suite used to assert
+ * the conjunction reading on the strength of a measurement it was misreading:
+ * the oracle reads `40` at reset, taken to mean Ready asserted with the flag
+ * clear, so a disjunction "would have interrupted on every idle controller".
+ * RDY is active low, so `40` means Ready is *not* asserted -- a reset
+ * controller asserts neither source, and the disjunction is clear at reset
+ * exactly as measured. It is a list. */
+static void test_the_flag_is_a_list_and_either_source_alone_raises_it(void) {
   ap_sc499_t t;
   ap_sc499_reset(&t);
   ap_sc499_write(&t, AP_SC499_CONTROL_STATUS, AP_SC499_CTL_IEN);
 
-  /* "ORing of RDY AND EXC" is ambiguous English, and the measurement settles
-   * it: the oracle reads `40` at reset -- Ready set, flag clear. A disjunction
-   * would have interrupted on every idle controller. */
-  TEST_ASSERT_TRUE(t.ready);
+  /* Neither source asserted: no interrupt, which is what the measurement
+   * actually shows. */
+  TEST_ASSERT_FALSE(t.ready);
+  TEST_ASSERT_FALSE(t.exception);
   TEST_ASSERT_FALSE(ap_sc499_irq(&t));
 
-  t.exception = true;
+  /* Ready alone is enough -- and this is the case the conjunction got wrong.
+   * READY asserted with no exception is a *completed command*, precisely when
+   * a driver expects an interrupt, and a conjunction stays silent for it. */
+  t.ready = true;
+  TEST_ASSERT_TRUE(ap_sc499_irq(&t));
+
+  /* And exception alone, with ready cleared. */
+  t.ready = false;
+  ap_sc499_set_exception(&t, true);
   TEST_ASSERT_TRUE(ap_sc499_irq(&t));
 }
 
 static void test_the_interrupt_flag_reads_through_the_masks(void) {
   ap_sc499_t t;
   ap_sc499_reset(&t);
-  t.exception = true;
+  ap_sc499_set_exception(&t, true);
 
   /* "Each interrupt source bit, RDY, EXC, and DONE, can be read through the
    * Status Register regardless of the state of the interrupt masks." So a
@@ -117,11 +160,11 @@ static void test_the_interrupt_flag_reads_through_the_masks(void) {
 static void test_done_contributes_to_the_flag_only_when_enabled(void) {
   ap_sc499_t t;
   ap_sc499_reset(&t);
-  /* Leave the conjunction unsatisfied, so only DONE can raise the flag. DONE is
-   * clear at reset in the measured part, so it has to be asserted here. */
+  /* Leave both of the ungated sources clear, so only DONE can raise the flag.
+   * DONE is already set by the reset, which is itself the corrected fact. */
   t.ready = false;
   t.exception = false;
-  t.done = true;
+  TEST_ASSERT_TRUE(t.done);
 
   /* "Interrupt Request Flag. ORing of RDY AND EXC, and DONE if DNIEN is set."
    * DONE is the one source gated by its own enable, and flattening the three
@@ -226,12 +269,13 @@ int main(void) {
   RUN_TEST(test_the_handshake_times_are_exact_in_base_units);
   RUN_TEST(test_the_command_entry_condition_selects_a_figure);
   RUN_TEST(test_accepting_a_command_applies_all_three_figures);
-  RUN_TEST(test_a_reset_controller_is_ready_and_done);
+  RUN_TEST(test_ready_and_exception_are_asserted_low);
+  RUN_TEST(test_a_reset_controller_is_not_ready_and_is_done);
   RUN_TEST(test_resetting_the_dma_is_the_same_as_a_power_on_reset);
   RUN_TEST(test_the_dma_commands_ignore_what_is_written);
   RUN_TEST(test_the_command_addresses_read_as_nothing);
   RUN_TEST(test_a_masked_controller_drives_no_interrupt);
-  RUN_TEST(test_the_flag_is_a_conjunction_not_a_list);
+  RUN_TEST(test_the_flag_is_a_list_and_either_source_alone_raises_it);
   RUN_TEST(test_the_interrupt_flag_reads_through_the_masks);
   RUN_TEST(test_done_contributes_to_the_flag_only_when_enabled);
   RUN_TEST(test_holding_the_reset_bit_holds_the_controller);

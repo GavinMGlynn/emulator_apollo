@@ -17,11 +17,23 @@ static void test_the_measured_dump_is_reproduced(void) {
    * eight-byte period. Reproduced from this core over sixteen bytes, which
    * covers the period twice and so pins the aliasing as well as the values.
    *
-   * The `40` is Ready at bit 6 -- the measurement that supplied the status
-   * register's bit numbers, which the guide's own scan had lost. */
+   * **This core reads `70` where the oracle reads `40`.** The `40` was read
+   * here as "Ready at bit 6", which required RDY to be active high; the page
+   * image gives it as active *low*, so the same byte means the drive is **not**
+   * ready. Two bits then differ, for two separate and stated reasons:
+   *
+   *   bit 4, DONE: `[SC499]` says a reset "sets DONE to 1" and says it twice.
+   *   Followed here; `sc499.cpp` sets only RDY. A deliberate divergence.
+   *
+   *   bit 5, EXC: the oracle comes up with EXCEPTION asserted, this core does
+   *   not. `[SC499]` says nothing either way, so nothing is claimed -- see
+   *   `ap_tape_reset`, which records it as open rather than picking a side.
+   *
+   * The aliasing, the two `00` bytes and the six `FF` bytes are unchanged
+   * measurement. */
   static const uint8_t expected[16] = {
-      0x00, 0x40, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
-      0x00, 0x40, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+      0x00, 0x70, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+      0x00, 0x70, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
   };
   for (unsigned i = 0; i < 16u; i++) {
     TEST_ASSERT_EQUAL_HEX8(expected[i], ap_tape_read(&t, AP_TAPE_ADDR + i));
@@ -155,6 +167,18 @@ static void test_the_tape_is_read_through_the_data_register(void) {
   }
 }
 
+/* RDY and EXC are asserted **low** -- `[SC499]`'s page image carries a polarity
+ * column its text layer drops, and Linux and the oracle both agree. Named here
+ * rather than written as a flipped hex constant at each site, because
+ * "asserted" is what each test means and `== 0` is only how it is spelled. */
+static bool exception_asserted(ap_tape_t *t) {
+  return (ap_tape_read(t, AP_TAPE_ADDR + 1u) & AP_SC499_ST_EXC) == 0u;
+}
+
+static bool ready_asserted(ap_tape_t *t) {
+  return (ap_tape_read(t, AP_TAPE_ADDR + 1u) & AP_SC499_ST_RDY) == 0u;
+}
+
 static void test_a_refused_command_raises_exception(void) {
   ap_tape_t t;
   arm(&t);
@@ -164,8 +188,7 @@ static void test_a_refused_command_raises_exception(void) {
    * so a command the drive refuses must show there rather than vanish. WRITE is
    * refused because there is no write-back path. */
   issue(&t, AP_QIC_CMD_WRITE);
-  TEST_ASSERT_EQUAL_HEX8(AP_SC499_ST_EXC,
-                         ap_tape_read(&t, AP_TAPE_ADDR + 1u) & AP_SC499_ST_EXC);
+  TEST_ASSERT_TRUE(exception_asserted(&t));
 }
 
 static void test_running_off_the_end_raises_exception(void) {
@@ -181,8 +204,7 @@ static void test_running_off_the_end_raises_exception(void) {
    * cartridge is exactly such a condition -- a driver reading on gets an
    * exception rather than the tape silently wrapping. */
   (void)ap_tape_read(&t, AP_TAPE_ADDR + 0u);
-  TEST_ASSERT_EQUAL_HEX8(AP_SC499_ST_EXC,
-                         ap_tape_read(&t, AP_TAPE_ADDR + 1u) & AP_SC499_ST_EXC);
+  TEST_ASSERT_TRUE(exception_asserted(&t));
 }
 
 static void test_ready_and_exception_are_never_both_asserted(void) {
@@ -198,9 +220,8 @@ static void test_ready_and_exception_are_never_both_asserted(void) {
   /* `[SC499]` Figure 1-6: "READY shall not be asserted for an EXCEPTION
    * condition." The two are exclusive by specification, so a driver polling
    * status must never see both -- a state the device cannot be in. */
-  uint8_t status = ap_tape_read(&t, AP_TAPE_ADDR + 1u);
-  TEST_ASSERT_EQUAL_HEX8(AP_SC499_ST_EXC, status & AP_SC499_ST_EXC);
-  TEST_ASSERT_EQUAL_HEX8(0, status & AP_SC499_ST_RDY);
+  TEST_ASSERT_TRUE(exception_asserted(&t));
+  TEST_ASSERT_FALSE(ready_asserted(&t));
 }
 
 static void test_a_command_clears_an_exception(void) {
@@ -208,16 +229,14 @@ static void test_a_command_clears_an_exception(void) {
   arm(&t);
   issue(&t, AP_QIC_CMD_SELECT);
   issue(&t, AP_QIC_CMD_WRITE); /* refused, raises exception */
-  TEST_ASSERT_EQUAL_HEX8(AP_SC499_ST_EXC,
-                         ap_tape_read(&t, AP_TAPE_ADDR + 1u) & AP_SC499_ST_EXC);
+  TEST_ASSERT_TRUE(exception_asserted(&t));
 
   /* Figure 1-8: on a command issued while EXCEPTION is up the device deasserts
    * EXCEPTION and then asserts READY. So a driver recovers by commanding, not
    * by reading -- and the ready bit comes back with it. */
   issue(&t, AP_QIC_CMD_BOT);
-  uint8_t status = ap_tape_read(&t, AP_TAPE_ADDR + 1u);
-  TEST_ASSERT_EQUAL_HEX8(0, status & AP_SC499_ST_EXC);
-  TEST_ASSERT_EQUAL_HEX8(AP_SC499_ST_RDY, status & AP_SC499_ST_RDY);
+  TEST_ASSERT_FALSE(exception_asserted(&t));
+  TEST_ASSERT_TRUE(ready_asserted(&t));
 }
 
 static void test_reading_the_tape_makes_the_device_hold_the_bus(void) {

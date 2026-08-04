@@ -2619,7 +2619,7 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         to the `2x` group.
   - [x] The drive and tape motion, `device/ap_qic.c`: the readable half of the
         command set over a `.ct` image, with writing refused and the two lost
-        opcodes claimed by nothing. `qic_suite`, 12 tests.
+        opcodes claimed by nothing. `qic_suite`, 18 tests.
   - [x] The drive joined to the SC-499's registers: a driver reaches it through
         `050000`, commands go via the request bit, and data comes back a byte at
         a time. `tape_suite`, 11 tests.
@@ -2638,11 +2638,15 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
   - [x] Figure 1-10, the status byte transfer, transcribed (C26): a repeating
         per-byte REQUEST/READY exchange with DIRECTION reversed, echoing a
         status *block* rather than one byte.
-  - [ ] The status block's **length and contents**, which Figure 1-10 does not
-        give — it shows the protocol, not the payload. `READ STATUS` currently
-        succeeds and returns no bytes, which is honest about the gap but is not
-        a status block. Find the field definitions before implementing; the
-        conventional QIC-02 length is not a source.
+  - [x] **The status block: six bytes, and the manual did say so.** The length
+        is not in Figure 1-10 but in §1.13.1's READ STATUS entry — "the device
+        transfers the standard six bytes to the host". Three 16-bit fields
+        LSB-first (exception flags, data-error count, underrun count), from
+        Linux's `struct tpstatus` and the oracle, not from the QIC-02
+        convention this item refused. Detail in `PROJECT_STATUS.md`.
+        *Verification: `qic_suite`, 6 further tests (18 total) — including the
+        power-on flag surviving until read and not after, which is how a driver
+        tells a drive it has already talked to from one that just came up.*
   - [x] Figure 1-9, the command transfer with DIRECTION asserted, transcribed
         (C26). With 1-7 and 1-8 that makes the command handshake a **state
         machine with three entry conditions** — ready, exception, device holding
@@ -2673,10 +2677,22 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         four addresses of each eight floating to `FF`, aliased through the
         range, on IRQ5. `tape_suite`, 6 tests, including the measured reset dump
         reproduced over two aliasing periods.
-  - [ ] **Open:** the guide says a reset sets DONE and the measured part does
-        not. Its scan lost the status register's bit numbers, so "DONE" may not
-        be the bit this core calls DONE. A status read after a real transfer
-        would settle which bit moves (`FINDINGS.md` C19).
+  - [x] **Settled, and it cost three wrong conclusions.** The scan lost the bit
+        numbers *and a polarity column*; the **page image** has both. RDY and
+        EXC are asserted **low**, so the measured `40` means *not ready* — this
+        core had it active high and set `ready` at reset, two errors cancelling
+        into the right byte with the opposite meaning. That also voided the
+        argument for reading the interrupt flag as a conjunction (it is a
+        disjunction), and for disbelieving "a reset sets DONE" (bit 4, and it
+        does). Linux's `tpqic02.h` and the oracle's `sc499.cpp` both confirm the
+        polarity. Detail in `PROJECT_STATUS.md`.
+        *Verification: `sc499_suite`, 14 tests; `tape_suite` and `board_suite`
+        expectations updated. This core reads `70` where the oracle reads `40`.*
+  - [ ] Open, and narrower: whether the controller asserts EXCEPTION at reset.
+        The oracle does; `[SC499]` says nothing either way, and inferring it
+        from a commented-out line in MAME is not a source. It is visible rather
+        than quiet — EXC feeds the interrupt flag — so a driver reading status
+        after a reset settles it.
 
       Placement from `008778-03` Table 2-9:
       `050000`-`050F80`, AT `218`-`21F`, eight registers, confirmed by an

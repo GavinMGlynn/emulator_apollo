@@ -45,34 +45,58 @@ void ap_sc499_reset(ap_sc499_t *tape) {
   /* `[SC499]` on RSTDMA, which "performs the same functions" as power-on reset:
    * it "initializes the DMA sequencer, clears all Control Register bits to 0,
    * and sets DONE to 1". */
-  /* And Ready, which is what the oracle's idle controller was measured
-   * asserting -- status `40` at reset.
+  /* **Not ready**, and this is the correction rather than a change of mind.
+   * The measured `40` was read here as "the idle controller asserts Ready",
+   * which required RDY to be active high. The page image says it is active
+   * *low*, and Linux and the oracle both agree -- so `40`, with bit 6 set,
+   * means the opposite: a controller that has just been reset is not yet ready.
+   * `memset` above already leaves it false; it is stated rather than left
+   * implicit because the previous line said the reverse.
    *
-   * DONE is left *clear*, against the guide, which says RSTDMA "sets DONE to 1"
-   * and that power-on reset performs the same functions. The measurement is
-   * unambiguous -- `40` has bit 4 clear -- and is preferred here because the
-   * guide's scan lost the status register's bit numbers entirely, so "DONE" may
-   * simply not be the bit this core calls it. Recorded rather than reconciled:
-   * a status read after a real transfer would settle which. */
-  tape->ready = true;
+   * DONE **is** set, which reverses the other half of the old reading. The
+   * guide says RSTDMA "initializes the DMA sequencer, clears all Control
+   * Register bits to 0, and sets DONE to 1", and that power-on reset performs
+   * the same functions. That was disbelieved because the bit numbers were
+   * thought unknown -- "DONE may simply not be the bit this core calls it" --
+   * and they are now known from three agreeing sources: bit 4, active high. So
+   * the sentence means what it says.
+   *
+   * The oracle differs: `sc499.cpp` sets `m_status = SC499_STAT_RDY` at reset
+   * and nothing else, so it reads `40` where this core now reads `50`. That is
+   * a deliberate divergence with the manual cited, not an oversight -- the
+   * guide states it twice and MAME's line is a single hand-set assignment with
+   * a commented-out neighbour. `PROJECT_STATUS.md` records it as such. */
+  tape->done = true;
 }
 
 /* The interrupt flag is *derived*, not latched: "Interrupt Request Flag. ORing
  * of RDY AND EXC, and DONE if DNIEN is set."
  *
  * That sentence is ambiguous in English -- "RDY AND EXC" reads equally as a list
- * of two sources or as a conjunction -- and the measurement settles it. The
- * oracle's controller reads `40` at reset: Ready set, and the flag at bit 7
- * *clear*. A disjunction would have made the flag follow Ready and set bit 7
- * too. So it is a conjunction:
+ * of two sources or as a conjunction -- and this core read it as a conjunction
+ * on the strength of a measurement it was misreading. **It is a list.**
  *
- *     IRQ = (RDY AND EXC) OR (DONE AND DNIEN)
+ *     IRQ = RDY OR EXC OR (DONE AND DNIEN)
  *
- * Read as a list it would have interrupted on every idle controller, which is
- * the kind of wrong that looks like a working driver until the interrupt storm
- * is traced. */
+ * The old argument was: the oracle reads `40` at reset, so Ready is asserted
+ * and the flag is clear, so a disjunction would have set bit 7 too. Every step
+ * after the first is wrong, because RDY is **active low** -- `40` has bit 6
+ * *set*, which means Ready is *not* asserted. A freshly reset controller
+ * asserts neither source, so a disjunction is clear at reset exactly as
+ * measured. The measurement that was thought to rule the disjunction out is
+ * consistent with it.
+ *
+ * Two sources confirm the list reading directly: the oracle's own comment
+ * calls bit 7 the "('or' of rdy and exc)", and its code raises the interrupt
+ * when it asserts READY *or* when it asserts EXCEPTION, at separate places and
+ * with neither conditioned on the other.
+ *
+ * The conjunction was not merely a different guess: it made an interrupt
+ * impossible to raise in the one state a drive spends its life in. READY
+ * asserted with no exception is a completed command, which is precisely when a
+ * driver expects to be interrupted, and a conjunction stays silent for it. */
 static bool interrupt_flag(const ap_sc499_t *tape) {
-  if (tape->ready && tape->exception) {
+  if (tape->ready || tape->exception) {
     return true;
   }
   return tape->done && (tape->control & AP_SC499_CTL_DNIEN) != 0u;
@@ -96,15 +120,17 @@ uint8_t ap_sc499_read(ap_sc499_t *tape, unsigned reg) {
   case AP_SC499_DATA:
     return tape->data;
   case AP_SC499_CONTROL_STATUS: {
-    uint8_t status = 0u;
+    /* The two active-low bits start set and are *cleared* by their condition,
+     * which is the whole reason this is not a chain of five identical ORs. */
+    uint8_t status = AP_SC499_ST_ACTIVE_LOW;
     if (interrupt_flag(tape)) {
       status |= AP_SC499_ST_IRQ;
     }
     if (tape->ready) {
-      status |= AP_SC499_ST_RDY;
+      status &= (uint8_t)~AP_SC499_ST_RDY;
     }
     if (tape->exception) {
-      status |= AP_SC499_ST_EXC;
+      status &= (uint8_t)~AP_SC499_ST_EXC;
     }
     if (tape->done) {
       status |= AP_SC499_ST_DONE;

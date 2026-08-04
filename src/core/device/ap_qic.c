@@ -16,6 +16,10 @@ void ap_qic_reset(ap_qic_t *qic) {
   qic->image = image;
   qic->loaded = loaded;
   qic->cartridge = cartridge;
+
+  /* `SC499_ST1_POR`, "power on/reset occurred". Set by the reset and cleared
+   * only by the status read that reports it. */
+  qic->power_on = true;
 }
 
 bool ap_qic_load(ap_qic_t *qic, const uint8_t *data, size_t size,
@@ -108,7 +112,9 @@ bool ap_qic_command(ap_qic_t *qic, uint8_t command) {
     return true;
   case AP_QIC_CMD_READ_STATUS:
     /* Always answerable, selected or not: a status read is how a driver finds
-     * out that the drive is *not* ready. */
+     * out that the drive is *not* ready. The command arms the data phase; the
+     * six bytes come from `ap_qic_read_status`. */
+    qic->status_pending = true;
     return true;
   case AP_QIC_CMD_READ_FILE_MARK:
     /* Recognised, and refused: a file mark is a structure within the tape
@@ -136,5 +142,64 @@ bool ap_qic_read_block(ap_qic_t *qic, uint8_t *out) {
     return false;
   }
   qic->position++;
+  return true;
+}
+
+uint16_t ap_qic_exception_word(const ap_qic_t *qic) {
+  uint16_t exs = 0u;
+
+  /* Only conditions this core can genuinely be in. Every other flag in the two
+   * status bytes describes a fault -- a marginal block, a parity error, an
+   * unrecoverable data error -- that nothing here can produce, and setting one
+   * would be reporting damage to a driver that would then act on it. */
+  if (!qic->loaded) {
+    exs |= AP_QIC_EXS_NO_CARTRIDGE;
+  }
+  if (!qic->selected) {
+    exs |= AP_QIC_EXS_UNSELECTED;
+  }
+  if (qic->loaded && qic->position == 0u) {
+    /* Beginning of media: the head is before the first block. The oracle sets
+     * exactly this on loading a cartridge. */
+    exs |= AP_QIC_EXS_BEGINNING_OF_MEDIA;
+  }
+  if (qic->loaded && qic->position >= ap_ct_blocks(&qic->image)) {
+    exs |= AP_QIC_EXS_END_OF_MEDIA;
+  }
+  if (qic->power_on) {
+    exs |= AP_QIC_EXS_POWER_ON;
+  }
+
+  /* The two "this byte is present" markers, which are not conditions but
+   * framing: byte 0's is asserted low and byte 1's high, per the oracle's
+   * transcription, and each is set when its half carries anything. */
+  if ((exs & 0x7F00u) == 0u) {
+    exs |= AP_QIC_EXS_BYTE_0;
+  }
+  if ((exs & 0x007Fu) != 0u) {
+    exs |= AP_QIC_EXS_BYTE_1;
+  }
+  return exs;
+}
+
+bool ap_qic_read_status(ap_qic_t *qic, uint8_t out[AP_QIC_STATUS_BYTES]) {
+  if (out == nullptr || !qic->status_pending) {
+    return false;
+  }
+  const uint16_t exs = ap_qic_exception_word(qic);
+
+  /* Three 16-bit fields, least significant byte first. */
+  out[0] = (uint8_t)(exs & 0xFFu);
+  out[1] = (uint8_t)(exs >> 8);
+  out[2] = (uint8_t)(qic->data_errors & 0xFFu);
+  out[3] = (uint8_t)(qic->data_errors >> 8);
+  out[4] = (uint8_t)(qic->underruns & 0xFFu);
+  out[5] = (uint8_t)(qic->underruns >> 8);
+
+  /* Reading the status is what clears the condition it reports. A drive whose
+   * power-on flag survived being read would report a reset that had already
+   * been acknowledged, forever. */
+  qic->power_on = false;
+  qic->status_pending = false;
   return true;
 }

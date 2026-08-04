@@ -19,14 +19,37 @@
  * measured here (`FINDINGS.md` C17) and the manual is what completed the
  * picture (C18) -- neither source alone gives the part.
  *
- * ## The status register's bit numbers come from the measurement
+ * ## The status register's bit numbers, and the polarity column the OCR ate
  *
- * `[SC499]`'s scan loses them, listing five sources in order: the interrupt
- * request flag, Ready, Exception, Done, Direction. The oracle's own controller
- * reads `40` from that register at reset -- bit 6 -- and Ready is what an idle
- * controller asserts and is second in the list. So the list runs downward from
- * bit 7, which is recorded as a *joint* conclusion: the manual supplied the
- * order and the probe supplied the offset.
+ * This used to say the bit numbers "come from the measurement", because
+ * `[SC499]`'s *text layer* loses them. **The page image does not.** PDF page 15
+ * carries a two-column table the extraction flattens into prose, and reading
+ * the image gives both columns:
+ *
+ *     BIT 7   0 = IRQF    interrupt request flag
+ *     BIT 6   0 = RDY     ready, from LSI chip
+ *     BIT 5   0 = EXC     exception, from LSI chip
+ *     BIT 4   1 = DONE    done, from DMA logic
+ *     BIT 3   1 = DIRC    direction, controller to host
+ *
+ * The positions confirm what was inferred. **The polarity was never inferred at
+ * all, and was wrong**: RDY and EXC are *active low*, so an idle-and-ready
+ * controller reads bit 6 as **0**, not 1. This core had all five active high
+ * and set `ready` at reset to reproduce the measured `40` -- two errors that
+ * cancelled into the right byte with the opposite meaning. `40` means **not
+ * ready**, which is what a controller that has just been reset is.
+ *
+ * Two independent implementations agree with the image, which is what makes
+ * this safe to change rather than merely differently guessed: Linux's
+ * `tpqic02.h` defines `QIC_STAT_READY 0x40` as active low, and the oracle's own
+ * `sc499.cpp` defines `SC499_STAT_RDY 0x40` as active low.
+ *
+ * The one dissent is bit 7. The image prints `0 = IRQF`; both implementations
+ * call it active *high*, and so does the machine -- at reset `IEN` is clear, the
+ * IRQ line is tri-stated, and the measured bit 7 is `0`. Under the image's
+ * polarity that would mean an interrupt asserted by a controller that cannot
+ * drive the line. Modelled active high, with the disagreement recorded rather
+ * than tidied away.
  *
  * ## What is modelled
  *
@@ -59,13 +82,19 @@ typedef enum {
 #define AP_SC499_CTL_IEN 0x20u     /* "Enables interrupts; IEN = 0, masks" */
 #define AP_SC499_CTL_DNIEN 0x10u   /* "Enables DONE interrupt" */
 
-/* Status register, read only. Bit positions from the measurement; see the
- * header. */
-#define AP_SC499_ST_IRQ 0x80u /* ORing of RDY and EXC, and DONE if DNIEN */
-#define AP_SC499_ST_RDY 0x40u /* "Ready, from LSI chip" */
-#define AP_SC499_ST_EXC 0x20u /* "Exception, from LSI chip" */
-#define AP_SC499_ST_DONE 0x10u /* "Done, from DMA logic" */
-#define AP_SC499_ST_DIR 0x08u  /* bus direction, controller to host */
+/* Status register, read only. Positions and polarity both from `[SC499]`'s page
+ * image; see the header. **Two of these are asserted low**, which is why they
+ * are not simply OR'd together on a read. */
+#define AP_SC499_ST_IRQ 0x80u /* active high: ORing of RDY and EXC, DONE if DNIEN */
+#define AP_SC499_ST_RDY 0x40u /* **active low**: "Ready, from LSI chip" */
+#define AP_SC499_ST_EXC 0x20u /* **active low**: "Exception, from LSI chip" */
+#define AP_SC499_ST_DONE 0x10u /* active high: "Done, from DMA logic" */
+#define AP_SC499_ST_DIR 0x08u  /* active high: controller to host */
+
+/* The bits that read 1 when nothing is asserted. Useful as the base a status
+ * read starts from, and as the thing a test can name rather than spelling `C0`
+ * and inviting the reader to work out why. */
+#define AP_SC499_ST_ACTIVE_LOW (AP_SC499_ST_RDY | AP_SC499_ST_EXC)
 
 
 /* Whether a register is driven on a read. The two DMA command addresses are

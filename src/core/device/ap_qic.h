@@ -56,6 +56,51 @@ typedef enum {
   AP_QIC_CMD_READ_STATUS = 0xC0u,
 } ap_qic_command_t;
 
+/* The READ STATUS status block.
+ *
+ * **Six bytes**, and `[SC499]` says so outright: §1.13.1's READ STATUS entry is
+ * "The device transfers the standard six bytes to the host." This document was
+ * previously recorded as not giving the length -- the search had been aimed at
+ * Figure 1-10, which shows the *protocol* and not the payload, and the sentence
+ * is on the command's own page instead.
+ *
+ * The layout is three 16-bit fields, **least significant byte first**, and that
+ * comes from two implementations rather than from the conventional QIC-02
+ * layout, which `COMPLETION_PLAN.md` explicitly refused as a source:
+ *
+ *   - Linux `tpqic02.h`: `struct tpstatus { unsigned short exs, dec, urc; }`
+ *     with `sizeof(short)==2, LSB first` -- exception flags, data error count
+ *     ("nr of blocks rewritten/soft read errors"), underrun count ("nr of times
+ *     streaming was interrupted").
+ *   - The oracle's `sc499.cpp`, which keeps exactly these three as
+ *     `m_tape_status`, `m_data_error_counter` and `m_underrun_counter`.
+ *
+ * The exception word's bits are the oracle's transcription of the drive's two
+ * status bytes, byte 0 in the high half and byte 1 in the low. Only the ones
+ * this core can genuinely produce are ever set: everything else would be
+ * inventing a fault. */
+#define AP_QIC_STATUS_BYTES 6u
+
+/* Status byte 0, the high half of the exception word. */
+#define AP_QIC_EXS_BYTE_0 0x8000u    /* "0 => status byte 0" */
+#define AP_QIC_EXS_NO_CARTRIDGE 0x4000u
+#define AP_QIC_EXS_UNSELECTED 0x2000u
+#define AP_QIC_EXS_WRITE_PROTECTED 0x1000u
+#define AP_QIC_EXS_END_OF_MEDIA 0x0800u
+#define AP_QIC_EXS_DATA_ERROR 0x0400u   /* unrecoverable */
+#define AP_QIC_EXS_NO_BLOCK 0x0200u     /* bad block not located */
+#define AP_QIC_EXS_FILE_MARK 0x0100u
+
+/* Status byte 1, the low half. */
+#define AP_QIC_EXS_BYTE_1 0x0080u /* "1 => status byte 1" */
+#define AP_QIC_EXS_ILLEGAL 0x0040u
+#define AP_QIC_EXS_NO_DATA 0x0020u
+#define AP_QIC_EXS_MARGINAL 0x0010u
+#define AP_QIC_EXS_BEGINNING_OF_MEDIA 0x0008u
+#define AP_QIC_EXS_PARITY 0x0004u
+#define AP_QIC_EXS_END_RECORDED 0x0002u
+#define AP_QIC_EXS_POWER_ON 0x0001u /* "power on/reset occurred" */
+
 /* The two cartridges `[SC499]` names. Supplied by the caller. */
 typedef enum {
   AP_QIC_CARTRIDGE_NONE = 0,
@@ -76,6 +121,18 @@ typedef struct {
 
   uint64_t position; /* next block to be read */
   bool reading;      /* a READ command is in progress */
+
+  /* A READ STATUS has been issued and its six bytes not yet taken. */
+  bool status_pending;
+  /* "Power on/reset occurred", which survives until a status read reports it --
+   * that is how a driver distinguishes a drive it has already talked to from
+   * one that has just come up. */
+  bool power_on;
+  /* Counts the block reader maintains, reported in the status block. Both are
+   * genuinely zero here rather than unmodelled: this core rewrites no block and
+   * never interrupts streaming, so a nonzero count would be an invention. */
+  uint16_t data_errors;
+  uint16_t underruns;
 } ap_qic_t;
 
 void ap_qic_reset(ap_qic_t *qic);
@@ -97,5 +154,21 @@ void ap_qic_eject(ap_qic_t *qic);
 
 /* Whether a command code is one this core models at all. */
 [[nodiscard]] bool ap_qic_command_known(uint8_t command);
+
+/* The exception word a READ STATUS would report right now. Separate from the
+ * block so a test can assert the condition without decoding six bytes, and so
+ * the byte order lives in exactly one place. */
+[[nodiscard]] uint16_t ap_qic_exception_word(const ap_qic_t *qic);
+
+/* Fill the six-byte status block. Requires a preceding READ STATUS command, as
+ * the drive does -- the block is the command's data phase, not a register that
+ * can be read whenever.
+ *
+ * **Reading the status clears the exception condition**, which is the whole
+ * point of the command: `[SC499]` §1.12 has the drive report end of media "by
+ * means of an EXCEPTION and READ STATUS", and a drive whose exception survived
+ * being read would re-report it forever. */
+[[nodiscard]] bool ap_qic_read_status(ap_qic_t *qic,
+                                      uint8_t out[AP_QIC_STATUS_BYTES]);
 
 #endif /* APOLLO_DEVICE_AP_QIC_H */

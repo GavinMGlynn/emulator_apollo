@@ -188,6 +188,116 @@ static void test_the_lost_opcodes_are_not_claimed(void) {
   }
 }
 
+/* ---- The READ STATUS status block ---------------------------------------- */
+
+/* `[SC499]` §1.13.1's READ STATUS entry: "The device transfers the standard six
+ * bytes to the host." This document was recorded as not giving the length --
+ * the search had been aimed at Figure 1-10, which shows the protocol and not
+ * the payload, and the sentence is on the command's own page. Six is the
+ * manual's number, not the conventional QIC-02 one, which the plan refused as a
+ * source. */
+static void test_the_status_block_is_the_six_bytes_the_manual_names(void) {
+  ap_qic_t q;
+  uint8_t block[AP_QIC_STATUS_BYTES];
+  load(&q);
+  TEST_ASSERT_EQUAL_UINT(6u, AP_QIC_STATUS_BYTES);
+  TEST_ASSERT_TRUE(ap_qic_command(&q, AP_QIC_CMD_READ_STATUS));
+  TEST_ASSERT_TRUE(ap_qic_read_status(&q, block));
+}
+
+/* The block is the command's data phase, not a register. Asking for it without
+ * the command is refused rather than answered from stale state. */
+static void test_the_status_block_needs_its_command_first(void) {
+  ap_qic_t q;
+  uint8_t block[AP_QIC_STATUS_BYTES];
+  load(&q);
+  TEST_ASSERT_FALSE(ap_qic_read_status(&q, block));
+
+  TEST_ASSERT_TRUE(ap_qic_command(&q, AP_QIC_CMD_READ_STATUS));
+  TEST_ASSERT_TRUE(ap_qic_read_status(&q, block));
+  /* And the command does not stay armed: one command, one block. */
+  TEST_ASSERT_FALSE(ap_qic_read_status(&q, block));
+}
+
+/* Three 16-bit fields, **least significant byte first** -- Linux's
+ * `struct tpstatus { unsigned short exs, dec, urc; }` with "LSB first", and the
+ * oracle keeping the same three. A big-endian reader would see every field
+ * byte-swapped, which for a count of zero looks identical and for the exception
+ * word puts status byte 0 where byte 1 belongs. */
+static void test_the_status_block_is_three_words_least_significant_byte_first(void) {
+  ap_qic_t q;
+  uint8_t block[AP_QIC_STATUS_BYTES];
+  load(&q);
+  TEST_ASSERT_TRUE(ap_qic_command(&q, AP_QIC_CMD_SELECT));
+  TEST_ASSERT_TRUE(ap_qic_command(&q, AP_QIC_CMD_READ_STATUS));
+  /* Taken *before* the read: the read clears the power-on flag it reports, so
+   * the word computed afterwards is legitimately a different one. */
+  const uint16_t expected = ap_qic_exception_word(&q);
+  TEST_ASSERT_TRUE(ap_qic_read_status(&q, block));
+
+  const uint16_t exs = (uint16_t)(block[0] | ((uint16_t)block[1] << 8));
+  TEST_ASSERT_EQUAL_HEX16(expected, exs);
+
+  /* The two counts are genuinely zero rather than unmodelled: this core
+   * rewrites no block and never interrupts streaming. */
+  TEST_ASSERT_EQUAL_HEX8(0, block[2]);
+  TEST_ASSERT_EQUAL_HEX8(0, block[3]);
+  TEST_ASSERT_EQUAL_HEX8(0, block[4]);
+  TEST_ASSERT_EQUAL_HEX8(0, block[5]);
+}
+
+/* An empty drive is the condition the command exists to report, and it must not
+ * look like a loaded one at block zero. */
+static void test_an_empty_drive_reports_no_cartridge_rather_than_beginning(void) {
+  ap_qic_t q;
+  ap_qic_reset(&q);
+  TEST_ASSERT_TRUE(ap_qic_command(&q, AP_QIC_CMD_READ_STATUS));
+  const uint16_t exs = ap_qic_exception_word(&q);
+  TEST_ASSERT_TRUE((exs & AP_QIC_EXS_NO_CARTRIDGE) != 0u);
+  TEST_ASSERT_TRUE((exs & AP_QIC_EXS_BEGINNING_OF_MEDIA) == 0u);
+}
+
+/* "Power on/reset occurred" is how a driver tells a drive it has already talked
+ * to from one that has just come up -- so it must survive until read, and not
+ * survive being read. A flag that outlived its own report would have the driver
+ * re-initialising forever. */
+static void test_the_power_on_flag_survives_until_read_and_not_after(void) {
+  ap_qic_t q;
+  uint8_t block[AP_QIC_STATUS_BYTES];
+  load(&q);
+  TEST_ASSERT_TRUE((ap_qic_exception_word(&q) & AP_QIC_EXS_POWER_ON) != 0u);
+
+  TEST_ASSERT_TRUE(ap_qic_command(&q, AP_QIC_CMD_READ_STATUS));
+  TEST_ASSERT_TRUE(ap_qic_read_status(&q, block));
+  TEST_ASSERT_TRUE((block[0] & (uint8_t)AP_QIC_EXS_POWER_ON) != 0u);
+
+  /* Reported once, then gone. */
+  TEST_ASSERT_TRUE((ap_qic_exception_word(&q) & AP_QIC_EXS_POWER_ON) == 0u);
+
+  /* And a reset raises it again. */
+  ap_qic_reset(&q);
+  TEST_ASSERT_TRUE((ap_qic_exception_word(&q) & AP_QIC_EXS_POWER_ON) != 0u);
+}
+
+/* Reading to the end of the tape is reported as end of media, which is what
+ * `[SC499]` §1.12 says the drive does: it "reports END OF MEDIA by means of an
+ * EXCEPTION and READ STATUS". */
+static void test_reading_off_the_end_reports_end_of_media(void) {
+  ap_qic_t q;
+  uint8_t sector[AP_CT_BLOCK_SIZE];
+  load(&q);
+  TEST_ASSERT_TRUE(ap_qic_command(&q, AP_QIC_CMD_SELECT));
+  TEST_ASSERT_TRUE(ap_qic_command(&q, AP_QIC_CMD_READ));
+  TEST_ASSERT_TRUE((ap_qic_exception_word(&q) & AP_QIC_EXS_END_OF_MEDIA) == 0u);
+
+  /* The image is three blocks. */
+  for (unsigned i = 0; i < 3u; i++) {
+    TEST_ASSERT_TRUE(ap_qic_read_block(&q, sector));
+  }
+  TEST_ASSERT_FALSE(ap_qic_read_block(&q, sector));
+  TEST_ASSERT_TRUE((ap_qic_exception_word(&q) & AP_QIC_EXS_END_OF_MEDIA) != 0u);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_the_cartridge_type_must_be_supplied);
@@ -202,5 +312,11 @@ int main(void) {
   RUN_TEST(test_a_status_read_answers_an_unselected_drive);
   RUN_TEST(test_writing_is_refused_rather_than_discarded);
   RUN_TEST(test_the_lost_opcodes_are_not_claimed);
+  RUN_TEST(test_the_status_block_is_the_six_bytes_the_manual_names);
+  RUN_TEST(test_the_status_block_needs_its_command_first);
+  RUN_TEST(test_the_status_block_is_three_words_least_significant_byte_first);
+  RUN_TEST(test_an_empty_drive_reports_no_cartridge_rather_than_beginning);
+  RUN_TEST(test_the_power_on_flag_survives_until_read_and_not_after);
+  RUN_TEST(test_reading_off_the_end_reports_end_of_media);
   return UNITY_END();
 }
