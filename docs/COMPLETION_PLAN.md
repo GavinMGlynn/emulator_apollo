@@ -2884,12 +2884,17 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         constant: `AP_AWD_SECTOR_BYTES` is 1056 and `omti8621.cpp` seeks
         `diskaddr * OMTI_DISK_SECTOR_SIZE`, also 1056, so the addressing agrees
         by construction rather than by coincidence.
-  - [ ] **Awaiting an `.afd` to share.** `media/` holds eleven `.awd` images and
-        **no floppy image at all**, so the half of this verification that says
-        "the same image under both" cannot be run for the floppy — there is no
-        such image on either side. The reader is implemented and tested against
-        one the suite builds (`afd_suite`), which is a different claim and is
-        not this one.
+  - [ ] **The blocker was never a missing image, it was a missing recipe.**
+        MAME's own Apollo driver page gives one:
+        `dd if=/dev/zero of=floppy.afd ibs=16384 count=77`. That is
+        1,261,568 bytes, and it corroborates our geometry **field by field**
+        rather than only in total: `16384` is 2 heads x 8 sectors x 1024 bytes
+        and `77` is the cylinder count, which is a second source for figures we
+        had from `[OMTI]` §6 alone. Detail in `PROJECT_STATUS.md`.
+        Remaining: a blank image pins the addressing and nothing else, since
+        every sector reads zero on both sides. The real verification wants a
+        *written* one, and the page gives that recipe too — Domain/OS's own
+        `/bin/cp /dev/dsk/F0d0s1`, which needs the installed system running.
 - [ ] **Integration check, not a milestone:** DN3500 boots Domain/OS SR10.x to a
       login prompt, console byte-identical to the oracle. *Verification: console
       diff plus a boot state hash.*

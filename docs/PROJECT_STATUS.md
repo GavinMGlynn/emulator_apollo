@@ -4597,6 +4597,38 @@ last and hardest — **a decoded PNG**. Register round-trips and word-level
 identities are what can be checked without one, and a controller that passes
 those and draws nothing is the standard way this goes wrong.
 
+#### The floppy geometry has a second source, from MAME's own driver page
+
+`media/` held eleven `.awd` images and no floppy image at all, so the half of
+the media item that says "the same image under both" could not be run for the
+floppy — there was nothing to share. That was recorded as *awaiting an image*,
+which turned out to be the wrong diagnosis: what was missing was the recipe.
+
+MAME's Apollo driver page gives one:
+
+    dd if=/dev/zero of=floppy.afd ibs=16384 count=77
+
+1,261,568 bytes, and it agrees with `AP_AFD_BYTES` exactly. The agreement worth
+having is not the total but the *shape*: `16384` is 2 heads x 8 sectors x 1024
+bytes and `77` is the cylinder count, so every field of the geometry is
+corroborated separately. Those figures came from `[OMTI]` §6 and nowhere else,
+and a total alone could have been right for the wrong reasons — several
+geometries multiply to the same size.
+
+The same page gives the other three media recipes, which are worth having
+written down where the media items are read: a cartridge tape is `.act` and
+QIC-II based, made on a real Apollo with `/systest/ssr_util/cptape -r` or under
+emulation with `cpboot /sys -dev ct` then `wbak`; a Winchester `.awd` is created
+by naming a non-existent file, or `dd ... bs=1056 count=147312` for a 156 MB
+one; a written floppy comes off a running Domain/OS with
+`/bin/cp /dev/dsk/F0d0s1`.
+
+What a *blank* image can settle is the addressing and nothing else — every
+sector reads zero on both sides, so a reader that miscomputed the geometry would
+have to run off the end to be caught. The real verification wants a written
+image, and that needs the installed system running, which is what the last recipe
+depends on.
+
 #### `CR0`'s mode dispatch, and the blank screen finally proved
 
 A CPU write into the image memory is a **blit cycle**, not a store, and which one
