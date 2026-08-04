@@ -2109,7 +2109,7 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
       and `roms/firmware` carries the matching `3000_OMTI_8621_102640-B.bin`.
       The WD7000 is the DN4500's and belongs with the other model variants.
       `FINDINGS.md` C15.
-- [ ] **Archive SC-499 cartridge tape.**
+- [ ] **Booting from the cartridge, and the machine that had to exist first.** The SC-499's register model and the boot record, then everything `--boot-tape` turned out to need: the address map, the PROM boot, the missing opcodes, the bus-error investigation.
   - [x] The controller's register model, from `[SC499]` §1.9: all four
         addresses, the derived interrupt flag, the tri-stated IRQ line, and
         RSTDMA's documented identity with power-on reset — which makes the two
@@ -2290,6 +2290,8 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
 
 ### The PROM now needs time to pass
 
+- [ ] **The console: which device, which channel, and what it draws on.**
+
   - [x] The PROM reaches `000007AE` and stays there at 300000, 1000000 and
         3000000 instructions, with the fault count settled at 129. The
         instruction is `BTST #0,($102,A0)` followed by `BEQ` back to `0000078E`
@@ -2466,6 +2468,8 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         map at `000021D2`, settled because ASCII was being fed to the keyboard
         channel. Superseded by feeding serial 1 channel B, which moves the PROM
         to `00002542`.
+- [ ] **The tick loop**, the project's central design item.
+
   - [ ] The tick loop is still owed and remains the project's central design
         item. It was **not** what the `000007AE` stop needed, and building it
         there would have been the wrong move for a plausible reason — a poll
@@ -2524,6 +2528,8 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         matching the unmapped pair. Applied before an investigation needed it
         rather than during one, which is the point of C33's rule.
         Detail in `PROJECT_STATUS.md`.
+- [ ] **The display controller's drawing engine.**
+
   - [ ] The rest of the display controllers: the blitter and the colour lookup
         table. Verify on a decoded PNG rather than on register round-trips — a
         controller that passes register tests and draws nothing is the standard
@@ -2540,6 +2546,8 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
           **803 writes** to the controller. Those writes are the specification
           for what is left: they are what the blitter and lookup table have to
           answer.
+- [ ] **Bus faults and the exception frames.**
+
   - [x] The **special status word** and the bus fault frame layout,
         `cpu/m68030/ap_m68030_ssw.c` — Figure 8-9's bit positions, the SIZ1/SIZ0
         encoding that counts bytes *remaining* (so a long word is zero), the
@@ -2611,6 +2619,13 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         `step_suite` covers a faulted write taking the short frame. It was
         recorded as unreachable rather than quietly left untested, which is what
         made it findable when the store path changed.
+- [x] **Archive SC-499 cartridge tape.** Controller, drive, `.ct` image and the
+      §1.13.2 handshake with its timings, wired to the board on IRQ5.
+      **Awaiting:** whether the controller asserts EXCEPTION at reset, and the
+      handshake bounds' closing — both recorded in `PROJECT_STATUS.md`, both
+      needing evidence this project does not have rather than work it has not
+      done.
+
   - [x] The `.ct` image reader, `image/ap_ct.c`: block addressing, the
         whole-block size check, and boot-record parsing. `ct_suite`, 8 tests.
   - [x] The QIC-02 command set transcribed as far as the scan allows
@@ -2664,19 +2679,25 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         `PROVISIONAL` in code and in `PROJECT_STATUS.md`, as `CLAUDE.md`
         prescribes for a quantity published as a range. All nine convert
         exactly to base units, so none is rounded as well as bounded.
-  - [ ] Close them by measurement against a running drive. Only a driver
-        watching for the edges themselves can observe the difference.
-  - [ ] Figure 1-5, the write data transfer — only needed if a write-back path
-        is ever added, which `ap_qic` currently refuses outright.
-  - [ ] Note C25: the
-        controller identifies the cartridge type from BOT-to-load-point
-        *distance*, which a raw block image has no geometry to supply, so the
-        drive must be told its cartridge type rather than deriving it.
-        The image format is known
-        (`FINDINGS.md` C24): a **raw 512-byte-block image**, 104,841 blocks for
-        the boot cartridge, no wrapper to parse. Its first block is a boot
-        record carrying four big-endian words, the ASCII `SYSBOOT REV` and
-        `M68K`, and 68000 code.
+  - [x] Closing them is tracked where a `PROVISIONAL` figure belongs — the
+        table in `PROJECT_STATUS.md`, which carries the row, the reason and the
+        cost to close ("measure edge timings against a running drive"). Kept as
+        a plan item it was a second copy of that row, and the plan is read
+        forwards to choose the next thing: an approximation already recorded,
+        with no drive here to measure against, is not one.
+  - [x] Figure 1-5, the write data transfer: **not required**, and not a gap.
+        It is reachable only through a write-back path, and `ap_qic` refuses
+        WRITE and WRITE FILE MARK outright rather than discarding them — a
+        deliberate decision with its own test. Transcribing a figure for a path
+        that is designed not to exist would be work with nothing to check it.
+  - [x] Note C25's constraint is **implemented**, not merely recorded: the
+        controller identifies a cartridge from BOT-to-load-point *distance*,
+        which a raw block image has no geometry to supply, so `ap_qic_load`
+        takes the type from its caller and refuses `AP_QIC_CARTRIDGE_NONE`
+        rather than defaulting one. `qic_suite`'s
+        `test_the_cartridge_type_must_be_supplied`. The image format is
+        `image/ap_ct.c` (`FINDINGS.md` C24): a raw 512-byte-block image,
+        104,841 blocks for the boot cartridge, no wrapper to parse.
   - [x] Wired into the board at `050000`: four registers at stride 1, the upper
         four addresses of each eight floating to `FF`, aliased through the
         range, on IRQ5. `tape_suite`, 6 tests, including the measured reset dump
@@ -2692,45 +2713,16 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         polarity. Detail in `PROJECT_STATUS.md`.
         *Verification: `sc499_suite`, 16 tests; `tape_suite` and `board_suite`
         expectations updated. This core reads `70` where the oracle reads `40`.*
-  - [ ] Open, and narrower: whether the controller asserts EXCEPTION at reset.
-        The oracle does; `[SC499]` says nothing either way, and inferring it
-        from a commented-out line in MAME is not a source. It is visible rather
-        than quiet — EXC feeds the interrupt flag — so a driver reading status
-        after a reset settles it.
+  - [x] One question is left **open and recorded** rather than answered:
+        whether the controller asserts EXCEPTION at reset. The oracle does;
+        `[SC499]` says nothing either way, and inferring it from a commented-out
+        line in MAME is not a source. It lives in `PROJECT_STATUS.md` and in
+        `ap_tape_reset` beside the code that would change, because it is an
+        unknown awaiting evidence — a driver reading status after a reset — and
+        not a task anyone here can pick up. Detail in `PROJECT_STATUS.md`.
 
-      Placement from `008778-03` Table 2-9:
-      `050000`-`050F80`, AT `218`-`21F`, eight registers, confirmed by an
-      eight-byte aliasing period in the oracle — and `050000` **is** the
-      controller, confirmed by removing the card: with `isa2` emptied it reads
-      `FF` throughout, with the card present it reads `00 40 FF ...`. Note that
-      the DN3500's *default* configuration already carries the tape in `isa2`
-      beside the OMTI in `isa1`, which is what invalidated the first attempt at
-      this comparison (`FINDINGS.md` C16). No programming model exists in
-      `008778-03`, whose Chapter 8 is physical only.
-      The register model is now **transcribed** from the controller's own manual
-      (`FINDINGS.md` C18): `BASE+0` data/command, `BASE+1` control on write and
-      status on read, `BASE+2` start DMA and `BASE+3` reset DMA, both
-      write-triggered by any value. Four addresses are used, not the two the read
-      sweep found — the other two are write-only, which is why they read `FF`.
-      Ready is corroborated at status bit 6 by the sweep's reset value of `40`,
-      which the manual's own OCR could not supply.
-      The register *span* was measured first: only `050000` and `050001` read
-      back, the other six addresses read `FF`. The **bit map was not**
-      and cannot be got the C10 way — a bit sweep writes commands to a command
-      register, the controller's state moves under the probe, and the sweep
-      reported it could not restore what it found. But **the controller's own
-      manual has been found**: the *Archive SC-499 Tape Controller Information
-      Guide* is in `docs/references/archive/` and carries the QIC-02 command
-      descriptions. It confirms the measured span independently — data/command
-      register at base+0, status at base+1 — so the bit map is transcription
-      rather than measurement, and a protocol probe is needed only to check it
-      (`FINDINGS.md` C17).
-      Promoted ahead of the disk, because it
-      is the only bootable medium that exists: `media/` holds the Domain/OS
-      SR10.3.5 distribution as `.ct` cartridge images including
-      `CRTG_STD_SFW_BOOT_1`, and no Winchester image at all. The first boot
-      therefore runs from tape and installs onto a blank disk, which reverses
-      the order this phase assumed.
+      Placement, the card-removal check and the register
+      model's recovery: detail in `PROJECT_STATUS.md`.
 - [ ] Winchester and floppy media handling (`.awd` for the disk, as the oracle
       names it). Placement: `04D000`-`04D007`, AT `1A0`-`1A7`, eight registers,
       confirmed by aliasing period. **Note for any oracle comparison:** the

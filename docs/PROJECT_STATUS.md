@@ -4476,6 +4476,38 @@ not only in the decoder -- a decoder that says no beside an executor that says
 yes is worse than neither. And a controller with no drive answers "not ready"
 rather than looking like one with a blank disk.
 
+#### How the SC-499 was placed, and its registers recovered
+
+`008778-03` Table 2-9 puts the controller at `050000`-`050F80`, AT `218`-`21F`,
+eight registers, confirmed by an eight-byte aliasing period in the oracle. That
+`050000` **is** the controller was confirmed by removing the card: with `isa2`
+emptied the range reads `FF` throughout, with the card present it reads
+`00 40 FF ...`. The DN3500's *default* configuration already carries the tape in
+`isa2` beside the OMTI in `isa1`, which is what invalidated the first attempt at
+this comparison (`FINDINGS.md` C16).
+
+**No programming model exists in `008778-03`** — its Chapter 8 is physical only.
+The register span was measured first: only `050000` and `050001` read back, the
+other six reading `FF`. The **bit map could not be measured the same way**, and
+this is the reason rather than an omission: a bit sweep writes commands to a
+command register, so the controller's state moves under the probe, and the sweep
+reported that it could not restore what it found.
+
+The controller's own manual settled it instead — the *Archive SC-499 Tape
+Controller Information Guide*, in `docs/references/archive/`, carrying the
+QIC-02 command descriptions (`FINDINGS.md` C18). `BASE+0` data/command, `BASE+1`
+control on write and status on read, `BASE+2` start DMA and `BASE+3` reset DMA,
+the last two write-triggered by any value. **Four addresses are used, not the
+two the read sweep found**: the other two are write-only, which is exactly why
+they read `FF`. So the bit map is transcription corroborated by measurement
+rather than measurement alone.
+
+The tape was promoted ahead of the disk because it is the only bootable medium
+that exists here: `media/` holds the Domain/OS SR10.3.5 distribution as `.ct`
+cartridge images including `CRTG_STD_SFW_BOOT_1`, and no Winchester image at
+all. The first boot therefore runs from tape and installs onto a blank disk,
+which reverses the order this phase had assumed.
+
 #### The SC-499's polarity, and three conclusions built on one misread byte
 
 `[SC499]`'s status register was modelled from its **text layer**, which drops a
