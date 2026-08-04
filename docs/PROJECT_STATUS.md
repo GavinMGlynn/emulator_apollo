@@ -4476,6 +4476,46 @@ not only in the decoder -- a decoder that says no beside an executor that says
 yes is worse than neither. And a controller with no drive answers "not ready"
 rather than looking like one with a blank disk.
 
+#### The colour lookup table is a Bt458, and it came from a datasheet
+
+`device/ap_bt458.c` implements the RAMDAC from the 1991 *Brooktree Product
+Databook*'s Table 1, "Address Register (ADDR) Operation", read from the page
+image. This is the first piece of the drawing engine, and it was first precisely
+because it is the only piece with a **named part's published datasheet** behind
+it — everything else has to be reasoned out of 803 firmware writes.
+
+`C1`/`C0` select what an access reaches, in conjunction with the internal
+address register: `00` the address register, `01` colour palette RAM, `11`
+overlay colours 0-3, `10` the read mask, blink mask, command and test registers
+at `$04`-`$07`. The same address in a different space is a different thing —
+palette entry `$04` and the read mask are both "address 4".
+
+**Three behaviours that a plausible model gets wrong:**
+
+- Colour moves three bytes at a time, and the part tracks which by two bits that
+  "count modulo three" and which "the MPU does not have access to". On the blue
+  cycle "the 3 bytes of colour information are concatenated into a 24-bit word
+  and written" — so **two bytes write nothing**. A model that stored each byte
+  as it arrived is observationally identical until a partial colour is read back.
+- Those bits "are reset to zero when the MPU reads or writes to the address
+  register", which is how a driver resynchronises a half-written colour. A model
+  carrying the counter across would put the next red where green belongs, for
+  every colour after it.
+- The two colour spaces advance **differently**. Palette RAM wraps: the address
+  "resets to `$00` after a blue read or write cycle to location `$FF`". The
+  overlays do not — the address "increments to `$04` following a blue read or
+  write cycle to overlay register 3", which is the read mask, in another
+  `C1`/`C0` space. A model treating the spaces alike keeps writing colours where
+  the driver has moved on to masks.
+
+The third of those caught the suite's own first draft, in a way worth recording:
+a test read the address register mid-colour to check it had not advanced, and
+that read *reset the component counter*, so the following green and blue became
+a fresh red and green and never committed. The rule under test defeated the test.
+The assertion now goes through the struct, because reading a device to observe it
+can change it — which is the same reason `--boot-watch` refuses a non-memory
+address.
+
 #### Where the drawing engine's programming model comes from
 
 `008778-03` **Chapter 10 is the graphics controllers**, and like Chapter 8 for

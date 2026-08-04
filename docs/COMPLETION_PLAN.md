@@ -2550,6 +2550,13 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
           **803 writes** to the controller. Those writes are the specification
           for what is left: they are what the blitter and lookup table have to
           answer.
+        - **The colour lookup table is done**, `device/ap_bt458.c`: the
+          Bt458's Table 1 in full -- the four `C1`/`C0` spaces, the modulo-three
+          colour counter the MPU cannot see, the commit-on-blue rule, and the
+          two different address advances. Detail in `PROJECT_STATUS.md`.
+          *Verification: `bt458_suite`, 9 tests. The one that earned its place:
+          the overlays run off their end into the **read mask** at `$04` rather
+          than wrapping to zero as the palette does.*
         - **The sources are now established** (detail in `PROJECT_STATUS.md`).
           `008778-03` Chapter 10 is *physical only*, as Chapter 8 was for the
           tape — but its change list names the registers and their widths, and
