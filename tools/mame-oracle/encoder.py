@@ -102,6 +102,56 @@ def move_l_abs_to_dn(address: int, dn: int) -> list[int]:
     return [0x2039 | (_dn(dn) << 9)] + _long_words(address)
 
 
+def move_b_imm_to_abs(value: int, address: int) -> list[int]:
+    """MOVE.B #<data>,(xxx).L — PRM page 4-116, size `01`.
+
+    `0001 001 111 111 100`: destination register `001` mode `111` is absolute
+    long, source mode `111` register `100` is immediate. The immediate for a
+    byte operation still occupies a **whole extension word**, with the byte in
+    the low half and the high half unused — the part fetches words, so a byte
+    immediate is not half a word.
+
+    Every device register on this board is eight bits wide, so this and its
+    counterpart below are what a probe that touches one is written in.
+    """
+    _check(0 <= value <= 0xFF, "not a byte: %r" % (value,))
+    return [0x13FC, value & 0xFF] + _long_words(address)
+
+
+def move_b_abs_to_dn(address: int, dn: int) -> list[int]:
+    """MOVE.B (xxx).L,Dn — PRM page 4-116, `0001 rrr 000 111 001`.
+
+    Only bits 7-0 of the destination change, which is what lets a probe read two
+    device registers into one register and compose them without a mask.
+    """
+    return [0x1039 | (_dn(dn) << 9)] + _long_words(address)
+
+
+def lsl_w_imm(count: int, dn: int) -> list[int]:
+    """LSL.W #<count>,Dn — PRM page 4-102, `1110 ccc 1 01 0 01 rrr`.
+
+    Count `1-8`, and **8 is encoded as 0** for the same reason `ADDQ`'s is: the
+    field is three bits and the useful range is one to eight. `dr` is bit 8 and
+    `1` is left; size `01` is word; `i/r` clear selects the immediate form.
+    """
+    _check(1 <= count <= 8, "a shift immediate is 1-8: %r" % (count,))
+    return [0xE148 | ((count & 7) << 9) | _dn(dn)]
+
+
+def move_w_imm_to_sr(value: int) -> list[int]:
+    """MOVE.W #<data>,SR — PRM page 4-135, `0100 0110 11 111 100`.
+
+    Privileged, and every probe runs supervisor on both sides. A board probe
+    opens with one: it is the only way to make the two machines agree about
+    whether an interrupt may be *taken* while the probe runs. This core's board
+    starts from reset with nothing programmed; the oracle's has been booting for
+    three emulated seconds with its firmware's mask in the register, and a probe
+    that unmasks a controller line on both would be interrupted on one.
+    """
+    _check(0 <= value <= 0xFFFF, "not a 16-bit status: %r" % (value,))
+    return [0x46FC, value]
+
+
 def movea_l_imm(value: int, an: int) -> list[int]:
     """MOVEA.L #<data>,An — PRM page 4-118. `0010 rrr 001 111 100`: destination
     mode `001` (An), source mode `111` register `100` (immediate)."""
@@ -586,5 +636,122 @@ def fpu_trap_probe(load_at: int, address: int = SENTINEL_ADDRESS) -> list[int]:
         [0x7000],                                          # MOVEQ #0,D0
         [0x302F, 0x0006],                                  # MOVE.W 6(SP),D0
         [0x23C0, (address >> 16) & 0xFFFF, address & 0xFFFF],
+        stop(0x2700),
+    )
+
+
+# Device registers, as a board probe sees them. The addresses are this machine's
+# and are already pinned on both sides: `src/core/board/ap_dma.h` and
+# `ap_intr.h` carry them with their `008778-03` citations, and MAME's
+# `dn3500_map` installs the same four ranges -- `010c00`, `010d00`, `011000`,
+# `011100`, each 256 bytes. A board probe is the first program in this file
+# whose *addresses* mean something, so they are named rather than spelled.
+DMA1 = 0x00010C00
+DMA1_MASTER_CLEAR = DMA1 + 0x0D
+INTR_MASTER = 0x00011000
+INTR_SLAVE = 0x00011100
+
+
+def dma_register_probe(address: int = SENTINEL_ADDRESS) -> list[int]:
+    """Master-clear the 8237A, load a channel address, and read it back.
+
+    The first probe in this file that needs a *board*: on flat RAM `010C00` is
+    unmapped and the program faults, which is what left every device
+    verification line without a route.
+
+    It is written to be **self-contained**, and that is the design constraint a
+    board probe lives under rather than a nicety. The two sides do not start
+    from the same device state: this core's board comes up at reset with nothing
+    programmed, while the oracle's has been running its firmware for three
+    emulated seconds and has configured the part for a real transfer. A probe
+    that merely *read* a register would compare a reset controller against a
+    booted one and report a difference that says nothing about the 8237A. So the
+    program issues a **master clear** first -- `[8237]` register `$0D`, write
+    only, "the same effect as a hardware reset" -- and every value it then reads
+    back is one it put there itself.
+
+    What comes back proves four things at once, and each of them is a way an
+    8237A model is commonly wrong:
+
+    * the register decodes at all, at stride 1, which `FINDINGS.md` C13
+      measured for controller 1 and which controller 2 does *not* share;
+    * the single **byte-pointer flip-flop** exists, is cleared by master clear,
+      and alternates -- two writes to one address make a sixteen-bit value;
+    * low byte **first** in both directions, which is the half of the flip-flop
+      a model can get backwards and still look right on a symmetric value;
+    * writing the base address register loads the *current* address register
+      too, since the read-back comes from the current one.
+
+    `$00003412` is the answer for the `$1234` written, composed low-then-high by
+    the program so that a reversed flip-flop stores `$00001234` rather than
+    failing to store anything -- a wrong answer is more informative than a
+    fault.
+    """
+    return assemble(
+        # Level 7 before touching a device, for the reason `move_w_imm_to_sr`
+        # gives: the two machines disagree about what may interrupt.
+        move_w_imm_to_sr(0x2700),
+        move_b_imm_to_abs(0xFF, DMA1_MASTER_CLEAR),  # value is ignored
+        move_b_imm_to_abs(0x34, DMA1),               # channel 0 address, low
+        move_b_imm_to_abs(0x12, DMA1),               # ... and high
+        moveq(0, 0),
+        move_b_abs_to_dn(DMA1, 0),                   # reads back low
+        lsl_w_imm(8, 0),
+        move_b_abs_to_dn(DMA1, 0),                   # ... then high
+        move_l_dn_to_abs(0, address),
+        stop(0x2700),
+    )
+
+
+def intr_mask_probe(address: int = SENTINEL_ADDRESS) -> list[int]:
+    """Initialise both 8259As from scratch and read their masks back.
+
+    The 8259 verification line asks for the Apollo pairing to be diffed against
+    the oracle, and until a probe could run on a board there was no way to reach
+    the controllers at all without booting firmware and trusting it.
+
+    This does not compare an *ordering*: which of two simultaneous requests wins
+    is resolved on each machine's own sampling schedule, and MAME advances its
+    devices on a different one, so a side-by-side ordering diff would compare two
+    quantisations rather than two priority encoders. What it compares is the
+    **programming model**, which is schedule-free and is what a driver actually
+    depends on.
+
+    Both controllers are driven through a full initialisation -- `ICW1` with
+    `ICW4 needed` and cascade, `ICW2` the vector base, `ICW3` the cascade line,
+    `ICW4` for the buffered-master-less normal-EOI mode -- and only then is
+    `OCW1` written and read. That sequence is the point: `ICW1` restarts the
+    state machine, so the probe does not care what the oracle's firmware left
+    behind, and a model that consumes the wrong number of initialisation bytes
+    puts the mask somewhere else and reads back the wrong value.
+
+    The two masks are deliberately different and deliberately not palindromes:
+    `$5A` on the master and `$A5` on the slave, composed into `$00005AA5`. One
+    controller answering for both, or the master's range aliasing onto the
+    slave's, gives `$5A5A` or `$A5A5` rather than an agreement.
+
+    Vector bases `$A0` and `$A8` and the cascade on **IR3** are this machine's,
+    recovered from the boot PROM's own writes by `writetrace.lua`.
+    """
+    return assemble(
+        move_w_imm_to_sr(0x2700),
+        # `ICW1` goes to A0 = 0, everything after it to A0 = 1. $11 is
+        # `IC4 = 1` (an ICW4 follows) with `SNGL = 0` (cascaded) and `LTIM = 0`
+        # (edge triggered).
+        move_b_imm_to_abs(0x11, INTR_MASTER),
+        move_b_imm_to_abs(0xA0, INTR_MASTER + 1),  # ICW2: vector base
+        move_b_imm_to_abs(0x08, INTR_MASTER + 1),  # ICW3: a slave on IR3
+        move_b_imm_to_abs(0x01, INTR_MASTER + 1),  # ICW4: 8086/8088 mode
+        move_b_imm_to_abs(0x5A, INTR_MASTER + 1),  # OCW1: the mask
+        move_b_imm_to_abs(0x11, INTR_SLAVE),
+        move_b_imm_to_abs(0xA8, INTR_SLAVE + 1),   # ICW2: the second eight
+        move_b_imm_to_abs(0x03, INTR_SLAVE + 1),   # ICW3: "I am the IR3 slave"
+        move_b_imm_to_abs(0x01, INTR_SLAVE + 1),
+        move_b_imm_to_abs(0xA5, INTR_SLAVE + 1),
+        moveq(0, 0),
+        move_b_abs_to_dn(INTR_MASTER + 1, 0),      # OCW1 read: the master's IMR
+        lsl_w_imm(8, 0),
+        move_b_abs_to_dn(INTR_SLAVE + 1, 0),       # ... and the slave's
+        move_l_dn_to_abs(0, address),
         stop(0x2700),
     )

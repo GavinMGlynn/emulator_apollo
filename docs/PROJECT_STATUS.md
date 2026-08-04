@@ -4410,6 +4410,73 @@ placement fingerprint. Neither is wrong: the datasheet defines no value. It is
 registered here so that the first board-backed oracle diff does not read it as a
 defect.
 
+#### Board probes are diffed against the oracle
+
+The previous section built the road; this one drives it. `probe_compare.py` now
+carries a `BOARD_PROGRAMS` set, and a program in it is run with `board 1` on
+this side. Membership is not a preference or a slow path — it decides where this
+side *loads*, so a program in the wrong set is a wrong comparison rather than a
+wasted one.
+
+**A board probe must be self-contained, and that is the whole design
+constraint.** The two machines' devices are not in the same state and cannot be
+made so: this side's board comes up at reset with nothing programmed, and the
+oracle's has been running its firmware for three emulated seconds and has
+configured its controllers for real work. A probe that merely *read* a register
+would compare a reset part against a booted one and report a difference that
+says nothing about the part. So every board probe resets or re-initialises the
+device first — the 8237A through its master clear at register `$0D`, the 8259As
+through a full `ICW1`-`ICW4` sequence, which restarts the state machine
+regardless of what the firmware left behind — and reads back only what it wrote
+itself.
+
+Each also opens with `MOVE.W #$2700,SR`. Without it the two sides disagree about
+whether an interrupt may be *taken* while the probe runs: this core's board can
+have nothing to deliver, while the oracle's is mid-boot with the firmware's own
+mask in the register, so a probe that unmasked a controller line would be
+interrupted on one machine and not the other. That is a harness asymmetry
+masquerading as a finding, and one instruction closes it.
+
+**What board mode buys outright is the program counter.** A board puts RAM where
+the model says, `01000000` on a DN3500, which is where the oracle's probe loads
+— so the two sides run the same addresses and the base offset every other probe
+carries disappears. The PC is compared for board probes and only for them, and a
+probe that stopped one instruction early is now caught directly rather than
+inferred from a count. The word lists printed for the two sides are byte-
+identical for the first time.
+
+Two probes, both agreeing with the oracle in every compared field:
+
+* `intr-mask` — `ICW1`-`ICW4` into both controllers, `OCW1` `$5A` to the master
+  and `$A5` to the slave, both masks read back and composed. `$00005AA5`, 17
+  instructions, same PC. The masks are deliberately not palindromes of each
+  other: one controller answering for both, or the master's 256-byte range
+  aliasing onto the slave's, gives `$5A5A` or `$A5A5` rather than an agreement.
+  What this pins is the **programming model** — the `A0` line, the four-byte
+  initialisation sequence, the vector bases `$A0` and `$A8`, the cascade on IR3,
+  and `OCW1` in both directions. It deliberately does *not* compare an
+  ordering, for the reason the parent item already gives: which of two
+  simultaneous requests wins is resolved on each machine's own sampling
+  schedule, and MAME advances its devices on a different one.
+* `dma-register` — master clear, then `$34` and `$12` into channel 0's address
+  register, then both read back. `$00003412`, 10 instructions. It pins the
+  register decode at stride 1, the single byte-pointer flip-flop, low byte first
+  in *both* directions — the half a model can get backwards and still look right
+  on a symmetric value — and that writing the base address register loads the
+  current address register too, since the read-back comes from the current one.
+
+`--program all` is now 17 programs and stands at 14 identical, 2 differing as
+recorded (`fpu-sine-x`, `fpu-trap`) and 1 not applicable to a DN3500.
+
+The encoder grew four opcodes to make this expressible, since every device
+register on this board is eight bits wide and it had no byte move at all:
+`MOVE.B #<data>,(xxx).L`, `MOVE.B (xxx).L,Dn`, `LSL.W #<count>,Dn` and
+`MOVE.W #<data>,SR`. `probe_encoder` pins each against the PRM's field layout
+and, for the two probes, pins the *addresses* — the part that can be wrong while
+the program still runs cleanly and reports a plausible number. The check that
+both address bytes go to one register is the one worth naming: a probe written
+with two addresses would pass against a model that had no flip-flop at all.
+
 #### The boot ran on a machine where no time passed
 
 The headless frontend's boot path -- the one every firmware experiment in this

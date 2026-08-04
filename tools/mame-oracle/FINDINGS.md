@@ -6403,3 +6403,54 @@ Recorded now, before the first board-backed diff runs, so that an
 undefined-behaviour difference is not read as a defect. This is the third
 divergence class in the log, after `fpu-sine-x`'s ULP and MAME's absent FPCP
 vectors -- and the first that is neither side being wrong.
+
+## C111 -- the first board-backed diffs, and the state asymmetry they run under
+
+**Class: agreement, both rows.** C108 built the road; this is the first traffic
+on it. `probe_compare.py` now has a `BOARD_PROGRAMS` set, and a program in it
+runs with `board 1` on our side and at the model's RAM base on both.
+
+| probe | what it pins | ours | oracle |
+| --- | --- | --- | --- |
+| `dma-register` | 8237A byte-pointer flip-flop, both directions | `00003412` | `00003412` |
+| `intr-mask` | both 8259As' `ICW1`-`ICW4` then `OCW1` read back | `00005AA5` | `00005AA5` |
+
+Instruction counts (10 and 17), stop reasons and the **program counter** agree
+too. The PC is new: both sides load at `01001000`, so for the first time the
+printed word lists are byte-identical and the PC is the same quantity on both.
+It is compared for board probes and only for them.
+
+### The constraint a board probe lives under
+
+The two machines' devices are **not** in the same state, and cannot be made so.
+Our board is at reset with nothing programmed; the oracle's has been booting for
+three emulated seconds and has configured its controllers for real work. A probe
+that only *read* a register would compare a reset part against a booted one and
+report a difference that says nothing about the part.
+
+So a board probe is self-contained: it resets or re-initialises the device and
+reads back only what it wrote. The 8237A takes its master clear at register
+`$0D`; the 8259As take a full `ICW1`-`ICW4`, which restarts the state machine
+whatever the firmware left behind. This is a rule about how to write the probe,
+not a fact about the hardware, and it is the thing to remember before adding the
+timer and SIO probes behind these two.
+
+The second half of the same asymmetry is the *processor's* interrupt mask, and
+it cost nothing only because it was noticed before the first run. Our board can
+have nothing to deliver; the oracle's is mid-boot with the firmware's mask in
+the SR. A probe that unmasked a controller line would be interrupted on one
+machine and not the other -- a harness asymmetry that would have read as a
+finding about the priority encoder. Every board probe therefore opens with
+`MOVE.W #$2700,SR`.
+
+### What `intr-mask` deliberately does not compare
+
+Not an ordering. Which of two simultaneous requests wins is resolved on each
+machine's own sampling schedule and MAME advances its devices on a different one,
+so a side-by-side ordering diff compares two quantisations rather than two
+priority encoders. That reasoning is the 8259 item's own and is unchanged by
+board probes existing; what board probes reach is the **programming model**, and
+that is schedule-free.
+
+`--program all` now runs 17 programs: 14 identical, 2 differing as recorded
+(C70's ULP, C92's absent FPCP vectors), 1 not applicable to a DN3500.

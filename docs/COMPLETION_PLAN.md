@@ -161,7 +161,7 @@ everywhere the file is read.)
       agree.*
   - [x] `tools/mame-oracle/encoder.py`: every opcode is a bit pattern cited to
         the PRM, so a wrong encoding is a wrong citation rather than a build
-        problem. *Verification: `probe_encoder`, 20 checks, each asserting the
+        problem. *Verification: `probe_encoder`, 47 checks, each asserting the
         manual's layout assembled field by field rather than the constant the
         encoder produces — a test comparing the encoder with itself passes on
         any consistent mistake.*
@@ -1761,6 +1761,20 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         errors and never terminates — the device range simply is not there.
         This unblocks the device verification lines for interrupts, DMA, the
         timers and the SIO, all of which needed a machine with devices in it.*
+  - [x] **And the route is now travelled: `probe_compare.py` runs board probes
+        against the oracle.** A board probe must be *self-contained* — this
+        side's devices are at reset and the oracle's have been booting for three
+        emulated seconds — so it re-initialises the part and reads back only
+        what it wrote. Both sides load at the model's RAM base, so the **program
+        counter is compared**, which no earlier probe could do.
+        Detail in `PROJECT_STATUS.md`.
+        *Verification: `intr-mask` drives `ICW1`-`ICW4` into both controllers,
+        writes `5A` and `A5` to the two `OCW1`s and reads both back: `00005AA5`,
+        17 instructions and the same PC on both sides. `dma-register` pins the
+        8237A's byte-pointer flip-flop the same way at `00003412`. Both are in
+        `--program all`, now 17 programs, and `probe_encoder` +16 (47) pins the
+        four new opcodes and the addresses that can be wrong while the program
+        still runs cleanly.*
   - [x] The 8259A itself, with no Apollo in it: initialization sequence, all
         three operation command words, fully nested priority with both
         rotations, edge and level triggering, special mask mode, special fully

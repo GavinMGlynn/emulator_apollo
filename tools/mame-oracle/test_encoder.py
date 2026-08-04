@@ -177,6 +177,83 @@ def main() -> int:
     check("FPU trap probe's handler entry is its MOVEQ",
           fpu_trap[(56 // 2)], 0x7000)
 
+    # The byte and status-register moves a *board* probe is written in. Every
+    # device register on this machine is eight bits wide, and until these
+    # existed no probe could address one.
+
+    # MOVE.B #<data>,(xxx).L — PRM p. 4-116. Size `01`, destination absolute
+    # long (register `001`, mode `111`), source immediate (mode `111`,
+    # register `100`). The immediate occupies a whole extension word with the
+    # byte in its low half: a byte immediate is not half a word, because the
+    # part fetches words.
+    check("MOVE.B #$5A,($10C00).L",
+          E.move_b_imm_to_abs(0x5A, 0x00010C00),
+          [bits((0, 2), (1, 2), (1, 3), (7, 3), (7, 3), (4, 3)),
+           0x005A, 0x0001, 0x0C00])
+    raises("MOVE.B rejects a value that is not a byte",
+           lambda: E.move_b_imm_to_abs(0x100, 0x00010C00))
+
+    # MOVE.B (xxx).L,Dn — the same layout the other way round.
+    check("MOVE.B ($11001).L,D0",
+          E.move_b_abs_to_dn(0x00011001, 0),
+          [bits((0, 2), (1, 2), (0, 3), (0, 3), (7, 3), (1, 3)),
+           0x0001, 0x1001])
+
+    # LSL.W #8,Dn — PRM p. 4-102. `1110 ccc dr ss i/r tt rrr`: count, direction
+    # (`1` is left), size `01` for word, `i/r` clear for the immediate form,
+    # type `01` for LSL. **Eight is encoded as zero**, the same convention
+    # `ADDQ` uses, so writing the count straight into the field gives a shift of
+    # nothing — which a probe composing two bytes reports as the low one twice.
+    check("LSL.W #8,D0",
+          E.lsl_w_imm(8, 0),
+          [bits((0xE, 4), (0, 3), (1, 1), (1, 2), (0, 1), (1, 2), (0, 3))])
+    check("LSL.W #1,D0 is not the same encoding",
+          E.lsl_w_imm(1, 0),
+          [bits((0xE, 4), (1, 3), (1, 1), (1, 2), (0, 1), (1, 2), (0, 3))])
+    raises("LSL rejects a count of nine", lambda: E.lsl_w_imm(9, 0))
+
+    # MOVE.W #<data>,SR — PRM p. 4-135, `0100 0110 11 111 100`. Privileged, and
+    # what a board probe opens with so that neither machine can take an
+    # interrupt while it runs.
+    check("MOVE.W #$2700,SR",
+          E.move_w_imm_to_sr(0x2700),
+          [bits((4, 4), (6, 4), (3, 2), (7, 3), (4, 3)), 0x2700])
+
+    # The two board probes' *addresses*, which are the part of them that can be
+    # wrong while the program still runs cleanly and reports a plausible number.
+    dma = E.dma_register_probe(0x01001800)
+    # `[8237]` register $0D is master clear, and it is write-only: the probe
+    # depends on it to make the oracle's booted controller and this side's reset
+    # one start from the same state. Aimed one register low it hits the
+    # temporary register and clears nothing.
+    check("DMA probe master-clears at $0D", dma[4:6], [0x0001, 0x0C0D])
+    # Both halves of the sixteen-bit address go to the *same* address. That is
+    # the byte-pointer flip-flop, and a probe that used two addresses would pass
+    # against a model that had no flip-flop at all.
+    check("DMA probe writes both address bytes to one register",
+          dma[8:10], dma[12:14])
+    check("DMA probe reads back from the register it wrote",
+          dma[16:18], dma[8:10])
+
+    intr = E.intr_mask_probe(0x01001800)
+    # `ICW1` is the one write that goes to A0 = 0; everything after it goes to
+    # A0 = 1. A model that took the whole sequence at one address would be
+    # indistinguishable from a correct one if the probe made the same mistake.
+    check("8259 probe sends ICW1 to A0 = 0", intr[4:6], [0x0001, 0x1000])
+    check("8259 probe sends ICW2 to A0 = 1", intr[8:10], [0x0001, 0x1001])
+    # The cascade pair, measured from the boot PROM's own writes: the master's
+    # `ICW3` is a *bit mask* of which input has a slave and the slave's is the
+    # *number* of the input it answers on. `$08` and `$03` are the same fact
+    # written two ways, and a probe carrying `$08` on both sides would agree
+    # with a model that never read the slave's at all.
+    check("8259 probe's master ICW3 is the IR3 bit", intr[11], 0x0008)
+    check("8259 probe's slave ICW3 is the number 3", intr[31], 0x0003)
+    check("8259 probe's vector bases are $A0 and $A8",
+          (intr[7], intr[27]), (0x00A0, 0x00A8))
+    # The two masks must not be palindromes of each other, or one controller
+    # answering for both reads as agreement.
+    check("8259 probe's two masks differ", intr[19] != intr[39], True)
+
     if failures:
         sys.stderr.write("\n%d check(s) failed\n" % failures)
         return 1

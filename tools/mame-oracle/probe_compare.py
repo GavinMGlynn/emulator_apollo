@@ -22,6 +22,23 @@ same program is assembled twice at two bases, and a PC that differs by the base
 is not a disagreement. Comparing raw PCs would fail every time for a reason that
 has nothing to do with the instruction under test.
 
+## Board probes
+
+A probe that touches a *device register* cannot run on flat RAM: `010C00` is
+simply unmapped there, so this side faults where the oracle's `dn3500` answers.
+Those probes run with `board 1`, which builds a whole core board on this side —
+and because a board puts RAM where the model says, at `01000000` on a DN3500,
+both sides then load at the **same address**. The base offset that every other
+probe carries disappears, and the program counter becomes a real check rather
+than a caveat: it is compared for board probes and only for them.
+
+The constraint a board probe is written under is that it must be
+**self-contained**. The two machines' devices are not in the same state — this
+side's board is at reset with nothing programmed, the oracle's has been booting
+for three emulated seconds — so a probe that only reads a register compares a
+reset part against a configured one. Every board probe here therefore resets or
+re-initialises the part first and reads back only what it wrote itself.
+
 Not compared either: **clocks**. This core does not yet model instruction
 execution time (a named plan item), so its figure is a lower bound and the two
 are not comparable. Saying so here is cheaper than someone discovering it from a
@@ -100,11 +117,12 @@ def parse_fields(text: str) -> dict:
 
 
 def run_ours(words, base, sentinel_at, limit, work: Path,
-             machine: str = "dn3500") -> dict:
+             machine: str = "dn3500", board: bool = False) -> dict:
     spec = work / "probe.spec"
     spec.write_text(
-        "load  %X\nentry %X\nstack %X\nlimit %d\nread  %X\nwords %s\n"
-        % (base, base, base + 0x1000, limit, sentinel_at, E.to_hex(words)))
+        "load  %X\nentry %X\nstack %X\nlimit %d\nread  %X\nboard %d\nwords %s\n"
+        % (base, base, base + 0x1000, limit, sentinel_at, 1 if board else 0,
+           E.to_hex(words)))
     proc = subprocess.run([str(find_headless()), "--model", machine,
                            "--probe-file", str(spec)],
                           capture_output=True, text=True, timeout=120)
@@ -154,7 +172,15 @@ def run_oracle(words, base, sentinel_at, limit, timeout: float,
 # measurements into a check someone can re-run after changing the core.
 ALL_PROGRAMS = ("sentinel", "dbcc", "subroutine", "divide", "divide-overflow",
                 "movem", "pmove", "fault", "bus-fault", "fpu", "fpu-rounding",
-                "fpu-sine", "fpu-sine-x", "module-call", "fpu-trap")
+                "fpu-sine", "fpu-sine-x", "module-call", "fpu-trap",
+                "dma-register", "intr-mask")
+
+# The probes that need a whole core board on this side rather than flat RAM.
+# Membership is not a preference: these touch a device register, which is
+# unmapped on flat RAM, so on that machine the program faults instead of running.
+# It also decides where this side loads — see the module docstring — so a program
+# added to the wrong set is not a slow path, it is a wrong comparison.
+BOARD_PROGRAMS = frozenset({"dma-register", "intr-mask"})
 
 
 def run_all(argv, parser, machine: str = "dn3500") -> int:
@@ -256,14 +282,14 @@ def main(argv=None, recursing=False) -> int:
              "which is what the 68020 subset's verification line asks for and "
              "what no machine this core built could do until it had a model")
     parser.add_argument(
-        "--program", choices=("sentinel", "fpu", "fpu-rounding", "fpu-sine", "fpu-sine-x", "fault", "bus-fault", "dbcc", "movem", "divide", "divide-overflow", "subroutine", "pmove", "module-call", "fpu-trap",
-                 "all"),
+        "--program", choices=(*ALL_PROGRAMS, "all"),
         default="sentinel",
         help="which probe to run; `fpu` exercises the coprocessor's constant "
-             "ROM, an FADD and the store conversion in one")
+             "ROM, an FADD and the store conversion in one, and the two in "
+             "`BOARD_PROGRAMS` reach a device register")
     args = parser.parse_args(argv)
 
-    global ORACLE_BASE  # noqa: PLW0603 -- the base is a property of the run
+    global ORACLE_BASE, OURS_BASE  # noqa: PLW0603 -- both are run properties
     if args.machine not in ORACLE_RAM_BASE:
         print("no RAM base recorded for %s; add it from MAME's driver"
               % args.machine)
@@ -273,7 +299,36 @@ def main(argv=None, recursing=False) -> int:
     if args.program == "all" and not recursing:
         return run_all(argv, parser, args.machine)
 
-    if args.program == "module-call":
+    # A board puts RAM where the *model* says, so a board probe on this side
+    # loads at the same address the oracle's does and the two bases collapse
+    # into one. Everything downstream — the encoding, the spec, the checks —
+    # then works from a single number, which is why this is set here rather
+    # than special-cased per program.
+    on_board = args.program in BOARD_PROGRAMS
+    if on_board:
+        OURS_BASE = ORACLE_BASE
+
+    if args.program == "dma-register":
+        ours_words = E.dma_register_probe(OURS_BASE + SENTINEL_OFFSET)
+        oracle_words = E.dma_register_probe(ORACLE_BASE + SENTINEL_OFFSET)
+        print("probe:  master-clear DMA 1 ; write $34 then $12 to channel 0's"
+              " address ; read")
+        print("        both back low-first and compose them ; store ; STOP")
+        print("        $00003412 is the byte-pointer flip-flop working in both"
+              " directions --")
+        print("        $00001234 is the same two writes read back the wrong way"
+              " round")
+    elif args.program == "intr-mask":
+        ours_words = E.intr_mask_probe(OURS_BASE + SENTINEL_OFFSET)
+        oracle_words = E.intr_mask_probe(ORACLE_BASE + SENTINEL_OFFSET)
+        print("probe:  ICW1-ICW4 into both 8259As ; OCW1 $5A to the master and"
+              " $A5 to the slave ;")
+        print("        read both masks back and compose them ; store ; STOP")
+        print("        $00005AA5. $5A5A or $A5A5 is one controller answering"
+              " for both, and a")
+        print("        model that eats the wrong number of ICWs puts the mask"
+              " somewhere else")
+    elif args.program == "module-call":
         ours_words = E.module_call_probe(OURS_BASE, OURS_BASE + SENTINEL_OFFSET)
         oracle_words = E.module_call_probe(ORACLE_BASE,
                                            ORACLE_BASE + SENTINEL_OFFSET)
@@ -413,7 +468,7 @@ def main(argv=None, recursing=False) -> int:
     print()
 
     ours = run_ours(ours_words, OURS_BASE, OURS_BASE + SENTINEL_OFFSET,
-                    args.limit, args.work, args.machine)
+                    args.limit, args.work, args.machine, on_board)
     oracle = run_oracle(oracle_words, ORACLE_BASE, ORACLE_BASE + SENTINEL_OFFSET,
                         args.limit, args.timeout, args.machine)
 
@@ -443,6 +498,8 @@ def main(argv=None, recursing=False) -> int:
                 # No expected value: which frame a data fault produces is the
                 # thing being compared, not something to assert in advance.
                 "bus-fault": None,
+                "dma-register": "00003412",
+                "intr-mask": "00005AA5",
                 "fpu-sine-x": None}.get(
         args.program, "%08X" % args.sentinel)
     checks = [
@@ -463,8 +520,18 @@ def main(argv=None, recursing=False) -> int:
     if expected is not None:
         checks.append(
             ("sentinel is the encoded value", expected, ours.get("read")))
-    checks += [
-    ]
+    if on_board:
+        # The one check board mode buys outright. Both sides loaded at the same
+        # address, so the program counter is finally the same quantity on both
+        # and a probe that stopped one instruction early is caught here rather
+        # than inferred from a count.
+        checks.append(
+            ("pc, same base on both", ours.get("pc"), oracle.get("pc")))
+        # Reported, not compared. The oracle has no equivalent field, and a
+        # board probe that faults on a register this core does not decode still
+        # runs to its limit and reports plausible numbers -- so the count is
+        # printed where whoever reads a difference will see it.
+        print("this side's bus errors: %s" % ours.get("berr"))
     if args.program == "sentinel":
         # D0 is only a *result* for the program that writes it. The FPU probe
         # never touches it, so comparing it there compares two reset states --
@@ -481,9 +548,16 @@ def main(argv=None, recursing=False) -> int:
         print("%-32s %-12s %-12s %s" % (name, a, b, "ok" if same else "DIFFER"))
 
     # Reported, never compared -- see the module docstring.
-    print("\nnot compared: pc (%s vs %s) differs by the RAM base; clocks, since "
-          "instruction\n              execution time is not yet modelled on this "
-          "side." % (ours.get("pc"), oracle.get("pc")))
+    if on_board:
+        print("\nnot compared: clocks, since instruction execution time is not "
+              "yet modelled on\n              this side. The pc *is* compared "
+              "above: a board probe loads at the\n              model's RAM "
+              "base on both sides.")
+    else:
+        print("\nnot compared: pc (%s vs %s) differs by the RAM base; clocks, "
+              "since instruction\n              execution time is not yet "
+              "modelled on this side."
+              % (ours.get("pc"), oracle.get("pc")))
 
     if failed:
         print("\n%d check(s) differ" % failed)
