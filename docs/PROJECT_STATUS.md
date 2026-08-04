@@ -4476,6 +4476,37 @@ not only in the decoder -- a decoder that says no beside an executor that says
 yes is worse than neither. And a controller with no drive answers "not ready"
 rather than looking like one with a blank disk.
 
+#### The distribution media reads, and one verification cannot be run
+
+Two of Phase 4's storage items carried verification lines that were runnable
+against media already on disk, and had never been run.
+
+**QIC-II `.ct`.** All five SR10.x cartridges read end to end — 562,616 blocks —
+through the drive's own `READ` path rather than by indexing the buffer, which
+would test nothing but `memcpy`. The boot cartridge's header is exactly what
+C24 recorded: load `0013D800`, entry `0013D82A`, length 7868, 104,841 blocks.
+
+This needed a new frontend option. `--boot-tape` refuses an image with no boot
+record, which is right for a boot and useless as a reading test: four of the
+five cartridges carry data and no `SYSBOOT` header, so the boot path rejected
+them correctly and said nothing about whether their blocks were readable.
+`--tape PATH` is the reading counterpart of `--volume`, and it reports the block
+count, how many actually read, and the boot record if there is one.
+
+**`.awd`.** `--volume` parses a real 348 MB image and returns the name
+`APOLLODN3500`, creator UID `A45AA67310012345` and node `12345` — the offsets
+this document records, recovered from an actual disk rather than a fixture. The
+sector stride is the oracle's own constant: 1056 on both sides, ours as
+`AP_AWD_SECTOR_BYTES` and MAME's as `OMTI_DISK_SECTOR_SIZE`, both indexing
+`n * size`. The addressing agrees by construction.
+
+**`.afd` cannot be verified here, and the item says so rather than ticking.**
+The verification is "byte-identical reads of the same image under both", and
+`media/` holds eleven `.awd` images and **no floppy image at all** — there is no
+image to share, on either side. The reader is implemented and tested against one
+`afd_suite` builds, which is a different claim. Ticking the item on the strength
+of the `.awd` half would record a floppy verification that never happened.
+
 #### The tick loop's five debts, discharged
 
 The tick loop item named five things that were incomplete *only* because nothing

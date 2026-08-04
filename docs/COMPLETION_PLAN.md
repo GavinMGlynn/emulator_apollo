@@ -2727,17 +2727,40 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
 
       Placement, the card-removal check and the register
       model's recovery: detail in `PROJECT_STATUS.md`.
-- [ ] Winchester and floppy media handling (`.awd` for the disk, as the oracle
+- [x] Winchester and floppy media handling (`.awd` for the disk, as the oracle
       names it). Placement: `04D000`-`04D007`, AT `1A0`-`1A7`, eight registers,
       confirmed by aliasing period. **Note for any oracle comparison:** the
       DN3500 has the OMTI in `isa1` by default, so `-isa1 ctape` *removes the
       disk controller* — they must go in different slots, and the failure is
-      silent (C16). *Verification: first register read matches the oracle exactly
-      for the no-media state.*
-- [ ] QIC-II cartridge tape, `.ct` images. *Verification: reads the bitsavers
-      SR10.4 install tapes.*
+      silent (C16). *Verification met: the oracle's idle controller reads
+      `FF C0 FC 00` across the four ports and `omti_suite` reproduces all four,
+      `board_suite` the `C0` through the map. Both halves move data —
+      `image/ap_awd.c` and `image/ap_afd.c` — and a controller with no drive
+      answers "not ready" rather than looking like one with blank media.*
+- [x] QIC-II cartridge tape, `.ct` images. *Verification met, against the real
+      distribution: all five SR10.x cartridges read end to end — 562,616 blocks
+      in total — through the drive's own `READ` path rather than by indexing the
+      buffer, which would test nothing but `memcpy`. `--tape PATH` is the
+      reading counterpart of `--volume`, added because `--boot-tape` correctly
+      refuses the four data cartridges for having no boot record and so says
+      nothing about whether their blocks are readable. The boot cartridge's
+      header comes back as C24 recorded it: load `0013D800`, entry `0013D82A`,
+      length 7868.*
 - [ ] `.awd` / `.afd` image formats, so oracle and emulator share media.
       *Verification: byte-identical reads of the same image under both.*
+  - [x] **`.awd`, against real media.** `--volume` parses an actual 348 MB
+        image — `dn3500-sr10.4-installed.awd` — returning name `APOLLODN3500`,
+        creator UID `A45AA67310012345` and node `12345`, which are the offsets
+        `PROJECT_STATUS.md` records. The sector stride is the oracle's own
+        constant: `AP_AWD_SECTOR_BYTES` is 1056 and `omti8621.cpp` seeks
+        `diskaddr * OMTI_DISK_SECTOR_SIZE`, also 1056, so the addressing agrees
+        by construction rather than by coincidence.
+  - [ ] **Awaiting an `.afd` to share.** `media/` holds eleven `.awd` images and
+        **no floppy image at all**, so the half of this verification that says
+        "the same image under both" cannot be run for the floppy — there is no
+        such image on either side. The reader is implemented and tested against
+        one the suite builds (`afd_suite`), which is a different claim and is
+        not this one.
 - [ ] **Integration check, not a milestone:** DN3500 boots Domain/OS SR10.x to a
       login prompt, console byte-identical to the oracle. *Verification: console
       diff plus a boot state hash.*

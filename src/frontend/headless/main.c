@@ -9,6 +9,7 @@
  * cycles, dump state, --dump-mem, screenshots, scripted input, ring trace) are
  * added alongside the subsystems they observe. */
 
+#include <inttypes.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -17,6 +18,7 @@
 
 #include <stdlib.h>
 
+#include "device/ap_qic.h"
 #include "image/ap_ct.h"
 #include "image/ap_volume.h"
 #include "board/ap_board.h"
@@ -869,6 +871,83 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
  * default path. `media/` is gitignored -- Apollo distribution media is not ours
  * to redistribute -- so a build that looked for a cartridge would work on one
  * machine and fail on every other. */
+/* Report a cartridge without requiring it to boot.
+ *
+ * `--boot-tape` refuses an image with no boot record, which is right for a boot
+ * and wrong for the question "does this reader read the distribution media".
+ * Four of the five SR10.x cartridges carry data and no `SYSBOOT` header, so the
+ * boot path rejects them correctly and says nothing about whether their blocks
+ * are readable. This is the reading path, and it is the counterpart of
+ * `--volume` for the disk. */
+static int report_tape(const char *path) {
+  FILE *file = fopen(path, "rb");
+  if (file == NULL) {
+    fprintf(stderr, "apollo: cannot open cartridge %s\n", path);
+    return 1;
+  }
+  if (fseek(file, 0, SEEK_END) != 0) {
+    fclose(file);
+    fprintf(stderr, "apollo: cannot size cartridge %s\n", path);
+    return 1;
+  }
+  const long size = ftell(file);
+  rewind(file);
+  if (size <= 0) {
+    fclose(file);
+    fprintf(stderr, "apollo: empty cartridge %s\n", path);
+    return 1;
+  }
+  uint8_t *bytes = malloc((size_t)size);
+  if (bytes == NULL || fread(bytes, 1, (size_t)size, file) != (size_t)size) {
+    free(bytes);
+    fclose(file);
+    fprintf(stderr, "apollo: cannot read cartridge %s\n", path);
+    return 1;
+  }
+  fclose(file);
+
+  ap_qic_t drive;
+  ap_qic_init(&drive);
+  if (!ap_qic_load(&drive, bytes, (size_t)size, AP_QIC_CARTRIDGE_DC600A)) {
+    free(bytes);
+    fprintf(stderr, "apollo: %s is not a whole number of 512-byte blocks\n",
+            path);
+    return 1;
+  }
+
+  printf("cartridge %s\n", path);
+  printf("  bytes        %ld\n", size);
+  printf("  blocks       %" PRIu64 "\n", ap_ct_blocks(&drive.image));
+
+  /* Read every block through the drive, as a driver would -- not by indexing
+   * the buffer, which would test nothing but `memcpy`. A short or misaddressed
+   * image fails here rather than at whatever later step first noticed. */
+  if (!ap_qic_command(&drive, AP_QIC_CMD_SELECT) ||
+      !ap_qic_command(&drive, AP_QIC_CMD_READ)) {
+    free(bytes);
+    fprintf(stderr, "apollo: %s could not be selected for reading\n", path);
+    return 1;
+  }
+  uint8_t block[AP_CT_BLOCK_SIZE];
+  uint64_t read = 0u;
+  while (ap_qic_read_block(&drive, block)) {
+    read++;
+  }
+  printf("  blocks read  %" PRIu64 "%s\n", read,
+         read == ap_ct_blocks(&drive.image) ? " (all)" : " -- SHORT");
+
+  ap_ct_boot_image_t boot;
+  if (ap_ct_boot_image(&drive.image, &boot)) {
+    printf("  boot record  load %08X entry %08X length %u\n",
+           boot.load_address, boot.entry_point, boot.length);
+  } else {
+    printf("  boot record  none -- a data cartridge\n");
+  }
+
+  free(bytes);
+  return read == ap_ct_blocks(&drive.image) ? 0 : 1;
+}
+
 static int boot_from_tape(const char *path, unsigned limit) {
   FILE *file = fopen(path, "rb");
   if (file == NULL) {
@@ -1055,6 +1134,7 @@ int main(int argc, char **argv) {
   bool report_timing = false;
   const char *boot_tape = NULL;
   const char *boot_prom = NULL;
+  const char *tape_path = NULL;
   /* The node this machine presents. `012345` is what every board in this
    * project has been built with; `--volume` replaces it with the identity the
    * disk itself records, which is the only source that can make a machine and
@@ -1066,6 +1146,11 @@ int main(int argc, char **argv) {
   for (int i = 1; i < argc;) {
     if (strcmp(argv[i], "--volume") == 0 && i + 1 < argc) {
       volume_path = argv[i + 1];
+      i += 2;
+      continue;
+    }
+    if (strcmp(argv[i], "--tape") == 0 && i + 1 < argc) {
+      tape_path = argv[i + 1];
       i += 2;
       continue;
     }
@@ -1204,6 +1289,10 @@ int main(int argc, char **argv) {
    * fails before a run rather than during it. */
   if (volume_path != NULL && !node_id_from_volume(volume_path, &node_id)) {
     return 1;
+  }
+
+  if (tape_path != NULL) {
+    return report_tape(tape_path);
   }
 
   if (boot_prom != NULL) {
