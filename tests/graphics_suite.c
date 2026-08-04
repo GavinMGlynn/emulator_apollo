@@ -1682,29 +1682,55 @@ static void test_the_beam_walks_pixels_lines_and_frames(void) {
 /* Until `CR1` has **both** `RESET` and `SYNC_EN` there is no beam to report.
  * Answering as though there were would let a driver believe a display it has
  * not started, which is the state every controller is in at reset. */
-static void test_the_status_is_dead_until_reset_and_sync_are_set(void) {
+static void test_the_status_reports_a_display_before_it_is_programmed(void) {
   ap_graphics_t g;
   ap_graphics_init(&g, AP_SCREEN_COLOUR_8_PLANE);
   const uint32_t status = AP_GRAPHICS_COLOUR_ADDR + AP_GRAPHICS_REG_STATUS;
 
+  /* **Held in reset is not silent**: the register holds a defined value with
+   * the sync bit set, and the boot PROM depends on it. At `007026` it does a
+   * bare `btst #2` and branches to read the device ID if the bit is set -- a
+   * *display present* probe, made before the controller is programmed. A model
+   * answering zero reports no display on a machine that has one. */
+  const uint8_t held = AP_GRAPHICS_SR_H_CK | AP_GRAPHICS_SR_V_BLANK |
+                       AP_GRAPHICS_SR_V_SYNC | AP_GRAPHICS_SR_H_SYNC;
   ap_graphics_advance(&g, 0u);
-  TEST_ASSERT_EQUAL_HEX8(0x00u, ap_graphics_read(&g, status));
+  TEST_ASSERT_EQUAL_HEX8(held, ap_graphics_read(&g, status));
 
   g.reg.cr1 = AP_GRAPHICS_CR1_RESET; /* one of the two is not enough */
-  TEST_ASSERT_EQUAL_HEX8(0x00u, ap_graphics_read(&g, status));
+  TEST_ASSERT_EQUAL_HEX8(held, ap_graphics_read(&g, status));
   g.reg.cr1 = AP_GRAPHICS_CR1_SYNC_EN;
-  TEST_ASSERT_EQUAL_HEX8(0x00u, ap_graphics_read(&g, status));
+  TEST_ASSERT_EQUAL_HEX8(held, ap_graphics_read(&g, status));
+
+  /* A 15-inch monochrome answers with two bits where the others answer with
+   * four, so this is per family and not one constant. */
+  ap_graphics_t mono;
+  ap_graphics_init(&mono, AP_SCREEN_MONO_15_INCH);
+  ap_graphics_advance(&mono, 0u);
+  TEST_ASSERT_EQUAL_HEX8(
+      AP_GRAPHICS_SR_V_BLANK | AP_GRAPHICS_SR_V_SYNC,
+      ap_graphics_read(&mono, AP_GRAPHICS_MONO_ADDR + AP_GRAPHICS_REG_STATUS));
+
+  /* And with no screen at all there is nothing to report. */
+  ap_graphics_t none;
+  ap_graphics_init(&none, AP_SCREEN_NONE);
+  TEST_ASSERT_EQUAL_HEX8(0xFFu, ap_graphics_read(&none, status));
 
   g.reg.cr1 = AP_GRAPHICS_CR1_RESET | AP_GRAPHICS_CR1_SYNC_EN;
-  TEST_ASSERT_TRUE(ap_graphics_read(&g, status) != 0x00u);
+  TEST_ASSERT_TRUE(ap_graphics_read(&g, status) != held);
 }
 
-/* Vertical blanking is the lines past the visible ones, and the bits are **set
- * while blanking** -- the polarity the oracle's vblank callback uses. Inverted,
- * a driver waiting for the blank to update the screen would run its updates
- * during the visible field, which is the tearing the interval exists to
- * prevent. */
-static void test_v_blank_is_set_outside_the_visible_field(void) {
+/* **`BLANK` and `V_BLANK` are active low**, like most of this board: set while
+ * the beam draws and cleared while it is blanked. That is the opposite of the
+ * reading their names invite, and it is what both of the oracle's paths do --
+ * `increment_v_clock` clears `V_BLANK` at the line blanking begins and sets it
+ * again at line 0.
+ *
+ * This test asserted the obvious polarity first, because the code did. Getting
+ * it backwards is not subtle in effect: a driver waiting for the blanking
+ * interval would see one permanently and update the screen whenever it liked.
+ */
+static void test_the_blanking_bits_are_active_low(void) {
   ap_graphics_t g;
   ap_graphics_init(&g, AP_SCREEN_COLOUR_8_PLANE);
   g.reg.cr1 = AP_GRAPHICS_CR1_RESET | AP_GRAPHICS_CR1_SYNC_EN;
@@ -1714,29 +1740,74 @@ static void test_v_blank_is_set_outside_the_visible_field(void) {
   TEST_ASSERT_TRUE(ap_clock_init(&dot, geometry.dot_clock_hz));
   const uint32_t status = AP_GRAPHICS_COLOUR_ADDR + AP_GRAPHICS_REG_STATUS;
 
-  /* The middle of the visible field, and the middle of a visible line. */
+  /* Drawing: both **set**. */
   ap_graphics_advance(&g, dot.period * (geometry.h_total * 400u + 100u));
   uint8_t sr = ap_graphics_read(&g, status);
-  TEST_ASSERT_EQUAL_HEX8(0u, (uint8_t)(sr & AP_GRAPHICS_SR_V_BLANK));
-  TEST_ASSERT_EQUAL_HEX8(0u, (uint8_t)(sr & AP_GRAPHICS_SR_BLANK));
-
-  /* Past the last visible line. */
-  ap_graphics_advance(&g,
-                      dot.period * (geometry.h_total * (geometry.height + 5u)));
-  sr = ap_graphics_read(&g, status);
   TEST_ASSERT_EQUAL_HEX8(AP_GRAPHICS_SR_V_BLANK,
                          (uint8_t)(sr & AP_GRAPHICS_SR_V_BLANK));
   TEST_ASSERT_EQUAL_HEX8(AP_GRAPHICS_SR_BLANK,
                          (uint8_t)(sr & AP_GRAPHICS_SR_BLANK));
 
-  /* And past the last visible *pixel* of a visible line: blanking without
-   * vertical blanking, which a model conflating the two would miss. */
+  /* Past the last visible line: both **cleared**. */
   ap_graphics_advance(&g,
-                      dot.period * (geometry.h_total * 400u + geometry.width + 4u));
+                      dot.period * (geometry.h_total * (geometry.height + 1u)));
   sr = ap_graphics_read(&g, status);
   TEST_ASSERT_EQUAL_HEX8(0u, (uint8_t)(sr & AP_GRAPHICS_SR_V_BLANK));
-  TEST_ASSERT_EQUAL_HEX8(AP_GRAPHICS_SR_BLANK,
-                         (uint8_t)(sr & AP_GRAPHICS_SR_BLANK));
+  TEST_ASSERT_EQUAL_HEX8(0u, (uint8_t)(sr & AP_GRAPHICS_SR_BLANK));
+
+  /* Past the last visible *pixel* of a visible line: horizontally blanked but
+   * not vertically, which a model conflating the two would miss. */
+  ap_graphics_advance(
+      &g, dot.period * (geometry.h_total * 400u + geometry.width + 4u));
+  sr = ap_graphics_read(&g, status);
+  TEST_ASSERT_EQUAL_HEX8(AP_GRAPHICS_SR_V_BLANK,
+                         (uint8_t)(sr & AP_GRAPHICS_SR_V_BLANK));
+  TEST_ASSERT_EQUAL_HEX8(0u, (uint8_t)(sr & AP_GRAPHICS_SR_BLANK));
+}
+
+/* The **vertical sync pulse**, bit 2, and the bit the boot PROM waits on at
+ * `007026` before it will believe there is a display — a bounded `dbra` loop
+ * that falls through to the no-display path when it times out. Active low, four
+ * lines into the blanking interval and four lines long: the oracle blanks an
+ * 8-plane board at line 800 and syncs 804 to 808, and a 19-inch at 1023 syncing
+ * 1028 to 1032, which is `height + 4` to `height + 8` in both. */
+static void test_the_vertical_sync_pulse_sits_inside_the_blanking(void) {
+  ap_graphics_t g;
+  ap_graphics_init(&g, AP_SCREEN_COLOUR_8_PLANE);
+  g.reg.cr1 = AP_GRAPHICS_CR1_RESET | AP_GRAPHICS_CR1_SYNC_EN;
+  ap_graphics_geometry_t geometry;
+  TEST_ASSERT_TRUE(ap_graphics_geometry(AP_SCREEN_COLOUR_8_PLANE, &geometry));
+  ap_clock_t dot;
+  TEST_ASSERT_TRUE(ap_clock_init(&dot, geometry.dot_clock_hz));
+  const uint32_t status = AP_GRAPHICS_COLOUR_ADDR + AP_GRAPHICS_REG_STATUS;
+
+  /* Drawing: sync inactive, so the bit is set. */
+  ap_graphics_advance(&g, dot.period * geometry.h_total * 400u);
+  TEST_ASSERT_EQUAL_HEX8(
+      AP_GRAPHICS_SR_V_SYNC,
+      (uint8_t)(ap_graphics_read(&g, status) & AP_GRAPHICS_SR_V_SYNC));
+
+  /* Blanking has begun but the pulse has not: still set. */
+  ap_graphics_advance(&g,
+                      dot.period * geometry.h_total * (geometry.height + 1u));
+  TEST_ASSERT_EQUAL_HEX8(
+      AP_GRAPHICS_SR_V_SYNC,
+      (uint8_t)(ap_graphics_read(&g, status) & AP_GRAPHICS_SR_V_SYNC));
+
+  /* Inside the pulse: cleared. */
+  for (unsigned line = geometry.height + 4u; line < geometry.height + 8u;
+       line++) {
+    ap_graphics_advance(&g, dot.period * geometry.h_total * line);
+    TEST_ASSERT_EQUAL_HEX8(
+        0u, (uint8_t)(ap_graphics_read(&g, status) & AP_GRAPHICS_SR_V_SYNC));
+  }
+
+  /* And out the other side. */
+  ap_graphics_advance(&g,
+                      dot.period * geometry.h_total * (geometry.height + 8u));
+  TEST_ASSERT_EQUAL_HEX8(
+      AP_GRAPHICS_SR_V_SYNC,
+      (uint8_t)(ap_graphics_read(&g, status) & AP_GRAPHICS_SR_V_SYNC));
 }
 
 /* The status register changes over a frame rather than reading one value --
@@ -1761,7 +1832,8 @@ static void test_the_status_register_is_not_a_constant(void) {
   }
   /* Every modelled bit is seen both set and clear over a frame. */
   const uint8_t modelled = AP_GRAPHICS_SR_BLANK | AP_GRAPHICS_SR_V_BLANK |
-                           AP_GRAPHICS_SR_H_SYNC | AP_GRAPHICS_SR_H_CK;
+                           AP_GRAPHICS_SR_H_SYNC | AP_GRAPHICS_SR_H_CK |
+                           AP_GRAPHICS_SR_V_SYNC;
   TEST_ASSERT_EQUAL_HEX8(modelled, (uint8_t)(seen & modelled));
   TEST_ASSERT_EQUAL_HEX8(0u, (uint8_t)(all & modelled));
 }
@@ -1838,8 +1910,9 @@ int main(void) {
   RUN_TEST(test_the_colour_timing_is_inside_the_manual_s_bounds);
   RUN_TEST(test_the_beam_does_not_depend_on_the_call_rate);
   RUN_TEST(test_the_beam_walks_pixels_lines_and_frames);
-  RUN_TEST(test_the_status_is_dead_until_reset_and_sync_are_set);
-  RUN_TEST(test_v_blank_is_set_outside_the_visible_field);
+  RUN_TEST(test_the_status_reports_a_display_before_it_is_programmed);
+  RUN_TEST(test_the_blanking_bits_are_active_low);
+  RUN_TEST(test_the_vertical_sync_pulse_sits_inside_the_blanking);
   RUN_TEST(test_the_status_register_is_not_a_constant);
   return UNITY_END();
 }

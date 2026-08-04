@@ -2826,9 +2826,22 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         leave the PROM spinning; and the loopback leaving the six RAM-config
         pins alone. The boot moves from `0000658C` to `00007026` and from 0 to
         **655,368 blit cycles**.*
-      **Awaiting:** the frame buffer ends *cleared* after 1,572,872 plane
-      writes, which is what a boot does before drawing its own. Where it goes
-      next, and whether it reaches the disk, is the next reading.
+  - [x] **Two corrections to the raster, and a missing bit.** `BLANK` and
+        `V_BLANK` are **active low** — this core had them set while blanking,
+        with a comment arguing for it, and the test asserted the same mistake.
+        The **vertical sync** pulse was missing entirely and it is the bit the
+        PROM waits on at `007026`. And "held in reset" is not silent: the
+        register holds a per-family value with the sync bit set, which is a
+        *display present* probe made before the controller is programmed — this
+        core answered zero, reporting no display on a machine that has one.
+        Detail in `PROJECT_STATUS.md`.
+        *Verification: `graphics_suite` +1 (74), with the two polarity tests
+        rewritten against the oracle's structure. The boot walks on from
+        `00007026` to a delay loop, doing 2,097,183 display reads and 1,311,743
+        writes on the way.*
+      **Awaiting:** the next reading. The machine is working rather than
+      polling, and where it goes — and whether it reaches the disk — is what a
+      longer run says.
   - [x] **A disk can be fitted at all.** `ap_omti` modelled the controller and
         `ap_awd` read the image and nothing ever handed one to the other, so
         every boot experiment so far ran on a DN3500 with **no Winchester** —

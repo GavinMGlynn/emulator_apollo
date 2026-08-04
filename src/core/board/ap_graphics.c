@@ -233,7 +233,31 @@ static uint8_t graphics_status(const ap_graphics_t *graphics) {
    * driver believe a display it has not started yet. */
   const uint8_t needed = AP_GRAPHICS_CR1_RESET | AP_GRAPHICS_CR1_SYNC_EN;
   if ((graphics->reg.cr1 & needed) != needed) {
-    return 0x00u;
+    /* **Held in reset is not silent.** The register holds a defined value with
+     * several bits set, and the boot PROM depends on it: at `007026` it does a
+     * bare `btst #2` -- the sync bit -- and branches to read the device ID if it
+     * is set. That is a *display present* probe, made before the controller has
+     * been programmed at all, so a model answering zero here reports no display
+     * on a machine that has one.
+     *
+     * The values are the oracle's, per family, and they are not the same. A
+     * 15-inch monochrome answers with two bits where the others answer with
+     * four. */
+    switch (graphics->screen) {
+      case AP_SCREEN_MONO_15_INCH:
+        return AP_GRAPHICS_SR_V_BLANK | AP_GRAPHICS_SR_V_SYNC;
+      case AP_SCREEN_MONO_19_INCH:
+        return AP_GRAPHICS_SR_H_CK | AP_GRAPHICS_SR_V_BLANK |
+               AP_GRAPHICS_SR_H_SYNC | AP_GRAPHICS_SR_V_SYNC;
+      case AP_SCREEN_COLOUR_4_PLANE:
+      case AP_SCREEN_COLOUR_8_PLANE:
+        /* `SR_H_SYNC`'s bit is `DONE` on a colour board, and it is set here. */
+        return AP_GRAPHICS_SR_H_CK | AP_GRAPHICS_SR_V_BLANK |
+               AP_GRAPHICS_SR_V_SYNC | AP_GRAPHICS_SR_H_SYNC;
+      case AP_SCREEN_NONE:
+      default:
+        return 0x00u;
+    }
   }
 
   unsigned line = 0u, pixel = 0u;
@@ -246,19 +270,38 @@ static uint8_t graphics_status(const ap_graphics_t *graphics) {
   }
 
   uint8_t sr = 0u;
-  /* **Vertical blanking is the lines past the visible ones**, and `BLANK`
-   * follows it. Both are *set* while blanking, which is the polarity the
-   * oracle's vblank callback uses -- it clears them when the beam starts
-   * drawing and sets them when it stops. Inverted, a driver waiting for the
-   * blank would run its updates during the visible field, which is exactly the
-   * tearing the interval exists to prevent. */
+  /* **`BLANK` and `V_BLANK` are active low**, like most of this board. They are
+   * *set* while the beam is drawing and *cleared* while it is blanked, which is
+   * the opposite of the reading their names invite and is what both of the
+   * oracle's paths do -- `increment_v_clock` clears `V_BLANK` at the line
+   * blanking begins and sets it again at line 0, and the vblank callback clears
+   * both on entering the interval.
+   *
+   * This was implemented the obvious way round first, with a comment arguing
+   * for it. Getting it backwards is not subtle in effect: a driver waiting for
+   * the blanking interval to update the screen would see one permanently and
+   * update whenever it liked. */
   const bool v_blank = line >= geometry.height;
   const bool h_blank = pixel >= geometry.width;
-  if (v_blank) {
+  if (!v_blank) {
     sr |= AP_GRAPHICS_SR_V_BLANK;
   }
-  if (v_blank || h_blank) {
+  if (!v_blank && !h_blank) {
     sr |= AP_GRAPHICS_SR_BLANK;
+  }
+  /* The **vertical sync pulse**, also active low, and the bit the boot PROM
+   * waits on at `007026` before it will believe there is a display -- a bounded
+   * `dbra` loop that falls through to the no-display path when it times out.
+   *
+   * Four lines into the blanking interval and four lines long. That is the
+   * oracle's structure for every family, and the two it gives outright agree:
+   * an 8-plane board blanks at line 800 and syncs 804 to 808, and a 19-inch
+   * blanks at 1023 and syncs 1028 to 1032 -- `height + 4` to `height + 8` in
+   * both. */
+  const unsigned v_sync_start = geometry.height + 4u;
+  const unsigned v_sync_end = geometry.height + 8u;
+  if (!(line >= v_sync_start && line < v_sync_end)) {
+    sr |= AP_GRAPHICS_SR_V_SYNC;
   }
   /* `H_CK` is the horizontal clock, and it toggles once a line -- the lowest
    * bit of the line number, so a driver watching it sees a square wave at half
