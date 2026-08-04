@@ -2,6 +2,11 @@
 
 #include <string.h>
 
+/* The keyboard's port: serial 1 channel A, confirmed from both the oracle's
+ * machine configuration and the boot PROM's own poll loop. */
+#define KBD_UNIT 0u
+#define KBD_CHANNEL 0u
+
 static bool in(uint32_t a, uint32_t base, uint32_t size) {
   return a >= base && a < base + size;
 }
@@ -435,6 +440,27 @@ void ap_board_advance(ap_board_t *board, ap_time_t now) {
   /* The tape's command handshake, which is the only part of the drive that
    * moves with time -- §1.13.2's edges, at the bounds the figures publish. */
   ap_tape_advance(&board->tape, now);
+
+  /* **The keyboard is on the other end of serial 1 channel A**, and it answers.
+   * Anything the firmware transmits there reaches it, and what it says back
+   * goes into the same port's receiver -- which is the wire that makes a
+   * command channel a channel rather than a write-only port.
+   *
+   * Done here rather than at the register write because the reply is a device's
+   * and the device only exists while time is passing; and drained every advance
+   * so a firmware writing two bytes before this core looks again loses
+   * neither. */
+  uint8_t out = 0u;
+  while (ap_sio_transmit(&board->sio, KBD_UNIT, KBD_CHANNEL, &out)) {
+    uint8_t reply[AP_KBD_REPLY_MAX];
+    const unsigned n =
+        ap_kbd_receive(&board->keyboard, out, reply, AP_KBD_REPLY_MAX);
+    for (unsigned i = 0; i < n; i++) {
+      ap_sio_receive_framed(&board->sio, KBD_UNIT, KBD_CHANNEL, reply[i],
+                            AP_SIO_KEYBOARD_CSR, AP_SIO_KEYBOARD_MR1);
+    }
+  }
+
   /* The raster, which is a *function* of the instant rather than an
    * accumulation -- so it carries no remainder and does not care how often
    * this is called. */
@@ -808,8 +834,6 @@ bool ap_board_reset_vector(const ap_board_t *board, uint32_t *stack,
 }
 
 /* Serial 1 is unit 0 and the keyboard is on channel A. */
-#define KBD_UNIT 0u
-#define KBD_CHANNEL 0u
 
 static bool deliver_key(ap_board_t *board, uint8_t code) {
   /* **The keyboard's own framing, and it is a measurement now.**

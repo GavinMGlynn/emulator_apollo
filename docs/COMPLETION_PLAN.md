@@ -2879,10 +2879,19 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         sibling shows a 9600 port receiving the byte **damaged** rather than
         cleanly, which a board delivering at the port's own rate could not
         show.*
-      **Awaiting:** the keyboard's **loopback mode**. It starts in it — the
-      oracle sets `m_loopback_mode = 1` at reset — and this core does not model
-      it at all, so a machine with a display console is talking to a keyboard
-      that answers as itself when a real one would be echoing.
+  - [x] **The keyboard's command channel**, which this core did not have: it
+        sent scan codes and received nothing. Every command begins `FF` and
+        accumulates — `FF12` is a prefix and `FF1221` the identify — and it
+        **powers up in loopback**, echoing rather than acting, which is how a
+        host discovers it is there. Wired both ways through serial 1 channel A.
+        `FINDINGS.md` C118. Detail in `PROJECT_STATUS.md`.
+        *Verification: `kbd_suite` +6 (23). It did **not** change the boot —
+        same resting PC, same posted codes — because the firmware does not
+        reach the keyboard in that window; modelled because it is the machine's,
+        not because it moved anything.*
+      **Awaiting:** what the firmware does after the console poll in normal
+      mode. Everything it has asked for so far is answered, and it still rests
+      there rather than loading `w0`.
   - [x] **A disk can be fitted at all.** `ap_omti` modelled the controller and
         `ap_awd` read the image and nothing ever handed one to the other, so
         every boot experiment so far ran on a DN3500 with **no Winchester** —

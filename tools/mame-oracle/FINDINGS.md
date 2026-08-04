@@ -6812,3 +6812,54 @@ time that "a model that free-ran the horizontal counter as well would answer the
 diagnostic's questions before it asked them". That was right, and the other half
 -- modelling the stepped counters so the diagnostic can ask -- is now the next
 piece.
+
+## C118 -- the keyboard is not write-only, and it powers up echoing
+
+**Class: ours-incomplete.** `ap_kbd` sent scan codes and received nothing. The
+real part has a command channel, and a machine with a display console asks it to
+identify itself before believing there is one.
+
+### The protocol
+
+Every command begins `FF`, and the bytes after it accumulate until one matches.
+That the accumulator is *wider than a byte* is the point: `FF12` is a prefix and
+`FF1221` is a command, so a model matching one byte at a time cannot tell them
+apart, and a prefix that cleared the message would make the identification
+unreachable.
+
+    FF        echo, and (re-)enter loopback
+    00        in loopback: leave it, select the compatibility set. Not echoed.
+    FF00      echo, compatibility set, leave loopback
+    FF01      echo, keystate set
+    FF11      echo (prefix)
+    FF1116    send 00 FF 00, leave loopback
+    FF1117    silent, stays in loopback
+    FF12      echo (prefix)
+    FF1221    identify: leave loopback, echo, then "3-@\r2-0\rSD-03863-MS\r"
+    FF2181    beeper on, 300 ms
+    FF2182    beeper off
+    otherwise in loopback, echo; outside it, ignore
+
+**It powers up in loopback**, which is the state a real one comes up in: until
+told otherwise it echoes what it is sent rather than acting on it, and that is
+how a host discovers a keyboard is there at all. `memset` would have made that
+flag false, and false is a claim.
+
+The beeper is *acknowledged* though the sound is not modelled -- this core has no
+audio -- because a driver waiting for the acknowledgement would otherwise wait
+for ever. That is a different decision from not modelling it at all.
+
+### The wire
+
+The board drains serial 1 channel A's transmitter every advance, hands each byte
+to the keyboard, and puts what comes back into the same port's receiver at the
+keyboard's own framing. Without that the command channel is a channel in name
+only -- which is the fourth time this campaign that the piece that was missing
+was a connection.
+
+### What it did not change, and that is the honest part
+
+The normal-mode boot is **unchanged**: same resting PC, same posted codes, same
+blit count. The firmware does not reach the keyboard in that window. The
+protocol is modelled because it is the machine's, not because it moved the boot,
+and saying which is which is the difference between a measurement and a hope.

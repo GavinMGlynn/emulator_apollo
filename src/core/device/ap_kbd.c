@@ -7,6 +7,13 @@ void ap_kbd_reset(ap_kbd_t *kbd) {
   /* Nothing held. Zero is a real key index, so the idle value has to be out of
    * range rather than the natural `memset` zero. */
   kbd->held = AP_KBD_KEYS;
+  /* **Loopback at power-on**, which is the state a real one comes up in: until
+   * told otherwise it echoes what it is sent rather than acting on it, and that
+   * is how a host discovers a keyboard is there at all. `memset` would have
+   * made it false, and false is a claim. */
+  kbd->loopback = true;
+  kbd->rx_message = 0u;
+  kbd->keystate_mode = false;
 }
 
 bool ap_kbd_press(ap_kbd_t *kbd, unsigned key, uint8_t *code) {
@@ -273,4 +280,100 @@ bool ap_kbd_advance(ap_kbd_t *kbd, ap_time_t now, unsigned *key) {
   kbd->repeating = true;
   *key = kbd->held;
   return true;
+}
+
+/* The command channel. Every command begins `FF`; the bytes after it accumulate
+ * until one matches, because `FF12` is a prefix and `FF1221` is a command and a
+ * model matching a byte at a time cannot tell them apart. */
+unsigned ap_kbd_receive(ap_kbd_t *kbd, uint8_t byte, uint8_t *reply,
+                        unsigned capacity) {
+  if (kbd == NULL || reply == NULL) {
+    return 0u;
+  }
+  unsigned sent = 0u;
+#define EMIT(b)                       \
+  do {                                \
+    if (sent < capacity) {            \
+      reply[sent++] = (uint8_t)(b);   \
+    }                                 \
+  } while (0)
+
+  if (byte == 0xFFu) {
+    /* The start of a command, and it re-enters loopback: a host that has lost
+     * track can always get back to a known state by sending `FF`. */
+    kbd->rx_message = 0xFFu;
+    kbd->loopback = true;
+    EMIT(byte);
+    return sent;
+  }
+  if (byte == 0x00u) {
+    /* Only meaningful in loopback, where it ends the conversation and selects
+     * the compatibility set. Outside it, nothing -- and *not* an echo, which is
+     * the one case the default rule below would get wrong. */
+    if (kbd->loopback) {
+      kbd->keystate_mode = false;
+      kbd->loopback = false;
+    }
+    return sent;
+  }
+
+  kbd->rx_message = (kbd->rx_message << 8) | byte;
+  switch (kbd->rx_message) {
+    case 0xFF00u:
+      EMIT(byte);
+      kbd->keystate_mode = false;
+      kbd->loopback = false;
+      kbd->rx_message = 0u;
+      return sent;
+    case 0xFF01u:
+      EMIT(byte);
+      kbd->keystate_mode = true;
+      kbd->rx_message = 0u;
+      return sent;
+    case 0xFF11u:
+    case 0xFF12u:
+      /* Prefixes. Echoed, and the message is *kept* so the next byte can
+       * complete it -- clearing it here is what a one-byte matcher does and it
+       * makes `FF1221` unreachable. */
+      EMIT(byte);
+      return sent;
+    case 0xFF1116u:
+      EMIT(0x00u);
+      EMIT(0xFFu);
+      EMIT(0x00u);
+      kbd->loopback = false;
+      kbd->rx_message = 0u;
+      return sent;
+    case 0xFF1117u:
+      /* Silent, and it does not leave loopback. */
+      kbd->rx_message = 0u;
+      return sent;
+    case 0xFF1221u: {
+      /* Identify. The host asks this before believing a keyboard is there. */
+      kbd->loopback = false;
+      EMIT(byte);
+      static const char id[] = AP_KBD_IDENTIFICATION;
+      for (unsigned i = 0; id[i] != '\0'; i++) {
+        EMIT((uint8_t)id[i]);
+      }
+      kbd->rx_message = 0u;
+      return sent;
+    }
+    case 0xFF2181u:
+    case 0xFF2182u:
+      /* The beeper, on for 300 ms and off. The sound is not modelled -- this
+       * core has no audio -- but the *acknowledgement* is, because a driver
+       * waiting for it would otherwise wait for ever. */
+      EMIT(byte);
+      kbd->rx_message = 0u;
+      return sent;
+    default:
+      /* In loopback anything else comes straight back, which is what makes it
+       * loopback. Outside it, an unrecognised byte is ignored. */
+      if (kbd->loopback) {
+        EMIT(byte);
+      }
+      return sent;
+  }
+#undef EMIT
 }

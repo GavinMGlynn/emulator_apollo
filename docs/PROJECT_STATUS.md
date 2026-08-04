@@ -4597,6 +4597,41 @@ last and hardest — **a decoded PNG**. Register round-trips and word-level
 identities are what can be checked without one, and a controller that passes
 those and draws nothing is the standard way this goes wrong.
 
+#### The keyboard is not write-only, and it powers up echoing
+
+`ap_kbd` sent scan codes and received nothing. The real part has a **command
+channel**, and a machine with a display console asks it to identify itself
+before believing there is one.
+
+Every command begins `FF` and the bytes after it accumulate until one matches.
+That the accumulator is *wider than a byte* is the point: `FF12` is a prefix and
+`FF1221` is a command, so a model matching one byte at a time cannot tell them
+apart, and a prefix that cleared the message would make the identification —
+`3-@\r2-0\rSD-03863-MS\r` — unreachable.
+
+**It powers up in loopback**, which is what a real one does: until told
+otherwise it echoes what it is sent rather than acting on it, and that is how a
+host discovers a keyboard is there. `memset` would have made that flag false,
+and false is a claim.
+
+Two smaller decisions worth naming. `00` is *not* echoed, which is the one case
+the loopback rule would get wrong on its own. And the beeper is
+**acknowledged** though the sound is not modelled — this core has no audio —
+because a driver waiting for the acknowledgement would otherwise wait for ever;
+that is a different decision from not modelling it at all.
+
+**The wire matters as much as the protocol.** The board drains serial 1 channel
+A's transmitter every advance, hands each byte to the keyboard, and puts what
+comes back into the same port's receiver at the keyboard's own framing. Without
+it the command channel is a channel in name only — the fourth time this campaign
+that the missing piece was a connection.
+
+**And it did not change the boot**, which is the honest part. Same resting PC,
+same posted codes, same blit count: the firmware does not reach the keyboard in
+that window. The protocol is modelled because it is the machine's, not because
+it moved anything, and saying which is which is the difference between a
+measurement and a hope. `FINDINGS.md` C118.
+
 #### Typing interrupts the boot either way, and the keyboard has its own framing
 
 Two readings, and the second closes an assumption this core had written down.

@@ -117,7 +117,42 @@ typedef struct {
    * period thereafter. */
   ap_time_t repeat_at;
   bool repeating; /* past the initial delay, so the period applies */
+
+  /* ## The command channel, which is the half this file used not to have
+   *
+   * The keyboard is not write-only. The host sends it commands and it answers,
+   * and a machine with a display console asks it to identify itself before
+   * believing there is one.
+   *
+   * Every command begins `FF`, and the bytes after it accumulate into a message
+   * until one matches. That is why the accumulator is wider than a byte: `FF12`
+   * is a prefix and `FF1221` is a command, so a model matching one byte at a
+   * time cannot tell them apart.
+   *
+   * **It starts in loopback**, and that is the state a real one powers up in:
+   * until told otherwise it echoes what it is sent rather than acting on it,
+   * which is how a host discovers a keyboard is there at all. */
+  bool loopback;
+  uint32_t rx_message;
+  /* Which of the two code sets is live. `008778-03` Chapter 12's two sets, and
+   * the commands that select them. */
+  bool keystate_mode;
 } ap_kbd_t;
+
+/* The longest reply the keyboard sends, which is the identification string. */
+#define AP_KBD_REPLY_MAX 32u
+
+/* Feed the keyboard a byte the host sent it, and collect what it says back.
+ *
+ * Returns how many bytes of `reply` were written. Zero is a normal answer:
+ * several commands are silent, and a byte that is only a prefix of a longer one
+ * is answered when the rest of it arrives. */
+[[nodiscard]] unsigned ap_kbd_receive(ap_kbd_t *kbd, uint8_t byte,
+                                      uint8_t *reply, unsigned capacity);
+
+/* The identification the keyboard answers `FF 12 21` with. Named because it is
+ * a *string the part sends*, not a number this core chose. */
+#define AP_KBD_IDENTIFICATION "3-@\r2-0\rSD-03863-MS\r"
 
 void ap_kbd_reset(ap_kbd_t *kbd);
 

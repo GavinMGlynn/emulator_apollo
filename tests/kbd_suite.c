@@ -8,6 +8,8 @@
 
 #include "device/ap_kbd.h"
 
+#include <string.h>
+
 #include "unity.h"
 
 void setUp(void) {}
@@ -316,6 +318,106 @@ static void test_only_the_keys_the_table_marks_auto_repeat(void) {
   TEST_ASSERT_FALSE(ap_kbd_auto_repeats(ap_kbd_ascii_find("E1")));
 }
 
+/* ## The command channel
+ *
+ * The keyboard is not write-only. The host sends commands and it answers, and a
+ * machine with a display console asks it to identify itself before believing
+ * there is one. `FINDINGS.md` C118.
+ */
+
+/* **It powers up in loopback**, echoing what it is sent rather than acting on
+ * it -- which is how a host discovers a keyboard is there at all. */
+static void test_the_keyboard_powers_up_in_loopback(void) {
+  ap_kbd_t k;
+  ap_kbd_reset(&k);
+  TEST_ASSERT_TRUE(k.loopback);
+
+  uint8_t reply[AP_KBD_REPLY_MAX];
+  TEST_ASSERT_EQUAL_UINT(1u, ap_kbd_receive(&k, 0x5Au, reply, sizeof reply));
+  TEST_ASSERT_EQUAL_HEX8(0x5Au, reply[0]);
+}
+
+/* `00` in loopback ends the conversation and selects the compatibility set. It
+ * is **not** echoed, which is the one case the loopback rule would get wrong. */
+static void test_a_zero_leaves_loopback_and_is_not_echoed(void) {
+  ap_kbd_t k;
+  ap_kbd_reset(&k);
+  uint8_t reply[AP_KBD_REPLY_MAX];
+
+  TEST_ASSERT_EQUAL_UINT(0u, ap_kbd_receive(&k, 0x00u, reply, sizeof reply));
+  TEST_ASSERT_FALSE(k.loopback);
+  TEST_ASSERT_FALSE(k.keystate_mode);
+  /* And out of loopback an unrecognised byte is ignored rather than echoed. */
+  TEST_ASSERT_EQUAL_UINT(0u, ap_kbd_receive(&k, 0x5Au, reply, sizeof reply));
+}
+
+/* `FF` starts a command **and re-enters loopback**, so a host that has lost
+ * track can always get back to a known state. */
+static void test_ff_restarts_the_conversation(void) {
+  ap_kbd_t k;
+  ap_kbd_reset(&k);
+  uint8_t reply[AP_KBD_REPLY_MAX];
+  TEST_ASSERT_EQUAL_UINT(0u, ap_kbd_receive(&k, 0x00u, reply, sizeof reply));
+  TEST_ASSERT_FALSE(k.loopback);
+
+  TEST_ASSERT_EQUAL_UINT(1u, ap_kbd_receive(&k, 0xFFu, reply, sizeof reply));
+  TEST_ASSERT_EQUAL_HEX8(0xFFu, reply[0]);
+  TEST_ASSERT_TRUE(k.loopback);
+}
+
+/* **`FF12` is a prefix and `FF1221` is a command.** A model matching one byte at
+ * a time cannot tell them apart, which is why the accumulator is wider than a
+ * byte and why a prefix must *keep* the message rather than clearing it -- doing
+ * so makes the identification unreachable. */
+static void test_the_identification_needs_the_whole_prefix(void) {
+  ap_kbd_t k;
+  ap_kbd_reset(&k);
+  uint8_t reply[AP_KBD_REPLY_MAX];
+
+  TEST_ASSERT_EQUAL_UINT(1u, ap_kbd_receive(&k, 0xFFu, reply, sizeof reply));
+  TEST_ASSERT_EQUAL_UINT(1u, ap_kbd_receive(&k, 0x12u, reply, sizeof reply));
+  TEST_ASSERT_EQUAL_HEX8(0x12u, reply[0]); /* the prefix is echoed */
+
+  const unsigned n = ap_kbd_receive(&k, 0x21u, reply, sizeof reply);
+  /* The echo of `21`, then the identification string. */
+  TEST_ASSERT_EQUAL_HEX8(0x21u, reply[0]);
+  const char *id = AP_KBD_IDENTIFICATION;
+  TEST_ASSERT_EQUAL_UINT(1u + (unsigned)strlen(id), n);
+  for (unsigned i = 0; id[i] != '\0'; i++) {
+    TEST_ASSERT_EQUAL_HEX8((uint8_t)id[i], reply[1u + i]);
+  }
+  /* Identifying leaves loopback: the host now has a keyboard, not an echo. */
+  TEST_ASSERT_FALSE(k.loopback);
+}
+
+/* The two code sets are commanded, and `008778-03` Chapter 12 names them. */
+static void test_the_code_set_is_commanded(void) {
+  ap_kbd_t k;
+  ap_kbd_reset(&k);
+  uint8_t reply[AP_KBD_REPLY_MAX];
+
+  (void)ap_kbd_receive(&k, 0xFFu, reply, sizeof reply);
+  (void)ap_kbd_receive(&k, 0x01u, reply, sizeof reply);
+  TEST_ASSERT_TRUE(k.keystate_mode);
+
+  (void)ap_kbd_receive(&k, 0xFFu, reply, sizeof reply);
+  (void)ap_kbd_receive(&k, 0x00u, reply, sizeof reply);
+  TEST_ASSERT_FALSE(k.keystate_mode);
+  TEST_ASSERT_FALSE(k.loopback);
+}
+
+/* The beeper is acknowledged even though the sound is not modelled: a driver
+ * waiting for the acknowledgement would otherwise wait for ever. */
+static void test_the_beeper_is_acknowledged_without_being_modelled(void) {
+  ap_kbd_t k;
+  ap_kbd_reset(&k);
+  uint8_t reply[AP_KBD_REPLY_MAX];
+  (void)ap_kbd_receive(&k, 0xFFu, reply, sizeof reply);
+  (void)ap_kbd_receive(&k, 0x21u, reply, sizeof reply);
+  TEST_ASSERT_EQUAL_UINT(1u, ap_kbd_receive(&k, 0x81u, reply, sizeof reply));
+  TEST_ASSERT_EQUAL_HEX8(0x81u, reply[0]);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_a_key_sends_its_index_down_and_bit_seven_up);
@@ -335,5 +437,11 @@ int main(void) {
   RUN_TEST(test_a_coarse_advance_does_not_lose_repeats);
   RUN_TEST(test_releasing_the_held_key_stops_the_repeat);
   RUN_TEST(test_only_the_keys_the_table_marks_auto_repeat);
+  RUN_TEST(test_the_keyboard_powers_up_in_loopback);
+  RUN_TEST(test_a_zero_leaves_loopback_and_is_not_echoed);
+  RUN_TEST(test_ff_restarts_the_conversation);
+  RUN_TEST(test_the_identification_needs_the_whole_prefix);
+  RUN_TEST(test_the_code_set_is_commanded);
+  RUN_TEST(test_the_beeper_is_acknowledged_without_being_modelled);
   return UNITY_END();
 }
