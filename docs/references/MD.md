@@ -209,15 +209,65 @@ radix and whether the third argument is optional are all unstated -- the same
 gap that made this whole document necessary for the `A` line. `D` is marked `+`,
 "not in DNx60", so it is present on a DN3500 and the command is not the problem.
 
-## `H` settles it: this PROM has no `D`
+## `H` returns a command table, and the nine letters were a fragment
 
-Sending `H` returns:
+**This section's original conclusion was wrong, and the correction is worth more
+than the conclusion was.** It recorded `H` as returning
 
 ```
 ABRVPICOH
 ```
 
-Nine letters, no separators.
+nine letters with no separators, *inferred* that they were a command list, and
+concluded from `D`'s absence that this PROM has no display command. Every part
+of that is mistaken.
+
+Run against `apollo-headless`, with the autobaud given enough carriage returns
+to finish first, `H` returns a **formatted table**:
+
+```
+A   ACCESS MEM    B   BRKPOINTS     C   COPY MEM      CA  CALL
+CB  CLR BKPTS     D   DSPLAY MEM    DL  DOWN LOAD     DP  DUMP OS
+DR  DUMP REGS     DU  DUMP SYSTM    F   FILL MEM      G   GO
+PV  PA-TO-VA      S   SEARCH MEM    SS  SNGLE STEP    V   VERIFY MEM
+VP  VA-TO-PA      XE  ENABLE XON    XD  DISABL XON    AR  ACC CTRLRG
+DI  DEFINE DSK    EX  EX (CPU)      EY  EX-N-TRAP     FO  FORCE LOAD
+IC  INST CACHE    DC  DATA CACHE    LD  LIST SAU      LN  LIST NETS
+LO  LOAD FILE     M   MAP MODE      P   PHYS MODE     RE  RESET
+SH  SHUT DISK     SK  SEL KEYBD     TE  TEST          H   HELP
+```
+
+Thirty-six commands in four columns. `D` is there -- `DSPLAY MEM` -- and so are
+`EX`, `EY`, `LO`, `FO` and `DL`, every one of which this document had concluded
+was absent from the image.
+
+**The nine letters are a fragment**, and their shape says which: `A`, `B`, `R`,
+`V`, `P`, `I`, `C`, `O`, `H` are single characters that appear in the table's
+text. A capture that stopped early, or one that sampled a partly-transmitted
+line, would produce exactly that -- letters in no order, with no separators,
+looking enough like a list to be read as one.
+
+### What was actually wrong with the earlier reading
+
+Not the bytes. The *inference*, and it is the same shape of mistake twice over.
+The section reasoned that "a help command whose output is a run of letters, two
+of which are known commands, is a command list", marked that as inference, and
+then used it as a premise: `D` is not in the string, therefore `D` does not
+exist, therefore `D` producing nothing is explained. Each step is reasonable and
+the chain is wrong, because the first step's evidence was incomplete in a way
+nothing in the string itself could show.
+
+The corrective was available and not taken: `002398-04` §5 lists `D` for this
+machine family, and this document set that aside on the grounds that the
+handbook's markers "do not distinguish PROM revisions". They do not -- but a
+document disagreeing with a measurement is a reason to re-measure, not to
+discard the document.
+
+`D` produced nothing for some other reason, which is now an open question again
+rather than a closed one. The likeliest is the one that hid the contents field
+for just as long: `D` with no separator is a syntax error, exactly as `A1000`
+was, and the capture that "showed `D` does not exist" was sending `D 1000 1020`
+through a path that ate the spaces.
 
 **It is a command list, and this is inference from three observations rather
 than a fourth run.** Two of the nine are already confirmed to work: `H` returns

@@ -4597,6 +4597,50 @@ last and hardest — **a decoded PNG**. Register round-trips and word-level
 identities are what can be checked without one, and a controller that passes
 those and draws nothing is the standard way this goes wrong.
 
+#### `H` returns a command table, and three sessions reasoned from a fragment
+
+`MD.md` recorded the Mnemonic Debugger's `H` command as returning nine letters,
+`ABRVPICOH`, inferred that they were a command list, and concluded that this
+PROM image has no `D` and no file-loading command. That conclusion was used
+three times in this campaign — to explain why `D` produced nothing, to rule `B`
+out as a boot command, and most recently to bound what a console could do next.
+
+It is wrong. `H`, run against this core with the autobaud given enough carriage
+returns to finish first, returns a **formatted table of thirty-six commands**:
+
+    A   ACCESS MEM    B   BRKPOINTS     C   COPY MEM      CA  CALL
+    CB  CLR BKPTS     D   DSPLAY MEM    DL  DOWN LOAD     DP  DUMP OS
+    ...
+    LO  LOAD FILE     M   MAP MODE      P   PHYS MODE     RE  RESET
+    SH  SHUT DISK     SK  SEL KEYBD     TE  TEST          H   HELP
+
+`D` is there. So are `EX`, `EY`, `LO`, `FO` and `DL` — every command the earlier
+reading had ruled out, including the ones that load a file.
+
+**The nine letters were a fragment**, and their shape says so: `A B R V P I C O
+H` are single characters that occur in the table's text, in no order and with no
+separators. A capture that stopped early, or sampled a partly-transmitted line,
+produces exactly that — and looks enough like a list to be read as one.
+
+**What was wrong was the inference, not the bytes**, and the same shape of
+mistake happened twice in one paragraph. The document reasoned that "a help
+command whose output is a run of letters, two of which are known commands, is a
+command list", *marked that as inference*, and then used it as a premise to
+conclude something else. Marking a step as uncertain does not stop the next step
+inheriting the uncertainty, and nothing downstream carried the marking.
+
+The corrective was on disk and was set aside. `002398-04` §5 lists `D` for this
+family, and `MD.md` discarded that on the grounds that the handbook's markers
+"do not distinguish PROM revisions". They do not — but a document disagreeing
+with a measurement is a reason to re-measure, not to discard the document. Two
+sessions later the same document was consulted again, to settle that `B` is
+Breakpoint, and believed.
+
+`MD.md` is corrected in place, with the fragment kept and explained rather than
+deleted. `D` producing nothing is an open question again, and the likeliest
+answer is the one that hid the contents field for as long: a missing separator,
+exactly as `A1000` was.
+
 #### The machine is behaving correctly: the poll has no way out but a byte
 
 A deep look at the console-selection poll, and the conclusion is that nothing is
@@ -4634,7 +4678,8 @@ Two smaller checks, both clean:
 
 What this changes is the question. It is not "what device is missing" but "what
 does a console do next", and the answer is bounded by this PROM's command set:
-`ABRVPICOH`, in which none of `EX`, `EY`, `LO`, `FO` or `DL` appears.
+`ABRVPICOH` — **which was a fragment of a much longer table; see the
+section above, where this reading is corrected**.
 
 #### The keyboard is not write-only, and it powers up echoing
 
@@ -4995,7 +5040,8 @@ emulated seconds and a real DN3500 has long since booted.
 **What is left is a question the documents have not answered.** The handbook's
 command list has no single-letter boot; the loading commands are `EX`, `EY`,
 `LO`, `FO` and `DL` and none of their initials appear in this image's
-`ABRVPICOH` help string. So either this PROM revision loads by a route the
+`ABRVPICOH` help string (**later corrected: that string was a fragment**). So
+either this PROM revision loads by a route the
 handbook does not describe, or something about the machine's *configuration*
 selects booting over waiting — a service-mode input, a jumper, or a byte this
 core answers differently from the hardware.
@@ -5137,7 +5183,9 @@ is a mystery.
 **`B` is Breakpoint, not boot.** The plan guessed it from the nine-letter help
 string; `002398-04` §5's command list settles it — `B <location>` is
 *Breakpoint*, and the loading commands are `EX`, `EY`, `LO`, `FO` and `DL`, none
-of whose initials appear in `ABRVPICOH`. So this PROM image very likely has no
+of whose initials appear in `ABRVPICOH` (**later corrected: that string was a
+fragment of a full command table, and all five commands exist**). So this PROM
+image was thought to have no
 command that loads a file at all, which makes the display-console path the
 route to a boot rather than a convenience.
 

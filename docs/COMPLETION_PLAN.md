@@ -2897,11 +2897,18 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         behaviour**, and the search for a missing device was looking for
         something that does not exist. `ACR[7]`'s baud-set selection was checked
         too and is already honoured. Detail in `PROJECT_STATUS.md`.
-      **Awaiting:** a route from a console to a disk load, which is now known to
-      be a *software* question rather than a missing device. This PROM's command
-      set is `ABRVPICOH` and none of `EX`, `EY`, `LO`, `FO` or `DL` appears in
-      it, so either the load is reached another way or this image cannot do it
-      and the check needs a different firmware revision.
+  - [x] **`H` returns a command table, and three sessions reasoned from a
+        fragment.** `MD.md` had it returning nine letters and *inferred* a
+        command list; it returns **thirty-six commands in four columns**, `D`
+        among them, and `EX`, `EY`, `LO`, `FO` and `DL` — every one the earlier
+        reading ruled out. The nine letters were a truncated capture. Corrected
+        in `MD.md` in place. Detail in `PROJECT_STATUS.md`.
+        *Verification: the table read out of this core over the serial console.
+        It also invalidates three downstream conclusions drawn from the
+        fragment, which are marked where they were made.*
+      **Awaiting:** a load command driven to completion. `LO LOAD FILE`,
+      `FO FORCE LOAD` and `EX EX (CPU)` all exist after all, so the route from a
+      console to a disk load is open rather than ruled out.
   - [x] **A disk can be fitted at all.** `ap_omti` modelled the controller and
         `ap_awd` read the image and nothing ever handed one to the other, so
         every boot experiment so far ran on a DN3500 with **no Winchester** —
