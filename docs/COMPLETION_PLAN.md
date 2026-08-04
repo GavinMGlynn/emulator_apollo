@@ -2056,8 +2056,9 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
       --machine dn3000` gives the same banner and prompt, byte for byte once
       MAME's stripped `CR`s are accounted for. `board_suite` +6 (23).*
 
-- [ ] **OMTI 8621 ESDI/floppy controller** — one controller for both, and the
-      DN3500's.
+- [x] **OMTI 8621 ESDI/floppy controller** — one controller for both, and the
+      DN3500's. Both halves complete: §5's fixed disk over `.awd`, §6's floppy
+      over `.afd`, wired to the board on IRQ14 and IRQ6.
   - [x] The register model for both halves, from `[OMTI]` Tables 4-1, 4-2 and
         4-3: the fixed disk's four ports and the floppy's five, modelled as two
         independent sets sharing nothing. Both measured dumps are reproduced as
@@ -2081,9 +2082,18 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         byte turned the largest transfer into none — asking 256 sectors of a
         sixteen-sector drive must read all sixteen and then fail.*
         `media/` has eleven `.awd` images; the claim that it had none was stale.
-  - [ ] Remaining: §6's floppy command set and an `.afd` image. §6 is
-        "FLOPPY DISK FUNCTIONS", pages 6-1 to 6-6 of `[OMTI]`, and that manual
-        has no text layer, so it is a page-image read like Table 2-4's.
+  - [x] **§6's floppy command set, and the `.afd` image under it.**
+        `image/ap_afd.c` is the diskette: one geometry only, 77×2×8 at 1024
+        bytes, so a file of another size is refused rather than reinterpreted.
+        The controller has a second, wholly separate command phase for all ten
+        of §6.3's commands plus INVALID, with their ST0–ST3 result bytes.
+        Detail in `PROJECT_STATUS.md`.
+        *Verification: `afd_suite`, 26 tests. §6 is a scan, so the opcodes are
+        a page-image read; the sibling 8640 manual's §5.3 has a text layer and
+        independently confirms the same eleven commands.*
+        **There is no `WRITE DATA`** in either manual's floppy set — only
+        FORMAT A TRACK puts data on the medium — so `05` takes the INVALID
+        path rather than a command invented from generic 765 knowledge.
   - [x] Both halves wired into the board at `04D000` and `05F800`, each
         aliased through 1 KB on its own period, on IRQ14 and IRQ6. The 74 KB gap
         is asserted as the window's arithmetic rather than as two constants, so

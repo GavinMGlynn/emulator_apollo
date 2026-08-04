@@ -43,6 +43,7 @@
 #include <stdint.h>
 
 #include "device/ap_omti_cdb.h"
+#include "image/ap_afd.h"
 #include "image/ap_awd.h"
 
 /* `[OMTI]` Table 4-1, four ports, different meanings read and written. */
@@ -89,6 +90,95 @@ typedef enum {
  * 6 are Reserved." */
 #define AP_OMTI_DIR_DISK_CHANGE 0x80u
 
+/* The floppy Main Status Register.
+ *
+ * `[OMTI]` Table 4-3 names these; the sibling 8640 manual's §5.1 spells them
+ * out and is the transcription used here, because that manual has a text layer
+ * where ours is a scan. Bit 7 "must be used by the host to perform handshaking
+ * ... cleared by reading or writing the Data Register", bit 6 gives the
+ * direction, bit 4 is busy, bits 1 and 0 report a seek in progress per drive.
+ * Bits 3 and 2 are reserved. */
+#define AP_OMTI_MSR_RQM 0x80u  /* the data register will move a byte now */
+#define AP_OMTI_MSR_DIO 0x40u  /* 1 = controller to host */
+#define AP_OMTI_MSR_NDMA 0x20u /* non-DMA mode, execution phase only */
+#define AP_OMTI_MSR_BUSY 0x10u /* executing a command */
+#define AP_OMTI_MSR_SEEK_B 0x02u
+#define AP_OMTI_MSR_SEEK_A 0x01u
+
+/* §6.3's floppy command set: the opcode is the low five bits of the first
+ * command byte, the top three being MT, MF and SK on the commands that take
+ * them. Read from the page images of `[OMTI]` §6.3, since that section is a
+ * scan; the 8640 manual's §5.3 lists the same eleven commands in text and is
+ * the independent check on the list.
+ *
+ * **There is no WRITE DATA command.** Not in our §6.3, and not in the 8640's
+ * §5.3 summary either -- both list exactly these ten and INVALID. The ST1 and
+ * ST2 bit descriptions *do* mention Write Data and Write Deleted Data, but that
+ * is the NEC 765 status prose those registers inherit, not evidence of a
+ * command this controller accepts. Nothing here invents one from general 765
+ * knowledge: a driver issuing `05` gets the INVALID path, which is what the
+ * documented controller does. */
+typedef enum {
+  AP_OMTI_FDC_SPECIFY = 0x03u,
+  AP_OMTI_FDC_SENSE_DRIVE = 0x04u,
+  AP_OMTI_FDC_READ_DATA = 0x06u,
+  AP_OMTI_FDC_RECALIBRATE = 0x07u,
+  AP_OMTI_FDC_SENSE_INTERRUPT = 0x08u,
+  AP_OMTI_FDC_FORMAT_TRACK = 0x0Du,
+  AP_OMTI_FDC_SEEK = 0x0Fu,
+  AP_OMTI_FDC_SCAN_EQUAL = 0x11u,
+  AP_OMTI_FDC_SCAN_LOW_EQUAL = 0x19u,
+  AP_OMTI_FDC_SCAN_HIGH_EQUAL = 0x1Du,
+} ap_omti_fdc_command_t;
+
+/* The opcode field, and the three modifiers above it. */
+#define AP_OMTI_FDC_OPCODE_MASK 0x1Fu
+#define AP_OMTI_FDC_MT 0x80u /* multitrack */
+#define AP_OMTI_FDC_MF 0x40u /* MFM rather than FM */
+#define AP_OMTI_FDC_SK 0x20u /* skip deleted-data address mark */
+
+/* ST0. Bits 7-6 are the interrupt code, and the four values are the whole of
+ * what a driver checks first. */
+#define AP_OMTI_ST0_IC_MASK 0xC0u
+#define AP_OMTI_ST0_IC_NORMAL 0x00u  /* completed and properly executed */
+#define AP_OMTI_ST0_IC_ABRUPT 0x40u  /* started, not successfully completed */
+#define AP_OMTI_ST0_IC_INVALID 0x80u /* never started */
+#define AP_OMTI_ST0_IC_NOT_READY 0xC0u /* 'ready' changed state mid-command */
+#define AP_OMTI_ST0_SEEK_END 0x20u
+#define AP_OMTI_ST0_EQUIPMENT 0x10u /* fault, or no track 0 after 77 steps */
+#define AP_OMTI_ST0_UNIT_MASK 0x03u
+
+/* ST1. */
+#define AP_OMTI_ST1_END_CYLINDER 0x80u
+#define AP_OMTI_ST1_DATA_ERROR 0x20u
+#define AP_OMTI_ST1_OVERRUN 0x10u
+#define AP_OMTI_ST1_NO_DATA 0x04u
+#define AP_OMTI_ST1_NOT_WRITEABLE 0x02u
+#define AP_OMTI_ST1_MISSING_MARK 0x01u
+
+/* ST2. */
+#define AP_OMTI_ST2_CONTROL_MARK 0x40u
+#define AP_OMTI_ST2_DATA_FIELD_ERROR 0x20u
+#define AP_OMTI_ST2_WRONG_CYLINDER 0x10u
+#define AP_OMTI_ST2_SCAN_HIT 0x08u
+#define AP_OMTI_ST2_SCAN_NOT_SATISFIED 0x04u
+#define AP_OMTI_ST2_BAD_CYLINDER 0x02u
+#define AP_OMTI_ST2_MISSING_DATA_MARK 0x01u
+
+/* ST3. Bit 0 is "always 1", which is the only constant bit in the four.
+ *
+ * Bit 4's description in the 8640 manual contradicts its own name: "Track 0
+ * (TO) - Status of the 'ready' signal from the diskette drive". The name is
+ * modelled and the sentence is not, because bit 4 is Track 0 on every 765-family
+ * part and a drive-ready bit that moves when the head reaches cylinder 0 would
+ * be reported to a driver as readiness it never gained. Recorded rather than
+ * quietly resolved: no manual here states the drive-ready bit's position, so a
+ * driver polling for ready will not see it change. */
+#define AP_OMTI_ST3_WRITE_PROTECT 0x40u
+#define AP_OMTI_ST3_TRACK_0 0x10u
+#define AP_OMTI_ST3_HEAD 0x04u
+#define AP_OMTI_ST3_ALWAYS 0x01u
+
 /* Where the fixed-disk half is in a command.
  *
  * `[OMTI]` §5.1.1: a command is a descriptor block written a byte at a time to
@@ -109,6 +199,12 @@ typedef enum {
  * single sector buffer does. */
 #define AP_OMTI_BUFFER_BYTES AP_AWD_SECTOR_BYTES
 
+/* The longest floppy command and result phases in §6.3. READ DATA and the three
+ * scans take nine command bytes; the seven-byte ST0/ST1/ST2/C/H/R/N result is
+ * the longest going the other way. */
+#define AP_OMTI_FDC_COMMAND_MAX 9u
+#define AP_OMTI_FDC_RESULT_MAX 7u
+
 typedef struct {
   /* Fixed disk. */
   uint16_t data;
@@ -122,6 +218,35 @@ typedef struct {
   uint8_t fdc_data;
   uint8_t fdc_control;
   bool disk_change;
+
+  /* The floppy's own command phase, which shares nothing with the fixed disk's:
+   * §4.1 has the two halves independent and §3.4 has them running at the same
+   * time, so a single phase variable would make a floppy seek cancel a disk
+   * read. */
+  ap_omti_phase_t fdc_phase;
+  uint8_t fdc_command[AP_OMTI_FDC_COMMAND_MAX];
+  unsigned fdc_command_length;
+  unsigned fdc_command_index;
+  uint8_t fdc_result[AP_OMTI_FDC_RESULT_MAX];
+  unsigned fdc_result_length;
+  unsigned fdc_result_index;
+
+  /* One sector in flight, and where the host is within it. */
+  uint8_t fdc_buffer[AP_AFD_SECTOR_BYTES];
+  unsigned fdc_buffer_index;
+  unsigned fdc_buffer_length;
+
+  /* The head position per drive, which SENSE INTERRUPT STATUS reports as PCN
+   * and SEEK and RECALIBRATE move. Two drives, per the Digital Output
+   * register's A/B select. */
+  uint8_t fdc_cylinder[2];
+  /* Set by SEEK and RECALIBRATE, read and cleared by SENSE INTERRUPT STATUS --
+   * which is the only way a driver learns a seek finished. */
+  bool fdc_seek_done;
+  uint8_t fdc_seek_st0;
+
+  /* The floppy drive, caller-owned and optional, as the Winchester is. */
+  ap_afd_t *floppy;
 
   /* The command phase. */
   ap_omti_phase_t phase;
@@ -174,6 +299,25 @@ void ap_omti_fdc_write(ap_omti_t *omti, unsigned reg, uint8_t value);
 
 /* Attach a drive to the fixed-disk half, or `NULL` for none. Caller-owned. */
 void ap_omti_attach(ap_omti_t *omti, ap_awd_t *drive);
+
+/* Attach a diskette, or `NULL` for an empty drive -- which is distinct from a
+ * blank one and reports itself as such: a command needing media answers with
+ * ST1's No Data rather than a sector of zeroes. */
+void ap_omti_attach_floppy(ap_omti_t *omti, ap_afd_t *floppy);
+
+/* Which phase the floppy half is in, for the same reason the fixed disk exposes
+ * its own: a test should assert the sequence, not re-derive it from the status
+ * bits that are supposed to report it. */
+[[nodiscard]] ap_omti_phase_t ap_omti_fdc_phase(const ap_omti_t *omti);
+
+/* How many command bytes §6.3 gives an opcode, counting the opcode itself.
+ * Zero for a code the section does not list, which is the INVALID path. */
+[[nodiscard]] unsigned ap_omti_fdc_command_bytes(uint8_t opcode);
+
+/* How many result bytes it produces. Zero is a real answer -- SPECIFY, SEEK and
+ * RECALIBRATE have no result phase at all, and a driver that waits for one
+ * hangs. */
+[[nodiscard]] unsigned ap_omti_fdc_result_bytes(uint8_t opcode);
 
 /* Which phase the fixed-disk half is in. Exposed for a test to assert the
  * sequence rather than infer it from the status bits, which is the thing the

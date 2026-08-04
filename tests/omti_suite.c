@@ -130,10 +130,19 @@ static void test_the_two_halves_share_nothing(void) {
    * programming, or a disk command would silently stop the drive motors. */
   ap_omti_fdc_write(&o, AP_OMTI_FDC_DOR,
                     (uint8_t)(AP_OMTI_DOR_NOT_RESET | AP_OMTI_DOR_DRIVE_A_MOTOR));
-  ap_omti_fdc_write(&o, AP_OMTI_FDC_DATA, 0x3C);
+
+  /* A floppy command part-way through its command phase: two bytes of SEEK's
+   * three. This used to be a byte written to the data register and read back,
+   * which stopped meaning anything once that register became a command port --
+   * a write there now *starts* a command, and the byte that comes back is its
+   * result. A command in flight is the stronger thing to leave undisturbed
+   * anyway. */
+  ap_omti_fdc_write(&o, AP_OMTI_FDC_DATA, AP_OMTI_FDC_SEEK);
+  ap_omti_fdc_write(&o, AP_OMTI_FDC_DATA, 0x00);
+  TEST_ASSERT_EQUAL_INT(AP_OMTI_PHASE_COMMAND, ap_omti_fdc_phase(&o));
 
   ap_omti_disk_write(&o, AP_OMTI_DISK_CONFIG, 0x00);
-  TEST_ASSERT_EQUAL_HEX8(0x3C, ap_omti_fdc_read(&o, AP_OMTI_FDC_DATA));
+  TEST_ASSERT_EQUAL_INT(AP_OMTI_PHASE_COMMAND, ap_omti_fdc_phase(&o));
   TEST_ASSERT_FALSE(ap_omti_fdc_in_reset(&o));
 
   /* And the stronger case, which this test originally missed by exercising
@@ -141,8 +150,14 @@ static void test_the_two_halves_share_nothing(void) {
    * disk reset that stopped the drive motors would be a fault with no register
    * to explain it. */
   ap_omti_disk_write(&o, AP_OMTI_DISK_STATUS, 0x00);
-  TEST_ASSERT_EQUAL_HEX8(0x3C, ap_omti_fdc_read(&o, AP_OMTI_FDC_DATA));
+  TEST_ASSERT_EQUAL_INT(AP_OMTI_PHASE_COMMAND, ap_omti_fdc_phase(&o));
   TEST_ASSERT_FALSE(ap_omti_fdc_in_reset(&o));
+
+  /* The seek completes across all of that, on the cylinder it was given. */
+  ap_omti_fdc_write(&o, AP_OMTI_FDC_DATA, 0x11);
+  ap_omti_fdc_write(&o, AP_OMTI_FDC_DATA, AP_OMTI_FDC_SENSE_INTERRUPT);
+  (void)ap_omti_fdc_read(&o, AP_OMTI_FDC_DATA);
+  TEST_ASSERT_EQUAL_HEX8(0x11, ap_omti_fdc_read(&o, AP_OMTI_FDC_DATA));
 }
 
 static void test_two_controllers_reset_alike_hold_identical_state(void) {

@@ -304,11 +304,365 @@ void ap_omti_disk_write(ap_omti_t *omti, unsigned reg, uint8_t value) {
   }
 }
 
+/* ---- The floppy half's command phase, `[OMTI]` §6.3 ------------------------ */
+
+void ap_omti_attach_floppy(ap_omti_t *omti, ap_afd_t *floppy) {
+  omti->floppy = floppy;
+}
+
+ap_omti_phase_t ap_omti_fdc_phase(const ap_omti_t *omti) {
+  return omti->fdc_phase;
+}
+
+/* §6.3's command and result lengths, counting the opcode byte in the first.
+ *
+ * READ DATA and the three scans take the same nine: opcode, HD/US, C, H, R, N,
+ * EOT, GPL, and a last byte that is DTL on the read and STP on the scans.
+ * FORMAT A TRACK takes six, and every other command two or one. */
+unsigned ap_omti_fdc_command_bytes(uint8_t opcode) {
+  switch (opcode & AP_OMTI_FDC_OPCODE_MASK) {
+  case AP_OMTI_FDC_READ_DATA:
+  case AP_OMTI_FDC_SCAN_EQUAL:
+  case AP_OMTI_FDC_SCAN_LOW_EQUAL:
+  case AP_OMTI_FDC_SCAN_HIGH_EQUAL:
+    return 9u;
+  case AP_OMTI_FDC_FORMAT_TRACK:
+    return 6u; /* opcode, HD/US, N, SC, GPL, D */
+  case AP_OMTI_FDC_SPECIFY:
+    return 3u; /* opcode, SRT/HUT, HLT/ND */
+  case AP_OMTI_FDC_SEEK:
+    return 3u; /* opcode, HD/US, NCN */
+  case AP_OMTI_FDC_SENSE_DRIVE:
+  case AP_OMTI_FDC_RECALIBRATE:
+    return 2u; /* opcode, HD/US */
+  case AP_OMTI_FDC_SENSE_INTERRUPT:
+    return 1u; /* opcode alone */
+  default:
+    /* §6.3.11's INVALID. The manual gives it "HD/US" as a further byte, but a
+     * controller cannot know the length of a command it does not recognise: it
+     * has only the one byte it was handed. So the command ends at the opcode
+     * and the result phase carries the ST0 that says so. */
+    return 1u;
+  }
+}
+
+unsigned ap_omti_fdc_result_bytes(uint8_t opcode) {
+  switch (opcode & AP_OMTI_FDC_OPCODE_MASK) {
+  case AP_OMTI_FDC_READ_DATA:
+  case AP_OMTI_FDC_FORMAT_TRACK:
+  case AP_OMTI_FDC_SCAN_EQUAL:
+  case AP_OMTI_FDC_SCAN_LOW_EQUAL:
+  case AP_OMTI_FDC_SCAN_HIGH_EQUAL:
+    return 7u; /* ST0 ST1 ST2 C H R N */
+  case AP_OMTI_FDC_SENSE_INTERRUPT:
+    return 2u; /* ST0, PCN */
+  case AP_OMTI_FDC_SENSE_DRIVE:
+    return 1u; /* ST3 */
+  case AP_OMTI_FDC_SPECIFY:
+  case AP_OMTI_FDC_SEEK:
+  case AP_OMTI_FDC_RECALIBRATE:
+    /* "none". A driver polls SENSE INTERRUPT STATUS for the two that move the
+     * head, and SPECIFY reports nothing at all. */
+    return 0u;
+  default:
+    return 1u; /* INVALID's ST0 */
+  }
+}
+
+/* Which drive the second command byte selects, and where its head is. */
+static unsigned fdc_unit(const ap_omti_t *omti) {
+  if (omti->fdc_command_length < 2u) {
+    return omti->dor & AP_OMTI_DOR_SELECT_B ? 1u : 0u;
+  }
+  return omti->fdc_command[1] & 1u;
+}
+
+/* Put the controller back where a driver expects to write the next command
+ * byte: ready, expecting input, not busy. */
+static void fdc_idle(ap_omti_t *omti) {
+  omti->fdc_phase = AP_OMTI_PHASE_IDLE;
+  omti->fdc_command_length = 0u;
+  omti->fdc_command_index = 0u;
+  omti->fdc_result_length = 0u;
+  omti->fdc_result_index = 0u;
+  omti->fdc_buffer_index = 0u;
+  omti->fdc_buffer_length = 0u;
+  omti->fdc_status = AP_OMTI_MSR_RQM;
+}
+
+/* Enter the result phase, or go straight back to idle when §6.3 gives the
+ * command no result bytes. */
+static void fdc_result(ap_omti_t *omti) {
+  if (omti->fdc_result_length == 0u) {
+    fdc_idle(omti);
+    return;
+  }
+  omti->fdc_phase = AP_OMTI_PHASE_STATUS;
+  omti->fdc_result_index = 0u;
+  /* Controller to host, and busy until the last byte is taken. */
+  omti->fdc_status = AP_OMTI_MSR_RQM | AP_OMTI_MSR_DIO | AP_OMTI_MSR_BUSY;
+}
+
+/* The seven-byte result the data commands share. C, H, R and N come back as the
+ * position *after* the operation, which is what a driver chains from. */
+static void fdc_data_result(ap_omti_t *omti, uint8_t st0, uint8_t st1,
+                            uint8_t st2) {
+  omti->fdc_result[0] = (uint8_t)(st0 | (uint8_t)fdc_unit(omti));
+  omti->fdc_result[1] = st1;
+  omti->fdc_result[2] = st2;
+  omti->fdc_result[3] = omti->fdc_command[2]; /* C */
+  omti->fdc_result[4] = omti->fdc_command[3]; /* H */
+  omti->fdc_result[5] = omti->fdc_command[4]; /* R */
+  omti->fdc_result[6] = omti->fdc_command[5]; /* N */
+  omti->fdc_result_length = 7u;
+}
+
+/* Read the sector the command's C/H/R name into the buffer. */
+static bool fdc_load_sector(ap_omti_t *omti, uint8_t *st1) {
+  uint32_t lba = 0u;
+  *st1 = 0u;
+  if (omti->floppy == nullptr) {
+    /* An empty drive: the sector is not there to be found. */
+    *st1 = AP_OMTI_ST1_NO_DATA | AP_OMTI_ST1_MISSING_MARK;
+    return false;
+  }
+  if (!ap_afd_lba(omti->fdc_command[2], omti->fdc_command[3],
+                  omti->fdc_command[4], &lba) ||
+      !ap_afd_read(omti->floppy, lba, omti->fdc_buffer)) {
+    *st1 = AP_OMTI_ST1_NO_DATA;
+    return false;
+  }
+  omti->fdc_buffer_index = 0u;
+  omti->fdc_buffer_length = AP_AFD_SECTOR_BYTES;
+  return true;
+}
+
+/* Run the command now that every byte of it has arrived. */
+static void fdc_execute(ap_omti_t *omti) {
+  const uint8_t opcode =
+      (uint8_t)(omti->fdc_command[0] & AP_OMTI_FDC_OPCODE_MASK);
+  const unsigned unit = fdc_unit(omti);
+  uint8_t st1 = 0u;
+
+  omti->fdc_result_length = ap_omti_fdc_result_bytes(opcode);
+
+  switch (opcode) {
+  case AP_OMTI_FDC_READ_DATA:
+    if (!fdc_load_sector(omti, &st1)) {
+      fdc_data_result(omti, AP_OMTI_ST0_IC_ABRUPT, st1, 0u);
+      fdc_result(omti);
+      return;
+    }
+    /* The data phase: the host reads the sector a byte at a time from the data
+     * register, and the result phase follows the last of them. */
+    omti->fdc_phase = AP_OMTI_PHASE_DATA_IN;
+    omti->fdc_status = AP_OMTI_MSR_RQM | AP_OMTI_MSR_DIO | AP_OMTI_MSR_BUSY;
+    return;
+
+  case AP_OMTI_FDC_FORMAT_TRACK:
+    /* §6.3.2 takes N, SC, GPL and a fill byte D, and writes a whole track of
+     * sectors carrying it. With no media, or on a read-only image, it is the
+     * write-protect bit that says so -- ST1's Not Writeable is documented for
+     * exactly this command. */
+    if (omti->floppy == nullptr || !omti->floppy->writable) {
+      fdc_data_result(omti, AP_OMTI_ST0_IC_ABRUPT,
+                      AP_OMTI_ST1_NOT_WRITEABLE, 0u);
+      fdc_result(omti);
+      return;
+    }
+    {
+      const uint8_t fill = omti->fdc_command[5];
+      const uint8_t sectors = omti->fdc_command[3]; /* SC */
+      const uint8_t cylinder = omti->fdc_cylinder[unit];
+      const uint8_t head = (uint8_t)((omti->fdc_command[1] >> 2) & 1u);
+      memset(omti->fdc_buffer, fill, AP_AFD_SECTOR_BYTES);
+      for (uint8_t sector = 1u; sector <= sectors; ++sector) {
+        uint32_t lba = 0u;
+        if (!ap_afd_lba(cylinder, head, sector, &lba) ||
+            !ap_afd_write(omti->floppy, lba, omti->fdc_buffer)) {
+          fdc_data_result(omti, AP_OMTI_ST0_IC_ABRUPT, AP_OMTI_ST1_NO_DATA, 0u);
+          fdc_result(omti);
+          return;
+        }
+      }
+      /* C, H, R and N are read back from the command bytes as ever; FORMAT's
+       * command has no C or H, so the two positions carry what it was handed. */
+      fdc_data_result(omti, AP_OMTI_ST0_IC_NORMAL, 0u, 0u);
+      omti->fdc_result[3] = cylinder;
+      omti->fdc_result[4] = head;
+      fdc_result(omti);
+      return;
+    }
+
+  case AP_OMTI_FDC_SCAN_EQUAL:
+  case AP_OMTI_FDC_SCAN_LOW_EQUAL:
+  case AP_OMTI_FDC_SCAN_HIGH_EQUAL:
+    /* §6.3.3-5 compare the sector against bytes the host sends, so the data
+     * phase runs the other way: the controller takes the comparison data and
+     * ST2 reports the verdict. */
+    if (!fdc_load_sector(omti, &st1)) {
+      fdc_data_result(omti, AP_OMTI_ST0_IC_ABRUPT, st1, 0u);
+      fdc_result(omti);
+      return;
+    }
+    omti->fdc_phase = AP_OMTI_PHASE_DATA_OUT;
+    omti->fdc_status = AP_OMTI_MSR_RQM | AP_OMTI_MSR_BUSY;
+    /* Assume the hit until a byte contradicts it: a scan of zero bytes is
+     * satisfied, and each byte can only take the flag away. */
+    omti->fdc_result[2] = AP_OMTI_ST2_SCAN_HIT;
+    return;
+
+  case AP_OMTI_FDC_RECALIBRATE:
+    /* §6.3.6 steps to track 0. Equipment Check is what a drive that never gets
+     * there reports, and this one always does. */
+    omti->fdc_cylinder[unit] = 0u;
+    omti->fdc_seek_done = true;
+    omti->fdc_seek_st0 =
+        (uint8_t)(AP_OMTI_ST0_IC_NORMAL | AP_OMTI_ST0_SEEK_END | (uint8_t)unit);
+    fdc_result(omti);
+    return;
+
+  case AP_OMTI_FDC_SEEK:
+    /* §6.3.10's NCN, which is simply where the head now is. */
+    omti->fdc_cylinder[unit] = omti->fdc_command[2];
+    omti->fdc_seek_done = true;
+    omti->fdc_seek_st0 =
+        (uint8_t)(AP_OMTI_ST0_IC_NORMAL | AP_OMTI_ST0_SEEK_END | (uint8_t)unit);
+    fdc_result(omti);
+    return;
+
+  case AP_OMTI_FDC_SENSE_INTERRUPT:
+    /* §6.3.7 returns ST0 and the present cylinder. Issued with no seek
+     * outstanding it is the invalid case -- that is how a driver ends the
+     * polling loop after a reset, rather than by counting. */
+    if (omti->fdc_seek_done) {
+      omti->fdc_result[0] = omti->fdc_seek_st0;
+      omti->fdc_result[1] =
+          omti->fdc_cylinder[omti->fdc_seek_st0 & AP_OMTI_ST0_UNIT_MASK];
+      omti->fdc_seek_done = false;
+    } else {
+      omti->fdc_result[0] = AP_OMTI_ST0_IC_INVALID;
+      omti->fdc_result[1] = 0u;
+    }
+    fdc_result(omti);
+    return;
+
+  case AP_OMTI_FDC_SENSE_DRIVE:
+    /* §6.3.9's ST3. Bit 0 is "always 1"; track 0 and the head come from where
+     * the drive actually is, and write protect from the image. */
+    omti->fdc_result[0] = AP_OMTI_ST3_ALWAYS | (uint8_t)unit;
+    if (omti->fdc_cylinder[unit] == 0u) {
+      omti->fdc_result[0] |= AP_OMTI_ST3_TRACK_0;
+    }
+    if ((omti->fdc_command[1] & 0x04u) != 0u) {
+      omti->fdc_result[0] |= AP_OMTI_ST3_HEAD;
+    }
+    if (omti->floppy == nullptr || !omti->floppy->writable) {
+      omti->fdc_result[0] |= AP_OMTI_ST3_WRITE_PROTECT;
+    }
+    fdc_result(omti);
+    return;
+
+  case AP_OMTI_FDC_SPECIFY:
+    /* §6.3.8's step rate, head load and head unload times. They pace a real
+     * drive's mechanics; nothing in this core is timed off them yet, so the
+     * bytes are accepted and kept and the command has no result phase. */
+    fdc_result(omti);
+    return;
+
+  default:
+    /* §6.3.11. "Invalid Command Issue (IC) - The issued command was never
+     * started", which is ST0's `10` and the only byte that comes back. */
+    omti->fdc_result[0] = AP_OMTI_ST0_IC_INVALID;
+    fdc_result(omti);
+    return;
+  }
+}
+
+/* A byte arriving at the data register. */
+static void fdc_take_byte(ap_omti_t *omti, uint8_t value) {
+  if (omti->fdc_phase == AP_OMTI_PHASE_DATA_OUT) {
+    /* A scan's comparison byte. Each one can only clear the hit. */
+    const uint8_t opcode =
+        (uint8_t)(omti->fdc_command[0] & AP_OMTI_FDC_OPCODE_MASK);
+    const uint8_t media = omti->fdc_buffer[omti->fdc_buffer_index];
+    bool matched = false;
+    switch (opcode) {
+    case AP_OMTI_FDC_SCAN_LOW_EQUAL:
+      matched = media <= value;
+      break;
+    case AP_OMTI_FDC_SCAN_HIGH_EQUAL:
+      matched = media >= value;
+      break;
+    default:
+      matched = media == value;
+      break;
+    }
+    if (!matched) {
+      omti->fdc_result[2] = AP_OMTI_ST2_SCAN_NOT_SATISFIED;
+    }
+    ++omti->fdc_buffer_index;
+    if (omti->fdc_buffer_index >= omti->fdc_buffer_length) {
+      const uint8_t st2 = omti->fdc_result[2];
+      fdc_data_result(omti, AP_OMTI_ST0_IC_NORMAL, 0u, st2);
+      fdc_result(omti);
+    }
+    return;
+  }
+
+  if (omti->fdc_phase == AP_OMTI_PHASE_IDLE) {
+    omti->fdc_phase = AP_OMTI_PHASE_COMMAND;
+    omti->fdc_command_index = 0u;
+    omti->fdc_command_length = ap_omti_fdc_command_bytes(value);
+  }
+  if (omti->fdc_phase != AP_OMTI_PHASE_COMMAND) {
+    return;
+  }
+  if (omti->fdc_command_index < AP_OMTI_FDC_COMMAND_MAX) {
+    omti->fdc_command[omti->fdc_command_index] = value;
+  }
+  ++omti->fdc_command_index;
+  if (omti->fdc_command_index >= omti->fdc_command_length) {
+    omti->fdc_command_length = omti->fdc_command_index;
+    fdc_execute(omti);
+    return;
+  }
+  omti->fdc_status = AP_OMTI_MSR_RQM | AP_OMTI_MSR_BUSY;
+}
+
+/* A byte leaving the data register. */
+static uint8_t fdc_give_byte(ap_omti_t *omti) {
+  if (omti->fdc_phase == AP_OMTI_PHASE_DATA_IN) {
+    const uint8_t value = omti->fdc_buffer[omti->fdc_buffer_index];
+    ++omti->fdc_buffer_index;
+    if (omti->fdc_buffer_index >= omti->fdc_buffer_length) {
+      fdc_data_result(omti, AP_OMTI_ST0_IC_NORMAL, 0u, 0u);
+      fdc_result(omti);
+    }
+    return value;
+  }
+  if (omti->fdc_phase == AP_OMTI_PHASE_STATUS) {
+    const uint8_t value = omti->fdc_result[omti->fdc_result_index];
+    ++omti->fdc_result_index;
+    if (omti->fdc_result_index >= omti->fdc_result_length) {
+      fdc_idle(omti);
+    }
+    return value;
+  }
+  /* Nothing to give: the last byte written stands, which is what a register
+   * with no driver behind it does. */
+  return omti->fdc_data;
+}
+
 uint8_t ap_omti_fdc_read(ap_omti_t *omti, unsigned reg) {
   switch (reg & (AP_OMTI_FLOPPY_REGISTERS - 1u)) {
   case AP_OMTI_FDC_MSR:
     return omti->fdc_status;
   case AP_OMTI_FDC_DATA:
+    if (ap_omti_fdc_in_reset(omti)) {
+      return omti->fdc_data;
+    }
+    omti->fdc_data = fdc_give_byte(omti);
     return omti->fdc_data;
   case AP_OMTI_FDC_CONTROL:
     /* "N/A" on read, and measured as `00` rather than floating. */
@@ -324,11 +678,24 @@ uint8_t ap_omti_fdc_read(ap_omti_t *omti, unsigned reg) {
 
 void ap_omti_fdc_write(ap_omti_t *omti, unsigned reg, uint8_t value) {
   switch (reg & (AP_OMTI_FLOPPY_REGISTERS - 1u)) {
-  case AP_OMTI_FDC_DOR:
+  case AP_OMTI_FDC_DOR: {
+    const bool was_reset = ap_omti_fdc_in_reset(omti);
     omti->dor = value;
+    /* Bit 2 rising takes the floppy side out of reset. Coming out is what
+     * arms the command phase: before it, the data register is inert. */
+    if (was_reset && !ap_omti_fdc_in_reset(omti)) {
+      fdc_idle(omti);
+    } else if (!was_reset && ap_omti_fdc_in_reset(omti)) {
+      omti->fdc_phase = AP_OMTI_PHASE_IDLE;
+      omti->fdc_status = 0u;
+    }
     return;
+  }
   case AP_OMTI_FDC_DATA:
     omti->fdc_data = value;
+    if (!ap_omti_fdc_in_reset(omti)) {
+      fdc_take_byte(omti, value);
+    }
     return;
   case AP_OMTI_FDC_CONTROL:
   case AP_OMTI_FDC_DIR:

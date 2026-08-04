@@ -107,6 +107,7 @@ add_library(apollo_core STATIC
   image/ap_ct.c
   image/ap_volume.c
   image/ap_awd.c
+  image/ap_afd.c
   model/ap_model.c
   machine/ap_machine.c
   probe/ap_probe.c

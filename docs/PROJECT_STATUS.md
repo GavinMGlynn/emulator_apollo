@@ -3422,7 +3422,7 @@ failure that cost a bit position in the 68020's module entry word.
 | Archive SC-499 cartridge tape controller (the part) | **register model complete**: all four addresses of `[SC499]` §1.9 — data/command, control-on-write and status-on-read, and the two write-triggered DMA commands — plus the derived interrupt flag, the tri-stated IRQ line, and RSTDMA's documented identity with power-on reset. The QIC-02 command set itself, tape motion and the drive behind it are not modelled. Not yet wired to the board at `050000` | `sc499_suite`, 13 tests, `Archive SC-499 Information Guide` | **Oracle note:** MAME's own SC-499 models no media change at all, so a cartridge swapped while Domain/OS holds the drive crashes it; `ext/mame` carries a local edit treating insertion as a QIC-02 RESET, per `FINDINGS.md` C56.
 | Apollo disk and floppy (`04D000`, `05F800`) | working: both halves of the one card, placed **74 KB apart** by measurement, each aliased through 1 KB on its own period — four registers for the fixed disk, an eight-address block for the floppy. Interrupts on IRQ14 and IRQ6, separate lines eight apart. The gap is pinned as arithmetic, not constants: the AT window maps `Apollo = 0x040000 + AT × 0x80` | `disk_suite`, 6 tests; `FINDINGS.md` C20, C22, C23 |
 | OMTI command descriptor blocks | working: the 6-byte CDB decoded with the **cylinder reassembled from three bytes** (C10 in byte 1, C09/C08 in byte 2, low eight in byte 3), the command byte exposed both whole and split into class and opcode, and acceptance checked against the ESDI command set — which **refuses** `0C INITIALIZE DRIVE CHARACTERISTICS`, an ST506-only command that would make ESDI geometry look settable | `omti_cdb_suite`, 7 tests; `FINDINGS.md` C27 |
-| OMTI 862X ESDI/floppy controller (the part) | **register model complete for both halves**: the fixed disk's four ports with their read/write asymmetries and the status register's fixed bits, and the floppy's five at the standard PC layout. Modelled as two independent register sets sharing nothing, as `[OMTI]` §4.1 and §3.4 describe. Both measured dumps reproduced as tests. The **command sets** (§5, §6) are not modelled — they want a drive and a disk image. Not yet wired to the board | `omti_suite`, 9 tests, `OMTI AT Controller Series Jan87` |
+| OMTI 862X ESDI/floppy controller (the part) | **register model complete for both halves**: the fixed disk's four ports with their read/write asymmetries and the status register's fixed bits, and the floppy's five at the standard PC layout. Modelled as two independent register sets sharing nothing, as `[OMTI]` §4.1 and §3.4 describe. Both measured dumps reproduced as tests. **Both command sets now modelled**: §5's fixed disk over `.awd`, and §6's floppy over `.afd` — ten commands and INVALID, with ST0–ST3 result bytes, and **no `WRITE DATA`**, which neither our §6 nor the sibling 8640's §5.3 lists. Wired to the board on IRQ14 and IRQ6 | `omti_suite`, 9 tests; `awd_suite`, 11; `afd_suite`, 26; `OMTI AT Controller Series Jan87` §6, `OMTI 8640 Jun89` §5 |
 | OMTI 8621 placement (the DN3500's disk) | measured, both halves. Placement characterised at `04D000`: the range is the card's (all `FF` without it, control verified by device enumeration), aliased on an eight-byte period, with offsets 1-3 driven. Offsets 0 and 4-7 read `FF`, which a read sweep cannot distinguish from undriven | `FINDINGS.md` C20 |
 | WD7000 ESDI/SCSI (DN4500) | not started | — |
 | Floppy, QIC cartridge tape | not started | — |
@@ -4475,6 +4475,70 @@ disk. `0C INITIALIZE DRIVE CHARACTERISTICS` is refused in the command phase and
 not only in the decoder -- a decoder that says no beside an executor that says
 yes is worse than neither. And a controller with no drive answers "not ready"
 rather than looking like one with a blank disk.
+
+#### The floppy half, and a command set with no way to write a sector
+
+`[OMTI]` §6 is "FLOPPY DISK FUNCTIONS", and it is a scan with no text layer, so
+the opcodes and phase layouts are a **page-image read** (PDF pages 74, 76-78 =
+printed 6-1, 6-3 to 6-5) exactly as Table 2-4's was. Ten commands and INVALID:
+`READ DATA 06`, `FORMAT A TRACK 0D`, the three scans `11`/`19`/`1D`,
+`RECALIBRATE 07`, `SENSE INTERRUPT STATUS 08`, `SPECIFY 03`,
+`SENSE DRIVE STATUS 04`, `SEEK 0F`. The opcode is the low five bits; MT, MF and
+SK ride above it and change neither the length nor the identity of a command.
+
+**The sibling manual is what made this safe, and it is on disk.** The *OMTI
+8640* reference was dismissed earlier in this document as covering the wrong
+part -- true of its fixed-disk task file at `1F0`, which does not match Table
+2-9's `1A0`. Its **floppy** chapter is another matter: §5.3 lists the same
+eleven commands, §5.1 defines the main status register bit by bit and §5.6
+defines ST0 through ST3, all with a text layer where ours has none. So the
+command list is confirmed by a source that cannot be an OCR artefact, and the
+status-register bits are transcribed rather than assumed from the NEC 765. The
+dismissal stands for §4 and is wrong for §5, which is why it is corrected here
+rather than deleted.
+
+**There is no `WRITE DATA` command.** Not in our §6, not in the 8640's §5.3.
+The ST1 and ST2 descriptions *do* say "during execution of a Write Data, Write
+Deleted Data, or Format Cylinder command" -- but that is the 765 status prose
+those registers inherit, not evidence of a command this controller accepts.
+Only FORMAT A TRACK puts data on the medium. So `05` -- WRITE DATA on a generic
+765 -- takes §6.3.11's INVALID path, and a driver issuing it gets ST0's "the
+issued command was never started". Inventing the command from general 765
+knowledge would have made a write silently succeed against a controller that
+never had one.
+
+**One contradiction is recorded rather than resolved.** The 8640's ST3 bit 4
+reads "Track 0 (TO) - Status of the 'ready' signal from the diskette drive" --
+its own name against its own sentence. The name is modelled, because bit 4 is
+Track 0 on every 765-family part and a ready bit that moved when the head
+reached cylinder 0 would report readiness a drive never gained. The cost is
+that **no manual here places the drive-ready bit**, so a driver polling for
+ready will not see it change.
+
+`image/ap_afd.c` is the diskette under all this. Unlike `.awd` there is nothing
+to choose: `apollo_dsk.cpp` gives one format -- FF_525, DSHD, MFM, 77 cylinders,
+2 heads, 8 sectors, **1024** bytes -- so 1,261,568 bytes is the only length
+accepted and any other is refused rather than reinterpreted. The 1024 against
+the Winchester's 1056 is not an inconsistency; §5.4.14's table lists both.
+Sector numbering starts at **one** while cylinders and heads start at zero, and
+a reader treating §6.2's `R` as an index is off by one sector on every access --
+which reads as data, not as an error.
+
+**The two halves keep two command phases**, not one. §4.1 has the register sets
+independent and §3.4 has them concurrent, so a single phase variable would let a
+floppy seek cancel a disk read. `omti_suite`'s independence test had to be
+rewritten for this: it used to write a byte to the floppy data register and read
+it back, which stopped meaning anything the moment that register became a
+command port -- the write now *starts* a command and the byte returning is its
+result. It holds a SEEK part-way through its command phase instead, which is the
+stronger thing to leave undisturbed.
+
+**A result phase must be drained before the next command.** The controller stays
+busy until its last result byte is read, and command bytes written before then
+go nowhere -- the driver then reads the *previous* command's `C`, `H`, `R` and
+`N` as though they were its own results. Found by a test of the scans that
+skipped the drain and read a sector number back as a verdict, which is exactly
+how it would present in a driver, and now pinned by a test of its own.
 
 #### A second board: `dn3000` boots, and it is not the DN3500 shifted
 
