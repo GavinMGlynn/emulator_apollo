@@ -2794,20 +2794,18 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
 - [ ] **Integration check, not a milestone:** DN3500 boots Domain/OS SR10.x to a
       login prompt, console byte-identical to the oracle. *Verification: console
       diff plus a boot state hash.*
-      **Awaiting:** the video clock domain, which is Phase 5's first item.
-      Both questions are answered and they point there. The PROM does **not**
-      auto-boot — 60,000,000 instructions with a disk fitted and nothing typed
-      leaves it at `000007AE`, inside C109's console poll, and it never reads
-      the calendar so it is not consulting a stored configuration either. And
-      `B` is **Breakpoint**, not boot: `002398-04` §5 settles it, and the
-      loading commands are `EX`, `EY`, `LO`, `FO` and `DL`, none of whose
-      initials appear in this image's `ABRVPICOH`.
-      What does advance is a **keypress**: serial 1 channel A is the keyboard,
-      the machine leaves the poll for `000046BC`, and settles polling the
-      display controller 5,975,350 times — which is C112's raster. So the two
-      console paths end in two blockers, the serial one at MD and the display
-      one at the video clock, and only the second leads onward.
-      Detail in `PROJECT_STATUS.md`.
+      **Awaiting:** an oracle run, and the documents are exhausted rather than
+      untried. The video clock landed and the display diagnostic now runs on its
+      own — 66,138 blit cycles and a drawn figure, **identical with and without
+      a keypress** — but all three cases end in C109's console poll after
+      60,000,000 instructions, which is 9.6 emulated seconds. The machine is not
+      waiting on the display, the disk, the calendar or a timeout.
+      The handbook has no single-letter boot command and the loading ones
+      (`EX`, `EY`, `LO`, `FO`, `DL`) have no initial in this image's
+      `ABRVPICOH`. So either the PROM loads by a route `002398-04` does not
+      describe, or a *configuration* selects booting over waiting.
+      MAME's `dn3500` on the same image either auto-boots or it does not, and
+      either answer is decisive. Detail in `PROJECT_STATUS.md`.
   - [x] **A disk can be fitted at all.** `ap_omti` modelled the controller and
         `ap_awd` read the image and nothing ever handed one to the other, so
         every boot experiment so far ran on a DN3500 with **no Winchester** —

@@ -4597,6 +4597,43 @@ last and hardest — **a decoded PNG**. Register round-trips and word-level
 identities are what can be checked without one, and a controller that passes
 those and draws nothing is the standard way this goes wrong.
 
+#### The self-test completes and the machine still waits
+
+With the raster running, the boot was re-measured against the three cases that
+matter. The display diagnostic is no longer the blocker and the picture is drawn
+in every one of them — but the machine does not go on to load anything.
+
+    screen, disk, one keypress, 60 M   final PC 0000079A   66,138 blit cycles
+    screen, disk, nothing typed, 60 M  final PC 000007A2   66,138 blit cycles
+    no screen, disk, nothing typed     final PC 000007AE        0
+
+The blit count is **identical** with and without the keypress, which is the
+informative part: the PROM runs its display self-test on its own now that there
+is a beam, and the keypress buys nothing but a different resting place inside
+the same poll. All three end in C109's console-selection loop at
+`00078E`-`0007AE`.
+
+So the sequence is settled: power on, self-test, draw the diagnostic figure,
+then wait for a console — and wait indefinitely. It is not waiting on the
+display, the disk, the calendar or a timeout. Sixty million instructions is 9.6
+emulated seconds and a real DN3500 has long since booted.
+
+**What is left is a question the documents have not answered.** The handbook's
+command list has no single-letter boot; the loading commands are `EX`, `EY`,
+`LO`, `FO` and `DL` and none of their initials appear in this image's
+`ABRVPICOH` help string. So either this PROM revision loads by a route the
+handbook does not describe, or something about the machine's *configuration*
+selects booting over waiting — a service-mode input, a jumper, or a byte this
+core answers differently from the hardware.
+
+That is where the oracle comes in, and it is the right next step by the
+resolution order rather than the first one: the documents have been read and
+have run out. MAME's `dn3500` with the same disk image either auto-boots or it
+does not, and either answer is decisive — if it boots, the difference is
+something this core presents wrongly and the trace will show which register; if
+it does not, then the harness is missing an input a real operator supplies, and
+that is a much smaller search.
+
 #### The raster, and the firmware drew
 
 The status register is display timing, and returning a constant `FF` made this
