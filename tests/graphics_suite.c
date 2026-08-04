@@ -529,20 +529,34 @@ static void test_the_access_modes_shape_the_source_word(void) {
  * shifting everything out of it. A model that just shifted would return zero
  * for every count past 15. */
 static void test_a_shift_of_sixteen_or_more_rotates_before_shifting(void) {
-  /* Four: an ordinary shift. */
+  /* The guard latch holds the **previous** word above the current one. That
+   * width is the whole reason it exists: a shifted blit takes its leading bits
+   * from the word before, which is what draws a bitmap that does not begin on a
+   * word boundary -- almost any text. `$AAAA` above, `$1234` below. */
+  const uint32_t latch = 0xAAAA1234u;
+
+  /* Four: an ordinary shift, and the four bits arriving at the top are the
+   * previous word's bottom four -- `$A` -- not zeroes. A sixteen-bit latch
+   * gives `$0123` here and the picture keeps a blank sliver at the leading edge
+   * of every word. */
+  TEST_ASSERT_EQUAL_HEX16(0xA123u,
+                          ap_graphics_source_data(4u, AP_GRAPHICS_CR2_PLANE_ACCESS,
+                                                  0u, latch));
+  /* Sixteen: the halves swap and the low nibble of the count is zero, so what
+   * comes back is the previous word entire. */
+  TEST_ASSERT_EQUAL_HEX16(0xAAAAu,
+                          ap_graphics_source_data(16u, AP_GRAPHICS_CR2_PLANE_ACCESS,
+                                                  0u, latch));
+  /* Twenty: rotate to `$1234AAAA`, then shift by four -- the previous word's
+   * top three nibbles with the current word's *lowest* nibble arriving above
+   * them. */
+  TEST_ASSERT_EQUAL_HEX16(0x4AAAu,
+                          ap_graphics_source_data(20u, AP_GRAPHICS_CR2_PLANE_ACCESS,
+                                                  0u, latch));
+  /* And a latch with nothing above it still shifts zeroes in, which is the
+   * state at the start of a run of words rather than a special case. */
   TEST_ASSERT_EQUAL_HEX16(0x0123u,
                           ap_graphics_source_data(4u, AP_GRAPHICS_CR2_PLANE_ACCESS,
-                                                  0u, 0x1234u));
-  /* Sixteen: the halves swap, and the low nibble of the count is zero, so the
-   * word comes back as its own high half — which for a 16-bit latch is zero,
-   * and *not* what a plain shift by 16 would give (undefined or zero by luck). */
-  TEST_ASSERT_EQUAL_HEX16(0x0000u,
-                          ap_graphics_source_data(16u, AP_GRAPHICS_CR2_PLANE_ACCESS,
-                                                  0u, 0x1234u));
-  /* Twenty: rotate, then shift by four, so the top nibble of the word returns
-   * to the bottom. */
-  TEST_ASSERT_EQUAL_HEX16(0x4000u,
-                          ap_graphics_source_data(20u, AP_GRAPHICS_CR2_PLANE_ACCESS,
                                                   0u, 0x1234u));
 }
 
@@ -586,7 +600,7 @@ static void put_img(uint32_t word, uint16_t value) {
   image[word * 2u] = (uint8_t)(value >> 8);
   image[word * 2u + 1u] = (uint8_t)value;
 }
-static uint16_t latched[8];
+static uint32_t latched[8];
 
 static ap_graphics_blit_t plain_blit(void) {
   ap_graphics_blit_t b = {
@@ -930,7 +944,7 @@ static void test_a_blit_lands_where_the_scanout_reads_it(void) {
    * ignored the plane size both land somewhere else. */
   const uint32_t dest = 2u * (geometry.buffer_width / 16u) + 1u;
 
-  uint16_t source[8];
+  uint32_t source[8];
   /* Planes 0 and 2 carry the pattern, the rest are blank: index 5, which is
    * asymmetric in both directions. */
   for (unsigned p = 0; p < 8u; p++) {

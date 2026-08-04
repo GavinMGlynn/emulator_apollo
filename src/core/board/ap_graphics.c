@@ -348,7 +348,7 @@ uint16_t ap_graphics_rop_apply(uint8_t cr1, uint32_t rop_register,
 }
 
 uint16_t ap_graphics_source_data(uint8_t cr0, ap_graphics_cr2_access_t access,
-                                 unsigned plane, uint16_t latched) {
+                                 unsigned plane, uint32_t latched) {
   switch (access) {
   case AP_GRAPHICS_CR2_CONSTANT_ACCESS:
     /* All ones, "used for vectors": a line draw wants a solid source and takes
@@ -358,7 +358,7 @@ uint16_t ap_graphics_source_data(uint8_t cr0, ap_graphics_cr2_access_t access,
     /* One bit of the source, replicated across the word -- the bit belonging
      * to this plane. That is how a packed pixel becomes a plane's worth of
      * solid colour. */
-    return (latched & (uint16_t)(1u << (plane & 0x0Fu))) != 0u ? 0xFFFFu : 0u;
+    return (latched & (1u << (plane & 0x1Fu))) != 0u ? 0xFFFFu : 0u;
   case AP_GRAPHICS_CR2_SHIFT_ACCESS:
     /* The shifter's least significant bit, replicated. The same idea as pixel
      * access with the bit chosen by the shift rather than by the plane. */
@@ -366,9 +366,10 @@ uint16_t ap_graphics_source_data(uint8_t cr0, ap_graphics_cr2_access_t access,
   case AP_GRAPHICS_CR2_PLANE_ACCESS:
     break;
   }
-  /* "Normal use": the word itself, shifted by `CR0`'s count. A count of 16 or
-   * more rotates the halves first, so the field reaches across the word rather
-   * than shifting everything out of it. */
+  /* "Normal use": the word itself, shifted by `CR0`'s count -- across the whole
+   * thirty-two bit latch, so the bits shifted in are the *previous* word's. A
+   * count of 16 or more rotates the halves first, so the field reaches across
+   * the pair rather than shifting everything out of it. */
   {
     uint32_t wide = latched;
     const unsigned shift = ap_graphics_cr0_shift(cr0);
@@ -398,7 +399,7 @@ uint16_t ap_graphics_combine(uint16_t write_enable, uint16_t mem_mask,
 
 unsigned ap_graphics_blit(const ap_graphics_blit_t *blit, uint8_t *image,
                           uint32_t bytes, uint32_t dest, uint16_t mem_mask,
-                          const uint16_t *latched) {
+                          const uint32_t *latched) {
   const uint32_t words = bytes / 2u;
   if (blit == nullptr || image == nullptr || latched == nullptr) {
     return 0u;

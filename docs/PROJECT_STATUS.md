@@ -4597,6 +4597,34 @@ last and hardest — **a decoded PNG**. Register round-trips and word-level
 identities are what can be checked without one, and a controller that passes
 those and draws nothing is the standard way this goes wrong.
 
+#### The guard latch is thirty-two bits, and ours was sixteen
+
+A real defect, found by reading the oracle's blit path while wiring the mode
+dispatch rather than by a failing test — nothing in the suite could have caught
+it, because every existing case shifted by zero.
+
+The guard latch holds one entry **per plane** and each is thirty-two bits: a new
+source word is shifted in from the bottom, so the latch carries the *previous*
+word above the current one. That width is the entire reason the latch exists.
+`CR0`'s shift then operates across the pair, and a shifted blit takes its
+leading bits out of the word before — which is what draws a bitmap that does not
+begin on a word boundary, and therefore what draws almost any text.
+
+This core's was sixteen bits, widened to thirty-two with zeroes on top. Every
+shift pulled zeroes in where the hardware pulls in the previous word, so a
+shifted blit would have produced a picture that appeared, and was recognisable,
+with a blank sliver at the leading edge of every sixteen pixels. That is the
+failure mode worth naming: not a blank screen, which gets investigated, but a
+picture with a regular defect that reads as a font or a rounding problem.
+
+The shift-by-16-or-more case was wrong in the same way and less visibly. A
+rotate of the halves followed by a shift is meaningless when the high half is
+always zero: `ap_graphics_source_data(16, ...)` returned zero where the hardware
+returns the previous word entire. The existing test asserted that zero and its
+comment explained it — "which for a 16-bit latch is zero" — so the test
+documented the defect rather than catching it. It now asserts against a latch
+with a real previous word in it.
+
 #### One memory, which the blitter and the scanout now share
 
 `ap_graphics_blit` worked on a host-order `uint16_t` array and the image memory

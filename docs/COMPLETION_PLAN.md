@@ -2593,6 +2593,17 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
           halves of the aliasing separately, the ROP's high half refused on a
           monochrome card, and the bit port setting and clearing one bit of
           `CR1` while leaving its neighbour alone.*
+        - **The guard latch was half the width it should be**, and it is a
+          real defect rather than an omission: it is thirty-two bits, holding
+          the *previous* source word above the current one, and `CR0`'s shift
+          reaches across the pair. Ours shifted zeroes in, so any non-word-
+          aligned blit would have drawn a recognisable picture with a blank
+          sliver at the leading edge of every sixteen pixels. Detail in
+          `PROJECT_STATUS.md`.
+          *Verification: `graphics_suite`, still 47 — the shift test now runs
+          against a latch with a real previous word in it. Its old version
+          asserted the wrong answer and its comment explained why, so it had
+          documented the defect instead of catching it.*
         - **The blitter and the scanout share one memory now.** The blitter
           took a host-order `uint16_t` array and the board's memory is bytes,
           so the end-to-end test had to serialise between them by hand. It

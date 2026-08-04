@@ -406,7 +406,7 @@ typedef enum : uint8_t {
 [[nodiscard]] uint16_t ap_graphics_source_data(uint8_t cr0,
                                                ap_graphics_cr2_access_t access,
                                                unsigned plane,
-                                               uint16_t latched);
+                                               uint32_t latched);
 
 /* Whether a destination plane is written. **Active low**: see above. */
 [[nodiscard]] bool ap_graphics_plane_selected(unsigned d_plane, unsigned plane);
@@ -424,12 +424,20 @@ typedef enum : uint8_t {
  * here rather than passed as eight arguments, because the *combination* is what
  * a blit is and a caller assembling it piecemeal can leave one stale.
  *
- * `latched` is what the blitter read from the source, one word per plane -- the
- * guard latch. Which entry a plane uses is not always its own: on a
- * single-plane board, or when `CR1`'s colour `AD_BIT` is set, every plane takes
- * the *source plane's* word instead. That is how one source is broadcast to
- * many destinations, and a model that always indexed by the destination plane
- * would draw the right shape in the wrong colours.
+ * `latched` is the **guard latch**, one entry per plane, and it is *thirty-two*
+ * bits: each new source word is shifted in from the bottom, so the latch holds
+ * the previous word above the current one. That width is the whole reason the
+ * latch exists. `CR0`'s shift then operates across the pair, and a shifted blit
+ * pulls the bits it needs out of the *previous* word -- which is what draws a
+ * bitmap that does not begin on a word boundary, and therefore what draws
+ * almost any text. A sixteen-bit latch shifts zeroes in instead: the picture
+ * still appears, with a blank sliver at the leading edge of every word.
+ *
+ * Which entry a plane uses is not always its own: on a single-plane board, or
+ * when `CR1`'s colour `AD_BIT` is set, every plane takes the *source plane's*
+ * word instead. That is how one source is broadcast to many destinations, and a
+ * model that always indexed by the destination plane would draw the right shape
+ * in the wrong colours.
  */
 typedef struct {
   uint8_t cr0;
@@ -464,7 +472,7 @@ typedef struct {
 [[nodiscard]] unsigned ap_graphics_blit(const ap_graphics_blit_t *blit,
                                         uint8_t *image, uint32_t bytes,
                                         uint32_t dest, uint16_t mem_mask,
-                                        const uint16_t *latched);
+                                        const uint32_t *latched);
 
 /* ## Scanout: the image memory read out as pixels
  *
