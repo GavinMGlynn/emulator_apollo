@@ -6640,3 +6640,56 @@ oracle's `8100` is still reachable and still asserted, as the service setting.
 The general lesson is the one worth keeping: a measured power-on value is only
 as good as the configuration it was measured under, and nothing in a captured
 register says which knobs were where.
+
+## C115 -- serial 1's input port is the RAM configuration, and it read zero
+
+**Class: ours-wrong, and necessary but not sufficient.**
+
+C114 put the machine into normal mode, where it stops running diagnostics and
+polls `sio1` register 4 -- the input port change register -- 9,982,874 times in
+a 30,000,000 instruction run.
+
+`IP0`-`IP6` of the first DUART are not handshake lines. `apollo_sio::device_reset`
+drives all seven from `apollo_get_ram_config_byte()`: the input port is strapped
+to a **RAM configuration byte** describing which of four memory banks are
+populated and how large, and the boot PROM reads it to size memory before it
+does anything else. A machine whose input port answers zero is a machine with no
+memory fitted, which is what this core was.
+
+### The encoding is a table, and saying so is the finding
+
+Four points, with the oracle's own bank comments:
+
+    64   "4-4-0-0"    DN3500,  8 MB
+    60   "4-4-4-4"    DN3500, 16 MB
+    20   "8-8-8-8"    DN3500, 32 MB
+    20   "2-2-2-2"    DN3000,  8 MB
+    14   "8-8-0-0"    DN5500, 16 MB
+
+`20` is "8-8-8-8" on one machine and "2-2-2-2" on another -- the same byte, four
+times the memory. So the field is not a plain per-bank size and the *model* is
+part of the decode. Four points do not determine a scheme and no manual in
+`docs/references/` describes one, so this is modelled as a table with the pairs
+the oracle records and a **refusal** for anything else. A computed byte would be
+inventing the rule that makes the four work.
+
+That refusal found something immediately: the headless frontend built its
+machine with **4 MB**, which is not a configuration a DN3500 can be built in at
+all -- four banks of 4 MB is the smallest the byte describes. It now builds
+16 MB, which is a size the table covers, and a run says which byte it strapped
+or that it strapped none.
+
+### Necessary but not sufficient
+
+With `60` strapped the poll continues. The reason is visible in the register
+layout rather than mysterious: `IPCR`'s low nibble is the current level of
+`IP0`-`IP3` and its high nibble is which of those four *changed*. `60` is
+`0110 0000`, so `IP0`-`IP3` are all zero and the four upper pins carrying the
+configuration are not in this register at all -- they are read at register 13,
+"input port".
+
+So the next question is narrow and well posed: what the firmware is waiting for
+on `IPCR` specifically, when the byte it wants is not there. Either it polls for
+a change on the low four pins that something else should drive, or the poll is
+a timing loop against the counter it programmed at registers 6 and 4 one
+instruction earlier.

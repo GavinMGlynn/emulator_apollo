@@ -159,3 +159,41 @@ bool ap_sio_receiver_enabled(const ap_sio_t *sio, unsigned unit,
   }
   return sio->port[unit].channel[channel].rx_enabled;
 }
+
+bool ap_sio_ram_config_byte(ap_model_id_t model, uint32_t ram_bytes,
+                            uint8_t *out) {
+  if (out == NULL) {
+    return false;
+  }
+  /* A table, not an encoder. See the header: `20` is "8-8-8-8" on a DN3500 and
+   * "2-2-2-2" on a DN3000, so the byte is not a per-bank size field and four
+   * points do not determine a scheme. A pair not listed here is refused rather
+   * than approximated -- a wrong byte is a machine that sizes memory it does
+   * not have, and finds out by bus-erroring in the middle of its self-test. */
+  static const struct {
+    ap_model_id_t model;
+    uint32_t megabytes;
+    uint8_t byte;
+  } table[] = {
+      {AP_MODEL_DN3500, 8u, 0x64u},   /* 4-4-0-0 */
+      {AP_MODEL_DN3500, 16u, 0x60u},  /* 4-4-4-4 */
+      {AP_MODEL_DN3500, 32u, 0x20u},  /* 8-8-8-8 */
+      {AP_MODEL_DN3000, 8u, 0x20u},   /* 2-2-2-2 */
+      {AP_MODEL_DN5500, 16u, 0x14u},  /* 8-8-0-0 */
+      {AP_MODEL_DN5500, 32u, 0x20u},  /* 8-8-8-8 */
+  };
+  const uint32_t megabytes = ram_bytes / (1024u * 1024u);
+  for (unsigned i = 0; i < sizeof table / sizeof table[0]; i++) {
+    if (table[i].model == model && table[i].megabytes == megabytes) {
+      *out = table[i].byte;
+      return true;
+    }
+  }
+  return false;
+}
+
+void ap_sio_set_ram_config(ap_sio_t *sio, uint8_t config) {
+  /* Seven pins, `IP0`-`IP6`; bit 7 is not an input the part has. */
+  ap_mc68681_set_input(&sio->port[AP_SIO_RAM_CONFIG_UNIT],
+                       (uint8_t)(config & 0x7Fu));
+}

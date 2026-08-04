@@ -583,7 +583,12 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
     return 1;
   }
 
-  uint32_t ram_bytes = 0x400000u;
+  /* 16 MB, which is a size the RAM configuration table covers -- the boot PROM
+   * reads that strap to size memory and a machine whose size is not in the
+   * table cannot tell it anything. It was 4 MB, which is not a configuration a
+   * DN3500 can be built in: four banks of 4 MB is the smallest the byte
+   * describes at all. */
+  uint32_t ram_bytes = 16u * 1024u * 1024u;
   uint8_t *ram = calloc(1, ram_bytes);
   ap_board_t *board = calloc(1, sizeof *board);
   static const ap_mc146818_time_t epoch = {
@@ -1028,6 +1033,18 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
   }
   if (board->atmap_undescribed_writes > 0u) {
     printf("    first write %08X\n", board->first_atmap_undescribed_write);
+  }
+  /* What the machine told its firmware about its own memory. Printed even when
+   * known, because a wrong configuration byte is a machine that sizes memory it
+   * does not have and finds out mid-self-test. */
+  if (board->ram_config_known) {
+    printf("  ram config   %02X strapped on serial 1's input port\n",
+           board->ram_config);
+  } else {
+    printf("  ram config   **not strapped**: no table entry for this model at"
+           " this size,\n"
+           "               so the firmware reads zero and sizes no memory at"
+           " all\n");
   }
   /* Why scripted input did or did not arrive, which a serial read count cannot
    * say. Delivery is gated on the port being programmed to eight bits and its

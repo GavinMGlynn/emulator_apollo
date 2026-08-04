@@ -521,6 +521,20 @@ bool ap_board_init_model(ap_board_t *board, uint8_t *ram, uint32_t ram_bytes,
   if (!ap_sio_reset(&board->sio)) {
     return false;
   }
+  /* Serial 1's input port is strapped to the **RAM configuration byte**, which
+   * the boot PROM reads to size memory before it does anything else. An input
+   * port answering zero is a machine with no memory fitted, and the firmware
+   * polls it rather than proceeding.
+   *
+   * A size the table does not cover leaves the strap alone rather than guessing
+   * -- and `board->ram_config_known` says which happened, because a machine
+   * that cannot tell the firmware how much memory it has is a fact a run should
+   * report rather than a silent zero. */
+  board->ram_config_known =
+      ap_sio_ram_config_byte(model, ram_bytes, &board->ram_config);
+  if (board->ram_config_known) {
+    ap_sio_set_ram_config(&board->sio, board->ram_config);
+  }
   ap_nodeid_init(&board->node_id, node_id);
   ap_disk_reset(&board->disk);
   ap_tape_reset(&board->tape);

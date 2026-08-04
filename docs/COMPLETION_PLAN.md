@@ -2804,11 +2804,23 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         *Verification: `boardreg_suite` +1 (13). Setting it moves the PROM from
         `000007A2` to `0000658C`, stops the 66,138 blit cycles of diagnostics
         that service mode is for, and starts a different poll entirely.*
-      **Awaiting:** what the normal-mode PROM wants from the DUART's
-      input-port change register, which it now reads 9,982,874 times at `sio1`
-      register 4. A smaller question than the one it replaced, and the same
-      shape as the ones already closed: a poll against something this core
-      answers with a constant.
+  - [x] **Serial 1's input port is the RAM configuration**, strapped to
+        `IP0`-`IP6` and read by the PROM to size memory before anything else —
+        so a machine answering zero has no memory fitted, which this core was.
+        Modelled as a **table** and not an encoder: `20` is "8-8-8-8" on a
+        DN3500 and "2-2-2-2" on a DN3000, so the model is part of the decode and
+        four points determine no scheme. `FINDINGS.md` C115.
+        *Verification: `sio_suite` +3 (20) — the same byte meaning two machines,
+        an unlisted size refused rather than approximated, and only the seven
+        pins the part has. The refusal found that the frontend built **4 MB**,
+        which is not a configuration a DN3500 can be built in; it builds 16 MB
+        now and a run reports the byte it strapped.*
+      **Awaiting:** what the PROM wants from `IPCR` when the configuration is
+      not in that register. `60` puts the four carrying pins in the *upper*
+      nibble, and `IPCR` holds only `IP0`-`IP3` and their change flags — the
+      byte is read at register 13. So either something else should drive the low
+      four pins, or the poll is a timing loop against the counter programmed at
+      registers 6 and 4 an instruction earlier.
   - [x] **A disk can be fitted at all.** `ap_omti` modelled the controller and
         `ap_awd` read the image and nothing ever handed one to the other, so
         every boot experiment so far ran on a DN3500 with **no Winchester** —

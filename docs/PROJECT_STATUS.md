@@ -3415,7 +3415,7 @@ failure that cost a bit position in the 68020's module entry word.
 | Apollo calendar (`010900`) | working: **stride 1, byte consecutive** (measured — and not the timer's odd-address stride 2, so neither placement could be inferred from the other), sixty-four registers aliased through the 256-byte range, and the IRQ8 route through to vector `A8` | `calendar_suite`, 5 tests; `FINDINGS.md` C12 |
 | MC146818A calendar (the part) | working: ten clock bytes, four registers, 50 RAM bytes, the once-per-second update with a full Gregorian carry, the alarm with don't-care codes, and Register C's read-to-clear. **Time is supplied by the caller, never the host** — the oracle seeds its calendar from the wall clock, which would rot every golden. The **periodic interrupt** is implemented for the nine rates that divide the time base (512 Hz to 2 Hz); the six fastest are refused rather than rounded, because `AP_TIME_BASE_HZ` factors as 2^9·3·5^8·11 and they need 2^15. Square wave and daylight-savings shifts are declined. Not yet wired to the board at `010900` | `mc146818_suite`, 29 tests, `MC146818A` (register figures read from page images) |
 | Node ID PROM (`011200`) | working: the layout measured from the oracle's own PROM — stride 2 with the **odd byte reading zero** (unlike the serial ports at the same stride), the identifier big-endian in registers 0-3, and a checksum in register 14 confirmed arithmetically (`01 + 23 + 45 = 69`). The identifier is supplied by the caller, never a constant: a device whose purpose is to be unique per machine must not be the same on every one | `nodeid_suite`, 7 tests |
-| Apollo serial ports (`010400`, `010500`) | working: both DUARTs at **stride 2** (measured), sixteen registers over thirty-two bytes and aliased, sharing IRQ1 through to vector `A1`. The memory-refresh square wave of §3.9 runs: the counter is clocked at the DUART's X1 and produces a 15 microsecond period from the boot PROM's own preload. Its *frequency*, 66666.67 Hz, is not an integer, so a core counting in hertz could not represent this board's refresh clock at all | `sio_suite`, 17 tests; `FINDINGS.md` C14 |
+| Apollo serial ports (`010400`, `010500`) | working: both DUARTs at **stride 2** (measured), sixteen registers over thirty-two bytes and aliased, sharing IRQ1 through to vector `A1`. The memory-refresh square wave of §3.9 runs: the counter is clocked at the DUART's X1 and produces a 15 microsecond period from the boot PROM's own preload. Its *frequency*, 66666.67 Hz, is not an integer, so a core counting in hertz could not represent this board's refresh clock at all | `sio_suite`, 20 tests; `FINDINGS.md` C14 |
 | MC68681 / SCN2681 DUART (the part) | **programming model complete**: all sixteen register addresses of `[68681]` Table 4-1, both channels' mode registers with their shared pointer, clock-select, command and status registers, the three-deep receive FIFO with overrun, the interrupt status and mask registers, the input and output ports, and the counter/timer with both address-triggered commands. Serial framing itself — baud rates, start/stop bits, parity, the echo and loopback modes — is **not** modelled: a character is handed over whole. Not yet wired to the board | `mc68681_suite`, 34 tests, `MC68681 DUART Sep85` |
 | QIC-02 tape drive | working for the readable half of the command set: both SELECTs with the sticky selection and the soft lock, BOT, RETENSION, SELECT Q24, READ and READ STATUS. **Writing is refused rather than discarded** — there is no write-back path, and accepting a write would let an installation appear to succeed. The cartridge *type* is supplied by the caller, because the controller derives it from tape geometry a raw image does not carry. The two opcodes the scan lost are claimed by nothing. **READ STATUS now transfers its block**: six bytes, the length `[SC499]` §1.13.1 gives outright, as three 16-bit fields LSB-first — exception flags, data-error count, underrun count — and reading it clears the power-on condition it reports | `qic_suite`, 18 tests; `FINDINGS.md` C25 |
 | Cartridge tape images (`image/ap_ct.c`) | working: block addressing over a raw `.ct` image, refusing any size that is not a whole number of 512-byte blocks, and boot-record parsing that returns the four header words. Their reading as load address and entry point is now **confirmed by the boot code itself** — its first instruction, a PC-relative `LEA`, computes word 0 exactly when executed at word 1, so the image proves its own layout. `ap_ct_boot_image` therefore *names* load address, entry point and length, and refuses a cartridge that does not announce itself, or whose header describes more than the file holds. Takes memory, never a filename, so `src/core` keeps its zero file I/O and the tests need no gitignored media | `ct_suite`, 12 tests; `FINDINGS.md` C24 |
@@ -4596,6 +4596,42 @@ loop that runs them. What it does not yet have is the thing the item asks for
 last and hardest — **a decoded PNG**. Register round-trips and word-level
 identities are what can be checked without one, and a controller that passes
 those and draws nothing is the standard way this goes wrong.
+
+#### Serial 1's input port is the RAM configuration, and it read zero
+
+Normal mode stops the diagnostics and starts a different poll: `sio1` register 4,
+the input port change register, 9,982,874 times in a 30,000,000 instruction run.
+
+`IP0`-`IP6` of the first DUART are not handshake lines.
+`apollo_sio::device_reset` drives all seven from `apollo_get_ram_config_byte()` —
+the input port is strapped to a **RAM configuration byte** naming which of four
+memory banks are populated and how large, and the boot PROM reads it to size
+memory before doing anything else. A machine whose input port answers zero has
+no memory fitted, which is what this core was.
+
+**The encoding is a table, and saying so is the finding.** `20` is "8-8-8-8" on
+a DN3500 and "2-2-2-2" on a DN3000 — the same byte, four times the memory — so
+the field is not a per-bank size and the model is part of the decode. Four
+points do not determine a scheme and no manual in `docs/references/` describes
+one, so it is a table with the pairs the oracle records and a **refusal** for
+anything else. A computed byte would be inventing the rule that makes the four
+work.
+
+That refusal found something at once: the headless frontend built its machine
+with **4 MB**, which is not a configuration a DN3500 can be built in — four
+banks of 4 MB is the smallest the byte describes. It builds 16 MB now, and a run
+reports which byte it strapped or that it strapped none.
+
+**Necessary but not sufficient.** With `60` strapped the poll continues, and the
+reason is in the register layout rather than mysterious: `IPCR`'s low nibble is
+the level of `IP0`-`IP3` and its high nibble is which of those four *changed*.
+`60` is `0110 0000`, so the four pins carrying the configuration are the upper
+ones and are not in this register at all — they are read at register 13.
+
+So the next question is narrow: what the firmware wants from `IPCR` when the
+byte it needs is not there. Either something else should be driving the low four
+pins, or the poll is a timing loop against the counter it programmed at
+registers 6 and 4 an instruction earlier. `FINDINGS.md` C115.
 
 #### Normal/Service is bit 0, and every boot so far ran in Service mode
 

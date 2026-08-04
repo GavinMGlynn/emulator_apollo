@@ -43,6 +43,7 @@
 #include <stdint.h>
 
 #include "device/ap_mc68681.h"
+#include "model/ap_model.h"
 #include "time/ap_time.h"
 
 #define AP_SIO1_ADDR 0x010400u
@@ -211,5 +212,41 @@ void ap_sio_receive_framed(ap_sio_t *sio, unsigned unit, unsigned channel,
  * the rate the port is listening on. */
 [[nodiscard]] uint8_t ap_sio_clock_select(ap_sio_t *sio, unsigned unit,
                                           unsigned channel);
+
+/* ## Serial 1's input port carries the RAM configuration
+ *
+ * `IP0`-`IP6` of the first DUART are not serial handshake lines at all. They are
+ * strapped to a **RAM configuration byte** describing which of the four memory
+ * banks are populated and how large they are, and the boot PROM reads them to
+ * size memory before it does anything else. A machine whose input port answers
+ * zero is a machine with no memory fitted, and the firmware polls that register
+ * rather than proceeding -- 9,982,874 times in one 30,000,000 instruction run.
+ *
+ * ### What is known about the encoding, and what is not
+ *
+ * Four points, from the oracle's own table, with its bank comments:
+ *
+ *     64   "4-4-0-0"    DN3500,  8 MB
+ *     60   "4-4-4-4"    DN3500, 16 MB
+ *     20   "8-8-8-8"    DN3500, 32 MB   -- and DN3000 "2-2-2-2", 8 MB
+ *     14   "8-8-0-0"    DN5500, 16 MB
+ *
+ * The *scheme* is not derivable from four points and no manual in
+ * `docs/references/` describes it: `20` means "8-8-8-8" on one machine and
+ * "2-2-2-2" on another, so the field is not a plain per-bank size and depends
+ * on the model. So this is a **table**, model by model, and not an encoder --
+ * a function computing a byte from a size would be inventing the rule that
+ * makes it work, and would be wrong for every configuration not in the table.
+ * `FINDINGS.md` C115. */
+#define AP_SIO_RAM_CONFIG_UNIT 0u
+
+/* The byte for a model at a RAM size, or false when the pair is not one of the
+ * four the oracle records. Refused rather than approximated: a wrong
+ * configuration byte is a machine that sizes memory it does not have. */
+[[nodiscard]] bool ap_sio_ram_config_byte(ap_model_id_t model,
+                                          uint32_t ram_bytes, uint8_t *out);
+
+/* Strap the configuration onto serial 1's input port. */
+void ap_sio_set_ram_config(ap_sio_t *sio, uint8_t config);
 
 #endif /* APOLLO_BOARD_AP_SIO_H */

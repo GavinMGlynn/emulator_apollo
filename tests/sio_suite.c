@@ -352,6 +352,63 @@ static void test_a_rateless_clock_select_has_no_character_time(void) {
       0u, ap_mc68681_character_time(0x03u, AP_MC68681_MR2_STOP_ONE, 0u));
 }
 
+/* ## Serial 1's input port carries the RAM configuration
+ *
+ * `IP0`-`IP6` of the first DUART are not handshake lines: they are strapped to
+ * a byte describing which memory banks are populated and how large, and the
+ * boot PROM reads them to size memory before it does anything else. A machine
+ * whose input port answers zero is a machine with no memory fitted.
+ * `FINDINGS.md` C115.
+ */
+
+/* **A table, not an encoder**, and the reason is in the data: `20` is
+ * "8-8-8-8" on a DN3500 and "2-2-2-2" on a DN3000, so the byte is not a
+ * per-bank size field and the same value means different machines. Four points
+ * do not determine a scheme, and no manual in `docs/references/` describes one.
+ */
+static void test_the_ram_config_byte_is_a_table_and_not_a_rule(void) {
+  uint8_t byte = 0u;
+
+  TEST_ASSERT_TRUE(ap_sio_ram_config_byte(AP_MODEL_DN3500, 8u * 1024u * 1024u,
+                                          &byte));
+  TEST_ASSERT_EQUAL_HEX8(0x64u, byte); /* 4-4-0-0 */
+  TEST_ASSERT_TRUE(ap_sio_ram_config_byte(AP_MODEL_DN3500, 16u * 1024u * 1024u,
+                                          &byte));
+  TEST_ASSERT_EQUAL_HEX8(0x60u, byte); /* 4-4-4-4 */
+  TEST_ASSERT_TRUE(ap_sio_ram_config_byte(AP_MODEL_DN3500, 32u * 1024u * 1024u,
+                                          &byte));
+  TEST_ASSERT_EQUAL_HEX8(0x20u, byte); /* 8-8-8-8 */
+
+  /* The same byte, a different machine, a different bank layout -- which is
+   * what makes this a table. */
+  TEST_ASSERT_TRUE(ap_sio_ram_config_byte(AP_MODEL_DN3000, 8u * 1024u * 1024u,
+                                          &byte));
+  TEST_ASSERT_EQUAL_HEX8(0x20u, byte); /* 2-2-2-2, and 8 MB not 32 */
+}
+
+/* A pair the table does not cover is **refused**, not approximated. A wrong
+ * configuration byte is a machine that sizes memory it does not have and finds
+ * out by bus-erroring in the middle of its own self-test -- a failure that
+ * looks like a defect in whatever it touches next. */
+static void test_an_unlisted_size_is_refused_rather_than_approximated(void) {
+  uint8_t byte = 0xAAu;
+  TEST_ASSERT_FALSE(ap_sio_ram_config_byte(AP_MODEL_DN3500, 4u * 1024u * 1024u,
+                                           &byte));
+  TEST_ASSERT_FALSE(ap_sio_ram_config_byte(AP_MODEL_DN3500, 64u * 1024u * 1024u,
+                                           &byte));
+  /* And it did not write anything on the way out. */
+  TEST_ASSERT_EQUAL_HEX8(0xAAu, byte);
+}
+
+/* The strap reaches the pins, and only the seven the part has. */
+static void test_the_strap_drives_seven_input_pins(void) {
+  ap_sio_t sio;
+  TEST_ASSERT_TRUE(ap_sio_reset(&sio));
+  ap_sio_set_ram_config(&sio, 0xE0u);
+  /* Bit 7 is not an input this part has, so it is dropped rather than stored. */
+  TEST_ASSERT_EQUAL_HEX8(0x60u, sio.port[AP_SIO_RAM_CONFIG_UNIT].input);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_the_firmwares_preload_gives_the_documented_refresh_period);
@@ -371,5 +428,8 @@ int main(void) {
   RUN_TEST(test_the_stop_length_is_the_table_s_sixteenths);
   RUN_TEST(test_a_character_takes_as_long_as_its_framing_says);
   RUN_TEST(test_a_rateless_clock_select_has_no_character_time);
+  RUN_TEST(test_the_ram_config_byte_is_a_table_and_not_a_rule);
+  RUN_TEST(test_an_unlisted_size_is_refused_rather_than_approximated);
+  RUN_TEST(test_the_strap_drives_seven_input_pins);
   return UNITY_END();
 }

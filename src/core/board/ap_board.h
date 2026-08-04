@@ -232,6 +232,13 @@ typedef struct ap_board {
    * run whose picture cannot be trusted, and a silent store would hide that
    * behind a plausible image. The first offset is kept for the same reason
    * every other counter here keeps one -- a total cannot say *where*. */
+  /* The RAM configuration strapped onto serial 1's input port, and whether the
+   * model and size were a pair the oracle's table covers. A run whose machine
+   * cannot tell its firmware how much memory it has should say so rather than
+   * present a silent zero -- which reads to the PROM as no memory at all. */
+  uint8_t ram_config;
+  bool ram_config_known;
+
   unsigned graphics_unknown_mode_cycles;
   uint32_t first_graphics_unknown_mode;
 
