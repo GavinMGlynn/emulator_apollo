@@ -91,6 +91,8 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#include "time/ap_time.h"
+
 /* The matrix is 128 keys: four ports of 32 bits, walked `0` to `0x7F`. */
 #define AP_KBD_KEYS 0x80u
 
@@ -105,6 +107,16 @@ typedef struct {
    * transition that did not happen, and a model that let one through would let
    * a caller desynchronise the firmware's own shift state. */
   bool down[AP_KBD_KEYS];
+
+  /* Auto-repeat. Only the most recently pressed key repeats -- the real part
+   * repeats the key being held, and a second key struck while the first is
+   * down takes over. `held` is `AP_KBD_KEYS` when nothing is. */
+  unsigned held;
+  ap_time_t now;
+  /* When the next repeat is due: the press plus the initial delay, then the
+   * period thereafter. */
+  ap_time_t repeat_at;
+  bool repeating; /* past the initial delay, so the period applies */
 } ap_kbd_t;
 
 void ap_kbd_reset(ap_kbd_t *kbd);
@@ -151,6 +163,43 @@ typedef struct {
  * ordinary character means it passes through unchanged, since the ASCII set
  * already sends ASCII. Firmware behaviour, kept apart from the part's. */
 [[nodiscard]] uint16_t ap_kbd_prom_ascii(uint8_t code);
+
+/* ---- Auto-repeat, `008778-03` Chapter 12's notes to Table 12-1 ------------ */
+
+/* "Keys that are specified to auto-repeat default to repeat the down
+ * transition only at **33 milliseconds** (+/- 3 milliseconds) after an initial
+ * delay of **500 milliseconds** (+/- 50 milliseconds). The repeat rate and
+ * delay can be reprogrammed via software."
+ *
+ * Both are documented figures with tolerances, not a range with no value in it,
+ * so neither is `PROVISIONAL`: the nominal is stated and the tolerance is the
+ * part's spread. Both land exactly on the time base -- 500 ms is
+ * 9,900,000,000 units and 33 ms is 653,400,000 -- so nothing is rounded here
+ * either.
+ *
+ * This is the fifth of the tick loop's named debts, and it was left unmodelled
+ * because "a repeat interval would be a number with no clock behind it". There
+ * is a clock now, and the number was in the manual all along. */
+#define AP_KBD_REPEAT_DELAY ((ap_time_t)AP_TIME_BASE_HZ / 2u)
+#define AP_KBD_REPEAT_PERIOD ((ap_time_t)AP_TIME_BASE_HZ * 33u / 1000u)
+
+/* In the **keystate** set the repeat is not the key's code again: "The repeat
+ * function is handled by the keyboard by transmitting a `7F` (hexadecimal) when
+ * any key (except CAPS LOCK) has been pressed for longer than the repeat rate
+ * time." A keystate repeat that resent the down code would be indistinguishable
+ * from the key being struck again. */
+#define AP_KBD_REPEAT_KEYSTATE 0x7Fu
+
+/* Carry the keyboard to `now`, and report a repeat if one is due.
+ *
+ * `*key` receives the repeating key's index. False when nothing is held, when
+ * the held key does not auto-repeat, or when the interval has not elapsed --
+ * which is most calls, since the board advances every device on every step. */
+[[nodiscard]] bool ap_kbd_advance(ap_kbd_t *kbd, ap_time_t now, unsigned *key);
+
+/* Whether a key auto-repeats, by Table 12-1's last column. Absent from the
+ * table -- a state key -- answers false rather than defaulting. */
+[[nodiscard]] bool ap_kbd_auto_repeats(const ap_kbd_ascii_t *key);
 
 /* The code to transmit so the firmware sees `ascii`, and whether shift is
  * needed to produce it. False when no key on this keyboard can. This is what a

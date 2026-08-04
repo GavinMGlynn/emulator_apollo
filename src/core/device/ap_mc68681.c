@@ -547,3 +547,34 @@ unsigned ap_mc68681_stop_code(uint8_t mr2) {
 ap_mc68681_channel_mode_t ap_mc68681_channel_mode(uint8_t mr2) {
   return (ap_mc68681_channel_mode_t)((mr2 >> 6) & 0x3u);
 }
+
+unsigned ap_mc68681_stop_sixteenths(uint8_t mr1, uint8_t mr2) {
+  const unsigned code = ap_mc68681_stop_code(mr2);
+  /* `[68681]` Table 4-5. Codes 8-15 run 1.563 to 2.000 in both columns, so
+   * only the low half differs: 0.563-1.000 for a 6-8 bit character, and
+   * 1.063-1.500 -- exactly half a bit more -- for a 5-bit one. */
+  if (code >= 8u) {
+    return 17u + code;
+  }
+  return (ap_mc68681_character_bits(mr1) == 5u ? 17u : 9u) + code;
+}
+
+ap_time_t ap_mc68681_character_time(uint8_t mr1, uint8_t mr2, unsigned baud) {
+  if (baud == 0u) {
+    /* The four clock-select codes that name no fixed rate. A character time
+     * cannot be computed from them, and inventing one would pace a link at a
+     * speed nothing chose. */
+    return 0u;
+  }
+  /* In sixteenths of a bit: one start bit, the data bits, parity if enabled,
+   * and the stop length. Everything is counted in sixteenths to the end so the
+   * only division is the last one. */
+  unsigned sixteenths = 16u;
+  sixteenths += 16u * ap_mc68681_character_bits(mr1);
+  if (ap_mc68681_parity_enabled(mr1)) {
+    sixteenths += 16u;
+  }
+  sixteenths += ap_mc68681_stop_sixteenths(mr1, mr2);
+
+  return ((ap_time_t)AP_TIME_BASE_HZ * sixteenths) / (16u * (ap_time_t)baud);
+}

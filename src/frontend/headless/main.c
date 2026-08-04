@@ -577,8 +577,16 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
   const size_t input_length = input != NULL ? strlen(input) : 0u;
 
   /* One character time at the line's own rate, which is the floor the *wire*
-   * imposes: a start bit, eight data bits and a stop bit cannot be delivered
-   * closer together than ten bit times, whatever the far end is doing.
+   * imposes: a character cannot be delivered closer together than its own
+   * framing takes, whatever the far end is doing.
+   *
+   * **Ten bit times was the assumption here, and it is only right for 8N1.**
+   * The frame is a start bit, the data bits `MR1[1:0]` asks for, a parity bit
+   * when `MR1[2]` is clear, and a stop length from `MR2[3:0]` -- which is
+   * sixteen encodings from 0.5 to 2 bits, not a one-or-two flag. So the figure
+   * comes from the mode registers now, through
+   * `ap_mc68681_character_time`, and a link running with parity or a long stop
+   * is paced at the rate it actually runs at rather than a tenth faster.
    *
    * `MD.md`'s capture used 0.4 s between carriage returns, which is a person
    * typing and is four hundred times this. The requirement it was recording is
@@ -591,8 +599,8 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
    * no gap. */
   const unsigned input_baud =
       ap_mc68681_baud((uint8_t)(input_rate & 0x0Fu), true);
-  const ap_time_t input_interval =
-      input_baud != 0u ? (AP_TIME_BASE_HZ * 10u) / input_baud : 0u;
+  const ap_time_t input_interval = ap_sio_character_time(
+      &machine.board->sio, input_unit, input_channel, input_baud);
   ap_time_t input_next_at = 0u;
 
   ap_machine_run_t run;

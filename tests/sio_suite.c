@@ -302,6 +302,57 @@ static void test_the_refresh_does_not_depend_on_the_call_rate(void) {
   TEST_ASSERT_EQUAL_HEX16(one.port[0].counter, many.port[0].counter);
 }
 
+/* ---- Character time, `[68681]` Table 4-5 ---------------------------------- */
+
+/* The stop-bit field is sixteen encodings from 0.5 to 2 bits, carried in
+ * sixteenths because every entry of the table is an exact one: 0.563 is 9/16,
+ * 1.063 is 17/16, 2.000 is 32/16. */
+static void test_the_stop_length_is_the_table_s_sixteenths(void) {
+  /* An 8-bit character: codes 0-7 run 0.563 to 1.000. */
+  const uint8_t eight = 0x03u; /* MR1[1:0] = 11 */
+  TEST_ASSERT_EQUAL_UINT(9u, ap_mc68681_stop_sixteenths(eight, 0x00u));
+  TEST_ASSERT_EQUAL_UINT(16u, ap_mc68681_stop_sixteenths(eight, 0x07u));
+  TEST_ASSERT_EQUAL_UINT(25u, ap_mc68681_stop_sixteenths(eight, 0x08u));
+  TEST_ASSERT_EQUAL_UINT(32u, ap_mc68681_stop_sixteenths(eight, 0x0Fu));
+
+  /* A 5-bit character takes the other column: codes 0-7 are half a bit longer,
+   * and 8-15 are identical. A stop length read from `MR2` alone is right for
+   * three character lengths and wrong for this one. */
+  const uint8_t five = 0x00u;
+  TEST_ASSERT_EQUAL_UINT(17u, ap_mc68681_stop_sixteenths(five, 0x00u));
+  TEST_ASSERT_EQUAL_UINT(24u, ap_mc68681_stop_sixteenths(five, 0x07u));
+  TEST_ASSERT_EQUAL_UINT(25u, ap_mc68681_stop_sixteenths(five, 0x08u));
+  TEST_ASSERT_EQUAL_UINT(32u, ap_mc68681_stop_sixteenths(five, 0x0Fu));
+}
+
+/* Ten bit times is 8N1 and nothing else. This is the figure the frontend used
+ * to assume for every link. */
+static void test_a_character_takes_as_long_as_its_framing_says(void) {
+  /* 8N1 at 9600: eight data bits, no parity, one stop -- ten bit times. */
+  const uint8_t mr1_8n = 0x03u | AP_MC68681_MR1_PARITY_ENABLE; /* bit 2 set = no parity */
+  const ap_time_t ten_bits = (AP_TIME_BASE_HZ * 10u) / 9600u;
+  TEST_ASSERT_EQUAL_UINT64(
+      ten_bits, ap_mc68681_character_time(mr1_8n, AP_MC68681_MR2_STOP_ONE, 9600u));
+
+  /* With parity it is eleven, not ten -- a tenth longer, which is the error the
+   * assumption made on every link that used it. */
+  const uint8_t mr1_8p = 0x03u; /* bit 2 clear = with parity */
+  TEST_ASSERT_EQUAL_UINT64(
+      (AP_TIME_BASE_HZ * 11u) / 9600u,
+      ap_mc68681_character_time(mr1_8p, AP_MC68681_MR2_STOP_ONE, 9600u));
+
+  /* And two stop bits make eleven as well, by a different route. */
+  TEST_ASSERT_EQUAL_UINT64(
+      (AP_TIME_BASE_HZ * 11u) / 9600u,
+      ap_mc68681_character_time(mr1_8n, AP_MC68681_MR2_STOP_TWO, 9600u));
+}
+
+/* A rate the clock select does not name is refused rather than divided by. */
+static void test_a_rateless_clock_select_has_no_character_time(void) {
+  TEST_ASSERT_EQUAL_UINT64(
+      0u, ap_mc68681_character_time(0x03u, AP_MC68681_MR2_STOP_ONE, 0u));
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_the_firmwares_preload_gives_the_documented_refresh_period);
@@ -318,5 +369,8 @@ int main(void) {
   RUN_TEST(test_a_character_crosses_the_keyboard_port);
   RUN_TEST(test_the_refresh_period_is_exact_in_base_units);
   RUN_TEST(test_the_serial_ports_raise_the_second_priority_interrupt);
+  RUN_TEST(test_the_stop_length_is_the_table_s_sixteenths);
+  RUN_TEST(test_a_character_takes_as_long_as_its_framing_says);
+  RUN_TEST(test_a_rateless_clock_select_has_no_character_time);
   return UNITY_END();
 }

@@ -2,13 +2,24 @@
 
 #include <string.h>
 
-void ap_kbd_reset(ap_kbd_t *kbd) { memset(kbd, 0, sizeof *kbd); }
+void ap_kbd_reset(ap_kbd_t *kbd) {
+  memset(kbd, 0, sizeof *kbd);
+  /* Nothing held. Zero is a real key index, so the idle value has to be out of
+   * range rather than the natural `memset` zero. */
+  kbd->held = AP_KBD_KEYS;
+}
 
 bool ap_kbd_press(ap_kbd_t *kbd, unsigned key, uint8_t *code) {
   if (key >= AP_KBD_KEYS || kbd->down[key]) {
     return false;
   }
   kbd->down[key] = true;
+  /* The newest key held is the one that repeats, and its delay starts now. A
+   * second key struck while the first is down takes the repeat over, which is
+   * what a matrix scan reporting the newest transition does. */
+  kbd->held = key;
+  kbd->repeat_at = kbd->now + AP_KBD_REPEAT_DELAY;
+  kbd->repeating = false;
   *code = (uint8_t)key;
   return true;
 }
@@ -21,6 +32,14 @@ bool ap_kbd_release(ap_kbd_t *kbd, unsigned key, uint8_t *code) {
   /* The make code with bit 7 set. Not a separate table: the release code *is*
    * the press code plus the flag, which is why the matrix stops at 0x80. */
   *code = (uint8_t)(key | AP_KBD_RELEASE);
+  if (kbd->held == key) {
+    /* Releasing the repeating key stops the repeat. It does **not** hand it to
+     * whatever else is still down: the real part repeats the key being held
+     * most recently, and reviving an older one would produce characters the
+     * operator stopped asking for. */
+    kbd->held = AP_KBD_KEYS;
+    kbd->repeating = false;
+  }
   return true;
 }
 
@@ -230,4 +249,28 @@ bool ap_kbd_encode(char ascii, uint16_t *code, bool *shifted) {
     }
   }
   return false;
+}
+
+bool ap_kbd_auto_repeats(const ap_kbd_ascii_t *key) {
+  return key != nullptr && key->auto_repeat;
+}
+
+bool ap_kbd_advance(ap_kbd_t *kbd, ap_time_t now, unsigned *key) {
+  if (now > kbd->now) {
+    kbd->now = now;
+  }
+  if (key == nullptr || kbd->held >= AP_KBD_KEYS || kbd->now < kbd->repeat_at) {
+    return false;
+  }
+  /* Due. The next one is a period away, not a period from *now* -- so a coarse
+   * advance that skips several intervals does not silently drop the ones it
+   * stepped over, and the repeat rate stays independent of how often this is
+   * called. That is the same property every other advance in this core keeps. */
+  kbd->repeat_at += AP_KBD_REPEAT_PERIOD;
+  /* Past the initial delay now; every repeat after this one is a period apart.
+   * The flag is kept because the *first* interval is the delay and the rest are
+   * the period, and only a press can put it back. */
+  kbd->repeating = true;
+  *key = kbd->held;
+  return true;
 }

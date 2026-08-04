@@ -3413,7 +3413,7 @@ failure that cost a bit position in the 68020's module entry word.
 | Apollo calendar (`010900`) | working: **stride 1, byte consecutive** (measured — and not the timer's odd-address stride 2, so neither placement could be inferred from the other), sixty-four registers aliased through the 256-byte range, and the IRQ8 route through to vector `A8` | `calendar_suite`, 5 tests; `FINDINGS.md` C12 |
 | MC146818A calendar (the part) | working: ten clock bytes, four registers, 50 RAM bytes, the once-per-second update with a full Gregorian carry, the alarm with don't-care codes, and Register C's read-to-clear. **Time is supplied by the caller, never the host** — the oracle seeds its calendar from the wall clock, which would rot every golden. The **periodic interrupt** is implemented for the nine rates that divide the time base (512 Hz to 2 Hz); the six fastest are refused rather than rounded, because `AP_TIME_BASE_HZ` factors as 2^9·3·5^8·11 and they need 2^15. Square wave and daylight-savings shifts are declined. Not yet wired to the board at `010900` | `mc146818_suite`, 29 tests, `MC146818A` (register figures read from page images) |
 | Node ID PROM (`011200`) | working: the layout measured from the oracle's own PROM — stride 2 with the **odd byte reading zero** (unlike the serial ports at the same stride), the identifier big-endian in registers 0-3, and a checksum in register 14 confirmed arithmetically (`01 + 23 + 45 = 69`). The identifier is supplied by the caller, never a constant: a device whose purpose is to be unique per machine must not be the same on every one | `nodeid_suite`, 7 tests |
-| Apollo serial ports (`010400`, `010500`) | working: both DUARTs at **stride 2** (measured), sixteen registers over thirty-two bytes and aliased, sharing IRQ1 through to vector `A1`. The memory-refresh square wave of §3.9 runs: the counter is clocked at the DUART's X1 and produces a 15 microsecond period from the boot PROM's own preload. Its *frequency*, 66666.67 Hz, is not an integer, so a core counting in hertz could not represent this board's refresh clock at all | `sio_suite`, 14 tests; `FINDINGS.md` C14 |
+| Apollo serial ports (`010400`, `010500`) | working: both DUARTs at **stride 2** (measured), sixteen registers over thirty-two bytes and aliased, sharing IRQ1 through to vector `A1`. The memory-refresh square wave of §3.9 runs: the counter is clocked at the DUART's X1 and produces a 15 microsecond period from the boot PROM's own preload. Its *frequency*, 66666.67 Hz, is not an integer, so a core counting in hertz could not represent this board's refresh clock at all | `sio_suite`, 17 tests; `FINDINGS.md` C14 |
 | MC68681 / SCN2681 DUART (the part) | **programming model complete**: all sixteen register addresses of `[68681]` Table 4-1, both channels' mode registers with their shared pointer, clock-select, command and status registers, the three-deep receive FIFO with overrun, the interrupt status and mask registers, the input and output ports, and the counter/timer with both address-triggered commands. Serial framing itself — baud rates, start/stop bits, parity, the echo and loopback modes — is **not** modelled: a character is handed over whole. Not yet wired to the board | `mc68681_suite`, 34 tests, `MC68681 DUART Sep85` |
 | QIC-02 tape drive | working for the readable half of the command set: both SELECTs with the sticky selection and the soft lock, BOT, RETENSION, SELECT Q24, READ and READ STATUS. **Writing is refused rather than discarded** — there is no write-back path, and accepting a write would let an installation appear to succeed. The cartridge *type* is supplied by the caller, because the controller derives it from tape geometry a raw image does not carry. The two opcodes the scan lost are claimed by nothing. **READ STATUS now transfers its block**: six bytes, the length `[SC499]` §1.13.1 gives outright, as three 16-bit fields LSB-first — exception flags, data-error count, underrun count — and reading it clears the power-on condition it reports | `qic_suite`, 18 tests; `FINDINGS.md` C25 |
 | Cartridge tape images (`image/ap_ct.c`) | working: block addressing over a raw `.ct` image, refusing any size that is not a whole number of 512-byte blocks, and boot-record parsing that returns the four header words. Their reading as load address and entry point is now **confirmed by the boot code itself** — its first instruction, a PC-relative `LEA`, computes word 0 exactly when executed at word 1, so the image proves its own layout. `ap_ct_boot_image` therefore *names* load address, entry point and length, and refuses a cartridge that does not announce itself, or whose header describes more than the file holds. Takes memory, never a filename, so `src/core` keeps its zero file I/O and the tests need no gitignored media | `ct_suite`, 12 tests; `FINDINGS.md` C24 |
@@ -4475,6 +4475,65 @@ disk. `0C INITIALIZE DRIVE CHARACTERISTICS` is refused in the command phase and
 not only in the decoder -- a decoder that says no beside an executor that says
 yes is worse than neither. And a controller with no drive answers "not ready"
 rather than looking like one with a blank disk.
+
+#### The tick loop's five debts, discharged
+
+The tick loop item named five things that were incomplete *only* because nothing
+advanced. Each is now settled, and three of them had been settled by other work
+without the item noticing:
+
+| # | debt | state |
+| --- | --- | --- |
+| 1 | stop-bit timing | **done here**: `ap_mc68681_character_time` |
+| 2 | the DUART's counter/timer | done: `ap_sio_advance` clocks it, remainder carried |
+| 3 | the MC146818's periodic interrupt | done: its own `ap_clock_t`, advanced per step |
+| 4 | the bus's arrival clock | done: a device can lengthen its own bus cycle |
+| 5 | keyboard auto-repeat | **done here**: `ap_kbd_advance` |
+
+**Stop-bit timing.** The frontend paced scripted input at ten bit times per
+character, which is 8N1 and nothing else. The frame is a start bit, the data
+bits `MR1[1:0]` asks for, a parity bit when `MR1[2]` is *clear*, and a stop
+length from `MR2[3:0]` — sixteen encodings from 0.5 to 2 bits, not a
+one-or-two flag. `[68681]` Table 4-5 has **two columns**, and which applies
+depends on the character length: a 5-bit character adds half a bit to codes 0-7
+and leaves 8-15 alone, so a stop length read from `MR2` alone is right for three
+of the four lengths and quietly wrong for the fourth. Carried in **sixteenths**
+because every entry is an exact one — 0.563 is 9/16, 1.063 is 17/16, 2.000 is
+32/16 — and a character time assembled from rounded parts drifts. Read from the
+page image; the extraction renders `0.563` as `0:563`.
+
+**Keyboard auto-repeat** was "deliberately unmodelled because a repeat interval
+would be a number with no clock behind it". There is a clock now, and the number
+was in the manual all along: `008778-03` Chapter 12's notes to Table 12-1 give
+**33 ms (±3)** after an initial delay of **500 ms (±50)**, reprogrammable. Both
+are nominals with tolerances rather than ranges with no value in them, so
+neither is `PROVISIONAL`, and both land exactly on the time base — 9,900,000,000
+and 653,400,000 units. In the *keystate* set the repeat is not the key's code
+again but a `7F`, which is the only way a repeat is distinguishable from the key
+being struck afresh.
+
+Only the most recently pressed key repeats, and releasing it does not hand the
+repeat back to a key still held — reviving an older key would type characters
+the operator stopped asking for. The deadline advances by a whole period rather
+than being reset to `now`, so a coarse advance does not discard the intervals it
+stepped over. That is the property every advance in this core keeps, and it is
+what makes a rate independent of how often it is polled.
+
+**What the loop is, stated plainly.** An instruction runs, its clocks become
+time through `ap_clock_duration` — the one place a CPU cycle becomes a time —
+and every device advances to that absolute instant, each carrying its own
+remainder. The bus is ticked per *clock*, not per instruction, so contention and
+arbitration are cycle-resolved.
+
+This is **not yet** `CLAUDE.md`'s "one `tick()` per machine cycle" in the strict
+sense: devices advance once per instruction rather than interleaved within one.
+The two are numerically identical for everything measured so far, because each
+device carries its remainder and the 68030 samples interrupts at instruction
+boundaries anyway — but they are not identical in general, and the difference
+would show wherever a device's output feeds back into an instruction still
+executing. Closing it needs a cycle-steppable CPU, which is a larger change than
+this item, and it is recorded as its own thing rather than left implied by a
+ticked box.
 
 #### The keyboard has two code sets, and this core had read one as the other
 

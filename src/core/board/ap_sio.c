@@ -134,6 +134,16 @@ bool ap_sio_refresh_output(const ap_sio_t *sio) {
   return sio->port[0].counter_output;
 }
 
+ap_time_t ap_sio_character_time(const ap_sio_t *sio, unsigned unit,
+                                unsigned channel, unsigned baud) {
+  if (unit >= 2u || channel >= 2u) {
+    return 0u;
+  }
+  return ap_mc68681_character_time(sio->port[unit].channel[channel].mr[0],
+                                   sio->port[unit].channel[channel].mr[1],
+                                   baud);
+}
+
 unsigned ap_sio_character_bits(const ap_sio_t *sio, unsigned unit,
                                unsigned channel) {
   if (unit >= 2u || channel >= 2u) {

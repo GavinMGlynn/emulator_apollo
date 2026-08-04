@@ -143,6 +143,12 @@ void ap_sio_advance(ap_sio_t *sio, ap_time_t now);
  * code, which is the make code with bit 7 set, cannot arrive at all. A script
  * that sent as soon as the receiver was free would be sending into that
  * window, and the byte would be lost silently rather than refused. */
+/* How long one character takes on this channel's wire, from its own mode
+ * registers and the rate its clock select names. Zero for a channel whose rate
+ * is not a fixed one, or an out-of-range unit or channel. */
+[[nodiscard]] ap_time_t ap_sio_character_time(const ap_sio_t *sio, unsigned unit,
+                                              unsigned channel, unsigned baud);
+
 [[nodiscard]] unsigned ap_sio_character_bits(const ap_sio_t *sio, unsigned unit,
                                              unsigned channel);
 

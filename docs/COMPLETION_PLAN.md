@@ -2498,55 +2498,31 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         to `00002542`.
 - [ ] **The tick loop**, the project's central design item.
 
-  - [ ] The tick loop is still owed and remains the project's central design
-        item. It was **not** what the `000007AE` stop needed, and building it
-        there would have been the wrong move for a plausible reason — a poll
-        loop looks like a timing problem.
-        - **It is now demonstrably required, by five named things rather than a
-          hunch.** Each was found by building something else and hitting the
-          same wall:
-          1. **Stop-bit timing.** `MR2[3:0]` is decoded and reported; timing it
-             needs a clock.
-          2. **The DUART's counter/timer**, which the memory refresh is driven
-             from — `§3.9`'s period is already pinned at 99000 base units.
-          3. **The MC146818's periodic interrupt**, whose six fastest rates are
-             a `PROVISIONAL` figure waiting on a time-base decision.
-          4. **The bus's arrival clock.** Every device answers at a fixed
-             two-clock `STERM`, so a slow device cannot lengthen a cycle and no
-             timing figure can come from a device's own speed.
-          5. **Keyboard auto-repeat**, deliberately unmodelled because a repeat
-             interval would be a number with no clock behind it.
-        - That list is the difference between "owed eventually" and "next". Each
-          entry names a module already written that is incomplete *only* because
-          nothing advances.
-        - **Started: the machine keeps time.** `ap_machine_now` is absolute time
-          since reset in `AP_TIME_BASE_HZ` units, advanced from each step's CPU
-          clocks through `ap_clock_duration`. That conversion is the **only**
-          place a CPU cycle becomes a time, which is what keeps the rest honest
-          about its units. `machine_suite`, 3 tests.
-        - The rate is the **model's**, taken from the table by
-          `ap_machine_init_model`, and there is no setter to override it with.
-          A rate the base cannot represent is refused rather than rounded, at
-          `ap_clock_init`, and `time_suite` pins that the base divides every
-          model's clock — so an unrepresentable one is a red test rather than a
-          machine that quietly keeps no time.
-        - This is the clock, not the loop. Nothing else advances inside it yet;
-          the five things above still wait. What exists is something true for
-          them to advance against, rather than a number invented alongside the
-          first subsystem that needed one.
-        - This is the project's central design item, deferred until something
-          needed it, and the firmware now does: *"one `tick()` per machine
-          cycle, every subsystem advancing inside it, no batching, no event
-          queues, no special cases."*
-        - Time is counted in `AP_TIME_BASE_HZ` units, never CPU cycles, and
-          `src/core/time/` already exists for it. The step returns clocks; the
-          conversion to base units is the first thing to get right, and
-          `ap_clock_init()` already refuses a frequency the base cannot
-          represent.
-        - Identify which device `A0` points at before building anything — the
-          poll names it, and `--boot-trace` reports only A6 and A7 today.
-          Extending the trace has been the cheapest move available at every
-          step of this investigation.
+  - [x] **The five named debts, discharged.** The item's own definition of done
+        was that the five things it named begin to advance; three had been
+        settled by other work without it noticing (the DUART's counter/timer,
+        the MC146818's periodic interrupt, the bus's arrival clock) and two are
+        done here. **Stop-bit timing**: the frontend paced input at ten bit
+        times, which is 8N1 and nothing else, so the figure now comes from the
+        mode registers through `ap_mc68681_character_time` -- `[68681]` Table
+        4-5's stop lengths in sixteenths, whose *two columns* differ by half a
+        bit for a 5-bit character. **Keyboard auto-repeat**: unmodelled because
+        "a repeat interval would be a number with no clock behind it", and the
+        number was in `008778-03` Chapter 12 all along -- 33 ms after a 500 ms
+        delay, both exact on the time base. Detail in `PROJECT_STATUS.md`.
+        *Verification: `sio_suite` 17, `kbd_suite` 17. The PROM still runs
+        4,000,000 instructions with 129 bus errors and 129 unmapped reads, all
+        at the FPA probe address -- unchanged.*
+  - [ ] **Remaining, and it is architectural rather than a debt.** Devices
+        advance once per instruction to an absolute instant, each carrying its
+        own remainder; the bus is ticked per *clock*. That is not yet
+        `CLAUDE.md`'s "one `tick()` per machine cycle" in the strict sense.
+        The two agree on everything measured so far -- remainders are carried
+        and the 68030 samples interrupts at instruction boundaries anyway --
+        and they do not agree in general, wherever a device's output would feed
+        back into an instruction still executing. **Awaiting:** a cycle-steppable
+        CPU, which is a larger change than this item and is named here rather
+        than left implied by a ticked box.
   - [x] That run was a machine waiting correctly rather than a runaway — the PC
         stayed on one instruction and the fault count was static, unlike the
         vector-table runaway. Confirmed since: it was waiting for console input

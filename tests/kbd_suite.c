@@ -227,6 +227,96 @@ static void test_encoding_a_character_picks_the_key_that_produces_it(void) {
   TEST_ASSERT_FALSE(ap_kbd_encode('\x01', &code, &shifted));
 }
 
+/* ---- Auto-repeat ---------------------------------------------------------- */
+
+/* `008778-03` Chapter 12: auto-repeat keys "repeat the down transition only at
+ * 33 milliseconds (+/- 3) after an initial delay of 500 milliseconds (+/- 50)".
+ * Both land exactly on the time base, so neither is rounded on top of being a
+ * nominal with a tolerance. */
+static void test_the_repeat_figures_are_the_manual_s_and_are_exact(void) {
+  TEST_ASSERT_EQUAL_UINT64(AP_TIME_BASE_HZ / 2u, AP_KBD_REPEAT_DELAY);
+  TEST_ASSERT_EQUAL_UINT64(9900000000u, AP_KBD_REPEAT_DELAY);
+  TEST_ASSERT_EQUAL_UINT64(653400000u, AP_KBD_REPEAT_PERIOD);
+  /* 33 ms exactly: the base divides it. */
+  TEST_ASSERT_EQUAL_UINT64(0u, (AP_TIME_BASE_HZ * 33u) % 1000u);
+}
+
+/* The delay governs the first repeat and the period every one after it. A model
+ * that used the period throughout would repeat fifteen times before the real
+ * keyboard had repeated once. */
+static void test_the_first_repeat_waits_the_delay_and_the_rest_the_period(void) {
+  ap_kbd_t k;
+  uint8_t code = 0u;
+  unsigned key = 0u;
+  ap_kbd_reset(&k);
+  TEST_ASSERT_TRUE(ap_kbd_press(&k, 0x20u, &code));
+
+  /* One unit short of the delay: nothing. */
+  TEST_ASSERT_FALSE(ap_kbd_advance(&k, AP_KBD_REPEAT_DELAY - 1u, &key));
+  /* At the delay: the first repeat, naming the held key. */
+  TEST_ASSERT_TRUE(ap_kbd_advance(&k, AP_KBD_REPEAT_DELAY, &key));
+  TEST_ASSERT_EQUAL_UINT(0x20u, key);
+
+  /* Then the period, not the delay again. */
+  TEST_ASSERT_FALSE(
+      ap_kbd_advance(&k, AP_KBD_REPEAT_DELAY + AP_KBD_REPEAT_PERIOD - 1u, &key));
+  TEST_ASSERT_TRUE(
+      ap_kbd_advance(&k, AP_KBD_REPEAT_DELAY + AP_KBD_REPEAT_PERIOD, &key));
+}
+
+/* The deadline advances by a whole period rather than being reset to `now`, so
+ * a coarse advance does not lose the intervals it stepped over -- the same
+ * property every other advance in this core keeps. */
+static void test_a_coarse_advance_does_not_lose_repeats(void) {
+  ap_kbd_t k;
+  uint8_t code = 0u;
+  unsigned key = 0u;
+  ap_kbd_reset(&k);
+  TEST_ASSERT_TRUE(ap_kbd_press(&k, 0x20u, &code));
+
+  /* Jump well past the delay and three periods. */
+  const ap_time_t far = AP_KBD_REPEAT_DELAY + AP_KBD_REPEAT_PERIOD * 3u;
+  TEST_ASSERT_TRUE(ap_kbd_advance(&k, far, &key));
+  /* The three it stepped over are still owed, and come out one per call at the
+   * same instant rather than being discarded. */
+  TEST_ASSERT_TRUE(ap_kbd_advance(&k, far, &key));
+  TEST_ASSERT_TRUE(ap_kbd_advance(&k, far, &key));
+  TEST_ASSERT_TRUE(ap_kbd_advance(&k, far, &key));
+  TEST_ASSERT_FALSE(ap_kbd_advance(&k, far, &key));
+}
+
+/* Releasing the repeating key stops it, and does not hand the repeat to a key
+ * that is still down -- the real part repeats the most recent transition, and
+ * reviving an older key would type characters nobody asked for. */
+static void test_releasing_the_held_key_stops_the_repeat(void) {
+  ap_kbd_t k;
+  uint8_t code = 0u;
+  unsigned key = 0u;
+  ap_kbd_reset(&k);
+  TEST_ASSERT_TRUE(ap_kbd_press(&k, 0x20u, &code));
+  TEST_ASSERT_TRUE(ap_kbd_press(&k, 0x21u, &code)); /* takes the repeat over */
+  TEST_ASSERT_TRUE(ap_kbd_advance(&k, AP_KBD_REPEAT_DELAY * 2u, &key));
+  TEST_ASSERT_EQUAL_UINT(0x21u, key);
+
+  TEST_ASSERT_TRUE(ap_kbd_release(&k, 0x21u, &code));
+  TEST_ASSERT_FALSE(ap_kbd_advance(&k, AP_KBD_REPEAT_DELAY * 10u, &key));
+  /* Even though `0x20` is still down. */
+  TEST_ASSERT_TRUE(k.down[0x20u]);
+}
+
+/* Only the keys Table 12-1 marks repeat. A keyboard that repeated RETURN would
+ * fill a line with them from a key held a moment too long. */
+static void test_only_the_keys_the_table_marks_auto_repeat(void) {
+  TEST_ASSERT_TRUE(ap_kbd_auto_repeats(ap_kbd_ascii_find("B15")));  /* BACK SPACE */
+  TEST_ASSERT_TRUE(ap_kbd_auto_repeats(ap_kbd_ascii_find("F1")));   /* space bar */
+  TEST_ASSERT_TRUE(ap_kbd_auto_repeats(ap_kbd_ascii_find("C14")));  /* DELETE */
+  TEST_ASSERT_FALSE(ap_kbd_auto_repeats(ap_kbd_ascii_find("D13"))); /* RETURN */
+  TEST_ASSERT_FALSE(ap_kbd_auto_repeats(ap_kbd_ascii_find("D2")));  /* A */
+  /* A state key is not in the table at all, and answers false rather than
+   * dereferencing nothing. */
+  TEST_ASSERT_FALSE(ap_kbd_auto_repeats(ap_kbd_ascii_find("E1")));
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_a_key_sends_its_index_down_and_bit_seven_up);
@@ -241,5 +331,10 @@ int main(void) {
   RUN_TEST(test_the_state_keys_send_nothing);
   RUN_TEST(test_most_keys_have_no_up_transition_code);
   RUN_TEST(test_encoding_a_character_picks_the_key_that_produces_it);
+  RUN_TEST(test_the_repeat_figures_are_the_manual_s_and_are_exact);
+  RUN_TEST(test_the_first_repeat_waits_the_delay_and_the_rest_the_period);
+  RUN_TEST(test_a_coarse_advance_does_not_lose_repeats);
+  RUN_TEST(test_releasing_the_held_key_stops_the_repeat);
+  RUN_TEST(test_only_the_keys_the_table_marks_auto_repeat);
   return UNITY_END();
 }

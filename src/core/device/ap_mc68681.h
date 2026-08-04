@@ -51,6 +51,8 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#include "time/ap_time.h"
+
 #define AP_MC68681_REGISTERS 16u
 #define AP_MC68681_CHANNELS 2u
 
@@ -253,6 +255,33 @@ void ap_mc68681_receive_at(ap_mc68681_t *duart, unsigned channel, uint8_t byte,
  * `AP_MC68681_MR2_STOP_ONE` and `_TWO` rather than converting to a count: the
  * field's other values are fractional and a count cannot carry them. */
 [[nodiscard]] unsigned ap_mc68681_stop_code(uint8_t mr2);
+
+/* The stop-bit length in **sixteenths of a bit time**, from `[68681]` Table 4-5
+ * (the MR2 sheet), read from the page image because the extraction turns
+ * `0.563` into `0:563`.
+ *
+ * Sixteenths rather than a fraction because every entry is an exact one: 0.563
+ * is 9/16, 1.063 is 17/16, 2.000 is 32/16. Carrying them as a rounded decimal
+ * would lose the exactness the table has, and a character time built from
+ * rounded parts is a character time that drifts.
+ *
+ * The table has **two columns**, and which applies depends on `MR1`: a 5-bit
+ * character adds half a bit to codes 0-7 and leaves 8-15 alone. So this takes
+ * both registers -- a stop length read from `MR2` alone is right for three of
+ * the four character lengths and quietly wrong for the fourth. */
+[[nodiscard]] unsigned ap_mc68681_stop_sixteenths(uint8_t mr1, uint8_t mr2);
+
+/* How long one character occupies the line, in `AP_TIME_BASE_HZ` units: the
+ * start bit, the data bits, the parity bit if `MR1` asks for one, and the stop
+ * length above.
+ *
+ * This is the figure the tick loop's first named debt wanted. A caller pacing
+ * input at ten bit times per character is right only for 8N1 -- it is wrong by
+ * a whole bit with parity enabled, and by up to a further bit at the stop
+ * length's extremes. Zero when the clock select names no fixed rate, which is
+ * a refusal rather than a division by zero. */
+[[nodiscard]] ap_time_t ap_mc68681_character_time(uint8_t mr1, uint8_t mr2,
+                                                  unsigned baud);
 
 /* `MR2[7:6]`, the channel mode. Normal is a wire to the outside; the other
  * three connect the channel to itself in different places, and a self-test uses
