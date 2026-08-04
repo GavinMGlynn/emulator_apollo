@@ -2814,12 +2814,21 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         an unlisted size refused, and only the seven pins the part has. The
         refusal found the frontend building **4 MB**, which is not a DN3500
         configuration at all; it builds 16 MB now.*
-      **Awaiting:** what the PROM wants from `IPCR` when the configuration is
-      not in that register. `60` puts the four carrying pins in the *upper*
-      nibble, and `IPCR` holds only `IP0`-`IP3` and their change flags — the
-      byte is read at register 13. So either something else should drive the low
-      four pins, or the poll is a timing loop against the counter programmed at
-      registers 6 and 4 an instruction earlier.
+  - [x] **OP3 is wired back to IP0**, and the poll is a timing measurement: the
+        PROM programs the timer, routes it to OP3, starts it and counts five
+        whole cycles of IP0. The board loops the **memory refresh** square wave
+        back to the part's own input port. This core already produced that wave
+        at the right period with its own tests, and it was connected to nothing
+        — the third time this campaign the missing piece was a connection rather
+        than a model. `FINDINGS.md` C116.
+        *Verification: `sio_suite` +2 (22) — the pin following the wave and the
+        change flag actually setting, since a pin that changed without one would
+        leave the PROM spinning; and the loopback leaving the six RAM-config
+        pins alone. The boot moves from `0000658C` to `00007026` and from 0 to
+        **655,368 blit cycles**.*
+      **Awaiting:** the frame buffer ends *cleared* after 1,572,872 plane
+      writes, which is what a boot does before drawing its own. Where it goes
+      next, and whether it reaches the disk, is the next reading.
   - [x] **A disk can be fitted at all.** `ap_omti` modelled the controller and
         `ap_awd` read the image and nothing ever handed one to the other, so
         every boot experiment so far ran on a DN3500 with **no Winchester** —

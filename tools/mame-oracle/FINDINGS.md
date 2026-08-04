@@ -6693,3 +6693,65 @@ on `IPCR` specifically, when the byte it wants is not there. Either it polls for
 a change on the low four pins that something else should drive, or the poll is
 a timing loop against the counter it programmed at registers 6 and 4 one
 instruction earlier.
+
+## C116 -- OP3 is wired back to IP0, and the PROM counts the refresh square wave
+
+**Class: ours-wrong, one missing wire.** The normal-mode poll that read `sio1`
+register 4 nine and a half million times is closed, and the boot moves on.
+
+### What the poll is
+
+Disassembling the PROM at the resting PC gives the whole thing in twelve
+instructions:
+
+    006564  lea.l   $10400.l,a3
+    00656A  move.b  #$4,$1a(a3)     ; OPCR = 04: OP3 is the counter/timer output
+    006570  move.b  #$60,$8(a3)     ; ACR = 60: timer mode, clock X1
+    006576  move.b  #$0,$c(a3)      ; CTUR = 00
+    00657C  move.b  #$15,$e(a3)     ; CTLR = 15
+    006582  move.b  $1d(a3),d0      ; register 14 read: START COUNTER
+    00658C  move.b  $8(a3),d0       ; poll IPCR
+    006590  btst.b  #$4,d0          ; delta-IP0
+    006594  beq.b   $658c
+    006596  move.b  $8(a3),d0
+    00659A  btst.b  #$0,d0          ; IP0 high
+    00659E  beq.b   $6596
+    0065A0  ...     btst #$0 ; bne  ; IP0 low
+    0065AA  addq.b  #$1,d1 ; cmp #5 ; bne $6596
+
+It programs the timer, routes it to OP3, starts it, and then counts **five whole
+cycles of IP0**. That is only meaningful if OP3 reaches IP0.
+
+### It does, and the oracle says why in a comment
+
+`apollo_state::sio_output` drives `ip0_w` from output bit 3, with:
+
+    // The counter/timer on the SIO chip is used for the RAM refresh count.
+    // This is set up in the timer mode to produce a square wave output on
+    // output OP3. The period of the output is 15 microseconds.
+
+So the board loops OP3 back to IP0, and the boot PROM measures the **memory
+refresh** square wave to satisfy itself the timer runs at the rate it expects.
+
+### Why this core had everything but the wire
+
+`ap_sio` already had the refresh square wave, at exactly the right period --
+`AP_SIO_REFRESH_PERIOD`, 15 µs, §3.9 cited, with a test asserting it inverts
+every half period and returns after a whole one. It was implemented, correct,
+and **connected to nothing**. The one line that returns it to the part's own
+input port was missing, and with it the only program that ever looks at the
+refresh could not see it.
+
+That is the third time in this campaign that the missing piece was a connection
+rather than a model: the Bt458 was complete and unwired, the disk controller was
+complete and unwired, and now the refresh output. A subsystem that passes its own
+tests and reaches nothing is the shape to watch for.
+
+### What it unblocked
+
+    final PC        00007026    against 0000658C
+    blit cycles     655,368     against 0
+    plane writes    1,572,872   against 0
+
+Ten times the drawing of the service-mode diagnostic, and the frame buffer ends
+*cleared* -- which is what a boot does before it draws anything of its own.

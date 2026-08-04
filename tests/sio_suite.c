@@ -409,6 +409,56 @@ static void test_the_strap_drives_seven_input_pins(void) {
   TEST_ASSERT_EQUAL_HEX8(0x60u, sio.port[AP_SIO_RAM_CONFIG_UNIT].input);
 }
 
+/* **OP3 is wired back to IP0**, and that loopback is the whole reason the
+ * refresh square wave is observable to a program.
+ *
+ * The boot PROM programs the timer, routes it to OP3, starts the counter and
+ * then polls `IPCR` for a *change* on IP0, counting five whole cycles. Without
+ * the wire that poll never ends — 9,982,874 reads of one register in a
+ * 30,000,000 instruction run. `FINDINGS.md` C116.
+ *
+ * The refresh wave itself was already here, at the right period, with its own
+ * tests. It was connected to nothing. */
+static void test_the_refresh_output_returns_to_the_input_port(void) {
+  ap_sio_t sio;
+  TEST_ASSERT_TRUE(ap_sio_reset(&sio));
+  program_refresh_timer(&sio);
+
+  ap_time_t now = 0u;
+  ap_sio_advance(&sio, now);
+  const bool start = ap_sio_refresh_output(&sio);
+  TEST_ASSERT_EQUAL_INT(start ? 1 : 0,
+                        sio.port[AP_SIO_RAM_CONFIG_UNIT].input & 0x01u);
+
+  /* Half a period: the wave inverts, and so must the pin. */
+  now += AP_SIO_REFRESH_PERIOD / 2u;
+  ap_sio_advance(&sio, now);
+  TEST_ASSERT_NOT_EQUAL_INT(start, ap_sio_refresh_output(&sio));
+  TEST_ASSERT_EQUAL_INT(ap_sio_refresh_output(&sio) ? 1 : 0,
+                        sio.port[AP_SIO_RAM_CONFIG_UNIT].input & 0x01u);
+
+  /* And the change is *visible* in the change register, which is the bit the
+   * firmware actually polls -- a pin that changed with no delta flag would
+   * leave the PROM spinning exactly as it did before the wire existed. */
+  TEST_ASSERT_TRUE((sio.port[AP_SIO_RAM_CONFIG_UNIT].ipcr & 0x10u) != 0u);
+}
+
+/* The loopback must not disturb the RAM configuration on the other six pins:
+ * IP0 is the refresh and IP1-IP6 are the strap, and a model driving the whole
+ * port from the wave would tell the firmware its memory had vanished. */
+static void test_the_loopback_leaves_the_ram_config_pins_alone(void) {
+  ap_sio_t sio;
+  TEST_ASSERT_TRUE(ap_sio_reset(&sio));
+  ap_sio_set_ram_config(&sio, 0x60u);
+  program_refresh_timer(&sio);
+
+  for (unsigned i = 1; i <= 4u; i++) {
+    ap_sio_advance(&sio, AP_SIO_REFRESH_PERIOD * i / 2u);
+    TEST_ASSERT_EQUAL_HEX8(
+        0x60u, (uint8_t)(sio.port[AP_SIO_RAM_CONFIG_UNIT].input & 0xFEu));
+  }
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_the_firmwares_preload_gives_the_documented_refresh_period);
@@ -431,5 +481,7 @@ int main(void) {
   RUN_TEST(test_the_ram_config_byte_is_a_table_and_not_a_rule);
   RUN_TEST(test_an_unlisted_size_is_refused_rather_than_approximated);
   RUN_TEST(test_the_strap_drives_seven_input_pins);
+  RUN_TEST(test_the_refresh_output_returns_to_the_input_port);
+  RUN_TEST(test_the_loopback_leaves_the_ram_config_pins_alone);
   return UNITY_END();
 }

@@ -127,6 +127,27 @@ void ap_sio_advance(ap_sio_t *sio, ap_time_t now) {
     }
     sio->clocked_to[unit] += pulses * sio->x1[unit].period;
   }
+
+  /* **OP3 is wired back to IP0**, and that loopback is the whole reason the
+   * refresh square wave is observable to a program.
+   *
+   * §3.9 puts the refresh on serial 1's OP3, and the board returns it to the
+   * same part's IP0 -- the oracle's `sio_output` does exactly this, with the
+   * comment that says why: "The counter/timer on the SIO chip is used for the
+   * RAM refresh count ... to produce a square wave output on output OP3. The
+   * period of the output is 15 microseconds."
+   *
+   * The boot PROM reads it: it programs the timer, routes it to OP3, starts the
+   * counter and then polls `IPCR` for a **change on IP0**, counting five whole
+   * cycles. Without the loopback that poll never ends, which is where every
+   * normal-mode boot in this project stopped -- 9,982,874 reads of one
+   * register. `FINDINGS.md` C116.
+   *
+   * Driven here rather than at the write to the output port, because the level
+   * is the *timer's* and changes with time, not with anything a program does. */
+  const uint8_t ip0 = ap_sio_refresh_output(sio) ? 0x01u : 0x00u;
+  ap_mc68681_t *first = &sio->port[AP_SIO_RAM_CONFIG_UNIT];
+  ap_mc68681_set_input(first, (uint8_t)((first->input & 0xFEu) | ip0));
 }
 
 bool ap_sio_refresh_output(const ap_sio_t *sio) {
