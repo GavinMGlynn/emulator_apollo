@@ -33,12 +33,14 @@
 #include <stdint.h>
 
 #include "board/ap_arbiter.h"
+#include "model/ap_model.h"
 #include "board/ap_atbus.h"
 #include "board/ap_atmap.h"
 #include "board/ap_boardreg.h"
 #include "board/ap_calendar.h"
 #include "board/ap_disk.h"
 #include "board/ap_dma.h"
+#include "board/ap_dmapage.h"
 #include "board/ap_intr.h"
 #include "board/ap_nodeid.h"
 #include "board/ap_sio.h"
@@ -98,6 +100,8 @@ typedef enum {
   AP_BOARD_REGION_INTERRUPT,
   AP_BOARD_REGION_NODE_ID,
   AP_BOARD_REGION_TRANSLATION_MAP,
+  /* The DS3000's counterpart to the map: `board/ap_dmapage.h`. */
+  AP_BOARD_REGION_DMA_PAGE,
   AP_BOARD_REGION_DISK,
   AP_BOARD_REGION_TAPE,
   AP_BOARD_REGION_GRAPHICS,
@@ -110,13 +114,66 @@ typedef enum {
  * the switch statements rather than a silently unrecorded one here. */
 #define AP_BOARD_REGIONS (AP_BOARD_REGION_RAM + 1u)
 
+/* One device's placement on one model's board.
+ *
+ * `canonical` is the address the *device module* expects, which is the DN3500's
+ * -- every module in `board/` carries its own placement from Table 2-8 and this
+ * core was built around them. A DS3000 board puts the same devices elsewhere, so
+ * the map translates: a machine address in `[base, base + size)` becomes
+ * `canonical + (address - base)` before the module ever sees it.
+ *
+ * Doing it that way rather than parameterising every module keeps the placement
+ * variance in one table, which is `CLAUDE.md`'s rule, and leaves the modules
+ * saying what their own manual says. */
+typedef struct {
+  uint32_t base;
+  uint32_t size;
+  ap_board_region_t region;
+  uint32_t canonical;
+} ap_board_placement_t;
+
+/* One model's physical address space. `008778-03` Table 2-6 for the DS3000 and
+ * Table 2-8 for the DS4000, which is the map this core was written against. */
+typedef struct {
+  const char *name;
+  const ap_board_placement_t *placement;
+  unsigned placements;
+  uint32_t ram_base;
+  uint32_t ram_limit;
+  uint32_t prom_size;
+  /* `008778-03` §1.2: "The Series 4000, unlike the Series 3000, incorporates an
+   * address translation map in its architecture", so a DS3000's DMA reaches
+   * physical memory directly and the map's window is not decoded at all. */
+  bool has_translation_map;
+
+  /* Address bits this board's decode keeps. `008778-03` §1.3: "In the Series
+   * 3000, the virtual address appears to 'wrap' at 26 bits, the five high-order
+   * (27:31) bits are simply ignored. The Series 4000 makes use of all virtual
+   * address bits."
+   *
+   * The sentence disagrees with itself by one -- ignoring bits 27 through 31
+   * leaves twenty-seven, not twenty-six -- and the disagreement has no
+   * observable consequence: Table 2-6's space ends at `FFFFFF`, so every
+   * address above it is unmapped under either reading and the only addresses
+   * the mask changes are ones that wrap onto the same place. The explicit
+   * clause is implemented and the ambiguity recorded rather than resolved by
+   * preference. */
+  uint32_t address_mask;
+} ap_board_map_t;
+
+[[nodiscard]] const ap_board_map_t *ap_board_map_for(ap_model_id_t model);
+
 typedef struct ap_board {
+  /* Which model's address space this board lays out. */
+  const ap_board_map_t *map;
+
   ap_boardreg_t registers;
   ap_atmap_t translation_map;
   ap_intr_t interrupts;
   ap_timer_t timer;
   ap_calendar_t calendar;
   ap_dma_t dma;
+  ap_dmapage_t dma_page;
   ap_sio_t sio;
   ap_nodeid_t node_id;
   ap_disk_t disk;
@@ -264,6 +321,14 @@ typedef struct ap_board {
                                  const ap_mc146818_time_t *start,
                                  uint32_t node_id);
 
+/* The same, as a named model. `ap_board_init` is this with the DN3500 -- the
+ * reference superset -- so every existing caller keeps the board it had, which
+ * is the same shape `ap_machine_init_model` takes and for the same reason. */
+[[nodiscard]] bool ap_board_init_model(ap_board_t *board, uint8_t *ram,
+                                       uint32_t ram_bytes,
+                                       const ap_mc146818_time_t *start,
+                                       uint32_t node_id, ap_model_id_t model);
+
 /* Attach a boot PROM image. Fails if it is larger than the region Table 2-8
  * gives it -- an image that does not fit is not this machine's PROM, and
  * truncating it would run whatever happened to be in the first 64 KB. */
@@ -276,7 +341,11 @@ typedef struct ap_board {
 [[nodiscard]] bool ap_board_reset_vector(const ap_board_t *board,
                                          uint32_t *stack, uint32_t *pc);
 
-[[nodiscard]] ap_board_region_t ap_board_region(uint32_t address);
+/* Which part of *this board's* machine an address belongs to. Takes the board
+ * because the answer is a model's, not the architecture's: a DS3000 puts its
+ * serial ports at `008400` where a DS3500 puts them at `010400`. */
+[[nodiscard]] ap_board_region_t ap_board_region(const ap_board_t *board,
+                                                uint32_t address);
 [[nodiscard]] const char *ap_board_region_name(ap_board_region_t region);
 
 /* How long this address takes to answer, in `AP_TIME_BASE_HZ` units. Zero means

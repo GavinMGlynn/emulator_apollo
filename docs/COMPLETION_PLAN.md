@@ -2040,16 +2040,21 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         Detail in `PROJECT_STATUS.md`.
 ## Phase 4 — Storage, then a first boot
 
-- [ ] **A DN3000 core board, and `dn3000` boots.** Carried here from Phase 2b's
-      68020 and 68851 items, whose verification it was: a boot needs a board,
-      and a board is Phase 3's subject while a first boot is this phase's. The
-      reference is in hand -- `008778-03` Table 2-6 gives the DS3000's 16 MB
-      map, the counterpart to Table 2-8 that `board/ap_board.c` already builds
-      the DN3500 from. Two differences are structural rather than cosmetic: main
-      memory starts at `100000` rather than `1000000`, and there is no address
-      translation map ("the Series 4000, unlike the Series 3000, incorporates an
-      address translation map in its architecture"), so DMA reaches physical
-      memory directly. *Verification: `dn3000` boots; oracle diff.*
+- [x] **A DN3000 core board, and `dn3000` boots.** The board holds a *map* per
+      model now — Table 2-6's DS3000 space against Table 2-8's — because the
+      difference is not a shift: the device block moves from `010000` to
+      `008000` and the DMA, interrupt and node-ID placements move again within
+      it. Device modules are untouched, the map carrying a canonical address
+      beside each base. Two things the boot found: the **DMA page register** at
+      `009200`, which replaces the translation map and which the firmware writes
+      before anything else, and §1.3's rule that a Series 3000 **ignores address
+      bits 27-31** — the PROM writes `08000000` thirty-eight thousand times.
+      Detail in `PROJECT_STATUS.md`.
+      *Verification: 500,000 instructions with zero bus errors and zero unmapped
+      accesses, and the console emits `MD8 REV 7.0, 1988/08/16.15:14:39` — its
+      own PROM's string at `0008DA`. Diffed against the oracle: `mdsession.py
+      --machine dn3000` gives the same banner and prompt, byte for byte once
+      MAME's stripped `CR`s are accounted for. `board_suite` +6 (23).*
 
 - [ ] **OMTI 8621 ESDI/floppy controller** — one controller for both, and the
       DN3500's.

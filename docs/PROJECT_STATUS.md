@@ -3404,7 +3404,7 @@ failure that cost a bit position in the 68020's module entry word.
 | Board cache (`012000` RAM, `014000` condition codes) | not started. The shared **bus arbitration point** is done and has its own row above | — |
 | Apollo interrupt controllers (`011000`, `011100`) | working: the two 8259As cascaded on **IR3** (measured, not IR2 as the AT convention would have it), vector bases `A0`/`A8` from the boot PROM's own ICW2, giving levels `A0`-`AF`. Priority order matches `008778-03` Table 2-3, which with the cascade on IR3 has no anomaly. The CPU interrupt level is **6**, also measured — neither manual states it, and it took starting the interval timer by hand to make anything request at all | `intr_suite`, 13 tests; `FINDINGS.md` C11, `tools/mame-oracle/writetrace.lua` |
 | Intel 8259A interrupt controller (the part) | working: ICW1-4 sequence, all three OCWs, fully nested priority with rotation, edge and level triggering, special mask and special fully nested modes, poll, AEOI, and the spurious level 7. 8086-mode vectoring only — MCS-80/85's `CALL` sequence is refused rather than approximated, and this machine never uses it. The Apollo *pairing* is a separate module | `i8259_suite`, 28 tests, each citing `8259A` 231468-003 |
-| DN3500 core-board address map (`board/ap_board.c`) | working: every device placed by `008778-03` Table 2-8 and by the measurement that confirmed it, main memory at `1000000`, and an unclaimed address reported **unmapped rather than zero** — the distinction flat RAM hid, which cost 5634 invisible accesses in the first firmware run. Regions are named, so a trace can say *what* the firmware reached for. The AT windows declare a cycle time and everything else answers at the minimum, and an access to the translation map's undescribed seven eighths is counted rather than silently aliased, and each of the two declined core registers is counted apart | `board_suite`, 17 tests; `atbus_suite`, 8 tests |
+| Core-board address maps (`board/ap_board.c`) | working: every device placed by `008778-03` Table 2-8 and by the measurement that confirmed it, main memory at `1000000`, and an unclaimed address reported **unmapped rather than zero** — the distinction flat RAM hid, which cost 5634 invisible accesses in the first firmware run. Regions are named, so a trace can say *what* the firmware reached for. The AT windows declare a cycle time and everything else answers at the minimum, and an access to the translation map's undescribed seven eighths is counted rather than silently aliased, and each of the two declined core registers is counted apart | `board_suite`, 23 tests; `atbus_suite`, 8 tests |
 | Shared bus arbitration point | working: the external priority encoder `[030]` §7.7 requires, DRQ0 through DRQ7 with the processor last, driving the CPU's own arbitration unit over the three-wire protocol. A grant and its acknowledgement are separate instants, so the processor stops driving the bus when it grants rather than when the grant is taken up; a master is never pre-empted mid-transfer | `arbiter_suite`, 9 tests, `MC68030 User's Manual 3ed` §7.7, `008778-03` §2.4.6 |
 | Apollo DMA controllers (`010C00`, `010D00`) | working: DMA 1 at **stride 1** and DMA 2 at **stride 2**, both measured, both aliased through their ranges. A read of a write-only register returns zero where the oracle returns `0F`; `[8237]` marks that read "Illegal", so neither is specified and ours does not invent a register value. The board runs transfers: controller 1's request cascaded onto controller 2's channel 0 and one request reaching the arbiter, the address through the translation map, and the processor stalled while a controller holds the bus. The cascade and the channel assignments are `008778-03` Table 2-4's, so the AT convention this module used to refuse is now cited rather than assumed. **The peripheral side is wired**: the tape drives its own request line and its cartridge reaches memory by DMA, and the disk's two data ports move under an acknowledge | `dma_suite`, 16 tests; `FINDINGS.md` C13 |
 | Intel 8237A DMA controller (the part) | **programming model and transfer cycle complete**: all sixteen register addresses, four channels with base and current address/count, the single shared first/last flip-flop, command/mode/request/mask/status/temporary, master clear, autoinitialise reload and the mask-on-terminal-count rule; and a service cycle that moves a byte either way, verifies without moving one, walks the address up or down, and ends on the borrow out of zero rather than at zero. Memory-to-memory is refused outright rather than half-run. The part drives sixteen bits of address and the board composes the rest — not yet wired to the board | `i8237_suite`, 26 tests, `8237A` 231466 |
@@ -4433,6 +4433,72 @@ because everything it printed was still true of the processor.
 It does not move the boot: the PROM still stops in the console-selection poll at
 `000007AE`. What it does is make every later experiment run on the machine this
 core models rather than on a processor with the machine switched off.
+
+#### A second board: `dn3000` boots, and it is not the DN3500 shifted
+
+`008778-03` Table 2-6 gives the DS3000's 16 MB space against Table 2-8's 64 MB,
+and the differences are structural:
+
+| | DS3000 | DS3500/DS4000 |
+| --- | --- | --- |
+| boot PROM | `000000-007FFF`, **32 KB** | `000000-00FFFF`, 64 KB |
+| CPU status / control | `008000` / `008100` | `010000` / `010100` |
+| SIO | `008400-0087FF` | `010400` / `010500` |
+| timer / calendar | `008800` / `008900` | `010800` / `010900` |
+| DMA 1 / 2 | `009000` / `009100` | `010C00` / `010D00` |
+| DMA page register | `009200` | — (the translation map instead) |
+| interrupt 1 / 2 | `009400` / `009500` | `011000` / `011100` |
+| node ID PROM | `009600` | `011200` |
+| main memory | `100000`, 8 MB | `1000000`, 32 MB |
+
+**No single offset describes it.** The device block moves from `010000` to
+`008000`, and *within* it the DMA, interrupt and node-ID placements move again.
+So the board holds a **map** — a table of placements per model — rather than a
+base to add. The sharpest way to put it: the whole of the DS3000's device block
+lives inside the space the DN3500 gives its boot PROM, and a test asserts that.
+
+**The device modules were not touched.** Each carries its own placement from
+Table 2-8, which is the map this core was built against, and the table records a
+`canonical` address beside each base: a machine address becomes
+`canonical + (address - base)` before a module sees it. So `ap_sio_read` still
+knows only `010400`, a DS3000 write to `008400` reaches the same register, and
+the placement variance lives in one table as `CLAUDE.md` requires.
+
+**Two things the boot found that no table would have.**
+
+`009200`, the **DMA page register**, is what a machine with no translation map
+uses to extend a DMA address, and the firmware writes it five times before doing
+anything else — an unmapped write there faulted the machine at 110 instructions.
+It is modelled as storage only: Table 2-6 gives it an address and a name and no
+manual here gives its bits. The first write lands at `009207`, which is exactly
+where the AT's channel-0 page register would sit in a `80`-`8F` port block —
+suggestive, and **not** claimed, because the equivalent assumption about the
+interrupt controllers was wrong here and the DMA cascade was only safe once
+Table 2-4 stated it.
+
+And §1.3: "In the Series 3000, the virtual address appears to 'wrap' at 26 bits,
+the five high-order (27:31) bits are simply ignored." The firmware writes
+`08000000` **thirty-eight thousand times**; keeping that bit made every one an
+unmapped write. The sentence disagrees with itself by one — ignoring bits 27
+through 31 leaves twenty-seven, not twenty-six — and it makes no observable
+difference, since Table 2-6's space ends at `FFFFFF` and both readings send the
+same addresses to the same places. The explicit clause is implemented and the
+ambiguity recorded.
+
+**And it boots.** 500,000 instructions with **zero bus errors and zero unmapped
+accesses**, and with carriage returns paced onto its console it emits
+
+```
+0D 0A 4D 44 38 20 52 45 56 20 37 2E 30 2C 20 31 39
+38 38 2F 30 38 2F 31 36 2E 31 35 3A 31 34 3A 33 39
+0D 0A 3E
+```
+
+— `MD8 REV 7.0, 1988/08/16.15:14:39` — which is the string at `0008DA` of its own
+PROM, a different revision from the DN3500's `MD7C REV 8.00`. **The oracle was
+run and agrees**: `mdsession.py --machine dn3000` produces the same banner and
+prompt, identical byte for byte once the `CR`s MAME's stdio device strips are
+accounted for.
 
 #### The machine talks: MD7C REV 8.00
 

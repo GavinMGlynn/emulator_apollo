@@ -6,67 +6,153 @@ static bool in(uint32_t a, uint32_t base, uint32_t size) {
   return a >= base && a < base + size;
 }
 
-ap_board_region_t ap_board_region(uint32_t address) {
-  /* Table 2-8, in its own order. Each base and size is the one the device's own
-   * module carries, so a placement corrected there cannot drift from here. */
-  if (in(address, AP_BOARD_PROM_BASE, AP_BOARD_PROM_SIZE)) {
-    return AP_BOARD_REGION_PROM;
+/* `008778-03` Table 2-8, the 64 MB space the DS3500 and DS4000 lay out. Each
+ * `canonical` equals its `base`, because this is the map every device module in
+ * `board/` was written against. */
+static const ap_board_placement_t DS4000_PLACEMENT[] = {
+    {AP_BOARD_PROM_BASE, AP_BOARD_PROM_SIZE, AP_BOARD_REGION_PROM,
+     AP_BOARD_PROM_BASE},
+    {AP_BOARDREG_CPU_STATUS_ADDR, 4u * AP_BOARDREG_RANGE,
+     AP_BOARD_REGION_CORE_REGISTER, AP_BOARDREG_CPU_STATUS_ADDR},
+    {AP_BOARDREG_LATCH_PAGE_ADDR, AP_BOARDREG_RANGE,
+     AP_BOARD_REGION_CORE_REGISTER, AP_BOARDREG_LATCH_PAGE_ADDR},
+    {AP_BOARDREG_MASTER_REQUEST_ADDR, AP_BOARDREG_RANGE,
+     AP_BOARD_REGION_CORE_REGISTER, AP_BOARDREG_MASTER_REQUEST_ADDR},
+    {AP_SIO1_ADDR, 2u * AP_SIO_RANGE, AP_BOARD_REGION_SIO, AP_SIO1_ADDR},
+    {AP_TIMER_ADDR, AP_TIMER_RANGE, AP_BOARD_REGION_TIMER, AP_TIMER_ADDR},
+    {AP_CALENDAR_ADDR, AP_CALENDAR_RANGE, AP_BOARD_REGION_CALENDAR,
+     AP_CALENDAR_ADDR},
+    {AP_DMA1_ADDR, 2u * AP_DMA_RANGE, AP_BOARD_REGION_DMA, AP_DMA1_ADDR},
+    {AP_INTR_MASTER_ADDR, 2u * AP_INTR_RANGE, AP_BOARD_REGION_INTERRUPT,
+     AP_INTR_MASTER_ADDR},
+    {AP_NODEID_ADDR, AP_NODEID_RANGE, AP_BOARD_REGION_NODE_ID, AP_NODEID_ADDR},
+    {AP_ATMAP_BASE, AP_ATMAP_LIMIT - AP_ATMAP_BASE + 1u,
+     AP_BOARD_REGION_TRANSLATION_MAP, AP_ATMAP_BASE},
+    {AP_DISK_FIXED_ADDR, AP_DISK_FIXED_SIZE, AP_BOARD_REGION_DISK,
+     AP_DISK_FIXED_ADDR},
+    {AP_DISK_FLOPPY_ADDR, AP_DISK_FLOPPY_SIZE, AP_BOARD_REGION_DISK,
+     AP_DISK_FLOPPY_ADDR},
+    {AP_TAPE_ADDR, AP_TAPE_RANGE, AP_BOARD_REGION_TAPE, AP_TAPE_ADDR},
+};
+
+/* Table 2-6, the DS3000's 16 MB space. The differences from the above are not
+ * a shift: the device block moves from `010000` to `008000`, and *within* it the
+ * DMA, interrupt and node-ID placements move again -- `010C00` to `009000`,
+ * `011000` to `009400`, `011200` to `009600` -- so no single offset describes
+ * it and a table is the only honest form.
+ *
+ * Absent here and present above: the address translation map, the task alias
+ * and the master request register. All three are Series 4000 architecture, and
+ * `FINDINGS.md` C110 confirmed the last of them from the firmware -- the master
+ * request register is referenced by no Series 3000 boot PROM.
+ *
+ * Present in Table 2-6 and *not* modelled: the **DMA page register** at
+ * `009200`, which is what a machine without a translation map uses to extend a
+ * DMA address. It is left out rather than guessed at: no manual here gives its
+ * bits, and a region that decodes to nothing is a visible gap where a region
+ * answering zero would be an invisible one. */
+static const ap_board_placement_t DS3000_PLACEMENT[] = {
+    {0x000000u, 0x008000u, AP_BOARD_REGION_PROM, AP_BOARD_PROM_BASE},
+    /* Status and control only: Table 2-6 has `008200-0083FF` NOT USED where the
+     * DS4000 has its cache control register. */
+    {0x008000u, 2u * AP_BOARDREG_RANGE, AP_BOARD_REGION_CORE_REGISTER,
+     AP_BOARDREG_CPU_STATUS_ADDR},
+    {0x009300u, AP_BOARDREG_RANGE, AP_BOARD_REGION_CORE_REGISTER,
+     AP_BOARDREG_LATCH_PAGE_ADDR},
+    {0x008400u, 2u * AP_SIO_RANGE, AP_BOARD_REGION_SIO, AP_SIO1_ADDR},
+    {0x008800u, AP_TIMER_RANGE, AP_BOARD_REGION_TIMER, AP_TIMER_ADDR},
+    {0x008900u, AP_CALENDAR_RANGE, AP_BOARD_REGION_CALENDAR, AP_CALENDAR_ADDR},
+    {0x009000u, 2u * AP_DMA_RANGE, AP_BOARD_REGION_DMA, AP_DMA1_ADDR},
+    {AP_DMAPAGE_ADDR, AP_DMAPAGE_RANGE, AP_BOARD_REGION_DMA_PAGE,
+     AP_DMAPAGE_ADDR},
+    {0x009400u, 2u * AP_INTR_RANGE, AP_BOARD_REGION_INTERRUPT,
+     AP_INTR_MASTER_ADDR},
+    {0x009600u, AP_NODEID_RANGE, AP_BOARD_REGION_NODE_ID, AP_NODEID_ADDR},
+    {AP_DISK_FIXED_ADDR, AP_DISK_FIXED_SIZE, AP_BOARD_REGION_DISK,
+     AP_DISK_FIXED_ADDR},
+    {AP_DISK_FLOPPY_ADDR, AP_DISK_FLOPPY_SIZE, AP_BOARD_REGION_DISK,
+     AP_DISK_FLOPPY_ADDR},
+    {AP_TAPE_ADDR, AP_TAPE_RANGE, AP_BOARD_REGION_TAPE, AP_TAPE_ADDR},
+};
+
+static const ap_board_map_t DS4000_MAP = {
+    .name = "DS4000",
+    .placement = DS4000_PLACEMENT,
+    .placements = sizeof DS4000_PLACEMENT / sizeof DS4000_PLACEMENT[0],
+    .ram_base = AP_BOARD_RAM_BASE,
+    .ram_limit = AP_BOARD_RAM_LIMIT,
+    .prom_size = AP_BOARD_PROM_SIZE,
+    .has_translation_map = true,
+    /* "The Series 4000 makes use of all virtual address bits." */
+    .address_mask = 0xFFFFFFFFu,
+};
+
+/* "MAIN MEMORY (FIRST MB)" through "(EIGHTH MB)", `100000` to `8FFFFF`. */
+static const ap_board_map_t DS3000_MAP = {
+    .name = "DS3000",
+    .placement = DS3000_PLACEMENT,
+    .placements = sizeof DS3000_PLACEMENT / sizeof DS3000_PLACEMENT[0],
+    .ram_base = 0x00100000u,
+    .ram_limit = 0x008FFFFFu,
+    .prom_size = 0x008000u,
+    .has_translation_map = false,
+    /* "the five high-order (27:31) bits are simply ignored" */
+    .address_mask = 0x07FFFFFFu,
+};
+
+const ap_board_map_t *ap_board_map_for(ap_model_id_t model) {
+  const ap_model_t *entry = ap_model_by_id(model);
+  /* The map follows the *translation map* feature, which is the one difference
+   * the model table already records and which `019411-A00` §4.2.1.4 enumerates
+   * by name: DS3500, DS4000, DS4500, DS5500 have it and a DS3000 does not. So
+   * this asks the table rather than listing models again here. */
+  if (entry != NULL && !entry->has_address_translation_map) {
+    return &DS3000_MAP;
   }
-  /* Four contiguous registers from `010000`, and two more that are *not*
-   * adjacent to them or to each other. `ap_boardreg.h` has carried all six
-   * since it was written; only the first four were routed here, so the latch
-   * page and master request registers existed and were unreachable.
-   *
-   * That is the failure mode a contiguous range invites: it looks like it
-   * covers a device, and it silently covers only the part that happens to be
-   * contiguous. The boot PROM's `CLR.B $00011600` bus errored on every pass
-   * through its reset path, and each fault drained another frame off a 384-byte
-   * supervisor stack until it ran out. */
-  if (in(address, AP_BOARDREG_CPU_STATUS_ADDR, 4u * AP_BOARDREG_RANGE) ||
-      in(address, AP_BOARDREG_LATCH_PAGE_ADDR, AP_BOARDREG_RANGE) ||
-      in(address, AP_BOARDREG_MASTER_REQUEST_ADDR, AP_BOARDREG_RANGE)) {
-    return AP_BOARD_REGION_CORE_REGISTER;
+  return &DS4000_MAP;
+}
+
+/* Where an address falls on this board, and the address the device module that
+ * owns it expects to see. */
+static bool locate(const ap_board_t *board, uint32_t address,
+                   ap_board_region_t *region, uint32_t *canonical) {
+  const ap_board_map_t *map = board->map;
+  for (unsigned i = 0; i < map->placements; i++) {
+    const ap_board_placement_t *p = &map->placement[i];
+    if (in(address, p->base, p->size)) {
+      *region = p->region;
+      *canonical = p->canonical + (address - p->base);
+      return true;
+    }
   }
-  if (in(address, AP_SIO1_ADDR, 2u * AP_SIO_RANGE)) {
-    return AP_BOARD_REGION_SIO;
+  return false;
+}
+
+ap_board_region_t ap_board_region(const ap_board_t *board, uint32_t address) {
+  address &= board->map->address_mask;
+  /* The model's own table first. Every base and size in it is the one the
+   * device's module carries, so a placement corrected there cannot drift. */
+  ap_board_region_t region = AP_BOARD_REGION_UNMAPPED;
+  uint32_t canonical = 0;
+  if (locate(board, address, &region, &canonical)) {
+    return region;
   }
-  if (in(address, AP_TIMER_ADDR, AP_TIMER_RANGE)) {
-    return AP_BOARD_REGION_TIMER;
-  }
-  if (in(address, AP_CALENDAR_ADDR, AP_CALENDAR_RANGE)) {
-    return AP_BOARD_REGION_CALENDAR;
-  }
-  if (in(address, AP_DMA1_ADDR, 2u * AP_DMA_RANGE)) {
-    return AP_BOARD_REGION_DMA;
-  }
-  if (in(address, AP_INTR_MASTER_ADDR, 2u * AP_INTR_RANGE)) {
-    return AP_BOARD_REGION_INTERRUPT;
-  }
-  if (in(address, AP_NODEID_ADDR, AP_NODEID_RANGE)) {
-    return AP_BOARD_REGION_NODE_ID;
-  }
-  if (in(address, AP_ATMAP_BASE, AP_ATMAP_LIMIT - AP_ATMAP_BASE + 1u)) {
-    return AP_BOARD_REGION_TRANSLATION_MAP;
-  }
-  if (in(address, AP_DISK_FIXED_ADDR, AP_DISK_FIXED_SIZE) ||
-      in(address, AP_DISK_FLOPPY_ADDR, AP_DISK_FLOPPY_SIZE)) {
-    return AP_BOARD_REGION_DISK;
-  }
-  if (in(address, AP_TAPE_ADDR, AP_TAPE_RANGE)) {
-    return AP_BOARD_REGION_TAPE;
-  }
+
   {
     bool colour = false;
     uint32_t offset = 0;
-    /* Both, and both before the AT bus windows below: the graphics memories sit
-     * inside the AT memory window, so a window checked first would report the
-     * machine's own frame buffer as an empty expansion slot. */
+    /* Both graphics decodes, and both before the AT bus windows below: the
+     * graphics memories sit inside the AT memory window, so a window checked
+     * first would report the machine's own frame buffer as an empty expansion
+     * slot. Table 2-6 and Table 2-8 place them identically, so this is not
+     * model variance. */
     if (ap_graphics_decode(address, &colour, &offset) ||
         ap_graphics_decode_memory(address, &colour, &offset)) {
       return AP_BOARD_REGION_GRAPHICS;
     }
   }
-  if (address >= AP_BOARD_RAM_BASE && address <= AP_BOARD_RAM_LIMIT) {
+
+  if (address >= board->map->ram_base && address <= board->map->ram_limit) {
     /* The space allocated to memory, not the memory fitted. An address in here
      * with no SIMM behind it is still a main memory address -- the read path
      * bounds-checks against what is actually present and reports it unmapped --
@@ -74,9 +160,8 @@ ap_board_region_t ap_board_region(uint32_t address) {
      * slot and an address nothing decodes. */
     return AP_BOARD_REGION_RAM;
   }
-  /* Last, so every device *inside* a window keeps its own region. The tape,
-   * the disk and the display controller all sit within the AT I/O window and
-   * are matched above; what reaches here is window with nothing behind it. */
+
+  /* Last, so every device *inside* a window keeps its own region. */
   if ((address >= AP_BOARD_ATBUS_IO_BASE &&
        address <= AP_BOARD_ATBUS_IO_END) ||
       (address >= AP_BOARD_ATBUS_MEMORY_BASE &&
@@ -355,7 +440,7 @@ bool ap_board_cache_inhibited(const ap_board_t *board, uint32_t address) {
    * positives rather than a list of device ranges, so a region added later is
    * uncacheable until someone decides otherwise -- which is the direction that
    * fails safely. */
-  switch (ap_board_region(address)) {
+  switch (ap_board_region(board, address)) {
   case AP_BOARD_REGION_RAM:
   case AP_BOARD_REGION_PROM:
     return false;
@@ -368,6 +453,7 @@ bool ap_board_cache_inhibited(const ap_board_t *board, uint32_t address) {
   case AP_BOARD_REGION_INTERRUPT:
   case AP_BOARD_REGION_NODE_ID:
   case AP_BOARD_REGION_TRANSLATION_MAP:
+  case AP_BOARD_REGION_DMA_PAGE:
   case AP_BOARD_REGION_DISK:
   case AP_BOARD_REGION_TAPE:
   case AP_BOARD_REGION_GRAPHICS:
@@ -393,6 +479,7 @@ const char *ap_board_region_name(ap_board_region_t region) {
   case AP_BOARD_REGION_INTERRUPT: return "interrupt controller";
   case AP_BOARD_REGION_NODE_ID: return "node ID PROM";
   case AP_BOARD_REGION_TRANSLATION_MAP: return "translation map";
+  case AP_BOARD_REGION_DMA_PAGE: return "DMA page register";
   case AP_BOARD_REGION_DISK: return "disk/floppy";
   case AP_BOARD_REGION_TAPE: return "cartridge tape";
   case AP_BOARD_REGION_GRAPHICS: return "display controller";
@@ -404,7 +491,15 @@ const char *ap_board_region_name(ap_board_region_t region) {
 
 bool ap_board_init(ap_board_t *board, uint8_t *ram, uint32_t ram_bytes,
                    const ap_mc146818_time_t *start, uint32_t node_id) {
+  return ap_board_init_model(board, ram, ram_bytes, start, node_id,
+                             AP_MODEL_DN3500);
+}
+
+bool ap_board_init_model(ap_board_t *board, uint8_t *ram, uint32_t ram_bytes,
+                         const ap_mc146818_time_t *start, uint32_t node_id,
+                         ap_model_id_t model) {
   memset(board, 0, sizeof *board);
+  board->map = ap_board_map_for(model);
   ap_boardreg_init(&board->registers);
   ap_atmap_init(&board->translation_map);
   ap_intr_reset(&board->interrupts);
@@ -415,6 +510,7 @@ bool ap_board_init(ap_board_t *board, uint8_t *ram, uint32_t ram_bytes,
     return false;
   }
   ap_dma_reset(&board->dma);
+  ap_dmapage_reset(&board->dma_page);
   if (!ap_sio_reset(&board->sio)) {
     return false;
   }
@@ -438,9 +534,20 @@ bool ap_board_init(ap_board_t *board, uint8_t *ram, uint32_t ram_bytes,
 
 uint8_t ap_board_read(ap_board_t *board, uint32_t address, bool *ok) {
   *ok = true;
-  const ap_board_region_t counted = ap_board_region(address);
+  address &= board->map->address_mask;
+  const ap_board_region_t counted = ap_board_region(board, address);
   if ((unsigned)counted < AP_BOARD_REGIONS) {
     board->region_reads[counted]++;
+  }
+  /* Device modules are addressed in the DN3500's space, whatever this board's
+   * is. A DS3000 puts its serial ports at `008400`; `ap_sio_read` knows only
+   * `010400`, and the map is what reconciles them. */
+  {
+    ap_board_region_t placed = AP_BOARD_REGION_UNMAPPED;
+    uint32_t canonical = address;
+    if (locate(board, address, &placed, &canonical)) {
+      address = canonical;
+    }
   }
   switch (counted) {
   case AP_BOARD_REGION_CORE_REGISTER:
@@ -458,6 +565,8 @@ uint8_t ap_board_read(ap_board_t *board, uint32_t address, bool *ok) {
     return ap_intr_read(&board->interrupts, address);
   case AP_BOARD_REGION_NODE_ID:
     return ap_nodeid_read(&board->node_id, address);
+  case AP_BOARD_REGION_DMA_PAGE:
+    return ap_dmapage_read(&board->dma_page, address);
   case AP_BOARD_REGION_TRANSLATION_MAP: {
     if (!ap_atmap_decodes_to_entry(address)) {
       if (board->atmap_undescribed_reads == 0u) {
@@ -490,7 +599,7 @@ uint8_t ap_board_read(ap_board_t *board, uint32_t address, bool *ok) {
     board->atbus_empty_reads++;
     return 0xFFu;
   case AP_BOARD_REGION_RAM: {
-    uint32_t offset = address - AP_BOARD_RAM_BASE;
+    uint32_t offset = address - board->map->ram_base;
     if (board->ram == NULL || offset >= board->ram_bytes) {
       break; /* past the memory actually fitted */
     }
@@ -520,9 +629,18 @@ uint8_t ap_board_read(ap_board_t *board, uint32_t address, bool *ok) {
 void ap_board_write(ap_board_t *board, uint32_t address, uint8_t value,
                     bool *ok) {
   *ok = true;
-  const ap_board_region_t counted = ap_board_region(address);
+  address &= board->map->address_mask;
+  const ap_board_region_t counted = ap_board_region(board, address);
   if ((unsigned)counted < AP_BOARD_REGIONS) {
     board->region_writes[counted]++;
+  }
+  /* Canonicalised as the read path is, and for the same reason. */
+  {
+    ap_board_region_t placed = AP_BOARD_REGION_UNMAPPED;
+    uint32_t canonical = address;
+    if (locate(board, address, &placed, &canonical)) {
+      address = canonical;
+    }
   }
   switch (counted) {
   case AP_BOARD_REGION_CORE_REGISTER:
@@ -543,6 +661,9 @@ void ap_board_write(ap_board_t *board, uint32_t address, uint8_t value,
     return;
   case AP_BOARD_REGION_INTERRUPT:
     ap_intr_write(&board->interrupts, address, value);
+    return;
+  case AP_BOARD_REGION_DMA_PAGE:
+    ap_dmapage_write(&board->dma_page, address, value);
     return;
   case AP_BOARD_REGION_TRANSLATION_MAP: {
     if (!ap_atmap_decodes_to_entry(address)) {
@@ -582,7 +703,7 @@ void ap_board_write(ap_board_t *board, uint32_t address, uint8_t value,
     board->atbus_empty_writes++;
     return;
   case AP_BOARD_REGION_RAM: {
-    uint32_t offset = address - AP_BOARD_RAM_BASE;
+    uint32_t offset = address - board->map->ram_base;
     if (board->ram == NULL || offset >= board->ram_bytes) {
       break;
     }
@@ -637,7 +758,11 @@ void ap_board_write(ap_board_t *board, uint32_t address, uint8_t value,
 
 bool ap_board_load_prom(ap_board_t *board, const uint8_t *prom,
                         uint32_t bytes) {
-  if (prom == NULL || bytes == 0u || bytes > AP_BOARD_PROM_SIZE) {
+  /* The model's own PROM region, which is 32 KB on a DS3000 against the
+   * DS4000's 64 -- Table 2-6 gives `000000-007FFF` where Table 2-8 gives
+   * `000000-00FFFF`. An image that does not fit is not this machine's PROM, and
+   * truncating it would run whatever happened to be in the first half. */
+  if (prom == NULL || bytes == 0u || bytes > board->map->prom_size) {
     return false;
   }
   board->prom = prom;

@@ -5,6 +5,11 @@
 #include <string.h>
 
 #include "board/ap_board.h"
+#include "model/ap_model.h"
+#include "device/ap_mc68681.h"
+#include "board/ap_sio.h"
+#include "board/ap_dmapage.h"
+#include "board/ap_atmap.h"
 #include "board/ap_boardreg.h"
 
 void setUp(void) {}
@@ -16,6 +21,15 @@ static const ap_mc146818_time_t START = {
 };
 
 static uint8_t ram[0x2000];
+static uint8_t other_ram[0x2000];
+
+/* A board for the tests that only ask where an address falls. The region is a
+ * *model's* answer now, and these all speak the DN3500's map. */
+static ap_board_t region_board;
+static void init_region_board(void) {
+  TEST_ASSERT_TRUE(
+      ap_board_init(&region_board, ram, sizeof ram, &START, 0x012345u));
+}
 
 static void init(ap_board_t *b) {
   TEST_ASSERT_TRUE(ap_board_init(b, ram, sizeof ram, &START, 0x012345u));
@@ -47,7 +61,7 @@ static void test_every_device_lands_in_its_documented_region(void) {
       {0x1000000u, AP_BOARD_REGION_RAM},
   };
   for (unsigned i = 0; i < sizeof cases / sizeof cases[0]; i++) {
-    TEST_ASSERT_EQUAL_UINT(cases[i].region, ap_board_region(cases[i].address));
+    TEST_ASSERT_EQUAL_UINT(cases[i].region, ap_board_region(&region_board, cases[i].address));
   }
 }
 
@@ -59,7 +73,7 @@ static void test_an_unclaimed_address_is_unmapped_not_zero(void) {
   /* The distinction C28 turned on. Flat RAM made every device address read as
    * zero, which hid thousands of accesses that should have been visible -- an
    * emulator that answers everything cannot say what the firmware wanted. */
-  TEST_ASSERT_EQUAL_UINT(AP_BOARD_REGION_UNMAPPED, ap_board_region(0x020000u));
+  TEST_ASSERT_EQUAL_UINT(AP_BOARD_REGION_UNMAPPED, ap_board_region(&region_board, 0x020000u));
   (void)ap_board_read(&b, 0x020000u, &ok);
   TEST_ASSERT_FALSE(ok);
   TEST_ASSERT_EQUAL_UINT(1u, b.unmapped_reads);
@@ -167,7 +181,7 @@ static void test_an_empty_at_bus_window_reads_ff_rather_than_faulting(void) {
   bool ok = false;
   init(&b);
 
-  TEST_ASSERT_EQUAL_UINT(AP_BOARD_REGION_ATBUS, ap_board_region(0x090000u));
+  TEST_ASSERT_EQUAL_UINT(AP_BOARD_REGION_ATBUS, ap_board_region(&region_board, 0x090000u));
   TEST_ASSERT_EQUAL_HEX8(0xFFu, ap_board_read(&b, 0x090000u, &ok));
   TEST_ASSERT_TRUE(ok);
   ap_board_write(&b, 0x090000u, 0x5Au, &ok);
@@ -191,28 +205,28 @@ static void test_an_empty_at_bus_window_reads_ff_rather_than_faulting(void) {
  * before them would answer `FF` for every one -- and every device test would
  * still pass, because they call the devices directly. */
 static void test_the_windows_do_not_swallow_the_devices_inside_them(void) {
-  TEST_ASSERT_EQUAL_UINT(AP_BOARD_REGION_TAPE, ap_board_region(0x050000u));
-  TEST_ASSERT_EQUAL_UINT(AP_BOARD_REGION_DISK, ap_board_region(0x04D000u));
-  TEST_ASSERT_EQUAL_UINT(AP_BOARD_REGION_DISK, ap_board_region(0x05F800u));
-  TEST_ASSERT_EQUAL_UINT(AP_BOARD_REGION_GRAPHICS, ap_board_region(0x05D800u));
-  TEST_ASSERT_EQUAL_UINT(AP_BOARD_REGION_GRAPHICS, ap_board_region(0x05E800u));
+  TEST_ASSERT_EQUAL_UINT(AP_BOARD_REGION_TAPE, ap_board_region(&region_board, 0x050000u));
+  TEST_ASSERT_EQUAL_UINT(AP_BOARD_REGION_DISK, ap_board_region(&region_board, 0x04D000u));
+  TEST_ASSERT_EQUAL_UINT(AP_BOARD_REGION_DISK, ap_board_region(&region_board, 0x05F800u));
+  TEST_ASSERT_EQUAL_UINT(AP_BOARD_REGION_GRAPHICS, ap_board_region(&region_board, 0x05D800u));
+  TEST_ASSERT_EQUAL_UINT(AP_BOARD_REGION_GRAPHICS, ap_board_region(&region_board, 0x05E800u));
 
   /* And the window still claims what no device does. */
-  TEST_ASSERT_EQUAL_UINT(AP_BOARD_REGION_ATBUS, ap_board_region(0x040000u));
-  TEST_ASSERT_EQUAL_UINT(AP_BOARD_REGION_ATBUS, ap_board_region(0x05FFFFu));
-  TEST_ASSERT_EQUAL_UINT(AP_BOARD_REGION_ATBUS, ap_board_region(0x080000u));
-  TEST_ASSERT_EQUAL_UINT(AP_BOARD_REGION_ATBUS, ap_board_region(0xFFFFFFu));
+  TEST_ASSERT_EQUAL_UINT(AP_BOARD_REGION_ATBUS, ap_board_region(&region_board, 0x040000u));
+  TEST_ASSERT_EQUAL_UINT(AP_BOARD_REGION_ATBUS, ap_board_region(&region_board, 0x05FFFFu));
+  TEST_ASSERT_EQUAL_UINT(AP_BOARD_REGION_ATBUS, ap_board_region(&region_board, 0x080000u));
+  TEST_ASSERT_EQUAL_UINT(AP_BOARD_REGION_ATBUS, ap_board_region(&region_board, 0xFFFFFFu));
 
   /* And the graphics memories are not empty slots, though both sit inside the
    * AT bus memory window. A window matched before them would report the
    * machine's own frame buffer as an unoccupied expansion slot. */
-  TEST_ASSERT_EQUAL_UINT(AP_BOARD_REGION_GRAPHICS, ap_board_region(0x0A0000u));
-  TEST_ASSERT_EQUAL_UINT(AP_BOARD_REGION_GRAPHICS, ap_board_region(0x0BFFFFu));
-  TEST_ASSERT_EQUAL_UINT(AP_BOARD_REGION_GRAPHICS, ap_board_region(0xFA0000u));
-  TEST_ASSERT_EQUAL_UINT(AP_BOARD_REGION_GRAPHICS, ap_board_region(0xFDFFFFu));
+  TEST_ASSERT_EQUAL_UINT(AP_BOARD_REGION_GRAPHICS, ap_board_region(&region_board, 0x0A0000u));
+  TEST_ASSERT_EQUAL_UINT(AP_BOARD_REGION_GRAPHICS, ap_board_region(&region_board, 0x0BFFFFu));
+  TEST_ASSERT_EQUAL_UINT(AP_BOARD_REGION_GRAPHICS, ap_board_region(&region_board, 0xFA0000u));
+  TEST_ASSERT_EQUAL_UINT(AP_BOARD_REGION_GRAPHICS, ap_board_region(&region_board, 0xFDFFFFu));
 
   /* Between the two windows is neither. */
-  TEST_ASSERT_EQUAL_UINT(AP_BOARD_REGION_UNMAPPED, ap_board_region(0x070000u));
+  TEST_ASSERT_EQUAL_UINT(AP_BOARD_REGION_UNMAPPED, ap_board_region(&region_board, 0x070000u));
 }
 
 /* The region enum exists to answer "what did the firmware reach for", so a
@@ -223,11 +237,11 @@ static void test_the_windows_do_not_swallow_the_devices_inside_them(void) {
  * read path had refused it correctly all along -- only the name was wrong, and
  * the name is what a reader acts on. */
 static void test_main_memory_s_name_stops_where_its_address_space_does(void) {
-  TEST_ASSERT_EQUAL_UINT(AP_BOARD_REGION_RAM, ap_board_region(AP_BOARD_RAM_BASE));
-  TEST_ASSERT_EQUAL_UINT(AP_BOARD_REGION_RAM, ap_board_region(AP_BOARD_RAM_LIMIT));
+  TEST_ASSERT_EQUAL_UINT(AP_BOARD_REGION_RAM, ap_board_region(&region_board, AP_BOARD_RAM_BASE));
+  TEST_ASSERT_EQUAL_UINT(AP_BOARD_REGION_RAM, ap_board_region(&region_board, AP_BOARD_RAM_LIMIT));
   TEST_ASSERT_EQUAL_UINT(AP_BOARD_REGION_UNMAPPED,
-                         ap_board_region(AP_BOARD_RAM_LIMIT + 1u));
-  TEST_ASSERT_EQUAL_UINT(AP_BOARD_REGION_UNMAPPED, ap_board_region(0xFFFF060Eu));
+                         ap_board_region(&region_board, AP_BOARD_RAM_LIMIT + 1u));
+  TEST_ASSERT_EQUAL_UINT(AP_BOARD_REGION_UNMAPPED, ap_board_region(&region_board, 0xFFFF060Eu));
 
   /* Inside the space but past the memory fitted is still *named* main memory --
    * the address decodes to memory, there is simply no SIMM there -- and the
@@ -236,7 +250,7 @@ static void test_main_memory_s_name_stops_where_its_address_space_does(void) {
   bool ok = true;
   init(&b);
   TEST_ASSERT_EQUAL_UINT(AP_BOARD_REGION_RAM,
-                         ap_board_region(AP_BOARD_RAM_BASE + sizeof ram));
+                         ap_board_region(&region_board, AP_BOARD_RAM_BASE + sizeof ram));
   (void)ap_board_read(&b, AP_BOARD_RAM_BASE + sizeof ram, &ok);
   TEST_ASSERT_FALSE(ok);
 }
@@ -265,7 +279,7 @@ static void test_every_core_board_register_is_reachable_through_the_map(void) {
 
   for (unsigned i = 0; i < sizeof registers / sizeof registers[0]; i++) {
     TEST_ASSERT_EQUAL_UINT(AP_BOARD_REGION_CORE_REGISTER,
-                           ap_board_region(registers[i]));
+                           ap_board_region(&region_board, registers[i]));
     (void)ap_board_read(&b, registers[i], &ok);
     TEST_ASSERT_TRUE(ok);
     ap_board_write(&b, registers[i], 0x00u, &ok);
@@ -330,7 +344,7 @@ static void test_the_boot_prom_region_is_reported_absent(void) {
   /* No PROM image is loaded, and the region answers unmapped rather than zero:
    * a machine answering the PROM with zeros looks like one with a blank PROM
    * rather than one without a PROM at all. */
-  TEST_ASSERT_EQUAL_UINT(AP_BOARD_REGION_PROM, ap_board_region(0x000000u));
+  TEST_ASSERT_EQUAL_UINT(AP_BOARD_REGION_PROM, ap_board_region(&region_board, 0x000000u));
   (void)ap_board_read(&b, 0x000000u, &ok);
   TEST_ASSERT_FALSE(ok);
 }
@@ -436,8 +450,161 @@ static void test_the_two_declined_registers_are_counted_apart(void) {
   TEST_ASSERT_EQUAL_UINT(2u, b.master_request_writes);
 }
 
+/* ---------------------------------------------------------------------------
+ * The DS3000's map, `008778-03` Table 2-6
+ *
+ * A different board, not a shifted one: the device block moves from `010000` to
+ * `008000` and *within* it the DMA, interrupt and node-ID placements move again,
+ * so no single offset describes the difference.
+ * ------------------------------------------------------------------------- */
+
+static ap_board_t ds3000;
+static void init_ds3000(void) {
+  TEST_ASSERT_TRUE(ap_board_init_model(&ds3000, ram, sizeof ram, &START,
+                                       0x012345u, AP_MODEL_DN3000));
+}
+
+static void test_the_ds3000_places_its_devices_where_table_two_six_does(void) {
+  init_ds3000();
+  static const struct {
+    uint32_t address;
+    ap_board_region_t region;
+  } cases[] = {
+      {0x000000u, AP_BOARD_REGION_PROM},
+      {0x007FFFu, AP_BOARD_REGION_PROM},
+      {0x008000u, AP_BOARD_REGION_CORE_REGISTER},
+      {0x008100u, AP_BOARD_REGION_CORE_REGISTER},
+      {0x008400u, AP_BOARD_REGION_SIO},
+      {0x008800u, AP_BOARD_REGION_TIMER},
+      {0x008900u, AP_BOARD_REGION_CALENDAR},
+      {0x009000u, AP_BOARD_REGION_DMA},
+      {0x009100u, AP_BOARD_REGION_DMA},
+      {0x009200u, AP_BOARD_REGION_DMA_PAGE},
+      {0x009300u, AP_BOARD_REGION_CORE_REGISTER},
+      {0x009400u, AP_BOARD_REGION_INTERRUPT},
+      {0x009500u, AP_BOARD_REGION_INTERRUPT},
+      {0x009600u, AP_BOARD_REGION_NODE_ID},
+      {0x100000u, AP_BOARD_REGION_RAM},
+      {0x8FFFFFu, AP_BOARD_REGION_RAM},
+  };
+  for (unsigned i = 0; i < sizeof cases / sizeof cases[0]; i++) {
+    TEST_ASSERT_EQUAL_UINT(cases[i].region,
+                           ap_board_region(&ds3000, cases[i].address));
+  }
+
+  /* And the DN3500's placements are *not* the DS3000's, which is the half that
+   * would pass on a map that had simply been copied. */
+  TEST_ASSERT_EQUAL_UINT(AP_BOARD_REGION_UNMAPPED,
+                         ap_board_region(&ds3000, 0x010400u));
+  TEST_ASSERT_EQUAL_UINT(AP_BOARD_REGION_UNMAPPED,
+                         ap_board_region(&ds3000, 0x1000000u));
+}
+
+/* §1.2: "The Series 4000, unlike the Series 3000, incorporates an address
+ * translation map in its architecture." So a DS3000 does not decode the map's
+ * window at all -- its DMA reaches physical memory directly, and the DMA page
+ * register is what extends the address instead. */
+static void test_the_ds3000_has_no_translation_map(void) {
+  init_ds3000();
+  TEST_ASSERT_FALSE(ds3000.map->has_translation_map);
+  TEST_ASSERT_EQUAL_UINT(AP_BOARD_REGION_UNMAPPED,
+                         ap_board_region(&ds3000, AP_ATMAP_BASE));
+  /* The DN3500 does, which is what makes the absence a property of the model
+   * rather than of this test. */
+  TEST_ASSERT_TRUE(region_board.map->has_translation_map);
+  TEST_ASSERT_EQUAL_UINT(AP_BOARD_REGION_TRANSLATION_MAP,
+                         ap_board_region(&region_board, AP_ATMAP_BASE));
+}
+
+/* §1.3: "In the Series 3000, the virtual address appears to 'wrap' at 26 bits,
+ * the five high-order (27:31) bits are simply ignored. The Series 4000 makes
+ * use of all virtual address bits."
+ *
+ * The boot PROM writes `08000000` thirty-eight thousand times; on a machine that
+ * kept the bit that is an unmapped write and a fault, and on the real one it is
+ * address zero. */
+static void test_the_ds3000_ignores_the_five_high_address_bits(void) {
+  init_ds3000();
+  TEST_ASSERT_EQUAL_UINT(AP_BOARD_REGION_PROM,
+                         ap_board_region(&ds3000, 0x08000000u));
+  TEST_ASSERT_EQUAL_UINT(AP_BOARD_REGION_RAM,
+                         ap_board_region(&ds3000, 0xF8100000u));
+
+  /* A Series 4000 keeps them, so the same address is nothing there. */
+  TEST_ASSERT_EQUAL_UINT(AP_BOARD_REGION_UNMAPPED,
+                         ap_board_region(&region_board, 0x08000000u));
+}
+
+/* Table 2-6 gives the PROM `000000-007FFF`, half what Table 2-8 gives it. An
+ * image that does not fit is not this machine's PROM: truncating a 64 KB image
+ * into 32 would run whatever happened to be in the first half. */
+static void test_the_ds3000_takes_a_32k_prom_and_refuses_a_64k_one(void) {
+  init_ds3000();
+  static uint8_t image[0x10000];
+  TEST_ASSERT_TRUE(ap_board_load_prom(&ds3000, image, 0x8000u));
+  TEST_ASSERT_FALSE(ap_board_load_prom(&ds3000, image, 0x10000u));
+
+  /* And the DN3500 takes both. */
+  ap_board_t ds4000;
+  TEST_ASSERT_TRUE(
+      ap_board_init(&ds4000, ram, sizeof ram, &START, 0x012345u));
+  TEST_ASSERT_TRUE(ap_board_load_prom(&ds4000, image, 0x10000u));
+}
+
+/* The device modules are addressed in the DN3500's space whatever the board's
+ * is, and the map translates. So a write to the DS3000's serial port reaches
+ * the same register a write to the DN3500's does -- which is the whole reason
+ * the placement variance can live in one table. */
+static void test_a_ds3000_device_write_reaches_the_same_register(void) {
+  init_ds3000();
+  ap_board_t ds4000;
+  TEST_ASSERT_TRUE(
+      ap_board_init(&ds4000, other_ram, sizeof other_ram, &START, 0x012345u));
+
+  bool ok = false;
+  /* Register 2 of serial 1 channel A -- the command register -- at each board's
+   * own address for it. */
+  ap_board_write(&ds3000, 0x008400u + AP_MC68681_CR_A * 2u, 0x05u, &ok);
+  TEST_ASSERT_TRUE(ok);
+  ap_board_write(&ds4000, AP_SIO1_ADDR + AP_MC68681_CR_A * 2u, 0x05u, &ok);
+  TEST_ASSERT_TRUE(ok);
+
+  /* Same effect on the same part: both receivers enabled. */
+  TEST_ASSERT_TRUE(ap_sio_receiver_enabled(&ds3000.sio, 0u, 0u));
+  TEST_ASSERT_TRUE(ap_sio_receiver_enabled(&ds4000.sio, 0u, 0u));
+}
+
+/* The DMA page register: what a machine without a translation map uses to
+ * extend a DMA address. Storage only -- Table 2-6 names it and no manual here
+ * gives its bits -- and it has to exist because the boot PROM writes it five
+ * times before it does anything else. */
+static void test_the_dma_page_registers_store(void) {
+  init_ds3000();
+  bool ok = false;
+  ap_board_write(&ds3000, AP_DMAPAGE_ADDR + 7u, 0x5Au, &ok);
+  TEST_ASSERT_TRUE(ok);
+  TEST_ASSERT_EQUAL_HEX8(0x5Au, ap_board_read(&ds3000, AP_DMAPAGE_ADDR + 7u,
+                                              &ok));
+  /* Aliased through the block, as every byte-wide range on this board is. */
+  TEST_ASSERT_EQUAL_HEX8(0x5Au, ap_board_read(&ds3000, AP_DMAPAGE_ADDR + 0x17u,
+                                              &ok));
+  /* And on the DN3500 that address is **boot PROM**, because its PROM is 64 KB
+   * where the DS3000's is 32 -- the whole of the DS3000's device block lives
+   * inside the space the DN3500 gives its firmware. Which is the sharpest way
+   * to say these are two boards rather than one board shifted. */
+  TEST_ASSERT_EQUAL_UINT(AP_BOARD_REGION_PROM,
+                         ap_board_region(&region_board, AP_DMAPAGE_ADDR));
+}
+
 int main(void) {
   UNITY_BEGIN();
+  init_region_board();
+  RUN_TEST(test_the_ds3000_places_its_devices_where_table_two_six_does);
+  RUN_TEST(test_the_ds3000_has_no_translation_map);
+  RUN_TEST(test_the_ds3000_ignores_the_five_high_address_bits);
+  RUN_TEST(test_the_ds3000_takes_a_32k_prom_and_refuses_a_64k_one);
+  RUN_TEST(test_a_ds3000_device_write_reaches_the_same_register);
+  RUN_TEST(test_the_dma_page_registers_store);
   RUN_TEST(test_the_two_declined_registers_are_counted_apart);
   RUN_TEST(test_touching_the_maps_undescribed_bytes_is_counted);
   RUN_TEST(test_the_undescribed_bytes_alias_the_entries);

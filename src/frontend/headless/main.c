@@ -433,7 +433,9 @@ static void report_state(const ap_machine_t *machine) {
   const ap_machine_state_t state = ap_machine_state(machine);
   printf("  state hash   %016llX\n", (unsigned long long)state.hash);
   printf("  final PC     %08X (%s)\n", state.pc,
-         ap_board_region_name(ap_board_region(state.pc)));
+         machine->board != NULL
+             ? ap_board_region_name(ap_board_region(machine->board, state.pc))
+             : "no board");
   printf("  clocks       %llu\n", (unsigned long long)state.clocks);
   /* In AP_TIME_BASE_HZ units, never CPU cycles: several nodes of different
    * models share one ring, so no CPU's cycle is a legal unit of account. A
@@ -454,7 +456,8 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
                           uint32_t watch, const char *input, unsigned input_unit,
                           unsigned input_channel, uint8_t input_rate,
                           unsigned key, bool console,
-                          ap_screen_kind_t screen, uint32_t node_id) {
+                          ap_screen_kind_t screen, uint32_t node_id,
+                          ap_model_id_t model) {
   long size = 0;
   uint8_t *prom = read_file(path, &size);
   if (prom == NULL) {
@@ -470,7 +473,7 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
       .hour = 21u, .minute = 9u, .second = 21u,
   };
   if (ram == NULL || board == NULL ||
-      !ap_board_init(board, ram, ram_bytes, &epoch, node_id)) {
+      !ap_board_init_model(board, ram, ram_bytes, &epoch, node_id, model)) {
     free(board);
     free(ram);
     free(prom);
@@ -530,7 +533,7 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
    * keystroke away and its symptom is a run that is merely *different*, with
    * nothing to say it was the watching that changed it. */
   if (watch != 0u) {
-    const ap_board_region_t region = ap_board_region(watch);
+    const ap_board_region_t region = ap_board_region(board, watch);
     if (region != AP_BOARD_REGION_RAM && region != AP_BOARD_REGION_PROM) {
       fprintf(stderr,
               "apollo: --boot-watch %08X is in %s, not memory. Watching a "
@@ -546,12 +549,14 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
   printf("boot PROM %s\n", path);
   printf("  size         %lu\n", (unsigned long)size);
   printf("  reset SSP    %08X (%s)\n", stack,
-         ap_board_region_name(ap_board_region(stack)));
+         ap_board_region_name(ap_board_region(board, stack)));
   printf("  reset PC     %08X (%s)\n", pc,
-         ap_board_region_name(ap_board_region(pc)));
+         ap_board_region_name(ap_board_region(board, pc)));
 
   ap_machine_t machine;
-  ap_machine_init(&machine, ram, ram_bytes);
+  /* The same model as the board, or the processor would run at one machine's
+   * clock over another machine's address space. */
+  ap_machine_init_model(&machine, ram, ram_bytes, model);
   ap_machine_set_board(&machine, board);
   ap_machine_reset(&machine, pc, stack);
 
@@ -776,11 +781,11 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
          board->unmapped_writes);
   if (board->unmapped_reads > 0u) {
     printf("    first read %08X (%s)\n", board->first_unmapped_read,
-           ap_board_region_name(ap_board_region(board->first_unmapped_read)));
+           ap_board_region_name(ap_board_region(board, board->first_unmapped_read)));
   }
   if (board->unmapped_writes > 0u) {
     printf("    first write %08X (%s)\n", board->first_unmapped_write,
-           ap_board_region_name(ap_board_region(board->first_unmapped_write)));
+           ap_board_region_name(ap_board_region(board, board->first_unmapped_write)));
   }
   /* Reported separately because it is not an error: a read-only memory absorbs
    * a write, and this firmware is known to make one. Folded into the unmapped
@@ -965,11 +970,11 @@ static int boot_from_tape(const char *path, unsigned limit) {
          board->unmapped_writes);
   if (board->unmapped_reads > 0u) {
     printf("    first read %08X (%s)\n", board->first_unmapped_read,
-           ap_board_region_name(ap_board_region(board->first_unmapped_read)));
+           ap_board_region_name(ap_board_region(board, board->first_unmapped_read)));
   }
   if (board->unmapped_writes > 0u) {
     printf("    first write %08X (%s)\n", board->first_unmapped_write,
-           ap_board_region_name(ap_board_region(board->first_unmapped_write)));
+           ap_board_region_name(ap_board_region(board, board->first_unmapped_write)));
   }
   /* Reported separately because it is not an error: a read-only memory absorbs
    * a write, and this firmware is known to make one. Folded into the unmapped
@@ -1004,7 +1009,7 @@ static int boot_from_tape(const char *path, unsigned limit) {
     printf("    first write %08X\n", board->first_atmap_undescribed_write);
   }
   printf("  final region %s\n",
-         ap_board_region_name(ap_board_region(machine.cpu.regs.pc)));
+         ap_board_region_name(ap_board_region(board, machine.cpu.regs.pc)));
 
   /* Where it stopped matters more than that it stopped. A fault outside the
    * image is the firmware reaching for hardware that is not mapped, which is
@@ -1197,7 +1202,7 @@ int main(int argc, char **argv) {
     return boot_from_prom(boot_prom, boot_limit, boot_trace, boot_watch,
                           boot_input, boot_input_unit, boot_input_channel,
                           (uint8_t)boot_input_rate, boot_key, boot_console,
-                          boot_screen, node_id);
+                          boot_screen, node_id, opt.model->id);
   }
 
   if (boot_tape != NULL) {
