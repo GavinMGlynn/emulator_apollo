@@ -2849,11 +2849,22 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         `FF 00 EF DF FE EE DE CF BF AF 9F ED DD 9D 8D 0D 8D 0D ...` — a
         self-test progress sequence, then an alternation differing only in bit
         7, which is one LED blinking on a steady code.*
-      **Awaiting:** what `8D`/`0D` means. `008778-03` Table 8-2 is the *tape
-      controller's* LED codes, not the CPU board's, and §3.7 describes the nine
-      indicators without tabulating their failures — so the code table is not in
-      this manual. The sequence itself is now recoverable from any run, which is
-      what the search needs.
+  - [x] **The failing test is a DAC check, and the A/D is a video monitor.**
+        `007090` reads two A/D channels and range-checks each into `[52, 70)`.
+        The converter measures the controller's *own video output* — one gun, at
+        the pixel under the beam, through the lookup table — so it needed the
+        palette and the raster first, and it confirms the blanking polarity
+        corrected two commits earlier. Detail in `PROJECT_STATUS.md`, C117.
+        *Verification: `graphics_suite` +3 (77) — each gun answering for its own
+        channel, a non-video channel refused rather than answered with a zero,
+        and the floors outside the visible field. The failure **moves** with the
+        A/D answered, from `8D 0D` to `8D 7D 0D`, so the reading reaches the
+        firmware and is used.*
+      **Awaiting:** the **stepped** raster counters. The oracle measures at the
+      position the firmware walked the beam to with `DH_CK`, `DV_CK` and
+      `DP_CK`; this core models only the free-running raster, deliberately and
+      with a note that free-running the horizontal counter too "would answer the
+      diagnostic's questions before it asked them". The other half is now owed.
   - [x] **A disk can be fitted at all.** `ap_omti` modelled the controller and
         `ap_awd` read the image and nothing ever handed one to the other, so
         every boot experiment so far ran on a DN3500 with **no Winchester** —

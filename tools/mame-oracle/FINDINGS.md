@@ -6755,3 +6755,60 @@ tests and reaches nothing is the shape to watch for.
 
 Ten times the drawing of the service-mode diagnostic, and the frame buffer ends
 *cleared* -- which is what a boot does before it draws anything of its own.
+
+## C117 -- the A/D is a video monitor, and the diagnostic is a DAC check
+
+**Class: ours-wrong, and partly still open.**
+
+The boot posts a diagnostic code and flashes for ever. C109's post routine and
+`008778-03` §3.7 -- "nine LED indicators ... written to the upper byte of the
+control register" -- make the sequence readable, and it ends in an alternation:
+a steady code with one bit toggling.
+
+### Where the failure is decided
+
+    007082  move.b  #$4,d0 ; bsr $708c
+    007088  move.b  #$6,d0
+    00708C  bsr.w   $6f3c            ; read an A/D channel
+    007090  cmpi.b  #$70,d0 ; bcc.w $5eb6   ; too high -> post and flash
+    007098  cmpi.b  #$52,d0 ; bcs.w $5eb6   ; too low  -> post and flash
+
+Two channels, `04` and `06`, each range-checked into `[52, 70)`. This core
+counted exactly **two** A/D accesses in that run, which is what pointed at it.
+
+### What the converter is
+
+Not a sensor. `c8p_read_adc` measures the controller's **own video output** --
+the analogue level on one gun, at the pixel under the beam, through the lookup
+table:
+
+    drawing     red 10 + R/2   green 70 + G/2   blue 10 + B/2
+    blanking    red 5          green 60         blue 5
+    sync        red 5          green 5          blue 5
+
+Channel bits 3-2 select a video measurement and bits 1-0 the gun, so `04` is red
+and `06` is blue. Green's floor of 60 against the others' 5 is composite sync
+riding on the green gun.
+
+It also **confirms the blanking polarity** corrected two commits earlier: the
+oracle's test for "drawing" is `SR_BLANK` being *set*, which is only sensible if
+the bit is active low.
+
+This could not have been modelled before the palette was wired and the raster
+ran, because it reads both.
+
+### What is still open, and it is a modelling gap rather than a mystery
+
+With the A/D answered the failure *moves* -- the flashing pair changes from
+`8D 0D` to `8D 7D 0D` -- so the reading now reaches the firmware and is used.
+It is still out of range, and the reason is known:
+
+**MAME measures at the position the firmware *stepped* the raster to, not where
+a free-running beam happens to be.** `c8p_read_adc` indexes
+`m_v_clock * m_buffer_width / 16 + m_h_clock`, and those are the counters
+`DH_CK`, `DV_CK` and `DP_CK` advance one step per `CR1` write. This core models
+the free-running raster and left the stepped counters out, with a note at the
+time that "a model that free-ran the horizontal counter as well would answer the
+diagnostic's questions before it asked them". That was right, and the other half
+-- modelling the stepped counters so the diagnostic can ask -- is now the next
+piece.

@@ -1091,6 +1091,15 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
       }
     }
   }
+  /* The lookup table's third chip select is an **A/D converter**, and what it
+   * converts is the controller's own video output -- the level on one gun at
+   * wherever the beam is.
+   * Reported because the firmware range-checks the answers and posts a
+   * diagnostic code if either is outside `[52, 70)`. */
+  if (board->graphics.lut_ad_accesses > 0u) {
+    printf("  lut a/d      %u access(es) (channel selects and conversions)\n",
+           board->graphics.lut_ad_accesses);
+  }
   /* The display controller's *memory*, apart from its registers -- which
    * `region_writes` counts together and so cannot tell apart. "The firmware
    * never wrote a pixel" and "it wrote and nothing drew" are different answers

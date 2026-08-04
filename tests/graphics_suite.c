@@ -1838,6 +1838,85 @@ static void test_the_status_register_is_not_a_constant(void) {
   TEST_ASSERT_EQUAL_HEX8(0u, (uint8_t)(all & modelled));
 }
 
+/* ## The A/D converter is a video monitor
+ *
+ * The third of the lookup table's chip selects reaches an A/D converter, and
+ * what it converts is the controller's **own video output**: the level on one
+ * gun at wherever the beam is. The boot PROM reads two channels and
+ * range-checks them, posting a diagnostic code and flashing for ever if either
+ * is outside `[52, 70)`. `FINDINGS.md` C117.
+ */
+static void test_the_adc_measures_the_gun_the_channel_names(void) {
+  ap_graphics_t g;
+  scanout_setup(&g, AP_SCREEN_COLOUR_8_PLANE);
+  g.reg.cr1 = AP_GRAPHICS_CR1_RESET | AP_GRAPHICS_CR1_SYNC_EN;
+  ap_graphics_advance(&g, 0u); /* line 0, pixel 0: drawing */
+
+  /* Palette entry 0 is what an all-zero frame buffer shows. Give it a level
+   * that is not the same in all three guns, so a channel confusion cannot
+   * pass. */
+  uint8_t rgb[3];
+  ap_bt458_write(&g.lut, AP_BT458_ADDRESS, 0x00u);
+  ap_bt458_write(&g.lut, AP_BT458_PALETTE, 0x40u); /* red */
+  ap_bt458_write(&g.lut, AP_BT458_PALETTE, 0x80u); /* green */
+  ap_bt458_write(&g.lut, AP_BT458_PALETTE, 0xC0u); /* blue */
+  TEST_ASSERT_TRUE(ap_bt458_palette(&g.lut, 0u, rgb));
+  TEST_ASSERT_EQUAL_HEX8(0x40u, rgb[0]);
+
+  uint8_t level = 0u;
+  /* `04` is red: 10 + R/2. */
+  TEST_ASSERT_TRUE(ap_graphics_adc(&g, 0x04u, &level));
+  TEST_ASSERT_EQUAL_UINT8(10u + 0x40u / 2u, level);
+  /* `05` is green, and its base is far higher -- composite sync rides on the
+   * green gun. */
+  TEST_ASSERT_TRUE(ap_graphics_adc(&g, 0x05u, &level));
+  TEST_ASSERT_EQUAL_UINT8(70u + 0x80u / 2u, level);
+  /* `06` is blue. */
+  TEST_ASSERT_TRUE(ap_graphics_adc(&g, 0x06u, &level));
+  TEST_ASSERT_EQUAL_UINT8(10u + 0xC0u / 2u, level);
+}
+
+/* Bits 3-2 must be `01` for a video measurement. Anything else is a conversion
+ * this core has nothing to say about, and is refused rather than answered with
+ * a zero a caller could not tell from a real reading of zero. */
+static void test_a_channel_that_is_not_a_video_measurement_is_refused(void) {
+  ap_graphics_t g;
+  scanout_setup(&g, AP_SCREEN_COLOUR_8_PLANE);
+  uint8_t level = 0xAAu;
+  TEST_ASSERT_FALSE(ap_graphics_adc(&g, 0x00u, &level));
+  TEST_ASSERT_FALSE(ap_graphics_adc(&g, 0x08u, &level));
+  TEST_ASSERT_FALSE(ap_graphics_adc(&g, 0x0Cu, &level));
+  TEST_ASSERT_EQUAL_HEX8(0xAAu, level);
+}
+
+/* Off the visible field the levels are floors rather than the palette's, and
+ * the three states differ -- drawing, blanking and sync. A model returning the
+ * palette everywhere would report a picture during the flyback. */
+static void test_the_adc_reports_floors_outside_the_visible_field(void) {
+  ap_graphics_t g;
+  scanout_setup(&g, AP_SCREEN_COLOUR_8_PLANE);
+  g.reg.cr1 = AP_GRAPHICS_CR1_RESET | AP_GRAPHICS_CR1_SYNC_EN;
+  ap_graphics_geometry_t geometry;
+  TEST_ASSERT_TRUE(ap_graphics_geometry(AP_SCREEN_COLOUR_8_PLANE, &geometry));
+  ap_clock_t dot;
+  TEST_ASSERT_TRUE(ap_clock_init(&dot, geometry.dot_clock_hz));
+
+  uint8_t level = 0u;
+  /* Blanking, early in the line. */
+  ap_graphics_advance(&g, dot.period * geometry.h_total *
+                              (geometry.height + 1u));
+  TEST_ASSERT_TRUE(ap_graphics_adc(&g, 0x05u, &level));
+  TEST_ASSERT_EQUAL_UINT8(60u, level);
+  TEST_ASSERT_TRUE(ap_graphics_adc(&g, 0x04u, &level));
+  TEST_ASSERT_EQUAL_UINT8(5u, level);
+
+  /* Inside the vertical sync pulse: even green drops to the floor. */
+  ap_graphics_advance(&g, dot.period * geometry.h_total *
+                              (geometry.height + 5u));
+  TEST_ASSERT_TRUE(ap_graphics_adc(&g, 0x05u, &level));
+  TEST_ASSERT_EQUAL_UINT8(5u, level);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_each_screen_reports_the_id_the_firmware_compares_against);
@@ -1914,5 +1993,8 @@ int main(void) {
   RUN_TEST(test_the_blanking_bits_are_active_low);
   RUN_TEST(test_the_vertical_sync_pulse_sits_inside_the_blanking);
   RUN_TEST(test_the_status_register_is_not_a_constant);
+  RUN_TEST(test_the_adc_measures_the_gun_the_channel_names);
+  RUN_TEST(test_a_channel_that_is_not_a_video_measurement_is_refused);
+  RUN_TEST(test_the_adc_reports_floors_outside_the_visible_field);
   return UNITY_END();
 }

@@ -187,6 +187,9 @@ static void lut_data_write(ap_graphics_t *graphics, uint8_t value) {
   /* Active low throughout, and tried in this order. A write does *not* try the
    * FIFO first -- see the header; the read does. */
   if ((control & AP_GRAPHICS_LUT_AD_CS) == 0u) {
+    /* A write here *selects the channel* -- the byte says which gun and what
+     * kind of conversion -- and the result is read back through the same port.
+     * Counted as well, so a run still says how much of this the firmware did. */
     graphics->lut_ad_accesses++;
     return;
   }
@@ -214,7 +217,13 @@ static uint8_t lut_data_read(ap_graphics_t *graphics) {
     return graphics->lut_data;
   }
   if ((control & AP_GRAPHICS_LUT_AD_CS) == 0u) {
+    /* The A/D's result. The channel is whatever was last written to the data
+     * port, which is how the converter is told what to measure. */
     graphics->lut_ad_accesses++;
+    uint8_t level = 0u;
+    if (ap_graphics_adc(graphics, graphics->lut_data, &level)) {
+      return level;
+    }
     return graphics->lut_data;
   }
   if ((control & AP_GRAPHICS_LUT_CPAL_CS) == 0u) {
@@ -1082,5 +1091,81 @@ bool ap_graphics_beam(const ap_graphics_t *graphics, unsigned *line,
   const uint64_t into_frame = dots % frame_dots;
   if (line != NULL) { *line = (unsigned)(into_frame / geometry.h_total); }
   if (pixel != NULL) { *pixel = (unsigned)(into_frame % geometry.h_total); }
+  return true;
+}
+
+bool ap_graphics_adc(const ap_graphics_t *graphics, uint8_t channel,
+                     uint8_t *level) {
+  if (level == NULL) {
+    return false;
+  }
+  /* Bits 3-2 must be `01` for a video measurement. Anything else is a
+   * conversion this core has nothing to say about. */
+  if ((channel & 0x0Cu) != 0x04u) {
+    return false;
+  }
+  ap_graphics_geometry_t geometry;
+  if (!ap_graphics_geometry(graphics->screen, &geometry)) {
+    return false;
+  }
+  const bool colour = ap_graphics_is_colour(graphics->screen);
+  const uint8_t *memory = colour ? graphics->colour_memory
+                                 : graphics->mono_memory;
+  const uint32_t bytes = colour ? graphics->colour_bytes
+                                : graphics->mono_bytes;
+  if (memory == NULL) {
+    return false;
+  }
+
+  unsigned line = 0u, pixel = 0u;
+  if (!ap_graphics_beam(graphics, &line, &pixel)) {
+    return false;
+  }
+
+  /* The pixel under the beam, composed from the planes exactly as the scanout
+   * does, and always the **leftmost** bit of the word -- which is the oracle's
+   * `get_pixel(..., 0x8000)`. The beam's position picks the word; the mask does
+   * not follow it into the word. */
+  const uint32_t word = (uint32_t)line * (geometry.buffer_width / 16u) +
+                        pixel / 16u;
+  unsigned index = 0u;
+  for (unsigned p = 0; p < geometry.planes; p++) {
+    const uint32_t at = p * geometry.plane_words + word;
+    if (at * 2u + 1u >= bytes) {
+      continue;
+    }
+    index |= (unsigned)((image_word(memory, at) >> 15) & 1u) << p;
+  }
+
+  uint8_t rgb[3] = {0u, 0u, 0u};
+  (void)ap_bt458_palette(&graphics->lut, index, rgb);
+
+  /* Which of the three guns. */
+  const unsigned gun = channel & 0x03u;
+  if (gun > 2u) {
+    *level = 0u;
+    return true;
+  }
+
+  /* Drawing, blanking or sync, and the three give different levels. "Drawing"
+   * is `BLANK` **set**, which is this board's active-low convention. */
+  const bool drawing = line < geometry.height && pixel < geometry.width;
+  if (drawing) {
+    static const uint8_t base[3] = {10u, 70u, 10u};
+    *level = (uint8_t)(base[gun] + rgb[gun] / 2u);
+    return true;
+  }
+  /* Inside the blanking interval the level is a floor, and green sits far above
+   * the other two -- the composite sync rides on the green gun, which is why it
+   * reads 60 where red and blue read 5. */
+  const unsigned v_sync_start = geometry.height + 4u;
+  const unsigned v_sync_end = geometry.height + 8u;
+  const bool in_sync = line >= v_sync_start && line < v_sync_end;
+  if (!in_sync && pixel < 20u) {
+    static const uint8_t blanking[3] = {5u, 60u, 5u};
+    *level = blanking[gun];
+    return true;
+  }
+  *level = 5u;
   return true;
 }

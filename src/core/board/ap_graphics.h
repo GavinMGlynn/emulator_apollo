@@ -786,6 +786,36 @@ void ap_graphics_cr2_fields(const ap_graphics_t *graphics, unsigned *s_plane,
 #define AP_GRAPHICS_SR_H_CK 0x02u
 #define AP_GRAPHICS_SR_V_DATA 0x01u
 
+/* ## The A/D converter is a video monitor, not a sensor
+ *
+ * The third of the lookup table's chip selects reaches an A/D converter, and
+ * what it converts is the controller's **own video output**: the analogue level
+ * on one of the three guns, at wherever the beam happens to be. The boot PROM
+ * uses it to check the DAC and the video path end to end -- it reads two
+ * channels and **range-checks** the answers, and posts a diagnostic code and
+ * flashes for ever if either is outside `[52, 70)`.
+ *
+ * The channel byte selects both what and which: bits 3-2 must be `01` to
+ * measure video at all, and bits 1-0 pick red, green or blue. So `04` is red
+ * and `06` is blue, which are the two the firmware asks for.
+ *
+ * The levels are the oracle's, and they depend on the beam:
+ *
+ *     drawing     red 10 + R/2   green 70 + G/2   blue 10 + B/2
+ *     blanking    red 5          green 60         blue 5
+ *     sync        red 5          green 5          blue 5
+ *
+ * `R`, `G` and `B` are the lookup table's answer for the pixel under the beam,
+ * which is why this could not be modelled before the palette was wired and the
+ * raster ran. The condition the oracle tests for "drawing" is `SR_BLANK` being
+ * **set**, which is the active-low polarity this core had backwards until the
+ * raster was corrected -- so this reading depends on that fix being right.
+ *
+ * Returns false for a channel that is not a video measurement, which is a
+ * conversion this core has nothing to say about rather than a zero. */
+[[nodiscard]] bool ap_graphics_adc(const ap_graphics_t *graphics,
+                                   uint8_t channel, uint8_t *level);
+
 /* Advance the controller to an absolute instant. Only the raster moves. */
 void ap_graphics_advance(ap_graphics_t *graphics, ap_time_t now);
 
