@@ -53,6 +53,7 @@
 #include <stdint.h>
 
 #include "device/ap_bt458.h"
+#include "time/ap_time.h"
 
 #define AP_GRAPHICS_MONO_ADDR 0x05D800u
 #define AP_GRAPHICS_COLOUR_ADDR 0x05E800u
@@ -238,6 +239,8 @@ typedef struct {
   /* The guard latch, one 32-bit entry per plane -- see `ap_graphics_blit_t`.
    * Controller state, carried between the two bus cycles of modes 1 and 3. */
   uint32_t guard_latch[AP_GRAPHICS_MAX_PLANES];
+  /* The instant the raster is at, from `ap_graphics_advance`. */
+  ap_time_t now;
   /* Which cycle of a two-cycle mode is next: 0 for the first. */
   unsigned blt_cycle;
 
@@ -608,6 +611,38 @@ typedef struct {
   unsigned buffer_height;
   /* One plane, in 16-bit words: `buffer_width * buffer_height / 16`. */
   uint32_t plane_words;
+
+  /* ## The raster
+   *
+   * The dot clock and the *total* line and frame, blanking included -- which is
+   * larger than the visible geometry above and is what the status register's
+   * timing bits are derived from.
+   *
+   * `008778-03` Table 11-3 bounds the colour monitors (horizontal 50.2 kHz
+   * +/- 500 Hz, vertical 47-80 Hz, horizontal blanking 4.713 us maximum) and
+   * the oracle's `set_raw(68000000, 1346, 0, 1024, 841, 0, 800)` sits inside
+   * every one: 68 MHz / 1346 is 50.52 kHz and 50520 / 841 is 60.07 Hz, which is
+   * §1.5.3's "60-Hz, noninterlaced".
+   *
+   * Table 11-8 does better for the 1280x1024 monochrome, giving active video,
+   * blanking, both porches and the sync pulse. Its totals corroborate the
+   * oracle's *structure* exactly -- 15.009 ms active plus 616 us blanking is
+   * 15.625 ms, and divided by a 14.657 us line that is **1066.0 lines**, which
+   * is `set_raw`'s `vtotal` to the digit. The line total agrees too: at the
+   * table's 8.47 ns pixel, 14.657 us is 1730 pixels against `set_raw`'s 1728.
+   *
+   * **The dot clock is where they part, and it is `PROVISIONAL`.** The table's
+   * 8.47 ns pixel implies 118.06 MHz; the oracle uses 120. The two differ by
+   * 1.8%, which propagates to the frame rate as 64 Hz against 65.14 -- and
+   * §11's own prose calls the 19-inch "60-Hz", which matches neither. The
+   * oracle's figure is taken because 118.06 MHz does not divide the time base
+   * and 120 MHz does, exactly, at 2805 units; the manual's is recorded here
+   * because it is the one with a document behind it. Closing it needs a
+   * measurement against a real monitor or a source that states the clock
+   * rather than the pixel time. */
+  uint32_t dot_clock_hz;
+  unsigned h_total; /* pixels a line, blanking included */
+  unsigned v_total; /* lines a frame, blanking included */
 } ap_graphics_geometry_t;
 
 /* ## `CR0`'s mode, and why a write to the graphics memory is not a store
@@ -712,6 +747,53 @@ void ap_graphics_cr2_fields(const ap_graphics_t *graphics, unsigned *s_plane,
 /* False for `AP_SCREEN_NONE`, which has no geometry rather than a zero one. */
 [[nodiscard]] bool ap_graphics_geometry(ap_screen_kind_t kind,
                                         ap_graphics_geometry_t *out);
+
+/* ## The status register, which is the raster
+ *
+ * Offset 0 reads a status register whose bits are almost all *display timing*.
+ * A firmware polling it is waiting for the beam, and a model answering a
+ * constant reads as a machine that never scans -- which is what kept a
+ * `--screen c8p` boot spinning 5,975,350 times in one run. `FINDINGS.md` C112.
+ *
+ *     80 BLANK    40 V_BLANK    20 H_SYNC (mono) / DONE (colour)
+ *     10 R_M_W    08 ALT        04 V_SYNC (mono) / SYNC (colour)
+ *     02 H_CK     01 V_DATA (mono) / V_FLAG (4-plane) / LUT_OK (8-plane)
+ *
+ * ### Only the vertical part free-runs, and it is gated
+ *
+ * The oracle drives `V_BLANK` and `BLANK` from its screen's own vertical blank,
+ * and **only when `CR1` has both `RESET` and `SYNC_EN` set**. The fine
+ * horizontal structure is not free-running at all there: `DH_CK`, `DV_CK` and
+ * `DP_CK` in `CR1` are *diagnostic clock-step* bits, and writing them advances
+ * the horizontal, vertical and pixel counters by one -- which is how the boot
+ * PROM's display test walks the raster and checks each bit in turn.
+ *
+ * So this models the free-running part from elapsed time and leaves the stepped
+ * part to the bits that step it. A model that free-ran the horizontal counter
+ * as well would answer the diagnostic's questions before it asked them.
+ *
+ * `R_M_W`, `ALT` and `DONE` are not timing at all -- they report a
+ * read-modify-write cycle, an alternating-blit phase and an A/D conversion --
+ * and are **not** modelled here; they read as zero, which is the state a
+ * controller doing none of those is in. */
+
+#define AP_GRAPHICS_SR_BLANK 0x80u
+#define AP_GRAPHICS_SR_V_BLANK 0x40u
+#define AP_GRAPHICS_SR_H_SYNC 0x20u  /* monochrome; DONE on a colour board */
+#define AP_GRAPHICS_SR_R_M_W 0x10u
+#define AP_GRAPHICS_SR_ALT 0x08u
+#define AP_GRAPHICS_SR_V_SYNC 0x04u
+#define AP_GRAPHICS_SR_H_CK 0x02u
+#define AP_GRAPHICS_SR_V_DATA 0x01u
+
+/* Advance the controller to an absolute instant. Only the raster moves. */
+void ap_graphics_advance(ap_graphics_t *graphics, ap_time_t now);
+
+/* Where the beam is: `line` within the frame and `pixel` within the line, both
+ * counted over the *total* including blanking. False when no screen is
+ * fitted. */
+[[nodiscard]] bool ap_graphics_beam(const ap_graphics_t *graphics,
+                                    unsigned *line, unsigned *pixel);
 
 /* `CR1`'s `DISP_EN`. Separate from the scanout, and deliberately: a disabled
  * display is **black**, and black is not a pixel index -- index 0 on a

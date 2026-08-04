@@ -2876,6 +2876,18 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
       `time_suite` +2 (17) now asserts periods as quotients and pins the base
       once, so the next recomputation breaks nothing.*
 
+- [x] **Display timing, the raster.** Both dot clocks, the beam as a function of
+      the instant, and the status register's timing bits gated on `CR1`'s
+      `RESET` and `SYNC_EN`. Only the vertical part free-runs: `DH_CK`, `DV_CK`
+      and `DP_CK` are diagnostic clock-step bits, so the fine horizontal
+      structure is stepped by the firmware's own display test rather than by
+      time. Detail in `PROJECT_STATUS.md`.
+      The 1280x1024 dot clock is `PROVISIONAL` — Table 11-8 against the oracle,
+      1.8% apart, detail in `PROJECT_STATUS.md`.
+      *Verification: on the real output, which is what this phase asks for. The
+      same boot that spun 5,975,350 times reading the controller now makes
+      **66,138 blit cycles and 529,104 plane writes**, and the screenshot has a
+      picture in it. `graphics_suite` +7 (73).*
 - [ ] Mono 1024×800 graphics controller and display timing. *Verification:
       framebuffer decoded to PNG and inspected; oracle frame diff.*
 - [ ] Colour and 8-plane controllers; 1280×1024 mono. *Verification: as above

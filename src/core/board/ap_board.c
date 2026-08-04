@@ -435,6 +435,10 @@ void ap_board_advance(ap_board_t *board, ap_time_t now) {
   /* The tape's command handshake, which is the only part of the drive that
    * moves with time -- §1.13.2's edges, at the bounds the figures publish. */
   ap_tape_advance(&board->tape, now);
+  /* The raster, which is a *function* of the instant rather than an
+   * accumulation -- so it carries no remainder and does not care how often
+   * this is called. */
+  ap_graphics_advance(&board->graphics, now);
 }
 
 bool ap_board_cache_inhibited(const ap_board_t *board, uint32_t address) {

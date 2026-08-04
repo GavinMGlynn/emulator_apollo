@@ -21,6 +21,7 @@ void ap_graphics_init(ap_graphics_t *graphics, ap_screen_kind_t screen) {
   graphics->lut_fifo_overruns = 0u;
   graphics->lut_ad_accesses = 0u;
   graphics->blt_cycle = 0u;
+  graphics->now = 0u;
   for (unsigned i = 0; i < AP_GRAPHICS_MAX_PLANES; i++) {
     graphics->guard_latch[i] = 0u;
   }
@@ -223,6 +224,64 @@ static uint8_t lut_data_read(ap_graphics_t *graphics) {
   return graphics->lut_data;
 }
 
+/* The status register, which is the raster. See the header for the bit map and
+ * for why only the vertical part free-runs. */
+static uint8_t graphics_status(const ap_graphics_t *graphics) {
+  /* The oracle drives the blanking bits only when `CR1` has **both** `RESET`
+   * and `SYNC_EN`. Until the firmware has released the reset and enabled sync
+   * there is no beam to report, and answering as though there were would let a
+   * driver believe a display it has not started yet. */
+  const uint8_t needed = AP_GRAPHICS_CR1_RESET | AP_GRAPHICS_CR1_SYNC_EN;
+  if ((graphics->reg.cr1 & needed) != needed) {
+    return 0x00u;
+  }
+
+  unsigned line = 0u, pixel = 0u;
+  if (!ap_graphics_beam(graphics, &line, &pixel)) {
+    return 0x00u;
+  }
+  ap_graphics_geometry_t geometry;
+  if (!ap_graphics_geometry(graphics->screen, &geometry)) {
+    return 0x00u;
+  }
+
+  uint8_t sr = 0u;
+  /* **Vertical blanking is the lines past the visible ones**, and `BLANK`
+   * follows it. Both are *set* while blanking, which is the polarity the
+   * oracle's vblank callback uses -- it clears them when the beam starts
+   * drawing and sets them when it stops. Inverted, a driver waiting for the
+   * blank would run its updates during the visible field, which is exactly the
+   * tearing the interval exists to prevent. */
+  const bool v_blank = line >= geometry.height;
+  const bool h_blank = pixel >= geometry.width;
+  if (v_blank) {
+    sr |= AP_GRAPHICS_SR_V_BLANK;
+  }
+  if (v_blank || h_blank) {
+    sr |= AP_GRAPHICS_SR_BLANK;
+  }
+  /* `H_CK` is the horizontal clock, and it toggles once a line -- the lowest
+   * bit of the line number, so a driver watching it sees a square wave at half
+   * the line rate rather than a pulse it could miss between two reads. */
+  if ((line & 1u) != 0u) {
+    sr |= AP_GRAPHICS_SR_H_CK;
+  }
+  /* The sync pulse sits inside the blanking interval, after the front porch.
+   * `008778-03` Table 11-8 gives the monochrome monitor's porches directly --
+   * horizontal front 407 ns, sync 1.49 us -- and the colour table does not, so
+   * this is the fraction of the blanking those figures describe rather than a
+   * per-screen measurement. **Active low**, as the oracle has it: the bit is
+   * *cleared* while the pulse is asserted. */
+  const unsigned blank_pixels = geometry.h_total - geometry.width;
+  const unsigned sync_start = geometry.width + blank_pixels / 8u;
+  const unsigned sync_end = sync_start + blank_pixels / 2u;
+  const bool h_sync = pixel >= sync_start && pixel < sync_end;
+  if (!h_sync) {
+    sr |= AP_GRAPHICS_SR_H_SYNC;
+  }
+  return sr;
+}
+
 uint8_t ap_graphics_read(ap_graphics_t *graphics, uint32_t address) {
   bool colour = false;
   uint32_t offset = 0;
@@ -268,12 +327,12 @@ uint8_t ap_graphics_read(ap_graphics_t *graphics, uint32_t address) {
     case AP_GRAPHICS_REG_LUT_CONTROL:
       return eight ? graphics->lut_control : 0xFFu;
     case AP_GRAPHICS_REG_CR3B: return eight ? graphics->reg.cr3b : 0xFFu;
+    case AP_GRAPHICS_REG_STATUS:
+      return graphics_status(graphics);
     default:
-      /* Offset 0 is the status register, which is **not** modelled: its bits
-       * report a read-modify-write cycle in progress, an A/D conversion and an
-       * alternating-blit phase, none of which this core has. `FF` rather than
-       * zero, for the reason the header gives -- zero is a state a real status
-       * register can report and this one cannot report anything. */
+      /* Every other register in the low group is write-only or unmodelled.
+       * `FF` rather than zero, for the reason the header gives -- zero is a
+       * state a real register can report and these cannot report anything. */
       return 0xFFu;
   }
 }
@@ -573,6 +632,8 @@ bool ap_graphics_geometry(ap_screen_kind_t kind, ap_graphics_geometry_t *out) {
   }
   unsigned planes = 0u, width = 0u, height = 0u;
   unsigned buffer_width = 0u, buffer_height = 0u;
+  uint32_t dot_clock = 0u;
+  unsigned h_total = 0u, v_total = 0u;
 
   switch (kind) {
     case AP_SCREEN_COLOUR_4_PLANE:
@@ -581,6 +642,7 @@ bool ap_graphics_geometry(ap_screen_kind_t kind, ap_graphics_geometry_t *out) {
        * capacity divided out rather than a number taken from elsewhere. */
       planes = 4u; width = 1024u; height = 800u;
       buffer_width = 1024u; buffer_height = 1024u;
+      dot_clock = 68000000u; h_total = 1346u; v_total = 841u;
       break;
     case AP_SCREEN_COLOUR_8_PLANE:
       /* §1.5.3 states both geometries in one sentence: "each consists of a 1024
@@ -588,6 +650,7 @@ bool ap_graphics_geometry(ap_screen_kind_t kind, ap_graphics_geometry_t *out) {
        * lines". */
       planes = 8u; width = 1024u; height = 800u;
       buffer_width = 1024u; buffer_height = 1024u;
+      dot_clock = 68000000u; h_total = 1346u; v_total = 841u;
       break;
     case AP_SCREEN_MONO_19_INCH:
       /* "256-KB image memory", one plane: 2048 x 1024 bits for a 1280 x 1024
@@ -595,11 +658,16 @@ bool ap_graphics_geometry(ap_screen_kind_t kind, ap_graphics_geometry_t *out) {
        * largest gap of the four and the one a wrong stride shows soonest. */
       planes = 1u; width = 1280u; height = 1024u;
       buffer_width = 2048u; buffer_height = 1024u;
+      /* The dot clock here is `PROVISIONAL` -- see the header. Table 11-8's
+       * 8.47 ns pixel implies 118.06 MHz and this is the oracle's 120, taken
+       * because 118.06 MHz does not divide the time base and this does. */
+      dot_clock = 120000000u; h_total = 1728u; v_total = 1066u;
       break;
     case AP_SCREEN_MONO_15_INCH:
       /* The oracle's, not the manual's -- see the header. */
       planes = 1u; width = 1024u; height = 800u;
       buffer_width = 1024u; buffer_height = 1024u;
+      dot_clock = 68000000u; h_total = 1346u; v_total = 841u;
       break;
     case AP_SCREEN_NONE:
     default:
@@ -612,6 +680,9 @@ bool ap_graphics_geometry(ap_screen_kind_t kind, ap_graphics_geometry_t *out) {
   out->buffer_width = buffer_width;
   out->buffer_height = buffer_height;
   out->plane_words = (uint32_t)buffer_width * buffer_height / 16u;
+  out->dot_clock_hz = dot_clock;
+  out->h_total = h_total;
+  out->v_total = v_total;
   return true;
 }
 
@@ -938,4 +1009,35 @@ uint16_t ap_graphics_memory_read_cycle(ap_graphics_t *graphics,
    * is one plane's worth of addresses; which plane is `CR2`'s answer. */
   const uint32_t at = offset + geometry.plane_words * s_plane;
   return at < words ? image_word(memory, at) : 0xFFFFu;
+}
+
+void ap_graphics_advance(ap_graphics_t *graphics, ap_time_t now) {
+  /* The raster is a function of the instant, not an accumulation, so there is
+   * no remainder to carry and no dependence on how often this is called. A
+   * caller that skipped a thousand frames and one that ticked every pixel see
+   * the same beam. */
+  graphics->now = now;
+}
+
+bool ap_graphics_beam(const ap_graphics_t *graphics, unsigned *line,
+                      unsigned *pixel) {
+  ap_graphics_geometry_t geometry;
+  if (!ap_graphics_geometry(graphics->screen, &geometry) ||
+      geometry.dot_clock_hz == 0u) {
+    return false;
+  }
+  ap_clock_t dot;
+  if (!ap_clock_init(&dot, geometry.dot_clock_hz)) {
+    /* Unrepresentable at this time base, which `ap_clock_init` refuses rather
+     * than rounding. A screen whose clock the base does not divide has no
+     * raster here, and saying so is better than a beam that drifts. */
+    return false;
+  }
+
+  const uint64_t dots = graphics->now / dot.period;
+  const uint64_t frame_dots = (uint64_t)geometry.h_total * geometry.v_total;
+  const uint64_t into_frame = dots % frame_dots;
+  if (line != NULL) { *line = (unsigned)(into_frame / geometry.h_total); }
+  if (pixel != NULL) { *pixel = (unsigned)(into_frame % geometry.h_total); }
+  return true;
 }

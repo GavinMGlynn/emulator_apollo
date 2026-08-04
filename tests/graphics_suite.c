@@ -117,17 +117,17 @@ static void test_the_blocks_are_the_ranges_the_map_gives_them(void) {
  * reading it would take an unmodelled register for a real one reporting a real
  * state. `FF` is what an absent part reads.
  *
- * The list shrank twice and the test was narrowed rather than deleted each
- * time. What is left: offset 0 is the **status** register, whose bits are the
- * raster -- `FINDINGS.md` C112, and the reason a `--screen c8p` boot polls
- * forever; offset 2 is the raster operation's low half, write-only on every
- * board; and offset 6 is a diagnostic memory-refresh trigger. `403` left the
- * list when the lookup table was wired. */
+ * The list shrank three times and the test was narrowed rather than deleted
+ * each time. What is left: offset 2 is the raster operation's low half,
+ * write-only on every board, and offset 6 is a diagnostic memory-refresh
+ * trigger. `403` left when the lookup table was wired and **offset 0 left when
+ * the raster did** -- the status register is modelled now, and reads zero on an
+ * unstarted controller rather than `FF`, which is the subject of its own test
+ * below. */
 static void test_an_unmodelled_register_reads_ff_and_not_zero(void) {
   ap_graphics_t g;
   ap_graphics_init(&g, AP_SCREEN_COLOUR_8_PLANE);
 
-  TEST_ASSERT_EQUAL_HEX8(0xFFu, ap_graphics_read(&g, AP_GRAPHICS_COLOUR_ADDR));
   TEST_ASSERT_EQUAL_HEX8(0xFFu,
                          ap_graphics_read(&g, AP_GRAPHICS_COLOUR_ADDR + 2u));
   TEST_ASSERT_EQUAL_HEX8(0xFFu,
@@ -1580,6 +1580,192 @@ static void test_a_window_read_latches_while_reading(void) {
   TEST_ASSERT_EQUAL_HEX32(0xC0DEC0DEu, g.guard_latch[0]);
 }
 
+/* ## The raster
+ *
+ * The status register is display timing, and a model answering a constant reads
+ * as a machine that never scans -- which is what kept a `--screen c8p` boot
+ * spinning 5,975,350 times against a constant `FF`. `FINDINGS.md` C112.
+ */
+
+/* Both dot clocks must be exactly representable, or the beam drifts. 68 MHz is
+ * what forced `AP_TIME_BASE_HZ` from 19.8 GHz to 336.6; the 19-inch's 120 MHz
+ * divides the new base at 2805 units and needed no further change. */
+static void test_both_dot_clocks_divide_the_time_base(void) {
+  const ap_screen_kind_t screens[] = {
+      AP_SCREEN_COLOUR_4_PLANE, AP_SCREEN_COLOUR_8_PLANE,
+      AP_SCREEN_MONO_19_INCH, AP_SCREEN_MONO_15_INCH};
+  for (unsigned i = 0; i < sizeof screens / sizeof screens[0]; i++) {
+    ap_graphics_geometry_t g;
+    TEST_ASSERT_TRUE(ap_graphics_geometry(screens[i], &g));
+    TEST_ASSERT_TRUE(g.dot_clock_hz != 0u);
+    TEST_ASSERT_EQUAL_UINT64(0u, AP_TIME_BASE_HZ % g.dot_clock_hz);
+    /* And the totals are larger than the visible geometry, which is what
+     * blanking *is*. */
+    TEST_ASSERT_TRUE(g.h_total > g.width);
+    TEST_ASSERT_TRUE(g.v_total > g.height);
+  }
+}
+
+/* The frame rate the two timings imply, against `008778-03`. Table 11-3 bounds
+ * the colour monitors at 47-80 Hz vertical and 50.2 kHz +/- 500 Hz horizontal;
+ * §1.5.3 calls them "60-Hz, noninterlaced". */
+static void test_the_colour_timing_is_inside_the_manual_s_bounds(void) {
+  ap_graphics_geometry_t g;
+  TEST_ASSERT_TRUE(ap_graphics_geometry(AP_SCREEN_COLOUR_8_PLANE, &g));
+
+  const unsigned h_hz = g.dot_clock_hz / g.h_total;
+  TEST_ASSERT_TRUE(h_hz >= 49700u && h_hz <= 50700u); /* 50.2 kHz +/- 500 */
+  const unsigned v_hz = h_hz / g.v_total;
+  TEST_ASSERT_TRUE(v_hz >= 47u && v_hz <= 80u);
+  TEST_ASSERT_EQUAL_UINT(60u, v_hz); /* and it is the stated 60 */
+}
+
+/* The beam is a **function of the instant**, not an accumulation. A caller that
+ * skipped a thousand frames and one that ticked every pixel must see the same
+ * place, which is what makes the raster independent of how often the tick loop
+ * asks -- and what means it carries no remainder to lose. */
+static void test_the_beam_does_not_depend_on_the_call_rate(void) {
+  ap_graphics_t one, many;
+  ap_graphics_init(&one, AP_SCREEN_COLOUR_8_PLANE);
+  ap_graphics_init(&many, AP_SCREEN_COLOUR_8_PLANE);
+
+  ap_graphics_geometry_t g;
+  TEST_ASSERT_TRUE(ap_graphics_geometry(AP_SCREEN_COLOUR_8_PLANE, &g));
+  ap_clock_t dot;
+  TEST_ASSERT_TRUE(ap_clock_init(&dot, g.dot_clock_hz));
+
+  const ap_time_t target = dot.period * 1234567u;
+  ap_graphics_advance(&one, target);
+  for (unsigned i = 0; i < 100u; i++) {
+    ap_graphics_advance(&many, target * (i + 1u) / 100u);
+  }
+
+  unsigned l1 = 0u, p1 = 0u, l2 = 0u, p2 = 0u;
+  TEST_ASSERT_TRUE(ap_graphics_beam(&one, &l1, &p1));
+  TEST_ASSERT_TRUE(ap_graphics_beam(&many, &l2, &p2));
+  TEST_ASSERT_EQUAL_UINT(l1, l2);
+  TEST_ASSERT_EQUAL_UINT(p1, p2);
+}
+
+/* One dot advances one pixel, one line's worth advances one line, and a whole
+ * frame returns to the start. */
+static void test_the_beam_walks_pixels_lines_and_frames(void) {
+  ap_graphics_t g;
+  ap_graphics_init(&g, AP_SCREEN_COLOUR_8_PLANE);
+  ap_graphics_geometry_t geometry;
+  TEST_ASSERT_TRUE(ap_graphics_geometry(AP_SCREEN_COLOUR_8_PLANE, &geometry));
+  ap_clock_t dot;
+  TEST_ASSERT_TRUE(ap_clock_init(&dot, geometry.dot_clock_hz));
+
+  unsigned line = 0u, pixel = 0u;
+  ap_graphics_advance(&g, 0u);
+  TEST_ASSERT_TRUE(ap_graphics_beam(&g, &line, &pixel));
+  TEST_ASSERT_EQUAL_UINT(0u, line);
+  TEST_ASSERT_EQUAL_UINT(0u, pixel);
+
+  ap_graphics_advance(&g, dot.period);
+  TEST_ASSERT_TRUE(ap_graphics_beam(&g, &line, &pixel));
+  TEST_ASSERT_EQUAL_UINT(1u, pixel);
+
+  ap_graphics_advance(&g, dot.period * geometry.h_total);
+  TEST_ASSERT_TRUE(ap_graphics_beam(&g, &line, &pixel));
+  TEST_ASSERT_EQUAL_UINT(1u, line);
+  TEST_ASSERT_EQUAL_UINT(0u, pixel);
+
+  ap_graphics_advance(&g,
+                      dot.period * geometry.h_total * geometry.v_total);
+  TEST_ASSERT_TRUE(ap_graphics_beam(&g, &line, &pixel));
+  TEST_ASSERT_EQUAL_UINT(0u, line);
+  TEST_ASSERT_EQUAL_UINT(0u, pixel);
+}
+
+/* Until `CR1` has **both** `RESET` and `SYNC_EN` there is no beam to report.
+ * Answering as though there were would let a driver believe a display it has
+ * not started, which is the state every controller is in at reset. */
+static void test_the_status_is_dead_until_reset_and_sync_are_set(void) {
+  ap_graphics_t g;
+  ap_graphics_init(&g, AP_SCREEN_COLOUR_8_PLANE);
+  const uint32_t status = AP_GRAPHICS_COLOUR_ADDR + AP_GRAPHICS_REG_STATUS;
+
+  ap_graphics_advance(&g, 0u);
+  TEST_ASSERT_EQUAL_HEX8(0x00u, ap_graphics_read(&g, status));
+
+  g.reg.cr1 = AP_GRAPHICS_CR1_RESET; /* one of the two is not enough */
+  TEST_ASSERT_EQUAL_HEX8(0x00u, ap_graphics_read(&g, status));
+  g.reg.cr1 = AP_GRAPHICS_CR1_SYNC_EN;
+  TEST_ASSERT_EQUAL_HEX8(0x00u, ap_graphics_read(&g, status));
+
+  g.reg.cr1 = AP_GRAPHICS_CR1_RESET | AP_GRAPHICS_CR1_SYNC_EN;
+  TEST_ASSERT_TRUE(ap_graphics_read(&g, status) != 0x00u);
+}
+
+/* Vertical blanking is the lines past the visible ones, and the bits are **set
+ * while blanking** -- the polarity the oracle's vblank callback uses. Inverted,
+ * a driver waiting for the blank to update the screen would run its updates
+ * during the visible field, which is the tearing the interval exists to
+ * prevent. */
+static void test_v_blank_is_set_outside_the_visible_field(void) {
+  ap_graphics_t g;
+  ap_graphics_init(&g, AP_SCREEN_COLOUR_8_PLANE);
+  g.reg.cr1 = AP_GRAPHICS_CR1_RESET | AP_GRAPHICS_CR1_SYNC_EN;
+  ap_graphics_geometry_t geometry;
+  TEST_ASSERT_TRUE(ap_graphics_geometry(AP_SCREEN_COLOUR_8_PLANE, &geometry));
+  ap_clock_t dot;
+  TEST_ASSERT_TRUE(ap_clock_init(&dot, geometry.dot_clock_hz));
+  const uint32_t status = AP_GRAPHICS_COLOUR_ADDR + AP_GRAPHICS_REG_STATUS;
+
+  /* The middle of the visible field, and the middle of a visible line. */
+  ap_graphics_advance(&g, dot.period * (geometry.h_total * 400u + 100u));
+  uint8_t sr = ap_graphics_read(&g, status);
+  TEST_ASSERT_EQUAL_HEX8(0u, (uint8_t)(sr & AP_GRAPHICS_SR_V_BLANK));
+  TEST_ASSERT_EQUAL_HEX8(0u, (uint8_t)(sr & AP_GRAPHICS_SR_BLANK));
+
+  /* Past the last visible line. */
+  ap_graphics_advance(&g,
+                      dot.period * (geometry.h_total * (geometry.height + 5u)));
+  sr = ap_graphics_read(&g, status);
+  TEST_ASSERT_EQUAL_HEX8(AP_GRAPHICS_SR_V_BLANK,
+                         (uint8_t)(sr & AP_GRAPHICS_SR_V_BLANK));
+  TEST_ASSERT_EQUAL_HEX8(AP_GRAPHICS_SR_BLANK,
+                         (uint8_t)(sr & AP_GRAPHICS_SR_BLANK));
+
+  /* And past the last visible *pixel* of a visible line: blanking without
+   * vertical blanking, which a model conflating the two would miss. */
+  ap_graphics_advance(&g,
+                      dot.period * (geometry.h_total * 400u + geometry.width + 4u));
+  sr = ap_graphics_read(&g, status);
+  TEST_ASSERT_EQUAL_HEX8(0u, (uint8_t)(sr & AP_GRAPHICS_SR_V_BLANK));
+  TEST_ASSERT_EQUAL_HEX8(AP_GRAPHICS_SR_BLANK,
+                         (uint8_t)(sr & AP_GRAPHICS_SR_BLANK));
+}
+
+/* The status register changes over a frame rather than reading one value --
+ * which is the whole difference between a raster and a constant, and the reason
+ * a polling firmware makes progress. */
+static void test_the_status_register_is_not_a_constant(void) {
+  ap_graphics_t g;
+  ap_graphics_init(&g, AP_SCREEN_COLOUR_8_PLANE);
+  g.reg.cr1 = AP_GRAPHICS_CR1_RESET | AP_GRAPHICS_CR1_SYNC_EN;
+  ap_graphics_geometry_t geometry;
+  TEST_ASSERT_TRUE(ap_graphics_geometry(AP_SCREEN_COLOUR_8_PLANE, &geometry));
+  ap_clock_t dot;
+  TEST_ASSERT_TRUE(ap_clock_init(&dot, geometry.dot_clock_hz));
+
+  uint8_t seen = 0u, all = 0xFFu;
+  for (unsigned i = 0; i < 2000u; i++) {
+    ap_graphics_advance(&g, dot.period * i * 977u);
+    const uint8_t sr =
+        ap_graphics_read(&g, AP_GRAPHICS_COLOUR_ADDR + AP_GRAPHICS_REG_STATUS);
+    seen |= sr;
+    all &= sr;
+  }
+  /* Every modelled bit is seen both set and clear over a frame. */
+  const uint8_t modelled = AP_GRAPHICS_SR_BLANK | AP_GRAPHICS_SR_V_BLANK |
+                           AP_GRAPHICS_SR_H_SYNC | AP_GRAPHICS_SR_H_CK;
+  TEST_ASSERT_EQUAL_HEX8(modelled, (uint8_t)(seen & modelled));
+  TEST_ASSERT_EQUAL_HEX8(0u, (uint8_t)(all & modelled));
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_each_screen_reports_the_id_the_firmware_compares_against);
@@ -1648,5 +1834,12 @@ int main(void) {
   RUN_TEST(test_a_window_read_comes_from_the_source_plane);
   RUN_TEST(test_two_modes_read_the_latch_instead_of_the_memory);
   RUN_TEST(test_a_window_read_latches_while_reading);
+  RUN_TEST(test_both_dot_clocks_divide_the_time_base);
+  RUN_TEST(test_the_colour_timing_is_inside_the_manual_s_bounds);
+  RUN_TEST(test_the_beam_does_not_depend_on_the_call_rate);
+  RUN_TEST(test_the_beam_walks_pixels_lines_and_frames);
+  RUN_TEST(test_the_status_is_dead_until_reset_and_sync_are_set);
+  RUN_TEST(test_v_blank_is_set_outside_the_visible_field);
+  RUN_TEST(test_the_status_register_is_not_a_constant);
   return UNITY_END();
 }
