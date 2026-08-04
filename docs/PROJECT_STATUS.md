@@ -4476,6 +4476,27 @@ not only in the decoder -- a decoder that says no beside an executor that says
 yes is worse than neither. And a controller with no drive answers "not ready"
 rather than looking like one with a blank disk.
 
+#### An enum whose type C leaves to the implementation, which only Windows caught
+
+`ap_graphics_rop_t` is a four-bit function code, and passing one where the
+32-bit ROP register is expected compiled cleanly here and failed the Windows
+job with `-Wsign-conversion`. C does not fix an unadorned enum's underlying
+type: clang on Linux picks `unsigned` when every enumerator is non-negative, and
+the MSVC ABI uses signed `int`. So the identical widening is a plain conversion
+on one platform and a signedness change on the other.
+
+Fixed at the root — the enum now declares `: uint8_t`, so its type is the same
+everywhere and a four-bit function code is unsigned because it has no business
+being anything else. The call sites also widen explicitly, which is not
+redundancy: the parameter is the *whole* register and the value is plane 0's
+nibble, so the cast is where that narrowing of meaning is stated.
+
+Worth recording because of how it was missed. Two commits went out red, and both
+local configurations — debug and release — were green for both of them. The gap
+was never optimisation level; it was the platform, and CI covers four while this
+machine covers one. `-O0` against `-O3` is the check that catches uninitialised
+memory, and it is not the check that catches an ABI difference.
+
 #### A blit, which is the plane loop around the data path
 
 `ap_graphics_blit` performs one destination word per plane, the planes laid out

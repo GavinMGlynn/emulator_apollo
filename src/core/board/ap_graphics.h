@@ -249,8 +249,16 @@ typedef enum {
  *
  * `CR1`'s `ROP_EN` gates the whole thing: with it clear the source passes
  * through whatever the register says, so a driver that programmed a ROP and
- * forgot the enable gets a copy rather than the operation it asked for. */
-typedef enum {
+ * forgot the enable gets a copy rather than the operation it asked for.
+ *
+ * **The underlying type is fixed**, and that is not decoration. An enum whose
+ * type C leaves to the implementation is `unsigned` under one ABI and signed
+ * `int` under another, so widening one to a `uint32_t` register is a plain
+ * conversion on Linux and a *signedness change* on Windows -- which
+ * `-Wsign-conversion` refuses, as it should. That difference compiled here and
+ * broke CI on one platform only. A four-bit function code has no business being
+ * signed anywhere, so it says so. */
+typedef enum : uint8_t {
   AP_GRAPHICS_ROP_ZERO = 0x0u,
   AP_GRAPHICS_ROP_SRC_AND_DST = 0x1u,
   AP_GRAPHICS_ROP_SRC_AND_NOT_DST = 0x2u,

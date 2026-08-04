@@ -346,6 +346,12 @@ static void test_every_raster_op_is_its_own_boolean_function(void) {
   const uint16_t d = 0xFF00u;
   const uint8_t on = AP_GRAPHICS_CR1_ROP_EN;
 
+  /* The op is widened explicitly. A `ap_graphics_rop_t` is a four-bit function
+   * code and the parameter is the whole 32-bit register, so this is plane 0's
+   * nibble and nothing else -- and under the MSVC ABI an enum is signed `int`,
+   * which makes the implicit widening a signedness change that `-Wsign-conversion`
+   * refuses. It compiled on Linux, where clang chose an unsigned underlying
+   * type, and failed only on Windows. */
   struct { ap_graphics_rop_t op; uint16_t want; } cases[] = {
       {AP_GRAPHICS_ROP_ZERO, 0u},
       {AP_GRAPHICS_ROP_SRC_AND_DST, (uint16_t)(s & d)},
@@ -366,7 +372,7 @@ static void test_every_raster_op_is_its_own_boolean_function(void) {
   };
   for (unsigned i = 0; i < 16u; i++) {
     TEST_ASSERT_EQUAL_HEX16(cases[i].want,
-                            ap_graphics_rop_apply(on, cases[i].op, 0u, s, d));
+                            ap_graphics_rop_apply(on, (uint32_t)cases[i].op, 0u, s, d));
   }
 }
 
@@ -378,9 +384,9 @@ static void test_every_raster_op_is_its_own_boolean_function(void) {
 static void test_source_copies_and_destination_writes_nothing(void) {
   const uint8_t on = AP_GRAPHICS_CR1_ROP_EN;
   TEST_ASSERT_EQUAL_HEX16(
-      0x1234u, ap_graphics_rop_apply(on, AP_GRAPHICS_ROP_SRC, 0u, 0x1234u, 0x5678u));
+      0x1234u, ap_graphics_rop_apply(on, (uint32_t)AP_GRAPHICS_ROP_SRC, 0u, 0x1234u, 0x5678u));
   TEST_ASSERT_EQUAL_HEX16(
-      0x5678u, ap_graphics_rop_apply(on, AP_GRAPHICS_ROP_DST, 0u, 0x1234u, 0x5678u));
+      0x5678u, ap_graphics_rop_apply(on, (uint32_t)AP_GRAPHICS_ROP_DST, 0u, 0x1234u, 0x5678u));
   TEST_ASSERT_EQUAL_UINT(3u, AP_GRAPHICS_ROP_SRC);
   TEST_ASSERT_EQUAL_UINT(5u, AP_GRAPHICS_ROP_DST);
 }
@@ -390,9 +396,9 @@ static void test_source_copies_and_destination_writes_nothing(void) {
  * not nothing. */
 static void test_a_disabled_rop_passes_the_source_through(void) {
   TEST_ASSERT_EQUAL_HEX16(
-      0x1234u, ap_graphics_rop_apply(0u, AP_GRAPHICS_ROP_ZERO, 0u, 0x1234u, 0x5678u));
+      0x1234u, ap_graphics_rop_apply(0u, (uint32_t)AP_GRAPHICS_ROP_ZERO, 0u, 0x1234u, 0x5678u));
   TEST_ASSERT_EQUAL_HEX16(
-      0x1234u, ap_graphics_rop_apply(0u, AP_GRAPHICS_ROP_ONE, 0u, 0x1234u, 0x5678u));
+      0x1234u, ap_graphics_rop_apply(0u, (uint32_t)AP_GRAPHICS_ROP_ONE, 0u, 0x1234u, 0x5678u));
 }
 
 /* "ROP Register specifiers increased to 32 bits" -- eight planes of four, low
@@ -540,7 +546,7 @@ static void test_a_shift_of_sixteen_or_more_rotates_before_shifting(void) {
 static void test_the_data_path_runs_source_then_rop_then_write_enable(void) {
   const uint8_t cr0 = 0u;
   const uint8_t cr1 = AP_GRAPHICS_CR1_ROP_EN;
-  const uint32_t rop = AP_GRAPHICS_ROP_SRC_XOR_DST; /* plane 0 */
+  const uint32_t rop = (uint32_t)AP_GRAPHICS_ROP_SRC_XOR_DST; /* plane 0 */
   const uint16_t destination = 0xFF00u;
 
   const uint16_t source =
