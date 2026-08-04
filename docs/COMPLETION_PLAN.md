@@ -2794,6 +2794,14 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
 - [ ] **Integration check, not a milestone:** DN3500 boots Domain/OS SR10.x to a
       login prompt, console byte-identical to the oracle. *Verification: console
       diff plus a boot state hash.*
+      **Awaiting:** the machine to leave the PROM. The console is reached and MD
+      answers commands and reads memory correctly, and a disk is fitted and
+      never touched — so what is owed is the step from a debugger prompt to a
+      Domain/OS load. Two questions, in order: whether the PROM auto-boots at
+      all when nothing is typed at it (every run so far has been fed carriage
+      returns, which is how MD is entered in the first place), and if not, which
+      MD command loads from `w0`. The command set is nine letters, `ABRVPICOH`,
+      and `B` is the obvious candidate.
   - [x] **A disk can be fitted at all.** `ap_omti` modelled the controller and
         `ap_awd` read the image and nothing ever handed one to the other, so
         every boot experiment so far ran on a DN3500 with **no Winchester** —
@@ -2830,14 +2838,19 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         and 300 ms spacing produces **byte-identical** streams, which is
         `MD.md`'s own test for rate loss, made from this side.
         Detail in `PROJECT_STATUS.md`.
-  - [ ] **Next: why letters do not survive where carriage returns do.** Every
-        `CR` is echoed and answered; a command letter and its argument produce
-        **nothing** — not even the `E` `MD.md` records `A1000` returning. A `CR`
-        is `0D`, forgiving of being sampled at the wrong instants; `41` is not.
-        So the question is the rate the firmware's receiver is left on after the
-        negotiation against what the terminal sends — two numbers, not a
-        harness. 4800 reaches the banner then answers nothing; 9600 answers
-        every `CR`.
+  - [x] **MD runs, and the rate hypothesis was wrong.** Printing the terminal's
+        rate beside each channel's settled one showed them matching at 9600 —
+        the autobaud converges correctly and there was no mismatch. What it
+        actually was: `A1000` is a **syntax error** and `A 1000` is the command.
+        `MD.md` had read the `E` as a rejected bare invocation; it is a rejected
+        *separator*, so every earlier attempt at the contents field used the
+        form that cannot work. Detail in `PROJECT_STATUS.md`.
+        *Verification: this core produced the address-and-contents line the
+        oracle capture never reached — `MD.md` said so in as many words and
+        proposed causing a fault to get it. `1000:  150 ` through `100A: B5FC `,
+        every value matching `3500_BOOT_12191_7.bin` read directly, including
+        both leading-zero cases. `MD.md` updated with the format and its
+        four-character right-justified value field.*
 
 ## Phase 5 — Display
 

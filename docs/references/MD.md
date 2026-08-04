@@ -281,6 +281,59 @@ was the wrong table. Recorded because the lookup was still worth doing: it cost
 nothing, and it produced a better route than the one it was meant to unblock.
 
 
+## The contents field, captured at last -- and `A` takes a **space**
+
+Both open questions above are closed, and the second one explains why the first
+stood so long.
+
+`A1000` is a *syntax error*. `A 1000` -- with a space -- is the command:
+
+```
+>A1000␍␍␊E␍␊>
+>A 1000␍␍␊1000:  150 ␍␍␊1002: 2D5F ␍␍␊1004:  154 ␍␍␊1006: 4E7A ␍␍␊...
+```
+
+So `E` was never MD rejecting an address or a bare invocation. It was MD
+rejecting a command with no separator, and every earlier attempt to reach the
+contents field was made with the form that cannot work.
+
+The line, byte-exact:
+
+```
+0D 0D 0A 31 30 30 30 3A 20 20 31 35 30 20    CR CR LF '1000' ':' ' ' ' ' '150' ' '
+0D 0D 0A 31 30 30 32 3A 20 32 44 35 46 20    CR CR LF '1002' ':' ' ' '2D5F'    ' '
+```
+
+- The value is **right-justified in a four-character field** with leading zeros
+  suppressed, so `0150` prints as `␣150` and `2D5F` fills it. With the
+  separator's own space before it the short case reads `:␣␣150` and the full one
+  `:␣2D5F`, which is the same padding rule the address field has and the same
+  trap: a parser splitting on `": "` gets a different number of fields depending
+  on the value.
+- One trailing space after the value.
+- Each line begins `CR CR LF`: the echo of the carriage return that advanced it,
+  then MD's own `CR LF`.
+- The step is 2, so `A` walks words, matching the address-only capture.
+
+**And the values are right.** Against `3500_BOOT_12191_7.bin` read directly:
+
+```
+1000: 0150   1002: 2D5F   1004: 0154   1006: 4E7A   1008: A801   100A: B5FC
+```
+
+All six, including both leading-zero cases. MD is reading memory through this
+core and reporting it correctly, which is a stronger statement than the format
+being parseable.
+
+**MD echoes the whole command line here** -- `A 1000` comes back entire, spaces
+included. That refines the "echo is selective" reading above rather than
+contradicting it: what that capture saw was `D`, a command this PROM does not
+have, so the echo it produced was of a line MD never accepted. A command MD
+*does* accept is echoed as typed.
+
+The crash-entry route recorded above is no longer needed for the format, though
+it remains the right way to reach the crash codes themselves.
+
 ## This core produces the same stream
 
 Booting `3500_BOOT_12191_7` under `apollo-headless` with carriage returns paced

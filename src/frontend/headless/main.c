@@ -25,6 +25,7 @@
 #include "image/ap_volume.h"
 #include "board/ap_board.h"
 #include "board/ap_sio.h"
+#include "device/ap_mc68681.h"
 #include "board/ap_graphics.h"
 #include "ap_png.h"
 #include "device/ap_bt458.h"
@@ -1036,15 +1037,27 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
    * including when all of it went, because "all delivered and still silent" is
    * a different finding from "none delivered". */
   if (input_length > 0u) {
-    printf("  input        %zu of %zu character(s) delivered\n", input_sent,
-           input_length);
+    printf("  input        %zu of %zu character(s) delivered, sent at %u baud"
+           " (CSR %02X)\n",
+           input_sent, input_length,
+           ap_mc68681_baud((uint8_t)(input_rate >> 4), false), input_rate);
     for (unsigned unit = 0; unit < 2u; unit++) {
       for (unsigned ch = 0; ch < 2u; ch++) {
-        printf("    sio%u %c      %u bits, receiver %s\n", unit + 1u,
-               ch == 0u ? 'A' : 'B',
+        /* The rate the *machine* is listening on, beside what the terminal
+         * sent at. Those are the two numbers the console negotiation is
+         * about, and until they were printed together the only way to compare
+         * them was to infer one from whether a character survived. A `CR` is
+         * `0D` and forgiving of being sampled at the wrong instants; a letter
+         * is not -- so a mismatch here shows as carriage returns working and
+         * everything else vanishing. */
+        const uint8_t csr = ap_sio_clock_select(&board->sio, unit, ch);
+        printf("    sio%u %c      %u bits, receiver %s, listening at %u baud"
+               " (CSR %02X)\n",
+               unit + 1u, ch == 0u ? 'A' : 'B',
                ap_sio_character_bits(&board->sio, unit, ch),
                ap_sio_receiver_enabled(&board->sio, unit, ch) ? "enabled"
-                                                             : "disabled");
+                                                             : "disabled",
+               ap_mc68681_baud((uint8_t)(csr >> 4), false), csr);
       }
     }
   }

@@ -4597,6 +4597,53 @@ last and hardest — **a decoded PNG**. Register round-trips and word-level
 identities are what can be checked without one, and a controller that passes
 those and draws nothing is the standard way this goes wrong.
 
+#### MD runs, and this core reached what the oracle capture never did
+
+The rate hypothesis was wrong, and printing the two numbers together is what
+settled it. The report now says what the terminal sent at beside what each
+channel is *listening* on:
+
+    input   6 of 6 character(s) delivered, sent at 9600 baud (CSR BB)
+      sio1 B   8 bits, receiver enabled, listening at 9600 baud (CSR BB)
+
+They match. The autobaud converges correctly and there was never a mismatch to
+find — which is worth having measured rather than assumed, because the symptom
+(carriage returns surviving, letters vanishing) is exactly what a mismatch would
+produce.
+
+**What it actually was: `A1000` is a syntax error and `A 1000` is the command.**
+
+    >A1000␍␍␊E␍␊>
+    >A 1000␍␍␊1000:  150 ␍␍␊1002: 2D5F ␍␍␊1004:  154 ␍␍␊1006: 4E7A ␍␍␊…
+
+`MD.md` recorded `A1000` returning `E` and read it as MD rejecting a bare
+invocation. It is MD rejecting a command with **no separator**, and every
+earlier attempt on the contents field was made with the form that cannot work.
+The other half of the failure was mine: too few carriage returns before the
+command, so the autobaud had not finished and the command was eaten by the
+negotiation.
+
+**This core has now produced the field the oracle capture never reached.**
+`MD.md` said of the contents: "Every line above ends after the address field …
+The handbook's 'prints address and contents' describes a case this capture did
+not reach", and proposed causing a fault as the route to it. It was not needed.
+
+The format, and the trap in it: the value is right-justified in a
+four-character field with leading zeros suppressed, so `0150` prints as `␣150`
+and `2D5F` fills it — the same padding rule the address field has, and the same
+consequence, that a parser splitting on `": "` gets a different number of fields
+depending on the value.
+
+**And the values are right.** Against `3500_BOOT_12191_7.bin` read directly:
+`0150 2D5F 0154 4E7A A801 B5FC`, all six, including both leading-zero cases. MD
+is reading memory through this core and reporting it correctly, which is a
+stronger claim than the format being parseable.
+
+`MD.md` is updated with the capture, and its "echo is selective" reading is
+refined rather than overturned: that observation was made with `D`, a command
+this PROM does not have, so what it saw was the echo of a line MD never
+accepted. A command MD *does* accept is echoed as typed.
+
 #### Pacing is excluded, and letters do not survive where carriage returns do
 
 `docs/references/MD.md` prescribes "one carriage return every 0.4 s on standard
