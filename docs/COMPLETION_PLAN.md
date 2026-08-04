@@ -2811,10 +2811,9 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         DN3500 and "2-2-2-2" on a DN3000, so the model is part of the decode and
         four points determine no scheme. `FINDINGS.md` C115.
         *Verification: `sio_suite` +3 (20) — the same byte meaning two machines,
-        an unlisted size refused rather than approximated, and only the seven
-        pins the part has. The refusal found that the frontend built **4 MB**,
-        which is not a configuration a DN3500 can be built in; it builds 16 MB
-        now and a run reports the byte it strapped.*
+        an unlisted size refused, and only the seven pins the part has. The
+        refusal found the frontend building **4 MB**, which is not a DN3500
+        configuration at all; it builds 16 MB now.*
       **Awaiting:** what the PROM wants from `IPCR` when the configuration is
       not in that register. `60` puts the four carrying pins in the *upper*
       nibble, and `IPCR` holds only `IP0`-`IP3` and their change flags — the
