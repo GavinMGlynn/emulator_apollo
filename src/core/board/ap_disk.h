@@ -49,6 +49,25 @@
 
 typedef struct {
   ap_omti_t controller;
+
+  /* ## Which registers a run touched, and how often
+   *
+   * Instrumentation about a *run*, so it lives with the board's placement of
+   * the part rather than in the part: `ap_omti_t` is state, and `omti_suite`
+   * asserts that a RESET makes one controller byte-identical to a fresh one --
+   * a claim these counters would break, and rightly, since a firmware-issued
+   * RESET must not erase the evidence a run has gathered.
+   *
+   * A region total says the firmware talked to the controller and cannot say
+   * *what it asked*. Six million reads against seven writes is a poll, and
+   * which register is polled is the difference between a controller that is not
+   * answering and a driver asking somewhere else -- which three readings of the
+   * disassembly could not settle, because the base `a0` holds is set far from
+   * the loop. */
+  unsigned disk_reads[AP_OMTI_DISK_REGISTERS];
+  unsigned disk_writes[AP_OMTI_DISK_REGISTERS];
+  unsigned floppy_reads[AP_OMTI_FLOPPY_REGISTERS];
+  unsigned floppy_writes[AP_OMTI_FLOPPY_REGISTERS];
 } ap_disk_t;
 
 void ap_disk_reset(ap_disk_t *disk);

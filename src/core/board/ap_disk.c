@@ -28,8 +28,13 @@ uint8_t ap_disk_read(ap_disk_t *disk, uint32_t address) {
   if (!ap_disk_decode(address, &is_floppy, &reg)) {
     return 0xFFu;
   }
-  return is_floppy ? ap_omti_fdc_read(&disk->controller, reg)
-                   : ap_omti_disk_read(&disk->controller, reg);
+  /* Counted here rather than in the part: see the header. */
+  if (is_floppy) {
+    if (reg < AP_OMTI_FLOPPY_REGISTERS) { disk->floppy_reads[reg]++; }
+    return ap_omti_fdc_read(&disk->controller, reg);
+  }
+  if (reg < AP_OMTI_DISK_REGISTERS) { disk->disk_reads[reg]++; }
+  return ap_omti_disk_read(&disk->controller, reg);
 }
 
 void ap_disk_write(ap_disk_t *disk, uint32_t address, uint8_t value) {
@@ -39,8 +44,10 @@ void ap_disk_write(ap_disk_t *disk, uint32_t address, uint8_t value) {
     return;
   }
   if (is_floppy) {
+    if (reg < AP_OMTI_FLOPPY_REGISTERS) { disk->floppy_writes[reg]++; }
     ap_omti_fdc_write(&disk->controller, reg, value);
   } else {
+    if (reg < AP_OMTI_DISK_REGISTERS) { disk->disk_writes[reg]++; }
     ap_omti_disk_write(&disk->controller, reg, value);
   }
 }

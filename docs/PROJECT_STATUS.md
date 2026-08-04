@@ -4597,6 +4597,39 @@ last and hardest — **a decoded PNG**. Register round-trips and word-level
 identities are what can be checked without one, and a controller that passes
 those and draws nothing is the standard way this goes wrong.
 
+#### Which register the disk poll is on, measured rather than read out of a listing
+
+`FO` reaches the controller and stalls, and three attempts to settle *which*
+register it was polling from the disassembly failed — the base register `a0`
+holds is set far from the loop, and following it through the calls was guesswork
+dressed as reading.
+
+The same instrument that settled the SIO settles this: per-register counters.
+
+    disk reg 0  DATA            5,279,663 read(s)   1 write(s)
+    disk reg 1  STATUS          1,048,577 read(s)   1 write(s)
+    disk reg 2  CONFIG/SELECT           1 read(s)   3 write(s)
+    disk reg 3  MASK                    0 read(s)   2 write(s)
+
+`1,048,577` is `0x100000 + 1` — one whole timeout loop expired, exactly. Then
+five more of them on the data port. So the sequence is: program the mask, select
+the drive, wait for the controller to answer on `STATUS`, give up, wait on
+`DATA`, give up.
+
+That is a much better place than the disassembly left it. The controller is
+selected and never answers, which is precisely the boundary `ap_omti`'s header
+draws — "the two register sets and their documented read/write asymmetries.
+**Not** the command sets" — so the firmware is asking for the half that was
+deliberately not built.
+
+**The instrument is the point here, not the finding.** A region total said the
+firmware talked to the controller and could not say what it asked; the same
+count broken out by register says it in one line, and it is the third time this
+session that has been the difference between a guess and a measurement. The
+first was the SIO's, which turned "the machine is silent" into "the rate is
+wrong"; the second the A/D's, which turned a flashing error code into a named
+DAC check.
+
 #### `FO` reaches the disk, and the boot has somewhere to go
 
 With the command table read out, `FO` — `FORCE LOAD` — was sent at the MD

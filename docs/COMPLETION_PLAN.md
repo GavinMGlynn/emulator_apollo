@@ -2912,11 +2912,16 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         Block going out and the poll waiting for a completion that never comes.
         No run in this project had touched the controller before.
         Detail in `PROJECT_STATUS.md`.
+  - [x] **Which register the poll is on, measured.** Three attempts to settle it
+        from the disassembly failed — the base `a0` holds is set far from the
+        loop. Per-register counters say it in one line: `STATUS` read
+        `0x100000 + 1` times, one whole timeout expired exactly, then five more
+        on `DATA`. The controller is selected and never answers.
+        Detail in `PROJECT_STATUS.md`.
       **Awaiting:** `[OMTI]` §5's **command set**. `ap_omti` models the register
       sets and not the commands, and says so in its header — "those want a drive
-      and a disk image behind them". Both now exist and the firmware is asking.
-      That is one named subsystem with a manual section behind it, which is a
-      different kind of open than every earlier one on this item.
+      and a disk image behind them". Both now exist and the firmware is asking
+      for exactly the half that was deliberately not built.
   - [x] **A disk can be fitted at all.** `ap_omti` modelled the controller and
         `ap_awd` read the image and nothing ever handed one to the other, so
         every boot experiment so far ran on a DN3500 with **no Winchester** —
