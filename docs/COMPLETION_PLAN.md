@@ -2804,13 +2804,22 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         same final PC, same fault count — and the disk region never appears.
         The firmware does not reach the controller, which is now shown rather
         than assumed.*
-  - [ ] **Where it actually stops: the console.** The run polls the serial
-        ports 1,481,339 times and transmits nothing. C110 has the reason — the
-        dispatcher *is* the autobaud, so the machine is silent until it has
-        received a character to measure. A carriage return changes the state
-        hash, so the byte arrives; it is not yet enough to make it speak. This
-        is the next thing between here and a login prompt, and it is a console
-        handshake question rather than a disk one.
+  - [x] **The port is excluded, and so is the poll.** The report now says how
+        much of a script was delivered and what each channel is configured as,
+        because a script blocked on a five-bit link or a disabled receiver looks
+        exactly like a firmware ignoring the console. It is neither: 12 of 12
+        characters taken, all four channels 8-bit with receivers enabled.
+        Feeding each of C109's three console channels branches — more PROM code
+        runs and the resting PC differs per channel — and every one returns
+        **inside** the poll at `00078E`-`0007AE`.
+        Detail in `PROJECT_STATUS.md`.
+  - [ ] **Next: the branch targets, which C110 says are the autobaud.** The
+        dispatcher identifies the sender's rate from what the wrong rate did to
+        the character, so a byte it cannot classify is one it rejects and
+        returns from — which is exactly what is observed.
+        `--boot-input-rate` is the instrument that exists to sweep it.
+        Everything before that point is now excluded: the port, the delivery,
+        the poll and the branch.
 
 ## Phase 5 — Display
 

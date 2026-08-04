@@ -1004,6 +1004,26 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
   if (board->atmap_undescribed_writes > 0u) {
     printf("    first write %08X\n", board->first_atmap_undescribed_write);
   }
+  /* Why scripted input did or did not arrive, which a serial read count cannot
+   * say. Delivery is gated on the port being programmed to eight bits and its
+   * receiver enabled -- `MR1` resets to a five-bit link and a disabled receiver
+   * drops what arrives -- and a script blocked on either looks exactly like a
+   * firmware that is ignoring the console. Printed whenever a script was given,
+   * including when all of it went, because "all delivered and still silent" is
+   * a different finding from "none delivered". */
+  if (input_length > 0u) {
+    printf("  input        %zu of %zu character(s) delivered\n", input_sent,
+           input_length);
+    for (unsigned unit = 0; unit < 2u; unit++) {
+      for (unsigned ch = 0; ch < 2u; ch++) {
+        printf("    sio%u %c      %u bits, receiver %s\n", unit + 1u,
+               ch == 0u ? 'A' : 'B',
+               ap_sio_character_bits(&board->sio, unit, ch),
+               ap_sio_receiver_enabled(&board->sio, unit, ch) ? "enabled"
+                                                             : "disabled");
+      }
+    }
+  }
   /* The display controller's *memory*, apart from its registers -- which
    * `region_writes` counts together and so cannot tell apart. "The firmware
    * never wrote a pixel" and "it wrote and nothing drew" are different answers

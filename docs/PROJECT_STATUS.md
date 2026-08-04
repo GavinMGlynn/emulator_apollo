@@ -4597,6 +4597,49 @@ last and hardest — **a decoded PNG**. Register round-trips and word-level
 identities are what can be checked without one, and a controller that passes
 those and draws nothing is the standard way this goes wrong.
 
+#### The console byte arrives, and the firmware still will not speak
+
+Scripted input is gated on two things the port has to be: programmed to eight
+bits, and with its receiver enabled. `MR1` resets to a five-bit link and a
+disabled receiver drops what arrives, so a script blocked on either looks
+exactly like a firmware ignoring the console — the same output, and no way to
+tell them apart from a serial read count.
+
+The boot report now says which it is, whenever a script was given. Not only when
+delivery fails: "all delivered and still silent" is a different finding from
+"none delivered", and only one of them is about the port.
+
+    input        12 of 12 character(s) delivered
+      sio1 A      8 bits, receiver enabled
+      sio1 B      8 bits, receiver enabled
+      sio2 A      8 bits, receiver enabled
+      sio2 B      8 bits, receiver enabled
+
+So the blocker is **not** the port. Every channel is correctly configured by the
+firmware itself, every character of the script is taken, and the machine
+transmits nothing.
+
+**And it is not the console-selection poll either.** C109 mapped that poll at
+`00078E`-`0007AE`: three `BTST #0` on the three status registers, branching per
+channel — serial 1 A to `00080E`, serial 1 B to `0007E6`, serial 2 A falling
+through to `0007B0`. Feeding each in turn:
+
+    port 1 channel A   final PC 0000079A   40912 PROM reads
+    port 1 channel B   final PC 000007A2   40860
+    port 2 channel A   final PC 0000079A   40884
+
+Against 40320 for a silent machine. So the firmware *does* branch — more PROM
+code runs, and where it settles differs by channel — and every one of them comes
+back **inside the poll**. It takes the character, decides against it, and
+returns to waiting.
+
+That places the next question precisely: at the branch targets, which C110 says
+are the autobaud. The dispatcher identifies the sender's rate from what the
+wrong rate did to the character, so a byte it cannot classify is a byte it
+rejects, and `--boot-input-rate` is the instrument that exists to sweep it. What
+is now excluded is everything before that point: the port, the delivery, the
+poll, and the branch.
+
 #### Every boot so far ran on a machine with no disk
 
 `ap_omti` has modelled the controller's two register sets for a long time and
