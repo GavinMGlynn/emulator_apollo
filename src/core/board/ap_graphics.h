@@ -327,4 +327,46 @@ typedef enum {
                                            uint16_t mem_mask, uint16_t source,
                                            uint16_t destination);
 
+/* ## A blit, which is the plane loop around all of the above
+ *
+ * One destination word per plane, the planes laid out one after another in the
+ * image memory with a fixed stride. Everything the operation needs is gathered
+ * here rather than passed as eight arguments, because the *combination* is what
+ * a blit is and a caller assembling it piecemeal can leave one stale.
+ *
+ * `latched` is what the blitter read from the source, one word per plane -- the
+ * guard latch. Which entry a plane uses is not always its own: on a
+ * single-plane board, or when `CR1`'s colour `AD_BIT` is set, every plane takes
+ * the *source plane's* word instead. That is how one source is broadcast to
+ * many destinations, and a model that always indexed by the destination plane
+ * would draw the right shape in the wrong colours.
+ */
+typedef struct {
+  uint8_t cr0;
+  uint8_t cr1;
+  ap_graphics_cr2_access_t access;
+  uint32_t rop_register;
+  uint16_t write_enable;
+  /* `CR2`'s selects, already decoded -- the widths differ per board and
+   * `ap_graphics_cr2_*_plane` is where that lives. */
+  unsigned d_plane;
+  unsigned s_plane;
+  /* How many planes the board has, and how far apart they are in the image
+   * memory, in words. */
+  unsigned planes;
+  uint32_t plane_stride;
+} ap_graphics_blit_t;
+
+/* Perform one blit into `image`, `words` long. `dest` is the word offset of
+ * plane 0's destination; each further plane is `plane_stride` beyond the last.
+ *
+ * Returns how many planes were actually written, which is not the plane count:
+ * `D_PLANE` masks planes out, and a destination past the end of the memory is
+ * skipped rather than wrapped. A caller that assumed every plane landed would
+ * not notice either. */
+[[nodiscard]] unsigned ap_graphics_blit(const ap_graphics_blit_t *blit,
+                                        uint16_t *image, uint32_t words,
+                                        uint32_t dest, uint16_t mem_mask,
+                                        const uint16_t *latched);
+
 #endif /* APOLLO_BOARD_AP_GRAPHICS_H */

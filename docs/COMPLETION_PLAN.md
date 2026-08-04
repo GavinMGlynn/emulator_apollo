@@ -2550,6 +2550,12 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
           **803 writes** to the controller. Those writes are the specification
           for what is left: they are what the blitter and lookup table have to
           answer.
+        - **The blit itself is done**, `ap_graphics_blit`: the plane loop
+          around the data path, with the address advancing for masked planes as
+          well as written ones, a destination past the memory skipped rather
+          than wrapped, and `CR1`'s `AD_BIT` broadcasting one source to every
+          plane. Detail in `PROJECT_STATUS.md`.
+          *Verification: `graphics_suite`, 6 further tests (31 total).*
         - **The blitter's word-level data path is done**: the four access
           modes that shape a source word, the plane select, and the write
           enable merge -- with `CR0`'s shift, whose count of 16 or more rotates

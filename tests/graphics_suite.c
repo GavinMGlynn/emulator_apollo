@@ -557,6 +557,128 @@ static void test_the_data_path_runs_source_then_rop_then_write_enable(void) {
       ap_graphics_combine(0xFF00u, 0xFFFFu, combined, destination));
 }
 
+/* ---- A blit, the plane loop around all of it ------------------------------- */
+
+static uint16_t image[64];
+static uint16_t latched[8];
+
+static ap_graphics_blit_t plain_blit(void) {
+  ap_graphics_blit_t b = {
+      .cr0 = 0u,
+      .cr1 = AP_GRAPHICS_CR1_ROP_EN,
+      .access = AP_GRAPHICS_CR2_PLANE_ACCESS,
+      .rop_register = 0x33333333u, /* SRC on every plane */
+      .write_enable = 0x0000u,     /* nothing protected */
+      .d_plane = 0x00u,            /* zero selects: every plane */
+      .s_plane = 0u,
+      .planes = 4u,
+      .plane_stride = 8u,
+  };
+  return b;
+}
+
+/* The ordinary case: a word copied into every plane, each at its own stride. */
+static void test_a_blit_writes_one_word_per_plane_at_its_stride(void) {
+  memset(image, 0, sizeof image);
+  for (unsigned p = 0; p < 8u; p++) {
+    latched[p] = (uint16_t)(0x1000u + p);
+  }
+  const ap_graphics_blit_t b = plain_blit();
+
+  TEST_ASSERT_EQUAL_UINT(4u, ap_graphics_blit(&b, image, 64u, 2u, 0xFFFFu, latched));
+  TEST_ASSERT_EQUAL_HEX16(0x1000u, image[2u]);
+  TEST_ASSERT_EQUAL_HEX16(0x1001u, image[2u + 8u]);
+  TEST_ASSERT_EQUAL_HEX16(0x1002u, image[2u + 16u]);
+  TEST_ASSERT_EQUAL_HEX16(0x1003u, image[2u + 24u]);
+  /* And nothing between the planes was touched. */
+  TEST_ASSERT_EQUAL_HEX16(0u, image[3u]);
+}
+
+/* `D_PLANE` masks planes out, and the address still advances for the ones it
+ * skips. Advancing only on a write would pack the written planes together and
+ * put every one after the first in the wrong plane -- a blit that draws the
+ * right shape in the wrong place, which is far harder to see than one that
+ * draws nothing. */
+static void test_a_masked_plane_is_skipped_without_moving_the_others(void) {
+  memset(image, 0, sizeof image);
+  memset(latched, 0x77, sizeof latched);
+  ap_graphics_blit_t b = plain_blit();
+  b.d_plane = 0x05u; /* bits 0 and 2 set: planes 0 and 2 masked out */
+
+  TEST_ASSERT_EQUAL_UINT(2u, ap_graphics_blit(&b, image, 64u, 0u, 0xFFFFu, latched));
+  TEST_ASSERT_EQUAL_HEX16(0x0000u, image[0u]);       /* plane 0 masked */
+  TEST_ASSERT_EQUAL_HEX16(0x7777u, image[8u]);       /* plane 1 written */
+  TEST_ASSERT_EQUAL_HEX16(0x0000u, image[16u]);      /* plane 2 masked */
+  TEST_ASSERT_EQUAL_HEX16(0x7777u, image[24u]);      /* plane 3 written */
+}
+
+/* A destination past the memory is skipped, not wrapped. A blit that ran off
+ * the end and reappeared at the top would draw a second, wrong image somewhere
+ * nobody asked about. */
+static void test_a_plane_past_the_memory_is_skipped_not_wrapped(void) {
+  memset(image, 0, sizeof image);
+  memset(latched, 0x11, sizeof latched);
+  const ap_graphics_blit_t b = plain_blit();
+
+  /* Plane 0 at word 60 fits; planes 1-3 are past the end of 64 words. */
+  TEST_ASSERT_EQUAL_UINT(1u, ap_graphics_blit(&b, image, 64u, 60u, 0xFFFFu, latched));
+  TEST_ASSERT_EQUAL_HEX16(0x1111u, image[60u]);
+  /* Nothing wrapped to the start. */
+  TEST_ASSERT_EQUAL_HEX16(0x0000u, image[0u]);
+  TEST_ASSERT_EQUAL_HEX16(0x0000u, image[4u]);
+}
+
+/* With `AD_BIT` set every plane takes the *source plane's* word, which is how
+ * one source is broadcast to many destinations. Indexing by the destination
+ * plane instead draws the right shape in the wrong colours. */
+static void test_the_ad_bit_broadcasts_one_source_to_every_plane(void) {
+  memset(image, 0, sizeof image);
+  for (unsigned p = 0; p < 8u; p++) {
+    latched[p] = (uint16_t)(0xA000u + p);
+  }
+  ap_graphics_blit_t b = plain_blit();
+  b.cr1 |= AP_GRAPHICS_CR1_COLOUR_AD_BIT;
+  b.s_plane = 2u;
+
+  TEST_ASSERT_EQUAL_UINT(4u, ap_graphics_blit(&b, image, 64u, 0u, 0xFFFFu, latched));
+  for (unsigned p = 0; p < 4u; p++) {
+    TEST_ASSERT_EQUAL_HEX16(0xA002u, image[p * 8u]);
+  }
+}
+
+/* The raster operation runs per plane, so one blit can combine differently in
+ * each -- which is the whole reason the ROP register is 32 bits wide. */
+static void test_each_plane_combines_by_its_own_operation(void) {
+  memset(image, 0, sizeof image);
+  for (unsigned p = 0; p < 4u; p++) {
+    image[p * 8u] = 0xFF00u;
+  }
+  memset(latched, 0x0F, sizeof latched); /* 0x0F0F */
+
+  ap_graphics_blit_t b = plain_blit();
+  /* plane 0 SRC, plane 1 DST, plane 2 XOR, plane 3 ZERO */
+  b.rop_register = 0x0653u;
+
+  TEST_ASSERT_EQUAL_UINT(4u, ap_graphics_blit(&b, image, 64u, 0u, 0xFFFFu, latched));
+  TEST_ASSERT_EQUAL_HEX16(0x0F0Fu, image[0u]);            /* source */
+  TEST_ASSERT_EQUAL_HEX16(0xFF00u, image[8u]);            /* destination kept */
+  TEST_ASSERT_EQUAL_HEX16(0x0F0Fu ^ 0xFF00u, image[16u]); /* xor */
+  TEST_ASSERT_EQUAL_HEX16(0x0000u, image[24u]);           /* zero */
+}
+
+/* The write enable protects within the word, across every plane at once. */
+static void test_the_write_enable_applies_to_every_plane(void) {
+  memset(image, 0, sizeof image);
+  memset(latched, 0xFF, sizeof latched);
+  ap_graphics_blit_t b = plain_blit();
+  b.write_enable = 0xFF00u; /* high byte protected */
+
+  TEST_ASSERT_EQUAL_UINT(4u, ap_graphics_blit(&b, image, 64u, 0u, 0xFFFFu, latched));
+  for (unsigned p = 0; p < 4u; p++) {
+    TEST_ASSERT_EQUAL_HEX16(0x00FFu, image[p * 8u]);
+  }
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_each_screen_reports_the_id_the_firmware_compares_against);
@@ -584,5 +706,11 @@ int main(void) {
   RUN_TEST(test_the_access_modes_shape_the_source_word);
   RUN_TEST(test_a_shift_of_sixteen_or_more_rotates_before_shifting);
   RUN_TEST(test_the_data_path_runs_source_then_rop_then_write_enable);
+  RUN_TEST(test_a_blit_writes_one_word_per_plane_at_its_stride);
+  RUN_TEST(test_a_masked_plane_is_skipped_without_moving_the_others);
+  RUN_TEST(test_a_plane_past_the_memory_is_skipped_not_wrapped);
+  RUN_TEST(test_the_ad_bit_broadcasts_one_source_to_every_plane);
+  RUN_TEST(test_each_plane_combines_by_its_own_operation);
+  RUN_TEST(test_the_write_enable_applies_to_every_plane);
   return UNITY_END();
 }

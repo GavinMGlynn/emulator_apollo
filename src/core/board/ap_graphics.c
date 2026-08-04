@@ -270,3 +270,49 @@ uint16_t ap_graphics_combine(uint16_t write_enable, uint16_t mem_mask,
   const uint16_t protect = (uint16_t)(write_enable | (uint16_t)~mem_mask);
   return (uint16_t)((destination & protect) | (source & (uint16_t)~protect));
 }
+
+unsigned ap_graphics_blit(const ap_graphics_blit_t *blit, uint16_t *image,
+                          uint32_t words, uint32_t dest, uint16_t mem_mask,
+                          const uint16_t *latched) {
+  if (blit == nullptr || image == nullptr || latched == nullptr) {
+    return 0u;
+  }
+  unsigned written = 0u;
+  uint32_t address = dest;
+
+  for (unsigned plane = 0; plane < blit->planes; plane++) {
+    /* The address advances for every plane, written or not: the planes are a
+     * fixed layout, not a list of the ones taking part. Advancing only on a
+     * write would pack the written planes together and put each after the
+     * first in the wrong one. */
+    const uint32_t at = address;
+    address += blit->plane_stride;
+
+    if (!ap_graphics_plane_selected(blit->d_plane, plane)) {
+      continue;
+    }
+    if (at >= words) {
+      /* Past the memory. Skipped rather than wrapped: a blit that ran off the
+       * end and reappeared at the top would draw a second, wrong image
+       * somewhere a caller never asked about. */
+      continue;
+    }
+
+    /* One source for all planes when the board has one, or when `AD_BIT` says
+     * to broadcast; otherwise each plane reads its own. */
+    const bool broadcast =
+        blit->planes == 1u || (blit->cr1 & AP_GRAPHICS_CR1_COLOUR_AD_BIT) != 0u;
+    const unsigned from = broadcast ? blit->s_plane : plane;
+    const uint16_t source = ap_graphics_source_data(
+        blit->cr0, blit->access, plane,
+        latched[from < blit->planes ? from : 0u]);
+
+    const uint16_t destination = image[at];
+    const uint16_t combined = ap_graphics_rop_apply(
+        blit->cr1, blit->rop_register, plane, source, destination);
+    image[at] =
+        ap_graphics_combine(blit->write_enable, mem_mask, combined, destination);
+    written++;
+  }
+  return written;
+}
