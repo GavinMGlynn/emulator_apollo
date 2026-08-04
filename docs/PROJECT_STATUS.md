@@ -4597,6 +4597,45 @@ last and hardest — **a decoded PNG**. Register round-trips and word-level
 identities are what can be checked without one, and a controller that passes
 those and draws nothing is the standard way this goes wrong.
 
+#### The PROM does not auto-boot, and the two console paths end in two blockers
+
+Three measurements, and together they give the whole shape of what stands
+between here and Domain/OS.
+
+**It does not auto-boot.** Sixty million instructions — about 9.6 emulated
+seconds — with `dn3500-sr10.4-installed.awd` fitted and nothing typed, and the
+program counter is still `000007AE`: inside C109's console-selection poll. It
+also never reads the **calendar** in any run, so it is not consulting a stored
+configuration and being told to wait. It simply waits for a console.
+
+**A keypress selects the display console, and that path goes a long way
+further.** C109's table has serial 1 channel A as *the keyboard*, branching to
+`00080E`. Feeding one key with a screen fitted:
+
+    final PC                000046BC   against 000007AE idle
+    display controller      5,975,350 reads   against 914
+
+So the machine leaves the poll, runs a great deal more PROM, and settles
+polling the display controller — which is C112: the status register is the
+raster, this core returns a constant `FF`, and the video clock domain that fixes
+it recomputes `AP_TIME_BASE_HZ`. The display console path is blocked by a plan
+item that already exists.
+
+**The serial console path reaches MD**, which is where the last two sessions
+got to. So the two consoles lead to two different blockers, and only one of them
+is a mystery.
+
+**`B` is Breakpoint, not boot.** The plan guessed it from the nine-letter help
+string; `002398-04` §5's command list settles it — `B <location>` is
+*Breakpoint*, and the loading commands are `EX`, `EY`, `LO`, `FO` and `DL`, none
+of whose initials appear in `ABRVPICOH`. So this PROM image very likely has no
+command that loads a file at all, which makes the display-console path the
+route to a boot rather than a convenience.
+
+That reorders what is worth doing: the video clock domain is no longer only
+Phase 5's first item and the thing that makes a picture appear. It is also on
+the path to Domain/OS.
+
 #### MD runs, and this core reached what the oracle capture never did
 
 The rate hypothesis was wrong, and printing the two numbers together is what
