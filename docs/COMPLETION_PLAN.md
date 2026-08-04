@@ -2623,13 +2623,17 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
   - [x] The drive joined to the SC-499's registers: a driver reaches it through
         `050000`, commands go via the request bit, and data comes back a byte at
         a time. `tape_suite`, 11 tests.
-  - [ ] The per-byte QIC-02 handshake. §1.13.2's Figure 1-7 is now
-        **transcribed** (`FINDINGS.md` C26): a five-edge REQUEST/READY exchange
-        whose *ordering* is fully determined. Its timings are all **bounds, not
-        values** — `T4->T5 < 500 ms` for command execution, a 20-to-100 µs
-        window for the close — so implementing them means picking documented
-        figures and marking them `PROVISIONAL`, as the 68030's input
-        synchroniser is. The ordering alone is enough for a polling driver.
+  - [x] **The per-byte QIC-02 handshake, timed.** §1.13.2's ordering was
+        modelled; the intervals now are too. The device carries its own clock,
+        advanced by `ap_board_advance` with every other device, and a command
+        reaches its destination only when its figure's interval has passed.
+        Every interval is `PROVISIONAL` — the figures publish bounds, not
+        values. Detail in `PROJECT_STATUS.md`.
+        *Verification: `sc499_suite` 16, `tape_suite` 16. Figure 1-9's total is
+        a **sum** of two sequential intervals rather than one bound, and
+        `T_REQUEST_TO_NOT_READY` is deliberately **not** taken at its bound —
+        holding READY up for that microsecond shows a driver a device that
+        looks finished with a command it has only just been handed.*
   - [x] Figure 1-6, the read data transfer, transcribed (C26): ACKNOWLEDGE and
         TRANSFER pace each byte while READY frames the block.
   - [x] Figure 1-8 transcribed and the READY/EXCEPTION defect fixed: exception
@@ -2686,7 +2690,7 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         disjunction), and for disbelieving "a reset sets DONE" (bit 4, and it
         does). Linux's `tpqic02.h` and the oracle's `sc499.cpp` both confirm the
         polarity. Detail in `PROJECT_STATUS.md`.
-        *Verification: `sc499_suite`, 14 tests; `tape_suite` and `board_suite`
+        *Verification: `sc499_suite`, 16 tests; `tape_suite` and `board_suite`
         expectations updated. This core reads `70` where the oracle reads `40`.*
   - [ ] Open, and narrower: whether the controller asserts EXCEPTION at reset.
         The oracle does; `[SC499]` says nothing either way, and inferring it

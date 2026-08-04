@@ -432,6 +432,9 @@ void ap_board_advance(ap_board_t *board, ap_time_t now) {
    * to do with serial lines. It is here rather than absent because the counter
    * now has a clock: `board/ap_sio.h` derives the rate. */
   ap_sio_advance(&board->sio, now);
+  /* The tape's command handshake, which is the only part of the drive that
+   * moves with time -- §1.13.2's edges, at the bounds the figures publish. */
+  ap_tape_advance(&board->tape, now);
 }
 
 bool ap_board_cache_inhibited(const ap_board_t *board, uint32_t address) {

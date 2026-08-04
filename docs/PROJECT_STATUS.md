@@ -3418,8 +3418,8 @@ failure that cost a bit position in the 68020's module entry word.
 | QIC-02 tape drive | working for the readable half of the command set: both SELECTs with the sticky selection and the soft lock, BOT, RETENSION, SELECT Q24, READ and READ STATUS. **Writing is refused rather than discarded** — there is no write-back path, and accepting a write would let an installation appear to succeed. The cartridge *type* is supplied by the caller, because the controller derives it from tape geometry a raw image does not carry. The two opcodes the scan lost are claimed by nothing. **READ STATUS now transfers its block**: six bytes, the length `[SC499]` §1.13.1 gives outright, as three 16-bit fields LSB-first — exception flags, data-error count, underrun count — and reading it clears the power-on condition it reports | `qic_suite`, 18 tests; `FINDINGS.md` C25 |
 | Cartridge tape images (`image/ap_ct.c`) | working: block addressing over a raw `.ct` image, refusing any size that is not a whole number of 512-byte blocks, and boot-record parsing that returns the four header words. Their reading as load address and entry point is now **confirmed by the boot code itself** — its first instruction, a PC-relative `LEA`, computes word 0 exactly when executed at word 1, so the image proves its own layout. `ap_ct_boot_image` therefore *names* load address, entry point and length, and refuses a cartridge that does not announce itself, or whose header describes more than the file holds. Takes memory, never a filename, so `src/core` keeps its zero file I/O and the tests need no gitignored media | `ct_suite`, 12 tests; `FINDINGS.md` C24 |
 | Apollo display controller identification (`05D800`, `05E800`) | working for **identification only**: both register blocks decode whether or not a screen is fitted, and the device ID at offset 1 reports `C4P=8`, `19I=9`, `C8P=10` or `15I=11` for the fitted family and `FF` for the other. An absent screen reads `FF` and does **not** bus error — "nothing is fitted" and "nothing is there" are different answers, and getting that wrong cost an investigation. Drawing, the blitter, the lookup table and the graphics memories are not modelled, and the header says so; unmodelled registers read `FF` rather than zero because zero is a value several of them can hold | `graphics_suite`, 14 tests; `FINDINGS.md` C31-C32 |
-| Apollo cartridge tape (`050000`) | working, **controller joined to the drive**: a data-register write with the request bit set is a QIC-02 command, reads deliver the cartridge a byte at a time across the drive's block boundary, and a refused command or the end of tape raises Exception. The command handshake's **three entry conditions** are modelled — ready, exception, device-holds-the-bus, one figure each — as an *ordering*. Its timings are not: every figure in §1.13.2 publishes bounds rather than values, so modelling them means `PROVISIONAL` figures and that work is not done. The ordering is right about everything a polling driver observes. Four registers at stride 1, the upper four of each eight floating to `FF`, aliased through the range, on IRQ5 through to vector `A5`. The measured reset dump is reproduced over two aliasing periods | `tape_suite`, 14 tests; `FINDINGS.md` C16-C19 |
-| Archive SC-499 cartridge tape controller (the part) | **register model complete**: all four addresses of `[SC499]` §1.9 — data/command, control-on-write and status-on-read, and the two write-triggered DMA commands — plus the derived interrupt flag, the tri-stated IRQ line, and RSTDMA's documented identity with power-on reset. **The status register's polarity is corrected**: RDY and EXC are asserted *low*, and the interrupt flag is a disjunction rather than a conjunction — see the section below. The QIC-02 command set itself, tape motion and the drive behind it are not modelled. Not yet wired to the board at `050000` | `sc499_suite`, 14 tests, `Archive SC-499 Information Guide` | **Oracle note:** MAME's own SC-499 models no media change at all, so a cartridge swapped while Domain/OS holds the drive crashes it; `ext/mame` carries a local edit treating insertion as a QIC-02 RESET, per `FINDINGS.md` C56.
+| Apollo cartridge tape (`050000`) | working, **controller joined to the drive**: a data-register write with the request bit set is a QIC-02 command, reads deliver the cartridge a byte at a time across the drive's block boundary, and a refused command or the end of tape raises Exception. The command handshake's **three entry conditions** are modelled — ready, exception, device-holds-the-bus, one figure each — and now **its timings too**: the device carries a clock, a command deasserts READY at once and reaches its destination only when the figure's interval has passed. Every interval is `PROVISIONAL`, since §1.13.2 publishes bounds rather than values. Four registers at stride 1, the upper four of each eight floating to `FF`, aliased through the range, on IRQ5 through to vector `A5`. The measured reset dump is reproduced over two aliasing periods | `tape_suite`, 16 tests; `FINDINGS.md` C16-C19 |
+| Archive SC-499 cartridge tape controller (the part) | **register model complete**: all four addresses of `[SC499]` §1.9 — data/command, control-on-write and status-on-read, and the two write-triggered DMA commands — plus the derived interrupt flag, the tri-stated IRQ line, and RSTDMA's documented identity with power-on reset. **The status register's polarity is corrected**: RDY and EXC are asserted *low*, and the interrupt flag is a disjunction rather than a conjunction — see the section below. The QIC-02 command set itself, tape motion and the drive behind it are not modelled. Not yet wired to the board at `050000` | `sc499_suite`, 16 tests, `Archive SC-499 Information Guide` | **Oracle note:** MAME's own SC-499 models no media change at all, so a cartridge swapped while Domain/OS holds the drive crashes it; `ext/mame` carries a local edit treating insertion as a QIC-02 RESET, per `FINDINGS.md` C56.
 | Apollo disk and floppy (`04D000`, `05F800`) | working: both halves of the one card, placed **74 KB apart** by measurement, each aliased through 1 KB on its own period — four registers for the fixed disk, an eight-address block for the floppy. Interrupts on IRQ14 and IRQ6, separate lines eight apart. The gap is pinned as arithmetic, not constants: the AT window maps `Apollo = 0x040000 + AT × 0x80` | `disk_suite`, 6 tests; `FINDINGS.md` C20, C22, C23 |
 | OMTI command descriptor blocks | working: the 6-byte CDB decoded with the **cylinder reassembled from three bytes** (C10 in byte 1, C09/C08 in byte 2, low eight in byte 3), the command byte exposed both whole and split into class and opcode, and acceptance checked against the ESDI command set — which **refuses** `0C INITIALIZE DRIVE CHARACTERISTICS`, an ST506-only command that would make ESDI geometry look settable | `omti_cdb_suite`, 7 tests; `FINDINGS.md` C27 |
 | OMTI 862X ESDI/floppy controller (the part) | **register model complete for both halves**: the fixed disk's four ports with their read/write asymmetries and the status register's fixed bits, and the floppy's five at the standard PC layout. Modelled as two independent register sets sharing nothing, as `[OMTI]` §4.1 and §3.4 describe. Both measured dumps reproduced as tests. **Both command sets now modelled**: §5's fixed disk over `.awd`, and §6's floppy over `.afd` — ten commands and INVALID, with ST0–ST3 result bytes, and **no `WRITE DATA`**, which neither our §6 nor the sibling 8640's §5.3 lists. Wired to the board on IRQ14 and IRQ6 | `omti_suite`, 9 tests; `awd_suite`, 11; `afd_suite`, 26; `OMTI AT Controller Series Jan87` §6, `OMTI 8640 Jun89` §5 |
@@ -4536,6 +4536,52 @@ hardware behaviour from a commented-out line in someone else's source, and it
 has a visible consequence rather than a quiet one — EXC feeds the interrupt
 flag, so an idle controller would report a pending interrupt. Left open in
 `ap_tape_reset`, settled by a driver that reads status after a reset.
+
+#### The tape handshake takes time, and one edge deliberately does not
+
+§1.13.2's three figures were modelled as an *ordering*: `ap_sc499_command_accepted`
+applied the whole destination in one transition, so a command completed the
+instant it was issued. The ordering was right about everything a polling driver
+observes, which is why it stood — but it makes a command free, and a driver that
+never waits is never corrected.
+
+The device now carries its own clock. It is not handed the time at each command,
+because `ap_board_write` has no `now` to give it and threading a timestamp
+through every register write to reach one device would put time on paths that
+have nothing to do with it. The cursor is advanced by `ap_board_advance` with
+every other device, so it is current to within one tick — the granularity of a
+cycle-stepped core, and so the finest anything here can mean.
+
+**Each figure's interval, all `PROVISIONAL`:**
+
+| entry | figure | interval | `[SC499]` |
+| --- | --- | --- | --- |
+| ready | 1-7 | `T_COMMAND_EXECUTION` | `T4->T5 < 500 ms` |
+| exception | 1-8 | `T_EXCEPTION_TO_READY` | `10 us < T3->T4` |
+| device holds bus | 1-9 | `T_DIRECTION_RELEASE + T_DIRECTION_TO_READY` | `T3->T4 < 150 us`, then `T4->T6 < 500 us` |
+
+Figure 1-9's is a **sum**, not a maximum: the device releases the bus and *then*
+asserts READY, two intervals in sequence. Figure 1-8's is the only bound that is
+a *minimum* — the device must wait at least 10 µs — so taking it takes the
+fastest legal handshake where every other figure takes the slowest, and the
+direction of the error is opposite there.
+
+**One edge is not taken at its bound.** `T_REQUEST_TO_NOT_READY` is "< 1 µs" and
+READY is deasserted immediately instead. Holding it up for that microsecond
+would show a driver a device that looks *finished* with a command it has only
+just been handed. Every other bound errs slow; this one errs early, because the
+two directions are not equally safe to be wrong in.
+
+**The cost of taking the bounds is real and visible.** Figure 1-7's half a
+second is the drive executing a command, not a bus edge settling, so every
+ordinary command now costs the slowest one the standard permits — microseconds
+against half a second for the other two figures. That is the stated price of a
+`PROVISIONAL` figure: wrong in a knowable direction by a knowable amount, and
+closing it needs a measurement rather than a decision.
+
+A caller that never advances the device leaves READY down forever. That is a
+hang rather than a wrong answer, and the honest consequence of a device that
+takes time inside a machine that is not running.
 
 #### The tape's status block: six bytes, and the manual did say so
 

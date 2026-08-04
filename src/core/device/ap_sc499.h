@@ -103,6 +103,20 @@ typedef enum {
  * not answering. */
 [[nodiscard]] bool ap_sc499_readable(unsigned reg);
 
+/* Which of `[SC499]` §1.13.2's three command-transfer figures applies, chosen by
+ * the device's state when the command is issued.
+ *
+ * The handshake is one protocol with three entry conditions, not three
+ * protocols: Figure 1-7 when the device is ready, Figure 1-8 when it is in
+ * exception, Figure 1-9 when it still holds the bus. Each figure looks like the
+ * whole thing until the next is read -- which is how this core's first attempt
+ * came to violate the READY/EXCEPTION rule, having been written from 1-7 alone. */
+typedef enum {
+  AP_SC499_ENTRY_READY = 0,   /* Figure 1-7 */
+  AP_SC499_ENTRY_EXCEPTION,   /* Figure 1-8 */
+  AP_SC499_ENTRY_DIRECTION,   /* Figure 1-9 */
+} ap_sc499_entry_t;
+
 typedef struct {
   uint8_t control;
   uint8_t data;
@@ -111,6 +125,22 @@ typedef struct {
   bool done;
   bool direction;
   bool dma_active;
+
+  /* The handshake's clock. The device carries its own cursor rather than being
+   * handed the time at each command, because `ap_board_write` has no `now` to
+   * give it and threading one through every register write to reach this device
+   * would put a timestamp on paths that have nothing to do with time. The
+   * cursor is current to within one tick, which is the granularity of a
+   * cycle-stepped core and so the finest anything here can mean. */
+  ap_time_t now;
+  /* When the device will assert READY, and whether it is working towards it.
+   * A separate flag rather than a sentinel deadline: zero is a legitimate time
+   * and `now` starts there. */
+  bool executing;
+  ap_time_t ready_at;
+  /* Which figure the command in flight entered by, kept so the completion knows
+   * what to undo -- 1-8 lifts an exception, 1-9 hands back the bus. */
+  ap_sc499_entry_t entry;
 } ap_sc499_t;
 
 /* Power-on reset. `[SC499]` defines RSTDMA as performing the same functions, so
@@ -140,35 +170,41 @@ typedef struct {
 #define AP_SC499_T_CLOSE_MIN 396000u           /* 20 us <, T6->T8 */
 #define AP_SC499_T_CLOSE_MAX 1980000u           /* < 100 us, T6->T8 */
 
-/* Which of `[SC499]` §1.13.2's three command-transfer figures applies, chosen by
- * the device's state when the command is issued.
- *
- * The handshake is one protocol with three entry conditions, not three
- * protocols: Figure 1-7 when the device is ready, Figure 1-8 when it is in
- * exception, Figure 1-9 when it still holds the bus. Each figure looks like the
- * whole thing until the next is read -- which is how this core's first attempt
- * came to violate the READY/EXCEPTION rule, having been written from 1-7 alone. */
-typedef enum {
-  AP_SC499_ENTRY_READY = 0,   /* Figure 1-7 */
-  AP_SC499_ENTRY_EXCEPTION,   /* Figure 1-8 */
-  AP_SC499_ENTRY_DIRECTION,   /* Figure 1-9 */
-} ap_sc499_entry_t;
-
 void ap_sc499_reset(ap_sc499_t *tape);
 
 /* Which figure a command issued now would follow. */
 [[nodiscard]] ap_sc499_entry_t ap_sc499_command_entry(const ap_sc499_t *tape);
 
-/* Apply the effects the selected figure prescribes, on the device accepting a
- * command. The *ordering* is modelled and the timings are not: every figure in
- * §1.13.2 publishes bounds rather than values -- `T3->T4 < 150 us`,
- * `T4->T6 < 500 us` -- and `CLAUDE.md`'s rule for a range is to model the
- * documented value and mark it `PROVISIONAL`, which is work this has not done.
+/* Begin the handshake the selected figure prescribes, on the device accepting a
+ * command. **Ordering and timing both**, now that the device has a clock.
  *
- * The ordering alone is right about everything a polling driver can observe,
- * which is what the join needs today. A driver watching for the edges
- * themselves is what would need the timings. */
+ * READY is deasserted here, at once. That is the one edge not taken at its
+ * documented bound: `T_REQUEST_TO_NOT_READY` is "< 1 us", and holding READY up
+ * for that microsecond would show a driver a device that looks *finished* with
+ * a command it has only just been handed. Every other bound is taken, so the
+ * handshake errs slow; this one errs early, because the two directions are not
+ * equally safe.
+ *
+ * The remaining edges land when `ap_sc499_advance` reaches the deadline, so a
+ * caller that never advances the device leaves READY down forever -- which is a
+ * hang rather than a wrong answer, and the honest consequence of a device that
+ * takes time in a machine that is not running. */
 void ap_sc499_command_accepted(ap_sc499_t *tape);
+
+/* Carry the handshake to `now`, asserting READY and undoing the entry
+ * condition when its deadline has passed. Idempotent, and refuses to go
+ * backwards. */
+void ap_sc499_advance(ap_sc499_t *tape, ap_time_t now);
+
+/* Whether a command is still executing -- READY down, deadline not reached.
+ * Exposed so a test can assert the interval rather than infer it from the
+ * status bit it is supposed to explain. */
+[[nodiscard]] bool ap_sc499_executing(const ap_sc499_t *tape);
+
+/* How long the figure entered by `entry` takes to reach READY, in base units.
+ * Named so the three figures' totals can be checked against `[SC499]`'s bounds
+ * directly, rather than only through a device that has run. */
+[[nodiscard]] ap_time_t ap_sc499_handshake_duration(ap_sc499_entry_t entry);
 
 /* Raise or clear the exception condition, keeping it exclusive of ready.
  *

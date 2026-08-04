@@ -16,15 +16,58 @@ ap_sc499_entry_t ap_sc499_command_entry(const ap_sc499_t *tape) {
   return AP_SC499_ENTRY_READY;
 }
 
+ap_time_t ap_sc499_handshake_duration(ap_sc499_entry_t entry) {
+  switch (entry) {
+  case AP_SC499_ENTRY_EXCEPTION:
+    /* Figure 1-8: EXCEPTION goes down at T3 and READY comes up at T4, "10 us <"
+     * later. The only bound here that is a *minimum* -- the device must wait at
+     * least that long -- so taking it is taking the fastest legal handshake
+     * rather than the slowest, and the direction of the error is opposite to
+     * every other figure's. */
+    return AP_SC499_T_EXCEPTION_TO_READY;
+  case AP_SC499_ENTRY_DIRECTION:
+    /* Figure 1-9: the device releases the bus (T3->T4, "< 150 us") and then
+     * asserts READY (T4->T6, "< 500 us"). Two intervals in sequence, so the
+     * whole is their sum rather than the larger of them. */
+    return AP_SC499_T_DIRECTION_RELEASE + AP_SC499_T_DIRECTION_TO_READY;
+  case AP_SC499_ENTRY_READY:
+    break;
+  }
+  /* Figure 1-7: T4->T5, the command's own execution, "< 500 ms". */
+  return AP_SC499_T_COMMAND_EXECUTION;
+}
+
 void ap_sc499_command_accepted(ap_sc499_t *tape) {
-  /* Figure 1-8, T3: "Device Deasserts EXCEPTION" on the controller raising
-   * REQUEST -- so a command is what lifts an exception. */
+  tape->entry = ap_sc499_command_entry(tape);
+
+  /* The device is no longer ready the instant it takes the command. Taken early
+   * rather than at the "< 1 us" bound; the header says why. */
+  tape->ready = false;
+  tape->executing = true;
+  tape->ready_at = tape->now + ap_sc499_handshake_duration(tape->entry);
+}
+
+bool ap_sc499_executing(const ap_sc499_t *tape) { return tape->executing; }
+
+void ap_sc499_advance(ap_sc499_t *tape, ap_time_t now) {
+  if (now > tape->now) {
+    tape->now = now;
+  }
+  if (!tape->executing || tape->now < tape->ready_at) {
+    return;
+  }
+
+  /* Figure 1-8, T3: "Device Deasserts EXCEPTION" -- so a command is what lifts
+   * an exception, and the lifting lands with the completion rather than with
+   * the acceptance. A driver that reads status in between sees the exception
+   * still up, which is the truth: the device has not finished with it. */
   tape->exception = false;
   /* Figure 1-9, T4: "Device Deasserts DIRECTION", handing the bus back. */
   tape->direction = false;
   /* And in all three figures the device ends by asserting READY: 1-7's T5,
    * 1-8's T4, 1-9's T6. */
   tape->ready = true;
+  tape->executing = false;
 }
 
 void ap_sc499_set_exception(ap_sc499_t *tape, bool asserted) {

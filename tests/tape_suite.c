@@ -113,10 +113,17 @@ static void test_the_tape_raises_its_documented_interrupt(void) {
 /* A tiny cartridge, built by the test -- `media/` is gitignored. */
 static uint8_t cartridge[AP_CT_BLOCK_SIZE * 2u];
 
+/* The suite's clock. §1.13.2's handshake takes time now, so a test that issues
+ * a command and looks at the result immediately is asking what the device looks
+ * like mid-handshake -- which is a real question, and not the one most of these
+ * tests are asking. */
+static ap_time_t clock_now;
+
 static void arm(ap_tape_t *t) {
   for (unsigned i = 0; i < sizeof cartridge; i++) {
     cartridge[i] = (uint8_t)(0x40u + (i & 0x3Fu));
   }
+  clock_now = 0u;
   ap_tape_init(t);
   TEST_ASSERT_TRUE(ap_tape_load(t, cartridge, sizeof cartridge,
                                 AP_QIC_CARTRIDGE_DC600A));
@@ -128,6 +135,11 @@ static void arm(ap_tape_t *t) {
 static void issue(ap_tape_t *t, uint8_t command) {
   ap_tape_write(t, AP_TAPE_ADDR + 1u, AP_SC499_CTL_REQUEST);
   ap_tape_write(t, AP_TAPE_ADDR + 0u, command);
+  /* Then wait for READY, which is what a driver does before it issues the next
+   * command. The longest figure covers whichever one this entered by. */
+  clock_now += ap_sc499_handshake_duration(AP_SC499_ENTRY_READY) +
+               ap_sc499_handshake_duration(AP_SC499_ENTRY_DIRECTION);
+  ap_tape_advance(t, clock_now);
 }
 
 static void test_an_idle_controller_still_reads_as_measured(void) {
@@ -258,9 +270,65 @@ static void test_reading_the_tape_makes_the_device_hold_the_bus(void) {
                          ap_sc499_command_entry(&t.controller));
 }
 
+/* §1.13.2's handshake takes time, and a driver that does not wait sees it. This
+ * is the whole of what the timing adds over the ordering: a command issued is
+ * not a command finished. */
+static void test_a_command_is_not_finished_when_it_is_issued(void) {
+  ap_tape_t t;
+  arm(&t);
+  issue(&t, AP_QIC_CMD_SELECT);
+
+  /* Issue without the wait `issue` normally does. */
+  ap_tape_write(&t, AP_TAPE_ADDR + 1u, AP_SC499_CTL_REQUEST);
+  ap_tape_write(&t, AP_TAPE_ADDR + 0u, AP_QIC_CMD_BOT);
+
+  /* READY is down at once -- the device has taken the command and is working.
+   * A driver polling here correctly waits. */
+  TEST_ASSERT_FALSE(ready_asserted(&t));
+  TEST_ASSERT_TRUE(ap_sc499_executing(&t.controller));
+
+  /* Still down a microsecond in: Figure 1-7's execution bound is half a
+   * second, so this is nowhere near. */
+  clock_now += 19800u;
+  ap_tape_advance(&t, clock_now);
+  TEST_ASSERT_FALSE(ready_asserted(&t));
+
+  /* And up once the figure's interval has passed. */
+  clock_now += ap_sc499_handshake_duration(AP_SC499_ENTRY_READY);
+  ap_tape_advance(&t, clock_now);
+  TEST_ASSERT_TRUE(ready_asserted(&t));
+  TEST_ASSERT_FALSE(ap_sc499_executing(&t.controller));
+}
+
+/* Figure 1-8's recovery is the interval that is *shortest*, and the exception
+ * stays up across it -- a driver reading status mid-handshake sees the device
+ * still holding the condition, because it is. */
+static void test_an_exception_survives_until_its_figure_completes(void) {
+  ap_tape_t t;
+  arm(&t);
+  issue(&t, AP_QIC_CMD_SELECT);
+  issue(&t, AP_QIC_CMD_WRITE); /* refused, raises exception */
+  TEST_ASSERT_TRUE(exception_asserted(&t));
+
+  ap_tape_write(&t, AP_TAPE_ADDR + 1u, AP_SC499_CTL_REQUEST);
+  ap_tape_write(&t, AP_TAPE_ADDR + 0u, AP_QIC_CMD_BOT);
+  TEST_ASSERT_TRUE(exception_asserted(&t));
+
+  clock_now += ap_sc499_handshake_duration(AP_SC499_ENTRY_EXCEPTION) - 1u;
+  ap_tape_advance(&t, clock_now);
+  TEST_ASSERT_TRUE(exception_asserted(&t));
+
+  clock_now += 1u;
+  ap_tape_advance(&t, clock_now);
+  TEST_ASSERT_FALSE(exception_asserted(&t));
+  TEST_ASSERT_TRUE(ready_asserted(&t));
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_reading_the_tape_makes_the_device_hold_the_bus);
+  RUN_TEST(test_a_command_is_not_finished_when_it_is_issued);
+  RUN_TEST(test_an_exception_survives_until_its_figure_completes);
   RUN_TEST(test_ready_and_exception_are_never_both_asserted);
   RUN_TEST(test_a_command_clears_an_exception);
   RUN_TEST(test_an_idle_controller_still_reads_as_measured);

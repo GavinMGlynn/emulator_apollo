@@ -73,6 +73,11 @@ void ap_tape_init(ap_tape_t *tape);
 
 void ap_tape_reset(ap_tape_t *tape);
 
+/* Carry the controller's handshake to `now`. The tape has nothing else that
+ * moves with time -- the drive's motion is not modelled -- so this is the
+ * controller's advance and nothing more. */
+void ap_tape_advance(ap_tape_t *tape, ap_time_t now);
+
 /* Load a cartridge into the drive. The type is the caller's to supply; see
  * `device/ap_qic.h`. */
 [[nodiscard]] bool ap_tape_load(ap_tape_t *tape, const uint8_t *data,

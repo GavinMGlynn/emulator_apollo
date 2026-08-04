@@ -228,17 +228,85 @@ static void test_accepting_a_command_applies_all_three_figures(void) {
 
   /* Whichever entry applies, the device ends ready, out of exception and off
    * the bus: 1-8's T3 deasserts EXCEPTION, 1-9's T4 deasserts DIRECTION, and
-   * all three end with the device asserting READY. Modelled as one transition
-   * because the three figures agree on the destination and differ only in the
-   * path -- and the path is timing, which is all bounds. */
+   * all three end with the device asserting READY. The three figures agree on
+   * the destination and differ in the path -- and the path is **time**, which
+   * this used to skip: the destination was reached in one transition, so a
+   * command completed the instant it was issued. */
   ap_sc499_set_exception(&t, true);
   t.direction = true;
 
   ap_sc499_command_accepted(&t);
+
+  /* Exception outranks the bus, so this is Figure 1-8's entry. */
+  TEST_ASSERT_EQUAL_UINT(AP_SC499_ENTRY_EXCEPTION, t.entry);
+
+  /* READY goes down at once -- the one edge not taken at its bound, because a
+   * device that still looked ready would look *finished*. Everything else is
+   * still as it was: the command has been accepted, not executed. */
+  TEST_ASSERT_FALSE(t.ready);
+  TEST_ASSERT_TRUE(t.exception);
+  TEST_ASSERT_TRUE(t.direction);
+  TEST_ASSERT_TRUE(ap_sc499_executing(&t));
+
+  /* One unit short of the deadline changes nothing. */
+  ap_sc499_advance(&t, AP_SC499_T_EXCEPTION_TO_READY - 1u);
+  TEST_ASSERT_TRUE(ap_sc499_executing(&t));
+  TEST_ASSERT_TRUE(t.exception);
+
+  /* And at the deadline the whole destination arrives at once. */
+  ap_sc499_advance(&t, AP_SC499_T_EXCEPTION_TO_READY);
+  TEST_ASSERT_FALSE(ap_sc499_executing(&t));
   TEST_ASSERT_FALSE(t.exception);
   TEST_ASSERT_FALSE(t.direction);
   TEST_ASSERT_TRUE(t.ready);
   TEST_ASSERT_EQUAL_UINT(AP_SC499_ENTRY_READY, ap_sc499_command_entry(&t));
+}
+
+/* Each figure's total, checked against `[SC499]` §1.13.2's own bounds. Figure
+ * 1-9's is a *sum*: the device releases the bus and then asserts READY, two
+ * intervals in sequence rather than one bound covering both. */
+static void test_each_figure_takes_the_interval_its_bounds_give_it(void) {
+  TEST_ASSERT_EQUAL_UINT64(AP_SC499_T_COMMAND_EXECUTION,
+                           ap_sc499_handshake_duration(AP_SC499_ENTRY_READY));
+  TEST_ASSERT_EQUAL_UINT64(
+      AP_SC499_T_EXCEPTION_TO_READY,
+      ap_sc499_handshake_duration(AP_SC499_ENTRY_EXCEPTION));
+  TEST_ASSERT_EQUAL_UINT64(
+      AP_SC499_T_DIRECTION_RELEASE + AP_SC499_T_DIRECTION_TO_READY,
+      ap_sc499_handshake_duration(AP_SC499_ENTRY_DIRECTION));
+
+  /* Figure 1-7's is by far the longest -- half a second against microseconds --
+   * because "< 500 ms" is the drive executing a command rather than a bus edge
+   * settling. Taking the bound makes every ordinary command cost the slowest
+   * one the standard permits, which is the stated cost of a `PROVISIONAL`
+   * figure and the reason closing it needs a measurement. */
+  TEST_ASSERT_TRUE(ap_sc499_handshake_duration(AP_SC499_ENTRY_READY) >
+                   ap_sc499_handshake_duration(AP_SC499_ENTRY_DIRECTION));
+}
+
+/* Advancing must not run the handshake backwards, and must be idempotent: the
+ * board advances every device to the same instant on every tick, so this is
+ * called far more often than it does anything. */
+static void test_advancing_is_idempotent_and_refuses_to_go_backwards(void) {
+  ap_sc499_t t;
+  ap_sc499_reset(&t);
+  ap_sc499_advance(&t, 1000u);
+  ap_sc499_command_accepted(&t);
+  TEST_ASSERT_TRUE(ap_sc499_executing(&t));
+
+  /* Backwards: ignored, and the deadline still stands ahead of it. */
+  ap_sc499_advance(&t, 0u);
+  TEST_ASSERT_TRUE(ap_sc499_executing(&t));
+
+  const ap_time_t due = 1000u + AP_SC499_T_COMMAND_EXECUTION;
+  ap_sc499_advance(&t, due);
+  TEST_ASSERT_FALSE(ap_sc499_executing(&t));
+  TEST_ASSERT_TRUE(t.ready);
+
+  /* Again, well past: nothing to undo and nothing to redo. */
+  ap_sc499_advance(&t, due * 2u);
+  TEST_ASSERT_FALSE(ap_sc499_executing(&t));
+  TEST_ASSERT_TRUE(t.ready);
 }
 
 static void test_the_handshake_times_are_exact_in_base_units(void) {
@@ -269,6 +337,8 @@ int main(void) {
   RUN_TEST(test_the_handshake_times_are_exact_in_base_units);
   RUN_TEST(test_the_command_entry_condition_selects_a_figure);
   RUN_TEST(test_accepting_a_command_applies_all_three_figures);
+  RUN_TEST(test_each_figure_takes_the_interval_its_bounds_give_it);
+  RUN_TEST(test_advancing_is_idempotent_and_refuses_to_go_backwards);
   RUN_TEST(test_ready_and_exception_are_asserted_low);
   RUN_TEST(test_a_reset_controller_is_not_ready_and_is_done);
   RUN_TEST(test_resetting_the_dma_is_the_same_as_a_power_on_reset);

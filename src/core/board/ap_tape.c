@@ -32,6 +32,10 @@ void ap_tape_reset(ap_tape_t *tape) {
    * pending interrupt. Settled by a driver that reads status after a reset. */
 }
 
+void ap_tape_advance(ap_tape_t *tape, ap_time_t now) {
+  ap_sc499_advance(&tape->controller, now);
+}
+
 bool ap_tape_load(ap_tape_t *tape, const uint8_t *data, size_t size,
                   ap_qic_cartridge_t cartridge) {
   return ap_qic_load(&tape->drive, data, size, cartridge);
