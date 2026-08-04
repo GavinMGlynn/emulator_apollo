@@ -2839,9 +2839,21 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         rewritten against the oracle's structure. The boot walks on from
         `00007026` to a delay loop, doing 2,097,183 display reads and 1,311,743
         writes on the way.*
-      **Awaiting:** the next reading. The machine is working rather than
-      polling, and where it goes — and whether it reaches the disk — is what a
-      longer run says.
+  - [x] **The machine was telling us what failed.** The boot settles in a delay
+        loop whose caller writes `010100` — `008778-03` §3.7's nine diagnostic
+        LEDs, "the upper byte of the control register". A machine that fails a
+        self-test posts a code there and flashes it for ever, having no console
+        to complain to, and this core counted those writes and discarded the
+        values. Detail in `PROJECT_STATUS.md`.
+        *Verification: `boardreg_suite` +3 (16). A boot now reports
+        `FF 00 EF DF FE EE DE CF BF AF 9F ED DD 9D 8D 0D 8D 0D ...` — a
+        self-test progress sequence, then an alternation differing only in bit
+        7, which is one LED blinking on a steady code.*
+      **Awaiting:** what `8D`/`0D` means. `008778-03` Table 8-2 is the *tape
+      controller's* LED codes, not the CPU board's, and §3.7 describes the nine
+      indicators without tabulating their failures — so the code table is not in
+      this manual. The sequence itself is now recoverable from any run, which is
+      what the search needs.
   - [x] **A disk can be fitted at all.** `ap_omti` modelled the controller and
         `ap_awd` read the image and nothing ever handed one to the other, so
         every boot experiment so far ran on a DN3500 with **no Winchester** —

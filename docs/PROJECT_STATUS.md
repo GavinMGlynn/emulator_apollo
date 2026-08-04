@@ -3401,7 +3401,7 @@ failure that cost a bit position in the 68020's module entry word.
 | 68040 MMU | not started | — |
 | MC68882 FPU | working, and attached to the 68030 as a *pointer* so a machine without one keeps its line 1111 trap. Every general-type operation executes: the four arithmetic operations, the exactly-specified monadics, the remainders, the single-precision pair, and **all nineteen transcendentals** to within §4.3.2's published bound. All three operand paths run — register-to-register, **`<ea>` to `FPn`** and **`FPn` to `<ea>`**, in all six binary formats from every legal addressing mode. `FMOVEM` of the data registers runs in both directions with its reversed mask orderings, and so do the system control registers, with the FPIAR tracking under §2.4's two conditions. `FMOVECR` returns all 22 published constants, computed and correctly rounded. **Every general-type instruction executes.** **Every instruction type executes**, the conditionals included. **Every 68882 instruction and every data format executes**, `FSAVE` and `FRESTORE` included. A *busy* state frame is deliberately absent: this core's part never suspends, so nothing can generate one — for which the coprocessor's own half (`ap_m68882_condition`) is done and the 68030's dialog is not | `m68882_regs_suite` 19, `m68882_format_suite` 18, `m68882_cir_suite` 8, `m68882_round_suite` 11, `m68882_arith_suite` 41, `m68882_decode_suite` 12, `m68882_accuracy_suite` 10, `m68882_transcendental_suite` 36, `m68882_store_suite` 13, plus 51 tests in `step_suite`; `MC68881/MC68882 User's Manual 1ed` |
 | MC68040 FPU | timing tables only — §10.6, §10.7.1/§10.7.2 and §10.7.3's pipeline stages are transcribed; no 68040 arithmetic | `m68040_iu_timing_suite` 99, `m68040_fpu_timing_suite` 32, `m68040_fp_pipeline_suite` 18 |
-| Core-board registers (`010000`-`011600`) | working for the four that could be measured: CPU status (bit 15 stuck, writes clear the latched bits), CPU control and latch-page-on-parity (16 bits of storage), cache control (a *byte*, mirrored into both halves of a 16-bit read, one writable bit), each aliased across its 256-byte range. No manual here lays out these bits, so all of it is measured. **Width and storage only — no bit has a known meaning, and nothing may depend on one.** Task alias and master request are absent from the oracle and stay declined rather than modelled as all-ones | `boardreg_suite`, 13 tests; `FINDINGS.md` C10, `tools/mame-oracle/regprobe.lua`, two probe runs byte-identical |
+| Core-board registers (`010000`-`011600`) | working for the four that could be measured: CPU status (bit 15 stuck, writes clear the latched bits), CPU control and latch-page-on-parity (16 bits of storage), cache control (a *byte*, mirrored into both halves of a 16-bit read, one writable bit), each aliased across its 256-byte range. No manual here lays out these bits, so all of it is measured. **Width and storage only — no bit has a known meaning, and nothing may depend on one.** Task alias and master request are absent from the oracle and stay declined rather than modelled as all-ones | `boardreg_suite`, 16 tests; `FINDINGS.md` C10, `tools/mame-oracle/regprobe.lua`, two probe runs byte-identical |
 | Address translation map (`017000`) | working: the translation itself, both DMA widths, and the register file. Between the AT bus and physical memory, not the CPU's MMU -- a DMA controller has no MMU, and this is what lets it see scattered physical pages as one contiguous run. Present on DN3500/4500/5500 and absent on DN3000, from the model table. The board splits a 16-bit entry into its two byte lanes, big-endian, which it did not until a DMA transfer failed to arrive | `atmap_suite`, 16 tests, `019411-A00` §4.2.1.4, `008778-03` §1.2, §2.5 |
 | Board cache (`012000` RAM, `014000` condition codes) | not started. The shared **bus arbitration point** is done and has its own row above | — |
 | Apollo interrupt controllers (`011000`, `011100`) | working: the two 8259As cascaded on **IR3** (measured, not IR2 as the AT convention would have it), vector bases `A0`/`A8` from the boot PROM's own ICW2, giving levels `A0`-`AF`. Priority order matches `008778-03` Table 2-3, which with the cascade on IR3 has no anomaly. The CPU interrupt level is **6**, also measured — neither manual states it, and it took starting the interval timer by hand to make anything request at all | `intr_suite`, 13 tests; `FINDINGS.md` C11, `tools/mame-oracle/writetrace.lua` |
@@ -4596,6 +4596,43 @@ loop that runs them. What it does not yet have is the thing the item asks for
 last and hardest — **a decoded PNG**. Register round-trips and word-level
 identities are what can be checked without one, and a controller that passes
 those and draws nothing is the standard way this goes wrong.
+
+#### The machine was telling us what failed, and we were discarding it
+
+The boot now runs a long way and then settles in a **delay loop** at
+`000061D8` — a run of `nbcd` instructions used as a timed pad. At 150,000,000
+instructions nothing has changed since 40,000,000: the same blit count, the same
+display and memory totals. It is not making progress; it is flashing.
+
+The caller gives it away. `005EB6` loads a delay, calls the pad, then writes to
+`010100` — and `008778-03` §3.7 says what that is: *"nine LED indicators for
+diagnostics that can be set or reset by writing to the upper byte of the control
+register"*. The firmware byte-writes to `010100`, which on a big-endian bus is
+that upper byte. A machine that fails a self-test posts a code there and flashes
+it for ever, because it has no console to complain to.
+
+This core was counting those writes and throwing the values away. They are kept
+now, oldest first and distinct-in-order, and a boot reports them:
+
+    FF 00 EF DF FE EE DE CF BF AF 9F ED DD 9D 8D 0D 8D 0D 8D 0D ...
+
+A **self-test progress sequence**, then an alternation. The tail `8D 0D` differs
+only in bit 7 — one LED blinking on a steady code — which is §8.3.3's
+description of a failure on the tape controller's own LEDs and evidently the
+same convention here.
+
+Two choices in how they are kept, both to avoid destroying the evidence:
+
+* **Exactly as written.** The post routine at `00251A` complements what it
+  displays and the error loop's direct writes do not, so undoing the complement
+  would be right for one caller and wrong for the other. The reader is told
+  which; the model does not guess.
+* **Earliest kept, and the buffer stops rather than wrapping.** The error loop
+  runs for ever and a ring would replace the self-test's progress codes with the
+  flash — and the progress is the part that says how far it got.
+
+The buffer filled at sixteen on the first run, which is why it is thirty-two:
+the tail was cut off exactly where the failure code is.
 
 #### Two corrections to the raster, and the boot walks on
 

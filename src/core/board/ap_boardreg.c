@@ -112,6 +112,10 @@ static void store(ap_boardreg_t *regs, ap_boardreg_id_t id, uint16_t value) {
     break;
   case AP_BOARDREG_CPU_CONTROL:
     regs->cpu_control = value;
+    /* Also the diagnostic LEDs: a self-test failure posts its code here rather
+     * than to any console, so this is the machine's own account of what went
+     * wrong. See the header. */
+    ap_boardreg_post_code(regs, (uint8_t)value);
     break;
   case AP_BOARDREG_CACHE_CONTROL:
     regs->cache_control = (uint8_t)(value & AP_BOARDREG_CACHE_WRITABLE);
@@ -139,6 +143,24 @@ void ap_boardreg_write8(ap_boardreg_t *regs, uint32_t address, uint8_t value) {
     return;
   }
   store(regs, id, value);
+}
+
+void ap_boardreg_post_code(ap_boardreg_t *regs, uint8_t written) {
+  /* Exactly as written. The post routine complements what it displays and the
+   * error loop's direct writes do not, so undoing it here would be right for
+   * one caller and wrong for the other. See the header. */
+  const uint8_t code = written;
+  regs->posted_total++;
+  /* Distinct in order: an error loop posts the same pair for ever, and a plain
+   * ring would hold nothing but the last two. */
+  if (regs->posted_count > 0u &&
+      regs->posted[regs->posted_count - 1u] == code) {
+    return;
+  }
+  if (regs->posted_count >= AP_BOARDREG_POSTED_CODES) {
+    return;
+  }
+  regs->posted[regs->posted_count++] = code;
 }
 
 void ap_boardreg_set_normal_mode(ap_boardreg_t *regs, bool normal) {

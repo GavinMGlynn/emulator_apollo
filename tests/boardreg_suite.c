@@ -262,6 +262,66 @@ static void test_the_normal_service_switch_is_bit_zero_and_defaults_to_normal(vo
   TEST_ASSERT_EQUAL_HEX16(0x8101u, regs.cpu_status);
 }
 
+/* ## The diagnostic LED codes
+ *
+ * `008778-03` §3.7: "nine LED indicators for diagnostics that can be set or
+ * reset by writing to the **upper byte** of the control register". The firmware
+ * byte-writes to `010100`, which on a big-endian bus *is* that upper byte, so
+ * what a write carries is the LED pattern.
+ *
+ * A machine that fails a self-test posts a code here and flashes it for ever --
+ * it has no console to complain to. Discarding those values threw away the only
+ * account the firmware gives of what went wrong. `FINDINGS.md` C109 has the
+ * post routine at `00251A`.
+ */
+static void test_posted_codes_are_kept_distinct_in_order(void) {
+  ap_boardreg_t regs;
+  ap_boardreg_init(&regs);
+
+  ap_boardreg_write8(&regs, AP_BOARDREG_CPU_CONTROL_ADDR, 0xFFu);
+  ap_boardreg_write8(&regs, AP_BOARDREG_CPU_CONTROL_ADDR, 0x00u);
+  /* Repeats collapse: an error loop posts the same pair for ever, and a plain
+   * ring of every write would hold nothing but the last two. */
+  ap_boardreg_write8(&regs, AP_BOARDREG_CPU_CONTROL_ADDR, 0x00u);
+  ap_boardreg_write8(&regs, AP_BOARDREG_CPU_CONTROL_ADDR, 0x00u);
+  ap_boardreg_write8(&regs, AP_BOARDREG_CPU_CONTROL_ADDR, 0xEFu);
+  /* ... but an alternation does not, because that is what a flashing code is. */
+  ap_boardreg_write8(&regs, AP_BOARDREG_CPU_CONTROL_ADDR, 0x00u);
+
+  TEST_ASSERT_EQUAL_UINT(4u, regs.posted_count);
+  TEST_ASSERT_EQUAL_HEX8(0xFFu, regs.posted[0]);
+  TEST_ASSERT_EQUAL_HEX8(0x00u, regs.posted[1]);
+  TEST_ASSERT_EQUAL_HEX8(0xEFu, regs.posted[2]);
+  TEST_ASSERT_EQUAL_HEX8(0x00u, regs.posted[3]);
+  /* Every write is still counted, so "how many" and "which" stay separable. */
+  TEST_ASSERT_EQUAL_UINT(6u, regs.posted_total);
+}
+
+/* Kept **exactly as written**. The post routine complements what it displays
+ * and the error loop's direct writes at `005EC8` and `005ED8` do not, so
+ * undoing the complement here would be right for one caller and wrong for the
+ * other. The reader is told which; the model does not guess. */
+static void test_a_posted_code_is_not_complemented_by_the_model(void) {
+  ap_boardreg_t regs;
+  ap_boardreg_init(&regs);
+  ap_boardreg_write8(&regs, AP_BOARDREG_CPU_CONTROL_ADDR, 0x8Du);
+  TEST_ASSERT_EQUAL_HEX8(0x8Du, regs.posted[0]);
+}
+
+/* The buffer is finite and stops rather than wrapping: an error loop runs for
+ * ever, and the *first* codes are the self-test's progress -- which is the part
+ * worth keeping. A ring would replace them with the flash. */
+static void test_the_code_buffer_keeps_the_earliest_and_stops(void) {
+  ap_boardreg_t regs;
+  ap_boardreg_init(&regs);
+  for (unsigned i = 0; i < AP_BOARDREG_POSTED_CODES + 8u; i++) {
+    ap_boardreg_write8(&regs, AP_BOARDREG_CPU_CONTROL_ADDR, (uint8_t)i);
+  }
+  TEST_ASSERT_EQUAL_UINT(AP_BOARDREG_POSTED_CODES, regs.posted_count);
+  TEST_ASSERT_EQUAL_HEX8(0x00u, regs.posted[0]);
+  TEST_ASSERT_EQUAL_UINT(AP_BOARDREG_POSTED_CODES + 8u, regs.posted_total);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_bit_fifteen_of_the_status_register_always_reads_set);
@@ -277,5 +337,8 @@ int main(void) {
   RUN_TEST(test_the_power_on_values_are_the_measured_ones);
   RUN_TEST(test_two_machines_initialised_alike_read_alike);
   RUN_TEST(test_the_normal_service_switch_is_bit_zero_and_defaults_to_normal);
+  RUN_TEST(test_posted_codes_are_kept_distinct_in_order);
+  RUN_TEST(test_a_posted_code_is_not_complemented_by_the_model);
+  RUN_TEST(test_the_code_buffer_keeps_the_earliest_and_stops);
   return UNITY_END();
 }

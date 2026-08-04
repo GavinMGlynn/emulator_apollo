@@ -1034,6 +1034,19 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
   if (board->atmap_undescribed_writes > 0u) {
     printf("    first write %08X\n", board->first_atmap_undescribed_write);
   }
+  /* The machine's own account of what went wrong. A self-test failure posts a
+   * diagnostic code to the control register -- the LEDs -- rather than to any
+   * console, and then flashes it for ever. Discarding those values threw away
+   * the one thing the firmware says about the failure. `FINDINGS.md` C109 has
+   * the post routine and the codes seen so far. */
+  if (board->registers.posted_count > 0u) {
+    printf("  posted codes ");
+    for (unsigned i = 0; i < board->registers.posted_count; i++) {
+      printf("%s%02X", i == 0u ? "" : " ", board->registers.posted[i]);
+    }
+    printf("  (%u write(s), distinct in order, as written)\n",
+           board->registers.posted_total);
+  }
   /* What the machine told its firmware about its own memory. Printed even when
    * known, because a wrong configuration byte is a machine that sizes memory it
    * does not have and finds out mid-self-test. */

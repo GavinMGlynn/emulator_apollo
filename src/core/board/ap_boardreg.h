@@ -129,6 +129,9 @@ typedef enum {
  * `FINDINGS.md` C114. */
 #define AP_BOARDREG_STATUS_NORMAL_MODE 0x0001u
 
+/* How many posted diagnostic codes to keep. See `ap_boardreg_post_code`. */
+#define AP_BOARDREG_POSTED_CODES 32u
+
 /* Bit 15 of the status register reads 1 whatever is written, at every sampled
  * point in the boot. Named for what was observed, because what it *is* was not
  * measured and no manual here says. */
@@ -146,6 +149,11 @@ typedef enum {
 
 typedef struct {
   uint16_t cpu_status;
+  /* The diagnostic codes posted to the control register, oldest first and
+   * distinct-in-order. See below. */
+  uint8_t posted[AP_BOARDREG_POSTED_CODES];
+  unsigned posted_count;
+  unsigned posted_total;
   uint16_t cpu_control;
   uint8_t cache_control;
   uint16_t latch_page_on_parity;
@@ -200,5 +208,31 @@ void ap_boardreg_latch_status(ap_boardreg_t *regs, uint16_t mask);
  * ships in and what every boot in this project ran under before the switch was
  * identified. */
 void ap_boardreg_set_normal_mode(ap_boardreg_t *regs, bool normal);
+
+/* ## The diagnostic code display
+ *
+ * The control register at `010100` is also the machine's **diagnostic LEDs**.
+ * `FINDINGS.md` C109 found the post routine at `00251A`, which takes its
+ * argument inline and ends `MOVE.B D0,(A1)` with `A1` pointing here -- and the
+ * byte is written **complemented**, so a posted `03` arrives as `FC`.
+ *
+ * A machine that fails a self-test posts a code, waits, posts another and waits
+ * again, for ever. This core was counting those writes and discarding the
+ * values, which is throwing away the one thing the firmware says about what
+ * went wrong. The codes are kept now, oldest first, and a boot reports them.
+ *
+ * **The byte is recorded exactly as written**, and that is deliberate. The post
+ * routine complements what it displays, but the firmware also writes this
+ * register *directly* in places -- `005EC8` and `005ED8` do, in the error
+ * loop -- and those are not complemented. Undoing the complement here would be
+ * right for one caller and wrong for the other, so the raw byte is kept and the
+ * reader is told which is which rather than the model guessing.
+ *
+ * Only the distinct ones in order: an error loop posts the same pair for ever
+ * and a ring of every write would hold nothing but the last two. */
+
+/* Record a byte written to the control register as a posted code, exactly as
+ * written. */
+void ap_boardreg_post_code(ap_boardreg_t *regs, uint8_t written);
 
 #endif /* APOLLO_BOARD_AP_BOARDREG_H */
