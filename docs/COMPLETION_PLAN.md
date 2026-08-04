@@ -2813,13 +2813,21 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         runs and the resting PC differs per channel — and every one returns
         **inside** the poll at `00078E`-`0007AE`.
         Detail in `PROJECT_STATUS.md`.
-  - [ ] **Next: the branch targets, which C110 says are the autobaud.** The
-        dispatcher identifies the sender's rate from what the wrong rate did to
-        the character, so a byte it cannot classify is one it rejects and
-        returns from — which is exactly what is observed.
-        `--boot-input-rate` is the instrument that exists to sweep it.
-        Everything before that point is now excluded: the port, the delivery,
-        the poll and the branch.
+  - [x] **The console speaks, byte-identical to the oracle.** It was the
+        terminal's rate: the default was the machine's own `77` (1050 baud) on
+        backwards reasoning — the firmware *autobauds*, so the terminal sends at
+        the terminal's rate and matching the machine removes the thing the
+        negotiation measures. Swept, `99` (4800) and `BB` (9600) escape C109's
+        poll and reach the banner; the default is now `BB`. `FINDINGS.md` C113.
+        *Verification: `0D 0A "MD7C REV 8.00, 1989/08/16.17:23:52" 0D 0A 3E`
+        against `MD.md`'s `CR LF ... CR LF '>'`, and every carriage return after
+        it echoed and answered with a fresh prompt — so MD is running, not just
+        announcing itself.*
+  - [ ] **Next: MD commands, then a disk boot.** The debugger answers its
+        prompt, so the machine can now be driven. `MD.md` has the grammar and
+        the oracle's byte-exact responses to diff against, and the disk is
+        already fitted and waiting — it was never reached because the console
+        was never reached.
 
 ## Phase 5 — Display
 

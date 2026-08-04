@@ -4597,6 +4597,50 @@ last and hardest — **a decoded PNG**. Register round-trips and word-level
 identities are what can be checked without one, and a controller that passes
 those and draws nothing is the standard way this goes wrong.
 
+#### The console speaks, and it was the terminal's rate all along
+
+The DN3500's boot PROM prints its banner in this core for the first time, and it
+is byte-identical to the oracle's record on the run that got it:
+
+    ours   0D 0A "MD7C REV 8.00, 1989/08/16.17:23:52" 0D 0A 3E
+    MD.md  CR LF "MD7C REV 8.00, 1989/08/16.17:23:52" CR LF '>'
+
+Every carriage return after it is echoed and answered with a fresh prompt, so
+the Mnemonic Debugger is running rather than merely announcing itself.
+
+**One number was wrong, and the reasoning behind it was backwards.**
+`--boot-input-rate` defaulted to `77` because `77` is what the firmware
+configures its own ports to at reset — measured off the oracle, correctly — and
+the inference drawn was that a scripted terminal using anything else "would be
+modelling a misconfigured cable rather than a console".
+
+The firmware **autobauds**. The terminal sends at the *terminal's* rate and the
+PROM works out which it was. Setting the scripted terminal to the machine's own
+rate does not model a matched cable; it removes the thing the negotiation exists
+to measure. `77` is 1050 baud, which is not a rate any terminal sends at.
+
+Swept with the instrument that exists for it, reading the resting PC:
+
+    00 11 22 33 44 55 66 88 AA CC    0000079x-0007AE   inside C109's poll
+    99  (4800 baud)                  0000267E          out of it
+    BB  (9600 baud)                  00002670          out of it
+
+Both 4800 and 9600 reach the banner and 38400 does not, so the autobaud has a
+set of rates it accepts and the default sat outside it. The default is now `BB`.
+
+**Why nothing before this found it** is the part worth keeping. Three things had
+to be true at once, and each was fixed in a different campaign for its own
+reasons: the machine had to advance time at all (C109's defect — the frontend
+stepped the CPU with no devices), the receiver had to be enabled and programmed
+to eight bits before a byte was delivered, and the sender's rate had to be one
+the autobaud recognises. The first two were closed months apart and neither
+moved the boot, because the third was still wrong — and a silent machine looks
+identical whichever of the three is at fault.
+
+What separated them was the input report added an hour earlier: "12 of 12
+characters delivered, all four channels 8-bit with receivers enabled" excluded
+the port and the delivery in one line, and left only the rate.
+
 #### The console byte arrives, and the firmware still will not speak
 
 Scripted input is gated on two things the port has to be: programmed to eight

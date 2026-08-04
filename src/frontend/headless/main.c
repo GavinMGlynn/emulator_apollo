@@ -55,7 +55,8 @@ static void print_usage(const char *program_name) {
           "  --boot-input-port N   which serial port --boot-input feeds, 1 or\n"
           "                        2 (default 2)\n"
           "  --boot-input-rate CSR clock select the scripted terminal sends at\n"
-          "                        (default 0x77, what the firmware configures)\n"
+          "                        (default 0xBB, 9600 baud, which is what\n"
+          "                        makes the boot PROM answer)\n"
           "  --boot-key N          press and release keyboard key N (a matrix\n"
           "                        index 0-7F, not a character)\n"
           "  --screen KIND         fit a display: c4p, c8p, 19i or 15i\n"
@@ -1451,7 +1452,14 @@ int main(int argc, char **argv) {
   bool boot_console = false;
   unsigned boot_input_unit = 1u; /* SIO2 */
   unsigned boot_input_channel = 0u;
-  unsigned boot_input_rate = 0x77u;
+  /* 9600 baud. **Not** what the firmware configures its own ports to -- that is
+   * `77`, 1050 baud, and it is what this defaulted to for a long time on the
+   * reasoning that a scripted terminal should match the machine. It should not:
+   * the firmware *autobauds*, so the terminal sends at the terminal's rate and
+   * the PROM works out which it was. At `77` the negotiation never completes
+   * and the machine stays silent; at `BB` it prints its banner. `FINDINGS.md`
+   * C113. */
+  unsigned boot_input_rate = 0xBBu;
   unsigned boot_key = AP_KBD_KEYS; /* none */
   ap_screen_kind_t boot_screen = AP_SCREEN_NONE;
   const char *screenshot = NULL;

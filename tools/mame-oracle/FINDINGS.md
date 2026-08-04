@@ -6530,3 +6530,54 @@ of the constant derives from it.
 
 Filed as its own plan item, because it changes the project's unit of account and
 does not belong inside a display-controller change.
+
+## C113 -- the console speaks, and the rate was the terminal's and not the machine's
+
+**Class: ours-wrong, in the harness rather than the core.** The boot PROM's
+console output is byte-identical to the oracle's record on the first run that
+got it.
+
+    ours   0D 0A "MD7C REV 8.00, 1989/08/16.17:23:52" 0D 0A 3E
+    MD.md  CR LF "MD7C REV 8.00, 1989/08/16.17:23:52" CR LF '>'
+
+Every carriage return after it is echoed and answered with a fresh prompt
+(`0D 0D 0A 3E`), so the Mnemonic Debugger is not merely printing a banner, it is
+running.
+
+### What was wrong, and it was one number
+
+`--boot-input-rate` defaulted to `77`, on the recorded reasoning that `77` is
+"what the DN3500's own firmware configures both ports to at reset, measured off
+the oracle -- so a scripted terminal that used anything else would be modelling
+a misconfigured cable rather than a console".
+
+The measurement was right and the inference was backwards. The firmware
+**autobauds**: the terminal sends at the *terminal's* rate and the PROM works out
+which it was. Setting the scripted terminal to the machine's own rate is not
+modelling a matched cable, it is removing the thing the negotiation exists to
+measure. `77` is 1050 baud, which is not a rate any terminal sends at.
+
+Swept with `--boot-input-rate`, four carriage returns at 1.5 M instructions,
+reading the resting PC:
+
+    00 11 22 33 44 55 66 88 AA CC    0000079x-0007AE   inside C109's poll
+    99                               0000267E          out of it
+    BB                               00002670          out of it
+
+`9` is 4800 baud and `B` is 9600 in `[68681]`'s set one, and both reach the
+banner; `C` is 38400 and does not. So the PROM's autobaud has a set of rates it
+will accept and the default was outside it.
+
+### Why nothing before this found it
+
+Three things had to be true at once and each was fixed for its own reasons in a
+different campaign: the machine had to advance time at all (C109's defect, the
+frontend stepping the CPU with no devices), the receiver had to be enabled and
+programmed to eight bits before a byte was delivered, and the sender's rate had
+to be one the autobaud recognises. The first two were closed months apart and
+neither moved the boot, because the third was still wrong -- and a silent
+machine looks the same whichever of the three is at fault.
+
+The instrument that separated them was the input report: "12 of 12 characters
+delivered, all four channels 8-bit with receivers enabled" excluded the port and
+the delivery in one line, which left only the rate.
