@@ -216,6 +216,66 @@ USER_SUPPLIED = (
 )
 
 
+def check_parent_subject(problems: list[str]) -> int:
+    """A `###` section heading must not sit inside a top-level item's children.
+
+    Plan items are appended to, session after session, as `  - [ ]` children at
+    a fixed indent. Nothing about that syntax says which parent a child belongs
+    to -- it belongs to whichever parent happens to sit above it. So a new line
+    of enquiry, written up as children without a parent of its own, silently
+    becomes part of whatever item was last worked on.
+
+    That is not hypothetical. "Archive SC-499 cartridge tape" reached 85 ticked
+    children and 12 open ones spanning 622 lines, of which seven of the open
+    twelve were the FPA address space, the display controller, the blitter,
+    keyboard scan codes, SIO1, the tick loop and the 68030's stack frames. The
+    item could not be completed, because completing it required finishing work
+    that had nothing to do with tape. The MC68882 was nested under an oracle
+    *probe task*; the MMU and the caches under "Exceptions, traps, interrupt
+    priority".
+
+    Subject drift cannot be detected mechanically in general, and a child-count
+    threshold would fire on the 68030 integer core, which legitimately has
+    forty-seven. But every real case here announced itself the same way: a `###`
+    heading, written to introduce the new subject, left stranded inside the
+    previous item's children. A heading is document structure; children cannot
+    span one. So this is the narrow, exact rule rather than the heuristic --
+    when it fires, the children after the heading want a parent of their own.
+    """
+    if not PLAN.is_file():
+        return 0
+
+    parent = re.compile(r"^- \[( |x)\] ")
+    child = re.compile(r"^ +- \[( |x)\] ")
+
+    lines = PLAN.read_text().splitlines()
+    checked = 0
+    cur = None  # line number of the item currently accumulating children
+    pending = None  # a heading seen since the last parent, if any
+    for i, line in enumerate(lines, start=1):
+        if line.startswith("## "):
+            cur, pending = None, None
+            continue
+        if parent.match(line):
+            # A heading that introduces the next item is exactly right, so it
+            # is forgotten here rather than reported.
+            cur, pending = i, None
+            checked += 1
+            continue
+        if line.startswith("### "):
+            if cur is not None:
+                pending = (i, line[4:][:44])
+            continue
+        if child.match(line) and pending is not None:
+            problems.append(
+                f"{PLAN.name}:{pending[0]}: `### {pending[1]}` has children under "
+                f"it but no parent of its own -- they belong to the item at line "
+                f"{cur}, which is not what the heading says"
+            )
+            pending = None
+    return checked
+
+
 def deliberately_absent(cited: str) -> bool:
     return cited.startswith(USER_SUPPLIED)
 
@@ -266,6 +326,7 @@ def main() -> int:
     checked += check_references(problems)
     checked += check_item_length(problems)
     checked += check_parent_residue(problems)
+    checked += check_parent_subject(problems)
 
     for problem in sorted(set(problems)):
         print(problem)
