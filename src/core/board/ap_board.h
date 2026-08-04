@@ -378,6 +378,39 @@ void ap_board_bus_tick(ap_board_t *board);
  * holds the bus, which is the whole of how contention reaches the CPU. */
 [[nodiscard]] bool ap_board_processor_may_run(const ap_board_t *board);
 
+/* Whether the board asserts `CIIN` for this address -- that is, whether it is a
+ * *device* rather than memory.
+ *
+ * ## Why a board has to say this at all
+ *
+ * The 68030's caches are the processor's, and nothing in the processor knows
+ * which addresses are registers. `[030]` §6.1.3 gives the hardware the job:
+ * "the cache inhibit in (CIIN) signal ... allows the system to inhibit caching
+ * on a cycle-by-cycle basis", and a board decodes its own I/O space to drive it.
+ *
+ * Without it every device register is cacheable, and the consequence is not
+ * subtle: a firmware polling a status register reads it once from the bus and
+ * then forever out of the cache, so a bit that changes in the device never
+ * changes for the program. The boot PROM's console loop did exactly that --
+ * 15,721 executions of a poll that reached the serial port **twice**, spinning
+ * on a status it could no longer see move.
+ *
+ * ## Memory is cacheable and everything else is not
+ *
+ * Main memory and the boot PROM, and nothing else. That is broader than naming
+ * each device individually and it is the safer direction: a region this board
+ * has not modelled yet is not memory, so it defaults to uncacheable rather than
+ * to a cached register nobody notices.
+ *
+ * **Decided on the address the caches use**, which is the logical one. With
+ * translation off -- which is how the firmware runs at this point -- it is the
+ * physical address the board would decode, so the two agree. Under a live MMU
+ * the real machine drives `CIOUT` from the descriptor's `CI` bit instead, and
+ * that is the mechanism a caller should use there; this is the board's own
+ * decode and cannot see a translation it was not shown. */
+[[nodiscard]] bool ap_board_cache_inhibited(const ap_board_t *board,
+                                            uint32_t address);
+
 /* ---------------------------------------------------------------------------
  * Time
  *

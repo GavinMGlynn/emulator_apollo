@@ -10,9 +10,14 @@ ap_m68030_access_result_t ap_m68030_access_read(ap_m68030_access_ctx_t *access,
                                                 uint8_t function_code) {
   ap_m68030_access_result_t out = {0};
 
-  const bool cache_usable =
-      ap_m68030_cache_enabled(access->cache_enabled, access->cache_disable,
-                              false);
+  /* `CIIN` before anything else. A device address must never be *found* in the
+   * cache, which means it must never have been put there -- so the same answer
+   * gates the lookup and the fill below. */
+  const bool board_inhibits =
+      access->inhibits_cache != NULL &&
+      access->inhibits_cache(access->context, logical);
+  const bool cache_usable = ap_m68030_cache_enabled(
+      access->cache_enabled, access->cache_disable, board_inhibits);
 
   /* Step one, and the whole point of the module: the cache answers first, from
    * the *logical* address. "the MMU is completely ignored" if it does. */
@@ -90,7 +95,8 @@ ap_m68030_access_result_t ap_m68030_access_read(ap_m68030_access_ctx_t *access,
   /* CIOUT, from whichever of the two produced the translation, suppresses the
    * cache for this access -- which is why it is only consulted now. */
   const bool fillable = ap_m68030_cache_enabled(
-      access->cache_enabled, access->cache_disable, cache_inhibit);
+      access->cache_enabled, access->cache_disable,
+      cache_inhibit || board_inhibits);
 
   const ap_m68030_cache_access_t fetched = ap_m68030_cache_read(
       access->cache, logical, function_code, fillable, access->burst_enabled,
@@ -246,9 +252,13 @@ ap_m68030_access_result_t ap_m68030_access_write(ap_m68030_access_ctx_t *access,
     }
   }
 
-  /* The cache's own part, which is an update rather than a fill. */
+  /* The cache's own part, which is an update rather than a fill. `CIIN` counts
+   * here too: a write-allocating cache would otherwise create the very entry a
+   * read must never find. */
   const bool cache_usable = ap_m68030_cache_enabled(
-      access->cache_enabled, access->cache_disable, cache_inhibit);
+      access->cache_enabled, access->cache_disable,
+      cache_inhibit || (access->inhibits_cache != NULL &&
+                        access->inhibits_cache(access->context, logical)));
   if (cache_usable) {
     (void)ap_m68030_cache_write(access->cache, logical, function_code, value,
                                 aligned_long_word, access->write_allocate,

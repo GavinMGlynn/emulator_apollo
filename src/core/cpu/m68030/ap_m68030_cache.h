@@ -256,6 +256,18 @@ void ap_m68030_cacr_write(ap_m68030_cacr_t *cacr, uint32_t word,
 typedef unsigned (*ap_m68030_wait_states_fn)(void *context, uint32_t physical,
                                              bool read);
 
+/* `CIIN`: whether the *board* inhibits caching for this address.
+ *
+ * `[030]` §6.1.3 makes it the system's job -- "the cache inhibit in (CIIN)
+ * signal ... allows the system to inhibit caching on a cycle-by-cycle basis" --
+ * because nothing in the processor knows which addresses are registers. A core
+ * without it caches device registers, and a firmware polling a status bit then
+ * reads it once from the bus and forever out of the cache.
+ *
+ * NULL means nothing is inhibited, which is what a machine on flat RAM wants:
+ * there are no devices to protect and no probe figure moves. */
+typedef bool (*ap_m68030_cache_inhibit_fn)(void *context, uint32_t address);
+
 typedef struct {
   ap_m68030_term_t termination; /* STERM, DSACK or BERR */
   bool burst_acknowledge;       /* CBACK -- only a 32-bit STERM port asserts it */

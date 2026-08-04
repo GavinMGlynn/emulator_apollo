@@ -349,6 +349,34 @@ void ap_board_advance(ap_board_t *board, ap_time_t now) {
   ap_sio_advance(&board->sio, now);
 }
 
+bool ap_board_cache_inhibited(const ap_board_t *board, uint32_t address) {
+  (void)board;
+  /* Memory is cacheable; everything else is a device. Written as the two
+   * positives rather than a list of device ranges, so a region added later is
+   * uncacheable until someone decides otherwise -- which is the direction that
+   * fails safely. */
+  switch (ap_board_region(address)) {
+  case AP_BOARD_REGION_RAM:
+  case AP_BOARD_REGION_PROM:
+    return false;
+  case AP_BOARD_REGION_UNMAPPED:
+  case AP_BOARD_REGION_CORE_REGISTER:
+  case AP_BOARD_REGION_SIO:
+  case AP_BOARD_REGION_TIMER:
+  case AP_BOARD_REGION_CALENDAR:
+  case AP_BOARD_REGION_DMA:
+  case AP_BOARD_REGION_INTERRUPT:
+  case AP_BOARD_REGION_NODE_ID:
+  case AP_BOARD_REGION_TRANSLATION_MAP:
+  case AP_BOARD_REGION_DISK:
+  case AP_BOARD_REGION_TAPE:
+  case AP_BOARD_REGION_GRAPHICS:
+  case AP_BOARD_REGION_ATBUS:
+    break;
+  }
+  return true;
+}
+
 bool ap_board_processor_may_run(const ap_board_t *board) {
   return ap_arbiter_processor_may_run(&board->arbiter);
 }

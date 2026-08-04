@@ -157,6 +157,18 @@ static ap_m68030_iack_t machine_acknowledge(void *context, unsigned level) {
   return out;
 }
 
+/* `CIIN`, answered by the board: a device address is never cached.
+ *
+ * A machine on flat RAM has no devices and inhibits nothing, which is what
+ * keeps every probe figure exactly as it was. */
+static bool machine_cache_inhibited(void *context, uint32_t address) {
+  const ap_machine_t *machine = (const ap_machine_t *)context;
+  if (machine->board == NULL) {
+    return false;
+  }
+  return ap_board_cache_inhibited(machine->board, address);
+}
+
 static bool machine_store(void *context, uint32_t physical, uint32_t value,
                           unsigned size) {
   ap_machine_t *machine = (ap_machine_t *)context;
@@ -308,6 +320,7 @@ void ap_machine_init_model(ap_machine_t *machine, uint8_t *ram,
        * keeps one construction path -- a callback installed by a setter is a
        * callback some caller forgets. */
       .wait_states = machine_wait_states,
+      .inhibits_cache = machine_cache_inhibited,
       .context = machine,
   };
   machine->data_access = machine->instruction_access;

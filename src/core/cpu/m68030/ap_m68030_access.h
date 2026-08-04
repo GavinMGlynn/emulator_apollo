@@ -115,6 +115,10 @@ typedef struct {
    * and not in *how long*, which is what this exists to end. */
   ap_m68030_wait_states_fn wait_states;
 
+  /* `CIIN`, from the board. NULL means nothing is inhibited. See
+   * `ap_m68030_cache.h` for why the processor cannot answer this itself. */
+  ap_m68030_cache_inhibit_fn inhibits_cache;
+
   void *context;
 } ap_m68030_access_ctx_t;
 
