@@ -42,6 +42,9 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#include "device/ap_omti_cdb.h"
+#include "image/ap_awd.h"
+
 /* `[OMTI]` Table 4-1, four ports, different meanings read and written. */
 #define AP_OMTI_DISK_REGISTERS 4u
 typedef enum {
@@ -86,6 +89,26 @@ typedef enum {
  * 6 are Reserved." */
 #define AP_OMTI_DIR_DISK_CHANGE 0x80u
 
+/* Where the fixed-disk half is in a command.
+ *
+ * `[OMTI]` §5.1.1: a command is a descriptor block written a byte at a time to
+ * the data port, then the data phase, then a completion status byte. Table 4-2's
+ * `C/D` bit is what tells a driver which of those it is looking at, and this is
+ * the state behind that bit rather than a second account of it. */
+typedef enum {
+  AP_OMTI_PHASE_IDLE,
+  AP_OMTI_PHASE_COMMAND, /* accumulating the descriptor block */
+  AP_OMTI_PHASE_DATA_IN, /* the controller has bytes for the host */
+  AP_OMTI_PHASE_DATA_OUT, /* the host is sending bytes */
+  AP_OMTI_PHASE_STATUS,  /* the completion byte is waiting */
+} ap_omti_phase_t;
+
+/* One sector, and the largest transfer a single command moves here. §5.1.2's
+ * block count is a byte, so a command can ask for 255 sectors; this moves them
+ * one at a time through the same buffer, which is what the controller's own
+ * single sector buffer does. */
+#define AP_OMTI_BUFFER_BYTES AP_AWD_SECTOR_BYTES
+
 typedef struct {
   /* Fixed disk. */
   uint16_t data;
@@ -99,6 +122,30 @@ typedef struct {
   uint8_t fdc_data;
   uint8_t fdc_control;
   bool disk_change;
+
+  /* The command phase. */
+  ap_omti_phase_t phase;
+  uint8_t command[AP_OMTI_CDB_LONG];
+  unsigned command_length;
+  unsigned command_index;
+
+  /* The sector buffer, and how far through it the host is. */
+  uint8_t buffer[AP_OMTI_BUFFER_BYTES];
+  unsigned buffer_index;
+  /* Sectors still to move after the one in the buffer. **Wider than the CDB's
+   * field**, because §5.1.2's count of zero means 256 and a byte cannot hold
+   * it: storing it back in a byte turns the largest transfer the command can
+   * ask for into no transfer at all. */
+  unsigned blocks_left;
+  uint32_t next_lba;
+
+  /* §5.1.4's completion byte, and the sense the driver reads after a failure. */
+  uint8_t completion;
+  uint8_t sense[4];
+
+  /* The drive, caller-owned and optional: a controller with no disk is a real
+   * configuration and must not look like one with a blank disk. */
+  ap_awd_t *drive;
 } ap_omti_t;
 
 /* Power-on: both halves. */
@@ -124,5 +171,13 @@ void ap_omti_fdc_write(ap_omti_t *omti, unsigned reg, uint8_t value);
 
 /* Whether the data register is byte-wide this moment, per the status C/D bit. */
 [[nodiscard]] bool ap_omti_data_is_byte(const ap_omti_t *omti);
+
+/* Attach a drive to the fixed-disk half, or `NULL` for none. Caller-owned. */
+void ap_omti_attach(ap_omti_t *omti, ap_awd_t *drive);
+
+/* Which phase the fixed-disk half is in. Exposed for a test to assert the
+ * sequence rather than infer it from the status bits, which is the thing the
+ * status bits are supposed to report. */
+[[nodiscard]] ap_omti_phase_t ap_omti_disk_phase(const ap_omti_t *omti);
 
 #endif /* APOLLO_DEVICE_AP_OMTI_H */

@@ -33,13 +33,25 @@
  * `0x012345`, which is exactly what these volumes report. That agreement is the
  * check available without a second machine's disk.
  *
- * ## The magic is in block 1, not block 0
+ * ## The signature, and a framing this file used to get wrong
  *
- * Block 0 has no signature -- it opens with a block count and two UIDs. Block 1
- * carries `FEDCA986` at `+0x18` on every image, and that is what makes "this is
- * a Domain volume" answerable at all. So the reader takes both blocks and
- * refuses a volume whose magic is absent rather than returning a node ID read
- * out of arbitrary bytes.
+ * There is no signature at the start: the image opens with a block count and two
+ * UIDs. `FEDCA986` appears at absolute offset `0x418` on every image, and that
+ * is what makes "this is a Domain volume" answerable at all.
+ *
+ * This file used to call that "block 1 `+0x18`", assuming 1024-byte blocks. The
+ * oracle addresses an `.awd` in **1056-byte sectors** --
+ * `omti8621.cpp`'s `fseek(diskaddr * OMTI_DISK_SECTOR_SIZE)` with
+ * `OMTI_DISK_SECTOR_SIZE 1056` -- so `0x418` is not the start of anything, it
+ * is 1048 bytes into the *first physical sector*. The offsets below were
+ * measured and are unchanged; only the description of what they were offsets
+ * *into* was wrong, and a wrong frame is what makes a later reader compute the
+ * next structure's address incorrectly.
+ *
+ * What the last eight bytes of a 1056-byte sector are for is not settled here.
+ * The reader uses absolute offsets and needs no answer; a caller walking the
+ * volume's later structures does, and should establish it rather than assume a
+ * 1024-byte stride.
  */
 
 #ifndef APOLLO_IMAGE_AP_VOLUME_H
@@ -49,17 +61,18 @@
 #include <stddef.h>
 #include <stdint.h>
 
-/* Domain blocks are 1024 bytes; the label wants the first two. */
-#define AP_VOLUME_BLOCK_SIZE 1024u
-#define AP_VOLUME_LABEL_BYTES (2u * AP_VOLUME_BLOCK_SIZE)
+/* How much of the image the label needs. Two 1024-byte units historically, and
+ * kept at that size because it covers every measured offset with room to
+ * spare -- not because the image is framed that way. */
+#define AP_VOLUME_LABEL_BYTES 2048u
 
-/* Block 1 `+0x18`. Named for what it is rather than what it might stand for:
- * no manual here explains the value, and it is a signature by behaviour --
+/* Absolute offset `0x418`. Named for what it is rather than what it might stand
+ * for: no manual here explains the value, and it is a signature by behaviour --
  * present on every volume, absent everywhere else. */
 #define AP_VOLUME_MAGIC 0xFEDCA986u
-#define AP_VOLUME_MAGIC_OFFSET (AP_VOLUME_BLOCK_SIZE + 0x18u)
+#define AP_VOLUME_MAGIC_OFFSET 0x418u
 
-/* Block 0's fields, at the offsets the images agree on. */
+/* The label's fields, at the offsets the images agree on. */
 #define AP_VOLUME_NAME_OFFSET 0x22u
 #define AP_VOLUME_NAME_BYTES 30u
 #define AP_VOLUME_CREATOR_UID_OFFSET 0x48u

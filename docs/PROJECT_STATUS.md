@@ -4434,6 +4434,48 @@ It does not move the boot: the PROM still stops in the console-selection poll at
 `000007AE`. What it does is make every later experiment run on the machine this
 core models rather than on a processor with the machine switched off.
 
+#### The Winchester moves data, and a block count of zero means 256
+
+`.awd` is a raw run of physical sectors -- no container, no header, sector `n` at
+offset `n * 1056`. The oracle settles both halves:
+`omti8621.cpp` seeks `diskaddr * OMTI_DISK_SECTOR_SIZE` and that constant is
+**1056**, thirty-two bytes beyond the 1024 the file system uses. §5.4.14's own
+table lists 1056 among the sector sizes the controller supports, so the manual
+and the oracle agree.
+
+**The geometry is the drive's and is not in the file.** `omti8621.cpp` gives the
+two Apollo shipped -- 348 MB at 1223×15×18, 155 MB at 1023×8×18 -- and a caller
+names the type because there is nothing to detect. The eleven images in `media/`
+are 348 MiB exactly, which is *not* a whole number of 1056-byte sectors: the
+file is created at the size the install procedure names and the drive uses what
+it needs. So a short final sector is a property of these images rather than
+damage, and the module bounds by sector count, refusing a read that is inside
+the geometry and past the end of the file rather than returning whatever
+followed in memory.
+
+**The command phase.** §5.1.1's cycle is a descriptor block written a byte at a
+time to the data port, then data, then a completion byte, and Table 4-2's `C/D`
+bit is what tells a driver which it is looking at. That is now state behind the
+bit rather than a second account of it, and `READ`, `WRITE`, `REQUEST SENSE`,
+`TEST DRIVE READY`, `RECALIBRATE` and `SEEK` act.
+
+**A block count of zero means 256**, and the model got it wrong first. §5.1.2's
+count is a byte; a count of blocks with no blocks in it is not a command anyone
+issues. The count was decoded correctly and then stored back into a `uint8_t`,
+which turns the largest transfer a command can ask for into no transfer at all
+-- a file system that works until the first large read. The test that caught it
+asks for 256 sectors from a drive that has sixteen and asserts it reads all
+sixteen *and then fails*, which a count of one would pass and a count of zero
+would not reach.
+
+**What is refused rather than faked.** A command the ESDI set accepts and this
+core does not implement completes with the error bit set, not with success: a
+driver told a format succeeded when nothing was written goes on to trust the
+disk. `0C INITIALIZE DRIVE CHARACTERISTICS` is refused in the command phase and
+not only in the decoder -- a decoder that says no beside an executor that says
+yes is worse than neither. And a controller with no drive answers "not ready"
+rather than looking like one with a blank disk.
+
 #### A second board: `dn3000` boots, and it is not the DN3500 shifted
 
 `008778-03` Table 2-6 gives the DS3000's 16 MB space against Table 2-8's 64 MB,

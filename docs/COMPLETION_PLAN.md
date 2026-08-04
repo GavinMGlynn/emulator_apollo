@@ -2069,8 +2069,21 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
   - [x] The CDB decode, `device/ap_omti_cdb.c`: field extraction with the
         three-byte cylinder, and ESDI acceptance that refuses the ST506-only
         command. `omti_cdb_suite`, 7 tests.
-  - [ ] The commands that move data, and §6's floppy set. They want a drive and
-        a disk image behind them, and `media/` has no `.awd`.
+  - [x] **The fixed disk's data commands, with a drive behind them.**
+        `image/ap_awd.c` is the raw sector image -- 1056 bytes a sector, the
+        oracle's constant and §5.4.14's own table -- and the geometry is the
+        drive's, since nothing in the file says. The controller has §5.1.1's
+        command phase now: `READ`, `WRITE`, `REQUEST SENSE`, `TEST DRIVE READY`,
+        `RECALIBRATE`, `SEEK`, with anything accepted-but-unimplemented failing
+        rather than reporting success. Detail in `PROJECT_STATUS.md`.
+        *Verification: `awd_suite`, 11 tests. The one that earned its place:
+        §5.1.2's block count of zero means **256**, and storing it back in a
+        byte turned the largest transfer into none — asking 256 sectors of a
+        sixteen-sector drive must read all sixteen and then fail.*
+        `media/` has eleven `.awd` images; the claim that it had none was stale.
+  - [ ] Remaining: §6's floppy command set and an `.afd` image. §6 is
+        "FLOPPY DISK FUNCTIONS", pages 6-1 to 6-6 of `[OMTI]`, and that manual
+        has no text layer, so it is a page-image read like Table 2-4's.
   - [x] Both halves wired into the board at `04D000` and `05F800`, each
         aliased through 1 KB on its own period, on IRQ14 and IRQ6. The 74 KB gap
         is asserted as the window's arithmetic rather than as two constants, so
