@@ -4476,6 +4476,43 @@ not only in the decoder -- a decoder that says no beside an executor that says
 yes is worse than neither. And a controller with no drive answers "not ready"
 rather than looking like one with a blank disk.
 
+#### Where the drawing engine's programming model comes from
+
+`008778-03` **Chapter 10 is the graphics controllers**, and like Chapter 8 for
+the tape it is **physical only**: packaging dimensions, cooling, and a §10.4
+"Bus Interface" that says the controller is a slave and refers the reader to
+Chapter 2. There is no register-level programming model in it.
+
+What it does give is an **inventory**, in the change list for the 8-plane board:
+
+- "ROP Register specifiers increased to **32 bits**"
+- "Destination Plane Selection (**D_PLANE**) increased to **8 bits**"
+- "Source Plane Selection (**S_PLANE**) increased to **3 bits** and moved to the
+  added 82C55A"
+- "Lookup Tables use combined RAM and triple 8-bit DAC's, changing table size to
+  **256 x 24**"
+- "Device ID changed register to readback `$0A`"
+
+**The oracle's macros corroborate every one of those independently.**
+`apollo_v.cpp` defines `CR2A_D_PLANE(a)` as the whole byte — eight bits — and
+`CR2B_S_PLANE(a)` as `(a) & 0x07` — three — against the 4-plane board's
+`CR2_S_PLANE` of two bits and `CR2_D_PLANE` of four. The manual says the widths
+changed and by how much; the oracle shows the two encodings side by side. Neither
+source alone would settle it, which is the same shape the SC-499's register model
+took: the span measured, the bit map transcribed.
+
+**The lookup table is a Brooktree Bt458**, or a part compatible with one. The
+oracle drives it as a distinct device (`m_bt458`) behind a FIFO and a control
+register whose low two bits are the RAMDAC's own `C1`/`C0` register select, and
+"256 x 24 with triple 8-bit DACs" is exactly what a Bt458 is. That matters for
+sourcing: the CLUT's programming model is a *published datasheet for a named
+part* rather than something to be recovered from firmware writes, which makes it
+the cheapest piece of the drawing engine to get right and the one to do first.
+
+The 803 writes a fitted `c8p` provokes remain the specification for the whole:
+they are what the blitter and the lookup table have to answer, and they are the
+check that the model built from these sources is the model the firmware expects.
+
 #### The distribution media reads, and one verification cannot be run
 
 Two of Phase 4's storage items carried verification lines that were runnable

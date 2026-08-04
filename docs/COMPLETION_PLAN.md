@@ -2550,7 +2550,16 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
           **803 writes** to the controller. Those writes are the specification
           for what is left: they are what the blitter and lookup table have to
           answer.
-- [ ] **Bus faults and the exception frames.**
+        - **The sources are now established** (detail in `PROJECT_STATUS.md`).
+          `008778-03` Chapter 10 is *physical only*, as Chapter 8 was for the
+          tape — but its change list names the registers and their widths, and
+          the oracle's macros corroborate each one independently. The lookup
+          table is a **Bt458**: a named part with a published datasheet, which
+          makes it the cheapest piece to get right and the one to do first.
+- [x] **Bus faults and the exception frames.** The special status word and both
+      fault frame layouts, the taker, `RTE` from either, address error, and the
+      coprocessor mid-instruction frame. Two deliberate approximations, both
+      `PROVISIONAL` with their cost to close in `PROJECT_STATUS.md`.
 
   - [x] The **special status word** and the bus fault frame layout,
         `cpu/m68030/ap_m68030_ssw.c` — Figure 8-9's bit positions, the SIZ1/SIZ0
@@ -2601,24 +2610,18 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         machine does not raise. `01000180` is not a stack the firmware is
         expected to build four exception frames on, and now it will not have
         to.
-  - [ ] **In progress.** The long frame's INTERNAL REGISTER fields are stacked as zero — a
-        deliberate approximation, since this model has no microsequencer state
-        to save. **The coprocessor mid-instruction frame (`$9`) makes the same
-        approximation for the same reason**, in its four INTERNAL REGISTERS
-        words, and pays the same stated cost: an `RTE` from that frame is
-        declined rather than resumed. Cost to close: an `RTE` resuming a fault *mid-instruction*
-        cannot work from a zeroed frame, so the rerun must reconstruct the
-        access from the SSW and fault address instead of from internal state.
-        - **Landed, and now recorded as the convention requires**: marked
-          `PROVISIONAL` in `ap_m68030_step.c` and entered in
-          `PROJECT_STATUS.md`'s `PROVISIONAL` table, alongside the second
-          approximation it produced — `RTE` re-executing the faulted
-          instruction from the start rather than resuming mid-instruction.
-        - **In progress** rather than simply unticked: the approximation is *made*, deliberately and
-          documented in all three places. What remains open is closing it, which
-          is the "cost to close" column of the table entry rather than an
-          unstarted task. The item said "record it as `PROVISIONAL` when it
-          lands", and this is that.
+  - [x] **Recorded as the convention requires, which was the task.** The long
+        frame's INTERNAL REGISTER words are stacked as zero, and the coprocessor
+        mid-instruction frame (`$9`) does the same for the same reason: Table
+        8-6 names the fields and gives them no defined contents, because they
+        hold microsequencer state this model has none of. Marked `PROVISIONAL`
+        in `ap_m68030_step.c` and carried as **two rows** of
+        `PROJECT_STATUS.md`'s table — the zeroed words, and the `RTE` that
+        re-executes rather than resumes — each with its cost to close.
+        Kept as a plan item it was a third copy: the item said "record it as
+        `PROVISIONAL` when it lands", and it has landed. Closing the
+        approximation needs a microsequencer model, which the table's cost-to-
+        close column names and the plan cannot usefully hold open.
   - [x] Closed: the store callback returns `bool` now, so a write can fault, and
         `step_suite` covers a faulted write taking the short frame. It was
         recorded as unreachable rather than quietly left untested, which is what
