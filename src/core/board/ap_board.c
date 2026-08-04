@@ -817,3 +817,73 @@ bool ap_board_key_release(ap_board_t *board, unsigned key) {
   }
   return deliver_key(board, code);
 }
+
+/* One word cycle into the display controller's image memory. `offset` is a byte
+ * offset from the base of that memory and `count` the access width. */
+static bool graphics_word_cycle(ap_board_t *board, uint32_t offset,
+                                unsigned count, uint32_t value) {
+  const uint32_t word = offset / 2u;
+  uint16_t data = 0u;
+  uint16_t mem_mask = 0xFFFFu;
+
+  if (count == 1u) {
+    /* A byte lands in the lane its address names, and the mask says which --
+     * the controller sees the whole word either way. */
+    data = (uint16_t)((offset & 1u) != 0u ? (value & 0xFFu)
+                                          : ((value & 0xFFu) << 8));
+    mem_mask = (offset & 1u) != 0u ? 0x00FFu : 0xFF00u;
+  } else {
+    data = (uint16_t)value;
+  }
+
+  const ap_graphics_cycle_t cycle =
+      ap_graphics_memory_cycle(&board->graphics, word, data, mem_mask);
+  board->graphics_cycles++;
+  board->graphics_planes_written += cycle.planes_written;
+  if (cycle.unknown_mode) {
+    board->graphics_unknown_mode_cycles++;
+    if (board->graphics_unknown_mode_cycles == 1u) {
+      board->first_graphics_unknown_mode = offset;
+    }
+  }
+  return true;
+}
+
+bool ap_board_write_access(ap_board_t *board, uint32_t address, unsigned count,
+                           uint32_t value) {
+  if (count != 1u && count != 2u && count != 4u) {
+    return false;
+  }
+
+  bool colour = false;
+  uint32_t offset = 0;
+  const bool graphics_memory =
+      ap_graphics_decode_memory(address, &colour, &offset) &&
+      (colour ? ap_graphics_is_colour(board->graphics.screen)
+              : ap_graphics_is_monochrome(board->graphics.screen));
+
+  if (graphics_memory && (address % 2u == 0u || count == 1u)) {
+    /* Word cycles, which is what the controller sees. A long word is two of
+     * them; an *odd* word access is not something this bus issues, and falls
+     * through to the byte loop rather than being silently realigned. */
+    board->region_writes[AP_BOARD_REGION_GRAPHICS] += count;
+    bool all = true;
+    for (unsigned i = 0; i < count; i += (count == 1u ? 1u : 2u)) {
+      all = graphics_word_cycle(board, offset + i, count == 1u ? 1u : 2u,
+                                count == 1u
+                                    ? value
+                                    : (value >> ((count - 2u - i) * 8u))) &&
+            all;
+    }
+    return all;
+  }
+
+  bool all = true;
+  for (unsigned i = 0; i < count; i++) {
+    bool ok = false;
+    ap_board_write(board, address + i,
+                   (uint8_t)(value >> ((count - 1u - i) * 8u)), &ok);
+    all = all && ok;
+  }
+  return all;
+}

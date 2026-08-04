@@ -3419,7 +3419,7 @@ failure that cost a bit position in the 68020's module entry word.
 | MC68681 / SCN2681 DUART (the part) | **programming model complete**: all sixteen register addresses of `[68681]` Table 4-1, both channels' mode registers with their shared pointer, clock-select, command and status registers, the three-deep receive FIFO with overrun, the interrupt status and mask registers, the input and output ports, and the counter/timer with both address-triggered commands. Serial framing itself — baud rates, start/stop bits, parity, the echo and loopback modes — is **not** modelled: a character is handed over whole. Not yet wired to the board | `mc68681_suite`, 34 tests, `MC68681 DUART Sep85` |
 | QIC-02 tape drive | working for the readable half of the command set: both SELECTs with the sticky selection and the soft lock, BOT, RETENSION, SELECT Q24, READ and READ STATUS. **Writing is refused rather than discarded** — there is no write-back path, and accepting a write would let an installation appear to succeed. The cartridge *type* is supplied by the caller, because the controller derives it from tape geometry a raw image does not carry. The two opcodes the scan lost are claimed by nothing. **READ STATUS now transfers its block**: six bytes, the length `[SC499]` §1.13.1 gives outright, as three 16-bit fields LSB-first — exception flags, data-error count, underrun count — and reading it clears the power-on condition it reports | `qic_suite`, 18 tests; `FINDINGS.md` C25 |
 | Cartridge tape images (`image/ap_ct.c`) | working: block addressing over a raw `.ct` image, refusing any size that is not a whole number of 512-byte blocks, and boot-record parsing that returns the four header words. Their reading as load address and entry point is now **confirmed by the boot code itself** — its first instruction, a PC-relative `LEA`, computes word 0 exactly when executed at word 1, so the image proves its own layout. `ap_ct_boot_image` therefore *names* load address, entry point and length, and refuses a cartridge that does not announce itself, or whose header describes more than the file holds. Takes memory, never a filename, so `src/core` keeps its zero file I/O and the tests need no gitignored media | `ct_suite`, 12 tests; `FINDINGS.md` C24 |
-| Apollo display controller (`05D800`, `05E800`) | **identification**: both register blocks decode whether or not a screen is fitted, and the device ID at offset 1 reports `C4P=8`, `19I=9`, `C8P=10` or `15I=11` for the fitted family and `FF` for the other. An absent screen reads `FF` and does **not** bus error — "nothing is fitted" and "nothing is there" are different answers, and getting that wrong cost an investigation. **Drawing**: `CR0`'s mode and shift, `CR1`'s bits named per family, `CR2`'s two plane-select encodings, all sixteen raster operations, the word-level data path with its two active-low fields, and the blit that is the plane loop around them. **Scanout**: the four geometries, each buffer width being the manual's own printed capacity divided out, planes composed with plane 0 as bit 0 and bit 15 as the leftmost pixel. **Registers**: sixteen of them in two groups of eight, the low group aliased across the block, `CR0`-`CR3B`, the 16-bit write enable and the 32-bit raster operation, with `CR3A` as a bit port onto `CR1`. Still unmodelled and reading `FF`: the status register, the raster operation's write-only low half, and the lookup table's two ports | `graphics_suite`, 47 tests; `FINDINGS.md` C31-C32 |
+| Apollo display controller (`05D800`, `05E800`) | **identification**: both register blocks decode whether or not a screen is fitted, and the device ID at offset 1 reports `C4P=8`, `19I=9`, `C8P=10` or `15I=11` for the fitted family and `FF` for the other. An absent screen reads `FF` and does **not** bus error — "nothing is fitted" and "nothing is there" are different answers, and getting that wrong cost an investigation. **Drawing**: `CR0`'s mode and shift, `CR1`'s bits named per family, `CR2`'s two plane-select encodings, all sixteen raster operations, the word-level data path with its two active-low fields, and the blit that is the plane loop around them. **Scanout**: the four geometries, each buffer width being the manual's own printed capacity divided out, planes composed with plane 0 as bit 0 and bit 15 as the leftmost pixel. **Registers**: sixteen of them in two groups of eight, the low group aliased across the block, `CR0`-`CR3B`, the 16-bit write enable and the 32-bit raster operation, with `CR3A` as a bit port onto `CR1`. Still unmodelled and reading `FF`: the status register, the raster operation's write-only low half, and the lookup table's two ports | `graphics_suite`, 55 tests; `FINDINGS.md` C31-C32 |
 | Apollo cartridge tape (`050000`) | working, **controller joined to the drive**: a data-register write with the request bit set is a QIC-02 command, reads deliver the cartridge a byte at a time across the drive's block boundary, and a refused command or the end of tape raises Exception. The command handshake's **three entry conditions** are modelled — ready, exception, device-holds-the-bus, one figure each — and now **its timings too**: the device carries a clock, a command deasserts READY at once and reaches its destination only when the figure's interval has passed. Every interval is `PROVISIONAL`, since §1.13.2 publishes bounds rather than values. Four registers at stride 1, the upper four of each eight floating to `FF`, aliased through the range, on IRQ5 through to vector `A5`. The measured reset dump is reproduced over two aliasing periods | `tape_suite`, 16 tests; `FINDINGS.md` C16-C19 |
 | Archive SC-499 cartridge tape controller (the part) | **register model complete**: all four addresses of `[SC499]` §1.9 — data/command, control-on-write and status-on-read, and the two write-triggered DMA commands — plus the derived interrupt flag, the tri-stated IRQ line, and RSTDMA's documented identity with power-on reset. **The status register's polarity is corrected**: RDY and EXC are asserted *low*, and the interrupt flag is a disjunction rather than a conjunction — see the section below. The QIC-02 command set itself, tape motion and the drive behind it are not modelled. Not yet wired to the board at `050000` | `sc499_suite`, 16 tests, `Archive SC-499 Information Guide` | **Oracle note:** MAME's own SC-499 models no media change at all, so a cartridge swapped while Domain/OS holds the drive crashes it; `ext/mame` carries a local edit treating insertion as a QIC-02 RESET, per `FINDINGS.md` C56.
 | Apollo disk and floppy (`04D000`, `05F800`) | working: both halves of the one card, placed **74 KB apart** by measurement, each aliased through 1 KB on its own period — four registers for the fixed disk, an eight-address block for the floppy. Interrupts on IRQ14 and IRQ6, separate lines eight apart. The gap is pinned as arithmetic, not constants: the AT window maps `Apollo = 0x040000 + AT × 0x80` | `disk_suite`, 6 tests; `FINDINGS.md` C20, C22, C23 |
@@ -4596,6 +4596,68 @@ loop that runs them. What it does not yet have is the thing the item asks for
 last and hardest — **a decoded PNG**. Register round-trips and word-level
 identities are what can be checked without one, and a controller that passes
 those and draws nothing is the standard way this goes wrong.
+
+#### `CR0`'s mode dispatch, and the blank screen finally proved
+
+A CPU write into the image memory is a **blit cycle**, not a store, and which one
+is `CR0` bits 7-5. Seven modes: one write that carries data and address (7,
+normal), one where the data *is* the write-enable register and a constant source
+draws a line from the addresses alone (2, vector), two that take *two* bus
+cycles (1 alternating, 3 CPU-source), one that draws nothing at all because the
+write only names an address for the CPU to read back (0, CPU-destination), one
+that moves a word within the memory in a single cycle with the destination on
+the *data* lines (4, double access), and two that nothing names.
+
+Three details worth keeping:
+
+* **The two-cycle modes are controller state**, not a caller's. The cycle
+  counter and the guard latch sit in `ap_graphics_t` and survive writes to any
+  other register, which is what makes a driver's interleaved register
+  programming safe.
+* **A byte access on the upper lane is moved down before latching** in mode 3.
+  The source is a *value*, not a placed byte, so a driver writing the high half
+  means the value and not the position. The oracle carries this as an explicit
+  fix for a Domain/OS test and no manual states it.
+* **`CR2`'s fields do not come from one register on all three boards.** An
+  8-plane takes the destination mask from `CR2A` and the source plane *and the
+  access mode* from `CR2B`. A model reading the access from `CR2` there picks up
+  the top two bits of the destination mask — a value that changes with every
+  plane the driver selects, so the access mode would appear to wander.
+* **Modes 5 and 6 are counted, not guessed.** A run that reaches one is a run
+  whose picture cannot be trusted, and a silent store would hide that behind a
+  plausible image.
+
+**The width had to stop being thrown away.** The machine knew a write was one,
+two or four bytes and `ap_board_write` took a byte, so the board looped. That is
+right for every eight-bit region and wrong for this one: two byte writes to the
+image memory would run two half-masked blits where the hardware runs one, and in
+the two-cycle modes would advance the cycle counter twice — so the second write
+of a pair would complete the blit the first had only begun, and every access
+after it would be out of phase. `ap_board_write_access` takes the count.
+
+**And the blank screen is now proved rather than assumed.** The boot report
+separates the controller's *memory* from its registers, because
+`region_writes[GRAPHICS]` counts them together and cannot tell "the firmware
+never wrote a pixel" from "it wrote and nothing drew" — different answers, and
+only the second is a defect. A 400,000 instruction boot with `--screen c8p`
+reports **0 blit cycles** against 803 register writes. The dispatch was never
+what stood between the firmware and a picture.
+
+**And the counters immediately named the next thing to look at.** Run to
+4,000,000 instructions the writes are *still* 803 — every one of them happens
+before the 400,000 mark — while the controller's register **reads** go from
+175,350 to 1,975,350. That is one read every two instructions for three and a
+half million: a tight poll loop, not a self-test.
+
+The only register in that block this core does not model is the **status**
+register at offset 0, and it reads `FF`. Its real bits report a
+read-modify-write cycle in progress, an A/D conversion, and an alternating-blit
+phase — so firmware waiting for any of them to *clear* waits forever against a
+constant `FF`. That is a hypothesis with an obvious shape and it is written down
+as one: what the firmware is actually testing has not been read out of the PROM
+yet, and `FF` being wrong does not by itself prove that is where it is stuck.
+It is the next thing to measure, and the counters that found it exist because
+"never wrote a pixel" and "wrote and nothing drew" had to be told apart.
 
 #### The guard latch is thirty-two bits, and ours was sixteen
 

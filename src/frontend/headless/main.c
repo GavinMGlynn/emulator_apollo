@@ -940,6 +940,17 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
   if (board->atmap_undescribed_writes > 0u) {
     printf("    first write %08X\n", board->first_atmap_undescribed_write);
   }
+  /* The display controller's *memory*, apart from its registers -- which
+   * `region_writes` counts together and so cannot tell apart. "The firmware
+   * never wrote a pixel" and "it wrote and nothing drew" are different answers
+   * and only the second is a defect. Printed even at zero, for that reason. */
+  printf("  blit cycles  %u, %u plane write(s)\n", board->graphics_cycles,
+         board->graphics_planes_written);
+  if (board->graphics_unknown_mode_cycles > 0u) {
+    printf("    undescribed CR0 mode %u time(s), first at %08X\n",
+           board->graphics_unknown_mode_cycles,
+           board->first_graphics_unknown_mode);
+  }
   /* Every region the firmware touched, and every one it did not. The zeros are
    * the informative half: a device with no accesses is one the firmware never
    * reached for, which a total cannot say. */

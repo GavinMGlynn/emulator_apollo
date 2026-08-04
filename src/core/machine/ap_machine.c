@@ -38,14 +38,13 @@ static bool board_read(ap_machine_t *machine, uint32_t address, unsigned count,
 
 static bool board_write(ap_machine_t *machine, uint32_t address, unsigned count,
                         uint32_t value) {
-  bool all = true;
-  for (unsigned i = 0; i < count; i++) {
-    bool ok = false;
-    ap_board_write(machine->board, address + i,
-                   (uint8_t)(value >> ((count - 1u - i) * 8u)), &ok);
-    all = all && ok;
-  }
-  return all;
+  /* The board is told the *width*, not handed a byte at a time. Almost every
+   * region is eight bits wide and the board still loops, but the display
+   * controller is sixteen and a CPU access to its image memory is a blit cycle
+   * with a byte mask -- two byte writes there would run two half-masked blits
+   * where the hardware runs one. The width was known here and thrown away at
+   * the boundary. */
+  return ap_board_write_access(machine->board, address, count, value);
 }
 
 static void write_bytes(ap_machine_t *machine, uint32_t address, unsigned count,

@@ -227,6 +227,22 @@ typedef struct ap_board {
    * would have no contention to be emergent. */
   ap_arbiter_t arbiter;
 
+  /* Blit cycles that named one of `CR0`'s two undescribed modes. Counted rather
+   * than guessed: nothing names modes 5 and 6, so a run that reaches one is a
+   * run whose picture cannot be trusted, and a silent store would hide that
+   * behind a plausible image. The first offset is kept for the same reason
+   * every other counter here keeps one -- a total cannot say *where*. */
+  unsigned graphics_unknown_mode_cycles;
+  uint32_t first_graphics_unknown_mode;
+
+  /* Blit cycles into the image memory, and how many planes they wrote between
+   * them. Separate from `region_writes[GRAPHICS]`, which counts the *register*
+   * block and the memory together and so cannot tell "the firmware never wrote
+   * a pixel" from "it wrote and nothing drew". Those are different answers and
+   * only the second is a defect here. */
+  unsigned graphics_cycles;
+  unsigned graphics_planes_written;
+
   /* DMA transfers this board has run, and the ones it could not complete
    * because no device is wired to the channel.
    *
@@ -518,6 +534,24 @@ void ap_board_advance(ap_board_t *board, ap_time_t now);
                                     bool *ok);
 void ap_board_write(ap_board_t *board, uint32_t address, uint8_t value,
                     bool *ok);
+
+/* A write of `count` bytes as the *processor* issued it, big-endian, with the
+ * most significant byte at `address`.
+ *
+ * Almost every region on this board is eight bits wide and this is the byte
+ * loop. The **graphics memory** is not: the display controller is sixteen bits
+ * and a CPU access to its image memory is a blit *cycle* with a byte mask, not
+ * one or two stores. Splitting a word write into two byte writes there would
+ * run two half-masked blits where the hardware runs one, and in the two-cycle
+ * modes it would advance the controller's cycle counter twice -- so the second
+ * write of a pair would complete the blit the first had only begun, and every
+ * subsequent access would be out of phase.
+ *
+ * The width was known at the machine and thrown away at this boundary, which is
+ * why it is passed now. `count` is 1, 2 or 4; anything else is refused rather
+ * than looped, because a size this bus cannot issue is a caller's mistake. */
+[[nodiscard]] bool ap_board_write_access(ap_board_t *board, uint32_t address,
+                                         unsigned count, uint32_t value);
 
 /* Press or release a keyboard key, delivering its scan code to serial 1
  * channel A -- the port the keyboard is wired to, confirmed from both the

@@ -566,3 +566,204 @@ uint32_t ap_graphics_scanout(const ap_graphics_t *graphics, uint8_t cr1,
   }
   return out;
 }
+
+void ap_graphics_cr2_fields(const ap_graphics_t *graphics, unsigned *s_plane,
+                            unsigned *d_plane,
+                            ap_graphics_cr2_access_t *access) {
+  const bool eight = graphics->screen == AP_SCREEN_COLOUR_8_PLANE;
+  const bool colour = ap_graphics_is_colour(graphics->screen);
+
+  if (!colour) {
+    /* One plane, so the selects are not read at all: source plane 0 and a
+     * destination mask of `0E`, which -- the mask being **active low** --
+     * leaves plane 0 selected and the three that do not exist masked out. */
+    *s_plane = 0u;
+    *d_plane = 0x0Eu;
+    *access = ap_graphics_cr2_access(graphics->reg.cr2);
+    return;
+  }
+  if (eight) {
+    /* `CR2A` is the destination mask entire, and `CR2B` carries the source
+     * plane *and the access mode*. Reading the access from `CR2` here would
+     * pick up the top two bits of the destination mask, which is a value that
+     * changes with every plane the driver selects. */
+    *d_plane = graphics->reg.cr2;
+    *s_plane = graphics->reg.cr2b & AP_GRAPHICS_CR2_S_PLANE_MASK_8;
+    *access = ap_graphics_cr2_access(graphics->reg.cr2b);
+    return;
+  }
+  *s_plane = ap_graphics_cr2_source_plane(graphics->reg.cr2, false);
+  *d_plane = ap_graphics_cr2_dest_plane(graphics->reg.cr2, false);
+  *access = ap_graphics_cr2_access(graphics->reg.cr2);
+}
+
+/* Shift one source word into a plane's guard latch. The latch keeps the
+ * previous word above the new one, which is what a shifted blit reaches back
+ * into -- see `ap_graphics_blit_t`. */
+static void latch_source(ap_graphics_t *graphics, unsigned plane,
+                         uint16_t word) {
+  if (plane >= AP_GRAPHICS_MAX_PLANES) {
+    return;
+  }
+  graphics->guard_latch[plane] =
+      (graphics->guard_latch[plane] << 16) | word;
+}
+
+/* Latch from the image memory at `offset`, one word per plane -- or one word
+ * broadcast, when the board has a single plane or `AD_BIT` says so. */
+static void latch_from_memory(ap_graphics_t *graphics, uint32_t offset,
+                              unsigned s_plane, unsigned planes,
+                              uint32_t plane_words, const uint8_t *memory,
+                              uint32_t words) {
+  const bool broadcast =
+      planes == 1u ||
+      (graphics->reg.cr1 & AP_GRAPHICS_CR1_COLOUR_AD_BIT) != 0u;
+  if (broadcast) {
+    const uint32_t at = offset + plane_words * s_plane;
+    latch_source(graphics, s_plane, at < words ? image_word(memory, at) : 0u);
+    return;
+  }
+  uint32_t at = offset;
+  for (unsigned plane = 0; plane < planes; plane++) {
+    latch_source(graphics, plane, at < words ? image_word(memory, at) : 0u);
+    at += plane_words;
+  }
+}
+
+ap_graphics_cycle_t ap_graphics_memory_cycle(ap_graphics_t *graphics,
+                                             uint32_t offset, uint16_t data,
+                                             uint16_t mem_mask) {
+  ap_graphics_cycle_t out = {0};
+
+  ap_graphics_geometry_t geometry;
+  if (!ap_graphics_geometry(graphics->screen, &geometry)) {
+    return out;
+  }
+  const bool colour = ap_graphics_is_colour(graphics->screen);
+  uint8_t *memory = colour ? graphics->colour_memory : graphics->mono_memory;
+  const uint32_t bytes = colour ? graphics->colour_bytes : graphics->mono_bytes;
+  if (memory == NULL) {
+    return out;
+  }
+  const uint32_t words = bytes / 2u;
+
+  unsigned s_plane = 0u, d_plane = 0u;
+  ap_graphics_cr2_access_t access = AP_GRAPHICS_CR2_CONSTANT_ACCESS;
+  ap_graphics_cr2_fields(graphics, &s_plane, &d_plane, &access);
+
+  ap_graphics_blit_t blit = {
+      .cr0 = graphics->reg.cr0,
+      .cr1 = graphics->reg.cr1,
+      .access = access,
+      .rop_register = graphics->reg.rop,
+      .write_enable = graphics->reg.write_enable,
+      .d_plane = d_plane,
+      .s_plane = s_plane,
+      .planes = geometry.planes,
+      .plane_stride = geometry.plane_words,
+  };
+
+  switch (ap_graphics_cr0_mode(graphics->reg.cr0)) {
+    case AP_GRAPHICS_CR0_CPU_DEST_BLT:
+      /* The write carries an address and nothing else: the controller latches
+       * the source from memory for the CPU to read back. Nothing is drawn, and
+       * a model that drew here would paint over the very word being read. */
+      latch_source(graphics, s_plane,
+                   (offset + geometry.plane_words * s_plane) < words
+                       ? image_word(memory,
+                                    offset + geometry.plane_words * s_plane)
+                       : 0u);
+      return out;
+
+    case AP_GRAPHICS_CR0_ALTERNATING_BLT:
+      if (graphics->blt_cycle == 0u) {
+        graphics->blt_cycle = 1u;
+        latch_from_memory(graphics, offset, s_plane, geometry.planes,
+                          geometry.plane_words, memory, words);
+        return out;
+      }
+      graphics->blt_cycle = 0u;
+      /* The second write *is* the write enable register. It is stored, not
+       * merely used: the register keeps the value afterwards. */
+      graphics->reg.write_enable = data;
+      blit.write_enable = data;
+      out.planes_written =
+          ap_graphics_blit(&blit, memory, bytes, offset, mem_mask,
+                           graphics->guard_latch);
+      out.blitted = true;
+      return out;
+
+    case AP_GRAPHICS_CR0_VECTOR:
+      graphics->reg.write_enable = data;
+      blit.write_enable = data;
+      out.planes_written =
+          ap_graphics_blit(&blit, memory, bytes, offset, mem_mask,
+                           graphics->guard_latch);
+      out.blitted = true;
+      return out;
+
+    case AP_GRAPHICS_CR0_CPU_SOURCE_BLT:
+      if (graphics->blt_cycle == 0u) {
+        graphics->blt_cycle = 1u;
+        /* A byte access on the **upper** lane is moved down before latching.
+         * The oracle carries this as an explicit fix for a Domain/OS test, and
+         * it is the sort of thing no manual would state: the source is a value,
+         * not a placed byte, so a driver writing the high half means the value
+         * and not the position. */
+        uint16_t value = data;
+        uint16_t mask = mem_mask;
+        if (mask == 0xFF00u) {
+          value = (uint16_t)(value >> 8);
+          mask = (uint16_t)(mask >> 8);
+        }
+        latch_source(graphics, s_plane, (uint16_t)(value & mask));
+        return out;
+      }
+      graphics->blt_cycle = 0u;
+      graphics->reg.write_enable = data;
+      blit.write_enable = data;
+      out.planes_written =
+          ap_graphics_blit(&blit, memory, bytes, offset, mem_mask,
+                           graphics->guard_latch);
+      out.blitted = true;
+      return out;
+
+    case AP_GRAPHICS_CR0_DOUBLE_ACCESS_BLT: {
+      /* The address lines carry the source and the *data* lines the
+       * destination word offset -- one bus cycle moving a word from one place
+       * in the image memory to another, which is what makes a full-screen copy
+       * one access per word instead of two. */
+      latch_from_memory(graphics, offset, s_plane, geometry.planes,
+                        geometry.plane_words, memory, words);
+      uint32_t dest = (uint32_t)(data & mem_mask);
+      /* `DADDR_16` is a *monochrome* bit and only the 19-inch board's: its
+       * destination needs a seventeenth address bit that the data lines cannot
+       * carry. On any other card the same bit position is `DV_CK`. */
+      if (graphics->screen == AP_SCREEN_MONO_19_INCH &&
+          (graphics->reg.cr1 & AP_GRAPHICS_CR1_MONO_DADDR_16) != 0u) {
+        dest += 0x10000u;
+      }
+      out.planes_written = ap_graphics_blit(&blit, memory, bytes, dest, 0xFFFFu,
+                                            graphics->guard_latch);
+      out.blitted = true;
+      return out;
+    }
+
+    case AP_GRAPHICS_CR0_NORMAL:
+      latch_source(graphics, s_plane, (uint16_t)(data & mem_mask));
+      out.planes_written =
+          ap_graphics_blit(&blit, memory, bytes, offset, mem_mask,
+                           graphics->guard_latch);
+      out.blitted = true;
+      return out;
+
+    case AP_GRAPHICS_CR0_UNKNOWN_5:
+    case AP_GRAPHICS_CR0_UNKNOWN_6:
+    default:
+      /* Nothing names these, so nothing is done and the caller is told. A run
+       * that reaches one is a run whose picture cannot be trusted, and a silent
+       * store would hide that behind a plausible image. */
+      out.unknown_mode = true;
+      return out;
+  }
+}

@@ -1160,6 +1160,187 @@ static void test_the_other_family_s_block_stores_nothing(void) {
                          ap_graphics_read(&g, AP_GRAPHICS_MONO_ADDR + 0x400u));
 }
 
+/* ## `CR0`'s mode dispatch
+ *
+ * A CPU write into the image memory is a **blit cycle**, not a store, and which
+ * one is `CR0` bits 7-5. This is the piece that makes the firmware's own
+ * drawing appear: a model that stored the word would draw nothing in every mode
+ * and would look exactly like a firmware that never wrote -- which is what a
+ * screenshot of this core showed before the dispatch existed.
+ */
+
+/* A single-plane board, so a cycle's effect is one word and the assertions are
+ * about the mode rather than about the plane loop. Programmed through the
+ * register block, as the firmware would: `ROP_EN` with a source copy, and
+ * `PLANE` access so the source word passes through. */
+static void mode_setup(ap_graphics_t *g, uint8_t mode) {
+  scanout_setup(g, AP_SCREEN_MONO_15_INCH);
+  g->reg.cr0 = (uint8_t)(mode << 5);
+  g->reg.cr1 = AP_GRAPHICS_CR1_ROP_EN | AP_GRAPHICS_CR1_DISP_EN;
+  g->reg.cr2 = (uint8_t)(AP_GRAPHICS_CR2_PLANE_ACCESS << 6);
+  g->reg.rop = 0x33333333u; /* source, every plane */
+  g->reg.write_enable = 0x0000u;
+  g->blt_cycle = 0u;
+  memset(g->guard_latch, 0, sizeof g->guard_latch);
+}
+
+static uint16_t mem_word(uint32_t word) {
+  return (uint16_t)(((uint16_t)scanout_memory[word * 2u] << 8) |
+                    scanout_memory[word * 2u + 1u]);
+}
+
+/* Mode 7, the ordinary case: the data is the source and the address the
+ * destination, and one write draws. */
+static void test_normal_mode_draws_the_word_it_was_given(void) {
+  ap_graphics_t g;
+  mode_setup(&g, AP_GRAPHICS_CR0_NORMAL);
+
+  const ap_graphics_cycle_t cycle =
+      ap_graphics_memory_cycle(&g, 5u, 0xBEEFu, 0xFFFFu);
+  TEST_ASSERT_TRUE(cycle.blitted);
+  TEST_ASSERT_EQUAL_UINT(1u, cycle.planes_written);
+  TEST_ASSERT_EQUAL_HEX16(0xBEEFu, mem_word(5u));
+}
+
+/* Mode 2: the data *is* the write enable register, and with `CONST` access the
+ * source is all ones. That is how a line is drawn -- the shape comes from the
+ * addresses written, not from the data -- and it is why the data cannot also be
+ * the source. */
+static void test_vector_mode_takes_the_data_as_write_enables(void) {
+  ap_graphics_t g;
+  mode_setup(&g, AP_GRAPHICS_CR0_VECTOR);
+  g.reg.cr2 = (uint8_t)(AP_GRAPHICS_CR2_CONSTANT_ACCESS << 6);
+
+  /* A write enable of $FF00 protects the high byte, so a solid source reaches
+   * the low byte only. The data is nowhere in the result. */
+  const ap_graphics_cycle_t cycle =
+      ap_graphics_memory_cycle(&g, 3u, 0xFF00u, 0xFFFFu);
+  TEST_ASSERT_TRUE(cycle.blitted);
+  TEST_ASSERT_EQUAL_HEX16(0x00FFu, mem_word(3u));
+  /* And the register kept it, rather than the value being used and dropped. */
+  TEST_ASSERT_EQUAL_HEX16(0xFF00u, g.reg.write_enable);
+}
+
+/* Mode 3 takes **two** bus cycles for one blit: the first write carries source
+ * data and draws nothing, the second carries the write enables and the
+ * destination. A model that drew on the first would put the source data at the
+ * source's own address. */
+static void test_cpu_source_mode_needs_two_cycles(void) {
+  ap_graphics_t g;
+  mode_setup(&g, AP_GRAPHICS_CR0_CPU_SOURCE_BLT);
+
+  const ap_graphics_cycle_t first =
+      ap_graphics_memory_cycle(&g, 9u, 0x1234u, 0xFFFFu);
+  TEST_ASSERT_FALSE(first.blitted);
+  TEST_ASSERT_EQUAL_UINT(0u, first.planes_written);
+  TEST_ASSERT_EQUAL_HEX16(0x0000u, mem_word(9u));
+
+  const ap_graphics_cycle_t second =
+      ap_graphics_memory_cycle(&g, 4u, 0x0000u, 0xFFFFu);
+  TEST_ASSERT_TRUE(second.blitted);
+  TEST_ASSERT_EQUAL_HEX16(0x1234u, mem_word(4u));
+  /* And the pair resets, so the next write starts a new blit rather than
+   * completing this one again. */
+  TEST_ASSERT_EQUAL_UINT(0u, g.blt_cycle);
+}
+
+/* A byte access on the **upper** lane is moved down before latching. The source
+ * is a value, not a placed byte, so a driver writing the high half means the
+ * value and not the position. The oracle carries this as an explicit fix for a
+ * Domain/OS test and no manual states it. */
+static void test_an_upper_byte_source_is_moved_down_before_latching(void) {
+  ap_graphics_t g;
+  mode_setup(&g, AP_GRAPHICS_CR0_CPU_SOURCE_BLT);
+
+  (void)ap_graphics_memory_cycle(&g, 0u, 0x5A00u, 0xFF00u);
+  (void)ap_graphics_memory_cycle(&g, 6u, 0x0000u, 0xFFFFu);
+  TEST_ASSERT_EQUAL_HEX16(0x005Au, mem_word(6u));
+}
+
+/* Mode 0 draws nothing at all: the write names an address and the controller
+ * latches the source there for the CPU to read back. A model that drew would
+ * paint over the very word being read. */
+static void test_cpu_destination_mode_latches_and_does_not_draw(void) {
+  ap_graphics_t g;
+  mode_setup(&g, AP_GRAPHICS_CR0_CPU_DEST_BLT);
+  scanout_memory[14u] = 0xC0u;
+  scanout_memory[15u] = 0xDEu;
+
+  const ap_graphics_cycle_t cycle =
+      ap_graphics_memory_cycle(&g, 7u, 0xFFFFu, 0xFFFFu);
+  TEST_ASSERT_FALSE(cycle.blitted);
+  TEST_ASSERT_EQUAL_HEX16(0xC0DEu, mem_word(7u));
+  TEST_ASSERT_EQUAL_HEX32(0x0000C0DEu, g.guard_latch[0]);
+}
+
+/* Mode 4 moves a word within the image memory in one bus cycle: the address
+ * lines carry the source and the data lines the destination word offset. That
+ * is what makes a full-screen copy one access per word rather than two. */
+static void test_double_access_mode_takes_its_destination_from_the_data(void) {
+  ap_graphics_t g;
+  mode_setup(&g, AP_GRAPHICS_CR0_DOUBLE_ACCESS_BLT);
+  scanout_memory[20u] = 0xFAu;
+  scanout_memory[21u] = 0xCEu;
+
+  const ap_graphics_cycle_t cycle =
+      ap_graphics_memory_cycle(&g, 10u, 40u, 0xFFFFu);
+  TEST_ASSERT_TRUE(cycle.blitted);
+  TEST_ASSERT_EQUAL_HEX16(0xFACEu, mem_word(40u));
+  /* The source is untouched -- a copy, not a move. */
+  TEST_ASSERT_EQUAL_HEX16(0xFACEu, mem_word(10u));
+}
+
+/* The two modes nothing names are counted rather than guessed. A run that
+ * reaches one is a run whose picture cannot be trusted, and a silent store
+ * would hide that behind a plausible image. */
+static void test_the_unknown_modes_are_reported_and_draw_nothing(void) {
+  for (uint8_t mode = 5u; mode <= 6u; mode++) {
+    ap_graphics_t g;
+    mode_setup(&g, mode);
+    const ap_graphics_cycle_t cycle =
+        ap_graphics_memory_cycle(&g, 2u, 0xFFFFu, 0xFFFFu);
+    TEST_ASSERT_TRUE(cycle.unknown_mode);
+    TEST_ASSERT_FALSE(cycle.blitted);
+    TEST_ASSERT_EQUAL_HEX16(0x0000u, mem_word(2u));
+  }
+}
+
+/* `CR2`'s fields are not one register on all three boards. The 8-plane takes
+ * its destination mask from `CR2A` and its source plane **and access mode**
+ * from `CR2B` -- a different register. A model reading the access from `CR2`
+ * there picks up the top two bits of the destination mask, which change with
+ * every plane the driver selects. */
+static void test_cr2_s_fields_come_from_the_right_register_per_board(void) {
+  ap_graphics_t eight;
+  ap_graphics_init(&eight, AP_SCREEN_COLOUR_8_PLANE);
+  eight.reg.cr2 = 0xC0u;  /* destination mask; its top bits are not the access */
+  eight.reg.cr2b = (uint8_t)((AP_GRAPHICS_CR2_PIXEL_ACCESS << 6) | 5u);
+  unsigned s = 0u, d = 0u;
+  ap_graphics_cr2_access_t access = AP_GRAPHICS_CR2_CONSTANT_ACCESS;
+  ap_graphics_cr2_fields(&eight, &s, &d, &access);
+  TEST_ASSERT_EQUAL_UINT(0xC0u, d);
+  TEST_ASSERT_EQUAL_UINT(5u, s);
+  TEST_ASSERT_EQUAL_INT(AP_GRAPHICS_CR2_PIXEL_ACCESS, access);
+
+  /* A monochrome board has one plane, so its selects are fixed rather than
+   * read: source 0, and a destination mask of `0E` -- active low -- leaving
+   * only plane 0 selected. */
+  ap_graphics_t mono;
+  ap_graphics_init(&mono, AP_SCREEN_MONO_19_INCH);
+  mono.reg.cr2 = 0xFFu;
+  ap_graphics_cr2_fields(&mono, &s, &d, &access);
+  TEST_ASSERT_EQUAL_UINT(0u, s);
+  TEST_ASSERT_EQUAL_UINT(0x0Eu, d);
+
+  /* A 4-plane board reads both out of `CR2` itself. */
+  ap_graphics_t four;
+  ap_graphics_init(&four, AP_SCREEN_COLOUR_4_PLANE);
+  four.reg.cr2 = 0x25u; /* S_PLANE = 2 at bits 5-4, D_PLANE = 5 at bits 3-0 */
+  ap_graphics_cr2_fields(&four, &s, &d, &access);
+  TEST_ASSERT_EQUAL_UINT(2u, s);
+  TEST_ASSERT_EQUAL_UINT(5u, d);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_each_screen_reports_the_id_the_firmware_compares_against);
@@ -1209,5 +1390,13 @@ int main(void) {
   RUN_TEST(test_the_rop_s_high_half_is_eight_plane_only);
   RUN_TEST(test_cr3a_sets_and_clears_one_bit_of_cr1);
   RUN_TEST(test_the_other_family_s_block_stores_nothing);
+  RUN_TEST(test_normal_mode_draws_the_word_it_was_given);
+  RUN_TEST(test_vector_mode_takes_the_data_as_write_enables);
+  RUN_TEST(test_cpu_source_mode_needs_two_cycles);
+  RUN_TEST(test_an_upper_byte_source_is_moved_down_before_latching);
+  RUN_TEST(test_cpu_destination_mode_latches_and_does_not_draw);
+  RUN_TEST(test_double_access_mode_takes_its_destination_from_the_data);
+  RUN_TEST(test_the_unknown_modes_are_reported_and_draw_nothing);
+  RUN_TEST(test_cr2_s_fields_come_from_the_right_register_per_board);
   return UNITY_END();
 }

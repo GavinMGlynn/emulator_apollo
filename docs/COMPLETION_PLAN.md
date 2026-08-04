@@ -2613,15 +2613,33 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
           test now blits straight into the buffer the scanout reads and the
           hand serialisation is deleted rather than rewritten, which is the
           point: the same assertions hold with the seam gone.*
-        - Still open, and what a real picture now waits on: **`CR0`'s mode
-          dispatch**, since a CPU write to the graphics memory is not a store
-          but a blit cycle — seven modes, from one write carrying data and
-          address to two-cycle protocols where the first latches a source and
-          the second carries the write enables. Then which plane the CPU's
-          128 KB window selects, and the lookup table wired to the board so an
-          index can become a colour. A 400,000 instruction boot with
-          `--screen c8p` makes 803 register writes and **no** graphics-memory
-          write, so the screen is legitimately blank.
+        - **`CR0`'s mode dispatch is done**, and with it a write to the image
+          memory is the blit cycle it really is. All seven modes, the two-cycle
+          ones carrying their state in the controller, and the undescribed two
+          counted rather than guessed. The board now takes the access *width*,
+          which it had been thrown away at that boundary — two byte writes
+          would run two half-masked blits and put the two-cycle modes out of
+          phase. Detail in `PROJECT_STATUS.md`.
+          *Verification: `graphics_suite`, 8 further tests (55 total) — one per
+          mode, including the one that draws nothing, the destination arriving
+          on the data lines, and `CR2`'s fields coming from `CR2B` on an
+          8-plane board where a model reading `CR2` would see the destination
+          mask's top bits instead.*
+        - **The blank screen is proved, not assumed.** The report separates the
+          controller's memory from its registers, and a 400,000 instruction
+          `--screen c8p` boot makes **0 blit cycles** against 803 register
+          writes: the firmware is still in self-test and has not drawn.
+        - **The next thing to measure, named by those counters.** At
+          4,000,000 instructions the register writes are still 803 — all of
+          them before the 400,000 mark — while the *reads* go 175,350 to
+          1,975,350: one every two instructions, which is a poll loop rather
+          than a self-test. The only register there this core does not model is
+          the **status** register, which reads `FF`, and whose real bits report
+          conditions that firmware would wait to see *clear*. A hypothesis with
+          an obvious shape, and recorded as one: the PROM's own loop has not
+          been read yet.
+        - Still open: which plane the CPU's 128 KB window selects, and the
+          lookup table wired to the board so an index can become a colour.
         - **The scanout is done**, `ap_graphics_scanout`: the image memory
           read out as one pixel index per pixel. The four geometries are the
           manual's, and each **buffer** width — the part that looks like an

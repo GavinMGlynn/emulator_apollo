@@ -8,11 +8,12 @@
  * ## What this module is, and what it deliberately is not
  *
  * Identification, the register file, the blitter's data path and plane loop,
- * and the scanout. What is **not** here: the lookup table, which is a separate
- * part (`device/ap_bt458.c`) and is not yet wired to a board; the status
- * register, whose bits report states this core does not have; and the mode
- * dispatch that turns a CPU write to the image memory into a blit cycle -- so
- * a write to the graphics memory still *stores* rather than draws.
+ * `CR0`'s mode dispatch -- so a CPU write to the image memory is the blit cycle
+ * it really is rather than a store -- and the scanout. What is **not** here:
+ * the lookup table, which is a separate part (`device/ap_bt458.c`) and is not
+ * yet wired to a board, so an index cannot become a colour; the status
+ * register, whose bits report states this core does not have; and which plane
+ * the CPU's 128 KB window selects, which is unmeasured.
  *
  * The module grew in that order for a reason. The boot PROM's first contact
  * with the display is a *probe*, and a probe only needs to be answered
@@ -149,6 +150,11 @@ typedef enum {
 #define AP_GRAPHICS_REG_CR3A 0x406u
 #define AP_GRAPHICS_REG_CR3B 0x407u /* 8-plane only */
 
+/* The widest board this machine has. The 8-plane colour controller; every
+ * other is a subset, and the arrays below are sized for the widest rather than
+ * per-board because a card is chosen at run time. */
+#define AP_GRAPHICS_MAX_PLANES 8u
+
 typedef struct {
   uint8_t cr0;
   uint8_t cr1;
@@ -165,6 +171,12 @@ typedef struct {
 
   /* What the firmware programmed, readable back. */
   ap_graphics_registers_t reg;
+
+  /* The guard latch, one 32-bit entry per plane -- see `ap_graphics_blit_t`.
+   * Controller state, carried between the two bus cycles of modes 1 and 3. */
+  uint32_t guard_latch[AP_GRAPHICS_MAX_PLANES];
+  /* Which cycle of a two-cycle mode is next: 0 for the first. */
+  unsigned blt_cycle;
 
   /* The graphics memories, caller-owned as main memory is: this core allocates
    * nothing. NULL until a caller attaches them, and a card with no memory
@@ -359,8 +371,8 @@ typedef enum : uint8_t {
   AP_GRAPHICS_ROP_ONE = 0xFu,
 } ap_graphics_rop_t;
 
-/* Eight planes of four bits. */
-#define AP_GRAPHICS_ROP_PLANES 8u
+/* Eight planes of four bits -- the same eight the board can have. */
+#define AP_GRAPHICS_ROP_PLANES AP_GRAPHICS_MAX_PLANES
 
 /* Which function a plane's four bits select. */
 [[nodiscard]] ap_graphics_rop_t ap_graphics_rop_for(uint32_t rop_register,
@@ -528,6 +540,80 @@ typedef struct {
   /* One plane, in 16-bit words: `buffer_width * buffer_height / 16`. */
   uint32_t plane_words;
 } ap_graphics_geometry_t;
+
+/* ## `CR0`'s mode, and why a write to the graphics memory is not a store
+ *
+ * This is the piece that makes the firmware's own drawing appear. A CPU write
+ * into the image memory is a **blit cycle**, and which one is `CR0` bits 7-5.
+ * The address, the data and the write-enable register mean different things in
+ * each, and three of the seven take *two* bus cycles to complete one blit.
+ *
+ *     0  CPU destination   the write carries an address only; the controller
+ *                          latches the source from memory and the CPU reads it
+ *                          back. Nothing is drawn by the write.
+ *     1  alternating       two writes: the first names the source address, the
+ *                          second carries the write enables and the destination.
+ *     2  vector / fill     one write: the data *is* the write-enable register
+ *                          and the address is the destination. With `CONST`
+ *                          access the source is all ones, which is how a line
+ *                          is drawn -- shape from the addresses, not the data.
+ *     3  CPU source        two writes: the first carries source data, the
+ *                          second the write enables and the destination.
+ *     4  double access     one write: the address is the source and the *data*
+ *                          is the destination word offset.
+ *     5, 6                 unknown, and they stay unknown.
+ *     7  normal            one write: the data is the source and the address
+ *                          the destination. The ordinary case.
+ *
+ * A model that stored the word instead would draw nothing in every mode, and
+ * would look identical to a firmware that never wrote -- which is exactly what
+ * a screenshot of this core showed before the dispatch existed.
+ *
+ * ### The two-cycle modes need state, and it is the controller's
+ *
+ * Modes 1 and 3 count bus cycles, so the controller carries a cycle counter and
+ * the guard latch between them. That is real hardware state and it survives a
+ * write to any other register -- which is why it lives in `ap_graphics_t` and
+ * not in a caller.
+ */
+
+/* What one CPU write to the image memory did. A cycle that only latched wrote
+ * no planes, and that is not a failure: it is the first half of a two-cycle
+ * mode. */
+typedef struct {
+  /* How many planes the cycle wrote. Zero for a latching cycle, a declined
+   * mode, or a destination past the memory. */
+  unsigned planes_written;
+  /* True when the cycle completed a blit rather than latching. */
+  bool blitted;
+  /* True when `CR0` named one of the two modes nothing describes. Counted
+   * rather than guessed: a run that hits one is a run whose picture cannot be
+   * trusted, and silence would hide that. */
+  bool unknown_mode;
+} ap_graphics_cycle_t;
+
+/* One CPU write to the image memory, `offset` in **words** from the base of the
+ * memory and `mem_mask` the bus's byte mask -- `FFFF` for a word access,
+ * `FF00` or `00FF` for a byte one.
+ *
+ * The controller is 16 bits wide, so this is the access it actually sees; the
+ * board presenting two byte stores instead is the plumbing this waits on. */
+ap_graphics_cycle_t ap_graphics_memory_cycle(ap_graphics_t *graphics,
+                                             uint32_t offset, uint16_t data,
+                                             uint16_t mem_mask);
+
+/* `CR2`'s fields, decoded for the fitted board -- which is not one register on
+ * all three. A monochrome controller has **one plane**, so its selects are
+ * fixed rather than read: source plane 0, and a destination mask of `0E` that
+ * leaves only plane 0 selected. A 4-plane board reads both selects and the
+ * access mode out of `CR2`. An 8-plane board takes the destination mask from
+ * `CR2A` as a whole byte, and the source plane *and the access mode* from
+ * `CR2B` -- a different register, which is the trap: a model reading the access
+ * mode from `CR2` on that board gets whatever the destination mask's top two
+ * bits happen to be. */
+void ap_graphics_cr2_fields(const ap_graphics_t *graphics, unsigned *s_plane,
+                            unsigned *d_plane,
+                            ap_graphics_cr2_access_t *access);
 
 /* False for `AP_SCREEN_NONE`, which has no geometry rather than a zero one. */
 [[nodiscard]] bool ap_graphics_geometry(ap_screen_kind_t kind,
