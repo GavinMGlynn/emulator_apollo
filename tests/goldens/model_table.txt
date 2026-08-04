@@ -9,5 +9,5 @@ dsp3500   68030   25 MHz    68030 on-chip    headless        mame    32 MB @ 0x0
 dsp4500   68030   33 MHz    68030 on-chip    headless        paper   32 MB @ 0x01000000
 dsp5500   68040   25 MHz    68040 on-chip    headless        mame    32 MB @ 0x01000000
 
-time base: 19800000000 Hz
+time base: 336600000000 Hz
 PROVISIONAL dn2500: ram_base: 0x4000000, from the Series 2500 boot PROM's own reset vector. 2500_BOOT_16182_8 starts with SSP 040007D0 where 3500_BOOT_12191_7 starts with 01000180 and its RAM is at 01000000; a reset stack pointer must land in usable memory. This corrects an earlier assumption that the DN2500 matched the other 68030 models at 0x1000000. Still PROVISIONAL: the SSP proves memory exists there, not where the region begins or ends. A Series 2500 allocation table would settle the extent; the oracle cannot, having no 2500 driver

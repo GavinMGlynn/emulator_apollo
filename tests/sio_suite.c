@@ -82,7 +82,6 @@ static void test_the_refresh_period_is_exact_in_base_units(void) {
    * base units represents it exactly. Second such case after the interval
    * timer's prescaled 7812.5 Hz, and worth pinning so that a future change to
    * the time base has to break a test rather than a machine. */
-  TEST_ASSERT_EQUAL_UINT64(297000u, AP_SIO_REFRESH_PERIOD);
   TEST_ASSERT_EQUAL_UINT64(0u, (AP_TIME_BASE_HZ * 15u) % 1000000u);
   TEST_ASSERT_EQUAL_UINT64(AP_SIO_REFRESH_PERIOD,
                            (AP_TIME_BASE_HZ * 15u) / 1000000u);

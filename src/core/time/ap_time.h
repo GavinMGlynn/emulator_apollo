@@ -18,12 +18,14 @@
  * Time is therefore counted in units of AP_TIME_BASE_HZ, the least common
  * multiple of every clock frequency in the machine:
  *
- *     LCM(3.6, 12, 20, 24, 25, 33 MHz) = 2^9 * 3^2 * 5^8 * 11 = 19.8 GHz
+ *     LCM(3.6, 12, 20, 24, 25, 33, 68 MHz)
+ *       = 2^9 * 3^2 * 5^8 * 11 * 17 = 336.6 GHz
  *
- *     3.6 MHz -> 5500 units    12 MHz -> 1650 units
- *     20 MHz  ->  990 units    24 MHz ->  825 units
- *     25 MHz  ->  792 units    33 MHz ->  600 units
- *     ring bit cell (12 Mbit/s) -> 1650 units, of two 825-unit windows
+ *     3.6 MHz -> 93500 units   12 MHz -> 28050 units
+ *     20 MHz  -> 16830 units   24 MHz -> 14025 units
+ *     25 MHz  -> 13464 units   33 MHz -> 10200 units
+ *     68 MHz  ->  4950 units   (the video dot clock)
+ *     ring bit cell (12 Mbit/s) -> 28050 units, of two 14025-unit windows
  *
  * The 3.6 MHz is the DUART's X1 crystal, and it is what most recently forced a
  * recomputation: the base was 6.6 GHz, which does not divide it -- 1833.33
@@ -36,16 +38,26 @@
  * did not divide the original 3.3 GHz base -- the base is recomputed as the new
  * LCM. That changes the unit but not one bit of emulated behaviour, because
  * every period is derived from it rather than written down. That has now
- * happened twice: the ring's 24 MHz line clock forced 3.3 GHz to 6.6, and the
- * DUART's 3.6 MHz forced 6.6 GHz to 19.8. Neither changed a behaviour, and the
- * second is the reason the tripling is safe by construction -- every frequency
- * that divided the old base divides three times it. ap_clock_init()
- * refuses a frequency the base does not divide exactly, so an unrepresentable
- * clock is a loud failure at construction time and never a silent drift at run
- * time. A video dot clock is the next candidate to force a recomputation.
+ * happened three times: the ring's 24 MHz line clock forced 3.3 GHz to 6.6, the
+ * DUART's 3.6 MHz forced 6.6 GHz to 19.8, and the display's **68 MHz dot clock**
+ * forced 19.8 GHz to 336.6 -- the candidate this comment named in advance.
+ * None changed a behaviour, and each multiplication is safe by construction:
+ * every frequency that divided the old base divides an integer multiple of it.
+ * ap_clock_init() refuses a frequency the base does not divide exactly, so an
+ * unrepresentable clock is a loud failure at construction time and never a
+ * silent drift at run time -- which is why the dot clock could not simply be
+ * added and rounded.
  *
- * At 19.8 GHz a uint64_t spans ~29.5 years of emulated time; wrap is not a
- * concern the model needs to handle.
+ * The 68 MHz is the display's, and it is what makes the raster representable:
+ * `008778-03` Table 11-3 bounds the timing (horizontal 50.2 kHz +/- 500 Hz,
+ * vertical 47-80 Hz) and the oracle's `set_raw(68000000, 1346, 0, 1024, 841, 0,
+ * 800)` sits inside every bound. At this base a pixel is exactly 4950 units, a
+ * line 6,662,700 and a frame 5,603,330,700, so no raster boundary is rounded.
+ * `FINDINGS.md` C112.
+ *
+ * At 336.6 GHz a uint64_t spans ~1.7 years of emulated time, down from ~29.5.
+ * Still far beyond any run this project will make, and wrap is not a concern
+ * the model needs to handle.
  */
 
 #ifndef APOLLO_TIME_AP_TIME_H
@@ -54,10 +66,10 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-/* LCM(3.6, 12, 20, 24, 25, 33 MHz) = 19.8 GHz.
+/* LCM(3.6, 12, 20, 24, 25, 33, 68 MHz) = 336.6 GHz.
  * See docs/PROJECT_STATUS.md for which model clocks are confirmed and which
  * are still PROVISIONAL. */
-#define AP_TIME_BASE_HZ UINT64_C(19800000000)
+#define AP_TIME_BASE_HZ UINT64_C(336600000000)
 
 /* The ring's two clock domains, from 010005-00 section 3.2 p.3-3. Declared here
  * because the time base exists to represent them exactly, and a change to

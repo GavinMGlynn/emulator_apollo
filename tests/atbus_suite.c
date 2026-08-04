@@ -94,7 +94,6 @@ static void test_a_cycle_time_is_a_duration_in_base_units(void) {
   const ap_time_t io = ap_atbus_access_time(a, AP_ATBUS_CYCLE_IO_8, true);
 
   TEST_ASSERT_EQUAL_UINT64(750ull * AP_TIME_BASE_HZ / 1000000000ull, io);
-  TEST_ASSERT_EQUAL_UINT64(14850u, io);
 }
 
 /* ---------------------------------------------------------------------------

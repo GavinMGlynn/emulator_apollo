@@ -235,8 +235,7 @@ static void test_encoding_a_character_picks_the_key_that_produces_it(void) {
  * nominal with a tolerance. */
 static void test_the_repeat_figures_are_the_manual_s_and_are_exact(void) {
   TEST_ASSERT_EQUAL_UINT64(AP_TIME_BASE_HZ / 2u, AP_KBD_REPEAT_DELAY);
-  TEST_ASSERT_EQUAL_UINT64(9900000000u, AP_KBD_REPEAT_DELAY);
-  TEST_ASSERT_EQUAL_UINT64(653400000u, AP_KBD_REPEAT_PERIOD);
+  TEST_ASSERT_EQUAL_UINT64(AP_TIME_BASE_HZ * 33u / 1000u, AP_KBD_REPEAT_PERIOD);
   /* 33 ms exactly: the base divides it. */
   TEST_ASSERT_EQUAL_UINT64(0u, (AP_TIME_BASE_HZ * 33u) % 1000u);
 }

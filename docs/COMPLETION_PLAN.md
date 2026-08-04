@@ -2860,17 +2860,22 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
 
 ## Phase 5 — Display
 
-- [ ] **The video clock domain, which recomputes `AP_TIME_BASE_HZ`.** Blocks the
-      display timing below and, through the status register, the firmware's own
-      drawing — `FINDINGS.md` C112. 68 MHz does not divide 19,800,000,000, so
-      `ap_clock_init` refuses it by design; the base becomes
-      `LCM` = **336,600,000,000**, 17x, at which a pixel is exactly 4950 units
-      and a frame 5,603,330,700. Cost measured, not assumed: one golden line
-      carries the base (`model_table.txt`), `timing.txt` is in clocks and
-      `probes.txt` has no time at all. *Verification: the unit changes and no
-      behaviour does — every probe golden and the long-run state hash identical
-      once the base line is regenerated, which is the identity harness's own
-      standard applied to a constant.*
+- [x] **The video clock domain, which recomputes `AP_TIME_BASE_HZ`.** The base
+      is `336,600,000,000` — `LCM(3.6, 12, 20, 24, 25, 33, 68 MHz)`, 17x the
+      old — because 68 MHz did not divide 19.8 GHz and `ap_clock_init` refused
+      it by design. `ap_time.h` had named a dot clock as the next candidate.
+      Detail in `PROJECT_STATUS.md`, `FINDINGS.md` C112.
+      *Verification: the identity harness's own standard, met column-wise. The
+      probe golden is **identical in every column except the hash** — counts,
+      stop reasons, `D0`, PCs, clocks and bus errors unchanged on all ten — and
+      the hash moves only because elapsed time is hashed state whose unit
+      changed. That caveat matters for Phase 8 and is recorded there.
+      It also found **six written-down periods** that `ap_time.h`'s own rule
+      forbids: after the change they were wrong *durations*, not merely
+      different numbers — the tape's 500 ms timeout would have become 29 ms.
+      `time_suite` +2 (17) now asserts periods as quotients and pins the base
+      once, so the next recomputation breaks nothing.*
+
 - [ ] Mono 1024×800 graphics controller and display timing. *Verification:
       framebuffer decoded to PNG and inspected; oracle frame diff.*
 - [ ] Colour and 8-plane controllers; 1280×1024 mono. *Verification: as above

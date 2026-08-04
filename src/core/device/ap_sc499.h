@@ -162,13 +162,23 @@ typedef struct {
  * All nine land exactly on the time base -- 40 ns is 264 units, 500 ms is
  * 3,300,000,000 -- so none of them is rounded on top of being provisional. */
 #define AP_SC499_T_DATA_TO_REQUEST 0u          /* "0 us <", no lower bound */
-#define AP_SC499_T_REQUEST_TO_NOT_READY 19800u  /* < 1 us */
-#define AP_SC499_T_EXCEPTION_TO_READY 198000u   /* 10 us <, Figure 1-8 T3->T4 */
-#define AP_SC499_T_DIRECTION_RELEASE 2970000u   /* < 150 us, Figure 1-9 T3->T4 */
-#define AP_SC499_T_DIRECTION_TO_READY 9900000u /* < 500 us, Figure 1-9 T4->T6 */
-#define AP_SC499_T_COMMAND_EXECUTION 9900000000u /* < 500 ms, Figure 1-7 T4->T5 */
-#define AP_SC499_T_CLOSE_MIN 396000u           /* 20 us <, T6->T8 */
-#define AP_SC499_T_CLOSE_MAX 1980000u           /* < 100 us, T6->T8 */
+/* Derived from the base, never written down as a unit count.
+ *
+ * These were literals -- `19800u` and the rest -- and the figures were right for
+ * a 19.8 GHz base and silently wrong for any other. Recomputing the base for
+ * the video dot clock turned every one of them into a wrong *duration*, which
+ * is the failure mode `ap_time.h` says a derived constant exists to prevent:
+ * "every period is derived from it rather than written down". They now say the
+ * microseconds the figures actually are. */
+#define AP_SC499_US(n) ((ap_time_t)(AP_TIME_BASE_HZ / 1000000u) * (n))
+
+#define AP_SC499_T_REQUEST_TO_NOT_READY AP_SC499_US(1)   /* < 1 us */
+#define AP_SC499_T_EXCEPTION_TO_READY AP_SC499_US(10)    /* 10 us <, Figure 1-8 T3->T4 */
+#define AP_SC499_T_DIRECTION_RELEASE AP_SC499_US(150)    /* < 150 us, Figure 1-9 T3->T4 */
+#define AP_SC499_T_DIRECTION_TO_READY AP_SC499_US(500) /* < 500 us, Figure 1-9 T4->T6 */
+#define AP_SC499_T_COMMAND_EXECUTION AP_SC499_US(500000) /* < 500 ms, Figure 1-7 T4->T5 */
+#define AP_SC499_T_CLOSE_MIN AP_SC499_US(20)           /* 20 us <, T6->T8 */
+#define AP_SC499_T_CLOSE_MAX AP_SC499_US(100)           /* < 100 us, T6->T8 */
 
 void ap_sc499_reset(ap_sc499_t *tape);
 

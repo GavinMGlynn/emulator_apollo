@@ -3345,7 +3345,7 @@ failure that cost a bit position in the 68020's module entry word.
 | --- | --- | --- |
 | Build system, presets, CI | working | 4-platform matrix green on first run, plus the `-O0` vs `-O3` output-identity job |
 | Model table (`model/`) | working, 9 models | `model_suite`, 18 tests |
-| Time base (`time/`) | working | `time_suite`, 15 tests |
+| Time base (`time/`) | working | `time_suite`, 17 tests |
 | State hash (`state/`) | primitive working | `hash_suite`, 11 tests, incl. published FNV-1a 64 vectors |
 | Core board state hash (the identity harness's board half) | working: the board registers, the translation map, both interrupt controllers, the interval timer with its three clocks, the calendar with both cursors, both DMA controllers, both serial ports, the node ID, the disk and tape controllers, the graphics memories, the keyboard matrix and the boot PROM. The diagnostic counters are deliberately outside it and reported beside it | `board_state_suite`, 22 tests sweeping every device field by field |
 | Full-machine state hash (`ap_machine_hash`, `ap_machine_state`) | working: the processor, main memory, the board when one is attached, and elapsed time — with the clock, the PC and the bus-error count reported beside the number | `machine_suite`, 41 tests, incl. the same workload run twice on two boards agreeing at every step |
@@ -4596,6 +4596,60 @@ loop that runs them. What it does not yet have is the thing the item asks for
 last and hardest — **a decoded PNG**. Register round-trips and word-level
 identities are what can be checked without one, and a controller that passes
 those and draws nothing is the standard way this goes wrong.
+
+#### The base is 336.6 GHz, and the recomputation found six written-down periods
+
+`AP_TIME_BASE_HZ` is now `336,600,000,000` — `LCM(3.6, 12, 20, 24, 25, 33,
+68 MHz)`, seventeen times the old 19.8 GHz. The 68 MHz is the display's dot
+clock, which did not divide the old base (291.18 units) and which
+`ap_clock_init` therefore refused, correctly and by design. `ap_time.h` had
+named this in advance: "A video dot clock is the next candidate to force a
+recomputation." It is the third such, after the ring's 24 MHz and the DUART's
+3.6 MHz.
+
+At this base a pixel is exactly 4950 units, a line 6,662,700 and a frame
+5,603,330,700, so no raster boundary is rounded. A `uint64_t` now spans ~1.7
+years of emulated time rather than ~29.5, which is still far beyond any run this
+project will make.
+
+**The claim is "the unit changes and no behaviour does", and it is demonstrated
+rather than asserted.** The probe golden, compared column by column:
+
+    every column except the hash   identical
+    the hash                       changed
+
+Instruction counts, stop reasons, `D0`, program counters, clocks and bus-error
+counts are the same on every one of the ten probes. The hash moves because
+elapsed time is part of the hashed state and its *unit* changed — which is worth
+recording for Phase 8, where the identity harness is built on that hash: a base
+recomputation changes it by construction and is the one change that must be
+compared column-wise instead.
+
+**And the recomputation earned its keep by finding six defects.**
+`ap_time.h`'s own discipline says "every period is derived from it rather than
+written down", and six periods were written down:
+
+    ap_sio.h    AP_SIO_REFRESH_PERIOD        297000       15 us
+    ap_sc499.h  T_REQUEST_TO_NOT_READY        19800        1 us
+    ap_sc499.h  T_EXCEPTION_TO_READY         198000       10 us
+    ap_sc499.h  T_DIRECTION_RELEASE         2970000      150 us
+    ap_sc499.h  T_DIRECTION_TO_READY        9900000      500 us
+    ap_sc499.h  T_CLOSE_MIN / T_CLOSE_MAX    396000 /  1980000
+
+Each was right for a 19.8 GHz base and silently wrong for any other: after the
+change they were not merely different numbers but different *durations* — the
+tape's 500 ms command timeout would have become 29 ms. They now say the
+microseconds they are.
+
+**The tests were carrying the same fault**, and it is the more interesting half.
+Several asserted a derived value *and* the literal beside it — `AP_SIO_REFRESH_PERIOD`
+against both `(AP_TIME_BASE_HZ * 15) / 1000000` and `297000u`. The literal adds
+nothing the derivation does not already pin and breaks on every recomputation,
+so the redundant ones are gone. `time_suite`'s clock-period tests are rewritten
+as *quotients* — a period is the base divided exactly by the frequency, with no
+remainder — and the base itself is pinned once, in one place, along with a check
+that it really is the LCM of the machine's seven clocks. Those survive the next
+recomputation and still fail if `ap_clock_init` rounds.
 
 #### The PROM does not auto-boot, and the two console paths end in two blockers
 

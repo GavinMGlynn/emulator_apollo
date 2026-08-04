@@ -54,7 +54,10 @@
 #define AP_SIO_IRQ 1u
 
 /* §3.9's refresh square wave, in base units. Exact; see the header. */
-#define AP_SIO_REFRESH_PERIOD 297000u
+/* 15 microseconds, derived rather than written as a unit count -- it was
+ * `297000u`, which was right only for a 19.8 GHz base. `ap_time.h`: "every
+ * period is derived from it rather than written down". */
+#define AP_SIO_REFRESH_PERIOD ((AP_TIME_BASE_HZ * 15u) / 1000000u)
 
 /* The DUART's X1 crystal, which clocks the counter/timer.
  *
