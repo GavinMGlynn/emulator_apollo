@@ -4570,8 +4570,9 @@ debug build, where the stack happened to be zero, and failed only at `-O3` in
 CI. A save-and-restore reset cannot be safe on first use, so the two cases are
 now separate calls: `ap_qic_init` / `ap_tape_init` zero everything, and
 `ap_qic_reset` assigns every field it does not deliberately keep and reads none.
-`ap_board_reset` was never exposed to it — it `memset`s the whole board first —
-which is why this stayed latent until a test declared a bare drive.
+`ap_board_init_model` was never exposed to it — it `memset`s the whole board
+before reaching the tape — which is why this stayed latent until a test declared
+a bare drive.
 
 **Reading the status clears the condition it reports**, which is the point of
 the command — §1.12 has the drive report end of media "by means of an EXCEPTION
