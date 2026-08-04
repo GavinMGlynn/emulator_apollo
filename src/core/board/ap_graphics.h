@@ -377,4 +377,86 @@ typedef struct {
                                         uint32_t dest, uint16_t mem_mask,
                                         const uint16_t *latched);
 
+/* ## Scanout: the image memory read out as pixels
+ *
+ * Everything above writes *into* the image memory. This reads it out, which is
+ * the only thing that turns a controller into a display and the only check the
+ * plan's verification line accepts -- "a controller that passes register tests
+ * and draws nothing is the standard way this goes wrong".
+ *
+ * ### The memory is wider than the screen, and the manual says by how much
+ *
+ * Each geometry below is `008778-03`'s own, and the *buffer* widths -- the part
+ * that looks like an implementation detail -- fall straight out of the printed
+ * memory capacities:
+ *
+ *     4-plane colour   "512 KB of image memory arranged in four 128-KB planes",
+ *                      §1.5.3, and 128 KB is 1024 x 1024 bits. Visible
+ *                      1024 x 800, §10.1.
+ *     8-plane colour   "eight memory planes, each consists of a 1024 pixel by
+ *                      1024 line memory, with a resolution of 1024 pixels x 800
+ *                      lines", §1.5.3 -- which states both geometries outright.
+ *                      "Dual-port, 1-MB image memory", §10.3, agrees.
+ *     1280x1024 mono   "256-KB image memory", §1.5.3 and §10.2, and 256 KB is
+ *                      2048 x 1024 bits. Visible 1280 x 1024.
+ *
+ * So a line occupies `buffer_width / 16` words and only the first
+ * `width / 16` of them are displayed. A model using the visible width as the
+ * stride shears the image progressively down the screen, which reads as a
+ * timing fault rather than as an arithmetic one.
+ *
+ * The 15-inch 1024 x 800 monochrome is **not in this manual** -- Chapter 10
+ * covers the 4-plane, the 1280 x 1024 monochrome and the 8-plane, and that
+ * board is later. Its geometry is the oracle's, and is marked as such here
+ * rather than given a citation it does not have.
+ *
+ * ### Plane 0 is the least significant bit, and the high bit is the left pixel
+ *
+ * The planes are consecutive blocks of `plane_words`, and a pixel's index is
+ * assembled with plane 0 as bit 0. Within a word, bit 15 is the *leftmost*
+ * pixel -- a word is drawn left to right from the top down, which is the
+ * ordering a big-endian machine's bitmap has and the opposite of the one a
+ * shift-right loop falls into by accident. Either mistake mirrors the screen,
+ * and mirroring is symmetric enough to look plausible in a thumbnail.
+ */
+
+typedef struct {
+  unsigned planes;
+  /* What the monitor shows. */
+  unsigned width;
+  unsigned height;
+  /* What the memory holds, which is wider and taller. */
+  unsigned buffer_width;
+  unsigned buffer_height;
+  /* One plane, in 16-bit words: `buffer_width * buffer_height / 16`. */
+  uint32_t plane_words;
+} ap_graphics_geometry_t;
+
+/* False for `AP_SCREEN_NONE`, which has no geometry rather than a zero one. */
+[[nodiscard]] bool ap_graphics_geometry(ap_screen_kind_t kind,
+                                        ap_graphics_geometry_t *out);
+
+/* `CR1`'s `DISP_EN`. Separate from the scanout, and deliberately: a disabled
+ * display is **black**, and black is not a pixel index -- index 0 on a
+ * monochrome screen is *white*. Folding "disabled" into the index domain would
+ * mean writing a value whose meaning depends on the screen type, so the caller
+ * paints black and the scanout only ever reports what the memory holds. */
+[[nodiscard]] bool ap_graphics_display_enabled(uint8_t cr1);
+
+/* Read the image memory out as one byte of pixel index per pixel, `width *
+ * height` of them, row by row from the top left.
+ *
+ * An index is what the *controller* produces; what colour it becomes is the
+ * lookup table's answer and is not this module's. On a monochrome screen the
+ * index is one bit, and a set bit is a **dark** pixel -- the bitmap stores ink,
+ * not light. `CR1`'s monochrome `INV` inverts the memory word before that,
+ * which is why it is applied here and not by whoever paints.
+ *
+ * Returns the number of pixels written, or zero if there is no screen, no
+ * memory attached, the memory is too small for the geometry, or the buffer
+ * given is. */
+[[nodiscard]] uint32_t ap_graphics_scanout(const ap_graphics_t *graphics,
+                                           uint8_t cr1, uint8_t *pixels,
+                                           uint32_t capacity);
+
 #endif /* APOLLO_BOARD_AP_GRAPHICS_H */

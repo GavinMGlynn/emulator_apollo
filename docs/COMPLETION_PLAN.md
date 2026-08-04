@@ -2570,6 +2570,16 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
           **803 writes** to the controller. Those writes are the specification
           for what is left: they are what the blitter and lookup table have to
           answer.
+        - **The scanout is done**, `ap_graphics_scanout`: the image memory
+          read out as one pixel index per pixel. The four geometries are the
+          manual's, and each **buffer** width — the part that looks like an
+          implementation detail — is `008778-03`'s own printed capacity divided
+          out: 128 KB a plane is 1024x1024 bits, and the 1280x1024
+          monochrome's 256 KB is 2048x1024. Detail in `PROJECT_STATUS.md`.
+          *Verification: `graphics_suite`, 8 further tests (39 total) — the
+          stride being the buffer's width and not the screen's, bit 15 as the
+          leftmost pixel, plane 0 as the index's bit 0, and `INV` applying on a
+          monochrome card where the same bit is `AD_BIT` on a colour one.*
         - **The blit itself is done**, `ap_graphics_blit`: the plane loop
           around the data path, with the address advancing for masked planes as
           well as written ones, a destination past the memory skipped rather

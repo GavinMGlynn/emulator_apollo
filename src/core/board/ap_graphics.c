@@ -316,3 +316,125 @@ unsigned ap_graphics_blit(const ap_graphics_blit_t *blit, uint16_t *image,
   }
   return written;
 }
+
+bool ap_graphics_geometry(ap_screen_kind_t kind, ap_graphics_geometry_t *out) {
+  if (out == nullptr) {
+    return false;
+  }
+  unsigned planes = 0u, width = 0u, height = 0u;
+  unsigned buffer_width = 0u, buffer_height = 0u;
+
+  switch (kind) {
+    case AP_SCREEN_COLOUR_4_PLANE:
+      /* "512 KB of image memory arranged in four 128-KB planes" -- and 128 KB
+       * is exactly 1024 x 1024 bits, so the buffer geometry is the manual's
+       * capacity divided out rather than a number taken from elsewhere. */
+      planes = 4u; width = 1024u; height = 800u;
+      buffer_width = 1024u; buffer_height = 1024u;
+      break;
+    case AP_SCREEN_COLOUR_8_PLANE:
+      /* §1.5.3 states both geometries in one sentence: "each consists of a 1024
+       * pixel by 1024 line memory, with a resolution of 1024 pixels x 800
+       * lines". */
+      planes = 8u; width = 1024u; height = 800u;
+      buffer_width = 1024u; buffer_height = 1024u;
+      break;
+    case AP_SCREEN_MONO_19_INCH:
+      /* "256-KB image memory", one plane: 2048 x 1024 bits for a 1280 x 1024
+       * screen. The buffer is 768 pixels wider than the display, which is the
+       * largest gap of the four and the one a wrong stride shows soonest. */
+      planes = 1u; width = 1280u; height = 1024u;
+      buffer_width = 2048u; buffer_height = 1024u;
+      break;
+    case AP_SCREEN_MONO_15_INCH:
+      /* The oracle's, not the manual's -- see the header. */
+      planes = 1u; width = 1024u; height = 800u;
+      buffer_width = 1024u; buffer_height = 1024u;
+      break;
+    case AP_SCREEN_NONE:
+    default:
+      return false;
+  }
+
+  out->planes = planes;
+  out->width = width;
+  out->height = height;
+  out->buffer_width = buffer_width;
+  out->buffer_height = buffer_height;
+  out->plane_words = (uint32_t)buffer_width * buffer_height / 16u;
+  return true;
+}
+
+bool ap_graphics_display_enabled(uint8_t cr1) {
+  return (cr1 & AP_GRAPHICS_CR1_DISP_EN) != 0u;
+}
+
+/* One 16-bit word of image memory, as the 68030 wrote it: high byte first. */
+static uint16_t image_word(const uint8_t *memory, uint32_t word_index) {
+  const uint32_t at = word_index * 2u;
+  return (uint16_t)(((uint16_t)memory[at] << 8) | memory[at + 1u]);
+}
+
+uint32_t ap_graphics_scanout(const ap_graphics_t *graphics, uint8_t cr1,
+                             uint8_t *pixels, uint32_t capacity) {
+  if (graphics == nullptr || pixels == nullptr) {
+    return 0u;
+  }
+  ap_graphics_geometry_t geometry;
+  if (!ap_graphics_geometry(graphics->screen, &geometry)) {
+    return 0u;
+  }
+
+  const bool colour = ap_graphics_is_colour(graphics->screen);
+  const uint8_t *memory = colour ? graphics->colour_memory
+                                 : graphics->mono_memory;
+  const uint32_t bytes = colour ? graphics->colour_bytes
+                                : graphics->mono_bytes;
+  if (memory == nullptr) {
+    return 0u;
+  }
+
+  /* The whole of every plane must be there. A card with a short memory is not
+   * a card showing part of a picture -- it is a configuration this core cannot
+   * scan out, and reading past the buffer to find out would be worse than
+   * saying so. */
+  const uint32_t needed_words = geometry.plane_words * geometry.planes;
+  if (bytes / 2u < needed_words) {
+    return 0u;
+  }
+
+  const uint32_t produced = (uint32_t)geometry.width * geometry.height;
+  if (capacity < produced) {
+    return 0u;
+  }
+
+  /* `INV` is a *monochrome* bit; on a colour controller the same position is
+   * `AD_BIT` and inverting on it would blank a colour screen whenever the
+   * blitter had been told to broadcast. */
+  const uint16_t invert =
+      (!colour && (cr1 & AP_GRAPHICS_CR1_MONO_INV) != 0u) ? 0xFFFFu : 0x0000u;
+
+  const uint32_t line_words = geometry.buffer_width / 16u;
+  const uint32_t visible_words = geometry.width / 16u;
+  uint32_t out = 0u;
+
+  for (unsigned y = 0; y < geometry.height; y++) {
+    const uint32_t row = (uint32_t)y * line_words;
+    for (uint32_t xw = 0; xw < visible_words; xw++) {
+      uint16_t plane_data[8];
+      for (unsigned p = 0; p < geometry.planes; p++) {
+        plane_data[p] = (uint16_t)(
+            image_word(memory, p * geometry.plane_words + row + xw) ^ invert);
+      }
+      /* Bit 15 first: the high bit of a word is the *leftmost* pixel. */
+      for (int bit = 15; bit >= 0; bit--) {
+        unsigned index = 0u;
+        for (unsigned p = 0; p < geometry.planes; p++) {
+          index |= (unsigned)((plane_data[p] >> (unsigned)bit) & 1u) << p;
+        }
+        pixels[out++] = (uint8_t)index;
+      }
+    }
+  }
+  return out;
+}

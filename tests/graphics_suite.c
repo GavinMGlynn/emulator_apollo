@@ -685,6 +685,206 @@ static void test_the_write_enable_applies_to_every_plane(void) {
   }
 }
 
+/* ## Scanout
+ *
+ * The geometries are `008778-03`'s, and the *buffer* widths -- the ones that
+ * look like an implementation detail -- are its printed memory capacities
+ * divided out: 128 KB a plane is 1024 x 1024 bits, and the 1280 x 1024
+ * monochrome's 256 KB is 2048 x 1024. Asserting them here is asserting the
+ * manual, not the code.
+ */
+static void test_each_screen_s_memory_is_the_capacity_the_manual_prints(void) {
+  const struct {
+    ap_screen_kind_t screen;
+    unsigned planes, width, height, buffer_width;
+    uint32_t plane_bytes;
+  } cases[] = {
+      /* "512 KB of image memory arranged in four 128-KB planes" */
+      {AP_SCREEN_COLOUR_4_PLANE, 4u, 1024u, 800u, 1024u, 128u * 1024u},
+      /* "Dual-port, 1-MB image memory", eight planes */
+      {AP_SCREEN_COLOUR_8_PLANE, 8u, 1024u, 800u, 1024u, 128u * 1024u},
+      /* "256-KB image memory", one plane */
+      {AP_SCREEN_MONO_19_INCH, 1u, 1280u, 1024u, 2048u, 256u * 1024u},
+      /* The oracle's; this board is not in the manual. */
+      {AP_SCREEN_MONO_15_INCH, 1u, 1024u, 800u, 1024u, 128u * 1024u},
+  };
+  for (unsigned i = 0; i < sizeof cases / sizeof cases[0]; i++) {
+    ap_graphics_geometry_t g;
+    TEST_ASSERT_TRUE(ap_graphics_geometry(cases[i].screen, &g));
+    TEST_ASSERT_EQUAL_UINT(cases[i].planes, g.planes);
+    TEST_ASSERT_EQUAL_UINT(cases[i].width, g.width);
+    TEST_ASSERT_EQUAL_UINT(cases[i].height, g.height);
+    TEST_ASSERT_EQUAL_UINT(cases[i].buffer_width, g.buffer_width);
+    /* The whole point of the buffer width: a plane is the manual's capacity. */
+    TEST_ASSERT_EQUAL_UINT32(cases[i].plane_bytes, g.plane_words * 2u);
+  }
+}
+
+/* `AP_SCREEN_NONE` has no geometry rather than a zero one, so a caller cannot
+ * scan out an absent card and get a black screen back -- which would be
+ * indistinguishable from a fitted card showing nothing. */
+static void test_an_absent_screen_has_no_geometry_at_all(void) {
+  ap_graphics_geometry_t g;
+  TEST_ASSERT_FALSE(ap_graphics_geometry(AP_SCREEN_NONE, &g));
+}
+
+/* A DN3500's 8-plane memory is 1 MB; enough for the tests below without
+ * standing one on the stack. */
+static uint8_t scanout_memory[8u * 128u * 1024u];
+static uint8_t scanout_pixels[1280u * 1024u];
+
+static void put_word(uint32_t word_index, uint16_t value) {
+  scanout_memory[word_index * 2u] = (uint8_t)(value >> 8);
+  scanout_memory[word_index * 2u + 1u] = (uint8_t)value;
+}
+
+static void scanout_setup(ap_graphics_t *g, ap_screen_kind_t screen) {
+  memset(scanout_memory, 0, sizeof scanout_memory);
+  ap_graphics_init(g, screen);
+  if (ap_graphics_is_colour(screen)) {
+    ap_graphics_attach_memory(g, scanout_memory, sizeof scanout_memory,
+                              nullptr, 0u);
+  } else {
+    ap_graphics_attach_memory(g, nullptr, 0u, scanout_memory,
+                              sizeof scanout_memory);
+  }
+}
+
+/* Bit 15 of a word is the **leftmost** pixel. A shift-right loop starting at
+ * bit 0 mirrors every sixteen-pixel group, which survives a glance at a
+ * thumbnail and is wrong everywhere. */
+static void test_the_high_bit_of_a_word_is_the_leftmost_pixel(void) {
+  ap_graphics_t g;
+  scanout_setup(&g, AP_SCREEN_MONO_15_INCH);
+  put_word(0u, 0x8000u);
+
+  TEST_ASSERT_EQUAL_UINT32(1024u * 800u,
+                           ap_graphics_scanout(&g, AP_GRAPHICS_CR1_DISP_EN,
+                                               scanout_pixels,
+                                               sizeof scanout_pixels));
+  TEST_ASSERT_EQUAL_UINT8(1u, scanout_pixels[0]);
+  TEST_ASSERT_EQUAL_UINT8(0u, scanout_pixels[1]);
+  TEST_ASSERT_EQUAL_UINT8(0u, scanout_pixels[15]);
+}
+
+/* The stride is the *buffer* width, not the visible one. On a 19-inch the two
+ * differ by 768 pixels, so a model using the visible width puts the second row
+ * 48 words early -- a shear that grows down the screen and reads as a timing
+ * fault rather than an arithmetic one. */
+static void test_a_row_is_the_buffer_s_width_apart_not_the_screen_s(void) {
+  ap_graphics_t g;
+  scanout_setup(&g, AP_SCREEN_MONO_19_INCH);
+  /* First pixel of row 1, which is 2048/16 = 128 words in. */
+  put_word(128u, 0x8000u);
+  /* Where a visible-width stride of 1280/16 = 80 words would have looked. */
+  put_word(80u, 0x4000u);
+
+  TEST_ASSERT_EQUAL_UINT32(1280u * 1024u,
+                           ap_graphics_scanout(&g, AP_GRAPHICS_CR1_DISP_EN,
+                                               scanout_pixels,
+                                               sizeof scanout_pixels));
+  TEST_ASSERT_EQUAL_UINT8(1u, scanout_pixels[1280u]);
+  /* And the word beyond the visible width is not displayed at all. */
+  TEST_ASSERT_EQUAL_UINT8(0u, scanout_pixels[1281u]);
+}
+
+/* Plane 0 is bit 0 of the index. Reversed, the palette is read backwards and
+ * every colour is wrong while the shapes stay right. */
+static void test_plane_zero_is_the_least_significant_bit_of_the_index(void) {
+  ap_graphics_t g;
+  scanout_setup(&g, AP_SCREEN_COLOUR_8_PLANE);
+  ap_graphics_geometry_t geometry;
+  TEST_ASSERT_TRUE(ap_graphics_geometry(AP_SCREEN_COLOUR_8_PLANE, &geometry));
+
+  /* Planes 0 and 7 set in the first pixel: index $81, which is asymmetric so a
+   * reversal cannot pass. */
+  put_word(0u, 0x8000u);
+  put_word(7u * geometry.plane_words, 0x8000u);
+
+  TEST_ASSERT_EQUAL_UINT32(1024u * 800u,
+                           ap_graphics_scanout(&g, AP_GRAPHICS_CR1_DISP_EN,
+                                               scanout_pixels,
+                                               sizeof scanout_pixels));
+  TEST_ASSERT_EQUAL_UINT8(0x81u, scanout_pixels[0]);
+}
+
+/* Monochrome `INV` is a *monochrome* bit. The same position on a colour
+ * controller is `AD_BIT`, which the blitter uses to broadcast one source to
+ * every plane -- so a scanout that honoured it there would blank a colour
+ * screen whenever the driver had asked for a broadcast blit. */
+static void test_inv_inverts_a_mono_screen_and_is_ad_bit_on_a_colour_one(void) {
+  ap_graphics_t mono;
+  scanout_setup(&mono, AP_SCREEN_MONO_15_INCH);
+  const uint8_t inv = AP_GRAPHICS_CR1_DISP_EN | AP_GRAPHICS_CR1_MONO_INV;
+  TEST_ASSERT_EQUAL_UINT32(1024u * 800u,
+                           ap_graphics_scanout(&mono, inv, scanout_pixels,
+                                               sizeof scanout_pixels));
+  TEST_ASSERT_EQUAL_UINT8(1u, scanout_pixels[0]);
+
+  ap_graphics_t colour;
+  scanout_setup(&colour, AP_SCREEN_COLOUR_8_PLANE);
+  /* The identical bit, on a colour card, where it is `AD_BIT`. */
+  TEST_ASSERT_EQUAL_UINT32(1024u * 800u,
+                           ap_graphics_scanout(&colour, inv, scanout_pixels,
+                                               sizeof scanout_pixels));
+  TEST_ASSERT_EQUAL_UINT8(0u, scanout_pixels[0]);
+}
+
+/* Every way of not being able to scan out reports zero rather than a partly
+ * filled buffer, because a caller that ignored the count would otherwise
+ * encode whatever the buffer happened to hold. */
+static void test_a_scanout_that_cannot_run_writes_nothing(void) {
+  ap_graphics_t g;
+  scanout_setup(&g, AP_SCREEN_COLOUR_8_PLANE);
+
+  /* A buffer too small for the picture. */
+  TEST_ASSERT_EQUAL_UINT32(0u, ap_graphics_scanout(&g, AP_GRAPHICS_CR1_DISP_EN,
+                                                   scanout_pixels, 1024u));
+  /* No memory attached: a fitted card whose image memory is not there. */
+  ap_graphics_t bare;
+  ap_graphics_init(&bare, AP_SCREEN_COLOUR_8_PLANE);
+  TEST_ASSERT_EQUAL_UINT32(0u, ap_graphics_scanout(&bare,
+                                                   AP_GRAPHICS_CR1_DISP_EN,
+                                                   scanout_pixels,
+                                                   sizeof scanout_pixels));
+  /* Memory too small for the eight planes the geometry needs. */
+  ap_graphics_t   short_memory;
+  ap_graphics_init(&short_memory, AP_SCREEN_COLOUR_8_PLANE);
+  ap_graphics_attach_memory(&short_memory, scanout_memory, 128u * 1024u,
+                            nullptr, 0u);
+  TEST_ASSERT_EQUAL_UINT32(0u, ap_graphics_scanout(&short_memory,
+                                                   AP_GRAPHICS_CR1_DISP_EN,
+                                                   scanout_pixels,
+                                                   sizeof scanout_pixels));
+  /* And an absent screen, which has no geometry to scan out. */
+  ap_graphics_t none;
+  ap_graphics_init(&none, AP_SCREEN_NONE);
+  ap_graphics_attach_memory(&none, scanout_memory, sizeof scanout_memory,
+                            nullptr, 0u);
+  TEST_ASSERT_EQUAL_UINT32(0u, ap_graphics_scanout(&none,
+                                                   AP_GRAPHICS_CR1_DISP_EN,
+                                                   scanout_pixels,
+                                                   sizeof scanout_pixels));
+}
+
+/* `DISP_EN` is reported, never folded into the pixels. A disabled display is
+ * black, and black is not an index: index 0 on a monochrome screen is white,
+ * so a scanout that returned zeroes for "disabled" would mean two different
+ * colours depending on the card. */
+static void test_disp_en_is_reported_rather_than_painted(void) {
+  TEST_ASSERT_FALSE(ap_graphics_display_enabled(0u));
+  TEST_ASSERT_TRUE(ap_graphics_display_enabled(AP_GRAPHICS_CR1_DISP_EN));
+
+  ap_graphics_t g;
+  scanout_setup(&g, AP_SCREEN_MONO_15_INCH);
+  put_word(0u, 0x8000u);
+  /* With the bit clear the memory still reads out exactly as it stands. */
+  TEST_ASSERT_EQUAL_UINT32(1024u * 800u,
+                           ap_graphics_scanout(&g, 0u, scanout_pixels,
+                                               sizeof scanout_pixels));
+  TEST_ASSERT_EQUAL_UINT8(1u, scanout_pixels[0]);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_each_screen_reports_the_id_the_firmware_compares_against);
@@ -718,5 +918,13 @@ int main(void) {
   RUN_TEST(test_the_ad_bit_broadcasts_one_source_to_every_plane);
   RUN_TEST(test_each_plane_combines_by_its_own_operation);
   RUN_TEST(test_the_write_enable_applies_to_every_plane);
+  RUN_TEST(test_each_screen_s_memory_is_the_capacity_the_manual_prints);
+  RUN_TEST(test_an_absent_screen_has_no_geometry_at_all);
+  RUN_TEST(test_the_high_bit_of_a_word_is_the_leftmost_pixel);
+  RUN_TEST(test_a_row_is_the_buffer_s_width_apart_not_the_screen_s);
+  RUN_TEST(test_plane_zero_is_the_least_significant_bit_of_the_index);
+  RUN_TEST(test_inv_inverts_a_mono_screen_and_is_ad_bit_on_a_colour_one);
+  RUN_TEST(test_a_scanout_that_cannot_run_writes_nothing);
+  RUN_TEST(test_disp_en_is_reported_rather_than_painted);
   return UNITY_END();
 }

@@ -3419,7 +3419,7 @@ failure that cost a bit position in the 68020's module entry word.
 | MC68681 / SCN2681 DUART (the part) | **programming model complete**: all sixteen register addresses of `[68681]` Table 4-1, both channels' mode registers with their shared pointer, clock-select, command and status registers, the three-deep receive FIFO with overrun, the interrupt status and mask registers, the input and output ports, and the counter/timer with both address-triggered commands. Serial framing itself — baud rates, start/stop bits, parity, the echo and loopback modes — is **not** modelled: a character is handed over whole. Not yet wired to the board | `mc68681_suite`, 34 tests, `MC68681 DUART Sep85` |
 | QIC-02 tape drive | working for the readable half of the command set: both SELECTs with the sticky selection and the soft lock, BOT, RETENSION, SELECT Q24, READ and READ STATUS. **Writing is refused rather than discarded** — there is no write-back path, and accepting a write would let an installation appear to succeed. The cartridge *type* is supplied by the caller, because the controller derives it from tape geometry a raw image does not carry. The two opcodes the scan lost are claimed by nothing. **READ STATUS now transfers its block**: six bytes, the length `[SC499]` §1.13.1 gives outright, as three 16-bit fields LSB-first — exception flags, data-error count, underrun count — and reading it clears the power-on condition it reports | `qic_suite`, 18 tests; `FINDINGS.md` C25 |
 | Cartridge tape images (`image/ap_ct.c`) | working: block addressing over a raw `.ct` image, refusing any size that is not a whole number of 512-byte blocks, and boot-record parsing that returns the four header words. Their reading as load address and entry point is now **confirmed by the boot code itself** — its first instruction, a PC-relative `LEA`, computes word 0 exactly when executed at word 1, so the image proves its own layout. `ap_ct_boot_image` therefore *names* load address, entry point and length, and refuses a cartridge that does not announce itself, or whose header describes more than the file holds. Takes memory, never a filename, so `src/core` keeps its zero file I/O and the tests need no gitignored media | `ct_suite`, 12 tests; `FINDINGS.md` C24 |
-| Apollo display controller identification (`05D800`, `05E800`) | working for **identification only**: both register blocks decode whether or not a screen is fitted, and the device ID at offset 1 reports `C4P=8`, `19I=9`, `C8P=10` or `15I=11` for the fitted family and `FF` for the other. An absent screen reads `FF` and does **not** bus error — "nothing is fitted" and "nothing is there" are different answers, and getting that wrong cost an investigation. Drawing, the blitter, the lookup table and the graphics memories are not modelled, and the header says so; unmodelled registers read `FF` rather than zero because zero is a value several of them can hold | `graphics_suite`, 31 tests; `FINDINGS.md` C31-C32 |
+| Apollo display controller (`05D800`, `05E800`) | **identification**: both register blocks decode whether or not a screen is fitted, and the device ID at offset 1 reports `C4P=8`, `19I=9`, `C8P=10` or `15I=11` for the fitted family and `FF` for the other. An absent screen reads `FF` and does **not** bus error — "nothing is fitted" and "nothing is there" are different answers, and getting that wrong cost an investigation. **Drawing**: `CR0`'s mode and shift, `CR1`'s bits named per family, `CR2`'s two plane-select encodings, all sixteen raster operations, the word-level data path with its two active-low fields, and the blit that is the plane loop around them. **Scanout**: the four geometries, each buffer width being the manual's own printed capacity divided out, planes composed with plane 0 as bit 0 and bit 15 as the leftmost pixel. Still unmodelled: the register *file* — `CR0`-`CR2` are passed to the functions that use them rather than stored, so a write is still absorbed and unmodelled registers read `FF` | `graphics_suite`, 39 tests; `FINDINGS.md` C31-C32 |
 | Apollo cartridge tape (`050000`) | working, **controller joined to the drive**: a data-register write with the request bit set is a QIC-02 command, reads deliver the cartridge a byte at a time across the drive's block boundary, and a refused command or the end of tape raises Exception. The command handshake's **three entry conditions** are modelled — ready, exception, device-holds-the-bus, one figure each — and now **its timings too**: the device carries a clock, a command deasserts READY at once and reaches its destination only when the figure's interval has passed. Every interval is `PROVISIONAL`, since §1.13.2 publishes bounds rather than values. Four registers at stride 1, the upper four of each eight floating to `FF`, aliased through the range, on IRQ5 through to vector `A5`. The measured reset dump is reproduced over two aliasing periods | `tape_suite`, 16 tests; `FINDINGS.md` C16-C19 |
 | Archive SC-499 cartridge tape controller (the part) | **register model complete**: all four addresses of `[SC499]` §1.9 — data/command, control-on-write and status-on-read, and the two write-triggered DMA commands — plus the derived interrupt flag, the tri-stated IRQ line, and RSTDMA's documented identity with power-on reset. **The status register's polarity is corrected**: RDY and EXC are asserted *low*, and the interrupt flag is a disjunction rather than a conjunction — see the section below. The QIC-02 command set itself, tape motion and the drive behind it are not modelled. Not yet wired to the board at `050000` | `sc499_suite`, 16 tests, `Archive SC-499 Information Guide` | **Oracle note:** MAME's own SC-499 models no media change at all, so a cartridge swapped while Domain/OS holds the drive crashes it; `ext/mame` carries a local edit treating insertion as a QIC-02 RESET, per `FINDINGS.md` C56.
 | Apollo disk and floppy (`04D000`, `05F800`) | working: both halves of the one card, placed **74 KB apart** by measurement, each aliased through 1 KB on its own period — four registers for the fixed disk, an eight-address block for the floppy. Interrupts on IRQ14 and IRQ6, separate lines eight apart. The gap is pinned as arithmetic, not constants: the AT window maps `Apollo = 0x040000 + AT × 0x80` | `disk_suite`, 6 tests; `FINDINGS.md` C20, C22, C23 |
@@ -4596,6 +4596,62 @@ loop that runs them. What it does not yet have is the thing the item asks for
 last and hardest — **a decoded PNG**. Register round-trips and word-level
 identities are what can be checked without one, and a controller that passes
 those and draws nothing is the standard way this goes wrong.
+
+#### The scanout, and the buffer widths the manual pays for
+
+Everything the drawing engine had written *into* the image memory; nothing read
+it out. `ap_graphics_scanout` does, one byte of pixel index per pixel, row by
+row from the top left — which is the step that turns a controller into a
+display and the one the item's verification line is really about.
+
+**The geometries came from the manual, including the number that looked like an
+implementation detail.** The visible resolutions are stated outright, and the
+oracle carries a *buffer* width beside each that is larger — 2048 for a 1280
+pixel screen, which is the sort of figure normally recoverable only by
+measurement. It is not: `008778-03` prints the image memory's capacity for
+every board, and the buffer width falls straight out of it.
+
+    4-plane colour   "512 KB ... arranged in four 128-KB planes"   1024 x 1024
+    8-plane colour   "each consists of a 1024 pixel by 1024 line memory"
+    1280x1024 mono   "256-KB image memory", one plane              2048 x 1024
+
+128 KB is 1024 x 1024 bits and 256 KB is 2048 x 1024, so all three are the
+capacity divided by the line count. §1.5.3 states the 8-plane's both ways in one
+sentence — "each consists of a 1024 pixel by 1024 line memory, with a resolution
+of 1024 pixels x 800 lines" — which is the corroboration the other two are read
+against. The oracle agrees with every figure and settles none of them.
+
+It also explains the two address windows already in the header: the colour
+graphics memory at `0A0000-0BFFFF` is 128 KB, exactly **one plane**, which is
+why the plane-select registers exist at all; and the monochrome window at
+`FA0000-FDFFFF` is 256 KB, exactly the whole of the 1280x1024 board's single
+plane. The windows are the manual's capacities too, and nothing had connected
+them before.
+
+The one geometry that is *not* the manual's is the 15-inch 1024 x 800
+monochrome. Chapter 10 covers the 4-plane, the 1280 x 1024 monochrome and the
+8-plane, and that board is later; its figures are the oracle's and say so in the
+code rather than carrying a citation they do not have.
+
+**Two orderings, each of which mirrors the screen if reversed.** Plane 0 is bit
+0 of the pixel index — reversed, the shapes stay right and every colour is
+wrong. Bit 15 of a word is the *leftmost* pixel — a shift-right loop starting at
+bit 0 mirrors every sixteen-pixel group, which is symmetric enough to look
+plausible in a thumbnail. Both are asserted with asymmetric values so that a
+reversal cannot pass.
+
+**`DISP_EN` is reported, never painted.** A disabled display is black, and black
+is not a pixel index: index 0 on a monochrome screen is *white*. Folding
+"disabled" into the index domain would mean writing a value whose meaning
+depends on which card is fitted, so `ap_graphics_display_enabled` answers the
+bit and the scanout only ever reports what the memory holds. `INV` is the other
+half of the same care — it is a *monochrome* bit, and the identical position on
+a colour controller is `AD_BIT`, so a scanout that honoured it there would blank
+a colour screen whenever the driver had asked the blitter for a broadcast.
+
+What is still owed for the item is the PNG itself, and for an 8-plane screen the
+palette behind the index: `ap_bt458` is a complete device with its own suite and
+is **not wired to the board**, so an index cannot yet become a colour.
 
 #### The blitter's data path, and two things that are active low
 
