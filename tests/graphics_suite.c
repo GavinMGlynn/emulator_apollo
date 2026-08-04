@@ -117,12 +117,12 @@ static void test_the_blocks_are_the_ranges_the_map_gives_them(void) {
  * reading it would take an unmodelled register for a real one reporting a real
  * state. `FF` is what an absent part reads.
  *
- * The list shrank when the register file landed and the test was narrowed
- * rather than deleted: offset 0 is the **status** register, whose bits report a
- * read-modify-write in progress, an A/D conversion and an alternating-blit
- * phase -- none of which this core has; offset 2 is the raster operation's low
- * half, which is write-only on every board; and `403` is the lookup table's
- * control port, and the table is not wired to this board. */
+ * The list shrank twice and the test was narrowed rather than deleted each
+ * time. What is left: offset 0 is the **status** register, whose bits are the
+ * raster -- `FINDINGS.md` C112, and the reason a `--screen c8p` boot polls
+ * forever; offset 2 is the raster operation's low half, write-only on every
+ * board; and offset 6 is a diagnostic memory-refresh trigger. `403` left the
+ * list when the lookup table was wired. */
 static void test_an_unmodelled_register_reads_ff_and_not_zero(void) {
   ap_graphics_t g;
   ap_graphics_init(&g, AP_SCREEN_COLOUR_8_PLANE);
@@ -131,7 +131,7 @@ static void test_an_unmodelled_register_reads_ff_and_not_zero(void) {
   TEST_ASSERT_EQUAL_HEX8(0xFFu,
                          ap_graphics_read(&g, AP_GRAPHICS_COLOUR_ADDR + 2u));
   TEST_ASSERT_EQUAL_HEX8(0xFFu,
-                         ap_graphics_read(&g, AP_GRAPHICS_COLOUR_ADDR + 0x403u));
+                         ap_graphics_read(&g, AP_GRAPHICS_COLOUR_ADDR + 6u));
 }
 
 /* A write is accepted and discarded. It must not change the ID -- a register
@@ -1341,6 +1341,150 @@ static void test_cr2_s_fields_come_from_the_right_register_per_board(void) {
   TEST_ASSERT_EQUAL_UINT(5u, d);
 }
 
+/* ## The colour lookup table, behind its two ports
+ *
+ * The Bt458 is not on the bus. It sits behind a **data** port at `401` and a
+ * **control** port at `403`, and the control port says which of three things
+ * the data port is talking to. Every select is **active low**, so a control
+ * register of `FF` selects nothing.
+ */
+
+/* Reset deasserts every select, which is all ones and not zero. A control
+ * register cleared at reset would leave the A/D converter selected, and the
+ * first data-port write would go to a part this core does not have. */
+static void test_the_lut_selects_are_all_deasserted_at_reset(void) {
+  ap_graphics_t g;
+  ap_graphics_init(&g, AP_SCREEN_COLOUR_8_PLANE);
+  TEST_ASSERT_EQUAL_HEX8(0xFFu, g.lut_control);
+  TEST_ASSERT_EQUAL_HEX8(
+      0xFFu, ap_graphics_read(&g, AP_GRAPHICS_COLOUR_ADDR + 0x403u));
+}
+
+/* With `CPAL_CS` asserted the data port reaches the part directly: an address
+ * and then three colour bytes, which the Bt458 commits on the blue cycle. */
+static void test_the_palette_can_be_written_straight_through(void) {
+  ap_graphics_t g;
+  ap_graphics_init(&g, AP_SCREEN_COLOUR_8_PLANE);
+
+  /* `CPAL_CS` low with `C1`/`C0` = 00 addresses the address register. */
+  ap_graphics_write(&g, AP_GRAPHICS_COLOUR_ADDR + 0x403u,
+                    (uint8_t)~AP_GRAPHICS_LUT_CPAL_CS & 0xFCu);
+  ap_graphics_write(&g, AP_GRAPHICS_COLOUR_ADDR + 0x401u, 0x07u);
+  /* `C1`/`C0` = 01 is the palette RAM. */
+  ap_graphics_write(&g, AP_GRAPHICS_COLOUR_ADDR + 0x403u,
+                    (uint8_t)((~AP_GRAPHICS_LUT_CPAL_CS & 0xFCu) | 1u));
+  ap_graphics_write(&g, AP_GRAPHICS_COLOUR_ADDR + 0x401u, 0x11u);
+  ap_graphics_write(&g, AP_GRAPHICS_COLOUR_ADDR + 0x401u, 0x22u);
+  ap_graphics_write(&g, AP_GRAPHICS_COLOUR_ADDR + 0x401u, 0x33u);
+
+  uint8_t rgb[3];
+  TEST_ASSERT_TRUE(ap_bt458_palette(&g.lut, 7u, rgb));
+  TEST_ASSERT_EQUAL_HEX8(0x11u, rgb[0]);
+  TEST_ASSERT_EQUAL_HEX8(0x22u, rgb[1]);
+  TEST_ASSERT_EQUAL_HEX8(0x33u, rgb[2]);
+}
+
+/* **The FIFO commits on the release of `CPAL_CS`, not on its level.** A driver
+ * buffers a whole palette and lands it in one go, which is how the table is
+ * rewritten without tearing the picture. A model watching the level would drain
+ * on every write that left the select high, including ones that never asserted
+ * it -- and a model writing straight through would be indistinguishable until
+ * something read the palette back mid-load. */
+static void test_the_fifo_commits_when_the_palette_select_is_released(void) {
+  ap_graphics_t g;
+  ap_graphics_init(&g, AP_SCREEN_COLOUR_8_PLANE);
+
+  /* `FIFO_CS` asserted, `CPAL_CS` asserted too, `C1`/`C0` = 01. Writes go to
+   * the FIFO because the write order tries `CPAL_CS` first only when `FIFO_CS`
+   * is high -- so assert the FIFO alone. */
+  const uint8_t fifo_only =
+      (uint8_t)(0xFFu & ~AP_GRAPHICS_LUT_FIFO_CS);
+  ap_graphics_write(&g, AP_GRAPHICS_COLOUR_ADDR + 0x403u, fifo_only);
+  ap_graphics_write(&g, AP_GRAPHICS_COLOUR_ADDR + 0x401u, 0x00u); /* address */
+  TEST_ASSERT_EQUAL_UINT(1u, g.lut_fifo_count);
+
+  /* Nothing has reached the part yet. */
+  uint8_t rgb[3];
+  TEST_ASSERT_TRUE(ap_bt458_palette(&g.lut, 0u, rgb));
+  TEST_ASSERT_EQUAL_HEX8(0x00u, rgb[0]);
+
+  /* Now assert `CPAL_CS` with `C1`/`C0` = 00 for the address register, buffer
+   * the colour, and release. */
+  ap_graphics_write(&g, AP_GRAPHICS_COLOUR_ADDR + 0x403u,
+                    (uint8_t)(fifo_only & ~AP_GRAPHICS_LUT_CPAL_CS & 0xFCu));
+  /* Releasing `CPAL_CS` drains what is buffered. */
+  ap_graphics_write(&g, AP_GRAPHICS_COLOUR_ADDR + 0x403u, 0xFCu);
+  TEST_ASSERT_EQUAL_UINT(0u, g.lut_fifo_count);
+}
+
+/* `FIFO_RST` is active low: the reset is the falling edge, so a control write
+ * that leaves the bit high resets nothing however often it is repeated. */
+static void test_the_fifo_reset_is_a_falling_edge(void) {
+  ap_graphics_t g;
+  ap_graphics_init(&g, AP_SCREEN_COLOUR_8_PLANE);
+  const uint8_t fifo_only = (uint8_t)(0xFFu & ~AP_GRAPHICS_LUT_FIFO_CS);
+
+  ap_graphics_write(&g, AP_GRAPHICS_COLOUR_ADDR + 0x403u, fifo_only);
+  ap_graphics_write(&g, AP_GRAPHICS_COLOUR_ADDR + 0x401u, 0x5Au);
+  TEST_ASSERT_EQUAL_UINT(1u, g.lut_fifo_count);
+
+  /* The bit stays high: nothing happens. */
+  ap_graphics_write(&g, AP_GRAPHICS_COLOUR_ADDR + 0x403u, fifo_only);
+  TEST_ASSERT_EQUAL_UINT(1u, g.lut_fifo_count);
+
+  /* Falling edge. */
+  ap_graphics_write(&g, AP_GRAPHICS_COLOUR_ADDR + 0x403u,
+                    (uint8_t)(fifo_only & ~AP_GRAPHICS_LUT_FIFO_RST));
+  TEST_ASSERT_EQUAL_UINT(0u, g.lut_fifo_count);
+}
+
+/* The read and write orders differ, and it is not a transcription slip: a write
+ * tries the A/D, the palette, then the FIFO; a read tries the **FIFO first**.
+ * That is what lets a driver push into the buffer and read the part back in one
+ * control-register setting. */
+static void test_a_read_tries_the_fifo_first_and_a_write_does_not(void) {
+  ap_graphics_t g;
+  ap_graphics_init(&g, AP_SCREEN_COLOUR_8_PLANE);
+
+  /* Both the palette and the FIFO selected, direction set to read. */
+  const uint8_t both = (uint8_t)(0xFFu & ~AP_GRAPHICS_LUT_FIFO_CS &
+                                 ~AP_GRAPHICS_LUT_CPAL_CS & 0xFCu);
+  ap_graphics_write(&g, AP_GRAPHICS_COLOUR_ADDR + 0x403u, both);
+
+  /* The write went to the *palette*, because a write tries `CPAL_CS` first. */
+  ap_graphics_write(&g, AP_GRAPHICS_COLOUR_ADDR + 0x401u, 0x03u);
+  TEST_ASSERT_EQUAL_UINT(0u, g.lut_fifo_count);
+
+  /* And a read comes from the FIFO, which is empty, rather than from the part
+   * -- the two ends of the same setting reach different places. */
+  TEST_ASSERT_EQUAL_HEX8(
+      0x00u, ap_graphics_read(&g, AP_GRAPHICS_COLOUR_ADDR + 0x401u));
+}
+
+/* The A/D converter behind the third select reads a monitor's identification
+ * and a brightness pot, neither of which this core has. Counted rather than
+ * answered with a number nothing stands behind. */
+static void test_the_a_d_converter_is_counted_rather_than_invented(void) {
+  ap_graphics_t g;
+  ap_graphics_init(&g, AP_SCREEN_COLOUR_8_PLANE);
+  ap_graphics_write(&g, AP_GRAPHICS_COLOUR_ADDR + 0x403u,
+                    (uint8_t)(0xFFu & ~AP_GRAPHICS_LUT_AD_CS));
+  ap_graphics_write(&g, AP_GRAPHICS_COLOUR_ADDR + 0x401u, 0x5Au);
+  TEST_ASSERT_EQUAL_UINT(1u, g.lut_ad_accesses);
+}
+
+/* Only an 8-plane board has one. A 4-plane card's lookup table is a different
+ * thing entirely -- sixteen entries written through three registers of the
+ * controller's own -- and a monochrome one has none. */
+static void test_only_the_eight_plane_board_has_a_bt458(void) {
+  ap_graphics_t four;
+  ap_graphics_init(&four, AP_SCREEN_COLOUR_4_PLANE);
+  ap_graphics_write(&four, AP_GRAPHICS_COLOUR_ADDR + 0x403u, 0x00u);
+  TEST_ASSERT_EQUAL_HEX8(0xFFu, four.lut_control);
+  TEST_ASSERT_EQUAL_HEX8(
+      0xFFu, ap_graphics_read(&four, AP_GRAPHICS_COLOUR_ADDR + 0x403u));
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_each_screen_reports_the_id_the_firmware_compares_against);
@@ -1398,5 +1542,12 @@ int main(void) {
   RUN_TEST(test_double_access_mode_takes_its_destination_from_the_data);
   RUN_TEST(test_the_unknown_modes_are_reported_and_draw_nothing);
   RUN_TEST(test_cr2_s_fields_come_from_the_right_register_per_board);
+  RUN_TEST(test_the_lut_selects_are_all_deasserted_at_reset);
+  RUN_TEST(test_the_palette_can_be_written_straight_through);
+  RUN_TEST(test_the_fifo_commits_when_the_palette_select_is_released);
+  RUN_TEST(test_the_fifo_reset_is_a_falling_edge);
+  RUN_TEST(test_a_read_tries_the_fifo_first_and_a_write_does_not);
+  RUN_TEST(test_the_a_d_converter_is_counted_rather_than_invented);
+  RUN_TEST(test_only_the_eight_plane_board_has_a_bt458);
   return UNITY_END();
 }

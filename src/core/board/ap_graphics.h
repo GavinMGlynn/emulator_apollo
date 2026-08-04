@@ -52,6 +52,8 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#include "device/ap_bt458.h"
+
 #define AP_GRAPHICS_MONO_ADDR 0x05D800u
 #define AP_GRAPHICS_COLOUR_ADDR 0x05E800u
 /* `05D800-05DC07` inclusive is 0x408 bytes. Not a power of two, and not
@@ -166,11 +168,72 @@ typedef struct {
   uint32_t rop;
 } ap_graphics_registers_t;
 
+/* ## The lookup table's two ports, and their active-low chip selects
+ *
+ * The Bt458 is not on the bus. It sits behind two registers of the 8-plane
+ * board's own -- a **data** port at `401` and a **control** port at `403` --
+ * and the control port's bits say which of three things the data port is
+ * talking to. Every one of those selects is **active low**, so a control
+ * register of `FF` selects nothing at all.
+ *
+ * `C1` and `C0` are passed straight through to the RAMDAC's own control inputs,
+ * which is what identified the part in the first place.
+ *
+ * ### The FIFO, and why a palette load is deferred
+ *
+ * With `FIFO_CS` asserted, data-port writes go into a 1024-byte FIFO instead of
+ * the part. They are drained into it when `CPAL_CS` is **released** -- the
+ * transition, not the level. So a driver loads a whole palette into the buffer
+ * and commits it in one go, which is how the table is rewritten without tearing
+ * the picture. A model writing straight through would be observationally
+ * identical until something read the palette back mid-load.
+ *
+ * The depth is the oracle's; no manual in `docs/references/` gives one. An
+ * overrun is therefore *counted* rather than silently dropped, because the
+ * number that would be exceeded is not one this project can defend.
+ *
+ * ### The read and write orders are not the same
+ *
+ * A write tries `AD_CS`, then `CPAL_CS`, then `FIFO_CS`. A read tries `FIFO_CS`
+ * **first**, then the direction bit, then `AD_CS`, then `CPAL_CS`. That
+ * asymmetry is not a transcription slip -- it is what lets a driver push into
+ * the FIFO and read back the part in the same control-register setting.
+ */
+#define AP_GRAPHICS_LUT_AD_CS 0x80u
+#define AP_GRAPHICS_LUT_CPAL_CS 0x40u
+#define AP_GRAPHICS_LUT_FIFO_CS 0x20u
+#define AP_GRAPHICS_LUT_FIFO_RST 0x10u
+#define AP_GRAPHICS_LUT_ST_LUK 0x08u
+#define AP_GRAPHICS_LUT_R_W 0x04u
+#define AP_GRAPHICS_LUT_C1_C0 0x03u
+#define AP_GRAPHICS_LUT_FIFO_BYTES 1024u
+
+/* The lookup table's ports, in the high group beside the control registers. */
+#define AP_GRAPHICS_REG_LUT_DATA 0x401u
+#define AP_GRAPHICS_REG_LUT_CONTROL 0x403u
+
 typedef struct {
   ap_screen_kind_t screen;
 
   /* What the firmware programmed, readable back. */
   ap_graphics_registers_t reg;
+
+  /* The colour lookup table, and the two ports it lives behind. Only an
+   * 8-plane board has one. */
+  ap_bt458_t lut;
+  uint8_t lut_control;
+  uint8_t lut_data;
+  uint8_t lut_fifo[AP_GRAPHICS_LUT_FIFO_BYTES];
+  unsigned lut_fifo_head;
+  unsigned lut_fifo_count;
+  /* Counted, not assumed away: the depth is the oracle's and no manual gives
+   * one, so a run that overruns it is a run whose palette cannot be trusted. */
+  unsigned lut_fifo_overruns;
+  /* The A/D converter behind the third chip select. Not modelled -- it reads a
+   * monitor's identification and a brightness pot, neither of which this core
+   * has -- so an access is counted rather than answered with a number nothing
+   * stands behind. */
+  unsigned lut_ad_accesses;
 
   /* The guard latch, one 32-bit entry per plane -- see `ap_graphics_blit_t`.
    * Controller state, carried between the two bus cycles of modes 1 and 3. */
@@ -220,8 +283,14 @@ void ap_graphics_attach_memory(ap_graphics_t *graphics, uint8_t *colour,
 
 /* Read a register. Both blocks decode whether or not a screen is fitted; a
  * register this module does not model reads `FF`, which is also what an absent
- * screen's ID register reads. */
-[[nodiscard]] uint8_t ap_graphics_read(const ap_graphics_t *graphics,
+ * screen's ID register reads.
+ *
+ * **Not const**, and that is a fact about the hardware rather than an oversight:
+ * a read of the lookup table's data port advances the Bt458's colour counter,
+ * so reading this device changes it. The same rule that makes `--boot-watch`
+ * refuse a non-memory address, and the same one that defeated the Bt458 suite's
+ * own first draft. */
+[[nodiscard]] uint8_t ap_graphics_read(ap_graphics_t *graphics,
                                        uint32_t address);
 
 /* Writes are accepted and discarded. The blocks are decoded, so a write

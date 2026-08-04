@@ -25,6 +25,7 @@
 #include "board/ap_sio.h"
 #include "board/ap_graphics.h"
 #include "ap_png.h"
+#include "device/ap_bt458.h"
 #include "device/ap_kbd.h"
 #include "machine/ap_machine.h"
 
@@ -503,11 +504,27 @@ static int write_screenshot(const char *path, const ap_graphics_t *graphics,
 
   const unsigned colours = 1u << geometry.planes;
   uint8_t palette[256][3];
+  bool real_palette = false;
   if (geometry.planes == 1u) {
-    /* Ink, not light: a set bit is black. */
+    /* Ink, not light: a set bit is black. That is the whole colour model for a
+     * monochrome screen and it is exact. */
     palette[0][0] = palette[0][1] = palette[0][2] = 0xFFu;
     palette[1][0] = palette[1][1] = palette[1][2] = 0x00u;
+    real_palette = true;
+  } else if (graphics->screen == AP_SCREEN_COLOUR_8_PLANE) {
+    /* The Bt458's own, as the firmware loaded it. */
+    real_palette = true;
+    for (unsigned i = 0; i < colours; i++) {
+      uint8_t rgb[3] = {0u, 0u, 0u};
+      (void)ap_bt458_palette(&graphics->lut, i, rgb);
+      palette[i][0] = rgb[0];
+      palette[i][1] = rgb[1];
+      palette[i][2] = rgb[2];
+    }
   } else {
+    /* A 4-plane board's lookup table is sixteen entries written through three
+     * registers of the controller's own, and is not modelled. An even ramp,
+     * labelled as an index map rather than passed off as colours. */
     for (unsigned i = 0; i < colours; i++) {
       const uint8_t level = (uint8_t)(i * 255u / (colours - 1u));
       palette[i][0] = palette[i][1] = palette[i][2] = level;
@@ -531,10 +548,13 @@ static int write_screenshot(const char *path, const ap_graphics_t *graphics,
      * the display" and "the firmware drew nothing" stay different answers. */
     printf("               DISP_EN is clear: the monitor would show black\n");
   }
-  if (geometry.planes > 1u) {
+  if (!real_palette) {
     printf("               index map under a grey ramp, not the screen's"
-           " colours -- the\n"
-           "               lookup table is not wired to the board\n");
+           " colours -- a\n"
+           "               4-plane board's lookup table is not modelled\n");
+  } else if (geometry.planes > 1u) {
+    printf("               palette is the Bt458's, as the firmware loaded"
+           " it\n");
   }
   return 0;
 }

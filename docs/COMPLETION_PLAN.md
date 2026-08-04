@@ -2637,8 +2637,20 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
           `V_SYNC`, `H_CK`. This core returns a constant `FF`, so no edge ever
           arrives and it waits forever, never reaching the code that draws. The
           blank screen and the poll loop are one fault. `FINDINGS.md` C112.
-        - Still open: which plane the CPU's 128 KB window selects, and the
-          lookup table wired to the board so an index can become a colour.
+        - **The lookup table is wired**, so an index becomes a colour at last.
+          Not on the bus: the Bt458 sits behind a data port at `401` and a
+          control port at `403` whose **active-low** selects say which of three
+          things the data port reaches, with `C1`/`C0` passed to the RAMDAC's
+          own inputs. A palette load is buffered in a FIFO and commits on the
+          *release* of `CPAL_CS`. Detail in `PROJECT_STATUS.md`.
+          *Verification: `graphics_suite`, 7 further tests (62 total) — the
+          commit being an edge and not a level, the FIFO reset being a falling
+          edge, and the read and write orders reaching different places from one
+          control-register setting. It recovered a real palette: the firmware
+          had already loaded entry 0 black and 1-255 white, a white-on-black
+          console, sitting unread inside those 803 register writes.*
+        - Still open: which plane the CPU's 128 KB window selects — unmeasured,
+          and the window reaches plane 0 until it is.
         - **The scanout is done**, `ap_graphics_scanout`: the image memory
           read out as one pixel index per pixel. The four geometries are the
           manual's, and each **buffer** width — the part that looks like an

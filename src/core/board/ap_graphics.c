@@ -10,6 +10,20 @@ void ap_graphics_init(ap_graphics_t *graphics, ap_screen_kind_t screen) {
    * taken before the firmware programs anything reports the bit clear rather
    * than showing a picture nothing asked for. */
   graphics->reg = (ap_graphics_registers_t){0};
+  ap_bt458_reset(&graphics->lut);
+  /* Every chip select **deasserted**, which is all ones -- not zero. A control
+   * register cleared at reset would leave the A/D selected and the first
+   * data-port write would go to a converter this core does not have. */
+  graphics->lut_control = 0xFFu;
+  graphics->lut_data = 0u;
+  graphics->lut_fifo_head = 0u;
+  graphics->lut_fifo_count = 0u;
+  graphics->lut_fifo_overruns = 0u;
+  graphics->lut_ad_accesses = 0u;
+  graphics->blt_cycle = 0u;
+  for (unsigned i = 0; i < AP_GRAPHICS_MAX_PLANES; i++) {
+    graphics->guard_latch[i] = 0u;
+  }
   graphics->colour_memory = NULL;
   graphics->colour_bytes = 0u;
   graphics->mono_memory = NULL;
@@ -112,7 +126,104 @@ static void apply_bit_port(uint8_t *target, uint8_t value) {
   }
 }
 
-uint8_t ap_graphics_read(const ap_graphics_t *graphics, uint32_t address) {
+/* The FIFO between the data port and the part. Bytes go in while `FIFO_CS` is
+ * asserted and are drained when `CPAL_CS` is *released*, so a whole palette is
+ * committed at once rather than a byte at a time. */
+static void lut_fifo_put(ap_graphics_t *graphics, uint8_t value) {
+  if (graphics->lut_fifo_count >= AP_GRAPHICS_LUT_FIFO_BYTES) {
+    /* The depth is the oracle's and no manual gives one, so the byte is dropped
+     * *and counted* rather than silently discarded or allowed to wrap over data
+     * the driver has not committed yet. */
+    graphics->lut_fifo_overruns++;
+    return;
+  }
+  const unsigned at =
+      (graphics->lut_fifo_head + graphics->lut_fifo_count) %
+      AP_GRAPHICS_LUT_FIFO_BYTES;
+  graphics->lut_fifo[at] = value;
+  graphics->lut_fifo_count++;
+}
+
+static uint8_t lut_fifo_get(ap_graphics_t *graphics) {
+  if (graphics->lut_fifo_count == 0u) {
+    return 0u;
+  }
+  const uint8_t value = graphics->lut_fifo[graphics->lut_fifo_head];
+  graphics->lut_fifo_head =
+      (graphics->lut_fifo_head + 1u) % AP_GRAPHICS_LUT_FIFO_BYTES;
+  graphics->lut_fifo_count--;
+  return value;
+}
+
+static void lut_control_write(ap_graphics_t *graphics, uint8_t value) {
+  const uint8_t changed = (uint8_t)(graphics->lut_control ^ value);
+  graphics->lut_control = value;
+
+  /* `CPAL_CS` **released** -- the transition, not the level -- commits the
+   * buffered palette. A model watching the level would drain on every write
+   * that left the select high, including the ones that never asserted it. */
+  if ((changed & AP_GRAPHICS_LUT_CPAL_CS) != 0u &&
+      (value & AP_GRAPHICS_LUT_CPAL_CS) != 0u) {
+    while (graphics->lut_fifo_count > 0u) {
+      ap_bt458_write(&graphics->lut,
+                     (ap_bt458_select_t)(graphics->lut_control &
+                                         AP_GRAPHICS_LUT_C1_C0),
+                     lut_fifo_get(graphics));
+    }
+  }
+  /* `FIFO_RST` is active low, so the reset is the falling edge. */
+  if ((changed & AP_GRAPHICS_LUT_FIFO_RST) != 0u &&
+      (value & AP_GRAPHICS_LUT_FIFO_RST) == 0u) {
+    graphics->lut_fifo_head = 0u;
+    graphics->lut_fifo_count = 0u;
+  }
+}
+
+static void lut_data_write(ap_graphics_t *graphics, uint8_t value) {
+  graphics->lut_data = value;
+  const uint8_t control = graphics->lut_control;
+
+  /* Active low throughout, and tried in this order. A write does *not* try the
+   * FIFO first -- see the header; the read does. */
+  if ((control & AP_GRAPHICS_LUT_AD_CS) == 0u) {
+    graphics->lut_ad_accesses++;
+    return;
+  }
+  if ((control & AP_GRAPHICS_LUT_CPAL_CS) == 0u) {
+    ap_bt458_write(&graphics->lut,
+                   (ap_bt458_select_t)(control & AP_GRAPHICS_LUT_C1_C0), value);
+    return;
+  }
+  if ((control & AP_GRAPHICS_LUT_FIFO_CS) == 0u) {
+    lut_fifo_put(graphics, value);
+    return;
+  }
+  /* No select asserted: the byte reaches nothing, and the data register keeps
+   * it. */
+}
+
+static uint8_t lut_data_read(ap_graphics_t *graphics) {
+  const uint8_t control = graphics->lut_control;
+  if ((control & AP_GRAPHICS_LUT_FIFO_CS) == 0u) {
+    return lut_fifo_get(graphics);
+  }
+  if ((control & AP_GRAPHICS_LUT_R_W) == 0u) {
+    /* The direction bit says write. Reading here is a driver's mistake and the
+     * part answers with the data register rather than driving the bus. */
+    return graphics->lut_data;
+  }
+  if ((control & AP_GRAPHICS_LUT_AD_CS) == 0u) {
+    graphics->lut_ad_accesses++;
+    return graphics->lut_data;
+  }
+  if ((control & AP_GRAPHICS_LUT_CPAL_CS) == 0u) {
+    return ap_bt458_read(&graphics->lut,
+                         (ap_bt458_select_t)(control & AP_GRAPHICS_LUT_C1_C0));
+  }
+  return graphics->lut_data;
+}
+
+uint8_t ap_graphics_read(ap_graphics_t *graphics, uint32_t address) {
   bool colour = false;
   uint32_t offset = 0;
   if (ap_graphics_decode_memory(address, &colour, &offset)) {
@@ -152,6 +263,10 @@ uint8_t ap_graphics_read(const ap_graphics_t *graphics, uint32_t address) {
     case AP_GRAPHICS_REG_ROP_23_16:
       return eight ? (uint8_t)(graphics->reg.rop >> 16) : 0xFFu;
     case AP_GRAPHICS_REG_CR2B: return eight ? graphics->reg.cr2b : 0xFFu;
+    case AP_GRAPHICS_REG_LUT_DATA:
+      return eight ? lut_data_read(graphics) : 0xFFu;
+    case AP_GRAPHICS_REG_LUT_CONTROL:
+      return eight ? graphics->lut_control : 0xFFu;
     case AP_GRAPHICS_REG_CR3B: return eight ? graphics->reg.cr3b : 0xFFu;
     default:
       /* Offset 0 is the status register, which is **not** modelled: its bits
@@ -234,6 +349,12 @@ void ap_graphics_write(ap_graphics_t *graphics, uint32_t address,
     case AP_GRAPHICS_REG_CR2: graphics->reg.cr2 = value; return;
     case AP_GRAPHICS_REG_CR2B:
       if (eight) { graphics->reg.cr2b = value; }
+      return;
+    case AP_GRAPHICS_REG_LUT_DATA:
+      if (eight) { lut_data_write(graphics, value); }
+      return;
+    case AP_GRAPHICS_REG_LUT_CONTROL:
+      if (eight) { lut_control_write(graphics, value); }
       return;
     case AP_GRAPHICS_REG_CR3A:
       graphics->reg.cr3a = value;
