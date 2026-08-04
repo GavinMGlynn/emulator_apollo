@@ -246,6 +246,24 @@ void ap_sio_receive_framed(ap_sio_t *sio, unsigned unit, unsigned channel,
 [[nodiscard]] bool ap_sio_ram_config_byte(ap_model_id_t model,
                                           uint32_t ram_bytes, uint8_t *out);
 
+/* ## The keyboard's own framing
+ *
+ * Measured, not assumed: `apollo_kbd_device::device_reset` says "keyboard comms
+ * is at 8E1, 1200 baud" and sets `set_data_frame(1, 8, PARITY_EVEN,
+ * STOP_BITS_1)` at 1200 in both directions.
+ *
+ * A keyboard has *one* framing and does not follow the port. Delivering at the
+ * port's own rate -- which this board did -- makes every keypress arrive
+ * cleanly whatever the firmware programmed, which is a machine where the cable
+ * always agrees; a real one shows a framing or parity error when the driver
+ * gets it wrong.
+ *
+ * `66` is 1200 baud in `[68681]`'s set one. `MR1` `03` is eight bits with
+ * parity enabled -- the enable bit is **clear for parity**, which is the trap
+ * in that field -- and a type of zero, which is even. */
+#define AP_SIO_KEYBOARD_CSR 0x66u
+#define AP_SIO_KEYBOARD_MR1 0x03u
+
 /* Strap the configuration onto serial 1's input port. */
 void ap_sio_set_ram_config(ap_sio_t *sio, uint8_t config);
 

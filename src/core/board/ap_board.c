@@ -812,11 +812,25 @@ bool ap_board_reset_vector(const ap_board_t *board, uint32_t *stack,
 #define KBD_CHANNEL 0u
 
 static bool deliver_key(ap_board_t *board, uint8_t code) {
-  /* At the port's own rate: see the header on why this is an assumption rather
-   * than a measurement. */
-  const uint8_t csr =
-      ap_sio_clock_select(&board->sio, KBD_UNIT, KBD_CHANNEL);
-  ap_sio_receive_at(&board->sio, KBD_UNIT, KBD_CHANNEL, code, csr);
+  /* **The keyboard's own framing, and it is a measurement now.**
+   *
+   * This sent at *the port's own rate*, with a comment saying the rate was an
+   * assumption rather than a measurement. It is measured:
+   * `apollo_kbd_device::device_reset` sets the line up with the comment
+   * "keyboard comms is at 8E1, 1200 baud" and then
+   * `set_data_frame(1, 8, PARITY_EVEN, STOP_BITS_1)` at 1200 both ways.
+   *
+   * Sending at the port's rate was the more forgiving mistake: it made every
+   * keypress arrive cleanly whatever the firmware had programmed, which is a
+   * machine where the cable always agrees. A real keyboard has one fixed
+   * framing and a driver that mis-programs the port sees a framing or parity
+   * error -- which is the whole reason `ap_sio_receive_framed` exists.
+   *
+   * `66` is the clock select for 1200 baud in `[68681]`'s set one, and `MR1` of
+   * `03` is eight bits with parity enabled and the type field zero, which is
+   * even. */
+  ap_sio_receive_framed(&board->sio, KBD_UNIT, KBD_CHANNEL, code,
+                        AP_SIO_KEYBOARD_CSR, AP_SIO_KEYBOARD_MR1);
   return true;
 }
 

@@ -2867,11 +2867,22 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         rather than the running raster. Detail in `PROJECT_STATUS.md`.
         *Verification: `graphics_suite` +5 (82); the posted codes stop
         alternating.*
-      **Awaiting:** driving a completed self-test to a disk load. The machine
-      gets there — 80,000,000 instructions ends at `0000079A` with the codes
-      finishing on `FC`, which complements to `03`, a *console-path* code, and
-      1,049,450 blit cycles behind it. That is a DN3500 sitting where a real one
-      sits before an operator types at it.
+  - [x] **Typing interrupts the boot either way, and the keyboard has its own
+        framing.** In normal mode a console character still enters MD — same
+        banner, same prompt — so the difference between the modes is not the
+        console path. And the keyboard runs **1200 baud 8E1**, measured from
+        `apollo_kbd_device::device_reset`, where `deliver_key` had been sending
+        at *the port's* rate with a comment calling that an assumption. Detail
+        in `PROJECT_STATUS.md`.
+        *Verification: `board_suite` +1 (26) — the keypress test now programs
+        the port to the keyboard's framing before the byte arrives, and its new
+        sibling shows a 9600 port receiving the byte **damaged** rather than
+        cleanly, which a board delivering at the port's own rate could not
+        show.*
+      **Awaiting:** the keyboard's **loopback mode**. It starts in it — the
+      oracle sets `m_loopback_mode = 1` at reset — and this core does not model
+      it at all, so a machine with a display console is talking to a keyboard
+      that answers as itself when a real one would be echoing.
   - [x] **A disk can be fitted at all.** `ap_omti` modelled the controller and
         `ap_awd` read the image and nothing ever handed one to the other, so
         every boot experiment so far ran on a DN3500 with **no Winchester** —

@@ -299,11 +299,20 @@ static void test_a_key_press_reaches_serial_one_channel_a(void) {
   ap_board_t b;
   bool ok = false;
   init(&b);
-  /* Enable the receiver and set eight bits, the way a driver does, through the
-   * registers. Eight is not optional here: `MR1` resets to a **five-bit** link,
-   * and a release code has bit 7 set — so on an unconfigured port `4B` arrives
-   * as `0B` and `CB` cannot arrive at all. The keyboard needs the full width. */
-  ap_board_write(&b, AP_SIO1_ADDR + (AP_MC68681_MR_A * 2u), 0x07u, &ok);
+  /* Program the port to the **keyboard's** framing, the way a driver does, and
+   * through the registers. Eight bits is not optional: `MR1` resets to a
+   * five-bit link and a release code has bit 7 set, so on an unconfigured port
+   * `4B` arrives as `0B` and `CB` cannot arrive at all.
+   *
+   * The rate and parity are not optional either, and that is newer: the
+   * keyboard sends **1200 baud 8E1** and does not follow the port, so the two
+   * ends have to be told the same thing. Delivering at whatever the port
+   * happened to be set to -- which this board did -- is a machine where the
+   * cable always agrees. */
+  ap_board_write(&b, AP_SIO1_ADDR + (AP_MC68681_MR_A * 2u),
+                 AP_SIO_KEYBOARD_MR1, &ok);
+  ap_board_write(&b, AP_SIO1_ADDR + (AP_MC68681_SR_CSR_A * 2u),
+                 AP_SIO_KEYBOARD_CSR, &ok);
   ap_board_write(&b, AP_SIO1_ADDR + (AP_MC68681_CR_A * 2u), 0x01u, &ok);
 
   TEST_ASSERT_TRUE(ap_board_key_press(&b, 0x4Bu));
@@ -651,6 +660,31 @@ static void test_the_fpa_trial_access_faults_rather_than_answering(void) {
   TEST_ASSERT_EQUAL_UINT(1u, b.unmapped_writes);
 }
 
+
+/* And a port programmed for something else **does not** receive it cleanly.
+ * That is the other half of the same fact: the keyboard has one framing, so a
+ * driver that mis-programs the port sees the damage rather than the code. A
+ * board delivering at the port's own rate could never show this. */
+static void test_a_key_press_into_a_mismatched_port_is_damaged(void) {
+  ap_board_t b;
+  bool ok = false;
+  init(&b);
+  /* Eight bits and the receiver on, but the **wrong rate** -- 9600 against the
+   * keyboard's 1200. */
+  ap_board_write(&b, AP_SIO1_ADDR + (AP_MC68681_MR_A * 2u),
+                 AP_SIO_KEYBOARD_MR1, &ok);
+  ap_board_write(&b, AP_SIO1_ADDR + (AP_MC68681_SR_CSR_A * 2u), 0xBBu, &ok);
+  ap_board_write(&b, AP_SIO1_ADDR + (AP_MC68681_CR_A * 2u), 0x01u, &ok);
+
+  TEST_ASSERT_TRUE(ap_board_key_press(&b, 0x4Bu));
+  const uint8_t got =
+      ap_board_read(&b, AP_SIO1_ADDR + (AP_MC68681_RB_TB_A * 2u), &ok);
+  TEST_ASSERT_TRUE(ok);
+  /* The byte still enters the FIFO -- the part does not discard it -- but it is
+   * not what was sent. */
+  TEST_ASSERT_NOT_EQUAL_HEX8(0x4Bu, got);
+}
+
 int main(void) {
   UNITY_BEGIN();
   init_region_board();
@@ -676,6 +710,7 @@ int main(void) {
   RUN_TEST(test_the_fpa_trial_access_faults_rather_than_answering);
   RUN_TEST(test_every_core_board_register_is_reachable_through_the_map);
   RUN_TEST(test_a_key_press_reaches_serial_one_channel_a);
+  RUN_TEST(test_a_key_press_into_a_mismatched_port_is_damaged);
   RUN_TEST(test_a_repeated_press_puts_nothing_on_the_port);
   RUN_TEST(test_the_boot_prom_region_is_reported_absent);
   RUN_TEST(test_every_region_has_a_name);
