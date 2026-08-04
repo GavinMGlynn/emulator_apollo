@@ -2,8 +2,14 @@
 
 #include <string.h>
 
-/* Measured power-on values; see the header on what "measured" claims here. */
-#define CPU_STATUS_RESET 0x8100u
+/* Measured power-on values; see the header on what "measured" claims here.
+ *
+ * `8100` is the measurement, and it was taken against the oracle in its
+ * shipping configuration -- which is **service** mode. Bit 0 is the
+ * Normal/Service switch and it is an input rather than a power-on level, so the
+ * default here sets it: a workstation runs normal. See the header. */
+#define CPU_STATUS_RESET (0x8100u | AP_BOARDREG_STATUS_NORMAL_MODE)
+#define CPU_STATUS_SERVICE 0x8100u
 #define CPU_CONTROL_RESET 0xF700u
 #define CACHE_CONTROL_RESET 0xEFu
 #define LATCH_PAGE_RESET 0x0000u
@@ -133,6 +139,14 @@ void ap_boardreg_write8(ap_boardreg_t *regs, uint32_t address, uint8_t value) {
     return;
   }
   store(regs, id, value);
+}
+
+void ap_boardreg_set_normal_mode(ap_boardreg_t *regs, bool normal) {
+  if (normal) {
+    regs->cpu_status |= AP_BOARDREG_STATUS_NORMAL_MODE;
+  } else {
+    regs->cpu_status &= (uint16_t)~AP_BOARDREG_STATUS_NORMAL_MODE;
+  }
 }
 
 void ap_boardreg_latch_status(ap_boardreg_t *regs, uint16_t mask) {

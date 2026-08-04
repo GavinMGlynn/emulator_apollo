@@ -100,6 +100,35 @@ typedef enum {
 #define AP_BOARDREG_LATCH_PAGE_ADDR 0x011300u
 #define AP_BOARDREG_MASTER_REQUEST_ADDR 0x011600u
 
+/* ## Bit 0 is the Normal/Service switch, and it is an *input*
+ *
+ * The status register's power-on value was measured as `8100` and recorded as a
+ * constant with the note that "what the bits *mean* is still unknown, and
+ * nothing may be built that depends on a meaning". One bit is now known, and it
+ * turns out not to be a power-on value at all.
+ *
+ * `APOLLO_CSR_SR_SERVICE` is `0001`, and the oracle drives it from a machine
+ * *configuration* named "Normal/Service" whose two settings are inverted from
+ * the obvious reading: `0x00` is **Service** and `0x0001` is **Normal**. So the
+ * bit reads **1 for normal operation** and 0 for service, and the constant name
+ * says the opposite of what the level means.
+ *
+ * The oracle's default is **Service**, which is why `8100` was measured: the
+ * measurement was of MAME in the configuration it ships in, not of a
+ * workstation. `mdsession.lua` had already noticed and says so -- "its default
+ * is Service, so leaving it alone is a choice too" -- and sets Normal for an
+ * install.
+ *
+ * That matters because the boot PROM reads it and takes a **completely
+ * different path**: in service mode it runs its diagnostics and waits for a
+ * console, which is where every boot in this project has ended, and in normal
+ * mode it goes somewhere else entirely. So this is a switch a caller sets, with
+ * a default of *normal* -- a workstation that boots -- rather than a constant
+ * reproducing the oracle's shipping configuration.
+ *
+ * `FINDINGS.md` C114. */
+#define AP_BOARDREG_STATUS_NORMAL_MODE 0x0001u
+
 /* Bit 15 of the status register reads 1 whatever is written, at every sampled
  * point in the boot. Named for what was observed, because what it *is* was not
  * measured and no manual here says. */
@@ -165,5 +194,11 @@ void ap_boardreg_write8(ap_boardreg_t *regs, uint32_t address, uint8_t value);
  * here because no source here says which bit is which condition, and a named
  * constant would be a guess wearing a name. */
 void ap_boardreg_latch_status(ap_boardreg_t *regs, uint16_t mask);
+
+/* Set the Normal/Service switch. `true` is normal, which is the default and is
+ * what a workstation runs in; `false` is service, which is what the oracle
+ * ships in and what every boot in this project ran under before the switch was
+ * identified. */
+void ap_boardreg_set_normal_mode(ap_boardreg_t *regs, bool normal);
 
 #endif /* APOLLO_BOARD_AP_BOARDREG_H */

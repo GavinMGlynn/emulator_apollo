@@ -2794,18 +2794,21 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
 - [ ] **Integration check, not a milestone:** DN3500 boots Domain/OS SR10.x to a
       login prompt, console byte-identical to the oracle. *Verification: console
       diff plus a boot state hash.*
-      **Awaiting:** an oracle run, and the documents are exhausted rather than
-      untried. The video clock landed and the display diagnostic now runs on its
-      own — 66,138 blit cycles and a drawn figure, **identical with and without
-      a keypress** — but all three cases end in C109's console poll after
-      60,000,000 instructions, which is 9.6 emulated seconds. The machine is not
-      waiting on the display, the disk, the calendar or a timeout.
-      The handbook has no single-letter boot command and the loading ones
-      (`EX`, `EY`, `LO`, `FO`, `DL`) have no initial in this image's
-      `ABRVPICOH`. So either the PROM loads by a route `002398-04` does not
-      describe, or a *configuration* selects booting over waiting.
-      MAME's `dn3500` on the same image either auto-boots or it does not, and
-      either answer is decisive. Detail in `PROJECT_STATUS.md`.
+  - [x] **It was waiting because it was in Service mode.** Bit 0 of the CPU
+        status register is the Normal/Service switch, inverted from its own
+        name — the bit reads 1 for *normal*. `CPU_STATUS_RESET` was `8100` and
+        it was measured against the oracle in its shipping configuration, which
+        is Service; `mdsession.lua` had recorded that default years ago without
+        connecting it to the boot. Modelled as a switch with a default of
+        normal. `FINDINGS.md` C114. Detail in `PROJECT_STATUS.md`.
+        *Verification: `boardreg_suite` +1 (13). Setting it moves the PROM from
+        `000007A2` to `0000658C`, stops the 66,138 blit cycles of diagnostics
+        that service mode is for, and starts a different poll entirely.*
+      **Awaiting:** what the normal-mode PROM wants from the DUART's
+      input-port change register, which it now reads 9,982,874 times at `sio1`
+      register 4. A smaller question than the one it replaced, and the same
+      shape as the ones already closed: a poll against something this core
+      answers with a constant.
   - [x] **A disk can be fitted at all.** `ap_omti` modelled the controller and
         `ap_awd` read the image and nothing ever handed one to the other, so
         every boot experiment so far ran on a DN3500 with **no Winchester** —

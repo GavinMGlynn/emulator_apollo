@@ -3401,7 +3401,7 @@ failure that cost a bit position in the 68020's module entry word.
 | 68040 MMU | not started | — |
 | MC68882 FPU | working, and attached to the 68030 as a *pointer* so a machine without one keeps its line 1111 trap. Every general-type operation executes: the four arithmetic operations, the exactly-specified monadics, the remainders, the single-precision pair, and **all nineteen transcendentals** to within §4.3.2's published bound. All three operand paths run — register-to-register, **`<ea>` to `FPn`** and **`FPn` to `<ea>`**, in all six binary formats from every legal addressing mode. `FMOVEM` of the data registers runs in both directions with its reversed mask orderings, and so do the system control registers, with the FPIAR tracking under §2.4's two conditions. `FMOVECR` returns all 22 published constants, computed and correctly rounded. **Every general-type instruction executes.** **Every instruction type executes**, the conditionals included. **Every 68882 instruction and every data format executes**, `FSAVE` and `FRESTORE` included. A *busy* state frame is deliberately absent: this core's part never suspends, so nothing can generate one — for which the coprocessor's own half (`ap_m68882_condition`) is done and the 68030's dialog is not | `m68882_regs_suite` 19, `m68882_format_suite` 18, `m68882_cir_suite` 8, `m68882_round_suite` 11, `m68882_arith_suite` 41, `m68882_decode_suite` 12, `m68882_accuracy_suite` 10, `m68882_transcendental_suite` 36, `m68882_store_suite` 13, plus 51 tests in `step_suite`; `MC68881/MC68882 User's Manual 1ed` |
 | MC68040 FPU | timing tables only — §10.6, §10.7.1/§10.7.2 and §10.7.3's pipeline stages are transcribed; no 68040 arithmetic | `m68040_iu_timing_suite` 99, `m68040_fpu_timing_suite` 32, `m68040_fp_pipeline_suite` 18 |
-| Core-board registers (`010000`-`011600`) | working for the four that could be measured: CPU status (bit 15 stuck, writes clear the latched bits), CPU control and latch-page-on-parity (16 bits of storage), cache control (a *byte*, mirrored into both halves of a 16-bit read, one writable bit), each aliased across its 256-byte range. No manual here lays out these bits, so all of it is measured. **Width and storage only — no bit has a known meaning, and nothing may depend on one.** Task alias and master request are absent from the oracle and stay declined rather than modelled as all-ones | `boardreg_suite`, 12 tests; `FINDINGS.md` C10, `tools/mame-oracle/regprobe.lua`, two probe runs byte-identical |
+| Core-board registers (`010000`-`011600`) | working for the four that could be measured: CPU status (bit 15 stuck, writes clear the latched bits), CPU control and latch-page-on-parity (16 bits of storage), cache control (a *byte*, mirrored into both halves of a 16-bit read, one writable bit), each aliased across its 256-byte range. No manual here lays out these bits, so all of it is measured. **Width and storage only — no bit has a known meaning, and nothing may depend on one.** Task alias and master request are absent from the oracle and stay declined rather than modelled as all-ones | `boardreg_suite`, 13 tests; `FINDINGS.md` C10, `tools/mame-oracle/regprobe.lua`, two probe runs byte-identical |
 | Address translation map (`017000`) | working: the translation itself, both DMA widths, and the register file. Between the AT bus and physical memory, not the CPU's MMU -- a DMA controller has no MMU, and this is what lets it see scattered physical pages as one contiguous run. Present on DN3500/4500/5500 and absent on DN3000, from the model table. The board splits a 16-bit entry into its two byte lanes, big-endian, which it did not until a DMA transfer failed to arrive | `atmap_suite`, 16 tests, `019411-A00` §4.2.1.4, `008778-03` §1.2, §2.5 |
 | Board cache (`012000` RAM, `014000` condition codes) | not started. The shared **bus arbitration point** is done and has its own row above | — |
 | Apollo interrupt controllers (`011000`, `011100`) | working: the two 8259As cascaded on **IR3** (measured, not IR2 as the AT convention would have it), vector bases `A0`/`A8` from the boot PROM's own ICW2, giving levels `A0`-`AF`. Priority order matches `008778-03` Table 2-3, which with the cascade on IR3 has no anomaly. The CPU interrupt level is **6**, also measured — neither manual states it, and it took starting the interval timer by hand to make anything request at all | `intr_suite`, 13 tests; `FINDINGS.md` C11, `tools/mame-oracle/writetrace.lua` |
@@ -4596,6 +4596,46 @@ loop that runs them. What it does not yet have is the thing the item asks for
 last and hardest — **a decoded PNG**. Register round-trips and word-level
 identities are what can be checked without one, and a controller that passes
 those and draws nothing is the standard way this goes wrong.
+
+#### Normal/Service is bit 0, and every boot so far ran in Service mode
+
+The machine waits in the console poll for ever, and it is not waiting on the
+display, the disk, the calendar or a timeout. It is waiting because it is in
+**service mode**.
+
+`APOLLO_CSR_SR_SERVICE` is `0001`, bit 0 of the CPU status register at `010000`,
+and the oracle drives it from a configuration whose two settings are inverted
+from the obvious reading — `0x00` is *Service* and `0x0001` is *Normal*. The bit
+reads **1 for normal operation**, and the constant is named for the level it is
+not.
+
+**The measurement was right about the wrong machine.** `CPU_STATUS_RESET` was
+`8100`, with bit 0 clear, and it *was* measured — of MAME in the configuration
+it ships in, which is Service. What was captured is the oracle's default, not a
+workstation's power-on state. Nothing in a captured register says where the
+knobs were.
+
+**And this project had already written the fact down without connecting it.**
+`mdsession.lua`, which drives the Domain/OS install, sets `Normal` explicitly
+and explains why: *"its default is Service, so leaving it alone is a choice
+too."* That note was about an install procedure. It is also the answer to why
+the machine never boots.
+
+Setting the bit takes the PROM somewhere else entirely:
+
+    final PC        0000658C        against 000007A2 in service mode
+    boot PROM       34,356 reads    against 39,644
+    display work    none            against 66,138 blit cycles
+    serial          9,982,874 reads at sio1 register 4
+
+It stops running diagnostics — which is what service mode is *for* — and polls
+the DUART's input-port change register instead. What it wants there is the next
+question, and a far smaller one than "why does the machine never boot".
+
+It is modelled as a **switch** rather than a constant, because that is what it
+is, with a default of *normal*: a workstation that boots is the machine this
+core is for. The oracle's `8100` is still reachable and still asserted, as the
+service setting. `FINDINGS.md` C114.
 
 #### The self-test completes and the machine still waits
 

@@ -39,7 +39,7 @@ static void test_writing_the_status_register_clears_what_was_latched(void) {
    * consistent with "writes are ignored". It is not ignored -- the value
    * standing at power-on could not be restored by writing it back. */
   ap_boardreg_latch_status(&regs, 0x0100);
-  TEST_ASSERT_EQUAL_HEX16(0x8100,
+  TEST_ASSERT_EQUAL_HEX16(0x8100 | AP_BOARDREG_STATUS_NORMAL_MODE,
                           ap_boardreg_read16(&regs, AP_BOARDREG_CPU_STATUS_ADDR));
 
   ap_boardreg_write16(&regs, AP_BOARDREG_CPU_STATUS_ADDR, 0x0100);
@@ -204,7 +204,7 @@ static void test_the_power_on_values_are_the_measured_ones(void) {
   ap_boardreg_init(&regs);
 
   /* Read at 0.001, 0.5 and 2.0 emulated seconds, identical each time. */
-  TEST_ASSERT_EQUAL_HEX16(0x8100,
+  TEST_ASSERT_EQUAL_HEX16(0x8100 | AP_BOARDREG_STATUS_NORMAL_MODE,
                           ap_boardreg_read16(&regs, AP_BOARDREG_CPU_STATUS_ADDR));
   TEST_ASSERT_EQUAL_HEX16(0xF700,
                           ap_boardreg_read16(&regs,
@@ -232,6 +232,36 @@ static void test_two_machines_initialised_alike_read_alike(void) {
   TEST_ASSERT_EQUAL_MEMORY(&a, &b, sizeof a);
 }
 
+/* ## Bit 0 is the Normal/Service switch
+ *
+ * The measured `8100` was taken against the oracle in its *shipping*
+ * configuration, which is **service** mode -- `mdsession.lua` had already
+ * noticed that and says "its default is Service, so leaving it alone is a
+ * choice too". Bit 0 is an input, not a power-on level, and the boot PROM takes
+ * a completely different path on it. `FINDINGS.md` C114.
+ */
+static void test_the_normal_service_switch_is_bit_zero_and_defaults_to_normal(void) {
+  ap_boardreg_t regs;
+  ap_boardreg_init(&regs);
+
+  /* A workstation runs normal, so that is the default -- **not** the oracle's
+   * shipping value, which is what the raw measurement gave. */
+  TEST_ASSERT_EQUAL_HEX16(AP_BOARDREG_STATUS_NORMAL_MODE,
+                          (uint16_t)(regs.cpu_status &
+                                     AP_BOARDREG_STATUS_NORMAL_MODE));
+
+  ap_boardreg_set_normal_mode(&regs, false);
+  TEST_ASSERT_EQUAL_HEX16(0x8100u, regs.cpu_status);
+  ap_boardreg_set_normal_mode(&regs, true);
+  TEST_ASSERT_EQUAL_HEX16(0x8101u, regs.cpu_status);
+
+  /* And the switch touches nothing else, which is what makes it a switch
+   * rather than a reset. */
+  ap_boardreg_set_normal_mode(&regs, false);
+  ap_boardreg_set_normal_mode(&regs, true);
+  TEST_ASSERT_EQUAL_HEX16(0x8101u, regs.cpu_status);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_bit_fifteen_of_the_status_register_always_reads_set);
@@ -246,5 +276,6 @@ int main(void) {
   RUN_TEST(test_the_two_unmeasurable_registers_are_declined_not_absent);
   RUN_TEST(test_the_power_on_values_are_the_measured_ones);
   RUN_TEST(test_two_machines_initialised_alike_read_alike);
+  RUN_TEST(test_the_normal_service_switch_is_bit_zero_and_defaults_to_normal);
   return UNITY_END();
 }

@@ -6581,3 +6581,62 @@ machine looks the same whichever of the three is at fault.
 The instrument that separated them was the input report: "12 of 12 characters
 delivered, all four channels 8-bit with receivers enabled" excluded the port and
 the delivery in one line, which left only the rate.
+
+## C114 -- Normal/Service is bit 0, and every boot so far ran in Service mode
+
+**Class: ours-wrong, and the measurement was right about the wrong machine.**
+
+The boot PROM runs its self-test, draws its display diagnostic and then waits in
+C109's console poll for ever. Sixty million instructions -- 9.6 emulated seconds
+-- with a disk fitted, a screen fitted and the raster running changes nothing:
+it is not waiting on the display, the disk, the calendar or a timeout.
+
+### What it is waiting on
+
+`APOLLO_CSR_SR_SERVICE` is `0001`, bit 0 of the CPU status register at `010000`,
+and the oracle drives it from a machine configuration named "Normal/Service".
+Its two settings are **inverted from the obvious reading**:
+
+    PORT_CONFSETTING(0x00,                     "Service")
+    PORT_CONFSETTING(APOLLO_CONF_SERVICE_MODE, "Normal")
+
+So the bit reads **1 for normal operation** and 0 for service, and the constant
+is named for the level it is *not*.
+
+### Why this core had it clear
+
+`CPU_STATUS_RESET` was `8100` -- bit 0 clear -- and it was *measured*. The
+measurement was correct and was of the wrong thing: MAME's default for this
+configuration is **Service**, so what was captured is the oracle's shipping
+setting rather than a workstation's power-on state.
+
+This project had already written the fact down and not connected it.
+`mdsession.lua`, driving the Domain/OS install, sets `Normal` explicitly and
+says why: *"its default is Service, so leaving it alone is a choice too."* The
+note was about an install procedure; it is also the answer to why the machine
+never boots.
+
+### What the bit does
+
+Setting it takes the PROM down a completely different path. With `8101`:
+
+    final PC        0000658C   against 000007A2 in service mode
+    boot PROM       34,356 reads   against 39,644
+    display work    none           against 66,138 blit cycles
+    serial          9,982,874 reads at sio1 register 4
+
+It stops running the diagnostics -- which is what service mode is *for* -- and
+polls the DUART's input-port change register instead. Whatever it is looking for
+there is the next question, and it is a smaller one than "why does the machine
+never boot".
+
+### How it is modelled
+
+As a **switch**, not a constant, because that is what it is: an input a machine
+is configured with. `ap_boardreg_set_normal_mode` sets it and the default is
+*normal*, since a workstation that boots is the machine this core is for. The
+oracle's `8100` is still reachable and still asserted, as the service setting.
+
+The general lesson is the one worth keeping: a measured power-on value is only
+as good as the configuration it was measured under, and nothing in a captured
+register says which knobs were where.
