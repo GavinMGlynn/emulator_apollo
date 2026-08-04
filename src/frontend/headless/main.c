@@ -967,14 +967,14 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
   }
 
   /* Last, so the run's own report is complete first and a failed capture
-   * cannot cost the measurements that were already taken. `CR1` is passed as
-   * the reset value: the register file is not modelled, so what the firmware
-   * programmed is not readable back -- which is why `DISP_EN` is reported
-   * rather than believed. */
+   * cannot cost the measurements that were already taken. `CR1` is the one the
+   * *firmware* programmed, now that the register file stores it -- so `INV` and
+   * `DISP_EN` are the machine's own answers rather than the harness's
+   * assumption. */
   int status = 0;
   if (screenshot != NULL) {
     status = write_screenshot(screenshot, &board->graphics,
-                              AP_GRAPHICS_CR1_DISP_EN);
+                              board->graphics.reg.cr1);
   }
 
   free(colour_memory);

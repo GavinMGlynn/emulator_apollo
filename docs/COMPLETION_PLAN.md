@@ -2580,8 +2580,20 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
           through libpng's own decoder, on a non-square image with an
           asymmetric pattern and indices that are not their own colours, so a
           transpose, a flip or an ignored palette all fail.*
-        - Still open, and what a real picture now waits on: the register
-          **file** (`CR0`-`CR2` are arguments, not storage), the blitter joined
+        - **The register file is done**: sixteen registers in two groups of
+          eight, the low group aliased across the block and the high group not,
+          `CR0`-`CR3B`, the 16-bit write enable and the 32-bit raster operation
+          — whose **byte lanes are scrambled** in a way no reading of the
+          addresses predicts — and `CR3A` as a bit port onto `CR1`. It recovered
+          a fact on its first run: the firmware *does* set `DISP_EN` within
+          400,000 instructions, which was previously the harness's assumption.
+          Detail in `PROJECT_STATUS.md`.
+          *Verification: `graphics_suite`, 7 further tests (47 total) — a
+          different byte in every lane so no transposition passes, the two
+          halves of the aliasing separately, the ROP's high half refused on a
+          monochrome card, and the bit port setting and clearing one bit of
+          `CR1` while leaving its neighbour alone.*
+        - Still open, and what a real picture now waits on: the blitter joined
           to the image memory (it works on host-order words and the memory is
           bytes), which plane the CPU's 128 KB window selects, and the lookup
           table wired to the board so an index can become a colour. A 400,000

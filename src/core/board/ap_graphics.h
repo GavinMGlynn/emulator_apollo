@@ -81,8 +81,87 @@ typedef enum {
   AP_SCREEN_MONO_15_INCH = 11,  /* 15I */
 } ap_screen_kind_t;
 
+/* ## The register file, and the offsets it lives at
+ *
+ * Until now `CR0`-`CR2` and the raster operation were *arguments*: every
+ * function that used one was handed it, and a write to the block was accepted
+ * and discarded. That was honest while nothing could read one back, and it is
+ * what a real picture waits on -- the firmware programs the controller and then
+ * blits, and a blitter that cannot see what was programmed cannot draw what was
+ * asked for.
+ *
+ * ### Where these come from
+ *
+ * `008778-03` Chapter 10 is *physical only* -- board dimensions, connectors,
+ * cables -- and gives no register offsets at all. Its §10.3 change list names
+ * the registers and their widths, which is what settled `CR2`'s plane selects
+ * and the 32-bit ROP register, and the offsets themselves are the **oracle's**.
+ * That is the same position this subsystem has been in since it started and it
+ * is stated again here rather than left implicit.
+ *
+ * ### The block decodes sixteen registers, aliased
+ *
+ * `05D800-05DC07` is `0x408` bytes and an access is decoded as `offset & 0x407`
+ * -- bit 10 and the low three bits. So the block is two groups of eight,
+ * `000-007` and `400-407`, each repeating through the range.
+ *
+ * ### The byte lanes are scrambled, and no reading of the names predicts them
+ *
+ * The write enable register is sixteen bits across offsets 0 and 1, and the
+ * raster operation thirty-two across 2, 3, 4 and 5. Neither is in the order the
+ * addresses suggest:
+ *
+ *     offset 0  write enable, bits 15-8      offset 1  write enable, bits 7-0
+ *     offset 2  raster op,    bits 15-8      offset 3  raster op,    bits 7-0
+ *     offset 4  raster op,    bits 31-24     offset 5  raster op,    bits 23-16
+ *
+ * Every pair is high byte first, and the *pairs* run low half before high half.
+ * A model assembling either register in address order gets the halves the right
+ * way round and the bytes within them backwards, which for the ROP means every
+ * plane's function comes from its neighbour -- a screen that draws, in the
+ * wrong operations.
+ *
+ * Offsets 4 and 5 are the raster operation's high half on an **8-plane** board
+ * and a diagnostic memory-refresh trigger on the others, which is the same
+ * per-family split `CR1`'s top bits have.
+ */
+
+/* The two groups of eight the block decodes into. */
+#define AP_GRAPHICS_REGISTER_MASK 0x407u
+
+/* The low group: data-path registers, byte at a time. */
+#define AP_GRAPHICS_REG_STATUS 0x000u        /* read */
+#define AP_GRAPHICS_REG_WRITE_ENABLE_HI 0x000u /* write: bits 15-8 */
+#define AP_GRAPHICS_REG_WRITE_ENABLE_LO 0x001u /* write: bits 7-0 */
+#define AP_GRAPHICS_REG_ROP_15_8 0x002u
+#define AP_GRAPHICS_REG_ROP_7_0 0x003u
+#define AP_GRAPHICS_REG_ROP_31_24 0x004u
+#define AP_GRAPHICS_REG_ROP_23_16 0x005u
+
+/* The high group: control registers. */
+#define AP_GRAPHICS_REG_CR0 0x400u
+#define AP_GRAPHICS_REG_CR1 0x402u
+#define AP_GRAPHICS_REG_CR2 0x404u  /* CR2A on an 8-plane board */
+#define AP_GRAPHICS_REG_CR2B 0x405u /* 8-plane only */
+#define AP_GRAPHICS_REG_CR3A 0x406u
+#define AP_GRAPHICS_REG_CR3B 0x407u /* 8-plane only */
+
+typedef struct {
+  uint8_t cr0;
+  uint8_t cr1;
+  uint8_t cr2;
+  uint8_t cr2b;
+  uint8_t cr3a;
+  uint8_t cr3b;
+  uint16_t write_enable;
+  uint32_t rop;
+} ap_graphics_registers_t;
+
 typedef struct {
   ap_screen_kind_t screen;
+
+  /* What the firmware programmed, readable back. */
+  ap_graphics_registers_t reg;
 
   /* The graphics memories, caller-owned as main memory is: this core allocates
    * nothing. NULL until a caller attaches them, and a card with no memory

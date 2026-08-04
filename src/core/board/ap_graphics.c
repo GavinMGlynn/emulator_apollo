@@ -4,6 +4,12 @@
 
 void ap_graphics_init(ap_graphics_t *graphics, ap_screen_kind_t screen) {
   graphics->screen = screen;
+  /* Every register zero at reset, which is not a neutral choice: `CR1`'s
+   * `DISP_EN` is bit 0, so a controller that has not been programmed has its
+   * display *off*. That is what the hardware does and it is why a screenshot
+   * taken before the firmware programs anything reports the bit clear rather
+   * than showing a picture nothing asked for. */
+  graphics->reg = (ap_graphics_registers_t){0};
   graphics->colour_memory = NULL;
   graphics->colour_bytes = 0u;
   graphics->mono_memory = NULL;
@@ -79,6 +85,28 @@ bool ap_graphics_decode_memory(uint32_t address, bool *colour,
   return false;
 }
 
+/* `CR3A` and `CR3B` are not values but **bit ports**: with bit 7 clear, bits
+ * 3-1 name a bit of the target register and bit 0 is the value to put there.
+ * That is how a driver flips one control bit -- `DISP_EN`, say -- without a
+ * read-modify-write on a register it may not be able to read.
+ *
+ * The bit number is `(value & 0x0F) >> 1`, so bit 0 of the port is the *data*
+ * and the number is one place up. Reading the low nibble as the number instead
+ * addresses the wrong bit and, worse, does so consistently -- every set lands
+ * two bits away and the register still changes, so it looks like it works. */
+static void apply_bit_port(uint8_t *target, uint8_t value) {
+  if ((value & 0x80u) != 0u) {
+    return;
+  }
+  const unsigned bit = (unsigned)(value & 0x0Fu) >> 1;
+  const uint8_t mask = (uint8_t)(1u << bit);
+  if ((value & 0x01u) != 0u) {
+    *target = (uint8_t)(*target | mask);
+  } else {
+    *target = (uint8_t)(*target & (uint8_t)~mask);
+  }
+}
+
 uint8_t ap_graphics_read(const ap_graphics_t *graphics, uint32_t address) {
   bool colour = false;
   uint32_t offset = 0;
@@ -92,20 +120,42 @@ uint8_t ap_graphics_read(const ap_graphics_t *graphics, uint32_t address) {
   if (!ap_graphics_decode(address, &colour, &offset)) {
     return 0xFFu;
   }
-  if (offset != AP_GRAPHICS_DEVICE_ID) {
-    /* Every other register in the block is unmodelled. `FF` rather than zero:
-     * zero is a value some of these registers can legitimately hold, so a
-     * driver reading it would take an unmodelled register for a real one
-     * reporting a real state. `FF` is what an absent part reads, which is the
-     * truthful thing for a part that is not here. */
-    return 0xFFu;
-  }
   /* The ID answers only for its own family. A colour screen leaves the
    * monochrome block reading `FF` and vice versa, which is exactly how the
    * firmware tells which controller is fitted: it reads both. */
   const bool matches = colour ? ap_graphics_is_colour(graphics->screen)
                               : ap_graphics_is_monochrome(graphics->screen);
-  return matches ? (uint8_t)graphics->screen : 0xFFu;
+  if (offset == AP_GRAPHICS_DEVICE_ID) {
+    return matches ? (uint8_t)graphics->screen : 0xFFu;
+  }
+  if (!matches) {
+    /* The other family's block, or no screen at all. It decodes -- both blocks
+     * always do -- and holds nothing. */
+    return 0xFFu;
+  }
+
+  const bool eight = graphics->screen == AP_SCREEN_COLOUR_8_PLANE;
+  switch (offset & AP_GRAPHICS_REGISTER_MASK) {
+    case AP_GRAPHICS_REG_CR0: return graphics->reg.cr0;
+    case AP_GRAPHICS_REG_CR1: return graphics->reg.cr1;
+    case AP_GRAPHICS_REG_CR2: return graphics->reg.cr2;
+    case AP_GRAPHICS_REG_CR3A: return graphics->reg.cr3a;
+    /* The raster operation reads back only on the 8-plane board, and only its
+     * high half -- the low half is write-only there and everywhere. */
+    case AP_GRAPHICS_REG_ROP_31_24:
+      return eight ? (uint8_t)(graphics->reg.rop >> 24) : 0xFFu;
+    case AP_GRAPHICS_REG_ROP_23_16:
+      return eight ? (uint8_t)(graphics->reg.rop >> 16) : 0xFFu;
+    case AP_GRAPHICS_REG_CR2B: return eight ? graphics->reg.cr2b : 0xFFu;
+    case AP_GRAPHICS_REG_CR3B: return eight ? graphics->reg.cr3b : 0xFFu;
+    default:
+      /* Offset 0 is the status register, which is **not** modelled: its bits
+       * report a read-modify-write cycle in progress, an A/D conversion and an
+       * alternating-blit phase, none of which this core has. `FF` rather than
+       * zero, for the reason the header gives -- zero is a state a real status
+       * register can report and this one cannot report anything. */
+      return 0xFFu;
+  }
 }
 
 void ap_graphics_write(ap_graphics_t *graphics, uint32_t address,
@@ -122,11 +172,81 @@ void ap_graphics_write(ap_graphics_t *graphics, uint32_t address,
      * raise. */
     return;
   }
-  /* Accepted and discarded. The board reports the write as answered -- the
-   * block is decoded -- and this module has no register semantics to apply.
-   * Storing the value would be worse than dropping it: a later read would have
-   * to decide what it meant, and there is no answer to that yet. */
-  (void)value;
+  if (!ap_graphics_decode(address, &colour, &offset)) {
+    return;
+  }
+  const bool matches = colour ? ap_graphics_is_colour(graphics->screen)
+                              : ap_graphics_is_monochrome(graphics->screen);
+  if (!matches) {
+    /* Decoded and discarded: the block answers whether or not a card of that
+     * family is behind it, and a write with nothing behind it terminates
+     * normally rather than faulting. */
+    return;
+  }
+
+  const bool eight = graphics->screen == AP_SCREEN_COLOUR_8_PLANE;
+  const uint32_t reg = offset & AP_GRAPHICS_REGISTER_MASK;
+  switch (reg) {
+    /* The two scrambled multi-byte registers. Each pair is **high byte
+     * first**, and the ROP's pairs run low half before high half -- see the
+     * header. Assembling either in address order is the mistake, and for the
+     * ROP it gives every plane its neighbour's function. */
+    case AP_GRAPHICS_REG_WRITE_ENABLE_HI:
+      graphics->reg.write_enable =
+          (uint16_t)((graphics->reg.write_enable & 0x00FFu) |
+                     (uint16_t)((uint16_t)value << 8));
+      return;
+    case AP_GRAPHICS_REG_WRITE_ENABLE_LO:
+      graphics->reg.write_enable =
+          (uint16_t)((graphics->reg.write_enable & 0xFF00u) | value);
+      return;
+    case AP_GRAPHICS_REG_ROP_15_8:
+      graphics->reg.rop = (graphics->reg.rop & 0xFFFF00FFu) |
+                          ((uint32_t)value << 8);
+      return;
+    case AP_GRAPHICS_REG_ROP_7_0:
+      graphics->reg.rop = (graphics->reg.rop & 0xFFFFFF00u) | value;
+      return;
+    case AP_GRAPHICS_REG_ROP_31_24:
+      /* Offsets 4 and 5 are the ROP's high half on an 8-plane board and a
+       * diagnostic memory-refresh trigger on the others -- the same per-family
+       * split `CR1`'s top bits have. The refresh is not modelled, so on those
+       * boards the write is discarded rather than corrupting the ROP. */
+      if (eight) {
+        graphics->reg.rop = (graphics->reg.rop & 0x00FFFFFFu) |
+                            ((uint32_t)value << 24);
+      }
+      return;
+    case AP_GRAPHICS_REG_ROP_23_16:
+      if (eight) {
+        graphics->reg.rop = (graphics->reg.rop & 0xFF00FFFFu) |
+                            ((uint32_t)value << 16);
+      }
+      return;
+
+    case AP_GRAPHICS_REG_CR0: graphics->reg.cr0 = value; return;
+    case AP_GRAPHICS_REG_CR1: graphics->reg.cr1 = value; return;
+    case AP_GRAPHICS_REG_CR2: graphics->reg.cr2 = value; return;
+    case AP_GRAPHICS_REG_CR2B:
+      if (eight) { graphics->reg.cr2b = value; }
+      return;
+    case AP_GRAPHICS_REG_CR3A:
+      graphics->reg.cr3a = value;
+      apply_bit_port(&graphics->reg.cr1, value);
+      return;
+    case AP_GRAPHICS_REG_CR3B:
+      /* `CR3B` is the lookup table's control port and does the same job for it
+       * that `CR3A` does for `CR1`. The LUT is not wired to this board, so the
+       * register stores and the bit operation has nothing to apply to -- which
+       * is recorded rather than pretended, and is why `cr3b` is storage here
+       * and `cr3a` is not only storage. */
+      if (eight) { graphics->reg.cr3b = value; }
+      return;
+    default:
+      /* Offset 0 and 1 as *writes* are the write enable register above; every
+       * other offset in the block is unmodelled and absorbed. */
+      return;
+  }
 }
 
 ap_graphics_cr0_mode_t ap_graphics_cr0_mode(uint8_t cr0) {

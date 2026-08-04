@@ -112,10 +112,17 @@ static void test_the_blocks_are_the_ranges_the_map_gives_them(void) {
   TEST_ASSERT_FALSE(ap_graphics_decode(0x05E000u, &colour, &offset));
 }
 
-/* Every register other than the ID is unmodelled, and reads `FF` rather than
- * zero. Zero is a value several of these registers can legitimately hold, so a
- * driver reading it would take an unmodelled register for a real one reporting
- * a real state. `FF` is what an absent part reads. */
+/* A register this core still does not model reads `FF` rather than zero. Zero
+ * is a value several of these registers can legitimately hold, so a driver
+ * reading it would take an unmodelled register for a real one reporting a real
+ * state. `FF` is what an absent part reads.
+ *
+ * The list shrank when the register file landed and the test was narrowed
+ * rather than deleted: offset 0 is the **status** register, whose bits report a
+ * read-modify-write in progress, an A/D conversion and an alternating-blit
+ * phase -- none of which this core has; offset 2 is the raster operation's low
+ * half, which is write-only on every board; and `403` is the lookup table's
+ * control port, and the table is not wired to this board. */
 static void test_an_unmodelled_register_reads_ff_and_not_zero(void) {
   ap_graphics_t g;
   ap_graphics_init(&g, AP_SCREEN_COLOUR_8_PLANE);
@@ -124,7 +131,7 @@ static void test_an_unmodelled_register_reads_ff_and_not_zero(void) {
   TEST_ASSERT_EQUAL_HEX8(0xFFu,
                          ap_graphics_read(&g, AP_GRAPHICS_COLOUR_ADDR + 2u));
   TEST_ASSERT_EQUAL_HEX8(0xFFu,
-                         ap_graphics_read(&g, AP_GRAPHICS_COLOUR_ADDR + 0x407u));
+                         ap_graphics_read(&g, AP_GRAPHICS_COLOUR_ADDR + 0x403u));
 }
 
 /* A write is accepted and discarded. It must not change the ID -- a register
@@ -961,6 +968,177 @@ static void test_a_blit_lands_where_the_scanout_reads_it(void) {
   TEST_ASSERT_EQUAL_UINT8(0u, scanout_pixels[geometry.width + 16u]);
 }
 
+/* ## The register file
+ *
+ * `CR0`-`CR2` used to be arguments and a write to the block was discarded.
+ * That was honest while nothing could read one back, and it is what a real
+ * picture was waiting on: the firmware programs the controller and *then*
+ * blits, so a blitter that cannot see what was programmed cannot draw what was
+ * asked for.
+ */
+static void test_the_control_registers_store_and_read_back(void) {
+  ap_graphics_t g;
+  ap_graphics_init(&g, AP_SCREEN_COLOUR_8_PLANE);
+
+  const struct { uint32_t offset; uint8_t value; } cases[] = {
+      {0x400u, 0xE3u}, /* CR0: a mode and a shift */
+      {0x402u, 0x11u}, /* CR1: ROP_EN and DISP_EN */
+      {0x404u, 0x5Au}, /* CR2 / CR2A */
+      {0x405u, 0xA5u}, /* CR2B, 8-plane only */
+  };
+  for (unsigned i = 0; i < sizeof cases / sizeof cases[0]; i++) {
+    ap_graphics_write(&g, AP_GRAPHICS_COLOUR_ADDR + cases[i].offset,
+                      cases[i].value);
+  }
+  for (unsigned i = 0; i < sizeof cases / sizeof cases[0]; i++) {
+    TEST_ASSERT_EQUAL_HEX8(
+        cases[i].value,
+        ap_graphics_read(&g, AP_GRAPHICS_COLOUR_ADDR + cases[i].offset));
+  }
+}
+
+/* Every register is zero at reset, and that is not a neutral choice: `DISP_EN`
+ * is `CR1` bit 0, so an unprogrammed controller has its display **off**. */
+static void test_an_unprogrammed_controller_has_its_display_off(void) {
+  ap_graphics_t g;
+  ap_graphics_init(&g, AP_SCREEN_MONO_19_INCH);
+  TEST_ASSERT_EQUAL_HEX8(0x00u,
+                         ap_graphics_read(&g, AP_GRAPHICS_MONO_ADDR + 0x402u));
+  TEST_ASSERT_FALSE(ap_graphics_display_enabled(g.reg.cr1));
+}
+
+/* The block is `0x408` bytes -- offsets `000` to `407` -- and an access decodes
+ * as `offset & 0x407`, bit 10 and the low three bits. So the **low** group of
+ * eight repeats all the way up to `3FF`, and the high group at `400`-`407` is
+ * reached only at its own eight addresses. A model decoding the offset whole
+ * would answer for `002` and not for `00A`, and would have to be given every
+ * alias the firmware happens to use.
+ *
+ * The two halves of that are asserted separately, because a mask that dropped
+ * bit 10 as well would still pass the first. */
+static void test_the_low_group_aliases_and_the_high_group_does_not(void) {
+  ap_graphics_t g;
+  ap_graphics_init(&g, AP_SCREEN_MONO_15_INCH);
+
+  /* `00A` and `3FA` are both offset 2: the raster operation's bits 15-8. */
+  ap_graphics_write(&g, AP_GRAPHICS_MONO_ADDR + 0x00Au, 0x77u);
+  TEST_ASSERT_EQUAL_HEX32(0x00007700u, g.reg.rop);
+  ap_graphics_write(&g, AP_GRAPHICS_MONO_ADDR + 0x3FAu, 0x22u);
+  TEST_ASSERT_EQUAL_HEX32(0x00002200u, g.reg.rop);
+
+  /* Bit 10 survives the mask, so `402` is `CR1` and `002` is not. */
+  ap_graphics_write(&g, AP_GRAPHICS_MONO_ADDR + 0x402u, 0x11u);
+  TEST_ASSERT_EQUAL_HEX8(0x11u, g.reg.cr1);
+  ap_graphics_write(&g, AP_GRAPHICS_MONO_ADDR + 0x002u, 0x44u);
+  TEST_ASSERT_EQUAL_HEX8(0x11u, g.reg.cr1);
+
+  /* And `408` is past the block entirely -- `0x408` bytes is `000` to `407`. */
+  bool colour = false;
+  uint32_t offset = 0;
+  TEST_ASSERT_FALSE(
+      ap_graphics_decode(AP_GRAPHICS_MONO_ADDR + 0x408u, &colour, &offset));
+}
+
+/* **The byte lanes are scrambled** and no reading of the addresses predicts
+ * them. Each pair is high byte first, and the raster operation's pairs run low
+ * half before high half:
+ *
+ *     0 -> WE 15-8    1 -> WE 7-0
+ *     2 -> ROP 15-8   3 -> ROP 7-0   4 -> ROP 31-24   5 -> ROP 23-16
+ *
+ * Assembling either register in address order gets the halves the right way
+ * round and the bytes within them backwards. For the ROP that gives every
+ * plane its neighbour's function -- a screen that draws, in the wrong
+ * operations -- which is why the value here has a different byte in every
+ * lane. */
+static void test_the_multi_byte_registers_are_in_scrambled_byte_order(void) {
+  ap_graphics_t g;
+  ap_graphics_init(&g, AP_SCREEN_COLOUR_8_PLANE);
+
+  ap_graphics_write(&g, AP_GRAPHICS_COLOUR_ADDR + 0u, 0x12u);
+  ap_graphics_write(&g, AP_GRAPHICS_COLOUR_ADDR + 1u, 0x34u);
+  TEST_ASSERT_EQUAL_HEX16(0x1234u, g.reg.write_enable);
+
+  ap_graphics_write(&g, AP_GRAPHICS_COLOUR_ADDR + 2u, 0xBBu);
+  ap_graphics_write(&g, AP_GRAPHICS_COLOUR_ADDR + 3u, 0xCCu);
+  ap_graphics_write(&g, AP_GRAPHICS_COLOUR_ADDR + 4u, 0x99u);
+  ap_graphics_write(&g, AP_GRAPHICS_COLOUR_ADDR + 5u, 0xAAu);
+  TEST_ASSERT_EQUAL_HEX32(0x99AABBCCu, g.reg.rop);
+
+  /* The high half reads back, on this board and only through those two
+   * offsets. */
+  TEST_ASSERT_EQUAL_HEX8(0x99u,
+                         ap_graphics_read(&g, AP_GRAPHICS_COLOUR_ADDR + 4u));
+  TEST_ASSERT_EQUAL_HEX8(0xAAu,
+                         ap_graphics_read(&g, AP_GRAPHICS_COLOUR_ADDR + 5u));
+}
+
+/* Offsets 4 and 5 are the raster operation's high half on an 8-plane board and
+ * a diagnostic memory-refresh trigger on the others -- the same per-family
+ * split `CR1`'s top bits have. On a monochrome card the write must not reach
+ * the ROP, or a diagnostic would silently rewrite half the operation. */
+static void test_the_rop_s_high_half_is_eight_plane_only(void) {
+  ap_graphics_t g;
+  ap_graphics_init(&g, AP_SCREEN_MONO_19_INCH);
+
+  ap_graphics_write(&g, AP_GRAPHICS_MONO_ADDR + 2u, 0xBBu);
+  ap_graphics_write(&g, AP_GRAPHICS_MONO_ADDR + 3u, 0xCCu);
+  ap_graphics_write(&g, AP_GRAPHICS_MONO_ADDR + 4u, 0x99u);
+  ap_graphics_write(&g, AP_GRAPHICS_MONO_ADDR + 5u, 0xAAu);
+
+  TEST_ASSERT_EQUAL_HEX32(0x0000BBCCu, g.reg.rop);
+  /* And nothing reads back there either. */
+  TEST_ASSERT_EQUAL_HEX8(0xFFu,
+                         ap_graphics_read(&g, AP_GRAPHICS_MONO_ADDR + 4u));
+}
+
+/* `CR3A` is not a value but a **bit port**: with bit 7 clear, bits 3-1 name a
+ * bit of `CR1` and bit 0 is what to put there. That is how a driver flips one
+ * control bit without a read-modify-write on a register it may not be able to
+ * read.
+ *
+ * The bit number is `(value & 0x0F) >> 1` -- bit 0 of the port is the *data*
+ * and the number sits one place up. Reading the low nibble as the number
+ * instead lands two bits away every time, and the register still changes, so
+ * it looks like it works. */
+static void test_cr3a_sets_and_clears_one_bit_of_cr1(void) {
+  ap_graphics_t g;
+  ap_graphics_init(&g, AP_SCREEN_MONO_15_INCH);
+
+  /* Set bit 4, `ROP_EN`: number 4 in bits 3-1 is $08, plus $01 to set. */
+  ap_graphics_write(&g, AP_GRAPHICS_MONO_ADDR + 0x406u, 0x09u);
+  TEST_ASSERT_EQUAL_HEX8(AP_GRAPHICS_CR1_ROP_EN, g.reg.cr1);
+
+  /* Set bit 0, `DISP_EN`: number 0, plus $01. */
+  ap_graphics_write(&g, AP_GRAPHICS_MONO_ADDR + 0x406u, 0x01u);
+  TEST_ASSERT_TRUE(ap_graphics_display_enabled(g.reg.cr1));
+
+  /* Clear bit 4 again, leaving bit 0 alone -- which is the whole point of a
+   * bit port. */
+  ap_graphics_write(&g, AP_GRAPHICS_MONO_ADDR + 0x406u, 0x08u);
+  TEST_ASSERT_EQUAL_HEX8(AP_GRAPHICS_CR1_DISP_EN, g.reg.cr1);
+
+  /* With bit 7 **set** the port does nothing to `CR1`, and still stores. */
+  ap_graphics_write(&g, AP_GRAPHICS_MONO_ADDR + 0x406u, 0x89u);
+  TEST_ASSERT_EQUAL_HEX8(AP_GRAPHICS_CR1_DISP_EN, g.reg.cr1);
+  TEST_ASSERT_EQUAL_HEX8(0x89u,
+                         ap_graphics_read(&g, AP_GRAPHICS_MONO_ADDR + 0x406u));
+}
+
+/* The other family's block decodes and holds nothing. A monochrome card must
+ * not be programmable through the colour block, or a driver probing both would
+ * configure the card it did not find. */
+static void test_the_other_family_s_block_stores_nothing(void) {
+  ap_graphics_t g;
+  ap_graphics_init(&g, AP_SCREEN_MONO_15_INCH);
+
+  ap_graphics_write(&g, AP_GRAPHICS_COLOUR_ADDR + 0x400u, 0x77u);
+  TEST_ASSERT_EQUAL_HEX8(0xFFu,
+                         ap_graphics_read(&g, AP_GRAPHICS_COLOUR_ADDR + 0x400u));
+  TEST_ASSERT_EQUAL_HEX8(0x00u,
+                         ap_graphics_read(&g, AP_GRAPHICS_MONO_ADDR + 0x400u));
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_each_screen_reports_the_id_the_firmware_compares_against);
@@ -1003,5 +1181,12 @@ int main(void) {
   RUN_TEST(test_a_scanout_that_cannot_run_writes_nothing);
   RUN_TEST(test_disp_en_is_reported_rather_than_painted);
   RUN_TEST(test_a_blit_lands_where_the_scanout_reads_it);
+  RUN_TEST(test_the_control_registers_store_and_read_back);
+  RUN_TEST(test_an_unprogrammed_controller_has_its_display_off);
+  RUN_TEST(test_the_low_group_aliases_and_the_high_group_does_not);
+  RUN_TEST(test_the_multi_byte_registers_are_in_scrambled_byte_order);
+  RUN_TEST(test_the_rop_s_high_half_is_eight_plane_only);
+  RUN_TEST(test_cr3a_sets_and_clears_one_bit_of_cr1);
+  RUN_TEST(test_the_other_family_s_block_stores_nothing);
   return UNITY_END();
 }
