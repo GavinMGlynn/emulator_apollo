@@ -2794,6 +2794,23 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
 - [ ] **Integration check, not a milestone:** DN3500 boots Domain/OS SR10.x to a
       login prompt, console byte-identical to the oracle. *Verification: console
       diff plus a boot state hash.*
+  - [x] **A disk can be fitted at all.** `ap_omti` modelled the controller and
+        `ap_awd` read the image and nothing ever handed one to the other, so
+        every boot experiment so far ran on a DN3500 with **no Winchester** —
+        a different failure from a broken one, and readable as the latter.
+        `--disk` fits one. Detail in `PROJECT_STATUS.md`.
+        *Verification: two boots to 2,000,000 instructions, with and without
+        `dn3500-sr10.4-installed.awd`, are byte-identical — same state hash,
+        same final PC, same fault count — and the disk region never appears.
+        The firmware does not reach the controller, which is now shown rather
+        than assumed.*
+  - [ ] **Where it actually stops: the console.** The run polls the serial
+        ports 1,481,339 times and transmits nothing. C110 has the reason — the
+        dispatcher *is* the autobaud, so the machine is silent until it has
+        received a character to measure. A carriage return changes the state
+        hash, so the byte arrives; it is not yet enough to make it speak. This
+        is the next thing between here and a login prompt, and it is a console
+        handshake question rather than a disk one.
 
 ## Phase 5 — Display
 

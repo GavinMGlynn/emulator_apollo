@@ -4597,6 +4597,43 @@ last and hardest — **a decoded PNG**. Register round-trips and word-level
 identities are what can be checked without one, and a controller that passes
 those and draws nothing is the standard way this goes wrong.
 
+#### Every boot so far ran on a machine with no disk
+
+`ap_omti` has modelled the controller's two register sets for a long time and
+`ap_awd` has read the image for as long, and **nothing ever handed one to the
+other**. The frontend had `--volume`, which opens an image only to read its
+label for a node ID, and no way to fit a drive to a booting machine. So every
+boot experiment in this project ran on a DN3500 with no Winchester at all —
+which is a different failure from a broken one, and was available to be read as
+the latter.
+
+`--disk` fits one. The image is owned by the frontend, as every image in this
+core is, and stays mapped for the whole run; it opens against the 348 MB
+reference geometry, and a shorter file is opened against the same geometry with
+reads past its end failing, which is what a partly written image should do.
+
+**And the first measurement it makes is that it changes nothing.** Two boots to
+2,000,000 instructions, one with `media/dn3500-sr10.4-installed.awd` fitted and
+one without:
+
+    state hash   D81C2E04518C9C00   both
+    final PC     000007AE           both
+    bus errors   129                both
+
+Byte-identical. The disk region does not appear in the region table at all, so
+the firmware never touches the controller. That is not a defect in the
+attachment — it is where the boot actually stops, and now it is shown rather
+than assumed.
+
+**Where it stops is the console.** The run polls the serial ports 1,481,339
+times — 493,779 each at `sio1` registers 1 and 9 and `sio2` register 1 — and
+**transmits nothing**. C110 recorded why the machine is silent: the dispatcher
+*is* the autobaud, so the firmware sends nothing until it has received a
+character to measure. Feeding a carriage return does change the state hash, so
+the byte is arriving; it is not yet enough to make the machine speak. That is
+the next thing between here and a login prompt, and it is a console handshake
+question rather than a disk one.
+
 #### The floppy's addressing agrees by construction, from three sources
 
 The `.awd` half of this item was settled by an argument rather than a

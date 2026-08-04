@@ -21,6 +21,7 @@
 #include "device/ap_qic.h"
 #include "image/ap_ct.h"
 #include "image/ap_afd.h"
+#include "image/ap_awd.h"
 #include "image/ap_volume.h"
 #include "board/ap_board.h"
 #include "board/ap_sio.h"
@@ -59,6 +60,7 @@ static void print_usage(const char *program_name) {
           "                        index 0-7F, not a character)\n"
           "  --screen KIND         fit a display: c4p, c8p, 19i or 15i\n"
           "  --screenshot FILE     scan the fitted screen out to a PNG\n"
+          "  --disk FILE           fit a Winchester (.awd) to the boot\n"
           "  --floppy FILE         read an .afd through the reader and\n"
           "                        report its geometry\n"
           "  --boot-input-channel C  which channel, A or B (default A). The\n"
@@ -567,7 +569,8 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
                           unsigned input_channel, uint8_t input_rate,
                           unsigned key, bool console,
                           ap_screen_kind_t screen, uint32_t node_id,
-                          ap_model_id_t model, const char *screenshot) {
+                          ap_model_id_t model, const char *screenshot,
+                          const char *disk_path) {
   long size = 0;
   uint8_t *prom = read_file(path, &size);
   if (prom == NULL) {
@@ -639,6 +642,46 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
     ap_graphics_init(&board->graphics, screen);
     ap_graphics_attach_memory(&board->graphics, colour_memory, colour_bytes,
                               mono_memory, mono_bytes);
+  }
+
+  /* Fit a Winchester, if one was named. The controller and the image reader
+   * have both been complete for a while and nothing ever handed one to the
+   * other, so every boot so far has run on a machine with **no disk**: the
+   * firmware finds no drive, which is a different failure from finding a broken
+   * one and was being read as the latter.
+   *
+   * The image is owned here, as every image in this core is, and stays mapped
+   * for the whole run. 348 MB is the reference drive; a shorter file is opened
+   * against the same geometry and reads past its end fail, which is what a
+   * partly written image should do. */
+  uint8_t *disk_bytes = NULL;
+  ap_awd_t disk_image;
+  if (disk_path != NULL) {
+    long disk_size = 0;
+    disk_bytes = read_file(disk_path, &disk_size);
+    if (disk_bytes == NULL) {
+      free(colour_memory);
+      free(mono_memory);
+      free(board);
+      free(ram);
+      free(prom);
+      fprintf(stderr, "apollo: cannot read disk image %s\n", disk_path);
+      return 1;
+    }
+    if (!ap_awd_open(&disk_image, disk_bytes, (size_t)disk_size,
+                     ap_awd_geometry_for(AP_AWD_DRIVE_348MB), false)) {
+      free(disk_bytes);
+      free(colour_memory);
+      free(mono_memory);
+      free(board);
+      free(ram);
+      free(prom);
+      fprintf(stderr, "apollo: %s is not an Apollo Winchester image\n",
+              disk_path);
+      return 1;
+    }
+    ap_omti_attach(&board->disk.controller, &disk_image);
+    printf("disk %s, %ld bytes\n", disk_path, disk_size);
   }
 
   if (!ap_board_load_prom(board, prom, (uint32_t)size)) {
@@ -1009,6 +1052,7 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
                               board->graphics.reg.cr1);
   }
 
+  free(disk_bytes);
   free(colour_memory);
   free(mono_memory);
   free(board);
@@ -1403,12 +1447,18 @@ int main(int argc, char **argv) {
    * its file system agree. */
   const char *volume_path = NULL;
   const char *floppy_path = NULL;
+  const char *disk_path = NULL;
   uint32_t node_id = 0x012345u;
   unsigned boot_limit = 100000u;
 
   for (int i = 1; i < argc;) {
     if (strcmp(argv[i], "--volume") == 0 && i + 1 < argc) {
       volume_path = argv[i + 1];
+      i += 2;
+      continue;
+    }
+    if (strcmp(argv[i], "--disk") == 0 && i + 1 < argc) {
+      disk_path = argv[i + 1];
       i += 2;
       continue;
     }
@@ -1576,7 +1626,8 @@ int main(int argc, char **argv) {
     return boot_from_prom(boot_prom, boot_limit, boot_trace, boot_watch,
                           boot_input, boot_input_unit, boot_input_channel,
                           (uint8_t)boot_input_rate, boot_key, boot_console,
-                          boot_screen, node_id, opt.model->id, screenshot);
+                          boot_screen, node_id, opt.model->id, screenshot,
+                          disk_path);
   }
 
   if (boot_tape != NULL) {
