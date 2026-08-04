@@ -4597,6 +4597,45 @@ last and hardest — **a decoded PNG**. Register round-trips and word-level
 identities are what can be checked without one, and a controller that passes
 those and draws nothing is the standard way this goes wrong.
 
+#### The machine is behaving correctly: the poll has no way out but a byte
+
+A deep look at the console-selection poll, and the conclusion is that nothing is
+wrong. That is worth as much as a defect and is easier to get wrong.
+
+**The poll has no timeout and no auto-boot path.** Disassembled whole:
+
+    00078E  btst.b #$0,$2(a0)     ; serial 1 A -- the keyboard
+    000794  bne.w  $80e
+    00079A  btst.b #$0,$12(a0)    ; serial 1 B
+    0007A0  bne.b  $7e6
+    0007A8  btst.b #$0,$102(a0)   ; serial 2 A
+    0007AE  beq.b  $78e           ; round again, for ever
+
+Three `BTST`s and a backward branch. There is no counter, no deadline and no
+fourth exit. A machine that reaches here waits until something sends it a byte.
+
+**And nothing does, on the oracle either.** The keyboard's 5 ms timer only scans
+the matrix and reads the mouse; it never transmits unprompted. So a real DN3500
+in normal mode with nothing attached that speaks sits exactly where this core
+sits — the "it does not auto-boot" reading from several sessions ago is
+**correct behaviour**, not a defect, and the search for a missing device to
+explain it was looking for something that does not exist.
+
+Two smaller checks, both clean:
+
+* `ACR[7]` selects the baud rate set and the firmware writes `E0` to serial 1's
+  before the poll, so it is using **set two**. This core's receive path already
+  honours the bit, and the comment beside it already notes the two published
+  sets agree on every code this firmware uses.
+* Immediately before the poll the firmware programs serial 1's `ACR` and channel
+  B's clock select, and stores the poll's own address and stack pointer at
+  `$150(a6)` and `$154(a6)` — a resumption context, so the poll is somewhere the
+  machine expects to come *back* to.
+
+What this changes is the question. It is not "what device is missing" but "what
+does a console do next", and the answer is bounded by this PROM's command set:
+`ABRVPICOH`, in which none of `EX`, `EY`, `LO`, `FO` or `DL` appears.
+
 #### The keyboard is not write-only, and it powers up echoing
 
 `ap_kbd` sent scan codes and received nothing. The real part has a **command

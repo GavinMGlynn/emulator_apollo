@@ -2889,9 +2889,19 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         same resting PC, same posted codes — because the firmware does not
         reach the keyboard in that window; modelled because it is the machine's,
         not because it moved anything.*
-      **Awaiting:** what the firmware does after the console poll in normal
-      mode. Everything it has asked for so far is answered, and it still rests
-      there rather than loading `w0`.
+  - [x] **Checked, and clean: the machine is behaving correctly.** The console
+        poll is three `BTST`s and a backward branch — no timeout, no deadline,
+        no fourth exit — and the oracle's keyboard never transmits unprompted,
+        so a real DN3500 with nothing attached that speaks waits exactly where
+        this core waits. The "it does not auto-boot" reading is **correct
+        behaviour**, and the search for a missing device was looking for
+        something that does not exist. `ACR[7]`'s baud-set selection was checked
+        too and is already honoured. Detail in `PROJECT_STATUS.md`.
+      **Awaiting:** a route from a console to a disk load, which is now known to
+      be a *software* question rather than a missing device. This PROM's command
+      set is `ABRVPICOH` and none of `EX`, `EY`, `LO`, `FO` or `DL` appears in
+      it, so either the load is reached another way or this image cannot do it
+      and the check needs a different firmware revision.
   - [x] **A disk can be fitted at all.** `ap_omti` modelled the controller and
         `ap_awd` read the image and nothing ever handed one to the other, so
         every boot experiment so far ran on a DN3500 with **no Winchester** —
