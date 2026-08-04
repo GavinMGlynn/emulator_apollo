@@ -4597,6 +4597,48 @@ last and hardest — **a decoded PNG**. Register round-trips and word-level
 identities are what can be checked without one, and a controller that passes
 those and draws nothing is the standard way this goes wrong.
 
+#### Pacing is excluded, and letters do not survive where carriage returns do
+
+`docs/references/MD.md` prescribes "one carriage return every 0.4 s on standard
+input, not a pipe delivered at once", and the frontend's comment claimed to
+honour it while the code used `ap_sio_character_time` — the **wire's floor**,
+ten bit times, which at 9600 baud is 400 times faster. Those are two different
+requirements and only one was implemented.
+
+`--boot-input-interval` makes the prescribed figure expressible for the first
+time. The wire's floor is still enforced underneath it, so a caller cannot ask
+for something the line cannot carry, and zero keeps the old behaviour.
+
+**The measurement it made possible excludes pacing.** The same script
+(`CR CR A 4 CR CR CR`) at 1 ms and at 300 ms spacing, to 30,000,000
+instructions:
+
+    interval 0 us        0D 0A 3E  0D 0D 0A 0D 0A 3E  0D 0D 0A 0D 0A 3E
+    interval 300000 us   0D 0A 3E  0D 0D 0A 0D 0A 3E  0D 0D 0A 0D 0A 3E
+
+Byte for byte identical. `MD.md` reached the same conclusion from the oracle's
+side — "a dropped-character problem would vary with pacing; this does not" —
+and this is that measurement made from ours.
+
+**What is left is sharper than what it replaced.** Every carriage return is
+echoed and answered with a fresh prompt, at both pacings. The command letter and
+its argument produce **nothing at all** — and not merely no dump: `MD.md`
+records that `A1000` returns `E`, so even a rejected command answers, and ours
+does not.
+
+So the machine is receiving carriage returns and not letters. The hypothesis
+with the right shape is the autobaud's settled rate: a `CR` is `0D`, mostly
+zeroes and forgiving of being sampled at the wrong instants, where `41` is not
+— so a receiver left on a rate that does not match the terminal would pass
+carriage returns and corrupt everything else, which is exactly the pattern.
+Consistent with it, 4800 baud reaches the banner and then answers no carriage
+returns at all, while 9600 answers every one.
+
+That is the next measurement: what rate the firmware's receiver is left on after
+the negotiation, against what the terminal is sending. It is a question about
+two numbers rather than about the harness, which is a better place to be stuck
+than "the machine is silent".
+
 #### The console speaks, and it was the terminal's rate all along
 
 The DN3500's boot PROM prints its banner in this core for the first time, and it

@@ -2823,11 +2823,21 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         against `MD.md`'s `CR LF ... CR LF '>'`, and every carriage return after
         it echoed and answered with a fresh prompt — so MD is running, not just
         announcing itself.*
-  - [ ] **Next: MD commands, then a disk boot.** The debugger answers its
-        prompt, so the machine can now be driven. `MD.md` has the grammar and
-        the oracle's byte-exact responses to diff against, and the disk is
-        already fitted and waiting — it was never reached because the console
-        was never reached.
+  - [x] **Pacing excluded, by the measurement `MD.md` names.**
+        `--boot-input-interval` makes its "one carriage return every 0.4 s"
+        expressible — the frontend's comment claimed to honour that while the
+        code used the wire's floor, 400x faster at 9600. The same script at 1 ms
+        and 300 ms spacing produces **byte-identical** streams, which is
+        `MD.md`'s own test for rate loss, made from this side.
+        Detail in `PROJECT_STATUS.md`.
+  - [ ] **Next: why letters do not survive where carriage returns do.** Every
+        `CR` is echoed and answered; a command letter and its argument produce
+        **nothing** — not even the `E` `MD.md` records `A1000` returning. A `CR`
+        is `0D`, forgiving of being sampled at the wrong instants; `41` is not.
+        So the question is the rate the firmware's receiver is left on after the
+        negotiation against what the terminal sends — two numbers, not a
+        harness. 4800 reaches the banner then answers nothing; 9600 answers
+        every `CR`.
 
 ## Phase 5 — Display
 

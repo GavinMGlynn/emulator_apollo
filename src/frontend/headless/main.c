@@ -57,6 +57,8 @@ static void print_usage(const char *program_name) {
           "  --boot-input-rate CSR clock select the scripted terminal sends at\n"
           "                        (default 0xBB, 9600 baud, which is what\n"
           "                        makes the boot PROM answer)\n"
+          "  --boot-input-interval US  emulated microseconds between scripted\n"
+          "                        characters; the wire's own floor if 0\n"
           "  --boot-key N          press and release keyboard key N (a matrix\n"
           "                        index 0-7F, not a character)\n"
           "  --screen KIND         fit a display: c4p, c8p, 19i or 15i\n"
@@ -568,6 +570,7 @@ static int write_screenshot(const char *path, const ap_graphics_t *graphics,
 static int boot_from_prom(const char *path, unsigned limit, bool trace,
                           uint32_t watch, const char *input, unsigned input_unit,
                           unsigned input_channel, uint8_t input_rate,
+                          unsigned input_interval_us,
                           unsigned key, bool console,
                           ap_screen_kind_t screen, uint32_t node_id,
                           ap_model_id_t model, const char *screenshot,
@@ -777,8 +780,28 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
    * no gap. */
   const unsigned input_baud =
       ap_mc68681_baud((uint8_t)(input_rate & 0x0Fu), true);
-  const ap_time_t input_interval = ap_sio_character_time(
+  /* How long to leave between scripted characters.
+   *
+   * The floor is one character time -- ten bit times at the line's own rate --
+   * because a byte cannot be delivered faster than the wire carries it, and
+   * this defaulted to exactly that. `docs/references/MD.md` records a different
+   * figure from the other side: "one carriage return every 0.4 s on standard
+   * input, not a pipe delivered at once". Those are not the same requirement
+   * and the code claimed the second while implementing the first, which is 400
+   * times faster at 9600 baud.
+   *
+   * So the interval is settable, and the wire's floor is enforced under
+   * whatever is asked for -- a caller cannot request something the line cannot
+   * carry. `input_interval_us` of zero keeps the floor, which is what every
+   * existing use expects. */
+  const ap_time_t wire_floor = ap_sio_character_time(
       &machine.board->sio, input_unit, input_channel, input_baud);
+  ap_time_t requested = 0u;
+  if (input_interval_us > 0u) {
+    requested = (ap_time_t)input_interval_us * (AP_TIME_BASE_HZ / 1000000u);
+  }
+  const ap_time_t input_interval =
+      requested > wire_floor ? requested : wire_floor;
   ap_time_t input_next_at = 0u;
 
   ap_machine_run_t run;
@@ -1460,6 +1483,7 @@ int main(int argc, char **argv) {
    * and the machine stays silent; at `BB` it prints its banner. `FINDINGS.md`
    * C113. */
   unsigned boot_input_rate = 0xBBu;
+  unsigned boot_input_interval_us = 0u;
   unsigned boot_key = AP_KBD_KEYS; /* none */
   ap_screen_kind_t boot_screen = AP_SCREEN_NONE;
   const char *screenshot = NULL;
@@ -1482,6 +1506,11 @@ int main(int argc, char **argv) {
   for (int i = 1; i < argc;) {
     if (strcmp(argv[i], "--volume") == 0 && i + 1 < argc) {
       volume_path = argv[i + 1];
+      i += 2;
+      continue;
+    }
+    if (strcmp(argv[i], "--boot-input-interval") == 0 && i + 1 < argc) {
+      boot_input_interval_us = (unsigned)strtoul(argv[i + 1], NULL, 0);
       i += 2;
       continue;
     }
@@ -1653,7 +1682,8 @@ int main(int argc, char **argv) {
   if (boot_prom != NULL) {
     return boot_from_prom(boot_prom, boot_limit, boot_trace, boot_watch,
                           boot_input, boot_input_unit, boot_input_channel,
-                          (uint8_t)boot_input_rate, boot_key, boot_console,
+                          (uint8_t)boot_input_rate, boot_input_interval_us,
+                          boot_key, boot_console,
                           boot_screen, node_id, opt.model->id, screenshot,
                           disk_path);
   }
