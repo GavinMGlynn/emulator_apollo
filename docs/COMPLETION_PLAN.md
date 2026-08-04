@@ -2552,158 +2552,36 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         matching the unmapped pair. Applied before an investigation needed it
         rather than during one, which is the point of C33's rule.
         Detail in `PROJECT_STATUS.md`.
-- [ ] **The display controller's drawing engine.**
+- [x] **The display controller's drawing engine.** *Verification: the item's own
+      standard, a decoded PNG — written by `--screenshot` and read back through
+      libpng's own reader, since an encoder and a decoder that only agree with
+      each other can agree on the wrong picture. A blit is checked *through* the
+      scanout rather than beside it. `graphics_suite`, 66 tests.
+      **What a picture of the running firmware waits on is not in this item**:
+      the status register is the raster, so the boot polls forever and never
+      reaches its drawing code, and the video clock domain that fixes it
+      recomputes `AP_TIME_BASE_HZ` — Phase 5's first item, `FINDINGS.md` C112.
+      The palette proves the controller is reachable in the meantime: the
+      firmware had already loaded entry 0 black and 1-255 white through the
+      Bt458's ports, a white-on-black console, read out of the machine once
+      something was connected to receive it.*
 
-  - [ ] The rest of the display controllers: the blitter and the colour lookup
-        table. Verify on a decoded PNG rather than on register round-trips — a
-        controller that passes register tests and draws nothing is the standard
-        way this goes wrong.
-        - The **graphics memories are done** and no longer belong in this line:
-          `0A0000-0BFFFF` colour and `FA0000-FDFFFF` monochrome decode, store
-          into caller-owned buffers, and are matched *before* the AT bus windows
-          they sit inside — which had been reporting the machine's own frame
-          buffer as an empty expansion slot. `graphics_suite`.
-        - Also done and not listed here when this was written: the device ID
-          registers, `CR0`'s mode and shift fields, and `CR1`'s bits named per
-          controller family. What remains is the drawing.
-        - The `--screen` option fits one, and with `c8p` the firmware makes
-          **803 writes** to the controller. Those writes are the specification
-          for what is left: they are what the blitter and lookup table have to
-          answer.
-        - **The PNG the verification line asks for exists**, `--screenshot`
-          over `frontend/common/ap_png.c`, and a blit is now checked *through*
-          the scanout rather than beside it. libpng is optional and the build
-          says which it is. Detail in `PROJECT_STATUS.md`.
-          *Verification: `graphics_suite` +1 (40) blits a pattern and finds it
-          at the pixel the geometry says and at no neighbour;
-          `frontend_common_suite` +2 (12) writes a PNG and reads it back
-          through libpng's own decoder, on a non-square image with an
-          asymmetric pattern and indices that are not their own colours, so a
-          transpose, a flip or an ignored palette all fail.*
-        - **The register file is done**: sixteen registers in two groups of
-          eight, the low group aliased across the block and the high group not,
-          `CR0`-`CR3B`, the 16-bit write enable and the 32-bit raster operation
-          — whose **byte lanes are scrambled** in a way no reading of the
-          addresses predicts — and `CR3A` as a bit port onto `CR1`. It recovered
-          a fact on its first run: the firmware *does* set `DISP_EN` within
-          400,000 instructions, which was previously the harness's assumption.
-          Detail in `PROJECT_STATUS.md`.
-          *Verification: `graphics_suite`, 7 further tests (47 total) — a
-          different byte in every lane so no transposition passes, the two
-          halves of the aliasing separately, the ROP's high half refused on a
-          monochrome card, and the bit port setting and clearing one bit of
-          `CR1` while leaving its neighbour alone.*
-        - **The guard latch was half the width it should be**, and it is a
-          real defect rather than an omission: it is thirty-two bits, holding
-          the *previous* source word above the current one, and `CR0`'s shift
-          reaches across the pair. Ours shifted zeroes in, so any non-word-
-          aligned blit would have drawn a recognisable picture with a blank
-          sliver at the leading edge of every sixteen pixels. Detail in
-          `PROJECT_STATUS.md`.
-          *Verification: `graphics_suite`, still 47 — the shift test now runs
-          against a latch with a real previous word in it. Its old version
-          asserted the wrong answer and its comment explained why, so it had
-          documented the defect instead of catching it.*
-        - **The blitter and the scanout share one memory now.** The blitter
-          took a host-order `uint16_t` array and the board's memory is bytes,
-          so the end-to-end test had to serialise between them by hand. It
-          takes the board's byte memory, still addressed in words because the
-          controller addresses it that way. Detail in `PROJECT_STATUS.md`.
-          *Verification: `graphics_suite`, unchanged at 47 — the end-to-end
-          test now blits straight into the buffer the scanout reads and the
-          hand serialisation is deleted rather than rewritten, which is the
-          point: the same assertions hold with the seam gone.*
-        - **`CR0`'s mode dispatch is done**, and with it a write to the image
-          memory is the blit cycle it really is. All seven modes, the two-cycle
-          ones carrying their state in the controller, and the undescribed two
-          counted rather than guessed. The board now takes the access *width*,
-          which it had been thrown away at that boundary — two byte writes
-          would run two half-masked blits and put the two-cycle modes out of
-          phase. Detail in `PROJECT_STATUS.md`.
-          *Verification: `graphics_suite`, 8 further tests (55 total) — one per
-          mode, including the one that draws nothing, the destination arriving
-          on the data lines, and `CR2`'s fields coming from `CR2B` on an
-          8-plane board where a model reading `CR2` would see the destination
-          mask's top bits instead.*
-        - **The blank screen is proved, not assumed.** The report separates the
-          controller's memory from its registers, and a 400,000 instruction
-          `--screen c8p` boot makes **0 blit cycles** against 803 register
-          writes: the firmware is still in self-test and has not drawn.
-        - **Diagnosed, and it is not in the drawing engine.** At 4,000,000
-          instructions the register writes are still 803 — all before the
-          400,000 mark — while the *reads* go 175,350 to 1,975,350, one every
-          two instructions. The firmware is polling the **status** register,
-          five of whose bits are the raster: `BLANK`, `V_BLANK`, `H_SYNC`,
-          `V_SYNC`, `H_CK`. This core returns a constant `FF`, so no edge ever
-          arrives and it waits forever, never reaching the code that draws. The
-          blank screen and the poll loop are one fault. `FINDINGS.md` C112.
-        - **The lookup table is wired**, so an index becomes a colour at last.
-          Not on the bus: the Bt458 sits behind a data port at `401` and a
-          control port at `403` whose **active-low** selects say which of three
-          things the data port reaches, with `C1`/`C0` passed to the RAMDAC's
-          own inputs. A palette load is buffered in a FIFO and commits on the
-          *release* of `CPAL_CS`. Detail in `PROJECT_STATUS.md`.
-          *Verification: `graphics_suite`, 7 further tests (62 total) — the
-          commit being an edge and not a level, the FIFO reset being a falling
-          edge, and the read and write orders reaching different places from one
-          control-register setting. It recovered a real palette: the firmware
-          had already loaded entry 0 black and 1-255 white, a white-on-black
-          console, sitting unread inside those 803 register writes.*
-        - **The window is exactly one plane, and there was nothing to
-          measure.** 128 KB is 1024x1024 bits and the monochrome board's
-          256 KB is 2048x1024, so an offset in the window is a word offset
-          *within* a plane and `CR2` decides which planes an access reaches.
-          The recorded approximation was a misdiagnosis, closed by arithmetic
-          already in hand. The **read** path was a real gap and is now a cycle:
-          from the source plane, from the guard latch in two modes, and
-          latching while reading in the rest. Detail in `PROJECT_STATUS.md`.
-          *Verification: `graphics_suite`, 4 further tests (66 total) — both
-          windows equalling both plane sizes exactly, a read coming from the
-          named source plane and not plane 0, the two modes that read the latch
-          told apart from the five that do not, and a second read shifting the
-          first up into the pair a shifted blit reaches across.*
-        - **The scanout is done**, `ap_graphics_scanout`: the image memory
-          read out as one pixel index per pixel. The four geometries are the
-          manual's, and each **buffer** width — the part that looks like an
-          implementation detail — is `008778-03`'s own printed capacity divided
-          out: 128 KB a plane is 1024x1024 bits, and the 1280x1024
-          monochrome's 256 KB is 2048x1024. Detail in `PROJECT_STATUS.md`.
-          *Verification: `graphics_suite`, 8 further tests (39 total) — the
-          stride being the buffer's width and not the screen's, bit 15 as the
-          leftmost pixel, plane 0 as the index's bit 0, and `INV` applying on a
-          monochrome card where the same bit is `AD_BIT` on a colour one.*
-        - **The blit itself is done**, `ap_graphics_blit`: the plane loop
-          around the data path, with the address advancing for masked planes as
-          well as written ones, a destination past the memory skipped rather
-          than wrapped, and `CR1`'s `AD_BIT` broadcasting one source to every
-          plane. Detail in `PROJECT_STATUS.md`.
-          *Verification: `graphics_suite`, 6 further tests (31 total).*
-        - **The blitter's word-level data path is done**: the four access
-          modes that shape a source word, the plane select, and the write
-          enable merge -- with `CR0`'s shift, whose count of 16 or more rotates
-          before shifting. **Two of these are active low** and both invert a
-          whole screen if read the obvious way. Detail in `PROJECT_STATUS.md`.
-          *Verification: `graphics_suite`, 6 further tests (25 total).*
-        - **The raster operation is done**: all sixteen boolean functions,
-          four bits per plane in the 32-bit ROP register §10.3 names, gated by
-          `CR1`'s `ROP_EN`. With it, `CR2`'s plane selects in both the 4- and
-          8-plane encodings, and `CR2`'s access 2 named at last -- it was
-          `UNKNOWN_2` here and is `SHIFT_ACCESS`, so all four of `CR2`'s values
-          are accounted for. Detail in `PROJECT_STATUS.md`.
-          *Verification: `graphics_suite`, 5 further tests (19 total).*
-        - **The colour lookup table is done**, `device/ap_bt458.c`: the
-          Bt458's Table 1 in full -- the four `C1`/`C0` spaces, the modulo-three
-          colour counter the MPU cannot see, the commit-on-blue rule, and the
-          two different address advances. Detail in `PROJECT_STATUS.md`.
-          *Verification: `bt458_suite`, 9 tests. The one that earned its place:
-          the overlays run off their end into the **read mask** at `$04` rather
-          than wrapping to zero as the palette does.*
-        - **The sources are now established** (detail in `PROJECT_STATUS.md`).
-          `008778-03` Chapter 10 is *physical only*, as Chapter 8 was for the
-          tape — but its change list names the registers and their widths, and
-          the oracle's macros corroborate each one independently. The lookup
-          table is a **Bt458**: a named part with a published datasheet, which
-          makes it the cheapest piece to get right and the one to do first.
+  - [x] The rest of the display controllers: the blitter and the colour lookup
+        table, verified on a decoded PNG rather than on register round-trips.
+        Eight pieces, each with its own section in `PROJECT_STATUS.md`: the
+        raster operation and `CR2`'s two encodings; the word-level data path and
+        its two active-low fields; the blit that is the plane loop around them;
+        the Bt458 from its datasheet; the scanout, whose buffer widths are the
+        manual's printed memory capacities divided out; the register file, whose
+        byte lanes are scrambled; `CR0`'s seven-mode dispatch, which makes a
+        write to the image memory the blit cycle it really is; and the lookup
+        table wired behind its two ports.
+        Three defects and two misdiagnoses came out of it — a 16-bit guard latch
+        that should be 32, an access width thrown away at the board boundary, a
+        frontend allocating one eighth of a card's memory, and two "deliberate
+        approximations" that were arithmetic already in hand.
+        *Verification: `graphics_suite`, 66 tests; `frontend_common_suite` +2
+        (12) for the PNG round trip through libpng's own decoder.*
 - [x] **Bus faults and the exception frames.** The special status word and both
       fault frame layouts, the taker, `RTE` from either, address error, and the
       coprocessor mid-instruction frame. Two deliberate approximations, both
