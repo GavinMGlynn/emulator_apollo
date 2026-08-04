@@ -268,6 +268,11 @@ typedef unsigned (*ap_m68030_wait_states_fn)(void *context, uint32_t physical,
  * there are no devices to protect and no probe figure moves. */
 typedef bool (*ap_m68030_cache_inhibit_fn)(void *context, uint32_t address);
 
+/* A read of exactly `size` bytes at exactly `address`. See
+ * `ap_m68030_access.h` for why a device needs one and memory does not. */
+typedef bool (*ap_m68030_read_sized_fn)(void *context, uint32_t address,
+                                        unsigned size, uint32_t *value);
+
 typedef struct {
   ap_m68030_term_t termination; /* STERM, DSACK or BERR */
   bool burst_acknowledge;       /* CBACK -- only a 32-bit STERM port asserts it */

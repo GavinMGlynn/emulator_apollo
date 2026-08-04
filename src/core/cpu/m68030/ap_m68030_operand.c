@@ -79,8 +79,11 @@ ap_m68030_operand_read(ap_m68030_regs_t *regs, ap_m68030_access_ctx_t *access,
       chunk = remaining;
     }
 
+    /* The width the *program* asked for, so a device register is read once and
+     * at its own address. Memory ignores it and is read a long word at a time
+     * as the cache needs. */
     const ap_m68030_access_result_t read =
-        ap_m68030_access_read(access, address, function_code);
+        ap_m68030_access_read_sized(access, address, function_code, chunk);
     out.clocks += read.clocks;
     if (!read.ok) {
       out.fault = read.fault;

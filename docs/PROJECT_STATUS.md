@@ -4434,6 +4434,50 @@ It does not move the boot: the PROM still stops in the console-selection poll at
 `000007AE`. What it does is make every later experiment run on the machine this
 core models rather than on a processor with the machine switched off.
 
+#### Two ways a device read was not the read the program asked for
+
+Both found by following one firmware loop, and both are the same mistake in
+different clothing: treating a device register as though it were memory.
+
+**Device registers were cacheable.** The 68030's caches are the processor's and
+nothing in the processor knows which addresses are registers; `[030]` §6.1.3
+gives the job to the board — "the cache inhibit in (CIIN) signal ... allows the
+system to inhibit caching on a cycle-by-cycle basis". This core had no way to
+express it: `cache_inhibit` was hard-coded `false` at every access site. So a
+firmware polling a status bit read it once from the bus and then forever out of
+the cache. The boot PROM's console poll executed **15,721 times and reached the
+serial port twice**, spinning on a status it could no longer see move. With the
+board asserting CIIN the same run reads channel B's status 362,504 times.
+
+The board answers it as memory-or-not — main memory and the boot PROM are
+cacheable, everything else is a device — which fails in the safe direction: a
+region not yet modelled is uncacheable rather than a cached register nobody
+notices.
+
+**And a byte read ran a long-word bus cycle.** The read path asks the memory
+system for a long word, because that is the unit a cache line is built from and
+memory does not care how much of it the program wanted. A device cares
+enormously. `MOVE.B ($0016,A0),D1` — the boot PROM reading its console character
+— became a four-byte read spanning two registers, so it **popped the receive
+FIFO twice** and handed the program the second pop: an empty FIFO, read as zero,
+where a character had arrived correctly. The "two reads per byte" in every
+register counter this project has printed was that, and it had been read as a
+quirk of the counters.
+
+`ap_m68030_access_read_sized` runs a cycle of exactly the width the program
+asked for when the board has inhibited the address, and the long-word path is
+unchanged for memory and for every machine with no board. The operand layer
+already knew the width and was throwing it away.
+
+**What the two fixes did to the negotiation**, measured on the same run: the
+autobaud's `FF` arm now fires 13 times where it never fired; the
+console-selection path is entered 13 times; a carriage return is delivered
+cleanly once the firmware has switched the port to 9600, and the comparison that
+prints the sign-on is reached 13 times. It does not yet match, and the remaining
+question is what `D1` holds by the time it gets there — `A0` advances by `$10`
+on that path, which moves the base from one channel of the DUART to the other,
+so the read that follows may not be addressing the channel the byte arrived on.
+
 #### A rate mismatch has to corrupt the byte, and ours did not
 
 The boot PROM's console dispatcher compares the received byte against `FF`,

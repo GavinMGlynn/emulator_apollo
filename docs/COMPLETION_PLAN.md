@@ -1953,7 +1953,14 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
       and the framing flag both set while the firmware dispatches in the chain
       at `000886`, so something else is feeding it. Which channel, and why the
       poll passes over a set `RxRDY`, is the next step.
-      Superseded detail: C109's reading of `72` as `'r'`.
+      Two further defects, both "a device register is not memory": registers
+      were **cacheable**, so a polled status bit was read once and then forever
+      out of the cache — 15,721 poll executions reaching the port twice — and a
+      **byte read ran a long-word cycle**, popping the receive FIFO twice and
+      handing the program the second pop. With both fixed the autobaud's `FF`
+      arm fires, the console path is entered, and a clean carriage return is
+      delivered once the firmware switches the port to 9600. Detail in
+      `PROJECT_STATUS.md`. Superseded: C109's reading of `72` as `'r'`.
   - **The oracle's half of that comparison now exists.** `docs/references/MD.md`
     holds its console stream byte-exact — sign-on `0D 0A 4D 44 37 0D 0A`, prompt
     `0D 0A 0D 0A 3E`, and `A`'s address lines — captured through

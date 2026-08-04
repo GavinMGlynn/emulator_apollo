@@ -119,6 +119,23 @@ typedef struct {
    * `ap_m68030_cache.h` for why the processor cannot answer this itself. */
   ap_m68030_cache_inhibit_fn inhibits_cache;
 
+  /* A read of exactly `size` bytes at exactly `address`, for accesses the board
+   * has inhibited.
+   *
+   * The ordinary read path asks the memory system for a **long word**, because
+   * that is the unit a cache line is built from and memory does not care how
+   * much of it the program wanted. A *device* cares enormously: reading four
+   * bytes across a DUART pops its receive FIFO twice, clears a read-to-clear
+   * status the program never asked for, and hands back the wrong one of the
+   * values it took. The boot PROM's console read `MOVE.B ($0016,A0),D1` became
+   * a long word spanning two registers, and the byte the program got was the
+   * *second* pop -- an empty FIFO -- so a character that had arrived correctly
+   * was read as zero.
+   *
+   * NULL falls back to the long-word path, which is right for memory and for
+   * every machine with no board. */
+  ap_m68030_read_sized_fn read_sized;
+
   void *context;
 } ap_m68030_access_ctx_t;
 
@@ -161,6 +178,21 @@ typedef struct {
 [[nodiscard]] ap_m68030_access_result_t
 ap_m68030_access_read(ap_m68030_access_ctx_t *access, uint32_t logical,
                       uint8_t function_code);
+
+/* The same, for a caller that knows how many bytes it actually wants.
+ *
+ * Identical to the above for anything the board has not inhibited -- memory is
+ * read a long word at a time whatever the program asked for, which is what the
+ * cache needs. For an inhibited address it runs a bus cycle of exactly `size`
+ * bytes, because a device register is not memory and reading past it has
+ * effects. The value is returned positioned within the long word exactly as the
+ * wide path would place it, so a caller extracting with a shift is unchanged.
+ *
+ * `size` is 1, 2 or 4 and must not cross the long-word boundary; the operand
+ * layer already splits accesses that would. */
+[[nodiscard]] ap_m68030_access_result_t
+ap_m68030_access_read_sized(ap_m68030_access_ctx_t *access, uint32_t logical,
+                            uint8_t function_code, unsigned size);
 
 /* Write one operand of `size` bytes at a logical address, in a single bus
  * cycle -- so the operand must not straddle a long-word boundary; the operand

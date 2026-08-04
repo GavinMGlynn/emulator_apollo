@@ -169,6 +169,24 @@ static bool machine_cache_inhibited(void *context, uint32_t address) {
   return ap_board_cache_inhibited(machine->board, address);
 }
 
+/* A read of exactly `size` bytes at exactly `address`, for a device.
+ *
+ * Straight to the board, byte at a time, which is the only width its devices
+ * have -- and *not* through the long-word helper the fill path uses, because
+ * the whole point is not to touch the bytes either side. */
+static bool machine_read_sized(void *context, uint32_t address, unsigned size,
+                               uint32_t *value) {
+  ap_machine_t *machine = (ap_machine_t *)context;
+  if (machine->board == NULL) {
+    return false;
+  }
+  if (!board_read(machine, address, size, value)) {
+    machine->bus_errors++;
+    return false;
+  }
+  return true;
+}
+
 static bool machine_store(void *context, uint32_t physical, uint32_t value,
                           unsigned size) {
   ap_machine_t *machine = (ap_machine_t *)context;
@@ -321,6 +339,7 @@ void ap_machine_init_model(ap_machine_t *machine, uint8_t *ram,
        * callback some caller forgets. */
       .wait_states = machine_wait_states,
       .inhibits_cache = machine_cache_inhibited,
+      .read_sized = machine_read_sized,
       .context = machine,
   };
   machine->data_access = machine->instruction_access;

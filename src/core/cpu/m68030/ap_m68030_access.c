@@ -8,6 +8,12 @@
 ap_m68030_access_result_t ap_m68030_access_read(ap_m68030_access_ctx_t *access,
                                                 uint32_t logical,
                                                 uint8_t function_code) {
+  return ap_m68030_access_read_sized(access, logical, function_code, 4u);
+}
+
+ap_m68030_access_result_t
+ap_m68030_access_read_sized(ap_m68030_access_ctx_t *access, uint32_t logical,
+                            uint8_t function_code, unsigned size) {
   ap_m68030_access_result_t out = {0};
 
   /* `CIIN` before anything else. A device address must never be *found* in the
@@ -18,6 +24,30 @@ ap_m68030_access_result_t ap_m68030_access_read(ap_m68030_access_ctx_t *access,
       access->inhibits_cache(access->context, logical);
   const bool cache_usable = ap_m68030_cache_enabled(
       access->cache_enabled, access->cache_disable, board_inhibits);
+
+  /* A device, and a caller that said how much of it it wanted. Run exactly that
+   * cycle: a wider one would touch registers the program never addressed, and
+   * on a part with a FIFO or a read-to-clear status that is not a wasted read
+   * but a changed machine. */
+  if (board_inhibits && access->read_sized != NULL && size < 4u) {
+    uint32_t narrow = 0;
+    if (!access->read_sized(access->context, logical, size, &narrow)) {
+      out.fault = true;
+      return out;
+    }
+    /* Positioned within the long word where the wide path would have put it,
+     * so a caller extracting with a shift needs to know none of this. */
+    const unsigned offset = logical & 3u;
+    const unsigned shift = (4u - offset - size) * 8u;
+    out.value = narrow << shift;
+    out.physical = logical;
+    out.ok = true;
+    out.clocks = AP_M68030_MIN_BUS_CLOCKS +
+                 (access->wait_states != NULL
+                      ? access->wait_states(access->context, logical, true)
+                      : 0u);
+    return out;
+  }
 
   /* Step one, and the whole point of the module: the cache answers first, from
    * the *logical* address. "the MMU is completely ignored" if it does. */
