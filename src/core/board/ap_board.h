@@ -553,6 +553,14 @@ void ap_board_write(ap_board_t *board, uint32_t address, uint8_t value,
 [[nodiscard]] bool ap_board_write_access(ap_board_t *board, uint32_t address,
                                          unsigned count, uint32_t value);
 
+/* The read side of the same, and it matters for the same region and one more
+ * reason: a read of the display controller's image memory is a *cycle*. It
+ * comes from the source plane rather than plane 0, and in most modes it latches
+ * while reading -- so splitting a word read into two byte reads would latch
+ * twice and leave the guard latch holding a byte pair rather than a word. */
+[[nodiscard]] bool ap_board_read_access(ap_board_t *board, uint32_t address,
+                                        unsigned count, uint32_t *out);
+
 /* Press or release a keyboard key, delivering its scan code to serial 1
  * channel A -- the port the keyboard is wired to, confirmed from both the
  * oracle's machine configuration and the boot PROM's own poll loop.

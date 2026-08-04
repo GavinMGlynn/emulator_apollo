@@ -887,3 +887,40 @@ bool ap_board_write_access(ap_board_t *board, uint32_t address, unsigned count,
   }
   return all;
 }
+
+bool ap_board_read_access(ap_board_t *board, uint32_t address, unsigned count,
+                          uint32_t *out) {
+  if (out == NULL || (count != 1u && count != 2u && count != 4u)) {
+    return false;
+  }
+
+  bool colour = false;
+  uint32_t offset = 0;
+  const bool graphics_memory =
+      ap_graphics_decode_memory(address, &colour, &offset) &&
+      (colour ? ap_graphics_is_colour(board->graphics.screen)
+              : ap_graphics_is_monochrome(board->graphics.screen));
+
+  if (graphics_memory && address % 2u == 0u && count != 1u) {
+    board->region_reads[AP_BOARD_REGION_GRAPHICS] += count;
+    uint32_t value = 0;
+    for (unsigned i = 0; i < count; i += 2u) {
+      value = (value << 16) |
+              ap_graphics_memory_read_cycle(&board->graphics,
+                                            (offset + i) / 2u);
+    }
+    *out = value;
+    return true;
+  }
+
+  bool all = true;
+  uint32_t value = 0;
+  for (unsigned i = 0; i < count; i++) {
+    bool ok = false;
+    const uint8_t byte = ap_board_read(board, address + i, &ok);
+    all = all && ok;
+    value = (value << 8) | byte;
+  }
+  *out = value;
+  return all;
+}

@@ -23,17 +23,11 @@ static uint32_t read_bytes(const ap_machine_t *machine, uint32_t address,
  * nothing is not a transfer this machine can make. */
 static bool board_read(ap_machine_t *machine, uint32_t address, unsigned count,
                        uint32_t *out) {
-  uint32_t value = 0;
-  for (unsigned i = 0; i < count; i++) {
-    bool ok = false;
-    uint8_t byte = ap_board_read(machine->board, address + i, &ok);
-    if (!ok) {
-      return false;
-    }
-    value = (value << 8) | byte;
-  }
-  *out = value;
-  return true;
+  /* The board is told the width, for the reason `board_write` gives and one
+   * more: a read of the display controller's image memory *latches* while
+   * reading, so two byte reads would latch twice and leave the guard latch
+   * holding a byte pair rather than a word. */
+  return ap_board_read_access(machine->board, address, count, out);
 }
 
 static bool board_write(ap_machine_t *machine, uint32_t address, unsigned count,

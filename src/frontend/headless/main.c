@@ -601,14 +601,12 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
      * is what this did first, gives a card with one eighth of its memory and a
      * scanout that correctly refuses to run.
      *
-     * **Deliberate approximation, and the cost to close it.** The window
-     * reaches offset 0 upward, so the CPU sees *plane 0* and only plane 0.
-     * Which plane the window selects, and on what register, is unmeasured --
-     * `CR2`'s destination select is the blitter's, not the window's, and no
-     * manual in `docs/references/` says. Closing it needs that measurement;
-     * until then a program that writes through the window draws in plane 0 and
-     * a blit reaches every plane, which is enough for the scanout to be
-     * exercised and not enough to claim the windowing is modelled. */
+     * The window is **exactly one plane** -- 128 KB is 1024x1024 bits, and the
+     * 1280x1024 monochrome board's 256 KB is 2048x1024 -- so an offset in it is
+     * a word offset *within* a plane and there is no plane selector to model.
+     * Which planes an access reaches is `CR2`'s, applied by the blitter's plane
+     * loop. This carried a documented approximation until the two sizes were
+     * put beside each other; the arithmetic is the proof. */
     ap_graphics_geometry_t geometry;
     const bool fitted = ap_graphics_geometry(screen, &geometry);
     const uint32_t image_bytes =

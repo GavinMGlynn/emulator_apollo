@@ -1485,6 +1485,101 @@ static void test_only_the_eight_plane_board_has_a_bt458(void) {
       0xFFu, ap_graphics_read(&four, AP_GRAPHICS_COLOUR_ADDR + 0x403u));
 }
 
+/* ## The window is one plane, and a read through it is a cycle
+ *
+ * The CPU's window onto the image memory is 128 KB colour and 256 KB for the
+ * 1280x1024 monochrome board. This was recorded as a deliberate approximation
+ * -- "the window reaches plane 0 until the plane selector is measured" -- and
+ * there is no selector to measure. The window sizes and the plane sizes are the
+ * same numbers, which is arithmetic and not a reading of anyone's source.
+ */
+static void test_each_window_is_exactly_one_plane(void) {
+  const uint32_t colour_window =
+      AP_GRAPHICS_COLOUR_MEMORY_END - AP_GRAPHICS_COLOUR_MEMORY_ADDR + 1u;
+  const uint32_t mono_window =
+      AP_GRAPHICS_MONO_MEMORY_END - AP_GRAPHICS_MONO_MEMORY_ADDR + 1u;
+
+  ap_graphics_geometry_t eight, mono;
+  TEST_ASSERT_TRUE(ap_graphics_geometry(AP_SCREEN_COLOUR_8_PLANE, &eight));
+  TEST_ASSERT_TRUE(ap_graphics_geometry(AP_SCREEN_MONO_19_INCH, &mono));
+
+  /* 65536 words either way, and 131072 either way. Not "about one plane". */
+  TEST_ASSERT_EQUAL_UINT32(eight.plane_words, colour_window / 2u);
+  TEST_ASSERT_EQUAL_UINT32(mono.plane_words, mono_window / 2u);
+  /* The 4-plane board shares the colour window and the same plane size, so one
+   * window serves both colour cards. */
+  ap_graphics_geometry_t four;
+  TEST_ASSERT_TRUE(ap_graphics_geometry(AP_SCREEN_COLOUR_4_PLANE, &four));
+  TEST_ASSERT_EQUAL_UINT32(four.plane_words, colour_window / 2u);
+}
+
+/* A read through the window comes from the **source** plane, not from plane 0.
+ * The window is one plane's worth of addresses and which plane is `CR2`'s
+ * answer -- so a model returning plane 0 would read the right shape from the
+ * wrong colour. */
+static void test_a_window_read_comes_from_the_source_plane(void) {
+  ap_graphics_t g;
+  scanout_setup(&g, AP_SCREEN_COLOUR_8_PLANE);
+  ap_graphics_geometry_t geometry;
+  TEST_ASSERT_TRUE(ap_graphics_geometry(AP_SCREEN_COLOUR_8_PLANE, &geometry));
+
+  /* Plane 0 and plane 3 hold different words at the same offset. */
+  const uint32_t at = 12u;
+  scanout_memory[at * 2u] = 0x00u;
+  scanout_memory[at * 2u + 1u] = 0x11u;
+  const uint32_t plane3 = 3u * geometry.plane_words + at;
+  scanout_memory[plane3 * 2u] = 0x33u;
+  scanout_memory[plane3 * 2u + 1u] = 0x44u;
+
+  /* `CR0` mode 7 reads memory; `CR2B` names source plane 3. */
+  g.reg.cr0 = (uint8_t)(AP_GRAPHICS_CR0_NORMAL << 5);
+  g.reg.cr2b = 3u;
+  TEST_ASSERT_EQUAL_HEX16(0x3344u, ap_graphics_memory_read_cycle(&g, at));
+}
+
+/* Two modes drive an internal data bus rather than the memory: what comes back
+ * is the guard latch, which is how a driver reads the source it has been
+ * assembling instead of whatever the destination happens to hold. */
+static void test_two_modes_read_the_latch_instead_of_the_memory(void) {
+  ap_graphics_t g;
+  scanout_setup(&g, AP_SCREEN_MONO_15_INCH);
+  scanout_memory[0] = 0xDEu;
+  scanout_memory[1] = 0xADu;
+  g.guard_latch[0] = 0x0000BEEFu;
+
+  for (uint8_t mode = 0u; mode < 8u; mode++) {
+    g.reg.cr0 = (uint8_t)(mode << 5);
+    const uint16_t got = ap_graphics_memory_read_cycle(&g, 0u);
+    if (mode == AP_GRAPHICS_CR0_VECTOR ||
+        mode == AP_GRAPHICS_CR0_CPU_SOURCE_BLT) {
+      TEST_ASSERT_EQUAL_HEX16(0xBEEFu, got);
+    } else {
+      TEST_ASSERT_EQUAL_HEX16(0xDEADu, got);
+    }
+    g.guard_latch[0] = 0x0000BEEFu; /* the others latch; put it back */
+  }
+}
+
+/* **Reading this device changes it.** Every mode but those two latches while
+ * reading, which is why nothing in this module takes a const graphics and why
+ * an instrument watching this range would perturb what it measured -- the same
+ * rule that makes `--boot-watch` refuse a non-memory address. */
+static void test_a_window_read_latches_while_reading(void) {
+  ap_graphics_t g;
+  scanout_setup(&g, AP_SCREEN_MONO_15_INCH);
+  scanout_memory[0] = 0xC0u;
+  scanout_memory[1] = 0xDEu;
+  g.reg.cr0 = (uint8_t)(AP_GRAPHICS_CR0_NORMAL << 5);
+  g.guard_latch[0] = 0u;
+
+  (void)ap_graphics_memory_read_cycle(&g, 0u);
+  TEST_ASSERT_EQUAL_HEX32(0x0000C0DEu, g.guard_latch[0]);
+  /* A second read shifts the first up, which is the pair a shifted blit
+   * reaches across. */
+  (void)ap_graphics_memory_read_cycle(&g, 0u);
+  TEST_ASSERT_EQUAL_HEX32(0xC0DEC0DEu, g.guard_latch[0]);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_each_screen_reports_the_id_the_firmware_compares_against);
@@ -1549,5 +1644,9 @@ int main(void) {
   RUN_TEST(test_a_read_tries_the_fifo_first_and_a_write_does_not);
   RUN_TEST(test_the_a_d_converter_is_counted_rather_than_invented);
   RUN_TEST(test_only_the_eight_plane_board_has_a_bt458);
+  RUN_TEST(test_each_window_is_exactly_one_plane);
+  RUN_TEST(test_a_window_read_comes_from_the_source_plane);
+  RUN_TEST(test_two_modes_read_the_latch_instead_of_the_memory);
+  RUN_TEST(test_a_window_read_latches_while_reading);
   return UNITY_END();
 }

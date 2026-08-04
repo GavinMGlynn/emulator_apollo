@@ -888,3 +888,54 @@ ap_graphics_cycle_t ap_graphics_memory_cycle(ap_graphics_t *graphics,
       return out;
   }
 }
+
+uint16_t ap_graphics_memory_read_cycle(ap_graphics_t *graphics,
+                                       uint32_t offset) {
+  ap_graphics_geometry_t geometry;
+  if (!ap_graphics_geometry(graphics->screen, &geometry)) {
+    return 0xFFFFu;
+  }
+  const bool colour = ap_graphics_is_colour(graphics->screen);
+  const uint8_t *memory = colour ? graphics->colour_memory
+                                 : graphics->mono_memory;
+  const uint32_t bytes = colour ? graphics->colour_bytes
+                                : graphics->mono_bytes;
+  if (memory == NULL) {
+    return 0xFFFFu;
+  }
+  const uint32_t words = bytes / 2u;
+
+  unsigned s_plane = 0u, d_plane = 0u;
+  ap_graphics_cr2_access_t access = AP_GRAPHICS_CR2_CONSTANT_ACCESS;
+  ap_graphics_cr2_fields(graphics, &s_plane, &d_plane, &access);
+
+  switch (ap_graphics_cr0_mode(graphics->reg.cr0)) {
+    case AP_GRAPHICS_CR0_VECTOR:
+    case AP_GRAPHICS_CR0_CPU_SOURCE_BLT:
+      /* These two drive an internal data bus rather than the memory: what comes
+       * back is the guard latch, which is how a driver reads the source it has
+       * been assembling instead of whatever the destination happens to hold. */
+      return (uint16_t)graphics->guard_latch[s_plane < AP_GRAPHICS_MAX_PLANES
+                                                 ? s_plane
+                                                 : 0u];
+    case AP_GRAPHICS_CR0_CPU_DEST_BLT:
+    case AP_GRAPHICS_CR0_ALTERNATING_BLT:
+    case AP_GRAPHICS_CR0_DOUBLE_ACCESS_BLT:
+    case AP_GRAPHICS_CR0_NORMAL:
+    case AP_GRAPHICS_CR0_UNKNOWN_5:
+    case AP_GRAPHICS_CR0_UNKNOWN_6:
+    default:
+      break;
+  }
+
+  /* Every other mode **latches while reading**. A read of this device changes
+   * it, which is why nothing here takes a const graphics and why an instrument
+   * that watched this range would perturb what it measured. */
+  latch_from_memory(graphics, offset, s_plane, geometry.planes,
+                    geometry.plane_words, memory, words);
+
+  /* And the word comes from the **source plane**, not from plane 0. The window
+   * is one plane's worth of addresses; which plane is `CR2`'s answer. */
+  const uint32_t at = offset + geometry.plane_words * s_plane;
+  return at < words ? image_word(memory, at) : 0xFFFFu;
+}

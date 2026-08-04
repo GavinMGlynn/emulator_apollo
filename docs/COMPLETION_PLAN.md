@@ -2649,8 +2649,19 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
           control-register setting. It recovered a real palette: the firmware
           had already loaded entry 0 black and 1-255 white, a white-on-black
           console, sitting unread inside those 803 register writes.*
-        - Still open: which plane the CPU's 128 KB window selects — unmeasured,
-          and the window reaches plane 0 until it is.
+        - **The window is exactly one plane, and there was nothing to
+          measure.** 128 KB is 1024x1024 bits and the monochrome board's
+          256 KB is 2048x1024, so an offset in the window is a word offset
+          *within* a plane and `CR2` decides which planes an access reaches.
+          The recorded approximation was a misdiagnosis, closed by arithmetic
+          already in hand. The **read** path was a real gap and is now a cycle:
+          from the source plane, from the guard latch in two modes, and
+          latching while reading in the rest. Detail in `PROJECT_STATUS.md`.
+          *Verification: `graphics_suite`, 4 further tests (66 total) — both
+          windows equalling both plane sizes exactly, a read coming from the
+          named source plane and not plane 0, the two modes that read the latch
+          told apart from the five that do not, and a second read shifting the
+          first up into the pair a shifted blit reaches across.*
         - **The scanout is done**, `ap_graphics_scanout`: the image memory
           read out as one pixel index per pixel. The four geometries are the
           manual's, and each **buffer** width — the part that looks like an

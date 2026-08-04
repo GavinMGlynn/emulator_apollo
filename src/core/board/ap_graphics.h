@@ -671,6 +671,31 @@ ap_graphics_cycle_t ap_graphics_memory_cycle(ap_graphics_t *graphics,
                                              uint32_t offset, uint16_t data,
                                              uint16_t mem_mask);
 
+/* ## The window is exactly one plane, and that is not an approximation
+ *
+ * The CPU's window onto the image memory is 128 KB for a colour board and
+ * 256 KB for the 1280x1024 monochrome one. Those are **65536 and 131072
+ * words**, which is precisely one plane of each: 1024x1024 bits and
+ * 2048x1024 bits. The window does not select a plane and there is no register
+ * that makes it: an offset in the window is a *word offset within a plane*, and
+ * which planes an access reaches is `CR2`'s `D_PLANE` and `S_PLANE`, applied by
+ * the blitter's plane loop.
+ *
+ * This was recorded here as a deliberate approximation -- "the window reaches
+ * plane 0 until the selector is measured" -- and there is no selector to
+ * measure. Both window sizes agreeing exactly with both plane sizes is the
+ * proof, and it is arithmetic rather than a reading of anyone's source.
+ *
+ * ## A read through the window is a cycle too, and it has side effects
+ *
+ * It comes from the **source** plane, not from plane 0, and in the two modes
+ * that drive an internal data bus it does not come from memory at all -- it is
+ * the guard latch. Every other mode *latches while reading*, so a read of this
+ * device changes it, which is the same rule that makes `ap_graphics_read`
+ * non-const. */
+[[nodiscard]] uint16_t ap_graphics_memory_read_cycle(ap_graphics_t *graphics,
+                                                     uint32_t offset);
+
 /* `CR2`'s fields, decoded for the fitted board -- which is not one register on
  * all three. A monochrome controller has **one plane**, so its selects are
  * fixed rather than read: source plane 0, and a destination mask of `0E` that
