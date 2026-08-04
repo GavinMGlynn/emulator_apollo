@@ -3404,7 +3404,7 @@ failure that cost a bit position in the 68020's module entry word.
 | Board cache (`012000` RAM, `014000` condition codes) | not started. The shared **bus arbitration point** is done and has its own row above | — |
 | Apollo interrupt controllers (`011000`, `011100`) | working: the two 8259As cascaded on **IR3** (measured, not IR2 as the AT convention would have it), vector bases `A0`/`A8` from the boot PROM's own ICW2, giving levels `A0`-`AF`. Priority order matches `008778-03` Table 2-3, which with the cascade on IR3 has no anomaly. The CPU interrupt level is **6**, also measured — neither manual states it, and it took starting the interval timer by hand to make anything request at all | `intr_suite`, 13 tests; `FINDINGS.md` C11, `tools/mame-oracle/writetrace.lua` |
 | Intel 8259A interrupt controller (the part) | working: ICW1-4 sequence, all three OCWs, fully nested priority with rotation, edge and level triggering, special mask and special fully nested modes, poll, AEOI, and the spurious level 7. 8086-mode vectoring only — MCS-80/85's `CALL` sequence is refused rather than approximated, and this machine never uses it. The Apollo *pairing* is a separate module | `i8259_suite`, 28 tests, each citing `8259A` 231468-003 |
-| Core-board address maps (`board/ap_board.c`) | working: every device placed by `008778-03` Table 2-8 and by the measurement that confirmed it, main memory at `1000000`, and an unclaimed address reported **unmapped rather than zero** — the distinction flat RAM hid, which cost 5634 invisible accesses in the first firmware run. Regions are named, so a trace can say *what* the firmware reached for. The AT windows declare a cycle time and everything else answers at the minimum, and an access to the translation map's undescribed seven eighths is counted rather than silently aliased, and each of the two declined core registers is counted apart | `board_suite`, 23 tests; `atbus_suite`, 8 tests |
+| Core-board address maps (`board/ap_board.c`) | working: every device placed by `008778-03` Table 2-8 and by the measurement that confirmed it, main memory at `1000000`, and an unclaimed address reported **unmapped rather than zero** — the distinction flat RAM hid, which cost 5634 invisible accesses in the first firmware run. Regions are named, so a trace can say *what* the firmware reached for. The AT windows declare a cycle time and everything else answers at the minimum, and an access to the translation map's undescribed seven eighths is counted rather than silently aliased, and each of the two declined core registers is counted apart | `board_suite`, 25 tests; `atbus_suite`, 8 tests |
 | Shared bus arbitration point | working: the external priority encoder `[030]` §7.7 requires, DRQ0 through DRQ7 with the processor last, driving the CPU's own arbitration unit over the three-wire protocol. A grant and its acknowledgement are separate instants, so the processor stops driving the bus when it grants rather than when the grant is taken up; a master is never pre-empted mid-transfer | `arbiter_suite`, 9 tests, `MC68030 User's Manual 3ed` §7.7, `008778-03` §2.4.6 |
 | Apollo DMA controllers (`010C00`, `010D00`) | working: DMA 1 at **stride 1** and DMA 2 at **stride 2**, both measured, both aliased through their ranges. A read of a write-only register returns zero where the oracle returns `0F`; `[8237]` marks that read "Illegal", so neither is specified and ours does not invent a register value. The board runs transfers: controller 1's request cascaded onto controller 2's channel 0 and one request reaching the arbiter, the address through the translation map, and the processor stalled while a controller holds the bus. The cascade and the channel assignments are `008778-03` Table 2-4's, so the AT convention this module used to refuse is now cited rather than assumed. **The peripheral side is wired**: the tape drives its own request line and its cartridge reaches memory by DMA, and the disk's two data ports move under an acknowledge | `dma_suite`, 16 tests; `FINDINGS.md` C13 |
 | Intel 8237A DMA controller (the part) | **programming model and transfer cycle complete**: all sixteen register addresses, four channels with base and current address/count, the single shared first/last flip-flop, command/mode/request/mask/status/temporary, master clear, autoinitialise reload and the mask-on-terminal-count rule; and a service cycle that moves a byte either way, verifies without moving one, walks the address up or down, and ends on the borrow out of zero rather than at zero. Memory-to-memory is refused outright rather than half-run. The part drives sixteen bits of address and the board composes the rest — not yet wired to the board | `i8237_suite`, 26 tests, `8237A` 231466 |
@@ -4475,6 +4475,40 @@ disk. `0C INITIALIZE DRIVE CHARACTERISTICS` is refused in the command phase and
 not only in the decoder -- a decoder that says no beside an executor that says
 yes is worse than neither. And a controller with no drive answers "not ready"
 rather than looking like one with a blank disk.
+
+#### The FPA space, and why the oracle's own handler for it is switched off
+
+`F8000000`-`FFFFFFFF` is the floating-point accelerator's address space. No FPA
+is fitted here, and the question was whether to answer there at all — the
+oracle carries a handler for exactly that range, `apollo_f8_r`, which returns
+`FFFFFFFF`, and four commented-out map lines that would install it. It was
+written and not kept, and the plan recorded it as a hint to be understood
+before repeating.
+
+**The reason is that it does not raise a bus error.** The catch-all the range
+falls through to instead, `apollo_unmapped_r`, returns the same `FFFFFFFF` *and*
+calls `apollo_bus_error()`. The two handlers differ in nothing a data bus can
+show and everything a machine acts on.
+
+The firmware probes this space to discover whether an accelerator is present,
+and **the fault is the negative answer**. Install the quiet handler and a
+machine with no FPA reports one, after which floating point is dispatched to
+hardware that is not there. The oracle's own comments confirm the reading from
+the other side: `apollo_unmapped_r` carries a clause for `address == 0xfff90000`
+whose only effect is to *omit the logging* — "FPA trial access" — while leaving
+the bus error in place. MAME silenced the noise and kept the fault.
+
+`FFF90000` is the address the firmware actually probes, and this core found it
+independently, as the first unmapped read of a PROM boot, before the oracle's
+comment was read.
+
+So nothing is decoded there, deliberately, and the space is **not** given a
+region name of its own: naming it would be the first step toward answering
+there. What was missing was not behaviour but a reason and a test, and both
+now exist — including the DN3000, which reaches the same answer by a different
+route. Its five high-order address bits "are simply ignored", so `FFF90000`
+folds to `07F90000`, still above everything that board decodes. A mask that
+happened to land the probe on a real device would answer it.
 
 #### How the SC-499 was placed, and its registers recovered
 

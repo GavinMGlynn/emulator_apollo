@@ -599,6 +599,58 @@ static void test_the_dma_page_registers_store(void) {
                          ap_board_region(&region_board, AP_DMAPAGE_ADDR));
 }
 
+/* ---- The FPA address space, which must keep faulting ---------------------- */
+
+/* `F8000000`-`FFFFFFFF` is the floating-point accelerator's space, and no FPA
+ * is fitted. The oracle carries a handler for exactly this range inside
+ * `#if 0` -- `apollo_f8_r`, returning `FFFFFFFF` -- and four commented-out map
+ * lines that would install it. It was tried and not kept, and the reason is the
+ * one thing that matters here: **it does not raise a bus error**. The catch-all
+ * it falls through to instead, `apollo_unmapped_r`, returns the same
+ * `FFFFFFFF` *and* calls `apollo_bus_error()`.
+ *
+ * So the two differ in nothing a data bus can show and everything a machine
+ * acts on. The firmware probes this space to find out whether an FPA is there;
+ * the fault is the negative answer. Install the quiet handler and a machine
+ * with no accelerator reports one, then dispatches floating point to it. */
+static void test_the_fpa_space_is_unmapped_on_both_models(void) {
+  TEST_ASSERT_EQUAL_UINT(AP_BOARD_REGION_UNMAPPED,
+                         ap_board_region(&region_board, 0xF8000000u));
+  TEST_ASSERT_EQUAL_UINT(AP_BOARD_REGION_UNMAPPED,
+                         ap_board_region(&region_board, 0xFFFFFFFFu));
+
+  /* And on the DN3000, which reaches the same answer by a different route: its
+   * five high-order bits "are simply ignored", so `FFF90000` folds to
+   * `07F90000` -- still above everything that board decodes. A mask that
+   * happened to land the probe on a device would answer it. */
+  ap_board_t dn3000;
+  TEST_ASSERT_TRUE(ap_board_init_model(&dn3000, ram, sizeof ram, &START,
+                                       0x012345u, AP_MODEL_DN3000));
+  TEST_ASSERT_EQUAL_UINT(AP_BOARD_REGION_UNMAPPED,
+                         ap_board_region(&dn3000, 0xFFF90000u));
+}
+
+/* `FFF90000` is the address the firmware actually probes -- the oracle names it
+ * "FPA trial access" and silences its log there while still faulting. This core
+ * found it independently as the first unmapped read of a PROM boot. */
+static void test_the_fpa_trial_access_faults_rather_than_answering(void) {
+  ap_board_t b;
+  bool ok = true;
+  init(&b);
+
+  (void)ap_board_read(&b, 0xFFF90000u, &ok);
+  TEST_ASSERT_FALSE(ok);
+  TEST_ASSERT_EQUAL_UINT(1u, b.unmapped_reads);
+  TEST_ASSERT_EQUAL_HEX32(0xFFF90000u, b.first_unmapped_read);
+
+  /* A write there is refused too. An FPA space that swallowed writes while
+   * faulting reads would be a stranger machine than either choice. */
+  ok = true;
+  ap_board_write(&b, 0xFFF90000u, 0x5Au, &ok);
+  TEST_ASSERT_FALSE(ok);
+  TEST_ASSERT_EQUAL_UINT(1u, b.unmapped_writes);
+}
+
 int main(void) {
   UNITY_BEGIN();
   init_region_board();
@@ -620,6 +672,8 @@ int main(void) {
   RUN_TEST(test_an_empty_at_bus_window_reads_ff_rather_than_faulting);
   RUN_TEST(test_the_windows_do_not_swallow_the_devices_inside_them);
   RUN_TEST(test_main_memory_s_name_stops_where_its_address_space_does);
+  RUN_TEST(test_the_fpa_space_is_unmapped_on_both_models);
+  RUN_TEST(test_the_fpa_trial_access_faults_rather_than_answering);
   RUN_TEST(test_every_core_board_register_is_reachable_through_the_map);
   RUN_TEST(test_a_key_press_reaches_serial_one_channel_a);
   RUN_TEST(test_a_repeated_press_puts_nothing_on_the_port);

@@ -2129,7 +2129,7 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
       and `roms/firmware` carries the matching `3000_OMTI_8621_102640-B.bin`.
       The WD7000 is the DN4500's and belongs with the other model variants.
       `FINDINGS.md` C15.
-- [ ] **Booting from the cartridge, and the machine that had to exist first.** The SC-499's register model and the boot record, then everything `--boot-tape` turned out to need: the address map, the PROM boot, the missing opcodes, the bus-error investigation.
+- [x] **Booting from the cartridge, and the machine that had to exist first.** The SC-499's register model and the boot record, then everything `--boot-tape` turned out to need: the address map, the PROM boot, the missing opcodes, the bus-error investigation.
   - [x] The controller's register model, from `[SC499]` §1.9: all four
         addresses, the derived interrupt flag, the tri-stated IRQ line, and
         RSTDMA's documented identity with power-on reset — which makes the two
@@ -2304,9 +2304,20 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         space, in the range MAME leaves commented out as `apollo_f8_r/w`.
   - [x] Characterised `FFF90000`, and **our behaviour matches the oracle**.
         Detail in `PROJECT_STATUS.md`.
-  - [ ] If an FPA is ever modelled, `F8000000-FFFFFFFF` is its space — and the
-        commented-out handler is a hint that returning `FFFFFFFF` there was
-        tried and not kept. Find out why before repeating it.
+  - [x] **Found out why, and it is decisive: the commented-out handler does not
+        raise a bus error.** `apollo_f8_r` returns `FFFFFFFF`; the catch-all it
+        falls through to returns the same value *and* faults. The firmware
+        probes `F8000000`-`FFFFFFFF` to discover whether an FPA is fitted and
+        **the fault is the negative answer**, so the quiet handler would make a
+        machine with no accelerator report one. The oracle confirms it from the
+        other side: its `fff90000` clause omits only the *logging* of the "FPA
+        trial access" and keeps the bus error. Nothing is decoded there, and the
+        space is deliberately not given a region name — that would be the first
+        step toward answering. Detail in `PROJECT_STATUS.md`.
+        *Verification: `board_suite`, 2 tests — the space unmapped on **both**
+        models, and the trial access faulting on read and on write. The DN3000
+        gets there differently: its top five address bits are ignored, so the
+        probe folds to `07F90000`, still above anything it decodes.*
 
 ### The PROM now needs time to pass
 
