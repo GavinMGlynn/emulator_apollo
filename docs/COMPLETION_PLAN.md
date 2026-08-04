@@ -2570,6 +2570,23 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
           **803 writes** to the controller. Those writes are the specification
           for what is left: they are what the blitter and lookup table have to
           answer.
+        - **The PNG the verification line asks for exists**, `--screenshot`
+          over `frontend/common/ap_png.c`, and a blit is now checked *through*
+          the scanout rather than beside it. libpng is optional and the build
+          says which it is. Detail in `PROJECT_STATUS.md`.
+          *Verification: `graphics_suite` +1 (40) blits a pattern and finds it
+          at the pixel the geometry says and at no neighbour;
+          `frontend_common_suite` +2 (12) writes a PNG and reads it back
+          through libpng's own decoder, on a non-square image with an
+          asymmetric pattern and indices that are not their own colours, so a
+          transpose, a flip or an ignored palette all fail.*
+        - Still open, and what a real picture now waits on: the register
+          **file** (`CR0`-`CR2` are arguments, not storage), the blitter joined
+          to the image memory (it works on host-order words and the memory is
+          bytes), which plane the CPU's 128 KB window selects, and the lookup
+          table wired to the board so an index can become a colour. A 400,000
+          instruction boot with `--screen c8p` makes 803 register writes and
+          **no** graphics-memory write, so the screen is legitimately blank.
         - **The scanout is done**, `ap_graphics_scanout`: the image memory
           read out as one pixel index per pixel. The four geometries are the
           manual's, and each **buffer** width — the part that looks like an

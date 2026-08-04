@@ -885,6 +885,82 @@ static void test_disp_en_is_reported_rather_than_painted(void) {
   TEST_ASSERT_EQUAL_UINT8(1u, scanout_pixels[0]);
 }
 
+/* ## The blitter and the scanout, composed
+ *
+ * Everything above tests one half or the other. This is the only test that
+ * draws something and then looks at it, which is the shape the item's
+ * verification asks for -- every register identity in this file passes on a
+ * controller whose picture is mirrored, sheared or blank.
+ *
+ * **It also shows what is not yet joined.** `ap_graphics_blit` works on a host
+ * -order `uint16_t` array and the image memory a board attaches is bytes, so
+ * the test stores the blitted words big-endian itself. On real hardware that
+ * is one memory; here the two halves are still separate modules and the
+ * joining is the next piece of work. Writing the serialisation out by hand is
+ * how the test says so.
+ */
+static void test_a_blit_lands_where_the_scanout_reads_it(void) {
+  ap_graphics_t g;
+  scanout_setup(&g, AP_SCREEN_COLOUR_8_PLANE);
+  ap_graphics_geometry_t geometry;
+  TEST_ASSERT_TRUE(ap_graphics_geometry(AP_SCREEN_COLOUR_8_PLANE, &geometry));
+
+  /* One word of image memory per plane, at the second word of the third row --
+   * off both axes, so a stride that ignored the buffer width and one that
+   * ignored the plane size both land somewhere else. */
+  const uint32_t dest = 2u * (geometry.buffer_width / 16u) + 1u;
+
+  static uint16_t blitted[8u * 65536u];
+  memset(blitted, 0, sizeof blitted);
+  uint16_t source[8];
+  /* Planes 0 and 2 carry the pattern, the rest are blank: index 5, which is
+   * asymmetric in both directions. */
+  for (unsigned p = 0; p < 8u; p++) {
+    source[p] = (p == 0u || p == 2u) ? 0xC000u : 0x0000u;
+  }
+
+  ap_graphics_blit_t blit = {
+      .cr0 = 0u,
+      .cr1 = AP_GRAPHICS_CR1_ROP_EN,
+      .access = AP_GRAPHICS_CR2_PLANE_ACCESS,
+      /* Plain source copy in every plane. */
+      .rop_register = 0x33333333u,
+      .write_enable = 0x0000u,
+      /* **Active low**: zero selects, so zero selects every plane. */
+      .d_plane = 0x00u,
+      .s_plane = 0u,
+      .planes = 8u,
+      .plane_stride = 65536u,
+  };
+  TEST_ASSERT_EQUAL_UINT(8u, ap_graphics_blit(&blit, blitted, 8u * 65536u,
+                                              dest, 0xFFFFu, source));
+
+  /* Store the words as the 68030 would have: high byte first. This is the step
+   * a wired board would not need. */
+  for (unsigned p = 0; p < geometry.planes; p++) {
+    const uint32_t word = p * 65536u + dest;
+    const uint32_t at = (p * geometry.plane_words + dest) * 2u;
+    scanout_memory[at] = (uint8_t)(blitted[word] >> 8);
+    scanout_memory[at + 1u] = (uint8_t)blitted[word];
+  }
+
+  TEST_ASSERT_EQUAL_UINT32(1024u * 800u,
+                           ap_graphics_scanout(&g, AP_GRAPHICS_CR1_DISP_EN,
+                                               scanout_pixels,
+                                               sizeof scanout_pixels));
+
+  /* Row 2, pixels 16 and 17: the two set bits of $C000 in the second word. */
+  const uint32_t row = 2u * geometry.width;
+  TEST_ASSERT_EQUAL_UINT8(5u, scanout_pixels[row + 16u]);
+  TEST_ASSERT_EQUAL_UINT8(5u, scanout_pixels[row + 17u]);
+  /* And nowhere else: not the pixel before, not the one after, and not the
+   * same offset a row up -- which is where a visible-width stride would put
+   * it. */
+  TEST_ASSERT_EQUAL_UINT8(0u, scanout_pixels[row + 15u]);
+  TEST_ASSERT_EQUAL_UINT8(0u, scanout_pixels[row + 18u]);
+  TEST_ASSERT_EQUAL_UINT8(0u, scanout_pixels[geometry.width + 16u]);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_each_screen_reports_the_id_the_firmware_compares_against);
@@ -926,5 +1002,6 @@ int main(void) {
   RUN_TEST(test_inv_inverts_a_mono_screen_and_is_ad_bit_on_a_colour_one);
   RUN_TEST(test_a_scanout_that_cannot_run_writes_nothing);
   RUN_TEST(test_disp_en_is_reported_rather_than_painted);
+  RUN_TEST(test_a_blit_lands_where_the_scanout_reads_it);
   return UNITY_END();
 }

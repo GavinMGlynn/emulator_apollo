@@ -20,7 +20,11 @@ jobs:
       - run: git submodule update --init --depth 1 $CI_SUBMODULES
       # lua enables the oracle dump-format test; it is best-effort, so a
       # runner without it still builds and tests the core.
-      - run: sudo apt-get update && sudo apt-get install -y lua5.4
+      # lua for the oracle dump-format test; libpng for the screenshot
+      # round-trip. Both are best-effort -- the build and the rest of the
+      # suite are unaffected by a runner without them, and the PNG test
+      # reports itself ignored rather than failing.
+      - run: sudo apt-get update && sudo apt-get install -y lua5.4 libpng-dev
       - run: cmake --preset linux-ci
       - run: cmake --build --preset linux-ci
       - run: ctest --preset linux-ci --output-on-failure
@@ -37,7 +41,7 @@ jobs:
         run: |
           dnf install -y dnf-plugins-core
           dnf config-manager --set-enabled crb
-          dnf install -y clang cmake ninja-build git python3 lua
+          dnf install -y clang cmake ninja-build git python3 lua libpng-devel
       - uses: actions/checkout@v4
       - name: Trust the container checkout
         run: git config --global --add safe.directory '*'
@@ -54,7 +58,20 @@ jobs:
       - run: git submodule update --init --depth 1 ext/unity
       - uses: ilammy/msvc-dev-cmd@v1
       - run: choco install ninja -y
-      - run: cmake --preset windows-ci
+      # libpng here for the same reason the other three jobs have it, and one
+      # more that matters only here: `ap_png.c` is the newest platform-sensitive
+      # file in the tree -- setjmp, a pointer cast through uintptr_t, and size_t
+      # arithmetic under -Wconversion -Werror. Without a libpng its body is
+      # #ifdef'd out, so the job whose whole purpose is catching portability
+      # defects would not compile the file most likely to have one. vcpkg is
+      # preinstalled on windows-latest; the build is from source and costs a
+      # few minutes, which is what that coverage is worth.
+      - run: vcpkg install libpng:x64-windows
+      - run: >
+          cmake --preset windows-ci
+          "-DCMAKE_TOOLCHAIN_FILE=$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake"
+          -DVCPKG_TARGET_TRIPLET=x64-windows
+        shell: pwsh
       - run: cmake --build --preset windows-ci
       - run: ctest --preset windows-ci --output-on-failure
 
@@ -64,7 +81,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: git submodule update --init --depth 1 $CI_SUBMODULES
-      - run: brew install ninja lua
+      - run: brew install ninja lua libpng
       - run: cmake --preset macos-ci
       - run: cmake --build --preset macos-ci
       - run: ctest --preset macos-ci --output-on-failure

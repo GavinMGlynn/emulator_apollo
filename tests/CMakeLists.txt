@@ -140,6 +140,15 @@ apollo_add_suite(machine_suite)
 apollo_add_suite(model_suite)
 apollo_add_suite(hash_suite)
 apollo_add_suite(frontend_common_suite apollo_frontend_common)
+# The PNG round-trip reads the file back with libpng's own decoder: an encoder
+# and a decoder that only agree with each other can agree on the wrong picture.
+# Guarded, because CI builds on three platforms and does not have a libpng
+# everywhere -- the test reports itself ignored rather than failing there.
+find_package(PNG QUIET)
+if(PNG_FOUND)
+  target_compile_definitions(frontend_common_suite PRIVATE APOLLO_TEST_HAVE_PNG)
+  target_link_libraries(frontend_common_suite PRIVATE PNG::PNG)
+endif()
 
 # Golden result blocks. These supersede a bare "does it run" smoke test:
 # regress.py already fails on a non-zero exit, so the golden checks that the

@@ -24,6 +24,7 @@
 #include "board/ap_board.h"
 #include "board/ap_sio.h"
 #include "board/ap_graphics.h"
+#include "ap_png.h"
 #include "device/ap_kbd.h"
 #include "machine/ap_machine.h"
 
@@ -55,6 +56,7 @@ static void print_usage(const char *program_name) {
           "  --boot-key N          press and release keyboard key N (a matrix\n"
           "                        index 0-7F, not a character)\n"
           "  --screen KIND         fit a display: c4p, c8p, 19i or 15i\n"
+          "  --screenshot FILE     scan the fitted screen out to a PNG\n"
           "  --boot-input-channel C  which channel, A or B (default A). The\n"
           "                        keyboard is port 1 channel A; a terminal is\n"
           "                        port 1 channel B\n");
@@ -454,12 +456,95 @@ static void report_state(const ap_machine_t *machine) {
  * machine has no physical memory at the boot image's load address, and the
  * addresses in its header are logical (`FINDINGS.md` C28). The PROM is what
  * enables translation, so it is what has to run first. */
+/* Scan the fitted screen out and write it as a PNG.
+ *
+ * The plan's verification line for the drawing engine asks for exactly this and
+ * for nothing weaker: "verify on a decoded PNG rather than on register
+ * round-trips — a controller that passes register tests and draws nothing is
+ * the standard way this goes wrong". A mirrored, sheared or blank image passes
+ * every register identity in `graphics_suite`.
+ *
+ * ## The palette, and what this cannot yet claim
+ *
+ * A monochrome screen has a real one: the bitmap stores **ink**, so a set bit
+ * is black and a clear bit white. That is the whole colour model and it is
+ * exact.
+ *
+ * A colour screen does not, here. The 8-plane board's lookup table is a Bt458
+ * and `ap_bt458` models it completely — but it is **not wired to the board**,
+ * so an index cannot yet become a colour; the 4-plane board's own 16-entry
+ * table is not modelled at all. Rather than invent colours, a colour screenshot
+ * is written as an *index map* under an even grey ramp, and the console says
+ * so. It still catches every geometric failure, which is what the verification
+ * is for; it does not claim to be what the monitor showed. */
+static int write_screenshot(const char *path, const ap_graphics_t *graphics,
+                            uint8_t cr1) {
+  ap_graphics_geometry_t geometry;
+  if (!ap_graphics_geometry(graphics->screen, &geometry)) {
+    fprintf(stderr, "apollo: no screen fitted, nothing to capture\n");
+    return 1;
+  }
+  if (!ap_png_available()) {
+    fprintf(stderr, "apollo: %s\n", ap_png_status_name(AP_PNG_UNSUPPORTED));
+    return 1;
+  }
+
+  const uint32_t pixels = (uint32_t)geometry.width * geometry.height;
+  uint8_t *image = calloc(1, pixels);
+  if (image == NULL) {
+    fprintf(stderr, "apollo: cannot allocate the screenshot\n");
+    return 1;
+  }
+  if (ap_graphics_scanout(graphics, cr1, image, pixels) != pixels) {
+    free(image);
+    fprintf(stderr, "apollo: the screen could not be scanned out\n");
+    return 1;
+  }
+
+  const unsigned colours = 1u << geometry.planes;
+  uint8_t palette[256][3];
+  if (geometry.planes == 1u) {
+    /* Ink, not light: a set bit is black. */
+    palette[0][0] = palette[0][1] = palette[0][2] = 0xFFu;
+    palette[1][0] = palette[1][1] = palette[1][2] = 0x00u;
+  } else {
+    for (unsigned i = 0; i < colours; i++) {
+      const uint8_t level = (uint8_t)(i * 255u / (colours - 1u));
+      palette[i][0] = palette[i][1] = palette[i][2] = level;
+    }
+  }
+
+  const ap_png_status_t status =
+      ap_png_write_indexed(path, image, geometry.width, geometry.height,
+                           palette, colours);
+  free(image);
+  if (status != AP_PNG_OK) {
+    fprintf(stderr, "apollo: cannot write %s: %s\n", path,
+            ap_png_status_name(status));
+    return 1;
+  }
+
+  printf("  screenshot   %s, %ux%u, %u plane(s)\n", path, geometry.width,
+         geometry.height, geometry.planes);
+  if (!ap_graphics_display_enabled(cr1)) {
+    /* Reported rather than painted black, so that "the firmware never enabled
+     * the display" and "the firmware drew nothing" stay different answers. */
+    printf("               DISP_EN is clear: the monitor would show black\n");
+  }
+  if (geometry.planes > 1u) {
+    printf("               index map under a grey ramp, not the screen's"
+           " colours -- the\n"
+           "               lookup table is not wired to the board\n");
+  }
+  return 0;
+}
+
 static int boot_from_prom(const char *path, unsigned limit, bool trace,
                           uint32_t watch, const char *input, unsigned input_unit,
                           unsigned input_channel, uint8_t input_rate,
                           unsigned key, bool console,
                           ap_screen_kind_t screen, uint32_t node_id,
-                          ap_model_id_t model) {
+                          ap_model_id_t model, const char *screenshot) {
   long size = 0;
   uint8_t *prom = read_file(path, &size);
   if (prom == NULL) {
@@ -489,10 +574,36 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
   uint8_t *colour_memory = NULL;
   uint8_t *mono_memory = NULL;
   if (screen != AP_SCREEN_NONE) {
-    const uint32_t colour_bytes =
+    /* The card's whole image memory, which is **not** the size of the CPU's
+     * window onto it. An 8-plane board carries 1 MB in eight planes and the
+     * window at `0A0000-0BFFFF` is 128 KB -- one plane -- which is why the
+     * plane-select registers exist at all. Allocating the window's size, which
+     * is what this did first, gives a card with one eighth of its memory and a
+     * scanout that correctly refuses to run.
+     *
+     * **Deliberate approximation, and the cost to close it.** The window
+     * reaches offset 0 upward, so the CPU sees *plane 0* and only plane 0.
+     * Which plane the window selects, and on what register, is unmeasured --
+     * `CR2`'s destination select is the blitter's, not the window's, and no
+     * manual in `docs/references/` says. Closing it needs that measurement;
+     * until then a program that writes through the window draws in plane 0 and
+     * a blit reaches every plane, which is enough for the scanout to be
+     * exercised and not enough to claim the windowing is modelled. */
+    ap_graphics_geometry_t geometry;
+    const bool fitted = ap_graphics_geometry(screen, &geometry);
+    const uint32_t image_bytes =
+        fitted ? geometry.plane_words * 2u * geometry.planes : 0u;
+    const uint32_t window_colour =
         AP_GRAPHICS_COLOUR_MEMORY_END - AP_GRAPHICS_COLOUR_MEMORY_ADDR + 1u;
-    const uint32_t mono_bytes =
+    const uint32_t window_mono =
         AP_GRAPHICS_MONO_MEMORY_END - AP_GRAPHICS_MONO_MEMORY_ADDR + 1u;
+    /* Whichever is larger: the memory must hold the picture, and the window
+     * must not address past the end of the buffer it decodes into. */
+    const bool is_colour = ap_graphics_is_colour(screen);
+    const uint32_t colour_bytes =
+        (is_colour && image_bytes > window_colour) ? image_bytes : window_colour;
+    const uint32_t mono_bytes =
+        (!is_colour && image_bytes > window_mono) ? image_bytes : window_mono;
     colour_memory = calloc(1, colour_bytes);
     mono_memory = calloc(1, mono_bytes);
     if (colour_memory == NULL || mono_memory == NULL) {
@@ -855,10 +966,23 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
     }
   }
 
+  /* Last, so the run's own report is complete first and a failed capture
+   * cannot cost the measurements that were already taken. `CR1` is passed as
+   * the reset value: the register file is not modelled, so what the firmware
+   * programmed is not readable back -- which is why `DISP_EN` is reported
+   * rather than believed. */
+  int status = 0;
+  if (screenshot != NULL) {
+    status = write_screenshot(screenshot, &board->graphics,
+                              AP_GRAPHICS_CR1_DISP_EN);
+  }
+
+  free(colour_memory);
+  free(mono_memory);
   free(board);
   free(ram);
   free(prom);
-  return 0;
+  return status;
 }
 
 /* Load a cartridge and run its boot image.
@@ -1129,6 +1253,7 @@ int main(int argc, char **argv) {
   unsigned boot_input_rate = 0x77u;
   unsigned boot_key = AP_KBD_KEYS; /* none */
   ap_screen_kind_t boot_screen = AP_SCREEN_NONE;
+  const char *screenshot = NULL;
   bool run_probe_suite = false;
   const char *probe_file_path = nullptr;
   bool report_timing = false;
@@ -1218,6 +1343,11 @@ int main(int argc, char **argv) {
       i += 2;
       continue;
     }
+    if (strcmp(argv[i], "--screenshot") == 0 && i + 1 < argc) {
+      screenshot = argv[i + 1];
+      i += 2;
+      continue;
+    }
     if (strcmp(argv[i], "--boot-console") == 0) {
       boot_console = true;
       i += 1;
@@ -1299,7 +1429,7 @@ int main(int argc, char **argv) {
     return boot_from_prom(boot_prom, boot_limit, boot_trace, boot_watch,
                           boot_input, boot_input_unit, boot_input_channel,
                           (uint8_t)boot_input_rate, boot_key, boot_console,
-                          boot_screen, node_id, opt.model->id);
+                          boot_screen, node_id, opt.model->id, screenshot);
   }
 
   if (boot_tape != NULL) {
