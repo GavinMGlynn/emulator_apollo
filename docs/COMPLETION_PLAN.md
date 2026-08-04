@@ -2629,15 +2629,14 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
           controller's memory from its registers, and a 400,000 instruction
           `--screen c8p` boot makes **0 blit cycles** against 803 register
           writes: the firmware is still in self-test and has not drawn.
-        - **The next thing to measure, named by those counters.** At
-          4,000,000 instructions the register writes are still 803 — all of
-          them before the 400,000 mark — while the *reads* go 175,350 to
-          1,975,350: one every two instructions, which is a poll loop rather
-          than a self-test. The only register there this core does not model is
-          the **status** register, which reads `FF`, and whose real bits report
-          conditions that firmware would wait to see *clear*. A hypothesis with
-          an obvious shape, and recorded as one: the PROM's own loop has not
-          been read yet.
+        - **Diagnosed, and it is not in the drawing engine.** At 4,000,000
+          instructions the register writes are still 803 — all before the
+          400,000 mark — while the *reads* go 175,350 to 1,975,350, one every
+          two instructions. The firmware is polling the **status** register,
+          five of whose bits are the raster: `BLANK`, `V_BLANK`, `H_SYNC`,
+          `V_SYNC`, `H_CK`. This core returns a constant `FF`, so no edge ever
+          arrives and it waits forever, never reaching the code that draws. The
+          blank screen and the poll loop are one fault. `FINDINGS.md` C112.
         - Still open: which plane the CPU's 128 KB window selects, and the
           lookup table wired to the board so an index can become a colour.
         - **The scanout is done**, `ap_graphics_scanout`: the image memory
@@ -2901,6 +2900,17 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
 
 ## Phase 5 — Display
 
+- [ ] **The video clock domain, which recomputes `AP_TIME_BASE_HZ`.** Blocks the
+      display timing below and, through the status register, the firmware's own
+      drawing — `FINDINGS.md` C112. 68 MHz does not divide 19,800,000,000, so
+      `ap_clock_init` refuses it by design; the base becomes
+      `LCM` = **336,600,000,000**, 17x, at which a pixel is exactly 4950 units
+      and a frame 5,603,330,700. Cost measured, not assumed: one golden line
+      carries the base (`model_table.txt`), `timing.txt` is in clocks and
+      `probes.txt` has no time at all. *Verification: the unit changes and no
+      behaviour does — every probe golden and the long-run state hash identical
+      once the base line is regenerated, which is the identity harness's own
+      standard applied to a constant.*
 - [ ] Mono 1024×800 graphics controller and display timing. *Verification:
       framebuffer decoded to PNG and inspected; oracle frame diff.*
 - [ ] Colour and 8-plane controllers; 1280×1024 mono. *Verification: as above

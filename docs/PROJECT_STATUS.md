@@ -4597,6 +4597,45 @@ last and hardest — **a decoded PNG**. Register round-trips and word-level
 identities are what can be checked without one, and a controller that passes
 those and draws nothing is the standard way this goes wrong.
 
+#### The poll loop is the raster, and the pixel clock does not divide the base
+
+The counters added with the mode dispatch turned a blank screen from a guess
+into a diagnosis. Every register write the firmware makes happens before the
+400,000 instruction mark — 803 of them, unchanged at 4,000,000 — after which it
+does nothing but *read* the controller, 1.8 million times in three and a half
+million instructions. One read every two. That is a poll loop.
+
+**The status register is video timing, not a busy flag.** Five of its bits —
+`BLANK`, `V_BLANK`, `H_SYNC`, `V_SYNC`, `H_CK` — come from the raster. This core
+returns a constant `FF`, so no edge ever arrives and the firmware waits forever,
+never reaching the code that draws. The blank screen and the poll loop are one
+fault rather than two, and neither is in the drawing engine.
+
+**The manual bounds the timing and the oracle supplies the point values.**
+`008778-03` Table 11-3 gives 1024x800 noninterlaced, horizontal 50.2 kHz ±500 Hz,
+vertical 47–80 Hz, horizontal blanking 4.713 µs maximum, vertical 828.83 µs
+(15-inch) and 831 µs (19-inch), and a video bandwidth reaching 70 MHz. The
+oracle's `set_raw(68000000, 1346, 0, 1024, 841, 0, 800)` sits inside every one:
+68 MHz over 1346 is 50.52 kHz, and 50520 over 841 is 60.07 Hz, which is §1.5.3's
+"60-Hz, noninterlaced" exactly. Horizontal blanking comes out 0.5% over the
+stated maximum, inside the tolerance already allowed on the frequency itself.
+The manual alone could not have given a raster; this is the resolution order
+working as intended.
+
+**And it is a time-base change, not a device.** 68 MHz does not divide
+`AP_TIME_BASE_HZ` — 19,800,000,000 over 68,000,000 is 291.18 — so
+`ap_clock_init` would refuse it, correctly and by design. The video clock domain
+needs the base recomputed to `LCM(19.8e9, 68e6)` = **336,600,000,000**, 17x the
+current one. At that base a pixel is exactly 4950 units, a line 6,662,700 and a
+frame 5,603,330,700, so every raster boundary is an integer; `uint64` still
+holds 634 days of emulated time.
+
+The cost was measured rather than assumed, and it is small: one golden line
+carries the base (`model_table.txt`), `timing.txt` is in *clocks*, and
+`probes.txt` has no time in it. Every other user of the constant derives from
+it. It is filed as its own plan item because it changes the project's unit of
+account, which does not belong inside a display-controller change.
+
 #### The floppy geometry has a second source, from MAME's own driver page
 
 `media/` held eleven `.awd` images and no floppy image at all, so the half of

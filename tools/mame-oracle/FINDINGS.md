@@ -6454,3 +6454,79 @@ that is schedule-free.
 
 `--program all` now runs 17 programs: 14 identical, 2 differing as recorded
 (C70's ULP, C92's absent FPCP vectors), 1 not applicable to a DN3500.
+
+## C112 -- the poll loop is the raster, and the pixel clock does not divide the base
+
+**Class: ours-wrong, and the fix is a unit change rather than a device.**
+
+A `--screen c8p` boot draws nothing. The counters added with `CR0`'s mode
+dispatch turned that from a guess into a measurement, and then into a
+diagnosis:
+
+    instructions   register writes   register reads   blit cycles
+       400,000               803          175,350             0
+     4,000,000               803        1,975,350             0
+
+Every register write happens before the 400,000 mark. After that the firmware
+does nothing but *read* the controller -- 1.8 million times in three and a half
+million instructions, one read every two. That is a poll loop, not a self-test.
+
+### What it is polling
+
+The only register in the block this core does not model is the **status**
+register at offset 0, which returns a constant `FF`. Its bits are not a busy
+flag. From the oracle's own definitions:
+
+    0x80 BLANK      0x40 V_BLANK    0x20 H_SYNC (mono) / DONE (colour)
+    0x10 R_M_W      0x08 ALT        0x04 V_SYNC (mono) / SYNC (colour)
+    0x02 H_CK       0x01 V_DATA (mono) / V_FLAG (4p) / LUT_OK (8p)
+
+Five of those -- `BLANK`, `V_BLANK`, `H_SYNC`, `V_SYNC`, `H_CK` -- are **display
+timing**, driven from the raster. The firmware is waiting for a sync or blank
+edge. Against a constant `FF` no edge ever arrives, so it waits forever, and it
+never reaches the code that would draw. The blank screen and the poll loop are
+one fault, not two.
+
+### The figures, from the manual first
+
+`008778-03` Table 11-3, colour monitor performance:
+
+    resolution            1024 x 800 noninterlaced
+    horizontal            50.2 kHz +/- 500 Hz
+    vertical              47 to 80 Hz
+    horizontal blanking   4.713 us maximum
+    vertical blanking     828.83 us max (15-inch), 831 us max (19-inch)
+    horizontal retrace    3.713 us maximum
+    video bandwidth       50 Hz to 70 MHz minimum
+
+The oracle's `set_raw(68000000, 1346, 0, 1024, 841, 0, 800)` agrees inside every
+tolerance the manual states: 68 MHz / 1346 is 50.52 kHz, within the +/- 500 Hz;
+50520 / 841 is 60.07 Hz, inside 47-80 and matching §1.5.3's "60-Hz,
+noninterlaced". Horizontal blanking works out at 4.735 us against a stated
+maximum of 4.713 -- 0.5% over, and inside the tolerance already allowed on the
+horizontal frequency. Vertical blanking is 811.6 us against 828.83.
+
+So the manual bounds the timing and the oracle supplies the point values inside
+those bounds. That is the resolution order working as intended, and it is worth
+saying plainly: the manual alone could not have given a raster.
+
+### Why this is not a device item
+
+**68 MHz does not divide `AP_TIME_BASE_HZ`.** 19,800,000,000 / 68,000,000 is
+291.18, so `ap_clock_init` would refuse it -- correctly, and by design. Adding
+the video clock domain means recomputing the base, which is what `CLAUDE.md`
+says a derived constant costs:
+
+    LCM(19,800,000,000, 68,000,000) = 336,600,000,000   (17x)
+
+At that base a pixel is exactly 4950 units, a line 6,662,700 and a frame
+5,603,330,700, so every raster boundary lands on an integer and nothing is
+rounded. `uint64` still holds 634 days of emulated time.
+
+The cost is smaller than it sounds and was measured rather than assumed: one
+golden line carries the base (`model_table.txt`), `timing.txt` is in *clocks*
+and not base units, and `probes.txt` has no time in it at all. Every other user
+of the constant derives from it.
+
+Filed as its own plan item, because it changes the project's unit of account and
+does not belong inside a display-controller change.
