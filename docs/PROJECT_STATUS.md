@@ -275,8 +275,10 @@ probe targets and become the machine's output. The matching input module is the
 keyboard — serial 1 channel A takes scan codes, and the PROM's table at
 `000021D2` is the map it decodes them with.
 
-The tick loop is still owed and remains the project's central design item, but
-it is not what this stop needs.
+The tick loop is closed as far as Phase 3 can take it — one run loop, devices
+advanced against absolute time with their remainders carried, the bus ticked per
+clock and contention emergent. The strict per-machine-cycle reading is a Phase 8
+question and is filed there, beside the cycle-steppable CPU it waits on.
 
 Every board counter now records its first address, not only its count. The AT
 bus empty-slot scan begins at `00080000`, exactly the base of AT bus memory, so
@@ -4838,6 +4840,19 @@ would show wherever a device's output feeds back into an instruction still
 executing. Closing it needs a cycle-steppable CPU, which is a larger change than
 this item, and it is recorded as its own thing rather than left implied by a
 ticked box.
+
+**Where that question now lives, and why it moved.** It is a sub-item of Phase
+8's per-cycle processor, not of the tick loop. The reason is the plan's own: the
+per-cycle processor sits in Phase 8 because it is "a rewrite of the run loop
+under everything already built on it", and Phase 8 begins "only after the
+reference core is proven, and only under an identity harness" — so doing it now
+is precisely the mistake that phase exists to prevent. Leaving the open child
+under the tick loop said the opposite: it put an item that *cannot* advance at
+the head of a plan that is read forwards to choose the next thing, and every
+pass over the list would stop there. The tick loop is therefore ticked as far as
+this phase can take it, and the deferred question is filed beside the item that
+unblocks it. Nothing was dropped and no box was ticked over unfinished work —
+only the two halves of one dependency were put next to each other.
 
 #### The keyboard has two code sets, and this core had read one as the other
 

@@ -2510,7 +2510,17 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         map at `000021D2`, settled because ASCII was being fed to the keyboard
         channel. Superseded by feeding serial 1 channel B, which moves the PROM
         to `00002542`.
-- [ ] **The tick loop**, the project's central design item.
+- [x] **The tick loop**, the project's central design item — as far as this
+      phase can take it. *Verification: one run loop and only one. The frontend
+      used to step `ap_m68030_step` directly, so the boot ran on a machine where
+      no time passed; it calls `ap_machine_run` with a limit of one instead, and
+      the same boot now advances 3,370,481,136 base units. Devices advance
+      against absolute time carrying their own remainders, the bus ticks per
+      clock, and contention is emergent rather than computed — the processor
+      loses the arbitration rather than being charged a penalty. `machine_suite`,
+      41 tests. The **strict** reading of "one `tick()` per machine cycle" needs
+      a cycle-steppable CPU and is filed in Phase 8 beside the item that
+      unblocks it, not left implied by a ticked box here.*
 
   - [x] **The five named debts, discharged.** The item's own definition of done
         was that the five things it named begin to advance; three had been
@@ -2527,16 +2537,12 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         *Verification: `sio_suite` 17, `kbd_suite` 17. The PROM still runs
         4,000,000 instructions with 129 bus errors and 129 unmapped reads, all
         at the FPA probe address -- unchanged.*
-  - [ ] **Remaining, and it is architectural rather than a debt.** Devices
-        advance once per instruction to an absolute instant, each carrying its
-        own remainder; the bus is ticked per *clock*. That is not yet
-        `CLAUDE.md`'s "one `tick()` per machine cycle" in the strict sense.
-        The two agree on everything measured so far -- remainders are carried
-        and the 68030 samples interrupts at instruction boundaries anyway --
-        and they do not agree in general, wherever a device's output would feed
-        back into an instruction still executing. **Awaiting:** a cycle-steppable
-        CPU, which is a larger change than this item and is named here rather
-        than left implied by a ticked box.
+  - [x] **Moved rather than dropped, to Phase 8.** Devices advance once per
+        instruction to an absolute instant and the bus is ticked per *clock*,
+        which is not `CLAUDE.md`'s "one `tick()` per machine cycle" in the
+        strict sense. It is architectural, not a debt, and it awaits a
+        cycle-steppable CPU — so it now sits with that item, where the plan is
+        read forwards from.
   - [x] That run was a machine waiting correctly rather than a runaway — the PC
         stayed on one instruction and the fault count was static, unlike the
         vector-table runaway. Confirmed since: it was waiting for console input
@@ -2943,6 +2949,15 @@ Only after the reference core is proven, and only under an identity harness.
       afterwards is the mistake the whole phase exists to avoid.
       *Verification: probe goldens and boot state hashes byte-identical across
       the change, which is this phase's standard and not a weaker one.*
+  - [ ] **What the tick loop item deferred here**, so that the two are read
+        together. Phase 3's loop advances each device to an absolute instant
+        once per instruction, every device carrying its own remainder, and
+        ticks the bus per clock. The two schedules agree on everything measured
+        so far — remainders are carried, and the 68030 samples interrupts at
+        instruction boundaries anyway — and they do **not** agree in general,
+        wherever a device's output would feed back into an instruction still
+        executing. That case is what a cycle-steppable CPU makes reachable, and
+        it is the reason to want one beyond speed.
 - [ ] Squeeze the reference core first: LTO, `flatten` on the run loops,
       idle-skip guards naming each subsystem's no-op states, cached arbitration
       results, cached per-cycle re-derived values. *Verification: probe goldens
