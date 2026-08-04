@@ -279,3 +279,61 @@ The table also settles the `E` from `A1000`. The crash codes are
 command-syntax response and not a crash code, and looking for it in this table
 was the wrong table. Recorded because the lookup was still worth doing: it cost
 nothing, and it produced a better route than the one it was meant to unblock.
+
+
+## This core produces the same stream
+
+Booting `3500_BOOT_12191_7` under `apollo-headless` with carriage returns paced
+onto serial 1 channel B:
+
+```
+0D 0A 4D 44 37 43 20 52 45 56 20 38 2E 30 30 2C 20
+31 39 38 39 2F 30 38 2F 31 36 2E 31 37 3A 32 33 3A
+35 32 0D 0A 3E
+```
+
+which is `CR LF "MD7C REV 8.00, 1989/08/16.17:23:52" CR LF '>'`.
+
+Against the oracle's, character for character:
+
+| | sign-on |
+| --- | --- |
+| oracle, via `mdsession.py` | `0A` … `0A` with the text between |
+| this core | `0D 0A` … `0D 0A` with the same text |
+
+The difference is the `CR`s, and this file already accounts for them: MAME's
+`apollo_stdio_device::rcv_complete` drops `\r` on its way to stdout, and the
+leading one was confirmed independently by the register tap that caught `0D 0A`
+before the `M`. **What this core emits is what that tap saw** -- the line as the
+DUART carries it, with nothing removed.
+
+The prompt agrees as well. This file records `CR LF CR LF '>'`; this core emits
+`0D 0A 0D 0A 3E`, preceded by the `0D` echo of the carriage return that prompted
+it, which is the echo behaviour recorded below.
+
+### What it took, and why the stream was empty before
+
+Seven defects in this core, each of which had been quietly making every earlier
+firmware run meaningless, and none of them in the serial code:
+
+1. the boot loop stepped the processor rather than the machine, so **no time
+   passed** -- `elapsed 0 base units` on every run this project had taken;
+2. `--boot-key` never delivered a byte, because `MR1` resets to a five-bit link
+   and a disabled receiver drops what arrives;
+3. scripted input had the same defect;
+4. the 68681's counter reached terminal count one clock late;
+5. a rate mismatch set a flag and delivered the byte **intact**, where a UART
+   returns a different value because it sampled at the wrong instants -- and the
+   firmware's autobaud identifies the rate *from* that value;
+6. device registers were **cacheable**, so a polled status bit was read once and
+   then forever out of the cache;
+7. a byte read ran a **long-word** bus cycle, popping the receive FIFO twice and
+   handing the program the second pop.
+
+And then the pacing this file had already prescribed. The last character could
+not be delivered faster than the wire carries it -- ten bit times at the line's
+own rate -- and sending as soon as the FIFO emptied put the byte that should
+have arrived *after* the firmware rewrote its clock select in front of it
+instead, consuming the armed state and leaving the clean character with nothing
+to take it. "One carriage return every 0.4 s, not a pipe delivered at once" was
+recording a requirement, not an incidental of how the capture was driven.

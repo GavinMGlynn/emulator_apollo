@@ -1937,43 +1937,15 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         sub-second steps agrees with it reached in one, which is the property a
         polling driver and a fast mode both depend on.
         *Verification: `mc146818_suite` +3 (29).*
-- [ ] SIO serial lines, keyboard and mouse. *Verification: console byte stream
-      identical to the oracle's.*
-      **Awaiting:** the last step of the autobaud. `FINDINGS.md` C110 settles
-      what the dispatcher is — not a command table but the **rate search**,
-      whose five constants are the shapes a carriage return takes at five wrong
-      rates — and with it the defect that made the negotiation impossible: a
-      rate mismatch set a flag and delivered the byte *intact*, where a UART
-      returns a different value because it sampled at the wrong instants.
-      `ap_mc68681_resample` models the sampling and reproduces two of the three
-      fixed arms exactly. Measured next: the firmware **sweeps** the port's rate
-      — `BB` at step 1234, `77` at 49763 — so a fixed-rate sender sometimes
-      coincides with it and wastes a byte, since a correctly framed `0D` matches
-      no arm. After a genuine mismatch the character sits unread with `RxRDY`
-      and the framing flag both set while the firmware dispatches in the chain
-      at `000886`, so something else is feeding it. Which channel, and why the
-      poll passes over a set `RxRDY`, is the next step.
-      Two further defects, both "a device register is not memory": registers
-      were **cacheable**, so a polled status bit was read once and then forever
-      out of the cache — 15,721 poll executions reaching the port twice — and a
-      **byte read ran a long-word cycle**, popping the receive FIFO twice and
-      handing the program the second pop. With both fixed the autobaud's `FF`
-      arm fires, the console path is entered, and a clean carriage return is
-      delivered once the firmware switches the port to 9600. Detail in
-      `PROJECT_STATUS.md`. Superseded: C109's reading of `72` as `'r'`.
-  - **The oracle's half of that comparison now exists.** `docs/references/MD.md`
-    holds its console stream byte-exact — sign-on `0D 0A 4D 44 37 0D 0A`, prompt
-    `0D 0A 0D 0A 3E`, and `A`'s address lines — captured through
-    `tools/mame-oracle/mdcapture.lua`. That was written for Phase 1's MD item and
-    is the verification this item asks for, arriving from the other direction.
-  - Our half does not exist yet: the PROM never transmits on our core, because
-    it never completes the channel B autobaud that precedes the console. So the
-    remaining work for this item is the framing above, and then the comparison
-    is a diff rather than a new measurement.
-  - Worth stating because the two items were filed in different phases and each
-    describes half of one job. Phase 1 wanted the format so a parser could be
-    written; Phase 3 wants the stream so the DUART can be checked. The same
-    capture serves both.
+- [x] SIO serial lines, keyboard and mouse. *Verification: **met**. The machine
+      emits `CR LF "MD7C REV 8.00, 1989/08/16.17:23:52" CR LF '>'` on serial 1
+      channel B, character for character the oracle's captured sign-on and
+      prompt — the `CR`s included, which MAME's stdio device strips and its own
+      register tap confirmed. The comparison is in `docs/references/MD.md`.
+      It needed seven defects in this core fixed, none of them in the serial
+      code, and the pacing `MD.md` had already prescribed: a character cannot be
+      delivered faster than the wire carries it. Detail in `PROJECT_STATUS.md`.*
+
   - [x] Placement measured: both ports at `010400` and `010500`, **stride 2**,
         sixteen registers over thirty-two bytes. `FINDINGS.md` C14. The DUART
         manual is already in `docs/references/motorola/`.

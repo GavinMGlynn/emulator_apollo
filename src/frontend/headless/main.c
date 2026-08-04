@@ -571,6 +571,25 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
   size_t input_sent = 0;
   const size_t input_length = input != NULL ? strlen(input) : 0u;
 
+  /* One character time at the line's own rate, which is the floor the *wire*
+   * imposes: a start bit, eight data bits and a stop bit cannot be delivered
+   * closer together than ten bit times, whatever the far end is doing.
+   *
+   * `MD.md`'s capture used 0.4 s between carriage returns, which is a person
+   * typing and is four hundred times this. The requirement it was recording is
+   * satisfied by any gap long enough for the firmware to rewrite a clock select
+   * between characters; the physical floor is the one this can justify without
+   * choosing a number, and it is three orders of magnitude cheaper to run.
+   *
+   * Zero for the rates that are not a fixed rate -- the timer and the two
+   * external clocks -- where this cannot know the character time and so imposes
+   * no gap. */
+  const unsigned input_baud =
+      ap_mc68681_baud((uint8_t)(input_rate & 0x0Fu), true);
+  const ap_time_t input_interval =
+      input_baud != 0u ? (AP_TIME_BASE_HZ * 10u) / input_baud : 0u;
+  ap_time_t input_next_at = 0u;
+
   ap_machine_run_t run;
   if (trace || input_length > 0u || console || key < AP_KBD_KEYS) {
     /* Step by step, reporting the program counter and the active stack pointer.
@@ -585,10 +604,29 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
              watch != 0u ? " watched" : "");
     }
     for (unsigned i = 0; i < limit; i++) {
-      /* Feed the next byte only once the program has taken the last, which is
-       * what a terminal's flow looks like and what stops a script from
-       * overrunning the receiver. */
+      /* Feed the next byte only once the program has taken the last **and** a
+       * terminal's worth of time has passed since the one before.
+       *
+       * "The program has taken the last" alone is not a terminal, it is a pipe:
+       * it delivers the next character microseconds later, and the firmware's
+       * console negotiation needs the gap. Measured, the two are 35 instructions
+       * apart -- about 5.6 us against a real terminal's 0.4 s, some seventy
+       * thousand times too fast.
+       *
+       * What that costs is not a lost byte but a *wrong* one. The autobaud arms
+       * itself on a mis-framed character and reprograms the port; the character
+       * that follows is meant to arrive at the new rate and be the clean one.
+       * Delivered before the firmware has rewritten the clock select, it is the
+       * old rate's garbage instead, it consumes the armed state, and the clean
+       * character that comes next has nothing left to consume it. The
+       * negotiation cycles forever making progress it immediately loses.
+       *
+       * `docs/references/MD.md` recorded the requirement from the other side --
+       * "one carriage return every 0.4 s on standard input, not a pipe
+       * delivered at once" -- and this could not honour it until the machine
+       * advanced time at all, which is a Phase 3 tick-loop item away. */
       if (input_sent < input_length &&
+          ap_machine_now(&machine) >= input_next_at &&
           !ap_sio_receiver_ready(&board->sio, input_unit, input_channel) &&
           ap_sio_character_bits(&board->sio, input_unit, input_channel) == 8u &&
           ap_sio_receiver_enabled(&board->sio, input_unit, input_channel)) {
@@ -608,6 +646,7 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
          * modelling a misconfigured cable rather than a console. */
         ap_sio_receive_at(&board->sio, input_unit, input_channel,
                           (uint8_t)input[input_sent], input_rate);
+        input_next_at = ap_machine_now(&machine) + input_interval;
         /* Advance only if the receiver actually took it. A DUART whose receiver
          * is still disabled drops the byte, and the firmware enables it long
          * after reset -- so a script that advanced regardless would deliver its

@@ -4434,6 +4434,66 @@ It does not move the boot: the PROM still stops in the console-selection poll at
 `000007AE`. What it does is make every later experiment run on the machine this
 core models rather than on a processor with the machine switched off.
 
+#### The machine talks: MD7C REV 8.00
+
+The SIO item's verification was a console byte stream identical to the oracle's.
+It is met. Booting `3500_BOOT_12191_7` with carriage returns paced onto serial 1
+channel B produces
+
+```
+0D 0A 4D 44 37 43 20 52 45 56 20 38 2E 30 30 2C 20
+31 39 38 39 2F 30 38 2F 31 36 2E 31 37 3A 32 33 3A
+35 32 0D 0A 3E
+```
+
+— `CR LF "MD7C REV 8.00, 1989/08/16.17:23:52" CR LF '>'` — against the oracle's
+capture of the same line, character for character. The oracle's stream lacks the
+`CR`s because MAME's `apollo_stdio_device` strips them on the way to stdout, and
+`MD.md` had already established that from its own register tap: what this core
+emits is what that tap saw. The prompt matches too, `CR LF CR LF '>'`, preceded
+by the echo of the carriage return that prompted it.
+
+**The last thing it needed was the pacing this project had written down and not
+believed.** `MD.md`'s capture recipe says "one carriage return every 0.4 s on
+standard input, **not a pipe delivered at once**", and that was read as an
+incidental of how the capture was driven. It is a requirement. Sending as soon
+as the FIFO emptied put the byte that should arrive *after* the firmware rewrote
+its clock select in front of it instead: the autobaud arms on a mis-framed
+character, the next character is meant to come at the new rate and be the clean
+one, and delivered too early it is the old rate's garbage again — consuming the
+armed state and leaving the clean character with nothing to take it. The
+negotiation cycled forever, making progress it immediately lost.
+
+The floor is not 0.4 s but **one character time at the line's own rate**: ten bit
+times, which the wire physically cannot beat. That is a figure this core can
+justify rather than choose, and it is four hundred times cheaper to run than a
+person's typing speed.
+
+**Seven defects, none of them in the serial code.** Every one had been quietly
+making earlier firmware runs meaningless:
+
+| | what it was |
+| --- | --- |
+| 1 | the boot stepped the processor, not the machine — **no time passed at all** |
+| 2 | `--boot-key` never delivered a byte: five-bit reset link, disabled receiver |
+| 3 | scripted input had the same defect |
+| 4 | the 68681 counter reached terminal count one clock late |
+| 5 | a rate mismatch **flagged** an intact byte instead of corrupting it |
+| 6 | device registers were **cacheable** |
+| 7 | a byte read ran a **long-word** bus cycle, popping the FIFO twice |
+
+Five and six and seven are the interesting ones, because each was invisible
+until something downstream needed it: the autobaud identifies a rate *from* the
+corruption, a polled status bit is meaningless if cached, and a FIFO read that
+takes two characters returns the wrong one. None would have been found by
+testing the DUART against itself.
+
+**This cannot be a CI test**, and for the same reason the volume-label reader
+cannot: `roms/` is gitignored because Apollo firmware is not ours to
+redistribute. The stream above is evidence recorded in `MD.md` beside the
+oracle's, reproducible on any machine that holds the PROM with the command that
+file names.
+
 #### Two ways a device read was not the read the program asked for
 
 Both found by following one firmware loop, and both are the same mistake in
