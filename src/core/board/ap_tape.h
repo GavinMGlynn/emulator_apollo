@@ -67,6 +67,10 @@ typedef struct {
   bool block_valid;
 } ap_tape_t;
 
+/* First use. See `ap_qic_init`: the drive's reset keeps its media, so it cannot
+ * be the first thing called on uninitialised memory. */
+void ap_tape_init(ap_tape_t *tape);
+
 void ap_tape_reset(ap_tape_t *tape);
 
 /* Load a cartridge into the drive. The type is the caller's to supply; see

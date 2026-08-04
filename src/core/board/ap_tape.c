@@ -2,6 +2,12 @@
 
 #include <string.h>
 
+void ap_tape_init(ap_tape_t *tape) {
+  memset(tape, 0, sizeof *tape);
+  ap_sc499_reset(&tape->controller);
+  ap_qic_init(&tape->drive);
+}
+
 void ap_tape_reset(ap_tape_t *tape) {
   ap_sc499_reset(&tape->controller);
   ap_qic_reset(&tape->drive);

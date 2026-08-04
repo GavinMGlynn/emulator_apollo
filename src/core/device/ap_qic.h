@@ -135,6 +135,13 @@ typedef struct {
   uint16_t underruns;
 } ap_qic_t;
 
+/* First use, on memory that has never held a drive: an empty drive, no media.
+ * `ap_qic_reset` preserves the cartridge and so cannot be the first call --
+ * preserving a field means reading it. */
+void ap_qic_init(ap_qic_t *qic);
+
+/* The drive's RESET: deselects, unlocks, rewinds, raises the power-on
+ * condition, and **keeps the cartridge**. Requires an initialised drive. */
 void ap_qic_reset(ap_qic_t *qic);
 
 /* Load a cartridge. `cartridge` is the type, which the drive cannot derive; see

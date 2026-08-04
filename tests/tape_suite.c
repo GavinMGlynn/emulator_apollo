@@ -11,7 +11,7 @@ void tearDown(void) {}
 
 static void test_the_measured_dump_is_reproduced(void) {
   ap_tape_t t;
-  ap_tape_reset(&t);
+  ap_tape_init(&t);
 
   /* The oracle's controller reads `00 40 FF FF FF FF FF FF` and repeats on an
    * eight-byte period. Reproduced from this core over sixteen bytes, which
@@ -42,7 +42,7 @@ static void test_the_measured_dump_is_reproduced(void) {
 
 static void test_the_write_only_commands_are_reachable_by_writing(void) {
   ap_tape_t t;
-  ap_tape_reset(&t);
+  ap_tape_init(&t);
 
   /* The dump reads `FF` at offsets 2 and 3, and for a while that looked like
    * the end of the part. They are write-triggered DMA commands: invisible to a
@@ -58,7 +58,7 @@ static void test_the_write_only_commands_are_reachable_by_writing(void) {
 static void test_the_upper_half_of_each_block_is_not_the_part(void) {
   ap_tape_t t;
   unsigned reg;
-  ap_tape_reset(&t);
+  ap_tape_init(&t);
 
   /* Four registers in eight addresses. Folding offsets 4 to 7 back onto them
    * would give a driver four aliases the hardware does not offer -- and would
@@ -73,7 +73,7 @@ static void test_the_upper_half_of_each_block_is_not_the_part(void) {
 
 static void test_the_registers_alias_on_an_eight_byte_period(void) {
   ap_tape_t t;
-  ap_tape_reset(&t);
+  ap_tape_init(&t);
 
   ap_tape_write(&t, AP_TAPE_ADDR + 8u, 0x5A); /* the data register again */
   TEST_ASSERT_EQUAL_HEX8(0x5A, ap_tape_read(&t, AP_TAPE_ADDR + 0u));
@@ -90,7 +90,7 @@ static void test_nothing_outside_the_range_decodes(void) {
 static void test_the_tape_raises_its_documented_interrupt(void) {
   ap_tape_t t;
   ap_intr_t intr;
-  ap_tape_reset(&t);
+  ap_tape_init(&t);
   ap_intr_reset(&intr);
 
   ap_intr_write(&intr, AP_INTR_MASTER_ADDR + 0u, 0x11);
@@ -117,7 +117,7 @@ static void arm(ap_tape_t *t) {
   for (unsigned i = 0; i < sizeof cartridge; i++) {
     cartridge[i] = (uint8_t)(0x40u + (i & 0x3Fu));
   }
-  ap_tape_reset(t);
+  ap_tape_init(t);
   TEST_ASSERT_TRUE(ap_tape_load(t, cartridge, sizeof cartridge,
                                 AP_QIC_CARTRIDGE_DC600A));
 }

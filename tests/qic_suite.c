@@ -16,13 +16,13 @@ static void load(ap_qic_t *q) {
   for (unsigned i = 0; i < sizeof image; i++) {
     image[i] = (uint8_t)(i & 0xFFu);
   }
-  ap_qic_reset(q);
+  ap_qic_init(q);
   TEST_ASSERT_TRUE(ap_qic_load(q, image, sizeof image, AP_QIC_CARTRIDGE_DC600A));
 }
 
 static void test_the_cartridge_type_must_be_supplied(void) {
   ap_qic_t q;
-  ap_qic_reset(&q);
+  ap_qic_init(&q);
 
   /* `[SC499]` has the controller discriminating cartridges "by measurement of
    * BOT to LOAD POINT distance" -- tape geometry, which a raw block image has
@@ -152,7 +152,7 @@ static void test_rewinding_returns_to_the_first_block(void) {
 
 static void test_a_status_read_answers_an_unselected_drive(void) {
   ap_qic_t q;
-  ap_qic_reset(&q);
+  ap_qic_init(&q);
 
   /* Every other command needs the drive selected. This one must not, because a
    * status read is how a driver discovers the drive is not ready. */
@@ -250,7 +250,7 @@ static void test_the_status_block_is_three_words_least_significant_byte_first(vo
  * look like a loaded one at block zero. */
 static void test_an_empty_drive_reports_no_cartridge_rather_than_beginning(void) {
   ap_qic_t q;
-  ap_qic_reset(&q);
+  ap_qic_init(&q);
   TEST_ASSERT_TRUE(ap_qic_command(&q, AP_QIC_CMD_READ_STATUS));
   const uint16_t exs = ap_qic_exception_word(&q);
   TEST_ASSERT_TRUE((exs & AP_QIC_EXS_NO_CARTRIDGE) != 0u);

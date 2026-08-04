@@ -2,20 +2,36 @@
 
 #include <string.h>
 
-void ap_qic_reset(ap_qic_t *qic) {
-  ap_ct_t image = qic->image;
-  bool loaded = qic->loaded;
-  ap_qic_cartridge_t cartridge = qic->cartridge;
-
+void ap_qic_init(ap_qic_t *qic) {
+  /* First use: an empty drive. Separate from the reset because the two differ
+   * in exactly one respect -- whether there is media to keep -- and only one of
+   * them can be called on memory that has never held a drive. */
   memset(qic, 0, sizeof *qic);
+  qic->power_on = true;
+}
 
+void ap_qic_reset(ap_qic_t *qic) {
   /* A reset does not eject the cartridge -- it is a command to the drive, not to
    * the operator. But it does deselect and unlock: `[SC499]` §1.13.1 has RESET
    * among the things that unlock, "Execution of the SELECT command or RESET
-   * unlocks the cartridge". */
-  qic->image = image;
-  qic->loaded = loaded;
-  qic->cartridge = cartridge;
+   * unlocks the cartridge".
+   *
+   * **Every field is written and none is read**, which is not a style choice.
+   * This used to save `image`, `loaded` and `cartridge`, `memset` the struct,
+   * and put the three back -- so a reset called on a drive that had never been
+   * initialised read uninitialised memory and preserved it, producing a drive
+   * that claimed to hold a cartridge made of stack residue. It survived every
+   * debug build, where the stack happened to be zero, and failed only at `-O3`
+   * in CI. A save-and-restore reset cannot be safe on first use; a reset that
+   * assigns everything it does not deliberately keep can be. */
+  qic->selected = false;
+  qic->soft_lock = false;
+  qic->q24_format = false;
+  qic->position = 0u;
+  qic->reading = false;
+  qic->status_pending = false;
+  qic->data_errors = 0u;
+  qic->underruns = 0u;
 
   /* `SC499_ST1_POR`, "power on/reset occurred". Set by the reset and cleared
    * only by the status read that reports it. */

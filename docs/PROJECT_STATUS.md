@@ -4561,6 +4561,18 @@ unrecoverable data error — that nothing here can produce, and setting one woul
 report damage a driver would then act on. Both counts are genuinely zero rather
 than unmodelled: this core rewrites no block and never interrupts streaming.
 
+**A reset that could not be the first call.** `ap_qic_reset` preserved the
+cartridge across a reset by saving `image`, `loaded` and `cartridge`,
+`memset`ing the struct, and putting the three back. On a drive that had never
+been initialised that reads uninitialised memory and *preserves* it, producing a
+drive that claims to hold a cartridge made of stack residue. It passed every
+debug build, where the stack happened to be zero, and failed only at `-O3` in
+CI. A save-and-restore reset cannot be safe on first use, so the two cases are
+now separate calls: `ap_qic_init` / `ap_tape_init` zero everything, and
+`ap_qic_reset` assigns every field it does not deliberately keep and reads none.
+`ap_board_reset` was never exposed to it — it `memset`s the whole board first —
+which is why this stayed latent until a test declared a bare drive.
+
 **Reading the status clears the condition it reports**, which is the point of
 the command — §1.12 has the drive report end of media "by means of an EXCEPTION
 and READ STATUS", and a power-on flag that outlived its own report would have a
