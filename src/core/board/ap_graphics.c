@@ -221,3 +221,52 @@ uint16_t ap_graphics_rop_apply(uint8_t cr1, uint32_t rop_register,
   }
   return s;
 }
+
+uint16_t ap_graphics_source_data(uint8_t cr0, ap_graphics_cr2_access_t access,
+                                 unsigned plane, uint16_t latched) {
+  switch (access) {
+  case AP_GRAPHICS_CR2_CONSTANT_ACCESS:
+    /* All ones, "used for vectors": a line draw wants a solid source and takes
+     * its shape from the addresses it writes, not from the data. */
+    return 0xFFFFu;
+  case AP_GRAPHICS_CR2_PIXEL_ACCESS:
+    /* One bit of the source, replicated across the word -- the bit belonging
+     * to this plane. That is how a packed pixel becomes a plane's worth of
+     * solid colour. */
+    return (latched & (uint16_t)(1u << (plane & 0x0Fu))) != 0u ? 0xFFFFu : 0u;
+  case AP_GRAPHICS_CR2_SHIFT_ACCESS:
+    /* The shifter's least significant bit, replicated. The same idea as pixel
+     * access with the bit chosen by the shift rather than by the plane. */
+    return (latched & 1u) != 0u ? 0xFFFFu : 0u;
+  case AP_GRAPHICS_CR2_PLANE_ACCESS:
+    break;
+  }
+  /* "Normal use": the word itself, shifted by `CR0`'s count. A count of 16 or
+   * more rotates the halves first, so the field reaches across the word rather
+   * than shifting everything out of it. */
+  {
+    uint32_t wide = latched;
+    const unsigned shift = ap_graphics_cr0_shift(cr0);
+    if (shift >= 16u) {
+      wide = (wide << 16) | (wide >> 16);
+    }
+    return (uint16_t)(wide >> (shift & 0x0Fu));
+  }
+}
+
+bool ap_graphics_plane_selected(unsigned d_plane, unsigned plane) {
+  if (plane >= AP_GRAPHICS_ROP_PLANES) {
+    return false;
+  }
+  /* **Zero selects.** A set bit masks the plane out. */
+  return (d_plane & (1u << plane)) == 0u;
+}
+
+uint16_t ap_graphics_combine(uint16_t write_enable, uint16_t mem_mask,
+                             uint16_t source, uint16_t destination) {
+  /* A bit is written when the write enable register has it clear *and* the bus
+   * cycle covers it. Both are expressed as "protect", which is why they are
+   * OR'd rather than AND'd: either one protecting is enough. */
+  const uint16_t protect = (uint16_t)(write_enable | (uint16_t)~mem_mask);
+  return (uint16_t)((destination & protect) | (source & (uint16_t)~protect));
+}

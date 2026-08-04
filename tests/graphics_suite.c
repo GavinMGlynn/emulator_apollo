@@ -428,6 +428,135 @@ static void test_the_plane_selects_are_wider_on_the_eight_plane_board(void) {
   TEST_ASSERT_EQUAL_UINT(0xB5u, ap_graphics_cr2_dest_plane(cr2, true));
 }
 
+/* ---- The blitter's word-level data path ----------------------------------- */
+
+/* **A destination plane is written when its `D_PLANE` bit is zero.** A model
+ * reading a set bit as "write this plane" draws into exactly the planes it
+ * should have left alone — on a monochrome screen, an image and its negative,
+ * which looks like a polarity bug anywhere else in the pipeline. */
+static void test_a_destination_plane_is_selected_by_a_zero_bit(void) {
+  /* `FE` masks out every plane but 0. */
+  TEST_ASSERT_TRUE(ap_graphics_plane_selected(0xFEu, 0u));
+  for (unsigned p = 1; p < 8u; p++) {
+    TEST_ASSERT_FALSE(ap_graphics_plane_selected(0xFEu, p));
+  }
+  /* All zero writes every plane, all ones writes none — which is the reading a
+   * set-selects model gets exactly backwards. */
+  for (unsigned p = 0; p < 8u; p++) {
+    TEST_ASSERT_TRUE(ap_graphics_plane_selected(0x00u, p));
+    TEST_ASSERT_FALSE(ap_graphics_plane_selected(0xFFu, p));
+  }
+}
+
+/* The write enable register runs the same way inside a word: a bit **set**
+ * protects the destination. A register called "write enable" that enables
+ * writing where it is zero is the kind of name that survives careful reading. */
+static void test_a_set_write_enable_bit_protects_the_destination(void) {
+  const uint16_t src = 0xFFFFu;
+  const uint16_t dst = 0x0000u;
+
+  /* Nothing protected: the source lands whole. */
+  TEST_ASSERT_EQUAL_HEX16(0xFFFFu, ap_graphics_combine(0x0000u, 0xFFFFu, src, dst));
+  /* Everything protected: the destination survives whole. */
+  TEST_ASSERT_EQUAL_HEX16(0x0000u, ap_graphics_combine(0xFFFFu, 0xFFFFu, src, dst));
+  /* The high byte protected, the low byte written. */
+  TEST_ASSERT_EQUAL_HEX16(0x00FFu, ap_graphics_combine(0xFF00u, 0xFFFFu, src, dst));
+}
+
+/* The bus's byte mask protects too, and independently: a byte the cycle does
+ * not cover is not written however the write enable register is programmed. */
+static void test_the_bus_mask_protects_whatever_the_register_says(void) {
+  TEST_ASSERT_EQUAL_HEX16(
+      0x00FFu, ap_graphics_combine(0x0000u, 0x00FFu, 0xFFFFu, 0x0000u));
+  /* Protection is a union, and overlapping is **idempotent**: a register
+   * protecting the high byte and a cycle that also only covers the low byte
+   * still leave the low byte written. Both guarding the same half does not
+   * guard the other half too, which is the reading that makes the two masks
+   * look like they multiply. */
+  TEST_ASSERT_EQUAL_HEX16(
+      0x00FFu, ap_graphics_combine(0xFF00u, 0x00FFu, 0xFFFFu, 0x0000u));
+
+  /* Guarding *different* halves is what protects everything. */
+  TEST_ASSERT_EQUAL_HEX16(
+      0x0000u, ap_graphics_combine(0x00FFu, 0x00FFu, 0xFFFFu, 0x0000u));
+}
+
+/* `CR2[7:6]`'s four access modes are four different ways of turning what was
+ * read into what the raster operation sees. Only `PLANE` is a copy. */
+static void test_the_access_modes_shape_the_source_word(void) {
+  /* Constant: all ones whatever was read, "used for vectors". */
+  TEST_ASSERT_EQUAL_HEX16(0xFFFFu,
+                          ap_graphics_source_data(0u, AP_GRAPHICS_CR2_CONSTANT_ACCESS,
+                                                  0u, 0x0000u));
+
+  /* Pixel: the plane's own bit, replicated across the word. */
+  TEST_ASSERT_EQUAL_HEX16(0xFFFFu,
+                          ap_graphics_source_data(0u, AP_GRAPHICS_CR2_PIXEL_ACCESS,
+                                                  2u, 0x0004u));
+  TEST_ASSERT_EQUAL_HEX16(0x0000u,
+                          ap_graphics_source_data(0u, AP_GRAPHICS_CR2_PIXEL_ACCESS,
+                                                  1u, 0x0004u));
+
+  /* Shift: the shifter's least significant bit, replicated. */
+  TEST_ASSERT_EQUAL_HEX16(0xFFFFu,
+                          ap_graphics_source_data(0u, AP_GRAPHICS_CR2_SHIFT_ACCESS,
+                                                  7u, 0x0001u));
+  TEST_ASSERT_EQUAL_HEX16(0x0000u,
+                          ap_graphics_source_data(0u, AP_GRAPHICS_CR2_SHIFT_ACCESS,
+                                                  7u, 0x0002u));
+
+  /* Plane: the word itself, with no shift programmed. */
+  TEST_ASSERT_EQUAL_HEX16(0x1234u,
+                          ap_graphics_source_data(0u, AP_GRAPHICS_CR2_PLANE_ACCESS,
+                                                  0u, 0x1234u));
+}
+
+/* `CR0`'s shift count applies to plane access, and a count of 16 or more
+ * rotates the halves first — so the field reaches across the word instead of
+ * shifting everything out of it. A model that just shifted would return zero
+ * for every count past 15. */
+static void test_a_shift_of_sixteen_or_more_rotates_before_shifting(void) {
+  /* Four: an ordinary shift. */
+  TEST_ASSERT_EQUAL_HEX16(0x0123u,
+                          ap_graphics_source_data(4u, AP_GRAPHICS_CR2_PLANE_ACCESS,
+                                                  0u, 0x1234u));
+  /* Sixteen: the halves swap, and the low nibble of the count is zero, so the
+   * word comes back as its own high half — which for a 16-bit latch is zero,
+   * and *not* what a plain shift by 16 would give (undefined or zero by luck). */
+  TEST_ASSERT_EQUAL_HEX16(0x0000u,
+                          ap_graphics_source_data(16u, AP_GRAPHICS_CR2_PLANE_ACCESS,
+                                                  0u, 0x1234u));
+  /* Twenty: rotate, then shift by four, so the top nibble of the word returns
+   * to the bottom. */
+  TEST_ASSERT_EQUAL_HEX16(0x4000u,
+                          ap_graphics_source_data(20u, AP_GRAPHICS_CR2_PLANE_ACCESS,
+                                                  0u, 0x1234u));
+}
+
+/* The four steps in order, as a blit does them: shape the source, combine it
+ * with the destination through the plane's operation, then merge under the
+ * write enable. Assembled here because each part is tested alone above and the
+ * *order* is the thing a blitter gets wrong. */
+static void test_the_data_path_runs_source_then_rop_then_write_enable(void) {
+  const uint8_t cr0 = 0u;
+  const uint8_t cr1 = AP_GRAPHICS_CR1_ROP_EN;
+  const uint32_t rop = AP_GRAPHICS_ROP_SRC_XOR_DST; /* plane 0 */
+  const uint16_t destination = 0xFF00u;
+
+  const uint16_t source =
+      ap_graphics_source_data(cr0, AP_GRAPHICS_CR2_CONSTANT_ACCESS, 0u, 0u);
+  TEST_ASSERT_EQUAL_HEX16(0xFFFFu, source);
+
+  const uint16_t combined =
+      ap_graphics_rop_apply(cr1, rop, 0u, source, destination);
+  TEST_ASSERT_EQUAL_HEX16(0x00FFu, combined); /* FFFF ^ FF00 */
+
+  /* Write only the low byte. */
+  TEST_ASSERT_EQUAL_HEX16(
+      0xFF00u | 0x00FFu,
+      ap_graphics_combine(0xFF00u, 0xFFFFu, combined, destination));
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_each_screen_reports_the_id_the_firmware_compares_against);
@@ -449,5 +578,11 @@ int main(void) {
   RUN_TEST(test_a_disabled_rop_passes_the_source_through);
   RUN_TEST(test_each_plane_selects_its_own_operation);
   RUN_TEST(test_the_plane_selects_are_wider_on_the_eight_plane_board);
+  RUN_TEST(test_a_destination_plane_is_selected_by_a_zero_bit);
+  RUN_TEST(test_a_set_write_enable_bit_protects_the_destination);
+  RUN_TEST(test_the_bus_mask_protects_whatever_the_register_says);
+  RUN_TEST(test_the_access_modes_shape_the_source_word);
+  RUN_TEST(test_a_shift_of_sixteen_or_more_rotates_before_shifting);
+  RUN_TEST(test_the_data_path_runs_source_then_rop_then_write_enable);
   return UNITY_END();
 }

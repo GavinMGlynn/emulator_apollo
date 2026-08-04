@@ -283,4 +283,48 @@ typedef enum {
                                              unsigned plane, uint16_t source,
                                              uint16_t destination);
 
+/* ## The blitter's word-level data path
+ *
+ * Four steps, in order: the source word is produced according to `CR2[7:6]`'s
+ * access mode, combined with the destination by the plane's raster operation,
+ * masked by the write enable register, and written to the planes `CR2`'s
+ * destination select names.
+ *
+ * ### Two of those are active **low**, and both invert a whole screen
+ *
+ * A destination plane is written when its `D_PLANE` bit is **zero**. A model
+ * reading a set bit as "write this plane" draws into exactly the planes it
+ * should have left alone -- and on a monochrome screen that is an image and its
+ * negative, which looks like a polarity bug anywhere else in the pipeline.
+ *
+ * The write enable register runs the same way within a word: a bit **set**
+ * protects the destination bit and a bit clear lets the source through. So the
+ * register named "write enable" enables writing where it is zero, which is the
+ * kind of name that survives being read carefully.
+ *
+ * ### The access modes are how one source word becomes a pattern
+ *
+ * `CONST` is all ones, which is what a vector draw wants; `PIXEL` and `SHIFT`
+ * replicate a single bit across the whole word, turning one bit of a source
+ * into a solid word for the plane it belongs to; `PLANE` passes the word
+ * through, shifted by `CR0`'s count. Only the last is a copy in the ordinary
+ * sense, and it is the one the manual calls "normal use".
+ */
+
+/* The source word `CR2[7:6]`'s access mode produces, before the raster
+ * operation sees it. `latched` is what the blitter read from the source. */
+[[nodiscard]] uint16_t ap_graphics_source_data(uint8_t cr0,
+                                               ap_graphics_cr2_access_t access,
+                                               unsigned plane,
+                                               uint16_t latched);
+
+/* Whether a destination plane is written. **Active low**: see above. */
+[[nodiscard]] bool ap_graphics_plane_selected(unsigned d_plane, unsigned plane);
+
+/* Merge a source word into a destination under the write enable register and
+ * the bus's byte mask. **A write enable bit set protects the destination.** */
+[[nodiscard]] uint16_t ap_graphics_combine(uint16_t write_enable,
+                                           uint16_t mem_mask, uint16_t source,
+                                           uint16_t destination);
+
 #endif /* APOLLO_BOARD_AP_GRAPHICS_H */

@@ -2550,6 +2550,12 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
           **803 writes** to the controller. Those writes are the specification
           for what is left: they are what the blitter and lookup table have to
           answer.
+        - **The blitter's word-level data path is done**: the four access
+          modes that shape a source word, the plane select, and the write
+          enable merge -- with `CR0`'s shift, whose count of 16 or more rotates
+          before shifting. **Two of these are active low** and both invert a
+          whole screen if read the obvious way. Detail in `PROJECT_STATUS.md`.
+          *Verification: `graphics_suite`, 6 further tests (25 total).*
         - **The raster operation is done**: all sixteen boolean functions,
           four bits per plane in the 32-bit ROP register §10.3 names, gated by
           `CR1`'s `ROP_EN`. With it, `CR2`'s plane selects in both the 4- and
