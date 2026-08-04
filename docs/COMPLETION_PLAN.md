@@ -2550,6 +2550,13 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
           **803 writes** to the controller. Those writes are the specification
           for what is left: they are what the blitter and lookup table have to
           answer.
+        - **The raster operation is done**: all sixteen boolean functions,
+          four bits per plane in the 32-bit ROP register §10.3 names, gated by
+          `CR1`'s `ROP_EN`. With it, `CR2`'s plane selects in both the 4- and
+          8-plane encodings, and `CR2`'s access 2 named at last -- it was
+          `UNKNOWN_2` here and is `SHIFT_ACCESS`, so all four of `CR2`'s values
+          are accounted for. Detail in `PROJECT_STATUS.md`.
+          *Verification: `graphics_suite`, 5 further tests (19 total).*
         - **The colour lookup table is done**, `device/ap_bt458.c`: the
           Bt458's Table 1 in full -- the four `C1`/`C0` spaces, the modulo-three
           colour counter the MPU cannot see, the commit-on-blue rule, and the

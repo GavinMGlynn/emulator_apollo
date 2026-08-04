@@ -155,7 +155,7 @@ const char *ap_graphics_cr2_access_name(ap_graphics_cr2_access_t a) {
   switch (a) {
   case AP_GRAPHICS_CR2_CONSTANT_ACCESS: return "constant";
   case AP_GRAPHICS_CR2_PIXEL_ACCESS: return "pixel";
-  case AP_GRAPHICS_CR2_UNKNOWN_2: return "unknown (access 2)";
+  case AP_GRAPHICS_CR2_SHIFT_ACCESS: return "shift access";
   case AP_GRAPHICS_CR2_PLANE_ACCESS: return "plane";
   }
   return "unknown";
@@ -163,4 +163,61 @@ const char *ap_graphics_cr2_access_name(ap_graphics_cr2_access_t a) {
 
 unsigned ap_graphics_cr0_shift(uint8_t cr0) {
   return (unsigned)(cr0 & AP_GRAPHICS_CR0_SHIFT_MASK);
+}
+
+unsigned ap_graphics_cr2_source_plane(uint8_t cr2, bool eight) {
+  /* Three bits on the 8-plane board, two on the 4-plane one. */
+  if (eight) {
+    return cr2 & AP_GRAPHICS_CR2_S_PLANE_MASK_8;
+  }
+  return (unsigned)(cr2 & AP_GRAPHICS_CR2_S_PLANE_MASK) >>
+         AP_GRAPHICS_CR2_S_PLANE_SHIFT;
+}
+
+unsigned ap_graphics_cr2_dest_plane(uint8_t cr2, bool eight) {
+  /* A whole byte on the 8-plane board -- it selects a *set* of planes, and
+   * eight of them need eight bits -- against four bits on the 4-plane one. */
+  return eight ? cr2 : (unsigned)(cr2 & AP_GRAPHICS_CR2_D_PLANE_MASK);
+}
+
+ap_graphics_rop_t ap_graphics_rop_for(uint32_t rop_register, unsigned plane) {
+  /* Four bits each, low plane first. A plane beyond the eight the register
+   * holds selects nothing, and the mask makes that zero -- which is the
+   * function that writes zeroes rather than an error the part cannot report. */
+  if (plane >= AP_GRAPHICS_ROP_PLANES) {
+    return AP_GRAPHICS_ROP_ZERO;
+  }
+  return (ap_graphics_rop_t)((rop_register >> (plane * 4u)) & 0x0Fu);
+}
+
+uint16_t ap_graphics_rop_apply(uint8_t cr1, uint32_t rop_register,
+                               unsigned plane, uint16_t source,
+                               uint16_t destination) {
+  if ((cr1 & AP_GRAPHICS_CR1_ROP_EN) == 0u) {
+    /* Not enabled: the source passes through whatever the register holds. A
+     * driver that programmed an operation and forgot the enable gets a copy,
+     * which is the hardware's behaviour and not a fallback chosen here. */
+    return source;
+  }
+  const uint16_t s = source;
+  const uint16_t d = destination;
+  switch (ap_graphics_rop_for(rop_register, plane)) {
+  case AP_GRAPHICS_ROP_ZERO: return 0u;
+  case AP_GRAPHICS_ROP_SRC_AND_DST: return (uint16_t)(s & d);
+  case AP_GRAPHICS_ROP_SRC_AND_NOT_DST: return (uint16_t)(s & (uint16_t)~d);
+  case AP_GRAPHICS_ROP_SRC: return s;
+  case AP_GRAPHICS_ROP_NOT_SRC_AND_DST: return (uint16_t)((uint16_t)~s & d);
+  case AP_GRAPHICS_ROP_DST: return d;
+  case AP_GRAPHICS_ROP_SRC_XOR_DST: return (uint16_t)(s ^ d);
+  case AP_GRAPHICS_ROP_SRC_OR_DST: return (uint16_t)(s | d);
+  case AP_GRAPHICS_ROP_SRC_NOR_DST: return (uint16_t)~(uint16_t)(s | d);
+  case AP_GRAPHICS_ROP_SRC_XNOR_DST: return (uint16_t)~(uint16_t)(s ^ d);
+  case AP_GRAPHICS_ROP_NOT_DST: return (uint16_t)~d;
+  case AP_GRAPHICS_ROP_SRC_OR_NOT_DST: return (uint16_t)(s | (uint16_t)~d);
+  case AP_GRAPHICS_ROP_NOT_SRC: return (uint16_t)~s;
+  case AP_GRAPHICS_ROP_NOT_SRC_OR_DST: return (uint16_t)((uint16_t)~s | d);
+  case AP_GRAPHICS_ROP_SRC_NAND_DST: return (uint16_t)~(uint16_t)(s & d);
+  case AP_GRAPHICS_ROP_ONE: return 0xFFFFu;
+  }
+  return s;
 }

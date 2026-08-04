@@ -169,7 +169,7 @@ typedef enum {
 typedef enum {
   AP_GRAPHICS_CR2_CONSTANT_ACCESS = 0u,
   AP_GRAPHICS_CR2_PIXEL_ACCESS = 1u,
-  AP_GRAPHICS_CR2_UNKNOWN_2 = 2u,
+  AP_GRAPHICS_CR2_SHIFT_ACCESS = 2u,
   AP_GRAPHICS_CR2_PLANE_ACCESS = 3u,
 } ap_graphics_cr2_access_t;
 
@@ -212,5 +212,75 @@ typedef enum {
 #define AP_GRAPHICS_CR1_DP_CK 0x04u
 #define AP_GRAPHICS_CR1_SYNC_EN 0x02u
 #define AP_GRAPHICS_CR1_DISP_EN 0x01u
+
+/* ## `CR2`'s plane selects, whose widths are the two boards' difference
+ *
+ * `008778-03` §10.3's change list for the 8-plane board says "Destination Plane
+ * Selection (D_PLANE) increased to **8 bits**" and "Source Plane Selection
+ * (S_PLANE) increased to **3 bits** and moved to the added 82C55A". So the two
+ * families read the same register differently, as `CR1`'s top bits do:
+ *
+ *     4-plane   S_PLANE = CR2[5:4] (two bits), D_PLANE = CR2[3:0] (four)
+ *     8-plane   S_PLANE = three bits, D_PLANE = a whole byte, on separate ports
+ *
+ * The manual states that the widths changed and by how much; the oracle carries
+ * both encodings side by side as `CR2_S_PLANE`/`CR2_D_PLANE` against
+ * `CR2B_S_PLANE`/`CR2A_D_PLANE`. Neither source alone settles it. */
+#define AP_GRAPHICS_CR2_S_PLANE_MASK 0x30u
+#define AP_GRAPHICS_CR2_S_PLANE_SHIFT 4u
+#define AP_GRAPHICS_CR2_D_PLANE_MASK 0x0Fu
+#define AP_GRAPHICS_CR2_S_PLANE_MASK_8 0x07u
+
+[[nodiscard]] unsigned ap_graphics_cr2_source_plane(uint8_t cr2, bool eight);
+[[nodiscard]] unsigned ap_graphics_cr2_dest_plane(uint8_t cr2, bool eight);
+
+/* ## The raster operation
+ *
+ * `008778-03` §10.3: "ROP Register specifiers increased to **32 bits**" -- which
+ * is eight planes of four bits, and the four bits are a boolean function of
+ * source and destination. All sixteen are defined, because sixteen is exactly
+ * how many functions of two bits there are: the field cannot hold an invalid
+ * value and this cannot fail.
+ *
+ * The identities are worth naming rather than numbering. `0011` is *source* --
+ * a plain copy, the blit that does no combining -- and `0101` is *destination*,
+ * which writes nothing at all. A blitter whose ROP decode was off by one would
+ * turn every copy into an AND and still draw something.
+ *
+ * `CR1`'s `ROP_EN` gates the whole thing: with it clear the source passes
+ * through whatever the register says, so a driver that programmed a ROP and
+ * forgot the enable gets a copy rather than the operation it asked for. */
+typedef enum {
+  AP_GRAPHICS_ROP_ZERO = 0x0u,
+  AP_GRAPHICS_ROP_SRC_AND_DST = 0x1u,
+  AP_GRAPHICS_ROP_SRC_AND_NOT_DST = 0x2u,
+  AP_GRAPHICS_ROP_SRC = 0x3u,
+  AP_GRAPHICS_ROP_NOT_SRC_AND_DST = 0x4u,
+  AP_GRAPHICS_ROP_DST = 0x5u,
+  AP_GRAPHICS_ROP_SRC_XOR_DST = 0x6u,
+  AP_GRAPHICS_ROP_SRC_OR_DST = 0x7u,
+  AP_GRAPHICS_ROP_SRC_NOR_DST = 0x8u,
+  AP_GRAPHICS_ROP_SRC_XNOR_DST = 0x9u,
+  AP_GRAPHICS_ROP_NOT_DST = 0xAu,
+  AP_GRAPHICS_ROP_SRC_OR_NOT_DST = 0xBu,
+  AP_GRAPHICS_ROP_NOT_SRC = 0xCu,
+  AP_GRAPHICS_ROP_NOT_SRC_OR_DST = 0xDu,
+  AP_GRAPHICS_ROP_SRC_NAND_DST = 0xEu,
+  AP_GRAPHICS_ROP_ONE = 0xFu,
+} ap_graphics_rop_t;
+
+/* Eight planes of four bits. */
+#define AP_GRAPHICS_ROP_PLANES 8u
+
+/* Which function a plane's four bits select. */
+[[nodiscard]] ap_graphics_rop_t ap_graphics_rop_for(uint32_t rop_register,
+                                                    unsigned plane);
+
+/* Apply it. `cr1` is passed whole rather than as a flag, because `ROP_EN` is
+ * what decides whether the register means anything at all -- and a caller that
+ * had to remember to check it separately would eventually not. */
+[[nodiscard]] uint16_t ap_graphics_rop_apply(uint8_t cr1, uint32_t rop_register,
+                                             unsigned plane, uint16_t source,
+                                             uint16_t destination);
 
 #endif /* APOLLO_BOARD_AP_GRAPHICS_H */

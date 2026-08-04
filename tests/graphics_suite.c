@@ -280,8 +280,11 @@ static void test_the_unknown_modes_say_they_are_unknown(void) {
       strstr(ap_graphics_cr0_mode_name(AP_GRAPHICS_CR0_UNKNOWN_5), "unknown"));
   TEST_ASSERT_NOT_NULL(
       strstr(ap_graphics_cr0_mode_name(AP_GRAPHICS_CR0_UNKNOWN_6), "unknown"));
-  TEST_ASSERT_NOT_NULL(strstr(
-      ap_graphics_cr2_access_name(AP_GRAPHICS_CR2_UNKNOWN_2), "unknown"));
+  /* `CR2`'s access 2 was unknown here and is not any more: the oracle names it
+   * `CR2_SHIFT_ACCESS`, which makes all four of `CR2`'s values accounted for
+   * while `CR0` still has two that nothing names. */
+  TEST_ASSERT_EQUAL_STRING(
+      "shift access", ap_graphics_cr2_access_name(AP_GRAPHICS_CR2_SHIFT_ACCESS));
 
   /* And every mode has a name, so a trace cannot print a blank at the moment it
    * matters. */
@@ -333,6 +336,98 @@ static void test_cr1_s_top_bits_are_named_per_family(void) {
       0xFFu, common | AP_GRAPHICS_CR1_MONO_INV | AP_GRAPHICS_CR1_MONO_DADDR_16);
 }
 
+/* ---- The raster operation ------------------------------------------------- */
+
+/* All sixteen boolean functions of source and destination, checked against
+ * their own identities rather than against a table of expected numbers -- a
+ * table would just be the implementation written twice. */
+static void test_every_raster_op_is_its_own_boolean_function(void) {
+  const uint16_t s = 0xF0F0u;
+  const uint16_t d = 0xFF00u;
+  const uint8_t on = AP_GRAPHICS_CR1_ROP_EN;
+
+  struct { ap_graphics_rop_t op; uint16_t want; } cases[] = {
+      {AP_GRAPHICS_ROP_ZERO, 0u},
+      {AP_GRAPHICS_ROP_SRC_AND_DST, (uint16_t)(s & d)},
+      {AP_GRAPHICS_ROP_SRC_AND_NOT_DST, (uint16_t)(s & (uint16_t)~d)},
+      {AP_GRAPHICS_ROP_SRC, s},
+      {AP_GRAPHICS_ROP_NOT_SRC_AND_DST, (uint16_t)((uint16_t)~s & d)},
+      {AP_GRAPHICS_ROP_DST, d},
+      {AP_GRAPHICS_ROP_SRC_XOR_DST, (uint16_t)(s ^ d)},
+      {AP_GRAPHICS_ROP_SRC_OR_DST, (uint16_t)(s | d)},
+      {AP_GRAPHICS_ROP_SRC_NOR_DST, (uint16_t)~(uint16_t)(s | d)},
+      {AP_GRAPHICS_ROP_SRC_XNOR_DST, (uint16_t)~(uint16_t)(s ^ d)},
+      {AP_GRAPHICS_ROP_NOT_DST, (uint16_t)~d},
+      {AP_GRAPHICS_ROP_SRC_OR_NOT_DST, (uint16_t)(s | (uint16_t)~d)},
+      {AP_GRAPHICS_ROP_NOT_SRC, (uint16_t)~s},
+      {AP_GRAPHICS_ROP_NOT_SRC_OR_DST, (uint16_t)((uint16_t)~s | d)},
+      {AP_GRAPHICS_ROP_SRC_NAND_DST, (uint16_t)~(uint16_t)(s & d)},
+      {AP_GRAPHICS_ROP_ONE, 0xFFFFu},
+  };
+  for (unsigned i = 0; i < 16u; i++) {
+    TEST_ASSERT_EQUAL_HEX16(cases[i].want,
+                            ap_graphics_rop_apply(on, cases[i].op, 0u, s, d));
+  }
+}
+
+/* The two that a driver uses most, and that an off-by-one decode confuses with
+ * their neighbours: `0011` copies the source and `0101` keeps the destination,
+ * so one draws and the other does nothing at all. Both would "work" if the
+ * field were misread -- a blit that ANDed instead of copying still puts pixels
+ * on a screen. */
+static void test_source_copies_and_destination_writes_nothing(void) {
+  const uint8_t on = AP_GRAPHICS_CR1_ROP_EN;
+  TEST_ASSERT_EQUAL_HEX16(
+      0x1234u, ap_graphics_rop_apply(on, AP_GRAPHICS_ROP_SRC, 0u, 0x1234u, 0x5678u));
+  TEST_ASSERT_EQUAL_HEX16(
+      0x5678u, ap_graphics_rop_apply(on, AP_GRAPHICS_ROP_DST, 0u, 0x1234u, 0x5678u));
+  TEST_ASSERT_EQUAL_UINT(3u, AP_GRAPHICS_ROP_SRC);
+  TEST_ASSERT_EQUAL_UINT(5u, AP_GRAPHICS_ROP_DST);
+}
+
+/* `CR1`'s `ROP_EN` gates the register entirely. A driver that programmed an
+ * operation and forgot the enable gets a plain copy -- not the operation, and
+ * not nothing. */
+static void test_a_disabled_rop_passes_the_source_through(void) {
+  TEST_ASSERT_EQUAL_HEX16(
+      0x1234u, ap_graphics_rop_apply(0u, AP_GRAPHICS_ROP_ZERO, 0u, 0x1234u, 0x5678u));
+  TEST_ASSERT_EQUAL_HEX16(
+      0x1234u, ap_graphics_rop_apply(0u, AP_GRAPHICS_ROP_ONE, 0u, 0x1234u, 0x5678u));
+}
+
+/* "ROP Register specifiers increased to 32 bits" -- eight planes of four, low
+ * plane first, so each plane can run a different operation in one blit. */
+static void test_each_plane_selects_its_own_operation(void) {
+  /* Plane 0 = SRC (3), plane 1 = ZERO (0), plane 7 = ONE (F). */
+  const uint32_t reg = 0xF0000003u;
+  TEST_ASSERT_EQUAL_UINT(AP_GRAPHICS_ROP_SRC, ap_graphics_rop_for(reg, 0u));
+  TEST_ASSERT_EQUAL_UINT(AP_GRAPHICS_ROP_ZERO, ap_graphics_rop_for(reg, 1u));
+  TEST_ASSERT_EQUAL_UINT(AP_GRAPHICS_ROP_ONE, ap_graphics_rop_for(reg, 7u));
+
+  const uint8_t on = AP_GRAPHICS_CR1_ROP_EN;
+  TEST_ASSERT_EQUAL_HEX16(0xAAAAu, ap_graphics_rop_apply(on, reg, 0u, 0xAAAAu, 0x5555u));
+  TEST_ASSERT_EQUAL_HEX16(0x0000u, ap_graphics_rop_apply(on, reg, 1u, 0xAAAAu, 0x5555u));
+  TEST_ASSERT_EQUAL_HEX16(0xFFFFu, ap_graphics_rop_apply(on, reg, 7u, 0xAAAAu, 0x5555u));
+
+  /* The register holds eight, so a ninth plane selects nothing. */
+  TEST_ASSERT_EQUAL_UINT(AP_GRAPHICS_ROP_ZERO, ap_graphics_rop_for(reg, 8u));
+}
+
+/* §10.3's change list: D_PLANE went to 8 bits and S_PLANE to 3 on the 8-plane
+ * board. The same `CR2` byte therefore means different things on the two
+ * families, which is the same trap `CR1`'s top two bits carry. */
+static void test_the_plane_selects_are_wider_on_the_eight_plane_board(void) {
+  const uint8_t cr2 = 0xB5u; /* 1011 0101 */
+
+  /* 4-plane: source is bits 5-4, destination bits 3-0. */
+  TEST_ASSERT_EQUAL_UINT(0x3u, ap_graphics_cr2_source_plane(cr2, false));
+  TEST_ASSERT_EQUAL_UINT(0x5u, ap_graphics_cr2_dest_plane(cr2, false));
+
+  /* 8-plane: source is three bits, destination the whole byte. */
+  TEST_ASSERT_EQUAL_UINT(0x5u, ap_graphics_cr2_source_plane(cr2, true));
+  TEST_ASSERT_EQUAL_UINT(0xB5u, ap_graphics_cr2_dest_plane(cr2, true));
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_each_screen_reports_the_id_the_firmware_compares_against);
@@ -349,5 +444,10 @@ int main(void) {
   RUN_TEST(test_cr1_s_top_bits_are_named_per_family);
   RUN_TEST(test_an_unmodelled_register_reads_ff_and_not_zero);
   RUN_TEST(test_a_write_is_absorbed_and_does_not_change_the_id);
+  RUN_TEST(test_every_raster_op_is_its_own_boolean_function);
+  RUN_TEST(test_source_copies_and_destination_writes_nothing);
+  RUN_TEST(test_a_disabled_rop_passes_the_source_through);
+  RUN_TEST(test_each_plane_selects_its_own_operation);
+  RUN_TEST(test_the_plane_selects_are_wider_on_the_eight_plane_board);
   return UNITY_END();
 }
