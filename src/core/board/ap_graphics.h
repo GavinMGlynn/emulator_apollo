@@ -241,6 +241,28 @@ typedef struct {
   uint32_t guard_latch[AP_GRAPHICS_MAX_PLANES];
   /* The instant the raster is at, from `ap_graphics_advance`. */
   ap_time_t now;
+
+  /* ## The *stepped* raster counters
+   *
+   * `CR1`'s `DH_CK`, `DV_CK` and `DP_CK` are diagnostic **clock-step** bits:
+   * each advances the horizontal, vertical or pixel counter by one, on the
+   * **falling edge** of its bit rather than on its level. That is how the boot
+   * PROM's display test walks the beam to a chosen place and asks what is
+   * there.
+   *
+   * They are separate from the free-running raster and must be: the diagnostic
+   * expects to *drive* the beam, and a model whose counters also advanced with
+   * time would answer questions before they were asked. So `ap_graphics_beam`
+   * is the running raster and these are what the firmware winds by hand; the
+   * A/D converter reads through **these**, because that is the position the
+   * diagnostic put the beam at.
+   *
+   * `DV_CK` does not exist on a single-plane board -- the same bit is
+   * `DADDR_16` there -- so a monochrome controller has no vertical step. Zeroed
+   * whenever `CR1`'s `RESET` goes low, along with the guard latch. */
+  unsigned h_clock;
+  unsigned v_clock;
+  unsigned p_clock;
   /* Which cycle of a two-cycle mode is next: 0 for the first. */
   unsigned blt_cycle;
 
@@ -818,6 +840,11 @@ void ap_graphics_cr2_fields(const ap_graphics_t *graphics, unsigned *s_plane,
 
 /* Advance the controller to an absolute instant. Only the raster moves. */
 void ap_graphics_advance(ap_graphics_t *graphics, ap_time_t now);
+
+/* Where the *diagnostic* has wound the beam to, which is not where the running
+ * raster is. False when no screen is fitted. */
+[[nodiscard]] bool ap_graphics_stepped_beam(const ap_graphics_t *graphics,
+                                            unsigned *line, unsigned *pixel);
 
 /* Where the beam is: `line` within the frame and `pixel` within the line, both
  * counted over the *total* including blanking. False when no screen is

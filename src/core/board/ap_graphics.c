@@ -22,6 +22,12 @@ void ap_graphics_init(ap_graphics_t *graphics, ap_screen_kind_t screen) {
   graphics->lut_ad_accesses = 0u;
   graphics->blt_cycle = 0u;
   graphics->now = 0u;
+  /* The stepped counters, which are state like any other and were left out of
+   * this on the first pass -- so a caller with a stack-allocated controller got
+   * a beam wound to wherever the stack happened to point. */
+  graphics->h_clock = 0u;
+  graphics->v_clock = 0u;
+  graphics->p_clock = 0u;
   for (unsigned i = 0; i < AP_GRAPHICS_MAX_PLANES; i++) {
     graphics->guard_latch[i] = 0u;
   }
@@ -456,7 +462,64 @@ void ap_graphics_write(ap_graphics_t *graphics, uint32_t address,
       return;
 
     case AP_GRAPHICS_REG_CR0: graphics->reg.cr0 = value; return;
-    case AP_GRAPHICS_REG_CR1: graphics->reg.cr1 = value; return;
+    case AP_GRAPHICS_REG_CR1: {
+      /* Each clock-step bit advances its counter on the **falling edge**, not
+       * on its level: the diagnostic pulses the bit and a model watching the
+       * level would step once and then stop, or step for ever. And `DV_CK` does
+       * not exist on a single-plane board, where the same bit is `DADDR_16` --
+       * stepping there would wind the vertical counter every time a monochrome
+       * driver set an address bit. */
+      const uint8_t before = graphics->reg.cr1;
+      const uint8_t changed = (uint8_t)(before ^ value);
+      graphics->reg.cr1 = value;
+
+      const bool fell_dp = (changed & AP_GRAPHICS_CR1_DP_CK) != 0u &&
+                           (value & AP_GRAPHICS_CR1_DP_CK) == 0u;
+      const bool fell_dh = (changed & AP_GRAPHICS_CR1_DH_CK) != 0u &&
+                           (value & AP_GRAPHICS_CR1_DH_CK) == 0u;
+      const bool fell_dv = colour &&
+                           (changed & AP_GRAPHICS_CR1_COLOUR_DV_CK) != 0u &&
+                           (value & AP_GRAPHICS_CR1_COLOUR_DV_CK) == 0u;
+
+      ap_graphics_geometry_t geometry;
+      const bool fitted = ap_graphics_geometry(graphics->screen, &geometry);
+
+      /* `RESET` going low zeroes them, with the guard latch -- the controller
+       * is being restarted and the beam is back at the top left. */
+      if ((changed & AP_GRAPHICS_CR1_RESET) != 0u &&
+          (value & AP_GRAPHICS_CR1_RESET) == 0u) {
+        graphics->h_clock = 0u;
+        graphics->v_clock = 0u;
+        graphics->p_clock = 0u;
+        for (unsigned i = 0; i < AP_GRAPHICS_MAX_PLANES; i++) {
+          graphics->guard_latch[i] = 0u;
+        }
+        return;
+      }
+      if (!fitted) {
+        return;
+      }
+      if (fell_dp) {
+        graphics->p_clock++;
+      }
+      if (fell_dh) {
+        /* The horizontal counter carries into the vertical at the line's sync
+         * point, which is what makes a run of horizontal steps walk down the
+         * screen rather than round one line for ever. */
+        graphics->h_clock++;
+        if (graphics->h_clock >= geometry.h_total / 16u) {
+          graphics->h_clock = 0u;
+          graphics->v_clock++;
+        }
+      }
+      if (fell_dv) {
+        graphics->v_clock++;
+      }
+      if (graphics->v_clock >= geometry.v_total) {
+        graphics->v_clock = 0u;
+      }
+      return;
+    }
     case AP_GRAPHICS_REG_CR2: graphics->reg.cr2 = value; return;
     case AP_GRAPHICS_REG_CR2B:
       if (eight) { graphics->reg.cr2b = value; }
@@ -1117,8 +1180,13 @@ bool ap_graphics_adc(const ap_graphics_t *graphics, uint8_t channel,
     return false;
   }
 
+  /* The **stepped** beam, not the running one. The diagnostic winds the counters
+   * to a chosen place with `DH_CK` and `DV_CK` and then asks what is there, so
+   * measuring where the free-running raster happens to be would answer a
+   * question about a different pixel -- which is why the reading was out of
+   * range with a running raster and no counters. */
   unsigned line = 0u, pixel = 0u;
-  if (!ap_graphics_beam(graphics, &line, &pixel)) {
+  if (!ap_graphics_stepped_beam(graphics, &line, &pixel)) {
     return false;
   }
 
@@ -1167,5 +1235,20 @@ bool ap_graphics_adc(const ap_graphics_t *graphics, uint8_t channel,
     return true;
   }
   *level = 5u;
+  return true;
+}
+
+bool ap_graphics_stepped_beam(const ap_graphics_t *graphics, unsigned *line,
+                              unsigned *pixel) {
+  ap_graphics_geometry_t geometry;
+  if (!ap_graphics_geometry(graphics->screen, &geometry)) {
+    return false;
+  }
+  if (line != NULL) { *line = graphics->v_clock; }
+  /* The horizontal counter counts *words*, not pixels -- the oracle indexes
+   * `m_v_clock * buffer_width / 16 + m_h_clock`, so a step is sixteen pixels.
+   * That is the granularity a diagnostic walking the screen wants, and reading
+   * it as pixels would put the beam sixteen times too far left. */
+  if (pixel != NULL) { *pixel = graphics->h_clock * 16u; }
   return true;
 }

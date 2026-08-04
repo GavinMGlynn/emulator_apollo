@@ -1902,19 +1902,143 @@ static void test_the_adc_reports_floors_outside_the_visible_field(void) {
   TEST_ASSERT_TRUE(ap_clock_init(&dot, geometry.dot_clock_hz));
 
   uint8_t level = 0u;
-  /* Blanking, early in the line. */
-  ap_graphics_advance(&g, dot.period * geometry.h_total *
-                              (geometry.height + 1u));
+  /* The A/D reads through the **stepped** counters, so the beam is wound with
+   * them rather than advanced with time -- which is the whole distinction the
+   * diagnostic rests on. */
+  g.v_clock = geometry.height + 1u; /* blanking, early in the line */
+  g.h_clock = 0u;
   TEST_ASSERT_TRUE(ap_graphics_adc(&g, 0x05u, &level));
   TEST_ASSERT_EQUAL_UINT8(60u, level);
   TEST_ASSERT_TRUE(ap_graphics_adc(&g, 0x04u, &level));
   TEST_ASSERT_EQUAL_UINT8(5u, level);
 
   /* Inside the vertical sync pulse: even green drops to the floor. */
-  ap_graphics_advance(&g, dot.period * geometry.h_total *
-                              (geometry.height + 5u));
+  g.v_clock = geometry.height + 5u;
   TEST_ASSERT_TRUE(ap_graphics_adc(&g, 0x05u, &level));
   TEST_ASSERT_EQUAL_UINT8(5u, level);
+  (void)dot;
+}
+
+/* ## The stepped raster counters
+ *
+ * `CR1`'s `DH_CK`, `DV_CK` and `DP_CK` are diagnostic clock-step bits: each
+ * advances a counter by one on the **falling edge** of its bit. That is how the
+ * boot PROM's display test walks the beam to a chosen place and asks what is
+ * there, and it is separate from the free-running raster on purpose -- a model
+ * whose counters also advanced with time would answer the diagnostic's
+ * questions before it asked them. `FINDINGS.md` C117.
+ */
+static void test_a_clock_step_is_a_falling_edge_not_a_level(void) {
+  ap_graphics_t g;
+  ap_graphics_init(&g, AP_SCREEN_COLOUR_8_PLANE);
+  const uint32_t cr1 = AP_GRAPHICS_COLOUR_ADDR + AP_GRAPHICS_REG_CR1;
+  const uint8_t base = AP_GRAPHICS_CR1_RESET;
+
+  /* Raising the bit does nothing. */
+  ap_graphics_write(&g, cr1, (uint8_t)(base | AP_GRAPHICS_CR1_DH_CK));
+  TEST_ASSERT_EQUAL_UINT(0u, g.h_clock);
+  /* Dropping it steps once. */
+  ap_graphics_write(&g, cr1, base);
+  TEST_ASSERT_EQUAL_UINT(1u, g.h_clock);
+  /* Writing the same value again is no edge, so no step -- a model watching the
+   * level would run away here. */
+  ap_graphics_write(&g, cr1, base);
+  TEST_ASSERT_EQUAL_UINT(1u, g.h_clock);
+
+  for (unsigned i = 0; i < 5u; i++) {
+    ap_graphics_write(&g, cr1, (uint8_t)(base | AP_GRAPHICS_CR1_DH_CK));
+    ap_graphics_write(&g, cr1, base);
+  }
+  TEST_ASSERT_EQUAL_UINT(6u, g.h_clock);
+}
+
+/* The horizontal counter carries into the vertical, which is what makes a run
+ * of horizontal steps walk *down* the screen rather than round one line for
+ * ever. It counts **words**, so a line is `h_total / 16` steps. */
+static void test_the_horizontal_counter_carries_into_the_vertical(void) {
+  ap_graphics_t g;
+  ap_graphics_init(&g, AP_SCREEN_COLOUR_8_PLANE);
+  ap_graphics_geometry_t geometry;
+  TEST_ASSERT_TRUE(ap_graphics_geometry(AP_SCREEN_COLOUR_8_PLANE, &geometry));
+  const uint32_t cr1 = AP_GRAPHICS_COLOUR_ADDR + AP_GRAPHICS_REG_CR1;
+  const uint8_t base = AP_GRAPHICS_CR1_RESET;
+
+  for (unsigned i = 0; i < geometry.h_total / 16u; i++) {
+    ap_graphics_write(&g, cr1, (uint8_t)(base | AP_GRAPHICS_CR1_DH_CK));
+    ap_graphics_write(&g, cr1, base);
+  }
+  TEST_ASSERT_EQUAL_UINT(0u, g.h_clock);
+  TEST_ASSERT_EQUAL_UINT(1u, g.v_clock);
+}
+
+/* `DV_CK` does not exist on a single-plane board: the same bit is `DADDR_16`
+ * there. Stepping on it would wind the vertical counter every time a
+ * monochrome driver set an address bit. */
+static void test_the_vertical_step_is_colour_only(void) {
+  const uint8_t base = AP_GRAPHICS_CR1_RESET;
+  ap_graphics_t mono;
+  ap_graphics_init(&mono, AP_SCREEN_MONO_19_INCH);
+  const uint32_t mono_cr1 = AP_GRAPHICS_MONO_ADDR + AP_GRAPHICS_REG_CR1;
+  ap_graphics_write(&mono, mono_cr1,
+                    (uint8_t)(base | AP_GRAPHICS_CR1_COLOUR_DV_CK));
+  ap_graphics_write(&mono, mono_cr1, base);
+  TEST_ASSERT_EQUAL_UINT(0u, mono.v_clock);
+
+  ap_graphics_t colour;
+  ap_graphics_init(&colour, AP_SCREEN_COLOUR_8_PLANE);
+  const uint32_t colour_cr1 = AP_GRAPHICS_COLOUR_ADDR + AP_GRAPHICS_REG_CR1;
+  ap_graphics_write(&colour, colour_cr1,
+                    (uint8_t)(base | AP_GRAPHICS_CR1_COLOUR_DV_CK));
+  ap_graphics_write(&colour, colour_cr1, base);
+  TEST_ASSERT_EQUAL_UINT(1u, colour.v_clock);
+}
+
+/* `RESET` going low zeroes the counters with the guard latch: the controller is
+ * being restarted and the beam is back at the top left. */
+static void test_reset_going_low_rewinds_the_beam(void) {
+  ap_graphics_t g;
+  ap_graphics_init(&g, AP_SCREEN_COLOUR_8_PLANE);
+  g.h_clock = 12u;
+  g.v_clock = 34u;
+  g.p_clock = 56u;
+  g.guard_latch[0] = 0xDEADBEEFu;
+  g.reg.cr1 = AP_GRAPHICS_CR1_RESET;
+
+  ap_graphics_write(&g, AP_GRAPHICS_COLOUR_ADDR + AP_GRAPHICS_REG_CR1, 0x00u);
+  TEST_ASSERT_EQUAL_UINT(0u, g.h_clock);
+  TEST_ASSERT_EQUAL_UINT(0u, g.v_clock);
+  TEST_ASSERT_EQUAL_UINT(0u, g.p_clock);
+  TEST_ASSERT_EQUAL_HEX32(0u, g.guard_latch[0]);
+}
+
+/* The stepped beam and the running one are **different places**, and the A/D
+ * reads the stepped one. Conflating them is what left the diagnostic's reading
+ * out of range. */
+static void test_the_stepped_beam_is_not_the_running_one(void) {
+  ap_graphics_t g;
+  ap_graphics_init(&g, AP_SCREEN_COLOUR_8_PLANE);
+  ap_graphics_geometry_t geometry;
+  TEST_ASSERT_TRUE(ap_graphics_geometry(AP_SCREEN_COLOUR_8_PLANE, &geometry));
+  ap_clock_t dot;
+  TEST_ASSERT_TRUE(ap_clock_init(&dot, geometry.dot_clock_hz));
+
+  /* Run the raster a long way; the stepped counters do not move. */
+  ap_graphics_advance(&g, dot.period * (geometry.h_total * 321u + 77u));
+  unsigned line = 9u, pixel = 9u;
+  TEST_ASSERT_TRUE(ap_graphics_stepped_beam(&g, &line, &pixel));
+  TEST_ASSERT_EQUAL_UINT(0u, line);
+  TEST_ASSERT_EQUAL_UINT(0u, pixel);
+
+  unsigned run_line = 0u;
+  TEST_ASSERT_TRUE(ap_graphics_beam(&g, &run_line, NULL));
+  TEST_ASSERT_EQUAL_UINT(321u, run_line);
+
+  /* And a horizontal step is **sixteen pixels**, because the counter counts
+   * words -- reading it as pixels would put the beam sixteen times too far
+   * left. */
+  g.h_clock = 3u;
+  TEST_ASSERT_TRUE(ap_graphics_stepped_beam(&g, NULL, &pixel));
+  TEST_ASSERT_EQUAL_UINT(48u, pixel);
 }
 
 int main(void) {
@@ -1996,5 +2120,10 @@ int main(void) {
   RUN_TEST(test_the_adc_measures_the_gun_the_channel_names);
   RUN_TEST(test_a_channel_that_is_not_a_video_measurement_is_refused);
   RUN_TEST(test_the_adc_reports_floors_outside_the_visible_field);
+  RUN_TEST(test_a_clock_step_is_a_falling_edge_not_a_level);
+  RUN_TEST(test_the_horizontal_counter_carries_into_the_vertical);
+  RUN_TEST(test_the_vertical_step_is_colour_only);
+  RUN_TEST(test_reset_going_low_rewinds_the_beam);
+  RUN_TEST(test_the_stepped_beam_is_not_the_running_one);
   return UNITY_END();
 }
