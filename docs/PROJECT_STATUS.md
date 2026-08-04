@@ -4597,6 +4597,32 @@ last and hardest — **a decoded PNG**. Register round-trips and word-level
 identities are what can be checked without one, and a controller that passes
 those and draws nothing is the standard way this goes wrong.
 
+#### `FO` reaches the disk, and the boot has somewhere to go
+
+With the command table read out, `FO` — `FORCE LOAD` — was sent at the MD
+prompt. It is **accepted**: echoed with no `E`, the program counter moves to
+`0000303A`, and the region table shows something no run in this project has
+shown before.
+
+    disk/floppy   6,328,241 reads   7 writes
+
+The machine is talking to the OMTI controller. Seven writes is a Command
+Descriptor Block going out and six million reads is the poll waiting for it to
+complete — which it never does, because `ap_omti` models **the register sets and
+not the command sets**, and says so in its header: "*those want a drive and a
+disk image behind them*".
+
+That is the right next piece and it is now demanded rather than anticipated. The
+drive and the disk image both exist — `ap_awd` reads the 348 MB image and
+`--disk` fits it — so what is missing is the protocol between them, which
+`[OMTI]` §5 describes.
+
+**What this settles about the boot item.** Every earlier session ended with a
+question about which device was missing or what a console does next. Neither is
+open now: the console works, the command table is known, `FO` is the load
+command, and the machine reaches the disk under its own steam. The remaining
+work is one named subsystem with a manual section behind it.
+
 #### `H` returns a command table, and three sessions reasoned from a fragment
 
 `MD.md` recorded the Mnemonic Debugger's `H` command as returning nine letters,

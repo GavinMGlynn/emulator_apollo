@@ -2906,9 +2906,17 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         *Verification: the table read out of this core over the serial console.
         It also invalidates three downstream conclusions drawn from the
         fragment, which are marked where they were made.*
-      **Awaiting:** a load command driven to completion. `LO LOAD FILE`,
-      `FO FORCE LOAD` and `EX EX (CPU)` all exist after all, so the route from a
-      console to a disk load is open rather than ruled out.
+  - [x] **`FO` reaches the disk.** `FORCE LOAD` at the MD prompt is accepted —
+        echoed with no `E`, the PC moves to `0000303A` — and the region table
+        shows **6,328,241 disk reads against 7 writes**: a Command Descriptor
+        Block going out and the poll waiting for a completion that never comes.
+        No run in this project had touched the controller before.
+        Detail in `PROJECT_STATUS.md`.
+      **Awaiting:** `[OMTI]` §5's **command set**. `ap_omti` models the register
+      sets and not the commands, and says so in its header — "those want a drive
+      and a disk image behind them". Both now exist and the firmware is asking.
+      That is one named subsystem with a manual section behind it, which is a
+      different kind of open than every earlier one on this item.
   - [x] **A disk can be fitted at all.** `ap_omti` modelled the controller and
         `ap_awd` read the image and nothing ever handed one to the other, so
         every boot experiment so far ran on a DN3500 with **no Winchester** —
