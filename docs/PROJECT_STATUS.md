@@ -4769,7 +4769,41 @@ So `SYSBOOT` read its block correctly, recorded it correctly, and then asked for
 524,324. What has not yet been measured is *when* `010011BE` acquired that
 value: whether some earlier instruction wrote it there, or whether it is what
 `SYSBOOT` was loaded with and a write that should have replaced it never
-happened. That is one watchpoint away.
+happened.
+
+#### Something did write it, ten times, and the last write was a *word*
+
+`--boot-watch-write` answers the first half outright:
+
+    watch        010011BE written 10 time(s), last 0008 by PC 01000CBE
+
+So the value is written rather than loaded, ten times over, and the last write
+is `0008` — the **high half** of `00080024`, as a two-byte store. The halves are
+written separately, which is why watching one address caught ten writes and not
+twenty: a word store to `010011C0` does not overlap `010011BE`.
+
+That is the useful part. The instruction is not yet identified, and the reason is
+worth recording because it caught this instrument out once already. The watch
+first reported `regs.pc`, and the program counter during a store points into the
+*middle* of the instruction doing the storing — past its opcode, among its
+extension words — so disassembling from it decoded `bne.b`, an instruction that
+writes nothing. The machine now carries the address of the instruction being
+executed and the watch reports that instead.
+
+It still says `01000CBE`, and the bytes there are `2B 53 05 BE`, which decodes
+as `move.l (a3),$5BE(a5)`. With `a5 = 01000C00` that addresses `010011BE`
+exactly, which is a strong agreement — but it is a **long** move, and the watch
+says the store was two bytes. One of those two readings is wrong and the dump
+cannot say which, because an instruction boundary cannot be recovered from a
+hex dump alone.
+
+The next measurement settles it without argument: stop on the *watch write*
+rather than on the disk refusal, and read the opcode out of the trace ring,
+which records the word the core actually decoded.
+
+**A wrong high half is a suggestive shape.** A block number near the one
+`SYSBOOT` had just read — 313,307 — is `0004C79B`, whose high half is `0004`.
+The value written is `0008`: the same bit one place to the left.
 
 #### `DRQ7`, and a request that never went down
 
