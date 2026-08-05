@@ -134,11 +134,24 @@ def main() -> int:
               ["--floppy", str(short)], r"an Apollo floppy is exactly",
               want_ok=False)
 
+        # ---- the console script, whose parsing needs no machine ----
+        bad = work / "bad.script"
+        bad.write_text("wait for something\n")
+        check("--boot-script refuses a line that is not send or expect",
+              ["--boot-prom", "/nonexistent", "--boot-script", str(bad)],
+              r"not send or expect", want_ok=False)
+        missing = work / "absent.script"
+        check("--boot-script says so when the file is not there",
+              ["--boot-prom", "/nonexistent", "--boot-script", str(missing)],
+              r"cannot read console script", want_ok=False)
+
         # ---- what needs firmware, named rather than omitted ----
         for flag in ("--boot-prom", "--boot-limit", "--boot-trace",
                      "--boot-watch", "--boot-console", "--boot-input",
                      "--boot-input-rate", "--boot-input-interval",
-                     "--boot-key", "--screen", "--screenshot", "--disk"):
+                     "--boot-key", "--screen", "--screenshot", "--disk",
+                     "--boot-trace-last", "--boot-stop-pc", "--dump-mem",
+                     "--boot-script (a dialogue, as opposed to its parsing)"):
             skip(flag, "needs a boot PROM; roms/ is gitignored and CI has none")
 
     for name, why in skipped:

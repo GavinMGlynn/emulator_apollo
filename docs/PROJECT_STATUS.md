@@ -4597,6 +4597,35 @@ last and hardest — **a decoded PNG**. Register round-trips and word-level
 identities are what can be checked without one, and a controller that passes
 those and draws nothing is the standard way this goes wrong.
 
+#### `--boot-script`: waiting for what the machine says before answering it
+
+Past the self-tests, the machine asks questions — *"Do you wish to continue
+(y,n)?"*, then the MD prompt — and `--boot-input` cannot answer them. It sends a
+fixed string on a timer, which is right for the one thing it was built for,
+autobauding the port with a carriage return, and wrong for a dialogue: the PROM
+asks at times that depend on how long a disk took. Feeding it `ex domain_os` put
+an `o` into *"Do you wish to continue (y,n)?"*.
+
+A script is lines of `expect TEXT` and `send TEXT`, in order, matched as plain
+substrings against the same console stream `--boot-console` prints — so what it
+matches is exactly what a reader sees. On a match the buffer is cleared, because
+a later `expect` satisfied by earlier text is how a script silently skips a
+prompt.
+
+Its bytes go out under the same three conditions the fixed script uses — the
+port must be eight bits with its receiver enabled, and a byte the receiver did
+not take is retried rather than lost — and only once the fixed script is spent,
+so a carriage return can still do the autobaud before any dialogue begins.
+
+This is the *scripted input* half of the frontend-flags item, and it is what that
+item meant: input at the **machine's** pace rather than at ours.
+
+It works — the machine's `Do you wish to continue (y,n)?` is answered on cue.
+Reaching a login prompt from there is the remaining question: the install
+procedure in `tools/mame-oracle/install-domainos.cmds` shows the route is
+`ex domain_os` at the MD prompt, and after answering the prompt this machine has
+not yet produced one.
+
 #### A word read of a core register returned its low byte twice, and every CPU self-test now passes
 
 `CPU (bus error) Test #0` provokes a bus error, requires the status register's

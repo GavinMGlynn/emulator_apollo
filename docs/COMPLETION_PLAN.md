@@ -3098,6 +3098,16 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         *Verification: `board_suite` +1 (28) for a selective clear reaching the
         register through the board. The console passes mmu, interrupts, timer,
         dma 0/1/2, calendar, fp trap and bus error.*
+    - [x] **`--boot-script`: waiting for what the machine says before answering
+          it.** `--boot-input` sends a fixed string on a timer, which is right
+          for autobauding a port and wrong for a dialogue -- feeding it
+          `ex domain_os` put an `o` into "Do you wish to continue (y,n)?". A
+          script is lines of `expect` and `send`, matched against the same
+          stream `--boot-console` prints. Detail in `PROJECT_STATUS.md`.
+          *Verification: `frontend_flags` +2 (13), covering the parsing, which
+          needs no machine; the dialogue itself needs a PROM and is listed as
+          skipped. The machine's `Do you wish to continue (y,n)?` is answered on
+          cue.*
   - [ ] **`Configuration information is not initialized`** -- not a fault. The
         diagnostic asks for `ex config` at the MD prompt to write the
         configuration table into the calendar's battery-backed RAM at `010912`.

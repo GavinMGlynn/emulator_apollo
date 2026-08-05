@@ -58,6 +58,10 @@ static void print_usage(const char *program_name) {
           "                        would be perturbed by being watched\n"
           "  --boot-input TEXT     deliver TEXT to serial port 2 as the\n"
           "                        firmware reads it; scripted, not host input\n"
+          "  --boot-script FILE    a console dialogue: lines of `expect TEXT`\n"
+          "                        and `send TEXT`, in order. Waits for what the\n"
+          "                        machine says before answering, which a fixed\n"
+          "                        --boot-input cannot do\n"
           "  --boot-console        print what the machine transmits on either\n"
           "                        serial port: its own console output\n"
           "  --boot-input-port N   which serial port --boot-input feeds, 1 or\n"
@@ -729,6 +733,143 @@ static int write_screenshot(const char *path, const ap_graphics_t *graphics,
   return 0;
 }
 
+/* ## A console script: wait for what the machine says, then answer it
+ *
+ * `--boot-input` sends a fixed string, paced by a timer. That is right for the
+ * one thing it was built for -- autobauding the port with a carriage return --
+ * and wrong for a dialogue: the boot PROM asks questions at times that depend
+ * on how long a disk took, so a fixed script answers the wrong prompt. Feeding
+ * `ex domain_os` that way put an `o` into "Do you wish to continue (y,n)?".
+ *
+ * A line is `expect <text>` or `send <text>`, in order. `expect` waits until
+ * that text has appeared in what the machine has transmitted; `send` delivers
+ * its text, with `\r` for a carriage return. Matching is a plain substring
+ * search over the whole console stream so far, which is what the oracle
+ * harness's own procedures use and is enough for every prompt the PROM asks.
+ *
+ * This is the "scripted input" half of the frontend-flags item, and it is what
+ * the item meant: input *at the machine's pace* rather than at ours. */
+typedef struct {
+  bool send;      /* false for expect */
+  char text[128];
+} ap_console_step_t;
+
+#define AP_CONSOLE_SCRIPT_STEPS 64u
+
+typedef struct {
+  ap_console_step_t step[AP_CONSOLE_SCRIPT_STEPS];
+  unsigned steps;
+  unsigned at;        /* which step is current */
+  unsigned sent;      /* how far through the current send */
+  /* What the machine has transmitted, kept only as far as the longest pattern
+   * needs. A whole boot's console is megabytes and matching wants a tail. */
+  char seen[512];
+  unsigned seen_len;
+} ap_console_script_t;
+
+/* `\r` and `\n` are the only escapes: a prompt answer is a line, and anything
+ * richer would be a language rather than a script. */
+static void console_script_unescape(char *text) {
+  char *out = text;
+  for (const char *in = text; *in != '\0'; in++) {
+    if (*in == '\\' && in[1] == 'r') {
+      *out++ = '\r';
+      in++;
+    } else if (*in == '\\' && in[1] == 'n') {
+      *out++ = '\n';
+      in++;
+    } else {
+      *out++ = *in;
+    }
+  }
+  *out = '\0';
+}
+
+[[nodiscard]] static bool console_script_load(ap_console_script_t *script,
+                                              const char *path) {
+  FILE *file = fopen(path, "r");
+  if (file == NULL) {
+    fprintf(stderr, "apollo: cannot read console script %s\n", path);
+    return false;
+  }
+  char line[192];
+  bool ok = true;
+  while (fgets(line, (int)sizeof line, file) != NULL) {
+    size_t length = strlen(line);
+    while (length > 0u && (line[length - 1u] == '\n' || line[length - 1u] == '\r')) {
+      line[--length] = '\0';
+    }
+    if (line[0] == '\0' || line[0] == '#') {
+      continue;
+    }
+    if (script->steps >= AP_CONSOLE_SCRIPT_STEPS) {
+      fprintf(stderr, "apollo: console script has more than %u steps\n",
+              AP_CONSOLE_SCRIPT_STEPS);
+      ok = false;
+      break;
+    }
+    ap_console_step_t *step = &script->step[script->steps];
+    if (strncmp(line, "send ", 5u) == 0) {
+      step->send = true;
+      snprintf(step->text, sizeof step->text, "%s", line + 5);
+    } else if (strncmp(line, "expect ", 7u) == 0) {
+      step->send = false;
+      snprintf(step->text, sizeof step->text, "%s", line + 7);
+    } else {
+      fprintf(stderr, "apollo: console script line is not send or expect: %s\n",
+              line);
+      ok = false;
+      break;
+    }
+    console_script_unescape(step->text);
+    script->steps++;
+  }
+  fclose(file);
+  return ok;
+}
+
+/* A byte the machine transmitted. Kept in a sliding tail, and an `expect` that
+ * matches advances the script. */
+static void console_script_saw(ap_console_script_t *script, uint8_t byte) {
+  if (script->steps == 0u) {
+    return;
+  }
+  if (script->seen_len + 1u >= sizeof script->seen) {
+    /* Keep the tail: a pattern longer than what is kept could never match, and
+     * the buffer is far larger than any prompt. */
+    const unsigned keep = (unsigned)(sizeof script->seen) / 2u;
+    memmove(script->seen, script->seen + script->seen_len - keep, keep);
+    script->seen_len = keep;
+  }
+  script->seen[script->seen_len++] = (char)byte;
+  script->seen[script->seen_len] = '\0';
+
+  while (script->at < script->steps && !script->step[script->at].send &&
+         strstr(script->seen, script->step[script->at].text) != NULL) {
+    /* Matched: consume the stream so the next `expect` cannot be satisfied by
+     * the same text, which is how a script silently skips a prompt. */
+    script->seen_len = 0u;
+    script->seen[0] = '\0';
+    script->at++;
+    script->sent = 0u;
+  }
+}
+
+/* The next byte to deliver, or -1 when the script is waiting or finished. */
+[[nodiscard]] static int console_script_next(ap_console_script_t *script) {
+  if (script->at >= script->steps || !script->step[script->at].send) {
+    return -1;
+  }
+  const char *text = script->step[script->at].text;
+  const unsigned length = (unsigned)strlen(text);
+  if (script->sent >= length) {
+    script->at++;
+    script->sent = 0u;
+    return -1;
+  }
+  return (unsigned char)text[script->sent++];
+}
+
 /* One step, kept rather than printed.
  *
  * `--boot-trace` prints every step, which answers "what did the machine do" for
@@ -761,7 +902,17 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
                           ap_screen_kind_t screen, uint32_t node_id,
                           ap_model_id_t model, const char *screenshot,
                           unsigned trace_last, uint32_t stop_pc,
+                          const char *console_script_path,
                           const char *disk_path, const char *dump_spec) {
+  /* Before the PROM is even opened: a script that does not parse is the
+   * caller's mistake and should be reported as one, not hidden behind whichever
+   * file happens to be missing first. */
+  static ap_console_script_t script;
+  if (console_script_path != NULL &&
+      !console_script_load(&script, console_script_path)) {
+    return 1;
+  }
+
   long size = 0;
   uint8_t *prom = read_file(path, &size);
   if (prom == NULL) {
@@ -1032,7 +1183,7 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
 
   ap_machine_run_t run;
   if (trace || trace_last > 0u || input_length > 0u || console ||
-      key < AP_KBD_KEYS) {
+      script.steps > 0u || key < AP_KBD_KEYS) {
     /* Step by step, reporting the program counter and the active stack pointer.
      *
      * A7 is the observable this exists for. A wrong PC is where damage becomes
@@ -1097,6 +1248,26 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
           input_sent++;
         }
       }
+      /* The script's own bytes, under exactly the same conditions -- the port
+       * has to be able to carry them for the same reasons. It runs after the
+       * fixed script so that `--boot-input`'s carriage return can still do the
+       * autobaud before a dialogue begins. */
+      if (input_sent >= input_length && script.steps > 0u &&
+          ap_machine_now(&machine) >= input_next_at &&
+          !ap_sio_receiver_ready(&board->sio, input_unit, input_channel) &&
+          ap_sio_character_bits(&board->sio, input_unit, input_channel) == 8u &&
+          ap_sio_receiver_enabled(&board->sio, input_unit, input_channel)) {
+        const int byte = console_script_next(&script);
+        if (byte >= 0) {
+          ap_sio_receive_at(&board->sio, input_unit, input_channel,
+                            (uint8_t)byte, input_rate);
+          input_next_at = ap_machine_now(&machine) + input_interval;
+          if (!ap_sio_receiver_ready(&board->sio, input_unit, input_channel)) {
+            /* Not taken: put it back, the same retry the fixed script does. */
+            script.sent--;
+          }
+        }
+      }
       /* Drain both ports' transmitters every step, so nothing is lost when the
        * firmware writes two characters before we look again. Written straight
        * to stdout: this is the machine's console, and the whole point is to see
@@ -1105,7 +1276,12 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
         for (unsigned channel = 0; channel < 2u; channel++) {
           uint8_t out_byte = 0;
           while (ap_sio_transmit(&board->sio, unit, channel, &out_byte)) {
-            fputc((int)out_byte, stdout);
+            if (console) {
+              fputc((int)out_byte, stdout);
+            }
+            /* The script watches the same stream the console prints, so what it
+             * matches is exactly what a reader sees. */
+            console_script_saw(&script, out_byte);
           }
         }
       }
@@ -1933,6 +2109,7 @@ int main(int argc, char **argv) {
   uint32_t boot_watch = 0;
   const char *boot_input = NULL;
   bool boot_console = false;
+  const char *boot_script = NULL;
   unsigned boot_input_unit = 1u; /* SIO2 */
   unsigned boot_input_channel = 0u;
   /* 9600 baud. **Not** what the firmware configures its own ports to -- that is
@@ -2064,6 +2241,11 @@ int main(int argc, char **argv) {
       i += 2;
       continue;
     }
+    if (strcmp(argv[i], "--boot-script") == 0 && i + 1 < argc) {
+      boot_script = argv[i + 1];
+      i += 2;
+      continue;
+    }
     if (strcmp(argv[i], "--boot-console") == 0) {
       boot_console = true;
       i += 1;
@@ -2161,7 +2343,8 @@ int main(int argc, char **argv) {
                           (uint8_t)boot_input_rate, boot_input_interval_us,
                           boot_key, boot_console,
                           boot_screen, node_id, opt.model->id, screenshot,
-                          boot_trace_last, boot_stop_pc, disk_path, dump_spec);
+                          boot_trace_last, boot_stop_pc, boot_script,
+                          disk_path, dump_spec);
   }
 
   if (boot_tape != NULL) {
