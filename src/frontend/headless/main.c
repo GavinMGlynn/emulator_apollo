@@ -993,6 +993,14 @@ static void console_script_saw(ap_console_script_t *script, uint8_t byte) {
 typedef struct {
   unsigned step;
   uint32_t pc;
+  /* Every data and address register, because which one matters is not knowable
+   * in advance and each miss costs a nine-minute run. This ring has been
+   * widened three times mid-investigation -- for `a1`, which the PROM's disk
+   * service takes its block number through; for `a3`, `a4` and `d7`, which
+   * compute a rebased pointer; and for `d6`, which held the status the failing
+   * routine returns. Sixteen columns of hex is a wide line and nothing else. */
+  uint32_t d[8];
+  uint32_t a[8];
   uint32_t a7;
   uint32_t a6;
   uint32_t a0;
@@ -1540,7 +1548,19 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
           slot->a6 = machine.cpu.regs.a[6];
           slot->a0 = machine.cpu.regs.a[0];
           slot->a1 = machine.cpu.regs.a[1];
+          for (unsigned r = 0; r < 8u; r++) {
+            slot->d[r] = machine.cpu.regs.d[r];
+            slot->a[r] = machine.cpu.regs.a[r];
+          }
+        for (unsigned r = 0; r < 8u; r++) {
+          slot->d[r] = machine.cpu.regs.d[r];
+          slot->a[r] = machine.cpu.regs.a[r];
+        }
         slot->a1 = machine.cpu.regs.a[1];
+        for (unsigned r = 0; r < 8u; r++) {
+          slot->d[r] = machine.cpu.regs.d[r];
+          slot->a[r] = machine.cpu.regs.a[r];
+        }
           slot->d0 = machine.cpu.regs.d[0];
           slot->d1 = machine.cpu.regs.d[1];
           slot->instruction = r.instruction;
@@ -1601,6 +1621,10 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
         slot->a6 = machine.cpu.regs.a[6];
         slot->a0 = machine.cpu.regs.a[0];
         slot->a1 = machine.cpu.regs.a[1];
+        for (unsigned r = 0; r < 8u; r++) {
+          slot->d[r] = machine.cpu.regs.d[r];
+          slot->a[r] = machine.cpu.regs.a[r];
+        }
         slot->d0 = machine.cpu.regs.d[0];
         slot->d1 = machine.cpu.regs.d[1];
         slot->instruction = r.instruction;
@@ -1661,13 +1685,18 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
     const unsigned first = trace_ring_used < trace_last
                                ? 0u
                                : trace_ring_used % trace_last;
-    printf("# last %u step(s): step pc a7 a6 a0 a1 d0 d1 instruction status\n",
+    printf("# last %u step(s): step pc d0-d7 a0-a7 instruction status\n",
            kept);
     for (unsigned k = 0; k < kept; k++) {
       const ap_trace_ring_t *e = &trace_ring[(first + k) % trace_last];
-      printf("%u %08X %08X %08X %08X %08X %08X %08X %04X %s\n", e->step,
-             e->pc, e->a7, e->a6, e->a0, e->a1, e->d0, e->d1, e->instruction,
-             ap_probe_status_name(e->status));
+      printf("%u %08X", e->step, e->pc);
+      for (unsigned r = 0; r < 8u; r++) {
+        printf(" %08X", e->d[r]);
+      }
+      for (unsigned r = 0; r < 8u; r++) {
+        printf(" %08X", e->a[r]);
+      }
+      printf(" %04X %s\n", e->instruction, ap_probe_status_name(e->status));
     }
   }
   printf("  executed     %u instruction(s)\n", run.executed);
