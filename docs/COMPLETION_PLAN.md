@@ -3307,7 +3307,13 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         pieces: code `0012` at `3C4F985C`, subsystem `0008`, flag `80`. Also in
         that frame, `3C4F9858` holds `00010504` against the `00010005` the crash
         comparison demands -- noted to test, not believed, after four
-        look-alikes turned out to be coincidence.
+        look-alikes turned out to be coincidence. Following the trace back,
+        `00080012` is already assembled at `3C4674DC` before the flag is added,
+        and the `bset` path is entered by an unconditional `bra` -- every level
+        so far is transport, not decision. Searching the loaded image for the
+        constant finds where it is *made*: `move.l #$00080012,d3` at `01021D44`,
+        `cmpi.l` at `01090AD6`, and `move.l #$00080012,(a1)` at `01091438`. The
+        last is the shape this chain uses at every level, so it is tested first.
         *Verification: the console going past the crash.*
         *Verification: the console going past the crash.*
   - [ ] **`IRQ6` and `DRQ2`, the floppy's**, are placed and not driven: its

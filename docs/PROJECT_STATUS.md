@@ -5230,6 +5230,34 @@ holds `00010504`, and the value the crash comparison demands is `00010005`. Two
 longwords that look alike in a hunt where four look-alikes have already been
 coincidences. It is recorded here as something to test, not as a link.
 
+#### The status exists before the flag, and comes from a literal
+
+Following the trace back through the frames shows `00080012` already assembled
+well before the `bset`:
+
+    310877023  3C465998  4e75   rts            ; d0 = 00002704
+    310877024  3C4674DC  202e   move.l d16(a6),d0  ; d0 = 00080012
+    310877028  3C466A88  2480   move.l d0,(a2)
+
+So the error flag is added at the end to a status that already exists, and the
+`bset` path is reached by an unconditional `bra` at `3C46331C` — every level of
+this so far has been transport rather than decision.
+
+Rather than walk one frame per nine-minute run, the loaded image answers where
+`00080012` is *made*. Searching it for the constant finds three sites, and the
+instruction word in front of each says which are producers:
+
+| address | instruction |
+|---|---|
+| `01021D44` | `move.l #$00080012,d3` |
+| `01090AD6` | `cmpi.l #$00080012,d0` |
+| `01091438` | `move.l #$00080012,(a1)` |
+
+The third is the shape every level of this chain has used — a status written
+through a caller's pointer — so it is the one to test first, with
+`--boot-stop-physical-pc`. Two candidates and a comparison, found offline in
+seconds, against what would otherwise have been several runs of frame-walking.
+
 That is the third time in this hunt that the obvious lead has turned out to be
 downstream of the fault — after `DISK TIMEOUT`, and after the crash status that
 turned out to be the crash *message*. The pattern is worth naming: a value that
