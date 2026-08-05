@@ -3087,8 +3087,15 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         the physical addresses a DMA cycle uses, and the destination moves from
         `01100000` -- the same address as the source, a copy onto itself -- to
         `01100400`. The earlier revert judged it by a console string that fails
-        either way. It is still **one page short**: entry 513 where 514 is
-        wanted. The three reported values are live, not stale --
+        either way. It is still one page short, and **not for an arithmetic
+        reason**: reporting the channel registers shows controller **1**
+        entirely at its reset state and every programmed register on controller
+        **2**, while the code that writes them uses `010C00` at stride 1 --
+        controller 1's address and stride. Channel 1's base address reads `0400`
+        where the bytes written assemble to `0800`, so the transfer never used
+        the address the program wrote and no index rule could have saved it. The
+        next step is `ap_dma_decode` and the board placement, answerable by
+        reading code rather than by another boot. The three reported values are live, not stale --
         `01002F66` and `01002F6A` load them immediately before the call -- and
         what they say is that **the destination is never written**: `d0` is the
         PROM's own fill pattern at `01100803`. What would settle the index is

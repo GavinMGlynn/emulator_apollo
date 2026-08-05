@@ -4597,6 +4597,39 @@ last and hardest — **a decoded PNG**. Register round-trips and word-level
 identities are what can be checked without one, and a controller that passes
 those and draws nothing is the standard way this goes wrong.
 
+#### Controller 1 is untouched and controller 2 holds the programming
+
+The remaining page turned out not to be an arithmetic question. Reporting the
+channel registers beside the translated addresses:
+
+    dma1 regs    command 00, mask F, request 0, status 00
+    dma1 ch0     mode 00, address 0000 (base 0000), count 0000 (base 0000)
+    dma1 ch1     mode 00, address 0000 (base 0000), count 0000 (base 0000)
+    dma2 regs    command 03, mask F, request 0, status 02
+    dma2 ch0     mode 88, address 0000 (base 0000), count 0000 (base 0000)
+    dma2 ch1     mode 85, address 0401 (base 0400), count FFFF (base 0000)
+
+**Controller 1 is entirely at its reset state.** Every register the diagnostic
+programs is on controller 2 — and the code that programs them does
+`lea $10C00,a3` at `01002E82` and writes `$8(a3)`, `$B(a3)`, `$2(a3)` at
+stride 1, which is controller **1**'s address and stride.
+
+That also explains the one-page shortfall directly rather than by arithmetic:
+channel 1's base address is `0400`, where the two bytes written were `00` then
+`08` — which assemble to `0800`. The address the transfer used was never the one
+the program wrote, so no index rule could have made the destination right.
+
+**The report had been hiding half of this.** It skipped a controller whose
+registers matched the reset state, so it named `dma2` and read as though
+`dma1` did not exist — which is exactly the fact that mattered. Both are printed
+now, always: skipping the quiet one hides *which* of the two a program reached,
+and that is the question whenever a decode is in doubt.
+
+So the next step is neither the manual nor the map. It is why writes to
+`010C00` land on the second controller, which is a bounded question about
+`ap_dma_decode` and the board's placement, answerable by reading code rather
+than by another boot.
+
 #### The map index is based at the AT bus window, measured this time
 
 Two turns ago this was implemented, judged by the console, and reverted as "a

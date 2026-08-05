@@ -1445,14 +1445,23 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
      * every transfer on controller 1 without either controller looking wrong on
      * its own. That is invisible from a transfer count. */
     const ap_i8237_t *c = &board->dma.controller[u];
-    if (c->command == 0u && c->mask == 0x0Fu && c->request == 0u &&
-        c->status == 0u) {
-      continue; /* untouched since reset */
+    /* Both, always. Skipping a controller that looks untouched hid *which* of
+     * the two a program had reached, which is the question when a register
+     * decode is in doubt -- and it made a report that named one controller read
+     * as though the other did not exist. */
+    printf("  dma%u regs    command %02X, mask %01X, request %01X, status %02X\n",
+           u + 1u, c->command, c->mask & 0x0Fu, c->request & 0x0Fu, c->status);
+    for (unsigned ch = 0; ch < 2u; ch++) {
+      /* The two channels a memory-to-memory service uses, with both the base
+       * and the current values: a current address that has advanced past its
+       * base is a transfer that ran, and a base that is not what the program
+       * wrote is a decode fault. Neither shows in a translated address alone. */
+      printf("  dma%u ch%u      mode %02X, address %04X (base %04X),"
+             " count %04X (base %04X)\n",
+             u + 1u, ch, c->channel[ch].mode, c->channel[ch].current_address,
+             c->channel[ch].base_address, c->channel[ch].current_count,
+             c->channel[ch].base_count);
     }
-    printf("  dma%u regs    command %02X, mask %01X, request %01X, status %02X,"
-           " ch0 mode %02X\n",
-           u + 1u, c->command, c->mask & 0x0Fu, c->request & 0x0Fu, c->status,
-           c->channel[0].mode);
   }
   printf("  dma bus      %u bus tick(s), %u asking, %u holding\n",
          board->bus_ticks, board->dma_bus_requests, board->dma_bus_held);
