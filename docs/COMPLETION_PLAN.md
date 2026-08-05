@@ -2956,11 +2956,21 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         *Verification: `awd_suite` +3 (20) — a verify transferring nothing and
         still failing off the end, READ ID's split cylinder, and the controller's
         diagnostics passing with no drive where the drive's does not.*
-      **Awaiting:** nothing in this module that a raw sector image can answer.
-      The fifteen refused commands need a disk's *physical* format — formatting,
-      ECC burst lengths, defect lists, alternate tracks, the long reads — which
-      an image cannot carry, so the refusal is the right answer rather than a
-      gap.
+  - [x] **The drive configuration word, measured, and it did not move the
+        boot.** §5.4.29 names bytes 4-5 and does not define them; the oracle's
+        `set_configuration_data` writes `02 44`. The same function corroborates
+        bytes 0-3 field by field — it computes them the way the page image says,
+        which is the "(-1)" reading taken before it was looked at.
+        Detail in `PROJECT_STATUS.md`.
+        *Verification: `awd_suite`'s configuration test extended to the whole
+        ten bytes. The boot is **unchanged** — same commands, same resting PC —
+        which is the finding: the word was not what stopped it.*
+      **Awaiting:** a lead outside this module. The OMTI command set is complete
+      as far as a raw sector image can take it and the one uncertain value is
+      now measured, so further work here would be chasing the boot again — which
+      `CLAUDE.md` forbids and the commit before last corrected. The remaining
+      fifteen commands need a disk's *physical* format, which an image cannot
+      carry.
   - [x] **A disk can be fitted at all.** `ap_omti` modelled the controller and
         `ap_awd` read the image and nothing ever handed one to the other, so
         every boot experiment so far ran on a DN3500 with **no Winchester** —

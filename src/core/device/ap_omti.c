@@ -222,8 +222,23 @@ static void execute(ap_omti_t *omti) {
     omti->buffer[1] = (uint8_t)highest_cylinder;
     omti->buffer[2] = (uint8_t)(g.heads - 1u);
     omti->buffer[3] = (uint8_t)(g.sectors - 1u);
-    /* Bytes 4-9 stay zero: physical formatting parameters this project has no
-     * source for. See the header. */
+    /* The **drive configuration word**, bytes 4 and 5, which the manual names
+     * and does not define for this drive. The resolution order ran out at the
+     * document and the oracle answers: `omti8621.cpp`'s `set_configuration_data`
+     * writes `02 44` for every drive it configures.
+     *
+     * That same function corroborates bytes 0-3 independently -- it computes
+     * `(cylinders - 1) >> 8`, `(cylinders - 1) & 0xff`, `heads - 1` and
+     * `sectors - 1`, which is the "(-1)" reading taken from the page image
+     * before this was looked at. Two sources, one arrived at from the table and
+     * one from a running model, agreeing field by field.
+     *
+     * Bytes 6-9 -- the inter-sector gaps and the PLO sync fields -- are zero
+     * there too, so this core's zeros are the oracle's answer rather than an
+     * omission. */
+    omti->buffer[4] = 0x02u;
+    omti->buffer[5] = 0x44u;
+    /* Bytes 6-9 stay zero, as above. */
     omti->buffer_index = 0u;
     omti->transfer_length = AP_OMTI_CONFIGURATION_BYTES;
     omti->blocks_left = 0u;

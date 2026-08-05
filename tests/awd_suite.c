@@ -368,6 +368,18 @@ static void test_read_configuration_reports_the_highest_not_the_count(void) {
 
   /* Ten bytes and then the completion, not a whole sector: the transfer length
    * belongs to the command that started it, not to the buffer. */
+  /* The drive configuration word, which the manual names and does not define
+   * for this drive: the oracle's `set_configuration_data` writes `02 44`. The
+   * same function computes bytes 0-3 the way the page image says, which is what
+   * makes it a corroboration rather than a substitute. */
+  TEST_ASSERT_EQUAL_HEX8(0x02u, reply[4]);
+  TEST_ASSERT_EQUAL_HEX8(0x44u, reply[5]);
+  /* And the gaps and sync fields are zero on both sides, so these zeros are an
+   * answer rather than an omission. */
+  for (unsigned i = 6; i < AP_OMTI_CONFIGURATION_BYTES; i++) {
+    TEST_ASSERT_EQUAL_HEX8(0x00u, reply[i]);
+  }
+
   TEST_ASSERT_EQUAL_INT(AP_OMTI_PHASE_STATUS, ap_omti_disk_phase(&omti));
 }
 

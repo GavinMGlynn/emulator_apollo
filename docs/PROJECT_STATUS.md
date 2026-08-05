@@ -4597,6 +4597,30 @@ last and hardest — **a decoded PNG**. Register round-trips and word-level
 identities are what can be checked without one, and a controller that passes
 those and draws nothing is the standard way this goes wrong.
 
+#### The drive configuration word, and it did not move the boot
+
+`[OMTI]` §5.4.29 names bytes 4 and 5 of READ CONFIGURATION the "drive
+configuration word" and does not define it for this drive. The resolution order
+ran out at the document, so the oracle answered: `set_configuration_data` writes
+**`02 44`** for every drive it configures.
+
+The same function is worth more than the two bytes. It computes bytes 0 to 3 as
+`(cylinders - 1) >> 8`, `(cylinders - 1) & 0xff`, `heads - 1` and `sectors - 1`
+— which is the "(-1)" reading taken from the page image *before* this was looked
+at. Two sources, one from a printed table and one from a running model, agreeing
+field by field. Bytes 6 to 9 are zero there too, so this core's zeros are the
+oracle's answer rather than an omission.
+
+**And the boot is unchanged.** Same two commands, same resting PC. The
+configuration word was not what stopped it, and saying so is the point: the
+value is now right for a reason, and the thing that is wrong is somewhere else.
+
+That is where this item stops being the right thing to work on. The OMTI module
+is complete as far as a raw sector image can take it, the value that was
+uncertain is now measured, and the next lead is not in this module — so
+continuing here would be chasing the boot again, which is the correction the
+previous commit made.
+
 #### Finishing the command set as a module, rather than chasing the boot
 
 **A course correction first.** `CLAUDE.md` is explicit: "Complete modules, don't
