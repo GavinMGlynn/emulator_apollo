@@ -236,6 +236,76 @@ static void execute(ap_omti_t *omti) {
     return;
   }
 
+  case AP_OMTI_CMD_READ_VERIFY:
+    /* §5.1.2 gives it zero data bytes: it reads and checks without transferring
+     * anything, so what it reports is whether the sectors are *there*. The
+     * address is checked and every block is read, because a verify that did not
+     * read would answer for a disk it never touched. */
+    if (!addressed(omti, &cdb, &lba)) {
+      return;
+    }
+    for (unsigned i = 0; i < (cdb.block_count == 0u ? 256u : cdb.block_count); i++) {
+      if (!ap_awd_read(omti->drive, lba + i, omti->buffer)) {
+        finish(omti, true, SENSE_ILLEGAL_ADDRESS);
+        return;
+      }
+    }
+    finish(omti, false, 0u);
+    return;
+
+  case AP_OMTI_CMD_READ_ID: {
+    /* §5.4.24: the ID field of the addressed sector, four bytes. It is the
+     * address written back in the format the *disk* carries, which is why a
+     * driver uses it to find out where a head actually is. */
+    if (!addressed(omti, &cdb, &lba)) {
+      return;
+    }
+    omti->buffer[0] = (uint8_t)((cdb.cylinder >> 8) & 0x07u);
+    omti->buffer[1] = (uint8_t)(cdb.cylinder & 0xFFu);
+    /* Flags clear: a raw sector image has no bad tracks and no alternates. */
+    omti->buffer[2] = (uint8_t)(cdb.head & 0x0Fu);
+    omti->buffer[3] = cdb.sector;
+    omti->buffer_index = 0u;
+    omti->transfer_length = AP_OMTI_READ_ID_BYTES;
+    omti->blocks_left = 0u;
+    omti->phase = AP_OMTI_PHASE_DATA_IN;
+    omti->status = (uint8_t)((omti->status & ~AP_OMTI_ST_CD) | AP_OMTI_ST_IO |
+                             AP_OMTI_ST_REQ);
+    if ((omti->mask & AP_OMTI_MASK_DMA_ENABLE) != 0u) {
+      omti->status |= AP_OMTI_ST_DREQ;
+    }
+    return;
+  }
+
+  case AP_OMTI_CMD_RAM_DIAGNOSTICS:
+  case AP_OMTI_CMD_CONTROLLER_DIAGNOSTIC:
+    /* §5.4.23 "performs a pattern test on the internal controller buffer" and
+     * §5.4.26 a ROM checksum, RAM test and Z8 self test. Both are tests of the
+     * *controller*, and this one has no fault to report -- a model that failed
+     * them would be claiming a defect it does not have. Neither touches a
+     * drive, so neither needs one. */
+    finish(omti, false, 0u);
+    return;
+
+  case AP_OMTI_CMD_DRIVE_DIAGNOSTIC:
+    /* §5.4.25: "recalibrate, sequentially seek to every track and read sector
+     * 0". It needs a drive, and it reports what reading sector 0 of every track
+     * would -- which for a whole image is success and for a short one is not. */
+    if (omti->drive == NULL) {
+      finish(omti, true, SENSE_DRIVE_NOT_READY);
+      return;
+    }
+    for (uint16_t c = 0; c < omti->drive->geometry.cylinders; c++) {
+      uint32_t at = 0;
+      if (!ap_awd_lba(omti->drive->geometry, c, 0u, 1u, &at) ||
+          !ap_awd_read(omti->drive, at, omti->buffer)) {
+        finish(omti, true, SENSE_ILLEGAL_ADDRESS);
+        return;
+      }
+    }
+    finish(omti, false, 0u);
+    return;
+
   case AP_OMTI_CMD_RECALIBRATE:
   case AP_OMTI_CMD_SEEK:
     /* Positioning, which this model has no position to change: a seek is

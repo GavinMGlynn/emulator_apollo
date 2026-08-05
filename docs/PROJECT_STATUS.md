@@ -4597,6 +4597,44 @@ last and hardest — **a decoded PNG**. Register round-trips and word-level
 identities are what can be checked without one, and a controller that passes
 those and draws nothing is the standard way this goes wrong.
 
+#### Finishing the command set as a module, rather than chasing the boot
+
+**A course correction first.** `CLAUDE.md` is explicit: "Complete modules, don't
+chase the boot. Boots are integration checks and thermometers, never
+milestones." The last several steps on the OMTI controller were driven by
+whichever command the firmware happened to hit next — legitimate module work
+arrived at by the method the discipline warns against, and the difference shows
+in what gets left out: a command the firmware does not reach is not a command
+the module does not need.
+
+So the set was worked from `[OMTI]` §5.1.2's own table rather than from a run.
+Of its twenty-seven commands, seven were implemented; five more are **derivable
+from what this project has** — a geometry and a raw sector image — and are now
+in:
+
+* **`05 READ VERIFY`**, which §5.1.2 gives zero data bytes: it reads and checks
+  without transferring, so what it reports is whether the sectors are *there*.
+  It reads every block, because a verify that answered without reading would
+  answer for a disk it never touched.
+* **`E2 READ ID`**, §5.4.24's four bytes — the address written back in the form
+  the disk carries, which is how a driver finds where a head actually is. The
+  cylinder is split across two bytes here exactly as it is in a descriptor
+  block, so the reply has the same reassembly trap the decoder does.
+* **`E0 RAM DIAGNOSTICS`** and **`E4 CONTROLLER INTERNAL DIAGNOSTICS`**, which
+  test the controller and touch no drive. They pass, because this controller has
+  no fault to report and a model failing them would be claiming a defect it does
+  not have.
+* **`E3 DRIVE DIAGNOSTIC`**, §5.4.25's "recalibrate, sequentially seek to every
+  track and read sector 0" — which does need a drive, and reports what reading
+  every track's sector 0 would.
+
+The remaining fifteen stay refused, and the refusal is the right answer rather
+than a gap: formatting, ECC burst lengths, defect lists, alternate-track
+assignment and the long reads all need data a **raw sector image cannot carry**.
+A model answering them would be inventing a disk's physical format. The default
+already reports an error rather than success, "because a driver told a format
+succeeded when nothing was written would go on to trust the disk".
+
 #### READ CONFIGURATION, and a command with two names in one manual
 
 `EC` is implemented, from §5.4.29's page image. The command's own description

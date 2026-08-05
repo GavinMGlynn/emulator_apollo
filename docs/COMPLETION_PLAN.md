@@ -2946,9 +2946,21 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         `count - 1` and that they are not the counts. `03 REQUEST SENSE` drops
         out of the boot's command sequence, which is the improvement: a driver
         asks for sense after a failure.*
-      **Awaiting:** what the firmware wants after READ CONFIGURATION. Bytes 4-9
-      are physical formatting parameters no manual here gives and a sector image
-      cannot carry, so they are zero — which may be what it is reading.
+  - [x] **The command set finished as a module, not chased.** `CLAUDE.md` says
+        "complete modules, don't chase the boot", and the previous steps here
+        were driven by whichever command the firmware hit next — the method the
+        discipline warns against. Worked from §5.1.2's table instead: five more
+        commands are derivable from a geometry and a sector image and are in —
+        `05 READ VERIFY`, `E2 READ ID`, `E0`, `E3` and `E4`. Detail in
+        `PROJECT_STATUS.md`.
+        *Verification: `awd_suite` +3 (20) — a verify transferring nothing and
+        still failing off the end, READ ID's split cylinder, and the controller's
+        diagnostics passing with no drive where the drive's does not.*
+      **Awaiting:** nothing in this module that a raw sector image can answer.
+      The fifteen refused commands need a disk's *physical* format — formatting,
+      ECC burst lengths, defect lists, alternate tracks, the long reads — which
+      an image cannot carry, so the refusal is the right answer rather than a
+      gap.
   - [x] **A disk can be fitted at all.** `ap_omti` modelled the controller and
         `ap_awd` read the image and nothing ever handed one to the other, so
         every boot experiment so far ran on a DN3500 with **no Winchester** —

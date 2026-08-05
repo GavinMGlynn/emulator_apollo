@@ -391,6 +391,79 @@ static void test_the_data_phase_requests_each_byte_and_stops(void) {
   TEST_ASSERT_TRUE((status & AP_OMTI_ST_REQ) != 0u);
 }
 
+
+/* §5.4.24's READ ID: the addressed sector's ID field, four bytes. It is the
+ * address written back in the format the *disk* carries, which is why a driver
+ * uses it to find out where a head actually is. */
+static void test_read_id_returns_the_address_the_disk_carries(void) {
+  build_controller();
+  issue(AP_OMTI_CMD_READ_ID, 1u, 1u, 3u, 0u);
+  TEST_ASSERT_EQUAL_INT(AP_OMTI_PHASE_DATA_IN, ap_omti_disk_phase(&omti));
+
+  uint8_t id[AP_OMTI_READ_ID_BYTES];
+  for (unsigned i = 0; i < AP_OMTI_READ_ID_BYTES; i++) {
+    id[i] = ap_omti_disk_read(&omti, AP_OMTI_DISK_DATA);
+  }
+  /* The cylinder is split: the top three bits in byte 0, the low eight in
+   * byte 1. Reassembling it from byte 1 alone works on any disk under 256
+   * cylinders, which is the shape of bug the CDB decoder exists to avoid and
+   * the reply has the same shape. */
+  TEST_ASSERT_EQUAL_HEX8(0x00u, id[0]);
+  TEST_ASSERT_EQUAL_HEX8(0x01u, id[1]);
+  /* Flags clear -- a raw sector image has no bad tracks and no alternates --
+   * with the head in the low nibble. */
+  TEST_ASSERT_EQUAL_HEX8(0x01u, id[2]);
+  TEST_ASSERT_EQUAL_HEX8(0u, (uint8_t)(id[2] & (AP_OMTI_ID_FLAG_BAD |
+                                                AP_OMTI_ID_FLAG_ALTERNATE)));
+  TEST_ASSERT_EQUAL_HEX8(0x03u, id[3]);
+  TEST_ASSERT_EQUAL_INT(AP_OMTI_PHASE_STATUS, ap_omti_disk_phase(&omti));
+}
+
+/* §5.1.2 gives READ VERIFY zero data bytes: it reads and checks without
+ * transferring, so what it reports is whether the sectors are *there*. A model
+ * that answered without reading would answer for a disk it never touched. */
+static void test_read_verify_transfers_nothing_and_still_reads(void) {
+  build_controller();
+  issue(AP_OMTI_CMD_READ_VERIFY, 0u, 0u, 1u, 2u);
+  /* Straight to the completion: no data phase at all. */
+  TEST_ASSERT_EQUAL_INT(AP_OMTI_PHASE_STATUS, ap_omti_disk_phase(&omti));
+  TEST_ASSERT_EQUAL_HEX8(0x00u, take_status());
+
+  /* And a verify off the end of the image fails, which is what makes it a
+   * check rather than an acknowledgement. */
+  build_controller();
+  issue(AP_OMTI_CMD_READ_VERIFY, 0u, 0u, 1u, 255u);
+  TEST_ASSERT_EQUAL_INT(AP_OMTI_PHASE_STATUS, ap_omti_disk_phase(&omti));
+  TEST_ASSERT_NOT_EQUAL_HEX8(0x00u, take_status());
+}
+
+/* The controller's own diagnostics touch no drive and have no fault to report
+ * -- a model failing them would be claiming a defect it does not have. The
+ * *drive* diagnostic does need one, and reports what reading every track's
+ * sector 0 would. */
+static void test_the_diagnostics_report_what_they_can_see(void) {
+  build_controller();
+  issue(AP_OMTI_CMD_RAM_DIAGNOSTICS, 0u, 0u, 0u, 0u);
+  TEST_ASSERT_EQUAL_HEX8(0x00u, take_status());
+
+  build_controller();
+  issue(AP_OMTI_CMD_CONTROLLER_DIAGNOSTIC, 0u, 0u, 0u, 0u);
+  TEST_ASSERT_EQUAL_HEX8(0x00u, take_status());
+
+  build_controller();
+  issue(AP_OMTI_CMD_DRIVE_DIAGNOSTIC, 0u, 0u, 0u, 0u);
+  TEST_ASSERT_EQUAL_HEX8(0x00u, take_status());
+
+  /* With no drive attached the controller's own tests still pass and the
+   * drive's does not, which is the distinction the three exist to draw. */
+  ap_omti_reset(&omti);
+  issue(AP_OMTI_CMD_RAM_DIAGNOSTICS, 0u, 0u, 0u, 0u);
+  TEST_ASSERT_EQUAL_HEX8(0x00u, take_status());
+  ap_omti_reset(&omti);
+  issue(AP_OMTI_CMD_DRIVE_DIAGNOSTIC, 0u, 0u, 0u, 0u);
+  TEST_ASSERT_NOT_EQUAL_HEX8(0x00u, take_status());
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_the_two_drives_are_the_oracles);
@@ -401,6 +474,9 @@ int main(void) {
   RUN_TEST(test_dma_enable_is_what_asks_for_a_cycle);
   RUN_TEST(test_read_configuration_reports_the_highest_not_the_count);
   RUN_TEST(test_the_data_phase_requests_each_byte_and_stops);
+  RUN_TEST(test_read_id_returns_the_address_the_disk_carries);
+  RUN_TEST(test_read_verify_transfers_nothing_and_still_reads);
+  RUN_TEST(test_the_diagnostics_report_what_they_can_see);
   RUN_TEST(test_selecting_asks_for_the_first_command_byte);
   RUN_TEST(test_each_command_byte_clears_and_re_asserts_the_request);
   RUN_TEST(test_a_select_while_busy_is_ignored);

@@ -82,6 +82,23 @@
  * way to carry. They are zero, and that is a stated gap rather than a value. */
 #define AP_OMTI_CONFIGURATION_BYTES 10u
 
+/* §5.4.24's READ ID reply: four bytes, two words.
+ *
+ *     0  zero  zero  zero  zero  zero  C10  C09  C08
+ *     1  CYLINDER LOW (C07 to C00)
+ *     2  FLAGS  |  0  |  HEAD NUMBER
+ *     3  SECTOR NUMBER
+ *
+ * The flags are page 5-23's, and they describe the *track* rather than the
+ * transfer: an alternate track, a bad track with an alternate assigned, and a
+ * bad track. A raw sector image has no bad tracks and no alternates -- it is a
+ * perfect disk by construction -- so all three are clear and that is a fact
+ * about the image format, not an assumption about the drive. */
+#define AP_OMTI_READ_ID_BYTES 4u
+#define AP_OMTI_ID_FLAG_ALTERNATE 0x20u
+#define AP_OMTI_ID_FLAG_BAD_WITH_ALTERNATE 0x40u
+#define AP_OMTI_ID_FLAG_BAD 0x80u
+
 /* §5.1.2, "COMMANDS SPECIFIC to the ST506/412 drives". Named so it can be
  * *rejected* on an ESDI controller rather than quietly accepted: the two lists
  * sit adjacent on the page, and merging them would make drive geometry look
