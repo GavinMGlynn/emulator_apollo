@@ -4976,6 +4976,22 @@ because it is a reading rather than a quotation", and being able to find the
 reading, and see which half of it the machine disagreed with, is the whole value
 of having written it down.
 
+**`DISK TIMEOUT` is gone.** The console no longer prints it at all, the 33,246
+spins do not happen, and the crash that follows has *changed*:
+
+    Crash_Status 80080012  PC 3C456A9C pid 0001
+
+Same check at the same call site, a different status. `00080024` became
+`80080012` — bit 31 now set, which is the error flag on an Apollo status — so
+the routine at `3C49CDCC` gets further than it did and fails somewhere new. That
+is what fixing a real defect looks like from the outside: the symptom does not
+soften, it moves.
+
+The crash path itself still runs off the rails afterwards — the run ends
+`FAULT on 6100` at PC `00000446` with `a7` at `FFFC672C`, a stack pointer
+nowhere near memory — but that is the same downstream wreckage as before and not
+worth chasing until the status is right.
+
 #### `DRQ7`, and a request that never went down
 
 The interrupt alone did not clear `DISK TIMEOUT`: the same crash came back at

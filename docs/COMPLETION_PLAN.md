@@ -3247,7 +3247,15 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         *Verification: `omti_suite` and `awd_suite` corrected to the evidenced
         behaviour -- a completed command in programmed I/O leaves `IREQ` down
         and reads `CF`, enabling interrupts before the command raises both bit
-        and line, and clearing the enable takes the bit down with it.*
+        and line, and clearing the enable takes the bit down with it. And the
+        console: `DISK TIMEOUT` is gone, the 33,246 spins do not happen, and the
+        crash moved from `00080024` to `80080012`.*
+  - [ ] **`Crash_Status 80080012` at the same call site.** The routine at
+        `3C49CDCC` now gets further and fails somewhere new -- bit 31 set is the
+        error flag on an Apollo status. Same method reaches it: stop in
+        `3C456A90:10`, ring back through the routine, and see what it waits on
+        this time.
+        *Verification: the console going past the crash.*
         *Verification: the console going past the crash.*
   - [ ] **`IRQ6` and `DRQ2`, the floppy's**, are placed and not driven: its
         completion is the FDC's result phase rather than the fixed disk's.
