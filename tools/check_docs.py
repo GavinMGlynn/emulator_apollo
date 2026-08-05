@@ -129,6 +129,50 @@ def check_item_length(problems: list[str]) -> int:
     return checked
 
 
+def check_stray_items(problems: list[str]) -> int:
+    """Items adrift of the document's structure.
+
+    A whole plan item once landed *above* the file's own title, and every check
+    here passed: the item was well-formed, its parent was intact, and the counts
+    it claimed were right. What was wrong was where it sat -- an edit that meant
+    to replace a block and instead prepended a copy of it, leaving the same item
+    twice in a document read forwards to choose the next thing.
+
+    Two cheap invariants catch that class. The plan starts with its heading, and
+    no item title appears twice.
+    """
+    if not PLAN.is_file():
+        return 0
+    lines = PLAN.read_text().splitlines()
+
+    checked = 0
+    for i, line in enumerate(lines):
+        if not line.strip():
+            continue
+        checked += 1
+        if not line.startswith("#"):
+            problems.append(
+                f"COMPLETION_PLAN.md:{i + 1}: content before the document's own "
+                f"heading -- an edit landed adrift: {line.strip()[:56]}")
+        break
+
+    seen: dict[str, int] = {}
+    for i, line in enumerate(lines):
+        if not ITEM.match(line):
+            continue
+        title = line.split("]", 1)[1].strip()
+        if len(title) < 24:
+            continue  # too short to be distinctive on its own
+        checked += 1
+        if title in seen:
+            problems.append(
+                f"COMPLETION_PLAN.md:{i + 1}: this item is already at line "
+                f"{seen[title]} -- one of the two is a stray copy: {title[:56]}")
+        else:
+            seen[title] = i + 1
+    return checked
+
+
 def check_parent_residue(problems: list[str]) -> int:
     """A parent whose children are all done must tick, or say what it awaits.
 
@@ -325,6 +369,7 @@ def main() -> int:
 
     checked += check_references(problems)
     checked += check_item_length(problems)
+    checked += check_stray_items(problems)
     checked += check_parent_residue(problems)
     checked += check_parent_subject(problems)
 

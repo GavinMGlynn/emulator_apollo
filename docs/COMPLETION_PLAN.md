@@ -1,22 +1,3 @@
-  - [ ] **`CPU (mmu) Test #0`, the first thing to use address translation.**
-        The loaded diagnostic stops with `Expected= 01224800, Actual= 01FFFC00,
-        Address= 01224C00`, still reporting **zero** descriptor fetches -- so it
-        fails before translation is switched on, and the numbers are SELF_TEST's
-        own rather than the PROM's. Reading further means disassembling the
-        image the machine loaded into `01002000`, which is a different exercise
-        from reading a PROM.
-        *Verification: the console going past the MMU test.*
-    - [x] **The table paths never knew about the board.** They indexed
-          `machine->ram` by *physical* address and bounded it against
-          `ram_bytes`, so on a DN3500 -- RAM at `01000000` -- every descriptor
-          fetch was out of range and bus-errored before reading anything. It
-          survived because nothing had enabled translation; the
-          `descriptor fetch(es)` counter that ruled the MMU out of the
-          `0100A005` hunt named this by being zero for the wrong reason. Detail
-          in `PROJECT_STATUS.md`.
-          *Verification: `machine_suite` +1 (43) -- a descriptor read and a
-          history-bit write at a board RAM address, read back through the
-          machine, which could not have passed before.*
 # Completion plan
 
 Phased road to done. Each item names **its verification** — an item without one
@@ -3051,14 +3032,31 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         *Verification: `omti_suite`'s word-read test now asserts the order
         rather than "either" -- and the machine loads and runs `SELF_TEST
         Revision 2.4` off its own disk, which is Domain/OS code executing.*
-  - [ ] **`CPU (mmu) Test #0`, the first thing to use address translation.**
-        The loaded diagnostic stops with `Expected= 01224800, Actual= 01FFFC00,
-        Address= 01224C00`. Every run in this project so far has reported `0
-        descriptor fetch(es)`, so the MMU has never been exercised by anything
-        but probes -- and `machine_table_fetch`/`machine_table_update` still
-        reach `machine->ram` by physical address rather than through the board,
-        which is wrong for any machine with one.
+  - [ ] **`CPU (mmu) Test #0`, and it is SELF_TEST's own judgement.** The loaded
+        diagnostic stops with `Expected= 01224800, Actual= 01FFFC00, Address=
+        01224C00`, still reporting **zero** descriptor fetches -- so it fails
+        before translation is ever switched on. The failure is reported through
+        a PROM *service*, dispatched by `jsr (a3)` at `005DFA`, so the decision
+        is the diagnostic's and not the firmware's. **The printed `PC=
+        00005DF8` is two low**: the reporter computes `$3c(a7) - 4` for a
+        four-byte `bsr.w`, and a service call is a two-byte `jsr`. Memory at the
+        named address holds the PROM's own fill pattern correctly, so nothing
+        simple is wrong with it. Going further means disassembling the image the
+        machine loaded to `01002000` -- a 13 KB Domain/OS diagnostic -- or
+        asking the oracle whether it passes this test, which would partition it
+        in one measurement.
         *Verification: the console going past the MMU test.*
+    - [x] **The table paths never knew about the board.** They indexed
+          `machine->ram` by *physical* address and bounded it against
+          `ram_bytes`, so on a DN3500 -- RAM at `01000000` -- every descriptor
+          fetch was out of range and bus-errored before reading anything. It
+          survived because nothing had enabled translation; the
+          `descriptor fetch(es)` counter that ruled the MMU out of the
+          `0100A005` hunt named this by being zero for the wrong reason. Detail
+          in `PROJECT_STATUS.md`.
+          *Verification: `machine_suite` +1 (43) -- a descriptor read and a
+          history-bit write at a board RAM address, read back through the
+          machine, which could not have passed before.*
   - [x] **The sector number is not bounded by the track, and both drives
         pass.** The drive test's poll never ended because its READs were being
         refused: `sense 21`, illegal disk address, for cylinder 0 head 0 sectors
