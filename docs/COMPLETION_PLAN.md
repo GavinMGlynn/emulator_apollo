@@ -3275,14 +3275,12 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         setter needs no run to find -- the text is on the disk. `3C44D8CA`
         appears 112 times: 97 `tst.b`, 6 `clr.b`, 6 reads, and **3
         `move.b #$FF,$3C44D8CA`**, guarded by `tst.l (a2); bne` -- so the flag
-        is set only when `(a2)` is zero -- and the guard does not matter,
-        because the setter is **not in the loaded image**. Dumping all 948 KB
-        and searching finds ten `tst.b` and six data references and no setter,
-        against the volume's three. So either the flag is set by something this
-        boot never reaches, or it is normally clear and the branch is the
-        ordinary path -- which would invert the conclusion, as `DISK TIMEOUT`
-        already did once. Reading the code at `3C49EC3E` settles which. Detail
-        in `PROJECT_STATUS.md`.
+        is set only when `(a2)` is zero. The setter **is** in the loaded
+        image, at physical `010D1AEC` -- of 38 references there, 33 are `tst.b`,
+        two `clr.b`, two reads and one setter. (An earlier note here said the
+        opposite on the strength of an analysis bug that dropped half of every
+        dump row; corrected, with the detail in `PROJECT_STATUS.md`.) Whether it
+        runs, and what `(a2)` holds, is a `--boot-stop-physical-pc` away.
         *Verification: the console going past the crash.*
         *Verification: the console going past the crash.*
   - [ ] **`IRQ6` and `DRQ2`, the floppy's**, are placed and not driven: its

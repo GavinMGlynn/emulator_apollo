@@ -5108,27 +5108,32 @@ The context is the whole answer:
 
 The flag is set **only when the longword at `(a2)` is zero**.
 
-And that guard turns out not to matter, because the setter is **not in the
-loaded image**. Dumping the whole 948 KB the PROM read in (`01002000`-`010E9FF8`)
-and searching it finds 16 references to `3C44D8CA` — ten `tst.b` and six that
-are data rather than instructions — and **no `move.b #$FF` at all**. The
-volume's 112 references include three setters; the loaded kernel's sixteen
-include none.
+**The setter is in the loaded image, at physical `010D1AEC`:**
 
-So the code that sets this flag is in a file this boot never loads. Which leaves
-two readings, and the evidence here does not choose between them:
+    4292                 clr.l   d2
+    4a92                 tst.l   (a2)
+    6608                 bne.b   +8
+    13fc 00ff 3c44d8ca   move.b  #$FF,$3C44D8CA
 
-- the flag is meant to be set by something that runs later or elsewhere, and
-  this machine never gets that far; or
-- the flag is *normally* clear, the branch is the ordinary path, and the failure
-  is downstream of it rather than caused by it.
+Of the 38 references to `3C44D8CA` in the 948 KB the PROM reads in, 33 are
+`tst.b`, two are `clr.b`, two are reads into `d0`, and one is that setter. So the
+code exists, it is loaded, and whether it *runs* — and what `(a2)` holds when it
+does — is a `--boot-stop-physical-pc` away.
 
-The second is worth taking seriously precisely because it would invert the
-conclusion, and the same inversion has already happened once in this hunt when
-`DISK TIMEOUT` turned out to be wreckage rather than cause. What settles it is
-whether `3C49EC3E` — the branch target that returns `008A` — is an error path or
-a normal one, and that is read from the code around it rather than guessed from
-the name.
+**This paragraph previously said the opposite, and the mistake is worth keeping
+in view.** It reported sixteen references and no setter at all, and concluded the
+setting code was in a file this boot never loads. That came from a parsing bug in
+the analysis, not from the machine: the dump prints sixteen bytes per row in two
+groups of eight, and the pattern used to read it back captured only the first
+group. Half of every row was silently discarded, and the surviving half still
+contained enough `tst.b` sites to look like a plausible answer.
+
+Nothing about the numbers announced the problem. What caught it was
+disassembling `3C49EBD8` from the reconstruction and getting `ori.b #0,d0` where
+an independent `--dump-logical` of the same address had already shown
+`4a39 3c44d8ca` — two readings of one address disagreeing. The parse is now
+pinned to the dump's fixed-width hex field, every row reads back as exactly
+sixteen bytes, and the spot check against that independent dump matches.
 
 #### `DRQ7`, and a request that never went down
 
