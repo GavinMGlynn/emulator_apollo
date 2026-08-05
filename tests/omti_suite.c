@@ -240,38 +240,20 @@ static void test_a_word_read_of_the_data_port_takes_two_buffer_bytes(void) {
   const uint16_t first = ap_omti_disk_read16(&o);
   const uint16_t second = ap_omti_disk_read16(&o);
 
-  /* The same four bytes a byte-at-a-time reader would have seen, in whichever
-   * halves the packing puts them -- so this holds under either order and fails
-   * if a word read consumed one byte, or three, or reached the status port. */
-  const uint8_t seen[4] = {
-      (uint8_t)(first & 0xFFu), (uint8_t)(first >> 8),
-      (uint8_t)(second & 0xFFu), (uint8_t)(second >> 8),
-  };
-  uint8_t sorted[4];
-  memcpy(sorted, seen, sizeof sorted);
-  for (unsigned i = 0; i < 4u; i++) {
-    for (unsigned j = i + 1u; j < 4u; j++) {
-      if (sorted[j] < sorted[i]) {
-        const uint8_t t = sorted[i];
-        sorted[i] = sorted[j];
-        sorted[j] = t;
-      }
-    }
-  }
-  uint8_t expected[4] = {(uint8_t)AP_OMTI_IDENTIFICATION[0],
-                         (uint8_t)AP_OMTI_IDENTIFICATION[1],
-                         (uint8_t)AP_OMTI_IDENTIFICATION[2],
-                         (uint8_t)AP_OMTI_IDENTIFICATION[3]};
-  for (unsigned i = 0; i < 4u; i++) {
-    for (unsigned j = i + 1u; j < 4u; j++) {
-      if (expected[j] < expected[i]) {
-        const uint8_t t = expected[i];
-        expected[i] = expected[j];
-        expected[j] = t;
-      }
-    }
-  }
-  TEST_ASSERT_EQUAL_MEMORY(expected, sorted, 4u);
+  /* Two bytes per read, the earlier one in the **high** half, so the buffer
+   * arrives in the order it holds. Settled by the boot PROM: `sysboot` loads to
+   * `010FD800` with a long word the firmware names, and reads back as
+   * `SYSBOOT VER ` only this way round. The oracle packs it the other way.
+   *
+   * `8621` are the first four bytes of the identification block. */
+  TEST_ASSERT_EQUAL_HEX16(0x3836u, first);  /* '8', '6' */
+  TEST_ASSERT_EQUAL_HEX16(0x3231u, second); /* '2', '1' */
+  TEST_ASSERT_EQUAL_MEMORY(AP_OMTI_IDENTIFICATION,
+                           ((const uint8_t[]){(uint8_t)(first >> 8),
+                                              (uint8_t)(first & 0xFFu),
+                                              (uint8_t)(second >> 8),
+                                              (uint8_t)(second & 0xFFu)}),
+                           4u);
 }
 
 static void test_a_block_count_past_the_manuals_cap_is_refused(void) {

@@ -3022,12 +3022,24 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         *Verification: `nodeid_suite` +1 (8), one of them running the firmware's
         own arithmetic. Every self-test now passes and the boot reaches the file
         system: `Loading SELF_TEST diagnostics from boot device`.*
-  - [ ] **`sysboot not found`: the firmware reads the disk and does not find
-        what it wants.** `Could not load /SAU7/SELF_TEST` -- the first failure
-        in this whole sequence that is about the *media* rather than the
-        machine. What it needs is the Domain/OS on-disk layout: the physical
-        volume label, the logical volume, and how `/SAU7` is reached from them.
-        *Verification: the console going past the load.*
+  - [x] **`SYSBOOT VER`: the byte order settled, and Domain/OS code runs.** The
+        `PROVISIONAL` note on the data port's packing lasted one commit, and
+        what settled it is what the note asked for -- a transfer of known
+        content. The PROM loads `sysboot` to `010FD800` and demands `0013D800`
+        there; it arrived as `13 00 00 D8` followed by `YSBSOO TER V`, so the
+        **earlier buffer byte belongs in the high half**. The oracle packs it
+        the other way and is wrong. Detail in `PROJECT_STATUS.md`.
+        *Verification: `omti_suite`'s word-read test now asserts the order
+        rather than "either" -- and the machine loads and runs `SELF_TEST
+        Revision 2.4` off its own disk, which is Domain/OS code executing.*
+  - [ ] **`CPU (mmu) Test #0`, the first thing to use address translation.**
+        The loaded diagnostic stops with `Expected= 01224800, Actual= 01FFFC00,
+        Address= 01224C00`. Every run in this project so far has reported `0
+        descriptor fetch(es)`, so the MMU has never been exercised by anything
+        but probes -- and `machine_table_fetch`/`machine_table_update` still
+        reach `machine->ram` by physical address rather than through the board,
+        which is wrong for any machine with one.
+        *Verification: the console going past the MMU test.*
   - [x] **The sector number is not bounded by the track, and both drives
         pass.** The drive test's poll never ended because its READs were being
         refused: `sense 21`, illegal disk address, for cylinder 0 head 0 sectors

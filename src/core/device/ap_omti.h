@@ -389,15 +389,31 @@ void ap_omti_disk_reset(ap_omti_t *omti);
  * Served as two byte reads, the second byte is the *status* register and the
  * word can never be zero -- it came back `FFFF`.
  *
- * `PROVISIONAL`: **which buffer byte is the word's high half.** The oracle packs
- * the first byte into bits 7-0 and the second into 15-8, so a buffer arrives at
- * a big-endian CPU byte-swapped, and that is followed here rather than
- * second-guessed -- Domain/OS boots from this controller on the oracle, which
- * is evidence of a kind if any sector data ever moves by programmed I/O rather
- * than DMA. Nothing in hand distinguishes the two: the identification bytes the
- * firmware compares are all zero, and no boot PROM here contains the string
- * `8621` or any other part of the block. What would settle it is a transfer of
- * *known* content through 16-bit programmed I/O. */
+ * ## Which buffer byte is the word's high half: settled, and not the oracle's
+ *
+ * This was `PROVISIONAL` for exactly one commit. The oracle packs the first
+ * byte into bits 7-0 and the second into 15-8, which delivers a buffer to a
+ * big-endian CPU byte-swapped; that was followed rather than second-guessed,
+ * because nothing then in hand distinguished the two -- the identification
+ * bytes the firmware compares are all zero, and no boot PROM contains the
+ * string `8621`.
+ *
+ * The thing that settles it is what the note asked for: **a transfer of known
+ * content through 16-bit programmed I/O**. The boot PROM loads `sysboot` from
+ * the disk to `010FD800` and requires the first long word to be `0013D800`. It
+ * arrived as
+ *
+ *     010FD800  13 00 00 D8 ...
+ *     010FD810  59 53 42 53 4F 4F 20 54 45 52 20 56   YSBSOO TER V
+ *
+ * -- `0013D800` and `SYSBOOT VER ` with the bytes of every word exchanged. Two
+ * independent confirmations in one read: a magic number the firmware names, and
+ * a string that is only a string one way round.
+ *
+ * So the **earlier buffer byte belongs in the high half**, which is also what
+ * makes a sector moved by word accesses land in memory in disk order. The
+ * oracle disagrees and this is one of the places `CLAUDE.md` expects it to:
+ * `omti8621.cpp`'s `get_data` builds `buffer[i] | buffer[i+1] << 8`. */
 [[nodiscard]] uint16_t ap_omti_disk_read16(ap_omti_t *omti);
 void ap_omti_disk_write16(ap_omti_t *omti, uint16_t value);
 void ap_omti_disk_write(ap_omti_t *omti, unsigned reg, uint8_t value);

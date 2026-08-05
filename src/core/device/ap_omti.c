@@ -527,17 +527,18 @@ uint8_t ap_omti_disk_read(ap_omti_t *omti, unsigned reg) {
 }
 
 uint16_t ap_omti_disk_read16(ap_omti_t *omti) {
-  /* Two bytes out of the same stream a byte read would take, in one cycle. The
-   * low half first: see the header, and the `PROVISIONAL` note on it. */
-  const uint16_t low = give_byte(omti);
+  /* Two bytes out of the same stream a byte read would take, in one cycle, and
+   * the **earlier byte in the high half** -- so a buffer moved by word accesses
+   * lands in memory in the order it has on the disk. See the header. */
   const uint16_t high = give_byte(omti);
+  const uint16_t low = give_byte(omti);
   return (uint16_t)((high << 8) | low);
 }
 
 void ap_omti_disk_write16(ap_omti_t *omti, uint16_t value) {
   omti->data = value;
-  take_byte(omti, (uint8_t)(value & 0xFFu));
   take_byte(omti, (uint8_t)(value >> 8));
+  take_byte(omti, (uint8_t)(value & 0xFFu));
 }
 
 void ap_omti_disk_write(ap_omti_t *omti, unsigned reg, uint8_t value) {
