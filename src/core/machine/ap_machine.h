@@ -77,6 +77,23 @@ typedef struct {
    * count is how a caller notices one happened. */
   unsigned last_line_f_exceptions;
 
+  /* One address, and who last wrote to it.
+   *
+   * A value that is wrong when it is read says nothing about how it got that
+   * way, and the difference between "some instruction stored this" and "nothing
+   * ever stored anything, and this is what was loaded here" is the whole
+   * question when a loader hands the firmware a block number it cannot have
+   * meant. Zero disables it, which is why the count is reported beside the
+   * address rather than inferred from it.
+   *
+   * Our record of watching the machine, like the bus-error counters below and
+   * deliberately outside the state hash for the same reason. */
+  uint32_t watch_write_address;
+  unsigned watch_writes;
+  uint32_t watch_write_pc;
+  uint32_t watch_write_value;
+  unsigned watch_write_size;
+
   unsigned bus_errors;
   uint32_t first_bus_error;
   uint32_t last_bus_error;

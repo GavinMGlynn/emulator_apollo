@@ -225,6 +225,20 @@ static bool machine_store(void *context, uint32_t physical, uint32_t value,
                           unsigned size) {
   ap_machine_t *machine = (ap_machine_t *)context;
 
+  /* The watch, before the write is attempted rather than after it succeeds: an
+   * instruction that stored to an address the board refused still says which
+   * instruction was reaching for it, and that is what a watch is for. Range
+   * rather than equality, because a byte written into the middle of a long word
+   * is a write to that long word as far as anyone reading it is concerned. */
+  if (machine->watch_write_address != 0u &&
+      physical <= machine->watch_write_address &&
+      machine->watch_write_address < physical + size) {
+    machine->watch_writes++;
+    machine->watch_write_pc = machine->cpu.regs.pc;
+    machine->watch_write_value = value;
+    machine->watch_write_size = size;
+  }
+
   if (machine->board != NULL) {
     if (!board_write(machine, physical, size, value)) {
       fault(machine, physical);

@@ -43,6 +43,9 @@ static void print_usage(const char *program_name) {
           "                        comparison\n"
           "  --boot-limit N        stop a boot after N instructions, to find\n"
           "                        where one goes wrong\n"
+          "  --boot-watch-write ADDR\n"
+          "                        remember the last write to ADDR and which\n"
+          "                        instruction made it, and report both\n"
           "  --boot-stop-on-disk-refusal\n"
           "                        end the run the first time the disk\n"
           "                        controller refuses an address, so a trace\n"
@@ -638,6 +641,15 @@ static void report_state(ap_machine_t *machine) {
     }
     printf("\n");
   }
+  if (machine->watch_write_address != 0u) {
+    printf("  watch        %08X written %u time(s)", machine->watch_write_address,
+           machine->watch_writes);
+    if (machine->watch_writes > 0u) {
+      printf(", last %0*X by PC %08X", (int)(machine->watch_write_size * 2u),
+             machine->watch_write_value, machine->watch_write_pc);
+    }
+    printf("\n");
+  }
   printf("  bus errors   %u", state.bus_errors);
   if (state.bus_errors > 0u) {
     printf(", first %08X, last %08X from PC %08X", state.first_bus_error,
@@ -973,7 +985,8 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
                           unsigned trace_last, uint32_t stop_pc,
                           const char *console_script_path,
                           const char *disk_path, const char *dump_spec,
-                          unsigned progress_every, bool stop_on_refusal) {
+                          unsigned progress_every, bool stop_on_refusal,
+                          uint32_t watch_write) {
   /* Before the PROM is even opened: a script that does not parse is the
    * caller's mistake and should be reported as one, not hidden behind whichever
    * file happens to be missing first. */
@@ -1186,6 +1199,7 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
    * clock over another machine's address space. */
   ap_machine_init_model(&machine, ram, ram_bytes, model);
   ap_machine_set_board(&machine, board);
+  machine.watch_write_address = watch_write;
   ap_machine_reset(&machine, pc, stack);
 
   /* Scripted serial input, delivered a byte at a time as the firmware takes the
@@ -2302,6 +2316,7 @@ int main(int argc, char **argv) {
   unsigned boot_trace_last = 0;
   unsigned boot_progress = 0;
   bool boot_stop_on_refusal = false;
+  uint32_t boot_watch_write = 0;
   uint32_t boot_stop_pc = 0;
   uint32_t boot_watch = 0;
   const char *boot_input = NULL;
@@ -2390,6 +2405,11 @@ int main(int argc, char **argv) {
     }
     if (strcmp(argv[i], "--boot-progress") == 0 && i + 1 < argc) {
       boot_progress = (unsigned)strtoul(argv[i + 1], NULL, 0);
+      i += 2;
+      continue;
+    }
+    if (strcmp(argv[i], "--boot-watch-write") == 0 && i + 1 < argc) {
+      boot_watch_write = (uint32_t)strtoul(argv[i + 1], NULL, 16);
       i += 2;
       continue;
     }
@@ -2552,7 +2572,7 @@ int main(int argc, char **argv) {
                           boot_screen, node_id, opt.model->id, screenshot,
                           boot_trace_last, boot_stop_pc, boot_script,
                           disk_path, dump_spec, boot_progress,
-                          boot_stop_on_refusal);
+                          boot_stop_on_refusal, boot_watch_write);
   }
 
   if (boot_tape != NULL) {
