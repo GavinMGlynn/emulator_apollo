@@ -250,6 +250,9 @@ static void dump_memory(FILE *out, ap_board_t *board, uint32_t address,
 /* `ADDR` or `ADDR:LEN`, both hexadecimal, the length defaulting to 256 bytes.
  * Returns false for a spec that is not one, so a mistyped flag is refused
  * rather than dumping from address zero. */
+/* How many `--dump-logical` requests one run will honour. */
+#define AP_MAX_LOGICAL_DUMPS 4u
+
 static bool parse_dump_spec(const char *spec, uint32_t *address,
                             uint32_t *length) {
   char *end = NULL;
@@ -1011,7 +1014,9 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
                           const char *disk_path, const char *dump_spec,
                           unsigned progress_every, bool stop_on_refusal,
                           uint32_t watch_write, unsigned stop_on_watch,
-                          uint32_t stop_pc_length, const char *dump_logical) {
+                          uint32_t stop_pc_length,
+                          const char *const *dump_logical,
+                          unsigned dump_logical_count) {
   /* Before the PROM is even opened: a script that does not parse is the
    * caller's mistake and should be reported as one, not hidden behind whichever
    * file happens to be missing first. */
@@ -1961,11 +1966,11 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
    * instruction stream at `3C456A0C`, a stack frame at `3C4F9BF0` -- and
    * translating each by hand from a reported physical PC is exactly the kind of
    * arithmetic that quietly goes wrong once. */
-  if (dump_logical != NULL) {
+  for (unsigned k = 0; k < dump_logical_count; k++) {
     uint32_t at = 0, length = 0;
-    if (!parse_dump_spec(dump_logical, &at, &length)) {
+    if (!parse_dump_spec(dump_logical[k], &at, &length)) {
       fprintf(stderr, "apollo: --dump-logical wants ADDR or ADDR:LEN in hex,"
-                      " not %s\n", dump_logical);
+                      " not %s\n", dump_logical[k]);
     } else {
       uint32_t physical = 0;
       if (!ap_machine_translate(&machine, at, AP_M68030_FC_SUPERVISOR_DATA,
@@ -2379,7 +2384,8 @@ int main(int argc, char **argv) {
   uint32_t boot_watch_write = 0;
   unsigned boot_stop_on_watch = 0;
   uint32_t boot_stop_pc_length = 1u;
-  const char *dump_logical_spec = NULL;
+  const char *dump_logical_specs[AP_MAX_LOGICAL_DUMPS] = {0};
+  unsigned dump_logical_count = 0;
   uint32_t boot_stop_pc = 0;
   uint32_t boot_watch = 0;
   const char *boot_input = NULL;
@@ -2433,7 +2439,12 @@ int main(int argc, char **argv) {
       continue;
     }
     if (strcmp(argv[i], "--dump-logical") == 0 && i + 1 < argc) {
-      dump_logical_spec = argv[i + 1];
+      /* Accepted more than once. A single dump per run answers one question,
+       * and the questions come in pairs -- an instruction stream *and* the
+       * address it names -- at ten minutes a run. */
+      if (dump_logical_count < AP_MAX_LOGICAL_DUMPS) {
+        dump_logical_specs[dump_logical_count++] = argv[i + 1];
+      }
       i += 2;
       continue;
     }
@@ -2656,7 +2667,7 @@ int main(int argc, char **argv) {
                           disk_path, dump_spec, boot_progress,
                           boot_stop_on_refusal, boot_watch_write,
                           boot_stop_on_watch, boot_stop_pc_length,
-                          dump_logical_spec);
+                          dump_logical_specs, dump_logical_count);
   }
 
   if (boot_tape != NULL) {
