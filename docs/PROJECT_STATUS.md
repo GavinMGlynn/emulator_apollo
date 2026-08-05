@@ -5004,7 +5004,27 @@ is written **straight into the caller's frame** rather than returned in a
 register — which fits the convention already established, since the caller
 checks `-$258(a6)` and not a register. That names the next instrument exactly:
 the frame slot is `3C4F9998`, physical `01124998`, and `--boot-watch-write` on
-it will name the instruction that puts the status there.
+it names the instruction that puts the status there:
+
+    watch        01124998 written 13 time(s), last 80080012 by PC 3C49D082
+
+`3C49D082` is the routine's **epilogue**, two instructions before its `unlk`:
+
+    3C49D07E  206E   movea.l d16(a6),a0     ; the caller's frame slot
+    3C49D082  20AE   move.l  d16(a6),(a0)   ; store the status through it
+    3C49D086  4CEE   movem.l ...
+    3C49D08C  4E5E   unlk    a6
+
+So the status is not produced there. It is a **local in `3C49CDCC`'s own frame**,
+written out through the caller's pointer on the way past — which is why it never
+appears in `d0` or `d1`, and why watching the caller's slot finds the epilogue
+rather than the decision.
+
+The same method goes one level down: `3C49CDCC`'s own `a6` is `3C4F98F4`, the
+displacement is in the two instructions above, and a watch on that local will
+name whichever branch inside those 9,071 instructions decided on `80080012`.
+Reading `3C49D07E:8` with `--dump-logical` gives the displacement in the same
+run.
 
 #### `DRQ7`, and a request that never went down
 

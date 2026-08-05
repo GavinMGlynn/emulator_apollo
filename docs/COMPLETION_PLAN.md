@@ -3256,9 +3256,13 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         **9,071 instructions and returns**, against 200,000-plus spinning
         before, its work spread over five modules with a 138-iteration table
         walk at `3C49E464`. The status never passes through `d0` or `d1`, so it
-        is written straight into the caller's frame -- which names the next
-        instrument: `--boot-watch-write 01124998`, the physical address of the
-        `3C4F9998` slot the caller checks.
+        is written straight into the caller's frame. Watching that slot names
+        `PC 3C49D082`, the routine's **epilogue** -- `move.l d16(a6),(a0)`, two
+        instructions before its `unlk` -- so the status is a local in
+        `3C49CDCC`'s own frame, stored out through the caller's pointer. One
+        level further down: `3C49CDCC`'s `a6` is `3C4F98F4`, and a watch on that
+        local names whichever branch in the 9,071 instructions chose
+        `80080012`.
         *Verification: the console going past the crash.*
         *Verification: the console going past the crash.*
   - [ ] **`IRQ6` and `DRQ2`, the floppy's**, are placed and not driven: its
