@@ -497,8 +497,6 @@ ap_m68030_step_result_t ap_machine_step(ap_machine_t *machine) {
 ap_machine_run_t ap_machine_run(ap_machine_t *machine, unsigned limit) {
   ap_machine_run_t out = {.status = AP_M68030_STEP_EXECUTED};
 
-  uint64_t last_instruction_clocks = 0;
-
   for (unsigned i = 0; i < limit; i++) {
     const uint64_t before = machine->cpu.clocks;
     if (machine->board != NULL) {
@@ -516,7 +514,7 @@ ap_machine_run_t ap_machine_run(ap_machine_t *machine, unsigned limit) {
        *
        * Charged to the board and not to the CPU: these are clocks that already
        * happened. */
-      for (uint64_t c = 0; c < last_instruction_clocks; c++) {
+      for (uint64_t c = 0; c < machine->last_instruction_clocks; c++) {
         ap_board_bus_tick(machine->board);
       }
 
@@ -539,7 +537,7 @@ ap_machine_run_t ap_machine_run(ap_machine_t *machine, unsigned limit) {
       }
     }
     const ap_m68030_step_result_t result = ap_m68030_step(&machine->cpu);
-    last_instruction_clocks = machine->cpu.clocks - before;
+    machine->last_instruction_clocks = machine->cpu.clocks - before;
     /* Converted once, here. The step reports CPU clocks; the machine keeps
      * time. A `cpu_clock` that was never initialised has a zero rate and
      * produces no time at all, which is visibly wrong rather than quietly

@@ -61,6 +61,16 @@ typedef struct {
 
   /* Counted rather than merely refused, so a probe can tell "my program ran and
    * touched nothing outside its memory" from "my program ran". */
+  /* What the previous instruction cost, carried **across calls**.
+   *
+   * The bus advances at the processor's rate, so `ap_machine_run` charges the
+   * board the clocks the last instruction spent. That figure was a local, reset
+   * to zero on entry -- so a caller stepping one instruction at a time got a
+   * bus tick count of zero, for ever. Every boot with scripted input, a console
+   * or a trace does exactly that, which is why no DMA transfer had ever run
+   * outside the unit tests. */
+  uint64_t last_instruction_clocks;
+
   unsigned bus_errors;
   uint32_t first_bus_error;
   uint32_t last_bus_error;

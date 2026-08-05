@@ -398,6 +398,7 @@ static void dma_device_write(void *context, unsigned channel, uint8_t value) {
 }
 
 void ap_board_bus_tick(ap_board_t *board) {
+  board->bus_ticks++;
   const ap_i8237_bus_t bus = {
       .memory_read = dma_memory_read,
       .memory_write = dma_memory_write,
@@ -428,6 +429,9 @@ void ap_board_bus_tick(ap_board_t *board) {
   const int selected =
       ap_i8237_service_pending(&board->dma.controller[AP_DMA_CASCADE_UNIT]);
   ap_arbiter_request(&board->arbiter, DMA_ARBITER_LINE, selected >= 0);
+  if (selected >= 0) {
+    board->dma_bus_requests++;
+  }
 
   /* The arbitration resolves first, and the master then uses the bus it has
    * just been given. The other order costs a clock at every handover and, worse,
@@ -442,6 +446,7 @@ void ap_board_bus_tick(ap_board_t *board) {
   if (ap_arbiter_master(&board->arbiter) != (int)DMA_ARBITER_LINE) {
     return;
   }
+  board->dma_bus_held++;
 
   /* Whose transfer it is follows from which channel the second controller
    * selected. Its channel 0 in cascade mode is not a transfer at all -- the

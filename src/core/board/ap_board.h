@@ -269,6 +269,14 @@ typedef struct ap_board {
    * without any of this being settled first. */
   unsigned dma_transfers;
   unsigned dma_unwired_transfers;
+  /* Bus ticks in which a controller was asking, and ticks in which one held the
+   * bus. A transfer needs both, and which of the two is missing is the whole
+   * question when a programmed transfer never runs. */
+  unsigned dma_bus_requests;
+  unsigned dma_bus_held;
+  /* How often the bus tick ran at all. Zero here and zero requests are very
+   * different faults and they report identically without this. */
+  unsigned bus_ticks;
   /* Which controller the cycle in progress is running on. The 8237 hands its
    * callbacks a channel and nothing else -- a `DACK` is all a peripheral sees --
    * so the board keeps the half of the address Table 2-4 needs to name a

@@ -1438,6 +1438,24 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
     }
     printf("\n");
   }
+  for (unsigned u = 0; u < 2u; u++) {
+    /* The four registers that decide whether a transfer can happen at all.
+     * A software request is non-maskable and a **pin** is not -- and the
+     * cascade reaches controller 2 as a pin, so a masked channel 0 there stops
+     * every transfer on controller 1 without either controller looking wrong on
+     * its own. That is invisible from a transfer count. */
+    const ap_i8237_t *c = &board->dma.controller[u];
+    if (c->command == 0u && c->mask == 0x0Fu && c->request == 0u &&
+        c->status == 0u) {
+      continue; /* untouched since reset */
+    }
+    printf("  dma%u regs    command %02X, mask %01X, request %01X, status %02X,"
+           " ch0 mode %02X\n",
+           u + 1u, c->command, c->mask & 0x0Fu, c->request & 0x0Fu, c->status,
+           c->channel[0].mode);
+  }
+  printf("  dma bus      %u bus tick(s), %u asking, %u holding\n",
+         board->bus_ticks, board->dma_bus_requests, board->dma_bus_held);
   if (board->dma_transfers > 0u || board->dma_unwired_transfers > 0u) {
     /* Whether the second bus master ever moved anything, and how much of it
      * went to a channel with no peripheral wired. A run that programs a

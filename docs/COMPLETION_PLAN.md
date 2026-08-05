@@ -3077,6 +3077,17 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         software request for channel 0, which the datasheet makes non-maskable
         and this core honours -- so the request is not reaching the arbiter.
         *Verification: the console going past it.*
+    - [x] **The bus had never ticked, because a counter was a local.**
+          `ap_machine_run` charges the board the previous instruction's clocks,
+          and kept that figure in a local reset on entry. The frontend's stepped
+          path -- every boot with input, a console or a trace -- calls it with a
+          limit of **one**, so the bus-tick loop ran zero times on every call and
+          `ap_board_bus_tick` had never executed in any boot. Now per-machine
+          state. Detail in `PROJECT_STATUS.md`.
+          *Verification: the suite stays green, and the new `dma bus` line goes
+          from `0 bus tick(s)` to non-zero. **Not** verified against the boot:
+          with the bus ticking the run exceeds the measurement timeout used
+          here, so the console has not been shown past the DMA test.*
     - [x] **Memory-to-memory DMA, which the part had declined outright.**
           `ap_i8237_transfer` began by refusing it, on the header's grounds that
           a transfer needs a bus to arbitrate for -- which it now has. `[8237]`
