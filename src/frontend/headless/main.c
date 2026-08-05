@@ -1470,6 +1470,11 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
     }
     printf("\n");
   }
+  {
+    const ap_mc146818_t *rtc = &board->calendar.rtc;
+    printf("  calendar     %u update cycle(s), seconds register %02X\n",
+           rtc->update_cycles, rtc->ram[0]);
+  }
   printf("  dma bus      %u bus tick(s), %u asking, %u holding\n",
          board->bus_ticks, board->dma_bus_requests, board->dma_bus_held);
   if (board->dma_transfers > 0u || board->dma_unwired_transfers > 0u) {

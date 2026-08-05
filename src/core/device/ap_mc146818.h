@@ -144,6 +144,11 @@ typedef struct {
    * must not be quantised to the one-second update. */
   ap_time_t periodic_to;
   ap_clock_t periodic_clock;
+  /* How many update cycles have run: a diagnostic, not machine state. A clock
+   * that is not advancing and a clock whose seconds happen to read alike are
+   * the same value and different faults. */
+  unsigned update_cycles;
+
 } ap_mc146818_t;
 
 /* Reset, and set the clock to `start`. Returns false if the one-second tick is

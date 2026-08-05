@@ -180,6 +180,7 @@ void ap_mc146818_advance(ap_mc146818_t *rtc, ap_time_t now) {
   if (!held) {
     for (uint64_t i = 0; i < seconds; i++) {
       update_cycle(rtc);
+      rtc->update_cycles++;
     }
   }
   rtc->updated_to += ap_clock_duration(&rtc->second_clock, seconds);

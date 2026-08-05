@@ -3066,10 +3066,22 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         *Verification: `atmap_suite` +1 (17) including the diagnostic's own
         walk, and three tests rewritten from the old reading. The boot passes
         the DMA test and now takes real interrupts -- vectors `A0` and `AD`.*
-  - [ ] **`CPU (calendar) Test #0`,** at `00010900` -- Table 2-8's calendar,
-        the MC146818 -- with `Expected= 001E8449, Actual= 0000AA49`. All three
-        DMA tests now pass ahead of it.
-        *Verification: the console going past the calendar test.*
+  - [x] **`CPU (calendar) Test #0` passes: `NBCD` was charged no time at all.**
+        The test delays and requires the seconds register to have changed; the
+        clock was running and the *delay* was twelve times too short. The PROM's
+        delay service is 500,000 iterations of fifteen `NBCD.B`, calibrated so
+        its microsecond argument comes out right at 25 MHz. `ROW_NBCD_DN` was in
+        the timing table with `[030]`'s six clocks and **nothing ever returned
+        it** -- family 0100's dispatch handles rows 0,1,2,3,5 and row 4 fell to
+        `default`. Detail in `PROJECT_STATUS.md`.
+        *Verification: measured across the delay, 8,500,157 instructions in
+        0.16 s where the hardware takes about two. The console passes the
+        calendar test and reaches `CPU (fp trap) Test #0`.*
+  - [ ] **`CPU (fp trap) Test #0`,** `Expected= 00000004, Actual= 00000000,
+        Address= 00010000` -- the CPU status register, and `0004` is its
+        **floating-point trap** bit, already named here from `019411-A00`'s
+        dedicated clear location at `016404`. Nothing raises it yet.
+        *Verification: the console going past the FP trap test.*
   - [x] **`CPU (dma) Test #1` passes: the 16-bit controller counts words.**
         Logging the addresses the firmware writes in the DMA range ended the
         guessing -- `010D01` through `010D1B`, every one an odd byte address in

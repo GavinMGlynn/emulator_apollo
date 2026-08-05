@@ -4597,6 +4597,38 @@ last and hardest — **a decoded PNG**. Register round-trips and word-level
 identities are what can be checked without one, and a controller that passes
 those and draws nothing is the standard way this goes wrong.
 
+#### `NBCD` was charged no time at all, and it is the PROM's unit of delay
+
+`CPU (calendar) Test #0` reads the seconds register, delays, reads again, and
+requires the value to have **changed**. Ours read `49` both times.
+
+The clock was running — a counter on the update cycle showed 28 of them, and
+`49` is BCD for the epoch's 21 seconds plus 28. What was wrong was the delay.
+Measured across it, by stopping once before and once after:
+
+    8,500,157 instructions, 53,869,827,528 base units — **0.16 seconds**
+
+The delay is a PROM *service*: `010052EA` calls service 5 with an argument of
+`1E8480`, two million, and the routine at `0061D4` shifts it right by two and
+runs 500,000 iterations of **fifteen `NBCD.B`** apiece. At 25 MHz with `[030]`'s
+published six clocks for `NBCD Dn` that is about 98 clocks an iteration — some
+two seconds, which is what an argument in microseconds is meant to buy. Ours
+spent **eight** clocks an iteration.
+
+`ROW_NBCD_DN` was in the timing table, with the right six clocks, **and nothing
+ever returned it**. Family 0100's single-operand dispatch handles rows 0, 1, 2,
+3 and 5 — `NEGX`, `CLR`, `NEG`, `NOT`, `TST` — and row 4 is `NBCD`, which fell
+to `default: return nullptr`. No published time, no charge.
+
+The row needs a guard the others do not: bits 11-9 of `100` are shared with
+instructions that are not wider operands of `NBCD`. A size field of `01` is
+`SWAP`/`PEA` and `10` is `EXT`/`MOVEM`, so only `00` is this row and the rest
+fall through to no published time rather than borrowing one.
+
+**A twelvefold error in every PROM delay**, invisible to every test in the suite,
+found only because a diagnostic timed a real clock against one. The calendar
+test passes and the console goes on to `CPU (fp trap) Test #0`.
+
 #### The 16-bit controller counts words, and `CPU (dma) Test #1` passes
 
 Logging the addresses the firmware writes in the DMA range ended the guessing:

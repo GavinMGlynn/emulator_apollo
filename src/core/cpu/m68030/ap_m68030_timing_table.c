@@ -308,6 +308,25 @@ const ap_m68030_table_entry_t *ap_m68030_timing_for_word(uint16_t instruction) {
       return &TABLE[ROW_NEG_DN];
     case 0x3u:
       return &TABLE[ROW_NOT_DN];
+    case 0x4u:
+      /* `$4800`-`$4807` is `NBCD Dn`. Bits 11-9 of `100` are shared with
+       * instructions that are not wider operands of it -- a size field of `01`
+       * is `SWAP`/`PEA` and `10` is `EXT`/`MOVEM` -- so only the `00` form is
+       * this row, and the rest fall through to no published time rather than
+       * borrowing one.
+       *
+       * The row existed in the table from the start and **nothing ever
+       * returned it**, so `NBCD` was charged no time at all. That is not a
+       * rounding error: the boot PROM's delay service is 500,000 iterations of
+       * fifteen `NBCD.B`, calibrated so that its microsecond argument comes out
+       * right at 25 MHz. Uncharged, a two-second delay took 0.16 s here, and
+       * the loaded diagnostic's calendar test -- which reads the seconds
+       * register, delays two seconds and requires it to have changed -- could
+       * not pass. */
+      if (size_field != 0x0u) {
+        return nullptr;
+      }
+      return &TABLE[ROW_NBCD_DN];
     case 0x5u:
       return &TABLE[ROW_TST_DN];
     default:
