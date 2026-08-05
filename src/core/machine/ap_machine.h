@@ -239,6 +239,13 @@ bool ap_machine_write(ap_machine_t *machine, uint32_t address, unsigned size,
 typedef struct {
   unsigned executed;
   ap_m68030_step_status_t status; /* why it ended */
+  /* And on what word. A run that ends `ILLEGAL` or `UNIMPLEMENTED` is a report
+   * that some opcode is missing, and the opcode is the only part of that a
+   * caller cannot recover afterwards: the PC is logical, so reading the word
+   * back needs the translation the run has already moved on from, and the
+   * caches make even that not quite the byte the processor decoded. The core
+   * has the word in its hand at the moment it gives up, so it hands it over. */
+  uint16_t instruction;
 } ap_machine_run_t;
 
 [[nodiscard]] ap_machine_run_t ap_machine_run(ap_machine_t *machine,

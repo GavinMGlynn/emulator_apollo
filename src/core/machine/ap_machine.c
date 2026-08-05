@@ -630,6 +630,7 @@ ap_machine_run_t ap_machine_run(ap_machine_t *machine, unsigned limit) {
       machine->last_line_f_exceptions = line_f;
     }
     out.status = result.status;
+    out.instruction = result.instruction;
 
     /* An exception is progress: the handler runs next. Everything else that is
      * not EXECUTED is the processor declining to go on, and a probe wants to

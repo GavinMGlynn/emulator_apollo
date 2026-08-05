@@ -4597,6 +4597,26 @@ last and hardest — **a decoded PNG**. Register round-trips and word-level
 identities are what can be checked without one, and a controller that passes
 those and draws nothing is the standard way this goes wrong.
 
+#### Domain/OS runs its own code, and stops on an opcode
+
+With the narrow read addressed properly the machine goes two million
+instructions further, and where it goes is the point: the trace is full of
+addresses like `3C410C52` and `3C40DCAA`, translating into main memory around
+`0100D000`. That is not the PROM alias any more — it is Domain/OS executing its
+own image, with its own stack at `3C4F97xx` and its own frame pointer.
+
+It ends `stopped ILLEGAL` at `3C40A498 -> 0100D098 (main memory)`, with the run
+having taken 392 bus errors, all of them the memory-sizing probes the oracle
+also expects.
+
+An `ILLEGAL` stop is the core declining to decode a word, not the processor
+taking vector 4 — so this names an opcode the decoder has not got, at an address
+inside the operating system's own text. The word itself was the one thing the
+report could not say, because the PC is logical and the caches mean a read-back
+is not quite the byte that was decoded. `ap_machine_run_t` now carries it: the
+core has the word in its hand at the moment it gives up, so it hands it over,
+and the run prints `stopped ILLEGAL on <word>`.
+
 #### The narrow device cycle ran before the MMU, and so at the wrong address
 
 Domain/OS puts its vector table at logical `3C400800`. The PROM service the OS

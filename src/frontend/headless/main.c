@@ -1400,7 +1400,14 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
       uint32_t executed_word = 0;
       (void)ap_machine_read_logical(&machine, step_pc, 6u, 2u, &executed_word);
       const ap_m68030_step_result_t r = {
-          .status = one.status, .instruction = (uint16_t)executed_word};
+          .status = one.status,
+          /* The core's own word when it stopped on one, since a read-back
+           * cannot see what the caches decoded; the read-back otherwise, which
+           * is what fills the column for every step that ran. */
+          .instruction = one.status == AP_M68030_STEP_EXECUTED ||
+                                 one.status == AP_M68030_STEP_EXCEPTION
+                             ? (uint16_t)executed_word
+                             : one.instruction};
       /* A6 as well as A7: the firmware uses it as a base pointer for its own
        * data, and whether those two overlap is the question a trace has to be
        * able to answer. */
@@ -1505,7 +1512,15 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
     }
   }
   printf("  executed     %u instruction(s)\n", run.executed);
-  printf("  stopped      %s\n", ap_probe_status_name(run.status));
+  printf("  stopped      %s", ap_probe_status_name(run.status));
+  /* And on which word, when the word is the point. A run that ends `ILLEGAL` is
+   * a report that an opcode is missing, and the opcode is the one part of that
+   * a reader cannot recover afterwards. */
+  if (run.status != AP_M68030_STEP_EXECUTED &&
+      run.status != AP_M68030_STEP_EXCEPTION) {
+    printf(" on %04X", run.instruction);
+  }
+  printf("\n");
   report_state(&machine);
   printf("  unmapped     %u read, %u written\n", board->unmapped_reads,
          board->unmapped_writes);
@@ -2097,7 +2112,15 @@ static int boot_from_tape(const char *path, unsigned limit) {
 
   ap_machine_run_t run = ap_machine_run(&machine, limit);
   printf("  executed     %u instruction(s)\n", run.executed);
-  printf("  stopped      %s\n", ap_probe_status_name(run.status));
+  printf("  stopped      %s", ap_probe_status_name(run.status));
+  /* And on which word, when the word is the point. A run that ends `ILLEGAL` is
+   * a report that an opcode is missing, and the opcode is the one part of that
+   * a reader cannot recover afterwards. */
+  if (run.status != AP_M68030_STEP_EXECUTED &&
+      run.status != AP_M68030_STEP_EXCEPTION) {
+    printf(" on %04X", run.instruction);
+  }
+  printf("\n");
   report_state(&machine);
   printf("  unmapped     %u read, %u written\n", board->unmapped_reads,
          board->unmapped_writes);

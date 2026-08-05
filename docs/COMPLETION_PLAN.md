@@ -3140,12 +3140,13 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         translated page and `CIIN` asserted against it; and the report's new
         `vbr 3C400800 -> 01001C00 (main memory)` line, which says the table was
         mapped all along.*
-  - [ ] **Domain/OS runs on from the vector table read.** The run before the
-        fix ended `stopped FAULT` at PC `3FFA24FC` after 419 bus errors, with
-        the stack walking down `0x70` a turn until the push itself faulted at
-        `01001FC8`. What it does once the byte read answers is the next
-        question, and the first this machine has asked of an operating system
-        rather than of a diagnostic.
+  - [ ] **Domain/OS stops on an opcode the decoder has not got.** With the
+        narrow read addressed properly it runs two million instructions further,
+        in its own image rather than the PROM alias -- `3C410C52`, `3C40DCAA`,
+        its own stack at `3C4F97xx` -- and ends `stopped ILLEGAL` at
+        `3C40A498 -> 0100D098 (main memory)`. `ap_machine_run_t` now carries the
+        word the core gave up on, since a logical PC and a cache between them
+        make it unrecoverable afterwards. Detail in `PROJECT_STATUS.md`.
         *Verification: the console saying anything at all after the load line.*
   - [x] **`CPU (dma) Test #1` passes: the 16-bit controller counts words.**
         Logging the addresses the firmware writes in the DMA range ended the
