@@ -5155,27 +5155,29 @@ running is **correct**, and the flag is not the fault. It was never going to be:
 a byte that 33 sites test and one site sets, after a failure, is a memo rather
 than a cause.
 
-What the failing site actually returns is `d2`, and `d2` was loaded from `d6`
-two instructions before the test:
+**The `008A` trail was built on a mis-read trace, and is withdrawn.**
 
-    3C49EBD6  3406   move.w d6,d2
-    3C49EBD8  4a39   tst.b  $3C44D8CA
-    3C49EBDE  6a5e   bpl.b  $3C49EC3E
-    3C49EC3E  3002   move.w d2,d0
+The reasoning ran: the failing site returns `d2`, loaded from `d6` at
+`3C49EBD6`, so `008A` predates the flag test. Two things are wrong with it.
 
-So `008A` was already in `d6` when this code was reached. **The error predates
-the flag test entirely**, and the trail runs back to whatever set `d6`.
+The instruction that writes the status is at **`3C49EE46`** — the watch says so
+— while the trace those addresses came from ended at `3C49EC48`. Those are not
+adjacent, and the ring simply did not contain the writing instruction: the fill
+sat *after* the stop checks, so a stop always discarded the step that caused it.
+The off-by-one is now fixed — every executed step is recorded before any stop is
+considered — but the conclusions drawn from the old ring cannot be trusted.
 
-With every register in the ring, `d6` at that site is `3C8C008A`, and it arrives
-by `4CEE` — `movem.l d16(a6),<list>` at `3C4637AA`, a routine's **epilogue
-restoring saved registers**. It was `00000000` the instruction before. So `d6`
-there is the *caller's* saved register being put back, not a value that routine
-computed, and `008A` predates that frame too.
+And `008A` is not obviously a status at all. Searching the whole 60,000-step
+window for its earliest appearance finds it in `d1` at `3C43DCA2`, counting
+**down** — `008C`, `008B`, `008A` — under a `dbeq`. It is a loop counter there,
+and `d6`'s `3C8C008A` is a *pointer* whose low half happens to match. A
+four-hex-digit value that small is common enough that matching one proves
+nothing.
 
-Which is the fourth link of the same kind, and the reason the ring now carries
-all sixteen registers rather than the six it started with: each widening was
-prompted by a value that turned out to have come from further back than the
-window reached.
+So the position is: the status `80080012` is written at `3C49EE46`, and what
+that instruction reads has not yet been established. The next measurement is the
+same stop with the corrected ring, which will for the first time contain the
+instruction that does the write.
 
 That is the third time in this hunt that the obvious lead has turned out to be
 downstream of the fault — after `DISK TIMEOUT`, and after the crash status that

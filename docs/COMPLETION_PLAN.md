@@ -3288,9 +3288,13 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         latch: clear means healthy, `bpl` continues into the real work, and the
         setter runs only *after* a failure so later calls short-circuit. So the
         branch at `3C49EBD8` is the ordinary path and the flag is not the fault.
-        The failing site returns `d2`, loaded from `d6` two instructions before
-        the test, so `008A` was already in hand: the error predates the flag
-        entirely and the trail runs back to whatever set `d6`.
+        The `008A` trail drawn from that trace is **withdrawn**: the ring fill
+        sat after the stop checks, so a stop discarded the very step that caused
+        it, and the status is written at `3C49EE46` while the trace ended at
+        `3C49EC48`. `008A` also turns out to be a `dbeq` loop counter elsewhere
+        in the window, not evidently a status. Fill now happens before every
+        stop check; the next run will contain the writing instruction for the
+        first time.
         *Verification: the console going past the crash.*
         *Verification: the console going past the crash.*
   - [ ] **`IRQ6` and `DRQ2`, the floppy's**, are placed and not driven: its

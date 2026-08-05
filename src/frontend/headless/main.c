@@ -1528,9 +1528,17 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
                                  one.status == AP_M68030_STEP_EXCEPTION
                              ? (uint16_t)executed_word
                              : one.instruction};
-      /* A6 as well as A7: the firmware uses it as a base pointer for its own
-       * data, and whether those two overlap is the question a trace has to be
-       * able to answer. */
+      /* Recorded **before** any stop is considered, so the instruction that
+       * triggers a stop is in the ring rather than the one before it. It was
+       * after, and the off-by-one was invisible until a watch reported a write
+       * by `3C49EE46` while the ring's last entry was `3C49EC48` -- two
+       * addresses that are not even adjacent, and a chain of reasoning was
+       * built on the wrong one. */
+      if (trace_last > 0u) {
+        ap_trace_record(&trace_ring[trace_ring_used % trace_last], i, step_pc,
+                        &machine.cpu, r.instruction, r.status);
+        trace_ring_used++;
+      }
       /* The refusal, rather than an address.
        *
        * The instructions that computed a wild disk address are the ones just
@@ -1555,12 +1563,6 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
                "%u instruction(s)\n",
                i);
         run.executed++;
-        if (trace_last > 0u) {
-          ap_trace_ring_t *slot = &trace_ring[trace_ring_used % trace_last];
-          ap_trace_record(slot, i, step_pc, &machine.cpu, r.instruction,
-                          r.status);
-          trace_ring_used++;
-        }
         break;
       }
       /* The same stop against the address the *bus* carried. Code found by
@@ -1608,10 +1610,6 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
       if (trace_last > 0u) {
         /* Kept, not printed. See `trace_last`'s declaration: a fault half a
          * billion instructions in cannot be reached by printing every step. */
-        ap_trace_ring_t *slot = &trace_ring[trace_ring_used % trace_last];
-          ap_trace_record(slot, i, step_pc, &machine.cpu, r.instruction,
-                          r.status);
-        trace_ring_used++;
         run.status = r.status;
         run.instruction = r.instruction;
         if (r.status != AP_M68030_STEP_EXECUTED &&
