@@ -12,6 +12,20 @@ void ap_omti_disk_reset(ap_omti_t *omti) {
   omti->status = AP_OMTI_ST_FIXED;
   omti->configuration = 0xFCu;
   omti->mask = 0u;
+  /* "It will then enter the idle state" -- §4.3, and that is the whole phase,
+   * not just the status bits. This cleared the register and left the phase
+   * where it was, which did not show while a SELECT only set `BSY`: the status
+   * was reset and the phase had never moved. Now that a SELECT enters the
+   * command state, a RESET that left it there would have the controller
+   * accepting command bytes it had just been told to forget.
+   *
+   * Caught by `omti_suite`'s byte-for-byte comparison of a reset controller
+   * against a fresh one -- the strongest form of that assertion, and the reason
+   * it is written that way rather than field by field. */
+  omti->phase = AP_OMTI_PHASE_IDLE;
+  omti->command_index = 0u;
+  omti->command_length = 0u;
+  omti->buffer_index = 0u;
 }
 
 void ap_omti_reset(ap_omti_t *omti) {
@@ -57,9 +71,21 @@ static void finish(ap_omti_t *omti, bool error, uint8_t sense) {
   omti->phase = AP_OMTI_PHASE_STATUS;
   omti->buffer_index = 0u;
   omti->blocks_left = 0u;
-  /* "1 = Command Complete", and the byte waiting is a status byte, which is
-   * what `C/D` says. */
-  omti->status |= (uint8_t)(AP_OMTI_ST_IREQ | AP_OMTI_ST_CD);
+  /* §4.3's status state: "The controller sets the C/D bit and the I/O bit in
+   * the STATUS byte", the byte waiting is a status byte and it travels *to* the
+   * host -- and `IREQ` is "1 = Command Complete".
+   *
+   * **`REQ` is set too, and the manual's sentence about it is ambiguous.** It
+   * reads "If the INTERRUPT ENABLE bit was previously set in the MASK register,
+   * the REQ bit is set in the STATUS byte, along with IRQ14 on the system bus",
+   * which taken literally would leave a polled driver with no request to wait
+   * on and no way to collect the status byte at all -- and §4.2's MASK entry
+   * describes programmed I/O as a supported mode, not an unsupported one. The
+   * reading taken is that `REQ` is the status state's own handshake and the
+   * *interrupt* is what the enable bit gates. Recorded because it is a reading
+   * rather than a quotation. */
+  omti->status |= (uint8_t)(AP_OMTI_ST_IREQ | AP_OMTI_ST_CD |
+                            AP_OMTI_ST_IO | AP_OMTI_ST_REQ);
 }
 
 /* The address a data command names, and whether the drive has it. */
@@ -91,8 +117,19 @@ static void feed(ap_omti_t *omti) {
   omti->blocks_left--;
   omti->buffer_index = 0u;
   omti->phase = AP_OMTI_PHASE_DATA_IN;
-  /* Data, not a command or status byte. */
-  omti->status = (uint8_t)((omti->status & ~AP_OMTI_ST_CD) | AP_OMTI_ST_DREQ);
+  /* Data rather than a command or status byte, travelling *to* the host, and
+   * requested.
+   *
+   * `DREQ` is **not** unconditional, which it was: §4.3 gates it on the MASK's
+   * DMA ENABLE -- "If the DMA ENABLE bit in the MASK byte has been previously
+   * set, data will be transferred in DMA mode ... it will set the DREQ bit". A
+   * controller asserting it in programmed I/O asks for a DMA cycle nobody
+   * arranged. */
+  omti->status = (uint8_t)((omti->status & ~AP_OMTI_ST_CD) | AP_OMTI_ST_IO |
+                           AP_OMTI_ST_REQ);
+  if ((omti->mask & AP_OMTI_MASK_DMA_ENABLE) != 0u) {
+    omti->status |= AP_OMTI_ST_DREQ;
+  }
 }
 
 /* §5.1.2's block count is a byte, and **zero means 256** -- the count is a
@@ -172,6 +209,12 @@ static void execute(ap_omti_t *omti) {
 
 /* A byte the host wrote to the data port, in whatever phase the half is in. */
 static void take_byte(ap_omti_t *omti, uint8_t value) {
+  /* "When the command byte is written, the controller de-asserts the REQ bit
+   * and moves the command byte into its buffer." The write *is* the
+   * acknowledgement, so `REQ` is cleared here and re-asserted below only if
+   * another byte is wanted. */
+  omti->status = (uint8_t)(omti->status & ~AP_OMTI_ST_REQ);
+
   switch (omti->phase) {
   case AP_OMTI_PHASE_IDLE:
     /* §5.1.1: the first byte of a descriptor block starts the command phase,
@@ -187,12 +230,22 @@ static void take_byte(ap_omti_t *omti, uint8_t value) {
     return;
 
   case AP_OMTI_PHASE_COMMAND:
+    if (omti->command_index == 0u) {
+      /* The first byte after a SELECT. Its own opcode says how long the block
+       * is -- §5.1.1 -- so the length is not known until it arrives. */
+      omti->command_length = ap_omti_cdb_length(value);
+    }
     if (omti->command_index < sizeof omti->command) {
       omti->command[omti->command_index++] = value;
     }
     if (omti->command_index >= omti->command_length) {
+      /* "C/D is then de-asserted and the data state is entered." */
+      omti->status = (uint8_t)(omti->status & ~AP_OMTI_ST_CD);
       execute(omti);
+      return;
     }
+    /* "This handshaking is repeated until all command bytes are transferred." */
+    omti->status |= AP_OMTI_ST_REQ;
     return;
 
   case AP_OMTI_PHASE_DATA_OUT:
@@ -293,10 +346,30 @@ void ap_omti_disk_write(ap_omti_t *omti, unsigned reg, uint8_t value) {
     ap_omti_disk_reset(omti);
     return;
   case AP_OMTI_DISK_CONFIG:
-    /* "SELECT (Function)". Selecting the controller is what Table 4-2's BSY bit
-     * reports -- "1 = Controller Selected" -- so the function has an observable
-     * effect and is not merely accepted. */
-    omti->status |= AP_OMTI_ST_BSY;
+    /* "SELECT (Function)", and §4.3 spells out what follows it.
+     *
+     * "During the SELECTION STATE, the controller responds to a selection
+     * request by asserting the BSY bit ... The controller then enters the
+     * command state ... First, the C/D bit of the STATUS register is set. Then
+     * the REQ bit is set, asking for the first command byte to be written to
+     * the DATA OUT register in BYTE mode."
+     *
+     * All three, in that order and in one step: a model asserting only `BSY`
+     * leaves the host waiting for a request that never comes. `I/O` stays clear
+     * because the transfer is *to* the controller.
+     *
+     * "The IDLE STATE is the only time the controller will respond to a select
+     * request", so a select while busy is ignored rather than restarting the
+     * sequence -- which would let a driver's stray write discard a command it
+     * had half sent. */
+    if (omti->phase != AP_OMTI_PHASE_IDLE) {
+      return;
+    }
+    omti->status |= AP_OMTI_ST_BSY | AP_OMTI_ST_CD | AP_OMTI_ST_REQ;
+    omti->status = (uint8_t)(omti->status & ~AP_OMTI_ST_IO);
+    omti->phase = AP_OMTI_PHASE_COMMAND;
+    omti->command_index = 0u;
+    omti->command_length = 0u;
     return;
   case AP_OMTI_DISK_MASK:
     omti->mask = value;

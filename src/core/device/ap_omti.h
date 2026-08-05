@@ -61,6 +61,24 @@ typedef enum {
 #define AP_OMTI_ST_DREQ 0x10u  /* 1 = DMA Cycle Requested */
 #define AP_OMTI_ST_BSY 0x08u   /* 1 = Controller Selected */
 #define AP_OMTI_ST_CD 0x04u    /* 1 = byte is a command or status byte */
+/* ## The two bits the whole handshake runs on, and they were missing
+ *
+ * Table 4-2 gives eight bits and this file had six. `I/O` is the *direction* --
+ * "0 = from the host to the controller, 1 = from the controller to the Host" --
+ * and `REQ` is the request itself: "1 = Request transfer of one byte or Word via
+ * Data In or Data Out register".
+ *
+ * §4.3 turns every phase on `REQ`. The controller sets it to ask for a byte, the
+ * host writes or reads one, and *that access* clears it; the pair repeats until
+ * the transfer is done. A model without `REQ` has no handshake at all, and a
+ * driver polling for it waits for ever -- which is exactly what a `FORCE LOAD`
+ * did here, timing out on `STATUS` and then five times on `DATA`. */
+#define AP_OMTI_ST_IO 0x02u    /* 1 = controller to host */
+/* §4.2's MASK register: "Enables and disables interrupts and DMA transfers."
+ * Bits 7-2 are not used. */
+#define AP_OMTI_MASK_INTERRUPT_ENABLE 0x02u
+#define AP_OMTI_MASK_DMA_ENABLE 0x01u
+#define AP_OMTI_ST_REQ 0x01u   /* 1 = transfer one byte or word */
 
 /* `[OMTI]` Table 4-3, the floppy half: five registers within an eight-address
  * block based at AT `3F0`, so the offsets are 2 and 4 through 7. */

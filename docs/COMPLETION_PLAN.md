@@ -2918,10 +2918,19 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         `0x100000 + 1` times, one whole timeout expired exactly, then five more
         on `DATA`. The controller is selected and never answers.
         Detail in `PROJECT_STATUS.md`.
-      **Awaiting:** `[OMTI]` §5's **command set**. `ap_omti` models the register
-      sets and not the commands, and says so in its header — "those want a drive
-      and a disk image behind them". Both now exist and the firmware is asking
-      for exactly the half that was deliberately not built.
+  - [x] **The status register was missing the two bits the protocol runs on.**
+        Table 4-2 gives eight and this core had six: `I/O` and `REQ`, and `REQ`
+        is what every phase of §4.3 turns on. With the selection handshake,
+        the per-byte request, idle-only selection and `DREQ` gated on the MASK's
+        DMA ENABLE, six command bytes go out where one did, the status byte
+        comes back, and the machine returns to the **MD prompt** instead of
+        resting in a timeout. `FINDINGS.md` C119.
+        *Verification: `awd_suite` +4 (15) — the selection handshake, each byte
+        clearing and re-asserting the request, a stray select ignored, and the
+        two data modes told apart. `omti_suite`'s reset comparison caught a
+        second defect: reset cleared the status and left the phase.*
+      **Awaiting:** the rest of `[OMTI]` §5's commands. One cycle completes; a
+      `FORCE LOAD` needs the sequence behind it.
   - [x] **A disk can be fitted at all.** `ap_omti` modelled the controller and
         `ap_awd` read the image and nothing ever handed one to the other, so
         every boot experiment so far ran on a DN3500 with **no Winchester** —

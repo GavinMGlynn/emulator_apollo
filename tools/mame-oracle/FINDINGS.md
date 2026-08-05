@@ -6863,3 +6863,61 @@ The normal-mode boot is **unchanged**: same resting PC, same posted codes, same
 blit count. The firmware does not reach the keyboard in that window. The
 protocol is modelled because it is the machine's, not because it moved the boot,
 and saying which is which is the difference between a measurement and a hope.
+
+## C119 -- the OMTI status register was missing the two bits the protocol runs on
+
+**Class: ours-wrong, from the manual's own page image.** `[OMTI]` §4.2's Table
+4-2 gives the fixed-disk status register eight bits and this core had six.
+
+    7,6  Not Used (Set to 1)      modelled
+    5    IREQ, Command Complete   modelled
+    4    DREQ, DMA Request        modelled
+    3    BSY, Controller Selected modelled
+    2    C/D, command or data     modelled
+    1    I/O, direction           **absent**
+    0    REQ, transfer one item   **absent**
+
+`REQ` is the handshake every phase in §4.3 turns on: the controller sets it to
+ask for a byte, the host's read or write clears it, and the pair repeats. A model
+without it has no handshake at all, and a driver polling for it waits for ever.
+
+### What §4.3 actually specifies
+
+Six states -- RESET, IDLE, SELECTION, COMMAND, DATA, STATUS -- and this core had
+the first two and a fragment of the third:
+
+* **SELECTION**: the controller asserts `BSY`, *enters the command state*, sets
+  `C/D`, then sets `REQ` "asking for the first command byte". This core asserted
+  `BSY` and stopped, which is why a `FORCE LOAD` timed out.
+* **COMMAND**: "When the command byte is written, the controller de-asserts the
+  REQ bit ... This handshaking is repeated until all command bytes are
+  transferred. C/D is then de-asserted."
+* **IDLE** "is the only time the controller will respond to a select request",
+  so a stray select mid-command is ignored rather than restarting it.
+* **DATA**: `DREQ` is gated on the MASK's DMA ENABLE -- "if the DMA ENABLE bit
+  ... has been previously set" -- and this core asserted it on every read, which
+  asks for a DMA cycle nobody arranged in programmed I/O.
+
+### One reading rather than a quotation
+
+§4.3's status state says "If the INTERRUPT ENABLE bit was previously set in the
+MASK register, the REQ bit is set in the STATUS byte, along with IRQ14". Taken
+literally a polled driver would have no request to wait on and could never
+collect the status byte -- and §4.2 describes programmed I/O as a supported mode.
+The reading taken is that `REQ` is the status state's own handshake and the
+*interrupt* is what the enable bit gates. Marked as a reading.
+
+### What it moved
+
+    before   DATA  5,279,663 read  1 write   STATUS 1,048,577 read
+    after    DATA          2 read  6 write   STATUS 2,097,156 read
+
+Six command bytes go out where one did, the status byte comes back, and the
+machine returns to the **MD prompt** at `00002670` instead of resting in a
+timeout. The command cycle completes.
+
+`omti_suite`'s byte-for-byte comparison of a reset controller against a fresh
+one caught a second defect on the way: `ap_omti_disk_reset` cleared the status
+register and left the *phase*, which did not show while a SELECT only set `BSY`
+and does the moment it enters the command state. §4.3: "It will then enter the
+idle state."

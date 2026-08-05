@@ -140,11 +140,16 @@ static void test_a_read_command_delivers_the_addressed_sector(void) {
   /* Cylinder 1, head 1, sector 3 -- sector 15, filled with 15. */
   issue(AP_OMTI_CMD_READ, 1u, 1u, 3u, 1u);
   TEST_ASSERT_EQUAL_INT(AP_OMTI_PHASE_DATA_IN, ap_omti_disk_phase(&omti));
-  /* "1 = DMA Cycle Requested", and the byte waiting is data rather than a
-   * command or status byte. */
+  /* The byte waiting is data rather than a command or status byte, it travels
+   * *to* the host, and it is requested. `REQ` is the handshake §4.3 turns every
+   * phase on and this asserted `DREQ` instead -- which is the **DMA** request
+   * and is gated on the MASK's DMA ENABLE, not set on every read. A controller
+   * asserting it in programmed I/O asks for a cycle nobody arranged. */
   const uint8_t status = ap_omti_disk_read(&omti, AP_OMTI_DISK_STATUS);
-  TEST_ASSERT_TRUE((status & AP_OMTI_ST_DREQ) != 0u);
+  TEST_ASSERT_TRUE((status & AP_OMTI_ST_REQ) != 0u);
+  TEST_ASSERT_TRUE((status & AP_OMTI_ST_IO) != 0u);
   TEST_ASSERT_TRUE((status & AP_OMTI_ST_CD) == 0u);
+  TEST_ASSERT_TRUE((status & AP_OMTI_ST_DREQ) == 0u);
 
   for (unsigned i = 0; i < AP_AWD_SECTOR_BYTES; i++) {
     TEST_ASSERT_EQUAL_HEX8(15u, ap_omti_disk_read(&omti, AP_OMTI_DISK_DATA));
@@ -258,6 +263,79 @@ static void test_the_st506_only_command_is_refused_in_practice(void) {
   TEST_ASSERT_TRUE((take_status() & 0x02u) != 0u);
 }
 
+
+/* And with DMA enabled the same command *does* request a cycle. The two modes
+ * are §4.3's, and the MASK bit is what chooses between them -- so a model
+ * setting `DREQ` unconditionally cannot tell them apart. */
+static void test_dma_enable_is_what_asks_for_a_cycle(void) {
+  build_controller();
+  ap_omti_disk_write(&omti, AP_OMTI_DISK_MASK, AP_OMTI_MASK_DMA_ENABLE);
+  issue(AP_OMTI_CMD_READ, 1u, 1u, 3u, 1u);
+
+  const uint8_t status = ap_omti_disk_read(&omti, AP_OMTI_DISK_STATUS);
+  TEST_ASSERT_TRUE((status & AP_OMTI_ST_DREQ) != 0u);
+  /* `REQ` is still the handshake; DMA adds a request, it does not replace one. */
+  TEST_ASSERT_TRUE((status & AP_OMTI_ST_REQ) != 0u);
+}
+
+/* The selection handshake, which is what a driver waits on before it can send
+ * anything. §4.3: the controller asserts `BSY`, "then enters the command
+ * state", sets `C/D`, and sets `REQ` "asking for the first command byte". A
+ * model asserting only `BSY` leaves the host waiting for a request that never
+ * comes -- which is what a `FORCE LOAD` did, timing out six times over. */
+static void test_selecting_asks_for_the_first_command_byte(void) {
+  build_controller();
+  ap_omti_disk_write(&omti, AP_OMTI_DISK_CONFIG, 0x00u); /* SELECT */
+
+  const uint8_t status = ap_omti_disk_read(&omti, AP_OMTI_DISK_STATUS);
+  TEST_ASSERT_TRUE((status & AP_OMTI_ST_BSY) != 0u);
+  TEST_ASSERT_TRUE((status & AP_OMTI_ST_CD) != 0u);
+  TEST_ASSERT_TRUE((status & AP_OMTI_ST_REQ) != 0u);
+  /* The transfer is *to* the controller. */
+  TEST_ASSERT_TRUE((status & AP_OMTI_ST_IO) == 0u);
+  TEST_ASSERT_EQUAL_INT(AP_OMTI_PHASE_COMMAND, ap_omti_disk_phase(&omti));
+}
+
+/* "When the command byte is written, the controller de-asserts the REQ bit" --
+ * the write *is* the acknowledgement -- "This handshaking is repeated until all
+ * command bytes are transferred. C/D is then de-asserted." */
+static void test_each_command_byte_clears_and_re_asserts_the_request(void) {
+  build_controller();
+  ap_omti_disk_write(&omti, AP_OMTI_DISK_CONFIG, 0x00u);
+
+  /* A six-byte block: five bytes leave the request standing, the sixth does
+   * not. */
+  for (unsigned i = 0; i < 5u; i++) {
+    ap_omti_disk_write(&omti, AP_OMTI_DISK_DATA,
+                       i == 0u ? AP_OMTI_CMD_TEST_DRIVE_READY : 0x00u);
+    const uint8_t status = ap_omti_disk_read(&omti, AP_OMTI_DISK_STATUS);
+    TEST_ASSERT_TRUE((status & AP_OMTI_ST_REQ) != 0u);
+    TEST_ASSERT_TRUE((status & AP_OMTI_ST_CD) != 0u);
+  }
+  ap_omti_disk_write(&omti, AP_OMTI_DISK_DATA, 0x00u);
+  /* The command ran, so what is waiting now is a *status* byte -- `C/D` set
+   * again for a different reason, and `I/O` with it. */
+  TEST_ASSERT_EQUAL_INT(AP_OMTI_PHASE_STATUS, ap_omti_disk_phase(&omti));
+}
+
+/* "The IDLE STATE is the only time the controller will respond to a select
+ * request." A stray select part-way through a command must not restart the
+ * sequence and discard what the driver has already sent. */
+static void test_a_select_while_busy_is_ignored(void) {
+  build_controller();
+  ap_omti_disk_write(&omti, AP_OMTI_DISK_CONFIG, 0x00u);
+  ap_omti_disk_write(&omti, AP_OMTI_DISK_DATA, AP_OMTI_CMD_READ);
+  ap_omti_disk_write(&omti, AP_OMTI_DISK_CONFIG, 0x00u); /* stray */
+
+  /* Still one byte in, not back at the start. */
+  ap_omti_disk_write(&omti, AP_OMTI_DISK_DATA, 0x00u);
+  ap_omti_disk_write(&omti, AP_OMTI_DISK_DATA, 0x00u);
+  ap_omti_disk_write(&omti, AP_OMTI_DISK_DATA, 0x01u);
+  ap_omti_disk_write(&omti, AP_OMTI_DISK_DATA, 0x01u);
+  ap_omti_disk_write(&omti, AP_OMTI_DISK_DATA, 0x00u);
+  TEST_ASSERT_NOT_EQUAL_INT(AP_OMTI_PHASE_COMMAND, ap_omti_disk_phase(&omti));
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_the_two_drives_are_the_oracles);
@@ -265,6 +343,10 @@ int main(void) {
   RUN_TEST(test_an_address_off_the_drive_is_refused);
   RUN_TEST(test_a_short_image_refuses_the_sectors_it_lacks);
   RUN_TEST(test_a_read_command_delivers_the_addressed_sector);
+  RUN_TEST(test_dma_enable_is_what_asks_for_a_cycle);
+  RUN_TEST(test_selecting_asks_for_the_first_command_byte);
+  RUN_TEST(test_each_command_byte_clears_and_re_asserts_the_request);
+  RUN_TEST(test_a_select_while_busy_is_ignored);
   RUN_TEST(test_a_write_command_reaches_the_image);
   RUN_TEST(test_a_block_count_of_zero_means_two_hundred_and_fifty_six);
   RUN_TEST(test_a_multi_sector_read_walks_forward);

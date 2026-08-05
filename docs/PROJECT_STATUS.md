@@ -4597,6 +4597,45 @@ last and hardest — **a decoded PNG**. Register round-trips and word-level
 identities are what can be checked without one, and a controller that passes
 those and draws nothing is the standard way this goes wrong.
 
+#### The OMTI status register was missing the two bits the protocol runs on
+
+`[OMTI]` Table 4-2 gives the fixed-disk status register **eight** bits and this
+core had six. `I/O` — the direction — and `REQ` — "Request transfer of one byte
+or Word" — were both absent, and `REQ` is the bit every phase of §4.3 turns on:
+the controller sets it to ask for a byte, the host's access clears it, and the
+pair repeats. A model without it has no handshake, and a driver polling for it
+waits for ever.
+
+**§4.3 specifies six states and this core had two and a fragment.** Selection
+asserts `BSY`, *enters the command state*, sets `C/D` and then sets `REQ`
+"asking for the first command byte" — this core asserted `BSY` and stopped.
+Idle "is the only time the controller will respond to a select request", so a
+stray select mid-command is now ignored rather than restarting one. And `DREQ`
+is gated on the MASK's DMA ENABLE, where this core asserted it on every read —
+asking for a DMA cycle nobody arranged in programmed I/O.
+
+**One sentence is a reading rather than a quotation, and is marked as one.**
+§4.3's status state says "If the INTERRUPT ENABLE bit was previously set in the
+MASK register, the REQ bit is set in the STATUS byte, along with IRQ14". Taken
+literally a polled driver could never collect the status byte, and §4.2
+describes programmed I/O as supported. The reading taken is that `REQ` is the
+status state's own handshake and the *interrupt* is what the enable bit gates.
+
+    before   DATA  5,279,663 read  1 write   STATUS 1,048,577 read
+    after    DATA          2 read  6 write   STATUS 2,097,156 read
+
+Six command bytes go out where one did, the status byte comes back, and the
+machine returns to the **MD prompt** instead of resting in a timeout. The
+command cycle completes.
+
+**And the reset test caught a second defect on the way.**
+`ap_omti_disk_reset` cleared the status register and left the *phase* — which
+could not show while a SELECT only set `BSY`, and shows the moment it enters the
+command state. §4.3: "It will then enter the idle state." `omti_suite` compares
+a reset controller against a fresh one byte for byte, which is the strongest
+form of that assertion and the reason it is written that way rather than field
+by field. `FINDINGS.md` C119.
+
 #### Which register the disk poll is on, measured rather than read out of a listing
 
 `FO` reaches the controller and stalls, and three attempts to settle *which*
