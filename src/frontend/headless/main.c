@@ -43,6 +43,10 @@ static void print_usage(const char *program_name) {
           "                        comparison\n"
           "  --boot-limit N        stop a boot after N instructions, to find\n"
           "                        where one goes wrong\n"
+          "  --boot-stop-on-disk-refusal\n"
+          "                        end the run the first time the disk\n"
+          "                        controller refuses an address, so a trace\n"
+          "                        ring holds what computed it\n"
           "  --boot-progress N     report the step count and the program\n"
           "                        counter to stderr every N instructions, so\n"
           "                        a run that says nothing for ten minutes can\n"
@@ -965,7 +969,7 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
                           unsigned trace_last, uint32_t stop_pc,
                           const char *console_script_path,
                           const char *disk_path, const char *dump_spec,
-                          unsigned progress_every) {
+                          unsigned progress_every, bool stop_on_refusal) {
   /* Before the PROM is even opened: a script that does not parse is the
    * caller's mistake and should be reported as one, not hidden behind whichever
    * file happens to be missing first. */
@@ -1448,6 +1452,35 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
       /* A6 as well as A7: the firmware uses it as a base pointer for its own
        * data, and whether those two overlap is the question a trace has to be
        * able to answer. */
+      /* The refusal, rather than an address.
+       *
+       * The instructions that computed a wild disk address are the ones just
+       * before the controller refuses it, and the run ends four hundred million
+       * instructions later -- so a ring kept to the end of the run holds a
+       * different program entirely. Stopping on the event puts the arithmetic
+       * in the ring. Checked *after* the step, because the command is issued by
+       * the write the step just performed. */
+      if (stop_on_refusal &&
+          ap_omti_refusals(&board->disk.controller) > 0u) {
+        printf("  stopped on   the disk controller refusing an address, after "
+               "%u instruction(s)\n",
+               i);
+        run.executed++;
+        if (trace_last > 0u) {
+          ap_trace_ring_t *slot = &trace_ring[trace_ring_used % trace_last];
+          slot->step = i;
+          slot->pc = step_pc;
+          slot->a7 = ap_m68030_read_a7(&machine.cpu.regs);
+          slot->a6 = machine.cpu.regs.a[6];
+          slot->a0 = machine.cpu.regs.a[0];
+          slot->d0 = machine.cpu.regs.d[0];
+          slot->d1 = machine.cpu.regs.d[1];
+          slot->instruction = r.instruction;
+          slot->status = r.status;
+          trace_ring_used++;
+        }
+        break;
+      }
       if (stop_pc != 0u && step_pc == stop_pc) {
         /* Checked **before** the fast path below, not after it.
          *
@@ -2261,6 +2294,7 @@ int main(int argc, char **argv) {
   bool boot_trace = false;
   unsigned boot_trace_last = 0;
   unsigned boot_progress = 0;
+  bool boot_stop_on_refusal = false;
   uint32_t boot_stop_pc = 0;
   uint32_t boot_watch = 0;
   const char *boot_input = NULL;
@@ -2350,6 +2384,11 @@ int main(int argc, char **argv) {
     if (strcmp(argv[i], "--boot-progress") == 0 && i + 1 < argc) {
       boot_progress = (unsigned)strtoul(argv[i + 1], NULL, 0);
       i += 2;
+      continue;
+    }
+    if (strcmp(argv[i], "--boot-stop-on-disk-refusal") == 0) {
+      boot_stop_on_refusal = true;
+      i += 1;
       continue;
     }
     if (strcmp(argv[i], "--boot-key") == 0 && i + 1 < argc) {
@@ -2505,7 +2544,8 @@ int main(int argc, char **argv) {
                           boot_key, boot_console,
                           boot_screen, node_id, opt.model->id, screenshot,
                           boot_trace_last, boot_stop_pc, boot_script,
-                          disk_path, dump_spec, boot_progress);
+                          disk_path, dump_spec, boot_progress,
+                          boot_stop_on_refusal);
   }
 
   if (boot_tape != NULL) {
