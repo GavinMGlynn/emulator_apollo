@@ -613,6 +613,21 @@ void ap_board_write(ap_board_t *board, uint32_t address, uint8_t value,
 [[nodiscard]] bool ap_board_read_access(ap_board_t *board, uint32_t address,
                                         unsigned count, uint32_t *out);
 
+/* An observer's read of main memory, and of nothing else.
+ *
+ * Answers only for an address inside the memory actually fitted, and touches no
+ * counter, no parity latch and no device. Everything else about the board is a
+ * *cycle* -- a DUART's receive buffer pops, the display controller's image
+ * memory latches, an unmapped address is recorded as a fault -- so a debugger
+ * or a trace reading "the word at that address" through the ordinary path does
+ * not observe the run, it changes it.
+ *
+ * The narrowness is the contract: a device address answers false here, and a
+ * caller wanting a device register must run the cycle and accept what that
+ * costs. */
+[[nodiscard]] bool ap_board_peek_ram(const ap_board_t *board, uint32_t address,
+                                     unsigned count, uint32_t *out);
+
 /* Press or release a keyboard key, delivering its scan code to serial 1
  * channel A -- the port the keyboard is wired to, confirmed from both the
  * oracle's machine configuration and the boot PROM's own poll loop.

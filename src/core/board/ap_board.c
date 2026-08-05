@@ -1100,6 +1100,30 @@ bool ap_board_write_access(ap_board_t *board, uint32_t address, unsigned count,
   return all;
 }
 
+bool ap_board_peek_ram(const ap_board_t *board, uint32_t address,
+                       unsigned count, uint32_t *out) {
+  if (board == NULL || out == NULL || board->ram == NULL ||
+      !transfer_size(count)) {
+    return false;
+  }
+  if (address < board->map->ram_base || address > board->map->ram_limit) {
+    return false;
+  }
+  const uint32_t offset = address - board->map->ram_base;
+  if (offset >= board->ram_bytes || count > board->ram_bytes - offset) {
+    return false; /* past the memory actually fitted */
+  }
+  /* Big endian, as every other read of this array is, and the parity latch is
+   * deliberately not consulted: an observer must not manufacture the interrupt
+   * the run was about to take, or clear one it had already earned. */
+  uint32_t value = 0;
+  for (unsigned i = 0; i < count; i++) {
+    value = (value << 8) | board->ram[offset + i];
+  }
+  *out = value;
+  return true;
+}
+
 bool ap_board_read_access(ap_board_t *board, uint32_t address, unsigned count,
                           uint32_t *out) {
   if (out == NULL || !transfer_size(count)) {

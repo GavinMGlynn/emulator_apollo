@@ -544,6 +544,16 @@ bool ap_machine_read_logical(ap_machine_t *machine, uint32_t logical,
   if (!ap_machine_translate(machine, logical, function_code, &physical)) {
     return false;
   }
+  /* Through the board when there is one, because a board machine's memory is
+   * not at the address `ap_machine_read` would index it by: the board maps RAM
+   * at `01000000` and indexes the buffer from its base, so reading
+   * `machine->ram[0100D098]` reads a megabyte and a half past where the word
+   * actually is. That is why the trace still printed `0000` for Domain/OS's own
+   * text after the logical read was added -- the translation was right and the
+   * indexing was not. */
+  if (machine->board != NULL) {
+    return ap_board_peek_ram(machine->board, physical, size, value);
+  }
   return ap_machine_read(machine, physical, size, value);
 }
 

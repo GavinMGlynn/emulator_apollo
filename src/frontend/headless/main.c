@@ -1428,6 +1428,7 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
       }
       if (!trace && trace_last == 0u) {
         run.status = r.status;
+        run.instruction = r.instruction;
         if (r.status != AP_M68030_STEP_EXECUTED &&
             r.status != AP_M68030_STEP_EXCEPTION) {
           break;
@@ -1450,6 +1451,7 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
         slot->status = r.status;
         trace_ring_used++;
         run.status = r.status;
+        run.instruction = r.instruction;
         if (r.status != AP_M68030_STEP_EXECUTED &&
             r.status != AP_M68030_STEP_EXCEPTION) {
           break;
@@ -1484,6 +1486,7 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
         printf("  watch %08X = %08X%s\n", watch, held, all ? "" : " (unmapped)");
       }
       run.status = r.status;
+      run.instruction = r.instruction;
       if (r.status != AP_M68030_STEP_EXECUTED &&
           r.status != AP_M68030_STEP_EXCEPTION) {
         break;

@@ -756,6 +756,46 @@ static void test_a_selective_clear_reaches_the_status_register(void) {
                                          AP_BOARDREG_STATUS_BUS_ERROR));
 }
 
+
+/* An observer's read of memory, and the indexing that makes it necessary.
+ *
+ * The board maps RAM at `AP_BOARD_RAM_BASE` and indexes the buffer from that
+ * base, so a caller reading the buffer by physical address reads a megabyte and
+ * a half past the word it wanted. That is exactly what the boot trace did: with
+ * the logical PC correctly translated to `0100D098` it still printed `0000`,
+ * because the translation was right and the indexing was not.
+ *
+ * The narrowness is the other half. Everything else on this board is a cycle --
+ * a DUART's receive buffer pops, an unmapped address is recorded as a fault --
+ * so an instrument reading through the ordinary path does not observe a run, it
+ * changes it. */
+static void test_peeking_memory_reads_it_by_physical_address(void) {
+  ap_board_t b;
+  init(&b);
+
+  TEST_ASSERT_TRUE(ap_board_write_access(&b, AP_BOARD_RAM_BASE + 0x40u, 4u,
+                                         0xDEADBEEFu));
+
+  uint32_t value = 0;
+  TEST_ASSERT_TRUE(
+      ap_board_peek_ram(&b, AP_BOARD_RAM_BASE + 0x40u, 4u, &value));
+  TEST_ASSERT_EQUAL_HEX32(0xDEADBEEFu, value);
+
+  /* Memory and nothing else: a device answers false rather than being read. */
+  TEST_ASSERT_FALSE(ap_board_peek_ram(&b, 0x010400u, 1u, &value));
+  /* And so does an address past the memory actually fitted, rather than reading
+   * off the end of the buffer. */
+  TEST_ASSERT_FALSE(
+      ap_board_peek_ram(&b, AP_BOARD_RAM_BASE + sizeof ram, 1u, &value));
+
+  /* No counter moved. An instrument that inflates the run's own statistics is
+   * reporting on a run that did not happen. */
+  const unsigned unmapped = b.unmapped_reads;
+  uint32_t ignored = 0;
+  TEST_ASSERT_FALSE(ap_board_peek_ram(&b, 0xF0000000u, 1u, &ignored));
+  TEST_ASSERT_EQUAL_UINT(unmapped, b.unmapped_reads);
+}
+
 int main(void) {
   UNITY_BEGIN();
   init_region_board();
@@ -787,5 +827,6 @@ int main(void) {
   RUN_TEST(test_a_repeated_press_puts_nothing_on_the_port);
   RUN_TEST(test_the_boot_prom_region_is_reported_absent);
   RUN_TEST(test_every_region_has_a_name);
+  RUN_TEST(test_peeking_memory_reads_it_by_physical_address);
   return UNITY_END();
 }
