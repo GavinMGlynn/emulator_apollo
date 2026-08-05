@@ -5062,6 +5062,25 @@ and the only reason the error surfaced at all is that both were done together.
 `--dump-logical` exists precisely so this arithmetic never has to be done by
 hand, and it was done by hand anyway.
 
+Watching the *right* address settles what happens to the flag:
+
+    watch        010504CA written 6 time(s), last 00000000 by PC 01002174
+
+`01002174` is the **loader** — the same PC the progress heartbeat reports while
+the operating system image is being read in. So every write to that byte comes
+from loading the image, and the value written is zero.
+
+**Domain/OS never sets it.** The flag is not being cleared by something of ours
+at the wrong moment, and it is not a device bit we have failed to raise: the
+code that would set it does not run at all. That is a different kind of question
+again — not "which register is wrong" but "which initialisation is not
+happening" — and it is the one to take up next.
+
+`010504CA` is inside the loaded image (`01002000`-`010E986C`), so the byte's
+initial value is whatever the image carries there, and the search from here runs
+forwards: find the path in Domain/OS that writes `3C44D8CA`, and find why this
+machine does not reach it.
+
 #### `DRQ7`, and a request that never went down
 
 The interrupt alone did not clear `DISK TIMEOUT`: the same crash came back at

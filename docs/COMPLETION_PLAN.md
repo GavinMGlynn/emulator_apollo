@@ -3269,8 +3269,11 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         the `bpl` is taken. Its physical address is `010504CA`, *not* the
         `010788CA` that three same-offset dumps suggested: pages mapped
         contiguously three times running is not a rule, and the derived watch
-        was on a byte nobody asked about. Next: who writes `010504CA`, and what
-        should set bit 7.
+        was on a byte nobody asked about. Watching the right one:
+        `written 6 time(s), last 00000000 by PC 01002174` -- the **loader**. So
+        Domain/OS never sets the flag; the code that would has not run. Not
+        "which register is wrong" but "which initialisation is missing", which
+        is where this goes next.
         *Verification: the console going past the crash.*
         *Verification: the console going past the crash.*
   - [ ] **`IRQ6` and `DRQ2`, the floppy's**, are placed and not driven: its
