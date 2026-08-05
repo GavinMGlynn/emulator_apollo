@@ -3313,7 +3313,9 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         so far is transport, not decision. Searching the loaded image for the
         constant finds where it is *made*: `move.l #$00080012,d3` at `01021D44`,
         `cmpi.l` at `01090AD6`, and `move.l #$00080012,(a1)` at `01091438`. The
-        last is the shape this chain uses at every level, so it is tested first.
+        last is the shape this chain uses at every level, so it was tested
+        first -- and **never executes**. That leaves `01021D44`,
+        `move.l #$00080012,d3`.
         *Verification: the console going past the crash.*
         *Verification: the console going past the crash.*
   - [ ] **`IRQ6` and `DRQ2`, the floppy's**, are placed and not driven: its

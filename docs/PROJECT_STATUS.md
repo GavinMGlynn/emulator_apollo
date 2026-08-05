@@ -5258,6 +5258,12 @@ through a caller's pointer — so it is the one to test first, with
 `--boot-stop-physical-pc`. Two candidates and a comparison, found offline in
 seconds, against what would otherwise have been several runs of frame-walking.
 
+**And it is the wrong one.** `01091438` never executes: the run reaches the same
+`FAULT on 6100` at 311 million instructions without stopping. The reasoning that
+picked it — "this is the shape the chain uses at every level" — was pattern
+matching, and pattern matching has been wrong about as often as it has been
+right in this hunt. `01021D44`, `move.l #$00080012,d3`, is what remains.
+
 That is the third time in this hunt that the obvious lead has turned out to be
 downstream of the fault — after `DISK TIMEOUT`, and after the crash status that
 turned out to be the crash *message*. The pattern is worth naming: a value that
