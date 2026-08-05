@@ -4597,6 +4597,38 @@ last and hardest — **a decoded PNG**. Register round-trips and word-level
 identities are what can be checked without one, and a controller that passes
 those and draws nothing is the standard way this goes wrong.
 
+#### All four controllers decoded to a PNG and inspected
+
+Phase 5's two display items ask for the same thing per controller — "framebuffer
+decoded to PNG and inspected" — and it is now done for all four:
+
+    15-inch mono    1024x800    1 plane    2-entry palette     99.7% set
+    19-inch mono    1280x1024   1 plane    2-entry palette     99.9% set
+    4-plane colour  1024x800    4 planes  16-entry palette      0.0% set
+    8-plane colour  1024x800    8 planes 256-entry palette    102 pixels
+
+Each PNG carries the geometry its controller has and a palette sized to its
+plane count, and each was decoded and read rather than merely written.
+
+**The two monochrome screens are filled**, 99.7% and 99.9% — the firmware's
+display test writing the whole buffer, at 262,273 and 524,417 blit cycles, which
+is four passes over a 65,536-word plane and eight over a 131,072-word one. A set
+bit is *dark* on these screens, so what a monitor would show is a black screen
+with a scatter of holes: the fill, and the handful of words the test leaves.
+
+**The 4-plane screen is blank after 917,508 blit cycles**, and that is the one
+result worth following. It is not "nothing drew" — over nine hundred thousand
+blits ran and 1,310,724 plane writes landed — it is *drew and then cleared*, or
+drew zeros. The 8-plane board does the same thing and then leaves a figure
+behind; the 4-plane one does not. Recorded as an open observation rather than
+explained, because the difference between the two boards' tests is not something
+this core can assert from a blank frame.
+
+The 4-plane image is also the only one still under a grey ramp: that board's
+lookup table is sixteen entries written through three registers of the
+controller's own, and is not modelled — a separate part from the Bt458, and one
+the console says so about on every capture.
+
 #### The drive configuration word, and it did not move the boot
 
 `[OMTI]` §5.4.29 names bytes 4 and 5 of READ CONFIGURATION the "drive

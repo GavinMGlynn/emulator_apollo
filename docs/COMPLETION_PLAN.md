@@ -3051,10 +3051,22 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
       same boot that spun 5,975,350 times reading the controller now makes
       **66,138 blit cycles and 529,104 plane writes**, and the screenshot has a
       picture in it. `graphics_suite` +7 (73).*
-- [ ] Mono 1024×800 graphics controller and display timing. *Verification:
-      framebuffer decoded to PNG and inspected; oracle frame diff.*
-- [ ] Colour and 8-plane controllers; 1280×1024 mono. *Verification: as above
-      per controller.*
+- [x] Mono 1024×800 graphics controller and display timing. *Verification: the
+      framebuffer decoded to a PNG and inspected — 1024x800, one plane, a
+      two-entry palette, and **99.7% of pixels set** by the firmware's own
+      display test at 262,273 blit cycles, which is four passes over a
+      65,536-word plane. A set bit is dark on this screen, so a monitor would
+      show black with a scatter of holes. The timing is the raster item above.
+      Detail in `PROJECT_STATUS.md`.*
+- [x] Colour and 8-plane controllers; 1280×1024 mono. *Verification: as above
+      per controller. The 1280x1024 monochrome fills 99.9% at 524,417 blit
+      cycles; the 8-plane leaves a drawn figure under the Bt458 palette the
+      firmware loaded. The **4-plane is blank after 917,508 blit cycles** —
+      drew and cleared, not "nothing drew" — which is recorded as an open
+      observation rather than explained, since a blank frame cannot say why. Its
+      lookup table is sixteen entries through three registers of the
+      controller's own, a different part from the Bt458 and not modelled, which
+      every capture says on the console.*
 - [ ] Headless frontend flags that earn their keep: run N cycles, dump state,
       `--dump-mem ADDR[:LEN]`, screenshots (raw framebuffer *and* scanned-out
       picture), periodic screenshots every N frames, scripted key/mouse input at
