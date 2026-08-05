@@ -140,7 +140,12 @@ apollo_add_suite(time_suite)
 apollo_add_suite(machine_suite)
 apollo_add_suite(model_suite)
 apollo_add_suite(hash_suite)
+# The one suite in this directory that links a vcpkg library, so it is the one
+# that gets its DLLs copied beside it; the top-level `CMakeLists.txt` says why
+# that must be exactly one per directory.
+set(VCPKG_APPLOCAL_DEPS ON)
 apollo_add_suite(frontend_common_suite apollo_frontend_common)
+set(VCPKG_APPLOCAL_DEPS OFF)
 # The PNG round-trip reads the file back with libpng's own decoder: an encoder
 # and a decoder that only agree with each other can agree on the wrong picture.
 # Guarded, because CI builds on three platforms and does not have a libpng
