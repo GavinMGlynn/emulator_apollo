@@ -90,6 +90,13 @@ typedef struct {
    * deliberately outside the state hash for the same reason. */
   uint32_t watch_write_address;
   unsigned watch_writes;
+  /* The address of the instruction *being executed*, which a caller stepping
+   * one at a time sets before each step. The watch reports this rather than
+   * `regs.pc`, because the program counter during a store points into the
+   * middle of the instruction doing the storing -- past its opcode, somewhere
+   * among its extension words -- and disassembling from there decodes a
+   * different instruction that happens to start at the wrong byte. */
+  uint32_t executing_address;
   uint32_t watch_write_pc;
   uint32_t watch_write_value;
   unsigned watch_write_size;

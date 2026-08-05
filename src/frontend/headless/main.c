@@ -1447,6 +1447,8 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
        * `ap_machine_run` with a limit of one is the whole of the machine's own
        * loop, once. Keeping the frontend's stepping on that rather than beside
        * it is what stops the two diverging again. */
+      /* So a watch can name the instruction rather than a byte inside it. */
+      machine.executing_address = step_pc;
       const ap_machine_run_t one = ap_machine_run(&machine, 1u);
       /* The instruction word is read back from where it executed, since the
        * machine's loop reports why a run ended and not which word did it.

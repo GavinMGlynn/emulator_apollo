@@ -234,7 +234,9 @@ static bool machine_store(void *context, uint32_t physical, uint32_t value,
       physical <= machine->watch_write_address &&
       machine->watch_write_address < physical + size) {
     machine->watch_writes++;
-    machine->watch_write_pc = machine->cpu.regs.pc;
+    machine->watch_write_pc = machine->executing_address != 0u
+                                  ? machine->executing_address
+                                  : machine->cpu.regs.pc;
     machine->watch_write_value = value;
     machine->watch_write_size = size;
   }
