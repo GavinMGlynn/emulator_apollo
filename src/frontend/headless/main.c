@@ -1548,18 +1548,18 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
           slot->a6 = machine.cpu.regs.a[6];
           slot->a0 = machine.cpu.regs.a[0];
           slot->a1 = machine.cpu.regs.a[1];
-          for (unsigned r = 0; r < 8u; r++) {
-            slot->d[r] = machine.cpu.regs.d[r];
-            slot->a[r] = machine.cpu.regs.a[r];
+          for (unsigned ri = 0; ri < 8u; ri++) {
+            slot->d[ri] = machine.cpu.regs.d[ri];
+            slot->a[ri] = machine.cpu.regs.a[ri];
           }
-        for (unsigned r = 0; r < 8u; r++) {
-          slot->d[r] = machine.cpu.regs.d[r];
-          slot->a[r] = machine.cpu.regs.a[r];
+        for (unsigned ri = 0; ri < 8u; ri++) {
+          slot->d[ri] = machine.cpu.regs.d[ri];
+          slot->a[ri] = machine.cpu.regs.a[ri];
         }
         slot->a1 = machine.cpu.regs.a[1];
-        for (unsigned r = 0; r < 8u; r++) {
-          slot->d[r] = machine.cpu.regs.d[r];
-          slot->a[r] = machine.cpu.regs.a[r];
+        for (unsigned ri = 0; ri < 8u; ri++) {
+          slot->d[ri] = machine.cpu.regs.d[ri];
+          slot->a[ri] = machine.cpu.regs.a[ri];
         }
           slot->d0 = machine.cpu.regs.d[0];
           slot->d1 = machine.cpu.regs.d[1];
@@ -1621,9 +1621,9 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
         slot->a6 = machine.cpu.regs.a[6];
         slot->a0 = machine.cpu.regs.a[0];
         slot->a1 = machine.cpu.regs.a[1];
-        for (unsigned r = 0; r < 8u; r++) {
-          slot->d[r] = machine.cpu.regs.d[r];
-          slot->a[r] = machine.cpu.regs.a[r];
+        for (unsigned ri = 0; ri < 8u; ri++) {
+          slot->d[ri] = machine.cpu.regs.d[ri];
+          slot->a[ri] = machine.cpu.regs.a[ri];
         }
         slot->d0 = machine.cpu.regs.d[0];
         slot->d1 = machine.cpu.regs.d[1];
@@ -1690,11 +1690,11 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
     for (unsigned k = 0; k < kept; k++) {
       const ap_trace_ring_t *e = &trace_ring[(first + k) % trace_last];
       printf("%u %08X", e->step, e->pc);
-      for (unsigned r = 0; r < 8u; r++) {
-        printf(" %08X", e->d[r]);
+      for (unsigned ri = 0; ri < 8u; ri++) {
+        printf(" %08X", e->d[ri]);
       }
-      for (unsigned r = 0; r < 8u; r++) {
-        printf(" %08X", e->a[r]);
+      for (unsigned ri = 0; ri < 8u; ri++) {
+        printf(" %08X", e->a[ri]);
       }
       printf(" %04X %s\n", e->instruction, ap_probe_status_name(e->status));
     }
