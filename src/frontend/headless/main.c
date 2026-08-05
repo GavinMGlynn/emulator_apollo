@@ -65,6 +65,8 @@ static void print_usage(const char *program_name) {
           "  --screen KIND         fit a display: c4p, c8p, 19i or 15i\n"
           "  --screenshot FILE     scan the fitted screen out to a PNG\n"
           "  --disk FILE           fit a Winchester (.awd) to the boot\n"
+          "  --dump-mem A[:L]      dump memory through the board after a\n"
+          "                        run; hex address, hex length (default 100)\n"
           "  --floppy FILE         read an .afd through the reader and\n"
           "                        report its geometry\n"
           "  --boot-input-channel C  which channel, A or B (default A). The\n"
@@ -168,9 +170,82 @@ static void run_probes(FILE *out, ap_model_id_t model) {
  * returned by `ap_probe_run`: a probe result reports registers, and a probe
  * that proves a *store* has to be checked where the store landed.
  */
+/* Dump a range of the machine's memory, through the **board** rather than out of
+ * the buffer.
+ *
+ * Through the board because that is what a program sees: an address the board
+ * decodes to a device answers with the device's value, and one it decodes to
+ * nothing is *reported* rather than silently read as zero. A dump that indexed
+ * the RAM array would show a frame buffer as blank and an unmapped hole as
+ * plausible data.
+ *
+ * The format is one line per sixteen bytes: address, the bytes in hex, then the
+ * printable characters. Bytes nothing answered print as `--` rather than `00`,
+ * because "the board declined this address" and "the board answered zero" are
+ * different facts and a dump that spelt them alike would be lying in the one
+ * place a dump is read most carefully. */
+static void dump_memory(FILE *out, ap_board_t *board, uint32_t address,
+                        uint32_t length) {
+  for (uint32_t offset = 0; offset < length; offset += 16u) {
+    const uint32_t base = address + offset;
+    const uint32_t run = (length - offset) < 16u ? (length - offset) : 16u;
+    uint8_t bytes[16];
+    bool answered[16];
+    for (uint32_t i = 0; i < run; i++) {
+      bool ok = false;
+      bytes[i] = ap_board_read(board, base + i, &ok);
+      answered[i] = ok;
+    }
+    fprintf(out, "%08X ", base);
+    for (uint32_t i = 0; i < 16u; i++) {
+      if (i == 8u) { fputc(' ', out); }
+      if (i < run) {
+        if (answered[i]) {
+          fprintf(out, " %02X", bytes[i]);
+        } else {
+          fputs(" --", out);
+        }
+      } else {
+        fputs("   ", out);
+      }
+    }
+    fputs("  ", out);
+    for (uint32_t i = 0; i < run; i++) {
+      const uint8_t b = bytes[i];
+      fputc(answered[i] && b >= 0x20u && b < 0x7Fu ? (int)b : '.', out);
+    }
+    fputc('\n', out);
+  }
+}
+
+/* `ADDR` or `ADDR:LEN`, both hexadecimal, the length defaulting to 256 bytes.
+ * Returns false for a spec that is not one, so a mistyped flag is refused
+ * rather than dumping from address zero. */
+static bool parse_dump_spec(const char *spec, uint32_t *address,
+                            uint32_t *length) {
+  char *end = NULL;
+  const unsigned long start = strtoul(spec, &end, 16);
+  if (end == spec) {
+    return false;
+  }
+  *address = (uint32_t)start;
+  *length = 256u;
+  if (*end == ':') {
+    const char *rest = end + 1;
+    const unsigned long count = strtoul(rest, &end, 16);
+    if (end == rest || count == 0u) {
+      return false;
+    }
+    *length = (uint32_t)count;
+  } else if (*end != '\0') {
+    return false;
+  }
+  return true;
+}
+
 static int run_probe_file(FILE *out, ap_model_id_t model,
-                          const char *program_name,
-                          const char *path) {
+                          const char *program_name, const char *path,
+                          const char *dump_spec) {
   FILE *file = fopen(path, "r");
   if (file == NULL) {
     fprintf(stderr, "%s: cannot open probe file %s\n", program_name, path);
@@ -314,6 +389,21 @@ static int run_probe_file(FILE *out, ap_model_id_t model,
   fprintf(out, "d0        %08X\n", (unsigned)result.d0);
   fprintf(out, "pc        %08X\n", (unsigned)result.pc);
   fprintf(out, "berr      %u\n", result.bus_errors);
+
+  if (on_board && dump_spec != NULL) {
+    /* The same dump the boot path offers, on the board a probe built. Available
+     * here because `board 1` makes a whole machine **without firmware**, which
+     * is what lets the flag be exercised where `roms/` is absent -- and CI is
+     * exactly that place. */
+    uint32_t at = 0, length = 0;
+    if (!parse_dump_spec(dump_spec, &at, &length)) {
+      fprintf(stderr, "%s: --dump-mem wants ADDR or ADDR:LEN in hex, not %s\n",
+              program_name, dump_spec);
+    } else {
+      fprintf(out, "memory %08X, %u byte(s), through the board\n", at, length);
+      dump_memory(out, board, at, length);
+    }
+  }
 
   if (have_read && on_board) {
     uint32_t stored = 0;
@@ -575,7 +665,7 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
                           unsigned key, bool console,
                           ap_screen_kind_t screen, uint32_t node_id,
                           ap_model_id_t model, const char *screenshot,
-                          const char *disk_path) {
+                          const char *disk_path, const char *dump_spec) {
   long size = 0;
   uint8_t *prom = read_file(path, &size);
   if (prom == NULL) {
@@ -1168,6 +1258,17 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
     }
   }
 
+  if (dump_spec != NULL) {
+    uint32_t at = 0, length = 0;
+    if (!parse_dump_spec(dump_spec, &at, &length)) {
+      fprintf(stderr, "apollo: --dump-mem wants ADDR or ADDR:LEN in hex, not"
+                      " %s\n", dump_spec);
+    } else {
+      printf("memory %08X, %u byte(s), through the board\n", at, length);
+      dump_memory(stdout, board, at, length);
+    }
+  }
+
   /* Last, so the run's own report is complete first and a failed capture
    * cannot cost the measurements that were already taken. `CR1` is the one the
    * *firmware* programmed, now that the register file stores it -- so `INV` and
@@ -1583,6 +1684,7 @@ int main(int argc, char **argv) {
   const char *volume_path = NULL;
   const char *floppy_path = NULL;
   const char *disk_path = NULL;
+  const char *dump_spec = NULL;
   uint32_t node_id = 0x012345u;
   unsigned boot_limit = 100000u;
 
@@ -1594,6 +1696,11 @@ int main(int argc, char **argv) {
     }
     if (strcmp(argv[i], "--boot-input-interval") == 0 && i + 1 < argc) {
       boot_input_interval_us = (unsigned)strtoul(argv[i + 1], NULL, 0);
+      i += 2;
+      continue;
+    }
+    if (strcmp(argv[i], "--dump-mem") == 0 && i + 1 < argc) {
+      dump_spec = argv[i + 1];
       i += 2;
       continue;
     }
@@ -1768,7 +1875,7 @@ int main(int argc, char **argv) {
                           (uint8_t)boot_input_rate, boot_input_interval_us,
                           boot_key, boot_console,
                           boot_screen, node_id, opt.model->id, screenshot,
-                          disk_path);
+                          disk_path, dump_spec);
   }
 
   if (boot_tape != NULL) {
@@ -1777,7 +1884,7 @@ int main(int argc, char **argv) {
 
   if (probe_file_path != nullptr) {
     return run_probe_file(stdout, opt.model->id, program_name,
-                          probe_file_path);
+                          probe_file_path, dump_spec);
   }
 
   if (run_probe_suite) {

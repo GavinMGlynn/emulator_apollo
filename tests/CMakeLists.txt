@@ -188,6 +188,17 @@ if(Python3_Interpreter_FOUND AND NOT WIN32)
            COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/mame-oracle/test_encoder.py)
   set_tests_properties(probe_encoder PROPERTIES LABELS tools)
 
+  # The headless frontend's flags, each one. Phase 5 asks for exactly this and
+  # until it existed not one was checked -- and the flags are the project's own
+  # instruments, so one that breaks silently takes a measurement with it. Needs
+  # no ROMs: `--probe-file` with `board 1` builds a whole machine without
+  # firmware, and what genuinely needs a boot PROM is listed as skipped with
+  # that reason rather than omitted.
+  add_test(NAME frontend_flags
+           COMMAND ${Python3_EXECUTABLE}
+                   ${CMAKE_SOURCE_DIR}/tools/check_frontend_flags.py)
+  set_tests_properties(frontend_flags PROPERTIES LABELS tools)
+
   # What the living documents claim about the tree, against the tree: the
   # subsystem table's test counts, and every source path and `ap_*` symbol they
   # name. Twenty-three counts had drifted, `step_suite` reading 175 against 270,

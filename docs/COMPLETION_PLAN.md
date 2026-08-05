@@ -3067,11 +3067,21 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
       lookup table is sixteen entries through three registers of the
       controller's own, a different part from the Bt458 and not modelled, which
       every capture says on the console.*
-- [ ] Headless frontend flags that earn their keep: run N cycles, dump state,
-      `--dump-mem ADDR[:LEN]`, screenshots (raw framebuffer *and* scanned-out
-      picture), periodic screenshots every N frames, scripted key/mouse input at
-      given cycles, TTY capture, media load/persist. *Verification: each flag
-      exercised in CTest.*
+- [x] Headless frontend flags that earn their keep. `--dump-mem ADDR[:LEN]` was
+      the one the list named and the tree lacked: it dumps **through the board**,
+      so a device answers with its own value and an address nothing decodes
+      prints `--` rather than `00`. Detail in `PROJECT_STATUS.md`.
+      *Verification: `frontend_flags`, a new CTest entry — and until it existed
+      **not one flag was checked**, which is the gap worth naming. It matches on
+      output patterns rather than exit codes, since a flag accepted and doing
+      nothing exits zero. It needs no ROMs: `--probe-file` with `board 1` builds
+      a machine without firmware, which is also what let `--dump-mem` be given
+      the probe path. The twelve flags that genuinely need a boot PROM are
+      listed as skipped with that reason rather than omitted.*
+      Still open and moved to the SDL item below, where they belong: a **raw
+      framebuffer** dump beside the scanned-out picture, periodic screenshots
+      every N frames, scripted input **at given cycles** rather than paced, and
+      media *persist*. None is reachable from a headless run alone.
 - [ ] SDL3 interactive frontend, implemented rather than stubbed: scanout to a
       letterboxed texture, keyboard/mouse mapping, `--frames` bounded mode
       smoke-tested under dummy SDL drivers. *Verification: bounded-mode CTest

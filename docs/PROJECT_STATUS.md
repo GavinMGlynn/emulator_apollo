@@ -4597,6 +4597,46 @@ last and hardest — **a decoded PNG**. Register round-trips and word-level
 identities are what can be checked without one, and a controller that passes
 those and draws nothing is the standard way this goes wrong.
 
+#### The frontend's flags, each one exercised — and `--dump-mem`
+
+Phase 5 asks for "headless frontend flags that earn their keep ... *each flag
+exercised in CTest*", and until now **not one was**. That is a gap worth naming
+rather than quietly closing: the flags are this project's own instruments, and
+every campaign in `FINDINGS.md` since the console was reached was driven by one.
+An instrument nothing checks is one that breaks silently and takes a measurement
+with it.
+
+**`--dump-mem ADDR[:LEN]`** is the flag the list named and the tree did not have.
+It dumps **through the board**, not out of the RAM array, because that is what a
+program sees — an address the board decodes to a device answers with the
+device's value, and one it decodes to nothing is *reported*. A byte nothing
+answered prints as `--` rather than `00`, because "the board declined this
+address" and "the board answered zero" are different facts and a dump that spelt
+them alike would be lying in the place a dump is read most carefully.
+
+    FFF90000  -- -- -- -- -- -- -- --  -- -- -- -- -- -- -- --
+
+It cross-checked itself on the first run: the bytes it reports at `1000` are the
+ones MD read back over the serial console two sessions ago, `0150 2D5F 0154
+4E7A A801 B5FC`, which is the same memory reached two entirely different ways.
+
+**`check_frontend_flags.py` exercises what can be reached**, and that is more
+than it looks. `roms/` and `media/` are gitignored — Apollo firmware is not this
+project's to redistribute — so anything needing a boot PROM is unreachable in
+CI. But `--probe-file` takes `board 1` and builds a whole machine with **no
+firmware at all**, so every flag that needs only a machine works under it. That
+is what let `--dump-mem` be given the probe path as well as the boot one.
+
+Twelve flags do need a PROM and are listed as **skipped with that reason**
+rather than omitted. A list of what is not covered is worth as much as the
+coverage; an unlisted gap reads as coverage.
+
+The checks match on *output patterns* rather than exit codes, which is the
+distinction that makes them worth having: a flag accepted and doing nothing
+exits zero. Two of them caught my own mistakes immediately — a pattern matching
+the suite's header rather than a probe's own line would have passed on a run
+that produced no probes at all.
+
 #### All four controllers decoded to a PNG and inspected
 
 Phase 5's two display items ask for the same thing per controller — "framebuffer
