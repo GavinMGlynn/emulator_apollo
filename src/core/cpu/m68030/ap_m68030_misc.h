@@ -50,6 +50,14 @@ typedef enum {
   AP_M68030_MISC_NBCD,
   AP_M68030_MISC_MOVEM_TO_MEMORY,
   AP_M68030_MISC_MOVEM_TO_REGISTERS,
+  /* The 68020's 32-bit multiply and divide. Both are one shape here and four
+   * instructions after the extension word is read: signed or unsigned is bit
+   * 11 of that word, and 32- or 64-bit is bit 10, neither of which the
+   * instruction word carries. Decoding them as two kinds rather than four is
+   * therefore not a simplification -- it is where the information actually
+   * runs out. */
+  AP_M68030_MISC_MULTIPLY_LONG,
+  AP_M68030_MISC_DIVIDE_LONG,
   AP_M68030_MISC_INVALID,
 } ap_m68030_misc_kind_t;
 
@@ -62,7 +70,8 @@ typedef struct {
 
 [[nodiscard]] ap_m68030_misc_t ap_m68030_misc_decode(uint16_t instruction);
 
-/* MOVEM is followed by a 16-bit register list mask; nothing else here carries a
+/* MOVEM is followed by a 16-bit register list mask, and the long multiply and
+ * divide by their register-and-size extension word; nothing else here carries a
  * following word. */
 [[nodiscard]] unsigned ap_m68030_misc_length(const ap_m68030_misc_t *misc);
 

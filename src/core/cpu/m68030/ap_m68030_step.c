@@ -3418,6 +3418,194 @@ static bool execute_movem(ap_m68030_cpu_t *cpu, const ap_m68030_misc_t *misc,
   return true;
 }
 
+
+/* The 68020's 32-bit multiply and divide, `M68000PRM` MULS/MULU/DIVS/DIVU.
+ *
+ * One shape in the instruction word and four instructions after the extension:
+ * bit 11 chooses signed or unsigned and bit 10 chooses 32 or 64 bits, so the
+ * decoder cannot name them and this can. `Dq`/`Dl` is bits 14-12 and `Dr`/`Dh`
+ * is bits 2-0, both of which the instruction word has no room for -- which is
+ * why these were given their own encoding in the `$4C` subtree rather than
+ * another opmode of the `ADD`-shaped groups the word forms live in. */
+static bool execute_long_muldiv(ap_m68030_cpu_t *cpu,
+                                const ap_m68030_misc_t *misc,
+                                uint32_t *clocks) {
+  /* "Only data addressing modes can be used", so an address register -- or one
+   * of mode 7's three unassigned register fields -- is the machine's refusal
+   * rather than this core's gap. The category is asked rather than the one
+   * mode tested, because `$4C3D` is `7/5`, which names no addressing mode at
+   * all and would otherwise have reached the address gatherer and come back as
+   * an unimplemented instruction.
+   *
+   * Checked before the extension word is read: an instruction the processor
+   * refuses must leave the program counter where the exception frame says it
+   * is. */
+  if (!ap_m68030_ea_is_data(misc->ea.kind)) {
+    cpu->refused_vector = AP_M68030_VECTOR_ILLEGAL_INSTRUCTION;
+    return false;
+  }
+
+  uint16_t extension = 0;
+  if (!next_word(cpu, clocks, &extension)) {
+    return false;
+  }
+
+  const unsigned low_register = (unsigned)((extension >> 12) & 0x7u);
+  const bool is_signed = (extension & 0x0800u) != 0u;
+  const bool quad = (extension & 0x0400u) != 0u;
+  const unsigned high_register = (unsigned)(extension & 0x7u);
+
+  uint32_t source = 0;
+  if (misc->ea.kind == AP_M68030_EA_IMMEDIATE) {
+    /* Fetched, not addressed -- as every other immediate operand here is. */
+    if (!fetch_immediate(cpu, 4u, clocks, &source)) {
+      return false;
+    }
+  } else {
+    ap_m68030_address_input_t input = {0};
+    if (!gather_address_input(cpu, misc->ea.kind, 4u, clocks, &input)) {
+      return false;
+    }
+    const ap_m68030_address_t where =
+        resolve_address(cpu, clocks, misc->ea, &input);
+    const ap_m68030_operand_result_t read = step_operand_read(
+        cpu, &cpu->regs, cpu->data, &where, 4u, cpu->data_function_code);
+    *clocks += read.clocks;
+    if (!read.ok) {
+      return false;
+    }
+    source = read.value;
+  }
+
+  const uint16_t ccr = ap_m68030_read_ccr(&cpu->regs);
+
+  if (misc->kind == AP_M68030_MISC_MULTIPLY_LONG) {
+    uint64_t product;
+    if (is_signed) {
+      product = (uint64_t)((int64_t)(int32_t)cpu->regs.d[low_register] *
+                           (int64_t)(int32_t)source);
+    } else {
+      product = (uint64_t)cpu->regs.d[low_register] * (uint64_t)source;
+    }
+
+    bool overflow = false;
+    uint32_t result = (uint32_t)product;
+    bool negative;
+    bool zero;
+
+    if (quad) {
+      /* "64-bit product to be returned to Dh - Dl", and no overflow is
+       * possible: the destination is as wide as the product. */
+      cpu->regs.d[high_register] = (uint32_t)(product >> 32);
+      cpu->regs.d[low_register] = result;
+      negative = (product >> 63) != 0u;
+      zero = product == 0u;
+    } else {
+      /* "Overflow (V = 1) can occur only when multiplying 32-bit operands to
+       * yield a 32-bit result", and the two halves differ in what counts as
+       * one. `M68000PRM`'s MULS note repeats MULU's wording -- "not equal to
+       * zero" -- which is wrong for a signed product: `-1 * 1` has all the
+       * high bits set and does not overflow. `[020]`'s own page settles it,
+       * which is why the sibling manual is read before the oracle is asked:
+       * MULS overflows "if the high-order 32 bits of the quad word product are
+       * not the sign-extension of the low order 32 bits", MULU "if the
+       * high-order 32 bits ... are non-zero". */
+      overflow = is_signed
+                     ? ((int64_t)product < INT32_MIN ||
+                        (int64_t)product > INT32_MAX)
+                     : ((product >> 32) != 0u);
+      cpu->regs.d[low_register] = result;
+      negative = (result & 0x80000000u) != 0u;
+      zero = result == 0u;
+    }
+
+    /* "V -- Set if overflow; cleared otherwise. C -- Always cleared", and X is
+     * not affected -- so the flags cannot come from `ap_m68030_alu_test`,
+     * which has no way to be told about an overflow computed elsewhere. */
+    uint16_t updated = (uint16_t)(ccr & (uint16_t)(1u << AP_M68030_SR_X_BIT));
+    if (negative) {
+      updated |= (uint16_t)(1u << AP_M68030_SR_N_BIT);
+    }
+    if (zero) {
+      updated |= (uint16_t)(1u << AP_M68030_SR_Z_BIT);
+    }
+    if (overflow) {
+      updated |= (uint16_t)(1u << AP_M68030_SR_V_BIT);
+    }
+    ap_m68030_write_ccr(&cpu->regs, updated);
+    return true;
+  }
+
+  if (source == 0u) {
+    /* "Division by zero causes a trap." Taken by the step, as the word form's
+     * is, because only the step knows this instruction's length and Table
+     * 8-6's frame wants both this address and the next. */
+    cpu->pending_vector = AP_M68030_VECTOR_ZERO_DIVIDE;
+    return true;
+  }
+
+  const uint64_t dividend =
+      quad ? (((uint64_t)cpu->regs.d[high_register] << 32) |
+              cpu->regs.d[low_register])
+           : (uint64_t)cpu->regs.d[low_register];
+
+  bool overflow = false;
+  uint32_t quotient = 0;
+  uint32_t remainder = 0;
+
+  if (is_signed) {
+    const int64_t divisor = (int64_t)(int32_t)source;
+    const int64_t value =
+        quad ? (int64_t)dividend : (int64_t)(int32_t)cpu->regs.d[low_register];
+    if (divisor == -1 && value == INT64_MIN) {
+      /* The one pair C cannot be asked to divide -- the quotient overflows the
+       * type itself -- and it is an overflow for the instruction too, since
+       * `2^63` was never going to fit in a 32-bit register. Answering it here
+       * costs nothing and keeps the host out of undefined behaviour. */
+      overflow = true;
+    } else {
+      const int64_t q = value / divisor;
+      if (q < INT32_MIN || q > INT32_MAX) {
+        overflow = true;
+      } else {
+        quotient = (uint32_t)(int32_t)q;
+        remainder = (uint32_t)(int32_t)(value % divisor);
+      }
+    }
+  } else {
+    const uint64_t q = dividend / (uint64_t)source;
+    if (q > 0xFFFFFFFFu) {
+      overflow = true;
+    } else {
+      quotient = (uint32_t)q;
+      remainder = (uint32_t)(dividend % (uint64_t)source);
+    }
+  }
+
+  if (overflow) {
+    /* "If the instruction detects an overflow, it sets the overflow condition
+     * code, and the operands are unaffected" -- so V is the whole result and
+     * neither register is written. N and Z are undefined here, which this
+     * reads as unchanged rather than as licence to invent a value. */
+    ap_m68030_write_ccr(&cpu->regs,
+                        (uint16_t)(ccr | (uint16_t)(1u << AP_M68030_SR_V_BIT)));
+    return true;
+  }
+
+  /* The remainder first, and that ordering is the whole difference between the
+   * two 32/32 forms. `DIVSL.L <ea>,Dr:Dq` names a separate remainder register;
+   * plain `DIVS.L <ea>,Dq` is the same encoding with `Dr` equal to `Dq`, and
+   * "the remainder is discarded" is precisely the quotient landing on top of
+   * it. Writing them the other way round would leave the remainder in the
+   * quotient's register for every plain long divide in the machine. */
+  cpu->regs.d[high_register] = remainder;
+  cpu->regs.d[low_register] = quotient;
+
+  const ap_m68030_alu_result_t flags = ap_m68030_alu_test(quotient, 4u);
+  ap_m68030_write_ccr(&cpu->regs, ap_m68030_alu_apply(ccr, &flags));
+  return true;
+}
+
 static bool execute_misc(ap_m68030_cpu_t *cpu, const ap_m68030_misc_t *misc,
                          uint32_t *clocks) {
   switch (misc->kind) {
@@ -3465,6 +3653,10 @@ static bool execute_misc(ap_m68030_cpu_t *cpu, const ap_m68030_misc_t *misc,
   case AP_M68030_MISC_MOVEM_TO_MEMORY:
   case AP_M68030_MISC_MOVEM_TO_REGISTERS:
     return execute_movem(cpu, misc, clocks);
+
+  case AP_M68030_MISC_MULTIPLY_LONG:
+  case AP_M68030_MISC_DIVIDE_LONG:
+    return execute_long_muldiv(cpu, misc, clocks);
 
   case AP_M68030_MISC_LEA:
   case AP_M68030_MISC_PEA:
@@ -3688,6 +3880,12 @@ static bool execute_misc(ap_m68030_cpu_t *cpu, const ap_m68030_misc_t *misc,
   case AP_M68030_MISC_EXTB_LONG:
   case AP_M68030_MISC_MOVEM_TO_MEMORY:
   case AP_M68030_MISC_MOVEM_TO_REGISTERS:
+  /* Both answered by the switch above, which resolves its own operand: the
+   * source is a long word and its width is not known until the extension word
+   * has been read, so the shared address resolution here would have run at the
+   * wrong size. */
+  case AP_M68030_MISC_MULTIPLY_LONG:
+  case AP_M68030_MISC_DIVIDE_LONG:
   case AP_M68030_MISC_INVALID:
     return false;
   }

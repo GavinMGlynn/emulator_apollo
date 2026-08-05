@@ -69,6 +69,24 @@ ap_m68030_misc_t ap_m68030_misc_decode(uint16_t instruction) {
     return misc;
   }
 
+  /* $4C00-$4C3F and $4C40-$4C7F: the 68020's 32-bit multiply and divide.
+   *
+   * They sit here rather than with the word forms in family 1100/1000 because
+   * that is where Motorola put them -- the word multiply and divide are
+   * opmodes of the `ADD`-shaped groups, and the long forms needed an extension
+   * word for a second register, so they were given their own encoding in the
+   * $4C subtree. Tested before MOVEM's shape below only in the sense that this
+   * runs first; the two do not overlap, since MOVEM fixes bits 9-7 at 001 and
+   * both of these clear bit 9. */
+  if ((instruction & 0x0FC0u) == 0x0C00u ||
+      (instruction & 0x0FC0u) == 0x0C40u) {
+    misc.kind = ((instruction & 0x0040u) != 0u) ? AP_M68030_MISC_DIVIDE_LONG
+                                                : AP_M68030_MISC_MULTIPLY_LONG;
+    misc.size = 4u;
+    misc.ea = ap_m68030_ea_decode(mode, reg);
+    return misc;
+  }
+
   /* $4800-$483F is NBCD. */
   if ((instruction & 0x0FC0u) == 0x0800u) {
     misc.kind = AP_M68030_MISC_NBCD;
@@ -118,6 +136,9 @@ unsigned ap_m68030_misc_length(const ap_m68030_misc_t *misc) {
   case AP_M68030_MISC_MOVEM_TO_MEMORY:
   case AP_M68030_MISC_MOVEM_TO_REGISTERS:
     return 4; /* the 16-bit register list mask */
+  case AP_M68030_MISC_MULTIPLY_LONG:
+  case AP_M68030_MISC_DIVIDE_LONG:
+    return 4; /* the register-and-size extension word */
   case AP_M68030_MISC_LEA:
   case AP_M68030_MISC_CHK_WORD:
   case AP_M68030_MISC_CHK_LONG:

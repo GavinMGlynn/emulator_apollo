@@ -3140,13 +3140,25 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         translated page and `CIIN` asserted against it; and the report's new
         `vbr 3C400800 -> 01001C00 (main memory)` line, which says the table was
         mapped all along.*
-  - [ ] **Domain/OS stops on an opcode the decoder has not got.** With the
-        narrow read addressed properly it runs two million instructions further,
-        in its own image rather than the PROM alias -- `3C410C52`, `3C40DCAA`,
-        its own stack at `3C4F97xx` -- and ends `stopped ILLEGAL` at
-        `3C40A498 -> 0100D098 (main memory)`. `ap_machine_run_t` now carries the
-        word the core gave up on, since a logical PC and a cache between them
-        make it unrecoverable afterwards. Detail in `PROJECT_STATUS.md`.
+  - [x] **`4C43`: the 68020's 32-bit multiply and divide.** The word Domain/OS
+        stopped on is `DIVU.L`/`DIVS.L`. The §11.6 timing table has carried the
+        four rows all along and nothing executed them: the word forms are
+        opmodes of the `ADD`-shaped groups and the long forms have their own
+        `$4C` encoding, so implementing one never implied the other. The
+        remainder is written before the quotient, which is the whole difference
+        between `DIVU.L <ea>,Dq` and `DIVUL.L <ea>,Dr:Dq`; and `M68000PRM`'s
+        MULS overflow note repeats MULU's and is wrong, which `[020]`'s own page
+        settles. Detail in `PROJECT_STATUS.md`.
+        *Verification: `step_suite` +9 (279) -- both 32/32 forms, the 64-bit
+        dividend, overflow leaving both registers alone, divide by zero, the
+        signed multiply **not** overflowing on a sign extension, the unsigned
+        one overflowing on any high bit, the 64-bit product, and an address
+        register refused as the machine's illegal instruction rather than as our
+        gap.*
+  - [ ] **Domain/OS after the long divide.** It was running its own image
+        rather than the PROM alias -- `3C410C52`, `3C40DCAA`, its own stack at
+        `3C4F97xx` -- when it reached `4C43`. Where it gets to now is the next
+        question.
         *Verification: the console saying anything at all after the load line.*
   - [x] **`CPU (dma) Test #1` passes: the 16-bit controller counts words.**
         Logging the addresses the firmware writes in the DMA range ended the

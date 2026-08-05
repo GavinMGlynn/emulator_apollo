@@ -1979,6 +1979,190 @@ static void test_a_division_by_zero_takes_the_zero_divide_exception(void) {
                           read_ram_long(&m, m.cpu.regs.isp + 2u));
 }
 
+
+/* The 68020's 32-bit divide, `M68000PRM` DIVS/DIVSL/DIVU/DIVUL.
+ *
+ * `DIVU.L <ea>,Dq` and `DIVUL.L <ea>,Dr:Dq` are the *same encoding* -- both
+ * have SIZE clear -- differing only in whether the extension word's `Dr` field
+ * names the quotient's own register. "The remainder is discarded" is not a
+ * separate operation, it is the quotient landing on top of the remainder, so
+ * the order the two registers are written in is the whole of the difference
+ * and an implementation that wrote them the other way round would leave the
+ * remainder in the quotient's register for every plain long divide. */
+static void test_a_long_divide_discards_the_remainder_onto_its_own_register(
+    void) {
+  /* MOVE.L #100,D0 ; DIVU.L #7,D0 -- Dq = Dr = 0. */
+  static const uint16_t program[] = {0x203Cu, 0x0000u, 0x0064u, 0x4C7Cu,
+                                     0x0000u, 0x0000u, 0x0007u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 8);
+
+  (void)ap_m68030_step(&m.cpu);
+  const ap_m68030_step_result_t r = ap_m68030_step(&m.cpu);
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, r.status);
+  TEST_ASSERT_EQUAL_HEX32(14u, m.cpu.regs.d[0]);
+}
+
+/* The same instruction with a different `Dr`: now the remainder survives. */
+static void test_a_long_divide_naming_a_second_register_keeps_the_remainder(
+    void) {
+  /* MOVE.L #100,D0 ; DIVUL.L #7,D1:D0 */
+  static const uint16_t program[] = {0x203Cu, 0x0000u, 0x0064u, 0x4C7Cu,
+                                     0x0001u, 0x0000u, 0x0007u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 8);
+
+  (void)ap_m68030_step(&m.cpu);
+  const ap_m68030_step_result_t r = ap_m68030_step(&m.cpu);
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, r.status);
+  TEST_ASSERT_EQUAL_HEX32(14u, m.cpu.regs.d[0]);
+  TEST_ASSERT_EQUAL_HEX32(2u, m.cpu.regs.d[1]);
+}
+
+/* "1 -- 64-bit dividend is in Dr - Dq": the dividend is assembled from two
+ * registers, which is the form no 68000 had and the reason the encoding needed
+ * an extension word at all. */
+static void test_a_sixty_four_bit_dividend_comes_from_both_registers(void) {
+  /* DIVU.L #2,D1:D0 with D1:D0 = $0000000100000000 -> $80000000 remainder 0. */
+  static const uint16_t program[] = {0x4C7Cu, 0x0401u, 0x0000u, 0x0002u,
+                                     0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 5);
+  m.cpu.regs.d[0] = 0u;
+  m.cpu.regs.d[1] = 1u;
+
+  const ap_m68030_step_result_t r = ap_m68030_step(&m.cpu);
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, r.status);
+  TEST_ASSERT_EQUAL_HEX32(0x80000000u, m.cpu.regs.d[0]);
+  TEST_ASSERT_EQUAL_HEX32(0u, m.cpu.regs.d[1]);
+}
+
+/* "If the instruction detects an overflow, it sets the overflow condition code,
+ * and the operands are unaffected." */
+static void test_a_long_division_overflow_leaves_both_registers_alone(void) {
+  /* DIVU.L #1,D1:D0 with a 64-bit dividend of $0000000100000000: the quotient
+   * needs 33 bits. */
+  static const uint16_t program[] = {0x4C7Cu, 0x0401u, 0x0000u, 0x0001u,
+                                     0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 5);
+  m.cpu.regs.d[0] = 0u;
+  m.cpu.regs.d[1] = 1u;
+
+  const ap_m68030_step_result_t r = ap_m68030_step(&m.cpu);
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, r.status);
+  TEST_ASSERT_TRUE(ap_m68030_read_ccr(&m.cpu.regs) &
+                   (1u << AP_M68030_SR_V_BIT));
+  TEST_ASSERT_EQUAL_HEX32(0u, m.cpu.regs.d[0]);
+  TEST_ASSERT_EQUAL_HEX32(1u, m.cpu.regs.d[1]);
+}
+
+/* "Division by zero causes a trap", at the long width as at the word width. */
+static void test_a_long_division_by_zero_takes_the_zero_divide_exception(void) {
+  static const uint16_t program[] = {0x4C7Cu, 0x0000u, 0x0000u, 0x0000u,
+                                     0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 5);
+  plant_vector(&m, AP_M68030_VECTOR_ZERO_DIVIDE, HANDLER);
+  m.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
+  m.cpu.regs.isp = SUPERVISOR_STACK;
+  m.cpu.regs.d[0] = 100u;
+
+  const ap_m68030_step_result_t r = ap_m68030_step(&m.cpu);
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXCEPTION, r.status);
+  TEST_ASSERT_EQUAL_HEX32(HANDLER, m.cpu.regs.pc);
+  TEST_ASSERT_EQUAL_HEX32(100u, m.cpu.regs.d[0]);
+}
+
+/* The 32-bit signed multiply's overflow rule, and the reason the sibling manual
+ * is read before the oracle is asked.
+ *
+ * `M68000PRM`'s MULS note repeats MULU's wording -- overflow "if any of the
+ * high-order 32 bits of the quad-word product are not equal to zero" -- which
+ * is wrong for a signed product: `-1 * 1` has every high bit set and does not
+ * overflow. `[020]`'s own MULS page states it correctly: overflow occurs "if
+ * the high-order 32 bits of the quad word product are not the sign-extension of
+ * the low order 32 bits". A core built from the newer manual alone would set V
+ * on almost every negative multiply. */
+static void test_a_signed_long_multiply_does_not_overflow_on_a_sign_extension(
+    void) {
+  /* MULS.L #1,D0 with D0 = -1. */
+  static const uint16_t program[] = {0x4C3Cu, 0x0800u, 0x0000u, 0x0001u,
+                                     0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 5);
+  m.cpu.regs.d[0] = 0xFFFFFFFFu;
+
+  const ap_m68030_step_result_t r = ap_m68030_step(&m.cpu);
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, r.status);
+  TEST_ASSERT_EQUAL_HEX32(0xFFFFFFFFu, m.cpu.regs.d[0]);
+  TEST_ASSERT_FALSE(ap_m68030_read_ccr(&m.cpu.regs) &
+                    (1u << AP_M68030_SR_V_BIT));
+  /* And it is negative, from bit 31 of the 32-bit result. */
+  TEST_ASSERT_TRUE(ap_m68030_read_ccr(&m.cpu.regs) &
+                   (1u << AP_M68030_SR_N_BIT));
+}
+
+/* The unsigned rule, where "not equal to zero" is right. */
+static void test_an_unsigned_long_multiply_overflows_on_any_high_bit(void) {
+  /* MULU.L #$10000,D0 with D0 = $10000: the product needs 33 bits. */
+  static const uint16_t program[] = {0x4C3Cu, 0x0000u, 0x0001u, 0x0000u,
+                                     0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 5);
+  m.cpu.regs.d[0] = 0x00010000u;
+
+  const ap_m68030_step_result_t r = ap_m68030_step(&m.cpu);
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, r.status);
+  TEST_ASSERT_TRUE(ap_m68030_read_ccr(&m.cpu.regs) &
+                   (1u << AP_M68030_SR_V_BIT));
+  /* The low half is still written -- the overflow is reported, not refused. */
+  TEST_ASSERT_EQUAL_HEX32(0u, m.cpu.regs.d[0]);
+}
+
+/* "1 -- 64-bit product to be returned to Dh - Dl", where no overflow is
+ * possible because the destination is as wide as the product. */
+static void test_a_sixty_four_bit_product_fills_both_registers(void) {
+  /* MULU.L #$10000,D1:D0 with D0 = $10000. */
+  static const uint16_t program[] = {0x4C3Cu, 0x0401u, 0x0001u, 0x0000u,
+                                     0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 5);
+  m.cpu.regs.d[0] = 0x00010000u;
+
+  const ap_m68030_step_result_t r = ap_m68030_step(&m.cpu);
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, r.status);
+  TEST_ASSERT_EQUAL_HEX32(0u, m.cpu.regs.d[0]);
+  TEST_ASSERT_EQUAL_HEX32(1u, m.cpu.regs.d[1]);
+  TEST_ASSERT_FALSE(ap_m68030_read_ccr(&m.cpu.regs) &
+                    (1u << AP_M68030_SR_V_BIT));
+}
+
+/* "Only data addressing modes can be used", and the refusal must be the
+ * *machine's* -- an illegal instruction the program's handler can act on --
+ * rather than this core reporting a gap it does not have. */
+static void test_a_long_divide_from_an_address_register_is_illegal(void) {
+  static const uint16_t program[] = {0x4C49u, 0x0000u, 0x4E71u}; /* ea = A1 */
+  machine_t m = {0};
+  load(&m, program, 3);
+  plant_vector(&m, AP_M68030_VECTOR_ILLEGAL_INSTRUCTION, HANDLER);
+  m.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
+  m.cpu.regs.isp = SUPERVISOR_STACK;
+
+  const ap_m68030_step_result_t r = ap_m68030_step(&m.cpu);
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXCEPTION, r.status);
+  TEST_ASSERT_EQUAL_HEX32(HANDLER, m.cpu.regs.pc);
+}
+
 /* "TRAP #<vector> ... 32 + <vector> -> Vector Number": the four-bit field is an
  * index, not a vector number, so TRAP #0 goes to vector 32 and not to the reset
  * stack pointer. That mistake produces a working instruction jumping somewhere
@@ -7959,6 +8143,15 @@ int main(void) {
   RUN_TEST(test_a_divide_puts_the_remainder_in_the_upper_word);
   RUN_TEST(test_a_division_overflow_leaves_the_operands_unchanged);
   RUN_TEST(test_a_division_by_zero_takes_the_zero_divide_exception);
+  RUN_TEST(test_a_long_divide_discards_the_remainder_onto_its_own_register);
+  RUN_TEST(test_a_long_divide_naming_a_second_register_keeps_the_remainder);
+  RUN_TEST(test_a_sixty_four_bit_dividend_comes_from_both_registers);
+  RUN_TEST(test_a_long_division_overflow_leaves_both_registers_alone);
+  RUN_TEST(test_a_long_division_by_zero_takes_the_zero_divide_exception);
+  RUN_TEST(test_a_signed_long_multiply_does_not_overflow_on_a_sign_extension);
+  RUN_TEST(test_an_unsigned_long_multiply_overflows_on_any_high_bit);
+  RUN_TEST(test_a_sixty_four_bit_product_fills_both_registers);
+  RUN_TEST(test_a_long_divide_from_an_address_register_is_illegal);
   RUN_TEST(test_trap_uses_the_vector_its_number_indexes_not_the_number);
   RUN_TEST(test_the_last_trap_lands_at_the_end_of_the_trap_range);
   RUN_TEST(test_addx_adds_the_extend_bit);
