@@ -282,6 +282,11 @@ typedef struct ap_board {
    * one that does not run, from any count. */
   uint32_t dma_last_read;
   uint32_t dma_last_write;
+  /* The first distinct addresses a program wrote in the DMA range. Which
+   * controller a run programmed is not visible from the registers alone once
+   * two decodes are in play -- the addresses are the fact. */
+  uint32_t dma_register_writes[12];
+  unsigned dma_register_write_count;
   /* Which controller the cycle in progress is running on. The 8237 hands its
    * callbacks a channel and nothing else -- a `DACK` is all a peripheral sees --
    * so the board keeps the half of the address Table 2-4 needs to name a

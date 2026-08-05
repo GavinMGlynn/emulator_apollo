@@ -313,18 +313,26 @@ uint8_t ap_board_interrupt_acknowledge(ap_board_t *board) {
  * supplies the rest -- `019411-A00` §4.2.1.4, and the reason a DMA address is
  * not a physical one on this machine at all. */
 static uint32_t dma_physical(const ap_board_t *board, uint16_t dma_address) {
-  /* 8-bit, because that is what a channel programmed for byte transfers is and
-   * nothing here yet programs a 16-bit one. The map indexes differently for the
-   * two widths, which `ap_atmap.h` has and this passes through rather than
-   * deciding.
+  /* The second controller's channels are the AT's **16-bit** ones, and two
+   * things follow, both of which this got wrong.
    *
-   * Choosing the width from the controller -- DMA2's channels being the AT's
-   * 16-bit ones -- was tried and reverted: it is a reasonable reading of
-   * §4.2.1.4 and it changed nothing observable, because the diagnostic that
-   * raised the question programs **controller 1** at `010C00`. An unverified
-   * behaviour change is not worth keeping. */
-  return ap_atmap_translate(&board->translation_map, dma_address,
-                            AP_ATMAP_TRANSFER_8BIT);
+   * Its address register counts **words**. The bus carries A1-A16 for a 16-bit
+   * channel -- there is no A0 to drive -- so the byte address is the register
+   * shifted left by one. `019411-A00` §4.2.1.4's fields are stated against that
+   * bus address: index `<16:10>`, offset `<9:1>`. Read against the register
+   * instead, every 16-bit transfer lands half a page low, which is exactly the
+   * "one page short" the boot diagnostic showed.
+   *
+   * And the width selects how the map is indexed. This was hardcoded to 8-bit,
+   * then changed, then reverted on the false premise that the diagnostic
+   * programs controller 1 -- it does not: it writes `010D01` through `010D1B`,
+   * the odd byte addresses of controller **2**. */
+  const bool wide = board->dma_transfer_unit == AP_DMA_CASCADE_UNIT;
+  const uint32_t bus_address =
+      wide ? ((uint32_t)dma_address << 1) : (uint32_t)dma_address;
+  return ap_atmap_translate(&board->translation_map, bus_address,
+                            wide ? AP_ATMAP_TRANSFER_16BIT
+                                 : AP_ATMAP_TRANSFER_8BIT);
 }
 
 static uint8_t dma_memory_read(void *context, uint16_t address) {
@@ -778,7 +786,20 @@ void ap_board_write(ap_board_t *board, uint32_t address, uint8_t value,
   case AP_BOARD_REGION_CALENDAR:
     ap_calendar_write(&board->calendar, address, value);
     return;
-  case AP_BOARD_REGION_DMA:
+  case AP_BOARD_REGION_DMA: {
+    unsigned seen = 0;
+    for (; seen < board->dma_register_write_count; seen++) {
+      if (board->dma_register_writes[seen] == address) {
+        break;
+      }
+    }
+    if (seen == board->dma_register_write_count &&
+        board->dma_register_write_count <
+            sizeof board->dma_register_writes /
+                sizeof board->dma_register_writes[0]) {
+      board->dma_register_writes[board->dma_register_write_count++] = address;
+    }
+  }
     ap_dma_write(&board->dma, address, value);
     return;
   case AP_BOARD_REGION_INTERRUPT:

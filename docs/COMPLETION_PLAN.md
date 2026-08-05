@@ -3066,62 +3066,25 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         *Verification: `atmap_suite` +1 (17) including the diagnostic's own
         walk, and three tests rewritten from the old reading. The boot passes
         the DMA test and now takes real interrupts -- vectors `A0` and `AD`.*
-  - [ ] **`CPU (dma) Test #1`,** `Expected= 00011008, Actual= 03465555,
-        Address= 01100803`. The test programs a block move from `1100000` to
-        `1100800` and compares the halves. The **part** now performs
-        memory-to-memory; the **board** does not yet ask it to, and the console
-        is unchanged. Measured: the run reports **zero** DMA cycles over half a
-        billion instructions, so the diagnostic's terminal-count poll was
-        satisfied by a *stale* status bit rather than a transfer. The setup is
-        ordinary -- controller 1 at `010C00`, all four channels masked, then the
-        software request for channel 0, which the datasheet makes non-maskable
-        and this core honours. **Now measured to the byte**: the transfer runs
-        once, correctly, and lands on top of itself. Both DMA addresses fold
-        onto map entries 0 and 2 -- both holding the page the test wrote
-        everywhere -- while the entries it *intends* are the ascending ones at
-        map offset `0400`, **entry 512**, which no documented index reaches.
-        Same reach-versus-size question the map's header answered once already.
-        Indexing the 64 entries from the **AT bus memory window** (`080000 >>
-        10` = 512, exactly where the diagnostic writes its ascending pages) is
-        back, `PROVISIONAL`, and this time **measured**: a new instrument reports
-        the physical addresses a DMA cycle uses, and the destination moves from
-        `01100000` -- the same address as the source, a copy onto itself -- to
-        `01100400`. The earlier revert judged it by a console string that fails
-        either way. It is still one page short, and **not for an arithmetic
-        reason**: reporting the channel registers shows controller **1**
-        entirely at its reset state and every programmed register on controller
-        **2**, while the code that writes them uses `010C00` at stride 1 --
-        controller 1's address and stride. Channel 1's base address reads `0400`
-        where the bytes written assemble to `0800`, so the transfer never used
-        the address the program wrote and no index rule could have saved it. The
-        next step is `ap_dma_decode` and the board placement, answerable by
-        reading code rather than by another boot. The three reported values are live, not stale --
-        `01002F66` and `01002F6A` load them immediately before the call -- and
-        what they say is that **the destination is never written**: `d0` is the
-        PROM's own fill pattern at `01100803`. What would settle the index is
-        the base *Hardware Architecture Handbook*, which is **not on
-        bitsavers** -- only its addendum is -- so it is an acquisition problem
-        rather than a reading one.
-        *Verification: the console going past it.*
-    - [x] **The bus had never ticked, because a counter was a local.**
-          `ap_machine_run` charges the board the previous instruction's clocks,
-          and kept that figure in a local reset on entry. The frontend's stepped
-          path -- every boot with input, a console or a trace -- calls it with a
-          limit of **one**, so the bus-tick loop ran zero times on every call and
-          `ap_board_bus_tick` had never executed in any boot. Now per-machine
-          state. Detail in `PROJECT_STATUS.md`.
-          *Verification: the suite stays green, and the new `dma bus` line goes
-          from `0 bus tick(s)` to non-zero. **Not** verified against the boot:
-          with the bus ticking the run exceeds the measurement timeout used
-          here, so the console has not been shown past the DMA test.*
-    - [x] **A terminal count clears the software request.** `[8237]`: a request
-          bit "is cleared upon generation of a TC or external EOP", and
-          `ap_i8237_terminal_count` never did -- so a software-requested move
-          ran 733,713 times for a one-byte transfer, the non-maskable request
-          bit being immune to the mask the same function sets. Detail in
-          `PROJECT_STATUS.md`.
-          *Verification: the suite stays green and the boot's block move runs
-          **once**, which is what a zero count asks for.*
+  - [ ] **`CPU (calendar) Test #0`,** at `00010900` -- Table 2-8's calendar,
+        the MC146818 -- with `Expected= 001E8449, Actual= 0000AA49`. All three
+        DMA tests now pass ahead of it.
+        *Verification: the console going past the calendar test.*
+  - [x] **`CPU (dma) Test #1` passes: the 16-bit controller counts words.**
+        Logging the addresses the firmware writes in the DMA range ended the
+        guessing -- `010D01` through `010D1B`, every one an odd byte address in
+        **controller 2's** range at its stride-2 spacing. The `lea $10C00`
+        block I had been reading belongs to another path, and that false premise
+        is what made me revert a correct change two turns earlier. A 16-bit
+        channel's address register counts **words**: the bus carries A1-A16, so
+        the byte address is the register shifted left by one, and §4.2.1.4's
+        `<16:10>`/`<9:1>` are stated against that bus address. Read against the
+        register, every 16-bit transfer lands half a page low. Detail in
+        `PROJECT_STATUS.md`.
+        *Verification: `last read 01100000 wrote 01100800`, and the console
+        goes on through `CPU (dma) Test #2` to `CPU (calendar) Test #0`. This
+        also corroborates the window base, since the three fit together or not
+        at all.*
     - [x] **Memory-to-memory DMA, which the part had declined outright.**
           `ap_i8237_transfer` began by refusing it, on the header's grounds that
           a transfer needs a bus to arbitrate for -- which it now has. `[8237]`

@@ -1463,6 +1463,13 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
              c->channel[ch].base_count);
     }
   }
+  if (board->dma_register_write_count > 0u) {
+    printf("  dma writes   ");
+    for (unsigned i = 0; i < board->dma_register_write_count; i++) {
+      printf(" %06X", board->dma_register_writes[i]);
+    }
+    printf("\n");
+  }
   printf("  dma bus      %u bus tick(s), %u asking, %u holding\n",
          board->bus_ticks, board->dma_bus_requests, board->dma_bus_held);
   if (board->dma_transfers > 0u || board->dma_unwired_transfers > 0u) {

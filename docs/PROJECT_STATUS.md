@@ -4597,6 +4597,55 @@ last and hardest — **a decoded PNG**. Register round-trips and word-level
 identities are what can be checked without one, and a controller that passes
 those and draws nothing is the standard way this goes wrong.
 
+#### The 16-bit controller counts words, and `CPU (dma) Test #1` passes
+
+Logging the addresses the firmware writes in the DMA range ended the guessing:
+
+    dma writes  010D1B 010D01 010D03 010D05 010D07 010D09 010D0B 010D0D
+                010D0F 010D11 010D17 010D19
+
+Every one is an **odd byte address in controller 2's range**, at the stride-2
+spacing this board's second controller uses — `010D01` is register 0, `010D11`
+is the command, `010D17` the mode. The diagnostic programs **controller 2**. The
+`lea $10C00,a3` block I had been reading belongs to some other path, and I took
+it for this one without checking.
+
+That premise is what made me revert a correct change. Two turns ago the transfer
+width was selected from the controller — DMA2's channels being the AT's 16-bit
+ones — and reverted with the note "it changed nothing observable, because the
+diagnostic programs **controller 1**". The premise was wrong, so the reasoning
+built on it was too.
+
+And the same fact supplies the page that was missing. **A 16-bit channel's
+address register counts words.** The bus carries A1-A16 for those channels —
+there is no A0 to drive — so the byte address is the register shifted left by
+one. `019411-A00` §4.2.1.4's fields are stated against that bus address: index
+`<16:10>`, offset `<9:1>`. Read against the register instead, every 16-bit
+transfer lands half a page low, which is exactly the one-page shortfall the
+measurement showed: channel 1 held `0400` for a destination the program meant as
+`0800`.
+
+Both together:
+
+    dma  2 transfer(s), last read 01100000 wrote 01100800
+
+and the console goes
+
+    CPU  (dma)         Test #1 started.
+    CPU  (dma)         Test #2 started.
+    CPU  (calendar)    Test #0 started.
+
+This also lifts the `PROVISIONAL` from the window base by corroboration rather
+than by argument: with the word shift and the 16-bit index, the base is what
+puts the destination on `01100800` exactly, and the three fit together or not at
+all.
+
+**The method note is the durable part.** Three wrong turns here — reverting the
+width, reverting the base, and chasing an arithmetic explanation for the missing
+page — all came from reasoning about which registers a program *must* have used
+instead of recording which addresses it *did* use. The instrument that settled
+it is four lines long.
+
 #### Controller 1 is untouched and controller 2 holds the programming
 
 The remaining page turned out not to be an arithmetic question. Reporting the
