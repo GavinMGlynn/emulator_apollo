@@ -3009,15 +3009,27 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         *Verification: `awd_suite`'s configuration test extended to the whole
         ten bytes. The boot is **unchanged** — same commands, same resting PC —
         which is the finding: the word was not what stopped it.*
-  - [ ] **Past the self-tests: the drive test's phase poll.** Every self-test
-        the firmware runs now passes and it prints `Drive 0`, then settles in a
-        poll at `00002EDC`-`00002EEA`: read the status register, mask the low
-        nibble -- `REQ|IO|CD|BUSY`, the phase -- compare against an expected
-        value, and count down a `000FFFFF` timeout. So a command has been issued
-        and the controller never reaches the phase it is waited on for. The
-        resting PC is identical at 400M and 800M instructions, so it is a retry
-        loop rather than a slow transfer.
-        *Verification: the console going past `Drive 0`.*
+  - [ ] **CPU test 8, and the network ID PROM's checksum.** Every self-test
+        before it now passes, including both Winchester drives. Test 8 stops at
+        `00008244` with `Expected= 00000000, Actual= 000000D2, Address=
+        0001121E` -- inside `011200`-`0112FF`, which Table 2-8 gives to the
+        **network ID PROM**. An expected zero against a non-zero residue reads
+        as a checksum over the PROM's bytes that does not come out, so what this
+        needs is the PROM's own content rather than its decode.
+        *Verification: the console going past `CPU Test # 8`.*
+  - [x] **The sector number is not bounded by the track, and both drives
+        pass.** The drive test's poll never ended because its READs were being
+        refused: `sense 21`, illegal disk address, for cylinder 0 head 0 sectors
+        18 through 24 on an eighteen-sector track. `[OMTI]` §5.1.1 gives the
+        address as a *format* and says nothing about validity, so the arithmetic
+        defines it and a sector past its track carries into the next; the oracle
+        checks cylinder and head and never the sector. The firmware is the
+        stronger evidence -- a controller refusing sector 18 could not run this
+        machine's PROM. Detail in `PROJECT_STATUS.md`.
+        *Verification: `awd_suite`'s address test, extended to the carry and to
+        the bound that replaces it -- the drive's last sector. The boot prints
+        `Drive 0  passed.` and `Drive 1  passed.` after 131,074 reads with no
+        sense at all, and goes on to CPU test 8.*
   - [x] **`0E READ DATA FROM SECTOR BUFFER`, and the data port is sixteen
         bits.** The lead this item waited for was the controller's own
         diagnostic: with parity and the 3-byte transfer size in, the firmware

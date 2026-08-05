@@ -83,9 +83,28 @@ typedef struct {
  *
  * `(cylinder * heads + head) * sectors + sector`, which is the ordinary CHS
  * mapping and what the oracle computes in `get_disk_track` and
- * `get_disk_address`. Out of range answers false rather than wrapping: a
- * head beyond the drive's is a driver's mistake and returning some other
- * track's data would hide it. */
+ * `get_disk_address`.
+ *
+ * ## The sector number is *not* bounded by the track
+ *
+ * Cylinder and head are: a head beyond the drive's is a driver's mistake and
+ * returning some other track's data would hide it. The **sector** is different,
+ * and the boot PROM is what says so -- its drive test reads cylinder 0, head 0,
+ * sectors `0` through `24` in sequence, on a drive with **eighteen** sectors to
+ * the track. A controller that refused sector 18 could not run this machine's
+ * firmware, and this one did: it failed seven of those twenty-five reads with
+ * `21 ILLEGAL DISK ADDRESS` and left the PROM polling a phase that never came.
+ *
+ * `[OMTI]` §5.1.1 gives the address as a *format* -- six bits of sector number
+ * in byte 2, eleven of cylinder across bytes 1-3 -- and says nothing about
+ * validity, so the arithmetic is what defines the address and a sector number
+ * past the track simply carries into the next one. The oracle agrees and checks
+ * exactly this pair of fields, cylinder and head, and never the sector against
+ * the track.
+ *
+ * What still bounds it is the drive: an address past the last sector the
+ * geometry has is refused, which is the check the arithmetic can actually
+ * support. */
 [[nodiscard]] bool ap_awd_lba(ap_awd_geometry_t geometry, uint16_t cylinder,
                               uint8_t head, uint8_t sector, uint32_t *lba);
 

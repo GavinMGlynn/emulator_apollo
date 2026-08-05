@@ -43,12 +43,15 @@ bool ap_awd_open(ap_awd_t *image, uint8_t *data, size_t bytes,
 
 bool ap_awd_lba(ap_awd_geometry_t geometry, uint16_t cylinder, uint8_t head,
                 uint8_t sector, uint32_t *lba) {
-  if (cylinder >= geometry.cylinders || head >= geometry.heads ||
-      sector >= geometry.sectors) {
+  if (cylinder >= geometry.cylinders || head >= geometry.heads) {
     return false;
   }
-  *lba = ((uint32_t)cylinder * geometry.heads + head) * geometry.sectors +
-         sector;
+  const uint32_t address =
+      ((uint32_t)cylinder * geometry.heads + head) * geometry.sectors + sector;
+  if (address >= ap_awd_sector_count(geometry)) {
+    return false;
+  }
+  *lba = address;
   return true;
 }
 

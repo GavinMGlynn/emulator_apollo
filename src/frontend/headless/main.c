@@ -1239,6 +1239,16 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
       }
     }
     printf("\n");
+    /* And how the last one ended. A command histogram says what was asked and
+     * a `03 REQUEST SENSE` beside a `08 READ` says the read failed, but neither
+     * says *why the controller refused* -- which is the one thing the sense
+     * bytes exist to answer and the one thing a run could not report. */
+    const ap_omti_t *omti = &board->disk.controller;
+    printf("  disk last     %02X, %s, sense %02X %02X %02X %02X, next lba %u\n",
+           omti->last_command,
+           omti->completion == 0u ? "completed" : "error",
+           omti->sense[0], omti->sense[1], omti->sense[2], omti->sense[3],
+           omti->next_lba);
   }
   for (unsigned r = 0; r < AP_OMTI_DISK_REGISTERS; r++) {
     if (board->disk.disk_reads[r] == 0u &&

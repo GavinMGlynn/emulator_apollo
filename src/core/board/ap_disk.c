@@ -102,3 +102,4 @@ void ap_disk_note_command(ap_disk_t *disk, uint8_t opcode) {
   disk->commands[opcode]++;
   disk->command_total++;
 }
+

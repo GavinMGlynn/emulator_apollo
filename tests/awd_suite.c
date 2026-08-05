@@ -81,7 +81,23 @@ static void test_an_address_off_the_drive_is_refused(void) {
   uint32_t lba = 0;
   TEST_ASSERT_FALSE(ap_awd_lba(SMALL, 2u, 0u, 0u, &lba));
   TEST_ASSERT_FALSE(ap_awd_lba(SMALL, 0u, 2u, 0u, &lba));
-  TEST_ASSERT_FALSE(ap_awd_lba(SMALL, 0u, 0u, 4u, &lba));
+  /* The sector is **not** bounded by the track: past it the address carries
+   * into the next head, which is what the boot PROM's drive test requires --
+   * it reads sectors 0 to 24 of a track that has eighteen. See `ap_awd.h`. */
+  TEST_ASSERT_TRUE(ap_awd_lba(SMALL, 0u, 0u, 4u, &lba));
+  TEST_ASSERT_EQUAL_UINT32(4u, lba);
+  TEST_ASSERT_TRUE(ap_awd_lba(SMALL, 0u, 0u, 5u, &lba));
+  TEST_ASSERT_EQUAL_UINT32(5u, lba);
+  /* And the same sector reached the ordinary way is the same number, which is
+   * what makes the carry a *mapping* rather than an accident. */
+  {
+    uint32_t direct = 0;
+    TEST_ASSERT_TRUE(ap_awd_lba(SMALL, 0u, 1u, 0u, &direct));
+    TEST_ASSERT_EQUAL_UINT32(direct, 4u);
+  }
+  /* Past the last sector the drive has is still refused: the geometry is what
+   * bounds the address once the fields no longer do. */
+  TEST_ASSERT_FALSE(ap_awd_lba(SMALL, 0u, 0u, 63u, &lba));
 }
 
 /* An image shorter than its geometry is normal -- `media/`'s files are 348 MiB
