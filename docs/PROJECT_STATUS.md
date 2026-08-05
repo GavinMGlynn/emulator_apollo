@@ -4597,6 +4597,648 @@ last and hardest — **a decoded PNG**. Register round-trips and word-level
 identities are what can be checked without one, and a controller that passes
 those and draws nothing is the standard way this goes wrong.
 
+#### Nineteen commits of this document were silently dropped, and every check passed
+
+Every section from *Fix the Windows build* onward was written at the time of its
+commit and **never reached this file**. The insert was
+`s.replace(marker, section + marker, 1)`, where `marker` was the heading of the
+previously added section — and a `str.replace` whose pattern is absent is a
+**no-op that raises nothing**. The first marker to go missing took every later
+insert with it, because each one anchored on the last.
+
+Nothing caught it. `check_docs.py` verifies the claims a document *makes*, so a
+document that makes no claim is silently fine; the suite-count edits in the table
+above kept working because those patterns did exist, which is why the counts
+stayed honest while the prose vanished.
+
+The sections below are recovered from the commit messages, which is why they read
+as commit bodies. Nothing is lost — the messages were written as the narrative —
+but they were meant to be here.
+
+Two lessons, both cheap. **An insertion needs the same `assert` a replacement
+gets**: replacements never failed silently all session precisely because they
+were guarded, and these were not. And a document that tooling *appends to* should
+be checked for the appended thing, not only for the claims inside it.
+
+#### Correct the record: the DMA test's reported values are live, not stale
+
+The previous commit claimed the three values CPU (dma) Test #1 reports were stale
+registers at the reporting call site, on the grounds that they are identical
+across every variant tried. That is wrong, and the trace already in hand
+disproves it: 01002F66 is MOVE.L -(A1),D1 and 01002F6A is MOVE.L (A0),D0, both
+immediately before the call. They are live.
+
+What they actually say is simpler and firmer. d0 = 00011008 is the boot PROM's
+own memory-test fill pattern read at 01100803 -- each long word holding its own
+address -- so the destination buffer was never written. They are identical across
+variants because in every one the copy failed to land there, not because they
+are meaningless. Chasing them was not the mistake; concluding they were noise
+was.
+
+Also records that the acquisition route is closed for now. The base Domain
+Personal Workstations and Servers Hardware Architecture Handbook is not on
+bitsavers -- the Apollo index carries 019411-A00, the addendum that patches its
+Chapter 4, and not the handbook itself; the Series 3000/4000 Hardware
+Architecture Handbook, order 007861, named in 002685-07's publications list, is
+absent too. The document that lays out the translation map's index is one this
+project does not have and cannot currently get.
+
+#### The map index has a base as well as a span: tried, and not confirmed
+
+019411-A00 4.2.1.4, read from the page image, gives the index precisely: for
+8-bit transfers, DMA address bits <15:10> select "one of the 64 entries", offset
+<9:0>. It does not say where in the map those 64 sit, and the front is not
+obviously right.
+
+There was a promising reading. A DMA address is an offset within the AT bus
+memory window, which this board places at 080000, and 080000 >> 10 is 512 --
+exactly the entry where the diagnostic writes its ascending page numbers while
+leaving the rest of the map at one value. Under that reading the destination
+address 0800 selects entry 514, holding page 4402, which is physical 01100800:
+precisely what the test compares against. It also reconciles the manual rather
+than contradicting it, since an 8-bit transfer still reaches 64 entries.
+
+It was implemented and it did not work. The boot fails identically, byte for
+byte. So the reading is a coincidence and a story, not evidence, and it has been
+reverted -- the same standard applied to the transfer-width change one commit
+earlier.
+
+Two things worth keeping. The failure values are identical across every variant
+tried, including ones that change the transfer's behaviour, which is itself
+evidence that they are stale registers at the reporting call site rather than a
+live comparison -- exactly as the PROM's service wrapper allows, since it loads
+a0 and d0 from a block and leaves d1 alone. Chasing those three numbers has been
+misleading throughout. And the map's index is the third place where this manual's
+entry counts have described something narrower than the hardware.
+
+What would settle it is the base Domain Personal Workstations and Servers
+Hardware Architecture Handbook; 019411-A00 is an addendum that patches its
+Chapter 4, and only the addendum is in docs/references/.
+
+#### A terminal count clears the software request
+
+With the bus ticking, the diagnostic's block move ran -- and ran 733,713 times
+for a transfer that asks for one byte. [8237], Request Register: "Each register
+bit is set or reset separately under software control or is cleared upon
+generation of a TC or external EOP."
+
+ap_i8237_terminal_count set the status bit and the mask and never cleared the
+request. A software request is non-maskable -- the same paragraph -- so the mask
+could not stop it either, and the transfer had nothing to end it. The bit is now
+cleared on TC, and for the memory-to-memory service it is channel 0's that goes
+down, because that is the request the service belongs to.
+
+Where CPU (dma) Test #1 actually stands, measured rather than assumed. The
+diagnostic programs controller 1 at 010C00, stride 1: command 03, channel 0 mode
+88 and channel 1 mode 85, source DMA address 0000, destination 0800, and both
+counts zero -- one byte, which is what the model now transfers. Correct.
+
+What is not correct is where the byte goes. Both DMA addresses translate through
+the map, and with the documented index -- <15:10> over 64 entries for 8-bit
+transfers -- 0000 and 0800 select entries 0 and 2, both holding the page 4400 the
+test wrote everywhere. The copy lands on top of itself, and a dump confirms it:
+01100000 is all 55, 01100800 still holds the boot PROM's own fill. The entries the
+test intends are the ascending ones at 017400, map offset 0400, entry 512, which
+no documented index reaches. That is the same reach-versus-size question the
+map's header answered once already.
+
+Choosing the transfer width from the controller was tried and reverted: a
+reasonable reading of 4.2.1.4, but it changed nothing observable here -- the
+diagnostic uses controller 1 -- and an unverified behaviour change is not worth
+keeping.
+
+#### The bus had never ticked, because a counter was a local
+
+ap_machine_run charges the board the clocks the previous instruction spent, so
+the bus advances at the processor's rate. That figure lived in a local,
+initialised to zero on entry:
+
+    uint64_t last_instruction_clocks = 0;
+
+The frontend's stepped path -- taken by every boot with --boot-input,
+--boot-console or a trace -- calls ap_machine_run(&machine, 1u) in a loop. One
+instruction per call, and the local reset each time, so the bus-tick loop ran
+zero times on every call. ap_board_bus_tick had never executed in any boot this
+project has run, which is why no DMA transfer ever happened, the arbiter never
+granted, and the diagnostic's terminal-count poll was satisfied by a stale status
+bit. It is now per-machine state and survives the call.
+
+The instruments are what found it, and each narrowed the question by one step:
+transfers, then the controllers' command/mask/request/mode, then ticks asking
+against ticks holding, then the bus tick count itself. The last was decisive --
+0 bus tick(s) distinguishes "nothing asked" from "nothing ran", which nothing
+else in the report could.
+
+Not yet verified against the boot. With the bus actually ticking the run does on
+the order of a billion bus ticks and exceeds the measurement timeout used here,
+so the console has not been shown going past CPU (dma) Test #1. The fix is landed
+on its unit tests and that gap is stated rather than papered over.
+
+A process note worth keeping: this took five separate full-length boots to
+narrow, one question each, when a single pass adding every counter would have
+done -- and --boot-stop-pc, already built earlier in the same session, would have
+ended each run at the test instead of at 500 million instructions. The defect was
+small; the method was the expensive part.
+
+#### A run says whether the second bus master moved anything, and it moved nothing
+
+The part does memory-to-memory now and the console did not change, so the next
+question is whether the board ever asks it to. The board already counted
+dma_transfers and dma_unwired_transfers and nothing printed them.
+
+    dma          N transfer(s), M to an unwired channel
+
+It prints only when there is something to say, and for this boot it says nothing
+at all -- the line is absent, so both counters are zero. The board runs no DMA
+cycles whatsoever, over half a billion instructions, on a machine whose bus tick
+runs once per CPU clock.
+
+That also settles how the diagnostic got past its wait. CPU (dma) Test #1 polls
+the status register for channel 1's terminal count and branches to a timeout
+after FFFFF tries; it reached the comparison instead. With zero transfers there
+is no terminal count to find, so the poll must have been satisfied by a stale TC
+bit left by the previous test -- the first read passes and the status read clears
+it. The test then compares two buffers neither of which was ever copied.
+
+The setup is readable and ordinary: fill the whole translation map with page
+4400, give 017400-0174FF ascending pages, then lea $10C00,a3 -- DMA controller 1
+-- move.b #$F,$F(a3) to mask all four channels, and move.b #$4,$9(a3), the
+software request for channel 0. A software request is non-maskable by the
+datasheet's own rule and this core's service_pending implements that, so the
+request should reach the arbiter.
+
+It does not, and why is the open question. What this instrument closes is the
+ambiguity: a run that programmes a transfer and reports zero here has an
+arbitration problem rather than a controller one, and nothing else in the report
+distinguished those.
+
+#### Memory-to-memory DMA, which the part had declined outright
+
+CPU (dma) Test #1 programs a block move from 1100000 to 1100800, waits for
+channel 1's terminal count and compares the halves. ap_i8237_transfer began:
+
+    /* "Memory-to-memory is declined" -- refused rather than half-run */
+
+The module's header explained why: a transfer needs a bus to arbitrate for, and
+that was Phase 3's first item. It has one now -- the board runs the transfer from
+its bus tick. What it lacked was a reason, and the diagnostic supplied one.
+
+[8237] specifies it completely, so none of this is invention: the command bit
+"selects channels 0 and 1 to operate as memory-to-memory transfer channels", the
+transfer is "initiated by setting the software DREQ for channel 0", channel 0's
+Current Address is the source, "the data byte read from the memory is stored in
+the 8237A internal Temporary register", channel 1 writes it from there, and "the
+channel 1 current Word Count is decremented ... When the word count of channel 1
+goes to FFFFH, a TC is generated causing an EOP output terminating the service."
+
+So the count that ends the service is channel 1's alone and channel 0's is
+untouched. That reads oddly enough to want a second witness, and the datasheet
+gives one: the Autoinitialize paragraph advises that "both word counts should be
+programmed identically", which is only necessary if the hardware does not
+decrement channel 0's for you.
+
+CH0_ADDRESS_HOLD is why the source advance is conditional and the destination's
+is not -- "Channel 0 may be programmed to retain the same address for all
+transfers. This allows a single word to be written to a block of memory."
+
+The boot is unchanged. The part will now do the transfer and the board is not
+asking it to: CPU (dma) Test #1 still fails at the same address with the same
+values. This is the module's half of the item, landed with its tests, and what
+remains is the board's -- which is the honest place to stop rather than claiming
+a fix the console does not show.
+
+#### The address translation map is the whole region, and 128 was the reach not the size
+
+CPU (dma) Test #0 failed with Expected= 000176FE, Actual= 000077FE -- and the two
+differ by 0x100, which is the tell.
+
+ap_atmap held 128 entries and aliased the 2 KB region onto them every 256 bytes.
+That came from 019411-A00 4.2.1.4, "they select one of the 128 entries contained
+within it", which counts what a transfer can index -- bits <16:10> -- and not how
+many entries the map has. This file had even recorded the discrepancy as a
+PROVISIONAL note and a test asserting the gap "so that it is visible rather than
+silently closed". The gap was real; the conclusion drawn from it was wrong.
+
+SELF_TEST's DMA test settles it at 01002BF6: MOVE.W A0,(A0)+ across 017000-0177FE,
+then a walk back down requiring every word to still hold its own address. That
+passes only if all 1024 are distinct. Aliased at 128, the walk finds 0177FE's
+value at 0176FE -- the last write to that entry -- which is exactly the pair the
+boot printed.
+
+ap_atmap_reachable_entries keeps the manual's 64 and 128, because a transfer
+really does index only that many. Storage and reach are different questions and
+conflating them is what this was.
+
+Three tests encoded the old reading and now state the new one, including the
+diagnostic's own walk. The atmap undescribed counters are kept although they can
+no longer move: they answer "did anything touch a part of this region that is not
+storage", and the answer being permanently no is a fact about this map rather
+than a reason to stop asking.
+
+CPU (dma) Test #0 passes, and the run now takes real interrupts -- vectors A0 and
+AD, the master's IR0 and the slave's IR5, which is IRQ13 arriving through the
+cascade wired two commits ago.
+
+#### Bit 4 of the cache register is the master's request line
+
+Past the cascade check, CPU (interrupts) Test #0 read 010200 -- the cache
+register -- and required bit 4 set. ap_boardreg had that range as a byte with one
+writable bit and a fixed pattern of 6F, measured.
+
+The measurement was right and incomplete for a reason worth naming: a register
+probe drives bits and reads them back on a quiet machine, so every sample it ever
+took had no interrupt standing. Bit 4 is neither storage nor fixed -- it follows
+the master 8259's INT output, set while the controller is asking and cleared when
+the processor acknowledges. 6F has bit 4 clear, so the two descriptions agree
+everywhere the probe could look.
+
+Three sources. The oracle sets it from the master's interrupt line on everything
+that is not a DN3000 -- "set bit Interrupt Pending in Cache Status Register",
+0x10 -- and clears it in the acknowledge path; a DN3000 uses the status
+register's bit 3 instead, which is why that bit has no meaning on this machine;
+and the diagnostic reads 010200 at 01002848 immediately after unmasking the
+cascade and requires the bit.
+
+It is derived, not latched. A stored copy would need clearing on acknowledge and
+the line already does that -- the same reasoning as the parity interrupt. The
+board refreshes it after sampling every device, because it is their sum.
+
+Two more of the diagnostic's tests now pass, interrupts and timer. The next stop
+is CPU (dma) Test #0, failing at 000176FE -- inside 017000-017FFF, Table 2-8's
+address translation map -- with Expected= 000176FE against Actual= 000077FE.
+
+#### IRQ13 is a wire with no device on it, and it is in the manual
+
+CPU (interrupts) Test #0 was failing at 00011100, interrupt controller #2. The
+trace gave the sequence exactly: write 04 to serial 1's OPCR, set OPR[7], require
+controller 2's IR5 clear; then clear OPR[7] and require it set.
+
+008778-03 2.5, in the paragraph immediately before Table 2-3, is about this and
+nothing else: "Note that IRQ13 is not available on the bus. In the DS3000, it is
+connected to Output Port Bit 7 of the 2681 SIO chip and is used by diagnostics to
+verify the integrity of the interrupt controllers." Table 2-3 gives IRQ13
+priority 4+6 on controller 2 -- and since IRQ8 is the slave's IR0, IRQ13 is IR5,
+the bit the diagnostic reads.
+
+So it is an interrupt line with no device on either end: something the machine
+can raise by hand purely so a program can ask whether the controllers report it.
+The board had never wired it, which is this project's most repeated finding
+again -- the missing piece is a connection, not a model.
+
+The pin is the complement of the register bit. [68681]: OP7 is "either the
+complement of OPR[7] or the channel B transmitter interrupt output", selected by
+OPCR[7]. So the command that sets the bit drives the pin low and the one that
+clears it raises the line, which is the direction 2.5 needs since an interrupt
+"is generated when an IRQ line is raised from low to high". The alternate source
+is not modelled and says so rather than reporting the output-port bit anyway.
+
+A consequence worth stating rather than discovering later: OPR resets to zero, so
+the line idles asserted. That is the hardware, not a modelling choice, and it is
+why the diagnostic sets OPR[7] before its first check. Writing the test for it is
+what caught my first version, which read serial 1's port while driving serial 2's
+and passed for the wrong reason.
+
+The failure has moved from controller #2 to controller #1 at 00011000, so IR5 now
+reports.
+
+#### The cache was tagged and filled from the same address, and the MMU test passes
+
+CPU (mmu) Test #0 passes, and the machine has gone on to CPU (interrupts) Test #0.
+
+The MC68030's on-chip caches are logically addressed, so a hit is decided before
+any translation -- and the bus cycle that fills a miss uses the address the MMU
+produced. ap_m68030_cache_read took one address and used it for both.
+
+That is invisible with the MMU off, because the two are equal. With it on, every
+read miss fetched from the logical address: the translation was computed,
+reported in out.physical, and then not used. The write path had always used the
+physical address, so a mapped page could be written where the MMU said and read
+from where it was not -- exactly the identity mapping the diagnostic saw. Its
+test maps every page one higher, writes through the mapping and reads back
+through it.
+
+The low four bits agree by construction -- the smallest page this part supports
+is 256 bytes and a cache line is sixteen -- so the offset within the line is the
+same either way, which is why nothing smaller than a page-sized displacement
+could have shown it.
+
+Descriptor fetches go from 15 to 42,579, with 14,641 history updates. The 15 was
+the tell: an ATC starts empty and only a walk fills it, so a run with translation
+on and almost no walks was a run where almost nothing translated.
+
+The next stop is CPU (interrupts) Test #0 at 00011100, Table 2-8's interrupt
+controller #2 -- the 8259 ordering work this session opened by naming, reached
+from the other end.
+
+#### A run says what the MMU is doing, and --boot-stop-pc answered untested questions
+
+The instrument first, because it was wrong and I believed it. --boot-stop-pc
+checked the program counter after the step loop's fast path, so it only ever took
+effect when a trace or a ring was also asked for. A run without one printed
+nothing and looked exactly like a run whose address was never reached -- which is
+worse than not having the flag, because it answers a question it did not test. I
+read two such runs as evidence that 010025DE was never executed, and built a
+story about capstone mis-decoding instruction boundaries on top of it. The check
+now happens before the fast path, and all three addresses I had "ruled out" are
+reached.
+
+A run now reports whether translation is enabled, which transparent windows are
+open, whether the supervisor root is split, and both root pointers:
+
+    translation  enabled, split supervisor root, crp 01200000 limit 0000, ...
+
+A descriptor-fetch count says the MMU has been used. It does not say whether a
+given access went through it, because a transparent window is consulted first and
+answers without a table search -- so a machine with translation on and a window
+over all of memory has page tables that cannot matter, and no other number here
+shows it.
+
+That narrows CPU (mmu) Test #0 to something measured rather than assumed. At the
+failing compare: translation enabled; both transparent windows disabled, so
+nothing is bypassing; CRP and SRP both 01200000, so the split-supervisor bit is
+not the problem; and the read at 01224C00 still returns 01224C00, the
+untranslated content, where the table should map it a page higher.
+
+So the walk is producing identity. The whole run performs 15 descriptor fetches
+where a 1 KB-page table over megabytes should perform thousands, and an empty ATC
+cannot explain that. The next question is about this core's table search rather
+than about the boot.
+
+#### Enabling the MMU never reached the accesses
+
+ap_m68030_access_ctx_t carried a bool translation_enabled, set false when the
+machine was built and updated by nothing -- while the same context already held a
+pointer to the TC whose E bit it was a copy of. So PMOVE could switch the MMU on
+and no access would ever notice.
+
+It failed silently for as long as nothing enabled translation. Every boot this
+project has run reported 0 descriptor fetches; the first program to ask for
+translation was a Domain/OS diagnostic the machine loaded off its own disk.
+ap_m68030_translating reads the register, and the copy is gone. A run now reports
+15 descriptor fetches and 8 history updates where it reported none.
+
+Two instruments found it, and both are permanent. The fault is 162 million
+instructions in, where --boot-trace's every-step output is terabytes:
+--boot-trace-last N keeps the last N steps in a ring and prints them at the end,
+and --boot-stop-pc ADDR ends the run the first time the PC is ADDR so the ring
+holds what led there rather than what followed. The first attempt without the
+second returned two thousand steps of the console poll, half a billion
+instructions after the thing worth seeing.
+
+What the test does, read from that trace: fill a range with each long word
+holding its own address, then require memory[a0] == a0 + 0x400 -- a page table
+mapping each 1 KB page to the one above it, checked by reading through it.
+
+This corrects something I reported earlier. I had swept the image and said
+SELF_TEST contains no MMU instruction at all. It does: 010025C8 is PMOVE to CRP
+and 010025DE is PMOVE of TC = 82A28750 -- E set, 1 KB pages, and the shift fields
+summing to 32. Capstone does not decode the 68030's MMU coprocessor instructions
+and renders F0xx as fmove nonsense, which is what I read and believed.
+
+The probe goldens move by their hashes only -- every step count, register and
+clock identical -- because a constant false left the state hash and hash_tc
+already feeds the bit it duplicated.
+
+The test still fails at the same address. Translation now happens, which it could
+not before; what the table search finds is the next question.
+
+#### The oracle harness could only ever watch a machine it had stopped
+
+Comparing self-tests against the oracle needed something the harness did not
+have. Every stage in mdsession.py begins by knocking -- sending repeatedly until
+the MD prompt answers -- and typing interrupts the boot. So every session this
+project has run under the oracle has been a machine caught on its way up, which
+is exactly the wrong thing to compare a self-test sequence against.
+
+A watch stage fixes that, and the first version of it was wrong in an instructive
+way: it sent nothing at all and captured eleven minutes of an empty log. The
+reason is one this project had already established and I had to rediscover -- the
+boot PROM autobauds. It cannot transmit until it has received a character and
+learnt the rate, so a console nobody types at never says anything. The headless
+frontend sends --boot-input '\r' for precisely this reason, and our own machine
+runs every self-test after it.
+
+So watch sends exactly one character and then stays quiet, with
+APOLLO_MD_POST=none stopping the Lua side pressing a key of its own. What the
+stage is for is the distinction between one character and a knock: one autobauds
+the port, a knock stops the machine.
+
+The test for it caught a second mistake. The new checks were inserted above two
+assertions that read the previous run's proc, and reassigning that variable made
+them silently inspect the watch run instead -- both went red, and git stash
+confirmed they had been green before the change rather than long-broken. The
+block moved below them and took its own name.
+
+#### A plan item landed above the document's title and every check passed
+
+An edit meant to replace a block in COMPLETION_PLAN.md computed an empty slice
+and prepended a copy instead. The result was the same item twice -- once at line
+1, above the file's own heading, and once in its proper place -- in the document
+whose entire job is to be read forwards to choose the next thing.
+
+check_docs.py passed before and after. Every check it had was about an item's
+content: well-formed, parent intact, counts right. None was about where the item
+sat. Two cheap invariants close that class: the plan begins with its heading, and
+no item title appears twice. Confirmed against the fault they were written for --
+reintroducing the stray copy makes the checker name both the position and the
+duplicate, and removing it makes them go quiet.
+
+Also records where CPU (mmu) Test #0 actually stands, which is narrower than it
+was. The failure is reported through a PROM service reached by jsr (a3) at
+005DFA, dispatched from a table at 005E16 indexed by d5, so the numbers and the
+decision are the loaded diagnostic's rather than the firmware's.
+
+The printed PC= 00005DF8 is two low: the reporter recovers its caller as
+$3c(a7) - 4, right for the four-byte bsr.w every other caller uses and wrong for
+a two-byte jsr. Anyone reading that address off the console lands mid-instruction.
+The real call site is 005DFA.
+
+Ruled out: the run still reports zero descriptor fetches, so the test fails before
+translation is switched on; PMOVE for all six MMU registers is implemented; and
+memory at the named address holds the boot PROM's own fill pattern correctly --
+01224C00 contains 01224C00, each long word holding its own address.
+
+Going further means disassembling the 13 KB image loaded to 01002000, or asking
+the oracle whether it passes this test, which would partition the question in one
+measurement. Written down rather than guessed at.
+
+#### The MMU's table paths never knew about the board
+
+machine_table_fetch and machine_table_update indexed machine->ram by physical
+address and bounded it against ram_bytes. That is right for a probe on flat
+memory and wrong for every machine with a board: a DN3500's RAM begins at
+01000000, so a descriptor at 0100A004 compared against a 16 MB extent is out of
+range, and every table search would bus-error before reading anything.
+
+It survived because nothing had ever enabled translation. Every run in this
+project reported 0 descriptor fetches -- which is exactly why that counter was
+added: it ruled the MMU out of the 0100A005 investigation in one run, and then
+named this gap by being zero for the wrong reason.
+
+Both paths now go through the board when there is one and keep the flat path for
+a probe. machine_suite has the test that could not have passed before: a
+descriptor read and a history-bit write at a board RAM address, with the result
+read back through the machine rather than trusted to the call -- a write that
+faulted would also "return" quietly.
+
+Not yet what stops CPU (mmu) Test #0: that failure still reports zero descriptor
+fetches, so it happens before translation is switched on, and its numbers are the
+loaded SELF_TEST's own rather than the PROM's. A defect fixed on the way, and the
+next thing the diagnostic does needs it.
+
+#### SYSBOOT VER: the byte order settled, and Domain/OS code runs
+
+The PROVISIONAL note on the disk data port's byte order lasted exactly one
+commit, and what settled it is the thing the note asked for: a transfer of known
+content through 16-bit programmed I/O.
+
+The boot PROM loads sysboot to 010FD800 and requires the first long word to be
+0013D800 -- cmpi.l #$13d800, $10fd800 at 001834, with "error: sysboot not found"
+on the other branch. --dump-mem showed what had arrived:
+
+    010FD800  13 00 00 D8 ...
+    010FD810  59 53 42 53 4F 4F 20 54 45 52 20 56   YSBSOO TER V
+
+0013D800 and "SYSBOOT VER " with the bytes of every word exchanged. Two
+independent confirmations in one read: a magic number the firmware names, and a
+string that is only a string one way round.
+
+So the earlier buffer byte belongs in the high half, which is also what makes a
+sector moved by word accesses land in memory in disk order. The oracle disagrees
+and this is one of the places CLAUDE.md expects it to: omti8621.cpp's get_data
+builds buffer[i] | buffer[i+1] << 8. The suite no longer asserts "whichever
+order" -- it asserts the order.
+
+And the machine runs software off its own disk:
+
+    Loading SELF_TEST diagnostics from boot device.
+    low: 01002000 high: 01005378 start: 01002020
+
+    Loaded:  SELF_TEST     Revision:  2.4
+    Last Compiled:  Wednesday, October 5, 1988   1:08:11 pm (EDT)
+       CPU  (mmu)         Test #0 started.
+
+That is Domain/OS code, loaded from the emulated Winchester and executing -- no
+longer the boot PROM testing the machine, but a program the machine fetched
+testing itself. It stops in the MMU test, which is the first thing in this
+project to exercise address translation: every run so far has reported 0
+descriptor fetches.
+
+#### The node ID checksum was one register early, and the file system is reached
+
+CPU self-test 8 stopped at "Expected= 00000000, Actual= 000000D2, Address=
+0001121E", inside the network ID PROM's range. The eleven instructions at 008218
+say the whole rule with no inference needed: sum the bytes at stride 2 from
+011200 up to but not including 01121E, then compare the total with the byte at
+01121E.
+
+So the checksum covers registers 0 through 14 and lives in register 15. This
+module had it in register 14 -- and ap_nodeid.h's own recorded dump shows 69 at
+0112 1E, which is register 15. The prose was wrong and the code followed the
+prose. The suite's golden array transcribed the dump the same way, so the test
+made the error permanent instead of catching it, and nothing read the register
+until the firmware did.
+
+With the byte one register early the sum swallowed it: 0x69 + 0x69 = 0xD2 against
+a zero, exactly the pair the failure printed.
+
+It also settles a question the file had recorded as unanswerable -- whether the
+checksum covers only the identifier or all sixteen registers, "since the rest are
+zero and both give the same byte". The firmware's own arithmetic answers it:
+registers 0 through 14, compared against 15, a plain sum and not a complement.
+
+Every self-test now passes and the boot reaches the file system:
+
+    network driver search started...
+    above driver type loaded.
+    --- Load paths tested.
+    Loading SELF_TEST diagnostics from boot device.
+    error: sysboot not found
+    Could not load /SAU7/SELF_TEST.
+
+That is the firmware reading Domain/OS structures off the emulated Winchester and
+looking for a named file -- the first failure in this sequence that is about the
+media rather than the machine.
+
+#### The sector number is not bounded by the track, and both drives pass
+
+After the self-tests the firmware printed "Drive 0" and settled in a phase poll
+that never ended. The command histogram said what had happened without guessing:
+08 x27 READs against 03 x8 REQUEST SENSEs, reads failing and their sense being
+collected. A new report line said how the last one ended:
+
+    disk last     08, error, sense 21 00 00 00, next lba 18
+
+21 is ILLEGAL DISK ADDRESS. Printing the addresses asked for showed the shape at
+once: cylinder 0, head 0, sector 0, 1, 2 ... up to 24, on a drive with eighteen
+sectors to the track. ap_awd_lba refused everything from 18.
+
+[OMTI] 5.1.1 gives the disk address as a format -- six bits of sector number in
+byte 2, eleven of cylinder across bytes 1-3 -- and says nothing whatever about
+validity. So the arithmetic is what defines the address, and a sector number past
+the end of its track carries into the next one. The oracle checks exactly two
+fields, cylinder and head, and never the sector against the track.
+
+The firmware is the stronger evidence: a controller that refused sector 18 could
+not run this machine's boot PROM. Cylinder and head stay bounded -- a head beyond
+the drive's is a driver's mistake and returning another track's data would hide
+it -- and what bounds the sector now is the drive itself.
+
+    Winchester Disk  Test # 1 started.
+      Drive 0  passed.
+      Drive 1  passed.
+    CPU              Test # 8 started.
+
+131,074 reads, every one completed, no sense at all.
+
+Also lands the instrument that found it: a run says how the last disk command
+ended, with its sense bytes. A histogram says what was asked and a REQUEST SENSE
+beside a READ says the read failed; neither says why the controller refused,
+which is the one thing the sense bytes exist to answer.
+
+#### The controller identifies itself, and its data port is sixteen bits
+
+0E READ DATA FROM SECTOR BUFFER is implemented and Winchester test 1 passes. Two
+separate things had to be right, and only one was a missing command.
+
+[OMTI] 5.4.13 gives the command: the transfer is the sector size times byte 4's
+block count, capped at seven for 1056-byte sectors, and "the controller does not
+access the disk drive during the execution of this command" -- which is what lets
+the boot PROM run it before it knows whether a disk is fitted. The buffer grew
+from one sector to seven, sized by the manual's cap rather than the part's RAM;
+the write path's sector bound had been spelt AP_OMTI_BUFFER_BYTES, which happened
+to equal the sector size and was the wrong one of the two all along.
+
+The identification block needs no flag. 5.4.13 says it is there "if a READ BUFFER
+Command is issued after a RESET is done (before any other command)", which is a
+statement about the buffer: a reset writes it and the next command overwrites it.
+The same sentence from the other side, and nothing to clear. The template
+8x2xVW.WMMDDYY resolves against the part -- 8621, version B.4, dated 4 June 1987
+-- which the oracle carries and which is a value read off the hardware rather
+than anything derivable here. Its two checksum bytes are the ASCII xx, plainly a
+placeholder, so those are left zero and named unknown rather than copied. Byte 14
+is C0, which 5.4.13's own table decodes as a 32K buffer.
+
+The data port is sixteen bits and the board never said so. 4.2 makes it
+"byte-wide when C/D is set, word-wide when it is clear", and this module has said
+that since it was written; what it could not express was a word cycle, because
+the board decomposed every access into bytes. The firmware reads the block with
+MOVE.W $4D000, and served as two byte reads the second byte is the status
+register, so the word came back FFFF and could never be the zero the test wants.
+The same shape as the Bt458 and the display controller: the missing piece was a
+connection, not a model.
+
+PROVISIONAL: which buffer byte is the word's high half. The oracle puts the first
+in bits 7-0, so a buffer reaches a big-endian CPU byte-swapped; followed rather
+than second-guessed, since Domain/OS boots from this controller on the oracle.
+Nothing in hand distinguishes them -- the bytes the firmware compares are all
+zero and no boot PROM contains the string 8621. The suite asserts only what holds
+under either order: a word read takes two buffer bytes and advances by two.
+
+The boot clears every self-test it runs and goes on to print Drive 0, where it
+settles in a phase poll at 00002EDC. That is the next item, and it is written
+down rather than left as a resting PC.
+
 #### The boot reaches the Winchester self-tests, and the OMTI item's lead arrived
 
 With the transfer size served, a 400-million-instruction boot gets through the
