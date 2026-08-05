@@ -23,7 +23,7 @@ static void test_the_measured_dump_is_reproduced(void) {
       0x00, 0x00, 0x01, 0x00, 0x23, 0x00, 0x45, 0x00,
       0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
       0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-      0x00, 0x00, 0x00, 0x00, 0x69, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x69, 0x00,
   };
   for (unsigned i = 0; i < 32u; i++) {
     TEST_ASSERT_EQUAL_HEX8(expected[i], ap_nodeid_read(&prom, AP_NODEID_ADDR + i));
@@ -65,8 +65,34 @@ static void test_the_identifier_comes_from_the_caller(void) {
   TEST_ASSERT_EQUAL_HEX8(0x0A, ap_nodeid_read(&prom, AP_NODEID_ADDR + 2u));
   TEST_ASSERT_EQUAL_HEX8(0xBC, ap_nodeid_read(&prom, AP_NODEID_ADDR + 4u));
   TEST_ASSERT_EQUAL_HEX8(0xDE, ap_nodeid_read(&prom, AP_NODEID_ADDR + 6u));
-  /* 0x0A + 0xBC + 0xDE = 0x1A4, truncated to one byte. */
-  TEST_ASSERT_EQUAL_HEX8(0xA4, ap_nodeid_read(&prom, AP_NODEID_ADDR + 28u));
+  /* 0x0A + 0xBC + 0xDE = 0x1A4, truncated to one byte -- in register 15, the
+   * last of the sixteen, which is `0112 1E` and where the boot PROM looks. */
+  TEST_ASSERT_EQUAL_HEX8(0xA4, ap_nodeid_read(&prom, AP_NODEID_ADDR + 30u));
+}
+
+/* ## The boot PROM's own arithmetic, which is what settled the position
+ *
+ * CPU self-test 8 at `008218` sums the bytes at stride 2 from `0112 00` up to
+ * but not including `0112 1E`, then compares the total with the byte *at*
+ * `0112 1E`. So the checksum covers registers 0 through 14 and lives in
+ * register 15 -- the question this module had recorded as unsettleable from a
+ * dump whose other bytes are all zero.
+ */
+static void test_the_checksum_satisfies_the_boot_proms_own_test(void) {
+  ap_nodeid_t prom;
+  ap_nodeid_init(&prom, 0x012345u);
+
+  uint8_t sum = 0;
+  for (uint32_t at = AP_NODEID_ADDR; at < AP_NODEID_ADDR + 0x1Eu; at += 2u) {
+    sum = (uint8_t)(sum + ap_nodeid_read(&prom, at));
+  }
+  TEST_ASSERT_EQUAL_HEX8(sum, ap_nodeid_read(&prom, AP_NODEID_ADDR + 0x1Eu));
+
+  /* And it is a *sum*, not a complement: the firmware compares the two rather
+   * than requiring the total to come out zero. With the byte one register early
+   * the sum swallowed it and the compare found nothing -- `0x69 + 0x69 = 0xD2`
+   * against a zero, which is exactly what the self-test failure printed. */
+  TEST_ASSERT_EQUAL_HEX8(0x69, sum);
 }
 
 static void test_the_identifier_is_twenty_four_bits(void) {
@@ -86,7 +112,7 @@ static void test_the_prom_aliases_through_its_range(void) {
 
   /* Measured: the second sixteen bytes of the dump repeat the first. */
   TEST_ASSERT_EQUAL_HEX8(0x01, ap_nodeid_read(&prom, AP_NODEID_ADDR + 32u + 2u));
-  TEST_ASSERT_EQUAL_HEX8(0x69, ap_nodeid_read(&prom, AP_NODEID_ADDR + 32u + 28u));
+  TEST_ASSERT_EQUAL_HEX8(0x69, ap_nodeid_read(&prom, AP_NODEID_ADDR + 32u + 30u));
 
   /* Odd bytes read zero here, unlike the serial ports where both bytes of a
    * word reach the register. Same stride, different behaviour, one board. */
@@ -146,6 +172,7 @@ int main(void) {
   RUN_TEST(test_the_checksum_is_the_sum_of_the_identifier_bytes);
   RUN_TEST(test_the_checksum_truncates_rather_than_carrying);
   RUN_TEST(test_the_identifier_comes_from_the_caller);
+  RUN_TEST(test_the_checksum_satisfies_the_boot_proms_own_test);
   RUN_TEST(test_the_identifier_is_twenty_four_bits);
   RUN_TEST(test_the_prom_aliases_through_its_range);
   return UNITY_END();

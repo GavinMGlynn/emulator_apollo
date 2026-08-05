@@ -3009,14 +3009,25 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         *Verification: `awd_suite`'s configuration test extended to the whole
         ten bytes. The boot is **unchanged** — same commands, same resting PC —
         which is the finding: the word was not what stopped it.*
-  - [ ] **CPU test 8, and the network ID PROM's checksum.** Every self-test
-        before it now passes, including both Winchester drives. Test 8 stops at
-        `00008244` with `Expected= 00000000, Actual= 000000D2, Address=
-        0001121E` -- inside `011200`-`0112FF`, which Table 2-8 gives to the
-        **network ID PROM**. An expected zero against a non-zero residue reads
-        as a checksum over the PROM's bytes that does not come out, so what this
-        needs is the PROM's own content rather than its decode.
-        *Verification: the console going past `CPU Test # 8`.*
+  - [x] **The node ID checksum was one register early.** Self-test 8's eleven
+        instructions at `008218` give the rule outright: sum the bytes at stride
+        2 below `0112 1E`, then compare with the byte *at* `0112 1E`. So the
+        checksum is register **15**, and `ap_nodeid.h`'s own recorded dump had
+        always shown `69` there -- the prose said 14, the code followed the
+        prose, and the suite's golden array transcribed the dump the same way,
+        so the test made it permanent rather than caught it. It also settles
+        what that file recorded as unanswerable: the checksum covers registers
+        0-14 and is a plain sum, not a complement. Detail in
+        `PROJECT_STATUS.md`.
+        *Verification: `nodeid_suite` +1 (8), one of them running the firmware's
+        own arithmetic. Every self-test now passes and the boot reaches the file
+        system: `Loading SELF_TEST diagnostics from boot device`.*
+  - [ ] **`sysboot not found`: the firmware reads the disk and does not find
+        what it wants.** `Could not load /SAU7/SELF_TEST` -- the first failure
+        in this whole sequence that is about the *media* rather than the
+        machine. What it needs is the Domain/OS on-disk layout: the physical
+        volume label, the logical volume, and how `/SAU7` is reached from them.
+        *Verification: the console going past the load.*
   - [x] **The sector number is not bounded by the track, and both drives
         pass.** The drive test's poll never ended because its READs were being
         refused: `sense 21`, illegal disk address, for cylinder 0 head 0 sectors

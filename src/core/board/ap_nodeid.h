@@ -22,16 +22,40 @@
  * which is one more reason no placement here may be copied from a neighbour.
  *
  * Reading the even bytes as sixteen registers gives `00 01 23 45` in the first
- * four and `69` in register 14, everything else zero. So the identifier is
- * `012345` held big-endian in registers 0-3, and register 14 is a **checksum**:
+ * four and `69` in the **last**, everything else zero. So the identifier is
+ * `012345` held big-endian in registers 0-3, and register 15 is a **checksum**:
  * `0x01 + 0x23 + 0x45 = 0x69`, exactly. That arithmetic is what makes this a
  * reading rather than a guess -- three bytes and their sum, all four present.
  *
- * What the dump cannot settle is whether the checksum covers only the
- * identifier or all sixteen registers, since the rest are zero and both give
- * the same byte. `ap_nodeid_checksum` sums the identifier, and the ambiguity is
- * recorded here rather than hidden: a PROM with a non-zero byte elsewhere would
- * distinguish them, and none has been seen.
+ * ## The boot PROM settles what the dump could not
+ *
+ * This said the checksum was in register *14*, which the dump above does not
+ * show: `69` sits at `0112 1E`, and `0112 1E` is register 15. The prose was
+ * wrong and the code followed the prose, which nothing noticed while nothing
+ * read the register.
+ *
+ * CPU self-test 8 reads it, and its eleven instructions at `008218` say the
+ * whole rule:
+ *
+ *     movea.l #$11200, a2
+ *     clr.l   d1
+ *     movea.l a2, a0
+ *     add.b   (a0), d1          ; sum, stride 2 ...
+ *     addq.l  #$2, a0
+ *     cmpa.l  #$1121e, a0       ; ... over everything below 0112 1E
+ *     bne.b   -8
+ *     lea.l   $1e(a2), a0
+ *     move.b  (a0), d0          ; the checksum byte itself
+ *     cmp.b   d0, d1
+ *
+ * So the checksum covers **registers 0 through 14** and lives in register 15 --
+ * which is the question this file recorded as unsettleable from a dump whose
+ * other bytes are all zero. It is a plain sum and not a complement: the
+ * firmware compares, it does not require the total to come out zero.
+ *
+ * With the byte one register early the sum included it and the compare found
+ * nothing: `0x69 + 0x69 = 0xD2` against a zero, which is exactly what the
+ * failure printed.
  *
  * ## The identifier comes from the caller
  *
@@ -56,8 +80,11 @@
 #define AP_NODEID_RANGE 0x100u
 #define AP_NODEID_REGISTERS 16u
 
-/* Register 14 of the sixteen. */
-#define AP_NODEID_CHECKSUM_REGISTER 14u
+/* Register **15**, the last of the sixteen -- byte `0112 1E`, which is where
+ * the dump above shows `69` and where the boot PROM goes to find it. It was
+ * written 14 here, following this file's own prose rather than its own dump,
+ * and the two disagreed for as long as nothing read the register. */
+#define AP_NODEID_CHECKSUM_REGISTER 15u
 
 typedef struct {
   /* The identifier, in the low 24 bits. Registers 0-3 present it big-endian,
