@@ -2936,10 +2936,19 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         busy never finishes one. A command counter shows what that was worth:
         **one command became three**, `00` TEST DRIVE READY, `03` REQUEST SENSE
         and `EC` READ CAPACITY. Detail in `PROJECT_STATUS.md`.
-      **Awaiting:** `EC READ CAPACITY`, which is ESDI-specific and falls to the
-      default today. A named command with a manual section behind it, rather
-      than a search — which is a different kind of open from every earlier step
-      on this item.
+  - [x] **`EC` implemented, and it has two names in one manual.** §5.4.29 calls
+        it READ CONFIGURATION and §5.1.2's summary calls it READ CAPACITY; the
+        description's name is taken, because it is the one that says what the
+        ten data bytes are. Cylinders, heads and sectors are each the **highest
+        valid number, not the count** — the "(-1)" the table marks and the
+        obvious implementation gets wrong. Detail in `PROJECT_STATUS.md`.
+        *Verification: `awd_suite` +2 (17), asserting both that the fields are
+        `count - 1` and that they are not the counts. `03 REQUEST SENSE` drops
+        out of the boot's command sequence, which is the improvement: a driver
+        asks for sense after a failure.*
+      **Awaiting:** what the firmware wants after READ CONFIGURATION. Bytes 4-9
+      are physical formatting parameters no manual here gives and a sector image
+      cannot carry, so they are zero — which may be what it is reading.
   - [x] **A disk can be fitted at all.** `ap_omti` modelled the controller and
         `ap_awd` read the image and nothing ever handed one to the other, so
         every boot experiment so far ran on a DN3500 with **no Winchester** —

@@ -336,6 +336,61 @@ static void test_a_select_while_busy_is_ignored(void) {
   TEST_ASSERT_NOT_EQUAL_INT(AP_OMTI_PHASE_COMMAND, ap_omti_disk_phase(&omti));
 }
 
+
+/* §5.4.29's READ CONFIGURATION, which §5.1.2's summary table calls READ
+ * CAPACITY -- the same code under two names in one manual. Ten bytes, and the
+ * three "(-1)" fields are the trap. */
+static void test_read_configuration_reports_the_highest_not_the_count(void) {
+  build_controller();
+  issue(AP_OMTI_CMD_READ_CONFIGURATION, 0u, 0u, 0u, 0u);
+  TEST_ASSERT_EQUAL_INT(AP_OMTI_PHASE_DATA_IN, ap_omti_disk_phase(&omti));
+
+  /* The attached drive's own geometry, not the reference drive's -- this suite
+   * builds a small one so a backing store fits on the stack. */
+  const ap_awd_geometry_t g = drive.geometry;
+  uint8_t reply[AP_OMTI_CONFIGURATION_BYTES];
+  for (unsigned i = 0; i < AP_OMTI_CONFIGURATION_BYTES; i++) {
+    reply[i] = ap_omti_disk_read(&omti, AP_OMTI_DISK_DATA);
+  }
+
+  /* **One less than the count**: the highest valid number, not how many there
+   * are. A model returning the counts describes a drive one cylinder, one head
+   * and one sector larger than it has. */
+  const uint16_t highest = (uint16_t)(g.cylinders - 1u);
+  TEST_ASSERT_EQUAL_HEX8((uint8_t)(highest >> 8), reply[0]);
+  TEST_ASSERT_EQUAL_HEX8((uint8_t)highest, reply[1]);
+  TEST_ASSERT_EQUAL_HEX8((uint8_t)(g.heads - 1u), reply[2]);
+  TEST_ASSERT_EQUAL_HEX8((uint8_t)(g.sectors - 1u), reply[3]);
+  /* And they are not the counts, which is the assertion that fails on the
+   * obvious implementation. */
+  TEST_ASSERT_NOT_EQUAL_HEX8((uint8_t)g.heads, reply[2]);
+  TEST_ASSERT_NOT_EQUAL_HEX8((uint8_t)g.sectors, reply[3]);
+
+  /* Ten bytes and then the completion, not a whole sector: the transfer length
+   * belongs to the command that started it, not to the buffer. */
+  TEST_ASSERT_EQUAL_INT(AP_OMTI_PHASE_STATUS, ap_omti_disk_phase(&omti));
+}
+
+/* The data phase requests each byte in turn, and the read is what acknowledges
+ * it. A transfer that left `REQ` standing after the last byte would have a
+ * driver reading past the end of what it asked for. */
+static void test_the_data_phase_requests_each_byte_and_stops(void) {
+  build_controller();
+  issue(AP_OMTI_CMD_READ_CONFIGURATION, 0u, 0u, 0u, 0u);
+
+  for (unsigned i = 0; i < AP_OMTI_CONFIGURATION_BYTES - 1u; i++) {
+    TEST_ASSERT_TRUE((ap_omti_disk_read(&omti, AP_OMTI_DISK_STATUS) &
+                      AP_OMTI_ST_REQ) != 0u);
+    (void)ap_omti_disk_read(&omti, AP_OMTI_DISK_DATA);
+  }
+  /* The last byte ends the data phase, and what is requested next is the
+   * completion -- a *status* byte, so `C/D` is set again. */
+  (void)ap_omti_disk_read(&omti, AP_OMTI_DISK_DATA);
+  const uint8_t status = ap_omti_disk_read(&omti, AP_OMTI_DISK_STATUS);
+  TEST_ASSERT_TRUE((status & AP_OMTI_ST_CD) != 0u);
+  TEST_ASSERT_TRUE((status & AP_OMTI_ST_REQ) != 0u);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_the_two_drives_are_the_oracles);
@@ -344,6 +399,8 @@ int main(void) {
   RUN_TEST(test_a_short_image_refuses_the_sectors_it_lacks);
   RUN_TEST(test_a_read_command_delivers_the_addressed_sector);
   RUN_TEST(test_dma_enable_is_what_asks_for_a_cycle);
+  RUN_TEST(test_read_configuration_reports_the_highest_not_the_count);
+  RUN_TEST(test_the_data_phase_requests_each_byte_and_stops);
   RUN_TEST(test_selecting_asks_for_the_first_command_byte);
   RUN_TEST(test_each_command_byte_clears_and_re_asserts_the_request);
   RUN_TEST(test_a_select_while_busy_is_ignored);

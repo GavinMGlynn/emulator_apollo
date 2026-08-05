@@ -61,7 +61,26 @@
  * carries. */
 #define AP_OMTI_CMD_CHECK_TRACK_FORMAT 0x10u
 #define AP_OMTI_CMD_READ_ESDI_DEFECT_LIST 0x37u
+/* §5.1.2's summary calls `EC` "READ CAPACITY"; §5.4.29 -- the command's own
+ * description, in the same manual -- calls it **READ CONFIGURATION**. Same
+ * code, two names. The description's is taken because it is the one that says
+ * what the ten data bytes are, and both are recorded so a reader who finds the
+ * other is not left wondering which command this is. */
 #define AP_OMTI_CMD_READ_CAPACITY 0xECu
+#define AP_OMTI_CMD_READ_CONFIGURATION AP_OMTI_CMD_READ_CAPACITY
+
+/* §5.4.29's ten-byte reply, for a **hard sectored** drive.
+ *
+ * The three "(-1)" fields are the trap: the manual marks cylinders, heads and
+ * sectors as one *less* than the count -- the highest valid number rather than
+ * how many there are -- so a model returning the counts describes a drive one
+ * cylinder, one head and one sector larger than it has.
+ *
+ * Bytes 4 to 9 are physical formatting parameters -- the drive configuration
+ * word, the inter-sector gaps and the PLO sync fields -- which no manual in
+ * `docs/references/` gives for this drive and which a raw sector image has no
+ * way to carry. They are zero, and that is a stated gap rather than a value. */
+#define AP_OMTI_CONFIGURATION_BYTES 10u
 
 /* §5.1.2, "COMMANDS SPECIFIC to the ST506/412 drives". Named so it can be
  * *rejected* on an ESDI controller rather than quietly accepted: the two lists

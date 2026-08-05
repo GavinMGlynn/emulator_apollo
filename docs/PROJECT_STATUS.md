@@ -4597,6 +4597,45 @@ last and hardest — **a decoded PNG**. Register round-trips and word-level
 identities are what can be checked without one, and a controller that passes
 those and draws nothing is the standard way this goes wrong.
 
+#### READ CONFIGURATION, and a command with two names in one manual
+
+`EC` is implemented, from §5.4.29's page image. The command's own description
+calls it **READ CONFIGURATION**; §5.1.2's summary table, three pages earlier in
+the same manual, calls it *READ CAPACITY*. Same code, two names — both recorded,
+and the description's taken because it is the one that says what the ten data
+bytes are.
+
+**The trap is marked in the table and easy to read past.** Cylinders, heads and
+sectors each carry a "(-1)": they are the *highest valid number*, not the count.
+A model returning the counts describes a drive one cylinder, one head and one
+sector larger than it has, and the test asserts both that the values are
+`count - 1` and that they are **not** the counts — because the obvious
+implementation passes the first kind of assertion in a suite that only ever
+checks small numbers.
+
+Bytes 4 to 9 are physical formatting parameters — the drive configuration word,
+the inter-sector gaps, the PLO sync fields — which no manual here gives for this
+drive and which a raw sector image cannot carry. They are zero, recorded as a
+stated gap rather than a value.
+
+**It replaced a special case with a length.** The data-in path derived how many
+bytes a transfer carried from the command byte at every read — "sense is four,
+everything else is a whole sector" — which is a per-command special case
+pretending to be a rule, and READ CONFIGURATION's ten bytes would have been a
+third. Whoever starts the phase now records the length. The same read also
+acknowledges the request that offered the byte and re-asserts it for the next,
+which the sector path had and the sense path did not.
+
+And REQUEST SENSE was asserting `DREQ` unconditionally — the same defect the
+read path had, in the one place the earlier fix did not reach.
+
+    before   3 commands: 00, 03, EC
+    after    2 commands: 00, EC
+
+`03 REQUEST SENSE` **dropped out**, which is the improvement: a driver asks for
+sense after a failure, and TEST DRIVE READY now succeeds cleanly enough that it
+does not.
+
 #### Clearing the status byte's own bits let the firmware walk the sequence
 
 Reading the completion byte cleared `IREQ` and `DREQ` and left `C/D`, `I/O`,

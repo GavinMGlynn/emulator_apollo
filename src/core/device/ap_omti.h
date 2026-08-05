@@ -279,6 +279,14 @@ typedef struct {
   /* The sector buffer, and how far through it the host is. */
   uint8_t buffer[AP_OMTI_BUFFER_BYTES];
   unsigned buffer_index;
+  /* How many bytes the data phase in progress carries.
+   *
+   * This was derived from the command byte at every read -- "sense is four,
+   * everything else is a whole sector" -- which is a special case per command
+   * masquerading as a rule, and READ CONFIGURATION's ten bytes made it a third.
+   * Whoever starts the phase knows the length; the read path should not have to
+   * re-derive it. */
+  unsigned transfer_length;
   /* Sectors still to move after the one in the buffer. **Wider than the CDB's
    * field**, because §5.1.2's count of zero means 256 and a byte cannot hold
    * it: storing it back in a byte turns the largest transfer the command can

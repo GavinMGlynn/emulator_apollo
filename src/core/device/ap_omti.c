@@ -124,6 +124,7 @@ static void feed(ap_omti_t *omti) {
   omti->next_lba++;
   omti->blocks_left--;
   omti->buffer_index = 0u;
+  omti->transfer_length = AP_AWD_SECTOR_BYTES;
   omti->phase = AP_OMTI_PHASE_DATA_IN;
   /* Data rather than a command or status byte, travelling *to* the host, and
    * requested.
@@ -188,14 +189,52 @@ static void execute(ap_omti_t *omti) {
      * the command: a driver reads it after a failure to learn what failed. */
     memcpy(omti->buffer, omti->sense, sizeof omti->sense);
     omti->buffer_index = 0u;
+    omti->transfer_length = (unsigned)sizeof omti->sense;
     omti->blocks_left = 0u;
     omti->phase = AP_OMTI_PHASE_DATA_IN;
-    omti->status = (uint8_t)((omti->status & ~AP_OMTI_ST_CD) | AP_OMTI_ST_DREQ);
+    /* Requested, and travelling to the host. `DREQ` only in DMA mode -- this
+     * asserted it unconditionally, the same defect the read path had. */
+    omti->status = (uint8_t)((omti->status & ~AP_OMTI_ST_CD) | AP_OMTI_ST_IO |
+                             AP_OMTI_ST_REQ);
+    if ((omti->mask & AP_OMTI_MASK_DMA_ENABLE) != 0u) {
+      omti->status |= AP_OMTI_ST_DREQ;
+    }
     return;
 
   case AP_OMTI_CMD_TEST_DRIVE_READY:
     finish(omti, omti->drive == NULL, SENSE_DRIVE_NOT_READY);
     return;
+
+  case AP_OMTI_CMD_READ_CONFIGURATION: {
+    /* §5.4.29, ten bytes describing the drive. ESDI only, which
+     * `ap_omti_cdb_accepted_by_esdi` has already checked. */
+    if (omti->drive == NULL) {
+      finish(omti, true, SENSE_DRIVE_NOT_READY);
+      return;
+    }
+    const ap_awd_geometry_t g = omti->drive->geometry;
+    /* **One less than the count**, as the manual marks them. A model returning
+     * the counts describes a drive one cylinder, one head and one sector larger
+     * than it has. */
+    const uint16_t highest_cylinder = (uint16_t)(g.cylinders - 1u);
+    memset(omti->buffer, 0, AP_OMTI_CONFIGURATION_BYTES);
+    omti->buffer[0] = (uint8_t)(highest_cylinder >> 8);
+    omti->buffer[1] = (uint8_t)highest_cylinder;
+    omti->buffer[2] = (uint8_t)(g.heads - 1u);
+    omti->buffer[3] = (uint8_t)(g.sectors - 1u);
+    /* Bytes 4-9 stay zero: physical formatting parameters this project has no
+     * source for. See the header. */
+    omti->buffer_index = 0u;
+    omti->transfer_length = AP_OMTI_CONFIGURATION_BYTES;
+    omti->blocks_left = 0u;
+    omti->phase = AP_OMTI_PHASE_DATA_IN;
+    omti->status = (uint8_t)((omti->status & ~AP_OMTI_ST_CD) | AP_OMTI_ST_IO |
+                             AP_OMTI_ST_REQ);
+    if ((omti->mask & AP_OMTI_MASK_DMA_ENABLE) != 0u) {
+      omti->status |= AP_OMTI_ST_DREQ;
+    }
+    return;
+  }
 
   case AP_OMTI_CMD_RECALIBRATE:
   case AP_OMTI_CMD_SEEK:
@@ -288,15 +327,18 @@ static uint8_t give_byte(ap_omti_t *omti) {
   switch (omti->phase) {
   case AP_OMTI_PHASE_DATA_IN: {
     const uint8_t value = omti->buffer[omti->buffer_index++];
-    const unsigned end =
-        omti->command[0] == AP_OMTI_CMD_REQUEST_SENSE ? sizeof omti->sense
-                                                      : AP_OMTI_BUFFER_BYTES;
-    if (omti->buffer_index >= end) {
-      if (omti->command[0] == AP_OMTI_CMD_REQUEST_SENSE) {
-        finish(omti, false, 0u);
-      } else {
-        feed(omti);
-      }
+    /* The read is the acknowledgement of the request that offered this byte. */
+    omti->status = (uint8_t)(omti->status & ~AP_OMTI_ST_REQ);
+    if (omti->buffer_index < omti->transfer_length) {
+      omti->status |= AP_OMTI_ST_REQ;
+      return value;
+    }
+    /* The transfer is done. A sector-carrying command may have more sectors to
+     * send; anything else ends here. */
+    if (omti->blocks_left > 0u) {
+      feed(omti);
+    } else {
+      finish(omti, false, 0u);
     }
     return value;
   }
