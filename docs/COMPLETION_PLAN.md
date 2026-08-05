@@ -3166,9 +3166,21 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         *Verification: `omti_suite` +1 (14) -- `IREQ` set with the enable clear
         asking for nothing, the enable alone raising it, and reading the status
         byte dropping it; and the console going past `DISK TIMEOUT`.*
-  - [ ] **Domain/OS after the disk interrupt.** `IRQ6`, the floppy's, is still
-        placed and not driven: its completion is the FDC's result phase rather
-        than the fixed disk's, and it lands with the floppy's own item.
+  - [x] **`DRQ7`, and a request that never went down.** The interrupt alone did
+        not clear `DISK TIMEOUT`: `STATE = EF` is a controller in its status
+        phase with `DREQ` clear, so the driver was waiting for *data*.
+        `board/ap_disk.h` deferred that line until "the command sets" existed;
+        they do, and §4.3 gates `DREQ` on the MASK byte's DMA enable. Writing
+        the test found the better half -- the controller never lowered `DREQ`
+        when the data phase ended, which nothing had noticed because nothing
+        connected the bit to a channel. Detail in `PROJECT_STATUS.md`.
+        *Verification: `omti_suite` +1 (15) -- a data phase in programmed I/O
+        asking for nothing, the same command with DMA enabled asking, and the
+        request down once the phase is over.*
+  - [ ] **Domain/OS after the disk DMA request.** `IRQ6` and `DRQ2`, the
+        floppy's, are still placed and not driven: its completion is the FDC's
+        result phase rather than the fixed disk's, and they land with the
+        floppy's own item.
         *Verification: the console going past `DISK TIMEOUT`.*
   - [x] **`CPU (dma) Test #1` passes: the 16-bit controller counts words.**
         Logging the addresses the firmware writes in the DMA range ended the

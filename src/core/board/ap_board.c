@@ -436,13 +436,23 @@ void ap_board_bus_tick(ap_board_t *board) {
    * priority column runs 1-4 for DRQ0-3 and 5-7 for DRQ5-7 instead of following
    * the line numbers: channels 0 through 3 outrank 5 through 7 because they
    * arrive through the cascade. The order is a consequence here, not a table. */
-  /* The one device on this board that can derive a request of its own: the tape
-   * asks while a read is in progress and there are bytes left, Table 2-4's
-   * DRQ1. The disk's two channels have no line -- `board/ap_disk.h` says why --
-   * and a driver starts those with the 8237's software request. */
+  /* The tape asks while a read is in progress and there are bytes left, Table
+   * 2-4's DRQ1. */
   ap_i8237_set_request_pin(&board->dma.controller[AP_DMA_TAPE_UNIT],
                            AP_DMA_TAPE_CHANNEL,
                            ap_tape_dma_request(&board->tape));
+
+  /* And the Winchester on DRQ7, from the controller's own `DREQ`.
+   * `board/ap_disk.h` said this had no line while only the register sets were
+   * modelled -- "nothing in this controller knows a transfer is in progress" --
+   * and that it gains one when the command sets do. They do, and it has.
+   *
+   * The floppy's DRQ2 is still absent, with the same boundary as its IRQ6: the
+   * FDC's execution phase is a different condition from this one and lands with
+   * the floppy's own item. */
+  ap_i8237_set_request_pin(&board->dma.controller[AP_DMA_WINCHESTER_UNIT],
+                           AP_DMA_WINCHESTER_CHANNEL,
+                           ap_omti_disk_dma_request(&board->disk.controller));
 
   ap_i8237_set_request_pin(&board->dma.controller[AP_DMA_CASCADE_UNIT],
                            AP_DMA_CASCADE_CHANNEL,

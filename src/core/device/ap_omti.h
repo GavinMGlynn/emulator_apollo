@@ -444,6 +444,21 @@ void ap_omti_fdc_write(ap_omti_t *omti, unsigned reg, uint8_t value);
  * came. */
 [[nodiscard]] bool ap_omti_disk_irq(const ap_omti_t *omti);
 
+/* Whether the fixed-disk side is asking for a DMA cycle -- `DRQ7` on this
+ * board, Table 2-4's 16-bit Winchester line.
+ *
+ * The same derivation as the interrupt, from the same register: §4.3 gates
+ * `DREQ` on the MASK byte's DMA ENABLE -- "If the DMA ENABLE bit in the MASK
+ * byte has been previously set, data will be transferred in DMA mode ... it
+ * will set the DREQ bit" -- and the controller already raises and lowers it
+ * around a data phase. So the line is the bit, and asking for it is not
+ * inventing a condition.
+ *
+ * `board/ap_disk.h` said this had no line because "nothing in this controller
+ * knows a transfer is in progress" while only the register sets were modelled,
+ * and that "It gains a line when the command sets do." They do now. */
+[[nodiscard]] bool ap_omti_disk_dma_request(const ap_omti_t *omti);
+
 /* Attach a drive to the fixed-disk half, or `NULL` for none. Caller-owned. */
 void ap_omti_attach(ap_omti_t *omti, ap_awd_t *drive);
 

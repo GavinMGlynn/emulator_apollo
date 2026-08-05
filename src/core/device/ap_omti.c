@@ -52,6 +52,13 @@ void ap_omti_reset(ap_omti_t *omti) {
   omti->disk_change = true;
 }
 
+bool ap_omti_disk_dma_request(const ap_omti_t *omti) {
+  /* The bit alone: the controller sets it only when DMA is enabled *and* a data
+   * phase is live, and clears it when the phase ends, so both halves of the
+   * condition are already in it. */
+  return (omti->status & AP_OMTI_ST_DREQ) != 0u;
+}
+
 bool ap_omti_disk_irq(const ap_omti_t *omti) {
   return (omti->mask & AP_OMTI_MASK_INTERRUPT_ENABLE) != 0u &&
          (omti->status & AP_OMTI_ST_IREQ) != 0u;
@@ -113,6 +120,15 @@ static void finish(ap_omti_t *omti, bool error, uint8_t sense) {
    * rather than a quotation. */
   omti->status |= (uint8_t)(AP_OMTI_ST_IREQ | AP_OMTI_ST_CD |
                             AP_OMTI_ST_IO | AP_OMTI_ST_REQ);
+  /* And `DREQ` goes down, because the data phase it belonged to is over.
+   *
+   * `DREQ` is "1 = DMA Cycle Requested", and there is no DMA cycle in a status
+   * phase: the status byte travels through the data register under `REQ`, not
+   * under `DACK`. Left standing it was a request the 8237 would keep servicing
+   * against a controller with nothing to give, which is a transfer that never
+   * ends rather than one that ends wrong -- and it was invisible while nothing
+   * connected the bit to a DMA channel at all. */
+  omti->status = (uint8_t)(omti->status & ~AP_OMTI_ST_DREQ);
 }
 
 /* The address a data command names, and whether the drive has it. */

@@ -312,6 +312,43 @@ static void test_a_completed_command_asks_for_an_interrupt_when_enabled(void) {
   TEST_ASSERT_FALSE(ap_omti_disk_irq(&o));
 }
 
+
+/* `DREQ`, the other line the board could not wire.
+ *
+ * §4.3 gates it on the MASK byte's DMA ENABLE -- "If the DMA ENABLE bit in the
+ * MASK byte has been previously set, data will be transferred in DMA mode ...
+ * it will set the DREQ bit" -- so a controller in programmed I/O must *not*
+ * assert it, and one in DMA mode must, for exactly as long as the data phase
+ * lasts. `board/ap_disk.h` deferred the line because nothing knew a transfer
+ * was in progress while only the register sets were modelled; the command sets
+ * know, and this is the bit they set. */
+static void test_the_data_phase_asks_for_dma_only_when_dma_is_enabled(void) {
+  ap_omti_t polled;
+  ap_omti_reset(&polled);
+
+  /* Programmed I/O: a data phase with no request in it. A controller asserting
+   * `DREQ` here would ask for a cycle nobody arranged. */
+  static const uint8_t sense[6] = {0x03, 0, 0, 0, 0, 0}; /* REQUEST SENSE */
+  issue(&polled, sense);
+  TEST_ASSERT_EQUAL_INT(AP_OMTI_PHASE_DATA_IN, ap_omti_disk_phase(&polled));
+  TEST_ASSERT_FALSE(ap_omti_disk_dma_request(&polled));
+
+  /* The same command with DMA enabled, and now it asks. */
+  ap_omti_t dma;
+  ap_omti_reset(&dma);
+  ap_omti_disk_write(&dma, AP_OMTI_DISK_MASK, AP_OMTI_MASK_DMA_ENABLE);
+  issue(&dma, sense);
+  TEST_ASSERT_EQUAL_INT(AP_OMTI_PHASE_DATA_IN, ap_omti_disk_phase(&dma));
+  TEST_ASSERT_TRUE(ap_omti_disk_dma_request(&dma));
+
+  /* And it stops asking once the phase is over: a request left standing would
+   * run the whole of memory through a finished transfer. */
+  for (unsigned i = 0; i < sizeof dma.sense; i++) {
+    (void)ap_omti_disk_read(&dma, AP_OMTI_DISK_DATA);
+  }
+  TEST_ASSERT_FALSE(ap_omti_disk_dma_request(&dma));
+}
+
 static void test_two_controllers_reset_alike_hold_identical_state(void) {
   ap_omti_t a;
   ap_omti_t b;
@@ -337,6 +374,7 @@ int main(void) {
   RUN_TEST(test_a_word_read_of_the_data_port_takes_two_buffer_bytes);
   RUN_TEST(test_a_block_count_past_the_manuals_cap_is_refused);
   RUN_TEST(test_a_completed_command_asks_for_an_interrupt_when_enabled);
+  RUN_TEST(test_the_data_phase_asks_for_dma_only_when_dma_is_enabled);
   RUN_TEST(test_two_controllers_reset_alike_hold_identical_state);
   return UNITY_END();
 }
