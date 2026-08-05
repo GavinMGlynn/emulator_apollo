@@ -253,7 +253,7 @@ bool ap_m68030_cache_burst_request(const ap_m68030_cache_t *cache,
 
 ap_m68030_cache_access_t
 ap_m68030_cache_read(ap_m68030_cache_t *cache, uint32_t address,
-                     uint8_t function_code, bool cache_enabled,
+                     uint32_t physical, uint8_t function_code, bool cache_enabled,
                      bool burst_enable, bool frozen, bool read_modify_write,
                      ap_m68030_fill_fn fill,
                      ap_m68030_wait_states_fn wait_states, void *context) {
@@ -278,11 +278,16 @@ ap_m68030_cache_read(ap_m68030_cache_t *cache, uint32_t address,
   /* A burst fills the whole line, so it addresses the line's base; a single
    * entry fill addresses its own long word. */
   const uint32_t line_address = address & ~UINT32_C(0xF);
-  const uint32_t cycle_address = burst ? line_address : (address & ~UINT32_C(3));
+
+  /* The *bus* addresses, which are the physical ones. The cache's own line
+   * address above stays logical, because that is what tags it. */
+  const uint32_t physical_line = physical & ~UINT32_C(0xF);
+  const uint32_t physical_cycle =
+      burst ? physical_line : (physical & ~UINT32_C(3));
 
   ap_m68030_fill_answer_t answer = {0};
   answer.termination = AP_M68030_TERM_STERM;
-  fill(context, burst ? line_address : cycle_address, function_code, &answer);
+  fill(context, physical_cycle, function_code, &answer);
 
   ap_m68030_bus_t bus;
   /* The RMC the caller is running under: `read_modify_write` is already this
@@ -290,7 +295,7 @@ ap_m68030_cache_read(ap_m68030_cache_t *cache, uint32_t address,
    * read-modify-write cycles" -- which ap_m68030_bus_request_burst now enforces
    * from the same flag rather than from a second one that could disagree. */
   bus.rmc = read_modify_write;
-  ap_m68030_bus_begin(&bus, cycle_address, function_code, AP_M68030_SIZE_LONG,
+  ap_m68030_bus_begin(&bus, physical_cycle, function_code, AP_M68030_SIZE_LONG,
                       true, true);
   if (burst) {
     ap_m68030_bus_request_burst(&bus);
@@ -303,7 +308,7 @@ ap_m68030_cache_read(ap_m68030_cache_t *cache, uint32_t address,
    * making a fault wait would delay the exception rather than the data. */
   const unsigned waits =
       (wait_states != NULL && answer.termination != AP_M68030_TERM_BERR)
-          ? wait_states(context, cycle_address, true)
+          ? wait_states(context, physical_cycle, true)
           : 0u;
   while (ap_m68030_bus_active(&bus)) {
     ap_m68030_bus_terminate(&bus, bus.wait_states >= waits

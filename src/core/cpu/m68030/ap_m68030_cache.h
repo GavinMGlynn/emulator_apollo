@@ -297,9 +297,27 @@ typedef struct {
  *
  * `cache_enabled` is the result of `ap_m68030_cache_enabled`, so CDIS and CIOUT
  * are already folded in: a disabled or inhibited access still *runs*, it simply
- * neither reads nor fills the cache. */
+ * neither reads nor fills the cache.
+ *
+ * ## Two addresses, because the part has two
+ *
+ * `address` is **logical** and tags the cache: the MC68030's on-chip caches are
+ * logically addressed, so a hit is decided before any translation. `physical`
+ * is what the *bus cycle* uses when the lookup misses.
+ *
+ * They were one parameter, and with the MMU off that is invisible because the
+ * two are equal. With it on, every read miss fetched from the logical address:
+ * the translation was computed, stored in `out.physical`, and then not used --
+ * so a program that mapped a page somewhere else still read the memory under
+ * the address it wrote. The write path had always used `physical`, so writes
+ * landed where the MMU said and reads did not.
+ *
+ * The low four bits agree by construction -- the smallest page this part
+ * supports is 256 bytes and a line is sixteen -- so the offset within the line
+ * is the same either way. */
 ap_m68030_cache_access_t
 ap_m68030_cache_read(ap_m68030_cache_t *cache, uint32_t address,
+                     uint32_t physical,
                      uint8_t function_code, bool cache_enabled,
                      bool burst_enable, bool frozen, bool read_modify_write,
                      ap_m68030_fill_fn fill,

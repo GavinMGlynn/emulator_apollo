@@ -3032,25 +3032,23 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         *Verification: `omti_suite`'s word-read test now asserts the order
         rather than "either" -- and the machine loads and runs `SELF_TEST
         Revision 2.4` off its own disk, which is Domain/OS code executing.*
-  - [ ] **`CPU (mmu) Test #0`: the walk produces identity.** Measured at the
-        failing compare rather than inferred: translation **enabled**, both
-        transparent windows **disabled**, `CRP` and `SRP` both `01200000` so
-        the split-supervisor bit is not the problem -- and the read at
-        `01224C00` still returns `01224C00`, the untranslated content. The whole
-        run performs **15** descriptor fetches where a 1 KB-page table over
-        megabytes should perform thousands, and an empty ATC cannot explain
-        that. A question about this core's table search, not about the boot.
-        Detail in `PROJECT_STATUS.md`.
-        *Verification: the console going past the MMU test.*
-    - [x] **The oracle harness could only watch a machine it had stopped.**
-          Every stage knocks -- sends until the MD prompt answers -- and typing
-          interrupts the boot, so no session this project has run could be
-          compared against a self-test sequence. A `watch` stage sends **one**
-          character and then stays quiet: not none, because the PROM autobauds
-          and a console nobody types at never speaks, which cost eleven minutes
-          of empty log to rediscover. Detail in `PROJECT_STATUS.md`.
-          *Verification: `test_mdsession.py` +3 -- that it returns without
-          knocking, still autobauds, and says which it is doing.*
+  - [x] **`CPU (mmu) Test #0` passes: the cache was tagged and filled from the
+        same address.** The MC68030's caches are *logically* addressed, so a hit
+        is decided before translation -- and the bus cycle filling a miss uses
+        the address the **MMU** produced. `ap_m68030_cache_read` took one
+        address for both, which is invisible with the MMU off and wrong the
+        moment a page is mapped anywhere but on top of itself. The write path
+        had always used the physical address, so a mapped page could be written
+        where the MMU said and read from where it was not -- the identity the
+        diagnostic saw. Detail in `PROJECT_STATUS.md`.
+        *Verification: `access_suite` +1 (14), asserting the fill was asked for
+        the physical address and not the logical one. Descriptor fetches go from
+        15 to 42,579, and the boot passes the MMU test and moves to
+        `CPU (interrupts) Test #0`.*
+  - [ ] **`CPU (interrupts) Test #0`,** at `00011100` -- Table 2-8's interrupt
+        controller #2. `Expected= 00000000, Actual= 01FFFC00`. This is the 8259
+        ordering work this session opened by naming, reached from the other end.
+        *Verification: the console going past the interrupt test.*
     - [x] **A run says what the MMU is doing, and `--boot-stop-pc` was
           answering untested questions.** The flag checked the PC *after* the
           step loop's fast path, so it only took effect when a trace or ring was

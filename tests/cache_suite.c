@@ -510,7 +510,7 @@ static void test_a_slow_device_lengthens_the_cycle_by_its_wait_states(void) {
     };
 
     const ap_m68030_cache_access_t got = ap_m68030_cache_read(
-        &cache, ADDRESS, FC_SUPERVISOR_DATA, true, cases[i].burst, false, false,
+        &cache, ADDRESS, ADDRESS, FC_SUPERVISOR_DATA, true, cases[i].burst, false, false,
         waiting_fill, waiting_wait_states, &waiting);
 
     TEST_ASSERT_EQUAL_UINT_MESSAGE(cases[i].clocks, got.clocks,
@@ -526,7 +526,7 @@ static void test_a_miss_costs_a_burst_and_the_next_hit_costs_nothing(void) {
   memory_t memory = sterm_burst_memory();
 
   const ap_m68030_cache_access_t miss = ap_m68030_cache_read(
-      &cache, ADDRESS, FC_SUPERVISOR_DATA, true, true, false, false,
+      &cache, ADDRESS, ADDRESS, FC_SUPERVISOR_DATA, true, true, false, false,
       memory_fill, nullptr, &memory);
 
   TEST_ASSERT_FALSE(miss.hit);
@@ -537,7 +537,7 @@ static void test_a_miss_costs_a_burst_and_the_next_hit_costs_nothing(void) {
   TEST_ASSERT_EQUAL_HEX32(0xC0DE0002u, miss.value);
 
   const ap_m68030_cache_access_t hit = ap_m68030_cache_read(
-      &cache, ADDRESS, FC_SUPERVISOR_DATA, true, true, false, false,
+      &cache, ADDRESS, ADDRESS, FC_SUPERVISOR_DATA, true, true, false, false,
       memory_fill, nullptr, &memory);
 
   TEST_ASSERT_TRUE(hit.hit);
@@ -553,12 +553,12 @@ static void test_one_burst_fill_serves_the_whole_line(void) {
   ap_m68030_cache_t cache = empty_cache();
   memory_t memory = sterm_burst_memory();
 
-  (void)ap_m68030_cache_read(&cache, ADDRESS, FC_SUPERVISOR_DATA, true, true,
+  (void)ap_m68030_cache_read(&cache, ADDRESS, ADDRESS, FC_SUPERVISOR_DATA, true, true,
                              false, false, memory_fill, nullptr, &memory);
 
   for (unsigned e = 0; e < AP_M68030_BURST_BEATS; e++) {
     const ap_m68030_cache_access_t access = ap_m68030_cache_read(
-        &cache, 0x00001010u + (e * 4u), FC_SUPERVISOR_DATA, true, true, false,
+        &cache, 0x00001010u + (e * 4u), 0x00001010u + (e * 4u), FC_SUPERVISOR_DATA, true, true, false,
         false, memory_fill, nullptr, &memory);
     TEST_ASSERT_TRUE(access.hit);
     TEST_ASSERT_EQUAL_UINT32(0, access.clocks);
@@ -575,7 +575,7 @@ static void test_a_miss_without_cback_costs_a_single_cycle(void) {
   memory.cback = false;
 
   const ap_m68030_cache_access_t miss = ap_m68030_cache_read(
-      &cache, ADDRESS, FC_SUPERVISOR_DATA, true, true, false, false,
+      &cache, ADDRESS, ADDRESS, FC_SUPERVISOR_DATA, true, true, false, false,
       memory_fill, nullptr, &memory);
 
   TEST_ASSERT_FALSE(miss.burst);
@@ -584,7 +584,7 @@ static void test_a_miss_without_cback_costs_a_single_cycle(void) {
 
   /* Only the accessed entry was filled: its neighbour still misses. */
   const ap_m68030_cache_access_t neighbour = ap_m68030_cache_read(
-      &cache, 0x00001010u, FC_SUPERVISOR_DATA, true, true, false, false,
+      &cache, 0x00001010u, 0x00001010u, FC_SUPERVISOR_DATA, true, true, false, false,
       memory_fill, nullptr, &memory);
   TEST_ASSERT_FALSE(neighbour.hit);
 }
@@ -598,7 +598,7 @@ static void test_a_disabled_cache_pays_for_every_access(void) {
 
   for (unsigned i = 0; i < 3; i++) {
     const ap_m68030_cache_access_t access = ap_m68030_cache_read(
-        &cache, ADDRESS, FC_SUPERVISOR_DATA, false /* disabled */, true, false,
+        &cache, ADDRESS, ADDRESS, FC_SUPERVISOR_DATA, false /* disabled */, true, false,
         false, memory_fill, nullptr, &memory);
     TEST_ASSERT_FALSE(access.hit);
     TEST_ASSERT_EQUAL_UINT32(2, access.clocks);
@@ -613,13 +613,13 @@ static void test_a_frozen_cache_fetches_but_does_not_keep(void) {
   memory_t memory = sterm_burst_memory();
 
   const ap_m68030_cache_access_t first = ap_m68030_cache_read(
-      &cache, ADDRESS, FC_SUPERVISOR_DATA, true, true, true /* frozen */, false,
+      &cache, ADDRESS, ADDRESS, FC_SUPERVISOR_DATA, true, true, true /* frozen */, false,
       memory_fill, nullptr, &memory);
   TEST_ASSERT_FALSE(first.hit);
   TEST_ASSERT_EQUAL_HEX32(0xC0DE0002u, first.value);
 
   const ap_m68030_cache_access_t second = ap_m68030_cache_read(
-      &cache, ADDRESS, FC_SUPERVISOR_DATA, true, true, true, false, memory_fill,
+      &cache, ADDRESS, ADDRESS, FC_SUPERVISOR_DATA, true, true, true, false, memory_fill,
       nullptr, &memory);
   TEST_ASSERT_FALSE(second.hit);
   TEST_ASSERT_EQUAL_UINT(2, memory.calls);
@@ -633,7 +633,7 @@ static void test_a_bus_error_on_a_fill_caches_nothing(void) {
   memory.termination = AP_M68030_TERM_BERR;
 
   const ap_m68030_cache_access_t access = ap_m68030_cache_read(
-      &cache, ADDRESS, FC_SUPERVISOR_DATA, true, true, false, false,
+      &cache, ADDRESS, ADDRESS, FC_SUPERVISOR_DATA, true, true, false, false,
       memory_fill, nullptr, &memory);
 
   TEST_ASSERT_TRUE(access.bus_error);

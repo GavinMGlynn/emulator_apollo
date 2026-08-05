@@ -28,6 +28,7 @@ typedef struct {
   unsigned stores;
   uint32_t last_store_address;
   uint32_t last_store_value;
+  uint32_t last_fill;
 } memory_t;
 
 static bool memory_store(void *context, uint32_t physical, uint32_t value,
@@ -45,6 +46,9 @@ static void memory_fill(void *context, uint32_t line_address,
   (void)function_code;
   memory_t *memory = (memory_t *)context;
   memory->fills++;
+  /* Which address the *bus* was asked for. The cache is tagged logically and
+   * filled physically, and only this says which of the two reached memory. */
+  memory->last_fill = line_address;
   out->termination = AP_M68030_TERM_STERM;
   out->burst_acknowledge = true;
   const unsigned base = ap_m68030_cache_entry_index(line_address);
@@ -381,8 +385,40 @@ static void test_every_write_reaches_memory(void) {
   TEST_ASSERT_EQUAL_HEX32(hit.physical, m.memory.last_store_address);
 }
 
+/* ## The cache is tagged logically and filled physically
+ *
+ * The MC68030's on-chip caches are logically addressed, so a hit is decided
+ * before any translation -- but the bus cycle that fills a miss uses the
+ * address the MMU produced. Those were one parameter here, which is invisible
+ * with the MMU off because the two are equal, and wrong the moment a page is
+ * mapped anywhere but on top of itself: the translation was computed, reported
+ * in `out.physical`, and then not used.
+ *
+ * The write path had always used the physical address, so a mapped page could
+ * be *written* where the MMU said and *read* from where it was not. The boot
+ * PROM's loaded diagnostic is what found it -- its MMU test maps every page one
+ * higher and reads back through the mapping.
+ */
+static void test_a_read_miss_fills_from_the_physical_address(void) {
+  machine_t m = make_machine();
+  ap_m68030_access_ctx_t access = context_of(&m);
+  const uint32_t logical = 0x00001010u;
+  const ap_m68030_access_result_t got = ap_m68030_access_read(
+      &access, logical, FC_SUPERVISOR_DATA);
+
+  TEST_ASSERT_TRUE(got.ok);
+  TEST_ASSERT_EQUAL_UINT(1u, m.memory.fills);
+
+  /* The translation this harness's table produces, and *not* the logical
+   * address it was asked for -- which is what the fill used before. */
+  TEST_ASSERT_NOT_EQUAL_UINT32(logical & ~UINT32_C(0xF), got.physical &
+                                                             ~UINT32_C(0xF));
+  TEST_ASSERT_EQUAL_HEX32(got.physical & ~UINT32_C(0xF), m.memory.last_fill);
+}
+
 int main(void) {
   UNITY_BEGIN();
+  RUN_TEST(test_a_read_miss_fills_from_the_physical_address);
   RUN_TEST(test_a_cold_access_consults_the_mmu_and_pays_for_it);
   RUN_TEST(test_a_cache_hit_costs_nothing_and_skips_the_mmu);
   RUN_TEST(test_the_rest_of_the_filled_line_also_skips_the_mmu);
