@@ -71,6 +71,7 @@ add_library(apollo_core STATIC
   device/ap_bt458.c
   device/ap_mc6840.c
   board/ap_boardreg.c
+  board/ap_parity.c
   board/ap_intr.c
   board/ap_timer.c
   cpu/m68030/ap_m68030_addr.c

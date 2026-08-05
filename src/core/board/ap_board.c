@@ -257,11 +257,32 @@ void ap_board_sample_interrupts(ap_board_t *board) {
    * them. It lands with the controller's own item. */
 }
 
+bool ap_board_parity_interrupt(const ap_board_t *board) {
+  /* A level, not an event, and so held rather than latched: `008778-03` §3.2
+   * says "writing to the status register clears the interrupt status", which is
+   * the only thing that lowers it. Deriving it from the two registers instead
+   * of keeping a flag is what makes `clr.w $10000` and `019411-A00`'s Clear
+   * Parity Error Flag both work without either being wired for. */
+  return (board->registers.cpu_status & AP_BOARDREG_STATUS_PARITY_MASK) != 0u &&
+         (board->registers.cpu_control &
+          AP_BOARDREG_CONTROL_INTERRUPT_ENABLE) != 0u;
+}
+
 unsigned ap_board_interrupt_level(const ap_board_t *board) {
+  /* Parity first, because it is level 7 and nothing the 8259s can raise
+   * outranks it. `008778-03` §3.2: "The parity error interrupt is a
+   * non-maskable interrupt to the CPU. It generates a Level 7 interrupt". */
+  if (ap_board_parity_interrupt(board)) {
+    return AP_BOARD_PARITY_LEVEL;
+  }
   /* Measured, not transcribed: `FINDINGS.md` C12 started the interval timer by
    * hand and swept the CPU's mask -- taken at 5, blocked at 6. Zero is "no
    * interrupt", which is what level zero means on this part. */
   return ap_intr_pending(&board->interrupts) ? AP_INTR_CPU_LEVEL : 0u;
+}
+
+bool ap_board_attach_parity(ap_board_t *board, uint8_t *bad, uint32_t bytes) {
+  return ap_parity_attach(&board->parity, bad, bytes, board->ram_bytes);
 }
 
 uint8_t ap_board_interrupt_acknowledge(ap_board_t *board) {
@@ -540,6 +561,14 @@ bool ap_board_init_model(ap_board_t *board, uint8_t *ram, uint32_t ram_bytes,
   memset(board, 0, sizeof *board);
   board->map = ap_board_map_for(model);
   ap_boardreg_init(&board->registers);
+  {
+    /* Machine variance out of the one table, never a conditional here. */
+    const ap_model_t *entry = ap_model_by_id(model);
+    ap_boardreg_set_active_low_lanes(
+        &board->registers,
+        entry == NULL || entry->has_active_low_parity_lanes);
+  }
+  ap_parity_init(&board->parity);
   ap_atmap_init(&board->translation_map);
   ap_intr_reset(&board->interrupts);
   if (!ap_timer_reset(&board->timer)) {
@@ -583,6 +612,18 @@ bool ap_board_init_model(ap_board_t *board, uint8_t *ram, uint32_t ram_bytes,
   board->ram = ram;
   board->ram_bytes = ram_bytes;
   return true;
+}
+
+/* A read whose parity check failed. `008778-03` §3.2 and §3.3 between them give
+ * every part of this: the status bit for the lane, the latched page, and a
+ * level 7 autovectored interrupt if the control register enables it.
+ *
+ * The latch is a *page* number and not an address -- `019411-A00` §4.2.1.4 has
+ * the same `<25:10>` field as the address translation map entry, which is the
+ * other place this machine names a physical page. */
+static void parity_error(ap_board_t *board, uint32_t address, uint32_t offset) {
+  ap_boardreg_latch_status(&board->registers, ap_parity_lane_bit(offset));
+  board->registers.latch_page_on_parity = (uint16_t)(address >> 10);
 }
 
 uint8_t ap_board_read(ap_board_t *board, uint32_t address, bool *ok) {
@@ -655,6 +696,12 @@ uint8_t ap_board_read(ap_board_t *board, uint32_t address, bool *ok) {
     uint32_t offset = address - board->map->ram_base;
     if (board->ram == NULL || offset >= board->ram_bytes) {
       break; /* past the memory actually fitted */
+    }
+    if (ap_parity_check(&board->parity, offset)) {
+      /* The check fails, and the *data* still arrives -- the F280s sit beside
+       * the array, not in front of it. Self-test 7 depends on that: it reads
+       * the longword into `d0` and the failure reporter prints it. */
+      parity_error(board, address, offset);
     }
     return board->ram[offset];
   }
@@ -761,6 +808,11 @@ void ap_board_write(ap_board_t *board, uint32_t address, uint8_t value,
       break;
     }
     board->ram[offset] = value;
+    /* Parity is generated on every write, so this runs on every write and not
+     * only the diagnostic ones -- an ordinary write is how a forced-bad byte
+     * gets its correct parity back. */
+    ap_parity_write(&board->parity, offset,
+                    ap_boardreg_forced_lanes(&board->registers));
     return;
   }
   case AP_BOARD_REGION_PROM:

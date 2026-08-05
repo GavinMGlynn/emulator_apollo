@@ -107,6 +107,23 @@ typedef struct {
    * hardware reference could overturn. */
   bool has_address_translation_map;
 
+  /* Whether the CPU control register's four parity-lane bits are **active
+   * low**, so `08` means "force bad parity on all four lanes" rather than `F8`.
+   *
+   * The boot PROMs settle it without needing a manual, because both families
+   * run the same self-test and write complementary values into it: `08` in
+   * `3500_BOOT_12191_7` at `00744E`, `4500_BOOT_13167_02` at `00746E` and
+   * `5500_BOOT_A1631-80046` at `007BFE`; `F8` in `3000_BOOT_8475_4` at `0067F4`
+   * and `3000_BOOT_8475_7` at `006848`. Each then requires all four status bits
+   * back, so the two values mean one thing and the families differ by an
+   * inversion.
+   *
+   * The DN2500's PROM contains **no** forced-parity write at all, so nothing in
+   * hand tests it either way; it follows the Series 4000 here on the oracle's
+   * split, which is the weakest entry in this field and is named as such in its
+   * `provisional` string. */
+  bool has_active_low_parity_lanes;
+
   /* Non-NULL when one or more fields above are not yet confirmed against a
    * cited source. The string names exactly which. */
   const char *provisional;

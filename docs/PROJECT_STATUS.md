@@ -4597,6 +4597,111 @@ last and hardest — **a decoded PNG**. Register round-trips and word-level
 identities are what can be checked without one, and a controller that passes
 those and draws nothing is the standard way this goes wrong.
 
+#### The memory array's parity circuit, and self-test 7 passes
+
+The boot PROM in normal mode announces `CPU Test # 7` and then failed it, every
+time, for a reason that needed no measurement to find: **this core had no parity
+circuit at all**. The test forces bad parity, reads the location back, and
+expects a trap. A machine that cannot generate the error cannot pass.
+
+Unusually for these registers, there is a paper route, and it settles more than
+the oracle would have. `008778-03` §3.3: *"The memory array consists of 36 RAM
+chips. Thirty-two of these are used for data. The other four chips are used for
+the parity circuitry"*, and *"The parity circuitry for the memory array uses
+**four** F280 parity checker/generators to generate the parity bits on Write
+operations and to check the parity bits on Read operations"*. Four checkers over
+thirty-two data bits is **one per byte lane** — which is why the parity fields
+in the status and control registers are four bits wide, a fact that would
+otherwise have had to be guessed at from a mask.
+
+§3.2 gives the interrupt whole: *"The parity error interrupt is a non-maskable
+interrupt to the CPU. It generates a **Level 7** interrupt to the CPU. When the
+vector is fetched, it comes from the Level 7 **autovector** location in the CPU
+exception table (0 x 07c)."* Three separate things a model would otherwise
+invent — the level, that the cycle is **autovectored** rather than answered by
+one of the 8259s like every other interrupt on this board, and the vector
+number. The firmware agrees from the other side: self-test 7 installs its
+handler at `$7c` off a VBR of `01000400` and expects to land in it.
+
+**The lane bits are active low, and the firmware proves it without the oracle.**
+The DS3500, DS4500 and DS5500 PROMs write `08` to force bad parity — bit 3 set,
+all four lane bits *clear* — and then require all four status bits back. Both
+DN3000 PROMs run the same test and write `F8`: bit 3 set and all four lane bits
+**set**. Two families, complementary values, one behaviour. That is a model
+difference, so it is a field in the model table
+(`has_active_low_parity_lanes`), not a conditional in the board.
+
+**One bit per byte of main memory, and the core still allocates nothing.** The
+state a parity circuit has is its parity RAM — nine bits stored per byte, eight
+of which are the data — so what must be remembered is one bit per byte: *this
+byte's stored parity disagrees with it*. An ordinary write regenerates parity,
+which is the entire clearing behaviour and needs no separate rule; the firmware
+never un-forces anything, it just writes the location again at `00749A`. The
+store is caller-supplied like main memory and the frame buffers, and a board
+without one has **no parity RAM fitted** — a describable machine, and a visible
+one, because the forced writes it could not store are counted and reported.
+
+This is a place where the oracle is a sketch. It tracks a **single** bad
+longword in two file-scope variables and installs a MAME read handler over it,
+capped at forty installations with a comment explaining that the memory system
+runs out of handlers; a second forced write loses the first, and the handler is
+never really uninstalled. Enough for the one self-test that exists, and not the
+hardware. A bitmap is `ram_bytes / 8` and costs nothing to be exact with.
+
+The interrupt is **derived, not latched**: asserted exactly while the status
+register's parity bits are set and the control register enables it. That is what
+§3.2's *"writing to the status register clears the interrupt status"* describes,
+and it makes `019411-A00`'s Clear Parity Error Flag at `016406` work by itself
+without being wired for.
+
+`PROVISIONAL`: **which lane bit is which byte**. Every image in hand drives the
+four bits together — `08` or `F8`, never a partial mask — so no firmware here
+distinguishes bit 4 from bit 7, and neither manual lays the register out. The
+assignment is a stated convention (lane *n* is the byte at address bit 0-1
+counted from the most significant, taking status bit `4 + n`), nothing in the
+machine can currently tell it from the other three, and the suite deliberately
+asserts only what is true under any of them: the four bytes of a longword take
+four *different* bits. Closing it needs the architecture handbook's register
+layout, or a program that forces one lane.
+
+**And the boot walks past it.** The console now reads
+
+    Self tests in progress.
+       CPU              Test # 7 started.
+       Memory Module 1  Test # 0 started.
+
+where before it stopped at test 7 with `Expected= 00000000, Actual= FEFFFF07`.
+The run reports `4 forced write(s), 4 error(s), first at 0100A000` — exactly the
+one longword the test forces, and nothing else in thirty million instructions,
+which is the check that the circuit is not firing where it should be silent.
+
+The new stop is inside the memory module test and is **not** in this module:
+`Unexpected CPU bus error referencing 0100A005`. It is the next lead, not a
+tail of this one.
+
+#### The LED byte and the parity byte are different halves
+
+Found while wiring the above, and it had been corrupting a diagnostic for as
+long as the diagnostic has existed. The control register's *upper* byte drives
+the LEDs (`008778-03` §3.7) and the firmware writes it at `010100`; the parity
+control is the *lower* byte at `010101`. This model treated the two addresses
+alike, so a byte write to either replaced the whole register.
+
+The cost was visible in every boot report and went unread: the posted-code list
+ended `... 8F 08 00 01`, and `08 00 01` is not a diagnostic code at all — it is
+self-test 7 writing the parity control at `00744E`, `00745C` and `00746C`. Byte
+lane is address bit 0, big-endian, which is what a 16-bit register on this bus
+is; the cache control register keeps its own rule, being measured aliased across
+its whole range because it is a *byte* register.
+
+#### A run says where it faulted
+
+`bus errors` was a bare count, which answers "did anything go unanswered" and
+not "what was the machine doing when it stopped". It now carries the first and
+the last address: the first says what a run tripped over on its way up, the last
+says what it was reaching for when it ended. Two lines of instrument that turned
+"260 bus errors" into a place to look.
+
 #### A status-register write acknowledges; it does not throw the switch
 
 The boot PROM in **normal** mode runs its self-tests, and the first thing this

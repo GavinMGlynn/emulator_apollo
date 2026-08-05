@@ -20,6 +20,11 @@ void ap_boardreg_init(ap_boardreg_t *regs) {
   regs->cpu_control = CPU_CONTROL_RESET;
   regs->cache_control = CACHE_CONTROL_RESET;
   regs->latch_page_on_parity = LATCH_PAGE_RESET;
+  regs->active_low_parity_lanes = true;
+}
+
+void ap_boardreg_set_active_low_lanes(ap_boardreg_t *regs, bool active_low) {
+  regs->active_low_parity_lanes = active_low;
 }
 
 /* Table 2-8's ranges are 256 bytes and the register is aliased within one, so
@@ -154,10 +159,10 @@ static void store(ap_boardreg_t *regs, ap_boardreg_id_t id, uint16_t value) {
     break;
   case AP_BOARDREG_CPU_CONTROL:
     regs->cpu_control = value;
-    /* Also the diagnostic LEDs: a self-test failure posts its code here rather
-     * than to any console, so this is the machine's own account of what went
-     * wrong. See the header. */
-    ap_boardreg_post_code(regs, (uint8_t)value);
+    /* Also the diagnostic LEDs, which are the register's *upper* byte: a
+     * self-test failure posts its code here rather than to any console, so this
+     * is the machine's own account of what went wrong. See the header. */
+    ap_boardreg_post_code(regs, (uint8_t)(value >> 8));
     break;
   case AP_BOARDREG_CACHE_CONTROL:
     regs->cache_control = (uint8_t)(value & AP_BOARDREG_CACHE_WRITABLE);
@@ -197,7 +202,37 @@ void ap_boardreg_write8(ap_boardreg_t *regs, uint32_t address, uint8_t value) {
     selective_clear(regs, address);
     return;
   }
-  store(regs, id, value);
+  if (id == AP_BOARDREG_CACHE_CONTROL) {
+    /* A byte register, measured aliased across the *whole* range -- `010201`
+     * behaves identically to `010200`. So there is no lane to choose. */
+    store(regs, id, value);
+    return;
+  }
+  /* Sixteen-bit registers: address bit 0 is the byte lane, big-endian, so an
+   * even address is the high half. Merging rather than replacing, because a
+   * byte write leaves the other half alone -- which is what the firmware
+   * writing LED codes at `010100` and parity control at `010101` depends on.
+   *
+   * The status register is the exception that proves it: a write to either half
+   * acknowledges, because a write there carries no value at all. */
+  const uint16_t held = value_of(regs, id);
+  const uint16_t merged =
+      (address & 1u) ? (uint16_t)((held & 0xFF00u) | (uint16_t)value)
+                     : (uint16_t)((held & 0x00FFu) | (uint16_t)(value << 8));
+  store(regs, id, merged);
+}
+
+uint16_t ap_boardreg_forced_lanes(const ap_boardreg_t *regs) {
+  const uint16_t control = regs->cpu_control;
+  if ((control & AP_BOARDREG_CONTROL_FORCE_BAD_PARITY) == 0u) {
+    return 0u;
+  }
+  /* `08` from this family's PROMs means all four lanes, and `F8` from the
+   * DN3000's means the same thing on a family where the bits are not inverted.
+   * Two families, complementary values, one behaviour. See the header. */
+  const unsigned bits = regs->active_low_parity_lanes ? ~(unsigned)control
+                                                      : (unsigned)control;
+  return (uint16_t)(bits & AP_BOARDREG_CONTROL_PARITY_LANE_MASK);
 }
 
 void ap_boardreg_post_code(ap_boardreg_t *regs, uint8_t written) {

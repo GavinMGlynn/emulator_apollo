@@ -546,7 +546,12 @@ static void report_state(const ap_machine_t *machine) {
    * machine whose clock rate was never set has produced no time at all, which
    * is visibly wrong here rather than quietly approximate. */
   printf("  elapsed      %llu base units\n", (unsigned long long)state.now);
-  printf("  bus errors   %u\n", state.bus_errors);
+  printf("  bus errors   %u", state.bus_errors);
+  if (state.bus_errors > 0u) {
+    printf(", first %08X, last %08X", state.first_bus_error,
+           state.last_bus_error);
+  }
+  printf("\n");
 }
 
 /* Run the machine from its boot PROM, which is how a DN3500 actually starts.
@@ -685,8 +690,15 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
       .year = 1987u, .month = 7u, .day = 31u, .day_of_week = 6u,
       .hour = 21u, .minute = 9u, .second = 21u,
   };
-  if (ram == NULL || board == NULL ||
-      !ap_board_init_model(board, ram, ram_bytes, &epoch, node_id, model)) {
+  /* The memory array's parity RAM: one bit per byte, allocated here because the
+   * core allocates nothing. A real board has it, so a booted machine gets it --
+   * self-test 7 forces bad parity and expects the level 7 interrupt back. */
+  const uint32_t parity_bytes = (ram_bytes + 7u) / 8u;
+  uint8_t *parity = calloc(1, parity_bytes);
+  if (ram == NULL || board == NULL || parity == NULL ||
+      !ap_board_init_model(board, ram, ram_bytes, &epoch, node_id, model) ||
+      !ap_board_attach_parity(board, parity, parity_bytes)) {
+    free(parity);
     free(board);
     free(ram);
     free(prom);
@@ -734,6 +746,7 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
       free(colour_memory);
       free(mono_memory);
       free(board);
+      free(parity);
       free(ram);
       free(prom);
       fprintf(stderr, "apollo: cannot allocate the graphics memories\n");
@@ -763,6 +776,7 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
       free(colour_memory);
       free(mono_memory);
       free(board);
+      free(parity);
       free(ram);
       free(prom);
       fprintf(stderr, "apollo: cannot read disk image %s\n", disk_path);
@@ -774,6 +788,7 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
       free(colour_memory);
       free(mono_memory);
       free(board);
+      free(parity);
       free(ram);
       free(prom);
       fprintf(stderr, "apollo: %s is not an Apollo Winchester image\n",
@@ -786,6 +801,7 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
 
   if (!ap_board_load_prom(board, prom, (uint32_t)size)) {
     free(board);
+    free(parity);
     free(ram);
     free(prom);
     fprintf(stderr, "apollo: %s does not fit the boot PROM region\n", path);
@@ -796,6 +812,7 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
   uint32_t pc = 0;
   if (!ap_board_reset_vector(board, &stack, &pc)) {
     free(board);
+    free(parity);
     free(ram);
     free(prom);
     fprintf(stderr, "apollo: %s carries no reset vector\n", path);
@@ -817,6 +834,7 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
               "device register would change the run it is measuring.\n",
               watch, ap_board_region_name(region));
       free(board);
+      free(parity);
       free(ram);
       free(prom);
       return 1;
@@ -1225,6 +1243,23 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
    * `region_writes` counts together and so cannot tell apart. "The firmware
    * never wrote a pixel" and "it wrote and nothing drew" are different answers
    * and only the second is a defect. Printed even at zero, for that reason. */
+  if (board->parity.forced_writes > 0u || board->parity.errors > 0u ||
+      board->parity.unstorable_writes > 0u) {
+    printf("  parity       %u forced write(s), %u error(s)",
+           board->parity.forced_writes, board->parity.errors);
+    if (board->parity.errors > 0u) {
+      printf(", first at %08X",
+             board->map->ram_base + board->parity.first_error_offset);
+    }
+    if (board->parity.unstorable_writes > 0u) {
+      /* A board asked to force bad parity with no parity RAM fitted. Said out
+       * loud, because a self-test that passes on such a board passes for the
+       * wrong reason. */
+      printf(", %u with no parity RAM fitted",
+             board->parity.unstorable_writes);
+    }
+    printf("\n");
+  }
   printf("  blit cycles  %u, %u plane write(s)\n", board->graphics_cycles,
          board->graphics_planes_written);
   if (board->graphics_unknown_mode_cycles > 0u) {
@@ -1284,6 +1319,7 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
   free(colour_memory);
   free(mono_memory);
   free(board);
+  free(parity);
   free(ram);
   free(prom);
   return status;

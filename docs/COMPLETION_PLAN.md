@@ -2794,6 +2794,22 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
 - [ ] **Integration check, not a milestone:** DN3500 boots Domain/OS SR10.x to a
       login prompt, console byte-identical to the oracle. *Verification: console
       diff plus a boot state hash.*
+  - [x] **The memory array's parity circuit, and self-test 7 passes.** This
+        core had none, so a test that forces bad parity and expects a trap could
+        not pass. `008778-03` §3.3 gives four F280 checkers, one per byte lane;
+        §3.2 gives the interrupt whole, **level 7 and autovectored at `007C`**,
+        the only one on this board no 8259 answers. The lane bits are active low
+        and the *firmware* proves it -- Series 4000 PROMs write `08`, the
+        DN3000's write `F8`, for the same effect -- so it is a model table
+        field. One bit per byte of main memory, caller-supplied like the RAM.
+        Carries two things found while wiring it: the control register's LED and
+        parity bytes are different halves, and a run now reports its first and
+        last faulting address. Detail in `PROJECT_STATUS.md`.
+        *Verification: `parity_suite`, 9 tests, a new CTest entry -- and the
+        boot, which now announces `Memory Module 1  Test # 0` where it stopped
+        at test 7, reporting exactly 4 forced writes and 4 errors in 30M
+        instructions. `PROVISIONAL`: which lane bit is which byte, which no
+        image distinguishes.*
   - [x] **A status-register write acknowledges conditions; it does not throw
         the switch.** This file argued bit 0 was a switch *input* and then
         cleared it on every write, and the PROM writes the register three times

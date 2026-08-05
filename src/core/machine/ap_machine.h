@@ -62,6 +62,8 @@ typedef struct {
   /* Counted rather than merely refused, so a probe can tell "my program ran and
    * touched nothing outside its memory" from "my program ran". */
   unsigned bus_errors;
+  uint32_t first_bus_error;
+  uint32_t last_bus_error;
 
   /* The two caches are separate objects because the part has two, and a machine
    * that shared one would hide every instruction/data interaction. */
@@ -225,6 +227,9 @@ typedef struct {
   ap_time_t now;      /* elapsed time since reset, in AP_TIME_BASE_HZ units */
   uint32_t pc;        /* where the processor is */
   unsigned bus_errors;/* how many accesses went unanswered */
+  /* Where the first and the last of them were. Diagnostics, like the count. */
+  uint32_t first_bus_error;
+  uint32_t last_bus_error;
 } ap_machine_state_t;
 
 [[nodiscard]] ap_machine_state_t ap_machine_state(const ap_machine_t *machine);

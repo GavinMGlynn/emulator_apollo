@@ -236,6 +236,41 @@ typedef enum {
   (AP_BOARDREG_STATUS_ALWAYS_SET | AP_BOARDREG_STATUS_FP_TRAP |                \
    AP_BOARDREG_STATUS_NORMAL_MODE)
 
+/* ## The control register's low byte, which the firmware writes separately
+ *
+ * The LEDs are the register's **upper** byte -- `008778-03` §3.7, "nine LED
+ * indicators for diagnostics that can be set or reset by writing to the upper
+ * byte of the control register" -- and the firmware byte-writes them at
+ * `010100`. It also byte-writes `010101`, the **lower** byte, and those writes
+ * are the parity diagnostic's.
+ *
+ * This model treated the two addresses alike, so the parity writes were
+ * arriving as LED codes: a boot's posted-code list ended `... 8F 08 00 01`,
+ * where `08 00 01` is the parity test at `00744E`, `00745C` and `00746C` and
+ * not a diagnostic code at all. Byte lane is address bit 0, big-endian, which
+ * is what a 16-bit register on this bus is.
+ *
+ * Bit 3, force bad parity, and bits 4-7, the byte lanes it applies to.
+ * `008778-03` §3.3 is where the four comes from -- "four F280 parity
+ * checker/generators" over 32 data bits, one per byte -- and the same section
+ * says the circuitry "can be forced bad by inputting to the F280 and writing
+ * into the parity RAM in diagnostic mode".
+ *
+ * **The lane bits are active low on this family**, and the firmware proves it
+ * without the oracle's help. The DS3500 and DS4500 PROMs write `08` -- bit 3
+ * set, all four lane bits *clear* -- and then require all four status bits to
+ * come back set. The two DN3000 PROMs run the same test and write `F8`: bit 3
+ * set and all four lane bits **set**. Two families, complementary values, one
+ * behaviour. `3000_BOOT_8475_7` at `006848`, `3500_BOOT_12191_7` at `00744E`,
+ * `4500_BOOT_13167_02` at `00746E`, `5500_BOOT_A1631-80046` at `007BFE`.
+ *
+ * What no image settles is **which lane bit is which byte**: every one of them
+ * drives all four together, so the four-bit field is only ever `0` or `F`. The
+ * assignment below is therefore `PROVISIONAL` -- see `ap_parity.h`. */
+#define AP_BOARDREG_CONTROL_INTERRUPT_ENABLE 0x0001u
+#define AP_BOARDREG_CONTROL_FORCE_BAD_PARITY 0x0008u
+#define AP_BOARDREG_CONTROL_PARITY_LANE_MASK 0x00F0u
+
 /* The cache control register is eight bits, not sixteen -- measured, and the
  * single most valuable thing the probe found, because a transcription working
  * from Table 2-8's uniform-looking rows would have made it a word like its
@@ -256,6 +291,9 @@ typedef struct {
   uint16_t cpu_control;
   uint8_t cache_control;
   uint16_t latch_page_on_parity;
+  /* A model difference, not a measurement of this board: see
+   * `ap_boardreg_set_active_low_lanes`. */
+  bool active_low_parity_lanes;
 } ap_boardreg_t;
 
 /* Reset to the measured power-on values.
@@ -267,6 +305,15 @@ typedef struct {
  * earliest sample still follows some PROM execution. Stable across three orders
  * of magnitude of boot time is the strongest claim available here. */
 void ap_boardreg_init(ap_boardreg_t *regs);
+
+/* Which byte lanes a write under this register file gives bad parity, as a
+ * four-bit field in bits 4-7. Zero when the register is not forcing. */
+[[nodiscard]] uint16_t ap_boardreg_forced_lanes(const ap_boardreg_t *regs);
+
+/* Whether this board's lane bits are active low. Defaults to true, the DN3500's
+ * -- the reference superset, as everywhere else here -- and a DS3000 board sets
+ * it false from `ap_model_t::has_active_low_parity_lanes`. */
+void ap_boardreg_set_active_low_lanes(ap_boardreg_t *regs, bool active_low);
 
 /* Which register an address decodes to, if any. False for the declined pair as
  * well as for unmapped addresses; use `ap_boardreg_is_declined` to tell them

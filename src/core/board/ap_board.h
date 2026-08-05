@@ -37,6 +37,7 @@
 #include "board/ap_atbus.h"
 #include "board/ap_atmap.h"
 #include "board/ap_boardreg.h"
+#include "board/ap_parity.h"
 #include "board/ap_calendar.h"
 #include "board/ap_disk.h"
 #include "board/ap_dma.h"
@@ -168,6 +169,9 @@ typedef struct ap_board {
   const ap_board_map_t *map;
 
   ap_boardreg_t registers;
+  /* The memory array's parity circuit. Inert until a caller fits the parity
+   * RAM with `ap_board_attach_parity`; see `board/ap_parity.h`. */
+  ap_parity_t parity;
   ap_atmap_t translation_map;
   ap_intr_t interrupts;
   ap_timer_t timer;
@@ -352,6 +356,16 @@ typedef struct ap_board {
                                        const ap_mc146818_time_t *start,
                                        uint32_t node_id, ap_model_id_t model);
 
+/* Fit the memory array's parity RAM: one bit per byte of main memory, so
+ * `bytes` must be at least `(ram_bytes + 7) / 8`.
+ *
+ * Caller-supplied like the RAM itself and the frame buffers, because
+ * `src/core` allocates nothing. A board without it is one with no parity
+ * circuitry fitted -- see `board/ap_parity.h` on why that is a describable
+ * machine and how a run says so. */
+[[nodiscard]] bool ap_board_attach_parity(ap_board_t *board, uint8_t *bad,
+                                          uint32_t bytes);
+
 /* Attach a boot PROM image. Fails if it is larger than the region Table 2-8
  * gives it -- an image that does not fit is not this machine's PROM, and
  * truncating it would run whatever happened to be in the first 64 KB. */
@@ -432,6 +446,14 @@ void ap_board_sample_interrupts(ap_board_t *board);
  * *measured* figure and not a manual's -- `FINDINGS.md` C12 swept the CPU mask
  * to find it. Zero otherwise: level zero means no interrupt on this part. */
 [[nodiscard]] unsigned ap_board_interrupt_level(const ap_board_t *board);
+
+/* Level 7, the only interrupt on this board that does not come from an 8259.
+ * `008778-03` §3.2 names the level, and §3.2 again the autovector -- see
+ * `board/ap_parity.h`, which has the passage. */
+#define AP_BOARD_PARITY_LEVEL 7u
+
+/* Whether the memory array is holding a parity error interrupt up. */
+[[nodiscard]] bool ap_board_parity_interrupt(const ap_board_t *board);
 
 /* Run the acknowledge cycle and answer the vector the controllers supply.
  *

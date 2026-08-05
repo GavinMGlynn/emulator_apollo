@@ -52,6 +52,18 @@ static void write_bytes(ap_machine_t *machine, uint32_t address, unsigned count,
  * address: a long word beginning one byte inside the top of memory is not an
  * access this machine can serve, and letting it through would read past the
  * buffer. */
+/* Count a refused access and remember where. The first and the last are the two
+ * worth keeping: the first says what a run tripped over on its way up, and the
+ * last says what it was doing when it stopped -- which is the question a boot
+ * that ends in a fault actually poses. */
+static void fault(ap_machine_t *machine, uint32_t address) {
+  if (machine->bus_errors == 0u) {
+    machine->first_bus_error = address;
+  }
+  machine->last_bus_error = address;
+  machine->bus_errors++;
+}
+
 static bool in_range(const ap_machine_t *machine, uint32_t address,
                      uint32_t count) {
   return address <= machine->ram_bytes && count <= machine->ram_bytes - address;
@@ -65,7 +77,7 @@ static void machine_fill(void *context, uint32_t line_address,
   if (machine->board != NULL) {
     uint32_t value = 0;
     if (!board_read(machine, line_address, 4u, &value)) {
-      machine->bus_errors++;
+      fault(machine, line_address);
       out->termination = AP_M68030_TERM_BERR;
       out->burst_acknowledge = false;
       return;
@@ -78,7 +90,7 @@ static void machine_fill(void *context, uint32_t line_address,
 
   if (!in_range(machine, line_address, 4u)) {
     /* "Outside the RAM is a bus error, not a wrap and not a zero." */
-    machine->bus_errors++;
+    fault(machine, line_address);
     out->termination = AP_M68030_TERM_BERR;
     out->burst_acknowledge = false;
     return;
@@ -135,9 +147,22 @@ static unsigned machine_wait_states(void *context, uint32_t physical,
  * because a machine with no board has nothing to raise a level in the first
  * place. */
 static ap_m68030_iack_t machine_acknowledge(void *context, unsigned level) {
-  (void)level;
   ap_machine_t *machine = (ap_machine_t *)context;
   ap_m68030_iack_t out = {0};
+  if (machine->board != NULL && level == AP_BOARD_PARITY_LEVEL &&
+      ap_board_parity_interrupt(machine->board)) {
+    /* The one exception to "vectored, never autovectored", and the manual says
+     * so outright. `008778-03` §3.2, on the parity error interrupt: "When the
+     * vector is fetched, it comes from the Level 7 **autovector** location in
+     * the CPU exception table (0 x 07c)". Nothing answers this acknowledge
+     * cycle because the memory array is not a programmable interrupt
+     * controller -- and `007C` is 31 x 4, which is `24 + 7`.
+     *
+     * The firmware agrees from the other side: self-test 7 installs its handler
+     * at `$7c` off a VBR of `01000400` and expects to land in it. */
+    out.autovector = true;
+    return out;
+  }
   if (machine->board == NULL) {
     /* No device answers, which §8.1.9 makes a spurious interrupt rather than a
      * reason not to take one. Unreachable while a level can only come from a
@@ -174,7 +199,7 @@ static bool machine_read_sized(void *context, uint32_t address, unsigned size,
     return false;
   }
   if (!board_read(machine, address, size, value)) {
-    machine->bus_errors++;
+    fault(machine, address);
     return false;
   }
   return true;
@@ -186,14 +211,14 @@ static bool machine_store(void *context, uint32_t physical, uint32_t value,
 
   if (machine->board != NULL) {
     if (!board_write(machine, physical, size, value)) {
-      machine->bus_errors++;
+      fault(machine, physical);
       return false;
     }
     return true;
   }
 
   if (!in_range(machine, physical, size)) {
-    machine->bus_errors++;
+    fault(machine, physical);
     return false;
   }
   write_bytes(machine, physical, size, value);
@@ -209,7 +234,7 @@ static bool machine_table_fetch(void *context, uint32_t physical,
   const unsigned words = long_format ? 2u : 1u;
 
   if (!in_range(machine, physical, words * 4u)) {
-    machine->bus_errors++;
+    fault(machine, physical);
     return false; /* "Returns false for a bus error", which sets B in the ATC */
   }
 
@@ -231,7 +256,7 @@ static bool machine_table_update(void *context, uint32_t physical,
   ap_machine_t *machine = (ap_machine_t *)context;
 
   if (!in_range(machine, physical, 4u)) {
-    machine->bus_errors++;
+    fault(machine, physical);
     return false;
   }
 
@@ -525,6 +550,8 @@ ap_machine_state_t ap_machine_state(const ap_machine_t *machine) {
       .now = machine->now,
       .pc = machine->cpu.regs.pc,
       .bus_errors = machine->bus_errors,
+      .first_bus_error = machine->first_bus_error,
+      .last_bus_error = machine->last_bus_error,
   };
 }
 

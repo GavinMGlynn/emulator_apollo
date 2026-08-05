@@ -35,7 +35,14 @@ static const ap_model_t k_models[AP_MODEL_COUNT] = {
         .ram_base = 0x4000000u,
         .ram_max_bytes = 0x1000000u, /* 4-16 MB [CFG] p. A-11 */
         .has_ring = true,
-        .provisional = "ram_base: 0x4000000, from the Series 2500 boot PROM's "
+        .has_active_low_parity_lanes = true,
+        .provisional = "has_active_low_parity_lanes: true, on the oracle's "
+                       "split alone. Both DN3000 PROMs write F8 to force bad "
+                       "parity and the three Series 4000 PROMs write 08, so "
+                       "the two families are settled from firmware; "
+                       "2500_BOOT_16182_8 makes no such write anywhere, so "
+                       "nothing here tests it. "
+                       "ram_base: 0x4000000, from the Series 2500 boot PROM's "
                        "own reset vector. 2500_BOOT_16182_8 starts with SSP "
                        "040007D0 where 3500_BOOT_12191_7 starts with 01000180 "
                        "and its RAM is at 01000000; a reset stack pointer must "
@@ -75,6 +82,7 @@ static const ap_model_t k_models[AP_MODEL_COUNT] = {
         .ram_max_bytes = 0x2000000u, /* 8-32 MB supported [CFG] */
         .has_ring = true,
         .has_address_translation_map = true,
+        .has_active_low_parity_lanes = true,
         .provisional = nullptr,
     },
     [AP_MODEL_DN4500] = {
@@ -102,6 +110,7 @@ static const ap_model_t k_models[AP_MODEL_COUNT] = {
         .ram_max_bytes = 0x2000000u, /* 4-32 MB [CFG]; Table 2-8 DS4000 [S3K] */
         .has_ring = true,
         .has_address_translation_map = true,
+        .has_active_low_parity_lanes = true,
         .provisional = nullptr,
     },
     [AP_MODEL_DN5500] = {
@@ -118,6 +127,7 @@ static const ap_model_t k_models[AP_MODEL_COUNT] = {
         .ram_max_bytes = 0x2000000u, /* 16-32 MB [CFG] */
         .has_ring = true,
         .has_address_translation_map = true,
+        .has_active_low_parity_lanes = true,
         .provisional = nullptr,
     },
     [AP_MODEL_DSP3000] = {
@@ -149,6 +159,7 @@ static const ap_model_t k_models[AP_MODEL_COUNT] = {
         .ram_max_bytes = 0x2000000u,
         .has_ring = true,
         .has_address_translation_map = true,
+        .has_active_low_parity_lanes = true,
         .provisional = nullptr,
     },
     [AP_MODEL_DSP4500] = {
@@ -171,6 +182,7 @@ static const ap_model_t k_models[AP_MODEL_COUNT] = {
         .ram_max_bytes = 0x2000000u,
         .has_ring = true,
         .has_address_translation_map = true,
+        .has_active_low_parity_lanes = true,
         .provisional = nullptr,
     },
     [AP_MODEL_DSP5500] = {
@@ -187,6 +199,7 @@ static const ap_model_t k_models[AP_MODEL_COUNT] = {
         .ram_max_bytes = 0x2000000u,
         .has_ring = true,
         .has_address_translation_map = true,
+        .has_active_low_parity_lanes = true,
         .provisional = nullptr,
     },
 };
