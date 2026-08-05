@@ -4734,8 +4734,42 @@ The PROM's own sequential counter would have said 313,307 — `52ae017e`,
 exactly where the last chunk left off. This was a fresh call with a fresh
 number, not a walk that ran off its end.
 
-So the question is now precisely: **what is in Domain/OS's memory at the address
-it passed in `a1`, and is that what it put there?**
+So the question is now precisely: **what is in memory at the address passed in
+`a1`, and is that what the caller put there?**
+
+#### The caller is `SYSBOOT`, and the sector it was given is right
+
+`A1` is now kept in the trace ring, and at `002ABE` -- `movea.l 8(a7),a1` -- it
+becomes **`010011BE`**, exactly the `pea (pc,$142)` the caller computed. The
+caller itself sits at `01001062`, in the RAM *below* the loaded operating system
+image rather than inside it, and reaches the service through
+`movea.l ($0120).w,a0`, a pointer the PROM publishes at absolute `120`.
+
+It is not the PROM. The bytes around it are not in the ROM image at all, and the
+strings beside them name it: `REBOOTING`, `Bad rpy`, `Nm sad`, `Nxt flp<CR>`.
+This is **`SYSBOOT`**, the loader the PROM read off the disk.
+
+Dumping its data settles the half of the question that was open:
+
+    01001196  00 02 00 00 20 01 23 45  00 00 03 9E A4 5E 00 C0
+    010011A6  00 00 00 00 00 00 00 00  00 00 00 00 00 04 C7 DA
+    010011B6  00 03 00 02 00 01 07 00  00 08 00 24 40 00 ...
+
+From `+4` onwards that is sector 313,306's 32-byte header exactly as it is on
+the disk -- `20012345`, `0000039E`, `A45E00C0`, twelve bytes of zero, and
+`0004C7DA`, the block's own address. **The data we delivered is byte-correct.**
+The read path is doing its job.
+
+Two facts sit next to each other in that dump and are the whole of what is left.
+The longword at `010011B2` is `0004C7DA` = 313,306, the block just read. The
+longword at `010011BE`, twelve bytes further on and the one `SYSBOOT` hands the
+PROM, is `00080024`.
+
+So `SYSBOOT` read its block correctly, recorded it correctly, and then asked for
+524,324. What has not yet been measured is *when* `010011BE` acquired that
+value: whether some earlier instruction wrote it there, or whether it is what
+`SYSBOOT` was loaded with and a write that should have replaced it never
+happened. That is one watchpoint away.
 
 #### `DRQ7`, and a request that never went down
 

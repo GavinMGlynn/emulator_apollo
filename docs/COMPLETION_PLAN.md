@@ -3197,9 +3197,13 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         PROM's, and it is right: `524324 / 18 = 29129 r 2`, `29129 / 15 = 1941
         r 14`, every intermediate matching. The number arrives from the caller
         -- `move.l (a1),$17e(a6)`, `a1` from `8(a7)` -- so Domain/OS handed the
-        PROM 524,324. The question is now what is in the operating system's
-        memory at that pointer, and whether that is what it put there. Detail in
-        `PROJECT_STATUS.md`.
+        PROM 524,324 -- except that the caller is not the operating system.
+        `A1` is `010011BE`, in `SYSBOOT`, which the strings beside it name. Its
+        buffer holds sector 313,306's header **byte-correct against the disk**,
+        and the longword twelve bytes before the one it passes holds `0004C7DA`,
+        that same block. So the read path is right and `SYSBOOT` asked for
+        524,324 anyway. What is not yet measured is when `010011BE` acquired
+        that value -- one watchpoint away. Detail in `PROJECT_STATUS.md`.
         *Verification: the console going past `DISK TIMEOUT`.*
   - [ ] **`IRQ6` and `DRQ2`, the floppy's**, are placed and not driven: its
         completion is the FDC's result phase rather than the fixed disk's.
