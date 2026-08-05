@@ -52,6 +52,11 @@ void ap_omti_reset(ap_omti_t *omti) {
   omti->disk_change = true;
 }
 
+bool ap_omti_disk_irq(const ap_omti_t *omti) {
+  return (omti->mask & AP_OMTI_MASK_INTERRUPT_ENABLE) != 0u &&
+         (omti->status & AP_OMTI_ST_IREQ) != 0u;
+}
+
 bool ap_omti_data_is_byte(const ap_omti_t *omti) {
   return (omti->status & AP_OMTI_ST_CD) != 0u;
 }

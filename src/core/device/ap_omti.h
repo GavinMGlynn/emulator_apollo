@@ -428,6 +428,22 @@ void ap_omti_fdc_write(ap_omti_t *omti, unsigned reg, uint8_t value);
 /* Whether the data register is byte-wide this moment, per the status C/D bit. */
 [[nodiscard]] bool ap_omti_data_is_byte(const ap_omti_t *omti);
 
+/* Whether the fixed-disk side is asking for `IRQ14`.
+ *
+ * A level, derived, not a latch: §4.2 gives the raise -- "If the INTERRUPT
+ * ENABLE bit was previously set in the MASK register, the REQ bit is set in the
+ * STATUS byte, along with IRQ14 on the system bus" -- and §4.3 gives the clear,
+ * "the controller clears the IREQ and IRQ14 (if enabled)" when the status byte
+ * is read. Both sides are already visible in state this part keeps, so the
+ * condition is `IREQ` and the enable bit together and there is nothing left to
+ * invent.
+ *
+ * This is what the board's own comment was waiting for. The boot PROM's driver
+ * polls, so the machine loaded an operating system without it; Domain/OS's
+ * driver waits for the interrupt, and printed `DISK TIMEOUT` when it never
+ * came. */
+[[nodiscard]] bool ap_omti_disk_irq(const ap_omti_t *omti);
+
 /* Attach a drive to the fixed-disk half, or `NULL` for none. Caller-owned. */
 void ap_omti_attach(ap_omti_t *omti, ap_awd_t *drive);
 

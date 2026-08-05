@@ -260,10 +260,17 @@ void ap_board_sample_interrupts(ap_board_t *board) {
                       ap_calendar_irq(&board->calendar));
   ap_intr_set_request(&board->interrupts, AP_TAPE_IRQ,
                       ap_tape_irq(&board->tape));
-  /* The disk's two lines -- `AP_DISK_FIXED_IRQ` and `AP_DISK_FLOPPY_IRQ` -- are
-   * deliberately absent: `board/ap_disk.h` declares the constants and no IRQ
-   * accessor, so wiring them would mean inventing the condition that raises
-   * them. It lands with the controller's own item. */
+  /* The fixed disk's `IRQ14`, which the controller now derives from `IREQ` and
+   * the MASK register's enable bit -- both of which it already keeps, so
+   * nothing here is invented. `AP_DISK_FLOPPY_IRQ` is still absent: the floppy
+   * side's completion condition is the FDC's result phase rather than this
+   * one, and it lands with the floppy's own item.
+   *
+   * The boot PROM's driver polls, so a machine without this line still loaded
+   * an operating system off the disk. Domain/OS's driver waits for the
+   * interrupt, and printed `DISK TIMEOUT` when it never came. */
+  ap_intr_set_request(&board->interrupts, AP_DISK_FIXED_IRQ,
+                      ap_omti_disk_irq(&board->disk.controller));
 }
 
 bool ap_board_parity_interrupt(const ap_board_t *board) {

@@ -1683,7 +1683,17 @@ static void test_two_interrupts_at_once_are_serviced_in_priority_order(void) {
    * trap for a test that sets its stimulus up first. */
   const ap_machine_run_t setup = ap_machine_run(&m, setup_instructions);
   TEST_ASSERT_EQUAL_UINT(setup_instructions, setup.executed);
-  ap_intr_set_request(&first_board.interrupts, AP_DISK_FIXED_IRQ, true);
+  /* Through the controller, not through the interrupt input.
+   *
+   * `AP_DISK_FIXED_IRQ` is a *derived* line now -- the board recomputes it from
+   * `IREQ` and the MASK register's enable bit every step -- so a request poked
+   * straight into the controller pair is overwritten before the processor sees
+   * it. Which is the right shape: an interrupt input a test can assert and the
+   * machine cannot is an input no device drives. The stimulus is therefore the
+   * state the manual names, and the line follows from it. */
+  ap_omti_disk_write(&first_board.disk.controller, AP_OMTI_DISK_MASK,
+                     AP_OMTI_MASK_INTERRUPT_ENABLE);
+  first_board.disk.controller.status |= AP_OMTI_ST_IREQ;
 
   const ap_machine_run_t run = ap_machine_run(&m, 128u);
   TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_STOPPED, run.status);

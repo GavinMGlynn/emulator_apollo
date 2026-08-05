@@ -3155,11 +3155,21 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         one overflowing on any high bit, the 64-bit product, and an address
         register refused as the machine's illegal instruction rather than as our
         gap.*
-  - [ ] **Domain/OS after the long divide.** It was running its own image
-        rather than the PROM alias -- `3C410C52`, `3C40DCAA`, its own stack at
-        `3C4F97xx` -- when it reached `4C43`. Where it gets to now is the next
-        question.
-        *Verification: the console saying anything at all after the load line.*
+  - [x] **`DISK TIMEOUT`: the OMTI's `IRQ14`, which nothing drove.** Past the
+        long divide Domain/OS reaches its own crash handler and names the fault.
+        `ap_board.c` had said the disk's lines were deliberately absent until
+        "the controller's own item"; this is it, and §4.2 and §4.3 give the
+        raise and the clear, so the line is derived from `IREQ` and the MASK
+        register's enable bit rather than invented. The boot PROM's driver
+        polls, which is why a machine with no disk interrupt loaded a 948 KB
+        operating system without complaint. Detail in `PROJECT_STATUS.md`.
+        *Verification: `omti_suite` +1 (14) -- `IREQ` set with the enable clear
+        asking for nothing, the enable alone raising it, and reading the status
+        byte dropping it; and the console going past `DISK TIMEOUT`.*
+  - [ ] **Domain/OS after the disk interrupt.** `IRQ6`, the floppy's, is still
+        placed and not driven: its completion is the FDC's result phase rather
+        than the fixed disk's, and it lands with the floppy's own item.
+        *Verification: the console going past `DISK TIMEOUT`.*
   - [x] **`CPU (dma) Test #1` passes: the 16-bit controller counts words.**
         Logging the addresses the firmware writes in the DMA range ended the
         guessing -- `010D01` through `010D1B`, every one an odd byte address in

@@ -3424,7 +3424,7 @@ failure that cost a bit position in the 68020's module entry word.
 | Archive SC-499 cartridge tape controller (the part) | **register model complete**: all four addresses of `[SC499]` §1.9 — data/command, control-on-write and status-on-read, and the two write-triggered DMA commands — plus the derived interrupt flag, the tri-stated IRQ line, and RSTDMA's documented identity with power-on reset. **The status register's polarity is corrected**: RDY and EXC are asserted *low*, and the interrupt flag is a disjunction rather than a conjunction — see the section below. The QIC-02 command set itself, tape motion and the drive behind it are not modelled. Not yet wired to the board at `050000` | `sc499_suite`, 16 tests, `Archive SC-499 Information Guide` | **Oracle note:** MAME's own SC-499 models no media change at all, so a cartridge swapped while Domain/OS holds the drive crashes it; `ext/mame` carries a local edit treating insertion as a QIC-02 RESET, per `FINDINGS.md` C56.
 | Apollo disk and floppy (`04D000`, `05F800`) | working: both halves of the one card, placed **74 KB apart** by measurement, each aliased through 1 KB on its own period — four registers for the fixed disk, an eight-address block for the floppy. Interrupts on IRQ14 and IRQ6, separate lines eight apart. The gap is pinned as arithmetic, not constants: the AT window maps `Apollo = 0x040000 + AT × 0x80` | `disk_suite`, 6 tests; `FINDINGS.md` C20, C22, C23 |
 | OMTI command descriptor blocks | working: the 6-byte CDB decoded with the **cylinder reassembled from three bytes** (C10 in byte 1, C09/C08 in byte 2, low eight in byte 3), the command byte exposed both whole and split into class and opcode, and acceptance checked against the ESDI command set — which **refuses** `0C INITIALIZE DRIVE CHARACTERISTICS`, an ST506-only command that would make ESDI geometry look settable | `omti_cdb_suite`, 7 tests; `FINDINGS.md` C27 |
-| OMTI 862X ESDI/floppy controller (the part) | **register model complete for both halves**: the fixed disk's four ports with their read/write asymmetries and the status register's fixed bits, and the floppy's five at the standard PC layout. Modelled as two independent register sets sharing nothing, as `[OMTI]` §4.1 and §3.4 describe. Both measured dumps reproduced as tests. **Both command sets now modelled**: §5's fixed disk over `.awd`, and §6's floppy over `.afd` — ten commands and INVALID, with ST0–ST3 result bytes, and **no `WRITE DATA`**, which neither our §6 nor the sibling 8640's §5.3 lists. Wired to the board on IRQ14 and IRQ6 | `omti_suite`, 13 tests; `awd_suite`, 11; `afd_suite`, 26; `OMTI AT Controller Series Jan87` §6, `OMTI 8640 Jun89` §5 |
+| OMTI 862X ESDI/floppy controller (the part) | **register model complete for both halves**: the fixed disk's four ports with their read/write asymmetries and the status register's fixed bits, and the floppy's five at the standard PC layout. Modelled as two independent register sets sharing nothing, as `[OMTI]` §4.1 and §3.4 describe. Both measured dumps reproduced as tests. **Both command sets now modelled**: §5's fixed disk over `.awd`, and §6's floppy over `.afd` — ten commands and INVALID, with ST0–ST3 result bytes, and **no `WRITE DATA`**, which neither our §6 nor the sibling 8640's §5.3 lists. **IRQ14 wired**, derived from `IREQ` and the MASK register's enable bit as §4.2 and §4.3 give it. IRQ6 is placed and not yet driven: the floppy side's completion is the FDC's result phase, not this one | `omti_suite`, 14 tests; `awd_suite`, 11; `afd_suite`, 26; `OMTI AT Controller Series Jan87` §6, `OMTI 8640 Jun89` §5 |
 | OMTI 8621 placement (the DN3500's disk) | measured, both halves. Placement characterised at `04D000`: the range is the card's (all `FF` without it, control verified by device enumeration), aliased on an eight-byte period, with offsets 1-3 driven. Offsets 0 and 4-7 read `FF`, which a read sweep cannot distinguish from undriven | `FINDINGS.md` C20 |
 | WD7000 ESDI/SCSI (DN4500) | not started | — |
 | Floppy, QIC cartridge tape | not started | — |
@@ -4596,6 +4596,39 @@ loop that runs them. What it does not yet have is the thing the item asks for
 last and hardest — **a decoded PNG**. Register round-trips and word-level
 identities are what can be checked without one, and a controller that passes
 those and draws nothing is the standard way this goes wrong.
+
+#### `DISK TIMEOUT`: the interrupt line nothing drove
+
+Past the long divide, Domain/OS runs far enough to reach its own crash handler
+and say what went wrong:
+
+    Crash_Status 00080024  PC 3C456A9C pid 0001
+    DISK TIMEOUT
+    DISK CONTROLLER STATE = EF
+
+The OMTI never raised `IRQ14`. `ap_board.c` said so outright — the two disk
+lines were "deliberately absent: `board/ap_disk.h` declares the constants and no
+IRQ accessor, so wiring them would mean inventing the condition that raises
+them. It lands with the controller's own item." This is that item, and the
+condition no longer has to be invented: §4.2 gives the raise, "If the INTERRUPT
+ENABLE bit was previously set in the MASK register, the REQ bit is set in the
+STATUS byte, along with IRQ14 on the system bus", and §4.3 gives the clear, "the
+controller clears the IREQ and IRQ14 (if enabled)" when the status byte is read.
+Both are conditions on state the part already keeps, so `ap_omti_disk_irq` is a
+derivation of `IREQ` and the enable bit, and a level rather than a latch.
+
+**The boot PROM's driver polls.** That is why this survived so long: a machine
+with no disk interrupt at all loaded a 948 KB operating system off the
+controller without a murmur, and only a driver that *waits* could tell. A device
+whose absence the firmware cannot detect is exactly the kind that stays absent —
+and the status table above claimed "Wired to the board on IRQ14 and IRQ6" while
+the board's own comment said neither line existed.
+
+It changed a test, correctly. `machine_suite`'s two-interrupts-at-once case
+poked `AP_DISK_FIXED_IRQ` straight into the controller pair; a derived line is
+recomputed every step and overwrote it. The stimulus is now the state the manual
+names, and the line follows — which is the right shape, since an interrupt input
+a test can assert and no device can drive is an input that models nothing.
 
 #### `4C43`: the 68020's 32-bit multiply and divide
 

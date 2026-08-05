@@ -269,6 +269,49 @@ static void test_a_block_count_past_the_manuals_cap_is_refused(void) {
   TEST_ASSERT_EQUAL_INT(AP_OMTI_PHASE_STATUS, ap_omti_disk_phase(&o));
 }
 
+
+/* `IRQ14`, which the board could not wire because nothing here derived it.
+ *
+ * §4.2 gives the raise -- "If the INTERRUPT ENABLE bit was previously set in
+ * the MASK register, the REQ bit is set in the STATUS byte, along with IRQ14 on
+ * the system bus" -- and §4.3 gives the clear, "the controller clears the IREQ
+ * and IRQ14 (if enabled)" when the status byte is read. Both are conditions on
+ * state this part already keeps, so the line is a derivation rather than a
+ * latch, and there is nothing to invent.
+ *
+ * It is worth its own test because the boot PROM's driver *polls*: a machine
+ * with no interrupt line at all loaded an operating system off this controller
+ * without complaint, and only Domain/OS's own driver -- which waits -- noticed,
+ * by printing `DISK TIMEOUT`. A device whose absence the firmware cannot detect
+ * is exactly the kind that stays absent. */
+static void test_a_completed_command_asks_for_an_interrupt_when_enabled(void) {
+  ap_omti_t o;
+  ap_omti_reset(&o);
+
+  /* Idle, so nothing is asking. */
+  TEST_ASSERT_FALSE(ap_omti_disk_irq(&o));
+
+  /* A command completes with the interrupt disabled: `IREQ` is set and the
+   * line is not, which is the whole of what the enable bit does. */
+  static const uint8_t cdb[6] = {0x00, 0, 0, 0, 0, 0}; /* TEST DRIVE READY */
+  issue(&o, cdb);
+  TEST_ASSERT_EQUAL_HEX8(AP_OMTI_ST_IREQ,
+                         ap_omti_disk_read(&o, AP_OMTI_DISK_STATUS) &
+                             AP_OMTI_ST_IREQ);
+  TEST_ASSERT_FALSE(ap_omti_disk_irq(&o));
+
+  /* Enabled, and now it is. The enable is read at the line rather than latched
+   * at completion, which is what makes this a level. */
+  ap_omti_disk_write(&o, AP_OMTI_DISK_MASK, AP_OMTI_MASK_INTERRUPT_ENABLE);
+  TEST_ASSERT_TRUE(ap_omti_disk_irq(&o));
+
+  /* And reading the status byte drops it, because that is what clears `IREQ`.
+   * A line that stayed up after the host collected the completion would be
+   * taken again the moment the handler returned. */
+  (void)ap_omti_disk_read(&o, AP_OMTI_DISK_DATA);
+  TEST_ASSERT_FALSE(ap_omti_disk_irq(&o));
+}
+
 static void test_two_controllers_reset_alike_hold_identical_state(void) {
   ap_omti_t a;
   ap_omti_t b;
@@ -293,6 +336,7 @@ int main(void) {
   RUN_TEST(test_a_reset_leaves_the_identification_block_in_the_buffer);
   RUN_TEST(test_a_word_read_of_the_data_port_takes_two_buffer_bytes);
   RUN_TEST(test_a_block_count_past_the_manuals_cap_is_refused);
+  RUN_TEST(test_a_completed_command_asks_for_an_interrupt_when_enabled);
   RUN_TEST(test_two_controllers_reset_alike_hold_identical_state);
   return UNITY_END();
 }
