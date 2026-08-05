@@ -579,6 +579,23 @@ static void report_state(ap_machine_t *machine) {
                            ? ap_board_region_name(
                                  ap_board_region(machine->board, pc_physical))
                            : "no board"));
+  /* Every register, because which one matters is not known in advance.
+   *
+   * The trace ring keeps six of them, chosen when the questions were about the
+   * firmware's own conventions. The question after that turned out to be about
+   * `a3`, computed as `3C42BCC0 - a4 + d7`, and none of those three were kept
+   * -- so the run that finally stopped on the right instruction could not say
+   * where it had been reading from. Sixteen numbers at the end of a run cost
+   * nothing next to another fourteen-minute boot. */
+  printf("  d0-d7       ");
+  for (unsigned r = 0; r < 8u; r++) {
+    printf(" %08X", machine->cpu.regs.d[r]);
+  }
+  printf("\n  a0-a7       ");
+  for (unsigned r = 0; r < 7u; r++) {
+    printf(" %08X", machine->cpu.regs.a[r]);
+  }
+  printf(" %08X\n", ap_m68030_read_a7(&machine->cpu.regs));
   printf("  clocks       %llu\n", (unsigned long long)state.clocks);
   /* In AP_TIME_BASE_HZ units, never CPU cycles: several nodes of different
    * models share one ring, so no CPU's cycle is a legal unit of account. A
