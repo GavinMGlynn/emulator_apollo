@@ -414,6 +414,21 @@ MD_PROMPT = r"\n\n>"
 # failure that would present as a corrupt tape.
 STAGES = {
     "prompt": [],
+    # One character, then silence. Every other stage *knocks* -- sends
+    # repeatedly until the MD prompt answers -- and that interrupts the boot, so
+    # every session this harness has run has been a machine stopped on its way
+    # up. A self-test sequence cannot be compared that way.
+    #
+    # But nor can it be watched in total silence, which is what this stage did
+    # first and why it captured eleven minutes of nothing: **the boot PROM
+    # autobauds**. It cannot transmit until it has received a character and
+    # learnt the rate, so a console nobody types at never says anything at all.
+    # One carriage return is what the headless frontend sends for the same
+    # reason, and it is enough -- our own machine runs every self-test after it.
+    #
+    # Pair with `APOLLO_MD_POST=none`, which stops the Lua side pressing a key
+    # of its own, and `--settle` long enough for the tests to run.
+    "watch": [],
     "invol": [
         ("send",   None,      "re\r"),
         ("knock",  MD_PROMPT, "re\r"),
@@ -682,9 +697,16 @@ def main(argv=None) -> int:
     _install_signal_handlers(session)
     status = 0
     try:
-        session.knock(MD_PROMPT, args.knock_timeout,
-                      char=args.knock_char)
-        sys.stderr.write("mdsession: at the MD prompt\n")
+        if args.stage == "watch":
+            # One character to autobaud the port, and then nothing: see STAGES.
+            # Deliberately *not* `knock`, which repeats until it sees a prompt
+            # and so stops the machine on its way up.
+            sys.stderr.write("mdsession: watching, not knocking\n")
+            session.send(args.knock_char)
+        else:
+            session.knock(MD_PROMPT, args.knock_timeout,
+                          char=args.knock_char)
+            sys.stderr.write("mdsession: at the MD prompt\n")
 
         for index, (mode, pattern, text) in enumerate(STAGES[args.stage],
                                                       start=1):

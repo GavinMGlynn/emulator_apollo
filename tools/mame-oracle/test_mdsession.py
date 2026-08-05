@@ -265,9 +265,28 @@ def main() -> int:
         # something, so this passes only if the driver knocks first.
         proc = run(stub, ["--stage", "prompt"])
         check("a silent machine is knocked into answering", proc.returncode, 0)
+
         check_in("the prompt is recognised", "at the MD prompt", proc.stderr)
         check_in("the sign-on reaches the console", "MD7C REV 8.00",
                  proc.stdout)
+
+        # And the stage that must *not* knock. The stub answers only when it is
+        # sent something, so a driver that knocked here would reach the prompt
+        # and this would pass for the wrong reason -- the check is that nothing
+        # comes back at all, which is the whole point of watching.
+        #
+        # Its own name, not `proc`: the first version of this reused it and
+        # landed *above* the two checks that read the prompt run's output, so
+        # they silently began inspecting this run instead and failed.
+        watched = run(stub, ["--stage", "watch", "--settle", "0.2"])
+        check("watching returns without knocking", watched.returncode, 0)
+        # One character, and exactly one. The stub answers whatever it is sent,
+        # so a prompt coming back proves the autobaud character went; what must
+        # not happen is the repeated knocking the other stages do.
+        check("watching still autobauds the port",
+              "MD7C" in (watched.stdout or ""), True)
+        check_in("and says it is watching", "watching, not knocking",
+                 watched.stderr)
 
         # The whole invol stage, in order, read back from what the machine
         # received rather than from what the driver said it sent.

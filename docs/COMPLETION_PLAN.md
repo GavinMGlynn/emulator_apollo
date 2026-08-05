@@ -3046,6 +3046,15 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         asking the oracle whether it passes this test, which would partition it
         in one measurement.
         *Verification: the console going past the MMU test.*
+    - [x] **The oracle harness could only watch a machine it had stopped.**
+          Every stage knocks -- sends until the MD prompt answers -- and typing
+          interrupts the boot, so no session this project has run could be
+          compared against a self-test sequence. A `watch` stage sends **one**
+          character and then stays quiet: not none, because the PROM autobauds
+          and a console nobody types at never speaks, which cost eleven minutes
+          of empty log to rediscover. Detail in `PROJECT_STATUS.md`.
+          *Verification: `test_mdsession.py` +3 -- that it returns without
+          knocking, still autobauds, and says which it is doing.*
     - [x] **The table paths never knew about the board.** They indexed
           `machine->ram` by *physical* address and bounded it against
           `ram_bytes`, so on a DN3500 -- RAM at `01000000` -- every descriptor

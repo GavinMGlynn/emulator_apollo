@@ -95,7 +95,13 @@ local CONFIG = {
 	["Network Trace"]     = "Off",
 }
 
+-- `none` presses nothing. A key press interrupts the boot, so a session that
+-- wants to watch the machine come up on its own must be able to say so; every
+-- other caller gets the default and is unaffected.
 local post_text = os.getenv("APOLLO_MD_POST") or "Numpad Enter"
+if post_text == "none" then
+	post_text = nil
+end
 local post_at_s = tonumber(os.getenv("APOLLO_MD_POST_AT") or "") or 4.0
 local hold_s    = tonumber(os.getenv("APOLLO_MD_HOLD") or "") or 0.2
 local until_s   = tonumber(os.getenv("APOLLO_MD_UNTIL") or "") or 0.0
@@ -408,7 +414,11 @@ emu.register_periodic(function()
 
 	if not posted and manager.machine.time.seconds >= post_at_s then
 		posted = true
-		press_key(post_text)
+		if post_text then
+			press_key(post_text)
+		else
+			note("# not pressing a key: APOLLO_MD_POST=none\n")
+		end
 	end
 
 	-- Held for a moment and then released, because a key that is never released
