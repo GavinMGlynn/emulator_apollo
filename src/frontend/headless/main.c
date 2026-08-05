@@ -46,6 +46,9 @@ static void print_usage(const char *program_name) {
           "  --boot-stop-on-watch-write N\n"
           "                        end the run on the Nth write to the watched\n"
           "                        address, so a ring holds the instruction\n"
+          "  --dump-logical ADDR[:LEN]\n"
+          "                        the same dump, of the address the *program*\n"
+          "                        named: translated as an access would be\n"
           "  --boot-watch-write ADDR\n"
           "                        remember the last write to ADDR and which\n"
           "                        instruction made it, and report both\n"
@@ -1008,7 +1011,7 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
                           const char *disk_path, const char *dump_spec,
                           unsigned progress_every, bool stop_on_refusal,
                           uint32_t watch_write, unsigned stop_on_watch,
-                          uint32_t stop_pc_length) {
+                          uint32_t stop_pc_length, const char *dump_logical) {
   /* Before the PROM is even opened: a script that does not parse is the
    * caller's mistake and should be reported as one, not hidden behind whichever
    * file happens to be missing first. */
@@ -1953,6 +1956,28 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
     }
   }
 
+  /* The same dump of the address the *program* named. Once an operating system
+   * is running, every address worth looking at is a logical one -- an
+   * instruction stream at `3C456A0C`, a stack frame at `3C4F9BF0` -- and
+   * translating each by hand from a reported physical PC is exactly the kind of
+   * arithmetic that quietly goes wrong once. */
+  if (dump_logical != NULL) {
+    uint32_t at = 0, length = 0;
+    if (!parse_dump_spec(dump_logical, &at, &length)) {
+      fprintf(stderr, "apollo: --dump-logical wants ADDR or ADDR:LEN in hex,"
+                      " not %s\n", dump_logical);
+    } else {
+      uint32_t physical = 0;
+      if (!ap_machine_translate(&machine, at, AP_M68030_FC_SUPERVISOR_DATA,
+                                &physical)) {
+        printf("logical %08X does not translate\n", at);
+      } else {
+        printf("logical %08X -> %08X, %u byte(s)\n", at, physical, length);
+        dump_memory(stdout, board, physical, length);
+      }
+    }
+  }
+
   /* Last, so the run's own report is complete first and a failed capture
    * cannot cost the measurements that were already taken. `CR1` is the one the
    * *firmware* programmed, now that the register file stores it -- so `INV` and
@@ -2354,6 +2379,7 @@ int main(int argc, char **argv) {
   uint32_t boot_watch_write = 0;
   unsigned boot_stop_on_watch = 0;
   uint32_t boot_stop_pc_length = 1u;
+  const char *dump_logical_spec = NULL;
   uint32_t boot_stop_pc = 0;
   uint32_t boot_watch = 0;
   const char *boot_input = NULL;
@@ -2403,6 +2429,11 @@ int main(int argc, char **argv) {
     }
     if (strcmp(argv[i], "--dump-mem") == 0 && i + 1 < argc) {
       dump_spec = argv[i + 1];
+      i += 2;
+      continue;
+    }
+    if (strcmp(argv[i], "--dump-logical") == 0 && i + 1 < argc) {
+      dump_logical_spec = argv[i + 1];
       i += 2;
       continue;
     }
@@ -2624,7 +2655,8 @@ int main(int argc, char **argv) {
                           boot_trace_last, boot_stop_pc, boot_script,
                           disk_path, dump_spec, boot_progress,
                           boot_stop_on_refusal, boot_watch_write,
-                          boot_stop_on_watch, boot_stop_pc_length);
+                          boot_stop_on_watch, boot_stop_pc_length,
+                          dump_logical_spec);
   }
 
   if (boot_tape != NULL) {
