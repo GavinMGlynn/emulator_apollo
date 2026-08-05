@@ -239,27 +239,74 @@ static bool machine_store(void *context, uint32_t physical, uint32_t value,
   return true;
 }
 
-/* The table search's descriptor fetch, over the same RAM. A machine whose MMU
- * is off never calls this; one whose tables a probe has built does. */
+/* A long word of a translation table, wherever this machine keeps its memory.
+ *
+ * The descriptor paths below used to index `machine->ram` by *physical address*
+ * and bounds-check it against `ram_bytes`. That is right for a probe on flat
+ * memory and wrong for every machine with a board: a DN3500's RAM begins at
+ * `01000000`, so a descriptor at `0100A004` compared against a 16 MB extent is
+ * out of range and every table search would bus-error before reading anything.
+ *
+ * It went unseen because nothing had enabled translation. Every boot in this
+ * project reported `0 descriptor fetch(es)` until the disk handed over a
+ * Domain/OS diagnostic that uses the MMU. */
+static bool table_read(ap_machine_t *machine, uint32_t physical,
+                       uint32_t *out) {
+  if (machine->board != NULL) {
+    if (!board_read(machine, physical, 4u, out)) {
+      fault(machine, physical);
+      return false;
+    }
+    return true;
+  }
+  if (!in_range(machine, physical, 4u)) {
+    fault(machine, physical);
+    return false;
+  }
+  *out = read_bytes(machine, physical, 4u);
+  return true;
+}
+
+static bool table_write(ap_machine_t *machine, uint32_t physical,
+                        uint32_t value) {
+  if (machine->board != NULL) {
+    if (!board_write(machine, physical, 4u, value)) {
+      fault(machine, physical);
+      return false;
+    }
+    return true;
+  }
+  if (!in_range(machine, physical, 4u)) {
+    fault(machine, physical);
+    return false;
+  }
+  write_bytes(machine, physical, 4u, value);
+  return true;
+}
+
+/* The table search's descriptor fetch. A machine whose MMU is off never calls
+ * this; one whose tables a program has built does. */
 static bool machine_table_fetch(void *context, uint32_t physical,
                                 bool long_format,
                                 ap_m68030_descriptor_t *out) {
   ap_machine_t *machine = (ap_machine_t *)context;
   const unsigned words = long_format ? 2u : 1u;
   machine->table_fetches++;
+  (void)words;
 
-  if (!in_range(machine, physical, words * 4u)) {
-    fault(machine, physical);
+  uint32_t upper = 0;
+  if (!table_read(machine, physical, &upper)) {
     return false; /* "Returns false for a bus error", which sets B in the ATC */
   }
-
-  const uint32_t upper = read_bytes(machine, physical, 4u);
   if (!long_format) {
     *out = ap_m68030_descriptor_unpack_short(upper, false);
     return true;
   }
-  *out = ap_m68030_descriptor_unpack_long(upper, read_bytes(machine, physical + 4u, 4u),
-                                          false);
+  uint32_t lower = 0;
+  if (!table_read(machine, physical + 4u, &lower)) {
+    return false;
+  }
+  *out = ap_m68030_descriptor_unpack_long(upper, lower, false);
   return true;
 }
 
@@ -271,20 +318,17 @@ static bool machine_table_update(void *context, uint32_t physical,
   ap_machine_t *machine = (ap_machine_t *)context;
   machine->table_updates++;
 
-  if (!in_range(machine, physical, 4u)) {
-    fault(machine, physical);
+  uint32_t descriptor = 0;
+  if (!table_read(machine, physical, &descriptor)) {
     return false;
   }
-
-  uint32_t descriptor = read_bytes(machine, physical, 4u);
   if (set_used) {
     descriptor |= UINT32_C(1) << 3;
   }
   if (set_modified) {
     descriptor |= UINT32_C(1) << 4;
   }
-  write_bytes(machine, physical, 4u, descriptor);
-  return true;
+  return table_write(machine, physical, descriptor);
 }
 
 void ap_machine_init(ap_machine_t *machine, uint8_t *ram, uint32_t ram_bytes) {

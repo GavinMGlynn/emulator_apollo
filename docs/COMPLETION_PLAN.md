@@ -1,3 +1,22 @@
+  - [ ] **`CPU (mmu) Test #0`, the first thing to use address translation.**
+        The loaded diagnostic stops with `Expected= 01224800, Actual= 01FFFC00,
+        Address= 01224C00`, still reporting **zero** descriptor fetches -- so it
+        fails before translation is switched on, and the numbers are SELF_TEST's
+        own rather than the PROM's. Reading further means disassembling the
+        image the machine loaded into `01002000`, which is a different exercise
+        from reading a PROM.
+        *Verification: the console going past the MMU test.*
+    - [x] **The table paths never knew about the board.** They indexed
+          `machine->ram` by *physical* address and bounded it against
+          `ram_bytes`, so on a DN3500 -- RAM at `01000000` -- every descriptor
+          fetch was out of range and bus-errored before reading anything. It
+          survived because nothing had enabled translation; the
+          `descriptor fetch(es)` counter that ruled the MMU out of the
+          `0100A005` hunt named this by being zero for the wrong reason. Detail
+          in `PROJECT_STATUS.md`.
+          *Verification: `machine_suite` +1 (43) -- a descriptor read and a
+          history-bit write at a board RAM address, read back through the
+          machine, which could not have passed before.*
 # Completion plan
 
 Phased road to done. Each item names **its verification** — an item without one

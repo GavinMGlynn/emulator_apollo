@@ -1012,6 +1012,41 @@ static void test_a_long_word_written_at_an_odd_offset_is_not_a_bus_error(void) {
   TEST_ASSERT_EQUAL_HEX32(0x0000005Au, value);
 }
 
+/* ## A descriptor fetch on a board machine reads the board's memory
+ *
+ * The table paths used to index `machine->ram` by *physical address* and bound
+ * it against `ram_bytes`, which is right for a probe on flat memory and wrong
+ * for every machine with a board: a DN3500's RAM begins at `01000000`, so a
+ * descriptor at `0100A004` compared against a 16 MB extent is out of range and
+ * every table search bus-errored before reading anything.
+ *
+ * It went unseen because nothing had enabled translation -- every boot in this
+ * project reported `0 descriptor fetch(es)` -- until the disk handed over a
+ * Domain/OS diagnostic that uses the MMU.
+ */
+static void test_a_descriptor_fetch_reads_through_the_board(void) {
+  ap_machine_t m;
+  build_board_machine(&m, &first_board, ram, device_workload, 0u);
+
+  /* A short descriptor at a physical address inside the board's memory. */
+  const uint32_t at = AP_BOARD_RAM_BASE + 0x8000u;
+  TEST_ASSERT_TRUE(ap_machine_write(&m, 0x8000u, 4u, 0x01234561u));
+
+  ap_m68030_descriptor_t out = {0};
+  TEST_ASSERT_TRUE(m.instruction_access.table_fetch(&m, at, false, &out));
+  TEST_ASSERT_EQUAL_UINT(0u, m.bus_errors);
+  TEST_ASSERT_EQUAL_UINT(1u, m.table_fetches);
+
+  /* And the history-bit update is the write half of the same path, so it has to
+   * reach the same memory: read back through the machine rather than trusting
+   * the call, since a write that faulted would also "return" quietly. */
+  TEST_ASSERT_TRUE(m.instruction_access.table_update(&m, at, true, false));
+  uint32_t back = 0;
+  TEST_ASSERT_TRUE(ap_machine_read(&m, 0x8000u, 4u, &back));
+  TEST_ASSERT_EQUAL_HEX32(0x01234561u | (UINT32_C(1) << 3), back);
+  TEST_ASSERT_EQUAL_UINT(0u, m.bus_errors);
+}
+
 /* The item's own verification, and the reason the board half had to be built:
  * the same workload twice gives the same number. Two machines on two different
  * RAM buffers with two different boards, so anything of the host's that reached
@@ -1831,6 +1866,7 @@ int main(void) {
   RUN_TEST(test_the_instruction_and_data_caches_are_not_the_same_cache);
   RUN_TEST(test_the_mmu_registers_the_machine_reads_are_the_ones_pmove_writes);
   RUN_TEST(test_a_long_word_written_at_an_odd_offset_is_not_a_bus_error);
+  RUN_TEST(test_a_descriptor_fetch_reads_through_the_board);
   RUN_TEST(test_the_same_workload_twice_gives_the_same_hash);
   RUN_TEST(test_the_machine_hash_covers_the_board);
   RUN_TEST(test_a_machine_with_a_board_does_not_hash_as_one_without);
