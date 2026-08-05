@@ -4864,8 +4864,44 @@ four bytes, read twice.
 
 **The open question is now the crash itself**: what makes Domain/OS fail at
 `3C456A9C` with status `00080024`, on a machine whose disk, MMU and arithmetic
-have each been checked. `3C456A9C` is an operating-system address, and stopping
-there is a `--boot-stop-pc` away.
+have each been checked.
+
+#### The crash is a status check failing, not a fault
+
+`3C456A9C` is never executed in 480 million instructions, and the exception
+counts say why that is consistent rather than strange: 651 bus errors (the
+memory sizing the oracle also expects), one F-line, one parity, and the
+interrupts — **no address error, no illegal instruction, no trap**. Nothing
+faulted. The operating system *decided* to crash and called a routine to say so,
+and `3C456A9C` is that call's return address, which never comes back.
+
+`--boot-stop-pc` now takes a range, which is what it takes to stop on a call
+whose length is unknown. Stopping in `3C456A90:10` lands after 334,706,574
+instructions, and the trace reads straight:
+
+    3C49D08C  4E5E   unlk    a6
+    3C49D08E  4E75   rts                  -> returns to the caller
+    3C456A08  4FEF   lea     d16(a7),a7   -> drops the arguments
+    3C456A0C  0CAE   cmpi.l  #imm,d16(a6) -> checks what it returned
+    3C456A14  6676   bne.b   $3C456A8C    -> taken: the error path
+    3C456A8C  4AAE   tst.l   d16(a6)
+
+So a routine returned, the caller compared its result against an expected value,
+they differed, and the `bne` took the error path that ends in the crash message.
+That is a *policy* failure — the operating system finding something it does not
+accept — rather than a processor fault, which is a different kind of hunt from
+everything before it.
+
+`d0` holds `0008008A` throughout that stretch, and the crash status is
+`00080024`: the same `0008xxxx` family. That independently confirms the
+correction made above — the crash word is an Apollo status code, subsystem and
+code, and its matching the refused block number was the same four bytes read
+twice and nothing more.
+
+What is not yet known is which value was compared and against what. The trace
+ring keeps registers, and this needs two operands out of memory: the immediate in
+the `cmpi.l` and the longword at `d16(a6)`. Both are one dump away now that the
+run can be stopped exactly here.
 
 #### `DRQ7`, and a request that never went down
 
