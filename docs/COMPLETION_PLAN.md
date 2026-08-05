@@ -3192,8 +3192,14 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         a file walked backwards in 32-sector chunks, blocks self-identifying by
         header, one file map at 313,275 -- and `0x00080024` is **not stored on
         the disk as a pointer**, occurring only inside instruction streams. The
-        address was computed rather than read, which moves the search off the
-        disk path. Detail in `PROJECT_STATUS.md`.
+        address was computed rather than read. Stopping the run *on the
+        refusal* puts the arithmetic in the trace ring, and it is the boot
+        PROM's, and it is right: `524324 / 18 = 29129 r 2`, `29129 / 15 = 1941
+        r 14`, every intermediate matching. The number arrives from the caller
+        -- `move.l (a1),$17e(a6)`, `a1` from `8(a7)` -- so Domain/OS handed the
+        PROM 524,324. The question is now what is in the operating system's
+        memory at that pointer, and whether that is what it put there. Detail in
+        `PROJECT_STATUS.md`.
         *Verification: the console going past `DISK TIMEOUT`.*
   - [ ] **`IRQ6` and `DRQ2`, the floppy's**, are placed and not driven: its
         completion is the FDC's result phase rather than the fixed disk's.

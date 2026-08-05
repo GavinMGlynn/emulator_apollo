@@ -4692,6 +4692,51 @@ The address was therefore *computed*, from data that was itself read correctly
 or from a register that was not. That moves the search off the disk path and on
 to what the processor did with what it was given.
 
+#### The arithmetic is right, and the number arrives from the caller
+
+`--boot-stop-on-disk-refusal` ends the run on the event rather than at a limit,
+so the trace ring holds the instructions that computed the address instead of
+the idle loop four hundred million instructions later. They are in the **boot
+PROM**, and they are correct:
+
+    002B16  222e017e   move.l  $17e(a6),d1     ; d1 = 00080024
+    002B1C  82ee0186   divu.w  $186(a6),d1     ; / 18  -> 000271C9
+    002B20  4841       swap    d1
+    002B22  1d410192   move.b  d1,$192(a6)     ; sector = 2
+    002B26  4241       clr.w   d1
+    002B28  4841       swap    d1
+    002B2C  82ee0188   divu.w  $188(a6),d1     ; / 15  -> 000E0795
+    002B30  3d41018e   move.w  d1,$18e(a6)     ; cylinder = 1941
+    002B36  1d410190   move.b  d1,$190(a6)     ; head = 14
+
+524,324 ÷ 18 is 29,129 remainder 2, and 29,129 ÷ 15 is 1941 remainder 14 — so
+`c1941 h14 s2` is the right answer to the question asked, and every intermediate
+in the trace matches. Our `DIVU.W` is exonerated along with the rest.
+
+The input is not computed at all. It is fetched:
+
+    002ABE  226f0008   movea.l $8(a7),a1       ; arg 1: a pointer
+    002AC2  2d51017e   move.l  (a1),$17e(a6)   ; the block number
+    002AC6  226f000c   movea.l $c(a7),a1       ; arg 2: a pointer
+    002ACC  3011       move.w  (a1),d0         ; a count
+    002ACE  e188       lsl.l   #8,d0
+    002AD0  e588       lsl.l   #2,d0           ; x 1024
+    002AD2  2d400182   move.l  d0,$182(a6)
+
+So the PROM's disk service takes three stack arguments — a pointer to the block
+number, a pointer to a count in **1024-byte units**, and a buffer — and Domain/OS
+handed it 524,324. The `x 1024` corroborates the block layout found on the disk:
+an Apollo page is 1024 bytes of data behind a 32-byte header, which is the
+1056-byte sector.
+
+The PROM's own sequential counter would have said 313,307 — `52ae017e`,
+`addq.l #1,$17e(a6)`, is how it walks a multi-block transfer, and 313,307 is
+exactly where the last chunk left off. This was a fresh call with a fresh
+number, not a walk that ran off its end.
+
+So the question is now precisely: **what is in Domain/OS's memory at the address
+it passed in `a1`, and is that what it put there?**
+
 #### `DRQ7`, and a request that never went down
 
 The interrupt alone did not clear `DISK TIMEOUT`: the same crash came back at
