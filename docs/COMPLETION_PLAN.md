@@ -3265,9 +3265,12 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         ring: `tst.b <abs.l>` at `3C49EBD8` then `bpl` **taken**, so a global
         byte's sign bit is clear where Domain/OS wants it set, and the branch
         returns the failing code. A flag, not an arithmetic slip. The byte is
-        `tst.b $3C44D8CA`, physical `010788CA` -- the region translates by a
-        constant `3B3D5000`, which three dumps agree on -- so it can be read and
-        watched in the same run.
+        `tst.b $3C44D8CA`, and it reads **`00`** -- bit 7 clear, which is why
+        the `bpl` is taken. Its physical address is `010504CA`, *not* the
+        `010788CA` that three same-offset dumps suggested: pages mapped
+        contiguously three times running is not a rule, and the derived watch
+        was on a byte nobody asked about. Next: who writes `010504CA`, and what
+        should set bit 7.
         *Verification: the console going past the crash.*
         *Verification: the console going past the crash.*
   - [ ] **`IRQ6` and `DRQ2`, the floppy's**, are placed and not driven: its

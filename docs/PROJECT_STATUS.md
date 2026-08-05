@@ -5044,10 +5044,23 @@ than a computation, which is a much better shape than an arithmetic slip: a byte
 somewhere in this machine is not what Domain/OS expects it to be.
 
 Which byte is `4A39 3C44D8CA` — **`tst.b $3C44D8CA`**, a global in the operating
-system's own data. Every logical address in this region translates by a constant
-`3B3D5000`, which three independent dumps now agree on (`3C49EBD0 -> 010C9BD0`,
-`3C49D07C -> 010C807C`, `3C4F9980 -> 01124980`), so the byte is physical
-`010788CA` and can be both read and watched in one run.
+system's own data, and it reads **`00`**. Bit 7 clear is exactly why the `bpl`
+is taken, so the reading holds all the way down: Domain/OS wants that flag set
+and this machine leaves it clear.
+
+**A correction, and a cheap lesson.** Three dumps had translated by the same
+constant — `3C49EBD0 -> 010C9BD0`, `3C49D07C -> 010C807C`,
+`3C4F9980 -> 01124980`, all `3B3D5000` — and that constant was used here to
+derive `3C44D8CA` as physical `010788CA` without asking. It is not: the real
+answer is `010504CA`, an offset of `3B3FD400`. Three samples agreeing meant only
+that those three pages happened to be mapped contiguously, which is not a
+property an MMU has to have and in this case does not. The wrong watch dutifully
+reported five writes to a byte nobody was asking about.
+
+Asking cost nothing — the run dumped the address logically at the same time —
+and the only reason the error surfaced at all is that both were done together.
+`--dump-logical` exists precisely so this arithmetic never has to be done by
+hand, and it was done by hand anyway.
 
 #### `DRQ7`, and a request that never went down
 
