@@ -3186,9 +3186,11 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         the operating system is chasing a block past the end of it. The decoder
         is exonerated too: the bytes are `08 8E C2 95 01 01`, and dropping the
         `C10` bit would make the address legal but could not have reached
-        cylinder 1160, which the driver demonstrably did. A data question rather
-        than a register one: which sector we hand back differently from the
-        disk. Detail in `PROJECT_STATUS.md`.
+        cylinder 1160, which the driver demonstrably did. So is the 16-bit
+        data port's byte order, which is the path the operating system actually
+        uses and which the `SYSBOOT` magic number already pinned. A data
+        question rather than a register one: which sector we hand back
+        differently from the disk. Detail in `PROJECT_STATUS.md`.
         *Verification: the console going past `DISK TIMEOUT`.*
   - [ ] **`IRQ6` and `DRQ2`, the floppy's**, are placed and not driven: its
         completion is the FDC's result phase rather than the fixed disk's.

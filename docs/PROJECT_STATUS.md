@@ -4642,6 +4642,24 @@ driver must set that bit to have got as far as it did, so the bit means what
 So this is a data question rather than a register question, and the next thing
 to find is which sector we hand back differently from the disk.
 
+Three candidates are already eliminated, and saying so is the point of writing
+this down — each is the obvious guess and each costs a run to re-test:
+
+- **the geometry and the configuration block**, both identical to
+  `omti8621.cpp` field for field;
+- **the command decoder**, by the `C10` argument above;
+- **the 16-bit data port's byte order**, which is where Domain/OS reads its
+  sectors — `disk reg 0` shows 812,605 reads against the 812,592 words 1,539
+  sectors need, so the operating system reads the port as words and the boot
+  PROM's byte reads never exercised it. Tempting, and settled already: the order
+  was pinned by a transfer of known content, the `0013D800` magic number the
+  firmware itself checks and the string `SYSBOOT VER`, both of which read
+  correctly only one way round. `device/ap_omti.h` records that this is one of
+  the places we deliberately differ from the oracle.
+
+What is left is narrower than any of those: something about *which* bytes a
+particular read returns, rather than how they are ordered or addressed.
+
 #### `DRQ7`, and a request that never went down
 
 The interrupt alone did not clear `DISK TIMEOUT`: the same crash came back at
