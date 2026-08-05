@@ -3108,11 +3108,21 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
           needs no machine; the dialogue itself needs a PROM and is listed as
           skipped. The machine's `Do you wish to continue (y,n)?` is answered on
           cue.*
-  - [ ] **`Configuration information is not initialized`** -- not a fault. The
-        diagnostic asks for `ex config` at the MD prompt to write the
-        configuration table into the calendar's battery-backed RAM at `010912`.
-        A setup step, and the next thing between here and a login prompt.
-        *Verification: the console going past the configuration check.*
+  - [x] **`Configuration information is not initialized`** -- not a fault, and
+        it needed no code. The diagnostic asks the question it asks *because*
+        the table has never been written, and answering `y` continues past it.
+        `tools/boot-domainos.script` is that dialogue, so the boot is
+        reproducible in a flag. Detail in `PROJECT_STATUS.md`.
+        *Verification: the console prints `Self tests passed.` -- every test the
+        loaded diagnostic runs -- and then loads a 948 KB image, Domain/OS
+        itself, against the thirteen the diagnostic was.*
+  - [ ] **Domain/OS is entered and goes somewhere unmapped.** The PROM reports
+        `low: 01002000 high: 010E986C start: 01002024` and the run ends
+        `stopped FAULT` at PC `3FFA24FC` after 419 bus errors. The entry point
+        is fine and the image is on the disk; the first instructions of an
+        operating system are not the first instructions of a diagnostic, and
+        this is the first code on this machine that is neither.
+        *Verification: the console saying anything at all after the load line.*
   - [x] **`CPU (dma) Test #1` passes: the 16-bit controller counts words.**
         Logging the addresses the firmware writes in the DMA range ended the
         guessing -- `010D01` through `010D1B`, every one an odd byte address in

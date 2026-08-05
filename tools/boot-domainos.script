@@ -1,0 +1,18 @@
+# Drive the DN3500 boot PROM from power-on to Domain/OS, for
+# `apollo-headless --boot-script`.
+#
+#   apollo-headless --boot-prom roms/firmware/3500_BOOT_12191_7.bin \
+#       --disk media/dn3500-sr10.4-installed.awd --boot-console \
+#       --boot-input $'\r' --boot-input-port 1 --boot-input-channel B \
+#       --boot-script tools/boot-domainos.script
+#
+# The carriage return in `--boot-input` is not part of the dialogue: the PROM
+# autobauds, so it cannot transmit until it has received a character, and a
+# console nobody types at never says anything at all.
+#
+# The one question the PROM asks is the loaded SELF_TEST diagnostic's, after it
+# reports that the configuration table in the calendar's battery-backed RAM is
+# uninitialised. Answering **y** continues past that -- it is a setup step and
+# not a fault -- and every test then passes.
+expect Do you wish to continue
+send y\r

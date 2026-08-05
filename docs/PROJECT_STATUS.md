@@ -4597,6 +4597,33 @@ last and hardest — **a decoded PNG**. Register round-trips and word-level
 identities are what can be checked without one, and a controller that passes
 those and draws nothing is the standard way this goes wrong.
 
+#### Self tests passed, and Domain/OS begins loading
+
+    Do you wish to continue (y,n)? y
+
+    Self tests passed.
+
+    low: 01002000 high: 010E986C start: 01002024
+
+**Every test the loaded diagnostic runs passes.** The configuration warning
+before it is a setup step and not a fault — the table lives in the calendar's
+battery-backed RAM and has never been written on this machine — and answering
+`y` continues past it, which is what the question is for.
+
+The line after is the interesting one. The first image the PROM loaded was
+`01002000`-`01005378`, thirteen kilobytes: `SELF_TEST`. This one runs to
+`010E986C` — **948 kilobytes** — which is Domain/OS itself.
+
+`tools/boot-domainos.script` is that dialogue, so the boot is reproducible in
+one flag rather than in a paragraph of instructions.
+
+It does not survive the jump. The run ends `stopped FAULT` at PC `3FFA24FC`,
+unmapped, having taken 419 bus errors — against an entry point of `01002024`.
+So the OS image is read off the disk and entered, and something in the first
+instructions of it goes somewhere this machine has no memory at. That is a new
+frontier rather than a tail of the self-tests: everything up to it now passes,
+and what runs after it is an operating system rather than a diagnostic.
+
 #### `--boot-script`: waiting for what the machine says before answering it
 
 Past the self-tests, the machine asks questions — *"Do you wish to continue
