@@ -338,8 +338,15 @@ typedef struct {
    * the driver *asked* for; this names the blocks it read to work that address
    * out, which is the question when the address is wild. Sixteen because the
    * pointer that sent a driver somewhere impossible came out of a sector it had
-   * just read, and a boot reads fifteen hundred of them. */
-  uint32_t recent_reads[16];
+   * just read.
+   *
+   * Sixteen was too short a window. The sixteen sectors before the fault turned
+   * out to be one contiguous extent -- block indices 911 to 926 mapping
+   * linearly onto disk addresses -- so the address the driver went wrong on
+   * came from further back, and the whole sequence is what shows where a walk
+   * stopped being sequential. A boot reads about fifteen hundred, so this holds
+   * all of them. */
+  uint32_t recent_reads[2048];
   unsigned recent_read_count;
   /* Set by SEEK and RECALIBRATE, read and cleared by SENSE INTERRUPT STATUS --
    * which is the only way a driver learns a seek finished. */

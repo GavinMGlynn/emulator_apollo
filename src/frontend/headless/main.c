@@ -1703,7 +1703,7 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
        * out of a sector the driver had just read, so the sectors immediately
        * before the refusal are the ones to compare against the image. */
       printf("  disk last read");
-      for (unsigned k = 0; k < 16u; k++) {
+      for (unsigned k = 0; k < 2048u; k++) {
         uint32_t lba = 0;
         if (!ap_omti_recent_read(omti, k, &lba)) {
           break;
