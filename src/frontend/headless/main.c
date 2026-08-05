@@ -1438,6 +1438,14 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
     }
     printf("\n");
   }
+  if (board->dma_transfers > 0u || board->dma_unwired_transfers > 0u) {
+    /* Whether the second bus master ever moved anything, and how much of it
+     * went to a channel with no peripheral wired. A run that programs a
+     * transfer and reports zero here has an arbitration problem rather than a
+     * controller one, and nothing else distinguishes those. */
+    printf("  dma          %u transfer(s), %u to an unwired channel\n",
+           board->dma_transfers, board->dma_unwired_transfers);
+  }
   printf("  blit cycles  %u, %u plane write(s)\n", board->graphics_cycles,
          board->graphics_planes_written);
   if (board->graphics_unknown_mode_cycles > 0u) {

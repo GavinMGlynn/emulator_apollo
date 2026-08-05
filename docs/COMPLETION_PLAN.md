@@ -3070,7 +3070,12 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         Address= 01100803`. The test programs a block move from `1100000` to
         `1100800` and compares the halves. The **part** now performs
         memory-to-memory; the **board** does not yet ask it to, and the console
-        is unchanged.
+        is unchanged. Measured: the run reports **zero** DMA cycles over half a
+        billion instructions, so the diagnostic's terminal-count poll was
+        satisfied by a *stale* status bit rather than a transfer. The setup is
+        ordinary -- controller 1 at `010C00`, all four channels masked, then the
+        software request for channel 0, which the datasheet makes non-maskable
+        and this core honours -- so the request is not reaching the arbiter.
         *Verification: the console going past it.*
     - [x] **Memory-to-memory DMA, which the part had declined outright.**
           `ap_i8237_transfer` began by refusing it, on the header's grounds that
