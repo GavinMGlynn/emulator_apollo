@@ -3228,9 +3228,11 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         return address, and stopping in `3C456A90:10` shows a routine returning,
         `cmpi.l` against an expected value at `3C456A0C`, and `bne` taking the
         error path. `d0` carries `0008008A` there, the same `0008xxxx` family as
-        the crash status, confirming that word is an Apollo status code. What
-        was compared, and against what, is one dump away. Detail in
-        `PROJECT_STATUS.md`.
+        the crash status, confirming that word is an Apollo status code. The
+        check itself is now read out: `jsr $3C49CDCC`, then
+        `cmpi.l #$00010005,-$258(a6)` and `bne` to the error path. Domain/OS
+        requires that routine to leave `00010005` at `3C4F9998` -- one routine,
+        one expected value. Detail in `PROJECT_STATUS.md`.
         *Verification: the console going past the crash.*
   - [ ] **`IRQ6` and `DRQ2`, the floppy's**, are placed and not driven: its
         completion is the FDC's result phase rather than the fixed disk's.

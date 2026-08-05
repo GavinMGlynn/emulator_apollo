@@ -4898,10 +4898,27 @@ correction made above — the crash word is an Apollo status code, subsystem and
 code, and its matching the refused block number was the same four bytes read
 twice and nothing more.
 
-What is not yet known is which value was compared and against what. The trace
-ring keeps registers, and this needs two operands out of memory: the immediate in
-the `cmpi.l` and the longword at `d16(a6)`. Both are one dump away now that the
-run can be stopped exactly here.
+`--dump-logical` reads it out, because by this point every address worth looking
+at is a logical one and translating each by hand from a reported physical PC is
+the kind of arithmetic that goes wrong once and then reads plausibly:
+
+    logical 3C456A00 -> 01081A00
+    01081A00  FF 70 4E B9 3C 49 CD CC  4F EF 00 24 0C AE 00 01
+    01081A10  00 05 FD A8 66 76 48 7A  0F 18 4E B9 3C 49 F7 2C
+
+    3C456A02  4EB9 3C49CDCC        jsr     $3C49CDCC
+    3C456A08  4FEF 0024            lea     36(a7),a7
+    3C456A0C  0CAE 00010005 FDA8   cmpi.l  #$00010005,-$258(a6)
+    3C456A14  6676                 bne.b   $3C456A8C      <- taken
+
+So Domain/OS calls a routine with 36 bytes of arguments, and requires it to
+leave the longword **`00010005`** at `a6 - 258`. `a6` is `3C4F9BF0`, so that
+address is `3C4F9998` — which is exactly `a0` in the register dump at the stop.
+When it does not match, the branch runs the error path and the machine crashes.
+
+That is as sharp as the question gets: **one routine, one expected value.** What
+is actually at `3C4F9998` says whether the routine returned something wrong or
+was never given the chance.
 
 #### `DRQ7`, and a request that never went down
 
