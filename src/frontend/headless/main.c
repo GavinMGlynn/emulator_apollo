@@ -1463,6 +1463,16 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
              c->channel[ch].base_count);
     }
   }
+  printf("  core status  %04X, control %04X, cache %02X\n",
+         board->registers.cpu_status | AP_BOARDREG_STATUS_ALWAYS_SET,
+         board->registers.cpu_control, board->registers.cache_control);
+  if (board->core_register_write_count > 0u) {
+    printf("  core writes  ");
+    for (unsigned i = 0; i < board->core_register_write_count; i++) {
+      printf(" %06X", board->core_register_writes[i]);
+    }
+    printf("\n");
+  }
   if (board->dma_register_write_count > 0u) {
     printf("  dma writes   ");
     for (unsigned i = 0; i < board->dma_register_write_count; i++) {

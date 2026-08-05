@@ -8,8 +8,17 @@
  * shipping configuration -- which is **service** mode. Bit 0 is the
  * Normal/Service switch and it is an input rather than a power-on level, so the
  * default here sets it: a workstation runs normal. See the header. */
-#define CPU_STATUS_RESET (0x8100u | AP_BOARDREG_STATUS_NORMAL_MODE)
-#define CPU_STATUS_SERVICE 0x8100u
+/* `8000`, not the measured `8100`. Bit 8 is the CPU timeout, and the probe that
+ * measured `8100` ran at 0.001, 0.5 and 2.0 emulated seconds -- all of them
+ * *after* the boot PROM had begun probing for absent hardware, so the bit was a
+ * latched condition rather than a power-on level. The oracle's own initialiser
+ * is `BIT15 | SERVICE`, with bit 8 clear, and it is the one thing that can
+ * speak to the instant before any instruction runs. Now that a declined access
+ * sets the bit, a probe taken at the same moments would measure `8100` again --
+ * which is what makes the two accounts agree rather than one replace the
+ * other. */
+#define CPU_STATUS_RESET (0x8000u | AP_BOARDREG_STATUS_NORMAL_MODE)
+#define CPU_STATUS_SERVICE 0x8000u
 #define CPU_CONTROL_RESET 0xF700u
 #define CACHE_CONTROL_RESET 0xEFu
 #define LATCH_PAGE_RESET 0x0000u
@@ -151,7 +160,29 @@ uint8_t ap_boardreg_read8(const ap_boardreg_t *regs, uint32_t address) {
   if (!ap_boardreg_decode(address, &id)) {
     return 0u;
   }
-  return (uint8_t)value_of(regs, id);
+  const uint16_t value = value_of(regs, id);
+  if (id == AP_BOARDREG_CACHE_CONTROL) {
+    /* A byte register, measured aliased across its whole range: the same byte
+     * at `010200` and `010201`, which is why a word read of it returns `EFEF`.
+     * There is no lane to choose. */
+    return (uint8_t)value;
+  }
+  /* Sixteen-bit registers: address bit 0 is the byte lane, big-endian, so an
+   * even address is the **high** half.
+   *
+   * This returned the low byte for both, which is invisible on a byte read of
+   * a register whose interesting bits are low, and wrong on every *word* read:
+   * the board serves a word as two byte reads, so the status register's `8001`
+   * came back as `0101` -- low byte duplicated -- and bit 8 read set whatever
+   * the register held. The loaded diagnostic's bus-error test is what found it:
+   * it clears the CPU timeout at `016408` and requires bit 8 to read clear,
+   * which no value of the register could satisfy.
+   *
+   * The write side was given this lane split earlier, when the control
+   * register's LED byte turned out to be separate from its parity byte. Reads
+   * were left alone, and the two halves of one register disagreed about what a
+   * byte meant. */
+  return (address & 1u) ? (uint8_t)(value & 0xFFu) : (uint8_t)(value >> 8);
 }
 
 static void store(ap_boardreg_t *regs, ap_boardreg_id_t id, uint16_t value) {

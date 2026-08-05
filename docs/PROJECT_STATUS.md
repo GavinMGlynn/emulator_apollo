@@ -3406,7 +3406,7 @@ failure that cost a bit position in the 68020's module entry word.
 | Board cache (`012000` RAM, `014000` condition codes) | not started. The shared **bus arbitration point** is done and has its own row above | — |
 | Apollo interrupt controllers (`011000`, `011100`) | working: the two 8259As cascaded on **IR3** (measured, not IR2 as the AT convention would have it), vector bases `A0`/`A8` from the boot PROM's own ICW2, giving levels `A0`-`AF`. Priority order matches `008778-03` Table 2-3, which with the cascade on IR3 has no anomaly. The CPU interrupt level is **6**, also measured — neither manual states it, and it took starting the interval timer by hand to make anything request at all | `intr_suite`, 13 tests; `FINDINGS.md` C11, `tools/mame-oracle/writetrace.lua` |
 | Intel 8259A interrupt controller (the part) | working: ICW1-4 sequence, all three OCWs, fully nested priority with rotation, edge and level triggering, special mask and special fully nested modes, poll, AEOI, and the spurious level 7. 8086-mode vectoring only — MCS-80/85's `CALL` sequence is refused rather than approximated, and this machine never uses it. The Apollo *pairing* is a separate module | `i8259_suite`, 28 tests, each citing `8259A` 231468-003 |
-| Core-board address maps (`board/ap_board.c`) | working: every device placed by `008778-03` Table 2-8 and by the measurement that confirmed it, main memory at `1000000`, and an unclaimed address reported **unmapped rather than zero** — the distinction flat RAM hid, which cost 5634 invisible accesses in the first firmware run. Regions are named, so a trace can say *what* the firmware reached for. The AT windows declare a cycle time and everything else answers at the minimum, and an access to the translation map's undescribed seven eighths is counted rather than silently aliased, and each of the two declined core registers is counted apart | `board_suite`, 27 tests; `atbus_suite`, 8 tests |
+| Core-board address maps (`board/ap_board.c`) | working: every device placed by `008778-03` Table 2-8 and by the measurement that confirmed it, main memory at `1000000`, and an unclaimed address reported **unmapped rather than zero** — the distinction flat RAM hid, which cost 5634 invisible accesses in the first firmware run. Regions are named, so a trace can say *what* the firmware reached for. The AT windows declare a cycle time and everything else answers at the minimum, and an access to the translation map's undescribed seven eighths is counted rather than silently aliased, and each of the two declined core registers is counted apart | `board_suite`, 28 tests; `atbus_suite`, 8 tests |
 | Shared bus arbitration point | working: the external priority encoder `[030]` §7.7 requires, DRQ0 through DRQ7 with the processor last, driving the CPU's own arbitration unit over the three-wire protocol. A grant and its acknowledgement are separate instants, so the processor stops driving the bus when it grants rather than when the grant is taken up; a master is never pre-empted mid-transfer | `arbiter_suite`, 9 tests, `MC68030 User's Manual 3ed` §7.7, `008778-03` §2.4.6 |
 | Apollo DMA controllers (`010C00`, `010D00`) | working: DMA 1 at **stride 1** and DMA 2 at **stride 2**, both measured, both aliased through their ranges. A read of a write-only register returns zero where the oracle returns `0F`; `[8237]` marks that read "Illegal", so neither is specified and ours does not invent a register value. The board runs transfers: controller 1's request cascaded onto controller 2's channel 0 and one request reaching the arbiter, the address through the translation map, and the processor stalled while a controller holds the bus. The cascade and the channel assignments are `008778-03` Table 2-4's, so the AT convention this module used to refuse is now cited rather than assumed. **The peripheral side is wired**: the tape drives its own request line and its cartridge reaches memory by DMA, and the disk's two data ports move under an acknowledge | `dma_suite`, 16 tests; `FINDINGS.md` C13 |
 | Intel 8237A DMA controller (the part) | **programming model and transfer cycle complete**: all sixteen register addresses, four channels with base and current address/count, the single shared first/last flip-flop, command/mode/request/mask/status/temporary, master clear, autoinitialise reload and the mask-on-terminal-count rule; and a service cycle that moves a byte either way, verifies without moving one, walks the address up or down, and ends on the borrow out of zero rather than at zero. Memory-to-memory is refused outright rather than half-run. The part drives sixteen bits of address and the board composes the rest — not yet wired to the board | `i8237_suite`, 29 tests, `8237A` 231466 |
@@ -4596,6 +4596,49 @@ loop that runs them. What it does not yet have is the thing the item asks for
 last and hardest — **a decoded PNG**. Register round-trips and word-level
 identities are what can be checked without one, and a controller that passes
 those and draws nothing is the standard way this goes wrong.
+
+#### A word read of a core register returned its low byte twice, and every CPU self-test now passes
+
+`CPU (bus error) Test #0` provokes a bus error, requires the status register's
+bit 8 to be **set**, writes `016408` — `019411-A00`'s Clear Bus Error Status —
+and requires it **clear**. Two defects, one behind the other.
+
+**The read lane.** The report said `core status 8001` — bit 8 clear — while the
+diagnostic's `BTST #8` saw it set. The board serves a word as two byte reads, and
+`ap_boardreg_read8` returned the **low byte for both addresses**: `8001` came
+back as `0101`, whose bit 8 is set whatever the register holds. Invisible on a
+byte read of a register whose interesting bits are low; wrong on every word read.
+
+The write side was given this lane split earlier, when the control register's LED
+byte turned out to be separate from its parity byte. **Reads were left alone**,
+so the two halves of one register disagreed about what a byte meant. The cache
+control register keeps its own rule — a byte aliased across the range, which is
+why a word read of *it* returns `EFEF`.
+
+**And nothing ever set bit 8.** An access nothing answers is the CPU timeout, and
+the addendum gives it a clear location of its own: a condition that can be
+cleared is one something sets. The board now latches it on a declined access, in
+both directions, since the bus does not care which way an unanswered cycle was
+going.
+
+That corrects the power-on value too. `CPU_STATUS_RESET` was `8100`, measured —
+but the probe ran at 0.001, 0.5 and 2.0 emulated seconds, **all after the PROM
+had begun probing for absent hardware**, so bit 8 was a latched condition rather
+than a reset level. The oracle's own initialiser has it clear. The two accounts
+now agree rather than one replacing the other: a probe at those same moments
+against this core measures `8100` again, because by then the PROM has caused the
+timeouts that set it.
+
+**Every CPU self-test the diagnostic runs now passes** — mmu, interrupts, timer,
+dma 0/1/2, calendar, fp trap, bus error — and it goes on to something that is
+not a fault at all:
+
+    Configuration information is not initialized.
+    Press <<return>> and type "ex config" at the prompt to initialize the
+    configuration table.
+
+`00010912` is the calendar's battery-backed RAM, where that table lives. The
+machine is asking to be configured, which is a setup step rather than a defect.
 
 #### The FP trap is the coprocessor coming off the bus, not a bit being set
 

@@ -728,9 +728,38 @@ static void test_a_three_byte_access_is_served_and_round_trips(void) {
   TEST_ASSERT_FALSE(ap_board_read_access(b, AP_BOARD_RAM_BASE, 5u, &value));
 }
 
+/* ## The selective clear locations, reached through the board
+ *
+ * `boardreg_suite` proves the register file clears the right bit; this proves
+ * the *board* carries a write there at all. The loaded diagnostic's bus-error
+ * test writes `016408` -- `019411-A00`'s Clear Bus Error Status -- and then
+ * requires the status register's bit 8 to be clear, so the path from an address
+ * to that register is the thing under test and not the arithmetic.
+ */
+static void test_a_selective_clear_reaches_the_status_register(void) {
+  static ap_board_t clear_board;
+  init(&clear_board);
+
+  ap_boardreg_latch_status(&clear_board.registers,
+                           AP_BOARDREG_STATUS_BUS_ERROR);
+  TEST_ASSERT_EQUAL_HEX16(AP_BOARDREG_STATUS_BUS_ERROR,
+                          (uint16_t)(clear_board.registers.cpu_status &
+                                     AP_BOARDREG_STATUS_BUS_ERROR));
+
+  /* A **word** write, which is what the diagnostic issues. */
+  TEST_ASSERT_TRUE(ap_board_write_access(
+      &clear_board, AP_BOARDREG_SELECTIVE_CLEAR_ADDR +
+                        AP_BOARDREG_CLEAR_BUS_ERROR_OFFSET,
+      2u, 0x0000u));
+
+  TEST_ASSERT_EQUAL_HEX16(0u, (uint16_t)(clear_board.registers.cpu_status &
+                                         AP_BOARDREG_STATUS_BUS_ERROR));
+}
+
 int main(void) {
   UNITY_BEGIN();
   init_region_board();
+  RUN_TEST(test_a_selective_clear_reaches_the_status_register);
   RUN_TEST(test_a_three_byte_access_is_served_and_round_trips);
   RUN_TEST(test_the_ds3000_places_its_devices_where_table_two_six_does);
   RUN_TEST(test_the_ds3000_has_no_translation_map);

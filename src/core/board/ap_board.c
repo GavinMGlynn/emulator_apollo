@@ -753,6 +753,11 @@ uint8_t ap_board_read(ap_board_t *board, uint32_t address, bool *ok) {
     board->first_unmapped_read = address;
   }
   board->unmapped_reads++;
+  /* An access nothing answered is the CPU timeout the status register reports,
+   * and `019411-A00` gives it a clear location of its own at `016408` -- a
+   * condition that can be cleared is one something sets. See
+   * `board/ap_boardreg.h`. */
+  ap_boardreg_latch_status(&board->registers, AP_BOARDREG_STATUS_BUS_ERROR);
   return 0xFFu;
 }
 
@@ -773,7 +778,20 @@ void ap_board_write(ap_board_t *board, uint32_t address, uint8_t value,
     }
   }
   switch (counted) {
-  case AP_BOARD_REGION_CORE_REGISTER:
+  case AP_BOARD_REGION_CORE_REGISTER: {
+    unsigned seen = 0;
+    for (; seen < board->core_register_write_count; seen++) {
+      if (board->core_register_writes[seen] == address) {
+        break;
+      }
+    }
+    if (seen == board->core_register_write_count &&
+        board->core_register_write_count <
+            sizeof board->core_register_writes /
+                sizeof board->core_register_writes[0]) {
+      board->core_register_writes[board->core_register_write_count++] = address;
+    }
+  }
     count_declined(board, address, false);
     ap_boardreg_write8(&board->registers, address, value);
     return;
@@ -902,6 +920,9 @@ void ap_board_write(ap_board_t *board, uint32_t address, uint8_t value,
     board->first_unmapped_write = address;
   }
   board->unmapped_writes++;
+  /* Both directions: the bus does not care which way an unanswered cycle was
+   * going. */
+  ap_boardreg_latch_status(&board->registers, AP_BOARDREG_STATUS_BUS_ERROR);
 }
 
 bool ap_board_load_prom(ap_board_t *board, const uint8_t *prom,

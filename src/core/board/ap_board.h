@@ -287,6 +287,11 @@ typedef struct ap_board {
    * two decodes are in play -- the addresses are the fact. */
   uint32_t dma_register_writes[12];
   unsigned dma_register_write_count;
+  /* The same for the core registers, and for the same reason: which address a
+   * program wrote is the fact, and a register that did not change cannot say
+   * whether the write missed or the decode did. */
+  uint32_t core_register_writes[16];
+  unsigned core_register_write_count;
   /* Which controller the cycle in progress is running on. The 8237 hands its
    * callbacks a channel and nothing else -- a `DACK` is all a peripheral sees --
    * so the board keeps the half of the address Table 2-4 needs to name a

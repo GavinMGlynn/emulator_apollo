@@ -323,8 +323,13 @@ static void test_the_power_on_values_are_the_measured_ones(void) {
   ap_boardreg_t regs;
   ap_boardreg_init(&regs);
 
-  /* Read at 0.001, 0.5 and 2.0 emulated seconds, identical each time. */
-  TEST_ASSERT_EQUAL_HEX16(0x8100 | AP_BOARDREG_STATUS_NORMAL_MODE,
+  /* Read at 0.001, 0.5 and 2.0 emulated seconds, identical each time -- and
+   * every one of those is *after* the boot PROM began probing absent hardware,
+   * so the `8100` it saw carried bit 8, the CPU timeout, as a latched
+   * condition. The power-on level has it clear; a probe taken at those same
+   * moments against this core now measures `8100` again, which is the two
+   * accounts agreeing rather than one replacing the other. */
+  TEST_ASSERT_EQUAL_HEX16(0x8000 | AP_BOARDREG_STATUS_NORMAL_MODE,
                           ap_boardreg_read16(&regs, AP_BOARDREG_CPU_STATUS_ADDR));
   TEST_ASSERT_EQUAL_HEX16(0xF700,
                           ap_boardreg_read16(&regs,
@@ -371,15 +376,15 @@ static void test_the_normal_service_switch_is_bit_zero_and_defaults_to_normal(vo
                                      AP_BOARDREG_STATUS_NORMAL_MODE));
 
   ap_boardreg_set_normal_mode(&regs, false);
-  TEST_ASSERT_EQUAL_HEX16(0x8100u, regs.cpu_status);
+  TEST_ASSERT_EQUAL_HEX16(0x8000u, regs.cpu_status);
   ap_boardreg_set_normal_mode(&regs, true);
-  TEST_ASSERT_EQUAL_HEX16(0x8101u, regs.cpu_status);
+  TEST_ASSERT_EQUAL_HEX16(0x8001u, regs.cpu_status);
 
   /* And the switch touches nothing else, which is what makes it a switch
    * rather than a reset. */
   ap_boardreg_set_normal_mode(&regs, false);
   ap_boardreg_set_normal_mode(&regs, true);
-  TEST_ASSERT_EQUAL_HEX16(0x8101u, regs.cpu_status);
+  TEST_ASSERT_EQUAL_HEX16(0x8001u, regs.cpu_status);
 }
 
 /* ## The diagnostic LED codes

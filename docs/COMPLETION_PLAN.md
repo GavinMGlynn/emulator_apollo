@@ -3086,11 +3086,23 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         in `PROJECT_STATUS.md`.
         *Verification: the console passes the FP trap test and reaches
         `CPU (bus error) Test #0`.*
-  - [ ] **`CPU (bus error) Test #0`,** `Expected= 00000000, Actual= 00000100,
-        Address= 00010000` -- the status register's **CPU timeout** bit, which
-        this core sets at reset from the measured power-on `8100` and the test
-        expects clear.
-        *Verification: the console going past it.*
+  - [x] **`CPU (bus error) Test #0` passes, and with it every CPU self-test.**
+        Two defects behind one another. A word read of a core register returned
+        its **low byte twice** -- the board serves a word as two byte reads and
+        `ap_boardreg_read8` ignored the lane -- so `8001` read as `0101` and bit
+        8 was set whatever the register held; the write side had been given this
+        lane split earlier and reads were left alone. And **nothing ever set**
+        bit 8: an unanswered access is the CPU timeout, which the addendum gives
+        a clear location of its own. That corrected the power-on value too, from
+        the probe's `8100` to `8000`. Detail in `PROJECT_STATUS.md`.
+        *Verification: `board_suite` +1 (28) for a selective clear reaching the
+        register through the board. The console passes mmu, interrupts, timer,
+        dma 0/1/2, calendar, fp trap and bus error.*
+  - [ ] **`Configuration information is not initialized`** -- not a fault. The
+        diagnostic asks for `ex config` at the MD prompt to write the
+        configuration table into the calendar's battery-backed RAM at `010912`.
+        A setup step, and the next thing between here and a login prompt.
+        *Verification: the console going past the configuration check.*
   - [x] **`CPU (dma) Test #1` passes: the 16-bit controller counts words.**
         Logging the addresses the firmware writes in the DMA range ended the
         guessing -- `010D01` through `010D1B`, every one an odd byte address in
