@@ -5117,8 +5117,19 @@ The flag is set **only when the longword at `(a2)` is zero**.
 
 Of the 38 references to `3C44D8CA` in the 948 KB the PROM reads in, 33 are
 `tst.b`, two are `clr.b`, two are reads into `d0`, and one is that setter. So the
-code exists, it is loaded, and whether it *runs* — and what `(a2)` holds when it
-does — is a `--boot-stop-physical-pc` away.
+code exists and is loaded — and `--boot-stop-physical-pc 010D1AE4:10` says it
+**never executes**. The run goes the whole 311 million instructions to the same
+`FAULT on 6100` without once reaching it.
+
+So the shape is settled, even though the cause is not. The flag is consulted 33
+times by the loaded kernel, is set in exactly one place, and that place is never
+reached on this machine. The `tst.l (a2)` guard never gets the chance to decide
+anything.
+
+The question that remains is which branch upstream turns away from `010D1AEC` —
+a routine not called, or a condition inside it that fails earlier — and that is
+answered the same way everything above it was: find the callers of that routine
+in the loaded image, and stop on each in turn.
 
 **This paragraph previously said the opposite, and the mistake is worth keeping
 in view.** It reported sixteen references and no setter at all, and concluded the
