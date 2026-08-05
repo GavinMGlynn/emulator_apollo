@@ -57,7 +57,8 @@ static void print_usage(const char *program_name) {
           "                        counter to stderr every N instructions, so\n"
           "                        a run that says nothing for ten minutes can\n"
           "                        be told from one that is stuck\n"
-          "  --boot-stop-pc ADDR   stop the run the first time the program\n"
+          "  --boot-stop-pc ADDR[:LEN]\n"
+          "                        stop the run the first time the program\n"
           "                        counter is ADDR, so a kept trace holds what\n"
           "                        led there rather than what followed\n"
           "  --boot-trace-last N   keep the last N steps and print them when\n"
@@ -1006,7 +1007,8 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
                           const char *console_script_path,
                           const char *disk_path, const char *dump_spec,
                           unsigned progress_every, bool stop_on_refusal,
-                          uint32_t watch_write, unsigned stop_on_watch) {
+                          uint32_t watch_write, unsigned stop_on_watch,
+                          uint32_t stop_pc_length) {
   /* Before the PROM is even opened: a script that does not parse is the
    * caller's mistake and should be reported as one, not hidden behind whichever
    * file happens to be missing first. */
@@ -1533,7 +1535,8 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
         }
         break;
       }
-      if (stop_pc != 0u && step_pc == stop_pc) {
+      if (stop_pc != 0u && step_pc >= stop_pc &&
+          step_pc < stop_pc + stop_pc_length) {
         /* Checked **before** the fast path below, not after it.
          *
          * It was after, so the stop only happened when a trace or a ring was
@@ -1544,7 +1547,7 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
          *
          * The run ends here so a ring kept alongside it holds the steps that
          * led to this rather than the ones that came after. */
-        printf("  stopped at   PC %08X after %u instruction(s)\n", stop_pc, i);
+        printf("  stopped at   PC %08X after %u instruction(s)\n", step_pc, i);
         run.executed++;
         break;
       }
@@ -2350,6 +2353,7 @@ int main(int argc, char **argv) {
   bool boot_stop_on_refusal = false;
   uint32_t boot_watch_write = 0;
   unsigned boot_stop_on_watch = 0;
+  uint32_t boot_stop_pc_length = 1u;
   uint32_t boot_stop_pc = 0;
   uint32_t boot_watch = 0;
   const char *boot_input = NULL;
@@ -2527,7 +2531,16 @@ int main(int argc, char **argv) {
       continue;
     }
     if (strcmp(argv[i], "--boot-stop-pc") == 0 && i + 1 < argc) {
-      boot_stop_pc = (uint32_t)strtoul(argv[i + 1], NULL, 16);
+      /* `ADDR` or `ADDR:LEN`, the same shape `--dump-mem` takes. A range
+       * because the address worth stopping at is not always one you can name:
+       * a crash routine's *return* address is printed in the message and never
+       * executed, and the call that pushed it is two, four or six bytes before
+       * it depending on how it was made. */
+      if (!parse_dump_spec(argv[i + 1], &boot_stop_pc, &boot_stop_pc_length)) {
+        fprintf(stderr, "%s: --boot-stop-pc wants ADDR or ADDR:LEN in hex\n",
+                program_name);
+        return 2;
+      }
       i += 2;
       continue;
     }
@@ -2611,7 +2624,7 @@ int main(int argc, char **argv) {
                           boot_trace_last, boot_stop_pc, boot_script,
                           disk_path, dump_spec, boot_progress,
                           boot_stop_on_refusal, boot_watch_write,
-                          boot_stop_on_watch);
+                          boot_stop_on_watch, boot_stop_pc_length);
   }
 
   if (boot_tape != NULL) {
