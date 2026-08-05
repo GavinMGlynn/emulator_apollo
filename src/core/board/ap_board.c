@@ -316,7 +316,13 @@ static uint32_t dma_physical(const ap_board_t *board, uint16_t dma_address) {
   /* 8-bit, because that is what a channel programmed for byte transfers is and
    * nothing here yet programs a 16-bit one. The map indexes differently for the
    * two widths, which `ap_atmap.h` has and this passes through rather than
-   * deciding. */
+   * deciding.
+   *
+   * Choosing the width from the controller -- DMA2's channels being the AT's
+   * 16-bit ones -- was tried and reverted: it is a reasonable reading of
+   * §4.2.1.4 and it changed nothing observable, because the diagnostic that
+   * raised the question programs **controller 1** at `010C00`. An unverified
+   * behaviour change is not worth keeping. */
   return ap_atmap_translate(&board->translation_map, dma_address,
                             AP_ATMAP_TRANSFER_8BIT);
 }

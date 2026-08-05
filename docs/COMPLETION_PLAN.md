@@ -3075,7 +3075,12 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         satisfied by a *stale* status bit rather than a transfer. The setup is
         ordinary -- controller 1 at `010C00`, all four channels masked, then the
         software request for channel 0, which the datasheet makes non-maskable
-        and this core honours -- so the request is not reaching the arbiter.
+        and this core honours. **Now measured to the byte**: the transfer runs
+        once, correctly, and lands on top of itself. Both DMA addresses fold
+        onto map entries 0 and 2 -- both holding the page the test wrote
+        everywhere -- while the entries it *intends* are the ascending ones at
+        map offset `0400`, **entry 512**, which no documented index reaches.
+        Same reach-versus-size question the map's header answered once already.
         *Verification: the console going past it.*
     - [x] **The bus had never ticked, because a counter was a local.**
           `ap_machine_run` charges the board the previous instruction's clocks,
@@ -3088,6 +3093,14 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
           from `0 bus tick(s)` to non-zero. **Not** verified against the boot:
           with the bus ticking the run exceeds the measurement timeout used
           here, so the console has not been shown past the DMA test.*
+    - [x] **A terminal count clears the software request.** `[8237]`: a request
+          bit "is cleared upon generation of a TC or external EOP", and
+          `ap_i8237_terminal_count` never did -- so a software-requested move
+          ran 733,713 times for a one-byte transfer, the non-maskable request
+          bit being immune to the mask the same function sets. Detail in
+          `PROJECT_STATUS.md`.
+          *Verification: the suite stays green and the boot's block move runs
+          **once**, which is what a zero count asks for.*
     - [x] **Memory-to-memory DMA, which the part had declined outright.**
           `ap_i8237_transfer` began by refusing it, on the header's grounds that
           a transfer needs a bus to arbitrate for -- which it now has. `[8237]`

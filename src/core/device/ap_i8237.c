@@ -145,6 +145,12 @@ static ap_i8237_cycle_t memory_to_memory(ap_i8237_t *dma,
   out.terminal_count = expired;
   if (expired) {
     ap_i8237_terminal_count(dma, 1u);
+    /* The service belongs to **channel 0's** request -- "the transfer is
+     * initiated by setting the software DREQ for channel 0" -- and the EOP
+     * terminates the service, so that is the bit the TC clears. Channel 1's is
+     * cleared by `ap_i8237_terminal_count` above, which is right for its own
+     * sake and not what ends this. */
+    dma->request &= (uint8_t)~0x01u;
   }
   return out;
 }
@@ -245,6 +251,16 @@ void ap_i8237_terminal_count(ap_i8237_t *dma, unsigned channel) {
   /* "Bits 0-3 are set every time a TC is reached by that channel or an external
    * EOP is applied." */
   dma->status |= bit;
+
+  /* And the software request goes down. `[8237]`, *Request Register*: "Each
+   * register bit is set or reset separately under software control or **is
+   * cleared upon generation of a TC or external EOP**."
+   *
+   * This was missing, and a software-requested transfer therefore never
+   * stopped: the request bit is non-maskable, so the mask this function sets
+   * could not end it either. The boot diagnostic's block move ran 733,713 times
+   * instead of the length it asked for. */
+  dma->request &= (uint8_t)~bit;
 
   ap_i8237_channel_t *ch = &dma->channel[channel];
   if ((ch->mode & AP_I8237_MODE_AUTOINIT) != 0u) {
