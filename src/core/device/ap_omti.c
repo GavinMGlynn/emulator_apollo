@@ -110,6 +110,10 @@ uint32_t ap_omti_refused_lba(const ap_omti_t *omti) {
   return omti->refused_lba;
 }
 
+const uint8_t *ap_omti_refused_cdb(const ap_omti_t *omti) {
+  return omti->refused_cdb;
+}
+
 /* Record what was refused, so a run can say which address rather than only that
  * there was one. */
 static void refuse(ap_omti_t *omti, uint16_t cylinder, uint8_t head,
@@ -119,6 +123,9 @@ static void refuse(ap_omti_t *omti, uint16_t cylinder, uint8_t head,
   omti->refused_sector = sector;
   omti->refused_lba = lba;
   omti->refusals++;
+  for (unsigned i = 0; i < sizeof omti->refused_cdb; i++) {
+    omti->refused_cdb[i] = omti->command[i];
+  }
 }
 
 static void finish(ap_omti_t *omti, bool error, uint8_t sense) {

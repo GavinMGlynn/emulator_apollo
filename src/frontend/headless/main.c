@@ -1696,6 +1696,9 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
              ap_omti_refused_head(omti), ap_omti_refused_sector(omti),
              ap_omti_refused_lba(omti), geometry.cylinders, geometry.heads,
              geometry.sectors);
+      const uint8_t *cdb = ap_omti_refused_cdb(omti);
+      printf("  disk refused cdb %02X %02X %02X %02X %02X %02X\n", cdb[0],
+             cdb[1], cdb[2], cdb[3], cdb[4], cdb[5]);
     }
   }
   for (unsigned r = 0; r < AP_OMTI_DISK_REGISTERS; r++) {

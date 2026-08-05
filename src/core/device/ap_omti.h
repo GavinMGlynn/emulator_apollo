@@ -329,6 +329,10 @@ typedef struct {
   uint8_t refused_sector;
   uint32_t refused_lba;
   unsigned refusals;
+  /* The six bytes as the driver wrote them. Decoded fields say what *we* made
+   * of the command; these say what it actually sent, and the difference between
+   * those two is exactly where a decode error hides. */
+  uint8_t refused_cdb[6];
   /* Set by SEEK and RECALIBRATE, read and cleared by SENSE INTERRUPT STATUS --
    * which is the only way a driver learns a seek finished. */
   bool fdc_seek_done;
@@ -514,5 +518,7 @@ void ap_omti_attach_floppy(ap_omti_t *omti, ap_afd_t *floppy);
 [[nodiscard]] uint8_t ap_omti_refused_head(const ap_omti_t *omti);
 [[nodiscard]] uint8_t ap_omti_refused_sector(const ap_omti_t *omti);
 [[nodiscard]] uint32_t ap_omti_refused_lba(const ap_omti_t *omti);
+/* The six command bytes of the last refused command, as they arrived. */
+[[nodiscard]] const uint8_t *ap_omti_refused_cdb(const ap_omti_t *omti);
 
 #endif /* APOLLO_DEVICE_AP_OMTI_H */
