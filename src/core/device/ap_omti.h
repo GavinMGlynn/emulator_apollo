@@ -211,11 +211,69 @@ typedef enum {
   AP_OMTI_PHASE_STATUS,  /* the completion byte is waiting */
 } ap_omti_phase_t;
 
-/* One sector, and the largest transfer a single command moves here. §5.1.2's
- * block count is a byte, so a command can ask for 255 sectors; this moves them
- * one at a time through the same buffer, which is what the controller's own
- * single sector buffer does. */
-#define AP_OMTI_BUFFER_BYTES AP_AWD_SECTOR_BYTES
+/* ## The sector buffer, and the one command that reads it whole
+ *
+ * A data command moves sectors **one at a time** through this buffer, whatever
+ * block count it names -- §5.1.2's block count is a byte, so a READ can ask for
+ * 255 sectors, and the controller's own buffer is refilled per sector.
+ *
+ * `0E READ DATA FROM SECTOR BUFFER` is the exception, and it is why the buffer
+ * is not one sector: §5.4.13 returns "the jumper selectable sector size times
+ * the block count specified in byte 4 ... up to a maximum block count as
+ * follows" --
+ *
+ *     Sector Size   Block or Sector Count
+ *     512           15
+ *     1024           7
+ *     1056           7
+ *
+ * This machine's sectors are 1056, so **seven** is the most the command can ask
+ * for and seven sectors is the most that has to be staged at once. Sizing by
+ * the manual's own cap rather than by the controller's RAM: byte `14` of the
+ * identification block below reports a 32K buffer, which is what the *part*
+ * has, and no command in §5 can move more than this from it. */
+#define AP_OMTI_MAX_BUFFER_BLOCKS 7u
+#define AP_OMTI_BUFFER_BYTES (AP_OMTI_MAX_BUFFER_BLOCKS * AP_AWD_SECTOR_BYTES)
+
+/* ## The identification block, which is what a reset leaves in the buffer
+ *
+ * §5.4.13 again: "The READ BUFFER Command can also be used to model and status
+ * information about the controller. If a READ BUFFER Command is issued after a
+ * RESET is done (before any other command) the first XX bytes in the buffer
+ * contain the following information."
+ *
+ *     00 through 0D   8x2xVW.WMMDDYY
+ *     0E - 0F         ROM checksum Word
+ *     10 bit 0        ROM checksum error
+ *     11 bit 0        Processor Register error
+ *     12 bit 0        Buffer Ram error
+ *     13 bit 0        Sequencer Register File Error
+ *     14 bits 7 & 6   0-0 2K, 0-1 8K, 1-0 16K, 1-1 32K buffer size
+ *     20-2F, 30-3F, 50-5F   LUN 0, 1 and 3 default values
+ *
+ * So the controller identifies itself and reports its own power-on diagnostics
+ * through a data command, and "after a RESET before any other command" needs no
+ * flag to model: a reset *writes* the block into the buffer and whatever command
+ * comes next overwrites it, which is the same sentence from the other side.
+ *
+ * The template resolves against the part the DN3500 has. `8x2x` is the model,
+ * `8621`; `VW.W` is the literal `V` and a version; `MMDDYY` a date. The oracle
+ * carries the actual string for the Apollo-shipped controller --
+ * `8621VB.4060487` -- version B.4, dated 4 June 1987, which is a value read off
+ * the part rather than anything this project could derive. It writes `xx` into
+ * the two checksum bytes, which is plainly a placeholder and not a checksum, so
+ * those are left **zero** here and named as unknown rather than copied.
+ *
+ * The four error bytes are zero on a healthy controller, and the boot PROM's
+ * Winchester test 1 checks exactly that: it reads eight words past them and
+ * then requires the two words at `10`-`13` to be zero. */
+#define AP_OMTI_IDENTIFICATION "8621VB.4060487"
+#define AP_OMTI_IDENTIFICATION_BYTES 14u
+#define AP_OMTI_ID_ROM_CHECKSUM 0x0Eu
+#define AP_OMTI_ID_ERROR_FLAGS 0x10u
+#define AP_OMTI_ID_BUFFER_SIZE 0x14u
+/* Bits 7 and 6 set: 32K, per the table above. */
+#define AP_OMTI_ID_BUFFER_32K 0xC0u
 
 /* The longest floppy command and result phases in §6.3. READ DATA and the three
  * scans take nine command bytes; the seven-byte ST0/ST1/ST2/C/H/R/N result is
@@ -315,6 +373,33 @@ void ap_omti_disk_reset(ap_omti_t *omti);
 
 /* The fixed-disk half. */
 [[nodiscard]] uint8_t ap_omti_disk_read(ap_omti_t *omti, unsigned reg);
+
+/* ## The data port is sixteen bits wide, and the board has to say so
+ *
+ * §4.2 makes the data port "byte-wide when C/D is set, word-wide when it is
+ * clear" -- byte at a time while commands and status are moving, a word at a
+ * time while *data* is. This module has said that since it was written; what it
+ * had no way to express was a word **cycle**, because the board decomposed
+ * every access into bytes and a byte read of the data port is a different
+ * event from half of a word read of it.
+ *
+ * The boot PROM's Winchester test 1 is the first thing to need it: after
+ * `0E READ DATA FROM SECTOR BUFFER` it reads the identification block with
+ * `MOVE.W $4D000`, eight times, and then requires two more words to be zero.
+ * Served as two byte reads, the second byte is the *status* register and the
+ * word can never be zero -- it came back `FFFF`.
+ *
+ * `PROVISIONAL`: **which buffer byte is the word's high half.** The oracle packs
+ * the first byte into bits 7-0 and the second into 15-8, so a buffer arrives at
+ * a big-endian CPU byte-swapped, and that is followed here rather than
+ * second-guessed -- Domain/OS boots from this controller on the oracle, which
+ * is evidence of a kind if any sector data ever moves by programmed I/O rather
+ * than DMA. Nothing in hand distinguishes the two: the identification bytes the
+ * firmware compares are all zero, and no boot PROM here contains the string
+ * `8621` or any other part of the block. What would settle it is a transfer of
+ * *known* content through 16-bit programmed I/O. */
+[[nodiscard]] uint16_t ap_omti_disk_read16(ap_omti_t *omti);
+void ap_omti_disk_write16(ap_omti_t *omti, uint16_t value);
 void ap_omti_disk_write(ap_omti_t *omti, unsigned reg, uint8_t value);
 
 /* The floppy half. `reg` is the offset within the eight-address block. */

@@ -26,6 +26,20 @@ void ap_omti_disk_reset(ap_omti_t *omti) {
   omti->command_index = 0u;
   omti->command_length = 0u;
   omti->buffer_index = 0u;
+
+  /* And the identification block, because §5.4.13's "after a RESET is done
+   * (before any other command)" is a statement about the *buffer*: the reset
+   * writes it and the next command overwrites it. Modelling it as a flag would
+   * say the same thing less directly and would have to be cleared in as many
+   * places as there are commands. See the header for the layout and for what
+   * each field is sourced from. */
+  memset(omti->buffer, 0, sizeof omti->buffer);
+  memcpy(omti->buffer, AP_OMTI_IDENTIFICATION, AP_OMTI_IDENTIFICATION_BYTES);
+  /* The two checksum bytes stay zero: no source here gives the ROM's checksum,
+   * and the oracle's `xx` is a placeholder rather than a value. The four error
+   * bytes stay zero because this controller has just passed its own power-on
+   * tests -- which is the whole of what the boot PROM checks. */
+  omti->buffer[AP_OMTI_ID_BUFFER_SIZE] = AP_OMTI_ID_BUFFER_32K;
 }
 
 void ap_omti_reset(ap_omti_t *omti) {
@@ -321,6 +335,31 @@ static void execute(ap_omti_t *omti) {
     finish(omti, false, 0u);
     return;
 
+  case AP_OMTI_CMD_READ_SECTOR_BUFFER: {
+    /* §5.4.13. "The controller does not access the disk drive during the
+     * execution of this command" -- so no `addressed` check and no drive is
+     * needed, which is what lets the boot PROM run it before it knows whether a
+     * disk is fitted at all. */
+    const unsigned blocks = block_count(&cdb);
+    if (blocks > AP_OMTI_MAX_BUFFER_BLOCKS) {
+      /* Past the manual's own cap for this sector size. Refused rather than
+       * truncated: a host told a transfer succeeded when it was cut short would
+       * read the tail of the previous command's buffer as data. */
+      finish(omti, true, SENSE_ILLEGAL_ADDRESS);
+      return;
+    }
+    omti->buffer_index = 0u;
+    omti->transfer_length = blocks * AP_AWD_SECTOR_BYTES;
+    omti->blocks_left = 0u;
+    omti->phase = AP_OMTI_PHASE_DATA_IN;
+    omti->status = (uint8_t)((omti->status & ~AP_OMTI_ST_CD) | AP_OMTI_ST_IO |
+                             AP_OMTI_ST_REQ);
+    if ((omti->mask & AP_OMTI_MASK_DMA_ENABLE) != 0u) {
+      omti->status |= AP_OMTI_ST_DREQ;
+    }
+    return;
+  }
+
   case AP_OMTI_CMD_RECALIBRATE:
   case AP_OMTI_CMD_SEEK:
     /* Positioning, which this model has no position to change: a seek is
@@ -384,7 +423,11 @@ static void take_byte(ap_omti_t *omti, uint8_t value) {
 
   case AP_OMTI_PHASE_DATA_OUT:
     omti->buffer[omti->buffer_index++] = value;
-    if (omti->buffer_index < AP_OMTI_BUFFER_BYTES) {
+    /* A *sector*, which is what the write path is waiting for -- not the whole
+     * buffer, which now holds several. The two were the same number until
+     * `0E` needed room for seven, and the constant used here was the wrong one
+     * of the two all along. */
+    if (omti->buffer_index < AP_AWD_SECTOR_BYTES) {
       return;
     }
     if (!ap_awd_write(omti->drive, omti->next_lba, omti->buffer)) {
@@ -481,6 +524,20 @@ uint8_t ap_omti_disk_read(ap_omti_t *omti, unsigned reg) {
     return 0u;
   }
   return 0u;
+}
+
+uint16_t ap_omti_disk_read16(ap_omti_t *omti) {
+  /* Two bytes out of the same stream a byte read would take, in one cycle. The
+   * low half first: see the header, and the `PROVISIONAL` note on it. */
+  const uint16_t low = give_byte(omti);
+  const uint16_t high = give_byte(omti);
+  return (uint16_t)((high << 8) | low);
+}
+
+void ap_omti_disk_write16(ap_omti_t *omti, uint16_t value) {
+  omti->data = value;
+  take_byte(omti, (uint8_t)(value & 0xFFu));
+  take_byte(omti, (uint8_t)(value >> 8));
 }
 
 void ap_omti_disk_write(ap_omti_t *omti, unsigned reg, uint8_t value) {

@@ -22,6 +22,32 @@ bool ap_disk_decode(uint32_t address, bool *is_floppy, unsigned *reg) {
   return false;
 }
 
+bool ap_disk_is_data_port(const ap_disk_t *disk, uint32_t address) {
+  (void)disk;
+  bool is_floppy = false;
+  unsigned reg = 0;
+  return ap_disk_decode(address, &is_floppy, &reg) && !is_floppy &&
+         reg == AP_OMTI_DISK_DATA;
+}
+
+uint16_t ap_disk_read16(ap_disk_t *disk, uint32_t address) {
+  if (!ap_disk_is_data_port(disk, address)) {
+    return 0xFFFFu;
+  }
+  /* One cycle, counted as one -- a word read of the data port is one access to
+   * it and not two, which is the whole distinction this path exists to keep. */
+  disk->disk_reads[AP_OMTI_DISK_DATA]++;
+  return ap_omti_disk_read16(&disk->controller);
+}
+
+void ap_disk_write16(ap_disk_t *disk, uint32_t address, uint16_t value) {
+  if (!ap_disk_is_data_port(disk, address)) {
+    return;
+  }
+  disk->disk_writes[AP_OMTI_DISK_DATA]++;
+  ap_omti_disk_write16(&disk->controller, value);
+}
+
 uint8_t ap_disk_read(ap_disk_t *disk, uint32_t address) {
   bool is_floppy;
   unsigned reg;

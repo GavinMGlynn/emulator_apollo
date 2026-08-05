@@ -114,4 +114,13 @@ void ap_disk_note_command(ap_disk_t *disk, uint8_t opcode);
 [[nodiscard]] uint8_t ap_disk_read(ap_disk_t *disk, uint32_t address);
 void ap_disk_write(ap_disk_t *disk, uint32_t address, uint8_t value);
 
+/* Whether a word access at this address is the fixed disk's **data port**, the
+ * one register on the part that is sixteen bits wide -- `device/ap_omti.h` has
+ * §4.2 and the reason a word cycle is not two byte cycles here. Every other
+ * register, and the whole floppy side, is a byte and stays one. */
+[[nodiscard]] bool ap_disk_is_data_port(const ap_disk_t *disk,
+                                        uint32_t address);
+[[nodiscard]] uint16_t ap_disk_read16(ap_disk_t *disk, uint32_t address);
+void ap_disk_write16(ap_disk_t *disk, uint32_t address, uint16_t value);
+
 #endif /* APOLLO_BOARD_AP_DISK_H */

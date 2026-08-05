@@ -990,6 +990,18 @@ bool ap_board_write_access(ap_board_t *board, uint32_t address, unsigned count,
     return false;
   }
 
+  /* The fixed disk's data port is sixteen bits and a word access to it is one
+   * cycle: served as two byte writes the second would land in the *status*
+   * register, which is a reset. See `board/ap_disk.h`. */
+  if (whole_words(count) && ap_disk_is_data_port(&board->disk, address)) {
+    board->region_writes[AP_BOARD_REGION_DISK] += count;
+    for (unsigned i = 0; i < count; i += 2u) {
+      ap_disk_write16(&board->disk, address,
+                      (uint16_t)(value >> ((count - 2u - i) * 8u)));
+    }
+    return true;
+  }
+
   bool colour = false;
   uint32_t offset = 0;
   const bool graphics_memory =
@@ -1028,6 +1040,16 @@ bool ap_board_read_access(ap_board_t *board, uint32_t address, unsigned count,
                           uint32_t *out) {
   if (out == NULL || !transfer_size(count)) {
     return false;
+  }
+
+  if (whole_words(count) && ap_disk_is_data_port(&board->disk, address)) {
+    board->region_reads[AP_BOARD_REGION_DISK] += count;
+    uint32_t word = 0;
+    for (unsigned i = 0; i < count; i += 2u) {
+      word = (word << 16) | ap_disk_read16(&board->disk, address);
+    }
+    *out = word;
+    return true;
   }
 
   bool colour = false;

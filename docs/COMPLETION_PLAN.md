@@ -3009,21 +3009,30 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         *Verification: `awd_suite`'s configuration test extended to the whole
         ten bytes. The boot is **unchanged** — same commands, same resting PC —
         which is the finding: the word was not what stopped it.*
-  - [ ] **`0E READ DATA FROM SECTOR BUFFER`, and the identification block.**
-        The lead this item waited for arrived, and it is the controller's own
-        diagnostic: with the parity circuit and the 3-byte transfer size in, the
-        firmware runs its **Winchester Disk** self-tests, and test 1 at
-        `00007C02` drives the controller directly -- command phase (`CD`) after
-        each CDB byte, then **data-in** (`CB`). Ours answers `EF`, status phase
-        with an interrupt, because `0E` is not implemented.
-        `[OMTI]` §5.4.13, page 5-14, from the page image: the transfer is the
-        sector size times byte 4's block count, the controller does not touch
-        the drive, and -- the part that matters -- **issued after a reset and
-        before any other command, the buffer holds the controller's own model
-        string, ROM checksum, four power-on error bits and its buffer size**.
-        Detail and the table in `PROJECT_STATUS.md`.
-        *Verification: `omti_suite`, and the firmware's own test -- the boot
-        should pass `Winchester Disk  Test # 1` and go on.*
+  - [ ] **Past the self-tests: the drive test's phase poll.** Every self-test
+        the firmware runs now passes and it prints `Drive 0`, then settles in a
+        poll at `00002EDC`-`00002EEA`: read the status register, mask the low
+        nibble -- `REQ|IO|CD|BUSY`, the phase -- compare against an expected
+        value, and count down a `000FFFFF` timeout. So a command has been issued
+        and the controller never reaches the phase it is waited on for. The
+        resting PC is identical at 400M and 800M instructions, so it is a retry
+        loop rather than a slow transfer.
+        *Verification: the console going past `Drive 0`.*
+  - [x] **`0E READ DATA FROM SECTOR BUFFER`, and the data port is sixteen
+        bits.** The lead this item waited for was the controller's own
+        diagnostic: with parity and the 3-byte transfer size in, the firmware
+        runs its **Winchester** self-tests, and test 1 drives the controller
+        directly. Two things were wrong and only one was a missing command.
+        `[OMTI]` §5.4.13 gives the transfer and its seven-block cap, and says a
+        reset leaves the controller's **identification block** in the buffer --
+        which needs no flag, since a reset writes it and the next command
+        overwrites it. And §4.2's word-wide data port had never been given a
+        word *cycle* by the board, so `MOVE.W $4D000` read the status register
+        as its second byte and answered `FFFF`. Detail in `PROJECT_STATUS.md`.
+        *Verification: `omti_suite` +4 (13), and the firmware's own test --
+        the boot passes `Winchester Disk  Test # 1` and goes on to `Drive 0`.
+        `PROVISIONAL`: which buffer byte is the word's high half, which nothing
+        in hand distinguishes; the suite asserts only what holds either way.*
   - [x] **A disk can be fitted at all.** `ap_omti` modelled the controller and
         `ap_awd` read the image and nothing ever handed one to the other, so
         every boot experiment so far ran on a DN3500 with **no Winchester** —

@@ -160,6 +160,133 @@ static void test_the_two_halves_share_nothing(void) {
   TEST_ASSERT_EQUAL_HEX8(0x11, ap_omti_fdc_read(&o, AP_OMTI_FDC_DATA));
 }
 
+/* Issue a six-byte CDB the way §4.3's command state does: select, then a byte
+ * at a time, checking the controller asks for each one. */
+static void issue(ap_omti_t *o, const uint8_t cdb[6]) {
+  ap_omti_disk_write(o, AP_OMTI_DISK_CONFIG, 0x00); /* SELECT */
+  for (unsigned i = 0; i < 6u; i++) {
+    /* The command phase: C/D set, travelling from the host, and requested --
+     * `CD` with the two fixed bits, which is what the boot PROM checks after
+     * every byte it writes. */
+    TEST_ASSERT_EQUAL_HEX8(0xCD, ap_omti_disk_read(o, AP_OMTI_DISK_STATUS));
+    ap_omti_disk_write(o, AP_OMTI_DISK_DATA, cdb[i]);
+  }
+}
+
+/* ## `0E READ DATA FROM SECTOR BUFFER`, and the block a reset leaves behind
+ *
+ * §5.4.13: the transfer is the sector size times byte 4's block count, the
+ * controller does not touch the drive, and issued after a reset before any
+ * other command the buffer holds the controller's own identification. The boot
+ * PROM's Winchester test 1 is precisely this sequence.
+ */
+static void test_read_sector_buffer_enters_the_data_phase_without_a_drive(void) {
+  ap_omti_t o;
+  ap_omti_reset(&o);
+
+  static const uint8_t cdb[6] = {0x0E, 0, 0, 0, 1, 0};
+  issue(&o, cdb);
+
+  /* Data in, not status: C/D **clear**, I/O set, busy and requested. `CB` is
+   * the byte the firmware waits for, and this model used to answer `EF` --
+   * status phase with an interrupt, which is what it does with a command it
+   * does not implement. No drive is fitted, and the command does not want one. */
+  TEST_ASSERT_EQUAL_HEX8(0xCB, ap_omti_disk_read(&o, AP_OMTI_DISK_STATUS));
+  TEST_ASSERT_EQUAL_INT(AP_OMTI_PHASE_DATA_IN, ap_omti_disk_phase(&o));
+}
+
+static void test_a_reset_leaves_the_identification_block_in_the_buffer(void) {
+  ap_omti_t o;
+  ap_omti_reset(&o);
+
+  static const uint8_t cdb[6] = {0x0E, 0, 0, 0, 1, 0};
+  issue(&o, cdb);
+
+  uint8_t block[0x16];
+  for (unsigned i = 0; i < sizeof block; i++) {
+    block[i] = ap_omti_disk_read(&o, AP_OMTI_DISK_DATA);
+  }
+
+  /* `8x2xVW.WMMDDYY` resolved for the part the DN3500 has. */
+  TEST_ASSERT_EQUAL_MEMORY(AP_OMTI_IDENTIFICATION, block,
+                           AP_OMTI_IDENTIFICATION_BYTES);
+
+  /* The four power-on error bytes, zero on a healthy controller -- and the two
+   * words the boot PROM actually compares. A controller reporting a ROM
+   * checksum or buffer RAM error here fails the self-test, which is the whole
+   * purpose of the block. */
+  for (unsigned i = 0; i < 4u; i++) {
+    TEST_ASSERT_EQUAL_HEX8(0, block[AP_OMTI_ID_ERROR_FLAGS + i]);
+  }
+  /* Bits 7 and 6 set: 32K, per §5.4.13's own table. */
+  TEST_ASSERT_EQUAL_HEX8(AP_OMTI_ID_BUFFER_32K, block[AP_OMTI_ID_BUFFER_SIZE]);
+}
+
+/* ## The data port is sixteen bits, and a word is one cycle
+ *
+ * Served as two byte reads, the second byte comes from the *status* register
+ * and the word can never be what the firmware is waiting for -- it came back
+ * `FFFF`. The byte order within the word is `PROVISIONAL`; see
+ * `device/ap_omti.h`. This asserts the part that is not: a word read takes two
+ * bytes of the buffer and advances by two.
+ */
+static void test_a_word_read_of_the_data_port_takes_two_buffer_bytes(void) {
+  ap_omti_t o;
+  ap_omti_reset(&o);
+
+  static const uint8_t cdb[6] = {0x0E, 0, 0, 0, 1, 0};
+  issue(&o, cdb);
+
+  const uint16_t first = ap_omti_disk_read16(&o);
+  const uint16_t second = ap_omti_disk_read16(&o);
+
+  /* The same four bytes a byte-at-a-time reader would have seen, in whichever
+   * halves the packing puts them -- so this holds under either order and fails
+   * if a word read consumed one byte, or three, or reached the status port. */
+  const uint8_t seen[4] = {
+      (uint8_t)(first & 0xFFu), (uint8_t)(first >> 8),
+      (uint8_t)(second & 0xFFu), (uint8_t)(second >> 8),
+  };
+  uint8_t sorted[4];
+  memcpy(sorted, seen, sizeof sorted);
+  for (unsigned i = 0; i < 4u; i++) {
+    for (unsigned j = i + 1u; j < 4u; j++) {
+      if (sorted[j] < sorted[i]) {
+        const uint8_t t = sorted[i];
+        sorted[i] = sorted[j];
+        sorted[j] = t;
+      }
+    }
+  }
+  uint8_t expected[4] = {(uint8_t)AP_OMTI_IDENTIFICATION[0],
+                         (uint8_t)AP_OMTI_IDENTIFICATION[1],
+                         (uint8_t)AP_OMTI_IDENTIFICATION[2],
+                         (uint8_t)AP_OMTI_IDENTIFICATION[3]};
+  for (unsigned i = 0; i < 4u; i++) {
+    for (unsigned j = i + 1u; j < 4u; j++) {
+      if (expected[j] < expected[i]) {
+        const uint8_t t = expected[i];
+        expected[i] = expected[j];
+        expected[j] = t;
+      }
+    }
+  }
+  TEST_ASSERT_EQUAL_MEMORY(expected, sorted, 4u);
+}
+
+static void test_a_block_count_past_the_manuals_cap_is_refused(void) {
+  ap_omti_t o;
+  ap_omti_reset(&o);
+
+  /* §5.4.13 caps the block count at seven for 1056-byte sectors. Eight is
+   * refused rather than truncated: a host told the transfer succeeded would
+   * read the tail of some earlier command's buffer as data. */
+  static const uint8_t cdb[6] = {0x0E, 0, 0, 0, 8, 0};
+  issue(&o, cdb);
+
+  TEST_ASSERT_EQUAL_INT(AP_OMTI_PHASE_STATUS, ap_omti_disk_phase(&o));
+}
+
 static void test_two_controllers_reset_alike_hold_identical_state(void) {
   ap_omti_t a;
   ap_omti_t b;
@@ -180,6 +307,10 @@ int main(void) {
   RUN_TEST(test_the_measured_floppy_block_is_reproduced);
   RUN_TEST(test_clearing_the_output_register_holds_the_floppy_in_reset);
   RUN_TEST(test_the_two_halves_share_nothing);
+  RUN_TEST(test_read_sector_buffer_enters_the_data_phase_without_a_drive);
+  RUN_TEST(test_a_reset_leaves_the_identification_block_in_the_buffer);
+  RUN_TEST(test_a_word_read_of_the_data_port_takes_two_buffer_bytes);
+  RUN_TEST(test_a_block_count_past_the_manuals_cap_is_refused);
   RUN_TEST(test_two_controllers_reset_alike_hold_identical_state);
   return UNITY_END();
 }
