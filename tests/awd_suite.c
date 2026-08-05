@@ -171,10 +171,22 @@ static void test_a_read_command_delivers_the_addressed_sector(void) {
     TEST_ASSERT_EQUAL_HEX8(15u, ap_omti_disk_read(&omti, AP_OMTI_DISK_DATA));
   }
 
-  /* The sector ends the command, and the completion byte is waiting. */
+  /* The sector ends the command, and the completion byte is waiting.
+   *
+   * `IREQ` is **not** up, because this controller was never told to interrupt:
+   * §4.2 gates the bit on the MASK register's interrupt enable, and this test
+   * ran in programmed I/O. Asserting it here was asserting the reading this
+   * core first took and Domain/OS later disproved by polling for `CF`. What a
+   * polled driver waits on is `REQ`, and that is up. */
   TEST_ASSERT_EQUAL_INT(AP_OMTI_PHASE_STATUS, ap_omti_disk_phase(&omti));
-  TEST_ASSERT_TRUE(
-      (ap_omti_disk_read(&omti, AP_OMTI_DISK_STATUS) & AP_OMTI_ST_IREQ) != 0u);
+  const uint8_t completed = ap_omti_disk_read(&omti, AP_OMTI_DISK_STATUS);
+  TEST_ASSERT_TRUE((completed & AP_OMTI_ST_IREQ) == 0u);
+  TEST_ASSERT_TRUE((completed & AP_OMTI_ST_REQ) != 0u);
+  /* The bits, not the byte. On the machine this reads `CF`, which is these
+   * plus `BSY` -- and `BSY` is "Controller Selected", which this fixture drives
+   * the command without asserting. Pinning the whole byte here would be pinning
+   * the fixture. */
+  TEST_ASSERT_EQUAL_HEX8(0xC7u, (uint8_t)(completed & ~AP_OMTI_ST_BSY));
   TEST_ASSERT_EQUAL_HEX8(0u, take_status());
   TEST_ASSERT_EQUAL_INT(AP_OMTI_PHASE_IDLE, ap_omti_disk_phase(&omti));
 }

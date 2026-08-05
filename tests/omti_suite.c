@@ -291,25 +291,56 @@ static void test_a_completed_command_asks_for_an_interrupt_when_enabled(void) {
   /* Idle, so nothing is asking. */
   TEST_ASSERT_FALSE(ap_omti_disk_irq(&o));
 
-  /* A command completes with the interrupt disabled: `IREQ` is set and the
-   * line is not, which is the whole of what the enable bit does. */
+  /* A command completes with the interrupt disabled, and `IREQ` stays **down**.
+   *
+   * That is the half of §4.2's ambiguous sentence this core first got wrong.
+   * Domain/OS is what settles it: its driver polls the status register waiting
+   * for exactly `CF` -- `BSY|C/D|I/O|REQ` with `IREQ` clear -- and an
+   * unconditional `IREQ` left the controller at `EF` for ever, which is the
+   * number the operating system printed as `DISK CONTROLLER STATE = EF` before
+   * giving up. `omti8621.cpp` sets `IREQ` inside
+   * `if (m_mask_port & OMTI_MASK_INTE)` and nowhere else. */
   static const uint8_t cdb[6] = {0x00, 0, 0, 0, 0, 0}; /* TEST DRIVE READY */
   issue(&o, cdb);
-  TEST_ASSERT_EQUAL_HEX8(AP_OMTI_ST_IREQ,
-                         ap_omti_disk_read(&o, AP_OMTI_DISK_STATUS) &
-                             AP_OMTI_ST_IREQ);
+  TEST_ASSERT_EQUAL_HEX8(0u, ap_omti_disk_read(&o, AP_OMTI_DISK_STATUS) &
+                                 AP_OMTI_ST_IREQ);
+  TEST_ASSERT_EQUAL_HEX8(0xCFu, ap_omti_disk_read(&o, AP_OMTI_DISK_STATUS));
   TEST_ASSERT_FALSE(ap_omti_disk_irq(&o));
 
-  /* Enabled, and now it is. The enable is read at the line rather than latched
-   * at completion, which is what makes this a level. */
+  /* Enabled *before* the command, and now both the bit and the line are up. */
+  ap_omti_t enabled;
+  ap_omti_reset(&enabled);
+  ap_omti_disk_write(&enabled, AP_OMTI_DISK_MASK,
+                     AP_OMTI_MASK_INTERRUPT_ENABLE);
+  issue(&enabled, cdb);
+  TEST_ASSERT_EQUAL_HEX8(AP_OMTI_ST_IREQ,
+                         ap_omti_disk_read(&enabled, AP_OMTI_DISK_STATUS) &
+                             AP_OMTI_ST_IREQ);
+  TEST_ASSERT_TRUE(ap_omti_disk_irq(&enabled));
+
+  /* And turning the enable off takes the bit down with it, so a driver that
+   * switches to polling does not find a completion it has already collected. */
+  ap_omti_disk_write(&enabled, AP_OMTI_DISK_MASK, 0u);
+  TEST_ASSERT_EQUAL_HEX8(0u, ap_omti_disk_read(&enabled, AP_OMTI_DISK_STATUS) &
+                                 AP_OMTI_ST_IREQ);
+  TEST_ASSERT_FALSE(ap_omti_disk_irq(&enabled));
+
+  /* Enabling interrupts *after* a command completed does not raise `IREQ`
+   * retrospectively: the bit is set at completion or not at all. */
   ap_omti_disk_write(&o, AP_OMTI_DISK_MASK, AP_OMTI_MASK_INTERRUPT_ENABLE);
-  TEST_ASSERT_TRUE(ap_omti_disk_irq(&o));
+  TEST_ASSERT_FALSE(ap_omti_disk_irq(&o));
 
   /* And reading the status byte drops it, because that is what clears `IREQ`.
    * A line that stayed up after the host collected the completion would be
    * taken again the moment the handler returned. */
-  (void)ap_omti_disk_read(&o, AP_OMTI_DISK_DATA);
-  TEST_ASSERT_FALSE(ap_omti_disk_irq(&o));
+  ap_omti_t collected;
+  ap_omti_reset(&collected);
+  ap_omti_disk_write(&collected, AP_OMTI_DISK_MASK,
+                     AP_OMTI_MASK_INTERRUPT_ENABLE);
+  issue(&collected, cdb);
+  TEST_ASSERT_TRUE(ap_omti_disk_irq(&collected));
+  (void)ap_omti_disk_read(&collected, AP_OMTI_DISK_DATA);
+  TEST_ASSERT_FALSE(ap_omti_disk_irq(&collected));
 }
 
 

@@ -150,19 +150,27 @@ static void finish(ap_omti_t *omti, bool error, uint8_t sense) {
   omti->blocks_left = 0u;
   /* §4.3's status state: "The controller sets the C/D bit and the I/O bit in
    * the STATUS byte", the byte waiting is a status byte and it travels *to* the
-   * host -- and `IREQ` is "1 = Command Complete".
+   * host.
    *
-   * **`REQ` is set too, and the manual's sentence about it is ambiguous.** It
-   * reads "If the INTERRUPT ENABLE bit was previously set in the MASK register,
-   * the REQ bit is set in the STATUS byte, along with IRQ14 on the system bus",
-   * which taken literally would leave a polled driver with no request to wait
-   * on and no way to collect the status byte at all -- and §4.2's MASK entry
-   * describes programmed I/O as a supported mode, not an unsupported one. The
-   * reading taken is that `REQ` is the status state's own handshake and the
-   * *interrupt* is what the enable bit gates. Recorded because it is a reading
-   * rather than a quotation. */
-  omti->status |= (uint8_t)(AP_OMTI_ST_IREQ | AP_OMTI_ST_CD |
-                            AP_OMTI_ST_IO | AP_OMTI_ST_REQ);
+   * **`IREQ` is gated on the MASK register's interrupt enable**, and that is
+   * the half of §4.2's ambiguous sentence this originally got wrong. It reads
+   * "If the INTERRUPT ENABLE bit was previously set in the MASK register, the
+   * REQ bit is set in the STATUS byte, along with IRQ14 on the system bus" --
+   * taken literally, a polled driver would have no request to wait on at all,
+   * so the reading taken here was that `REQ` is the phase's own handshake and
+   * only the *interrupt* is gated. Half right: `REQ` is indeed ungated, and
+   * `IREQ` is not.
+   *
+   * Domain/OS settles it. Its driver polls this register waiting for exactly
+   * `CF` -- `BSY|C/D|I/O|REQ` with `IREQ` **clear** -- and with `IREQ` set
+   * unconditionally the controller sat at `EF` for ever, which is the value the
+   * operating system printed as `DISK CONTROLLER STATE = EF` before giving up.
+   * `omti8621.cpp` agrees field for field: it sets `IREQ` inside
+   * `if (m_mask_port & OMTI_MASK_INTE)` and nowhere else. */
+  omti->status |= (uint8_t)(AP_OMTI_ST_CD | AP_OMTI_ST_IO | AP_OMTI_ST_REQ);
+  if ((omti->mask & AP_OMTI_MASK_INTERRUPT_ENABLE) != 0u) {
+    omti->status |= AP_OMTI_ST_IREQ;
+  }
   /* And `DREQ` goes down, because the data phase it belonged to is over.
    *
    * `DREQ` is "1 = DMA Cycle Requested", and there is no DMA cycle in a status
@@ -656,6 +664,17 @@ void ap_omti_disk_write(ap_omti_t *omti, unsigned reg, uint8_t value) {
     return;
   case AP_OMTI_DISK_MASK:
     omti->mask = value;
+    /* Disabling either enable takes its request bit down with it. A driver
+     * turning interrupts off and then polling must not find `IREQ` standing
+     * from a command that completed while they were on -- it would read as a
+     * completion that had already been collected. `omti8621.cpp` does the same
+     * on this write, for both bits. */
+    if ((value & AP_OMTI_MASK_INTERRUPT_ENABLE) == 0u) {
+      omti->status = (uint8_t)(omti->status & ~AP_OMTI_ST_IREQ);
+    }
+    if ((value & AP_OMTI_MASK_DMA_ENABLE) == 0u) {
+      omti->status = (uint8_t)(omti->status & ~AP_OMTI_ST_DREQ);
+    }
     return;
   }
 }

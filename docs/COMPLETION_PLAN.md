@@ -3235,8 +3235,19 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         there is **`00080024`** -- the status in the crash message. The rest of
         that frame still holds the boot PROM's memory-test pattern, every
         longword containing its own address, so the routine wrote a status and
-        returned without filling anything else in: it failed early. The fault is
-        now one routine and one status. Detail in `PROJECT_STATUS.md`.
+        returned without filling anything else in: it failed early. A
+        200,000-step ring shows why -- 199,700 of them in a six-instruction
+        loop polling `3FFFA800+1`, which translates to `0004D000`, the **OMTI
+        status register**, waiting for `CF` and giving up after 33,246 tries.
+        `CF` is `BSY|C/D|I/O|REQ` with **`IREQ` clear**, and this core set
+        `IREQ` on every completion, so the controller sat at `EF` -- the number
+        the operating system had been printing all along. §4.2 gates the bit on
+        the MASK register's interrupt enable, as `omti8621.cpp` does; fixed.
+        Detail in `PROJECT_STATUS.md`.
+        *Verification: `omti_suite` and `awd_suite` corrected to the evidenced
+        behaviour -- a completed command in programmed I/O leaves `IREQ` down
+        and reads `CF`, enabling interrupts before the command raises both bit
+        and line, and clearing the enable takes the bit down with it.*
         *Verification: the console going past the crash.*
   - [ ] **`IRQ6` and `DRQ2`, the floppy's**, are placed and not driven: its
         completion is the FDC's result phase rather than the fixed disk's.

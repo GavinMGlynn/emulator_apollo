@@ -4937,10 +4937,44 @@ without filling in anything else. It failed early rather than producing a wrong
 answer at the end.
 
 **The fault is now one routine and one status.** `3C49CDCC` is called with 36
-bytes of arguments and comes back `00080024`; what it was asked to do, and which
-of our devices it consulted to decide it could not, is the remaining question,
-and it is answerable by stopping at `3C49CDCC` and following it forward rather
-than by dumping anything else.
+bytes of arguments and comes back `00080024`.
+
+#### `IREQ` is gated on the interrupt enable, and `EF` should have been `CF`
+
+A 200,000-step ring at the same stop shows where those instructions went:
+**199,700 of them in a six-instruction loop** at `3C41EEBA`, run 33,246 times.
+The routine is not computing, it is waiting.
+
+    3C41EEBA  4243   clr.w  d3
+    3C41EEBC  1628   move.b $1(a0),d3     ; a0 = 3FFFA800
+    3C41EEC0  B641   cmp.w  d1,d3         ; d1 = 000000CF
+    3C41EEC2  6722   beq.b  ...           ; never taken
+    3C41EEC4  B491   cmp.l  (a1),d2       ; the timeout
+    3C41EEC6  6CF2   bge.b  $3C41EEBA
+
+`--dump-logical` names both ends of it: `3FFFA800` translates to `0004D000`,
+the **OMTI fixed-disk registers**, and displacement 1 is the STATUS port. So
+Domain/OS polls the controller's status waiting for exactly **`CF`** and gives
+up after 33,246 tries.
+
+`CF` is `BSY|C/D|I/O|REQ` with **`IREQ` clear**. This core set `IREQ` on every
+completed command, so the controller sat at `EF` — which is precisely the number
+the operating system printed as `DISK CONTROLLER STATE = EF` before crashing.
+The value was in front of us from the first console capture.
+
+`device/ap_omti.c` recorded the reading that caused it, and recorded it as a
+reading: §4.2 says "If the INTERRUPT ENABLE bit was previously set in the MASK
+register, the REQ bit is set in the STATUS byte, along with IRQ14 on the system
+bus", which taken literally leaves a polled driver with no request to wait on,
+so the note concluded that `REQ` is ungated and only the *interrupt* is gated.
+Half of that is right. `REQ` is ungated; **`IREQ` is not**. `omti8621.cpp` sets
+it inside `if (m_mask_port & OMTI_MASK_INTE)` and nowhere else, and clears it
+when that bit is written away — both of which this core now does.
+
+The lesson is the one `CLAUDE.md` already insists on: the note said "Recorded
+because it is a reading rather than a quotation", and being able to find the
+reading, and see which half of it the machine disagreed with, is the whole value
+of having written it down.
 
 #### `DRQ7`, and a request that never went down
 
