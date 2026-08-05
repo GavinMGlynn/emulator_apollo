@@ -3067,8 +3067,22 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         walk, and three tests rewritten from the old reading. The boot passes
         the DMA test and now takes real interrupts -- vectors `A0` and `AD`.*
   - [ ] **`CPU (dma) Test #1`,** `Expected= 00011008, Actual= 03465555,
-        Address= 01100803`.
+        Address= 01100803`. The test programs a block move from `1100000` to
+        `1100800` and compares the halves. The **part** now performs
+        memory-to-memory; the **board** does not yet ask it to, and the console
+        is unchanged.
         *Verification: the console going past it.*
+    - [x] **Memory-to-memory DMA, which the part had declined outright.**
+          `ap_i8237_transfer` began by refusing it, on the header's grounds that
+          a transfer needs a bus to arbitrate for -- which it now has. `[8237]`
+          specifies the whole thing: channels 0 and 1, initiated by channel 0's
+          software DREQ, through the temporary register, with **only channel
+          1's** word count decremented and the TC from it. Detail in
+          `PROJECT_STATUS.md`.
+          *Verification: `i8237_suite` +3 (29) -- the transfer itself, the
+          address-hold block fill, and the terminal count coming from channel 1.
+          The boot is **unchanged**, which is the honest state: this is the
+          module's half of the item.*
     - [x] **IRQ13 is a wire with no device on it.** `008778-03` §2.5, before
           Table 2-3: IRQ13 "is not available on the bus ... it is connected to
           Output Port Bit 7 of the 2681 SIO chip and is used by diagnostics to

@@ -273,13 +273,19 @@ typedef struct {
   uint8_t device_taken[16];        /* what it was given */
   unsigned device_reads;
   unsigned device_writes;
+  unsigned memory_reads;
+  unsigned memory_writes;
 } rig_t;
 
 static uint8_t rig_memory_read(void *ctx, uint16_t address) {
-  return ((rig_t *)ctx)->memory[address % DMA_MEM_BYTES];
+  rig_t *r = (rig_t *)ctx;
+  r->memory_reads++;
+  return r->memory[address % DMA_MEM_BYTES];
 }
 static void rig_memory_write(void *ctx, uint16_t address, uint8_t value) {
-  ((rig_t *)ctx)->memory[address % DMA_MEM_BYTES] = value;
+  rig_t *r = (rig_t *)ctx;
+  r->memory_writes++;
+  r->memory[address % DMA_MEM_BYTES] = value;
 }
 static uint8_t rig_device_read(void *ctx, unsigned channel) {
   (void)channel;
@@ -477,16 +483,98 @@ static void test_three_modes_run_no_transfer_at_all(void) {
   arm(&illegal, 0u, (uint8_t)((AP_I8237_MODE_SINGLE << 6) | (3u << 2)), 0u, 1u);
   TEST_ASSERT_FALSE(ap_i8237_transfer(&illegal, &bus).ran);
 
-  ap_i8237_t mem_to_mem;
-  ap_i8237_reset(&mem_to_mem);
-  arm(&mem_to_mem, 0u, (uint8_t)((AP_I8237_MODE_BLOCK << 6) | (1u << 2)), 0u,
-      1u);
-  ap_i8237_write(&mem_to_mem, AP_I8237_REG_STATUS_COMMAND,
-                 AP_I8237_CMD_MEM_TO_MEM);
-  TEST_ASSERT_FALSE(ap_i8237_transfer(&mem_to_mem, &bus).ran);
-
   TEST_ASSERT_EQUAL_UINT(0u, r.device_reads);
   TEST_ASSERT_EQUAL_UINT(0u, r.device_writes);
+}
+
+/* ## Memory to memory: channel 0 reads, channel 1 writes, and only 1 counts
+ *
+ * `[8237]`: the command bit "selects channels 0 and 1 to operate as
+ * memory-to-memory transfer channels", the transfer is "initiated by setting
+ * the software DREQ for channel 0", the byte goes through the temporary
+ * register, and "**the channel 1 current Word Count is decremented**".
+ *
+ * This was declined outright, on the grounds that a transfer needs a bus to
+ * arbitrate for. It has one; what it lacked was a reason, until the loaded
+ * diagnostic's `CPU (dma) Test #1` programmed a block move and compared the
+ * halves.
+ */
+static void test_memory_to_memory_moves_through_the_temporary_register(void) {
+  rig_t r = {0};
+  const ap_i8237_bus_t bus = rig_bus(&r);
+  ap_i8237_t d;
+  ap_i8237_reset(&d);
+
+  arm(&d, 0u, (uint8_t)(AP_I8237_MODE_BLOCK << 6), 0x1000u, 3u);
+  arm(&d, 1u, (uint8_t)(AP_I8237_MODE_BLOCK << 6), 0x2000u, 3u);
+  ap_i8237_write(&d, AP_I8237_REG_STATUS_COMMAND, AP_I8237_CMD_MEM_TO_MEM);
+  /* The software request for channel 0, which is what starts it. */
+  ap_i8237_write(&d, AP_I8237_REG_REQUEST, 0x04u);
+
+  const ap_i8237_cycle_t first = ap_i8237_transfer(&d, &bus);
+  TEST_ASSERT_TRUE(first.ran);
+  /* The cycle is reported against channel **1**: that is the one whose address
+   * the byte lands at and whose count ends the service. */
+  TEST_ASSERT_EQUAL_UINT(1u, first.channel);
+  TEST_ASSERT_EQUAL_HEX16(0x2000u, first.address);
+  TEST_ASSERT_TRUE(first.wrote_memory);
+
+  /* Memory both ways and no device touched: a memory-to-memory transfer has no
+   * peripheral, which is what made the board's device hooks answer `FF`. */
+  TEST_ASSERT_EQUAL_UINT(1u, r.memory_reads);
+  TEST_ASSERT_EQUAL_UINT(1u, r.memory_writes);
+  TEST_ASSERT_EQUAL_UINT(0u, r.device_reads);
+  TEST_ASSERT_EQUAL_UINT(0u, r.device_writes);
+
+  /* Both addresses advanced, and **only channel 1's count**. */
+  TEST_ASSERT_EQUAL_HEX16(0x1001u, d.channel[0].current_address);
+  TEST_ASSERT_EQUAL_HEX16(0x2001u, d.channel[1].current_address);
+  TEST_ASSERT_EQUAL_HEX16(3u, d.channel[0].current_count);
+  TEST_ASSERT_EQUAL_HEX16(2u, d.channel[1].current_count);
+}
+
+/* "Channel 0 may be programmed to retain the same address for all transfers.
+ * This allows a single word to be written to a block of memory." */
+static void test_holding_channel_zeros_address_fills_a_block(void) {
+  rig_t r = {0};
+  const ap_i8237_bus_t bus = rig_bus(&r);
+  ap_i8237_t d;
+  ap_i8237_reset(&d);
+
+  arm(&d, 0u, (uint8_t)(AP_I8237_MODE_BLOCK << 6), 0x1000u, 3u);
+  arm(&d, 1u, (uint8_t)(AP_I8237_MODE_BLOCK << 6), 0x2000u, 3u);
+  ap_i8237_write(&d, AP_I8237_REG_STATUS_COMMAND,
+                 (uint8_t)(AP_I8237_CMD_MEM_TO_MEM |
+                           AP_I8237_CMD_CH0_ADDRESS_HOLD));
+  ap_i8237_write(&d, AP_I8237_REG_REQUEST, 0x04u);
+
+  (void)ap_i8237_transfer(&d, &bus);
+  (void)ap_i8237_transfer(&d, &bus);
+
+  TEST_ASSERT_EQUAL_HEX16(0x1000u, d.channel[0].current_address);
+  TEST_ASSERT_EQUAL_HEX16(0x2002u, d.channel[1].current_address);
+}
+
+/* The service ends on channel 1's count borrowing out of zero, and the status
+ * bit that appears is channel 1's -- not channel 0's, which never moved. */
+static void test_the_service_ends_on_channel_ones_terminal_count(void) {
+  rig_t r = {0};
+  const ap_i8237_bus_t bus = rig_bus(&r);
+  ap_i8237_t d;
+  ap_i8237_reset(&d);
+
+  arm(&d, 0u, (uint8_t)(AP_I8237_MODE_BLOCK << 6), 0x1000u, 0u);
+  arm(&d, 1u, (uint8_t)(AP_I8237_MODE_BLOCK << 6), 0x2000u, 0u);
+  ap_i8237_write(&d, AP_I8237_REG_STATUS_COMMAND, AP_I8237_CMD_MEM_TO_MEM);
+  ap_i8237_write(&d, AP_I8237_REG_REQUEST, 0x04u);
+
+  const ap_i8237_cycle_t only = ap_i8237_transfer(&d, &bus);
+  TEST_ASSERT_TRUE(only.ran);
+  TEST_ASSERT_TRUE(only.terminal_count);
+  TEST_ASSERT_EQUAL_HEX8(0x02u,
+                         (uint8_t)(ap_i8237_read(&d,
+                                                 AP_I8237_REG_STATUS_COMMAND) &
+                                   0x0Fu));
 }
 
 /* A masked channel is not asking, so nothing runs however hard its pin is
@@ -512,6 +600,9 @@ int main(void) {
   RUN_TEST(test_decrement_mode_walks_the_address_downwards);
   RUN_TEST(test_a_verify_transfer_advances_but_moves_nothing);
   RUN_TEST(test_three_modes_run_no_transfer_at_all);
+  RUN_TEST(test_memory_to_memory_moves_through_the_temporary_register);
+  RUN_TEST(test_holding_channel_zeros_address_fills_a_block);
+  RUN_TEST(test_the_service_ends_on_channel_ones_terminal_count);
   RUN_TEST(test_a_masked_channel_transfers_nothing);
   RUN_TEST(test_reset_masks_every_channel);
   RUN_TEST(test_an_address_register_takes_two_bytes_low_first);

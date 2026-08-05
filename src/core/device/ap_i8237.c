@@ -62,14 +62,99 @@ void ap_i8237_set_request_pin(ap_i8237_t *dma, unsigned channel,
   }
 }
 
+/* ## Memory to memory: channel 0 reads, channel 1 writes, and only 1 counts
+ *
+ * `[8237]`, *Memory-to-Memory*: "Programming a bit in the Command register
+ * selects **channels 0 and 1** to operate as memory-to-memory transfer
+ * channels. The transfer is initiated by setting the **software DREQ for
+ * channel 0** ... The channel 0 Current Address register is the source for the
+ * address used and is decremented or incremented in the normal manner. The data
+ * byte read from the memory is stored in the 8237A internal **Temporary
+ * register**. Channel 1 then performs a four-state transfer of the data from
+ * the Temporary register to memory using the address in its Current Address
+ * register and incrementing or decrementing it in the normal manner. **The
+ * channel 1 current Word Count is decremented.** When the word count of channel
+ * 1 goes to FFFFH, a TC is generated causing an EOP output terminating the
+ * service."
+ *
+ * So the count that ends the transfer is **channel 1's alone**, and channel 0's
+ * is not touched. That reads oddly and the datasheet is explicit about it twice
+ * -- the Autoinitialize paragraph says "In order to Autoinitialize both
+ * channels in a memory-to-memory transfer, both word counts should be
+ * programmed identically", which is advice that only makes sense if the
+ * hardware does not decrement channel 0's for you.
+ *
+ * "Channel 0 may be programmed to retain the same address for all transfers.
+ * This allows a single word to be written to a block of memory" -- the command
+ * register's `CH0_ADDRESS_HOLD`, which is why the source advance is conditional
+ * and the destination's is not.
+ *
+ * This module declined the whole feature until now, on the grounds that a
+ * transfer needs a bus to arbitrate for. It does, and it has one: the board
+ * runs `ap_i8237_transfer` from its bus tick. What it did not have was a
+ * *reason* -- until the loaded diagnostic's `CPU (dma) Test #1` programmed a
+ * block move from `1100000` to `1100800` and compared the halves. */
+static ap_i8237_cycle_t memory_to_memory(ap_i8237_t *dma,
+                                         const ap_i8237_bus_t *bus) {
+  ap_i8237_cycle_t out = {0};
+
+  /* Channel 0 asks, through the same encoder as any other request -- the
+   * datasheet initiates this with "the software DREQ for channel 0", and a
+   * masked pin request is still a request there. */
+  if ((dma->command & AP_I8237_CMD_CONTROLLER_DISABLE) != 0u) {
+    return out;
+  }
+  const uint8_t asking =
+      (uint8_t)((dma->dreq & (uint8_t)~dma->mask) | dma->request);
+  if ((asking & 0x01u) == 0u) {
+    return out;
+  }
+
+  ap_i8237_channel_t *source = &dma->channel[0];
+  ap_i8237_channel_t *destination = &dma->channel[1];
+  const uint16_t from = source->current_address;
+  const uint16_t to = destination->current_address;
+
+  if (bus->memory_read != NULL) {
+    /* Through the temporary register, which is where the datasheet puts it and
+     * which software can read back at register 13. */
+    dma->temporary = bus->memory_read(bus->context, from);
+  }
+  if (bus->memory_write != NULL) {
+    bus->memory_write(bus->context, to, dma->temporary);
+  }
+
+  if ((dma->command & AP_I8237_CMD_CH0_ADDRESS_HOLD) == 0u) {
+    source->current_address =
+        (uint16_t)((source->mode & AP_I8237_MODE_DECREMENT) != 0u
+                       ? from - 1u
+                       : from + 1u);
+  }
+  destination->current_address =
+      (uint16_t)((destination->mode & AP_I8237_MODE_DECREMENT) != 0u ? to - 1u
+                                                                    : to + 1u);
+
+  /* Channel 1's, and only channel 1's. */
+  const bool expired = destination->current_count == 0u;
+  destination->current_count = (uint16_t)(destination->current_count - 1u);
+
+  out.ran = true;
+  out.channel = 1u;
+  out.address = to;
+  out.wrote_memory = true;
+  out.terminal_count = expired;
+  if (expired) {
+    ap_i8237_terminal_count(dma, 1u);
+  }
+  return out;
+}
+
 ap_i8237_cycle_t ap_i8237_transfer(ap_i8237_t *dma,
                                    const ap_i8237_bus_t *bus) {
   ap_i8237_cycle_t out = {0};
 
-  /* "Memory-to-memory is declined" -- refused rather than half-run, so a caller
-   * cannot mistake a silent no-op for a byte moved. */
   if ((dma->command & AP_I8237_CMD_MEM_TO_MEM) != 0u) {
-    return out;
+    return memory_to_memory(dma, bus);
   }
 
   const int pending = ap_i8237_service_pending(dma);
