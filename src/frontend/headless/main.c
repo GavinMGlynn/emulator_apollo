@@ -43,6 +43,9 @@ static void print_usage(const char *program_name) {
           "                        comparison\n"
           "  --boot-limit N        stop a boot after N instructions, to find\n"
           "                        where one goes wrong\n"
+          "  --boot-stop-on-watch-write N\n"
+          "                        end the run on the Nth write to the watched\n"
+          "                        address, so a ring holds the instruction\n"
           "  --boot-watch-write ADDR\n"
           "                        remember the last write to ADDR and which\n"
           "                        instruction made it, and report both\n"
@@ -986,7 +989,7 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
                           const char *console_script_path,
                           const char *disk_path, const char *dump_spec,
                           unsigned progress_every, bool stop_on_refusal,
-                          uint32_t watch_write) {
+                          uint32_t watch_write, unsigned stop_on_watch) {
   /* Before the PROM is even opened: a script that does not parse is the
    * caller's mistake and should be reported as one, not hidden behind whichever
    * file happens to be missing first. */
@@ -1480,6 +1483,16 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
        * different program entirely. Stopping on the event puts the arithmetic
        * in the ring. Checked *after* the step, because the command is issued by
        * the write the step just performed. */
+      /* The write itself, so the ring holds the instruction that made it
+       * rather than whatever ran between it and a later event. Numbered
+       * because a value written ten times is interesting on the tenth: the
+       * early ones are a loader doing its job. */
+      if (stop_on_watch != 0u && machine.watch_writes >= stop_on_watch) {
+        printf("  stopped on   write %u to %08X, after %u instruction(s)\n",
+               machine.watch_writes, machine.watch_write_address, i);
+        run.executed++;
+        break;
+      }
       if (stop_on_refusal &&
           ap_omti_refusals(&board->disk.controller) > 0u) {
         printf("  stopped on   the disk controller refusing an address, after "
@@ -2319,6 +2332,7 @@ int main(int argc, char **argv) {
   unsigned boot_progress = 0;
   bool boot_stop_on_refusal = false;
   uint32_t boot_watch_write = 0;
+  unsigned boot_stop_on_watch = 0;
   uint32_t boot_stop_pc = 0;
   uint32_t boot_watch = 0;
   const char *boot_input = NULL;
@@ -2412,6 +2426,11 @@ int main(int argc, char **argv) {
     }
     if (strcmp(argv[i], "--boot-watch-write") == 0 && i + 1 < argc) {
       boot_watch_write = (uint32_t)strtoul(argv[i + 1], NULL, 16);
+      i += 2;
+      continue;
+    }
+    if (strcmp(argv[i], "--boot-stop-on-watch-write") == 0 && i + 1 < argc) {
+      boot_stop_on_watch = (unsigned)strtoul(argv[i + 1], NULL, 0);
       i += 2;
       continue;
     }
@@ -2574,7 +2593,8 @@ int main(int argc, char **argv) {
                           boot_screen, node_id, opt.model->id, screenshot,
                           boot_trace_last, boot_stop_pc, boot_script,
                           disk_path, dump_spec, boot_progress,
-                          boot_stop_on_refusal, boot_watch_write);
+                          boot_stop_on_refusal, boot_watch_write,
+                          boot_stop_on_watch);
   }
 
   if (boot_tape != NULL) {
