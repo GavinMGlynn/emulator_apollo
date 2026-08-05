@@ -3127,12 +3127,25 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         descriptor is read through, the untranslated read of the same number
         refused, the descriptor's `U` bit still clear afterwards and the ATC
         still missing.*
-  - [ ] **Domain/OS is entered and goes somewhere unmapped.** The PROM reports
-        `low: 01002000 high: 010E986C start: 01002024` and the run ends
-        `stopped FAULT` at PC `3FFA24FC` after 419 bus errors. The entry point
-        is fine and the image is on the disk; the first instructions of an
-        operating system are not the first instructions of a diagnostic, and
-        this is the first code on this machine that is neither.
+  - [x] **The narrow device cycle ran before the MMU, and so at the wrong
+        address.** Domain/OS puts its vector table at logical `3C400800`; the
+        PROM service that reads a byte of it -- `movec vbr,a0; btst #7,(a0)` --
+        bus-errored on a page the processor had just read successfully to fetch
+        the vector that got it there. `ap_m68030_access_read_sized`'s fast path
+        for a narrow access to a cache-inhibited address sat above the MMU and
+        addressed the board logically, which is the same number until an
+        operating system turns translation on. `CIIN` moved below the MMU with
+        it. Detail in `PROJECT_STATUS.md`.
+        *Verification: `access_suite` +2 (16) -- the device addressed at the
+        translated page and `CIIN` asserted against it; and the report's new
+        `vbr 3C400800 -> 01001C00 (main memory)` line, which says the table was
+        mapped all along.*
+  - [ ] **Domain/OS runs on from the vector table read.** The run before the
+        fix ended `stopped FAULT` at PC `3FFA24FC` after 419 bus errors, with
+        the stack walking down `0x70` a turn until the push itself faulted at
+        `01001FC8`. What it does once the byte read answers is the next
+        question, and the first this machine has asked of an operating system
+        rather than of a diagnostic.
         *Verification: the console saying anything at all after the load line.*
   - [x] **`CPU (dma) Test #1` passes: the 16-bit controller counts words.**
         Logging the addresses the firmware writes in the DMA range ended the

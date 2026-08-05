@@ -3371,7 +3371,7 @@ failure that cost a bit position in the 68020's module entry word.
 | 68030 operand access (read/write through an effective address) | working; a sub-long-word operand is selected from the long word by position, and one straddling two long words is split into a bus cycle per long word in address order | `operand_suite`, 13 tests, `M68000 Family Programmer's Reference Manual 1992` |
 | 68030 instruction step (fetch → decode → execute → advance) | working for `NOP`, `MOVEQ`, 8-bit `BRA`/`Bcc`, `MOVE`/`MOVEA`, the six ALU operations, the `xxxI` immediate forms, `CLR`/`NEG`/`NOT`/`TST`, `ADDQ`/`SUBQ`/`Scc`/`DBcc`, `ADDA`/`SUBA`/`CMPA`, `BTST`/`BCHG`/`BCLR`/`BSET`, the shifts and rotates, `MULU`/`MULS`, `DIVU`/`DIVS`, `ADDX`/`SUBX`/`ABCD`/`SBCD` in both the register and the `-(An),-(An)` forms, `CMPM` and all three `EXG` exchanges; everything else reports unimplemented, including divide-by-zero, which needs the exception machinery | `step_suite`, 270 tests |
 | 68030 instruction prefetch (pipe driven from memory) | working | `fetch_suite`, 5 tests, `MC68030 User's Manual 3ed` §11.2.2 and §6.1 |
-| 68030 logical memory access path (cache → MMU → bus) | working, reads and writes | `access_suite`, 14 tests, `MC68030 User's Manual 3ed` §6.1 |
+| 68030 logical memory access path (cache → MMU → bus) | working, reads and writes | `access_suite`, 16 tests, `MC68030 User's Manual 3ed` §6.1 |
 | 68030 effective address calculation (with register side effects) | working; memory-indirect modes report the pending indirection | `addr_suite`, 13 tests, `M68000 Family Programmer's Reference Manual 1992` §2.2 |
 | 68030 instruction decode dispatcher (+ MOVEQ, total length) | working — 89.9% of the 16-bit space classified, and every claimed instruction sized | `decode_suite`, 17 tests including two full 65536-word sweeps |
 | 68030 family 1111 (coprocessor interface, MMU instruction dispatch) | decode working — the opcode map is now complete | `coproc_suite`, 6 tests, `M68000 Family Programmer's Reference Manual 1992` §8.2 and `MC68030 User's Manual 3ed` §9.7.6 |
@@ -4596,6 +4596,50 @@ loop that runs them. What it does not yet have is the thing the item asks for
 last and hardest — **a decoded PNG**. Register round-trips and word-level
 identities are what can be checked without one, and a controller that passes
 those and draws nothing is the standard way this goes wrong.
+
+#### The narrow device cycle ran before the MMU, and so at the wrong address
+
+Domain/OS puts its vector table at logical `3C400800`. The PROM service the OS
+calls reads a byte of it:
+
+    0024F6  2f08          move.l  a0,-(a7)
+    0024F8  4e7a8801      movec   vbr,a0
+    0024FC  08100007      btst    #7,(a0)
+
+and that `btst` bus-errored, on a page the processor had just read successfully
+to fetch the very vector that got it there. The report now says why in one line:
+
+    vbr          3C400800 -> 01001C00 (main memory)
+
+The table is mapped. Nothing asked.
+
+`ap_m68030_access_read_sized` has a fast path for a *narrow* access to a
+cache-inhibited address: run exactly the cycle the program asked for, because a
+wider one would touch registers it never named, and on a part with a FIFO or a
+read-to-clear status that is a changed machine rather than a wasted cycle. That
+path sat **above** the MMU. It called the board with the logical address and
+returned `out.physical = logical`.
+
+While translation is off the two are the same number, so it passed every test
+and every boot up to this one. With the MMU on, a byte or word read of a device
+addressed whatever the program's own address happened to be — here a physical
+`3C400800` that no memory answers — while the long-word fetch of the vector
+beside it took the wide path, translated, and worked. Hence the shape of the
+failure: 419 bus errors at one instruction, a handler that could not repair
+anything, and a stack walking down 0x70 a turn until the push itself faulted at
+`01001FC8`.
+
+The corroboration was in the run's own counters before the cause was: **1590
+unmapped reads and zero unmapped writes.** Writes were never affected, because
+`store()` was always handed `physical`.
+
+The narrow read now happens after translation and is addressed with `physical`.
+`CIIN` moved with it: the board is a map of *physical* space, so asking it
+whether a logical address is a device is asking it the wrong question. The
+pre-MMU cache lookup still consults the predicate with the logical address, and
+that stays deliberate — it is belt to the fill's braces, and a device address is
+never in the cache because the fill that would have put it there is gated by the
+same predicate against the address the bus really carried.
 
 #### `ap_machine_read_logical`: an instrument that looks where it says it does
 

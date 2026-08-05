@@ -636,6 +636,49 @@ static void report_state(ap_machine_t *machine) {
            state.last_bus_error, state.last_bus_error_pc);
   }
   printf("\n");
+
+  /* The two addresses those numbers are *not*.
+   *
+   * `last_bus_error` is what the bus carried, because that is where an access
+   * is refused; the program named something else and the difference is the
+   * whole of the MMU. The processor already keeps the logical one -- it has to,
+   * since the bus-error frame reports it to the handler -- so this is a print
+   * rather than new bookkeeping.
+   *
+   * `VBR` earns a line because a vector table the tables do not map turns every
+   * exception into a double fault, and it is invisible in every other number
+   * here: the run reports the handler it reached, never the address it read to
+   * find it. */
+  {
+    const struct {
+      const char *name;
+      uint32_t logical;
+      bool interesting;
+    } pointers[] = {
+        {"fault addr  ", machine->cpu.fault_address,
+         machine->cpu.access_faulted},
+        {"vbr         ", machine->cpu.regs.vbr, true},
+    };
+    for (unsigned i = 0; i < sizeof pointers / sizeof pointers[0]; i++) {
+      if (!pointers[i].interesting) {
+        continue;
+      }
+      uint32_t physical = 0;
+      const bool mapped =
+          ap_machine_translate(machine, pointers[i].logical,
+                               AP_M68030_FC_SUPERVISOR_DATA, &physical);
+      printf("  %s %08X", pointers[i].name, pointers[i].logical);
+      if (!mapped) {
+        printf(" -> no translation\n");
+        continue;
+      }
+      printf(" -> %08X (%s)\n", physical,
+             machine->board != NULL
+                 ? ap_board_region_name(ap_board_region(machine->board,
+                                                        physical))
+                 : "no board");
+    }
+  }
 }
 
 /* Run the machine from its boot PROM, which is how a DN3500 actually starts.

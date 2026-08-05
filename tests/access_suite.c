@@ -29,6 +29,10 @@ typedef struct {
   uint32_t last_store_address;
   uint32_t last_store_value;
   uint32_t last_fill;
+  unsigned narrow_reads;
+  uint32_t last_narrow_address;
+  unsigned last_narrow_size;
+  uint32_t inhibit_asked;
 } memory_t;
 
 static bool memory_store(void *context, uint32_t physical, uint32_t value,
@@ -76,6 +80,27 @@ static bool table_update(void *context, uint32_t physical, bool set_used,
   (void)physical;
   (void)set_used;
   (void)set_modified;
+  return true;
+}
+
+
+/* A device the board declares cache-inhibited, and the narrow cycle it answers.
+ * Both are recorded by *address*, because the question these tests exist to
+ * settle is which of the two addresses -- the one the program named or the one
+ * the bus carried -- each of them was asked about. */
+static bool inhibits_device(void *context, uint32_t address) {
+  memory_t *memory = (memory_t *)context;
+  memory->inhibit_asked = address;
+  return (address & 0xFFF00000u) == (PAGE_FRAME & 0xFFF00000u);
+}
+
+static bool device_read_sized(void *context, uint32_t address, unsigned size,
+                              uint32_t *out) {
+  memory_t *memory = (memory_t *)context;
+  memory->narrow_reads++;
+  memory->last_narrow_address = address;
+  memory->last_narrow_size = size;
+  *out = 0x5Au;
   return true;
 }
 
@@ -416,6 +441,70 @@ static void test_a_read_miss_fills_from_the_physical_address(void) {
   TEST_ASSERT_EQUAL_HEX32(got.physical & ~UINT32_C(0xF), m.memory.last_fill);
 }
 
+
+/* A byte of a device, addressed the way the bus addresses it.
+ *
+ * The narrow cycle exists so a device sees exactly the width the program asked
+ * for -- a wider read would touch registers it never named, and on a part with
+ * a FIFO or a read-to-clear status that is a changed machine rather than a
+ * wasted cycle. It ran *before* the MMU, and so ran at the logical address.
+ *
+ * With translation off the two are the same number, which is why this survived
+ * every test and every boot until an operating system turned the MMU on:
+ * Domain/OS puts its vector table at logical `3C400800`, and the PROM service
+ * that reads a byte of it -- `movec vbr,a0; btst #7,(a0)` -- addressed a
+ * physical `3C400800` that no memory answers, while the long-word fetch of the
+ * vector beside it went the wide way, translated, and worked. The machine
+ * faulted on a byte of a page it had just read successfully. */
+static void test_a_narrow_device_read_is_addressed_after_translation(void) {
+  machine_t m = make_machine();
+  ap_m68030_access_ctx_t ctx = context_of(&m);
+  ctx.inhibits_cache = inhibits_device;
+  ctx.read_sized = device_read_sized;
+
+  const ap_m68030_access_result_t r =
+      ap_m68030_access_read_sized(&ctx, ADDRESS, FC_SUPERVISOR_DATA, 1u);
+
+  TEST_ASSERT_TRUE(r.ok);
+  TEST_ASSERT_EQUAL_UINT(1u, m.memory.narrow_reads);
+  TEST_ASSERT_EQUAL_UINT(1u, m.memory.last_narrow_size);
+
+  /* The whole of it: the device was addressed at the page the tables produced,
+   * not at the page the program named. */
+  /* The root descriptor is an early-termination page, so every logical bit
+   * below the first table index stays as offset -- which is why this is not
+   * simply the page-size mask. */
+  const uint32_t translated = PAGE_FRAME | (ADDRESS & 0x01FFFFFFu);
+  TEST_ASSERT_EQUAL_HEX32(translated, m.memory.last_narrow_address);
+  TEST_ASSERT_EQUAL_HEX32(translated, r.physical);
+  TEST_ASSERT_TRUE(r.mmu_consulted);
+
+  /* And `CIIN` was asserted against that same address, since the board is a map
+   * of physical space and asking it about a logical address is asking it the
+   * wrong question. */
+  TEST_ASSERT_EQUAL_HEX32(translated, m.memory.inhibit_asked);
+
+  /* Nothing was cached, which is the other half of what the predicate is for:
+   * a device value found in the cache is a stale register read. */
+  TEST_ASSERT_EQUAL_UINT(0u, m.memory.fills);
+}
+
+/* The value lands where a caller extracting with a shift expects it, and the
+ * position is taken from the address the cycle ran at. */
+static void test_a_narrow_read_positions_its_byte_by_the_bus_address(void) {
+  machine_t m = make_machine();
+  ap_m68030_access_ctx_t ctx = context_of(&m);
+  ctx.inhibits_cache = inhibits_device;
+  ctx.read_sized = device_read_sized;
+
+  const ap_m68030_access_result_t r =
+      ap_m68030_access_read_sized(&ctx, ADDRESS, FC_SUPERVISOR_DATA, 1u);
+
+  const unsigned offset = (PAGE_FRAME | (ADDRESS & 0x01FFFFFFu)) & 3u;
+  TEST_ASSERT_EQUAL_HEX32(0x5Au << ((3u - offset) * 8u), r.value);
+  TEST_ASSERT_TRUE(r.clocks > 0u);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_a_read_miss_fills_from_the_physical_address);
@@ -432,5 +521,7 @@ int main(void) {
   RUN_TEST(test_a_write_hit_updates_the_cached_value);
   RUN_TEST(test_a_transparent_write_skips_the_tables);
   RUN_TEST(test_every_write_reaches_memory);
+  RUN_TEST(test_a_narrow_device_read_is_addressed_after_translation);
+  RUN_TEST(test_a_narrow_read_positions_its_byte_by_the_bus_address);
   return UNITY_END();
 }
