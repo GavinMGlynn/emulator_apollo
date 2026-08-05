@@ -5193,6 +5193,20 @@ is known from a dump — `3C4F9980 -> 01124980` — so the byte is physical
 `01124860`. That derivation is safe in a way the earlier one was not: within a
 page an offset is arithmetic, across pages it is a guess.
 
+Watching it:
+
+    watch        01124860 written 15893 time(s), last 80 by PC 3C463390
+
+Fifteen thousand writes, because this is a **stack** address and every frame that
+happens to reach that depth reuses it — a watch on a stack slot is noisy in a way
+a watch on a global is not, and only the last write before the stop is about the
+value in question. That last write is a **byte**, `80`, by `3C463390`: the top
+byte of `80080012`, which is the error flag on an Apollo status.
+
+So the sequence is a status being *marked as failed* one byte at a time, and
+`3C463390` is where the marking happens. What that code tests before it does so
+is the next thing to read.
+
 That is the third time in this hunt that the obvious lead has turned out to be
 downstream of the fault — after `DISK TIMEOUT`, and after the crash status that
 turned out to be the crash *message*. The pattern is worth naming: a value that

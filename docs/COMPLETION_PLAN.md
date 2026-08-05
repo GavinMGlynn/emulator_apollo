@@ -3298,7 +3298,11 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         frame** at `3C4F9860`, not from the callee, whose `d0` on return is
         `FFFF008A` and is ignored. Watching `01124860` -- a within-page
         derivation from a dumped translation, unlike the earlier cross-page
-        guess -- names whatever puts the status there.
+        guess -- gives `written 15893 time(s), last 80 by PC 3C463390`. The
+        count is high because it is a **stack** slot every frame at that depth
+        reuses, so only the last write counts; it is a *byte* write of `80`, the
+        error flag on an Apollo status. `3C463390` is where a status is marked
+        failed, and what it tests first is the next thing to read.
         *Verification: the console going past the crash.*
         *Verification: the console going past the crash.*
   - [ ] **`IRQ6` and `DRQ2`, the floppy's**, are placed and not driven: its
