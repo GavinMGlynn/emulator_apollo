@@ -3187,10 +3187,13 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         is exonerated too: the bytes are `08 8E C2 95 01 01`, and dropping the
         `C10` bit would make the address legal but could not have reached
         cylinder 1160, which the driver demonstrably did. So is the 16-bit
-        data port's byte order, which is the path the operating system actually
-        uses and which the `SYSBOOT` magic number already pinned. A data
-        question rather than a register one: which sector we hand back
-        differently from the disk. Detail in `PROJECT_STATUS.md`.
+        data port's byte order, which the `SYSBOOT` magic number already pinned.
+        And so is the disk itself: the whole 1,536-read sequence is orderly --
+        a file walked backwards in 32-sector chunks, blocks self-identifying by
+        header, one file map at 313,275 -- and `0x00080024` is **not stored on
+        the disk as a pointer**, occurring only inside instruction streams. The
+        address was computed rather than read, which moves the search off the
+        disk path. Detail in `PROJECT_STATUS.md`.
         *Verification: the console going past `DISK TIMEOUT`.*
   - [ ] **`IRQ6` and `DRQ2`, the floppy's**, are placed and not driven: its
         completion is the FDC's result phase rather than the fixed disk's.

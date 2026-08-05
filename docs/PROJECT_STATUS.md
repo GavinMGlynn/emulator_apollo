@@ -4606,10 +4606,15 @@ The run now says which address the controller refused:
     disk refused  3 address(es), last c1941 h14 s2 / lba 0, against 1223 x 15 x 18
 
 Cylinder 1941 on a drive of 1223. As a linear block that is
-`(1941 x 15 + 14) x 18 + 2` = **524,324 = `0x80024`** — which is exactly the
-number the operating system printed in `Crash_Status 00080024`. The crash status
-*is* the block it failed on, and the two derivations agree, so this is one fact
-rather than two.
+`(1941 x 15 + 14) x 18 + 2` = **524,324 = `0x80024`**, the same digits the
+operating system printed in `Crash_Status 00080024`.
+
+That looked like one fact rather than two, and it was written down here as
+"the crash status *is* the block it failed on". It is not established. The same
+pair of halfwords turns up in this system's code as an ordinary operand pair --
+`357c 0008 0024` is `move.w #8,$24(a2)` -- so `0008`/`0024` is exactly the shape
+a two-field status word takes, and the equality may be arithmetic coincidence.
+The refused address is measured; the reading of the crash word is not.
 
 Both halves of the pair check out against the oracle:
 
@@ -4659,6 +4664,33 @@ this down — each is the obvious guess and each costs a run to re-test:
 
 What is left is narrower than any of those: something about *which* bytes a
 particular read returns, rather than how they are ordered or addressed.
+
+#### What the read pattern shows, and one more elimination
+
+The whole sequence of 1,536 reads is now kept, and it is orderly right up to the
+fault. The driver walks a file **backwards in chunks of 32 sectors**, reading
+each chunk forwards: 313,595-313,626, then 313,563-313,594, then
+313,531-313,562, each chunk starting 32 below the last. Sixty-two such steps,
+every one of them -63 from the end of the previous chunk, with a single
+out-of-place read at 313,275 in the middle.
+
+The blocks name their own structure, which makes the walk legible. Every one
+carries a 32-byte header whose last word is its own disk address -- `0004c7da`
+in block 313,306 -- and whose third word distinguishes the kind: `a45e00c0` for
+file data, `a45e00c1` for code, and `a45e00c2` for the one at 313,275, which is
+a **file map**: past its header it is a plain list of disk addresses,
+`0004c81a 0004c81b 0004c81c ...`.
+
+So the fourth candidate is eliminated too. **`0x00080024` is not stored on this
+disk as a pointer.** It occurs 2,819 times in the image, and in the two blocks
+the driver actually read it falls inside instruction streams --
+`357c 0008 0024`, `move.w #8,$24(a2)`, and `216e 0008 0024`,
+`move.l 8(a6),$24(a0)` -- as an immediate and a displacement that happen to sit
+side by side. Nothing the driver read told it to go there.
+
+The address was therefore *computed*, from data that was itself read correctly
+or from a register that was not. That moves the search off the disk path and on
+to what the processor did with what it was given.
 
 #### `DRQ7`, and a request that never went down
 
