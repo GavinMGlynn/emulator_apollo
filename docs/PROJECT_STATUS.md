@@ -4792,18 +4792,38 @@ executed and the watch reports that instead.
 
 It still says `01000CBE`, and the bytes there are `2B 53 05 BE`, which decodes
 as `move.l (a3),$5BE(a5)`. With `a5 = 01000C00` that addresses `010011BE`
-exactly, which is a strong agreement — but it is a **long** move, and the watch
-says the store was two bytes. One of those two readings is wrong and the dump
-cannot say which, because an instruction boundary cannot be recovered from a
-hex dump alone.
+exactly — but it is a **long** move, and the watch said the store was two bytes.
 
-The next measurement settles it without argument: stop on the *watch write*
-rather than on the disk refusal, and read the opcode out of the trace ring,
-which records the word the core actually decoded.
+Stopping on the *write* rather than on the refusal settles it, because the ring
+records the word the core actually decoded and so fixes the instruction
+boundaries a hex dump cannot:
+
+    01000CB4  47F9   lea.l   $3C42BCC0,a3
+    01000CBA  97CC   suba.l  a4,a3
+    01000CBC  D7C7   adda.l  d7,a3
+    01000CBE  2B53   move.l  (a3),$5BE(a5)
+
+Six bytes, two, two — landing exactly on `01000CBE`. So it is a long move, and
+**both readings were right**: `01000C00 + 5BE` is `010011BE`, which is word
+aligned and *not* long aligned, so the processor splits the transfer into two
+word cycles. That is also why watching one address caught ten writes for ten
+long moves rather than twenty — the other half of each lands on `010011C0`.
+
+So the block number is not computed by `SYSBOOT` at all. It is **copied**, from
+`(a3)`, and `a3` is `3C42BCC0 - a4 + d7` — a Domain/OS *logical* address in the
+same `3C4xxxxx` range as the operating system's own code, rebased into physical
+memory. `SYSBOOT` is fetching the number out of Domain/OS's memory and passing
+it to the PROM.
 
 **A wrong high half is a suggestive shape.** A block number near the one
 `SYSBOOT` had just read — 313,307 — is `0004C79B`, whose high half is `0004`.
-The value written is `0008`: the same bit one place to the left.
+The value copied is `0008`: the same bit one place to the left.
+
+Two things could produce that, and they are the next fork. Either the operating
+system stored `00080024` there and the fault is further upstream still, or
+`3C42BCC0 - a4 + d7` does not land where it should and `SYSBOOT` is reading four
+bytes of something else. The second is testable without another boot's worth of
+guessing: watch the *source* address rather than the destination.
 
 #### `DRQ7`, and a request that never went down
 

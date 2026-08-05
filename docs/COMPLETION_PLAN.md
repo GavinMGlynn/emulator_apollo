@@ -3206,11 +3206,15 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         **written** ten times, the last a two-byte store of `0008` -- the high
         half, written separately from the low. `0004C79B`, the block after the
         one just read, has high half `0004`, so the value written is the same
-        bit one place left. The instruction is not yet identified: the bytes at
-        the recorded address decode as a *long* move to exactly that address
-        while the watch says the store was a word, and a hex dump cannot settle
-        an instruction boundary. Stopping on the watch write and reading the
-        opcode from the ring will. Detail in `PROJECT_STATUS.md`.
+        bit one place left. Stopping on the write names the instruction --
+        `move.l (a3),$5BE(a5)` -- and resolves the apparent contradiction with
+        the watch's two-byte store: `010011BE` is word but not long aligned, so
+        the processor splits the transfer, which is also why ten long moves gave
+        ten writes and not twenty. So the number is **copied**, from `(a3)` =
+        `3C42BCC0 - a4 + d7`, a Domain/OS logical address rebased into physical
+        memory. Either the operating system stored it or that expression does
+        not land where it should; watching the source settles which. Detail in
+        `PROJECT_STATUS.md`.
         *Verification: the console going past `DISK TIMEOUT`.*
   - [ ] **`IRQ6` and `DRQ2`, the floppy's**, are placed and not driven: its
         completion is the FDC's result phase rather than the fixed disk's.
