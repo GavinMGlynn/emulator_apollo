@@ -48,7 +48,11 @@ void ap_disk_write(ap_disk_t *disk, uint32_t address, uint8_t value) {
     ap_omti_fdc_write(&disk->controller, reg, value);
   } else {
     if (reg < AP_OMTI_DISK_REGISTERS) { disk->disk_writes[reg]++; }
+    const unsigned before = ap_omti_command_count(&disk->controller);
     ap_omti_disk_write(&disk->controller, reg, value);
+    if (ap_omti_command_count(&disk->controller) != before) {
+      ap_disk_note_command(disk, ap_omti_last_command(&disk->controller));
+    }
   }
 }
 
@@ -66,4 +70,9 @@ void ap_disk_dma_write(ap_disk_t *disk, bool is_floppy, uint8_t value) {
   } else {
     ap_omti_disk_write(&disk->controller, AP_OMTI_DISK_DATA, value);
   }
+}
+
+void ap_disk_note_command(ap_disk_t *disk, uint8_t opcode) {
+  disk->commands[opcode]++;
+  disk->command_total++;
 }

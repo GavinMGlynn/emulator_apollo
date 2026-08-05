@@ -268,6 +268,10 @@ typedef struct {
 
   /* The command phase. */
   ap_omti_phase_t phase;
+  /* The last descriptor block's opcode and how many have run. State, not
+   * instrumentation: a caller uses them to know a command completed. */
+  uint8_t last_command;
+  unsigned command_count;
   uint8_t command[AP_OMTI_CDB_LONG];
   unsigned command_length;
   unsigned command_index;
@@ -341,5 +345,11 @@ void ap_omti_attach_floppy(ap_omti_t *omti, ap_afd_t *floppy);
  * sequence rather than infer it from the status bits, which is the thing the
  * status bits are supposed to report. */
 [[nodiscard]] ap_omti_phase_t ap_omti_disk_phase(const ap_omti_t *omti);
+
+/* The opcode of the descriptor block most recently completed, and a counter
+ * that moves when one is. A caller watching the counter learns *that* a command
+ * ran without having to decode the register traffic itself. */
+[[nodiscard]] uint8_t ap_omti_last_command(const ap_omti_t *omti);
+[[nodiscard]] unsigned ap_omti_command_count(const ap_omti_t *omti);
 
 #endif /* APOLLO_DEVICE_AP_OMTI_H */

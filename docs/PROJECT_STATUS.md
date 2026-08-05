@@ -4597,6 +4597,33 @@ last and hardest — **a decoded PNG**. Register round-trips and word-level
 identities are what can be checked without one, and a controller that passes
 those and draws nothing is the standard way this goes wrong.
 
+#### Clearing the status byte's own bits let the firmware walk the sequence
+
+Reading the completion byte cleared `IREQ` and `DREQ` and left `C/D`, `I/O`,
+`BSY` and `REQ` standing. §4.3 says all of it: "the controller clears the IREQ
+and IRQ14 (if enabled), clears C/D, I/O, and BSY bits in the STATUS Registers,
+and enters the idle state."
+
+`BSY` is the one that mattered. "0 = Controller is Idle" is how a driver knows it
+may start the next command, so a controller that collected a completion and
+stayed busy is one that never finishes a command however many it runs. `REQ`
+goes with them, because the read *is* the acknowledgement of the request that
+offered the byte. What is left is `C0` — the two fixed bits, and exactly the
+measured idle controller C21 recorded.
+
+**A command counter says what changed**, which register totals could not:
+
+    before   1 command:  00
+    after    3 commands: 00, 03, EC
+
+`00` is TEST DRIVE READY, `03` REQUEST SENSE and `EC` READ CAPACITY. The
+firmware is walking its start-up sequence rather than giving up after the first
+answer — three commands where one had been, from clearing four bits.
+
+`EC` is ESDI-specific and **not implemented**: it falls to the default and is
+refused. That is the next piece, and unlike every earlier step on this item it
+is a named command with a manual section behind it rather than a search.
+
 #### The OMTI status register was missing the two bits the protocol runs on
 
 `[OMTI]` Table 4-2 gives the fixed-disk status register **eight** bits and this

@@ -64,6 +64,14 @@ typedef struct {
    * answering and a driver asking somewhere else -- which three readings of the
    * disassembly could not settle, because the base `a0` holds is set far from
    * the loop. */
+  /* Which command opcodes a run issued, and how many of each. The registers
+   * say the firmware handshaked; the opcode says what it *asked for*, which is
+   * the difference between "the protocol works" and "the command it wants is
+   * implemented". Indexed by the whole command byte, since §5.1.1's class bits
+   * are part of it -- `08 READ` and `E8` are different commands. */
+  unsigned commands[256];
+  unsigned command_total;
+
   unsigned disk_reads[AP_OMTI_DISK_REGISTERS];
   unsigned disk_writes[AP_OMTI_DISK_REGISTERS];
   unsigned floppy_reads[AP_OMTI_FLOPPY_REGISTERS];
@@ -98,6 +106,10 @@ void ap_disk_reset(ap_disk_t *disk);
 
 [[nodiscard]] uint8_t ap_disk_dma_read(ap_disk_t *disk, bool is_floppy);
 void ap_disk_dma_write(ap_disk_t *disk, bool is_floppy, uint8_t value);
+
+/* Record a command the controller was asked to run. Called by the board's write
+ * path when a descriptor block completes. */
+void ap_disk_note_command(ap_disk_t *disk, uint8_t opcode);
 
 [[nodiscard]] uint8_t ap_disk_read(ap_disk_t *disk, uint32_t address);
 void ap_disk_write(ap_disk_t *disk, uint32_t address, uint8_t value);

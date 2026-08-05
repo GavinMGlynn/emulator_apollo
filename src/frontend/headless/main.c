@@ -1095,6 +1095,15 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
    * says the firmware talked to it and cannot say *what it asked*, and six
    * million reads against seven writes is a poll whose target is the whole
    * question. */
+  if (board->disk.command_total > 0u) {
+    printf("  disk commands %u issued:", board->disk.command_total);
+    for (unsigned c = 0; c < 256u; c++) {
+      if (board->disk.commands[c] != 0u) {
+        printf(" %02X x%u", c, board->disk.commands[c]);
+      }
+    }
+    printf("\n");
+  }
   for (unsigned r = 0; r < AP_OMTI_DISK_REGISTERS; r++) {
     if (board->disk.disk_reads[r] == 0u &&
         board->disk.disk_writes[r] == 0u) {

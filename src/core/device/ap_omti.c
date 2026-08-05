@@ -62,6 +62,14 @@ ap_omti_phase_t ap_omti_disk_phase(const ap_omti_t *omti) {
   return omti->phase;
 }
 
+uint8_t ap_omti_last_command(const ap_omti_t *omti) {
+  return omti->last_command;
+}
+
+unsigned ap_omti_command_count(const ap_omti_t *omti) {
+  return omti->command_count;
+}
+
 static void finish(ap_omti_t *omti, bool error, uint8_t sense) {
   omti->completion = error ? COMPLETION_ERROR : 0u;
   omti->sense[0] = error ? sense : 0u;
@@ -143,6 +151,8 @@ static unsigned block_count(const ap_omti_cdb_t *cdb) {
 static void execute(ap_omti_t *omti) {
   ap_omti_cdb_t cdb;
   ap_omti_cdb_decode(omti->command, &cdb);
+  omti->last_command = cdb.command;
+  omti->command_count++;
 
   if (!ap_omti_cdb_accepted_by_esdi(cdb.command)) {
     /* Including `0C INITIALIZE DRIVE CHARACTERISTICS`, which is ST506-only and
@@ -292,11 +302,27 @@ static uint8_t give_byte(ap_omti_t *omti) {
   }
   case AP_OMTI_PHASE_STATUS: {
     const uint8_t value = omti->completion;
-    /* The status byte ends the command. `IREQ` is cleared by being read, which
-     * is what stops a driver seeing one completion twice. */
+    /* §4.3, and all of it: "When the STATUS byte is read from the DATA IN
+     * register, the controller clears the IREQ and IRQ14 (if enabled), clears
+     * C/D, I/O, and BSY bits in the STATUS Registers, and enters the idle
+     * state."
+     *
+     * This cleared `IREQ` and `DREQ` and left `C/D`, `I/O`, `BSY` and `REQ`
+     * standing -- so a driver that had just collected a completion still saw a
+     * **selected controller asking for another byte**, which is a machine that
+     * never finishes a command however many it runs. `BSY` is the one that
+     * matters most: "0 = Controller is Idle" is how a driver knows it may start
+     * the next command at all.
+     *
+     * The read is also the acknowledgement of the request that offered this
+     * byte, so `REQ` clears with the rest. What is left is `C0`, the two fixed
+     * bits -- which is exactly the measured idle controller `FINDINGS.md` C21
+     * recorded. */
     omti->phase = AP_OMTI_PHASE_IDLE;
     omti->status = (uint8_t)(omti->status &
-                             ~(AP_OMTI_ST_IREQ | AP_OMTI_ST_DREQ));
+                             ~(AP_OMTI_ST_IREQ | AP_OMTI_ST_DREQ |
+                               AP_OMTI_ST_CD | AP_OMTI_ST_IO |
+                               AP_OMTI_ST_BSY | AP_OMTI_ST_REQ));
     return value;
   }
   case AP_OMTI_PHASE_IDLE:

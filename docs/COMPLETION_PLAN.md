@@ -2929,8 +2929,17 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         clearing and re-asserting the request, a stray select ignored, and the
         two data modes told apart. `omti_suite`'s reset comparison caught a
         second defect: reset cleared the status and left the phase.*
-      **Awaiting:** the rest of `[OMTI]` §5's commands. One cycle completes; a
-      `FORCE LOAD` needs the sequence behind it.
+  - [x] **Clearing the status byte's own bits let the firmware walk on.**
+        Reading the completion cleared `IREQ` and `DREQ` and left `C/D`, `I/O`,
+        `BSY` and `REQ` standing — and `BSY` is how a driver knows it may start
+        the next command, so a controller that collected a completion and stayed
+        busy never finishes one. A command counter shows what that was worth:
+        **one command became three**, `00` TEST DRIVE READY, `03` REQUEST SENSE
+        and `EC` READ CAPACITY. Detail in `PROJECT_STATUS.md`.
+      **Awaiting:** `EC READ CAPACITY`, which is ESDI-specific and falls to the
+      default today. A named command with a manual section behind it, rather
+      than a search — which is a different kind of open from every earlier step
+      on this item.
   - [x] **A disk can be fitted at all.** `ap_omti` modelled the controller and
         `ap_awd` read the image and nothing ever handed one to the other, so
         every boot experiment so far ran on a DN3500 with **no Winchester** —
