@@ -3183,9 +3183,12 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         system prints as `Crash_Status 00080024`. The geometry and the READ
         CONFIGURATION block both match `omti8621.cpp` field for field, and 1,539
         reads succeed before this one, so the drive is described correctly and
-        the operating system is chasing a block past the end of it. A data
-        question rather than a register one: which sector we hand back
-        differently from the disk. Detail in `PROJECT_STATUS.md`.
+        the operating system is chasing a block past the end of it. The decoder
+        is exonerated too: the bytes are `08 8E C2 95 01 01`, and dropping the
+        `C10` bit would make the address legal but could not have reached
+        cylinder 1160, which the driver demonstrably did. A data question rather
+        than a register one: which sector we hand back differently from the
+        disk. Detail in `PROJECT_STATUS.md`.
         *Verification: the console going past `DISK TIMEOUT`.*
   - [ ] **`IRQ6` and `DRQ2`, the floppy's**, are placed and not driven: its
         completion is the FDC's result phase rather than the fixed disk's.

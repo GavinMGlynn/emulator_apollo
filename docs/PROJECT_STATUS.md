@@ -4627,8 +4627,20 @@ wrong, not something reported now. 1,539 `READ` commands succeed before this
 one, and the last address the driver reached legitimately was 313,307, around
 cylinder 1160.
 
-That is the next thing to find, and it is a data question rather than a register
-question: which sector we hand back differently from the disk.
+The decoder is not the cause, which the raw command bytes settle:
+
+    disk refused cdb 08 8E C2 95 01 01
+
+`08` is READ, `01` is a single block. The tempting reading is that byte 1's top
+bit is not `C10` after all — drop it and the address becomes cylinder 917, head
+14, sector 2, which is perfectly legal. That reading is wrong, and the run
+disproves it: the last address the driver reached legitimately was LBA 313,307,
+which is **cylinder 1160**, and no ten-bit cylinder field can express 1160. The
+driver must set that bit to have got as far as it did, so the bit means what
+§5.1.1 says and the command really does name cylinder 1941.
+
+So this is a data question rather than a register question, and the next thing
+to find is which sector we hand back differently from the disk.
 
 #### `DRQ7`, and a request that never went down
 
