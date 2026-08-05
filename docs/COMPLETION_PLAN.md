@@ -3279,8 +3279,12 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         image, at physical `010D1AEC` -- of 38 references there, 33 are `tst.b`,
         two `clr.b`, two reads and one setter. (An earlier note here said the
         opposite on the strength of an analysis bug that dropped half of every
-        dump row; corrected, with the detail in `PROJECT_STATUS.md`.) Whether it
-        runs, and what `(a2)` holds, is a `--boot-stop-physical-pc` away.
+        dump row; corrected, with the detail in `PROJECT_STATUS.md`.) And it
+        **never executes**: the run reaches the same `FAULT on 6100` at 311M
+        instructions without once stopping there. So the flag is consulted 33
+        times, set in one place, and that place is never reached -- the
+        `tst.l (a2)` guard never gets to decide. Which branch upstream turns
+        away is the next question.
         *Verification: the console going past the crash.*
         *Verification: the console going past the crash.*
   - [ ] **`IRQ6` and `DRQ2`, the floppy's**, are placed and not driven: its
