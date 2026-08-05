@@ -3292,9 +3292,13 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         sat after the stop checks, so a stop discarded the very step that caused
         it, and the status is written at `3C49EE46` while the trace ended at
         `3C49EC48`. `008A` also turns out to be a `dbeq` loop counter elsewhere
-        in the window, not evidently a status. Fill now happens before every
-        stop check; the next run will contain the writing instruction for the
-        first time.
+        in the window, not evidently a status. With the fill moved before every
+        stop check the writer is finally visible: `3C49EE46` is
+        `move.l -$14(a6),(a2)`, so `80080012` comes from the **caller's own
+        frame** at `3C4F9860`, not from the callee, whose `d0` on return is
+        `FFFF008A` and is ignored. Watching `01124860` -- a within-page
+        derivation from a dumped translation, unlike the earlier cross-page
+        guess -- names whatever puts the status there.
         *Verification: the console going past the crash.*
         *Verification: the console going past the crash.*
   - [ ] **`IRQ6` and `DRQ2`, the floppy's**, are placed and not driven: its

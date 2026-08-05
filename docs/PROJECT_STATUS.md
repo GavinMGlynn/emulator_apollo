@@ -5174,10 +5174,24 @@ and `d6`'s `3C8C008A` is a *pointer* whose low half happens to match. A
 four-hex-digit value that small is common enough that matching one proves
 nothing.
 
-So the position is: the status `80080012` is written at `3C49EE46`, and what
-that instruction reads has not yet been established. The next measurement is the
-same stop with the corrected ring, which will for the first time contain the
-instruction that does the write.
+With the ring corrected, the writing instruction is in it for the first time:
+
+    3C49EC48  4E75   rts                    ; the callee returns d0 = FFFF008A
+    3C49EE46  24AE   move.l -$14(a6),(a2)   ; a2 = 3C4F98C8, the status local
+
+So `80080012` is **not** the value the routine returned. `d0` on return is
+`FFFF008A`, and the caller ignores it here: the longword it stores comes from
+its own frame at `a6 - $14`, which with `a6` at `3C4F9874` is `3C4F9860`.
+
+That also retires the last of the `008A` reasoning. `008A` really is in `d0` at
+the return, and really is unrelated to the status written a step later — the two
+were adjacent in time and nothing else, which is exactly the trap this hunt has
+now sprung four times.
+
+`3C4F9860` and `3C4F9980` sit in the same 4 KB page, and that page's translation
+is known from a dump — `3C4F9980 -> 01124980` — so the byte is physical
+`01124860`. That derivation is safe in a way the earlier one was not: within a
+page an offset is arithmetic, across pages it is a guess.
 
 That is the third time in this hunt that the obvious lead has turned out to be
 downstream of the fault — after `DISK TIMEOUT`, and after the crash status that
