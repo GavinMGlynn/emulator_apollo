@@ -4992,6 +4992,20 @@ The crash path itself still runs off the rails afterwards — the run ends
 nowhere near memory — but that is the same downstream wreckage as before and not
 worth chasing until the status is right.
 
+The routine's shape has changed with it. Stopping at the same place and ringing
+back, `3C49CDCC` now runs **9,071 instructions and returns** where it previously
+burned past 200,000 and gave up. Its work spreads across five modules —
+`3C41`, `3C46`, `3C40`, `3C43`, `3C49` — with a six-instruction loop at
+`3C49E464` run 138 times, which is a table walk rather than a wait. It is doing
+its job now and failing at the end of it.
+
+`80080012` never passes through `d0` or `d1` anywhere inside the routine, so it
+is written **straight into the caller's frame** rather than returned in a
+register — which fits the convention already established, since the caller
+checks `-$258(a6)` and not a register. That names the next instrument exactly:
+the frame slot is `3C4F9998`, physical `01124998`, and `--boot-watch-write` on
+it will name the instruction that puts the status there.
+
 #### `DRQ7`, and a request that never went down
 
 The interrupt alone did not clear `DISK TIMEOUT`: the same crash came back at

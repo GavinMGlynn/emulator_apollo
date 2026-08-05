@@ -3252,9 +3252,13 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         crash moved from `00080024` to `80080012`.*
   - [ ] **`Crash_Status 80080012` at the same call site.** The routine at
         `3C49CDCC` now gets further and fails somewhere new -- bit 31 set is the
-        error flag on an Apollo status. Same method reaches it: stop in
-        `3C456A90:10`, ring back through the routine, and see what it waits on
-        this time.
+        error flag on an Apollo status. It no longer waits: `3C49CDCC` runs
+        **9,071 instructions and returns**, against 200,000-plus spinning
+        before, its work spread over five modules with a 138-iteration table
+        walk at `3C49E464`. The status never passes through `d0` or `d1`, so it
+        is written straight into the caller's frame -- which names the next
+        instrument: `--boot-watch-write 01124998`, the physical address of the
+        `3C4F9998` slot the caller checks.
         *Verification: the console going past the crash.*
         *Verification: the console going past the crash.*
   - [ ] **`IRQ6` and `DRQ2`, the floppy's**, are placed and not driven: its
