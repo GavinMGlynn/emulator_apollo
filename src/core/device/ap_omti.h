@@ -316,6 +316,19 @@ typedef struct {
    * and SEEK and RECALIBRATE move. Two drives, per the Digital Output
    * register's A/B select. */
   uint8_t fdc_cylinder[2];
+
+  /* The address a data command was refused for, and how many were.
+   *
+   * Deliberately outside the state hash, like the machine's bus-error count and
+   * for the same reason: this is our record of *watching* the controller, not
+   * state the controller has. A sense byte says "illegal disk address" and does
+   * not say which address, and a driver that asks for one sector the geometry
+   * does not have looks exactly like a driver that asks for a thousand. */
+  uint16_t refused_cylinder;
+  uint8_t refused_head;
+  uint8_t refused_sector;
+  uint32_t refused_lba;
+  unsigned refusals;
   /* Set by SEEK and RECALIBRATE, read and cleared by SENSE INTERRUPT STATUS --
    * which is the only way a driver learns a seek finished. */
   bool fdc_seek_done;
@@ -491,5 +504,15 @@ void ap_omti_attach_floppy(ap_omti_t *omti, ap_afd_t *floppy);
  * ran without having to decode the register traffic itself. */
 [[nodiscard]] uint8_t ap_omti_last_command(const ap_omti_t *omti);
 [[nodiscard]] unsigned ap_omti_command_count(const ap_omti_t *omti);
+
+/* How many addresses the controller refused, and the last of them. `cylinder`,
+ * `head` and `sector` are what the command named; `lba` is the linear sector a
+ * multi-block read had reached, and only one of the two is meaningful for any
+ * given refusal -- which is why both are reported rather than one derived. */
+[[nodiscard]] unsigned ap_omti_refusals(const ap_omti_t *omti);
+[[nodiscard]] uint16_t ap_omti_refused_cylinder(const ap_omti_t *omti);
+[[nodiscard]] uint8_t ap_omti_refused_head(const ap_omti_t *omti);
+[[nodiscard]] uint8_t ap_omti_refused_sector(const ap_omti_t *omti);
+[[nodiscard]] uint32_t ap_omti_refused_lba(const ap_omti_t *omti);
 
 #endif /* APOLLO_DEVICE_AP_OMTI_H */

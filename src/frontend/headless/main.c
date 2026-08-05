@@ -1683,6 +1683,20 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
            omti->completion == 0u ? "completed" : "error",
            omti->sense[0], omti->sense[1], omti->sense[2], omti->sense[3],
            omti->next_lba);
+    /* And *which* address, when one was refused. "Illegal disk address" names
+     * a class of fault and not a fact: a driver asking for one sector past the
+     * geometry and a driver asking for a thousand read identically without
+     * this, and the geometry is printed beside it because the refusal is a
+     * statement about the pair. */
+    if (ap_omti_refusals(omti) > 0u) {
+      const ap_awd_geometry_t geometry = ap_awd_geometry_for(AP_AWD_DRIVE_348MB);
+      printf("  disk refused  %u address(es), last c%u h%u s%u / lba %u, "
+             "against %u x %u x %u\n",
+             ap_omti_refusals(omti), ap_omti_refused_cylinder(omti),
+             ap_omti_refused_head(omti), ap_omti_refused_sector(omti),
+             ap_omti_refused_lba(omti), geometry.cylinders, geometry.heads,
+             geometry.sectors);
+    }
   }
   for (unsigned r = 0; r < AP_OMTI_DISK_REGISTERS; r++) {
     if (board->disk.disk_reads[r] == 0u &&

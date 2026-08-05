@@ -96,6 +96,31 @@ unsigned ap_omti_command_count(const ap_omti_t *omti) {
   return omti->command_count;
 }
 
+unsigned ap_omti_refusals(const ap_omti_t *omti) { return omti->refusals; }
+uint16_t ap_omti_refused_cylinder(const ap_omti_t *omti) {
+  return omti->refused_cylinder;
+}
+uint8_t ap_omti_refused_head(const ap_omti_t *omti) {
+  return omti->refused_head;
+}
+uint8_t ap_omti_refused_sector(const ap_omti_t *omti) {
+  return omti->refused_sector;
+}
+uint32_t ap_omti_refused_lba(const ap_omti_t *omti) {
+  return omti->refused_lba;
+}
+
+/* Record what was refused, so a run can say which address rather than only that
+ * there was one. */
+static void refuse(ap_omti_t *omti, uint16_t cylinder, uint8_t head,
+                   uint8_t sector, uint32_t lba) {
+  omti->refused_cylinder = cylinder;
+  omti->refused_head = head;
+  omti->refused_sector = sector;
+  omti->refused_lba = lba;
+  omti->refusals++;
+}
+
 static void finish(ap_omti_t *omti, bool error, uint8_t sense) {
   omti->completion = error ? COMPLETION_ERROR : 0u;
   omti->sense[0] = error ? sense : 0u;
@@ -140,6 +165,7 @@ static bool addressed(ap_omti_t *omti, const ap_omti_cdb_t *cdb,
   }
   if (!ap_awd_lba(omti->drive->geometry, cdb->cylinder, cdb->head, cdb->sector,
                   lba)) {
+    refuse(omti, cdb->cylinder, cdb->head, cdb->sector, 0u);
     finish(omti, true, SENSE_ILLEGAL_ADDRESS);
     return false;
   }
@@ -153,6 +179,7 @@ static void feed(ap_omti_t *omti) {
     return;
   }
   if (!ap_awd_read(omti->drive, omti->next_lba, omti->buffer)) {
+    refuse(omti, 0u, 0u, 0u, omti->next_lba);
     finish(omti, true, SENSE_ILLEGAL_ADDRESS);
     return;
   }
