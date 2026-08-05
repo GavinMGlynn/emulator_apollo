@@ -3081,6 +3081,14 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         everywhere -- while the entries it *intends* are the ascending ones at
         map offset `0400`, **entry 512**, which no documented index reaches.
         Same reach-versus-size question the map's header answered once already.
+        Indexing the 64 entries from the **AT bus memory window** (`080000 >>
+        10` = 512, exactly where the diagnostic writes its ascending pages) was
+        implemented and **did not work** -- the boot failed identically -- so it
+        was reverted. Note the three reported values are **identical across
+        every variant tried**, which says they are stale registers at the
+        reporting call site rather than a live comparison. What would settle the
+        index is the base *Hardware Architecture Handbook*; only its addendum is
+        in `docs/references/`.
         *Verification: the console going past it.*
     - [x] **The bus had never ticked, because a counter was a local.**
           `ap_machine_run` charges the board the previous instruction's clocks,
