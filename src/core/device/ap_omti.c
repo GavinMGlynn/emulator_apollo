@@ -114,6 +114,17 @@ const uint8_t *ap_omti_refused_cdb(const ap_omti_t *omti) {
   return omti->refused_cdb;
 }
 
+unsigned ap_omti_reads(const ap_omti_t *omti) { return omti->recent_read_count; }
+
+bool ap_omti_recent_read(const ap_omti_t *omti, unsigned index, uint32_t *lba) {
+  const unsigned kept = sizeof omti->recent_reads / sizeof omti->recent_reads[0];
+  if (index >= kept || index >= omti->recent_read_count) {
+    return false;
+  }
+  *lba = omti->recent_reads[(omti->recent_read_count - 1u - index) % kept];
+  return true;
+}
+
 /* Record what was refused, so a run can say which address rather than only that
  * there was one. */
 static void refuse(ap_omti_t *omti, uint16_t cylinder, uint8_t head,
@@ -189,6 +200,12 @@ static void feed(ap_omti_t *omti) {
     refuse(omti, 0u, 0u, 0u, omti->next_lba);
     finish(omti, true, SENSE_ILLEGAL_ADDRESS);
     return;
+  }
+  {
+    const unsigned kept =
+        sizeof omti->recent_reads / sizeof omti->recent_reads[0];
+    omti->recent_reads[omti->recent_read_count % kept] = omti->next_lba;
+    omti->recent_read_count++;
   }
   omti->next_lba++;
   omti->blocks_left--;

@@ -333,6 +333,14 @@ typedef struct {
    * of the command; these say what it actually sent, and the difference between
    * those two is exactly where a decode error hides. */
   uint8_t refused_cdb[6];
+
+  /* The last few sector addresses read, newest last. A refusal names the block
+   * the driver *asked* for; this names the blocks it read to work that address
+   * out, which is the question when the address is wild. Sixteen because the
+   * pointer that sent a driver somewhere impossible came out of a sector it had
+   * just read, and a boot reads fifteen hundred of them. */
+  uint32_t recent_reads[16];
+  unsigned recent_read_count;
   /* Set by SEEK and RECALIBRATE, read and cleared by SENSE INTERRUPT STATUS --
    * which is the only way a driver learns a seek finished. */
   bool fdc_seek_done;
@@ -520,5 +528,11 @@ void ap_omti_attach_floppy(ap_omti_t *omti, ap_afd_t *floppy);
 [[nodiscard]] uint32_t ap_omti_refused_lba(const ap_omti_t *omti);
 /* The six command bytes of the last refused command, as they arrived. */
 [[nodiscard]] const uint8_t *ap_omti_refused_cdb(const ap_omti_t *omti);
+
+/* How many sectors have been read, and the last of them. `index` counts back
+ * from the newest: 0 is the most recent. Answers false past what is kept. */
+[[nodiscard]] unsigned ap_omti_reads(const ap_omti_t *omti);
+[[nodiscard]] bool ap_omti_recent_read(const ap_omti_t *omti, unsigned index,
+                                       uint32_t *lba);
 
 #endif /* APOLLO_DEVICE_AP_OMTI_H */

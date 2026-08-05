@@ -1699,6 +1699,18 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
       const uint8_t *cdb = ap_omti_refused_cdb(omti);
       printf("  disk refused cdb %02X %02X %02X %02X %02X %02X\n", cdb[0],
              cdb[1], cdb[2], cdb[3], cdb[4], cdb[5]);
+      /* And what it read to arrive at that address. A wild block number came
+       * out of a sector the driver had just read, so the sectors immediately
+       * before the refusal are the ones to compare against the image. */
+      printf("  disk last read");
+      for (unsigned k = 0; k < 16u; k++) {
+        uint32_t lba = 0;
+        if (!ap_omti_recent_read(omti, k, &lba)) {
+          break;
+        }
+        printf(" %u", lba);
+      }
+      printf("  (newest first, of %u)\n", ap_omti_reads(omti));
     }
   }
   for (unsigned r = 0; r < AP_OMTI_DISK_REGISTERS; r++) {
