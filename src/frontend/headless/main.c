@@ -1001,18 +1001,33 @@ typedef struct {
    * routine returns. Sixteen columns of hex is a wide line and nothing else. */
   uint32_t d[8];
   uint32_t a[8];
-  uint32_t a7;
-  uint32_t a6;
-  uint32_t a0;
+
   /* And A1, because the PROM's disk service takes its block number through it:
    * `movea.l 8(a7),a1` then `move.l (a1),$17e(a6)`, so the pointer that decides
    * which sector is read is only ever in this register. */
-  uint32_t a1;
-  uint32_t d0;
-  uint32_t d1;
+
   uint16_t instruction;
   ap_m68030_step_status_t status;
 } ap_trace_ring_t;
+
+
+/* One place that fills a ring slot, because there are three call sites and the
+ * last time they were edited by hand one of them ended up with the register
+ * loop three times over. */
+static void ap_trace_record(ap_trace_ring_t *slot, unsigned step, uint32_t pc,
+                            const ap_m68030_cpu_t *cpu, uint16_t instruction,
+                            ap_m68030_step_status_t status) {
+  slot->step = step;
+  slot->pc = pc;
+  for (unsigned ri = 0; ri < 8u; ri++) {
+    slot->d[ri] = cpu->regs.d[ri];
+    /* A7 is not `regs.a[7]`: the stack pointer lives in whichever of USP, ISP
+     * or MSP the mode selects, and the array slot reads zero. */
+    slot->a[ri] = ri == 7u ? ap_m68030_read_a7(&cpu->regs) : cpu->regs.a[ri];
+  }
+  slot->instruction = instruction;
+  slot->status = status;
+}
 
 static int boot_from_prom(const char *path, unsigned limit, bool trace,
                           uint32_t watch, const char *input, unsigned input_unit,
@@ -1542,29 +1557,8 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
         run.executed++;
         if (trace_last > 0u) {
           ap_trace_ring_t *slot = &trace_ring[trace_ring_used % trace_last];
-          slot->step = i;
-          slot->pc = step_pc;
-          slot->a7 = ap_m68030_read_a7(&machine.cpu.regs);
-          slot->a6 = machine.cpu.regs.a[6];
-          slot->a0 = machine.cpu.regs.a[0];
-          slot->a1 = machine.cpu.regs.a[1];
-          for (unsigned ri = 0; ri < 8u; ri++) {
-            slot->d[ri] = machine.cpu.regs.d[ri];
-            slot->a[ri] = machine.cpu.regs.a[ri];
-          }
-        for (unsigned ri = 0; ri < 8u; ri++) {
-          slot->d[ri] = machine.cpu.regs.d[ri];
-          slot->a[ri] = machine.cpu.regs.a[ri];
-        }
-        slot->a1 = machine.cpu.regs.a[1];
-        for (unsigned ri = 0; ri < 8u; ri++) {
-          slot->d[ri] = machine.cpu.regs.d[ri];
-          slot->a[ri] = machine.cpu.regs.a[ri];
-        }
-          slot->d0 = machine.cpu.regs.d[0];
-          slot->d1 = machine.cpu.regs.d[1];
-          slot->instruction = r.instruction;
-          slot->status = r.status;
+          ap_trace_record(slot, i, step_pc, &machine.cpu, r.instruction,
+                          r.status);
           trace_ring_used++;
         }
         break;
@@ -1615,20 +1609,8 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
         /* Kept, not printed. See `trace_last`'s declaration: a fault half a
          * billion instructions in cannot be reached by printing every step. */
         ap_trace_ring_t *slot = &trace_ring[trace_ring_used % trace_last];
-        slot->step = i;
-        slot->pc = step_pc;
-        slot->a7 = ap_m68030_read_a7(&machine.cpu.regs);
-        slot->a6 = machine.cpu.regs.a[6];
-        slot->a0 = machine.cpu.regs.a[0];
-        slot->a1 = machine.cpu.regs.a[1];
-        for (unsigned ri = 0; ri < 8u; ri++) {
-          slot->d[ri] = machine.cpu.regs.d[ri];
-          slot->a[ri] = machine.cpu.regs.a[ri];
-        }
-        slot->d0 = machine.cpu.regs.d[0];
-        slot->d1 = machine.cpu.regs.d[1];
-        slot->instruction = r.instruction;
-        slot->status = r.status;
+          ap_trace_record(slot, i, step_pc, &machine.cpu, r.instruction,
+                          r.status);
         trace_ring_used++;
         run.status = r.status;
         run.instruction = r.instruction;

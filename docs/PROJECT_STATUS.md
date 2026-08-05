@@ -5166,6 +5166,17 @@ two instructions before the test:
 So `008A` was already in `d6` when this code was reached. **The error predates
 the flag test entirely**, and the trail runs back to whatever set `d6`.
 
+With every register in the ring, `d6` at that site is `3C8C008A`, and it arrives
+by `4CEE` — `movem.l d16(a6),<list>` at `3C4637AA`, a routine's **epilogue
+restoring saved registers**. It was `00000000` the instruction before. So `d6`
+there is the *caller's* saved register being put back, not a value that routine
+computed, and `008A` predates that frame too.
+
+Which is the fourth link of the same kind, and the reason the ring now carries
+all sixteen registers rather than the six it started with: each widening was
+prompted by a value that turned out to have come from further back than the
+window reached.
+
 That is the third time in this hunt that the obvious lead has turned out to be
 downstream of the fault — after `DISK TIMEOUT`, and after the crash status that
 turned out to be the crash *message*. The pattern is worth naming: a value that
