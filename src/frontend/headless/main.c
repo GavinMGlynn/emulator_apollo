@@ -1335,6 +1335,20 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
           while (ap_sio_transmit(&board->sio, unit, channel, &out_byte)) {
             if (console) {
               fputc((int)out_byte, stdout);
+              /* Flushed per character, not per line.
+               *
+               * A boot that runs for ten minutes writes its console into a
+               * block buffer and shows nothing until it exits -- so a run that
+               * has to be interrupted, or that is simply being watched, has
+               * produced nothing at all. One such run was killed at ten
+               * minutes and lost every byte it had printed.
+               *
+               * Per character rather than per line because the question the
+               * machine asks is `Do you wish to continue (y,n)? `, with no
+               * newline: line buffering would hold exactly the prompt a reader
+               * is waiting on. The cost is one `write` per console byte, on a
+               * stream that carries a few thousand of them in a whole boot. */
+              (void)fflush(stdout);
             }
             /* The script watches the same stream the console prints, so what it
              * matches is exactly what a reader sees. */
