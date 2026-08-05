@@ -3212,9 +3212,19 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         the processor splits the transfer, which is also why ten long moves gave
         ten writes and not twenty. So the number is **copied**, from `(a3)` =
         `3C42BCC0 - a4 + d7`, a Domain/OS logical address rebased into physical
-        memory. Either the operating system stored it or that expression does
-        not land where it should; watching the source settles which. Detail in
-        `PROJECT_STATUS.md`.
+        memory -- and `a3 = 0102E8C0` lands inside **Domain/OS's crash
+        message**: `"\r\nCrash_Status " FF 00080024 "  PC " FF 3C456A9C
+        " pid "`. `SYSBOOT` is reading the crash status and using it as a block
+        number, so the disk timeout is *downstream of a crash that has already
+        happened* -- which is the order the console prints them in. Every
+        measurement above stands; they were all made on a machine that had
+        already failed elsewhere. Detail in `PROJECT_STATUS.md`.
+  - [ ] **Domain/OS crashes at `3C456A9C` with status `00080024`.** This is the
+        real fault, and everything the disk investigation eliminated -- the
+        geometry, the decoder, the 16-bit byte order, `DIVU.W`, the sector data
+        -- was eliminated for good. `3C456A9C` is an operating-system address
+        and `--boot-stop-pc` reaches it.
+        *Verification: the console going past the crash.*
         *Verification: the console going past `DISK TIMEOUT`.*
   - [ ] **`IRQ6` and `DRQ2`, the floppy's**, are placed and not driven: its
         completion is the FDC's result phase rather than the fixed disk's.

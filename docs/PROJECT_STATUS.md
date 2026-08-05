@@ -4825,6 +4825,48 @@ system stored `00080024` there and the fault is further upstream still, or
 bytes of something else. The second is testable without another boot's worth of
 guessing: watch the *source* address rather than the destination.
 
+#### It is the crash message, and the disk timeout is downstream of the crash
+
+The registers at the write give `a3 = 0102E8C0`, and the arithmetic checks:
+`3C42BCC0 - 3C401400 + 01004000` is exactly that. It lands inside the loaded
+operating system image. Dumping it ends the hunt:
+
+    0102E8B0  0D 0A 43 72 61 73 68 5F  53 74 61 74 75 73 20 FF
+    0102E8C0  00 08 00 24 20 20 50 43  20 FF 3C 45 6A 9C 20 70
+    0102E8D0  69 64 20 00
+
+    "\r\nCrash_Status " FF 00080024 "  PC " FF 3C456A9C " pid "
+
+`SYSBOOT` is reading four bytes out of **Domain/OS's crash message**. The `FF`
+bytes are the formatter's insert-a-number markers, `00080024` is the crash
+status, and `3C456A9C` sitting eight bytes later is the crash PC — the same one
+the console printed.
+
+So the whole disk investigation was downstream of the fault, and the console
+said so all along:
+
+    Crash_Status 00080024  PC 3C456A9C pid 0001
+    DISK TIMEOUT
+    DISK CONTROLLER STATE = EF
+
+The crash comes **first**. By the time anything asks for cylinder 1941 the
+machine has already failed; the impossible block number is the crash status
+being read as one, and `DISK TIMEOUT` is the crash path failing to write its
+dump. Every measurement in the sections above is sound — the geometry, the
+decoder, the byte order, the correct `DIVU.W`, the byte-correct sector — and
+they were all measurements of a machine that had already gone wrong somewhere
+else.
+
+That also settles the caution recorded two sections up. `Crash_Status 00080024`
+and the refused block being the same number is not a coincidence and not
+evidence that the crash word is a block address: they are literally the same
+four bytes, read twice.
+
+**The open question is now the crash itself**: what makes Domain/OS fail at
+`3C456A9C` with status `00080024`, on a machine whose disk, MMU and arithmetic
+have each been checked. `3C456A9C` is an operating-system address, and stopping
+there is a `--boot-stop-pc` away.
+
 #### `DRQ7`, and a request that never went down
 
 The interrupt alone did not clear `DISK TIMEOUT`: the same crash came back at
