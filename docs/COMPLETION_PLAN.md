@@ -3045,10 +3045,22 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         the physical address and not the logical one. Descriptor fetches go from
         15 to 42,579, and the boot passes the MMU test and moves to
         `CPU (interrupts) Test #0`.*
-  - [ ] **`CPU (interrupts) Test #0`,** at `00011100` -- Table 2-8's interrupt
-        controller #2. `Expected= 00000000, Actual= 01FFFC00`. This is the 8259
-        ordering work this session opened by naming, reached from the other end.
+  - [ ] **`CPU (interrupts) Test #0`,** now failing at `00011000` -- controller
+        **#1** -- having got past controller #2. This is the 8259 work this
+        session opened by naming, reached from the other end.
         *Verification: the console going past the interrupt test.*
+    - [x] **IRQ13 is a wire with no device on it.** `008778-03` §2.5, before
+          Table 2-3: IRQ13 "is not available on the bus ... it is connected to
+          Output Port Bit 7 of the 2681 SIO chip and is used by diagnostics to
+          verify the integrity of the interrupt controllers", and Table 2-3
+          places it at `4+6` on controller 2 -- IR5, the bit the diagnostic
+          reads. The board had never wired it. The pin is the **complement** of
+          `OPR[7]`, so the command that clears the bit is the one that raises
+          the line, and the line therefore **idles asserted** after reset.
+          Detail in `PROJECT_STATUS.md`.
+          *Verification: `sio_suite` +2 (24), including the idle state as a
+          statement rather than an accident. The boot's interrupt test moves
+          from controller #2 to controller #1.*
     - [x] **A run says what the MMU is doing, and `--boot-stop-pc` was
           answering untested questions.** The flag checked the PC *after* the
           step loop's fast path, so it only took effect when a trace or ring was

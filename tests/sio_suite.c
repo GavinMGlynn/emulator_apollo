@@ -459,8 +459,74 @@ static void test_the_loopback_leaves_the_ram_config_pins_alone(void) {
   }
 }
 
+/* ## IRQ13 is serial 1's OP7, and it is a wire with no device on it
+ *
+ * `008778-03` §2.5: "Note that IRQ13 is not available on the bus. In the DS3000,
+ * it is connected to Output Port Bit 7 of the 2681 SIO chip and is used by
+ * diagnostics to verify the integrity of the interrupt controllers."
+ *
+ * The pin is the **complement** of the register bit -- `[68681]` gives OP7 as
+ * "the complement of OPR[7]" -- so the command that *sets* the bit drives the
+ * line low and the one that *clears* it raises the interrupt. The loaded
+ * `SELF_TEST` diagnostic does exactly that pair and checks the controller
+ * between them.
+ */
+static void test_serial_ones_op7_is_the_diagnostic_interrupt(void) {
+  ap_sio_t sio;
+  TEST_ASSERT_TRUE(ap_sio_reset(&sio));
+
+  /* `OPCR = 04`, which is what the diagnostic writes: bit 7 clear, so OP7
+   * follows the output port register rather than channel B's transmitter. */
+  ap_sio_write(&sio, AP_SIO1_ADDR + 2u * AP_MC68681_IP_OPCR, 0x04u);
+
+  /* Set the bit: the pin goes low, and a low line is no interrupt. */
+  ap_sio_write(&sio, AP_SIO1_ADDR + 2u * AP_MC68681_START_OPR_SET,
+               AP_SIO_OPR_DIAGNOSTIC);
+  TEST_ASSERT_FALSE(ap_sio_diagnostic_interrupt(&sio));
+
+  /* Clear it: the pin goes high, which is the edge §2.5 calls an interrupt. */
+  ap_sio_write(&sio, AP_SIO1_ADDR + 2u * AP_MC68681_STOP_OPR_CLEAR,
+               AP_SIO_OPR_DIAGNOSTIC);
+  TEST_ASSERT_TRUE(ap_sio_diagnostic_interrupt(&sio));
+
+  /* And with OP7 assigned to channel B's transmitter instead, the line is not
+   * this wire at all. Nothing here selects that, and the model says so rather
+   * than reporting the output-port bit anyway. */
+  ap_sio_write(&sio, AP_SIO1_ADDR + 2u * AP_MC68681_IP_OPCR, 0x80u);
+  TEST_ASSERT_FALSE(ap_sio_diagnostic_interrupt(&sio));
+
+  /* Serial *2* is not this wire: §2.5 names one chip and this is the other.
+   * Driving its OP7 while serial 1 holds the line low must change nothing. */
+  ap_sio_t other;
+  TEST_ASSERT_TRUE(ap_sio_reset(&other));
+  ap_sio_write(&other, AP_SIO1_ADDR + 2u * AP_MC68681_IP_OPCR, 0x04u);
+  ap_sio_write(&other, AP_SIO1_ADDR + 2u * AP_MC68681_START_OPR_SET,
+               AP_SIO_OPR_DIAGNOSTIC);
+  TEST_ASSERT_FALSE(ap_sio_diagnostic_interrupt(&other));
+  ap_sio_write(&other, AP_SIO2_ADDR + 2u * AP_MC68681_IP_OPCR, 0x04u);
+  ap_sio_write(&other, AP_SIO2_ADDR + 2u * AP_MC68681_STOP_OPR_CLEAR,
+               AP_SIO_OPR_DIAGNOSTIC);
+  TEST_ASSERT_FALSE(ap_sio_diagnostic_interrupt(&other));
+}
+
+/* ## A reset machine asserts it, because the pin is a complement
+ *
+ * `OPR` resets to zero and OP7 is its complement, so the line idles **high** --
+ * which §2.5 calls an interrupt. That is the hardware and not a modelling
+ * choice: the firmware masks the controllers before it cares, and the
+ * diagnostic drives `OPR[7]` *set* before its first check for exactly this
+ * reason. Asserted here so the value is a statement rather than an accident.
+ */
+static void test_the_diagnostic_line_idles_asserted_after_reset(void) {
+  ap_sio_t sio;
+  TEST_ASSERT_TRUE(ap_sio_reset(&sio));
+  TEST_ASSERT_TRUE(ap_sio_diagnostic_interrupt(&sio));
+}
+
 int main(void) {
   UNITY_BEGIN();
+  RUN_TEST(test_serial_ones_op7_is_the_diagnostic_interrupt);
+  RUN_TEST(test_the_diagnostic_line_idles_asserted_after_reset);
   RUN_TEST(test_the_firmwares_preload_gives_the_documented_refresh_period);
   RUN_TEST(test_the_refresh_output_is_a_square_wave_of_that_period);
   RUN_TEST(test_the_counter_ready_bit_comes_once_per_period);

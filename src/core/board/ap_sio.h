@@ -139,6 +139,36 @@ void ap_sio_advance(ap_sio_t *sio, ap_time_t now);
  * *which* part and *which* output carry the refresh is board wiring. */
 [[nodiscard]] bool ap_sio_refresh_output(const ap_sio_t *sio);
 
+/* ## Serial 1's OP7 is IRQ13, and it exists so diagnostics can test the PICs
+ *
+ * `008778-03` §2.5, in the paragraph before Table 2-3: "Note that IRQ13 is not
+ * available on the bus. In the DS3000, **it is connected to Output Port Bit 7
+ * of the 2681 SIO chip** and is used by **diagnostics to verify the integrity
+ * of the interrupt controllers**." Table 2-3 gives IRQ13 priority `4+6` on
+ * controller 2 and its Domain System function as "Used During Diagnostic
+ * Tests".
+ *
+ * So this is a wire with no device on either end -- an interrupt line the
+ * machine can raise by hand, for no purpose but to see whether the controllers
+ * report it. The loaded `SELF_TEST` diagnostic is the program the note is
+ * about: at `01002792` it sets `OPCR` to `04`, sets `OPR[7]` and requires
+ * controller 2's IR5 to be **clear**, then clears `OPR[7]` and requires it to
+ * be **set**.
+ *
+ * **The pin is the complement of the register bit.** `[68681]`: OP7 is "either
+ * the complement of `OPR[7]` or the channel B transmitter interrupt output",
+ * chosen by `OPCR[7]`. So *setting* the bit drives the pin low and the command
+ * that clears it raises the line -- which is the direction §2.5 wants, since an
+ * interrupt "is generated when an IRQ line is raised from low to high".
+ *
+ * The alternate source is not modelled: `OPCR[7]` set means OP7 carries channel
+ * B's transmitter interrupt instead, and nothing in any firmware here selects
+ * it. A board asking for it gets no diagnostic interrupt rather than a guess. */
+#define AP_SIO_DIAGNOSTIC_IRQ 13u
+#define AP_SIO_OPCR_OP7_IS_TXRDYB 0x80u
+#define AP_SIO_OPR_DIAGNOSTIC 0x80u
+[[nodiscard]] bool ap_sio_diagnostic_interrupt(const ap_sio_t *sio);
+
 /* How many bits a channel's link currently carries, from its `MR1`.
  *
  * Exposed because a *scripted* sender has to wait for it. `MR1` resets to a

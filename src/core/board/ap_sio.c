@@ -150,6 +150,19 @@ void ap_sio_advance(ap_sio_t *sio, ap_time_t now) {
   ap_mc68681_set_input(first, (uint8_t)((first->input & 0xFEu) | ip0));
 }
 
+bool ap_sio_diagnostic_interrupt(const ap_sio_t *sio) {
+  const ap_mc68681_t *first = &sio->port[0];
+  if ((first->opcr & AP_SIO_OPCR_OP7_IS_TXRDYB) != 0u) {
+    /* OP7 is carrying channel B's transmitter interrupt, not the output port
+     * bit. Nothing here selects that; see the header. */
+    return false;
+  }
+  /* The pin is the *complement* of the bit, so the line is asserted when the
+   * register bit is clear -- which is what makes the diagnostic's "reset output
+   * port bits" command the one that raises the interrupt. */
+  return (first->opr & AP_SIO_OPR_DIAGNOSTIC) == 0u;
+}
+
 bool ap_sio_refresh_output(const ap_sio_t *sio) {
   /* §3.9: serial 1's counter, "a square wave output on output OP3". */
   return sio->port[0].counter_output;

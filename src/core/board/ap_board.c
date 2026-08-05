@@ -247,6 +247,11 @@ void ap_board_sample_interrupts(ap_board_t *board) {
                       ap_timer_irq(&board->timer));
   ap_intr_set_request(&board->interrupts, AP_SIO_IRQ,
                       ap_sio_irq(&board->sio));
+  /* IRQ13, which is serial 1's OP7 and nothing else -- a line the machine can
+   * raise by hand so a diagnostic can check the controllers report it.
+   * `008778-03` §2.5; see `board/ap_sio.h`. */
+  ap_intr_set_request(&board->interrupts, AP_SIO_DIAGNOSTIC_IRQ,
+                      ap_sio_diagnostic_interrupt(&board->sio));
   ap_intr_set_request(&board->interrupts, AP_CALENDAR_IRQ,
                       ap_calendar_irq(&board->calendar));
   ap_intr_set_request(&board->interrupts, AP_TAPE_IRQ,
