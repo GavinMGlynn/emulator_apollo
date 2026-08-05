@@ -4918,7 +4918,29 @@ When it does not match, the branch runs the error path and the machine crashes.
 
 That is as sharp as the question gets: **one routine, one expected value.** What
 is actually at `3C4F9998` says whether the routine returned something wrong or
-was never given the chance.
+was never given the chance:
+
+    logical 3C4F9980 -> 01124980
+    01124980  01 12 00 01 00 01 00 00  01 12 00 01 01 12 49 8C
+    01124990  01 12 49 90 01 12 49 94  00 08 00 24 01 12 49 9C
+    011249A0  01 12 49 A0 01 12 49 A4  01 12 49 A8 01 12 49 AC
+
+`3C4F9998` is `01124998`, and it holds **`00080024`** — the same value the crash
+message carries. So the routine at `3C49CDCC` returned the status `00080024`
+where its caller required `00010005`, and that mismatch *is* the crash.
+
+The rest of the dump says something too. Every other longword there contains its
+own address — `0112498C` holds `0112498C`, `01124990` holds `01124990`, and so
+on. That is the boot PROM's memory test pattern, still sitting where it was
+written, which means the routine wrote a status into the frame and returned
+without filling in anything else. It failed early rather than producing a wrong
+answer at the end.
+
+**The fault is now one routine and one status.** `3C49CDCC` is called with 36
+bytes of arguments and comes back `00080024`; what it was asked to do, and which
+of our devices it consulted to decide it could not, is the remaining question,
+and it is answerable by stopping at `3C49CDCC` and following it forward rather
+than by dumping anything else.
 
 #### `DRQ7`, and a request that never went down
 

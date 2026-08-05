@@ -3231,8 +3231,12 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         the crash status, confirming that word is an Apollo status code. The
         check itself is now read out: `jsr $3C49CDCC`, then
         `cmpi.l #$00010005,-$258(a6)` and `bne` to the error path. Domain/OS
-        requires that routine to leave `00010005` at `3C4F9998` -- one routine,
-        one expected value. Detail in `PROJECT_STATUS.md`.
+        requires that routine to leave `00010005` at `3C4F9998`, and what is
+        there is **`00080024`** -- the status in the crash message. The rest of
+        that frame still holds the boot PROM's memory-test pattern, every
+        longword containing its own address, so the routine wrote a status and
+        returned without filling anything else in: it failed early. The fault is
+        now one routine and one status. Detail in `PROJECT_STATUS.md`.
         *Verification: the console going past the crash.*
   - [ ] **`IRQ6` and `DRQ2`, the floppy's**, are placed and not driven: its
         completion is the FDC's result phase rather than the fixed disk's.
