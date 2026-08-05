@@ -80,9 +80,29 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-/* "they select one of the 128 entries contained within it". The 8-bit case
- * reaches only the first 64; the map does not shrink. */
-#define AP_ATMAP_ENTRIES 128u
+/* ## How many entries the map *has*, against how many a transfer *reaches*
+ *
+ * `019411-A00` §4.2.1.4 counts what a DMA transfer can index: "they select one
+ * of the 128 entries contained within it" for 16-bit transfers, and 64 for
+ * 8-bit. Those are the reach of an index -- address bits `<16:10>` and
+ * `<15:10>` -- and this file read them as the *size* of the map, aliasing the
+ * 2 KB region down onto 128 entries every 256 bytes.
+ *
+ * The map is the whole region. The loaded `SELF_TEST` diagnostic settles it at
+ * `01002BF6`: `MOVE.W A0,(A0)+` from `017000` to `0177FE`, then a walk back
+ * down requiring every word to still hold its own address. That is **1024
+ * distinct 16-bit locations**, and it is exactly the "remaining seven eighths
+ * of the region are undescribed" this header used to record as unknown -- now
+ * described, by the machine's own diagnostic rather than by a manual.
+ *
+ * Aliased, the walk found `0177FE`'s value at `0176FE`: the two are one entry
+ * apart in a 128-entry map, so the last write won and the read-back was `77FE`
+ * where `76FE` was wanted. That is the failure the boot printed.
+ *
+ * `ap_atmap_reachable_entries` keeps the manual's numbers, because a *transfer*
+ * still indexes only 64 or 128 of them. Storage and reach are different
+ * questions and conflating them is what this was. */
+#define AP_ATMAP_ENTRIES 1024u
 
 /* Bits <9:0> of the physical address: a 1 KB page. */
 #define AP_ATMAP_PAGE_SHIFT 10u
@@ -137,13 +157,15 @@ void ap_atmap_init(ap_atmap_t *map);
  * `in_range` answers whether an address decodes to the map at all, so a caller
  * need not duplicate the bounds. Reads and writes are 16 bits: the entry width.
  *
- * PROVISIONAL in one respect, stated at the point it bites: the region is 2 KB
- * and 128 entries of 16 bits fill 256 bytes of it. The entry a given address
- * selects within the region is *assumed* to be `(address - base) / 2`, which is
- * the only reading with no gaps, but neither manual says so and the remaining
- * seven eighths of the region are undescribed. `ap_atmap_decodes_to_entry`
- * exists so a caller can tell "outside the map" from "inside the map, in the
- * part no manual accounts for" rather than having the two collapse. */
+ * The entry a given address selects is `(address - base) / 2`, which was the
+ * only reading with no gaps and is now the measured one: the diagnostic writes
+ * every word of the region and reads every one back distinct.
+ *
+ * `ap_atmap_decodes_to_entry` is kept even though it now agrees with
+ * `ap_atmap_in_range` everywhere. It is the question "is this address storage",
+ * and the answer being "yes, all of it" is a fact about this map rather than a
+ * reason to stop asking -- a region that grew, or a model with a smaller map,
+ * would need the distinction back. */
 [[nodiscard]] bool ap_atmap_in_range(uint32_t address);
 [[nodiscard]] bool ap_atmap_decodes_to_entry(uint32_t address);
 [[nodiscard]] uint16_t ap_atmap_read(const ap_atmap_t *map, uint32_t address);

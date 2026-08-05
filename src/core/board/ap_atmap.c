@@ -66,11 +66,9 @@ bool ap_atmap_decodes_to_entry(uint32_t address) {
   if (!ap_atmap_in_range(address)) {
     return false;
   }
-  /* See the header: 128 entries of 16 bits fill 256 bytes of a 2 KB region, and
-   * what the other seven eighths decode to is unstated in both manuals. Kept as
-   * a distinct answer rather than folded into `in_range`, so that a caller --
-   * or a future oracle differential -- can see the difference between an
-   * address outside the map and one inside the undocumented part of it. */
+  /* The whole region is entries -- see the header, and the diagnostic that
+   * writes every word of it and reads each one back distinct. Kept as a
+   * separate question from `in_range` even though the two now agree. */
   return (address - AP_ATMAP_BASE) < (AP_ATMAP_ENTRIES * 2u);
 }
 

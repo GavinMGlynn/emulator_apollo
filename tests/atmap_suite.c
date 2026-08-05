@@ -175,21 +175,44 @@ static void test_the_map_decodes_at_the_documented_region(void) {
   TEST_ASSERT_FALSE(ap_atmap_in_range(0x017800u));
 }
 
-static void test_the_documented_region_is_larger_than_the_entries_fill(void) {
-  /* Not a behaviour so much as a discrepancy pinned in place: the region is
-   * 2 KB, and 128 entries of 16 bits fill 256 bytes of it. Neither manual says
-   * what the other seven eighths decode to.
-   *
-   * Asserted so that the gap is visible rather than silently closed by whoever
-   * next reads the region size and assumes it means 1024 entries. */
+/* ## The map is the whole region, and the machine's own diagnostic says so
+ *
+ * This asserted the opposite: 2 KB of region against 256 bytes of entries, with
+ * the difference "pinned in place" as a gap neither manual describes. The gap
+ * was real and the conclusion drawn from it was wrong -- `019411-A00` §4.2.1.4
+ * counts how many entries a *transfer* can index, not how many the map has.
+ *
+ * `SELF_TEST`'s DMA test settles it at `01002BF6`: `MOVE.W A0,(A0)+` across
+ * `017000`-`0177FE`, then a walk back down requiring every word to still hold
+ * its own address. That passes only if all 1024 are distinct.
+ */
+static void test_every_word_of_the_region_is_its_own_entry(void) {
   TEST_ASSERT_EQUAL_UINT(2048u, AP_ATMAP_LIMIT - AP_ATMAP_BASE + 1u);
-  TEST_ASSERT_EQUAL_UINT(256u, AP_ATMAP_ENTRIES * 2u);
+  TEST_ASSERT_EQUAL_UINT(2048u, AP_ATMAP_ENTRIES * 2u);
 
-  TEST_ASSERT_TRUE(ap_atmap_decodes_to_entry(0x0170FFu));
-  TEST_ASSERT_FALSE(ap_atmap_decodes_to_entry(0x017100u));
-  /* Still inside the map's region, though -- the two answers differ, and that
-   * difference is the record of what is unknown. */
-  TEST_ASSERT_TRUE(ap_atmap_in_range(0x017100u));
+  TEST_ASSERT_TRUE(ap_atmap_decodes_to_entry(AP_ATMAP_BASE));
+  TEST_ASSERT_TRUE(ap_atmap_decodes_to_entry(AP_ATMAP_LIMIT - 1u));
+  TEST_ASSERT_FALSE(ap_atmap_decodes_to_entry(AP_ATMAP_LIMIT + 1u));
+}
+
+/* The diagnostic's own walk, which is the thing that failed on the machine:
+ * fill every word with its own address, then read every one back. Aliased at
+ * 128 entries this finds `0177FE`'s value at `0176FE`, which is exactly the
+ * `Expected= 000176FE, Actual= 000077FE` the boot printed. */
+static void test_the_diagnostics_walk_finds_every_word_distinct(void) {
+  ap_atmap_t map;
+  ap_atmap_init(&map);
+
+  for (uint32_t at = AP_ATMAP_BASE; at < AP_ATMAP_LIMIT; at += 2u) {
+    ap_atmap_write(&map, at, (uint16_t)(at & 0xFFFFu));
+  }
+  for (uint32_t at = AP_ATMAP_LIMIT - 1u; at >= AP_ATMAP_BASE; at -= 2u) {
+    TEST_ASSERT_EQUAL_HEX16((uint16_t)(at & 0xFFFFu),
+                            ap_atmap_read(&map, at));
+    if (at == AP_ATMAP_BASE + 1u) {
+      break;
+    }
+  }
 }
 
 static void test_an_entry_reads_back_as_written(void) {
@@ -315,7 +338,8 @@ int main(void) {
   RUN_TEST(test_noncontiguous_pages_appear_contiguous_to_the_controller);
   RUN_TEST(test_every_dma_address_translates_within_the_physical_space);
   RUN_TEST(test_the_map_decodes_at_the_documented_region);
-  RUN_TEST(test_the_documented_region_is_larger_than_the_entries_fill);
+  RUN_TEST(test_every_word_of_the_region_is_its_own_entry);
+  RUN_TEST(test_the_diagnostics_walk_finds_every_word_distinct);
   RUN_TEST(test_an_entry_reads_back_as_written);
   RUN_TEST(test_a_fresh_map_translates_everything_to_page_zero);
   RUN_TEST(test_only_the_series_4000_generation_has_a_translation_map);

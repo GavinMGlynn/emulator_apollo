@@ -3055,10 +3055,20 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         *Verification: `boardreg_suite` +1 (21), including that no program write
         can put the bit down. The boot passes the interrupt and timer tests and
         reaches `CPU (dma) Test #0`.*
-  - [ ] **`CPU (dma) Test #0`,** failing at `000176FE` -- inside
-        `017000`-`017FFF`, Table 2-8's **address translation map** --
-        with `Expected= 000176FE` against `Actual= 000077FE`.
-        *Verification: the console going past the DMA test.*
+  - [x] **`CPU (dma) Test #0` passes: the map is the whole region.** `ap_atmap`
+        held 128 entries and aliased the 2 KB region onto them every 256 bytes,
+        from `019411-A00` §4.2.1.4's "one of the 128 entries" -- which counts
+        what a **transfer** indexes, not what the map holds. This file had even
+        recorded the discrepancy and a test asserting the gap. The gap was real
+        and the conclusion drawn from it was wrong: the diagnostic writes every
+        word of `017000`-`0177FE` and reads each back distinct, so there are
+        **1024**. Detail in `PROJECT_STATUS.md`.
+        *Verification: `atmap_suite` +1 (17) including the diagnostic's own
+        walk, and three tests rewritten from the old reading. The boot passes
+        the DMA test and now takes real interrupts -- vectors `A0` and `AD`.*
+  - [ ] **`CPU (dma) Test #1`,** `Expected= 00011008, Actual= 03465555,
+        Address= 01100803`.
+        *Verification: the console going past it.*
     - [x] **IRQ13 is a wire with no device on it.** `008778-03` §2.5, before
           Table 2-3: IRQ13 "is not available on the bus ... it is connected to
           Output Port Bit 7 of the 2681 SIO chip and is used by diagnostics to

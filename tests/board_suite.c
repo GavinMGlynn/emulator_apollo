@@ -383,44 +383,43 @@ static void test_every_region_has_a_name(void) {
  *
  * Zero after a run is the informative answer, not a missing one: it says nothing
  * went anywhere the assumption could be wrong. */
-static void test_touching_the_maps_undescribed_bytes_is_counted(void) {
+/* ## The map's "undescribed" bytes are entries, and the counter stays
+ *
+ * Both of these asserted the opposite: that the region's last seven eighths
+ * were outside the 128 entries, counted as undescribed, and aliased onto the
+ * first eighth. `019411-A00` counts what a *transfer* indexes, not what the map
+ * holds, and `SELF_TEST`'s DMA test requires all 1024 words to be distinct.
+ *
+ * The counter is kept rather than deleted. It answers "did anything touch a
+ * part of this region that is not storage", and the answer being permanently
+ * "no" is a fact about this map -- a smaller one, or a region that grew, would
+ * need it back and would have nowhere to put it.
+ */
+static void test_the_whole_map_region_is_entries_and_none_are_undescribed(void) {
   ap_board_t b;
   init(&b);
 
   bool ok = false;
-  /* Inside the entries: not counted, and the region counter still moves, so
-   * this is a fact about the *sub*-region rather than about the map. */
   (void)ap_board_read(&b, AP_ATMAP_BASE + 0x0FFu, &ok);
   TEST_ASSERT_TRUE(ok);
-  TEST_ASSERT_EQUAL_UINT(0u, b.atmap_undescribed_reads);
   TEST_ASSERT_EQUAL_UINT(1u, b.region_reads[AP_BOARD_REGION_TRANSLATION_MAP]);
 
-  /* The first byte past what 128 entries of 16 bits fill. */
+  /* The byte that used to be the first past the entries. */
   (void)ap_board_read(&b, AP_ATMAP_BASE + 0x100u, &ok);
   TEST_ASSERT_TRUE(ok);
-  TEST_ASSERT_EQUAL_UINT(1u, b.atmap_undescribed_reads);
-  TEST_ASSERT_EQUAL_HEX32(AP_ATMAP_BASE + 0x100u,
-                          b.first_atmap_undescribed_read);
-
+  (void)ap_board_read(&b, AP_ATMAP_LIMIT - 1u, &ok);
+  TEST_ASSERT_TRUE(ok);
   ap_board_write(&b, AP_ATMAP_LIMIT - 1u, 0x5Au, &ok);
   TEST_ASSERT_TRUE(ok);
-  TEST_ASSERT_EQUAL_UINT(1u, b.atmap_undescribed_writes);
-  TEST_ASSERT_EQUAL_HEX32(AP_ATMAP_LIMIT - 1u, b.first_atmap_undescribed_write);
 
-  /* And the first address is the *first*, not the last: a run that goes wrong
-   * tends to keep going wrong, and the earliest access has the fewest causes
-   * behind it. */
-  (void)ap_board_read(&b, AP_ATMAP_BASE + 0x400u, &ok);
-  TEST_ASSERT_EQUAL_UINT(2u, b.atmap_undescribed_reads);
-  TEST_ASSERT_EQUAL_HEX32(AP_ATMAP_BASE + 0x100u,
-                          b.first_atmap_undescribed_read);
+  TEST_ASSERT_EQUAL_UINT(0u, b.atmap_undescribed_reads);
+  TEST_ASSERT_EQUAL_UINT(0u, b.atmap_undescribed_writes);
 }
 
-/* The access still *works* -- the assumption is that the entries alias every
- * 256 bytes, this board's measured idiom everywhere else, and the counter
- * records that the assumption was exercised rather than refusing the access.
- * Refusing would be a decode claim of its own, and a less likely one. */
-static void test_the_undescribed_bytes_alias_the_entries(void) {
+/* And they do not alias: a write at one offset is not readable at another a
+ * quarter of the region away, which is what the aliased model did and what the
+ * diagnostic's walk detects. */
+static void test_the_map_does_not_alias_within_its_region(void) {
   ap_board_t b;
   init(&b);
 
@@ -428,9 +427,12 @@ static void test_the_undescribed_bytes_alias_the_entries(void) {
   ap_board_write(&b, AP_ATMAP_BASE + 0x001u, 0x5Au, &ok);
   TEST_ASSERT_TRUE(ok);
 
-  const uint8_t aliased = ap_board_read(&b, AP_ATMAP_BASE + 0x101u, &ok);
+  const uint8_t elsewhere = ap_board_read(&b, AP_ATMAP_BASE + 0x101u, &ok);
   TEST_ASSERT_TRUE(ok);
-  TEST_ASSERT_EQUAL_HEX8(0x5Au, aliased);
+  TEST_ASSERT_NOT_EQUAL_HEX8(0x5Au, elsewhere);
+
+  /* And the byte written is still there, so the write went somewhere real. */
+  TEST_ASSERT_EQUAL_HEX8(0x5Au, ap_board_read(&b, AP_ATMAP_BASE + 0x001u, &ok));
 }
 
 /* The two registers Table 2-8 names and this core declines. Counted apart
@@ -737,8 +739,8 @@ int main(void) {
   RUN_TEST(test_a_ds3000_device_write_reaches_the_same_register);
   RUN_TEST(test_the_dma_page_registers_store);
   RUN_TEST(test_the_two_declined_registers_are_counted_apart);
-  RUN_TEST(test_touching_the_maps_undescribed_bytes_is_counted);
-  RUN_TEST(test_the_undescribed_bytes_alias_the_entries);
+  RUN_TEST(test_the_whole_map_region_is_entries_and_none_are_undescribed);
+  RUN_TEST(test_the_map_does_not_alias_within_its_region);
   RUN_TEST(test_every_device_lands_in_its_documented_region);
   RUN_TEST(test_an_unclaimed_address_is_unmapped_not_zero);
   RUN_TEST(test_main_memory_is_where_table_two_eight_puts_it);
