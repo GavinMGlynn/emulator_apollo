@@ -2512,6 +2512,7 @@ static ap_m68030_exception_result_t take_exception_with(
   /* Step four. "The processor multiplies the vector number by four to determine
    * the exception vector offset. It adds the offset to the value stored in the
    * vector base register". */
+  cpu->exceptions_taken[vector & 0xFFu]++;
   out.vector_address = cpu->regs.vbr + ap_m68030_vector_offset(vector);
   const ap_m68030_address_t vector_where = {.address = out.vector_address,
                                             .valid = true};
@@ -2643,6 +2644,7 @@ take_bus_fault_with(ap_m68030_cpu_t *cpu, unsigned vector,
   }
   ap_m68030_write_a7(&cpu->regs, frame);
 
+  cpu->exceptions_taken[vector & 0xFFu]++;
   out.vector_address = cpu->regs.vbr + ap_m68030_vector_offset(vector);
   const ap_m68030_address_t vector_where = {.address = out.vector_address,
                                             .valid = true};

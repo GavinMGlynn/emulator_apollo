@@ -685,9 +685,51 @@ static void test_a_key_press_into_a_mismatched_port_is_damaged(void) {
   TEST_ASSERT_NOT_EQUAL_HEX8(0x4Bu, got);
 }
 
+/* ## Three bytes is a transfer size, and the display controller is the reason
+ * ## it cannot simply be waved through
+ *
+ * `[030]` Table 7-2 gives four sizes and `11` is 3 Bytes. The byte loop serves
+ * any of them; what needed care is the graphics fast path, which turns an
+ * access into the controller's own 16-bit word cycles. A 3-byte transfer is not
+ * a whole number of words, and the word loop would have run two cycles and
+ * written a byte past the end of the operand.
+ */
+static void test_a_three_byte_access_is_served_and_round_trips(void) {
+  static ap_board_t width_board;
+  ap_board_t *b = &width_board;
+  init(b);
+
+  TEST_ASSERT_TRUE(ap_board_write_access(b, AP_BOARD_RAM_BASE + 1u, 3u,
+                                         0x00ABCDEFu));
+  uint32_t value = 0xFFFFFFFFu;
+  TEST_ASSERT_TRUE(
+      ap_board_read_access(b, AP_BOARD_RAM_BASE + 1u, 3u, &value));
+  TEST_ASSERT_EQUAL_HEX32(0x00ABCDEFu, value);
+
+  /* Byte for byte, so a model that shifted the operand into the wrong lanes
+   * fails here rather than round-tripping its own mistake. */
+  for (unsigned i = 0; i < 3u; i++) {
+    bool ok = false;
+    const uint8_t byte = ap_board_read(b, AP_BOARD_RAM_BASE + 1u + i, &ok);
+    TEST_ASSERT_TRUE(ok);
+    TEST_ASSERT_EQUAL_HEX8((uint8_t)(0xABCDEFu >> ((2u - i) * 8u)), byte);
+  }
+
+  /* And the neighbours are untouched: three bytes means three. */
+  bool ok = false;
+  TEST_ASSERT_EQUAL_HEX8(0u, ap_board_read(b, AP_BOARD_RAM_BASE, &ok));
+  TEST_ASSERT_EQUAL_HEX8(0u, ap_board_read(b, AP_BOARD_RAM_BASE + 4u, &ok));
+
+  /* Nothing else is a size this part has. */
+  TEST_ASSERT_FALSE(ap_board_write_access(b, AP_BOARD_RAM_BASE, 0u, 0u));
+  TEST_ASSERT_FALSE(ap_board_write_access(b, AP_BOARD_RAM_BASE, 5u, 0u));
+  TEST_ASSERT_FALSE(ap_board_read_access(b, AP_BOARD_RAM_BASE, 5u, &value));
+}
+
 int main(void) {
   UNITY_BEGIN();
   init_region_board();
+  RUN_TEST(test_a_three_byte_access_is_served_and_round_trips);
   RUN_TEST(test_the_ds3000_places_its_devices_where_table_two_six_does);
   RUN_TEST(test_the_ds3000_has_no_translation_map);
   RUN_TEST(test_the_ds3000_ignores_the_five_high_address_bits);

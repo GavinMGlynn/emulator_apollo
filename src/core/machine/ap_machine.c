@@ -61,7 +61,21 @@ static void fault(ap_machine_t *machine, uint32_t address) {
     machine->first_bus_error = address;
   }
   machine->last_bus_error = address;
+  /* And who asked for it. An address on its own says what was unanswered and
+   * not what was running, and those are different questions -- a sizing probe
+   * that expects to fault and a program that has followed a wild pointer look
+   * identical without the PC. */
+  machine->last_bus_error_pc = machine->cpu.regs.pc;
   machine->bus_errors++;
+  for (unsigned i = 0; i < machine->distinct_fault_count; i++) {
+    if (machine->distinct_faults[i] == address) {
+      return;
+    }
+  }
+  if (machine->distinct_fault_count <
+      sizeof machine->distinct_faults / sizeof machine->distinct_faults[0]) {
+    machine->distinct_faults[machine->distinct_fault_count++] = address;
+  }
 }
 
 static bool in_range(const ap_machine_t *machine, uint32_t address,
@@ -232,6 +246,7 @@ static bool machine_table_fetch(void *context, uint32_t physical,
                                 ap_m68030_descriptor_t *out) {
   ap_machine_t *machine = (ap_machine_t *)context;
   const unsigned words = long_format ? 2u : 1u;
+  machine->table_fetches++;
 
   if (!in_range(machine, physical, words * 4u)) {
     fault(machine, physical);
@@ -254,6 +269,7 @@ static bool machine_table_fetch(void *context, uint32_t physical,
 static bool machine_table_update(void *context, uint32_t physical,
                                  bool set_used, bool set_modified) {
   ap_machine_t *machine = (ap_machine_t *)context;
+  machine->table_updates++;
 
   if (!in_range(machine, physical, 4u)) {
     fault(machine, physical);
@@ -552,6 +568,9 @@ ap_machine_state_t ap_machine_state(const ap_machine_t *machine) {
       .bus_errors = machine->bus_errors,
       .first_bus_error = machine->first_bus_error,
       .last_bus_error = machine->last_bus_error,
+      .last_bus_error_pc = machine->last_bus_error_pc,
+      .table_fetches = machine->table_fetches,
+      .table_updates = machine->table_updates,
   };
 }
 
@@ -560,3 +579,4 @@ void ap_machine_set_board(ap_machine_t *machine, struct ap_board *board) {
 }
 
 ap_time_t ap_machine_now(const ap_machine_t *machine) { return machine->now; }
+

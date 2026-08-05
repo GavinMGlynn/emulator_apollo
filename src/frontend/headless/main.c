@@ -546,10 +546,38 @@ static void report_state(const ap_machine_t *machine) {
    * machine whose clock rate was never set has produced no time at all, which
    * is visibly wrong here rather than quietly approximate. */
   printf("  elapsed      %llu base units\n", (unsigned long long)state.now);
+  {
+    /* Exceptions by vector, which is the machine's own account of what went
+     * wrong: the firmware prints at most the one it stopped on, and a handler
+     * that reports one exception as another is invisible without this. */
+    bool any = false;
+    for (unsigned v = 0; v < 256u; v++) {
+      if (machine->cpu.exceptions_taken[v] == 0u) {
+        continue;
+      }
+      if (!any) {
+        printf("  exceptions  ");
+        any = true;
+      }
+      printf(" %u x vector %u", machine->cpu.exceptions_taken[v], v);
+    }
+    if (any) {
+      printf("\n");
+    }
+  }
+  printf("  atc fills    %u descriptor fetch(es), %u history update(s)\n",
+         state.table_fetches, state.table_updates);
+  if (machine->distinct_fault_count > 0u) {
+    printf("  fault sites ");
+    for (unsigned i = 0; i < machine->distinct_fault_count; i++) {
+      printf(" %08X", machine->distinct_faults[i]);
+    }
+    printf("\n");
+  }
   printf("  bus errors   %u", state.bus_errors);
   if (state.bus_errors > 0u) {
-    printf(", first %08X, last %08X", state.first_bus_error,
-           state.last_bus_error);
+    printf(", first %08X, last %08X from PC %08X", state.first_bus_error,
+           state.last_bus_error, state.last_bus_error_pc);
   }
   printf("\n");
 }

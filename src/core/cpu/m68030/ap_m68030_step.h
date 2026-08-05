@@ -219,6 +219,12 @@ typedef struct {
    * `interrupt_level`; the step maintains `previous_interrupt_level` itself. */
   unsigned interrupt_level;
   unsigned previous_interrupt_level;
+  /* How many of each vector this CPU has taken. A diagnostic, so it is not in
+   * the state hash and not reset by anything the machine does -- the whole
+   * point is that a run can say "it took eleven bus errors and one address
+   * error" when the firmware only prints the last, and a handler that reports
+   * one exception as another is otherwise invisible. */
+  unsigned exceptions_taken[256];
 
   /* The interrupt acknowledge cycle. NULL means no device answers, which is a
    * spurious interrupt rather than a reason not to take one -- the same

@@ -3348,7 +3348,7 @@ failure that cost a bit position in the 68020's module entry word.
 | Time base (`time/`) | working | `time_suite`, 17 tests |
 | State hash (`state/`) | primitive working | `hash_suite`, 11 tests, incl. published FNV-1a 64 vectors |
 | Core board state hash (the identity harness's board half) | working: the board registers, the translation map, both interrupt controllers, the interval timer with its three clocks, the calendar with both cursors, both DMA controllers, both serial ports, the node ID, the disk and tape controllers, the graphics memories, the keyboard matrix and the boot PROM. The diagnostic counters are deliberately outside it and reported beside it | `board_state_suite`, 22 tests sweeping every device field by field |
-| Full-machine state hash (`ap_machine_hash`, `ap_machine_state`) | working: the processor, main memory, the board when one is attached, and elapsed time — with the clock, the PC and the bus-error count reported beside the number | `machine_suite`, 41 tests, incl. the same workload run twice on two boards agreeing at every step |
+| Full-machine state hash (`ap_machine_hash`, `ap_machine_state`) | working: the processor, main memory, the board when one is attached, and elapsed time — with the clock, the PC and the bus-error count reported beside the number | `machine_suite`, 42 tests, incl. the same workload run twice on two boards agreeing at every step |
 | Ring medium interface | not started | — |
 | Ring controller | not started | — |
 | 68030 instruction pipe + cache holding register | working | `pipe_suite`, 14 tests, `MC68030 User's Manual 3ed` §11.2.2 |
@@ -3360,7 +3360,7 @@ failure that cost a bit position in the 68020's module entry word.
 | 68030 family `0000` size-11 escape (`CMP2`/`CHK2`/`CAS`/`CAS2`) | decoded; the opcode map now has no holes. Semantics open: `CAS`/`CAS2` need an indivisible read-modify-write | `bounds_suite`, 9 tests, `M68000 Family Programmer's Reference Manual 1992` |
 | Per-instruction timing report (`--time-instructions`) | bus and cache time only, pinned as a golden; the 0/2 alternation is the cache holding register serving two instruction words per fetch | `tests/goldens/timing.txt`; oracle side by `tools/mame-oracle/steptime.lua` |
 | Probe suite (`probe/`, `--run-probes`) | 8 probes on the constructed machine, needing no firmware; results pinned as a golden under every build preset, identical between `-O0` and `-O3` | `tests/goldens/probes.txt`, `probe_suite`, 7 tests |
-| Constructed machine (`machine/`) | a 68030 on flat RAM, with an out-of-range access faulting rather than wrapping; with a board attached it takes its model's clock, charges the AT bus's wait states and takes device interrupts on the Apollo vectors, and stalls while another master holds the bus, and advances the devices that keep time | `machine_suite`, 41 tests |
+| Constructed machine (`machine/`) | a 68030 on flat RAM, with an out-of-range access faulting rather than wrapping; with a board attached it takes its model's clock, charges the AT bus's wait states and takes device interrupts on the Apollo vectors, and stalls while another master holds the bus, and advances the devices that keep time | `machine_suite`, 42 tests |
 | 68030 published timings (§11.6) | 59 rows from §11.6.6, §11.6.8, §11.6.9, §11.6.11, §11.6.12, §11.6.15 and §11.6.16, scheduled into the step as exposed microcode + measured operand bus + prefetch exposure, since the tables show a prefetch overlaps execution while an operand the operation consumes cannot (plain `max(microcode, bus)` was the retired first model — see above and `M68030_TIMING.md`). Branches are reached through their run-time outcome rather than by opcode. Seven instructions agree with the oracle (`FINDINGS.md` C8). Rows footnoted "Add Fetch Effective Address Time" are **declined**, not part-priced: their published figure is a component and the composition is open (C9). The four divides carry the manual's data-dependent marker and are `PROVISIONAL` | `timing_table_suite`, 16 tests; both published columns checked on a running machine by `machine_suite` |
 | 68030 ATC replacement | the history bit now means *recently used*, per `MC68851 PMMU User's Manual` §5.2.1.3 — a translating hit marks it, a `PTEST` probe does not. `PROVISIONAL` narrowed to victim choice among clear-history entries | `atc_suite`, 21 tests |
 | 68030 prefetch marginal cost | `NCC − CC` over the published prefetch count, computed in code across every row; the two rows where it is not integral are named in the test rather than rounded away | `timing_table_suite`, 16 tests |
@@ -3406,7 +3406,7 @@ failure that cost a bit position in the 68020's module entry word.
 | Board cache (`012000` RAM, `014000` condition codes) | not started. The shared **bus arbitration point** is done and has its own row above | — |
 | Apollo interrupt controllers (`011000`, `011100`) | working: the two 8259As cascaded on **IR3** (measured, not IR2 as the AT convention would have it), vector bases `A0`/`A8` from the boot PROM's own ICW2, giving levels `A0`-`AF`. Priority order matches `008778-03` Table 2-3, which with the cascade on IR3 has no anomaly. The CPU interrupt level is **6**, also measured — neither manual states it, and it took starting the interval timer by hand to make anything request at all | `intr_suite`, 13 tests; `FINDINGS.md` C11, `tools/mame-oracle/writetrace.lua` |
 | Intel 8259A interrupt controller (the part) | working: ICW1-4 sequence, all three OCWs, fully nested priority with rotation, edge and level triggering, special mask and special fully nested modes, poll, AEOI, and the spurious level 7. 8086-mode vectoring only — MCS-80/85's `CALL` sequence is refused rather than approximated, and this machine never uses it. The Apollo *pairing* is a separate module | `i8259_suite`, 28 tests, each citing `8259A` 231468-003 |
-| Core-board address maps (`board/ap_board.c`) | working: every device placed by `008778-03` Table 2-8 and by the measurement that confirmed it, main memory at `1000000`, and an unclaimed address reported **unmapped rather than zero** — the distinction flat RAM hid, which cost 5634 invisible accesses in the first firmware run. Regions are named, so a trace can say *what* the firmware reached for. The AT windows declare a cycle time and everything else answers at the minimum, and an access to the translation map's undescribed seven eighths is counted rather than silently aliased, and each of the two declined core registers is counted apart | `board_suite`, 26 tests; `atbus_suite`, 8 tests |
+| Core-board address maps (`board/ap_board.c`) | working: every device placed by `008778-03` Table 2-8 and by the measurement that confirmed it, main memory at `1000000`, and an unclaimed address reported **unmapped rather than zero** — the distinction flat RAM hid, which cost 5634 invisible accesses in the first firmware run. Regions are named, so a trace can say *what* the firmware reached for. The AT windows declare a cycle time and everything else answers at the minimum, and an access to the translation map's undescribed seven eighths is counted rather than silently aliased, and each of the two declined core registers is counted apart | `board_suite`, 27 tests; `atbus_suite`, 8 tests |
 | Shared bus arbitration point | working: the external priority encoder `[030]` §7.7 requires, DRQ0 through DRQ7 with the processor last, driving the CPU's own arbitration unit over the three-wire protocol. A grant and its acknowledgement are separate instants, so the processor stops driving the bus when it grants rather than when the grant is taken up; a master is never pre-empted mid-transfer | `arbiter_suite`, 9 tests, `MC68030 User's Manual 3ed` §7.7, `008778-03` §2.4.6 |
 | Apollo DMA controllers (`010C00`, `010D00`) | working: DMA 1 at **stride 1** and DMA 2 at **stride 2**, both measured, both aliased through their ranges. A read of a write-only register returns zero where the oracle returns `0F`; `[8237]` marks that read "Illegal", so neither is specified and ours does not invent a register value. The board runs transfers: controller 1's request cascaded onto controller 2's channel 0 and one request reaching the arbiter, the address through the translation map, and the processor stalled while a controller holds the bus. The cascade and the channel assignments are `008778-03` Table 2-4's, so the AT convention this module used to refuse is now cited rather than assumed. **The peripheral side is wired**: the tape drives its own request line and its cartridge reaches memory by DMA, and the disk's two data ports move under an acknowledge | `dma_suite`, 16 tests; `FINDINGS.md` C13 |
 | Intel 8237A DMA controller (the part) | **programming model and transfer cycle complete**: all sixteen register addresses, four channels with base and current address/count, the single shared first/last flip-flop, command/mode/request/mask/status/temporary, master clear, autoinitialise reload and the mask-on-terminal-count rule; and a service cycle that moves a byte either way, verifies without moving one, walks the address up or down, and ends on the borrow out of zero rather than at zero. Memory-to-memory is refused outright rather than half-run. The part drives sixteen bits of address and the board composes the rest — not yet wired to the board | `i8237_suite`, 26 tests, `8237A` 231466 |
@@ -4596,6 +4596,55 @@ loop that runs them. What it does not yet have is the thing the item asks for
 last and hardest — **a decoded PNG**. Register round-trips and word-level
 identities are what can be checked without one, and a controller that passes
 those and draws nothing is the standard way this goes wrong.
+
+#### Three bytes is a transfer size, and the board refused it
+
+With self-test 7 passing, the boot reached `Memory Module 1  Test # 0` and
+stopped:
+
+    Unexpected CPU bus error referencing 0100A005
+
+Nothing about that address should fault — `--dump-mem 100A000:16` answered it
+happily — and the run's own fault-site list never contained it. What settled it
+was dumping the exception frames: **frame #131, format A, fault address
+`0100A005`, PC `000075CC`**. (The distinct-site list had already filled with the
+sixteen expansion-ROM probes, so the instrument was faithful and too small; that
+is worth remembering about capped lists.)
+
+`000075CC` is `MOVE.L D0,$5(A0)` with `A0` at `0100A000` — a **misaligned long
+word**, written on purpose. The firmware writes long words at `+0`, `+5`, `+A`
+and `+F` and reads them back, because a 68030 can do that and a 68000 cannot;
+it is testing precisely the thing this core got wrong.
+
+`[030]` **Table 7-2, Size Signal Encoding**, read from the page image:
+
+| SIZ1 | SIZ0 | Size |
+|---|---|---|
+| 0 | 1 | Byte |
+| 1 | 0 | Word |
+| 1 | 1 | **3 Bytes** |
+| 0 | 0 | Long Word |
+
+Three bytes is one of the part's four transfer sizes, and misalignment is what
+produces it: a long word at `A1 A0 = 01` goes out as a 3-byte cycle followed by
+a byte. `ap_board_read_access` and `ap_board_write_access` accepted 1, 2 and 4
+and refused everything else, so **every misaligned long word on this machine was
+a bus error**.
+
+The CPU side was already right — `ap_m68030_operand.c` splits an operand into
+cycles by position and its comment even notes that RTE reads a straddling long
+word every time. The board was the half that had never been told.
+
+The one place it needed more than removing a check is the **display
+controller**, whose port is sixteen bits: the fast path turns an access into
+word cycles, and three bytes is not a whole number of words. Rounding up would
+have run two word cycles and written a byte past the end of the operand, so a
+3-byte transfer to graphics memory takes the byte path instead.
+
+**Memory Module 1 Test # 0 now passes** and the boot is into `Memory Module 2`,
+with no self-test failure reported at all. The remaining bus errors are the
+machine sizing itself: the last is at `02000000`, one byte past the 16 MB
+fitted, which is how the firmware finds the top of memory.
 
 #### The memory array's parity circuit, and self-test 7 passes
 

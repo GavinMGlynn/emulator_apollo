@@ -971,6 +971,47 @@ static const uint16_t device_workload[] = {
     0x13FCu, 0x0033u, 0x0001u, 0x7000u, 0x4E72u, 0x2700u,
 };
 
+/* ## The boot PROM's memory test writes long words at odd offsets on purpose
+ *
+ * `[030]` Table 7-2, *Size Signal Encoding*: `SIZ1 SIZ0` of `11` is **3 Bytes**,
+ * one of the part's four transfer sizes. A long word at an address with
+ * `A1 A0 = 01` goes out as a 3-byte cycle and then a byte -- and the board's
+ * access helpers accepted only 1, 2 and 4, so every misaligned long word was a
+ * bus error.
+ *
+ * The firmware does it deliberately, because a 68030 can and a 68000 cannot:
+ * `000075CC` is `MOVE.L D0,$5(A0)` with `A0` at `0100A000`, and the machine
+ * stopped there with `Unexpected CPU bus error referencing 0100A005`.
+ *
+ * MOVEA.L #$0100A000,A0 / MOVEQ #$5A,D0 / MOVE.L D0,$5(A0) /
+ * MOVE.L $5(A0),D1 / STOP #$2700
+ */
+static const uint16_t misaligned_long[] = {
+    0x207Cu, 0x0100u, 0xA000u, 0x705Au, 0x2140u, 0x0005u,
+    0x2228u, 0x0005u, 0x4E72u, 0x2700u,
+};
+
+static void test_a_long_word_written_at_an_odd_offset_is_not_a_bus_error(void) {
+  ap_machine_t m;
+  build_board_machine(&m, &first_board, ram, misaligned_long,
+                      sizeof misaligned_long / sizeof misaligned_long[0]);
+
+  (void)ap_machine_run(&m, 5u);
+
+  /* Not a fault, and the value survived the split: the 3-byte cycle carries the
+   * operand's three most significant bytes and the byte cycle the last, so a
+   * model that dropped or reordered a chunk would read back something else. */
+  TEST_ASSERT_EQUAL_UINT(0u, m.bus_errors);
+  TEST_ASSERT_EQUAL_HEX32(0x0000005Au, m.cpu.regs.d[1]);
+
+  /* And it really is misaligned, byte for byte, at the address the firmware
+   * uses. Reading it back through the machine rather than out of the register
+   * proves the bytes landed where they were addressed. */
+  uint32_t value = 0;
+  TEST_ASSERT_TRUE(ap_machine_read(&m, 0xA005u, 4u, &value));
+  TEST_ASSERT_EQUAL_HEX32(0x0000005Au, value);
+}
+
 /* The item's own verification, and the reason the board half had to be built:
  * the same workload twice gives the same number. Two machines on two different
  * RAM buffers with two different boards, so anything of the host's that reached
@@ -1789,6 +1830,7 @@ int main(void) {
   RUN_TEST(test_the_machine_hash_covers_the_memory_a_run_left_behind);
   RUN_TEST(test_the_instruction_and_data_caches_are_not_the_same_cache);
   RUN_TEST(test_the_mmu_registers_the_machine_reads_are_the_ones_pmove_writes);
+  RUN_TEST(test_a_long_word_written_at_an_odd_offset_is_not_a_bus_error);
   RUN_TEST(test_the_same_workload_twice_gives_the_same_hash);
   RUN_TEST(test_the_machine_hash_covers_the_board);
   RUN_TEST(test_a_machine_with_a_board_does_not_hash_as_one_without);

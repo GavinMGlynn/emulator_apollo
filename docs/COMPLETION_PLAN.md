@@ -2794,6 +2794,20 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
 - [ ] **Integration check, not a milestone:** DN3500 boots Domain/OS SR10.x to a
       login prompt, console byte-identical to the oracle. *Verification: console
       diff plus a boot state hash.*
+  - [x] **Three bytes is a transfer size, and the board refused it.** Past test
+        7, the boot stopped in `Memory Module 1  Test # 0` with `Unexpected CPU
+        bus error referencing 0100A005` -- an address that answers perfectly.
+        Dumping the exception frames found the real one: `000075CC` is
+        `MOVE.L D0,$5(A0)`, a **misaligned long word**, written on purpose
+        because a 68030 can and a 68000 cannot. `[030]` Table 7-2, from the page
+        image: `SIZ1 SIZ0 = 11` is **3 Bytes**, and misalignment is what
+        produces it. The board's access helpers took 1, 2 and 4 only, so every
+        misaligned long word was a bus error; the CPU side had always been
+        right. Detail in `PROJECT_STATUS.md`.
+        *Verification: `machine_suite` +1 (42), running the firmware's own
+        instruction and checking the bytes land where addressed;
+        `board_suite` +1 (27) for the width itself. The boot now passes Memory
+        Module 1 and is into Module 2 with no self-test failure at all.*
   - [x] **The memory array's parity circuit, and self-test 7 passes.** This
         core had none, so a test that forces bad parity and expects a trap could
         not pass. `008778-03` §3.3 gives four F280 checkers, one per byte lane;

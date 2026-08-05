@@ -963,9 +963,30 @@ static bool graphics_word_cycle(ap_board_t *board, uint32_t offset,
   return true;
 }
 
+/* The four transfer sizes the part has. `[030]` Table 7-2, *Size Signal
+ * Encoding*, read from the page image: `SIZ1 SIZ0` of `01` is Byte, `10` Word,
+ * `11` **3 Bytes**, `00` Long Word.
+ *
+ * Three bytes is not an exotic case, it is what misalignment produces: a long
+ * word at an address with `A1 A0 = 01` goes out as a 3-byte cycle and then a
+ * byte, and the boot PROM's memory test writes long words at `+5`, `+A` and
+ * `+F` on purpose, precisely because a 68030 can and a 68000 cannot. Refusing
+ * the size made those a bus error and stopped the machine in `Memory Module 1
+ * Test # 0` with `Unexpected CPU bus error referencing 0100A005`. */
+static bool transfer_size(unsigned count) {
+  return count == 1u || count == 2u || count == 3u || count == 4u;
+}
+
+/* Whether the display controller's own word cycles can serve this access. Its
+ * port is sixteen bits, so a whole number of words at an even address is one
+ * cycle each; a 3-byte transfer is neither, and goes the byte way rather than
+ * being rounded up to two words -- which is what the word loop would have done,
+ * writing a byte past the end of the operand. */
+static bool whole_words(unsigned count) { return count == 2u || count == 4u; }
+
 bool ap_board_write_access(ap_board_t *board, uint32_t address, unsigned count,
                            uint32_t value) {
-  if (count != 1u && count != 2u && count != 4u) {
+  if (!transfer_size(count)) {
     return false;
   }
 
@@ -976,7 +997,8 @@ bool ap_board_write_access(ap_board_t *board, uint32_t address, unsigned count,
       (colour ? ap_graphics_is_colour(board->graphics.screen)
               : ap_graphics_is_monochrome(board->graphics.screen));
 
-  if (graphics_memory && (address % 2u == 0u || count == 1u)) {
+  if (graphics_memory &&
+      ((address % 2u == 0u && whole_words(count)) || count == 1u)) {
     /* Word cycles, which is what the controller sees. A long word is two of
      * them; an *odd* word access is not something this bus issues, and falls
      * through to the byte loop rather than being silently realigned. */
@@ -1004,7 +1026,7 @@ bool ap_board_write_access(ap_board_t *board, uint32_t address, unsigned count,
 
 bool ap_board_read_access(ap_board_t *board, uint32_t address, unsigned count,
                           uint32_t *out) {
-  if (out == NULL || (count != 1u && count != 2u && count != 4u)) {
+  if (out == NULL || !transfer_size(count)) {
     return false;
   }
 
@@ -1015,7 +1037,7 @@ bool ap_board_read_access(ap_board_t *board, uint32_t address, unsigned count,
       (colour ? ap_graphics_is_colour(board->graphics.screen)
               : ap_graphics_is_monochrome(board->graphics.screen));
 
-  if (graphics_memory && address % 2u == 0u && count != 1u) {
+  if (graphics_memory && address % 2u == 0u && whole_words(count)) {
     board->region_reads[AP_BOARD_REGION_GRAPHICS] += count;
     uint32_t value = 0;
     for (unsigned i = 0; i < count; i += 2u) {

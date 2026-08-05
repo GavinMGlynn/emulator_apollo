@@ -64,6 +64,18 @@ typedef struct {
   unsigned bus_errors;
   uint32_t first_bus_error;
   uint32_t last_bus_error;
+  uint32_t last_bus_error_pc;
+  /* The distinct addresses that went unanswered, earliest first. A count says
+   * how often; a first and a last say where a run started and stopped. Neither
+   * says *which places*, and a scan that faults 130 times over one address is a
+   * different machine from one that faults 130 times over 130. */
+  uint32_t distinct_faults[16];
+  unsigned distinct_fault_count;
+  /* Address translation, which the boot PROM turns on partway through and every
+   * later access depends on. Counted because "the MMU is enabled" and "the MMU
+   * has translated something" are different claims and a boot needs both. */
+  unsigned table_fetches;
+  unsigned table_updates;
 
   /* The two caches are separate objects because the part has two, and a machine
    * that shared one would hide every instruction/data interaction. */
@@ -230,6 +242,9 @@ typedef struct {
   /* Where the first and the last of them were. Diagnostics, like the count. */
   uint32_t first_bus_error;
   uint32_t last_bus_error;
+  uint32_t last_bus_error_pc;
+  unsigned table_fetches;
+  unsigned table_updates;
 } ap_machine_state_t;
 
 [[nodiscard]] ap_machine_state_t ap_machine_state(const ap_machine_t *machine);
