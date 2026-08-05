@@ -3283,8 +3283,14 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         **never executes**: the run reaches the same `FAULT on 6100` at 311M
         instructions without once stopping there. So the flag is consulted 33
         times, set in one place, and that place is never reached -- the
-        `tst.l (a2)` guard never gets to decide. Which branch upstream turns
-        away is the next question.
+        `tst.l (a2)` guard never gets to decide -- **and that is correct**.
+        Disassembling the routine shows `3C44D8CA` is a sticky "already failed"
+        latch: clear means healthy, `bpl` continues into the real work, and the
+        setter runs only *after* a failure so later calls short-circuit. So the
+        branch at `3C49EBD8` is the ordinary path and the flag is not the fault.
+        The failing site returns `d2`, loaded from `d6` two instructions before
+        the test, so `008A` was already in hand: the error predates the flag
+        entirely and the trail runs back to whatever set `d6`.
         *Verification: the console going past the crash.*
         *Verification: the console going past the crash.*
   - [ ] **`IRQ6` and `DRQ2`, the floppy's**, are placed and not driven: its

@@ -5126,10 +5126,51 @@ times by the loaded kernel, is set in exactly one place, and that place is never
 reached on this machine. The `tst.l (a2)` guard never gets the chance to decide
 anything.
 
-The question that remains is which branch upstream turns away from `010D1AEC` —
-a routine not called, or a condition inside it that fails earlier — and that is
-answered the same way everything above it was: find the callers of that routine
-in the loaded image, and stop on each in turn.
+#### The flag is a failure latch, and clear is the normal state
+
+Disassembling the routine that contains the setter — offline, from the dump
+already taken — explains why it never runs, and inverts the conclusion:
+
+    010D1A9C  4e56 ffd0          link.w  a6,#-$30
+    010D1AA2  246e 0008          movea.l 8(a6),a2
+    010D1AA6  4a39 3c44d8ca      tst.b   $3C44D8CA
+    010D1AAC  6a08               bpl.b   $010D1AB6     ; clear: carry on
+    010D1AAE  24bc 0030000e      move.l  #$30000E,(a2) ; set: refuse, return
+    010D1AB4  6044               bra.b   $010D1AFA
+    010D1AB6  4852               pea     (a2)
+    010D1AB8  6100 0956          bsr.w   $010D2410     ; the actual work
+    010D1ABE  4a00               tst.b   d0
+    010D1AC0  6a38               bpl.b   $010D1AFA     ; succeeded: return
+    ...
+    010D1AE8  13fc 00ff 3c44d8ca move.b  #$FF,$3C44D8CA ; failed: remember it
+
+`3C44D8CA` is a **sticky "this has already failed" latch**. Clear means "not
+known to be broken", which is the state a healthy machine is in; the flag is set
+only *after* the work fails, so that later calls short-circuit instead of
+retrying. Every one of the 33 `tst.b` sites reads the same way — `bpl` continues
+into the real path.
+
+So the branch taken at `3C49EBD8` is the **ordinary** one, the setter never
+running is **correct**, and the flag is not the fault. It was never going to be:
+a byte that 33 sites test and one site sets, after a failure, is a memo rather
+than a cause.
+
+What the failing site actually returns is `d2`, and `d2` was loaded from `d6`
+two instructions before the test:
+
+    3C49EBD6  3406   move.w d6,d2
+    3C49EBD8  4a39   tst.b  $3C44D8CA
+    3C49EBDE  6a5e   bpl.b  $3C49EC3E
+    3C49EC3E  3002   move.w d2,d0
+
+So `008A` was already in `d6` when this code was reached. **The error predates
+the flag test entirely**, and the trail runs back to whatever set `d6`.
+
+That is the third time in this hunt that the obvious lead has turned out to be
+downstream of the fault — after `DISK TIMEOUT`, and after the crash status that
+turned out to be the crash *message*. The pattern is worth naming: a value that
+looks like a cause because it is the last thing touched before the symptom is
+usually the last thing touched before the symptom.
 
 **This paragraph previously said the opposite, and the mistake is worth keeping
 in view.** It reported sixteen references and no setter at all, and concluded the
