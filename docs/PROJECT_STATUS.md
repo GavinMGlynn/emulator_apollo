@@ -5020,11 +5020,30 @@ written out through the caller's pointer on the way past — which is why it nev
 appears in `d0` or `d1`, and why watching the caller's slot finds the epilogue
 rather than the decision.
 
-The same method goes one level down: `3C49CDCC`'s own `a6` is `3C4F98F4`, the
-displacement is in the two instructions above, and a watch on that local will
-name whichever branch inside those 9,071 instructions decided on `80080012`.
-Reading `3C49D07E:8` with `--dump-logical` gives the displacement in the same
-run.
+The same method goes one level down. `3C49D07C:10` gives the displacements —
+
+    3C49D07E  206E 0028   movea.l $28(a6),a0
+    3C49D082  20AE FFD4   move.l  -$2C(a6),(a0)
+
+— so the status local is `a6 - 2C`, which with `a6` at `3C4F98F4` is
+`3C4F98C8`, physical `011248C8`. Watching *that*:
+
+    watch        011248C8 written 344 time(s), last 80080012 by PC 3C49EE46
+
+and stopping on the 344th write puts the decision itself in the ring:
+
+    3C49EBD4  584F   addq.l #4,a7
+    3C49EBD6  3406   move.w d6,d2
+    3C49EBD8  4A39   tst.b  <abs.l>      ; a global byte
+    3C49EBDE  6A5E   bpl.b  $3C49EC3E    ; taken -- bit 7 was clear
+    3C49EC3E  3002   move.w d2,d0        ; and out with 008A
+
+So the routine tests the **sign bit of a byte at an absolute address**, finds it
+clear, and takes the branch that returns the failing code. That is a flag rather
+than a computation, which is a much better shape than an arithmetic slip: a byte
+somewhere in this machine is not what Domain/OS expects it to be.
+
+Which byte is the last thing not yet read.
 
 #### `DRQ7`, and a request that never went down
 

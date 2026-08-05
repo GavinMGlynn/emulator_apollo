@@ -3260,9 +3260,12 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         `PC 3C49D082`, the routine's **epilogue** -- `move.l d16(a6),(a0)`, two
         instructions before its `unlk` -- so the status is a local in
         `3C49CDCC`'s own frame, stored out through the caller's pointer. One
-        level further down: `3C49CDCC`'s `a6` is `3C4F98F4`, and a watch on that
-        local names whichever branch in the 9,071 instructions chose
-        `80080012`.
+        level down -- the local is `a6-2C` = `011248C8`, written 344 times, last
+        by `PC 3C49EE46` -- and stopping on that write puts the decision in the
+        ring: `tst.b <abs.l>` at `3C49EBD8` then `bpl` **taken**, so a global
+        byte's sign bit is clear where Domain/OS wants it set, and the branch
+        returns the failing code. A flag, not an arithmetic slip. Which byte is
+        the last thing to read.
         *Verification: the console going past the crash.*
         *Verification: the console going past the crash.*
   - [ ] **`IRQ6` and `DRQ2`, the floppy's**, are placed and not driven: its
