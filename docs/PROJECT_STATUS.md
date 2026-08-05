@@ -3401,7 +3401,7 @@ failure that cost a bit position in the 68020's module entry word.
 | 68040 MMU | not started | — |
 | MC68882 FPU | working, and attached to the 68030 as a *pointer* so a machine without one keeps its line 1111 trap. Every general-type operation executes: the four arithmetic operations, the exactly-specified monadics, the remainders, the single-precision pair, and **all nineteen transcendentals** to within §4.3.2's published bound. All three operand paths run — register-to-register, **`<ea>` to `FPn`** and **`FPn` to `<ea>`**, in all six binary formats from every legal addressing mode. `FMOVEM` of the data registers runs in both directions with its reversed mask orderings, and so do the system control registers, with the FPIAR tracking under §2.4's two conditions. `FMOVECR` returns all 22 published constants, computed and correctly rounded. **Every general-type instruction executes.** **Every instruction type executes**, the conditionals included. **Every 68882 instruction and every data format executes**, `FSAVE` and `FRESTORE` included. A *busy* state frame is deliberately absent: this core's part never suspends, so nothing can generate one — for which the coprocessor's own half (`ap_m68882_condition`) is done and the 68030's dialog is not | `m68882_regs_suite` 19, `m68882_format_suite` 18, `m68882_cir_suite` 8, `m68882_round_suite` 11, `m68882_arith_suite` 41, `m68882_decode_suite` 12, `m68882_accuracy_suite` 10, `m68882_transcendental_suite` 36, `m68882_store_suite` 13, plus 51 tests in `step_suite`; `MC68881/MC68882 User's Manual 1ed` |
 | MC68040 FPU | timing tables only — §10.6, §10.7.1/§10.7.2 and §10.7.3's pipeline stages are transcribed; no 68040 arithmetic | `m68040_iu_timing_suite` 99, `m68040_fpu_timing_suite` 32, `m68040_fp_pipeline_suite` 18 |
-| Core-board registers (`010000`-`011600`) | working for the four that could be measured: CPU status (bit 15 stuck, writes clear the latched bits), CPU control and latch-page-on-parity (16 bits of storage), cache control (a *byte*, mirrored into both halves of a 16-bit read, one writable bit), each aliased across its 256-byte range. No manual here lays out these bits, so all of it is measured. **Width and storage only — no bit has a known meaning, and nothing may depend on one.** Task alias and master request are absent from the oracle and stay declined rather than modelled as all-ones | `boardreg_suite`, 16 tests; `FINDINGS.md` C10, `tools/mame-oracle/regprobe.lua`, two probe runs byte-identical |
+| Core-board registers (`010000`-`011600`, `016400`) | working for the four that could be measured: CPU status (bit 15 stuck; a write **acknowledges conditions** and keeps the switch input, the FP trap and bit 15), CPU control and latch-page-on-parity (16 bits of storage), cache control (a *byte*, mirrored into both halves of a 16-bit read, one writable bit), each aliased across its 256-byte range. Plus the **selective clear locations**, the one range where the low bits are the decode rather than an alias — five functions, one address each, from `019411-A00`. Width and storage came from measurement; the status register's conditions now have pages behind them. Task alias and master request are absent from the oracle and stay declined rather than modelled as all-ones | `boardreg_suite`, 20 tests; `008778-03` §3.2 and §3.3, `019411-A00` §4.2.1, `FINDINGS.md` C10, `tools/mame-oracle/regprobe.lua` |
 | Address translation map (`017000`) | working: the translation itself, both DMA widths, and the register file. Between the AT bus and physical memory, not the CPU's MMU -- a DMA controller has no MMU, and this is what lets it see scattered physical pages as one contiguous run. Present on DN3500/4500/5500 and absent on DN3000, from the model table. The board splits a 16-bit entry into its two byte lanes, big-endian, which it did not until a DMA transfer failed to arrive | `atmap_suite`, 16 tests, `019411-A00` §4.2.1.4, `008778-03` §1.2, §2.5 |
 | Board cache (`012000` RAM, `014000` condition codes) | not started. The shared **bus arbitration point** is done and has its own row above | — |
 | Apollo interrupt controllers (`011000`, `011100`) | working: the two 8259As cascaded on **IR3** (measured, not IR2 as the AT convention would have it), vector bases `A0`/`A8` from the boot PROM's own ICW2, giving levels `A0`-`AF`. Priority order matches `008778-03` Table 2-3, which with the cascade on IR3 has no anomaly. The CPU interrupt level is **6**, also measured — neither manual states it, and it took starting the interval timer by hand to make anything request at all | `intr_suite`, 13 tests; `FINDINGS.md` C11, `tools/mame-oracle/writetrace.lua` |
@@ -4596,6 +4596,64 @@ loop that runs them. What it does not yet have is the thing the item asks for
 last and hardest — **a decoded PNG**. Register round-trips and word-level
 identities are what can be checked without one, and a controller that passes
 those and draws nothing is the standard way this goes wrong.
+
+#### A status-register write acknowledges; it does not throw the switch
+
+The boot PROM in **normal** mode runs its self-tests, and the first thing this
+core met there was a contradiction of its own making. `ap_boardreg.h` had argued
+at length that bit 0 of the CPU status register is the Normal/Service switch and
+therefore an **input** — and the code cleared it on every write.
+
+`008778-03` §3.2 says what a write does, and it is not "nothing" and not
+"everything": *"The interrupt handler checks the status register to detect which
+one of these conditions exists. Writing to the status register clears the
+interrupt status."* The register is a set of **conditions**, and a write
+acknowledges them. Three bits are not conditions:
+
+- **bit 0**, the switch, because you cannot clear a switch;
+- **bit 2**, the floating-point trap, because `019411-A00` gives it its own
+  clear location at `016404` — a condition an ordinary status write already
+  cleared would not need one;
+- **bit 15**, which reads set whatever is written or held.
+
+The firmware writes the status register three times before it gets anywhere —
+`clr.w $10000` at `00168C`, `002632` and `007440` — so every boot this project
+has run put a normal machine into service mode on the first one.
+
+**The probe could not have found this and the test made it permanent.** C10's
+sweep ran against the oracle in its shipping configuration, which is *service*:
+bit 0 is 0 there and no FP trap was pending, so "the register reads `8000` after
+every write" was a true measurement of a machine where the three preserved bits
+happen to be exactly what a flat `8000` says. The suite then asserted `8000`
+over all sixteen bits — against a machine the suite itself had switched to
+normal. That test now sets service mode explicitly, which is the condition its
+measurement was actually taken under.
+
+#### The selective clear locations, where the low bits are the decode
+
+Table 2-8 gives `016400`-`0164FF` a row and a name and, as with every row in
+it, no bits. `019411-A00`'s replacement for §4.2.1 gives the **functions**, one
+address each: Clear All (`016400`), Clear FPU Trap (`016404`), Clear Parity
+Error Flag (`016406`), Clear Bus Error Status (`016408`), Clear Graphics Trap
+(`01640A`).
+
+That makes this the one range in the file that is **not aliased**. Every other
+core-board register is measured to repeat across its 256 bytes; here the low
+bits choose which condition is cleared, and modelling it like its neighbours
+would have turned every selective clear into a clear-all.
+
+Two divergences from the oracle, both settled on paper. It implements `01640E`
+as "Clear (Flush) Cache", which the addendum does not list; and it does not
+implement `01640A` at all. **Clear Graphics Trap is decoded here and clears
+nothing** — the addendum names the location but no source here says which status
+bit it is, and a location that silently cleared the wrong bit would be worse
+than one that honestly clears none.
+
+The firmware writes only `016400`, twice, and both times immediately after
+`clr.w $10000`: clear the status register, then clear everything. Nothing in any
+image in hand ever reads the range, so the read is all-ones — what C10
+established nothing-driving-the-bus looks like on this machine — and labelled as
+the absence of a measurement rather than one.
 
 #### The frontend's flags, each one exercised — and `--dump-mem`
 

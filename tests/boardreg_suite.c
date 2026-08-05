@@ -42,8 +42,10 @@ static void test_writing_the_status_register_clears_what_was_latched(void) {
   TEST_ASSERT_EQUAL_HEX16(0x8100 | AP_BOARDREG_STATUS_NORMAL_MODE,
                           ap_boardreg_read16(&regs, AP_BOARDREG_CPU_STATUS_ADDR));
 
+  /* The latched condition goes; the switch stays, because the machine is still
+   * the machine it was. Writing the value back does not restore the bit. */
   ap_boardreg_write16(&regs, AP_BOARDREG_CPU_STATUS_ADDR, 0x0100);
-  TEST_ASSERT_EQUAL_HEX16(0x8000,
+  TEST_ASSERT_EQUAL_HEX16(0x8000 | AP_BOARDREG_STATUS_NORMAL_MODE,
                           ap_boardreg_read16(&regs, AP_BOARDREG_CPU_STATUS_ADDR));
 }
 
@@ -52,9 +54,16 @@ static void test_no_written_bit_survives_in_the_status_register(void) {
 
   /* The probe drove all sixteen bits in both directions and no bit but 15 ever
    * read back set. Repeated here over the same exhaustive sweep rather than a
-   * sample, because "all sixteen" is the actual measurement. */
+   * sample, because "all sixteen" is the actual measurement.
+   *
+   * The probe ran in *service* mode, so this asserts against a machine in
+   * service mode: it is the measurement's own conditions. Asserting a flat
+   * `8000` against a machine in **normal** mode -- which is what this suite
+   * built after the switch was found -- is what the earlier version of this
+   * test did, and it quietly required the write to clear the switch input. */
   for (unsigned bit = 0; bit < 16; bit++) {
     ap_boardreg_init(&regs);
+    ap_boardreg_set_normal_mode(&regs, false);
     ap_boardreg_write16(&regs, AP_BOARDREG_CPU_STATUS_ADDR,
                         (uint16_t)(1u << bit));
     TEST_ASSERT_EQUAL_HEX16(0x8000,
@@ -62,12 +71,123 @@ static void test_no_written_bit_survives_in_the_status_register(void) {
                                                AP_BOARDREG_CPU_STATUS_ADDR));
 
     ap_boardreg_init(&regs);
+    ap_boardreg_set_normal_mode(&regs, false);
     ap_boardreg_write16(&regs, AP_BOARDREG_CPU_STATUS_ADDR,
                         (uint16_t)~(1u << bit));
     TEST_ASSERT_EQUAL_HEX16(0x8000,
                             ap_boardreg_read16(&regs,
                                                AP_BOARDREG_CPU_STATUS_ADDR));
   }
+}
+
+/* ## A write acknowledges conditions; it does not throw the switch
+ *
+ * `008778-03` §3.2: "Writing to the status register clears the interrupt
+ * status." The boot PROM does exactly that three times -- `clr.w $10000` at
+ * `00168C`, `002632` and `007440` -- and every one of them ran through a model
+ * that cleared bit 0 with the rest, so a normal machine became a service one on
+ * the first clear.
+ */
+static void test_a_status_write_keeps_the_switch_and_the_fp_trap(void) {
+  ap_boardreg_t regs;
+  ap_boardreg_init(&regs);
+
+  /* A normal machine with both a bus error and an FP trap standing. */
+  ap_boardreg_latch_status(&regs, AP_BOARDREG_STATUS_FP_TRAP |
+                                      AP_BOARDREG_STATUS_BUS_ERROR |
+                                      AP_BOARDREG_STATUS_PARITY_MASK);
+
+  ap_boardreg_write16(&regs, AP_BOARDREG_CPU_STATUS_ADDR, 0x0000);
+
+  /* The conditions the write acknowledges are gone; the switch input and the
+   * trap with its own clear location are not. */
+  TEST_ASSERT_EQUAL_HEX16(AP_BOARDREG_STATUS_ALWAYS_SET |
+                              AP_BOARDREG_STATUS_FP_TRAP |
+                              AP_BOARDREG_STATUS_NORMAL_MODE,
+                          ap_boardreg_read16(&regs,
+                                             AP_BOARDREG_CPU_STATUS_ADDR));
+
+  /* And in service mode the same write leaves bit 0 clear, which is why the
+   * probe could never have seen this. */
+  ap_boardreg_init(&regs);
+  ap_boardreg_set_normal_mode(&regs, false);
+  ap_boardreg_write16(&regs, AP_BOARDREG_CPU_STATUS_ADDR, 0xFFFF);
+  TEST_ASSERT_EQUAL_HEX16(AP_BOARDREG_STATUS_ALWAYS_SET,
+                          ap_boardreg_read16(&regs,
+                                             AP_BOARDREG_CPU_STATUS_ADDR));
+}
+
+/* ## The selective clear locations, one address per condition
+ *
+ * `019411-A00`'s replacement for §4.2.1 lists five, and the low bits of the
+ * address are the decode -- which makes this the one range in the file that is
+ * *not* aliased across its 256 bytes.
+ */
+static void test_each_selective_clear_location_clears_only_its_own(void) {
+  static const struct {
+    uint32_t offset;
+    uint16_t clears;
+  } CASES[] = {
+      {AP_BOARDREG_CLEAR_FPU_TRAP_OFFSET, AP_BOARDREG_STATUS_FP_TRAP},
+      {AP_BOARDREG_CLEAR_PARITY_OFFSET, AP_BOARDREG_STATUS_PARITY_MASK},
+      {AP_BOARDREG_CLEAR_BUS_ERROR_OFFSET, AP_BOARDREG_STATUS_BUS_ERROR},
+  };
+  const uint16_t all = AP_BOARDREG_STATUS_CONDITIONS;
+
+  for (unsigned i = 0; i < sizeof CASES / sizeof CASES[0]; i++) {
+    ap_boardreg_t regs;
+    ap_boardreg_init(&regs);
+    ap_boardreg_latch_status(&regs, all);
+
+    ap_boardreg_write16(&regs,
+                        AP_BOARDREG_SELECTIVE_CLEAR_ADDR + CASES[i].offset,
+                        0x0000);
+
+    /* Only its own, which is the whole point of a *selective* clear and the
+     * thing an aliased decode would have destroyed. */
+    TEST_ASSERT_EQUAL_HEX16((uint16_t)(all & ~CASES[i].clears),
+                            (uint16_t)(regs.cpu_status & all));
+  }
+}
+
+static void test_clear_all_clears_every_condition_and_nothing_else(void) {
+  ap_boardreg_t regs;
+  ap_boardreg_init(&regs);
+  ap_boardreg_latch_status(&regs, AP_BOARDREG_STATUS_CONDITIONS);
+
+  ap_boardreg_write16(&regs, AP_BOARDREG_SELECTIVE_CLEAR_ADDR +
+                                 AP_BOARDREG_CLEAR_ALL_OFFSET,
+                      0x0000);
+
+  /* The switch survives a clear-all for the same reason it survives a status
+   * write: it is an input, and no location can clear a switch. */
+  TEST_ASSERT_EQUAL_HEX16(AP_BOARDREG_STATUS_ALWAYS_SET |
+                              AP_BOARDREG_STATUS_NORMAL_MODE,
+                          ap_boardreg_read16(&regs,
+                                             AP_BOARDREG_CPU_STATUS_ADDR));
+}
+
+static void test_the_graphics_trap_location_decodes_and_clears_nothing(void) {
+  ap_boardreg_t regs;
+  ap_boardreg_id_t id;
+  ap_boardreg_init(&regs);
+  ap_boardreg_latch_status(&regs, AP_BOARDREG_STATUS_CONDITIONS);
+
+  /* The addendum names it, so it decodes -- reporting it unmapped would be
+   * wrong about the hardware. Which status bit it is has no source, so it
+   * clears none: a location that cleared the wrong bit would be worse than one
+   * that honestly clears nothing. */
+  TEST_ASSERT_TRUE(ap_boardreg_decode(AP_BOARDREG_SELECTIVE_CLEAR_ADDR +
+                                          AP_BOARDREG_CLEAR_GRAPHICS_TRAP_OFFSET,
+                                      &id));
+  TEST_ASSERT_EQUAL_INT(AP_BOARDREG_SELECTIVE_CLEAR, id);
+
+  ap_boardreg_write16(&regs, AP_BOARDREG_SELECTIVE_CLEAR_ADDR +
+                                 AP_BOARDREG_CLEAR_GRAPHICS_TRAP_OFFSET,
+                      0x0000);
+  TEST_ASSERT_EQUAL_HEX16(AP_BOARDREG_STATUS_CONDITIONS,
+                          (uint16_t)(regs.cpu_status &
+                                     AP_BOARDREG_STATUS_CONDITIONS));
 }
 
 static void test_the_control_register_stores_all_sixteen_bits(void) {
@@ -327,6 +447,10 @@ int main(void) {
   RUN_TEST(test_bit_fifteen_of_the_status_register_always_reads_set);
   RUN_TEST(test_writing_the_status_register_clears_what_was_latched);
   RUN_TEST(test_no_written_bit_survives_in_the_status_register);
+  RUN_TEST(test_a_status_write_keeps_the_switch_and_the_fp_trap);
+  RUN_TEST(test_each_selective_clear_location_clears_only_its_own);
+  RUN_TEST(test_clear_all_clears_every_condition_and_nothing_else);
+  RUN_TEST(test_the_graphics_trap_location_decodes_and_clears_nothing);
   RUN_TEST(test_the_control_register_stores_all_sixteen_bits);
   RUN_TEST(test_the_latch_page_register_stores_all_sixteen_bits);
   RUN_TEST(test_the_cache_control_register_is_a_byte_not_a_word);

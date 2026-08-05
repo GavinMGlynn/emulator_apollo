@@ -45,7 +45,39 @@ bool ap_boardreg_decode(uint32_t address, ap_boardreg_id_t *out) {
     *out = AP_BOARDREG_LATCH_PAGE_ON_PARITY;
     return true;
   }
+  if (in_range(address, AP_BOARDREG_SELECTIVE_CLEAR_ADDR)) {
+    *out = AP_BOARDREG_SELECTIVE_CLEAR;
+    return true;
+  }
   return false;
+}
+
+/* The one range where the low bits are the decode rather than an alias --
+ * `019411-A00` gives each function its own address. See the header. */
+static void selective_clear(ap_boardreg_t *regs, uint32_t address) {
+  switch (address & (AP_BOARDREG_RANGE - 1u)) {
+  case AP_BOARDREG_CLEAR_ALL_OFFSET:
+    regs->cpu_status &= (uint16_t)~AP_BOARDREG_STATUS_CONDITIONS;
+    break;
+  case AP_BOARDREG_CLEAR_FPU_TRAP_OFFSET:
+    regs->cpu_status &= (uint16_t)~AP_BOARDREG_STATUS_FP_TRAP;
+    break;
+  case AP_BOARDREG_CLEAR_PARITY_OFFSET:
+    regs->cpu_status &= (uint16_t)~AP_BOARDREG_STATUS_PARITY_MASK;
+    break;
+  case AP_BOARDREG_CLEAR_BUS_ERROR_OFFSET:
+    regs->cpu_status &= (uint16_t)~AP_BOARDREG_STATUS_BUS_ERROR;
+    break;
+  case AP_BOARDREG_CLEAR_GRAPHICS_TRAP_OFFSET:
+    /* Named by the addendum, and which status bit it is has no source here.
+     * Decoded so the address is not reported as unmapped, and clearing nothing
+     * rather than guessing at a bit. See the header. */
+    break;
+  default:
+    /* Inside the range and not one of the five. Nothing is named for it, so
+     * nothing happens -- the same position as the gap addresses in Table 2-8. */
+    break;
+  }
 }
 
 bool ap_boardreg_is_declined(uint32_t address) {
@@ -67,6 +99,12 @@ static uint16_t value_of(const ap_boardreg_t *regs, ap_boardreg_id_t id) {
                       AP_BOARDREG_CACHE_FIXED);
   case AP_BOARDREG_LATCH_PAGE_ON_PARITY:
     return regs->latch_page_on_parity;
+  case AP_BOARDREG_SELECTIVE_CLEAR:
+    /* Write-only as far as anything here can say: no firmware in hand reads
+     * the range, so there is no measurement and no page. All-ones because C10
+     * established that is what nothing-driving-the-bus looks like on this
+     * machine, which is the closest thing to a default it has. */
+    return 0xFFFFu;
   case AP_BOARDREG_COUNT:
     break;
   }
@@ -101,14 +139,18 @@ uint8_t ap_boardreg_read8(const ap_boardreg_t *regs, uint32_t address) {
 static void store(ap_boardreg_t *regs, ap_boardreg_id_t id, uint16_t value) {
   switch (id) {
   case AP_BOARDREG_CPU_STATUS:
-    /* Measured: after a write of *any* value the register reads `8000`, and
-     * the bit that was set at power-on could not be put back. So a write
-     * retains nothing and clears what was latched.
+    /* A write carries nothing and *acknowledges* -- `008778-03` §3.2, "Writing
+     * to the status register clears the interrupt status". Measured too: after
+     * a write of any value the register read `8000`, and the bit standing at
+     * power-on could not be put back, which is a stronger statement than
+     * "writes are ignored".
      *
-     * Which is a stronger statement than "writes are ignored", and the probe
-     * separated the two: an ignored write would have left the initial `8100`
-     * intact. */
-    regs->cpu_status = AP_BOARDREG_STATUS_ALWAYS_SET;
+     * What the measurement could not show is the three bits that are not
+     * conditions and survive -- the switch input, the FP trap, and bit 15. It
+     * ran in service mode with no trap pending, where all three are already
+     * what an unconditional `8000` says. See the header. */
+    regs->cpu_status &= AP_BOARDREG_STATUS_WRITE_KEEPS;
+    regs->cpu_status |= AP_BOARDREG_STATUS_ALWAYS_SET;
     break;
   case AP_BOARDREG_CPU_CONTROL:
     regs->cpu_control = value;
@@ -123,6 +165,9 @@ static void store(ap_boardreg_t *regs, ap_boardreg_id_t id, uint16_t value) {
   case AP_BOARDREG_LATCH_PAGE_ON_PARITY:
     regs->latch_page_on_parity = value;
     break;
+  case AP_BOARDREG_SELECTIVE_CLEAR:
+    /* Never reaches here: the write paths route this id by address before
+     * calling `store`, because the value is not what it carries. */
   case AP_BOARDREG_COUNT:
     break;
   }
@@ -134,12 +179,22 @@ void ap_boardreg_write16(ap_boardreg_t *regs, uint32_t address,
   if (!ap_boardreg_decode(address, &id)) {
     return;
   }
+  if (id == AP_BOARDREG_SELECTIVE_CLEAR) {
+    /* The address, not the id: within this range the low bits choose the
+     * function, so `store` -- which sees only the id -- cannot do it. */
+    selective_clear(regs, address);
+    return;
+  }
   store(regs, id, value);
 }
 
 void ap_boardreg_write8(ap_boardreg_t *regs, uint32_t address, uint8_t value) {
   ap_boardreg_id_t id;
   if (!ap_boardreg_decode(address, &id)) {
+    return;
+  }
+  if (id == AP_BOARDREG_SELECTIVE_CLEAR) {
+    selective_clear(regs, address);
     return;
   }
   store(regs, id, value);

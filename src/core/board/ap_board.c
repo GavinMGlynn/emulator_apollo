@@ -23,6 +23,12 @@ static const ap_board_placement_t DS4000_PLACEMENT[] = {
      AP_BOARD_REGION_CORE_REGISTER, AP_BOARDREG_LATCH_PAGE_ADDR},
     {AP_BOARDREG_MASTER_REQUEST_ADDR, AP_BOARDREG_RANGE,
      AP_BOARD_REGION_CORE_REGISTER, AP_BOARDREG_MASTER_REQUEST_ADDR},
+    /* Table 2-8 gives this range a row, and `019411-A00` gives each address in
+     * it a function. Absent from `DS3000_PLACEMENT` below because Table 2-6
+     * has no such row -- the selective clears are Series 4000 like the map and
+     * the master request register. */
+    {AP_BOARDREG_SELECTIVE_CLEAR_ADDR, AP_BOARDREG_RANGE,
+     AP_BOARD_REGION_CORE_REGISTER, AP_BOARDREG_SELECTIVE_CLEAR_ADDR},
     {AP_SIO1_ADDR, 2u * AP_SIO_RANGE, AP_BOARD_REGION_SIO, AP_SIO1_ADDR},
     {AP_TIMER_ADDR, AP_TIMER_RANGE, AP_BOARD_REGION_TIMER, AP_TIMER_ADDR},
     {AP_CALENDAR_ADDR, AP_CALENDAR_RANGE, AP_BOARD_REGION_CALENDAR,

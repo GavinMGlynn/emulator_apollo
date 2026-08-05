@@ -85,6 +85,7 @@ typedef enum {
   AP_BOARDREG_CPU_CONTROL,
   AP_BOARDREG_CACHE_CONTROL,
   AP_BOARDREG_LATCH_PAGE_ON_PARITY,
+  AP_BOARDREG_SELECTIVE_CLEAR,
   AP_BOARDREG_COUNT,
 } ap_boardreg_id_t;
 
@@ -99,6 +100,42 @@ typedef enum {
 #define AP_BOARDREG_TASK_ALIAS_ADDR 0x010300u
 #define AP_BOARDREG_LATCH_PAGE_ADDR 0x011300u
 #define AP_BOARDREG_MASTER_REQUEST_ADDR 0x011600u
+#define AP_BOARDREG_SELECTIVE_CLEAR_ADDR 0x016400u
+
+/* ## The selective clear locations, which are the one part of this file with a
+ * ## page behind it
+ *
+ * Table 2-8 gives `016400`-`0164FF` a row and a name and, as with every other
+ * row, no bits. `019411-A00`'s replacement for §4.2.1 does better: it lists the
+ * locations *by function*, one address each.
+ *
+ *     Clear All Locations      00016400
+ *     Clear FPU Trap           00016404
+ *     Clear Parity Error Flag  00016406
+ *     Clear Bus Error Status   00016408
+ *     Clear Graphics Trap      0001640A
+ *
+ * So this range is **not aliased** the way the registers above it are: the low
+ * bits select which condition is cleared, and treating the range as one
+ * register would make every clear a clear-all. That is why the decode for this
+ * id keeps the address instead of dropping it.
+ *
+ * The boot PROM writes only `016400`, twice, and both times immediately after
+ * `clr.w $10000` -- `00168C` and `002632`. Clearing the status register and
+ * then clearing everything is the reset path, and neither site nor any other in
+ * any image in hand ever *reads* the range.
+ *
+ * The oracle has this list too, and it differs: it implements `01640E` as
+ * "Clear (Flush) Cache", which the addendum does not list, and it does not
+ * implement `01640A` at all. The addendum is the authority for both. Graphics
+ * trap is decoded and named here and clears nothing, because *which* status bit
+ * it is has no source -- and a location that silently cleared the wrong bit
+ * would be worse than one that honestly clears none. */
+#define AP_BOARDREG_CLEAR_ALL_OFFSET 0x00u
+#define AP_BOARDREG_CLEAR_FPU_TRAP_OFFSET 0x04u
+#define AP_BOARDREG_CLEAR_PARITY_OFFSET 0x06u
+#define AP_BOARDREG_CLEAR_BUS_ERROR_OFFSET 0x08u
+#define AP_BOARDREG_CLEAR_GRAPHICS_TRAP_OFFSET 0x0Au
 
 /* ## Bit 0 is the Normal/Service switch, and it is an *input*
  *
@@ -136,6 +173,68 @@ typedef enum {
  * point in the boot. Named for what was observed, because what it *is* was not
  * measured and no manual here says. */
 #define AP_BOARDREG_STATUS_ALWAYS_SET 0x8000u
+
+/* ## What a write to the status register keeps, and why it is not "nothing"
+ *
+ * `008778-03` §3.2 says it plainly, about the parity error interrupt: "The
+ * interrupt handler checks the status register to detect which one of these
+ * conditions exists. **Writing to the status register clears the interrupt
+ * status.**" So the register is a set of *conditions* and a write is how they
+ * are acknowledged.
+ *
+ * Three bits are not conditions and survive:
+ *
+ * - **Bit 0**, the Normal/Service switch, because it is an *input*. This file
+ *   argued that above and then cleared it anyway on every write, which is a
+ *   contradiction the firmware walks straight into: `clr.w $10000` at `00168C`,
+ *   `002632` and `007440` would each have dropped a normal machine into
+ *   service mode.
+ * - **Bit 2**, the floating-point trap, because `019411-A00` gives it a
+ *   **dedicated clear location** at `016404`. A condition that a status write
+ *   already cleared would not need one.
+ * - **Bit 15**, which reads set whatever is written or held.
+ *
+ * The probe that produced `AP_BOARDREG_STATUS_ALWAYS_SET` is consistent with
+ * all of this and could not have shown it: it ran against the oracle in
+ * *service* mode, where bit 0 is 0, with no FP trap pending, so "reads `8000`
+ * after every write" was true and "a write keeps three bits" was invisible
+ * underneath it. The test that swept all sixteen bits asserted `8000` too, so
+ * it encoded the gap rather than catching it. */
+/* Bit 2, the floating-point trap. Named from its clear location at `016404`
+ * (`019411-A00`) and corroborated by the oracle's `APOLLO_CSR_SR_FP_TRAP`.
+ * Nothing here raises it yet; it is here because a *write* has to know not to
+ * clear it. */
+#define AP_BOARDREG_STATUS_FP_TRAP 0x0004u
+
+/* Bits 4-7, one per byte lane of the memory array. `008778-03` §3.3: "The
+ * parity circuitry for the memory array uses **four** F280 parity
+ * checker/generators to generate the parity bits on Write operations and to
+ * check the parity bits on Read operations" -- four checkers over 32 data bits
+ * is one per byte, which is what a four-bit field in a status register is for.
+ * `019411-A00` calls `016406` "Clear Parity Error Flag". */
+#define AP_BOARDREG_STATUS_PARITY_MASK 0x00F0u
+
+/* Bit 8, the CPU bus timeout: `019411-A00` names `016408` "Clear Bus Error
+ * Status", and this is the bit the oracle clears there. It is also the bit set
+ * in the measured power-on value `8100`, which is a machine that has already
+ * probed something absent -- not a reset level. */
+#define AP_BOARDREG_STATUS_BUS_ERROR 0x0100u
+
+/* What "Clear All Locations" clears: every condition this model holds.
+ *
+ * The oracle uses `3FFE` -- bits 1 to 13. That is a wider mask than the bits
+ * either manual accounts for, and the two differ only in bits nothing here
+ * models, so there is nothing to choose between them that any program could
+ * see. Written as the union of the named conditions because that is the form
+ * that stays correct when the next one is named. */
+#define AP_BOARDREG_STATUS_CONDITIONS                                          \
+  (AP_BOARDREG_STATUS_FP_TRAP | AP_BOARDREG_STATUS_PARITY_MASK |               \
+   AP_BOARDREG_STATUS_BUS_ERROR)
+
+/* The three bits a write to the status register keeps; see above. */
+#define AP_BOARDREG_STATUS_WRITE_KEEPS                                         \
+  (AP_BOARDREG_STATUS_ALWAYS_SET | AP_BOARDREG_STATUS_FP_TRAP |                \
+   AP_BOARDREG_STATUS_NORMAL_MODE)
 
 /* The cache control register is eight bits, not sixteen -- measured, and the
  * single most valuable thing the probe found, because a transcription working

@@ -2794,6 +2794,20 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
 - [ ] **Integration check, not a milestone:** DN3500 boots Domain/OS SR10.x to a
       login prompt, console byte-identical to the oracle. *Verification: console
       diff plus a boot state hash.*
+  - [x] **A status-register write acknowledges conditions; it does not throw
+        the switch.** This file argued bit 0 was a switch *input* and then
+        cleared it on every write, and the PROM writes the register three times
+        before it gets anywhere -- so every boot so far put a normal machine
+        back into service mode. `008778-03` §3.2 says a write clears the
+        interrupt status; `019411-A00` gives the FP trap its own clear location,
+        which is the argument that a status write does not clear it. The
+        **selective clear locations** land with it: five functions at one
+        address each, the one core-board range where the low bits are the decode
+        rather than an alias. Detail in `PROJECT_STATUS.md`.
+        *Verification: `boardreg_suite` +4 (20). Two existing tests asserted the
+        old behaviour -- C10's sweep was measured in service mode, where the
+        three preserved bits are already what a flat `8000` says, so the suite
+        had made the gap permanent rather than caught it.*
   - [x] **It was waiting because it was in Service mode.** Bit 0 of the CPU
         status register is the Normal/Service switch, inverted from its own
         name — the bit reads 1 for *normal*. `CPU_STATUS_RESET` was `8100` and
