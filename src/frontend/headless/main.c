@@ -43,6 +43,10 @@ static void print_usage(const char *program_name) {
           "                        comparison\n"
           "  --boot-limit N        stop a boot after N instructions, to find\n"
           "                        where one goes wrong\n"
+          "  --boot-stop-physical-pc ADDR[:LEN]\n"
+          "                        the same stop, matched on the address the\n"
+          "                        bus carried -- for code found by searching\n"
+          "                        memory, whose logical address is unknown\n"
           "  --boot-stop-on-watch-write N\n"
           "                        end the run on the Nth write to the watched\n"
           "                        address, so a ring holds the instruction\n"
@@ -1016,7 +1020,9 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
                           uint32_t watch_write, unsigned stop_on_watch,
                           uint32_t stop_pc_length,
                           const char *const *dump_logical,
-                          unsigned dump_logical_count) {
+                          unsigned dump_logical_count,
+                          uint32_t stop_physical_pc,
+                          uint32_t stop_physical_length) {
   /* Before the PROM is even opened: a script that does not parse is the
    * caller's mistake and should be reported as one, not hidden behind whichever
    * file happens to be missing first. */
@@ -1542,6 +1548,22 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
           trace_ring_used++;
         }
         break;
+      }
+      /* The same stop against the address the *bus* carried. Code found by
+       * searching memory is found at a physical address, and recovering its
+       * logical one means knowing which page it is in -- which the translation
+       * is under no obligation to make guessable, as one wrong derivation here
+       * has already shown. */
+      if (stop_physical_pc != 0u) {
+        uint32_t physical = step_pc;
+        if (ap_machine_translate(&machine, step_pc, 6u, &physical) &&
+            physical >= stop_physical_pc &&
+            physical < stop_physical_pc + stop_physical_length) {
+          printf("  stopped at   PC %08X -> %08X after %u instruction(s)\n",
+                 step_pc, physical, i);
+          run.executed++;
+          break;
+        }
       }
       if (stop_pc != 0u && step_pc >= stop_pc &&
           step_pc < stop_pc + stop_pc_length) {
@@ -2384,6 +2406,8 @@ int main(int argc, char **argv) {
   uint32_t boot_watch_write = 0;
   unsigned boot_stop_on_watch = 0;
   uint32_t boot_stop_pc_length = 1u;
+  uint32_t boot_stop_physical_pc = 0;
+  uint32_t boot_stop_physical_length = 1u;
   const char *dump_logical_specs[AP_MAX_LOGICAL_DUMPS] = {0};
   unsigned dump_logical_count = 0;
   uint32_t boot_stop_pc = 0;
@@ -2489,6 +2513,17 @@ int main(int argc, char **argv) {
     }
     if (strcmp(argv[i], "--boot-watch-write") == 0 && i + 1 < argc) {
       boot_watch_write = (uint32_t)strtoul(argv[i + 1], NULL, 16);
+      i += 2;
+      continue;
+    }
+    if (strcmp(argv[i], "--boot-stop-physical-pc") == 0 && i + 1 < argc) {
+      if (!parse_dump_spec(argv[i + 1], &boot_stop_physical_pc,
+                           &boot_stop_physical_length)) {
+        fprintf(stderr,
+                "%s: --boot-stop-physical-pc wants ADDR or ADDR:LEN in hex\n",
+                program_name);
+        return 2;
+      }
       i += 2;
       continue;
     }
@@ -2667,7 +2702,8 @@ int main(int argc, char **argv) {
                           disk_path, dump_spec, boot_progress,
                           boot_stop_on_refusal, boot_watch_write,
                           boot_stop_on_watch, boot_stop_pc_length,
-                          dump_logical_specs, dump_logical_count);
+                          dump_logical_specs, dump_logical_count,
+                          boot_stop_physical_pc, boot_stop_physical_length);
   }
 
   if (boot_tape != NULL) {
