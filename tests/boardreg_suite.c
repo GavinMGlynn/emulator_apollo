@@ -442,11 +442,53 @@ static void test_the_code_buffer_keeps_the_earliest_and_stops(void) {
   TEST_ASSERT_EQUAL_UINT(AP_BOARDREG_POSTED_CODES + 8u, regs.posted_total);
 }
 
+/* ## Bit 4 of the cache register is the master controller's request line
+ *
+ * The "fixed pattern" this suite asserts elsewhere is what the register reads
+ * with **no interrupt standing** -- which is every sample a register probe
+ * takes, since it drives bits and reads them back on a quiet machine. Bit 4 is
+ * neither storage nor fixed: it follows the master 8259's `INT`.
+ *
+ * The loaded `SELF_TEST` diagnostic reads `010200` at `01002848` right after
+ * unmasking the cascade and requires this bit set; the oracle sets it from the
+ * same line on everything that is not a DN3000.
+ */
+static void test_the_cache_register_reports_the_master_request(void) {
+  ap_boardreg_t regs;
+  ap_boardreg_init(&regs);
+
+  /* Quiet: the measured pattern, unchanged. */
+  TEST_ASSERT_EQUAL_HEX8(0u,
+                         (uint8_t)(ap_boardreg_read8(&regs,
+                                                     AP_BOARDREG_CACHE_CONTROL_ADDR) &
+                                   AP_BOARDREG_CACHE_INTERRUPT_PENDING));
+
+  ap_boardreg_set_interrupt_pending(&regs, true);
+  TEST_ASSERT_EQUAL_HEX8(AP_BOARDREG_CACHE_INTERRUPT_PENDING,
+                         (uint8_t)(ap_boardreg_read8(&regs,
+                                                     AP_BOARDREG_CACHE_CONTROL_ADDR) &
+                                   AP_BOARDREG_CACHE_INTERRUPT_PENDING));
+
+  /* It is a *line*, so nothing a program writes can put it down -- including a
+   * write of the bit itself, which is what a storage bit would accept. */
+  ap_boardreg_write8(&regs, AP_BOARDREG_CACHE_CONTROL_ADDR, 0x00u);
+  TEST_ASSERT_EQUAL_HEX8(AP_BOARDREG_CACHE_INTERRUPT_PENDING,
+                         (uint8_t)(ap_boardreg_read8(&regs,
+                                                     AP_BOARDREG_CACHE_CONTROL_ADDR) &
+                                   AP_BOARDREG_CACHE_INTERRUPT_PENDING));
+
+  ap_boardreg_set_interrupt_pending(&regs, false);
+  TEST_ASSERT_EQUAL_HEX8(AP_BOARDREG_CACHE_FIXED,
+                         ap_boardreg_read8(&regs,
+                                           AP_BOARDREG_CACHE_CONTROL_ADDR));
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_bit_fifteen_of_the_status_register_always_reads_set);
   RUN_TEST(test_writing_the_status_register_clears_what_was_latched);
   RUN_TEST(test_no_written_bit_survives_in_the_status_register);
+  RUN_TEST(test_the_cache_register_reports_the_master_request);
   RUN_TEST(test_a_status_write_keeps_the_switch_and_the_fp_trap);
   RUN_TEST(test_each_selective_clear_location_clears_only_its_own);
   RUN_TEST(test_clear_all_clears_every_condition_and_nothing_else);

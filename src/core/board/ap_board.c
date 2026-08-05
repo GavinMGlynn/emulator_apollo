@@ -252,6 +252,10 @@ void ap_board_sample_interrupts(ap_board_t *board) {
    * `008778-03` §2.5; see `board/ap_sio.h`. */
   ap_intr_set_request(&board->interrupts, AP_SIO_DIAGNOSTIC_IRQ,
                       ap_sio_diagnostic_interrupt(&board->sio));
+  /* And the master's own request line, which this board reports in the cache
+   * register's bit 4. Set after every device, because it is *their* sum. */
+  ap_boardreg_set_interrupt_pending(&board->registers,
+                                    ap_intr_pending(&board->interrupts));
   ap_intr_set_request(&board->interrupts, AP_CALENDAR_IRQ,
                       ap_calendar_irq(&board->calendar));
   ap_intr_set_request(&board->interrupts, AP_TAPE_IRQ,

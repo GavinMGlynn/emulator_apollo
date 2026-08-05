@@ -27,6 +27,10 @@ void ap_boardreg_set_active_low_lanes(ap_boardreg_t *regs, bool active_low) {
   regs->active_low_parity_lanes = active_low;
 }
 
+void ap_boardreg_set_interrupt_pending(ap_boardreg_t *regs, bool pending) {
+  regs->interrupt_pending = pending;
+}
+
 /* Table 2-8's ranges are 256 bytes and the register is aliased within one, so
  * the decode drops the low byte. */
 static bool in_range(uint32_t address, uint32_t base) {
@@ -99,9 +103,14 @@ static uint16_t value_of(const ap_boardreg_t *regs, ap_boardreg_id_t id) {
   case AP_BOARDREG_CPU_CONTROL:
     return regs->cpu_control;
   case AP_BOARDREG_CACHE_CONTROL:
-    /* Eight bits. Only bit 7 is storage; the rest read a fixed pattern. */
+    /* Eight bits. Only bit 7 is storage, the rest read a fixed pattern -- and
+     * bit 4 is neither: it is the master controller's request line. See the
+     * header on why the probe's "fixed" pattern could not contain it. */
     return (uint16_t)((regs->cache_control & AP_BOARDREG_CACHE_WRITABLE) |
-                      AP_BOARDREG_CACHE_FIXED);
+                      AP_BOARDREG_CACHE_FIXED |
+                      (regs->interrupt_pending
+                           ? AP_BOARDREG_CACHE_INTERRUPT_PENDING
+                           : 0u));
   case AP_BOARDREG_LATCH_PAGE_ON_PARITY:
     return regs->latch_page_on_parity;
   case AP_BOARDREG_SELECTIVE_CLEAR:

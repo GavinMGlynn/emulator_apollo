@@ -281,6 +281,27 @@ typedef enum {
 #define AP_BOARDREG_CACHE_WRITABLE 0x80u
 #define AP_BOARDREG_CACHE_FIXED 0x6Fu
 
+/* ## Bit 4 is **interrupt pending**, and the probe could not have seen it
+ *
+ * The "fixed pattern" above is what the register reads with **no interrupt
+ * standing**, which is every sample a register probe takes: it drives bits and
+ * reads them back on a quiet machine. Bit 4 is not storage and not fixed -- it
+ * follows the master 8259's `INT` output, set while the controller is asking
+ * and cleared when the processor acknowledges.
+ *
+ * Two sources agree and the firmware is the third. The oracle sets it from the
+ * master's interrupt line on everything that is not a DN3000 -- "set bit
+ * Interrupt Pending in Cache Status Register", `0x10` -- and clears it in the
+ * acknowledge path; a DN3000 uses the *status* register's bit 3 instead, which
+ * is why `008778-03`'s status-register bit has no meaning on this machine. And
+ * the loaded `SELF_TEST` diagnostic reads `010200` at `01002848` immediately
+ * after unmasking the cascade on controller 1, and requires this bit set.
+ *
+ * So it is derived here rather than latched: a stored copy would need clearing
+ * on acknowledge, and the line already does that. Same reasoning as the parity
+ * interrupt in `board/ap_parity.h`. */
+#define AP_BOARDREG_CACHE_INTERRUPT_PENDING 0x10u
+
 typedef struct {
   uint16_t cpu_status;
   /* The diagnostic codes posted to the control register, oldest first and
@@ -294,6 +315,9 @@ typedef struct {
   /* A model difference, not a measurement of this board: see
    * `ap_boardreg_set_active_low_lanes`. */
   bool active_low_parity_lanes;
+  /* The master 8259's `INT`, refreshed by the board -- see the cache register's
+   * bit 4 above. Not storage: nothing a program writes can change it. */
+  bool interrupt_pending;
 } ap_boardreg_t;
 
 /* Reset to the measured power-on values.
@@ -314,6 +338,10 @@ void ap_boardreg_init(ap_boardreg_t *regs);
  * -- the reference superset, as everywhere else here -- and a DS3000 board sets
  * it false from `ap_model_t::has_active_low_parity_lanes`. */
 void ap_boardreg_set_active_low_lanes(ap_boardreg_t *regs, bool active_low);
+
+/* The master interrupt controller's request line, which the cache register
+ * reports in bit 4. Called by the board whenever it samples its devices. */
+void ap_boardreg_set_interrupt_pending(ap_boardreg_t *regs, bool pending);
 
 /* Which register an address decodes to, if any. False for the declined pair as
  * well as for unmapped addresses; use `ap_boardreg_is_declined` to tell them

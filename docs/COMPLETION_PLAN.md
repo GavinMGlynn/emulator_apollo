@@ -3045,10 +3045,20 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         the physical address and not the logical one. Descriptor fetches go from
         15 to 42,579, and the boot passes the MMU test and moves to
         `CPU (interrupts) Test #0`.*
-  - [ ] **`CPU (interrupts) Test #0`,** now failing at `00011000` -- controller
-        **#1** -- having got past controller #2. This is the 8259 work this
-        session opened by naming, reached from the other end.
-        *Verification: the console going past the interrupt test.*
+  - [x] **`CPU (interrupts)` and `CPU (timer)` pass: bit 4 of the cache
+        register is the master's request line.** `ap_boardreg` had `010200` as a
+        byte with one writable bit and a fixed `6F`, measured -- and a register
+        probe drives bits on a **quiet machine**, so every sample it took had no
+        interrupt standing. Bit 4 follows the master 8259's `INT`. Derived, not
+        latched: a stored copy would need clearing on acknowledge and the line
+        already does. Detail in `PROJECT_STATUS.md`.
+        *Verification: `boardreg_suite` +1 (21), including that no program write
+        can put the bit down. The boot passes the interrupt and timer tests and
+        reaches `CPU (dma) Test #0`.*
+  - [ ] **`CPU (dma) Test #0`,** failing at `000176FE` -- inside
+        `017000`-`017FFF`, Table 2-8's **address translation map** --
+        with `Expected= 000176FE` against `Actual= 000077FE`.
+        *Verification: the console going past the DMA test.*
     - [x] **IRQ13 is a wire with no device on it.** `008778-03` §2.5, before
           Table 2-3: IRQ13 "is not available on the bus ... it is connected to
           Output Port Bit 7 of the 2681 SIO chip and is used by diagnostics to
