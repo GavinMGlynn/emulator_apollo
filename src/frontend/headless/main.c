@@ -953,6 +953,10 @@ typedef struct {
   uint32_t a7;
   uint32_t a6;
   uint32_t a0;
+  /* And A1, because the PROM's disk service takes its block number through it:
+   * `movea.l 8(a7),a1` then `move.l (a1),$17e(a6)`, so the pointer that decides
+   * which sector is read is only ever in this register. */
+  uint32_t a1;
   uint32_t d0;
   uint32_t d1;
   uint16_t instruction;
@@ -1473,6 +1477,8 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
           slot->a7 = ap_m68030_read_a7(&machine.cpu.regs);
           slot->a6 = machine.cpu.regs.a[6];
           slot->a0 = machine.cpu.regs.a[0];
+          slot->a1 = machine.cpu.regs.a[1];
+        slot->a1 = machine.cpu.regs.a[1];
           slot->d0 = machine.cpu.regs.d[0];
           slot->d1 = machine.cpu.regs.d[1];
           slot->instruction = r.instruction;
@@ -1515,6 +1521,7 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
         slot->a7 = ap_m68030_read_a7(&machine.cpu.regs);
         slot->a6 = machine.cpu.regs.a[6];
         slot->a0 = machine.cpu.regs.a[0];
+        slot->a1 = machine.cpu.regs.a[1];
         slot->d0 = machine.cpu.regs.d[0];
         slot->d1 = machine.cpu.regs.d[1];
         slot->instruction = r.instruction;
@@ -1575,12 +1582,12 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
     const unsigned first = trace_ring_used < trace_last
                                ? 0u
                                : trace_ring_used % trace_last;
-    printf("# last %u step(s): step pc a7 a6 a0 d0 d1 instruction status\n",
+    printf("# last %u step(s): step pc a7 a6 a0 a1 d0 d1 instruction status\n",
            kept);
     for (unsigned k = 0; k < kept; k++) {
       const ap_trace_ring_t *e = &trace_ring[(first + k) % trace_last];
-      printf("%u %08X %08X %08X %08X %08X %08X %04X %s\n", e->step, e->pc,
-             e->a7, e->a6, e->a0, e->d0, e->d1, e->instruction,
+      printf("%u %08X %08X %08X %08X %08X %08X %08X %04X %s\n", e->step,
+             e->pc, e->a7, e->a6, e->a0, e->a1, e->d0, e->d1, e->instruction,
              ap_probe_status_name(e->status));
     }
   }
