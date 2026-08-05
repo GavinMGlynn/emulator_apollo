@@ -3177,11 +3177,19 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         *Verification: `omti_suite` +1 (15) -- a data phase in programmed I/O
         asking for nothing, the same command with DMA enabled asking, and the
         request down once the phase is over.*
-  - [ ] **Domain/OS after the disk DMA request.** `IRQ6` and `DRQ2`, the
-        floppy's, are still placed and not driven: its completion is the FDC's
-        result phase rather than the fixed disk's, and they land with the
-        floppy's own item.
+  - [ ] **`DISK TIMEOUT` is a block that is not on the disk.** The run now
+        names it: `disk refused ... last c1941 h14 s2, against 1223 x 15 x 18`,
+        which as a linear block is `0x80024` -- the same number the operating
+        system prints as `Crash_Status 00080024`. The geometry and the READ
+        CONFIGURATION block both match `omti8621.cpp` field for field, and 1,539
+        reads succeed before this one, so the drive is described correctly and
+        the operating system is chasing a block past the end of it. A data
+        question rather than a register one: which sector we hand back
+        differently from the disk. Detail in `PROJECT_STATUS.md`.
         *Verification: the console going past `DISK TIMEOUT`.*
+  - [ ] **`IRQ6` and `DRQ2`, the floppy's**, are placed and not driven: its
+        completion is the FDC's result phase rather than the fixed disk's.
+        *Verification: a floppy command completing through an interrupt.*
   - [x] **`CPU (dma) Test #1` passes: the 16-bit controller counts words.**
         Logging the addresses the firmware writes in the DMA range ended the
         guessing -- `010D01` through `010D1B`, every one an odd byte address in

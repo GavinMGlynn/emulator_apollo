@@ -4597,6 +4597,39 @@ last and hardest — **a decoded PNG**. Register round-trips and word-level
 identities are what can be checked without one, and a controller that passes
 those and draws nothing is the standard way this goes wrong.
 
+#### The address Domain/OS asks for is `0x80024`, and the disk has no such block
+
+The interrupt and the DMA request were both real gaps and neither was this one.
+The run now says which address the controller refused:
+
+    disk last     08, error, sense 21 00 00 00, next lba 313307
+    disk refused  3 address(es), last c1941 h14 s2 / lba 0, against 1223 x 15 x 18
+
+Cylinder 1941 on a drive of 1223. As a linear block that is
+`(1941 x 15 + 14) x 18 + 2` = **524,324 = `0x80024`** — which is exactly the
+number the operating system printed in `Crash_Status 00080024`. The crash status
+*is* the block it failed on, and the two derivations agree, so this is one fact
+rather than two.
+
+Both halves of the pair check out against the oracle:
+
+- the geometry is `omti8621.cpp`'s `OMTI_DISK_TYPE_348_MB`, "Maxtor 380 MB
+  (348-MB FA formatted)", `m_cylinders = 1223; m_heads = 15; m_sectors = 18` —
+  identical to ours;
+- the READ CONFIGURATION block matches `set_configuration_data` field for
+  field, `(cylinders - 1) >> 8`, `(cylinders - 1) & 0xff`, `heads - 1`,
+  `sectors - 1`, and the oracle refuses an out-of-range cylinder in the same
+  place we do.
+
+So the drive is described correctly and the operating system is asking for a
+block that is not on it — 524,324 against 330,210. Something read earlier is
+wrong, not something reported now. 1,539 `READ` commands succeed before this
+one, and the last address the driver reached legitimately was 313,307, around
+cylinder 1160.
+
+That is the next thing to find, and it is a data question rather than a register
+question: which sector we hand back differently from the disk.
+
 #### `DRQ7`, and a request that never went down
 
 The interrupt alone did not clear `DISK TIMEOUT`: the same crash came back at
