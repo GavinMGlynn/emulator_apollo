@@ -544,13 +544,27 @@ static bool node_id_from_volume(const char *path, uint32_t *out) {
  * The bus-error count is here rather than in the hash deliberately -- it is our
  * record of watching the machine, not state the machine has. `ap_machine.h` has
  * the reasoning; this is the "reported beside it" half of it. */
-static void report_state(const ap_machine_t *machine) {
+static void report_state(ap_machine_t *machine) {
   const ap_machine_state_t state = ap_machine_state(machine);
   printf("  state hash   %016llX\n", (unsigned long long)state.hash);
-  printf("  final PC     %08X (%s)\n", state.pc,
-         machine->board != NULL
-             ? ap_board_region_name(ap_board_region(machine->board, state.pc))
-             : "no board");
+  /* The region of the address the *bus* would have seen. Naming the region of
+   * the logical PC was the same error the trace's opcode column made: with the
+   * MMU on it reports where that number would land if nothing translated it,
+   * so an operating system running perfectly well at `3FFA24FC` is described
+   * as `unmapped` and reads as a machine that has crashed. */
+  uint32_t pc_physical = state.pc;
+  const bool pc_mapped =
+      ap_machine_translate(machine, state.pc, 6u, &pc_physical);
+  printf("  final PC     %08X", state.pc);
+  if (pc_mapped && pc_physical != state.pc) {
+    printf(" -> %08X", pc_physical);
+  }
+  printf(" (%s)\n",
+         !pc_mapped ? "no translation"
+                    : (machine->board != NULL
+                           ? ap_board_region_name(
+                                 ap_board_region(machine->board, pc_physical))
+                           : "no board"));
   printf("  clocks       %llu\n", (unsigned long long)state.clocks);
   /* In AP_TIME_BASE_HZ units, never CPU cycles: several nodes of different
    * models share one ring, so no CPU's cycle is a legal unit of account. A
@@ -1333,9 +1347,15 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
        * it is what stops the two diverging again. */
       const ap_machine_run_t one = ap_machine_run(&machine, 1u);
       /* The instruction word is read back from where it executed, since the
-       * machine's loop reports why a run ended and not which word did it. */
+       * machine's loop reports why a run ended and not which word did it.
+       *
+       * Read as the *processor* addressed it. This was `ap_machine_read` of the
+       * PC, which is a physical read of a logical address: correct while the
+       * MMU is off, and once Domain/OS turns it on, a read of a number no
+       * memory answers. Every word in the trace came back `0000` and the column
+       * read like a machine executing zeros. */
       uint32_t executed_word = 0;
-      (void)ap_machine_read(&machine, step_pc, 2u, &executed_word);
+      (void)ap_machine_read_logical(&machine, step_pc, 6u, 2u, &executed_word);
       const ap_m68030_step_result_t r = {
           .status = one.status, .instruction = (uint16_t)executed_word};
       /* A6 as well as A7: the firmware uses it as a base pointer for its own

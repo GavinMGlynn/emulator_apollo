@@ -1089,6 +1089,76 @@ static void test_enabling_the_mmu_makes_an_access_translate(void) {
   TEST_ASSERT_TRUE(m.table_fetches > 0u);
 }
 
+/* An observer's read of the address the *program* named.
+ *
+ * This exists because the obvious version is silently wrong rather than merely
+ * approximate, and it was wrong in the trace for as long as the trace had an
+ * instruction column. `ap_machine_read` of a logical PC is a physical read of
+ * whatever number the PC happens to be: fine while the MMU is off, and once
+ * Domain/OS turns it on and runs at `3FFA24FC`, a read of an address no memory
+ * answers. Every word came back `0000`, and a column of zeros reads as a
+ * machine executing zeros rather than as an instrument that is not looking
+ * where it says it is.
+ *
+ * The tree is the smallest one the part will walk: `IS` throws away the top
+ * sixteen bits, `TIA` takes the next four, and `PS` takes the rest, so the root
+ * table is sixteen short-format entries and one level deep. */
+static void test_a_logical_read_follows_the_translation_the_program_set_up(
+    void) {
+  blank();
+  ap_machine_t m;
+  ap_machine_init(&m, ram, RAM_BYTES);
+  ap_machine_reset(&m, PROGRAM, STACK);
+
+  const uint32_t table = 0x00008000u;
+  const uint32_t page = 0x00002000u;
+  const uint32_t logical = 0x12341000u;
+
+  /* A short-format page descriptor: the page address occupies the top 24 bits
+   * and `DT` the bottom two, so the field is the physical page shifted down by
+   * eight and put back where it came from. `U` is deliberately clear -- the
+   * point below is that this read does not set it. */
+  TEST_ASSERT_TRUE(
+      ap_machine_write(&m, table + 4u, 4u, ((page >> 8) << 8) | 1u));
+  TEST_ASSERT_TRUE(ap_machine_write(&m, page, 4u, 0xDEADBEEFu));
+
+  m.cpu.crp = (ap_m68030_root_t){.table_address = table, .long_format = false};
+  m.cpu.tc.enable = true;
+  m.cpu.tc.page_size_bits = 12u;
+  m.cpu.tc.initial_shift = 16u;
+  m.cpu.tc.table_index[0] = 4u;
+  for (unsigned i = 1; i < AP_M68030_TC_LEVELS; i++) {
+    m.cpu.tc.table_index[i] = 0u;
+  }
+
+  /* Where it lands, and that the untranslated read of the same number does not
+   * land anywhere -- which is the whole of the bug this replaced. */
+  uint32_t physical = 0;
+  TEST_ASSERT_TRUE(ap_machine_translate(&m, logical, 6u, &physical));
+  TEST_ASSERT_EQUAL_HEX32(page, physical);
+
+  uint32_t value = 0;
+  TEST_ASSERT_TRUE(ap_machine_read_logical(&m, logical, 6u, 4u, &value));
+  TEST_ASSERT_EQUAL_HEX32(0xDEADBEEFu, value);
+  TEST_ASSERT_FALSE(ap_machine_read(&m, logical, 4u, &value));
+
+  /* And it disturbed nothing. `PTEST` passes a null update callback for exactly
+   * this reason: an observer that sets the history bits, or that fills the ATC
+   * a later access would otherwise have missed in, changes the run it is
+   * supposed to be reporting on. */
+  uint32_t descriptor = 0;
+  TEST_ASSERT_TRUE(ap_machine_read(&m, table + 4u, 4u, &descriptor));
+  TEST_ASSERT_EQUAL_HEX32(((page >> 8) << 8) | 1u, descriptor);
+
+  const ap_m68030_atc_result_t after = ap_m68030_atc_lookup(
+      &m.atc, AP_M68030_FC_SUPERVISOR_PROGRAM, logical, 12u, false, false);
+  TEST_ASSERT_EQUAL_INT(AP_M68030_ATC_MISS, after.status);
+
+  /* An address the tables do not map is refused rather than read as a zero,
+   * since a caller cannot tell those apart from the value alone. */
+  TEST_ASSERT_FALSE(ap_machine_translate(&m, 0x12340000u, 6u, &physical));
+}
+
 /* The item's own verification, and the reason the board half had to be built:
  * the same workload twice gives the same number. Two machines on two different
  * RAM buffers with two different boards, so anything of the host's that reached
@@ -1910,6 +1980,7 @@ int main(void) {
   RUN_TEST(test_a_long_word_written_at_an_odd_offset_is_not_a_bus_error);
   RUN_TEST(test_a_descriptor_fetch_reads_through_the_board);
   RUN_TEST(test_enabling_the_mmu_makes_an_access_translate);
+  RUN_TEST(test_a_logical_read_follows_the_translation_the_program_set_up);
   RUN_TEST(test_the_same_workload_twice_gives_the_same_hash);
   RUN_TEST(test_the_machine_hash_covers_the_board);
   RUN_TEST(test_a_machine_with_a_board_does_not_hash_as_one_without);

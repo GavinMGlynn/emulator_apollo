@@ -178,6 +178,38 @@ bool ap_machine_write(ap_machine_t *machine, uint32_t address, unsigned size,
                                    uint32_t address, unsigned size,
                                    uint32_t *value);
 
+/* The same read, but of the address the *program* named rather than the one the
+ * bus carried: transparent translation first, then the tables, exactly as an
+ * access would resolve them.
+ *
+ * A trace that prints "the word at the PC" has to do this once the MMU is on,
+ * and the reason to say so here is that the obvious version is silently wrong
+ * rather than merely approximate. `ap_machine_read` of a logical PC reads the
+ * physical address that happens to have the same number, which for an operating
+ * system running at `3FFA24FC` on a machine whose memory ends at `01FFFFFF` is
+ * nothing at all -- so every instruction in the trace read back as `0000` and
+ * the column looked like a machine executing zeros.
+ *
+ * Nothing is disturbed. The ATC is not filled and the tree's history bits are
+ * not updated, which is the discipline `PTEST` follows and for the same reason:
+ * an observer that changes what it observes is not an observer. It is a read of
+ * memory and not of the bus, so a device address answers `false` here even
+ * though the processor would have got a value from it.
+ *
+ * `function_code` selects the root when `TC`'s SRE splits them, so a supervisor
+ * program fetch is 6 and user data is 1, as on the bus. */
+[[nodiscard]] bool ap_machine_read_logical(ap_machine_t *machine,
+                                           uint32_t logical,
+                                           uint8_t function_code, unsigned size,
+                                           uint32_t *value);
+
+/* Where an address translates to, without translating anything else. Answers
+ * `false` for a logical address the tables do not map -- which a caller must
+ * distinguish from a physical zero. */
+[[nodiscard]] bool ap_machine_translate(ap_machine_t *machine, uint32_t logical,
+                                        uint8_t function_code,
+                                        uint32_t *physical);
+
 /* Execute one instruction. */
 [[nodiscard]] ap_m68030_step_result_t ap_machine_step(ap_machine_t *machine);
 

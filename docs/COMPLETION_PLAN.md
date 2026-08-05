@@ -3116,6 +3116,17 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         *Verification: the console prints `Self tests passed.` -- every test the
         loaded diagnostic runs -- and then loads a 948 KB image, Domain/OS
         itself, against the thirteen the diagnostic was.*
+  - [x] **The trace's instruction column was reading physical addresses.** It
+        printed `0000` for every step because it read the word at the logical
+        PC with a physical read, which is correct only while the MMU is off.
+        `ap_machine_read_logical` and `ap_machine_translate` resolve an address
+        as an access would and disturb neither the ATC nor the tree's history
+        bits, and the report's `final PC` region now names where the address
+        actually lands. Detail in `PROJECT_STATUS.md`.
+        *Verification: `machine_suite` +1 (45) -- a one-level tree whose page
+        descriptor is read through, the untranslated read of the same number
+        refused, the descriptor's `U` bit still clear afterwards and the ATC
+        still missing.*
   - [ ] **Domain/OS is entered and goes somewhere unmapped.** The PROM reports
         `low: 01002000 high: 010E986C start: 01002024` and the run ends
         `stopped FAULT` at PC `3FFA24FC` after 419 bus errors. The entry point

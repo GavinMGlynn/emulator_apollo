@@ -492,6 +492,61 @@ bool ap_machine_read(const ap_machine_t *machine, uint32_t address,
   return true;
 }
 
+bool ap_machine_translate(ap_machine_t *machine, uint32_t logical,
+                          uint8_t function_code, uint32_t *physical) {
+  ap_m68030_cpu_t *cpu = &machine->cpu;
+
+  /* Transparent translation first, as an access resolves it: a matching window
+   * answers without the tables and without protection checking, so asking the
+   * tables first would report a mapping the processor would never have used. */
+  const ap_m68030_access_t probe = {.address = logical,
+                                    .function_code = function_code,
+                                    .read = true,
+                                    .read_modify_write = false};
+  const ap_m68030_tt_result_t transparent =
+      ap_m68030_tt_translate(&cpu->tt0, &cpu->tt1, &probe);
+  if (transparent.transparent) {
+    *physical = transparent.physical;
+    return true;
+  }
+
+  if (!cpu->tc.enable) {
+    *physical = logical;
+    return true;
+  }
+
+  if (cpu->data == NULL || cpu->data->table_fetch == NULL) {
+    return false;
+  }
+
+  const bool supervisor = (function_code & 0x4u) != 0u;
+  const ap_m68030_root_t *root =
+      (cpu->tc.supervisor_root && supervisor) ? &cpu->srp : &cpu->crp;
+  const ap_m68030_search_access_t access = {
+      .write = false, .read_modify_write = false, .supervisor = supervisor};
+  /* A null `update` is what keeps this an observation: `ap_m68030_walk` takes
+   * the callback precisely so PTEST -- and now this -- can search the tree
+   * without setting the used and modified bits a real access would. */
+  const ap_m68030_walk_result_t walk =
+      ap_m68030_walk(&cpu->tc, root, logical, &access, cpu->data->table_fetch,
+                     NULL, cpu->data->context);
+  if (!walk.ok) {
+    return false;
+  }
+  *physical = walk.physical;
+  return true;
+}
+
+bool ap_machine_read_logical(ap_machine_t *machine, uint32_t logical,
+                             uint8_t function_code, unsigned size,
+                             uint32_t *value) {
+  uint32_t physical = 0;
+  if (!ap_machine_translate(machine, logical, function_code, &physical)) {
+    return false;
+  }
+  return ap_machine_read(machine, physical, size, value);
+}
+
 ap_m68030_step_result_t ap_machine_step(ap_machine_t *machine) {
   return ap_m68030_step(&machine->cpu);
 }
