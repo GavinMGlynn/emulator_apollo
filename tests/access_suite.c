@@ -105,7 +105,6 @@ static ap_m68030_access_ctx_t context_of(machine_t *m) {
       .root = &m->root,
       .cache_enabled = true,
       .burst_enabled = true,
-      .translation_enabled = true,
       .table_fetch = table_fetch,
       .table_update = table_update,
       .fill = memory_fill,

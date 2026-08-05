@@ -174,7 +174,8 @@ static void hash_access(ap_hash_t *st, const ap_m68030_access_ctx_t *access) {
   hash_bool(st, access->burst_enabled);
   hash_bool(st, access->write_allocate);
   hash_bool(st, access->cache_disable);
-  hash_bool(st, access->translation_enabled);
+  /* Not translation: that is `TC`'s E bit and `hash_tc` already feeds it.
+   * Hashing a second copy was hashing a field that could not change. */
 }
 
 void ap_m68030_hash_cpu(ap_hash_t *st, const ap_m68030_cpu_t *cpu) {

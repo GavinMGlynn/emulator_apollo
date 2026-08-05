@@ -186,7 +186,6 @@ static void load(machine_t *m, const uint16_t *words, unsigned count) {
       .tc = &m->tc,
       .root = &m->root,
       .cache_enabled = true,
-      .translation_enabled = false,
       .fill = memory_fill,
       .store = memory_store,
       .table_fetch = table_fetch,

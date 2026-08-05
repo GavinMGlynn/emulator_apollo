@@ -1047,6 +1047,48 @@ static void test_a_descriptor_fetch_reads_through_the_board(void) {
   TEST_ASSERT_EQUAL_UINT(0u, m.bus_errors);
 }
 
+/* ## Enabling the MMU has to reach the accesses
+ *
+ * `translation_enabled` was a `bool` copied onto each access context when the
+ * machine was built, set false, and updated by **nothing**. A `PMOVE` to `TC`
+ * could switch the MMU on and no access would notice, so the machine kept
+ * running untranslated for ever.
+ *
+ * It failed silently for as long as nothing enabled translation. Every boot
+ * this project ran reported `0 descriptor fetch(es)`, and the first program to
+ * ask for translation was a Domain/OS diagnostic the machine loaded off its own
+ * disk -- `TC = 82A28750`, E set, 1 KB pages.
+ *
+ * MOVE.L $8000,D0 -- one read, which must go looking for a descriptor once the
+ * MMU is on and must not before.
+ */
+static const uint16_t one_read[] = {0x2039u, 0x0100u, 0x8000u, 0x4E72u, 0x2700u};
+
+static void test_enabling_the_mmu_makes_an_access_translate(void) {
+  ap_machine_t m;
+
+  /* Off: the read is untranslated and nothing looks for a table. */
+  build_board_machine(&m, &first_board, ram, one_read,
+                      sizeof one_read / sizeof one_read[0]);
+  (void)ap_machine_run(&m, 2u);
+  TEST_ASSERT_FALSE(m.cpu.tc.enable);
+  TEST_ASSERT_EQUAL_UINT(0u, m.table_fetches);
+
+  /* On, by the register and nothing else -- which is the whole point: no
+   * separate flag is set here, because there is no longer one to set. The
+   * encoding is the diagnostic's own: E, 1 KB pages, `IS+TIA+TIB+TIC+TID+PS`
+   * summing to 32. */
+  build_board_machine(&m, &second_board, other_ram, one_read,
+                      sizeof one_read / sizeof one_read[0]);
+  m.cpu.tc = ap_m68030_tc_decode(0x82A28750u);
+  TEST_ASSERT_TRUE(m.cpu.tc.enable);
+  (void)ap_machine_run(&m, 2u);
+
+  /* It went looking. Whether it *found* anything is the table's business and
+   * not this test's -- what could not happen before is the search. */
+  TEST_ASSERT_TRUE(m.table_fetches > 0u);
+}
+
 /* The item's own verification, and the reason the board half had to be built:
  * the same workload twice gives the same number. Two machines on two different
  * RAM buffers with two different boards, so anything of the host's that reached
@@ -1867,6 +1909,7 @@ int main(void) {
   RUN_TEST(test_the_mmu_registers_the_machine_reads_are_the_ones_pmove_writes);
   RUN_TEST(test_a_long_word_written_at_an_odd_offset_is_not_a_bus_error);
   RUN_TEST(test_a_descriptor_fetch_reads_through_the_board);
+  RUN_TEST(test_enabling_the_mmu_makes_an_access_translate);
   RUN_TEST(test_the_same_workload_twice_gives_the_same_hash);
   RUN_TEST(test_the_machine_hash_covers_the_board);
   RUN_TEST(test_a_machine_with_a_board_does_not_hash_as_one_without);

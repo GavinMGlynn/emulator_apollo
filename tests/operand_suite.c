@@ -74,7 +74,6 @@ static void make_machine(machine_t *m) {
       .tc = &m->tc,
       .root = &m->root,
       .cache_enabled = true,
-      .translation_enabled = false,
       .fill = memory_fill,
       .store = memory_store,
       .context = &m->memory,

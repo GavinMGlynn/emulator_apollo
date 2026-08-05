@@ -71,7 +71,12 @@ typedef struct {
   bool burst_enabled; /* IBE or DBE */
   bool write_allocate; /* CACR's WA, for the data cache's write misses */
   bool cache_disable; /* the CDIS signal, which overrides CACR */
-  bool translation_enabled;
+  /* Whether translation is on is **not** kept here. It is `tc->enable`, and a
+   * copy of it was: set false when the machine was built and updated by
+   * nothing, so `PMOVE` to TC could switch the MMU on and no access would ever
+   * notice. Nothing failed visibly for as long as nothing enabled translation,
+   * and the first program that did was a Domain/OS diagnostic loaded off the
+   * disk. `ap_m68030_translating` reads the register instead. */
 
   /* RMC, held across the read and the write of an indivisible operation. It
    * lives on the context rather than on a bus object because each access
@@ -139,6 +144,19 @@ typedef struct {
   void *context;
 } ap_m68030_access_ctx_t;
 
+
+/* Whether this context translates: `TC`'s E bit, read from the register.
+ *
+ * It used to be a `bool` on the context, set false when the machine was built
+ * and updated by nothing -- so a `PMOVE` to TC could switch the MMU on and no
+ * access would notice. Nothing failed visibly for as long as nothing enabled
+ * translation, and the first program that did was a Domain/OS diagnostic the
+ * machine loaded off its own disk. A context with no TC at all does not
+ * translate, which is what a probe on flat memory is. */
+[[nodiscard]] static inline bool ap_m68030_translating(
+    const ap_m68030_access_ctx_t *access) {
+  return access->tc != nullptr && access->tc->enable;
+}
 typedef struct {
   bool ok;
   uint32_t value;

@@ -43,6 +43,13 @@ static void print_usage(const char *program_name) {
           "                        comparison\n"
           "  --boot-limit N        stop a boot after N instructions, to find\n"
           "                        where one goes wrong\n"
+          "  --boot-stop-pc ADDR   stop the run the first time the program\n"
+          "                        counter is ADDR, so a kept trace holds what\n"
+          "                        led there rather than what followed\n"
+          "  --boot-trace-last N   keep the last N steps and print them when\n"
+          "                        the run ends. A fault half a billion\n"
+          "                        instructions in cannot be reached by\n"
+          "                        printing every step\n"
           "  --boot-trace          report pc and a7 per step: a7 is where a\n"
           "                        stack goes wrong, pc only where it shows\n"
           "  --boot-watch ADDR     with --boot-trace, report the long word at\n"
@@ -691,6 +698,30 @@ static int write_screenshot(const char *path, const ap_graphics_t *graphics,
   return 0;
 }
 
+/* One step, kept rather than printed.
+ *
+ * `--boot-trace` prints every step, which answers "what did the machine do" for
+ * a run of a few thousand instructions and nothing at all for a run of five
+ * hundred million: the fault this was built for is half a billion steps in, and
+ * the output would be terabytes of a file nobody can open.
+ *
+ * `--boot-trace-last N` keeps the last N steps in a ring and prints them when
+ * the run ends. The registers are the ones a failure is read from -- `d0` and
+ * `d1` because the PROM's own reporter prints them as "Expected" and "Actual",
+ * `a0` because it prints that as "Address", and `a6`/`a7` because the firmware
+ * bases its data on one and its calls on the other. */
+typedef struct {
+  unsigned step;
+  uint32_t pc;
+  uint32_t a7;
+  uint32_t a6;
+  uint32_t a0;
+  uint32_t d0;
+  uint32_t d1;
+  uint16_t instruction;
+  ap_m68030_step_status_t status;
+} ap_trace_ring_t;
+
 static int boot_from_prom(const char *path, unsigned limit, bool trace,
                           uint32_t watch, const char *input, unsigned input_unit,
                           unsigned input_channel, uint8_t input_rate,
@@ -698,6 +729,7 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
                           unsigned key, bool console,
                           ap_screen_kind_t screen, uint32_t node_id,
                           ap_model_id_t model, const char *screenshot,
+                          unsigned trace_last, uint32_t stop_pc,
                           const char *disk_path, const char *dump_spec) {
   long size = 0;
   uint8_t *prom = read_file(path, &size);
@@ -723,10 +755,19 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
    * self-test 7 forces bad parity and expects the level 7 interrupt back. */
   const uint32_t parity_bytes = (ram_bytes + 7u) / 8u;
   uint8_t *parity = calloc(1, parity_bytes);
+  ap_trace_ring_t *trace_ring =
+      trace_last > 0u ? calloc(trace_last, sizeof *trace_ring) : NULL;
+  unsigned trace_ring_used = 0;
+  if (trace_last > 0u && trace_ring == NULL) {
+    fprintf(stderr, "apollo: cannot keep %u trace step(s)\n", trace_last);
+    return 1;
+  }
   if (ram == NULL || board == NULL || parity == NULL ||
       !ap_board_init_model(board, ram, ram_bytes, &epoch, node_id, model) ||
       !ap_board_attach_parity(board, parity, parity_bytes)) {
-    free(parity);
+    free(trace_ring);
+    free(trace_ring);
+  free(parity);
     free(board);
     free(ram);
     free(prom);
@@ -774,7 +815,9 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
       free(colour_memory);
       free(mono_memory);
       free(board);
-      free(parity);
+      free(trace_ring);
+    free(trace_ring);
+  free(parity);
       free(ram);
       free(prom);
       fprintf(stderr, "apollo: cannot allocate the graphics memories\n");
@@ -804,7 +847,9 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
       free(colour_memory);
       free(mono_memory);
       free(board);
-      free(parity);
+      free(trace_ring);
+    free(trace_ring);
+  free(parity);
       free(ram);
       free(prom);
       fprintf(stderr, "apollo: cannot read disk image %s\n", disk_path);
@@ -816,7 +861,9 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
       free(colour_memory);
       free(mono_memory);
       free(board);
-      free(parity);
+      free(trace_ring);
+    free(trace_ring);
+  free(parity);
       free(ram);
       free(prom);
       fprintf(stderr, "apollo: %s is not an Apollo Winchester image\n",
@@ -829,7 +876,9 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
 
   if (!ap_board_load_prom(board, prom, (uint32_t)size)) {
     free(board);
-    free(parity);
+    free(trace_ring);
+    free(trace_ring);
+  free(parity);
     free(ram);
     free(prom);
     fprintf(stderr, "apollo: %s does not fit the boot PROM region\n", path);
@@ -840,7 +889,9 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
   uint32_t pc = 0;
   if (!ap_board_reset_vector(board, &stack, &pc)) {
     free(board);
-    free(parity);
+    free(trace_ring);
+    free(trace_ring);
+  free(parity);
     free(ram);
     free(prom);
     fprintf(stderr, "apollo: %s carries no reset vector\n", path);
@@ -862,7 +913,9 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
               "device register would change the run it is measuring.\n",
               watch, ap_board_region_name(region));
       free(board);
-      free(parity);
+      free(trace_ring);
+    free(trace_ring);
+  free(parity);
       free(ram);
       free(prom);
       return 1;
@@ -947,7 +1000,8 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
   ap_time_t input_next_at = 0u;
 
   ap_machine_run_t run;
-  if (trace || input_length > 0u || console || key < AP_KBD_KEYS) {
+  if (trace || trace_last > 0u || input_length > 0u || console ||
+      key < AP_KBD_KEYS) {
     /* Step by step, reporting the program counter and the active stack pointer.
      *
      * A7 is the observable this exists for. A wrong PC is where damage becomes
@@ -955,7 +1009,7 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
      * happens, and the two can be thousands of instructions apart. Printing
      * both together is what lets one be found from the other. */
     run = (ap_machine_run_t){.status = AP_M68030_STEP_EXECUTED};
-    if (trace) {
+    if (trace && trace_last == 0u) {
       printf("# step pc a7 a6 a0 instruction status%s\n",
              watch != 0u ? " watched" : "");
     }
@@ -1080,7 +1134,39 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
       /* A6 as well as A7: the firmware uses it as a base pointer for its own
        * data, and whether those two overlap is the question a trace has to be
        * able to answer. */
-      if (!trace) {
+      if (!trace && trace_last == 0u) {
+        run.status = r.status;
+        if (r.status != AP_M68030_STEP_EXECUTED &&
+            r.status != AP_M68030_STEP_EXCEPTION) {
+          break;
+        }
+        run.executed++;
+        continue;
+      }
+      if (stop_pc != 0u && step_pc == stop_pc) {
+        /* The run ends *here*, so a ring kept alongside it holds the steps that
+         * led to this and not the ones that came after. Without it the ring of
+         * a long run is whatever the machine was doing when the limit expired,
+         * which for a boot is the console poll -- two thousand steps of nothing
+         * happening, half a billion instructions after the thing worth seeing. */
+        printf("  stopped at   PC %08X after %u instruction(s)\n", stop_pc, i);
+        run.executed++;
+        break;
+      }
+      if (trace_last > 0u) {
+        /* Kept, not printed. See `trace_last`'s declaration: a fault half a
+         * billion instructions in cannot be reached by printing every step. */
+        ap_trace_ring_t *slot = &trace_ring[trace_ring_used % trace_last];
+        slot->step = i;
+        slot->pc = step_pc;
+        slot->a7 = ap_m68030_read_a7(&machine.cpu.regs);
+        slot->a6 = machine.cpu.regs.a[6];
+        slot->a0 = machine.cpu.regs.a[0];
+        slot->d0 = machine.cpu.regs.d[0];
+        slot->d1 = machine.cpu.regs.d[1];
+        slot->instruction = r.instruction;
+        slot->status = r.status;
+        trace_ring_used++;
         run.status = r.status;
         if (r.status != AP_M68030_STEP_EXECUTED &&
             r.status != AP_M68030_STEP_EXCEPTION) {
@@ -1124,6 +1210,24 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
     }
   } else {
     run = ap_machine_run(&machine, limit);
+  }
+  if (trace_last > 0u && trace_ring_used > 0u) {
+    /* Oldest first, so it reads forwards like the run did. A ring that has not
+     * filled yet starts at zero; one that has starts at the next slot to be
+     * overwritten. */
+    const unsigned kept =
+        trace_ring_used < trace_last ? trace_ring_used : trace_last;
+    const unsigned first = trace_ring_used < trace_last
+                               ? 0u
+                               : trace_ring_used % trace_last;
+    printf("# last %u step(s): step pc a7 a6 a0 d0 d1 instruction status\n",
+           kept);
+    for (unsigned k = 0; k < kept; k++) {
+      const ap_trace_ring_t *e = &trace_ring[(first + k) % trace_last];
+      printf("%u %08X %08X %08X %08X %08X %08X %04X %s\n", e->step, e->pc,
+             e->a7, e->a6, e->a0, e->d0, e->d1, e->instruction,
+             ap_probe_status_name(e->status));
+    }
   }
   printf("  executed     %u instruction(s)\n", run.executed);
   printf("  stopped      %s\n", ap_probe_status_name(run.status));
@@ -1357,6 +1461,7 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
   free(colour_memory);
   free(mono_memory);
   free(board);
+  free(trace_ring);
   free(parity);
   free(ram);
   free(prom);
@@ -1728,6 +1833,8 @@ int main(int argc, char **argv) {
   ap_common_options_init(&opt);
 
   bool boot_trace = false;
+  unsigned boot_trace_last = 0;
+  uint32_t boot_stop_pc = 0;
   uint32_t boot_watch = 0;
   const char *boot_input = NULL;
   bool boot_console = false;
@@ -1877,6 +1984,16 @@ int main(int argc, char **argv) {
       i += 2;
       continue;
     }
+    if (strcmp(argv[i], "--boot-stop-pc") == 0 && i + 1 < argc) {
+      boot_stop_pc = (uint32_t)strtoul(argv[i + 1], NULL, 16);
+      i += 2;
+      continue;
+    }
+    if (strcmp(argv[i], "--boot-trace-last") == 0 && i + 1 < argc) {
+      boot_trace_last = (unsigned)strtoul(argv[i + 1], NULL, 10);
+      i += 2;
+      continue;
+    }
     if (strcmp(argv[i], "--boot-trace") == 0) {
       boot_trace = true;
       i += 1;
@@ -1949,7 +2066,7 @@ int main(int argc, char **argv) {
                           (uint8_t)boot_input_rate, boot_input_interval_us,
                           boot_key, boot_console,
                           boot_screen, node_id, opt.model->id, screenshot,
-                          disk_path, dump_spec);
+                          boot_trace_last, boot_stop_pc, disk_path, dump_spec);
   }
 
   if (boot_tape != NULL) {

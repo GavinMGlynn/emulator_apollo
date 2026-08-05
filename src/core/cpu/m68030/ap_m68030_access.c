@@ -81,7 +81,7 @@ ap_m68030_access_read_sized(ap_m68030_access_ctx_t *access, uint32_t logical,
     out.transparent = true;
     physical = transparent.physical;
     cache_inhibit = transparent.cache_inhibit;
-  } else if (access->translation_enabled) {
+  } else if (ap_m68030_translating(access)) {
     /* The ATC first; a miss pays for a table search. */
     const ap_m68030_atc_result_t lookup = ap_m68030_atc_lookup(
         access->atc, function_code, logical, access->tc->page_size_bits, false,
@@ -171,7 +171,7 @@ ap_m68030_access_result_t ap_m68030_access_write(ap_m68030_access_ctx_t *access,
     out.transparent = true;
     physical = transparent.physical;
     cache_inhibit = transparent.cache_inhibit;
-  } else if (access->translation_enabled) {
+  } else if (ap_m68030_translating(access)) {
     const ap_m68030_atc_result_t lookup = ap_m68030_atc_lookup(
         access->atc, function_code, logical, access->tc->page_size_bits, true,
         false);

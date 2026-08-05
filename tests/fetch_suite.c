@@ -51,7 +51,6 @@ static void make_machine(machine_t *m, bool cache_enabled) {
       .tc = &m->tc,
       .root = &m->root,
       .cache_enabled = cache_enabled,
-      .translation_enabled = false, /* untranslated: the boot PROM's world */
       .fill = memory_fill,
       .context = &m->memory,
   };

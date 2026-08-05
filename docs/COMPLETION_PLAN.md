@@ -3055,6 +3055,21 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
           of empty log to rediscover. Detail in `PROJECT_STATUS.md`.
           *Verification: `test_mdsession.py` +3 -- that it returns without
           knocking, still autobauds, and says which it is doing.*
+    - [x] **Enabling the MMU never reached the accesses.**
+          `ap_m68030_access_ctx_t` carried a `bool translation_enabled`, set
+          false at construction and updated by nothing -- while the same context
+          already held a pointer to the `TC` whose E bit it copied. `PMOVE`
+          could switch the MMU on and no access would notice. Found by two new
+          instruments, `--boot-trace-last N` and `--boot-stop-pc ADDR`, because
+          the fault is 162 million instructions in. Detail in
+          `PROJECT_STATUS.md`, including a claim of mine it corrects: SELF_TEST
+          *does* use `PMOVE`, and capstone renders the 68030's MMU instructions
+          as `fmove` nonsense.
+          *Verification: `machine_suite` +1 (44) -- a machine whose `TC` is
+          enabled goes looking for a descriptor and one whose `TC` is not does
+          not. The boot reports **15 descriptor fetches** where every run before
+          it reported none. The probe goldens moved by their hashes only, a
+          constant `false` leaving the state hash.*
     - [x] **The table paths never knew about the board.** They indexed
           `machine->ram` by *physical* address and bounded it against
           `ram_bytes`, so on a DN3500 -- RAM at `01000000` -- every descriptor
