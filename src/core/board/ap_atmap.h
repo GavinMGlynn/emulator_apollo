@@ -104,6 +104,13 @@
  * questions and conflating them is what this was. */
 #define AP_ATMAP_ENTRIES 1024u
 
+/* Where a DMA cycle's index starts. `019411-A00` §4.2.1.4 says how many entries
+ * a transfer reaches and which bits select them, and not where in the map those
+ * entries begin. A DMA address is an offset within the AT bus memory window at
+ * `080000`, and `080000 >> 10` is 512 -- the entry where the boot diagnostic
+ * writes its ascending page numbers. Under trial; see `PROJECT_STATUS.md`. */
+#define AP_ATMAP_WINDOW_FIRST_ENTRY 512u
+
 /* Bits <9:0> of the physical address: a 1 KB page. */
 #define AP_ATMAP_PAGE_SHIFT 10u
 #define AP_ATMAP_PAGE_SIZE (1u << AP_ATMAP_PAGE_SHIFT)

@@ -254,8 +254,10 @@ static void test_a_transfer_lands_where_the_map_points(void) {
    * shifted down by the map's 1 KB page. Written through the map's own
    * register window, as software would. */
   const uint16_t page = (uint16_t)(AP_BOARD_RAM_BASE >> 10);
-  ap_board_write(&dma_board, AP_ATMAP_BASE + 0u, (uint8_t)(page >> 8), &ok);
-  ap_board_write(&dma_board, AP_ATMAP_BASE + 1u, (uint8_t)(page & 0xFFu), &ok);
+  const uint32_t entry_at =
+      AP_ATMAP_BASE + 2u * ap_atmap_index(0u, AP_ATMAP_TRANSFER_8BIT);
+  ap_board_write(&dma_board, entry_at + 0u, (uint8_t)(page >> 8), &ok);
+  ap_board_write(&dma_board, entry_at + 1u, (uint8_t)(page & 0xFFu), &ok);
 
   /* A read transfer: memory to the device. No device is wired, so the byte goes
    * nowhere and is counted -- but the *memory* side is the part under test, and
@@ -276,8 +278,8 @@ static void test_a_transfer_lands_where_the_map_points(void) {
 
   /* And a write transfer into the same page reaches the RAM the map chose. */
   build();
-  ap_board_write(&dma_board, AP_ATMAP_BASE + 0u, (uint8_t)(page >> 8), &ok);
-  ap_board_write(&dma_board, AP_ATMAP_BASE + 1u, (uint8_t)(page & 0xFFu), &ok);
+  ap_board_write(&dma_board, entry_at + 0u, (uint8_t)(page >> 8), &ok);
+  ap_board_write(&dma_board, entry_at + 1u, (uint8_t)(page & 0xFFu), &ok);
   arm_channel(&dma_board, 0u, (uint8_t)((AP_I8237_MODE_BLOCK << 6) | (1u << 2)),
               0x0100u, 0u);
   for (unsigned i = 0; i < 64u; i++) {
@@ -430,8 +432,10 @@ static void start_tape_read(ap_board_t *b) {
 static void map_entry_zero_to_ram(ap_board_t *b) {
   bool ok = false;
   const uint16_t page = (uint16_t)(AP_BOARD_RAM_BASE >> 10);
-  ap_board_write(b, AP_ATMAP_BASE + 0u, (uint8_t)(page >> 8), &ok);
-  ap_board_write(b, AP_ATMAP_BASE + 1u, (uint8_t)(page & 0xFFu), &ok);
+  const uint32_t entry_at =
+      AP_ATMAP_BASE + 2u * ap_atmap_index(0u, AP_ATMAP_TRANSFER_8BIT);
+  ap_board_write(b, entry_at + 0u, (uint8_t)(page >> 8), &ok);
+  ap_board_write(b, entry_at + 1u, (uint8_t)(page & 0xFFu), &ok);
 }
 
 static void test_the_tape_drives_its_own_request_line(void) {

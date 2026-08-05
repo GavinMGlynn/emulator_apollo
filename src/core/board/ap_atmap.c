@@ -29,7 +29,8 @@ unsigned ap_atmap_index(uint32_t dma_address, ap_atmap_transfer_t transfer) {
   if (reachable == 0u) {
     return 0u;
   }
-  return (unsigned)(raw & (reachable - 1u));
+  return (unsigned)((AP_ATMAP_WINDOW_FIRST_ENTRY + (raw & (reachable - 1u))) &
+                    (AP_ATMAP_ENTRIES - 1u));
 }
 
 uint32_t ap_atmap_offset(uint32_t dma_address, ap_atmap_transfer_t transfer) {

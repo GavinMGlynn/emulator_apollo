@@ -330,6 +330,7 @@ static uint32_t dma_physical(const ap_board_t *board, uint16_t dma_address) {
 static uint8_t dma_memory_read(void *context, uint16_t address) {
   ap_board_t *board = (ap_board_t *)context;
   const uint32_t physical = dma_physical(board, address);
+  board->dma_last_read = physical;
   bool ok = false;
   return ap_board_read(board, physical, &ok);
 }
@@ -337,6 +338,7 @@ static uint8_t dma_memory_read(void *context, uint16_t address) {
 static void dma_memory_write(void *context, uint16_t address, uint8_t value) {
   ap_board_t *board = (ap_board_t *)context;
   const uint32_t physical = dma_physical(board, address);
+  board->dma_last_write = physical;
   bool ok = false;
   ap_board_write(board, physical, value, &ok);
 }

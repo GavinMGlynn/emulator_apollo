@@ -277,6 +277,11 @@ typedef struct ap_board {
   /* How often the bus tick ran at all. Zero here and zero requests are very
    * different faults and they report identically without this. */
   unsigned bus_ticks;
+  /* The physical addresses the last DMA cycle actually used, after translation.
+   * A transfer that runs and lands in the wrong place is indistinguishable from
+   * one that does not run, from any count. */
+  uint32_t dma_last_read;
+  uint32_t dma_last_write;
   /* Which controller the cycle in progress is running on. The 8237 hands its
    * callbacks a channel and nothing else -- a `DACK` is all a peripheral sees --
    * so the board keeps the half of the address Table 2-4 needs to name a

@@ -4597,6 +4597,44 @@ last and hardest — **a decoded PNG**. Register round-trips and word-level
 identities are what can be checked without one, and a controller that passes
 those and draws nothing is the standard way this goes wrong.
 
+#### The map index is based at the AT bus window, measured this time
+
+Two turns ago this was implemented, judged by the console, and reverted as "a
+coincidence and a story". **The revert was wrong, and the reason is a lesson
+about what I was measuring.**
+
+A new instrument settles it. The board now records the physical addresses a DMA
+cycle actually uses, after translation — because *a transfer that runs and lands
+in the wrong place is indistinguishable from one that never runs, from any
+count*. Indexing from entry zero:
+
+    dma  1 transfer(s), last read 01100000 wrote 01100000
+
+The transfer read and wrote **the same address**. Source `0000` and destination
+`0800` both selected entries holding the page the diagnostic wrote everywhere,
+so the copy landed on itself. With the index based at the AT bus memory window
+(`080000 >> 10` = 512, the entry where the diagnostic writes its ascending
+pages):
+
+    dma  1 transfer(s), last read 01100000 wrote 01100400
+
+The destination **moved**. So the change does exactly what it was supposed to,
+and the console being byte-identical was never evidence against it — the console
+reports a comparison that fails either way. Judging a translation by a
+downstream string was the error.
+
+It also explains why the diagnostic bothers to write entry 512 at all. Without
+the base, the source resolves through entry 0, which is only right because the
+test floods the whole map first; with it, the source resolves through the entry
+the test deliberately set.
+
+`PROVISIONAL`, and precisely so: the destination is **one page short**. It
+selects entry 513 where 514 is wanted — a DMA address of `0400` where `0800` was
+programmed. `019411-A00` §4.2.1.4 gives the span and the bits and is silent on
+the base, so the base is inference; the remaining page is a second, narrower
+question and the next single experiment is to report the channel address
+registers beside the translated addresses.
+
 #### Nineteen commits of this document were silently dropped, and every check passed
 
 Every section from *Fix the Windows build* onward was written at the time of its

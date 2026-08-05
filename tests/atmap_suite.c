@@ -22,11 +22,12 @@ static void test_a_map_entry_supplies_the_high_sixteen_bits_of_the_address(
   /* "The 16-bit Address Translation Map entry (a physical page number, bits
    * <25:10>) is concatenated with the page offset (DMA address bits <9:0>),
    * which yields a 26-bit physical address." */
-  map.entry[3] = 0x1234;
+  /* At whatever index the DMA address selects: the index has a base as well as
+   * a span, and this test is about the *concatenation*. */
+  const uint32_t dma = (3u << 10) | 0x2AB;
+  map.entry[ap_atmap_index(dma, AP_ATMAP_TRANSFER_8BIT)] = 0x1234;
 
-  /* Index 3 in the 8-bit case is DMA address bits <15:10> == 3, so 3 << 10. */
-  uint32_t physical =
-      ap_atmap_translate(&map, (3u << 10) | 0x2AB, AP_ATMAP_TRANSFER_8BIT);
+  uint32_t physical = ap_atmap_translate(&map, dma, AP_ATMAP_TRANSFER_8BIT);
 
   TEST_ASSERT_EQUAL_HEX32((0x1234u << 10) | 0x2AB, physical);
 }
@@ -38,7 +39,7 @@ static void test_the_map_translates_into_a_twenty_six_bit_address_space(void) {
   /* "the DS3500 or DS4000 physical address space (64 MB)". An entry is 16 bits
    * and the page shift is 10, so a full entry reaches bit 25 and no further --
    * the top of a 26-bit space exactly, with nothing left over to truncate. */
-  map.entry[0] = 0xFFFF;
+  map.entry[ap_atmap_index(0x3FFu, AP_ATMAP_TRANSFER_8BIT)] = 0xFFFF;
   uint32_t physical = ap_atmap_translate(&map, 0x3FF, AP_ATMAP_TRANSFER_8BIT);
 
   TEST_ASSERT_EQUAL_HEX32(0x3FFFFFFu, physical);
@@ -52,9 +53,13 @@ static void test_an_eight_bit_transfer_indexes_sixty_four_entries(void) {
                          ap_atmap_reachable_entries(AP_ATMAP_TRANSFER_8BIT));
 
   /* Six bits of index: bit 15 is the top one that reaches the map. */
-  TEST_ASSERT_EQUAL_UINT(63u, ap_atmap_index(0xFC00u, AP_ATMAP_TRANSFER_8BIT));
+  /* Six bits of span, based at the window: 512-575, not 0-63. */
+  TEST_ASSERT_EQUAL_UINT(AP_ATMAP_WINDOW_FIRST_ENTRY, ap_atmap_index(0u, AP_ATMAP_TRANSFER_8BIT));
+  TEST_ASSERT_EQUAL_UINT(AP_ATMAP_WINDOW_FIRST_ENTRY + 63u,
+                         ap_atmap_index(0xFC00u, AP_ATMAP_TRANSFER_8BIT));
   /* Bit 16 is above the 8-bit controller's span and must not index. */
-  TEST_ASSERT_EQUAL_UINT(0u, ap_atmap_index(0x10000u, AP_ATMAP_TRANSFER_8BIT));
+  TEST_ASSERT_EQUAL_UINT(AP_ATMAP_WINDOW_FIRST_ENTRY,
+                         ap_atmap_index(0x10000u, AP_ATMAP_TRANSFER_8BIT));
 }
 
 static void test_a_sixteen_bit_transfer_indexes_one_hundred_and_twenty_eight(
@@ -66,17 +71,17 @@ static void test_a_sixteen_bit_transfer_indexes_one_hundred_and_twenty_eight(
   TEST_ASSERT_EQUAL_UINT(128u,
                          ap_atmap_reachable_entries(AP_ATMAP_TRANSFER_16BIT));
 
-  TEST_ASSERT_EQUAL_UINT(127u,
+  TEST_ASSERT_EQUAL_UINT(AP_ATMAP_WINDOW_FIRST_ENTRY + 127u,
                          ap_atmap_index(0x1FC00u, AP_ATMAP_TRANSFER_16BIT));
   /* Bit 16 *does* index here, which is the whole difference between the two. */
-  TEST_ASSERT_EQUAL_UINT(64u,
+  TEST_ASSERT_EQUAL_UINT(AP_ATMAP_WINDOW_FIRST_ENTRY + 64u,
                          ap_atmap_index(0x10000u, AP_ATMAP_TRANSFER_16BIT));
 }
 
 static void test_a_sixteen_bit_transfer_cannot_address_an_odd_byte(void) {
   ap_atmap_t map;
   ap_atmap_init(&map);
-  map.entry[0] = 0x0040;
+  map.entry[ap_atmap_index(0x100u, AP_ATMAP_TRANSFER_16BIT)] = 0x0040;
 
   /* "concatenated with the page offset (DMA address bits <9:1>)" -- nine bits,
    * against the 8-bit case's ten. A 16-bit DMA controller counts words and has
@@ -93,7 +98,7 @@ static void test_a_sixteen_bit_transfer_cannot_address_an_odd_byte(void) {
 static void test_an_eight_bit_transfer_does_address_an_odd_byte(void) {
   ap_atmap_t map;
   ap_atmap_init(&map);
-  map.entry[0] = 0x0040;
+  map.entry[ap_atmap_index(0x101u, AP_ATMAP_TRANSFER_8BIT)] = 0x0040;
 
   /* The other side of the same fact: <9:0> is ten bits and bit 0 survives. The
    * pair is the check -- either test alone passes against a model that lost the
@@ -107,14 +112,16 @@ static void test_an_eight_bit_transfer_does_address_an_odd_byte(void) {
 static void test_a_page_is_one_kilobyte(void) {
   ap_atmap_t map;
   ap_atmap_init(&map);
-  map.entry[0] = 0x0001;
-  map.entry[1] = 0x0002;
+  map.entry[ap_atmap_index(0u, AP_ATMAP_TRANSFER_8BIT)] = 0x0001;
+  map.entry[ap_atmap_index(0x400u, AP_ATMAP_TRANSFER_8BIT)] = 0x0002;
 
   /* The offset is bits <9:0>, so a page is 1 KB and entry 1 begins at DMA
    * address 0x400. Checked at the boundary from both sides rather than by
    * asserting the constant, because the constant is what would be wrong. */
-  TEST_ASSERT_EQUAL_UINT(0u, ap_atmap_index(0x3FFu, AP_ATMAP_TRANSFER_8BIT));
-  TEST_ASSERT_EQUAL_UINT(1u, ap_atmap_index(0x400u, AP_ATMAP_TRANSFER_8BIT));
+  TEST_ASSERT_EQUAL_UINT(AP_ATMAP_WINDOW_FIRST_ENTRY,
+                         ap_atmap_index(0x3FFu, AP_ATMAP_TRANSFER_8BIT));
+  TEST_ASSERT_EQUAL_UINT(AP_ATMAP_WINDOW_FIRST_ENTRY + 1u,
+                         ap_atmap_index(0x400u, AP_ATMAP_TRANSFER_8BIT));
   TEST_ASSERT_EQUAL_UINT(AP_ATMAP_PAGE_SIZE, 1024u);
 }
 
@@ -129,9 +136,9 @@ static void test_noncontiguous_pages_appear_contiguous_to_the_controller(void) {
    * So this is the behaviour the module exists for, and it is worth asserting
    * as such: three consecutive DMA pages pointed at scattered physical pages,
    * read as one run by the controller. */
-  map.entry[0] = 0x0100;
-  map.entry[1] = 0x2000;
-  map.entry[2] = 0x0007;
+  map.entry[ap_atmap_index(0x000u, AP_ATMAP_TRANSFER_8BIT)] = 0x0100;
+  map.entry[ap_atmap_index(0x400u, AP_ATMAP_TRANSFER_8BIT)] = 0x2000;
+  map.entry[ap_atmap_index(0x800u, AP_ATMAP_TRANSFER_8BIT)] = 0x0007;
 
   TEST_ASSERT_EQUAL_HEX32(0x0100u << 10,
                           ap_atmap_translate(&map, 0x000, AP_ATMAP_TRANSFER_8BIT));
@@ -320,6 +327,8 @@ static void test_an_entry_written_as_two_bytes_keeps_both_halves(void) {
   /* And it translates to where that page number points -- `4000 << 10` is
    * `01000000`, which is where this machine's main memory begins. So the
    * consequence the defect had is the thing asserted, not just the storage. */
+  board.translation_map.entry[ap_atmap_index(0u, AP_ATMAP_TRANSFER_8BIT)] =
+      0x4000u;
   TEST_ASSERT_EQUAL_HEX32(AP_BOARD_RAM_BASE + 0x40u,
                           ap_atmap_translate(&board.translation_map, 0x0040u,
                                              AP_ATMAP_TRANSFER_8BIT));
