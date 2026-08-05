@@ -5081,6 +5081,36 @@ initial value is whatever the image carries there, and the search from here runs
 forwards: find the path in Domain/OS that writes `3C44D8CA`, and find why this
 machine does not reach it.
 
+#### The setter is one instruction, guarded by one test
+
+That search needs no emulator run at all — the operating system's text is on the
+disk, so the references can be counted offline. `3C44D8CA` appears **112 times**
+in the image, and the instruction word in front of each says what kind of use it
+is:
+
+| preceding word | instruction | count |
+|---|---|---|
+| `4a39` | `tst.b $3C44D8CA` | 97 |
+| `4239` | `clr.b $3C44D8CA` | 6 |
+| `1039` | `move.b $3C44D8CA,d0` | 3 |
+| `c039` | `and.b $3C44D8CA,d0` | 3 |
+| `13fc 00ff` | **`move.b #$FF,$3C44D8CA`** | 3 |
+
+So it is a widely consulted global — 97 sites test it — with exactly one kind of
+setter, and the three copies are the same code appearing three times in the
+volume, 132 MB apart.
+
+The context is the whole answer:
+
+    4a92        tst.l   (a2)
+    6608        bne.b   +8              ; skip when non-zero
+    13fc 00ff   move.b  #$FF,$3C44D8CA  ; set it when zero
+
+The flag is set **only when the longword at `(a2)` is zero**. So the question is
+now as small as it has been at any point in this hunt: what is in `(a2)` when
+that code runs, and why is it not zero on this machine — or, if the code is
+never reached at all, which branch above it turns away.
+
 #### `DRQ7`, and a request that never went down
 
 The interrupt alone did not clear `DISK TIMEOUT`: the same crash came back at

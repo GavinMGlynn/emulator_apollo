@@ -3271,9 +3271,13 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         contiguously three times running is not a rule, and the derived watch
         was on a byte nobody asked about. Watching the right one:
         `written 6 time(s), last 00000000 by PC 01002174` -- the **loader**. So
-        Domain/OS never sets the flag; the code that would has not run. Not
-        "which register is wrong" but "which initialisation is missing", which
-        is where this goes next.
+        Domain/OS never sets the flag; the code that would has not run. The
+        setter needs no run to find -- the text is on the disk. `3C44D8CA`
+        appears 112 times: 97 `tst.b`, 6 `clr.b`, 6 reads, and **3
+        `move.b #$FF,$3C44D8CA`**, guarded by `tst.l (a2); bne` -- so the flag
+        is set only when `(a2)` is zero. What is in `(a2)` there, or which
+        branch above turns away, is the next question. Detail in
+        `PROJECT_STATUS.md`.
         *Verification: the console going past the crash.*
         *Verification: the console going past the crash.*
   - [ ] **`IRQ6` and `DRQ2`, the floppy's**, are placed and not driven: its
