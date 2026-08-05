@@ -5106,10 +5106,29 @@ The context is the whole answer:
     6608        bne.b   +8              ; skip when non-zero
     13fc 00ff   move.b  #$FF,$3C44D8CA  ; set it when zero
 
-The flag is set **only when the longword at `(a2)` is zero**. So the question is
-now as small as it has been at any point in this hunt: what is in `(a2)` when
-that code runs, and why is it not zero on this machine — or, if the code is
-never reached at all, which branch above it turns away.
+The flag is set **only when the longword at `(a2)` is zero**.
+
+And that guard turns out not to matter, because the setter is **not in the
+loaded image**. Dumping the whole 948 KB the PROM read in (`01002000`-`010E9FF8`)
+and searching it finds 16 references to `3C44D8CA` — ten `tst.b` and six that
+are data rather than instructions — and **no `move.b #$FF` at all**. The
+volume's 112 references include three setters; the loaded kernel's sixteen
+include none.
+
+So the code that sets this flag is in a file this boot never loads. Which leaves
+two readings, and the evidence here does not choose between them:
+
+- the flag is meant to be set by something that runs later or elsewhere, and
+  this machine never gets that far; or
+- the flag is *normally* clear, the branch is the ordinary path, and the failure
+  is downstream of it rather than caused by it.
+
+The second is worth taking seriously precisely because it would invert the
+conclusion, and the same inversion has already happened once in this hunt when
+`DISK TIMEOUT` turned out to be wreckage rather than cause. What settles it is
+whether `3C49EC3E` — the branch target that returns `008A` — is an error path or
+a normal one, and that is read from the code around it rather than guessed from
+the name.
 
 #### `DRQ7`, and a request that never went down
 
