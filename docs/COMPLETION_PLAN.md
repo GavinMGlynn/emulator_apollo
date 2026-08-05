@@ -3222,10 +3222,16 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
   - [ ] **Domain/OS crashes at `3C456A9C` with status `00080024`.** This is the
         real fault, and everything the disk investigation eliminated -- the
         geometry, the decoder, the 16-bit byte order, `DIVU.W`, the sector data
-        -- was eliminated for good. `3C456A9C` is an operating-system address
-        and `--boot-stop-pc` reaches it.
+        -- was eliminated for good. It is a **status check failing, not a
+        fault**: no address error, illegal instruction or trap is ever taken,
+        `3C456A9C` is never executed because it is the never-returning call's
+        return address, and stopping in `3C456A90:10` shows a routine returning,
+        `cmpi.l` against an expected value at `3C456A0C`, and `bne` taking the
+        error path. `d0` carries `0008008A` there, the same `0008xxxx` family as
+        the crash status, confirming that word is an Apollo status code. What
+        was compared, and against what, is one dump away. Detail in
+        `PROJECT_STATUS.md`.
         *Verification: the console going past the crash.*
-        *Verification: the console going past `DISK TIMEOUT`.*
   - [ ] **`IRQ6` and `DRQ2`, the floppy's**, are placed and not driven: its
         completion is the FDC's result phase rather than the fixed disk's.
         *Verification: a floppy command completing through an interrupt.*
