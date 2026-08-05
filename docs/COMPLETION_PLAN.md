@@ -3084,11 +3084,13 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         Indexing the 64 entries from the **AT bus memory window** (`080000 >>
         10` = 512, exactly where the diagnostic writes its ascending pages) was
         implemented and **did not work** -- the boot failed identically -- so it
-        was reverted. Note the three reported values are **identical across
-        every variant tried**, which says they are stale registers at the
-        reporting call site rather than a live comparison. What would settle the
-        index is the base *Hardware Architecture Handbook*; only its addendum is
-        in `docs/references/`.
+        was reverted. The three reported values are live, not stale --
+        `01002F66` and `01002F6A` load them immediately before the call -- and
+        what they say is that **the destination is never written**: `d0` is the
+        PROM's own fill pattern at `01100803`. What would settle the index is
+        the base *Hardware Architecture Handbook*, which is **not on
+        bitsavers** -- only its addendum is -- so it is an acquisition problem
+        rather than a reading one.
         *Verification: the console going past it.*
     - [x] **The bus had never ticked, because a counter was a local.**
           `ap_machine_run` charges the board the previous instruction's clocks,
