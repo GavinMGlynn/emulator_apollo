@@ -3264,8 +3264,10 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         by `PC 3C49EE46` -- and stopping on that write puts the decision in the
         ring: `tst.b <abs.l>` at `3C49EBD8` then `bpl` **taken**, so a global
         byte's sign bit is clear where Domain/OS wants it set, and the branch
-        returns the failing code. A flag, not an arithmetic slip. Which byte is
-        the last thing to read.
+        returns the failing code. A flag, not an arithmetic slip. The byte is
+        `tst.b $3C44D8CA`, physical `010788CA` -- the region translates by a
+        constant `3B3D5000`, which three dumps agree on -- so it can be read and
+        watched in the same run.
         *Verification: the console going past the crash.*
         *Verification: the console going past the crash.*
   - [ ] **`IRQ6` and `DRQ2`, the floppy's**, are placed and not driven: its

@@ -5043,7 +5043,11 @@ clear, and takes the branch that returns the failing code. That is a flag rather
 than a computation, which is a much better shape than an arithmetic slip: a byte
 somewhere in this machine is not what Domain/OS expects it to be.
 
-Which byte is the last thing not yet read.
+Which byte is `4A39 3C44D8CA` — **`tst.b $3C44D8CA`**, a global in the operating
+system's own data. Every logical address in this region translates by a constant
+`3B3D5000`, which three independent dumps now agree on (`3C49EBD0 -> 010C9BD0`,
+`3C49D07C -> 010C807C`, `3C4F9980 -> 01124980`), so the byte is physical
+`010788CA` and can be both read and watched in one run.
 
 #### `DRQ7`, and a request that never went down
 
