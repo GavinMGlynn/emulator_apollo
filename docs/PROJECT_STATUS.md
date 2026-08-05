@@ -5204,8 +5204,31 @@ value in question. That last write is a **byte**, `80`, by `3C463390`: the top
 byte of `80080012`, which is the error flag on an Apollo status.
 
 So the sequence is a status being *marked as failed* one byte at a time, and
-`3C463390` is where the marking happens. What that code tests before it does so
-is the next thing to read.
+`3C463390` is where the marking happens:
+
+    3C463380  6A0A           bpl.b   $3C46338C
+    3C463382  486D 0040      pea     $40(a5)
+    3C463386  4EB9 3C41A21A  jsr     $3C41A21A
+    3C46338C  206E 001A      movea.l $1A(a6),a0
+    3C463390  08D0 0007      bset    #7,(a0)
+
+`bset #7,(a0)` on a pointer taken from `$1A(a6)` — the caller hands in a status
+and this sets the error bit on it. So `3C463390` is not a decision either; it is
+a failure path *executing*, and the branch that chose the path is above it.
+
+The frame shows the status being built:
+
+    3C4F9850  3C4D1F78  00000001  00010504  00000012
+    3C4F9860  80080012  00004AF0  3C4F98F4  0001CE50
+
+`3C4F985C` holds `00000012` and `3C4F9860` ends up `80080012`, so the code is
+`0012`, the subsystem `0008`, and `80` the error flag — an ordinary Apollo
+status assembled in three pieces.
+
+One thing in that frame is worth *checking* rather than believing: `3C4F9858`
+holds `00010504`, and the value the crash comparison demands is `00010005`. Two
+longwords that look alike in a hunt where four look-alikes have already been
+coincidences. It is recorded here as something to test, not as a link.
 
 That is the third time in this hunt that the obvious lead has turned out to be
 downstream of the fault — after `DISK TIMEOUT`, and after the crash status that

@@ -3301,8 +3301,13 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         guess -- gives `written 15893 time(s), last 80 by PC 3C463390`. The
         count is high because it is a **stack** slot every frame at that depth
         reuses, so only the last write counts; it is a *byte* write of `80`, the
-        error flag on an Apollo status. `3C463390` is where a status is marked
-        failed, and what it tests first is the next thing to read.
+        error flag on an Apollo status. `3C463390` is `bset #7,(a0)` with `a0`
+        from `$1A(a6)` -- a failure path *executing*, not deciding, so the
+        branch that chose it is above. The frame shows the status assembled in
+        pieces: code `0012` at `3C4F985C`, subsystem `0008`, flag `80`. Also in
+        that frame, `3C4F9858` holds `00010504` against the `00010005` the crash
+        comparison demands -- noted to test, not believed, after four
+        look-alikes turned out to be coincidence.
         *Verification: the console going past the crash.*
         *Verification: the console going past the crash.*
   - [ ] **`IRQ6` and `DRQ2`, the floppy's**, are placed and not driven: its
