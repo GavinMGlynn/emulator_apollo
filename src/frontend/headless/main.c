@@ -572,6 +572,37 @@ static void report_state(const ap_machine_t *machine) {
       printf("\n");
     }
   }
+  {
+    /* Whether translation is on, and the two windows that bypass it.
+     *
+     * A descriptor-fetch count says the MMU has been *used*; it does not say
+     * whether a given access went through it, because a transparent window is
+     * consulted first and answers without a table search. A run that reports
+     * translation enabled and a window covering all of memory is describing a
+     * machine whose page tables cannot matter, and that is not visible from any
+     * other number here. */
+    const ap_m68030_cpu_t *cpu = &machine->cpu;
+    printf("  translation  %s", cpu->tc.enable ? "enabled" : "off");
+    for (unsigned t = 0; t < 2u; t++) {
+      const ap_m68030_tt_t *tt = t == 0u ? &cpu->tt0 : &cpu->tt1;
+      if (!tt->enabled) {
+        continue;
+      }
+      printf(", tt%u base %02X mask %02X", t, tt->logical_base,
+             tt->logical_mask);
+    }
+    if (cpu->tc.enable) {
+      /* Which root a supervisor access uses is `TC`'s SRE, and the two roots
+       * are loaded by separate `PMOVE`s -- so a program that loads one and not
+       * the other translates through a table that was never filled in. */
+      printf(", %s root", cpu->tc.supervisor_root ? "split supervisor" :
+                                                    "one");
+      printf(", crp %08X limit %04X, srp %08X limit %04X",
+             cpu->crp.table_address, cpu->crp.limit, cpu->srp.table_address,
+             cpu->srp.limit);
+    }
+    printf("\n");
+  }
   printf("  atc fills    %u descriptor fetch(es), %u history update(s)\n",
          state.table_fetches, state.table_updates);
   if (machine->distinct_fault_count > 0u) {
@@ -1134,6 +1165,21 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
       /* A6 as well as A7: the firmware uses it as a base pointer for its own
        * data, and whether those two overlap is the question a trace has to be
        * able to answer. */
+      if (stop_pc != 0u && step_pc == stop_pc) {
+        /* Checked **before** the fast path below, not after it.
+         *
+         * It was after, so the stop only happened when a trace or a ring was
+         * also asked for -- and a run without one reported nothing and looked
+         * exactly like a run whose address was never reached. That is worse
+         * than not having the flag: it answers a question it did not test, and
+         * I read two such runs as evidence that an address was never executed.
+         *
+         * The run ends here so a ring kept alongside it holds the steps that
+         * led to this rather than the ones that came after. */
+        printf("  stopped at   PC %08X after %u instruction(s)\n", stop_pc, i);
+        run.executed++;
+        break;
+      }
       if (!trace && trace_last == 0u) {
         run.status = r.status;
         if (r.status != AP_M68030_STEP_EXECUTED &&
@@ -1142,16 +1188,6 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
         }
         run.executed++;
         continue;
-      }
-      if (stop_pc != 0u && step_pc == stop_pc) {
-        /* The run ends *here*, so a ring kept alongside it holds the steps that
-         * led to this and not the ones that came after. Without it the ring of
-         * a long run is whatever the machine was doing when the limit expired,
-         * which for a boot is the console poll -- two thousand steps of nothing
-         * happening, half a billion instructions after the thing worth seeing. */
-        printf("  stopped at   PC %08X after %u instruction(s)\n", stop_pc, i);
-        run.executed++;
-        break;
       }
       if (trace_last > 0u) {
         /* Kept, not printed. See `trace_last`'s declaration: a fault half a

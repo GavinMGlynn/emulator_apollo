@@ -3032,19 +3032,15 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         *Verification: `omti_suite`'s word-read test now asserts the order
         rather than "either" -- and the machine loads and runs `SELF_TEST
         Revision 2.4` off its own disk, which is Domain/OS code executing.*
-  - [ ] **`CPU (mmu) Test #0`, and it is SELF_TEST's own judgement.** The loaded
-        diagnostic stops with `Expected= 01224800, Actual= 01FFFC00, Address=
-        01224C00`, still reporting **zero** descriptor fetches -- so it fails
-        before translation is ever switched on. The failure is reported through
-        a PROM *service*, dispatched by `jsr (a3)` at `005DFA`, so the decision
-        is the diagnostic's and not the firmware's. **The printed `PC=
-        00005DF8` is two low**: the reporter computes `$3c(a7) - 4` for a
-        four-byte `bsr.w`, and a service call is a two-byte `jsr`. Memory at the
-        named address holds the PROM's own fill pattern correctly, so nothing
-        simple is wrong with it. Going further means disassembling the image the
-        machine loaded to `01002000` -- a 13 KB Domain/OS diagnostic -- or
-        asking the oracle whether it passes this test, which would partition it
-        in one measurement.
+  - [ ] **`CPU (mmu) Test #0`: the walk produces identity.** Measured at the
+        failing compare rather than inferred: translation **enabled**, both
+        transparent windows **disabled**, `CRP` and `SRP` both `01200000` so
+        the split-supervisor bit is not the problem -- and the read at
+        `01224C00` still returns `01224C00`, the untranslated content. The whole
+        run performs **15** descriptor fetches where a 1 KB-page table over
+        megabytes should perform thousands, and an empty ATC cannot explain
+        that. A question about this core's table search, not about the boot.
+        Detail in `PROJECT_STATUS.md`.
         *Verification: the console going past the MMU test.*
     - [x] **The oracle harness could only watch a machine it had stopped.**
           Every stage knocks -- sends until the MD prompt answers -- and typing
@@ -3055,6 +3051,17 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
           of empty log to rediscover. Detail in `PROJECT_STATUS.md`.
           *Verification: `test_mdsession.py` +3 -- that it returns without
           knocking, still autobauds, and says which it is doing.*
+    - [x] **A run says what the MMU is doing, and `--boot-stop-pc` was
+          answering untested questions.** The flag checked the PC *after* the
+          step loop's fast path, so it only took effect when a trace or ring was
+          also asked for -- a run without one printed nothing and looked exactly
+          like one whose address was never reached. Two such runs were read as
+          evidence that an address was never executed. Fixed, and a run now
+          reports translation, the transparent windows and both root pointers.
+          Detail in `PROJECT_STATUS.md`.
+          *Verification: the three addresses previously "ruled out" are all
+          reached, and the report is what narrowed the MMU item above to a
+          question about the table search.*
     - [x] **Enabling the MMU never reached the accesses.**
           `ap_m68030_access_ctx_t` carried a `bool translation_enabled`, set
           false at construction and updated by nothing -- while the same context
