@@ -267,6 +267,23 @@ typedef enum {
  * What no image settles is **which lane bit is which byte**: every one of them
  * drives all four together, so the four-bit field is only ever `0` or `F`. The
  * assignment below is therefore `PROVISIONAL` -- see `ap_parity.h`. */
+/* Bit 2, and it disconnects the coprocessor rather than arming anything.
+ *
+ * The loaded diagnostic's `CPU (fp trap)` test is the whole specification: at
+ * `01004698` it saves the F-line vector and installs its own, writes `0004`
+ * here, executes `FMOVE.L D0,FP0`, and requires the **status** register to read
+ * `0004` afterwards. So setting this bit makes a coprocessor instruction take
+ * F-line, and taking it is what sets the status register's FP trap bit.
+ *
+ * The oracle sets that status bit *here*, at the control-register write, and
+ * says in its own comment that it should not: "hack: set APOLLO_CSR_SR_FP_TRAP
+ * in cpu status register for /sau7/self_test -- APOLLO_CSR_SR_FP_TRAP in status
+ * register should be set by next fmove instruction". It also guards the hack on
+ * the MMU being off, which is a condition with no hardware meaning and which
+ * would fail here, since this diagnostic runs with translation enabled. This
+ * core does what the comment describes instead. */
+#define AP_BOARDREG_CONTROL_FPU_TRAP 0x0004u
+
 #define AP_BOARDREG_CONTROL_INTERRUPT_ENABLE 0x0001u
 #define AP_BOARDREG_CONTROL_FORCE_BAD_PARITY 0x0008u
 #define AP_BOARDREG_CONTROL_PARITY_LANE_MASK 0x00F0u
@@ -342,6 +359,9 @@ void ap_boardreg_set_active_low_lanes(ap_boardreg_t *regs, bool active_low);
 /* The master interrupt controller's request line, which the cache register
  * reports in bit 4. Called by the board whenever it samples its devices. */
 void ap_boardreg_set_interrupt_pending(ap_boardreg_t *regs, bool pending);
+
+/* Whether the control register is holding the coprocessor off the bus. */
+[[nodiscard]] bool ap_boardreg_fpu_trapped(const ap_boardreg_t *regs);
 
 /* Which register an address decodes to, if any. False for the declined pair as
  * well as for unmapped addresses; use `ap_boardreg_is_declined` to tell them

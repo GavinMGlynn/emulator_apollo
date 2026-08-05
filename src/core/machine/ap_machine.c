@@ -2,6 +2,8 @@
 
 #include "machine/ap_machine.h"
 
+#include "cpu/m68030/ap_m68030_exception.h"
+
 #include "cpu/m68030/ap_m68030_state.h"
 #include "board/ap_board.h"
 #include "board/ap_board_state.h"
@@ -504,6 +506,12 @@ ap_machine_run_t ap_machine_run(ap_machine_t *machine, unsigned limit) {
        * program that has just written a device register has changed them. This
        * is the whole of the tick loop that exists: nothing advances on its own,
        * so an interrupt appears only where a program produced one. */
+      /* The coprocessor is on the bus unless the control register says
+       * otherwise. Detaching it is what makes an FPU opcode take F-line, which
+       * is what the board reports as an FP trap. */
+      machine->cpu.fpu = ap_boardreg_fpu_trapped(&machine->board->registers)
+                             ? NULL
+                             : &machine->fpu;
       ap_board_sample_interrupts(machine->board);
       machine->cpu.interrupt_level = ap_board_interrupt_level(machine->board);
 
@@ -552,6 +560,19 @@ ap_machine_run_t ap_machine_run(ap_machine_t *machine, unsigned limit) {
      * after. */
     if (machine->board != NULL) {
       ap_board_advance(machine->board, machine->now);
+
+      /* An F-line taken while the coprocessor is held off is the FP trap the
+       * status register reports. Counted rather than signalled, because the
+       * step result carries no vector and a count is the observable this core
+       * already keeps. */
+      const unsigned line_f =
+          machine->cpu.exceptions_taken[AP_M68030_VECTOR_LINE_F];
+      if (line_f != machine->last_line_f_exceptions &&
+          ap_boardreg_fpu_trapped(&machine->board->registers)) {
+        ap_boardreg_latch_status(&machine->board->registers,
+                                 AP_BOARDREG_STATUS_FP_TRAP);
+      }
+      machine->last_line_f_exceptions = line_f;
     }
     out.status = result.status;
 

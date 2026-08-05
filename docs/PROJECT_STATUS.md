@@ -4597,6 +4597,36 @@ last and hardest — **a decoded PNG**. Register round-trips and word-level
 identities are what can be checked without one, and a controller that passes
 those and draws nothing is the standard way this goes wrong.
 
+#### The FP trap is the coprocessor coming off the bus, not a bit being set
+
+`CPU (fp trap) Test #0` is its own specification, at `01004698`: save the F-line
+vector, install a handler, write `0004` to the **control** register, execute
+`FMOVE.L D0,FP0`, and require the **status** register to read `0004`.
+
+So control-register bit 2 does not arm a flag — it **disconnects the
+coprocessor**. An FPU opcode then takes F-line, and *taking it* is what sets the
+status register's FP trap bit.
+
+The oracle sets that status bit at the control-register write instead, and its
+own comment says it should not:
+
+> hack: set APOLLO_CSR_SR_FP_TRAP in cpu status register for /sau7/self_test
+> APOLLO_CSR_SR_FP_TRAP in status register should be set by next fmove
+> instruction
+
+It also guards the hack on the MMU being off — a condition with no hardware
+meaning, and one that would fail here, since this diagnostic runs with
+translation enabled. So this is a place where following the oracle would have
+been wrong twice over, and its comment is what says so.
+
+Modelled as the comment describes. `cpu.fpu` is a pointer and NULL is a real
+machine — no coprocessor fitted — so the board holding the FPU off is exactly
+`machine->cpu.fpu = NULL` for that step. The status bit is then latched when an
+F-line is *taken* while the control register holds it off, noticed through the
+per-vector exception counter, since a step result carries no vector.
+
+The test passes and the console reaches `CPU (bus error) Test #0`.
+
 #### `NBCD` was charged no time at all, and it is the PROM's unit of delay
 
 `CPU (calendar) Test #0` reads the seconds register, delays, reads again, and

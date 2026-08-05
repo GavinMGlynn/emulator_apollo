@@ -71,6 +71,12 @@ typedef struct {
    * outside the unit tests. */
   uint64_t last_instruction_clocks;
 
+  /* How many F-line exceptions had been taken when this machine last looked.
+   * The board's FP trap status bit is set by *taking* one while the control
+   * register holds the coprocessor off -- see `board/ap_boardreg.h` -- and a
+   * count is how a caller notices one happened. */
+  unsigned last_line_f_exceptions;
+
   unsigned bus_errors;
   uint32_t first_bus_error;
   uint32_t last_bus_error;

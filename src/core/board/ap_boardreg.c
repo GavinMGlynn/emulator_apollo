@@ -27,6 +27,10 @@ void ap_boardreg_set_active_low_lanes(ap_boardreg_t *regs, bool active_low) {
   regs->active_low_parity_lanes = active_low;
 }
 
+bool ap_boardreg_fpu_trapped(const ap_boardreg_t *regs) {
+  return (regs->cpu_control & AP_BOARDREG_CONTROL_FPU_TRAP) != 0u;
+}
+
 void ap_boardreg_set_interrupt_pending(ap_boardreg_t *regs, bool pending) {
   regs->interrupt_pending = pending;
 }
