@@ -4597,6 +4597,70 @@ last and hardest — **a decoded PNG**. Register round-trips and word-level
 identities are what can be checked without one, and a controller that passes
 those and draws nothing is the standard way this goes wrong.
 
+#### The boot reaches the Winchester self-tests, and the OMTI item's lead arrived
+
+With the transfer size served, a 400-million-instruction boot gets through the
+whole memory system and into the disk:
+
+       CPU              Test # 7 started.
+       Memory Module 1  Test # 0 started.
+       Memory Module 2  Test # 0 started.
+       Memory Module 3  Test # 0 started.
+       Memory Module 4  Test # 0 started.
+       Winchester Disk  Test # 0 started.
+       Winchester Disk  Test # 1 started.
+
+All four memory modules pass. The remaining bus errors are the machine sizing
+itself — the last at `02000000`, one past the 16 MB fitted.
+
+**This answers the OMTI item's `Awaiting: a lead outside this module`.** That
+item closed with the note that the command set was as complete as a raw sector
+image could make it and that going further would be chasing the boot. The lead
+has now arrived, and it is the best kind: **the controller's own diagnostic, run
+by the firmware** — the same "the hardware's test suite, for free" that
+`CLAUDE.md` names for the ring.
+
+Winchester test 1 is at `00007C02` and is readable byte for byte: write a CDB to
+`4D000` one byte at a time, checking the status at `4D001` reads `CD` after each,
+then wait and expect `CB`. Decoding those against the status bits: `CD` is
+`BUSY|CD|REQ` plus bits 6 and 7, which read 1 on this part — the command phase.
+`CB` is `BUSY|IO|REQ` with **CD clear**, which is the **data-in** phase.
+
+Ours answers **`EF`** — `CD` and `IREQ` set, i.e. status phase with an interrupt
+pending, which is what this model does with a command it does not implement. The
+command is `0E`.
+
+`[OMTI]` **§5.4.13, READ DATA FROM SECTOR BUFFER (`0Eh`)**, page 5-14, read from
+the page image, specifies it and rather more than a transfer:
+
+> The number of data bytes returned is equal to the jumper selectable sector
+> size times the block count specified in byte 4 ... up to a maximum block
+> count as follows: 512/15, 1024/7, 1056/7.
+
+> The controller does not access the disk drive during the execution of this
+> command.
+
+> The READ BUFFER Command can also be used to model and status information about
+> the controller. **If a READ BUFFER Command is issued after a RESET is done
+> (before any other command) the first XX bytes in the buffer contain the
+> following information.**
+
+| Address | Contents |
+|---|---|
+| `00`-`0D` | `8x2xVW.WMMDDYY` |
+| `0E`-`0F` | ROM checksum word |
+| `10` bit 0 | ROM checksum error |
+| `11` bit 0 | Processor register error |
+| `12` bit 0 | Buffer RAM error |
+| `13` bit 0 | Sequencer register file error |
+| `14` bits 7-6 | buffer size: 2K, 8K, 16K, 32K |
+| `20`-`2F`, `30`-`3F`, `50`-`5F` | LUN 0, 1 and 3 default values |
+
+So the controller identifies itself and reports its own power-on diagnostics
+through this command, and the firmware's Winchester test 1 is reading exactly
+that block. **Open, with the page in hand**: the command, the data-in phase and
+the identification block are the next item.
+
 #### Three bytes is a transfer size, and the board refused it
 
 With self-test 7 passing, the boot reached `Memory Module 1  Test # 0` and

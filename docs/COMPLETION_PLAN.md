@@ -3009,12 +3009,21 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         *Verification: `awd_suite`'s configuration test extended to the whole
         ten bytes. The boot is **unchanged** — same commands, same resting PC —
         which is the finding: the word was not what stopped it.*
-      **Awaiting:** a lead outside this module. The OMTI command set is complete
-      as far as a raw sector image can take it and the one uncertain value is
-      now measured, so further work here would be chasing the boot again — which
-      `CLAUDE.md` forbids and the commit before last corrected. The remaining
-      fifteen commands need a disk's *physical* format, which an image cannot
-      carry.
+  - [ ] **`0E READ DATA FROM SECTOR BUFFER`, and the identification block.**
+        The lead this item waited for arrived, and it is the controller's own
+        diagnostic: with the parity circuit and the 3-byte transfer size in, the
+        firmware runs its **Winchester Disk** self-tests, and test 1 at
+        `00007C02` drives the controller directly -- command phase (`CD`) after
+        each CDB byte, then **data-in** (`CB`). Ours answers `EF`, status phase
+        with an interrupt, because `0E` is not implemented.
+        `[OMTI]` §5.4.13, page 5-14, from the page image: the transfer is the
+        sector size times byte 4's block count, the controller does not touch
+        the drive, and -- the part that matters -- **issued after a reset and
+        before any other command, the buffer holds the controller's own model
+        string, ROM checksum, four power-on error bits and its buffer size**.
+        Detail and the table in `PROJECT_STATUS.md`.
+        *Verification: `omti_suite`, and the firmware's own test -- the boot
+        should pass `Winchester Disk  Test # 1` and go on.*
   - [x] **A disk can be fitted at all.** `ap_omti` modelled the controller and
         `ap_awd` read the image and nothing ever handed one to the other, so
         every boot experiment so far ran on a DN3500 with **no Winchester** —
