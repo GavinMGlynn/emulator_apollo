@@ -4056,8 +4056,17 @@ boot below, and the boot is not attempted until they are done.
       What the machine wants now is what the *console* path wants: it is sitting
       in the input poll, and `MD.md`'s recipe -- paced input at 0.4 s -- is what
       gets past that.
-      *Verification: a `c8p` boot with paced input, and a framebuffer PNG with
-      the PROM's self-test output in it.*
+      **And paced input is wrong here.** A `c8p` boot with sixty carriage
+      returns at 0.4 s gives `MD7C REV 8.00` and a prompt -- in **normal** mode,
+      with no `--service-mode`. The returns *interrupt* the boot into the
+      debugger, which is what pressing return on a booting Apollo does.
+      So the two recipes are opposed, and both are right for their own job:
+      MD needs input *during* the probe, and a boot needs the line left alone
+      after the one character autobaud requires. Sixty is an interrupt; one is a
+      handshake. `MD.md`'s recipe was written for reaching MD and says so, and
+      applying it to a boot was mine.
+      *Verification: a `c8p` boot with a single `\r`, and a framebuffer PNG
+      with the PROM's self-test output in it.*
       *Verification: `a1` and `a2` resolved to addresses, matched against this
       core's register map, and the eight-entry readback answered.*
       *Verification: the PROM's self-test banner legible in a PNG.*
