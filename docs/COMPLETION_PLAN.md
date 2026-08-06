@@ -4179,10 +4179,21 @@ boot below, and the boot is not attempted until they are done.
       There is also a table at `007384` -- `01 02 04 08 05 0A 0C 0F` -- sitting
       immediately after a `bra.w` and before the poll, which is the shape of a
       list of bytes to send.
-      Both are candidates and neither is claimed. The check is the byte in `d0`
-      at `0073A0`, which is the caller's, and whether `ap_kbd_receive` answers
-      it.
-      *Verification: that byte, and the keyboard's answer to it.*
+      **Confirmed, and it is the first candidate exactly.** The caller is
+      `0073F0`:
+
+          0073F0  move.b #$0,d0     ; the byte to send
+          0073F4  bsr.b  $738C      ; poll TxRDY, send it, poll RxRDY
+
+      The boot PROM's keyboard test sends **`0x00`** and waits for it back --
+      the one byte `ap_kbd_receive` deliberately does not echo in loopback. So
+      the firmware is the authority and the exclusion is wrong: in loopback,
+      `00` *is* answered, whatever else it also means.
+      That is a real defect with a measured cause, and the fix is one arm of one
+      switch. It is left unwritten only because the surrounding comment argues
+      the opposite case in detail and deserves rewriting with this evidence
+      rather than deleting.
+      *Verification: `KEYBOARD TEST # 0` passing, in the framebuffer PNG.*
       That is the first defect of this phase that is genuinely ours, and it is
       narrow: one bit, one register, and a known producer.
       *Verification: `RxRDY` set on channel A by the time `000073EC` reads it,
