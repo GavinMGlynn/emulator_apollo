@@ -4013,9 +4013,25 @@ boot below, and the boot is not attempted until they are done.
       **next test's progress code** than the failing one -- the machine reaches
       27 and stops inside it. The compares above are what to satisfy first, and
       they are concrete: two writes, two expected words.
-      *Verification: `7777` and `8888` sourced from the Apollo graphics
-      documentation or the oracle, then answered, and the boot getting past
-      `8D`.*
+      **The whole sequence, and it is an index/data pair.** Reading back from
+      `006CB0`:
+
+          6CB0  move.w  #$8888,(a1)
+          6CB4  move.b  #$C0,(a2) ; cmpi.w #$1111,(a1) ; bne
+          6CBE  move.b  #$C1,(a2) ; cmpi.w #$2222,(a1) ; bne
+                ... C2/3333, C3/4444, C4/5555, C5/6666, C6/7777, C7/8888
+
+      So `(a2)` is an **index** register and `(a1)` a **data** register: write a
+      word, then select `C0` through `C7` and read each index's own value back,
+      `1111` through `8888`. That is a register-file or lookup-table readback --
+      eight entries, each holding a distinct word -- and the firmware requires
+      all eight before it will use the display.
+      Eight indices at `C0`-`C7` returning independent words is the shape of a
+      **colour/overlay lookup table**, which this machine has in the Bt458. That
+      is a lead and not a claim: `a1` and `a2` are set before `006CB0` and have
+      not been traced yet.
+      *Verification: `a1` and `a2` resolved to addresses, matched against this
+      core's register map, and the eight-entry readback answered.*
       *Verification: the PROM's self-test banner legible in a PNG.*
 - [ ] SDL3 interactive frontend, implemented rather than stubbed: scanout to a
       letterboxed texture, keyboard/mouse mapping, `--frames` bounded mode
