@@ -2810,8 +2810,17 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
       per-byte handshake and its drive motion. The keyboard beeper. And
       `IRQ6`/`DRQ2` below.
 
-      **Things the input formats cannot carry**, which are a scope decision
-      rather than a coding one: an `.awd` has no ID field, so a format writes
+      **Things the input formats cannot carry -- decided: extend the formats,
+      approximate nothing.** These are no longer deliberate approximations but
+      work items. An `.awd` gains an ID field per sector, so a format writes the
+      bad-track and alternate flags and `07` stops being identical to `06`; and
+      an ECC field, so READ LONG returns what was recorded and WRITE LONG keeps
+      the six bytes it is given. A `.ct` becomes writable, so WRITE, WRITE FILE
+      MARK and ERASE do what they say. The format change *is* the item -- each
+      command's arm collapses to ordinary code once the bytes have somewhere to
+      live. Existing images must still load: a file without the new fields reads
+      as a surface with no defects and no recorded ECC, which is what it is.
+      The approximations this replaces were: an `.awd` has no ID field, so a format writes
       no bad-track or alternate flags and skew and interleave are ignored; no
       ECC field, so READ LONG returns zeros and WRITE LONG drops six bytes;
       the defect list has no recorded date. A `.ct` is read-only, so WRITE,
