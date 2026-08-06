@@ -3415,9 +3415,24 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         cleared again before the next arrives, and nothing in the poll should do
         that: the PROM reads `$12(a0)`, register 9, which is `SR` on a read and
         `CSR` on a write, not the receive buffer.
-        *Next: whether the board's `ap_sio` decode maps that read to `SR` or to
-        `RB`, because a read that pops the FIFO would produce exactly this.
-        This blocks the `EX CONFIG` route until it is fixed.*
+        **That reading was wrong, and is withdrawn.** `ap_sio_decode` does
+        `(address - base) >> 1`, so `$12(a0)` is register 9, `SR`, not the
+        receive buffer; the frontend never touches `ap_mc68681_read`; and the
+        overrun path sets a bit that is not in `44`. What clears `RxRDY` is the
+        loop's own **exit branch**: at `00079A` the firmware tests the bit and
+        branches to `$7E6` when it is set, and that path reads the character.
+        The instrument logged `sr` *before* each delivery -- exactly when
+        `RxRDY` is legitimately clear again -- so the trace read as a defect is
+        what correct behaviour looks like.
+        So the machine is **consuming** the carriage returns and waiting for
+        more. It is not failing to receive, and there is no DUART bug here to
+        fix. Four hypotheses in a row -- the sense value, the baud rate, the
+        `SR`/`RB` decode, and an autobaud that the loop demonstrably does not
+        perform -- were each produced by reasoning and each killed by the next
+        measurement.
+        *Next: send input continuously rather than a fixed burst, and
+        instrument the branch targets `$7E6` and `$80E` to see what the
+        firmware does with each character it takes.*
         Either seed the calendar's
         battery-backed RAM from a supplied image, as the disk is supplied, or
         drive the PROM's own `ex config` from the boot script -- which is what
