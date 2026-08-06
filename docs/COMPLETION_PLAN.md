@@ -4154,9 +4154,15 @@ boot below, and the boot is not attempted until they are done.
       *Verification: the caller, the byte it sends, and `ap_kbd_receive`'s
       answer to it.* A scan for `bsr`/`jsr` to `00738E`, `0073A0` and `0073A6`
       finds **no callers**, so these are entered by fall-through and the
-      enclosing subroutine begins earlier -- the entry point is the thing to
-      find first, by walking back to the previous `rts`, not by widening the
-      disassembly window a guess at a time.
+      enclosing subroutine begins earlier. Walking back to the previous `rts`
+      puts the entry at **`007270`**, and it is a broader initialisation --
+      `movea.l #$1000800,a5`, then a table-building loop over `01000400`. So
+      `a0` for the keyboard I/O is set somewhere between `0072B0` and `00738E`,
+      and that span is the remaining read.
+      The whole trail, for whoever picks it up: `007270` (entry) ->
+      `0073A0` (send) -> `0073C0` (poll `RxRDY`, 65,536 tries) ->
+      `0073D8` (timeout) -> `006D18`-ish (post `27`) -> `005E36` (encode) ->
+      `005EB6` (blink). Every address measured, none guessed.
       That is the first defect of this phase that is genuinely ours, and it is
       narrow: one bit, one register, and a known producer.
       *Verification: `RxRDY` set on channel A by the time `000073EC` reads it,
