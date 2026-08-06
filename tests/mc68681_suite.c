@@ -58,6 +58,40 @@ static void test_the_transmitter_commands_move_the_ready_bits_as_documented(void
  * §3.3.2: "the transmitter output is internally connected to the receiver
  * input" -- the *pin* is held high, and the internal path still carries it.
  * `tx_break` sat stored and inert while only the first of those was read. */
+/* `MR1[6]` chooses what the ISR's receiver bit *means*: `RxRDY` when clear,
+ * `FFULL` when set. Table 4-5 labels it `RxRDY/FFULLA` for that reason.
+ *
+ * The select was not modelled at all -- not declined, not commented, simply
+ * absent -- so the bit always followed `RxRDY`. A host that selects `FFULL` and
+ * waits would have been satisfied by one character instead of three. */
+static void test_the_isr_receiver_bit_follows_the_mr1_selection(void) {
+  ap_mc68681_t d;
+  ap_mc68681_reset(&d);
+  enable_a(&d);
+
+  /* Default: MR1[6] clear, so one character sets it. */
+  ap_mc68681_receive(&d, 0u, 0x41u);
+  TEST_ASSERT_EQUAL_HEX8(AP_MC68681_ISR_RXRDY_A,
+                         d.isr & AP_MC68681_ISR_RXRDY_A);
+
+  /* Select FFULL. One character is no longer enough -- the FIFO is three deep
+   * on this part, and `FFULL` means full. */
+  ap_mc68681_t full;
+  ap_mc68681_reset(&full);
+  ap_mc68681_write(&full, AP_MC68681_MR_A, AP_MC68681_MR1_RXRDY_IS_FFULL);
+  enable_a(&full);
+  ap_mc68681_receive(&full, 0u, 0x41u);
+  TEST_ASSERT_EQUAL_HEX8(0u, full.isr & AP_MC68681_ISR_RXRDY_A);
+
+  /* Fill it, and the bit sets. */
+  ap_mc68681_receive(&full, 0u, 0x42u);
+  ap_mc68681_receive(&full, 0u, 0x43u);
+  TEST_ASSERT_EQUAL_HEX8(AP_MC68681_SR_FFULL,
+                         full.channel[0].sr & AP_MC68681_SR_FFULL);
+  TEST_ASSERT_EQUAL_HEX8(AP_MC68681_ISR_RXRDY_A,
+                         full.isr & AP_MC68681_ISR_RXRDY_A);
+}
+
 static void test_a_break_in_local_loopback_reaches_the_receiver(void) {
   ap_mc68681_t d;
   ap_mc68681_reset(&d);
@@ -772,6 +806,7 @@ int main(void) {
   RUN_TEST(test_the_output_port_has_separate_set_and_clear_addresses);
   RUN_TEST(test_resetting_the_receiver_empties_the_fifo);
   RUN_TEST(test_the_transmitter_commands_move_the_ready_bits_as_documented);
+  RUN_TEST(test_the_isr_receiver_bit_follows_the_mr1_selection);
   RUN_TEST(test_a_break_in_local_loopback_reaches_the_receiver);
   RUN_TEST(test_the_break_commands_are_obeyed_rather_than_dropped);
   RUN_TEST(test_the_break_change_interrupt_can_be_cleared_per_channel);

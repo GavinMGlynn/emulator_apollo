@@ -4246,8 +4246,12 @@ boot below, and the boot is not attempted until they are done.
       implementation, which is the same class as everything the completeness
       sweep found earlier -- and it was missed because the sweep read headers
       for phrases like "not modelled" and this one is simply absent.
-      *Verification: `MR1[6]` on serial 1 channel A as the firmware programs
-      it, and the ISR bit made to follow the selection.*
+      **Implemented.** `AP_MC68681_MR1_RXRDY_IS_FFULL` and
+      `refresh_channel_interrupts` now choose the condition from `MR1[6]`, so
+      the ISR bit means what the host selected.
+      *Verification: `mc68681_suite` 39 -- one character sets the bit with the
+      select clear, does **not** with it set, and three do. And the boot's own
+      `KEYBOARD TEST # 0`, which is the reason this was found.*
       That is the first defect of this phase that is genuinely ours, and it is
       narrow: one bit, one register, and a known producer.
       *Verification: `RxRDY` set on channel A by the time `000073EC` reads it,

@@ -64,6 +64,20 @@ typedef enum {
 /* Status register, `[68681]` §4.2.9. */
 #define AP_MC68681_SR_RXRDY 0x01u  /* receiver ready */
 #define AP_MC68681_SR_FFULL 0x02u  /* §4.2.9.7, "FIFO Full - SRA[1]" */
+
+/* `MR1[6]`, the **RxRDY/FFULL select**, and the reason the ISR's bit 1 is
+ * labelled `RxRDY/FFULLA` in Table 4-5 rather than `RxRDY`.
+ *
+ * Clear, the interrupt bit follows `RxRDY` -- a character has arrived. Set, it
+ * follows `FFULL` -- the receive FIFO is *full*, three characters deep on this
+ * part. A host that selects `FFULL` and waits for a single byte waits for ever,
+ * which is not a hypothetical: the boot PROM's `KEYBOARD TEST # 0` polls this
+ * bit sixty-five thousand times and fails the machine when it never sets.
+ *
+ * This core did not model the select at all -- not declined, not commented,
+ * simply absent, which is why the sweep for phrases like "not modelled" did not
+ * find it. */
+#define AP_MC68681_MR1_RXRDY_IS_FFULL 0x40u
 #define AP_MC68681_SR_TXRDY 0x04u  /* §4.2.9.6, "Transmitter Ready - SRA[2]" */
 #define AP_MC68681_SR_TXEMT 0x08u  /* §4.2.9.5, "Transmitter Empty - SRA[3]" */
 #define AP_MC68681_SR_OVERRUN 0x10u

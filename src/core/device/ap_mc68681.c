@@ -62,7 +62,14 @@ static void refresh_channel_interrupts(ap_mc68681_t *duart) {
     } else {
       duart->isr = (uint8_t)(duart->isr & ~txrdy[i]);
     }
-    if ((ch->sr & AP_MC68681_SR_RXRDY) != 0u) {
+    /* `MR1[6]` chooses what this bit *means*: `RxRDY` when clear, `FFULL`
+     * when set. Table 4-5 names it `RxRDY/FFULLA` for exactly that reason, and
+     * the two are different conditions -- one character against a full FIFO. */
+    const uint8_t condition =
+        (ch->mr[0] & AP_MC68681_MR1_RXRDY_IS_FFULL) != 0u
+            ? AP_MC68681_SR_FFULL
+            : AP_MC68681_SR_RXRDY;
+    if ((ch->sr & condition) != 0u) {
       duart->isr |= rxrdy[i];
     } else {
       duart->isr = (uint8_t)(duart->isr & ~rxrdy[i]);
