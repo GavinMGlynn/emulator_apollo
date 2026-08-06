@@ -307,10 +307,24 @@ unsigned ap_kbd_receive(ap_kbd_t *kbd, uint8_t byte, uint8_t *reply,
     return sent;
   }
   if (byte == 0x00u) {
-    /* Only meaningful in loopback, where it ends the conversation and selects
-     * the compatibility set. Outside it, nothing -- and *not* an echo, which is
-     * the one case the default rule below would get wrong. */
+    /* In loopback it ends the conversation and selects the compatibility set,
+     * **and it is echoed like anything else**. Outside loopback, nothing.
+     *
+     * This used to say `00` was "*not* an echo, which is the one case the
+     * default rule below would get wrong", and the boot PROM says otherwise.
+     * Its keyboard self-test is `0073F0 move.b #$0,d0` into a send-then-poll
+     * routine: it writes `00`, then polls the DUART's `RxRDY` sixty-five
+     * thousand times waiting for a byte back, and posts a failure when none
+     * comes. A machine that does not echo `00` fails `KEYBOARD TEST # 0` and
+     * blinks a diagnostic code for ever, which is exactly what this core did
+     * the first time a display was fitted to it.
+     *
+     * So the echo comes first and the mode change follows. The old reading was
+     * not unreasonable -- `00` really does mean something here, unlike the
+     * bytes the default arm passes through -- but "it means something" and "it
+     * is not echoed" are separate claims, and only the first was evidenced. */
     if (kbd->loopback) {
+      EMIT(byte);
       kbd->keystate_mode = false;
       kbd->loopback = false;
     }

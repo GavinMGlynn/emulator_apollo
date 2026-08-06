@@ -4189,10 +4189,11 @@ boot below, and the boot is not attempted until they are done.
       the one byte `ap_kbd_receive` deliberately does not echo in loopback. So
       the firmware is the authority and the exclusion is wrong: in loopback,
       `00` *is* answered, whatever else it also means.
-      That is a real defect with a measured cause, and the fix is one arm of one
-      switch. It is left unwritten only because the surrounding comment argues
-      the opposite case in detail and deserves rewriting with this evidence
-      rather than deleting.
+      **Fixed.** `00` is echoed in loopback, and the comment is rewritten with
+      the firmware's evidence rather than deleted -- it explained why the
+      behaviour existed, and replacing it with nothing invites the same
+      reasoning back. Two `kbd_suite` tests asserted the old behaviour and are
+      corrected, not removed.
       *Verification: `KEYBOARD TEST # 0` passing, in the framebuffer PNG.*
       That is the first defect of this phase that is genuinely ours, and it is
       narrow: one bit, one register, and a known producer.
