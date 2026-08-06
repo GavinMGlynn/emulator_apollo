@@ -76,9 +76,24 @@ bool ap_omti_fdc_in_reset(const ap_omti_t *omti) {
  * the logical unit. A driver reads it, and reads sense if it is set. */
 #define COMPLETION_ERROR 0x02u
 
-/* §5.1.3's sense bytes. Only the two codes this core can genuinely produce are
- * ever set -- an address past the drive, and a command with no drive behind it.
- * Everything else would be inventing a failure mode. */
+/* §5.1.3's sense bytes, named by Appendix A, "Sense Code Summary and
+ * Description". Only the codes this core can genuinely produce are ever set;
+ * everything else would be inventing a failure mode.
+ *
+ * `20` and `21` are one line apart in the appendix and say entirely different
+ * things, which is the distinction this model spent two boots not making:
+ *
+ *   20 Invalid Command. "the controller decoded a command code that it does
+ *      not support."
+ *   21 Illegal Disk Address. "a command with a Sector Address beyond the
+ *      capacity of the drive. Check the number of cylinders, heads and sector
+ *      size that the drive is configured for."
+ *
+ * A command this core has not modelled is the first of those and not the
+ * second. Reporting it as `21` told Domain/OS its *geometry* was wrong, which
+ * is a lie about a part of the system that was working, and sent it down a path
+ * that ends in a fatal status several layers from the actual cause. */
+#define SENSE_INVALID_COMMAND 0x20u
 #define SENSE_ILLEGAL_ADDRESS 0x21u
 #define SENSE_DRIVE_NOT_READY 0x04u
 
@@ -251,8 +266,10 @@ static void execute(ap_omti_t *omti) {
 
   if (!ap_omti_cdb_accepted_by_esdi(cdb.command)) {
     /* Including `0C INITIALIZE DRIVE CHARACTERISTICS`, which is ST506-only and
-     * which this controller must refuse rather than quietly accept. */
-    finish(omti, true, SENSE_ILLEGAL_ADDRESS);
+     * which this controller must refuse rather than quietly accept. Appendix
+     * A's `20` word for word: "the controller decoded a command code that it
+     * does not support". */
+    finish(omti, true, SENSE_INVALID_COMMAND);
     return;
   }
 
@@ -527,8 +544,17 @@ static void execute(ap_omti_t *omti) {
   default:
     /* Accepted by the command set and not implemented here. Reported as an
      * error rather than as success, because a driver told a format succeeded
-     * when nothing was written would go on to trust the disk. */
-    finish(omti, true, SENSE_ILLEGAL_ADDRESS);
+     * when nothing was written would go on to trust the disk.
+     *
+     * `20` rather than `21`, which is the honest one of the two: this
+     * controller does not support the code. Told `21` instead, Domain/OS was
+     * being informed its geometry was wrong -- and it believed it, took a
+     * recovery path built for that, and died several layers away from the
+     * command that failed. Two commands, `1E` and `0F`, had to be excavated
+     * from that distance one at a time. A model that reports why it failed in
+     * the vocabulary the host already understands is the difference between a
+     * census and an excavation. */
+    finish(omti, true, SENSE_INVALID_COMMAND);
     return;
   }
 }

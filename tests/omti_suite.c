@@ -315,6 +315,59 @@ static void test_writing_the_sector_buffer_does_not_touch_the_drive(void) {
 }
 
 
+/* ## "I do not support that command" is not "your geometry is wrong"
+ *
+ * Appendix A, "Sense Code Summary and Description", gives the two codes one
+ * line apart:
+ *
+ *   20 Invalid Command       "the controller decoded a command code that it
+ *                             does not support"
+ *   21 Illegal Disk Address  "a command with a Sector Address beyond the
+ *                             capacity of the drive"
+ *
+ * This model reported everything it had not implemented as `21`, and the cost
+ * was two boots: Domain/OS believed the geometry claim, took the recovery path
+ * built for it, and died several layers from the command that actually failed.
+ * `1E` and `0F` each had to be excavated from that distance separately.
+ */
+static void test_an_unimplemented_command_reports_invalid_command_not_a_bad_address(void) {
+  ap_omti_t o;
+  ap_omti_reset(&o);
+
+  /* `04 FORMAT DRIVE`: in §5's ESDI set, so the command set accepts it, and
+   * not modelled here, so it reaches the default arm. */
+  static const uint8_t cdb[6] = {0x04, 0, 0, 0, 0, 0};
+  issue(&o, cdb);
+
+  TEST_ASSERT_EQUAL_INT(AP_OMTI_PHASE_STATUS, ap_omti_disk_phase(&o));
+  /* Failed, and still failing -- reporting success would have a driver trust a
+   * format that never happened. Only the *reason* changes. */
+  TEST_ASSERT_EQUAL_HEX8(0x02, ap_omti_disk_read(&o, AP_OMTI_DISK_DATA));
+  (void)ap_omti_disk_read(&o, AP_OMTI_DISK_STATUS);
+
+  static const uint8_t sense[6] = {0x03, 0, 0, 0, 0, 0}; /* REQUEST SENSE */
+  issue(&o, sense);
+  TEST_ASSERT_EQUAL_HEX8(0x20, ap_omti_disk_read(&o, AP_OMTI_DISK_DATA));
+}
+
+static void test_a_command_outside_the_esdi_set_reports_invalid_command(void) {
+  ap_omti_t o;
+  ap_omti_reset(&o);
+
+  /* `0C INITIALIZE DRIVE CHARACTERISTICS` is ST506-only. The controller does
+   * not decode it at all, which is Appendix A's `20` in the most literal
+   * reading it has. */
+  static const uint8_t cdb[6] = {0x0C, 0, 0, 0, 0, 0};
+  issue(&o, cdb);
+
+  TEST_ASSERT_EQUAL_HEX8(0x02, ap_omti_disk_read(&o, AP_OMTI_DISK_DATA));
+  (void)ap_omti_disk_read(&o, AP_OMTI_DISK_STATUS);
+
+  static const uint8_t sense[6] = {0x03, 0, 0, 0, 0, 0};
+  issue(&o, sense);
+  TEST_ASSERT_EQUAL_HEX8(0x20, ap_omti_disk_read(&o, AP_OMTI_DISK_DATA));
+}
+
 /* `IRQ14`, which the board could not wire because nothing here derived it.
  *
  * §4.2 gives the raise -- "If the INTERRUPT ENABLE bit was previously set in
@@ -450,6 +503,8 @@ int main(void) {
   RUN_TEST(test_a_word_read_of_the_data_port_takes_two_buffer_bytes);
   RUN_TEST(test_a_block_count_past_the_manuals_cap_is_refused);
   RUN_TEST(test_writing_the_sector_buffer_does_not_touch_the_drive);
+  RUN_TEST(test_an_unimplemented_command_reports_invalid_command_not_a_bad_address);
+  RUN_TEST(test_a_command_outside_the_esdi_set_reports_invalid_command);
   RUN_TEST(test_a_completed_command_asks_for_an_interrupt_when_enabled);
   RUN_TEST(test_the_data_phase_asks_for_dma_only_when_dma_is_enabled);
   RUN_TEST(test_two_controllers_reset_alike_hold_identical_state);

@@ -3349,14 +3349,16 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         *Verification: `omti_suite` +1 (16) -- the data-out phase entered with
         `I/O` clear, a full block accepted, and completion clean with **no drive
         fitted**, which is the assertion that the drive was not touched.*
-  - [ ] **Stop reporting "not implemented" as "illegal disk address".** Failing
-        rather than falsely succeeding is right; using `21` for it is not, since
-        the address was fine and the report sent the operating system down a
-        geometry path. Appendix A is the sense code summary and will name a
-        better one. Two commands have now been found this way one at a time,
-        each costing a boot; a distinguishable code names the rest at once.
-        *Verification: a command the model does not implement reporting a code
-        that means that.*
+  - [x] **Stop reporting "not implemented" as "illegal disk address".**
+        Appendix A, "Sense Code Summary and Description", gives the two one line
+        apart: `20 Invalid Command`, "the controller decoded a command code that
+        it does not support", against `21 Illegal Disk Address`, "a Sector
+        Address beyond the capacity of the drive". Both the unimplemented arm
+        and the not-in-the-ESDI-set arm now report `20`. Detail in
+        `PROJECT_STATUS.md`.
+        *Verification: `omti_suite` +2 (18) -- `04 FORMAT DRIVE`, accepted and
+        unmodelled, and `0C`, not in the set at all, each reporting `20` through
+        `REQUEST SENSE` while still reporting the error.*
   - [ ] **`IRQ6` and `DRQ2`, the floppy's**, are placed and not driven: its
         completion is the FDC's result phase rather than the fixed disk's.
         *Verification: a floppy command completing through an interrupt.*

@@ -5360,6 +5360,37 @@ cost of a boot, is the argument for the next item: while "not implemented"
 reports itself as `21 illegal disk address` it is indistinguishable from a real
 addressing failure, and each one has to be excavated separately.
 
+#### `20 Invalid Command`: the code that means what this model means
+**Fixed.** Appendix A, "Sense Code Summary and Description", page A-5, prints the
+two codes one line apart:
+
+> **20 Invalid Command.** This indicates that the controller decoded a command
+> code that it does not support.
+>
+> **21 Illegal Disk Address.** This indicates that the controller received a
+> command with a Sector Address beyond the capacity of the drive. Check the
+> number of cylinders, heads and sector size that the drive is configured for.
+
+Both of this model's refusal arms — the command outside §5's ESDI set, and the
+command inside it with no case in the execute switch — reported `21`. Neither
+is an address failure. The second sentence of `21`'s description is the damage:
+it is an *instruction to the host*, and Domain/OS followed it, checking a
+geometry that was correct and dying on a path built for a fault it did not have.
+The fatal `00080012` is several layers from the command that produced it, which
+is why `1E` and then `0F` each cost a full boot to find.
+
+`20` is also the honest code rather than merely the convenient one. It describes
+a controller that does not support the opcode, and that is exactly what this
+model is for those commands — not a claim about the drive, the disk, or the
+image.
+
+Not changed, and worth naming as unsettled: a **block count past the manual's
+buffer cap** still reports `21`. It is not an address failure either, but no
+Appendix A code covers "parameter out of range for this command" — the type 2
+set is `20` invalid command, `21` illegal disk address, `22` illegal function
+for drive type, `23` volume overflow, and none of them fits. Left as it is
+rather than guessed at.
+
 
 Stopping on the first refusal never fires. The run reaches the crash with
 `disk refused` absent entirely and `disk last 08, completed, sense 00 00 00 00`
