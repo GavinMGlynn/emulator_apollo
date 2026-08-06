@@ -3922,8 +3922,19 @@ boot below, and the boot is not attempted until they are done.
       exactly what "a verified fast mode comes later, and only under an
       identity harness" exists for. Worth recording here so Phase 8 is chosen
       for a measured reason rather than a general one.
-      *Verification: the PROM's self-test banner legible in a PNG -- from a run
-      long enough to clear the delay, whose size is now the thing to measure.*
+      **Measured, from the ROM.** Nine callers reach the routine, each loading
+      the count with `move.l #imm,d0` -- `001E8480` (2,000,000), `0007A120`
+      (500,000) and `0001E848` (125,000). After the `lsr.l #2` and eighteen
+      instructions an iteration, the **largest single call is about nine
+      million instructions**. So a billion is not one wait: it is that call
+      made a hundred-odd times.
+      The firmware is therefore *repeating* something around the delay rather
+      than sitting in it -- a retry, or a poll with a timeout between attempts.
+      Which of those, and what it is waiting on, is the next question, and it is
+      a disassembly of the callers at `005EBC`-`005F38` rather than another run.
+      *Verification: the PROM's self-test banner legible in a PNG, or the
+      retry's condition identified and shown to be one this core cannot yet
+      satisfy.*
       *Verification: the PROM's self-test banner legible in a PNG.*
 - [ ] SDL3 interactive frontend, implemented rather than stubbed: scanout to a
       letterboxed texture, keyboard/mouse mapping, `--frames` bounded mode
