@@ -3380,6 +3380,16 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         *Verification: `awd_suite` 33 -- every writing command reporting `17`
         with a valid address and bit 7 clear, reads on the same drive
         unaffected; and the image's MD5 unchanged across a boot.*
+  - [ ] **The boot now spins instead of crashing, at `3C456B9A`.** The crash is
+        gone and the disk is healthy -- no refusals, and **no `03 REQUEST
+        SENSE`** at all, down from `x8`, which is the number that says
+        Domain/OS has nothing left to ask about. Both write commands now appear
+        and succeed. But four consecutive 100M samples land in an eighteen-byte
+        window `0xFE` past the old crash site, with no disk activity behind
+        them: the same routine gets further and then waits on something that
+        never changes. Detail in `PROJECT_STATUS.md`.
+        *Verification: the loop body read out of memory and the polled address
+        identified.*
   - [ ] **`IRQ6` and `DRQ2`, the floppy's**, are placed and not driven: its
         completion is the FDC's result phase rather than the fixed disk's.
         *Verification: a floppy command completing through an interrupt.*

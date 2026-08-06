@@ -5586,6 +5586,40 @@ accepted", which is the observable half. The break state itself has no consumer 
 nothing in this machine watches TxD at bit level — and is named as such in the
 struct so a reader can tell a bit that is stored from a bit that does something.
 
+#### Where the boot now stops: a spin, not a crash
+The `17 Write Protected` fix took the crash away. What is there instead is a
+tight loop, and the distinction matters because the evidence is entirely
+different.
+
+The disk is **healthy**. The 900M-instruction run's report:
+
+    disk commands 1562 issued: 00 x5 01 x1 08 x1536 0E x6 0F x2 1E x5 1F x2 EC x5
+    disk last     0E, completed, sense 00 00 00 00, next lba 313307
+
+No `disk refused` line at all, and **no `03 REQUEST SENSE`** — down from `x8`,
+which is the telling number: Domain/OS issues it only after a failure, and it no
+longer has any to ask about. Every write command now appears and succeeds:
+`0F x2`, `1F x2`, against `0F x1` and no `1F` at all when writes were refused.
+The image's MD5 is unchanged across the run, so the writable flag reaches the
+in-memory copy and nothing else.
+
+The machine is past `3C456A9C`, where it died in every previous run, and is
+executing inside Domain/OS. But four consecutive 100M-instruction samples land
+in an eighteen-byte window:
+
+    400000000  pc 3C456BB2 -> 01081BB2
+    500000000  pc 3C456B9A -> 01081B9A
+    600000000  pc 3C456BB0 -> 01081BB0
+    700000000  pc 3C456B9E -> 01081B9E
+
+That is a loop at `3C456B9A`, about `0x18` bytes long, and it is `0xFE` past the
+old crash site — the same routine, getting further and then waiting. With no
+disk activity behind it, it is polling something that never changes.
+
+**This is not being called a success.** No login prompt has appeared, and a
+machine that spins is not a machine that boots. What has changed is which
+subsystem the question is about: it is no longer the disk.
+
 Not changed, and worth naming as unsettled: a **block count past the manual's
 buffer cap** still reports `21`. It is not an address failure either, but no
 Appendix A code covers "parameter out of range for this command" — the type 2
