@@ -5299,6 +5299,37 @@ but now it is known to be the cause rather than suspected, and the refusal that
 matters is the **first** one, not the post-crash one whose block number came out
 of the crash message.
 
+#### `1E READ TO BUFFER`: accepted, unimplemented, reported as a bad address
+
+Stopping on the first refusal never fires. The run reaches the crash with
+`disk refused` absent entirely and `disk last 08, completed, sense 00 00 00 00`
+— **no address is refused at all**. Sense `21` reaches Domain/OS by another
+route, and the command census names it:
+
+    disk commands 1552 issued: 00 x5 01 x1 03 x1 08 x1538 0E x1 1E x1 EC x5
+
+`1E` is `READ TO BUFFER`. `ap_omti_cdb_accepted_by_esdi` accepts it — correctly,
+it is in §5's ESDI set — and the execute switch has no case for it, so it lands
+on the default:
+
+    default:
+      /* Accepted by the command set and not implemented here. Reported as an
+       * error rather than as success, because a driver told a format succeeded
+       * when nothing was written would go on to trust the disk. */
+      finish(omti, true, SENSE_ILLEGAL_ADDRESS);
+
+**That is the whole fault.** An unimplemented command reports `21`, Domain/OS's
+jump table maps `21` to `00080012`, the caller's `cmpi.l #$00010005` fails, and
+the machine crashes. Every link between the two has been measured.
+
+The choice of `SENSE_ILLEGAL_ADDRESS` for "not implemented" is what made this
+hard to see, and the comment above it explains the reasoning honestly: failing
+is safer than falsely succeeding. That is right. Using *this particular* sense
+code for it is not — `21` means the address was bad, and the address was fine,
+so the report sent an operating system down a path about disk geometry when the
+truth was a missing command. A distinct code would have named the gap in the
+first console capture.
+
 That is the third time in this hunt that the obvious lead has turned out to be
 downstream of the fault — after `DISK TIMEOUT`, and after the crash status that
 turned out to be the crash *message*. The pattern is worth naming: a value that

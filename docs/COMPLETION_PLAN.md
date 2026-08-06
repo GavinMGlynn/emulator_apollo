@@ -3322,8 +3322,19 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         the `0x21` arm of the table yields `00080012`. **The chain closes on the
         disk refusal**: the refusal causes the crash and `DISK TIMEOUT` is the
         crash handler failing afterwards, which is the order the console prints
-        them in. The question is again which address is refused -- the **first**
-        refusal, not the post-crash one. Detail in `PROJECT_STATUS.md`.
+        them in. And no address is refused at all: the run reaches the crash
+        with `disk refused` absent and `disk last 08, completed, sense 00`. The
+        census names the culprit -- `1E x1`, **`READ TO BUFFER`**, which
+        `ap_omti_cdb_accepted_by_esdi` accepts (rightly) and the execute switch
+        does not implement, so it lands on the default that reports
+        `SENSE_ILLEGAL_ADDRESS`. That `21` is what Domain/OS's jump table turns
+        into `00080012`. Detail in `PROJECT_STATUS.md`.
+  - [ ] **Implement `1E READ TO BUFFER`, and stop reporting "not implemented"
+        as "illegal disk address".** Failing rather than falsely succeeding is
+        right; using `21` for it is not, since the address was fine and the
+        report sent the operating system down a geometry path. A distinct code
+        would have named the gap in the first console capture.
+        *Verification: the console going past the crash.*
         *Verification: the console going past the crash.*
         *Verification: the console going past the crash.*
   - [ ] **`IRQ6` and `DRQ2`, the floppy's**, are placed and not driven: its
