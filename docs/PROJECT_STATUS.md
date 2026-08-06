@@ -5322,6 +5322,44 @@ The command ends in the status phase with **no data phase**. Getting that
 backwards would leave a driver reading bytes it never asked for and a controller
 waiting on a handshake that never comes.
 
+#### `0F WRITE DATA TO SECTOR BUFFER`: the same defect, one command later
+**Implemented.** With `1E` landed the crash did not go away — it changed shape.
+The status went from `80080012` to `00080012`, dropping bit 31's error flag but
+keeping code `0012`, and it arrived at 12:59 elapsed instead of about 8 minutes.
+Same code, later, means a *second* command was reaching the same default arm.
+
+The census named it, and named it only because `1E` now worked:
+
+    disk commands 1563 issued: 00 x5 01 x1 03 x3 08 x1539 0E x5 0F x1 1E x4 EC x5
+
+`0F` is absent from the pre-fix census entirely — the machine never got far
+enough to issue it. `1E` went 1 → 4 and `0E` 1 → 5, which is the same driver
+path running to completion several times instead of dying on its first attempt.
+
+§5.4.14 is `0E` read backwards: "data to be written from the host to the
+controllers buffer", the same sector-size table capping it at seven blocks of
+1056 bytes, and the same sentence — "the controller does not access the disk
+drive during the execution of this command".
+
+Two details were worth care. First, the data-out phase already existed for `0A
+WRITE` and writes each completed sector straight through to the disk; `0F` must
+not. The two are distinguished by `blocks_left`, which is the field the *data-in*
+side already tests for the same purpose, so the test is a mirror rather than a
+new flag. Second, the manual numbers **§5.4.15 CHECK TRACK FORMAT as `0Fh` as
+well**, which cannot be right: its own byte-0 row reads `0 0 0 1 0 0 0 0`. The
+bit pattern is the command and the heading is the typo — the same class of error
+as an OCR'd timing table, caught here only because the row was read rather than
+the title.
+
+The test asserts the drive is not touched by a route that cannot be faked: no
+drive is fitted, so a model that wrote the buffer through to disk could only
+have completed with an error. A clean completion *is* the assertion.
+
+That two commands have now been found this way, one at a time and each at the
+cost of a boot, is the argument for the next item: while "not implemented"
+reports itself as `21 illegal disk address` it is indistinguishable from a real
+addressing failure, and each one has to be excavated separately.
+
 
 Stopping on the first refusal never fires. The run reaches the crash with
 `disk refused` absent entirely and `disk last 08, completed, sense 00 00 00 00`

@@ -3339,15 +3339,24 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         *Verification: `awd_suite` +2 (13) -- the buffer filled with no data
         phase and read back through `0E` as the addressed sector, and a block
         count past the manual's cap refused.*
+  - [x] **`0F WRITE DATA TO SECTOR BUFFER` implemented**, `0E` read backwards
+        and found the same way: with `1E` landed the crash status changed
+        `80080012` to `00080012` and moved four minutes later, so a *second*
+        command was still reaching the default arm. The census named it -- `0F`
+        appeared in the trace only once `1E` worked. §5.4.14, same seven-block
+        cap, same "does not access the disk drive". Detail in
+        `PROJECT_STATUS.md`.
+        *Verification: `omti_suite` +1 (16) -- the data-out phase entered with
+        `I/O` clear, a full block accepted, and completion clean with **no drive
+        fitted**, which is the assertion that the drive was not touched.*
   - [ ] **Stop reporting "not implemented" as "illegal disk address".** Failing
         rather than falsely succeeding is right; using `21` for it is not, since
         the address was fine and the report sent the operating system down a
         geometry path. Appendix A is the sense code summary and will name a
-        better one.
+        better one. Two commands have now been found this way one at a time,
+        each costing a boot; a distinguishable code names the rest at once.
         *Verification: a command the model does not implement reporting a code
         that means that.*
-        *Verification: the console going past the crash.*
-        *Verification: the console going past the crash.*
   - [ ] **`IRQ6` and `DRQ2`, the floppy's**, are placed and not driven: its
         completion is the FDC's result phase rather than the fixed disk's.
         *Verification: a floppy command completing through an interrupt.*

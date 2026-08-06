@@ -269,6 +269,51 @@ static void test_a_block_count_past_the_manuals_cap_is_refused(void) {
   TEST_ASSERT_EQUAL_INT(AP_OMTI_PHASE_STATUS, ap_omti_disk_phase(&o));
 }
 
+/* ## `0F WRITE DATA TO SECTOR BUFFER`, the direction `0E` is not
+ *
+ * §5.4.14, and the sentence that decides the whole arm: "the controller does
+ * not access the disk drive during the execution of this command". A data-out
+ * phase that ends by writing a sector would be `0A WRITE`; this one ends by
+ * having filled the buffer, and the two are told apart by the block count.
+ */
+static void test_writing_the_sector_buffer_does_not_touch_the_drive(void) {
+  ap_omti_t o;
+  ap_omti_reset(&o); /* No drive: `omti.drive` is NULL. */
+
+  static const uint8_t cdb[6] = {0x0F, 0, 0, 0, 1, 0};
+  issue(&o, cdb);
+
+  /* Data *out*: `C/D` clear as in every data phase, `I/O` **clear** because the
+   * bytes travel to the controller, busy and requested. `CB` -- the byte `0E`
+   * answers -- differs in exactly the `I/O` bit. */
+  TEST_ASSERT_EQUAL_HEX8(0xC9, ap_omti_disk_read(&o, AP_OMTI_DISK_STATUS));
+  TEST_ASSERT_EQUAL_INT(AP_OMTI_PHASE_DATA_OUT, ap_omti_disk_phase(&o));
+
+  for (unsigned i = 0; i < AP_AWD_SECTOR_BYTES; i++) {
+    /* The phase holds for every byte but the last, which is what makes the
+     * length the block count's and not a sector's by accident. */
+    TEST_ASSERT_EQUAL_INT(AP_OMTI_PHASE_DATA_OUT, ap_omti_disk_phase(&o));
+    ap_omti_disk_write(&o, AP_OMTI_DISK_DATA, (uint8_t)(i & 0xFFu));
+  }
+
+  /* Complete, and complete *without an error*. With no drive fitted, a model
+   * that wrote the buffer through to the disk could only have failed here --
+   * so a clean completion is the assertion that it did not try. */
+  TEST_ASSERT_EQUAL_INT(AP_OMTI_PHASE_STATUS, ap_omti_disk_phase(&o));
+  TEST_ASSERT_EQUAL_HEX8(0u, ap_omti_disk_read(&o, AP_OMTI_DISK_DATA));
+
+  /* And the bytes are *there*: `0E` reads back what `0F` put in. The pair is
+   * the reason both commands exist -- §5.4.13 names `0E` as the collection half
+   * of a buffer transfer done in programmed I/O. */
+  (void)ap_omti_disk_read(&o, AP_OMTI_DISK_STATUS);
+  static const uint8_t back[6] = {0x0E, 0, 0, 0, 1, 0};
+  issue(&o, back);
+  for (unsigned i = 0; i < 8u; i++) {
+    TEST_ASSERT_EQUAL_HEX8((uint8_t)(i & 0xFFu),
+                           ap_omti_disk_read(&o, AP_OMTI_DISK_DATA));
+  }
+}
+
 
 /* `IRQ14`, which the board could not wire because nothing here derived it.
  *
@@ -404,6 +449,7 @@ int main(void) {
   RUN_TEST(test_a_reset_leaves_the_identification_block_in_the_buffer);
   RUN_TEST(test_a_word_read_of_the_data_port_takes_two_buffer_bytes);
   RUN_TEST(test_a_block_count_past_the_manuals_cap_is_refused);
+  RUN_TEST(test_writing_the_sector_buffer_does_not_touch_the_drive);
   RUN_TEST(test_a_completed_command_asks_for_an_interrupt_when_enabled);
   RUN_TEST(test_the_data_phase_asks_for_dma_only_when_dma_is_enabled);
   RUN_TEST(test_two_controllers_reset_alike_hold_identical_state);

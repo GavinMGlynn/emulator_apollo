@@ -440,6 +440,39 @@ static void execute(ap_omti_t *omti) {
     return;
   }
 
+  case AP_OMTI_CMD_WRITE_SECTOR_BUFFER: {
+    /* §5.4.14 WRITE DATA TO SECTOR BUFFER, and `0E` read backwards: "data to be
+     * written from the host to the controllers buffer", with the same
+     * sector-size table capping it at seven blocks of 1056 bytes, and the same
+     * sentence -- "the controller does not access the disk drive during the
+     * execution of this command". So no address is checked and no drive is
+     * needed, and the data phase runs from the host inwards.
+     *
+     * The manual numbers §5.4.15 CHECK TRACK FORMAT `0Fh` as well, which cannot
+     * be: its own byte-0 row reads `0 0 0 1 0 0 0 0`. The bit pattern is the
+     * command, the heading is the typo, and this arm takes the opcode the table
+     * gives it. */
+    const unsigned blocks = block_count(&cdb);
+    if (blocks > AP_OMTI_MAX_BUFFER_BLOCKS) {
+      finish(omti, true, SENSE_ILLEGAL_ADDRESS);
+      return;
+    }
+    omti->buffer_index = 0u;
+    omti->transfer_length = blocks * AP_AWD_SECTOR_BYTES;
+    /* **No blocks**, which is how the data phase knows this fills the buffer
+     * rather than the disk. `0E` distinguishes the two with the same field. */
+    omti->blocks_left = 0u;
+    omti->phase = AP_OMTI_PHASE_DATA_OUT;
+    /* Data, travelling *to* the controller: `C/D` clear as every data phase has
+     * it, and `I/O` clear, which is the one bit that separates this from `0E`. */
+    omti->status = (uint8_t)((omti->status & ~(AP_OMTI_ST_CD | AP_OMTI_ST_IO)) |
+                             AP_OMTI_ST_REQ);
+    if ((omti->mask & AP_OMTI_MASK_DMA_ENABLE) != 0u) {
+      omti->status |= AP_OMTI_ST_DREQ;
+    }
+    return;
+  }
+
   case AP_OMTI_CMD_READ_TO_BUFFER: {
     /* §5.4.19 READ DATA TO BUFFER: "This command reads data from the disk to
      * the controller's buffer. **It does not transfer the data to the host.**"
@@ -543,6 +576,17 @@ static void take_byte(ap_omti_t *omti, uint8_t value) {
 
   case AP_OMTI_PHASE_DATA_OUT:
     omti->buffer[omti->buffer_index++] = value;
+    /* No blocks to place means the buffer itself is the destination -- `0F`,
+     * whose §5.4.14 does not access the drive. The mirror of the test the
+     * `DATA_IN` path makes on the same field, and the reason it is a *test*
+     * rather than a flag: a phase that ends by writing to a disk and one that
+     * ends by not writing to a disk differ in exactly this. */
+    if (omti->blocks_left == 0u) {
+      if (omti->buffer_index >= omti->transfer_length) {
+        finish(omti, false, 0u);
+      }
+      return;
+    }
     /* A *sector*, which is what the write path is waiting for -- not the whole
      * buffer, which now holds several. The two were the same number until
      * `0E` needed room for seven, and the constant used here was the wrong one
