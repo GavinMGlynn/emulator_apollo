@@ -3991,8 +3991,31 @@ boot below, and the boot is not attempted until they are done.
       Working `8D` back through it: `not 8D` is `72`, and `ror.b #4` of `27` is
       `72`. **The caller passed `27`** -- that is the failure's real number and
       `8D` is only its display form.
-      *Verification: the caller that passes `27`, and the graphics condition it
-      checked. One `bsr` site, findable the same way this was.*
+      **Found: `006D18`, and the code around it is a signature test.**
+
+          6CF0  move.b  #$C6,(a2)
+          6CF4  cmpi.w  #$7777,(a1)
+          6CF8  bne.s   6D02
+          6CFA  move.b  #$C7,(a2)
+          6CFE  cmpi.w  #$8888,(a1)
+          6D02  bne.w   $5EB6        ; -> the blink loop
+          6D06  move.b  #$C0,(a2)
+          6D0A  move.b  #$00,(a4)
+          6D0E  movea.l #$0005EC06,a2
+          6D14  bsr.w   $7114
+          6D18  move.b  #$27,d1      ; posts 27, shown as 8D
+
+      So the firmware writes `C6` then `C7` to one display register and requires
+      `7777` then `8888` back from another, with the failure branch going
+      **straight to the blink loop**. That is a controller identification or
+      signature handshake, and this core does not answer it.
+      Note `27` is posted *after* those compares pass, so it is more likely the
+      **next test's progress code** than the failing one -- the machine reaches
+      27 and stops inside it. The compares above are what to satisfy first, and
+      they are concrete: two writes, two expected words.
+      *Verification: `7777` and `8888` sourced from the Apollo graphics
+      documentation or the oracle, then answered, and the boot getting past
+      `8D`.*
       *Verification: the PROM's self-test banner legible in a PNG.*
 - [ ] SDL3 interactive frontend, implemented rather than stubbed: scanout to a
       letterboxed texture, keyboard/mouse mapping, `--frames` bounded mode
