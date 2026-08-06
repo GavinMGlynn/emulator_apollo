@@ -3359,6 +3359,47 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         *Verification: `omti_suite` +2 (18) -- `04 FORMAT DRIVE`, accepted and
         unmodelled, and `0C`, not in the set at all, each reporting `20` through
         `REQUEST SENSE` while still reporting the error.*
+  - [ ] **Complete §5.4, rather than one command per boot.** `1E`, then `0F`,
+        and the census then naming `1F` is three commits of the same shape, each
+        costing a twenty-minute boot to discover the next. That is chasing the
+        boot, which this project's own rules forbid: the module is the unit of
+        work and the boot is a thermometer. §5.4 read end to end in one pass
+        (PDF 50-73, page images -- the file has no text layer) gives the whole
+        remainder:
+
+        | Op | Command | § | Model |
+        |----|---------|---|-------|
+        | `04` | FORMAT DRIVE | 5.4.4 | track to end of unit, data fields `6Ch` or the buffer pattern per control bit 6 |
+        | `06` | FORMAT TRACK | 5.4.6 | one track, same pattern rule |
+        | `07` | FORMAT BAD TRACK | 5.4.7 | as `06`, plus the bad-track flag; later access to the track is sense `19` |
+        | `0D` | READ ECC BURST ERROR LENGTH | 5.4.12 | one word, the last correctable error's length |
+        | `10` | CHECK TRACK FORMAT | 5.4.15 | the named track against CRC/ECC |
+        | `11` | ASSIGN ALTERNATE TRACK | 5.4.16 | four bytes **data-out**; direct access to the alternate is sense `1C` |
+        | `1A` | START/STOP | 5.4.17 | **not in our accepted set at all** -- ESDI-only, status returned without waiting for the spindle |
+        | `1B` | CHANGE CARTRIDGE | 5.4.18 | removable only, so sense `22` -- Appendix A names this command in `22`'s own description |
+        | `1F` | WRITE DATA FROM BUFFER | 5.4.20 | the mirror of `1E` |
+        | `20` | COPY | 5.4.21 | ten-byte CDB, LUN to LUN, no host data |
+        | `37` | READ ESDI DEFECT LIST | 5.4.22 | 256 bytes: dated six-byte header, five-byte descriptors, five `FFh` |
+        | `E5` `E6` | READ/WRITE LONG | 5.4.27/28 | sector size **plus six bytes** of ECC, for ESDI |
+
+        Two defects found in the same read, and part of the same item:
+        §5.4.3's sense bytes 1-3 carry the failing sector address with byte 0
+        bit 7 as its validity flag, and this core sends zeros with the flag
+        clear; and the drive configuration word `0244` this core returns has
+        byte 5 bit 2 set, which §5.4.29's byte-5 table calls **soft** sectored,
+        while the `READ CONFIGURATION` comment claims the hard-sectored layout.
+        *Verification: every opcode in `ap_omti_cdb_accepted_by_esdi` reaching a
+        case rather than the default, asserted by a test that walks the accepted
+        set; and a boot whose census shows no `20 Invalid Command`.*
+  - [ ] **Audit every other device the same way**, once the OMTI is done: for
+        each, the gap between what the part accepts and what this core models,
+        read from the part's own manual rather than discovered by a boot. The
+        OMTI is unlikely to be the only one with an accepted-but-unmodelled set
+        -- the DUARTs, the two PICs, the two 8237s, the calendar and the Bt458
+        each have registers and commands this core reached for only as far as
+        the firmware happened to exercise them.
+        *Verification: one table per device of accepted-versus-modelled, and the
+        gaps either closed or named as deliberate with a reason.*
   - [ ] **`IRQ6` and `DRQ2`, the floppy's**, are placed and not driven: its
         completion is the FDC's result phase rather than the fixed disk's.
         *Verification: a floppy command completing through an interrupt.*
