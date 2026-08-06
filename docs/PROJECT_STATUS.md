@@ -5655,6 +5655,46 @@ disk activity behind it, it is polling something that never changes.
 machine that spins is not a machine that boots. What has changed is which
 subsystem the question is about: it is no longer the disk.
 
+##### The loop is a blink, not a wait
+
+Dumped from the running machine at `3C456B60` and disassembled by hand, the
+eighteen-byte window is two counted delay loops around two calls:
+
+    3C456B86  subq.l #2,a7 ; move.w #$000F,-(a7) ; jsr $3C43DEFA ; addq.l #4,a7
+    3C456B94  clr.w  d2
+    3C456B98  addq.w #1,d2
+    3C456B9A  cmpi.w #$2710,d2          ; 10000
+    3C456B9E  blt.s  3C456B98
+    3C456BA0  subq.l #2,a7 ; clr.w -(a7) ; jsr $3C43DEFA ; addq.l #4,a7
+    3C456BAE  subq.w #1,d2
+    3C456BB0  tst.w  d2
+    3C456BB2  bgt.s  3C456BAE
+    3C456BB4  bra.s  3C456B86
+
+Call something with `15`, count to ten thousand, call it with `0`, count back
+down, repeat for ever. That is a **blink**, and it changes the diagnosis
+completely: the machine is not waiting on a device that never answers, it has
+**deliberately halted and is signalling**. Nothing upstream is going to be fixed
+by making some peripheral respond.
+
+And immediately before it:
+
+    3C456B72  pea    (pc + $F750)        ; -> 3C4562C6
+    3C456B78  pea    (pc + $0D44)        ; -> 3C4578C0
+    3C456B7C  jsr    $3C4D1F68
+    3C456B82  lea    $0C(a7),a7
+
+Two PC-relative addresses pushed as arguments — string pointers — to a routine
+called just before the halt. Domain/OS **printed a panic message and then
+halted**, and the console shows nothing after the loader's `low:/high:/start:`
+line. So the message exists and went somewhere this frontend does not surface.
+The obvious candidate is the frame buffer: this machine has a display, the
+headless frontend renders nothing, and a panic that reaches the screen rather
+than the serial line would look exactly like this.
+
+That is the next thing to establish, and it is cheap: the two strings are at
+fixed addresses and can be read straight out of memory.
+
 Not changed, and worth naming as unsettled: a **block count past the manual's
 buffer cap** still reports `21`. It is not an address failure either, but no
 Appendix A code covers "parameter out of range for this command" — the type 2

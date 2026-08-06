@@ -3384,8 +3384,13 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         window `0xFE` past the old crash site, with no disk activity behind
         them: the same routine gets further and then waits on something that
         never changes. Detail in `PROJECT_STATUS.md`.
-        *Verification: the loop body read out of memory and the polled address
-        identified.*
+        **The loop is a blink, not a wait**: two counted delay loops of ten
+        thousand around calls with `15` and `0`, for ever -- and two `pea`
+        string pointers to a routine immediately before it. Domain/OS printed a
+        panic and halted, and the console shows nothing, so the message went
+        somewhere this frontend does not surface. Detail in
+        `PROJECT_STATUS.md`.
+        *Verification: the two strings read out of memory and the panic named.*
   - [ ] **`IRQ6` and `DRQ2`, the floppy's**, are placed and not driven: its
         completion is the FDC's result phase rather than the fixed disk's.
         *Verification: a floppy command completing through an interrupt.*
