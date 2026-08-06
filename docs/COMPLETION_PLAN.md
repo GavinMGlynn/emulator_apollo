@@ -2810,8 +2810,16 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
       and `ap_sio`'s `OPCR[7]`, all in the datasheet now on disk; and the tape's
       per-byte handshake, where `[SC499]` §1.13.2 describes the REQUEST/READY
       exchange and the header records that **the section has not been read**.
-      That last one is the cheapest in the list and the most embarrassing to
-      have carried.
+      **Now read, and it corrects our own header.** §1.13.1's WRITE and READ
+      entries give the protocol in prose: "The READY line is activated when the
+      device is ready for a **data block** transfer", "When READY is true, the
+      host may ...", and "If the host starts transfer between blocks before
+      READY is asserted, READY MAY NOT BE ASSERTED." So READY paces **blocks**,
+      not bytes -- `ap_tape.h` calls it a per-byte handshake and that is the
+      wrong granularity. §1.13.2 itself is timing *figures*, page images with no
+      text, and they give the edges within a byte; the behaviour a driver can
+      observe is the block-level READY above, and it was in prose this project
+      already had.
 
       *Needs a document or a measurement first, and must not be coded to a
       guess:* `ap_dmapage`'s channel mapping (above); the graphics A/D converter
