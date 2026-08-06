@@ -4307,8 +4307,17 @@ boot below, and the boot is not attempted until they are done.
       than a finding about the machine, and the fix is to log *writes only*, or
       only `CRA`, so the window covers the sequence instead of one loop inside
       it.
-      *Verification: a write-only trace of serial 1 across the test, showing
-      whether and when the receiver is enabled.*
+      **Traced write-only, and the receiver *is* enabled.** `CRA` takes `45`,
+      `35`, `25` and `05` -- all with bits 1-0 = `01`, **Receiver Enabled** --
+      alongside `MR1A = 07` (eight bits, `RxRDY` select) and `CSRA = 66`. So the
+      "no enable anywhere" reading was the truncation artefact it was flagged as,
+      and is withdrawn.
+      Which leaves the narrowest statement yet: the receiver is enabled and
+      correctly programmed, the transmitter sent the byte, and **no character
+      ever arrives**. The loss is between this core's keyboard reply and
+      `ap_sio_receive_framed` -- the one span not yet instrumented.
+      *Verification: a log at `ap_kbd_receive`'s return and at
+      `ap_sio_receive_framed`'s entry, across the test.*
       That is the first defect of this phase that is genuinely ours, and it is
       narrow: one bit, one register, and a known producer.
       *Verification: `RxRDY` set on channel A by the time `000073EC` reads it,
