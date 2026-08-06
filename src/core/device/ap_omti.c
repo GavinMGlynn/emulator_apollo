@@ -440,6 +440,46 @@ static void execute(ap_omti_t *omti) {
     return;
   }
 
+  case AP_OMTI_CMD_READ_TO_BUFFER: {
+    /* §5.4.19 READ DATA TO BUFFER: "This command reads data from the disk to
+     * the controller's buffer. **It does not transfer the data to the host.**"
+     * The host collects it afterwards with `0E READ DATA FROM SECTOR BUFFER`,
+     * and §5.4.13 names the pairing from the other end -- `0E` "is normally
+     * used immediately after a Read Data to Sector Buffer (1Eh) command has
+     * been issued to enhance performance when data transfers are done using
+     * programmed I/O".
+     *
+     * So this fills the buffer and ends in the status phase with no data phase
+     * at all. Getting that wrong in the other direction -- offering the data to
+     * the host -- would leave a driver reading bytes it never asked for and the
+     * controller waiting for a handshake that never comes.
+     *
+     * Domain/OS issues exactly this pair, once each, and this command being
+     * unimplemented is what crashed the machine: it fell to the default arm and
+     * reported `SENSE_ILLEGAL_ADDRESS`, which the operating system's jump table
+     * turns into a fatal status. */
+    const unsigned blocks = block_count(&cdb);
+    if (blocks > AP_OMTI_MAX_BUFFER_BLOCKS) {
+      /* The same cap as `0E`, and §5.4.19 prints the same table for it: seven
+       * blocks at 1056 bytes. */
+      finish(omti, true, SENSE_ILLEGAL_ADDRESS);
+      return;
+    }
+    if (!addressed(omti, &cdb, &lba)) {
+      return;
+    }
+    for (unsigned block = 0; block < blocks; block++) {
+      if (!ap_awd_read(omti->drive, lba + block,
+                       &omti->buffer[block * AP_AWD_SECTOR_BYTES])) {
+        refuse(omti, cdb.cylinder, cdb.head, cdb.sector, lba + block);
+        finish(omti, true, SENSE_ILLEGAL_ADDRESS);
+        return;
+      }
+    }
+    finish(omti, false, 0u);
+    return;
+  }
+
   case AP_OMTI_CMD_RECALIBRATE:
   case AP_OMTI_CMD_SEEK:
     /* Positioning, which this model has no position to change: a seek is

@@ -191,6 +191,48 @@ static void test_a_read_command_delivers_the_addressed_sector(void) {
   TEST_ASSERT_EQUAL_INT(AP_OMTI_PHASE_IDLE, ap_omti_disk_phase(&omti));
 }
 
+/* `1E READ DATA TO BUFFER`, §5.4.19: "This command reads data from the disk to
+ * the controller's buffer. **It does not transfer the data to the host.**"
+ *
+ * The pairing is named from both ends -- §5.4.13 says `0E` "is normally used
+ * immediately after a Read Data to Sector Buffer (1Eh) command has been issued
+ * to enhance performance when data transfers are done using programmed I/O" --
+ * and Domain/OS issues exactly that pair, once each. Until this landed, `1E`
+ * was accepted by the ESDI command set and fell to the unimplemented arm, which
+ * reports `SENSE_ILLEGAL_ADDRESS`; the operating system's jump table turns that
+ * sense code into a fatal status, and the machine crashed. */
+static void test_a_read_to_buffer_fills_the_buffer_without_a_data_phase(void) {
+  build_controller();
+  issue(AP_OMTI_CMD_READ_TO_BUFFER, 0u, 0u, 2u, 1u);
+
+  /* Straight to the status phase: no `DATA IN`, because the host is not being
+   * offered anything. Offering it would leave a driver reading bytes it never
+   * asked for. */
+  TEST_ASSERT_EQUAL_INT(AP_OMTI_PHASE_STATUS, ap_omti_disk_phase(&omti));
+  TEST_ASSERT_EQUAL_HEX8(0u, take_status());
+
+  /* And the buffer holds the sector, which `0E` then hands over. That is the
+   * whole point of the pair, so reading it back through `0E` is the test that
+   * the two halves agree. */
+  issue(AP_OMTI_CMD_READ_SECTOR_BUFFER, 0u, 0u, 0u, 1u);
+  TEST_ASSERT_EQUAL_INT(AP_OMTI_PHASE_DATA_IN, ap_omti_disk_phase(&omti));
+  /* Sector 2, because the fixture fills every sector with its own number: a
+   * read that landed on the wrong one is visible rather than merely different,
+   * and `0E` carries no address of its own, so this also shows that what comes
+   * back is what `1E` put there. */
+  for (unsigned i = 0; i < AP_AWD_SECTOR_BYTES; i++) {
+    TEST_ASSERT_EQUAL_HEX8(2u, ap_omti_disk_read(&omti, AP_OMTI_DISK_DATA));
+  }
+}
+
+/* §5.4.19 prints the same block-count table as `0E`: seven at 1056 bytes. */
+static void test_a_read_to_buffer_past_the_cap_is_refused(void) {
+  build_controller();
+  issue(AP_OMTI_CMD_READ_TO_BUFFER, 0u, 0u, 2u, 8u);
+  TEST_ASSERT_EQUAL_INT(AP_OMTI_PHASE_STATUS, ap_omti_disk_phase(&omti));
+  TEST_ASSERT_TRUE(take_status() != 0u);
+}
+
 /* A write goes the other way and reaches the image. */
 static void test_a_write_command_reaches_the_image(void) {
   build_controller();
@@ -511,6 +553,8 @@ int main(void) {
   RUN_TEST(test_an_address_off_the_drive_is_refused);
   RUN_TEST(test_a_short_image_refuses_the_sectors_it_lacks);
   RUN_TEST(test_a_read_command_delivers_the_addressed_sector);
+  RUN_TEST(test_a_read_to_buffer_fills_the_buffer_without_a_data_phase);
+  RUN_TEST(test_a_read_to_buffer_past_the_cap_is_refused);
   RUN_TEST(test_dma_enable_is_what_asks_for_a_cycle);
   RUN_TEST(test_read_configuration_reports_the_highest_not_the_count);
   RUN_TEST(test_the_data_phase_requests_each_byte_and_stops);

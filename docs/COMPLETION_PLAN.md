@@ -3329,12 +3329,23 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         does not implement, so it lands on the default that reports
         `SENSE_ILLEGAL_ADDRESS`. That `21` is what Domain/OS's jump table turns
         into `00080012`. Detail in `PROJECT_STATUS.md`.
-  - [ ] **Implement `1E READ TO BUFFER`, and stop reporting "not implemented"
-        as "illegal disk address".** Failing rather than falsely succeeding is
-        right; using `21` for it is not, since the address was fine and the
-        report sent the operating system down a geometry path. A distinct code
-        would have named the gap in the first console capture.
-        *Verification: the console going past the crash.*
+  - [x] **`1E READ DATA TO BUFFER` implemented.** §5.4.19: "reads data from the
+        disk to the controller's buffer ... **does not transfer the data to the
+        host**", capped at seven blocks at 1056 bytes, paired with `0E` as
+        §5.4.13 names from the other end. Read from the page images -- the
+        `[OMTI]` PDF has no text layer at all, 88 characters across 89 pages,
+        and the sibling 8640 does not describe `1E`. Detail in
+        `PROJECT_STATUS.md`.
+        *Verification: `awd_suite` +2 (13) -- the buffer filled with no data
+        phase and read back through `0E` as the addressed sector, and a block
+        count past the manual's cap refused.*
+  - [ ] **Stop reporting "not implemented" as "illegal disk address".** Failing
+        rather than falsely succeeding is right; using `21` for it is not, since
+        the address was fine and the report sent the operating system down a
+        geometry path. Appendix A is the sense code summary and will name a
+        better one.
+        *Verification: a command the model does not implement reporting a code
+        that means that.*
         *Verification: the console going past the crash.*
         *Verification: the console going past the crash.*
   - [ ] **`IRQ6` and `DRQ2`, the floppy's**, are placed and not driven: its
