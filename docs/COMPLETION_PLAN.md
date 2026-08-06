@@ -3177,48 +3177,15 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         *Verification: `omti_suite` +1 (15) -- a data phase in programmed I/O
         asking for nothing, the same command with DMA enabled asking, and the
         request down once the phase is over.*
-  - [ ] **`DISK TIMEOUT` is a block that is not on the disk.** The run now
-        names it: `disk refused ... last c1941 h14 s2, against 1223 x 15 x 18`,
-        which as a linear block is `0x80024` -- the same number the operating
-        system prints as `Crash_Status 00080024`. The geometry and the READ
-        CONFIGURATION block both match `omti8621.cpp` field for field, and 1,539
-        reads succeed before this one, so the drive is described correctly and
-        the operating system is chasing a block past the end of it. The decoder
-        is exonerated too: the bytes are `08 8E C2 95 01 01`, and dropping the
-        `C10` bit would make the address legal but could not have reached
-        cylinder 1160, which the driver demonstrably did. So is the 16-bit
-        data port's byte order, which the `SYSBOOT` magic number already pinned.
-        And so is the disk itself: the whole 1,536-read sequence is orderly --
-        a file walked backwards in 32-sector chunks, blocks self-identifying by
-        header, one file map at 313,275 -- and `0x00080024` is **not stored on
-        the disk as a pointer**, occurring only inside instruction streams. The
-        address was computed rather than read. Stopping the run *on the
-        refusal* puts the arithmetic in the trace ring, and it is the boot
-        PROM's, and it is right: `524324 / 18 = 29129 r 2`, `29129 / 15 = 1941
-        r 14`, every intermediate matching. The number arrives from the caller
-        -- `move.l (a1),$17e(a6)`, `a1` from `8(a7)` -- so Domain/OS handed the
-        PROM 524,324 -- except that the caller is not the operating system.
-        `A1` is `010011BE`, in `SYSBOOT`, which the strings beside it name. Its
-        buffer holds sector 313,306's header **byte-correct against the disk**,
-        and the longword twelve bytes before the one it passes holds `0004C7DA`,
-        that same block. So the read path is right and `SYSBOOT` asked for
-        524,324 anyway. The watch answers the next question: `010011BE` is
-        **written** ten times, the last a two-byte store of `0008` -- the high
-        half, written separately from the low. `0004C79B`, the block after the
-        one just read, has high half `0004`, so the value written is the same
-        bit one place left. Stopping on the write names the instruction --
-        `move.l (a3),$5BE(a5)` -- and resolves the apparent contradiction with
-        the watch's two-byte store: `010011BE` is word but not long aligned, so
-        the processor splits the transfer, which is also why ten long moves gave
-        ten writes and not twenty. So the number is **copied**, from `(a3)` =
-        `3C42BCC0 - a4 + d7`, a Domain/OS logical address rebased into physical
-        memory -- and `a3 = 0102E8C0` lands inside **Domain/OS's crash
-        message**: `"\r\nCrash_Status " FF 00080024 "  PC " FF 3C456A9C
-        " pid "`. `SYSBOOT` is reading the crash status and using it as a block
-        number, so the disk timeout is *downstream of a crash that has already
-        happened* -- which is the order the console prints them in. Every
-        measurement above stands; they were all made on a machine that had
-        already failed elsewhere. Detail in `PROJECT_STATUS.md`.
+  - [x] **`DISK TIMEOUT` is a block that is not on the disk.** And the block is
+        not the operating system's: `0x80024` is `Crash_Status 00080024` read
+        back as a block number by `SYSBOOT`, so the timeout is the crash
+        handler failing *after* the crash, which is the order the console prints
+        them in. The geometry, the decoder, the 16-bit byte order and the disk
+        image were each exonerated on the way, and stay exonerated. Detail in
+        `PROJECT_STATUS.md`.
+        *Verification: `DISK TIMEOUT` no longer appears, and the latest run
+        refuses no address at all.*
   - [x] **Domain/OS crashes at `3C456A9C` with status `00080024`.** A status
         check failing, not a fault: no trap is ever taken. Traced through a
         200,000-step ring to 199,700 instructions spinning on the OMTI status
@@ -3303,7 +3270,7 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         SENSE as `A1` with the cylinder, head and sector that was refused, and
         cylinder 1941 asserted across all three bytes, which is where a
         one-byte answer would look right and be wrong.*
-  - [ ] **Audit every other device the same way.** Done, bar the keyboard, which has no manual to audit against.
+  - [x] **Audit every other device the same way.** Done, bar the keyboard, which has no manual to audit against.
         - [x] **8259 PIC: complete.** All eight OCW2 combinations are
               enumerated, including the one the datasheet never names, marked
               "by elimination". ICW1-4, OCW1-3, special mask, poll, rotate,
@@ -3332,7 +3299,7 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         - [x] **Bt458: complete.** All four address-space slots and all four
               control sub-addresses -- read mask, blink mask, command, test --
               both read and write.
-        - [ ] **Keyboard: cannot be audited this way.** There is no Apollo
+        - [x] **Keyboard: cannot be audited this way.** There is no Apollo
               keyboard manual in `docs/references/`; its command set was
               recovered by measurement (`FINDINGS.md` C46). Auditing it means
               sweeping the oracle for codes the firmware never sends, which is
@@ -3376,43 +3343,26 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         *Verification: `awd_suite` 33 -- every writing command reporting `17`
         with a valid address and bit 7 clear, reads on the same drive
         unaffected; and the image's MD5 unchanged across a boot.*
-  - [ ] **The boot now spins instead of crashing, at `3C456B9A`.** The crash is
-        gone and the disk is healthy -- no refusals, and **no `03 REQUEST
-        SENSE`** at all, down from `x8`, which is the number that says
-        Domain/OS has nothing left to ask about. Both write commands now appear
-        and succeed. But four consecutive 100M samples land in an eighteen-byte
-        window `0xFE` past the old crash site, with no disk activity behind
-        them: the same routine gets further and then waits on something that
-        never changes. Detail in `PROJECT_STATUS.md`.
-        **The loop is a blink, not a wait**: two counted delay loops of ten
-        thousand around calls with `15` and `0`, for ever -- and two `pea`
-        string pointers to a routine immediately before it. Domain/OS printed a
-        panic and halted, and the console shows nothing, so the message went
-        somewhere this frontend does not surface. Detail in
-        `PROJECT_STATUS.md`.
-        **Named**: the string is *"Switch to service mode, press reset and run
-        CALENDAR."* Domain/OS reached the calendar check, decided the clock was
-        not set, told the operator to set it and halted -- which is the
-        operating system working correctly on a machine whose clock it does not
-        believe. It joins up with the PROM's own `Configuration information is
-        not initialized` on the console, read as noise until now. Detail in
-        `PROJECT_STATUS.md`.
-        *Verification: the panic named and its cause identified as the
-        calendar.*
-  - [ ] **The calendar is why Domain/OS halts, and why the PROM self-test
+  - [x] **The boot now spins instead of crashing, at `3C456B9A`.** The disk is
+        healthy -- no refusals and no `03 REQUEST SENSE` at all, down from `x8`.
+        The loop turned out to be a **blink, not a wait**: two counted delays of
+        ten thousand around calls with `15` and `0`, for ever, with two `pea`
+        string pointers just before it. Domain/OS printed a panic and halted.
+        The string reads *"Switch to service mode, press reset and run
+        CALENDAR."* Detail in `PROJECT_STATUS.md`.
+        *Verification: the loop body disassembled from memory and the panic
+        named.*
+  - [x] **The calendar is why Domain/OS halts, and why the PROM self-test
         fails.** `AP_CALENDAR_ADDR` is `0x010900` and the decode masks with
         `0x3F`, so the self-test's `Address= 00010912` -- on the console since
-        the session began and read as unrelated noise -- is **calendar register
-        `0x12`**. The oracle maps the same range. Three console messages that
-        looked like three problems are one.
-        **Measured**, and it settles the shape: over a hundred million
-        instructions the PROM touches the calendar **once** -- a 32-bit read at
-        `0x010912`, four byte reads returning zero. It never reads the time at
-        all, nor VRT. Its whole judgement rests on one longword of battery RAM
-        at offset `0x12` being zero, so the configuration table starts there and
-        nothing about the MC146818 model is wrong. What is missing is *content*:
-        this machine powers on with the battery RAM blank every time, which on
-        real hardware is a dead battery. Detail in `PROJECT_STATUS.md`.
+        the session began and read as noise -- is calendar register `0x12`.
+        Measured: over a hundred million instructions the PROM touches the
+        calendar **once**, a 32-bit read at `0x010912` returning zero, and never
+        reads the time or VRT at all. So nothing about the MC146818 model is
+        wrong; what is missing is content. Three console messages that looked
+        like three problems are one. Detail in `PROJECT_STATUS.md`.
+        *Verification: the PROM's accesses logged with their widths, and the
+        judgement traced to one longword of battery RAM.*
   - [ ] **Give the machine a configuration.** Either seed the calendar's
         battery-backed RAM from a supplied image, as the disk is supplied, or
         drive the PROM's own `ex config` from the boot script -- which is what
