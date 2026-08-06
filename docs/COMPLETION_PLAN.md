@@ -2791,7 +2791,55 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
       the literal "same image under both" wants a Domain-written floppy, which
       comes off a running system — it waits on the install, not on this item.*
 
+- [ ] **Complete implementation: every declared-but-inert signal.** A sweep
+      of the core for declines turns up more than the device audit did,
+      because the audit asked "is every command decoded" and this asks "does
+      every bit *do* something". They fall in two classes and only the first
+      is implementable by deciding to:
+
+      **Behaviour that is simply absent.** MC146818 `SQWE`, the square-wave
+      output pin, and `DSE`, whose daylight-savings shift is stored and never
+      applied; the six fast periodic rates and the crystal, refused as
+      unrepresentable in the time base rather than modelled. MC68681
+      `tx_break`, stored with no consumer, and serial framing entirely --
+      baud, start and stop bits, parity, the echo and loopback modes -- a
+      character being handed over whole. `ap_sio`'s `OPCR[7]` alternate
+      source. `ap_dmapage`'s high address bits, so a transfer beyond 64 KB
+      lands in the wrong place. The graphics A/D converter behind the third
+      chip select, and refresh. `ap_master`'s Series 4000 route. The tape's
+      per-byte handshake and its drive motion. The keyboard beeper. And
+      `IRQ6`/`DRQ2` below.
+
+      **Things the input formats cannot carry**, which are a scope decision
+      rather than a coding one: an `.awd` has no ID field, so a format writes
+      no bad-track or alternate flags and skew and interleave are ignored; no
+      ECC field, so READ LONG returns zeros and WRITE LONG drops six bytes;
+      the defect list has no recorded date. A `.ct` is read-only, so WRITE,
+      WRITE FILE MARK and ERASE are recognised and refused. Closing these
+      means changing what an image *is*, and that is worth doing deliberately
+      rather than as a side effect.
+
+      A third class is not this item at all and must not be swept into it:
+      the `PROVISIONAL` figures -- AT bus cycle times, the dot clock, the
+      parity lane assignment, the ATC replacement choice -- are numbers no
+      document publishes. They are closed by a measurement or a manual, never
+      by writing code, and `CLAUDE.md` already governs them.
+      *Verification: per entry, a test asserting the signal does something
+      observable -- or, for the second class, the format change that lets it.*
+- [ ] **`IRQ6` and `DRQ2`, the floppy's**, are placed and not driven: its
+      completion is the FDC's result phase rather than the fixed disk's.
+      *Verification: a floppy command completing through an interrupt.*
+
 - [ ] **Integration check, not a milestone:** DN3500 boots Domain/OS SR10.x to a
+
+**Order matters here, and this file had it wrong.** The boot is a *test*, and
+two of its children were unfinished *implementation*. `CLAUDE.md` says
+"Complete modules, don't chase the boot ... Boots are integration checks and
+thermometers, never milestones", and a session was spent doing the opposite --
+chasing the integration check one hypothesis at a time while signals sat
+declared and inert. The implementation items are therefore listed **before** the
+boot below, and the boot is not attempted until they are done.
+
       login prompt, console byte-identical to the oracle. *Verification: console
       diff plus a boot state hash.*
   - [x] **Three bytes is a transfer size, and the board refused it.** Past test
@@ -3552,44 +3600,6 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         ours. Whichever, it must stay deterministic: no wall clock.
         *Verification: the console going past "Configuration information is not
         initialized", and Domain/OS past the CALENDAR halt.*
-  - [ ] **Complete implementation: every declared-but-inert signal.** A sweep
-        of the core for declines turns up more than the device audit did,
-        because the audit asked "is every command decoded" and this asks "does
-        every bit *do* something". They fall in two classes and only the first
-        is implementable by deciding to:
-
-        **Behaviour that is simply absent.** MC146818 `SQWE`, the square-wave
-        output pin, and `DSE`, whose daylight-savings shift is stored and never
-        applied; the six fast periodic rates and the crystal, refused as
-        unrepresentable in the time base rather than modelled. MC68681
-        `tx_break`, stored with no consumer, and serial framing entirely --
-        baud, start and stop bits, parity, the echo and loopback modes -- a
-        character being handed over whole. `ap_sio`'s `OPCR[7]` alternate
-        source. `ap_dmapage`'s high address bits, so a transfer beyond 64 KB
-        lands in the wrong place. The graphics A/D converter behind the third
-        chip select, and refresh. `ap_master`'s Series 4000 route. The tape's
-        per-byte handshake and its drive motion. The keyboard beeper. And
-        `IRQ6`/`DRQ2` below.
-
-        **Things the input formats cannot carry**, which are a scope decision
-        rather than a coding one: an `.awd` has no ID field, so a format writes
-        no bad-track or alternate flags and skew and interleave are ignored; no
-        ECC field, so READ LONG returns zeros and WRITE LONG drops six bytes;
-        the defect list has no recorded date. A `.ct` is read-only, so WRITE,
-        WRITE FILE MARK and ERASE are recognised and refused. Closing these
-        means changing what an image *is*, and that is worth doing deliberately
-        rather than as a side effect.
-
-        A third class is not this item at all and must not be swept into it:
-        the `PROVISIONAL` figures -- AT bus cycle times, the dot clock, the
-        parity lane assignment, the ATC replacement choice -- are numbers no
-        document publishes. They are closed by a measurement or a manual, never
-        by writing code, and `CLAUDE.md` already governs them.
-        *Verification: per entry, a test asserting the signal does something
-        observable -- or, for the second class, the format change that lets it.*
-  - [ ] **`IRQ6` and `DRQ2`, the floppy's**, are placed and not driven: its
-        completion is the FDC's result phase rather than the fixed disk's.
-        *Verification: a floppy command completing through an interrupt.*
   - [x] **`CPU (dma) Test #1` passes: the 16-bit controller counts words.**
         Logging the addresses the firmware writes in the DMA range ended the
         guessing -- `010D01` through `010D1B`, every one an odd byte address in
