@@ -4065,8 +4065,18 @@ boot below, and the boot is not attempted until they are done.
       after the one character autobaud requires. Sixty is an interrupt; one is a
       handshake. `MD.md`'s recipe was written for reaching MD and says so, and
       applying it to a boot was mine.
-      *Verification: a `c8p` boot with a single `\r`, and a framebuffer PNG
-      with the PROM's self-test output in it.*
+      **And a single `\r` is wrong too.** A `c8p` boot with one carriage return
+      sits at `000007A2` -- the console poll -- at 300M. The character was sent
+      early and discarded before the receiver was ready, which is precisely the
+      failure `MD.md` describes for a burst: "a burst arrives long before the
+      autobaud runs and is discarded."
+      So the display path needs a character delivered **later** than the console
+      path does, because it reaches the poll later. The window is bounded on
+      both sides and both bounds are now measured: too few or too early and
+      autobaud never runs; too many and the boot is interrupted into MD. A
+      handful spaced at 0.4 s should land inside it.
+      *Verification: a `c8p` boot with two or three paced returns, and a
+      framebuffer PNG with the PROM's self-test output in it.*
       *Verification: `a1` and `a2` resolved to addresses, matched against this
       core's register map, and the eight-entry readback answered.*
       *Verification: the PROM's self-test banner legible in a PNG.*
