@@ -3381,10 +3381,20 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         does diverge. With a real budget it does **not** get there: the PC is
         `000007A0` at both 100M and 200M instructions and the console is silent
         for all 300M, so the PROM's service path hangs in a tight loop very
-        early -- before it says anything. That is a new and specific target
-        rather than a vague failure, and it blocks the `EX CONFIG` route until
-        it is fixed. `MD.md`'s capture came from the *oracle* in service mode,
-        so the sign-on is known to be reachable on real firmware.
+        early -- before it says anything. `MD.md`'s capture came from the
+        *oracle* in service mode, so the sign-on is reachable on real firmware
+        and this hang is ours.
+        **Disassembled from the PROM file, no run needed**: `0007A0` sits inside
+        a poll at `00078E`-`0007AE` -- `btst.b #0` on `$2(a0)`, `$12(a0)` and
+        `$102(a0)`, with `beq.b $78E` closing the loop. The PROM is waiting on a
+        device bit, which is what `ap_boardreg.h` says service mode does: it
+        "waits for a console".
+        The character is **not** the problem -- the report says `1 of 1
+        character(s) delivered` and both receivers are enabled. The **rate** may
+        be: the PROM autobauded channel B to `CSR 77`, 1050 baud, while
+        `--boot-input` transmits at `CSR BB`, 9600. Identify `a0` and the three
+        bits before assuming which.
+        *This blocks the `EX CONFIG` route until it is fixed.*
         Either seed the calendar's
         battery-backed RAM from a supplied image, as the disk is supplied, or
         drive the PROM's own `ex config` from the boot script -- which is what
