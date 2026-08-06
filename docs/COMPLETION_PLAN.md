@@ -4373,10 +4373,18 @@ boot below, and the boot is not attempted until they are done.
       That was visible in the first PNG -- the `>` was on screen from the
       beginning -- and eight commits of this investigation treated the failure
       line above it as the subject while ignoring the prompt below it.
-      *Verification: what the `>` accepts, and whether the boot continues past
-      the failure when answered -- which is a console dialogue on a display
-      machine, and this session already learned that display boots take no
-      serial input.*
+      **And the `>` is the same prompt MD shows.** A `c8p` boot with paced serial
+      input produced `MD7C REV 8.00` and `>` on the *console*; a `c8p` boot with
+      none produces `>` on the *screen*. Same prompt, two output paths -- so the
+      machine drops to the debugger after the failed self-test and displays it
+      wherever it is talking.
+      Which suggests the input path too: on a machine with a display, the
+      console **is** screen-plus-keyboard, so the prompt should take keyboard
+      input rather than serial. That would explain every input result this
+      session -- serial characters ignored or interrupting, `--boot-key` being
+      the flag that exists for exactly this -- and it is testable with one run.
+      *Verification: `--screen c8p --boot-key`, and whether the prompt
+      responds.*
       That is the first defect of this phase that is genuinely ours, and it is
       narrow: one bit, one register, and a known producer.
       *Verification: `RxRDY` set on channel A by the time `000073EC` reads it,
