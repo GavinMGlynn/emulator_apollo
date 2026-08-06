@@ -3503,9 +3503,21 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         and prompting. `--boot-input` and `--boot-script` drive the same
         channel, and with 300 characters queued the script's `send` never gets
         a slot; with 40 the stream ran out and the script could drive.
-        *Next: keep `--boot-input` to roughly the 40 needed for autobaud, and
-        put everything after it in the script as further `send` lines, so one
-        writer owns the channel once MD is up.*
+        Done, and it works as predicted: 40 carriage returns for autobaud, then
+        the script owning the channel with `send EX CONFIG\r` and thirty
+        further `send \r` lines. `EX CONFIG` fires and loads --
+        `low: 01020000 high: 01062E9A start: 010200E6`.
+        **CONFIG then prints nothing at all**, through thirty carriage returns.
+        So loading it is not the same as reaching its dialogue, and the reason
+        is not input starvation this time. Candidates worth *measuring* rather
+        than reasoning about, given the record of this investigation: whether
+        CONFIG writes to a channel this frontend does not print, whether it
+        wants the display rather than the serial line -- Domain/OS's own panic
+        went somewhere unseen for the same reason -- or whether it simply needs
+        far more emulated time, as MD itself did.
+        *Next: the transmit-register write counts, which answered the last
+        silence at zero cost -- `sio1 reg 11` and `sio2 reg 11`, service run
+        against normal.*
         *Five hypotheses in a row have now been produced by reasoning and killed
         by the next measurement: the sense value, the baud rate, the `SR`/`RB`
         decode, an autobaud the loop does not perform, and input starvation.
