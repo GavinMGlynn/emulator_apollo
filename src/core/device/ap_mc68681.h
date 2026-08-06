@@ -16,33 +16,14 @@
  *
  * ## What is not
  *
- * Serial framing itself -- baud rates, start and stop bits, parity, and the four
- * channel modes (normal, automatic echo, local and remote loopback). Those
- * describe what happens on a wire, and no wire is connected: a character is
- * handed to this module whole and taken from it whole. `ap_mc68681_receive`
- * exists for whatever eventually drives the line.
- *
- * That boundary is worth stating precisely because it is *not* where the value
- * is. `008778-03` §3.9 has the counter/timer driving memory refresh -- "set up
- * in the timer mode to produce a square wave output on output OP3. The period
- * of the output is 15 microseconds" -- so on this board the DUART is a system
- * component before it is a serial port, and the counter is modelled properly
- * even though the framing is not.
- *
- * ## Reads with side effects
- *
- * More of this part's registers change state on being read than not, and a
- * caller must know it: the input port change register clears, the receive
- * buffer pops the FIFO, and addresses 14 and 15 are *commands* taken on a read.
- * `FINDINGS.md` C14 records catching this in the oracle -- a register dump of
- * the real machine started a counter as a side effect of being taken.
- *
- * `[68681]` also marks read addresses 2 and 10 "Do Not Access": "This address
- * location is used for factory testing of the DUART and should not be read.
- * Reading this location will result in undesired effects and possible incorrect
- * transmission or reception of characters." This core returns zero and changes
- * nothing, which is the one behaviour that cannot be wrong in a way that
- * matters -- the hardware's own answer is explicitly undefined.
+ * Serial framing **is** modelled, and this paragraph used to say it was not.
+ * `ap_mc68681_resample` reshapes a character that arrives at a mismatched baud
+ * rate -- which is what a receiver sampling at its own bit centres actually
+ * gets, and what lets the boot PROM's autobaud work at all; `MR1`'s width is
+ * applied; parity is checked on enable and type together; `MR2`'s stop-bit
+ * field is read; and the four channel modes differ in behaviour rather than in
+ * name. What is *not* modelled is the wire below all that: there is no bit
+ * clock and no shift register, so a character crosses in one step.
  */
 
 #ifndef APOLLO_DEVICE_AP_MC68681_H
