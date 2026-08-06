@@ -4159,10 +4159,18 @@ boot below, and the boot is not attempted until they are done.
       `movea.l #$1000800,a5`, then a table-building loop over `01000400`. So
       `a0` for the keyboard I/O is set somewhere between `0072B0` and `00738E`,
       and that span is the remaining read.
+      **And there are two polls, on two different bits.** `00738E` is
+      `btst.b #0,$B(a0)` -- ISR bit **0**, `TxRDY`, waiting until the
+      transmitter will take a byte -- and only then does `0073A0` send. The
+      failing poll is the *second*, `0073C0` on bit **1**, `RxRDY`. So the send
+      completed and the keyboard genuinely did not answer; the transmit half of
+      this core is fine and the reply is what is missing.
       The whole trail, for whoever picks it up: `007270` (entry) ->
-      `0073A0` (send) -> `0073C0` (poll `RxRDY`, 65,536 tries) ->
-      `0073D8` (timeout) -> `006D18`-ish (post `27`) -> `005E36` (encode) ->
+      `00738E` (poll `TxRDY`) -> `0073A0` (send) -> `0073C0` (poll `RxRDY`,
+      65,536 tries) -> `0073D8` (timeout) -> post `27` -> `005E36` (encode) ->
       `005EB6` (blink). Every address measured, none guessed.
+      *Verification: the byte in `d0` at `0073A0`, and `ap_kbd_receive`'s
+      answer to it.*
       That is the first defect of this phase that is genuinely ours, and it is
       narrow: one bit, one register, and a known producer.
       *Verification: `RxRDY` set on channel A by the time `000073EC` reads it,
