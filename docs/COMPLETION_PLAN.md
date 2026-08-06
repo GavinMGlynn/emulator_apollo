@@ -3447,7 +3447,17 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         another guess: `008778-03` says **"SIO0 is the dedicated serial line
         for the keyboard"**, and `MD.md` records that its capture needed "a key
         press on the Apollo keyboard" to start the dialogue -- not a character
-        on a general-purpose line. The frontend already has `--boot-key`.
+        on a general-purpose line.
+        **Tried, and both exits work.** `--boot-key 0x5A` arrives on channel 0
+        and the poll leaves at `0000080E` after 49,771 instructions -- the
+        *channel A* branch, which is the one `btst.b #0,$2(a0)` guards, and the
+        keyboard is on channel A. A console character on channel B leaves at
+        `$7E6` instead. So the firmware reads both lines through their own
+        paths and still transmits nothing, and the keyboard reading does not
+        explain the silence either.
+        *Next: instrument the transmit side, not the receive side. Every
+        measurement so far says characters go in; none has yet asked what the
+        firmware does with them or why nothing comes out.*
         *Five hypotheses in a row have now been produced by reasoning and killed
         by the next measurement: the sense value, the baud rate, the `SR`/`RB`
         decode, an autobaud the loop does not perform, and input starvation.
