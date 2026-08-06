@@ -4383,18 +4383,18 @@ boot below, and the boot is not attempted until they are done.
       input rather than serial. That would explain every input result this
       session -- serial characters ignored or interrupting, `--boot-key` being
       the flag that exists for exactly this -- and it is testable with one run.
-      **Tried, and unchanged.** `--screen c8p --boot-key 0x5A` gives a
-      byte-identical screen. But `--boot-key` presses **once, at t=0** -- long
-      before the prompt exists -- which is the same failure as the single early
-      `\r` on the serial line, and says nothing about whether the path is
-      right.
-      So the keyboard reading is neither confirmed nor refuted: the instrument
-      cannot deliver a keypress *when the prompt is up*. That is a frontend
-      limitation and the first thing to fix -- `--boot-key` needs the offset
-      that `--boot-input-interval` gives the serial path, or the harness needs
-      to press on a condition rather than a schedule.
-      *Verification: a keypress delivered after the prompt appears, and whether
-      the prompt responds.*
+      **Tried, and unchanged** -- and the reason given for that was wrong.
+      `--boot-key` does **not** press at t=0: it is self-timed, waiting until
+      the receiver is ready, eight bits wide *and* enabled, with a comment
+      saying a fixed step number "would be a guess about how long the firmware
+      takes to enable its receiver". The key is delivered at a sensible moment.
+      So the earlier "presses once at t=0, so the run could not have tested it"
+      is withdrawn. What is true is narrower: the trigger is **port ready**, not
+      **prompt up**, and the port is programmed long before the self-test fails.
+      The key almost certainly arrives and is consumed well before there is a
+      prompt to answer.
+      *Verification: a keypress delivered after the prompt appears -- which
+      needs a trigger on the *prompt*, not on the port.*
       That is the first defect of this phase that is genuinely ours, and it is
       narrow: one bit, one register, and a known producer.
       *Verification: `RxRDY` set on channel A by the time `000073EC` reads it,
