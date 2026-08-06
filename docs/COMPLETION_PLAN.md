@@ -4222,8 +4222,16 @@ boot below, and the boot is not attempted until they are done.
       `RxRDY` clear for ever -- the exact signature. Whether the firmware
       enables the receiver before this test, and whether a real 2681 needs it
       enabled to *latch* a character, are the two halves of that.
+      A first search of the datasheet found a passage that *looks* like the
+      answer -- "whether it is enabled or disabled. If the receiver is
+      disabled, it sets the receiver ready status bit and loads the character
+      into the FIFO" -- and is **multidrop mode**, about the address/data bit.
+      It does not apply, and reading it as though it did would be the same
+      window-for-the-whole error this phase has already made repeatedly. Noted
+      so the next reader does not find it and stop there.
       *Verification: `rx_enabled` on serial 1 channel A at the moment of the
-      test.*
+      test; and the general receiver-enable semantics from §3.1's receiver
+      description rather than §3.4's multidrop one.*
       That is the first defect of this phase that is genuinely ours, and it is
       narrow: one bit, one register, and a known producer.
       *Verification: `RxRDY` set on channel A by the time `000073EC` reads it,
