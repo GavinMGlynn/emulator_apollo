@@ -2838,9 +2838,22 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
       `ap_sc499_handshake_duration` -- so this is wiring the block boundary into
       the flag the status register already reports, not new machinery. Left
       unwritten rather than half-written: it touches a timing path, and the
-      duration between blocks is not among the three figures already
-      transcribed, so it needs §1.13.2's Figures 1-5 and 1-6 -- the write and
-      read data operations -- read first.
+      duration between blocks was not among the three figures already
+      transcribed. **Figure 1-5 has now been read and gives it.** Its activity
+      list runs T1 to T15: `T1 Device Asserts READY (Device READY for First
+      Data Block)`, `T4 Device Deasserts READY`, and `T15 Device Asserts READY
+      (Device READY For Next Data Block)`, timed **`100 us. < T14--->T15`** --
+      more than a hundred microseconds after the last byte's ACKNOWLEDGE
+      deasserts. So READY drops once the controller starts a block and returns
+      only when the device is ready for the next, which is the behaviour
+      `ensure_block` currently hides.
+      The figure's own note corroborates §1.13.1 word for word: "If the
+      Controller asserts TRANSFER before the device asserts READY, then the
+      behavior of READY is device dependent. READY shall not be asserted for an
+      EXCEPTION condition."
+      The bound is a **minimum**, so a model must choose a value at or above it
+      and mark the choice `PROVISIONAL` -- the figure constrains the delay
+      rather than fixing it.
 
       *Needs a document or a measurement first, and must not be coded to a
       guess:* `ap_dmapage`'s channel mapping (above); the graphics A/D converter
