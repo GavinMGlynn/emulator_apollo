@@ -3303,7 +3303,7 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         SENSE as `A1` with the cylinder, head and sector that was refused, and
         cylinder 1941 asserted across all three bytes, which is where a
         one-byte answer would look right and be wrong.*
-  - [ ] **Audit every other device the same way.** Eight of nine done.
+  - [ ] **Audit every other device the same way.** Done, bar the keyboard, which has no manual to audit against.
         - [x] **8259 PIC: complete.** All eight OCW2 combinations are
               enumerated, including the one the datasheet never names, marked
               "by elimination". ICW1-4, OCW1-3, special mask, poll, rotate,
@@ -3351,8 +3351,19 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
               triple asserted as three statements that only work together, the
               break pair with its documented enable condition, and the
               break-change clear shown to be per channel.*
-        - [ ] MC6840 timer. No manual in `docs/references/` yet; the same
-              bitsavers fetch is the next step.
+        - [x] **MC6840 timer: complete.** All four of the mode set --
+              continuous, single shot, pulse-width measurement and period
+              measurement -- are selected from bits 3, 4 and 5 and each is
+              implemented with its section cited, and every control-register
+              bit including CR1's timer preset, CR2's register select and CR3's
+              prescale is acted on.
+              *And a correction: this item previously said the MC6840 had no
+              manual in `docs/references/`. It has two, both there since
+              August 1st. That claim came from a directory listing truncated by
+              `head`, which is the same class of error as reading one page of a
+              manual and concluding the fact is not in it -- and it was made in
+              the middle of an item whose entire subject is checking rather than
+              assuming.*
         The shape, now that seven are done: the risk lives in **command-driven**
         devices, not register-driven ones. A register decode enumerates itself
         -- there are sixteen addresses and the switch either covers them or does
