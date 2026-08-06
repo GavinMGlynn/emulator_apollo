@@ -2828,6 +2828,23 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
       raises nothing.*
 
 
+- [ ] **Stage 2's reading, taken once Stage 1 was complete.** With every
+      implementation item closed -- §5.4, the inert signals, both format
+      extensions, `IRQ6`/`DRQ2` -- the boot ends in **exactly the same place**:
+      the PC in the `3C456BB0` blink loop at 400M and 600M instructions, and the
+      image's MD5 unchanged. That is the thermometer doing its job. None of the
+      implementation work was aimed at this halt and none of it moved it,
+      because the halt is about configuration *content* -- the calendar's
+      battery RAM -- and not about a missing behaviour.
+      It also means the remaining distance is not hidden in the parts. Every
+      command the disk accepts is implemented, every documented signal is
+      driven, and the console matches the oracle byte for byte. What is left is
+      one question, and it is the one still unmeasured: whether the empty
+      calendar RAM is what stops Domain/OS at all, given the oracle runs with
+      the same zeros.
+      *Verification: a MAME boot in Normal mode with a console capture, which is
+      cheap and settles whether this route is necessary before more is spent on
+      it.*
 - [ ] **Integration check, not a milestone:** DN3500 boots Domain/OS SR10.x to a
 
 **Order matters here, and this file had it wrong.** The boot is a *test*, and
