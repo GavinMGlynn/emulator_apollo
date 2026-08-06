@@ -4042,10 +4042,22 @@ boot below, and the boot is not attempted until they are done.
       cannot pass and the firmware blinks. That is very likely the whole of it,
       and it is a *harness* mistake rather than a modelling gap: the run asked
       for a mono screen and the firmware tested for a colour one.
-      *Verification: the same boot with `--screen c8p`, the eight-plane colour
-      display. If it passes `8D`, the display path was never broken; if it does
-      not, the failure is real and now isolated to eight planes that do not read
-      back.*
+      **Confirmed: it was the harness.** The same boot with `--screen c8p`, the
+      eight-plane colour display, does **not** blink. The PC is `000007A2` at
+      both 200M and 400M -- inside the console-input poll at `00078E`-`0007AE`,
+      not the blink loop at `005EB6`. The plane test passes and the firmware
+      carries on.
+      So there was never a display defect. Every reading taken from a
+      display-fitted run this session -- the silent console, the black
+      framebuffer, "fitting a display makes the boot fail", the delay loop, the
+      hundred retries, the `8D` code -- came from a machine fitted with a
+      one-plane screen whose own firmware requires eight. The instrument was
+      misconfigured, and six successive explanations were built on its output.
+      What the machine wants now is what the *console* path wants: it is sitting
+      in the input poll, and `MD.md`'s recipe -- paced input at 0.4 s -- is what
+      gets past that.
+      *Verification: a `c8p` boot with paced input, and a framebuffer PNG with
+      the PROM's self-test output in it.*
       *Verification: `a1` and `a2` resolved to addresses, matched against this
       core's register map, and the eight-entry readback answered.*
       *Verification: the PROM's self-test banner legible in a PNG.*
