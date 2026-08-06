@@ -2815,7 +2815,11 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
       and `ap_sio`'s `OPCR[7]`, all in the datasheet now on disk; and the tape's
       per-byte handshake, where `[SC499]` §1.13.2 describes the REQUEST/READY
       exchange and the header records that **the section has not been read**.
-      **Now read, and it corrects our own header.** §1.13.1's WRITE and READ
+      **Now read, and it corrects our own header twice.** First, the handshake
+      is *already* paced: `ap_sc499_handshake_duration` takes its durations from
+      §1.13.2's figures entry by entry -- 1-7 READY asserted, 1-8 exception,
+      1-9 direction deasserted -- so "not modelled" was wrong as well as "not
+      read". Second, the granularity: §1.13.1's WRITE and READ
       entries give the protocol in prose: "The READY line is activated when the
       device is ready for a **data block** transfer", "When READY is true, the
       host may ...", and "If the host starts transfer between blocks before

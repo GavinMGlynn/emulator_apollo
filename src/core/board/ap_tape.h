@@ -50,12 +50,25 @@
  * written to the data register while that bit is set is a command to the drive,
  * and bytes read back are its data.
  *
- * **The per-byte handshake is not modelled.** `[SC499]` §1.13.2 describes the
- * QIC-02 interface timing -- the REQUEST and READY exchange that paces each byte
- * -- and that section has not been read. What is here transfers a byte per
- * access with no pacing, which is enough for a driver that polls the status
- * register and wrong for one that depends on the handshake's edges. Named so
- * that a driver failing in that way is diagnosed rather than puzzled over. */
+ * **The handshake, and what this note used to get wrong twice.** It said the
+ * per-byte handshake was not modelled and that `[SC499]` §1.13.2 "has not been
+ * read". Both parts were stale.
+ *
+ * §1.13.2 is read. It is a set of timing *figures* -- page images with no text
+ * layer -- and `ap_sc499_handshake_duration` already takes its durations from
+ * them, entry by entry: Figure 1-7 READY asserted, 1-8 exception asserted, 1-9
+ * direction deasserted. So a command's handshake *is* paced.
+ *
+ * The granularity was also wrong. §1.13.1's WRITE and READ entries give the
+ * data protocol in prose, and it is per **block**, not per byte: "The READY
+ * line is activated when the device is ready for a data block transfer", and
+ * "If the host starts transfer between blocks before READY is asserted, READY
+ * MAY NOT BE ASSERTED."
+ *
+ * What remains open is therefore narrower than the old note claimed: whether
+ * READY is deasserted and reasserted around **each data block** of a READ or
+ * WRITE, as §1.13.1 describes, rather than only around a command. That is the
+ * open item; the byte-level pacing is not. */
 
 typedef struct {
   ap_sc499_t controller;
