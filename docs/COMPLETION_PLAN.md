@@ -4125,10 +4125,19 @@ boot below, and the boot is not attempted until they are done.
       step**, so the drain runs every instruction and a reply would be visible
       within one. Checked before writing the fix, which is the only reason it
       cost a grep rather than a change to the tick loop.
-      So the question is upstream of timing: either the firmware has not sent
-      `FF 12 21` by the time it tests, or `ap_sio_transmit` does not hand the
-      bytes over, or `ap_kbd_receive` answers nothing for that command. Three
-      candidates, each one a read.
+      So the question is upstream of timing, and two of the three candidates are
+      already eliminated by reading. `ap_sio_transmit` hands the byte over
+      whenever `tx_holding_full`, through `ap_mc68681_transmit`, and
+      `ap_kbd_receive` does have a case for `FF1221`. Both paths are sound.
+      What is left is **whether the firmware has sent anything by the time it
+      tests**. `KEYBOARD TEST # 0` is the *first* keyboard test, and `ap_kbd.h`
+      records that the keyboard "starts in loopback, and that is the state a
+      real one powers up in" -- so the test may be checking an echo, or an
+      unsolicited power-up transmission, rather than the `FF 12 21`
+      identification exchange the header describes for a display console.
+      Those are different protocols and this core implements one of them.
+      *Verification: what the firmware writes to serial 1 channel A before
+      `000073EC`, from the ROM.*
       That is the first defect of this phase that is genuinely ours, and it is
       narrow: one bit, one register, and a known producer.
       *Verification: `RxRDY` set on channel A by the time `000073EC` reads it,
