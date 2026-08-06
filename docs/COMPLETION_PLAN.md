@@ -4360,9 +4360,23 @@ boot below, and the boot is not attempted until they are done.
       satisfies that test there, and finding what is the real work.
       **Reverted**, code and test both, with the reasoning kept in the comment
       so the same change is not made again for the same reason. `ctest` green.
-      *Verification: what MAME's keyboard sends that this core's does not --
-      the only remaining explanation for a test that passes there and fails
-      here.*
+      **MAME's keyboard sends nothing either.** Its `device_reset` sets
+      `m_loopback_mode = 1` and mode 0 and transmits no data at all. So there is
+      no announcement to be missing, and `KEYBOARD TEST # 0` very likely fails
+      on the oracle too.
+      Which reframes the whole investigation: the screen ends with **`>`**, a
+      prompt. A self-test failure on a machine with no keyboard attached may be
+      **expected**, reported, and then dropped past -- exactly as the
+      console-only boot reports its own `SELF TEST FAILED` and continues when
+      answered `y`. The display boot may be sitting at a prompt waiting to be
+      told to go on, not stuck on a defect.
+      That was visible in the first PNG -- the `>` was on screen from the
+      beginning -- and eight commits of this investigation treated the failure
+      line above it as the subject while ignoring the prompt below it.
+      *Verification: what the `>` accepts, and whether the boot continues past
+      the failure when answered -- which is a console dialogue on a display
+      machine, and this session already learned that display boots take no
+      serial input.*
       That is the first defect of this phase that is genuinely ours, and it is
       narrow: one bit, one register, and a known producer.
       *Verification: `RxRDY` set on channel A by the time `000073EC` reads it,
