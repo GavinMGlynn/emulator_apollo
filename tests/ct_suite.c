@@ -34,15 +34,15 @@ static void test_an_image_must_be_a_whole_number_of_blocks(void) {
   ap_ct_t ct;
   static uint8_t image[AP_CT_BLOCK_SIZE * 2u];
 
-  TEST_ASSERT_TRUE(ap_ct_open(&ct, image, sizeof image));
+  TEST_ASSERT_TRUE(ap_ct_open(&ct, image, sizeof image, true));
   TEST_ASSERT_EQUAL_UINT64(2u, ap_ct_blocks(&ct));
 
   /* A remainder means the image is not what it claims to be -- truncated, or
    * decompressed wrongly. Refused rather than rounded, so nobody reads a short
    * final block padded with whatever followed it. */
-  TEST_ASSERT_FALSE(ap_ct_open(&ct, image, sizeof image - 1u));
-  TEST_ASSERT_FALSE(ap_ct_open(&ct, image, 0u));
-  TEST_ASSERT_FALSE(ap_ct_open(&ct, NULL, sizeof image));
+  TEST_ASSERT_FALSE(ap_ct_open(&ct, image, sizeof image - 1u, true));
+  TEST_ASSERT_FALSE(ap_ct_open(&ct, image, 0u, true));
+  TEST_ASSERT_FALSE(ap_ct_open(&ct, NULL, sizeof image, true));
 }
 
 static void test_the_measured_cartridge_size_is_a_whole_number_of_blocks(void) {
@@ -61,7 +61,7 @@ static void test_a_block_is_copied_whole_or_not_at_all(void) {
   for (unsigned i = 0; i < sizeof image; i++) {
     image[i] = (uint8_t)(i & 0xFFu);
   }
-  TEST_ASSERT_TRUE(ap_ct_open(&ct, image, sizeof image));
+  TEST_ASSERT_TRUE(ap_ct_open(&ct, image, sizeof image, true));
 
   TEST_ASSERT_TRUE(ap_ct_read_block(&ct, 1u, out));
   TEST_ASSERT_EQUAL_MEMORY(image + AP_CT_BLOCK_SIZE, out, AP_CT_BLOCK_SIZE);
@@ -80,7 +80,7 @@ static void test_the_boot_record_returns_the_measured_words(void) {
 
   memset(image, 0, sizeof image);
   build_boot_block(image);
-  TEST_ASSERT_TRUE(ap_ct_open(&ct, image, sizeof image));
+  TEST_ASSERT_TRUE(ap_ct_open(&ct, image, sizeof image, true));
   TEST_ASSERT_TRUE(ap_ct_boot_record(&ct, &boot));
 
   TEST_ASSERT_EQUAL_HEX32(0x0013D800u, boot.word[0]);
@@ -95,7 +95,7 @@ static void test_the_words_are_returned_unnamed(void) {
   ap_ct_boot_t boot;
 
   build_boot_block(image);
-  TEST_ASSERT_TRUE(ap_ct_open(&ct, image, sizeof image));
+  TEST_ASSERT_TRUE(ap_ct_open(&ct, image, sizeof image, true));
   TEST_ASSERT_TRUE(ap_ct_boot_record(&ct, &boot));
 
   /* The arithmetic that makes "load, entry, end" a plausible reading -- word 1
@@ -115,7 +115,7 @@ static void test_a_bootable_cartridge_announces_itself(void) {
   ap_ct_boot_t boot;
 
   build_boot_block(image);
-  TEST_ASSERT_TRUE(ap_ct_open(&ct, image, sizeof image));
+  TEST_ASSERT_TRUE(ap_ct_open(&ct, image, sizeof image, true));
   TEST_ASSERT_TRUE(ap_ct_boot_record(&ct, &boot));
 
   /* "SYSBOOT REV" and "M68K" mean a cartridge can be recognised as bootable,
@@ -130,7 +130,7 @@ static void test_a_data_cartridge_parses_and_says_it_is_not_bootable(void) {
   ap_ct_boot_t boot;
 
   memset(image, 0x5A, sizeof image);
-  TEST_ASSERT_TRUE(ap_ct_open(&ct, image, sizeof image));
+  TEST_ASSERT_TRUE(ap_ct_open(&ct, image, sizeof image, true));
 
   /* Parsing succeeds and the flags report the truth, rather than the parse
    * failing: the distribution has several non-boot cartridges and reading one
@@ -149,7 +149,7 @@ static void test_the_identification_is_matched_past_its_embedded_nuls(void) {
    * sits *after* four NULs. A string comparison would stop at the first and
    * never see it, so the match is a fixed-span compare at a known offset. */
   build_boot_block(image);
-  TEST_ASSERT_TRUE(ap_ct_open(&ct, image, sizeof image));
+  TEST_ASSERT_TRUE(ap_ct_open(&ct, image, sizeof image, true));
   TEST_ASSERT_TRUE(ap_ct_boot_record(&ct, &boot));
   TEST_ASSERT_EQUAL_HEX8(0x00, image[0x1C]);
   TEST_ASSERT_TRUE(boot.m68k);
@@ -162,7 +162,7 @@ static void test_the_boot_image_names_what_the_code_confirms(void) {
 
   memset(big, 0, sizeof big);
   build_boot_block(big);
-  TEST_ASSERT_TRUE(ap_ct_open(&ct, big, sizeof big));
+  TEST_ASSERT_TRUE(ap_ct_open(&ct, big, sizeof big, true));
   TEST_ASSERT_TRUE(ap_ct_boot_image(&ct, &boot));
 
   /* Named, because C24 confirmed the reading from the boot code: its first
@@ -184,7 +184,7 @@ static void test_the_first_instruction_computes_the_load_address(void) {
 
   memset(big, 0, sizeof big);
   build_boot_block(big);
-  TEST_ASSERT_TRUE(ap_ct_open(&ct, big, sizeof big));
+  TEST_ASSERT_TRUE(ap_ct_open(&ct, big, sizeof big, true));
   TEST_ASSERT_TRUE(ap_ct_boot_image(&ct, &boot));
 
   /* The confirmation itself, as arithmetic on the actual bytes: `41FA` is
@@ -206,7 +206,7 @@ static void test_a_data_cartridge_yields_no_boot_image(void) {
   ap_ct_boot_image_t boot;
 
   memset(data_only, 0x5A, sizeof data_only);
-  TEST_ASSERT_TRUE(ap_ct_open(&ct, data_only, sizeof data_only));
+  TEST_ASSERT_TRUE(ap_ct_open(&ct, data_only, sizeof data_only, true));
 
   /* A data cartridge's first block is not a header, and its words would decode
    * into a plausible address and length. Requiring the identification is what
@@ -220,7 +220,7 @@ static void test_a_header_larger_than_its_cartridge_is_refused(void) {
   ap_ct_boot_image_t boot;
 
   build_boot_block(small);
-  TEST_ASSERT_TRUE(ap_ct_open(&ct, small, sizeof small));
+  TEST_ASSERT_TRUE(ap_ct_open(&ct, small, sizeof small, true));
 
   /* The header claims 7868 bytes and the cartridge holds 512. Loading what
    * there is would put a partial program in memory and jump into it -- which

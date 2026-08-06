@@ -68,9 +68,13 @@
 #define AP_CT_PROCESSOR_M68K "M68K"
 
 typedef struct {
-  const uint8_t *data;
+  /* Caller-owned, and **mutable**: a cartridge is a medium a drive writes to.
+   * `writable` is what a read-only image says about itself, mirroring
+   * `ap_awd_t` -- the same distinction, for the same reason. */
+  uint8_t *data;
   size_t size;
   uint64_t blocks;
+  bool writable;
 } ap_ct_t;
 
 /* Block 0's header, returned verbatim. The words are deliberately numbered
@@ -87,7 +91,14 @@ typedef struct {
  * structural check the format admits, and it is worth making: a truncated or
  * mis-decompressed image would otherwise present a short final block full of
  * whatever followed it. */
-[[nodiscard]] bool ap_ct_open(ap_ct_t *ct, const uint8_t *data, size_t size);
+[[nodiscard]] bool ap_ct_open(ap_ct_t *ct, uint8_t *data, size_t size,
+                              bool writable);
+
+/* One block out, `AP_CT_BLOCK_SIZE` bytes. False past the end of the image or
+ * on a read-only cartridge -- a write reported as succeeding on media that
+ * cannot take it is the failure this distinction exists to prevent. */
+[[nodiscard]] bool ap_ct_write_block(ap_ct_t *ct, uint64_t index,
+                                     const uint8_t *in);
 
 [[nodiscard]] uint64_t ap_ct_blocks(const ap_ct_t *ct);
 

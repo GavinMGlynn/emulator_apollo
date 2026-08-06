@@ -2893,8 +2893,12 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
       work items. An `.awd` gains an ID field per sector, so a format writes the
       bad-track and alternate flags and `07` stops being identical to `06`; and
       an ECC field, so READ LONG returns what was recorded and WRITE LONG keeps
-      the six bytes it is given. A `.ct` becomes writable, so WRITE, WRITE FILE
-      MARK and ERASE do what they say. The format change *is* the item -- each
+      the six bytes it is given. ~~A `.ct` becomes writable~~ **done**: `ap_ct_t` carries
+      `writable` as `ap_awd_t` does, and WRITE places a block. WRITE FILE MARK
+      and ERASE stay refused -- not for want of a write path now, but because a
+      raw block image has no file marks to write into and ERASE is a
+      whole-cartridge operation a distribution image should not silently
+      take. The format change *is* the item -- each
       command's arm collapses to ordinary code once the bytes have somewhere to
       live. Existing images must still load: a file without the new fields reads
       as a surface with no defects and no recorded ECC, which is what it is.

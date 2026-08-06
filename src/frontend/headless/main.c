@@ -2212,7 +2212,11 @@ static int report_tape(const char *path) {
 
   ap_qic_t drive;
   ap_qic_init(&drive);
-  if (!ap_qic_load(&drive, bytes, (size_t)size, AP_QIC_CARTRIDGE_DC600A)) {
+  if (!ap_qic_load(&drive, bytes, (size_t)size, AP_QIC_CARTRIDGE_DC600A,
+                   /* Writable, and the file is not: `bytes` is a private copy
+                    * freed at exit, exactly as the disk image is. See the disk
+                    * path above for the argument. */
+                   true)) {
     free(bytes);
     fprintf(stderr, "apollo: %s is not a whole number of 512-byte blocks\n",
             path);
@@ -2281,7 +2285,7 @@ static int boot_from_tape(const char *path, unsigned limit) {
   fclose(file);
 
   ap_ct_t cartridge;
-  if (!ap_ct_open(&cartridge, bytes, (size_t)size)) {
+  if (!ap_ct_open(&cartridge, bytes, (size_t)size, true)) {
     free(bytes);
     fprintf(stderr,
             "apollo: %s is not a whole number of %u-byte blocks\n",

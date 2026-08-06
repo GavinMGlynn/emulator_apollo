@@ -18,7 +18,7 @@ static void load(ap_qic_t *q) {
     image[i] = (uint8_t)(i & 0xFFu);
   }
   ap_qic_init(q);
-  TEST_ASSERT_TRUE(ap_qic_load(q, image, sizeof image, AP_QIC_CARTRIDGE_DC600A));
+  TEST_ASSERT_TRUE(ap_qic_load(q, image, sizeof image, AP_QIC_CARTRIDGE_DC600A, true));
 }
 
 static void test_the_cartridge_type_must_be_supplied(void) {
@@ -30,9 +30,9 @@ static void test_the_cartridge_type_must_be_supplied(void) {
    * none of. So the type comes from the caller, and refusing to load without
    * one is what keeps that from being quietly defaulted. */
   TEST_ASSERT_FALSE(ap_qic_load(&q, image, sizeof image,
-                                AP_QIC_CARTRIDGE_NONE));
+                                AP_QIC_CARTRIDGE_NONE, true));
   TEST_ASSERT_TRUE(ap_qic_load(&q, image, sizeof image,
-                               AP_QIC_CARTRIDGE_DC300XL));
+                               AP_QIC_CARTRIDGE_DC300XL, true));
   TEST_ASSERT_EQUAL_UINT(AP_QIC_CARTRIDGE_DC300XL, q.cartridge);
 }
 
@@ -165,11 +165,27 @@ static void test_writing_is_refused_rather_than_discarded(void) {
   load(&q);
   TEST_ASSERT_TRUE(ap_qic_command(&q, AP_QIC_CMD_SELECT));
 
-  /* Recognised commands, refused because there is no write-back path.
-   * Accepting them and discarding the data would let an installation appear to
-   * succeed and produce a cartridge that had never changed. */
+  /* WRITE now *places* a block on a cartridge loaded writable -- the image
+   * layer carries the distinction, so the drive no longer has to refuse
+   * everything to stay honest. */
   TEST_ASSERT_TRUE(ap_qic_command_known(AP_QIC_CMD_WRITE));
-  TEST_ASSERT_FALSE(ap_qic_command(&q, AP_QIC_CMD_WRITE));
+  TEST_ASSERT_TRUE(ap_qic_command(&q, AP_QIC_CMD_WRITE));
+  static uint8_t block[AP_CT_BLOCK_SIZE];
+  memset(block, 0x5Au, sizeof block);
+  TEST_ASSERT_TRUE(ap_qic_write_block(&q, block));
+  TEST_ASSERT_EQUAL_HEX8(0x5Au, image[0]);
+
+  /* A read-only cartridge refuses, which is the case refusing everything used
+   * to stand in for. */
+  ap_qic_t locked;
+  ap_qic_init(&locked);
+  TEST_ASSERT_TRUE(ap_qic_load(&locked, image, sizeof image,
+                               AP_QIC_CARTRIDGE_DC600A, false));
+  TEST_ASSERT_TRUE(ap_qic_command(&locked, AP_QIC_CMD_SELECT));
+  TEST_ASSERT_FALSE(ap_qic_command(&locked, AP_QIC_CMD_WRITE));
+
+  /* WRITE FILE MARK stays refused: a raw block image has no file marks in it,
+   * so there is nothing to write one into. */
   TEST_ASSERT_FALSE(ap_qic_command(&q, AP_QIC_CMD_WRITE_FILE_MARK));
 }
 

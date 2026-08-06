@@ -94,8 +94,8 @@ void ap_tape_advance(ap_tape_t *tape, ap_time_t now);
 
 /* Load a cartridge into the drive. The type is the caller's to supply; see
  * `device/ap_qic.h`. */
-[[nodiscard]] bool ap_tape_load(ap_tape_t *tape, const uint8_t *data,
-                                size_t size, ap_qic_cartridge_t cartridge);
+[[nodiscard]] bool ap_tape_load(ap_tape_t *tape, uint8_t *data,
+                                size_t size, ap_qic_cartridge_t cartridge, bool writable);
 
 /* False for the four undecoded addresses of each eight as well as for anything
  * outside the range: the dump reads `FF` there, and folding them onto the

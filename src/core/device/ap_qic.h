@@ -37,12 +37,17 @@
  * is a write to the whole cartridge, and the cartridges this core opens are
  * read-only.
  *
- * ## Writing is not modelled
+ * ## Writing
  *
- * WRITE and WRITE FILE MARK are recognised and refused. The images this core
- * reads are distribution cartridges opened read-only, and there is no write-back
- * path; accepting a write and discarding it would let an installation appear to
- * succeed.
+ * WRITE places a block, on a cartridge loaded writable. A read-only one refuses
+ * -- the distinction `ap_ct_t` now carries -- because a write reported as
+ * successful on media that cannot take it would let an installation appear to
+ * succeed, which is what refusing outright used to guard against.
+ *
+ * WRITE FILE MARK and ERASE are still refused, and for a reason that has not
+ * changed: a `.ct` is a raw block image with no file marks in it, so there is
+ * nothing to write one *into*, and ERASE is a whole-cartridge operation whose
+ * effect a distribution image should not silently take.
  */
 
 #ifndef APOLLO_DEVICE_AP_QIC_H
@@ -135,6 +140,7 @@ typedef struct {
 
   uint64_t position; /* next block to be read */
   bool reading;      /* a READ command is in progress */
+  bool writing;      /* a WRITE command is in progress */
 
   /* A READ STATUS has been issued and its six bytes not yet taken. */
   bool status_pending;
@@ -160,8 +166,8 @@ void ap_qic_reset(ap_qic_t *qic);
 
 /* Load a cartridge. `cartridge` is the type, which the drive cannot derive; see
  * the header. Fails if the image is not a whole number of blocks. */
-[[nodiscard]] bool ap_qic_load(ap_qic_t *qic, const uint8_t *data, size_t size,
-                               ap_qic_cartridge_t cartridge);
+[[nodiscard]] bool ap_qic_load(ap_qic_t *qic, uint8_t *data, size_t size,
+                               ap_qic_cartridge_t cartridge, bool writable);
 void ap_qic_eject(ap_qic_t *qic);
 
 /* Issue a command. False for a command this core does not model or does not
@@ -174,6 +180,9 @@ void ap_qic_eject(ap_qic_t *qic);
 /* Read the next block of the cartridge. Requires a READ command to have been
  * issued and a cartridge to be loaded and selected. */
 [[nodiscard]] bool ap_qic_read_block(ap_qic_t *qic, uint8_t *out);
+
+/* Place the next block. Requires a WRITE command and a writable cartridge. */
+[[nodiscard]] bool ap_qic_write_block(ap_qic_t *qic, const uint8_t *in);
 
 /* Whether a command code is one this core models at all. */
 [[nodiscard]] bool ap_qic_command_known(uint8_t command);

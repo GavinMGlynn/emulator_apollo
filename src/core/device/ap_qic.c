@@ -29,6 +29,7 @@ void ap_qic_reset(ap_qic_t *qic) {
   qic->q24_format = false;
   qic->position = 0u;
   qic->reading = false;
+  qic->writing = false;
   qic->status_pending = false;
   qic->data_errors = 0u;
   qic->underruns = 0u;
@@ -38,18 +39,19 @@ void ap_qic_reset(ap_qic_t *qic) {
   qic->power_on = true;
 }
 
-bool ap_qic_load(ap_qic_t *qic, const uint8_t *data, size_t size,
-                 ap_qic_cartridge_t cartridge) {
+bool ap_qic_load(ap_qic_t *qic, uint8_t *data, size_t size,
+                 ap_qic_cartridge_t cartridge, bool writable) {
   if (cartridge == AP_QIC_CARTRIDGE_NONE) {
     return false;
   }
-  if (!ap_ct_open(&qic->image, data, size)) {
+  if (!ap_ct_open(&qic->image, data, size, writable)) {
     return false;
   }
   qic->loaded = true;
   qic->cartridge = cartridge;
   qic->position = 0u;
   qic->reading = false;
+  qic->writing = false;
   return true;
 }
 
@@ -65,6 +67,7 @@ void ap_qic_eject(ap_qic_t *qic) {
   qic->cartridge = AP_QIC_CARTRIDGE_NONE;
   qic->position = 0u;
   qic->reading = false;
+  qic->writing = false;
 }
 
 bool ap_qic_command_known(uint8_t command) {
@@ -161,9 +164,19 @@ bool ap_qic_command(ap_qic_t *qic, uint8_t command) {
      * "found one" or "reached the end" would both be inventions. */
     return false;
   case AP_QIC_CMD_WRITE:
+    /* §1.13.1: "When the WRITE command is issued the device requests and
+     * transfers data." A cartridge loaded writable takes it; a read-only one
+     * refuses, which is the honest answer and the one a driver can act on. */
+    if (!qic->selected || !qic->loaded || !qic->image.writable) {
+      return false;
+    }
+    qic->writing = true;
+    qic->reading = false;
+    return true;
   case AP_QIC_CMD_WRITE_FILE_MARK:
-    /* Recognised, and refused: there is no write-back path, and accepting a
-     * write that went nowhere would let an installation appear to succeed. */
+    /* Still refused, and the reason has not changed: a `.ct` is a raw block
+     * image with no file marks in it, so there is nothing to write one into.
+     * Answering "written" would be inventing a structure the format lacks. */
     return false;
   }
   /* A code outside `[SC499]` §1.13's set entirely. The set has no holes left in
@@ -178,6 +191,21 @@ bool ap_qic_read_block(ap_qic_t *qic, uint8_t *out) {
   if (!ap_ct_read_block(&qic->image, qic->position, out)) {
     /* Past the end of the tape. The position does not advance, so a driver that
      * keeps reading keeps failing rather than wrapping to the beginning. */
+    return false;
+  }
+  qic->position++;
+  return true;
+}
+
+bool ap_qic_write_block(ap_qic_t *qic, const uint8_t *in) {
+  /* The mirror of the read above, and gated the same way: a command must have
+   * armed it, the drive must be selected and hold media. `ap_ct_write_block`
+   * enforces the cartridge's own read-only flag, so a writable *drive* holding
+   * a read-only image still refuses. */
+  if (!qic->writing || !qic->loaded || !qic->selected) {
+    return false;
+  }
+  if (!ap_ct_write_block(&qic->image, qic->position, in)) {
     return false;
   }
   qic->position++;

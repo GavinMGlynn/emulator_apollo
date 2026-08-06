@@ -416,7 +416,7 @@ static void start_tape_read(ap_board_t *b) {
     cartridge[i] = (uint8_t)(0x40u + (i & 0x3Fu));
   }
   TEST_ASSERT_TRUE(ap_tape_load(&b->tape, cartridge, sizeof cartridge,
-                                AP_QIC_CARTRIDGE_DC600A));
+                                AP_QIC_CARTRIDGE_DC600A, true));
   bool ok = false;
   /* SELECT before READ: "The drive shall remain selected until changed by
    * another SELECT command or RESET", so an unselected drive takes no READ and
@@ -449,7 +449,7 @@ static void test_the_tape_drives_its_own_request_line(void) {
     cartridge[i] = (uint8_t)i;
   }
   TEST_ASSERT_TRUE(ap_tape_load(&dma_board.tape, cartridge, sizeof cartridge,
-                                AP_QIC_CARTRIDGE_DC600A));
+                                AP_QIC_CARTRIDGE_DC600A, true));
   TEST_ASSERT_FALSE(ap_tape_dma_request(&dma_board.tape));
 
   bool ok = false;

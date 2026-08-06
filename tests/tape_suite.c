@@ -126,7 +126,7 @@ static void arm(ap_tape_t *t) {
   clock_now = 0u;
   ap_tape_init(t);
   TEST_ASSERT_TRUE(ap_tape_load(t, cartridge, sizeof cartridge,
-                                AP_QIC_CARTRIDGE_DC600A));
+                                AP_QIC_CARTRIDGE_DC600A, true));
 }
 
 /* Issue a QIC command through the controller, as a driver would: set the
@@ -245,7 +245,10 @@ static void test_a_refused_command_raises_exception(void) {
   /* The status register is the only channel the controller has for saying no,
    * so a command the drive refuses must show there rather than vanish. WRITE is
    * refused because there is no write-back path. */
-  issue(&t, AP_QIC_CMD_WRITE);
+  /* WRITE FILE MARK, not WRITE: WRITE now places a block on a writable
+   * cartridge, so it is no longer an example of a refused command. A raw block
+   * image has no file marks, so this one still is. */
+  issue(&t, AP_QIC_CMD_WRITE_FILE_MARK);
   TEST_ASSERT_TRUE(exception_asserted(&t));
 }
 
@@ -286,7 +289,7 @@ static void test_a_command_clears_an_exception(void) {
   ap_tape_t t;
   arm(&t);
   issue(&t, AP_QIC_CMD_SELECT);
-  issue(&t, AP_QIC_CMD_WRITE); /* refused, raises exception */
+  issue(&t, AP_QIC_CMD_WRITE_FILE_MARK); /* refused, raises exception */
   TEST_ASSERT_TRUE(exception_asserted(&t));
 
   /* Figure 1-8: on a command issued while EXCEPTION is up the device deasserts
@@ -353,7 +356,7 @@ static void test_an_exception_survives_until_its_figure_completes(void) {
   ap_tape_t t;
   arm(&t);
   issue(&t, AP_QIC_CMD_SELECT);
-  issue(&t, AP_QIC_CMD_WRITE); /* refused, raises exception */
+  issue(&t, AP_QIC_CMD_WRITE_FILE_MARK); /* refused, raises exception */
   TEST_ASSERT_TRUE(exception_asserted(&t));
 
   ap_tape_write(&t, AP_TAPE_ADDR + 1u, AP_SC499_CTL_REQUEST);

@@ -2,7 +2,7 @@
 
 #include <string.h>
 
-bool ap_ct_open(ap_ct_t *ct, const uint8_t *data, size_t size) {
+bool ap_ct_open(ap_ct_t *ct, uint8_t *data, size_t size, bool writable) {
   memset(ct, 0, sizeof *ct);
   if (data == NULL || size == 0u) {
     return false;
@@ -16,6 +16,7 @@ bool ap_ct_open(ap_ct_t *ct, const uint8_t *data, size_t size) {
   ct->data = data;
   ct->size = size;
   ct->blocks = (uint64_t)(size / AP_CT_BLOCK_SIZE);
+  ct->writable = writable;
   return true;
 }
 
@@ -27,6 +28,21 @@ bool ap_ct_read_block(const ap_ct_t *ct, uint64_t index, uint8_t *out) {
   }
   memcpy(out, ct->data + (size_t)(index * AP_CT_BLOCK_SIZE),
          AP_CT_BLOCK_SIZE);
+  return true;
+}
+
+bool ap_ct_write_block(ap_ct_t *ct, uint64_t index, const uint8_t *in) {
+  /* The mirror of the read above. A read-only cartridge refuses rather than
+   * discarding: a write reported as successful on media that cannot take it
+   * would let an installation appear to succeed, which is exactly what
+   * `ap_qic.h` refused writes outright to avoid. */
+  if (ct == NULL || in == NULL || !ct->writable) {
+    return false;
+  }
+  if (index >= ct->blocks) {
+    return false;
+  }
+  memcpy(ct->data + (size_t)index * AP_CT_BLOCK_SIZE, in, AP_CT_BLOCK_SIZE);
   return true;
 }
 
