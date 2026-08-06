@@ -2797,6 +2797,30 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
       every bit *do* something". They fall in two classes and only the first
       is implementable by deciding to:
 
+      **Triaged, because the grep that built this list conflated two things.**
+      It matched on phrases like "not modelled", which catches both behaviour
+      that is merely unwritten and facts no document states. `ap_dmapage` was
+      listed here and belongs in the second group; each remaining entry has now
+      been checked against whether a manual actually specifies it.
+
+      *Implementable now -- the document says what the behaviour is:*
+      MC146818 `SQWE`, whose frequency "shares the same selector and the same
+      table" this core already implements for the periodic rates; `DSE`, a shift
+      on two named calendar days; the MC68681's `tx_break`, its serial framing
+      and `ap_sio`'s `OPCR[7]`, all in the datasheet now on disk; and the tape's
+      per-byte handshake, where `[SC499]` §1.13.2 describes the REQUEST/READY
+      exchange and the header records that **the section has not been read**.
+      That last one is the cheapest in the list and the most embarrassing to
+      have carried.
+
+      *Needs a document or a measurement first, and must not be coded to a
+      guess:* `ap_dmapage`'s channel mapping (above); the graphics A/D converter
+      and refresh; `ap_master`'s Series 4000 route, which is a different model
+      family and a scope question; the keyboard beeper, which has no consumer to
+      observe it; and the MC146818's six fast periodic rates, which are refused
+      because `AP_TIME_BASE_HZ` cannot represent them -- a time-base decision
+      with a 64x span cost, not a coding one.
+
       **Behaviour that is simply absent.** MC146818 `SQWE`, the square-wave
       output pin, and `DSE`, whose daylight-savings shift is stored and never
       applied; the six fast periodic rates and the crystal, refused as
