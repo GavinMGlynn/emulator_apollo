@@ -4406,8 +4406,24 @@ boot below, and the boot is not attempted until they are done.
       committed on its own merits (the old trigger demonstrably fired hundreds
       of millions of instructions before anything asked for input) rather than
       because it fixed the symptom, because it did not.
-      *Verification: whether the key is delivered, and when -- a log at
-      `ap_board_key_press` against the poll count.*
+      **Measured: the key *is* delivered.** A log at the press, since reverted:
+      `KEY press state=0 moved=1 polls=2000` and `KEY release state=1 moved=1
+      polls=2001`. Both moved, at the threshold, into a firmware that was
+      polling. The trigger works.
+      **And the screen is still unchanged -- because one character is not what
+      the test wants.** `EXPECTED= 2` is read from `SRA`, where bit 1 is
+      **`FFULL`**, not `RxRDY`. The firmware waits for the receive FIFO to be
+      **full**, which on this part is three characters. A single keypress sets
+      bit 0 and can never set bit 1.
+      That closes the question the whole keyboard investigation was circling:
+      not "why does the keyboard not answer" but "what sends three characters".
+      A single make code cannot; a make *and* release pair is two; the
+      identification string is more than three. So the test is waiting for
+      something that transmits a burst, and `--boot-key`'s one press is
+      structurally incapable of satisfying it.
+      *Verification: what a real keyboard sends that fills a three-deep FIFO,
+      and whether `KEYBOARD TEST # 0` is meant to pass at all with no keyboard
+      attached.*
       That is the first defect of this phase that is genuinely ours, and it is
       narrow: one bit, one register, and a known producer.
       *Verification: `RxRDY` set on channel A by the time `000073EC` reads it,
