@@ -3363,7 +3363,16 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         like three problems are one. Detail in `PROJECT_STATUS.md`.
         *Verification: the PROM's accesses logged with their widths, and the
         judgement traced to one longword of battery RAM.*
-  - [ ] **Give the machine a configuration.** Either seed the calendar's
+  - [ ] **Give the machine a configuration.** Read out of the documents rather
+        than out of another boot: `docs/references/MD.md`'s captured command
+        table gives `EX` as **EX (CPU)** -- *execute* -- so `ex config` runs a
+        **stand alone utility** named CONFIG, exactly as the console already
+        shows `SELF_TEST` being loaded from the boot device, and `CALENDAR` is
+        another. MD's `LD LIST SAU` lists them. The image carries them:
+        `//bs/saus/calendar/src/calendar.pas` in the sources, and `/sau14` --
+        the 68030 machine's SAU directory -- present on the volume. So the
+        machine's own instruction is followable rather than a dead end.
+        Either seed the calendar's
         battery-backed RAM from a supplied image, as the disk is supplied, or
         drive the PROM's own `ex config` from the boot script -- which is what
         the machine instructs, and what makes the content the PROM's rather than

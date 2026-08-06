@@ -158,8 +158,18 @@ typedef enum {
  *
  * That matters because the boot PROM reads it and takes a **completely
  * different path**: in service mode it runs its diagnostics and waits for a
- * console, which is where every boot in this project has ended, and in normal
- * mode it goes somewhere else entirely. So this is a switch a caller sets, with
+ * console, and in normal mode it goes somewhere else entirely.
+ *
+ * **The clause that used to end that sentence -- "which is where every boot in
+ * this project has ended" -- was stale and is withdrawn.** It described the
+ * state before the write-keeps fix below. `CPU_STATUS_RESET` is
+ * `ALWAYS_SET | NORMAL_MODE`, `AP_BOARDREG_STATUS_WRITE_KEEPS` preserves bit 0
+ * across a status write, and `ap_boardreg_set_normal_mode` is called by
+ * nothing, so this core boots in **normal** mode and has since that fix. The
+ * diagnostics the console shows are reached for a different reason -- the
+ * configuration table in the calendar's battery RAM is empty, and the PROM says
+ * so in as many words -- and leaving the old clause in pointed a reader at the
+ * wrong cause. So this is a switch a caller sets, with
  * a default of *normal* -- a workstation that boots -- rather than a constant
  * reproducing the oracle's shipping configuration.
  *
