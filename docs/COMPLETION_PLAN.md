@@ -4393,8 +4393,21 @@ boot below, and the boot is not attempted until they are done.
       **prompt up**, and the port is programmed long before the self-test fails.
       The key almost certainly arrives and is consumed well before there is a
       prompt to answer.
-      *Verification: a keypress delivered after the prompt appears -- which
-      needs a trigger on the *prompt*, not on the port.*
+      **Trigger changed to press on the *poll*, not the port.** "Ready" and
+      "waiting" are different: the port is configured early, so a key delivered
+      then is consumed by whatever the firmware does next and is gone before any
+      prompt. What distinguishes a prompt is *polling* -- running firmware reads
+      a status register a handful of times, waiting firmware reads it thousands,
+      and the board already counts reads per register. The condition is now a
+      configured port **and** 2000 status reads.
+      **The screen is unchanged.** So either the press still lands too early --
+      some other poll loop crosses the threshold first -- or it is not being
+      delivered at all. **Which of those is unmeasured**, and the change is
+      committed on its own merits (the old trigger demonstrably fired hundreds
+      of millions of instructions before anything asked for input) rather than
+      because it fixed the symptom, because it did not.
+      *Verification: whether the key is delivered, and when -- a log at
+      `ap_board_key_press` against the poll count.*
       That is the first defect of this phase that is genuinely ours, and it is
       narrow: one bit, one register, and a known producer.
       *Verification: `RxRDY` set on channel A by the time `000073EC` reads it,

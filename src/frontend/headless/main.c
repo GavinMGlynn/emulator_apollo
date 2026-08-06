@@ -101,7 +101,9 @@ static void print_usage(const char *program_name) {
           "  --boot-input-interval US  emulated microseconds between scripted\n"
           "                        characters; the wire's own floor if 0\n"
           "  --boot-key N          press and release keyboard key N (a matrix\n"
-          "                        index 0-7F, not a character)\n"
+          "                        index 0-7F, not a character). Delivered when the\n"
+          "                        firmware is polling for input, not merely able\n"
+          "                        to take it\n"
           "  --screen KIND         fit a display: c4p, c8p, 19i or 15i\n"
           "  --screenshot FILE     scan the fitted screen out to a PNG\n"
           "  --disk FILE           fit a Winchester (.awd) to the boot\n"
@@ -1036,6 +1038,18 @@ static void ap_trace_record(ap_trace_ring_t *slot, unsigned step, uint32_t pc,
   slot->status = status;
 }
 
+/* How many reads of a channel's status register mark it as *waiting* rather
+ * than merely running.
+ *
+ * Firmware that is executing reads a status register a handful of times.
+ * Firmware sitting at a prompt reads it in a tight loop -- the boot PROM's own
+ * input poll bounds itself at 65,536 tries -- so any threshold well above the
+ * first and well below the second separates them. Two thousand is that, with
+ * more than an order of magnitude either side, and it is deliberately not
+ * tuned finely: a number that had to be exact would be measuring something
+ * this is only meant to detect.
+ */
+#define AP_BOOT_KEY_POLLS 2000u
 static int boot_from_prom(const char *path, unsigned limit, bool trace,
                           uint32_t watch, const char *input, unsigned input_unit,
                           unsigned input_channel, uint8_t input_rate,
@@ -1484,15 +1498,31 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
           }
         }
       }
-      /* Press the key once the port can take it, then release on the next
-       * opportunity -- the same self-timing as scripted input, and for the same
-       * reason: a fixed step number would be a guess about how long the
-       * firmware takes to enable its receiver, and would silently do nothing if
-       * it took longer. */
+      /* Press the key once the firmware is *waiting* for one, then release on
+       * the next opportunity -- self-timed, because a fixed step number would
+       * be a guess about how long the firmware takes to get there and would
+       * silently do nothing if it took longer.
+       *
+       * **"Ready" and "waiting" are different, and this used to press on the
+       * first.** The port is configured early, long before anything asks for
+       * input, so a key delivered then is consumed by whatever the firmware
+       * does next and is gone by the time a prompt appears. That is why a
+       * `--boot-key` run against a display-fitted machine looked exactly like a
+       * run with no key at all: the press happened, hundreds of millions of
+       * instructions too soon.
+       *
+       * What distinguishes a prompt is *polling*. Firmware that is merely
+       * running reads the status register a handful of times; firmware sitting
+       * at a prompt reads it thousands of times over, which is visible in the
+       * per-register read counters the board already keeps. So the condition is
+       * a configured port **and** a long run of status reads with nothing
+       * delivered. */
       if (key < AP_KBD_KEYS && key_state < 2u &&
           !ap_sio_receiver_ready(&board->sio, 0u, 0u) &&
           ap_sio_character_bits(&board->sio, 0u, 0u) == 8u &&
-          ap_sio_receiver_enabled(&board->sio, 0u, 0u)) {
+          ap_sio_receiver_enabled(&board->sio, 0u, 0u) &&
+          board->sio.register_reads[0][AP_MC68681_SR_CSR_A] >=
+              AP_BOOT_KEY_POLLS) {
         /* Eight bits, not merely a free receiver.
          *
          * `MR1` resets to a **five-bit** link, and this sent as soon as the
