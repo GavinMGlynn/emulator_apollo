@@ -5461,6 +5461,50 @@ accepted set without an implementation now fails in a second rather than at the
 next boot. It also asserts the count, because a set that accepted nothing would
 pass every other assertion in it without making one.
 
+#### The sense block is four bytes, and three of them were always zero
+**Fixed.** §5.4.3 defines the whole block, not just its first byte:
+
+> The Error code byte (Byte 0) of the Sense Data is always valid, however, the
+> sector address (defined by bytes 1, 2 and 3) is only valid if the previous
+> command terminated in error. **Bit 7 set to 1 indicates the validity of the
+> sector address.** If bit 7 is set to 0, the sector address is not valid.
+
+Bytes 1-3 carry the address in exactly the layout a descriptor block's bytes 1-3
+use. This core sent `21 00 00 00` — the code, then three zeros with the validity
+flag clear, which says "I do not know where". It did know: `refuse()` had already
+stored the cylinder, head and sector for the end-of-run report two lines earlier.
+
+Recording and reporting are now one function rather than two things every call
+site had to remember, and ten duplicated `finish()` calls went with it. The one
+path that had only a linear sector number — the multi-sector read's `feed()` —
+converts it back, which is right rather than merely convenient: a descriptor may
+address a sector past its own track and carry into the next, so the normalised
+address is where the access actually landed and therefore what failed.
+
+The test asserts cylinder **1941** across all three bytes. That is not an
+arbitrary number: it is the address Domain/OS's crash path asks for on the 348 MB
+drive, and it is where a plausible one-byte answer stops being right — `1941` is
+`111 1001 0101`, so C10 goes to byte 1's top bit, C09 and C08 to byte 2's top
+two, and only `0x95` remains for byte 3.
+
+#### `READ CONFIGURATION` returns the soft sectored reply, and the drive says so
+**Fixed, in the comment.** §5.4.29 prints bytes 0-6 once for "HARD and SOFT
+SECTORED Drives" and bytes 7-9 twice, once per kind. Which applies is stated by
+the drive itself: byte 5 of the drive configuration word, whose table on page
+5-27 gives bit 2 as "ESDI SOFT SECTORED" and bit 1 as "ESDI HARD SECTORED". This
+core returns `02 44`, and `0x44` is bits 6 and 2 — ESDI FIXED MEDIA and ESDI
+SOFT SECTORED. The header named the hard sectored layout.
+
+No byte changes: bytes 7-9 are zero under either reading. What changes is that
+the file no longer describes a different drive from the one it models.
+
+There is a second, better outcome. That configuration word was taken from the
+oracle, at a time when nothing in `docs/references/` was thought to define it.
+Page 5-27 defines it bit by bit, and the two agree: byte 4's `0x02` is bit 1,
+"TRANSFER RATE T = 10 MHZ, Supported". A value borrowed from a running model is
+now a value corroborated by the manual — which is the resolution order run
+backwards, and worth noting because it is the cheap direction to check.
+
 Not changed, and worth naming as unsettled: a **block count past the manual's
 buffer cap** still reports `21`. It is not an address failure either, but no
 Appendix A code covers "parameter out of range for this command" — the type 2

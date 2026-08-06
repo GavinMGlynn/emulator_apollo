@@ -3374,17 +3374,20 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         stops the loop returning, `test_every_command_the_esdi_set_accepts_
         reaches_an_implementation`, which walks `ap_omti_cdb_accepted_by_esdi`
         itself and fails on any opcode reporting `20`.*
-  - [ ] **The two §5.4 defects the same read turned up.** §5.4.3's sense bytes
+  - [x] **The two §5.4 defects the same read turned up.** §5.4.3's sense bytes
         1-3 carry the failing sector address with byte 0 bit 7 as its validity
-        flag, and this core sends zeros with the flag clear -- so a driver that
-        asks *where* a read failed is told the answer is not valid. And the
-        drive configuration word `0244` this core returns has byte 5 bit 2 set,
-        which §5.4.29's byte-5 table calls **soft** sectored, while the READ
-        CONFIGURATION comment claims the hard-sectored layout; the ten bytes are
-        the same either way, so the code is right and one of the two documents
-        is wrong about which drive this is.
-        *Verification: a refused address read back through REQUEST SENSE as the
-        cylinder, head and sector that was refused, with bit 7 set.*
+        flag; this core sent zeros with the flag clear, from a controller that
+        had already recorded the address for its own report. Recording and
+        reporting are now one function, so a refusal cannot be logged without
+        being answered. And the drive configuration word `0244` has byte 5 bit
+        2 set, which page 5-27 calls **ESDI SOFT SECTORED**, while the READ
+        CONFIGURATION comment named the hard-sectored layout -- no byte changes,
+        all three are zero either way, but the file now says something true
+        about them. Detail in `PROJECT_STATUS.md`.
+        *Verification: `awd_suite` 32 -- a refusal read back through REQUEST
+        SENSE as `A1` with the cylinder, head and sector that was refused, and
+        cylinder 1941 asserted across all three bytes, which is where a
+        one-byte answer would look right and be wrong.*
   - [ ] **Audit every other device the same way.** Started; three done.
         - [x] **8259 PIC: complete.** All eight OCW2 combinations are
               enumerated, including the one the datasheet never names, marked

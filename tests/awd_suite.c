@@ -303,11 +303,46 @@ static void test_a_bad_address_fails_and_the_sense_says_so(void) {
 
   issue(AP_OMTI_CMD_REQUEST_SENSE, 0u, 0u, 0u, 0u);
   TEST_ASSERT_EQUAL_INT(AP_OMTI_PHASE_DATA_IN, ap_omti_disk_phase(&omti));
-  TEST_ASSERT_EQUAL_HEX8(0x21u, ap_omti_disk_read(&omti, AP_OMTI_DISK_DATA));
-  for (unsigned i = 1; i < 4u; i++) {
-    (void)ap_omti_disk_read(&omti, AP_OMTI_DISK_DATA);
-  }
+
+  /* `A1`, not `21`. §5.4.3: "Bit 7 set to 1 indicates the validity of the
+   * sector address. If bit 7 is set to 0, the sector address is not valid."
+   * This core used to send `21` with three zero bytes behind it -- a controller
+   * that knew where the command failed, had already recorded it for its own
+   * report, and told the driver the answer was unavailable. */
+  TEST_ASSERT_EQUAL_HEX8(0xA1u, ap_omti_disk_read(&omti, AP_OMTI_DISK_DATA));
+
+  /* And the address itself, in the layout a descriptor block's bytes 1-3 use:
+   * head with C10 above it, sector with C09 and C08 above it, cylinder low.
+   * Cylinder 7 on a two-cylinder drive, head 0, sector 0. */
+  TEST_ASSERT_EQUAL_HEX8(0x00u, ap_omti_disk_read(&omti, AP_OMTI_DISK_DATA));
+  TEST_ASSERT_EQUAL_HEX8(0x00u, ap_omti_disk_read(&omti, AP_OMTI_DISK_DATA));
+  TEST_ASSERT_EQUAL_HEX8(0x07u, ap_omti_disk_read(&omti, AP_OMTI_DISK_DATA));
   TEST_ASSERT_EQUAL_INT(AP_OMTI_PHASE_STATUS, ap_omti_disk_phase(&omti));
+}
+
+/* The eleven-bit cylinder crosses three bytes, and a refusal above 255 is where
+ * a plausible-looking one-byte answer stops being right. Cylinder 1941 is the
+ * address Domain/OS's crash path actually asks for on the 348 MB drive. */
+static void test_the_refused_address_carries_the_whole_cylinder(void) {
+  build_controller();
+
+  static const ap_awd_geometry_t BIG = {
+      .cylinders = 1223u, .heads = 15u, .sectors = 18u};
+  /* The same backing store, now described by a geometry far larger than it --
+   * so every address in it is inside the geometry and past the image, which is
+   * the failure this reports. */
+  TEST_ASSERT_TRUE(ap_awd_open(&drive, backing, sizeof backing, BIG, true));
+
+  issue(AP_OMTI_CMD_READ, 1941u, 13u, 2u, 1u);
+  TEST_ASSERT_TRUE((take_status() & 0x02u) != 0u);
+
+  issue(AP_OMTI_CMD_REQUEST_SENSE, 0u, 0u, 0u, 0u);
+  TEST_ASSERT_EQUAL_HEX8(0xA1u, ap_omti_disk_read(&omti, AP_OMTI_DISK_DATA));
+  /* 1941 is `111 1001 0101`: C10 set into byte 1's top bit, C09 and C08 -- both
+   * set -- into byte 2's top two, and `0x95` in byte 3. */
+  TEST_ASSERT_EQUAL_HEX8(0x8Du, ap_omti_disk_read(&omti, AP_OMTI_DISK_DATA));
+  TEST_ASSERT_EQUAL_HEX8(0xC2u, ap_omti_disk_read(&omti, AP_OMTI_DISK_DATA));
+  TEST_ASSERT_EQUAL_HEX8(0x95u, ap_omti_disk_read(&omti, AP_OMTI_DISK_DATA));
 }
 
 /* --------------------------------------------------------------------------
@@ -778,6 +813,7 @@ int main(void) {
   RUN_TEST(test_a_block_count_of_zero_means_two_hundred_and_fifty_six);
   RUN_TEST(test_a_multi_sector_read_walks_forward);
   RUN_TEST(test_a_bad_address_fails_and_the_sense_says_so);
+  RUN_TEST(test_the_refused_address_carries_the_whole_cylinder);
   RUN_TEST(test_a_controller_with_no_drive_says_so);
   RUN_TEST(test_the_st506_only_command_is_refused_in_practice);
   return UNITY_END();

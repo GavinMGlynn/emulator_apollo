@@ -72,17 +72,35 @@
 #define AP_OMTI_CMD_READ_CAPACITY 0xECu
 #define AP_OMTI_CMD_READ_CONFIGURATION AP_OMTI_CMD_READ_CAPACITY
 
-/* §5.4.29's ten-byte reply, for a **hard sectored** drive.
+/* §5.4.29's ten-byte reply.
  *
  * The three "(-1)" fields are the trap: the manual marks cylinders, heads and
  * sectors as one *less* than the count -- the highest valid number rather than
  * how many there are -- so a model returning the counts describes a drive one
  * cylinder, one head and one sector larger than it has.
  *
- * Bytes 4 to 9 are physical formatting parameters -- the drive configuration
- * word, the inter-sector gaps and the PLO sync fields -- which no manual in
- * `docs/references/` gives for this drive and which a raw sector image has no
- * way to carry. They are zero, and that is a stated gap rather than a value. */
+ * ## The reply is the **soft** sectored one, and the drive says so itself
+ *
+ * §5.4.29 prints three tables: bytes 0-6 for "HARD and SOFT SECTORED Drives",
+ * then bytes 7-9 twice, once for each. Which of the two applies is not a choice
+ * -- it is stated by byte 5, the low half of the drive configuration word,
+ * whose own table on page 5-27 gives bit 2 as "ESDI SOFT SECTORED" and bit 1 as
+ * "ESDI HARD SECTORED".
+ *
+ * This core returns `02 44` for that word, and `0x44` is bits 6 and 2: **ESDI
+ * FIXED MEDIA** and **ESDI SOFT SECTORED**. So bytes 7, 8 and 9 are the soft
+ * sectored set -- PLO sync (ID), PLO sync (DATA), ISG after sector -- and this
+ * comment previously named the hard sectored layout, which the drive it
+ * describes is not. No byte changes, because all three are zero either way;
+ * what changes is whether the file says something true about them.
+ *
+ * That word was taken from the oracle when nothing here could read it. Page
+ * 5-27 defines it bit by bit, and the two now agree: `0x02` in byte 4 is bit 1,
+ * "TRANSFER RATE T = 10 MHZ, Supported", which is an ESDI drive's rate.
+ *
+ * Bytes 6 to 9 -- the inter-sector gaps and the PLO sync fields -- are zero.
+ * They are physical formatting parameters a raw sector image has no way to
+ * carry, and the oracle writes zeros for them too. A stated gap, not a value. */
 #define AP_OMTI_CONFIGURATION_BYTES 10u
 
 /* §5.4.24's READ ID reply: four bytes, two words.

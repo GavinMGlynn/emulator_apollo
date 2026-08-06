@@ -147,6 +147,22 @@ bool ap_omti_recent_read(const ap_omti_t *omti, unsigned index, uint32_t *lba) {
 
 /* Record what was refused, so a run can say which address rather than only that
  * there was one. */
+static void finish(ap_omti_t *omti, bool error, uint8_t sense);
+
+/* Refuse an address, and **say which one**.
+ *
+ * §5.4.3 defines the sense block as more than its first byte: "the sector
+ * address (defined by bytes 1, 2 and 3) is only valid if the previous command
+ * terminated in error. **Bit 7 set to 1 indicates the validity of the sector
+ * address.** If bit 7 is set to 0, the sector address is not valid." Bytes 1-3
+ * carry it in exactly the layout a descriptor block's bytes 1-3 use.
+ *
+ * This core sent zeros with the flag clear, so a driver that asked where a read
+ * failed was told the answer was not available -- from a controller that knew
+ * it, and had already recorded it for its own report.
+ *
+ * Recording and reporting are one function because they were two, and every
+ * caller had to remember to do both. */
 static void refuse(ap_omti_t *omti, uint16_t cylinder, uint8_t head,
                    uint8_t sector, uint32_t lba) {
   omti->refused_cylinder = cylinder;
@@ -157,6 +173,27 @@ static void refuse(ap_omti_t *omti, uint16_t cylinder, uint8_t head,
   for (unsigned i = 0; i < sizeof omti->refused_cdb; i++) {
     omti->refused_cdb[i] = omti->command[i];
   }
+
+  finish(omti, true, SENSE_ILLEGAL_ADDRESS);
+  omti->sense[0] = (uint8_t)(SENSE_ILLEGAL_ADDRESS | AP_OMTI_SENSE_ADDRESS_VALID);
+  omti->sense[1] = (uint8_t)((head & 0x1Fu) |
+                             ((cylinder & 0x0400u) != 0u ? 0x80u : 0x00u));
+  omti->sense[2] = (uint8_t)((sector & 0x3Fu) |
+                             (uint8_t)(((cylinder >> 8) & 0x03u) << 6));
+  omti->sense[3] = (uint8_t)(cylinder & 0xFFu);
+}
+
+/* Cylinder, head and sector from a linear sector number, for the one path that
+ * has only the linear one. `ap_awd_lba` lets a descriptor address a sector past
+ * its own track and carry into the next, so this is the inverse of the
+ * *normalised* form -- which is where the access actually landed, and so what
+ * failed. */
+static void chs_of(ap_awd_geometry_t g, uint32_t lba, uint16_t *cylinder,
+                   uint8_t *head, uint8_t *sector) {
+  const uint32_t track = lba / g.sectors;
+  *sector = (uint8_t)(lba % g.sectors);
+  *head = (uint8_t)(track % g.heads);
+  *cylinder = (uint16_t)(track / g.heads);
 }
 
 static void finish(ap_omti_t *omti, bool error, uint8_t sense) {
@@ -212,7 +249,6 @@ static bool addressed(ap_omti_t *omti, const ap_omti_cdb_t *cdb,
   if (!ap_awd_lba(omti->drive->geometry, cdb->cylinder, cdb->head, cdb->sector,
                   lba)) {
     refuse(omti, cdb->cylinder, cdb->head, cdb->sector, 0u);
-    finish(omti, true, SENSE_ILLEGAL_ADDRESS);
     return false;
   }
   return true;
@@ -225,8 +261,11 @@ static void feed(ap_omti_t *omti) {
     return;
   }
   if (!ap_awd_read(omti->drive, omti->next_lba, omti->buffer)) {
-    refuse(omti, 0u, 0u, 0u, omti->next_lba);
-    finish(omti, true, SENSE_ILLEGAL_ADDRESS);
+    uint16_t c = 0;
+    uint8_t h = 0;
+    uint8_t sec = 0;
+    chs_of(omti->drive->geometry, omti->next_lba, &c, &h, &sec);
+    refuse(omti, c, h, sec, omti->next_lba);
     return;
   }
   {
@@ -561,7 +600,6 @@ static void execute(ap_omti_t *omti) {
       if (!ap_awd_read(omti->drive, lba + block,
                        &omti->buffer[block * AP_AWD_SECTOR_BYTES])) {
         refuse(omti, cdb.cylinder, cdb.head, cdb.sector, lba + block);
-        finish(omti, true, SENSE_ILLEGAL_ADDRESS);
         return;
       }
     }
@@ -590,7 +628,6 @@ static void execute(ap_omti_t *omti) {
       for (uint8_t h = first; h < omti->drive->geometry.heads; h++) {
         if (!format_track(omti, c, h, cdb.control)) {
           refuse(omti, c, h, 0u, 0u);
-          finish(omti, true, SENSE_ILLEGAL_ADDRESS);
           return;
         }
       }
@@ -613,7 +650,6 @@ static void execute(ap_omti_t *omti) {
     }
     if (!format_track(omti, cdb.cylinder, cdb.head, cdb.control)) {
       refuse(omti, cdb.cylinder, cdb.head, 0u, 0u);
-      finish(omti, true, SENSE_ILLEGAL_ADDRESS);
       return;
     }
     finish(omti, false, 0u);
@@ -659,7 +695,6 @@ static void execute(ap_omti_t *omti) {
                     destination.head, destination.sector, &to)) {
       refuse(omti, destination.cylinder, destination.head, destination.sector,
              0u);
-      finish(omti, true, SENSE_ILLEGAL_ADDRESS);
       return;
     }
     const unsigned blocks = block_count(&cdb);
@@ -667,7 +702,6 @@ static void execute(ap_omti_t *omti) {
       if (!ap_awd_read(omti->drive, lba + block, omti->buffer) ||
           !ap_awd_write(omti->drive, to + block, omti->buffer)) {
         refuse(omti, cdb.cylinder, cdb.head, cdb.sector, lba + block);
-        finish(omti, true, SENSE_ILLEGAL_ADDRESS);
         return;
       }
     }
@@ -694,7 +728,6 @@ static void execute(ap_omti_t *omti) {
       if (!ap_awd_write(omti->drive, lba + block,
                         &omti->buffer[block * AP_AWD_SECTOR_BYTES])) {
         refuse(omti, cdb.cylinder, cdb.head, cdb.sector, lba + block);
-        finish(omti, true, SENSE_ILLEGAL_ADDRESS);
         return;
       }
     }
@@ -774,7 +807,6 @@ static void execute(ap_omti_t *omti) {
       if (!ap_awd_read(omti->drive, lba + block,
                        &omti->buffer[block * AP_OMTI_LONG_BLOCK_BYTES])) {
         refuse(omti, cdb.cylinder, cdb.head, cdb.sector, lba + block);
-        finish(omti, true, SENSE_ILLEGAL_ADDRESS);
         return;
       }
     }
@@ -819,7 +851,6 @@ static void execute(ap_omti_t *omti) {
                       (uint8_t)s, &at) ||
           !ap_awd_read(omti->drive, at, omti->buffer)) {
         refuse(omti, cdb.cylinder, cdb.head, (uint8_t)s, at);
-        finish(omti, true, SENSE_ILLEGAL_ADDRESS);
         return;
       }
     }
@@ -953,7 +984,6 @@ static void take_byte(ap_omti_t *omti, uint8_t value) {
         omti->assigning_alternate = false;
         if (!format_track(omti, alternate.cylinder, alternate.head, 0u)) {
           refuse(omti, alternate.cylinder, alternate.head, 0u, 0u);
-          finish(omti, true, SENSE_ILLEGAL_ADDRESS);
           return;
         }
         finish(omti, false, 0u);

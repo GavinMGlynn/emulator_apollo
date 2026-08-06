@@ -255,6 +255,13 @@ typedef enum {
  * reads it. */
 #define AP_OMTI_ALTERNATE_ADDRESS_BYTES 4u
 
+/* §5.4.3, sense byte 0's top bit: "Bit 7 set to 1 indicates the validity of the
+ * sector address. If bit 7 is set to 0, the sector address is not valid." So it
+ * is a property of bytes 1-3 rather than part of the code, and a controller
+ * that knows where a command failed and leaves it clear is withholding an
+ * answer it has. */
+#define AP_OMTI_SENSE_ADDRESS_VALID 0x80u
+
 /* ## The identification block, which is what a reset leaves in the buffer
  *
  * §5.4.13 again: "The READ BUFFER Command can also be used to model and status
