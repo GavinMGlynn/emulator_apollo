@@ -117,6 +117,11 @@ typedef struct {
    * the port would have sent without a wire existing. */
   uint8_t tx_holding;
   bool tx_holding_full;
+  /* §4.2.7.2's START BREAK, held until STOP BREAK. State without a consumer:
+   * nothing in this machine watches TxD at bit level. Kept so the pair is
+   * answered rather than ignored -- and named here so a reader can tell the
+   * difference between a bit that is stored and a bit that does something. */
+  bool tx_break;
 } ap_mc68681_channel_t;
 
 typedef struct {

@@ -8,7 +8,14 @@
 #define CR_MISC_RESET_RECEIVER 0x20u   /* "0 1 0  Reset Receiver" */
 #define CR_MISC_RESET_TRANSMITTER 0x30u
 #define CR_MISC_RESET_ERROR 0x40u
+/* §4.2.7.2's last three, which this file defined one of and acted on none.
+ * Read from the datasheet after `[MC68681]` was fetched to
+ * `docs/references/motorola/`; before that there was no manual on disk for the
+ * part at all, and the four commands that *were* handled had been taken from
+ * the same table by whoever wrote them. */
 #define CR_MISC_RESET_BREAK 0x50u
+#define CR_MISC_START_BREAK 0x60u
+#define CR_MISC_STOP_BREAK 0x70u
 
 /* CRA[3:0], the enable and disable commands. */
 #define CR_ENABLE_RX 0x01u
@@ -442,16 +449,62 @@ void ap_mc68681_write(ap_mc68681_t *duart, unsigned reg, uint8_t value) {
                          ~(AP_MC68681_SR_RXRDY | AP_MC68681_SR_FFULL));
       break;
     case CR_MISC_RESET_TRANSMITTER:
+      /* §4.2.7.2: "the transmitter is immediately disabled and the TxRDY and
+       * TxEMT bits in the SRA are **cleared**."
+       *
+       * This file *set* them, which is the opposite, and it is the kind of
+       * error that hides: a driver that resets the transmitter and then polls
+       * TxRDY sees a transmitter ready to take a character from a transmitter
+       * that has just been disabled. The three statements in this paragraph --
+       * reset clears, enable asserts, disable resets -- are consistent only
+       * when all three are implemented, and none of them was. */
       ch->tx_enabled = false;
       ch->tx_holding_full = false;
-      ch->sr |= (uint8_t)(AP_MC68681_SR_TXRDY | AP_MC68681_SR_TXEMT);
+      ch->sr = (uint8_t)(ch->sr &
+                         ~(AP_MC68681_SR_TXRDY | AP_MC68681_SR_TXEMT));
       break;
     case CR_MISC_RESET_ERROR:
       ch->sr = (uint8_t)(ch->sr &
                          ~(AP_MC68681_SR_OVERRUN | AP_MC68681_SR_PARITY |
                            AP_MC68681_SR_FRAMING | AP_MC68681_SR_BREAK));
       break;
+    case CR_MISC_RESET_BREAK:
+      /* §4.2.7.2: "This command causes the channel A break detect change bit
+       * in the interrupt status register (ISR[2]) to be cleared to zero."
+       * Channel B's is `ISR[6]`, per §4.2.8 -- "identical ... except that all
+       * control actions apply to the channel B receiver and transmitter".
+       *
+       * A driver that enables the break-change interrupt and cannot clear it
+       * is a driver that never leaves its interrupt handler, which is why a
+       * silently ignored command here is worse than a refused one. */
+      duart->isr = (uint8_t)(duart->isr &
+                             ~(reg == AP_MC68681_CR_A ? AP_MC68681_ISR_BREAK_A
+                                                      : AP_MC68681_ISR_BREAK_B));
+      break;
+    case CR_MISC_START_BREAK:
+      /* §4.2.7.2: "forces the channel A transmitter serial-data output (TxDA)
+       * low (spacing) ... **The transmitter must be enabled for this command to
+       * be accepted.**" That condition is the observable part and is honoured.
+       *
+       * The break itself is state with no consumer: nothing in this machine
+       * watches TxD at bit level, and the delays the datasheet gives -- up to
+       * two bit times, or until the character in the holding register has gone
+       * -- describe a serialiser this core does not have. Recorded rather than
+       * dropped, so a driver's start/stop pair is answered by a controller that
+       * knows it is in a break rather than by one that ignored both. */
+      if (ch->tx_enabled) {
+        ch->tx_break = true;
+      }
+      break;
+    case CR_MISC_STOP_BREAK:
+      /* §4.2.7.2: TxD "will go high (marking) within two bit times". No
+       * enable condition is stated for this one, and none is imposed. */
+      ch->tx_break = false;
+      break;
     default:
+      /* `000`, "No command." The only value left, and §4.2.7.2 gives it a
+       * meaning rather than leaving it undefined -- so this arm is the command
+       * being obeyed, not a command being dropped. */
       break;
     }
     /* The enable and disable bits are acted on after the miscellaneous command,
@@ -465,10 +518,18 @@ void ap_mc68681_write(ap_mc68681_t *duart, unsigned reg, uint8_t value) {
       ch->rx_enabled = false;
     }
     if ((value & CR_ENABLE_TX) != 0u) {
+      /* §4.2.7.3: "Enable Transmitter ... The transmitter-ready status bit will
+       * be asserted." */
       ch->tx_enabled = true;
+      ch->sr |= AP_MC68681_SR_TXRDY;
     }
     if ((value & CR_DISABLE_TX) != 0u) {
+      /* §4.2.7.3: "Disable Transmitter. This command terminates transmitter
+       * operation and resets the transmitter-ready and transmitter-empty status
+       * bits." */
       ch->tx_enabled = false;
+      ch->sr = (uint8_t)(ch->sr &
+                         ~(AP_MC68681_SR_TXRDY | AP_MC68681_SR_TXEMT));
     }
     refresh_channel_interrupts(duart);
     return;

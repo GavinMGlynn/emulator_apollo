@@ -13,6 +13,86 @@ static void enable_a(ap_mc68681_t *d) {
   ap_mc68681_write(d, AP_MC68681_CR_A, 0x05); /* enable receiver and transmitter */
 }
 
+/* ## §4.2.7.2's paragraph is three statements, and none of them was implemented
+ *
+ * "Reset Transmitter ... the TxRDY and TxEMT bits in the SRA are **cleared**",
+ * "Enable Transmitter ... The transmitter-ready status bit will be asserted",
+ * and "Disable Transmitter ... resets the transmitter-ready and
+ * transmitter-empty status bits". This file *set* the bits on reset -- the
+ * opposite -- and did nothing at all on enable or disable, and the whole suite
+ * still passed, because nothing asked.
+ *
+ * They are consistent only together: reset clears, enable asserts. A model that
+ * cleared on reset and left enable alone would hang a driver that resets its
+ * transmitter and then waits for TxRDY.
+ */
+static void test_the_transmitter_commands_move_the_ready_bits_as_documented(void) {
+  ap_mc68681_t d;
+  ap_mc68681_reset(&d);
+
+  /* Reset: both down, and the transmitter disabled with them. */
+  ap_mc68681_write(&d, AP_MC68681_CR_A, 0x30); /* misc = 011, reset transmitter */
+  uint8_t sr = ap_mc68681_read(&d, AP_MC68681_SR_CSR_A);
+  TEST_ASSERT_EQUAL_HEX8(0, sr & AP_MC68681_SR_TXRDY);
+  TEST_ASSERT_EQUAL_HEX8(0, sr & AP_MC68681_SR_TXEMT);
+
+  /* Enable: ready asserted, which is what makes the reset above survivable. */
+  ap_mc68681_write(&d, AP_MC68681_CR_A, 0x04); /* enable transmitter */
+  sr = ap_mc68681_read(&d, AP_MC68681_SR_CSR_A);
+  TEST_ASSERT_EQUAL_HEX8(AP_MC68681_SR_TXRDY, sr & AP_MC68681_SR_TXRDY);
+
+  /* Disable: both down again. */
+  ap_mc68681_write(&d, AP_MC68681_CR_A, 0x08); /* disable transmitter */
+  sr = ap_mc68681_read(&d, AP_MC68681_SR_CSR_A);
+  TEST_ASSERT_EQUAL_HEX8(0, sr & AP_MC68681_SR_TXRDY);
+  TEST_ASSERT_EQUAL_HEX8(0, sr & AP_MC68681_SR_TXEMT);
+}
+
+/* §4.2.7.2's last three commands, `101` through `111`, all of which fell
+ * through a bare `default: break;`. */
+static void test_the_break_commands_are_obeyed_rather_than_dropped(void) {
+  ap_mc68681_t d;
+  ap_mc68681_reset(&d);
+  enable_a(&d);
+
+  /* START BREAK: "The transmitter must be enabled for this command to be
+   * accepted." Enabled here, so it is. */
+  ap_mc68681_write(&d, AP_MC68681_CR_A, 0x60);
+  TEST_ASSERT_TRUE(d.channel[0].tx_break);
+  ap_mc68681_write(&d, AP_MC68681_CR_A, 0x70); /* STOP BREAK */
+  TEST_ASSERT_FALSE(d.channel[0].tx_break);
+
+  /* And the condition is real: with the transmitter disabled the command is
+   * not accepted. A model that ignored the sentence would enter a break state
+   * the hardware refuses to enter. */
+  ap_mc68681_write(&d, AP_MC68681_CR_A, 0x08); /* disable transmitter */
+  ap_mc68681_write(&d, AP_MC68681_CR_A, 0x60);
+  TEST_ASSERT_FALSE(d.channel[0].tx_break);
+}
+
+/* `101 Reset Channel A Break Change Interrupt`: "causes the channel A break
+ * detect change bit in the interrupt status register (ISR[2]) to be cleared to
+ * zero", and channel B's is ISR[6].
+ *
+ * A driver that enables the break-change interrupt and cannot clear it never
+ * leaves its handler, so a silently ignored command here is worse than a
+ * refused one. */
+static void test_the_break_change_interrupt_can_be_cleared_per_channel(void) {
+  ap_mc68681_t d;
+  ap_mc68681_reset(&d);
+
+  d.isr = (uint8_t)(AP_MC68681_ISR_BREAK_A | AP_MC68681_ISR_BREAK_B);
+
+  ap_mc68681_write(&d, AP_MC68681_CR_A, 0x50);
+  TEST_ASSERT_EQUAL_HEX8(0, d.isr & AP_MC68681_ISR_BREAK_A);
+  /* Channel B's is untouched -- the command is per channel, and a model
+   * clearing both would hide a break the other channel had seen. */
+  TEST_ASSERT_EQUAL_HEX8(AP_MC68681_ISR_BREAK_B, d.isr & AP_MC68681_ISR_BREAK_B);
+
+  ap_mc68681_write(&d, AP_MC68681_CR_B, 0x50);
+  TEST_ASSERT_EQUAL_HEX8(0, d.isr & AP_MC68681_ISR_BREAK_B);
+}
+
 static void test_an_idle_transmitter_is_ready_and_empty(void) {
   ap_mc68681_t d;
   ap_mc68681_reset(&d);
@@ -642,6 +722,9 @@ int main(void) {
   RUN_TEST(test_the_stop_command_stops_a_counter_but_not_a_timer);
   RUN_TEST(test_the_output_port_has_separate_set_and_clear_addresses);
   RUN_TEST(test_resetting_the_receiver_empties_the_fifo);
+  RUN_TEST(test_the_transmitter_commands_move_the_ready_bits_as_documented);
+  RUN_TEST(test_the_break_commands_are_obeyed_rather_than_dropped);
+  RUN_TEST(test_the_break_change_interrupt_can_be_cleared_per_channel);
   RUN_TEST(test_two_duarts_reset_alike_hold_identical_state);
   return UNITY_END();
 }

@@ -3388,7 +3388,7 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         SENSE as `A1` with the cylinder, head and sector that was refused, and
         cylinder 1941 asserted across all three bytes, which is where a
         one-byte answer would look right and be wrong.*
-  - [ ] **Audit every other device the same way.** Seven of nine done.
+  - [ ] **Audit every other device the same way.** Eight of nine done.
         - [x] **8259 PIC: complete.** All eight OCW2 combinations are
               enumerated, including the one the datasheet never names, marked
               "by elimination". ICW1-4, OCW1-3, special mask, poll, rotate,
@@ -3422,9 +3422,22 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
               recovered by measurement (`FINDINGS.md` C46). Auditing it means
               sweeping the oracle for codes the firmware never sends, which is
               a different and more expensive exercise than reading a list.
-        - [ ] MC68681 DUARTs and the MC6840 timer. Neither has a manual in
-              `docs/references/`; both are standard Motorola parts whose
-              datasheets are fetchable, and that is the next step.
+        - [x] **MC68681 DUART: three commands dropped, three status bits
+              backwards.** There was no datasheet on disk; it is on bitsavers
+              and now in `docs/references/motorola/`. §4.2.7.2's miscellaneous
+              field has eight values and four were handled -- and
+              `CR_MISC_RESET_BREAK` was *defined* and never used, which is the
+              tell. The same paragraph gives three statements about TxRDY and
+              TxEMT and this core had all three wrong, setting on reset where
+              the datasheet clears. **Nothing failed before or after**: no test
+              asked, because the firmware never resets its transmitter
+              mid-session. Detail in `PROJECT_STATUS.md`.
+              *Verification: `mc68681_suite` 37 -- the reset/enable/disable
+              triple asserted as three statements that only work together, the
+              break pair with its documented enable condition, and the
+              break-change clear shown to be per channel.*
+        - [ ] MC6840 timer. No manual in `docs/references/` yet; the same
+              bitsavers fetch is the next step.
         The shape, now that seven are done: the risk lives in **command-driven**
         devices, not register-driven ones. A register decode enumerates itself
         -- there are sixteen addresses and the switch either covers them or does
