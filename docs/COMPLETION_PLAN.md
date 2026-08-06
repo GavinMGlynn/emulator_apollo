@@ -4152,7 +4152,11 @@ boot below, and the boot is not attempted until they are done.
       So the keyboard is not answering a byte a real one answers. The byte comes
       from `d0` at the caller of `0073A0`.
       *Verification: the caller, the byte it sends, and `ap_kbd_receive`'s
-      answer to it.*
+      answer to it.* A scan for `bsr`/`jsr` to `00738E`, `0073A0` and `0073A6`
+      finds **no callers**, so these are entered by fall-through and the
+      enclosing subroutine begins earlier -- the entry point is the thing to
+      find first, by walking back to the previous `rts`, not by widening the
+      disassembly window a guess at a time.
       That is the first defect of this phase that is genuinely ours, and it is
       narrow: one bit, one register, and a known producer.
       *Verification: `RxRDY` set on channel A by the time `000073EC` reads it,
