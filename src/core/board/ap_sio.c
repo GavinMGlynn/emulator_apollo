@@ -153,9 +153,23 @@ void ap_sio_advance(ap_sio_t *sio, ap_time_t now) {
 bool ap_sio_diagnostic_interrupt(const ap_sio_t *sio) {
   const ap_mc68681_t *first = &sio->port[0];
   if ((first->opcr & AP_SIO_OPCR_OP7_IS_TXRDYB) != 0u) {
-    /* OP7 is carrying channel B's transmitter interrupt, not the output port
-     * bit. Nothing here selects that; see the header. */
-    return false;
+    /* `[MC68681]` §4.2.11.1: OP7 provides "either the complement of OPR[7] or
+     * the channel B transmitter interrupt output, **which is the complement of
+     * the channel B transmitter ready status bit**. When configured for the
+     * channel B transmitter interrupt, OP7 acts as an open-collector output and
+     * is **not masked by the contents of the interrupt mask register**."
+     *
+     * So the pin is still asserted low, as in the `OPR[7]` case below -- the
+     * complement of a status bit rather than the complement of a register bit.
+     * The line is up when channel B's transmitter is ready.
+     *
+     * This used to return false, on the grounds that nothing in any firmware
+     * here selects the alternate source and a board asking for it should get no
+     * interrupt "rather than a guess". But the datasheet says exactly what OP7
+     * carries, so there was never a guess to avoid -- only an unread section.
+     * The mask register is deliberately not consulted: the sentence above says
+     * this source bypasses it. */
+    return (first->channel[1].sr & AP_MC68681_SR_TXRDY) != 0u;
   }
   /* The pin is the *complement* of the bit, so the line is asserted when the
    * register bit is clear -- which is what makes the diagnostic's "reset output

@@ -9,6 +9,41 @@
 void setUp(void) {}
 void tearDown(void) {}
 
+
+/* `OPCR[7]` set retargets OP7. `[MC68681]` §4.2.11.1: it provides "either the
+ * complement of OPR[7] or the channel B transmitter interrupt output, which is
+ * the complement of the channel B transmitter ready status bit ... not masked
+ * by the contents of the interrupt mask register."
+ *
+ * This returned false unconditionally, on the grounds that no firmware here
+ * selects the alternate source and a board asking for it should get nothing
+ * "rather than a guess". The datasheet says exactly what OP7 carries, so there
+ * was no guess to avoid -- only an unread section. */
+static void test_op7_can_carry_channel_bs_transmitter_ready(void) {
+  ap_sio_t sio;
+  TEST_ASSERT_TRUE(ap_sio_reset(&sio));
+
+  /* The default source: the complement of OPR[7], so the line is up while the
+   * bit is clear. */
+  ap_sio_write(&sio, AP_SIO1_ADDR + (13u << 1), 0x00u); /* OPCR */
+  TEST_ASSERT_TRUE(ap_sio_diagnostic_interrupt(&sio));
+
+  /* Select the alternate source. A reset transmitter is *not* ready -- the
+   * datasheet has RESET TRANSMITTER clear TxRDY -- so the line follows it. */
+  ap_sio_write(&sio, AP_SIO1_ADDR + (13u << 1),
+               AP_SIO_OPCR_OP7_IS_TXRDYB);
+  ap_mc68681_write(&sio.port[0], AP_MC68681_CR_B, 0x30u); /* reset transmitter */
+  TEST_ASSERT_FALSE(ap_sio_diagnostic_interrupt(&sio));
+
+  /* Enabling channel B's transmitter asserts TxRDY, and OP7 follows it. */
+  ap_mc68681_write(&sio.port[0], AP_MC68681_CR_B, 0x04u); /* enable transmitter */
+  TEST_ASSERT_TRUE(ap_sio_diagnostic_interrupt(&sio));
+
+  /* And it is channel *B*: channel A's transmitter must not move the line. */
+  ap_mc68681_write(&sio.port[0], AP_MC68681_CR_A, 0x08u); /* disable A */
+  TEST_ASSERT_TRUE(ap_sio_diagnostic_interrupt(&sio));
+}
+
 static void test_both_ports_decode_at_stride_two(void) {
   unsigned unit;
   unsigned reg;
@@ -489,11 +524,15 @@ static void test_serial_ones_op7_is_the_diagnostic_interrupt(void) {
                AP_SIO_OPR_DIAGNOSTIC);
   TEST_ASSERT_TRUE(ap_sio_diagnostic_interrupt(&sio));
 
-  /* And with OP7 assigned to channel B's transmitter instead, the line is not
-   * this wire at all. Nothing here selects that, and the model says so rather
-   * than reporting the output-port bit anyway. */
+  /* And with OP7 assigned to channel B's transmitter instead, the line stops
+   * being the output-port bit and becomes `TxRDY`'s complement -- `[MC68681]`
+   * §4.2.11.1. This used to assert that the model reported *nothing* in that
+   * configuration, "rather than a guess"; the datasheet states what OP7
+   * carries, so there was no guess to avoid. Channel B is enabled by this
+   * suite's fixture, so the line is up. */
   ap_sio_write(&sio, AP_SIO1_ADDR + 2u * AP_MC68681_IP_OPCR, 0x80u);
-  TEST_ASSERT_FALSE(ap_sio_diagnostic_interrupt(&sio));
+  TEST_ASSERT_EQUAL_INT((sio.port[0].channel[1].sr & AP_MC68681_SR_TXRDY) != 0u,
+                        ap_sio_diagnostic_interrupt(&sio));
 
   /* Serial *2* is not this wire: §2.5 names one chip and this is the other.
    * Driving its OP7 while serial 1 holds the line low must change nothing. */
@@ -525,6 +564,7 @@ static void test_the_diagnostic_line_idles_asserted_after_reset(void) {
 
 int main(void) {
   UNITY_BEGIN();
+  RUN_TEST(test_op7_can_carry_channel_bs_transmitter_ready);
   RUN_TEST(test_serial_ones_op7_is_the_diagnostic_interrupt);
   RUN_TEST(test_the_diagnostic_line_idles_asserted_after_reset);
   RUN_TEST(test_the_firmwares_preload_gives_the_documented_refresh_period);

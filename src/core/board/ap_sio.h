@@ -161,9 +161,13 @@ void ap_sio_advance(ap_sio_t *sio, ap_time_t now);
  * that clears it raises the line -- which is the direction §2.5 wants, since an
  * interrupt "is generated when an IRQ line is raised from low to high".
  *
- * The alternate source is not modelled: `OPCR[7]` set means OP7 carries channel
- * B's transmitter interrupt instead, and nothing in any firmware here selects
- * it. A board asking for it gets no diagnostic interrupt rather than a guess. */
+ * The alternate source **is** modelled: `[MC68681]` §4.2.11.1 says `OPCR[7]`
+ * set makes OP7 "the channel B transmitter interrupt output, which is the
+ * complement of the channel B transmitter ready status bit", open-collector and
+ * "not masked by the contents of the interrupt mask register". So the line
+ * follows channel B's `TxRDY`, unmasked. Nothing in any firmware here selects
+ * it, which is a reason to have no *test data* for it and not a reason for the
+ * part to be unable to do it. */
 #define AP_SIO_DIAGNOSTIC_IRQ 13u
 #define AP_SIO_OPCR_OP7_IS_TXRDYB 0x80u
 #define AP_SIO_OPR_DIAGNOSTIC 0x80u

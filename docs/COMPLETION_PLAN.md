@@ -2812,7 +2812,7 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
       pin's frequency, the same selector and table as the periodic interrupt,
       gated by `SQWE` and zero for a rate this core cannot represent exactly; ~~`DSE`~~ **done** --
       both special updates, October's taken only on the hour's first pass; the MC68681's `tx_break`, its serial framing
-      and `ap_sio`'s `OPCR[7]`, all in the datasheet now on disk; and the tape's
+      and ~~`ap_sio`'s `OPCR[7]`~~ **done**, all in the datasheet now on disk; and the tape's
       per-byte handshake, where `[SC499]` §1.13.2 describes the REQUEST/READY
       exchange and the header records that **the section has not been read**.
       **Now read, and it corrects our own header twice.** First, the handshake
