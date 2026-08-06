@@ -3437,10 +3437,17 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         measurement separates them: either `RxRDY` never gets set, in which case
         the loop can never exit and the delivery path is at fault after all, or
         it is set and the firmware leaves, reads, and returns 400 times without
-        transmitting. **Count the exits.** A counter on `$7E6` and `$80E`
-        answers it in one short run -- the loop is reached within a few million
-        instructions -- and no further hypothesis should be formed before that
-        number exists.
+        transmitting. **Counted, and no code was needed**:
+        `--boot-stop-physical-pc 7E6` stops the machine at `000007E6` after
+        **49,774 instructions**. The exit is taken. So `RxRDY` is set, the
+        firmware branches out and reads the character, and the receive path
+        works -- the withdrawal above stands, and of the two readings the
+        second is the true one.
+        What is left is narrow, and pointed at by documents rather than by
+        another guess: `008778-03` says **"SIO0 is the dedicated serial line
+        for the keyboard"**, and `MD.md` records that its capture needed "a key
+        press on the Apollo keyboard" to start the dialogue -- not a character
+        on a general-purpose line. The frontend already has `--boot-key`.
         *Five hypotheses in a row have now been produced by reasoning and killed
         by the next measurement: the sense value, the baud rate, the `SR`/`RB`
         decode, an autobaud the loop does not perform, and input starvation.
