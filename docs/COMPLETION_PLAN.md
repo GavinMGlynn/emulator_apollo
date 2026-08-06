@@ -3932,9 +3932,31 @@ boot below, and the boot is not attempted until they are done.
       than sitting in it -- a retry, or a poll with a timeout between attempts.
       Which of those, and what it is waiting on, is the next question, and it is
       a disassembly of the callers at `005EBC`-`005F38` rather than another run.
-      *Verification: the PROM's self-test banner legible in a PNG, or the
-      retry's condition identified and shown to be one this core cannot yet
-      satisfy.*
+      **It is not a delay loop at all.** Disassembling the callers:
+
+          005EB6  move.l #$1e8480,d0
+          005EBC  bsr.w  $61d4            ; delay
+          005EC0  move.b $92(a5),d1
+          005EC4  and.b  #$f,d1
+          005EC8  move.b d1,$10100.l      ; a nibble to the LED port
+          005ECE  move.l #$7a120,d0
+          005ED4  bsr.w  $61d4            ; delay
+          005ED8  move.b $92(a5),$10100.l
+          005EE0  bra.b  $5eb6            ; unconditional -- for ever
+
+      `010100` is the **diagnostic LED port** (`008778-03` §3.7), and the branch
+      back is unconditional. This is the boot PROM's own **blink loop** -- the
+      same shape as Domain/OS's `CALENDAR` halt, and the same meaning: the
+      firmware has *failed* and is displaying a code on the LEDs, with the
+      delays only setting the blink rate.
+      So fitting a display does not make the machine slow. It makes the boot
+      **fail**, early, before any self-test output. Four readings of this
+      screen -- broken write path, nothing drawn yet, one long delay, a hundred
+      retries -- were each wrong, and each was a reading of a symptom without
+      the instruction that produced it.
+      *Verification: the posted LED code from a display-fitted run named, and
+      the check that fails identified. The report already prints `posted codes`,
+      so the next run says which.*
       *Verification: the PROM's self-test banner legible in a PNG.*
 - [ ] SDL3 interactive frontend, implemented rather than stubbed: scanout to a
       letterboxed texture, keyboard/mouse mapping, `--frames` bounded mode
