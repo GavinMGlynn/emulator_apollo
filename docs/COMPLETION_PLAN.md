@@ -4432,7 +4432,28 @@ boot below, and the boot is not attempted until they are done.
       That is the one thing left to establish, and it is a read: which caller
       the `>` prompt is reached from, and whether `KEYBOARD TEST # 0` names the
       `00` exchange or the `FF 11 16` one.
-      *Verification: the test's own call site, against the trace's ordering.*
+      **The call site decodes, and it is the `FF 11 16` exchange after all:**
+
+          72F4  move.b #$FF,d0 ; bsr $738C      ; send FF
+          72FC  move.b #$11,d0 ; bsr $738C      ; send 11
+          7304  move.b #$16,d0 ; bsr $738C      ; send 16
+          730C  bsr $73BE ; bsr $73BE ; bsr $73BE    ; read three bytes
+          7318  cmp.b #$00,d1 ; beq ...
+          731E  cmp.b #$02,d1 ; beq ...
+
+      Three sends, **three reads** -- which is exactly what fills a three-deep
+      FIFO and raises `FFULL`, and it ties the `EXPECTED= 2` to the `cmp.b #$02`
+      here rather than to a bit number.
+      And this core replies to *all three* sends: the trace showed `FF -> 1`,
+      `11 -> 1`, `16 -> 3`, five bytes where the firmware reads three. So the
+      three reads may be collecting the **echoes of the command bytes** instead
+      of the reply to `16` -- on real hardware a multi-byte command's prefix
+      would not be echoed back.
+      Flagged rather than fixed: the site reporting `EXPECTED= 2` on screen is
+      not provably this one -- `7328` loads `moveq #0,d0` for its own failure
+      report -- so there is more than one exit and the screen's may be another.
+      *Verification: which report site the screen's `EXPECTED= 2` comes from,
+      and whether a real keyboard echoes a command's prefix bytes.*
       That is the first defect of this phase that is genuinely ours, and it is
       narrow: one bit, one register, and a known producer.
       *Verification: `RxRDY` set on channel A by the time `000073EC` reads it,
