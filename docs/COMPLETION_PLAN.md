@@ -3525,8 +3525,22 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         That is the same shape as the service-mode poll at `00078E`, and the
         same technique applies -- except this code is in RAM, loaded from
         `/sau14`, so it is `--dump-mem 01029640:0x40` rather than a file read.
-        *Next: dump and disassemble that loop, and take the transmit-register
-        write counts from the report while the run is being made anyway.*
+        **Dumped and disassembled.** `--dump-logical 01029620:0x60` gives:
+
+            0102963C  tst.w  d3
+            0102963E  beq.s  0102963C
+
+        an unconditional spin whenever `d3` is zero, and `d3` comes from a
+        stack parameter (`move.w $10(a6),d3`). CONFIG is entered with a zero
+        count and hangs on it before printing anything -- the loop below it,
+        `movea.l -4(a0),a2 / sub.l -4(a1),d2 / dbf d0`, is an array comparison
+        that never runs.
+        The same run's `sio1 reg 11  321 write(s)` accounts for MD's sign-on
+        and its sixty-odd `>` prompts, so those writes are MD's and CONFIG
+        transmits nothing at all. That kills the last of the three candidates:
+        it is not an unseen output path either.
+        *Next: what `$10(a6)` should hold at entry -- a count CONFIG is given
+        and which is arriving zero.*
         *Five hypotheses in a row have now been produced by reasoning and killed
         by the next measurement: the sense value, the baud rate, the `SR`/`RB`
         decode, an autobaud the loop does not perform, and input starvation.
