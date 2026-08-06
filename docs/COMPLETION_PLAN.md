@@ -3975,9 +3975,24 @@ boot below, and the boot is not attempted until they are done.
       a structure and `$92` holds the code -- which is why grepping for the
       constant found nothing and why the display codes look unlike the reset
       ones.
-      *Verification: what `a5` points at and what writes `$92`. That is a trace
-      of the display init's own structure, not a search for a literal -- the
-      search has been done and its result is that there is nothing to find.*
+      **Traced.** `a5` is `movea.l #$1000800,a5`, so the code lives at RAM
+      `01000892`, and one instruction writes it -- `005E3E` -- inside a
+      *post-a-code* subroutine:
+
+          005E36  movem.l d0-d1,-(a7)
+          005E3A  ror.b   #4,d1        ; swap the nibbles
+          005E3C  not.b   d1           ; complement
+          005E3E  move.b  d1,$92(a5)   ; save
+          005E42  move.b  d1,$10100.l  ; post
+          005E4C  rts
+
+      So the LED byte is a *transformation* of a code the caller passes, which
+      is why the display codes look unlike the reset path's plain immediates.
+      Working `8D` back through it: `not 8D` is `72`, and `ror.b #4` of `27` is
+      `72`. **The caller passed `27`** -- that is the failure's real number and
+      `8D` is only its display form.
+      *Verification: the caller that passes `27`, and the graphics condition it
+      checked. One `bsr` site, findable the same way this was.*
       *Verification: the PROM's self-test banner legible in a PNG.*
 - [ ] SDL3 interactive frontend, implemented rather than stubbed: scanout to a
       letterboxed texture, keyboard/mouse mapping, `--frames` bounded mode
