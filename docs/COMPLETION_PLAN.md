@@ -3966,8 +3966,18 @@ boot below, and the boot is not attempted until they are done.
       after `DE` are the display's own initialisation running for the first
       time -- a path a console-only boot never enters, which is why none of this
       has been seen before.
-      *Verification: what `8D` tests, from the PROM's post sequence around the
-      write at `010100`, and the graphics behaviour it expects.*
+      **And `8D` is not a constant in the ROM.** Every immediate written to
+      `010100` is enumerable and none of them is it -- the reset path posts
+      `EE DD CC BB AA 99 88 77 66 55 44 33 22 11`, then `EF DF FE EE DE`, which
+      is exactly the console-only boot's sequence and where it stops.
+      The display path posts from a **register** instead: `move.b $92(a5),d1`
+      then `move.b d1,$010100`. So `8D` is *computed or stored*, `a5` points at
+      a structure and `$92` holds the code -- which is why grepping for the
+      constant found nothing and why the display codes look unlike the reset
+      ones.
+      *Verification: what `a5` points at and what writes `$92`. That is a trace
+      of the display init's own structure, not a search for a literal -- the
+      search has been done and its result is that there is nothing to find.*
       *Verification: the PROM's self-test banner legible in a PNG.*
 - [ ] SDL3 interactive frontend, implemented rather than stubbed: scanout to a
       letterboxed texture, keyboard/mouse mapping, `--frames` bounded mode
