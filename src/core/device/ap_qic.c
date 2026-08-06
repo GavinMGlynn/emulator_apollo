@@ -73,6 +73,8 @@ bool ap_qic_command_known(uint8_t command) {
   case AP_QIC_CMD_SELECT_LOCK:
   case AP_QIC_CMD_BOT:
   case AP_QIC_CMD_RETENSION:
+  case AP_QIC_CMD_ERASE:
+  case AP_QIC_CMD_SELECT_Q11:
   case AP_QIC_CMD_SELECT_Q24:
   case AP_QIC_CMD_WRITE:
   case AP_QIC_CMD_WRITE_FILE_MARK:
@@ -114,12 +116,33 @@ bool ap_qic_command(ap_qic_t *qic, uint8_t command) {
     qic->position = 0u;
     qic->reading = false;
     return true;
+  case AP_QIC_CMD_SELECT_Q11:
+    /* §1.13.1 item 11: "The SELECT Q11 format command selects the Q11 format as
+     * the current format." Item 12 says the same of Q24, so the pair is one
+     * switch with two settings rather than two independent flags. */
+    if (!qic->selected) {
+      return false;
+    }
+    qic->q24_format = false;
+    return true;
   case AP_QIC_CMD_SELECT_Q24:
     if (!qic->selected) {
       return false;
     }
     qic->q24_format = true;
     return true;
+  case AP_QIC_CMD_ERASE:
+    /* §1.13.1 item 5: "completely erases the tape in the selected drive ...
+     * moves the tape to BOT, activates the erase head and moves to EOT".
+     *
+     * Recognised and refused, exactly as WRITE is. The cartridges this core
+     * opens are read-only distribution images, and there is no write-back path;
+     * an erase reported as successful would leave a driver believing a tape it
+     * is about to write is blank. Refusing is the answer that is true.
+     *
+     * This is the command whose opcode was recorded as unrecoverable. It was in
+     * the same manual two pages further on -- see `ap_qic.h`. */
+    return false;
   case AP_QIC_CMD_READ:
     if (!qic->selected || !qic->loaded) {
       return false;
@@ -143,8 +166,8 @@ bool ap_qic_command(ap_qic_t *qic, uint8_t command) {
      * write that went nowhere would let an installation appear to succeed. */
     return false;
   }
-  /* Unrecognised -- including ERASE and SELECT Q11 FORMAT, whose opcodes the
-   * scan lost. Refusing is what keeps a guessed code from quietly working. */
+  /* A code outside `[SC499]` §1.13's set entirely. The set has no holes left in
+   * it, so reaching here means the host sent something the drive never had. */
   return false;
 }
 

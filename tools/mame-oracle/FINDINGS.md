@@ -1502,32 +1502,42 @@ bootable medium present -- no Winchester image exists -- so the first boot must
 come from here. This is the block the boot PROM would fetch first, and it is
 readable now, before any tape controller command set is modelled.
 
-### C25 — the QIC-02 command set, and two codes the scan lost
+### C25 — the QIC-02 command set, complete (two codes recovered)
 
 `[SC499]` §1.13: "The SC-499 controller is designed to accept the QIC-02 command
-set." §1.13.1 lists it, and the page carries handwritten annotations that the OCR
-has mangled into the text -- so this is transcribed from what is legible, with the
-gaps named rather than filled.
+set." §1.13's **summary table** carries a previous owner's handwritten
+annotations, and two codes sit under the pen.
 
     SELECT, SOFT LOCK OFF   0000 0001   01     "selects the tape drive"
     SELECT, SOFT LOCK ON    0001 0001   11     as above, plus a cartridge lock
     BOT                     0010 0001   21     "positions the tape ... to BOT"
-    ERASE                               --     code not legible
+    ERASE                   0010 0010   22     "completely erases the tape"
     RETENSION               0010 0100   24
-    SELECT Q11 FORMAT                   --     code not legible
-    SELECT Q24 FORMAT                   27
-    WRITE                               40
-    WRITE FILE MARK (WFM)               60
-    READ                                80
-    READ FILE MARK (RFM)                A0
-    READ STATUS                         C0
+    SELECT Q11 FORMAT       0010 0110   26     "selects the Q11 format"
+    SELECT Q24 FORMAT       0010 0111   27
+    WRITE                   0100 0000   40
+    WRITE FILE MARK (WFM)   0110 0000   60
+    READ                    1000 0000   80
+    READ FILE MARK (RFM)    1010 0000   A0
+    READ STATUS             1100 0000   C0
 
-Two codes are unrecovered: ERASE and SELECT Q11 FORMAT. Both sit in the `2x`
-group with BOT, RETENSION and Q24, so their values are constrained -- `22`, `23`,
-`25` and `26` are what remain unassigned there -- but constrained is not known.
-They are left blank for the same reason the 8259A's one unnamed OCW2 combination
-was marked "by elimination": a plausible value written in as fact is
-indistinguishable from a transcribed one later.
+**This note previously recorded `22` and `26` as unrecoverable**, and left them
+blank on the same principle the 8259A's one unnamed OCW2 combination was marked
+"by elimination": a plausible value written in as fact is indistinguishable from
+a transcribed one later. That principle was right and the conclusion was wrong,
+because only one place in the document had been read.
+
+§1.13.1's **numbered descriptions**, two pages further on, give every code in
+binary and carry no annotation -- "5) ERASE COMMAND (0010 0010)" and "11) SELECT
+Q11 FORMAT COMMAND (0010 0110)". The same series gives BOT as `0010 0001`,
+RETENSION as `0010 0100` and SELECT Q24 as `0010 0111`, which are the three
+codes the summary table had already supplied. Five entries of one series with
+three independently confirmed is transcription, not inference.
+
+The general lesson, and it cost nothing to learn twice: **a table that cannot be
+read is not a fact that cannot be recovered.** The second place to look was in
+the same file, and the same is true of `[OMTI]`'s two commands numbered `0Fh`,
+where the byte-0 bit row settled what the heading got wrong.
 
 **Two semantics worth carrying.** SELECT is sticky -- "The drive shall remain
 selected until changed by another SELECT command or RESET" -- so it is state, not

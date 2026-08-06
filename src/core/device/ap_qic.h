@@ -16,14 +16,26 @@
  * emulation's inputs rather than about the hardware, and naming it here is
  * cheaper than a format-detection routine failing mysteriously later.
  *
- * ## Two commands are refused because their codes are unknown
+ * ## The two "unknown" opcodes were in the same manual all along
  *
- * ERASE and SELECT Q11 FORMAT are in `[SC499]` §1.13.1's list, and the scan lost
- * their opcodes to handwritten annotation (`FINDINGS.md` C25). Both are
- * constrained to the `2x` group but constrained is not known, so no code is
- * claimed for either -- an unrecognised command is refused, and if one of the
- * missing pair is ever issued it will be refused rather than silently doing
- * something else.
+ * ERASE and SELECT Q11 FORMAT were left out with the note that "the scan lost
+ * their opcodes to handwritten annotation" (`FINDINGS.md` C25). That was read
+ * off §1.13's **summary table**, which is exactly where a previous owner's pen
+ * sits: `H'22'` and `H'26'` are struck through.
+ *
+ * §1.13.1's numbered descriptions, two pages further on, give the same codes in
+ * binary and are untouched -- "5) ERASE COMMAND (0010 0010)" and "11) SELECT
+ * Q11 FORMAT COMMAND (0010 0110)". The surrounding entries corroborate them:
+ * BOT is `0010 0001`, RETENSION `0010 0100` and SELECT Q24 `0010 0111`, which
+ * are the three codes this file already had from the same series.
+ *
+ * So both are known, and both are here. The lesson is the cheap one: a table
+ * that cannot be read is not the same as a fact that cannot be recovered, and
+ * the second place to look was in the same file.
+ *
+ * ERASE is *recognised and refused*, for the reason WRITE is -- see below. It
+ * is a write to the whole cartridge, and the cartridges this core opens are
+ * read-only.
  *
  * ## Writing is not modelled
  *
@@ -41,14 +53,16 @@
 
 #include "image/ap_ct.h"
 
-/* `[SC499]` §1.13.1, as far as the scan is legible. ERASE and SELECT Q11 FORMAT
- * are deliberately absent; see the header. */
+/* `[SC499]` §1.13.1's numbered descriptions, which give every code in binary.
+ * The whole command set: eleven commands, no gaps. */
 typedef enum {
   AP_QIC_CMD_SELECT = 0x01u,        /* "0000 0001", soft lock off */
   AP_QIC_CMD_SELECT_LOCK = 0x11u,   /* "0001 0001", soft lock on */
   AP_QIC_CMD_BOT = 0x21u,           /* "0010 0001" */
+  AP_QIC_CMD_ERASE = 0x22u,         /* "0010 0010" */
   AP_QIC_CMD_RETENSION = 0x24u,     /* "0010 0100" */
-  AP_QIC_CMD_SELECT_Q24 = 0x27u,
+  AP_QIC_CMD_SELECT_Q11 = 0x26u,    /* "0010 0110" */
+  AP_QIC_CMD_SELECT_Q24 = 0x27u,    /* "0010 0111" */
   AP_QIC_CMD_WRITE = 0x40u,
   AP_QIC_CMD_WRITE_FILE_MARK = 0x60u,
   AP_QIC_CMD_READ = 0x80u,
@@ -152,7 +166,9 @@ void ap_qic_eject(ap_qic_t *qic);
 
 /* Issue a command. False for a command this core does not model or does not
  * recognise -- including the two whose opcodes the scan lost, which cannot be
- * recognised because no code is claimed for them. */
+ * recognise. Every code in `[SC499]`'s command set is now recognised; the ones
+ * that write -- WRITE, WRITE FILE MARK and ERASE -- are recognised and refused,
+ * which is a different answer from "unknown" and the one a driver can act on. */
 [[nodiscard]] bool ap_qic_command(ap_qic_t *qic, uint8_t command);
 
 /* Read the next block of the cartridge. Requires a READ command to have been

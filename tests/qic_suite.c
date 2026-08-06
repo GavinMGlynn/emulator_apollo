@@ -1,5 +1,6 @@
-/* QIC-02 cartridge tape drive. Command set from `[SC499]` §1.13.1, as far as
- * the scan is legible -- `FINDINGS.md` C25. */
+/* QIC-02 cartridge tape drive. The whole command set, from `[SC499]` §1.13.1's
+ * numbered descriptions -- including the two codes `FINDINGS.md` C25 recorded
+ * as lost, which the same section gives in binary. */
 
 #include "unity.h"
 
@@ -172,19 +173,48 @@ static void test_writing_is_refused_rather_than_discarded(void) {
   TEST_ASSERT_FALSE(ap_qic_command(&q, AP_QIC_CMD_WRITE_FILE_MARK));
 }
 
-static void test_the_lost_opcodes_are_not_claimed(void) {
+/* The two "lost" opcodes, recovered from the same manual.
+ *
+ * This test previously asserted the opposite -- that `22` and `26` were *not*
+ * claimed, because §1.13's summary table has a previous owner's pen through
+ * both. §1.13.1's numbered descriptions two pages on give them in binary and
+ * are untouched: "5) ERASE COMMAND (0010 0010)" and "11) SELECT Q11 FORMAT
+ * COMMAND (0010 0110)".
+ *
+ * What makes them safe to claim rather than merely plausible is the series they
+ * sit in: the same numbered descriptions give BOT as `0010 0001`, RETENSION as
+ * `0010 0100` and SELECT Q24 as `0010 0111`, and those three are the codes this
+ * core already had. Five entries of one series, three independently confirmed. */
+static void test_the_two_recovered_opcodes_do_what_the_manual_says(void) {
   ap_qic_t q;
   load(&q);
   TEST_ASSERT_TRUE(ap_qic_command(&q, AP_QIC_CMD_SELECT));
 
-  /* ERASE and SELECT Q11 FORMAT are in the manual's list and the scan lost
-   * their codes. Both are constrained to the `2x` group, and none of the
-   * candidates is claimed -- so if one is ever issued it is refused rather than
-   * quietly doing something else. */
-  static const uint8_t candidates[] = {0x22, 0x23, 0x25, 0x26};
-  for (unsigned i = 0; i < sizeof candidates; i++) {
-    TEST_ASSERT_FALSE(ap_qic_command_known(candidates[i]));
-    TEST_ASSERT_FALSE(ap_qic_command(&q, candidates[i]));
+  /* Both recognised -- which is the whole change. */
+  TEST_ASSERT_TRUE(ap_qic_command_known(AP_QIC_CMD_ERASE));
+  TEST_ASSERT_TRUE(ap_qic_command_known(AP_QIC_CMD_SELECT_Q11));
+  TEST_ASSERT_EQUAL_HEX8(0x22u, AP_QIC_CMD_ERASE);
+  TEST_ASSERT_EQUAL_HEX8(0x26u, AP_QIC_CMD_SELECT_Q11);
+
+  /* The format select is a switch with two settings, not two flags: §1.13.1
+   * items 11 and 12 each say the command "selects the ... format as the current
+   * format". */
+  TEST_ASSERT_TRUE(ap_qic_command(&q, AP_QIC_CMD_SELECT_Q24));
+  TEST_ASSERT_TRUE(q.q24_format);
+  TEST_ASSERT_TRUE(ap_qic_command(&q, AP_QIC_CMD_SELECT_Q11));
+  TEST_ASSERT_FALSE(q.q24_format);
+
+  /* ERASE is recognised and **refused**, as WRITE is: the cartridge is a
+   * read-only image and an erase reported as successful would leave a driver
+   * believing a tape it is about to write is blank. */
+  TEST_ASSERT_FALSE(ap_qic_command(&q, AP_QIC_CMD_ERASE));
+
+  /* The codes between them are still nobody's, and still refused. `[SC499]`
+   * §1.13 lists eleven commands and these are not among them. */
+  static const uint8_t absent[] = {0x23, 0x25, 0x28};
+  for (unsigned i = 0; i < sizeof absent; i++) {
+    TEST_ASSERT_FALSE(ap_qic_command_known(absent[i]));
+    TEST_ASSERT_FALSE(ap_qic_command(&q, absent[i]));
   }
 }
 
@@ -311,7 +341,7 @@ int main(void) {
   RUN_TEST(test_rewinding_returns_to_the_first_block);
   RUN_TEST(test_a_status_read_answers_an_unselected_drive);
   RUN_TEST(test_writing_is_refused_rather_than_discarded);
-  RUN_TEST(test_the_lost_opcodes_are_not_claimed);
+  RUN_TEST(test_the_two_recovered_opcodes_do_what_the_manual_says);
   RUN_TEST(test_the_status_block_is_the_six_bytes_the_manual_names);
   RUN_TEST(test_the_status_block_needs_its_command_first);
   RUN_TEST(test_the_status_block_is_three_words_least_significant_byte_first);

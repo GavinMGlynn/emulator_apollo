@@ -3385,13 +3385,31 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         is wrong about which drive this is.
         *Verification: a refused address read back through REQUEST SENSE as the
         cylinder, head and sector that was refused, with bit 7 set.*
-  - [ ] **Audit every other device the same way**, once the OMTI is done: for
-        each, the gap between what the part accepts and what this core models,
-        read from the part's own manual rather than discovered by a boot. The
-        OMTI is unlikely to be the only one with an accepted-but-unmodelled set
-        -- the DUARTs, the two PICs, the two 8237s, the calendar and the Bt458
-        each have registers and commands this core reached for only as far as
-        the firmware happened to exercise them.
+  - [ ] **Audit every other device the same way.** Started; three done.
+        - [x] **8259 PIC: complete.** All eight OCW2 combinations are
+              enumerated, including the one the datasheet never names, marked
+              "by elimination". ICW1-4, OCW1-3, special mask, poll, rotate,
+              level and edge triggering, cascade. No gap.
+        - [x] **8237 DMA: complete.** All eight command registers `08`-`0F`
+              decoded, both read and write sides. No gap.
+        - [x] **QIC-02 tape: two commands recovered and added.** `FINDINGS.md`
+              C25 recorded ERASE and SELECT Q11 FORMAT as codes "the scan lost"
+              -- read off §1.13's summary table, which is exactly where a
+              previous owner's pen sits. §1.13.1's numbered descriptions two
+              pages on give both in clean binary. Detail in
+              `PROJECT_STATUS.md`.
+              *Verification: `qic_suite` 18 -- both codes recognised, the format
+              select shown to be one switch with two settings, ERASE refused as
+              WRITE is, and the codes between them still nobody's.*
+        - [ ] MC68681 DUARTs, MC6840 timer, MC146818 calendar, Bt458, the
+              keyboard, and the OMTI's floppy half. The DUART and the timer have
+              no manual in `docs/references/` and will need one fetched.
+        The shape so far: the risk lives in **command-driven** devices, not
+        register-driven ones. A register decode enumerates itself -- there are
+        sixteen addresses and the switch either covers them or does not. A
+        command set does not: the OMTI accepted twenty-eight opcodes and
+        implemented fourteen, and the tape's set had two holes, while the two
+        Intel parts had none at all.
         *Verification: one table per device of accepted-versus-modelled, and the
         gaps either closed or named as deliberate with a reason.*
   - [ ] **`IRQ6` and `DRQ2`, the floppy's**, are placed and not driven: its
