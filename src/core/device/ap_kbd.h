@@ -131,8 +131,8 @@ typedef struct {
    *
    * **It starts in loopback**, and that is the state a real one powers up in:
    * until told otherwise it echoes what it is sent rather than acting on it,
-   * which is how a host discovers a keyboard is there at all -- `00` included,
-   * which the boot PROM's `KEYBOARD TEST # 0` depends on. */
+   * which is how a host discovers a keyboard is there at all. `00` is the one
+   * exception, and the oracle excludes it in two places. */
   bool loopback;
   uint32_t rx_message;
   /* Which of the two code sets is live. `008778-03` Chapter 12's two sets, and

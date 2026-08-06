@@ -308,23 +308,19 @@ unsigned ap_kbd_receive(ap_kbd_t *kbd, uint8_t byte, uint8_t *reply,
   }
   if (byte == 0x00u) {
     /* In loopback it ends the conversation and selects the compatibility set,
-     * **and it is echoed like anything else**. Outside loopback, nothing.
+     * and is **not** echoed. Outside loopback, nothing at all.
      *
-     * This used to say `00` was "*not* an echo, which is the one case the
-     * default rule below would get wrong", and the boot PROM says otherwise.
-     * Its keyboard self-test is `0073F0 move.b #$0,d0` into a send-then-poll
-     * routine: it writes `00`, then polls the DUART's `RxRDY` sixty-five
-     * thousand times waiting for a byte back, and posts a failure when none
-     * comes. A machine that does not echo `00` fails `KEYBOARD TEST # 0` and
-     * blinks a diagnostic code for ever, which is exactly what this core did
-     * the first time a display was fitted to it.
+     * The oracle is the source and says so twice: `apollo_kbd.cpp` handles `00`
+     * with no `putdata`, and its default arm reads `if (m_loopback_mode &&
+     * data != 0)` -- zero excluded explicitly.
      *
-     * So the echo comes first and the mode change follows. The old reading was
-     * not unreasonable -- `00` really does mean something here, unlike the
-     * bytes the default arm passes through -- but "it means something" and "it
-     * is not echoed" are separate claims, and only the first was evidenced. */
+     * This was changed to echo `00`, on the reasoning that the boot PROM's
+     * `KEYBOARD TEST # 0` writes `00` at `0073F0` and then polls for a byte
+     * back. That reasoning is still unexplained -- but the change did not make
+     * the test pass, and MAME boots this image without echoing. So the echo is
+     * reverted and the question stays open: what satisfies that poll on a
+     * machine whose keyboard does not answer `00`? */
     if (kbd->loopback) {
-      EMIT(byte);
       kbd->keystate_mode = false;
       kbd->loopback = false;
     }

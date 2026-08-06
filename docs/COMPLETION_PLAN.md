@@ -4358,8 +4358,11 @@ boot below, and the boot is not attempted until they are done.
       That also reopens the question properly: MAME boots this image, does not
       echo `00`, and presumably passes `KEYBOARD TEST # 0` -- so something else
       satisfies that test there, and finding what is the real work.
-      *Verification: the `00` echo reverted, and what MAME's keyboard sends that
-      this core's does not.*
+      **Reverted**, code and test both, with the reasoning kept in the comment
+      so the same change is not made again for the same reason. `ctest` green.
+      *Verification: what MAME's keyboard sends that this core's does not --
+      the only remaining explanation for a test that passes there and fails
+      here.*
       That is the first defect of this phase that is genuinely ours, and it is
       narrow: one bit, one register, and a known producer.
       *Verification: `RxRDY` set on channel A by the time `000073EC` reads it,

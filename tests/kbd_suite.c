@@ -337,24 +337,18 @@ static void test_the_keyboard_powers_up_in_loopback(void) {
   TEST_ASSERT_EQUAL_HEX8(0x5Au, reply[0]);
 }
 
-/* `00` in loopback ends the conversation and selects the compatibility set --
- * **and is echoed**, like anything else in loopback.
+/* `00` in loopback ends the conversation and selects the compatibility set, and
+ * is **not** echoed -- the oracle excludes zero explicitly, in two places.
  *
- * This test used to assert the opposite, and the boot PROM settles it: its
- * `KEYBOARD TEST # 0` writes `00` at `0073F0` and then polls the DUART's
- * `RxRDY` sixty-five thousand times for a byte back, posting a failure when
- * none comes. A keyboard that swallows `00` fails that test and the machine
- * blinks a diagnostic code for ever.
- *
- * "It means something" and "it is not echoed" are separate claims, and the old
- * comment had evidence only for the first. */
-static void test_a_zero_leaves_loopback_and_is_echoed(void) {
+ * This test was briefly changed to assert an echo, on the reasoning that the
+ * boot PROM's `KEYBOARD TEST # 0` writes `00` and polls for a reply. The echo
+ * did not make that test pass and contradicted the oracle, so both are back. */
+static void test_a_zero_leaves_loopback_and_is_not_echoed(void) {
   ap_kbd_t k;
   ap_kbd_reset(&k);
   uint8_t reply[AP_KBD_REPLY_MAX];
 
-  TEST_ASSERT_EQUAL_UINT(1u, ap_kbd_receive(&k, 0x00u, reply, sizeof reply));
-  TEST_ASSERT_EQUAL_HEX8(0x00u, reply[0]);
+  TEST_ASSERT_EQUAL_UINT(0u, ap_kbd_receive(&k, 0x00u, reply, sizeof reply));
   TEST_ASSERT_FALSE(k.loopback);
   TEST_ASSERT_FALSE(k.keystate_mode);
   /* And out of loopback an unrecognised byte is ignored rather than echoed. */
@@ -367,7 +361,7 @@ static void test_ff_restarts_the_conversation(void) {
   ap_kbd_t k;
   ap_kbd_reset(&k);
   uint8_t reply[AP_KBD_REPLY_MAX];
-  TEST_ASSERT_EQUAL_UINT(1u, ap_kbd_receive(&k, 0x00u, reply, sizeof reply));
+  TEST_ASSERT_EQUAL_UINT(0u, ap_kbd_receive(&k, 0x00u, reply, sizeof reply));
   TEST_ASSERT_FALSE(k.loopback);
 
   TEST_ASSERT_EQUAL_UINT(1u, ap_kbd_receive(&k, 0xFFu, reply, sizeof reply));
@@ -448,7 +442,7 @@ int main(void) {
   RUN_TEST(test_releasing_the_held_key_stops_the_repeat);
   RUN_TEST(test_only_the_keys_the_table_marks_auto_repeat);
   RUN_TEST(test_the_keyboard_powers_up_in_loopback);
-  RUN_TEST(test_a_zero_leaves_loopback_and_is_echoed);
+  RUN_TEST(test_a_zero_leaves_loopback_and_is_not_echoed);
   RUN_TEST(test_ff_restarts_the_conversation);
   RUN_TEST(test_the_identification_needs_the_whole_prefix);
   RUN_TEST(test_the_code_set_is_commanded);
