@@ -4234,8 +4234,20 @@ boot below, and the boot is not attempted until they are done.
       `Receiver Enabled`, `RxRDY`, `FFull` -- so the relationship between the
       enable and a character being latched is drawn rather than stated. That
       needs a page render, as `[OMTI]`'s tables did.
-      *Verification: `rx_enabled` on serial 1 channel A at the moment of the
-      test, and the receiver timing figure read from the page image.*
+      **Table 4-5 gives a better lead than the timing figure would have.** The
+      ISR bit the firmware polls is labelled **`RxRDY/FFULLA`** -- its meaning
+      is *selectable*, by `MR1[6]`. Set one way it is "a character has
+      arrived"; set the other it is "the FIFO is **full**", and a single echoed
+      byte would never set it.
+      **This core does not model that select at all** -- no `MR1[6]` handling
+      appears in `ap_mc68681`. So if the firmware programs FFULL and waits for
+      a full three-deep FIFO, one echoed `00` cannot satisfy it, and the test
+      times out exactly as observed. That is a documented bit with no
+      implementation, which is the same class as everything the completeness
+      sweep found earlier -- and it was missed because the sweep read headers
+      for phrases like "not modelled" and this one is simply absent.
+      *Verification: `MR1[6]` on serial 1 channel A as the firmware programs
+      it, and the ISR bit made to follow the selection.*
       That is the first defect of this phase that is genuinely ours, and it is
       narrow: one bit, one register, and a known producer.
       *Verification: `RxRDY` set on channel A by the time `000073EC` reads it,
