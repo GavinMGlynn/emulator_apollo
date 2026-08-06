@@ -4250,8 +4250,19 @@ boot below, and the boot is not attempted until they are done.
       `refresh_channel_interrupts` now choose the condition from `MR1[6]`, so
       the ISR bit means what the host selected.
       *Verification: `mc68681_suite` 39 -- one character sets the bit with the
-      select clear, does **not** with it set, and three do. And the boot's own
-      `KEYBOARD TEST # 0`, which is the reason this was found.*
+      select clear, does **not** with it set, and three do.*
+      **And it did not fix `KEYBOARD TEST # 0` either.** The screen is
+      byte-identical for a third time.
+      So two fixes, both correct on their own evidence -- the firmware does
+      write `00` and poll for a reply; `MR1[6]` is a real bit that was missing
+      -- and **neither was the cause**. Both were applied because they *could*
+      explain the failure, not because they had been shown to. That is the
+      pattern to stop: the next step is to instrument what the firmware
+      actually writes to serial 1 and what this core returns, at the moment of
+      the test, rather than to read further forward in the ROM and find another
+      candidate.
+      *Verification: a register trace of serial 1 across `KEYBOARD TEST # 0` --
+      every write with its value and every read with its answer.*
       That is the first defect of this phase that is genuinely ours, and it is
       narrow: one bit, one register, and a known producer.
       *Verification: `RxRDY` set on channel A by the time `000073EC` reads it,
