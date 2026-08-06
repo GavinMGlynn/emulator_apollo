@@ -4169,8 +4169,20 @@ boot below, and the boot is not attempted until they are done.
       `00738E` (poll `TxRDY`) -> `0073A0` (send) -> `0073C0` (poll `RxRDY`,
       65,536 tries) -> `0073D8` (timeout) -> post `27` -> `005E36` (encode) ->
       `005EB6` (blink). Every address measured, none guessed.
-      *Verification: the byte in `d0` at `0073A0`, and `ap_kbd_receive`'s
-      answer to it.*
+      **A candidate, from the model rather than the ROM.** `ap_kbd` starts in
+      loopback and echoes what it is sent -- except `0x00`, which is
+      deliberately excluded: "Only meaningful in loopback, where it ends the
+      conversation and selects the compatibility set. Outside it, nothing --
+      and *not* an echo, which is the one case the default rule below would get
+      wrong." So a firmware that sends `00` and waits for it back waits for
+      ever here.
+      There is also a table at `007384` -- `01 02 04 08 05 0A 0C 0F` -- sitting
+      immediately after a `bra.w` and before the poll, which is the shape of a
+      list of bytes to send.
+      Both are candidates and neither is claimed. The check is the byte in `d0`
+      at `0073A0`, which is the caller's, and whether `ap_kbd_receive` answers
+      it.
+      *Verification: that byte, and the keyboard's answer to it.*
       That is the first defect of this phase that is genuinely ours, and it is
       narrow: one bit, one register, and a known producer.
       *Verification: `RxRDY` set on channel A by the time `000073EC` reads it,
