@@ -4333,8 +4333,18 @@ boot below, and the boot is not attempted until they are done.
       a real keyboard *leaves* loopback on `00`, or whether it answers `00`
       every time. The firmware sends it twice and waits for a reply to the
       second, which is evidence for the second reading.
-      *Verification: `[008778-03]` Chapter 12 on the keyboard's command
-      protocol -- what `00` does and whether it is idempotent.*
+      **And Chapter 12 does not cover it.** Its four sections are layout,
+      character codes, interface (connectors and pinouts) and specifications --
+      there is no command protocol in it. So the "`00` ends the conversation
+      and selects the compatibility set" rule did not come from the machine's
+      own technical reference, and the header cites nothing for it.
+      That matters before changing it: the rule is either measured from the
+      oracle, inferred from the firmware, or invented, and only the first two
+      are grounds to keep it. Identifying which is the next step -- and if it is
+      the third, the firmware's own behaviour (it sends `00` twice and waits for
+      a reply to the second) becomes the authority.
+      *Verification: the source of the `00` rule, then the keyboard answering
+      the test.*
       That is the first defect of this phase that is genuinely ours, and it is
       narrow: one bit, one register, and a known producer.
       *Verification: `RxRDY` set on channel A by the time `000073EC` reads it,
