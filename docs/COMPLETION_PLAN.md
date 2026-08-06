@@ -3401,8 +3401,23 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         both receivers enabled. The **rate** is the candidate. The PROM writes
         `CSR 77` itself, which is the value the report shows the channel
         listening at, while `--boot-input` transmits at `CSR BB`. Sending at
-        `--boot-input-rate 0x77` is the next thing to try, and it is one run.
-        *This blocks the `EX CONFIG` route until it is fixed.*
+        `--boot-input-rate 0x77` did **not** fix it -- `1 of 1 delivered, sent
+        at 1050 baud (CSR 77)` and the PROM still loops -- so the rate is not
+        the cause either.
+        **Instrumented at the delivery point** (reverted), and the answer is
+        specific. The first character arrives *before* the PROM programs `CSR`,
+        so the receiver's rate is still zero, `ap_mc68681_receive_at` resamples
+        `0D` into `00` and raises a framing error -- the model working as
+        designed, and not itself the bug. Every later character arrives
+        correctly rated and reaches `ap_mc68681_receive` with `enabled=1`, and
+        the status byte before each one is `44`, `FRAMING|TXRDY`, with
+        **`RxRDY` clear**. So a byte stored by one delivery has had `RxRDY`
+        cleared again before the next arrives, and nothing in the poll should do
+        that: the PROM reads `$12(a0)`, register 9, which is `SR` on a read and
+        `CSR` on a write, not the receive buffer.
+        *Next: whether the board's `ap_sio` decode maps that read to `SR` or to
+        `RB`, because a read that pops the FIFO would produce exactly this.
+        This blocks the `EX CONFIG` route until it is fixed.*
         Either seed the calendar's
         battery-backed RAM from a supplied image, as the disk is supplied, or
         drive the PROM's own `ex config` from the boot script -- which is what
