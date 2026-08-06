@@ -4136,8 +4136,23 @@ boot below, and the boot is not attempted until they are done.
       unsolicited power-up transmission, rather than the `FF 12 21`
       identification exchange the header describes for a display console.
       Those are different protocols and this core implements one of them.
-      *Verification: what the firmware writes to serial 1 channel A before
-      `000073EC`, from the ROM.*
+      **The shape, from `0073A0`:**
+
+          0073A0  move.b d0,$7(a0)   ; send a byte -- offset 7 is reg 3, RB/TB
+          0073C0  btst.b #1,$b(a0)   ; poll ISR bit 1, RxRDY channel A
+          0073C6  bne.b  $73d2       ; got it
+          0073C8  cmp.w  #$ffff,d2   ; a 65,536-iteration timeout
+          0073CC  beq.b  $73d8       ; timed out -> posts the failure
+          0073D2  move.b $7(a0),d1   ; read the reply
+
+      So it is send-then-poll with a bounded wait, and ours **times out** -- the
+      keyboard produced no reply to whatever was sent. That eliminates timing
+      for a second reason: sixty-five thousand polls is not a race, and the
+      board advances on every one of them.
+      So the keyboard is not answering a byte a real one answers. The byte comes
+      from `d0` at the caller of `0073A0`.
+      *Verification: the caller, the byte it sends, and `ap_kbd_receive`'s
+      answer to it.*
       That is the first defect of this phase that is genuinely ours, and it is
       narrow: one bit, one register, and a known producer.
       *Verification: `RxRDY` set on channel A by the time `000073EC` reads it,
