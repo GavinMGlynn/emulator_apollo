@@ -4343,8 +4343,23 @@ boot below, and the boot is not attempted until they are done.
       are grounds to keep it. Identifying which is the next step -- and if it is
       the third, the firmware's own behaviour (it sends `00` twice and waits for
       a reply to the second) becomes the authority.
-      *Verification: the source of the `00` rule, then the keyboard answering
-      the test.*
+      **Source found: the oracle, and it contradicts the fix.**
+      `apollo_kbd.cpp` handles `00` as `if (m_loopback_mode) { set_mode(
+      KBD_MODE_0_COMPATIBILITY); m_loopback_mode = 0; }` with **no `putdata`**,
+      and its default arm reads `if (m_loopback_mode && data != 0)` -- excluding
+      zero explicitly, in two places. So MAME does not echo `00` and leaves
+      loopback on it, which is exactly what this core did before the change.
+      The rule was uncited but not invented.
+      So the `00` echo should be **reverted**: it contradicts the oracle, it
+      fixed nothing, and its justification -- "the firmware sends `00` and polls
+      for a reply" -- is an inference about a routine whose caller was never
+      fully traced. Two of three grounds for keeping a change are gone and the
+      third is the weak one.
+      That also reopens the question properly: MAME boots this image, does not
+      echo `00`, and presumably passes `KEYBOARD TEST # 0` -- so something else
+      satisfies that test there, and finding what is the real work.
+      *Verification: the `00` echo reverted, and what MAME's keyboard sends that
+      this core's does not.*
       That is the first defect of this phase that is genuinely ours, and it is
       narrow: one bit, one register, and a known producer.
       *Verification: `RxRDY` set on channel A by the time `000073EC` reads it,
