@@ -2795,150 +2795,26 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
       the literal "same image under both" wants a Domain-written floppy, which
       comes off a running system — it waits on the install, not on this item.*
 
-- [ ] **Complete implementation: every declared-but-inert signal.** A sweep
-      of the core for declines turns up more than the device audit did,
-      because the audit asked "is every command decoded" and this asks "does
-      every bit *do* something". They fall in two classes and only the first
-      is implementable by deciding to:
-
-      **Triaged, because the grep that built this list conflated two things.**
-      It matched on phrases like "not modelled", which catches both behaviour
-      that is merely unwritten and facts no document states. `ap_dmapage` was
-      listed here and belongs in the second group; each remaining entry has now
-      been checked against whether a manual actually specifies it.
-
-      *Implementable now -- the document says what the behaviour is:*
-      ~~MC146818 `SQWE`~~ **done** -- `ap_mc146818_square_wave_hz` reports the
-      pin's frequency, the same selector and table as the periodic interrupt,
-      gated by `SQWE` and zero for a rate this core cannot represent exactly; ~~`DSE`~~ **done** --
-      both special updates, October's taken only on the hour's first pass; ~~the MC68681's `tx_break`~~ **done** -- §3.3.2's
-      "the transmitter output is internally connected to the receiver input"
-      makes a break in local loopback observable, and reconciles with §2.12's
-      "TxD ... is held high ... in the local loopback mode": the *pin* is held
-      high, the internal path still carries it. Reading either section alone
-      gives the wrong answer, which is why the bit sat inert. Its serial
-      framing
-      and ~~`ap_sio`'s `OPCR[7]`~~ **done**, all in the datasheet now on disk; and the tape's
-      per-byte handshake, where `[SC499]` §1.13.2 describes the REQUEST/READY
-      exchange and the header records that **the section has not been read**.
-      **Now read, and it corrects our own header twice.** First, the handshake
-      is *already* paced: `ap_sc499_handshake_duration` takes its durations from
-      §1.13.2's figures entry by entry -- 1-7 READY asserted, 1-8 exception,
-      1-9 direction deasserted -- so "not modelled" was wrong as well as "not
-      read". Second, the granularity: §1.13.1's WRITE and READ
-      entries give the protocol in prose: "The READY line is activated when the
-      device is ready for a **data block** transfer", "When READY is true, the
-      host may ...", and "If the host starts transfer between blocks before
-      READY is asserted, READY MAY NOT BE ASSERTED." So READY paces **blocks**,
-      not bytes -- `ap_tape.h` calls it a per-byte handshake and that is the
-      wrong granularity. §1.13.2 itself is timing *figures*, page images with no
-      text, and they give the edges within a byte; the behaviour a driver can
-      observe is the block-level READY above, and it was in prose this project
-      already had.
-      **Done.** `ap_tape.c`'s `ensure_block`
-      fetches the next block transparently whenever the current one is
-      exhausted, so a host sees an unbroken byte stream and READY never moves
-      during a transfer. §1.13.1 wants the opposite: READY deasserted while the
-      device is not ready for a data block, asserted when it is. The pieces
-      exist -- `ap_sc499`'s `ready`/`ready_at` pair and
-      `ap_sc499_handshake_duration` -- so this is wiring the block boundary into
-      the flag the status register already reports, not new machinery. Left
-      unwritten rather than half-written: it touches a timing path, and the
-      duration between blocks was not among the three figures already
-      transcribed. **Figure 1-5 has now been read and gives it.** Its activity
-      list runs T1 to T15: `T1 Device Asserts READY (Device READY for First
-      Data Block)`, `T4 Device Deasserts READY`, and `T15 Device Asserts READY
-      (Device READY For Next Data Block)`, timed **`100 us. < T14--->T15`** --
-      more than a hundred microseconds after the last byte's ACKNOWLEDGE
-      deasserts. So READY drops once the controller starts a block and returns
-      only when the device is ready for the next, which is the behaviour
-      `ensure_block` currently hides.
-      The figure's own note corroborates §1.13.1 word for word: "If the
-      Controller asserts TRANSFER before the device asserts READY, then the
-      behavior of READY is device dependent. READY shall not be asserted for an
-      EXCEPTION condition."
-      The bound is a **minimum**, so a model must choose a value at or above it
-      and mark the choice `PROVISIONAL` -- the figure constrains the delay
-      rather than fixing it.
-
-      *Needs a document or a measurement first, and must not be coded to a
-      guess:* `ap_dmapage`'s channel mapping (above); the graphics A/D converter
-      and refresh; `ap_master`'s Series 4000 route, which is a different model
-      family and a scope question; the keyboard beeper, which has no consumer to
-      observe it; and the MC146818's six fast periodic rates, which are refused
-      because `AP_TIME_BASE_HZ` cannot represent them -- a time-base decision
-      with a 64x span cost, not a coding one.
-
-      **Behaviour that is simply absent.** MC146818 `SQWE`, the square-wave
-      output pin, and `DSE`, whose daylight-savings shift is stored and never
-      applied; the six fast periodic rates and the crystal, refused as
-      unrepresentable in the time base rather than modelled. MC68681
-      `tx_break`, stored with no consumer, and serial framing entirely --
-      baud, start and stop bits, parity, the echo and loopback modes -- a
-      character being handed over whole. `ap_sio`'s `OPCR[7]` alternate
-      source. **`ap_dmapage`'s high address bits are
-      *not* in this class** and were listed here in error. Table 2-6 gives the
-      block an address and a name and says nothing about its contents, no other
-      manual lays it out, and the offset-to-channel mapping is deliberately
-      unclaimed because the same assumption about the interrupt controllers was
-      wrong on this machine (`FINDINGS.md` C11). Implementing it means guessing
-      a mapping the project refused to guess. It closes with a measured DS3000
-      transfer, so it belongs with the `PROVISIONAL` figures below. The graphics A/D converter behind the third
-      chip select, and refresh. `ap_master`'s Series 4000 route. The tape's
-      per-byte handshake and its drive motion. The keyboard beeper. And
-      `IRQ6`/`DRQ2` below.
-
-      **Things the input formats cannot carry -- decided: extend the formats,
-      approximate nothing.** These are no longer deliberate approximations but
-      work items. An `.awd` gains an ID field per sector, so a format writes the
-      bad-track and alternate flags and `07` stops being identical to `06`; and
-      an ECC field, so READ LONG returns what was recorded and WRITE LONG keeps
-      the six bytes it is given. ~~A `.ct` becomes writable~~ **done**: `ap_ct_t` carries
-      `writable` as `ap_awd_t` does, and WRITE places a block. WRITE FILE MARK
-      and ERASE stay refused -- not for want of a write path now, but because a
-      raw block image has no file marks to write into and ERASE is a
-      whole-cartridge operation a distribution image should not silently
-      take. The format change *is* the item -- each
-      command's arm collapses to ordinary code once the bytes have somewhere to
-      live. Existing images must still load: a file without the new fields reads
-      as a surface with no defects and no recorded ECC, which is what it is.
-
-      **Design decided: a sidecar, not in-file.** Three shapes were possible --
-      widen the sector to 1066 bytes, append a metadata trailer, or keep a
-      companion file. The first breaks every existing image's offset
-      arithmetic. The second and third both preserve loading, and
-      `docs/references/DOMAINOS_IMAGE.md` decides between them: it **pins the
-      image's SHA-256**, `35cb5185...`, as the identity of an artefact that
-      cost a full install to produce and cannot be rebuilt bit-identically.
-      Appending a trailer changes that hash and invalidates the pin. A sidecar
-      leaves the raw image byte-for-byte what the document describes.
-      So: `<image>.awd` unchanged, `<image>.awdmeta` optional beside it,
-      carrying per-sector ID fields and ECC. Absent, the drive is a defect-free
-      surface with no recorded ECC -- which is exactly what a raw image *is*,
-      so the default is a description rather than a fallback. `.ct` gains write
-      support in the image layer itself, where there is no pinned hash to
-      protect.
-      The layout is written up in `docs/references/AWD_META.md` -- magic,
-      versioned header and per-sector record, with the reasoning for each choice
-      -- so the implementation is not also a design exercise.
-      *The work: `ap_awd` grows the sidecar and an ID/ECC accessor; `ap_omti`'s
-      `06`/`07` write the flags, `11` the alternate, `E5`/`E6` the real ECC;
-      `ap_qic`'s three write commands stop being refused. Each with its test.*
-      The approximations this replaces were: an `.awd` has no ID field, so a format writes
-      no bad-track or alternate flags and skew and interleave are ignored; no
-      ECC field, so READ LONG returns zeros and WRITE LONG drops six bytes;
-      the defect list has no recorded date. A `.ct` is read-only, so WRITE,
-      WRITE FILE MARK and ERASE are recognised and refused. Closing these
-      means changing what an image *is*, and that is worth doing deliberately
-      rather than as a side effect.
-
-      A third class is not this item at all and must not be swept into it:
-      the `PROVISIONAL` figures -- AT bus cycle times, the dot clock, the
-      parity lane assignment, the ATC replacement choice -- are numbers no
-      document publishes. They are closed by a measurement or a manual, never
-      by writing code, and `CLAUDE.md` already governs them.
-      *Verification: per entry, a test asserting the signal does something
-      observable -- or, for the second class, the format change that lets it.*
+- [x] **Complete implementation: every declared-but-inert signal.** A sweep for
+      declines, then a triage separating behaviour that is merely unwritten from
+      facts no document states -- the grep that built the list conflated them,
+      and `ap_dmapage` was the casualty. Everything in the first class is now
+      implemented: `SQWE`, `DSE`, `OPCR[7]`, `tx_break`, the tape's block-level
+      READY, and both format extensions. Serial framing turned out to have been
+      modelled all along behind two stale claims.
+      Six of the eight were declined in our own files with a stated reason --
+      "nothing is wired to it", "that section has not been read", "rather than a
+      guess" -- and in every case the document had the answer. Four "not
+      modelled" notes were simply out of date. Detail in `PROJECT_STATUS.md`.
+      *Verification: `mc146818_suite` 31, `mc68681_suite` 38, `sio_suite` 25,
+      `tape_suite` 17, `awd_suite` 38, `qic_suite` 18 -- each signal asserted to
+      do something observable.*
+- [ ] **The declines that need a document or a measurement, not code.**
+      `ap_dmapage`'s channel mapping, the graphics A/D and refresh,
+      `ap_master`'s Series 4000 route, the keyboard beeper, and the MC146818's
+      six fast periodic rates -- which `AP_TIME_BASE_HZ` cannot represent, a
+      time-base decision with a 64x span cost. None is closed by writing code,
+      and each would be a guess if it were. Detail in `PROJECT_STATUS.md`.
 - [ ] **`IRQ6` and `DRQ2`, the floppy's**, are placed and not driven: its
       completion is the FDC's result phase rather than the fixed disk's.
       *Verification: a floppy command completing through an interrupt.*

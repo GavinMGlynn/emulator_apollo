@@ -5586,6 +5586,51 @@ accepted", which is the observable half. The break state itself has no consumer 
 nothing in this machine watches TxD at bit level — and is named as such in the
 struct so a reader can tell a bit that is stored from a bit that does something.
 
+#### Completing the implementation: what a sweep of the declines found
+The device audit asked "is every command decoded". A second sweep asked "does
+every *bit* do something", and turned up more -- across the board and CPU as
+well as the devices.
+
+The list it produced needed triaging before any of it could be written, because
+the grep that built it matched on phrases like "not modelled", which catches two
+different things: behaviour that is merely unwritten, and facts no document
+states. `ap_dmapage`'s high address bits were listed as the first implementable
+item and are the second kind -- Table 2-6 names the block and says nothing about
+its contents, and the offset-to-channel mapping is *deliberately* unclaimed
+because the same assumption about the interrupt controllers was already wrong on
+this machine. Implementing it would have meant guessing a mapping this project
+had refused to guess.
+
+Everything in the implementable class is now done:
+
+| Signal | What the document said |
+|---|---|
+| MC146818 `SQWE` | the pin's frequency shares the periodic interrupt's selector and table, gated by one bit |
+| MC146818 `DSE` | two special updates; October's taken only the *first* time the hour comes round |
+| `ap_sio` `OPCR[7]` | OP7 carries channel B's `TxRDY`, unmasked by the IMR |
+| MC68681 `tx_break` | §3.3.2's internal transmitter-to-receiver connection makes it observable in local loopback |
+| Tape block READY | §1.13.1's per-block semantics, Figure 1-5's `>100 us` between blocks |
+| `.awd` sidecar | ID field and ECC, so `07` differs from `06` and sense `19`/`1C` become reachable |
+| `.ct` writable | `WRITE` places a block; the read-only case is now distinguishable |
+| Serial framing | *already modelled* -- baud resampling, width, parity, stop bits, all four channel modes |
+
+**The pattern is the finding.** Six of the eight were declined in our own files
+with a stated reason -- "nothing on this board is wired to it", "that section
+has not been read", "a board asking for it gets no interrupt rather than a
+guess", "not modelled" -- and in every case the document had the answer. Four
+notes were simply out of date, in `ap_boardreg.h`, `ap_qic.h`, `ap_tape.h` and
+`ap_mc68681.h`. One of them nearly had a second tape handshake written beside
+the working one already there.
+
+So notes describing an *absence* age badly: the absence gets fixed and the note
+does not, and unlike code nothing fails when they rot. They need auditing
+exactly like code does.
+
+Two of them were also wrong about *why*. "Nothing is wired to the square-wave
+pin" is a fact about the board, not about the part, and is no reason for the
+part to be unable to say what it is driving. "Rather than a guess" implies a
+choice between plausible answers, where §4.2.11.1 states the answer outright.
+
 #### The device audit: what a sweep of nine parts found
 Asked whether the OMTI's accepted-but-unmodelled command set was a pattern, the
 answer is a shape rather than a yes or no.
