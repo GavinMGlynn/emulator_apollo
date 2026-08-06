@@ -2898,6 +2898,25 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
       command's arm collapses to ordinary code once the bytes have somewhere to
       live. Existing images must still load: a file without the new fields reads
       as a surface with no defects and no recorded ECC, which is what it is.
+
+      **Design decided: a sidecar, not in-file.** Three shapes were possible --
+      widen the sector to 1066 bytes, append a metadata trailer, or keep a
+      companion file. The first breaks every existing image's offset
+      arithmetic. The second and third both preserve loading, and
+      `docs/references/DOMAINOS_IMAGE.md` decides between them: it **pins the
+      image's SHA-256**, `35cb5185...`, as the identity of an artefact that
+      cost a full install to produce and cannot be rebuilt bit-identically.
+      Appending a trailer changes that hash and invalidates the pin. A sidecar
+      leaves the raw image byte-for-byte what the document describes.
+      So: `<image>.awd` unchanged, `<image>.awdmeta` optional beside it,
+      carrying per-sector ID fields and ECC. Absent, the drive is a defect-free
+      surface with no recorded ECC -- which is exactly what a raw image *is*,
+      so the default is a description rather than a fallback. `.ct` gains write
+      support in the image layer itself, where there is no pinned hash to
+      protect.
+      *The work: `ap_awd` grows the sidecar and an ID/ECC accessor; `ap_omti`'s
+      `06`/`07` write the flags, `11` the alternate, `E5`/`E6` the real ECC;
+      `ap_qic`'s three write commands stop being refused. Each with its test.*
       The approximations this replaces were: an `.awd` has no ID field, so a format writes
       no bad-track or alternate flags and skew and interleave are ignored; no
       ECC field, so READ LONG returns zeros and WRITE LONG drops six bytes;
