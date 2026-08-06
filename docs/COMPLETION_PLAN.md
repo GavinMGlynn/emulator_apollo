@@ -3891,9 +3891,27 @@ boot below, and the boot is not attempted until they are done.
       text by the instant captured -- 500M instructions with a display fitted
       reaches only `000061DA`, far earlier in the firmware than the same count
       reaches without one.
-      *So the next measurement is a screenshot taken **later**, not a hunt for a
-      broken write path. The run limit was chosen for a machine that boots four
-      times faster.*
+      **And "later" turns out to mean much later.** With a display fitted the PC
+      is `000061DA` at 250M and `000061F6` at 500M -- which looks like a hang
+      and is not. Disassembled from the PROM file:
+
+          0061D4  move.l d1,-(a7)
+          0061D6  lsr.l  #2,d0
+          0061D8  nbcd.b d1          ; x16, unrolled timing filler
+          0061F8  subq.l #1,d0
+          0061FA  bgt.s  0061D8
+          0061FC  move.l (a7)+,d1 ; rts
+
+      A **delay routine**: sixteen `nbcd` as padding, counting `d0` down. The
+      machine is deliberately waiting -- a display needs settling time the
+      serial console never did -- and it spends hundreds of millions of
+      instructions doing it because this core executes the loop at reference
+      speed rather than at 25 MHz.
+      So the black screenshot was neither a broken write path nor a screen that
+      had nothing on it yet: the firmware had not reached the *drawing* at all.
+      *Verification: the PROM's self-test banner legible in a PNG -- from a run
+      long enough to clear the delay, which is the real cost of fitting a
+      display to a reference core.*
       *Verification: the PROM's self-test banner legible in a PNG.*
 - [ ] SDL3 interactive frontend, implemented rather than stubbed: scanout to a
       letterboxed texture, keyboard/mouse mapping, `--frames` bounded mode
