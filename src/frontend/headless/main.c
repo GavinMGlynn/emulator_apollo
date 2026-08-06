@@ -60,6 +60,8 @@ static void print_usage(const char *program_name) {
           "                        end the run the first time the disk\n"
           "                        controller refuses an address, so a trace\n"
           "                        ring holds what computed it\n"
+          "  --service-mode        set the Normal/Service switch to Service, which\n"
+          "                        is what reaches the Mnemonic Debugger\n"
           "  --boot-progress N     report the step count and the program\n"
           "                        counter to stderr every N instructions, so\n"
           "                        a run that says nothing for ten minutes can\n"
@@ -84,6 +86,11 @@ static void print_usage(const char *program_name) {
           "                        and `send TEXT`, in order. Waits for what the\n"
           "                        machine says before answering, which a fixed\n"
           "                        --boot-input cannot do\n"
+          "");
+  /* Split here only because ISO C99 guarantees just 4095 characters in a
+   * string literal, and this list passed it. No flag is grouped by meaning
+   * across the break. */
+  fprintf(stdout,
           "  --boot-console        print what the machine transmits on either\n"
           "                        serial port: its own console output\n"
           "  --boot-input-port N   which serial port --boot-input feeds, 1 or\n"
@@ -1045,7 +1052,7 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
                           const char *const *dump_logical,
                           unsigned dump_logical_count,
                           uint32_t stop_physical_pc,
-                          uint32_t stop_physical_length) {
+                          uint32_t stop_physical_length, bool service_mode) {
   /* Before the PROM is even opened: a script that does not parse is the
    * caller's mistake and should be reported as one, not hidden behind whichever
    * file happens to be missing first. */
@@ -1223,6 +1230,11 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
 
   uint32_t stack = 0;
   uint32_t pc = 0;
+  /* The Normal/Service switch, applied after the board is up and before the
+   * first instruction runs. It is an input the machine samples, not a condition
+   * the board raises, so it is set once here rather than maintained. */
+  ap_boardreg_set_normal_mode(&board->registers, !service_mode);
+
   if (!ap_board_reset_vector(board, &stack, &pc)) {
     free(board);
     free(trace_ring);
@@ -2423,6 +2435,17 @@ int main(int argc, char **argv) {
   bool boot_trace = false;
   unsigned boot_trace_last = 0;
   unsigned boot_progress = 0;
+  /* The CPU status register's bit 0, the Normal/Service switch. An *input* -- a
+   * physical switch on the machine -- so it is a caller's setting and not state
+   * the board evolves. `ap_boardreg_set_normal_mode` has existed since the bit
+   * was modelled and nothing had ever called it, which left a modelled input
+   * unreachable: the one configuration this core could not be put in was the
+   * one the boot PROM behaves most differently in.
+   *
+   * Normal is the default, because that is what a workstation is. Service is
+   * what reaches the Mnemonic Debugger, and MD is what runs the stand alone
+   * utilities the machine asks for by name -- `EX CONFIG`, `EX CALENDAR`. */
+  bool service_mode = false;
   bool boot_stop_on_refusal = false;
   uint32_t boot_watch_write = 0;
   unsigned boot_stop_on_watch = 0;
@@ -2525,6 +2548,11 @@ int main(int argc, char **argv) {
     if (strcmp(argv[i], "--boot-limit") == 0 && i + 1 < argc) {
       boot_limit = (unsigned)strtoul(argv[i + 1], NULL, 0);
       i += 2;
+      continue;
+    }
+    if (strcmp(argv[i], "--service-mode") == 0) {
+      service_mode = true;
+      i += 1;
       continue;
     }
     if (strcmp(argv[i], "--boot-progress") == 0 && i + 1 < argc) {
@@ -2724,7 +2752,8 @@ int main(int argc, char **argv) {
                           boot_stop_on_refusal, boot_watch_write,
                           boot_stop_on_watch, boot_stop_pc_length,
                           dump_logical_specs, dump_logical_count,
-                          boot_stop_physical_pc, boot_stop_physical_length);
+                          boot_stop_physical_pc, boot_stop_physical_length,
+                          service_mode);
   }
 
   if (boot_tape != NULL) {

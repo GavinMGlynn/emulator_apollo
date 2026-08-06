@@ -3372,6 +3372,14 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         `//bs/saus/calendar/src/calendar.pas` in the sources, and `/sau14` --
         the 68030 machine's SAU directory -- present on the volume. So the
         machine's own instruction is followable rather than a dead end.
+        **`--service-mode` added**, because the switch that reaches MD was a
+        modelled input nothing could drive: `ap_boardreg_set_normal_mode` had
+        existed since the bit was modelled and was called by no one, so the one
+        configuration this core could not be put in was the one the PROM
+        behaves most differently in. With it set the console is silent at 60M
+        instructions where normal mode has printed its self-tests, so the path
+        does diverge -- but MD's `MD7C REV 8.00` sign-on has not been reached
+        yet and the budget needs raising.
         Either seed the calendar's
         battery-backed RAM from a supplied image, as the disk is supplied, or
         drive the PROM's own `ex config` from the boot script -- which is what
