@@ -4229,9 +4229,13 @@ boot below, and the boot is not attempted until they are done.
       It does not apply, and reading it as though it did would be the same
       window-for-the-whole error this phase has already made repeatedly. Noted
       so the next reader does not find it and stop there.
+      And the general semantics are in a **timing figure**, not prose: the text
+      layer around the receiver description is waveform labels -- `RxD`,
+      `Receiver Enabled`, `RxRDY`, `FFull` -- so the relationship between the
+      enable and a character being latched is drawn rather than stated. That
+      needs a page render, as `[OMTI]`'s tables did.
       *Verification: `rx_enabled` on serial 1 channel A at the moment of the
-      test; and the general receiver-enable semantics from §3.1's receiver
-      description rather than §3.4's multidrop one.*
+      test, and the receiver timing figure read from the page image.*
       That is the first defect of this phase that is genuinely ours, and it is
       narrow: one bit, one register, and a known producer.
       *Verification: `RxRDY` set on channel A by the time `000073EC` reads it,
