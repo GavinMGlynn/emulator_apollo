@@ -60,12 +60,50 @@ typedef struct {
   uint16_t sectors;
 } ap_awd_geometry_t;
 
+/* ## The sidecar: what a raw sector image cannot carry
+ *
+ * An `.awd` is sector data and nothing else. A real ESDI surface carries two
+ * more things per sector, and `[OMTI]` §5 has commands for both -- the **ID
+ * field**, whose flags §5.4.7 sets for a bad track and §5.4.16 for an
+ * alternate, and the **ECC field**, six bytes that §5.4.27 READ LONG returns
+ * and §5.4.28 WRITE LONG is given.
+ *
+ * They live beside the image rather than in it, because
+ * `docs/references/DOMAINOS_IMAGE.md` pins the image's SHA-256 as the identity
+ * of an artefact that cannot be rebuilt bit-identically. Appending to the file
+ * would invalidate that pin. `docs/references/AWD_META.md` has the layout and
+ * the reasoning; this is the part the core needs.
+ *
+ * **Optional.** With no sidecar attached the drive is a defect-free surface
+ * with no recorded ECC -- which is what a raw image *is*, so it is a
+ * description rather than a fallback, and every existing image keeps working. */
+#define AP_AWD_META_MAGIC "AWDMETA1"
+#define AP_AWD_META_MAGIC_BYTES 8u
+#define AP_AWD_META_HEADER_BYTES 16u
+#define AP_AWD_META_RECORD_BYTES 7u
+#define AP_AWD_ECC_BYTES 6u
+
+/* ID field flags, one byte per sector. */
+#define AP_AWD_FLAG_BAD_TRACK 0x01u  /* §5.4.7 */
+#define AP_AWD_FLAG_ALTERNATE_ASSIGNED 0x02u /* §5.4.16 */
+#define AP_AWD_FLAG_IS_ALTERNATE 0x04u       /* §5.4.16 */
+
 typedef struct {
   /* Caller-owned. */
   uint8_t *data;
   size_t bytes;
   ap_awd_geometry_t geometry;
   bool writable;
+
+  /* The sidecar, caller-owned and optional. `meta` is the whole file including
+   * its header; `meta_records` is how many per-sector records it holds, which
+   * may be fewer than the geometry has -- the same rule a short image follows.
+   * `meta_record_bytes` comes from the header, so a file written by a later
+   * version is read for the fields this one knows. */
+  uint8_t *meta;
+  size_t meta_bytes;
+  uint64_t meta_records;
+  unsigned meta_record_bytes;
 } ap_awd_t;
 
 [[nodiscard]] ap_awd_geometry_t ap_awd_geometry_for(ap_awd_drive_t drive);
@@ -113,5 +151,29 @@ typedef struct {
                                uint8_t *out);
 [[nodiscard]] bool ap_awd_write(ap_awd_t *image, uint32_t lba,
                                 const uint8_t *in);
+
+/* Attach a sidecar. Fails on a bad magic or a header this core cannot read;
+ * a *short* file is not a failure, it simply describes fewer sectors.
+ * `AWD_META.md` has the layout. */
+[[nodiscard]] bool ap_awd_attach_meta(ap_awd_t *image, uint8_t *meta,
+                                      size_t bytes);
+
+/* The ID field's flags for a sector. Zero with no sidecar, or past what one
+ * describes: no flags is a defect-free sector, which is the honest default. */
+[[nodiscard]] uint8_t ap_awd_flags(const ap_awd_t *image, uint32_t lba);
+
+/* Set them. False without a writable sidecar covering that sector -- a format
+ * that cannot record its flags must say so rather than appear to. */
+[[nodiscard]] bool ap_awd_set_flags(ap_awd_t *image, uint32_t lba,
+                                    uint8_t flags);
+
+/* The six ECC bytes as recorded. Zero-filled with no sidecar, which is "none
+ * recorded" and not a computed value -- `[OMTI]` publishes no polynomial. */
+void ap_awd_ecc(const ap_awd_t *image, uint32_t lba, uint8_t *out);
+
+/* Record six ECC bytes. False without a writable sidecar covering that
+ * sector. */
+[[nodiscard]] bool ap_awd_set_ecc(ap_awd_t *image, uint32_t lba,
+                                  const uint8_t *ecc);
 
 #endif /* APOLLO_IMAGE_AP_AWD_H */

@@ -112,6 +112,11 @@ bool ap_omti_fdc_in_reset(const ap_omti_t *omti) {
  * a boot to find, and the address it named -- cylinder 0, head 0, sector 1 --
  * was the giveaway, being the second sector of the disk. */
 #define SENSE_WRITE_PROTECTED 0x17u
+/* `19 Bad Track Encountered` and `1C Illegal Access To An Alternate Track`,
+ * both Appendix A, and both unreachable until the sidecar gave the ID field
+ * somewhere to live. */
+#define SENSE_BAD_TRACK 0x19u
+#define SENSE_ALTERNATE_DIRECT 0x1Cu
 
 void ap_omti_attach(ap_omti_t *omti, ap_awd_t *drive) { omti->drive = drive; }
 
@@ -262,6 +267,27 @@ static bool addressed(ap_omti_t *omti, const ap_omti_cdb_t *cdb,
     refuse(omti, cdb->cylinder, cdb->head, cdb->sector, 0u);
     return false;
   }
+  /* Appendix A `19 Bad Track Encountered`: "the specified track has previously
+   * been formatted with the BAD TRACK FLAG set in the ID field. It is not
+   * possible to access data on this track and the command will be terminated."
+   * `07 FORMAT BAD TRACK` sets that flag, and until the sidecar existed there
+   * was nowhere to set it -- so `07` was identical to `06` and this refusal
+   * could never happen. Both halves are real now.
+   *
+   * And `1C` for an alternate reached directly: "a direct access to an
+   * alternate track was attempted ... the controller was unable to read the
+   * alternate track data specifying the destination cylinder." */
+  {
+    const uint8_t flags = ap_awd_flags(omti->drive, *lba);
+    if ((flags & AP_AWD_FLAG_BAD_TRACK) != 0u) {
+      finish(omti, true, SENSE_BAD_TRACK);
+      return false;
+    }
+    if ((flags & AP_AWD_FLAG_IS_ALTERNATE) != 0u) {
+      finish(omti, true, SENSE_ALTERNATE_DIRECT);
+      return false;
+    }
+  }
   return true;
 }
 
@@ -365,14 +391,15 @@ static void transfer(ap_omti_t *omti, unsigned length, bool to_host) {
  * are written with the pattern contained in the controller data buffer." The
  * decode packs byte 5's bits 7, 6 and 5 into `control`, so `B` is bit 1 of it.
  *
- * ## What is deliberately not modelled
+ * ## What the sidecar now carries, and what it does not
  *
  * A format also writes the **ID field** of every sector -- the track skewing and
  * interleave of bytes 4, and the bad-track and alternate-track flags §5.4.7 and
- * §5.4.16 set. An `.awd` image is sector data and nothing else: it has no ID
- * field to write them into and no place to read them back from. So the data
- * fields are written, which the image can hold, and the flags are not, which it
- * cannot.
+ * §5.4.16 set. The flags are **now written**, into the `.awdmeta` sidecar
+ * (`docs/references/AWD_META.md`), so `07 FORMAT BAD TRACK` differs from `06`
+ * and a later access to that track is refused with Appendix A's `19`. Without a
+ * sidecar attached nothing is recorded and the surface is defect-free, which is
+ * what a bare `.awd` is.
  *
  * The cost is named rather than hidden: a driver that formats a bad track and
  * then expects sense `19 Bad Track Encountered` on the next access to it will
@@ -382,7 +409,7 @@ static void transfer(ap_omti_t *omti, unsigned length, bool to_host) {
  * all: they are a placement of sectors around a rotating surface, and this model
  * has no rotation to place them on. */
 static bool format_track(ap_omti_t *omti, uint16_t cylinder, uint8_t head,
-                         uint8_t control) {
+                         uint8_t control, uint8_t flags) {
   uint8_t sector[AP_AWD_SECTOR_BYTES];
   if ((control & 0x02u) != 0u) {
     memcpy(sector, omti->buffer, sizeof sector);
@@ -395,6 +422,13 @@ static bool format_track(ap_omti_t *omti, uint16_t cylinder, uint8_t head,
         !ap_awd_write(omti->drive, at, sector)) {
       return false;
     }
+    /* The ID field, which the image now has somewhere to keep. A format
+     * *clears* the flags of every sector it writes -- that is what makes `06`
+     * usable to un-mark a track `07` marked -- and `07` sets the bad-track bit
+     * afterwards. A sidecar that is absent or does not cover this sector
+     * silently records nothing, which is the same surface `ap_awd_flags`
+     * describes when it returns zero. */
+    (void)ap_awd_set_flags(omti->drive, at, flags);
   }
   return true;
 }
@@ -654,7 +688,7 @@ static void execute(ap_omti_t *omti) {
        * cylinder's tail repeated. */
       const uint8_t first = (c == cdb.cylinder) ? cdb.head : 0u;
       for (uint8_t h = first; h < omti->drive->geometry.heads; h++) {
-        if (!format_track(omti, c, h, cdb.control)) {
+        if (!format_track(omti, c, h, cdb.control, 0u)) {
           refuse(omti, c, h, 0u, 0u);
           return;
         }
@@ -676,7 +710,10 @@ static void execute(ap_omti_t *omti) {
     if (!writable(omti) || !addressed(omti, &cdb, &lba)) {
       return;
     }
-    if (!format_track(omti, cdb.cylinder, cdb.head, cdb.control)) {
+    if (!format_track(omti, cdb.cylinder, cdb.head, cdb.control,
+                      cdb.command == AP_OMTI_CMD_FORMAT_BAD_TRACK
+                          ? AP_AWD_FLAG_BAD_TRACK
+                          : 0u)) {
       refuse(omti, cdb.cylinder, cdb.head, 0u, 0u);
       return;
     }
@@ -832,6 +869,13 @@ static void execute(ap_omti_t *omti) {
     }
     memset(omti->buffer, 0, blocks * AP_OMTI_LONG_BLOCK_BYTES);
     for (unsigned block = 0; block < blocks; block++) {
+      /* The six ECC bytes as *recorded*, now that the sidecar can hold them.
+       * A sector never written by WRITE LONG reads zeros, which is "none
+       * recorded" -- `[OMTI]` publishes no polynomial, so a value computed here
+       * would be indistinguishable from a real one. */
+      ap_awd_ecc(omti->drive, lba + block,
+                 &omti->buffer[block * AP_OMTI_LONG_BLOCK_BYTES +
+                               AP_AWD_SECTOR_BYTES]);
       if (!ap_awd_read(omti->drive, lba + block,
                        &omti->buffer[block * AP_OMTI_LONG_BLOCK_BYTES])) {
         refuse(omti, cdb.cylinder, cdb.head, cdb.sector, lba + block);
@@ -1010,7 +1054,8 @@ static void take_byte(ap_omti_t *omti, uint8_t value) {
         ap_omti_cdb_t alternate;
         ap_omti_cdb_decode(bytes, &alternate);
         omti->assigning_alternate = false;
-        if (!format_track(omti, alternate.cylinder, alternate.head, 0u)) {
+        if (!format_track(omti, alternate.cylinder, alternate.head, 0u,
+                          AP_AWD_FLAG_IS_ALTERNATE)) {
           refuse(omti, alternate.cylinder, alternate.head, 0u, 0u);
           return;
         }
@@ -1027,6 +1072,12 @@ static void take_byte(ap_omti_t *omti, uint8_t value) {
        * deliberate approximation READ LONG's zeros are, named here so the two
        * halves of it are not documented in only one place. */
       for (unsigned block = 0; block < omti->long_write_blocks; block++) {
+        /* And the ECC is **kept**, not dropped: §5.4.28 hands the controller
+         * six bytes and the sidecar is where they live. This used to discard
+         * them for want of anywhere to put them. */
+        (void)ap_awd_set_ecc(omti->drive, omti->long_write_lba + block,
+                             &omti->buffer[block * AP_OMTI_LONG_BLOCK_BYTES +
+                                           AP_AWD_SECTOR_BYTES]);
         if (!ap_awd_write(omti->drive, omti->long_write_lba + block,
                           &omti->buffer[block * AP_OMTI_LONG_BLOCK_BYTES])) {
           omti->long_write_blocks = 0u;

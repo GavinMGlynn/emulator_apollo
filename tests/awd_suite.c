@@ -115,6 +115,87 @@ static void test_a_short_image_refuses_the_sectors_it_lacks(void) {
   TEST_ASSERT_TRUE(8u < ap_awd_sector_count(SMALL));
 }
 
+/* ## The sidecar
+ *
+ * An `.awd` is sector data and nothing else; a real surface carries an ID field
+ * and an ECC field per sector, and `[OMTI]` §5 has commands for both. They live
+ * in a companion file because `DOMAINOS_IMAGE.md` pins the image's SHA-256 --
+ * see `docs/references/AWD_META.md`.
+ */
+static uint8_t meta_file[AP_AWD_META_HEADER_BYTES +
+                         SMALL_SECTORS * AP_AWD_META_RECORD_BYTES];
+
+static void build_meta(void) {
+  memset(meta_file, 0, sizeof meta_file);
+  memcpy(meta_file, AP_AWD_META_MAGIC, AP_AWD_META_MAGIC_BYTES);
+  meta_file[8] = AP_AWD_META_HEADER_BYTES;
+  meta_file[12] = AP_AWD_META_RECORD_BYTES;
+}
+
+static void test_without_a_sidecar_the_surface_is_clean(void) {
+  build_drive();
+
+  /* No sidecar attached: no flags anywhere, and ECC reads as six zeros. That
+   * is a *description* of a raw image rather than a fallback -- it has no
+   * defects and no recorded ECC, because it has nowhere to keep either. */
+  TEST_ASSERT_EQUAL_HEX8(0u, ap_awd_flags(&drive, 0u));
+  TEST_ASSERT_EQUAL_HEX8(0u, ap_awd_flags(&drive, SMALL_SECTORS - 1u));
+
+  uint8_t ecc[AP_AWD_ECC_BYTES];
+  memset(ecc, 0xAAu, sizeof ecc);
+  ap_awd_ecc(&drive, 0u, ecc);
+  for (unsigned i = 0; i < AP_AWD_ECC_BYTES; i++) {
+    TEST_ASSERT_EQUAL_HEX8(0u, ecc[i]);
+  }
+
+  /* And nothing can be recorded, which a caller must be able to tell. */
+  TEST_ASSERT_FALSE(ap_awd_set_flags(&drive, 0u, AP_AWD_FLAG_BAD_TRACK));
+  TEST_ASSERT_FALSE(ap_awd_set_ecc(&drive, 0u, ecc));
+}
+
+static void test_a_sidecar_carries_flags_and_ecc(void) {
+  build_drive();
+  build_meta();
+  TEST_ASSERT_TRUE(ap_awd_attach_meta(&drive, meta_file, sizeof meta_file));
+
+  TEST_ASSERT_TRUE(ap_awd_set_flags(&drive, 5u, AP_AWD_FLAG_BAD_TRACK));
+  TEST_ASSERT_EQUAL_HEX8(AP_AWD_FLAG_BAD_TRACK, ap_awd_flags(&drive, 5u));
+  /* Per sector, so its neighbours are untouched. */
+  TEST_ASSERT_EQUAL_HEX8(0u, ap_awd_flags(&drive, 4u));
+  TEST_ASSERT_EQUAL_HEX8(0u, ap_awd_flags(&drive, 6u));
+
+  static const uint8_t recorded[AP_AWD_ECC_BYTES] = {1u, 2u, 3u, 4u, 5u, 6u};
+  TEST_ASSERT_TRUE(ap_awd_set_ecc(&drive, 5u, recorded));
+  uint8_t back[AP_AWD_ECC_BYTES];
+  ap_awd_ecc(&drive, 5u, back);
+  TEST_ASSERT_EQUAL_MEMORY(recorded, back, AP_AWD_ECC_BYTES);
+  /* The sector's data is not where the ECC went: the sidecar is beside the
+   * image, never inside it. */
+  TEST_ASSERT_EQUAL_HEX8(5u, backing[5u * AP_AWD_SECTOR_BYTES]);
+}
+
+static void test_a_malformed_or_short_sidecar_is_told_apart(void) {
+  build_drive();
+  build_meta();
+
+  /* Wrong magic is a refusal: attaching some other file as a defect list would
+   * invent defects out of whatever it happened to contain. */
+  uint8_t wrong[sizeof meta_file];
+  memcpy(wrong, meta_file, sizeof wrong);
+  wrong[0] = 'X';
+  TEST_ASSERT_FALSE(ap_awd_attach_meta(&drive, wrong, sizeof wrong));
+
+  /* A *short* file is not malformed -- it describes the sectors it covers and
+   * no more, the same rule a short image already follows. */
+  const size_t two = AP_AWD_META_HEADER_BYTES + 2u * AP_AWD_META_RECORD_BYTES;
+  TEST_ASSERT_TRUE(ap_awd_attach_meta(&drive, meta_file, two));
+  TEST_ASSERT_TRUE(ap_awd_set_flags(&drive, 1u, AP_AWD_FLAG_IS_ALTERNATE));
+  TEST_ASSERT_EQUAL_HEX8(AP_AWD_FLAG_IS_ALTERNATE, ap_awd_flags(&drive, 1u));
+  /* Past what it covers: no flags, and nothing can be recorded there. */
+  TEST_ASSERT_EQUAL_HEX8(0u, ap_awd_flags(&drive, 2u));
+  TEST_ASSERT_FALSE(ap_awd_set_flags(&drive, 2u, AP_AWD_FLAG_BAD_TRACK));
+}
+
 /* --------------------------------------------------------------------------
  * The controller's command phase
  * ------------------------------------------------------------------------ */
@@ -599,6 +680,73 @@ static void test_a_write_to_a_read_only_image_reports_write_protected(void) {
   TEST_ASSERT_EQUAL_HEX8(1u, ap_omti_disk_read(&omti, AP_OMTI_DISK_DATA));
 }
 
+/* `07 FORMAT BAD TRACK` is no longer identical to `06`, because the sidecar
+ * gives the ID field somewhere to live.
+ *
+ * Appendix A `19 Bad Track Encountered`: "the specified track has previously
+ * been formatted with the BAD TRACK FLAG set in the ID field. It is not
+ * possible to access data on this track." Both halves -- setting the flag and
+ * refusing on it -- were unreachable while an `.awd` had nowhere to keep it. */
+static void test_a_bad_track_format_is_refused_afterwards(void) {
+  build_controller();
+  build_meta();
+  TEST_ASSERT_TRUE(ap_awd_attach_meta(&drive, meta_file, sizeof meta_file));
+
+  /* Cylinder 0 head 1 is sectors 4 through 7, and reads fine to begin with. */
+  issue(AP_OMTI_CMD_READ, 0u, 1u, 0u, 1u);
+  TEST_ASSERT_EQUAL_INT(AP_OMTI_PHASE_DATA_IN, ap_omti_disk_phase(&omti));
+  while (ap_omti_disk_phase(&omti) == AP_OMTI_PHASE_DATA_IN) {
+    (void)ap_omti_disk_read(&omti, AP_OMTI_DISK_DATA);
+  }
+  (void)take_status();
+
+  issue(AP_OMTI_CMD_FORMAT_BAD_TRACK, 0u, 1u, 0u, 0u);
+  TEST_ASSERT_EQUAL_HEX8(0u, take_status());
+  TEST_ASSERT_EQUAL_HEX8(AP_AWD_FLAG_BAD_TRACK, ap_awd_flags(&drive, 4u));
+  TEST_ASSERT_EQUAL_HEX8(AP_AWD_FLAG_BAD_TRACK, ap_awd_flags(&drive, 7u));
+
+  /* Now the track refuses, with the code that says why. */
+  issue(AP_OMTI_CMD_READ, 0u, 1u, 0u, 1u);
+  TEST_ASSERT_EQUAL_INT(AP_OMTI_PHASE_STATUS, ap_omti_disk_phase(&omti));
+  TEST_ASSERT_TRUE((take_status() & 0x02u) != 0u);
+  issue(AP_OMTI_CMD_REQUEST_SENSE, 0u, 0u, 0u, 0u);
+  TEST_ASSERT_EQUAL_HEX8(0x19u, ap_omti_disk_read(&omti, AP_OMTI_DISK_DATA));
+
+  /* And its neighbours do not: the flag is the track's, not the drive's. */
+  for (unsigned i = 1; i < 4u; i++) {
+    (void)ap_omti_disk_read(&omti, AP_OMTI_DISK_DATA);
+  }
+  (void)take_status();
+  issue(AP_OMTI_CMD_READ, 0u, 0u, 0u, 1u);
+  TEST_ASSERT_EQUAL_INT(AP_OMTI_PHASE_DATA_IN, ap_omti_disk_phase(&omti));
+}
+
+/* §5.4.28 hands the controller six ECC bytes and §5.4.27 returns them. They
+ * used to be dropped and zeroed for want of anywhere to keep them. */
+static void test_a_long_write_records_its_ecc_for_a_long_read(void) {
+  build_controller();
+  build_meta();
+  TEST_ASSERT_TRUE(ap_awd_attach_meta(&drive, meta_file, sizeof meta_file));
+
+  issue(AP_OMTI_CMD_WRITE_LONG, 0u, 0u, 2u, 1u);
+  for (unsigned i = 0; i < AP_AWD_SECTOR_BYTES; i++) {
+    ap_omti_disk_write(&omti, AP_OMTI_DISK_DATA, 0x5Au);
+  }
+  for (unsigned i = 0; i < AP_OMTI_ECC_BYTES; i++) {
+    ap_omti_disk_write(&omti, AP_OMTI_DISK_DATA, (uint8_t)(0xE0u + i));
+  }
+  TEST_ASSERT_EQUAL_HEX8(0u, take_status());
+
+  issue(AP_OMTI_CMD_READ_LONG, 0u, 0u, 2u, 1u);
+  for (unsigned i = 0; i < AP_AWD_SECTOR_BYTES; i++) {
+    TEST_ASSERT_EQUAL_HEX8(0x5Au, ap_omti_disk_read(&omti, AP_OMTI_DISK_DATA));
+  }
+  for (unsigned i = 0; i < AP_OMTI_ECC_BYTES; i++) {
+    TEST_ASSERT_EQUAL_HEX8((uint8_t)(0xE0u + i),
+                           ap_omti_disk_read(&omti, AP_OMTI_DISK_DATA));
+  }
+}
+
 /* A controller with no drive is a real configuration and must not look like one
  * with a blank disk: the command fails and says the drive is not ready. */
 static void test_a_controller_with_no_drive_says_so(void) {
@@ -841,6 +989,9 @@ int main(void) {
   RUN_TEST(test_the_address_is_cylinder_head_sector);
   RUN_TEST(test_an_address_off_the_drive_is_refused);
   RUN_TEST(test_a_short_image_refuses_the_sectors_it_lacks);
+  RUN_TEST(test_without_a_sidecar_the_surface_is_clean);
+  RUN_TEST(test_a_sidecar_carries_flags_and_ecc);
+  RUN_TEST(test_a_malformed_or_short_sidecar_is_told_apart);
   RUN_TEST(test_a_read_command_delivers_the_addressed_sector);
   RUN_TEST(test_a_read_to_buffer_fills_the_buffer_without_a_data_phase);
   RUN_TEST(test_a_read_to_buffer_past_the_cap_is_refused);
@@ -868,6 +1019,8 @@ int main(void) {
   RUN_TEST(test_a_bad_address_fails_and_the_sense_says_so);
   RUN_TEST(test_the_refused_address_carries_the_whole_cylinder);
   RUN_TEST(test_a_write_to_a_read_only_image_reports_write_protected);
+  RUN_TEST(test_a_bad_track_format_is_refused_afterwards);
+  RUN_TEST(test_a_long_write_records_its_ecc_for_a_long_read);
   RUN_TEST(test_a_controller_with_no_drive_says_so);
   RUN_TEST(test_the_st506_only_command_is_refused_in_practice);
   return UNITY_END();
