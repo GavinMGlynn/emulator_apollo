@@ -3405,14 +3405,21 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         the session began and read as unrelated noise -- is **calendar register
         `0x12`**. The oracle maps the same range. Three console messages that
         looked like three problems are one.
-        The value is unexplained: expected `00000000`, read `00000012`, which is
-        the register's own number, from a model that returns `ram[address]` and
-        zeroes that array at reset. Reading back the address is what an undriven
-        bus looks like, so the access may not be reaching `ap_calendar_read`, or
-        not at the width it is made at. That is a measurement, not something to
-        reason out. Detail in `PROJECT_STATUS.md`.
-        *Verification: the PROM's accesses in `0x010900-0x0109ff` logged with
-        their widths, and the read of `0x12` accounted for.*
+        **Measured**, and it settles the shape: over a hundred million
+        instructions the PROM touches the calendar **once** -- a 32-bit read at
+        `0x010912`, four byte reads returning zero. It never reads the time at
+        all, nor VRT. Its whole judgement rests on one longword of battery RAM
+        at offset `0x12` being zero, so the configuration table starts there and
+        nothing about the MC146818 model is wrong. What is missing is *content*:
+        this machine powers on with the battery RAM blank every time, which on
+        real hardware is a dead battery. Detail in `PROJECT_STATUS.md`.
+  - [ ] **Give the machine a configuration.** Either seed the calendar's
+        battery-backed RAM from a supplied image, as the disk is supplied, or
+        drive the PROM's own `ex config` from the boot script -- which is what
+        the machine instructs, and what makes the content the PROM's rather than
+        ours. Whichever, it must stay deterministic: no wall clock.
+        *Verification: the console going past "Configuration information is not
+        initialized", and Domain/OS past the CALENDAR halt.*
   - [ ] **`IRQ6` and `DRQ2`, the floppy's**, are placed and not driven: its
         completion is the FDC's result phase rather than the fixed disk's.
         *Verification: a floppy command completing through an interrupt.*

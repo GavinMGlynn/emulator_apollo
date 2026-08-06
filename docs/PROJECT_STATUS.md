@@ -5748,14 +5748,43 @@ So the PROM tests the calendar, fails, prints "Configuration information is not
 initialized", and Domain/OS later refuses to run without a clock. Three console
 messages that looked like three problems are one.
 
-What is *not* yet explained is the value. The PROM expected `00000000` and read
-`00000012` — which is the register's own number, from a model that returns
-`rtc->ram[address]` for everything from `0x0E` up and zeroes that array at reset.
-A write of zero followed by a read should give zero. Reading back the address is
-what an *undriven bus* looks like, not what this model does, so the access is
-probably not reaching `ap_calendar_read` at all, or not at the width it is made
-at. That is a measurement, not a guess to be resolved by reasoning: the next step
-is to log the PROM's accesses in that range and their widths.
+**Measured**, with a temporary log in `ap_calendar_read`/`_write` since removed.
+Over the first hundred million instructions the boot PROM touches the calendar
+**exactly once**:
+
+    CAL r 010912 reg 12 -> 00
+    CAL r 010913 reg 13 -> 00
+    CAL r 010914 reg 14 -> 00
+    CAL r 010915 reg 15 -> 00
+
+One **32-bit read at `0x010912`**, which the board splits into four byte reads of
+registers `0x12` through `0x15`, all returning zero.
+
+Two things follow, and the second is the useful one.
+
+The guesses in the paragraph this replaces were wrong. The access *does* reach
+`ap_calendar_read`, the width is accounted for, and nothing looks like an
+undriven bus. Reasoning about `Actual= 00000012` produced three plausible
+explanations and the measurement matched none of them, which is the argument for
+measuring first that this project already makes.
+
+**The PROM never reads the time at all.** Not seconds, not the year, not register
+D's VRT — none of registers `0x00` to `0x0D` is touched. Its entire judgement
+that "Configuration information is not initialized" rests on one longword of
+battery-backed RAM at offset `0x12` being zero. So the configuration table starts
+at calendar RAM `0x12`, and a machine whose battery has kept it reads something
+non-zero there.
+
+That reframes the fix. Nothing about the MC146818 model is wrong — the clock, the
+registers and the RAM all behave. What is missing is *content*: this machine
+powers on every time with the battery RAM blank, which on real hardware is a
+machine whose battery has died. Either the configuration is seeded, or the PROM's
+own `ex config` writes it, and the second is what the machine itself instructs.
+
+Still unexplained, and no longer blocking: where `Actual= 00000012` comes from,
+given the read returns zero and `Expected` is zero as well. It may be a status
+code rather than read data — `0x12` is also the offset just read. Named rather
+than guessed at.
 
 The `boot-domainos.script` comment shows this was met once before and set aside:
 "after it reports that the configuration table in the calendar's battery-backed
