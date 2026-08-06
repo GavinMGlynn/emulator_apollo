@@ -4119,8 +4119,16 @@ boot below, and the boot is not attempted until they are done.
       `ap_kbd_receive` and feeds the reply back through
       `ap_sio_receive_framed`. So this is not a missing connection but a
       *timing* one -- the ISR reads `00` at the instant the firmware looks, so
-      the reply has not arrived yet. The reply is produced when time advances,
-      and the firmware may poll faster than the board is advanced.
+      the reply has not arrived yet.
+      **And "the firmware polls faster than the board advances" is wrong.**
+      `ap_machine.c:643` calls `ap_board_advance` **after every instruction
+      step**, so the drain runs every instruction and a reply would be visible
+      within one. Checked before writing the fix, which is the only reason it
+      cost a grep rather than a change to the tick loop.
+      So the question is upstream of timing: either the firmware has not sent
+      `FF 12 21` by the time it tests, or `ap_sio_transmit` does not hand the
+      bytes over, or `ap_kbd_receive` answers nothing for that command. Three
+      candidates, each one a read.
       That is the first defect of this phase that is genuinely ours, and it is
       narrow: one bit, one register, and a known producer.
       *Verification: `RxRDY` set on channel A by the time `000073EC` reads it,
