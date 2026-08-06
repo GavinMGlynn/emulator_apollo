@@ -50,6 +50,55 @@ static void test_the_transmitter_commands_move_the_ready_bits_as_documented(void
 
 /* §4.2.7.2's last three commands, `101` through `111`, all of which fell
  * through a bare `default: break;`. */
+/* A break sent in local loopback reaches this channel's own receiver.
+ *
+ * Two sections have to be read together to get this right. §2.12: TxD "is held
+ * high (mark condition) when the transmitter is disabled, idle, or operating in
+ * the local loopback mode" -- which on its own says a break goes nowhere.
+ * §3.3.2: "the transmitter output is internally connected to the receiver
+ * input" -- the *pin* is held high, and the internal path still carries it.
+ * `tx_break` sat stored and inert while only the first of those was read. */
+static void test_a_break_in_local_loopback_reaches_the_receiver(void) {
+  ap_mc68681_t d;
+  ap_mc68681_reset(&d);
+
+  /* MR2's channel mode: local loopback. MR1 first, then MR2, sharing the
+   * pointer this part keeps. */
+  ap_mc68681_write(&d, AP_MC68681_MR_A, 0x00u);
+  ap_mc68681_write(&d, AP_MC68681_MR_A,
+                   (uint8_t)(AP_MC68681_MODE_LOCAL_LOOPBACK << 6));
+  enable_a(&d);
+
+  TEST_ASSERT_EQUAL_HEX8(0, ap_mc68681_read(&d, AP_MC68681_SR_CSR_A) &
+                                AP_MC68681_SR_BREAK);
+
+  ap_mc68681_write(&d, AP_MC68681_CR_A, 0x60u); /* START BREAK */
+  TEST_ASSERT_EQUAL_HEX8(AP_MC68681_SR_BREAK,
+                         ap_mc68681_read(&d, AP_MC68681_SR_CSR_A) &
+                             AP_MC68681_SR_BREAK);
+  /* And the *change* is flagged, which is what a driver waits on. */
+  TEST_ASSERT_EQUAL_HEX8(AP_MC68681_ISR_BREAK_A,
+                         d.isr & AP_MC68681_ISR_BREAK_A);
+
+  /* Both edges: stopping the break is a change too. */
+  ap_mc68681_write(&d, AP_MC68681_CR_A, 0x50u); /* clear the change flag */
+  TEST_ASSERT_EQUAL_HEX8(0, d.isr & AP_MC68681_ISR_BREAK_A);
+  ap_mc68681_write(&d, AP_MC68681_CR_A, 0x70u); /* STOP BREAK */
+  TEST_ASSERT_EQUAL_HEX8(0, ap_mc68681_read(&d, AP_MC68681_SR_CSR_A) &
+                                AP_MC68681_SR_BREAK);
+  TEST_ASSERT_EQUAL_HEX8(AP_MC68681_ISR_BREAK_A,
+                         d.isr & AP_MC68681_ISR_BREAK_A);
+
+  /* Not in normal mode: there the break goes out of the pin and nothing here
+   * is listening to it. */
+  ap_mc68681_t normal;
+  ap_mc68681_reset(&normal);
+  enable_a(&normal);
+  ap_mc68681_write(&normal, AP_MC68681_CR_A, 0x60u);
+  TEST_ASSERT_EQUAL_HEX8(0, ap_mc68681_read(&normal, AP_MC68681_SR_CSR_A) &
+                                AP_MC68681_SR_BREAK);
+}
+
 static void test_the_break_commands_are_obeyed_rather_than_dropped(void) {
   ap_mc68681_t d;
   ap_mc68681_reset(&d);
@@ -723,6 +772,7 @@ int main(void) {
   RUN_TEST(test_the_output_port_has_separate_set_and_clear_addresses);
   RUN_TEST(test_resetting_the_receiver_empties_the_fifo);
   RUN_TEST(test_the_transmitter_commands_move_the_ready_bits_as_documented);
+  RUN_TEST(test_a_break_in_local_loopback_reaches_the_receiver);
   RUN_TEST(test_the_break_commands_are_obeyed_rather_than_dropped);
   RUN_TEST(test_the_break_change_interrupt_can_be_cleared_per_channel);
   RUN_TEST(test_two_duarts_reset_alike_hold_identical_state);

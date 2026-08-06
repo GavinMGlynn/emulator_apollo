@@ -419,6 +419,41 @@ uint8_t ap_mc68681_read(ap_mc68681_t *duart, unsigned reg) {
   return 0u;
 }
 
+/* A break sent in local loopback, arriving at this channel's own receiver.
+ *
+ * §3.3.2: "In this mode, **the transmitter output is internally connected to
+ * the receiver input**." That is what makes a transmitted break observable, and
+ * it does not contradict §2.12's "TxD ... is held high (mark condition) when
+ * the transmitter is disabled, idle, or operating in the local loopback mode" --
+ * the *pin* is held high, and the internal path still carries what the
+ * transmitter produces. Reading either section alone gives the wrong answer,
+ * which is why `tx_break` sat stored and inert while one of them was unread.
+ *
+ * A break is a framing violation held past a whole character, so the receiver
+ * reports it in `SR[7]` and flags the *change* in the ISR -- both edges, which
+ * is why this is called on start and stop alike. §4.2.7.2's `RESET BREAK CHANGE
+ * INTERRUPT` is what clears the flag, and it is already implemented.
+ *
+ * Nothing is pushed into the receive FIFO: a break is the absence of a
+ * character, not a character. */
+static void loop_break(ap_mc68681_t *duart, ap_mc68681_channel_t *ch,
+                       unsigned reg, bool starting) {
+  if (ap_mc68681_channel_mode(ch->mr[1]) != AP_MC68681_MODE_LOCAL_LOOPBACK) {
+    return;
+  }
+  if (!ch->rx_enabled) {
+    return;
+  }
+  if (starting) {
+    ch->sr |= AP_MC68681_SR_BREAK;
+  } else {
+    ch->sr = (uint8_t)(ch->sr & ~AP_MC68681_SR_BREAK);
+  }
+  duart->isr |= (reg == AP_MC68681_CR_A) ? AP_MC68681_ISR_BREAK_A
+                                         : AP_MC68681_ISR_BREAK_B;
+}
+
+
 void ap_mc68681_write(ap_mc68681_t *duart, unsigned reg, uint8_t value) {
   reg &= (AP_MC68681_REGISTERS - 1u);
   unsigned index = reg >= 8u ? 1u : 0u;
@@ -494,11 +529,15 @@ void ap_mc68681_write(ap_mc68681_t *duart, unsigned reg, uint8_t value) {
        * knows it is in a break rather than by one that ignored both. */
       if (ch->tx_enabled) {
         ch->tx_break = true;
+        loop_break(duart, ch, reg, true);
       }
       break;
     case CR_MISC_STOP_BREAK:
       /* §4.2.7.2: TxD "will go high (marking) within two bit times". No
        * enable condition is stated for this one, and none is imposed. */
+      if (ch->tx_break) {
+        loop_break(duart, ch, reg, false);
+      }
       ch->tx_break = false;
       break;
     default:
