@@ -4194,7 +4194,21 @@ boot below, and the boot is not attempted until they are done.
       behaviour existed, and replacing it with nothing invites the same
       reasoning back. Two `kbd_suite` tests asserted the old behaviour and are
       corrected, not removed.
-      *Verification: `KEYBOARD TEST # 0` passing, in the framebuffer PNG.*
+      **And it did not fix the test.** A `c8p` boot on the rebuilt core gives a
+      byte-identical screen -- same `EXPECTED= 00000002`, same `ACTUAL=
+      0000FF00`, same `ADDRESS= 0001040B`, same `PC= 000073EC`. So echoing `00`
+      was not the cause, or not the whole of it.
+      The echo change stands on its own evidence -- the firmware writes `00` and
+      then polls for a byte, which is not a thing to do to a keyboard that never
+      answers -- but it is not what this test is failing on.
+      What the identical `ACTUAL` now says, and what was skipped past: `FF00` is
+      not a plausible ISR value. `FF` is what an **unmapped** read returns here,
+      so the firmware may not be reading the DUART at all at `0001040B` -- and
+      `EXPECTED= 00000002` against a longword `ACTUAL` suggests the compare is
+      wider than the byte register the address decodes to.
+      *Verification: what `005F8C` actually reads, and at what width. The
+      `ADDRESS` the firmware prints is its own and has been taken at face value
+      throughout.*
       That is the first defect of this phase that is genuinely ours, and it is
       narrow: one bit, one register, and a known producer.
       *Verification: `RxRDY` set on channel A by the time `000073EC` reads it,
