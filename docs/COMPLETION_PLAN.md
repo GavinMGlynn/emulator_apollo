@@ -3849,6 +3849,21 @@ boot below, and the boot is not attempted until they are done.
       framebuffer** dump beside the scanned-out picture, periodic screenshots
       every N frames, scripted input **at given cycles** rather than paced, and
       media *persist*. None is reachable from a headless run alone.
+- [ ] **The boot's new verification, exercised: a framebuffer PNG.** The path
+      already exists -- `--screen 19i --screenshot FILE` produced a correct
+      1280x1024, 1-plane PNG from a booting machine, so nothing new is needed to
+      *capture* the display. **The framebuffer is entirely black**, which is the
+      first real question of this phase rather than a defect yet: the boot PROM
+      does draw during its self-tests, so either it had not drawn by the point
+      captured, or the drawing does not reach the plane the scanout reads.
+      A second observation from the same run, and possibly the more important
+      one: **fitting a display changed the boot's path.** With `--screen 19i`
+      the PC is `000061DA` at 250M instructions; the same boot without a display
+      was at `01002178` by 200M -- inside Domain/OS. A display the firmware can
+      see is a different machine, and every boot reading this session was taken
+      on the one without.
+      *Verification: a PNG with the PROM's own display output in it, and the two
+      paths' divergence accounted for.*
 - [ ] SDL3 interactive frontend, implemented rather than stubbed: scanout to a
       letterboxed texture, keyboard/mouse mapping, `--frames` bounded mode
       smoke-tested under dummy SDL drivers. *Verification: bounded-mode CTest
