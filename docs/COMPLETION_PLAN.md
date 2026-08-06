@@ -3874,6 +3874,15 @@ boot below, and the boot is not attempted until they are done.
       the PROM is demonstrably producing output somewhere, the console is not
       it, and the plane the scanout reads is empty. Something between the
       firmware's drawing and `--screenshot` is not connected.
+      **Located.** The same run reports `blit cycles 524417, 524417 plane
+      write(s)` and over a million display-controller accesses. So the firmware
+      is drawing -- half a million plane writes -- and the scanout is black. The
+      defect is between the blitter's writes and `--screenshot`'s read, not in
+      the firmware and not in the PNG encoder.
+      The board holds a mono buffer and a colour buffer; `--screen 19i` fits the
+      1280x1024 mono one. Whether the writes land in the buffer the scanout
+      reads is the first thing to check -- named as the candidate, not claimed,
+      because six hypotheses died that way earlier in this session.
       *Verification: the PROM's self-test banner legible in a PNG.*
 - [ ] SDL3 interactive frontend, implemented rather than stubbed: scanout to a
       letterboxed texture, keyboard/mouse mapping, `--frames` bounded mode
