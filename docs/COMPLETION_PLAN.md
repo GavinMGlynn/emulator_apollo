@@ -3909,9 +3909,21 @@ boot below, and the boot is not attempted until they are done.
       speed rather than at 25 MHz.
       So the black screenshot was neither a broken write path nor a screen that
       had nothing on it yet: the firmware had not reached the *drawing* at all.
+      **The delay is larger than it first appeared.** At one *billion*
+      instructions the PC is still `000061EC`, inside the same loop. So it is
+      not one long wait but a wait entered repeatedly, or a count far beyond
+      what a settling delay needs -- and either way a display boot on this core
+      costs well over 2.5B instructions before anything is drawn, against the
+      ~300M a console boot needs to reach Domain/OS.
+      That is a **Phase 8 argument arriving early**. `CLAUDE.md` accepts that
+      "the reference core will not reach real time", and until now that cost
+      only lengthened runs. A display boot is the first workload where the
+      reference core may be impractical rather than merely slow, and it is
+      exactly what "a verified fast mode comes later, and only under an
+      identity harness" exists for. Worth recording here so Phase 8 is chosen
+      for a measured reason rather than a general one.
       *Verification: the PROM's self-test banner legible in a PNG -- from a run
-      long enough to clear the delay, which is the real cost of fitting a
-      display to a reference core.*
+      long enough to clear the delay, whose size is now the thing to measure.*
       *Verification: the PROM's self-test banner legible in a PNG.*
 - [ ] SDL3 interactive frontend, implemented rather than stubbed: scanout to a
       letterboxed texture, keyboard/mouse mapping, `--frames` bounded mode
