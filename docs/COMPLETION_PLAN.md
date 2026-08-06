@@ -2862,8 +2862,21 @@ chasing the integration check one hypothesis at a time while signals sat
 declared and inert. The implementation items are therefore listed **before** the
 boot below, and the boot is not attempted until they are done.
 
-      login prompt, console byte-identical to the oracle. *Verification: console
-      diff plus a boot state hash.*
+      login prompt.
+      **The verification is rewritten, because the old one cannot be met by a
+      working machine.** It read "console byte-identical to the oracle", and the
+      oracle puts **zero bytes** on the serial line booting this image in Normal
+      mode -- a byte-identical nothing is not evidence. Domain/OS talks to the
+      display, which is where a login prompt appears and why the panic string
+      had to be read out of memory rather than seen.
+      *Verification: the framebuffer decoded to a PNG showing a login prompt,
+      against the oracle's snapshot of the same boot; plus a boot state hash.
+      The console diff stays, but as a check on the **boot PROM's** dialogue,
+      which does transmit and which this core already matches byte for byte
+      through MD's sign-on.*
+      *This depends on Phase 5, and that dependency was always real and never
+      written down -- which is how a display-only milestone came to be measured
+      with a serial cable for an entire session.*
   - [x] **Three bytes is a transfer size, and the board refused it.** Past test
         7, the boot stopped in `Memory Module 1  Test # 0` with `Unexpected CPU
         bus error referencing 0100A005` -- an address that answers perfectly.
