@@ -142,6 +142,52 @@ static void issue(ap_tape_t *t, uint8_t command) {
   ap_tape_advance(t, clock_now);
 }
 
+/* READY marks the block boundary, which the data path used to hide.
+ *
+ * `[SC499]` §1.13.1: "The READY line is activated when the device is ready for
+ * a **data block** transfer", and Figure 1-5 shows it going down once the
+ * controller starts a block (T4) and back up at T15, "Device READY For Next
+ * Data Block", `100 us. < T14--->T15`.
+ *
+ * `ensure_block` used to fetch the next block transparently, so a host saw an
+ * unbroken byte stream and READY never moved during a transfer -- a driver
+ * waiting for the edge between blocks waited for an edge that never came. */
+static void test_ready_drops_and_returns_at_each_data_block(void) {
+  ap_tape_t t;
+  arm(&t);
+  issue(&t, AP_QIC_CMD_SELECT);
+  issue(&t, AP_QIC_CMD_READ);
+
+  /* The first byte of a block pulls a block from the drive, so READY drops.
+   * `RDY` is **active low**, so the line being down is the bit reading 1. */
+  (void)ap_tape_read(&t, AP_TAPE_ADDR + 0u);
+  TEST_ASSERT_EQUAL_HEX8(AP_SC499_ST_RDY,
+                         ap_tape_read(&t, AP_TAPE_ADDR + 1u) &
+                             AP_SC499_ST_RDY);
+
+  /* It stays down for less than the documented gap ... */
+  clock_now += ap_sc499_handshake_duration(AP_SC499_ENTRY_DATA_BLOCK) / 2u;
+  ap_tape_advance(&t, clock_now);
+  TEST_ASSERT_EQUAL_HEX8(AP_SC499_ST_RDY,
+                         ap_tape_read(&t, AP_TAPE_ADDR + 1u) &
+                             AP_SC499_ST_RDY);
+
+  /* ... and comes back once it has passed. */
+  clock_now += ap_sc499_handshake_duration(AP_SC499_ENTRY_DATA_BLOCK);
+  ap_tape_advance(&t, clock_now);
+  TEST_ASSERT_EQUAL_HEX8(0u, ap_tape_read(&t, AP_TAPE_ADDR + 1u) &
+                                 AP_SC499_ST_RDY);
+
+  /* Reading on within the same block does **not** move it: the boundary is the
+   * block, not the byte. That is the distinction §1.13.1 draws and the one this
+   * core had wrong in its own header. */
+  for (unsigned i = 0; i < 8u; i++) {
+    (void)ap_tape_read(&t, AP_TAPE_ADDR + 0u);
+  }
+  TEST_ASSERT_EQUAL_HEX8(0u, ap_tape_read(&t, AP_TAPE_ADDR + 1u) &
+                                 AP_SC499_ST_RDY);
+}
+
 static void test_an_idle_controller_still_reads_as_measured(void) {
   ap_tape_t t;
   arm(&t);
@@ -331,6 +377,7 @@ int main(void) {
   RUN_TEST(test_an_exception_survives_until_its_figure_completes);
   RUN_TEST(test_ready_and_exception_are_never_both_asserted);
   RUN_TEST(test_a_command_clears_an_exception);
+  RUN_TEST(test_ready_drops_and_returns_at_each_data_block);
   RUN_TEST(test_an_idle_controller_still_reads_as_measured);
   RUN_TEST(test_a_command_reaches_the_drive_through_the_registers);
   RUN_TEST(test_the_tape_is_read_through_the_data_register);

@@ -30,6 +30,9 @@ ap_time_t ap_sc499_handshake_duration(ap_sc499_entry_t entry) {
      * asserts READY (T4->T6, "< 500 us"). Two intervals in sequence, so the
      * whole is their sum rather than the larger of them. */
     return AP_SC499_T_DIRECTION_RELEASE + AP_SC499_T_DIRECTION_TO_READY;
+  case AP_SC499_ENTRY_DATA_BLOCK:
+    /* Figure 1-5's T14->T15, the gap between data blocks. */
+    return AP_SC499_T_BLOCK_TO_READY;
   case AP_SC499_ENTRY_READY:
     break;
   }
@@ -48,6 +51,24 @@ void ap_sc499_command_accepted(ap_sc499_t *tape) {
 }
 
 bool ap_sc499_executing(const ap_sc499_t *tape) { return tape->executing; }
+
+void ap_sc499_block_boundary(ap_sc499_t *tape) {
+  /* `[SC499]` §1.13.1: "The READY line is activated when the device is ready
+   * for a **data block** transfer", and Figure 1-5 shows it going down at T4 --
+   * once the controller starts the block -- and back up at T15, "Device READY
+   * For Next Data Block".
+   *
+   * The data path used to hand a host an unbroken byte stream across block
+   * boundaries, so READY never moved during a transfer and a driver that waits
+   * for it between blocks would wait for an edge that never came. This reuses
+   * the same `executing`/`ready_at` pair the command handshakes use, because
+   * the shape is identical: the line drops now and returns after a documented
+   * interval. */
+  tape->entry = AP_SC499_ENTRY_DATA_BLOCK;
+  tape->ready = false;
+  tape->executing = true;
+  tape->ready_at = tape->now + ap_sc499_handshake_duration(tape->entry);
+}
 
 void ap_sc499_advance(ap_sc499_t *tape, ap_time_t now) {
   if (now > tape->now) {

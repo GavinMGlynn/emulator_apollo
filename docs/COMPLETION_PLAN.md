@@ -2835,7 +2835,7 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
       text, and they give the edges within a byte; the behaviour a driver can
       observe is the block-level READY above, and it was in prose this project
       already had.
-      **The change, scoped but not written.** `ap_tape.c`'s `ensure_block`
+      **Done.** `ap_tape.c`'s `ensure_block`
       fetches the next block transparently whenever the current one is
       exhausted, so a host sees an unbroken byte stream and READY never moves
       during a transfer. §1.13.1 wants the opposite: READY deasserted while the

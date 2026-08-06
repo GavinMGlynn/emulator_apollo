@@ -115,6 +115,9 @@ typedef enum {
   AP_SC499_ENTRY_READY = 0,   /* Figure 1-7 */
   AP_SC499_ENTRY_EXCEPTION,   /* Figure 1-8 */
   AP_SC499_ENTRY_DIRECTION,   /* Figure 1-9 */
+  /* Not a command entry at all: Figure 1-5's gap between one data block and the
+   * next, which the data path needs and the three above do not describe. */
+  AP_SC499_ENTRY_DATA_BLOCK,  /* Figure 1-5, T14->T15 */
 } ap_sc499_entry_t;
 
 typedef struct {
@@ -177,6 +180,17 @@ typedef struct {
 #define AP_SC499_T_DIRECTION_RELEASE AP_SC499_US(150)    /* < 150 us, Figure 1-9 T3->T4 */
 #define AP_SC499_T_DIRECTION_TO_READY AP_SC499_US(500) /* < 500 us, Figure 1-9 T4->T6 */
 #define AP_SC499_T_COMMAND_EXECUTION AP_SC499_US(500000) /* < 500 ms, Figure 1-7 T4->T5 */
+
+/* Figure 1-5, Data Transfer Write Operation, T14->T15: "Device Asserts READY
+ * (Device READY For Next Data Block)", timed `100 us. < T14--->T15`.
+ *
+ * **`PROVISIONAL`, and the direction is the reason.** This is a *minimum* --
+ * the device must wait at least this long -- so the figure constrains the delay
+ * without fixing it, and any value at or above it is legal. The bound itself is
+ * taken, which models the fastest drive the specification permits; a real one
+ * may be slower and nothing here would notice. Closes with a measurement of a
+ * drive, not with another reading. */
+#define AP_SC499_T_BLOCK_TO_READY ((AP_TIME_BASE_HZ * 100u) / 1000000u)
 #define AP_SC499_T_CLOSE_MIN AP_SC499_US(20)           /* 20 us <, T6->T8 */
 #define AP_SC499_T_CLOSE_MAX AP_SC499_US(100)           /* < 100 us, T6->T8 */
 
@@ -215,6 +229,10 @@ void ap_sc499_advance(ap_sc499_t *tape, ap_time_t now);
  * Named so the three figures' totals can be checked against `[SC499]`'s bounds
  * directly, rather than only through a device that has run. */
 [[nodiscard]] ap_time_t ap_sc499_handshake_duration(ap_sc499_entry_t entry);
+
+/* The device has begun a data block: READY goes down and comes back up when it
+ * is ready for the next one. `[SC499]` §1.13.1 and Figure 1-5. */
+void ap_sc499_block_boundary(ap_sc499_t *tape);
 
 /* Raise or clear the exception condition, keeping it exclusive of ready.
  *

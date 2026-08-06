@@ -65,10 +65,11 @@
  * "If the host starts transfer between blocks before READY is asserted, READY
  * MAY NOT BE ASSERTED."
  *
- * What remains open is therefore narrower than the old note claimed: whether
- * READY is deasserted and reasserted around **each data block** of a READ or
- * WRITE, as §1.13.1 describes, rather than only around a command. That is the
- * open item; the byte-level pacing is not. */
+ * That last part is now **done**: `ensure_block` calls
+ * `ap_sc499_block_boundary`, so READY drops when a block begins and returns
+ * `AP_SC499_T_BLOCK_TO_READY` later -- Figure 1-5's T4 and T15. The delay is
+ * `PROVISIONAL`, because the figure gives `100 us. <` as a *minimum* and taking
+ * the bound models the fastest drive the specification permits. */
 
 typedef struct {
   ap_sc499_t controller;

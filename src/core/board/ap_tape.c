@@ -54,6 +54,12 @@ static bool ensure_block(ap_tape_t *tape) {
   }
   tape->offset = 0u;
   tape->block_valid = true;
+  /* A new data block has begun, so READY drops and returns when the device is
+   * ready for the next -- `[SC499]` §1.13.1 and Figure 1-5's T4/T15. This used
+   * to fetch transparently, handing a host an unbroken byte stream across a
+   * boundary the hardware marks, so a driver waiting on the edge waited for
+   * ever. */
+  ap_sc499_block_boundary(&tape->controller);
   return true;
 }
 
