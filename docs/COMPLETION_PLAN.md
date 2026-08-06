@@ -3390,7 +3390,21 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         panic and halted, and the console shows nothing, so the message went
         somewhere this frontend does not surface. Detail in
         `PROJECT_STATUS.md`.
-        *Verification: the two strings read out of memory and the panic named.*
+        **Named**: the string is *"Switch to service mode, press reset and run
+        CALENDAR."* Domain/OS reached the calendar check, decided the clock was
+        not set, told the operator to set it and halted -- which is the
+        operating system working correctly on a machine whose clock it does not
+        believe. It joins up with the PROM's own `Configuration information is
+        not initialized` on the console, read as noise until now. Detail in
+        `PROJECT_STATUS.md`.
+        *Verification: the panic named and its cause identified as the
+        calendar.*
+  - [ ] **The calendar is why Domain/OS halts.** What `ap_mc146818` presents at
+        reset, what Domain/OS tests to decide the clock is unset, and what a set
+        clock looks like. `CLAUDE.md` constrains the answer: nothing in this
+        core may read a wall clock, so a valid calendar has to be a
+        deterministic one.
+        *Verification: the console going past the calendar check.*
   - [ ] **`IRQ6` and `DRQ2`, the floppy's**, are placed and not driven: its
         completion is the FDC's result phase rather than the fixed disk's.
         *Verification: a floppy command completing through an interrupt.*

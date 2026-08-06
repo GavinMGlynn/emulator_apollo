@@ -5692,8 +5692,43 @@ The obvious candidate is the frame buffer: this machine has a display, the
 headless frontend renders nothing, and a panic that reaches the screen rather
 than the serial line would look exactly like this.
 
-That is the next thing to establish, and it is cheap: the two strings are at
-fixed addresses and can be read straight out of memory.
+Read straight out of memory, the second pointer lands on:
+
+    010828C0  53 77 69 74 63 68 20 74  6F 20 73 65 72 76 69 63  Switch to servic
+    010828D0  65 20 6D 6F 64 65 2C 20  70 72 65 73 73 20 72 65  e mode, press re
+    010828E0  73 65 74 20 61 6E 64 20  72 75 6E 20 43 41 4C 45  set and run CALE
+    010828F0  4E 44 41 52 2E                                    NDAR.
+
+**"Switch to service mode, press reset and run CALENDAR."**
+
+So the machine is not blocked on a device that never answers, and it is not
+blocked on the disk. It reached the point of checking the **calendar**, decided
+the clock was not set, told the operator to go and set it, and halted. That is
+Domain/OS working correctly on a machine whose clock it does not believe.
+
+It also joins up with something the console has been printing all along and that
+had been read as noise:
+
+    Configuration information is not initialized.
+    Press <<return>> and type "ex config" at the prompt to initialize the
+    configuration table.
+
+    Self test failed.
+     Expected= 00000000, Actual= 00000012, Address= 00010912
+
+The boot PROM says the configuration is uninitialised; the operating system then
+refuses to run without a clock. Two complaints about the same thing, one from
+each side of the handover, and the second one is fatal.
+
+(The first pointer, `3C4562C6`, lands in code rather than a string — my
+PC-relative arithmetic for that one is wrong. It does not matter: the second is
+unambiguous and is the message.)
+
+**The next item is the calendar**, and it is a real one rather than a
+plausible-looking lead: what does `ap_mc146818` present at reset, what does
+Domain/OS test to decide the clock is unset, and what does a set clock look like?
+`CLAUDE.md` constrains the answer — nothing in this core may read a wall clock,
+so whatever a valid calendar is, it has to be a deterministic one.
 
 Not changed, and worth naming as unsettled: a **block count past the manual's
 buffer cap** still reports `21`. It is not an address failure either, but no
