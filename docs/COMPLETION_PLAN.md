@@ -4086,7 +4086,31 @@ boot below, and the boot is not attempted until they are done.
       because the serial line is the only way it can talk; a machine with a
       screen has somewhere else to put its output, and the poll at `0007A2` may
       be a wait-for-interrupt with a timeout rather than a requirement.
-      *Verification: a `c8p` boot with `--boot-input` omitted entirely.* In
+      **DONE, and the display works.** A `c8p` boot with no console input at
+      all produces a framebuffer with real text in it:
+
+          SELF TESTS IN PROGRESS.
+             KEYBOARD        TEST # 0 STARTED.
+
+          SELF TEST FAILED.
+           EXPECTED= 00000002, ACTUAL= 0000FF00, ADDRESS= 0001040B
+           PC= 000073EC
+          >
+
+      So the reading was right: a machine with a screen needs **no** serial
+      input, because the screen is where it talks. Every character sent to a
+      display boot this session was an interruption.
+      This is also the boot item's rewritten verification demonstrated end to
+      end -- firmware output, decoded from the framebuffer, legible in a PNG.
+      The path exists and works.
+      **And it names the next failure.** `0001040B` is inside serial 1's range
+      (`010400`-`0104FF`), and the test is `KEYBOARD TEST # 0`: the firmware
+      expects `00000002` and reads `0000FF00`. The keyboard is on serial 1
+      channel A (`AP_SIO_KEYBOARD_PORT`/`_CHANNEL`), so this is a concrete
+      register-level disagreement in a part this core models.
+      *Verification: what `000073EC` reads at `0001040B` and why it expects
+      `2` -- and the same PNG showing the self-tests passing.*
+      A harness note from setting this up: In
       flight; note a harness trap found setting it up -- **`--boot-progress`
       reports nothing unless something puts the run in step-by-step mode**
       (`--boot-console`, `--boot-input`, `--boot-script`, `--boot-key` or a
