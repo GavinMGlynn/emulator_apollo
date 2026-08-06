@@ -4421,9 +4421,18 @@ boot below, and the boot is not attempted until they are done.
       identification string is more than three. So the test is waiting for
       something that transmits a burst, and `--boot-key`'s one press is
       structurally incapable of satisfying it.
-      *Verification: what a real keyboard sends that fills a three-deep FIFO,
-      and whether `KEYBOARD TEST # 0` is meant to pass at all with no keyboard
-      attached.*
+      **A three-byte reply already exists in the evidence.** The keyboard trace
+      taken earlier shows `KBD sent 16 -> 3 reply byte(s)` -- so the `FF 11 16`
+      exchange produces exactly enough to fill a three-deep FIFO and raise
+      `FFULL`. The mechanism the test waits for is present in this core.
+      But that exchange appears in the trace **after** the `00`s, and the test
+      at `0073F0` sends `00` before it. So either the test is not the routine at
+      `0073F0` after all, or the firmware's ordering differs from the order the
+      replies were logged in.
+      That is the one thing left to establish, and it is a read: which caller
+      the `>` prompt is reached from, and whether `KEYBOARD TEST # 0` names the
+      `00` exchange or the `FF 11 16` one.
+      *Verification: the test's own call site, against the trace's ordering.*
       That is the first defect of this phase that is genuinely ours, and it is
       narrow: one bit, one register, and a known producer.
       *Verification: `RxRDY` set on channel A by the time `000073EC` reads it,
