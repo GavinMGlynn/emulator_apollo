@@ -3378,8 +3378,13 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         configuration this core could not be put in was the one the PROM
         behaves most differently in. With it set the console is silent at 60M
         instructions where normal mode has printed its self-tests, so the path
-        does diverge -- but MD's `MD7C REV 8.00` sign-on has not been reached
-        yet and the budget needs raising.
+        does diverge. With a real budget it does **not** get there: the PC is
+        `000007A0` at both 100M and 200M instructions and the console is silent
+        for all 300M, so the PROM's service path hangs in a tight loop very
+        early -- before it says anything. That is a new and specific target
+        rather than a vague failure, and it blocks the `EX CONFIG` route until
+        it is fixed. `MD.md`'s capture came from the *oracle* in service mode,
+        so the sign-on is known to be reachable on real firmware.
         Either seed the calendar's
         battery-backed RAM from a supplied image, as the disk is supplied, or
         drive the PROM's own `ex config` from the boot script -- which is what
