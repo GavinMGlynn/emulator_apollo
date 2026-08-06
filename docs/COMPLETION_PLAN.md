@@ -3388,7 +3388,7 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         SENSE as `A1` with the cylinder, head and sector that was refused, and
         cylinder 1941 asserted across all three bytes, which is where a
         one-byte answer would look right and be wrong.*
-  - [ ] **Audit every other device the same way.** Started; three done.
+  - [ ] **Audit every other device the same way.** Seven of nine done.
         - [x] **8259 PIC: complete.** All eight OCW2 combinations are
               enumerated, including the one the datasheet never names, marked
               "by elimination". ICW1-4, OCW1-3, special mask, poll, rotate,
@@ -3404,15 +3404,40 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
               *Verification: `qic_suite` 18 -- both codes recognised, the format
               select shown to be one switch with two settings, ERASE refused as
               WRITE is, and the codes between them still nobody's.*
-        - [ ] MC68681 DUARTs, MC6840 timer, MC146818 calendar, Bt458, the
-              keyboard, and the OMTI's floppy half. The DUART and the timer have
-              no manual in `docs/references/` and will need one fetched.
-        The shape so far: the risk lives in **command-driven** devices, not
-        register-driven ones. A register decode enumerates itself -- there are
-        sixteen addresses and the switch either covers them or does not. A
-        command set does not: the OMTI accepted twenty-eight opcodes and
-        implemented fourteen, and the tape's set had two holes, while the two
-        Intel parts had none at all.
+        - [x] **OMTI floppy half: complete.** All ten of §6.1's commands reach
+              a case, and there is no eleventh -- neither our §6.3 nor the
+              sibling 8640's §5.3 lists a WRITE DATA.
+        - [x] **MC146818 calendar: complete, with two named declines.** Every
+              Register B control bit is acted on except `SQWE` and `DSE`, and
+              both are already declared deliberate in the header with a reason:
+              nothing on the board is wired to the square-wave pin, and the
+              daylight-savings shift applies on two calendar days. Stored and
+              inert, and *said* to be -- which is the distinction the audit is
+              looking for.
+        - [x] **Bt458: complete.** All four address-space slots and all four
+              control sub-addresses -- read mask, blink mask, command, test --
+              both read and write.
+        - [ ] **Keyboard: cannot be audited this way.** There is no Apollo
+              keyboard manual in `docs/references/`; its command set was
+              recovered by measurement (`FINDINGS.md` C46). Auditing it means
+              sweeping the oracle for codes the firmware never sends, which is
+              a different and more expensive exercise than reading a list.
+        - [ ] MC68681 DUARTs and the MC6840 timer. Neither has a manual in
+              `docs/references/`; both are standard Motorola parts whose
+              datasheets are fetchable, and that is the next step.
+        The shape, now that seven are done: the risk lives in **command-driven**
+        devices, not register-driven ones. A register decode enumerates itself
+        -- there are sixteen addresses and the switch either covers them or does
+        not, and the 8259, 8237, Bt458 and calendar all covered them. A command
+        set does not enumerate itself: the OMTI accepted twenty-eight opcodes
+        and implemented fourteen, and the tape's set had two holes.
+
+        The second finding is about *documentation* rather than code. The
+        calendar's two gaps and the tape's two commands were both already
+        known; the difference is that the calendar said so in its header and the
+        tape said so in a note that had drawn the wrong conclusion. A gap that
+        is written down is a decision. A gap that is not is a bug waiting for a
+        twenty-minute boot to find it.
         *Verification: one table per device of accepted-versus-modelled, and the
         gaps either closed or named as deliberate with a reason.*
   - [ ] **`IRQ6` and `DRQ2`, the floppy's**, are placed and not driven: its
