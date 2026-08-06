@@ -546,6 +546,59 @@ static void test_change_cartridge_on_a_fixed_drive_is_an_illegal_function(void) 
   TEST_ASSERT_EQUAL_HEX8(0x22u, ap_omti_disk_read(&omti, AP_OMTI_DISK_DATA));
 }
 
+/* ## A write-protected drive is not a bad address
+ *
+ * Appendix A, `17 Write Protected`: "during a WRITE/FORMAT command, the
+ * controller detected a WRITE PROTECTED signal from the selected Logical Unit
+ * Number." An image opened read-only *is* that drive.
+ *
+ * This cost a boot. Domain/OS's first write is a `1F` to cylinder 0, head 0,
+ * sector 1 -- the second sector of the disk, and about as valid an address as
+ * exists. It came back `21 ILLEGAL DISK ADDRESS`, which sent the operating
+ * system to check a geometry that was correct, and it died there. The same lie
+ * the unimplemented-command arm used to tell, from a different arm.
+ */
+static void test_a_write_to_a_read_only_image_reports_write_protected(void) {
+  build_drive();
+  /* The same backing store, opened read-only. */
+  TEST_ASSERT_TRUE(ap_awd_open(&drive, backing, sizeof backing, SMALL, false));
+  ap_omti_reset(&omti);
+  ap_omti_attach(&omti, &drive);
+
+  /* Every command that puts something on the surface, and the address each is
+   * given is *valid* -- which is the point. A model that checked the address
+   * first would refuse them all for the wrong reason. */
+  static const uint8_t writers[] = {
+      AP_OMTI_CMD_WRITE,          AP_OMTI_CMD_WRITE_FROM_BUFFER,
+      AP_OMTI_CMD_WRITE_LONG,     AP_OMTI_CMD_FORMAT_DRIVE,
+      AP_OMTI_CMD_FORMAT_TRACK,   AP_OMTI_CMD_FORMAT_BAD_TRACK,
+      AP_OMTI_CMD_ASSIGN_ALTERNATE,
+  };
+  for (unsigned i = 0; i < sizeof writers; i++) {
+    issue(writers[i], 0u, 0u, 1u, 1u);
+    TEST_ASSERT_EQUAL_INT(AP_OMTI_PHASE_STATUS, ap_omti_disk_phase(&omti));
+    TEST_ASSERT_TRUE((take_status() & 0x02u) != 0u);
+
+    issue(AP_OMTI_CMD_REQUEST_SENSE, 0u, 0u, 0u, 0u);
+    /* `17`, and **bit 7 clear**: §5.4.3 gives that bit as the validity of the
+     * sector address, and this failure is not about the sector address. */
+    TEST_ASSERT_EQUAL_HEX8(0x17u, ap_omti_disk_read(&omti, AP_OMTI_DISK_DATA));
+    for (unsigned b = 1; b < 4u; b++) {
+      (void)ap_omti_disk_read(&omti, AP_OMTI_DISK_DATA);
+    }
+    /* And the status byte the sense read left waiting. §4.3 ends every command
+     * with it, and a controller still in the status phase ignores a write to
+     * the data port -- so skipping it here would feed the next command's
+     * descriptor to a controller that is talking, not listening. */
+    (void)take_status();
+  }
+
+  /* Reading the same drive is unaffected: write protection protects writes. */
+  issue(AP_OMTI_CMD_READ, 0u, 0u, 1u, 1u);
+  TEST_ASSERT_EQUAL_INT(AP_OMTI_PHASE_DATA_IN, ap_omti_disk_phase(&omti));
+  TEST_ASSERT_EQUAL_HEX8(1u, ap_omti_disk_read(&omti, AP_OMTI_DISK_DATA));
+}
+
 /* A controller with no drive is a real configuration and must not look like one
  * with a blank disk: the command fails and says the drive is not ready. */
 static void test_a_controller_with_no_drive_says_so(void) {
@@ -814,6 +867,7 @@ int main(void) {
   RUN_TEST(test_a_multi_sector_read_walks_forward);
   RUN_TEST(test_a_bad_address_fails_and_the_sense_says_so);
   RUN_TEST(test_the_refused_address_carries_the_whole_cylinder);
+  RUN_TEST(test_a_write_to_a_read_only_image_reports_write_protected);
   RUN_TEST(test_a_controller_with_no_drive_says_so);
   RUN_TEST(test_the_st506_only_command_is_refused_in_practice);
   return UNITY_END();

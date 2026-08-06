@@ -3440,6 +3440,18 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         twenty-minute boot to find it.
         *Verification: one table per device of accepted-versus-modelled, and the
         gaps either closed or named as deliberate with a reason.*
+  - [x] **`17 Write Protected`, and a disk the machine was not allowed to
+        write.** `--boot-stop-on-disk-refusal` named the first refusal:
+        `1F` to cylinder 0, head 0, sector 1 -- the second sector of the disk --
+        reported as `21 ILLEGAL DISK ADDRESS`. `ap_awd_write` had returned false
+        because the frontend opened the image read-only, which bought no
+        protection at all: `disk_bytes` is a private in-memory copy and nothing
+        writes it back. Appendix A's `17` now covers all seven writing commands,
+        checked before any address arithmetic, and the frontend opens its copy
+        writable. Detail in `PROJECT_STATUS.md`.
+        *Verification: `awd_suite` 33 -- every writing command reporting `17`
+        with a valid address and bit 7 clear, reads on the same drive
+        unaffected; and the image's MD5 unchanged across a boot.*
   - [ ] **`IRQ6` and `DRQ2`, the floppy's**, are placed and not driven: its
         completion is the FDC's result phase rather than the fixed disk's.
         *Verification: a floppy command completing through an interrupt.*

@@ -5505,6 +5505,44 @@ Page 5-27 defines it bit by bit, and the two agree: byte 4's `0x02` is bit 1,
 now a value corroborated by the manual — which is the resolution order run
 backwards, and worth noting because it is the cheap direction to check.
 
+#### `17 Write Protected`, and a disk the machine was not allowed to write
+**Fixed, and it was the crash.** With the sense codes finally distinguishable,
+`--boot-stop-on-disk-refusal` named the first refusal outright:
+
+    stopped on   the disk controller refusing an address, after 310891059 instruction(s)
+    disk last     1F, error, sense 21 00 00 00, next lba 313307
+    disk refused  1 address(es), last c0 h0 s1 / lba 1
+    disk refused cdb 1F 00 01 00 01 01
+
+Cylinder 0, head 0, sector 1 — the **second sector of the disk**, and about as
+valid an address as exists. `ap_awd_write` returned false and the OMTI reported
+`21 ILLEGAL DISK ADDRESS`, so Domain/OS went to check a geometry that was
+correct and died there. The same lie the unimplemented-command arm used to tell,
+from a different arm, and found the same way once it could be told apart.
+
+Two things were wrong.
+
+**The code.** Appendix A has the right one: `17 Write Protected`, "during a
+WRITE/FORMAT command, the controller detected a WRITE PROTECTED signal from the
+selected Logical Unit Number". An image opened read-only *is* that drive. A
+`writable()` guard now runs before any address arithmetic on all seven commands
+that put something on the surface — WRITE, WRITE FROM BUFFER, WRITE LONG, the
+three formats, and ASSIGN ALTERNATE — because a write-protected drive refuses a
+perfectly good address and the two answers must not be confused. Bit 7 of the
+sense stays clear for it: this failure is not about the sector address.
+
+**The frontend.** It opened the image read-only, which looked like the careful
+choice and was not. `disk_bytes` is a private copy read into memory and freed at
+exit; nothing writes it back, and `grep` for `fwrite` in the frontend finds
+nothing. So the file was never at risk either way, and the read-only flag bought
+no protection at all — it only told the machine its disk was write-protected. An
+operating system cannot reach a login prompt on a disk it may not write to.
+Protecting the file and making the machine believe the drive is protected are
+different things, and this was doing the second while meaning the first.
+
+The image's MD5 is taken before and after each boot run, so "the file is never
+written" is checked rather than asserted.
+
 Not changed, and worth naming as unsettled: a **block count past the manual's
 buffer cap** still reports `21`. It is not an address failure either, but no
 Appendix A code covers "parameter out of range for this command" — the type 2

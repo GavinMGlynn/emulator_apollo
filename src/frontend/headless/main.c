@@ -1179,8 +1179,20 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
       fprintf(stderr, "apollo: cannot read disk image %s\n", disk_path);
       return 1;
     }
+    /* **Writable**, and the file is not: `disk_bytes` is a private copy read
+     * into memory above and freed at exit, and nothing here ever writes it
+     * back. So the drive the machine sees behaves like a drive, and the user's
+     * image on disk is untouched either way.
+     *
+     * It was opened read-only, which looked like the careful choice and was
+     * not. An operating system cannot reach a login prompt on a disk it may not
+     * write to, and Domain/OS's first write -- a `1F WRITE DATA FROM BUFFER` to
+     * cylinder 0, head 0, sector 1, the second sector of the disk -- failed for
+     * that reason and only that reason. Protecting the file is right; making
+     * the machine believe its disk is write-protected is a different thing, and
+     * this was doing the second while meaning the first. */
     if (!ap_awd_open(&disk_image, disk_bytes, (size_t)disk_size,
-                     ap_awd_geometry_for(AP_AWD_DRIVE_348MB), false)) {
+                     ap_awd_geometry_for(AP_AWD_DRIVE_348MB), true)) {
       free(disk_bytes);
       free(colour_memory);
       free(mono_memory);

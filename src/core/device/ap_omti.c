@@ -101,6 +101,17 @@ bool ap_omti_fdc_in_reset(const ap_omti_t *omti) {
  * assigned as a Fixed drive type". This machine's drive is fixed, so that is
  * `1B`'s whole behaviour here and there is nothing to guess. */
 #define SENSE_ILLEGAL_FUNCTION 0x22u
+/* `17 Write Protected`, Appendix A: "This indicates that during a WRITE/FORMAT
+ * command, the controller detected a WRITE PROTECTED signal from the selected
+ * Logical Unit Number."
+ *
+ * An image opened read-only *is* a write-protected drive, and this is the code
+ * that says so. Without it a refused write reported `21 ILLEGAL DISK ADDRESS`,
+ * which is the same lie the unimplemented-command arm used to tell: the address
+ * was fine, and the host was sent to check a geometry that was correct. It cost
+ * a boot to find, and the address it named -- cylinder 0, head 0, sector 1 --
+ * was the giveaway, being the second sector of the disk. */
+#define SENSE_WRITE_PROTECTED 0x17u
 
 void ap_omti_attach(ap_omti_t *omti, ap_awd_t *drive) { omti->drive = drive; }
 
@@ -298,6 +309,23 @@ static void feed(ap_omti_t *omti) {
  * count of blocks and a command asking for none would be a command with no
  * purpose. Getting that wrong reads one sector where a driver expected 256, and
  * the symptom is a file system that appears to work until a large transfer. */
+/* Every command that puts something on the surface asks this first.
+ *
+ * The check is on the *drive*, before any address arithmetic, because a
+ * write-protected drive refuses a perfectly good address and the two answers
+ * must not be confused -- which is precisely what happened when they were. */
+static bool writable(ap_omti_t *omti) {
+  if (omti->drive == NULL) {
+    finish(omti, true, SENSE_DRIVE_NOT_READY);
+    return false;
+  }
+  if (!omti->drive->writable) {
+    finish(omti, true, SENSE_WRITE_PROTECTED);
+    return false;
+  }
+  return true;
+}
+
 static unsigned block_count(const ap_omti_cdb_t *cdb) {
   return cdb->block_count == 0u ? 256u : cdb->block_count;
 }
@@ -404,7 +432,7 @@ static void execute(ap_omti_t *omti) {
     return;
 
   case AP_OMTI_CMD_WRITE:
-    if (!addressed(omti, &cdb, &lba)) {
+    if (!writable(omti) || !addressed(omti, &cdb, &lba)) {
       return;
     }
     omti->next_lba = lba;
@@ -617,7 +645,7 @@ static void execute(ap_omti_t *omti) {
      * It really does write the whole drive from that track on. That is the
      * command, and a model that quietly declined would be the more dangerous
      * one -- a driver told a format succeeded goes on to trust the surface. */
-    if (!addressed(omti, &cdb, &lba)) {
+    if (!writable(omti) || !addressed(omti, &cdb, &lba)) {
       return;
     }
     for (uint16_t c = cdb.cylinder; c < omti->drive->geometry.cylinders; c++) {
@@ -645,7 +673,7 @@ static void execute(ap_omti_t *omti) {
      * see `format_track` above, where the omission is set out in full. They are
      * one arm here because in this model they genuinely do the same thing, and
      * splitting them would suggest a distinction that is not being made. */
-    if (!addressed(omti, &cdb, &lba)) {
+    if (!writable(omti) || !addressed(omti, &cdb, &lba)) {
       return;
     }
     if (!format_track(omti, cdb.cylinder, cdb.head, cdb.control)) {
@@ -663,7 +691,7 @@ static void execute(ap_omti_t *omti) {
      *
      * The address of the track being replaced is checked now; the alternate's
      * own address arrives with the data, and the format happens when it does. */
-    if (!addressed(omti, &cdb, &lba)) {
+    if (!writable(omti) || !addressed(omti, &cdb, &lba)) {
       return;
     }
     omti->assigning_alternate = true;
@@ -687,7 +715,7 @@ static void execute(ap_omti_t *omti) {
     uint8_t bytes[6] = {0};
     memcpy(&bytes[1], &omti->command[5], 3u);
     ap_omti_cdb_decode(bytes, &destination);
-    if (!addressed(omti, &cdb, &lba)) {
+    if (!writable(omti) || !addressed(omti, &cdb, &lba)) {
       return;
     }
     uint32_t to = 0;
@@ -721,7 +749,7 @@ static void execute(ap_omti_t *omti) {
       finish(omti, true, SENSE_ILLEGAL_ADDRESS);
       return;
     }
-    if (!addressed(omti, &cdb, &lba)) {
+    if (!writable(omti) || !addressed(omti, &cdb, &lba)) {
       return;
     }
     for (unsigned block = 0; block < blocks; block++) {
@@ -825,7 +853,7 @@ static void execute(ap_omti_t *omti) {
       finish(omti, true, SENSE_ILLEGAL_ADDRESS);
       return;
     }
-    if (!addressed(omti, &cdb, &lba)) {
+    if (!writable(omti) || !addressed(omti, &cdb, &lba)) {
       return;
     }
     omti->long_write_lba = lba;
