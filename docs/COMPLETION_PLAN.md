@@ -4461,10 +4461,21 @@ boot below, and the boot is not attempted until they are done.
       the status bit *before* them, and the `FF 11 16` comparison is downstream
       of a wait that never completes. The echo-pollution reading above, while
       still worth checking, cannot be the reported failure.
-      *Verification: what `$B(a0)` is when `a0` is the value that prints as
-      `0001040B` -- the trace showed the firmware reading register 1, `SRA`,
-      which is offset `02`/`03`, so `a0` is not `010400` and the base needs
-      establishing before the bit number means anything.*
+      **Resolved, and the discrepancy was mine.** `0x010400 + 0x0B` is
+      `0x0001040B`, which printed to eight digits is exactly the screen's
+      `ADDRESS`. So `a0` *is* the SIO1 base, and `$B(a0)` decodes as
+      `0x0B >> 1 = 5` -- **register 5, the ISR**, not `SRA`.
+      The `SRA` reads that dominated the register trace were the **console**
+      poll at `00078E`, which reads `$2(a0)` -- register 1 -- and is a different
+      loop. Two poll loops on two registers, and the trace's volume came from
+      the one that was not the subject.
+      So the keyboard test polls **ISR bit 0** (`TxRDY A`) to send and **ISR bit
+      1** (`RxRDY/FFULL A`) to receive -- which puts `MR1[6]` back in play after
+      all, since it selects which of those two the bit means. `MR1A` is written
+      `07`, bit 6 clear, so `RxRDY`: **one character is enough**, and the
+      `FFULL`/three-character reading is withdrawn.
+      *Verification: why `RxRDY` on channel A does not set when the keyboard
+      replies -- with the ISR, not `SRA`, as the register to watch.*
       That is the first defect of this phase that is genuinely ours, and it is
       narrow: one bit, one register, and a known producer.
       *Verification: `RxRDY` set on channel A by the time `000073EC` reads it,
