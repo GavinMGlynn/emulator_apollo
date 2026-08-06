@@ -62,10 +62,11 @@
  * the pin, which is a fact about the board rather than the part, and is no
  * reason for the part to be unable to say what it is driving.
  *
- * Also declined: the daylight-savings updates of the `DSE` bit, which shift the
- * clock on two specific calendar days. The bit is stored and honoured as
- * storage; the shift is not applied. Named here because a stored-but-inert
- * control bit is otherwise indistinguishable from an implemented one.
+ * The `DSE` bit's two special updates are **applied**: last Sunday in April
+ * 1:59:59 -> 3:00:00, last Sunday in October 1:59:59 -> 1:00:00, the second
+ * only the *first* time the hour comes round. That "first" is the whole
+ * difficulty -- the hour repeats, and a model that shifted on both passes would
+ * hold the clock at one o'clock for ever.
  */
 
 #ifndef APOLLO_DEVICE_AP_MC146818_H
@@ -148,6 +149,12 @@ typedef struct {
    * must not be quantised to the one-second update. */
   ap_time_t periodic_to;
   ap_clock_t periodic_clock;
+
+  /* Whether `DSE`'s special update has already been taken in the hour it
+   * applies to. October's rule is "when the time **first** reaches 1:59:59 AM",
+   * and the hour repeats -- without this the clock would be pushed back to one
+   * o'clock for ever. Cleared by any hour that is not two. */
+  bool dst_shifted;
   /* How many update cycles have run: a diagnostic, not machine state. A clock
    * that is not advancing and a clock whose seconds happen to read alike are
    * the same value and different faults. */

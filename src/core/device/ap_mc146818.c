@@ -150,6 +150,54 @@ static void update_cycle(ap_mc146818_t *rtc) {
     t->year++;
   }
 
+  /* `[146818]`'s two special updates, and they happen **after** the ordinary
+   * carry above, because the datasheet defines them as what the time
+   * *increments to*:
+   *
+   *   "DSE -- ... On the last Sunday in April the time increments from
+   *    1:59:59 AM to 3:00:00 AM. On the last Sunday in October when the time
+   *    first reaches 1:59:59 AM it changes to 1:00:00 AM."
+   *
+   * So the April rule fires on the tick that has just produced 02:00:00, and
+   * the October rule on the one that has just produced 02:00:00 too -- both
+   * follow 01:59:59 -- which is why they are one test on the hour and not two
+   * different ones. `first reaches` is the whole of October's difficulty: the
+   * hour repeats, and a rule that fired again at the second 02:00:00 would
+   * hold the clock at one o'clock for ever. The `day_of_week` check is what
+   * prevents that, since the second pass is the same Sunday and the same hour
+   * but arrives only after a further 3600 ticks, by which time `hour` is 2
+   * having come from 1 again -- so the guard is the flag below, set when the
+   * shift is taken and cleared by any other hour.
+   *
+   * "Sunday is 1", and the last Sunday of a month is any Sunday whose date is
+   * within seven of the month's end. */
+  if ((rtc->ram[AP_MC146818_REGISTER_B] & AP_MC146818_B_DSE) != 0u &&
+      t->hour == 2u && t->minute == 0u && t->second == 0u &&
+      t->day_of_week == 1u &&
+      t->day + 7u > days_in_month(t->year, t->month)) {
+    if (t->month == 4u && !rtc->dst_shifted) {
+      /* 1:59:59 -> 3:00:00: the ordinary carry has produced 02:00:00, and the
+       * special update takes it on by another hour. */
+      t->hour = 3u;
+      rtc->dst_shifted = true;
+    } else if (t->month == 10u && !rtc->dst_shifted) {
+      /* 1:59:59 -> 1:00:00, "when the time **first** reaches" it. */
+      t->hour = 1u;
+      rtc->dst_shifted = true;
+    }
+  } else if (t->hour != 1u && t->hour != 2u) {
+    /* Past the ambiguous window, so the next year's shift is allowed again.
+     *
+     * **One and two, not two alone.** October's fall-back lands the clock at
+     * 01:00:00, and a guard cleared by "not hour two" would clear on that very
+     * tick -- the flag would be gone before the hour repeated, the second
+     * 02:00:00 would shift again, and the clock would sit at one o'clock for
+     * ever. The whole point of "when the time **first** reaches 1:59:59 AM" is
+     * that the hour comes round twice, so the flag has to survive all of it.
+     * Found by the test, which ran an hour past the shift and expected two. */
+    rtc->dst_shifted = false;
+  }
+
   /* "The update-ended interrupt flag (UF) bit is set after each update
    * cycle" -- unconditionally, and independently of UIE, because "Each of the
    * three interrupt sources have separate flag bits in Register C, which are

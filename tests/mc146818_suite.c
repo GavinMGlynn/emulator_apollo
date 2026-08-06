@@ -39,6 +39,75 @@ static ap_time_t seconds(uint64_t n) { return AP_TIME_BASE_HZ * n; }
  * grounds that nothing on this board is wired to it -- which is a fact about
  * the board and not about the part, and left a stored control bit
  * indistinguishable from an implemented one. */
+
+/* `[146818]`'s two special updates, which `DSE` enables: "On the last Sunday in
+ * April the time increments from 1:59:59 AM to 3:00:00 AM. On the last Sunday
+ * in October when the time first reaches 1:59:59 AM it changes to 1:00:00 AM."
+ *
+ * The bit was stored and inert. October is the half worth testing hardest --
+ * "first reaches" means the hour repeats, and a rule that fired twice would
+ * hold the clock at one o'clock for ever. */
+static void run_seconds(ap_mc146818_t *rtc, ap_time_t *now, unsigned n) {
+  /* The caller keeps the clock, because `ap_mc146818_advance` ignores a time
+   * that is not later than the last one it saw. A helper with its own local
+   * starting at zero advances the first call and silently does nothing on
+   * every one after it -- which is how this test first "failed". */
+  for (unsigned i = 0; i < n; i++) {
+    *now += AP_TIME_BASE_HZ;
+    ap_mc146818_advance(rtc, *now);
+  }
+}
+
+static void test_daylight_savings_springs_forward_and_falls_back_once(void) {
+  /* 24 April 1988 was the last Sunday in April; 30 October 1988 the last in
+   * October. Sunday is 1. */
+  ap_mc146818_t spring;
+  static const ap_mc146818_time_t april = {.year = 1988u,
+                                           .month = 4u,
+                                           .day = 24u,
+                                           .day_of_week = 1u,
+                                           .hour = 1u,
+                                           .minute = 59u,
+                                           .second = 58u};
+  TEST_ASSERT_TRUE(ap_mc146818_reset(&spring, &april));
+  ap_mc146818_write(&spring, AP_MC146818_REGISTER_B, AP_MC146818_B_DSE);
+
+  ap_time_t clock = 0;
+  run_seconds(&spring, &clock, 2u); /* 1:59:59 then the special update */
+  ap_mc146818_time_t t = ap_mc146818_now(&spring);
+  TEST_ASSERT_EQUAL_UINT(3u, t.hour);
+  TEST_ASSERT_EQUAL_UINT(0u, t.minute);
+
+  /* With DSE clear the same two seconds give the ordinary carry. */
+  ap_mc146818_t plain;
+  TEST_ASSERT_TRUE(ap_mc146818_reset(&plain, &april));
+  ap_time_t plain_clock = 0;
+  run_seconds(&plain, &plain_clock, 2u);
+  TEST_ASSERT_EQUAL_UINT(2u, ap_mc146818_now(&plain).hour);
+
+  /* October: 1:59:59 falls back to 1:00:00, and does it **once**. Running an
+   * hour and a second further must reach two o'clock, not loop. */
+  ap_mc146818_t autumn;
+  static const ap_mc146818_time_t october = {.year = 1988u,
+                                             .month = 10u,
+                                             .day = 30u,
+                                             .day_of_week = 1u,
+                                             .hour = 1u,
+                                             .minute = 59u,
+                                             .second = 58u};
+  TEST_ASSERT_TRUE(ap_mc146818_reset(&autumn, &october));
+  ap_mc146818_write(&autumn, AP_MC146818_REGISTER_B, AP_MC146818_B_DSE);
+
+  ap_time_t autumn_clock = 0;
+  run_seconds(&autumn, &autumn_clock, 2u);
+  t = ap_mc146818_now(&autumn);
+  TEST_ASSERT_EQUAL_UINT(1u, t.hour);
+  TEST_ASSERT_EQUAL_UINT(0u, t.minute);
+
+  run_seconds(&autumn, &autumn_clock, 3600u);
+  TEST_ASSERT_EQUAL_UINT(2u, ap_mc146818_now(&autumn).hour);
+}
+
 static void test_the_square_wave_pin_follows_sqwe_and_the_rate_select(void) {
   ap_mc146818_t rtc;
   static const ap_mc146818_time_t start = {
@@ -654,6 +723,7 @@ static void test_the_same_fortnight_reached_in_steps_agrees(void) {
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_the_square_wave_pin_follows_sqwe_and_the_rate_select);
+  RUN_TEST(test_daylight_savings_springs_forward_and_falls_back_once);
   RUN_TEST(test_fourteen_days_of_carries_land_on_the_right_date);
   RUN_TEST(test_a_fortnight_across_every_boundary_it_can_cross);
   RUN_TEST(test_the_same_fortnight_reached_in_steps_agrees);
