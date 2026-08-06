@@ -4285,9 +4285,18 @@ boot below, and the boot is not attempted until they are done.
       against, and §3.4's multidrop paragraph says it does, which is the wrong
       section. That contradiction is the thing to settle, and it is a datasheet
       question with a definite answer.
-      *Verification: whether a disabled 2681 receiver latches a character, from
-      §3.1 rather than §3.4; and a longer trace to see if an enable ever
-      arrives.*
+      A grep of the text layer finds **only** the multidrop statement -- the
+      general receiver description is not in it, so that answer needs the
+      §3.1/§3.2 page images rather than another search.
+      Worth weighing first, though: a receiver deliberately disabled five times
+      and then polled for `FFULL` is a strange thing for a driver to do to a
+      *keyboard*, and a very ordinary thing for a **self-test of the DUART
+      itself** to do. `KEYBOARD TEST # 0` may be testing the part rather than
+      the peripheral, in which case what it needs is the documented behaviour
+      of a disabled receiver and not a keyboard reply at all -- and both fixes
+      made so far would be beside the point, as both have proved to be.
+      *Verification: §3.1/§3.2 read from the page images, and a longer trace to
+      see whether an enable ever arrives.*
       That is the first defect of this phase that is genuinely ours, and it is
       narrow: one bit, one register, and a known producer.
       *Verification: `RxRDY` set on channel A by the time `000073EC` reads it,
