@@ -33,6 +33,43 @@ static void set_24h(ap_mc146818_t *rtc) {
 
 static ap_time_t seconds(uint64_t n) { return AP_TIME_BASE_HZ * n; }
 
+
+/* `SQWE` drives the SQW pin at the rate the same selector picks for the
+ * periodic interrupt, and holds it low when clear. The pin was declined on the
+ * grounds that nothing on this board is wired to it -- which is a fact about
+ * the board and not about the part, and left a stored control bit
+ * indistinguishable from an implemented one. */
+static void test_the_square_wave_pin_follows_sqwe_and_the_rate_select(void) {
+  ap_mc146818_t rtc;
+  static const ap_mc146818_time_t start = {
+      .year = 1988u, .month = 1u, .day = 1u, .day_of_week = 6u};
+  TEST_ASSERT_TRUE(ap_mc146818_reset(&rtc, &start));
+
+  /* A representable rate: 2 Hz, `[146818]` Table 5's slowest. */
+  ap_mc146818_write(&rtc, AP_MC146818_REGISTER_A, 0x0Fu);
+  TEST_ASSERT_TRUE(ap_mc146818_rate_supported(&rtc));
+  const uint32_t hz = ap_mc146818_periodic_hz(&rtc);
+  TEST_ASSERT_TRUE(hz > 0u);
+
+  /* Held low with SQWE clear, whatever the selector says. */
+  TEST_ASSERT_EQUAL_UINT32(0u, ap_mc146818_square_wave_hz(&rtc));
+
+  ap_mc146818_write(&rtc, AP_MC146818_REGISTER_B, AP_MC146818_B_SQWE);
+  TEST_ASSERT_EQUAL_UINT32(hz, ap_mc146818_square_wave_hz(&rtc));
+
+  /* "None" selects no rate at all, so the pin is not driven even enabled. */
+  ap_mc146818_write(&rtc, AP_MC146818_REGISTER_A, 0x00u);
+  TEST_ASSERT_EQUAL_UINT32(0u, ap_mc146818_square_wave_hz(&rtc));
+
+  /* And a rate this core cannot represent exactly is not claimed either --
+   * a pin reported at a rounded frequency is indistinguishable from a correct
+   * one, which is the whole reason `rate_supported` exists. */
+  ap_mc146818_write(&rtc, AP_MC146818_REGISTER_A, 0x01u);
+  if (!ap_mc146818_rate_supported(&rtc)) {
+    TEST_ASSERT_EQUAL_UINT32(0u, ap_mc146818_square_wave_hz(&rtc));
+  }
+}
+
 static void test_the_clock_starts_where_the_caller_puts_it(void) {
   ap_mc146818_t rtc;
   init(&rtc);
@@ -616,6 +653,7 @@ static void test_the_same_fortnight_reached_in_steps_agrees(void) {
 
 int main(void) {
   UNITY_BEGIN();
+  RUN_TEST(test_the_square_wave_pin_follows_sqwe_and_the_rate_select);
   RUN_TEST(test_fourteen_days_of_carries_land_on_the_right_date);
   RUN_TEST(test_a_fortnight_across_every_boundary_it_can_cross);
   RUN_TEST(test_the_same_fortnight_reached_in_steps_agrees);

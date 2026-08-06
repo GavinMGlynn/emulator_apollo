@@ -55,8 +55,12 @@
  * which case a given `RS3-RS0` falls in, so a rate this core cannot honour is
  * refused rather than approximated.
  *
- * The **square-wave output** pin is not modelled: nothing on this board is
- * wired to it. Its frequency shares the same selector and the same table.
+ * The **square-wave output** pin is driven: `ap_mc146818_square_wave_hz`
+ * reports its frequency, which shares the same selector and the same table as
+ * the periodic interrupt, gated by Register B's `SQWE` and held at zero for a
+ * rate this core cannot represent exactly. Nothing on this board is wired to
+ * the pin, which is a fact about the board rather than the part, and is no
+ * reason for the part to be unable to say what it is driving.
  *
  * Also declined: the daylight-savings updates of the `DSE` bit, which shift the
  * clock on two specific calendar days. The bit is stored and honoured as
@@ -181,6 +185,26 @@ void ap_mc146818_advance(ap_mc146818_t *rtc, ap_time_t now);
  * at a rounded rate is indistinguishable from a correct one and would drift
  * whatever is built on it. */
 [[nodiscard]] bool ap_mc146818_rate_supported(const ap_mc146818_t *rtc);
+
+/* The **square-wave output pin**, in hertz, or zero when it is not being
+ * driven.
+ *
+ * `[146818]` Register B's `SQWE`: "When this bit is set to a 1, a square-wave
+ * signal at the frequency set by the rate-selection bits RS3-RS0 is driven out
+ * on the SQW pin. When the SQWE bit is set to zero, the SQW pin is held low."
+ * So the pin is the same selector and the same table as the periodic interrupt
+ * -- which is why `ap_mc146818_periodic_hz` serves both -- gated by one bit.
+ *
+ * This was declined on the grounds that nothing on this board is wired to the
+ * pin. That is a fact about the *board*, not about the part, and it is not a
+ * reason for the part to be unable to say what it is driving: a stored-but-inert
+ * control bit is indistinguishable from an implemented one, which is exactly
+ * the confusion this function removes. A caller with nothing wired to it simply
+ * does not ask.
+ *
+ * `ap_mc146818_rate_supported` still governs: a rate this core cannot represent
+ * exactly is not one it should claim to be driving. */
+[[nodiscard]] uint32_t ap_mc146818_square_wave_hz(const ap_mc146818_t *rtc);
 
 /* The clock as numbers, for tests and for a state hash that must not depend on
  * the register format software happens to have selected. */

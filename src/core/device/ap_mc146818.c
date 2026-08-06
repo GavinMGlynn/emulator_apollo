@@ -278,6 +278,20 @@ bool ap_mc146818_rate_supported(const ap_mc146818_t *rtc) {
   return ap_time_base_divides(hz);
 }
 
+uint32_t ap_mc146818_square_wave_hz(const ap_mc146818_t *rtc) {
+  /* Held low unless `SQWE` is set, and silent about rates this core cannot
+   * represent exactly -- the same guard `ap_mc146818_rate_supported` exists
+   * for, because a pin claimed to be driven at a rounded frequency is
+   * indistinguishable from one driven correctly. */
+  if ((rtc->ram[AP_MC146818_REGISTER_B] & AP_MC146818_B_SQWE) == 0u) {
+    return 0u;
+  }
+  if (!ap_mc146818_rate_supported(rtc)) {
+    return 0u;
+  }
+  return ap_mc146818_periodic_hz(rtc);
+}
+
 ap_mc146818_time_t ap_mc146818_now(const ap_mc146818_t *rtc) {
   return rtc->now;
 }

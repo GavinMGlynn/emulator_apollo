@@ -2804,8 +2804,9 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
       been checked against whether a manual actually specifies it.
 
       *Implementable now -- the document says what the behaviour is:*
-      MC146818 `SQWE`, whose frequency "shares the same selector and the same
-      table" this core already implements for the periodic rates; `DSE`, a shift
+      ~~MC146818 `SQWE`~~ **done** -- `ap_mc146818_square_wave_hz` reports the
+      pin's frequency, the same selector and table as the periodic interrupt,
+      gated by `SQWE` and zero for a rate this core cannot represent exactly; `DSE`, a shift
       on two named calendar days; the MC68681's `tx_break`, its serial framing
       and `ap_sio`'s `OPCR[7]`, all in the datasheet now on disk; and the tape's
       per-byte handshake, where `[SC499]` §1.13.2 describes the REQUEST/READY
