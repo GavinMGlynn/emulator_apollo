@@ -2815,9 +2815,18 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
       six fast periodic rates -- which `AP_TIME_BASE_HZ` cannot represent, a
       time-base decision with a 64x span cost. None is closed by writing code,
       and each would be a guess if it were. Detail in `PROJECT_STATUS.md`.
-- [ ] **`IRQ6` and `DRQ2`, the floppy's**, are placed and not driven: its
-      completion is the FDC's result phase rather than the fixed disk's.
-      *Verification: a floppy command completing through an interrupt.*
+- [x] **`IRQ6` and `DRQ2`, the floppy's**, are driven. Both were placed on the
+      board and left undriven because this half had nothing to derive them from.
+      It has Table 4-3's Digital Output Register bit 3, which gates both, the
+      same shape as the fixed disk's `IREQ` on its MASK register. `IRQ6` follows
+      the **result** phase, the FDC's completion; `DRQ2` the **execution**
+      phase, a byte in flight -- two different conditions, which is what the
+      board's own comment said and why they are two derivations.
+      *Verification: `omti_suite` 19 -- a command with a result phase and no
+      execution phase raises the interrupt and not the request, collecting the
+      result bytes takes it down, and with the enable bit clear the same state
+      raises nothing.*
+
 
 - [ ] **Integration check, not a milestone:** DN3500 boots Domain/OS SR10.x to a
 

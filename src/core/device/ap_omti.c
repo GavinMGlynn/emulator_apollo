@@ -1275,6 +1275,32 @@ ap_omti_phase_t ap_omti_fdc_phase(const ap_omti_t *omti) {
   return omti->fdc_phase;
 }
 
+bool ap_omti_fdc_irq(const ap_omti_t *omti) {
+  /* Gated on the Digital Output Register's interrupt/DMA enable, as the fixed
+   * disk's `IREQ` is gated on the MASK register -- Table 4-3 bit 3. A driver
+   * that has not enabled it must not see the line, or a polled driver would be
+   * interrupted by a controller it never armed. */
+  if ((omti->dor & AP_OMTI_DOR_INT_DMA) == 0u) {
+    return false;
+  }
+  /* The result phase is the FDC's completion: its bytes are waiting to be
+   * read. Commands with no result phase raise nothing, which is correct --
+   * SEEK and RECALIBRATE report through SENSE INTERRUPT STATUS instead. */
+  return omti->fdc_phase == AP_OMTI_PHASE_STATUS &&
+         omti->fdc_result_index < omti->fdc_result_length;
+}
+
+bool ap_omti_fdc_dma_request(const ap_omti_t *omti) {
+  if ((omti->dor & AP_OMTI_DOR_INT_DMA) == 0u) {
+    return false;
+  }
+  /* The execution phase, where a byte is ready to move -- a different
+   * condition from the fixed disk's `DREQ`, which the board's comment named
+   * and this is. */
+  return omti->fdc_phase == AP_OMTI_PHASE_DATA_IN ||
+         omti->fdc_phase == AP_OMTI_PHASE_DATA_OUT;
+}
+
 /* §6.3's command and result lengths, counting the opcode byte in the first.
  *
  * READ DATA and the three scans take the same nine: opcode, HD/US, C, H, R, N,

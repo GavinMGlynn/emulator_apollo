@@ -422,6 +422,46 @@ static void test_a_command_outside_the_esdi_set_reports_invalid_command(void) {
   TEST_ASSERT_EQUAL_HEX8(0x20, ap_omti_disk_read(&o, AP_OMTI_DISK_DATA));
 }
 
+/* The floppy's own two lines, `IRQ6` and `DRQ2`, which the board placed and
+ * left undriven because this half had nothing to derive them from.
+ *
+ * It has Table 4-3's Digital Output Register bit 3, which gates both -- the
+ * same shape as the fixed disk's `IREQ` on its MASK register. `IRQ6` follows
+ * the **result** phase, the FDC's completion; `DRQ2` the **execution** phase, a
+ * byte in flight. Two different conditions, which is what the board's comment
+ * said and why they are two functions. */
+static void test_the_floppy_drives_its_own_interrupt_and_dma_lines(void) {
+  ap_omti_t o;
+  ap_omti_reset(&o);
+
+  /* Out of reset, with the enable bit clear, neither line is up. */
+  TEST_ASSERT_FALSE(ap_omti_fdc_irq(&o));
+  TEST_ASSERT_FALSE(ap_omti_fdc_dma_request(&o));
+
+  /* SENSE INTERRUPT STATUS has a result phase and no execution phase, so it
+   * raises the interrupt and not the DMA request. */
+  ap_omti_fdc_write(&o, AP_OMTI_FDC_DOR,
+                    (uint8_t)(AP_OMTI_DOR_NOT_RESET | AP_OMTI_DOR_INT_DMA));
+  ap_omti_fdc_write(&o, AP_OMTI_FDC_DATA, AP_OMTI_FDC_SENSE_INTERRUPT);
+  TEST_ASSERT_EQUAL_INT(AP_OMTI_PHASE_STATUS, ap_omti_fdc_phase(&o));
+  TEST_ASSERT_TRUE(ap_omti_fdc_irq(&o));
+  TEST_ASSERT_FALSE(ap_omti_fdc_dma_request(&o));
+
+  /* Reading the result bytes takes it down: the completion has been collected. */
+  (void)ap_omti_fdc_read(&o, AP_OMTI_FDC_DATA);
+  (void)ap_omti_fdc_read(&o, AP_OMTI_FDC_DATA);
+  TEST_ASSERT_FALSE(ap_omti_fdc_irq(&o));
+
+  /* And the enable bit is real: with it clear the same state raises nothing,
+   * or a polled driver would be interrupted by a controller it never armed. */
+  ap_omti_t polled;
+  ap_omti_reset(&polled);
+  ap_omti_fdc_write(&polled, AP_OMTI_FDC_DOR, AP_OMTI_DOR_NOT_RESET);
+  ap_omti_fdc_write(&polled, AP_OMTI_FDC_DATA, AP_OMTI_FDC_SENSE_INTERRUPT);
+  TEST_ASSERT_EQUAL_INT(AP_OMTI_PHASE_STATUS, ap_omti_fdc_phase(&polled));
+  TEST_ASSERT_FALSE(ap_omti_fdc_irq(&polled));
+}
+
 /* `IRQ14`, which the board could not wire because nothing here derived it.
  *
  * §4.2 gives the raise -- "If the INTERRUPT ENABLE bit was previously set in
@@ -559,6 +599,7 @@ int main(void) {
   RUN_TEST(test_writing_the_sector_buffer_does_not_touch_the_drive);
   RUN_TEST(test_every_command_the_esdi_set_accepts_reaches_an_implementation);
   RUN_TEST(test_a_command_outside_the_esdi_set_reports_invalid_command);
+  RUN_TEST(test_the_floppy_drives_its_own_interrupt_and_dma_lines);
   RUN_TEST(test_a_completed_command_asks_for_an_interrupt_when_enabled);
   RUN_TEST(test_the_data_phase_asks_for_dma_only_when_dma_is_enabled);
   RUN_TEST(test_two_controllers_reset_alike_hold_identical_state);

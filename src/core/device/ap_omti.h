@@ -548,6 +548,30 @@ void ap_omti_attach_floppy(ap_omti_t *omti, ap_afd_t *floppy);
  * bits that are supposed to report it. */
 [[nodiscard]] ap_omti_phase_t ap_omti_fdc_phase(const ap_omti_t *omti);
 
+/* ## The floppy's own two lines: `IRQ6` and `DRQ2`
+ *
+ * `008778-03` Table 2-3 gives `IRQ6` as the floppy disk's, and Table 2-4 gives
+ * `DRQ2`. Both were placed on the board and left undriven, with a comment
+ * saying they land with the floppy's own item -- because the fixed disk's
+ * `IREQ` bit had no counterpart here to derive them from.
+ *
+ * It does have one. Table 4-3's Digital Output Register bit 3, `AP_OMTI_DOR_INT_DMA`,
+ * gates both: the AT floppy controller raises `IRQ6` and `DRQ2` only when the
+ * host has enabled them there, exactly as the fixed disk's `IREQ` is gated on
+ * its MASK register. So the same shape, from the register this half actually
+ * has.
+ *
+ * `IRQ6` follows the **result phase**, which is the FDC's completion: §6.4's
+ * result bytes are waiting and `MSR` says so. A driver that waits rather than
+ * polls needs this edge for the same reason Domain/OS needed `IRQ14`.
+ *
+ * `DRQ2` follows the **execution phase**, where a byte is ready to move. That
+ * is the condition the board's comment named as "a different condition from"
+ * the fixed disk's, and it is: this one is about a byte in flight, not a
+ * command completing. */
+[[nodiscard]] bool ap_omti_fdc_irq(const ap_omti_t *omti);
+[[nodiscard]] bool ap_omti_fdc_dma_request(const ap_omti_t *omti);
+
 /* How many command bytes §6.3 gives an opcode, counting the opcode itself.
  * Zero for a code the section does not list, which is the INVALID path. */
 [[nodiscard]] unsigned ap_omti_fdc_command_bytes(uint8_t opcode);

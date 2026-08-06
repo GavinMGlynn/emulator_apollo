@@ -271,6 +271,13 @@ void ap_board_sample_interrupts(ap_board_t *board) {
    * interrupt, and printed `DISK TIMEOUT` when it never came. */
   ap_intr_set_request(&board->interrupts, AP_DISK_FIXED_IRQ,
                       ap_omti_disk_irq(&board->disk.controller));
+
+  /* `IRQ6`, Table 2-3's floppy line, from the FDC's **result** phase -- its
+   * completion, where §6.4's result bytes are waiting. A driver that waits
+   * rather than polls needs this edge for the reason Domain/OS needed
+   * `IRQ14`. */
+  ap_intr_set_request(&board->interrupts, AP_DISK_FLOPPY_IRQ,
+                      ap_omti_fdc_irq(&board->disk.controller));
 }
 
 bool ap_board_parity_interrupt(const ap_board_t *board) {
@@ -453,6 +460,14 @@ void ap_board_bus_tick(ap_board_t *board) {
   ap_i8237_set_request_pin(&board->dma.controller[AP_DMA_WINCHESTER_UNIT],
                            AP_DMA_WINCHESTER_CHANNEL,
                            ap_omti_disk_dma_request(&board->disk.controller));
+
+  /* `DRQ2`, Table 2-4's floppy line. A *different* condition from the fixed
+   * disk's -- the FDC's execution phase, a byte in flight, rather than a
+   * command completing -- and gated on the Digital Output Register's
+   * interrupt/DMA enable as the fixed disk's is gated on MASK. */
+  ap_i8237_set_request_pin(&board->dma.controller[AP_DMA_FLOPPY_UNIT],
+                           AP_DMA_FLOPPY_CHANNEL,
+                           ap_omti_fdc_dma_request(&board->disk.controller));
 
   ap_i8237_set_request_pin(&board->dma.controller[AP_DMA_CASCADE_UNIT],
                            AP_DMA_CASCADE_CHANNEL,
