@@ -4452,8 +4452,19 @@ boot below, and the boot is not attempted until they are done.
       Flagged rather than fixed: the site reporting `EXPECTED= 2` on screen is
       not provably this one -- `7328` loads `moveq #0,d0` for its own failure
       report -- so there is more than one exit and the screen's may be another.
-      *Verification: which report site the screen's `EXPECTED= 2` comes from,
-      and whether a real keyboard echoes a command's prefix bytes.*
+      **Pinned.** `005F8C` prints `ADDRESS` from the caller's saved `a0`, and
+      the two candidate sites differ in exactly that: `7326` does `addq.l #7,a0`
+      and `73D8` does `adda.l #$B,a0`. The screen shows `0001040B` -- offset
+      `0B` -- so the failure reported is the **poll timeout at `73D8`**, not the
+      `cmp.b #$02` at `731E`.
+      So the firmware never reaches the three reads. It times out waiting for
+      the status bit *before* them, and the `FF 11 16` comparison is downstream
+      of a wait that never completes. The echo-pollution reading above, while
+      still worth checking, cannot be the reported failure.
+      *Verification: what `$B(a0)` is when `a0` is the value that prints as
+      `0001040B` -- the trace showed the firmware reading register 1, `SRA`,
+      which is offset `02`/`03`, so `a0` is not `010400` and the base needs
+      establishing before the bit number means anything.*
       That is the first defect of this phase that is genuinely ours, and it is
       narrow: one bit, one register, and a known producer.
       *Verification: `RxRDY` set on channel A by the time `000073EC` reads it,
