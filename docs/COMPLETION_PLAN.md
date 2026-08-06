@@ -4108,8 +4108,23 @@ boot below, and the boot is not attempted until they are done.
       expects `00000002` and reads `0000FF00`. The keyboard is on serial 1
       channel A (`AP_SIO_KEYBOARD_PORT`/`_CHANNEL`), so this is a concrete
       register-level disagreement in a part this core models.
-      *Verification: what `000073EC` reads at `0001040B` and why it expects
-      `2` -- and the same PNG showing the self-tests passing.*
+      **Decoded.** The test is `0073D8 adda.l #$B,a0 / move.b #$2,d0`, so the
+      address is serial 1 + `0B`, which at stride 2 is **register 5, the ISR**,
+      and it wants `2` -- `ISR` bit 1, `RxRDY` on channel A. So `KEYBOARD TEST
+      # 0` waits for the keyboard to have *transmitted*, which is what
+      `ap_kbd.h` already describes: "a machine with a display console asks it to
+      identify itself before believing there is one." The firmware sends
+      `FF 12 21` and expects the identification string back.
+      **The path is wired**: `ap_board_advance` drains `ap_sio_transmit` into
+      `ap_kbd_receive` and feeds the reply back through
+      `ap_sio_receive_framed`. So this is not a missing connection but a
+      *timing* one -- the ISR reads `00` at the instant the firmware looks, so
+      the reply has not arrived yet. The reply is produced when time advances,
+      and the firmware may poll faster than the board is advanced.
+      That is the first defect of this phase that is genuinely ours, and it is
+      narrow: one bit, one register, and a known producer.
+      *Verification: `RxRDY` set on channel A by the time `000073EC` reads it,
+      and the same PNG showing the self-tests passing.*
       A harness note from setting this up: In
       flight; note a harness trap found setting it up -- **`--boot-progress`
       reports nothing unless something puts the run in step-by-step mode**
