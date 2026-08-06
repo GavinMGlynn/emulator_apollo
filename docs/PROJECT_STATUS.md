@@ -5621,6 +5621,30 @@ Apollo keyboard manual, and its command set was recovered by measurement
 never sends, which is a different and more expensive exercise than reading a
 list.
 
+#### The oracle prints the same MD sign-on this core does
+Booted under MAME through `tools/mame-oracle/mdsession.py --stage prompt` with
+the same image, the oracle's console carries:
+
+    MD7C REV 8.00, 1989/08/16.17:23:52
+    >
+
+which is **byte-identical** to what this core produces with `--service-mode`,
+a keyboard press and input paced at 0.4 s. The service-mode path, the DUART's
+receive and transmit sides, the autobaud and the boot PROM's console dialogue
+all agree with the oracle at the byte level.
+
+That is worth stating plainly because a long investigation this session assumed
+a defect in exactly those parts. There was none, and now there is a second,
+independent confirmation of that.
+
+Not yet answered: the same harness's `--stage watch`, which runs in **Normal**
+mode -- the run log records `Normal/Service = Normal (0x0001)` -- produced no
+console output at all before exiting. Whether that means Domain/OS's output goes
+to the display rather than the serial line, or simply that the run ended early
+(MAME warned `-video none doesn't make much sense without -seconds_to_run`), is
+not established. It is the question the next session should settle first,
+because it decides whether the whole calendar route is necessary.
+
 #### Where the boot now stops: a spin, not a crash
 The `17 Write Protected` fix took the crash away. What is there instead is a
 tight loop, and the distinction matters because the evidence is entirely
