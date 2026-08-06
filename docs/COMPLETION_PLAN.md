@@ -4086,7 +4086,14 @@ boot below, and the boot is not attempted until they are done.
       because the serial line is the only way it can talk; a machine with a
       screen has somewhere else to put its output, and the poll at `0007A2` may
       be a wait-for-interrupt with a timeout rather than a requirement.
-      *Verification: a `c8p` boot with `--boot-input` omitted entirely.*
+      *Verification: a `c8p` boot with `--boot-input` omitted entirely.* In
+      flight; note a harness trap found setting it up -- **`--boot-progress`
+      reports nothing unless something puts the run in step-by-step mode**
+      (`--boot-console`, `--boot-input`, `--boot-script`, `--boot-key` or a
+      trace flag). A run with none of them is silent for its whole length and
+      looks hung. That is worth a diagnostic rather than a comment: a flag that
+      is accepted and then does nothing is the same defect class as a
+      declared-but-inert signal.
       *Verification: `a1` and `a2` resolved to addresses, matched against this
       core's register map, and the eight-entry readback answered.*
       *Verification: the PROM's self-test banner legible in a PNG.*
