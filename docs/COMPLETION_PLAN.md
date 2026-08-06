@@ -3485,8 +3485,22 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         **it had not got there yet.**
         Six hypotheses, a dozen boots and an instrumented binary, against one
         paragraph in a file this repository already had.
-        *Next: a run long enough to reach ~45 emulated seconds with input paced
-        at 0.4 s, per that recipe.*
+        **Done, and MD talks.** With `--service-mode`, a keyboard press,
+        `--boot-input-interval 400000` and a budget that reaches ~45 emulated
+        seconds, the console produces the sign-on byte for byte as `MD.md`
+        recorded it -- `MD7C REV 8.00, 1989/08/16.17:23:52` -- and a `>` prompt
+        per carriage return. There was never a defect: the DUART, the `ap_sio`
+        decode, the baud rate, the keyboard line and the transmit path were all
+        correct, and the six hypotheses were answering a question that did not
+        exist.
+        **And `EX CONFIG` runs.** A `--boot-script` of `expect MD7C` / `send EX
+        CONFIG\r` gets `>EX CONFIG` followed by `low: 01020000 high: 01062E9A
+        start: 010200E6` -- the CONFIG stand alone utility loaded off `/sau14`
+        in the same form the console shows for `SELF_TEST`, and the first time
+        this project has driven the Mnemonic Debugger.
+        *Next: CONFIG is loaded and executing and has printed nothing, so it is
+        waiting at its own prompt -- the 40 carriage returns were spent getting
+        MD up. Feed it a longer paced stream and read what it asks for.*
         *Five hypotheses in a row have now been produced by reasoning and killed
         by the next measurement: the sense value, the baud rate, the `SR`/`RB`
         decode, an autobaud the loop does not perform, and input starvation.
