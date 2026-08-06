@@ -2914,6 +2914,9 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
       so the default is a description rather than a fallback. `.ct` gains write
       support in the image layer itself, where there is no pinned hash to
       protect.
+      The layout is written up in `docs/references/AWD_META.md` -- magic,
+      versioned header and per-sector record, with the reasoning for each choice
+      -- so the implementation is not also a design exercise.
       *The work: `ap_awd` grows the sidecar and an ID/ECC accessor; `ap_omti`'s
       `06`/`07` write the flags, `11` the alternate, `E5`/`E6` the real ECC;
       `ap_qic`'s three write commands stop being refused. Each with its test.*
