@@ -4201,14 +4201,19 @@ boot below, and the boot is not attempted until they are done.
       The echo change stands on its own evidence -- the firmware writes `00` and
       then polls for a byte, which is not a thing to do to a keyboard that never
       answers -- but it is not what this test is failing on.
-      What the identical `ACTUAL` now says, and what was skipped past: `FF00` is
-      not a plausible ISR value. `FF` is what an **unmapped** read returns here,
-      so the firmware may not be reading the DUART at all at `0001040B` -- and
-      `EXPECTED= 00000002` against a longword `ACTUAL` suggests the compare is
-      wider than the byte register the address decodes to.
-      *Verification: what `005F8C` actually reads, and at what width. The
-      `ADDRESS` the firmware prints is its own and has been taken at face value
-      throughout.*
+      **And the `FF00` means nothing.** `005F8C` compares *registers*, not
+      memory -- `move.l (a7),d0` and `move.l $4(a7),d3` off its own saved frame,
+      so `EXPECTED` is the caller's `d0` and `ACTUAL` its `d1`. The timeout path
+      sets them with `move.b #$2,d0` and `move.b #$0,d1`, **byte** moves, so
+      `d1`'s upper bytes are whatever was left in them. `ACTUAL= 0000FF00` has
+      low byte `00`; the `FF` is stale register content and not a read at all.
+      So the previous commit's "FF is what an unmapped read returns" was wrong
+      too, and the values mean what they first appeared to: expected ISR bit 1
+      set (`2`), got `0`. The failure is exactly the `RxRDY` timeout, and
+      echoing `00` did not clear it.
+      *Verification: whether the keyboard's echo reaches serial 1 channel A at
+      all -- `KBD_UNIT`/`KBD_CHANNEL` against the `$7(a0)` the firmware writes,
+      with `a0` resolved.*
       That is the first defect of this phase that is genuinely ours, and it is
       narrow: one bit, one register, and a known producer.
       *Verification: `RxRDY` set on channel A by the time `000073EC` reads it,
