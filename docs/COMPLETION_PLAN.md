@@ -3879,10 +3879,21 @@ boot below, and the boot is not attempted until they are done.
       is drawing -- half a million plane writes -- and the scanout is black. The
       defect is between the blitter's writes and `--screenshot`'s read, not in
       the firmware and not in the PNG encoder.
-      The board holds a mono buffer and a colour buffer; `--screen 19i` fits the
-      1280x1024 mono one. Whether the writes land in the buffer the scanout
-      reads is the first thing to check -- named as the candidate, not claimed,
-      because six hypotheses died that way earlier in this session.
+      **The obvious candidate is eliminated.** The blit path and the scanout
+      select the buffer with the *same expression* -- `colour ? colour_memory :
+      mono_memory`, at `ap_graphics.c:950` and `:824` -- so the writes and the
+      read cannot be landing in different buffers. Checked before pursuing it,
+      which cost one grep.
+      What the evidence is equally consistent with, and was not considered
+      first: **a screen legitimately black.** A blit that clears the framebuffer
+      writes exactly this way, and 524,417 plane writes against a 163,840-byte
+      plane is several passes of clearing. The PROM may simply not have drawn
+      text by the instant captured -- 500M instructions with a display fitted
+      reaches only `000061DA`, far earlier in the firmware than the same count
+      reaches without one.
+      *So the next measurement is a screenshot taken **later**, not a hunt for a
+      broken write path. The run limit was chosen for a machine that boots four
+      times faster.*
       *Verification: the PROM's self-test banner legible in a PNG.*
 - [ ] SDL3 interactive frontend, implemented rather than stubbed: scanout to a
       letterboxed texture, keyboard/mouse mapping, `--frames` bounded mode
