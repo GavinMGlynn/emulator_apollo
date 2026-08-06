@@ -2842,9 +2842,16 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
       one question, and it is the one still unmeasured: whether the empty
       calendar RAM is what stops Domain/OS at all, given the oracle runs with
       the same zeros.
-      *Verification: a MAME boot in Normal mode with a console capture, which is
-      cheap and settles whether this route is necessary before more is spent on
-      it.*
+      **Taken, and it moves the problem.** Same harness, same image: Service
+      mode gives `MD7C REV 8.00`, Normal mode gives **zero bytes** over a
+      ten-minute run. The oracle is silent on the serial line in normal
+      operation too, so this core's silence after the loader is not a defect --
+      Domain/OS does not talk to serial 1 channel B, and a DN3500's output goes
+      to its display. Detail in `PROJECT_STATUS.md`.
+      *So the boot item's own verification -- "console byte-identical to the
+      oracle" -- cannot be met in normal mode, because a byte-identical nothing
+      is not evidence. It needs rewriting against the display before it is
+      attempted again.*
 - [ ] **Integration check, not a milestone:** DN3500 boots Domain/OS SR10.x to a
 
 **Order matters here, and this file had it wrong.** The boot is a *test*, and

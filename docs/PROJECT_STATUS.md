@@ -5586,6 +5586,35 @@ accepted", which is the observable half. The break state itself has no consumer 
 nothing in this machine watches TxD at bit level — and is named as such in the
 struct so a reader can tell a bit that is stored from a bit that does something.
 
+#### The oracle's normal-mode boot puts nothing on the serial line either
+The question left in front of the boot item was whether the empty calendar RAM
+is what stops Domain/OS, given the oracle runs with the same zeros. The cheap
+test was a MAME boot in Normal mode with a console capture. Taken:
+
+    mdsession.py --stage prompt  (Service)  -> "MD7C REV 8.00, 1989/08/16.17:23:52"
+    mdsession.py --stage watch   (Normal)   -> **zero bytes**, across a ten-minute run
+
+Same harness, same image, same capture path. Service mode transmits; Normal mode
+transmits nothing at all.
+
+So this core's silence after the loader is **not a defect** — the oracle is
+silent in the same configuration. Domain/OS in normal operation does not talk to
+serial 1 channel B; a DN3500 has a display, and that is evidently where its
+output goes. It also explains the `CALENDAR` panic being invisible: the string
+was found by reading it out of memory, never by seeing it printed.
+
+**That reframes the boot item's own verification.** It reads "console
+byte-identical to the oracle", and in normal mode there is no console output on
+either side to compare — a byte-identical *nothing* is not evidence of booting.
+The evidence has to come from the display, which is Phase 5's subject and is why
+`--boot-screen` and `--screenshot` exist. The item needs rewriting before it can
+be attempted, not more work behind it.
+
+What this does **not** settle is whether the calendar is the cause. It settles
+that the *instrument* was wrong: every previous conclusion drawn from "the
+console goes quiet" was drawn from an instrument that reads zero on a working
+machine too.
+
 #### Completing the implementation: what a sweep of the declines found
 The device audit asked "is every command decoded". A second sweep asked "does
 every *bit* do something", and turned up more -- across the board and CPU as
