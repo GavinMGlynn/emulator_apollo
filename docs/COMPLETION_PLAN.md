@@ -3954,9 +3954,20 @@ boot below, and the boot is not attempted until they are done.
       screen -- broken write path, nothing drawn yet, one long delay, a hundred
       retries -- were each wrong, and each was a reading of a symptom without
       the instruction that produced it.
-      *Verification: the posted LED code from a display-fitted run named, and
-      the check that fails identified. The report already prints `posted codes`,
-      so the next run says which.*
+      **Named, and the report already had it.** With a display fitted:
+
+          posted codes FF EF DF FE EE DE CF BF AF 9F ED DD 9D 8D 0D 8D 0D 8D 0D ...
+
+      A console-only boot stops at `DE` and goes on to boot. The display-fitted
+      one continues through `CF BF AF 9F ED DD 9D` to **`8D`**, then alternates
+      `8D`/`0D` for ever -- the blink, with the high nibble toggling exactly as
+      the `or.b #$f0` and `and.b #$f` pair in the loop predicts.
+      So the failing check is the one that posts **`8D`**, and the seven codes
+      after `DE` are the display's own initialisation running for the first
+      time -- a path a console-only boot never enters, which is why none of this
+      has been seen before.
+      *Verification: what `8D` tests, from the PROM's post sequence around the
+      write at `010100`, and the graphics behaviour it expects.*
       *Verification: the PROM's self-test banner legible in a PNG.*
 - [ ] SDL3 interactive frontend, implemented rather than stubbed: scanout to a
       letterboxed texture, keyboard/mouse mapping, `--frames` bounded mode
