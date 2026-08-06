@@ -3399,12 +3399,20 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         `PROJECT_STATUS.md`.
         *Verification: the panic named and its cause identified as the
         calendar.*
-  - [ ] **The calendar is why Domain/OS halts.** What `ap_mc146818` presents at
-        reset, what Domain/OS tests to decide the clock is unset, and what a set
-        clock looks like. `CLAUDE.md` constrains the answer: nothing in this
-        core may read a wall clock, so a valid calendar has to be a
-        deterministic one.
-        *Verification: the console going past the calendar check.*
+  - [ ] **The calendar is why Domain/OS halts, and why the PROM self-test
+        fails.** `AP_CALENDAR_ADDR` is `0x010900` and the decode masks with
+        `0x3F`, so the self-test's `Address= 00010912` -- on the console since
+        the session began and read as unrelated noise -- is **calendar register
+        `0x12`**. The oracle maps the same range. Three console messages that
+        looked like three problems are one.
+        The value is unexplained: expected `00000000`, read `00000012`, which is
+        the register's own number, from a model that returns `ram[address]` and
+        zeroes that array at reset. Reading back the address is what an undriven
+        bus looks like, so the access may not be reaching `ap_calendar_read`, or
+        not at the width it is made at. That is a measurement, not something to
+        reason out. Detail in `PROJECT_STATUS.md`.
+        *Verification: the PROM's accesses in `0x010900-0x0109ff` logged with
+        their widths, and the read of `0x12` accounted for.*
   - [ ] **`IRQ6` and `DRQ2`, the floppy's**, are placed and not driven: its
         completion is the FDC's result phase rather than the fixed disk's.
         *Verification: a floppy command completing through an interrupt.*

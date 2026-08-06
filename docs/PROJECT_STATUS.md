@@ -5730,6 +5730,40 @@ Domain/OS test to decide the clock is unset, and what does a set clock look like
 `CLAUDE.md` constrains the answer — nothing in this core may read a wall clock,
 so whatever a valid calendar is, it has to be a deterministic one.
 
+##### The PROM's self-test failure is *also* the calendar
+
+The line that has been on the console since the first run of the session, and was
+read as unrelated noise:
+
+    Self test failed.
+     Expected= 00000000, Actual= 00000012, Address= 00010912
+     PC= 00005DF8
+
+`AP_CALENDAR_ADDR` is `0x010900` and `ap_calendar_decode` masks the offset with
+`0x3F`, so **`00010912` is calendar register `0x12`** — battery-RAM byte 4, not
+stray memory. The oracle agrees on the placement: `apollo.cpp` maps
+`0x010900-0x0109ff` to `apollo_rtc_r`/`apollo_rtc_w`.
+
+So the PROM tests the calendar, fails, prints "Configuration information is not
+initialized", and Domain/OS later refuses to run without a clock. Three console
+messages that looked like three problems are one.
+
+What is *not* yet explained is the value. The PROM expected `00000000` and read
+`00000012` — which is the register's own number, from a model that returns
+`rtc->ram[address]` for everything from `0x0E` up and zeroes that array at reset.
+A write of zero followed by a read should give zero. Reading back the address is
+what an *undriven bus* looks like, not what this model does, so the access is
+probably not reaching `ap_calendar_read` at all, or not at the width it is made
+at. That is a measurement, not a guess to be resolved by reasoning: the next step
+is to log the PROM's accesses in that range and their widths.
+
+The `boot-domainos.script` comment shows this was met once before and set aside:
+"after it reports that the configuration table in the calendar's battery-backed
+RAM is uninitialised. Answering **y** continues past that — it is a setup step
+and not a fault". Half right. It *is* a setup step, and answering `y` does get
+past the PROM — but it does not get past Domain/OS, which is stricter, and the
+note stopped one question short of that.
+
 Not changed, and worth naming as unsettled: a **block count past the manual's
 buffer cap** still reports `21`. It is not an address failure either, but no
 Appendix A code covers "parameter out of range for this command" — the type 2
