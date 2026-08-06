@@ -2811,14 +2811,13 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
       ~~MC146818 `SQWE`~~ **done** -- `ap_mc146818_square_wave_hz` reports the
       pin's frequency, the same selector and table as the periodic interrupt,
       gated by `SQWE` and zero for a rate this core cannot represent exactly; ~~`DSE`~~ **done** --
-      both special updates, October's taken only on the hour's first pass; the MC68681's `tx_break` -- **still open, and now
-      with a reason rather than a shrug**: the obvious consumer is local
-      loopback, but §2.12 says TxD "is held high (mark condition) when the
-      transmitter is disabled, idle, or operating in **the local loopback
-      mode**", so a break does not reach the pin there. Whether it propagates
-      *internally* to the receiver is not stated in any section read so far, and
-      is not to be guessed; the sections to read are §3's OPERATION on the
-      looping modes -- its serial framing
+      both special updates, October's taken only on the hour's first pass; ~~the MC68681's `tx_break`~~ **done** -- §3.3.2's
+      "the transmitter output is internally connected to the receiver input"
+      makes a break in local loopback observable, and reconciles with §2.12's
+      "TxD ... is held high ... in the local loopback mode": the *pin* is held
+      high, the internal path still carries it. Reading either section alone
+      gives the wrong answer, which is why the bit sat inert. Its serial
+      framing
       and ~~`ap_sio`'s `OPCR[7]`~~ **done**, all in the datasheet now on disk; and the tape's
       per-byte handshake, where `[SC499]` §1.13.2 describes the REQUEST/READY
       exchange and the header records that **the section has not been read**.
