@@ -4316,8 +4316,25 @@ boot below, and the boot is not attempted until they are done.
       correctly programmed, the transmitter sent the byte, and **no character
       ever arrives**. The loss is between this core's keyboard reply and
       `ap_sio_receive_framed` -- the one span not yet instrumented.
-      *Verification: a log at `ap_kbd_receive`'s return and at
-      `ap_sio_receive_framed`'s entry, across the test.*
+      **Instrumented, and found.** A log at `ap_kbd_receive`'s return, since
+      reverted:
+
+          KBD sent 00 -> 1 reply byte(s)
+          KBD sent 00 -> 0 reply byte(s)
+          KBD sent FF -> 1 reply byte(s)
+          KBD sent 11 -> 1 reply byte(s)
+          KBD sent 16 -> 3 reply byte(s)
+
+      The keyboard *is* receiving and replying. The **first** `00` is echoed --
+      the fix made earlier works -- and it clears `loopback` on the way out. The
+      **second** `00`, which is the keyboard test's, gets **nothing**, because
+      the model only echoes in loopback and loopback is gone.
+      So `00` echoing was necessary and not sufficient: the question is whether
+      a real keyboard *leaves* loopback on `00`, or whether it answers `00`
+      every time. The firmware sends it twice and waits for a reply to the
+      second, which is evidence for the second reading.
+      *Verification: `[008778-03]` Chapter 12 on the keyboard's command
+      protocol -- what `00` does and whether it is idempotent.*
       That is the first defect of this phase that is genuinely ours, and it is
       narrow: one bit, one register, and a known producer.
       *Verification: `RxRDY` set on channel A by the time `000073EC` reads it,
