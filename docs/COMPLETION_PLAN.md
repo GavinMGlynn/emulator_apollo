@@ -3389,11 +3389,19 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         `$102(a0)`, with `beq.b $78E` closing the loop. The PROM is waiting on a
         device bit, which is what `ap_boardreg.h` says service mode does: it
         "waits for a console".
-        The character is **not** the problem -- the report says `1 of 1
-        character(s) delivered` and both receivers are enabled. The **rate** may
-        be: the PROM autobauded channel B to `CSR 77`, 1050 baud, while
-        `--boot-input` transmits at `CSR BB`, 9600. Identify `a0` and the three
-        bits before assuming which.
+        **`a0` and the three bits, identified from the same file.** At `000762`
+        the PROM programs both DUARTs -- `move.b #$E0,$8(a0)` and `move.b
+        #$77,$12(a0)`, then `#$80,$108(a0)` and `#$77,$102(a0)` -- so `a0` is
+        the serial base at stride 2, where `$12` is register 9, `CSRB`. The
+        poll then reads `btst.b #0` on `$2`, `$12` and `$102`: registers 1 and 9
+        of the first DUART and 9 of the second, and **bit 0 of a status
+        register is `RxRDY`**. The PROM is waiting for a character on any of
+        three receivers -- serial 1 A, serial 1 B, serial 2 B.
+        The character is **not** the problem: `1 of 1 character(s) delivered`,
+        both receivers enabled. The **rate** is the candidate. The PROM writes
+        `CSR 77` itself, which is the value the report shows the channel
+        listening at, while `--boot-input` transmits at `CSR BB`. Sending at
+        `--boot-input-rate 0x77` is the next thing to try, and it is one run.
         *This blocks the `EX CONFIG` route until it is fixed.*
         Either seed the calendar's
         battery-backed RAM from a supplied image, as the disk is supplied, or
