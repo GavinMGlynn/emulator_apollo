@@ -4474,8 +4474,17 @@ boot below, and the boot is not attempted until they are done.
       all, since it selects which of those two the bit means. `MR1A` is written
       `07`, bit 6 clear, so `RxRDY`: **one character is enough**, and the
       `FFULL`/three-character reading is withdrawn.
-      *Verification: why `RxRDY` on channel A does not set when the keyboard
-      replies -- with the ISR, not `SRA`, as the register to watch.*
+      And the keyboard trace's `FF`, `11`, `16` are **exactly this test's three
+      sends** -- so those replies were the test's, and the reply mechanism does
+      work while the test is running. The firmware sent, the keyboard answered,
+      and the receive poll still timed out.
+      Which leaves a narrow question: do the replies arrive *before* the
+      65,536-poll timeout? `ap_board_advance` drains and delivers once per
+      instruction, so they should -- but "should" is what the last dozen
+      readings here were made of.
+      *Verification: the ISR sampled at the moment `0073D8` is reached -- one
+      value, at one instruction, which settles whether the bit was never set or
+      was set and missed.*
       That is the first defect of this phase that is genuinely ours, and it is
       narrow: one bit, one register, and a known producer.
       *Verification: `RxRDY` set on channel A by the time `000073EC` reads it,
