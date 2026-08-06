@@ -2,9 +2,11 @@
 
 #include "unity.h"
 
+#include <stdio.h>
 #include <string.h>
 
 #include "device/ap_omti.h"
+#include "device/ap_omti_cdb.h"
 
 void setUp(void) {}
 void tearDown(void) {}
@@ -330,24 +332,76 @@ static void test_writing_the_sector_buffer_does_not_touch_the_drive(void) {
  * built for it, and died several layers from the command that actually failed.
  * `1E` and `0F` each had to be excavated from that distance separately.
  */
-static void test_an_unimplemented_command_reports_invalid_command_not_a_bad_address(void) {
-  ap_omti_t o;
-  ap_omti_reset(&o);
+/* Run whatever phase the command left the controller in to its end, so the next
+ * command can be issued. A data phase is a handshake and this is the host's
+ * half of it; the bound is the largest transfer §5 defines. */
+static void drain(ap_omti_t *o) {
+  for (unsigned i = 0; i < 20000u; i++) {
+    switch (ap_omti_disk_phase(o)) {
+    case AP_OMTI_PHASE_DATA_IN:
+      (void)ap_omti_disk_read(o, AP_OMTI_DISK_DATA);
+      break;
+    case AP_OMTI_PHASE_DATA_OUT:
+      ap_omti_disk_write(o, AP_OMTI_DISK_DATA, 0u);
+      break;
+    case AP_OMTI_PHASE_IDLE:
+    case AP_OMTI_PHASE_COMMAND:
+    case AP_OMTI_PHASE_STATUS:
+      return;
+    }
+  }
+  TEST_FAIL_MESSAGE("a data phase never ended");
+}
 
-  /* `04 FORMAT DRIVE`: in §5's ESDI set, so the command set accepts it, and
-   * not modelled here, so it reaches the default arm. */
-  static const uint8_t cdb[6] = {0x04, 0, 0, 0, 0, 0};
-  issue(&o, cdb);
+/* The command set has no holes: **every** opcode §5 accepts reaches a case.
+ *
+ * This is the test that stops the loop the OMTI work had fallen into -- `1E`
+ * implemented, boot, `0F` named, implemented, boot, `1F` named. Each round cost
+ * a twenty-minute boot to learn one opcode, and each one was already printed in
+ * a manual on disk. Asserted over `ap_omti_cdb_accepted_by_esdi` itself rather
+ * than a list written out here, so a command added to the accepted set without
+ * an implementation fails immediately instead of at the next boot.
+ *
+ * No drive is attached, so most of these report `04 DRIVE NOT READY`. That is
+ * the point: the assertion is only that the controller *decoded* the command,
+ * and `20` is the one answer that says it did not. */
+static void test_every_command_the_esdi_set_accepts_reaches_an_implementation(void) {
+  unsigned accepted = 0;
+  for (unsigned command = 0; command < 256u; command++) {
+    if (!ap_omti_cdb_accepted_by_esdi((uint8_t)command)) {
+      continue;
+    }
+    accepted++;
 
-  TEST_ASSERT_EQUAL_INT(AP_OMTI_PHASE_STATUS, ap_omti_disk_phase(&o));
-  /* Failed, and still failing -- reporting success would have a driver trust a
-   * format that never happened. Only the *reason* changes. */
-  TEST_ASSERT_EQUAL_HEX8(0x02, ap_omti_disk_read(&o, AP_OMTI_DISK_DATA));
-  (void)ap_omti_disk_read(&o, AP_OMTI_DISK_STATUS);
+    ap_omti_t o;
+    ap_omti_reset(&o);
+    /* One block, and a zero address -- valid for every command that takes one,
+     * and ignored by the ones that do not. `COPY` is ten bytes, which
+     * `ap_omti_cdb_length` knows and this follows rather than assuming six. */
+    uint8_t cdb[AP_OMTI_CDB_LONG] = {0};
+    cdb[0] = (uint8_t)command;
+    cdb[4] = 1u;
+    ap_omti_disk_write(&o, AP_OMTI_DISK_CONFIG, 0x00); /* SELECT */
+    for (unsigned i = 0; i < ap_omti_cdb_length((uint8_t)command); i++) {
+      ap_omti_disk_write(&o, AP_OMTI_DISK_DATA, cdb[i]);
+    }
+    drain(&o);
 
-  static const uint8_t sense[6] = {0x03, 0, 0, 0, 0, 0}; /* REQUEST SENSE */
-  issue(&o, sense);
-  TEST_ASSERT_EQUAL_HEX8(0x20, ap_omti_disk_read(&o, AP_OMTI_DISK_DATA));
+    TEST_ASSERT_EQUAL_INT(AP_OMTI_PHASE_STATUS, ap_omti_disk_phase(&o));
+    (void)ap_omti_disk_read(&o, AP_OMTI_DISK_DATA);
+    (void)ap_omti_disk_read(&o, AP_OMTI_DISK_STATUS);
+
+    static const uint8_t sense[6] = {0x03, 0, 0, 0, 0, 0};
+    issue(&o, sense);
+    char why[64];
+    (void)snprintf(why, sizeof why, "command %02X reached the default arm",
+                   command);
+    TEST_ASSERT_NOT_EQUAL_MESSAGE(0x20, ap_omti_disk_read(&o, AP_OMTI_DISK_DATA),
+                                  why);
+  }
+  /* And the loop actually ran: a set that accepted nothing would pass every
+   * assertion above without making a single one. */
+  TEST_ASSERT_EQUAL_UINT(28u, accepted);
 }
 
 static void test_a_command_outside_the_esdi_set_reports_invalid_command(void) {
@@ -503,7 +557,7 @@ int main(void) {
   RUN_TEST(test_a_word_read_of_the_data_port_takes_two_buffer_bytes);
   RUN_TEST(test_a_block_count_past_the_manuals_cap_is_refused);
   RUN_TEST(test_writing_the_sector_buffer_does_not_touch_the_drive);
-  RUN_TEST(test_an_unimplemented_command_reports_invalid_command_not_a_bad_address);
+  RUN_TEST(test_every_command_the_esdi_set_accepts_reaches_an_implementation);
   RUN_TEST(test_a_command_outside_the_esdi_set_reports_invalid_command);
   RUN_TEST(test_a_completed_command_asks_for_an_interrupt_when_enabled);
   RUN_TEST(test_the_data_phase_asks_for_dma_only_when_dma_is_enabled);

@@ -310,6 +310,207 @@ static void test_a_bad_address_fails_and_the_sense_says_so(void) {
   TEST_ASSERT_EQUAL_INT(AP_OMTI_PHASE_STATUS, ap_omti_disk_phase(&omti));
 }
 
+/* --------------------------------------------------------------------------
+ * The rest of §5.4, read in one pass rather than one command per boot
+ * ------------------------------------------------------------------------ */
+
+/* `0F` fills the buffer, `1F` places it. §5.4.14 and §5.4.20 are the two halves
+ * of a transfer done in programmed I/O, and neither is any use without the
+ * other -- which is why the round trip is the test rather than either alone. */
+static void test_write_from_buffer_places_what_write_sector_buffer_staged(void) {
+  build_controller();
+
+  issue(AP_OMTI_CMD_WRITE_SECTOR_BUFFER, 0u, 0u, 0u, 1u);
+  TEST_ASSERT_EQUAL_INT(AP_OMTI_PHASE_DATA_OUT, ap_omti_disk_phase(&omti));
+  for (unsigned i = 0; i < AP_AWD_SECTOR_BYTES; i++) {
+    ap_omti_disk_write(&omti, AP_OMTI_DISK_DATA, 0x5Au);
+  }
+  TEST_ASSERT_EQUAL_HEX8(0u, take_status());
+
+  /* Cylinder 1, head 0, sector 2 is sector 10, which `build_drive` filled with
+   * ten -- so a `1F` that wrote nothing is visible rather than merely wrong. */
+  issue(AP_OMTI_CMD_WRITE_FROM_BUFFER, 1u, 0u, 2u, 1u);
+  TEST_ASSERT_EQUAL_INT(AP_OMTI_PHASE_STATUS, ap_omti_disk_phase(&omti));
+  TEST_ASSERT_EQUAL_HEX8(0u, take_status());
+  for (unsigned i = 0; i < AP_AWD_SECTOR_BYTES; i++) {
+    TEST_ASSERT_EQUAL_HEX8(0x5Au, backing[10u * AP_AWD_SECTOR_BYTES + i]);
+  }
+}
+
+/* §5.4.27: a long block is the sector "plus 6 bytes (for ESDI drives) of ECC
+ * data". The width is the assertion -- a model transferring 1056 leaves a host
+ * six bytes short and the phase never ends. The ECC bytes themselves are zero
+ * by deliberate approximation; see `ap_omti.c`. */
+static void test_a_long_read_is_the_sector_and_six_more(void) {
+  build_controller();
+
+  issue(AP_OMTI_CMD_READ_LONG, 0u, 1u, 1u, 1u); /* sector 5 */
+  TEST_ASSERT_EQUAL_INT(AP_OMTI_PHASE_DATA_IN, ap_omti_disk_phase(&omti));
+  for (unsigned i = 0; i < AP_AWD_SECTOR_BYTES; i++) {
+    TEST_ASSERT_EQUAL_HEX8(5u, ap_omti_disk_read(&omti, AP_OMTI_DISK_DATA));
+  }
+  /* Still in the data phase after a whole sector, which a 1056-byte transfer
+   * would not be. */
+  TEST_ASSERT_EQUAL_INT(AP_OMTI_PHASE_DATA_IN, ap_omti_disk_phase(&omti));
+  for (unsigned i = 0; i < AP_OMTI_ECC_BYTES; i++) {
+    TEST_ASSERT_EQUAL_HEX8(0u, ap_omti_disk_read(&omti, AP_OMTI_DISK_DATA));
+  }
+  TEST_ASSERT_EQUAL_INT(AP_OMTI_PHASE_STATUS, ap_omti_disk_phase(&omti));
+}
+
+/* §5.4.28 inbound: the same 1062 bytes, of which the sector reaches the image
+ * and the ECC is dropped -- it has nowhere in an `.awd` to go. */
+static void test_a_long_write_keeps_the_sector_and_drops_the_ecc(void) {
+  build_controller();
+
+  issue(AP_OMTI_CMD_WRITE_LONG, 0u, 0u, 3u, 1u); /* sector 3 */
+  TEST_ASSERT_EQUAL_INT(AP_OMTI_PHASE_DATA_OUT, ap_omti_disk_phase(&omti));
+  for (unsigned i = 0; i < AP_AWD_SECTOR_BYTES; i++) {
+    ap_omti_disk_write(&omti, AP_OMTI_DISK_DATA, 0xC3u);
+  }
+  TEST_ASSERT_EQUAL_INT(AP_OMTI_PHASE_DATA_OUT, ap_omti_disk_phase(&omti));
+  for (unsigned i = 0; i < AP_OMTI_ECC_BYTES; i++) {
+    ap_omti_disk_write(&omti, AP_OMTI_DISK_DATA, 0xEEu);
+  }
+  TEST_ASSERT_EQUAL_INT(AP_OMTI_PHASE_STATUS, ap_omti_disk_phase(&omti));
+  TEST_ASSERT_EQUAL_HEX8(0u, take_status());
+
+  for (unsigned i = 0; i < AP_AWD_SECTOR_BYTES; i++) {
+    TEST_ASSERT_EQUAL_HEX8(0xC3u, backing[3u * AP_AWD_SECTOR_BYTES + i]);
+  }
+  /* The ECC did not run over the next sector, which is what a model staging
+   * 1062 bytes and writing 1062 bytes would have done. */
+  TEST_ASSERT_EQUAL_HEX8(4u, backing[4u * AP_AWD_SECTOR_BYTES]);
+}
+
+/* §5.4.22: 256 bytes, a six-byte header carrying the head, and "five FFh bytes
+ * indicate the end of the DEFECT LIST" -- which follow the header directly on a
+ * surface with no defects, and an `.awd` image is exactly that. */
+static void test_the_defect_list_is_a_header_and_a_terminator(void) {
+  build_controller();
+
+  issue(AP_OMTI_CMD_READ_ESDI_DEFECT_LIST, 0u, 1u, 0u, 0u);
+  TEST_ASSERT_EQUAL_INT(AP_OMTI_PHASE_DATA_IN, ap_omti_disk_phase(&omti));
+
+  uint8_t list[AP_OMTI_DEFECT_LIST_BYTES];
+  for (unsigned i = 0; i < sizeof list; i++) {
+    list[i] = ap_omti_disk_read(&omti, AP_OMTI_DISK_DATA);
+  }
+  TEST_ASSERT_EQUAL_INT(AP_OMTI_PHASE_STATUS, ap_omti_disk_phase(&omti));
+
+  /* Bytes 0-2 are the date the list was recorded: zero, because nothing
+   * recorded one and a wall clock is not available to this core. */
+  for (unsigned i = 0; i < 3u; i++) {
+    TEST_ASSERT_EQUAL_HEX8(0u, list[i]);
+  }
+  TEST_ASSERT_EQUAL_HEX8(1u, list[3]); /* the head asked for */
+  for (unsigned i = 0; i < 5u; i++) {
+    TEST_ASSERT_EQUAL_HEX8(0xFFu, list[6u + i]);
+  }
+}
+
+/* §5.4.6, and §5.4.4 for the pattern: "all data fields are written with the
+ * pattern `6Ch`". One track, and only that track -- a format that ran on is the
+ * failure that destroys a disk rather than merely reporting wrongly. */
+static void test_a_track_format_writes_six_c_over_that_track_alone(void) {
+  build_controller();
+
+  issue(AP_OMTI_CMD_FORMAT_TRACK, 0u, 1u, 0u, 0u); /* sectors 4 through 7 */
+  TEST_ASSERT_EQUAL_INT(AP_OMTI_PHASE_STATUS, ap_omti_disk_phase(&omti));
+  TEST_ASSERT_EQUAL_HEX8(0u, take_status());
+
+  for (unsigned s = 4u; s < 8u; s++) {
+    TEST_ASSERT_EQUAL_HEX8(0x6Cu, backing[s * AP_AWD_SECTOR_BYTES]);
+    TEST_ASSERT_EQUAL_HEX8(
+        0x6Cu, backing[s * AP_AWD_SECTOR_BYTES + AP_AWD_SECTOR_BYTES - 1u]);
+  }
+  TEST_ASSERT_EQUAL_HEX8(3u, backing[3u * AP_AWD_SECTOR_BYTES]);
+  TEST_ASSERT_EQUAL_HEX8(8u, backing[8u * AP_AWD_SECTOR_BYTES]);
+}
+
+/* §5.4.4: "Formatting starts at the specified track and proceeds until the last
+ * track of the unit is formatted." Everything from the named track on, and
+ * nothing before it. */
+static void test_a_drive_format_runs_to_the_end_of_the_unit(void) {
+  build_controller();
+
+  issue(AP_OMTI_CMD_FORMAT_DRIVE, 1u, 0u, 0u, 0u); /* sector 8 onwards */
+  TEST_ASSERT_EQUAL_INT(AP_OMTI_PHASE_STATUS, ap_omti_disk_phase(&omti));
+  TEST_ASSERT_EQUAL_HEX8(0u, take_status());
+
+  for (unsigned s = 0; s < 8u; s++) {
+    TEST_ASSERT_EQUAL_HEX8((uint8_t)s, backing[s * AP_AWD_SECTOR_BYTES]);
+  }
+  for (unsigned s = 8u; s < SMALL_SECTORS; s++) {
+    TEST_ASSERT_EQUAL_HEX8(0x6Cu, backing[s * AP_AWD_SECTOR_BYTES]);
+  }
+}
+
+/* §5.4.16's four-byte descriptor arrives in a data-out phase, and the alternate
+ * track "is then formatted" -- so the command is not complete until the bytes
+ * have been handed over, and the effect lands on the track they name. */
+static void test_assigning_an_alternate_formats_the_track_the_host_names(void) {
+  build_controller();
+
+  issue(AP_OMTI_CMD_ASSIGN_ALTERNATE, 0u, 0u, 0u, 0u);
+  TEST_ASSERT_EQUAL_INT(AP_OMTI_PHASE_DATA_OUT, ap_omti_disk_phase(&omti));
+
+  /* Cylinder 1, head 1: sectors 12 through 15. The descriptor's fields sit
+   * where a descriptor block's bytes 1-3 do. */
+  static const uint8_t descriptor[4] = {0x01u, 0x00u, 0x01u, 0x00u};
+  for (unsigned i = 0; i < sizeof descriptor; i++) {
+    TEST_ASSERT_EQUAL_INT(AP_OMTI_PHASE_DATA_OUT, ap_omti_disk_phase(&omti));
+    ap_omti_disk_write(&omti, AP_OMTI_DISK_DATA, descriptor[i]);
+  }
+  TEST_ASSERT_EQUAL_INT(AP_OMTI_PHASE_STATUS, ap_omti_disk_phase(&omti));
+  TEST_ASSERT_EQUAL_HEX8(0u, take_status());
+
+  for (unsigned s = 12u; s < 16u; s++) {
+    TEST_ASSERT_EQUAL_HEX8(0x6Cu, backing[s * AP_AWD_SECTOR_BYTES]);
+  }
+  TEST_ASSERT_EQUAL_HEX8(11u, backing[11u * AP_AWD_SECTOR_BYTES]);
+}
+
+/* §5.4.21 COPY: ten bytes, "no data is transferred to the host", and the
+ * destination address lives in bytes 5-7 in the layout the source uses in 1-3.
+ * Reading the destination back is the only way to tell a copy that ran from one
+ * that reported success and did nothing. */
+static void test_a_copy_moves_blocks_between_two_addresses(void) {
+  build_controller();
+
+  /* Source cylinder 0 head 0 sector 1 (sector 1), destination cylinder 1 head 1
+   * sector 0 (sector 12), two blocks. */
+  static const uint8_t cdb[AP_OMTI_CDB_LONG] = {
+      AP_OMTI_CMD_COPY, 0x00u, 0x01u, 0x00u, 0x02u,
+      0x01u,            0x00u, 0x01u, 0x00u, 0x00u};
+  ap_omti_disk_write(&omti, AP_OMTI_DISK_CONFIG, 0x00); /* SELECT */
+  for (unsigned i = 0; i < sizeof cdb; i++) {
+    ap_omti_disk_write(&omti, AP_OMTI_DISK_DATA, cdb[i]);
+  }
+
+  TEST_ASSERT_EQUAL_INT(AP_OMTI_PHASE_STATUS, ap_omti_disk_phase(&omti));
+  TEST_ASSERT_EQUAL_HEX8(0u, take_status());
+  TEST_ASSERT_EQUAL_HEX8(1u, backing[12u * AP_AWD_SECTOR_BYTES]);
+  TEST_ASSERT_EQUAL_HEX8(2u, backing[13u * AP_AWD_SECTOR_BYTES]);
+  /* The source is unchanged, and the block after the copy is untouched. */
+  TEST_ASSERT_EQUAL_HEX8(1u, backing[1u * AP_AWD_SECTOR_BYTES]);
+  TEST_ASSERT_EQUAL_HEX8(14u, backing[14u * AP_AWD_SECTOR_BYTES]);
+}
+
+/* Appendix A names this command inside `22`'s own description: "a Change
+ * Cartridge command (HEX 1B) was issued to a LUN assigned as a Fixed drive
+ * type". The DN3500's Winchester is fixed, so `1B` always fails here -- and for
+ * a documented reason rather than by falling off the end of the switch. */
+static void test_change_cartridge_on_a_fixed_drive_is_an_illegal_function(void) {
+  build_controller();
+
+  issue(AP_OMTI_CMD_CHANGE_CARTRIDGE, 0u, 0u, 0u, 0u);
+  TEST_ASSERT_TRUE((take_status() & 0x02u) != 0u);
+
+  issue(AP_OMTI_CMD_REQUEST_SENSE, 0u, 0u, 0u, 0u);
+  TEST_ASSERT_EQUAL_HEX8(0x22u, ap_omti_disk_read(&omti, AP_OMTI_DISK_DATA));
+}
+
 /* A controller with no drive is a real configuration and must not look like one
  * with a blank disk: the command fails and says the drive is not ready. */
 static void test_a_controller_with_no_drive_says_so(void) {
@@ -555,6 +756,15 @@ int main(void) {
   RUN_TEST(test_a_read_command_delivers_the_addressed_sector);
   RUN_TEST(test_a_read_to_buffer_fills_the_buffer_without_a_data_phase);
   RUN_TEST(test_a_read_to_buffer_past_the_cap_is_refused);
+  RUN_TEST(test_write_from_buffer_places_what_write_sector_buffer_staged);
+  RUN_TEST(test_a_long_read_is_the_sector_and_six_more);
+  RUN_TEST(test_a_long_write_keeps_the_sector_and_drops_the_ecc);
+  RUN_TEST(test_the_defect_list_is_a_header_and_a_terminator);
+  RUN_TEST(test_a_track_format_writes_six_c_over_that_track_alone);
+  RUN_TEST(test_a_drive_format_runs_to_the_end_of_the_unit);
+  RUN_TEST(test_assigning_an_alternate_formats_the_track_the_host_names);
+  RUN_TEST(test_a_copy_moves_blocks_between_two_addresses);
+  RUN_TEST(test_change_cartridge_on_a_fixed_drive_is_an_illegal_function);
   RUN_TEST(test_dma_enable_is_what_asks_for_a_cycle);
   RUN_TEST(test_read_configuration_reports_the_highest_not_the_count);
   RUN_TEST(test_the_data_phase_requests_each_byte_and_stops);

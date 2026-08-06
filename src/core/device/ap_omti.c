@@ -96,6 +96,11 @@ bool ap_omti_fdc_in_reset(const ap_omti_t *omti) {
 #define SENSE_INVALID_COMMAND 0x20u
 #define SENSE_ILLEGAL_ADDRESS 0x21u
 #define SENSE_DRIVE_NOT_READY 0x04u
+/* `22 Illegal Function for Drive Type`, and Appendix A names the command in the
+ * description itself: "a Change Cartridge command (HEX 1B) was issued to a LUN
+ * assigned as a Fixed drive type". This machine's drive is fixed, so that is
+ * `1B`'s whole behaviour here and there is nothing to guess. */
+#define SENSE_ILLEGAL_FUNCTION 0x22u
 
 void ap_omti_attach(ap_omti_t *omti, ap_awd_t *drive) { omti->drive = drive; }
 
@@ -258,11 +263,86 @@ static unsigned block_count(const ap_omti_cdb_t *cdb) {
   return cdb->block_count == 0u ? 256u : cdb->block_count;
 }
 
+/* Enter the data phase with `length` bytes already staged in the buffer, in the
+ * direction `to_host` names.
+ *
+ * §4.3 for both halves of the status: `C/D` clear because these are data bytes,
+ * `I/O` set only when they travel to the host, `REQ` because the phase is a
+ * handshake, and `DREQ` only when the MASK register put the transfer in DMA
+ * mode -- "If the DMA ENABLE bit in the MASK byte has been previously set, data
+ * will be transferred in DMA mode ... it will set the DREQ bit".
+ *
+ * `blocks_left` is zeroed, which is the flag the two byte-transfer paths read:
+ * a transfer with no blocks behind it ends when its length is exhausted, and
+ * one with blocks continues into the next sector. */
+static void transfer(ap_omti_t *omti, unsigned length, bool to_host) {
+  omti->buffer_index = 0u;
+  omti->transfer_length = length;
+  omti->blocks_left = 0u;
+  omti->phase = to_host ? AP_OMTI_PHASE_DATA_IN : AP_OMTI_PHASE_DATA_OUT;
+  omti->status = (uint8_t)((omti->status & ~(AP_OMTI_ST_CD | AP_OMTI_ST_IO)) |
+                           AP_OMTI_ST_REQ);
+  if (to_host) {
+    omti->status |= AP_OMTI_ST_IO;
+  }
+  if ((omti->mask & AP_OMTI_MASK_DMA_ENABLE) != 0u) {
+    omti->status |= AP_OMTI_ST_DREQ;
+  }
+}
+
+/* §5.4.4's data pattern, and the whole of what a format does that an `.awd`
+ * image can represent.
+ *
+ * "If B bit 6 of the Control Byte is set to 0, all data fields are written with
+ * the pattern `6Ch`. If bit 6 of the Control Byte is set to 1, all data fields
+ * are written with the pattern contained in the controller data buffer." The
+ * decode packs byte 5's bits 7, 6 and 5 into `control`, so `B` is bit 1 of it.
+ *
+ * ## What is deliberately not modelled
+ *
+ * A format also writes the **ID field** of every sector -- the track skewing and
+ * interleave of bytes 4, and the bad-track and alternate-track flags §5.4.7 and
+ * §5.4.16 set. An `.awd` image is sector data and nothing else: it has no ID
+ * field to write them into and no place to read them back from. So the data
+ * fields are written, which the image can hold, and the flags are not, which it
+ * cannot.
+ *
+ * The cost is named rather than hidden: a driver that formats a bad track and
+ * then expects sense `19 Bad Track Encountered` on the next access to it will
+ * see a successful read. Closing it needs an image format carrying ID fields --
+ * not this one, and nothing that boots this machine writes bad tracks. Skew and
+ * interleave are accepted and ignored for the same reason, and cost nothing at
+ * all: they are a placement of sectors around a rotating surface, and this model
+ * has no rotation to place them on. */
+static bool format_track(ap_omti_t *omti, uint16_t cylinder, uint8_t head,
+                         uint8_t control) {
+  uint8_t sector[AP_AWD_SECTOR_BYTES];
+  if ((control & 0x02u) != 0u) {
+    memcpy(sector, omti->buffer, sizeof sector);
+  } else {
+    memset(sector, 0x6Cu, sizeof sector);
+  }
+  for (uint16_t s = 0; s < omti->drive->geometry.sectors; s++) {
+    uint32_t at = 0;
+    if (!ap_awd_lba(omti->drive->geometry, cylinder, head, (uint8_t)s, &at) ||
+        !ap_awd_write(omti->drive, at, sector)) {
+      return false;
+    }
+  }
+  return true;
+}
+
 static void execute(ap_omti_t *omti) {
   ap_omti_cdb_t cdb;
   ap_omti_cdb_decode(omti->command, &cdb);
   omti->last_command = cdb.command;
   omti->command_count++;
+  /* Any command at all ends whatever long write was outstanding. A WRITE LONG
+   * the host abandoned mid-phase must not place its half-filled buffer when
+   * some later data-out phase happens to complete. `WRITE LONG` sets it again
+   * below, after its address has been checked. */
+  omti->long_write_blocks = 0u;
+  omti->assigning_alternate = false;
 
   if (!ap_omti_cdb_accepted_by_esdi(cdb.command)) {
     /* Including `0C INITIALIZE DRIVE CHARACTERISTICS`, which is ST506-only and
@@ -299,17 +379,9 @@ static void execute(ap_omti_t *omti) {
     /* The four bytes the *previous* command left, which is the whole point of
      * the command: a driver reads it after a failure to learn what failed. */
     memcpy(omti->buffer, omti->sense, sizeof omti->sense);
-    omti->buffer_index = 0u;
-    omti->transfer_length = (unsigned)sizeof omti->sense;
-    omti->blocks_left = 0u;
-    omti->phase = AP_OMTI_PHASE_DATA_IN;
     /* Requested, and travelling to the host. `DREQ` only in DMA mode -- this
      * asserted it unconditionally, the same defect the read path had. */
-    omti->status = (uint8_t)((omti->status & ~AP_OMTI_ST_CD) | AP_OMTI_ST_IO |
-                             AP_OMTI_ST_REQ);
-    if ((omti->mask & AP_OMTI_MASK_DMA_ENABLE) != 0u) {
-      omti->status |= AP_OMTI_ST_DREQ;
-    }
+    transfer(omti, (unsigned)sizeof omti->sense, true);
     return;
 
   case AP_OMTI_CMD_TEST_DRIVE_READY:
@@ -350,15 +422,7 @@ static void execute(ap_omti_t *omti) {
     omti->buffer[4] = 0x02u;
     omti->buffer[5] = 0x44u;
     /* Bytes 6-9 stay zero, as above. */
-    omti->buffer_index = 0u;
-    omti->transfer_length = AP_OMTI_CONFIGURATION_BYTES;
-    omti->blocks_left = 0u;
-    omti->phase = AP_OMTI_PHASE_DATA_IN;
-    omti->status = (uint8_t)((omti->status & ~AP_OMTI_ST_CD) | AP_OMTI_ST_IO |
-                             AP_OMTI_ST_REQ);
-    if ((omti->mask & AP_OMTI_MASK_DMA_ENABLE) != 0u) {
-      omti->status |= AP_OMTI_ST_DREQ;
-    }
+    transfer(omti, AP_OMTI_CONFIGURATION_BYTES, true);
     return;
   }
 
@@ -391,15 +455,7 @@ static void execute(ap_omti_t *omti) {
     /* Flags clear: a raw sector image has no bad tracks and no alternates. */
     omti->buffer[2] = (uint8_t)(cdb.head & 0x0Fu);
     omti->buffer[3] = cdb.sector;
-    omti->buffer_index = 0u;
-    omti->transfer_length = AP_OMTI_READ_ID_BYTES;
-    omti->blocks_left = 0u;
-    omti->phase = AP_OMTI_PHASE_DATA_IN;
-    omti->status = (uint8_t)((omti->status & ~AP_OMTI_ST_CD) | AP_OMTI_ST_IO |
-                             AP_OMTI_ST_REQ);
-    if ((omti->mask & AP_OMTI_MASK_DMA_ENABLE) != 0u) {
-      omti->status |= AP_OMTI_ST_DREQ;
-    }
+    transfer(omti, AP_OMTI_READ_ID_BYTES, true);
     return;
   }
 
@@ -445,15 +501,7 @@ static void execute(ap_omti_t *omti) {
       finish(omti, true, SENSE_ILLEGAL_ADDRESS);
       return;
     }
-    omti->buffer_index = 0u;
-    omti->transfer_length = blocks * AP_AWD_SECTOR_BYTES;
-    omti->blocks_left = 0u;
-    omti->phase = AP_OMTI_PHASE_DATA_IN;
-    omti->status = (uint8_t)((omti->status & ~AP_OMTI_ST_CD) | AP_OMTI_ST_IO |
-                             AP_OMTI_ST_REQ);
-    if ((omti->mask & AP_OMTI_MASK_DMA_ENABLE) != 0u) {
-      omti->status |= AP_OMTI_ST_DREQ;
-    }
+    transfer(omti, blocks * AP_AWD_SECTOR_BYTES, true);
     return;
   }
 
@@ -474,19 +522,10 @@ static void execute(ap_omti_t *omti) {
       finish(omti, true, SENSE_ILLEGAL_ADDRESS);
       return;
     }
-    omti->buffer_index = 0u;
-    omti->transfer_length = blocks * AP_AWD_SECTOR_BYTES;
-    /* **No blocks**, which is how the data phase knows this fills the buffer
-     * rather than the disk. `0E` distinguishes the two with the same field. */
-    omti->blocks_left = 0u;
-    omti->phase = AP_OMTI_PHASE_DATA_OUT;
-    /* Data, travelling *to* the controller: `C/D` clear as every data phase has
-     * it, and `I/O` clear, which is the one bit that separates this from `0E`. */
-    omti->status = (uint8_t)((omti->status & ~(AP_OMTI_ST_CD | AP_OMTI_ST_IO)) |
-                             AP_OMTI_ST_REQ);
-    if ((omti->mask & AP_OMTI_MASK_DMA_ENABLE) != 0u) {
-      omti->status |= AP_OMTI_ST_DREQ;
-    }
+    /* Data, travelling *to* the controller, and with **no blocks** behind it,
+     * which is how the data phase knows this fills the buffer rather than the
+     * disk. `0E` distinguishes the two with the same field. */
+    transfer(omti, blocks * AP_AWD_SECTOR_BYTES, false);
     return;
   }
 
@@ -529,6 +568,294 @@ static void execute(ap_omti_t *omti) {
     finish(omti, false, 0u);
     return;
   }
+
+  case AP_OMTI_CMD_FORMAT_DRIVE: {
+    /* §5.4.4: "causes the specified Logical Unit Number (LUN) to be formatted
+     * ... Formatting starts at the specified track and proceeds until the last
+     * track of the unit is formatted." Its descriptor addresses a *track*:
+     * byte 2 carries only C09/C08 and no sector number, and byte 4 is the track
+     * skewing and interleave factor rather than a block count.
+     *
+     * It really does write the whole drive from that track on. That is the
+     * command, and a model that quietly declined would be the more dangerous
+     * one -- a driver told a format succeeded goes on to trust the surface. */
+    if (!addressed(omti, &cdb, &lba)) {
+      return;
+    }
+    for (uint16_t c = cdb.cylinder; c < omti->drive->geometry.cylinders; c++) {
+      /* The first cylinder starts at the addressed head; every later one starts
+       * at head 0, because the format is a sweep of the unit and not of one
+       * cylinder's tail repeated. */
+      const uint8_t first = (c == cdb.cylinder) ? cdb.head : 0u;
+      for (uint8_t h = first; h < omti->drive->geometry.heads; h++) {
+        if (!format_track(omti, c, h, cdb.control)) {
+          refuse(omti, c, h, 0u, 0u);
+          finish(omti, true, SENSE_ILLEGAL_ADDRESS);
+          return;
+        }
+      }
+    }
+    finish(omti, false, 0u);
+    return;
+  }
+
+  case AP_OMTI_CMD_FORMAT_TRACK:
+  case AP_OMTI_CMD_FORMAT_BAD_TRACK:
+    /* §5.4.6, "causes the track specified to be formatted", and §5.4.7, "this
+     * command is identical to the FORMAT TRACK command except that the
+     * defective track flag is set in the ID field". The one difference between
+     * them is the flag, and the flag is the part an `.awd` image cannot hold --
+     * see `format_track` above, where the omission is set out in full. They are
+     * one arm here because in this model they genuinely do the same thing, and
+     * splitting them would suggest a distinction that is not being made. */
+    if (!addressed(omti, &cdb, &lba)) {
+      return;
+    }
+    if (!format_track(omti, cdb.cylinder, cdb.head, cdb.control)) {
+      refuse(omti, cdb.cylinder, cdb.head, 0u, 0u);
+      finish(omti, true, SENSE_ILLEGAL_ADDRESS);
+      return;
+    }
+    finish(omti, false, 0u);
+    return;
+
+  case AP_OMTI_CMD_ASSIGN_ALTERNATE:
+    /* §5.4.16: the alternate track's address arrives in a **data-out** phase of
+     * "4 bytes (2 words)" after the command, and the controller then "sets
+     * flags in the ID field and writes the alternate track address in all
+     * blocks on the specified track. The alternate track is then formatted".
+     *
+     * The address of the track being replaced is checked now; the alternate's
+     * own address arrives with the data, and the format happens when it does. */
+    if (!addressed(omti, &cdb, &lba)) {
+      return;
+    }
+    omti->assigning_alternate = true;
+    transfer(omti, AP_OMTI_ALTERNATE_ADDRESS_BYTES, false);
+    return;
+
+  case AP_OMTI_CMD_COPY: {
+    /* §5.4.21: "copies a specified number of blocks (byte 4) from a Source LUN
+     * to a Destination LUN ... **No data is transferred to the host.**" Ten
+     * bytes rather than six, which `ap_omti_cdb_length` already knew, and the
+     * destination address occupies bytes 5-7 in the same three-byte layout the
+     * source uses in bytes 1-3 -- so it is decoded by handing those bytes to
+     * the same decoder rather than by unpacking eleven bits of cylinder a
+     * second time by hand.
+     *
+     * "Source and Destination LUN's may be the same", and this controller has
+     * one drive, so they always are here. Copying through the staging buffer a
+     * block at a time is what makes an overlapping copy behave: each block is
+     * read before the block it overwrites is needed. */
+    ap_omti_cdb_t destination;
+    uint8_t bytes[6] = {0};
+    memcpy(&bytes[1], &omti->command[5], 3u);
+    ap_omti_cdb_decode(bytes, &destination);
+    if (!addressed(omti, &cdb, &lba)) {
+      return;
+    }
+    uint32_t to = 0;
+    if (!ap_awd_lba(omti->drive->geometry, destination.cylinder,
+                    destination.head, destination.sector, &to)) {
+      refuse(omti, destination.cylinder, destination.head, destination.sector,
+             0u);
+      finish(omti, true, SENSE_ILLEGAL_ADDRESS);
+      return;
+    }
+    const unsigned blocks = block_count(&cdb);
+    for (unsigned block = 0; block < blocks; block++) {
+      if (!ap_awd_read(omti->drive, lba + block, omti->buffer) ||
+          !ap_awd_write(omti->drive, to + block, omti->buffer)) {
+        refuse(omti, cdb.cylinder, cdb.head, cdb.sector, lba + block);
+        finish(omti, true, SENSE_ILLEGAL_ADDRESS);
+        return;
+      }
+    }
+    finish(omti, false, 0u);
+    return;
+  }
+
+  case AP_OMTI_CMD_WRITE_FROM_BUFFER: {
+    /* §5.4.20, and `1E` in the other direction: "writes data from the
+     * controller's buffer to the disk. The number of sectors written is
+     * specified by the block count parameter but is limited by the controller's
+     * buffer size ... An error will be returned if the block count exceeds the
+     * above limits." No host data phase -- the bytes are already staged, by an
+     * earlier `0F`. */
+    const unsigned blocks = block_count(&cdb);
+    if (blocks > AP_OMTI_MAX_BUFFER_BLOCKS) {
+      finish(omti, true, SENSE_ILLEGAL_ADDRESS);
+      return;
+    }
+    if (!addressed(omti, &cdb, &lba)) {
+      return;
+    }
+    for (unsigned block = 0; block < blocks; block++) {
+      if (!ap_awd_write(omti->drive, lba + block,
+                        &omti->buffer[block * AP_AWD_SECTOR_BYTES])) {
+        refuse(omti, cdb.cylinder, cdb.head, cdb.sector, lba + block);
+        finish(omti, true, SENSE_ILLEGAL_ADDRESS);
+        return;
+      }
+    }
+    finish(omti, false, 0u);
+    return;
+  }
+
+  case AP_OMTI_CMD_READ_ECC_LENGTH:
+    /* §5.4.12 READ ECC BURST ERROR LENGTH: "returns one word of data ... This
+     * word contains the length of the ECC error detected during the most recent
+     * correctable data field error", and is "used in conjunction with the
+     * Disable ECC bit set on a READ command".
+     *
+     * A word in the prose and a single byte in the table below it -- "ECC ERROR
+     * LENGTH BYTE FORMAT", byte 0, ECC error length. Both are satisfied by a
+     * two-byte transfer whose first byte is the length, which is what a 16-bit
+     * data port moves in one cycle, so this is a reading of the two rather than
+     * a choice between them.
+     *
+     * The length is **zero**, and that is a fact about this model rather than a
+     * placeholder: an `.awd` image is sector data with no ECC field, no read of
+     * it can produce a correctable error, so there has never been a most-recent
+     * one to report. A non-zero answer would be inventing a media defect. */
+    omti->buffer[0] = 0u;
+    omti->buffer[1] = 0u;
+    transfer(omti, 2u, true);
+    return;
+
+  case AP_OMTI_CMD_READ_ESDI_DEFECT_LIST: {
+    /* §5.4.22: "return 256 bytes of drive manufacturer recorded DEFECT LIST
+     * during the Data In phase ... Only the list for the specified HEAD will be
+     * returned." Bytes 0-2 are the date the list was recorded, byte 3 the head,
+     * bytes 4-5 zero; then five-byte descriptors; then "Five FFh bytes indicate
+     * the end of the DEFECT LIST".
+     *
+     * An `.awd` image is a defect-free surface -- it is sector data, with no
+     * medium underneath it to have defects -- so the list is empty and the
+     * terminator follows the header directly. The date is zero because nothing
+     * recorded one; inventing today's would also make the reply depend on the
+     * wall clock, which nothing in this core is allowed to do. */
+    if (omti->drive == NULL) {
+      finish(omti, true, SENSE_DRIVE_NOT_READY);
+      return;
+    }
+    memset(omti->buffer, 0, AP_OMTI_DEFECT_LIST_BYTES);
+    omti->buffer[3] = cdb.head;
+    for (unsigned i = 0; i < 5u; i++) {
+      omti->buffer[6u + i] = 0xFFu;
+    }
+    transfer(omti, AP_OMTI_DEFECT_LIST_BYTES, true);
+    return;
+  }
+
+  case AP_OMTI_CMD_READ_LONG: {
+    /* §5.4.27: "returns the Block size equal to the jumper selected sector size
+     * (512, 1024 or 1056) of data plus 4 bytes (for ST506/412 drives) or 6
+     * bytes (for ESDI drives) of ECC data." This machine's drives are ESDI, so
+     * a long block is 1062 bytes.
+     *
+     * **Deliberate approximation**: the six ECC bytes are zero. An `.awd` image
+     * stores sector data and nothing else, so there is no recorded ECC to
+     * return and the polynomial is not published in this manual -- any value
+     * here would be invented. Zero is the one that says "none recorded". The
+     * cost to close is an image format that carries ECC, which nothing this
+     * machine runs would read; the risk is a diagnostic that checks the ECC of
+     * a sector it has just written with WRITE LONG, which would see zeros. */
+    const unsigned blocks = block_count(&cdb);
+    if (blocks > AP_OMTI_MAX_BUFFER_BLOCKS) {
+      finish(omti, true, SENSE_ILLEGAL_ADDRESS);
+      return;
+    }
+    if (!addressed(omti, &cdb, &lba)) {
+      return;
+    }
+    memset(omti->buffer, 0, blocks * AP_OMTI_LONG_BLOCK_BYTES);
+    for (unsigned block = 0; block < blocks; block++) {
+      if (!ap_awd_read(omti->drive, lba + block,
+                       &omti->buffer[block * AP_OMTI_LONG_BLOCK_BYTES])) {
+        refuse(omti, cdb.cylinder, cdb.head, cdb.sector, lba + block);
+        finish(omti, true, SENSE_ILLEGAL_ADDRESS);
+        return;
+      }
+    }
+    transfer(omti, blocks * AP_OMTI_LONG_BLOCK_BYTES, true);
+    return;
+  }
+
+  case AP_OMTI_CMD_WRITE_LONG: {
+    /* §5.4.28, the same block width inbound: sector plus six ECC bytes. The
+     * ECC is accepted and dropped, for the reason `READ LONG` returns zeros --
+     * the image has nowhere to keep it. The address is checked *before* the
+     * data phase so a host is not asked for 1062 bytes the controller has
+     * already decided it cannot place. */
+    const unsigned blocks = block_count(&cdb);
+    if (blocks > AP_OMTI_MAX_BUFFER_BLOCKS) {
+      finish(omti, true, SENSE_ILLEGAL_ADDRESS);
+      return;
+    }
+    if (!addressed(omti, &cdb, &lba)) {
+      return;
+    }
+    omti->long_write_lba = lba;
+    omti->long_write_blocks = blocks;
+    transfer(omti, blocks * AP_OMTI_LONG_BLOCK_BYTES, false);
+    return;
+  }
+
+  case AP_OMTI_CMD_CHECK_TRACK_FORMAT: {
+    /* §5.4.15, "Valid for ESDI drives only": "checks the integrity of the track
+     * specified against CRC, ECC value". Its descriptor addresses a *track* --
+     * byte 2's sector field is a zero value, unlike every other addressed
+     * command -- so the check runs over the whole track, and reading every
+     * sector of it is the strongest statement this model can make about that
+     * track's integrity. §5.4.4 names it as one of the two ways to verify a
+     * format, which is what a caller is asking. */
+    if (!addressed(omti, &cdb, &lba)) {
+      return;
+    }
+    for (uint16_t s = 0; s < omti->drive->geometry.sectors; s++) {
+      uint32_t at = 0;
+      if (!ap_awd_lba(omti->drive->geometry, cdb.cylinder, cdb.head,
+                      (uint8_t)s, &at) ||
+          !ap_awd_read(omti->drive, at, omti->buffer)) {
+        refuse(omti, cdb.cylinder, cdb.head, (uint8_t)s, at);
+        finish(omti, true, SENSE_ILLEGAL_ADDRESS);
+        return;
+      }
+    }
+    finish(omti, false, 0u);
+    return;
+  }
+
+  case AP_OMTI_CMD_START_STOP:
+    /* §5.4.17, "Valid for ESDI drives only", and an ESDI command this core did
+     * not accept at all until §5.4 was read end to end rather than one command
+     * at a time. "To start the unit, the Start bit shall be set to one. To stop
+     * the unit, the Start bit shall be set to zero. This command returns status
+     * immediately after receiving the command bytes, then does not wait for the
+     * start or stop spindle operation to complete."
+     *
+     * Returning immediately is the whole of the behaviour, and it is the part
+     * a model can get *wrong* by being helpful: a controller that waited would
+     * hold the bus for a spindle spin-up the host was told not to wait for.
+     * There is no spindle here to start, and none of §5's other commands
+     * consults one, so nothing is recorded -- a stopped-drive state this model
+     * could never leave would refuse reads the hardware would serve. */
+    if (omti->drive == NULL) {
+      finish(omti, true, SENSE_DRIVE_NOT_READY);
+      return;
+    }
+    finish(omti, false, 0u);
+    return;
+
+  case AP_OMTI_CMD_CHANGE_CARTRIDGE:
+    /* §5.4.18: "valid only for Removable disk drives". Appendix A supplies the
+     * answer for every other kind in `22`'s own description -- "a Change
+     * Cartridge command (HEX 1B) was issued to a LUN assigned as a Fixed drive
+     * type". The DN3500's Winchester is fixed, so this command always fails
+     * here, and it fails for a documented reason rather than a default. */
+    finish(omti, true, SENSE_ILLEGAL_FUNCTION);
+    return;
 
   case AP_OMTI_CMD_RECALIBRATE:
   case AP_OMTI_CMD_SEEK:
@@ -608,9 +935,49 @@ static void take_byte(ap_omti_t *omti, uint8_t value) {
      * rather than a flag: a phase that ends by writing to a disk and one that
      * ends by not writing to a disk differ in exactly this. */
     if (omti->blocks_left == 0u) {
-      if (omti->buffer_index >= omti->transfer_length) {
-        finish(omti, false, 0u);
+      if (omti->buffer_index < omti->transfer_length) {
+        return;
       }
+      if (omti->assigning_alternate) {
+        /* §5.4.16's descriptor has arrived. Its head and cylinder occupy the
+         * same field positions a descriptor block's bytes 1-3 do, so the same
+         * decoder reads it, and the alternate track "is then formatted".
+         *
+         * The flags this command sets in the ID field are the part an `.awd`
+         * image cannot carry -- `format_track` sets that out. What it can carry
+         * is the format itself, and that is what happens here. */
+        uint8_t bytes[6] = {0};
+        memcpy(&bytes[1], omti->buffer, 3u);
+        ap_omti_cdb_t alternate;
+        ap_omti_cdb_decode(bytes, &alternate);
+        omti->assigning_alternate = false;
+        if (!format_track(omti, alternate.cylinder, alternate.head, 0u)) {
+          refuse(omti, alternate.cylinder, alternate.head, 0u, 0u);
+          finish(omti, true, SENSE_ILLEGAL_ADDRESS);
+          return;
+        }
+        finish(omti, false, 0u);
+        return;
+      }
+      /* Staged, and now placed if a WRITE LONG asked for it. `0F` leaves
+       * `long_write_blocks` at zero and ends here having written nothing, which
+       * is §5.4.14's "does not access the disk drive"; §5.4.28 does access it,
+       * one 1062-byte block at a time of which only the leading sector is kept.
+       *
+       * The six ECC bytes are dropped. They have nowhere to go -- an `.awd`
+       * image is sector data with no ECC field -- and dropping them is the same
+       * deliberate approximation READ LONG's zeros are, named here so the two
+       * halves of it are not documented in only one place. */
+      for (unsigned block = 0; block < omti->long_write_blocks; block++) {
+        if (!ap_awd_write(omti->drive, omti->long_write_lba + block,
+                          &omti->buffer[block * AP_OMTI_LONG_BLOCK_BYTES])) {
+          omti->long_write_blocks = 0u;
+          finish(omti, true, SENSE_ILLEGAL_ADDRESS);
+          return;
+        }
+      }
+      omti->long_write_blocks = 0u;
+      finish(omti, false, 0u);
       return;
     }
     /* A *sector*, which is what the write path is waiting for -- not the whole

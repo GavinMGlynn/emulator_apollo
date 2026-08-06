@@ -5384,6 +5384,83 @@ a controller that does not support the opcode, and that is exactly what this
 model is for those commands — not a claim about the drive, the disk, or the
 image.
 
+#### §5.4 complete, and why it was done as a module rather than a boot at a time
+**Done.** Three commits in a row had the same shape: implement `1E`, boot for
+twenty minutes, read the census, learn that `0F` is next; implement `0F`, boot,
+learn that `1F` is next. Every one of those opcodes was already printed in a
+manual sitting in `docs/references/`. `CLAUDE.md` names this failure directly —
+"Complete modules, don't chase the boot ... Boots are integration checks and
+thermometers, never milestones" — and three rounds of it is what it looks like
+from the inside, which is: entirely reasonable at each step.
+
+§5.4 read end to end, PDF pages 50 to 73, from page images because the file has
+no text layer at all. The whole remainder in one pass:
+
+| Op | § | What was modelled |
+|----|---|-------------------|
+| `04` FORMAT DRIVE | 5.4.4 | Addressed track to the last track of the unit. Data fields `6Ch`, or the buffer's contents when control bit `B` is set |
+| `06` FORMAT TRACK | 5.4.6 | One track, same pattern rule |
+| `07` FORMAT BAD TRACK | 5.4.7 | Identical to `06` here — see the approximation below |
+| `0D` READ ECC BURST ERROR LENGTH | 5.4.12 | Two bytes, zero |
+| `10` CHECK TRACK FORMAT | 5.4.15 | Every sector of the addressed track read |
+| `11` ASSIGN ALTERNATE TRACK | 5.4.16 | Four-byte data-out descriptor, then the alternate track formatted |
+| `1A` START/STOP | 5.4.17 | **Was not accepted at all.** Status returned immediately, no spindle recorded |
+| `1B` CHANGE CARTRIDGE | 5.4.18 | Sense `22` — Appendix A names this command in `22`'s own description |
+| `1F` WRITE DATA FROM BUFFER | 5.4.20 | The buffer placed on the disk, no host data phase |
+| `20` COPY | 5.4.21 | Ten-byte CDB, destination decoded from bytes 5-7 by the same decoder, block at a time through the buffer |
+| `37` READ ESDI DEFECT LIST | 5.4.22 | 256 bytes: dated header, head, then the five `FFh` end-of-list |
+| `E5` READ LONG | 5.4.27 | 1062 bytes a block — the sector plus six ECC |
+| `E6` WRITE LONG | 5.4.28 | The same width inbound |
+
+Three findings from the read are worth keeping separately from the code.
+
+**`1A START/STOP` was missing from the accepted set.** §5.4.17, "Valid for ESDI
+drives only". Nothing had ever asked for it, so nothing had ever revealed it —
+which is the argument for reading a command set rather than discovering one.
+
+**The manual numbers two commands `0Fh`.** §5.4.14 WRITE DATA TO SECTOR BUFFER
+and §5.4.15 CHECK TRACK FORMAT both carry `(0Fh)` in the heading. §5.4.15's own
+byte-0 row reads `0 0 0 1 0 0 0 0`, so it is `10h` and the heading is the typo.
+The bit pattern is the command. Caught only because the row was read rather than
+the title — the same class of error as an OCR'd timing table, and the reason
+`CLAUDE.md` insists on page images.
+
+**Appendix A answers `1B` outright.** `22 Illegal Function for Drive Type` is
+described as "a Change Cartridge command (HEX 1B) was issued to a LUN assigned
+as a Fixed drive type". The command's own section says only "valid only for
+Removable disk drives"; the sense code appendix is what says what happens
+otherwise. Two sections apart, and neither complete alone.
+
+##### Two deliberate approximations, both in what the image format can hold
+
+An `.awd` is sector data and nothing else. It has **no ID field**, so the
+bad-track and alternate-track flags §5.4.7 and §5.4.16 set have nowhere to live:
+the data fields are written, which the image can hold, and the flags are not.
+`07` is therefore identical to `06` in this model, and they share an arm rather
+than being split into two that do the same thing — splitting them would imply a
+distinction that is not being made. Cost: a driver that formats a bad track and
+expects sense `19` on the next access to it gets a successful read. Closing it
+needs an image format with ID fields; nothing that boots this machine writes bad
+tracks. Track skew and interleave are accepted and ignored for the same reason
+and cost nothing: they place sectors around a rotating surface, and there is no
+rotation here to place them on.
+
+It has **no ECC field**, so READ LONG's six ECC bytes are zero and WRITE LONG's
+are dropped. Zero is the value that says "none recorded"; the polynomial is not
+published in this manual, so any other value would be invented. Cost: a
+diagnostic that writes a sector with WRITE LONG and checks its ECC with READ
+LONG sees zeros.
+
+##### The test that stops this recurring
+
+`test_every_command_the_esdi_set_accepts_reaches_an_implementation` walks
+`ap_omti_cdb_accepted_by_esdi` itself — not a list written out beside it —
+issues each accepted opcode with a correct-length CDB, drains whatever phase it
+enters, and fails if `REQUEST SENSE` comes back `20`. A command added to the
+accepted set without an implementation now fails in a second rather than at the
+next boot. It also asserts the count, because a set that accepted nothing would
+pass every other assertion in it without making one.
+
 Not changed, and worth naming as unsettled: a **block count past the manual's
 buffer cap** still reports `21`. It is not an address failure either, but no
 Appendix A code covers "parameter out of range for this command" — the type 2

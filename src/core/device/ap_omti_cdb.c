@@ -49,6 +49,7 @@ bool ap_omti_cdb_accepted_by_esdi(uint8_t command) {
   case AP_OMTI_CMD_READ_LONG:
   case AP_OMTI_CMD_WRITE_LONG:
   /* Specific to the ESDI drives, which is what this machine has. */
+  case AP_OMTI_CMD_START_STOP:
   case AP_OMTI_CMD_CHECK_TRACK_FORMAT:
   case AP_OMTI_CMD_READ_ESDI_DEFECT_LIST:
   case AP_OMTI_CMD_READ_CAPACITY:

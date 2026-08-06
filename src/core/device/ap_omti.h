@@ -233,7 +233,27 @@ typedef enum {
  * identification block below reports a 32K buffer, which is what the *part*
  * has, and no command in §5 can move more than this from it. */
 #define AP_OMTI_MAX_BUFFER_BLOCKS 7u
-#define AP_OMTI_BUFFER_BYTES (AP_OMTI_MAX_BUFFER_BLOCKS * AP_AWD_SECTOR_BYTES)
+
+/* §5.4.27 and §5.4.28: READ LONG and WRITE LONG move "the jumper selected
+ * sector size (512, 1024 or 1056) of data plus 4 bytes (for ST506/412 drives)
+ * or **6 bytes (for ESDI drives)** of ECC data". This machine's drives are
+ * ESDI, so a long block is six bytes wider than a sector, and the staging
+ * buffer is sized for the widest block the command set can ask for rather than
+ * for a sector. */
+#define AP_OMTI_ECC_BYTES 6u
+#define AP_OMTI_LONG_BLOCK_BYTES (AP_AWD_SECTOR_BYTES + AP_OMTI_ECC_BYTES)
+#define AP_OMTI_BUFFER_BYTES                                                   \
+  (AP_OMTI_MAX_BUFFER_BLOCKS * AP_OMTI_LONG_BLOCK_BYTES)
+
+/* §5.4.22's reply is a fixed 256 bytes: a six-byte dated header, then five-byte
+ * defect descriptors, then five `FFh` for the end of the list. */
+#define AP_OMTI_DEFECT_LIST_BYTES 256u
+
+/* §5.4.16's "ALTERNATE TRACK ADDRESS Descriptor Block", four bytes sent during
+ * the data-out phase. Its head and eleven-bit cylinder sit in exactly the field
+ * positions a descriptor block's bytes 1-3 use, which is why the same decoder
+ * reads it. */
+#define AP_OMTI_ALTERNATE_ADDRESS_BYTES 4u
 
 /* ## The identification block, which is what a reset leaves in the buffer
  *
@@ -383,6 +403,23 @@ typedef struct {
    * ask for into no transfer at all. */
   unsigned blocks_left;
   uint32_t next_lba;
+
+  /* Where a WRITE LONG in progress will place its blocks once the host has
+   * finished handing them over.
+   *
+   * `blocks_left` cannot carry this: §5.4.28's blocks are 1062 bytes wide, not
+   * 1056, so the data-out path's sector-at-a-time drain does not fit them, and
+   * the whole transfer is staged and placed at the end. Zero blocks means no
+   * long write is in progress, which is what separates this from `0F`, whose
+   * data-out phase ends by placing nothing at all. */
+  uint32_t long_write_lba;
+  unsigned long_write_blocks;
+
+  /* An ASSIGN ALTERNATE TRACK waiting for §5.4.16's four-byte descriptor. Like
+   * `long_write_blocks`, it says what the data-out phase now in progress is
+   * *for*: three commands end that phase in three different ways, and the phase
+   * itself cannot tell them apart. */
+  bool assigning_alternate;
 
   /* §5.1.4's completion byte, and the sense the driver reads after a failure. */
   uint8_t completion;

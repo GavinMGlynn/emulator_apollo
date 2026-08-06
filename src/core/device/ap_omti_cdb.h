@@ -46,6 +46,9 @@
 #define AP_OMTI_CMD_READ_SECTOR_BUFFER 0x0Eu
 #define AP_OMTI_CMD_WRITE_SECTOR_BUFFER 0x0Fu
 #define AP_OMTI_CMD_ASSIGN_ALTERNATE 0x11u
+/* §5.4.17 START/STOP, "Valid for ESDI drives only" -- which this core did not
+ * accept at all until §5.4 was read end to end. Byte 4 bit 0 is START. */
+#define AP_OMTI_CMD_START_STOP 0x1Au
 #define AP_OMTI_CMD_CHANGE_CARTRIDGE 0x1Bu
 #define AP_OMTI_CMD_READ_TO_BUFFER 0x1Eu
 #define AP_OMTI_CMD_WRITE_FROM_BUFFER 0x1Fu
