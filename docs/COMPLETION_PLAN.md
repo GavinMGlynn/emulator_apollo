@@ -3455,9 +3455,22 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         `$7E6` instead. So the firmware reads both lines through their own
         paths and still transmits nothing, and the keyboard reading does not
         explain the silence either.
-        *Next: instrument the transmit side, not the receive side. Every
-        measurement so far says characters go in; none has yet asked what the
-        firmware does with them or why nothing comes out.*
+        **Answered at zero cost -- the end-of-run report already counted it.**
+        Register 11 is channel B's receive/transmit buffer:
+
+            service mode   sio1 reg 11      0 write(s)    400 read(s)
+            normal mode    sio1 reg 11    534 write(s)      1 read(s)
+
+        In service mode the firmware *reads* the buffer four hundred times,
+        consuming every carriage return, and **never writes it once**. It is not
+        that the transmit path is broken -- the firmware never asks it to
+        transmit. So it is not reaching MD at all; it is somewhere earlier that
+        drains input and produces nothing.
+        Note also `1 read` in normal mode against `400` here: the counters were
+        in the report the whole time, and six hypotheses were formed without
+        looking at them.
+        *Next: what path the firmware takes after `$7E6`/`$80E`, since it
+        reads a character and returns to the poll without acting on it.*
         *Five hypotheses in a row have now been produced by reasoning and killed
         by the next measurement: the sense value, the baud rate, the `SR`/`RB`
         decode, an autobaud the loop does not perform, and input starvation.
