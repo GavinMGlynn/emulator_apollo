@@ -3469,8 +3469,24 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         Note also `1 read` in normal mode against `400` here: the counters were
         in the report the whole time, and six hypotheses were formed without
         looking at them.
-        *Next: what path the firmware takes after `$7E6`/`$80E`, since it
-        reads a character and returns to the poll without acting on it.*
+        **And the answer was in `docs/references/MD.md` the whole time**, in
+        its "How it was captured" section, which I had skimmed for one line
+        about service mode and not read:
+
+        > **one carriage return every 0.4 s on standard input**, not a pipe
+        > delivered at once. This is the part that matters ... a burst arrives
+        > long before the autobaud runs and is discarded. The probe needs a
+        > signal *during* the probe.
+
+        with `APOLLO_MD_UNTIL=45` -- **forty-five emulated seconds**, and 120
+        returns spread over forty-eight. Every run in this investigation was 20M
+        to 60M instructions, which at 25 MHz is a few emulated seconds. The
+        firmware was not rejecting the input and there was no defect anywhere:
+        **it had not got there yet.**
+        Six hypotheses, a dozen boots and an instrumented binary, against one
+        paragraph in a file this repository already had.
+        *Next: a run long enough to reach ~45 emulated seconds with input paced
+        at 0.4 s, per that recipe.*
         *Five hypotheses in a row have now been produced by reasoning and killed
         by the next measurement: the sense value, the baud rate, the `SR`/`RB`
         decode, an autobaud the loop does not perform, and input starvation.
