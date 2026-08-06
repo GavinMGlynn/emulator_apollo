@@ -5264,6 +5264,41 @@ picked it — "this is the shape the chain uses at every level" — was pattern
 matching, and pattern matching has been wrong about as often as it has been
 right in this hunt. `01021D44`, `move.l #$00080012,d3`, is what remains.
 
+#### It is the disk sense code, and the chain closes
+
+`01021D44` **does** run, at logical `3C41F144`, 1,275 instructions before the
+crash. And the trace into it is the answer:
+
+    3C41F070  3200   move.w d0,d1            ; d0 = 00000021
+    3C41F072  5341   subq.w #1,d1
+    3C41F074  0C41   cmpi.w #imm,d1
+    3C41F078  6400   bcc.w  ...              ; range check, not taken
+    3C41F07C  323B   move.w (d16,pc,d1.w),d1 ; a jump table
+    3C41F080  4EFB   jmp    (d16,pc,d1.w)
+    3C41F144  263C   move.l #$00080012,d3
+
+A `switch` on `d0`, dispatched through a table, and `a0` throughout is
+**`3FFFA800`** — the OMTI status registers, the same address the earlier poll
+loop read. `d0` is `0x21`, which is `SENSE_ILLEGAL_ADDRESS`: the value this
+core's own `ap_omti.c` defines as `#define SENSE_ILLEGAL_ADDRESS 0x21u`.
+
+So Domain/OS asks the controller why a command failed, gets "illegal disk
+address", and the `0x21` arm of the switch produces `00080012`. The status is
+not computed from anything subtle — it is a table entry indexed by our own sense
+byte.
+
+**Which reopens the first question with the answer to the second.** The very
+first symptom this hunt looked at was `disk refused ... c1941 h14 s2`, sense
+`21`, and that was set aside as wreckage when `DISK TIMEOUT` proved to be
+downstream of the crash. Both are true and they are not in conflict: a command
+is refused with sense `21`, *that* causes the crash, and the timeout is the
+crash handler failing afterwards. The console prints them in exactly that order.
+
+So the question is the one it always was — which address is refused, and why —
+but now it is known to be the cause rather than suspected, and the refusal that
+matters is the **first** one, not the post-crash one whose block number came out
+of the crash message.
+
 That is the third time in this hunt that the obvious lead has turned out to be
 downstream of the fault — after `DISK TIMEOUT`, and after the crash status that
 turned out to be the crash *message*. The pattern is worth naming: a value that

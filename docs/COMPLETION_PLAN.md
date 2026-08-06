@@ -3314,8 +3314,16 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         constant finds where it is *made*: `move.l #$00080012,d3` at `01021D44`,
         `cmpi.l` at `01090AD6`, and `move.l #$00080012,(a1)` at `01091438`. The
         last is the shape this chain uses at every level, so it was tested
-        first -- and **never executes**. That leaves `01021D44`,
-        `move.l #$00080012,d3`.
+        first -- and **never executes**. `01021D44` does, at logical
+        `3C41F144`, 1,275 instructions before the crash, reached by a jump-table
+        `switch` on `d0 = 0x21` with `a0 = 3FFFA800`, the OMTI status registers.
+        `0x21` is `SENSE_ILLEGAL_ADDRESS` -- this core's own constant. So
+        Domain/OS asks why a command failed, is told "illegal disk address", and
+        the `0x21` arm of the table yields `00080012`. **The chain closes on the
+        disk refusal**: the refusal causes the crash and `DISK TIMEOUT` is the
+        crash handler failing afterwards, which is the order the console prints
+        them in. The question is again which address is refused -- the **first**
+        refusal, not the post-crash one. Detail in `PROJECT_STATUS.md`.
         *Verification: the console going past the crash.*
         *Verification: the console going past the crash.*
   - [ ] **`IRQ6` and `DRQ2`, the floppy's**, are placed and not driven: its
