@@ -4075,8 +4075,18 @@ boot below, and the boot is not attempted until they are done.
       both sides and both bounds are now measured: too few or too early and
       autobaud never runs; too many and the boot is interrupted into MD. A
       handful spaced at 0.4 s should land inside it.
-      *Verification: a `c8p` boot with two or three paced returns, and a
-      framebuffer PNG with the PROM's self-test output in it.*
+      **Three is still too many.** A `c8p` boot with three paced returns also
+      gives `MD7C` -- so *any* return landing after the poll begins interrupts,
+      and the window is not "a handful" but exactly the one character autobaud
+      consumes, at the moment it is listening. `--boot-input-interval` sets the
+      *spacing* and not the *offset*, so the first character always goes at
+      t=0, which is too early for a display boot.
+      Which suggests the simplest reading, not yet tried: **a display boot may
+      need no console input at all.** The console-only machine autobauds
+      because the serial line is the only way it can talk; a machine with a
+      screen has somewhere else to put its output, and the poll at `0007A2` may
+      be a wait-for-interrupt with a timeout rather than a requirement.
+      *Verification: a `c8p` boot with `--boot-input` omitted entirely.*
       *Verification: `a1` and `a2` resolved to addresses, matched against this
       core's register map, and the eight-entry readback answered.*
       *Verification: the PROM's self-test banner legible in a PNG.*
