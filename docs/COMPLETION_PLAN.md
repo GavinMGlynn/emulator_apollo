@@ -4261,8 +4261,33 @@ boot below, and the boot is not attempted until they are done.
       actually writes to serial 1 and what this core returns, at the moment of
       the test, rather than to read further forward in the ROM and find another
       candidate.
-      *Verification: a register trace of serial 1 across `KEYBOARD TEST # 0` --
-      every write with its value and every read with its answer.*
+      **Traced, and it answers several things at once.** A temporary log in
+      `ap_sio_read`/`_write`, since reverted:
+
+          w reg13 <- 04    OPCR          w reg2 <- 1A 4A 5A 3A 2A   CRA
+          w reg4  <- 60    ACR           w reg0 <- 03 87            MR1A
+          w reg6/7 <- ...  counter       w reg1 <- 66               CSRA
+          r reg1  -> 0C ... (repeated)   SRA
+
+      The firmware polls **`SRA`**, not the ISR -- so on the *status* register
+      bit 0 is `RxRDY` and bit 1 is **`FFULL`**, and `EXPECTED= 2` means it
+      wants the FIFO **full**, not merely non-empty. `SRA` reads `0C`,
+      `TxRDY|TxEMT`, with both receive bits clear.
+      Two consequences. `MR1A` is `87` -- **bit 6 clear**, so `RxRDY` is
+      selected and yesterday's `MR1[6]` work, while correct, cannot be what
+      this test needs. And every `CRA` write is `xA`: bits 1-0 are `10`,
+      **disable receiver**, five times, with **no enable anywhere in the
+      trace**.
+      So the firmware polls for received data on a receiver it has repeatedly
+      disabled and never enabled. Either it enables it later than the trace
+      reaches, or a real 2681 latches into the FIFO while disabled -- §4.2.7.4
+      says "terminates operation of the receiver immediately", which argues
+      against, and §3.4's multidrop paragraph says it does, which is the wrong
+      section. That contradiction is the thing to settle, and it is a datasheet
+      question with a definite answer.
+      *Verification: whether a disabled 2681 receiver latches a character, from
+      §3.1 rather than §3.4; and a longer trace to see if an enable ever
+      arrives.*
       That is the first defect of this phase that is genuinely ours, and it is
       narrow: one bit, one register, and a known producer.
       *Verification: `RxRDY` set on channel A by the time `000073EC` reads it,
