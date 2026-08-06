@@ -3357,26 +3357,11 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
               implemented with its section cited, and every control-register
               bit including CR1's timer preset, CR2's register select and CR3's
               prescale is acted on.
-              *And a correction: this item previously said the MC6840 had no
-              manual in `docs/references/`. It has two, both there since
-              August 1st. That claim came from a directory listing truncated by
-              `head`, which is the same class of error as reading one page of a
-              manual and concluding the fact is not in it -- and it was made in
-              the middle of an item whose entire subject is checking rather than
-              assuming.*
-        The shape, now that seven are done: the risk lives in **command-driven**
-        devices, not register-driven ones. A register decode enumerates itself
-        -- there are sixteen addresses and the switch either covers them or does
-        not, and the 8259, 8237, Bt458 and calendar all covered them. A command
-        set does not enumerate itself: the OMTI accepted twenty-eight opcodes
-        and implemented fourteen, and the tape's set had two holes.
-
-        The second finding is about *documentation* rather than code. The
-        calendar's two gaps and the tape's two commands were both already
-        known; the difference is that the calendar said so in its header and the
-        tape said so in a note that had drawn the wrong conclusion. A gap that
-        is written down is a decision. A gap that is not is a bug waiting for a
-        twenty-minute boot to find it.
+              A correction went with it: this entry previously said the part
+              had no manual on disk. It has two. Detail in
+              `PROJECT_STATUS.md`.
+        What the sweep found, and the withdrawn claim it had to correct, are in
+        `PROJECT_STATUS.md`.
         *Verification: one table per device of accepted-versus-modelled, and the
         gaps either closed or named as deliberate with a reason.*
   - [x] **`17 Write Protected`, and a disk the machine was not allowed to

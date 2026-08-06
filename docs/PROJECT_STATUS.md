@@ -5586,6 +5586,41 @@ accepted", which is the observable half. The break state itself has no consumer 
 nothing in this machine watches TxD at bit level — and is named as such in the
 struct so a reader can tell a bit that is stored from a bit that does something.
 
+#### The device audit: what a sweep of nine parts found
+Asked whether the OMTI's accepted-but-unmodelled command set was a pattern, the
+answer is a shape rather than a yes or no.
+
+**The risk lives in command-driven devices, not register-driven ones.** A
+register decode enumerates itself — there are sixteen addresses and the switch
+either covers them or does not — and the 8259, the 8237, the Bt458 and the
+MC146818 all covered them, as did the MC6840's four modes and the OMTI's own
+floppy half. A command set does not enumerate itself. The OMTI's fixed disk
+accepted twenty-eight opcodes and implemented fourteen; the tape's set had two
+holes; and the MC68681's command register — a command set wearing a register's
+clothes — had three of eight values falling through a bare `default`.
+
+**The second finding is about documentation rather than code.** The calendar's
+two declines and the tape's two commands were both already known. The difference
+is that the calendar said so in its header, with the reason, and the tape said so
+in a note that had drawn the wrong conclusion from reading one page. A gap that
+is written down is a decision; a gap that is not is a bug waiting for a
+twenty-minute boot to find it.
+
+**And a withdrawn claim of my own, made during the sweep.** The plan recorded
+that the MC6840 had no manual in `docs/references/` and would need one fetched.
+It has two, both on disk since 1 August. That came from a directory listing I had
+truncated with `head` and then read as complete — the same class of error as
+reading one page of a manual and concluding the fact is not in it, made in the
+middle of an item whose entire subject is checking rather than assuming. The
+MC68681 fetch was genuine; the MC6840 one was not needed, and the duplicate was
+deleted.
+
+The keyboard is the one part that cannot be audited this way at all: there is no
+Apollo keyboard manual, and its command set was recovered by measurement
+(`FINDINGS.md` C46). Auditing it means sweeping the oracle for codes the firmware
+never sends, which is a different and more expensive exercise than reading a
+list.
+
 #### Where the boot now stops: a spin, not a crash
 The `17 Write Protected` fix took the crash away. What is there instead is a
 tight loop, and the distinction matters because the evidence is entirely
