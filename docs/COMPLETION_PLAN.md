@@ -3219,116 +3219,31 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         happened* -- which is the order the console prints them in. Every
         measurement above stands; they were all made on a machine that had
         already failed elsewhere. Detail in `PROJECT_STATUS.md`.
-  - [ ] **Domain/OS crashes at `3C456A9C` with status `00080024`.** This is the
-        real fault, and everything the disk investigation eliminated -- the
-        geometry, the decoder, the 16-bit byte order, `DIVU.W`, the sector data
-        -- was eliminated for good. It is a **status check failing, not a
-        fault**: no address error, illegal instruction or trap is ever taken,
-        `3C456A9C` is never executed because it is the never-returning call's
-        return address, and stopping in `3C456A90:10` shows a routine returning,
-        `cmpi.l` against an expected value at `3C456A0C`, and `bne` taking the
-        error path. `d0` carries `0008008A` there, the same `0008xxxx` family as
-        the crash status, confirming that word is an Apollo status code. The
-        check itself is now read out: `jsr $3C49CDCC`, then
-        `cmpi.l #$00010005,-$258(a6)` and `bne` to the error path. Domain/OS
-        requires that routine to leave `00010005` at `3C4F9998`, and what is
-        there is **`00080024`** -- the status in the crash message. The rest of
-        that frame still holds the boot PROM's memory-test pattern, every
-        longword containing its own address, so the routine wrote a status and
-        returned without filling anything else in: it failed early. A
-        200,000-step ring shows why -- 199,700 of them in a six-instruction
-        loop polling `3FFFA800+1`, which translates to `0004D000`, the **OMTI
-        status register**, waiting for `CF` and giving up after 33,246 tries.
-        `CF` is `BSY|C/D|I/O|REQ` with **`IREQ` clear**, and this core set
-        `IREQ` on every completion, so the controller sat at `EF` -- the number
-        the operating system had been printing all along. §4.2 gates the bit on
-        the MASK register's interrupt enable, as `omti8621.cpp` does; fixed.
+  - [x] **Domain/OS crashes at `3C456A9C` with status `00080024`.** A status
+        check failing, not a fault: no trap is ever taken. Traced through a
+        200,000-step ring to 199,700 instructions spinning on the OMTI status
+        register waiting for `CF`, which this core could never present because
+        it set `IREQ` on every completion. §4.2 gates that bit on the MASK
+        register's interrupt enable. Detail in `PROJECT_STATUS.md`.
+        *Verification: `DISK TIMEOUT` gone, the 33,246 spins gone, and the crash
+        moved to `80080012`.*
+  - [x] **`Crash_Status 80080012` at the same call site.** The routine now runs
+        9,071 instructions and returns instead of spinning. Walked back seven
+        measured levels -- epilogue, local, frame slot, `bset`, jump table -- to
+        a `move.l #$00080012,d3` reached for sense `0x21`, produced by the
+        unimplemented-command arm. Four intermediate trails looked causal and
+        were consequences; each is recorded as *withdrawn* rather than dropped.
         Detail in `PROJECT_STATUS.md`.
-        *Verification: `omti_suite` and `awd_suite` corrected to the evidenced
-        behaviour -- a completed command in programmed I/O leaves `IREQ` down
-        and reads `CF`, enabling interrupts before the command raises both bit
-        and line, and clearing the enable takes the bit down with it. And the
-        console: `DISK TIMEOUT` is gone, the 33,246 spins do not happen, and the
-        crash moved from `00080024` to `80080012`.*
-  - [ ] **`Crash_Status 80080012` at the same call site.** The routine at
-        `3C49CDCC` now gets further and fails somewhere new -- bit 31 set is the
-        error flag on an Apollo status. It no longer waits: `3C49CDCC` runs
-        **9,071 instructions and returns**, against 200,000-plus spinning
-        before, its work spread over five modules with a 138-iteration table
-        walk at `3C49E464`. The status never passes through `d0` or `d1`, so it
-        is written straight into the caller's frame. Watching that slot names
-        `PC 3C49D082`, the routine's **epilogue** -- `move.l d16(a6),(a0)`, two
-        instructions before its `unlk` -- so the status is a local in
-        `3C49CDCC`'s own frame, stored out through the caller's pointer. One
-        level down -- the local is `a6-2C` = `011248C8`, written 344 times, last
-        by `PC 3C49EE46` -- and stopping on that write puts the decision in the
-        ring: `tst.b <abs.l>` at `3C49EBD8` then `bpl` **taken**, so a global
-        byte's sign bit is clear where Domain/OS wants it set, and the branch
-        returns the failing code. A flag, not an arithmetic slip. The byte is
-        `tst.b $3C44D8CA`, and it reads **`00`** -- bit 7 clear, which is why
-        the `bpl` is taken. Its physical address is `010504CA`, *not* the
-        `010788CA` that three same-offset dumps suggested: pages mapped
-        contiguously three times running is not a rule, and the derived watch
-        was on a byte nobody asked about. Watching the right one:
-        `written 6 time(s), last 00000000 by PC 01002174` -- the **loader**. So
-        Domain/OS never sets the flag; the code that would has not run. The
-        setter needs no run to find -- the text is on the disk. `3C44D8CA`
-        appears 112 times: 97 `tst.b`, 6 `clr.b`, 6 reads, and **3
-        `move.b #$FF,$3C44D8CA`**, guarded by `tst.l (a2); bne` -- so the flag
-        is set only when `(a2)` is zero. The setter **is** in the loaded
-        image, at physical `010D1AEC` -- of 38 references there, 33 are `tst.b`,
-        two `clr.b`, two reads and one setter. (An earlier note here said the
-        opposite on the strength of an analysis bug that dropped half of every
-        dump row; corrected, with the detail in `PROJECT_STATUS.md`.) And it
-        **never executes**: the run reaches the same `FAULT on 6100` at 311M
-        instructions without once stopping there. So the flag is consulted 33
-        times, set in one place, and that place is never reached -- the
-        `tst.l (a2)` guard never gets to decide -- **and that is correct**.
-        Disassembling the routine shows `3C44D8CA` is a sticky "already failed"
-        latch: clear means healthy, `bpl` continues into the real work, and the
-        setter runs only *after* a failure so later calls short-circuit. So the
-        branch at `3C49EBD8` is the ordinary path and the flag is not the fault.
-        The `008A` trail drawn from that trace is **withdrawn**: the ring fill
-        sat after the stop checks, so a stop discarded the very step that caused
-        it, and the status is written at `3C49EE46` while the trace ended at
-        `3C49EC48`. `008A` also turns out to be a `dbeq` loop counter elsewhere
-        in the window, not evidently a status. With the fill moved before every
-        stop check the writer is finally visible: `3C49EE46` is
-        `move.l -$14(a6),(a2)`, so `80080012` comes from the **caller's own
-        frame** at `3C4F9860`, not from the callee, whose `d0` on return is
-        `FFFF008A` and is ignored. Watching `01124860` -- a within-page
-        derivation from a dumped translation, unlike the earlier cross-page
-        guess -- gives `written 15893 time(s), last 80 by PC 3C463390`. The
-        count is high because it is a **stack** slot every frame at that depth
-        reuses, so only the last write counts; it is a *byte* write of `80`, the
-        error flag on an Apollo status. `3C463390` is `bset #7,(a0)` with `a0`
-        from `$1A(a6)` -- a failure path *executing*, not deciding, so the
-        branch that chose it is above. The frame shows the status assembled in
-        pieces: code `0012` at `3C4F985C`, subsystem `0008`, flag `80`. Also in
-        that frame, `3C4F9858` holds `00010504` against the `00010005` the crash
-        comparison demands -- noted to test, not believed, after four
-        look-alikes turned out to be coincidence. Following the trace back,
-        `00080012` is already assembled at `3C4674DC` before the flag is added,
-        and the `bset` path is entered by an unconditional `bra` -- every level
-        so far is transport, not decision. Searching the loaded image for the
-        constant finds where it is *made*: `move.l #$00080012,d3` at `01021D44`,
-        `cmpi.l` at `01090AD6`, and `move.l #$00080012,(a1)` at `01091438`. The
-        last is the shape this chain uses at every level, so it was tested
-        first -- and **never executes**. `01021D44` does, at logical
-        `3C41F144`, 1,275 instructions before the crash, reached by a jump-table
-        `switch` on `d0 = 0x21` with `a0 = 3FFFA800`, the OMTI status registers.
-        `0x21` is `SENSE_ILLEGAL_ADDRESS` -- this core's own constant. So
-        Domain/OS asks why a command failed, is told "illegal disk address", and
-        the `0x21` arm of the table yields `00080012`. **The chain closes on the
-        disk refusal**: the refusal causes the crash and `DISK TIMEOUT` is the
-        crash handler failing afterwards, which is the order the console prints
-        them in. And no address is refused at all: the run reaches the crash
-        with `disk refused` absent and `disk last 08, completed, sense 00`. The
-        census names the culprit -- `1E x1`, **`READ TO BUFFER`**, which
-        `ap_omti_cdb_accepted_by_esdi` accepts (rightly) and the execute switch
-        does not implement, so it lands on the default that reports
-        `SENSE_ILLEGAL_ADDRESS`. That `21` is what Domain/OS's jump table turns
-        into `00080012`. Detail in `PROJECT_STATUS.md`.
+        *Verification: the command census naming `1E`, and the crash moving to
+        `00080012` once it was implemented.*
+
+        **Both closed as diagnostic items.** Each names a status, traces it to a
+        cause and states the fix; both fixes landed and both verification lines
+        record the crash *moving*, which is what they asked for. They stayed
+        open because the boot still failed -- but the boot is the parent item
+        and these are not it. The chain continues below: `00080012` (`0F`) → the
+        sense codes → §5.4 in full → `17 Write Protected`, which cleared it.
+
   - [x] **`1E READ DATA TO BUFFER` implemented.** §5.4.19: "reads data from the
         disk to the controller's buffer ... **does not transfer the data to the
         host**", capped at seven blocks at 1056 bytes, paired with `0E` as
