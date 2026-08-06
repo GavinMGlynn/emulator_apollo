@@ -4026,10 +4026,26 @@ boot below, and the boot is not attempted until they are done.
       `1111` through `8888`. That is a register-file or lookup-table readback --
       eight entries, each holding a distinct word -- and the firmware requires
       all eight before it will use the display.
-      Eight indices at `C0`-`C7` returning independent words is the shape of a
-      **colour/overlay lookup table**, which this machine has in the Bt458. That
-      is a lead and not a claim: `a1` and `a2` are set before `006CB0` and have
-      not been traced yet.
+      **And the write phase names it.** From `006C74`:
+
+          6C74  move.b #$FE,(a4) ; move.w #$1111,(a1)
+          6C7C  move.b #$FD,(a4) ; move.w #$2222,(a1)
+                ... FB/3333, F7/4444, EF/5555, DF/6666, BF/7777, 7F/8888
+
+      `FE FD FB F7 EF DF BF 7F` are **one-bit-clear masks** -- a plane-select
+      register, active low, one plane at a time. So the firmware writes a
+      distinct word to each of **eight planes** and then reads all eight back.
+      It is a plane test, not a lookup table, and the Bt458 lead above is
+      withdrawn.
+      **And the screen fitted was `19i` -- 1280x1024 mono, one plane.** A
+      one-plane display cannot hold eight distinct words, so the readback
+      cannot pass and the firmware blinks. That is very likely the whole of it,
+      and it is a *harness* mistake rather than a modelling gap: the run asked
+      for a mono screen and the firmware tested for a colour one.
+      *Verification: the same boot with `--screen c8p`, the eight-plane colour
+      display. If it passes `8D`, the display path was never broken; if it does
+      not, the failure is real and now isolated to eight planes that do not read
+      back.*
       *Verification: `a1` and `a2` resolved to addresses, matched against this
       core's register map, and the eight-entry readback answered.*
       *Verification: the PROM's self-test banner legible in a PNG.*
