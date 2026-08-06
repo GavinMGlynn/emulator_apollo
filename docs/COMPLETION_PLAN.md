@@ -4211,9 +4211,19 @@ boot below, and the boot is not attempted until they are done.
       too, and the values mean what they first appeared to: expected ISR bit 1
       set (`2`), got `0`. The failure is exactly the `RxRDY` timeout, and
       echoing `00` did not clear it.
-      *Verification: whether the keyboard's echo reaches serial 1 channel A at
-      all -- `KBD_UNIT`/`KBD_CHANNEL` against the `$7(a0)` the firmware writes,
-      with `a0` resolved.*
+      **The wiring is right and the send happened.** `KBD_UNIT`/`KBD_CHANNEL`
+      are `0`/`0`, and the firmware's `$7(a0)` is serial 1 register 3 --
+      channel A's transmit buffer. And the two polls have *different* failure
+      codes: the first posts `EXPECTED= 1` (ISR bit 0, `TxRDY`) and the second
+      `EXPECTED= 2` (bit 1, `RxRDY`). The screen shows `2`, so the first poll
+      passed, the transmitter was ready, and the byte went out.
+      So the loss is on the **receive** side. `ap_mc68681_receive` returns
+      early on `!ch->rx_enabled`, which would drop the echo silently and leave
+      `RxRDY` clear for ever -- the exact signature. Whether the firmware
+      enables the receiver before this test, and whether a real 2681 needs it
+      enabled to *latch* a character, are the two halves of that.
+      *Verification: `rx_enabled` on serial 1 channel A at the moment of the
+      test.*
       That is the first defect of this phase that is genuinely ours, and it is
       narrow: one bit, one register, and a known producer.
       *Verification: `RxRDY` set on channel A by the time `000073EC` reads it,
