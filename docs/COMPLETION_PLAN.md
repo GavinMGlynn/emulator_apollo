@@ -2829,6 +2829,18 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
       text, and they give the edges within a byte; the behaviour a driver can
       observe is the block-level READY above, and it was in prose this project
       already had.
+      **The change, scoped but not written.** `ap_tape.c`'s `ensure_block`
+      fetches the next block transparently whenever the current one is
+      exhausted, so a host sees an unbroken byte stream and READY never moves
+      during a transfer. §1.13.1 wants the opposite: READY deasserted while the
+      device is not ready for a data block, asserted when it is. The pieces
+      exist -- `ap_sc499`'s `ready`/`ready_at` pair and
+      `ap_sc499_handshake_duration` -- so this is wiring the block boundary into
+      the flag the status register already reports, not new machinery. Left
+      unwritten rather than half-written: it touches a timing path, and the
+      duration between blocks is not among the three figures already
+      transcribed, so it needs §1.13.2's Figures 1-5 and 1-6 -- the write and
+      read data operations -- read first.
 
       *Needs a document or a measurement first, and must not be coded to a
       guess:* `ap_dmapage`'s channel mapping (above); the graphics A/D converter
