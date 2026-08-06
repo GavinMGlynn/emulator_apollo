@@ -3862,8 +3862,19 @@ boot below, and the boot is not attempted until they are done.
       was at `01002178` by 200M -- inside Domain/OS. A display the firmware can
       see is a different machine, and every boot reading this session was taken
       on the one without.
-      *Verification: a PNG with the PROM's own display output in it, and the two
-      paths' divergence accounted for.*
+      **And the console goes silent.** With `--screen 19i` fitted the machine
+      prints **nothing at all** over 500M instructions -- no self-test banner,
+      no test lines -- where the identical boot without a display is chatty from
+      the first second. So the boot PROM sends its output to the *display* when
+      it finds one, and to the serial line only when it does not.
+      That joins up with the oracle finding above: Domain/OS puts zero bytes on
+      the serial line in Normal mode for the same reason. Both halves of the
+      firmware prefer the screen.
+      It also makes the black framebuffer a **defect rather than a question**:
+      the PROM is demonstrably producing output somewhere, the console is not
+      it, and the plane the scanout reads is empty. Something between the
+      firmware's drawing and `--screenshot` is not connected.
+      *Verification: the PROM's self-test banner legible in a PNG.*
 - [ ] SDL3 interactive frontend, implemented rather than stubbed: scanout to a
       letterboxed texture, keyboard/mouse mapping, `--frames` bounded mode
       smoke-tested under dummy SDL drivers. *Verification: bounded-mode CTest
