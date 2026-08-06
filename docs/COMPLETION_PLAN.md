@@ -3515,9 +3515,18 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         wants the display rather than the serial line -- Domain/OS's own panic
         went somewhere unseen for the same reason -- or whether it simply needs
         far more emulated time, as MD itself did.
-        *Next: the transmit-register write counts, which answered the last
-        silence at zero cost -- `sio1 reg 11` and `sio2 reg 11`, service run
-        against normal.*
+        **Timing was not it.** Re-run with the full recipe -- 40 paced returns
+        for autobaud, then the script owning the channel with `EX CONFIG` and
+        sixty further paced returns, on a four-billion-instruction budget --
+        and CONFIG still prints nothing. At 1,000,000,000 instructions the PC
+        is `01029654`, against `0102963C` and `01029664` sampled earlier: a
+        `0x28`-byte loop it does not leave, however much emulated time or input
+        it is given.
+        That is the same shape as the service-mode poll at `00078E`, and the
+        same technique applies -- except this code is in RAM, loaded from
+        `/sau14`, so it is `--dump-mem 01029640:0x40` rather than a file read.
+        *Next: dump and disassemble that loop, and take the transmit-register
+        write counts from the report while the run is being made anyway.*
         *Five hypotheses in a row have now been produced by reasoning and killed
         by the next measurement: the sense value, the baud rate, the `SR`/`RB`
         decode, an autobaud the loop does not perform, and input starvation.
