@@ -4295,8 +4295,20 @@ boot below, and the boot is not attempted until they are done.
       the peripheral, in which case what it needs is the documented behaviour
       of a disabled receiver and not a keyboard reply at all -- and both fixes
       made so far would be beside the point, as both have proved to be.
-      *Verification: §3.1/§3.2 read from the page images, and a longer trace to
-      see whether an enable ever arrives.*
+      **§3.4 read from the page image, and multidrop is ruled out.** It does say
+      a disabled receiver sets `RxRDY` -- "even though the channel receivers
+      within the slave stations may be disabled, they continuously monitor the
+      data stream" -- but multidrop is selected by **MR1 bits 3 and 4**, and the
+      firmware writes `MR1A = 87`, which has both clear. So §4.2.7.4 governs and
+      a disabled receiver does not receive.
+      Therefore the firmware **must** enable the receiver later, and the trace
+      did not show it because the trace was too small: 300 entries, nearly all
+      consumed by one poll loop. That is a limitation of the instrument rather
+      than a finding about the machine, and the fix is to log *writes only*, or
+      only `CRA`, so the window covers the sequence instead of one loop inside
+      it.
+      *Verification: a write-only trace of serial 1 across the test, showing
+      whether and when the receiver is enabled.*
       That is the first defect of this phase that is genuinely ours, and it is
       narrow: one bit, one register, and a known producer.
       *Verification: `RxRDY` set on channel A by the time `000073EC` reads it,
