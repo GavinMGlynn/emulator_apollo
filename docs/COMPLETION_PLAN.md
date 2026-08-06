@@ -3430,9 +3430,21 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         `SR`/`RB` decode, and an autobaud that the loop demonstrably does not
         perform -- were each produced by reasoning and each killed by the next
         measurement.
-        *Next: send input continuously rather than a fixed burst, and
-        instrument the branch targets `$7E6` and `$80E` to see what the
-        firmware does with each character it takes.*
+        **And that was wrong too.** Four hundred carriage returns, all
+        delivered at the matching rate, and the console stays silent with the PC
+        still inside `00078E`-`0007AE`. So it is not starvation either.
+        The two remaining readings are mutually exclusive and a single
+        measurement separates them: either `RxRDY` never gets set, in which case
+        the loop can never exit and the delivery path is at fault after all, or
+        it is set and the firmware leaves, reads, and returns 400 times without
+        transmitting. **Count the exits.** A counter on `$7E6` and `$80E`
+        answers it in one short run -- the loop is reached within a few million
+        instructions -- and no further hypothesis should be formed before that
+        number exists.
+        *Five hypotheses in a row have now been produced by reasoning and killed
+        by the next measurement: the sense value, the baud rate, the `SR`/`RB`
+        decode, an autobaud the loop does not perform, and input starvation.
+        The lesson is not about any one of them.*
         Either seed the calendar's
         battery-backed RAM from a supplied image, as the disk is supplied, or
         drive the PROM's own `ex config` from the boot script -- which is what
