@@ -2804,8 +2804,14 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
       `tx_break`, stored with no consumer, and serial framing entirely --
       baud, start and stop bits, parity, the echo and loopback modes -- a
       character being handed over whole. `ap_sio`'s `OPCR[7]` alternate
-      source. `ap_dmapage`'s high address bits, so a transfer beyond 64 KB
-      lands in the wrong place. The graphics A/D converter behind the third
+      source. **`ap_dmapage`'s high address bits are
+      *not* in this class** and were listed here in error. Table 2-6 gives the
+      block an address and a name and says nothing about its contents, no other
+      manual lays it out, and the offset-to-channel mapping is deliberately
+      unclaimed because the same assumption about the interrupt controllers was
+      wrong on this machine (`FINDINGS.md` C11). Implementing it means guessing
+      a mapping the project refused to guess. It closes with a measured DS3000
+      transfer, so it belongs with the `PROVISIONAL` figures below. The graphics A/D converter behind the third
       chip select, and refresh. `ap_master`'s Series 4000 route. The tape's
       per-byte handshake and its drive motion. The keyboard beeper. And
       `IRQ6`/`DRQ2` below.
