@@ -3498,9 +3498,14 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         start: 010200E6` -- the CONFIG stand alone utility loaded off `/sau14`
         in the same form the console shows for `SELF_TEST`, and the first time
         this project has driven the Mnemonic Debugger.
-        *Next: CONFIG is loaded and executing and has printed nothing, so it is
-        waiting at its own prompt -- the 40 carriage returns were spent getting
-        MD up. Feed it a longer paced stream and read what it asks for.*
+        Raising `--boot-input` from 40 to 300 carriage returns made it
+        **worse**, not better: `EX CONFIG` never fires at all, though MD is up
+        and prompting. `--boot-input` and `--boot-script` drive the same
+        channel, and with 300 characters queued the script's `send` never gets
+        a slot; with 40 the stream ran out and the script could drive.
+        *Next: keep `--boot-input` to roughly the 40 needed for autobaud, and
+        put everything after it in the script as further `send` lines, so one
+        writer owns the channel once MD is up.*
         *Five hypotheses in a row have now been produced by reasoning and killed
         by the next measurement: the sense value, the baud rate, the `SR`/`RB`
         decode, an autobaud the loop does not perform, and input starvation.
