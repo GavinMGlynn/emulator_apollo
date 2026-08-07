@@ -136,6 +136,21 @@ void ap_i8237_set_request_pin(ap_i8237_t *dma, unsigned channel, bool asserted);
 /* The highest-priority channel asking for service, or -1. Honours the mask, the
  * controller-disable bit, and `[8237]`'s fixed or rotating priority. This is
  * the hand-off point to the arbiter when one exists; nothing here moves data. */
+/* The electrical level on a channel's `DREQ` pin, and on its `DACK`.
+ *
+ * The command register's top two bits are the *polarity* of these lines --
+ * bit 6 `DREQ Sense Active Low`, bit 7 `DACK Sense Active High` -- and this
+ * core stored both and used neither. A caller that only ever passes "the device
+ * is requesting" to `ap_i8237_set_request_pin` never sees the difference, which
+ * is why it went unnoticed: the *logical* request is polarity-independent and
+ * the *pin* is not.
+ *
+ * So the polarity is expressed where it is meaningful, as the level a board
+ * would measure, rather than folded into the request itself. A board that wires
+ * an inverting buffer, or a probe that reads the pin, needs these; the
+ * arbitration inside the controller does not, and is unchanged. */
+[[nodiscard]] bool ap_i8237_dreq_level(const ap_i8237_t *dma, unsigned channel);
+[[nodiscard]] bool ap_i8237_dack_level(const ap_i8237_t *dma, unsigned channel);
 [[nodiscard]] int ap_i8237_service_pending(const ap_i8237_t *dma);
 
 /* ---------------------------------------------------------------------------

@@ -1356,6 +1356,23 @@ unsigned ap_omti_fdc_result_bytes(uint8_t opcode) {
   }
 }
 
+/* §6.3's three command modifiers, from the first byte of the command in
+ * progress. Zero-length means no command, and no modifiers with it. */
+static bool fdc_modifier(const ap_omti_t *omti, uint8_t bit) {
+  return omti->fdc_command_length > 0u && (omti->fdc_command[0] & bit) != 0u;
+}
+
+bool ap_omti_fdc_multitrack(const ap_omti_t *omti) {
+  return fdc_modifier(omti, AP_OMTI_FDC_MT);
+}
+
+bool ap_omti_fdc_mfm(const ap_omti_t *omti) {
+  return fdc_modifier(omti, AP_OMTI_FDC_MF);
+}
+
+bool ap_omti_fdc_skip_deleted(const ap_omti_t *omti) {
+  return fdc_modifier(omti, AP_OMTI_FDC_SK);
+}
 /* Which drive the second command byte selects, and where its head is. */
 static unsigned fdc_unit(const ap_omti_t *omti) {
   if (omti->fdc_command_length < 2u) {

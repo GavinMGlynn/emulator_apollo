@@ -22,6 +22,27 @@ ap_i8237_transfer_t ap_i8237_transfer_of(const ap_i8237_t *dma,
                                 AP_I8237_MODE_TRANSFER) >> 2);
 }
 
+bool ap_i8237_dreq_level(const ap_i8237_t *dma, unsigned channel) {
+  if (dma == NULL || channel >= AP_I8237_CHANNELS) {
+    return false;
+  }
+  const bool requesting = (dma->dreq & (uint8_t)(1u << channel)) != 0u;
+  /* Bit 6 clear is the reset default, "DREQ sense active high", so an asserting
+   * device drives the pin high. Set inverts it. */
+  return (dma->command & AP_I8237_CMD_DREQ_ACTIVE_LOW) != 0u ? !requesting
+                                                             : requesting;
+}
+
+bool ap_i8237_dack_level(const ap_i8237_t *dma, unsigned channel) {
+  if (dma == NULL || channel >= AP_I8237_CHANNELS) {
+    return false;
+  }
+  /* `DACK` is asserted to the channel currently being serviced. */
+  const bool acknowledging = ap_i8237_service_pending(dma) == (int)channel;
+  /* Bit 7 clear is the reset default, "DACK sense active low". */
+  return (dma->command & AP_I8237_CMD_DACK_ACTIVE_HIGH) != 0u ? acknowledging
+                                                              : !acknowledging;
+}
 int ap_i8237_service_pending(const ap_i8237_t *dma) {
   if ((dma->command & AP_I8237_CMD_CONTROLLER_DISABLE) != 0u) {
     return -1;

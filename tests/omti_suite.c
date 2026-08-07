@@ -462,6 +462,35 @@ static void test_the_floppy_drives_its_own_interrupt_and_dma_lines(void) {
   TEST_ASSERT_FALSE(ap_omti_fdc_irq(&polled));
 }
 
+/* §6.3's three command modifiers, which were defined and never read -- so every
+ * floppy command ran as if all three were clear. */
+static void test_the_floppy_command_modifiers_are_read(void) {
+  ap_omti_t o;
+  ap_omti_reset(&o);
+  ap_omti_fdc_write(&o, AP_OMTI_FDC_DOR, AP_OMTI_DOR_NOT_RESET);
+
+  /* No command: no modifiers. */
+  TEST_ASSERT_FALSE(ap_omti_fdc_multitrack(&o));
+
+  /* READ DATA with all three set. The opcode is the low five bits, so the
+   * modifiers ride above it and must not be mistaken for a different command. */
+  ap_omti_fdc_write(&o, AP_OMTI_FDC_DATA,
+                    (uint8_t)(AP_OMTI_FDC_READ_DATA | AP_OMTI_FDC_MT |
+                              AP_OMTI_FDC_MF | AP_OMTI_FDC_SK));
+  TEST_ASSERT_TRUE(ap_omti_fdc_multitrack(&o));
+  TEST_ASSERT_TRUE(ap_omti_fdc_mfm(&o));
+  TEST_ASSERT_TRUE(ap_omti_fdc_skip_deleted(&o));
+
+  /* And the same command without them. */
+  ap_omti_t plain;
+  ap_omti_reset(&plain);
+  ap_omti_fdc_write(&plain, AP_OMTI_FDC_DOR, AP_OMTI_DOR_NOT_RESET);
+  ap_omti_fdc_write(&plain, AP_OMTI_FDC_DATA, AP_OMTI_FDC_READ_DATA);
+  TEST_ASSERT_FALSE(ap_omti_fdc_multitrack(&plain));
+  TEST_ASSERT_FALSE(ap_omti_fdc_mfm(&plain));
+  TEST_ASSERT_FALSE(ap_omti_fdc_skip_deleted(&plain));
+}
+
 /* `IRQ14`, which the board could not wire because nothing here derived it.
  *
  * §4.2 gives the raise -- "If the INTERRUPT ENABLE bit was previously set in
@@ -599,6 +628,7 @@ int main(void) {
   RUN_TEST(test_writing_the_sector_buffer_does_not_touch_the_drive);
   RUN_TEST(test_every_command_the_esdi_set_accepts_reaches_an_implementation);
   RUN_TEST(test_a_command_outside_the_esdi_set_reports_invalid_command);
+  RUN_TEST(test_the_floppy_command_modifiers_are_read);
   RUN_TEST(test_the_floppy_drives_its_own_interrupt_and_dma_lines);
   RUN_TEST(test_a_completed_command_asks_for_an_interrupt_when_enabled);
   RUN_TEST(test_the_data_phase_asks_for_dma_only_when_dma_is_enabled);

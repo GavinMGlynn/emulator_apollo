@@ -17,6 +17,40 @@
 void setUp(void) {}
 void tearDown(void) {}
 
+
+/* The command register's top two bits are the polarity of the `DREQ` and
+ * `DACK` lines -- bit 6 "DREQ sense active low", bit 7 "DACK sense active
+ * high". Both were stored and neither was used, because the *logical* request
+ * a caller passes in is polarity-independent and only the *pin* is not. */
+static void test_the_request_lines_follow_their_polarity_bits(void) {
+  ap_i8237_t dma;
+  ap_i8237_reset(&dma);
+  ap_i8237_write(&dma, AP_I8237_REG_MASK_ALL, 0x00u); /* unmask all */
+
+  /* Default: DREQ active high, so an asserting device drives the pin high. */
+  ap_i8237_set_request_pin(&dma, 1u, true);
+  TEST_ASSERT_TRUE(ap_i8237_dreq_level(&dma, 1u));
+  ap_i8237_set_request_pin(&dma, 1u, false);
+  TEST_ASSERT_FALSE(ap_i8237_dreq_level(&dma, 1u));
+
+  /* Active low inverts the pin without changing who is asking. */
+  ap_i8237_write(&dma, AP_I8237_REG_STATUS_COMMAND,
+                 AP_I8237_CMD_DREQ_ACTIVE_LOW);
+  ap_i8237_set_request_pin(&dma, 1u, true);
+  TEST_ASSERT_FALSE(ap_i8237_dreq_level(&dma, 1u));
+  TEST_ASSERT_EQUAL_INT(1, ap_i8237_service_pending(&dma));
+
+  /* DACK defaults to active low, so the serviced channel reads low and the
+   * others high -- and bit 7 swaps that. */
+  TEST_ASSERT_FALSE(ap_i8237_dack_level(&dma, 1u));
+  TEST_ASSERT_TRUE(ap_i8237_dack_level(&dma, 2u));
+  ap_i8237_write(&dma, AP_I8237_REG_STATUS_COMMAND,
+                 (uint8_t)(AP_I8237_CMD_DREQ_ACTIVE_LOW |
+                           AP_I8237_CMD_DACK_ACTIVE_HIGH));
+  TEST_ASSERT_TRUE(ap_i8237_dack_level(&dma, 1u));
+  TEST_ASSERT_FALSE(ap_i8237_dack_level(&dma, 2u));
+}
+
 static void test_the_first_controller_is_byte_consecutive(void) {
   unsigned unit;
   unsigned reg;
@@ -554,6 +588,7 @@ static void test_the_floppys_data_port_moves_under_dma(void) {
 
 int main(void) {
   UNITY_BEGIN();
+  RUN_TEST(test_the_request_lines_follow_their_polarity_bits);
   RUN_TEST(test_the_tape_drives_its_own_request_line);
   RUN_TEST(test_a_cartridge_block_reaches_memory_by_dma);
   RUN_TEST(test_the_request_line_gates_a_block_not_a_word);

@@ -4678,6 +4678,13 @@ boot below, and the boot is not attempted until they are done.
         as if all three were clear.
         The earlier audit called this half complete because "all ten of §6.1's
         commands reach a case" -- again the opcodes, not the bits.
+      **Both fixed.** `ap_i8237_dreq_level`/`_dack_level` express the polarity
+      where it is meaningful -- as the level a board would measure -- rather
+      than folding it into the logical request, which is polarity-independent
+      and is why the bits went unnoticed. `ap_omti_fdc_multitrack`/`_mfm`/
+      `_skip_deleted` read §6.3's three modifiers, with `MT` actionable and
+      `MF`/`SK` format-limited by the `.afd` in the same way the `.awd` ID field
+      was before its sidecar -- reported rather than silently dropped.
       *The pattern across both corrections: counting decoded **cases** is not
       counting implemented **fields**, and the first is what a case-coverage
       check measures. That is the same blind spot the header-grep sweep had,

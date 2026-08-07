@@ -548,6 +548,25 @@ void ap_omti_attach_floppy(ap_omti_t *omti, ap_afd_t *floppy);
  * bits that are supposed to report it. */
 [[nodiscard]] ap_omti_phase_t ap_omti_fdc_phase(const ap_omti_t *omti);
 
+/* The three modifiers in the top bits of a floppy command's first byte -- §6.3
+ * gives `MT` multitrack, `MF` MFM-rather-than-FM and `SK` skip-deleted-data.
+ *
+ * They were **defined and never read**, so every floppy command ran as if all
+ * three were clear. These report what the command in progress asked for.
+ *
+ * What each *does* here is bounded by the image format, and honestly so. `MT`
+ * is real: §6.3 has a multitrack read continue onto the second head of the same
+ * cylinder rather than ending at the last sector. `MF` selects the recording
+ * encoding, and an `.afd` stores sector data with no encoding to select. `SK`
+ * skips sectors marked with a deleted-data address mark, and an `.afd` has no
+ * address marks to mark them with. So `MT` is actionable and the other two are
+ * format-limited in the same way the `.awd` ID field was before its sidecar --
+ * reported, so a driver can see its request was understood, and not silently
+ * dropped. */
+[[nodiscard]] bool ap_omti_fdc_multitrack(const ap_omti_t *omti);
+[[nodiscard]] bool ap_omti_fdc_mfm(const ap_omti_t *omti);
+[[nodiscard]] bool ap_omti_fdc_skip_deleted(const ap_omti_t *omti);
+
 /* ## The floppy's own two lines: `IRQ6` and `DRQ2`
  *
  * `008778-03` Table 2-3 gives `IRQ6` as the floppy disk's, and Table 2-4 gives
