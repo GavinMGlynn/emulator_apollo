@@ -13330,3 +13330,94 @@ bus at the address the firmware uses, the clock still reading the instant the
 caller supplied rather than zero, a short buffer filling from the base and a
 long one clamped at the part's last register. And the A/B above, which the stop
 fix is what made readable.*
+
+## Seeding the valid pattern clears the self-test, and the machine boots unattended
+
+The measurement the plan has carried for two phases — *is the empty calendar RAM
+what stops this machine?* — is taken. Two 400-million-instruction boots with the
+SR10.4 disk, console captured, identical but for the battery file.
+
+### Control, an unconfigured machine
+
+    Configuration information is not initialized.
+    Press <<return>> and type "ex config" at the prompt to initialize the
+    configuration table.
+
+    Self test failed.
+     Expected= 00000000, Actual= 00000012, Address= 00010912
+     PC= 00005DF8
+    Do you wish to continue (y,n)?
+
+It ends there, at `00002684` in the boot PROM, waiting for an answer nobody
+gives.
+
+### Seeded with the firmware's own pattern
+
+    Configuration information is not initialized.
+    Press <<return>> and type "ex config" at the prompt to initialize the
+    configuration table.
+    Self tests passed.
+
+    low: 01002000 high: 010E986C start: 01002024
+
+**`Self tests passed.`** — and it loads an image ten times the size of
+`SELF_TEST`, enables the MMU (`crp 01001400`, 627,919,593 descriptor fetches
+against the control's 76 million) and runs on to `3C456BB0 -> 01081BB0`, which
+is the Domain/OS halt this project already knows.
+
+So the answer is **yes, and only for one of the two complaints**. The failing
+check was the valid pattern, and clearing it removes the `y/n` prompt entirely:
+the machine now gets from power-on into Domain/OS with **no input at all**,
+where before it needed a scripted answer.
+
+### The warning is a different check, and register `2B` is not it
+
+"Configuration information is not initialized." still prints in the seeded run.
+It is a warning rather than the failure — the seeded machine prints it and then
+says the tests passed — but it is driven by something the pattern does not
+satisfy.
+
+The obvious candidate was register `2B`, which the checker at `001794` requires
+non-zero before it will take `d0` and `d4` from the table. A third run seeded it
+with `02` and `00`, the firmware's own defaults for those two registers, and the
+console is **identical** to the pattern-only run. So `2B` is not what prints the
+warning. What is left is the checksum at `0E-11`, whose algorithm is still
+unknown, or a check inside `SELF_TEST` rather than the PROM.
+
+That distinction matters and had been blurred: the plan treated one message as
+one problem. It is two — a *failure* on the pattern, now fixed, and a *warning*
+on something else, still open.
+
+*Verification: the two console captures above, differing in one file; a third
+run isolating register `2B`; and the boot reaching Domain/OS with the MMU
+enabled and no console input.*
+
+### And the boot item's own verification is blocked by Phase 5, not by Phase 4
+
+The rewritten verification is "the framebuffer decoded to a PNG showing a login
+prompt". Run with `--screen c8p` and the seeded battery, the same 600-million
+instruction boot produces a PNG showing this and nothing further:
+
+    SELF TESTS IN PROGRESS.
+       KEYBOARD        TEST # 0 STARTED.
+
+    SELF TEST FAILED.
+     EXPECTED= 00000002, ACTUAL= 0000FF00, ADDRESS= 0001040B
+     PC= 000073EC
+    >
+
+`final PC 0000079A`, translation off — the display machine never reaches the
+disk at all, because `KEYBOARD TEST # 0` stops it first. That is Phase 5's open
+item, and this session proved it is ours by finding that the oracle passes the
+same test.
+
+So the two boots are on different paths and only one is unblocked:
+
+- **serial console**: self-tests pass, no input needed, into Domain/OS and the
+  `3C456BB0` halt.
+- **display console**: blocked at the keyboard test, before the disk.
+
+The plan orders Phase 4's integration boot ahead of Phase 5, and its verification
+cannot be met until the Phase 5 item is fixed. That is a dependency the ordering
+hides, and it is worth stating plainly rather than discovering again: the boot
+item is not waiting on anything in Phase 4.

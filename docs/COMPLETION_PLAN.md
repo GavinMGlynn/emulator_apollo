@@ -3464,10 +3464,19 @@ boot below, and the boot is not attempted until they are done.
         **The other route reaches further than it did.** MD is up, `EX CONFIG`
         loads CONFIG off `/sau14`, and CONFIG spins for ever at `0102963C` on a
         `tst.w d3 / beq.s` whose `d3` arrives zero from `$10(a6)`.
-        *Next: battery-RAM persistence, so the table survives a run the way
-        `--disk` makes media survive -- then the PROM's own `ex config` writes it
-        and the content stays the firmware's. The checksum at `0E` is unchecked
-        on this path and its algorithm is still unknown.*
+        **Done for the failing half, and measured.** `--calendar-ram FILE`
+        gives the chip its battery -- the fifty bytes across a run, and
+        deliberately not the clock. Seeded with the firmware's own pattern the
+        console goes from `Self test failed ... Address= 00010912` to **`Self
+        tests passed.`**, the `y/n` prompt disappears, and the machine reaches
+        Domain/OS and the `3C456BB0` halt **with no input at all**.
+        Still open: the *warning* "Configuration information is not initialized"
+        prints in both runs, so it is a second check. Register `2B` was seeded
+        with the firmware's own default and made no difference, which leaves the
+        checksum at `0E` -- algorithm unknown -- or a check inside `SELF_TEST`.
+        *And the boot item's verification is blocked by **Phase 5**, not by this:
+        with `--screen c8p` the same boot stops at `KEYBOARD TEST # 0` before it
+        reaches the disk. The ordering in this file hides that.*
         *Five hypotheses here were each produced by reasoning and killed by the
         next measurement. The whole investigation is in `PROJECT_STATUS.md`.*
         *Verification: the console going past "Configuration information is not
