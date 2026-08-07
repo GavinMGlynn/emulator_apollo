@@ -14259,3 +14259,39 @@ overnight job.
 
 *Verification: two characters delivered in the fast path with no other flag, and
 `ctest` 121/121.*
+
+### `--boot-type-after-mmu` gated on the wrong event, and becomes `--boot-type-after-os`
+
+The gate existed to keep typed characters out of the firmware's self-tests, and
+it was chosen as a machine *state* rather than a tuned instruction count — "the
+boot PROM runs with translation off and an operating system turns the MMU on".
+True, and useless: **`SELF_TEST`'s own `CPU (MMU) TEST #0` turns it on**
+hundreds of millions of instructions before Domain/OS exists.
+
+Measured, with the keyboard's command stream logged:
+
+    3-17  KBDCMD ...        the boot PROM's keyboard tests
+    18    KEYTYPE 'y'       <- both characters, here
+    19    KEYTYPE '\r'
+    20    KBDCMD FF         the host, afterwards
+
+Immediately after the PROM's tests, into a machine still running diagnostics.
+The prompt they were meant for never saw them.
+
+What separates the two is **which address space is executing**: the PROM at
+`0000xxxx`, `SELF_TEST` loaded at `0100xxxx`, and Domain/OS high — `3C43F5AC` at
+its calendar prompt. `AP_BOOT_TYPE_OS_PC` is a threshold above the diagnostics,
+which says the operating system is running without claiming when it started.
+That is the property the MMU bit was supposed to supply and did not.
+
+*Verification: `2 of 2 character(s) typed` with the characters now provably
+delivered while Domain/OS was executing. **The prompt is still unchanged**, so
+this fixes the gate and not the item — which is the honest half, and it removes
+the last harness explanation from the list.*
+
+The two that remain are about the machine: either Domain/OS is not reading the
+keyboard at its prompt — `AP_SIO_IRQ` is wired but nothing has confirmed the
+`ISR`/`IMR` pair raises it for a received character here — or the character is
+not what it wants, since the compatibility set sends `CB` for RETURN. One run
+watching the interrupt line and the receiver at the moment of delivery separates
+"never told" from "told and rejected".

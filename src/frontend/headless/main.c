@@ -109,10 +109,10 @@ static void print_usage(const char *program_name) {
           "  --boot-input-interval US  emulated microseconds between scripted\n"
           "                        characters; the wire's own floor if 0\n"
           "  --boot-type TEXT      type TEXT on the keyboard, one character each\n"
-          "  --boot-type-after-mmu hold --boot-type until the MMU is enabled: the\n"
-          "                        boot PROM runs with translation off and an\n"
-          "                        operating system turns it on, so this types at\n"
-          "                        the OS and not into a firmware self-test\n"
+          "  --boot-type-after-os  hold --boot-type until code above the firmware and\n"
+          "                        its loaded diagnostics is running: the PROM is at\n"
+          "                        0000xxxx and SELF_TEST at 0100xxxx, so this types\n"
+          "                        at the operating system, not into a self-test\n"
           "                        time the machine settles into an input poll --\n"
           "                        which is what a prompt deep inside an operating\n"
           "                        system needs and a step number cannot give\n"
@@ -1130,6 +1130,12 @@ static unsigned input_polls(const ap_board_t *board) {
  * on purpose: the condition it samples -- a configured port and a machine
  * polling for input -- holds for millions of consecutive instructions, so the
  * only requirement is to be far finer than that. */
+/* Above the boot PROM (`0000xxxx`) and above the diagnostics it loads into low
+ * main memory (`0100xxxx`). Domain/OS runs in the high supervisor space --
+ * `3C43F5AC` at its calendar prompt. Measured, and a bound rather than a point:
+ * it says the operating system is running without claiming when it started. */
+#define AP_BOOT_TYPE_OS_PC 0x02000000u
+
 #define AP_BOOT_TYPE_CHUNK 4096u
 
 /* Deliver the next typed character if the machine is ready for it. Shared by
@@ -1138,7 +1144,7 @@ static unsigned input_polls(const ap_board_t *board) {
 static void typed_deliver(ap_machine_t *machine, ap_board_t *board,
                           const char *typed, size_t typed_length,
                           size_t *typed_sent, ap_time_t *typed_at,
-                          bool type_after_mmu) {
+                          bool type_after_os) {
   if (typed == NULL || *typed_sent >= typed_length) {
     return;
   }
@@ -1153,11 +1159,21 @@ static void typed_deliver(ap_machine_t *machine, ap_board_t *board,
    * the byte the firmware was comparing.
    *
    * The gate is a machine *state* rather than a tuned instruction count:
-   * the boot PROM runs with translation off and Domain/OS turns the MMU on
-   * before it prompts, so "the MMU is enabled" separates the two without
-   * measuring either. A count would have been a measurement of one boot. */
+   * The first attempt at it was **"the MMU is enabled"**, on the reasoning that
+   * the boot PROM runs with translation off and an operating system turns it
+   * on. True, and useless: `SELF_TEST`'s own `CPU (MMU) TEST #0` turns it on
+   * hundreds of millions of instructions earlier. Measured -- the two
+   * characters went immediately after the PROM's keyboard tests, into a machine
+   * still running diagnostics, and the prompt they were meant for never saw
+   * them.
+   *
+   * What separates them is **which address space is executing**: the PROM is at
+   * `0000xxxx`, `SELF_TEST` is loaded at `0100xxxx`, and Domain/OS runs high --
+   * `3C43F5AC` at the calendar prompt. A threshold above the diagnostics says
+   * the operating system is running without claiming when it started, which a
+   * count could not. */
   const bool typing_allowed =
-      !type_after_mmu || machine->cpu.tc.enable;
+      !type_after_os || machine->cpu.regs.pc >= AP_BOOT_TYPE_OS_PC;
   /* **The poll threshold gates the first character only.** Rearming it per
    * character was measured wrong twice, with the same shortfall both times:
    * `polls 217931 (need 219228)`, 1,297 short after seven hundred million
@@ -1199,7 +1215,7 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
                           uint32_t watch, const char *input, unsigned input_unit,
                           unsigned input_channel, uint8_t input_rate,
                           unsigned input_interval_us,
-                          unsigned key, const char *typed, bool type_after_mmu,
+                          unsigned key, const char *typed, bool type_after_os,
                           bool console,
                           ap_screen_kind_t screen, uint32_t node_id,
                           ap_model_id_t model, const char *screenshot,
@@ -1765,7 +1781,7 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
        * seven hundred million instructions in, and any constant chosen for it
        * would be a measurement of one boot rather than a condition. */
       typed_deliver(&machine, board, typed, typed_length, &typed_sent,
-                    &typed_at, type_after_mmu);
+                    &typed_at, type_after_os);
       const uint32_t step_pc = machine.cpu.regs.pc;
       /* One instruction through the *machine*, not through the processor.
        *
@@ -1965,7 +1981,7 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
         break;
       }
       typed_deliver(&machine, board, typed, typed_length, &typed_sent,
-                    &typed_at, type_after_mmu);
+                    &typed_at, type_after_os);
     }
   } else {
     run = ap_machine_run(&machine, limit);
@@ -2798,7 +2814,7 @@ int main(int argc, char **argv) {
   uint32_t boot_watch_write = 0;
   uint32_t boot_watch_read = 0;
   const char *boot_typed = NULL;
-  bool boot_type_after_mmu = false;
+  bool boot_type_after_os = false;
   unsigned boot_stop_on_watch_read = 0;
   unsigned boot_stop_on_watch = 0;
   uint32_t boot_stop_pc_length = 1u;
@@ -2954,8 +2970,8 @@ int main(int argc, char **argv) {
       i += 1;
       continue;
     }
-    if (strcmp(argv[i], "--boot-type-after-mmu") == 0) {
-      boot_type_after_mmu = true;
+    if (strcmp(argv[i], "--boot-type-after-os") == 0) {
+      boot_type_after_os = true;
       i += 1;
       continue;
     }
@@ -3123,7 +3139,7 @@ int main(int argc, char **argv) {
     return boot_from_prom(boot_prom, boot_limit, boot_trace, boot_watch,
                           boot_input, boot_input_unit, boot_input_channel,
                           (uint8_t)boot_input_rate, boot_input_interval_us,
-                          boot_key, boot_typed, boot_type_after_mmu,
+                          boot_key, boot_typed, boot_type_after_os,
                           boot_console,
                           boot_screen, node_id, opt.model->id, screenshot,
                           boot_trace_last, boot_stop_pc, boot_script,
