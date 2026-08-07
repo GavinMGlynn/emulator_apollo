@@ -1781,7 +1781,7 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
       for (unsigned unit = 0; unit < 2u; unit++) {
         for (unsigned channel = 0; channel < 2u; channel++) {
           uint8_t out_byte = 0;
-          while (ap_sio_transmit(&board->sio, unit, channel, &out_byte)) {
+          while (ap_board_transmitted(board, unit, channel, &out_byte)) {
             if (console) {
               fputc((int)out_byte, stdout);
               /* Flushed per character, not per line.

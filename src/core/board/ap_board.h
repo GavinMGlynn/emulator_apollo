@@ -216,6 +216,32 @@ typedef struct ap_board {
     ap_time_t next_at;
   } kbd_reply;
 
+  /* ## The transmitters empty on their own, into here
+   *
+   * `ap_mc68681_transmit` is a *pull*: the holding register stays full until a
+   * caller collects the byte. Nothing in the core collected the console's, so
+   * the frontend did it -- from inside the step loop, which a fast-path run
+   * never enters. A run without `--boot-console` therefore blocked the firmware
+   * the first time it printed, and "the machine stops at `0000269E`" was a fact
+   * about the harness rather than the machine.
+   *
+   * A real 2681 shifts a character out in one character time whether anything
+   * is listening or not, so the *board* empties them and keeps what came out.
+   * A caller collects at leisure; one that never does loses the oldest, which
+   * is what a byte shifted into an unplugged cable does.
+   *
+   * **Serial 1 channel A is not here.** The keyboard is on it and
+   * `kbd_reply` above already carries that direction with its own clock,
+   * verified against two boots; routing it through a second queue would change
+   * timing that is currently correct, and this session has already paid once
+   * for a plausible timing change. */
+  struct {
+    uint8_t bytes[64];
+    unsigned head;
+    unsigned count;
+    ap_time_t next_at;
+  } tx[2][2];
+
   /* Which appendix's AT bus cycle times this board keeps. **`PROVISIONAL`**:
    * `008778-03` covers the DS3000 and DS4000, our reference machine is a
    * DS3500, and `019411-A00` -- the addendum that does cover it -- publishes no
@@ -683,5 +709,11 @@ void ap_board_write(ap_board_t *board, uint32_t address, uint8_t value,
  * the byte on the wire *is* the character. See the implementation for why shift
  * needs no separate transmission. */
 [[nodiscard]] bool ap_board_key_type(ap_board_t *board, char ascii);
+
+/* Take a byte a transmitter has shifted out, if any. The console's own output,
+ * available whatever run mode the caller is in -- see `tx` above for why that
+ * was not always true. */
+[[nodiscard]] bool ap_board_transmitted(ap_board_t *board, unsigned unit,
+                                        unsigned channel, uint8_t *byte);
 
 #endif /* APOLLO_BOARD_AP_BOARD_H */

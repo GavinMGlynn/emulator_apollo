@@ -605,6 +605,39 @@ void ap_board_advance(ap_board_t *board, ap_time_t now) {
     board->kbd_reply.next_at = now + character;
   }
 
+  /* The transmitters, emptied by the board rather than by whoever happens to be
+   * watching. One character time apart, from the channel's own framing, and the
+   * keyboard's channel excluded because `kbd_reply` already carries it. */
+  for (unsigned unit = 0; unit < 2u; unit++) {
+    for (unsigned channel = 0; channel < 2u; channel++) {
+      if (unit == KBD_UNIT && channel == KBD_CHANNEL) {
+        continue;
+      }
+      if (now < board->tx[unit][channel].next_at) {
+        continue;
+      }
+      uint8_t shifted = 0u;
+      if (!ap_sio_transmit(&board->sio, unit, channel, &shifted)) {
+        continue;
+      }
+      const unsigned cap = (unsigned)(sizeof board->tx[unit][channel].bytes);
+      if (board->tx[unit][channel].count == cap) {
+        /* Full: the oldest is gone, as a byte shifted into nothing is. */
+        board->tx[unit][channel].head =
+            (board->tx[unit][channel].head + 1u) % cap;
+        board->tx[unit][channel].count--;
+      }
+      const unsigned at = (board->tx[unit][channel].head +
+                           board->tx[unit][channel].count) % cap;
+      board->tx[unit][channel].bytes[at] = shifted;
+      board->tx[unit][channel].count++;
+      const ap_time_t character =
+          ap_sio_character_time(&board->sio, unit, channel,
+                                AP_SIO_KEYBOARD_BAUD);
+      board->tx[unit][channel].next_at = character == 0u ? now : now + character;
+    }
+  }
+
   /* The raster, which is a *function* of the instant rather than an
    * accumulation -- so it carries no remainder and does not care how often
    * this is called. */
@@ -727,6 +760,7 @@ bool ap_board_init_model(ap_board_t *board, uint8_t *ram, uint32_t ram_bytes,
   board->kbd_reply.head = 0u;
   board->kbd_reply.count = 0u;
   board->kbd_reply.next_at = 0u;
+  memset(board->tx, 0, sizeof board->tx);
   /* `PROVISIONAL`, and the field's comment says why. Set explicitly rather than
    * left to the `memset` above being zero: the value is a claim about this
    * board, and one that happens to be enumerator zero is still a claim. */
@@ -1117,6 +1151,19 @@ bool ap_board_key_type(ap_board_t *board, char ascii) {
     }
   }
   return deliver_key(board, (uint8_t)(code & 0x00FFu));
+}
+
+bool ap_board_transmitted(ap_board_t *board, unsigned unit, unsigned channel,
+                          uint8_t *byte) {
+  if (board == NULL || byte == NULL || unit >= 2u || channel >= 2u ||
+      board->tx[unit][channel].count == 0u) {
+    return false;
+  }
+  const unsigned cap = (unsigned)(sizeof board->tx[unit][channel].bytes);
+  *byte = board->tx[unit][channel].bytes[board->tx[unit][channel].head];
+  board->tx[unit][channel].head = (board->tx[unit][channel].head + 1u) % cap;
+  board->tx[unit][channel].count--;
+  return true;
 }
 
 /* One word cycle into the display controller's image memory. `offset` is a byte

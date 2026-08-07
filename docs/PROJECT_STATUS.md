@@ -14391,3 +14391,46 @@ rather than a rebuild.
 
 *Verification: the block above, from a `--screen c8p --boot-type` run, and
 `ctest` 121/121.*
+
+## The board empties its own transmitters, and the console-less stall goes
+
+`ap_mc68681_transmit` is a *pull*: the holding register stays full until someone
+collects. The frontend did collect — from **inside the step loop**, which a
+fast-path run never enters. So a run without `--boot-console` blocked the
+firmware the first time it printed, and "the machine stops at `0000269E`" was a
+fact about the harness. That is the step-loop trap for the **fourth** time this
+session, and the fix this time is to move the work rather than extend the list:
+emptying a transmitter is the board's job, not the watcher's.
+
+The board now shifts each character out one character time apart into a small
+per-channel queue, and `ap_board_transmitted` collects at leisure; a queue that
+fills loses its oldest, which is what a byte shifted into an unplugged cable
+does. Serial 1 channel A is excluded — the keyboard is on it and `kbd_reply`
+already carries that direction with its own clock, verified against two boots,
+and routing it through a second queue would change timing that is currently
+correct.
+
+    before   final PC 0000269E   at 600,000,000 instructions, in the boot PROM
+    after    final PC 3C456B9A   inside Domain/OS
+
+It also makes every boot cheaper: a headless run no longer needs `--boot-console`
+to make progress, so it can use the fast path.
+
+### And the first report from it is a lead
+
+    interrupt    ISR 19, IMR B2, line asserted
+    controller   IRQ1 **masked**, master IRR 02 IMR F6
+
+**Domain/OS does enable the receive interrupt.** `IMR B2` has bit 1 set, which is
+`RxRDY` on channel A, and this core's line asserts correctly. But the 8259 has
+**IRQ1 masked while the request stands** (`IRR 02`, `IMR` bit 1 set).
+
+So the keystroke question is no longer "does it poll or interrupt" — it
+interrupts, and the interrupt is blocked at the controller. Three readings fit
+and one measurement separates them: our `AP_SIO_IRQ` is the wrong line for this
+machine, or Domain/OS masks it deliberately and services it another way, or this
+core's `ap_i8259` is setting a mask bit it should not. The first is checkable
+against `008778-03` Table 2-3 without running anything.
+
+*Verification: the two boots above, `ctest` 121/121, and the report block itself,
+which is what turned a twenty-minute probe-and-revert into a line of output.*
