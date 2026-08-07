@@ -13789,3 +13789,64 @@ is reached".*
 It is still a hand-maintained list, which is the honest state of it. What is
 different is that it is complete, and that the `boot type` diagnostic reports a
 flag that was asked for and did nothing -- the failure this class produces.
+
+## A regression, bisected and named: pacing fixes the display boot and breaks the console one
+
+**This is a known defect in `main` and is recorded rather than left to be
+rediscovered.**
+
+A console-only boot — no `--screen`, disk and seeded battery, the configuration
+that reached `Self tests passed.` and the Domain/OS halt earlier this session —
+now prints **nothing** and blinks:
+
+    known good   FF EF DF FE EE DE CF BF AF 9F 8F FE FB FA F9 ...  (6,886 writes)
+                 final PC 3C456BB0, the Domain/OS halt
+    now          FF EF DF FE EE DE CF BF AF 9F ED 0D ED 0D ...     (87 writes)
+                 final PC 000061EE, inside the blink loop's delay
+
+### Bisected to the keyboard wire's pacing, not to the mode announcement
+
+`announce_mode` disabled: **still blinks**, same codes. Pacing disabled
+(`character = 0`): **the known-good sequence returns**, 6,886 writes and
+`3C456BB0`. So the pacing is the change.
+
+And the two paths genuinely conflict. With pacing off, the display boot's
+`KEYBOARD TEST # 0` fails again — the old twenty-code sequence ending `FC` at
+`000007A2`. So neither setting is right for both.
+
+### What it is *not*
+
+The keyboard exchange itself completes either way. The console path uses the
+`006770` table exchange, not the `0072EE` one, and with pacing on it passes:
+`006798` (a matched echo) at 605,750, `0067D8` (all nine bytes done) at 605,904,
+and `006796` — the mismatch retry — **never**.
+
+### Where it fails
+
+The twelfth posted code, `ED`, goes at **1,024,933** instructions from `00005E42`
+with `a2 = 0005D801` — the **monochrome display controller's identification
+register** on a machine with no display fitted. So the failure is in the display
+probe, four hundred thousand instructions after the keyboard finished.
+
+The candidate that fits: a five-byte reply paced at one character per 9.17 ms
+takes ~285,000 instructions to arrive, so bytes are still landing in the receive
+FIFO while the firmware has moved on to the display test — where an unexpected
+`RxRDY`, or the interrupt it raises, reaches code that was not expecting one.
+**If that is right the pacing is not the defect but the thing that exposed one**,
+because a real keyboard also answers over milliseconds. It is a candidate and it
+is not measured.
+
+### Why it is left in rather than reverted
+
+The pacing rests on a measurement — `SR_OVERRUN` set, five bytes into a
+three-deep FIFO — and it took the display boot from a failed self-test to
+Domain/OS on the framebuffer. Reverting would restore one integration check by
+undoing a fix with independent evidence, and would hide whatever the console path
+is really tripping over. `ctest` is green either way; these are integration
+checks, not tests.
+
+*Next, and it is one measurement rather than a choice: instrument the receive
+FIFO across the window from 605,904 to 1,024,933 and find out what arrives, when,
+and whether an interrupt is taken. If a late byte is the mechanism, the question
+becomes what the firmware does about it — not whether the wire should have a
+length.*

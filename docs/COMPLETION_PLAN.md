@@ -4643,6 +4643,14 @@ boot below, and the boot is not attempted until they are done.
       `putdata`", which is true and not the whole statement; the one-byte echo
       tried and reverted earlier satisfied the first of the two reads and could
       never satisfy the second.
+      **And it costs the console boot, which is a known regression in `main`.**
+      Bisected: the *pacing*, not the announcement. A console-only boot that
+      reached the Domain/OS halt now blinks, failing at the display-controller
+      probe 400,000 instructions after the keyboard finished -- the paced reply
+      is still arriving when the firmware has moved on. Left in rather than
+      reverted, because the pacing rests on a measured overrun and took the
+      display boot to Domain/OS; the next step is one measurement, not a choice.
+      Detail in `PROJECT_STATUS.md`.
       *Verification: `SELF TESTS IN PROGRESS / KEYBOARD TEST # 0 STARTED / CPU
       TEST # 7 STARTED` and four memory modules, with no failure line -- the
       oracle's screen plus the module this machine has and it does not. Final PC
