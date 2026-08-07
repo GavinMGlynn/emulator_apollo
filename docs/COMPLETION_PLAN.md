@@ -4822,6 +4822,25 @@ Only after the reference core is proven, and only under an identity harness.
         wherever a device's output would feed back into an instruction still
         executing. That case is what a cycle-steppable CPU makes reachable, and
         it is the reason to want one beyond speed.
+- [ ] **Where the time goes, measured** -- so this phase starts from a profile
+      rather than from a guess. A plain boot at ~875 ns per emulated instruction,
+      which is some 2,600 host clocks each:
+
+          15.5% resolve            13.2% ap_board_bus_tick
+           9.2% fill_to_decoded     9.1% ap_board_sample_interrupts
+           7.4% ap_m68030_step      4.7% ap_m68030_arb_tick
+           3.6% ap_timer_advance    3.2% ap_sio_advance
+           1.7% ap_board_advance    1.5% ap_mc146818_advance
+
+      **Two thirds is per-instruction board work** -- bus tick, interrupt
+      sampling, arbitration and four device modules advanced whether or not
+      anything changed -- and about a third is the processor. That is the
+      cycle-stepped design doing what it was specified to do, and it is what
+      `next_event()`/`skip(n)` below is for. It accounts for perhaps 3x; the
+      remainder is not yet explained, and the processor's own third at ~800
+      clocks an instruction is slow for an interpreter.
+      *Cost in practice: a Domain/OS boot to a login prompt is about 1.2 billion
+      instructions, twenty minutes here against roughly two on the real machine.*
 - [ ] Squeeze the reference core first: LTO, `flatten` on the run loops,
       idle-skip guards naming each subsystem's no-op states, cached arbitration
       results, cached per-cycle re-derived values. *Verification: probe goldens
