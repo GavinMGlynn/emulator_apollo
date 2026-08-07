@@ -1486,8 +1486,24 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
    * the diagnostic printed `port: 8 bit(s), receiver enabled, free, polls
    * 203,962 (need 2000)` -- all four conditions true, and the code testing them
    * never ran. */
-  if (trace || trace_last > 0u || input_length > 0u || console ||
-      script.steps > 0u || key < AP_KBD_KEYS || typed_length > 0u) {
+  /* **Every per-step feature, and the list had less than half of them.** The
+   * stops, the progress report and the watch limits all live inside this loop
+   * and none of them was a reason to enter it -- so `--boot-progress` was mute,
+   * `--boot-stop-pc` did nothing, and two conclusions of the form "that address
+   * is never executed" were drawn from runs that were never watching. Every
+   * measurement in this session had to carry a `--boot-console` it did not
+   * otherwise need, to force the loop on.
+   *
+   * The contract is that anything checked per instruction belongs here. It is
+   * still a hand-maintained list, which is the honest state of it -- but it is
+   * now complete, and the `boot type` diagnostic reports when a flag was asked
+   * for and did nothing, which is the failure this class produces. */
+  const bool wants_steps =
+      trace || trace_last > 0u || input_length > 0u || console ||
+      script.steps > 0u || key < AP_KBD_KEYS || typed_length > 0u ||
+      progress_every > 0u || stop_pc != 0u || stop_physical_pc != 0u ||
+      stop_on_watch != 0u || stop_on_watch_read != 0u || stop_on_refusal;
+  if (wants_steps) {
     /* Step by step, reporting the program counter and the active stack pointer.
      *
      * A7 is the observable this exists for. A wrong PC is where damage becomes

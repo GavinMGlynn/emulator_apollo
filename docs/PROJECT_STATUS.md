@@ -13763,3 +13763,29 @@ either. An instruction count would have been a measurement of one boot.
 `set_mode`, and as the plan's transcription of `738C`: a statement that is true
 of the case in hand, recorded as though it described the machine. Four instances
 in one session is a pattern rather than a run of bad luck.*
+
+### The step-mode list is complete, and it had less than half of them
+
+The entry above called this "the third time" and documented it. It is now fixed
+rather than documented. The stops, the progress report and the watch limits all
+live inside the step-by-step loop and **none of them was a reason to enter it**:
+
+    trace, trace_last, input_length, console, script.steps, key   <- the list
+    progress_every, stop_pc, stop_physical_pc, stop_on_watch,     <- also
+    stop_on_watch_read, stop_on_refusal                              per-step
+
+So `--boot-progress` was mute, `--boot-stop-pc` did nothing, and two conclusions
+of the form "that address is never executed" were drawn from runs that were
+never watching. Every measurement in this session carried a `--boot-console` it
+did not otherwise need, purely to force the loop on.
+
+*Verification: `--boot-stop-pc 7270` unaided stops at 3,215,759 instructions,
+the same count the console-forced run gave, and `--boot-progress 500000` emits
+its lines with no other flag. And `--boot-stop-pc 73D8` now fires **neither**
+way -- because the keyboard test passes and the receive timeout no longer
+happens, which is the control that separates "the stop works" from "the address
+is reached".*
+
+It is still a hand-maintained list, which is the honest state of it. What is
+different is that it is complete, and that the `boot type` diagnostic reports a
+flag that was asked for and did nothing -- the failure this class produces.
