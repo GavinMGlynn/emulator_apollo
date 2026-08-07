@@ -13966,3 +13966,41 @@ read them or time out?
 *That is one Lua tap on the oracle's serial 1 data register with its program
 counters — the same trace taken here, on the other machine. It is the seventh
 measurement in this item and the first that compares like with like.*
+
+### The comparison, taken: the oracle's keyboard answers that `00` with nothing
+
+The same trace on the other machine — a read *and* write tap on serial 1's data
+register with program counters, tapped as the single dword `010404`-`010407`
+because a callback on the ISR's 65,536 polls per exchange makes a run unusable:
+
+    TX 00 t=0.126038 pc=0000676E          <- the 00
+    TX 01 t=0.126041 pc=000067B8          <- and straight on to the table
+    RX 01 t=0.135209 pc=000067D4
+    TX 02 / RX 02 ... through 42
+    TX 00 t=0.211915 pc=0000623C
+
+**No RX between the `00` at `0000676E` and the first table byte.** The oracle's
+keyboard says nothing at all, and there is no `FF 11 16` exchange anywhere in
+the window — so no five-byte burst to arrive late.
+
+Which identifies it. `apollo_kbd.cpp` guards the announcement:
+
+    else if (data == 0x00) {
+        if (m_loopback_mode) { set_mode(...); m_loopback_mode = 0; } }
+
+At `0000676E` the oracle's keyboard is **not in loopback**, so `00` does
+nothing. Ours *is*, so it announces `FF 00` — and this core then runs an
+`FF 11 16` exchange the oracle never reaches, whose five-byte answer is what
+`0068AC` later reads.
+
+So the defect is a **state** difference and not a timing one: our keyboard's
+loopback flag is set where the oracle's is clear, at a point both machines pass
+through. The pacing did not cause it and reverting the pacing would only hide it
+again behind the FIFO overrun.
+
+*Next: which byte cleared the oracle's loopback before `0000676E` and why this
+core's is still set — both traces exist, so it is a diff of the command stream
+up to that instant rather than a new measurement.*
+
+*The oracle patch is reverted and rebuilt; `ext/mame` carries only its four
+standing local edits.*
