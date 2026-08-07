@@ -14173,3 +14173,29 @@ a sum or a signature. Seeding `2B` alone was measured and changed nothing. What
 the fifteen should hold is a question for `SELF_TEST`'s own code at `010047CE`,
 which is dumpable — the image is in RAM and `--dump-mem 1002000:3400` already
 retrieves it.*
+
+### A caution on that program counter, and on `--dump-mem` against a translated PC
+
+`--boot-watch-read 010931` named `010047CE`, and disassembling the dumped image
+there gives `addq.w #$4,a7` — an instruction that reads no memory, at every one
+of twenty-five trial alignments. So the two do not refer to the same bytes.
+
+The reason is the pair of address spaces, and it applies to every reading of this
+kind taken after the MMU comes on. `executing_address` is the **logical** program
+counter; `--dump-mem` fetches **physical** memory. At 196 million instructions
+translation is enabled, so logical `010047CE` and physical `010047CE` are only
+the same address if the mapping happens to be identity there, and nothing says it
+is. The earlier use of the same flag — `00178A`, `cmpi.l #$1234ABCD,$4(a0)` —
+was in the boot PROM with translation *off*, where they are trivially the same,
+which is why it worked and why the difference had not shown up.
+
+So the reader of register `31` is identified as **loaded code rather than the
+boot PROM**, which is the finding that matters and does not depend on the
+address, and its exact site is not yet established. `--dump-logical` is the
+right instrument for the follow-up and it already exists — the earlier attempt to
+use it failed only because it was pointed at an address the *current* context
+does not map, which is the same lesson from the other side.
+
+*Recorded rather than left as a loose end: an instrument that gives a plausible
+address in the wrong space is the same class of trap as the ones this session has
+been finding all day, and it would have been believed.*
