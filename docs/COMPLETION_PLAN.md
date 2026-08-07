@@ -4685,6 +4685,27 @@ boot below, and the boot is not attempted until they are done.
       `_skip_deleted` read §6.3's three modifiers, with `MT` actionable and
       `MF`/`SK` format-limited by the `.afd` in the same way the `.awd` ID field
       was before its sidecar -- reported rather than silently dropped.
+      **The remaining four parts walked.**
+      - **Bt458: clean.** Nothing defined and unused.
+      - **MC146818: `A_DIVIDER` is never read.** Register A bits 6-4 are the
+        oscillator and divider control -- the field that decides whether the
+        clock *runs at all*. This core keeps time regardless of what is written
+        there, so a driver that stops the divider still sees the seconds
+        advance.
+      - **MC6840: two.** `CR_INTERNAL_CLOCK`, bit 1, selects the internal `E`
+        clock against the external `Cx` input and is never read, so every timer
+        runs on the internal clock whatever a driver asks for. And
+        `STATUS_TIMER1`/`2`/`3`, the per-timer interrupt flags, are **never
+        set** -- yet a *test* references one, which is the sharpest example yet
+        of a suite that cannot see what is missing.
+      - **SC-499: four transcribed figure timings are never applied** --
+        `T_DATA_TO_REQUEST`, `T_REQUEST_TO_NOT_READY`, `T_CLOSE_MIN` and
+        `T_CLOSE_MAX`. Someone read the figures, wrote the constants down, and
+        the data path does not use them. That is the `CR_MISC_RESET_BREAK`
+        pattern again: a constant defined from a table and never wired up is
+        the visible half of an unfinished reading.
+      *Recorded rather than implemented: this is the end of what one session can
+      carry, and a precise list is worth more than a rushed fix.*
       *The pattern across both corrections: counting decoded **cases** is not
       counting implemented **fields**, and the first is what a case-coverage
       check measures. That is the same blind spot the header-grep sweep had,
