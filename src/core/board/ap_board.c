@@ -557,6 +557,26 @@ void ap_board_advance(ap_board_t *board, ap_time_t now) {
                           (unsigned)(sizeof board->kbd_reply.bytes);
       board->kbd_reply.bytes[at] = reply[i];
     }
+    if (take > 0u && board->kbd_reply.count == 0u) {
+      /* **A reply cannot begin before a character time has passed**, and the
+       * queue used to let the first byte of a burst go on the very next
+       * advance -- so an answer started arriving microseconds after the command
+       * that provoked it, and only the bytes *after* the first were paced.
+       *
+       * That is not a detail. The boot PROM sends `00` and then, within
+       * microseconds, resets the receiver (`CRA = 25`, whose miscellaneous
+       * command flushes the FIFO) before starting the next exchange. On real
+       * hardware the keyboard's answer is still on the wire at that moment and
+       * the flush discards nothing; with the first byte delivered immediately,
+       * it lands *before* the flush and the alignment of everything after it
+       * differs.
+       *
+       * So the clock starts when the burst is queued, not when the first byte
+       * goes. */
+      board->kbd_reply.next_at =
+          now + ap_sio_character_time(&board->sio, KBD_UNIT, KBD_CHANNEL,
+                                      AP_SIO_KEYBOARD_BAUD);
+    }
     board->kbd_reply.count += take;
   }
 

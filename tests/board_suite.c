@@ -404,6 +404,42 @@ static void test_the_keyboards_reply_arrives_at_the_lines_rate(void) {
     ap_board_advance(&b, now);
   }
 
+  /* **The first byte of a reply waits too.** A keyboard cannot answer before it
+   * has received the command and shifted a character back, so the clock starts
+   * when the answer is queued and not when the first byte goes. Letting the
+   * first one through immediately made an answer begin microseconds after its
+   * command -- and the boot PROM resets the receiver in that gap, flushing a
+   * FIFO that on real hardware is still empty. */
+  {
+    ap_board_t fresh;
+    init(&fresh);
+    ap_board_write(&fresh, AP_SIO1_ADDR + (AP_MC68681_MR_A * 2u),
+                   AP_SIO_KEYBOARD_MR1, &ok);
+    ap_board_write(&fresh, AP_SIO1_ADDR + (AP_MC68681_SR_CSR_A * 2u),
+                   AP_SIO_KEYBOARD_CSR, &ok);
+    ap_board_write(&fresh, AP_SIO1_ADDR + (AP_MC68681_CR_A * 2u), 0x05u, &ok);
+    /* `00` in loopback is answered with the two-byte mode announcement. */
+    ap_board_write(&fresh, AP_SIO1_ADDR + (AP_MC68681_RB_TB_A * 2u), 0x00u,
+                   &ok);
+    ap_board_advance(&fresh, 1u);
+    TEST_ASSERT_TRUE(fresh.kbd_reply.count > 0u);
+    /* Queued, and *nothing* has reached the receiver yet. */
+    TEST_ASSERT_EQUAL_HEX8(0u,
+                           ap_board_read(&fresh, AP_SIO1_ADDR +
+                                                     (AP_MC68681_SR_CSR_A * 2u),
+                                         &ok) &
+                               AP_MC68681_SR_RXRDY);
+    /* The clock started at the advance that queued it, so a whole character
+     * time *after* that instant is when the first byte is due. */
+    ap_board_advance(&fresh, character + 1u);
+    TEST_ASSERT_NOT_EQUAL_HEX8(0u,
+                               ap_board_read(&fresh,
+                                             AP_SIO1_ADDR +
+                                                 (AP_MC68681_SR_CSR_A * 2u),
+                                             &ok) &
+                                   AP_MC68681_SR_RXRDY);
+  }
+
   /* Not all at once: whatever the keyboard had to say, the line has carried at
    * most one character per character time and the FIFO has not overrun. */
   TEST_ASSERT_EQUAL_HEX8(0u, ap_board_read(&b, AP_SIO1_ADDR +

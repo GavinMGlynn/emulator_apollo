@@ -14038,3 +14038,54 @@ apart into a 1200-baud line where a character takes 9.17 ms — or
 answers whether this core's announcement is wrong or the oracle's is missing —
 and this project expects to out-accurate the oracle, so the answer is not assumed
 either way.*
+
+## The regression is fixed, and our keyboard was right all along
+
+Instrumenting the oracle's keyboard — `m_loopback_mode` at every `kgetchar` and
+every `xmit_char`, since reverted — ends the question:
+
+    KBD got 00 loopback=1     KBD xmit ff / 00      <- it *does* announce
+    KBD got ff → xmit ff
+    KBD got 11 → xmit 11
+    KBD got 16 → xmit 00 / ff / 00                  <- and *does* run FF 11 16
+    ...
+    KBD got 01 → xmit 01                            <- then the table
+
+**MAME's keyboard emits exactly what ours does**, byte for byte, including the
+`FF 00` announcement and the five-byte `FF 11 16` answer. So `ap_kbd` is correct
+and every reading that blamed it — including this session's own — is wrong.
+
+Those bytes simply never reach the oracle's *firmware*: the bus-level trace shows
+no RX between the `00` and the table. The firmware writes `CRA = 25` microseconds
+after the `00`, whose miscellaneous command **resets the receiver and flushes the
+FIFO**, and on real hardware the keyboard's answer is still on the wire at that
+instant — so the flush discards nothing and the answer arrives afterwards into a
+clean FIFO, where the table exchange has already begun.
+
+### The defect was in the pacing after all, and in one line of it
+
+The queue let the **first** byte of a burst go on the very next advance: only the
+bytes *after* the first were paced. So an answer began arriving microseconds
+after the command that provoked it, landing *before* the firmware's flush instead
+of after it, and the alignment of everything downstream differed.
+
+A keyboard cannot answer before it has received the command and shifted a
+character back. The clock now starts when the burst is **queued**, not when the
+first byte goes.
+
+    console  posted FF EF DF FE EE DE CF BF AF 9F, `Self tests passed.`,
+             final PC 3C456B98 -> 01081B98, the Domain/OS halt
+    display  posted ... FC 8F FE FB FA F9 (30 codes), final PC 000077AC,
+             KEYBOARD TEST # 0 passing
+
+**Both boots work.** The regression is gone and nothing was traded for it.
+
+*Verification: `board_suite` — the reply is queued and the receiver is still
+empty one advance later, and `RxRDY` appears a character time after the burst was
+queued rather than after the first byte went. Plus both boots above, and `ctest`
+121/121.*
+
+*The lesson, and it is the session's seventh instance: "the first byte can go
+immediately" was never stated or measured. It was what the code happened to do,
+and it survived because the FIFO overrun it caused looked like the thing being
+fixed.*

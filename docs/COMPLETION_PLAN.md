@@ -4643,13 +4643,15 @@ boot below, and the boot is not attempted until they are done.
       `putdata`", which is true and not the whole statement; the one-byte echo
       tried and reverted earlier satisfied the first of the two reads and could
       never satisfy the second.
-      **And it costs the console boot, which is a known regression in `main`.**
-      Bisected: the *pacing*, not the announcement. A console-only boot that
-      reached the Domain/OS halt now blinks, failing at the display-controller
-      probe 400,000 instructions after the keyboard finished -- the paced reply
-      is still arriving when the firmware has moved on. Left in rather than
-      reverted, because the pacing rests on a measured overrun and took the
-      display boot to Domain/OS; the next step is one measurement, not a choice.
+      **It cost the console boot for six commits, and the cause was one line of
+      the pacing.** The queue let the *first* byte of a burst go on the next
+      advance, so an answer began microseconds after its command -- landing
+      before the firmware's `CRA = 25` receiver flush instead of after it, where
+      real hardware puts it. The clock now starts when the burst is queued. Both
+      boots work: console to `Self tests passed.` and the Domain/OS halt, display
+      to `KEYBOARD TEST # 0` passing. Instrumenting the oracle's keyboard proved
+      `ap_kbd` emits exactly what MAME's does, byte for byte, so every reading
+      that blamed the keyboard -- including this session's -- was wrong.
       Detail in `PROJECT_STATUS.md`.
       *Verification: `SELF TESTS IN PROGRESS / KEYBOARD TEST # 0 STARTED / CPU
       TEST # 7 STARTED` and four memory modules, with no failure line -- the
