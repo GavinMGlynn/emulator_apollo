@@ -4618,7 +4618,21 @@ boot below, and the boot is not attempted until they are done.
       The firmware writes `CSRB = 77`, so code 7 on both halves -- one of the
       three that was wrong. It reads correctly today only because this board
       leaves `ACR[7]` clear and selects set 1.
-      *Remaining: sheet 3 -- `CR`, `SR`, `OPCR` and `OPR`.*
+      **Sheet 3 completes the sweep, and gives a ninth.** `CR`'s three command
+      fields and `SR`'s eight bits both match. `OPCR` does not: it has **six
+      independent selects** and this core acted on one -- `OPCR[7]`, because a
+      board register happened to need it -- with the other five stored and
+      inert. `ap_mc68681_output_pin` now computes every pin from `OPCR`, `OPR`
+      and the status it selects, complemented as sheet 5's table requires.
+      The clock sources on `OP3`'s and `OP2`'s upper codes are **not** modelled
+      and say so: this core has no bit clock, and a level invented for one
+      would claim a waveform that does not exist.
+      **The MC68681 sweep is complete: nine defects across five sheets.**
+      Transposed parity fields; four absent mode-register bits; an ungated
+      input-change interrupt; a pinless input bit; three wrong baud rates; and
+      five inert `OPCR` selects. `mc68681_suite` 37 -> 45.
+      *Next, per the rule this session added to `CLAUDE.md`: the same walk for
+      the other parts before any of them is tested again.*
       That is the first defect of this phase that is genuinely ours, and it is
       narrow: one bit, one register, and a known producer.
       *Verification: `RxRDY` set on channel A by the time `000073EC` reads it,

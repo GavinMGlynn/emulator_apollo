@@ -361,6 +361,63 @@ bool ap_mc68681_transmit(ap_mc68681_t *duart, unsigned channel,
   return true;
 }
 
+bool ap_mc68681_output_pin(const ap_mc68681_t *duart, unsigned pin) {
+  if (duart == NULL || pin > 7u) {
+    return false;
+  }
+  /* The register bit, complemented -- sheet 5's output port table overbars
+   * every `OPR` entry, and this core's own diagnostic interrupt was built on
+   * that reading. */
+  const bool from_opr = (duart->opr & (uint8_t)(1u << pin)) == 0u;
+
+  switch (pin) {
+  case 7u:
+    return (duart->opcr & 0x80u) != 0u
+               ? (duart->channel[1].sr & AP_MC68681_SR_TXRDY) != 0u
+               : from_opr;
+  case 6u:
+    return (duart->opcr & 0x40u) != 0u
+               ? (duart->channel[0].sr & AP_MC68681_SR_TXRDY) != 0u
+               : from_opr;
+  case 5u:
+  case 4u: {
+    /* `RxRDY/FFULL`, and *which* is the same `MR1[6]` selection the interrupt
+     * bit uses -- §4.2.1.2 says the bit "also causes the selected bit to be
+     * output on the parallel output OP4". One choice, two consumers. */
+    const unsigned index = (pin == 5u) ? 1u : 0u;
+    const uint8_t select = (uint8_t)(pin == 5u ? 0x20u : 0x10u);
+    if ((duart->opcr & select) == 0u) {
+      return from_opr;
+    }
+    const ap_mc68681_channel_t *ch = &duart->channel[index];
+    const uint8_t condition = (ch->mr[0] & AP_MC68681_MR1_RXRDY_IS_FFULL) != 0u
+                                  ? AP_MC68681_SR_FFULL
+                                  : AP_MC68681_SR_RXRDY;
+    return (ch->sr & condition) != 0u;
+  }
+  case 3u: {
+    const unsigned code = (unsigned)((duart->opcr >> 2) & 0x03u);
+    if (code == 0u) {
+      return from_opr;
+    }
+    if (code == 1u) {
+      /* The counter/timer output, which this core does model. */
+      return duart->counter_output;
+    }
+    /* `TxCB`/`RxCB`: a bit clock this core does not have. */
+    return false;
+  }
+  case 2u: {
+    const unsigned code = (unsigned)(duart->opcr & 0x03u);
+    /* Every non-zero code here is a channel A clock, and none exists. */
+    return code == 0u ? from_opr : false;
+  }
+  default:
+    /* `OP1` and `OP0` have no select: always the register bit, complemented. */
+    return from_opr;
+  }
+}
+
 void ap_mc68681_set_input(ap_mc68681_t *duart, uint8_t value) {
   uint8_t changed = (uint8_t)(duart->input ^ value);
   duart->input = value;

@@ -82,6 +82,62 @@ static void test_the_transmitter_commands_move_the_ready_bits_as_documented(void
  * 3", and they differ at five. Code 7 is one of them -- and the firmware writes
  * `CSRB = 77`, so it reads correctly only because this board leaves `ACR[7]`
  * clear. */
+/* Table 4-5 sheet 3 gives `OPCR` six independent selects. This core acted on
+ * one -- `OPCR[7]` -- because a board register happened to need it, and stored
+ * the other five inertly. */
+static void test_every_opcr_select_reaches_its_output_pin(void) {
+  ap_mc68681_t d;
+  ap_mc68681_reset(&d);
+  enable_a(&d);
+
+  /* Default: every pin is its `OPR` bit, **complemented**. */
+  d.opr = 0x00u;
+  for (unsigned pin = 0u; pin < 8u; pin++) {
+    TEST_ASSERT_TRUE(ap_mc68681_output_pin(&d, pin));
+  }
+  d.opr = 0xFFu;
+  TEST_ASSERT_FALSE(ap_mc68681_output_pin(&d, 1u));
+  TEST_ASSERT_FALSE(ap_mc68681_output_pin(&d, 0u));
+
+  /* `OP6` follows channel A's `TxRDY` once selected -- and not before, which
+   * is the half that was missing. */
+  ap_mc68681_write(&d, AP_MC68681_IP_OPCR, 0x40u);
+  TEST_ASSERT_TRUE((d.channel[0].sr & AP_MC68681_SR_TXRDY) != 0u);
+  TEST_ASSERT_TRUE(ap_mc68681_output_pin(&d, 6u));
+  ap_mc68681_write(&d, AP_MC68681_RB_TB_A, 0x41u); /* clears TxRDY */
+  TEST_ASSERT_FALSE(ap_mc68681_output_pin(&d, 6u));
+
+  /* `OP4` follows channel A's receiver bit, and *which* bit is `MR1[6]`'s
+   * choice -- §4.2.1.2: the selection "also causes the selected bit to be
+   * output on the parallel output OP4". */
+  ap_mc68681_t rx;
+  ap_mc68681_reset(&rx);
+  enable_a(&rx);
+  ap_mc68681_write(&rx, AP_MC68681_IP_OPCR, 0x10u);
+  ap_mc68681_receive(&rx, 0u, 0x41u);
+  TEST_ASSERT_TRUE(ap_mc68681_output_pin(&rx, 4u)); /* RxRDY */
+
+  ap_mc68681_t full;
+  ap_mc68681_reset(&full);
+  ap_mc68681_write(&full, AP_MC68681_MR_A, AP_MC68681_MR1_RXRDY_IS_FFULL);
+  enable_a(&full);
+  ap_mc68681_write(&full, AP_MC68681_IP_OPCR, 0x10u);
+  ap_mc68681_receive(&full, 0u, 0x41u);
+  TEST_ASSERT_FALSE(ap_mc68681_output_pin(&full, 4u)); /* FFULL: not yet */
+  ap_mc68681_receive(&full, 0u, 0x42u);
+  ap_mc68681_receive(&full, 0u, 0x43u);
+  TEST_ASSERT_TRUE(ap_mc68681_output_pin(&full, 4u));
+
+  /* `OP3` code 01 is the counter/timer output, which this core does model. */
+  ap_mc68681_t timer;
+  ap_mc68681_reset(&timer);
+  ap_mc68681_write(&timer, AP_MC68681_IP_OPCR, 0x04u);
+  timer.counter_output = true;
+  TEST_ASSERT_TRUE(ap_mc68681_output_pin(&timer, 3u));
+  timer.counter_output = false;
+  TEST_ASSERT_FALSE(ap_mc68681_output_pin(&timer, 3u));
+}
+
 static void test_the_second_baud_set_is_not_a_copy_of_the_first(void) {
   /* Where they agree. */
   TEST_ASSERT_EQUAL_UINT(110u, ap_mc68681_baud(0x1u, false));
@@ -997,6 +1053,7 @@ int main(void) {
   RUN_TEST(test_the_output_port_has_separate_set_and_clear_addresses);
   RUN_TEST(test_resetting_the_receiver_empties_the_fifo);
   RUN_TEST(test_the_transmitter_commands_move_the_ready_bits_as_documented);
+  RUN_TEST(test_every_opcr_select_reaches_its_output_pin);
   RUN_TEST(test_the_second_baud_set_is_not_a_copy_of_the_first);
   RUN_TEST(test_the_input_port_reads_bit_seven_as_one);
   RUN_TEST(test_cts_gates_the_transmitter_when_mr2_selects_it);

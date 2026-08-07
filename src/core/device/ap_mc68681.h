@@ -406,6 +406,35 @@ void ap_mc68681_receive_framed(ap_mc68681_t *duart, unsigned channel,
  * `ISR[7]`. */
 void ap_mc68681_set_input(ap_mc68681_t *duart, uint8_t value);
 
+/* The level on an output pin, `OP0` to `OP7`.
+ *
+ * Table 4-5 sheet 3 gives `OPCR` six independent selects, and this core acted
+ * on one of them -- `OPCR[7]`, because a board register happened to need it.
+ * The other five were stored and inert, which is the same defect in five
+ * places:
+ *
+ *     OP7  0 = OPR[7]   1 = TxRDYB
+ *     OP6  0 = OPR[6]   1 = TxRDYA
+ *     OP5  0 = OPR[5]   1 = RxRDYB/FFULLB
+ *     OP4  0 = OPR[4]   1 = RxRDYA/FFULLA
+ *     OP3  00 = OPR[3]  01 = C/T output   10 = TxCB(1X)  11 = RxCB(1X)
+ *     OP2  00 = OPR[2]  01 = TxCA(16X)    10 = TxCA(1X)  11 = RxCA(1X)
+ *
+ * `OP1` and `OP0` have no select and are always their `OPR` bit -- §4.2.11's
+ * note adds that they double as the two channels' RTS lines when `MR1[7]` or
+ * `MR2[5]` asks for it, which is what `AP_MC68681_OP_RTS` drives.
+ *
+ * **The pin is the complement of the register bit**, which sheet 5's output
+ * port table shows by overbarring every `OPR` entry. So this returns the *pin*
+ * level and a caller reading `opr` directly gets the opposite.
+ *
+ * The clock sources on `OP3`'s and `OP2`'s upper codes are not modelled: this
+ * core has no bit clock to put on a pin, and a level invented for one would be
+ * a claim about a waveform that does not exist. Those codes return false and
+ * say so here rather than silently reading as an `OPR` bit. */
+[[nodiscard]] bool ap_mc68681_output_pin(const ap_mc68681_t *duart,
+                                         unsigned pin);
+
 /* One counter/timer clock tick. */
 void ap_mc68681_clock(ap_mc68681_t *duart);
 
