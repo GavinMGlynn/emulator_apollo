@@ -675,4 +675,13 @@ void ap_board_write(ap_board_t *board, uint32_t address, uint8_t value,
 [[nodiscard]] bool ap_board_key_press(ap_board_t *board, unsigned key);
 [[nodiscard]] bool ap_board_key_release(ap_board_t *board, unsigned key);
 
+/* Type a character, in the **compatibility** set: the keyboard sends Table
+ * 12-1's code rather than a matrix index, which is what a machine sitting at a
+ * prompt is reading. False for a character no key on this keyboard produces.
+ *
+ * Not a press: there is no transition to track and no release to send, because
+ * the byte on the wire *is* the character. See the implementation for why shift
+ * needs no separate transmission. */
+[[nodiscard]] bool ap_board_key_type(ap_board_t *board, char ascii);
+
 #endif /* APOLLO_BOARD_AP_BOARD_H */

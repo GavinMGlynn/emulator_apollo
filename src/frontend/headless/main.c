@@ -108,6 +108,10 @@ static void print_usage(const char *program_name) {
           "                        makes the boot PROM answer)\n"
           "  --boot-input-interval US  emulated microseconds between scripted\n"
           "                        characters; the wire's own floor if 0\n"
+          "  --boot-type TEXT      type TEXT on the keyboard, one character each\n"
+          "                        time the machine settles into an input poll --\n"
+          "                        which is what a prompt deep inside an operating\n"
+          "                        system needs and a step number cannot give\n"
           "  --boot-key N          press and release keyboard key N (a matrix\n"
           "                        index 0-7F, not a character). Delivered when the\n"
           "                        firmware is polling for input, not merely able\n"
@@ -1105,7 +1109,7 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
                           uint32_t watch, const char *input, unsigned input_unit,
                           unsigned input_channel, uint8_t input_rate,
                           unsigned input_interval_us,
-                          unsigned key, bool console,
+                          unsigned key, const char *typed, bool console,
                           ap_screen_kind_t screen, uint32_t node_id,
                           ap_model_id_t model, const char *screenshot,
                           unsigned trace_last, uint32_t stop_pc,
@@ -1391,6 +1395,13 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
    * DUARTs and branches differently for each, so which one carries the console
    * is a question the firmware answers rather than one to assume. */
   unsigned key_state = 0u; /* 0 press, 1 release, 2 done */
+  /* Typed text, and where the poll counter stood when the last character went.
+   * The *rearm* is the point: a cumulative count past the threshold stays past
+   * it for ever, so one baseline per character is what makes the second wait
+   * for a fresh poll rather than going out in the same instant as the first. */
+  size_t typed_sent = 0u;
+  const size_t typed_length = typed != NULL ? strlen(typed) : 0u;
+  unsigned typed_polls_at = 0u;
   size_t input_sent = 0;
   const size_t input_length = input != NULL ? strlen(input) : 0u;
 
@@ -1623,6 +1634,36 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
                                              : ap_board_key_release(board, key);
         if (moved) {
           key_state++;
+        }
+      }
+
+      /* `--boot-type`, on the same trigger and for the same reason: a character
+       * goes when the machine is *waiting* for one. The difference is that a
+       * string needs the condition to rearm, so the threshold is measured from
+       * the last delivery rather than from zero.
+       *
+       * This is what a prompt deep inside an operating system needs and a fixed
+       * step number cannot give: Domain/OS's calendar question arrives some
+       * seven hundred million instructions in, and any constant chosen for it
+       * would be a measurement of one boot rather than a condition. */
+      if (typed_sent < typed_length &&
+          !ap_sio_receiver_ready(&board->sio, 0u, 0u) &&
+          ap_sio_character_bits(&board->sio, 0u, 0u) == 8u &&
+          ap_sio_receiver_enabled(&board->sio, 0u, 0u) &&
+          board->sio.register_reads[0][AP_MC68681_SR_CSR_A] >=
+              typed_polls_at + AP_BOOT_KEY_POLLS) {
+        if (ap_board_key_type(board, typed[typed_sent])) {
+          typed_sent++;
+          typed_polls_at =
+              board->sio.register_reads[0][AP_MC68681_SR_CSR_A];
+        } else {
+          /* A character this keyboard cannot produce. Skipped rather than
+           * retried for ever, and said out loud -- a silently dropped character
+           * makes a script that never worked look like a machine that ignored
+           * it. */
+          fprintf(stderr, "apollo: --boot-type: no key produces %c\n",
+                  typed[typed_sent]);
+          typed_sent++;
         }
       }
       const uint32_t step_pc = machine.cpu.regs.pc;
@@ -2598,6 +2639,7 @@ int main(int argc, char **argv) {
   bool boot_stop_on_refusal = false;
   uint32_t boot_watch_write = 0;
   uint32_t boot_watch_read = 0;
+  const char *boot_typed = NULL;
   unsigned boot_stop_on_watch_read = 0;
   unsigned boot_stop_on_watch = 0;
   uint32_t boot_stop_pc_length = 1u;
@@ -2751,6 +2793,11 @@ int main(int argc, char **argv) {
     if (strcmp(argv[i], "--boot-stop-on-disk-refusal") == 0) {
       boot_stop_on_refusal = true;
       i += 1;
+      continue;
+    }
+    if (strcmp(argv[i], "--boot-type") == 0 && i + 1 < argc) {
+      boot_typed = argv[i + 1];
+      i += 2;
       continue;
     }
     if (strcmp(argv[i], "--boot-key") == 0 && i + 1 < argc) {
@@ -2912,7 +2959,7 @@ int main(int argc, char **argv) {
     return boot_from_prom(boot_prom, boot_limit, boot_trace, boot_watch,
                           boot_input, boot_input_unit, boot_input_channel,
                           (uint8_t)boot_input_rate, boot_input_interval_us,
-                          boot_key, boot_console,
+                          boot_key, boot_typed, boot_console,
                           boot_screen, node_id, opt.model->id, screenshot,
                           boot_trace_last, boot_stop_pc, boot_script,
                           disk_path, battery_path, dump_spec, boot_progress,

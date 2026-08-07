@@ -328,6 +328,43 @@ static void test_a_key_press_reaches_serial_one_channel_a(void) {
       0xCBu, ap_board_read(&b, AP_SIO1_ADDR + (AP_MC68681_RB_TB_A * 2u), &ok));
 }
 
+/* Typing is a **different code set** from pressing. `ap_kbd_press` sends a
+ * matrix index -- the keystate set, where the host translates transitions -- and
+ * the compatibility set sends Table 12-1's character code instead. A machine at
+ * a prompt is reading the second, so a frontend that typed by pressing would put
+ * bytes on the wire that the keyboard never sends in that mode.
+ *
+ * Shift needs no separate transmission: the shifted code *is* the character. */
+static void test_typing_sends_the_character_not_a_matrix_index(void) {
+  ap_board_t b;
+  bool ok = false;
+  init(&b);
+  ap_board_write(&b, AP_SIO1_ADDR + (AP_MC68681_MR_A * 2u),
+                 AP_SIO_KEYBOARD_MR1, &ok);
+  ap_board_write(&b, AP_SIO1_ADDR + (AP_MC68681_SR_CSR_A * 2u),
+                 AP_SIO_KEYBOARD_CSR, &ok);
+  ap_board_write(&b, AP_SIO1_ADDR + (AP_MC68681_CR_A * 2u), 0x01u, &ok);
+
+  TEST_ASSERT_TRUE(ap_board_key_type(&b, 'y'));
+  TEST_ASSERT_EQUAL_HEX8(
+      'y', ap_board_read(&b, AP_SIO1_ADDR + (AP_MC68681_RB_TB_A * 2u), &ok));
+
+  /* A capital comes over as the capital, with no shift key sent before it. */
+  TEST_ASSERT_TRUE(ap_board_key_type(&b, 'Y'));
+  TEST_ASSERT_EQUAL_HEX8(
+      'Y', ap_board_read(&b, AP_SIO1_ADDR + (AP_MC68681_RB_TB_A * 2u), &ok));
+
+  /* RETURN is reachable only as its own code, `CB` -- sending `0D` raw would be
+   * sending a byte no key on this keyboard produces. */
+  TEST_ASSERT_TRUE(ap_board_key_type(&b, '\r'));
+  TEST_ASSERT_EQUAL_HEX8(
+      0xCBu, ap_board_read(&b, AP_SIO1_ADDR + (AP_MC68681_RB_TB_A * 2u), &ok));
+
+  /* And a character no key produces is refused rather than sent as something
+   * plausible. */
+  TEST_ASSERT_FALSE(ap_board_key_type(&b, (char)0x01));
+}
+
 /* ## The keyboard's replies travel at the line's rate, and that is not a detail
  *
  * The wire used to have no length: every reply byte reached the receiver in the
@@ -944,6 +981,7 @@ int main(void) {
   RUN_TEST(test_every_core_board_register_is_reachable_through_the_map);
   RUN_TEST(test_a_key_press_reaches_serial_one_channel_a);
   RUN_TEST(test_the_keyboards_reply_arrives_at_the_lines_rate);
+  RUN_TEST(test_typing_sends_the_character_not_a_matrix_index);
   RUN_TEST(test_a_key_press_into_a_mismatched_port_is_damaged);
   RUN_TEST(test_a_repeated_press_puts_nothing_on_the_port);
   RUN_TEST(test_the_boot_prom_region_is_reported_absent);

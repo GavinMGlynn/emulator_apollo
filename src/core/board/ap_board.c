@@ -1069,6 +1069,36 @@ bool ap_board_key_release(ap_board_t *board, unsigned key) {
   return deliver_key(board, code);
 }
 
+/* Type one character, which is a **different set** from `key_press`'s.
+ *
+ * `ap_kbd_press` sends a matrix index -- the keystate set, where the host does
+ * the translating and sees transitions. In the compatibility set the keyboard
+ * sends the *character code* instead, and that is the set a machine sitting at
+ * a prompt is reading. So typing is not pressing: it is putting Table 12-1's
+ * code on the wire, and `ap_kbd_encode` is the table lookup that produces it.
+ *
+ * Shift is not a separate transmission here. The shifted code *is* the
+ * character, so `encode`'s shift flag says how a person would produce it and
+ * nothing needs sending for it -- which is why a caller that dutifully pressed
+ * a shift key first would send a byte the keyboard never sends in this set.
+ *
+ * The keypad's codes are two bytes, `FE` then the character. Both go, high byte
+ * first, because a model that dropped the prefix makes keypad `7`
+ * indistinguishable from the main one. */
+bool ap_board_key_type(ap_board_t *board, char ascii) {
+  uint16_t code = 0u;
+  bool shifted = false;
+  if (board == NULL || !ap_kbd_encode(ascii, &code, &shifted)) {
+    return false;
+  }
+  if ((code & AP_KBD_PREFIX) == AP_KBD_PREFIX) {
+    if (!deliver_key(board, (uint8_t)(AP_KBD_PREFIX >> 8))) {
+      return false;
+    }
+  }
+  return deliver_key(board, (uint8_t)(code & 0x00FFu));
+}
+
 /* One word cycle into the display controller's image memory. `offset` is a byte
  * offset from the base of that memory and `count` the access width. */
 static bool graphics_word_cycle(ap_board_t *board, uint32_t offset,
