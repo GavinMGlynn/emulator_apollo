@@ -1422,7 +1422,7 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
    * for a fresh poll rather than going out in the same instant as the first. */
   size_t typed_sent = 0u;
   const size_t typed_length = typed != NULL ? strlen(typed) : 0u;
-  unsigned typed_polls_at = 0u;
+  ap_time_t typed_at = 0u;
   size_t input_sent = 0;
   const size_t input_length = input != NULL ? strlen(input) : 0u;
 
@@ -1710,14 +1710,31 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
        * measuring either. A count would have been a measurement of one boot. */
       const bool typing_allowed =
           !type_after_mmu || machine.cpu.tc.enable;
-      if (typed_sent < typed_length && typing_allowed &&
+      /* **The poll threshold gates the first character only.** Rearming it per
+       * character was measured wrong twice, with the same shortfall both times:
+       * `polls 217931 (need 219228)`, 1,297 short after seven hundred million
+       * further instructions. Once Domain/OS has taken a character it stops
+       * polling the status registers -- it waits by some other means -- so a
+       * rule that demands two thousand *more* polls waits for something that
+       * will not happen.
+       *
+       * What says the machine is ready for the next one is that it took the
+       * last: `ap_sio_receiver_ready` false means the receive buffer is empty
+       * again. After that the only bound is the wire's, one character time,
+       * which is also the fastest a person could type. */
+      const bool typed_due =
+          typed_sent == 0u
+              ? input_polls(board) >= AP_BOOT_KEY_POLLS
+              : machine.now >= typed_at + ap_sio_character_time(
+                                            &board->sio, 0u, 0u,
+                                            AP_SIO_KEYBOARD_BAUD);
+      if (typed_sent < typed_length && typing_allowed && typed_due &&
           !ap_sio_receiver_ready(&board->sio, 0u, 0u) &&
           ap_sio_character_bits(&board->sio, 0u, 0u) == 8u &&
-          ap_sio_receiver_enabled(&board->sio, 0u, 0u) &&
-          input_polls(board) >= typed_polls_at + AP_BOOT_KEY_POLLS) {
+          ap_sio_receiver_enabled(&board->sio, 0u, 0u)) {
         if (ap_board_key_type(board, typed[typed_sent])) {
           typed_sent++;
-          typed_polls_at = input_polls(board);
+          typed_at = machine.now;
         } else {
           /* A character this keyboard cannot produce. Skipped rather than
            * retried for ever, and said out loud -- a silently dropped character
@@ -2289,7 +2306,7 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
              ap_sio_receiver_ready(&board->sio, 0u, 0u)
                  ? "**holding an unread byte**"
                  : "free",
-             input_polls(board), typed_polls_at + AP_BOOT_KEY_POLLS);
+             input_polls(board), AP_BOOT_KEY_POLLS);
     }
   }
 

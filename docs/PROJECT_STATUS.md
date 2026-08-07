@@ -14199,3 +14199,27 @@ does not map, which is the same lesson from the other side.
 *Recorded rather than left as a loose end: an instrument that gives a plausible
 address in the wrong space is the same class of trap as the ones this session has
 been finding all day, and it would have been believed.*
+
+### The rearm was wrong, and the same shortfall twice said so
+
+`--boot-type` delivered `1 of 2` characters at Domain/OS's calendar prompt, twice,
+and the diagnostic gave the same number both times:
+
+    polls 205167 (need 206464)      1.5 billion instructions
+    polls 217931 (need 219228)      2.2 billion instructions
+
+**1,297 short in both.** Seven hundred million further instructions produced
+about seven hundred more polls, which is not a machine waiting on a status
+register. Once Domain/OS has taken a character it stops polling and waits by some
+other means, so a rule demanding two thousand *more* polls waits for something
+that will not happen.
+
+The poll threshold now gates the **first** character only — which is what it was
+for: finding a prompt. After that the machine has already shown it is reading,
+and what says it is ready for the next character is that it took the last one:
+`ap_sio_receiver_ready` false means the receive buffer is empty again. The only
+other bound is the wire's own character time, which is also the fastest a person
+could type.
+
+*Verification: `boot type 2 of 2 character(s) typed` where the same command gave
+1 of 2 before.*
