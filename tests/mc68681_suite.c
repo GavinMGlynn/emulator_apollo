@@ -71,6 +71,21 @@ static void test_the_transmitter_commands_move_the_ready_bits_as_documented(void
  *
  * Delayed, not dropped -- and asserted is **low**, which is the half a model
  * gets backwards and then holds off exactly when the hardware transmits. */
+/* Table 4-5 sheet 5's footnote: "Bit seven has no external pin. Upon reading
+ * the input port, bit seven will always be read as a one." A pinless bit that
+ * reads as a constant is exactly the kind a register-table walk finds and a
+ * search for admissions cannot -- nobody wrote a note about it. */
+static void test_the_input_port_reads_bit_seven_as_one(void) {
+  ap_mc68681_t d;
+  ap_mc68681_reset(&d);
+
+  TEST_ASSERT_EQUAL_HEX8(0x80u,
+                         ap_mc68681_read(&d, AP_MC68681_IP_OPCR) & 0x80u);
+  /* And it survives whatever the pins are driven to. */
+  ap_mc68681_set_input(&d, 0x0Fu);
+  TEST_ASSERT_EQUAL_HEX8(0x8Fu, ap_mc68681_read(&d, AP_MC68681_IP_OPCR));
+}
+
 static void test_cts_gates_the_transmitter_when_mr2_selects_it(void) {
   ap_mc68681_t d;
   ap_mc68681_reset(&d);
@@ -949,6 +964,7 @@ int main(void) {
   RUN_TEST(test_the_output_port_has_separate_set_and_clear_addresses);
   RUN_TEST(test_resetting_the_receiver_empties_the_fifo);
   RUN_TEST(test_the_transmitter_commands_move_the_ready_bits_as_documented);
+  RUN_TEST(test_the_input_port_reads_bit_seven_as_one);
   RUN_TEST(test_cts_gates_the_transmitter_when_mr2_selects_it);
   RUN_TEST(test_character_error_mode_reports_the_top_of_the_fifo);
   RUN_TEST(test_the_rts_controls_drive_the_output_port);

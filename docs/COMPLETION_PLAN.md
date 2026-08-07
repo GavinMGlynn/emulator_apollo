@@ -4598,8 +4598,20 @@ boot below, and the boot is not attempted until they are done.
       *Verification: `mc68681_suite` 42 and `sio_suite` 25, with the gated case
       asserted -- a pin whose enable is clear records its change in the `IPCR`
       and raises nothing.*
-      *Remaining for a complete sweep: sheets 2, 3 and 5 -- `CSR`, `CR`, `SR`,
-      `OPCR`, `OPR` and the counter/timer registers.*
+      **Sheet 5 gives a seventh**: its footnote says input port "bit seven has
+      no external pin. Upon reading the input port, bit seven will always be
+      read as a one", and this core returned the raw pin state. A pinless bit
+      reading as a constant is precisely what a table walk finds and a search
+      for admissions cannot -- nobody ever wrote a note about it. Bit 6, which
+      "will reflect the current logic level of `IACK`", is *not* supplied: this
+      core has no such signal and inventing a level would claim a wire it does
+      not have.
+      Sheet 5 also confirms `MR1[7]` more precisely than the summary did:
+      `RTSA` is negated "upon receipt of a valid start bit if the channel A
+      FIFO is full", not when the FIFO fills. With no bit clock the two are the
+      same observable, and the difference is recorded rather than papered over.
+      *Remaining for a complete sweep: sheets 2 and 3 -- `CSR`, `CR`, `SR`,
+      `OPCR` and `OPR`.*
       That is the first defect of this phase that is genuinely ours, and it is
       narrow: one bit, one register, and a known producer.
       *Verification: `RxRDY` set on channel A by the time `000073EC` reads it,

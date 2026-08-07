@@ -493,7 +493,15 @@ uint8_t ap_mc68681_read(ap_mc68681_t *duart, unsigned reg) {
   case AP_MC68681_IVR:
     return duart->ivr;
   case AP_MC68681_IP_OPCR:
-    return duart->input;
+    /* Table 4-5 sheet 5 footnotes the two pinless bits: "Bit seven has no
+     * external pin. Upon reading the input port, bit seven will always be read
+     * as a one", and bit six "will reflect the current logic level of IACK".
+     *
+     * Bit 7 is a constant of the part and is supplied here. Bit 6 is not: this
+     * core has no `IACK` signal to reflect, and inventing a level would be
+     * claiming a wire it does not have -- so it reads as whatever was set,
+     * which is zero, and that is recorded rather than dressed up. */
+    return (uint8_t)(duart->input | 0x80u);
   case AP_MC68681_START_OPR_SET:
     /* An address-triggered command, taken on a *read*. §3: "When a read at the
      * start counter command address is performed, the timer terminates the
