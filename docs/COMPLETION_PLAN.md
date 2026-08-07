@@ -4618,6 +4618,20 @@ boot below, and the boot is not attempted until they are done.
       *Verification: `a1` and `a2` resolved to addresses, matched against this
       core's register map, and the eight-entry readback answered.*
       *Verification: the PROM's self-test banner legible in a PNG.*
+      **The wire between the keyboard and serial 1 had no length**, and a
+      three-deep FIFO was overrunning: the firmware sends `FF 11 16` with no
+      reads between and then reads five bytes, and delivered in one instant two
+      were lost (`SR` = `1F`, `SR_OVERRUN`). Paced at one character per
+      character time the overrun is gone and the boot moves from 4,289,865 to
+      5,359,216 instructions -- **and the screen is unchanged**, so it was a
+      real defect and not this one.
+      What remains is measured rather than guessed: the surviving timeout is the
+      *recovery* path's, `0073F0` sending `00` and reading two bytes after a
+      failure has already been reported, and **the oracle never runs that
+      exchange** -- twelve emulated seconds of its keyboard traffic come from
+      `0067B8`, `00676E` and `00623C`, never `0073F8`. So ours takes a failure
+      branch the oracle does not, upstream of the `00`. Detail in
+      `PROJECT_STATUS.md`.
       **The oracle's screen can be read now, and it settles the question.**
       `screencap.lua` and `pngcmp.py` capture MAME's screen and compare it with
       ours as ink over the display area. In **service mode the two are

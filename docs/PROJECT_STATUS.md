@@ -13491,3 +13491,43 @@ symptom, which it did not.
 longer than one byte leaves the FIFO un-overrun, does not arrive all at once,
 and does arrive in full as a reader drains it. And the boot moving by a million
 instructions with the same screen, which is the honest half.*
+
+### Where the keyboard test stands after the wire fix, precisely
+
+The receive timeout that remains is **not** the one the overrun caused. Stopping
+on `0073D8` and reading the return address off the stack — `a7 = 0100017C`,
+holding `0000741A` — puts the caller at `007418`, and that is in the *recovery*
+path:
+
+    0073EC  bsr.w  $5f8c            ; report the failure ...
+    0073F0  move.b #$0,d0
+    0073F4  bsr.b  $738c            ; ... then send 00
+    0073FC  bra.w  $7418
+    007418  bsr.b  $73be            ; and read TWO bytes
+    00741A  bsr.b  $73be
+
+So the firmware answers a failed keyboard exchange by sending `00` and reading
+two bytes, and our keyboard — which deliberately does not answer `00` — leaves
+that read to time out as well.
+
+**The oracle never runs this exchange.** Traced over twelve emulated seconds with
+the DUART patch in place, every write it makes to serial 1's transmit register
+comes from `0067B8` (the eight-byte table `01 02 04 08 05 0A 0C 0F 42`),
+`00676E` or `00623C`. Not one from `0073F8`. It does reach the `0073xx` region —
+its PC is `000073CC` at 1.0155 s, inside the receive poll — and it goes on to
+`00774C` and `000077AE`, so it passes through without reporting a failure.
+
+That is the shape of what is left: both machines run the same code, ours takes a
+failure branch the oracle does not, and the branch is upstream of the `00`
+exchange rather than in it. `0073F0` is only reachable by falling out of
+`0073EC`, so *something reports a failure first* — and after the wire fix the
+first `0073D8` this core reaches is already the recovery path's. Which failure
+precedes it is the next measurement, and it wants the trace flag rather than
+another stop.
+
+Recorded at this level of detail because five earlier hypotheses in this item
+were each produced by reasoning and killed by the next measurement, and the
+useful thing to hand on is the measured position rather than a sixth.
+
+*The oracle patch is reverted and rebuilt: `ext/mame` carries only its four
+standing local edits. `FINDINGS.md` C120 records how to re-apply it.*
