@@ -4530,8 +4530,25 @@ boot below, and the boot is not attempted until they are done.
       And it happens at **4.29 million** instructions, very early -- so the
       keyboard replies traced earlier, whenever they occurred, are worth
       timestamping against that.
-      *Verification: whether the keyboard's replies land before 4,289,870
-      instructions.*
+      **The stop's own report answers it.** At the failure:
+
+          sio1 reg 3      15 write(s)      12 read(s)     data register
+          sio1 reg 5       0 write(s)   65560 read(s)     ISR -- the timeout
+
+      So **twelve replies arrived and were read**. The receive path works, the
+      keyboard answers, and the ISR poll ran its full 65,536 tries only on a
+      *later* exchange -- the firmware wrote fifteen bytes and got twelve back.
+      That reframes it once more, and much more narrowly: the conversation
+      succeeds twelve times and then stalls on the thirteenth. It is not "the
+      keyboard never answers" but "the keyboard stops answering", and the
+      earlier trace shows a candidate for exactly that -- `KBD sent 00 -> 0
+      reply byte(s)`, the second `00`, which the model does not answer because
+      the first left loopback.
+      Which returns to the `00` question with better evidence than it had: not
+      an inference from the firmware polling, but a byte count that is three
+      short.
+      *Verification: which three of the fifteen sends went unanswered, and what
+      a real keyboard replies to each.*
       That is the first defect of this phase that is genuinely ours, and it is
       narrow: one bit, one register, and a known producer.
       *Verification: `RxRDY` set on channel A by the time `000073EC` reads it,
