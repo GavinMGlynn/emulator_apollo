@@ -363,7 +363,12 @@ static void test_the_stop_length_is_the_table_s_sixteenths(void) {
  * to assume for every link. */
 static void test_a_character_takes_as_long_as_its_framing_says(void) {
   /* 8N1 at 9600: eight data bits, no parity, one stop -- ten bit times. */
-  const uint8_t mr1_8n = 0x03u | AP_MC68681_MR1_PARITY_ENABLE; /* bit 2 set = no parity */
+  /* No parity is the mode field's `10`, `MR1[4:3]` -- not a bit-2 flag, which
+   * is the parity *type*. This read `0x03 | 0x04` and got eight bits with
+   * *even* parity, then asserted it took ten bit times. */
+  const uint8_t mr1_8n =
+      0x03u | (uint8_t)(AP_MC68681_MR1_PARITY_MODE_NONE
+                        << AP_MC68681_MR1_PARITY_MODE_SHIFT);
   const ap_time_t ten_bits = (AP_TIME_BASE_HZ * 10u) / 9600u;
   TEST_ASSERT_EQUAL_UINT64(
       ten_bits, ap_mc68681_character_time(mr1_8n, AP_MC68681_MR2_STOP_ONE, 9600u));

@@ -122,8 +122,8 @@ void ap_mc68681_receive_framed(ap_mc68681_t *duart, unsigned channel,
   const bool parity_agrees =
       ap_mc68681_parity_enabled(own_mr1) ==
           ap_mc68681_parity_enabled(sender_mr1) &&
-      (own_mr1 & AP_MC68681_MR1_PARITY_TYPE_MASK) ==
-          (sender_mr1 & AP_MC68681_MR1_PARITY_TYPE_MASK);
+      (own_mr1 & AP_MC68681_MR1_PARITY_TYPE) ==
+          (sender_mr1 & AP_MC68681_MR1_PARITY_TYPE);
 
   /* Only when this channel uses parity at all: a receiver not looking for a
    * parity bit cannot find it wrong, however the sender was configured. */
@@ -644,7 +644,13 @@ unsigned ap_mc68681_character_bits(uint8_t mr1) {
 bool ap_mc68681_parity_enabled(uint8_t mr1) {
   /* Bit 2 clear means *with* parity. The inversion is the part worth a named
    * function rather than an inline test at each call site. */
-  return (mr1 & AP_MC68681_MR1_PARITY_ENABLE) == 0u;
+  /* Table 4-5: parity is *on* only in mode `00`, With Parity. `Force Parity`
+   * transmits a fixed bit and `Multidrop` uses the position for the
+   * address/data tag, and neither is the ordinary even/odd check this
+   * predicate answers for. */
+  const unsigned mode = (unsigned)((mr1 & AP_MC68681_MR1_PARITY_MODE_MASK) >>
+                                   AP_MC68681_MR1_PARITY_MODE_SHIFT);
+  return mode == AP_MC68681_MR1_PARITY_MODE_WITH;
 }
 
 unsigned ap_mc68681_stop_code(uint8_t mr2) {

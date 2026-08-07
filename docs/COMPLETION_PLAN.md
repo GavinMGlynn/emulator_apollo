@@ -4567,7 +4567,15 @@ boot below, and the boot is not attempted until they are done.
       against `ap_mc68681` finds the DUART is *not* fully implemented, which
       makes every test result above provisional:
 
-      - **`MR1` parity fields are swapped.** The table gives bits 4-3 as parity
+      - **`MR1` parity fields are swapped -- fixed.** Three tests asserted the
+        swapped reading and are corrected: one called bit 2 "the inversion most
+        easily got backwards" and had it backwards, one built `8N1` as
+        `0x03 | 0x04` (eight bits with *even* parity, then asserted ten bit
+        times), and one wrote `0x07` as "no parity" when the table makes it
+        eight bits with *odd* parity. The mode is a four-value field --
+        `With`, `Force`, `None`, `Multidrop` -- and a boolean could not carry
+        `Force` or `Multidrop` at all.
+        *Historic:* The table gives bits 4-3 as parity
         *Mode* (`00` with parity, `01` force, `10` none, `11` multidrop) and
         bit 2 as parity *Type* (even/odd). This core has
         `MR1_PARITY_ENABLE 0x04` -- bit 2 -- and `MR1_PARITY_TYPE_MASK 0x18` --

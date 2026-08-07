@@ -191,9 +191,34 @@ void ap_mc68681_receive_at(ap_mc68681_t *duart, unsigned channel, uint8_t byte,
  * reachable and reported as their raw code rather than being folded into the
  * nearest named one, because a driver that programmed 1.5 stop bits meant it. */
 #define AP_MC68681_MR1_BITS_MASK 0x03u
-#define AP_MC68681_MR1_PARITY_ENABLE 0x04u  /* clear = with parity */
-#define AP_MC68681_MR1_PARITY_TYPE_MASK 0x18u
-#define AP_MC68681_MR1_PARITY_TYPE_SHIFT 3u
+
+/* ## The two parity fields, which this file had **exchanged**
+ *
+ * Table 4-5 sheet 1 lays `MR1` out as: bit 7 RxRTS, bit 6 RxRDY/FFULL select,
+ * bit 5 error mode, **bits 4-3 parity *mode***, **bit 2 parity *type***, bits
+ * 1-0 bits-per-character.
+ *
+ *     mode 0 0  With Parity      type 0 = Even   1 = Odd
+ *          0 1  Force Parity          0 = Low    1 = High
+ *          1 0  No Parity
+ *          1 1  Multidrop Mode        0 = Data   1 = Address
+ *
+ * This file had the *enable* at bit 2 and the *type* at bits 4-3 -- the two
+ * fields swapped -- so "is parity on" read the even/odd bit and the answer was
+ * whatever the type happened to be. Getting parity wrong on a UART is an old
+ * bug and this is the ordinary way to arrive at it: two adjacent fields in one
+ * register, and a table read from a summary rather than the layout.
+ *
+ * The mode is a four-value field and not a flag, which is the other half of the
+ * error: `Force Parity` and `Multidrop` are neither "on" nor "off", and a
+ * boolean cannot carry them. */
+#define AP_MC68681_MR1_PARITY_MODE_MASK 0x18u
+#define AP_MC68681_MR1_PARITY_MODE_SHIFT 3u
+#define AP_MC68681_MR1_PARITY_MODE_WITH 0u
+#define AP_MC68681_MR1_PARITY_MODE_FORCE 1u
+#define AP_MC68681_MR1_PARITY_MODE_NONE 2u
+#define AP_MC68681_MR1_PARITY_MODE_MULTIDROP 3u
+#define AP_MC68681_MR1_PARITY_TYPE 0x04u /* 0 = even, 1 = odd */
 #define AP_MC68681_MR2_STOP_MASK 0x0Fu
 
 /* `MR2[3:0]`: the two lengths a console link uses. */

@@ -531,16 +531,30 @@ static void test_character_length_is_five_plus_the_field(void) {
   TEST_ASSERT_EQUAL_UINT(5u, ap_mc68681_character_bits(0xFCu));
 }
 
-/* Bit 2 **clear** means with parity. This is the inversion most easily got
- * backwards, and getting it backwards yields a link that works until the first
- * character with an odd number of set bits — which is to say, one that passes
- * a test written with `0x00` and fails in service. */
-static void test_parity_is_enabled_when_the_bit_is_clear(void) {
+/* Parity is the **mode field**, `MR1[4:3]`, and only its `00` code is "with
+ * parity". This test used to assert bit 2 -- the parity *type* -- and called
+ * that "the inversion most easily got backwards", which it then got backwards:
+ * the two adjacent fields were exchanged, so the predicate answered even/odd
+ * when asked on/off.
+ *
+ * The mode has four values and a boolean cannot carry them. `Force Parity`
+ * sends a fixed bit and `Multidrop` uses the position as an address tag; both
+ * are neither on nor off, and both used to read as one or the other by
+ * accident. */
+static void test_parity_is_on_only_in_the_with_parity_mode(void) {
+  /* `00`: with parity. */
   TEST_ASSERT_TRUE(ap_mc68681_parity_enabled(0x00u));
-  TEST_ASSERT_FALSE(ap_mc68681_parity_enabled(AP_MC68681_MR1_PARITY_ENABLE));
-  /* Independent of the character length beside it. */
+  /* `01` force, `10` none, `11` multidrop: none of them is ordinary parity. */
+  TEST_ASSERT_FALSE(ap_mc68681_parity_enabled(0x08u));
+  TEST_ASSERT_FALSE(ap_mc68681_parity_enabled(0x10u));
+  TEST_ASSERT_FALSE(ap_mc68681_parity_enabled(0x18u));
+
+  /* Independent of the character length beside it, and of the *type* bit --
+   * which is what this used to be reading. `07` is eight bits, odd, with
+   * parity, and used to answer "no parity" because bit 2 was set. */
   TEST_ASSERT_TRUE(ap_mc68681_parity_enabled(0x03u));
-  TEST_ASSERT_FALSE(ap_mc68681_parity_enabled(0x07u));
+  TEST_ASSERT_TRUE(ap_mc68681_parity_enabled(0x07u));
+  TEST_ASSERT_TRUE(ap_mc68681_parity_enabled(AP_MC68681_MR1_PARITY_TYPE));
 }
 
 /* `MR2[3:0]` is sixteen encodings from 0.5 to 2 stop bits, not a one-or-two
@@ -762,8 +776,15 @@ static void test_a_receiver_without_parity_reports_none(void) {
   ap_mc68681_reset(&duart);
   ap_mc68681_write(&duart, AP_MC68681_CR_A, 0x01u);
   ap_mc68681_write(&duart, AP_MC68681_SR_CSR_A, 0x77u);
-  ap_mc68681_write(&duart, AP_MC68681_MR_A, 0x07u); /* bit 2 set: no parity */
+  /* No parity is mode `10`, `MR1[4:3]` -- `0x13` is eight bits with no parity.
+   * This wrote `0x07`, which the swapped fields made "no parity" and the table
+   * makes eight bits with *odd* parity. */
+  ap_mc68681_write(&duart, AP_MC68681_MR_A,
+                   (uint8_t)(0x03u | (AP_MC68681_MR1_PARITY_MODE_NONE
+                                      << AP_MC68681_MR1_PARITY_MODE_SHIFT)));
 
+  /* The sender uses parity -- mode `00` -- and this receiver still reports
+   * none, which is the point of the test. */
   ap_mc68681_receive_framed(&duart, 0u, 0x41u, 0x77u, 0x03u);
 
   TEST_ASSERT_FALSE((ap_mc68681_read(&duart, AP_MC68681_SR_CSR_A) &
@@ -777,7 +798,7 @@ int main(void) {
   RUN_TEST(test_an_unknown_sender_rate_claims_no_disagreement);
   RUN_TEST(test_a_disabled_receiver_reports_no_framing_error);
   RUN_TEST(test_character_length_is_five_plus_the_field);
-  RUN_TEST(test_parity_is_enabled_when_the_bit_is_clear);
+  RUN_TEST(test_parity_is_on_only_in_the_with_parity_mode);
   RUN_TEST(test_the_stop_field_keeps_its_uncommon_codes);
   RUN_TEST(test_a_character_arrives_with_the_links_bit_count);
   RUN_TEST(test_an_eight_bit_link_passes_the_whole_byte);
