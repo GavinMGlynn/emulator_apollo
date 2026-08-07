@@ -1111,6 +1111,25 @@ static void test_the_rop_s_high_half_is_eight_plane_only(void) {
   /* And nothing reads back there either. */
   TEST_ASSERT_EQUAL_HEX8(0xFFu,
                          ap_graphics_read(&g, AP_GRAPHICS_MONO_ADDR + 4u));
+
+  /* Not reaching the ROP is only half of it. The write is a **refresh
+   * request**, and a request that is dropped is indistinguishable from a
+   * register nobody implemented -- so it is recorded. What a refresh *does*
+   * stays unmodelled, deliberately: this core's graphics memory does not decay,
+   * and giving the trigger an effect would claim a failure mode the model
+   * cannot otherwise produce. */
+  TEST_ASSERT_EQUAL_UINT(2u, g.diag_refresh_requests);
+  TEST_ASSERT_EQUAL_HEX8(0xAAu, g.diag_refresh_request);
+
+  /* On the 8-plane board the same two offsets are the ROP's high half and no
+   * refresh is requested at all -- which is the split, asserted from the other
+   * side. */
+  ap_graphics_t c8p;
+  ap_graphics_init(&c8p, AP_SCREEN_COLOUR_8_PLANE);
+  ap_graphics_write(&c8p, AP_GRAPHICS_COLOUR_ADDR + 4u, 0x99u);
+  ap_graphics_write(&c8p, AP_GRAPHICS_COLOUR_ADDR + 5u, 0xAAu);
+  TEST_ASSERT_EQUAL_UINT(0u, c8p.diag_refresh_requests);
+  TEST_ASSERT_EQUAL_HEX32(0x99AA0000u, c8p.reg.rop);
 }
 
 /* `CR3A` is not a value but a **bit port**: with bit 7 clear, bits 3-1 name a

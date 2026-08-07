@@ -282,6 +282,16 @@ bool ap_kbd_advance(ap_kbd_t *kbd, ap_time_t now, unsigned *key) {
   return true;
 }
 
+bool ap_kbd_beeper_on(const ap_kbd_t *kbd) {
+  if (kbd == NULL || kbd->beeper_until == 0u) {
+    return false;
+  }
+  /* A function of the instant, not an event: `kbd->now` is whatever the last
+   * advance set, so a run that steps past the whole 300 ms still sees the tone
+   * as over rather than stuck on. */
+  return kbd->now < kbd->beeper_until;
+}
+
 /* The command channel. Every command begins `FF`; the bytes after it accumulate
  * until one matches, because `FF12` is a prefix and `FF1221` is a command and a
  * model matching a byte at a time cannot tell them apart. */
@@ -370,10 +380,17 @@ unsigned ap_kbd_receive(ap_kbd_t *kbd, uint8_t byte, uint8_t *reply,
       return sent;
     }
     case 0xFF2181u:
+      /* Tone on, and `002398-04` p. 12-2 says it "will go off automatically
+       * after 300 milliseconds" -- so the off is the keyboard's, not the
+       * host's, and this is the whole of what makes it worth modelling. The
+       * sound is not modelled; the level and its expiry are. */
+      kbd->beeper_until = kbd->now + AP_KBD_BEEPER_DURATION;
+      EMIT(byte);
+      kbd->rx_message = 0u;
+      return sent;
     case 0xFF2182u:
-      /* The beeper, on for 300 ms and off. The sound is not modelled -- this
-       * core has no audio -- but the *acknowledgement* is, because a driver
-       * waiting for it would otherwise wait for ever. */
+      /* Tone off, before the 300 ms are up. Same page, the second sequence. */
+      kbd->beeper_until = 0u;
       EMIT(byte);
       kbd->rx_message = 0u;
       return sent;

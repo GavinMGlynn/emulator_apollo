@@ -610,6 +610,56 @@ static void test_the_dma_page_registers_store(void) {
                          ap_board_region(&region_board, AP_DMAPAGE_ADDR));
 }
 
+/* `002398-04` p. 12-25 prints the offset-to-channel mapping and warns about it
+ * in the same breath -- "(note the non-order)". Asserted here as the seven
+ * pairs the handbook lists, in channel order, so a transposed digit fails
+ * rather than looking plausible. */
+static void test_each_dma_channels_page_register_is_the_handbooks(void) {
+  static const unsigned expected[] = {0x7u, 0x3u, 0x1u, 0x2u,
+                                      AP_DMAPAGE_REGISTERS, /* the cascade */
+                                      0xBu, 0x9u, 0xAu};
+  for (unsigned channel = 0; channel < AP_DMAPAGE_CHANNELS; channel++) {
+    TEST_ASSERT_EQUAL_UINT(expected[channel],
+                           ap_dmapage_index_for_channel(channel));
+  }
+}
+
+/* Channel 4 is the cascade and the handbook lists no page register for it: it
+ * carries the slave controller rather than a device, so there is no transfer of
+ * its own whose high bits would need supplying. Out-of-range channels answer
+ * the same way, which is the one index that cannot address a register. */
+static void test_the_cascade_channel_has_no_page_register(void) {
+  ap_dmapage_t pages;
+  ap_dmapage_reset(&pages);
+  TEST_ASSERT_EQUAL_UINT(AP_DMAPAGE_REGISTERS,
+                         ap_dmapage_index_for_channel(
+                             AP_DMAPAGE_CASCADE_CHANNEL));
+  TEST_ASSERT_EQUAL_UINT(AP_DMAPAGE_REGISTERS,
+                         ap_dmapage_index_for_channel(AP_DMAPAGE_CHANNELS));
+  TEST_ASSERT_EQUAL_HEX8(0u, ap_dmapage_channel_page(
+                                 &pages, AP_DMAPAGE_CASCADE_CHANNEL));
+}
+
+/* "Each byte is loaded with the high 8 physical address bits for its
+ * corresponding DMA channel" -- so the page sits above the 8237A's sixteen and
+ * the pair reaches the twenty-four the system has. */
+static void test_a_page_byte_supplies_the_high_eight_address_bits(void) {
+  ap_dmapage_t pages;
+  ap_dmapage_reset(&pages);
+  /* Channel 1's register is `9203`, and writing any other offset must not move
+   * it -- which is what makes the non-order worth a test at all. */
+  ap_dmapage_write(&pages, AP_DMAPAGE_ADDR + 0x03u, 0xBEu);
+  ap_dmapage_write(&pages, AP_DMAPAGE_ADDR + 0x07u, 0x12u);
+  TEST_ASSERT_EQUAL_HEX8(0xBEu, ap_dmapage_channel_page(&pages, 1u));
+  TEST_ASSERT_EQUAL_HEX8(0x12u, ap_dmapage_channel_page(&pages, 0u));
+  TEST_ASSERT_EQUAL_HEX32(0x00BE1234u,
+                          ap_dmapage_physical(&pages, 1u, 0x1234u));
+  /* The cascade reaches only what the controller itself drives. */
+  TEST_ASSERT_EQUAL_HEX32(
+      0x00001234u,
+      ap_dmapage_physical(&pages, AP_DMAPAGE_CASCADE_CHANNEL, 0x1234u));
+}
+
 /* ---- The FPA address space, which must keep faulting ---------------------- */
 
 /* `F8000000`-`FFFFFFFF` is the floating-point accelerator's space, and no FPA
@@ -807,6 +857,9 @@ int main(void) {
   RUN_TEST(test_the_ds3000_takes_a_32k_prom_and_refuses_a_64k_one);
   RUN_TEST(test_a_ds3000_device_write_reaches_the_same_register);
   RUN_TEST(test_the_dma_page_registers_store);
+  RUN_TEST(test_each_dma_channels_page_register_is_the_handbooks);
+  RUN_TEST(test_the_cascade_channel_has_no_page_register);
+  RUN_TEST(test_a_page_byte_supplies_the_high_eight_address_bits);
   RUN_TEST(test_the_two_declined_registers_are_counted_apart);
   RUN_TEST(test_the_whole_map_region_is_entries_and_none_are_undescribed);
   RUN_TEST(test_the_map_does_not_alias_within_its_region);

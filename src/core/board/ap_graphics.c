@@ -20,6 +20,8 @@ void ap_graphics_init(ap_graphics_t *graphics, ap_screen_kind_t screen) {
   graphics->lut_fifo_count = 0u;
   graphics->lut_fifo_overruns = 0u;
   graphics->lut_ad_accesses = 0u;
+  graphics->diag_refresh_request = 0u;
+  graphics->diag_refresh_requests = 0u;
   graphics->blt_cycle = 0u;
   graphics->now = 0u;
   /* The stepped counters, which are state like any other and were left out of
@@ -447,17 +449,24 @@ void ap_graphics_write(ap_graphics_t *graphics, uint32_t address,
     case AP_GRAPHICS_REG_ROP_31_24:
       /* Offsets 4 and 5 are the ROP's high half on an 8-plane board and a
        * diagnostic memory-refresh trigger on the others -- the same per-family
-       * split `CR1`'s top bits have. The refresh is not modelled, so on those
-       * boards the write is discarded rather than corrupting the ROP. */
+       * split `CR1`'s top bits have. On those boards the write must not reach
+       * the ROP; it is *recorded* rather than dropped, so a driver's request is
+       * something a report and a test can see. */
       if (eight) {
         graphics->reg.rop = (graphics->reg.rop & 0x00FFFFFFu) |
                             ((uint32_t)value << 24);
+      } else {
+        graphics->diag_refresh_request = value;
+        graphics->diag_refresh_requests++;
       }
       return;
     case AP_GRAPHICS_REG_ROP_23_16:
       if (eight) {
         graphics->reg.rop = (graphics->reg.rop & 0xFF00FFFFu) |
                             ((uint32_t)value << 16);
+      } else {
+        graphics->diag_refresh_request = value;
+        graphics->diag_refresh_requests++;
       }
       return;
 

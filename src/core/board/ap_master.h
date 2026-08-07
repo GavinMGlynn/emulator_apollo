@@ -56,6 +56,19 @@
  * recorded gap in `docs/PROJECT_STATUS.md` with its cost to close, not an
  * omission.
  *
+ * **The search is exhausted rather than untried**, which is a different
+ * statement and the one worth recording. Every reference on disk was read:
+ * `008778-03` §2.4.7 is the paragraph above and never names the bit;
+ * `019411-A00`'s address map lists "MASTER REQUEST REGISTER" at `011600`-
+ * `0116FF` and gives it no contents; and the Domain Engineering Handbook, which
+ * *does* print register-level detail and settled the DMA page mapping
+ * (`board/ap_dmapage.h`), stops at the DN3000 in every revision here -- Rev 1
+ * (1983), Rev 3 (1985) and Rev 4 (1987) all predate the Series 4000 boards this
+ * paragraph is about. The web was searched and returns only `008778-03` itself.
+ * So the closing route is unchanged and now bounded: a Series 4000 hardware
+ * reference, or a runnable DN4500 oracle.
+ *
+ *
  * ## Ownership ends when *both* signals are released
  *
  * "until it releases the DRQx and MASTER.L signals" -- both, which is stronger

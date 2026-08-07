@@ -233,8 +233,32 @@ typedef struct {
   /* The A/D converter behind the third chip select. Not modelled -- it reads a
    * monitor's identification and a brightness pot, neither of which this core
    * has -- so an access is counted rather than answered with a number nothing
-   * stands behind. */
+   * stands behind.
+   *
+   * The search for a document is exhausted. The only mention of it anywhere in
+   * `docs/references/` is `002398-04` p. 4-23, and it is an *error code* rather
+   * than a specification: the boot PROM's diagnostic table lists "A/D converter
+   * error" as one of the display controller's tests, alongside "Pixel test",
+   * "Video output" and "LUT red, blue high level output". That confirms the
+   * converter exists and that the firmware range-checks it; it gives no
+   * conversion, no channel map and no scale. The oracle cannot close it either
+   * -- MAME returns its own `m_ad_result`, so measuring it would recover MAME's
+   * choice and not the hardware's. Closing route: a monitor or controller
+   * specification giving the levels, which no manual here is. */
   unsigned lut_ad_accesses;
+
+  /* The diagnostic memory-refresh trigger, offsets 4 and 5 on every board but
+   * the 8-plane. What a refresh *does* is not modelled: this core's graphics
+   * memory does not decay, so a refresh has nothing to preserve and inventing
+   * an effect would claim a failure mode the model cannot otherwise produce.
+   *
+   * What is modelled is that it was **asked for**, which is a different claim
+   * and a checkable one. The write used to be discarded outright, and a
+   * discarded write and an unimplemented register look identical from outside
+   * -- the same confusion the 8237's polarity bits sat in until they were given
+   * a level a board could measure. */
+  uint8_t diag_refresh_request;
+  unsigned diag_refresh_requests;
 
   /* The guard latch, one 32-bit entry per plane -- see `ap_graphics_blit_t`.
    * Controller state, carried between the two bus cycles of modes 1 and 3. */

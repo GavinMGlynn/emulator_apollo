@@ -535,14 +535,26 @@ static void test_the_six_fastest_rates_are_refused_not_rounded(void) {
   init(&rtc);
 
   /* Table 5's rates are 32768/2^n Hz, and `AP_TIME_BASE_HZ` factors as
-   * 2^9 * 3 * 5^8 * 11 -- so it carries 2^9 and the six fastest are not exactly
-   * representable. `CLAUDE.md`'s rule is to reject rather than round, and the
-   * cost of changing the base instead is recorded in the header: 64x for these
-   * six, and 8192x to represent the crystal itself, which would leave under
-   * four days of span in a 64-bit counter.
+   * 2^9 * 3^2 * 5^8 * 11 * 17 -- so it carries 2^9 where 32.768 kHz needs 2^15,
+   * and the six fastest are not exactly representable. `CLAUDE.md`'s rule is to
+   * reject rather than round, and the cost of changing the base instead is
+   * recorded in the header: 64x for these six, which takes the span from 634
+   * days to 9.9 days, and 8192x to represent the crystal itself, which leaves
+   * under two hours in a 64-bit counter.
    *
    * A rounded periodic interrupt is indistinguishable from a correct one, which
-   * is exactly why it must be refused where it cannot be exact. */
+   * is exactly why it must be refused where it cannot be exact.
+   *
+   * **The reason is asserted, not just the outcome.** These six are refused
+   * because of one property of a *derived* constant, and when that constant was
+   * recomputed for the video clock nothing rechecked the consequence -- the
+   * header's factorisation and all three span figures went stale and stayed
+   * that way. If a later recomputation makes 32.768 kHz representable, this
+   * fails and names the decline to reopen rather than leaving six rates
+   * refused for a reason that has gone away. */
+  TEST_ASSERT_EQUAL_UINT64(0u, AP_TIME_BASE_HZ % 512u);   /* 2^9 divides */
+  TEST_ASSERT_NOT_EQUAL_UINT64(0u, AP_TIME_BASE_HZ % 1024u); /* 2^10 does not */
+  TEST_ASSERT_NOT_EQUAL_UINT64(0u, AP_TIME_BASE_HZ % 32768u);
   for (unsigned rs = 1u; rs <= 6u; rs++) {
     ap_mc146818_write(&rtc, AP_MC146818_REGISTER_A, (uint8_t)rs);
     TEST_ASSERT_FALSE(ap_mc146818_rate_supported(&rtc));

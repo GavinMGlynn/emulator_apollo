@@ -138,7 +138,34 @@ typedef struct {
   /* Which of the two code sets is live. `008778-03` Chapter 12's two sets, and
    * the commands that select them. */
   bool keystate_mode;
+
+  /* ## The beeper, which stopped being a decline when the handbook turned up
+   *
+   * `002398-04` p. 12-2, read from the page image:
+   *
+   *     The beeper is in the DN3000 keyboard and is accessed by writing to
+   *     SIO line 0.  Transmit following sequence to turn tone ON:
+   *           $FF  $21  $81  $00
+   *     It will go off automatically after 300 milliseconds.
+   *     Transmit following sequence to turn tone OFF:
+   *           $FF  $21  $82  $00
+   *
+   * So there are two observables and this core can hold both: whether the tone
+   * is sounding, and that it stops by itself after 300 ms without the host
+   * saying anything. Neither needs audio, and modelling only the
+   * acknowledgement -- which is what this file did -- loses the auto-off, the
+   * one part a driver could actually be timing against.
+   *
+   * Zero when silent. The *sound* is still not modelled and is not claimed to
+   * be: this core has no audio path, and a caller wanting one reads the level. */
+  ap_time_t beeper_until;
 } ap_kbd_t;
+
+/* "It will go off automatically after 300 milliseconds." Written as a quotient
+ * of the base so a recomputed `AP_TIME_BASE_HZ` keeps the *duration* rather
+ * than the number -- `time/ap_time.h`'s rule, and the one six written-down
+ * periods broke before it was enforced. */
+#define AP_KBD_BEEPER_DURATION ((ap_time_t)AP_TIME_BASE_HZ * 300u / 1000u)
 
 /* The longest reply the keyboard sends, which is the identification string. */
 #define AP_KBD_REPLY_MAX 32u
@@ -232,6 +259,12 @@ typedef struct {
  * the held key does not auto-repeat, or when the interval has not elapsed --
  * which is most calls, since the board advances every device on every step. */
 [[nodiscard]] bool ap_kbd_advance(ap_kbd_t *kbd, ap_time_t now, unsigned *key);
+
+/* Whether the tone is sounding, at the keyboard's own notion of now. The
+ * auto-off is a function of the instant rather than an event, so it needs no
+ * advance to have run at the right moment and cannot be missed by a coarse
+ * one. */
+[[nodiscard]] bool ap_kbd_beeper_on(const ap_kbd_t *kbd);
 
 /* Whether a key auto-repeats, by Table 12-1's last column. Absent from the
  * table -- a state key -- answers false rather than defaulting. */

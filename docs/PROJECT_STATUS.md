@@ -3406,7 +3406,7 @@ failure that cost a bit position in the 68020's module entry word.
 | Board cache (`012000` RAM, `014000` condition codes) | not started. The shared **bus arbitration point** is done and has its own row above | — |
 | Apollo interrupt controllers (`011000`, `011100`) | working: the two 8259As cascaded on **IR3** (measured, not IR2 as the AT convention would have it), vector bases `A0`/`A8` from the boot PROM's own ICW2, giving levels `A0`-`AF`. Priority order matches `008778-03` Table 2-3, which with the cascade on IR3 has no anomaly. The CPU interrupt level is **6**, also measured — neither manual states it, and it took starting the interval timer by hand to make anything request at all | `intr_suite`, 13 tests; `FINDINGS.md` C11, `tools/mame-oracle/writetrace.lua` |
 | Intel 8259A interrupt controller (the part) | working: ICW1-4 sequence, all three OCWs, fully nested priority with rotation, edge and level triggering, special mask and special fully nested modes, poll, AEOI, and the spurious level 7. 8086-mode vectoring only — MCS-80/85's `CALL` sequence is refused rather than approximated, and this machine never uses it. The Apollo *pairing* is a separate module | `i8259_suite`, 28 tests, each citing `8259A` 231468-003 |
-| Core-board address maps (`board/ap_board.c`) | working: every device placed by `008778-03` Table 2-8 and by the measurement that confirmed it, main memory at `1000000`, and an unclaimed address reported **unmapped rather than zero** — the distinction flat RAM hid, which cost 5634 invisible accesses in the first firmware run. Regions are named, so a trace can say *what* the firmware reached for. The AT windows declare a cycle time and everything else answers at the minimum, and an access to the translation map's undescribed seven eighths is counted rather than silently aliased, and each of the two declined core registers is counted apart | `board_suite`, 29 tests; `atbus_suite`, 8 tests |
+| Core-board address maps (`board/ap_board.c`) | working: every device placed by `008778-03` Table 2-8 and by the measurement that confirmed it, main memory at `1000000`, and an unclaimed address reported **unmapped rather than zero** — the distinction flat RAM hid, which cost 5634 invisible accesses in the first firmware run. Regions are named, so a trace can say *what* the firmware reached for. The AT windows declare a cycle time and everything else answers at the minimum, and an access to the translation map's undescribed seven eighths is counted rather than silently aliased, and each of the two declined core registers is counted apart. The DMA page registers now map offset to channel from `002398-04` p. 12-25, the handbook that prints the table `008778-03` Table 2-6 omits — channel 4, the cascade, has none | `board_suite`, 32 tests; `atbus_suite`, 8 tests |
 | Shared bus arbitration point | working: the external priority encoder `[030]` §7.7 requires, DRQ0 through DRQ7 with the processor last, driving the CPU's own arbitration unit over the three-wire protocol. A grant and its acknowledgement are separate instants, so the processor stops driving the bus when it grants rather than when the grant is taken up; a master is never pre-empted mid-transfer | `arbiter_suite`, 9 tests, `MC68030 User's Manual 3ed` §7.7, `008778-03` §2.4.6 |
 | Apollo DMA controllers (`010C00`, `010D00`) | working: DMA 1 at **stride 1** and DMA 2 at **stride 2**, both measured, both aliased through their ranges. A read of a write-only register returns zero where the oracle returns `0F`; `[8237]` marks that read "Illegal", so neither is specified and ours does not invent a register value. The board runs transfers: controller 1's request cascaded onto controller 2's channel 0 and one request reaching the arbiter, the address through the translation map, and the processor stalled while a controller holds the bus. The cascade and the channel assignments are `008778-03` Table 2-4's, so the AT convention this module used to refuse is now cited rather than assumed. **The peripheral side is wired**: the tape drives its own request line and its cartridge reaches memory by DMA, and the disk's two data ports move under an acknowledge | `dma_suite`, 17 tests; `FINDINGS.md` C13 |
 | Intel 8237A DMA controller (the part) | **programming model and transfer cycle complete**: all sixteen register addresses, four channels with base and current address/count, the single shared first/last flip-flop, command/mode/request/mask/status/temporary, master clear, autoinitialise reload and the mask-on-terminal-count rule; and a service cycle that moves a byte either way, verifies without moving one, walks the address up or down, and ends on the borrow out of zero rather than at zero. Memory-to-memory is refused outright rather than half-run. The part drives sixteen bits of address and the board composes the rest — not yet wired to the board | `i8237_suite`, 29 tests, `8237A` 231466 |
@@ -12796,3 +12796,139 @@ nothing rather than an error.
 The fix for the last two is one thing: set the configuration, then
 `soft_reset()` so the firmware runs again with the instrument in place, with the
 guard in `_G` because the reset re-runs the script.
+
+## The five declines, closed — and two of them were closed by a manual on disk
+
+Phase 4's last implementation item listed five things "none of which is closed
+by writing code, and each would be a guess if it were". Working the resolution
+order properly — the part's own manual, then the **sibling manuals already in
+`docs/references/`**, then the web, then the oracle — turned two of them into
+ordinary implementation work with a citation.
+
+The sibling manual is `002398-04`, the Domain Engineering Handbook Rev 4. Its
+DN3000 chapter prints register-level detail that `008778-03` Table 2-6 does not,
+and it had been on disk the whole time. `CLAUDE.md` names this as "the step most
+often skipped and the files are already on disk"; it was skipped here twice.
+
+### Closed: the DMA page registers' channel mapping, `002398-04` p. 12-25
+
+    Addresses of the DMA page registers (note the non-order):
+      9207  page register for CH0      920B  page register for CH5
+      9203  page register for CH1      9209  page register for CH6
+      9201  page register for CH2      920A  page register for CH7
+      9202  page register for CH3
+
+Seven entries for eight channels: **channel 4 has none**, and it is Table 2-4's
+cascade, so there is no transfer of its own whose high bits would need
+supplying. The same page gives the width and the reach — "Each byte is loaded
+with the high 8 physical address bits for its corresponding DMA channel" —
+which is what turns the 8237A's sixteen address bits into the system's
+twenty-four. `ap_dmapage_index_for_channel`, `_channel_page` and `_physical`
+implement it.
+
+It *is* the AT's layout. `ap_dmapage.h` had recorded that as "a suggestive fit
+and it is **not** claimed", because the equivalent assumption about the
+interrupt controllers was wrong on this machine (`FINDINGS.md` C11). The refusal
+was right and the resolution was not the measurement the header predicted: the
+handbook states the mapping for this board and it happens to agree.
+
+It also prints "DMA can operate on a maximum of 1024 bytes (each channel has
+only ONE page register)", which taken literally bounds a transfer far below the
+64 KB the counter allows. Nothing else corroborates it, so it is quoted in the
+header and not enforced.
+
+*Verification: `board_suite` 29 -> 32 — the seven pairs asserted in channel
+order so a transposed digit fails, the cascade answering with the one index that
+cannot address a register, and a page byte reaching bit 16 and above.*
+
+### Closed: the keyboard beeper, `002398-04` p. 12-2
+
+    The beeper is in the DN3000 keyboard and is accessed by writing to
+    SIO line 0.  Transmit following sequence to turn tone ON:
+          $FF  $21  $81  $00
+    It will go off automatically after 300 milliseconds.
+    Transmit following sequence to turn tone OFF:
+          $FF  $21  $82  $00
+
+This core already answered `FF2181`/`FF2182` and modelled nothing else, on the
+grounds that it has no audio. The audio is still not modelled and is not the
+point: the **auto-off** is an observable a host could be timing against, and it
+was being thrown away. `ap_kbd_beeper_on` reports the level and
+`AP_KBD_BEEPER_DURATION` is the documented 300 ms, written as a quotient of the
+base so a recomputed `AP_TIME_BASE_HZ` keeps the duration rather than the number.
+
+*Verification: `kbd_suite` +3 — the tone still on one unit before the interval
+and off at it, the off sequence stopping it early, and an advance clean over the
+whole 300 ms still ending it rather than leaving it stuck on.*
+
+### Corrected: the MC146818's six fast rates, whose arithmetic had gone stale
+
+The decline itself stands — `[146818]` Table 5's rates are 32768/2^n Hz and the
+base carries only 2^9 where 32.768 kHz needs 2^15 — but every number supporting
+it was wrong. The factorisation was written `2^9 * 3 * 5^8 * 11`, which is
+neither the current base nor the one before it; the true factors of
+336,600,000,000 are `2^9 * 3^2 * 5^8 * 11 * 17`. And the three span figures
+(88.6 years, 505 days, 3.95 days) belonged to a base **two recomputations old**:
+
+    as it stands             336.6 GHz              span 634 days
+    including 32.768 kHz     base * 64 = 21.5 THz   span 9.9 days
+    including the crystal    base * 8192 = 2.76 PHz span 1 hour 52 minutes
+
+A derived constant has derived consequences and nothing rechecked these when the
+video clock item moved it. The conclusion survived only because it turns on the
+power of two alone — which is exactly why the error could sit there unnoticed.
+
+*Verification: `mc146818_suite` now asserts the **reason** and not just the
+outcome — 2^9 divides the base, 2^10 does not, 32768 does not. A later
+recomputation that makes these rates representable now fails a test that names
+the decline to reopen, instead of leaving six rates refused for a reason that
+has gone away.*
+
+### Recorded as exhausted: the graphics A/D, and the Series 4000 route
+
+Neither closes, and both now say what was read rather than only what is missing.
+
+- **The A/D converter** is mentioned exactly once in `docs/references/`, and as
+  an *error code* rather than a specification: `002398-04` p. 4-23's boot PROM
+  diagnostic table lists "A/D converter error" among the display controller's
+  tests, beside "Pixel test", "Video output" and "LUT red, blue high level
+  output". That confirms it exists and that the firmware range-checks it, and
+  gives no conversion, channel map or scale. The oracle cannot close it either:
+  MAME returns its own `m_ad_result`, so a measurement recovers MAME's choice
+  and not the hardware's.
+- **The Series 4000 Master Request Register bit.** `008778-03` §2.4.7 names the
+  register and never says which bit; `019411-A00`'s address map lists it at
+  `011600`-`0116FF` with no contents; the Engineering Handbook prints
+  register-level detail but stops at the DN3000 in **every** revision here — Rev
+  1 (1983), Rev 3 (1985), Rev 4 (1987) all predate the Series 4000 boards the
+  paragraph is about. The web returns only `008778-03` itself. Closing route
+  unchanged and now bounded: a Series 4000 hardware reference, or a runnable
+  DN4500 oracle.
+
+### And one decline became a modelled signal instead
+
+The graphics **diagnostic memory-refresh trigger** — offsets 4 and 5 on every
+board but the 8-plane — had its writes discarded. A discarded write and an
+unimplemented register look identical from outside, which is the confusion the
+8237's polarity bits sat in until they were given a level a board could measure.
+The request is now recorded and reported (`gfx refresh N diagnostic
+request(s)`); what a refresh *does* stays unmodelled, deliberately, because this
+core's graphics memory does not decay and giving the trigger an effect would
+claim a failure mode the model cannot otherwise produce.
+
+*Verification: `graphics_suite` — the monochrome card records two requests and
+leaves the ROP's high half alone, and the 8-plane records none and takes the
+same two writes into the ROP. The split asserted from both sides.*
+
+### A reference find worth naming separately
+
+`002398-04` p. 4-23 is **BOOT PROM DIAGNOSTIC ERROR CODES**, an external/internal
+LED nibble pair against the test each names — "Checksum PROM", "Refresh
+circuitry", "Keyboard SIO", "Calendar and configuration", "Display controller
+existence", "Keyboard self-test", "Keyboard speaker" and the rest. This project
+has been reverse-engineering exactly these codes out of the ROM for several
+sessions. The table is the **DN3000's** PROM and this machine is a DN3500 with
+MD7C REV 8.00, so it is indicative rather than authoritative and no decode of
+our sequence is claimed from it — but it is the right shape and the right
+vocabulary, and it should be the first thing consulted the next time a posted
+code needs a meaning.

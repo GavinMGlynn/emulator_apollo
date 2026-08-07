@@ -422,6 +422,57 @@ static void test_the_beeper_is_acknowledged_without_being_modelled(void) {
   TEST_ASSERT_EQUAL_HEX8(0x81u, reply[0]);
 }
 
+static void beep(ap_kbd_t *k, uint8_t which) {
+  uint8_t reply[AP_KBD_REPLY_MAX];
+  (void)ap_kbd_receive(k, 0xFFu, reply, sizeof reply);
+  (void)ap_kbd_receive(k, 0x21u, reply, sizeof reply);
+  (void)ap_kbd_receive(k, which, reply, sizeof reply);
+}
+
+/* `002398-04` p. 12-2: "$FF $21 $81 $00 ... It will go off automatically after
+ * 300 milliseconds." The auto-off is the keyboard's own and is the half of this
+ * a host could be timing against, so it is asserted at both edges of the
+ * documented interval rather than merely somewhere after it. */
+static void test_the_beeper_goes_off_by_itself_after_300_ms(void) {
+  ap_kbd_t k;
+  ap_kbd_reset(&k);
+  TEST_ASSERT_FALSE(ap_kbd_beeper_on(&k));
+  beep(&k, 0x81u);
+  TEST_ASSERT_TRUE(ap_kbd_beeper_on(&k));
+
+  unsigned key = 0u;
+  (void)ap_kbd_advance(&k, AP_KBD_BEEPER_DURATION - 1u, &key);
+  TEST_ASSERT_TRUE(ap_kbd_beeper_on(&k));
+  (void)ap_kbd_advance(&k, AP_KBD_BEEPER_DURATION, &key);
+  TEST_ASSERT_FALSE(ap_kbd_beeper_on(&k));
+}
+
+/* The second sequence stops it early, which is the only reason it exists: a
+ * tone that always ran its 300 ms would need no off command at all. */
+static void test_the_off_sequence_stops_the_tone_early(void) {
+  ap_kbd_t k;
+  ap_kbd_reset(&k);
+  beep(&k, 0x81u);
+  unsigned key = 0u;
+  (void)ap_kbd_advance(&k, AP_KBD_BEEPER_DURATION / 2u, &key);
+  TEST_ASSERT_TRUE(ap_kbd_beeper_on(&k));
+  beep(&k, 0x82u);
+  TEST_ASSERT_FALSE(ap_kbd_beeper_on(&k));
+}
+
+/* A run that steps clean over the whole interval must not leave the tone stuck
+ * on: the expiry is a function of the instant, not an event that has to be
+ * landed on. This is the property every advance in this core keeps, and the one
+ * a coarse caller would otherwise break. */
+static void test_an_advance_past_the_whole_tone_still_ends_it(void) {
+  ap_kbd_t k;
+  ap_kbd_reset(&k);
+  beep(&k, 0x81u);
+  unsigned key = 0u;
+  (void)ap_kbd_advance(&k, AP_KBD_BEEPER_DURATION * 100u, &key);
+  TEST_ASSERT_FALSE(ap_kbd_beeper_on(&k));
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_a_key_sends_its_index_down_and_bit_seven_up);
@@ -447,5 +498,8 @@ int main(void) {
   RUN_TEST(test_the_identification_needs_the_whole_prefix);
   RUN_TEST(test_the_code_set_is_commanded);
   RUN_TEST(test_the_beeper_is_acknowledged_without_being_modelled);
+  RUN_TEST(test_the_beeper_goes_off_by_itself_after_300_ms);
+  RUN_TEST(test_the_off_sequence_stops_the_tone_early);
+  RUN_TEST(test_an_advance_past_the_whole_tone_still_ends_it);
   return UNITY_END();
 }

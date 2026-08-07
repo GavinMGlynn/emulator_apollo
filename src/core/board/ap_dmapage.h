@@ -12,32 +12,47 @@
  * that something, and Table 2-6 gives it a block of its own on exactly the
  * board that has no map.
  *
- * ## Storage and width only
+ * ## Sixteen byte-wide registers, aliased across the block
  *
- * Sixteen byte-wide registers, aliased across the 256-byte block, holding what
- * was written to them. **No bit here has a meaning this core relies on**, which
- * is the same rule `board/ap_boardreg.h` keeps for the core registers and for
- * the same reason: Table 2-6 gives the block an address and a name and says
- * nothing about its contents, and no other manual in `docs/references/` lays it
- * out.
+ * They hold what was written to them. Table 2-6 gives the block an address and
+ * a name and says nothing about its contents, and this file said for a long
+ * time that no other manual laid it out. **That was wrong, and the manual was
+ * already on disk.**
  *
- * What that costs is stated rather than hidden: a DS3000 DMA transfer's high
- * address bits are not modelled, so a transfer beyond 64 KB would land in the
- * wrong page. Nothing reaches that yet -- the DS3000 has no measured channel
- * assignments and no device driving a request -- and the register has to exist
- * first regardless, because the boot PROM writes it five times before it does
- * anything else and an unmapped write there faults the machine.
+ * ## Which offset is which channel, from `002398-04` p. 12-25
  *
- * ## The offsets look like the AT's, and that is not asserted
+ * The Domain Engineering Handbook Rev 4's DN3000 chapter prints the table, and
+ * prints the warning with it:
  *
- * The first write this core sees is to `009207`. On an AT the DMA page
- * registers live at ports `80`-`8F` with channel 0 at `87`, so `009200 + 7`
- * lands exactly where the AT's channel 0 page register would. That is a
- * suggestive fit and it is **not** claimed: the equivalent assumption about the
- * interrupt controllers was wrong on this machine (`FINDINGS.md` C11), and the
- * DMA cascade was only safe to claim once Table 2-4 stated it. The mapping from
- * offset to channel is recorded as an open question in `docs/PROJECT_STATUS.md`
- * and closes when a DS3000 transfer can be measured.
+ *     DMA Page Registers  [ 9200 | 3FFA200 ]
+ *     ...
+ *     Addresses of the DMA page registers (note the non-order):
+ *       9207  page register for CH0      920B  page register for CH5
+ *       9203  page register for CH1      9209  page register for CH6
+ *       9201  page register for CH2      920A  page register for CH7
+ *       9202  page register for CH3
+ *
+ * Seven entries for eight channels: **channel 4 has none**, and it is the
+ * cascade -- Table 2-4's channel 4 carries the slave controller rather than a
+ * device, so there is no transfer of its own to supply high bits for.
+ *
+ * The same page states the width and the reach: "Each byte is loaded with the
+ * high 8 physical address bits for its corresponding DMA channel", which is
+ * what turns the 8237A's sixteen address bits into the system's twenty-four.
+ * It also says "DMA can operate on a maximum of 1024 bytes (each channel has
+ * only ONE page register)" -- recorded as printed. Taken literally that bounds
+ * a transfer far below the 64 KB the counter allows, and nothing else here
+ * corroborates it, so it is quoted rather than enforced.
+ *
+ * ## It *is* the AT's layout, and it took a document to say so
+ *
+ * The first write this core sees is to `009207`, and on an AT channel 0's page
+ * register is port `87`. This file recorded that as "a suggestive fit and it is
+ * **not** claimed", because the equivalent assumption about the interrupt
+ * controllers was wrong on this machine (`FINDINGS.md` C11). The refusal was
+ * right and the resolution was not a measurement: the handbook states the
+ * mapping for *this* board, and it happens to agree. The AT similarity is now a
+ * remark rather than the evidence.
  */
 
 #ifndef APOLLO_BOARD_AP_DMAPAGE_H
@@ -67,5 +82,30 @@ void ap_dmapage_reset(ap_dmapage_t *pages);
 [[nodiscard]] uint8_t ap_dmapage_read(const ap_dmapage_t *pages,
                                       uint32_t address);
 void ap_dmapage_write(ap_dmapage_t *pages, uint32_t address, uint8_t value);
+
+/* How many DMA channels the two cascaded controllers carry, and which one is
+ * the cascade. Both are Table 2-4's, restated here because the page table is
+ * indexed by channel and a caller needs the bound. */
+#define AP_DMAPAGE_CHANNELS 8u
+#define AP_DMAPAGE_CASCADE_CHANNEL 4u
+
+/* Which register a channel's page byte lives in, per `002398-04` p. 12-25.
+ * Returns `AP_DMAPAGE_REGISTERS` for channel 4, which has no page register, and
+ * for any channel out of range -- the one value that cannot be a register
+ * index, so a caller that ignores the check indexes nothing valid rather than
+ * silently reading channel 0's. */
+[[nodiscard]] unsigned ap_dmapage_index_for_channel(unsigned channel);
+
+/* The high eight physical address bits a channel's transfer carries. Zero for
+ * the cascade channel, which has no page register to hold any. */
+[[nodiscard]] uint8_t ap_dmapage_channel_page(const ap_dmapage_t *pages,
+                                              unsigned channel);
+
+/* The full physical address a channel's 16-bit DMA address reaches: the page
+ * byte above the controller's own sixteen bits. This is the whole reason the
+ * block exists, and expressing it here rather than at the transfer keeps the
+ * arithmetic in the part that is documented. */
+[[nodiscard]] uint32_t ap_dmapage_physical(const ap_dmapage_t *pages,
+                                           unsigned channel, uint16_t offset);
 
 #endif /* APOLLO_BOARD_AP_DMAPAGE_H */

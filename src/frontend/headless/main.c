@@ -1922,6 +1922,14 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
     printf("  lut a/d      %u access(es) (channel selects and conversions)\n",
            board->graphics.lut_ad_accesses);
   }
+  /* The diagnostic memory-refresh trigger, on every board but the 8-plane.
+   * What a refresh does is not modelled -- this core's graphics memory does not
+   * decay -- so the request is reported instead of being silently dropped. */
+  if (board->graphics.diag_refresh_requests > 0u) {
+    printf("  gfx refresh  %u diagnostic request(s), last %02X\n",
+           board->graphics.diag_refresh_requests,
+           board->graphics.diag_refresh_request);
+  }
   /* The display controller's *memory*, apart from its registers -- which
    * `region_writes` counts together and so cannot tell apart. "The firmware
    * never wrote a pixel" and "it wrote and nothing drew" are different answers

@@ -35,20 +35,34 @@
  *
  * The **six fastest periodic-interrupt rates**, and for a reason that is a fact
  * about this machine rather than about this module. `[146818]` Table 5 gives
- * the rates as 32768/2^n Hz, and `AP_TIME_BASE_HZ` factors as
- * 2^9 * 3 * 5^8 * 11 — so it carries only 2^9, and the rates from 1.024 kHz up
- * to 32.768 kHz are **not exactly representable**. `CLAUDE.md`'s rule is that
- * such a clock means recomputing the base, and the cost of doing so is now
- * measured rather than guessed at:
+ * the rates as 32768/2^n Hz, and `AP_TIME_BASE_HZ` = 336,600,000,000 factors as
  *
- *   including 32.768 kHz     base * 64, span falls from 88.6 years to 505 days
+ *     2^9 * 3^2 * 5^8 * 11 * 17
+ *
+ * — so it carries only 2^9 where 32.768 kHz needs 2^15, and the rates from
+ * 1.024 kHz up to 32.768 kHz are **not exactly representable**. `CLAUDE.md`'s
+ * rule is that such a clock means recomputing the base, and the cost of doing
+ * so is measured rather than guessed at. With `ap_time_t` a `uint64_t` the
+ * representable span is `2^64 / base`:
+ *
+ *   as it stands             336.6 GHz              span 634 days
+ *   including 32.768 kHz     base * 64 = 21.5 THz   span 9.9 days
  *   including the 4.194304
- *   MHz crystal itself       base * 8192, span falls to 3.95 days
+ *   MHz crystal itself       base * 8192 = 2.76 PHz span 1 hour 52 minutes
  *
  * The crystal can therefore never be a clock domain in a 64-bit base at all,
  * which is worth knowing on its own. The six fast rates could be, at a cost of
  * 64x the representable span, and that trade has not been made because nothing
  * has been observed using them — the Apollo firmware never writes the calendar.
+ *
+ * **These figures were wrong until the video clock item's recomputation was
+ * carried through to them**, and the way they were wrong is the point: the
+ * factorisation was written as `2^9 * 3 * 5^8 * 11`, which is neither the
+ * current base nor the one before it, and the spans (88.6 years, 505 days,
+ * 3.95 days) belonged to a base two recomputations old. A derived constant has
+ * derived consequences, and nothing checked these when it moved. The
+ * *conclusion* survived unchanged, because only the power of two decides it —
+ * which is exactly why the error could sit there.
  *
  * The nine slower rates, 512 Hz down to 2 Hz (1.953 ms to 500 ms), divide the
  * base exactly and **are** implemented. `ap_mc146818_rate_supported` reports

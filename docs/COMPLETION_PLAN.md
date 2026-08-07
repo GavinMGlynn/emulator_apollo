@@ -2809,12 +2809,21 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
       *Verification: `mc146818_suite` 31, `mc68681_suite` 38, `sio_suite` 25,
       `tape_suite` 17, `awd_suite` 38, `qic_suite` 18 -- each signal asserted to
       do something observable.*
-- [ ] **The declines that need a document or a measurement, not code.**
-      `ap_dmapage`'s channel mapping, the graphics A/D and refresh,
-      `ap_master`'s Series 4000 route, the keyboard beeper, and the MC146818's
-      six fast periodic rates -- which `AP_TIME_BASE_HZ` cannot represent, a
-      time-base decision with a 64x span cost. None is closed by writing code,
-      and each would be a guess if it were. Detail in `PROJECT_STATUS.md`.
+- [x] **The declines that need a document or a measurement, not code.** Three
+      of the five closed, and two of those on a **sibling manual already on
+      disk** -- `002398-04`, the Domain Engineering Handbook, whose DN3000
+      chapter prints what `008778-03` omits. `ap_dmapage`'s channel mapping is
+      p. 12-25's table (channel 4, the cascade, has none); the keyboard beeper
+      is p. 12-2's sequences and its 300 ms auto-off, the observable that was
+      being thrown away. The MC146818 decline stands but **its arithmetic was
+      two base-recomputations stale**. The graphics A/D and the Series 4000
+      Master Request bit stay declined, with the search now recorded as
+      exhausted; the graphics refresh trigger became a recorded signal rather
+      than a discarded write. Detail in `PROJECT_STATUS.md`.
+      *Verification: `board_suite` 29 -> 32, `kbd_suite` +3, `graphics_suite`
+      and `mc146818_suite` extended -- the last asserting the base's power of
+      two, so a recomputation that makes the six fast rates representable fails
+      a test naming the decline to reopen.*
 - [x] **`IRQ6` and `DRQ2`, the floppy's**, are driven. Both were placed on the
       board and left undriven because this half had nothing to derive them from.
       It has Table 4-3's Digital Output Register bit 3, which gates both, the
