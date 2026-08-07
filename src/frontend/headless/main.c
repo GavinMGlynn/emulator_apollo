@@ -109,6 +109,10 @@ static void print_usage(const char *program_name) {
           "  --boot-input-interval US  emulated microseconds between scripted\n"
           "                        characters; the wire's own floor if 0\n"
           "  --boot-type TEXT      type TEXT on the keyboard, one character each\n"
+          "  --boot-type-after-mmu hold --boot-type until the MMU is enabled: the\n"
+          "                        boot PROM runs with translation off and an\n"
+          "                        operating system turns it on, so this types at\n"
+          "                        the OS and not into a firmware self-test\n"
           "                        time the machine settles into an input poll --\n"
           "                        which is what a prompt deep inside an operating\n"
           "                        system needs and a step number cannot give\n"
@@ -1125,7 +1129,8 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
                           uint32_t watch, const char *input, unsigned input_unit,
                           unsigned input_channel, uint8_t input_rate,
                           unsigned input_interval_us,
-                          unsigned key, const char *typed, bool console,
+                          unsigned key, const char *typed, bool type_after_mmu,
+                          bool console,
                           ap_screen_kind_t screen, uint32_t node_id,
                           ap_model_id_t model, const char *screenshot,
                           unsigned trace_last, uint32_t stop_pc,
@@ -1673,7 +1678,23 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
        * step number cannot give: Domain/OS's calendar question arrives some
        * seven hundred million instructions in, and any constant chosen for it
        * would be a measurement of one boot rather than a condition. */
-      if (typed_sent < typed_length &&
+      /* **And not before the operating system is running, when asked.**
+       *
+       * "The machine is polling hard" does not distinguish a prompt from a
+       * self-test that polls harder. `KEYBOARD TEST # 0` waits on the ISR
+       * 65,536 times per exchange, which trips any threshold a prompt would,
+       * and a `y` delivered into it lands in the receive FIFO in the middle of
+       * the loopback echo comparison: measured, `SELF TEST FAILED ... ACTUAL=
+       * 0000FF11, ADDRESS= 00010407, PC= 0000732E`. The typed character became
+       * the byte the firmware was comparing.
+       *
+       * The gate is a machine *state* rather than a tuned instruction count:
+       * the boot PROM runs with translation off and Domain/OS turns the MMU on
+       * before it prompts, so "the MMU is enabled" separates the two without
+       * measuring either. A count would have been a measurement of one boot. */
+      const bool typing_allowed =
+          !type_after_mmu || machine.cpu.tc.enable;
+      if (typed_sent < typed_length && typing_allowed &&
           !ap_sio_receiver_ready(&board->sio, 0u, 0u) &&
           ap_sio_character_bits(&board->sio, 0u, 0u) == 8u &&
           ap_sio_receiver_enabled(&board->sio, 0u, 0u) &&
@@ -2689,6 +2710,7 @@ int main(int argc, char **argv) {
   uint32_t boot_watch_write = 0;
   uint32_t boot_watch_read = 0;
   const char *boot_typed = NULL;
+  bool boot_type_after_mmu = false;
   unsigned boot_stop_on_watch_read = 0;
   unsigned boot_stop_on_watch = 0;
   uint32_t boot_stop_pc_length = 1u;
@@ -2841,6 +2863,11 @@ int main(int argc, char **argv) {
     }
     if (strcmp(argv[i], "--boot-stop-on-disk-refusal") == 0) {
       boot_stop_on_refusal = true;
+      i += 1;
+      continue;
+    }
+    if (strcmp(argv[i], "--boot-type-after-mmu") == 0) {
+      boot_type_after_mmu = true;
       i += 1;
       continue;
     }
@@ -3008,7 +3035,8 @@ int main(int argc, char **argv) {
     return boot_from_prom(boot_prom, boot_limit, boot_trace, boot_watch,
                           boot_input, boot_input_unit, boot_input_channel,
                           (uint8_t)boot_input_rate, boot_input_interval_us,
-                          boot_key, boot_typed, boot_console,
+                          boot_key, boot_typed, boot_type_after_mmu,
+                          boot_console,
                           boot_screen, node_id, opt.model->id, screenshot,
                           boot_trace_last, boot_stop_pc, boot_script,
                           disk_path, battery_path, dump_spec, boot_progress,

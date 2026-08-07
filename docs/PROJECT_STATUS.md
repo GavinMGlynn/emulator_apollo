@@ -13734,3 +13734,32 @@ a third round of "which condition is false?" into one run. With it,
 does not also enter step mode is a feature that silently does not exist. The
 list is the contract and it is not enforced anywhere — a flag added without
 touching it compiles, runs, exits zero and reports nothing.*
+
+### The poll heuristic cannot tell a prompt from a self-test
+
+With `--boot-type` finally delivering, both characters went — and into the wrong
+program. The screen:
+
+    SELF TEST FAILED.
+     EXPECTED= 00000000, ACTUAL= 0000FF11, ADDRESS= 00010407
+     PC= 0000732E
+
+`00010407` is serial 1's receive buffer and `0000732E` is the comparison inside
+the loopback echo test. **The typed character became the byte the firmware was
+comparing.**
+
+`AP_BOOT_KEY_POLLS` rests on "firmware that is merely running reads the status
+register a handful of times; firmware sitting at a prompt reads it thousands of
+times over". That is true and incomplete: `KEYBOARD TEST # 0` polls the ISR
+65,536 times *per exchange*, so a self-test out-polls any prompt. The heuristic
+was written when the only hard poll in evidence was a prompt.
+
+`--boot-type-after-mmu` gates on a machine **state** instead of a tuned count:
+the boot PROM runs with translation off and an operating system turns the MMU on
+before it prompts, so "the MMU is enabled" separates the two without measuring
+either. An instruction count would have been a measurement of one boot.
+
+*This is the same error as the register one two entries above, and as
+`set_mode`, and as the plan's transcription of `738C`: a statement that is true
+of the case in hand, recorded as though it described the machine. Four instances
+in one session is a pattern rather than a run of bad luck.*
