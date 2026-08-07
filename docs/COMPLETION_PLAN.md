@@ -4495,8 +4495,19 @@ boot below, and the boot is not attempted until they are done.
       being reached. There is a third somewhere, and the way to find it is to
       stop on `005F8C` itself -- the routine that prints -- and read the return
       address, rather than matching offsets against a printed field.
-      *Verification: `--boot-stop-physical-pc 5F8C`, and the caller from the
-      stack.*
+      **And `5F8C` never fires either** -- the run reaches its limit again. But
+      `d2` holds `E0340064` at the end, which is exactly the `E034xxxx` family
+      those call sites pass to the reporting routine, and `a0` is `00010401`,
+      inside the SIO. So the code *is* running and **the stop is not catching
+      it**.
+      That makes `--boot-stop-physical-pc` the thing to distrust, not the
+      addresses. The likely reason is translation: it matches a *physical* PC,
+      and if the MMU is on by the time this code runs, a logical `005F8C` is not
+      physical `005F8C`. Every "never reached" conclusion from this flag --
+      including `0073D8` above -- is therefore unsafe, and that one should be
+      re-examined rather than trusted.
+      *Verification: `--boot-stop-pc` (logical) rather than the physical form,
+      on both addresses.*
       That is the first defect of this phase that is genuinely ours, and it is
       narrow: one bit, one register, and a known producer.
       *Verification: `RxRDY` set on channel A by the time `000073EC` reads it,
