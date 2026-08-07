@@ -109,6 +109,11 @@ static void print_usage(const char *program_name) {
           "  --boot-input-interval US  emulated microseconds between scripted\n"
           "                        characters; the wire's own floor if 0\n"
           "  --boot-type TEXT      type TEXT on the keyboard, one character each\n"
+          "  --boot-report         print the input path end to end at exit: the\n"
+          "                        port, the receiver, the interrupt and its mask,\n"
+          "                        the controller and the keyboard. Every question\n"
+          "                        of the form \"why did my keystroke do nothing\"\n"
+          "                        this session was answerable from these lines\n"
           "  --clock DATE          the instant the machine powers on, as\n"
           "                        YYYY-MM-DD or YYYY-MM-DDTHH:MM:SS. A volume\n"
           "                        written later than the clock makes Domain/OS stop\n"
@@ -1282,7 +1287,8 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
                           unsigned input_channel, uint8_t input_rate,
                           unsigned input_interval_us,
                           unsigned key, const char *typed, bool type_after_os,
-                          const ap_mc146818_time_t *clock, bool console,
+                          const ap_mc146818_time_t *clock, bool boot_report,
+                          bool console,
                           ap_screen_kind_t screen, uint32_t node_id,
                           ap_model_id_t model, const char *screenshot,
                           unsigned trace_last, uint32_t stop_pc,
@@ -2459,6 +2465,54 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
     }
   }
 
+  /* ## `--boot-report`: the input path, end to end, in one place
+   *
+   * Five separate investigations into "the machine ignored what I typed" this
+   * session were each a *harness* fault, and each was diagnosed by adding a
+   * temporary probe, running for twenty minutes, reading three lines and
+   * reverting it. Every one of those facts was already in the machine at the
+   * moment the run ended. This prints them.
+   *
+   * The order is the path a character takes: the port it arrives at, the
+   * receiver that latches it, the interrupt that announces it, the controller
+   * that delivers that, and the keyboard at the far end. A reader looking for
+   * why a keystroke did nothing walks it downwards and stops at the first line
+   * that is not what they expected. */
+  if (boot_report) {
+    const ap_mc68681_t *duart = &board->sio.port[0];
+    const ap_mc68681_channel_t *ch = &duart->channel[0];
+    printf("  --- input path, serial 1 channel A (the keyboard) ---\n");
+    printf("  port         MR1 %02X (%u bit(s)), MR2 %02X, CSR %02X, SR %02X\n",
+           ch->mr[0], ap_sio_character_bits(&board->sio, 0u, 0u), ch->mr[1],
+           ch->csr, ch->sr);
+    printf("  receiver     %s, FIFO %u deep, %s\n",
+           ch->rx_enabled ? "enabled" : "**disabled**", ch->fifo_count,
+           (ch->sr & AP_MC68681_SR_OVERRUN) ? "**overrun**" : "no overrun");
+    printf("  transmitter  %s, holding register %s\n",
+           ch->tx_enabled ? "enabled" : "**disabled**",
+           ch->tx_holding_full ? "**full**" : "empty");
+    /* The two that decide whether a received character is *announced*. A
+     * driver that reads by interrupt and never set its mask bit looks exactly
+     * like a machine ignoring the keyboard, and the difference is here. */
+    printf("  interrupt    ISR %02X, IMR %02X, line %s\n", duart->isr,
+           duart->imr, ap_sio_irq(&board->sio) ? "asserted" : "not asserted");
+    printf("  controller   IRQ%u %s, master IRR %02X IMR %02X, %s\n",
+           AP_SIO_IRQ,
+           (board->interrupts.master.imr & (1u << AP_SIO_IRQ)) ? "**masked**"
+                                                               : "unmasked",
+           board->interrupts.master.irr, board->interrupts.master.imr,
+           ap_intr_pending(&board->interrupts) ? "pending" : "nothing pending");
+    printf("  keyboard     %s, %s set, %u byte(s) still on the wire\n",
+           board->keyboard.loopback ? "in loopback" : "out of loopback",
+           board->keyboard.keystate_mode ? "keystate" : "compatibility",
+           board->kbd_reply.count);
+    printf("  traffic      data register %u write(s) %u read(s), "
+           "command register %u write(s)\n",
+           board->sio.register_writes[0][AP_MC68681_RB_TB_A],
+           board->sio.register_reads[0][AP_MC68681_RB_TB_A],
+           board->sio.register_writes[0][AP_MC68681_CR_A]);
+  }
+
   int status = 0;
   if (screenshot != NULL) {
     status = write_screenshot(screenshot, &board->graphics,
@@ -2894,6 +2948,7 @@ int main(int argc, char **argv) {
   const char *boot_typed = NULL;
   ap_mc146818_time_t boot_clock;
   bool boot_clock_set = false;
+  bool boot_report = false;
   bool boot_type_after_os = false;
   unsigned boot_stop_on_watch_read = 0;
   unsigned boot_stop_on_watch = 0;
@@ -3047,6 +3102,11 @@ int main(int argc, char **argv) {
     }
     if (strcmp(argv[i], "--boot-stop-on-disk-refusal") == 0) {
       boot_stop_on_refusal = true;
+      i += 1;
+      continue;
+    }
+    if (strcmp(argv[i], "--boot-report") == 0) {
+      boot_report = true;
       i += 1;
       continue;
     }
@@ -3231,7 +3291,8 @@ int main(int argc, char **argv) {
                           boot_input, boot_input_unit, boot_input_channel,
                           (uint8_t)boot_input_rate, boot_input_interval_us,
                           boot_key, boot_typed, boot_type_after_os,
-                          boot_clock_set ? &boot_clock : NULL, boot_console,
+                          boot_clock_set ? &boot_clock : NULL, boot_report,
+                          boot_console,
                           boot_screen, node_id, opt.model->id, screenshot,
                           boot_trace_last, boot_stop_pc, boot_script,
                           disk_path, battery_path, dump_spec, boot_progress,

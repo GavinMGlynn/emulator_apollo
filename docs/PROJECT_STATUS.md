@@ -14361,3 +14361,33 @@ count of instructions.
 rather than into it. **The prompt is unchanged**, so this fixes the flush and not
 the item — recorded that way because it is the fifth thing fixed on the way to
 this prompt and the fifth that was necessary without being sufficient.*
+
+## `--boot-report`: the input path in one place, because five investigations needed it
+
+Five separate investigations this session into "the machine ignored what I
+typed" were each a **harness** fault, and each was diagnosed the same way: add a
+temporary probe, run for twenty minutes, read three lines, revert it. Every one
+of those facts was already in the machine when the run ended.
+
+`--boot-report` prints them, in the order a character travels — the port it
+arrives at, the receiver that latches it, the interrupt that announces it, the
+controller that delivers that, and the keyboard at the far end:
+
+    --- input path, serial 1 channel A (the keyboard) ---
+    port         MR1 03 (8 bit(s)), MR2 07, CSR 66, SR 04
+    receiver     enabled, FIFO 0 deep, no overrun
+    transmitter  enabled, holding register empty
+    interrupt    ISR 19, IMR 00, line not asserted
+    controller   IRQ1 **masked**, master IRR 00 IMR FF, nothing pending
+    keyboard     in loopback, compatibility set, 0 byte(s) still on the wire
+    traffic      data register 19 write(s) 20 read(s), command register 24 write(s)
+
+A reader walks it downwards and stops at the first line that is not what they
+expected. The `IMR 00` and `IRQ1 masked` above say this machine — the boot PROM
+alone — reads the keyboard by **polling**, which is why every poll-based
+condition in `--boot-type` worked for it. Whether Domain/OS does the same is the
+one open question about the calendar prompt, and it is now two lines of any run
+rather than a rebuild.
+
+*Verification: the block above, from a `--screen c8p --boot-type` run, and
+`ctest` 121/121.*
