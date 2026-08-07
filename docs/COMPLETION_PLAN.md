@@ -4518,8 +4518,20 @@ boot below, and the boot is not attempted until they are done.
       already written down in this file, and both are withdrawn. `0073D8` and
       `005F8C` have not been shown to be unreachable; they have been shown to be
       unwatched.
-      *Verification: the same stops with `--boot-console` present, which forces
-      the stepping loop.*
+      **With `--boot-console` present it fires immediately**: `stopped at PC
+      00005F8C after 4,289,870 instruction(s)`, and every field matches the
+      screen -- `d0 = 00000002` (`EXPECTED`), `d1 = 0000FF00` (`ACTUAL`),
+      `a0 = 0001040B` (`ADDRESS`) -- with `d2 = E0340880`, the constant loaded
+      at **`0073E6`**.
+      So the reported failure **is** the `73D8` site: the original pinning was
+      correct and the retraction was the artefact. `a3` holds `00010400`, the
+      SIO base, confirming `a0 = base + 0x0B` and therefore register 5, the
+      **ISR**, bit 1 -- `RxRDY/FFULL A`, which `MR1A = 07` selects as `RxRDY`.
+      And it happens at **4.29 million** instructions, very early -- so the
+      keyboard replies traced earlier, whenever they occurred, are worth
+      timestamping against that.
+      *Verification: whether the keyboard's replies land before 4,289,870
+      instructions.*
       That is the first defect of this phase that is genuinely ours, and it is
       narrow: one bit, one register, and a known producer.
       *Verification: `RxRDY` set on channel A by the time `000073EC` reads it,
