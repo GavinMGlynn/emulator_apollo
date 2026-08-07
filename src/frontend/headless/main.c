@@ -1469,8 +1469,20 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
   ap_time_t input_next_at = 0u;
 
   ap_machine_run_t run;
+  /* **`typed_length` belongs in this list, and leaving it out is the trap this
+   * file has now been caught by three times.** The step-by-step loop is where
+   * every per-instruction check lives -- the PC stops, the scripted input, the
+   * keypress, and now the typed text -- and a run that enters none of the
+   * conditions above skips all of them silently. `--boot-progress` was found
+   * mute for the same reason, and two "never reached" conclusions about PC
+   * stops were artefacts of it.
+   *
+   * `--boot-type` with every delivery condition satisfied typed nothing, and
+   * the diagnostic printed `port: 8 bit(s), receiver enabled, free, polls
+   * 203,962 (need 2000)` -- all four conditions true, and the code testing them
+   * never ran. */
   if (trace || trace_last > 0u || input_length > 0u || console ||
-      script.steps > 0u || key < AP_KBD_KEYS) {
+      script.steps > 0u || key < AP_KBD_KEYS || typed_length > 0u) {
     /* Step by step, reporting the program counter and the active stack pointer.
      *
      * A7 is the observable this exists for. A wrong PC is where damage becomes
@@ -2220,6 +2232,30 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
    * *firmware* programmed, now that the register file stores it -- so `INV` and
    * `DISP_EN` are the machine's own answers rather than the harness's
    * assumption. */
+  /* What `--boot-type` managed, and *why* if it managed less than all of it.
+   *
+   * A flag that is accepted and then does nothing is the defect class this
+   * frontend has already been caught by twice -- `--boot-progress` silent
+   * outside the step loop, and `--boot-key` delivering into a five-bit port.
+   * Both looked exactly like a machine ignoring the input. So the condition is
+   * reported rather than left to be inferred from a screen that did not
+   * change. */
+  if (typed_length > 0u) {
+    printf("  boot type    %u of %u character(s) typed\n",
+           (unsigned)typed_sent, (unsigned)typed_length);
+    if (typed_sent < typed_length) {
+      printf("               port: %u bit(s), receiver %s, %s, polls %u "
+             "(need %u)\n",
+             ap_sio_character_bits(&board->sio, 0u, 0u),
+             ap_sio_receiver_enabled(&board->sio, 0u, 0u) ? "enabled"
+                                                          : "**disabled**",
+             ap_sio_receiver_ready(&board->sio, 0u, 0u)
+                 ? "**holding an unread byte**"
+                 : "free",
+             input_polls(board), typed_polls_at + AP_BOOT_KEY_POLLS);
+    }
+  }
+
   int status = 0;
   if (screenshot != NULL) {
     status = write_screenshot(screenshot, &board->graphics,

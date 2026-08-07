@@ -13705,3 +13705,32 @@ described the machine.
 matrix index, a capital arrives with no shift key sent before it, RETURN arrives
 as its own code `CB` rather than a raw `0D`, and a character no key produces is
 refused rather than sent as something plausible.*
+
+### And the step-mode trap, for the third time
+
+`--boot-type` with the corrected poll counter still typed nothing, and the
+diagnostic added to find out why answered instantly:
+
+    boot type    0 of 1 character(s) typed
+                 port: 8 bit(s), receiver enabled, free, polls 203,962 (need 2000)
+
+**Every delivery condition true, and the code testing them never ran.** The
+step-by-step loop is entered only when `trace`, `trace_last`, `input_length`,
+`console`, `script.steps` or `key` is set, and `--boot-type` was in none of
+them — so the per-instruction checks that live in that loop were skipped for the
+whole run.
+
+This file has now been caught by that three times: `--boot-progress` was found
+mute for it, and two "never reached" conclusions about PC stops were artefacts
+of it. Each time the symptom is a flag that is accepted and does nothing, which
+is indistinguishable from a machine ignoring the input.
+
+`typed_length` is now in the list, and the diagnostic stays — it is what turned
+a third round of "which condition is false?" into one run. With it,
+`boot type 1 of 1 character(s) typed`, and the PROM's final PC moves from
+`000077AC` to `000007A2`: the character arrived and the machine acted on it.
+
+*The general form, since this is the third instance: a per-step feature that
+does not also enter step mode is a feature that silently does not exist. The
+list is the contract and it is not enforced anywhere — a flag added without
+touching it compiles, runs, exits zero and reports nothing.*
