@@ -412,10 +412,24 @@ static void test_an_input_change_raises_its_interrupt(void) {
   ap_mc68681_t d;
   ap_mc68681_reset(&d);
   ap_mc68681_write(&d, AP_MC68681_ISR_IMR, AP_MC68681_ISR_INPUT);
+  /* **And the per-pin enable.** §4.2.13.3: `ACR[3:0]` "selects which bits of
+   * the input port change register can cause ... ISR[7] to be set", so the mask
+   * alone is not enough. This test set only the mask and passed because the
+   * model raised the interrupt for every pin. */
+  ap_mc68681_write(&d, AP_MC68681_IPCR_ACR, 0x0Fu);
 
   TEST_ASSERT_FALSE(ap_mc68681_irq(&d));
   ap_mc68681_set_input(&d, 0x04);
   TEST_ASSERT_TRUE(ap_mc68681_irq(&d));
+
+  /* A pin whose enable is clear records its change and raises nothing. */
+  ap_mc68681_t gated;
+  ap_mc68681_reset(&gated);
+  ap_mc68681_write(&gated, AP_MC68681_ISR_IMR, AP_MC68681_ISR_INPUT);
+  ap_mc68681_write(&gated, AP_MC68681_IPCR_ACR, 0x01u); /* IP0 only */
+  ap_mc68681_set_input(&gated, 0x04u);                  /* IP2 changed */
+  TEST_ASSERT_FALSE(ap_mc68681_irq(&gated));
+  TEST_ASSERT_TRUE((ap_mc68681_read(&gated, AP_MC68681_IPCR_ACR) & 0x40u) != 0u);
 
   /* And reading the change register drops it. */
   (void)ap_mc68681_read(&d, AP_MC68681_IPCR_ACR);

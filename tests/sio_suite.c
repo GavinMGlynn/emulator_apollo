@@ -134,8 +134,11 @@ static void test_the_serial_ports_raise_the_second_priority_interrupt(void) {
   ap_intr_write(&intr, AP_INTR_MASTER_ADDR + 1u, 0x01);
   ap_intr_write(&intr, AP_INTR_MASTER_ADDR + 1u, 0x00);
 
-  /* Unmask the input-port-change interrupt and change a pin. */
+  /* Unmask the input-port-change interrupt **and enable the pin's delta**:
+   * §4.2.13.3 gates `ISR[7]` on `ACR[3:0]` as well as on the mask. This set
+   * only the mask, and passed because the model raised it for every pin. */
   ap_sio_write(&sio, AP_SIO1_ADDR + 10u, AP_MC68681_ISR_INPUT);
+  ap_sio_write(&sio, AP_SIO1_ADDR + 8u, 0x0Fu); /* ACR: all four deltas */
   ap_mc68681_set_input(&sio.port[0], 0x02);
   TEST_ASSERT_TRUE(ap_sio_irq(&sio));
 

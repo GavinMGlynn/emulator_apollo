@@ -352,7 +352,18 @@ void ap_mc68681_set_input(ap_mc68681_t *duart, uint8_t value) {
     /* §4.2.14: the input port change register records *which* pins changed in
      * its high nibble and their current state in the low one. */
     duart->ipcr |= (uint8_t)((changed & 0x0Fu) << 4);
-    duart->isr |= AP_MC68681_ISR_INPUT;
+    /* §4.2.13.3: `ACR[3:0]` "selects which bits of the input port change
+     * register can cause the input change bit in the interrupt status register
+     * (ISR[7]) to be set" -- so a pin whose enable is clear records its change
+     * in the `IPCR` and raises nothing.
+     *
+     * This set `ISR[7]` on *any* change, which is the difference between a
+     * board that interrupts on one wire and one that interrupts on all four.
+     * The `IPCR` record is deliberately still unconditional: the datasheet
+     * gates the *interrupt*, not the register. */
+    if ((changed & duart->acr & 0x0Fu) != 0u) {
+      duart->isr |= AP_MC68681_ISR_INPUT;
+    }
   }
   duart->ipcr = (uint8_t)((duart->ipcr & 0xF0u) | (value & 0x0Fu));
 }

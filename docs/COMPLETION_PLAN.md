@@ -4589,8 +4589,17 @@ boot below, and the boot is not attempted until they are done.
       That last one matters for the fifteen-writes-five-arrive count above: a
       transmitter gated on CTS is one plausible mechanism, and it cannot be
       ruled in or out while the bit is absent.
-      *Verification: each bit above implemented with its test, then the boot
-      re-run -- in that order.*
+      **All five done**, and the sweep continued to Table 4-5 sheet 4, which
+      found a sixth: `ACR[3:0]`, the per-pin change-of-state interrupt enables.
+      §4.2.13.3 says the field "selects which bits of the input port change
+      register can cause the input change bit in the interrupt status register
+      (ISR[7]) to be set", and this core raised `ISR[7]` on **any** input
+      change. Two tests had enabled only the mask and passed for that reason.
+      *Verification: `mc68681_suite` 42 and `sio_suite` 25, with the gated case
+      asserted -- a pin whose enable is clear records its change in the `IPCR`
+      and raises nothing.*
+      *Remaining for a complete sweep: sheets 2, 3 and 5 -- `CSR`, `CR`, `SR`,
+      `OPCR`, `OPR` and the counter/timer registers.*
       That is the first defect of this phase that is genuinely ours, and it is
       narrow: one bit, one register, and a known producer.
       *Verification: `RxRDY` set on channel A by the time `000073EC` reads it,
