@@ -14333,3 +14333,31 @@ and this time it is about method rather than a register: three sessions of
 increasingly precise instrumentation went into making a keystroke answer a
 question that a real operator would never have answered, because the prompt is
 not asking for permission — it is reporting a fault we had built in.*
+
+### Typing waits for the port to go quiet, because the console handover flushes it
+
+Measured with the command register logged, at Domain/OS's prompt:
+
+    CRA 45 (fifo 0)   the receiver is enabled
+    TYPED 79          our 'y' lands, fifo -> 1
+    CRA 05 / 0A       ... and the driver reconfigures the port
+    CRA 2A (fifo 1)   miscellaneous command 2: **reset receiver**
+    CRA 3A (fifo 0)   the FIFO is empty; the 'y' is gone, unread
+    CRA 45 (fifo 0)   re-enabled
+    TYPED 0D          the RETURN lands, and *is* read
+
+So a character delivered during the console handover is legitimately discarded —
+the driver resets the receiver as it takes the port over, and a person types
+after the prompt has settled rather than while the port is still being
+initialised.
+
+The delivery condition now requires the command register to have been **quiet**
+for four character times. That is a property of the port rather than of this
+operating system, so it needs no constant tuned to one boot, and it is the same
+shape as every other condition in this flag: a state the machine is in, not a
+count of instructions.
+
+*Verification: `2 of 2 character(s) typed`, both after the reconfiguration
+rather than into it. **The prompt is unchanged**, so this fixes the flush and not
+the item — recorded that way because it is the fifth thing fixed on the way to
+this prompt and the fifth that was necessary without being sufficient.*
