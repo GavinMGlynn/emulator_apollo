@@ -108,6 +108,41 @@ static void test_daylight_savings_springs_forward_and_falls_back_once(void) {
   TEST_ASSERT_EQUAL_UINT(2u, ap_mc146818_now(&autumn).hour);
 }
 
+/* `DV2-DV0` hold the divider chain in reset, which "prevents interrupts or SQW
+ * output from operating" -- the mechanism a driver uses to set the time
+ * without it moving underneath. The field was read nowhere. */
+static void test_a_held_divider_stops_the_clock_and_the_square_wave(void) {
+  ap_mc146818_t rtc;
+  static const ap_mc146818_time_t start = {.year = 1988u,
+                                           .month = 1u,
+                                           .day = 1u,
+                                           .day_of_week = 6u,
+                                           .second = 0u};
+  TEST_ASSERT_TRUE(ap_mc146818_reset(&rtc, &start));
+  ap_mc146818_write(&rtc, AP_MC146818_REGISTER_A, 0x2Fu); /* 010: running */
+  ap_mc146818_write(&rtc, AP_MC146818_REGISTER_B, AP_MC146818_B_SQWE);
+  TEST_ASSERT_TRUE(ap_mc146818_divider_running(&rtc));
+
+  ap_time_t clock = 0;
+  run_seconds(&rtc, &clock, 3u);
+  TEST_ASSERT_EQUAL_UINT(3u, ap_mc146818_now(&rtc).second);
+  TEST_ASSERT_TRUE(ap_mc146818_square_wave_hz(&rtc) > 0u);
+
+  /* Held: the seconds stop, and so does the pin. */
+  ap_mc146818_write(&rtc, AP_MC146818_REGISTER_A, 0x6Fu); /* 110: reset */
+  TEST_ASSERT_FALSE(ap_mc146818_divider_running(&rtc));
+  run_seconds(&rtc, &clock, 5u);
+  TEST_ASSERT_EQUAL_UINT(3u, ap_mc146818_now(&rtc).second);
+  TEST_ASSERT_EQUAL_UINT32(0u, ap_mc146818_square_wave_hz(&rtc));
+
+  /* Released: it runs again from where it stopped, and the five seconds that
+   * passed while held are not replayed -- a held clock is stopped, not
+   * paused. */
+  ap_mc146818_write(&rtc, AP_MC146818_REGISTER_A, 0x2Fu);
+  run_seconds(&rtc, &clock, 2u);
+  TEST_ASSERT_EQUAL_UINT(5u, ap_mc146818_now(&rtc).second);
+}
+
 static void test_the_square_wave_pin_follows_sqwe_and_the_rate_select(void) {
   ap_mc146818_t rtc;
   static const ap_mc146818_time_t start = {
@@ -722,6 +757,7 @@ static void test_the_same_fortnight_reached_in_steps_agrees(void) {
 
 int main(void) {
   UNITY_BEGIN();
+  RUN_TEST(test_a_held_divider_stops_the_clock_and_the_square_wave);
   RUN_TEST(test_the_square_wave_pin_follows_sqwe_and_the_rate_select);
   RUN_TEST(test_daylight_savings_springs_forward_and_falls_back_once);
   RUN_TEST(test_fourteen_days_of_carries_land_on_the_right_date);

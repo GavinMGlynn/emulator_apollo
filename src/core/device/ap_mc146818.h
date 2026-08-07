@@ -98,7 +98,18 @@
 /* Register A. "UIP ... is a status flag that may be monitored by the program",
  * read-only; DV2-DV0 select the divider; RS3-RS0 the rate. */
 #define AP_MC146818_A_UIP 0x80u
+/* `DV2-DV0`, Register A bits 6-4. The datasheet's Table 4 gives them "three
+ * uses": select one of three operating time bases -- 4.194304 MHz, 1.048576
+ * MHz or 32.768 kHz -- or **hold the divider chain in reset**, which "prevents
+ * interrupts or SQW output from operating" and is how a driver sets the time
+ * precisely without the clock moving under it.
+ *
+ * This core read the field nowhere, so the seconds advanced whatever was
+ * written there and a driver holding the dividers in reset watched the time
+ * change while it was setting it. */
 #define AP_MC146818_A_DIVIDER 0x70u
+/* `11X`: the two codes that hold the chain in reset. */
+#define AP_MC146818_A_DIVIDER_RESET 0x60u
 #define AP_MC146818_A_RATE 0x0Fu
 
 /* Register B, all read/write. */
@@ -212,6 +223,10 @@ void ap_mc146818_advance(ap_mc146818_t *rtc, ap_time_t now);
  * `ap_mc146818_rate_supported` still governs: a rate this core cannot represent
  * exactly is not one it should claim to be driving. */
 [[nodiscard]] uint32_t ap_mc146818_square_wave_hz(const ap_mc146818_t *rtc);
+
+/* Whether the divider chain is running. False while `DV2-DV0` hold it in
+ * reset, when neither the update cycle nor the square wave operates. */
+[[nodiscard]] bool ap_mc146818_divider_running(const ap_mc146818_t *rtc);
 
 /* The clock as numbers, for tests and for a state hash that must not depend on
  * the register format software happens to have selected. */

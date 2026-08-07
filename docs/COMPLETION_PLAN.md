@@ -4687,10 +4687,14 @@ boot below, and the boot is not attempted until they are done.
       was before its sidecar -- reported rather than silently dropped.
       **The remaining four parts walked.**
       - **Bt458: clean.** Nothing defined and unused.
-      - **MC146818: `A_DIVIDER` is never read** -- *behaviour checked, not just
-        the name*: nothing in `ap_mc146818.c` masks or shifts Register A's bits
-        6-4 under any spelling, so unlike the MC6840 status flags this one is
-        real. Register A bits 6-4 are the
+      - ~~**MC146818: `A_DIVIDER` is never read**~~ **done.** Behaviour-checked
+        first, unlike the MC6840 false positive: nothing masked or shifted
+        Register A's bits 6-4 under any spelling. The datasheet's Table 4 gives
+        the field "three uses" -- select one of three time bases, or hold the
+        chain in reset, which "prevents interrupts or SQW output from
+        operating". A held chain now stops the update cycle and silences the
+        square wave, and the cursor still advances so time passed while held is
+        not replayed: a held clock is stopped, not paused. Register A bits 6-4 are the
         oscillator and divider control -- the field that decides whether the
         clock *runs at all*. This core keeps time regardless of what is written
         there, so a driver that stops the divider still sees the seconds

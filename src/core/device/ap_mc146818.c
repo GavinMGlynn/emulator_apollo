@@ -214,6 +214,16 @@ void ap_mc146818_advance(ap_mc146818_t *rtc, ap_time_t now) {
   if (now <= rtc->updated_to) {
     return;
   }
+  /* The 22-stage divider produces "a 1 Hz signal to the update-cycle logic",
+   * and `DV2-DV0` can hold it in reset. Held, no update cycle runs -- which is
+   * what lets a driver set the time without it moving underneath.
+   *
+   * The cursor still advances, so time that passed while the chain was held is
+   * *not* replayed when it is released. A held clock is stopped, not paused. */
+  if (!ap_mc146818_divider_running(rtc)) {
+    rtc->updated_to = now;
+    return;
+  }
   uint64_t seconds =
       ap_clock_cycles_in(&rtc->second_clock, now - rtc->updated_to);
 
@@ -326,6 +336,13 @@ bool ap_mc146818_rate_supported(const ap_mc146818_t *rtc) {
   return ap_time_base_divides(hz);
 }
 
+bool ap_mc146818_divider_running(const ap_mc146818_t *rtc) {
+  /* `11X` holds the chain in reset; every other code selects a time base. */
+  return (rtc->ram[AP_MC146818_REGISTER_A] & AP_MC146818_A_DIVIDER) !=
+         AP_MC146818_A_DIVIDER_RESET &&
+         (rtc->ram[AP_MC146818_REGISTER_A] & AP_MC146818_A_DIVIDER) !=
+             AP_MC146818_A_DIVIDER;
+}
 uint32_t ap_mc146818_square_wave_hz(const ap_mc146818_t *rtc) {
   /* Held low unless `SQWE` is set, and silent about rates this core cannot
    * represent exactly -- the same guard `ap_mc146818_rate_supported` exists
@@ -335,6 +352,11 @@ uint32_t ap_mc146818_square_wave_hz(const ap_mc146818_t *rtc) {
     return 0u;
   }
   if (!ap_mc146818_rate_supported(rtc)) {
+    return 0u;
+  }
+  /* "Holding the dividers in reset prevents interrupts or SQW output from
+   * operating" -- so a held chain silences the pin however `SQWE` is set. */
+  if (!ap_mc146818_divider_running(rtc)) {
     return 0u;
   }
   return ap_mc146818_periodic_hz(rtc);
