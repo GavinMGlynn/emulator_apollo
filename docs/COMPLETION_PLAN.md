@@ -4563,8 +4563,29 @@ boot below, and the boot is not attempted until they are done.
       while disabled, and whether a real 2681 discards or buffers such a write,
       are both unestablished -- and §4.2.7.3 describes disable as terminating
       *operation* without saying what happens to a subsequent write.
-      *Verification: how many of the fifteen writes arrive with `tx_enabled`
-      false.*
+      **Stop testing and finish the module first.** A sweep of Table 4-5 sheet 1
+      against `ap_mc68681` finds the DUART is *not* fully implemented, which
+      makes every test result above provisional:
+
+      - **`MR1` parity fields are swapped.** The table gives bits 4-3 as parity
+        *Mode* (`00` with parity, `01` force, `10` none, `11` multidrop) and
+        bit 2 as parity *Type* (even/odd). This core has
+        `MR1_PARITY_ENABLE 0x04` -- bit 2 -- and `MR1_PARITY_TYPE_MASK 0x18` --
+        bits 4-3. The two fields are exchanged, so "parity enabled" reads the
+        type bit and the enable test is inverted for the firmware's
+        `MR1A = 07`.
+      - **`MR1[7]` RxRTS control** -- not modelled.
+      - **`MR1[5]` error mode**, character against block -- not modelled, and it
+        changes when status bits clear.
+      - **`MR2[5]` TxRTS control** -- not modelled.
+      - **`MR2[4]` CTS enable transmitter** -- not modelled, and it gates
+        transmission on CTS, which is directly relevant to writes that do not
+        reach the far end.
+      That last one matters for the fifteen-writes-five-arrive count above: a
+      transmitter gated on CTS is one plausible mechanism, and it cannot be
+      ruled in or out while the bit is absent.
+      *Verification: each bit above implemented with its test, then the boot
+      re-run -- in that order.*
       That is the first defect of this phase that is genuinely ours, and it is
       narrow: one bit, one register, and a known producer.
       *Verification: `RxRDY` set on channel A by the time `000073EC` reads it,
