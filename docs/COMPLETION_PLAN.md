@@ -4610,8 +4610,15 @@ boot below, and the boot is not attempted until they are done.
       `RTSA` is negated "upon receipt of a valid start bit if the channel A
       FIFO is full", not when the FIFO fills. With no bit clock the two are the
       same observable, and the difference is recorded rather than papered over.
-      *Remaining for a complete sweep: sheets 2 and 3 -- `CSR`, `CR`, `SR`,
-      `OPCR` and `OPR`.*
+      **Sheet 2 gives an eighth, and a worse one: three wrong baud rates.** The
+      second `ACR[7]` set was partly a copy of the first -- code 7 is **2000**
+      and not 1050, code A **1800** and not 7200, code C **19.2k** and not
+      38.4k. The comment above the table asserted the two sets "differ only at
+      codes 0 and 3"; they differ at five.
+      The firmware writes `CSRB = 77`, so code 7 on both halves -- one of the
+      three that was wrong. It reads correctly today only because this board
+      leaves `ACR[7]` clear and selects set 1.
+      *Remaining: sheet 3 -- `CR`, `SR`, `OPCR` and `OPR`.*
       That is the first defect of this phase that is genuinely ours, and it is
       narrow: one bit, one register, and a known producer.
       *Verification: `RxRDY` set on channel A by the time `000073EC` reads it,

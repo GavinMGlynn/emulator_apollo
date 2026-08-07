@@ -133,17 +133,33 @@ void ap_mc68681_receive_framed(ap_mc68681_t *duart, unsigned channel,
   }
 }
 
-/* `[68681]`'s baud rate generator table. Zero for the codes that are not a
- * fixed rate: `D` is the counter/timer, `E` and `F` the external clock at
- * sixteen times and one times. The two ACR sets differ only at codes 0 and 3,
- * and this machine's firmware uses 4, 6, 7, 8, 9 and B, where they agree. */
+/* `[68681]`'s baud rate generator table, Table 4-5 sheet 2. Zero for the codes
+ * that are not a fixed rate: `D` is the counter/timer, `E` and `F` the external
+ * clock at sixteen times and one times.
+ *
+ * **The two sets differ at five codes, not two.** This said "only at codes 0
+ * and 3, and this machine's firmware uses 4, 6, 7, 8, 9 and B, where they
+ * agree" -- and code 7 is one of the five. Set 2 had three wrong entries
+ * copied from set 1: code 7 is **2000** and not 1050, code A is **1800** and
+ * not 7200, and code C is **19.2k** and not 38.4k.
+ *
+ * The firmware writes `CSRA = 66` and `CSRB = 77`, so code 7 on both halves of
+ * `CSRB` -- exactly one of the three that was wrong. It reads correctly only
+ * because this board leaves `ACR[7]` clear and selects set 1; a board that
+ * selected set 2 would have had a receiver at 1050 baud against a sender at
+ * 2000 and no way to see why.
+ *
+ * `134.5` is carried as `135`: the table's only non-integer rate, and this
+ * function returns whole baud. The rounding is 0.4% and is used for comparing
+ * two ends of a link rather than for timing anything, but it is an
+ * approximation and is named as one. */
 unsigned ap_mc68681_baud(uint8_t csr_nibble, bool acr_set_two) {
-  static const unsigned set_one[16] = {50,   110,  135,  200, 300, 600,
+  static const unsigned set_one[16] = {50,   110,  135,  200,  300,  600,
                                        1200, 1050, 2400, 4800, 7200, 9600,
                                        38400, 0,   0,    0};
-  static const unsigned set_two[16] = {75,   110,  135,  150, 300, 600,
-                                       1200, 1050, 2400, 4800, 7200, 9600,
-                                       38400, 0,   0,    0};
+  static const unsigned set_two[16] = {75,   110,  135,  150,  300,  600,
+                                       1200, 2000, 2400, 4800, 1800, 9600,
+                                       19200, 0,   0,    0};
   const unsigned code = csr_nibble & 0x0Fu;
   return acr_set_two ? set_two[code] : set_one[code];
 }

@@ -75,6 +75,39 @@ static void test_the_transmitter_commands_move_the_ready_bits_as_documented(void
  * the input port, bit seven will always be read as a one." A pinless bit that
  * reads as a constant is exactly the kind a register-table walk finds and a
  * search for admissions cannot -- nobody wrote a note about it. */
+/* Table 4-5 sheet 2's two baud sets, and the three codes where set 2 was a
+ * copy of set 1. `ACR[7]` chooses between them.
+ *
+ * The comment above this table asserted the sets "differ only at codes 0 and
+ * 3", and they differ at five. Code 7 is one of them -- and the firmware writes
+ * `CSRB = 77`, so it reads correctly only because this board leaves `ACR[7]`
+ * clear. */
+static void test_the_second_baud_set_is_not_a_copy_of_the_first(void) {
+  /* Where they agree. */
+  TEST_ASSERT_EQUAL_UINT(110u, ap_mc68681_baud(0x1u, false));
+  TEST_ASSERT_EQUAL_UINT(110u, ap_mc68681_baud(0x1u, true));
+  TEST_ASSERT_EQUAL_UINT(9600u, ap_mc68681_baud(0xBu, false));
+  TEST_ASSERT_EQUAL_UINT(9600u, ap_mc68681_baud(0xBu, true));
+
+  /* All five where they do not. */
+  TEST_ASSERT_EQUAL_UINT(50u, ap_mc68681_baud(0x0u, false));
+  TEST_ASSERT_EQUAL_UINT(75u, ap_mc68681_baud(0x0u, true));
+  TEST_ASSERT_EQUAL_UINT(200u, ap_mc68681_baud(0x3u, false));
+  TEST_ASSERT_EQUAL_UINT(150u, ap_mc68681_baud(0x3u, true));
+  TEST_ASSERT_EQUAL_UINT(1050u, ap_mc68681_baud(0x7u, false));
+  TEST_ASSERT_EQUAL_UINT(2000u, ap_mc68681_baud(0x7u, true));
+  TEST_ASSERT_EQUAL_UINT(7200u, ap_mc68681_baud(0xAu, false));
+  TEST_ASSERT_EQUAL_UINT(1800u, ap_mc68681_baud(0xAu, true));
+  TEST_ASSERT_EQUAL_UINT(38400u, ap_mc68681_baud(0xCu, false));
+  TEST_ASSERT_EQUAL_UINT(19200u, ap_mc68681_baud(0xCu, true));
+
+  /* `D`, `E` and `F` are the timer and the two external clocks, not rates. */
+  for (uint8_t code = 0xDu; code <= 0xFu; code++) {
+    TEST_ASSERT_EQUAL_UINT(0u, ap_mc68681_baud(code, false));
+    TEST_ASSERT_EQUAL_UINT(0u, ap_mc68681_baud(code, true));
+  }
+}
+
 static void test_the_input_port_reads_bit_seven_as_one(void) {
   ap_mc68681_t d;
   ap_mc68681_reset(&d);
@@ -964,6 +997,7 @@ int main(void) {
   RUN_TEST(test_the_output_port_has_separate_set_and_clear_addresses);
   RUN_TEST(test_resetting_the_receiver_empties_the_fifo);
   RUN_TEST(test_the_transmitter_commands_move_the_ready_bits_as_documented);
+  RUN_TEST(test_the_second_baud_set_is_not_a_copy_of_the_first);
   RUN_TEST(test_the_input_port_reads_bit_seven_as_one);
   RUN_TEST(test_cts_gates_the_transmitter_when_mr2_selects_it);
   RUN_TEST(test_character_error_mode_reports_the_top_of_the_fifo);
