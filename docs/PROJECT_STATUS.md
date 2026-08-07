@@ -3412,7 +3412,7 @@ failure that cost a bit position in the 68020's module entry word.
 | Intel 8237A DMA controller (the part) | **programming model and transfer cycle complete**: all sixteen register addresses, four channels with base and current address/count, the single shared first/last flip-flop, command/mode/request/mask/status/temporary, master clear, autoinitialise reload and the mask-on-terminal-count rule; and a service cycle that moves a byte either way, verifies without moving one, walks the address up or down, and ends on the borrow out of zero rather than at zero. Memory-to-memory is refused outright rather than half-run. The part drives sixteen bits of address and the board composes the rest — not yet wired to the board | `i8237_suite`, 29 tests, `8237A` 231466 |
 | Apollo interval timer (`010800`) | working: the part at **odd addresses, stride 2** (measured — the region reads `00 00 00 00 00 FF ...`, the `FFFF` latch default showing through), the three §3.8 input rates as exact time-base clock domains, and the IRQ0 route. Advancing is by whole pulses, so the rate cannot become a function of how often it is polled | `timer_suite`, 8 tests; `FINDINGS.md` C12 |
 | MC6840 interval timer (the part) | working for **both counting modes** — continuous and single shot, each in sixteen-bit and dual eight-bit operation — plus both control register aliases, the write/read byte buffering, the status register, the prescaler, the gate, and all five of `[6840]` §3.11's ways of clearing an interrupt. The two **measurement modes** are decoded and declined: they time a signal on a timer's gate pin, and nothing on this board drives the gates | `mc6840_suite`, 29 tests, `MC6840UM` (a scan with no text layer; read from page images) |
-| Apollo calendar (`010900`) | working: **stride 1, byte consecutive** (measured — and not the timer's odd-address stride 2, so neither placement could be inferred from the other), sixty-four registers aliased through the 256-byte range, and the IRQ8 route through to vector `A8` | `calendar_suite`, 5 tests; `FINDINGS.md` C12 |
+| Apollo calendar (`010900`) | working: **stride 1, byte consecutive** (measured — and not the timer's odd-address stride 2, so neither placement could be inferred from the other), sixty-four registers aliased through the 256-byte range, and the IRQ8 route through to vector `A8`. The battery RAM's **configuration table** is laid out from `002398-04` p. 12-3 — checksum, valid pattern, memory array, node ID, device bits and the three type bytes — and left blank, because the pattern's value is not in the manual | `calendar_suite`, 7 tests; `FINDINGS.md` C12 |
 | MC146818A calendar (the part) | working: ten clock bytes, four registers, 50 RAM bytes, the once-per-second update with a full Gregorian carry, the alarm with don't-care codes, and Register C's read-to-clear. **Time is supplied by the caller, never the host** — the oracle seeds its calendar from the wall clock, which would rot every golden. The **periodic interrupt** is implemented for the nine rates that divide the time base (512 Hz to 2 Hz); the six fastest are refused rather than rounded, because `AP_TIME_BASE_HZ` factors as 2^9·3·5^8·11 and they need 2^15. Square wave and daylight-savings shifts are declined. Not yet wired to the board at `010900` | `mc146818_suite`, 32 tests, `MC146818A` (register figures read from page images) |
 | Node ID PROM (`011200`) | working: the layout measured from the oracle's own PROM — stride 2 with the **odd byte reading zero** (unlike the serial ports at the same stride), the identifier big-endian in registers 0-3, and a checksum in register **15** confirmed arithmetically (`01 + 23 + 45 = 69`) and then by the boot PROM's own self-test, which sums registers 0-14 and compares. The identifier is supplied by the caller, never a constant: a device whose purpose is to be unique per machine must not be the same on every one | `nodeid_suite`, 8 tests; `008778-03` Table 2-8, CPU self-test 8 at `008218` |
 | Apollo serial ports (`010400`, `010500`) | working: both DUARTs at **stride 2** (measured), sixteen registers over thirty-two bytes and aliased, sharing IRQ1 through to vector `A1`. The memory-refresh square wave of §3.9 runs: the counter is clocked at the DUART's X1 and produces a 15 microsecond period from the boot PROM's own preload. Its *frequency*, 66666.67 Hz, is not an integer, so a core counting in hertz could not represent this board's refresh clock at all | `sio_suite`, 25 tests; `FINDINGS.md` C14 |
@@ -3991,6 +3991,201 @@ Kept rather than discarded, so a future contradiction has a documented history.
   to be reproducible.
 
 ## Detail moved from the completion plan
+
+### `Give the machine a configuration` — the investigation, moved here
+
+The plan item is live and its detail had reached 189 lines, most of it superseded readings. `CLAUDE.md` puts the reasoning, the traps and the withdrawn hypotheses in this document and leaves the plan a pointer list; the item stayed readable only until the fourth retraction. Verbatim, so nothing is lost:
+
+  - [ ] **Give the machine a configuration.** Read out of the documents rather
+than out of another boot: `docs/references/MD.md`'s captured command
+table gives `EX` as **EX (CPU)** -- *execute* -- so `ex config` runs a
+**stand alone utility** named CONFIG, exactly as the console already
+shows `SELF_TEST` being loaded from the boot device, and `CALENDAR` is
+another. MD's `LD LIST SAU` lists them. The image carries them:
+`//bs/saus/calendar/src/calendar.pas` in the sources, and `/sau14` --
+the 68030 machine's SAU directory -- present on the volume. So the
+machine's own instruction is followable rather than a dead end.
+**`--service-mode` added**, because the switch that reaches MD was a
+modelled input nothing could drive: `ap_boardreg_set_normal_mode` had
+existed since the bit was modelled and was called by no one, so the one
+configuration this core could not be put in was the one the PROM
+behaves most differently in. With it set the console is silent at 60M
+instructions where normal mode has printed its self-tests, so the path
+does diverge. With a real budget it does **not** get there: the PC is
+`000007A0` at both 100M and 200M instructions and the console is silent
+for all 300M, so the PROM's service path hangs in a tight loop very
+early -- before it says anything. `MD.md`'s capture came from the
+*oracle* in service mode, so the sign-on is reachable on real firmware
+and this hang is ours.
+**Disassembled from the PROM file, no run needed**: `0007A0` sits inside
+a poll at `00078E`-`0007AE` -- `btst.b #0` on `$2(a0)`, `$12(a0)` and
+`$102(a0)`, with `beq.b $78E` closing the loop. The PROM is waiting on a
+device bit, which is what `ap_boardreg.h` says service mode does: it
+"waits for a console".
+**`a0` and the three bits, identified from the same file.** At `000762`
+the PROM programs both DUARTs -- `move.b #$E0,$8(a0)` and `move.b
+#$77,$12(a0)`, then `#$80,$108(a0)` and `#$77,$102(a0)` -- so `a0` is
+the serial base at stride 2, where `$12` is register 9, `CSRB`. The
+poll then reads `btst.b #0` on `$2`, `$12` and `$102`: registers 1 and 9
+of the first DUART and 9 of the second, and **bit 0 of a status
+register is `RxRDY`**. The PROM is waiting for a character on any of
+three receivers -- serial 1 A, serial 1 B, serial 2 B.
+The character is **not** the problem: `1 of 1 character(s) delivered`,
+both receivers enabled. The **rate** is the candidate. The PROM writes
+`CSR 77` itself, which is the value the report shows the channel
+listening at, while `--boot-input` transmits at `CSR BB`. Sending at
+`--boot-input-rate 0x77` did **not** fix it -- `1 of 1 delivered, sent
+at 1050 baud (CSR 77)` and the PROM still loops -- so the rate is not
+the cause either.
+**Instrumented at the delivery point** (reverted), and the answer is
+specific. The first character arrives *before* the PROM programs `CSR`,
+so the receiver's rate is still zero, `ap_mc68681_receive_at` resamples
+`0D` into `00` and raises a framing error -- the model working as
+designed, and not itself the bug. Every later character arrives
+correctly rated and reaches `ap_mc68681_receive` with `enabled=1`, and
+the status byte before each one is `44`, `FRAMING|TXRDY`, with
+**`RxRDY` clear**. So a byte stored by one delivery has had `RxRDY`
+cleared again before the next arrives, and nothing in the poll should do
+that: the PROM reads `$12(a0)`, register 9, which is `SR` on a read and
+`CSR` on a write, not the receive buffer.
+**That reading was wrong, and is withdrawn.** `ap_sio_decode` does
+`(address - base) >> 1`, so `$12(a0)` is register 9, `SR`, not the
+receive buffer; the frontend never touches `ap_mc68681_read`; and the
+overrun path sets a bit that is not in `44`. What clears `RxRDY` is the
+loop's own **exit branch**: at `00079A` the firmware tests the bit and
+branches to `$7E6` when it is set, and that path reads the character.
+The instrument logged `sr` *before* each delivery -- exactly when
+`RxRDY` is legitimately clear again -- so the trace read as a defect is
+what correct behaviour looks like.
+So the machine is **consuming** the carriage returns and waiting for
+more. It is not failing to receive, and there is no DUART bug here to
+fix. Four hypotheses in a row -- the sense value, the baud rate, the
+`SR`/`RB` decode, and an autobaud that the loop demonstrably does not
+perform -- were each produced by reasoning and each killed by the next
+measurement.
+**And that was wrong too.** Four hundred carriage returns, all
+delivered at the matching rate, and the console stays silent with the PC
+still inside `00078E`-`0007AE`. So it is not starvation either.
+The two remaining readings are mutually exclusive and a single
+measurement separates them: either `RxRDY` never gets set, in which case
+the loop can never exit and the delivery path is at fault after all, or
+it is set and the firmware leaves, reads, and returns 400 times without
+transmitting. **Counted, and no code was needed**:
+`--boot-stop-physical-pc 7E6` stops the machine at `000007E6` after
+**49,774 instructions**. The exit is taken. So `RxRDY` is set, the
+firmware branches out and reads the character, and the receive path
+works -- the withdrawal above stands, and of the two readings the
+second is the true one.
+What is left is narrow, and pointed at by documents rather than by
+another guess: `008778-03` says **"SIO0 is the dedicated serial line
+for the keyboard"**, and `MD.md` records that its capture needed "a key
+press on the Apollo keyboard" to start the dialogue -- not a character
+on a general-purpose line.
+**Tried, and both exits work.** `--boot-key 0x5A` arrives on channel 0
+and the poll leaves at `0000080E` after 49,771 instructions -- the
+*channel A* branch, which is the one `btst.b #0,$2(a0)` guards, and the
+keyboard is on channel A. A console character on channel B leaves at
+`$7E6` instead. So the firmware reads both lines through their own
+paths and still transmits nothing, and the keyboard reading does not
+explain the silence either.
+**Answered at zero cost -- the end-of-run report already counted it.**
+Register 11 is channel B's receive/transmit buffer:
+
+    service mode   sio1 reg 11      0 write(s)    400 read(s)
+    normal mode    sio1 reg 11    534 write(s)      1 read(s)
+
+In service mode the firmware *reads* the buffer four hundred times,
+consuming every carriage return, and **never writes it once**. It is not
+that the transmit path is broken -- the firmware never asks it to
+transmit. So it is not reaching MD at all; it is somewhere earlier that
+drains input and produces nothing.
+Note also `1 read` in normal mode against `400` here: the counters were
+in the report the whole time, and six hypotheses were formed without
+looking at them.
+**And the answer was in `docs/references/MD.md` the whole time**, in
+its "How it was captured" section, which I had skimmed for one line
+about service mode and not read:
+
+> **one carriage return every 0.4 s on standard input**, not a pipe
+> delivered at once. This is the part that matters ... a burst arrives
+> long before the autobaud runs and is discarded. The probe needs a
+> signal *during* the probe.
+
+with `APOLLO_MD_UNTIL=45` -- **forty-five emulated seconds**, and 120
+returns spread over forty-eight. Every run in this investigation was 20M
+to 60M instructions, which at 25 MHz is a few emulated seconds. The
+firmware was not rejecting the input and there was no defect anywhere:
+**it had not got there yet.**
+Six hypotheses, a dozen boots and an instrumented binary, against one
+paragraph in a file this repository already had.
+**Done, and MD talks.** With `--service-mode`, a keyboard press,
+`--boot-input-interval 400000` and a budget that reaches ~45 emulated
+seconds, the console produces the sign-on byte for byte as `MD.md`
+recorded it -- `MD7C REV 8.00, 1989/08/16.17:23:52` -- and a `>` prompt
+per carriage return. There was never a defect: the DUART, the `ap_sio`
+decode, the baud rate, the keyboard line and the transmit path were all
+correct, and the six hypotheses were answering a question that did not
+exist.
+**And `EX CONFIG` runs.** A `--boot-script` of `expect MD7C` / `send EX
+CONFIG\r` gets `>EX CONFIG` followed by `low: 01020000 high: 01062E9A
+start: 010200E6` -- the CONFIG stand alone utility loaded off `/sau14`
+in the same form the console shows for `SELF_TEST`, and the first time
+this project has driven the Mnemonic Debugger.
+Raising `--boot-input` from 40 to 300 carriage returns made it
+**worse**, not better: `EX CONFIG` never fires at all, though MD is up
+and prompting. `--boot-input` and `--boot-script` drive the same
+channel, and with 300 characters queued the script's `send` never gets
+a slot; with 40 the stream ran out and the script could drive.
+Done, and it works as predicted: 40 carriage returns for autobaud, then
+the script owning the channel with `send EX CONFIG\r` and thirty
+further `send \r` lines. `EX CONFIG` fires and loads --
+`low: 01020000 high: 01062E9A start: 010200E6`.
+**CONFIG then prints nothing at all**, through thirty carriage returns.
+So loading it is not the same as reaching its dialogue, and the reason
+is not input starvation this time. Candidates worth *measuring* rather
+than reasoning about, given the record of this investigation: whether
+CONFIG writes to a channel this frontend does not print, whether it
+wants the display rather than the serial line -- Domain/OS's own panic
+went somewhere unseen for the same reason -- or whether it simply needs
+far more emulated time, as MD itself did.
+**Timing was not it.** Re-run with the full recipe -- 40 paced returns
+for autobaud, then the script owning the channel with `EX CONFIG` and
+sixty further paced returns, on a four-billion-instruction budget --
+and CONFIG still prints nothing. At 1,000,000,000 instructions the PC
+is `01029654`, against `0102963C` and `01029664` sampled earlier: a
+`0x28`-byte loop it does not leave, however much emulated time or input
+it is given.
+That is the same shape as the service-mode poll at `00078E`, and the
+same technique applies -- except this code is in RAM, loaded from
+`/sau14`, so it is `--dump-mem 01029640:0x40` rather than a file read.
+**Dumped and disassembled.** `--dump-logical 01029620:0x60` gives:
+
+    0102963C  tst.w  d3
+    0102963E  beq.s  0102963C
+
+an unconditional spin whenever `d3` is zero, and `d3` comes from a
+stack parameter (`move.w $10(a6),d3`). CONFIG is entered with a zero
+count and hangs on it before printing anything -- the loop below it,
+`movea.l -4(a0),a2 / sub.l -4(a1),d2 / dbf d0`, is an array comparison
+that never runs.
+The same run's `sio1 reg 11  321 write(s)` accounts for MD's sign-on
+and its sixty-odd `>` prompts, so those writes are MD's and CONFIG
+transmits nothing at all. That kills the last of the three candidates:
+it is not an unseen output path either.
+*Next: what `$10(a6)` should hold at entry -- a count CONFIG is given
+and which is arriving zero.*
+*Five hypotheses in a row have now been produced by reasoning and killed
+by the next measurement: the sense value, the baud rate, the `SR`/`RB`
+decode, an autobaud the loop does not perform, and input starvation.
+The lesson is not about any one of them.*
+Either seed the calendar's
+battery-backed RAM from a supplied image, as the disk is supplied, or
+drive the PROM's own `ex config` from the boot script -- which is what
+the machine instructs, and what makes the content the PROM's rather than
+ours. Whichever, it must stay deterministic: no wall clock.
+*Verification: the console going past "Configuration information is not
+initialized", and Domain/OS past the CALENDAR halt.*
+
 
 The plan states each finished item as a claim plus its verification. The
 reasoning that used to sit beneath those items lives here, in the order the
@@ -12932,3 +13127,71 @@ MD7C REV 8.00, so it is indicative rather than authoritative and no decode of
 our sequence is claimed from it — but it is the right shape and the right
 vocabulary, and it should be the first thing consulted the next time a posted
 code needs a meaning.
+
+## The calendar's configuration table, from a manual — and it matches the measurement
+
+"Give the machine a configuration" had reached a specific dead end: MD is
+reachable, `EX CONFIG` loads the stand-alone utility off `/sau14`, and CONFIG
+then spins for ever at `0102963C` on a `tst.w d3 / beq.s` whose `d3` arrives
+zero from `$10(a6)`. Five hypotheses before that had each been produced by
+reasoning and killed by the next measurement.
+
+The plan's other option was to seed the calendar's battery RAM directly, and
+the objection to it was that nobody knew what to write. **`002398-04` p. 12-3
+lays it out** — the DN3000 chapter of the Domain Engineering Handbook, the same
+manual that settled the DMA page mapping and the beeper, read from the page
+image:
+
+    0E-11  CHECKSUM          } 50 bytes of battery backed up RAM
+    12-15  VALID PATTERN     } used by diagnostics for config info
+    16-1D  MEM BOARD ARRAY
+    1E-21  NODEID
+    22-25  DEV BIT ARRAY   <= bit 0 = flp      4 = ring
+    26     RING TYPE          1 = ctape        5 = user device
+    27     DISP TYPE          2 = win          6 = ethernet
+    28     DISK TYPE          3 = fpu          7 = serial/parallel board
+    29-3F  UNUSED
+
+`008778-03` §3.6 says only that the part has "50 bytes of low-power static RAM.
+The RAM is used to store configuration information" and stops there, which is
+why this looked like a gap for so long.
+
+### It corroborates the measurement exactly
+
+The boot PROM was measured touching the calendar **precisely once** in a hundred
+million instructions: one 32-bit read at `010912`, returning zero, on which its
+whole "Configuration information is not initialized" rests. `12` is where the
+handbook puts the **VALID PATTERN**, and the field is four bytes — the width of
+the read. A measurement taken from a running machine and a table printed in 1987
+arriving at the same field independently is as strong as this project gets.
+
+It also settles what the earlier note left open. "The configuration table starts
+at calendar RAM `0x12`" was the right observation and slightly the wrong
+boundary: the table starts at `0E` with the checksum, and `12` is its second
+field. The PROM checks validity before checksum, which is the sensible order and
+not something that had to be assumed.
+
+### Two unknowns remain, and both are now specific
+
+- **The valid pattern's value** — a four-byte constant the diagnostics
+  recognise. The handbook names the field and not the contents.
+- **The checksum's algorithm and span** — four bytes at `0E`, over some part of
+  what follows.
+
+Neither may be invented, so nothing is written into the table yet:
+`calendar_suite` asserts that a reset machine's RAM is **blank**, because a
+blank battery RAM is a real machine whose battery has died and that is exactly
+what the PROM is complaining about. Quieting it with a made-up pattern would be
+inventing the machine's identity.
+
+The recovery route for both is the boot PROM's own checker, which is a file read
+rather than a run — the technique that decoded the LED post routine, the
+keyboard test and the eight-plane readback. Locating it needs the instruction
+that reads `010912`, and the address is not a literal anywhere in the ROM, so it
+is computed from a base; a read-side equivalent of `--boot-watch-write` would
+find it in one run and does not exist yet.
+
+*Verification: `calendar_suite` +2 — the layout asserted as field widths in the
+handbook's own order, ending exactly at the part's sixty-fourth register, with
+`AP_CALENDAR_ADDR + AP_CALENDAR_CONFIG_VALID_PATTERN` pinned to the `00010912`
+the PROM was measured reading; and the table asserted blank after reset.*

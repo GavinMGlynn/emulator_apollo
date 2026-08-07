@@ -39,6 +39,65 @@
  * slave controller and priority 4+1 — the highest of the cascaded group. */
 #define AP_CALENDAR_IRQ 8u
 
+/* ## The configuration table, in the battery RAM
+ *
+ * `008778-03` §3.6 says only that the part has "50 bytes of low-power static
+ * RAM. The RAM is used to store configuration information", and stops there.
+ * **`002398-04` p. 12-3 lays the information out**, and it is the manual this
+ * project needed for a session and a half — the DN3000 chapter of the Domain
+ * Engineering Handbook, on disk the whole time:
+ *
+ *     0E-11  CHECKSUM          } 50 bytes of battery backed up RAM
+ *     12-15  VALID PATTERN     } used by diagnostics for config info
+ *     16-1D  MEM BOARD ARRAY
+ *     1E-21  NODEID
+ *     22-25  DEV BIT ARRAY   <= bit 0 = flp      4 = ring
+ *     26     RING TYPE          1 = ctape        5 = user device
+ *     27     DISP TYPE          2 = win          6 = ethernet
+ *     28     DISK TYPE          3 = fpu          7 = serial/parallel board
+ *     29-3F  UNUSED
+ *
+ * **It corroborates a measurement exactly.** The boot PROM was found to touch
+ * the calendar precisely once in a hundred million instructions — one 32-bit
+ * read at `010912`, returning zero — and its whole judgement that
+ * "Configuration information is not initialized" rests on that longword. `12`
+ * is where the handbook puts the **VALID PATTERN**, and it is four bytes wide,
+ * which is the width of the read. A measurement and a document arriving at the
+ * same field independently is as good as this gets.
+ *
+ * Two things the handbook does *not* give, and neither may be invented:
+ *
+ * - **The valid pattern's value.** A four-byte constant the diagnostics
+ *   recognise. Recoverable from the boot PROM's checker, which is a file read.
+ * - **The checksum's algorithm and span.** Four bytes at `0E`, over some part
+ *   of what follows. The handbook names the field and not the sum.
+ *
+ * So nothing is written here yet. The layout is recorded because it is what
+ * turns "seed the battery RAM somehow" into two specific unknowns, and because
+ * a structure known from a manual beats one inferred from a boot.
+ */
+#define AP_CALENDAR_CONFIG_CHECKSUM 0x0Eu
+#define AP_CALENDAR_CONFIG_VALID_PATTERN 0x12u
+#define AP_CALENDAR_CONFIG_MEM_BOARD_ARRAY 0x16u
+#define AP_CALENDAR_CONFIG_NODEID 0x1Eu
+#define AP_CALENDAR_CONFIG_DEV_BIT_ARRAY 0x22u
+#define AP_CALENDAR_CONFIG_RING_TYPE 0x26u
+#define AP_CALENDAR_CONFIG_DISP_TYPE 0x27u
+#define AP_CALENDAR_CONFIG_DISK_TYPE 0x28u
+#define AP_CALENDAR_CONFIG_UNUSED 0x29u
+
+/* The `DEV BIT ARRAY`'s bits, from the same page. A device present is a bit
+ * set; which of the four bytes at `22` carries them is not stated, and is not
+ * guessed at here. */
+#define AP_CALENDAR_DEV_FLOPPY 0u
+#define AP_CALENDAR_DEV_CARTRIDGE_TAPE 1u
+#define AP_CALENDAR_DEV_WINCHESTER 2u
+#define AP_CALENDAR_DEV_FPU 3u
+#define AP_CALENDAR_DEV_RING 4u
+#define AP_CALENDAR_DEV_USER 5u
+#define AP_CALENDAR_DEV_ETHERNET 6u
+#define AP_CALENDAR_DEV_SERIAL_PARALLEL 7u
+
 typedef struct {
   ap_mc146818_t rtc;
 } ap_calendar_t;

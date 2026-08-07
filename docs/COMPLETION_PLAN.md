@@ -2837,30 +2837,17 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
       raises nothing.*
 
 
-- [ ] **Stage 2's reading, taken once Stage 1 was complete.** With every
-      implementation item closed -- §5.4, the inert signals, both format
-      extensions, `IRQ6`/`DRQ2` -- the boot ends in **exactly the same place**:
-      the PC in the `3C456BB0` blink loop at 400M and 600M instructions, and the
-      image's MD5 unchanged. That is the thermometer doing its job. None of the
-      implementation work was aimed at this halt and none of it moved it,
-      because the halt is about configuration *content* -- the calendar's
-      battery RAM -- and not about a missing behaviour.
-      It also means the remaining distance is not hidden in the parts. Every
-      command the disk accepts is implemented, every documented signal is
-      driven, and the console matches the oracle byte for byte. What is left is
-      one question, and it is the one still unmeasured: whether the empty
-      calendar RAM is what stops Domain/OS at all, given the oracle runs with
-      the same zeros.
-      **Taken, and it moves the problem.** Same harness, same image: Service
-      mode gives `MD7C REV 8.00`, Normal mode gives **zero bytes** over a
-      ten-minute run. The oracle is silent on the serial line in normal
-      operation too, so this core's silence after the loader is not a defect --
-      Domain/OS does not talk to serial 1 channel B, and a DN3500's output goes
-      to its display. Detail in `PROJECT_STATUS.md`.
-      *So the boot item's own verification -- "console byte-identical to the
-      oracle" -- cannot be met in normal mode, because a byte-identical nothing
-      is not evidence. It needs rewriting against the display before it is
-      attempted again.*
+- [x] **Stage 2's reading, taken once Stage 1 was complete.** With every
+      implementation item closed the boot ends in **exactly the same place** --
+      the `3C456BB0` blink loop at 400M and 600M instructions, image MD5
+      unchanged. The thermometer doing its job: none of that work was aimed at
+      this halt and none of it moved it, so the remaining distance is not hidden
+      in the parts. What it *did* settle is the harness: Normal mode puts **zero
+      bytes** on the serial line over ten minutes and so does the oracle, because
+      Domain/OS talks to the display. Detail in `PROJECT_STATUS.md`.
+      *Verification: the reading itself, and its consequence carried out -- the
+      boot item's "console byte-identical to the oracle" was rewritten against
+      the framebuffer below, since a byte-identical nothing is not evidence.*
 - [ ] **Integration check, not a milestone:** DN3500 boots Domain/OS SR10.x to a
 
 **Order matters here, and this file had it wrong.** The boot is a *test*, and
@@ -3455,193 +3442,29 @@ boot below, and the boot is not attempted until they are done.
         like three problems are one. Detail in `PROJECT_STATUS.md`.
         *Verification: the PROM's accesses logged with their widths, and the
         judgement traced to one longword of battery RAM.*
-  - [ ] **Give the machine a configuration.** Read out of the documents rather
-        than out of another boot: `docs/references/MD.md`'s captured command
-        table gives `EX` as **EX (CPU)** -- *execute* -- so `ex config` runs a
-        **stand alone utility** named CONFIG, exactly as the console already
-        shows `SELF_TEST` being loaded from the boot device, and `CALENDAR` is
-        another. MD's `LD LIST SAU` lists them. The image carries them:
-        `//bs/saus/calendar/src/calendar.pas` in the sources, and `/sau14` --
-        the 68030 machine's SAU directory -- present on the volume. So the
-        machine's own instruction is followable rather than a dead end.
-        **`--service-mode` added**, because the switch that reaches MD was a
-        modelled input nothing could drive: `ap_boardreg_set_normal_mode` had
-        existed since the bit was modelled and was called by no one, so the one
-        configuration this core could not be put in was the one the PROM
-        behaves most differently in. With it set the console is silent at 60M
-        instructions where normal mode has printed its self-tests, so the path
-        does diverge. With a real budget it does **not** get there: the PC is
-        `000007A0` at both 100M and 200M instructions and the console is silent
-        for all 300M, so the PROM's service path hangs in a tight loop very
-        early -- before it says anything. `MD.md`'s capture came from the
-        *oracle* in service mode, so the sign-on is reachable on real firmware
-        and this hang is ours.
-        **Disassembled from the PROM file, no run needed**: `0007A0` sits inside
-        a poll at `00078E`-`0007AE` -- `btst.b #0` on `$2(a0)`, `$12(a0)` and
-        `$102(a0)`, with `beq.b $78E` closing the loop. The PROM is waiting on a
-        device bit, which is what `ap_boardreg.h` says service mode does: it
-        "waits for a console".
-        **`a0` and the three bits, identified from the same file.** At `000762`
-        the PROM programs both DUARTs -- `move.b #$E0,$8(a0)` and `move.b
-        #$77,$12(a0)`, then `#$80,$108(a0)` and `#$77,$102(a0)` -- so `a0` is
-        the serial base at stride 2, where `$12` is register 9, `CSRB`. The
-        poll then reads `btst.b #0` on `$2`, `$12` and `$102`: registers 1 and 9
-        of the first DUART and 9 of the second, and **bit 0 of a status
-        register is `RxRDY`**. The PROM is waiting for a character on any of
-        three receivers -- serial 1 A, serial 1 B, serial 2 B.
-        The character is **not** the problem: `1 of 1 character(s) delivered`,
-        both receivers enabled. The **rate** is the candidate. The PROM writes
-        `CSR 77` itself, which is the value the report shows the channel
-        listening at, while `--boot-input` transmits at `CSR BB`. Sending at
-        `--boot-input-rate 0x77` did **not** fix it -- `1 of 1 delivered, sent
-        at 1050 baud (CSR 77)` and the PROM still loops -- so the rate is not
-        the cause either.
-        **Instrumented at the delivery point** (reverted), and the answer is
-        specific. The first character arrives *before* the PROM programs `CSR`,
-        so the receiver's rate is still zero, `ap_mc68681_receive_at` resamples
-        `0D` into `00` and raises a framing error -- the model working as
-        designed, and not itself the bug. Every later character arrives
-        correctly rated and reaches `ap_mc68681_receive` with `enabled=1`, and
-        the status byte before each one is `44`, `FRAMING|TXRDY`, with
-        **`RxRDY` clear**. So a byte stored by one delivery has had `RxRDY`
-        cleared again before the next arrives, and nothing in the poll should do
-        that: the PROM reads `$12(a0)`, register 9, which is `SR` on a read and
-        `CSR` on a write, not the receive buffer.
-        **That reading was wrong, and is withdrawn.** `ap_sio_decode` does
-        `(address - base) >> 1`, so `$12(a0)` is register 9, `SR`, not the
-        receive buffer; the frontend never touches `ap_mc68681_read`; and the
-        overrun path sets a bit that is not in `44`. What clears `RxRDY` is the
-        loop's own **exit branch**: at `00079A` the firmware tests the bit and
-        branches to `$7E6` when it is set, and that path reads the character.
-        The instrument logged `sr` *before* each delivery -- exactly when
-        `RxRDY` is legitimately clear again -- so the trace read as a defect is
-        what correct behaviour looks like.
-        So the machine is **consuming** the carriage returns and waiting for
-        more. It is not failing to receive, and there is no DUART bug here to
-        fix. Four hypotheses in a row -- the sense value, the baud rate, the
-        `SR`/`RB` decode, and an autobaud that the loop demonstrably does not
-        perform -- were each produced by reasoning and each killed by the next
-        measurement.
-        **And that was wrong too.** Four hundred carriage returns, all
-        delivered at the matching rate, and the console stays silent with the PC
-        still inside `00078E`-`0007AE`. So it is not starvation either.
-        The two remaining readings are mutually exclusive and a single
-        measurement separates them: either `RxRDY` never gets set, in which case
-        the loop can never exit and the delivery path is at fault after all, or
-        it is set and the firmware leaves, reads, and returns 400 times without
-        transmitting. **Counted, and no code was needed**:
-        `--boot-stop-physical-pc 7E6` stops the machine at `000007E6` after
-        **49,774 instructions**. The exit is taken. So `RxRDY` is set, the
-        firmware branches out and reads the character, and the receive path
-        works -- the withdrawal above stands, and of the two readings the
-        second is the true one.
-        What is left is narrow, and pointed at by documents rather than by
-        another guess: `008778-03` says **"SIO0 is the dedicated serial line
-        for the keyboard"**, and `MD.md` records that its capture needed "a key
-        press on the Apollo keyboard" to start the dialogue -- not a character
-        on a general-purpose line.
-        **Tried, and both exits work.** `--boot-key 0x5A` arrives on channel 0
-        and the poll leaves at `0000080E` after 49,771 instructions -- the
-        *channel A* branch, which is the one `btst.b #0,$2(a0)` guards, and the
-        keyboard is on channel A. A console character on channel B leaves at
-        `$7E6` instead. So the firmware reads both lines through their own
-        paths and still transmits nothing, and the keyboard reading does not
-        explain the silence either.
-        **Answered at zero cost -- the end-of-run report already counted it.**
-        Register 11 is channel B's receive/transmit buffer:
-
-            service mode   sio1 reg 11      0 write(s)    400 read(s)
-            normal mode    sio1 reg 11    534 write(s)      1 read(s)
-
-        In service mode the firmware *reads* the buffer four hundred times,
-        consuming every carriage return, and **never writes it once**. It is not
-        that the transmit path is broken -- the firmware never asks it to
-        transmit. So it is not reaching MD at all; it is somewhere earlier that
-        drains input and produces nothing.
-        Note also `1 read` in normal mode against `400` here: the counters were
-        in the report the whole time, and six hypotheses were formed without
-        looking at them.
-        **And the answer was in `docs/references/MD.md` the whole time**, in
-        its "How it was captured" section, which I had skimmed for one line
-        about service mode and not read:
-
-        > **one carriage return every 0.4 s on standard input**, not a pipe
-        > delivered at once. This is the part that matters ... a burst arrives
-        > long before the autobaud runs and is discarded. The probe needs a
-        > signal *during* the probe.
-
-        with `APOLLO_MD_UNTIL=45` -- **forty-five emulated seconds**, and 120
-        returns spread over forty-eight. Every run in this investigation was 20M
-        to 60M instructions, which at 25 MHz is a few emulated seconds. The
-        firmware was not rejecting the input and there was no defect anywhere:
-        **it had not got there yet.**
-        Six hypotheses, a dozen boots and an instrumented binary, against one
-        paragraph in a file this repository already had.
-        **Done, and MD talks.** With `--service-mode`, a keyboard press,
-        `--boot-input-interval 400000` and a budget that reaches ~45 emulated
-        seconds, the console produces the sign-on byte for byte as `MD.md`
-        recorded it -- `MD7C REV 8.00, 1989/08/16.17:23:52` -- and a `>` prompt
-        per carriage return. There was never a defect: the DUART, the `ap_sio`
-        decode, the baud rate, the keyboard line and the transmit path were all
-        correct, and the six hypotheses were answering a question that did not
-        exist.
-        **And `EX CONFIG` runs.** A `--boot-script` of `expect MD7C` / `send EX
-        CONFIG\r` gets `>EX CONFIG` followed by `low: 01020000 high: 01062E9A
-        start: 010200E6` -- the CONFIG stand alone utility loaded off `/sau14`
-        in the same form the console shows for `SELF_TEST`, and the first time
-        this project has driven the Mnemonic Debugger.
-        Raising `--boot-input` from 40 to 300 carriage returns made it
-        **worse**, not better: `EX CONFIG` never fires at all, though MD is up
-        and prompting. `--boot-input` and `--boot-script` drive the same
-        channel, and with 300 characters queued the script's `send` never gets
-        a slot; with 40 the stream ran out and the script could drive.
-        Done, and it works as predicted: 40 carriage returns for autobaud, then
-        the script owning the channel with `send EX CONFIG\r` and thirty
-        further `send \r` lines. `EX CONFIG` fires and loads --
-        `low: 01020000 high: 01062E9A start: 010200E6`.
-        **CONFIG then prints nothing at all**, through thirty carriage returns.
-        So loading it is not the same as reaching its dialogue, and the reason
-        is not input starvation this time. Candidates worth *measuring* rather
-        than reasoning about, given the record of this investigation: whether
-        CONFIG writes to a channel this frontend does not print, whether it
-        wants the display rather than the serial line -- Domain/OS's own panic
-        went somewhere unseen for the same reason -- or whether it simply needs
-        far more emulated time, as MD itself did.
-        **Timing was not it.** Re-run with the full recipe -- 40 paced returns
-        for autobaud, then the script owning the channel with `EX CONFIG` and
-        sixty further paced returns, on a four-billion-instruction budget --
-        and CONFIG still prints nothing. At 1,000,000,000 instructions the PC
-        is `01029654`, against `0102963C` and `01029664` sampled earlier: a
-        `0x28`-byte loop it does not leave, however much emulated time or input
-        it is given.
-        That is the same shape as the service-mode poll at `00078E`, and the
-        same technique applies -- except this code is in RAM, loaded from
-        `/sau14`, so it is `--dump-mem 01029640:0x40` rather than a file read.
-        **Dumped and disassembled.** `--dump-logical 01029620:0x60` gives:
-
-            0102963C  tst.w  d3
-            0102963E  beq.s  0102963C
-
-        an unconditional spin whenever `d3` is zero, and `d3` comes from a
-        stack parameter (`move.w $10(a6),d3`). CONFIG is entered with a zero
-        count and hangs on it before printing anything -- the loop below it,
-        `movea.l -4(a0),a2 / sub.l -4(a1),d2 / dbf d0`, is an array comparison
-        that never runs.
-        The same run's `sio1 reg 11  321 write(s)` accounts for MD's sign-on
-        and its sixty-odd `>` prompts, so those writes are MD's and CONFIG
-        transmits nothing at all. That kills the last of the three candidates:
-        it is not an unseen output path either.
-        *Next: what `$10(a6)` should hold at entry -- a count CONFIG is given
-        and which is arriving zero.*
-        *Five hypotheses in a row have now been produced by reasoning and killed
-        by the next measurement: the sense value, the baud rate, the `SR`/`RB`
-        decode, an autobaud the loop does not perform, and input starvation.
-        The lesson is not about any one of them.*
-        Either seed the calendar's
-        battery-backed RAM from a supplied image, as the disk is supplied, or
-        drive the PROM's own `ex config` from the boot script -- which is what
-        the machine instructs, and what makes the content the PROM's rather than
-        ours. Whichever, it must stay deterministic: no wall clock.
+  - [ ] **Give the machine a configuration.** The calendar's battery RAM is
+        blank at every power-on, which on real hardware is a machine whose
+        battery has died: the boot PROM says "Configuration information is not
+        initialized" and Domain/OS then halts at CALENDAR. Two routes, and both
+        are now open where neither was.
+        **The table is documented.** `002398-04` p. 12-3 lays out all fifty
+        bytes -- checksum at `0E`, valid pattern at `12`, memory array, node ID,
+        device bits and three type bytes -- and it **corroborates the
+        measurement exactly**: the PROM touches the calendar once in a hundred
+        million instructions, a 32-bit read at `010912`, and `12` is where the
+        handbook puts the four-byte VALID PATTERN. `ap_calendar.h` holds the
+        layout; nothing is written into it, because the pattern's *value* and
+        the checksum's algorithm are the two things the handbook does not give
+        and neither may be invented.
+        **The other route reaches further than it did.** MD is up, `EX CONFIG`
+        loads CONFIG off `/sau14`, and CONFIG spins for ever at `0102963C` on a
+        `tst.w d3 / beq.s` whose `d3` arrives zero from `$10(a6)`.
+        *Next, and it is one read rather than another hypothesis: the PROM's own
+        checker, to recover the valid pattern and the checksum. The address is
+        computed rather than literal, so finding the instruction needs a
+        read-side `--boot-watch-write`, which does not exist yet.*
+        *Five hypotheses here were each produced by reasoning and killed by the
+        next measurement. The whole investigation is in `PROJECT_STATUS.md`.*
         *Verification: the console going past "Configuration information is not
         initialized", and Domain/OS past the CALENDAR halt.*
   - [x] **`CPU (dma) Test #1` passes: the 16-bit controller counts words.**
