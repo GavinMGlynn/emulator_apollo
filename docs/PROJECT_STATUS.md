@@ -13923,3 +13923,46 @@ That is where the regression stands. It is one statement rather than the two
 wrong ones it replaced, and the next question is a comparison rather than a
 hypothesis: which reads of serial 1's data register the two machines make across
 this window, and from which program counters.
+
+### Located: the five bytes are read by `0068AC`, two at a time
+
+The comparison, taken on our side with `--boot-watch-read 010407` — the **odd**
+byte, which is where `$7(a0)` lands and where a first attempt at `010406` found
+nothing at all:
+
+    reads  1-9   PC 000067D0   01 02 04 08 05 0A 0C 0F 42   the table echoes
+    reads 10-14  PC 000068C0   FF 11 00 FF 00               the FF 11 16 answer
+
+Reads 1-9 are the echo loop and it **passes** — the table comes back byte for
+byte. Reads 10-14 are somewhere else entirely:
+
+    006894  bsr.w $68AC ; bsr.w $68AC ; bra.w $68CC     two bytes, then on
+    0068AC  clr.w d2
+    0068AE  btst.b #1,$b(a0)         poll RxRDY
+    0068B4  bne.b $68C0
+    0068B6  cmp.w #$ffff,d2          65,536 tries
+    0068BA  beq.b $68C6              timed out
+    0068C0  move.b $7(a0),d1 / rts   got one
+    0068C6  move.l (a7)+,d0          discard the return address
+    0068C8  bra.w $68CC              and go where the success path goes
+
+So `0068AC` reads a byte **with a timeout**, and the timeout is not an error: it
+pops its own return address and branches to `0068CC`, which is exactly where the
+two-successful-reads path goes. The firmware is written to work either way.
+
+**And that is the whole regression.** Unpaced, the five bytes were lost to the
+FIFO overrun, the poll timed out, and `0068C6` took the machine to `0068CC`.
+Paced, they arrive one at a time with the FIFO empty, all five are read, and the
+machine reaches `0068CC` down the other path — with different bytes in `d1` and,
+five reads later, a different decision.
+
+So the defect is not that the bytes exist, and not that they are paced. It is
+that this core delivers them **at a moment the oracle does not**, and the
+firmware's own tolerance for a timeout is what covered it before. The remaining
+question is narrow and comparative: when does the oracle's keyboard put those
+five bytes on the wire relative to the table exchange, and does its `0068AC`
+read them or time out?
+
+*That is one Lua tap on the oracle's serial 1 data register with its program
+counters — the same trace taken here, on the other machine. It is the seventh
+measurement in this item and the first that compares like with like.*
