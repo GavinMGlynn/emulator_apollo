@@ -1105,6 +1105,22 @@ static void ap_trace_record(ap_trace_ring_t *slot, unsigned step, uint32_t pc,
  * this is only meant to detect.
  */
 #define AP_BOOT_KEY_POLLS 2000u
+
+/* How hard the machine is polling for input, whichever register it polls.
+ *
+ * The threshold above was written against the **boot PROM**, which waits on
+ * `SRA`, and it named that register. Domain/OS waits on the **ISR** instead:
+ * measured over one 1.2-billion-instruction boot sitting at its calendar
+ * prompt, `SRA` was read 1,468 times and the ISR 203,699. So a condition naming
+ * one register is a condition about one *program*, and `--boot-type` delivered
+ * nothing to an operating system that was polling as hard as it knows how.
+ *
+ * Both are status reads on the keyboard's port and either is the same evidence,
+ * so they are summed. */
+static unsigned input_polls(const ap_board_t *board) {
+  return board->sio.register_reads[0][AP_MC68681_SR_CSR_A] +
+         board->sio.register_reads[0][AP_MC68681_ISR_IMR];
+}
 static int boot_from_prom(const char *path, unsigned limit, bool trace,
                           uint32_t watch, const char *input, unsigned input_unit,
                           unsigned input_channel, uint8_t input_rate,
@@ -1611,8 +1627,7 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
           !ap_sio_receiver_ready(&board->sio, 0u, 0u) &&
           ap_sio_character_bits(&board->sio, 0u, 0u) == 8u &&
           ap_sio_receiver_enabled(&board->sio, 0u, 0u) &&
-          board->sio.register_reads[0][AP_MC68681_SR_CSR_A] >=
-              AP_BOOT_KEY_POLLS) {
+          input_polls(board) >= AP_BOOT_KEY_POLLS) {
         /* Eight bits, not merely a free receiver.
          *
          * `MR1` resets to a **five-bit** link, and this sent as soon as the
@@ -1650,12 +1665,10 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
           !ap_sio_receiver_ready(&board->sio, 0u, 0u) &&
           ap_sio_character_bits(&board->sio, 0u, 0u) == 8u &&
           ap_sio_receiver_enabled(&board->sio, 0u, 0u) &&
-          board->sio.register_reads[0][AP_MC68681_SR_CSR_A] >=
-              typed_polls_at + AP_BOOT_KEY_POLLS) {
+          input_polls(board) >= typed_polls_at + AP_BOOT_KEY_POLLS) {
         if (ap_board_key_type(board, typed[typed_sent])) {
           typed_sent++;
-          typed_polls_at =
-              board->sio.register_reads[0][AP_MC68681_SR_CSR_A];
+          typed_polls_at = input_polls(board);
         } else {
           /* A character this keyboard cannot produce. Skipped rather than
            * retried for ever, and said out loud -- a silently dropped character

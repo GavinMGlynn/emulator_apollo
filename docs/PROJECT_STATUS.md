@@ -13662,3 +13662,46 @@ question.
 The `CONFIGURATION INFORMATION IS NOT INITIALIZED` warning is still there, above
 `SELF TESTS PASSED`, exactly as measured on the serial console: a warning from a
 second check, not the failure.
+
+## `--boot-type`, and a trigger that named one program's register
+
+The Domain/OS calendar prompt needs a typed character and nothing in this
+frontend could produce one: `--boot-key` presses a matrix index.
+
+### Typing is a different code set from pressing
+
+`ap_kbd_press` sends a **matrix index** — the keystate set, where the host
+translates transitions. The **compatibility** set sends Table 12-1's character
+code instead, and that is the set a machine sitting at a prompt is reading. So a
+frontend that typed by pressing would put bytes on the wire the keyboard never
+sends in that mode. `ap_board_key_type` puts the code on, with the keypad's `FE`
+prefix where there is one.
+
+Shift needs no separate transmission: the shifted code *is* the character. A
+caller that dutifully pressed a shift key first would be sending a byte that does
+not exist in this set.
+
+### The trigger was measured against the wrong program
+
+The delivery condition is `--boot-key`'s — a configured, enabled, eight-bit port
+and a long run of status reads — with the threshold measured from the last
+delivery so it rearms for a second character. The first run of it delivered
+**nothing**, and the register counters say why:
+
+    sio1 reg 1 (SRA)   1,468 read(s)      <- what the condition counted
+    sio1 reg 5 (ISR) 203,699 read(s)      <- where the polling actually is
+
+`AP_BOOT_KEY_POLLS` was written against the **boot PROM**, which waits on `SRA`,
+and it named that register. Domain/OS waits on the **ISR**. So the condition was
+not "the machine is waiting for input" but "the boot PROM is waiting for input",
+and an operating system polling as hard as it knows how tripped none of it.
+
+Both are status reads on the keyboard's port and either is the same evidence, so
+`input_polls` sums them. That is the general shape of the mistake this session
+kept finding: a condition written from one observation, recorded as though it
+described the machine.
+
+*Verification: `board_suite` 33 -> 34 — typing sends the character and not a
+matrix index, a capital arrives with no shift key sent before it, RETURN arrives
+as its own code `CB` rather than a raw `0D`, and a character no key produces is
+refused rather than sent as something plausible.*
