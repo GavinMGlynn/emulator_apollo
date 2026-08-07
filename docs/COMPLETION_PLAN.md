@@ -4582,13 +4582,10 @@ boot below, and the boot is not attempted until they are done.
         bits 4-3. The two fields are exchanged, so "parity enabled" reads the
         type bit and the enable test is inverted for the firmware's
         `MR1A = 07`.
-      - **`MR1[7]` RxRTS control** -- not modelled.
-      - **`MR1[5]` error mode**, character against block -- not modelled, and it
-        changes when status bits clear.
-      - **`MR2[5]` TxRTS control** -- not modelled.
-      - **`MR2[4]` CTS enable transmitter** -- not modelled, and it gates
-        transmission on CTS, which is directly relevant to writes that do not
-        reach the far end.
+      - ~~**`MR1[7]` RxRTS control**~~ **done** -- a full FIFO negates RTS and room releases it, which is §4.2.1.1's stated purpose.
+      - ~~**`MR1[5]` error mode**~~ **done** -- the three FIFOed status bits now travel *with* the character, so character mode reports the top of the FIFO and block mode accumulates until `RESET ERROR STATUS`. This core was block mode unconditionally.
+      - ~~**`MR2[5]` TxRTS control**~~ **done** -- `OPR[0]` clears once the holding register drains.
+      - ~~**`MR2[4]` CTS enable transmitter**~~ **done** -- the transmitter holds the byte while CTS is negated and releases it when asserted (**low**), per §4.2.2.3. Delayed, not dropped.
       That last one matters for the fifteen-writes-five-arrive count above: a
       transmitter gated on CTS is one plausible mechanism, and it cannot be
       ruled in or out while the bit is absent.

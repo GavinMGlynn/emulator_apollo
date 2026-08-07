@@ -64,6 +64,114 @@ static void test_the_transmitter_commands_move_the_ready_bits_as_documented(void
  * The select was not modelled at all -- not declined, not commented, simply
  * absent -- so the bit always followed `RxRDY`. A host that selects `FFULL` and
  * waits would have been satisfied by one character instead of three. */
+/* `MR2[4]`, clear-to-send control. §4.2.2.3: with it set "the transmitter
+ * checks the state of CTSA (IP0) each time it is ready to send a character. If
+ * IP0 is asserted (low), the character is transmitted. If it is negated (high),
+ * the ... transmission is delayed until CTSA goes low."
+ *
+ * Delayed, not dropped -- and asserted is **low**, which is the half a model
+ * gets backwards and then holds off exactly when the hardware transmits. */
+static void test_cts_gates_the_transmitter_when_mr2_selects_it(void) {
+  ap_mc68681_t d;
+  ap_mc68681_reset(&d);
+  enable_a(&d);
+  /* MR1 then MR2, sharing the pointer: CTS enable in MR2. */
+  ap_mc68681_write(&d, AP_MC68681_MR_A, 0x03u);
+  ap_mc68681_write(&d, AP_MC68681_MR_A, AP_MC68681_MR2_CTS_ENABLE);
+
+  /* CTS negated -- the pin *set* -- holds the byte. */
+  ap_mc68681_set_input(&d, AP_MC68681_IP_CTS(0u));
+  ap_mc68681_write(&d, AP_MC68681_RB_TB_A, 0x41u);
+  uint8_t out = 0u;
+  TEST_ASSERT_FALSE(ap_mc68681_transmit(&d, 0u, &out));
+
+  /* It is held, not lost: asserting CTS releases the same byte. */
+  ap_mc68681_set_input(&d, 0u);
+  TEST_ASSERT_TRUE(ap_mc68681_transmit(&d, 0u, &out));
+  TEST_ASSERT_EQUAL_HEX8(0x41u, out);
+
+  /* And with the bit clear, CTS "has no effect on the transmitter". */
+  ap_mc68681_t free_running;
+  ap_mc68681_reset(&free_running);
+  enable_a(&free_running);
+  ap_mc68681_set_input(&free_running, AP_MC68681_IP_CTS(0u));
+  ap_mc68681_write(&free_running, AP_MC68681_RB_TB_A, 0x42u);
+  TEST_ASSERT_TRUE(ap_mc68681_transmit(&free_running, 0u, &out));
+  TEST_ASSERT_EQUAL_HEX8(0x42u, out);
+}
+
+/* `MR1[5]`, error mode. §4.2.1.3: character mode's three FIFOed status bits
+ * "apply only to the character at the top of the FIFO"; block mode accumulates
+ * them until `RESET ERROR STATUS`. This core was block mode unconditionally. */
+static void test_character_error_mode_reports_the_top_of_the_fifo(void) {
+  ap_mc68681_t d;
+  ap_mc68681_reset(&d);
+  enable_a(&d);
+  ap_mc68681_write(&d, AP_MC68681_MR_A, 0x03u); /* MR1: character mode */
+  ap_mc68681_write(&d, AP_MC68681_SR_CSR_A, 0x77u);
+
+  /* One character at the wrong rate -- a framing error -- then one at the
+   * right rate behind it. */
+  ap_mc68681_receive_framed(&d, 0u, 0x41u, 0xBBu, 0x03u);
+  ap_mc68681_receive_framed(&d, 0u, 0x42u, 0x77u, 0x03u);
+  TEST_ASSERT_TRUE((ap_mc68681_read(&d, AP_MC68681_SR_CSR_A) &
+                    AP_MC68681_SR_FRAMING) != 0u);
+
+  /* Taking the bad character republishes the good one's status. */
+  (void)ap_mc68681_read(&d, AP_MC68681_RB_TB_A);
+  TEST_ASSERT_FALSE((ap_mc68681_read(&d, AP_MC68681_SR_CSR_A) &
+                     AP_MC68681_SR_FRAMING) != 0u);
+
+  /* Block mode keeps it: the accumulation stands until RESET ERROR STATUS. */
+  ap_mc68681_t block;
+  ap_mc68681_reset(&block);
+  enable_a(&block);
+  ap_mc68681_write(&block, AP_MC68681_MR_A,
+                   (uint8_t)(0x03u | AP_MC68681_MR1_ERROR_BLOCK));
+  ap_mc68681_write(&block, AP_MC68681_SR_CSR_A, 0x77u);
+  ap_mc68681_receive_framed(&block, 0u, 0x41u, 0xBBu, 0x03u);
+  ap_mc68681_receive_framed(&block, 0u, 0x42u, 0x77u, 0x03u);
+  (void)ap_mc68681_read(&block, AP_MC68681_RB_TB_A);
+  TEST_ASSERT_TRUE((ap_mc68681_read(&block, AP_MC68681_SR_CSR_A) &
+                    AP_MC68681_SR_FRAMING) != 0u);
+}
+
+/* `MR1[7]` and `MR2[5]`, the two RTS controls. §4.2.1.1 exists to "prevent
+ * overrun in the receiver by using the RTSA output signal to control the
+ * clear-to-send CTS input of the transmitting device"; §4.2.2.2 clears the same
+ * output once the transmitter has drained. */
+static void test_the_rts_controls_drive_the_output_port(void) {
+  ap_mc68681_t d;
+  ap_mc68681_reset(&d);
+  enable_a(&d);
+  ap_mc68681_write(&d, AP_MC68681_MR_A, AP_MC68681_MR1_RX_RTS | 0x03u);
+  d.opr = AP_MC68681_OP_RTS(0u);
+
+  /* A full FIFO negates RTS ... */
+  ap_mc68681_receive(&d, 0u, 0x41u);
+  TEST_ASSERT_TRUE((d.opr & AP_MC68681_OP_RTS(0u)) != 0u);
+  ap_mc68681_receive(&d, 0u, 0x42u);
+  ap_mc68681_receive(&d, 0u, 0x43u);
+  TEST_ASSERT_EQUAL_HEX8(0u, d.opr & AP_MC68681_OP_RTS(0u));
+
+  /* ... and room releases it. */
+  (void)ap_mc68681_read(&d, AP_MC68681_RB_TB_A);
+  TEST_ASSERT_TRUE((d.opr & AP_MC68681_OP_RTS(0u)) != 0u);
+
+  /* `MR2[5]`: the transmitter clears it once the holding register drains. */
+  ap_mc68681_t tx;
+  ap_mc68681_reset(&tx);
+  enable_a(&tx);
+  ap_mc68681_write(&tx, AP_MC68681_MR_A, 0x03u);
+  ap_mc68681_write(&tx, AP_MC68681_MR_A, AP_MC68681_MR2_TX_RTS);
+  tx.opr = AP_MC68681_OP_RTS(0u);
+  ap_mc68681_write(&tx, AP_MC68681_RB_TB_A, 0x41u);
+  TEST_ASSERT_TRUE((tx.opr & AP_MC68681_OP_RTS(0u)) != 0u);
+  uint8_t byte = 0u;
+  TEST_ASSERT_TRUE(ap_mc68681_transmit(&tx, 0u, &byte));
+  TEST_ASSERT_EQUAL_HEX8(0u, tx.opr & AP_MC68681_OP_RTS(0u));
+}
+
 static void test_the_isr_receiver_bit_follows_the_mr1_selection(void) {
   ap_mc68681_t d;
   ap_mc68681_reset(&d);
@@ -827,6 +935,9 @@ int main(void) {
   RUN_TEST(test_the_output_port_has_separate_set_and_clear_addresses);
   RUN_TEST(test_resetting_the_receiver_empties_the_fifo);
   RUN_TEST(test_the_transmitter_commands_move_the_ready_bits_as_documented);
+  RUN_TEST(test_cts_gates_the_transmitter_when_mr2_selects_it);
+  RUN_TEST(test_character_error_mode_reports_the_top_of_the_fifo);
+  RUN_TEST(test_the_rts_controls_drive_the_output_port);
   RUN_TEST(test_the_isr_receiver_bit_follows_the_mr1_selection);
   RUN_TEST(test_a_break_in_local_loopback_reaches_the_receiver);
   RUN_TEST(test_the_break_commands_are_obeyed_rather_than_dropped);

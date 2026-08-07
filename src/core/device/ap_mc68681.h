@@ -105,6 +105,18 @@ typedef struct {
   uint8_t csr;        /* clock select */
   uint8_t sr;         /* status */
   uint8_t fifo[AP_MC68681_RX_FIFO];
+  /* The FIFO's **status portion**, one entry per character. §4.2.1.3 makes the
+   * three FIFOed status bits -- framing error, parity error and received break
+   * -- a property of the character "at the top of the FIFO" in character mode,
+   * so they have to travel with the character rather than sit in one register.
+   * §3.4 names the same structure from the other side: in multidrop the
+   * address/data bit is "loaded into the status portion of the FIFO stack
+   * normally used for parity error". */
+  uint8_t fifo_status[AP_MC68681_RX_FIFO];
+  /* The flags the character now arriving has caused, before they are stored
+   * with it. Separate from `sr` because `sr` is an accumulation and this is
+   * one character's own. */
+  uint8_t pending_status;
   unsigned fifo_count;
   bool rx_enabled;
   bool tx_enabled;
@@ -219,6 +231,51 @@ void ap_mc68681_receive_at(ap_mc68681_t *duart, unsigned channel, uint8_t byte,
 #define AP_MC68681_MR1_PARITY_MODE_NONE 2u
 #define AP_MC68681_MR1_PARITY_MODE_MULTIDROP 3u
 #define AP_MC68681_MR1_PARITY_TYPE 0x04u /* 0 = even, 1 = odd */
+
+/* `MR1[7]`, receiver request-to-send control. §4.2.1.1: it exists to "prevent
+ * overrun in the receiver by using the RTSA output signal to control the
+ * clear-to-send CTS input of the transmitting device" -- so with it set, the
+ * receiver negates RTS when its FIFO fills, and the far end stops sending. */
+#define AP_MC68681_MR1_RX_RTS 0x80u
+
+/* `MR1[5]`, error mode. §4.2.1.3: it "selects the operating mode of the three
+ * FIFOed status bits" -- framing error, parity error and received break.
+ *
+ *   character mode -- status "is given on a character-by-character basis and
+ *                     applies only to the character at the top of the FIFO"
+ *   block mode     -- status is "the accumulation (logical OR) of the status
+ *                     for all characters coming to the top of the FIFO since
+ *                     the last reset error status command"
+ *
+ * The difference is observable: in block mode one bad character leaves the
+ * error set until `RESET ERROR STATUS`, and in character mode the next good
+ * character clears it. */
+#define AP_MC68681_MR1_ERROR_BLOCK 0x20u
+
+/* `MR2[5]`, transmitter request-to-send control. §4.2.2.2: with it set,
+ * `OPR[0]` "is cleared automatically one bit time after the characters in the
+ * ... transmit shift register and in the transmit holding register, if any, are
+ * completely transmitted", which is how a driver ends a message without
+ * watching for the last character itself. */
+#define AP_MC68681_MR2_TX_RTS 0x20u
+
+/* `MR2[4]`, clear-to-send control. §4.2.2.3: "If this bit is zero, channel A
+ * clear-to-send control (CTSA) has no effect on the transmitter. If this bit is
+ * a one, the transmitter checks the state of CTSA (IP0) each time it is ready
+ * to send a character. If IP0 is asserted (low), the character is transmitted.
+ * If it is negated (high), the ... serial-data output remains in the marking
+ * state and the transmission is delayed until CTSA goes low."
+ *
+ * **Asserted is low**, so an input port reading zero on that pin means clear to
+ * send. A model that read it the other way round would hold off exactly when
+ * the hardware transmits. */
+#define AP_MC68681_MR2_CTS_ENABLE 0x10u
+
+/* CTS is `IP0` for channel A and `IP1` for channel B; RTS is `OP0` and `OP1`.
+ * §4.2.2.2 and §4.2.2.3 name channel A's; channel B's follow the part's
+ * convention that the second channel takes the next pin. */
+#define AP_MC68681_IP_CTS(channel) ((uint8_t)(1u << (channel)))
+#define AP_MC68681_OP_RTS(channel) ((uint8_t)(1u << (channel)))
 #define AP_MC68681_MR2_STOP_MASK 0x0Fu
 
 /* `MR2[3:0]`: the two lengths a console link uses. */

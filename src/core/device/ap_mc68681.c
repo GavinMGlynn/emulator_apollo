@@ -129,6 +129,7 @@ void ap_mc68681_receive_framed(ap_mc68681_t *duart, unsigned channel,
    * parity bit cannot find it wrong, however the sender was configured. */
   if (ch->rx_enabled && ap_mc68681_parity_enabled(own_mr1) && !parity_agrees) {
     ch->sr |= AP_MC68681_SR_PARITY;
+    ch->pending_status |= AP_MC68681_SR_PARITY;
   }
 }
 
@@ -250,6 +251,24 @@ void ap_mc68681_receive_at(ap_mc68681_t *duart, unsigned channel, uint8_t byte,
    * cannot have found its stop bit in the wrong place. */
   if (ch->rx_enabled && !rate_matches(ch->csr, sender_csr, acr_set_two)) {
     ch->sr |= AP_MC68681_SR_FRAMING;
+    ch->pending_status |= AP_MC68681_SR_FRAMING;
+  }
+  /* **This character's** flags travel with it, not the register's accumulation.
+   * §4.2.1.3 makes the three FIFOed bits a property of the entry at the top of
+   * the FIFO in character mode, so storing `sr` here would give every later
+   * character the errors of the ones before it -- which is what the test
+   * caught, and is precisely the distinction between the two modes. */
+  if (ch->fifo_count > 0u) {
+    ch->fifo_status[ch->fifo_count - 1u] = ch->pending_status;
+  }
+  ch->pending_status = 0u;
+  /* In character mode the register shows the top of the FIFO, not the running
+   * OR -- so a bad character behind a good one does not colour the good one. */
+  if ((ch->mr[0] & AP_MC68681_MR1_ERROR_BLOCK) == 0u && ch->fifo_count > 0u) {
+    const uint8_t fifoed = (uint8_t)(AP_MC68681_SR_PARITY |
+                                     AP_MC68681_SR_FRAMING |
+                                     AP_MC68681_SR_BREAK);
+    ch->sr = (uint8_t)((ch->sr & ~fifoed) | (ch->fifo_status[0] & fifoed));
   }
 }
 
@@ -269,8 +288,20 @@ void ap_mc68681_receive(ap_mc68681_t *duart, unsigned channel, uint8_t byte) {
     ch->sr |= AP_MC68681_SR_OVERRUN;
     return;
   }
+  /* The character's own error status travels with it -- see `fifo_status`. The
+   * flags are set on this channel's `sr` by the caller *after* delivery, so
+   * what is stashed here is filled in below by `receive_at`. */
+  ch->fifo_status[ch->fifo_count] = 0u;
   ch->fifo[ch->fifo_count++] = byte;
   ch->sr |= AP_MC68681_SR_RXRDY;
+  /* §4.2.1.1's whole purpose: `MR1[7]` exists to "prevent overrun in the
+   * receiver by using the RTSA output signal to control the clear-to-send CTS
+   * input of the transmitting device". So a full FIFO negates RTS, and a far
+   * end honouring CTS stops before it overruns us. */
+  if ((ch->mr[0] & AP_MC68681_MR1_RX_RTS) != 0u &&
+      ch->fifo_count >= AP_MC68681_RX_FIFO) {
+    duart->opr = (uint8_t)(duart->opr & ~AP_MC68681_OP_RTS(channel));
+  }
   if (ch->fifo_count >= AP_MC68681_RX_FIFO) {
     ch->sr |= AP_MC68681_SR_FFULL;
   }
@@ -286,9 +317,30 @@ bool ap_mc68681_transmit(ap_mc68681_t *duart, unsigned channel,
   if (!ch->tx_holding_full) {
     return false;
   }
+  /* §4.2.2.3's CTS gate: with `MR2[4]` set "the transmitter checks the state of
+   * CTSA (IP0) each time it is ready to send a character ... If it is negated
+   * (high), the ... serial-data output remains in the marking state and the
+   * transmission is delayed until CTSA goes low."
+   *
+   * Delayed, not dropped: the byte stays in the holding register and goes out
+   * when the pin falls. **Asserted is low**, so the pin reading *set* is the
+   * one that holds transmission off. */
+  if ((ch->mr[1] & AP_MC68681_MR2_CTS_ENABLE) != 0u &&
+      (duart->input & AP_MC68681_IP_CTS(channel)) != 0u) {
+    return false;
+  }
   *byte = ch->tx_holding;
   ch->tx_holding_full = false;
   ch->sr |= (uint8_t)(AP_MC68681_SR_TXRDY | AP_MC68681_SR_TXEMT);
+  /* §4.2.2.2: with `MR2[5]` set, `OPR[0]` "is cleared automatically one bit
+   * time after the characters in the ... transmit shift register and in the
+   * transmit holding register, if any, are completely transmitted". This model
+   * has no shift register, so "completely transmitted" is the instant the
+   * holding register empties -- the one bit time is a delay this core cannot
+   * represent and does not pretend to. */
+  if ((ch->mr[1] & AP_MC68681_MR2_TX_RTS) != 0u) {
+    duart->opr = (uint8_t)(duart->opr & ~AP_MC68681_OP_RTS(channel));
+  }
   refresh_channel_interrupts(duart);
   return true;
 }
@@ -372,12 +424,42 @@ uint8_t ap_mc68681_read(ap_mc68681_t *duart, unsigned reg) {
     }
     uint8_t value = ch->fifo[0];
     for (unsigned i = 1; i < ch->fifo_count; i++) {
+      ch->fifo_status[i - 1u] = ch->fifo_status[i];
       ch->fifo[i - 1u] = ch->fifo[i];
     }
     ch->fifo_count--;
     ch->sr = (uint8_t)(ch->sr & ~AP_MC68681_SR_FFULL);
     if (ch->fifo_count == 0u) {
       ch->sr = (uint8_t)(ch->sr & ~AP_MC68681_SR_RXRDY);
+    }
+    /* §4.2.1.3's two error modes, and the only place they differ.
+     *
+     * In **character** mode the three FIFOed bits "apply only to the character
+     * at the top of the FIFO", so taking one republishes the next character's
+     * status -- a good character after a bad one clears them.
+     *
+     * In **block** mode they are "the accumulation (logical OR) of the status
+     * for all characters ... since the last reset error status command", so
+     * nothing here touches them and only `RESET ERROR STATUS` does.
+     *
+     * This core was block mode unconditionally, which is the safer of the two
+     * to have been wrong about -- it over-reports rather than losing an error
+     * -- but a driver in character mode would see a stale error against a
+     * character that did not have one. */
+    if ((ch->mr[0] & AP_MC68681_MR1_ERROR_BLOCK) == 0u) {
+      const uint8_t fifoed = (uint8_t)(AP_MC68681_SR_PARITY |
+                                       AP_MC68681_SR_FRAMING |
+                                       AP_MC68681_SR_BREAK);
+      ch->sr = (uint8_t)(ch->sr & ~fifoed);
+      if (ch->fifo_count > 0u) {
+        ch->sr |= (uint8_t)(ch->fifo_status[0] & fifoed);
+      }
+    }
+    /* And RTS comes back when the FIFO has room, which is the other half of
+     * §4.2.1.1: it is negated to stop the far end and released to restart it. */
+    if ((ch->mr[0] & AP_MC68681_MR1_RX_RTS) != 0u &&
+        ch->fifo_count < AP_MC68681_RX_FIFO) {
+      duart->opr |= AP_MC68681_OP_RTS(index);
     }
     refresh_channel_interrupts(duart);
     return value;
