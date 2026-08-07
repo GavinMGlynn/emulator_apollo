@@ -4482,9 +4482,21 @@ boot below, and the boot is not attempted until they are done.
       65,536-poll timeout? `ap_board_advance` drains and delivers once per
       instruction, so they should -- but "should" is what the last dozen
       readings here were made of.
-      *Verification: the ISR sampled at the moment `0073D8` is reached -- one
-      value, at one instruction, which settles whether the bit was never set or
-      was set and missed.*
+      **Measured, and it overturns the pinning.** `--boot-stop-physical-pc 73D8`
+      **never fires**: the run reaches its 1.5-billion limit and reports
+      `stopped EXECUTED`. So `0073D8` is never executed, the screen's failure
+      does not come from there, and the `ADDRESS`-offset arithmetic used to pin
+      it two entries above is **wrong**.
+      The ISR at `01040A` reads `99` at the end of the run -- `TxRDY A` set,
+      **`RxRDY A` clear** -- which is consistent with a keyboard whose replies
+      have all been consumed, and says nothing on its own about the failure.
+      So the reporting site is still unidentified. Both candidates are now
+      eliminated: `731E`'s compare by the `ADDRESS` offset, and `73D8` by never
+      being reached. There is a third somewhere, and the way to find it is to
+      stop on `005F8C` itself -- the routine that prints -- and read the return
+      address, rather than matching offsets against a printed field.
+      *Verification: `--boot-stop-physical-pc 5F8C`, and the caller from the
+      stack.*
       That is the first defect of this phase that is genuinely ours, and it is
       narrow: one bit, one register, and a known producer.
       *Verification: `RxRDY` set on channel A by the time `000073EC` reads it,
