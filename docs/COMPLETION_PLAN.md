@@ -4656,8 +4656,32 @@ boot below, and the boot is not attempted until they are done.
       So for this part the oracle *is* the reference, and this is the one place
       in the sweep where "walk the tables" cannot be done -- there are no
       tables. Recorded as a limitation of the part rather than of the effort.
-      *Next: the other parts on the boot path -- `ap_omti`'s floppy half, the
-      8259 and 8237 -- walked the same way before any of them is tested.*
+      **All three walked.**
+      - **8259: complete.** Every `ICW1` and `ICW4` bit is defined *and* acted
+        on, as are all eight `OCW2` combinations. Nothing to fix.
+      - **8237: five of the eight command-register bits are defined and never
+        used** -- compressed timing, rotating priority, extended write, and the
+        `DREQ`/`DACK` **polarity** bits. Only rotating priority carries a
+        documented decline; the other four are silent absences. The polarity
+        pair is observable: a board that inverts either would have its requests
+        and acknowledgements read backwards.
+        **And this corrects an earlier claim in this same session.** The device
+        audit recorded "8237 DMA: complete. All eight command registers
+        `08`-`0F` decoded, both read and write sides." That is true and it is
+        about the eight *registers*; this is about the eight *bits of one
+        register*. Two different things, and the first was reported as
+        completeness for the second.
+      - **OMTI floppy half: all three command modifiers are inert** -- `MT`
+        multitrack, `MF` MFM-rather-than-FM, and `SK` skip-deleted-data-address-
+        mark are defined and never read. §6.3 gives them as the top three bits
+        of the first command byte, so every floppy command is currently executed
+        as if all three were clear.
+        The earlier audit called this half complete because "all ten of §6.1's
+        commands reach a case" -- again the opcodes, not the bits.
+      *The pattern across both corrections: counting decoded **cases** is not
+      counting implemented **fields**, and the first is what a case-coverage
+      check measures. That is the same blind spot the header-grep sweep had,
+      in a different disguise.*
       That is the first defect of this phase that is genuinely ours, and it is
       narrow: one bit, one register, and a known producer.
       *Verification: `RxRDY` set on channel A by the time `000073EC` reads it,
