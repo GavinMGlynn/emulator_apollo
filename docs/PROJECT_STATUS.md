@@ -14089,3 +14089,46 @@ queued rather than after the first byte went. Plus both boots above, and `ctest`
 immediately" was never stated or measured. It was what the code happened to do,
 and it survived because the FIFO overrun it caused looked like the thing being
 fixed.*
+
+## A machine whose console has no listener stalls, and that is ours not the hardware's
+
+Found while looking for what prints the configuration warning. The same command,
+with and without `--boot-console`:
+
+    without   final PC 0000269E at 600,000,000 instructions   (the boot PROM)
+    with      final PC 3C456B98 -> 01081B98                   (Domain/OS)
+
+`ap_mc68681_transmit` is a **pull** API — "take what the transmitter holds, if
+anything" — so a channel's transmit holding register empties only when some
+caller collects the byte. `ap_board_advance` collects for serial 1 channel A,
+because the keyboard is there. **Nothing collects channel B**, which is the
+console, unless the frontend was asked to print it.
+
+So a run without `--boot-console` blocks the firmware the first time it writes a
+character to a console nobody is reading. A real 2681 shifts the character out in
+one character time whether anything is connected or not; a transmitter that
+waits for a listener is a machine that cannot run headless.
+
+### What it costs, beyond the stall
+
+Every reading taken from a console-less run is suspect in the same way the
+step-mode ones were. "The machine stops at `0000269E`" has appeared in this
+session's measurements more than once and it is not a fact about the firmware.
+It is the harness holding the transmitter full.
+
+### The fix, named rather than made
+
+Give the transmitter its own clock, exactly as the keyboard's wire now has one:
+the holding register empties one character time after it is loaded, and a caller
+that wants the byte collects it before then or does not get it. That is what
+`ap_sio_character_time` already computes, and the keyboard queue is the working
+precedent.
+
+It is **not** done here. It changes the timing of every boot in the project, and
+this session has already shown once what a plausible timing change does when it
+lands at the end of a long run of work — the pacing regression took six commits
+to find and its cause was one line. This wants a clean start and its own
+verification on both boots.
+
+*Verification of the finding itself: the A/B above, and `ap_mc68681.h`'s own
+description of the interface.*
