@@ -4631,7 +4631,15 @@ boot below, and the boot is not attempted until they are done.
       Transposed parity fields; four absent mode-register bits; an ungated
       input-change interrupt; a pinless input bit; three wrong baud rates; and
       five inert `OPCR` selects. `mc68681_suite` 37 -> 45.
-      **Re-tested with the module complete, and the screen is byte-identical.**
+      **Re-tested with *every* module walked -- command sets and register tables,
+      nine parts -- and the screen is byte-identical.** That is the boot test
+      finally meaning what it says: `KEYBOARD TEST # 0` fails on a machine whose
+      every documented register field has been checked against its tables, so
+      the cause is not a missing field in any part this core models. Where it is
+      instead -- the firmware's expectation, the board wiring, or something
+      outside the parts entirely -- is now the question, and it is a smaller
+      one than it was.
+      *Earlier, with only the DUART complete:*
       Nine defects fixed and `KEYBOARD TEST # 0` still reports the same
       `EXPECTED= 00000002, ACTUAL= 0000FF00, ADDRESS= 0001040B`.
       That is worth having, and it is what testing *after* completing a module
