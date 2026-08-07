@@ -3474,9 +3474,19 @@ boot below, and the boot is not attempted until they are done.
         prints in both runs, so it is a second check. Register `2B` was seeded
         with the firmware's own default and made no difference, which leaves the
         checksum at `0E` -- algorithm unknown -- or a check inside `SELF_TEST`.
-        *And the boot item's verification is blocked by **Phase 5**, not by this:
-        with `--screen c8p` the same boot stops at `KEYBOARD TEST # 0` before it
-        reaches the disk. The ordering in this file hides that.*
+        **And with Phase 5's keyboard test fixed, Domain/OS reaches the
+        screen.** An 800M-instruction boot with `--screen c8p`, the disk and the
+        seeded battery passes every self-test, passes both Winchester drives,
+        loads `SELF_TEST` off the disk, runs its nine CPU tests, and puts
+        `Domain/OS kernel(7), revision 10.4, February 14, 1992` on the
+        framebuffer in its own font. Translation enabled, 18,316,356 plane
+        writes, final PC `3C43F5AC -> 010421AC`.
+        What stops it is a **prompt**: "The calendar is more than a minute slow.
+        Do you want to run DOMAIN_OS with the current calendar?" So the login
+        prompt this item asks for is one keystroke away, and the missing piece
+        is character input to the *display* console -- `--boot-key` presses a
+        matrix index and a prompt needs a typed character. `ap_kbd_encode`
+        already exists. Detail in `PROJECT_STATUS.md`.
         *Five hypotheses here were each produced by reasoning and killed by the
         next measurement. The whole investigation is in `PROJECT_STATUS.md`.*
         *Verification: the console going past "Configuration information is not

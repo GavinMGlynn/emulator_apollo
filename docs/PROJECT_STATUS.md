@@ -13610,3 +13610,55 @@ MB fitted, so the text is a line taller and everything below it shifts.
 
 *Verification: the PNG above, `kbd_suite` 26 -> 27 with three tests corrected
 that had encoded the old reading, and `ctest` 121/121.*
+
+## Domain/OS reaches the screen
+
+With the keyboard test passing, the calendar's valid pattern seeded and the
+SR10.4 disk fitted, an 800-million-instruction boot with `--screen c8p` puts the
+operating system on the framebuffer:
+
+    SELF TESTS IN PROGRESS.
+       KEYBOARD        TEST # 0 STARTED.
+       CPU             TEST # 7 STARTED.
+       MEMORY MODULE 1..4 TEST # 0 STARTED.
+       WINCHESTER DISK TEST # 0 STARTED.
+       WINCHESTER DISK TEST # 1 STARTED.
+         DRIVE 0  PASSED.
+         DRIVE 1  PASSED.
+       CPU             TEST # 8 STARTED.
+       NETWORK DRIVER SEARCH STARTED...
+       --- LOAD PATHS TESTED.
+       LOADING SELF_TEST DIAGNOSTICS FROM BOOT DEVICE.
+    LOADED:  SELF_TEST   REVISION: 2.4
+       CPU (MMU) (INTERRUPTS) (TIMER) (DMA x3) (CALENDAR) (FP TRAP)
+       (BUS ERROR)  TEST #0..#2 STARTED.
+    CONFIGURATION INFORMATION IS NOT INITIALIZED.
+    SELF TESTS PASSED.
+    >LOW: 01002000 HIGH: 010E986C START: 01002024
+    Domain/OS kernel(7), revision 10.4, February 14, 1992  11:42:25 am
+
+    The calendar is more than a minute slow.
+    Do you want to run DOMAIN_OS with the current calendar?
+
+`final PC 3C43F5AC -> 010421AC`, translation enabled, 18,316,356 plane writes.
+Every self-test passes, both Winchester drives pass, `SELF_TEST` loads off the
+disk and runs its nine CPU tests, and the **Domain/OS kernel** loads and prints
+its own banner in its own font.
+
+### What stops it, and it is the question the plan predicted
+
+"The calendar is more than a minute slow. Do you want to run DOMAIN_OS with the
+current calendar?" — a prompt, waiting for an answer from the keyboard. Domain/OS
+compares the calendar against the volume's own timestamps; this machine's clock
+is whatever the caller supplied and the disk was last written in 1992.
+
+So the boot item's verification — a framebuffer PNG showing a login prompt — is
+one keystroke away, and the missing piece is **character input to the display
+console**. `--boot-key N` presses one matrix index; a prompt needs a typed
+character, and `ap_kbd_encode` already turns ASCII into a code and a shift state.
+That is the next item, and it is a frontend flag rather than a modelling
+question.
+
+The `CONFIGURATION INFORMATION IS NOT INITIALIZED` warning is still there, above
+`SELF TESTS PASSED`, exactly as measured on the serial console: a warning from a
+second check, not the failure.
