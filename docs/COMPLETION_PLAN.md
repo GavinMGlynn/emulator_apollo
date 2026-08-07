@@ -4772,6 +4772,36 @@ boot below, and the boot is not attempted until they are done.
       *Verification: `a1` and `a2` resolved to addresses, matched against this
       core's register map, and the eight-entry readback answered.*
       *Verification: the PROM's self-test banner legible in a PNG.*
+      **The oracle's screen can be read now, and it settles the question.**
+      `screencap.lua` and `pngcmp.py` capture MAME's screen and compare it with
+      ours as ink over the display area. In **service mode the two are
+      identical** -- 102 lit pixels each, **zero differing pixels of 819,200**,
+      the same `>` and cursor -- with the same LED sequence `FF FC FB FA F9 F7`
+      from the same program counters. First screen-level agreement with the
+      oracle this project has had.
+      In **normal mode the oracle hangs at `0067A2`** polling `TxRDY`, on a
+      defect of its own: `duart_channel::write_CR` gates enable-transmitter on
+      `!BIT(CR,2) && BIT(data,2)`, an edge against the previous command
+      register, and the firmware's `CRA = 45, 35, 25` has bit 2 set in all
+      three -- so `35` disables the transmitter and the enables after it are
+      dropped. §4.2.7.3 gives it as a command, not an edge; this core applies it
+      unconditionally and gets past. **Hardware-truer than the oracle**, proved
+      by deleting the condition, rebuilding, re-running, then reverting and
+      rebuilding so the hang returns.
+      With it deleted the oracle prints `KEYBOARD TEST # 0 STARTED.` and goes on
+      to `CPU TEST # 7` and three memory modules. **So the test passes there and
+      the failure is ours** -- not expected on a keyboardless machine, and the
+      `>` was never a prompt waiting to be answered. The exchange it completes
+      and we do not is nine bytes, `01 02 04 08 05 0A 0C 0F 42`, written singly
+      to serial 1 register 3 from `0067B8` and echoed. Diffing our keyboard
+      traffic against that is the next step, and it is the first time this item
+      has had a known-good reference rather than an assumption.
+      Three harness traps found on the way, each returning a plausible nothing
+      rather than an error: `machine.time.seconds` is *integer* seconds; the
+      autoboot script does not run until ~17 ms, so taps miss the whole reset
+      path; and `:apollo_config` is read at `MACHINE_RESET`, so `mdcapture.lua`'s
+      normal-mode control run was never a control. Detail in
+      `PROJECT_STATUS.md`, `FINDINGS.md` C120-C121.
 - [ ] SDL3 interactive frontend, implemented rather than stubbed: scanout to a
       letterboxed texture, keyboard/mouse mapping, `--frames` bounded mode
       smoke-tested under dummy SDL drivers. *Verification: bounded-mode CTest

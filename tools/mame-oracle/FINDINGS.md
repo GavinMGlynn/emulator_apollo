@@ -6931,3 +6931,108 @@ one caught a second defect on the way: `ap_omti_disk_reset` cleared the status
 register and left the *phase*, which did not show while a SELECT only set `BSY`
 and does the moment it enters the command state. §4.3: "It will then enter the
 idle state."
+
+## C120 -- the oracle hangs in normal mode, and `KEYBOARD TEST # 0` passes there
+
+**Class: oracle-wrong, measured by patching it.** The keyboard test our display
+boot fails has never been seen to succeed anywhere, and the reason is that the
+oracle in normal mode **never reaches it**.
+
+### The two machines are the same until `0067A2`
+
+Booting `dn3500` in normal mode with the taps in from reset, and our own core
+with `--screen c8p`, the diagnostic LED sequences agree exactly:
+
+    FF EF DF FE EE DE CF BF AF        both, from the same program counters
+
+Then the oracle stops for ever at `0067A2`, `btst.b #0,$b(a0)` -- ISR bit 0,
+`TxRDY A`. It writes nothing further to the transmit buffer, makes **zero**
+writes to graphics memory in six emulated seconds, and its screen stays blank.
+Our core posts `9F ED DD 9D 8D 7D 6D 5D FC` and draws.
+
+### Why: enable-transmitter is edge-triggered in `mc68681.cpp`
+
+    if (!BIT(CR, 2) && BIT(data, 2))     // duart_channel::write_CR
+    {
+        SR |= STATUS_TRANSMITTER_READY | STATUS_TRANSMITTER_EMPTY;
+        m_tx_enabled = true;
+
+The condition is an edge against the *previous* command register value. The
+firmware writes `CRA = 45`, `35`, `25` back to back at `006768`-`006774` --
+reset error status, reset transmitter, reset receiver, each with bit 2 set. `45`
+enables the transmitter; `35` resets and disables it; and because the previous
+write also had bit 2 set, the enables in `35` and `25` are **ignored**. `TxRDY`
+never comes back and the poll at `0067A2` never ends.
+
+§4.2.7.3 gives it as a command and not an edge: "Enable Transmitter ... The
+transmitter-ready status bit will be asserted." This core applies the enable
+unconditionally after the miscellaneous command, which is why it gets past.
+
+### Measured, not read
+
+`!BIT(CR, 2) &&` was deleted from the oracle, `SUBTARGET=apollo` rebuilt, and
+the same run repeated. The edit is reverted and the binary rebuilt from the
+reverted source; the hang returns, which is the other half of the A/B.
+
+    with the edge      10 LED codes   0 graphics writes   blank screen   PC 0067A2
+    without it         15 LED codes   254,830 writes      the screen below
+
+    SELF TESTS IN PROGRESS.
+       KEYBOARD        TEST # 0 STARTED.
+       CPU             TEST # 7 STARTED.
+       MEMORY MODULE 1 TEST # 0 STARTED.
+       MEMORY MODULE 2 TEST # 0 STARTED.
+       MEMORY MODULE 3 TEST # 0 STARTED.
+
+**`KEYBOARD TEST # 0` passes on the oracle**, and it goes on to the CPU and the
+memory modules. Ours prints `SELF TEST FAILED. EXPECTED= 00000002, ACTUAL=
+0000FF00, ADDRESS= 0001040B` in its place. So the failure Phase 5 has been
+chasing for eight commits is **ours**, and it now has a known-good reference
+rather than an assumption -- which is what the whole investigation lacked.
+
+The eight-byte exchange the oracle completes is `01 02 04 08 05 0A 0C 0F 42`,
+written one at a time to serial 1 register 3 from `0067B8`, each echoed by the
+keyboard and compared at `006792`. That is the byte stream to diff against.
+
+## C121 -- three ways an oracle script reports silence instead of an error
+
+**Class: harness.** All three were hit in one session, each produced a
+plausible-looking reading, and two of them invalidate earlier work.
+
+1. **`machine.time.seconds` is the attotime's integer seconds field**, not the
+   instant. A callback comparing it against `0.4` waits until second 1; one
+   comparing against `0.05`, `0.2` and `0.4` fires all three at that instant.
+   The first screen capture wrote three byte-identical PNGs and they read as a
+   screen that never changes. `as_double()` is the instant. This is C34's
+   attosecond error in a different disguise: an unreadable unit believed without
+   dividing.
+
+2. **The autoboot script does not run until the first timeslice after reset** --
+   about 17 ms of emulated time, something like 100,000 instructions of boot
+   PROM. Taps installed from the first `register_periodic` callback miss the
+   whole reset path. This produced "the oracle makes three CSR writes and none
+   of them is a diagnostic code", which is false: it makes the same first two
+   writes we do, from `00006344`.
+
+3. **`:apollo_config` is read at `MACHINE_RESET`**, so a script setting
+   Normal/Service from a periodic callback changes nothing -- the machine was
+   reset with the old value. `mdcapture.lua` sets it there, so its
+   `APOLLO_MD_SERVICE=0` control run was **not a control**: both arms ran in
+   MAME's default. That default is `PORT_CONFSETTING(0x00, "Service")`, so the
+   service arm was right by accident and the normal arm was never run.
+
+(2) and (3) have one fix: set the configuration, then `soft_reset()` so the
+firmware runs again with the instrument in place. The reset re-runs the autoboot
+script with fresh locals, so the guard has to live in `_G` or the machine resets
+for ever -- which it did, four times, before that was noticed.
+
+### What it bought
+
+`screencap.lua` and `pngcmp.py`, and the first screen-level comparison against
+the oracle this project has been able to make. In **service mode**, where both
+machines drop to the `>` prompt without drawing:
+
+    ink ours=102  oracle=102  differing pixels=0 of 819200
+
+102 lit pixels each, pixel for pixel, decoded from our framebuffer on one side
+and rendered by MAME on the other.
