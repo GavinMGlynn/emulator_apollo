@@ -4547,8 +4547,24 @@ boot below, and the boot is not attempted until they are done.
       Which returns to the `00` question with better evidence than it had: not
       an inference from the firmware polling, but a byte count that is three
       short.
-      *Verification: which three of the fifteen sends went unanswered, and what
-      a real keyboard replies to each.*
+      **Measured at the failure**, with the keyboard instrumented and the run
+      stopped at `005F8C`:
+
+          KBD 00 -> 0    KBD 00 -> 0    KBD FF -> 1    KBD 11 -> 1    KBD 16 -> 3
+
+      **Five** exchanges reach the keyboard, against **fifteen** writes to the
+      transmit register. Ten writes never arrive.
+      A first reading -- that the holding register is overwritten before the
+      drain -- is **wrong**: the write path clears `TxRDY` and `TxEMT`, so flow
+      control is in place. Checked before recording it.
+      What is left is the transmit arm's other exit: `if (!ch->tx_enabled)
+      return;` drops the byte silently. The firmware does write `CRA` values
+      that disable the transmitter between exchanges. Whether it then writes
+      while disabled, and whether a real 2681 discards or buffers such a write,
+      are both unestablished -- and §4.2.7.3 describes disable as terminating
+      *operation* without saying what happens to a subsequent write.
+      *Verification: how many of the fifteen writes arrive with `tx_enabled`
+      false.*
       That is the first defect of this phase that is genuinely ours, and it is
       narrow: one bit, one register, and a known producer.
       *Verification: `RxRDY` set on channel A by the time `000073EC` reads it,
