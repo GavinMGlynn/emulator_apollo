@@ -292,6 +292,25 @@ bool ap_kbd_beeper_on(const ap_kbd_t *kbd) {
   return kbd->now < kbd->beeper_until;
 }
 
+/* `set_mode`'s two bytes: `FF` then the mode number. The keyboard *announces* a
+ * mode change rather than merely making one, which is what lets a host that
+ * asked for a set know the part is in it -- and what the boot PROM reads two of
+ * after the loopback test.
+ *
+ * Written as a helper because the oracle calls `set_mode` from more than one
+ * place and the announcement has to travel with every one of them. Making it a
+ * property of "the mode changed" is exactly what the source does; making it a
+ * line of code in one arm is how this went missing. */
+static void announce_mode(const ap_kbd_t *kbd, uint8_t *reply,
+                          unsigned capacity, unsigned *sent) {
+  const uint8_t bytes[2] = {0xFFu, kbd->keystate_mode ? 0x01u : 0x00u};
+  for (unsigned i = 0; i < 2u; i++) {
+    if (*sent < capacity) {
+      reply[(*sent)++] = bytes[i];
+    }
+  }
+}
+
 /* The command channel. Every command begins `FF`; the bytes after it accumulate
  * until one matches, because `FF12` is a prefix and `FF1221` is a command and a
  * model matching a byte at a time cannot tell them apart. */
@@ -317,22 +336,43 @@ unsigned ap_kbd_receive(ap_kbd_t *kbd, uint8_t byte, uint8_t *reply,
     return sent;
   }
   if (byte == 0x00u) {
-    /* In loopback it ends the conversation and selects the compatibility set,
-     * and is **not** echoed. Outside loopback, nothing at all.
+    /* In loopback it ends the conversation and selects the compatibility set.
+     * It is **not echoed** -- and it is **announced**, which is the half this
+     * file had missing and the reason `KEYBOARD TEST # 0` failed for eight
+     * commits.
      *
-     * The oracle is the source and says so twice: `apollo_kbd.cpp` handles `00`
-     * with no `putdata`, and its default arm reads `if (m_loopback_mode &&
-     * data != 0)` -- zero excluded explicitly.
+     * The oracle is the source; there is no published Apollo keyboard protocol
+     * and Chapter 12 stops short of the command channel. `apollo_kbd.cpp`:
      *
-     * This was changed to echo `00`, on the reasoning that the boot PROM's
-     * `KEYBOARD TEST # 0` writes `00` at `0073F0` and then polls for a byte
-     * back. That reasoning is still unexplained -- but the change did not make
-     * the test pass, and MAME boots this image without echoing. So the echo is
-     * reverted and the question stays open: what satisfies that poll on a
-     * machine whose keyboard does not answer `00`? */
+     *     else if (data == 0x00) {
+     *         if (m_loopback_mode) {
+     *             set_mode(KBD_MODE_0_COMPATIBILITY);
+     *             m_loopback_mode = 0;
+     *         }
+     *     }
+     *
+     * and `set_mode` is not a setter:
+     *
+     *     void apollo_kbd_device::set_mode(uint16_t mode) {
+     *         xmit_char(0xff);
+     *         xmit_char(mode);
+     *         m_mode = mode;
+     *     }
+     *
+     * **Two bytes go out** -- `FF` then the mode. This project read the same
+     * source twice and recorded "handled with no `putdata`", which is true and
+     * is not the whole statement: the reply comes from inside `set_mode`, not
+     * from an echo. A one-byte echo was implemented on that misreading, and
+     * reverted when it did not fix the test -- it satisfied the first of the
+     * firmware's *two* reads and could not satisfy the second.
+     *
+     * The firmware agrees exactly. `0073F0` sends `00`, `007418` and `00741A`
+     * read two bytes, and `00741C` overwrites `d1` immediately -- so it
+     * requires two bytes and ignores what they are. */
     if (kbd->loopback) {
       kbd->keystate_mode = false;
       kbd->loopback = false;
+      announce_mode(kbd, reply, capacity, &sent);
     }
     return sent;
   }
@@ -376,6 +416,12 @@ unsigned ap_kbd_receive(ap_kbd_t *kbd, uint8_t byte, uint8_t *reply,
       for (unsigned i = 0; id[i] != '\0'; i++) {
         EMIT((uint8_t)id[i]);
       }
+      /* And the mode, announced after the string. `apollo_kbd.cpp` ends this
+       * arm with `set_mode(m_mode == KBD_MODE_0_COMPATIBILITY ?
+       * KBD_MODE_0_COMPATIBILITY : KBD_MODE_1_KEYSTATE)` -- which restates the
+       * mode it is already in, so the effect is the *announcement* and not a
+       * change. Missing here for the same reason the `00` one was. */
+      announce_mode(kbd, reply, capacity, &sent);
       kbd->rx_message = 0u;
       return sent;
     }

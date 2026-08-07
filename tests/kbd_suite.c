@@ -337,22 +337,42 @@ static void test_the_keyboard_powers_up_in_loopback(void) {
   TEST_ASSERT_EQUAL_HEX8(0x5Au, reply[0]);
 }
 
-/* `00` in loopback ends the conversation and selects the compatibility set, and
- * is **not** echoed -- the oracle excludes zero explicitly, in two places.
+/* `00` in loopback ends the conversation and selects the compatibility set. It
+ * is **not echoed**, and it **is announced**: two bytes, `FF` then the mode.
  *
- * This test was briefly changed to assert an echo, on the reasoning that the
- * boot PROM's `KEYBOARD TEST # 0` writes `00` and polls for a reply. The echo
- * did not make that test pass and contradicted the oracle, so both are back. */
-static void test_a_zero_leaves_loopback_and_is_not_echoed(void) {
+ * The history is worth keeping because it is the shape of the mistake. This
+ * test once asserted an echo -- one byte -- on the reasoning that the boot PROM
+ * writes `00` and polls for a reply. That was reverted when it did not make the
+ * PROM's test pass, and the revert was right about the echo and wrong about the
+ * conclusion: the reply exists, it is two bytes, and it comes from
+ * `apollo_kbd.cpp`'s `set_mode` rather than from a `putdata`. A one-byte echo
+ * satisfied the first of the firmware's two reads and could never satisfy the
+ * second, which is exactly why it looked like no answer at all. */
+static void test_a_zero_leaves_loopback_and_announces_the_mode(void) {
   ap_kbd_t k;
   ap_kbd_reset(&k);
   uint8_t reply[AP_KBD_REPLY_MAX];
 
-  TEST_ASSERT_EQUAL_UINT(0u, ap_kbd_receive(&k, 0x00u, reply, sizeof reply));
+  /* Two bytes, and neither is an echo of the `00`. */
+  TEST_ASSERT_EQUAL_UINT(2u, ap_kbd_receive(&k, 0x00u, reply, sizeof reply));
+  TEST_ASSERT_EQUAL_HEX8(0xFFu, reply[0]);
+  TEST_ASSERT_EQUAL_HEX8(0x00u, reply[1]); /* mode 0, compatibility */
   TEST_ASSERT_FALSE(k.loopback);
   TEST_ASSERT_FALSE(k.keystate_mode);
   /* And out of loopback an unrecognised byte is ignored rather than echoed. */
   TEST_ASSERT_EQUAL_UINT(0u, ap_kbd_receive(&k, 0x5Au, reply, sizeof reply));
+}
+
+/* Out of loopback `00` announces nothing: the announcement belongs to the mode
+ * *change*, and a keyboard already out of loopback is not changing anything.
+ * `apollo_kbd.cpp` guards it with `if (m_loopback_mode)`. */
+static void test_a_zero_outside_loopback_announces_nothing(void) {
+  ap_kbd_t k;
+  ap_kbd_reset(&k);
+  uint8_t reply[AP_KBD_REPLY_MAX];
+  (void)ap_kbd_receive(&k, 0x00u, reply, sizeof reply);
+  TEST_ASSERT_FALSE(k.loopback);
+  TEST_ASSERT_EQUAL_UINT(0u, ap_kbd_receive(&k, 0x00u, reply, sizeof reply));
 }
 
 /* `FF` starts a command **and re-enters loopback**, so a host that has lost
@@ -361,7 +381,7 @@ static void test_ff_restarts_the_conversation(void) {
   ap_kbd_t k;
   ap_kbd_reset(&k);
   uint8_t reply[AP_KBD_REPLY_MAX];
-  TEST_ASSERT_EQUAL_UINT(0u, ap_kbd_receive(&k, 0x00u, reply, sizeof reply));
+  TEST_ASSERT_EQUAL_UINT(2u, ap_kbd_receive(&k, 0x00u, reply, sizeof reply));
   TEST_ASSERT_FALSE(k.loopback);
 
   TEST_ASSERT_EQUAL_UINT(1u, ap_kbd_receive(&k, 0xFFu, reply, sizeof reply));
@@ -383,13 +403,18 @@ static void test_the_identification_needs_the_whole_prefix(void) {
   TEST_ASSERT_EQUAL_HEX8(0x12u, reply[0]); /* the prefix is echoed */
 
   const unsigned n = ap_kbd_receive(&k, 0x21u, reply, sizeof reply);
-  /* The echo of `21`, then the identification string. */
+  /* The echo of `21`, the identification string, then the mode announcement --
+   * `apollo_kbd.cpp` ends this arm with a `set_mode` restating the mode it is
+   * already in, so the effect is the two bytes and not a change. */
   TEST_ASSERT_EQUAL_HEX8(0x21u, reply[0]);
   const char *id = AP_KBD_IDENTIFICATION;
-  TEST_ASSERT_EQUAL_UINT(1u + (unsigned)strlen(id), n);
+  const unsigned idlen = (unsigned)strlen(id);
+  TEST_ASSERT_EQUAL_UINT(1u + idlen + 2u, n);
   for (unsigned i = 0; id[i] != '\0'; i++) {
     TEST_ASSERT_EQUAL_HEX8((uint8_t)id[i], reply[1u + i]);
   }
+  TEST_ASSERT_EQUAL_HEX8(0xFFu, reply[1u + idlen]);
+  TEST_ASSERT_EQUAL_HEX8(0x00u, reply[1u + idlen + 1u]);
   /* Identifying leaves loopback: the host now has a keyboard, not an echo. */
   TEST_ASSERT_FALSE(k.loopback);
 }
@@ -493,7 +518,8 @@ int main(void) {
   RUN_TEST(test_releasing_the_held_key_stops_the_repeat);
   RUN_TEST(test_only_the_keys_the_table_marks_auto_repeat);
   RUN_TEST(test_the_keyboard_powers_up_in_loopback);
-  RUN_TEST(test_a_zero_leaves_loopback_and_is_not_echoed);
+  RUN_TEST(test_a_zero_leaves_loopback_and_announces_the_mode);
+  RUN_TEST(test_a_zero_outside_loopback_announces_nothing);
   RUN_TEST(test_ff_restarts_the_conversation);
   RUN_TEST(test_the_identification_needs_the_whole_prefix);
   RUN_TEST(test_the_code_set_is_commanded);

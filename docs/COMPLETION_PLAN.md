@@ -4625,13 +4625,20 @@ boot below, and the boot is not attempted until they are done.
       character time the overrun is gone and the boot moves from 4,289,865 to
       5,359,216 instructions -- **and the screen is unchanged**, so it was a
       real defect and not this one.
-      What remains is measured rather than guessed: the surviving timeout is the
-      *recovery* path's, `0073F0` sending `00` and reading two bytes after a
-      failure has already been reported, and **the oracle never runs that
-      exchange** -- twelve emulated seconds of its keyboard traffic come from
-      `0067B8`, `00676E` and `00623C`, never `0073F8`. So ours takes a failure
-      branch the oracle does not, upstream of the `00`. Detail in
-      `PROJECT_STATUS.md`.
+      **And then it passes.** The last step is `0073F0`: send `00`, read
+      **two** bytes, and `00741C` overwrites `d1` at once -- so the firmware
+      requires two and ignores what they are. `apollo_kbd.cpp`'s `set_mode` is
+      not a setter, it `xmit_char`s `FF` then the mode, and this core made the
+      mode change without the announcement. Read twice as "handled with no
+      `putdata`", which is true and not the whole statement; the one-byte echo
+      tried and reverted earlier satisfied the first of the two reads and could
+      never satisfy the second.
+      *Verification: `SELF TESTS IN PROGRESS / KEYBOARD TEST # 0 STARTED / CPU
+      TEST # 7 STARTED` and four memory modules, with no failure line -- the
+      oracle's screen plus the module this machine has and it does not. Final PC
+      `000077AC` against the oracle's `000077AE`, the two ends of one loop.
+      `kbd_suite` 26 -> 27, three tests corrected that had encoded the old
+      reading.* Detail in `PROJECT_STATUS.md`.
       **The oracle's screen can be read now, and it settles the question.**
       `screencap.lua` and `pngcmp.py` capture MAME's screen and compare it with
       ours as ink over the display area. In **service mode the two are

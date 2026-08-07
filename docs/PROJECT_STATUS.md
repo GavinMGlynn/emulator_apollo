@@ -13531,3 +13531,82 @@ useful thing to hand on is the measured position rather than a sixth.
 
 *The oracle patch is reverted and rebuilt: `ext/mame` carries only its four
 standing local edits. `FINDINGS.md` C120 records how to re-apply it.*
+
+## `KEYBOARD TEST # 0` passes: `set_mode` transmits, and this core never did
+
+The item is closed, and the last piece corrects a reading this project made twice.
+
+### First, two corrections to yesterday's position
+
+The previous entry said the surviving timeout was in a "recovery path" reached by
+falling out of `0073EC`, and that some earlier failure must precede it. **Both
+are wrong.** `0073F0` is reached by an explicit `bra.w $73f0` at `007380` — it is
+the *normal* exit of the loopback echo test — and stopping on the reporting
+routine itself shows the boot's **first and only** call to `00005F8C` is at
+5,359,221 with `d0 = 2`, `d1 = FF00`, `a0 = 0001040B`, `d2 = E0340880`. Those are
+the screen's own values, so there is no earlier failure. The stack read that
+produced the "recovery path" reading was taken at a moment whose frame I had not
+verified.
+
+**And the wire fix did more than the previous entry credited.** Stepping through
+the exchange after it, every read succeeds:
+
+    730C read 1  3,896,629      7318 compare  4,049,377
+    7310 read 2  3,896,635      7332 branch   4,049,379   (the comparison passed)
+    7314 read 3  3,972,991      7336 read 5   4,125,765
+                                733A          4,202,151
+
+Then `00733A` sends `FF 11 17`, reads two, and walks the eight-byte table at
+`007384` sending each byte and comparing its echo — all of which passes — and
+`bra`s to `0073F0`.
+
+### The defect: `set_mode` is not a setter
+
+    0073F0  move.b #$0,d0
+    0073F4  bsr.b  $738c      ; send 00
+    007418  bsr.b  $73be      ; read one   <- times out
+    00741A  bsr.b  $73be      ; read two
+    00741C  move.b #$7,d1     ; ...and d1 is overwritten immediately
+
+So the firmware requires **two** bytes after `00` and ignores what they are.
+`apollo_kbd.cpp`:
+
+    else if (data == 0x00) {
+        if (m_loopback_mode) { set_mode(KBD_MODE_0_COMPATIBILITY);
+                               m_loopback_mode = 0; } }
+
+    void apollo_kbd_device::set_mode(uint16_t mode) {
+        xmit_char(0xff);
+        xmit_char(mode);
+        m_mode = mode; }
+
+**`set_mode` transmits two bytes** — `FF` then the mode. This project read that
+same source twice and recorded "handled with no `putdata`", which is true and is
+not the whole statement: the reply comes from inside `set_mode`. A one-byte echo
+was implemented on that misreading and reverted when it did not fix the test — it
+satisfied the first of the firmware's two reads and could never satisfy the
+second, which is exactly why it looked like no answer at all.
+
+`announce_mode` now emits the pair wherever the oracle calls `set_mode`: on `00`
+in loopback, and after the `FF1221` identification string, where `set_mode`
+restates the mode already in force so the effect is the announcement and not a
+change.
+
+### The screen
+
+    SELF TESTS IN PROGRESS.
+       KEYBOARD        TEST # 0 STARTED.
+       CPU             TEST # 7 STARTED.
+       MEMORY MODULE 1 TEST # 0 STARTED.
+       MEMORY MODULE 2 TEST # 0 STARTED.
+       MEMORY MODULE 3 TEST # 0 STARTED.
+       MEMORY MODULE 4 TEST # 0 STARTED.
+
+No failure line. The final PC is `000077AC` where the oracle's is `000077AE` —
+the two ends of the same loop — and the posted diagnostic codes extend from
+eighteen to thirty. It is **not** pixel-identical to the oracle's screen and is
+not claimed to be: ours lists a fourth memory module because this machine has 16
+MB fitted, so the text is a line taller and everything below it shifts.
+
+*Verification: the PNG above, `kbd_suite` 26 -> 27 with three tests corrected
+that had encoded the old reading, and `ctest` 121/121.*
