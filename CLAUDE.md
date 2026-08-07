@@ -35,6 +35,21 @@ reference core to chase speed** — that is the classic mistake.
      out-accurate it.
   The oracle's job is what the documents cannot answer. When they genuinely run
   out, say so: name what was read and what it failed to settle, *then* measure.
+- **A misbehaving module is presumed incomplete until its register tables are
+  walked.** Before instrumenting anything, before the oracle, before a boot:
+  take the part's manual, walk **every field of every register** against the
+  code, and fix what is missing or transposed. Then search the web if a section
+  is ambiguous. The oracle is *fourth*.
+  This is not the same as the resolution order below, and it is the one most
+  often skipped: that order governs *resolving a question*, this one governs
+  *what to do first when something is wrong*. Grepping headers for `not
+  modelled` cannot find a bit nobody ever noticed; a table walk can, and found
+  five in one part that a header sweep had missed. A green test suite is not
+  evidence of completeness — tests encode the same misreadings as the code, and
+  three did.
+  **The tell:** if a fix is justified by "this could explain the failure"
+  rather than "this was measured to be the failure", stop and walk the tables.
+  Detail and the session it came from: `../emulator-setup-guide.md`, Appendix.
 - **Complete modules, don't chase the boot.** Finish one subsystem with its
   tests before moving on. Boots are integration checks and thermometers, never
   milestones.
