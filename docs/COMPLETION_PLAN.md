@@ -4642,9 +4642,22 @@ boot below, and the boot is not attempted until they are done.
       Nine defects also did not move this symptom, which says the same thing
       from the other side -- none of them was on this path, and each was worth
       fixing on its own evidence rather than as a fix for this.
-      *Next, per the rule this session added to `CLAUDE.md`: the same walk for
-      the other parts on the boot path -- the keyboard itself first, since it
-      is the other end of this exchange -- before any of them is tested again.*
+      **Keyboard walked, and it is complete against every reference that
+      exists.** Its command set matches `apollo_kbd.cpp` exactly -- `FF00`,
+      `FF01`, `FF11`, `FF12`, `FF1116`, `FF1117`, `FF1221`, `FF2181`, `FF2182`,
+      nine codes, same behaviours. This core combines `FF11` and `FF12` into
+      one arm where the oracle writes them separately; both echo the byte and
+      keep the accumulated message, so that is a formatting difference and not
+      a behavioural one.
+      The **web** was searched as the rule requires, and found nothing: there is
+      no published Apollo keyboard protocol document. `008778-03` Chapter 12
+      covers layout, character codes, connectors and specifications and stops
+      short of the command channel, which is already recorded above.
+      So for this part the oracle *is* the reference, and this is the one place
+      in the sweep where "walk the tables" cannot be done -- there are no
+      tables. Recorded as a limitation of the part rather than of the effort.
+      *Next: the other parts on the boot path -- `ap_omti`'s floppy half, the
+      8259 and 8237 -- walked the same way before any of them is tested.*
       That is the first defect of this phase that is genuinely ours, and it is
       narrow: one bit, one register, and a known producer.
       *Verification: `RxRDY` set on channel A by the time `000073EC` reads it,
