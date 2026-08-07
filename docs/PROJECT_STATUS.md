@@ -14295,3 +14295,41 @@ keyboard at its prompt — `AP_SIO_IRQ` is wired but nothing has confirmed the
 not what it wants, since the compatibility set sends `CB` for RETURN. One run
 watching the interrupt line and the receiver at the moment of delivery separates
 "never told" from "told and rejected".
+
+## The web had the answer, and the machine was right about its own clock
+
+**We had not searched the web for this.** `CLAUDE.md`'s order is reference,
+sibling manuals, **web**, oracle, and the web step had been skipped for the whole
+investigation — one search all session, for something else. Asked directly, it
+answered in the first result.
+
+The operator's response to "The calendar is more than a minute slow" is not `y`.
+Both a DN3500 write-up and the MAME Apollo driver wiki say the same thing: you
+go to the MD prompt and run **`ex calendar`** — you *set the clock*.
+
+Which points at something entirely within this frontend's control and nobody had
+connected: **the machine powers on in 1987 and the volume was written in 1992.**
+
+    src/frontend/headless/main.c   .year = 1987u, .month = 7u, .day = 31u
+    Domain/OS kernel(7), revision 10.4, February 14, 1992  11:42:25 am
+
+Domain/OS is simply correct. The calendar is nearly five years slow and it stops
+to say so, exactly as it would on real hardware with a flat battery.
+
+`--clock YYYY-MM-DD[THH:MM:SS]` supplies the instant. `ap_calendar_reset` was
+built to take it from the caller — "there is no default instant here on purpose:
+a board that picked one would be choosing a wall clock" — and the frontend had
+simply never exposed it, hard-coding one in three places instead. Still no wall
+clock: the date is written down, so two runs of the same command line are the
+same machine. The day of week is derived rather than asked for, because a caller
+could supply one that disagreed with the date.
+
+*Verification: `--clock 1992-06-15T10:30:00` puts `30` minutes, `10` hours,
+day-of-week `02`, `15/06/92` in the calendar's registers, and 1992-06-15 was a
+Monday. A malformed date is refused rather than defaulted.*
+
+*The lesson is the one the whole session keeps repeating in different clothes,
+and this time it is about method rather than a register: three sessions of
+increasingly precise instrumentation went into making a keystroke answer a
+question that a real operator would never have answered, because the prompt is
+not asking for permission — it is reporting a fault we had built in.*

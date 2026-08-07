@@ -109,6 +109,10 @@ static void print_usage(const char *program_name) {
           "  --boot-input-interval US  emulated microseconds between scripted\n"
           "                        characters; the wire's own floor if 0\n"
           "  --boot-type TEXT      type TEXT on the keyboard, one character each\n"
+          "  --clock DATE          the instant the machine powers on, as\n"
+          "                        YYYY-MM-DD or YYYY-MM-DDTHH:MM:SS. A volume\n"
+          "                        written later than the clock makes Domain/OS stop\n"
+          "                        and say the calendar is slow -- and it is right\n"
           "  --boot-type-after-os  hold --boot-type until code above the firmware and\n"
           "                        its loaded diagnostics is running: the PROM is at\n"
           "                        0000xxxx and SELF_TEST at 0100xxxx, so this types\n"
@@ -1134,6 +1138,41 @@ static unsigned input_polls(const ap_board_t *board) {
  * main memory (`0100xxxx`). Domain/OS runs in the high supervisor space --
  * `3C43F5AC` at its calendar prompt. Measured, and a bound rather than a point:
  * it says the operating system is running without claiming when it started. */
+/* `YYYY-MM-DD` or `YYYY-MM-DDTHH:MM:SS`, into the calendar's own structure.
+ *
+ * Exposed because the instant a machine powers on with is a *property of the
+ * run*, not of this core, and hard-coding one had a consequence nobody had
+ * connected: booting a 1992 volume with a 1987 clock makes Domain/OS say "The
+ * calendar is more than a minute slow" and stop to ask about it. It is right.
+ *
+ * Still no wall clock -- `CLAUDE.md` forbids one and `ap_calendar_reset`
+ * refuses to pick an instant for the caller. This takes a written-down date, so
+ * two runs of the same command line are the same machine. */
+static bool parse_clock(const char *spec, ap_mc146818_time_t *out) {
+  unsigned y = 0, mo = 0, d = 0, h = 0, mi = 0, sec = 0;
+  const int n = sscanf(spec, "%u-%u-%uT%u:%u:%u", &y, &mo, &d, &h, &mi, &sec);
+  if ((n != 3 && n != 6) || mo < 1u || mo > 12u || d < 1u || d > 31u ||
+      h > 23u || mi > 59u || sec > 59u) {
+    return false;
+  }
+  /* Sakamoto, so the day of week is derived rather than asked for: a caller
+   * that had to supply it could supply a wrong one, and the calendar's own
+   * register would then disagree with its date. */
+  static const int t[] = {0, 3, 2, 5, 0, 3, 5, 1, 4, 6, 2, 4};
+  unsigned yy = y - (mo < 3u ? 1u : 0u);
+  const unsigned dow =
+      (yy + yy / 4u - yy / 100u + yy / 400u + (unsigned)t[mo - 1u] + d) % 7u;
+  *out = (ap_mc146818_time_t){.year = y,
+                              .month = (uint8_t)mo,
+                              .day = (uint8_t)d,
+                              /* the register is 1-7 with Sunday as 1 */
+                              .day_of_week = (uint8_t)(dow + 1u),
+                              .hour = (uint8_t)h,
+                              .minute = (uint8_t)mi,
+                              .second = (uint8_t)sec};
+  return true;
+}
+
 #define AP_BOOT_TYPE_OS_PC 0x02000000u
 
 #define AP_BOOT_TYPE_CHUNK 4096u
@@ -1216,7 +1255,7 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
                           unsigned input_channel, uint8_t input_rate,
                           unsigned input_interval_us,
                           unsigned key, const char *typed, bool type_after_os,
-                          bool console,
+                          const ap_mc146818_time_t *clock, bool console,
                           ap_screen_kind_t screen, uint32_t node_id,
                           ap_model_id_t model, const char *screenshot,
                           unsigned trace_last, uint32_t stop_pc,
@@ -1255,10 +1294,18 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
   uint32_t ram_bytes = 16u * 1024u * 1024u;
   uint8_t *ram = calloc(1, ram_bytes);
   ap_board_t *board = calloc(1, sizeof *board);
-  static const ap_mc146818_time_t epoch = {
-      .year = 1987u, .month = 7u, .day = 31u, .day_of_week = 6u,
-      .hour = 21u, .minute = 9u, .second = 21u,
-  };
+  /* The instant this machine powers on with. A default rather than a constant:
+   * `--clock` overrides it, because a volume written later than the clock makes
+   * an operating system stop and say so. */
+  const ap_mc146818_time_t epoch =
+      clock != NULL ? *clock
+                    : (ap_mc146818_time_t){.year = 1987u,
+                                           .month = 7u,
+                                           .day = 31u,
+                                           .day_of_week = 6u,
+                                           .hour = 21u,
+                                           .minute = 9u,
+                                           .second = 21u};
   /* The memory array's parity RAM: one bit per byte, allocated here because the
    * core allocates nothing. A real board has it, so a booted machine gets it --
    * self-test 7 forces bad parity and expects the level 7 interrupt back. */
@@ -2814,6 +2861,8 @@ int main(int argc, char **argv) {
   uint32_t boot_watch_write = 0;
   uint32_t boot_watch_read = 0;
   const char *boot_typed = NULL;
+  ap_mc146818_time_t boot_clock;
+  bool boot_clock_set = false;
   bool boot_type_after_os = false;
   unsigned boot_stop_on_watch_read = 0;
   unsigned boot_stop_on_watch = 0;
@@ -2968,6 +3017,17 @@ int main(int argc, char **argv) {
     if (strcmp(argv[i], "--boot-stop-on-disk-refusal") == 0) {
       boot_stop_on_refusal = true;
       i += 1;
+      continue;
+    }
+    if (strcmp(argv[i], "--clock") == 0 && i + 1 < argc) {
+      if (!parse_clock(argv[i + 1], &boot_clock)) {
+        fprintf(stderr,
+                "%s: --clock wants YYYY-MM-DD or YYYY-MM-DDTHH:MM:SS\n",
+                program_name);
+        return 2;
+      }
+      boot_clock_set = true;
+      i += 2;
       continue;
     }
     if (strcmp(argv[i], "--boot-type-after-os") == 0) {
@@ -3140,7 +3200,7 @@ int main(int argc, char **argv) {
                           boot_input, boot_input_unit, boot_input_channel,
                           (uint8_t)boot_input_rate, boot_input_interval_us,
                           boot_key, boot_typed, boot_type_after_os,
-                          boot_console,
+                          boot_clock_set ? &boot_clock : NULL, boot_console,
                           boot_screen, node_id, opt.model->id, screenshot,
                           boot_trace_last, boot_stop_pc, boot_script,
                           disk_path, battery_path, dump_spec, boot_progress,
