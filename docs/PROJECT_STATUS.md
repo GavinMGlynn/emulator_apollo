@@ -14132,3 +14132,44 @@ verification on both boots.
 
 *Verification of the finding itself: the A/B above, and `ap_mc68681.h`'s own
 description of the interface.*
+
+## The configuration warning is `SELF_TEST`'s, and the census settles which fields matter
+
+A census rather than a hypothesis: a temporary log in `ap_calendar_read`, since
+reverted, over a 400-million-instruction boot with the pattern seeded. Every read
+of the battery RAM in the whole run — **twenty of them**:
+
+    12 13 14 15   the valid pattern
+    2B            once
+    31-3F         once each
+
+**`0E-11` is never read** — the checksum, confirming the earlier single-address
+result — and neither is `16-28`: not the memory board array, not the node ID,
+not the device bit array, not the ring, display or disk type bytes. Two thirds of
+the handbook's table is untouched by this firmware, so no field in it can be what
+prints the warning.
+
+And the reader is not the boot PROM. `--boot-watch-read 010931` names
+**`010047CE`**, in main memory — inside the image loaded off the disk. So the
+warning belongs to `SELF_TEST`, and the boot PROM's own check, the `1234ABCD`
+pattern at `12`, is satisfied and stays satisfied.
+
+That separates the two complaints for good, and it is what the plan conflated:
+
+- **The failure** — `Self test failed ... ADDRESS= 00010912` — was the PROM's,
+  it was the valid pattern, and it is **fixed**: the machine now boots unattended
+  into Domain/OS.
+- **The warning** — `Configuration information is not initialized` — is
+  `SELF_TEST`'s, reads `2B` and `31-3F`, and is still open.
+
+Neither the message nor `PRESS <<RETURN>>` appears as plain text in `SELF_TEST`'s
+13,312-byte image, and the boot PROM's own screen text is not plain ASCII either
+— `SELF TESTS IN PROGRESS.` is on the display and absent from `strings` on the
+ROM. Both encode their messages, so a string search is not the route in and was
+tried before that was known.
+
+*Next: `2B` and `31-3F` are fifteen bytes read once each, which has the shape of
+a sum or a signature. Seeding `2B` alone was measured and changed nothing. What
+the fifteen should hold is a question for `SELF_TEST`'s own code at `010047CE`,
+which is dumpable — the image is in RAM and `--dump-mem 1002000:3400` already
+retrieves it.*
