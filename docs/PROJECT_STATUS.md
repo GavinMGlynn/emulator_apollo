@@ -13880,3 +13880,46 @@ its instant, against the same window unpaced. Two traces, one diff.
 *Stated plainly because the alternative is a sixth hypothesis. Five in this
 item's history were each produced by reasoning and killed by the next
 measurement, and the two above are the sixth and seventh.*
+
+### The two traces, and they invert the model
+
+The measurement named above, taken. Same window, same seven bytes, one
+difference:
+
+    unpaced   FF t=21537781848 fifo=0 sr=0C      paced   FF t=21537781848 fifo=0
+              00 t=21537876096 fifo=1 sr=0D              00 t=24623353656 fifo=1
+              FF t=25081264296 fifo=0 sr=0C              FF t=27708885072 fifo=0
+              11 t=25081695144 fifo=1 sr=0D              11 t=30794429952 fifo=0
+              00 t=25082099064 fifo=2 sr=0D              00 t=33879947904 fifo=0
+              FF t=25082193312 fifo=3 sr=0F              FF t=36965519712 fifo=0
+              00 t=25082327952 fifo=3 sr=1F              00 t=40051037664 fifo=0
+
+**The unpaced run overruns and boots; the paced run does not overrun and
+fails.** Unpaced the FIFO climbs 0-1-2-3-3 and ends at `SR = 1F`,
+`AP_MC68681_SR_OVERRUN` — three bytes are delivered into a full FIFO and lost.
+Paced, the FIFO is back to zero before each byte, which means the firmware
+**reads every one of them**.
+
+So pacing does not slow the conversation down: it delivers *more* bytes into the
+firmware's read stream, and the two extra desynchronise something later. The
+unpaced overrun was not a defect being fixed — it was a defect **masking** this
+one.
+
+### And the keyboard is not what is wrong
+
+The burst is five bytes: an echo of `FF`, an echo of `11`, then `00 FF 00` for
+`FF1116`. `apollo_kbd.cpp` produces exactly that —
+`static const uint8_t ff1116_data[] = { 0x00, 0xff, 0x00 };` with `putdata` of
+the two prefix echoes before it. Our stream matches the oracle's byte for byte.
+Disabling `announce_mode` removes the leading `FF 00` and the boot still fails,
+which is the same result from the other side.
+
+**And the oracle paces too** — `apollo_kbd_device::device_reset` sets 1200 baud
+8E1 — and its DN3500 boots. So a paced wire is right, our keyboard's bytes are
+right, and the failure is downstream of both: this machine reads all five where
+the oracle's does not, or reaches the exchange by a path the oracle's does not.
+
+That is where the regression stands. It is one statement rather than the two
+wrong ones it replaced, and the next question is a comparison rather than a
+hypothesis: which reads of serial 1's data register the two machines make across
+this window, and from which program counters.
