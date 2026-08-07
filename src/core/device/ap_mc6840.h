@@ -191,6 +191,22 @@ void ap_mc6840_clock(ap_mc6840_t *ptm, unsigned index);
 /* The IRQ pin. `[6840]` §3.11: "A composite interrupt is caused by a timer
  * interrupt *and* that timer's interrupt flag enabled (CRX6 = 1). A composite
  * interrupt causes IRQ to be asserted." */
+/* Whether a timer counts the **internal** clock or the external `Cx` input.
+ *
+ * `[6840]`: the counter "divides either the internal or external clock", and
+ * control-register bit 1 is which. This core read the bit nowhere, so every
+ * timer counted the internal clock whatever a driver selected -- and a driver
+ * that switched to an external source would see no change at all, which is the
+ * failure that looks like the timer working.
+ *
+ * The external *input* is not modelled: nothing on this board drives `Cx`, and
+ * a rate invented for it would be a claim about a wire that is not there. So
+ * this reports the selection and `ap_mc6840_clock` still advances only the
+ * internal one -- the part says what it was asked to do, and the board's
+ * silence is the board's.
+ */
+[[nodiscard]] bool ap_mc6840_uses_internal_clock(const ap_mc6840_t *ptm,
+                                                 unsigned index);
 [[nodiscard]] bool ap_mc6840_irq(const ap_mc6840_t *ptm);
 
 /* The mode a timer is programmed for, decoded per the header. */

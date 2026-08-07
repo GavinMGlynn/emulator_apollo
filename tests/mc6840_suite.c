@@ -56,6 +56,29 @@ static unsigned clocks_to_interrupt(ap_mc6840_t *ptm, unsigned index,
   return limit + 1u;
 }
 
+
+/* Control-register bit 1 selects the internal `E` clock against the external
+ * `Cx` input, and this core read it nowhere -- so every timer counted the
+ * internal clock whatever a driver selected, which is the failure mode that
+ * looks like the timer working. */
+static void test_the_clock_source_selection_is_reported(void) {
+  ap_mc6840_t ptm;
+  ap_mc6840_reset(&ptm);
+
+  /* Reset leaves the control registers clear, which is the external source. */
+  TEST_ASSERT_FALSE(ap_mc6840_uses_internal_clock(&ptm, 0u));
+
+  /* Selecting the internal clock on timer 1 says so, and does not move the
+   * others -- the bit is per timer, in each timer's own control register.
+   * `CR2` bit 0 chooses whether address 0 is `CR1` or `CR3`, so it is set
+   * first. */
+  ap_mc6840_write(&ptm, AP_MC6840_RS_CONTROL_2_OR_STATUS, 0x01u);
+  ap_mc6840_write(&ptm, AP_MC6840_RS_CONTROL_1_OR_3,
+                  AP_MC6840_CR_INTERNAL_CLOCK);
+  TEST_ASSERT_TRUE(ap_mc6840_uses_internal_clock(&ptm, 0u));
+  TEST_ASSERT_FALSE(ap_mc6840_uses_internal_clock(&ptm, 1u));
+}
+
 static void test_the_latches_come_up_all_ones(void) {
   ap_mc6840_t ptm;
   ap_mc6840_reset(&ptm);
@@ -517,6 +540,7 @@ static void test_two_parts_reset_alike_hold_identical_state(void) {
 
 int main(void) {
   UNITY_BEGIN();
+  RUN_TEST(test_the_clock_source_selection_is_reported);
   RUN_TEST(test_the_latches_come_up_all_ones);
   RUN_TEST(test_control_register_three_is_selected_after_reset);
   RUN_TEST(test_one_address_reaches_two_control_registers);

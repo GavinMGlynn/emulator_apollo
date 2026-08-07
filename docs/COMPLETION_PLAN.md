@@ -4692,12 +4692,20 @@ boot below, and the boot is not attempted until they are done.
         clock *runs at all*. This core keeps time regardless of what is written
         there, so a driver that stops the divider still sees the seconds
         advance.
-      - **MC6840: two.** `CR_INTERNAL_CLOCK`, bit 1, selects the internal `E`
-        clock against the external `Cx` input and is never read, so every timer
-        runs on the internal clock whatever a driver asks for. And
-        `STATUS_TIMER1`/`2`/`3`, the per-timer interrupt flags, are **never
-        set** -- yet a *test* references one, which is the sharpest example yet
-        of a suite that cannot see what is missing.
+      - **MC6840: one real, one false positive -- and the false one matters.**
+        `CR_INTERNAL_CLOCK` genuinely was never read, so every timer counted the
+        internal clock whatever a driver selected; `ap_mc6840_uses_internal_
+        clock` now reports the selection, with the external `Cx` input left
+        unmodelled because nothing on this board drives it.
+        But `STATUS_TIMER1`/`2`/`3` were **not** missing: `status_of` built the
+        same three bits with `1u << i`, so the scan found the *names* unused and
+        I read that as the behaviour being absent. The claim that "a test
+        references one of them" was the clue that it worked, and I wrote it up
+        as evidence that it did not. The flags are now set by name, so the shift
+        cannot masquerade as an omission again.
+        **A defined-but-unused scan finds unused *names*, not missing
+        behaviour**, and the difference is a fix that would have broken working
+        code.
       - **SC-499: four transcribed figure timings are never applied** --
         `T_DATA_TO_REQUEST`, `T_REQUEST_TO_NOT_READY`, `T_CLOSE_MIN` and
         `T_CLOSE_MAX`. Someone read the figures, wrote the constants down, and

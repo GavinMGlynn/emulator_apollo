@@ -186,6 +186,13 @@ void ap_mc6840_clock(ap_mc6840_t *ptm, unsigned index) {
   timer->lsb_counter = (uint8_t)(timer->latch & 0xFFu);
 }
 
+bool ap_mc6840_uses_internal_clock(const ap_mc6840_t *ptm, unsigned index) {
+  if (ptm == NULL || index >= AP_MC6840_TIMERS) {
+    return false;
+  }
+  /* Bit 1: "0 external (Cx), 1 internal (E)", as the header's table has it. */
+  return (ptm->timer[index].control & AP_MC6840_CR_INTERNAL_CLOCK) != 0u;
+}
 bool ap_mc6840_irq(const ap_mc6840_t *ptm) {
   for (unsigned i = 0; i < AP_MC6840_TIMERS; i++) {
     if (ptm->timer[i].interrupt_flag &&
@@ -198,9 +205,17 @@ bool ap_mc6840_irq(const ap_mc6840_t *ptm) {
 
 static uint8_t status_of(const ap_mc6840_t *ptm) {
   uint8_t status = 0u;
+  /* Named rather than shifted. `1u << i` is the same three bits and reads as an
+   * anonymous bit pattern, which is how a scan for unused constants came to
+   * report these flags as never set -- the *names* were unused, the behaviour
+   * was there. A false positive that cost a check, and would have cost a
+   * "fix". */
+  static const uint8_t flag[AP_MC6840_TIMERS] = {AP_MC6840_STATUS_TIMER1,
+                                                 AP_MC6840_STATUS_TIMER2,
+                                                 AP_MC6840_STATUS_TIMER3};
   for (unsigned i = 0; i < AP_MC6840_TIMERS; i++) {
     if (ptm->timer[i].interrupt_flag) {
-      status |= (uint8_t)(1u << i);
+      status |= flag[i];
     }
   }
   /* §3.11: "Individual timer interrupts cannot be masked" -- so the per-timer
