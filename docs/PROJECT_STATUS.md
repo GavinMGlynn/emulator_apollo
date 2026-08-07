@@ -3412,7 +3412,7 @@ failure that cost a bit position in the 68020's module entry word.
 | Intel 8237A DMA controller (the part) | **programming model and transfer cycle complete**: all sixteen register addresses, four channels with base and current address/count, the single shared first/last flip-flop, command/mode/request/mask/status/temporary, master clear, autoinitialise reload and the mask-on-terminal-count rule; and a service cycle that moves a byte either way, verifies without moving one, walks the address up or down, and ends on the borrow out of zero rather than at zero. Memory-to-memory is refused outright rather than half-run. The part drives sixteen bits of address and the board composes the rest — not yet wired to the board | `i8237_suite`, 29 tests, `8237A` 231466 |
 | Apollo interval timer (`010800`) | working: the part at **odd addresses, stride 2** (measured — the region reads `00 00 00 00 00 FF ...`, the `FFFF` latch default showing through), the three §3.8 input rates as exact time-base clock domains, and the IRQ0 route. Advancing is by whole pulses, so the rate cannot become a function of how often it is polled | `timer_suite`, 8 tests; `FINDINGS.md` C12 |
 | MC6840 interval timer (the part) | working for **both counting modes** — continuous and single shot, each in sixteen-bit and dual eight-bit operation — plus both control register aliases, the write/read byte buffering, the status register, the prescaler, the gate, and all five of `[6840]` §3.11's ways of clearing an interrupt. The two **measurement modes** are decoded and declined: they time a signal on a timer's gate pin, and nothing on this board drives the gates | `mc6840_suite`, 29 tests, `MC6840UM` (a scan with no text layer; read from page images) |
-| Apollo calendar (`010900`) | working: **stride 1, byte consecutive** (measured — and not the timer's odd-address stride 2, so neither placement could be inferred from the other), sixty-four registers aliased through the 256-byte range, and the IRQ8 route through to vector `A8`. The battery RAM's **configuration table** is laid out from `002398-04` p. 12-3 — checksum, valid pattern, memory array, node ID, device bits and the three type bytes — and left blank, because the pattern's value is not in the manual | `calendar_suite`, 7 tests; `FINDINGS.md` C12 |
+| Apollo calendar (`010900`) | working: **stride 1, byte consecutive** (measured — and not the timer's odd-address stride 2, so neither placement could be inferred from the other), sixty-four registers aliased through the 256-byte range, and the IRQ8 route through to vector `A8`. The battery RAM's **configuration table** is laid out from `002398-04` p. 12-3 — checksum, valid pattern, memory array, node ID, device bits and the three type bytes — and left blank. The pattern's **value** is not in the manual and came from the boot PROM instead — `cmpi.l #$1234ABCD,$4(a0)` at `00178A`, with `a0` based at the handbook's checksum offset | `calendar_suite`, 8 tests; `FINDINGS.md` C12 |
 | MC146818A calendar (the part) | working: ten clock bytes, four registers, 50 RAM bytes, the once-per-second update with a full Gregorian carry, the alarm with don't-care codes, and Register C's read-to-clear. **Time is supplied by the caller, never the host** — the oracle seeds its calendar from the wall clock, which would rot every golden. The **periodic interrupt** is implemented for the nine rates that divide the time base (512 Hz to 2 Hz); the six fastest are refused rather than rounded, because `AP_TIME_BASE_HZ` factors as 2^9·3·5^8·11 and they need 2^15. Square wave and daylight-savings shifts are declined. Not yet wired to the board at `010900` | `mc146818_suite`, 32 tests, `MC146818A` (register figures read from page images) |
 | Node ID PROM (`011200`) | working: the layout measured from the oracle's own PROM — stride 2 with the **odd byte reading zero** (unlike the serial ports at the same stride), the identifier big-endian in registers 0-3, and a checksum in register **15** confirmed arithmetically (`01 + 23 + 45 = 69`) and then by the boot PROM's own self-test, which sums registers 0-14 and compares. The identifier is supplied by the caller, never a constant: a device whose purpose is to be unique per machine must not be the same on every one | `nodeid_suite`, 8 tests; `008778-03` Table 2-8, CPU self-test 8 at `008218` |
 | Apollo serial ports (`010400`, `010500`) | working: both DUARTs at **stride 2** (measured), sixteen registers over thirty-two bytes and aliased, sharing IRQ1 through to vector `A1`. The memory-refresh square wave of §3.9 runs: the counter is clocked at the DUART's X1 and produces a 15 microsecond period from the boot PROM's own preload. Its *frequency*, 66666.67 Hz, is not an integer, so a core counting in hertz could not represent this board's refresh clock at all | `sio_suite`, 25 tests; `FINDINGS.md` C14 |
@@ -13195,3 +13195,73 @@ find it in one run and does not exist yet.
 handbook's own order, ending exactly at the part's sixty-fourth register, with
 `AP_CALENDAR_ADDR + AP_CALENDAR_CONFIG_VALID_PATTERN` pinned to the `00010912`
 the PROM was measured reading; and the table asserted blank after reset.*
+
+## The valid pattern is `1234ABCD`, and a read-side watch is what found it
+
+The configuration table's layout came from `002398-04` p. 12-3; its *contents*
+are not in any manual. The boot PROM has them, and the obstacle was that
+`010912` is not a literal anywhere in the ROM — it is computed — so grepping the
+firmware for it finds nothing and the checker could not be located by reading.
+
+### `--boot-watch-read`, the instrument that was missing
+
+`--boot-watch-write` has existed since the disk work and its read-side twin
+never did, although three separate questions have come down to "which
+instruction reads this address": the display controller's status poll, the DUART
+register the keyboard test waits on, and this one. A write announces itself; a
+read announces nothing.
+
+`--boot-watch-read ADDR` reports the last read of an address, the value the
+machine answered and the instruction that made it, and `--boot-stop-on-watch-read
+N` ends the run on the Nth. The value matters as much as the count: "it read
+there and got zero" and "it never read there" are the two hypotheses the flag
+exists to separate, and a count alone cannot.
+
+It hooks both read paths — the sized device read and the cache line fill. A line
+fill is reported as the line, width four, because that is the access the bus
+made; narrowing it to the watched byte would claim a cycle the machine did not
+run.
+
+    stopped on   read 1 of 00010912 after 133,067,640 instruction(s)
+    watch read   00010912 read 1 time(s), last 0000 by PC 0000178A
+
+### The checker, and it corroborates the handbook a third time
+
+    001784  lea.l   $1090E.l, a0            ; the table's base
+    00178A  cmpi.l  #$1234ABCD, $4(a0)      ; the valid pattern, at 010912
+    001792  bne.b   $17A2                   ; no pattern: skip the table
+    001794  tst.b   $1D(a0)                 ; register 2B, and it must be set
+    001798  beq.b   $17A2
+    00179A  move.b  $1D(a0), d0             ; overriding moveq #2,d0
+    00179E  move.b  $1E(a0), d4             ; overriding clr.b d4
+
+`a0` is `01090E` — `AP_CALENDAR_ADDR` plus the handbook's **CHECKSUM** offset.
+The firmware bases its table exactly where the manual starts it and reads the
+pattern at base + 4. So the address measured from a running machine, the field
+printed in 1987 and the base the firmware computes all agree: three independent
+sources on one structure, which is more than this project usually gets.
+
+Two things recorded rather than resolved:
+
+- **The checksum is not checked on this path.** It tests the pattern alone.
+  Whether anything verifies `0E-11`, and by what sum, is unknown.
+- **Registers `2B` and `2C` are `UNUSED` in the handbook.** That table is the
+  DN3000's and this is a DN3500's firmware, so a later machine using two spare
+  bytes is the ordinary explanation. What they hold is not claimed — `d0`
+  defaults to `2` and `d4` to `0` when they are zero, and what those select is a
+  separate read.
+
+### What is deliberately *not* done
+
+Nothing is written into the table. Knowing the pattern makes seeding possible;
+whether an empty table is what stops Domain/OS is still the unmeasured question
+the plan has carried for two phases, and a battery RAM this core filled at reset
+would answer it by assumption instead of by measurement. The next step is
+persistence — a battery-backed RAM that survives a run, the way `--disk` makes
+media survive — so the PROM's own `ex config` can write it and the answer stays
+the firmware's.
+
+*Verification: `calendar_suite` 7 -> 8, asserting the identity rather than the
+numbers — the table's base is `01090E`, the pattern sits four bytes above it,
+and the value is the firmware's immediate. An edit to either offset now has to
+face the PROM's own arithmetic.*

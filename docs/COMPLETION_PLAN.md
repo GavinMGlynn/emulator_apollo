@@ -3453,16 +3453,21 @@ boot below, and the boot is not attempted until they are done.
         measurement exactly**: the PROM touches the calendar once in a hundred
         million instructions, a 32-bit read at `010912`, and `12` is where the
         handbook puts the four-byte VALID PATTERN. `ap_calendar.h` holds the
-        layout; nothing is written into it, because the pattern's *value* and
-        the checksum's algorithm are the two things the handbook does not give
-        and neither may be invented.
+        layout, and **the pattern's value is `1234ABCD`** -- from the PROM's
+        own `cmpi.l #$1234ABCD,$4(a0)` at `00178A`, found with a new
+        `--boot-watch-read` because the address is computed and grepping the ROM
+        for it finds nothing. `a0` is `01090E`, the handbook's checksum offset,
+        so the manual, the measured address and the firmware's base all agree.
+        Nothing is written into the table: whether an empty one is what stops
+        Domain/OS is the unmeasured question, and filling it at reset would
+        answer that by assumption.
         **The other route reaches further than it did.** MD is up, `EX CONFIG`
         loads CONFIG off `/sau14`, and CONFIG spins for ever at `0102963C` on a
         `tst.w d3 / beq.s` whose `d3` arrives zero from `$10(a6)`.
-        *Next, and it is one read rather than another hypothesis: the PROM's own
-        checker, to recover the valid pattern and the checksum. The address is
-        computed rather than literal, so finding the instruction needs a
-        read-side `--boot-watch-write`, which does not exist yet.*
+        *Next: battery-RAM persistence, so the table survives a run the way
+        `--disk` makes media survive -- then the PROM's own `ex config` writes it
+        and the content stays the firmware's. The checksum at `0E` is unchecked
+        on this path and its algorithm is still unknown.*
         *Five hypotheses here were each produced by reasoning and killed by the
         next measurement. The whole investigation is in `PROJECT_STATUS.md`.*
         *Verification: the console going past "Configuration information is not

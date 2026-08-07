@@ -101,6 +101,25 @@ typedef struct {
   uint32_t watch_write_value;
   unsigned watch_write_size;
 
+  /* ## The same watch, on the read side
+   *
+   * A write is the easier half and was built first, because a firmware that
+   * writes somewhere surprising announces itself. A *read* announces nothing,
+   * and three separate questions in this project have come down to "which
+   * instruction reads this address": the display controller's status poll, the
+   * DUART register the keyboard test waits on, and the calendar's validity
+   * longword at `010912` — whose address is computed rather than literal, so
+   * grepping the PROM for it finds nothing.
+   *
+   * Reported with the value the machine answered, because "it read there and
+   * got zero" and "it never read there" are the two hypotheses this separates,
+   * and a count alone cannot. */
+  uint32_t watch_read_address;
+  unsigned watch_reads;
+  uint32_t watch_read_pc;
+  uint32_t watch_read_value;
+  unsigned watch_read_size;
+
   unsigned bus_errors;
   uint32_t first_bus_error;
   uint32_t last_bus_error;

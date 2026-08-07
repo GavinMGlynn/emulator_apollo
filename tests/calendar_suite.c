@@ -175,9 +175,29 @@ static void test_a_reset_calendar_leaves_the_configuration_blank(void) {
   }
 }
 
+/* The boot PROM's own check, at `00178A`:
+ *
+ *     lea.l  $1090E.l, a0
+ *     cmpi.l #$1234ABCD, $4(a0)
+ *
+ * `a0` is the table's base and the handbook puts the checksum there, so the
+ * pattern the firmware compares sits at base + 4 -- the `12` the manual prints
+ * and the `010912` the machine was measured reading. Asserted as that identity
+ * rather than as two numbers, so an edit to either offset has to face the
+ * firmware's arithmetic. */
+static void test_the_prom_checks_the_pattern_at_the_tables_base_plus_four(void) {
+  TEST_ASSERT_EQUAL_HEX32(0x0001090Eu,
+                          AP_CALENDAR_ADDR + AP_CALENDAR_CONFIG_BASE);
+  TEST_ASSERT_EQUAL_HEX8(4u, AP_CALENDAR_CONFIG_VALID_PATTERN -
+                                 AP_CALENDAR_CONFIG_BASE);
+  TEST_ASSERT_EQUAL_HEX32(0x1234ABCDu,
+                          AP_CALENDAR_CONFIG_VALID_PATTERN_VALUE);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_the_configuration_table_is_the_handbooks_layout);
+  RUN_TEST(test_the_prom_checks_the_pattern_at_the_tables_base_plus_four);
   RUN_TEST(test_a_reset_calendar_leaves_the_configuration_blank);
   RUN_TEST(test_the_calendar_is_byte_consecutive_unlike_the_timer);
   RUN_TEST(test_the_registers_alias_through_the_range);

@@ -19,6 +19,26 @@ static uint32_t read_bytes(const ap_machine_t *machine, uint32_t address,
   return value;
 }
 
+/* The read watch, mirroring `machine_store`'s. Range rather than equality, for
+ * the same reason: a byte read out of the middle of a long word is a read of
+ * that long word as far as anyone reading it is concerned. Called after the
+ * access so the *value* is real -- on the write side the interesting fact is
+ * that the instruction reached, and here it is what the machine answered. */
+static void note_read(ap_machine_t *machine, uint32_t physical, unsigned size,
+                      uint32_t value) {
+  if (machine->watch_read_address == 0u ||
+      physical > machine->watch_read_address ||
+      machine->watch_read_address >= physical + size) {
+    return;
+  }
+  machine->watch_reads++;
+  machine->watch_read_pc = machine->executing_address != 0u
+                               ? machine->executing_address
+                               : machine->cpu.regs.pc;
+  machine->watch_read_value = value;
+  machine->watch_read_size = size;
+}
+
 /* With a board attached, an access is a board access -- byte at a time, because
  * the map is a map of devices and a device answers its own registers. `ok` is
  * false if *any* byte went unanswered: a long word half in a device and half in
@@ -101,6 +121,7 @@ static void machine_fill(void *context, uint32_t line_address,
     out->termination = AP_M68030_TERM_STERM;
     out->burst_acknowledge = false;
     out->data[0] = value;
+    note_read(machine, line_address, 4u, value);
     return;
   }
 
@@ -118,6 +139,10 @@ static void machine_fill(void *context, uint32_t line_address,
    * claimed CBACK would have the cache fill four entries from one answer. */
   out->burst_acknowledge = false;
   out->data[0] = read_bytes(machine, line_address, 4u);
+  /* A cache line fill is a read of every address in it. Reported as the line,
+   * width four, because that is the access the bus actually made -- narrowing
+   * it to the watched byte would claim a cycle the machine did not run. */
+  note_read(machine, line_address, 4u, out->data[0]);
 }
 
 /* How many whole CPU clocks the addressed device makes the processor wait.
@@ -218,6 +243,7 @@ static bool machine_read_sized(void *context, uint32_t address, unsigned size,
     fault(machine, address);
     return false;
   }
+  note_read(machine, address, size, *value);
   return true;
 }
 

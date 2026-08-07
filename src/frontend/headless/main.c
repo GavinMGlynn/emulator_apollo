@@ -56,6 +56,14 @@ static void print_usage(const char *program_name) {
           "  --boot-watch-write ADDR\n"
           "                        remember the last write to ADDR and which\n"
           "                        instruction made it, and report both\n"
+          "  --boot-watch-read ADDR\n"
+          "                        the same on the read side, with the value\n"
+          "                        the machine answered -- \"it read there and\n"
+          "                        got zero\" and \"it never read there\" are the\n"
+          "                        two hypotheses a count alone cannot separate\n"
+          "  --boot-stop-on-watch-read N\n"
+          "                        end the run on the Nth read of the watched\n"
+          "                        address, so a kept trace holds what led there\n"
           "  --boot-stop-on-disk-refusal\n"
           "                        end the run the first time the disk\n"
           "                        controller refuses an address, so a trace\n"
@@ -681,6 +689,18 @@ static void report_state(ap_machine_t *machine) {
     }
     printf("\n");
   }
+  if (machine->watch_read_address != 0u) {
+    printf("  watch read   %08X read %u time(s)", machine->watch_read_address,
+           machine->watch_reads);
+    if (machine->watch_reads > 0u) {
+      /* The value as well as the count: "it read there and got zero" and "it
+       * never read there" are the two hypotheses this flag exists to separate,
+       * and a count alone cannot. */
+      printf(", last %0*X by PC %08X", (int)(machine->watch_read_size * 2u),
+             machine->watch_read_value, machine->watch_read_pc);
+    }
+    printf("\n");
+  }
   if (machine->watch_write_address != 0u) {
     printf("  watch        %08X written %u time(s)", machine->watch_write_address,
            machine->watch_writes);
@@ -1062,6 +1082,7 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
                           const char *disk_path, const char *dump_spec,
                           unsigned progress_every, bool stop_on_refusal,
                           uint32_t watch_write, unsigned stop_on_watch,
+                          uint32_t watch_read, unsigned stop_on_watch_read,
                           uint32_t stop_pc_length,
                           const char *const *dump_logical,
                           unsigned dump_logical_count,
@@ -1297,6 +1318,7 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
   ap_machine_init_model(&machine, ram, ram_bytes, model);
   ap_machine_set_board(&machine, board);
   machine.watch_write_address = watch_write;
+  machine.watch_read_address = watch_read;
   ap_machine_reset(&machine, pc, stack);
 
   /* Scripted serial input, delivered a byte at a time as the firmware takes the
@@ -1605,6 +1627,12 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
        * rather than whatever ran between it and a later event. Numbered
        * because a value written ten times is interesting on the tenth: the
        * early ones are a loader doing its job. */
+      if (stop_on_watch_read != 0u && machine.watch_reads >= stop_on_watch_read) {
+        printf("  stopped on   read %u of %08X after %u instruction(s)\n",
+               machine.watch_reads, machine.watch_read_address, i);
+        run.executed++;
+        break;
+      }
       if (stop_on_watch != 0u && machine.watch_writes >= stop_on_watch) {
         printf("  stopped on   write %u to %08X, after %u instruction(s)\n",
                machine.watch_writes, machine.watch_write_address, i);
@@ -2490,6 +2518,8 @@ int main(int argc, char **argv) {
   bool service_mode = false;
   bool boot_stop_on_refusal = false;
   uint32_t boot_watch_write = 0;
+  uint32_t boot_watch_read = 0;
+  unsigned boot_stop_on_watch_read = 0;
   unsigned boot_stop_on_watch = 0;
   uint32_t boot_stop_pc_length = 1u;
   uint32_t boot_stop_physical_pc = 0;
@@ -2604,6 +2634,16 @@ int main(int argc, char **argv) {
     }
     if (strcmp(argv[i], "--boot-watch-write") == 0 && i + 1 < argc) {
       boot_watch_write = (uint32_t)strtoul(argv[i + 1], NULL, 16);
+      i += 2;
+      continue;
+    }
+    if (strcmp(argv[i], "--boot-watch-read") == 0 && i + 1 < argc) {
+      boot_watch_read = (uint32_t)strtoul(argv[i + 1], NULL, 16);
+      i += 2;
+      continue;
+    }
+    if (strcmp(argv[i], "--boot-stop-on-watch-read") == 0 && i + 1 < argc) {
+      boot_stop_on_watch_read = (unsigned)strtoul(argv[i + 1], NULL, 0);
       i += 2;
       continue;
     }
@@ -2792,7 +2832,8 @@ int main(int argc, char **argv) {
                           boot_trace_last, boot_stop_pc, boot_script,
                           disk_path, dump_spec, boot_progress,
                           boot_stop_on_refusal, boot_watch_write,
-                          boot_stop_on_watch, boot_stop_pc_length,
+                          boot_stop_on_watch, boot_watch_read,
+                          boot_stop_on_watch_read, boot_stop_pc_length,
                           dump_logical_specs, dump_logical_count,
                           boot_stop_physical_pc, boot_stop_physical_length,
                           service_mode);

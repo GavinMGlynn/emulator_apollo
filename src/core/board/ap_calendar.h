@@ -65,17 +65,50 @@
  * which is the width of the read. A measurement and a document arriving at the
  * same field independently is as good as this gets.
  *
- * Two things the handbook does *not* give, and neither may be invented:
+ * ## The pattern's value, from the firmware
  *
- * - **The valid pattern's value.** A four-byte constant the diagnostics
- *   recognise. Recoverable from the boot PROM's checker, which is a file read.
- * - **The checksum's algorithm and span.** Four bytes at `0E`, over some part
- *   of what follows. The handbook names the field and not the sum.
+ * The handbook names the field and not its contents, so the boot PROM was asked
+ * instead. `--boot-watch-read 010912` stops the machine on the access, at
+ * **133,067,640 instructions**, and names the instruction — and the code is
+ * unambiguous:
  *
- * So nothing is written here yet. The layout is recorded because it is what
- * turns "seed the battery RAM somehow" into two specific unknowns, and because
- * a structure known from a manual beats one inferred from a boot.
+ *     001784  lea.l   $1090E.l, a0            ; the table's base
+ *     00178A  cmpi.l  #$1234ABCD, $4(a0)      ; the valid pattern, at 010912
+ *     001792  bne.b   $17A2                   ; no pattern: skip the table
+ *     001794  tst.b   $1D(a0)                 ; register 2B, and it must be set
+ *     001798  beq.b   $17A2
+ *     00179A  move.b  $1D(a0), d0             ; overriding moveq #2,d0
+ *     00179E  move.b  $1E(a0), d4             ; register 2C, overriding clr.b d4
+ *
+ * `a0` is loaded with `01090E`, which is `AP_CALENDAR_ADDR` plus the handbook's
+ * **CHECKSUM** offset: the firmware bases its table exactly where the manual
+ * starts it, and reads the pattern at base + 4 = `12`. The address measured
+ * from a running machine, the field printed in 1987 and the base the firmware
+ * computes all agree, which is three independent sources on one structure.
+ *
+ * Two notes, both recorded rather than resolved:
+ *
+ * - **The checksum is not checked here.** This path tests the pattern alone.
+ *   Whether anything else verifies `0E-11`, and by what sum, is unknown and is
+ *   not guessed at.
+ * - **Registers `2B` and `2C` are `UNUSED` in the handbook.** They are the
+ *   DN3000's table and this is a DN3500's firmware, so a later machine using
+ *   two of the spare bytes is the ordinary explanation. What they *hold* is not
+ *   claimed: `d0` defaults to `2` and `d4` to `0` when they are zero, and what
+ *   those select is a separate read.
+ *
+ * Nothing is written into the table here. Knowing the pattern makes seeding
+ * *possible*; whether an empty table is what stops Domain/OS is still the
+ * unmeasured question, and a battery RAM this core fills at reset would answer
+ * it by assumption instead of by measurement.
  */
+
+/* `00178A`'s immediate. A firmware fact, not a manual's. */
+#define AP_CALENDAR_CONFIG_VALID_PATTERN_VALUE UINT32_C(0x1234ABCD)
+
+/* Where the boot PROM bases the table, which is the checksum field and not the
+ * pattern -- so `$4(a0)` in the listing above is the pattern's offset. */
+#define AP_CALENDAR_CONFIG_BASE AP_CALENDAR_CONFIG_CHECKSUM
 #define AP_CALENDAR_CONFIG_CHECKSUM 0x0Eu
 #define AP_CALENDAR_CONFIG_VALID_PATTERN 0x12u
 #define AP_CALENDAR_CONFIG_MEM_BOARD_ARRAY 0x16u
