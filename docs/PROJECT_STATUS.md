@@ -3412,7 +3412,7 @@ failure that cost a bit position in the 68020's module entry word.
 | Intel 8237A DMA controller (the part) | **programming model and transfer cycle complete**: all sixteen register addresses, four channels with base and current address/count, the single shared first/last flip-flop, command/mode/request/mask/status/temporary, master clear, autoinitialise reload and the mask-on-terminal-count rule; and a service cycle that moves a byte either way, verifies without moving one, walks the address up or down, and ends on the borrow out of zero rather than at zero. Memory-to-memory is refused outright rather than half-run. The part drives sixteen bits of address and the board composes the rest — not yet wired to the board | `i8237_suite`, 29 tests, `8237A` 231466 |
 | Apollo interval timer (`010800`) | working: the part at **odd addresses, stride 2** (measured — the region reads `00 00 00 00 00 FF ...`, the `FFFF` latch default showing through), the three §3.8 input rates as exact time-base clock domains, and the IRQ0 route. Advancing is by whole pulses, so the rate cannot become a function of how often it is polled | `timer_suite`, 8 tests; `FINDINGS.md` C12 |
 | MC6840 interval timer (the part) | working for **both counting modes** — continuous and single shot, each in sixteen-bit and dual eight-bit operation — plus both control register aliases, the write/read byte buffering, the status register, the prescaler, the gate, and all five of `[6840]` §3.11's ways of clearing an interrupt. The two **measurement modes** are decoded and declined: they time a signal on a timer's gate pin, and nothing on this board drives the gates | `mc6840_suite`, 29 tests, `MC6840UM` (a scan with no text layer; read from page images) |
-| Apollo calendar (`010900`) | working: **stride 1, byte consecutive** (measured — and not the timer's odd-address stride 2, so neither placement could be inferred from the other), sixty-four registers aliased through the 256-byte range, and the IRQ8 route through to vector `A8`. The battery RAM's **configuration table** is laid out from `002398-04` p. 12-3 — checksum, valid pattern, memory array, node ID, device bits and the three type bytes — and left blank. The pattern's **value** is not in the manual and came from the boot PROM instead — `cmpi.l #$1234ABCD,$4(a0)` at `00178A`, with `a0` based at the handbook's checksum offset | `calendar_suite`, 8 tests; `FINDINGS.md` C12 |
+| Apollo calendar (`010900`) | working: **stride 1, byte consecutive** (measured — and not the timer's odd-address stride 2, so neither placement could be inferred from the other), sixty-four registers aliased through the 256-byte range, and the IRQ8 route through to vector `A8`. The battery RAM's **configuration table** is laid out from `002398-04` p. 12-3 — checksum, valid pattern, memory array, node ID, device bits and the three type bytes — and left blank. The pattern's **value** is not in the manual and came from the boot PROM instead — `cmpi.l #$1234ABCD,$4(a0)` at `00178A`, with `a0` based at the handbook's checksum offset. The fifty bytes are a **battery**: `--calendar-ram FILE` carries them across a run, and deliberately not the clock, since a starting instant taken from the last run's ending one is a wall clock arriving through the back door | `calendar_suite`, 10 tests; `FINDINGS.md` C12 |
 | MC146818A calendar (the part) | working: ten clock bytes, four registers, 50 RAM bytes, the once-per-second update with a full Gregorian carry, the alarm with don't-care codes, and Register C's read-to-clear. **Time is supplied by the caller, never the host** — the oracle seeds its calendar from the wall clock, which would rot every golden. The **periodic interrupt** is implemented for the nine rates that divide the time base (512 Hz to 2 Hz); the six fastest are refused rather than rounded, because `AP_TIME_BASE_HZ` factors as 2^9·3·5^8·11 and they need 2^15. Square wave and daylight-savings shifts are declined. Not yet wired to the board at `010900` | `mc146818_suite`, 32 tests, `MC146818A` (register figures read from page images) |
 | Node ID PROM (`011200`) | working: the layout measured from the oracle's own PROM — stride 2 with the **odd byte reading zero** (unlike the serial ports at the same stride), the identifier big-endian in registers 0-3, and a checksum in register **15** confirmed arithmetically (`01 + 23 + 45 = 69`) and then by the boot PROM's own self-test, which sums registers 0-14 and compares. The identifier is supplied by the caller, never a constant: a device whose purpose is to be unique per machine must not be the same on every one | `nodeid_suite`, 8 tests; `008778-03` Table 2-8, CPU self-test 8 at `008218` |
 | Apollo serial ports (`010400`, `010500`) | working: both DUARTs at **stride 2** (measured), sixteen registers over thirty-two bytes and aliased, sharing IRQ1 through to vector `A1`. The memory-refresh square wave of §3.9 runs: the counter is clocked at the DUART's X1 and produces a 15 microsecond period from the boot PROM's own preload. Its *frequency*, 66666.67 Hz, is not an integer, so a core counting in hertz could not represent this board's refresh clock at all | `sio_suite`, 25 tests; `FINDINGS.md` C14 |
@@ -13265,3 +13265,68 @@ the firmware's.
 numbers — the table's base is `01090E`, the pattern sits four bytes above it,
 and the value is the firmware's immediate. An edit to either offset now has to
 face the PROM's own arithmetic.*
+
+## The battery, and a stop that had been a 256-byte window
+
+### `--calendar-ram FILE`: the fifty bytes persist, the clock does not
+
+`008778-03` §3.6: the calendar chip "has a backup battery to ensure that no data
+is lost when the ac power is removed". Every run of this core until now has been
+a machine whose battery is flat, which is exactly what the boot PROM means by
+"Configuration information is not initialized".
+
+`ap_calendar_load_battery`/`_save_battery` carry the fifty RAM bytes across a
+run and the frontend keeps them in a file, the way `--disk` keeps a volume. A
+missing file is not an error: it is a machine that has never been configured,
+which is the state every previous run has had.
+
+**The clock is deliberately excluded.** Ten of the sixty-four bytes are the
+time, and persisting them would make a run's starting instant depend on when the
+last run ended — a wall clock arriving through the back door, which `CLAUDE.md`
+forbids and which `ap_calendar_reset` already refuses to the caller's face by
+demanding a start time. So the battery holds configuration and the clock is
+always given.
+
+The restore writes the RAM array directly rather than going through
+`ap_mc146818_write`: this is a battery holding its charge, not a program writing
+registers, and the register path has side effects on the four control registers
+that a restore must not trigger. The base is above them, so nothing here can
+reach one — but going through the register interface would make that a
+coincidence rather than a property.
+
+### Measured, and the firmware accepts the table
+
+Same instruction count, two runs, one difference:
+
+    unseeded   watch read 00010912 = 0000   never reaches 1794
+    seeded     watch read 00010912 = 1234   stopped at PC 00001794 after
+                                            133,067,642 instruction(s)
+
+`00001794` is the instruction after `bne.b $17A2`. Reaching it means the branch
+was **not** taken, which means `cmpi.l #$1234ABCD,$4(a0)` matched. So the
+battery reaches the firmware, the pattern is right, and a seeded machine's
+configuration table is one the boot PROM accepts.
+
+### The control only became a control after a harness fix
+
+The first attempt at that A/B reported `stopped at PC 000017A2` for a run asked
+to stop at `1794` — and `17A2` is the address the branch goes to when the
+pattern is **invalid**. It looked like a hit and was the opposite.
+
+`--boot-stop-pc ADDR` was parsed by `parse_dump_spec`, whose length defaults to
+**256 bytes**. So every PC stop in this project has been a 256-byte range stop —
+wider than most subroutines — and `boot_stop_pc_length` was initialised to 1 and
+then overwritten by the parse, so the intent was there and the code undid it.
+
+Split into `parse_dump_spec` (a block, 256) and `parse_stop_spec` (an address,
+1). A range is still available as `ADDR:LEN`, which is what the physical-PC stop
+wants when only a page is known. Every previous "stopped at" reading printed the
+true PC, so they are all recoverable — but only by rereading them, and a
+conclusion of the form "address A was reached" drawn from one of those runs is
+not safe without that.
+
+*Verification: `calendar_suite` 8 -> 10 — the battery reading back through the
+bus at the address the firmware uses, the clock still reading the instant the
+caller supplied rather than zero, a short buffer filling from the base and a
+long one clamped at the part's last register. And the A/B above, which the stop
+fix is what made readable.*

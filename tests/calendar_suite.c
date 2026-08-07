@@ -194,8 +194,77 @@ static void test_the_prom_checks_the_pattern_at_the_tables_base_plus_four(void) 
                           AP_CALENDAR_CONFIG_VALID_PATTERN_VALUE);
 }
 
+/* `008778-03` §3.6: the chip "has a backup battery to ensure that no data is
+ * lost when the ac power is removed". The battery is the fifty RAM bytes and
+ * carries across a run; what it must *not* carry is the clock, because a
+ * starting instant taken from the last run's ending one is a wall clock
+ * arriving through the back door. */
+static void test_the_battery_keeps_the_ram_and_not_the_clock(void) {
+  ap_calendar_t calendar;
+  TEST_ASSERT_TRUE(ap_calendar_reset(&calendar, &START));
+
+  uint8_t table[AP_CALENDAR_BATTERY_BYTES] = {0};
+  /* The valid pattern, four bytes above the table's base. */
+  table[AP_CALENDAR_CONFIG_VALID_PATTERN - AP_CALENDAR_CONFIG_BASE] = 0x12u;
+  table[AP_CALENDAR_CONFIG_VALID_PATTERN - AP_CALENDAR_CONFIG_BASE + 1u] = 0x34u;
+  table[AP_CALENDAR_CONFIG_VALID_PATTERN - AP_CALENDAR_CONFIG_BASE + 2u] = 0xABu;
+  table[AP_CALENDAR_CONFIG_VALID_PATTERN - AP_CALENDAR_CONFIG_BASE + 3u] = 0xCDu;
+  ap_calendar_load_battery(&calendar, table, sizeof table);
+
+  /* It reads back through the bus, at the address the firmware uses. */
+  const uint32_t at = AP_CALENDAR_ADDR + AP_CALENDAR_CONFIG_VALID_PATTERN;
+  TEST_ASSERT_EQUAL_HEX8(0x12u, ap_calendar_read(&calendar, at + 0u));
+  TEST_ASSERT_EQUAL_HEX8(0x34u, ap_calendar_read(&calendar, at + 1u));
+  TEST_ASSERT_EQUAL_HEX8(0xABu, ap_calendar_read(&calendar, at + 2u));
+  TEST_ASSERT_EQUAL_HEX8(0xCDu, ap_calendar_read(&calendar, at + 3u));
+
+  /* And the clock still reads the instant the *caller* supplied, not something
+   * the battery brought with it: the battery starts above the ten time bytes
+   * and the four control registers, so nothing it restores can reach one. `21`
+   * is `START.second` in BCD, and asserting the real value rather than zero is
+   * the difference between "the clock is untouched" and "the clock is
+   * blank". */
+  TEST_ASSERT_EQUAL_HEX8(0x21u,
+                         ap_calendar_read(&calendar, AP_CALENDAR_ADDR +
+                                                         AP_MC146818_SECONDS));
+
+  uint8_t back[AP_CALENDAR_BATTERY_BYTES];
+  TEST_ASSERT_EQUAL_UINT(AP_CALENDAR_BATTERY_BYTES,
+                         ap_calendar_save_battery(&calendar, back,
+                                                  sizeof back));
+  TEST_ASSERT_EQUAL_HEX8_ARRAY(table, back, AP_CALENDAR_BATTERY_BYTES);
+}
+
+/* A short buffer fills from the base and leaves the rest, which is what a
+ * partially written table looks like -- and a long one is clamped rather than
+ * running off the end of the part. */
+static void test_a_partial_battery_fills_from_the_base(void) {
+  ap_calendar_t calendar;
+  TEST_ASSERT_TRUE(ap_calendar_reset(&calendar, &START));
+  const uint8_t two[2] = {0xAAu, 0xBBu};
+  ap_calendar_load_battery(&calendar, two, sizeof two);
+  TEST_ASSERT_EQUAL_HEX8(0xAAu, ap_calendar_read(&calendar, AP_CALENDAR_ADDR +
+                                                    AP_CALENDAR_CONFIG_BASE));
+  TEST_ASSERT_EQUAL_HEX8(0xBBu, ap_calendar_read(&calendar, AP_CALENDAR_ADDR +
+                                                    AP_CALENDAR_CONFIG_BASE +
+                                                    1u));
+  TEST_ASSERT_EQUAL_HEX8(0u, ap_calendar_read(&calendar, AP_CALENDAR_ADDR +
+                                                  AP_CALENDAR_CONFIG_BASE + 2u));
+
+  uint8_t big[AP_CALENDAR_BATTERY_BYTES + 8u];
+  for (unsigned i = 0; i < sizeof big; i++) {
+    big[i] = 0x5Au;
+  }
+  ap_calendar_load_battery(&calendar, big, sizeof big);
+  /* The last register the part has, and nothing beyond it. */
+  TEST_ASSERT_EQUAL_HEX8(0x5Au, ap_calendar_read(&calendar, AP_CALENDAR_ADDR +
+                                                    AP_MC146818_BYTES - 1u));
+}
+
 int main(void) {
   UNITY_BEGIN();
+  RUN_TEST(test_the_battery_keeps_the_ram_and_not_the_clock);
+  RUN_TEST(test_a_partial_battery_fills_from_the_base);
   RUN_TEST(test_the_configuration_table_is_the_handbooks_layout);
   RUN_TEST(test_the_prom_checks_the_pattern_at_the_tables_base_plus_four);
   RUN_TEST(test_a_reset_calendar_leaves_the_configuration_blank);

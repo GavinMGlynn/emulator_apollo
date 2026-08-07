@@ -154,4 +154,32 @@ void ap_calendar_advance(ap_calendar_t *calendar, ap_time_t now);
 /* The IRQ pin, to be wired to `AP_CALENDAR_IRQ`. The board does the wiring. */
 [[nodiscard]] bool ap_calendar_irq(const ap_calendar_t *calendar);
 
+/* ## The battery, which is the fifty bytes and *not* the clock
+ *
+ * `008778-03` §3.6: "The calendar chip has a backup battery to ensure that no
+ * data is lost when the ac power is removed." A machine that forgets its
+ * configuration at every power-on is a machine whose battery is flat, and that
+ * is the machine this core has been every run — which is exactly what the boot
+ * PROM complains about.
+ *
+ * These carry the RAM across a run so a caller can keep it in a file, the way
+ * `--disk` keeps a volume. **The clock is deliberately not included.** Ten of
+ * the sixty-four bytes are the time, and persisting them would make a run's
+ * starting instant depend on when the last run ended — a wall clock arriving
+ * through the back door, which `CLAUDE.md` forbids and which
+ * `ap_calendar_reset` refuses to the caller's face by demanding a start time.
+ * So the battery holds configuration and the clock is always given.
+ *
+ * `count` is clamped to the fifty bytes; a shorter buffer fills from the base
+ * and leaves the rest, which is what a partially written table looks like.
+ */
+#define AP_CALENDAR_BATTERY_BYTES \
+  ((unsigned)(AP_MC146818_BYTES - AP_MC146818_RAM_BASE))
+
+void ap_calendar_load_battery(ap_calendar_t *calendar, const uint8_t *bytes,
+                              unsigned count);
+[[nodiscard]] unsigned ap_calendar_save_battery(const ap_calendar_t *calendar,
+                                                uint8_t *out,
+                                                unsigned capacity);
+
 #endif /* APOLLO_BOARD_AP_CALENDAR_H */

@@ -115,6 +115,10 @@ static void print_usage(const char *program_name) {
           "  --screen KIND         fit a display: c4p, c8p, 19i or 15i\n"
           "  --screenshot FILE     scan the fitted screen out to a PNG\n"
           "  --disk FILE           fit a Winchester (.awd) to the boot\n"
+          "  --calendar-ram FILE   the calendar's battery-backed RAM, loaded at\n"
+          "                        reset and written back at the end: fifty bytes\n"
+          "                        of configuration, and not the clock. A missing\n"
+          "                        file is a machine that has never been configured\n"
           "  --dump-mem A[:L]      dump memory through the board after a\n"
           "                        run; hex address, hex length (default 100)\n"
           "  --floppy FILE         read an .afd through the reader and\n"
@@ -268,21 +272,34 @@ static void dump_memory(FILE *out, ap_board_t *board, uint32_t address,
   }
 }
 
-/* `ADDR` or `ADDR:LEN`, both hexadecimal, the length defaulting to 256 bytes.
- * Returns false for a spec that is not one, so a mistyped flag is refused
- * rather than dumping from address zero. */
+/* `ADDR` or `ADDR:LEN`, both hexadecimal. Returns false for a spec that is not
+ * one, so a mistyped flag is refused rather than dumping from address zero.
+ *
+ * ## The default length is the caller's, and it used to be 256 for everyone
+ *
+ * A *dump* wants a block: `--dump-mem 1000` meaning one byte would be useless,
+ * so 256 is right there. A *stop* wants an address, and `--boot-stop-pc 1794`
+ * silently meant "anywhere in `1794`-`1893`" -- a 256-byte window, wider than
+ * most subroutines. `boot_stop_pc_length` was initialised to 1 and then
+ * overwritten by this function, so the intent was there and the code undid it.
+ *
+ * What that cost is real and was visible in the output the whole time: a run
+ * asked to stop at `1794` reported `stopped at PC 000017A2`, fourteen bytes
+ * past a branch it had *not* taken, and "the address was reached" is exactly
+ * the wrong conclusion to draw from that. The report printed the true PC, so
+ * every affected reading is recoverable -- but only by rereading it. */
 /* How many `--dump-logical` requests one run will honour. */
 #define AP_MAX_LOGICAL_DUMPS 4u
 
-static bool parse_dump_spec(const char *spec, uint32_t *address,
-                            uint32_t *length) {
+static bool parse_spec(const char *spec, uint32_t *address, uint32_t *length,
+                       uint32_t default_length) {
   char *end = NULL;
   const unsigned long start = strtoul(spec, &end, 16);
   if (end == spec) {
     return false;
   }
   *address = (uint32_t)start;
-  *length = 256u;
+  *length = default_length;
   if (*end == ':') {
     const char *rest = end + 1;
     const unsigned long count = strtoul(rest, &end, 16);
@@ -294,6 +311,20 @@ static bool parse_dump_spec(const char *spec, uint32_t *address,
     return false;
   }
   return true;
+}
+
+/* A dump: a block by default. */
+static bool parse_dump_spec(const char *spec, uint32_t *address,
+                            uint32_t *length) {
+  return parse_spec(spec, address, length, 256u);
+}
+
+/* A stop: **one address** by default. A range is still available as `ADDR:LEN`,
+ * which is what the physical-PC stop wants when the logical address of a piece
+ * of code is unknown and only its page is. */
+static bool parse_stop_spec(const char *spec, uint32_t *address,
+                            uint32_t *length) {
+  return parse_spec(spec, address, length, 1u);
 }
 
 static int run_probe_file(FILE *out, ap_model_id_t model,
@@ -1079,7 +1110,8 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
                           ap_model_id_t model, const char *screenshot,
                           unsigned trace_last, uint32_t stop_pc,
                           const char *console_script_path,
-                          const char *disk_path, const char *dump_spec,
+                          const char *disk_path, const char *battery_path,
+                          const char *dump_spec,
                           unsigned progress_every, bool stop_on_refusal,
                           uint32_t watch_write, unsigned stop_on_watch,
                           uint32_t watch_read, unsigned stop_on_watch_read,
@@ -1250,6 +1282,31 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
     }
     ap_omti_attach(&board->disk.controller, &disk_image);
     printf("disk %s, %ld bytes\n", disk_path, disk_size);
+  }
+
+  /* The calendar's battery. `008778-03` §3.6: the chip "has a backup battery to
+   * ensure that no data is lost when the ac power is removed", and every run of
+   * this core until now has been a machine whose battery is flat -- which is
+   * what the boot PROM means by "Configuration information is not initialized".
+   *
+   * A missing file is not an error: it is a machine that has never been
+   * configured, which is the state to start from and the one every previous run
+   * has had. The file holds the fifty battery bytes and **not** the clock, for
+   * the reason `ap_calendar.h` gives -- persisting the time would make a run's
+   * starting instant depend on when the last one ended. */
+  if (battery_path != NULL) {
+    long battery_size = 0;
+    uint8_t *battery = read_file(battery_path, &battery_size);
+    if (battery != NULL) {
+      ap_calendar_load_battery(&board->calendar, battery,
+                               (unsigned)battery_size);
+      printf("calendar ram %s, %ld byte(s) loaded\n", battery_path,
+             battery_size);
+      free(battery);
+    } else {
+      printf("calendar ram %s, absent -- an unconfigured machine\n",
+             battery_path);
+    }
   }
 
   if (!ap_board_load_prom(board, prom, (uint32_t)size)) {
@@ -2115,6 +2172,28 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
                               board->graphics.reg.cr1);
   }
 
+  /* The battery keeps its charge: whatever the machine left in the fifty bytes
+   * is what the next run starts with. Written unconditionally when a path was
+   * given, including when the machine wrote nothing -- a file that appears only
+   * once a run happens to store something would make "the table is empty" and
+   * "the run did not save" look identical, which is the confusion this whole
+   * item has been made of. */
+  if (battery_path != NULL) {
+    uint8_t battery[AP_CALENDAR_BATTERY_BYTES];
+    const unsigned kept =
+        ap_calendar_save_battery(&board->calendar, battery, sizeof battery);
+    FILE *out = fopen(battery_path, "wb");
+    if (out == NULL || fwrite(battery, 1u, kept, out) != kept) {
+      fprintf(stderr, "apollo: cannot write calendar ram %s\n", battery_path);
+      status = 1;
+    } else {
+      printf("  calendar ram %s, %u byte(s) kept\n", battery_path, kept);
+    }
+    if (out != NULL) {
+      fclose(out);
+    }
+  }
+
   free(disk_bytes);
   free(colour_memory);
   free(mono_memory);
@@ -2558,6 +2637,7 @@ int main(int argc, char **argv) {
   const char *volume_path = NULL;
   const char *floppy_path = NULL;
   const char *disk_path = NULL;
+  const char *battery_path = NULL;
   const char *dump_spec = NULL;
   uint32_t node_id = 0x012345u;
   unsigned boot_limit = 100000u;
@@ -2585,6 +2665,11 @@ int main(int argc, char **argv) {
       if (dump_logical_count < AP_MAX_LOGICAL_DUMPS) {
         dump_logical_specs[dump_logical_count++] = argv[i + 1];
       }
+      i += 2;
+      continue;
+    }
+    if (strcmp(argv[i], "--calendar-ram") == 0 && i + 1 < argc) {
+      battery_path = argv[i + 1];
       i += 2;
       continue;
     }
@@ -2648,7 +2733,7 @@ int main(int argc, char **argv) {
       continue;
     }
     if (strcmp(argv[i], "--boot-stop-physical-pc") == 0 && i + 1 < argc) {
-      if (!parse_dump_spec(argv[i + 1], &boot_stop_physical_pc,
+      if (!parse_stop_spec(argv[i + 1], &boot_stop_physical_pc,
                            &boot_stop_physical_length)) {
         fprintf(stderr,
                 "%s: --boot-stop-physical-pc wants ADDR or ADDR:LEN in hex\n",
@@ -2744,7 +2829,7 @@ int main(int argc, char **argv) {
        * a crash routine's *return* address is printed in the message and never
        * executed, and the call that pushed it is two, four or six bytes before
        * it depending on how it was made. */
-      if (!parse_dump_spec(argv[i + 1], &boot_stop_pc, &boot_stop_pc_length)) {
+      if (!parse_stop_spec(argv[i + 1], &boot_stop_pc, &boot_stop_pc_length)) {
         fprintf(stderr, "%s: --boot-stop-pc wants ADDR or ADDR:LEN in hex\n",
                 program_name);
         return 2;
@@ -2830,7 +2915,7 @@ int main(int argc, char **argv) {
                           boot_key, boot_console,
                           boot_screen, node_id, opt.model->id, screenshot,
                           boot_trace_last, boot_stop_pc, boot_script,
-                          disk_path, dump_spec, boot_progress,
+                          disk_path, battery_path, dump_spec, boot_progress,
                           boot_stop_on_refusal, boot_watch_write,
                           boot_stop_on_watch, boot_watch_read,
                           boot_stop_on_watch_read, boot_stop_pc_length,
