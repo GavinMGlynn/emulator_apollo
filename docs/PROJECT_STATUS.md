@@ -13850,3 +13850,33 @@ FIFO across the window from 605,904 to 1,024,933 and find out what arrives, when
 and whether an interrupt is taken. If a late byte is the mechanism, the question
 becomes what the firmware does about it — not whether the wire should have a
 length.*
+
+### And two candidates for that regression are eliminated, which narrows it
+
+Measured rather than reasoned, because the first two explanations were both
+wrong:
+
+- **Not an interrupt from a late byte.** Paced and unpaced runs to the same
+  budget take only vector 2 — bus errors from the display probe — and no serial
+  vector at all. The paced run takes 259 to the unpaced run's 130, but it has
+  also progressed into the failure, so that is a consequence and not evidence.
+- **Not the `00` announcement polluting the table exchange.** The console path
+  sends `00` at `00676E` without reading a reply, so `announce_mode`'s two bytes
+  would arrive during the nine-byte echo loop that follows — a clean story, and
+  the bisect already refutes it: with `announce_mode` disabled the console boot
+  **still blinks**.
+
+And the exchange the pacing was supposed to slow down is not slowed. The console
+path's echoes are one byte per command, each queued alone with `next_at` already
+in the past, so they go out immediately: `0067D8` is reached 154 instructions
+after `006798`, which is nine send-and-receive pairs at no delay at all.
+
+So pacing changes something in the console path that is **not** the keyboard
+exchange, does not raise an interrupt, and is not the announcement. That is a
+narrower statement than the entry above and it is where this stops: the next
+step is a log of every byte the wire delivers between 605,904 and 1,024,933 with
+its instant, against the same window unpaced. Two traces, one diff.
+
+*Stated plainly because the alternative is a sixth hypothesis. Five in this
+item's history were each produced by reasoning and killed by the next
+measurement, and the two above are the sixth and seventh.*
