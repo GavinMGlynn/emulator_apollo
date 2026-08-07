@@ -1125,6 +1125,76 @@ static unsigned input_polls(const ap_board_t *board) {
   return board->sio.register_reads[0][AP_MC68681_SR_CSR_A] +
          board->sio.register_reads[0][AP_MC68681_ISR_IMR];
 }
+
+/* How many instructions the fast path runs between typed-input checks. Coarse
+ * on purpose: the condition it samples -- a configured port and a machine
+ * polling for input -- holds for millions of consecutive instructions, so the
+ * only requirement is to be far finer than that. */
+#define AP_BOOT_TYPE_CHUNK 4096u
+
+/* Deliver the next typed character if the machine is ready for it. Shared by
+ * the step loop and the chunked fast path, because the *condition* is the same
+ * and only the sampling rate differs. */
+static void typed_deliver(ap_machine_t *machine, ap_board_t *board,
+                          const char *typed, size_t typed_length,
+                          size_t *typed_sent, ap_time_t *typed_at,
+                          bool type_after_mmu) {
+  if (typed == NULL || *typed_sent >= typed_length) {
+    return;
+  }
+  /* **And not before the operating system is running, when asked.**
+   *
+   * "The machine is polling hard" does not distinguish a prompt from a
+   * self-test that polls harder. `KEYBOARD TEST # 0` waits on the ISR
+   * 65,536 times per exchange, which trips any threshold a prompt would,
+   * and a `y` delivered into it lands in the receive FIFO in the middle of
+   * the loopback echo comparison: measured, `SELF TEST FAILED ... ACTUAL=
+   * 0000FF11, ADDRESS= 00010407, PC= 0000732E`. The typed character became
+   * the byte the firmware was comparing.
+   *
+   * The gate is a machine *state* rather than a tuned instruction count:
+   * the boot PROM runs with translation off and Domain/OS turns the MMU on
+   * before it prompts, so "the MMU is enabled" separates the two without
+   * measuring either. A count would have been a measurement of one boot. */
+  const bool typing_allowed =
+      !type_after_mmu || machine->cpu.tc.enable;
+  /* **The poll threshold gates the first character only.** Rearming it per
+   * character was measured wrong twice, with the same shortfall both times:
+   * `polls 217931 (need 219228)`, 1,297 short after seven hundred million
+   * further instructions. Once Domain/OS has taken a character it stops
+   * polling the status registers -- it waits by some other means -- so a
+   * rule that demands two thousand *more* polls waits for something that
+   * will not happen.
+   *
+   * What says the machine is ready for the next one is that it took the
+   * last: `ap_sio_receiver_ready` false means the receive buffer is empty
+   * again. After that the only bound is the wire's, one character time,
+   * which is also the fastest a person could type. */
+  const bool typed_due =
+      *typed_sent == 0u
+          ? input_polls(board) >= AP_BOOT_KEY_POLLS
+          : machine->now >= *typed_at + ap_sio_character_time(
+                                        &board->sio, 0u, 0u,
+                                        AP_SIO_KEYBOARD_BAUD);
+  if (*typed_sent < typed_length && typing_allowed && typed_due &&
+      !ap_sio_receiver_ready(&board->sio, 0u, 0u) &&
+      ap_sio_character_bits(&board->sio, 0u, 0u) == 8u &&
+      ap_sio_receiver_enabled(&board->sio, 0u, 0u)) {
+    if (ap_board_key_type(board, typed[*typed_sent])) {
+      (*typed_sent)++;
+      *typed_at = machine->now;
+    } else {
+      /* A character this keyboard cannot produce. Skipped rather than
+       * retried for ever, and said out loud -- a silently dropped character
+       * makes a script that never worked look like a machine that ignored
+       * it. */
+      fprintf(stderr, "apollo: --boot-type: no key produces %c\n",
+              typed[*typed_sent]);
+      (*typed_sent)++;
+    }
+  }
+}
+
 static int boot_from_prom(const char *path, unsigned limit, bool trace,
                           uint32_t watch, const char *input, unsigned input_unit,
                           unsigned input_channel, uint8_t input_rate,
@@ -1500,7 +1570,7 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
    * for and did nothing, which is the failure this class produces. */
   const bool wants_steps =
       trace || trace_last > 0u || input_length > 0u || console ||
-      script.steps > 0u || key < AP_KBD_KEYS || typed_length > 0u ||
+      script.steps > 0u || key < AP_KBD_KEYS ||
       progress_every > 0u || stop_pc != 0u || stop_physical_pc != 0u ||
       stop_on_watch != 0u || stop_on_watch_read != 0u || stop_on_refusal;
   if (wants_steps) {
@@ -1694,57 +1764,8 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
        * step number cannot give: Domain/OS's calendar question arrives some
        * seven hundred million instructions in, and any constant chosen for it
        * would be a measurement of one boot rather than a condition. */
-      /* **And not before the operating system is running, when asked.**
-       *
-       * "The machine is polling hard" does not distinguish a prompt from a
-       * self-test that polls harder. `KEYBOARD TEST # 0` waits on the ISR
-       * 65,536 times per exchange, which trips any threshold a prompt would,
-       * and a `y` delivered into it lands in the receive FIFO in the middle of
-       * the loopback echo comparison: measured, `SELF TEST FAILED ... ACTUAL=
-       * 0000FF11, ADDRESS= 00010407, PC= 0000732E`. The typed character became
-       * the byte the firmware was comparing.
-       *
-       * The gate is a machine *state* rather than a tuned instruction count:
-       * the boot PROM runs with translation off and Domain/OS turns the MMU on
-       * before it prompts, so "the MMU is enabled" separates the two without
-       * measuring either. A count would have been a measurement of one boot. */
-      const bool typing_allowed =
-          !type_after_mmu || machine.cpu.tc.enable;
-      /* **The poll threshold gates the first character only.** Rearming it per
-       * character was measured wrong twice, with the same shortfall both times:
-       * `polls 217931 (need 219228)`, 1,297 short after seven hundred million
-       * further instructions. Once Domain/OS has taken a character it stops
-       * polling the status registers -- it waits by some other means -- so a
-       * rule that demands two thousand *more* polls waits for something that
-       * will not happen.
-       *
-       * What says the machine is ready for the next one is that it took the
-       * last: `ap_sio_receiver_ready` false means the receive buffer is empty
-       * again. After that the only bound is the wire's, one character time,
-       * which is also the fastest a person could type. */
-      const bool typed_due =
-          typed_sent == 0u
-              ? input_polls(board) >= AP_BOOT_KEY_POLLS
-              : machine.now >= typed_at + ap_sio_character_time(
-                                            &board->sio, 0u, 0u,
-                                            AP_SIO_KEYBOARD_BAUD);
-      if (typed_sent < typed_length && typing_allowed && typed_due &&
-          !ap_sio_receiver_ready(&board->sio, 0u, 0u) &&
-          ap_sio_character_bits(&board->sio, 0u, 0u) == 8u &&
-          ap_sio_receiver_enabled(&board->sio, 0u, 0u)) {
-        if (ap_board_key_type(board, typed[typed_sent])) {
-          typed_sent++;
-          typed_at = machine.now;
-        } else {
-          /* A character this keyboard cannot produce. Skipped rather than
-           * retried for ever, and said out loud -- a silently dropped character
-           * makes a script that never worked look like a machine that ignored
-           * it. */
-          fprintf(stderr, "apollo: --boot-type: no key produces %c\n",
-                  typed[typed_sent]);
-          typed_sent++;
-        }
-      }
+      typed_deliver(&machine, board, typed, typed_length, &typed_sent,
+                    &typed_at, type_after_mmu);
       const uint32_t step_pc = machine.cpu.regs.pc;
       /* One instruction through the *machine*, not through the processor.
        *
@@ -1911,6 +1932,40 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
         break;
       }
       run.executed++;
+    }
+  } else if (typed_length > 0u) {
+    /* ## Typed input does not need a step loop, and paying for one made it
+     * unusable
+     *
+     * Every other per-instruction feature genuinely inspects each step: a trace
+     * prints one, a stop compares one, a watch counts one. Typing does not. Its
+     * condition -- a configured port and a machine polling for input -- is true
+     * for *millions* of consecutive instructions, so sampling it a few thousand
+     * apart sees exactly the same thing.
+     *
+     * What the step loop cost is the whole reason this matters. Reaching
+     * Domain/OS's calendar prompt is about a billion instructions, and stepping
+     * one at a time from the frontend turned a ten-minute experiment into a
+     * two-hour one. Two attempts at that prompt were abandoned mid-run for
+     * budget rather than for anything the machine did.
+     *
+     * So this runs the machine in chunks and checks between them. The chunk is
+     * far finer than the condition it samples and far coarser than the cost it
+     * was paying. */
+    run = (ap_machine_run_t){.status = AP_M68030_STEP_EXECUTED};
+    while (run.executed < limit) {
+      const unsigned remaining = limit - run.executed;
+      const unsigned chunk = remaining < AP_BOOT_TYPE_CHUNK ? remaining
+                                                            : AP_BOOT_TYPE_CHUNK;
+      const ap_machine_run_t part = ap_machine_run(&machine, chunk);
+      run.executed += part.executed;
+      run.status = part.status;
+      if (part.status != AP_M68030_STEP_EXECUTED &&
+          part.status != AP_M68030_STEP_EXCEPTION) {
+        break;
+      }
+      typed_deliver(&machine, board, typed, typed_length, &typed_sent,
+                    &typed_at, type_after_mmu);
     }
   } else {
     run = ap_machine_run(&machine, limit);

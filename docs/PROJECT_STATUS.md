@@ -14232,3 +14232,30 @@ could type.
 
 *Verification: `boot type 2 of 2 character(s) typed` where the same command gave
 1 of 2 before.*
+
+### Typed input leaves the step loop, and that is what made it usable
+
+`--boot-type` forced the step-by-step loop, and the loop is what made every
+experiment with it cost two hours. Two attempts at Domain/OS's calendar prompt
+were abandoned mid-run for budget rather than for anything the machine did.
+
+It never needed the loop. Every other per-instruction feature genuinely inspects
+each step — a trace prints one, a stop compares one, a watch counts one. Typing
+does not: its condition, a configured port and a machine polling for input, holds
+for **millions** of consecutive instructions, so sampling it a few thousand apart
+sees exactly the same thing.
+
+So the fast path now runs in chunks of 4,096 instructions with the same check
+between them, and `typed_deliver` is shared by both paths because the condition
+is identical and only the sampling rate differs.
+
+    step loop   40,000,000 instructions   ~145 s
+    chunked     40,000,000 instructions      35 s
+
+Four times faster, and `boot type 2 of 2 character(s) typed` either way. A
+2.2-billion-instruction run to the calendar prompt goes from about two hours to
+about thirty minutes, which is the difference between an experiment and an
+overnight job.
+
+*Verification: two characters delivered in the fast path with no other flag, and
+`ctest` 121/121.*
