@@ -3928,25 +3928,34 @@ Kept rather than discarded, so a future contradiction has a documented history.
 
 ## Known gaps
 
-- **Nothing advances in time.** `ap_machine_run` steps the CPU and nothing else,
-  so no device clock ticks and no status bit changes on its own. The firmware
-  has not yet needed it — it stops to ask which console it has before starting
-  anything timed — but every device with a counter is inert until the tick loop
-  exists.
-- **The display draws nothing.** Its registers, both graphics memories and the
-  screen identification are modelled; the blitter and the colour lookup table
-  are not. A fitted `c8p` takes 803 writes from the firmware that nothing
-  answers.
-- **The keyboard sends nothing.** Serial 1 channel A is wired and reachable, and
-  the PROM's scan-code table at `000021D2` is read, but no scan codes are
-  generated — so the machine can be typed at only through the oracle.
-- **Serial framing is absent**: no baud rate, start/stop bits or parity, so a
-  character crosses the DUART whole. The firmware autobauds its console by
-  cycling clock select and waiting for a byte to *fail* to decode, which this
-  core cannot yet make happen.
-- No DMA transfers. The shared arbitration point exists (`board/ap_arbiter.c`)
-  and so does an I/O adapter's route into it (`board/ap_master.c`), but nothing
-  yet runs a bus cycle through either.
+**Five entries were removed from this list rather than answered**, because each
+had been true in Phase 3 and false ever since, and nobody reread them. They are
+recorded here as a set because the *pattern* is the useful part: a gap list is
+only as good as its last revision, and this one had been quoted in reasoning
+during the session that finally checked it.
+
+- ~~"Nothing advances in time"~~ — `ap_board_advance` runs every instruction and
+  carries the timer, calendar, SIO, tape, graphics and now the keyboard's wire.
+- ~~"The display draws nothing"~~ — 18,316,356 plane writes in one boot, the
+  blitter and the Bt458 modelled, and Domain/OS legible on the framebuffer.
+- ~~"The keyboard sends nothing"~~ — `ap_kbd_press`/`_release` send scan codes,
+  `ap_board_key_type` types characters, and `--boot-key`/`--boot-type` drive
+  both.
+- ~~"Serial framing is absent"~~ — `ap_sio_receive_framed` frames by the
+  sender's own `CSR` and `MR1`, `ap_mc68681_character_time` gives the rate, and
+  three wrong baud codes were found and fixed by walking the table.
+- ~~"No DMA transfers"~~ — `CPU (dma)` tests #0, #1 and #2 pass on the real
+  firmware, and memory-to-memory transfers are implemented from `[8237]`.
+
+### Still true, and one new one
+
+- **The DUART's transmitter empties only when a caller collects the byte.**
+  `ap_mc68681_transmit` is a pull API, `ap_board_advance` collects for the
+  keyboard's channel, and nothing collects the console's — so a run without
+  `--boot-console` blocks the firmware the first time it prints. A real 2681
+  shifts a character out whether anything is connected or not. The fix is named
+  above and deliberately not made; until it is, **a console-less run's stopping
+  place is a fact about the harness**.
 - **The Series 4000 Master Request Register is unmodelled and stays that way
   until a source names its bits.** `008778-03` §2.4.7's second route to bus
   mastership is "setting a particular bit in this register", and the manual
