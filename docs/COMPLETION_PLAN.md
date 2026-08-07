@@ -4631,8 +4631,20 @@ boot below, and the boot is not attempted until they are done.
       Transposed parity fields; four absent mode-register bits; an ungated
       input-change interrupt; a pinless input bit; three wrong baud rates; and
       five inert `OPCR` selects. `mc68681_suite` 37 -> 45.
+      **Re-tested with the module complete, and the screen is byte-identical.**
+      Nine defects fixed and `KEYBOARD TEST # 0` still reports the same
+      `EXPECTED= 00000002, ACTUAL= 0000FF00, ADDRESS= 0001040B`.
+      That is worth having, and it is what testing *after* completing a module
+      buys: the result now means something. Before the sweep, "the DUART is
+      innocent" was an assumption; now it is a measurement against a part whose
+      every documented bit has been checked against its tables. The failure is
+      somewhere else.
+      Nine defects also did not move this symptom, which says the same thing
+      from the other side -- none of them was on this path, and each was worth
+      fixing on its own evidence rather than as a fix for this.
       *Next, per the rule this session added to `CLAUDE.md`: the same walk for
-      the other parts before any of them is tested again.*
+      the other parts on the boot path -- the keyboard itself first, since it
+      is the other end of this exchange -- before any of them is tested again.*
       That is the first defect of this phase that is genuinely ours, and it is
       narrow: one bit, one register, and a known producer.
       *Verification: `RxRDY` set on channel A by the time `000073EC` reads it,
