@@ -544,10 +544,45 @@ void ap_board_advance(ap_board_t *board, ap_time_t now) {
     uint8_t reply[AP_KBD_REPLY_MAX];
     const unsigned n =
         ap_kbd_receive(&board->keyboard, out, reply, AP_KBD_REPLY_MAX);
-    for (unsigned i = 0; i < n; i++) {
-      ap_sio_receive_framed(&board->sio, KBD_UNIT, KBD_CHANNEL, reply[i],
-                            AP_SIO_KEYBOARD_CSR, AP_SIO_KEYBOARD_MR1);
+    /* Queued, not delivered. See `ap_board.h`: the wire has a length, and a
+     * reply that arrives all at once overruns a three-deep FIFO. A queue that
+     * is already full drops the excess rather than wrapping over bytes still
+     * waiting -- which is what a keyboard talking faster than the line can
+     * carry would really do. */
+    const unsigned room =
+        (unsigned)(sizeof board->kbd_reply.bytes) - board->kbd_reply.count;
+    const unsigned take = n < room ? n : room;
+    for (unsigned i = 0; i < take; i++) {
+      const unsigned at = (board->kbd_reply.head + board->kbd_reply.count + i) %
+                          (unsigned)(sizeof board->kbd_reply.bytes);
+      board->kbd_reply.bytes[at] = reply[i];
     }
+    board->kbd_reply.count += take;
+  }
+
+  /* And the wire itself, one character at a time. The rate is the channel's
+   * own: `ap_sio_character_time` builds it from the receiver's mode registers
+   * and the keyboard's clock select, so a firmware that reprograms the line
+   * changes how fast its keyboard answers, which is what a shared wire does.
+   *
+   * A rate the part cannot name gives zero, and then the byte goes over at
+   * once -- the old behaviour, kept for the case where nothing has programmed
+   * the channel yet, because a character time of zero is not a reason to hold
+   * traffic for ever. */
+  while (board->kbd_reply.count > 0u && now >= board->kbd_reply.next_at) {
+    ap_sio_receive_framed(&board->sio, KBD_UNIT, KBD_CHANNEL,
+                          board->kbd_reply.bytes[board->kbd_reply.head],
+                          AP_SIO_KEYBOARD_CSR, AP_SIO_KEYBOARD_MR1);
+    board->kbd_reply.head = (board->kbd_reply.head + 1u) %
+                            (unsigned)(sizeof board->kbd_reply.bytes);
+    board->kbd_reply.count--;
+    const ap_time_t character = ap_sio_character_time(
+        &board->sio, KBD_UNIT, KBD_CHANNEL, AP_SIO_KEYBOARD_BAUD);
+    if (character == 0u) {
+      board->kbd_reply.next_at = now;
+      break;
+    }
+    board->kbd_reply.next_at = now + character;
   }
 
   /* The raster, which is a *function* of the instant rather than an
@@ -666,6 +701,12 @@ bool ap_board_init_model(ap_board_t *board, uint8_t *ram, uint32_t ram_bytes,
    * register reads `FF`, which is how the firmware learns there is none. */
   ap_graphics_init(&board->graphics, AP_SCREEN_NONE);
   ap_kbd_reset(&board->keyboard);
+  /* The wire is empty, and explicitly so rather than by the `memset` above: a
+   * reset that left a reply half-delivered would put a byte from the previous
+   * machine into the next one's first exchange. */
+  board->kbd_reply.head = 0u;
+  board->kbd_reply.count = 0u;
+  board->kbd_reply.next_at = 0u;
   /* `PROVISIONAL`, and the field's comment says why. Set explicitly rather than
    * left to the `memset` above being zero: the value is a claim about this
    * board, and one that happens to be enumerator zero is still a claim. */

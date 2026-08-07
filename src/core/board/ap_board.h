@@ -185,6 +185,37 @@ typedef struct ap_board {
   ap_graphics_t graphics;
   ap_kbd_t keyboard;
 
+  /* ## The wire between the keyboard and serial 1, which had no length
+   *
+   * The drain used to hand every reply byte to the receiver in the same
+   * instant the command was transmitted. A real keyboard cannot do that: it
+   * answers over a 1200-baud line, one character per character time, and the
+   * receive FIFO is **three deep**.
+   *
+   * `KEYBOARD TEST # 0` is exactly the case that separates the two. The
+   * firmware sends `FF`, `11` and `16` back to back with no reads between
+   * them, and then reads **five** bytes -- three, a comparison, then two more.
+   * Delivered instantly those five arrive into a three-deep FIFO, two are lost
+   * to overrun (`SR` reads `1F`, `AP_MC68681_SR_OVERRUN` set), the first three
+   * reads succeed, and the fourth waits 65,536 times for a byte that was
+   * dropped before the firmware ever looked. Paced, the FIFO never holds more
+   * than the firmware has yet to read.
+   *
+   * So this is a queue with a clock, not a buffer: bytes wait here and go over
+   * one character time apart, framed by the channel's own mode registers.
+   * `AP_KBD_REPLY_MAX` is one reply; two fit, because a command can be sent
+   * while the previous answer is still on the wire. */
+  struct {
+    uint8_t bytes[AP_KBD_REPLY_MAX * 2u];
+    unsigned head;
+    unsigned count;
+    /* When the byte at `head` reaches the receiver. Zero means "as soon as the
+     * next advance runs", which is what a queue that has just been filled
+     * wants -- the first character is one character time away and the advance
+     * that queued it is the one that starts the clock. */
+    ap_time_t next_at;
+  } kbd_reply;
+
   /* Which appendix's AT bus cycle times this board keeps. **`PROVISIONAL`**:
    * `008778-03` covers the DS3000 and DS4000, our reference machine is a
    * DS3500, and `019411-A00` -- the addendum that does cover it -- publishes no

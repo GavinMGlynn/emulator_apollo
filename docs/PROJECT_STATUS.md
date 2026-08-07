@@ -3406,7 +3406,7 @@ failure that cost a bit position in the 68020's module entry word.
 | Board cache (`012000` RAM, `014000` condition codes) | not started. The shared **bus arbitration point** is done and has its own row above | — |
 | Apollo interrupt controllers (`011000`, `011100`) | working: the two 8259As cascaded on **IR3** (measured, not IR2 as the AT convention would have it), vector bases `A0`/`A8` from the boot PROM's own ICW2, giving levels `A0`-`AF`. Priority order matches `008778-03` Table 2-3, which with the cascade on IR3 has no anomaly. The CPU interrupt level is **6**, also measured — neither manual states it, and it took starting the interval timer by hand to make anything request at all | `intr_suite`, 13 tests; `FINDINGS.md` C11, `tools/mame-oracle/writetrace.lua` |
 | Intel 8259A interrupt controller (the part) | working: ICW1-4 sequence, all three OCWs, fully nested priority with rotation, edge and level triggering, special mask and special fully nested modes, poll, AEOI, and the spurious level 7. 8086-mode vectoring only — MCS-80/85's `CALL` sequence is refused rather than approximated, and this machine never uses it. The Apollo *pairing* is a separate module | `i8259_suite`, 28 tests, each citing `8259A` 231468-003 |
-| Core-board address maps (`board/ap_board.c`) | working: every device placed by `008778-03` Table 2-8 and by the measurement that confirmed it, main memory at `1000000`, and an unclaimed address reported **unmapped rather than zero** — the distinction flat RAM hid, which cost 5634 invisible accesses in the first firmware run. Regions are named, so a trace can say *what* the firmware reached for. The AT windows declare a cycle time and everything else answers at the minimum, and an access to the translation map's undescribed seven eighths is counted rather than silently aliased, and each of the two declined core registers is counted apart. The DMA page registers now map offset to channel from `002398-04` p. 12-25, the handbook that prints the table `008778-03` Table 2-6 omits — channel 4, the cascade, has none | `board_suite`, 32 tests; `atbus_suite`, 8 tests |
+| Core-board address maps (`board/ap_board.c`) | working: every device placed by `008778-03` Table 2-8 and by the measurement that confirmed it, main memory at `1000000`, and an unclaimed address reported **unmapped rather than zero** — the distinction flat RAM hid, which cost 5634 invisible accesses in the first firmware run. Regions are named, so a trace can say *what* the firmware reached for. The AT windows declare a cycle time and everything else answers at the minimum, and an access to the translation map's undescribed seven eighths is counted rather than silently aliased, and each of the two declined core registers is counted apart. The DMA page registers now map offset to channel from `002398-04` p. 12-25, the handbook that prints the table `008778-03` Table 2-6 omits — channel 4, the cascade, has none | `board_suite`, 33 tests; `atbus_suite`, 8 tests |
 | Shared bus arbitration point | working: the external priority encoder `[030]` §7.7 requires, DRQ0 through DRQ7 with the processor last, driving the CPU's own arbitration unit over the three-wire protocol. A grant and its acknowledgement are separate instants, so the processor stops driving the bus when it grants rather than when the grant is taken up; a master is never pre-empted mid-transfer | `arbiter_suite`, 9 tests, `MC68030 User's Manual 3ed` §7.7, `008778-03` §2.4.6 |
 | Apollo DMA controllers (`010C00`, `010D00`) | working: DMA 1 at **stride 1** and DMA 2 at **stride 2**, both measured, both aliased through their ranges. A read of a write-only register returns zero where the oracle returns `0F`; `[8237]` marks that read "Illegal", so neither is specified and ours does not invent a register value. The board runs transfers: controller 1's request cascaded onto controller 2's channel 0 and one request reaching the arbiter, the address through the translation map, and the processor stalled while a controller holds the bus. The cascade and the channel assignments are `008778-03` Table 2-4's, so the AT convention this module used to refuse is now cited rather than assumed. **The peripheral side is wired**: the tape drives its own request line and its cartridge reaches memory by DMA, and the disk's two data ports move under an acknowledge | `dma_suite`, 17 tests; `FINDINGS.md` C13 |
 | Intel 8237A DMA controller (the part) | **programming model and transfer cycle complete**: all sixteen register addresses, four channels with base and current address/count, the single shared first/last flip-flop, command/mode/request/mask/status/temporary, master clear, autoinitialise reload and the mask-on-terminal-count rule; and a service cycle that moves a byte either way, verifies without moving one, walks the address up or down, and ends on the borrow out of zero rather than at zero. Memory-to-memory is refused outright rather than half-run. The part drives sixteen bits of address and the board composes the rest — not yet wired to the board | `i8237_suite`, 29 tests, `8237A` 231466 |
@@ -13421,3 +13421,73 @@ The plan orders Phase 4's integration boot ahead of Phase 5, and its verificatio
 cannot be met until the Phase 5 item is fixed. That is a dependency the ordering
 hides, and it is worth stating plainly rather than discovering again: the boot
 item is not waiting on anything in Phase 4.
+
+## The keyboard's wire had no length, and a three-deep FIFO was overrunning
+
+`KEYBOARD TEST # 0` was proved ours earlier this session by finding that the
+oracle passes it. The cause is now measured, and it is not in the keyboard or
+the DUART: it is in the wire between them.
+
+### The routine, disassembled rather than remembered
+
+The plan's transcription of this code had `738C` doing send-*and*-receive. It
+does not:
+
+    00738C  clr.w d2 / btst.b #0,$b(a0) ... move.b d0,$7(a0) / rts   send only
+    0073BE  clr.w d2 / btst.b #1,$b(a0) ... move.b $7(a0),d1 / rts   receive only
+
+and the caller at `0072EE` sends **three** and then reads **five**:
+
+    72F4  move.b #$FF,d0 ; bsr $738C      \
+    72FC  move.b #$11,d0 ; bsr $738C       > three sends, no reads between
+    7304  move.b #$16,d0 ; bsr $738C      /
+    730C  bsr $73BE ; bsr $73BE ; bsr $73BE
+    7318  cmp.b #$0,d1 ; beq $7332
+    731E  cmp.b #$2,d1 ; beq $7332
+    7332  bsr $73BE ; bsr $73BE           two more, after the comparison
+
+### Measured at the drain
+
+A temporary probe in `ap_board_advance`, since reverted:
+
+    KBD tx FF -> 1 reply, fifo=0 sr=0C      after: fifo=1 sr=0D
+    KBD tx 11 -> 1 reply, fifo=1 sr=0D      after: fifo=2 sr=0D
+    KBD tx 16 -> 3 reply, fifo=2 sr=0D      after: fifo=3 sr=1F
+
+`SR` reads **`1F`**, and `0x10` is `AP_MC68681_SR_OVERRUN`. Five reply bytes
+arrive in the same instant, the FIFO is three deep, two are lost. The first
+three reads succeed, and the fourth polls 65,536 times for a byte that was
+dropped before the firmware ever looked at it.
+
+### The defect is instantaneous delivery
+
+`ap_board_advance` drained the transmit holding register and handed every reply
+byte to the receiver in the same instant. A real keyboard answers over a
+1200-baud line at one character per character time, and the firmware — which
+reads with `bsr $73BE` between bytes — drains the FIFO as they arrive.
+
+So the wire is now a queue with a clock: bytes wait on it and go over one
+character time apart, framed by the channel's own mode registers via
+`ap_sio_character_time`, so a firmware that reprograms the line changes how fast
+its keyboard answers. A rate the part cannot name gives zero and the byte goes
+over at once, which is the old behaviour kept for a channel nothing has
+programmed yet.
+
+### What it moved, and what it did not
+
+The overrun is gone and the machine gets further: the receive timeout at
+`0073D8` moves from **4,289,865** to **5,359,216** instructions, and the traced
+wire now carries the `01 02 04 08 05 0A 0C 0F` table one byte at a time with the
+FIFO empty before each.
+
+**The screen is unchanged.** `SELF TEST FAILED ... PC= 000073EC` still. So the
+overrun was real, measured, and is not the whole of it — there is a second
+failure further on, and `0073D8` at 5.36M is a later call than the one at 4.29M.
+Recorded rather than papered over: this fix stands on its own evidence (an
+unphysical instantaneous delivery, and `SR_OVERRUN` set), not on fixing the
+symptom, which it did not.
+
+*Verification: `board_suite` 32 -> 33 — a three-byte command whose answer is
+longer than one byte leaves the FIFO un-overrun, does not arrive all at once,
+and does arrive in full as a reader drains it. And the boot moving by a million
+instructions with the same screen, which is the honest half.*

@@ -296,6 +296,10 @@ void ap_sio_receive_framed(ap_sio_t *sio, unsigned unit, unsigned channel,
  * parity enabled -- the enable bit is **clear for parity**, which is the trap
  * in that field -- and a type of zero, which is even. */
 #define AP_SIO_KEYBOARD_CSR 0x66u
+/* The rate that clock select names, as a number -- needed because the wire the
+ * keyboard answers over has a length, and a character time is built from a
+ * framing and a rate. See `ap_board.h`'s reply queue. */
+#define AP_SIO_KEYBOARD_BAUD 1200u
 #define AP_SIO_KEYBOARD_MR1 0x03u
 
 /* Strap the configuration onto serial 1's input port. */

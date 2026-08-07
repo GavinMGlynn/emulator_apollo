@@ -328,6 +328,73 @@ static void test_a_key_press_reaches_serial_one_channel_a(void) {
       0xCBu, ap_board_read(&b, AP_SIO1_ADDR + (AP_MC68681_RB_TB_A * 2u), &ok));
 }
 
+/* ## The keyboard's replies travel at the line's rate, and that is not a detail
+ *
+ * The wire used to have no length: every reply byte reached the receiver in the
+ * same instant the command was transmitted. The receive FIFO is **three deep**,
+ * and `KEYBOARD TEST # 0` sends `FF`, `11` and `16` back to back with no reads
+ * between them and then reads five bytes. Delivered at once, five bytes overrun
+ * a three-deep FIFO, two are lost, and the fourth read waits 65,536 times for a
+ * byte that was dropped before the firmware ever looked.
+ *
+ * So this asserts the *rate*: the reply is not all there at once, and it is
+ * complete once the line has had time to carry it. */
+static void test_the_keyboards_reply_arrives_at_the_lines_rate(void) {
+  ap_board_t b;
+  bool ok = false;
+  init(&b);
+  ap_board_write(&b, AP_SIO1_ADDR + (AP_MC68681_MR_A * 2u),
+                 AP_SIO_KEYBOARD_MR1, &ok);
+  ap_board_write(&b, AP_SIO1_ADDR + (AP_MC68681_SR_CSR_A * 2u),
+                 AP_SIO_KEYBOARD_CSR, &ok);
+  /* Enable both halves: the transmitter so the command goes out, the receiver
+   * so the answer can land. */
+  ap_board_write(&b, AP_SIO1_ADDR + (AP_MC68681_CR_A * 2u), 0x05u, &ok);
+
+  const ap_time_t character = ap_sio_character_time(
+      &b.sio, 0u, 0u, AP_SIO_KEYBOARD_BAUD);
+  TEST_ASSERT_TRUE(character > 0u);
+
+  /* `FF 11 16` -- the identification exchange, whose answer is more than one
+   * byte. Written back to back, as the firmware writes them, with an advance
+   * between so the transmitter can drain each one. */
+  const uint8_t command[3] = {0xFFu, 0x11u, 0x16u};
+  ap_time_t now = 0u;
+  for (unsigned i = 0; i < 3u; i++) {
+    ap_board_write(&b, AP_SIO1_ADDR + (AP_MC68681_RB_TB_A * 2u), command[i],
+                   &ok);
+    now += character;
+    ap_board_advance(&b, now);
+  }
+
+  /* Not all at once: whatever the keyboard had to say, the line has carried at
+   * most one character per character time and the FIFO has not overrun. */
+  TEST_ASSERT_EQUAL_HEX8(0u, ap_board_read(&b, AP_SIO1_ADDR +
+                                                   (AP_MC68681_SR_CSR_A * 2u),
+                                           &ok) &
+                                 AP_MC68681_SR_OVERRUN);
+  TEST_ASSERT_TRUE(b.kbd_reply.count > 0u);
+
+  /* And it does arrive: draining the FIFO as a reader would, the rest of the
+   * answer follows as the line delivers it. */
+  unsigned drained = 0u;
+  for (unsigned step = 0; step < 64u && b.kbd_reply.count > 0u; step++) {
+    while ((ap_board_read(&b, AP_SIO1_ADDR + (AP_MC68681_SR_CSR_A * 2u), &ok) &
+            AP_MC68681_SR_RXRDY) != 0u) {
+      (void)ap_board_read(&b, AP_SIO1_ADDR + (AP_MC68681_RB_TB_A * 2u), &ok);
+      drained++;
+    }
+    now += character;
+    ap_board_advance(&b, now);
+  }
+  TEST_ASSERT_EQUAL_UINT(0u, b.kbd_reply.count);
+  TEST_ASSERT_TRUE(drained > 0u);
+  TEST_ASSERT_EQUAL_HEX8(0u, ap_board_read(&b, AP_SIO1_ADDR +
+                                                   (AP_MC68681_SR_CSR_A * 2u),
+                                           &ok) &
+                                 AP_MC68681_SR_OVERRUN);
+}
+
 /* A non-transition delivers nothing, and must not reach the port at all — not
  * merely be filtered later. A second press with a byte on the wire would be a
  * key the hardware never reported. */
@@ -876,6 +943,7 @@ int main(void) {
   RUN_TEST(test_the_fpa_trial_access_faults_rather_than_answering);
   RUN_TEST(test_every_core_board_register_is_reachable_through_the_map);
   RUN_TEST(test_a_key_press_reaches_serial_one_channel_a);
+  RUN_TEST(test_the_keyboards_reply_arrives_at_the_lines_rate);
   RUN_TEST(test_a_key_press_into_a_mismatched_port_is_damaged);
   RUN_TEST(test_a_repeated_press_puts_nothing_on_the_port);
   RUN_TEST(test_the_boot_prom_region_is_reported_absent);
