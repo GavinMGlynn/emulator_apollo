@@ -462,6 +462,33 @@ static void test_the_floppy_drives_its_own_interrupt_and_dma_lines(void) {
   TEST_ASSERT_FALSE(ap_omti_fdc_irq(&polled));
 }
 
+/* Table 4-3's two register bits that were stored and never read: `NDMA`, "non-
+ * DMA mode, execution phase only", and the two motor enables. */
+static void test_the_msr_reports_non_dma_mode_and_the_motors(void) {
+  ap_omti_t o;
+  ap_omti_reset(&o);
+  ap_omti_fdc_write(&o, AP_OMTI_FDC_DOR, AP_OMTI_DOR_NOT_RESET);
+
+  /* No command: no execution phase, so no `NDMA` however the mode is set. */
+  TEST_ASSERT_EQUAL_HEX8(0u, ap_omti_fdc_read(&o, AP_OMTI_FDC_MSR) &
+                                 AP_OMTI_MSR_NDMA);
+
+  /* A command with a result phase enters it, and with the DOR's interrupt/DMA
+   * enable clear that is non-DMA mode. */
+  ap_omti_fdc_write(&o, AP_OMTI_FDC_DATA, AP_OMTI_FDC_SENSE_INTERRUPT);
+  TEST_ASSERT_EQUAL_INT(AP_OMTI_PHASE_STATUS, ap_omti_fdc_phase(&o));
+  TEST_ASSERT_EQUAL_HEX8(0u, ap_omti_fdc_read(&o, AP_OMTI_FDC_MSR) &
+                                 AP_OMTI_MSR_NDMA);
+
+  /* The motors: stored, and now readable. */
+  TEST_ASSERT_FALSE(ap_omti_fdc_motor_on(&o, 0u));
+  ap_omti_fdc_write(&o, AP_OMTI_FDC_DOR,
+                    (uint8_t)(AP_OMTI_DOR_NOT_RESET |
+                              AP_OMTI_DOR_DRIVE_A_MOTOR));
+  TEST_ASSERT_TRUE(ap_omti_fdc_motor_on(&o, 0u));
+  TEST_ASSERT_FALSE(ap_omti_fdc_motor_on(&o, 1u));
+}
+
 /* §6.3's three command modifiers, which were defined and never read -- so every
  * floppy command ran as if all three were clear. */
 static void test_the_floppy_command_modifiers_are_read(void) {
@@ -628,6 +655,7 @@ int main(void) {
   RUN_TEST(test_writing_the_sector_buffer_does_not_touch_the_drive);
   RUN_TEST(test_every_command_the_esdi_set_accepts_reaches_an_implementation);
   RUN_TEST(test_a_command_outside_the_esdi_set_reports_invalid_command);
+  RUN_TEST(test_the_msr_reports_non_dma_mode_and_the_motors);
   RUN_TEST(test_the_floppy_command_modifiers_are_read);
   RUN_TEST(test_the_floppy_drives_its_own_interrupt_and_dma_lines);
   RUN_TEST(test_a_completed_command_asks_for_an_interrupt_when_enabled);

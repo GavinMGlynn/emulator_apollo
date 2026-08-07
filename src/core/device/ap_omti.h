@@ -122,6 +122,14 @@ typedef enum {
 #define AP_OMTI_MSR_BUSY 0x10u /* executing a command */
 #define AP_OMTI_MSR_SEEK_B 0x02u
 #define AP_OMTI_MSR_SEEK_A 0x01u
+/* **Never set, and that is the model being honest.** These report a seek *in
+ * progress*, and this core's `SEEK` and `RECALIBRATE` complete within the
+ * command that issues them -- there is no interval during which one is
+ * outstanding, so there is no moment at which the bit could be observed set. A
+ * driver polling for "seek finished" reads the finished state, which is the
+ * right answer arrived at by there being nothing to wait for.
+ * They become real when seeks take time, which is the same boundary the fixed
+ * disk's positioning has. */
 
 /* §6.3's floppy command set: the opcode is the low five bits of the first
  * command byte, the top three being MT, MF and SK on the commands that take
@@ -563,6 +571,10 @@ void ap_omti_attach_floppy(ap_omti_t *omti, ap_afd_t *floppy);
  * format-limited in the same way the `.awd` ID field was before its sidecar --
  * reported, so a driver can see its request was understood, and not silently
  * dropped. */
+/* Whether a drive's motor is running -- Table 4-3's `DOR` bits 4 and 5, which
+ * were stored and never read. */
+[[nodiscard]] bool ap_omti_fdc_motor_on(const ap_omti_t *omti, unsigned drive);
+
 [[nodiscard]] bool ap_omti_fdc_multitrack(const ap_omti_t *omti);
 [[nodiscard]] bool ap_omti_fdc_mfm(const ap_omti_t *omti);
 [[nodiscard]] bool ap_omti_fdc_skip_deleted(const ap_omti_t *omti);

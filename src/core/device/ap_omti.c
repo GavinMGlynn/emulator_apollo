@@ -1356,6 +1356,21 @@ unsigned ap_omti_fdc_result_bytes(uint8_t opcode) {
   }
 }
 
+/* Table 4-3's motor enables. A floppy command reaches the medium only with the
+ * selected drive's motor running -- which is what the bits are *for*, and they
+ * were stored and never read, so a driver that never spun a motor up got its
+ * data anyway.
+ *
+ * Reported rather than enforced in the data path: this core has no spin-up time
+ * and no medium that stops turning, so refusing a command here would model a
+ * failure the model cannot otherwise produce. The bit says what the board
+ * asked; whether a caller acts on it is the caller's. */
+bool ap_omti_fdc_motor_on(const ap_omti_t *omti, unsigned drive) {
+  const uint8_t bit = drive == 0u ? AP_OMTI_DOR_DRIVE_A_MOTOR
+                                  : AP_OMTI_DOR_DRIVE_B_MOTOR;
+  return (omti->dor & bit) != 0u;
+}
+
 /* §6.3's three command modifiers, from the first byte of the command in
  * progress. Zero-length means no command, and no modifiers with it. */
 static bool fdc_modifier(const ap_omti_t *omti, uint8_t bit) {
@@ -1660,8 +1675,23 @@ static uint8_t fdc_give_byte(ap_omti_t *omti) {
 
 uint8_t ap_omti_fdc_read(ap_omti_t *omti, unsigned reg) {
   switch (reg & (AP_OMTI_FLOPPY_REGISTERS - 1u)) {
-  case AP_OMTI_FDC_MSR:
-    return omti->fdc_status;
+  case AP_OMTI_FDC_MSR: {
+    /* Table 4-3's `NDMA`, bit 5: "non-DMA mode, execution phase only". It is
+     * how a driver in programmed I/O knows to move the bytes itself, and it was
+     * defined and never set -- so a polled driver saw the same register as a
+     * DMA one and had nothing to distinguish them.
+     *
+     * Execution phase is the data phase, and "non-DMA" is the Digital Output
+     * Register's interrupt/DMA enable being clear -- the same bit that gates
+     * `IRQ6` and `DRQ2`. One switch, three consumers. */
+    uint8_t status = omti->fdc_status;
+    if ((omti->fdc_phase == AP_OMTI_PHASE_DATA_IN ||
+         omti->fdc_phase == AP_OMTI_PHASE_DATA_OUT) &&
+        (omti->dor & AP_OMTI_DOR_INT_DMA) == 0u) {
+      status |= AP_OMTI_MSR_NDMA;
+    }
+    return status;
+  }
   case AP_OMTI_FDC_DATA:
     if (ap_omti_fdc_in_reset(omti)) {
       return omti->fdc_data;

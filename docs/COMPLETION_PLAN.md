@@ -4685,6 +4685,26 @@ boot below, and the boot is not attempted until they are done.
       `_skip_deleted` read §6.3's three modifiers, with `MT` actionable and
       `MF`/`SK` format-limited by the `.afd` in the same way the `.awd` ID field
       was before its sidecar -- reported rather than silently dropped.
+      **The OMTI's own register tables walked -- the gap the two earlier
+        "complete" claims left.** Both said the OMTI was finished on
+        *command-set* grounds -- §5.4's twenty-eight opcodes, §6.1's ten floppy
+        commands -- and neither touched Tables 4-2 and 4-3, its registers. Five
+        bits were defined and unread, all verified against the implementation
+        first:
+      - **`MSR_NDMA`** -- "non-DMA mode, execution phase only", how a polled
+        driver knows to move the bytes itself. Now set during the data phase
+        when the `DOR`'s interrupt/DMA enable is clear: one switch, three
+        consumers, alongside `IRQ6` and `DRQ2`.
+      - **`DOR` motor enables** -- stored and never read, so a driver that never
+        spun a motor up got its data anyway. `ap_omti_fdc_motor_on` reports
+        them; not enforced in the data path, because this core has no spin-up
+        time and refusing would model a failure it cannot otherwise produce.
+      - **`MSR_SEEK_A`/`_B`** -- documented as deliberately never set: seeks
+        complete within the command that issues them, so there is no interval
+        during which one is outstanding. They become real when seeks take time.
+      - **`ID_ERROR_FLAGS`, `ID_ROM_CHECKSUM`** -- offsets into the static
+        identification block, used by its test to index the data the
+        implementation already provides. Not defects.
       **The remaining four parts walked.**
       - **Bt458: clean.** Nothing defined and unused.
       - ~~**MC146818: `A_DIVIDER` is never read**~~ **done.** Behaviour-checked
