@@ -14004,3 +14004,37 @@ up to that instant rather than a new measurement.*
 
 *The oracle patch is reverted and rebuilt; `ext/mame` carries only its four
 standing local edits.*
+
+### And the firmware paths are identical, which puts it squarely in the keyboard
+
+The other half of the diff, on our side:
+
+    TX 1  00  PC 00006768        oracle: TX 00 pc=0000676E
+    TX 2  01  PC 000067B4        oracle: TX 01 pc=000067B8
+    TX 3  02  PC 000067B4        oracle: TX 02 pc=000067B8
+
+(MAME reports the program counter *after* the storing instruction; ours reports
+the instruction itself, so `6768`/`676E` and `67B4`/`67B8` are the same two
+sites.)
+
+So both machines run the same code and send the same bytes, and **`00` at
+`006768` is the first byte either firmware ever sends the keyboard**. Both
+keyboards are therefore in their power-on state when it arrives — and
+`apollo_kbd.cpp`'s `device_reset` sets `m_loopback_mode = 1`, the same state
+`ap_kbd_reset` sets.
+
+Ours answers `FF 00`. The oracle's answers nothing and echoes the table instead.
+Two models of the same part, in the same state, given the same byte, behaving
+differently — which is as narrow as this gets and is no longer about pacing,
+timing, or the firmware at all.
+
+`apollo_kbd.cpp` says it *should* announce. So either MAME's serial timing
+swallows the announcement — the firmware writes `00` and `01` three microseconds
+apart into a 1200-baud line where a character takes 9.17 ms — or
+`m_loopback_mode` is not what `device_reset` suggests at that instant.
+
+*Next, and it is one patch and one rebuild: instrument `apollo_kbd.cpp` to print
+`m_loopback_mode` and every `xmit_char`, and read which of those two it is. That
+answers whether this core's announcement is wrong or the oracle's is missing —
+and this project expects to out-accurate the oracle, so the answer is not assumed
+either way.*
