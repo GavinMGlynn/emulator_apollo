@@ -4687,7 +4687,10 @@ boot below, and the boot is not attempted until they are done.
       was before its sidecar -- reported rather than silently dropped.
       **The remaining four parts walked.**
       - **Bt458: clean.** Nothing defined and unused.
-      - **MC146818: `A_DIVIDER` is never read.** Register A bits 6-4 are the
+      - **MC146818: `A_DIVIDER` is never read** -- *behaviour checked, not just
+        the name*: nothing in `ap_mc146818.c` masks or shifts Register A's bits
+        6-4 under any spelling, so unlike the MC6840 status flags this one is
+        real. Register A bits 6-4 are the
         oscillator and divider control -- the field that decides whether the
         clock *runs at all*. This core keeps time regardless of what is written
         there, so a driver that stops the divider still sees the seconds
@@ -4706,7 +4709,11 @@ boot below, and the boot is not attempted until they are done.
         **A defined-but-unused scan finds unused *names*, not missing
         behaviour**, and the difference is a fix that would have broken working
         code.
-      - **SC-499: four transcribed figure timings are never applied** --
+      - **SC-499: four transcribed figure timings are never applied** -- also
+        behaviour-checked: the handshake table uses `T_EXCEPTION_TO_READY`,
+        `T_DIRECTION_RELEASE + T_DIRECTION_TO_READY` and
+        `T_COMMAND_EXECUTION`, and the four below are none of those.
+        Namely --
         `T_DATA_TO_REQUEST`, `T_REQUEST_TO_NOT_READY`, `T_CLOSE_MIN` and
         `T_CLOSE_MAX`. Someone read the figures, wrote the constants down, and
         the data path does not use them. That is the `CR_MISC_RESET_BREAK`
