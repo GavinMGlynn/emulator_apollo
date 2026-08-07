@@ -4506,8 +4506,20 @@ boot below, and the boot is not attempted until they are done.
       physical `005F8C`. Every "never reached" conclusion from this flag --
       including `0073D8` above -- is therefore unsafe, and that one should be
       re-examined rather than trusted.
-      *Verification: `--boot-stop-pc` (logical) rather than the physical form,
-      on both addresses.*
+      **The logical form does not fire either**, and the registers are
+      byte-identical between the two runs -- so it is not the address form.
+      **It is the stepping mode**, and this was documented earlier in this very
+      item: the step-by-step loop is entered only when `trace`, `trace_last`,
+      `input_length`, `console`, `script.steps` or `key` is set, and *none* of
+      these three runs had any of them. `--boot-progress` was noted as silent
+      outside that loop hours ago; the PC stop checks live in the same place and
+      are equally silent.
+      So **both** "never reached" conclusions are artefacts of a harness trap
+      already written down in this file, and both are withdrawn. `0073D8` and
+      `005F8C` have not been shown to be unreachable; they have been shown to be
+      unwatched.
+      *Verification: the same stops with `--boot-console` present, which forces
+      the stepping loop.*
       That is the first defect of this phase that is genuinely ours, and it is
       narrow: one bit, one register, and a known producer.
       *Verification: `RxRDY` set on channel A by the time `000073EC` reads it,
