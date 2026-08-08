@@ -3936,6 +3936,19 @@ Only after the reference core is proven, and only under an identity harness.
       results, cached per-cycle re-derived values. *Verification: probe goldens
       and boot state hashes byte-identical; speed-up measured on release
       builds only.*
+  - **"Cached per-cycle re-derived values" was tried on the profile's top
+    candidate and is a 14% regression.** The 8259's priority resolver is 7.3% of
+    a boot, so it was cached behind an eager recompute with a debug-build
+    assertion. Identity held — `ctest` 129/129 with the assertion live, a debug
+    boot of 30 M instructions with zero assertion failures, and the 350 M state
+    hash `67A14B3BB6041410` unchanged — and the clean release timing went
+    **339 s → 386 s**. Reverted.
+    The mechanism is the lesson: `ap_board_sample_interrupts` writes about eight
+    interrupt lines *per instruction*, so a cache recomputed on write runs more
+    often than the old code resolved on read. **Caching only pays where reads
+    outnumber writes, and here they do not.** The fix this points at is fewer
+    writes — a line whose value has not changed should not reach the part at
+    all — not a cheaper resolve.
 - [ ] Exact-skip scheduling: `next_event()` and `skip(n)` per subsystem, CPU
       half and devices half of the tick split so a span-breaking I/O write still
       runs its devices half canonically. *Verification: entire probe suite and
