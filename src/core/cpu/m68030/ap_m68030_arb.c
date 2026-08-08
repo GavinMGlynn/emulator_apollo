@@ -145,6 +145,33 @@ static bool sync_advance(uint8_t *shift, bool pin) {
 }
 
 void ap_m68030_arb_tick(ap_m68030_arb_t *arb) {
+  /* ## The idle state, skipped because it is provably a no-op
+   *
+   * This runs on every bus tick, and a real boot arbitrates almost never -- a
+   * whole Domain/OS boot reports **8 requests and 2 holds against 1.6 billion
+   * ticks**. `perf` still put it at 9.6% of the run, second only to the bus
+   * tick itself, because it is the cheapest possible work done the largest
+   * possible number of times.
+   *
+   * With the machine in state 0, both pins low and both synchronisers empty,
+   * every line below writes back what is already there:
+   *
+   *   - `r` and `a` are false, because each was taken from the top bit of a
+   *     register that is zero -- so `next_state` returns state 0 again;
+   *   - state 0's outputs are `bg = false` and `three_state = false`, which is
+   *     what `drive_outputs` last wrote and what `ap_m68030_arb_init`'s
+   *     `memset` leaves, so an arbiter in state 0 always already has them;
+   *   - `sync_advance` shifts a zero into a zero register and returns false.
+   *
+   * So this is an idle-skip guard in the plan's sense: it names the subsystem's
+   * no-op state rather than guessing that a tick "probably" does nothing.
+   * Anything less than provable belongs nowhere near the reference core, and
+   * the boot state hash is the check. */
+  if (arb->state == AP_M68030_ARB_STATE_0 && !arb->br && !arb->bgack &&
+      arb->br_sync == 0u && arb->bgack_sync == 0u) {
+    return;
+  }
+
   /* Transition on R and A as they already stood: "State changes occur on the
    * next rising edge of the clock after the internal signal is valid." */
   arb->state = next_state(arb);

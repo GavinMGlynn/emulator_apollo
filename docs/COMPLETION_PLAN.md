@@ -3936,9 +3936,9 @@ Only after the reference core is proven, and only under an identity harness.
       results, cached per-cycle re-derived values. *Verification: probe goldens
       and boot state hashes byte-identical; speed-up measured on release
       builds only.*
-      **Awaiting:** LTO is already on and the re-derived-value candidates are
-      now measured and closed. What is left is `flatten` on the run loops, the
-      idle-skip guards, and cached arbitration — none of which has been tried.
+      **Awaiting:** `flatten` on the run loops and the remaining idle-skip
+      guards. LTO is already on, the re-derived-value candidates are measured
+      and closed, and arbitration is done below.
   - **"Cached per-cycle re-derived values" was tried on the profile's top
     candidate and is a 14% regression.** The 8259's priority resolver is 7.3% of
     a boot, so it was cached behind an eager recompute with a debug-build
@@ -3974,6 +3974,14 @@ Only after the reference core is proven, and only under an identity harness.
     an acknowledge should have produced.
     **The fix is specified**: make the slave's own write and acknowledge paths
     update the cascade, and the skip becomes safe.
+  - [x] **Bus arbitration idle-skip: 1.12x, identity preserved.**
+    `ap_m68030_arb_tick` runs on every bus tick and a whole boot arbitrates
+    almost never — **8 requests and 2 holds against 1.46 billion ticks** — yet
+    `perf` put it at 9.6% of the run. Guarded on the no-op state, where every
+    line provably writes back what is already there.
+    *Verification: 344 s → 309 s and 304 s, 350 M state hash
+    `67A14B3BB6041410` unchanged; `ctest` 129/129. Detail in
+    `PROJECT_STATUS.md`.*
   - [x] **Done, and it was a latent defect rather than an optimisation.**
     `ap_intr`'s read, write and reset paths now refresh the cascade, which its
     own comment already claimed they did. **The "worth about 20%" above is

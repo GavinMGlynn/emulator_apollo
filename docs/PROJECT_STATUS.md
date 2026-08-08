@@ -17763,3 +17763,50 @@ raises one, then unmasks it through `OCW1` **touching nothing else** -- which is
 exactly what the per-instruction re-drive used to supply. It fails without the
 fix and passes with it, checked both ways. `ctest` 129/129 and the 350 M state
 hash back to `67A14B3BB6041410`.*
+
+
+## The arbiter that arbitrates eight times in 1.46 billion ticks
+
+Re-profiling after the last two changes moved the shape completely.
+`ap_board_read` fell from **28% to 3%** once the trace read-back stopped walking
+the tree every instruction, and `resolve` from 7.3% to 4.9% once the cascade
+stopped being recalculated for writes that changed nothing. What surfaced
+underneath was the pair those two had been hiding:
+
+```
+11.80%  ap_board_bus_tick          4.90%  machine_cache_inhibited
+ 9.64%  ap_m68030_arb_tick         4.89%  resolve
+ 6.77%  ap_m68030_step             4.88%  fill_to_decoded
+ 5.99%  ap_board_sample_interrupts
+```
+
+**`ap_m68030_arb_tick` at 9.6% is the cheapest possible work done the largest
+possible number of times.** The run's own counter says so: **8 requests and 2
+holds against 1,460,151,690 bus ticks.** Nothing is arbitrating; the state
+machine is clocked anyway, because that is what a cycle-stepped core does.
+
+**The guard names the no-op state rather than guessing at it**, which is the
+distinction the plan item draws. With the machine in state 0, both pins low and
+both synchronisers empty, every line of the tick writes back what is there:
+
+- `r` and `a` are false, each taken from the top bit of a register that is
+  zero, so `next_state` returns state 0 again;
+- state 0's outputs are `bg = false` and `three_state = false` -- what
+  `drive_outputs` last wrote *and* what `ap_m68030_arb_init`'s `memset` leaves,
+  so an arbiter in state 0 always already has them;
+- `sync_advance` shifts a zero into a zero register and returns false.
+
+The middle point is the one that had to be checked rather than assumed: it is
+why the guard may skip `drive_outputs`, and it holds only because init leaves
+the outputs consistent with the state it sets. Had `init` set the state without
+the outputs, the first tick would have been the one that fixed them and this
+guard would have skipped it.
+
+**1.12x, and the machine is bit-identical**: 344 s to 309 s and 304 s, state
+hash `67A14B3BB6041410` on both runs.
+
+Together with the read-back fix, a bounded 350 M boot has gone from 541 s to
+304 s this session -- **1.78x** -- with the same state hash throughout.
+
+*Verification: `ctest` 129/129, every golden unchanged, two independent
+timings.*
