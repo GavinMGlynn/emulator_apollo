@@ -15032,3 +15032,26 @@ computed answer, and it is zero because that bit is clear. The same byte's bit 0
 is tested a few instructions earlier and selects between writing `1` and `2` to
 another local. Which capability that byte describes is the next question, and it
 is now a question about *our* machine's state, since the oracle's answer differs.
+
+
+## `CONFIGURATION INFORMATION IS NOT INITIALIZED` is cosmetic, settled by the oracle
+
+This warning has been an open item since Phase 4 and was briefly promoted to
+*the* suspect for the kernel crash, on the reasoning that the machine prints it
+and then tells you to run `EX CONFIG`.
+
+The oracle's normal-mode boot closes it without any further work on our side:
+MAME prints **the same warning**, on the same disk, and then goes on to reach
+the DM `login:` prompt. A message that appears on a machine that boots to a
+login prompt is not what stops ours.
+
+So the configuration table is **not** a prerequisite for booting Domain/OS, and
+`SELF_TEST`'s reads of registers `2B` and `31-3F` -- which the DN3000 table calls
+unused -- are not a blocker either. Both remain interesting for completeness (the
+DN3500 layout genuinely extends past the published page, and the PROM's own code
+reads `2B` and `2C`), but neither is on the path to a login prompt.
+
+Recorded because the opposite was asserted earlier the same day: promoting a
+warning to a blocker on the strength of the machine offering a remedy for it,
+without checking whether a *working* machine printed it too. The check cost
+nothing once the oracle was running.
