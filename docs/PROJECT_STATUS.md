@@ -17101,13 +17101,13 @@ resolution order was walked in full before any of the second was attempted:
 
 - **The part's own manual**: there is no Series 2500 technical reference.
 - **The sibling manuals on disk**: `008778-03` is Series 3000/4000.
-  `019411-A00`, the 1991 addendum and the newest hardware document here, does
-  not contain the string "2500" at all. Of the eighteen PDFs in
-  `docs/references/bitsavers`, exactly two mention the machine --
-  `5952-2149` and `HP-Apollo_Products_Configuration_Guide_Dec89` -- and both
-  are *configuration* guides. They give sizes ("configurable in increments of
-  4, 8, 12, or 16MB", with 64 MB promised "with the economical availability of
-  4MB DRAMs") and no addresses.
+  `019411-A00`, the 1991 addendum and the newest hardware document held, does
+  not contain the string "2500" at all. Of the eighteen bitsavers scans on this
+  machine -- untracked, since they are not ours to redistribute -- exactly two
+  mention it: `5952-2149` and the HP-Apollo Products Configuration Guide of
+  December 1989, both *configuration* guides. They give sizes ("configurable in
+  increments of 4, 8, 12, or 16MB", with 64 MB promised "with the economical
+  availability of 4MB DRAMs") and no addresses.
 - **The web**: nothing beyond the same bitsavers scans.
 - **The oracle**: MAME has no Series 2500 driver at all.
 
