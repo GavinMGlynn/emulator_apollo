@@ -17211,3 +17211,63 @@ following it. `ctest` 123/123. Findings 18-20 in `docs/references/RING.md`.*
 header, packet data, frame check, end-of-frame, pp. 2-6 to 2-9. Their figures
 will need the same image treatment, which is now a known cost rather than a
 surprise.
+
+
+## The ring's frame formats, and a CRC that is not the one you expect
+
+`src/core/ring/ap_ring_frame.*` implements `[MAC]` §2.2.2 -- the packet header,
+the type field, both acknowledge fields, the length rules and the frame check.
+Four more figures read as page images, for the same reason as the last entry.
+
+**The finding worth putting first: the ring's CRC-32 is not Ethernet's.**
+§2.2.2.4 p. 2-8 gives the generator as a *product*, `g(X) = (X^21 + 1)(X^11 +
+X^2 + 1)`, which expands to `X^32 + X^23 + X^21 + X^11 + X^2 + 1` -- register
+form `0x00A00805`, against Ethernet's `0x04C11DB7`. The manual never writes the
+expanded form, so a reader skimming for a hex constant finds none and the
+temptation is to reach for the familiar one. A ring built that way would emit
+frames no Apollo node accepts, and **a round-trip test against itself would pass
+every time**. The test therefore multiplies the two factors out in the test and
+compares the result against the constant, so it checks the expansion rather than
+checking that two places hold the same number.
+
+**The acknowledge fields explain the one strange thing about that CRC.** A
+frame's early acknowledge byte is written by the transmitter and *modified by
+other nodes as it goes past* -- an addressed receiver sets intend-to-copy in it.
+Nothing in a normal frame check survives that, so §2.2.2.2 exempts it: "ring
+hardware treats this field as a string of Zeros in its CRC calculation". The
+byte contributes zeros whatever it holds, and no CRC is ever recomputed. The
+late acknowledge field, in the end-of-frame sequence, is outside the CRC
+altogether -- the covered material is the header and data sequences and their
+separators, and end-of-frame is neither.
+
+Field layouts, all from figures:
+
+```
+packet header  +0 destination (2 words)   Figure 2-5 p. 2-6
+               +4 type (1 word)
+               +6 zero byte | early acknowledge byte
+               +8 source (2 words)
+               +C header data, 0-1012 bytes
+type field     15:8 reserved, 7:1 named, 0 reserved   Figure 2-6 p. 2-7
+early ack      7 zero, 6:5 rsvd, 4 zero, 3 intend-to-copy,
+               2 rsvd, 1 odd parity, 0 zero           Figure 2-7 p. 2-8
+late ack       7 zero, 6 copied, 5 wait-ack, 4 zero, 3 intend-to-copy,
+               2 error, 1 odd parity, 0 zero          Figure 2-8 p. 2-9
+```
+
+**Two details that would be easy to lose.** The type field is bits 7:1 and
+**bit 0 is reserved** -- it is a seven-bit field wearing an eight-bit shape, and
+a model that treated bit 0 as a type bit would look right until something used
+it. And the header's 12-to-1024 range closes exactly against the header data's
+0-to-1012, which is the arithmetic check that the fixed part really is twelve
+bytes and not, say, eleven with padding.
+
+**Marked `PROVISIONAL`, in code and here.** §2.2.2.4 says the CRC covers "the
+separators" and does not say *how* a nine-bit out-of-band symbol is fed to a
+bit-serial CRC -- all nine bits, or the byte-aligned part, or not at all. This
+core feeds all nine. No capture exists to decide it and the manual does not
+return to it; the ring firmware's own CRC routine is where the answer will come
+from, and that is a disassembly task rather than a reading task.
+
+*Verification: `ring_frame_suite`, 9 tests; `ctest` 124/124. Findings 21-26 in
+`docs/references/RING.md`, with 25a carrying the provisional reading.*

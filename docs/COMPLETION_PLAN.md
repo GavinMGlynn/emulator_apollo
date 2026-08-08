@@ -3766,8 +3766,10 @@ discipline throughout.
       separator characters, null separators, packet header, packet data, FCS,
       end-of-frame. *Verification: each format cites its manual section;
       encode/decode round-trip tests.*
-      **Awaiting:** §2.2.2's five frame sequences. The symbol level below is
-      done; the frame level is not, and the parent's verification names both.
+      **Awaiting:** the frame *assembly* — walking a whole frame's five
+      sequences in order over the bit stream. The field formats and the CRC are
+      done; what is missing is the state machine that emits and parses them as
+      a sequence, which belongs with the controller device.
   - [x] **§2.2.1, the symbol level, is done**: `src/core/ring/ap_ring_mac.*`
         holds bit stuffing and the four out-of-band characters as nine-bit
         symbols, with a writer and reader that round-trip data through the
@@ -3775,10 +3777,17 @@ discipline throughout.
         `RING.md`.
         *Verification: `ring_mac_suite`, 11 tests, each citing its `[MAC]`
         section and page.*
-  - **Still open: §2.2.2, the five frame sequences** — frame start, packet
-    header, packet data, frame check, end-of-frame (pp. 2-6 to 2-9). The
-    figures on those pages need reading as images too; the text layer is
-    unusable for all of them, which is now a known cost rather than a surprise.
+  - [x] **§2.2.2's formats are done**: `src/core/ring/ap_ring_frame.*` holds
+        the packet header layout, the type field, both acknowledge fields with
+        their odd parity, the length rules, and the frame check — whose
+        generator is **not** Ethernet's. Findings 21-26 in `RING.md`.
+        *Verification: `ring_frame_suite`, 9 tests, including one that
+        multiplies out `(X^21 + 1)(X^11 + X^2 + 1)` and checks the register
+        constant against the product rather than against a copy of itself.*
+  - One reading is `PROVISIONAL` and marked as such in the header: §2.2.2.4
+    says the CRC covers "the separators" without saying how a nine-bit symbol
+    is fed to a bit-serial CRC. All nine bits go in. The ring firmware's own
+    CRC routine will settle it.
   - The type bits came out as `00`/`01`/`10`/`11` for separator / frame start /
     free / claimed. Worth re-reading against the figures if anything downstream
     disagrees: two of the four are corroborated by prose (§2.2.1.1's "changing
