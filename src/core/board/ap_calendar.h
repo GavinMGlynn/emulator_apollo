@@ -119,6 +119,29 @@
 #define AP_CALENDAR_CONFIG_DISK_TYPE 0x28u
 #define AP_CALENDAR_CONFIG_UNUSED 0x29u
 
+/* Two bytes the DN3000 page calls unused and this machine's PROM reads.
+ *
+ * Decoded from `3500_BOOT_12191_7.bin` itself, which is the authority for what
+ * the firmware does with the table:
+ *
+ *     001784  LEA  $0001090E,A0              ; A0 -> register 0E
+ *     00178A  CMPI.L #$1234ABCD,$4(A0)       ; register 12, the valid pattern
+ *     001792  BNE.S 0017A2
+ *     001794  TST.B $1D(A0)                  ; register 2B
+ *     001798  BEQ.S 0017A2
+ *     00179A  MOVE.B $1D(A0),D0              ; register 2B
+ *     00179E  MOVE.B $1E(A0),D4              ; register 2C
+ *
+ * `MOVEQ #2,D0` and `CLR.B D4` immediately precede the sequence, so `2` and `0`
+ * are the values used when the pattern does not match or `2B` is zero. What the
+ * two then select is not decoded here and is not guessed at.
+ *
+ * The same fragment settles a second question: this path compares the valid
+ * pattern and **computes no checksum**, so the four bytes at `0E` are not
+ * verified by the PROM. Whatever writes them, it is not this. */
+#define AP_CALENDAR_CONFIG_PROM_SELECT 0x2Bu
+#define AP_CALENDAR_CONFIG_PROM_SELECT_2 0x2Cu
+
 /* The `DEV BIT ARRAY`'s bits, from the same page. A device present is a bit
  * set; which of the four bytes at `22` carries them is not stated, and is not
  * guessed at here. */

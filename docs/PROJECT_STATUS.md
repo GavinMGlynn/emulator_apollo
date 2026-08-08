@@ -14720,3 +14720,39 @@ so the next measurement has to distinguish *within* the seeded case -- a table
 with a valid pattern and a correct checksum against one with the pattern alone.
 The checksum's algorithm is still unknown, and that is now the blocking unknown
 rather than a footnote.
+
+
+## The PROM's own code answers the `2B` question, and un-asks the checksum
+
+The blocking unknown was named as the checksum algorithm. Reading the boot
+PROM around the valid-pattern compare -- the primary source, already on disk --
+shows there is no checksum to find on this path:
+
+```
+001784  LEA  $0001090E,A0              ; A0 -> register 0E
+00178A  CMPI.L #$1234ABCD,$4(A0)       ; register 12, the valid pattern
+001792  BNE.S 0017A2
+001794  TST.B $1D(A0)                  ; register 2B
+001798  BEQ.S 0017A2
+00179A  MOVE.B $1D(A0),D0              ; register 2B
+00179E  MOVE.B $1E(A0),D4              ; register 2C
+```
+
+Three things follow, all read rather than inferred.
+
+1. **`A0` is register `0E`,** and `$4(A0)` is register `12`. That is the
+   handbook's layout confirmed against the firmware: checksum at `0E`, valid
+   pattern at `12`.
+2. **Registers `2B` and `2C` are read, and only when the pattern matches.**
+   The DN3000 page calls `29-3F` unused, so the DN3500's table does extend past
+   it, which is what the earlier census of `SELF_TEST` had suggested without
+   being able to say why. `MOVEQ #2,D0` and `CLR.B D4` just above give the
+   values used when the pattern fails or `2B` is zero.
+3. **No checksum is computed here.** The PROM compares the pattern and moves
+   on, so the four bytes at `0E` are not verified by this firmware. The
+   "blocking unknown" of the previous entry was the wrong question.
+
+What is still open is what `D0` and `D4` select, and that is deliberately not
+guessed at -- the two are carried into a `BSR` whose target has not been read.
+`CONFIGURATION INFORMATION IS NOT INITIALIZED` comes from `SELF_TEST` off the
+disk, which is different code from this and still unexamined.
