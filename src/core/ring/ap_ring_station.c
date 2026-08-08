@@ -33,6 +33,14 @@ static bool window_holds_free_token(const ap_ring_station_t *s) {
 
 void ap_ring_station_drive(ap_ring_station_t *s, ap_ring_medium_t *m) {
   bool bit = false;
+  /* Whether the claim happened on *this* bit. Stripping starts with the claim
+   * (§2.1 step 3) but must not swallow the very bit that carries it: the
+   * claimed token's last bit is the One this station is driving, and stripping
+   * it back to a Zero turns the claimed token into a free one again. The next
+   * station downstream then claims a ring that is already taken -- which is
+   * exactly what the contention test caught, for the second time and by a
+   * different route than the first. */
+  bool claimed_now = false;
 
   if (s->originate_left > 0u) {
     const unsigned shift = (unsigned)s->originate_left - 1u;
@@ -55,8 +63,41 @@ void ap_ring_station_drive(ap_ring_station_t *s, ap_ring_medium_t *m) {
       s->holds_ring = true;
       s->wants_ring = false;
       s->claims_made++;
+      /* §2.1 step 3: acquiring the ring "breaks ring recirculation" and
+       * stripping begins in the same breath. The two are one event, not two,
+       * which is why they are set together here. */
+      s->stripping = true;
+      s->bits_stripping = 0u;
+      claimed_now = true;
     }
     s->bits_forwarded++;
+  }
+
+  if (s->stripping && !claimed_now) {
+    /* "pads the bit serial stream with Zeros" (§2.1 step 4). Whatever arrived
+     * is discarded; a Zero goes out in its place. */
+    bit = false;
+    s->bits_stripping++;
+    if (s->bits_stripping >= AP_RING_STRIP_TIMEOUT_BITS) {
+      /* "or until a 10.9 msec (2^14 byte) timeout occurs. This timeout
+       * prevents a node from stripping bits forever." Step 8: recirculation
+       * resumes when it stops. */
+      s->stripping = false;
+      s->holds_ring = false;
+      s->strip_timeouts++;
+    }
+  }
+
+  /* §2.2.1.1: with no token on the ring, a node that wants to transmit "can
+   * generate a claimed token (after a specified timeout) in order to force
+   * transmission". The timeout is PROVISIONAL -- see the header. */
+  if (s->wants_ring && !s->holds_ring && s->originate_left == 0u &&
+      s->bits_since_token >= AP_RING_TOKEN_LOSS_TIMEOUT_BITS) {
+    ap_ring_station_originate_token(s, AP_RING_OOB_CLAIMED_TOKEN);
+    s->holds_ring = true;
+    s->wants_ring = false;
+    s->forced_tokens++;
+    s->bits_since_token = 0u;
   }
 
   const ap_ring_cell_t cell = ap_ring_biphase_encode(bit, s->tx_level);
@@ -89,9 +130,18 @@ void ap_ring_station_receive(ap_ring_station_t *s, const ap_ring_medium_t *m) {
   }
 
   uint16_t symbol = 0u;
+  s->bits_since_token++;
   if (ap_ring_station_at_symbol(s, &symbol) &&
-      symbol == AP_RING_OOB_FREE_TOKEN) {
-    s->tokens_seen++;
+      (symbol == AP_RING_OOB_FREE_TOKEN ||
+       symbol == AP_RING_OOB_CLAIMED_TOKEN)) {
+    /* Either token resets the loss timer: §2.2.1.1's condition is that *no*
+     * token exists on the ring, and a claimed one is a token. A station that
+     * only watched for free tokens would force a second token onto a ring that
+     * was merely busy, which is how a token ring acquires two. */
+    s->bits_since_token = 0u;
+    if (symbol == AP_RING_OOB_FREE_TOKEN) {
+      s->tokens_seen++;
+    }
   }
 
   /* Forwarded next bit time: "receive data in, and then immediately send it

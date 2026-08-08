@@ -3841,9 +3841,17 @@ discipline throughout.
 - [ ] Two nodes see each other over the ring under Domain/OS. *Verification:
       `lcnode` on each node lists the other; console output diffed against
       itself across runs for determinism.*
-- [ ] Node insertion and removal mid-run, including token loss and
-      reconfiguration. *Verification: probes over the documented recovery
-      behaviour.*
+- [x] Node insertion and removal mid-run, with stripping and token loss, in
+      `src/core/ring/ap_ring_station.*`. The transmit sequence of `[MAC]` §2.1
+      and its 10.9 ms (2^14 byte) stripping timeout are implemented; removing a
+      node mid-run is measured to lose an in-flight token, and a waiting
+      station recovers by forcing a claimed token. Findings 34-37 in `RING.md`.
+      *Verification: five more `ring_station_suite` tests, 12 in total. Detail
+      in `PROJECT_STATUS.md`.*
+  - One value stays `PROVISIONAL` and is marked in the header: §2.2.1.1 says a
+    node forces a token "after a specified timeout" and never specifies it.
+    The stripping timeout stands in, as the only documented figure of the right
+    order; patent 4,716,575 is where a real one would come from.
 - [ ] 3c505 802.3 controller, so Domain networking can also be checked against
       MAME the way MAME does it. *Verification: oracle diff — this is the one
       networking path with a runnable reference.*

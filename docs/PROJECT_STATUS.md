@@ -17524,3 +17524,64 @@ length the medium refuses, and circumference against token width -- plus one
 more in `ring_station_suite` showing a three-station ring circulating a token
 once it has cable. `ctest` 129/129, and `tests/goldens/ring_probes.txt`
 byte-identical.*
+
+
+## Stripping, token loss, and three tests that were asserting the wrong thing
+
+`[MAC]` §2.1's eight-step transmit sequence is implemented: a node acquires the
+ring by modifying a passing token, "breaks ring recirculation", strips received
+data while it transmits, and recirculation resumes when it stops. With it comes
+the one recovery figure the manual puts a number on.
+
+**The stripping timeout, and an exponent that does not survive OCR.** §2.1 step
+7: a node strips "until it finishes receiving its own frame, or until a **10.9
+msec (2^14 byte)** timeout occurs". `pdftotext` renders that as "214 byte" --
+the superscript flattened into the number, giving a value that is plausible,
+precise-looking and wrong by three orders of magnitude. Read from the page
+image, and the two forms then cross-check each other: 2^14 bytes is 131,072
+bits, which at 12 Mbit/s is 10.923 ms. The test compares to a tenth of a
+millisecond, the precision the manual states, rather than asserting our own
+rounding of it.
+
+The same page also confirmed two things `ap_ring_frame.*` had taken from
+figures alone: the stuffing is explicitly "a Synchronous Data Link Control-
+(SDLC-) type" algorithm, and "all data must be transmitted most-significant-bit
+first (in a byte) and most-significant-byte first (in a multi-byte field)".
+
+**An ordering bug the contention test caught for the second time, by a new
+route.** Stripping begins with the claim -- §2.1 step 3 makes them one event --
+and the first implementation therefore stripped the very bit that carried the
+claim. The claimed token's last bit is the One the station drives; stripping it
+back to a Zero turns the claimed token into a **free** one again, and the next
+station downstream claims a ring that is already taken. The fix is to let the
+claim's own bit through and begin stripping on the next.
+
+**And three tests that asserted things a real ring cannot promise.** All three
+are recorded because each was wrong in an instructive way:
+
+- *"A node leaving does not break the ring"* asserted that the circulating token
+  survives. It does not. A token inside the departing node, or in the cable it
+  drives, goes with it, and the far side stops seeing tokens entirely. That is
+  not a defect -- it is exactly the token loss §2.2.1.1's forced claimed token
+  exists to recover from. The test now claims what §3.5 actually promises: the
+  *signal path* survives, shown by a token put on after the removal reaching
+  the far side.
+- *"A waiting station on a ring with a token holds it"* failed over a long run
+  because the station claims, strips, and the documented timeout then releases
+  the ring. Asserting `holds_ring` at the end was asserting that the timeout
+  does not work; the test now asserts the claim and the timeout both happened.
+- *"The timeout is 10923 microseconds"* was our rounding, not the manual's
+  number.
+
+**One value stays `PROVISIONAL`.** §2.2.1.1 says a node with nothing to receive
+forces a claimed token "after a specified timeout" and never specifies it. The
+stripping timeout stands in as the only documented figure of the right order,
+marked in `ap_ring_station.h` and in `RING.md` question E, with patent 4,716,575
+named as where a real figure would come from. A station also resets its
+loss timer on a *claimed* token as well as a free one -- §2.2.1.1's condition is
+that no token exists, and a station watching only for free tokens would force a
+second onto a ring that was merely busy, which is how a token ring acquires two.
+
+*Verification: five more `ring_station_suite` tests, twelve in total; findings
+34-37 in `docs/references/RING.md`; `ctest` 129/129 and the ring probe golden
+byte-identical.*

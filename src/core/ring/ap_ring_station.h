@@ -41,6 +41,45 @@
 #include "ring/ap_ring_mac.h"
 #include "ring/ap_ring_medium.h"
 
+/* ## Stripping, and the one timeout `[MAC]` puts a number on
+ *
+ * §2.1 step 3: once a node has the ring it "breaks ring recirculation and
+ * begins to transmit its packet. Concurrently, it begins to discard received
+ * data (including its own packet, which will eventually come back around the
+ * ring). The process of discarding received data is called stripping."
+ *
+ * Step 7 bounds it: "The transmitting node continues to strip all data from the
+ * ring until it finishes receiving its own frame, or until a 10.9 msec (2^14
+ * byte) timeout occurs. This timeout prevents a node from stripping bits
+ * forever (for example, if its frame has gotten lost on the ring)."
+ *
+ * The two figures agree and each checks the other: 2^14 bytes is 131,072 bits,
+ * and at 12 Mbit/s that is 10.923 ms. Worth stating because the exponent does
+ * not survive a text extraction -- `pdftotext` renders it as "214 byte", which
+ * reads as a plausible and entirely wrong number. Read from the page image.
+ *
+ * Step 8: "When a node stops stripping, recirculation resumes around the ring."
+ */
+#define AP_RING_STRIP_TIMEOUT_BYTES 16384u
+#define AP_RING_STRIP_TIMEOUT_BITS (AP_RING_STRIP_TIMEOUT_BYTES * 8u)
+
+/* ## The other timeout, which `[MAC]` does not put a number on
+ *
+ * §2.2.1.1: "If no token exists on the network (for example, if the ring has
+ * broken), any node that wants to transmit can generate a claimed token (after
+ * a specified timeout) in order to force transmission."
+ *
+ * The manual specifies *that* there is a timeout and never says what it is.
+ * `PROVISIONAL`: this core uses the stripping timeout, which is the only
+ * documented figure of the right order and is at least anchored to something
+ * the manual states rather than invented. `RING.md` question E carries it, and
+ * patent 4,716,575 is where a real figure would come from.
+ *
+ * Recorded as its own constant and not spelled `AP_RING_STRIP_TIMEOUT_BITS` at
+ * its use site, so that when a real figure turns up, changing it is a one-line
+ * edit and every probe that depends on it moves together. */
+#define AP_RING_TOKEN_LOSS_TIMEOUT_BITS AP_RING_STRIP_TIMEOUT_BITS
+
 typedef struct {
   int slot; /* where on the medium */
 
@@ -61,7 +100,15 @@ typedef struct {
 
   bool wants_ring;   /* the host has something to send */
   bool holds_ring;   /* this station claimed the token */
+  bool stripping;    /* §2.1 step 3: discarding received data */
   bool saw_biphase_error;
+
+  /* Bit times since this station last saw a token go by, and since it began
+   * stripping. Both are compared against the timeouts above. */
+  uint64_t bits_since_token;
+  uint64_t bits_stripping;
+  uint64_t strip_timeouts;
+  uint64_t forced_tokens;
 
   /* A symbol this station is sourcing rather than forwarding, and how many of
    * its bits are still to go. Held here and not in a table keyed by slot: two
