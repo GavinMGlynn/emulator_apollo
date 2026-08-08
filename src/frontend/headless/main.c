@@ -1372,8 +1372,7 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
       !ap_board_init_model(board, ram, ram_bytes, &epoch, node_id, model) ||
       !ap_board_attach_parity(board, parity, parity_bytes)) {
     free(trace_ring);
-    free(trace_ring);
-  free(parity);
+    free(parity);
     free(board);
     free(ram);
     free(prom);
@@ -1422,8 +1421,7 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
       free(mono_memory);
       free(board);
       free(trace_ring);
-    free(trace_ring);
-  free(parity);
+      free(parity);
       free(ram);
       free(prom);
       fprintf(stderr, "apollo: cannot allocate the graphics memories\n");
@@ -1454,8 +1452,7 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
       free(mono_memory);
       free(board);
       free(trace_ring);
-    free(trace_ring);
-  free(parity);
+      free(parity);
       free(ram);
       free(prom);
       fprintf(stderr, "apollo: cannot read disk image %s\n", disk_path);
@@ -1480,8 +1477,7 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
       free(mono_memory);
       free(board);
       free(trace_ring);
-    free(trace_ring);
-  free(parity);
+      free(parity);
       free(ram);
       free(prom);
       fprintf(stderr, "apollo: %s is not an Apollo Winchester image\n",
@@ -1520,8 +1516,7 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
   if (!ap_board_load_prom(board, prom, (uint32_t)size)) {
     free(board);
     free(trace_ring);
-    free(trace_ring);
-  free(parity);
+    free(parity);
     free(ram);
     free(prom);
     fprintf(stderr, "apollo: %s does not fit the boot PROM region\n", path);
@@ -1538,8 +1533,7 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
   if (!ap_board_reset_vector(board, &stack, &pc)) {
     free(board);
     free(trace_ring);
-    free(trace_ring);
-  free(parity);
+    free(parity);
     free(ram);
     free(prom);
     fprintf(stderr, "apollo: %s carries no reset vector\n", path);
@@ -1562,8 +1556,7 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
               watch, ap_board_region_name(region));
       free(board);
       free(trace_ring);
-    free(trace_ring);
-  free(parity);
+      free(parity);
       free(ram);
       free(prom);
       return 1;
