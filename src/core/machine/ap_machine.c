@@ -335,7 +335,15 @@ static bool machine_table_fetch(void *context, uint32_t physical,
                                 ap_m68030_descriptor_t *out) {
   ap_machine_t *machine = (ap_machine_t *)context;
   const unsigned words = long_format ? 2u : 1u;
-  machine->table_fetches++;
+  /* Charged to whoever asked. `ap_machine_translate` is an observer and sets
+   * `probing` around its walk; everything else here is the machine's own table
+   * search. See `probe_fetches` in the header for what conflating the two
+   * cost. */
+  if (machine->probing) {
+    machine->probe_fetches++;
+  } else {
+    machine->table_fetches++;
+  }
   (void)words;
 
   uint32_t upper = 0;
@@ -569,9 +577,16 @@ bool ap_machine_translate(ap_machine_t *machine, uint32_t logical,
   /* A null `update` is what keeps this an observation: `ap_m68030_walk` takes
    * the callback precisely so PTEST -- and now this -- can search the tree
    * without setting the used and modified bits a real access would. */
+  /* Marked as the observer's for the duration, so the fetches this costs are
+   * charged to `probe_fetches` and not to the machine. Saved and restored
+   * rather than cleared, so a probe reached from inside a probe -- which
+   * nothing does today -- would still leave the flag as it found it. */
+  const bool was_probing = machine->probing;
+  machine->probing = true;
   const ap_m68030_walk_result_t walk =
       ap_m68030_walk(&cpu->tc, root, logical, &access, cpu->data->table_fetch,
                      NULL, cpu->data->context);
+  machine->probing = was_probing;
   if (!walk.ok) {
     return false;
   }
@@ -741,6 +756,7 @@ ap_machine_state_t ap_machine_state(const ap_machine_t *machine) {
       .last_bus_error_pc = machine->last_bus_error_pc,
       .table_fetches = machine->table_fetches,
       .table_updates = machine->table_updates,
+      .probe_fetches = machine->probe_fetches,
   };
 }
 

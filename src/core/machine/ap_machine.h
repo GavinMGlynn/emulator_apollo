@@ -135,6 +135,24 @@ typedef struct {
    * has translated something" are different claims and a boot needs both. */
   unsigned table_fetches;
   unsigned table_updates;
+  /* The *observer's* table searches, kept apart from the machine's.
+   *
+   * `ap_machine_translate` is a probe: it walks the tree without the ATC and
+   * without setting used bits, so a caller can ask "where would this logical
+   * address go" without perturbing the machine. It shares the fetch callback
+   * with the real access path, so its walks landed in `table_fetches` -- and a
+   * frontend that reads one word back per step, as the boot trace does, added
+   * one whole walk per instruction to a counter read as the machine's own.
+   *
+   * That misreported figure was believed: a boot showed a flat 3.0 descriptor
+   * fetches per instruction and it was written up as "the ATC is not retaining
+   * entries". It was three per *stepped instruction* -- the depth of the tree
+   * being probed -- and subtracting it leaves 45 real fetches in 15 million
+   * instructions, which is an ATC working almost perfectly. An instrument that
+   * inflates what it measures is worse than no instrument, so the two are
+   * counted separately and both are reported. */
+  unsigned probe_fetches;
+  bool probing;
 
   /* The two caches are separate objects because the part has two, and a machine
    * that shared one would hide every instruction/data interaction. */
@@ -343,6 +361,10 @@ typedef struct {
   uint32_t last_bus_error_pc;
   unsigned table_fetches;
   unsigned table_updates;
+  /* What `ap_machine_translate` cost, which is the observer's and not the
+   * machine's. Reported beside `table_fetches` so the two can never be added
+   * together by mistake again. */
+  unsigned probe_fetches;
 } ap_machine_state_t;
 
 [[nodiscard]] ap_machine_state_t ap_machine_state(const ap_machine_t *machine);

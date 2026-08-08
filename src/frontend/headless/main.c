@@ -730,6 +730,18 @@ static void report_state(ap_machine_t *machine) {
   }
   printf("  atc fills    %u descriptor fetch(es), %u history update(s)\n",
          state.table_fetches, state.table_updates);
+  /* The observer's own table searches, on their own line and never added to the
+   * machine's. This frontend reads one word back per stepped instruction to
+   * fill the trace's instruction column, and each of those is a full walk of
+   * whatever tree is loaded -- so a three-level tree charged three fetches per
+   * instruction to a counter above that reads as the MMU's behaviour. It was
+   * read that way, and "the ATC is not retaining entries" was written down from
+   * it before the arithmetic gave it away: the excess was exactly three per
+   * *step*, not per access. Printed always, including zero, because a reader
+   * comparing two runs needs to know whether the probe was running at all. */
+  printf("  probe walks  %u descriptor fetch(es) by --dump-logical and the\n"
+         "               per-step trace read-back, not by the machine\n",
+         state.probe_fetches);
   if (machine->distinct_fault_count > 0u) {
     printf("  fault sites ");
     for (unsigned i = 0; i < machine->distinct_fault_count; i++) {

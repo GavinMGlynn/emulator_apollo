@@ -1159,6 +1159,62 @@ static void test_a_logical_read_follows_the_translation_the_program_set_up(
   TEST_ASSERT_FALSE(ap_machine_translate(&m, 0x12340000u, 6u, &physical));
 }
 
+/* ## The observer pays for its own table searches
+ *
+ * `ap_machine_translate` shares the descriptor-fetch callback with the real
+ * access path, so its walks were counted as the machine's. That is not a
+ * cosmetic accounting point: this frontend reads one word back per stepped
+ * instruction to fill the trace's instruction column, each read-back walks the
+ * whole tree, and a boot therefore reported a flat *three* descriptor fetches
+ * per instruction -- the depth of Domain/OS's tree. It was written up as "the
+ * ATC is not retaining entries" before the arithmetic showed the excess was
+ * exactly three per **step**: subtracting it left 45 real fetches in fifteen
+ * million instructions, which is an ATC working almost perfectly.
+ *
+ * So the two counters are separate, and this pins them apart. */
+static void
+test_a_translation_probe_is_not_charged_to_the_machines_table_searches(void) {
+  blank();
+  ap_machine_t m;
+  ap_machine_init(&m, ram, RAM_BYTES);
+  ap_machine_reset(&m, PROGRAM, STACK);
+
+  const uint32_t table = 0x00008000u;
+  const uint32_t page = 0x00002000u;
+  const uint32_t logical = 0x12341000u;
+
+  TEST_ASSERT_TRUE(
+      ap_machine_write(&m, table + 4u, 4u, ((page >> 8) << 8) | 1u));
+
+  m.cpu.crp = (ap_m68030_root_t){.table_address = table, .long_format = false};
+  m.cpu.tc.enable = true;
+  m.cpu.tc.page_size_bits = 12u;
+  m.cpu.tc.initial_shift = 16u;
+  m.cpu.tc.table_index[0] = 4u;
+  for (unsigned i = 1; i < AP_M68030_TC_LEVELS; i++) {
+    m.cpu.tc.table_index[i] = 0u;
+  }
+
+  const unsigned machine_before = ap_machine_state(&m).table_fetches;
+  const unsigned probe_before = ap_machine_state(&m).probe_fetches;
+
+  uint32_t physical = 0;
+  TEST_ASSERT_TRUE(ap_machine_translate(&m, logical, 6u, &physical));
+
+  /* The walk happened -- the probe counter moved -- and the machine's did not.
+   * Asserting only the second would pass against a probe that never ran. */
+  TEST_ASSERT_TRUE(ap_machine_state(&m).probe_fetches > probe_before);
+  TEST_ASSERT_EQUAL_UINT(machine_before, ap_machine_state(&m).table_fetches);
+
+  /* And the same through `ap_machine_read_logical`, which is what the boot
+   * trace actually calls once per instruction. */
+  const unsigned probe_after_translate = ap_machine_state(&m).probe_fetches;
+  uint32_t value = 0;
+  (void)ap_machine_read_logical(&m, logical, 6u, 4u, &value);
+  TEST_ASSERT_TRUE(ap_machine_state(&m).probe_fetches > probe_after_translate);
+  TEST_ASSERT_EQUAL_UINT(machine_before, ap_machine_state(&m).table_fetches);
+}
+
 /* The item's own verification, and the reason the board half had to be built:
  * the same workload twice gives the same number. Two machines on two different
  * RAM buffers with two different boards, so anything of the host's that reached
@@ -1991,6 +2047,8 @@ int main(void) {
   RUN_TEST(test_a_descriptor_fetch_reads_through_the_board);
   RUN_TEST(test_enabling_the_mmu_makes_an_access_translate);
   RUN_TEST(test_a_logical_read_follows_the_translation_the_program_set_up);
+  RUN_TEST(
+      test_a_translation_probe_is_not_charged_to_the_machines_table_searches);
   RUN_TEST(test_the_same_workload_twice_gives_the_same_hash);
   RUN_TEST(test_the_machine_hash_covers_the_board);
   RUN_TEST(test_a_machine_with_a_board_does_not_hash_as_one_without);
