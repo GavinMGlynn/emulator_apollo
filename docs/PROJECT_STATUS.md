@@ -17030,13 +17030,33 @@ A whole boot to the crash:
   CRP   <- 00FF0002 01001400  by PC 0000261E
 ```
 
-**Thirteen, not eight.** And the correction that matters is not the count: the
-standing entry said all of them were `SELF_TEST`'s because all were at
-`0100xxxx`, and **number nine is at `3FFA25DE`** -- neither the PROM nor
-`0100xxxx`. There is Domain/OS code that loads a root pointer, it runs once, and
-it runs during the crash. The final `CRP` the register dump reports is
-`01001400` only because the boot PROM's crash handler puts it back (number
-thirteen).
+**Thirteen, not eight.** Number nine, at `3FFA25DE`, looked like the one thing
+this investigation had never seen -- Domain/OS code loading a root pointer -- and
+**it is not.** `--dump-logical 3FFA2560` translates to **`00002560`**: the boot
+PROM, reached through a logical alias while the MMU is still on. The two
+instructions there are a pair,
+
+```
+3FFA25D8  F02E 4E00 0244   PMOVE   CRP,($244,A6)    ; extension bit 9 set: a save
+3FFA25DE  F02E ....         PMOVE   (...),CRP        ; and the matching load
+```
+
+which is a fault handler saving the CRP it interrupted and installing its own.
+So it is the PROM's debugger being entered on the crash, 133,000 instructions
+before the crash line is printed.
+
+**Which makes the result stronger, not weaker: not one of the thirteen is
+Domain/OS's.** Six belong to the loader and `SELF_TEST` at `0100xxxx`, seven to
+the boot PROM at `0000xxxx` and its logical alias `3FFAxxxx`. The kernel runs
+its whole life on the `CRP` loaded at `01002324` before it was entered, and the
+final `01001400` a register dump reports is the PROM's crash handler putting
+back what it saved.
+
+The standing entry reached the same conclusion by classifying loads **by address
+range**, which was unsound -- the kernel occupies the same `0100xxxx` as
+`SELF_TEST`, and `3FFAxxxx` is the PROM wearing a different address. It is now
+established by logging the executions instead, and the address-range reasoning
+can be retired rather than repaired.
 
 **So the machine spends its entire operating life on the `CRP` loaded at
 `01002324`** -- `01001400`, the tree built before the kernel was entered -- and
@@ -17053,10 +17073,21 @@ the instrument does not perturb: the same boot ends at 387,684,292 instructions
 with state hash `9C861E15FB6BEEE4` before and after it was added. `ctest`
 122/122.*
 
-**Next**: `3FFA25DE`. It is the only Domain/OS instruction in this boot that
-loads a root pointer, it loads `01000400` rather than the kernel's `0105BC00`,
-and it fires at the crash rather than at startup. Disassembling around it says
-whether it is the crash handler restoring a known-good tree -- in which case the
-startup load is still missing entirely -- or the initialisation path arriving
-far too late with the wrong value. `--boot-stop-pc 3FFA25DE:2` with a ring, and
-`--dump-logical 3FFA2580:100`, answer it in one run.
+**A trap worth naming, since it caught this entry between drafts.** A PC in
+`3FFAxxxx` looks like Domain/OS -- it is nowhere near the PROM's `0000xxxx` and
+it sits just under the kernel's device window at `3FFFxxxx`. It is the PROM.
+With translation on, **no conclusion may be drawn from the shape of a logical
+address**; `--dump-logical` reports the physical address it resolves to and that
+is the only thing that identifies code. This is the address-range error again,
+committed while writing the paragraph that retires it.
+
+**Next**: the question is now sharp and small. Domain/OS executes no `PMOVE` at
+all, so the switch routine at `3C43DDF0` is not merely gated -- it is the only
+root-pointer load the kernel has, and its gate is never false. Either the kernel
+expects some *other* mechanism to have installed `0105BC00` before it runs, or
+it expects `$3C43FB14` to hold something other than the `1` its own image ships
+with. Both are answerable against the oracle rather than against this core:
+run the same disk under MAME to `login:`, log its `PMOVE`s the same way, and the
+first load of `0105BC00` names the instruction we never execute. That comparison
+is the one measurement this investigation has not yet made, and every remaining
+hypothesis is decided by it.
