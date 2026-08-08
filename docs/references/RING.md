@@ -58,6 +58,10 @@ bypass; app. A coaxial driver, receiver and cable.
 | 14 | `+806` and `+C06` are **byte** registers written with the sequence `$30`, `$70`, `$B0` (`+806`) and `$30`, `$70` (`+C06`), immediately after that reset. Two banks driven with the same pattern one after the other suggests two identical sub-devices — consistent with finding 3's separate transmit and receive logic, though the assignment of which is which is *not* evidenced | `[ROM3500]` `0000C6`–`0000DE` | confirmed |
 | 15 | `+000` is read with `movea.l (a2), a0` (`0008BC`, `0008FE`), so the first slot is read as a **long** and used as an address. `+800`, `+802`, `+804`, `+C00` and `+C02` appear only as `lea.l` operands — the firmware takes their addresses rather than their contents. Both point at those regions being **buffer** rather than register, which is question B's subject | `[ROM3500]` `0008BC`, `0008FE`, `000D62`–`000DA8` | confirmed |
 
+| 16 | **The boot PROM's option-ROM validator, recovered.** `3500_BOOT_12191_7` matches a candidate in three variants at `01032`, `0104E` and `0106A`: all three require `magic0 = $335E91B6` at `+0`, then one requires `magic1 = $0000A0B6` at `+4` *and* a caller-supplied class in `d0` against `+8`, one requires `magic1` and a word match against `+1A`, and one requires `magic1 = $C000A0B7` alone. So `rom_id` at `+8` is matched against what the *caller* is looking for — `'R   '` when the firmware wants a ring board — which is why the same scan serves the ring and the 3C505 | `3500_BOOT_12191_7` `01032`, `0104E`, `0106A` | confirmed |
+| 17 | **The checksum routine at `01080`, and what it does not read.** It skips the sum entirely when `hdr_ver` at `+18` is greater than 1, or when the fudge longword at `+10` is `$FFFFFFFF`; otherwise it takes `length` from `+0C`, shifts it right by two, and sums that many long words from the image base with `add.l (a0)+,d0`. The last long read is therefore at `length - 4`. The ring ROMs carry `hdr_ver = 1` and a real fudge longword, so they *are* checksummed | `3500_BOOT_12191_7` `01080`–`010AC` | confirmed |
+| 17a | And the scan's shape was then seen from the running machine, which is the same code from the other side: a headless boot records the AT bus empty-slot addresses `00080000`-`00080003`, `00081000`-`00081003`, `00082000`-`00082003`, `00083000`-`00083003` — four bytes at each of four 4 KB slots, which is `magic0` being read and failing to match with no card fitted | measured, `--boot-limit 350000000` on the DN3500 | confirmed |
+
 ## Open
 
 | # | Question | How it will be answered |
@@ -68,7 +72,25 @@ bypass; app. A coaxial driver, receiver and cable.
 | D | Ring latency contributed per node by the elastic-store buffer, and PLL acquisition behaviour | `[MAC]` §3.3, `[PAT575]`; a paper-oracle figure, since no runnable reference exists |
 | E | Token-loss detection, ring reconfiguration and node insertion/removal timing | `[MAC]` ch. 2, `[PAT575]`, and Domain/OS driver behaviour observed under the MAME oracle's *host* side where applicable |
 | G | How Domain/OS's single-level store maps onto ring packets — page faults across nodes | `[AEGIS]`, `[ARCH]` |
-| H | Meaning of the 2-byte trailer at offset `length` in every option ROM (finding 7a). It is outside the sum32 the header's fudge longword balances, so it is not part of that checksum. **Already ruled out:** big-endian 16-bit word sum over the image, its two's complement, the 8-bit byte sum truncated to 16 bits, and 16-bit word XOR — none reproduces any of the four observed values. Against a checksum reading generally, `$0057` (`[ROM3000]`) is implausibly small next to `$BCF9` and `$354F`. Candidates remaining: a burn-time signature or date code, a part/revision stamp, or programmer padding that is not a function of the image at all | Disassemble the *boot* PROM's option-ROM scan — the code that would read it, if anything does. If that scan never touches offset `length`, the field is not consumed by the machine and the question closes as "not read by firmware", which is a sufficient answer for emulation |
+
+**H is resolved, and the answer is the negative one it was framed to accept.**
+It asked what the 2-byte trailer at offset `length` means. The route named was to
+disassemble the boot PROM's option-ROM scan -- "if that scan never touches offset
+`length`, the field is not consumed by the machine and the question closes as
+*not read by firmware*, which is a sufficient answer for emulation". It never
+touches it. `length` is read by **exactly one instruction in the whole 64 KB
+PROM** -- `move.l $C(a1),d1` at `01098`, searched for exhaustively as any
+`(d16,A1)` operand with displacement `$000C` -- and it is used as a *count*: the
+sum runs over `[0, length)` and stops one long word short of the trailer. The
+three other `(d16,A0)` reads at that displacement are a vector-table setup and a
+list walk, neither in the option-ROM path, which uses `A1` as the image base
+throughout.
+
+So the trailer is outside the image, outside the checksum, and outside anything
+the firmware reads. It stays unexplained and it is **not a blocker**: an emulated
+option ROM need not reproduce a field no code consumes. If a future disassembly
+of the *ring* firmware turns out to read it, this reopens -- but the machine that
+loads these ROMs does not.
 
 **F is resolved** — see findings 10, 10a and 10b. It asked whether 12 Mbit/s was
 the bit rate or the symbol rate, because a non-12 MHz line clock would force
