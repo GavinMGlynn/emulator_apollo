@@ -17330,3 +17330,55 @@ bit-accurate ring reproduces none of it.
 `ctest` 125/125. Findings 27-31a in `docs/references/RING.md`. Question D drops
 from open to partly answered -- steady-state delay is evidenced, PLL
 *acquisition* is not, and patent 4,716,575 is the remaining source.*
+
+
+## The ring medium, and a bypass that swallowed the ring
+
+`src/core/ring/ap_ring_medium.*` joins node cores into a ring. The plan required
+the interface to be "narrow enough that a process-separated transport can be
+added later without touching node cores", and that constrains the shape more
+than it sounds: everything crossing the boundary is **per bit clock and by
+value**, no node holds a pointer to another, and a transport would need to carry
+one small value per node per bit time and nothing else. A test asserts the
+by-value part by mutating a cell after handing it over.
+
+`advance` covers the whole ring in one call rather than stepping nodes
+individually. `[MAC]` §3.1 calls the network "continuously synchronous" with
+every node "responsible for maintaining clock and bit synchronization", so a
+per-node step would invite callers to advance nodes at different rates -- which
+is not something this network can do, and an interface that permits it will
+eventually be used that way.
+
+**The bug the tests caught is the interesting part, and it was a misreading of
+one sentence.** `[MAC]` §3.5: "relays connect a node's input coaxial cable to
+its output coaxial cable. **At the same time**, these relays connect the node's
+transmit output to its receive input." Those are two *independent* connections.
+The first implementation made the second replace the first -- a bypassed node
+heard itself, and the ring's signal died at its input instead of passing
+through. So a bypassed node swallowed the ring, which is the exact opposite of
+what a bypass is for.
+
+Fixed by treating a bypassed node as what it physically is: **a piece of
+cable**. The upstream search walks past both detached and bypassed slots to the
+nearest slot that actually *drives*, so a run of bypassed nodes is crossed
+within one bit time. That also makes the delay accounting consistent without a
+second rule -- a bypassed node adds no bit delay for the same reason it
+contributes none to the ring's total, because relays are not a retiming
+element.
+
+**Ring stability is exposed as a question a caller can ask.** §3.3 requires the
+total delay around the network to be "exactly an integral -- rather than a
+fractional -- number of bit-times", and each node's elastic store contributes
+the fractional part that makes the sum whole. So the medium can report the total
+and whether it is integral: four nodes at 1.25 bits each is five bit-times and
+stable, at 1.1 bits each it is 4.4 and is not.
+
+**A detached slot is a gap, not a removal.** Detaching leaves the slot in the
+cable order and reuses it on the next attach. Renumbering instead would silently
+change which node is upstream of which, and §3.3.1's PLL relationship is defined
+between *adjacent* nodes -- so the topology is not free to be rearranged for
+convenience.
+
+*Verification: `ring_medium_suite`, 9 tests with synthetic nodes only -- no node
+core is involved, so what is checked is the medium's topology and timing and
+nothing about any node's behaviour. `ctest` 126/126.*

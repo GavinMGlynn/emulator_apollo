@@ -3804,10 +3804,13 @@ discipline throughout.
     does during the re-initialisation an elastic-store under/overflow forces.
     `[MAC]` gives neither and patent 4,716,575 is the remaining source. That is
     `RING.md` question D, now downgraded from open to partly answered.
-- [ ] `ring_medium` interface — attach, detach, advance bit clock, symbol in and
-      out — narrow enough that a process-separated transport can be added later
-      without touching node cores. *Verification: unit tests over the interface
-      with synthetic nodes only.*
+- [x] `ring_medium` interface, in `src/core/ring/ap_ring_medium.*`: attach,
+      detach, set bypass, drive a cell, read what arrived, and one `advance`
+      for the whole ring. Everything crossing the boundary is per bit clock and
+      by value, with no node holding a pointer to another — which is exactly
+      what a process-separated transport would have to carry.
+      *Verification: `ring_medium_suite`, 9 tests, synthetic nodes only. Detail
+      in `PROJECT_STATUS.md`.*
 - [ ] Ring controller device: register interface, dual-ported RAM buffer,
       transmit and receive logic, bypass relays. *Verification: the ring ROM's
       own self-test passes under emulation — the firmware is the test.*
