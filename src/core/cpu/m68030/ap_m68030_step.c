@@ -3916,17 +3916,7 @@ static bool execute_misc(ap_m68030_cpu_t *cpu, const ap_m68030_misc_t *misc,
  * Modes Supported for MMU Instructions".
  * ------------------------------------------------------------------------- */
 
-typedef enum {
-  AP_PMOVE_TC,
-  AP_PMOVE_SRP,
-  AP_PMOVE_CRP,
-  AP_PMOVE_TT0,
-  AP_PMOVE_TT1,
-  AP_PMOVE_MMUSR,
-  AP_PMOVE_NONE,
-} pmove_register_t;
-
-static pmove_register_t pmove_register(uint16_t extension) {
+static ap_m68030_mmu_register_t pmove_register(uint16_t extension) {
   const unsigned prefix = (unsigned)((extension >> 13) & 0x7u);
   const unsigned which = (unsigned)((extension >> 10) & 0x7u);
 
@@ -3934,42 +3924,42 @@ static pmove_register_t pmove_register(uint16_t extension) {
   case 0x2u: /* 010: the root pointers and TC */
     switch (which) {
     case 0x0u:
-      return AP_PMOVE_TC;
+      return AP_M68030_MMU_TC;
     case 0x2u:
-      return AP_PMOVE_SRP;
+      return AP_M68030_MMU_SRP;
     case 0x3u:
-      return AP_PMOVE_CRP;
+      return AP_M68030_MMU_CRP;
     default:
-      return AP_PMOVE_NONE;
+      return AP_M68030_MMU_NONE;
     }
   case 0x3u: /* 011: the status register, which has no FD bit */
-    return (which == 0x0u) ? AP_PMOVE_MMUSR : AP_PMOVE_NONE;
+    return (which == 0x0u) ? AP_M68030_MMU_MMUSR : AP_M68030_MMU_NONE;
   case 0x0u: /* 000: the transparent translation registers */
     switch (which) {
     case 0x2u:
-      return AP_PMOVE_TT0;
+      return AP_M68030_MMU_TT0;
     case 0x3u:
-      return AP_PMOVE_TT1;
+      return AP_M68030_MMU_TT1;
     default:
-      return AP_PMOVE_NONE;
+      return AP_M68030_MMU_NONE;
     }
   default:
-    return AP_PMOVE_NONE;
+    return AP_M68030_MMU_NONE;
   }
 }
 
-static unsigned pmove_size(pmove_register_t which) {
+static unsigned pmove_size(ap_m68030_mmu_register_t which) {
   switch (which) {
-  case AP_PMOVE_SRP:
-  case AP_PMOVE_CRP:
+  case AP_M68030_MMU_SRP:
+  case AP_M68030_MMU_CRP:
     return 8u;
-  case AP_PMOVE_TC:
-  case AP_PMOVE_TT0:
-  case AP_PMOVE_TT1:
+  case AP_M68030_MMU_TC:
+  case AP_M68030_MMU_TT0:
+  case AP_M68030_MMU_TT1:
     return 4u;
-  case AP_PMOVE_MMUSR:
+  case AP_M68030_MMU_MMUSR:
     return 2u;
-  case AP_PMOVE_NONE:
+  case AP_M68030_MMU_NONE:
     break;
   }
   return 0u;
@@ -4006,8 +3996,8 @@ static ap_m68030_root_t pmove_root_from(uint32_t upper, uint32_t lower,
 
 static bool execute_pmove(ap_m68030_cpu_t *cpu, const ap_m68030_coproc_t *coproc,
                           uint16_t extension, uint32_t *clocks) {
-  const pmove_register_t which = pmove_register(extension);
-  if (which == AP_PMOVE_NONE) {
+  const ap_m68030_mmu_register_t which = pmove_register(extension);
+  if (which == AP_M68030_MMU_NONE) {
     /* A register this part does not have. p. 9-51 names the case and its
      * answer: the 68851 instructions a 68030 lacks "must be avoided or emulated
      * in the exception routine for F-line unimplemented instructions ... and
@@ -4058,27 +4048,27 @@ static bool execute_pmove(ap_m68030_cpu_t *cpu, const ap_m68030_coproc_t *coproc
     uint32_t high = 0;
     uint32_t low = 0;
     switch (which) {
-    case AP_PMOVE_TC:
+    case AP_M68030_MMU_TC:
       low = ap_m68030_tc_encode(&cpu->tc);
       break;
-    case AP_PMOVE_TT0:
+    case AP_M68030_MMU_TT0:
       low = ap_m68030_tt_pack(&cpu->tt0);
       break;
-    case AP_PMOVE_TT1:
+    case AP_M68030_MMU_TT1:
       low = ap_m68030_tt_pack(&cpu->tt1);
       break;
-    case AP_PMOVE_MMUSR:
+    case AP_M68030_MMU_MMUSR:
       low = cpu->mmusr;
       break;
-    case AP_PMOVE_SRP:
-    case AP_PMOVE_CRP: {
+    case AP_M68030_MMU_SRP:
+    case AP_M68030_MMU_CRP: {
       const ap_m68030_root_t *root =
-          (which == AP_PMOVE_SRP) ? &cpu->srp : &cpu->crp;
+          (which == AP_M68030_MMU_SRP) ? &cpu->srp : &cpu->crp;
       high = ap_m68030_root_pack_upper(root);
       low = root->table_address;
       break;
     }
-    case AP_PMOVE_NONE:
+    case AP_M68030_MMU_NONE:
       return false;
     }
 
@@ -4121,7 +4111,7 @@ static bool execute_pmove(ap_m68030_cpu_t *cpu, const ap_m68030_coproc_t *coproc
   }
 
   switch (which) {
-  case AP_PMOVE_TC: {
+  case AP_M68030_MMU_TC: {
     cpu->tc = ap_m68030_tc_decode(low);
     /* "If the E-bit = 1, consistency checks are performed on the PS and TIx
      * fields. If the checks fail, the instruction takes an MMU configuration
@@ -4133,20 +4123,20 @@ static bool execute_pmove(ap_m68030_cpu_t *cpu, const ap_m68030_coproc_t *coproc
     }
     break;
   }
-  case AP_PMOVE_TT0:
+  case AP_M68030_MMU_TT0:
     cpu->tt0 = ap_m68030_tt_unpack(low);
     break;
-  case AP_PMOVE_TT1:
+  case AP_M68030_MMU_TT1:
     cpu->tt1 = ap_m68030_tt_unpack(low);
     break;
-  case AP_PMOVE_MMUSR:
+  case AP_M68030_MMU_MMUSR:
     cpu->mmusr = (uint16_t)low;
     break;
-  case AP_PMOVE_SRP:
-  case AP_PMOVE_CRP: {
+  case AP_M68030_MMU_SRP:
+  case AP_M68030_MMU_CRP: {
     bool invalid = false;
     const ap_m68030_root_t root = pmove_root_from(high, low, &invalid);
-    if (which == AP_PMOVE_SRP) {
+    if (which == AP_M68030_MMU_SRP) {
       cpu->srp = root;
     } else {
       cpu->crp = root;
@@ -4156,15 +4146,23 @@ static bool execute_pmove(ap_m68030_cpu_t *cpu, const ap_m68030_coproc_t *coproc
     }
     break;
   }
-  case AP_PMOVE_NONE:
+  case AP_M68030_MMU_NONE:
     return false;
   }
 
   /* "When the FD-bit is zero, it flushes the address translation cache" -- for
    * every register but the status one, whose format carries no FD bit. */
-  if (!flush_disabled && which != AP_PMOVE_MMUSR && cpu->data != NULL &&
+  if (!flush_disabled && which != AP_M68030_MMU_MMUSR && cpu->data != NULL &&
       cpu->data->atc != NULL) {
     ap_m68030_atc_flush(cpu->data->atc);
+  }
+
+  /* Reported *after* the register is written and the flush is done, so an
+   * observer sees the same machine the next instruction will. Optional, and
+   * called for every register including `MMUSR`: "which loads happened, in
+   * order" is the question, and a filter here would decide it for the caller. */
+  if (cpu->data != NULL && cpu->data->mmu_register_written != NULL) {
+    cpu->data->mmu_register_written(cpu->data->context, which, high, low);
   }
   return true;
 }

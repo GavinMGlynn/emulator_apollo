@@ -58,6 +58,30 @@
 typedef bool (*ap_m68030_store_fn)(void *context, uint32_t physical,
                                    uint32_t value, unsigned size);
 
+/* Which register a `PMOVE` addressed.
+ *
+ * Public because a caller watching MMU loads needs to say *which* one moved,
+ * and "the root pointer changed" is a different event from "translation was
+ * switched on". `[030]` §9.7.4 gives the encoding these are decoded from. */
+typedef enum {
+  AP_M68030_MMU_TC,
+  AP_M68030_MMU_SRP,
+  AP_M68030_MMU_CRP,
+  AP_M68030_MMU_TT0,
+  AP_M68030_MMU_TT1,
+  AP_M68030_MMU_MMUSR,
+  AP_M68030_MMU_NONE,
+} ap_m68030_mmu_register_t;
+
+/* Told after a `PMOVE` has written `which`, with the operand as it arrived on
+ * the bus: `high` is the upper long of a 64-bit register and zero for the
+ * 32-bit ones, `low` the lower. Reporting the raw operand rather than the
+ * decoded register keeps this an observation of what the program did, which is
+ * the question, and not of what this core made of it. */
+typedef void (*ap_m68030_mmu_write_fn)(void *context,
+                                       ap_m68030_mmu_register_t which,
+                                       uint32_t high, uint32_t low);
+
 typedef struct {
   ap_m68030_cache_t *cache; /* the instruction or data cache, as appropriate */
   ap_m68030_atc_t *atc;
@@ -89,6 +113,17 @@ typedef struct {
    * shape `ap_m68030_walk` and `ap_m68030_cache_read` already use. */
   ap_m68030_fetch_fn table_fetch;
   ap_m68030_update_fn table_update;
+
+  /* Told whenever a `PMOVE` writes an MMU register. Optional; NULL is a
+   * processor that does the same thing and reports nothing.
+   *
+   * This exists because *which* root pointer an operating system loads, and
+   * from where, is the one MMU fact a register dump at the end cannot give:
+   * the final `CRP` is the last of a sequence, and the question is usually
+   * about an earlier one, or about a load that never happened. Recovering that
+   * by dumping memory and searching it for `PMOVE` opcodes was tried and is
+   * both slow and unsound -- it finds the instructions, not the executions. */
+  ap_m68030_mmu_write_fn mmu_register_written;
   ap_m68030_fill_fn fill;
   /* The external write cycle. Writethrough means this happens on *every* write
    * that reaches memory, hit or miss -- a cache update is not a substitute for

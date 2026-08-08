@@ -150,6 +150,22 @@ static void print_usage(const char *program_name) {
 #define PROBE_RAM_BYTES 0x00010000u
 static uint8_t probe_ram[PROBE_RAM_BYTES];
 
+/* The MMU register a `PMOVE` addressed, for the report. Named rather than
+ * numbered because the whole value of an MMU load log is being able to read
+ * "CRP <- ..." at a glance and see which of the two root pointers moved. */
+static const char *ap_mmu_register_name(uint8_t which) {
+  switch ((ap_m68030_mmu_register_t)which) {
+  case AP_M68030_MMU_TC: return "TC";
+  case AP_M68030_MMU_SRP: return "SRP";
+  case AP_M68030_MMU_CRP: return "CRP";
+  case AP_M68030_MMU_TT0: return "TT0";
+  case AP_M68030_MMU_TT1: return "TT1";
+  case AP_M68030_MMU_MMUSR: return "MMUSR";
+  case AP_M68030_MMU_NONE: break;
+  }
+  return "?";
+}
+
 /* Which empty-slot addresses a run touched, distinct and in the order first
  * seen. The count alone cannot tell a driver polling one status register from
  * a scan across a card's whole window, and those are different findings: the
@@ -775,6 +791,26 @@ static void report_state(ap_machine_t *machine) {
   printf("  probe walks  %u descriptor fetch(es) by --dump-logical and the\n"
          "               per-step trace read-back, not by the machine\n",
          state.probe_fetches);
+  /* Every MMU register load, in order, with the instruction that made it.
+   *
+   * The register dump above is the *last* state; this is how it got there, and
+   * the two answer different questions. "Which tree did the operating system
+   * install" is not visible in a final `CRP` when the answer is that it
+   * installed none and inherited the firmware's -- those two look identical at
+   * exit and differ entirely here. */
+  if (machine->mmu_writes_total > 0u) {
+    printf("  mmu loads    %u PMOVE(s)", machine->mmu_writes_total);
+    if (machine->mmu_writes_total > machine->mmu_write_count) {
+      printf(", first %u shown", machine->mmu_write_count);
+    }
+    printf("\n");
+    for (unsigned i = 0; i < machine->mmu_write_count; i++) {
+      printf("    %-5s <- %08X %08X  by PC %08X\n",
+             ap_mmu_register_name(machine->mmu_writes[i].which),
+             machine->mmu_writes[i].high, machine->mmu_writes[i].low,
+             machine->mmu_writes[i].pc);
+    }
+  }
   if (machine->distinct_fault_count > 0u) {
     printf("  fault sites ");
     for (unsigned i = 0; i < machine->distinct_fault_count; i++) {

@@ -55,6 +55,14 @@
 struct ap_board;
 #include "state/ap_hash.h"
 
+/* How many `PMOVE`s a run keeps. A whole Domain/OS boot to the crash performs
+ * eight, and a boot that reaches `login:` performs a few thousand -- almost all
+ * of them one scheduler switching between the same handful of trees. Thirty-two
+ * holds every load of the interesting phase, which is the firmware bringing
+ * translation up and the operating system taking it over; past that the total
+ * carries the information and the addresses repeat. */
+#define AP_MACHINE_MMU_WRITES 32u
+
 typedef struct {
   uint8_t *ram;
   uint32_t ram_bytes;
@@ -153,6 +161,28 @@ typedef struct {
    * counted separately and both are reported. */
   unsigned probe_fetches;
   bool probing;
+
+  /* Every `PMOVE` a run performs, in order, with the instruction that made it.
+   *
+   * The final `CRP` is the *last* of a sequence and the interesting one is
+   * usually earlier, or is a load that never happened at all -- so a register
+   * dump at exit cannot answer "which tree did it install, and when". Two
+   * sessions reconstructed this by dumping memory and searching it for `PMOVE`
+   * opcodes, which finds instructions rather than executions and found two
+   * false positives for every real one.
+   *
+   * Bounded, oldest kept, with the overflow counted: the first loads are the
+   * firmware bringing translation up and are the ones worth keeping, and a
+   * scheduler switching address spaces thousands of times must not be able to
+   * push them out. */
+  struct {
+    uint32_t pc;
+    uint32_t high;
+    uint32_t low;
+    uint8_t which; /* an `ap_m68030_mmu_register_t` */
+  } mmu_writes[AP_MACHINE_MMU_WRITES];
+  unsigned mmu_write_count;   /* how many are kept below */
+  unsigned mmu_writes_total;  /* how many happened, which is the honest total */
 
   /* The two caches are separate objects because the part has two, and a machine
    * that shared one would hide every instruction/data interaction. */

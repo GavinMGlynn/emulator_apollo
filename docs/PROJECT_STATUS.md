@@ -3348,7 +3348,7 @@ failure that cost a bit position in the 68020's module entry word.
 | Time base (`time/`) | working | `time_suite`, 17 tests |
 | State hash (`state/`) | primitive working | `hash_suite`, 11 tests, incl. published FNV-1a 64 vectors |
 | Core board state hash (the identity harness's board half) | working: the board registers, the translation map, both interrupt controllers, the interval timer with its three clocks, the calendar with both cursors, both DMA controllers, both serial ports, the node ID, the disk and tape controllers, the graphics memories, the keyboard matrix and the boot PROM. The diagnostic counters are deliberately outside it and reported beside it | `board_state_suite`, 22 tests sweeping every device field by field |
-| Full-machine state hash (`ap_machine_hash`, `ap_machine_state`) | working: the processor, main memory, the board when one is attached, and elapsed time — with the clock, the PC and the bus-error count reported beside the number | `machine_suite`, 46 tests, incl. the same workload run twice on two boards agreeing at every step |
+| Full-machine state hash (`ap_machine_hash`, `ap_machine_state`) | working: the processor, main memory, the board when one is attached, and elapsed time — with the clock, the PC and the bus-error count reported beside the number | `machine_suite`, 47 tests, incl. the same workload run twice on two boards agreeing at every step |
 | Ring medium interface | not started | — |
 | Ring controller | not started | — |
 | 68030 instruction pipe + cache holding register | working | `pipe_suite`, 14 tests, `MC68030 User's Manual 3ed` §11.2.2 |
@@ -3360,7 +3360,7 @@ failure that cost a bit position in the 68020's module entry word.
 | 68030 family `0000` size-11 escape (`CMP2`/`CHK2`/`CAS`/`CAS2`) | decoded; the opcode map now has no holes. Semantics open: `CAS`/`CAS2` need an indivisible read-modify-write | `bounds_suite`, 9 tests, `M68000 Family Programmer's Reference Manual 1992` |
 | Per-instruction timing report (`--time-instructions`) | bus and cache time only, pinned as a golden; the 0/2 alternation is the cache holding register serving two instruction words per fetch | `tests/goldens/timing.txt`; oracle side by `tools/mame-oracle/steptime.lua` |
 | Probe suite (`probe/`, `--run-probes`) | 8 probes on the constructed machine, needing no firmware; results pinned as a golden under every build preset, identical between `-O0` and `-O3` | `tests/goldens/probes.txt`, `probe_suite`, 7 tests |
-| Constructed machine (`machine/`) | a 68030 on flat RAM, with an out-of-range access faulting rather than wrapping; with a board attached it takes its model's clock, charges the AT bus's wait states and takes device interrupts on the Apollo vectors, and stalls while another master holds the bus, and advances the devices that keep time | `machine_suite`, 46 tests |
+| Constructed machine (`machine/`) | a 68030 on flat RAM, with an out-of-range access faulting rather than wrapping; with a board attached it takes its model's clock, charges the AT bus's wait states and takes device interrupts on the Apollo vectors, and stalls while another master holds the bus, and advances the devices that keep time | `machine_suite`, 47 tests |
 | 68030 published timings (§11.6) | 59 rows from §11.6.6, §11.6.8, §11.6.9, §11.6.11, §11.6.12, §11.6.15 and §11.6.16, scheduled into the step as exposed microcode + measured operand bus + prefetch exposure, since the tables show a prefetch overlaps execution while an operand the operation consumes cannot (plain `max(microcode, bus)` was the retired first model — see above and `M68030_TIMING.md`). Branches are reached through their run-time outcome rather than by opcode. Seven instructions agree with the oracle (`FINDINGS.md` C8). Rows footnoted "Add Fetch Effective Address Time" are **declined**, not part-priced: their published figure is a component and the composition is open (C9). The four divides carry the manual's data-dependent marker and are `PROVISIONAL` | `timing_table_suite`, 16 tests; both published columns checked on a running machine by `machine_suite` |
 | 68030 ATC replacement | the history bit now means *recently used*, per `MC68851 PMMU User's Manual` §5.2.1.3 — a translating hit marks it, a `PTEST` probe does not. `PROVISIONAL` narrowed to victim choice among clear-history entries | `atc_suite`, 21 tests |
 | 68030 prefetch marginal cost | `NCC − CC` over the published prefetch count, computed in code across every row; the two rows where it is not integral are named in the test rather than rounded away | `timing_table_suite`, 16 tests |
@@ -16857,7 +16857,7 @@ was working. A counter shared between the machine and its observer is not a
 counter. Both halves are now named in the output, including when the probe count
 is zero, so two runs can be compared without knowing whether a trace was on.
 
-*Verification: `machine_suite`, 46 tests; `ctest` 122/122. And on the real
+*Verification: `machine_suite`, 47 tests; `ctest` 122/122. And on the real
 output, which is what settles it: the same bounded boot to 350 M now reports*
 
 ```
@@ -16999,3 +16999,64 @@ few thousand instructions of startup and it is now the only place left to look.
 
 *No code changed for this entry; `ctest` 122/122. Every figure above is from a
 bounded headless boot, and the runs agree to the instruction.*
+
+
+## Every MMU load, logged: thirteen, and the count was the smallest error
+
+Two sessions reconstructed this by dumping memory and searching it for `PMOVE`
+opcodes. That finds *instructions*, not *executions* -- a 16 KB scan of the
+kernel's startup region returned two candidates and both were false positives,
+`4FEF` (`LEA (d16,A7),A7`) matching the extension-word pattern with an unrelated
+word in front of it. So the machine now records the loads themselves:
+`ap_m68030_access_ctx_t` gained an optional `mmu_register_written` callback,
+called after the register is written and the ATC flushed, and the machine keeps
+the first 32 with the instruction that made each.
+
+A whole boot to the crash:
+
+```
+  TC    <- 00000000 02A28750  by PC 010025F8
+  SRP   <- 80000002 01200000  by PC 010025C8
+  CRP   <- 80000002 01200000  by PC 010025CC
+  TC    <- 00000000 82A28750  by PC 010025DE     enable
+  TC    <- 00000000 02A28750  by PC 010025F8     off again
+  CRP   <- 00FF0002 01001400  by PC 01002324     <- the tree everything runs on
+  TC    <- 00000000 80A28750  by PC 01002348     enable, and it stays on
+  TT0   <- 00000000 F8078507  by PC 01002280
+  CRP   <- 00FF0002 01000400  by PC 3FFA25DE     <- and this one is new
+  TT0   <- 00000000 00000000  by PC 0000279E     the PROM, after the crash
+  TT1   <- 00000000 00000000  by PC 000027A2
+  TC    <- 00000000 00A28750  by PC 00002790
+  CRP   <- 00FF0002 01001400  by PC 0000261E
+```
+
+**Thirteen, not eight.** And the correction that matters is not the count: the
+standing entry said all of them were `SELF_TEST`'s because all were at
+`0100xxxx`, and **number nine is at `3FFA25DE`** -- neither the PROM nor
+`0100xxxx`. There is Domain/OS code that loads a root pointer, it runs once, and
+it runs during the crash. The final `CRP` the register dump reports is
+`01001400` only because the boot PROM's crash handler puts it back (number
+thirteen).
+
+**So the machine spends its entire operating life on the `CRP` loaded at
+`01002324`** -- `01001400`, the tree built before the kernel was entered -- and
+the kernel's own `0105BC00` is never installed by anything. That is the same
+conclusion as the previous entry, now from the other direction and without
+relying on the branch analysis: not "the `PMOVE` we found is skipped" but "no
+`PMOVE` anywhere in this boot loads the kernel's tree".
+
+*Verification: `machine_suite`, 47 tests, including one that assembles
+`F010 4C00` by hand -- `PMOVE (A0),CRP` -- and asserts both that the load is
+recorded with the operand the program supplied and that it reached the register,
+so this is a log of loads that took effect and not of opcodes that decoded. And
+the instrument does not perturb: the same boot ends at 387,684,292 instructions
+with state hash `9C861E15FB6BEEE4` before and after it was added. `ctest`
+122/122.*
+
+**Next**: `3FFA25DE`. It is the only Domain/OS instruction in this boot that
+loads a root pointer, it loads `01000400` rather than the kernel's `0105BC00`,
+and it fires at the crash rather than at startup. Disassembling around it says
+whether it is the crash handler restoring a known-good tree -- in which case the
+startup load is still missing entirely -- or the initialisation path arriving
+far too late with the wrong value. `--boot-stop-pc 3FFA25DE:2` with a ring, and
+`--dump-logical 3FFA2580:100`, answer it in one run.

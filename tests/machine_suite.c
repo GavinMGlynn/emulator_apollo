@@ -1159,6 +1159,52 @@ static void test_a_logical_read_follows_the_translation_the_program_set_up(
   TEST_ASSERT_FALSE(ap_machine_translate(&m, 0x12340000u, 6u, &physical));
 }
 
+/* ## Which root pointer was loaded, and by what
+ *
+ * The register dump at the end of a run is the *last* MMU state, and the
+ * question is usually about an earlier load or about one that never happened --
+ * "the operating system installed its own tree" and "it inherited the
+ * firmware's and never moved" leave an identical final `CRP`. So every `PMOVE`
+ * is recorded in order with the instruction that made it.
+ *
+ * `PMOVE (A0),CRP` is `F010 4C00`: F-line, coprocessor id 0, extension `4C00`
+ * selecting `CRP`. Written as raw words because assembling it by hand is the
+ * only way to be sure the encoding under test is the one the manual gives. */
+static void test_every_mmu_register_load_is_recorded_with_its_instruction(
+    void) {
+  blank();
+  ap_machine_t m;
+  ap_machine_init(&m, ram, RAM_BYTES);
+
+  /* The root pointer operand: limit/status long, then the table address. */
+  const uint32_t operand = 0x00002000u;
+  TEST_ASSERT_TRUE(ap_machine_write(&m, operand, 4u, 0x80000002u));
+  TEST_ASSERT_TRUE(ap_machine_write(&m, operand + 4u, 4u, 0x0105BC00u));
+
+  /* MOVEA.L #operand,A0 ; PMOVE (A0),CRP */
+  TEST_ASSERT_TRUE(ap_machine_write(&m, PROGRAM, 2u, 0x207Cu));
+  TEST_ASSERT_TRUE(ap_machine_write(&m, PROGRAM + 2u, 4u, operand));
+  TEST_ASSERT_TRUE(ap_machine_write(&m, PROGRAM + 6u, 2u, 0xF010u));
+  TEST_ASSERT_TRUE(ap_machine_write(&m, PROGRAM + 8u, 2u, 0x4C00u));
+
+  ap_machine_reset(&m, PROGRAM, STACK);
+  TEST_ASSERT_EQUAL_UINT(0u, m.mmu_writes_total);
+
+  (void)ap_machine_run(&m, 2u);
+
+  /* It happened, it was the CRP, and it carried the address the program gave --
+   * not the address this core decoded it into, which is a different claim. */
+  TEST_ASSERT_EQUAL_UINT(1u, m.mmu_writes_total);
+  TEST_ASSERT_EQUAL_UINT(1u, m.mmu_write_count);
+  TEST_ASSERT_EQUAL_UINT(AP_M68030_MMU_CRP, m.mmu_writes[0].which);
+  TEST_ASSERT_EQUAL_HEX32(0x0105BC00u, m.mmu_writes[0].low);
+  TEST_ASSERT_EQUAL_HEX32(0x80000002u, m.mmu_writes[0].high);
+
+  /* And it reached the register, so this is a log of loads that took effect
+   * rather than of instructions that were decoded. */
+  TEST_ASSERT_EQUAL_HEX32(0x0105BC00u, m.cpu.crp.table_address);
+}
+
 /* ## The observer pays for its own table searches
  *
  * `ap_machine_translate` shares the descriptor-fetch callback with the real
@@ -2047,6 +2093,7 @@ int main(void) {
   RUN_TEST(test_a_descriptor_fetch_reads_through_the_board);
   RUN_TEST(test_enabling_the_mmu_makes_an_access_translate);
   RUN_TEST(test_a_logical_read_follows_the_translation_the_program_set_up);
+  RUN_TEST(test_every_mmu_register_load_is_recorded_with_its_instruction);
   RUN_TEST(
       test_a_translation_probe_is_not_charged_to_the_machines_table_searches);
   RUN_TEST(test_the_same_workload_twice_gives_the_same_hash);

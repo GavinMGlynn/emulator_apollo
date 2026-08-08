@@ -328,6 +328,30 @@ static bool table_write(ap_machine_t *machine, uint32_t physical,
   return true;
 }
 
+/* A `PMOVE` retired. Recorded with the instruction that made it, since "which
+ * tree, loaded by what" is the question and the register alone answers only the
+ * first half.
+ *
+ * The PC is taken the way the watch counters take it -- the frontend's
+ * `executing_address` when it is stepping, the processor's own PC otherwise --
+ * so a stepped run names the instruction rather than the word after it. */
+static void machine_mmu_register_written(void *context,
+                                         ap_m68030_mmu_register_t which,
+                                         uint32_t high, uint32_t low) {
+  ap_machine_t *machine = (ap_machine_t *)context;
+  machine->mmu_writes_total++;
+  if (machine->mmu_write_count >= AP_MACHINE_MMU_WRITES) {
+    return; /* the total above keeps counting, so the overflow is visible */
+  }
+  const unsigned i = machine->mmu_write_count++;
+  machine->mmu_writes[i].pc = machine->executing_address != 0u
+                                  ? machine->executing_address
+                                  : machine->cpu.regs.pc;
+  machine->mmu_writes[i].high = high;
+  machine->mmu_writes[i].low = low;
+  machine->mmu_writes[i].which = (uint8_t)which;
+}
+
 /* The table search's descriptor fetch. A machine whose MMU is off never calls
  * this; one whose tables a program has built does. */
 static bool machine_table_fetch(void *context, uint32_t physical,
@@ -461,6 +485,7 @@ void ap_machine_init_model(ap_machine_t *machine, uint8_t *ram,
       .store = machine_store,
       .table_fetch = machine_table_fetch,
       .table_update = machine_table_update,
+      .mmu_register_written = machine_mmu_register_written,
       /* Always supplied, and it answers zero until a board is attached: a probe
        * on flat RAM has no device with a published cycle time, so nothing it
        * measures moves. Wiring it here rather than in `ap_machine_set_board`
