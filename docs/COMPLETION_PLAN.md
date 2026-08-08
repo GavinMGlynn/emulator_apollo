@@ -3949,6 +3949,29 @@ Only after the reference core is proven, and only under an identity harness.
     outnumber writes, and here they do not.** The fix this points at is fewer
     writes — a line whose value has not changed should not reach the part at
     all — not a cheaper resolve.
+  - **Fewer writes was then tried too, and bisected to a precise answer.**
+    `ap_i8259_set_request` reporting whether it moved anything, so
+    `ap_intr_set_request` could skip `update_cascade`, gives **339 s → 271 s**
+    — and changes the boot state hash to `2976FCE94E499A0E`. Bisecting the two
+    halves apart:
+
+    | change | 350 M state hash | time |
+    | --- | --- | --- |
+    | baseline | `67A14B3BB6041410` | 339 s |
+    | `set_request` skip only | `67A14B3BB6041410` | 359 s |
+    | + skip `update_cascade` | `2976FCE94E499A0E` | 271 s |
+
+    So **all of the speed and all of the divergence are the same line**, and the
+    skip that preserves identity buys nothing. Reverted.
+    **Why it diverges, which is the actionable part.** `update_cascade` is the
+    only thing that refreshes the master's cascade line from the slave, and the
+    other slave mutation paths — register writes, acknowledges — do not call it.
+    Today's per-instruction re-drive covers them by accident. Skipping it when
+    the *request* did not change therefore drops cascade updates that a write or
+    an acknowledge should have produced.
+    **The fix is specified**: make the slave's own write and acknowledge paths
+    update the cascade, and the skip becomes safe. That is a design change to
+    `ap_intr`, not a local edit, and it is worth about 20% of a boot.
 - [ ] Exact-skip scheduling: `next_event()` and `skip(n)` per subsystem, CPU
       half and devices half of the tick split so a span-breaking I/O write still
       runs its devices half canonically. *Verification: entire probe suite and
