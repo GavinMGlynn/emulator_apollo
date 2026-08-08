@@ -3936,6 +3936,9 @@ Only after the reference core is proven, and only under an identity harness.
       results, cached per-cycle re-derived values. *Verification: probe goldens
       and boot state hashes byte-identical; speed-up measured on release
       builds only.*
+      **Awaiting:** LTO is already on and the re-derived-value candidates are
+      now measured and closed. What is left is `flatten` on the run loops, the
+      idle-skip guards, and cached arbitration — none of which has been tried.
   - **"Cached per-cycle re-derived values" was tried on the profile's top
     candidate and is a 14% regression.** The 8259's priority resolver is 7.3% of
     a boot, so it was cached behind an eager recompute with a debug-build
@@ -3970,8 +3973,14 @@ Only after the reference core is proven, and only under an identity harness.
     the *request* did not change therefore drops cascade updates that a write or
     an acknowledge should have produced.
     **The fix is specified**: make the slave's own write and acknowledge paths
-    update the cascade, and the skip becomes safe. That is a design change to
-    `ap_intr`, not a local edit, and it is worth about 20% of a boot.
+    update the cascade, and the skip becomes safe.
+  - [x] **Done, and it was a latent defect rather than an optimisation.**
+    `ap_intr`'s read, write and reset paths now refresh the cascade, which its
+    own comment already claimed they did. **The "worth about 20%" above is
+    withdrawn**: that speed was a *broken* machine taking fewer interrupts.
+    *Verification: `intr_suite`, 14 tests, one that fails without the fix;
+    `ctest` 129/129; 350 M state hash `67A14B3BB6041410` unchanged. Detail in
+    `PROJECT_STATUS.md`.*
 - [ ] Exact-skip scheduling: `next_event()` and `skip(n)` per subsystem, CPU
       half and devices half of the tick split so a span-breaking I/O write still
       runs its devices half canonically. *Verification: entire probe suite and

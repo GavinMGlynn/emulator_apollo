@@ -194,6 +194,40 @@ static void test_the_cascade_follows_the_slave_dropping_its_request(void) {
   TEST_ASSERT_FALSE(ap_intr_pending(&intr));
 }
 
+/* ## Unmasking a slave line must reach the master on its own
+ *
+ * The board owns the cascade: the slave's INT output is an ordinary IR input on
+ * the master and nothing in either part keeps them in step. So *every* path that
+ * can change what the slave is asking for has to refresh it -- and the register
+ * write path did not.
+ *
+ * A line masked in the slave, raised, then unmasked through `OCW1` changes the
+ * slave's output at the moment of the unmask. Without a refresh there the
+ * master's cascade input stayed low and the interrupt was invisible until some
+ * unrelated device happened to toggle a line.
+ *
+ * It never showed on a booting machine because `ap_board_sample_interrupts`
+ * re-drives every device's line on every instruction, dragging the cascade up
+ * to date before anything could observe the gap. It surfaced from the other
+ * end: skipping that redundant re-drive for speed changed the boot state hash,
+ * and bisecting the divergence found this. The test raises the line and touches
+ * nothing else, which is what the board's re-drive was accidentally providing. */
+static void test_unmasking_a_slave_line_raises_the_cascade_by_itself(void) {
+  ap_intr_t intr;
+  program_as_firmware_does(&intr);
+
+  /* Mask everything on the slave, so raising the line asks for nothing yet. */
+  ap_intr_write(&intr, AP_INTR_SLAVE_ADDR + 1u, 0xFFu);
+  ap_intr_write(&intr, AP_INTR_MASTER_ADDR + 1u, 0x00u);
+  raise(&intr, 12);
+  TEST_ASSERT_FALSE(ap_intr_pending(&intr));
+
+  /* Now unmask it, and touch nothing else at all. */
+  ap_intr_write(&intr, AP_INTR_SLAVE_ADDR + 1u, 0x00u);
+  TEST_ASSERT_TRUE(ap_intr_pending(&intr));
+  TEST_ASSERT_EQUAL_HEX8(0xAC, ap_intr_acknowledge(&intr));
+}
+
 static void test_a_cascaded_interrupt_owes_an_end_of_interrupt_to_each(void) {
   ap_intr_t intr;
   program_as_firmware_does(&intr);
@@ -266,6 +300,7 @@ int main(void) {
   RUN_TEST(test_the_priority_order_is_table_two_threes);
   RUN_TEST(test_a_device_cannot_drive_the_cascade_line);
   RUN_TEST(test_the_cascade_follows_the_slave_dropping_its_request);
+  RUN_TEST(test_unmasking_a_slave_line_raises_the_cascade_by_itself);
   RUN_TEST(test_a_cascaded_interrupt_owes_an_end_of_interrupt_to_each);
   RUN_TEST(test_both_controllers_decode_at_their_documented_addresses);
   return UNITY_END();

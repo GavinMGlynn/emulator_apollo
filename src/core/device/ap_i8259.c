@@ -89,12 +89,22 @@ static ap_i8259_init_t after_icw2(const ap_i8259_t *pic, bool ic4) {
   return ic4 ? AP_I8259_INIT_ICW4 : AP_I8259_INIT_READY;
 }
 
-void ap_i8259_set_request(ap_i8259_t *pic, unsigned line, bool asserted) {
+bool ap_i8259_set_request(ap_i8259_t *pic, unsigned line, bool asserted) {
   if (line >= AP_I8259_LEVELS) {
-    return;
+    return false;
   }
   uint8_t bit = (uint8_t)(1u << line);
   bool was_high = (pic->pins & bit) != 0u;
+
+  /* Whether the wire moved. The caller uses it to skip work that only a change
+   * can make necessary; the part itself still does exactly what it did.
+   *
+   * `pins` is the right thing to compare and `irr` is not. In edge mode a
+   * re-assert of a line already high leaves both alone, and in level mode it
+   * would re-set an `irr` bit an acknowledge had cleared -- so the two registers
+   * disagree about whether anything happened, and only the pin answers the
+   * question the caller is asking. */
+  const bool moved = asserted != was_high;
 
   if (asserted) {
     pic->pins |= bit;
@@ -111,7 +121,7 @@ void ap_i8259_set_request(ap_i8259_t *pic, unsigned line, bool asserted) {
     } else {
       pic->irr = (uint8_t)(pic->irr & ~bit);
     }
-    return;
+    return moved;
   }
 
   /* Edge mode. "If LTIM = 0, an interrupt request will be recognized by a low
@@ -127,6 +137,7 @@ void ap_i8259_set_request(ap_i8259_t *pic, unsigned line, bool asserted) {
      * acknowledge and nothing set in the IRR by the time INTA arrives. */
     pic->irr = (uint8_t)(pic->irr & ~bit);
   }
+  return moved;
 }
 
 /* In level mode the IRR is not a latch. Clearing a bit at acknowledge is

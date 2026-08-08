@@ -3404,7 +3404,7 @@ failure that cost a bit position in the 68020's module entry word.
 | Core-board registers (`010000`-`011600`, `016400`) | working for the four that could be measured: CPU status (bit 15 stuck; a write **acknowledges conditions** and keeps the switch input, the FP trap and bit 15), CPU control and latch-page-on-parity (16 bits of storage), cache control (a *byte*, mirrored into both halves of a 16-bit read, one writable bit), each aliased across its 256-byte range. Plus the **selective clear locations**, the one range where the low bits are the decode rather than an alias — five functions, one address each, from `019411-A00`. Width and storage came from measurement; the status register's conditions now have pages behind them. Task alias and master request are absent from the oracle and stay declined rather than modelled as all-ones | `boardreg_suite`, 21 tests; `008778-03` §3.2 and §3.3, `019411-A00` §4.2.1, `FINDINGS.md` C10, `tools/mame-oracle/regprobe.lua` |
 | Address translation map (`017000`) | working: the translation itself, both DMA widths, and the register file. Between the AT bus and physical memory, not the CPU's MMU -- a DMA controller has no MMU, and this is what lets it see scattered physical pages as one contiguous run. Present on DN3500/4500/5500 and absent on DN3000, from the model table. The board splits a 16-bit entry into its two byte lanes, big-endian, which it did not until a DMA transfer failed to arrive | `atmap_suite`, 17 tests, `019411-A00` §4.2.1.4, `008778-03` §1.2, §2.5 |
 | Board cache (`012000` RAM, `014000` condition codes) | not started. The shared **bus arbitration point** is done and has its own row above | — |
-| Apollo interrupt controllers (`011000`, `011100`) | working: the two 8259As cascaded on **IR3** (measured, not IR2 as the AT convention would have it), vector bases `A0`/`A8` from the boot PROM's own ICW2, giving levels `A0`-`AF`. Priority order matches `008778-03` Table 2-3, which with the cascade on IR3 has no anomaly. The CPU interrupt level is **6**, also measured — neither manual states it, and it took starting the interval timer by hand to make anything request at all | `intr_suite`, 13 tests; `FINDINGS.md` C11, `tools/mame-oracle/writetrace.lua` |
+| Apollo interrupt controllers (`011000`, `011100`) | working: the two 8259As cascaded on **IR3** (measured, not IR2 as the AT convention would have it), vector bases `A0`/`A8` from the boot PROM's own ICW2, giving levels `A0`-`AF`. Priority order matches `008778-03` Table 2-3, which with the cascade on IR3 has no anomaly. The CPU interrupt level is **6**, also measured — neither manual states it, and it took starting the interval timer by hand to make anything request at all | `intr_suite`, 14 tests; `FINDINGS.md` C11, `tools/mame-oracle/writetrace.lua` |
 | Intel 8259A interrupt controller (the part) | working: ICW1-4 sequence, all three OCWs, fully nested priority with rotation, edge and level triggering, special mask and special fully nested modes, poll, AEOI, and the spurious level 7. 8086-mode vectoring only — MCS-80/85's `CALL` sequence is refused rather than approximated, and this machine never uses it. The Apollo *pairing* is a separate module | `i8259_suite`, 28 tests, each citing `8259A` 231468-003 |
 | Core-board address maps (`board/ap_board.c`) | working: every device placed by `008778-03` Table 2-8 and by the measurement that confirmed it, main memory at `1000000`, and an unclaimed address reported **unmapped rather than zero** — the distinction flat RAM hid, which cost 5634 invisible accesses in the first firmware run. Regions are named, so a trace can say *what* the firmware reached for. The AT windows declare a cycle time and everything else answers at the minimum, and an access to the translation map's undescribed seven eighths is counted rather than silently aliased, and each of the two declined core registers is counted apart. The DMA page registers now map offset to channel from `002398-04` p. 12-25, the handbook that prints the table `008778-03` Table 2-6 omits — channel 4, the cascade, has none | `board_suite`, 36 tests; `atbus_suite`, 8 tests |
 | Shared bus arbitration point | working: the external priority encoder `[030]` §7.7 requires, DRQ0 through DRQ7 with the processor last, driving the CPU's own arbitration unit over the three-wire protocol. A grant and its acknowledgement are separate instants, so the processor stops driving the bus when it grants rather than when the grant is taken up; a master is never pre-empted mid-transfer | `arbiter_suite`, 9 tests, `MC68030 User's Manual 3ed` §7.7, `008778-03` §2.4.6 |
@@ -17712,3 +17712,54 @@ observer.
 
 *Verification: `ctest` 129/129, every golden unchanged, and the frontend flag
 check still reports all reachable flags exercised.*
+
+
+## A stale cascade, found by an optimisation that was faster because it was wrong
+
+Chasing the previous entry's own conclusion -- fewer interrupt writes -- turned
+up a latent defect, and the way it turned up is the point.
+
+**The change.** `ap_i8259_set_request` now reports whether the wire moved, so
+`ap_intr_set_request` can skip recalculating the cascade when it did not. On its
+own that changed the 350 M boot state hash to `2976FCE94E499A0E` while running
+339 s → 271 s. Bisecting showed all the speed *and* all the divergence were that
+one skip: the half that preserved identity bought nothing.
+
+**Why it diverged.** The slave's INT output is wired to the master's cascade
+line, and nothing in either 8259A keeps them in step -- `update_cascade` is the
+board's job, and its comment says it is "called after anything that could change
+the slave's output". It was not. A slave **register write** changes that output
+-- `OCW1` unmasking a line is the obvious case -- and no refresh followed. The
+only thing keeping the cascade current was `ap_board_sample_interrupts`
+re-driving every device's line on every instruction, which dragged it up to date
+before anything could observe the gap.
+
+So the redundant work was load-bearing by accident, and removing it exposed a
+bug that had been there all along.
+
+**The "20% speed-up" was not one.** With the hole closed the skip is
+identity-preserving and measures **neutral** -- 344 s and 345 s against a
+334-339 s baseline. The 271 s came from a machine doing *less work*, and its
+exception census says so plainly:
+
+```
+correct   392 x vector 2   1 x vector 11   3 x vector 160   1 x vector 173
+broken    261 x vector 2                          (nothing else)
+```
+
+A stale cascade meant slave interrupts never reached the master, so the boot
+took 131 fewer bus errors and three whole vectors' worth of interrupts fewer,
+and finished sooner for it. **A faster number from a machine that is not the
+same machine is not a measurement of speed.** The previous commit's claim that
+the fix was "worth about 20% of a boot" is withdrawn here.
+
+**What landed.** The cascade is now refreshed on the slave's read, write and
+reset paths as well as on request and acknowledge. The skip is kept -- it is
+safe now and removes genuinely redundant work -- but it is recorded as neutral
+rather than as a win.
+
+*Verification: `intr_suite`, 14 tests. The new one masks every slave line,
+raises one, then unmasks it through `OCW1` **touching nothing else** -- which is
+exactly what the per-instruction re-drive used to supply. It fails without the
+fix and passes with it, checked both ways. `ctest` 129/129 and the 350 M state
+hash back to `67A14B3BB6041410`.*

@@ -137,7 +137,13 @@ void ap_i8259_write(ap_i8259_t *pic, bool a0, uint8_t value);
 
 /* Drive one IR pin. Edge or level triggered per ICW1's LTIM, which this handles
  * internally; a caller drives the wire and nothing else. */
-void ap_i8259_set_request(ap_i8259_t *pic, unsigned line, bool asserted);
+/* Drive one request line, reporting whether the wire moved.
+ *
+ * The return exists for `ap_intr`, whose board re-drives every device's line on
+ * every emulated instruction: almost all of those writes change nothing, and
+ * the cascade recalculation each one forced was about a fifth of a boot. Not
+ * `[[nodiscard]]` -- most callers are simply setting a line. */
+bool ap_i8259_set_request(ap_i8259_t *pic, unsigned line, bool asserted);
 
 /* The INT output: whether a request is pending that priority and mask allow to
  * be serviced. */
