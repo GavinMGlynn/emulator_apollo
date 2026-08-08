@@ -16581,3 +16581,44 @@ population step never ran and the divergence is wherever that step lives; if it
 is written but never with this key, the entry's *contents* are wrong and the
 key in `D2` at the loop says what was expected. Both are one run, and the
 addresses are now specific.
+
+
+## The table is populated; the entry being sought is not in it
+
+`--dump-logical 3C57A800:256` at the crash. Logical `3C57A800` is physical
+`011A5800`, and the table is **sparsely populated**:
+
+```
+011A5800  00000000 00000000 00000000 012C7059
+011A5810  012C7459 012C7859 00000000 00000000
+011A5840  ...                        012A5C59
+```
+
+Four live entries among zeros, all of the form `<address>59` -- a value with a
+low tag byte, which is what the loop's `AND.L D0,D3` exists to strip before
+comparing against `D2`. The middle fields step by four (`012C70`, `012C74`,
+`012C78`), so these are consecutive frames of something.
+
+**So the population step runs.** The mechanism is not missing, and "the table is
+never written" -- one of the two candidates named in the previous entry -- is
+eliminated. What is missing is the *particular* entry the kernel is looking for,
+which is why the scan runs to its 720-entry limit, rehashes, and starts again.
+
+That closes the loop with the fault: the address that kills this machine is
+`3BFF0001`, whose page our tree has no mapping for, and the lookup that spins
+forever is a lookup for an entry describing a page that was never made resident.
+The two are the same absence seen from either side of the page-fault path.
+
+**A near-miss worth recording.** The first attempt at this measurement watched
+physical `0117A800` -- an address **invented** by assuming a mapping between the
+logical table base and physical memory. `--boot-watch-write` takes a physical
+address; the table is logical; no such mapping had been derived. It would have
+watched an unrelated address and reported "the table is never written", which is
+both false and exactly the conclusion that was being tested for. Caught before
+it produced a result, and the corrected run derives the physical address from
+`--dump-logical` instead of assuming it.
+
+**Next**: the key. `D2` at the loop is what the kernel wants; the entries above
+are what it has. Logging `D0` and `D2` at `3C43DC9E` names the missing page
+directly, and from there the question is why that page's residency was never
+established -- which is the page-fault path this investigation started in.
