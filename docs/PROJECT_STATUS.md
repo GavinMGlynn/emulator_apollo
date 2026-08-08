@@ -16721,3 +16721,94 @@ Both are one run with `--boot-watch-read`.
 Measured on this session's configuration, which reaches the same code ~60 M
 instructions later than the runs above; addresses are unaffected. No code
 changed; `ctest` 122/122.
+
+
+## The real spin loop, found by following a counter instead of the program counter
+
+The region table had it all along. Between 320 M and the crash the machine
+performs **8.4 million reads of an AT bus slot with no card in it**, and nothing
+else in the table moves like that -- the 36.5 M serial reads are the boot PROM's
+and are complete by 320 M (`+1` read in the whole window). Bracketing four
+bounded boots localises the burst:
+
+```
+instructions   320 M    335 M      350 M      365 M      380 M    crash
+AT bus reads  46,475  3,616,389  7,366,333  8,435,090  8,435,090  8,466,066
+```
+
+It starts at ~320 M, runs at **one read per four instructions**, and stops dead
+before 365 M. A 20,000-step ring at 335 M and again at 350 M is
+**20,000 steps out of 20,000** on four addresses, which is what the previous
+entry's loop was not:
+
+```
+3C4BC37C  203C 003FFFFE   MOVE.L  #$3FFFFE,D0     ; a timeout, 4,194,302
+3C4BC382  2050            MOVEA.L (A0),A0         ; A0 <- the device base
+3C4BC384  4A28 0008       TST.B   $8(A0)          <- the loop
+3C4BC388  6A04            BPL.S   $3C4BC38E       ; leave when bit 7 clears
+3C4BC38A  5380            SUBQ.L  #1,D0
+3C4BC38C  64F6            BCC.S   $3C4BC384       ; ...or when the count borrows
+3C4BC38E  4A28 0008       TST.B   $8(A0)          ; re-test after the timeout
+3C4BC392  6A04            BPL.S   $3C4BC398
+3C4BC394  4200            CLR.B   D0              ; give up
+3C4BC396  6022            BRA.S   $3C4BC3BA
+3C4BC398  117C 00A5 000E  MOVE.B  #$A5,$E(A0)     ; and otherwise a handshake
+3C4BC39E  117C 005A 000F  MOVE.B  #$5A,$F(A0)
+```
+
+`A0 = 3FFF0000`, and **`--dump-logical 3FFF0000` translates it to physical
+`00055C00`** -- inside the AT bus I/O window `040000-05FFFF`, where our board
+decodes the cycle, no card drives the lines, and the pull-ups answer `FF`. Bit 7
+is therefore set on every read, `BPL` is never taken, and the loop can only end
+by running its counter out.
+
+**The counter proves the loop is the sole source of those reads, which no rate
+argument could.** `D0` at 350 M is `00104ED4` = 1,068,756, and the AT bus reads
+between 350 M and 365 M number **1,068,757**. One read per remaining iteration,
+to the unit. It is not a sample or an estimate -- the register and the region
+counter are the same number seen from two sides.
+
+**So the machine is not waiting on a device that is slow. It is waiting on a
+device that is absent**, for 45 M instructions, and then giving up. And the
+oracle is not in this position: `apollo_m.cpp:1145` is
+`ISA16_SLOT(config, "isa3", 0, m_isa, apollo_isa_cards, "3c505", false)` -- the
+oracle **fits a 3Com 3c505 in ISA slot 3 by default**, configured at ISA I/O
+`0x300`, IRQ 10, DRQ 6 (`apollo_m.cpp:1039`), and boots this same disk to
+`login:`. We fit no AT card at all.
+
+**What is not yet established, and must not be assumed.** Our board's AT
+mapping is `Apollo physical = 040000 + (ISA byte << 7)`, which the three cards we
+do decode confirm -- tape `050000` = ISA `200`, disk `04D000` = ISA `1A0`, floppy
+`05F800` = ISA `3F0`. By that mapping physical `055C00` is ISA **`2B8`**, and the
+3c505 at ISA `300` would be physical `058000`. **So the polled address is not the
+3c505's, on the mapping we have.** Two candidates, and they are different
+repairs: either the device is something else at ISA `2B8`, or the *translation*
+is wrong -- and the standing finding that Domain/OS never installs its own
+tables and runs on `SELF_TEST`'s `CRP = 01001400` tree is exactly a reason a
+logical address would land at the wrong physical one. `A5`/`5A` appears nowhere
+in the oracle's `3c505.cpp`, which is weak evidence for the same doubt.
+
+**A second finding, unrelated to the crash and worth its own item.** Descriptor
+fetches run at a flat **3.0 per instruction** across every bracket --
+45,000,195 then 45,000,045 then 45,154,545 then 45,140,043 per 15 M
+instructions -- and they do that *while the machine is executing a
+four-instruction loop in a single page with no `PFLUSH` anywhere in it*. A
+22-entry ATC that retained anything would serve that loop from hits and fetch
+almost nothing. **The ATC is not holding entries**, every access re-walks the
+tree, and since `[030]` §9.4 makes a hit cost zero clocks and a walk cost real
+bus cycles, this inflates bus traffic and every timing figure derived from it.
+The loop above is an ideal test case for it: one page, one data address, four
+instructions.
+
+**Next**: settle the polled address before repairing anything. Log the physical
+address of each AT bus empty-slot read -- the board records only the first, which
+is the PROM's expansion-ROM scan at `00080000` and not this -- and compare
+`3FFF0000`'s translation against the oracle's for the same logical address at
+the same point. If the translation agrees, the device at ISA `2B8` needs
+identifying and the 3c505 is not it; if it disagrees, this is the root-pointer
+defect showing itself in a second place, and the AT card question is downstream
+of it.
+
+Four bounded boots plus one dump run, all on the deterministic headless
+configuration; run A and run B agree to the instruction. No code changed;
+`ctest` 122/122.
