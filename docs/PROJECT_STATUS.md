@@ -16239,3 +16239,52 @@ The mouse was then deferred once more, out of the SDL item, with its own text
 asking for mouse mapping; the item was ticked anyway and has been un-ticked and
 re-earned. Both are the same error as the OMTI's: a module called complete on
 the strength of the part of it that was read.
+
+
+## A reported bus-fault frame defect, investigated and rejected
+
+The divergence hunt returned one finding it called a real deviation: that we
+select the bus fault stack frame by read-vs-write where the 68030 selects by
+instruction boundary, so 286 supervisor write faults per boot get format `$A`
+where hardware gives `$B`. It cited `MC68030_Users_Manual_3ed_1990.pdf` §8.1.2
+and MAME's `m_mmu_tmp_buserror_address == m_ppc ? 1010 : 1011`.
+
+**It is not a defect, and the manual settles it by arithmetic.** p. 8-8 does say
+the criterion is instruction boundary versus mid-instruction. p. 8-30 then says
+what each frame is *for*:
+
+> "For data write faults, the handler must transfer the properly sized data from
+> the data output buffer (DOB) on the stack frame to the location indicated by
+> the data fault address ... (Both the DOB and the data fault address are part
+> of the stack frame at **SP + $18** and **SP + $10**.) **Data read faults only
+> generate the long bus fault frame** and the handler must transfer ... to the
+> image of the data input buffer (DIB) at location **SP + $2C** of the long
+> format stack frame."
+
+The short frame, format `$A`, is **16 words -- $20 bytes**. `SP + $10` and
+`SP + $18` are inside it; `SP + $2C` is not. So the short frame carries exactly
+what repairing a *write* fault needs and lacks exactly what a *read* fault
+needs, which is why the manual says read faults "only" generate the long one.
+A write fault taking the short frame is the design, not a shortfall -- the
+68030 posts writes, so one can fault at an instruction boundary.
+
+Our implementation matches: `ap_m68030_ssw.h` puts the fault address at `0x10`
+and the data output buffer at `0x18`, and `ap_m68030_step.c` stacks both.
+
+**And the suite already refused the proposed fix.** `ssw_suite` carries
+`test_a_faulted_data_write_does_not_require_the_long_frame`, whose comment says
+it exists so that the read-fault test "would pass for an implementation that
+always answered long". Applying the reported fix turns that test red.
+
+**What is left, narrowly.** p. 8-8's rule is about *when* the fault is taken,
+and a write fault raised **mid-instruction** -- a `MOVEM` store partway through
+its register list, or a read-modify-write -- does need the long frame for the
+state that resumes it. This model gives every write fault the short frame, which
+is right for a posted write at a boundary and wrong for those. Recorded as a
+narrow gap with a named shape rather than closed by the wholesale change, which
+would have broken the common case to fix the rare one.
+
+Kept because the cost of not writing it down is that the next reader repeats the
+same investigation and this time makes the change: an agent, a plausible manual
+citation and a difference from MAME are together very convincing, and were
+wrong. CLAUDE.md's "expect to out-accurate the oracle" is the whole point.
