@@ -1182,42 +1182,55 @@ static bool parse_clock(const char *spec, ap_mc146818_time_t *out) {
 
 #define AP_BOOT_TYPE_CHUNK 4096u
 
+
 /* Deliver the next typed character if the machine is ready for it. Shared by
  * the step loop and the chunked fast path, because the *condition* is the same
  * and only the sampling rate differs. */
 static void typed_deliver(ap_machine_t *machine, ap_board_t *board,
                           const char *typed, size_t typed_length,
                           size_t *typed_sent, ap_time_t *typed_at,
-                          unsigned *quiet_writes, ap_time_t *quiet_since,
-                          bool type_after_os) {
+                          unsigned *flushed_was, unsigned *reads_was,
+                          bool *pending, bool type_after_os) {
   if (typed == NULL || *typed_sent >= typed_length) {
     return;
   }
-  /* ## Type when the port has stopped being reconfigured, not merely when it
-   * is ready
+  /* ## Re-deliver what the machine threw away, rather than predict when it
+   * will stop throwing things away
    *
-   * Measured, with the command register logged: Domain/OS takes the console
-   * over by rewriting it -- `CRA` `05`, `0A`, `2A`, `3A`, `10`, `45` in a
-   * row -- and `2A`'s miscellaneous command is **reset receiver**, which
-   * flushes the FIFO. A `y` delivered into the window before that is discarded
-   * unread, which is exactly what happened:
+   * Five rules were tried for *when* a character may be typed: the machine is
+   * polling; the MMU is on; code above the diagnostics is running; the
+   * receive buffer is empty; the command register has been quiet. Each was a
+   * true statement about the machine and none of them kept the `y`.
    *
-   *     TYPED 79 / CRA 2A (fifo 1) / CRA 3A (fifo 0) / TYPED 0D / RB CB
+   * The trace says why, and it is not a timing miss. Domain/OS takes the
+   * console over by rewriting the port -- `CRA` `05 0A 2A 3A 10 45` -- and
+   * `2A`'s miscellaneous command is **reset receiver**, §4.2.7.2, which
+   * destroys the FIFO's contents. It does this **twice**, with a settled
+   * screen and a quiet command register in between, so no predicate evaluated
+   * before the first burst can know the second is coming. A rule that waits
+   * for the reconfiguration to finish cannot be written, because from inside
+   * the machine there is no such moment.
    *
-   * The character was never the machine's to lose -- a person types after the
-   * prompt has settled, not while the driver is still initialising the port.
-   * So the condition is that the command register has been **quiet**: no write
-   * to it for a settling interval. That is a property of the port rather than
-   * of this operating system, and it needs no constant tuned to one boot. */
-  const unsigned writes = board->sio.register_writes[0][AP_MC68681_CR_A];
-  if (writes != *quiet_writes) {
-    *quiet_writes = writes;
-    *quiet_since = machine->now;
-  }
-  const ap_time_t settle =
-      ap_sio_character_time(&board->sio, 0u, 0u, AP_SIO_KEYBOARD_BAUD);
-  if (settle != 0u && machine->now < *quiet_since + settle * 4u) {
-    return;
+   * So this does not predict. It observes: `rx_flushed` counts characters the
+   * channel discarded unread, and a rise in it while ours is the character in
+   * flight means ours was destroyed. Then it is sent again -- which is what a
+   * person does when a keystroke produces nothing. The counter cannot mistake
+   * a consumed character for a discarded one; a FIFO emptied by a read is not
+   * counted. */
+  if (*pending) {
+    if (ap_sio_receiver_reads(&board->sio, 0u, 0u) != *reads_was) {
+      /* Read out of the FIFO: it arrived, whatever the machine then did with
+       * it. This is checked first because a read and a reset can both have
+       * happened since the last look, and in that order the character was not
+       * lost. */
+      *pending = false;
+    } else if (ap_sio_receiver_flushed(&board->sio, 0u, 0u) != *flushed_was) {
+      *pending = false;
+      (*typed_sent)--;
+      fprintf(stderr,
+              "apollo: --boot-type: '%c' was flushed unread; sending again\n",
+              typed[*typed_sent]);
+    }
   }
   /* **And not before the operating system is running, when asked.**
    *
@@ -1270,6 +1283,10 @@ static void typed_deliver(ap_machine_t *machine, ap_board_t *board,
     if (ap_board_key_type(board, typed[*typed_sent])) {
       (*typed_sent)++;
       *typed_at = machine->now;
+      /* Armed against this character, from now: see above. */
+      *flushed_was = ap_sio_receiver_flushed(&board->sio, 0u, 0u);
+      *reads_was = ap_sio_receiver_reads(&board->sio, 0u, 0u);
+      *pending = true;
     } else {
       /* A character this keyboard cannot produce. Skipped rather than
        * retried for ever, and said out loud -- a silently dropped character
@@ -1589,8 +1606,9 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
   size_t typed_sent = 0u;
   const size_t typed_length = typed != NULL ? strlen(typed) : 0u;
   ap_time_t typed_at = 0u;
-  unsigned typed_quiet_writes = 0u;
-  ap_time_t typed_quiet_since = 0u;
+  unsigned typed_flushed_was = 0u;
+  unsigned typed_reads_was = 0u;
+  bool typed_pending = false;
   size_t input_sent = 0;
   const size_t input_length = input != NULL ? strlen(input) : 0u;
 
@@ -1863,8 +1881,8 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
        * seven hundred million instructions in, and any constant chosen for it
        * would be a measurement of one boot rather than a condition. */
       typed_deliver(&machine, board, typed, typed_length, &typed_sent,
-                    &typed_at, &typed_quiet_writes, &typed_quiet_since,
-                    type_after_os);
+                    &typed_at, &typed_flushed_was, &typed_reads_was,
+                    &typed_pending, type_after_os);
       const uint32_t step_pc = machine.cpu.regs.pc;
       /* One instruction through the *machine*, not through the processor.
        *
@@ -2064,8 +2082,8 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
         break;
       }
       typed_deliver(&machine, board, typed, typed_length, &typed_sent,
-                    &typed_at, &typed_quiet_writes, &typed_quiet_since,
-                    type_after_os);
+                    &typed_at, &typed_flushed_was, &typed_reads_was,
+                    &typed_pending, type_after_os);
     }
   } else {
     run = ap_machine_run(&machine, limit);

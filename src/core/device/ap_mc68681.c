@@ -658,7 +658,15 @@ void ap_mc68681_write(ap_mc68681_t *duart, unsigned reg, uint8_t value) {
       break;
     case CR_MISC_RESET_RECEIVER:
       /* §4.2.7.2: "This command resets the channel A receiver. The receiver is
-       * immediately disabled" -- and the FIFO goes with it. */
+       * immediately disabled" -- and the FIFO goes with it.
+       *
+       * Whatever was in the FIFO is destroyed, and the sender is never told.
+       * That is the hardware's behaviour and it is not a defect -- but it is
+       * the one event a host typing at this channel cannot otherwise observe,
+       * so it is counted. Measured on a Domain/OS boot: the operating system
+       * takes the console over with `CRA` `05 0A 2A 3A`, and `2A` discards a
+       * character delivered moments earlier, unread. */
+      ch->rx_flushed += ch->fifo_count;
       ch->fifo_count = 0u;
       ch->rx_enabled = false;
       ch->sr = (uint8_t)(ch->sr &

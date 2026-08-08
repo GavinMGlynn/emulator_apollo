@@ -1017,8 +1017,54 @@ static void test_a_receiver_without_parity_reports_none(void) {
                      AP_MC68681_SR_PARITY) != 0u);
 }
 
+/* §4.2.7.2's reset-receiver command destroys the FIFO's contents, and tells
+ * nobody. A host feeding this channel cannot otherwise distinguish a character
+ * that was read from one that was thrown away -- both leave an empty FIFO --
+ * so the count of discarded characters is kept. Measured on a Domain/OS boot:
+ * the console handover writes `CRA` `2A` and a keystroke delivered moments
+ * before it is destroyed unread. */
+static void test_resetting_the_receiver_counts_the_characters_it_discards(
+    void) {
+  ap_mc68681_t duart;
+  ap_mc68681_reset(&duart);
+  ap_mc68681_write(&duart, AP_MC68681_CR_A, 0x01u); /* enable the receiver */
+  ap_mc68681_write(&duart, AP_MC68681_SR_CSR_A, 0x77u);
+  ap_mc68681_write(&duart, AP_MC68681_MR_A, 0x13u);
+
+  ap_mc68681_receive_framed(&duart, 0u, 0x79u, 0x77u, 0x13u);
+  ap_mc68681_receive_framed(&duart, 0u, 0x0Du, 0x77u, 0x13u);
+  TEST_ASSERT_EQUAL_UINT(2u, duart.channel[0].fifo_count);
+  TEST_ASSERT_EQUAL_UINT(0u, duart.channel[0].rx_flushed);
+
+  ap_mc68681_write(&duart, AP_MC68681_CR_A, 0x2Au);
+
+  TEST_ASSERT_EQUAL_UINT(0u, duart.channel[0].fifo_count);
+  TEST_ASSERT_EQUAL_UINT(2u, duart.channel[0].rx_flushed);
+}
+
+/* The counter has to mean *discarded*, not *emptied*, or a host would resend a
+ * character the machine had already acted on. A FIFO emptied by reads and then
+ * reset counts nothing. */
+static void test_a_character_read_before_the_reset_is_not_counted_as_lost(
+    void) {
+  ap_mc68681_t duart;
+  ap_mc68681_reset(&duart);
+  ap_mc68681_write(&duart, AP_MC68681_CR_A, 0x01u);
+  ap_mc68681_write(&duart, AP_MC68681_SR_CSR_A, 0x77u);
+  ap_mc68681_write(&duart, AP_MC68681_MR_A, 0x13u);
+
+  ap_mc68681_receive_framed(&duart, 0u, 0x79u, 0x77u, 0x13u);
+  TEST_ASSERT_EQUAL_UINT8(0x79u, ap_mc68681_read(&duart, AP_MC68681_RB_TB_A));
+
+  ap_mc68681_write(&duart, AP_MC68681_CR_A, 0x2Au);
+
+  TEST_ASSERT_EQUAL_UINT(0u, duart.channel[0].rx_flushed);
+}
+
 int main(void) {
   UNITY_BEGIN();
+  RUN_TEST(test_resetting_the_receiver_counts_the_characters_it_discards);
+  RUN_TEST(test_a_character_read_before_the_reset_is_not_counted_as_lost);
   RUN_TEST(test_a_character_sent_at_the_wrong_rate_sets_a_framing_error);
   RUN_TEST(test_a_character_sent_at_the_right_rate_does_not);
   RUN_TEST(test_an_unknown_sender_rate_claims_no_disagreement);

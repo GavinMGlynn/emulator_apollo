@@ -14523,3 +14523,55 @@ That is a feature and a design decision rather than a bug hunt, and it is where
 this item should resume. Six explanations for this prompt have now been chased
 and five fixes made, of which three were real defects elsewhere, one was the
 clock, and this one does nothing.
+
+
+## A character can be destroyed in the FIFO, and nothing said so
+
+`--boot-type` delivered its characters and the calendar prompt ignored them.
+Five rules had been tried for *when* a character may be typed -- the machine is
+polling; the MMU is on; code above the diagnostics is running; the receive
+buffer is empty; the command register has been quiet -- and each was a true
+statement about the machine that did not keep the `y`.
+
+Logging `CRA` with the FIFO depth ended it in one run:
+
+```
+CRA 45 fifo=0 / TYPED 79 / CRA 05 fifo=1 / CRA 0A fifo=1 / CRA 2A fifo=1
+CRA 3A fifo=0 / CRA 10 fifo=0 / CRA 45 fifo=0 / TYPED 0D
+```
+
+`2A`'s miscellaneous command is **reset receiver**, §4.2.7.2, and it destroys
+the FIFO's contents. The character was not mistimed; it was thrown away. And
+Domain/OS does this **twice**, with a settled screen and a quiet command
+register between the bursts, so no predicate evaluated before the first burst
+can know the second is coming. That is why every "when" rule failed and why the
+next one would have too: from inside the machine there is no moment at which
+the reconfiguration is known to be over.
+
+So the model now counts what it discards. `rx_flushed` in `ap_mc68681.h` is not
+a register and nothing in the model reads it -- it exists because a discarded
+character is otherwise indistinguishable from a consumed one, both leaving an
+empty FIFO. The frontend arms it against the character in flight and sends that
+character again when the count rises, which is what a person does when a
+keystroke produces nothing. A FIFO emptied by *reads* counts nothing, so a
+character the machine acted on is never sent twice; that is the second of the
+two tests.
+
+**It fires**: `apollo: --boot-type: 'y' was flushed unread; sending again`.
+
+**What this did not settle.** The screen after re-delivery is byte-identical to
+the screen without it -- 0 of 819,200 pixels -- and the final PC is unchanged.
+The data-register read count rose by one, 30 to 31, but the two runs had
+different instruction limits (1.4G and 1.6G), so that difference is confounded
+and is *not* evidence the character was consumed. Proving delivery needs a
+controlled run and a counter reported by `--boot-report`. Two heuristics were
+deleted in exchange for the mechanism: the command-register settle condition
+(retracted in `4026a1f` as doing nothing) and a screen-idle sampler written and
+measured useless in the same session.
+
+**And the prompt is probably not an input problem at all.** The disk was
+installed on 2026-08-01/02 and every boot has run with `--clock 1996-08-02`,
+thirty years behind the volume. `tools/mame-oracle/install-domainos.cmds`
+already carries the rule from the install: the kernel refuses to boot when the
+calendar is behind the volume's timestamp. MAMEDEV's Apollo driver page
+documents the remedy as running CALENDAR from MD, not as answering the prompt.

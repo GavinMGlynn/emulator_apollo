@@ -200,6 +200,23 @@ unsigned ap_sio_character_bits(const ap_sio_t *sio, unsigned unit,
   return ap_mc68681_character_bits(sio->port[unit].channel[channel].mr[0]);
 }
 
+unsigned ap_sio_receiver_flushed(const ap_sio_t *sio, unsigned unit,
+                                 unsigned channel) {
+  if (unit >= 2u || channel >= 2u) {
+    return 0u;
+  }
+  return sio->port[unit].channel[channel].rx_flushed;
+}
+
+unsigned ap_sio_receiver_reads(const ap_sio_t *sio, unsigned unit,
+                               unsigned channel) {
+  if (unit >= 2u || channel >= 2u) {
+    return 0u;
+  }
+  return sio->register_reads[unit][channel == 0u ? AP_MC68681_RB_TB_A
+                                                 : AP_MC68681_RB_TB_B];
+}
+
 bool ap_sio_receiver_enabled(const ap_sio_t *sio, unsigned unit,
                              unsigned channel) {
   if (unit >= 2u || channel >= 2u) {

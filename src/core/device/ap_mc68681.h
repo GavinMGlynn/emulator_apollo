@@ -118,6 +118,15 @@ typedef struct {
    * one character's own. */
   uint8_t pending_status;
   unsigned fifo_count;
+  /* Characters this channel has discarded **unread**, cumulative.
+   *
+   * Not a register and not hardware state: the part has no such counter, and
+   * nothing inside the model reads it. It exists because a discarded character
+   * is otherwise invisible from outside -- the FIFO simply is empty afterwards,
+   * indistinguishable from one whose character was consumed. A host feeding
+   * this channel needs to tell those apart to know whether what it sent
+   * arrived. See `CR_MISC_RESET_RECEIVER`. */
+  unsigned rx_flushed;
   bool rx_enabled;
   bool tx_enabled;
   /* The last character handed to the transmitter, so a caller can observe what

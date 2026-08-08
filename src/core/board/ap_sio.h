@@ -194,7 +194,15 @@ void ap_sio_advance(ap_sio_t *sio, ap_time_t now);
  * arrives -- it never sampled the character -- so a scripted sender that did
  * not wait for this would deliver into a port that is not listening and see
  * exactly what a machine ignoring the device looks like. */
-[[nodiscard]] bool ap_sio_receiver_enabled(const ap_sio_t *sio, unsigned unit,
+[[nodiscard]] /* Characters this channel discarded unread, and reads taken from its receive
+ * buffer. Together they say whether something delivered to the channel arrived
+ * or was destroyed -- see `rx_flushed` in `ap_mc68681.h`. */
+unsigned ap_sio_receiver_flushed(const ap_sio_t *sio, unsigned unit,
+                                 unsigned channel);
+unsigned ap_sio_receiver_reads(const ap_sio_t *sio, unsigned unit,
+                               unsigned channel);
+
+bool ap_sio_receiver_enabled(const ap_sio_t *sio, unsigned unit,
                                            unsigned channel);
 
 /* Deliver a byte to a port's receiver, as a terminal on the other end of the
