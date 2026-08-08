@@ -14481,3 +14481,45 @@ materially different and much better position than "the keystroke is ignored".
 *The cheaper route worth trying first: `media/` holds ten `.awd` checkpoints from
 the install session. One of them was cleanly shut down within fourteen days of
 its own timestamps, and booting that one needs no procedure at all.*
+
+### Retraction: the settle condition does not fix the flush
+
+The entry above claims typing now waits for the port to go quiet and so avoids
+the console-handover flush. **It was committed without re-taking the trace that
+had diagnosed the problem, and re-taking it shows the fix does nothing.** With
+the settle condition in place the sequence is byte-identical to the sequence
+without it:
+
+    CRA 10 / 20 / 30 / 45     the port is configured
+    TYPED 79                  our 'y' goes, in the pause that follows
+    CRA 05 / 0A / 2A / 3A     reconfigured -- fifo 1 -> 0, the 'y' flushed
+    CRA 10 / 45
+    TYPED 0D                  the RETURN goes, and survives
+
+Domain/OS initialises the port **twice**, with a gap between, and the gap is
+longer than four character times — so "quiet for four character times" is
+satisfied inside it. Lengthening the interval would fit a constant to this one
+boot, which is the thing this flag has avoided at every other step.
+
+The code is left in place because waiting for the command register to settle is
+defensible on its own terms, and it is now documented as **not** solving the
+problem it was written for.
+
+### And the conclusion this forces
+
+The `y` has now been lost under four delivery rules — poll-gated, MMU-gated,
+settle-gated, and clock-corrected. Each rule is a guess about *when* the machine
+is ready to be typed at, and the machine's answer is "later than you think, and
+it depends on what it is doing". That is not a defect to find; it is the wrong
+mechanism.
+
+What a real operator has is `expect`, not a delay: they see the prompt and then
+type. `--boot-script` already models exactly that for the serial console, and a
+machine with a display ignores the serial line — so the missing capability is
+**`expect`/`send` against the framebuffer**, which needs the screen decoded to
+text during the run rather than only at the end.
+
+That is a feature and a design decision rather than a bug hunt, and it is where
+this item should resume. Six explanations for this prompt have now been chased
+and five fixes made, of which three were real defects elsewhere, one was the
+clock, and this one does nothing.
