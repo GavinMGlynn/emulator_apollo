@@ -3481,12 +3481,14 @@ boot below, and the boot is not attempted until they are done.
         `Domain/OS kernel(7), revision 10.4, February 14, 1992` on the
         framebuffer in its own font. Translation enabled, 18,316,356 plane
         writes, final PC `3C43F5AC -> 010421AC`.
-        What stops it is a **prompt**: "The calendar is more than a minute slow.
-        Do you want to run DOMAIN_OS with the current calendar?" So the login
-        prompt this item asks for is one keystroke away, and the missing piece
-        is character input to the *display* console -- `--boot-key` presses a
-        matrix index and a prompt needs a typed character. `ap_kbd_encode`
-        already exists. Detail in `PROJECT_STATUS.md`.
+        **The calendar prompt was the clock's era, not input.** The year
+        register holds two digits, the volume was installed with the guest
+        seeing year `26`, and every boot had used `--clock 1996` -- a calendar
+        thirty years behind the volume, which the kernel refuses. With
+        `--clock 2026-08-08` the prompt is gone and the kernel loads.
+        **Now it crashes**: `CRASH_STATUS 00120020 PC 3C40E114`, on a `TRAP #15`
+        at `3C42BA58`. That is the remaining blocker for this item.
+        Detail in `PROJECT_STATUS.md`.
         *Five hypotheses here were each produced by reasoning and killed by the
         next measurement. The whole investigation is in `PROJECT_STATUS.md`.*
         *Verification: the console going past "Configuration information is not

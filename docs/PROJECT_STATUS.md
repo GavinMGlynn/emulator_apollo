@@ -14575,3 +14575,48 @@ thirty years behind the volume. `tools/mame-oracle/install-domainos.cmds`
 already carries the rule from the install: the kernel refuses to boot when the
 calendar is behind the volume's timestamp. MAMEDEV's Apollo driver page
 documents the remedy as running CALENDAR from MD, not as answering the prompt.
+
+
+## The calendar prompt was the clock's era, and the fix is one flag
+
+`--clock 1996-08-02` had been used for every boot of the installed volume, and
+the machine stopped on a calendar prompt each time. The reason is arithmetic,
+not input, and the evidence was already on disk.
+
+The MC146818's year register holds **two digits**. `--clock 1996` puts `96` in
+it; `--clock 2026` puts `26`. The volume was installed under the oracle on
+2026-08-01/02, and `apollo_state::machine_reset` shifts the year only when a
+configuration bit is set:
+
+```c
+if (year < 25 && apollo_config(APOLLO_CONF_25_YEARS_AGO))       year += 75;
+else if (year < 30 && apollo_config(APOLLO_CONF_30_YEARS_AGO))  year += 70;
+else if (year >= 70 && !...30... && !...25...)                  year -= 70;
+```
+
+`26` is below neither threshold's trigger without the bits, and not `>= 70`, so
+the install ran with the guest seeing year **26** and wrote its timestamps
+there. A calendar reading `96` is thirty years *behind* that volume, which is
+the condition `tools/mame-oracle/install-domainos.cmds` already warns about
+from the install itself: the kernel refuses to boot when the calendar is behind
+the volume's timestamp.
+
+**Measured.** With `--clock 2026-08-08T09:00:00` and nothing else changed, the
+calendar prompt does not appear, `SELF TESTS PASSED.`, and `Domain/OS
+kernel(7), revision 10.4, February 14, 1992` loads and runs.
+
+Six explanations for that prompt were chased before this one, and the five
+fixes made along the way were real defects elsewhere. The one that mattered was
+a command-line argument, and the rule that named it had been written down after
+the install and not applied since.
+
+**The blocker has moved.** The kernel now crashes rather than waiting:
+
+```
+CRASH_STATUS 00120020  PC 3C40E114 PID 0001
+S  3C42BA58   2700   BC
+3C42BA58: 4E4F
+```
+
+`4E4F` is `TRAP #15`. That is the next thing to resolve and it is a genuine
+emulator question rather than a configuration one.
