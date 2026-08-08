@@ -14679,3 +14679,44 @@ layout calls unused, so the DN3500's configuration table extends beyond it and
 that document is not in `docs/references/`. That is the open question behind
 `CONFIGURATION INFORMATION IS NOT INITIALIZED`, and the screen ties it to this
 crash: it says to press RETURN and run `EX CONFIG` to initialise the table.
+
+
+## The oracle's calendar RAM, and a test that did not decide
+
+`tools/mame-oracle/out/*/nvram/dn3500/rtc` is MAME's persisted MC146818 -- all
+sixty-four registers, from five earlier runs. Two readings, one solid and one
+that has to be stated carefully.
+
+**Solid, and it corroborates the clock fix independently.** Register `09`, the
+year, reads `26` in every file. The oracle's guest sees year 26, which is what
+`--clock 2026` gives our machine and what `--clock 1996` did not. That is the
+clock-era finding confirmed from the oracle's own state rather than from our
+reasoning about it.
+
+**Not solid: the battery RAM is zero in all five, and that proves less than it
+appears to.** Those runs are short service-mode screen captures. They never
+loaded `SELF_TEST` off the disk and never booted Domain/OS, so they do *not*
+establish that a zero configuration table is sufficient to boot. Reading them
+that way was wrong and the conclusion drawn from it -- that the configuration
+warning must therefore be harmless -- is withdrawn.
+
+**The test it prompted, and its actual result.** Booting our machine with a
+zeroed battery and the corrected clock does not reach the crash: it reproduces
+the *earlier* failure exactly, `SELF TEST FAILED. EXPECTED= 00000000, ACTUAL=
+00000012, ADDRESS= 00010912, PC= 00005DF8`, and stops at `DO YOU WISH TO
+CONTINUE (Y,N)?`. No `TRAP #15`, because Domain/OS never loads. So the run
+neither confirms nor refutes the idea that a valid pattern without a valid
+checksum is what upsets the kernel -- the machine stops before the question is
+asked. The valid pattern is still required to pass the self-tests.
+
+What it does fix is the shape of the problem. The two states are:
+
+| calendar battery | outcome |
+| --- | --- |
+| zeroed | `SELF TEST FAILED` at `00010912`, `Y/N` prompt, no Domain/OS |
+| valid pattern seeded | self-tests pass, Domain/OS loads, `CRASH_STATUS 00120020` |
+
+so the next measurement has to distinguish *within* the seeded case -- a table
+with a valid pattern and a correct checksum against one with the pattern alone.
+The checksum's algorithm is still unknown, and that is now the blocking unknown
+rather than a footnote.
