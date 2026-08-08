@@ -643,6 +643,13 @@ ap_m68030_step_result_t ap_machine_step(ap_machine_t *machine) {
   return ap_m68030_step(&machine->cpu);
 }
 
+/* No `flatten` here, and that is a measured decision rather than an omission.
+ * The plan names it as a squeeze candidate; applied to this loop it measured
+ * 299 s against 296 s on a 350 M boot, inside the noise, because the release
+ * build already has LTO and the profile shows the bus tick, the DMA queries,
+ * the 8237 and the arbiter all inlined into one another already. A
+ * compiler-specific attribute that buys nothing is complexity without a
+ * reason. */
 ap_machine_run_t ap_machine_run(ap_machine_t *machine, unsigned limit) {
   ap_machine_run_t out = {.status = AP_M68030_STEP_EXECUTED};
 

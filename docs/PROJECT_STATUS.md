@@ -17847,3 +17847,45 @@ that is easy to get wrong. The suite caught it in one build.
 
 *Verification: `ctest` 129/129, 350 M state hash `67A14B3BB6041410`, calendar
 update cycles unchanged at 58.*
+
+
+## The squeeze item, closed: what worked, what did not, and by how much
+
+Every candidate the plan names for squeezing the reference core has now been
+tried and measured against the 350 M boot state hash. The item closes here, and
+the table is the point:
+
+| candidate | result |
+| --- | --- |
+| LTO | already on in the release preset |
+| cached per-cycle re-derived values | **refuted** — caching the 8259's resolver is 14% *slower* |
+| cached arbitration results | **1.12x** — the arbiter's idle state, provably a no-op |
+| idle-skip guards (timer, calendar, serial) | marginal — 304 s to 299 s, inside the noise |
+| `flatten` on the run loop | **neutral** — 299 s against 296 s, not kept |
+
+**The one big win was not on the list.** It was the frontend reading an
+instruction word back per step, which cost 1.60x on its own and was found only
+because the profile was re-measured rather than trusted. The item's own
+candidates, taken together, are worth about 1.12x.
+
+**`flatten` measured neutral and was removed rather than kept.** LTO already
+inlines the bus tick, the DMA queries, the 8237 and the arbiter into one
+another -- the profile shows no separate entries for any of them -- so there is
+nothing left for the attribute to do. A compiler-specific attribute that buys
+nothing is complexity without a reason, and carrying it "in case" would leave a
+later reader assuming it earned its place.
+
+**What the item cannot reach.** `ap_board_bus_tick` is now the top entry at
+11.8%, and it resists every technique here: each of its actions writes hashed
+state -- the four DMA request lines feed `dreq`, which the state hash covers --
+so there is no no-op state to name. Making it cheaper needs the machine to stop
+being asked for it, which is the `next_event()`/`skip(n)` item and a design
+change rather than a local edit.
+
+**Net for the session**: a bounded 350 M boot went from 541 s to 296 s, **1.83x**,
+with state hash `67A14B3BB6041410` throughout. Six attempts, three landed, two
+refuted, one neutral -- and one of the refutations turned out to be a real
+interrupt-controller defect rather than a performance question.
+
+*Verification: `ctest` 129/129 at every step, every golden unchanged, and the
+same state hash on every timed run.*

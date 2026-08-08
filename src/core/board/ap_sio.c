@@ -117,11 +117,23 @@ void ap_sio_advance(ap_sio_t *sio, ap_time_t now) {
        * other advance here is. */
       continue;
     }
+    /* The divide is skipped when it can only yield zero -- under one period
+     * elapsed means no pulses, an empty loop, and `clocked_to += 0`.
+     *
+     * A `continue` and **not** a return: the OP3-to-IP0 loopback below is this
+     * function's other job and runs on every call regardless of whether the
+     * counter ticked. The calendar's version of this guard was written as an
+     * early return and silently disabled that part's periodic interrupt, which
+     * two tests caught; the same shape here would have stopped the refresh
+     * square wave the boot PROM polls. */
+    const ap_time_t delta = now - sio->clocked_to[unit];
+    if (delta < sio->x1[unit].period) {
+      continue;
+    }
     /* Whole pulses, with the remainder left behind in `clocked_to` -- so the
      * rate does not depend on how often this is called, which is the property
      * the whole tick loop rests on. */
-    const uint64_t pulses =
-        (now - sio->clocked_to[unit]) / sio->x1[unit].period;
+    const uint64_t pulses = delta / sio->x1[unit].period;
     for (uint64_t i = 0; i < pulses; i++) {
       ap_mc68681_clock(&sio->port[unit]);
     }

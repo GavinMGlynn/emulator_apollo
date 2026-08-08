@@ -3931,72 +3931,21 @@ Only after the reference core is proven, and only under an identity harness.
       the old path; `ctest` 129/129 and every golden unchanged. The real profile
       and what it now says is in `PROJECT_STATUS.md`.*
 
-- [ ] Squeeze the reference core first: LTO, `flatten` on the run loops,
-      idle-skip guards naming each subsystem's no-op states, cached arbitration
-      results, cached per-cycle re-derived values. *Verification: probe goldens
-      and boot state hashes byte-identical; speed-up measured on release
-      builds only.*
-      **Awaiting:** `flatten` on the run loops and the remaining idle-skip
-      guards. LTO is already on, the re-derived-value candidates are measured
-      and closed, and arbitration is done below.
-  - **"Cached per-cycle re-derived values" was tried on the profile's top
-    candidate and is a 14% regression.** The 8259's priority resolver is 7.3% of
-    a boot, so it was cached behind an eager recompute with a debug-build
-    assertion. Identity held — `ctest` 129/129 with the assertion live, a debug
-    boot of 30 M instructions with zero assertion failures, and the 350 M state
-    hash `67A14B3BB6041410` unchanged — and the clean release timing went
-    **339 s → 386 s**. Reverted.
-    The mechanism is the lesson: `ap_board_sample_interrupts` writes about eight
-    interrupt lines *per instruction*, so a cache recomputed on write runs more
-    often than the old code resolved on read. **Caching only pays where reads
-    outnumber writes, and here they do not.** The fix this points at is fewer
-    writes — a line whose value has not changed should not reach the part at
-    all — not a cheaper resolve.
-  - **Fewer writes was then tried too, and bisected to a precise answer.**
-    `ap_i8259_set_request` reporting whether it moved anything, so
-    `ap_intr_set_request` could skip `update_cascade`, gives **339 s → 271 s**
-    — and changes the boot state hash to `2976FCE94E499A0E`. Bisecting the two
-    halves apart:
-
-    | change | 350 M state hash | time |
-    | --- | --- | --- |
-    | baseline | `67A14B3BB6041410` | 339 s |
-    | `set_request` skip only | `67A14B3BB6041410` | 359 s |
-    | + skip `update_cascade` | `2976FCE94E499A0E` | 271 s |
-
-    So **all of the speed and all of the divergence are the same line**, and the
-    skip that preserves identity buys nothing. Reverted.
-    **Why it diverges, which is the actionable part.** `update_cascade` is the
-    only thing that refreshes the master's cascade line from the slave, and the
-    other slave mutation paths — register writes, acknowledges — do not call it.
-    Today's per-instruction re-drive covers them by accident. Skipping it when
-    the *request* did not change therefore drops cascade updates that a write or
-    an acknowledge should have produced.
-    **The fix is specified**: make the slave's own write and acknowledge paths
-    update the cascade, and the skip becomes safe.
-  - [x] **Divide-avoidance in the timer and calendar advances: marginal.**
-    `ap_clock_cycles_in` is a division whose result is zero whenever the gap
-    is under one period, so three per-instruction divides became compares.
-    304 s → 301 s, inside the noise band; landed for being provably less work
-    and for naming the no-op state, not as a speed-up.
-    *Verification: `ctest` 129/129, 350 M state hash `67A14B3BB6041410`.
-    Detail — including the early-`return` version that broke the calendar's
-    periodic interrupt — in `PROJECT_STATUS.md`.*
-  - [x] **Bus arbitration idle-skip: 1.12x, identity preserved.**
-    `ap_m68030_arb_tick` runs on every bus tick and a whole boot arbitrates
-    almost never — **8 requests and 2 holds against 1.46 billion ticks** — yet
-    `perf` put it at 9.6% of the run. Guarded on the no-op state, where every
-    line provably writes back what is already there.
-    *Verification: 344 s → 309 s and 304 s, 350 M state hash
-    `67A14B3BB6041410` unchanged; `ctest` 129/129. Detail in
-    `PROJECT_STATUS.md`.*
-  - [x] **Done, and it was a latent defect rather than an optimisation.**
-    `ap_intr`'s read, write and reset paths now refresh the cascade, which its
-    own comment already claimed they did. **The "worth about 20%" above is
-    withdrawn**: that speed was a *broken* machine taking fewer interrupts.
-    *Verification: `intr_suite`, 14 tests, one that fails without the fix;
-    `ctest` 129/129; 350 M state hash `67A14B3BB6041410` unchanged. Detail in
-    `PROJECT_STATUS.md`.*
+- [x] Squeeze the reference core first. Every named candidate tried and
+      measured against the 350 M boot state hash: LTO already on; cached
+      re-derived values **refuted** (caching the 8259's resolver is 14%
+      *slower*); cached arbitration **1.12x**; idle-skip guards in the timer,
+      calendar and serial **marginal**; `flatten` **neutral** and not kept.
+      One refutation turned out to be a real interrupt-controller defect — the
+      master's cascade input was refreshed only by accident, through a
+      per-instruction re-drive — now fixed with a regression test.
+      Session net **1.83x**, 541 s → 296 s, hash `67A14B3BB6041410` throughout,
+      of which the largest single win was **not** on this list: a frontend
+      trace read-back walking the MMU tree once per instruction, worth 1.60x.
+      *Verification: `ctest` 129/129 and every golden unchanged at each step;
+      speed measured on release builds only. Detail, including what this item
+      cannot reach and why that is the exact-skip item's job, in
+      `PROJECT_STATUS.md`.*
 - [ ] Exact-skip scheduling: `next_event()` and `skip(n)` per subsystem, CPU
       half and devices half of the tick split so a span-breaking I/O write still
       runs its devices half canonically. *Verification: entire probe suite and
