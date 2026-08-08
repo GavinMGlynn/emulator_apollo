@@ -300,13 +300,41 @@ int main(int argc, char **argv) {
       break;
     }
 
+    /* Mouse motion is accumulated over the frame and sent as one packet.
+     * §13.3's counts are one signed byte each and the wire is the keyboard's,
+     * so forwarding every SDL motion event separately would flood a link that
+     * carries keystrokes -- and a person moving a mouse produces far more
+     * events per frame than the packet rate. */
+    float motion_x = 0.0f;
+    float motion_y = 0.0f;
+    bool motion = false;
+
     SDL_Event event;
     while (SDL_PollEvent(&event)) {
       if (event.type == SDL_EVENT_QUIT) {
         running = false;
       } else if (event.type == SDL_EVENT_KEY_DOWN) {
         deliver_key(board, &event.key);
+      } else if (event.type == SDL_EVENT_MOUSE_MOTION) {
+        motion_x += event.motion.xrel;
+        motion_y += event.motion.yrel;
+        motion = true;
+      } else if (event.type == SDL_EVENT_MOUSE_BUTTON_DOWN ||
+                 event.type == SDL_EVENT_MOUSE_BUTTON_UP) {
+        motion = true; /* a press with no movement is still a packet */
       }
+    }
+
+    if (motion) {
+      const SDL_MouseButtonFlags buttons = SDL_GetMouseState(NULL, NULL);
+      /* **Y is inverted deliberately.** §13.3.1: "A positive count means that
+       * the pointing device is moving up or right", where SDL's `yrel` is
+       * positive downwards. Forwarding it unchanged gives an upside-down
+       * mouse, which is the single easiest thing to get wrong here. */
+      (void)ap_board_mouse_move(
+          board, (int)motion_x, -(int)motion_y,
+          (buttons & SDL_BUTTON_LMASK) != 0, (buttons & SDL_BUTTON_MMASK) != 0,
+          (buttons & SDL_BUTTON_RMASK) != 0);
     }
 
     (void)ap_machine_run(&machine, AP_SDL_INSTRUCTIONS_PER_FRAME);

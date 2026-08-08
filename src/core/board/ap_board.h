@@ -710,6 +710,21 @@ void ap_board_write(ap_board_t *board, uint32_t address, uint8_t value,
  * needs no separate transmission. */
 [[nodiscard]] bool ap_board_key_type(ap_board_t *board, char ascii);
 
+/* Move the pointing device, and report its buttons.
+ *
+ * The mouse is not a separate device on this machine: `008778-03` §13.3 puts
+ * its packets on the **keyboard's** serial line, escaped by `DF`, so it travels
+ * the same wire as a keystroke and through the same pacing. `dx` and `dy` are
+ * the manual's counts -- positive is right and **up** -- and the buttons are
+ * true when depressed, which `ap_kbd_mouse_packet` inverts for the wire.
+ *
+ * False when the keyboard is in keystate mode, where the packet does not exist,
+ * or when the wire cannot take the whole four-byte packet: a partial packet is
+ * worse than none, since the escape would frame three bytes of the next thing
+ * sent. */
+[[nodiscard]] bool ap_board_mouse_move(ap_board_t *board, int dx, int dy,
+                                       bool left, bool middle, bool right);
+
 /* Take a byte a transmitter has shifted out, if any. The console's own output,
  * available whatever run mode the caller is in -- see `tx` above for why that
  * was not always true. */

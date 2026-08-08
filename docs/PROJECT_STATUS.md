@@ -15873,13 +15873,15 @@ nine codes, same behaviours. This core combines `FF11` and `FF12` into
 one arm where the oracle writes them separately; both echo the byte and
 keep the accumulated message, so that is a formatting difference and not
 a behavioural one.
-The **web** was searched as the rule requires, and found nothing: there is
-no published Apollo keyboard protocol document. `008778-03` Chapter 12
-covers layout, character codes, connectors and specifications and stops
-short of the command channel, which is already recorded above.
-So for this part the oracle *is* the reference, and this is the one place
-in the sweep where "walk the tables" cannot be done -- there are no
-tables. Recorded as a limitation of the part rather than of the effort.
+~~The web was searched and found nothing; there is no published Apollo
+keyboard protocol document, and this is the one place in the sweep where
+"walk the tables" cannot be done -- there are no tables.~~ **Wrong, and the
+document was on disk the whole time.** Chapter 12 does stop short of the
+command channel, which is what this checked -- but `008778-03` **Chapter
+13, "Pointing Devices"**, carries §13.3 "Keyboard-to-CPU Data Packets" and
+Figure 13-4's bit assignments. The claim was true of the chapter that was
+read and false of the manual. Corrected when the mouse was implemented from
+exactly those tables.
 **All three walked.**
 - **8259: complete.** Every `ICW1` and `ICW4` bit is defined *and* acted
   on, as are all eight `OCW2` combinations. Nothing to fix.
@@ -16196,3 +16198,40 @@ Apollo mouse shares the keyboard's serial channel and is not modelled anywhere
 in this core -- `ap_model.c` names it and nothing implements it -- so it is a
 core item rather than a frontend one, and claiming it here would be the kind of
 partial completion this document keeps having to retract.
+
+
+## The mouse, which was never a separate device
+
+`008778-03` §13.3 is titled "**Keyboard**-to-CPU Data Packets", and that is the
+whole point: the pointing device shares the keyboard's serial line. In Mode 0 its
+data is "escaped by a special code, DF for relative and E8 for absolute"; in
+keystate mode there is no escape and the packets are Modes 2 and 3 instead.
+Figure 13-4 gives the relative packet as `DF`, then `1 M R L Y Y X X`, then
+signed X, then signed Y.
+
+Two traps in four bytes, both stated in the figure's own caption and both worth
+a test:
+
+- **"0 = switch depressed."** A *zero* button bit means pressed. The obvious
+  reading is backwards.
+- **"A positive count means that the pointing device is moving up or right."**
+  Positive Y is **up**, the opposite of every host windowing system, so a
+  frontend forwarding its own `yrel` unchanged gets an inverted mouse.
+
+`ap_kbd_mouse_packet` builds the packet and clamps to the manual's "+127 to
+-128" rather than wrapping -- a wrap turns a fast drag right into a jump left.
+It returns nothing at all in keystate mode: emitting a Mode 0 packet on a Mode 1
+link would be a fabrication, and Modes 2 and 3 are not modelled.
+`ap_board_mouse_move` sends all four bytes or none, because the escape frames
+the three that follow it and a packet cut short would make the next bytes sent
+look like movement. The frontend accumulates motion over a frame rather than
+sending a packet per SDL event.
+
+**What this corrects.** This document claimed the web had been searched, that no
+Apollo keyboard protocol document exists, and that "there are no tables" for
+this part -- so the oracle was the reference. That was true of Chapter 12 and
+false of the manual: Chapter 13 has the tables and had been on disk throughout.
+The mouse was then deferred once more, out of the SDL item, with its own text
+asking for mouse mapping; the item was ticked anyway and has been un-ticked and
+re-earned. Both are the same error as the OMTI's: a module called complete on
+the strength of the part of it that was read.

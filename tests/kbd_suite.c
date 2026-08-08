@@ -498,8 +498,78 @@ static void test_an_advance_past_the_whole_tone_still_ends_it(void) {
   TEST_ASSERT_FALSE(ap_kbd_beeper_on(&k));
 }
 
+/* §13.3.1, Figure 13-4: escape `DF`, then B1's fixed bit and three switch
+ * bits, then signed X and Y. */
+static void test_a_mouse_packet_is_the_escape_and_three_bytes(void) {
+  ap_kbd_t kbd;
+  ap_kbd_reset(&kbd);
+
+  uint8_t packet[AP_KBD_MOUSE_PACKET];
+  TEST_ASSERT_EQUAL_UINT(AP_KBD_MOUSE_PACKET,
+                         ap_kbd_mouse_packet(&kbd, 5, -3, false, false, false,
+                                             packet));
+  TEST_ASSERT_EQUAL_HEX8(0xDFu, packet[0]);
+  /* No button depressed, so all three switch bits are *set*, with bit 7 fixed
+   * and both invalid fields clear. */
+  TEST_ASSERT_EQUAL_HEX8(0xF0u, packet[1]);
+  TEST_ASSERT_EQUAL_HEX8(0x05u, packet[2]);
+  TEST_ASSERT_EQUAL_HEX8(0xFDu, packet[3]); /* -3 in two's complement */
+}
+
+/* "L, M, R = Left, Middle, Right Switch Data; 0 = switch depressed" -- the
+ * inversion is the trap in this packet, so it gets its own test. */
+static void test_a_depressed_button_clears_its_bit(void) {
+  ap_kbd_t kbd;
+  ap_kbd_reset(&kbd);
+
+  uint8_t packet[AP_KBD_MOUSE_PACKET];
+  TEST_ASSERT_EQUAL_UINT(AP_KBD_MOUSE_PACKET,
+                         ap_kbd_mouse_packet(&kbd, 0, 0, true, false, false,
+                                             packet));
+  TEST_ASSERT_EQUAL_HEX8(0u, packet[1] & AP_KBD_MOUSE_B1_LEFT);
+  TEST_ASSERT_TRUE((packet[1] & AP_KBD_MOUSE_B1_MIDDLE) != 0u);
+  TEST_ASSERT_TRUE((packet[1] & AP_KBD_MOUSE_B1_RIGHT) != 0u);
+
+  TEST_ASSERT_EQUAL_UINT(AP_KBD_MOUSE_PACKET,
+                         ap_kbd_mouse_packet(&kbd, 0, 0, true, true, true,
+                                             packet));
+  TEST_ASSERT_EQUAL_HEX8(AP_KBD_MOUSE_B1_FIXED, packet[1]);
+}
+
+/* "X and Y relative counts can range from +127 to -128": one signed byte, so a
+ * larger movement clamps. Wrapping would turn a fast drag right into a jump
+ * left. */
+static void test_a_movement_past_a_signed_byte_clamps(void) {
+  ap_kbd_t kbd;
+  ap_kbd_reset(&kbd);
+
+  uint8_t packet[AP_KBD_MOUSE_PACKET];
+  TEST_ASSERT_EQUAL_UINT(AP_KBD_MOUSE_PACKET,
+                         ap_kbd_mouse_packet(&kbd, 5000, -5000, false, false,
+                                             false, packet));
+  TEST_ASSERT_EQUAL_HEX8(0x7Fu, packet[2]);
+  TEST_ASSERT_EQUAL_HEX8(0x80u, packet[3]);
+}
+
+/* §13.3: keystate mode carries pointing data as Modes 2 and 3 rather than as an
+ * escape. Those are not modelled, so nothing is emitted -- a Mode 0 packet on a
+ * Mode 1 link would be a fabrication. */
+static void test_keystate_mode_emits_no_mode_zero_packet(void) {
+  ap_kbd_t kbd;
+  ap_kbd_reset(&kbd);
+  kbd.keystate_mode = true;
+
+  uint8_t packet[AP_KBD_MOUSE_PACKET];
+  TEST_ASSERT_EQUAL_UINT(0u, ap_kbd_mouse_packet(&kbd, 1, 1, false, false,
+                                                 false, packet));
+}
+
 int main(void) {
   UNITY_BEGIN();
+  RUN_TEST(test_a_mouse_packet_is_the_escape_and_three_bytes);
+  RUN_TEST(test_a_depressed_button_clears_its_bit);
+  RUN_TEST(test_a_movement_past_a_signed_byte_clamps);
+  RUN_TEST(test_keystate_mode_emits_no_mode_zero_packet);
   RUN_TEST(test_a_key_sends_its_index_down_and_bit_seven_up);
   RUN_TEST(test_every_release_is_its_press_plus_the_flag);
   RUN_TEST(test_a_non_transition_sends_nothing);

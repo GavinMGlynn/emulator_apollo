@@ -1139,6 +1139,34 @@ bool ap_board_key_release(ap_board_t *board, unsigned key) {
  * The keypad's codes are two bytes, `FE` then the character. Both go, high byte
  * first, because a model that dropped the prefix makes keypad `7`
  * indistinguishable from the main one. */
+bool ap_board_mouse_move(ap_board_t *board, int dx, int dy, bool left,
+                         bool middle, bool right) {
+  if (board == NULL) {
+    return false;
+  }
+  uint8_t packet[AP_KBD_MOUSE_PACKET];
+  const unsigned bytes = ap_kbd_mouse_packet(&board->keyboard, dx, dy, left,
+                                             middle, right, packet);
+  if (bytes == 0u) {
+    return false;
+  }
+  /* All four bytes or none: the escape frames the three that follow it, so a
+   * packet cut short by a full queue would make the *next* bytes sent look like
+   * movement. Checked before anything is queued rather than discovered
+   * half-way. */
+  const unsigned room =
+      (unsigned)(sizeof board->kbd_reply.bytes) - board->kbd_reply.count;
+  if (room < bytes) {
+    return false;
+  }
+  for (unsigned i = 0; i < bytes; i++) {
+    if (!deliver_key(board, packet[i])) {
+      return false;
+    }
+  }
+  return true;
+}
+
 bool ap_board_key_type(ap_board_t *board, char ascii) {
   uint16_t code = 0u;
   bool shifted = false;

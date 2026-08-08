@@ -450,3 +450,51 @@ unsigned ap_kbd_receive(ap_kbd_t *kbd, uint8_t byte, uint8_t *reply,
   }
 #undef EMIT
 }
+
+/* §13.3.1 and Figure 13-4. See `ap_kbd.h` for the packet and the two traps in
+ * it: a zero button bit means *depressed*, and positive Y is up. */
+unsigned ap_kbd_mouse_packet(const ap_kbd_t *kbd, int dx, int dy, bool left,
+                             bool middle, bool right, uint8_t *out) {
+  if (kbd == NULL || out == NULL) {
+    return 0u;
+  }
+  /* Mode 1 carries pointing data as its own packet types rather than as an
+   * escape, and those are not modelled. Nothing is emitted rather than a
+   * Mode 0 packet on a link that is not in Mode 0. */
+  if (kbd->keystate_mode) {
+    return 0u;
+  }
+
+  /* "+127 to -128": the counts are one signed byte, so a larger movement is
+   * clamped rather than wrapped. Wrapping would turn a fast drag right into a
+   * jump left, which is a bug a person sees and a test does not. */
+  if (dx > 127) {
+    dx = 127;
+  } else if (dx < -128) {
+    dx = -128;
+  }
+  if (dy > 127) {
+    dy = 127;
+  } else if (dy < -128) {
+    dy = -128;
+  }
+
+  uint8_t b1 = AP_KBD_MOUSE_B1_FIXED;
+  /* Zero is depressed, so a button that is *up* sets its bit. */
+  if (!left) {
+    b1 |= AP_KBD_MOUSE_B1_LEFT;
+  }
+  if (!middle) {
+    b1 |= AP_KBD_MOUSE_B1_MIDDLE;
+  }
+  if (!right) {
+    b1 |= AP_KBD_MOUSE_B1_RIGHT;
+  }
+  /* Both invalid fields stay clear: this model's counts are always valid. */
+
+  out[0] = AP_KBD_MOUSE_ESCAPE_RELATIVE;
+  out[1] = b1;
+  out[2] = (uint8_t)dx;
+  out[3] = (uint8_t)dy;
+  return AP_KBD_MOUSE_PACKET;
+}

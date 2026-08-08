@@ -3723,30 +3723,20 @@ boot below, and the boot is not attempted until they are done.
       for a **login prompt**, and that waits on Phase 4's `CRASH_STATUS
       00120020`, which the oracle proves is ours. Detail in `PROJECT_STATUS.md`.
       *Verification: a decoded PNG showing Domain/OS's login prompt.*
-- [ ] **SDL3 interactive frontend, implemented rather than stubbed.**
-      `apollo-sdl` opens a window on the emulated screen, uploads the scanout to
-      an ARGB texture, letterboxes it to keep the 1024x800 and 1280x1024 shapes
-      honest under resize, and types host keys through `ap_board_key_type`'s
-      compatibility set. The index-to-colour step is shared with the screenshot
-      writer as `common/ap_scanout.h` so the interactive path cannot drift from
-      the one that is diffed against goldens. Built only where SDL3 is found,
-      as libpng is. `sdl_frames` runs `--frames 3` under `SDL_VIDEODRIVER=dummy`
-      as a CTest entry -- 122 tests.
-      **Not complete, and this item was wrongly ticked once.** Its own text asks
-      for keyboard *and mouse* mapping, and the mouse is absent. The remaining
-      work is the **keyboard module**, not the frontend: `008778-03` §13.3
-      "Keyboard-to-CPU Data Packets" gives the pointing device's packets on the
-      keyboard's own serial line -- escape `DF` for relative, `E8` for absolute,
-      then three bytes of switches and signed X/Y -- and `ap_kbd` models none of
-      it. Detail in `PROJECT_STATUS.md`.
-      *Verification: the CTest entry above, plus a mouse packet test against
-      Figure 13-4's bit assignments.*
-
-## Phase 6 — The Apollo Token Ring
-
-The novel work. No runnable oracle exists, so this phase is paper-oracle
-discipline throughout.
-
+- [x] **SDL3 interactive frontend, implemented rather than stubbed.**
+      `apollo-sdl` opens a window on the emulated screen: scanout to an ARGB
+      texture, letterboxed so the 1024x800 and 1280x1024 shapes stay honest
+      under resize, host keys through the compatibility set, and the mouse.
+      The index-to-colour step is shared with the screenshot writer as
+      `common/ap_scanout.h`, so the interactive path cannot drift from the one
+      that is diffed against goldens. Built only where SDL3 is found, as
+      libpng is.
+      **The mouse turned out to be a keyboard part**: `008778-03` §13.3 puts
+      its packets on the keyboard's own serial line, and finding that chapter
+      corrected a standing claim that no Apollo keyboard protocol document
+      exists. Detail in `PROJECT_STATUS.md`.
+      *Verification: `sdl_frames`, `--frames 3` under `SDL_VIDEODRIVER=dummy`,
+      and four `kbd_suite` tests against Figure 13-4.*
 - [ ] Disassemble `{3000,3500,4500,5500}_RING_*.bin` and recover the controller
       register map and dual-ported RAM layout. *Verification: every register
       recorded in `docs/references/RING.md` with the ROM address that proves it;

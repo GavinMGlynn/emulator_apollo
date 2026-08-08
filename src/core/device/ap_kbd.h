@@ -187,6 +187,65 @@ void ap_kbd_reset(ap_kbd_t *kbd);
 /* Press or release a key. `*code` receives the scan code to transmit, and the
  * call answers false when the key was already in that state -- there is no
  * transition, so there is nothing to send. This is the **keystate** set. */
+/* ## The pointing device, which arrives on the keyboard's own line
+ *
+ * `008778-03` **§13.3, "Keyboard-to-CPU Data Packets"** -- and the existence of
+ * that chapter corrects a claim this project carried for a long time, that no
+ * Apollo keyboard protocol document exists and that "there are no tables" for
+ * this part. Chapter 12 stops at layout and character codes; Chapter 13 is the
+ * pointing device, and it has the tables. It was on disk throughout.
+ *
+ * §13.3: "In Mode 0 (compatibility mode), pointing device data is *escaped* by
+ * a special code, DF for relative and E8 for absolute data. In Mode 1, no such
+ * escape codes exist. Rather, there are distinct modes which are used for
+ * pointing device data, Mode 2 for relative and Mode 3 for absolute data."
+ *
+ * §13.3.1 with Figure 13-4, the relative packet -- escape then three bytes:
+ *
+ *     BYTE  bit 7   6   5   4   3   2   1   0
+ *     ESC       1   1   0   1   1   1   1   1     = DF
+ *     B1        1   M   R   L   Y   Y   X   X
+ *     B2       X7  X6  X5  X4  X3  X2  X1  X0
+ *     B3       Y7  Y6  Y5  Y4  Y3  Y2  Y1  Y0
+ *
+ * "L, M, R = Left, Middle, Right Switch Data; 0 = switch depressed", and the
+ * sense is the trap here: a **zero** bit is a *pressed* button. "The X and Y
+ * bits are Zero when the data for the corresponding direction is valid", so
+ * valid movement clears them -- this model always produces valid data and
+ * therefore always clears all four.
+ *
+ * "X and Y relative counts can range from +127 to -128. A positive count means
+ * that the pointing device is moving up or right", signed two's complement.
+ * Note the axis convention: positive Y is **up**, which is the opposite of
+ * every host windowing system, and a frontend that forwards its own dy
+ * unchanged gets an inverted mouse. */
+#define AP_KBD_MOUSE_ESCAPE_RELATIVE 0xDFu
+#define AP_KBD_MOUSE_ESCAPE_ABSOLUTE 0xE8u
+/* Figure 13-4's B1. A set bit is a *released* button. */
+#define AP_KBD_MOUSE_B1_FIXED 0x80u
+#define AP_KBD_MOUSE_B1_MIDDLE 0x40u
+#define AP_KBD_MOUSE_B1_RIGHT 0x20u
+#define AP_KBD_MOUSE_B1_LEFT 0x10u
+/* The invalid indicators, two bits each, zero when the data is valid. */
+#define AP_KBD_MOUSE_B1_Y_INVALID 0x0Cu
+#define AP_KBD_MOUSE_B1_X_INVALID 0x03u
+
+/* The bytes of one relative-movement packet, `AP_KBD_MOUSE_PACKET` long.
+ *
+ * `dx` and `dy` are the counts the manual describes: positive is right and
+ * **up**. The buttons are true when *depressed*, and this reports them the way
+ * Figure 13-4 does, so a caller never has to know the inversion.
+ *
+ * Returns the number of bytes written. Zero in keystate mode: §13.3 gives that
+ * mode its own packet types (2 and 3) rather than an escape, and this model
+ * does not implement them -- reporting nothing is honest where emitting a Mode
+ * 0 packet on a Mode 1 link would be a fabrication. */
+[[nodiscard]] unsigned ap_kbd_mouse_packet(const ap_kbd_t *kbd, int dx, int dy,
+                                           bool left, bool middle, bool right,
+                                           uint8_t *out);
+
+#define AP_KBD_MOUSE_PACKET 4u
+
 [[nodiscard]] bool ap_kbd_press(ap_kbd_t *kbd, unsigned key, uint8_t *code);
 [[nodiscard]] bool ap_kbd_release(ap_kbd_t *kbd, unsigned key, uint8_t *code);
 
