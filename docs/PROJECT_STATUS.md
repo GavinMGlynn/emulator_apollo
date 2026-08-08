@@ -16288,3 +16288,49 @@ Kept because the cost of not writing it down is that the next reader repeats the
 same investigation and this time makes the change: an agent, a plausible manual
 citation and a difference from MAME are together very convincing, and were
 wrong. CLAUDE.md's "expect to out-accurate the oracle" is the whole point.
+
+
+## The fault handler branches on MMUSR, which narrows the crash to one register
+
+Reading the kept 400,000-instruction trace forward from the **last** bus fault
+before the crash -- free, on data already collected -- shows what Domain/OS does
+with a page fault:
+
+```
+325112697  3C47A25A  E9E8   <- the fault
+325112698  3C42CD90  007C   ORI to SR, the handler prologue
+...
+325112723  3C42CE2A  F010   MMU coprocessor instruction
+325112725  3C42CE30  F017   PMOVE MMUSR,(A7)
+325112726  3C42CE34  361F   MOVE.W (A7)+,D3
+325112731  3C42CE48  0803   BTST #n,D3
+325112733  3C42CE50  0803   BTST #n,D3
+```
+
+The handler reads the **MMU status register** and branches on its bits. So
+"why is the second fault fatal when the first is repaired" is not a question
+about the fault at all -- it is a question about what `MMUSR` reports, and the
+two `BTST`s are the branch that decides.
+
+That makes the register worth walking, and it was, against the
+`M68000 Family Programmer's Reference Manual` PTEST page (p. 6-65) as a page
+image. **It is correct.** Every bit matches -- `B` 15, `L` 14, `S` 13, `W` 11,
+`I` 10, `M` 9, `T` 6 -- and `N` really is the **three**-bit field the table
+names, so the `0x0007` mask is right rather than a transcription that dropped
+bit 3. The level-0 rules are implemented as stated: `L`, `S` and `N` cleared
+because that form performs no table search, `T` short-circuiting everything
+else because "if the T bit is set, all remaining MMUSR bits are undefined", and
+the conditional that is easiest to miss --
+
+> "The I-bit is set if the translation for the specified logical address is not
+> resident in the ATC **or if the B-bit of the corresponding ATC entry is set**."
+
+-- is present and cited in `ap_m68030_mmusr.c`.
+
+**The next measurement is now a single value.** Both machines are
+register-identical entering the fatal fault, our handler repairs the first one,
+and the handler's decision is a `BTST` on `MMUSR`. So: what does `MMUSR` hold at
+the second fault on each side? A difference there explains the crash; equality
+moves the question past the MMU to what the handler does with the answer. That
+is a far smaller question than the one this started as, and it needs one probe
+rather than a boot comparison.
