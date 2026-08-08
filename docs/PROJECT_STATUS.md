@@ -16493,3 +16493,40 @@ address -- brackets the divergence by halving. Nothing measured so far
 contradicts anything in the MMU, the disk, the calendar or the console; the
 fault is in what the kernel does between printing its name and scheduling its
 first process.
+
+
+## The kernel is spinning 0x152 bytes short of the root-pointer load
+
+Sampling the PC every 20,000,000 instructions through to the crash, which is a
+bisection rather than a hypothesis:
+
+```
+240M  3C450C00      280M  3C4BC384      320M  3C43DCA0
+260M  3C4BC384      300M  3C43DC9E
+```
+
+Two samples share `3C4BC384` twenty million instructions apart, and the last two
+are `3C43DC9E` and `3C43DCA0` -- **two bytes apart, twenty million instructions
+apart.** That is not slow progress, it is a **tight spin loop**, and the machine
+sits in it for at least the last twenty-five million instructions before it
+dies.
+
+`3C43DC9E` is `0x152` bytes below `3C43DDF0`, the instruction the oracle uses to
+load every root pointer. So the earlier reading needs correcting once more: the
+kernel *does* reach that routine's neighbourhood. It never executes the load
+because **it is waiting, a little before it, for a condition that never
+arrives.**
+
+That reframes the whole search. The question is no longer "which branch does the
+kernel take differently" -- it takes the same path far enough to arrive here --
+but "what is this loop polling, and why does it never become true". A spin loop
+polls something: a device register, a memory location another agent should
+write, or a flag an interrupt handler should set. All three are measurable, and
+the loop is two instructions long.
+
+**Next**, and it needs no boot: disassemble `3C43DC90`-`3C43DDF0` from a dump of
+that range. Two instructions of loop and the test above them name what is being
+polled, and this core can then be asked directly whether that thing ever
+changes. The three earlier candidates -- the missing 3c505, the interrupt that
+never fires, a device left un-advanced -- become checkable against a specific
+address instead of guessed at.
