@@ -16455,3 +16455,41 @@ branch, or never reach it at all, are different faults, and one run distinguishe
 them.
 
 Instrumentation reverted; `ctest` 122/122.
+
+
+## Measured: our kernel never reaches the instruction that loads the root pointer
+
+The oracle loads every root pointer from a single instruction at **`3C43DDF0`**
+-- 3061 times over a boot to `login:`, cycling 35 distinct trees, which is a
+scheduler switching address spaces. Its first occurrence is PMOVE number 9, at
+t = 72.4 s emulated, ~2.4 seconds after the kernel banner and before any further
+console output: exactly where this machine prints `CRASH_STATUS`. Its **first
+eight PMOVEs are byte-identical to our eight** -- same instruction addresses,
+same values, same order -- so the two machines agree completely through
+`SELF_TEST` and part only when Domain/OS should take the MMU over.
+
+`--boot-stop-pc 3C43DDF0` here **never fires**. The run goes the full
+1,600,000,000 instructions and ends in the boot PROM's debugger loop, with the
+same exception census as every other run of this configuration.
+
+So the answer to the last fork is the second one: we do not reach that
+instruction and branch around it -- **we never reach it.** The divergence is
+upstream of it, between the kernel banner (which this machine prints correctly)
+and the scheduler's first context switch.
+
+**An inference that was wrong, recorded because it was reasonable.** Our
+exception log shows the kernel executing `3C43DBE8`, only `0x208` bytes below
+`3C43DDF0`, which was taken as favouring "reaches the routine and branches
+around it". Adjacency in the address space is not adjacency in control flow: the
+two are in the same region because the kernel's scheduler and its interrupt
+handling live together, not because one leads to the other. The stop firing or
+not was the measurement, and it disagreed with the guess.
+
+**Next**, and it is a bisection rather than a hypothesis: the machine prints the
+kernel banner correctly and dies ~2.4 emulated seconds later without ever
+reaching the scheduler. Stopping on a PC between those two points -- the banner
+is written through the PROM's console routine, so its caller is a known
+address -- brackets the divergence by halving. Nothing measured so far
+contradicts anything in the MMU, the disk, the calendar or the console; the
+fault is in what the kernel does between printing its name and scheduling its
+first process.
