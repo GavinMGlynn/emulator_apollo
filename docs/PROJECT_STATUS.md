@@ -16419,3 +16419,39 @@ just the two root ones, with its destination and instruction address, and see
 whether Domain/OS issues any MMU write at all. If it issues none, the problem is
 upstream and the MMU work is done; if it issues one this model files elsewhere,
 the defect is in the `PMOVE` destination decode.
+
+
+## Domain/OS issues no MMU write at all, so the MMU is not the defect
+
+The previous entry left two candidates: Domain/OS is diverted before installing
+its tables, or it issues a load this model files under a different `PMOVE`
+destination. The second is now eliminated by measurement rather than by
+argument.
+
+Every `PMOVE` was logged over a boot to the crash, with its destination and the
+instruction address, not just the two root ones. **Eight in the entire boot, and
+zero from Domain/OS.** There is nothing being mis-filed, because there is
+nothing being written: the operating system makes no MMU register write on this
+machine at any point.
+
+So the chain is: Domain/OS never installs its own translation tables, runs its
+whole life on `SELF_TEST`'s `0x01001400` tree, and dies the first time it faults
+on an address that tree has never mapped -- which is `3BFF0001`, index `0xEF`,
+the slot the oracle's tree maps and this one does not.
+
+**Everything measured in the MMU is correct and is not where the bug is.** The
+`MMUSR` bits walk clean against the PTEST page, the table search agrees with the
+oracle's index for index, the bus fault frames were investigated and the
+reported defect refuted. Those are now *eliminations* rather than open
+questions, which is worth as much as a fix: the next reader does not have to
+re-examine them.
+
+**The divergence is upstream, in the kernel's early initialisation**, before the
+point where the real machine installs its tables. That is a much larger search
+space than the MMU was, so the next step is to narrow it from the other end:
+find the instruction address at which the oracle loads `CRP = 0x0105BC00`, then
+put a PC stop on it here. Whether we reach that routine and take a different
+branch, or never reach it at all, are different faults, and one run distinguishes
+them.
+
+Instrumentation reverted; `ctest` 122/122.
