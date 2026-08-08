@@ -49,6 +49,12 @@
  * fixed array keeps the core allocation-free -- which it is throughout. */
 #define AP_RING_MAX_NODES 64u
 
+/* Longest cable a link may model, in bit times. `[MAC]` §3.4 puts the maximum
+ * between nodes at 1 km, which is about 60 bit times at 12 Mbit/s once
+ * propagation is counted, so 64 covers the documented maximum with room and
+ * keeps the delay lines small enough to sit in the struct. */
+#define AP_RING_MAX_CABLE_BITS 64u
+
 typedef struct {
   bool attached;
   ap_ring_bypass_t bypass;
@@ -56,6 +62,18 @@ typedef struct {
   ap_ring_cell_t driving;
   /* What arrived at its input, settled by the last `advance`. */
   ap_ring_cell_t received;
+
+  /* The cable *leaving* this slot, as a delay line. `[MAC]` §3.3 counts "cable
+   * plant" among the static elements contributing ring delay, alongside the
+   * connected nodes -- and on real hardware the cable dominates. Without it a
+   * ring of fewer than nine stations is shorter than its own nine-bit token,
+   * which is not a limit any physical ring has.
+   *
+   * Zero by default, so a ring that does not care about cable length behaves
+   * exactly as it did before this existed. */
+  unsigned cable_bits;
+  ap_ring_cell_t line[AP_RING_MAX_CABLE_BITS];
+  unsigned line_head;
 } ap_ring_node_t;
 
 typedef struct {
@@ -87,6 +105,12 @@ void ap_ring_medium_transmit(ap_ring_medium_t *m, int slot,
 [[nodiscard]] ap_ring_cell_t ap_ring_medium_receive(const ap_ring_medium_t *m,
                                                     int slot);
 
+/* Set the length of the cable leaving `slot`, in bit times. Refused above
+ * `AP_RING_MAX_CABLE_BITS`; a caller asking for more has misread the medium
+ * rather than found a longer cable. */
+void ap_ring_medium_set_cable_bits(ap_ring_medium_t *m, int slot,
+                                   unsigned bits);
+
 /* One bit clock for the whole ring. Every node's driven cell moves to the
  * next attached slot's receiver; a bypassed node passes its input through to
  * its output instead of driving, and hears its own transmission. */
@@ -99,6 +123,12 @@ void ap_ring_medium_advance(ap_ring_medium_t *m);
  * nothing: their relays are a piece of cable, not a retiming element. */
 [[nodiscard]] int ap_ring_medium_delay_centibits(const ap_ring_medium_t *m,
                                                  int per_node_centibits);
+
+/* The ring's circumference in whole bit times: every participating node's own
+ * bit of delay plus every cable it drives. This is the figure that must exceed
+ * a token's width for the ring to carry one. */
+[[nodiscard]] unsigned ap_ring_medium_circumference_bits(
+    const ap_ring_medium_t *m);
 
 /* Whether that total is a whole number of bit-times, which is `[MAC]` §3.3's
  * stability condition stated directly. */

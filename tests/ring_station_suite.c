@@ -154,6 +154,36 @@ static void test_a_station_wanting_nothing_forwards_the_token_intact(void) {
   }
 }
 
+/* And the gap the previous test's comment names, closed: with cable modelled,
+ * a *small* ring carries a token perfectly well. Three stations and four bits
+ * of cable each is fifteen bit times of circumference against a nine-bit
+ * token, which is the ordinary case on real hardware -- `[MAC]` §3.3 counts
+ * cable plant among the delay elements and it dominates in any real plant.
+ *
+ * This is the test that shows the earlier failure was a modelling gap and not
+ * a property of token rings. */
+static void test_cable_lets_a_three_station_ring_circulate_a_token(void) {
+  ring_t r;
+  ap_ring_medium_init(&r.medium);
+  r.nodes = 3u;
+  for (unsigned i = 0; i < r.nodes; i++) {
+    const int slot = ap_ring_medium_attach(&r.medium);
+    ap_ring_medium_set_cable_bits(&r.medium, slot, 4u);
+    ap_ring_station_init(&r.station[i], slot);
+  }
+  TEST_ASSERT_TRUE(ap_ring_medium_circumference_bits(&r.medium) >
+                   AP_RING_OOB_BITS);
+
+  ap_ring_station_originate_token(&r.station[0], AP_RING_OOB_FREE_TOKEN);
+  for (unsigned t = 0; t < 300u; t++) {
+    step(&r);
+  }
+  for (unsigned i = 0; i < r.nodes; i++) {
+    TEST_ASSERT_TRUE(r.station[i].tokens_seen > 1u);
+    TEST_ASSERT_FALSE(r.station[i].saw_biphase_error);
+  }
+}
+
 /* Recognition is of the *symbol*, not of a byte: the window is nine bits wide
  * and a well-formed character is what it reports. */
 static void test_the_station_recognises_a_nine_bit_symbol(void) {
@@ -183,6 +213,7 @@ int main(void) {
   RUN_TEST(test_a_station_claims_the_first_free_token_that_reaches_it);
   RUN_TEST(test_only_the_upstream_of_two_contenders_takes_the_ring);
   RUN_TEST(test_a_station_wanting_nothing_forwards_the_token_intact);
+  RUN_TEST(test_cable_lets_a_three_station_ring_circulate_a_token);
   RUN_TEST(test_the_station_recognises_a_nine_bit_symbol);
   return UNITY_END();
 }

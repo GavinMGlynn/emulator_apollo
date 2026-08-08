@@ -17485,3 +17485,42 @@ medium before any multi-node Domain/OS run.
 
 *Verification: `golden_ring_probes` over `tests/goldens/ring_probes.txt`, plus
 `ring_station_suite`, 6 tests. `ctest` 129/129.*
+
+
+## Cable delay, and the difference between an idle line and a dead one
+
+The gap the previous entry recorded is closed in the same session it was
+opened, because it would otherwise have been built on. The medium now models
+**per-hop cable delay**: `[MAC]` §3.3 counts "cable plant" among the static
+elements contributing ring delay, alongside the connected nodes, and on real
+hardware the cable dominates. A three-station ring with four bit times of cable
+each has a circumference of fifteen against a nine-bit token, and circulates it
+perfectly well -- which is what shows the earlier failure was a modelling gap
+and not a property of token rings.
+
+Cable length defaults to zero, so every existing ring behaves exactly as before
+and the ring probe golden is unchanged.
+
+**The interesting part is what a cable holds before anything is sent down it.**
+Filling the delay line with zero cells looked obviously right and is wrong.
+§3.2 requires a transition in every clock window, so a *live* ring carries clock
+even when it carries no data. A line of all-zero cells has no transitions at
+all -- that is a **dead** line, and a receiver decoding it reports a bi-phase
+error on every bit, which it should. The station test asserting that a quiet
+ring is error-free caught it immediately. Cables now start out holding idle: a
+run of encoded Zeros, alternating the line level.
+
+**And that broke a test in a way worth recording**, because it is a trap
+anything testing this medium will meet. Idle alternates between the two cells
+`{clock,data} = {T,T}` and `{F,F}`. A test that marks a travelling cell with
+`{T,T}` and then asserts "it has not arrived yet" is asserting something false
+about a correct medium -- the cable already contains that cell everywhere. The
+marker has to be one idle never produces. Fixed by marking with `{T,F}`, and
+the reason is written into the test so the next person choosing a marker
+chooses a legal one.
+
+*Verification: three more `ring_medium_suite` tests -- delay by length, a
+length the medium refuses, and circumference against token width -- plus one
+more in `ring_station_suite` showing a three-station ring circulating a token
+once it has cable. `ctest` 129/129, and `tests/goldens/ring_probes.txt`
+byte-identical.*

@@ -3,6 +3,7 @@
  * cells in and reads them out, so what it checks is the *topology and timing*
  * of the medium and nothing about any node's behaviour. */
 
+#include "ring/ap_ring_mac.h"
 #include "ring/ap_ring_medium.h"
 #include "unity.h"
 
@@ -206,8 +207,69 @@ static void test_an_invalid_slot_is_refused(void) {
   TEST_ASSERT_FALSE(ap_ring_medium_attached(&m, 99));
 }
 
+/* `[MAC]` §3.3 counts "cable plant" among the static elements contributing ring
+ * delay, alongside the connected nodes. A cable of C bit times delays a cell by
+ * C on top of the hop itself. */
+static void test_a_cable_delays_a_cell_by_its_length(void) {
+  ap_ring_medium_t m;
+  ap_ring_medium_init(&m);
+  const int a = ap_ring_medium_attach(&m);
+  const int b = ap_ring_medium_attach(&m);
+  ap_ring_medium_set_cable_bits(&m, a, 5u);
+
+  /* `mark(1)` and not `mark(3)`: a cable is filled with *idle*, and idle is a
+   * run of encoded Zeros, which alternates between `{T,T}` and `{F,F}` -- so
+   * `mark(3)` and `mark(0)` are cells the cable already contains. A marker has
+   * to be one idle never produces, or "it has not arrived yet" is untestable.
+   * Choosing `mark(3)` here made this test fail against a correct medium. */
+  ap_ring_medium_transmit(&m, a, mark(1));
+  /* Five bit times of cable: nothing of a's has reached b yet. */
+  for (unsigned t = 0; t < 5u; t++) {
+    ap_ring_medium_advance(&m);
+    TEST_ASSERT_FALSE(same(mark(1), ap_ring_medium_receive(&m, b)));
+  }
+  ap_ring_medium_advance(&m);
+  TEST_ASSERT_TRUE(same(mark(1), ap_ring_medium_receive(&m, b)));
+}
+
+/* A length the medium cannot model is refused rather than truncated: a caller
+ * asking for more has misread the medium, and silently shortening their cable
+ * would move every timing figure they then measured. */
+static void test_a_cable_longer_than_the_medium_models_is_refused(void) {
+  ap_ring_medium_t m;
+  ap_ring_medium_init(&m);
+  const int a = ap_ring_medium_attach(&m);
+  ap_ring_medium_set_cable_bits(&m, a, AP_RING_MAX_CABLE_BITS + 1u);
+  TEST_ASSERT_EQUAL_UINT(0u, m.node[a].cable_bits);
+  ap_ring_medium_set_cable_bits(&m, a, AP_RING_MAX_CABLE_BITS);
+  TEST_ASSERT_EQUAL_UINT(AP_RING_MAX_CABLE_BITS, m.node[a].cable_bits);
+}
+
+/* Circumference is what has to exceed a token's width for a ring to carry one,
+ * and it is the station's own bit plus the cable it drives. Three nodes with
+ * four bits of cable each is fifteen -- comfortably over a nine-bit token,
+ * where three nodes with no cable would be three. */
+static void test_cable_makes_a_small_ring_longer_than_its_token(void) {
+  ap_ring_medium_t m;
+  ap_ring_medium_init(&m);
+  for (unsigned i = 0; i < 3u; i++) {
+    const int slot = ap_ring_medium_attach(&m);
+    ap_ring_medium_set_cable_bits(&m, slot, 4u);
+  }
+  TEST_ASSERT_EQUAL_UINT(15u, ap_ring_medium_circumference_bits(&m));
+  TEST_ASSERT_TRUE(ap_ring_medium_circumference_bits(&m) > AP_RING_OOB_BITS);
+
+  /* A bypassed node contributes neither its bit nor its cable, for the same
+   * reason it contributes no delay. */
+  ap_ring_medium_set_bypass(&m, 0, true);
+  TEST_ASSERT_EQUAL_UINT(10u, ap_ring_medium_circumference_bits(&m));
+}
+
 int main(void) {
   UNITY_BEGIN();
+  RUN_TEST(test_a_cable_delays_a_cell_by_its_length);
+  RUN_TEST(test_a_cable_longer_than_the_medium_models_is_refused);
+  RUN_TEST(test_cable_makes_a_small_ring_longer_than_its_token);
   RUN_TEST(test_attaching_hands_out_slots_in_cable_order);
   RUN_TEST(test_a_cell_moves_exactly_one_hop_per_bit_clock);
   RUN_TEST(test_a_cell_returns_to_its_sender_after_one_lap);

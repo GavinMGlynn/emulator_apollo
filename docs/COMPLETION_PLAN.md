@@ -3831,12 +3831,13 @@ discipline throughout.
       *Verification: `tests/goldens/ring_probes.txt` locked into CTest as
       `golden_ring_probes`, plus `ring_station_suite`, 6 tests. Detail in
       `PROJECT_STATUS.md`.*
-  - Tail, recorded as finding 32 in `RING.md`: this core models a station's
-    one-bit delay and **not the cable's**, so a ring of fewer than nine
-    stations is shorter than its own nine-bit token. No physical ring is near
-    that bound — 1 km between nodes is ~60 bit-times — but the model can reach
-    it, so per-hop cable delay belongs in the medium before multi-node
-    Domain/OS runs.
+  - [x] That tail closed in the same session it was opened: the medium models
+        **per-hop cable delay**, so a small ring can be given a realistic
+        circumference and a three-station ring circulates a token. Findings 32
+        and 33 in `RING.md`.
+        *Verification: three more `ring_medium_suite` tests and one more in
+        `ring_station_suite`; the ring probe golden is unchanged, since cable
+        length defaults to zero.*
 - [ ] Two nodes see each other over the ring under Domain/OS. *Verification:
       `lcnode` on each node lists the other; console output diffed against
       itself across runs for determinism.*
