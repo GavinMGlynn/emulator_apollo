@@ -16530,3 +16530,54 @@ polled, and this core can then be asked directly whether that thing ever
 changes. The three earlier candidates -- the missing 3c505, the interrupt that
 never fires, a device left un-advanced -- become checkable against a specific
 address instead of guessed at.
+
+
+## The spin loop disassembled: a hash lookup that never succeeds
+
+`--dump-logical 3C43DC80:384` at the crash, decoded:
+
+```
+3C43DC80  263C 00813400   MOVE.L  #$00813400,D3
+3C43DC86  223C 000002D0   MOVE.L  #$2D0,D1          ; 720 iterations
+3C43DC8C  7AFF            MOVEQ   #-1,D5
+3C43DC8E  247C 3C57A800   MOVEA.L #$3C57A800,A2     ; table base
+3C43DC94  E08B            LSR.L   #8,D3             ; hash: value >> 8
+3C43DC96  C67C FFFC       AND.W   #$FFFC,D3         ; to a long-word index
+3C43DC9A  D5C3            ADDA.L  D3,A2
+3C43DC9C  261A            MOVE.L  (A2)+,D3          <- the loop
+3C43DC9E  C680            AND.L   D0,D3
+3C43DCA0  B682            CMP.L   D2,D3
+3C43DCA2  57C9 FFF8       DBEQ    D1,$3C43DC9C      -> loops until equal
+3C43DCA6  660C            BNE.S   $3C43DCB4
+3C43DCA8  082A 0000 FFFF  BTST    #0,$FFFF(A2)
+3C43DCB0  51C9 FFEA       DBF     D1,$3C43DC9C
+3C43DCB4  5285            ADDQ.L  #1,D5
+3C43DCB6  6600 FD1E       BNE.W   $3C43D9D6
+3C43DCBA  263C 0057A800   MOVE.L  #$0057A800,D3     ; a second hash
+3C43DCC0  223C 00000100   MOVE.L  #$100,D1          ; 256 iterations
+3C43DCC6  60C6            BRA.S   $3C43DC8E         ; ...and search again
+```
+
+**It is not polling a device. It is a hash-table lookup that never finds its
+entry.** The value is hashed by `>>8` masked to a long-word index, used to index
+a table at `$3C57A800`, and up to 720 entries are scanned comparing
+`entry & D0` against the key in `D2`. On failure it rehashes with a different
+seed, scans 256 more, and **branches back to search again**, indefinitely. The
+sampled PCs sit on `C680`/`B682` because those two instructions are the body.
+
+So the kernel is looking up something that is **not in this machine's table**,
+and the root-pointer load `0x152` bytes further on is simply downstream of a
+lookup that never succeeds. That is why it is never reached.
+
+**This retires the standing guesses for this loop.** The unmodelled 3c505, an
+interrupt that never fires, a device left un-advanced -- none of them is what
+this code waits on, because it waits on nothing: it re-reads memory that no
+other agent is going to change. The fault is that an entry which should have
+been *inserted* into that table earlier was not.
+
+**Next, and it is a watch rather than a hypothesis:** the table base is
+`$3C57A800`. Watch writes to it over a boot. If nothing ever writes it, the
+population step never ran and the divergence is wherever that step lives; if it
+is written but never with this key, the entry's *contents* are wrong and the
+key in `D2` at the loop says what was expected. Both are one run, and the
+addresses are now specific.
