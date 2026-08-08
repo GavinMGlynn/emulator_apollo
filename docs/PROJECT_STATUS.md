@@ -16622,3 +16622,102 @@ it produced a result, and the corrected run derives the physical address from
 are what it has. Logging `D0` and `D2` at `3C43DC9E` names the missing page
 directly, and from there the question is why that page's residency was never
 established -- which is the page-fault path this investigation started in.
+
+
+## The lookup succeeds. There is no spin, and nothing is missing from the table
+
+The measurement the previous entry asked for, taken with a 20,000-step trace
+ring bounded to 380,000,000 instructions -- short of the crash at 387,684,292,
+because a ring taken at the end holds the crash handler and not the code under
+investigation -- with both scanned table regions dumped in the same run.
+
+**The registers.** `D0 = 03FFFC00`, `D2 = 011AD400`. Neither is mysterious once
+the six instructions above the loop are read: `MOVE.L #$03FFFC00,D0` at
+`3C43DC7A` is an address mask, and `D2` is built at `3C43DC6E`-`3C43DC76` from
+the second-level descriptor -- `D7 = $4(A1,D5.L) & $FFFFFFF0`, then
+`D2 = D7 & $FFFFFC00`. So **`D2` is a physical frame address, 1 KB aligned**, the
+entries are `<frame>|<tag>`, and `AND.L D0,D3` exists to strip the tag before
+comparing.
+
+**And the scan finds it.** In the 20,000 consecutive steps ending at 380 M:
+
+```
+scan body      17,972 steps (89.9%)      success exits   6
+scan passes    12                        status-1 exits  0
+calls (RTS)     6                        panics          0
+```
+
+Every call scans pool 1 (720 entries from table+`0x8130`), fails, scans pool 2
+(256 entries from table+`0x57A8`), and **succeeds**. For `D2 = 011AD400` the
+match is at `A2 = 3C580028`. The routine then computes its result and returns
+status `0` through the `RTS` at `3C43DD0E`. Successive calls carry successive
+keys -- `011AD400`, `011ADC00` -- which is a system doing work, not one stuck.
+
+**The loop cannot spin, and this is provable from the code rather than from a
+sample.** `BNE.W $3C43D9D6` at `3C43DCB6` was read as "branch back and search
+again". `3C43D9D6` is not the search head; it disassembles to
+
+```
+3C43D9D6  487A 0020       PEA     $3C43D9F8(PC)   ; -> the long 00070003
+3C43D9DA  46C6            MOVE.W  D6,SR           ; the SR saved on entry
+3C43D9DC  4EB9 3C42B928   JSR     $3C42B928
+3C43D9E2  60F8            BRA.S   $3C43D9DC       ; and again, for ever
+```
+
+-- a panic tail, pushing a pointer to a status word of the same `0007` family as
+the `00070001` returned at `3C43DD10`. `D5` is `-1` on entry, so the first
+failure makes it `0` and takes the second seed, and the second failure makes it
+`1` and takes this branch. **The routine terminates in at most 976 iterations
+every time**: success, status `00070001`, or panic. No path searches
+indefinitely.
+
+**So the last three entries' conclusion is withdrawn in full.** The loop is not
+a spin; the lookup does not fail; no entry is missing; and "the fault is that an
+entry which should have been inserted into that table earlier was not" is not
+what the machine is doing. The retirement of the *other* hypotheses in those
+entries went with the same reasoning and is withdrawn too -- the unmodelled
+3c505 and the interrupt that never fires were dismissed because "this code waits
+on nothing", and this code is not what the machine is waiting on at all.
+
+**The method error, because it will recur.** Two PC samples 20 M instructions
+apart landed two bytes apart, and that was read as a tight spin. But this
+routine is the hottest code in the system -- 89.9% of all instructions in the
+sampled window -- so **the sampler could hardly have landed anywhere else**. PC
+sampling can find a hot loop; it cannot tell a hot loop from a stuck one, and
+nothing in the three entries built on it ever tested the difference. A trace
+ring bounded short of the crash does tell them apart, and costs the same single
+boot the sampling did.
+
+**The table fills; it was read too early.** Pool 1 holds 0 of 720 entries at
+320 M and **388 of 720 at 380 M**; pool 2 holds 256 of 256 at both. The zeros
+the previous entry reported were a snapshot of a pool still being populated, and
+the four entries it found at the table base are in neither scanned region --
+`3C57A800:256` is the base, while the scans start at `+0x8130` and `+0x57A8`.
+
+**Where the machine actually dies.** The run ends at 387,684,292 instructions
+with `Crash_Status 00120020  PC 3C40E114  pid 0001`, which is the same crash as
+ever and is now the *only* open thread here. Two counters move in the run-up and
+neither is explained yet:
+
+- **AT bus reads of an empty slot: 46,475 at 320 M, 8,435,090 at 380 M,
+  8,466,066 at the crash.** 8.4 million reads that answer `FF` from a slot with
+  no card in it, essentially all of them in this window.
+- **Bus errors (vector 2): 392 at 320 M, 393 at 380 M, 939 at the crash** -- 546
+  of them in the last 7.7 M instructions, with vector 174 appearing (32) only
+  there. That is the cascade, not the cause.
+
+**Next**, and it is two dumps rather than a hypothesis. `00120020` is "supervisor
+fault while resource lock(s) set" and the sibling routine at `3C43D9FC` sets
+exactly such a lock -- `MOVE.W #$FFFF,$3C43D956` at `3C43DA66`, under
+`ORI.W #$700,SR`. Dump `3C40E0C0:100` to see what `3C40E114` is, and the fault
+address at that instant to see what it touched. Separately, the empty-slot reads
+need their source named before they are attributed to anything: our physical map
+puts RAM at `0x01000000` and AT bus memory at `0x080000-0xFFFFFF`, so **a
+descriptor fetch to a physical address below `0x01000000` would be counted as an
+AT bus read and answered `FF`** -- which, against 379,890,561 descriptor fetches
+in this run, is at least as good a candidate as a driver polling a missing card.
+Both are one run with `--boot-watch-read`.
+
+Measured on this session's configuration, which reaches the same code ~60 M
+instructions later than the runs above; addresses are unaffected. No code
+changed; `ctest` 122/122.
