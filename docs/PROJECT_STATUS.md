@@ -17585,3 +17585,62 @@ second onto a ring that was merely busy, which is how a token ring acquires two.
 *Verification: five more `ring_station_suite` tests, twelve in total; findings
 34-37 in `docs/references/RING.md`; `ctest` 129/129 and the ring probe golden
 byte-identical.*
+
+
+## Two 8254s on the ring board, confirmed from a command only the 8254 has
+
+The ring controller's register map is now largely recovered from its own
+firmware, and the thing that unlocked it was fixing the disassembler.
+
+**capstone does not know `MOVEC`, and the failure mode is worse than a wrong
+mnemonic.** It does not mis-name the instruction -- it *fails*, the tool falls
+back to `dc.w`, and the following words are then decoded as though they began an
+instruction. One unknown opcode desynchronises everything after it. In
+`[ROM3500]` that turned a cache flush and an ID read into four lines of nonsense
+including a spurious string reference, which is exactly the shape of output a
+reader builds a wrong theory on. `tools/ring-rom/disasm.py` now decodes it; four
+of the five ROMs contain it, and all five still report `sum32 VALID`.
+
+With that fixed:
+
+**A "unit" spans both AT windows.** `$CA0` maps a unit number to *two* base
+pointers -- unit 0 gets `$51000` (ISA `0x220`) **and** `$59000` (ISA `0x320`),
+unit 1 gets `$52000`/`$5A000`. `[S3K]` Table 2-9 lists those as separate ranges
+and the firmware drives the pair as one unit. Whether that is one board with two
+decodes or two boards driven together is not settled by this code, and is not
+claimed.
+
+**`(a2)+000` is an ASCII ID register.** The read is bracketed by an
+instruction-cache clear and three `and.w #$ffff,d0` used as a delay, and init
+accepts only `$36` or `$37` -- `'6'` and `'7'` -- reporting `ring: init error`
+otherwise.
+
+**`+400` bit 15 is a presence gate**: clear means no board, and init returns
+success having touched nothing. An empty slot is not an error.
+
+**And `+800`-`+806` and `+C00`-`+C06` are two Intel 8254 timers.** This is
+confirmed rather than inferred, on four points that agree:
+
+- the control words are `$30`, `$70`, `$B0` -- counter 0, 1, 2 with
+  LSB-then-MSB access, mode 0;
+- the counters are then loaded through a helper that writes LSB then MSB,
+  matching the RW field those control words selected;
+- `$E4` is written to `+806`, which is the **read-back status** command --
+  and read-back exists on the 8254 and **not** on the 8253;
+- the status word read back from `+802` is tested with `btst #14`, which is
+  that byte's `NULL_COUNT` bit.
+
+Any one of those alone would be suggestive. Together they are an
+identification, and they are worth more than the `$30/$70/$B0` pattern that
+started it -- a pattern is a hypothesis, a read-back command is a part number.
+
+**Which corrects an earlier reading.** Finding 15 had noted `+800`, `+802`,
+`+804`, `+C00`, `+C02` appearing "only as `lea.l` operands" and took that as
+pointing at *buffer rather than register*. They are timer data ports; the `lea`
+is there because the LSB-then-MSB helper takes a pointer. So question B -- the
+dual-ported RAM's location -- loses its leading candidate, and the next place to
+look is AT **memory** space rather than I/O space.
+
+*Verification: findings 38-41a in `docs/references/RING.md`, each with the ROM
+address that shows it; all five ROMs still checksum VALID under the fixed tool.
+`ctest` 129/129.*

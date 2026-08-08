@@ -228,6 +228,67 @@ class Listing:
 HEX = re.compile(r"\$([0-9a-fA-F]+)")
 
 
+# ---------------------------------------------------------------------------
+# Instructions capstone's m68k backend does not know
+#
+# capstone decodes neither MOVEC nor the 68030's MMU instructions, and it does
+# not merely mis-name them: it fails, the tool falls back to `dc.w`, and the
+# *following* words are then decoded as though they began an instruction. One
+# unknown opcode therefore desynchronises everything after it. In the ring ROMs
+# that turned a cache flush and an ID read into four lines of nonsense including
+# a spurious string reference, which is exactly the kind of output a reader
+# builds a wrong theory on.
+#
+# MOVEC is the one that actually appears here. The MMU instructions are listed
+# in the same table so the next person meeting `F0xx` has the reference to hand;
+# they are 68030-only and a ring board's 68000-era code will not contain them.
+# ---------------------------------------------------------------------------
+
+# `[68030]` §B.1: the control registers MOVEC can name.
+MOVEC_REGS = {
+    0x000: "sfc", 0x001: "dfc", 0x002: "cacr", 0x003: "tc",
+    0x800: "usp", 0x801: "vbr", 0x802: "caar", 0x803: "msp", 0x804: "isp",
+}
+
+
+@dataclass
+class Synthetic:
+    """Enough of a capstone instruction for this tool's rendering."""
+    address: int
+    size: int
+    mnemonic: str
+    op_str: str
+    bytes: bytes
+
+    @property
+    def operands(self):
+        return []
+
+
+def decode_extra(data: bytes, off: int, base: int):
+    """One instruction capstone would refuse, or None."""
+    if off + 4 > len(data):
+        return None
+    word = int.from_bytes(data[off:off + 2], "big")
+    if word not in (0x4E7A, 0x4E7B):
+        return None
+    ext = int.from_bytes(data[off + 2:off + 4], "big")
+    reg = "%s%d" % ("a" if ext & 0x8000 else "d", (ext >> 12) & 7)
+    control = MOVEC_REGS.get(ext & 0x0FFF, "$%03x" % (ext & 0x0FFF))
+    ops = ("%s, %s" % (control, reg) if word == 0x4E7A
+           else "%s, %s" % (reg, control))
+    return Synthetic(address=base + off, size=4, mnemonic="movec",
+                     op_str=ops, bytes=data[off:off + 4])
+
+
+def decode_one(md: Cs, li: "Listing", off: int):
+    """The tool's single decode point: what capstone misses, then capstone."""
+    insn = decode_extra(li.data, off, li.base)
+    if insn is not None:
+        return insn
+    return next(md.disasm(li.data[off:off + 16], li.base + off, count=1), None)
+
+
 def _targets(insn) -> list:
     """Immediate branch/call targets of an instruction, as absolute addresses.
 
@@ -252,8 +313,7 @@ def trace(md: Cs, li: Listing, roots: list, limit: int) -> None:
             if off in seen or off < 0 or off >= limit or off & 1:
                 break
             seen.add(off)
-            gen = md.disasm(li.data[off:off + 16], li.base + off, count=1)
-            insn = next(gen, None)
+            insn = decode_one(md, li, off)
             if insn is None:
                 break
             li.insns[off] = insn
@@ -285,7 +345,7 @@ def linear(md: Cs, li: Listing, start: int, end: int, runs: list) -> None:
         if off in blocked or off & 1:
             off += 1
             continue
-        insn = next(md.disasm(li.data[off:off + 16], li.base + off, count=1), None)
+        insn = decode_one(md, li, off)
         if insn is None:
             off += 2
             continue

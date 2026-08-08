@@ -3747,15 +3747,22 @@ discipline throughout.
       register map and dual-ported RAM layout. *Verification: every register
       recorded in `docs/references/RING.md` with the ROM address that proves it;
       cross-checked against both board generations.*
-      **Awaiting:** the recovery itself. The one child below is the *tool* — it
-      resolves the header, entry-point and string tables and runs clean over
-      all five ROMs — and not a single register has been recovered with it yet.
-      A disassembler that works is not a register map, and the parent's
-      verification is the map.
+      **Awaiting:** the remaining register *meanings*. The map is now largely
+      recovered — findings 11-15 and 38-41a — including two 8254 timers
+      confirmed from their read-back command. What is left is `+402`, `+404`,
+      `+406`, the rest of `+400`'s bits, and the `a1` window at `$51000`.
   - [x] `tools/ring-rom/disasm.py` resolves the option-ROM header, entry-point
         table and string table, and confines code to the checksummed image.
         *Verification: runs clean over all four ring ROMs and the 3C505 ROM;
         sum32 reports VALID for each.*
+  - [x] **The tool decodes `MOVEC`**, which capstone's m68k backend does not.
+        It did not merely mis-name it: the decode *failed*, the tool emitted
+        `dc.w`, and the following words were then read as instructions — so one
+        unknown opcode desynchronised everything after it and turned a cache
+        flush and an ID read into four lines of nonsense with a spurious string
+        reference. Four of the five ROMs contain it.
+        *Verification: all five still report sum32 VALID, and the previously
+        garbled sequences at `000CD0` and `000110` now read as `movec`.*
   - Tails found while building it, both recorded in `RING.md`: the DN3000 and
     DN5500 dumps are byte-identical (finding 5a), so this is three images to
     read and not four; and every option ROM carries an unexplained 2-byte
