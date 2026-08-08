@@ -65,7 +65,19 @@ void ap_timer_advance(ap_timer_t *timer, ap_time_t now) {
        * 2^64 pulses. */
       continue;
     }
-    uint64_t pulses = ap_clock_cycles_in(&timer->clock[i], now - from);
+    /* A division per call, avoided when it can only yield zero.
+     *
+     * `ap_clock_cycles_in` is `duration / period`, so the result is zero
+     * exactly when the duration is shorter than one period -- and a compare is
+     * a great deal cheaper than a 64-bit divide on a path taken once per
+     * emulated instruction. Provably identical: with zero cycles the loop below
+     * does not run and the cursor advances by `ap_clock_duration(clk, 0)`,
+     * which is zero, so the whole iteration writes nothing. */
+    const ap_time_t delta = now - from;
+    if (delta < timer->clock[i].period) {
+      continue;
+    }
+    uint64_t pulses = ap_clock_cycles_in(&timer->clock[i], delta);
     for (uint64_t p = 0; p < pulses; p++) {
       ap_mc6840_clock(&timer->ptm, i);
     }

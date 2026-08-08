@@ -224,24 +224,35 @@ void ap_mc146818_advance(ap_mc146818_t *rtc, ap_time_t now) {
     rtc->updated_to = now;
     return;
   }
-  uint64_t seconds =
-      ap_clock_cycles_in(&rtc->second_clock, now - rtc->updated_to);
-
-  /* "When the SET bit is written to a '1', any update cycle in progress is
-   * aborted and the program may initialize the time and calendar bytes without
-   * an update occurring in the midst of initializing."
+  /* The same divide-avoidance as `ap_timer_advance`: zero seconds have elapsed
+   * whenever the gap is shorter than a second, which on a machine stepped an
+   * instruction at a time is very nearly always.
    *
-   * Time held still, but the cursor still advances -- otherwise clearing SET
-   * would deliver every second that passed while it was set, in one burst. A
-   * clock that catches up is not a clock that was stopped. */
-  bool held = (rtc->ram[AP_MC146818_REGISTER_B] & AP_MC146818_B_SET) != 0u;
-  if (!held) {
-    for (uint64_t i = 0; i < seconds; i++) {
-      update_cycle(rtc);
-      rtc->update_cycles++;
+   * **A block and not an early return.** The periodic interrupt below runs on
+   * its own rate in the same function, and returning here skipped it -- which
+   * is what two `mc146818_suite` tests caught immediately. The seconds and the
+   * periodic tick are independent, and a guard on one must not gate the
+   * other. */
+  if (now - rtc->updated_to >= rtc->second_clock.period) {
+    uint64_t seconds =
+        ap_clock_cycles_in(&rtc->second_clock, now - rtc->updated_to);
+
+    /* "When the SET bit is written to a '1', any update cycle in progress is
+     * aborted and the program may initialize the time and calendar bytes
+     * without an update occurring in the midst of initializing."
+     *
+     * Time held still, but the cursor still advances -- otherwise clearing SET
+     * would deliver every second that passed while it was set, in one burst. A
+     * clock that catches up is not a clock that was stopped. */
+    bool held = (rtc->ram[AP_MC146818_REGISTER_B] & AP_MC146818_B_SET) != 0u;
+    if (!held) {
+      for (uint64_t i = 0; i < seconds; i++) {
+        update_cycle(rtc);
+        rtc->update_cycles++;
+      }
     }
+    rtc->updated_to += ap_clock_duration(&rtc->second_clock, seconds);
   }
-  rtc->updated_to += ap_clock_duration(&rtc->second_clock, seconds);
 
   /* The periodic interrupt runs on its own rate and is not stopped by SET:
    * `[146818]` ties SET to the *update cycle* only, and Figure 15 shows the
@@ -262,6 +273,11 @@ void ap_mc146818_advance(ap_mc146818_t *rtc, ap_time_t now) {
     return;
   }
   if (now <= rtc->periodic_to) {
+    return;
+  }
+  if (now - rtc->periodic_to < rtc->periodic_clock.period) {
+    /* Zero ticks, and the branch below already did nothing in that case -- so
+     * this only replaces a divide with a compare. */
     return;
   }
   uint64_t ticks =

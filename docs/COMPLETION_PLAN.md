@@ -3974,6 +3974,14 @@ Only after the reference core is proven, and only under an identity harness.
     an acknowledge should have produced.
     **The fix is specified**: make the slave's own write and acknowledge paths
     update the cascade, and the skip becomes safe.
+  - [x] **Divide-avoidance in the timer and calendar advances: marginal.**
+    `ap_clock_cycles_in` is a division whose result is zero whenever the gap
+    is under one period, so three per-instruction divides became compares.
+    304 s → 301 s, inside the noise band; landed for being provably less work
+    and for naming the no-op state, not as a speed-up.
+    *Verification: `ctest` 129/129, 350 M state hash `67A14B3BB6041410`.
+    Detail — including the early-`return` version that broke the calendar's
+    periodic interrupt — in `PROJECT_STATUS.md`.*
   - [x] **Bus arbitration idle-skip: 1.12x, identity preserved.**
     `ap_m68030_arb_tick` runs on every bus tick and a whole boot arbitrates
     almost never — **8 requests and 2 holds against 1.46 billion ticks** — yet

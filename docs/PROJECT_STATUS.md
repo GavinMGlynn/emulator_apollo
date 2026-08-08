@@ -17810,3 +17810,40 @@ Together with the read-back fix, a bounded 350 M boot has gone from 541 s to
 
 *Verification: `ctest` 129/129, every golden unchanged, two independent
 timings.*
+
+
+## Two more idle guards, one marginal and one instructive failure
+
+`ap_clock_cycles_in` is `duration / period`, so its result is zero exactly when
+the duration is shorter than one period -- and a 64-bit divide on a path taken
+once per emulated instruction is worth replacing with a compare. Three sites
+qualified: the interval timer's three channels, and the calendar's seconds and
+periodic cursors.
+
+**Provably identical**: with zero cycles the pulse loop does not run and the
+cursor advances by `ap_clock_duration(clk, 0)`, which is zero, so the whole
+iteration writes nothing.
+
+**And measured as marginal.** 304 s to 301 s, inside the noise band the other
+timings have shown, with the state hash unchanged at `67A14B3BB6041410`. Landed
+because it is provably less work and because the guard states the no-op
+condition where a reader will look for it -- not because it is a speed-up.
+Recording it as marginal matters more than the change does: three of this
+session's five optimisation attempts produced numbers that looked like wins and
+were not, and the discipline only works if the small true results are reported
+as small.
+
+**The failure is worth more than the change.** The first version of the
+calendar guard used an early `return`, and two `mc146818_suite` tests failed
+immediately. `ap_mc146818_advance` advances the seconds cursor *and then* the
+periodic interrupt, on a different rate, in the same function -- so returning
+when no whole second had passed skipped the periodic tick entirely, and the
+periodic flag never set.
+
+The guard had to be a block around the seconds computation, leaving the
+periodic section to run. **A guard on one subsystem's no-op state must not gate
+another's**, and two independent cursors sharing a function is exactly where
+that is easy to get wrong. The suite caught it in one build.
+
+*Verification: `ctest` 129/129, 350 M state hash `67A14B3BB6041410`, calendar
+update cycles unchanged at 58.*
