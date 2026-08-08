@@ -16049,3 +16049,76 @@ autoboot script does not run until ~17 ms, so taps miss the whole reset
 path; and `:apollo_config` is read at `MACHINE_RESET`, so `mdcapture.lua`'s
 normal-mode control run was never a control. Detail in
 `PROJECT_STATUS.md`, `FINDINGS.md` C120-C121.
+
+
+## The first core/oracle divergence: the OMTI ignored the LUN
+
+With the oracle established as a known-good reference, the two machines' disk
+command streams were logged and diffed. They are **identical for 275 commands**
+and part at 276:
+
+```
+275  ours 00 20 00 00 00 00    oracle 00 20 00 00 00 00
+276  ours EC 20 00 00 00 01    oracle 03 20 00 00 00 01
+```
+
+Command 275 is `00 TEST DRIVE READY` with byte 1 = `20`: bit 5 set, **LUN 1**.
+The oracle fails it, the driver issues `03 REQUEST SENSE` and falls back to
+unit 0. Ours *completes it*, so the driver goes on to read 271 sectors
+addressed to a drive that is not fitted -- every one served out of drive 0's
+image. On the machine's own console, every line above this is identical and
+this one is not:
+
+```
+ours     DRIVE 0  PASSED.   DRIVE 1  PASSED.
+oracle   DRIVE 0  PASSED.   DRIVE 1  (NOT FOUND).
+```
+
+`OMTI_8000_Series_AT_Reference_Jun86.pdf` p. 5-1 §5.1.1, byte 1: "Bit 5
+identifies the Logical Unit Number (LUN)." One drive is attached; the firmware's
+own Winchester test says `(NOT FOUND)` for the other. The oracle is right.
+
+**Two defects, both in `execute()`'s neighbourhood.** `ap_omti_cdb.c` decoded
+`lun` correctly and `omti_cdb_suite` asserted it -- and `execute()` never read
+it, serving every command from `omti->drive` whatever unit it named. And
+`finish()` set only bit 1 of the completion byte, where §5.3 gives **bit 5** as
+"the LUN address of the device associated with this command". A decoded field
+that nothing consumes, with a green test sitting on top of it: precisely the
+failure `CLAUDE.md` warns about, and the reason the earlier OMTI table walk
+missed it -- that walk covered Tables 4-2/4-3 (the registers) and §5.4 (the
+opcodes), and the LUN is a *command block* field, in the gap between them.
+
+Fixed by selecting the addressed unit at the top of each command
+(`omti->selected`, held through the data phase) and carrying the LUN into the
+completion byte.
+
+**The tests discriminate, which was checked rather than assumed.** With the fix
+reverted, `test_a_command_for_an_unfitted_lun_is_refused` fails `Expected 0x22
+Was 0x20` and `test_a_read_for_an_unfitted_lun_returns_no_data` fails. They live
+in `awd_suite` rather than `omti_suite` because they need a drive *attached*: on
+a bare controller LUN 0 and LUN 1 both fail, so that pair cannot tell a
+LUN-respecting controller from one that ignores the field -- which is how a
+green suite covered this for so long.
+
+### And §5.2's control byte, walked in the same pass
+
+`§5.1.1`'s summary says byte 5's "bits 4,3,2,1,0 are not used". **§5.2 lays the
+byte out in full and gives bits 2-0 as the STEP option**, with p. 5-4's table of
+eight rates. The two sections of the same manual disagree, this file had
+followed the summary -- `control = (bytes[5] >> 5) & 0x07` -- and a test named
+`test_the_control_byte_is_three_bits` asserted the loss. The whole byte is kept
+now, the four fields are named, and `format_track` selects on
+`AP_OMTI_CONTROL_FORMAT_BUFFER` rather than a shifted literal.
+
+Of the four options, `FORMAT BUFFER` is acted on. `DISABLE RETRY` and `DISABLE
+ECC` are inert because this model has no medium that fails, `STEP` because seeks
+complete inside their command, and **`ENABLE SECTOR ADDRESS CONVERSION` is
+`PROVISIONAL`**: it converts using a sectors-per-track count from jumpers W10
+and W9, and no source in hand gives those positions on the Apollo board.
+Guessing would silently move every address. The measured Domain/OS boot never
+sets the bit. All four are documented at the definition rather than left silent.
+
+**Not the whole crash.** With the LUN fixed our command stream matches the
+oracle's over the whole measured prefix and the boot passes the old crash point
+at 325,445,954 instructions -- and then stops again before `login:`, back in the
+boot PROM's debugger loop. The first divergence is not the only one.

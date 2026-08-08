@@ -75,6 +75,8 @@ bool ap_omti_fdc_in_reset(const ap_omti_t *omti) {
 /* `[OMTI]` §5.1.4's completion byte: bit 1 is the error flag and the rest are
  * the logical unit. A driver reads it, and reads sense if it is set. */
 #define COMPLETION_ERROR 0x02u
+/* §5.3's status register, bit 5. */
+#define COMPLETION_LUN 0x20u
 
 /* §5.1.3's sense bytes, named by Appendix A, "Sense Code Summary and
  * Description". Only the codes this core can genuinely produce are ever set;
@@ -213,7 +215,13 @@ static void chs_of(ap_awd_geometry_t g, uint32_t lba, uint16_t *cylinder,
 }
 
 static void finish(ap_omti_t *omti, bool error, uint8_t sense) {
-  omti->completion = error ? COMPLETION_ERROR : 0u;
+  /* §5.3: bit 1 is the command status, and **bit 5 "indicates the LUN address
+   * of the device associated with this command"**. Only bit 1 was ever set, so
+   * a driver reading the completion byte was told every command belonged to
+   * unit 0. Bits 7, 6, 4 and 0 are "set to zero", and the error-recovery field
+   * at bits 3 and 2 is left alone here. */
+  omti->completion = (uint8_t)((error ? COMPLETION_ERROR : 0u) |
+                               (omti->command_lun != 0u ? COMPLETION_LUN : 0u));
   omti->sense[0] = error ? sense : 0u;
   omti->sense[1] = 0u;
   omti->sense[2] = 0u;
@@ -258,11 +266,11 @@ static void finish(ap_omti_t *omti, bool error, uint8_t sense) {
 /* The address a data command names, and whether the drive has it. */
 static bool addressed(ap_omti_t *omti, const ap_omti_cdb_t *cdb,
                       uint32_t *lba) {
-  if (omti->drive == NULL) {
+  if (omti->selected == NULL) {
     finish(omti, true, SENSE_DRIVE_NOT_READY);
     return false;
   }
-  if (!ap_awd_lba(omti->drive->geometry, cdb->cylinder, cdb->head, cdb->sector,
+  if (!ap_awd_lba(omti->selected->geometry, cdb->cylinder, cdb->head, cdb->sector,
                   lba)) {
     refuse(omti, cdb->cylinder, cdb->head, cdb->sector, 0u);
     return false;
@@ -278,7 +286,7 @@ static bool addressed(ap_omti_t *omti, const ap_omti_cdb_t *cdb,
    * alternate track was attempted ... the controller was unable to read the
    * alternate track data specifying the destination cylinder." */
   {
-    const uint8_t flags = ap_awd_flags(omti->drive, *lba);
+    const uint8_t flags = ap_awd_flags(omti->selected, *lba);
     if ((flags & AP_AWD_FLAG_BAD_TRACK) != 0u) {
       finish(omti, true, SENSE_BAD_TRACK);
       return false;
@@ -297,11 +305,11 @@ static void feed(ap_omti_t *omti) {
     finish(omti, false, 0u);
     return;
   }
-  if (!ap_awd_read(omti->drive, omti->next_lba, omti->buffer)) {
+  if (!ap_awd_read(omti->selected, omti->next_lba, omti->buffer)) {
     uint16_t c = 0;
     uint8_t h = 0;
     uint8_t sec = 0;
-    chs_of(omti->drive->geometry, omti->next_lba, &c, &h, &sec);
+    chs_of(omti->selected->geometry, omti->next_lba, &c, &h, &sec);
     refuse(omti, c, h, sec, omti->next_lba);
     return;
   }
@@ -341,11 +349,11 @@ static void feed(ap_omti_t *omti) {
  * write-protected drive refuses a perfectly good address and the two answers
  * must not be confused -- which is precisely what happened when they were. */
 static bool writable(ap_omti_t *omti) {
-  if (omti->drive == NULL) {
+  if (omti->selected == NULL) {
     finish(omti, true, SENSE_DRIVE_NOT_READY);
     return false;
   }
-  if (!omti->drive->writable) {
+  if (!omti->selected->writable) {
     finish(omti, true, SENSE_WRITE_PROTECTED);
     return false;
   }
@@ -411,15 +419,15 @@ static void transfer(ap_omti_t *omti, unsigned length, bool to_host) {
 static bool format_track(ap_omti_t *omti, uint16_t cylinder, uint8_t head,
                          uint8_t control, uint8_t flags) {
   uint8_t sector[AP_AWD_SECTOR_BYTES];
-  if ((control & 0x02u) != 0u) {
+  if ((control & AP_OMTI_CONTROL_FORMAT_BUFFER) != 0u) {
     memcpy(sector, omti->buffer, sizeof sector);
   } else {
     memset(sector, 0x6Cu, sizeof sector);
   }
-  for (uint16_t s = 0; s < omti->drive->geometry.sectors; s++) {
+  for (uint16_t s = 0; s < omti->selected->geometry.sectors; s++) {
     uint32_t at = 0;
-    if (!ap_awd_lba(omti->drive->geometry, cylinder, head, (uint8_t)s, &at) ||
-        !ap_awd_write(omti->drive, at, sector)) {
+    if (!ap_awd_lba(omti->selected->geometry, cylinder, head, (uint8_t)s, &at) ||
+        !ap_awd_write(omti->selected, at, sector)) {
       return false;
     }
     /* The ID field, which the image now has somewhere to keep. A format
@@ -428,7 +436,7 @@ static bool format_track(ap_omti_t *omti, uint16_t cylinder, uint8_t head,
      * afterwards. A sidecar that is absent or does not cover this sector
      * silently records nothing, which is the same surface `ap_awd_flags`
      * describes when it returns zero. */
-    (void)ap_awd_set_flags(omti->drive, at, flags);
+    (void)ap_awd_set_flags(omti->selected, at, flags);
   }
   return true;
 }
@@ -438,6 +446,15 @@ static void execute(ap_omti_t *omti) {
   ap_omti_cdb_decode(omti->command, &cdb);
   omti->last_command = cdb.command;
   omti->command_count++;
+  /* §5.1.1, byte 1: "Bit 5 identifies the Logical Unit Number (LUN)." The field
+   * was decoded and asserted by a test from the day it was written, and never
+   * read here -- so every command was served by whichever drive happened to be
+   * attached. Measured against the oracle on a Domain/OS boot: `00 TEST DRIVE
+   * READY` for LUN 1 *succeeded*, the firmware printed `DRIVE 1 PASSED.` where
+   * a real controller prints `(NOT FOUND)`, and 271 later reads addressed to a
+   * drive that is not fitted were answered out of drive 0's image. */
+  omti->command_lun = cdb.lun;
+  omti->selected = cdb.lun == 0u ? omti->drive : NULL;
   /* Any command at all ends whatever long write was outstanding. A WRITE LONG
    * the host abandoned mid-phase must not place its half-filled buffer when
    * some later data-out phase happens to complete. `WRITE LONG` sets it again
@@ -486,17 +503,17 @@ static void execute(ap_omti_t *omti) {
     return;
 
   case AP_OMTI_CMD_TEST_DRIVE_READY:
-    finish(omti, omti->drive == NULL, SENSE_DRIVE_NOT_READY);
+    finish(omti, omti->selected == NULL, SENSE_DRIVE_NOT_READY);
     return;
 
   case AP_OMTI_CMD_READ_CONFIGURATION: {
     /* §5.4.29, ten bytes describing the drive. ESDI only, which
      * `ap_omti_cdb_accepted_by_esdi` has already checked. */
-    if (omti->drive == NULL) {
+    if (omti->selected == NULL) {
       finish(omti, true, SENSE_DRIVE_NOT_READY);
       return;
     }
-    const ap_awd_geometry_t g = omti->drive->geometry;
+    const ap_awd_geometry_t g = omti->selected->geometry;
     /* **One less than the count**, as the manual marks them. A model returning
      * the counts describes a drive one cylinder, one head and one sector larger
      * than it has. */
@@ -536,7 +553,7 @@ static void execute(ap_omti_t *omti) {
       return;
     }
     for (unsigned i = 0; i < (cdb.block_count == 0u ? 256u : cdb.block_count); i++) {
-      if (!ap_awd_read(omti->drive, lba + i, omti->buffer)) {
+      if (!ap_awd_read(omti->selected, lba + i, omti->buffer)) {
         finish(omti, true, SENSE_ILLEGAL_ADDRESS);
         return;
       }
@@ -574,14 +591,14 @@ static void execute(ap_omti_t *omti) {
     /* §5.4.25: "recalibrate, sequentially seek to every track and read sector
      * 0". It needs a drive, and it reports what reading sector 0 of every track
      * would -- which for a whole image is success and for a short one is not. */
-    if (omti->drive == NULL) {
+    if (omti->selected == NULL) {
       finish(omti, true, SENSE_DRIVE_NOT_READY);
       return;
     }
-    for (uint16_t c = 0; c < omti->drive->geometry.cylinders; c++) {
+    for (uint16_t c = 0; c < omti->selected->geometry.cylinders; c++) {
       uint32_t at = 0;
-      if (!ap_awd_lba(omti->drive->geometry, c, 0u, 1u, &at) ||
-          !ap_awd_read(omti->drive, at, omti->buffer)) {
+      if (!ap_awd_lba(omti->selected->geometry, c, 0u, 1u, &at) ||
+          !ap_awd_read(omti->selected, at, omti->buffer)) {
         finish(omti, true, SENSE_ILLEGAL_ADDRESS);
         return;
       }
@@ -659,7 +676,7 @@ static void execute(ap_omti_t *omti) {
       return;
     }
     for (unsigned block = 0; block < blocks; block++) {
-      if (!ap_awd_read(omti->drive, lba + block,
+      if (!ap_awd_read(omti->selected, lba + block,
                        &omti->buffer[block * AP_AWD_SECTOR_BYTES])) {
         refuse(omti, cdb.cylinder, cdb.head, cdb.sector, lba + block);
         return;
@@ -682,12 +699,12 @@ static void execute(ap_omti_t *omti) {
     if (!writable(omti) || !addressed(omti, &cdb, &lba)) {
       return;
     }
-    for (uint16_t c = cdb.cylinder; c < omti->drive->geometry.cylinders; c++) {
+    for (uint16_t c = cdb.cylinder; c < omti->selected->geometry.cylinders; c++) {
       /* The first cylinder starts at the addressed head; every later one starts
        * at head 0, because the format is a sweep of the unit and not of one
        * cylinder's tail repeated. */
       const uint8_t first = (c == cdb.cylinder) ? cdb.head : 0u;
-      for (uint8_t h = first; h < omti->drive->geometry.heads; h++) {
+      for (uint8_t h = first; h < omti->selected->geometry.heads; h++) {
         if (!format_track(omti, c, h, cdb.control, 0u)) {
           refuse(omti, c, h, 0u, 0u);
           return;
@@ -756,7 +773,7 @@ static void execute(ap_omti_t *omti) {
       return;
     }
     uint32_t to = 0;
-    if (!ap_awd_lba(omti->drive->geometry, destination.cylinder,
+    if (!ap_awd_lba(omti->selected->geometry, destination.cylinder,
                     destination.head, destination.sector, &to)) {
       refuse(omti, destination.cylinder, destination.head, destination.sector,
              0u);
@@ -764,8 +781,8 @@ static void execute(ap_omti_t *omti) {
     }
     const unsigned blocks = block_count(&cdb);
     for (unsigned block = 0; block < blocks; block++) {
-      if (!ap_awd_read(omti->drive, lba + block, omti->buffer) ||
-          !ap_awd_write(omti->drive, to + block, omti->buffer)) {
+      if (!ap_awd_read(omti->selected, lba + block, omti->buffer) ||
+          !ap_awd_write(omti->selected, to + block, omti->buffer)) {
         refuse(omti, cdb.cylinder, cdb.head, cdb.sector, lba + block);
         return;
       }
@@ -790,7 +807,7 @@ static void execute(ap_omti_t *omti) {
       return;
     }
     for (unsigned block = 0; block < blocks; block++) {
-      if (!ap_awd_write(omti->drive, lba + block,
+      if (!ap_awd_write(omti->selected, lba + block,
                         &omti->buffer[block * AP_AWD_SECTOR_BYTES])) {
         refuse(omti, cdb.cylinder, cdb.head, cdb.sector, lba + block);
         return;
@@ -833,7 +850,7 @@ static void execute(ap_omti_t *omti) {
      * terminator follows the header directly. The date is zero because nothing
      * recorded one; inventing today's would also make the reply depend on the
      * wall clock, which nothing in this core is allowed to do. */
-    if (omti->drive == NULL) {
+    if (omti->selected == NULL) {
       finish(omti, true, SENSE_DRIVE_NOT_READY);
       return;
     }
@@ -873,10 +890,10 @@ static void execute(ap_omti_t *omti) {
        * A sector never written by WRITE LONG reads zeros, which is "none
        * recorded" -- `[OMTI]` publishes no polynomial, so a value computed here
        * would be indistinguishable from a real one. */
-      ap_awd_ecc(omti->drive, lba + block,
+      ap_awd_ecc(omti->selected, lba + block,
                  &omti->buffer[block * AP_OMTI_LONG_BLOCK_BYTES +
                                AP_AWD_SECTOR_BYTES]);
-      if (!ap_awd_read(omti->drive, lba + block,
+      if (!ap_awd_read(omti->selected, lba + block,
                        &omti->buffer[block * AP_OMTI_LONG_BLOCK_BYTES])) {
         refuse(omti, cdb.cylinder, cdb.head, cdb.sector, lba + block);
         return;
@@ -917,11 +934,11 @@ static void execute(ap_omti_t *omti) {
     if (!addressed(omti, &cdb, &lba)) {
       return;
     }
-    for (uint16_t s = 0; s < omti->drive->geometry.sectors; s++) {
+    for (uint16_t s = 0; s < omti->selected->geometry.sectors; s++) {
       uint32_t at = 0;
-      if (!ap_awd_lba(omti->drive->geometry, cdb.cylinder, cdb.head,
+      if (!ap_awd_lba(omti->selected->geometry, cdb.cylinder, cdb.head,
                       (uint8_t)s, &at) ||
-          !ap_awd_read(omti->drive, at, omti->buffer)) {
+          !ap_awd_read(omti->selected, at, omti->buffer)) {
         refuse(omti, cdb.cylinder, cdb.head, (uint8_t)s, at);
         return;
       }
@@ -944,7 +961,7 @@ static void execute(ap_omti_t *omti) {
      * There is no spindle here to start, and none of §5's other commands
      * consults one, so nothing is recorded -- a stopped-drive state this model
      * could never leave would refuse reads the hardware would serve. */
-    if (omti->drive == NULL) {
+    if (omti->selected == NULL) {
       finish(omti, true, SENSE_DRIVE_NOT_READY);
       return;
     }
@@ -1075,10 +1092,10 @@ static void take_byte(ap_omti_t *omti, uint8_t value) {
         /* And the ECC is **kept**, not dropped: §5.4.28 hands the controller
          * six bytes and the sidecar is where they live. This used to discard
          * them for want of anywhere to put them. */
-        (void)ap_awd_set_ecc(omti->drive, omti->long_write_lba + block,
+        (void)ap_awd_set_ecc(omti->selected, omti->long_write_lba + block,
                              &omti->buffer[block * AP_OMTI_LONG_BLOCK_BYTES +
                                            AP_AWD_SECTOR_BYTES]);
-        if (!ap_awd_write(omti->drive, omti->long_write_lba + block,
+        if (!ap_awd_write(omti->selected, omti->long_write_lba + block,
                           &omti->buffer[block * AP_OMTI_LONG_BLOCK_BYTES])) {
           omti->long_write_blocks = 0u;
           finish(omti, true, SENSE_ILLEGAL_ADDRESS);
@@ -1096,7 +1113,7 @@ static void take_byte(ap_omti_t *omti, uint8_t value) {
     if (omti->buffer_index < AP_AWD_SECTOR_BYTES) {
       return;
     }
-    if (!ap_awd_write(omti->drive, omti->next_lba, omti->buffer)) {
+    if (!ap_awd_write(omti->selected, omti->next_lba, omti->buffer)) {
       finish(omti, true, SENSE_ILLEGAL_ADDRESS);
       return;
     }

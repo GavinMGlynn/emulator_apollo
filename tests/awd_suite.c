@@ -983,8 +983,57 @@ static void test_the_diagnostics_report_what_they_can_see(void) {
   TEST_ASSERT_NOT_EQUAL_HEX8(0x00u, take_status());
 }
 
+/* The discriminating case for §5.1.1's LUN, which needs a drive *attached*:
+ * with one fitted, LUN 0 must succeed and LUN 1 must fail. The same pair
+ * against a controller with no drive cannot tell the two apart, because both
+ * fail then -- so a suite that only tested the bare controller would stay green
+ * with the LUN ignored entirely, which is exactly what happened.
+ *
+ * Measured against the oracle on a Domain/OS boot before this was fixed: `00
+ * TEST DRIVE READY` for LUN 1 completed successfully, the firmware printed
+ * `DRIVE 1  PASSED.` where MAME prints `DRIVE 1  (NOT FOUND).`, and 271 later
+ * reads addressed to the absent drive were answered from drive 0's image. */
+static void test_a_command_for_an_unfitted_lun_is_refused(void) {
+  build_controller();
+
+  /* LUN 0, the drive that is there. */
+  const uint8_t lun0[6] = {AP_OMTI_CMD_TEST_DRIVE_READY, 0x00u, 0, 0, 0, 0};
+  for (unsigned i = 0; i < sizeof lun0; i++) {
+    ap_omti_disk_write(&omti, AP_OMTI_DISK_DATA, lun0[i]);
+  }
+  TEST_ASSERT_EQUAL_INT(AP_OMTI_PHASE_STATUS, ap_omti_disk_phase(&omti));
+  /* §5.3 bit 1 clear: the command completed. And bit 5 clear: unit 0. */
+  TEST_ASSERT_EQUAL_HEX8(0x00u, take_status());
+
+  /* LUN 1, byte 1 bit 5, which this machine does not have fitted. */
+  build_controller();
+  const uint8_t lun1[6] = {AP_OMTI_CMD_TEST_DRIVE_READY, 0x20u, 0, 0, 0, 0};
+  for (unsigned i = 0; i < sizeof lun1; i++) {
+    ap_omti_disk_write(&omti, AP_OMTI_DISK_DATA, lun1[i]);
+  }
+  TEST_ASSERT_EQUAL_INT(AP_OMTI_PHASE_STATUS, ap_omti_disk_phase(&omti));
+  /* Bit 1 set for the error, and bit 5 set because §5.3 puts the addressed
+   * LUN in the completion byte whether the command succeeded or not. */
+  TEST_ASSERT_EQUAL_HEX8(0x22u, take_status());
+}
+
+/* And the data path, not just the ready test: a READ for the absent unit must
+ * not be answered out of the fitted drive's image. */
+static void test_a_read_for_an_unfitted_lun_returns_no_data(void) {
+  build_controller();
+  const uint8_t cdb[6] = {AP_OMTI_CMD_READ, 0x20u, 0u, 0u, 0u, 1u};
+  for (unsigned i = 0; i < sizeof cdb; i++) {
+    ap_omti_disk_write(&omti, AP_OMTI_DISK_DATA, cdb[i]);
+  }
+  /* Status, not data: there is nothing to transfer. */
+  TEST_ASSERT_EQUAL_INT(AP_OMTI_PHASE_STATUS, ap_omti_disk_phase(&omti));
+  TEST_ASSERT_EQUAL_HEX8(0x22u, take_status());
+}
+
 int main(void) {
   UNITY_BEGIN();
+  RUN_TEST(test_a_command_for_an_unfitted_lun_is_refused);
+  RUN_TEST(test_a_read_for_an_unfitted_lun_returns_no_data);
   RUN_TEST(test_the_two_drives_are_the_oracles);
   RUN_TEST(test_the_address_is_cylinder_head_sector);
   RUN_TEST(test_an_address_off_the_drive_is_refused);

@@ -443,6 +443,18 @@ typedef struct {
   /* The drive, caller-owned and optional: a controller with no disk is a real
    * configuration and must not look like one with a blank disk. */
   ap_awd_t *drive;
+  /* The drive the *current command* addresses, which is not always the drive
+   * that is attached. §5.1.1 gives byte 1 bit 5 of every command block as the
+   * Logical Unit Number, and a controller answers for the unit named there or
+   * reports that it is not ready. This model attaches one drive, LUN 0, so a
+   * command for LUN 1 selects nothing -- and must say so rather than serve
+   * drive 0's image under drive 1's name. Set at the top of each command and
+   * held through its data phase. */
+  ap_awd_t *selected;
+  /* The LUN that command named, kept for the completion byte: §5.3's status
+   * register puts it in bit 5, "the LUN address of the device associated with
+   * this command". */
+  uint8_t command_lun;
 } ap_omti_t;
 
 /* Power-on: both halves. */

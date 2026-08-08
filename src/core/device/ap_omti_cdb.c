@@ -18,7 +18,9 @@ void ap_omti_cdb_decode(const uint8_t *bytes, ap_omti_cdb_t *out) {
 
   out->sector = (uint8_t)(bytes[2] & 0x3Fu);
   out->block_count = bytes[4];
-  out->control = (uint8_t)((bytes[5] >> 5) & 0x07u);
+  /* The whole byte: §5.2 defines bits 2-0 as the STEP option, which the
+   * three-bit shift this used to do discarded. See the header. */
+  out->control = bytes[5];
 }
 
 bool ap_omti_cdb_accepted_by_esdi(uint8_t command) {

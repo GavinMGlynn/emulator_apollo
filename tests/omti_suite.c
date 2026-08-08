@@ -638,8 +638,58 @@ static void test_two_controllers_reset_alike_hold_identical_state(void) {
   TEST_ASSERT_EQUAL_MEMORY(&a, &b, sizeof a);
 }
 
+/* §5.1.1, byte 1: "Bit 5 identifies the Logical Unit Number (LUN)." One drive
+ * is attached here, so LUN 1 names a unit that is not fitted and the controller
+ * must say so. This model served every command from the attached drive whatever
+ * LUN it carried, so a Domain/OS boot was told a second Winchester was present
+ * and healthy -- `DRIVE 1 PASSED.` where the hardware prints `(NOT FOUND)`. */
+static void test_test_drive_ready_fails_for_a_lun_with_no_drive(void) {
+  ap_omti_t o;
+  ap_omti_reset(&o);
+
+  /* No drive attached at all: LUN 0 must fail too, which is the behaviour that
+   * already worked and is asserted here so the LUN change cannot silently
+   * invert it. */
+  static const uint8_t lun0[6] = {0x00, 0x00, 0, 0, 0, 0};
+  issue(&o, lun0);
+  TEST_ASSERT_EQUAL_INT(AP_OMTI_PHASE_STATUS, ap_omti_disk_phase(&o));
+  /* §5.3's completion byte, bit 1: an error. A fresh controller for the second
+   * command, since the status phase has to be read out before another CDB is
+   * accepted and `issue` asserts the command phase before every byte. */
+  TEST_ASSERT_EQUAL_HEX8(0x02u,
+                         ap_omti_disk_read(&o, AP_OMTI_DISK_DATA) & 0x02u);
+
+  ap_omti_reset(&o);
+  /* Byte 1 bit 5 set: LUN 1. */
+  static const uint8_t lun1[6] = {0x00, 0x20, 0, 0, 0, 0};
+  issue(&o, lun1);
+  TEST_ASSERT_EQUAL_INT(AP_OMTI_PHASE_STATUS, ap_omti_disk_phase(&o));
+  TEST_ASSERT_EQUAL_HEX8(0x02u,
+                         ap_omti_disk_read(&o, AP_OMTI_DISK_DATA) & 0x02u);
+}
+
+/* §5.3's status register: "Bit 5 -- Indicates the LUN address of the device
+ * associated with this command." Only bit 1, the command status, was ever set,
+ * so a driver reading the completion byte was told every command belonged to
+ * unit 0. */
+static void test_the_completion_byte_carries_the_commands_lun(void) {
+  ap_omti_t o;
+  ap_omti_reset(&o);
+
+  static const uint8_t lun0[6] = {0x00, 0x00, 0, 0, 0, 0};
+  issue(&o, lun0);
+  TEST_ASSERT_EQUAL_HEX8(0x00u, ap_omti_disk_read(&o, AP_OMTI_DISK_DATA) & 0x20u);
+
+  ap_omti_reset(&o);
+  static const uint8_t lun1[6] = {0x00, 0x20, 0, 0, 0, 0};
+  issue(&o, lun1);
+  TEST_ASSERT_EQUAL_HEX8(0x20u, ap_omti_disk_read(&o, AP_OMTI_DISK_DATA) & 0x20u);
+}
+
 int main(void) {
   UNITY_BEGIN();
+  RUN_TEST(test_test_drive_ready_fails_for_a_lun_with_no_drive);
+  RUN_TEST(test_the_completion_byte_carries_the_commands_lun);
   RUN_TEST(test_the_measured_fixed_disk_ports_are_reproduced);
   RUN_TEST(test_the_status_bits_seven_and_six_cannot_be_cleared);
   RUN_TEST(test_selecting_the_controller_makes_it_busy);

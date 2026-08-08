@@ -62,14 +62,26 @@ static void test_the_command_byte_is_both_whole_and_split(void) {
   TEST_ASSERT_EQUAL_HEX8(0x06u, cdb.opcode);
 }
 
-static void test_the_control_byte_is_three_bits(void) {
+/* §5.2 lays the control byte out whole and gives bits 2-0 as the STEP option,
+ * where §5.1.1's summary calls bits 4-0 unused. This suite asserted the summary
+ * -- and so encoded the same loss the decoder made, which is why a green suite
+ * proved nothing about it. */
+static void test_the_control_byte_keeps_its_step_field(void) {
   ap_omti_cdb_t cdb;
 
-  /* §5.1.1: "Bits 7,6,5 contain the command Control Byte. Bits 4,3,2,1,0 are
-   * not used." */
   static const uint8_t bytes[6] = {0x08, 0x00, 0x00, 0x00, 0x00, 0xFF};
   ap_omti_cdb_decode(bytes, &cdb);
-  TEST_ASSERT_EQUAL_HEX8(0x07u, cdb.control);
+  TEST_ASSERT_EQUAL_HEX8(0xFFu, cdb.control);
+  TEST_ASSERT_EQUAL_HEX8(0x07u, cdb.control & AP_OMTI_CONTROL_STEP);
+
+  /* p. 5-4's table: `000` is "3 milliseconds per step", so a zero step field
+   * is a real selection and not an absent one. */
+  static const uint8_t slow[6] = {0x08, 0x00, 0x00, 0x00, 0x00, 0xE0};
+  ap_omti_cdb_decode(slow, &cdb);
+  TEST_ASSERT_EQUAL_HEX8(0x00u, cdb.control & AP_OMTI_CONTROL_STEP);
+  TEST_ASSERT_TRUE((cdb.control & AP_OMTI_CONTROL_DISABLE_RETRY) != 0u);
+  TEST_ASSERT_TRUE((cdb.control & AP_OMTI_CONTROL_FORMAT_BUFFER) != 0u);
+  TEST_ASSERT_TRUE((cdb.control & AP_OMTI_CONTROL_ADDRESS_CONVERSION) != 0u);
 }
 
 static void test_an_esdi_controller_refuses_the_st506_command(void) {
@@ -111,7 +123,7 @@ int main(void) {
   RUN_TEST(test_the_cylinder_is_reassembled_from_three_bytes);
   RUN_TEST(test_the_cylinder_bits_do_not_leak_into_head_or_sector);
   RUN_TEST(test_the_command_byte_is_both_whole_and_split);
-  RUN_TEST(test_the_control_byte_is_three_bits);
+  RUN_TEST(test_the_control_byte_keeps_its_step_field);
   RUN_TEST(test_an_esdi_controller_refuses_the_st506_command);
   RUN_TEST(test_unlisted_commands_are_refused);
   RUN_TEST(test_copy_is_the_only_long_descriptor);

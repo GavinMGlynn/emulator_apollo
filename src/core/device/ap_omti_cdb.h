@@ -135,11 +135,69 @@ typedef struct {
   uint16_t cylinder;     /* C10..C00, reassembled from bytes 1, 2 and 3 */
   uint8_t sector;        /* byte 2 bits 5-0 */
   uint8_t block_count;   /* byte 4; the interleave factor for FORMAT */
-  uint8_t control;       /* byte 5 bits 7-5 */
+  uint8_t control;       /* byte 5 whole; see the masks below */
 } ap_omti_cdb_t;
 
 /* Decode a six-byte CDB. Always succeeds -- a CDB is a fixed layout, and whether
  * the *command* is one this controller accepts is a separate question. */
+/* §5.2's CONTROL BYTE, and a contradiction between two sections of the same
+ * manual that this file previously resolved the wrong way.
+ *
+ * §5.1.1's byte-by-byte summary says of byte 5: "Bits 7,6,5 contain the command
+ * Control Byte. Bits 4,3,2,1,0 are not used." §5.2 then lays the byte out in
+ * full and gives **bits 2, 1 and 0 as the STEP option**, with p. 5-4's table of
+ * eight step rates from "3 milliseconds per step" to "10 microseconds,
+ * buffered step". Both are on the page images; the summary is the loose one.
+ *
+ * This decoded `(bytes[5] >> 5) & 0x07` and threw the step field away, with a
+ * test named `..._is_three_bits` asserting the loss. The whole byte is kept
+ * now and the fields are named.
+ *
+ *     Bit: | 7 | 6 | 5 | 4 | 3 | 2 | 1 | 0 |
+ *          | R |E/B| C | x | x | S | S | S |
+ */
+#define AP_OMTI_CONTROL_DISABLE_RETRY 0x80u
+/* Bit 6 is two options on one bit, by command: "DISABLE ECC" on a READ and
+ * "ENABLE FORMAT BUFFER" on a FORMAT. */
+#define AP_OMTI_CONTROL_DISABLE_ECC 0x40u
+#define AP_OMTI_CONTROL_FORMAT_BUFFER 0x40u
+#define AP_OMTI_CONTROL_ADDRESS_CONVERSION 0x20u
+#define AP_OMTI_CONTROL_STEP 0x07u
+
+/* ## Which of the four options this controller acts on, and why the rest are
+ * inert rather than forgotten
+ *
+ * `FORMAT BUFFER` (bit 6 on a FORMAT) **is acted on**: set, the data buffer
+ * fills each data field; clear, §5.2's `6C` pattern is written instead, which
+ * `ap_omti.c`'s `format_track` does.
+ *
+ * The other three are decoded and deliberately not acted on. Each is inert for
+ * a stated reason, not by omission:
+ *
+ * - **`DISABLE RETRY` (bit 7)** selects "4 retries, 1 recalibration, 4 retries"
+ *   against an error. This model has no medium that fails -- a read either
+ *   addresses a sector the image holds or is refused -- so there is no error to
+ *   retry and both settings behave alike. It becomes observable when media
+ *   errors can be injected.
+ * - **`DISABLE ECC` (bit 6 on a READ)** chooses whether a correctable ECC error
+ *   is corrected or reported. Same reason: nothing here produces one. The ECC
+ *   *bytes* are modelled (`ap_awd_ecc`), the failure is not.
+ * - **`ENABLE SECTOR ADDRESS CONVERSION` (bit 5)** converts the address using
+ *   "16 heads per cylinder" and a sectors-per-track count taken from **jumpers
+ *   W10 and W9**. This is the one that could change which sector a command
+ *   reaches, and it is not modelled because the jumper positions on the
+ *   *Apollo* board are in no source in hand -- `008778-03` describes the
+ *   controller's function and not its strapping. Guessing a conversion would
+ *   silently move every address. `PROVISIONAL`; closing it needs the Apollo
+ *   board's jumper settings or a measurement of a command issued with the bit
+ *   set. The Domain/OS boot measured here never sets it.
+ * - **`STEP` (bits 2-0)** picks one of eight step rates, from 3 milliseconds
+ *   per step to 10 microseconds buffered. Seeks in this model complete inside
+ *   the command that issues them -- the same reason `MSR_SEEK_A`/`_B` are
+ *   documented as never set -- so no step rate is observable. It becomes real
+ *   when seeks take time, and the field is decoded now so that the day it does,
+ *   the value is already there. */
+
 void ap_omti_cdb_decode(const uint8_t *bytes, ap_omti_cdb_t *out);
 
 /* Whether an ESDI controller accepts this command. False for the ST506-only
