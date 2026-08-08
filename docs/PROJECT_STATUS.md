@@ -17143,3 +17143,71 @@ that quietly restored the old `01000000` assumption would pass a regenerated
 golden and fail this. It reads no ROM: the suite has to run where `roms/` does
 not exist. `tests/goldens/model_table.txt` regenerated, and the golden caught
 the provisional text changing, which is what it is for. `ctest` 122/122.*
+
+
+## Phase 6 opens: the ring's symbol level, and why the figures had to be images
+
+`src/core/ring/ap_ring_mac.*` is the first Phase 6 code. It implements
+`[MAC]` §2.2.1 -- bit stuffing and the four out-of-band characters -- with a
+bit writer and reader that round-trip data through the stuffing.
+
+**The characters are nine bits, not eight**, and that is the design decision
+everything else rests on. `[MAC]` §2.2.1 p. 2-4: "All out-of-band characters
+begin with a Zero; the leading Zero exists to break a potential string of Ones.
+To determine what the character means, the receiver then looks at the two
+least-significant bits". So each is `0` + six `1`s + two type bits, and a model
+storing them as bytes would have nowhere to put the leading zero. On the wire it
+costs a bit time.
+
+```
+0 111111 00   separator      0x0FC
+0 111111 01   frame start    0x0FD
+0 111111 10   free token     0x0FE
+0 111111 11   claimed token  0x0FF
+```
+
+**Those four values came from page images, and could not have come from
+anywhere else.** The bit patterns live in Figures 2-2, 2-3 and 2-4, which are
+line drawings of a bit field with cells labelled `0`, `1` and `MUST BE ONES`.
+`pdftotext -layout` renders Figure 2-2's claimed token as
+
+```
+MSB L.1_o--L_--'_ _      ..L~_U_S_T_BLiE_O_N_E......F~_-,--_---,-_1---11----,1 LSB
+```
+
+-- which contains a `1`, a `0`, and no way to tell which cell either belongs to.
+Rendered instead at 200 dpi with `pdftoppm` and read as images. `CLAUDE.md`
+requires the page image for exactly this class of table and this is the clearest
+case the project has hit: the text layer is not degraded here, it is *absent*,
+and a plausible-looking guess could have been made from those fragments.
+
+**Bit stuffing is what makes the scheme work**, and it is the reason six ones
+mean something: a zero is inserted after every five successive ones, so six in a
+row cannot occur in data and their presence is a deliberate protocol violation
+announcing a control character (§2.2.1 p. 2-4). The reader reports that
+violation rather than refusing it -- the caller stops taking data bits and reads
+a symbol -- which is what a receiver actually does.
+
+**Two things the tests caught immediately**, both worth recording because this
+layer has no oracle and the tests are the only check it will ever have:
+
+- `OOB_PREFIX` was written as `0x1FC`, the *mask*, instead of `0x0FC`, the
+  value. Bit 8 must be **clear** -- it is the leading zero -- so every one of
+  the four characters failed validation. A transposition of two constants that
+  differ in one bit, in the one place where the bit's whole purpose is to be
+  zero.
+- A test asserted that `0xFE` is *not* an out-of-band character, on the reading
+  that it was "the free token's low eight bits". There is no such thing:
+  `0 111111 10` **is** 254. The leading zero costs nothing numerically and
+  everything on the wire. The test was wrong, not the code, and the corrected
+  one now asserts the opposite with the reason written down.
+
+*Verification: `ring_mac_suite`, 11 tests, each citing its `[MAC]` section and
+page, including round-trip of stuffed data and of a 32-bit all-ones run (which
+stuffs six zeros) and a reader that separates data from the control character
+following it. `ctest` 123/123. Findings 18-20 in `docs/references/RING.md`.*
+
+**Next in this item**: §2.2.2's five frame sequences -- frame start, packet
+header, packet data, frame check, end-of-frame, pp. 2-6 to 2-9. Their figures
+will need the same image treatment, which is now a known cost rather than a
+surprise.

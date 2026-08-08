@@ -111,6 +111,7 @@ add_library(apollo_core STATIC
   image/ap_awd.c
   image/ap_afd.c
   model/ap_model.c
+  ring/ap_ring_mac.c
   machine/ap_machine.c
   probe/ap_probe.c
   state/ap_hash.c

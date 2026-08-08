@@ -3766,6 +3766,24 @@ discipline throughout.
       separator characters, null separators, packet header, packet data, FCS,
       end-of-frame. *Verification: each format cites its manual section;
       encode/decode round-trip tests.*
+      **Awaiting:** §2.2.2's five frame sequences. The symbol level below is
+      done; the frame level is not, and the parent's verification names both.
+  - [x] **§2.2.1, the symbol level, is done**: `src/core/ring/ap_ring_mac.*`
+        holds bit stuffing and the four out-of-band characters as nine-bit
+        symbols, with a writer and reader that round-trip data through the
+        stuffing and hand the receiver its violation signal. Findings 18-20 in
+        `RING.md`.
+        *Verification: `ring_mac_suite`, 11 tests, each citing its `[MAC]`
+        section and page.*
+  - **Still open: §2.2.2, the five frame sequences** — frame start, packet
+    header, packet data, frame check, end-of-frame (pp. 2-6 to 2-9). The
+    figures on those pages need reading as images too; the text layer is
+    unusable for all of them, which is now a known cost rather than a surprise.
+  - The type bits came out as `00`/`01`/`10`/`11` for separator / frame start /
+    free / claimed. Worth re-reading against the figures if anything downstream
+    disagrees: two of the four are corroborated by prose (§2.2.1.1's "changing
+    the state of the character's last bit" pins free against claimed) and two
+    are on the figure alone.
 - [ ] Physical layer: data stream, PLL behaviour, elastic-store buffer, passive
       bypass. *Verification: `010005-00` ch. 3 and patent 4,716,575 cited per
       behaviour.*

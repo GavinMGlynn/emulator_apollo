@@ -139,6 +139,7 @@ apollo_add_suite(alu_suite)
 apollo_add_suite(time_suite)
 apollo_add_suite(machine_suite)
 apollo_add_suite(model_suite)
+apollo_add_suite(ring_mac_suite)
 apollo_add_suite(hash_suite)
 # The one suite in this directory that links a vcpkg library, so it is the one
 # that gets its DLLs copied beside it; the top-level `CMakeLists.txt` says why
