@@ -14620,3 +14620,62 @@ S  3C42BA58   2700   BC
 
 `4E4F` is `TRAP #15`. That is the next thing to resolve and it is a genuine
 emulator question rather than a configuration one.
+
+
+## The kernel crash is documented behaviour, and the status code names it
+
+`TRAP #15` at `3C42BA58` looked like the defect. It is not: it is how the
+kernel deliberately enters the debugger.
+
+*AEGIS Internals and Data Structures* §18.2.1.1, p. 18-2: a fault taken in
+supervisor mode reaches `fim_$chk_com`, which "calls the `fault_$crash`
+routine, which displays the fault frame and exits through the `crash_system`
+routine", printing the exact line we see. The Engineering Handbook's CRASH
+ANALYSIS section (`002398-04`, p. 12-38) says the same from the other side:
+`crash_system` "prints a status code (see Chapter 4, Error Codes and
+Messages) ... AEGIS then executes a TRAP instruction, causing entry to the PROM
+mnemonic debugger". Two independent documents, both already on disk.
+
+**And Chapter 4 has our code.** `002398-04` p. 4-7, read as a page image
+because the two columns interleave in text extraction:
+
+> `(00120020)  supervisor fault while resource lock(s) set`
+
+So the machine is reporting a fault taken in supervisor mode while a resource
+lock was held.
+
+### What that rules out, measured
+
+- **The bus errors are not it.** The report's fault sites are `00030000`,
+  `FFF90000` and `FD800000`-`FD80D000`, 393 bus errors in all, and every one is
+  a documented probe: `apollo.cpp`'s `apollo_unmapped_r` names `FD800000` as
+  "memory sizing in FPA address space", `FFF90000` as "FPA trial access", and
+  `00030000` as the "Bus error test address in DN3500 boot prom and self_test".
+  Unmapped, bus error, correct.
+- **The single F-line is not it.** One vector-11 exception, and
+  `ap_machine.c` already documents it as the FP trap the status register
+  reports -- `CPU (FP TRAP) TEST #0` on screen confirms it.
+- **No processor fault precedes the crash.** With `--boot-stop-pc 3C42BA58
+  --boot-trace-last 30000`, the *only* exception in the last thirty thousand
+  instructions is the `TRAP #15` itself. The trace shows a routine returning
+  `D0=1`, a `TST.W D0` / `BNE` to an error path, a `MOVEM.L` restore and the
+  trap. The crash is taken on a **software status**, not on a trapped access.
+
+### The calendar's configuration table, walked
+
+Per the rule that a misbehaving module is presumed incomplete until its
+register tables are walked, `ap_calendar.h` was checked field by field against
+`002398-04` p. 12-3. **It is already correct**: `CHECKSUM 0E-11`, `VALID
+PATTERN 12-15`, `MEM BOARD ARRAY 16-1D`, `NODEID 1E-21`, `DEV BIT ARRAY 22-25`,
+`RING TYPE 26`, `DISP TYPE 27`, `DISK TYPE 28`, `UNUSED 29-3F`, and all eight
+device bits (floppy, cartridge tape, Winchester, FPU, ring, user device,
+ethernet, serial/parallel). The header even records what the page does not
+state -- which of the four bytes at `22` carries the bits. A walk that confirms
+is a result; it removes the module from suspicion instead of leaving it there.
+
+**The gap it did find** is that page's footer: it is the **DN3000** table.
+`SELF_TEST` was measured reading registers `2B` and `31-3F`, which the DN3000
+layout calls unused, so the DN3500's configuration table extends beyond it and
+that document is not in `docs/references/`. That is the open question behind
+`CONFIGURATION INFORMATION IS NOT INITIALIZED`, and the screen ties it to this
+crash: it says to press RETURN and run `EX CONFIG` to initialise the table.

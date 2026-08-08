@@ -3486,8 +3486,12 @@ boot below, and the boot is not attempted until they are done.
         seeing year `26`, and every boot had used `--clock 1996` -- a calendar
         thirty years behind the volume, which the kernel refuses. With
         `--clock 2026-08-08` the prompt is gone and the kernel loads.
-        **Now it crashes**: `CRASH_STATUS 00120020 PC 3C40E114`, on a `TRAP #15`
-        at `3C42BA58`. That is the remaining blocker for this item.
+        **Now it crashes**, and the crash is documented rather than wild:
+        `TRAP #15` is how `crash_system` enters MD, and `002398-04` p. 4-7 gives
+        `(00120020)` as **"supervisor fault while resource lock(s) set"**. The
+        bus errors, the one F-line and the calendar's config table are all
+        measured innocent. Remaining: the DN3500 configuration table, which
+        `SELF_TEST` reads at `2B`/`31-3F` and the DN3000 page calls unused.
         Detail in `PROJECT_STATUS.md`.
         *Five hypotheses here were each produced by reasoning and killed by the
         next measurement. The whole investigation is in `PROJECT_STATUS.md`.*
