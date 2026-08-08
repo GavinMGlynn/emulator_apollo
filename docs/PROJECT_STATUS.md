@@ -3435,7 +3435,7 @@ with `0E` as §5.4.13 names from the other end. **IRQ14 and DRQ7 wired**, both d
 | MAME oracle harness | working and used throughout. Beyond the dumper there are now four probe tools — `regprobe.lua` drives every bit of a register in both directions, `writetrace.lua` taps writes to watch firmware program a device, `steptime.lua` single-steps for instruction timing, `mdcapture.lua` traces the serial registers byte-exact — and findings C10 through C14 are all measurements taken with them | `oracle_driver` (19 checks, stub MAME) and `oracle_dump_format` (19 checks, mock machine); `./apollo -listfull` lists all eleven apollo machines |
 | Interactive boot-PROM session (`mdsession.py`, `mdsession.lua`) | working, and it performed the Domain/OS install end to end. Holds a machine open across stages, reads the console and answers it; stdin is a **pty**, so a command is written when its prompt appears rather than trickled at a fixed rate. `--commands FILE` is followed while the run continues, so an unpublished dialogue can be answered as it is read. `!swap` changes a cartridge without stopping the machine. A killed driver takes its emulator with it. **Deliberately not reproducible in the oracle-reading sense**: it is paced by the host, so nothing timed may be measured through it — its products are a disk image and a transcript | `oracle_session`, 31 checks against a stub MAME that goes deaf on `re` as the real machine does; `FINDINGS.md` C49-C58 |
 | Golden regression harness | working | `golden_model_table`, run under every build preset; drift, `-O3` identity and regeneration all verified |
-| Shared frontend layer (`frontend/common/`) | working: option parsing and the model table report, plus `ap_png` — screenshots as indexed-colour PNGs, so an index and the palette behind it stay separable in the file exactly as they are in the hardware. libpng is optional and the build says which it is; without one the entry point reports "built without libpng", which is a different answer from a failed write | `frontend_common_suite`, 12 tests |
+| Shared frontend layer (`frontend/common/`) | working: option parsing and the model table report, plus `ap_png` — screenshots as indexed-colour PNGs, so an index and the palette behind it stay separable in the file exactly as they are in the hardware. libpng is optional and the build says which it is; without one the entry point reports "built without libpng", which is a different answer from a failed write | `frontend_common_suite`, 15 tests |
 | Headless frontend | `--model`, `--list-models`, `--help` | `golden_model_table`, which supersedes the old smoke test |
 | SDL frontend | not started, deliberately not stubbed | — |
 
@@ -16144,3 +16144,51 @@ in this core. Whether that causes the crash is a hypothesis, not a measurement.
 `docs/references/3com/3c505_Etherlink_Plus_Developers_Guide_May86.pdf` -- 77
 pages, found on the web after the on-disk references turned up nothing -- is now
 in place so the part can be walked before any of it is written.
+
+
+## The interactive frontend, and a bug the first test could not see
+
+`apollo-sdl` is implemented rather than stubbed: a window on the emulated
+screen, the scanout uploaded to an ARGB texture, letterboxed on resize so the
+1024x800 and 1280x1024 shapes stay honest, nearest-neighbour scaling because the
+console is text a person reads, and host keys delivered through
+`ap_board_key_type`'s compatibility set. It is built only where SDL3 is present,
+for the same reason `ap_png.c` guards libpng: CI runs three platforms and a hard
+dependency trades a feature for a red tree.
+
+`--frames N` is what makes an interactive program testable. `sdl_frames` runs
+three frames under `SDL_VIDEODRIVER=dummy` and exits, proving the window opens,
+the texture uploads, the machine steps and it shuts down cleanly on a machine
+with no display. 122 CTest entries now.
+
+**The index-to-colour step is shared, deliberately.** `common/ap_scanout.h`
+holds it, so the window and the screenshot writer cannot disagree about what a
+palette index means -- and the one that would drift unnoticed is the interactive
+one, since nothing diffs it against a golden.
+
+### Two bugs, and what each one teaches
+
+`ap_scanout_rgba` scans indices into the tail of the caller's 32-bit buffer and
+expands them in place, so a window costs one allocation. **Written descending
+first, which is wrong**: index `i` sits at byte `3p + i` and its colour goes to
+`[4i, 4i+4)`, so the first descending write lands on `[4p-4, 4p)`, inside the
+index region, and destroys indices that have not been read. Ascending, a write
+can only reach a byte a later read needs when `i > p - 1`, which is past the
+last iteration. Caught by reasoning before it compiled, and the argument is
+written at the loop rather than left as a trick that happens to work.
+
+**The first test for it passed with the loop still wrong**, which is the more
+useful failure. It asserted a *property* -- every pixel opaque and one of the
+two ink colours -- and a clobbered index byte reads back as `00` or `FF`, both
+of which paint a legal colour on a one-plane screen. The picture was wrong and
+every pixel looked plausible. Replaced with a comparison against an
+**independent** scanout into its own buffer, pixel by pixel, and verified the
+way the LUN tests were: with the loop reversed it fails `Expected 0xFF000000 Was
+0xFFFFFFFF`, and passes with it right. A test that cannot fail is not evidence,
+and property assertions are where that hides.
+
+**Not done: the mouse.** The item asks for keyboard *and* mouse mapping. The
+Apollo mouse shares the keyboard's serial channel and is not modelled anywhere
+in this core -- `ap_model.c` names it and nothing implements it -- so it is a
+core item rather than a frontend one, and claiming it here would be the kind of
+partial completion this document keeps having to retract.

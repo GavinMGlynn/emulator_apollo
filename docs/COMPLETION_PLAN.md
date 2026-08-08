@@ -3723,10 +3723,18 @@ boot below, and the boot is not attempted until they are done.
       for a **login prompt**, and that waits on Phase 4's `CRASH_STATUS
       00120020`, which the oracle proves is ours. Detail in `PROJECT_STATUS.md`.
       *Verification: a decoded PNG showing Domain/OS's login prompt.*
-- [ ] SDL3 interactive frontend, implemented rather than stubbed: scanout to a
-      letterboxed texture, keyboard/mouse mapping, `--frames` bounded mode
-      smoke-tested under dummy SDL drivers. *Verification: bounded-mode CTest
-      under `SDL_VIDEODRIVER=dummy`.*
+- [x] **SDL3 interactive frontend, implemented rather than stubbed.**
+      `apollo-sdl` opens a window on the emulated screen, uploads the scanout to
+      an ARGB texture, letterboxes it to keep the 1024x800 and 1280x1024 shapes
+      honest under resize, and types host keys through `ap_board_key_type`'s
+      compatibility set. The index-to-colour step is shared with the screenshot
+      writer as `common/ap_scanout.h` so the interactive path cannot drift from
+      the one that is diffed against goldens. Built only where SDL3 is found,
+      as libpng is. Mouse mapping is **not** done: the Apollo mouse shares the
+      keyboard's serial channel and is not modelled at all, so it is its own
+      item rather than a line here. Detail in `PROJECT_STATUS.md`.
+      *Verification: `sdl_frames`, a CTest entry running `--frames 3` under
+      `SDL_VIDEODRIVER=dummy` -- 122 tests now.*
 
 ## Phase 6 — The Apollo Token Ring
 

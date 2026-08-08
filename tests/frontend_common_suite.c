@@ -3,9 +3,11 @@
 
 #include <setjmp.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "ap_frontend.h"
+#include "ap_scanout.h"
 #include "unity.h"
 
 void setUp(void) {}
@@ -295,8 +297,105 @@ static void test_an_index_past_the_palette_is_refused(void) {
   TEST_ASSERT_NULL(fopen("must-not-exist.png", "rb"));
 }
 
+/* ## The index-to-colour step, and the in-place expansion under it
+ *
+ * `ap_scanout_rgba` scans indices into the tail of the caller's 32-bit buffer
+ * and expands them forward, so a window costs one allocation. That trick is
+ * only correct in one direction: index `i` lives at byte `3p + i` and its
+ * colour is written to `[4i, 4i+4)`, so going *downwards* the first write
+ * lands on `[4p-4, 4p)` and destroys three indices that have not been read.
+ * Written the wrong way round first, and this is the test that would have
+ * caught it -- a solid-colour screen cannot, because every clobbered index
+ * decodes to the same pixel. The picture below is a ramp for that reason. */
+static void test_the_scanout_expands_every_pixel_not_just_the_first(void) {
+  ap_graphics_t graphics;
+  ap_graphics_init(&graphics, AP_SCREEN_MONO_15_INCH);
+
+  ap_graphics_geometry_t geometry;
+  TEST_ASSERT_TRUE(ap_graphics_geometry(AP_SCREEN_MONO_15_INCH, &geometry));
+  const uint32_t pixels = (uint32_t)geometry.width * geometry.height;
+
+  static uint8_t mono[4u * 1024u * 1024u];
+  memset(mono, 0, sizeof mono);
+  /* Alternating words, so the scanned-out indices alternate along each row and
+   * a clobbered index shows up as a run of one colour where two belong. */
+  for (uint32_t i = 0; i + 1 < sizeof mono; i += 4u) {
+    mono[i] = 0xFFu;
+    mono[i + 1u] = 0xFFu;
+  }
+  ap_graphics_attach_memory(&graphics, NULL, 0u, mono, (uint32_t)sizeof mono);
+
+  uint32_t *frame = calloc(pixels, sizeof *frame);
+  TEST_ASSERT_NOT_NULL(frame);
+
+  uint32_t width = 0;
+  uint32_t height = 0;
+  TEST_ASSERT_TRUE(ap_scanout_rgba(&graphics, 0u,
+                                   frame, pixels, &width, &height));
+  TEST_ASSERT_EQUAL_UINT32(geometry.width, width);
+  TEST_ASSERT_EQUAL_UINT32(geometry.height, height);
+
+  /* Compared against an **independent** scanout into its own buffer, pixel by
+   * pixel, rather than against a property like "every pixel is one of two
+   * colours". That weaker check passes with the loop running the wrong way:
+   * a clobbered index byte reads back as `00` or `FF`, and on a one-plane
+   * screen both land inside the palette or past it and paint a legal ink
+   * colour, so the picture is wrong and every pixel still looks plausible.
+   * Only the exact expected value catches it. */
+  static uint8_t reference[2048u * 1024u];
+  TEST_ASSERT_TRUE(pixels <= sizeof reference);
+  TEST_ASSERT_EQUAL_UINT32(pixels,
+                           ap_graphics_scanout(&graphics, 0u, reference,
+                                               pixels));
+
+  ap_scanout_palette_t palette;
+  TEST_ASSERT_TRUE(ap_scanout_palette(&graphics, &palette));
+
+  for (uint32_t i = 0; i < pixels; i++) {
+    const uint8_t index = reference[i];
+    TEST_ASSERT_TRUE(index < palette.colours);
+    const uint32_t want = 0xFF000000u |
+                          ((uint32_t)palette.rgb[index][0] << 16) |
+                          ((uint32_t)palette.rgb[index][1] << 8) |
+                          palette.rgb[index][2];
+    TEST_ASSERT_EQUAL_HEX32(want, frame[i]);
+  }
+  free(frame);
+}
+
+/* A monochrome screen is ink on paper and the mapping is exact: a set bit is
+ * black. Stated as a test because it is the one palette in this machine that
+ * is not a guess about a lookup table. */
+static void test_a_monochrome_palette_is_ink_on_paper(void) {
+  ap_graphics_t graphics;
+  ap_graphics_init(&graphics, AP_SCREEN_MONO_19_INCH);
+
+  ap_scanout_palette_t palette;
+  TEST_ASSERT_TRUE(ap_scanout_palette(&graphics, &palette));
+  TEST_ASSERT_TRUE(palette.real);
+  TEST_ASSERT_EQUAL_UINT(2u, palette.colours);
+  TEST_ASSERT_EQUAL_HEX8(0xFFu, palette.rgb[0][0]);
+  TEST_ASSERT_EQUAL_HEX8(0x00u, palette.rgb[1][0]);
+}
+
+/* The 4-plane board's sixteen-entry table is not modelled, so its palette is an
+ * even ramp -- and must say so, or a screenshot written from it would be passed
+ * off as the colours the monitor showed. */
+static void test_an_unmodelled_lookup_table_is_not_claimed_as_real(void) {
+  ap_graphics_t graphics;
+  ap_graphics_init(&graphics, AP_SCREEN_COLOUR_4_PLANE);
+
+  ap_scanout_palette_t palette;
+  TEST_ASSERT_TRUE(ap_scanout_palette(&graphics, &palette));
+  TEST_ASSERT_FALSE(palette.real);
+  TEST_ASSERT_EQUAL_UINT(16u, palette.colours);
+}
+
 int main(void) {
   UNITY_BEGIN();
+  RUN_TEST(test_the_scanout_expands_every_pixel_not_just_the_first);
+  RUN_TEST(test_a_monochrome_palette_is_ink_on_paper);
+  RUN_TEST(test_an_unmodelled_lookup_table_is_not_claimed_as_real);
   RUN_TEST(test_the_default_machine_is_the_reference_superset);
   RUN_TEST(test_model_selects_a_machine_by_name);
   RUN_TEST(test_model_without_a_value_is_an_error);

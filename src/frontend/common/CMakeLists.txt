@@ -1,5 +1,5 @@
 # Shared by every frontend. Depends on the core; no frontend depends on another.
-add_library(apollo_frontend_common STATIC ap_frontend.c ap_png.c)
+add_library(apollo_frontend_common STATIC ap_frontend.c ap_png.c ap_scanout.c)
 target_include_directories(apollo_frontend_common PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(apollo_frontend_common PUBLIC apollo_core)
 
