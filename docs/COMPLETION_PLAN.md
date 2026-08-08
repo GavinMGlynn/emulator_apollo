@@ -3737,6 +3737,12 @@ boot below, and the boot is not attempted until they are done.
       exists. Detail in `PROJECT_STATUS.md`.
       *Verification: `sdl_frames`, `--frames 3` under `SDL_VIDEODRIVER=dummy`,
       and four `kbd_suite` tests against Figure 13-4.*
+
+## Phase 6 — The Apollo Token Ring
+
+The novel work. No runnable oracle exists, so this phase is paper-oracle
+discipline throughout.
+
 - [ ] Disassemble `{3000,3500,4500,5500}_RING_*.bin` and recover the controller
       register map and dual-ported RAM layout. *Verification: every register
       recorded in `docs/references/RING.md` with the ROM address that proves it;

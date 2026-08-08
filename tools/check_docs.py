@@ -46,6 +46,8 @@ would make the plan unable to describe its own future.
 
 from __future__ import annotations
 
+import functools
+import pathlib
 import re
 import subprocess
 import sys
@@ -324,6 +326,43 @@ def deliberately_absent(cited: str) -> bool:
     return cited.startswith(USER_SUPPLIED)
 
 
+@functools.lru_cache(maxsize=1)
+def tracked_paths() -> frozenset[str]:
+    """Every path git tracks, and every directory implied by one.
+
+    Existence was checked against the *filesystem*, which is true of the machine
+    running the check and not of anyone else's. Reference PDFs are gitignored,
+    so a document naming one passed here and failed in CI -- twice, because the
+    fix for the file was itself verified locally, where the file exists. Git's
+    index is the only view of the tree that every machine shares.
+    """
+    try:
+        listed = subprocess.run(
+            ["git", "-C", str(REPO), "ls-files", "-z"],
+            capture_output=True, text=True, check=True).stdout
+    except (OSError, subprocess.CalledProcessError):
+        return frozenset()          # not a checkout: fall back to the disk
+    paths: set[str] = set()
+    for entry in listed.split("\0"):
+        if not entry:
+            continue
+        paths.add(entry)
+        parent = pathlib.PurePosixPath(entry).parent
+        while str(parent) != ".":
+            paths.add(str(parent))
+            paths.add(str(parent) + "/")
+            parent = parent.parent
+    return frozenset(paths)
+
+
+def present(cited: str) -> bool:
+    """Whether a cited path is one every checkout has."""
+    tracked = tracked_paths()
+    if not tracked:
+        return (REPO / cited).exists()
+    return cited in tracked or cited.rstrip("/") in tracked
+
+
 def check_references(problems: list[str]) -> int:
     """Paths and symbols the documents name, against what exists."""
     symbols = tree_symbols()
@@ -336,7 +375,7 @@ def check_references(problems: list[str]) -> int:
             planned = line.lstrip().startswith("- [ ]")
             for cited in PATH.findall(line):
                 checked += 1
-                if (not (REPO / cited).exists() and not planned
+                if (not present(cited) and not planned
                         and not deliberately_absent(cited)):
                     problems.append(f"{document.name}: names {cited}, which does not exist")
             for symbol in SYMBOL.findall(line):

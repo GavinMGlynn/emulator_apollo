@@ -16144,12 +16144,16 @@ left standing: **the first divergence was not the cause of the crash.**
 CONTROLLER-AT TEST PASSED.` lines that ours does not; the 3c505 is not started
 in this core. Whether that causes the crash is a hypothesis, not a measurement.
 `3c505_Etherlink_Plus_Developers_Guide_May86.pdf` -- 77 pages, found on the web
-after the on-disk references turned up nothing -- is now under
-`docs/references/3com/`, so the part can be walked before any of it is written.
-(Named without its path deliberately: reference PDFs are gitignored, and
-`check_docs.py` verifies every path a document names, so a full path here is a
-claim that fails on any machine but the one that downloaded it -- which is
-exactly how it broke CI once.)
+after the on-disk references turned up nothing -- has been fetched, so the part
+can be walked before any of it is written.
+
+**Named without any path, and that is not fussiness.** Reference PDFs are
+gitignored, so neither the file nor the directory holding it is tracked;
+`check_docs.py` verifies every path a document names, and a path here is a claim
+that is true only on the machine that ran the download. It broke CI twice --
+once for the file, then again for the directory after a fix that was checked
+locally, where the file exists. The check is only meaningful against what **git
+tracks**, so `tools/check_docs.py` now asks git rather than the filesystem.
 
 
 ## The interactive frontend, and a bug the first test could not see
