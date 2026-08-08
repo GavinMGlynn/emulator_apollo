@@ -14929,3 +14929,55 @@ from the branches; what is not known is whether anything ever *writes* the two
 flags. `--boot-watch-write 3C42BCD7` (and `3C42BD20`) answers whether an
 initialisation path sets them and this run missed it, or whether nothing in the
 boot ever touches them -- which are different faults with different fixes.
+
+
+## Four watches in parallel, and the status turns out to be an argument
+
+Four boots run concurrently rather than in sequence -- the runs are
+single-threaded and 369 MB each, so serialising them was costing wall-clock for
+nothing. Together they take about as long as one.
+
+| watch | result |
+| --- | --- |
+| `0102E8D7` (flag A) | **written 7 times**, last `00`, by PC `3C4568B6` |
+| `0102E920` (flag B) | written 6 times, last by PC `01002174` -- in `SELF_TEST` |
+| `0102E8C0` | written 7 times, **last `00120020`**, by PC `3C42B9AA` |
+
+Two things fall out.
+
+**The flags are not uninitialised.** Both are written repeatedly and then hold
+zero, so "an initialisation path never ran" is wrong -- something sets them and
+something clears them. Flag A's last writer is a single named instruction,
+`3C4568B6`. That is a different fault with a different fix, and the watch is
+what separated them.
+
+**`0102E8C0` holds the crash status itself.** `00120020` is the value the screen
+prints, so that long is not a mode flag -- it is where the status lives. And the
+code says where it comes from:
+
+```
+3C42B9A6  206F 0046           MOVEA.L $46(A7),A0        ; pointer off the stack
+3C42B9AA  2B50 0398           MOVE.L  (A0),$398(A5)     ; A5+$398 = 3C42BCC0
+3C42B9AE  6720                BEQ.S   3C42B9D0          ; a zero status reports nothing
+3C42B9B0  0CAD 001B0008 0398  CMPI.L  #$001B0008,$398(A5)
+3C42B9B8  6716                BEQ.S   3C42B9D0          ; and this one is benign too
+```
+
+`A5` is `3C42B928`, from the `LEA (PC-$40E),A5` already decoded, so `$398(A5)`
+is `3C42BCC0` -- the arithmetic checks against the watch, which is the point of
+doing both.
+
+So **the status is an argument**, passed in by the caller through `$46(A7)`, not
+computed here. This routine reports; it does not decide. Chasing why
+`3C42BCC0` is non-zero was chasing the messenger.
+
+`001B0008` is worth recording as the other side of the comparison: a status this
+code deliberately lets through without reporting. Whatever subsystem that
+belongs to, our `00120020` is not it.
+
+**Next is the caller.** The status reaches `$46(A7)`, so the frame that supplied
+it is one level up, and `fim_$chk_com` is the documented producer of a
+supervisor-mode fault status. What has not been reconciled is that no processor
+fault occurs in the 400,000 instructions before this -- so either the fault is
+older than that window, or this path is entered for a reason other than a
+trapped access.
