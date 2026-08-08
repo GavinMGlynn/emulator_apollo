@@ -150,6 +150,39 @@ static void print_usage(const char *program_name) {
 #define PROBE_RAM_BYTES 0x00010000u
 static uint8_t probe_ram[PROBE_RAM_BYTES];
 
+/* Which empty-slot addresses a run touched, distinct and in the order first
+ * seen. The count alone cannot tell a driver polling one status register from
+ * a scan across a card's whole window, and those are different findings: the
+ * first says a card that should be fitted is missing, the second says the
+ * firmware looked and correctly found nothing.
+ *
+ * The overflow is printed rather than swallowed. A list that has silently
+ * stopped growing reads as a complete inventory, which is how "it only ever
+ * touched these addresses" gets believed about a run that touched hundreds. */
+static void print_atbus_empty_addresses(const ap_board_t *board) {
+  if (board->atbus_empty_distinct == 0u) {
+    return;
+  }
+  printf("    first seen");
+  for (unsigned i = 0; i < board->atbus_empty_distinct; i++) {
+    printf(" %08X", board->atbus_empty_addresses[i]);
+  }
+  if (board->atbus_empty_addresses_dropped > 0u) {
+    printf("  (+%u more, not recorded)", board->atbus_empty_addresses_dropped);
+  }
+  printf("\n");
+  /* And the far end of the run. The list above fills with whatever looked
+   * first -- on this machine the PROM's expansion-ROM scan, every time -- so
+   * without these two a boot whose driver polled one register seven million
+   * times reported the same addresses as one that never polled at all. */
+  if (board->atbus_empty_reads > 0u) {
+    printf("    last read  %08X\n", board->last_atbus_empty_read);
+  }
+  if (board->atbus_empty_writes > 0u) {
+    printf("    last write %08X\n", board->last_atbus_empty_write);
+  }
+}
+
 /* Per-instruction clocks, measured the way tools/mame-oracle/steptime.lua
  * measures the oracle's -- consecutive deltas after a discarded first step, so
  * neither side charges one instruction for filling the pipe.
@@ -2152,6 +2185,7 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
   if (board->atbus_empty_writes > 0u) {
     printf("    first write %08X\n", board->first_atbus_empty_write);
   }
+  print_atbus_empty_addresses(board);
   /* The two registers Table 2-8 names and this core declines. Printed even at
    * zero for the same reason: "the firmware never touched task alias" is an
    * answer, and the only one available until a handbook turns up. */
@@ -2909,6 +2943,7 @@ static int boot_from_tape(const char *path, unsigned limit) {
   if (board->atbus_empty_writes > 0u) {
     printf("    first write %08X\n", board->first_atbus_empty_write);
   }
+  print_atbus_empty_addresses(board);
   /* The two registers Table 2-8 names and this core declines. Printed even at
    * zero for the same reason: "the firmware never touched task alias" is an
    * answer, and the only one available until a handbook turns up. */

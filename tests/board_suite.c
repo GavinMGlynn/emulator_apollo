@@ -203,6 +203,64 @@ static void test_an_empty_at_bus_window_reads_ff_rather_than_faulting(void) {
   TEST_ASSERT_EQUAL_HEX32(0x090000u, b.first_atbus_empty_write);
 }
 
+/* ## The first address is not the interesting one
+ *
+ * The first empty-slot address a boot records is the PROM's expansion-ROM scan,
+ * and it is the same whether a driver later polls a missing card eight million
+ * times or not at all -- a real boot moved that counter from 46,000 to 8.4
+ * million with the reported address unchanged. So distinct addresses are kept,
+ * in the order first seen, and repeats do not lengthen the list. */
+static void test_the_empty_slot_addresses_are_kept_distinct_and_in_order(void) {
+  ap_board_t b;
+  bool ok = false;
+  init(&b);
+
+  /* A poll: one address, many times. It must appear once. */
+  for (unsigned i = 0; i < 32u; i++) {
+    (void)ap_board_read(&b, 0x055C08u, &ok);
+  }
+  /* Then a second register on the same absent card, and a write to a third --
+   * writes share the list, since a command register and the status register
+   * beside it are the pairing this exists to show. */
+  (void)ap_board_read(&b, 0x055C00u, &ok);
+  ap_board_write(&b, 0x055C0Eu, 0xA5u, &ok);
+
+  TEST_ASSERT_EQUAL_UINT(33u, b.atbus_empty_reads);
+  TEST_ASSERT_EQUAL_UINT(3u, b.atbus_empty_distinct);
+  TEST_ASSERT_EQUAL_HEX32(0x055C08u, b.atbus_empty_addresses[0]);
+  TEST_ASSERT_EQUAL_HEX32(0x055C00u, b.atbus_empty_addresses[1]);
+  TEST_ASSERT_EQUAL_HEX32(0x055C0Eu, b.atbus_empty_addresses[2]);
+  TEST_ASSERT_EQUAL_UINT(0u, b.atbus_empty_addresses_dropped);
+}
+
+/* A scan across a window overflows the list, and the overflow is *reported*.
+ * A list that has silently stopped growing reads as a complete inventory. */
+static void test_more_empty_slot_addresses_than_fit_are_counted_not_dropped(
+    void) {
+  ap_board_t b;
+  bool ok = false;
+  init(&b);
+
+  const unsigned probes = AP_BOARD_ATBUS_EMPTY_ADDRESSES + 5u;
+  for (unsigned i = 0; i < probes; i++) {
+    (void)ap_board_read(&b, 0x090000u + i * 0x100u, &ok);
+  }
+
+  TEST_ASSERT_EQUAL_UINT(AP_BOARD_ATBUS_EMPTY_ADDRESSES,
+                         b.atbus_empty_distinct);
+  TEST_ASSERT_EQUAL_UINT(5u, b.atbus_empty_addresses_dropped);
+  /* The ones kept are the *first* seen, not the last: a window scan should be
+   * recognisable from where it started. */
+  TEST_ASSERT_EQUAL_HEX32(0x090000u, b.atbus_empty_addresses[0]);
+
+  /* And the far end is kept regardless, which is the half the list cannot
+   * give. A real boot fills all sixteen slots with the PROM's expansion-ROM
+   * scan before any driver runs, so an address recorded only if it arrived
+   * early is an address that describes the PROM and nothing else. */
+  TEST_ASSERT_EQUAL_HEX32(0x090000u + (probes - 1u) * 0x100u,
+                          b.last_atbus_empty_read);
+}
+
 /* The windows must not swallow the devices inside them. The tape, the disk and
  * the display controller all sit within the AT I/O window, so a window checked
  * before them would answer `FF` for every one -- and every device test would
@@ -1010,6 +1068,8 @@ int main(void) {
   RUN_TEST(test_the_read_only_memories_absorb_writes_rather_than_faulting);
   RUN_TEST(test_a_missing_prom_is_absent_for_writes_too);
   RUN_TEST(test_an_empty_at_bus_window_reads_ff_rather_than_faulting);
+  RUN_TEST(test_the_empty_slot_addresses_are_kept_distinct_and_in_order);
+  RUN_TEST(test_more_empty_slot_addresses_than_fit_are_counted_not_dropped);
   RUN_TEST(test_the_windows_do_not_swallow_the_devices_inside_them);
   RUN_TEST(test_main_memory_s_name_stops_where_its_address_space_does);
   RUN_TEST(test_the_fpa_space_is_unmapped_on_both_models);

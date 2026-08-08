@@ -783,6 +783,27 @@ static void parity_error(ap_board_t *board, uint32_t address, uint32_t offset) {
   board->registers.latch_page_on_parity = (uint16_t)(address >> 10);
 }
 
+/* Remember an empty-slot address once, in the order first seen.
+ *
+ * A linear scan of at most sixteen entries, on a path that a polling driver
+ * takes millions of times. That is deliberate: the alternative is a hash or a
+ * sorted set, and neither is worth its complexity for sixteen slots -- but the
+ * *reason* it is cheap enough is that the list fills and then every later read
+ * is sixteen compares and a return, with no writes and no growth. Once the list
+ * is full only the dropped counter moves. */
+static void note_atbus_empty_address(ap_board_t *board, uint32_t address) {
+  for (unsigned i = 0; i < board->atbus_empty_distinct; i++) {
+    if (board->atbus_empty_addresses[i] == address) {
+      return;
+    }
+  }
+  if (board->atbus_empty_distinct >= AP_BOARD_ATBUS_EMPTY_ADDRESSES) {
+    board->atbus_empty_addresses_dropped++;
+    return;
+  }
+  board->atbus_empty_addresses[board->atbus_empty_distinct++] = address;
+}
+
 uint8_t ap_board_read(ap_board_t *board, uint32_t address, bool *ok) {
   *ok = true;
   address &= board->map->address_mask;
@@ -848,6 +869,8 @@ uint8_t ap_board_read(ap_board_t *board, uint32_t address, bool *ok) {
       board->first_atbus_empty_read = address;
     }
     board->atbus_empty_reads++;
+    board->last_atbus_empty_read = address;
+    note_atbus_empty_address(board, address);
     return 0xFFu;
   case AP_BOARD_REGION_RAM: {
     uint32_t offset = address - board->map->ram_base;
@@ -989,6 +1012,11 @@ void ap_board_write(ap_board_t *board, uint32_t address, uint8_t value,
       board->first_atbus_empty_write = address;
     }
     board->atbus_empty_writes++;
+    board->last_atbus_empty_write = address;
+    /* Writes share the list. A driver that writes a command register and then
+     * polls a status register beside it is the case this exists for, and
+     * splitting the two lists would hide exactly that pairing. */
+    note_atbus_empty_address(board, address);
     return;
   case AP_BOARD_REGION_RAM: {
     uint32_t offset = address - board->map->ram_base;

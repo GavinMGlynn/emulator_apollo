@@ -87,6 +87,12 @@
 #define AP_BOARD_ATBUS_MEMORY_BASE 0x080000u
 #define AP_BOARD_ATBUS_MEMORY_END 0xFFFFFFu
 
+/* How many distinct empty-slot addresses a run remembers. Sixteen covers a
+ * card's eight registers twice over, which is what the question "which register
+ * is it polling" needs; a scan across the whole window overflows it and says so
+ * rather than pretending to be a complete list. */
+#define AP_BOARD_ATBUS_EMPTY_ADDRESSES 16u
+
 /* Which part of the machine an address belongs to. Named rather than
  * boolean-decoded so a caller -- or a trace -- can say *what* the firmware
  * reached for, which is the question C28 could not answer. */
@@ -409,6 +415,35 @@ typedef struct ap_board {
   unsigned atbus_empty_writes;
   uint32_t first_atbus_empty_read;
   uint32_t first_atbus_empty_write;
+  /* *Which* empty addresses, not just how many and the first one.
+   *
+   * The first is the boot PROM's expansion-ROM scan at `00080000` and says
+   * nothing about what a driver does later: a boot that reads an empty slot
+   * 8.4 million times reported exactly the same first address as one that read
+   * it 46,000 times, so the count moved and the diagnostic did not. Distinct
+   * addresses in the order first seen, which is the same shape as the board
+   * register's `posted` codes and readable for the same reason -- a poll of one
+   * register and a scan across a card's whole window look identical in a total
+   * and nothing alike here.
+   *
+   * Bounded, and the overflow is reported rather than dropped silently: a
+   * truncated list that looks complete is how "it only ever touched these"
+   * gets believed. */
+  uint32_t atbus_empty_addresses[AP_BOARD_ATBUS_EMPTY_ADDRESSES];
+  unsigned atbus_empty_distinct;
+  unsigned atbus_empty_addresses_dropped;
+  /* The most recent, which is the one the list cannot give.
+   *
+   * Measured, not assumed: on a real boot the sixteen slots fill with the boot
+   * PROM's expansion-ROM scan -- `00080000`-`00083003`, four bytes at each of
+   * four pages -- inside the first fraction of a second, and the 7.3 million
+   * reads a driver makes later are all dropped. A list of the *first* distinct
+   * addresses describes the PROM and is silent about everything after it, so
+   * the last address is kept as well. Between them a run says where the
+   * firmware started looking and where it ended up, and a poll that dominates
+   * a run is named by the second even when the first is full. */
+  uint32_t last_atbus_empty_read;
+  uint32_t last_atbus_empty_write;
 
   /* Every access, by region, whether or not anything answered. C33's rule taken
    * to its end: "the firmware wanted the calendar" is a question a count of
