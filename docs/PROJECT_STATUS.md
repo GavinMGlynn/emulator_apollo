@@ -17644,3 +17644,71 @@ look is AT **memory** space rather than I/O space.
 *Verification: findings 38-41a in `docs/references/RING.md`, each with the ROM
 address that shows it; all five ROMs still checksum VALID under the fixed tool.
 `ctest` 129/129.*
+
+
+## Phase 7's profile was measuring the instrument, and removing it is 1.60x
+
+The item that opens Phase 7 asks where the time goes "so this phase starts from
+a profile rather than from a guess". Re-measuring it found that the profile on
+record was of a run dominated by its own instrumentation.
+
+**`perf` over the Domain/OS phase, release build, 350 M instructions:**
+
+```
+28.25%  ap_board_read              3.17%  machine_cache_inhibited
+ 7.28%  resolve (i8259 priority)   3.14%  fill_to_decoded
+ 6.70%  ap_board_bus_tick          2.89%  ap_machine_run
+ 4.60%  ap_board_sample_interrupts 2.56%  ap_board_write
+ 4.06%  ap_m68030_step             2.53%  ap_m68030_arb_tick
+ 3.64%  boot_from_prom             1.89%  machine_table_fetch
+ 3.58%  ap_board_read_access       1.66%  ap_m68030_walk
+```
+
+`ap_board_read` at 28% is four times the next entry and does not appear in the
+recorded profile at all. The reason is this session's own earlier finding: the
+frontend read one instruction word back per stepped instruction to fill a trace
+column, and with the MMU on that is a full walk of the tree -- three descriptor
+fetches, each four byte-wide board reads. Twelve board accesses per instruction,
+for a column nobody had asked to see.
+
+**The counter split added earlier in this session is what made it provable.** At
+350 M instructions the run reports **266,700,639 probe walks against the
+machine's own 56,688** -- 99.98% of every table walk in the run was that one
+line. Without that split the two were one number and the profile had no way to
+tell the observer from the machine.
+
+**Fixed by reading the word back only when something consumes it** -- a trace or
+a ring wants it every step, and a run that ends abnormally reports the core's
+own `one.instruction`, which the branch already preferred in exactly that case.
+
+*Verification, A/B on one binary because `--boot-trace-last 1` forces the old
+path:*
+
+```
+with the read-back     541 s   266,700,639 probe walks
+without                339 s             0
+state hash             67A14B3BB6041410 in both
+```
+
+**1.60x, and the machine is bit-identical.** The read-back was 37% of a plain
+boot's wall clock. The plan's headline figure -- "a Domain/OS boot to a login
+prompt is about 1.2 billion instructions, twenty minutes here" -- becomes about
+twelve and a half.
+
+**What the profile says now that it is honest.** Interrupt priority resolution
+is the largest genuine cost: `resolve` walks eight levels in priority order and
+`ap_board_sample_interrupts` calls it for both cascaded PICs on *every*
+instruction, 11.9% together. Bus and arbitration ticks are 9.2%. The four device
+modules advanced whether or not anything changed are about 6%. That is the
+cycle-stepped design doing exactly what it was specified to do, and it is what
+`next_event()`/`skip(n)` is for -- but the shape of the target has changed now
+that a third of the run is no longer instrument.
+
+**The general lesson, for the third time this session.** An instrument that
+inflates a counter is bad; one that inflates a *profile* is worse, because the
+profile is what optimisation work is aimed at. Phase 7 would have spent its
+first effort on `ap_board_read`, which is real code doing real work -- for the
+observer.
+
+*Verification: `ctest` 129/129, every golden unchanged, and the frontend flag
+check still reports all reachable flags exercised.*

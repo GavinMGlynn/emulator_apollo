@@ -3917,25 +3917,20 @@ Only after the reference core is proven, and only under an identity harness.
         wherever a device's output would feed back into an instruction still
         executing. That case is what a cycle-steppable CPU makes reachable, and
         it is the reason to want one beyond speed.
-- [ ] **Where the time goes, measured** -- so this phase starts from a profile
-      rather than from a guess. A plain boot at ~875 ns per emulated instruction,
-      which is some 2,600 host clocks each:
+- [x] **Where the time goes, measured** — and the first thing the measurement
+      found was that the profile was measuring the instrument. A stepped boot
+      read one instruction word back per step to fill a trace column; with the
+      MMU on that is a full walk of the tree, and at 350 M instructions it was
+      **266,700,639 probe walks against the machine's own 56,688** — 99.98% of
+      every table walk in the run. `perf` put `ap_board_read` at **28%** of the
+      whole profile, four times the next entry.
+      Made conditional on something consuming the word. Same binary, same
+      bound, same state hash `67A14B3BB6041410`: **541 s → 339 s, a 1.60×
+      speedup**, so the read-back was 37% of a plain boot's wall clock.
+      *Verification: A/B on one binary via `--boot-trace-last 1`, which forces
+      the old path; `ctest` 129/129 and every golden unchanged. The real profile
+      and what it now says is in `PROJECT_STATUS.md`.*
 
-          15.5% resolve            13.2% ap_board_bus_tick
-           9.2% fill_to_decoded     9.1% ap_board_sample_interrupts
-           7.4% ap_m68030_step      4.7% ap_m68030_arb_tick
-           3.6% ap_timer_advance    3.2% ap_sio_advance
-           1.7% ap_board_advance    1.5% ap_mc146818_advance
-
-      **Two thirds is per-instruction board work** -- bus tick, interrupt
-      sampling, arbitration and four device modules advanced whether or not
-      anything changed -- and about a third is the processor. That is the
-      cycle-stepped design doing what it was specified to do, and it is what
-      `next_event()`/`skip(n)` below is for. It accounts for perhaps 3x; the
-      remainder is not yet explained, and the processor's own third at ~800
-      clocks an instruction is slow for an interpreter.
-      *Cost in practice: a Domain/OS boot to a login prompt is about 1.2 billion
-      instructions, twenty minutes here against roughly two on the real machine.*
 - [ ] Squeeze the reference core first: LTO, `flatten` on the run loops,
       idle-skip guards naming each subsystem's no-op states, cached arbitration
       results, cached per-cycle re-derived values. *Verification: probe goldens

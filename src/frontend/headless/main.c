@@ -2027,15 +2027,37 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
        * MMU is off, and once Domain/OS turns it on, a read of a number no
        * memory answers. Every word in the trace came back `0000` and the column
        * read like a machine executing zeros. */
+      /* **Only when something consumes it.** The read-back translates a
+       * logical address, and with the MMU on that is a full walk of the tree --
+       * three descriptor fetches, each four byte-wide board reads. Done
+       * unconditionally it was twelve board accesses per instruction for a
+       * column nobody had asked to see.
+       *
+       * Measured, which is how it was found: at 350 M instructions a stepped
+       * boot performed 266,700,639 probe walks against the machine's own
+       * 56,688 -- **99.98% of all table walks in the run were this line** --
+       * and `perf` put `ap_board_read` at 28% of the whole profile, the single
+       * largest entry by a factor of four. The Phase 7 item that asks where the
+       * time goes was reading a profile dominated by its own instrument.
+       *
+       * The word is still always available when it matters. A trace or a ring
+       * wants it every step; a run that ends abnormally reports it once, and
+       * that ending is not a step that executed -- so the core's own
+       * `one.instruction` covers it, which is the value the branch below
+       * already preferred in exactly that case. */
+      const bool want_word = trace || trace_last > 0u;
       uint32_t executed_word = 0;
-      (void)ap_machine_read_logical(&machine, step_pc, 6u, 2u, &executed_word);
+      if (want_word) {
+        (void)ap_machine_read_logical(&machine, step_pc, 6u, 2u,
+                                      &executed_word);
+      }
       const ap_m68030_step_result_t r = {
           .status = one.status,
           /* The core's own word when it stopped on one, since a read-back
            * cannot see what the caches decoded; the read-back otherwise, which
            * is what fills the column for every step that ran. */
-          .instruction = one.status == AP_M68030_STEP_EXECUTED ||
-                                 one.status == AP_M68030_STEP_EXCEPTION
+          .instruction = want_word && (one.status == AP_M68030_STEP_EXECUTED ||
+                                       one.status == AP_M68030_STEP_EXCEPTION)
                              ? (uint16_t)executed_word
                              : one.instruction};
       /* Recorded **before** any stop is considered, so the instruction that
