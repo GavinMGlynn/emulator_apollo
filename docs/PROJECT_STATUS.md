@@ -14881,3 +14881,51 @@ displacement lives in the extension word, which the trace does not carry. A
 `--dump-logical 3C42BD30:32` resolves both operand addresses; dumping those two
 bytes then says which kernel variable is zero. It can ride along with any run
 rather than needing one of its own.
+
+
+## The three kernel variables behind the crash, resolved
+
+`--dump-logical` of the two code windows gives the extension words the trace
+does not carry, so the PC-relative operands resolve to addresses:
+
+```
+3C42BD34  4BFA FBF2   LEA   (PC-$40E),A5     ; A5 = 3C42B928
+3C42BD38  4A00        TST.B D0
+3C42BD3C  4A3A FF99   TST.B (PC-$67)         ; flag A = 3C42BCD7
+3C42BD40  6628        BNE.S +$28             ; not taken  => flag A == 0
+3C42BD42  4A3A FFDC   TST.B (PC-$24)         ; flag B = 3C42BD20
+3C42BD46  671E        BEQ.S 3C42BD66         ; taken      => flag B == 0
+3C42BD48  2057 4A90   MOVEA.L (A7),A0 / TST.L (A0)
+3C42BD4E  0C90 00010002  CMPI.L #$00010002,(A0)
+3C42BD56  0C90 000B0008  CMPI.L #$000B0008,(A0)
+```
+
+and in the caller:
+
+```
+3C42BA3E  4ABA 0280   TST.L (PC+$280)        ; 3C42BCC0
+3C42BA42  6608        BNE.S 3C42BA4C         ; taken      => 3C42BCC0 != 0
+3C42BA44  2079 3C40091C / 4ED0   MOVEA.L ($3C40091C),A0 / JMP (A0)
+3C42BA4C  3B6F 0040 0152  MOVE.W $40(A7),$152(A5)
+3C42BA58  4E4F        TRAP #15
+```
+
+Each displacement is taken from the dumped extension word and each branch
+outcome from the trace's next PC, so the three addresses are read rather than
+inferred:
+
+| address | width | value, from the branch taken |
+| --- | --- | --- |
+| `3C42BCD7` | byte | zero |
+| `3C42BD20` | byte | zero |
+| `3C42BCC0` | long | non-zero |
+
+`3C42BCC0` being non-zero is what selects `TRAP #15` over the `JMP` through the
+vector at `3C40091C` -- so there is a second, non-crashing exit from this
+routine that the machine declines to take.
+
+**The next measurement is a watch, not a dump.** The values are already known
+from the branches; what is not known is whether anything ever *writes* the two
+flags. `--boot-watch-write 3C42BCD7` (and `3C42BD20`) answers whether an
+initialisation path sets them and this run missed it, or whether nothing in the
+boot ever touches them -- which are different faults with different fixes.
