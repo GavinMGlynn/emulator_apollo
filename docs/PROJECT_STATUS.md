@@ -14794,7 +14794,45 @@ vectored scheme, and `ap_boardreg.c` clears on the status write. The lane
 assignment stays `PROVISIONAL`: the Technical Reference gives the register's
 address (`011300`, Table 2-8) but never its lane bits.
 
-This matters for the crash. The boot reports four parity errors and **exactly
-one** vector-31 exception, and vector 31 is that level-7 autovector -- so the
-single non-periodic exception before the crash is a parity NMI rather than a
-page fault. Recorded as the next thing to measure, not as a conclusion.
+This looked like it mattered for the crash: the boot reports four parity errors
+and **exactly one** vector-31 exception, and vector 31 is that level-7
+autovector, so the one non-periodic exception before the crash looked like a
+parity NMI. **Measured, and it is not** -- see below. Recording it as "the next
+thing to measure" rather than a conclusion is the only reason that entry did
+not become another quoted-in-reasoning claim.
+
+
+## Reading the vector table instead of guessing at handlers
+
+The interrupt vector table was dumped at the crash -- `--dump-logical
+3C400800:768`, `VBR` from the same report -- and it overturns two readings of
+the trace that were made by pattern rather than by lookup.
+
+```
+vector   2 -> 3C42CD90      vector  31 -> 3C42CFD8
+vector 160 -> 3C445458      vector 173 -> 3C44E05C
+                            vector 174 -> 3C44E05C
+```
+
+- The **26 evenly-spaced exceptions** in the window vector to `3C42CD90`, which
+  is **vector 2, bus error**. They were read as timer interrupts because they
+  were periodic. They are page faults, which a demand-paged system takes
+  steadily, and 681 of them across the run is unremarkable.
+- The **one exception with a different handler** -- a `MOVEM.L (A7)+` at
+  `3C43DBE8`, singled out as the supervisor fault because it was unique -- goes
+  to `3C445458`, which is **vector 160**, an ordinary device interrupt that
+  fires 250 times in the run. Unique *in a 400,000-instruction window* is not
+  unique.
+- **No level-7 interrupt is taken anywhere in that window.** Vector 31's
+  handler is `3C42CFD8` and it never appears. The run's single vector-31 is
+  earlier, and the natural place for it is `SELF_TEST`'s own parity test, which
+  is also where the four parity errors come from.
+
+So the parity chain is intact *and* irrelevant to this crash, and there is no
+processor fault in the 400,000 instructions before it. Whatever
+`crash_system` was told, it was not told by an exception in that span.
+
+The lesson is the one this project keeps paying for: a handler address is a
+lookup, not an inference, and both wrong readings came from classifying
+exceptions by their *spacing* instead of by their vector. The table cost one
+already-running boot to dump.
