@@ -17271,3 +17271,62 @@ from, and that is a disassembly task rather than a reading task.
 
 *Verification: `ring_frame_suite`, 9 tests; `ctest` 124/124. Findings 21-26 in
 `docs/references/RING.md`, with 25a carrying the provisional reading.*
+
+
+## The ring's physical layer, and the two readings that had to be inclusive
+
+`src/core/ring/ap_ring_phy.*` implements `[MAC]` ch. 3: the bi-phase data
+stream, the PLL phase-offset relation, the elastic-store buffer and the passive
+bypass. Unlike §2.2's figures this chapter is prose, so the text extraction was
+usable -- but §3.4 was still checked against the page image, and that turned out
+to matter.
+
+**Bi-phase, and the detail that decides the decoder's shape.** Each 83.33 ns
+bit cell holds a clock window and a data window; the clock window always carries
+a transition, and a transition in the data window is a One. So the encoding is
+*differential* -- the absolute line level carries nothing -- which is why a node
+can be inserted anywhere in the ring without agreeing on polarity with anyone,
+and why the round-trip test runs from both starting polarities.
+
+The part worth quoting is what happens when the clock transition is missing:
+"a bi-phase error will occur **and the corresponding data will be interpreted as
+having a bit value of Zero**". The receiver reports the error *and still
+produces a bit*. A decoder that returned "no bit" would desynchronise the byte
+framing on one glitch and turn a single bad cell into a lost frame; the frame
+check downstream is what is supposed to catch the damage.
+
+**Two readings had to be inclusive, and the manual is explicit about both.**
+§3.3.2 says underflow occurs at "0.5 bit-times or less" and overflow at "1.5
+bit-times or more" -- so the legal interval is **open at both ends** and a node
+sitting exactly on a bound has already failed. The tempting reading, that
+`0.5 <= ESB <= 1.5` is the legal range, would let a ring appear stable in
+precisely the condition the manual calls an error. The same applies to the ±3
+kHz deviation: at exactly ±3 kHz the phase offset reaches a bound, so the ring
+is *at* its limit rather than inside it, and the test asserts that join between
+the two sections.
+
+**A cross-check that costs nothing and is the only one available.** §3.3.1 gives
+the phase offset as linear from 0.5 bit-times at 24 MHz −3 kHz to 1.5 at
++3 kHz; §3.3.2 separately says the buffer's nominal delay is 1 bit when the
+loops are in phase. Those are different sections describing the same physical
+quantity, and the linear relation's midpoint must land on the nominal. It does.
+With no oracle, two sections agreeing is as close to verification as this layer
+gets, so the test asserts it explicitly rather than leaving it implicit.
+
+**Delay is held in hundredths of a bit, not as a float.** The core is
+deterministic across platforms and its state hash is a golden; a float here
+would put the compiler's rounding into that hash.
+
+**And an inconsistency in `[MAC]` itself.** §3.4 gives transmitted power as
+"18 dBm into 75 ohms (typically, 2.5 V peak-to-peak)". 2.5 V peak-to-peak into
+75 ohms is about 10 dBm as a sine or 13 dBm as a square wave -- not 18. Read
+off the page image at 220 dpi to rule out a transcription error, and the manual
+really does say it. Recorded in `RING.md` as finding 31a so the next reader who
+does that arithmetic does not have to wonder whether we mis-copied it. Nothing
+in the emulation depends on either figure: §3.4 describes a cable, and a
+bit-accurate ring reproduces none of it.
+
+*Verification: `ring_phy_suite`, 9 tests, each citing its `[MAC]` section;
+`ctest` 125/125. Findings 27-31a in `docs/references/RING.md`. Question D drops
+from open to partly answered -- steady-state delay is evidenced, PLL
+*acquisition* is not, and patent 4,716,575 is the remaining source.*

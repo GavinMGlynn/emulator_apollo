@@ -3793,9 +3793,17 @@ discipline throughout.
     disagrees: two of the four are corroborated by prose (§2.2.1.1's "changing
     the state of the character's last bit" pins free against claimed) and two
     are on the figure alone.
-- [ ] Physical layer: data stream, PLL behaviour, elastic-store buffer, passive
-      bypass. *Verification: `010005-00` ch. 3 and patent 4,716,575 cited per
-      behaviour.*
+- [x] Physical layer: bi-phase data stream, PLL phase-offset relation,
+      elastic-store buffer and passive bypass, in `src/core/ring/ap_ring_phy.*`.
+      Findings 27-31a in `RING.md`; §3.4's analogue figures are recorded and
+      deliberately not modelled, including an inconsistency the manual itself
+      carries.
+      *Verification: `ring_phy_suite`, 9 tests citing `[MAC]` ch. 3 per
+      behaviour. Detail in `PROJECT_STATUS.md`.*
+  - **Not closed by this**: PLL *acquisition* — lock time, and what the ring
+    does during the re-initialisation an elastic-store under/overflow forces.
+    `[MAC]` gives neither and patent 4,716,575 is the remaining source. That is
+    `RING.md` question D, now downgraded from open to partly answered.
 - [ ] `ring_medium` interface — attach, detach, advance bit clock, symbol in and
       out — narrow enough that a process-separated transport can be added later
       without touching node cores. *Verification: unit tests over the interface
