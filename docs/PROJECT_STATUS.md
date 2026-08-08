@@ -16369,3 +16369,53 @@ in `MMUSR` or in what the handler does with it. That is now one value per side
 rather than a boot comparison, and it is being measured.
 
 The instrumentation used was reverted; `ctest` is 122/122.
+
+
+## The stale tree: Domain/OS never loads a root pointer on our side
+
+The oracle answered the one-value question and the answer relocated the defect
+again. Its census over a full boot to `login:` is 4001 paired fault-to-`MMUSR`
+reads with **only two values**, `0403` (2835) and `0402` (1166). **`0401` never
+occurs.** At `3c248001` it reads `0402`, matching us exactly; at `3bff0001` it
+reads `0402` fifty-five times and never our `0401`. So only *one* of our two
+odd values is a divergence, and it is the one immediately before the trap.
+
+**And it is not an early-terminating search over a good tree -- it is the wrong
+tree.** Both sides compute the identical level-0 index `0xEF`. Ours indexes root
+table `0x01001400`, finds `DT=0` at `0x010017BC` and stops with `N=1`. The
+oracle indexes `0x0105BC00`, finds a four-byte table descriptor at `0x0105BFBC`,
+descends to a long-format level-1 table at `01336000` and finds the invalid
+entry a level deeper, `N=2` -- an ordinary page fault, which it repairs.
+
+That also disposes of the apparent agreement at `3c248001`: its index is `0xF0`,
+the adjacent slot, which happens to be a valid table descriptor in **both** root
+tables. The registers matched by coincidence; the divergence is the whole tree.
+
+`0x01001400` is exactly the `crp` our own crash report prints, and it never
+changes. So every root-pointer load was logged over a boot to the crash, and
+there are **three**:
+
+```
+pc=010025C8  SRP  01200000
+pc=010025CC  CRP  01200000
+pc=01002324  CRP  01001400
+```
+
+All three are from `0100xxxx` -- `SELF_TEST`'s address range. **Domain/OS, which
+runs at `3C4xxxxx`, never loads a root pointer at all.** The oracle's
+`0x0105BC00` is a tree Domain/OS installs and we never hear about.
+
+**What that rules out, and what it leaves.** It is not a decode failure that
+traps: the whole run takes **one** F-line exception and that one is `SELF_TEST`'s
+own FP trap test, so no MMU instruction is going unrecognised loudly. The
+remaining candidates are that Domain/OS is diverted **before** it installs its
+tables -- in which case the MMU is a symptom and the real divergence is upstream
+of everything measured so far -- or that it does issue the load and this model
+decodes it as a *different* `PMOVE` destination, applying it to the wrong
+register silently, which no exception would reveal.
+
+**The next measurement separates those and is small**: log *every* `PMOVE`, not
+just the two root ones, with its destination and instruction address, and see
+whether Domain/OS issues any MMU write at all. If it issues none, the problem is
+upstream and the MMU work is done; if it issues one this model files elsewhere,
+the defect is in the `PMOVE` destination decode.
