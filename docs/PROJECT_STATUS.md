@@ -16873,3 +16873,129 @@ double-counted, and the excess really was all probe. The state hash is
 so the run is bit-identical: this changed the report and not the machine. The
 machine's own rate is 56,688 over 350 M instructions, or one table search per
 six thousand.*
+
+
+## The root pointer is never loaded because the kernel believes it already is
+
+The `PMOVE` that would install Domain/OS's tree is at `3C43DDF0`, and every
+earlier reading of "we never reach it" was right about the instruction and wrong
+about the reason. **The routine containing it is reached. The branch six
+instructions above it is taken, every time.**
+
+```
+3C43DDBE  13C1 3FFFB501   MOVE.B  D1,$3FFFB501     ; a device write
+3C43DDC4  302F 0004       MOVE.W  $4(A7),D0        ; the address space asked for
+3C43DDC8  B079 3C43FB14   CMP.W   $3C43FB14,D0     ; against the one believed current
+3C43DDCE  6700 0052       BEQ.W   $3C43DE22        <- taken, always
+3C43DDD2  33C0 3C43FB14   MOVE.W  D0,$3C43FB14
+3C43DDD8  41FA EB94       LEA     $3C43C96E(PC),A0
+3C43DDDC  2030 0400       MOVE.L  (A0,D0.W*4),D0   ; root pointer for that space
+3C43DDE6  23C0 3C43C966   MOVE.L  D0,$3C43C966     ; into the CRP image
+3C43DDEC  41FA EB74       LEA     $3C43C962(PC),A0
+3C43DDF0  F010 4C00       PMOVE   (A0),CRP
+```
+
+**Measured, three ways, all on the deterministic headless configuration:**
+
+- `--boot-stop-pc 3C43DDC8:2` **fires at 288,640,116 instructions.** The routine
+  is entered. Every previous entry that said the neighbourhood is never reached
+  was measuring `3C43DDF0` alone.
+- `--boot-stop-pc 3C43DDD2:2` -- the fall-through, the first instruction of the
+  `PMOVE` path -- **never fires**, across the whole boot to the crash at
+  387,684,292. So the branch is taken on every call without exception.
+- At the moment of that first call `D0 = 00000001` and `$3C43FB14` = `0001`.
+  Equal, so the kernel concludes address space 1 is already loaded and returns
+  without touching the MMU.
+
+**And the table it would have loaded from names the oracle's value exactly.**
+`$3C43C96E` is a root pointer per address space, and its first two entries are:
+
+```
+$3C43C96E + 0   01001400   <- SELF_TEST's tree, which the MMU still holds
+$3C43C96E + 4   0105BC00   <- and this is the CRP the oracle loads, to the digit
+```
+
+The `CRP` image at `$3C43C962` is `00FF 0002 00000000` -- limit and status set,
+**table address still zero**, because the only instruction that fills it
+(`MOVE.L D0,$3C43C966`) is on the path never taken. So the two machines agree on
+what the tree's address should be and ours never installs it.
+
+**Which makes the standing attribution wrong, and it is worth naming.** The
+entry recording "8 PMOVEs, zero from Domain/OS -- it runs at `3C4xxxxx`, all
+eight are `SELF_TEST` at `0100xxxx`" classified them **by address range**. The
+console says the kernel is loaded at `low: 01002000 high: 010E986C start:
+01002024` -- *the same range `SELF_TEST` occupies, having overwritten it*. So
+"at `0100xxxx`" does not mean "`SELF_TEST`", and the eight were never shown to
+be. This is the same error as classifying exceptions by their spacing: an
+attribution inferred from a number rather than looked up.
+
+**Why the belief is not absurd, which is the interesting part.** The write that
+leaves `$3C43FB14` holding 1 comes from `PC 01002174` -- inside the loaded
+kernel, six writes to that address over the boot and that is the last before the
+comparison. Domain/OS's own startup sets "current address space = 1". On real
+hardware that startup must load the `CRP` for space 1 *as well*, and here it
+sets the variable and no `PMOVE` follows. So the divergence is in that startup,
+between `01002024` and the point the kernel reaches `3C4xxxxx`.
+
+**The tree at `0105BC00` exists, and it has exactly one hole.** This nearly went
+into the entry as "the tree is empty", from a dump of `0105BC00:80` that is all
+zero -- which is the previous entries' mistake repeated: the first thirty-two
+entries of a 256-entry table say nothing about the table. Dumping the whole
+`0105BC00:400`:
+
+```
+0xED 011E6003   0xF2 011E7003   0xF7 011E8403   0xFC 011E9803
+0xEE 011E6403   0xF3 011E7403   0xF8 011E8803   0xFD 011E9C03
+0xEF ........   0xF4 011E7803   0xF9 011E8C03   0xFE 011EA003
+0xF0 011E680B   0xF5 011E7C03   0xFA 011E9003   0xFF 011EA40B
+0xF1 011E6C0B   0xF6 011E8003   0xFB 011E9403
+```
+
+Eighteen valid descriptors, `0xED` through `0xFF`, with one gap at `0xEF` -- and
+`0xEF` is not any index. The root index here is `address >> 22`, so that entry
+covers logical `3BC00000`-`3BFFFFFF`, and `3BFF0001` is the address this machine
+dies on.
+
+**That gap is a snapshot, not a defect, and the watch that was set up to test it
+said so.** `--boot-watch-write 0105BFBC` -- the hole -- reports it **written
+seven times, last `0133380B` by `PC 3C46F11A`**, and its populated neighbour
+`0105BFC0` reports seven writes too, last `011E680B` by `PC 3C46FEAE`. The dump
+above was taken at 380 M and the watches ran to the crash at 387.7 M, so the
+order is: written, cleared, read as a gap at 380 M, written again before the end.
+Every entry in this table is being mapped and unmapped as pages come and go.
+**This is a working pager, not a missing descriptor** -- which is why the watch
+was worth running before the gap was written up as the defect it looked like.
+
+**And it retires the oldest claim in this investigation.** "Domain/OS never
+installs its own translation tables here" is wrong as stated. It builds them, it
+maintains them, and it rewrites individual descriptors seven times over a boot.
+What it never does is **load the root pointer into the MMU** -- so this entire
+tree, correct and live, is not the one the processor is translating through. The
+machine walks `01001400` for every access while the kernel maintains `0105BC00`
+for none.
+
+**A note for whoever disassembles next.** Capstone's m68k backend does not know
+the 68030 MMU instructions: `F010 4C00` at `3C43DDF0` decodes as `fmove.x` and
+is `PMOVE (A0),CRP` -- F-line, coprocessor id 0, extension `4C00` selecting
+`CRP`. Anything in this region printed as an `fmove`/`fsave` against an address
+register is worth checking by hand.
+
+**So the whole crash reduces to one thing.** The kernel's tables are right, its
+pager is running, its root-pointer table names the correct tree, and the
+processor is translating through none of it -- because a `MOVE.W` comparison six
+instructions above the `PMOVE` says the work is already done. Every downstream
+symptom this investigation chased sits behind that: the fault at `3BFF0001` is
+`SELF_TEST`'s tree not mapping a page the kernel mapped in its own, the poll of
+an absent AT card is a device address translated through the wrong tree, and the
+`00120020` crash is that fault arriving where the kernel holds a lock.
+
+**Next**: `$3C43FB14` is written six times before the comparison and the last is
+from `PC 01002174`, inside the loaded kernel's startup. Stop there with a ring
+(`--boot-stop-pc 01002174:2 --boot-trace-last 2000`) and read what surrounds it.
+On real hardware the code that declares "current address space = 1" must load
+the `CRP` for space 1 too; whatever we do instead of that load, in the window
+between `01002024` and the kernel reaching `3C4xxxxx`, is the defect. It is a
+few thousand instructions of startup and it is now the only place left to look.
+
+*No code changed for this entry; `ctest` 122/122. Every figure above is from a
+bounded headless boot, and the runs agree to the instruction.*
