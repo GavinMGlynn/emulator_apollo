@@ -14836,3 +14836,48 @@ The lesson is the one this project keeps paying for: a handler address is a
 lookup, not an inference, and both wrong readings came from classifying
 exceptions by their *spacing* instead of by their vector. The table cost one
 already-running boot to dump.
+
+
+## What `crash_system` was told, decoded from the trace already in hand
+
+No new run: the kept trace carries the opcode of every step, so the decision
+that ends in `TRAP #15` can be read straight out of it. Instruction numbers are
+from the `--boot-stop-pc 3C42BA58` run.
+
+```
+3C42BD38  4A00  TST.B D0             ; D0.B non-zero on entry -- BEQ below not taken
+3C42BD3A  672A  BEQ.S  +$2A
+3C42BD3C  4A3A  TST.B  (d16,PC)      ; flag A
+3C42BD40  6628  BNE.S  +$28          ; NOT taken  => flag A is zero
+3C42BD42  4A3A  TST.B  (d16,PC)      ; flag B
+3C42BD46  671E  BEQ.S  +$1E          ; TAKEN      => flag B is zero
+3C42BD66  7001  MOVEQ  #1,D0         ; return failure
+3C42BD68  60F6  BRA.S  3C42BD60
+3C42BD60  4CDF  MOVEM.L (A7)+,...
+3C42BD64  4E75  RTS
+--- back in the caller ---
+3C42B9DE  4A40  TST.W D0             ; D0 = 1
+3C42B9EE  664E  BNE.S  3C42BA3E      ; taken: the error path
+3C42BA3E  4ABA  TST.L  (d16,PC)
+3C42BA42  6608  BNE.S  3C42BA4C      ; taken
+3C42BA4C  3B6F  MOVE.W (d16,A7),(d16,A5)
+3C42BA52  4CDF  MOVEM.L (A7)+,...
+3C42BA56  544F  ADDQ.W #2,A7
+3C42BA58  4E4F  TRAP #15
+```
+
+Every branch above is confirmed by the *next* PC in the trace rather than by
+computing the displacement and hoping: `671E` at `3C42BD46` lands on
+`3C42BD66`, and `60F6` at `3C42BD68` lands on `3C42BD60`.
+
+**So the crash is a subroutine returning `D0 = 1` because two PC-relative flag
+bytes are both zero.** Not a fault, not an interrupt, not a parity error --
+a check on kernel state that has not been initialised, which is exactly the
+shape "supervisor fault while resource lock(s) set" would take if the lock
+state it consults were never set up.
+
+**The next step is one dump, not one boot.** `4A3A` is `TST.B (d16,PC)` and the
+displacement lives in the extension word, which the trace does not carry. A
+`--dump-logical 3C42BD30:32` resolves both operand addresses; dumping those two
+bytes then says which kernel variable is zero. It can ride along with any run
+rather than needing one of its own.
