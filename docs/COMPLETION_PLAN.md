@@ -3723,18 +3723,24 @@ boot below, and the boot is not attempted until they are done.
       for a **login prompt**, and that waits on Phase 4's `CRASH_STATUS
       00120020`, which the oracle proves is ours. Detail in `PROJECT_STATUS.md`.
       *Verification: a decoded PNG showing Domain/OS's login prompt.*
-- [x] **SDL3 interactive frontend, implemented rather than stubbed.**
+- [ ] **SDL3 interactive frontend, implemented rather than stubbed.**
       `apollo-sdl` opens a window on the emulated screen, uploads the scanout to
       an ARGB texture, letterboxes it to keep the 1024x800 and 1280x1024 shapes
       honest under resize, and types host keys through `ap_board_key_type`'s
       compatibility set. The index-to-colour step is shared with the screenshot
       writer as `common/ap_scanout.h` so the interactive path cannot drift from
       the one that is diffed against goldens. Built only where SDL3 is found,
-      as libpng is. Mouse mapping is **not** done: the Apollo mouse shares the
-      keyboard's serial channel and is not modelled at all, so it is its own
-      item rather than a line here. Detail in `PROJECT_STATUS.md`.
-      *Verification: `sdl_frames`, a CTest entry running `--frames 3` under
-      `SDL_VIDEODRIVER=dummy` -- 122 tests now.*
+      as libpng is. `sdl_frames` runs `--frames 3` under `SDL_VIDEODRIVER=dummy`
+      as a CTest entry -- 122 tests.
+      **Not complete, and this item was wrongly ticked once.** Its own text asks
+      for keyboard *and mouse* mapping, and the mouse is absent. The remaining
+      work is the **keyboard module**, not the frontend: `008778-03` §13.3
+      "Keyboard-to-CPU Data Packets" gives the pointing device's packets on the
+      keyboard's own serial line -- escape `DF` for relative, `E8` for absolute,
+      then three bytes of switches and signed X/Y -- and `ap_kbd` models none of
+      it. Detail in `PROJECT_STATUS.md`.
+      *Verification: the CTest entry above, plus a mouse packet test against
+      Figure 13-4's bit assignments.*
 
 ## Phase 6 — The Apollo Token Ring
 

@@ -16141,9 +16141,13 @@ left standing: **the first divergence was not the cause of the crash.**
 **Next divergence, unmeasured.** The oracle prints two `802.3 NETWORK
 CONTROLLER-AT TEST PASSED.` lines that ours does not; the 3c505 is not started
 in this core. Whether that causes the crash is a hypothesis, not a measurement.
-`docs/references/3com/3c505_Etherlink_Plus_Developers_Guide_May86.pdf` -- 77
-pages, found on the web after the on-disk references turned up nothing -- is now
-in place so the part can be walked before any of it is written.
+`3c505_Etherlink_Plus_Developers_Guide_May86.pdf` -- 77 pages, found on the web
+after the on-disk references turned up nothing -- is now under
+`docs/references/3com/`, so the part can be walked before any of it is written.
+(Named without its path deliberately: reference PDFs are gitignored, and
+`check_docs.py` verifies every path a document names, so a full path here is a
+claim that fails on any machine but the one that downloaded it -- which is
+exactly how it broke CI once.)
 
 
 ## The interactive frontend, and a bug the first test could not see
