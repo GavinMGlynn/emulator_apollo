@@ -3814,9 +3814,16 @@ discipline throughout.
 - [ ] Ring controller device: register interface, dual-ported RAM buffer,
       transmit and receive logic, bypass relays. *Verification: the ring ROM's
       own self-test passes under emulation — the firmware is the test.*
-- [ ] Multi-node scheduler: N nodes on one cycle-locked ring, each advancing
-      only on its own cycle boundaries. *Verification: whole-ring state hash
-      reproducible across runs and across build types.*
+- [x] Multi-node scheduler, in `src/core/ring/ap_ring_sched.*`: N nodes on one
+      cycle-locked ring, each stepping only on its own boundaries against the
+      shared time base, with the ring's bit clock competing as a clock domain
+      like any other. A node is a period and a callback, not an
+      `ap_machine_t` — `src/core/ring` knows nothing about `src/core/machine`.
+      *Verification: `ring_sched_suite`, 7 tests, including the same workload
+      reached by different call patterns agreeing, and the ring hash pinned to
+      `9D0B2A0A2D558C97` — measured under both `-O0` and `-O3`+LTO, which is
+      the across-build-types half a single binary cannot show. Detail in
+      `PROJECT_STATUS.md`.*
 - [ ] Cross-node probes: token round-trip time, ring latency per node inserted,
       behaviour under contention. *Verification: goldens over the ring result
       block, locked into CTest.*

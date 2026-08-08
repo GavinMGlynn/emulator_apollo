@@ -17382,3 +17382,47 @@ convenience.
 *Verification: `ring_medium_suite`, 9 tests with synthetic nodes only -- no node
 core is involved, so what is checked is the medium's topology and timing and
 nothing about any node's behaviour. `ctest` 126/126.*
+
+
+## N nodes, one ring, and a hash that is the same under -O0 and -O3
+
+`src/core/ring/ap_ring_sched.*` runs N nodes on one cycle-locked ring. Each
+steps only on its own cycle boundaries against the shared time base, and the
+ring's bit clock competes on equal terms as a clock domain like any other --
+giving it priority would let a bit arrive before a node due at the same instant
+could drive it.
+
+**A node here is a period and a callback, not an `ap_machine_t`.** `src/core/
+ring` knows nothing about `src/core/machine`, which is the same separation the
+core keeps from frontends. It also means a ring can mix real machines with
+instruments -- a recorder, a fault injector -- without the scheduler knowing
+which is which, and it is why this whole item could be tested with synthetic
+nodes.
+
+**Determinism is the verification, so the two ways to lose it are designed
+out.** Ties break by slot, always: real hardware has no such rule and two nodes
+genuinely are simultaneous, but nothing a node does reaches another within a bit
+time, so the order is unobservable -- which is what makes an arbitrary choice
+safe rather than a fudge. And periods are integers in base units, because a
+period derived by dividing frequencies as doubles would round differently under
+`-O0` and `-O2` and put the compiler into the state hash.
+
+**The across-build-types half needed a measurement, not an argument.** Comparing
+two rings inside one binary shows nothing about it. So the same workload was run
+through a small probe linked against the debug library and again against the
+release one -- `-O0` against `-O3` with LTO -- and both produced
+`9D0B2A0A2D558C97`. That constant is now pinned in the suite, which runs under
+both presets, so the claim stays checked rather than being asserted once.
+
+**The hash covers phase, not elapsed time.** Two rings can reach the same
+instant with the same bit count and their nodes at different points in their
+cycles; a hash over the clock alone would call those equal. A test builds
+exactly that pair -- 12 MHz against 6 MHz at one microsecond -- and asserts they
+differ.
+
+A frequency the base cannot represent is refused rather than rounded, matching
+`ap_clock_init`'s rule. On a ring the reason is sharper than on a single
+machine: a rounded period drifts against every other node by an amount no probe
+could attribute to anything.
+
+*Verification: `ring_sched_suite`, 7 tests; `ctest` 127/127 under both presets.*
