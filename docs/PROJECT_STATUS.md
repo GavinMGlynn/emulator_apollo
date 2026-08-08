@@ -3344,7 +3344,7 @@ failure that cost a bit position in the 68020's module entry word.
 | Subsystem | Status | Verification |
 | --- | --- | --- |
 | Build system, presets, CI | working | 4-platform matrix green on first run, plus the `-O0` vs `-O3` output-identity job |
-| Model table (`model/`) | working, 9 models | `model_suite`, 18 tests |
+| Model table (`model/`) | working, 9 models | `model_suite`, 19 tests |
 | Time base (`time/`) | working | `time_suite`, 17 tests |
 | State hash (`state/`) | primitive working | `hash_suite`, 11 tests, incl. published FNV-1a 64 vectors |
 | Core board state hash (the identity harness's board half) | working: the board registers, the translation map, both interrupt controllers, the interval timer with its three clocks, the calendar with both cursors, both DMA controllers, both serial ports, the node ID, the disk and tape controllers, the graphics memories, the keyboard matrix and the boot PROM. The diagnostic counters are deliberately outside it and reported beside it | `board_state_suite`, 22 tests sweeping every device field by field |
@@ -17091,3 +17091,55 @@ run the same disk under MAME to `login:`, log its `PMOVE`s the same way, and the
 first load of `0105BC00` names the instruction we never execute. That comparison
 is the one measurement this investigation has not yet made, and every remaining
 hypothesis is decided by it.
+
+
+## The DN2500's memory region, from the only source that has it
+
+The plan item offered two routes -- a Series 2500 address space allocation
+table, or the boot PROM's own sizing code -- and the first does not exist. The
+resolution order was walked in full before any of the second was attempted:
+
+- **The part's own manual**: there is no Series 2500 technical reference.
+- **The sibling manuals on disk**: `008778-03` is Series 3000/4000.
+  `019411-A00`, the 1991 addendum and the newest hardware document here, does
+  not contain the string "2500" at all. Of the eighteen PDFs in
+  `docs/references/bitsavers`, exactly two mention the machine --
+  `5952-2149` and `HP-Apollo_Products_Configuration_Guide_Dec89` -- and both
+  are *configuration* guides. They give sizes ("configurable in increments of
+  4, 8, 12, or 16MB", with 64 MB promised "with the economical availability of
+  4MB DRAMs") and no addresses.
+- **The web**: nothing beyond the same bitsavers scans.
+- **The oracle**: MAME has no Series 2500 driver at all.
+
+So the firmware is the **primary** source here rather than a fallback, and that
+is worth stating because the resolution order usually makes firmware the last
+resort. `2500_BOOT_16182_8` resets to `PC 0001F040`, and its address-line walk
+carries both constants:
+
+```
+1F49A  82BC 04000000    OR.L    #$04000000,D1   the base, into every probe
+1F4CE  0281 04FFFFFF    ANDI.L  #$04FFFFFF,D1   the mask on the walking pattern
+1F4FA  0281 04FFFFFF    ANDI.L  #$04FFFFFF,D1   again, on the second pass
+```
+
+A base of `04000000` under an `00FFFFFF` offset mask is **16 MB at
+`0x04000000`** -- which is what the table already held, now for a reason rather
+than by inference. Three independent witnesses agree: the OR/AND pair above,
+`[CFG]` p. A-11's "4-16MB", and the reset SSP `040007D0` that corrected the base
+in the first place. The `PROVISIONAL` marker on `ram_base` and `ram_max_bytes`
+is removed; the one on `has_active_low_parity_lanes` stays, since that PROM
+makes no forced-parity write anywhere and nothing tests it.
+
+**The 64 MB in the configuration guide is not the region and was not taken as
+it.** The guide offers it as a future option pending 4 Mbit DRAMs, and the
+PROM's mask is `04FFFFFF` -- the firmware we hold sizes 16 MB. A model table
+entry describing memory this firmware cannot address would be wrong in the
+direction that hides bugs.
+
+*Verification: `model_suite`, 19 tests. The new one asserts the base, the
+extent, **and that `ram_base | (ram_max_bytes - 1)` reconstructs the PROM's mask
+exactly** -- the relation is what makes the pair meaningful, and a later edit
+that quietly restored the old `01000000` assumption would pass a regenerated
+golden and fail this. It reads no ROM: the suite has to run where `roms/` does
+not exist. `tests/goldens/model_table.txt` regenerated, and the golden caught
+the provisional text changing, which is what it is for. `ctest` 122/122.*

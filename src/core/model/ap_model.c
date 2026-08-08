@@ -42,16 +42,21 @@ static const ap_model_t k_models[AP_MODEL_COUNT] = {
                        "the two families are settled from firmware; "
                        "2500_BOOT_16182_8 makes no such write anywhere, so "
                        "nothing here tests it. "
-                       "ram_base: 0x4000000, from the Series 2500 boot PROM's "
-                       "own reset vector. 2500_BOOT_16182_8 starts with SSP "
-                       "040007D0 where 3500_BOOT_12191_7 starts with 01000180 "
-                       "and its RAM is at 01000000; a reset stack pointer must "
-                       "land in usable memory. This corrects an earlier "
-                       "assumption that the DN2500 matched the other 68030 "
-                       "models at 0x1000000. Still PROVISIONAL: the SSP proves "
-                       "memory exists there, not where the region begins or "
-                       "ends. A Series 2500 allocation table would settle the "
-                       "extent; the oracle cannot, having no 2500 driver",
+                       "ram_base and ram_max_bytes are no longer provisional: "
+                       "the Series 2500 boot PROM sizes its own memory and "
+                       "both constants are in that code. 2500_BOOT_16182_8 "
+                       "resets to PC 0001F040, and its address-line walk ORs "
+                       "the base into each address it probes -- OR.L "
+                       "#$04000000,D1 at 1F49A -- then masks the walking "
+                       "pattern with ANDI.L #$04FFFFFF,D1 at 1F4CE and again "
+                       "at 1F4FA. A base of 04000000 with a 00FFFFFF offset "
+                       "mask is a 16 MB region at 04000000, which is what the "
+                       "table holds and what [CFG] p. A-11's 4-16 MB says "
+                       "independently. The reset SSP 040007D0 agrees a third "
+                       "time. No Series 2500 allocation table exists on disk "
+                       "or on the web, and the oracle has no 2500 driver, so "
+                       "the firmware is the primary source here rather than a "
+                       "fallback",
     },
     [AP_MODEL_DN3000] = {
         .id = AP_MODEL_DN3000,

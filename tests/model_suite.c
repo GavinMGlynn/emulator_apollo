@@ -213,8 +213,43 @@ static void test_every_models_mmu_agrees_with_its_cpus_features(void) {
   }
 }
 
+/* ## The DN2500's main memory, pinned to the one source that gives it
+ *
+ * There is no Series 2500 address space allocation table -- not on disk, not on
+ * the web -- and the oracle has no 2500 driver, so this model's memory region
+ * cannot be taken from a manual the way every other model's is. The Series 2500
+ * boot PROM sizes its own memory and both constants are in that code:
+ * `2500_BOOT_16182_8` resets to `0001F040` and its address-line walk does
+ *
+ *     1F49A  OR.L    #$04000000,D1    the base, into every address it probes
+ *     1F4CE  ANDI.L  #$04FFFFFF,D1    and the mask on the walking pattern
+ *     1F4FA  ANDI.L  #$04FFFFFF,D1    again, on the second pass
+ *
+ * A base of `04000000` under a `00FFFFFF` offset mask is a 16 MB region at
+ * `04000000`. `[CFG]` p. A-11's "4-16MB" agrees on the size independently, and
+ * the reset SSP `040007D0` agrees on the base a third time.
+ *
+ * Asserted here rather than left to the golden because the golden records what
+ * the table says and this records *why* -- a later edit that "tidied" the base
+ * back to `01000000`, which is the assumption this replaced, would pass a
+ * regenerated golden and fail this. The values are not read from the ROM: this
+ * suite must run where `roms/` does not exist. */
+static void test_the_dn2500_main_memory_matches_its_boot_proms_sizing_code(
+    void) {
+  const ap_model_t *m = ap_model_by_id(AP_MODEL_DN2500);
+  TEST_ASSERT_NOT_NULL(m);
+  TEST_ASSERT_EQUAL_HEX32(0x04000000u, m->ram_base);
+  TEST_ASSERT_EQUAL_HEX32(0x01000000u, m->ram_max_bytes);
+  /* The mask the PROM applies is the base with the offset bits set, so the two
+   * fields have to reconstruct it exactly. This is the relation that makes the
+   * pair meaningful rather than two independent numbers. */
+  TEST_ASSERT_EQUAL_HEX32(0x04FFFFFFu,
+                          m->ram_base | (m->ram_max_bytes - 1u));
+}
+
 int main(void) {
   UNITY_BEGIN();
+  RUN_TEST(test_the_dn2500_main_memory_matches_its_boot_proms_sizing_code);
   RUN_TEST(test_the_table_holds_every_declared_model);
   RUN_TEST(test_every_model_name_is_unique);
   RUN_TEST(test_every_model_is_findable_by_name);

@@ -3803,40 +3803,20 @@ discipline throughout.
 - [x] Close most of the DN2500 `PROVISIONAL` set: 68030 @ 20 MHz, 68882 @ 20 MHz,
       on-board mono graphics, 4–16 MB RAM, all from `[CFG]`'s Series 2500 Product
       Summary. Only `ram_base` remains open.
-- [ ] **In progress.** Close DN2500 `ram_base`, or record it as a documented gap with its cost to
-      close. *Verification: an address-space table for Series 2500, or the boot
-      PROM's own memory sizing code.*
-  - **Corrected from `01000000` to `04000000`**, from the boot PROM's own reset
-    vector — the second of the two routes this item names, and it needed no new
-    material. `2500_BOOT_16182_8` begins with SSP `040007D0` where
-    `3500_BOOT_12191_7` begins with `01000180` and its RAM is at `01000000`. A
-    reset stack pointer must land in usable memory.
-  - So the previous value was not merely unverified, it was **wrong**: it
-    assumed the DN2500 matched the other 68030 models, and the PROM that
-    disproves it has been in `roms/` all along.
-  - Still **In progress** and still `PROVISIONAL`. The reset SSP proves memory exists at
-    that address; it does not give where the region begins or ends. The extent
-    needs a Series 2500 allocation table, and the oracle cannot help — it has no
-    2500 driver.
-  - `tests/goldens/model_table.txt` regenerated; the golden caught the change,
-    which is what it is for.
-  - **The same check was then run against every boot PROM we hold, and the rest
-    agree.** `3000_BOOT_8475_4` and `_7` both start with SSP `00100180` against
-    a table entry of `0x100000`; `3500`, `4500` and `5500` all start with
-    `01000180` against `0x1000000`. Five models corroborated, one corrected.
-  - That the only wrong entry was the only *assumed* one is worth stating. The
-    others were taken from address-space tables and the reset vectors agree with
-    them independently, which is a check on both. The DN2500's was a guess
-    filling a gap, and a guess is what the check caught.
-  - **A second DN2500 discrepancy fell out of the same listing.** Its PROM is
-    **131072 bytes**, and `AP_BOARD_PROM_SIZE` is `0x010000` — 64 KB. Every
-    other image fits (DN3000 is 32 KB, the rest exactly 64 KB), so
-    `ap_board_load_prom` would refuse the Series 2500's outright.
-  - Not a defect in the board: `ap_board` is the **DN3500** and its 64 KB region
-    is `008778-03` Table 2-8's, correctly. It is a Phase 7 item — the board's
-    PROM extent is model variance and belongs in the model table with
-    `ram_base`, not as a constant in a DN3500 header. Recorded here because it
-    was found here; the work belongs with the model range.
+- [x] Closed DN2500 `ram_base` **and** its extent, from the Series 2500 boot
+      PROM's own memory sizing code — the second of the two routes this item
+      named, and in the end the only one available: no Series 2500 allocation
+      table exists on disk or on the web, and the oracle has no 2500 driver.
+      *Verification: `model_suite`, 19 tests, one pinning `04000000` and 16 MB
+      against the PROM's own `OR.L #$04000000,D1` and `ANDI.L #$04FFFFFF,D1`;
+      `tests/goldens/model_table.txt` regenerated. Detail in
+      `PROJECT_STATUS.md`.*
+  - Tail found here and belonging to the model range, not to this item: the
+    Series 2500 PROM is **131072 bytes** against `AP_BOARD_PROM_SIZE` of
+    `0x010000`, so `ap_board_load_prom` would refuse it. Not a board defect —
+    `ap_board` is the DN3500 and 64 KB is `008778-03` Table 2-8's figure. The
+    PROM extent is model variance and belongs in the model table beside
+    `ram_base`.
 - [ ] DN4500 Matrox graphics. *Verification: PNG inspection; no oracle, so
       documented as paper-verified.*
 - [ ] DSP variants confirmed as true subsets. *Verification: `dsp3500` boots
