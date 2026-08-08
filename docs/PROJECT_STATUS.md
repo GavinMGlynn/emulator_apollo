@@ -16118,7 +16118,29 @@ and W9, and no source in hand gives those positions on the Apollo board.
 Guessing would silently move every address. The measured Domain/OS boot never
 sets the bit. All four are documented at the definition rather than left silent.
 
-**Not the whole crash.** With the LUN fixed our command stream matches the
-oracle's over the whole measured prefix and the boot passes the old crash point
-at 325,445,954 instructions -- and then stops again before `login:`, back in the
-boot PROM's debugger loop. The first divergence is not the only one.
+**Verified on the machine's own output, and it does not fix the crash.** A boot
+with the change committed prints
+
+```
+DRIVE 0  PASSED.
+DRIVE 1  (NOT FOUND).
+```
+
+-- the oracle's line, where ours used to claim a second drive. The disk command
+count falls from 1612 to 1341 and `03 REQUEST SENSE` now appears exactly where
+MAME issues it. The defect was real and is closed.
+
+The crash is **unchanged**: `CRASH_STATUS 00120020  PC 3C40E114  PID 0001`, the
+same exception census down to `1 x vector 47`, the same final PC in the boot
+PROM. The report that the fix "carries the boot past the old crash point" was
+read from instruction counts and a PC in the PROM's debugger poll loop -- which
+is exactly where MD sits *after* a crash, so the same observation is consistent
+with crashing. That run never captured its screen. Corrected here rather than
+left standing: **the first divergence was not the cause of the crash.**
+
+**Next divergence, unmeasured.** The oracle prints two `802.3 NETWORK
+CONTROLLER-AT TEST PASSED.` lines that ours does not; the 3c505 is not started
+in this core. Whether that causes the crash is a hypothesis, not a measurement.
+`docs/references/3com/3c505_Etherlink_Plus_Developers_Guide_May86.pdf` -- 77
+pages, found on the web after the on-disk references turned up nothing -- is now
+in place so the part can be walked before any of it is written.
