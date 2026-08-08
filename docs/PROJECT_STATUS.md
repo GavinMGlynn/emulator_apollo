@@ -14434,3 +14434,50 @@ against `008778-03` Table 2-3 without running anything.
 
 *Verification: the two boots above, `ctest` 121/121, and the report block itself,
 which is what turned a twenty-minute probe-and-revert into a line of output.*
+
+## The machine will not autoboot after fourteen days, and that is documented
+
+**The web had this, and it was not asked.** `CLAUDE.md`'s order is reference,
+sibling manuals, **web**, oracle; five explanations for this prompt were chased
+through instrumentation before anybody searched. The *Survival Guide for Apollo
+Workstations* says it in one sentence:
+
+> "Has the computer been powered down for more than 14 days? If so, **regardless
+> of whether the clock is correct or not the computer will not autoboot**
+> without first running remedial utilities."
+
+So `More than 14 days have elapsed since the last shutdown. / Do you want to run
+DOMAIN_OS with the current calendar?` is **not a y/n question this core is
+failing to answer**. It is a documented refusal to autoboot, and no keystroke
+gets past it. The documented operator procedure is: run the standalone
+**CALENDAR** utility, then **SALVOL**, then boot `domain_os` by hand.
+
+### Which retracts a chain of readings
+
+Everything typed at that prompt was answering a question the machine was not
+asking. The five things fixed on the way there were each real — the line feed,
+the `SELF_TEST` MMU gate, the console-handover flush, the clock, the settle
+condition — and none of them could ever have produced a login prompt, because
+the prompt is not an input prompt.
+
+It is also the **third** time today the machine was right and the model of it
+was wrong: `set_mode` transmits and we did not; the calendar was slow and we had
+built that in; and now this.
+
+### What the boot item actually needs
+
+Not a keystroke. A session:
+
+1. Reach MD — service mode, or interrupt the boot.
+2. `ex calendar`, and set the clock.
+3. `ex salvol` — salvage the volume, which is what "remedial utilities" means.
+4. Boot `domain_os` by hand.
+
+`--boot-script` exists for exactly this shape of dialogue on the serial console,
+and `--boot-type` now supplies the display one. So the pieces are present and the
+item is a *procedure* to drive rather than a defect to find — which is a
+materially different and much better position than "the keystroke is ignored".
+
+*The cheaper route worth trying first: `media/` holds ten `.awd` checkpoints from
+the install session. One of them was cleanly shut down within fourteen days of
+its own timestamps, and booting that one needs no procedure at all.*
