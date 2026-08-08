@@ -17889,3 +17889,55 @@ interrupt-controller defect rather than a performance question.
 
 *Verification: `ctest` 129/129 at every step, every golden unchanged, and the
 same state hash on every timed run.*
+
+
+## Groundwork for exact-skip, and one part of it already answered
+
+The squeeze item is closed and the next is `next_event()`/`skip(n)`. That is a
+design change rather than a local edit, so this entry is the analysis it needs
+rather than a half-built implementation -- but one of its questions is already
+settled by the measurements above, and settling it changes where the work should
+go.
+
+**The device advances are already near-optimal, and the profile's ~6% for them
+is not recoverable this way.** `ap_timer_advance`, `ap_sio_advance` and the
+calendar together show about 6%, and the obvious exact-skip is a board-level
+cursor that skips all three until the earliest of their next events. But each
+already carries a guard that returns before doing any work when under one period
+has elapsed, and LTO inlines all three into `ap_board_advance` -- so there is no
+call overhead to remove, and what remains is the cursor arithmetic that a
+`next_event()` scheme would have to do anyway, plus a cache to invalidate. The
+guards measuring *marginal* is the evidence: the work was already minimal.
+
+**So the prize is `ap_board_bus_tick`, alone.** It is 11.8% and it is the one
+place a real skip is available, because the thing it does per tick is ask four
+devices whether they want the bus and none of them can want it without software
+having started a transfer:
+
+```
+ap_tape_dma_request        a read in progress with bytes left
+ap_omti_disk_dma_request   the controller's DREQ, from a command
+ap_omti_fdc_dma_request    the FDC's execution phase
+```
+
+Each is false until a CPU write starts the operation, and the CPU is what the
+loop is stepping. That is exactly the shape `next_event()` wants: **a device
+that cannot raise a request until told to has no event**, so the board can skip
+the whole block until either a device has a deadline or a register write says
+otherwise. The run's own counters make the payoff concrete -- **8 requests and 2
+holds against 1.46 billion ticks**.
+
+**The hazard is invalidation, and this session has been bitten by it twice.**
+Caching the 8259's resolved level was 14% slower because writes outnumbered
+reads. Skipping the cascade refresh diverged because *other* paths changed the
+slave and nothing refreshed it. Both were the same mistake: a derived value with
+mutation sites the design did not enumerate. So the rule for this item is that
+`next_event()` must be recomputed at an **auditable** set of sites -- the board's
+own region dispatch in `ap_board_write` is one such set, being a single switch --
+and never at "every place that might matter".
+
+**And the verification is already in place**: the 350 M boot state hash, the
+probe goldens and 129 tests have adjudicated six attempts today, three of them
+against my own reasoning. Whatever this item builds, that is what decides it.
+
+*No code changed for this entry.*

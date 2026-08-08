@@ -3950,6 +3950,16 @@ Only after the reference core is proven, and only under an identity harness.
       half and devices half of the tick split so a span-breaking I/O write still
       runs its devices half canonically. *Verification: entire probe suite and
       long boot hashes byte-identical to the reference core.*
+  - **Groundwork done, and it narrows the target.** The device advances are
+    already near-optimal — each guards its own no-op state and LTO inlines all
+    three, so the profile's ~6% for them is cursor arithmetic a `next_event()`
+    scheme would still have to do. The prize is `ap_board_bus_tick` at 11.8%
+    alone, where none of the three DMA sources can raise a request until a CPU
+    write starts a transfer — the exact shape `next_event()` wants, against
+    **8 requests and 2 holds in 1.46 billion ticks**.
+    The hazard is invalidation, which bit this session twice: `next_event()`
+    must be recomputed at an *auditable* set of sites, and `ap_board_write`'s
+    region switch is one. Detail in `PROJECT_STATUS.md`.
 - [ ] Extend exact-skip across nodes: run node cores in parallel only within
       provably inert windows between ring events. *Verification: whole-ring
       state hash identical to the single-threaded reference.*
