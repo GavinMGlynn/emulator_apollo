@@ -16334,3 +16334,38 @@ the second fault on each side? A difference there explains the crash; equality
 moves the question past the MMU to what the handler does with the answer. That
 is a far smaller question than the one this started as, and it needs one probe
 rather than a boot comparison.
+
+
+## Measured: the two fatal faults report a table search that stopped early
+
+The narrowing above said the next measurement was a single value, so it was
+taken. Every read of `MMUSR` by the handler's `PMOVE` at `3C42CE30`, logged over
+a full boot to the crash:
+
+| value | count | meaning |
+| --- | --- | --- |
+| `0403` | 286 | `I` set, **N = 3** |
+| `0402` | 1 | `I` set, **N = 2** |
+| `0401` | 1 | `I` set, **N = 1** |
+
+`I` is set in all 288, which is right: every one of these is a page fault. The
+low three bits are `N`, "the actual number of tables accessed during the
+search". **Every ordinary fault searches three tables. The final two -- the pair
+immediately before the `TRAP #15` -- search two, then one.**
+
+So the two faults that kill the machine are not ordinary missing pages. Their
+table searches terminate **early**, at an invalid descriptor above the leaf,
+which is a different condition and is exactly what the handler's two `BTST`s on
+`D3` exist to distinguish. A page that is merely absent is repairable; a branch
+of the table that is invalid partway down is the kernel being told the address
+has no mapping at all -- which, taken in supervisor mode with a lock held, is
+`00120020` word for word.
+
+**What this does not yet say** is which side is wrong. Either our table search
+stops at a level where the real one continues, or the tables genuinely say what
+we read and the fault is legitimate on both machines. The oracle faults at both
+of these addresses too and still reaches `login:`, so the difference is either
+in `MMUSR` or in what the handler does with it. That is now one value per side
+rather than a boot comparison, and it is being measured.
+
+The instrumentation used was reverted; `ctest` is 122/122.
