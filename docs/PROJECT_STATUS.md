@@ -3949,13 +3949,13 @@ during the session that finally checked it.
 
 ### Still true, and one new one
 
-- **The DUART's transmitter empties only when a caller collects the byte.**
-  `ap_mc68681_transmit` is a pull API, `ap_board_advance` collects for the
-  keyboard's channel, and nothing collects the console's — so a run without
-  `--boot-console` blocks the firmware the first time it prints. A real 2681
-  shifts a character out whether anything is connected or not. The fix is named
-  above and deliberately not made; until it is, **a console-less run's stopping
-  place is a fact about the harness**.
+- ~~"The DUART's transmitter empties only when a caller collects the byte"~~ —
+  **closed, and this entry was stale for several sessions.** `ap_board_advance`
+  now empties *every* transmitter one character time apart, the keyboard's
+  channel excluded because `kbd_reply` already carries it: `ap_board.c`, "the
+  transmitters, emptied by the board rather than by whoever happens to be
+  listening". A console-less run no longer blocks the firmware, so a stopping
+  place is again a fact about the machine.
 - **The Series 4000 Master Request Register is unmodelled and stays that way
   until a source names its bits.** `008778-03` §2.4.7's second route to bus
   mastership is "setting a particular bit in this register", and the manual
@@ -3979,10 +3979,14 @@ during the session that finally checked it.
   what is unproven is that a given 68881 mask set holds those exact bits, since
   neither manual prints one. Closing route recorded above: instrument the oracle
   and read all 22 back.
-- **Packed decimal is the only gap left in the 68882.** Every instruction the
-  part has now executes: the general type entire, and `FBcc`, `FNOP`, `FDBcc`,
-  `FScc` and `FTRAPcc`. What remains outside it is `FSAVE`/`FRESTORE`, which are
-  the coprocessor state frames rather than instructions in the ordinary sense.
+- ~~"Packed decimal is the only gap left in the 68882"~~ — **also stale.**
+  Packed decimal is implemented and wired: `ap_m68882_packed_decode` is called
+  from `ap_m68882_format.c` and `ap_m68882_packed_encode` from
+  `ap_m68882_store.c`, with the k-factor taken from the extension word in
+  `ap_m68882.c` (§4.8). Every instruction the part has executes: the general
+  type entire, and `FBcc`, `FNOP`, `FDBcc`, `FScc` and `FTRAPcc`. What remains
+  outside it is `FSAVE`/`FRESTORE`, the coprocessor state frames rather than
+  instructions in the ordinary sense.
 - **An `RTE` from stack frame format `$9` is declined.** The frame now *builds*,
   for the main-detected protocol violation, but resuming from it needs the
   coprocessor mid-instruction state its four INTERNAL REGISTERS words describe,
@@ -14756,3 +14760,41 @@ What is still open is what `D0` and `D4` select, and that is deliberately not
 guessed at -- the two are carried into a `BSR` whose target has not been read.
 `CONFIGURATION INFORMATION IS NOT INITIALIZED` comes from `SELF_TEST` off the
 disk, which is different code from this and still unexamined.
+
+
+## A completeness sweep, and what it found
+
+Prompted by the standing rule that a misbehaving module is presumed incomplete
+until its tables are walked -- and by five boot runs made *instead* of that
+walk, which is the wrong order.
+
+**Two "Known gaps" entries were stale and are struck above.** The DUART's
+transmitter is drained by the board now, and packed decimal is implemented and
+wired. That makes **seven** stale entries found in this list in two sessions
+against five real ones, which says the failure mode here is not missing work but
+unrevised claims: a gap list quoted in reasoning is worse than no gap list.
+
+**What is genuinely open is blocked on documents or hardware we do not have**,
+and each already records its closing route: the 68882's version number (no
+manual publishes one), `FMOVECR`'s bit-exactness (needs a real part or the
+oracle), the Series 4000 Master Request Register's bit (`008778-03` §2.4.7
+never says which), the ring controller's registers, and the parity lane
+assignment. The one item that is open and closable by writing code is **`RTE`
+from stack frame format `$9`**, which needs the coprocessor mid-instruction
+state this model writes as zero.
+
+**The parity chain was checked against the manual rather than assumed, and it
+is complete.** `008778-03` §3.2: "The parity error interrupt is a non-maskable
+interrupt to the CPU. It generates a Level 7 interrupt ... the vector ... comes
+from the Level 7 autovector location in the CPU exception table (0x07c)", and
+"Writing to the status register clears the interrupt status." Both are
+implemented and both cite those sentences -- `ap_board.c` raises level 7 ahead
+of the 8259s, `ap_machine.c` autovectors it as the one exception to Apollo's
+vectored scheme, and `ap_boardreg.c` clears on the status write. The lane
+assignment stays `PROVISIONAL`: the Technical Reference gives the register's
+address (`011300`, Table 2-8) but never its lane bits.
+
+This matters for the crash. The boot reports four parity errors and **exactly
+one** vector-31 exception, and vector 31 is that level-7 autovector -- so the
+single non-periodic exception before the crash is a parity NMI rather than a
+page fault. Recorded as the next thing to measure, not as a conclusion.
