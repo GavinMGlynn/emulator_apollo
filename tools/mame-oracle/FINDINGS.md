@@ -514,6 +514,30 @@ in the oracle's checkout as well as ours. Edit, measure, restore — never
 instrumentation records what was patched and where, so it can be reproduced
 without guesswork.
 
+**`mdsession.py --settle` defaults to 3.0 seconds, and that is a trap for any
+long measurement.** The `watch` stage sends one character to autobaud the port
+and then sleeps `--settle` before tearing the session down — so an invocation
+that omits it runs the machine for *three seconds* and reports success with an
+empty log. Three attempts at a whole-boot measurement were lost to it before the
+default was read: the session prints its setup, prints `watching, not knocking`,
+exits 0, and looks exactly like a boot that produced nothing. A Domain/OS boot
+needs `--settle` in the hundreds of seconds even under `-nothrottle`.
+
+**And an empty console log is not evidence of a dead machine here.** The boot
+PROM writes to the *display* when it finds one and to the serial line only when
+it does not, so the oracle's `dn3500` — which has a display — is silent on the
+console by design. Diagnose from a probe or a screen capture, not from the log
+being empty.
+
+**A CRP probe, for when this is next attempted.** The only place MAME writes the
+68030's CPU root pointer is `m68kmmu.h`'s `case 3: // CPU root pointer`, right
+after `m_mmu_crp_aptr = temp64 & 0xffffffff` — one `fprintf` there logs every
+load with `m_ppc` and `total_cycles()`. Verified to build and to reach the
+binary (`strings ... | grep APCRP`), and **reverted**. What was not achieved is
+the measurement: across three runs the probe never fired, so under this harness
+the machine is not reaching a `PMOVE` at all. That is the thing to diagnose
+first next time, and it is a *different* question from whether the probe works.
+
 The oracle build is deliberately narrow — one driver, no tools:
 
 ```sh
