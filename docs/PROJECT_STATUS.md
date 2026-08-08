@@ -14981,3 +14981,54 @@ supervisor-mode fault status. What has not been reconciled is that no processor
 fault occurs in the 400,000 instructions before this -- so either the fault is
 older than that window, or this path is entered for a reason other than a
 trapped access.
+
+
+## The oracle reaches `login:`, so the crash is ours
+
+The experiment deferred for most of this phase, and it should have been first.
+With the C120 workaround applied to `mc68681.cpp`'s `write_CR` edge gate and
+MAME rebuilt, the **same** `dn3500-sr10.4-installed.awd` boots in **normal
+mode** to a Domain/OS DM `login:` prompt: kernel banner at ~80 s emulated,
+`Apollo Phase II Environment Revision 10.4` and `Loading Init.` at ~90 s,
+`login:` with the input window and function-key legend at ~105 s, stable across
+three further captures. It never prints a `CRASH_STATUS`.
+
+Ours reports `CRASH_STATUS 00120020 / PC 3C40E114 / PID 0001` at the same stage
+of the same kernel on the same image.
+
+**So `00120020` is a defect in this core, not in the disk, the clock or the
+operating system.** Every alternative that had been left open -- a stale volume,
+a configuration table, an unanswerable prompt -- is retired by one run. And the
+oracle is now a *known-good reference for the interval between
+`Domain/OS kernel(7)` and `login:`*, which is the interval the bug lives in.
+That is worth more than the answer itself: it makes the remaining work a
+divergence hunt with a reference on both sides rather than a search.
+
+Two details worth keeping:
+
+- The oracle stops at the **same** `SELF TEST FAILED ... ADDRESS= 00010912`
+  question we reproduce with a zeroed battery, because a fresh MAME nvram gives
+  a flat calendar RAM. Answering `Y` carries it through. That is independent
+  confirmation that the self-test failure is a battery-contents fact and not a
+  fault, and that our `--calendar-ram` seeding does the job the nvram does.
+- `apollo_kbd.cpp` has no `PORT_CHAR`, so driving the oracle's keyboard needs
+  the field pressed directly; the derivative capture script that does it is in
+  scratch and should be promoted into `tools/mame-oracle/` next time the oracle
+  is driven past that prompt.
+
+### Flag A is computed, not missing
+
+The instruction that leaves flag A zero, dumped and decoded:
+
+```
+3C4568AE  082E 0001 FF77   BTST   #1,$FF77(A6)
+3C4568B4  56C1             SNE    D1
+3C4568B6  13C1 3C42BCD7    MOVE.B D1,$3C42BCD7
+```
+
+So flag A is `SNE` of **bit 1 of a local flags byte at `$FF77(A6)`** -- `FF` when
+set, `00` when clear. It is not an uninitialised variable at all; it is a
+computed answer, and it is zero because that bit is clear. The same byte's bit 0
+is tested a few instructions earlier and selects between writing `1` and `2` to
+another local. Which capability that byte describes is the next question, and it
+is now a question about *our* machine's state, since the oracle's answer differs.
