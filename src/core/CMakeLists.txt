@@ -116,6 +116,8 @@ add_library(apollo_core STATIC
   ring/ap_ring_phy.c
   ring/ap_ring_medium.c
   ring/ap_ring_sched.c
+  ring/ap_ring_station.c
+  ring/ap_ring_probe.c
   machine/ap_machine.c
   probe/ap_probe.c
   state/ap_hash.c

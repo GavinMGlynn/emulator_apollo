@@ -31,12 +31,15 @@
 #include "device/ap_bt458.h"
 #include "device/ap_kbd.h"
 #include "machine/ap_machine.h"
+#include "ring/ap_ring_probe.h"
 
 static void print_usage(const char *program_name) {
   ap_print_common_usage(stdout, program_name);
   /* Headless-only flags are listed here as they are implemented. */
   fprintf(stdout,
           "  --run-probes          run the built-in probe suite and report\n"
+          "  --run-ring-probes     run the cross-node ring probes and report:\n"
+          "                        token round trip, latency per node, contention\n"
           "  --probe-file PATH     run one probe described by a file, so a\n"
           "                        probe can come from outside this binary\n"
           "  --time-instructions   report per-instruction clocks, for oracle\n"
@@ -241,6 +244,48 @@ static void time_instructions(FILE *out) {
       fprintf(out, " %u", result.delta[s]);
     }
     fprintf(out, "\n");
+  }
+}
+
+/* The ring's own probe block. Separate from the instruction probes above
+ * because it measures a different thing in a different unit: those report
+ * clocks for one machine, these report bit times for a whole ring. Folding
+ * them together would put two unrelated units in one golden.
+ *
+ * Fixed width for the same reason as that block -- it is diffed by a person. */
+static void run_ring_probes(FILE *out) {
+  unsigned count = 0u;
+  const ap_ring_probe_result_t *results = ap_ring_probe_all(&count);
+
+  fprintf(out, "# apollo ring probes\n");
+  fprintf(out,
+          "# Bit times on a 12 Mbit/s ring, from [MAC] 010005-00. There is no\n"
+          "# runnable oracle for any of this: every figure is a structural\n"
+          "# consequence of a cited section, not a measurement against another\n"
+          "# emulator. round trip grows by exactly one bit per node because a\n"
+          "# station transceives with the elastic store's nominal one-bit\n"
+          "# delay ([MAC] 3.2, 3.3.2); the fixed offset is the token's own\n"
+          "# nine bits, since the lap is measured to the last of them.\n");
+  fprintf(out, "%-14s %5s %10s %9s %8s %6s %5s %s\n", "probe", "nodes",
+          "roundtrip", "bittimes", "claimedby", "claims", "err", "done");
+
+  for (unsigned i = 0; i < count; i++) {
+    const ap_ring_probe_result_t *r = &results[i];
+    fprintf(out, "%-14s %5u %10llu %9llu %8d %6u %5s %s\n", r->name, r->nodes,
+            (unsigned long long)r->round_trip_bits,
+            (unsigned long long)r->bit_times, r->claimed_by, r->claims,
+            r->biphase_error ? "YES" : "no", r->completed ? "yes" : "NO");
+  }
+
+  /* The slope, stated rather than left to the reader to subtract. This is the
+   * quantity `[MAC]` predicts and the one a defect would move; the absolute
+   * figures carry the token width with them. */
+  if (count >= 2u && results[0].completed && results[3].completed) {
+    const unsigned long long span =
+        results[3].round_trip_bits - results[0].round_trip_bits;
+    const unsigned nodes = results[3].nodes - results[0].nodes;
+    fprintf(out, "\nlatency per node inserted: %llu bit time(s)\n",
+            nodes > 0u ? span / nodes : 0ull);
   }
 }
 
@@ -3071,6 +3116,7 @@ int main(int argc, char **argv) {
   ap_screen_kind_t boot_screen = AP_SCREEN_NONE;
   const char *screenshot = NULL;
   bool run_probe_suite = false;
+  bool run_ring_probe_suite = false;
   const char *probe_file_path = nullptr;
   bool report_timing = false;
   const char *boot_tape = NULL;
@@ -3324,6 +3370,11 @@ int main(int argc, char **argv) {
       i += 1;
       continue;
     }
+    if (strcmp(argv[i], "--run-ring-probes") == 0) {
+      run_ring_probe_suite = true;
+      i += 1;
+      continue;
+    }
     if (strcmp(argv[i], "--probe-file") == 0) {
       if (i + 1 >= argc) {
         fprintf(stderr, "%s: --probe-file needs a path\n", program_name);
@@ -3409,6 +3460,11 @@ int main(int argc, char **argv) {
 
   if (run_probe_suite) {
     run_probes(stdout, opt.model->id);
+    return 0;
+  }
+
+  if (run_ring_probe_suite) {
+    run_ring_probes(stdout);
     return 0;
   }
 

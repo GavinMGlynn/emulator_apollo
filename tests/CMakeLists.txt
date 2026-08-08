@@ -144,6 +144,7 @@ apollo_add_suite(ring_frame_suite)
 apollo_add_suite(ring_phy_suite)
 apollo_add_suite(ring_medium_suite)
 apollo_add_suite(ring_sched_suite)
+apollo_add_suite(ring_station_suite)
 apollo_add_suite(hash_suite)
 # The one suite in this directory that links a vcpkg library, so it is the one
 # that gets its DLLs copied beside it; the top-level `CMakeLists.txt` says why
@@ -169,6 +170,7 @@ endif()
 # list as the subsystems that produce them land, and each arrives with its own
 # golden rather than a promise to add one later.
 apollo_add_golden(golden_model_table model_table.txt apollo-headless --list-models)
+apollo_add_golden(golden_ring_probes ring_probes.txt apollo-headless --run-ring-probes)
 apollo_add_golden(golden_probes probes.txt apollo-headless --run-probes)
 apollo_add_golden(golden_timing timing.txt apollo-headless --time-instructions)
 

@@ -17426,3 +17426,62 @@ machine: a rounded period drifts against every other node by an amount no probe
 could attribute to anything.
 
 *Verification: `ring_sched_suite`, 7 tests; `ctest` 127/127 under both presets.*
+
+
+## Cross-node probes, and a ring shorter than its own token
+
+`--run-ring-probes` reports token round trip, latency per node inserted and
+behaviour under contention, over a MAC-level station built on the symbol, frame,
+medium and scheduler layers. The block is a golden in CTest.
+
+```
+probe          nodes  roundtrip  bittimes claimedby claims   err done
+round_trip_2       2         10        10       -1      0    no yes
+round_trip_4       4         12        12       -1      0    no yes
+round_trip_8       8         16        16       -1      0    no yes
+contention_4       4          0        23        1      1    no yes
+
+latency per node inserted: 1 bit time(s)
+```
+
+**The slope is the measurement; the offset is the token.** Round trip is
+`nodes + 8`: N bit times for the lap, because §3.2's transceive costs the
+elastic store's nominal one bit per station, plus eight because the token is
+nine bits and the lap is measured to its last. The probe reports the *difference*
+across ring sizes rather than asserting the constant, so a model with the right
+slope and a wrong offset still shows the slope.
+
+**Contention needs no arbitration rule, and that is the point.** Two stations
+both want the ring; the one the token reaches first takes it. Fairness on a
+token ring is positional, and the probe measures that rather than any policy we
+chose.
+
+**Two bugs, both found by the probes rather than by reading.**
+
+The first: **both** contenders claimed the ring. A free token and a claimed one
+differ in exactly one bit -- their last -- so the eight-bit prefix I was matching
+accepts both, and a station downstream of one that had already claimed claimed
+again. Two stations holding one ring is the precise failure a token ring exists
+to make impossible.
+
+The second came from fixing the first. Requiring the forwarded bit to be Zero
+made *nobody* claim, because the alignment was off by one: `receive` shifts the
+incoming bit into the window **and** records it as the bit to forward, so at the
+moment of driving, the window's low bit *is* that bit. Matching a prefix fires
+one bit early, on the token's second-to-last bit. The fix matches the whole
+nine-bit token, which distinguishes free from claimed for the same reason the
+prefix could not.
+
+**And a constraint that is real physics, not a test artefact.** A station test
+asserting that a quiet ring keeps circulating its token failed on three nodes.
+Three stations give three bit times of delay and a token is nine bits, so the
+ring is **shorter than its own token**: the head returns before the tail has
+left and the symbol overwrites itself. `[MAC]` §3.3 counts "cable plant" among
+the static delay elements and 1 km between nodes is about 60 bit times at
+12 Mbit/s, so no physical ring is anywhere near that bound -- but this core
+models the station's delay and not the cable's, so the model can reach it.
+Recorded as finding 32 and as a plan tail: per-hop cable delay belongs in the
+medium before any multi-node Domain/OS run.
+
+*Verification: `golden_ring_probes` over `tests/goldens/ring_probes.txt`, plus
+`ring_station_suite`, 6 tests. `ctest` 129/129.*

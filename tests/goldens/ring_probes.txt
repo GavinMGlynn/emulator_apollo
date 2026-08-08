@@ -1,0 +1,17 @@
+# apollo ring probes
+# Bit times on a 12 Mbit/s ring, from [MAC] 010005-00. There is no
+# runnable oracle for any of this: every figure is a structural
+# consequence of a cited section, not a measurement against another
+# emulator. round trip grows by exactly one bit per node because a
+# station transceives with the elastic store's nominal one-bit
+# delay ([MAC] 3.2, 3.3.2); the fixed offset is the token's own
+# nine bits, since the lap is measured to the last of them.
+probe          nodes  roundtrip  bittimes claimedby claims   err done
+round_trip_2       2         10        10       -1      0    no yes
+round_trip_3       3         11        11       -1      0    no yes
+round_trip_4       4         12        12       -1      0    no yes
+round_trip_8       8         16        16       -1      0    no yes
+contention_4       4          0        23        1      1    no yes
+contention_8       8          0        27        1      1    no yes
+
+latency per node inserted: 1 bit time(s)

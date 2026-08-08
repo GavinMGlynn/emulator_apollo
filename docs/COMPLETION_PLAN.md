@@ -3824,9 +3824,19 @@ discipline throughout.
       `9D0B2A0A2D558C97` — measured under both `-O0` and `-O3`+LTO, which is
       the across-build-types half a single binary cannot show. Detail in
       `PROJECT_STATUS.md`.*
-- [ ] Cross-node probes: token round-trip time, ring latency per node inserted,
-      behaviour under contention. *Verification: goldens over the ring result
-      block, locked into CTest.*
+- [x] Cross-node probes: token round trip, latency per node inserted, and
+      contention, in `src/core/ring/ap_ring_probe.*` behind
+      `--run-ring-probes`, built on a MAC-level station
+      (`src/core/ring/ap_ring_station.*`).
+      *Verification: `tests/goldens/ring_probes.txt` locked into CTest as
+      `golden_ring_probes`, plus `ring_station_suite`, 6 tests. Detail in
+      `PROJECT_STATUS.md`.*
+  - Tail, recorded as finding 32 in `RING.md`: this core models a station's
+    one-bit delay and **not the cable's**, so a ring of fewer than nine
+    stations is shorter than its own nine-bit token. No physical ring is near
+    that bound — 1 km between nodes is ~60 bit-times — but the model can reach
+    it, so per-hop cable delay belongs in the medium before multi-node
+    Domain/OS runs.
 - [ ] Two nodes see each other over the ring under Domain/OS. *Verification:
       `lcnode` on each node lists the other; console output diffed against
       itself across runs for determinism.*
