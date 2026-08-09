@@ -192,6 +192,18 @@ typedef struct {
   unsigned mmu_reads_total;
   uint8_t mmu_reads_mask;
 
+  /* The first few, with the instruction that made them -- kept for the same
+   * reason the writes are: a count says *whether* the program looked and the PC
+   * says **who**. That distinction was not free. A boot that reads the MMU 290
+   * times reads very differently depending on whether those are the kernel
+   * inspecting what the firmware left or the PROM's crash handler dumping state
+   * afterwards, and the mask alone cannot tell them apart. */
+  struct {
+    uint32_t pc;
+    uint8_t which;
+  } mmu_reads[AP_MACHINE_MMU_WRITES];
+  unsigned mmu_read_count;
+
   /* The two caches are separate objects because the part has two, and a machine
    * that shared one would hide every instruction/data interaction. */
   ap_m68030_cache_t instruction_cache;

@@ -369,6 +369,13 @@ static void machine_mmu_register_read(void *context,
   if ((unsigned)which < 8u) {
     machine->mmu_reads_mask |= (uint8_t)(1u << (unsigned)which);
   }
+  if (machine->mmu_read_count < AP_MACHINE_MMU_WRITES) {
+    const unsigned i = machine->mmu_read_count++;
+    machine->mmu_reads[i].pc = machine->executing_address != 0u
+                                   ? machine->executing_address
+                                   : machine->cpu.regs.pc;
+    machine->mmu_reads[i].which = (uint8_t)which;
+  }
 }
 
 /* The table search's descriptor fetch. A machine whose MMU is off never calls

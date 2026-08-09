@@ -19720,6 +19720,45 @@ least not by any mechanism that has taken effect by then.
 *Verification: one stop at `3C43DDCE` with `--clock 2026-08-09`, against the same
 stop with the default clock. No code changed.*
 
+## The crashing machine reads the MMU 290 times, and loads it thirteen
+
+Re-taking the census on the year-26 clock -- the machine that actually reaches
+the crash -- gives numbers the 1987 run never showed, because it stops 37 million
+instructions short of them:
+
+```
+  mmu loads    13 PMOVE(s)
+  mmu reads    290 PMOVE(s) out of a register: TC CRP MMUSR
+```
+
+against `8` and `0`.
+
+**The five extra loads are the crash handler, not the kernel**, and the PCs say
+so: `CRP <- 00FF0002 01000400 by PC 3FFA25DE`, then `TT0 <- 0`, `TT1 <- 0`,
+`TC <- 00A28750` and `CRP <- 01001400` from `0000279E`, `000027A2`, `00002790`
+and `0000261E`. Those last four are plainly boot PROM addresses, and `3FFA25DE`
+is too -- this file already records that trap: *"A PC in `3FFAxxxx` looks like
+Domain/OS ... It is the PROM."* So they run **after** the fault, tearing the MMU
+down, and Domain/OS still executes no `PMOVE` of its own. The earlier finding
+survives on the right machine.
+
+**The 290 reads are the interesting number and the instrument could not
+attribute them.** It was built to count and to record which registers were
+touched, on the argument that the question was only *whether* the program looked.
+That was too narrow the moment the count came back non-zero: 290 reads of `TC`,
+`CRP` and `MMUSR` are the kernel inspecting the firmware's work or the crash
+handler dumping state afterwards, and those are opposite answers. A mask cannot
+tell them apart.
+
+**So the read log now keeps the PC**, exactly as the write log has always done,
+and `machine_suite` asserts it -- the same test that checks a read is not counted
+as a load now checks it is recorded against the instruction that made it. The
+measurement is running.
+
+*Verification: the thirteen loads with their PCs, from one boot on the year-26
+clock; `machine_suite` 48 tests, extended rather than added to.*
+
+
 
 
 

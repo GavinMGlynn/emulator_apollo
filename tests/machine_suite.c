@@ -1202,6 +1202,13 @@ static void test_reading_an_mmu_register_is_counted_and_is_not_a_load(void) {
 
   TEST_ASSERT_EQUAL_UINT(1u, m.mmu_reads_total);
   TEST_ASSERT_TRUE((m.mmu_reads_mask & (1u << AP_M68030_MMU_CRP)) != 0u);
+  /* And with the instruction that made it, because a count says *whether* the
+   * program looked and only the PC says **who**: a boot's reads are the kernel
+   * inspecting the firmware's work or the crash handler dumping state
+   * afterwards, and those are opposite answers. */
+  TEST_ASSERT_EQUAL_UINT(1u, m.mmu_read_count);
+  TEST_ASSERT_EQUAL_UINT(AP_M68030_MMU_CRP, m.mmu_reads[0].which);
+  TEST_ASSERT_EQUAL_HEX32(PROGRAM + 6u, m.mmu_reads[0].pc);
   /* And it did not register as a load. */
   TEST_ASSERT_EQUAL_UINT(0u, m.mmu_writes_total);
 }

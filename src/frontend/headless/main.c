@@ -909,6 +909,11 @@ static void report_state(ap_machine_t *machine) {
       }
     }
     printf("\n");
+    for (unsigned i = 0; i < machine->mmu_read_count; i++) {
+      printf("    %-5s ->          by PC %08X\n",
+             ap_mmu_register_name(machine->mmu_reads[i].which),
+             machine->mmu_reads[i].pc);
+    }
   }
   if (machine->distinct_fault_count > 0u) {
     printf("  fault sites ");
