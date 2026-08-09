@@ -21497,3 +21497,47 @@ the end of a long session because it would probably work.
 
 *Verification: the write watch and the disassembly above, both from the matched
 MD path; `[SC499]` §1.12 p. 13 and the status table p. 12, read as page images.*
+
+
+## IRQF is active low, the page image said so all along, and the boot moved
+
+The previous entry proposed a latch. **It is not a latch; it is a polarity**, and
+the manual prints it: `BIT 7  0 = IRQF`. Working it through with the manual's
+own combinational rule and nothing else:
+
+```
+  idle, nothing asserted    IRQF inactive -> bit 7 = 1    80|40|20|10|07 = F7
+  exception asserted        IRQF active   -> bit 7 = 0    00|40|00|10|07 = 57
+```
+
+**Both of the driver's constants fall out exactly**, with no latch, no extra
+state, and nothing left over. This core had bit 7 active *high*, and
+`ap_sc499.h` recorded the dissent honestly -- "both implementations call it
+active high, and so does the machine ... the measured bit 7 is `0`". That
+measurement was **a dump of the oracle**: MAME's model of the bit, not the
+hardware. The argument against the image was that an active-low flag would read
+asserted while `IEN` is clear and the IRQ line tri-stated -- which conflates the
+status *bit* with the *line*, and §1.10 separates them explicitly. `ap_sc499_irq`
+gates the line on `IEN` and always did.
+
+**The guest is the arbiter and it is independent of both emulators.** Domain/OS
+waits for `F7`; with the bit active high that comparison can never match, which
+is precisely what this machine did for the whole investigation.
+
+**Measured effect on the boot**: at 250 M and 500 M instructions the PC is
+`3C459F7C` and `3C459F90` -- **inside loop 2**, the one that waits for `57`.
+Before this change the machine never left loop 1. It is now where the oracle is.
+
+**And the remaining piece is named by the same evidence.** Loop 2 waits for
+`EXC` asserted, and `ap_tape_reset` currently records that as an open question:
+"the oracle comes up with EXCEPTION asserted, this core does not. `[SC499]` says
+nothing either way, so nothing is claimed." The driver now claims it -- a
+controller that never asserts `EXC` after its reset cannot satisfy `57`. What is
+*not* yet evidenced is the **delay**: the exception must come *after* loop 1 has
+seen `F7`, so it is a post-reset interval, and its length needs a source rather
+than a number that happens to work. That is the next item and it is the last one
+in this chain.
+
+*Verification: `sc499_suite` 17 tests with the polarity and the idle `F7`
+asserted directly, `tape_suite` and `board_suite` dumps updated, `ctest` 130/130
+on both build types; the boot's own progress lines above.*

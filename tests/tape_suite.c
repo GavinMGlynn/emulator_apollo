@@ -42,11 +42,18 @@ static void test_the_measured_dump_is_reproduced(void) {
    *   artefact of the complement rather than a model of the bus, and it
    *   disagrees with its own reset value of `40`.
    *
+   *   bit 7, IRQF: **active low**, as the page image prints it. An idle
+   *   controller has nothing asserted, so the flag is inactive and the bit
+   *   stands at one. This core had it active high on the strength of a dump of
+   *   the *oracle*, which is MAME's model of the bit rather than the hardware's
+   *   behaviour; the guest settles it, since `F7` is exactly what the tape
+   *   driver waits for.
+   *
    * The aliasing, the two `00` bytes and the six `FF` bytes are unchanged
    * measurement. */
   static const uint8_t expected[16] = {
-      0x00, 0x77, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
-      0x00, 0x77, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+      0x00, 0xF7, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+      0x00, 0xF7, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
   };
   for (unsigned i = 0; i < 16u; i++) {
     TEST_ASSERT_EQUAL_HEX8(expected[i], ap_tape_read(&t, AP_TAPE_ADDR + i));

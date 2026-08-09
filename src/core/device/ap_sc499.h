@@ -44,12 +44,31 @@
  * `tpqic02.h` defines `QIC_STAT_READY 0x40` as active low, and the oracle's own
  * `sc499.cpp` defines `SC499_STAT_RDY 0x40` as active low.
  *
- * The one dissent is bit 7. The image prints `0 = IRQF`; both implementations
- * call it active *high*, and so does the machine -- at reset `IEN` is clear, the
- * IRQ line is tri-stated, and the measured bit 7 is `0`. Under the image's
- * polarity that would mean an interrupt asserted by a controller that cannot
- * drive the line. Modelled active high, with the disagreement recorded rather
- * than tidied away.
+ * Bit 7 was the one dissent, and **the dissent was wrong**. The image prints
+ * `0 = IRQF`; both other implementations call it active *high*, and this core
+ * followed them on the strength of a measured `0` at reset -- but that
+ * measurement was a *dump of the oracle*, which is to say MAME's model of the
+ * bit rather than the hardware's behaviour. The argument against the image was
+ * that an active-low flag would read as asserted while `IEN` is clear and the
+ * IRQ line tri-stated; that conflates the status *bit* with the *line*. §1.10
+ * separates them: "Each interrupt source bit, RDY, EXC, and DONE ... can be
+ * read through the Status Register regardless of the state of the interrupt
+ * masks", while "the IRQ line is tri-stated when IEN is cleared" --
+ * `ap_sc499_irq` gates the line on `IEN` and always did.
+ *
+ * The guest settles it, independently of either emulator. Domain/OS's tape
+ * reset waits for the status register to read exactly `F7` and then exactly
+ * `57`, and with IRQF active low both fall out of the manual's own combinational
+ * rule with nothing left over:
+ *
+ *     idle, nothing asserted   IRQF inactive -> bit 7 = 1    F7
+ *     exception asserted       IRQF active   -> bit 7 = 0    57
+ *
+ * Modelled active low, as the page image prints it. This core disagrees with
+ * both `sc499.cpp` and Linux's `tpqic02.h` here, which is the case `CLAUDE.md`
+ * anticipates in saying to expect to out-accurate the oracle -- and the
+ * out-accuracy is checkable: with the bit active high the driver's first
+ * comparison can never match.
  *
  * ## What is modelled
  *
@@ -85,7 +104,7 @@ typedef enum {
 /* Status register, read only. Positions and polarity both from `[SC499]`'s page
  * image; see the header. **Two of these are asserted low**, which is why they
  * are not simply OR'd together on a read. */
-#define AP_SC499_ST_IRQ 0x80u /* active high: ORing of RDY and EXC, DONE if DNIEN */
+#define AP_SC499_ST_IRQ 0x80u /* **active low**: ORing of RDY and EXC, DONE if DNIEN */
 #define AP_SC499_ST_RDY 0x40u /* **active low**: "Ready, from LSI chip" */
 #define AP_SC499_ST_EXC 0x20u /* **active low**: "Exception, from LSI chip" */
 #define AP_SC499_ST_DONE 0x10u /* active high: "Done, from DMA logic" */
@@ -115,7 +134,7 @@ typedef enum {
  * read starts from, and as the thing a test can name rather than spelling `C0`
  * and inviting the reader to work out why. */
 #define AP_SC499_ST_ACTIVE_LOW \
-  (AP_SC499_ST_RDY | AP_SC499_ST_EXC | AP_SC499_ST_UNUSED)
+  (AP_SC499_ST_IRQ | AP_SC499_ST_RDY | AP_SC499_ST_EXC | AP_SC499_ST_UNUSED)
 
 
 /* Whether a register is driven on a read. The two DMA command addresses are

@@ -148,13 +148,14 @@ static void test_reads_reach_the_devices_themselves(void) {
    * directly -- so the map is checked against the same dumps the devices are. */
   TEST_ASSERT_EQUAL_HEX8(0xC0u, ap_board_read(&b, 0x04D001u, &ok)); /* disk */
   TEST_ASSERT_TRUE(ok);
-  /* `77`, not the `40` the oracle reads at reset: RDY and EXC are asserted low
+  /* `F7`, not the `40` the oracle reads at reset: RDY and EXC are asserted low
    * so both bits stand at one on an idle controller, DONE is set by the reset
    * because `[SC499]` says RSTDMA "sets DONE to 1", and bits 2-0 are the
    * "(BITS 0-2 Not Used)" lines nothing drives, which read as one. See
    * `ap_sc499.h` -- the driver waits for `F7` and `57`, both of which carry
-   * those three bits. */
-  TEST_ASSERT_EQUAL_HEX8(0x77u, ap_board_read(&b, 0x050001u, &ok)); /* tape */
+   * those three bits. Bit 7, IRQF, is active low too, so an idle controller
+   * reads it as one and the whole byte is exactly the `F7` the driver wants. */
+  TEST_ASSERT_EQUAL_HEX8(0xF7u, ap_board_read(&b, 0x050001u, &ok)); /* tape */
   TEST_ASSERT_TRUE(ok);
   TEST_ASSERT_EQUAL_HEX8(0x80u, ap_board_read(&b, 0x05F807u, &ok)); /* floppy */
   TEST_ASSERT_TRUE(ok);

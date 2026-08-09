@@ -188,7 +188,7 @@ uint8_t ap_sc499_read(ap_sc499_t *tape, unsigned reg) {
      * which is the whole reason this is not a chain of five identical ORs. */
     uint8_t status = AP_SC499_ST_ACTIVE_LOW;
     if (interrupt_flag(tape)) {
-      status |= AP_SC499_ST_IRQ;
+      status &= (uint8_t)~AP_SC499_ST_IRQ;
     }
     if (tape->ready) {
       status &= (uint8_t)~AP_SC499_ST_RDY;

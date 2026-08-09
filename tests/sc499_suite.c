@@ -150,11 +150,20 @@ static void test_the_interrupt_flag_reads_through_the_masks(void) {
   /* "Each interrupt source bit, RDY, EXC, and DONE, can be read through the
    * Status Register regardless of the state of the interrupt masks." So a
    * polling driver sees the flag with interrupts disabled -- the mask governs
-   * the pin, not the register. */
+   * the pin, not the register.
+   *
+   * The flag is **active low**, as `[SC499]`'s page image prints it, so an
+   * asserted interrupt reads bit 7 as **zero**. That is the polarity this core
+   * had backwards, and the whole reason Domain/OS's tape reset never got past
+   * its first comparison. */
   TEST_ASSERT_FALSE(ap_sc499_irq(&t));
-  TEST_ASSERT_EQUAL_HEX8(AP_SC499_ST_IRQ,
-                         ap_sc499_read(&t, AP_SC499_CONTROL_STATUS) &
-                             AP_SC499_ST_IRQ);
+  TEST_ASSERT_EQUAL_HEX8(0u, ap_sc499_read(&t, AP_SC499_CONTROL_STATUS) &
+                                 AP_SC499_ST_IRQ);
+
+  /* And with nothing asserted the bit stands at one, which is what the driver
+   * waits for: an idle controller reads `F7`. */
+  ap_sc499_reset(&t);
+  TEST_ASSERT_EQUAL_HEX8(0xF7u, ap_sc499_read(&t, AP_SC499_CONTROL_STATUS));
 }
 
 static void test_done_contributes_to_the_flag_only_when_enabled(void) {
