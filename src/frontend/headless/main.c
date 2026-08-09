@@ -81,6 +81,11 @@ static void print_usage(const char *program_name) {
           "                        stop the run the first time the program\n"
           "                        counter is ADDR, so a kept trace holds what\n"
           "                        led there rather than what followed\n"
+          "  --boot-stop-pc-skip N ignore the first N times the stop address\n"
+          "                        is reached. An address executed once on a\n"
+          "                        path that recovers and again on one that\n"
+          "                        does not is two events, and only the second\n"
+          "                        is usually the question\n"
           "  --boot-trace-last N   keep the last N steps and print them when\n"
           "                        the run ends. A fault half a billion\n"
           "                        instructions in cannot be reached by\n"
@@ -1546,7 +1551,8 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
                           const char *const *dump_logical,
                           unsigned dump_logical_count,
                           uint32_t stop_physical_pc,
-                          uint32_t stop_physical_length, bool service_mode) {
+                          uint32_t stop_physical_length, bool service_mode,
+                          unsigned stop_pc_skip) {
   /* Before the PROM is even opened: a script that does not parse is the
    * caller's mistake and should be reported as one, not hidden behind whichever
    * file happens to be missing first. */
@@ -1928,6 +1934,11 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
      * visible; a stack pointer that stops matching the call depth is where it
      * happens, and the two can be thousands of instructions apart. Printing
      * both together is what lets one be found from the other. */
+    /* How many times the stop address has been reached, so a run can be told
+     * to ignore the first N. An address executed once on a path that recovers
+     * and again on one that does not is one address and two events, and only
+     * the second is the question. */
+    unsigned stop_pc_seen = 0u;
     run = (ap_machine_run_t){.status = AP_M68030_STEP_EXECUTED};
     if (trace && trace_last == 0u) {
       printf("# step pc a7 a6 a0 instruction status%s\n",
@@ -2233,7 +2244,8 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
         }
       }
       if (stop_pc != 0u && step_pc >= stop_pc &&
-          step_pc < stop_pc + stop_pc_length) {
+          step_pc < stop_pc + stop_pc_length &&
+          stop_pc_seen++ >= stop_pc_skip) {
         /* Checked **before** the fast path below, not after it.
          *
          * It was after, so the stop only happened when a trace or a ring was
@@ -3227,6 +3239,7 @@ int main(int argc, char **argv) {
   unsigned boot_stop_on_watch_read = 0;
   unsigned boot_stop_on_watch = 0;
   uint32_t boot_stop_pc_length = 1u;
+  unsigned boot_stop_pc_skip = 0u;
   uint32_t boot_stop_physical_pc = 0;
   uint32_t boot_stop_physical_length = 1u;
   const char *dump_logical_specs[AP_MAX_LOGICAL_DUMPS] = {0};
@@ -3488,6 +3501,11 @@ int main(int argc, char **argv) {
       i += 2;
       continue;
     }
+    if (strcmp(argv[i], "--boot-stop-pc-skip") == 0 && i + 1 < argc) {
+      boot_stop_pc_skip = (unsigned)strtoul(argv[i + 1], NULL, 0);
+      i += 2;
+      continue;
+    }
     if (strcmp(argv[i], "--boot-stop-pc") == 0 && i + 1 < argc) {
       /* `ADDR` or `ADDR:LEN`, the same shape `--dump-mem` takes. A range
        * because the address worth stopping at is not always one you can name:
@@ -3617,7 +3635,7 @@ int main(int argc, char **argv) {
                           boot_stop_on_watch_read, boot_stop_pc_length,
                           dump_logical_specs, dump_logical_count,
                           boot_stop_physical_pc, boot_stop_physical_length,
-                          service_mode);
+                          service_mode, boot_stop_pc_skip);
   }
 
   if (boot_tape != NULL) {

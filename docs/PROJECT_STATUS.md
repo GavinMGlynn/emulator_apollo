@@ -20407,3 +20407,47 @@ instruction sequence from a 3000-step ring stopped at `3C443E8C`, executed
 rather than disassembled. `machine_suite` 55 tests (3 further: an MMU refusal
 counted apart from a board refusal, the logical address kept unrounded, and a
 clean machine reporting zero); `ctest` 130/130.*
+
+
+## The skipped root-pointer switch does not explain the crash, and both trees say so
+
+With the fatal instruction known, its *second* fault can be stopped at --
+`--boot-stop-pc 3C47A25A:2 --boot-stop-pc-skip 1`, which fires at 385,186,867
+where the unskipped run fires at 385,181,925 -- and both translation trees
+dumped at that instant. Index `EF`, the one `3BFF0001` resolves to, sits at
+offset `0x3BC`:
+
+```
+  kernel's tree   0105BFB0  00 00 00 00 01 1E 60 03  01 1E 64 03 00 00 00 00
+  live tree       010017B0  00 00 00 00 01 1E 60 03  01 1E 64 03 00 00 00 00
+                                                                 ^^^^^^^^^^^ EF
+```
+
+**Both invalid.** The two tables are otherwise the same tree -- they differ only
+where a history bit has been set (`011E700B` against `011E7003` at `F2`) -- so
+the tree the kernel maintains and the tree the MMU walks agree about this page,
+and both say it is not there.
+
+**So the standing thesis is dead as an explanation of this fault.** "The kernel
+builds `0105BC00`, never loads the root pointer, and dies on a page that tree
+maps" has driven several sessions; the page is not mapped in `0105BC00` either.
+Installing the root pointer would have changed nothing about this access. What
+survives is only that the switch is skipped, which remains true and is now
+uncoupled from the crash.
+
+**And that reframes the question.** An access to an unmapped page is what a
+demand-paged system does for a living -- this boot recovers from 286 of them.
+The fatal one is fatal because of *where* it happens: `00120020` is "supervisor
+fault while resource lock(s) set". So the question is no longer "why is the page
+missing" but **"why is the kernel reaching an unmapped page while holding a
+lock"**, and the oracle either has that page resident by then or arrives by
+another path.
+
+The instruction is `BFEXTU (d16,A0)` at `3C47A25A`, a bit-field extract, and
+both addresses it faults on are odd and end `0001` -- `3C248001` recovered,
+`3BFF0001` fatal -- which reads as a tagged pointer being walked rather than an
+ordinary dereference.
+
+*Verification: the two dumps above, taken at one stop, from a bounded boot on
+`--clock 2026-08-09`; the stop's own instruction count against the unskipped
+run's.*

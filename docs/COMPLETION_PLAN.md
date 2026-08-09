@@ -591,6 +591,14 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
           *Verification: `machine_suite` 55 tests (3 further) — an MMU refusal
           counted apart from a board refusal, the logical address kept
           unrounded, and a machine that translates cleanly reporting zero.*
+    - [x] `--boot-stop-pc-skip N` ignores the first N times the stop address is
+          reached. One address executed on a path that recovers and again on
+          one that does not is two events, and the second is usually the
+          question — the fatal fault's PC faults twice and only the second
+          matters.
+          *Verification: `check_frontend_flags.py` exercises it; the stop fires
+          at the second occurrence of `3C47A25A` where the unskipped run fires
+          at the first.*
     - [ ] A root pointer whose DT field is `page descriptor` cannot be
           represented: `ap_m68030_root_t` collapses DT to `long_format`, so a
           `CRP` of DT `$1` is walked as a short-format table. The same page owes
