@@ -242,20 +242,53 @@ bool ap_sio_ram_config_byte(ap_model_id_t model, uint32_t ram_bytes,
   if (out == NULL) {
     return false;
   }
-  /* A table, not an encoder. See the header: `20` is "8-8-8-8" on a DN3500 and
-   * "2-2-2-2" on a DN3000, so the byte is not a per-bank size field and four
-   * points do not determine a scheme. A pair not listed here is refused rather
-   * than approximated -- a wrong byte is a machine that sizes memory it does
-   * not have, and finds out by bus-erroring in the middle of its self-test. */
+  /* A table, not an encoder -- see the header. It is no longer four points from
+   * the oracle: the Series 4000 firmware decodes this byte with an explicit
+   * chain of `cmp.b #$xx,d0` against a per-value list of memory tops, and the
+   * chain has been read out of both `3500_BOOT_12191_7` (`0077xx`-`0078xx`,
+   * lists from `7972`) and `4500_BOOT_13167_02` (lists from `7992`). The two
+   * are identical, fourteen values each, and the four the oracle knew fall out
+   * of them unchanged -- including the bank layouts, which are the step sizes
+   * of each list's progression. Still a table: fourteen points do not determine
+   * a scheme either, and the *bytes* remain unexplained even though what each
+   * one means is now measured.
+   *
+   * Where a size has two spellings the evener bank layout is taken, and `00` is
+   * avoided for 20 MB because an unstrapped port reads zero -- a machine that
+   * cannot say what it has must not be indistinguishable from one that says
+   * twenty. A pair not listed is refused rather than approximated: a wrong byte
+   * is a machine that sizes memory it does not have and finds out by
+   * bus-erroring in the middle of its self-test. */
   static const struct {
     ap_model_id_t model;
     uint32_t megabytes;
     uint8_t byte;
   } table[] = {
+      /* Series 4000 firmware, both revisions, and the DN3500 runs the same
+       * chain. The unused spellings are `44` 8-0-0-0, `70` 8-4-0-0, `40`
+       * 8-4-4-0, `00` 8-8-4-0 and `30` 8-8-8-0. */
+      {AP_MODEL_DN3500, 4u, 0x54u},   /* 4-0-0-0 */
       {AP_MODEL_DN3500, 8u, 0x64u},   /* 4-4-0-0 */
+      {AP_MODEL_DN3500, 12u, 0x50u},  /* 4-4-4-0 */
       {AP_MODEL_DN3500, 16u, 0x60u},  /* 4-4-4-4 */
+      {AP_MODEL_DN3500, 20u, 0x10u},  /* 8-4-4-4 */
+      {AP_MODEL_DN3500, 24u, 0x04u},  /* 8-8-4-4 */
+      {AP_MODEL_DN3500, 28u, 0x24u},  /* 8-8-8-4 */
       {AP_MODEL_DN3500, 32u, 0x20u},  /* 8-8-8-8 */
+      {AP_MODEL_DN4500, 4u, 0x54u},   /* 4-0-0-0 */
+      {AP_MODEL_DN4500, 8u, 0x64u},   /* 4-4-0-0 */
+      {AP_MODEL_DN4500, 12u, 0x50u},  /* 4-4-4-0 */
+      {AP_MODEL_DN4500, 16u, 0x60u},  /* 4-4-4-4 */
+      {AP_MODEL_DN4500, 20u, 0x10u},  /* 8-4-4-4 */
+      {AP_MODEL_DN4500, 24u, 0x04u},  /* 8-8-4-4 */
+      {AP_MODEL_DN4500, 28u, 0x24u},  /* 8-8-8-4 */
+      {AP_MODEL_DN4500, 32u, 0x20u},  /* 8-8-8-8 */
+      /* Series 3000: a different firmware whose chain has not been read, so
+       * this stays the oracle's single point. `20` here is 2-2-2-2 and eight
+       * megabytes, which is what makes the byte model-dependent. */
       {AP_MODEL_DN3000, 8u, 0x20u},   /* 2-2-2-2 */
+      /* DN5500, confirmed against its own chain (lists from `8260`), which
+       * carries the same fourteen and nineteen more above them. */
       {AP_MODEL_DN5500, 16u, 0x14u},  /* 8-8-0-0 */
       {AP_MODEL_DN5500, 32u, 0x20u},  /* 8-8-8-8 */
   };

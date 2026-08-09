@@ -3415,7 +3415,7 @@ failure that cost a bit position in the 68020's module entry word.
 | Apollo calendar (`010900`) | working: **stride 1, byte consecutive** (measured — and not the timer's odd-address stride 2, so neither placement could be inferred from the other), sixty-four registers aliased through the 256-byte range, and the IRQ8 route through to vector `A8`. The battery RAM's **configuration table** is laid out from `002398-04` p. 12-3 — checksum, valid pattern, memory array, node ID, device bits and the three type bytes — and left blank. The pattern's **value** is not in the manual and came from the boot PROM instead — `cmpi.l #$1234ABCD,$4(a0)` at `00178A`, with `a0` based at the handbook's checksum offset. The fifty bytes are a **battery**: `--calendar-ram FILE` carries them across a run, and deliberately not the clock, since a starting instant taken from the last run's ending one is a wall clock arriving through the back door | `calendar_suite`, 10 tests; `FINDINGS.md` C12 |
 | MC146818A calendar (the part) | working: ten clock bytes, four registers, 50 RAM bytes, the once-per-second update with a full Gregorian carry, the alarm with don't-care codes, and Register C's read-to-clear. **Time is supplied by the caller, never the host** — the oracle seeds its calendar from the wall clock, which would rot every golden. The **periodic interrupt** is implemented for the nine rates that divide the time base (512 Hz to 2 Hz); the six fastest are refused rather than rounded, because `AP_TIME_BASE_HZ` factors as 2^9·3·5^8·11 and they need 2^15. Square wave and daylight-savings shifts are declined. Not yet wired to the board at `010900` | `mc146818_suite`, 32 tests, `MC146818A` (register figures read from page images) |
 | Node ID PROM (`011200`) | working: the layout measured from the oracle's own PROM — stride 2 with the **odd byte reading zero** (unlike the serial ports at the same stride), the identifier big-endian in registers 0-3, and a checksum in register **15** confirmed arithmetically (`01 + 23 + 45 = 69`) and then by the boot PROM's own self-test, which sums registers 0-14 and compares. The identifier is supplied by the caller, never a constant: a device whose purpose is to be unique per machine must not be the same on every one | `nodeid_suite`, 8 tests; `008778-03` Table 2-8, CPU self-test 8 at `008218` |
-| Apollo serial ports (`010400`, `010500`) | working: both DUARTs at **stride 2** (measured), sixteen registers over thirty-two bytes and aliased, sharing IRQ1 through to vector `A1`. The memory-refresh square wave of §3.9 runs: the counter is clocked at the DUART's X1 and produces a 15 microsecond period from the boot PROM's own preload. Its *frequency*, 66666.67 Hz, is not an integer, so a core counting in hertz could not represent this board's refresh clock at all | `sio_suite`, 25 tests; `FINDINGS.md` C14 |
+| Apollo serial ports (`010400`, `010500`) | working: both DUARTs at **stride 2** (measured), sixteen registers over thirty-two bytes and aliased, sharing IRQ1 through to vector `A1`. The memory-refresh square wave of §3.9 runs: the counter is clocked at the DUART's X1 and produces a 15 microsecond period from the boot PROM's own preload. Its *frequency*, 66666.67 Hz, is not an integer, so a core counting in hertz could not represent this board's refresh clock at all | `sio_suite`, 27 tests; `FINDINGS.md` C14 |
 | MC68681 / SCN2681 DUART (the part) | **programming model complete**: all sixteen register addresses of `[68681]` Table 4-1, both channels' mode registers with their shared pointer, clock-select, command and status registers, the three-deep receive FIFO with overrun, the interrupt status and mask registers, the input and output ports, and the counter/timer with both address-triggered commands. **All eight of §4.2.7.2's miscellaneous commands** — the audit found three falling through a bare `default: break;` (reset break change interrupt, start break, stop break) and, in the same paragraph, three outright errors in the transmitter status bits; see below. **Serial framing is modelled**, and the claim that it was not was stale: `ap_mc68681_resample` reshapes a character arriving at a mismatched baud rate rather than flagging an intact one, `ap_mc68681_character_bits` applies `MR1`'s width, parity is checked on both enable *and* type, `MR2`'s stop-bit field is read, and all four channel modes — normal, auto-echo, local loopback, remote loopback — behave differently. **Wired to the board** through `board/ap_sio.h` | `mc68681_suite`, 47 tests, `MC68681 DUART Sep85` |
 | QIC-02 tape drive | **the whole command set**, all eleven of `[SC499]` §1.13: both SELECTs with the sticky selection and the soft lock, BOT, RETENSION, both format selects, READ, READ STATUS, and WRITE, WRITE FILE MARK, READ FILE MARK and ERASE recognised and refused. **WRITE places a block** on a cartridge loaded writable, the distinction `ap_ct_t` now carries; a read-only one refuses. WRITE FILE MARK and ERASE are still refused, and for a reason that has not changed — a `.ct` is a raw block image with no file marks in it. The cartridge *type* is supplied by the caller, because the controller derives it from tape geometry a raw image does not carry. **The two opcodes C25 recorded as lost are recovered**: §1.13's summary table has a previous owner's pen through `H'22'` and `H'26'`, and §1.13.1's numbered descriptions two pages on give the same codes in clean binary, corroborated by the three codes either side of them that this core already had. **READ STATUS now transfers its block**: six bytes, the length `[SC499]` §1.13.1 gives outright, as three 16-bit fields LSB-first — exception flags, data-error count, underrun count — and reading it clears the power-on condition it reports | `qic_suite`, 18 tests; `FINDINGS.md` C25 |
 | Cartridge tape images (`image/ap_ct.c`) | working: block addressing over a raw `.ct` image, refusing any size that is not a whole number of 512-byte blocks, and boot-record parsing that returns the four header words. Their reading as load address and entry point is now **confirmed by the boot code itself** — its first instruction, a PC-relative `LEA`, computes word 0 exactly when executed at word 1, so the image proves its own layout. `ap_ct_boot_image` therefore *names* load address, entry point and length, and refuses a cartridge that does not announce itself, or whose header describes more than the file holds. Takes memory, never a filename, so `src/core` keeps its zero file I/O and the tests need no gitignored media | `ct_suite`, 12 tests; `FINDINGS.md` C24 |
@@ -18328,6 +18328,73 @@ disassembly, not an experiment.
 
 *Verification: none -- this is a located table and a disassembled failure site,
 not a change. No code changed for this entry.*
+
+## The Series 4000 memory strap, read out of the firmware that decodes it
+
+The previous entry left the DN4500's strap located but not derived. It is
+derived now, and the encoding was never an arithmetic one -- which is why
+indexing the table by the strap byte gave nonsense.
+
+**The firmware compares the byte against literals.** Ahead of the memory-top
+table is a chain, one arm per legal strap:
+
+```
+0078A6  cmp.b  #$60, d0
+0078AA  bne.b  $78b4
+0078AC  lea.l  $79ce(pc), a0
+0078B0  bra.w  $793c
+0078B4  cmp.b  #$44, d0
+...
+00793C  move.l a0, $84(a5)
+007940  move.l (a0)+, d0        ; walk the selected list
+007942  cmp.l  $54(a5), d0
+```
+
+Fourteen arms in `4500_BOOT_13167_02`, and **the identical fourteen** in
+`3500_BOOT_12191_7` -- same values, same sizes, lists at `7972` instead of
+`7992`. `5500_BOOT_A1631-80046` carries the same fourteen and nineteen more
+above them, reaching 64 MB.
+
+| strap | total | banks | | strap | total | banks |
+| --- | --- | --- | --- | --- | --- | --- |
+| `54` | 4 MB | 4-0-0-0 | | `14` | 16 MB | 8-8-0-0 |
+| `64` | 8 MB | 4-4-0-0 | | `00` | 20 MB | 8-8-4-0 |
+| `50` | 12 MB | 4-4-4-0 | | `04` | 24 MB | 8-8-4-4 |
+| `60` | 16 MB | 4-4-4-4 | | `30` | 24 MB | 8-8-8-0 |
+| `44` | 8 MB | 8-0-0-0 | | `24` | 28 MB | 8-8-8-4 |
+| `70` | 12 MB | 8-4-0-0 | | `20` | 32 MB | 8-8-8-8 |
+| `40` | 16 MB | 8-4-4-0 | | | | |
+| `10` | 20 MB | 8-4-4-4 | | | | |
+
+The bank layouts are not read off the byte -- they are the **step sizes of each
+list's progression**, since a list gives the top of memory after each bank is
+added. And that is what makes this trustworthy rather than plausible: the four
+layouts the oracle knew, `64` 4-4-0-0, `60` 4-4-4-4, `14` 8-8-0-0 and `20`
+8-8-8-8, **fall out of the lists unchanged**. Four independent points reproduced
+by a method that was not fitted to them.
+
+**It explains the DN4500 failure exactly.** Our table had no Series 4000 rows, so
+`ap_sio_ram_config_byte` declined, the board went out unstrapped, and the port
+read `00` -- which the firmware's chain reads as *twenty megabytes*, not as "no
+answer". `Expected= 02400000` is twenty megabytes above the `01000000` base, and
+`Actual= 02000000` is the sixteen fitted. The machine was not failing to size
+memory; it was sizing it correctly from a byte we never set. With the chain in
+the table the DN4500 straps `60` and walks its memory test like a DN3500.
+
+**Still a table, not an encoder.** Fourteen points do not determine a scheme any
+more than four did, and what the *bits* mean remains unexplained -- `54`, `64`,
+`50`, `60` step through 4-0-0-0 to 4-4-4-4 in no order a field would give. What
+has changed is that every entry is now measured from the part that reads it.
+Where a size has two spellings the evener layout is taken, and `00` is never
+used: a machine that cannot say what it has must not be indistinguishable from
+one claiming twenty megabytes, which is the failure this whole entry is about.
+`sio_suite` asserts that.
+
+*Verification: `sio_suite` 25 → 27, including the whole chain for both models
+and the no-`00` rule swept over every model and size; `ctest` 129/129; the
+DN4500's `Self test failed` gone; the DN3500 30 M hash `5507489C6C7AE148`
+unchanged.*
+
 
 
 

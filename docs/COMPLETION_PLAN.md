@@ -4001,11 +4001,12 @@ Only after the reference core is proven, and only under an identity harness.
       own self-checksum bounds and its `0001F040` reset PC) and the core device
       block is the Series 4000's shifted up by `0x10000`, confirmed against
       six addresses; what is missing is the AT cards at ISA `140` and `148`,
-      which are not shifted Series 4000 addresses. Also the DN4500's memory
-      strap, which has no Series 4500 rows in the manual, the oracle or our
-      table — its firmware's failure site is now disassembled and the table it
-      decodes to is located at `007992`, a list of memory tops; what is left is
-      the code that indexes it; the DN5500 past self-test; and both ring generations, which need
+      which are not shifted Series 4000 addresses. The DN4500's memory strap is
+      **solved**: the firmware decodes it with a fourteen-arm `cmp.b` chain,
+      identical in the DN3500's PROM, and the oracle's four bank layouts fall
+      out of it unchanged. Its self-test failure was our unstrapped port reading
+      `00`, which the firmware reads as twenty megabytes rather than as no
+      answer. Still open: the DN5500 past self-test; and both ring generations, which need
       the ring controller device.
       *Verification: `frontend_flags` 13 → 16; DN3500 30 M hash unchanged.*
 - [ ] Real multi-node Domain workloads: distributed single-level store across

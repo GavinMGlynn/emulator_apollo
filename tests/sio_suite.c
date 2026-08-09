@@ -406,9 +406,10 @@ static void test_a_rateless_clock_select_has_no_character_time(void) {
 
 /* **A table, not an encoder**, and the reason is in the data: `20` is
  * "8-8-8-8" on a DN3500 and "2-2-2-2" on a DN3000, so the byte is not a
- * per-bank size field and the same value means different machines. Four points
- * do not determine a scheme, and no manual in `docs/references/` describes one.
- */
+ * per-bank size field and the same value means different machines. No manual in
+ * `docs/references/` describes a scheme, and fourteen points do not determine
+ * one either -- but the fourteen are now measured rather than guessed at, from
+ * the decode chain in the Series 4000 firmware itself. */
 static void test_the_ram_config_byte_is_a_table_and_not_a_rule(void) {
   uint8_t byte = 0u;
 
@@ -429,13 +430,58 @@ static void test_the_ram_config_byte_is_a_table_and_not_a_rule(void) {
   TEST_ASSERT_EQUAL_HEX8(0x20u, byte); /* 2-2-2-2, and 8 MB not 32 */
 }
 
+/* The rest of the chain, read out of `4500_BOOT_13167_02` and confirmed
+ * identical in `3500_BOOT_12191_7`. These are the sizes a Series 4000 can be
+ * built in, and until they were read the DN4500 had no entry at any size --
+ * which left its strap unset and failed its memory test with
+ * `Expected= 02400000` against the sixteen megabytes fitted. `02400000` is
+ * twenty megabytes above the base, and twenty is what the firmware's list for
+ * strap `00` says: the value an unstrapped port reads. */
+static void test_the_series_four_thousand_chain_is_the_firmwares_own(void) {
+  static const struct {
+    uint32_t megabytes;
+    uint8_t byte;
+  } expected[] = {
+      {4u, 0x54u},  {8u, 0x64u},  {12u, 0x50u}, {16u, 0x60u},
+      {20u, 0x10u}, {24u, 0x04u}, {28u, 0x24u}, {32u, 0x20u},
+  };
+  for (unsigned i = 0; i < sizeof expected / sizeof expected[0]; i++) {
+    uint8_t byte = 0u;
+    TEST_ASSERT_TRUE(ap_sio_ram_config_byte(
+        AP_MODEL_DN3500, expected[i].megabytes * 1024u * 1024u, &byte));
+    TEST_ASSERT_EQUAL_HEX8(expected[i].byte, byte);
+    byte = 0u;
+    TEST_ASSERT_TRUE(ap_sio_ram_config_byte(
+        AP_MODEL_DN4500, expected[i].megabytes * 1024u * 1024u, &byte));
+    TEST_ASSERT_EQUAL_HEX8(expected[i].byte, byte);
+  }
+}
+
+/* `00` means twenty megabytes to the firmware and "nothing told me anything" to
+ * a board that never set the strap. The table must never spell a size that way,
+ * or a machine that cannot describe itself becomes indistinguishable from one
+ * claiming twenty megabytes -- which is exactly the failure the DN4500 showed.
+ */
+static void test_no_size_is_spelled_as_the_unstrapped_value(void) {
+  for (unsigned mb = 1u; mb <= 64u; mb++) {
+    for (ap_model_id_t m = 0; m < AP_MODEL_COUNT; m++) {
+      uint8_t byte = 0xFFu;
+      if (ap_sio_ram_config_byte(m, mb * 1024u * 1024u, &byte)) {
+        TEST_ASSERT_NOT_EQUAL_UINT8(0x00u, byte);
+      }
+    }
+  }
+}
+
 /* A pair the table does not cover is **refused**, not approximated. A wrong
  * configuration byte is a machine that sizes memory it does not have and finds
  * out by bus-erroring in the middle of its own self-test -- a failure that
  * looks like a defect in whatever it touches next. */
 static void test_an_unlisted_size_is_refused_rather_than_approximated(void) {
   uint8_t byte = 0xAAu;
-  TEST_ASSERT_FALSE(ap_sio_ram_config_byte(AP_MODEL_DN3500, 4u * 1024u * 1024u,
+  /* Not 4 MB any more -- the firmware's chain spells that `54`. A size the
+   * chain does not name at all, and one no Series 4000 can be built in. */
+  TEST_ASSERT_FALSE(ap_sio_ram_config_byte(AP_MODEL_DN3500, 6u * 1024u * 1024u,
                                            &byte));
   TEST_ASSERT_FALSE(ap_sio_ram_config_byte(AP_MODEL_DN3500, 64u * 1024u * 1024u,
                                            &byte));
@@ -593,6 +639,8 @@ int main(void) {
   RUN_TEST(test_a_character_takes_as_long_as_its_framing_says);
   RUN_TEST(test_a_rateless_clock_select_has_no_character_time);
   RUN_TEST(test_the_ram_config_byte_is_a_table_and_not_a_rule);
+  RUN_TEST(test_the_series_four_thousand_chain_is_the_firmwares_own);
+  RUN_TEST(test_no_size_is_spelled_as_the_unstrapped_value);
   RUN_TEST(test_an_unlisted_size_is_refused_rather_than_approximated);
   RUN_TEST(test_the_strap_drives_seven_input_pins);
   RUN_TEST(test_the_refresh_output_returns_to_the_input_port);
