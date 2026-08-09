@@ -19791,6 +19791,46 @@ would confirm it and is not worth a boot on its own.
 *Verification: the read log with PCs, from one boot on the year-26 clock. The
 mask, the count and the PCs come from the same run.*
 
+## Where this stops, and what the next instrument has to be
+
+The oracle's first install of space 0 is caught, across five runs, at
+`11.7`-`11.9` emulated seconds with the CPU somewhere in
+`3C4527DC`-`3C452944` -- a span of about `0x168` bytes, which for an
+asynchronous poll is a tight enough cluster to mean the installing code really is
+there.
+
+**Our machine executes that region too**, reaching `3C452930` at 286,527,936
+instructions, and a 2000-step ring shows it running straight through:
+`3C4527D0`, `3C4527DC`, `3C452800`, `3C452824` and on, thirty-eight steps of
+ordinary work with no call to the switch routine. Its first call comes **two
+million instructions later**, from an entirely different site --
+`3C456642` -> `3C41954E` -> `3C41956C` -- and asks for space 1.
+
+**So the two machines run the same code in the same region and do different
+things with it**, and that is as far as the poll can take this. A sampled PC says
+where the CPU *was* when a change was noticed; it cannot say which instruction
+made the change, and the difference between "the oracle installs from
+`3C4528xx`" and "the oracle was passing through `3C4528xx` when an install made
+elsewhere was noticed" is exactly the difference that matters now.
+
+**The next instrument is the one thing not yet built**: an instruction-level hook
+in the oracle on the `PMOVE` at `3C43DDF0`, or on the routine's entry at
+`3C43DD80`, reporting the argument on the stack. Everything else has been tried
+and each failure taught its own lesson -- a side-loaded probe that never fired, a
+write tap aimed at a `PMOVE` that writes no memory, a by-PC tap over the wrong
+megabyte, and a poll whose PCs locate to within a few hundred bytes and no
+better.
+
+**What that hook must satisfy**, from this session's record: it must be shown to
+fire on something known before its silence counts, and it must not depend on a
+physical address, since the two machines page the kernel differently. A read tap
+on the instruction's own address would satisfy both if the address can be
+resolved on the oracle's side -- which is the first thing to measure, not assume.
+
+*Verification: five oracle logs for the cluster; one stop at `3C452930` with a
+2000-step ring for ours. No code changed.*
+
+
 
 
 

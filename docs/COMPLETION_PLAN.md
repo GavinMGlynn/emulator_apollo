@@ -2985,6 +2985,14 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
     a page-fault handler, running *after* the skipped switch and only to ask why
     an access failed. The count is the cost of the defect rather than a clue to
     it: a machine whose switch had taken effect would probe far less.
+    **Next instrument, and the last one this needs**: an instruction-level hook
+    in the oracle on the `PMOVE` at `3C43DDF0` or the routine entry at
+    `3C43DD80`, reporting the argument. The poll locates the oracle's first
+    install to `3C4527DC`–`3C452944` and no better, and our machine runs that
+    same region without calling the switch at all — so the remaining question
+    cannot be settled by sampling. The hook must be shown to fire on something
+    known before its silence counts, and must not rest on a physical address,
+    since the two machines page the kernel differently.
     **A separate defect surfaced while trying to match the boot routes**: the
     firmware's autobaud **walks downward under repeated characters**. One
     carriage return at 9600 locks at 9600 and the ordinary boot works; 120 at
