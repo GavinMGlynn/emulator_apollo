@@ -2868,8 +2868,14 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
     the image: the kernel holds **exactly one** `PMOVE ,CRP`; it records the
     ASID eight instructions earlier with `MOVE.W D0,$3C43FB14`; and that word
     still holds `1` when the boot ends. So the one root-pointer load the kernel
-    has is unreachable, by construction rather than by observation. Detail in
-    `PROJECT_STATUS.md`.
+    has is unreachable, by construction rather than by observation.
+    **And the conclusion inverts**: `01002174`, logged for weeks as the last
+    writer of that word, disassembles to `move.l (a0),d4 / move.l d4,(a0)+` — a
+    memory sweep that writes back what it reads. The `1` is the kernel image's
+    own value and would be `1` on real hardware, so taking the branch is
+    *correct* and the defect is upstream: the `CRP` should already hold the
+    kernel's tree when it first reaches that routine, and ours holds
+    `SELF_TEST`'s `01001400`. Detail in `PROJECT_STATUS.md`.
 
 **Order matters here, and this file had it wrong.** The boot is a *test*, and
 two of its children were unfinished *implementation*. `CLAUDE.md` says

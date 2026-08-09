@@ -403,7 +403,63 @@ local function install()
 	note("# apollo md session ready\n")
 end
 
+
+-- ## Root-pointer watch, opt-in with APOLLO_CRP_LOG
+--
+-- Our core executes exactly one `PMOVE ,CRP` in the whole Domain/OS kernel
+-- image and its gate is never false, so the machine runs on `SELF_TEST`'s tree
+-- and dies on an address that tree never mapped. The question this answers is
+-- whether the oracle installs `0105BC00` and where.
+--
+-- It **polls CPU state** rather than hooking an instruction path. MAME exposes
+-- the 68030's root pointers as ordinary state registers (`m68kcpu.cpp`,
+-- `state_add(M68K_CRP_APTR, ...)`), so if the register changes the value
+-- changes, whatever instruction changed it. An earlier attempt side-loaded a
+-- probe into the oracle's `PMOVE` path, was verified present in the binary, ran
+-- three boots and never fired -- and nothing could tell "the oracle does not do
+-- this" from "the probe is not wired". This cannot fail that way, and it says
+-- so out loud: it checks the registers exist before the run and reports
+-- `SELF_TEST`'s own loads, which are known to happen, so a quiet log is
+-- evidence rather than an absence of evidence.
+local crp_log = os.getenv("APOLLO_CRP_LOG")
+local crp_file, crp_last, crp_changes = nil, {}, 0
+if crp_log ~= nil and crp_log ~= "" then
+	crp_file = io.open(crp_log, "w")
+	local cpu = manager.machine.devices[":maincpu"]
+	local missing = {}
+	for _, n in ipairs({ "CRP_APTR", "CRP_LIMIT", "SRP_APTR", "SRP_LIMIT", "PC" }) do
+		local ok = pcall(function() return cpu.state[n].value end)
+		if not ok then missing[#missing + 1] = n end
+	end
+	if #missing > 0 then
+		crp_file:write("FATAL missing CPU state: " .. table.concat(missing, " ") ..
+		               "\nFATAL this run proves nothing\n")
+		crp_file:flush()
+		crp_file = nil
+	else
+		crp_file:write("# time_s  register  value  pc\n")
+		crp_file:flush()
+	end
+end
+
+local function crp_poll()
+	if crp_file == nil then return end
+	local cpu = manager.machine.devices[":maincpu"]
+	local t = manager.machine.time:as_double()
+	local pc = cpu.state["PC"].value
+	for _, n in ipairs({ "CRP_APTR", "CRP_LIMIT", "SRP_APTR", "SRP_LIMIT" }) do
+		local v = cpu.state[n].value
+		if v ~= crp_last[n] then
+			if crp_last[n] ~= nil then crp_changes = crp_changes + 1 end
+			crp_last[n] = v
+			crp_file:write(string.format("%10.4f  %-9s %08X  pc %08X\n", t, n, v, pc))
+			crp_file:flush()
+		end
+	end
+end
+
 emu.register_periodic(function()
+	crp_poll()
 	if finished then
 		return
 	end

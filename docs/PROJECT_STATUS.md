@@ -18555,6 +18555,50 @@ negative result from three documents. No code changed. The dump, the scan and
 the cross-references are reproducible from `tools/identity-boot.sh --dump-mem
 1002000:E8000`.*
 
+## The writer that was not a writer
+
+`PROJECT_STATUS`'s standing next step said: "`$3C43FB14` is written six times
+before the comparison and the last is from `PC 01002174`, inside the loaded
+kernel's startup ... On real hardware the code that declares 'current address
+space = 1' must load the `CRP` for space 1 too". That reading is **withdrawn**,
+and the code says why.
+
+The instruction at `01002174` had never been looked at -- only its address had
+been logged. Stopping the boot there (`--boot-stop-physical-pc 01002174:2`,
+which lands at 268,435,351 instructions with the code still resident, since the
+region is zeroed by the end of a boot) and disassembling it gives:
+
+```
+01002172  move.l  (a0), d4      ; read
+01002174  move.l  d4, (a0)+     ; write the same value back, advance
+01002176  cmpa.l  a0, a1        ; and again to the end of the range
+```
+
+It is a **read-modify-write sweep that preserves every longword** -- a memory
+touch, which on this board is how valid parity is established across a range.
+It does not initialise anything. The "six writes" are six longwords of that
+sweep passing over the address, writing back exactly what they read.
+
+**So the `1` is the kernel image's own initial value**, and it would be `1` on
+real hardware too. Which inverts the conclusion this investigation has been
+carrying: the kernel is **not** failing to load a root pointer it ought to load.
+Taking that branch is correct behaviour for a machine where address space 1 is
+already installed, and the defect is *upstream* -- at the moment the kernel first
+reaches its switch routine, the `CRP` should already hold the tree the kernel
+expects, and ours holds `SELF_TEST`'s `01001400`.
+
+**This is the third hypothesis in this investigation retracted for the same
+reason**, after "the hash lookup that never succeeds" and "Domain/OS never
+installs its translation tables". Each time an *address* was logged and its
+meaning inferred rather than read. Logging where a write came from is cheap and
+says almost nothing; disassembling the instruction is what says what it does, and
+it costs one stop and no reasoning at all.
+
+*Verification: the stop, the dump and the disassembly above; the region is zeroed
+in an end-of-boot dump, which is why this had to be captured mid-run. No code
+changed.*
+
+
 
 
 
