@@ -472,6 +472,7 @@ local asid_pc = tonumber(os.getenv("APOLLO_ASID_PC") or "", 16)
 local asid_lo = tonumber(os.getenv("APOLLO_ASID_LO") or "", 16) or 0x01000000
 local asid_hi = tonumber(os.getenv("APOLLO_ASID_HI") or "", 16) or 0x010FFFFF
 local asid_file, asid_tap = nil, nil
+local asid_seen = 0
 if asid_pc ~= nil then
 	asid_file = io.open((os.getenv("APOLLO_CRP_LOG") or "crpwatch.log") .. ".asid", "w")
 	local ok, err = pcall(function()
@@ -482,6 +483,16 @@ if asid_pc ~= nil then
 				-- A small window, not equality: during a write MAME's PC may
 				-- already have advanced past the storing instruction.
 				local pc = cpu.state["PC"].value
+				-- **Prove the instrument fires.** The first writes are logged
+				-- whatever their PC, so a run that reports no match is telling
+				-- us about the machine and not about itself. Two earlier taps
+				-- produced a plausible silence and cost a run each.
+				if asid_seen < 12 then
+					asid_seen = asid_seen + 1
+					asid_file:write(string.format("%10.4f  sample %08X = %08X  pc %08X\n",
+						manager.machine.time:as_double(), offset, data, pc))
+					asid_file:flush()
+				end
 				if pc >= asid_pc and pc <= asid_pc + 10 then
 					asid_file:write(string.format("%10.4f  write %08X = %08X  pc %08X\n",
 						manager.machine.time:as_double(), offset, data, pc))

@@ -18762,6 +18762,20 @@ the data page landed stops mattering. It matches a small window rather than an
 exact PC, because during a write MAME's PC may already have advanced past the
 storing instruction.
 
+**Its first run caught nothing either, and the reason is measurable rather than
+mysterious.** The `TC` this machine runs with is `80A28750`, whose page-size
+field is `8` -- **256-byte pages** -- so translation preserves only the low eight
+bits of an address and the kernel's data page may sit anywhere in the sixteen
+megabytes fitted. The tap had been given the first megabyte. Widened to
+`01000000-01FFFFFF` it fires, and the samples settle the other open question
+about it: MAME's `PC` during a write **is** the storing instruction's address
+(`pc 00000666` writing `0100017C`), so matching on PC is sound.
+
+**The tap now logs its first twelve writes whatever their PC**, so a run that
+reports no match is saying something about the machine rather than about itself.
+Two runs were spent on taps that produced a plausible silence; this is what stops
+a third.
+
 The caution about `--dump-logical` windows still stands and is worth keeping:
 only a window's first address goes through the MMU, the rest is read physically
 onward, and that *is* why disassembling `3C452930` from a window produced
