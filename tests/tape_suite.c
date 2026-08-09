@@ -29,11 +29,24 @@ static void test_the_measured_dump_is_reproduced(void) {
    *   not. `[SC499]` says nothing either way, so nothing is claimed -- see
    *   `ap_tape_reset`, which records it as open rather than picking a side.
    *
+   *   bits 2-0: `[SC499]` p. 12 says "(BITS 0-2 Not Used)", and *not used* is
+   *   not zero -- nothing drives those lines, so they read as one, which is the
+   *   same rule this board already applies to the AT window at large. This core
+   *   read them zero, making its idle status `70` where the hardware's is `77`.
+   *   The evidence is the driver rather than the oracle: Domain/OS's tape reset
+   *   waits for the status register to read exactly `F7` and then exactly `57`
+   *   (`CMPI.W #$00F7` at `3C459F5A`, `#$0057` at `3C459F82`), and **both
+   *   constants have these three bits set** -- so real hardware must present
+   *   them as one or the driver could never have worked. MAME happens to agree
+   *   from `m_status = ~(SC499_STAT_DIR | SC499_STAT_EXC)`, but that is an
+   *   artefact of the complement rather than a model of the bus, and it
+   *   disagrees with its own reset value of `40`.
+   *
    * The aliasing, the two `00` bytes and the six `FF` bytes are unchanged
    * measurement. */
   static const uint8_t expected[16] = {
-      0x00, 0x70, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
-      0x00, 0x70, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+      0x00, 0x77, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+      0x00, 0x77, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
   };
   for (unsigned i = 0; i < 16u; i++) {
     TEST_ASSERT_EQUAL_HEX8(expected[i], ap_tape_read(&t, AP_TAPE_ADDR + i));

@@ -309,6 +309,30 @@ static void test_advancing_is_idempotent_and_refuses_to_go_backwards(void) {
   TEST_ASSERT_TRUE(t.ready);
 }
 
+/* `[SC499]` p. 12: "(BITS 0-2 Not Used)". Nothing on the controller drives
+ * them, so they read as one -- and the driver depends on it. Domain/OS's tape
+ * reset waits for the status register to read exactly `F7` and then exactly
+ * `57`, and both constants carry these three bits, so a controller that read
+ * them as zero could never satisfy either comparison. Named as its own test
+ * because the dump in `tape_suite` asserts the byte and this asserts the
+ * reason. */
+static void test_the_unused_low_bits_read_as_one(void) {
+  ap_sc499_t tape;
+  ap_sc499_reset(&tape);
+
+  const uint8_t status = ap_sc499_read(&tape, AP_SC499_CONTROL_STATUS);
+  TEST_ASSERT_EQUAL_HEX8(AP_SC499_ST_UNUSED,
+                         (uint8_t)(status & AP_SC499_ST_UNUSED));
+
+  /* And they stay set through a state change, since nothing drives them at
+   * any point -- a model that set them once at reset would pass the line
+   * above and still fail the driver. */
+  tape.exception = true;
+  const uint8_t later = ap_sc499_read(&tape, AP_SC499_CONTROL_STATUS);
+  TEST_ASSERT_EQUAL_HEX8(AP_SC499_ST_UNUSED,
+                         (uint8_t)(later & AP_SC499_ST_UNUSED));
+}
+
 static void test_the_handshake_times_are_exact_in_base_units(void) {
   /* `[SC499]` §1.13.2's figures are all bounds, and this core models them at the
    * bound -- `PROVISIONAL`, and recorded as such. What is *not* provisional is
@@ -349,6 +373,7 @@ int main(void) {
   RUN_TEST(test_the_interrupt_flag_reads_through_the_masks);
   RUN_TEST(test_done_contributes_to_the_flag_only_when_enabled);
   RUN_TEST(test_holding_the_reset_bit_holds_the_controller);
+  RUN_TEST(test_the_unused_low_bits_read_as_one);
   RUN_TEST(test_two_controllers_reset_alike_hold_identical_state);
   return UNITY_END();
 }

@@ -91,10 +91,31 @@ typedef enum {
 #define AP_SC499_ST_DONE 0x10u /* active high: "Done, from DMA logic" */
 #define AP_SC499_ST_DIR 0x08u  /* active high: controller to host */
 
+/* `[SC499]` p. 12: "(BITS 0-2 Not Used)".
+ *
+ * **Not used is not zero.** Nothing on the controller drives those three lines,
+ * so a read of the status register leaves them to the bus, and an undriven ISA
+ * data line reads as one -- which is the same reasoning `ap_board.c` already
+ * applies to the AT window at large, where "the pull-ups answer" `FF`. This
+ * core read them as zero, so its idle status was `70` where the hardware's is
+ * `77`.
+ *
+ * That was not a harmless cosmetic difference. Domain/OS's tape reset waits for
+ * the status register to read exactly `F7` and then exactly `57` -- `CMPI.W
+ * #$00F7` at `3C459F5A` and `#$0057` at `3C459F82` -- and both constants have
+ * these three bits set. With them clear the comparison can never match, the
+ * bounded retry times out, and the driver takes its error path. Detail in
+ * `PROJECT_STATUS.md`.
+ *
+ * Corroborated rather than assumed: the oracle's `sc499.cpp` carries `0x07` in
+ * its idle status too, measured as `m_status=77` on a booting machine. */
+#define AP_SC499_ST_UNUSED 0x07u
+
 /* The bits that read 1 when nothing is asserted. Useful as the base a status
  * read starts from, and as the thing a test can name rather than spelling `C0`
  * and inviting the reader to work out why. */
-#define AP_SC499_ST_ACTIVE_LOW (AP_SC499_ST_RDY | AP_SC499_ST_EXC)
+#define AP_SC499_ST_ACTIVE_LOW \
+  (AP_SC499_ST_RDY | AP_SC499_ST_EXC | AP_SC499_ST_UNUSED)
 
 
 /* Whether a register is driven on a read. The two DMA command addresses are
