@@ -20938,3 +20938,44 @@ survives with the byte.
 *Verification: the disassembly, from the ROM file; the sign-on above, from
 `tools/md-session.sh` with no arguments. Eleven runs of carriage returns
 preceded it and none is needed again.*
+
+
+## SELF_TEST is exonerated: the crash survives skipping it entirely
+
+With `tools/md-session.sh` the experiment this investigation has wanted for two
+sessions is one command:
+
+```
+  tools/md-session.sh --disk media/dn3500-sr10.4-installed.awd \
+      --clock 2026-08-09 --boot-script <expect MD7C / send EX DOMAIN_OS\r>
+```
+
+and its console is:
+
+```
+  MD7C REV 8.00, 1989/08/16.17:23:52
+  >EX DOMAIN_OS
+  low: 01002000 high: 010E986C start: 01002024
+  Crash_Status 00120020  PC 3C40E114 pid 0001
+```
+
+**The same crash, with `SELF_TEST` never loaded.** So the `CLR.L` loop at
+`01002D68` that clears the live tree's root entry for `3BC00000`-`3BFFFFFF` is
+not the cause: on this path that code does not exist in memory, and the machine
+dies in the same place with the same status. The entry it clears must be cleared
+by something else as well -- which the earlier "refusing the write changes
+nothing" experiment already hinted at and this settles.
+
+**And the confound is gone.** Both machines now run *the same software by the
+same route*: MD, `EX DOMAIN_OS`, Domain/OS from `01002024`. Every cross-machine
+measurement taken before this compared a boot that ran nine diagnostic tests
+against one that did not; from here they are comparable, and the instruction
+counts are on the same footing for the first time.
+
+That makes the next measurements the interesting ones rather than the
+suspicious ones: the switch-call count on this path (the oracle's is 52), and
+the `MMUSR` the handler reads at the fatal fault (the oracle's is `0402` where
+ours was `0401` on the auto-boot path).
+
+*Verification: the console above, from a bounded run of the committed script.
+`ctest` 130/130.*
