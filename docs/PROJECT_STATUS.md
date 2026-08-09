@@ -18949,6 +18949,35 @@ table indexing is from `MOVE.L (A0,D0.W*4),D0`; the first-install value is from
 six oracle runs; the three memory reads above are from one stop at the gate at
 288,640,117 instructions. No code changed.*
 
+## Testing the one visible difference: the path to the kernel
+
+The entry above ends with a hypothesis worth testing rather than assuming: the
+oracle's `CRP` is `00000000` until its kernel sets it, while ours holds
+`01001400` from the firmware's self-test, and a kernel that finds the MMU already
+configured may take a different path from one that finds it off.
+
+**The difference may be an artefact of how the oracle was driven, and that has to
+be ruled out first.** `mdsession.py` presses a key at 4 s, which drops the
+machine into MD; `ex domain_os` then loads the kernel *without* `SELF_TEST`'s
+diagnostics having run. Ours autoboots, so `SELF_TEST` runs and leaves its tree
+installed. The two are not the same boot, and until ours is made to take the same
+route the `CRP`-at-entry difference cannot be attributed to the machine.
+
+**A first attempt to take that route failed, and the way it failed is worth
+recording.** Sending six carriage returns with `--boot-input-interval 200000`
+does not interrupt the autoboot: the console shows the full self-test sequence
+and stops at `Do you wish to continue (y,n)?` with the script waiting for a
+banner that never comes. The route to MD on this machine is not a keypress during
+the boot -- it is the **Normal/Service switch**, `--service-mode`, and this file
+already records the recipe that reaches the sign-on: service mode, a keyboard
+press, `--boot-input-interval 400000`, forty carriage returns, and a budget
+reaching about forty-five emulated seconds. `expect MD7C` / `send EX CONFIG` has
+been driven that way before.
+
+*Verification: the failed attempt's console, which reaches the self-test question
+rather than `MD7C`. No code changed.*
+
+
 
 
 

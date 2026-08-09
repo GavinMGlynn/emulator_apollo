@@ -2929,7 +2929,15 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
     is never asked to enter space 0. First thing to test: the oracle's `CRP` is
     `00000000` until its kernel sets it, while ours holds `01001400` from the
     firmware — a kernel that finds the MMU already configured may take a
-    different path. Detail in `PROJECT_STATUS.md`.
+    different path.
+    **But that difference may be an artefact of how the oracle was driven**, and
+    ruling it out is the first step: `mdsession.py` presses a key at 4 s, drops
+    into MD, and `ex domain_os` loads the kernel *without* `SELF_TEST` having
+    run, while ours autoboots and `SELF_TEST` leaves its tree installed. Making
+    ours take the same route needs `--service-mode` — carriage returns alone do
+    not interrupt the autoboot — with the recipe this file already records: a
+    keyboard press, `--boot-input-interval 400000`, forty carriage returns and
+    ~45 emulated seconds. Detail in `PROJECT_STATUS.md`.
 
 **Order matters here, and this file had it wrong.** The boot is a *test*, and
 two of its children were unfinished *implementation*. `CLAUDE.md` says
