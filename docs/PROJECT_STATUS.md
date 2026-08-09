@@ -20608,3 +20608,51 @@ hear. A display-fitted boot needs the battery, not the script.
 
 *Verification: the screenshot above, decoded; the run's own counters against the
 display-less boot's -- 288 MMU faults either way, 681 against 939 vector 2.*
+
+
+## The oracle asks for space 1 first too, and calls the switch fifty-two times to our one
+
+The untried route, taken: `ext/mame`'s m68k main loop instrumented directly --
+four `m_pc` comparisons behind an `APOLLO_SWITCH_LOG` environment switch, logging
+the address-space switch routine's entry (`3C43DD80`), its argument read
+(`3C43DDC4`), its gate (`3C43DDCE`) and its `PMOVE` (`3C43DDF0`) with the
+registers. Built with the capped-scope recipe; **reverted before this commit**,
+and the checkout is back to its five known local edits.
+
+**The premise this investigation has carried for sessions is wrong.** "The
+oracle asks for space 0 first, ours asks for 1" was an inference from which tree
+appeared in `CRP`, never a measurement of the argument. Measured, the oracle's
+first call is:
+
+```
+  3C43DD80  d0=00000001      entry
+  3C43DDC4  d0=00000001      the argument, read back
+  3C43DDCE  d0=00000001      the gate -- and no PMOVE follows
+```
+
+It asks for **1**, meets a cache holding 1, and **skips, exactly as ours does**.
+The two machines agree completely on the first call.
+
+**What differs is everything after it.** The oracle goes on to call the routine
+**52 times**, 44 of which reach the `PMOVE`, alternating two trees -- 22 installs
+of `01001400` and 22 of `0105BC00` -- with the gate seeing index 0 twenty-nine
+times and index 1 twenty-three. Request 2 maps to index 0 and request 1 to index
+1, so this is a scheduler moving between two address spaces.
+
+Ours calls it **once**. `--boot-stop-pc 3C43DD80:2 --boot-stop-pc-skip 1` runs
+the whole boot to 387,684,292 instructions without firing, so there is no second
+visit at all -- and 99 M instructions separate our first call from the crash.
+
+**So the question has moved, and it is a much better one.** Not "why is our
+argument wrong" -- it is not -- and not "why does the gate skip" -- the oracle's
+skips too. It is: **what does the oracle do between its first and second call
+that our machine never does?** The oracle's second call follows within a few
+hundred instructions and from the same context (`a1=3C42BD8C` in both), asking
+for 2, which mismatches the cached 1 and installs `01001400` -- putting the
+hardware and the kernel's belief back in agreement. Ours never asks again, runs
+99 M instructions on `SELF_TEST`'s tree while believing it is in space 1, and
+dies on a page that space 1's tree maps.
+
+*Verification: the oracle's own log, 200 lines, from a boot to the `)` prompt;
+the negative from a bounded headless run whose stop is proven to fire elsewhere
+in the same session.*
