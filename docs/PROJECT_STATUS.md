@@ -19231,6 +19231,41 @@ nothing has installed it.
 rather than disassembled; the arithmetic is checked -- `0x416F << 10 =
 0x0105BC00`. No code changed.*
 
+## A correction in progress: the loop copies, and one of its tables is the live one
+
+Two measurements from a stop at `3C46F02C` complicate the narrative above, and
+they are recorded before any conclusion is drawn from them.
+
+**First, `logical 3C5BFC00` resolves to physical `01001400`.** That is the root
+table of the tree the MMU is *currently walking* -- `CRP = 00FF0002 01001400`.
+So the structure the `ED`-`EF` loop touches is not some private scratch area: the
+kernel has the live root table mapped into its own address space and reaches it
+there.
+
+**Second, the loop's instruction is a copy, not a store.** `25B0` at `3C46FE92`
+is `MOVE.L (d8,A0,Xn),(d8,A2,Xn)` -- source `A0 = 3C5BFC00`, destination
+`A2 = 3C5C0400`. So it moves entries *between two tables*, and which of them is
+the live tree decides what the loop means. The wording in the entry above --
+"the mappings sit in a tree the MMU is not walking" -- assumed a store into the
+new tree and may have the direction backwards.
+
+**What is not yet known** is where `3C5C0400` lands physically. If it is
+`0105BC00`, the loop copies the old tree's entries into the new one, which is
+ordinary preparation for a switch. If the live tree is the *destination*, the
+reading is different again. A stop with both resolved settles it, and that is the
+next measurement rather than a guess.
+
+**The frame result is clean and stands.** The value `3C000001` sits at
+`A6 - 0x20` in the frame at `3C4F98C8`, so it is a **local**, not a parameter
+passed in -- which means the routine that reads it computed or fetched it itself,
+and the search for its origin stops being a walk up the call chain and becomes a
+question about that one routine.
+
+*Verification: the two dump headers, from one stop at 288,639,158; the frame
+contents from the same stop. No conclusion drawn from the copy's direction until
+it is measured. No code changed.*
+
+
 
 
 
