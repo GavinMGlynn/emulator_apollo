@@ -145,6 +145,30 @@ ap_m68030_walk_result_t ap_m68030_walk_to_level(
 
   const ap_m68030_tc_split_t split = ap_m68030_tc_split(tc, address);
 
+  /* A root pointer that is itself a page descriptor: no table exists, so
+   * nothing is fetched and no level is walked. "Direct mapping with a constant
+   * offset (the table address)", and the addition is unsigned -- an offset that
+   * carries past the top of the address space wraps, as an unsigned add does.
+   *
+   * The limit check still happens: "for this case, the processor performs a
+   * limit check, regardless of the state of the FCL bit in the TC register."
+   * The index it applies to is the one the first level would have used, since
+   * that is the only index this address has when no table is indexed. Function
+   * code lookup is not modelled in the split, so "regardless of FCL" has
+   * nothing here to be regardless of -- recorded rather than silently assumed
+   * away. */
+  if (root->page_descriptor) {
+    if (root->has_limit && split.levels > 0u &&
+        !ap_m68030_desc_index_within_limit(root->limit, root->lower_limit,
+                                           split.index[0])) {
+      ap_m68030_search_fail_limit(&result.search);
+      return result;
+    }
+    result.ok = true;
+    result.physical = address + root->table_address;
+    return result;
+  }
+
   uint32_t table_address = root->table_address;
   bool long_format = root->long_format;
   bool have_limit = root->has_limit;

@@ -3988,6 +3988,11 @@ static ap_m68030_root_t pmove_root_from(uint32_t upper, uint32_t lower,
    * root pointer are not used and are ignored when written". */
   root.table_address = lower & UINT32_C(0xFFFFFFF0);
   root.long_format = descriptor.dt == AP_M68030_DT_VALID_8BYTE;
+  /* DT `$1` at the root is not a table: §9.7.1 makes it direct mapping with the
+   * table address field as a constant offset. Carried explicitly because
+   * `long_format` cannot express it -- everything that was not `$3` read as a
+   * short-format table, `$1` included. */
+  root.page_descriptor = descriptor.dt == AP_M68030_DT_PAGE;
   root.limit = descriptor.limit;
   root.lower_limit = descriptor.lower_limit;
   root.has_limit = descriptor.has_limit;

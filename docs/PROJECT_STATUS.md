@@ -3396,7 +3396,7 @@ failure that cost a bit position in the 68020's module entry word.
 | 68030 translation control (TC) + address split | working | `tc_suite`, 15 tests, `MC68030 User's Manual 3ed` §9.7.2 |
 | 68030 transparent translation (TT0/TT1) | working, bit layout now transcribed | `tt_suite`, 21 tests, `MC68030 User's Manual 3ed` §9.3, §9.7.3; layout from `M68000 Family Programmer's Reference Manual 1992` Figure 1-9 |
 | 68030 MMU status register (`MMUSR`) | working, both PTEST forms, bit layout transcribed | `mmusr_suite`, 17 tests, `MC68030 User's Manual 3ed` Table 9-3; layout from `M68000 Family Programmer's Reference Manual 1992` PTEST p. 6-64 |
-| 68030 translation table search (the walk) | working: search, U/M writeback, ATC fill, and `PTEST`'s level as a search depth | `walk_suite`, 47 tests, `MC68030 User's Manual 3ed` §9.2, §9.4, §9.5, §11; writeback cost cross-checked against `MC68851 PMMU User's Manual 3ed` §5.1.5.3.11; the level ceiling from `M68000 Family Programmer's Reference Manual 1992` PTEST p. 6-63 |
+| 68030 translation table search (the walk) | working: search, U/M writeback, ATC fill, and `PTEST`'s level as a search depth | `walk_suite`, 52 tests, `MC68030 User's Manual 3ed` §9.2, §9.4, §9.5, §11; writeback cost cross-checked against `MC68851 PMMU User's Manual 3ed` §5.1.5.3.11; the level ceiling from `M68000 Family Programmer's Reference Manual 1992` PTEST p. 6-63 |
 | MC68851 PMMU | working as its own subsystem: the translation control and root pointers, the six descriptor formats and Figure 5-10's type determination, the status and protection registers, the 64-entry ATC, and the table search with §5.1.5.3.11's U/M write-back. The **68030's** own MMU is separate and has its own rows above | `m68851_tc_suite` 13, `m68851_rp_suite` 13, `m68851_descriptor_suite` 21, `m68851_regs_suite` 22, `m68851_atc_suite` 22, `m68851_search_suite` 26, `m68851_suite` 43; `MC68851 PMMU User's Manual 3ed` |
 | 68040 MMU | not started | — |
 | MC68882 FPU | working, and attached to the 68030 as a *pointer* so a machine without one keeps its line 1111 trap. Every general-type operation executes: the four arithmetic operations, the exactly-specified monadics, the remainders, the single-precision pair, and **all nineteen transcendentals** to within §4.3.2's published bound. All three operand paths run — register-to-register, **`<ea>` to `FPn`** and **`FPn` to `<ea>`**, in all six binary formats from every legal addressing mode. `FMOVEM` of the data registers runs in both directions with its reversed mask orderings, and so do the system control registers, with the FPIAR tracking under §2.4's two conditions. `FMOVECR` returns all 22 published constants, computed and correctly rounded. **Every general-type instruction executes.** **Every instruction type executes**, the conditionals included. **Every 68882 instruction and every data format executes**, `FSAVE` and `FRESTORE` included. A *busy* state frame is deliberately absent: this core's part never suspends, so nothing can generate one — for which the coprocessor's own half (`ap_m68882_condition`) is done and the 68030's dialog is not | `m68882_regs_suite` 19, `m68882_format_suite` 18, `m68882_cir_suite` 8, `m68882_round_suite` 11, `m68882_arith_suite` 41, `m68882_decode_suite` 12, `m68882_accuracy_suite` 10, `m68882_transcendental_suite` 36, `m68882_store_suite` 13, plus 51 tests in `step_suite`; `MC68881/MC68882 User's Manual 1ed` |
@@ -20486,3 +20486,43 @@ ordinary dereference.
 *Verification: the two dumps above, taken at one stop, from a bounded boot on
 `--clock 2026-08-09`; the stop's own instruction count against the unskipped
 run's.*
+
+
+## A root pointer can be a page descriptor, and ours could not say so
+
+`[030]` §9.7.1's DT field, at the root pointer level, has a value this core
+could not express. `ap_m68030_root_t` carried `long_format` -- a bool derived
+from "is DT `$3`" -- so every other value read as a short-format table, `$1`
+included. What `$1` actually means is not a table at all:
+
+> "$1 PAGE DESCRIPTOR. A translation table for this root pointer does not exist.
+> The MC68030 internally calculates an ATC entry (page descriptor) for accesses
+> using this root pointer within the current page by adding (unsigned) the value
+> in the table address field to the incoming logical address. This results in
+> direct mapping with a constant offset (the table address). For this case, the
+> processor performs a limit check, regardless of the state of the FCL bit in
+> the TC register."
+
+And the address field changes meaning with it: "When the DT field contains $1,
+the value in the table address field is the offset used to calculate the
+physical address for the page descriptor. The table address field can contain
+zero (for zero offset)."
+
+So a whole address space is mapped by one addition, with no descriptor fetched.
+A model that walked it as a table would index memory at the offset and read
+whatever happens to sit there -- a plausible-looking translation from nothing.
+The limit check still applies, which is the sentence a reading of "no table, so
+no check" would miss, and it is a test.
+
+This also settles `PTEST`'s remaining clause without special-casing it: "If the
+root pointer's DT field indicates page descriptor, the returned address is $0."
+Nothing is fetched, so `last_descriptor_address` is zero already.
+
+**Not on this machine's path** -- Domain/OS's `CRP` is `00FF0002`, DT `$2` --
+which is why it was a plan tail rather than a fix, and why it is landed on the
+manual's authority rather than on a boot.
+
+*Verification: `walk_suite` 52 tests (5 further) -- the addition itself, zero
+fetches and a zero descriptor address, a zero offset giving the identity, a
+limit violation on an index past the limit, and the same index inside it
+mapping.*

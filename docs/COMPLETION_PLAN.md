@@ -607,14 +607,16 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
           *Verification: the stop fires at 385,198,347 on `3BFF0001` where the
           skip-based stop fired 11,480 instructions earlier on a visit that did
           not fault.*
-    - [ ] A root pointer whose DT field is `page descriptor` cannot be
-          represented: `ap_m68030_root_t` collapses DT to `long_format`, so a
-          `CRP` of DT `$1` is walked as a short-format table. The same page owes
-          `An = $0` for that case. Not on any path this machine takes — its
-          `CRP` is DT `$2` — which is why it is a tail and not a fix.
-          *Verification when done: `walk_suite` — a root that is itself an early
-          termination page descriptor translates without fetching, and `PTEST`
-          returns zero in the address register.*
+    - [x] A root pointer whose DT field is `page descriptor` is **direct
+          mapping with a constant offset**, not an early termination page:
+          `physical = logical + table address`, no descriptor fetched, and a
+          limit check performed all the same. `ap_m68030_root_t` collapsed DT to
+          `long_format`, so DT `$1` was walked as a short-format table and read
+          whatever sat at the offset. Detail in `PROJECT_STATUS.md`.
+          *Verification: `walk_suite` 52 tests (5 further) — the addition, zero
+          fetches with a zero descriptor address (which is `PTEST`'s `$0` for
+          this case), a zero offset as the identity, and the limit check both
+          ways.*
   - [x] **Full-format indexed addressing and the memory indirect modes**. The
         extension word declares its own base and outer displacement sizes, so
         the number of words to read is not known until that word has been read —

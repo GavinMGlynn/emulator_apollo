@@ -500,6 +500,103 @@ static void test_a_search_that_never_read_a_descriptor_names_none(void) {
   TEST_ASSERT_EQUAL_HEX32(0, r.last_descriptor_address);
 }
 
+/* ---------------------------------------------------------------------------
+ * A root pointer that is itself a page descriptor, `[030]` §9.7.1 DT `$1`:
+ * "A translation table for this root pointer does not exist ... by adding
+ * (unsigned) the value in the table address field to the incoming logical
+ * address. This results in direct mapping with a constant offset."
+ * ------------------------------------------------------------------------- */
+
+static ap_m68030_root_t direct_root(uint32_t offset) {
+  return (ap_m68030_root_t){.table_address = offset,
+                            .page_descriptor = true,
+                            .has_limit = false};
+}
+
+/* The whole translation is one addition. */
+static void test_a_root_that_is_a_page_descriptor_maps_by_adding_an_offset(void) {
+  ap_m68030_tc_t tc = three_level_4k();
+  ap_m68030_root_t root = direct_root(0x00A00000u);
+  tree_t tree = make_tree(three_level_tree, 3);
+
+  ap_m68030_walk_result_t r = ap_m68030_walk(
+      &tc, &root, TEST_ADDRESS, &SUPERVISOR_READ, tree_fetch, NULL, &tree);
+
+  TEST_ASSERT_TRUE(r.ok);
+  TEST_ASSERT_EQUAL_HEX32(0x00A00000u + TEST_ADDRESS, r.physical);
+}
+
+/* "A translation table for this root pointer does not exist", so nothing is
+ * fetched and no level is walked -- which is also what makes `PTEST` return
+ * `$0` in its address register for this case, there being no descriptor whose
+ * address could be reported. */
+static void test_a_direct_mapped_root_reads_no_descriptor_at_all(void) {
+  ap_m68030_tc_t tc = three_level_4k();
+  ap_m68030_root_t root = direct_root(0x00A00000u);
+  tree_t tree = make_tree(three_level_tree, 3);
+
+  ap_m68030_walk_result_t r = ap_m68030_walk(
+      &tc, &root, TEST_ADDRESS, &SUPERVISOR_READ, tree_fetch, NULL, &tree);
+
+  TEST_ASSERT_EQUAL_UINT(0, r.descriptor_fetches);
+  TEST_ASSERT_EQUAL_UINT(0, r.levels_walked);
+  TEST_ASSERT_EQUAL_UINT(0, tree.fetches);
+  TEST_ASSERT_EQUAL_HEX32(0, r.last_descriptor_address);
+}
+
+/* "The table address field can contain zero (for zero offset)", which makes the
+ * mapping the identity -- and is the case a model that treated the field as a
+ * table base would turn into a walk of address zero. */
+static void test_a_direct_mapped_root_with_no_offset_is_the_identity(void) {
+  ap_m68030_tc_t tc = three_level_4k();
+  ap_m68030_root_t root = direct_root(0u);
+  tree_t tree = make_tree(three_level_tree, 3);
+
+  ap_m68030_walk_result_t r = ap_m68030_walk(
+      &tc, &root, TEST_ADDRESS, &SUPERVISOR_READ, tree_fetch, NULL, &tree);
+
+  TEST_ASSERT_TRUE(r.ok);
+  TEST_ASSERT_EQUAL_HEX32(TEST_ADDRESS, r.physical);
+}
+
+/* "For this case, the processor performs a limit check, regardless of the state
+ * of the FCL bit in the TC register." Direct mapping does not mean unchecked
+ * mapping, and this is the sentence a reading of "no table, so no check" would
+ * miss. */
+static void test_a_direct_mapped_root_still_performs_its_limit_check(void) {
+  ap_m68030_tc_t tc = three_level_4k();
+  ap_m68030_root_t root = direct_root(0x00A00000u);
+  root.has_limit = true;
+  root.lower_limit = false; /* an upper limit */
+  root.limit = 0x10u;
+  tree_t tree = make_tree(three_level_tree, 3);
+
+  /* TIA is 7 bits from the top, so this address indexes 0x40 -- past the
+   * limit. */
+  ap_m68030_walk_result_t r = ap_m68030_walk(
+      &tc, &root, 0x80000123u, &SUPERVISOR_READ, tree_fetch, NULL, &tree);
+
+  TEST_ASSERT_FALSE(r.ok);
+  TEST_ASSERT_TRUE(r.search.limit_violation);
+}
+
+/* And an index inside the limit maps as normal, so the check is a check and not
+ * a refusal of everything. */
+static void test_a_direct_mapped_root_within_its_limit_maps(void) {
+  ap_m68030_tc_t tc = three_level_4k();
+  ap_m68030_root_t root = direct_root(0x00A00000u);
+  root.has_limit = true;
+  root.lower_limit = false;
+  root.limit = 0x7Fu;
+  tree_t tree = make_tree(three_level_tree, 3);
+
+  ap_m68030_walk_result_t r = ap_m68030_walk(
+      &tc, &root, 0x80000123u, &SUPERVISOR_READ, tree_fetch, NULL, &tree);
+
+  TEST_ASSERT_TRUE(r.ok);
+  TEST_ASSERT_EQUAL_HEX32(0x00A00000u + 0x80000123u, r.physical);
+}
+
 /* [030] 9.5.1.1: "$3 VALID 8 BYTE ... The MC68030 multiplies the index for the
  * next table by eight." A long-format table must be indexed with the wider
  * stride, or the walk reads the wrong descriptor. */
@@ -1188,6 +1285,11 @@ int main(void) {
   RUN_TEST(test_an_ordinary_translation_has_no_level_ceiling);
   RUN_TEST(test_a_bus_error_leaves_the_last_readable_descriptor_named);
   RUN_TEST(test_a_search_that_never_read_a_descriptor_names_none);
+  RUN_TEST(test_a_root_that_is_a_page_descriptor_maps_by_adding_an_offset);
+  RUN_TEST(test_a_direct_mapped_root_reads_no_descriptor_at_all);
+  RUN_TEST(test_a_direct_mapped_root_with_no_offset_is_the_identity);
+  RUN_TEST(test_a_direct_mapped_root_still_performs_its_limit_check);
+  RUN_TEST(test_a_direct_mapped_root_within_its_limit_maps);
   RUN_TEST(test_a_long_format_table_is_indexed_with_the_wider_stride);
   RUN_TEST(test_the_index_selects_a_descriptor_by_stride);
   RUN_TEST(test_each_descriptor_with_u_clear_costs_one_history_write);

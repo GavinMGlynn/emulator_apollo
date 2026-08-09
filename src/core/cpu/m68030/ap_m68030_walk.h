@@ -213,6 +213,28 @@ typedef struct {
   uint16_t limit;
   bool lower_limit;
   bool has_limit;
+
+  /* The root's own DT is `$1 PAGE DESCRIPTOR`, which is not an early
+   * termination page and not a table at all. `[030]` §9.7.1:
+   *
+   *   "A translation table for this root pointer does not exist. The MC68030
+   *   internally calculates an ATC entry (page descriptor) for accesses using
+   *   this root pointer within the current page by adding (unsigned) the value
+   *   in the table address field to the incoming logical address. This results
+   *   in direct mapping with a constant offset (the table address). For this
+   *   case, the processor performs a limit check, regardless of the state of
+   *   the FCL bit in the TC register."
+   *
+   * And the table address field changes meaning with it: "When the DT field
+   * contains $1, the value in the table address field is the offset used to
+   * calculate the physical address ... can contain zero (for zero offset)."
+   *
+   * So this is `physical = logical + table_address`, with no descriptor fetched
+   * and no table walked -- a whole address space mapped by one addition. The
+   * root's DT was collapsed to `long_format` and this case could not be
+   * expressed: a `CRP` of DT `$1` was walked as though it named a short-format
+   * table, which reads whatever memory happens to sit at the offset. */
+  bool page_descriptor;
 } ap_m68030_root_t;
 
 /* The upper long word of a root pointer register, which is the same layout as a
