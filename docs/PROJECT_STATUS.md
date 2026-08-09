@@ -20646,8 +20646,13 @@ visit at all -- and 99 M instructions separate our first call from the crash.
 **So the question has moved, and it is a much better one.** Not "why is our
 argument wrong" -- it is not -- and not "why does the gate skip" -- the oracle's
 skips too. It is: **what does the oracle do between its first and second call
-that our machine never does?** The oracle's second call follows within a few
-hundred instructions and from the same context (`a1=3C42BD8C` in both), asking
+that our machine never does?** [**Corrected below** -- the "within a few hundred
+instructions" in the next sentence does not survive measurement: the two
+machines run 3,999 *identical* instructions after this call and the oracle does
+not call again in that window. See "The two machines run 3,999 identical
+instructions after the call that skips".] The oracle's second call follows
+within a few hundred instructions and from the same context (`a1=3C42BD8C` in
+both), asking
 for 2, which mismatches the cached 1 and installs `01001400` -- putting the
 hardware and the kernel's belief back in agreement. Ours never asks again, runs
 99 M instructions on `SELF_TEST`'s tree while believing it is in space 1, and
@@ -21729,3 +21734,47 @@ and this machine cannot tell.
 exactly the minimum; RSTDMA as a release, and inert when nothing is held; a
 rewrite mid-hold). `ctest` 130/130. Two 350 M/450 M boots byte-identical to the
 pre-change binary.*
+
+## The two machines run 3,999 identical instructions after the call that skips
+
+The question of record was "what does the oracle do between its first and second
+call that our machine never does?", resting on a claim written beside it: that
+the oracle's second call "follows within a few hundred instructions and from the
+same context". That claim is **wrong**, and the window that was supposed to
+contain the answer contains no divergence at all.
+
+**The measurement.** Our single call to the switch routine is at instruction
+**288,640,105** of the crash-clock boot. Taking the 4,000 instructions after it
+(`--boot-limit 288644106 --boot-trace-last 4000`) and diffing PC-for-PC against
+the oracle window already captured from the same call site:
+
+```
+  oracle: 3999   ours: 4000
+  IDENTICAL over 3999 instructions after the call
+```
+
+Not "close", not "diverges at the end" -- every program counter, in order,
+through the return path (`3C43DDCE` gate → `RTS` → `3C419572` → `3C456648`) and
+on into the call chain `3C46FF14` → `3C46F918` → `3C40A540` that follows it.
+Our `a1` is `3C42BD8C`, the same context the oracle's log records.
+
+**And the oracle does not call again in that window.** The capture holds exactly
+one visit to `3C43DD80` in 4,000 instructions. So "within a few hundred" cannot
+be describing instructions after the first call in this run, and the two
+readings it came from -- a 52-call log from a boot to the `)` prompt, and this
+window -- disagree about something. Recorded as a contradiction rather than
+resolved by picking one: the log may be counting from a later call than this
+one, or in a unit that is not instructions.
+
+**What this does settle.** The divergence is **not** in the first 4,000
+instructions after the skip, which is where the previous framing put it, and
+this core is not doing something locally different around the gate. Our machine
+then runs 100 M more instructions to the crash without ever asking again.
+
+*Next, and bounded*: log the instruction count of every visit to `3C43DD80` on
+the oracle over a full boot, which gives the distance from its first call to its
+second and turns the contradiction into a number. That is a counter and a print
+in the oracle's main loop, not a new instrument.
+
+*Verification: both traces above, taken from the same call site on each machine;
+the pre-existing oracle window capture, unmodified.*
