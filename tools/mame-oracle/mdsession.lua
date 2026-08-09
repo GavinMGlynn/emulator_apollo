@@ -592,7 +592,22 @@ if switch_pc ~= nil then
 						now, offset, pc))
 					switch_file:flush()
 				end
-				if pc >= switch_pc and pc <= switch_pc + 0x80 and switch_hits < 40 then
+				-- **The operand fetch of a root-pointer load.** `PMOVE (A0),CRP`
+				-- reads its 64-bit operand from memory before writing the
+				-- register, so the value passes through this tap and its PC is
+				-- the installing instruction -- which is the one thing the
+				-- root-pointer poll cannot give, locating only to a few hundred
+				-- bytes. Matched on the value rather than the address, because
+				-- the descriptor's address is not known on this machine.
+				if (data == 0x01001400 or data == 0x0105BC00 or data == 0x00FF0002)
+				   and switch_hits < 60 then
+					switch_hits = switch_hits + 1
+					switch_file:write(string.format(
+						"%10.4f  ROOTVALUE %08X at %08X  pc %08X\n",
+						manager.machine.time:as_double(), data, offset, pc))
+					switch_file:flush()
+				end
+				if pc >= switch_pc and pc <= switch_pc + 0x80 and switch_hits < 60 then
 					switch_hits = switch_hits + 1
 					local a7 = cpu.state["A7"].value
 					local arg = -1

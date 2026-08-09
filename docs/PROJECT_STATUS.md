@@ -20055,6 +20055,34 @@ oracle before the switch routine is ever called, and it is neither `3C43DDF0`
 *Verification: the ring committed with the region comparison; every instruction
 above was executed, and the register values are the machine's own.*
 
+## Catching the install by the value it reads, not the address it writes
+
+The question left standing -- what installs `01001400` on the oracle at 11.7 s,
+before the switch routine is ever called -- has an instrument now, and it comes
+from noticing what the instruction actually does.
+
+**`PMOVE (A0),CRP` reads its operand from memory.** The eight bytes of the root
+pointer descriptor are fetched before the register is written, so the value
+passes through a read tap and **the PC of that fetch is the installing
+instruction**. That is precisely what the root-pointer poll cannot supply: it
+samples asynchronously and locates only to within a few hundred bytes.
+
+**Matched on the value, not the address**, because the descriptor's physical
+address is not known on the oracle -- the two machines page the kernel into
+different frames, which is the trap that defeated an earlier tap. `01001400`,
+`0105BC00` and `00FF0002` are the three longwords a root-pointer load on this
+machine can carry, and any read of one of them, from anywhere, is logged with its
+PC.
+
+**It also inverts the earlier failure usefully.** The write tap could not see a
+`PMOVE` because a `PMOVE` writes a register and no memory. The same fact makes
+the *read* side work: what it writes is invisible, but what it reads is not.
+
+*Verification: the run is in progress; the tap is held in `_G` and samples
+liveness every two emulated seconds, so a silent result will be interpretable
+this time.*
+
+
 
 
 
