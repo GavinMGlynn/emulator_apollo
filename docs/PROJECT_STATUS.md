@@ -21018,3 +21018,47 @@ machines make differently.
 *Verification: 646 samples ours and 966 the oracle's, at matched deltas, from
 `tools/md-session.sh` and from `ext/mame` instrumented at the same landmark
 (reverted; the checkout carries only its five known local edits).*
+
+
+## The wrong turn, decoded: a descriptor word that is zero where it should be above one
+
+The decision that sends us into the dead AT-bus poll is a bounds test on a
+device descriptor, and every operand of it is now read rather than inferred:
+
+```
+  3C44F072  227C 3C4DD804   MOVEA.L #$3C4DD804,A1      a table base
+  3C44F07A  45F1 0000       LEA  (0,A1,D0.w),A2         indexed by D0
+  3C44F07E  0C68 0001 0006  CMPI.W #$0001,$0006(A0)     <-- the decision
+  3C44F084  6214            BHI.B  -> skip the poll
+  3C44F086  2668 0034       MOVEA.L $0034(A0),A3
+  3C44F08A  486B 000C       PEA  $000C(A3)
+  3C44F08E  4EB9 3C4BC36C   JSR  -> 3C4BC36C, which polls
+```
+
+With `A0 = 3C447180`, the descriptor reads (logical `3C447180` -> physical
+`01049D80`):
+
+```
+  01049D80  00 02 00 40 00 09 00 00  3C 44 71 40 3C 44 F0 24
+              +0    +2    +4    +6      +8          +C
+```
+
+**The word at `+6` is `0000`.** Zero is not *higher* than one, so `BHI` falls
+through and the poll is entered. Something above one would skip it. At `+$34`
+sits `3C446FA0`, and `3C4BC36C` takes `(A3+$0C)` and dereferences it to reach
+the device base -- which is the `3FFF0000` this file recorded, translating to
+physical `00055C00` in the AT bus window with nothing fitted.
+
+So the divergence is a **data** difference in device enumeration, not a control
+one: our kernel's descriptor says something the oracle's does not, and the
+branch merely reports it. Whether ours is wrong because a device was not found,
+or was found and counted differently, is the next question, and it needs the
+oracle's value of that same word -- one instrumented run.
+
+**Recorded because it is easy to over-read**: this does *not* yet show a defect
+in this core. A descriptor field is filled by earlier code, and the two machines
+agree instruction-for-instruction up to Δ 52 M. The wrong turn is real; the
+reason for it is one measurement away and is not yet in evidence.
+
+*Verification: the disassembly from a `--dump-logical` taken at the stop, and
+the descriptor from a second, both on the matched MD path.*
