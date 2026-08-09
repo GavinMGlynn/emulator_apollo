@@ -18193,4 +18193,85 @@ display-fitted run needs `--screenshot`.
 *Verification: `frontend_flags` 13 → 16, `ctest` 129/129, every golden
 unchanged, and the DN3500 30 M hash unchanged across the memory-sizing change.*
 
+## The DN2500's memory map, recovered from its own firmware
+
+The firmware sweep left the Series 2500 unable to run at all: a 128 K boot PROM
+image against a 64 K modelled region. `019411-A00` does not mention the Series
+2500, the Quick Reference Configuration Guide is a configuration document, and
+the oracle has no 2500 driver -- so the references are genuinely exhausted and
+the firmware is the primary source, exactly as it already was for this model's
+RAM base.
+
+**The PROM region is 128 K, and the firmware says so itself.** `2500_BOOT_16182_8`
+opens with a self-checksum:
+
+```
+01F0C8  movea.l  #$0, a0
+01F0CE  movea.l  #$20000, a1
+01F0D4  clr.l    d0
+01F0D6  rol.w    #$1, d0
+01F0D8  add.w    (a0)+, d0
+01F0DA  cmpa.l   a1, a0
+01F0DC  bne.b    $1f0d6
+01F0DE  tst.w    d0
+01F0E0  beq.b    $1f0e4
+01F0E2  bra.b    $1f0e2        <- halts here if the sum is wrong
+```
+
+It sums words from `0` to `$20000` and spins forever if the total is not zero.
+A part that checksums 128 K of itself is a 128 K part, and the reset PC of
+`0001F040` -- which is above 64 K and could not exist otherwise -- says the same
+thing a second way.
+
+**And the device block is the Series 4000's, moved up by exactly `0x10000`.** A
+census of every absolute address the image references in device space:
+
+| DN2500 | ×  | Series 4000 equivalent | what it is |
+| --- | --- | --- | --- |
+| `020200` | 4 | `010200` | core registers |
+| `020210` | 8 | `010210` | core registers |
+| `020280` | 30 | `010280` | core registers |
+| `0202C0` | 6 | `0102C0` | core registers |
+| `0202D0` | 9 | `0102D0` | core registers |
+| `020800` | 3 | `010800` | interval timer, `AP_TIMER_ADDR` |
+| `020A00` | 8 | `010A00` | not yet identified |
+| `020C00` | 3 | `010C00` | DMA, `AP_DMA1_ADDR` |
+
+Every one is its Series 4000 address plus `0x10000`, and the reset sequence's
+first three writes -- `#$1F` then `#$2` then `#$1C` to `$20800` -- are the
+posted-code pattern the DN3500 writes to `$010800`.
+
+**Which makes the rule the same across all three families**: the boot PROM sits
+at zero and the device block begins immediately above it. The Series 3000 has a
+32 K PROM and devices at `008000`; the Series 4000, 64 K and `010000`; the
+Series 2500, 128 K and `020000`. That is a derivation from three agreeing
+layouts and eight measured addresses, not a guess at one.
+
+So the DN2500 needs its own map and cannot borrow the Series 4000's -- a 128 K
+PROM region on that map would swallow the whole device block, which starts at
+`010000`, the byte after a 64 K PROM ends. Its RAM base is `0x04000000` from the
+model table, already recovered from this same PROM.
+
+**What does *not* shift, and why the map cannot be built from this alone.** A
+census widened past the core block finds `04A000` and `04A400`, seven and
+fifteen references. Those are inside the AT bus I/O window, where our decode is
+`physical = 040000 + (ISA << 7)` -- so ISA `140` and `148`, not the `2D0`/`2F8`
+the Series 4000's Winchester and floppy answer at (`04D000`, `05F800`). The AT
+attachments are therefore at *different addresses on the bus*, not at shifted
+ones, which is what a differently-populated machine looks like rather than a
+relocated one. Serial does shift with the rest: `020400` is
+`AP_SIO1_ADDR + 0x10000`, twenty-five references.
+
+So a DS2500 map is now half-derived: the boot PROM at `0` for 128 K, the core
+device block at `020000` with the Series 4000's own offsets inside it, and main
+memory at `04000000`. What is still missing is which cards answer at ISA `140`
+and `148`, and that wants the same treatment -- reading the firmware that talks
+to them. Building the map with the Series 4000's disk and tape placements
+carried over unchanged would be inventing the half that is not measured.
+
+*Verification: none yet -- this is a measurement, not a change. `020A00` is
+unidentified on both machines and is the one core-block address the derivation
+does not name. No code changed for this entry.*
+
+
 

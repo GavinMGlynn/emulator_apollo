@@ -3996,12 +3996,15 @@ Only after the reference core is proven, and only under an identity harness.
       `E0060882`. Memory size now comes from the model table, `--ram` selects
       it, and both DN3000 revisions pass into Memory Module 2. Detail and the
       display-redirects-the-console trap in `PROJECT_STATUS.md`.
-      **Awaiting**, each named there: the DN2500's PROM region and RAM base
-      (its 128 K image fits no modelled region, and no Series 2500 memory map
-      exists in the references — the firmware is the only source, as it already
-      was for its RAM base); the DN4500's memory strap, which has no Series
-      4500 rows; the DN5500 past self-test; and both ring generations, which
-      need the ring controller device.
+      **Awaiting**, each named there: the DN2500's map, now **half-recovered
+      from its own firmware** — the PROM region is 128 K (proved by the image's
+      own self-checksum bounds and its `0001F040` reset PC) and the core device
+      block is the Series 4000's shifted up by `0x10000`, confirmed against
+      six addresses; what is missing is the AT cards at ISA `140` and `148`,
+      which are not shifted Series 4000 addresses. Also the DN4500's memory
+      strap, which has no Series 4500 rows in the manual, the oracle or our
+      table; the DN5500 past self-test; and both ring generations, which need
+      the ring controller device.
       *Verification: `frontend_flags` 13 → 16; DN3500 30 M hash unchanged.*
 - [ ] Real multi-node Domain workloads: distributed single-level store across
       nodes, `lcnode`, remote file access. *Verification: content finds what
