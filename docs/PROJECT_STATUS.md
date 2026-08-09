@@ -19021,6 +19021,36 @@ stop -- the instrument is already built and costs one boot.
 *Verification: the call/return reconstruction is from the ring committed with the
 caller entry above; no new run. No code changed.*
 
+## Sixty thousand instructions before the gate: one request, and it is space 1
+
+The longer ring the entry above called for, taken at the same stop:
+
+- **The switch routine is entered exactly once** in the 60,000 instructions
+  before the gate -- at step 288,640,105, with `a7 = 3C4F9904`. There is no
+  earlier call in that window asking for space 0 or anything else. Whatever the
+  oracle does before its first request, ours has not done it in the sixty
+  thousand instructions preceding.
+- **The address-space module is busy in that window all the same**: 71 distinct
+  PCs in `3C43Dxxx`, clustered in two routines at `3C43D95C`-`3C43D9BC` and
+  `3C43DB6C`-`3C43DBAE`. So the kernel is working on address spaces well before
+  it asks to switch to one, and the request is the *end* of that work rather
+  than the start.
+- **The requested value is read from memory, not computed.** `d0` becomes `1` at
+  `3C40A064` via `SUBQ` in one ring and at `3C418E94` via `MOVE.L $xx(A0),D0` in
+  the shorter one; either way the `1` that reaches the gate comes out of a data
+  structure the kernel has already filled in.
+
+**Which turns the remaining question into a data question rather than a control
+one.** The kernel is not taking a wrong branch on the way to the switch -- it is
+being handed the number 1 by something it built earlier, and asking for exactly
+what it was told. On the oracle the same code is handed 0 first. So the thing to
+find is *what fills in that number*, and the two routines above, active in the
+module immediately before the request, are where to look.
+
+*Verification: one stop with `--boot-trace-last 60000`; the entry count, the PC
+census and the value's provenance are all from that ring. No code changed.*
+
+
 
 
 

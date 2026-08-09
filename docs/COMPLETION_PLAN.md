@@ -2937,7 +2937,15 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
     ours take the same route needs `--service-mode` — carriage returns alone do
     not interrupt the autoboot — with the recipe this file already records: a
     keyboard press, `--boot-input-interval 400000`, forty carriage returns and
-    ~45 emulated seconds. Detail in `PROJECT_STATUS.md`.
+    ~45 emulated seconds.
+    **And the question is now a data question, not a control one.** A
+    60,000-step ring at the gate shows the switch routine entered **exactly
+    once** in that whole window, with 71 distinct PCs of the address-space
+    module active *before* it — so the kernel works on address spaces, then asks
+    once, for space 1. The value is **read from memory**, not computed. It is
+    not taking a wrong branch; it is being handed the number by something it
+    built earlier, and the two routines at `3C43D95C`–`3C43D9BC` and
+    `3C43DB6C`–`3C43DBAE` are where to look. Detail in `PROJECT_STATUS.md`.
 
 **Order matters here, and this file had it wrong.** The boot is a *test*, and
 two of its children were unfinished *implementation*. `CLAUDE.md` says
