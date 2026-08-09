@@ -19376,6 +19376,37 @@ whether it looks at what the firmware left behind.
 rather than disassembled -- an F-line or `MOVEC` opcode could not be missed,
 since the ring records the opcode word of every step. No code changed.*
 
+## The eight `PMOVE`s are `SELF_TEST`'s, proven by timing rather than address
+
+This file has carried a caveat since the attribution was first questioned: "the
+eight were never shown to be `SELF_TEST`'s", because the console loads *both*
+images at `01002000` -- `SELF_TEST` as `low: 01002000 high: 01005378` and
+Domain/OS as `low: 01002000 high: 010E986C` -- so every one of the recorded PCs
+(`01002280`, `01002324`, `01002348`, `010025C8`-`010025F8`) falls inside both
+ranges and the address proves nothing.
+
+**Timing settles it.** Stopping on the last of them, `CRP <- 00FF0002 01001400`
+at `PC 01002324`, fires at **162,878,385 instructions**, and the console line
+immediately preceding the stop is `SELF_TEST`'s load, not Domain/OS's. The
+Domain/OS kernel is not in memory yet: its own copy loop at `01002174` does not
+run until **268,435,351**, more than a hundred million instructions later.
+
+So the eight root-pointer loads belong to `SELF_TEST`, the original attribution
+was right, and the caveat is discharged -- by the one kind of evidence that can
+discharge it, since two images sharing a load address can only be told apart by
+when they run.
+
+**Which confirms the shape of the defect rather than changing it.** Domain/OS
+executes no `PMOVE` at all: the only one it contains is the gated instruction at
+`3C43DDF0`, and its gate is never false. The machine runs the whole of Domain/OS
+on the tree `SELF_TEST` installed at 162.9 M instructions, and the kernel's own
+tree -- built, filled and recorded at `$3C43C96E` entry 1 -- is never loaded.
+
+*Verification: one stop with `--boot-stop-physical-pc 01002324:2`, at
+162,878,385 instructions, against the kernel's copy loop at 268,435,351 measured
+earlier. No code changed.*
+
+
 
 
 

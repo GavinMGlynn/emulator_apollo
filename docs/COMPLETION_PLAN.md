@@ -2974,8 +2974,14 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
     machine that switches to space **0** first — which the oracle does and we
     never do. Mechanism to test: the oracle's `CRP` is `00000000` until its
     kernel sets it, while `SELF_TEST` leaves ours configured, so a kernel that
-    checks before installing space 0 would skip it here and not there. That is a
-    single conditional and it is findable. Detail in `PROJECT_STATUS.md`.
+    checks before installing space 0 would skip it here and not there — though
+    **no F-line instruction and no `MOVEC` executes in the 60,000 steps before
+    the request**, so if such a check exists it ran much earlier.
+    **And a standing caveat is discharged**: the eight `PMOVE`s really are
+    `SELF_TEST`'s. Both images load at `01002000`, so the addresses proved
+    nothing, but the last of them fires at 162,878,385 instructions while the
+    kernel's own copy loop does not run until 268,435,351. Domain/OS executes no
+    `PMOVE` at all. Detail in `PROJECT_STATUS.md`.
 
 **Order matters here, and this file had it wrong.** The boot is a *test*, and
 two of its children were unfinished *implementation*. `CLAUDE.md` says
