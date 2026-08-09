@@ -21778,3 +21778,51 @@ in the oracle's main loop, not a new instrument.
 
 *Verification: both traces above, taken from the same call site on each machine;
 the pre-existing oracle window capture, unmodified.*
+
+## We die 36.8 M instructions before the oracle would ask a second time
+
+The contradiction is now a number, and it removes the defect it was supposed to
+explain. Instrumenting the oracle's main loop to report the instruction count at
+every visit to the switch routine's entry `3C43DD80` -- a counter and a print,
+run over a full boot to the Phase II Environment:
+
+```
+  visit 1     63,750,596   d0=00000001  a1=3C42BD8C
+  visit 2    200,486,124   d0=0000FFFF  a1=3C42BD8C
+  ...        7,556 visits over the boot
+```
+
+**136,735,528 instructions** separate the oracle's first call from its second,
+not "a few hundred". Against that:
+
+| | instructions |
+| --- | --- |
+| oracle, call 1 → call 2 | 136,735,528 |
+| ours, call 1 → the crash | 99,971,132 |
+| **we die early by** | **36,764,396** |
+
+**So "ours calls it once, the oracle 52 times" was never a difference in the
+calling.** Our machine dies 36.8 M instructions before the point at which the
+oracle asks again. A boot that crashes at +100 M cannot be faulted for missing
+an event that happens at +137 M -- the single call is a consequence of dying
+young, not a cause of it. Every framing built on "what does the oracle do
+between its first and second call" was answering a question about a window our
+machine never reaches.
+
+It also explains the previous entry cleanly: 3,999 identical instructions after
+the call, because there is nothing there to differ about for another 136 M.
+
+**What survives.** The first calls agree exactly -- same entry, `d0=00000001`,
+`a1=3C42BD8C` on both -- so the gate's skip is correct on both machines, as
+already recorded. What is now unexplained is only the crash itself: at the fatal
+`BFEXTU`, ours reads `MMUSR` N=1 and the oracle N=2, and both have made exactly
+one call to this routine by then.
+
+*Next*: the two machines must be compared on the **matched MD path** (`ex
+domain_os`, no `SELF_TEST` on either side), and the question is the CRP in force
+at the fatal fault on each -- not the switch routine, which both skip.
+
+*Verification: the oracle's own instruction counter over a boot to the `)`
+prompt, 7,556 visits logged; our counts from `--boot-stop-pc 3C43DD80` and the
+crash report of the same build. The oracle instrument is reverted and its
+checkout rebuilt clean.*
