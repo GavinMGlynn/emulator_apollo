@@ -3344,7 +3344,7 @@ failure that cost a bit position in the 68020's module entry word.
 | Subsystem | Status | Verification |
 | --- | --- | --- |
 | Build system, presets, CI | working | 4-platform matrix green on first run, plus the `-O0` vs `-O3` output-identity job |
-| Model table (`model/`) | working, 9 models | `model_suite`, 19 tests |
+| Model table (`model/`) | working, 9 models | `model_suite`, 21 tests |
 | Time base (`time/`) | working | `time_suite`, 17 tests |
 | State hash (`state/`) | primitive working | `hash_suite`, 11 tests, incl. published FNV-1a 64 vectors |
 | Core board state hash (the identity harness's board half) | working: the board registers, the translation map, both interrupt controllers, the interval timer with its three clocks, the calendar with both cursors, both DMA controllers, both serial ports, the node ID, the disk and tape controllers, the graphics memories, the keyboard matrix and the boot PROM. The diagnostic counters are deliberately outside it and reported beside it | `board_state_suite`, 22 tests sweeping every device field by field |
@@ -3415,7 +3415,7 @@ failure that cost a bit position in the 68020's module entry word.
 | Apollo calendar (`010900`) | working: **stride 1, byte consecutive** (measured — and not the timer's odd-address stride 2, so neither placement could be inferred from the other), sixty-four registers aliased through the 256-byte range, and the IRQ8 route through to vector `A8`. The battery RAM's **configuration table** is laid out from `002398-04` p. 12-3 — checksum, valid pattern, memory array, node ID, device bits and the three type bytes — and left blank. The pattern's **value** is not in the manual and came from the boot PROM instead — `cmpi.l #$1234ABCD,$4(a0)` at `00178A`, with `a0` based at the handbook's checksum offset. The fifty bytes are a **battery**: `--calendar-ram FILE` carries them across a run, and deliberately not the clock, since a starting instant taken from the last run's ending one is a wall clock arriving through the back door | `calendar_suite`, 10 tests; `FINDINGS.md` C12 |
 | MC146818A calendar (the part) | working: ten clock bytes, four registers, 50 RAM bytes, the once-per-second update with a full Gregorian carry, the alarm with don't-care codes, and Register C's read-to-clear. **Time is supplied by the caller, never the host** — the oracle seeds its calendar from the wall clock, which would rot every golden. The **periodic interrupt** is implemented for the nine rates that divide the time base (512 Hz to 2 Hz); the six fastest are refused rather than rounded, because `AP_TIME_BASE_HZ` factors as 2^9·3·5^8·11 and they need 2^15. Square wave and daylight-savings shifts are declined. Not yet wired to the board at `010900` | `mc146818_suite`, 32 tests, `MC146818A` (register figures read from page images) |
 | Node ID PROM (`011200`) | working: the layout measured from the oracle's own PROM — stride 2 with the **odd byte reading zero** (unlike the serial ports at the same stride), the identifier big-endian in registers 0-3, and a checksum in register **15** confirmed arithmetically (`01 + 23 + 45 = 69`) and then by the boot PROM's own self-test, which sums registers 0-14 and compares. The identifier is supplied by the caller, never a constant: a device whose purpose is to be unique per machine must not be the same on every one | `nodeid_suite`, 8 tests; `008778-03` Table 2-8, CPU self-test 8 at `008218` |
-| Apollo serial ports (`010400`, `010500`) | working: both DUARTs at **stride 2** (measured), sixteen registers over thirty-two bytes and aliased, sharing IRQ1 through to vector `A1`. The memory-refresh square wave of §3.9 runs: the counter is clocked at the DUART's X1 and produces a 15 microsecond period from the boot PROM's own preload. Its *frequency*, 66666.67 Hz, is not an integer, so a core counting in hertz could not represent this board's refresh clock at all | `sio_suite`, 27 tests; `FINDINGS.md` C14 |
+| Apollo serial ports (`010400`, `010500`) | working: both DUARTs at **stride 2** (measured), sixteen registers over thirty-two bytes and aliased, sharing IRQ1 through to vector `A1`. The memory-refresh square wave of §3.9 runs: the counter is clocked at the DUART's X1 and produces a 15 microsecond period from the boot PROM's own preload. Its *frequency*, 66666.67 Hz, is not an integer, so a core counting in hertz could not represent this board's refresh clock at all | `sio_suite`, 28 tests; `FINDINGS.md` C14 |
 | MC68681 / SCN2681 DUART (the part) | **programming model complete**: all sixteen register addresses of `[68681]` Table 4-1, both channels' mode registers with their shared pointer, clock-select, command and status registers, the three-deep receive FIFO with overrun, the interrupt status and mask registers, the input and output ports, and the counter/timer with both address-triggered commands. **All eight of §4.2.7.2's miscellaneous commands** — the audit found three falling through a bare `default: break;` (reset break change interrupt, start break, stop break) and, in the same paragraph, three outright errors in the transmitter status bits; see below. **Serial framing is modelled**, and the claim that it was not was stale: `ap_mc68681_resample` reshapes a character arriving at a mismatched baud rate rather than flagging an intact one, `ap_mc68681_character_bits` applies `MR1`'s width, parity is checked on both enable *and* type, `MR2`'s stop-bit field is read, and all four channel modes — normal, auto-echo, local loopback, remote loopback — behave differently. **Wired to the board** through `board/ap_sio.h` | `mc68681_suite`, 47 tests, `MC68681 DUART Sep85` |
 | QIC-02 tape drive | **the whole command set**, all eleven of `[SC499]` §1.13: both SELECTs with the sticky selection and the soft lock, BOT, RETENSION, both format selects, READ, READ STATUS, and WRITE, WRITE FILE MARK, READ FILE MARK and ERASE recognised and refused. **WRITE places a block** on a cartridge loaded writable, the distinction `ap_ct_t` now carries; a read-only one refuses. WRITE FILE MARK and ERASE are still refused, and for a reason that has not changed — a `.ct` is a raw block image with no file marks in it. The cartridge *type* is supplied by the caller, because the controller derives it from tape geometry a raw image does not carry. **The two opcodes C25 recorded as lost are recovered**: §1.13's summary table has a previous owner's pen through `H'22'` and `H'26'`, and §1.13.1's numbered descriptions two pages on give the same codes in clean binary, corroborated by the three codes either side of them that this core already had. **READ STATUS now transfers its block**: six bytes, the length `[SC499]` §1.13.1 gives outright, as three 16-bit fields LSB-first — exception flags, data-error count, underrun count — and reading it clears the power-on condition it reports | `qic_suite`, 18 tests; `FINDINGS.md` C25 |
 | Cartridge tape images (`image/ap_ct.c`) | working: block addressing over a raw `.ct` image, refusing any size that is not a whole number of 512-byte blocks, and boot-record parsing that returns the four header words. Their reading as load address and entry point is now **confirmed by the boot code itself** — its first instruction, a PC-relative `LEA`, computes word 0 exactly when executed at word 1, so the image proves its own layout. `ap_ct_boot_image` therefore *names* load address, entry point and length, and refuses a cartridge that does not announce itself, or whose header describes more than the file holds. Takes memory, never a filename, so `src/core` keeps its zero file I/O and the tests need no gitignored media | `ct_suite`, 12 tests; `FINDINGS.md` C24 |
@@ -17136,7 +17136,7 @@ PROM's mask is `04FFFFFF` -- the firmware we hold sizes 16 MB. A model table
 entry describing memory this firmware cannot address would be wrong in the
 direction that hides bugs.
 
-*Verification: `model_suite`, 19 tests. The new one asserts the base, the
+*Verification: `model_suite`, 21 tests. The new one asserts the base, the
 extent, **and that `ram_base | (ram_max_bytes - 1)` reconstructs the PROM's mask
 exactly** -- the relation is what makes the pair meaningful, and a later edit
 that quietly restored the old `01000000` assumption would pass a regenerated
@@ -18440,6 +18440,43 @@ reach.
 
 *Verification: the five runs above, one command each. No code changed for this
 entry.*
+
+## A DSP variant is a board, and the table now says so
+
+The firmware sweep's method, turned on the headless models, found the same
+defect a third time: `dsp3000`, `dsp3500`, `dsp4500` and `dsp5500` were **all
+four unstrapped at every size**, so each failed its memory self-test exactly as
+an over-fitted DN3000 and an unlisted DN4500 had.
+
+The cause is not a missing row but a wrong key. The memory configuration byte is
+a property of the *board* and of the firmware that reads it, and a DSP variant is
+a workstation without a display -- this table's own descriptions have said so all
+along, "DSP3500 headless server, DN3500 board without display". The strap lookup
+was keyed on the model, so `dsp3500` matched nothing.
+
+**So the relation becomes a field rather than a rule**: `board_of` in the model
+row, naming the model whose board this one is, or itself. `ap_sio_ram_config_byte`
+asks the table which board a model has instead of deciding it, which keeps the
+one rule this project has about variance -- it lives in `src/core/model/` and
+nowhere else. A `name`-prefix test for `"dsp"` would have worked and would have
+put a fact about the machine range inside a device.
+
+All four now strap: `dsp3000` at `20`, `dsp3500` and `dsp4500` at `60`,
+`dsp5500` at `14`. Three run to 20 M instructions with no self-test failure and
+`dsp5500` stops at `cinva`, which is the 68040 blocker and not this one.
+
+**Two tests hold the relation up**, because a field that is only read is a field
+that drifts. One checks that every `board_of` names a real model, that a machine
+with a display is its own board, and that a board is never itself derived -- so
+one hop always terminates. The other checks the claim the field actually makes:
+that a headless row agrees with its workstation in *every board respect* -- CPU,
+clock, MMU, FPU, memory base and maximum, translation map, parity lanes -- and
+differs in exactly one, the display. It also asserts there are four derived rows,
+so a row silently losing its relation fails rather than passing quietly.
+
+*Verification: `model_suite` 19 → 21, `sio_suite` 27 → 28; `ctest` 129/129; four
+DSP boots; the DN3500 30 M hash `5507489C6C7AE148` unchanged.*
+
 
 
 

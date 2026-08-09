@@ -5,6 +5,7 @@
 
 #include "board/ap_intr.h"
 #include "board/ap_sio.h"
+#include "model/ap_model.h"
 
 void setUp(void) {}
 void tearDown(void) {}
@@ -457,6 +458,31 @@ static void test_the_series_four_thousand_chain_is_the_firmwares_own(void) {
   }
 }
 
+/* A headless variant straps like the workstation it is built from, because the
+ * byte is the board's and a DSP is the same board without a display. Before the
+ * table asked `board_of`, all four were refused at every size -- so every DSP
+ * variant went out unstrapped and failed its memory self-test the way an
+ * unlisted DN3000 size did. */
+static void test_a_headless_variant_straps_like_its_workstation(void) {
+  for (ap_model_id_t id = 0; id < AP_MODEL_COUNT; id++) {
+    const ap_model_t *m = ap_model_by_id(id);
+    if (m->board_of == id) {
+      continue;
+    }
+    for (unsigned mb = 1u; mb <= 32u; mb++) {
+      uint8_t variant = 0u;
+      uint8_t board = 0u;
+      const bool a = ap_sio_ram_config_byte(id, mb * 1024u * 1024u, &variant);
+      const bool b =
+          ap_sio_ram_config_byte(m->board_of, mb * 1024u * 1024u, &board);
+      TEST_ASSERT_EQUAL_INT(b, a);
+      if (a) {
+        TEST_ASSERT_EQUAL_HEX8(board, variant);
+      }
+    }
+  }
+}
+
 /* `00` means twenty megabytes to the firmware and "nothing told me anything" to
  * a board that never set the strap. The table must never spell a size that way,
  * or a machine that cannot describe itself becomes indistinguishable from one
@@ -640,6 +666,7 @@ int main(void) {
   RUN_TEST(test_a_rateless_clock_select_has_no_character_time);
   RUN_TEST(test_the_ram_config_byte_is_a_table_and_not_a_rule);
   RUN_TEST(test_the_series_four_thousand_chain_is_the_firmwares_own);
+  RUN_TEST(test_a_headless_variant_straps_like_its_workstation);
   RUN_TEST(test_no_size_is_spelled_as_the_unstrapped_value);
   RUN_TEST(test_an_unlisted_size_is_refused_rather_than_approximated);
   RUN_TEST(test_the_strap_drives_seven_input_pins);

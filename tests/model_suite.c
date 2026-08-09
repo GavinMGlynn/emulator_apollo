@@ -247,6 +247,57 @@ static void test_the_dn2500_main_memory_matches_its_boot_proms_sizing_code(
                           m->ram_base | (m->ram_max_bytes - 1u));
 }
 
+/* `board_of` names a real model, and a machine with a display is its own board.
+ * Only the headless variants derive from something else -- a workstation that
+ * pointed at another machine's board would be saying its own row is not the
+ * authority on itself. */
+static void test_every_board_is_a_model_and_a_workstation_is_its_own(void) {
+  for (ap_model_id_t id = 0; id < AP_MODEL_COUNT; id++) {
+    const ap_model_t *m = ap_model_by_id(id);
+    TEST_ASSERT_NOT_NULL(m);
+    TEST_ASSERT_TRUE(m->board_of < AP_MODEL_COUNT);
+    TEST_ASSERT_NOT_NULL(ap_model_by_id(m->board_of));
+    if (m->display != AP_DISPLAY_NONE) {
+      TEST_ASSERT_EQUAL_INT(id, (int)m->board_of);
+    }
+    /* And a board is never itself derived, so one hop always terminates. */
+    const ap_model_t *b = ap_model_by_id(m->board_of);
+    TEST_ASSERT_EQUAL_INT(m->board_of, (int)b->board_of);
+  }
+}
+
+/* The claim `board_of` makes is that the two are the same machine apart from
+ * the display, so everything the *board* decides must already agree. If a
+ * headless row ever diverges in one of these, the relation is wrong and the
+ * memory strap it drives would be wrong with it. */
+static void test_a_headless_variant_is_its_workstation_in_every_board_respect(
+    void) {
+  unsigned derived = 0;
+  for (ap_model_id_t id = 0; id < AP_MODEL_COUNT; id++) {
+    const ap_model_t *m = ap_model_by_id(id);
+    if (m->board_of == id) {
+      continue;
+    }
+    derived++;
+    const ap_model_t *b = ap_model_by_id(m->board_of);
+    TEST_ASSERT_EQUAL_INT(b->cpu, m->cpu);
+    TEST_ASSERT_EQUAL_UINT32(b->cpu_hz, m->cpu_hz);
+    TEST_ASSERT_EQUAL_INT(b->mmu, m->mmu);
+    TEST_ASSERT_EQUAL_INT(b->fpu, m->fpu);
+    TEST_ASSERT_EQUAL_HEX32(b->ram_base, m->ram_base);
+    TEST_ASSERT_EQUAL_HEX32(b->ram_max_bytes, m->ram_max_bytes);
+    TEST_ASSERT_EQUAL_INT(b->has_address_translation_map,
+                          m->has_address_translation_map);
+    TEST_ASSERT_EQUAL_INT(b->has_active_low_parity_lanes,
+                          m->has_active_low_parity_lanes);
+    /* The one thing that must *differ*: that is what makes it a variant. */
+    TEST_ASSERT_EQUAL_INT(AP_DISPLAY_NONE, m->display);
+    TEST_ASSERT_NOT_EQUAL_INT(AP_DISPLAY_NONE, b->display);
+  }
+  /* Four headless variants, so a row silently losing its relation fails. */
+  TEST_ASSERT_EQUAL_UINT(4u, derived);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_the_dn2500_main_memory_matches_its_boot_proms_sizing_code);
@@ -268,5 +319,7 @@ int main(void) {
   RUN_TEST(test_no_cpu_bursts_without_a_synchronous_bus);
   RUN_TEST(test_only_the_68020_has_the_module_call_instructions);
   RUN_TEST(test_every_models_mmu_agrees_with_its_cpus_features);
+  RUN_TEST(test_every_board_is_a_model_and_a_workstation_is_its_own);
+  RUN_TEST(test_a_headless_variant_is_its_workstation_in_every_board_respect);
   return UNITY_END();
 }

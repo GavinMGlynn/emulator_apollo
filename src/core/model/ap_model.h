@@ -76,6 +76,21 @@ typedef struct {
   ap_model_id_t id;
   const char *name;          /* short key, e.g. "dn3500" */
   const char *description;
+
+  /* The model whose **board** this one is, or itself.
+   *
+   * A DSP variant is a workstation without a display -- the table's own
+   * descriptions say so, "DN3500 board without display" -- so everything
+   * decided by the board rather than by the machine follows the workstation it
+   * is derived from. The memory configuration strap is the first thing to need
+   * it: the byte is a property of the board and the firmware that reads it, and
+   * keying it on the model left every DSP variant unstrapped and failing its
+   * memory self-test, exactly as an unlisted DN3000 size did.
+   *
+   * A field rather than a `name`-prefix rule, because "dsp3500 is a dn3500" is
+   * machine variance and this table is where machine variance is allowed to
+   * live. */
+  ap_model_id_t board_of;
   ap_cpu_t cpu;
   uint32_t cpu_hz;
   ap_mmu_t mmu;

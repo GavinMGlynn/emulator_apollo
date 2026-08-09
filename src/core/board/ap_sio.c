@@ -292,9 +292,17 @@ bool ap_sio_ram_config_byte(ap_model_id_t model, uint32_t ram_bytes,
       {AP_MODEL_DN5500, 16u, 0x14u},  /* 8-8-0-0 */
       {AP_MODEL_DN5500, 32u, 0x20u},  /* 8-8-8-8 */
   };
+  /* The strap is a property of the **board**, so a DSP variant is looked up as
+   * the workstation it is built from. Keying this on the model left all four
+   * unstrapped and failing their memory self-tests -- the same failure an
+   * unlisted size gives, and for the same reason. The table says which board a
+   * model is; this does not decide it here. */
+  const ap_model_t *entry = ap_model_by_id(model);
+  const ap_model_id_t board = entry != NULL ? entry->board_of : model;
+
   const uint32_t megabytes = ram_bytes / (1024u * 1024u);
   for (unsigned i = 0; i < sizeof table / sizeof table[0]; i++) {
-    if (table[i].model == model && table[i].megabytes == megabytes) {
+    if (table[i].model == board && table[i].megabytes == megabytes) {
       *out = table[i].byte;
       return true;
     }

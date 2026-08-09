@@ -20,6 +20,7 @@
 static const ap_model_t k_models[AP_MODEL_COUNT] = {
     [AP_MODEL_DN2500] = {
         .id = AP_MODEL_DN2500,
+        .board_of = AP_MODEL_DN2500,
         .name = "dn2500",
         .description = "DN2500 low-cost integrated workstation",
         /* "32-bit MC68030 20 MHz CPU with MC68882 20 MHz Floating Point
@@ -60,6 +61,7 @@ static const ap_model_t k_models[AP_MODEL_COUNT] = {
     },
     [AP_MODEL_DN3000] = {
         .id = AP_MODEL_DN3000,
+        .board_of = AP_MODEL_DN3000,
         .name = "dn3000",
         .description = "DN3000 workstation, 68020 with external PMMU",
         .cpu = AP_CPU_M68020,
@@ -75,6 +77,7 @@ static const ap_model_t k_models[AP_MODEL_COUNT] = {
     },
     [AP_MODEL_DN3500] = {
         .id = AP_MODEL_DN3500,
+        .board_of = AP_MODEL_DN3500,
         .name = "dn3500",
         .description = "DN3500 workstation, 68030 (reference superset)",
         .cpu = AP_CPU_M68030,
@@ -92,6 +95,7 @@ static const ap_model_t k_models[AP_MODEL_COUNT] = {
     },
     [AP_MODEL_DN4500] = {
         .id = AP_MODEL_DN4500,
+        .board_of = AP_MODEL_DN4500,
         .name = "dn4500",
         .description = "DN4500 workstation, faster 68030 with Matrox graphics",
         /* "32-bit MC68030 33 MHz CPU with MC68882 33 MHz Floating Point
@@ -120,6 +124,7 @@ static const ap_model_t k_models[AP_MODEL_COUNT] = {
     },
     [AP_MODEL_DN5500] = {
         .id = AP_MODEL_DN5500,
+        .board_of = AP_MODEL_DN5500,
         .name = "dn5500",
         .description = "DN5500 workstation, 68040",
         .cpu = AP_CPU_M68040,
@@ -137,6 +142,7 @@ static const ap_model_t k_models[AP_MODEL_COUNT] = {
     },
     [AP_MODEL_DSP3000] = {
         .id = AP_MODEL_DSP3000,
+        .board_of = AP_MODEL_DN3000,
         .name = "dsp3000",
         .description = "DSP3000 headless server, DN3000 board without display",
         .cpu = AP_CPU_M68020,
@@ -152,6 +158,7 @@ static const ap_model_t k_models[AP_MODEL_COUNT] = {
     },
     [AP_MODEL_DSP3500] = {
         .id = AP_MODEL_DSP3500,
+        .board_of = AP_MODEL_DN3500,
         .name = "dsp3500",
         .description = "DSP3500 headless server, DN3500 board without display",
         .cpu = AP_CPU_M68030,
@@ -169,6 +176,7 @@ static const ap_model_t k_models[AP_MODEL_COUNT] = {
     },
     [AP_MODEL_DSP4500] = {
         .id = AP_MODEL_DSP4500,
+        .board_of = AP_MODEL_DN4500,
         .name = "dsp4500",
         .description = "DSP4500 headless server, DN4500 board without display",
         /* Same "MC68030 33 MHz CPU with MC68882 33 MHz" processor-I/O board as
@@ -192,6 +200,7 @@ static const ap_model_t k_models[AP_MODEL_COUNT] = {
     },
     [AP_MODEL_DSP5500] = {
         .id = AP_MODEL_DSP5500,
+        .board_of = AP_MODEL_DN5500,
         .name = "dsp5500",
         .description = "DSP5500 headless server, DN5500 board without display",
         .cpu = AP_CPU_M68040,

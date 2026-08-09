@@ -3898,6 +3898,13 @@ discipline throughout.
       documented as paper-verified.*
 - [ ] DSP variants confirmed as true subsets. *Verification: `dsp3500` boots
       headless; oracle diff.*
+      **Half done.** All four boot headless and strap correctly — they were all
+      four *unstrapped* until the memory byte was keyed on the board rather than
+      the model, via a new `board_of` field in the model row. `model_suite`
+      holds the relation up: a headless row must agree with its workstation in
+      every board respect and differ only in the display. `dsp5500` stops at
+      `cinva`, the 68040 blocker, not this one. **Awaiting:** the oracle diff.
+      Detail in `PROJECT_STATUS.md`.
 
 ## Phase 8 — Verified fast mode
 
