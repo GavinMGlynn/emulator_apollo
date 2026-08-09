@@ -20846,3 +20846,34 @@ recipe does not supply.
 
 *Verification: the five runs above, each bounded, with their own reports quoted.
 No code changed.*
+
+
+## `CONFIGURATION INFORMATION IS NOT INITIALIZED` is SELF_TEST's, not the PROM's
+
+The warning has been attributed to "a second check" for some time, with
+`SELF_TEST` the standing guess. It is now settled by looking rather than
+guessing, and at no cost:
+
+- The string is **absent from `3500_BOOT_12191_7.bin`** -- so are `not
+  initialized` and `EX CONFIG`. The PROM cannot print it.
+- Dumping `SELF_TEST` at its own entry point (`--boot-stop-pc 01002020:2
+  --dump-mem 01002000:3400`, which stops the machine the instant the image is
+  loaded and so cannot be stale) finds it at **`01004FB8`**: *"Configuration
+  information is not initialized.\r\nPress <<return>> and type \"ex config\" at
+  the prompt to initialize the con..."*
+
+So the four-byte pattern at `010912` satisfies the **PROM** -- which is why
+seeding the battery turns `Self test failed` into `Self tests passed` -- and
+`SELF_TEST` applies a *further* check that the seeded table still fails. The
+checksum at offset `$0E` remains the candidate and remains unknown.
+
+**Not found, and recorded as not found**: what code prints it. There is no
+32-bit literal `01004FB8` in the image and no `LEA (d16,PC),An` resolving to it,
+so the message is reached by a computed reference -- a table index, or a base
+register this static read cannot resolve. Finding it needs a *watch* on the
+string's address during a run rather than more disassembly, which is a cheaper
+instrument than the two searches already spent.
+
+*Verification: the two searches above over the PROM file and over a dump taken
+at `SELF_TEST`'s entry; the dump parsed by fixed column width, per the rule that
+a loose regex drops half of every row.*
