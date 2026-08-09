@@ -17990,3 +17990,37 @@ across a span with no events -- is untouched and is the larger remaining piece.
 
 *Verification: `ctest` 129/129, every golden unchanged, two independent timings,
 DMA counters identical.*
+
+
+## The priority resolver, early-out: the cheapest change of the session
+
+`ap_board_sample_interrupts` asks the master 8259 whether anything is pending on
+**every** emulated instruction, and that question walks eight levels in priority
+order with a modulo each. It was 4.9% of a boot, the largest entry left after
+the bus tick.
+
+**One line, and it is provable rather than plausible.** The loop returns a level
+only through `(requests & bit) != 0` -- in the special-fully-nested branch or the
+plain one -- so with no unmasked request it cannot return anything but the `-1`
+at the end. Testing `requests == 0` first is therefore exactly equivalent, and
+the empty case is the common one by a very long way: an interrupt is pending for
+a handful of instructions and absent for millions.
+
+**281 s → 273 s and 275 s**, state hash `67A14B3BB6041410`, and the exception
+census identical -- `392 x vector 2, 1 x vector 11, 1 x vector 31, 3 x vector
+160, 1 x vector 173`. That census is the check that matters for an interrupt
+change: an earlier attempt today produced a *faster* boot whose census was
+`261 x vector 2` and nothing else, because the machine had stopped seeing
+interrupts. Comparing it here is the difference between a speed-up and a
+silently broken machine.
+
+**Worth noting what this was not.** The tempting version of this change is to
+cache "is anything pending" and invalidate it on writes -- which is precisely
+the shape that was 14% *slower* when tried on this same function earlier, and
+the shape that dropped cascade updates when tried on its caller. The early-out
+adds no state, so there is nothing to invalidate and nothing to get wrong.
+**Where a cache needs an argument about every mutation site, a strength
+reduction needs an argument about one expression.**
+
+*Verification: `ctest` 129/129, every golden unchanged, two timings, exception
+census identical.*

@@ -158,6 +158,22 @@ static void refresh_level_requests(ap_i8259_t *pic) {
 static int resolve(const ap_i8259_t *pic) {
   uint8_t requests = (uint8_t)(pic->irr & ~pic->imr);
 
+  /* Nothing unmasked is asking, so nothing can be resolved.
+   *
+   * Provably identical rather than a shortcut: the loop below returns a level
+   * only through `(requests & bit) != 0`, in the special-fully-nested branch or
+   * the plain one, so with `requests` empty it cannot return anything but the
+   * `-1` at the end. What it can do is walk eight levels with a modulo each,
+   * and `ap_board_sample_interrupts` asks for this on **every** emulated
+   * instruction -- it was 4.9% of a boot in the profile, the largest entry left
+   * after the bus tick.
+   *
+   * The condition is the common one by a very long way: an interrupt is
+   * pending for a handful of instructions and absent for millions. */
+  if (requests == 0u) {
+    return -1;
+  }
+
   /* `[8259]`: "In the special Mask Mode, when a mask bit is set in OCW1, it
    * inhibits further interrupts at that level and enables interrupts from all
    * other levels (lower as well as higher) that are not masked." So a masked

@@ -3952,6 +3952,11 @@ Only after the reference core is proven, and only under an identity harness.
       long boot hashes byte-identical to the reference core.*
       **Awaiting:** the CPU half — skipping instruction steps across a span
       with no events, which is what `skip(n)` names. The devices half is done.
+  - [x] **The 8259's priority resolver returns early when nothing is asking** —
+    one line, provably equivalent, no new state to invalidate.
+    *Verification: 281 s → 273 s and 275 s, state hash `67A14B3BB6041410`,
+    exception census identical; `ctest` 129/129. Detail in
+    `PROJECT_STATUS.md`.*
   - [x] **Devices half done**: the bus tick's DMA poll is skipped when nothing
     can ask, via a flag armed at an auditable set of sites.
     *Verification: 296 s → 284 s and 281 s (**1.04x**), state hash
