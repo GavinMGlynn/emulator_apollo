@@ -20526,3 +20526,31 @@ manual's authority rather than on a boot.
 fetches and a zero descriptor address, a zero offset giving the identity, a
 limit violation on an index past the limit, and the same index inside it
 mapping.*
+
+
+## The 3c505 is not the difference, and the comparison was never like-for-like
+
+**Refuted cheaply.** The oracle fits a 3c505 by default
+(`ISA16_SLOT(config, "isa3", 0, m_isa, apollo_isa_cards, "3c505", false)`) and
+our machine fits no card at all, which made the card a candidate for the
+divergence. Running the oracle with the slot emptied -- `mdsession.py ... --
+-isa3 ""` -- it boots Domain/OS exactly as before: `ex domain_os`, the kernel
+banner, `Apollo Phase II Environment Revision 10.4`, and the `)` prompt. The
+card is not it.
+
+**But the same log shows the real problem with the comparison.** The oracle's
+run reaches MD without the `SELF TEST FAILED ... ADDRESS= 00010912` question at
+all, because MAME's nvram persists between runs and ours starts blank; and MAME
+*always* fits a display, where `tools/identity-boot.sh` fits none. Both are
+known to change the path -- this file already records that `--screen c8p`
+produces **681** vector 2 exceptions against **939** without it, and that the
+battery's contents decide the self-test question.
+
+So every measurement in this investigation has compared a machine with no
+display and a flat battery against one with a display and a seeded nvram. That
+is not a like-for-like difference hunt, and the rule this file wrote down for
+itself -- "hold `--screen` constant across any comparison" -- was not being
+followed by the comparison it was written for.
+
+*Verification: the oracle's console log with `-isa3 ""`, reaching the `)`
+prompt; the vector 2 counts are this file's own earlier measurements.*
