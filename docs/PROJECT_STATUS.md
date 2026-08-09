@@ -19340,6 +19340,43 @@ of whatever the kernel uses to decide, and see which way it goes on each machine
 *Verification: the 27 transitions and the single `ADDQ.W` are from the
 60,000-step ring, executed rather than disassembled. No code changed.*
 
+## The kernel does not look at the MMU, which constrains the mechanism
+
+The previous entry proposed a mechanism: a kernel that checks whether the MMU is
+already configured would install space 0 on the oracle, where `CRP` is zero, and
+skip it here, where `SELF_TEST` has left `01001400` in place. That is testable
+against the ring, because any such check must read an MMU register.
+
+**In the 60,000 steps before the gate there is not one F-line instruction and not
+one `MOVEC`.** The kernel reads neither `CRP`, nor `TC`, nor any control
+register, in the whole window in which it allocates the address space, builds its
+tree, records it and asks to switch.
+
+So in that window the decision is made on **software state alone** -- and the
+software state is the cache at `$3C43FB14`, which the image ships as `1`. The
+kernel is not consulting the hardware and being misled by it; it is consulting
+its own bookkeeping, which was wrong before the boot began.
+
+**This does not refute the mechanism, and it is worth being exact about why.**
+The ring covers instructions 288,580,118 to 288,640,117, and the kernel began
+running around 268 M. Roughly twenty million instructions of its startup precede
+the ring, and a check could sit anywhere in them. What the measurement does
+establish is that the check is **not** in the sixty thousand steps that contain
+the allocation and the request -- so if it exists, it ran long before, and its
+result has been carried in that cache word ever since.
+
+**Which makes the next measurement clear**: our own boot report already shows
+`mmu loads 8 PMOVE(s)`, every one from `0100xxxx` -- and that range is
+`SELF_TEST`'s *and* the loaded kernel's, so the attribution by address cannot
+stand on its own. A ring at the first of those eight, or at the kernel's entry,
+would show whether the kernel touches the MMU at all before this point, and
+whether it looks at what the firmware left behind.
+
+*Verification: the instruction census is over the 60,000-step ring, executed
+rather than disassembled -- an F-line or `MOVEC` opcode could not be missed,
+since the ring records the opcode word of every step. No code changed.*
+
+
 
 
 
