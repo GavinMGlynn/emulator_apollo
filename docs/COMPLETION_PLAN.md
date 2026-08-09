@@ -2855,6 +2855,21 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
       boot item's "console byte-identical to the oracle" was rewritten against
       the framebuffer below, since a byte-identical nothing is not evidence.*
 - [ ] **Integration check, not a milestone:** DN3500 boots Domain/OS SR10.x to a
+  - Phases 4 and 5 are **one blocker**, not two: Phase 5's open item says its
+    only gap is the *subject* of the picture, which waits on this. The
+    resolution order has now been walked for it and ends in a finding —
+    `AEGIS Internals` describes the **DNx60 SMAP/PMAP** MMU, a generation before
+    the 68851 and two before this machine, so it cannot answer it; the design
+    principles paper has no MMU mechanics; the web has nothing. What the manual
+    *does* give is the vocabulary: ASID 0 is the supervisor global space and
+    processes get 1–25, so `$3C43FB14 = 1` is a current-address-space id.
+    **And the method changed** — the kernel is now dumped once and read
+    offline instead of watched a boot at a time. Three facts, exhaustive over
+    the image: the kernel holds **exactly one** `PMOVE ,CRP`; it records the
+    ASID eight instructions earlier with `MOVE.W D0,$3C43FB14`; and that word
+    still holds `1` when the boot ends. So the one root-pointer load the kernel
+    has is unreachable, by construction rather than by observation. Detail in
+    `PROJECT_STATUS.md`.
 
 **Order matters here, and this file had it wrong.** The boot is a *test*, and
 two of its children were unfinished *implementation*. `CLAUDE.md` says

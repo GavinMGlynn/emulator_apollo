@@ -18477,6 +18477,85 @@ so a row silently losing its relation fails rather than passing quietly.
 *Verification: `model_suite` 19 → 21, `sio_suite` 27 → 28; `ctest` 129/129; four
 DSP boots; the DN3500 30 M hash `5507489C6C7AE148` unchanged.*
 
+## Reading the kernel instead of watching it
+
+Phases 4 and 5 are one blocker: Phase 5's open item says so itself -- the display
+works and renders the kernel's own banner; what is missing is the *subject* of
+the picture, and that waits on `00120020`.
+
+**The resolution order was finally walked for this question, and it ends in a
+finding rather than an assumption.** `AEGIS Internals and Data Structures` cannot
+answer it, for a specific reason worth recording: its memory-management chapters
+describe the **DNx60 forward-mapped SMAP/PMAP** scheme -- region registers,
+segment maps, page maps -- which is Apollo's own MMU hardware, a generation
+before the 68851 and two before the DN3500's on-chip 68030 MMU. §10.7.3's "MMU
+manager" installs entries into *those* tables. Right kind of document, wrong
+machine. It had been cited once in eighteen thousand lines of this file and never
+on this subject, so "the manuals do not cover it" had never actually been
+checked. `Domain/OS Design Principles` is an architecture paper with no MMU
+mechanics; the web has nothing on this kernel's memory management at all.
+
+**What the manual does settle is the vocabulary.** §19.2: ASID 0 is the shared
+supervisor global space where the operating system lives, level 2 processes are
+assigned **ASIDs 1 through 25 at creation**, and a level 1 process can use only
+ASID 0. So `$3C43FB14` holding `1` is not a flag or a revision. It is a
+**current-address-space identifier, and 1 is the first user process.**
+
+**And the method changed.** Every previous attempt ran a boot, watched one
+address, formed a hypothesis and ran again -- five minutes per question, one
+question per run, and three conclusions reached that way have since been
+retracted. The kernel has been *run* for weeks and never *read*. One boot now
+dumps the loaded image (`01002000`-`010EA000`, 950,272 bytes) and every question
+after it is answered offline in seconds. `--dump-logical`'s own header gives the
+mapping each region needs: `logical 3C430000 -> 01032C00`, a bias of `3B3FD400`
+for the region the switch routine lives in, and `3C400000 -> 01000000` for the
+one below it -- so the kernel is **not** one contiguous mapping and a single bias
+measured at one PC, which is what an earlier attempt at this used, disassembles
+data as code.
+
+**Three facts, exhaustive over the image rather than observed in one run:**
+
+- **The kernel contains exactly one `PMOVE <ea>,CRP`** -- opcode `F010`,
+  extension `4C00`, at physical `010409F0`, logical `3C43DDF0`. A scan for every
+  `F0xx` with a root-pointer extension over all 950 KB finds that one and a
+  single `PMOVE` to `TT1`; none to `SRP` or `TC`. The earlier claim that this is
+  "the only root-pointer load the kernel has" was an inference from one boot's
+  log. It is now a property of the image.
+- **The routine records the ASID immediately before installing the tree.** At
+  logical `3C43DDD2` the bytes are `33 C0 3C 43 FB 14` -- `MOVE.W D0,$3C43FB14`
+  -- eight instructions ahead of the `PMOVE`. So this is an ordinary "switch
+  address space unless it is already current" routine and `$3C43FB14` is its
+  cache of what is installed.
+- **The word still holds `0001` when the boot ends.** Read from the dump at its
+  own address, physical `01042714`. It is never anything else, so the gate is
+  never false, so the machine's one root-pointer load can never run.
+
+Together those close the question of *whether* the kernel could recover: it
+cannot. The remaining question is why the cache says `1` before anything has
+installed space 1's tree, and it is now genuinely narrow.
+
+**What this rules out**, which matters because both were live hypotheses: the
+kernel is not choosing between several switch paths, and it is not installing a
+root pointer by some other instruction. There is one, and it is unreachable.
+
+**Next, and it is a sharper oracle question than the one this file has been
+carrying.** The differential to run is no longer "log the oracle's `PMOVE`s" but
+"log every write to `$3C43FB14` on both sides and diff the sequences" -- ours is
+written six times before the comparison and the last comes from the loader's copy
+loop at `01002174`, so the value arrives from the kernel image itself. If the
+oracle's sequence differs, the missing write names the defect. `crpwatch.lua` is
+written for the root-pointer half and, unlike the probe that failed earlier this
+session, it **polls CPU state** that MAME already exposes (`M68K_CRP_APTR`,
+`M68K_CRP_LIMIT`) rather than hooking an instruction path, checks those state
+registers exist before running, and emits a heartbeat -- so a silent run can be
+told from a dead one, which is exactly what the previous attempt could not do.
+
+*Verification: none -- this entry is a static analysis of a dumped image and a
+negative result from three documents. No code changed. The dump, the scan and
+the cross-references are reproducible from `tools/identity-boot.sh --dump-mem
+1002000:E8000`.*
+
+
 
 
 
