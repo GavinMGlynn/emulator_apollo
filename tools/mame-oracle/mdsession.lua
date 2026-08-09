@@ -544,6 +544,62 @@ elseif asid_tap_at ~= nil then
 	end
 end
 
+-- ## The address-space switch hook, opt-in with APOLLO_SWITCH_PC=<hex logical>
+--
+-- The question every other instrument here has failed to answer: **what address
+-- space does the oracle ask for, and when?** The root-pointer poll says what was
+-- installed and locates the instruction only to within a few hundred bytes; the
+-- write taps cannot see a `PMOVE`, which writes a register and no memory.
+--
+-- This taps **reads** over RAM and keeps only those whose PC lies in the switch
+-- routine -- an instruction fetch from inside it -- then reads the argument off
+-- the stack with `readv_u16`, which translates through the MMU as the program
+-- would. So it needs no physical address, which matters because the two
+-- machines page the kernel into different frames.
+--
+-- It logs its first fires whatever their PC, for the reason every instrument in
+-- this file now does: an instrument that has not been seen to fire cannot make
+-- its silence mean anything, and three before it produced a plausible nothing.
+local switch_pc = tonumber(os.getenv("APOLLO_SWITCH_PC") or "", 16)
+local switch_file, switch_tap, switch_seen, switch_hits = nil, nil, 0, 0
+if switch_pc ~= nil then
+	switch_file = io.open((os.getenv("APOLLO_CRP_LOG") or "crpwatch.log") .. ".switch", "w")
+	local ok, err = pcall(function()
+		local cpu = manager.machine.devices[":maincpu"]
+		local sp = cpu.spaces["program"]
+		switch_tap = sp:install_read_tap(asid_lo, asid_hi, "switch-entry",
+			function(offset, data, mask)
+				local pc = cpu.state["PC"].value
+				if switch_seen < 8 then
+					switch_seen = switch_seen + 1
+					switch_file:write(string.format("%10.4f  sample read %08X  pc %08X\n",
+						manager.machine.time:as_double(), offset, pc))
+					switch_file:flush()
+				end
+				if pc >= switch_pc and pc <= switch_pc + 0x80 and switch_hits < 40 then
+					switch_hits = switch_hits + 1
+					local a7 = cpu.state["A7"].value
+					local arg = -1
+					local got = pcall(function() arg = sp:readv_u16(a7 + 4) end)
+					switch_file:write(string.format(
+						"%10.4f  ENTRY pc %08X  a7 %08X  arg %s\n",
+						manager.machine.time:as_double(), pc, a7,
+						got and string.format("%04X", arg) or "unreadable"))
+					switch_file:flush()
+				end
+				return data
+			end)
+	end)
+	if not ok then
+		switch_file:write("FATAL could not install the switch tap: " .. tostring(err) ..
+		                  "\nFATAL this run proves nothing about the requests\n")
+	else
+		switch_file:write(string.format("# switch tap: reads with pc in %08X-%08X\n",
+			switch_pc, switch_pc + 0x80))
+	end
+	switch_file:flush()
+end
+
 local function crp_poll()
 	if crp_file == nil then return end
 	local cpu = manager.machine.devices[":maincpu"]

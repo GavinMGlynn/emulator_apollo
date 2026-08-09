@@ -19830,6 +19830,40 @@ resolved on the oracle's side -- which is the first thing to measure, not assume
 *Verification: five oracle logs for the cluster; one stop at `3C452930` with a
 2000-step ring for ours. No code changed.*
 
+## The instrument the question needs, built and firing
+
+The hook the entry above specified is built: `APOLLO_SWITCH_PC` in
+`mdsession.lua`. It taps **reads** over RAM and keeps those whose PC falls inside
+the switch routine -- an instruction fetch from within it -- then reads the
+argument off the stack with `readv_u16`, which translates through the MMU exactly
+as the program's own access would.
+
+**That last detail is what makes it work where three predecessors did not.** It
+needs no physical address, and the two machines page the kernel into different
+frames, which defeated the write tap. It watches reads, not writes, because a
+`PMOVE` writes a register and no memory -- which defeated the second tap. And it
+is aimed at the routine rather than at one instruction read out of a dump, which
+had moved by the time it was read.
+
+**It fires**, and says so in its own log before it says anything else:
+
+```
+# switch tap: reads with pc in 3C43DD80-3C43DE00
+    0.0000  sample read 0100017C  pc 0000066E
+    0.0000  sample read 0100016C  pc 00002502
+    ...
+```
+
+Eight samples logged whatever their PC, each one a read whose PC is the
+instruction that made it -- so the PC filter is sound and a run reporting no
+entries would be reporting something about the machine. That is the rule this
+session arrived at the hard way, and every instrument in this file now follows
+it.
+
+*Verification: the tap's own log. The run reporting the arguments is in
+progress.*
+
+
 
 
 
