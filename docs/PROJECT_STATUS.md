@@ -21627,3 +21627,48 @@ equivalence test caught immediately.
 release, still idle one tick short of the interval, exception and `57` at it);
 `ctest` 130/130 both build types; the sample comparison above against the same
 oracle stream as before.*
+
+## The reference hash re-baselines to `F442814C47D34D7D`
+
+The three SC499 fixes changed the machine, and the state hash covers the tape
+controller, so the reference number had to move. It is re-baselined here rather
+than left to be discovered by the next optimisation A/B, which is how a hash
+stops being a reference: `0D8379A03105C0F7` is retired, and every A/B recorded
+against it stands, having compared binaries at a fixed device model.
+
+**What the re-baseline is evidence of.** The 350 M report is not one number, and
+the rest of it says the change is confined to where it should be:
+
+| | `0D8379A0…` | `F442814C…` |
+|---|---|---|
+| `atc fills` | 56688 | **56688** |
+| `clocks` | 1460151705 | 1457857018 |
+| main memory reads / writes | 80866606 / 148631858 | 80866638 / 149159726 |
+| `final PC` | `3C4BC388` | `3C4BC384` |
+
+The ATC workload is *identical to the fill* -- the MMU sees the same page
+sequence, so nothing in the fixes touched translation. What moved is 2.29 M
+clocks of emulated time and half a million writes, in a driver that no longer
+spins on a handshake that never completed, and a final PC four bytes away in the
+same routine. A device fix that had leaked into the memory system would not look
+like this.
+
+**Three runs, not one.** A hash from a single run is a sample; this one is
+release twice and `-O0` once, all three bit-identical in hash, `final PC` and
+`clocks` (4m25s against 18m53s, which is the only difference a build type is
+allowed to make). That is the harness's actual promise -- that the *emulated*
+machine is deterministic and the host build is not an input -- and it is checked
+by running the other build type through the same script rather than by asserting
+it in a comment.
+
+`tools/identity-boot.sh` takes `APOLLO_HEADLESS_BIN` for that check. The script
+exists because an invocation retyped from prose is not reproducible, and a `-O0`
+comparison that retypes it to reach the other binary reintroduces exactly the
+failure the script was written to prevent.
+
+**Unchanged**: the reference boot still uses the default 1987 epoch and still
+does not reach the `00120020` crash. The crash investigation passes
+`--clock 2026-08-09` and is not what this number is for.
+
+*Verification: three 350 M boots as above, hash `F442814C47D34D7D` in all three;
+`ctest` 130/130.*

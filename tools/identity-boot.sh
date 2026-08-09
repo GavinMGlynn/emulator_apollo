@@ -40,8 +40,16 @@
 set -eu
 
 root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
-bin=$root/build/linux-release/src/frontend/headless/apollo-headless
-[ -x "$bin" ] || bin=$root/build/linux-debug/src/frontend/headless/apollo-headless
+# The hash is a promise that the *emulated* machine is deterministic, so it must
+# not depend on the build type -- and the way that is checked is by running the
+# other build type through this same script. Release is preferred because timing
+# measurements require it; set APOLLO_HEADLESS_BIN to check a `-O0` binary
+# against the same reference rather than retyping the invocation.
+bin=${APOLLO_HEADLESS_BIN:-}
+if [ -z "$bin" ]; then
+  bin=$root/build/linux-release/src/frontend/headless/apollo-headless
+  [ -x "$bin" ] || bin=$root/build/linux-debug/src/frontend/headless/apollo-headless
+fi
 
 exec "$bin" \
   --boot-prom "$root/roms/firmware/3500_BOOT_12191_7.bin" \
