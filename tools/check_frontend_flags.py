@@ -102,6 +102,20 @@ def main() -> int:
               ["--model", "dn9999", "--list-models"], r"unknown model name",
               want_ok=False)
 
+        # Memory size is machine variance, so it is checked against the model
+        # table rather than against a constant. A DN3000 fitted with sixteen
+        # megabytes -- twice its maximum -- leaves the boot PROM's sizing strap
+        # unset, and the firmware fails its memory test instead of saying so.
+        check("--ram accepts a size the model can be built in",
+              ["--model", "dn3000", "--ram", "8", "--list-models"],
+              r"time base: \d+ Hz")
+        check("--ram refuses more memory than the model takes",
+              ["--model", "dn3000", "--ram", "64", "--list-models"],
+              r"dn3000 takes at most 8 MB", want_ok=False)
+        check("--ram refuses a size that is not one",
+              ["--ram", "nonsense", "--list-models"],
+              r"--ram wants a size in megabytes", want_ok=False)
+
         # ---- flags that need a machine, which `board 1` builds with no ROM ----
         # `moveq` is the first probe the suite reports; matching a probe's own
         # line rather than the header is what makes this a check that the suite

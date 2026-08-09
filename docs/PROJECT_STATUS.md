@@ -18130,3 +18130,67 @@ is recorded, in `tools/identity-boot.sh`.
 binaries, one of them `HEAD~1` in its own worktree -- with `ctest` 129/129,
 `board_suite` 36 → 37, and every golden unchanged.*
 
+## Every boot PROM we hold, run: one defect fixed, four failures named
+
+Phase 9 asks for every firmware revision to be booted and its failures explained
+rather than hidden. Six boot PROMs across five models, 20 M instructions each,
+serial console, no display:
+
+| firmware | model | what happened |
+| --- | --- | --- |
+| `2500_BOOT_16182_8` | dn2500 | **cannot be fitted**: a 128 K image against a 64 K PROM region |
+| `3000_BOOT_8475_4` | dn3000 | was `Self test failed. Error code is E0060882` -- **fixed here** |
+| `3000_BOOT_8475_7` | dn3000 | the same code at a different PC -- **fixed here** |
+| `3500_BOOT_12191_7` | dn3500 | runs; this is the reference boot |
+| `4500_BOOT_13167_02_MD7R.0.32` | dn4500 | `Self test failed. Expected= 02400000, Actual= 02000000` |
+| `5500_BOOT_A1631-80046_1-30-92` | dn5500 | faulted after **137** instructions with no display; runs 20 M with one |
+
+**The defect, and it was ours: the frontend fitted sixteen megabytes to every
+model.** A DN3000 takes eight. Memory size is machine variance and belongs in
+the model table, which has `ram_max_bytes` for every row, and the boot path had
+a constant instead. The failure is not proportionate to the mistake, which is
+what made it worth finding: `ap_sio_ram_config_byte` has no strap entry for a
+configuration the machine cannot be built in, so it correctly declines to guess,
+the board goes out unstrapped, and the firmware's memory test fails with a code
+rather than saying it was told nothing. Both DN3000 revisions now strap `20` and
+walk from Memory Module 1 into Module 2.
+
+Fitted memory is now the model's maximum where that is under sixteen megabytes,
+and `--ram MB` selects it, refusing a size the model cannot take -- checked in
+`frontend_flags`, which needs no firmware for it. **The DN3500 reference is
+untouched**: its maximum is thirty-two, so it still gets sixteen, and the 30 M
+hash is `5507489C6C7AE148` before and after.
+
+**A trap worth recording, since it inverted a reading twice.** Fitting a display
+**redirects the firmware's output to the frame buffer**, so the serial console
+goes silent -- three runs that had looked like regressions were machines writing
+to a screen nobody was reading. The no-display runs are the legible ones, and a
+display-fitted run needs `--screenshot`.
+
+**What is not fixed, each its own item.**
+
+- The DN2500's PROM region. The image is 128 K, every modelled region is 64 K or
+  32 K, and the firmware's own reset PC of `0001F040` is above 64 K, so 128 K is
+  right and 64 K cannot be. What the region size *is* cannot be settled that
+  way: `019411-A00` does not mention the Series 2500 at all and the Quick
+  Reference Configuration Guide is a configuration document, so no Series 2500
+  memory map exists on disk, and the oracle has no 2500 driver. The model table
+  already records that the DN2500's RAM base was recovered from its own PROM,
+  and its device placements will have to come from the same place. Inventing a
+  map to make the image fit is exactly what this project's rules forbid.
+- The DN2500's RAM base is `0x04000000` in the model table and neither board map
+  has it -- `ap_board_map_for` returns one of two maps, at `0x01000000` and
+  `0x00100000`. So a DN2500 board would put its memory in the wrong place even
+  if its PROM fitted. Same item, same source.
+- The DN4500's memory strap. The table has no Series 4500 rows, so the port is
+  left alone; the firmware then expects a top of `02400000` -- twenty megabytes
+  above its `01000000` base -- and finds the sixteen fitted. Whether twenty is
+  what an unstrapped port makes it compute or a figure from elsewhere is not yet
+  measured, and saying which needs the strap byte's Series 4000 encoding.
+- The DN5500 past self-test, and both ring board generations, which need the
+  ring controller device.
+
+*Verification: `frontend_flags` 13 → 16, `ctest` 129/129, every golden
+unchanged, and the DN3500 30 M hash unchanged across the memory-sizing change.*
+
+

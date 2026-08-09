@@ -117,6 +117,10 @@ static void print_usage(const char *program_name) {
           "                        the controller and the keyboard. Every question\n"
           "                        of the form \"why did my keystroke do nothing\"\n"
           "                        this session was answerable from these lines\n"
+          "  --ram MB              megabytes of main memory to fit. Defaults to\n"
+          "                        16, or the model's maximum if that is less --\n"
+          "                        a size the model cannot be built in leaves the\n"
+          "                        boot PROM's sizing strap unset\n"
           "  --clock DATE          the instant the machine powers on, as\n"
           "                        YYYY-MM-DD or YYYY-MM-DDTHH:MM:SS. A volume\n"
           "                        written later than the clock makes Domain/OS stop\n"
@@ -1471,6 +1475,7 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
                           unsigned trace_last, uint32_t stop_pc,
                           const char *console_script_path,
                           const char *disk_path, const char *battery_path,
+                          unsigned ram_megabytes,
                           const char *dump_spec,
                           unsigned progress_every, bool stop_on_refusal,
                           uint32_t watch_write, unsigned stop_on_watch,
@@ -1500,8 +1505,15 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
    * reads that strap to size memory and a machine whose size is not in the
    * table cannot tell it anything. It was 4 MB, which is not a configuration a
    * DN3500 can be built in: four banks of 4 MB is the smallest the byte
-   * describes at all. */
-  uint32_t ram_bytes = 16u * 1024u * 1024u;
+   * describes at all.
+   *
+   * **Capped at what the model can take**, which is machine variance and so
+   * comes out of the model table rather than from a constant here. Sixteen
+   * megabytes on a DN3000 is not a small error: its maximum is eight, the
+   * strap table has no entry for a size the machine cannot be built in, so the
+   * board goes out unstrapped, and the firmware's memory test fails with
+   * `E0060882` before it reaches anything else. `--ram` overrides. */
+  uint32_t ram_bytes = ram_megabytes * 1024u * 1024u;
   uint8_t *ram = calloc(1, ram_bytes);
   ap_board_t *board = calloc(1, sizeof *board);
   /* The instant this machine powers on with. A default rather than a constant:
@@ -3182,6 +3194,7 @@ int main(int argc, char **argv) {
   bool report_timing = false;
   const char *boot_tape = NULL;
   const char *boot_prom = NULL;
+  unsigned ram_megabytes = 0u; /* 0 = take the default from the model */
   const char *tape_path = NULL;
   /* The node this machine presents. `012345` is what every board in this
    * project has been built with; `--volume` replaces it with the identity the
@@ -3238,6 +3251,17 @@ int main(int argc, char **argv) {
     }
     if (strcmp(argv[i], "--tape") == 0 && i + 1 < argc) {
       tape_path = argv[i + 1];
+      i += 2;
+      continue;
+    }
+    if (strcmp(argv[i], "--ram") == 0 && i + 1 < argc) {
+      char *end = NULL;
+      unsigned long mb = strtoul(argv[i + 1], &end, 10);
+      if (end == argv[i + 1] || *end != '\0' || mb == 0u || mb > 4096u) {
+        fprintf(stderr, "apollo: --ram wants a size in megabytes\n");
+        return 2;
+      }
+      ram_megabytes = (unsigned)mb;
       i += 2;
       continue;
     }
@@ -3472,6 +3496,29 @@ int main(int argc, char **argv) {
     return 0;
   }
 
+  /* How much memory to fit, resolved before anything is built and against the
+   * model table, because memory size is machine variance.
+   *
+   * The default is sixteen megabytes **capped at what the model can take**. A
+   * size the model cannot be built in is not a small error: the boot PROM sizes
+   * memory from a strap byte, `ap_sio_ram_config_byte` has no entry for an
+   * impossible configuration, so the board goes out unstrapped and the firmware
+   * fails its memory test rather than saying what is wrong. A DN3000 fitted
+   * with sixteen megabytes -- twice its maximum -- did exactly that, and it was
+   * this sweep of every firmware revision that found it. */
+  {
+    const uint32_t model_max = opt.model->ram_max_bytes;
+    const unsigned model_max_mb = (unsigned)(model_max / (1024u * 1024u));
+    if (ram_megabytes == 0u) {
+      ram_megabytes = model_max_mb < 16u ? model_max_mb : 16u;
+    } else if (ram_megabytes > model_max_mb) {
+      fprintf(stderr,
+              "apollo: %s takes at most %u MB of memory, not %u\n",
+              opt.model->name, model_max_mb, ram_megabytes);
+      return 2;
+    }
+  }
+
   if (opt.list_models) {
     ap_print_model_table(stdout);
     return 0;
@@ -3501,7 +3548,8 @@ int main(int argc, char **argv) {
                           boot_console,
                           boot_screen, node_id, opt.model->id, screenshot,
                           boot_trace_last, boot_stop_pc, boot_script,
-                          disk_path, battery_path, dump_spec, boot_progress,
+                          disk_path, battery_path, ram_megabytes,
+                          dump_spec, boot_progress,
                           boot_stop_on_refusal, boot_watch_write,
                           boot_stop_on_watch, boot_watch_read,
                           boot_stop_on_watch_read, boot_stop_pc_length,

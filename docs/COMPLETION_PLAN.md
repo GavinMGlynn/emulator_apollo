@@ -3989,6 +3989,20 @@ Only after the reference core is proven, and only under an identity harness.
       not hidden.*
 - [ ] Boot every firmware revision we hold, including both `3000_BOOT` revisions
       and both ring board generations.
+      **Done and recorded**: six boot PROMs across five models, each with its
+      state hash and what it did. It found one defect of ours — the frontend
+      fitted 16 MB to every model, twice what a DN3000 takes, which left the
+      boot PROM's sizing strap unset and failed its memory test with
+      `E0060882`. Memory size now comes from the model table, `--ram` selects
+      it, and both DN3000 revisions pass into Memory Module 2. Detail and the
+      display-redirects-the-console trap in `PROJECT_STATUS.md`.
+      **Awaiting**, each named there: the DN2500's PROM region and RAM base
+      (its 128 K image fits no modelled region, and no Series 2500 memory map
+      exists in the references — the firmware is the only source, as it already
+      was for its RAM base); the DN4500's memory strap, which has no Series
+      4500 rows; the DN5500 past self-test; and both ring generations, which
+      need the ring controller device.
+      *Verification: `frontend_flags` 13 → 16; DN3500 30 M hash unchanged.*
 - [ ] Real multi-node Domain workloads: distributed single-level store across
       nodes, `lcnode`, remote file access. *Verification: content finds what
       unit tests did not; each finding lands with a test.*
