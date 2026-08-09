@@ -20554,3 +20554,48 @@ followed by the comparison it was written for.
 
 *Verification: the oracle's console log with `-isa3 ""`, reaching the `)`
 prompt; the vector 2 counts are this file's own earlier measurements.*
+
+
+## The crash is configuration-independent, which rescues every measurement taken without a display
+
+The previous entry left a real doubt: if the display and the battery change the
+boot path, the whole investigation may have been measuring a machine the oracle
+never runs. So the machine was made to match -- `--screen c8p`, a battery seeded
+with the firmware's own `1234ABCD` at register `$12`, and `--clock 2026-08-09`
+-- and run to 800 M instructions with `--screenshot`.
+
+**It crashes in exactly the same place.** The framebuffer carries the whole boot
+in the firmware's own font and ends:
+
+```
+  Domain/OS kernel(7), revision 10.4, February 14, 1992  11:42:25 am
+
+  CRASH_STATUS 00120020  PC 3C40E114 PID 0001
+  S  3C42BA58        2700         BC
+  3C42BA58: 4E4F
+```
+
+and the run reports **288 MMU faults** -- the same number, from the same PCs, as
+the display-less boot. The vector 2 count differs as this file has always said
+(681 with a display, 939 without), and the crash does not. So the configuration
+is a difference and not *the* difference, and every measurement taken on the
+display-less machine stands.
+
+**The framebuffer also shows two lines the serial console never carried.**
+`3C42BA58: 4E4F` disassembles as **`TRAP #15`** -- which is exactly how
+`crash_system` enters the Mnemonic Debugger, per *AEGIS Internals* §18.2.1.1 --
+with `2700` beside it, an SR in supervisor state at interrupt level 7. So the
+crash report's `PC 3C40E114` sits in a dump whose *other* address is the trap
+that produced it, and that address **is** executed. The reporter is not
+inventing a PC; it is printing a saved one from somewhere this core can now go
+and look.
+
+**One boot attempt that was not a comparison at all**, recorded because it took
+a run to find out: `--screen c8p` *without* a seeded battery never leaves the
+boot PROM (`final PC 00002684`, translation off, no console text). With a
+display fitted the firmware talks to the screen and keyboard, so the scripted
+serial dialogue is never consumed and the machine waits for an answer it cannot
+hear. A display-fitted boot needs the battery, not the script.
+
+*Verification: the screenshot above, decoded; the run's own counters against the
+display-less boot's -- 288 MMU faults either way, 681 against 939 vector 2.*
