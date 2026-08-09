@@ -21288,3 +21288,39 @@ mechanism after all and this entry is the next one to be withdrawn.
 *Verification: `--dump-logical 3FFF2400:10` at a stop inside the loop, giving
 `00054000`; the four card bases read out of `3c505.cpp`, `sc499.cpp`,
 `omti8621.cpp` and `apollo_m.cpp` against this board's four constants.*
+
+
+## No interrupts arrive during the delay on either machine, so the tick is not the route
+
+The measurement the previous entry asked for, on both sides:
+
+| | cycles for the two delays | instructions | interrupts taken |
+| --- | --- | --- | --- |
+| ours | 26,000,085 | 8,000,007 | **0** |
+| oracle | 36,000,030 | ~8,000,006 | **0** |
+
+`3C4B6D1A` to `3C4B6D52`, counted here from the run report's exception tally
+(`130 x vector 2` at both ends, unchanged) and on the oracle from a counter in
+`m68ki_exception_interrupt` reported at the same two PCs. **Neither machine
+takes a single interrupt across the sequence**, and both spend the same eight
+million instructions in it. The cycle ratio is 1.385, the same figure the
+overlap model gives.
+
+So the delay's extra 200 ms buys the oracle **nothing that arrives as an
+interrupt**, and the route proposed in the previous entry is closed. What
+remains of the timing reading is narrower and more specific: state that advances
+with elapsed time and is *polled* rather than delivered -- a timer register read
+for elapsed time, the calendar, a controller's ready bit -- would still differ,
+and none of those raise a vector.
+
+**A failure worth recording about how this was nearly got wrong.** The first
+attempt at the oracle half reported zero interrupts because the build had
+**failed** -- `m_apollo_irq_count was not declared in this scope`, the member
+added to a header that was not the one in scope -- and the run silently used the
+previous binary. The zero looked exactly like a measurement. It was caught only
+by reading the build log afterwards; the build's exit status is now checked
+before the run rather than after, which is the rule this project already wrote
+down as "check build exit status, not grep" and which cost a cycle here anyway.
+
+*Verification: the four log lines above from the rebuilt instrument (reverted;
+five known local edits remain), against our two stops' exception tallies.*
