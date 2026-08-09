@@ -21137,3 +21137,47 @@ measurement.
 *Verification: the poll log above from an instrumented `ext/mame` (reverted; five
 known local edits remain); the SC499 default read out of `sc499.cpp`; the sample
 table already in this file, re-read at the deltas it actually covers.*
+
+
+## What both machines are doing at the split: a device reset with two calibrated delays
+
+The twelve million instructions both machines spend at `3C4B6Dxx` before they
+part are not a wait on a status bit. They are two counted delay loops around a
+device register write (logical `3C4B6D00` -> physical `010E1D00`):
+
+```
+  3C4B6D1A  203C 000F423F  MOVE.L #999999,D0      a delay, counted
+  3C4B6D26  D3AE FFDC      ADD.L  D1,-$24(A6)
+  3C4B6D2A  9081           SUB.L  D1,D0
+  3C4B6D2C  0C80 FFFFFFFF  CMPI.L #-1,D0
+  3C4B6D32  66F2           BNE.B  -> 3C4B6D26
+  3C4B6D36  422B 0006      CLR.B  $6(A3)          a device register
+  3C4B6D3A  203C 000F423F  MOVE.L #999999,D0      and a second delay
+  ...
+  3C4B6D52  002B 0001 0007 ORI.B  #1,$7(A3)
+  3C4B6D5A  3F3C 0A00      MOVE.W #$0A00,-(A7)
+  3C4B6D5E  6100 FAA4      BSR.W  ...
+```
+
+`$000F423F` is 999,999. Two of those at roughly five instructions each is ten
+million, which is the span observed. So this is a **reset sequence with
+calibrated waits** -- write a register, wait, write another, wait -- and both
+machines execute it identically.
+
+**Which makes the timing hypothesis specific and testable.** A counted delay is
+a fixed number of *instructions* but a variable amount of *emulated time*: it
+lasts as long as this core says those instructions take. If a device becomes
+ready after a fixed interval, then two emulators whose cycle counts differ will
+find it ready after different numbers of loops -- and the same code will take
+different branches with nothing wrong at the branch, the address, or the device
+model, all three of which are already eliminated.
+
+The measurement that follows is therefore **emulated time, not instructions**:
+how long this core says the 999,999-iteration loop takes against how long MAME
+says it takes. Our run reports `clocks` and `elapsed` in base units; the oracle's
+equivalent is its own cycle count over the same span. If they differ materially,
+the delay is the mechanism and the defect is in instruction timing rather than
+anywhere the last four hypotheses looked.
+
+*Verification: the disassembly above from a `--dump-logical` at a stop inside the
+second loop, on the matched MD path.*
