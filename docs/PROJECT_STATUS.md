@@ -21102,3 +21102,38 @@ defects.
 *Verification: the branch log above from an instrumented `ext/mame` (reverted;
 five known local edits remain); the two decode formulas and the unmapped return
 read out of `apollo.cpp`.*
+
+
+## Both machines run the same poll, in a different order -- so it is timing, not a missing device
+
+Three hypotheses died in one sitting, and the last one takes the framing with it.
+
+**The tape controller is not misplaced.** `0x2B8` looked like the SC499's base
+because `sc499.cpp` offers it as a jumper setting -- but its *default* is
+`PORT_DIPNAME( 0x3f8, 0x200, ...)` and the Apollo driver does not override it.
+MAME's tape sits at ISA `0x200`, which is exactly where `AP_TAPE_ADDR 0x050000`
+puts ours. Our placement agrees with the oracle's, and nothing is at `0x2B8` on
+either machine.
+
+**The oracle polls too, and for just as long.** Instrumented at `3C4BC384`:
+visit 1 at instruction 140,494,828, then every 200,000 visits exactly 800,000
+instructions apart -- four instructions per iteration, 8.2 M visits and counting,
+against our 8,404,113 reads of the same address. The poll is not a wrong turn:
+**both machines make it**.
+
+**And the claim that the oracle's samples never showed it was mine, and wrong.**
+They do -- at Δ 100 M and Δ 110 M the oracle is at `3C4BC388`. I read the sample
+table at the deltas where *we* were polling and concluded from their absence
+there. The oracle's poll runs at Δ ≈ 97 M; ours at Δ ≈ 53 M.
+
+**So what actually differs is the order.** At Δ 52-53 M ours goes to the poll and
+the oracle goes to `3C4B1E56`; the oracle polls forty million instructions later
+and carries on, while ours polls first and dies. Both do the same work; the
+sequence differs. That is a **timing** difference -- something becomes ready, or
+an interrupt arrives, at a different point -- and not a missing device, a wrong
+address, or a wrong branch, all three of which have now been eliminated by
+measurement.
+
+*Verification: the poll log above from an instrumented `ext/mame` (reverted; five
+known local edits remain); the SC499 default read out of `sc499.cpp`; the sample
+table already in this file, re-read at the deltas it actually covers.*
