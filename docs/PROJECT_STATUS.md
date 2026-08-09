@@ -21826,3 +21826,67 @@ at the fatal fault on each -- not the switch routine, which both skip.
 prompt, 7,556 visits logged; our counts from `--boot-stop-pc 3C43DD80` and the
 crash report of the same build. The oracle instrument is reverted and its
 checkout rebuilt clean.*
+
+## The two machines fault on the same address walking different trees
+
+The thesis "the crash is the skipped switch" has stood for several sessions on
+*inferred* evidence: the kernel's tree maps index `EF` and the live tree does
+not. It is now measured directly, on both machines, at the faulting instruction
+-- the register itself rather than its consequences.
+
+**Ours**, stopping on the refusal rather than on the place it happens
+(`--boot-stop-on-mmu-fault-at 3BFF0001`):
+
+```
+  stopped on   the MMU refusing 3BFF0001, after 386,125,292 instruction(s)
+  translation  enabled, one root, crp 01001400 limit 00FF, srp 01200000
+  mmu loads    8 PMOVE(s)      mmu faults 288
+```
+
+**The oracle**, reporting the root pointer in force whenever `3C47A25A`
+executes, over a boot to the Phase II Environment -- 13 visits, sweeping
+`3BFD0000`, `3BFE0000`, `3BFF0000` and `3C248000`, **every one of them**:
+
+```
+  APOLLO_CRP_AT 203681313 pc=3C47A25A a0=3BFF0000
+                crp_aptr=0105BC00 crp_limit=00FF0002 tc=80A28750
+```
+
+| | root pointer at the fatal access |
+| --- | --- |
+| ours | `01001400` -- `SELF_TEST`'s tree |
+| oracle | `0105BC00` -- the kernel's own |
+
+Same instruction, same operand, same sweep of the same region; different tree.
+That is the whole difference, and it explains the `MMUSR` split (N=1 "region
+absent" against N=2 "page missing") without any further hypothesis.
+
+**And the ordering on the oracle is install-then-fault.** Its second call to the
+switch routine is at 200,486,124 and its first visit to the fault site is at
+203,659,955 -- **3.17 M instructions later**. So the oracle installs the kernel's
+tree and *then* takes the fault that our machine dies on, which is why the same
+fault is recoverable there.
+
+**The MD path does not currently reproduce anything on our side, and that
+corrects a note in this file.** `md-session.sh` with `EX DOMAIN_OS` was recorded
+as crashing identically with `SELF_TEST` never loaded. Measured now, to 1.5
+*billion* instructions:
+
+```
+  final PC 3C456BAE   mmu faults 0   131 x vector 2, 9690 x vector 160
+```
+
+Domain/OS loads (`low: 01002000 high: 010E986C start: 01002024`), takes timer
+interrupts, and **never faults the MMU once** -- a running Domain/OS takes 288
+on the other path. So it is stuck early, not crashing, and MD is not a usable
+matched path until that is understood. The comparison above is therefore
+`SELF_TEST` path against the oracle's MD path, which is sound for *this*
+question -- both reach the same instruction with the same operand -- and is not
+sound for instruction-count comparisons.
+
+*Next*: the oracle's install is the event to catch now, with its instruction
+count -- which `PMOVE` writes `0105BC00`, and what our machine is doing at the
+corresponding point. The tap pattern is the one used here.
+
+*Verification: our stop is on the MMU's refusal, not on a PC; the oracle's 13
+visits all report the same root pointer; both instruments reverted.*
