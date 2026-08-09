@@ -89,17 +89,20 @@ static void fault(ap_machine_t *machine, uint32_t address) {
    * identical without the PC. */
   machine->last_bus_error_pc = machine->cpu.regs.pc;
   machine->bus_errors++;
+  const uint32_t pc = machine->cpu.regs.pc;
   for (unsigned i = 0; i < machine->distinct_fault_count; i++) {
-    if (machine->fault_sites[i].address == address) {
+    if (machine->fault_sites[i].pc == pc) {
       machine->fault_sites[i].count++;
+      machine->fault_sites[i].last_address = address;
       return;
     }
   }
   if (machine->distinct_fault_count <
       sizeof machine->fault_sites / sizeof machine->fault_sites[0]) {
     machine->fault_sites[machine->distinct_fault_count++] =
-        (ap_fault_site_t){.address = address,
-                          .pc = machine->cpu.regs.pc,
+        (ap_fault_site_t){.pc = pc,
+                          .first_address = address,
+                          .last_address = address,
                           .count = 1u};
     return;
   }

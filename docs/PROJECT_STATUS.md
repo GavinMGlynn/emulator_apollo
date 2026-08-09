@@ -20255,15 +20255,29 @@ landed because it is documented behaviour of an instruction the fault handler
 executes 290 times, found by the table walk the discipline prescribes; it is not
 landed as a candidate explanation, and it is not one.
 
-**The fault profile is now an instrument rather than a list.** `fault sites` was
-sixteen bare addresses, and a boot fills that during device probing alone -- 14
-of the 16 slots go to one `FD800000`-`FD80D000` scan, so every later fault in the
-run was invisible *and the list looked complete*. Each site now carries the PC
-that first reached it and how often it faulted, the cap is 64, and what the cap
-refuses is counted and printed (`N more not recorded`) rather than dropped in
-silence. The three answer different questions: a device probe returns to one
-address from one loop, and a program following a wild pointer arrives once from
-somewhere it should never have been.
+**The fault profile is now an instrument rather than a list, and the first
+attempt at it was keyed on the wrong thing.** `fault sites` was sixteen bare
+addresses, and a boot fills that during device probing alone, so every later
+fault was invisible *and the list looked complete*. Raising the cap to 64 and
+adding the PC and a count was not enough: re-run, the profile came back **`64
+distinct, 335 more not recorded`**, and 62 of the 64 were consecutive pages of
+one `FD800000`-upward scan, every one of them `first from PC 0000106A, 5
+time(s)`. The instrument had been rebuilt and still could not show a single
+one-off fault.
+
+So the key is the **PC**, not the address. One row per faulting instruction, with
+the span it reached over and how often:
+
+```
+  fault sites  N instruction(s)
+    PC 0000106A  1985 time(s)  FD800000-FD8FF000
+```
+
+That whole scan is now one line, and the span is what the count cannot say --
+one PC faulting 400 times over 400 pages is a probe, one faulting 400 times over
+a single address is a program stuck. The measurement chose this, not taste: the
+address-keyed version was built, run against a real boot, and shown to answer
+the wrong question.
 
 Two traps found writing its tests, both worth keeping because both produce a
 *plausible wrong reading* rather than an error:

@@ -268,9 +268,9 @@ static void fault_once(ap_machine_t *machine, uint32_t bad, uint32_t from) {
   (void)ap_machine_run(machine, 1u);
 }
 
-/* Returning to the same unanswered address is one place, visited repeatedly --
- * which is what a device probe looks like. */
-static void test_the_same_unanswered_address_is_one_site_with_a_count(void) {
+/* One instruction that faults repeatedly is one row, counted -- which is what a
+ * device probe looks like, and what must not crowd out everything else. */
+static void test_one_instruction_faulting_repeatedly_is_one_site(void) {
   ap_machine_t m;
   ap_machine_init(&m, ram, RAM_BYTES);
   ap_machine_reset(&m, PROGRAM, STACK);
@@ -280,29 +280,46 @@ static void test_the_same_unanswered_address_is_one_site_with_a_count(void) {
   }
 
   TEST_ASSERT_EQUAL_UINT(1u, m.distinct_fault_count);
-  TEST_ASSERT_EQUAL_HEX32(0x01000100u, m.fault_sites[0].address);
+  TEST_ASSERT_EQUAL_HEX32(PROGRAM, m.fault_sites[0].pc);
   TEST_ASSERT_EQUAL_UINT(3u, m.fault_sites[0].count);
 }
 
-/* And two addresses are two places, in the order they were first reached. */
-static void test_each_unanswered_address_gets_its_own_site(void) {
+/* A scan is one instruction over many addresses, and the span is what says so:
+ * the count alone cannot tell a probe sweeping a range from a program stuck on
+ * one address. Both ends are kept, and the first stays first.
+ *
+ * Driven through an address register, because that is what a scan actually is
+ * -- `MOVE.L (A0),D0` with `A0` walking a range. Rewriting an absolute address
+ * into the same instruction would not do it: the instruction cache serves the
+ * old words, and all three accesses land on the first address. */
+static void fault_through_a0(ap_machine_t *machine, uint32_t bad) {
+  machine->ram[PROGRAM] = 0x20u; /* MOVE.L (A0),D0 */
+  machine->ram[PROGRAM + 1u] = 0x10u;
+  ap_m68030_cpu_reset(&machine->cpu, PROGRAM);
+  machine->cpu.regs.isp = STACK;
+  machine->cpu.regs.a[0] = bad;
+  (void)ap_machine_run(machine, 1u);
+}
+
+static void test_a_scan_from_one_instruction_records_the_span_it_reached(void) {
   ap_machine_t m;
   ap_machine_init(&m, ram, RAM_BYTES);
   ap_machine_reset(&m, PROGRAM, STACK);
 
-  fault_once(&m, 0x01000200u, PROGRAM);
-  fault_once(&m, 0x01000300u, PROGRAM + 0x40u);
+  fault_through_a0(&m, 0x01000000u);
+  fault_through_a0(&m, 0x01001000u);
+  fault_through_a0(&m, 0x01002000u);
 
-  TEST_ASSERT_EQUAL_UINT(2u, m.distinct_fault_count);
-  TEST_ASSERT_EQUAL_HEX32(0x01000200u, m.fault_sites[0].address);
-  TEST_ASSERT_EQUAL_HEX32(0x01000300u, m.fault_sites[1].address);
+  TEST_ASSERT_EQUAL_UINT(1u, m.distinct_fault_count);
+  TEST_ASSERT_EQUAL_UINT(3u, m.fault_sites[0].count);
+  TEST_ASSERT_EQUAL_HEX32(0x01000000u, m.fault_sites[0].first_address);
+  TEST_ASSERT_EQUAL_HEX32(0x01002000u, m.fault_sites[0].last_address);
 }
 
-/* The PC kept is the *first* one to reach the place. A probe returns to the
- * same address from the same loop, so its hundredth PC says nothing its first
- * did not -- but a program that wanders there once, later, is a different
- * event, and only the first PC distinguishes them. */
-static void test_a_fault_site_remembers_the_first_pc_that_reached_it(void) {
+/* And two instructions are two rows, in the order they first faulted --
+ * including when they fault on the *same* address, which is the case an
+ * address-keyed profile could not express at all. */
+static void test_each_faulting_instruction_gets_its_own_site(void) {
   ap_machine_t m;
   ap_machine_init(&m, ram, RAM_BYTES);
   ap_machine_reset(&m, PROGRAM, STACK);
@@ -310,9 +327,9 @@ static void test_a_fault_site_remembers_the_first_pc_that_reached_it(void) {
   fault_once(&m, 0x01000400u, PROGRAM);
   fault_once(&m, 0x01000400u, PROGRAM + 0x40u);
 
-  TEST_ASSERT_EQUAL_UINT(1u, m.distinct_fault_count);
+  TEST_ASSERT_EQUAL_UINT(2u, m.distinct_fault_count);
   TEST_ASSERT_EQUAL_HEX32(PROGRAM, m.fault_sites[0].pc);
-  TEST_ASSERT_EQUAL_UINT(2u, m.fault_sites[0].count);
+  TEST_ASSERT_EQUAL_HEX32(PROGRAM + 0x40u, m.fault_sites[1].pc);
 }
 
 /* Past the cap the run keeps counting what it cannot name. A list that stops
@@ -2230,9 +2247,9 @@ int main(void) {
   RUN_TEST(test_bsr_is_priced_as_a_call_not_as_an_untaken_branch);
   RUN_TEST(test_reset_leaves_the_state_a_reset_leaves);
   RUN_TEST(test_an_access_beyond_the_ram_faults_rather_than_wrapping);
-  RUN_TEST(test_the_same_unanswered_address_is_one_site_with_a_count);
-  RUN_TEST(test_each_unanswered_address_gets_its_own_site);
-  RUN_TEST(test_a_fault_site_remembers_the_first_pc_that_reached_it);
+  RUN_TEST(test_one_instruction_faulting_repeatedly_is_one_site);
+  RUN_TEST(test_a_scan_from_one_instruction_records_the_span_it_reached);
+  RUN_TEST(test_each_faulting_instruction_gets_its_own_site);
   RUN_TEST(test_fault_sites_past_the_cap_are_counted_not_dropped_silently);
   RUN_TEST(test_a_runaway_program_ends_at_its_limit);
   RUN_TEST(test_a_run_stops_on_an_unimplemented_instruction_and_says_so);

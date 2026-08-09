@@ -916,19 +916,26 @@ static void report_state(ap_machine_t *machine) {
     }
   }
   if (machine->distinct_fault_count > 0u) {
-    /* One line per site, with the PC that first reached it and how often it
-     * faulted. As a bare list of addresses this said which places went
+    /* One line per faulting *instruction*, with the span it reached over and
+     * how often. As a bare list of addresses this said which places went
      * unanswered and nothing about whether they were probed or stumbled into,
-     * which is the distinction a boot ending in a fault turns on. */
-    printf("  fault sites  %u distinct", machine->distinct_fault_count);
+     * which is the distinction a boot ending in a fault turns on -- and the
+     * PROM's own device scan then filled the list before anything interesting
+     * happened. */
+    printf("  fault sites  %u instruction(s)", machine->distinct_fault_count);
     if (machine->fault_sites_dropped > 0u) {
-      printf(", %u more not recorded", machine->fault_sites_dropped);
+      printf(", %u fault(s) from further PCs not recorded",
+             machine->fault_sites_dropped);
     }
     printf("\n");
     for (unsigned i = 0; i < machine->distinct_fault_count; i++) {
-      printf("    %08X  first from PC %08X, %u time(s)\n",
-             machine->fault_sites[i].address, machine->fault_sites[i].pc,
-             machine->fault_sites[i].count);
+      const ap_fault_site_t *site = &machine->fault_sites[i];
+      printf("    PC %08X  %u time(s)  %08X", site->pc, site->count,
+             site->first_address);
+      if (site->last_address != site->first_address) {
+        printf("-%08X", site->last_address);
+      }
+      printf("\n");
     }
   }
   if (machine->watch_read_address != 0u) {
