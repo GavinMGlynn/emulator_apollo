@@ -19600,6 +19600,41 @@ the control case works.
 in `ap_mc68681.c` -- codes 6, 7, 8 are 1200, 1050, 2400, which is what rules out
 a rate-ordered explanation. No code changed.*
 
+## The two machines have not been showing the same date
+
+Chasing the MD route turned up something that undercuts the oracle comparison
+more directly than the route ever would have.
+
+**The oracle's calendar reads year 26.** MAME takes the host's date, and
+`mdsession.lua` sets `25 Years Ago = On` -- which, read in
+`apollo_m.cpp:1213`, adds 75 only when the two-digit year is **below 25**. A host
+in 2026 gives year 26, so the shift does not apply and the guest sees 26.
+
+**Ours reads year 87.** `--clock` defaults to `1987-07-31T21:09:21`, which is
+what every identity-harness boot has used, and the report now prints it as
+`power-on 1987-07-31T21:09:21`.
+
+**So the two machines have been booting the same volume with calendars
+thirty-nine years apart**, and this project's own record says that matters: the
+image was installed in 2026, its timestamps are in the 26 era, and a calendar
+behind the volume is a documented cause of the kernel refusing to proceed. The
+difference is in an input the kernel demonstrably reads -- the boot report counts
+calendar accesses -- and it has been present in every comparison made against the
+oracle.
+
+**This does not overturn the findings that rest on both machines agreeing.** The
+kernel's code is the same, the tree addresses match to the digit, the oracle runs
+our routine at `3C43DDC8`. What it does is supply a candidate for the one thing
+still unexplained: why the same code asks for space 0 first there and space 1
+first here. A kernel whose calendar disagrees with its volume may take a
+different path long before it allocates an address space, and nothing so far has
+excluded that.
+
+*Verification: `apollo_m.cpp:1213` for the shift's condition; `mdsession.lua`'s
+`CONFIG` for the setting; the reference report's own `power-on` line for ours. A
+boot with `--clock 2026-08-09` is running to test it. No code changed.*
+
+
 
 
 
