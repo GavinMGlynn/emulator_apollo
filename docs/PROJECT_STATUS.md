@@ -3395,8 +3395,8 @@ failure that cost a bit position in the 68020's module entry word.
 | 68030 descriptors + search protection state | working | `desc_suite`, 23 tests, `MC68030 User's Manual 3ed` §9.5.1.1 |
 | 68030 translation control (TC) + address split | working | `tc_suite`, 15 tests, `MC68030 User's Manual 3ed` §9.7.2 |
 | 68030 transparent translation (TT0/TT1) | working, bit layout now transcribed | `tt_suite`, 21 tests, `MC68030 User's Manual 3ed` §9.3, §9.7.3; layout from `M68000 Family Programmer's Reference Manual 1992` Figure 1-9 |
-| 68030 MMU status register (`MMUSR`) | working, both PTEST forms, bit layout transcribed | `mmusr_suite`, 16 tests, `MC68030 User's Manual 3ed` Table 9-3; layout from `M68000 Family Programmer's Reference Manual 1992` PTEST p. 6-64 |
-| 68030 translation table search (the walk) | working: search, U/M writeback, and ATC fill | `walk_suite`, 40 tests, `MC68030 User's Manual 3ed` §9.2, §9.4, §9.5, §11; writeback cost cross-checked against `MC68851 PMMU User's Manual 3ed` §5.1.5.3.11 |
+| 68030 MMU status register (`MMUSR`) | working, both PTEST forms, bit layout transcribed | `mmusr_suite`, 17 tests, `MC68030 User's Manual 3ed` Table 9-3; layout from `M68000 Family Programmer's Reference Manual 1992` PTEST p. 6-64 |
+| 68030 translation table search (the walk) | working: search, U/M writeback, ATC fill, and `PTEST`'s level as a search depth | `walk_suite`, 47 tests, `MC68030 User's Manual 3ed` §9.2, §9.4, §9.5, §11; writeback cost cross-checked against `MC68851 PMMU User's Manual 3ed` §5.1.5.3.11; the level ceiling from `M68000 Family Programmer's Reference Manual 1992` PTEST p. 6-63 |
 | MC68851 PMMU | working as its own subsystem: the translation control and root pointers, the six descriptor formats and Figure 5-10's type determination, the status and protection registers, the 64-entry ATC, and the table search with §5.1.5.3.11's U/M write-back. The **68030's** own MMU is separate and has its own rows above | `m68851_tc_suite` 13, `m68851_rp_suite` 13, `m68851_descriptor_suite` 21, `m68851_regs_suite` 22, `m68851_atc_suite` 22, `m68851_search_suite` 26, `m68851_suite` 43; `MC68851 PMMU User's Manual 3ed` |
 | 68040 MMU | not started | — |
 | MC68882 FPU | working, and attached to the 68030 as a *pointer* so a machine without one keeps its line 1111 trap. Every general-type operation executes: the four arithmetic operations, the exactly-specified monadics, the remainders, the single-precision pair, and **all nineteen transcendentals** to within §4.3.2's published bound. All three operand paths run — register-to-register, **`<ea>` to `FPn`** and **`FPn` to `<ea>`**, in all six binary formats from every legal addressing mode. `FMOVEM` of the data registers runs in both directions with its reversed mask orderings, and so do the system control registers, with the FPIAR tracking under §2.4's two conditions. `FMOVECR` returns all 22 published constants, computed and correctly rounded. **Every general-type instruction executes.** **Every instruction type executes**, the conditionals included. **Every 68882 instruction and every data format executes**, `FSAVE` and `FRESTORE` included. A *busy* state frame is deliberately absent: this core's part never suspends, so nothing can generate one — for which the coprocessor's own half (`ap_m68882_condition`) is done and the 68030's dialog is not | `m68882_regs_suite` 19, `m68882_format_suite` 18, `m68882_cir_suite` 8, `m68882_round_suite` 11, `m68882_arith_suite` 41, `m68882_decode_suite` 12, `m68882_accuracy_suite` 10, `m68882_transcendental_suite` 36, `m68882_store_suite` 13, plus 51 tests in `step_suite`; `MC68881/MC68882 User's Manual 1ed` |
@@ -18793,8 +18793,10 @@ disagrees:
 
 Both runs are the same deterministic machine, so the bytes did not differ *at the
 same instant*: the page was **reused between instruction 288,640,117 and the end
-of the boot**. With `TC = 80A28750` the page size is 256 bytes, and a kernel
-paging that finely will reuse a frame that has fallen out of use. The dump is a
+of the boot**. With `TC = 80A28750` the page size is 1 KB -- PS is bits 23-20,
+`$A`, and this file said 256 bytes until the `PTEST` entry below rechecked it --
+and a kernel paging that finely will reuse a frame that has fallen out of use.
+The dump is a
 faithful record of memory at 350 M and says nothing about what was executing at
 288 M.
 
@@ -20082,6 +20084,46 @@ the *read* side work: what it writes is invisible, but what it reads is not.
 liveness every two emulated seconds, so a silent result will be interpretable
 this time.*
 
+## The read tap cannot see a `PMOVE` either, and the question was the wrong one
+
+Two results close this line of work, one about the instrument and one about the
+question.
+
+**The instrument.** A read tap matched on the *values* a root-pointer load
+carries -- `01001400`, `0105BC00`, `00FF0002` -- fires nine times in a boot and
+not once from a kernel PC, while liveness samples at 2.0, 7.8, 9.8 and **11.81
+seconds** put the tap demonstrably alive through the window in which the install
+happens. The nine are the boot PROM at `0000254C` and the memory sweep at
+`01002174` reading the value as data. So MAME's `PMOVE` fetches its operand by a
+path a Lua tap does not observe, exactly as opcode fetches are not observed. That
+is now established with a liveness proof rather than guessed, and it retires
+Lua taps for this question altogether.
+
+**The question.** Laid out against the clock, the oracle's own log says the
+premise was wrong:
+
+```
+  11.7 s   installs 01001400          -- space 0's tree
+  12.15 s  asks to switch to space 1  -- cache already reads 1
+  36.2 s   installs 0105BC00          -- space 1's tree
+```
+
+The request at 12.15 s meets the same cache value ours does and very likely skips
+in the same way. **The oracle is not saved by its first request; it is saved by a
+later one**, twenty-four seconds on, after something has changed
+`$3C43FB14`. Hours went into "why does the oracle ask for space 0 first" -- a
+question built on an inference from a table, refuted once by measuring the
+argument, and still shaping the search afterwards.
+
+**So the next measurement is the cache's write history on both machines**, which
+neither side has, and the plan for it is in `COMPLETION_PLAN.md` beside the boot
+item rather than here.
+
+*Verification: the tap's log -- nine value hits, none from a kernel PC, liveness
+at 11.81 s -- against the same run's root-pointer installs; the oracle timeline
+from five runs' logs.*
+
+
 
 
 
@@ -20123,6 +20165,109 @@ garbage. It simply was not what defeated this tap.
 *Verification: the tap's own log, the ten root-pointer changes in the same run,
 and the `3C43DDC8` sample that places the oracle inside the routine. No code
 changed in the core.*
+
+## `PTEST`'s level was never a search depth, and the kernel probes 290 times
+
+Two dead leads and one real defect, in that order, and the defect was found by
+walking a register's tables rather than by another boot.
+
+**The assumed fault site is never executed.** A run stopped on `--boot-stop-pc
+3C40E114:2` -- the PC the kernel's own `Crash_Status 00120020 PC 3C40E114 pid
+0001` names -- **never fires**, and ends 387,684,292 instructions in on an
+unrelated fault at `0100040A` with `A7 = 0`. The stop is armed (it is in
+`wants_steps`, and the run carries `--boot-console` besides), so this is a
+measurement and not a silent flag: whatever the kernel prints as the faulting
+PC, our processor does not execute that address. Every conclusion of the form
+"the fatal access is to `3BFF0001` at `3C40E114`" rests on a value read out of a
+crash *report*, not out of an executed instruction, and it does not survive.
+
+**And the kernel-region root-pointer install is the boot PROM.** The same run's
+`mmu loads` shows thirteen `PMOVE`s including `CRP <- 00FF0002 01000400 by PC
+3FFA25DE` -- a `3Fxxxxxx` PC, which looked like the kernel finally installing a
+tree. It is not. A stop at that PC prints `Crash_Status` *first* and reports
+`final PC 3FFA25E4 -> 000025E4 (boot PROM)`: `3FFA0000` is where the PROM is
+mapped, and that install is crash teardown. The lead is closed.
+
+**What the same report does show is the kernel's fault handler.** `mmu reads 290
+PMOVE(s) out of a register: TC CRP MMUSR`, and **all 290 `MMUSR` reads come from
+one PC, `3C42CE30`**. So Domain/OS answers each of its 652 bus errors by probing
+with `PTEST` and reading the result -- which makes `PTEST` a load-bearing
+instruction on the crash path, and worth its table walk.
+
+**The level operand is a search *depth*, and we ignored it.** `[PRM]` p. 6-63,
+read as the page image, says it three times over:
+
+> "The `<level>` operand specifies the level of the search. Level 0 specifies
+> searching the address translation cache only. Levels 1-7 specify searching the
+> translation tables only. **The search ends at the specified level.**"
+
+> "Execution of the instruction continues to the requested level or until
+> detecting one of the following conditions: Invalid Descriptor, Limit
+> Violation, Bus Error Assertion (Physical Bus Error)."
+
+> "the physical address of the last descriptor **successfully** fetched loads
+> into the address register. A successfully fetched descriptor occurs only if all
+> portions of the descriptor can be read by the MC68030 without abnormal
+> termination of the bus cycle."
+
+`execute_ptest` used the level only to choose between the ATC and the tables, and
+then walked to termination. A level 1 or 2 probe therefore answered about a
+descriptor the instruction never asked about: the wrong `MMUSR`, an `N` reporting
+the tree's depth instead of the requested one, and an address register pointing
+at the page descriptor rather than at the table entry the handler wanted. The
+address register was wrong in a second way as well -- `last_descriptor_address`
+was recorded *before* the fetch, so a fetch that bus errored returned the address
+that had just refused the bus rather than the last one readable.
+
+**The 68851 module has had this right since the day it was written.**
+`ap_m68851_search_config_t` carries `max_levels` with `AP_M68851_SEARCH_TYPE_
+TRUNCATED` reported apart from `INVALID`, and its comment already says why: "it
+is not a fault: the search was *asked* to stop, so nothing about the mapping has
+been disproved". The two parts were built from the same table and only one of
+them got the ceiling. That asymmetry is what found this -- the sibling-manual
+step of the resolution order, applied to our own two implementations.
+
+`ap_m68030_walk_to_level()` now takes the ceiling, `ap_m68030_walk()` is that
+with zero, and `truncated` is reported beside `search.invalid` so `MMUSR`'s I bit
+cannot be set by a probe that merely stopped where it was told to.
+
+**Two gaps found beside it and deliberately not closed here**, both recorded as
+plan tails: a root pointer whose DT field is `page descriptor` cannot be
+represented at all (`ap_m68030_root_t` collapses DT to `long_format`), which also
+owes `An = $0` per the same page; and this file said `TC = 80A28750` means
+256-byte pages, where PS is bits 23-20 = `$A` and the page size is **1 KB**. The
+figure is corrected in place above; the frame-reuse conclusion it supported holds
+either way, since a kernel paging at 1 KB reuses frames just as readily.
+
+**And it does not fix the crash, which is measured and not assumed.** A run
+stopped at `3C42CE30` gives the handler's actual instructions:
+
+```
+  3C42CE2A  F010 9E08   PTESTR  D0,(A0),#7      level 7, R, no An, fc from D0=5
+  3C42CE2E  554F        SUBQ.W  #2,A7
+  3C42CE30  F017 6200   PMOVE   MMUSR,(A7)
+```
+
+The level field (bits 12-10 of `9E08`) is **7**, and the A bit is clear. Against
+a tree three levels deep a ceiling of seven is never reached, and no address
+register is asked for -- so both halves of this fix are inert on this boot. It is
+landed because it is documented behaviour of an instruction the fault handler
+executes 290 times, found by the table walk the discipline prescribes; it is not
+landed as a candidate explanation, and it is not one.
+
+**What the same run does newly establish**: the kernel's *first* `MMUSR` read is
+at instruction **384,410,948**, about 3.1 M before the crash. So the handler is
+not probing steadily through the boot and then failing once -- the probing starts
+only as the machine is already coming apart. Whatever goes wrong begins before
+the first `PTEST`, which moves the search window earlier than any of today's
+measurements looked.
+
+*Verification: `walk_suite` 47 tests (7 new -- one table per level asked for, a
+truncation that is not a fault, the last descriptor named, a ceiling deeper than
+the tree, an unbounded translation, and both `successfully fetched` cases) and
+`mmusr_suite` 17 (1 new: a truncated search reports I clear and N as walked);
+`ctest` 129/129. The two dead leads are from the two bounded boots above, whose
+invocations are in this entry.*
 
 
 

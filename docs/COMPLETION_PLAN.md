@@ -563,6 +563,23 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         *Verification: `step_suite`, 15 further tests — including a table-search
         `PTEST` leaving the ATC empty and returning the descriptor's address,
         and the ATC surviving `PMOVEFD` where `PMOVE` flushes it.*
+    - [x] `PTEST`'s level is a **search depth**, not merely a choice between the
+          ATC and the tables — "the search ends at the specified level" — and the
+          address register takes the last descriptor *successfully* fetched. Both
+          were missing here while the 68851's own search had the ceiling from the
+          day it was written. Detail in `PROJECT_STATUS.md`.
+          *Verification: `walk_suite` 47 tests (7 further) and `mmusr_suite` 17
+          (1 further) — one table accessed per level asked for, a truncation
+          reported apart from a fault, and a bus-errored fetch leaving the last
+          readable descriptor named.*
+    - [ ] A root pointer whose DT field is `page descriptor` cannot be
+          represented: `ap_m68030_root_t` collapses DT to `long_format`, so a
+          `CRP` of DT `$1` is walked as a short-format table. The same page owes
+          `An = $0` for that case. Not on any path this machine takes — its
+          `CRP` is DT `$2` — which is why it is a tail and not a fix.
+          *Verification when done: `walk_suite` — a root that is itself an early
+          termination page descriptor translates without fetching, and `PTEST`
+          returns zero in the address register.*
   - [x] **Full-format indexed addressing and the memory indirect modes**. The
         extension word declares its own base and outer displacement sizes, so
         the number of words to read is not known until that word has been read —
@@ -979,7 +996,7 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
   - [x] **MMU status register (`MMUSR`)**
         (`src/core/cpu/m68030/ap_m68030_mmusr.c`), `[030]` §9.7.4 pp. 9-59 f.
         Detail in `PROJECT_STATUS.md`.
-        *Verification: `mmusr_suite`, 16 tests — every field packing to its own
+        *Verification: `mmusr_suite`, 17 tests — every field packing to its own
         bit checked individually so a transposition cannot hide, the unassigned
         bits never set, round-trip through pack/unpack, and each column of
         Table 9-3 separately: an absent ATC entry reporting I, a transparent
@@ -3055,6 +3072,58 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
     nothing, but the last of them fires at 162,878,385 instructions while the
     kernel's own copy loop does not run until 268,435,351. Domain/OS executes no
     `PMOVE` at all. Detail in `PROJECT_STATUS.md`.
+  ### The plan to close Phases 4 and 5
+
+  **They are one blocker.** Phase 5's item says its only gap is the *subject* of
+  the picture. One fix closes both, and it is verified twice: a `login:` prompt
+  on the console and a PNG of it.
+
+  **The question, stated correctly.** Not "why does the oracle ask for space 0"
+  — it asks for space **1**, measured. The oracle installs `01001400` at 11.7 s,
+  asks for space 1 at 12.15 s against a cache that already says 1 (so it very
+  likely skips, as ours does), and installs `0105BC00` at 36.2 s. **So a later
+  request succeeds there and none ever succeeds here.** Something updates
+  `$3C43FB14` between 12 s and 36 s on the oracle. That is the whole defect.
+
+  **Step 1 — the cache's write history, both sides.** This is the measurement
+  that decides it, and neither side has it.
+  - 1a. Ours: `--boot-watch-write 01042714` with `--boot-stop-on-watch-write N`
+    for N = 1, 2, 3 … enumerates every write with its PC. Expect only the memory
+    sweep at `01002174`; the routine's own write at `3C43DDD2` is on the path we
+    never take.
+  - 1b. The oracle's: a **write** tap on the same word, held in `_G`, liveness
+    sampled. Write taps do fire — it was their lifetime that was broken, and
+    that is fixed. The address must be resolved on the oracle, not assumed:
+    the two machines page the kernel differently.
+  - 1c. Diff the sequences. **The first write ours does not make is the defect**,
+    and its PC names the code that should have run.
+
+  **Step 2 — if step 1 shows no divergence in the writes**, then the cache is
+  the same on both and the difference is in what *reads* it. Log every read of
+  the word on both sides the same way. One of the two must differ; the machines
+  demonstrably diverge.
+
+  **Step 3 — the fallback that cannot fail.** If the Lua taps cannot see what is
+  needed, instrument `ext/mame` directly — `CLAUDE.md` sanctions exactly this
+  ("Build and instrument `ext/mame`"), and it is the one route not yet tried.
+  Add a log line in the m68k `PMOVE` path recording PC, register and value;
+  rebuild with the capped-scope recipe; **revert the checkout before any
+  commit**. This gives the oracle's root-pointer history exactly, with no
+  inference.
+
+  **Step 4 — fix and verify.** Land the defect with a test that fails without
+  it. Then the boot on `--clock 2026-08-09` must reach `login:`, and
+  `--screen c8p --screenshot` must show it. Re-baseline the identity hash in the
+  same commit, since the machine will legitimately have changed.
+
+  **What is already settled and must not be re-derived**: the crash chain end to
+  end (allocate space 1 → derive `0105BC00` from frame `0x416F` → record at
+  `$3C43C96E` entry 1 → copy the live tree → write mappings `ED`–`EF` → ask to
+  switch → gate taken → fault on `EF`, invalid in the live tree, inside a lock →
+  `00120020`); that Domain/OS executes no `PMOVE` of its own; that the MMU is
+  never read before the switch; and that both clocks are the same machine to
+  288,640,117 instructions.
+
 
 **Order matters here, and this file had it wrong.** The boot is a *test*, and
 two of its children were unfinished *implementation*. `CLAUDE.md` says

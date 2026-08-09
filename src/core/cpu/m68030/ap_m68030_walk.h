@@ -170,8 +170,24 @@ typedef struct {
    * address of the last descriptor fetched can be returned in an address
    * register." A fault handler uses it to find the descriptor that refused the
    * access, so it is the address *fetched from*, not the address the descriptor
-   * pointed at. Zero when nothing was fetched. */
+   * pointed at. Zero when nothing was fetched.
+   *
+   * **Successfully** fetched, which is not the same thing: "the physical address
+   * of the last descriptor successfully fetched loads into the address register.
+   * A successfully fetched descriptor occurs only if all portions of the
+   * descriptor can be read by the MC68030 without abnormal termination of the
+   * bus cycle." So a fetch that bus errors leaves this holding the *previous*
+   * descriptor's address, and a handler that reads it is pointed at a descriptor
+   * it can actually inspect rather than at the address that just refused it. */
   uint32_t last_descriptor_address;
+
+  /* `max_levels` was reached before the tables terminated -- only `PTEST` can
+   * produce this, and it is **not a fault**: the search was asked to stop, so
+   * nothing about the mapping has been disproved. Kept apart from
+   * `search.invalid` for exactly that reason; folding the two together makes a
+   * truncated probe report a broken tree, which is what the 68851's sibling
+   * `AP_M68851_SEARCH_TYPE_TRUNCATED` exists to avoid. */
+  bool truncated;
 
   bool early_termination; /* ended on a page descriptor above the page table */
   bool used_indirect;
@@ -221,6 +237,31 @@ ap_m68030_walk(const ap_m68030_tc_t *tc, const ap_m68030_root_t *root,
                uint32_t address, const ap_m68030_search_access_t *access,
                ap_m68030_fetch_fn fetch, ap_m68030_update_fn update,
                void *context);
+
+/* The same search, stopped after `max_levels` tables. Zero means no ceiling,
+ * which is what an ordinary translation wants -- a translation stops when the
+ * tables say so, not when a count runs out -- so `ap_m68030_walk` is this with
+ * zero.
+ *
+ * The ceiling exists for `PTEST`, whose level operand is a search *depth* and
+ * not merely a choice between the ATC and the tables: "The <level> operand
+ * specifies the level of the search. Level 0 specifies searching the address
+ * translation cache only. Levels 1-7 specify searching the translation tables
+ * only. **The search ends at the specified level.**" And again, three paragraphs
+ * on: "Execution of the instruction continues to the requested level or until
+ * detecting one of the following conditions: Invalid Descriptor, Limit
+ * Violation, Bus Error Assertion (Physical Bus Error)."
+ *
+ * `[PRM]` p. 6-63, the `PTEST` page, read as the page image. This was modelled
+ * as "levels 1-7 all mean search the tables" and the depth ignored, so a
+ * `PTEST` of level 1 reported what a full walk found -- a different `MMUSR`, a
+ * different `N`, and an address register pointing at the wrong descriptor. The
+ * 68851's own search took its `max_levels` from the first day; the two parts
+ * were built from the same table and only one of them got this. */
+[[nodiscard]] ap_m68030_walk_result_t ap_m68030_walk_to_level(
+    const ap_m68030_tc_t *tc, const ap_m68030_root_t *root, uint32_t address,
+    const ap_m68030_search_access_t *access, ap_m68030_fetch_fn fetch,
+    ap_m68030_update_fn update, void *context, unsigned max_levels);
 
 /* Install what a completed search produced into the ATC, and return the entry
  * index used. This is the join that makes the cost model whole: the search's

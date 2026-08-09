@@ -371,6 +371,135 @@ static void test_a_bus_error_during_the_search_produces_no_translation(void) {
   TEST_ASSERT_EQUAL_UINT(2, r.descriptor_fetches);
 }
 
+/* ---------------------------------------------------------------------------
+ * PTEST's level as a search depth. `[PRM]` p. 6-63: "The <level> operand
+ * specifies the level of the search ... The search ends at the specified
+ * level", and "execution of the instruction continues to the requested level or
+ * until detecting one of the following conditions: Invalid Descriptor, Limit
+ * Violation, Bus Error Assertion".
+ *
+ * The level was modelled as nothing but "0 means the ATC, anything else means
+ * the tables", so a level 1 probe walked to the page and answered about a
+ * descriptor the instruction was never asked about.
+ * ------------------------------------------------------------------------- */
+
+/* One level asked for is one table accessed, and `N` reports it. */
+static void test_a_search_stopped_at_level_one_accesses_one_table(void) {
+  ap_m68030_tc_t tc = three_level_4k();
+  ap_m68030_root_t root = root_at(ROOT_TABLE);
+  tree_t tree = make_tree(three_level_tree, 3);
+
+  ap_m68030_walk_result_t r =
+      ap_m68030_walk_to_level(&tc, &root, TEST_ADDRESS, &SUPERVISOR_READ,
+                              tree_fetch, NULL, &tree, 1u);
+
+  TEST_ASSERT_EQUAL_UINT(1, r.descriptor_fetches);
+  TEST_ASSERT_EQUAL_UINT(1, r.levels_walked);
+  TEST_ASSERT_TRUE(r.truncated);
+  TEST_ASSERT_FALSE(r.ok);
+}
+
+/* Stopping is not failing: the tree said nothing about this address either way,
+ * so a truncated search must not claim it found an invalid descriptor. That
+ * distinction is the whole reason `truncated` is reported apart from
+ * `search.invalid` -- MMUSR's I bit is built from the latter. */
+static void test_a_truncated_search_reports_no_fault(void) {
+  ap_m68030_tc_t tc = three_level_4k();
+  ap_m68030_root_t root = root_at(ROOT_TABLE);
+  tree_t tree = make_tree(three_level_tree, 3);
+
+  ap_m68030_walk_result_t r =
+      ap_m68030_walk_to_level(&tc, &root, TEST_ADDRESS, &SUPERVISOR_READ,
+                              tree_fetch, NULL, &tree, 2u);
+
+  TEST_ASSERT_TRUE(r.truncated);
+  TEST_ASSERT_FALSE(r.search.invalid);
+  TEST_ASSERT_FALSE(r.search.limit_violation);
+  TEST_ASSERT_FALSE(r.bus_error);
+  TEST_ASSERT_EQUAL_UINT(2, r.levels_walked);
+}
+
+/* The address register gets "the physical address of the last descriptor
+ * successfully fetched", so a probe stopped short names the table entry it
+ * stopped on -- which is what makes a level 1 or 2 probe useful to a fault
+ * handler walking the tree by hand. */
+static void test_a_truncated_search_names_the_last_descriptor_it_read(void) {
+  ap_m68030_tc_t tc = three_level_4k();
+  ap_m68030_root_t root = root_at(ROOT_TABLE);
+  tree_t tree = make_tree(three_level_tree, 3);
+
+  ap_m68030_walk_result_t r =
+      ap_m68030_walk_to_level(&tc, &root, TEST_ADDRESS, &SUPERVISOR_READ,
+                              tree_fetch, NULL, &tree, 2u);
+
+  TEST_ASSERT_EQUAL_HEX32(TABLE_B, r.last_descriptor_address);
+}
+
+/* A ceiling above the tree's depth changes nothing: the tables terminate first,
+ * which is the ordinary case and the reason a handler can probe with level 7. */
+static void test_a_level_deeper_than_the_tree_walks_it_all(void) {
+  ap_m68030_tc_t tc = three_level_4k();
+  ap_m68030_root_t root = root_at(ROOT_TABLE);
+  tree_t tree = make_tree(three_level_tree, 3);
+
+  ap_m68030_walk_result_t r =
+      ap_m68030_walk_to_level(&tc, &root, TEST_ADDRESS, &SUPERVISOR_READ,
+                              tree_fetch, NULL, &tree, 7u);
+
+  TEST_ASSERT_TRUE(r.ok);
+  TEST_ASSERT_FALSE(r.truncated);
+  TEST_ASSERT_EQUAL_HEX32(PAGE_FRAME | 0x123u, r.physical);
+  TEST_ASSERT_EQUAL_UINT(3, r.levels_walked);
+}
+
+/* A translation is not a probe: it stops when the tables say so, never when a
+ * count runs out, so the unbounded entry point must stay unbounded. */
+static void test_an_ordinary_translation_has_no_level_ceiling(void) {
+  ap_m68030_tc_t tc = three_level_4k();
+  ap_m68030_root_t root = root_at(ROOT_TABLE);
+  tree_t tree = make_tree(three_level_tree, 3);
+
+  ap_m68030_walk_result_t r = ap_m68030_walk(
+      &tc, &root, TEST_ADDRESS, &SUPERVISOR_READ, tree_fetch, NULL, &tree);
+
+  TEST_ASSERT_TRUE(r.ok);
+  TEST_ASSERT_FALSE(r.truncated);
+  TEST_ASSERT_EQUAL_UINT(3, r.levels_walked);
+}
+
+/* "A successfully fetched descriptor occurs only if all portions of the
+ * descriptor can be read by the MC68030 without abnormal termination of the bus
+ * cycle." The fetch that bus errored is not one, so the address register keeps
+ * the descriptor above it -- one a handler can actually read. */
+static void test_a_bus_error_leaves_the_last_readable_descriptor_named(void) {
+  ap_m68030_tc_t tc = three_level_4k();
+  ap_m68030_root_t root = root_at(ROOT_TABLE);
+  tree_t tree = make_tree(three_level_tree, 3);
+  tree.bus_error_at = TABLE_B;
+
+  ap_m68030_walk_result_t r = ap_m68030_walk(
+      &tc, &root, TEST_ADDRESS, &SUPERVISOR_READ, tree_fetch, NULL, &tree);
+
+  TEST_ASSERT_TRUE(r.bus_error);
+  TEST_ASSERT_EQUAL_HEX32(ROOT_TABLE, r.last_descriptor_address);
+}
+
+/* And when the very first fetch fails there is no successfully fetched
+ * descriptor at all, so the address register is left holding zero rather than
+ * the address that just refused the bus. */
+static void test_a_search_that_never_read_a_descriptor_names_none(void) {
+  ap_m68030_tc_t tc = three_level_4k();
+  ap_m68030_root_t root = root_at(ROOT_TABLE);
+  tree_t tree = make_tree(three_level_tree, 3);
+  tree.bus_error_at = ROOT_TABLE;
+
+  ap_m68030_walk_result_t r = ap_m68030_walk(
+      &tc, &root, TEST_ADDRESS, &SUPERVISOR_READ, tree_fetch, NULL, &tree);
+
+  TEST_ASSERT_TRUE(r.bus_error);
+  TEST_ASSERT_EQUAL_HEX32(0, r.last_descriptor_address);
+}
+
 /* [030] 9.5.1.1: "$3 VALID 8 BYTE ... The MC68030 multiplies the index for the
  * next table by eight." A long-format table must be indexed with the wider
  * stride, or the walk reads the wrong descriptor. */
@@ -1052,6 +1181,13 @@ int main(void) {
   RUN_TEST(test_an_out_of_bounds_index_aborts_before_fetching);
   RUN_TEST(test_an_index_within_the_limit_proceeds);
   RUN_TEST(test_a_bus_error_during_the_search_produces_no_translation);
+  RUN_TEST(test_a_search_stopped_at_level_one_accesses_one_table);
+  RUN_TEST(test_a_truncated_search_reports_no_fault);
+  RUN_TEST(test_a_truncated_search_names_the_last_descriptor_it_read);
+  RUN_TEST(test_a_level_deeper_than_the_tree_walks_it_all);
+  RUN_TEST(test_an_ordinary_translation_has_no_level_ceiling);
+  RUN_TEST(test_a_bus_error_leaves_the_last_readable_descriptor_named);
+  RUN_TEST(test_a_search_that_never_read_a_descriptor_names_none);
   RUN_TEST(test_a_long_format_table_is_indexed_with_the_wider_stride);
   RUN_TEST(test_the_index_selects_a_descriptor_by_stride);
   RUN_TEST(test_each_descriptor_with_u_clear_costs_one_history_write);

@@ -132,6 +132,14 @@ ap_m68030_walk_result_t ap_m68030_walk(const ap_m68030_tc_t *tc,
                                        ap_m68030_fetch_fn fetch,
                                        ap_m68030_update_fn update,
                                        void *context) {
+  return ap_m68030_walk_to_level(tc, root, address, access, fetch, update,
+                                 context, 0u);
+}
+
+ap_m68030_walk_result_t ap_m68030_walk_to_level(
+    const ap_m68030_tc_t *tc, const ap_m68030_root_t *root, uint32_t address,
+    const ap_m68030_search_access_t *access, ap_m68030_fetch_fn fetch,
+    ap_m68030_update_fn update, void *context, unsigned max_levels) {
   ap_m68030_walk_result_t result = {0};
   ap_m68030_search_reset(&result.search);
 
@@ -144,6 +152,16 @@ ap_m68030_walk_result_t ap_m68030_walk(const ap_m68030_tc_t *tc,
   bool lower_limit = root->lower_limit;
 
   for (unsigned level = 0; level < split.levels; level++) {
+    /* `PTEST`'s ceiling, checked before the fetch that would exceed it -- "the
+     * search ends at the specified level", so a level of 1 accesses one table
+     * and stops with `N` reporting 1. Not a failure: `truncated` is reported
+     * apart from `search.invalid` so a probe that was *asked* to stop cannot be
+     * read as a probe that found a broken tree. */
+    if (max_levels != 0u && level >= max_levels) {
+      result.truncated = true;
+      return result;
+    }
+
     const uint32_t index = split.index[level];
 
     /* "This 15-bit field contains a limit to which the index portion of an
@@ -161,7 +179,6 @@ ap_m68030_walk_result_t ap_m68030_walk(const ap_m68030_tc_t *tc,
 
     ap_m68030_descriptor_t descriptor = {0};
     result.descriptor_fetches++;
-    result.last_descriptor_address = descriptor_address;
     if (!fetch(context, descriptor_address, long_format, &descriptor)) {
       /* A bus error during the search sets the ATC's B, exactly as an invalid
        * descriptor or a protection violation does -- but `MMUSR` reports the
@@ -170,6 +187,10 @@ ap_m68030_walk_result_t ap_m68030_walk(const ap_m68030_tc_t *tc,
       ap_m68030_search_fail_invalid(&result.search);
       return result;
     }
+    /* Recorded only now: "the physical address of the last descriptor
+     * *successfully* fetched loads into the address register", so the failed
+     * fetch above leaves the previous descriptor's address standing. */
+    result.last_descriptor_address = descriptor_address;
     result.levels_walked = level + 1;
 
     /* Protection accumulates whether or not the search continues. */
@@ -204,13 +225,15 @@ ap_m68030_walk_result_t ap_m68030_walk(const ap_m68030_tc_t *tc,
       ap_m68030_descriptor_t pointed = {0};
       const bool pointed_long = (descriptor.dt == AP_M68030_DT_VALID_8BYTE);
       result.descriptor_fetches++;
-      result.last_descriptor_address = descriptor.address_field;
       result.used_indirect = true;
       if (!fetch(context, descriptor.address_field, pointed_long, &pointed)) {
         result.bus_error = true;
         ap_m68030_search_fail_invalid(&result.search);
         return result;
       }
+      /* Successfully fetched, so this one replaces the indirect descriptor's
+       * own address as the last. */
+      result.last_descriptor_address = descriptor.address_field;
       ap_m68030_search_accumulate(&result.search, pointed.write_protect,
                                   pointed.supervisor, pointed.cache_inhibit);
       if (pointed.dt != AP_M68030_DT_PAGE) {

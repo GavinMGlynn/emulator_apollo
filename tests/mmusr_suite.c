@@ -205,6 +205,26 @@ static void test_a_successful_search_reports_its_level_count_and_no_t(void) {
   TEST_ASSERT_FALSE(r.invalid);
 }
 
+/* A search that stopped because PTEST asked it to is not a failed search.
+ * "The search ends at the specified level" is one of the two normal endings,
+ * beside the tables terminating -- so I stays clear and N reports the tables
+ * actually accessed. A truncated probe reported as invalid would tell a fault
+ * handler its tree is broken when it merely asked a shallow question. */
+static void test_a_search_stopped_at_its_level_is_not_invalid(void) {
+  ap_m68030_walk_result_t search = clean_search();
+  search.ok = false;
+  search.truncated = true;
+  search.levels_walked = 1;
+
+  const ap_m68030_mmusr_t r =
+      ap_m68030_mmusr_from_search(&search, TEST_FC_SUPERVISOR);
+
+  TEST_ASSERT_FALSE(r.invalid);
+  TEST_ASSERT_FALSE(r.bus_error);
+  TEST_ASSERT_FALSE(r.limit_violation);
+  TEST_ASSERT_EQUAL_UINT8(1, r.levels);
+}
+
 /* "The I bit is set if ... either the B or L bits of the MMUSR are set during
  * the table search." I is deliberately broader than "found an invalid
  * descriptor", so a limit violation sets both L and I. */
@@ -307,6 +327,7 @@ int main(void) {
   RUN_TEST(test_a_transparent_match_reports_only_the_t_bit);
   RUN_TEST(test_a_probe_with_a_different_function_code_misses);
   RUN_TEST(test_a_successful_search_reports_its_level_count_and_no_t);
+  RUN_TEST(test_a_search_stopped_at_its_level_is_not_invalid);
   RUN_TEST(test_a_limit_violation_sets_both_l_and_i);
   RUN_TEST(test_a_bus_error_reports_b_where_an_invalid_descriptor_does_not);
   RUN_TEST(test_supervisor_violation_depends_on_the_probed_function_code);

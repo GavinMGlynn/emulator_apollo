@@ -4414,8 +4414,9 @@ static bool execute_ptest(ap_m68030_cpu_t *cpu,
     return true;
   }
 
-  /* Levels 1-7 perform a table search. "The PTEST instruction does not alter
-   * the ATC", and the update callback is NULL so it does not disturb the
+  /* Levels 1-7 perform a table search, **stopping at the level asked for**:
+   * "the search ends at the specified level". "The PTEST instruction does not
+   * alter the ATC", and the update callback is NULL so it does not disturb the
    * tree's history bits either -- which is exactly what ap_m68030_walk's
    * nullable `update` exists for. */
   const ap_m68030_search_access_t access = {
@@ -4423,9 +4424,9 @@ static bool execute_ptest(ap_m68030_cpu_t *cpu,
       .read_modify_write = false,
       .supervisor = (function_code & 0x4u) != 0u,
   };
-  const ap_m68030_walk_result_t result =
-      ap_m68030_walk(&cpu->tc, root_for(cpu, function_code), where.address,
-                     &access, cpu->data->table_fetch, NULL, cpu->data->context);
+  const ap_m68030_walk_result_t result = ap_m68030_walk_to_level(
+      &cpu->tc, root_for(cpu, function_code), where.address, &access,
+      cpu->data->table_fetch, NULL, cpu->data->context, level);
 
   const ap_m68030_mmusr_t status =
       ap_m68030_mmusr_from_search(&result, function_code);
