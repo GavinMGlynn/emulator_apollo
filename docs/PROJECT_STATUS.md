@@ -18776,6 +18776,46 @@ reports no match is saying something about the machine rather than about itself.
 Two runs were spent on taps that produced a plausible silence; this is what stops
 a third.
 
+## An end-of-boot dump is not evidence about code that ran earlier
+
+The by-PC tap, correctly ranged over the sixteen megabytes fitted and proven to
+fire, still caught nothing from `3C43DDD2` in runs where the root pointer *was*
+installed ten times. The instruction was wrong, and the reason is worth a rule.
+
+`MOVE.W D0,$3C43FB14 at 3C43DDD2` was read out of the **end-of-boot** kernel
+dump. Comparing that dump against the **executed** trace at the same addresses
+disagrees:
+
+| address | executed trace | end-of-boot dump |
+| --- | --- | --- |
+| `3C43DD82` | `3039` | `30 39` -- agrees |
+| `3C43DD88` | `323A` | `02 0A` -- **differs** |
+
+Both runs are the same deterministic machine, so the bytes did not differ *at the
+same instant*: the page was **reused between instruction 288,640,117 and the end
+of the boot**. With `TC = 80A28750` the page size is 256 bytes, and a kernel
+paging that finely will reuse a frame that has fallen out of use. The dump is a
+faithful record of memory at 350 M and says nothing about what was executing at
+288 M.
+
+**Which is the third time this session that a stale reading of memory produced a
+wrong answer** -- `01002174` disassembled to zeros in the same dump, `3C452930`
+disassembled to garbage, and now an instruction that was never there when the
+routine ran. The rule: *the executed trace is the source of truth for code, and a
+dump is only evidence about the instant it was taken.* `--boot-trace-last` costs
+one stop and cannot be stale.
+
+**So the tap now matches a PC range** -- the whole routine, `3C43DD80` to
+`3C43DE10` -- rather than a single instruction read out of a dump that had moved
+on. What our own trace does show executing, and therefore what is real, is a pair
+of writes at `3C43DDB8` (`MOVE.W D1,(xxx).L`) and `3C43DDBE` (`MOVE.B
+D1,(xxx).L`), both *before* the gate. A range covers those and anything else the
+routine writes on a path we never take.
+
+*Verification: the two readings above, from a trace and a dump of the same
+deterministic boot. No code changed in the core.*
+
+
 The caution about `--dump-logical` windows still stands and is worth keeping:
 only a window's first address goes through the MMU, the rest is read physically
 onward, and that *is* why disassembling `3C452930` from a window produced

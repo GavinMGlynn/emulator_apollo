@@ -2898,7 +2898,14 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
     both tree pointers. That makes any physical address useless as a
     cross-machine instrument, so the tap gained a second mode:
     `APOLLO_ASID_PC=<hex logical>` keeps only the writes made by a given
-    *instruction*, which needs no translation. Detail in `PROJECT_STATUS.md`.
+    *instruction*, which needs no translation.
+    **And a rule that has now cost three wrong answers**: an end-of-boot dump is
+    not evidence about code that ran earlier. With 256-byte pages
+    (`TC = 80A28750`) the kernel reuses frames, and the dump disagrees with the
+    executed trace at `3C43DD88` — `323A` executed, `020A` in the dump. The
+    trace is the source of truth for code; a dump speaks only for the instant it
+    was taken. The tap therefore matches the whole routine's PC range rather
+    than an instruction read out of a dump. Detail in `PROJECT_STATUS.md`.
 
 **Order matters here, and this file had it wrong.** The boot is a *test*, and
 two of its children were unfinished *implementation*. `CLAUDE.md` says
