@@ -19134,6 +19134,47 @@ thing a dump can answer.
 rather than disassembled; the `0xEF` index is this file's own earlier
 localisation of the fault. No code changed.*
 
+## Following the value: a frame, not a register, and a coincidence avoided
+
+The requested space is the low word of `D2 = 3C000001`, so the obvious next move
+is to find where that value is made. Tracing it properly:
+
+- It is loaded into `D2` at `3C41955C` (`MOVE.W $xx(A6),D2`) from the frame of
+  `3C41954E`, whose caller pushed it at `3C45663E`.
+- That frame slot was written at `3C456626` (`MOVE.W D0,$xx(A6)`), and `D0` there
+  came from `3C46FED2` (`MOVE.W D2,D0`) -- the same low word again.
+- And *that* `D2` was loaded at `3C46F02C` (`MOVE.L $xx(A6),D2`) from **another**
+  frame. So the number is passed through at least three frames and is not
+  computed in any of them.
+
+**Searching the ring for the value itself finds a coincidence, which is worth
+recording as a caution.** The first appearance of `3C000001` in any register in
+the 60,000-step ring is at step 288,593,129 -- inside an unrelated initialisation
+loop:
+
+```
+3C44EC36  7070  MOVEQ  #$70,D0        ; 113 iterations
+3C44EC3A  207C  MOVEA.L #$3C427214,A0 ; a table base
+3C44EC40  42B0  CLR.L  (A0,D1.W*4)    ; clear an entry
+3C44EC46  3401  MOVE.W D1,D2          ; d2's low word takes the *index*
+3C44EC4E  5241  ADDQ.W #1,D1
+3C44EC50  51C8  DBRA   D0,$3C44EC40
+```
+
+`D2` passes through `3C000000`, `3C000001`, `3C000002` ... simply because the
+loop index is being copied into its low word while clearing a table. Nothing
+there has anything to do with address spaces. **Matching on a register value
+finds every accident of the same bit pattern**; provenance has to be followed
+through the frames, one load at a time, which is what the list above does.
+
+So the origin lies further back than this ring reaches, in whatever filled the
+frame that `3C46F02C` reads. That is one more ring at a stop further back, or --
+better, since it is data -- a dump of that frame at a known stop.
+
+*Verification: the load chain and the loop are both from the 60,000-step ring,
+executed rather than disassembled. No code changed.*
+
+
 
 
 
