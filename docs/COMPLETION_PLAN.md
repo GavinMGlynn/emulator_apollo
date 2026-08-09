@@ -2979,9 +2979,12 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
     reported (a new hook, and the line prints even at zero because "it never
     looked" is a finding): over a whole boot, `mmu reads 0`. Neither `SELF_TEST`
     nor Domain/OS reads `CRP`, `TC` or the status register even once. So the
-    kernel is not inspecting what the firmware left — the divergence must come
-    from some *other* input, and the MMU is excluded by measurement rather than
-    argument.
+    kernel is not inspecting what the firmware left *before the switch* — which
+    is the claim the measurement supports. **Narrowed**: on the year-26 clock the
+    kernel reads `MMUSR` **290 times, all from one instruction at `3C42CE30`** —
+    a page-fault handler, running *after* the skipped switch and only to ask why
+    an access failed. The count is the cost of the defect rather than a clue to
+    it: a machine whose switch had taken effect would probe far less.
     **A separate defect surfaced while trying to match the boot routes**: the
     firmware's autobaud **walks downward under repeated characters**. One
     carriage return at 9600 locks at 9600 and the ordinary boot works; 120 at

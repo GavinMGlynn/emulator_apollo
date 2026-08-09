@@ -19758,6 +19758,40 @@ measurement is running.
 *Verification: the thirteen loads with their PCs, from one boot on the year-26
 clock; `machine_suite` 48 tests, extended rather than added to.*
 
+## The 290 reads are the kernel probing faults, from one instruction
+
+With the PC recorded, the attribution is immediate and it corrects an earlier
+claim of mine.
+
+**Every logged read is `MMUSR`, and every one is from `PC 3C42CE30`** -- a
+Domain/OS kernel address, not the PROM. `MMUSR` is what a `PTEST` leaves behind:
+the kernel probes an address, reads the status, and decides what the fault was.
+One instruction, called 290 times, is a **page-fault handler**.
+
+**So "the kernel does not look at the MMU" was wrong as stated**, and the earlier
+entry should have been narrower. What was measured there -- no F-line instruction
+in the sixty thousand steps *before the gate* -- remains true, and the conclusion
+that rested on it, that the kernel is not inspecting the firmware's work before
+deciding which space to switch to, still stands. What does not stand is the
+general claim. The kernel reads the MMU constantly; it does so **after** the
+switch it skipped, and only to ask why an access failed.
+
+**And the count is itself a symptom.** 290 fault probes is what a kernel does
+when its translations are wrong -- it is the machine repeatedly asking the MMU to
+explain accesses that should have worked, because the tree it is walking is the
+one it never replaced. On a machine whose switch had taken effect there would be
+far fewer. The number is not a clue to the cause; it is the cost of the cause,
+measured.
+
+**`TC` and `CRP` are in the register mask but not in the first sixteen entries**,
+so they are read later than these -- consistent with the crash handler, whose
+loads are already attributed to boot PROM addresses. Raising the log's depth
+would confirm it and is not worth a boot on its own.
+
+*Verification: the read log with PCs, from one boot on the year-26 clock. The
+mask, the count and the PCs come from the same run.*
+
+
 
 
 
