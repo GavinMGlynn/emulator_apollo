@@ -21216,7 +21216,7 @@ the poll, all four of which are eliminated.
 
 Those are distinguishable and neither is assumed: the next step is the four
 instructions' cache-case costs from `[030]` §11's tables, page images, against
-what `ap_m68030` charges for each -- a paper measurement, no boot needed. What
+what `src/core/cpu/m68030/` charges for each -- a paper measurement, no boot needed. What
 is *not* open is the mechanism: a calibrated delay that differs by 200 ms
 between the two machines, at the exact instant they diverge.
 
