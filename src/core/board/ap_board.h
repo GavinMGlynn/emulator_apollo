@@ -411,6 +411,25 @@ typedef struct ap_board {
    * Counted because "the firmware went looking in an empty slot" is worth
    * knowing, and because a count that suddenly grows is how a card that should
    * have been fitted becomes visible. */
+  /* **Derived, not state, and deliberately not hashed.** Whether anything can
+   * ask for the bus in the near future.
+   *
+   * `ap_board_bus_tick` polls three devices for a DMA request on every tick,
+   * and a whole Domain/OS boot produces **8 requests and 2 holds against 1.46
+   * billion ticks** while the poll costs 11.8% of the run. None of the three
+   * can ask until software starts a transfer -- the tape needs a read in
+   * progress, the disk a command, the FDC an execution phase -- so when nothing
+   * is asking and nothing is in flight, the whole block is a no-op until a CPU
+   * access to one of those devices changes that.
+   *
+   * Set true conservatively: any access to the disk, tape or DMA regions turns
+   * it on, whether or not that access could really start anything. The board's
+   * region switch in `ap_board_read`/`ap_board_write` is the *auditable* set of
+   * sites this needs -- the lesson from two derived-value bugs earlier, where
+   * the mutation sites were never enumerated and a stale value survived.
+   * Over-setting only costs the work that was being done anyway. */
+  bool dma_possible;
+
   unsigned atbus_empty_reads;
   unsigned atbus_empty_writes;
   uint32_t first_atbus_empty_read;

@@ -429,6 +429,21 @@ static void dma_device_write(void *context, unsigned channel, uint8_t value) {
 
 void ap_board_bus_tick(ap_board_t *board) {
   board->bus_ticks++;
+
+  /* Nothing can be asking, so there is nothing to ask. See `dma_possible` in
+   * the header: the three request sources are all software-started, and the
+   * flag is re-armed by any access to their regions.
+   *
+   * The arbiter is still ticked, because it has its own idle guard and because
+   * skipping it would be a second, unrelated claim. With nothing requesting,
+   * the master cannot be the DMA line, so the early return below would have
+   * been taken anyway -- this only avoids reaching it through four device
+   * queries and two priority encodes. */
+  if (!board->dma_possible) {
+    ap_arbiter_tick(&board->arbiter);
+    return;
+  }
+
   const ap_i8237_bus_t bus = {
       .memory_read = dma_memory_read,
       .memory_write = dma_memory_write,
@@ -477,6 +492,17 @@ void ap_board_bus_tick(ap_board_t *board) {
   const int selected =
       ap_i8237_service_pending(&board->dma.controller[AP_DMA_CASCADE_UNIT]);
   ap_arbiter_request(&board->arbiter, DMA_ARBITER_LINE, selected >= 0);
+
+  /* Re-derived from what the poll just found, and left set while *any* request
+   * line is still high even if masked -- a masked line still has to be cleared
+   * when its device stops asking, and skipping that would leave `dreq` stale.
+   * `dreq` is hashed state; the flag is not. */
+  bool asking = selected >= 0;
+  for (unsigned i = 0; i < 2u && !asking; i++) {
+    asking = (board->dma.controller[i].dreq != 0u) ||
+             (board->dma.controller[i].request != 0u);
+  }
+  board->dma_possible = asking;
   if (selected >= 0) {
     board->dma_bus_requests++;
   }
@@ -709,6 +735,11 @@ bool ap_board_init_model(ap_board_t *board, uint8_t *ram, uint32_t ram_bytes,
                          const ap_mc146818_time_t *start, uint32_t node_id,
                          ap_model_id_t model) {
   memset(board, 0, sizeof *board);
+  /* Armed at reset. A zeroed board has nothing asking, so `false` would in fact
+   * be correct -- but the flag's whole safety argument is that it errs towards
+   * doing the work, and starting it from a `memset` rather than from an
+   * explicit decision is how that argument stops being checkable. */
+  board->dma_possible = true;
   board->map = ap_board_map_for(model);
   ap_boardreg_init(&board->registers);
   {
@@ -808,6 +839,16 @@ uint8_t ap_board_read(ap_board_t *board, uint32_t address, bool *ok) {
   *ok = true;
   address &= board->map->address_mask;
   const ap_board_region_t counted = ap_board_region(board, address);
+  /* Any access to a device that can start a DMA transfer re-arms the bus
+   * tick's poll. Conservative on purpose: a *read* of a status register cannot
+   * start a transfer, and it is included anyway, because the cost of being
+   * wrong here is a silent stale request line and the cost of being
+   * over-inclusive is the work that was already being done. This switch is the
+   * auditable set of sites the flag needs. */
+  if (counted == AP_BOARD_REGION_DISK || counted == AP_BOARD_REGION_TAPE ||
+      counted == AP_BOARD_REGION_DMA) {
+    board->dma_possible = true;
+  }
   if ((unsigned)counted < AP_BOARD_REGIONS) {
     board->region_reads[counted]++;
   }
@@ -916,6 +957,16 @@ void ap_board_write(ap_board_t *board, uint32_t address, uint8_t value,
   *ok = true;
   address &= board->map->address_mask;
   const ap_board_region_t counted = ap_board_region(board, address);
+  /* Any access to a device that can start a DMA transfer re-arms the bus
+   * tick's poll. Conservative on purpose: a *read* of a status register cannot
+   * start a transfer, and it is included anyway, because the cost of being
+   * wrong here is a silent stale request line and the cost of being
+   * over-inclusive is the work that was already being done. This switch is the
+   * auditable set of sites the flag needs. */
+  if (counted == AP_BOARD_REGION_DISK || counted == AP_BOARD_REGION_TAPE ||
+      counted == AP_BOARD_REGION_DMA) {
+    board->dma_possible = true;
+  }
   if ((unsigned)counted < AP_BOARD_REGIONS) {
     board->region_writes[counted]++;
   }

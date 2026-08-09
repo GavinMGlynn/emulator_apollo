@@ -17941,3 +17941,52 @@ probe goldens and 129 tests have adjudicated six attempts today, three of them
 against my own reasoning. Whatever this item builds, that is what decides it.
 
 *No code changed for this entry.*
+
+
+## Exact-skip, first piece: the bus tick stops asking devices that cannot answer
+
+The groundwork above named `ap_board_bus_tick` as the only place a real skip is
+available. It is built, and it works.
+
+**The argument.** The tick polls three devices for a DMA request every time, and
+none of them can raise one until software starts a transfer -- the tape needs a
+read in progress, the disk a command, the FDC an execution phase. So when
+nothing is asking and nothing is in flight, the block is a no-op until a CPU
+access to one of those devices changes that. `dma_possible` carries exactly that
+condition.
+
+**Invalidation is the part that had to be got right**, because it is what broke
+two attempts earlier today. The flag is set at an **auditable** set of sites --
+the region switch already computed in `ap_board_read` and `ap_board_write` --
+and it errs towards doing the work:
+
+- **any** access to the disk, tape or DMA regions arms it, read or write, even
+  though a status read cannot start a transfer;
+- it is re-derived after each poll from what that poll found, and stays set
+  while any request line is high **even if masked**, because a masked line still
+  has to be cleared when its device stops asking and `dreq` is hashed state;
+- it is armed explicitly at reset rather than inherited from the `memset`, so
+  the "errs towards doing the work" argument is visible rather than accidental.
+
+**The result, twice measured.** 296 s → 284 s and 281 s, about **1.04x**, with
+state hash `67A14B3BB6041410` unchanged -- and the DMA counters bit-identical:
+the same 1,460,151,690 bus ticks, the same **8 asking and 2 holding**, the same
+2 transfers reading `01100000` and writing `01100800`. Identical counters matter
+more than the identical hash here, because they are the specific thing this
+change could have broken.
+
+**Less than the profile suggested, and the reason is instructive.**
+`ap_board_bus_tick` showed 11.8%, but LTO had inlined the arbiter into it and
+the arbiter's own idle guard had already taken that part -- so the 11.8% was
+partly work this session had removed one commit earlier. Attributing a profile
+entry to the function it is named after, when LTO has folded four modules into
+it, overstates what any single change can recover.
+
+**Where this leaves the item.** The device half of exact-skip is done and the
+`next_event()`/`skip(n)` interface it was specified with turned out not to be
+needed for it: a boolean that says "nothing can ask" is the whole of what this
+subsystem's next event amounts to. The CPU half -- skipping instruction steps
+across a span with no events -- is untouched and is the larger remaining piece.
+
+*Verification: `ctest` 129/129, every golden unchanged, two independent timings,
+DMA counters identical.*
