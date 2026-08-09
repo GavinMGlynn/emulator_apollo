@@ -18395,6 +18395,53 @@ and the no-`00` rule swept over every model and size; `ctest` 129/129; the
 DN4500's `Self test failed` gone; the DN3500 30 M hash `5507489C6C7AE148`
 unchanged.*
 
+## The sweep re-run, and what the DN5500 is actually waiting for
+
+With the memory cap and the Series 4000 chain in, every firmware we hold straps
+correctly and four of the five that load run their self-tests without a failure
+at 20 M instructions:
+
+| firmware | strap | 20 M instructions |
+| --- | --- | --- |
+| `3000_BOOT_8475_4` | `20` | self-tests running, no failure |
+| `3000_BOOT_8475_7` | `20` | self-tests running, no failure |
+| `3500_BOOT_12191_7` | `60` | self-tests running, no failure |
+| `4500_BOOT_13167_02` | `60` | self-tests running, no failure |
+| `5500_BOOT_A1631-80046` | `14` | **stops at instruction 137** |
+
+**The DN5500 is not a strap problem and never was.** Its reset path is 68040
+from the second instruction:
+
+```
+00060C  nop
+00060E  cinva   #$3          <- 68040, F-line
+000610  clr.l   d0
+000612  movec   d0, itt0     <- 68040 transparent translation registers
+000616  movec   d0, itt1
+00061A  move.l  #$c040, d0
+000620  movec   d0, dtt0
+00062A  movec   d0, dtt1
+```
+
+`CINVA` is an F-line word a 68030 has no meaning for, which is exactly the one
+exception the run reports -- `1 x vector 11` and nothing else -- and `ITT0`,
+`ITT1`, `DTT0` and `DTT1` are control registers the 68030 does not have; it has
+`TT0` and `TT1`. A DN5500 cannot execute its own firmware on a 68030 and no
+amount of board work will change that.
+
+**And the gap is narrower than "the 68040 is not done".** `src/core/cpu/m68040/`
+holds the registers, both ATCs, both caches, the descriptor formats, the table
+search, the FPU subset and six timing tables, all with suites -- what it does
+*not* hold is a decode or a step, and `ap_machine` does not mention the part at
+all: a machine is an `ap_m68030_cpu_t` whatever its model row says. So the
+processor is modelled and nothing executes on it. That is the DN5500's blocker,
+stated precisely, and it is a Phase 7 item rather than anything this sweep can
+reach.
+
+*Verification: the five runs above, one command each. No code changed for this
+entry.*
+
+
 
 
 

@@ -1505,6 +1505,12 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
 - [x] 68040 for DN5500: different pipeline, caches, and MMU descriptor format;
       integrated FPU. *Verification: `MC68040 User's Manual 1993` cited;
       `dn5500` oracle diff, expecting to exceed the oracle's FPU coverage.*
+      **Tail, measured by the firmware sweep**: the *part* is modelled and
+      nothing executes on it. There is no decode or step under
+      `src/core/cpu/m68040/`, and `ap_machine` builds an `ap_m68030_cpu_t`
+      whatever the model row says — so `5500_BOOT_A1631-80046` stops at its
+      **second instruction**, `cinva #$3`, with the single line-F exception that
+      names it. Detail in `PROJECT_STATUS.md`.
   - [x] The MMU descriptor formats, Figures 3-11 and 3-12 from the page images.
         A different MMU rather than a wider one: every descriptor is 32 bits so
         nothing depends on the previous one's width, the tree is fixed at three
@@ -4006,8 +4012,10 @@ Only after the reference core is proven, and only under an identity harness.
       identical in the DN3500's PROM, and the oracle's four bank layouts fall
       out of it unchanged. Its self-test failure was our unstrapped port reading
       `00`, which the firmware reads as twenty megabytes rather than as no
-      answer. Still open: the DN5500 past self-test; and both ring generations, which need
-      the ring controller device.
+      answer. Still open: the DN5500, now precisely diagnosed — it stops at its
+      second instruction, `cinva`, because the 68040 is modelled and nothing
+      executes on it; and both ring generations, which need the ring controller
+      device.
       *Verification: `frontend_flags` 13 → 16; DN3500 30 M hash unchanged.*
 - [ ] Real multi-node Domain workloads: distributed single-level store across
       nodes, `lcnode`, remote file access. *Verification: content finds what
