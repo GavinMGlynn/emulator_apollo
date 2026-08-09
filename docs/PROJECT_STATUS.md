@@ -20748,12 +20748,16 @@ returns and no key press. It reproduced the documented symptom of the wrong
 recipe and was diagnosed as a fresh bug, which is the same mistake the original
 investigation made, from the same page, in the same file.
 
-**2. Making the oracle take *our* path did not produce a console.** With the
-`mc68681.cpp` edge-gate edit applied (`!BIT(CR, 2) &&` removed, the fix this
-file records for normal mode) and `mdsession.py --stage watch --settle 900`,
-which sends one carriage return and then keeps quiet, the oracle ran fifteen
-minutes and logged **nothing at all**. The edit is reverted. So there is still
-no like-for-like reference for the auto-boot path from either side.
+**2. Making the oracle take *our* path did not produce a console** -- twice,
+with the obvious variable eliminated between them. With the `mc68681.cpp`
+edge-gate edit applied (`!BIT(CR, 2) &&` removed, the fix this file records for
+normal mode) and `mdsession.py --stage watch`, which sends one carriage return
+and then keeps quiet, the oracle logged **nothing at all** in fifteen minutes
+with `APOLLO_MD_POST=none`, and **nothing again** in forty minutes with the
+harness's key press allowed (`pressed "Numpad Enter" ... at 4.0s`, confirmed in
+its own log). The edit is reverted both times. So there is still no
+like-for-like reference for the auto-boot path from either side, and the
+keyboard is not what is missing.
 
 **3. Refusing the write that clears the root entry changes nothing.** A
 temporary, env-gated experiment in `board_write` (reverted) declined the
