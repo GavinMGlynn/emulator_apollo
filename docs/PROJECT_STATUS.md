@@ -21890,3 +21890,56 @@ corresponding point. The tap pattern is the one used here.
 
 *Verification: our stop is on the MMU's refusal, not on a PC; the oracle's 13
 visits all report the same root pointer; both instruments reverted.*
+
+## The install is one instruction, and the MD-path stall is a console poll
+
+Two measurements, both on the oracle's main loop, both reverted after use.
+
+**Which instruction installs the kernel's tree.** Reporting every change of the
+root pointer with the instruction count and the PC that made it:
+
+```
+          1  by pc=00000000  FFFFFFFF -> 00000000   (power-on)
+ 59,203,001  by pc=01002324  00000000 -> 01001400   Domain/OS's own first tree
+198,056,299  by pc=3C43DDF0  01001400 -> 0105BC00   the PMOVE our gate skips
+```
+
+then alternating between the two for the rest of the boot. Two things follow.
+The install is at **198,056,299**, *before* the oracle's second visit to
+`3C43DD80` at 200,486,124 -- so **the installing path enters the module by
+another door**, and counting visits to that entry was never going to find it.
+And `01002324` is Domain/OS installing `01001400` itself, so the tree our
+machine runs on is not necessarily `SELF_TEST`'s inheritance.
+
+**We never execute that instruction.** `--boot-stop-pc 3C43DDF0` over the whole
+crash-clock boot never fires; the run ends on the crash instead.
+
+**Why the MD path is not available as a matched path.** Domain/OS *does* start
+there -- `CRP <- 01001400 by PC 01002324` and `TC <- 80A28750`, the same PC and
+the same values as the oracle's -- and then the machine reads one register
+23,067,658 times in 300 M instructions:
+
+```
+  sio1 reg 9 = SRB, channel B status, physical 00010413
+  [SRB] read 10000000 at 00010413 -> 0C      TxEMT|TxRDY set, RxRDY clear
+```
+
+So our transmitter is ready and the console has nothing to give it, and the
+kernel sits in a three-instruction counted delay (`ADDQ.W #1,D2` / `CMPI.W` /
+`BLT`) at `3C456B98` between polls, taking **zero MMU faults over 1.5 billion
+instructions**. It never prints the kernel banner the oracle prints.
+
+**What that does *not* settle.** A run feeding 200 carriage returns instead of
+20 ended identically, which looks like "not input starvation" and is **not
+evidence of it**: 200 returns flood the MD prompt itself, and the console shows
+the machine still echoing `>` and re-typing the command at the end of the run.
+The experiment answered a different question than the one asked, and is recorded
+as inconclusive rather than as a negative.
+
+*Next on this path*: read what the driver at `3C456B98`'s caller actually tests
+in SRB -- the poll is 7.7% of all instructions executed, so it is not subtle --
+and compare against the oracle's SRB at the same point. `[68681]` is on disk at
+`docs/references/motorola/`; the register walk comes before the oracle.
+
+*Verification: the oracle's own counters, reverted; our register counters and a
+read probe, reverted; `ctest` 130/130 after both reverts.*
