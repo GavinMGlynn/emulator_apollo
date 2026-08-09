@@ -19683,6 +19683,44 @@ question wants.
 *Verification: the two reports, one per clock, from the same binary and disk. No
 code changed.*
 
+## The recheck: every measurement holds on the machine that crashes
+
+The entry above said anything with an instruction count attached had to be
+rechecked on the year-26 clock. It has been, and the answer is clean.
+
+**The gate is reached at exactly the same instruction**, 288,640,117, with the
+same register and the same branch:
+
+```
+288640115  3C43DDC4  302F  d0=00000001   MOVE.W $4(A7),D0
+288640116  3C43DDC8  B079  d0=00000001   CMP.W  $3C43FB14,D0
+288640117  3C43DDCE  6700  d0=00000001   BEQ.W            <- taken
+  final PC  3C43DE22 -> 01040A22
+```
+
+Identical to the 1987 run in instruction count, in `D0`, in the instruction
+sequence and in the branch's outcome. **So the two clocks produce the same
+machine for the first 288 million instructions**, and everything measured today
+-- the gate, the 60,000-step ring, the frame and tree dumps, the call chain, the
+`ADDQ.W #1,D2` that allocates the space -- stands on the machine that actually
+reaches the crash.
+
+That is not obvious and is worth having checked rather than assumed: the calendar
+differs from reset, and any path that read it could have diverged. It is read
+rarely -- 58 update cycles over a boot -- and evidently not on any path that
+matters before the switch. The divergence between the two clocks is entirely
+*after* this point, which is also why one run reaches `00120020` at 387,684,292
+and the other is still spinning on the AT-card poll at 350 M.
+
+**And it weakens the calendar as an explanation for the address-space question.**
+Both of our clocks ask for space 1 first, at the same instruction, from the same
+code. Whatever makes the oracle ask for space 0 first is not the calendar, or at
+least not by any mechanism that has taken effect by then.
+
+*Verification: one stop at `3C43DDCE` with `--clock 2026-08-09`, against the same
+stop with the default clock. No code changed.*
+
+
 
 
 

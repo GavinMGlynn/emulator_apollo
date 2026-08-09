@@ -3001,8 +3001,14 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
     classes the other never reaches, and the `00120020` crash at 387,684,292 —
     which the 1987 boot never gets to. Static facts are unaffected, but every
     measurement with an instruction count attached was taken on the wrong clock
-    and is being rechecked. `tools/identity-boot.sh` now says which clock each
-    question wants. Detail in `PROJECT_STATUS.md`.
+    and was rechecked. **It holds**: on the year-26 clock the gate is reached at
+    *exactly* 288,640,117 with the same `D0`, the same instructions and the same
+    branch taken, so the two clocks are the same machine for the first 288
+    million instructions and every measurement stands. It also weakens the
+    calendar as the explanation for the address-space question — both our clocks
+    ask for space 1 first, from the same code, at the same instruction.
+    `tools/identity-boot.sh` now says which clock each question wants. Detail in
+    `PROJECT_STATUS.md`.
     **And a standing caveat is discharged**: the eight `PMOVE`s really are
     `SELF_TEST`'s. Both images load at `01002000`, so the addresses proved
     nothing, but the last of them fires at 162,878,385 instructions while the
