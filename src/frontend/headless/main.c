@@ -81,6 +81,17 @@ static void print_usage(const char *program_name) {
           "                        stop the run the first time the program\n"
           "                        counter is ADDR, so a kept trace holds what\n"
           "                        led there rather than what followed\n"
+          "");
+  /* Split because a single literal outgrew C99's guaranteed 4095 characters,
+   * which `-Werror` catches. Two calls, one list. */
+  fprintf(stdout,
+          "  --boot-stop-on-mmu-fault-at ADDR\n"
+          "                        end the run when translation *refuses* this\n"
+          "                        logical address. An instruction that faults,\n"
+          "                        recovers and faults again later cannot be\n"
+          "                        caught by counting visits to its PC: the\n"
+          "                        visits that succeed look identical until the\n"
+          "                        access is made\n"
           "  --boot-stop-pc-skip N ignore the first N times the stop address\n"
           "                        is reached. An address executed once on a\n"
           "                        path that recovers and again on one that\n"
@@ -1552,7 +1563,7 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
                           unsigned dump_logical_count,
                           uint32_t stop_physical_pc,
                           uint32_t stop_physical_length, bool service_mode,
-                          unsigned stop_pc_skip) {
+                          unsigned stop_pc_skip, uint32_t stop_mmu_fault_at) {
   /* Before the PROM is even opened: a script that does not parse is the
    * caller's mistake and should be reported as one, not hidden behind whichever
    * file happens to be missing first. */
@@ -1821,6 +1832,7 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
   ap_machine_init_model(&machine, ram, ram_bytes, model);
   ap_machine_set_board(&machine, board);
   machine.watch_write_address = watch_write;
+  machine.mmu_fault_stop_address = stop_mmu_fault_at;
   machine.watch_read_address = watch_read;
   ap_machine_reset(&machine, pc, stack);
 
@@ -1926,6 +1938,7 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
       trace || trace_last > 0u || input_length > 0u || console ||
       script.steps > 0u || key < AP_KBD_KEYS ||
       progress_every > 0u || stop_pc != 0u || stop_physical_pc != 0u ||
+      stop_mmu_fault_at != 0u ||
       stop_on_watch != 0u || stop_on_watch_read != 0u || stop_on_refusal;
   if (wants_steps) {
     /* Step by step, reporting the program counter and the active stack pointer.
@@ -2242,6 +2255,12 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
           run.executed++;
           break;
         }
+      }
+      if (machine.mmu_fault_stopped) {
+        printf("  stopped on   the MMU refusing %08X, after %u instruction(s)\n",
+               machine.mmu_fault_stop_address, i);
+        run.executed++;
+        break;
       }
       if (stop_pc != 0u && step_pc >= stop_pc &&
           step_pc < stop_pc + stop_pc_length &&
@@ -3240,6 +3259,7 @@ int main(int argc, char **argv) {
   unsigned boot_stop_on_watch = 0;
   uint32_t boot_stop_pc_length = 1u;
   unsigned boot_stop_pc_skip = 0u;
+  uint32_t boot_stop_mmu_fault_at = 0u;
   uint32_t boot_stop_physical_pc = 0;
   uint32_t boot_stop_physical_length = 1u;
   const char *dump_logical_specs[AP_MAX_LOGICAL_DUMPS] = {0};
@@ -3501,6 +3521,12 @@ int main(int argc, char **argv) {
       i += 2;
       continue;
     }
+    if (strcmp(argv[i], "--boot-stop-on-mmu-fault-at") == 0 && i + 1 < argc) {
+      boot_stop_mmu_fault_at =
+          (uint32_t)strtoul(argv[i + 1], NULL, 16);
+      i += 2;
+      continue;
+    }
     if (strcmp(argv[i], "--boot-stop-pc-skip") == 0 && i + 1 < argc) {
       boot_stop_pc_skip = (unsigned)strtoul(argv[i + 1], NULL, 0);
       i += 2;
@@ -3635,7 +3661,8 @@ int main(int argc, char **argv) {
                           boot_stop_on_watch_read, boot_stop_pc_length,
                           dump_logical_specs, dump_logical_count,
                           boot_stop_physical_pc, boot_stop_physical_length,
-                          service_mode, boot_stop_pc_skip);
+                          service_mode, boot_stop_pc_skip,
+                          boot_stop_mmu_fault_at);
   }
 
   if (boot_tape != NULL) {

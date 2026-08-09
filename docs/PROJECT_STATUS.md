@@ -20409,7 +20409,7 @@ counted apart from a board refusal, the logical address kept unrounded, and a
 clean machine reporting zero); `ctest` 130/130.*
 
 
-## The skipped root-pointer switch does not explain the crash, and both trees say so
+## A dump taken at the wrong instant, and the flag that was measuring the wrong thing
 
 With the fatal instruction known, its *second* fault can be stopped at --
 `--boot-stop-pc 3C47A25A:2 --boot-stop-pc-skip 1`, which fires at 385,186,867
@@ -20428,12 +20428,47 @@ where a history bit has been set (`011E700B` against `011E7003` at `F2`) -- so
 the tree the kernel maintains and the tree the MMU walks agree about this page,
 and both say it is not there.
 
-**So the standing thesis is dead as an explanation of this fault.** "The kernel
-builds `0105BC00`, never loads the root pointer, and dies on a page that tree
-maps" has driven several sessions; the page is not mapped in `0105BC00` either.
-Installing the root pointer would have changed nothing about this access. What
-survives is only that the switch is skipped, which remains true and is now
-uncoupled from the crash.
+**And then the trace showed the stop was in the wrong place.** At step
+385,186,867 the instruction reads `E9E8 ... EXECUTED` -- it *succeeded*, with
+`A0 = 3C248000`, the same base as the first fault. `--boot-stop-pc-skip` counts
+**visits to a PC**, not faults, and the visits that succeed are
+indistinguishable from the ones that do not until the access is made. So the
+dumps above are a snapshot of a moment when the instruction worked, and they say
+nothing about the tree at the fatal fault.
+
+**The conclusion drawn from them is therefore withdrawn**: "both trees have the
+page invalid, so the skipped switch is not the crash" was published in a commit
+message and is not supported by that measurement. What the dumps do show is that
+at 385,186,867 the two trees agree bar history bits -- interesting, and not the
+question.
+
+**The flag this needed is `--boot-stop-on-mmu-fault-at ADDR`**, which ends the
+run when translation *refuses* a given logical address: the event itself rather
+than a proxy for it.
+
+**Re-measured there, the answer is the opposite, and the standing thesis is
+confirmed.** The run stops on the MMU refusing `3BFF0001` at 385,198,347 --
+11,480 instructions after the visit the skip-flag caught -- and the two trees
+disagree exactly as the thesis says they should:
+
+```
+  kernel's tree   0105BFB0  00 00 00 00 01 1E 60 03  01 1E 64 03 01 33 38 0B
+  live tree       010017B0  00 00 00 00 01 1E 60 03  01 1E 64 03 00 00 00 00
+                                                                 ^^^^^^^^^^^ EF
+```
+
+`0133380B` is **valid**, and it is the exact value this file recorded long ago as
+the last of seven writes to that entry. So at the instant of the fatal fault the
+kernel has mapped the page in its own tree, and the processor is walking a tree
+where it is absent. **Installing the root pointer would have mapped it**, and the
+crash is the skipped switch after all.
+
+**Both readings above are from the same boot and only one of them is evidence.**
+The difference is where the run was stopped, and the lesson is narrower than
+"take more care": a stop keyed to a *proxy* for an event -- the PC an event
+happens at -- catches the proxy. `--boot-stop-pc-skip` is still the right tool
+for "the second time this code runs"; it is the wrong tool for "the time this
+code fails", and those read identically in a log.
 
 **And that reframes the question.** An access to an unmapped page is what a
 demand-paged system does for a living -- this boot recovers from 286 of them.

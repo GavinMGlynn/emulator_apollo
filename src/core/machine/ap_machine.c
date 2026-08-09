@@ -121,6 +121,10 @@ static void machine_mmu_faulted(void *context, uint32_t logical,
   (void)function_code;
   ap_machine_t *machine = (ap_machine_t *)context;
   machine->mmu_faults++;
+  if (machine->mmu_fault_stop_address != 0u &&
+      logical == machine->mmu_fault_stop_address) {
+    machine->mmu_fault_stopped = true;
+  }
 
   const uint32_t pc = machine->cpu.regs.pc;
   for (unsigned i = 0; i < machine->mmu_fault_site_count; i++) {
@@ -608,6 +612,7 @@ void ap_machine_reset(ap_machine_t *machine, uint32_t pc, uint32_t stack) {
   machine->mmu_faults = 0;
   machine->mmu_fault_site_count = 0;
   machine->mmu_fault_sites_dropped = 0;
+  machine->mmu_fault_stopped = false;
 
   /* Step 6, "Invalidates all entries in the instruction and data caches".
    *

@@ -196,6 +196,14 @@ typedef struct {
   unsigned mmu_fault_site_count;
   unsigned mmu_fault_sites_dropped;
   unsigned mmu_faults;
+
+  /* One logical address to watch for a *refusal* of, and whether it has
+   * happened. An instruction that faults on one address, recovers, and faults
+   * later on another cannot be caught by counting visits to its PC -- the
+   * visits that succeed are indistinguishable from the ones that do not until
+   * the access is made. This catches the event itself. Zero watches nothing. */
+  uint32_t mmu_fault_stop_address;
+  bool mmu_fault_stopped;
   /* Address translation, which the boot PROM turns on partway through and every
    * later access depends on. Counted because "the MMU is enabled" and "the MMU
    * has translated something" are different claims and a boot needs both. */
