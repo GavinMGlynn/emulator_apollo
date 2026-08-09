@@ -21451,3 +21451,49 @@ cites for its handshake timings -- and not another search. The chain from
 
 *Verification: the boot after the fix, same `Crash_Status 00120020 PC 3C40E114`;
 `ctest` 130/130 on both build types with the three suites updated.*
+
+
+## The driver runs `[SC499]`'s RSTSAC protocol, and our IRQF is a level where the hardware's is a latch
+
+`--boot-watch-write 00050001` catches the control register written **twice**,
+the last `00` from `PC 3C459F44`, and the code around it is §1.12's reset
+verbatim:
+
+```
+  3C459F40  51C9 FFFA   DBF  D1,...        the "more than 25 usec" hold
+  3C459F44  4228 0001   CLR.B $1(A0)       clear RSTSAC
+  3C459F4C  343C 0C5F   MOVE.W #$0C5F,D2   3,167 retries
+  3C459F56  1628 0001   MOVE.B $1(A0),D3   poll for F7
+```
+
+> "RSTSAC. Activated by writing a 1 to Control Register Bit 7. RSTSAC must be
+> set, held for more than 25 usec, then cleared by either writing a 0 to Control
+> Register Bit 7 or by a RSTDMA."
+
+**And that makes the arithmetic fail against our model.** `F7` carries IRQF set
+with RDY and EXC both *un*asserted, and the control register is `00` at that
+point so `DNIEN` is clear. This core derives the flag live --
+`interrupt_flag()` returns `ready || exception || (done && DNIEN)` -- which is
+`[SC499]` p. 12's wording taken as a level: "ORing of RDY AND EXC, and DONE if
+DNIEN is set". Under a level rule the state Domain/OS waits for **cannot
+occur**.
+
+Under a *latch* it can, and the register's own name is "Interrupt Request
+**Flag**": set when a condition asserts, held until the status register is read,
+cleared by that read. That yields the observed sequence exactly -- the reset
+completes and latches the flag (`F7`), the driver's read clears it, and the
+controller's exception then shows through (`57`). It is also what the oracle
+does, with `m_status |= SC499_STAT_IRQ` at events and `m_status &=
+~SC499_STAT_IRQ` in the status read.
+
+**Deliberately not changed tonight.** Turning a level into a latch alters when
+`ap_sc499_irq` asserts, which reaches the interrupt controller and the board,
+and the manual's sentence supports both readings on its face -- the word "Flag"
+and the driver's behaviour argue for the latch, the word "ORing" for the level.
+That is a module-completeness question of exactly the kind `CLAUDE.md` says to
+settle by walking the register tables against the part's own manual, with
+`§1.13`'s command-transfer figures beside it, rather than by a change made at
+the end of a long session because it would probably work.
+
+*Verification: the write watch and the disassembly above, both from the matched
+MD path; `[SC499]` §1.12 p. 13 and the status table p. 12, read as page images.*

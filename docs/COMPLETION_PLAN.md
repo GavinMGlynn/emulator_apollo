@@ -3776,6 +3776,17 @@ boot below, and the boot is not attempted until they are done.
         rate. Detail in `PROJECT_STATUS.md`.
         *Verification: the sign-on, from the script with no arguments; the
         table read out of the PROM at `000844`-`0008B8`.*
+  - [ ] **The SC499's interrupt flag: latch or level?** Domain/OS's tape reset
+        waits for status `F7` then `57`, and `F7` carries IRQF set while RDY and
+        EXC are unasserted and `DNIEN` is clear — unreachable under this core's
+        live `ready || exception || (done && DNIEN)`, reachable under a latch
+        set on assertion and cleared by reading status. `[SC499]` p. 12 says
+        "Interrupt Request **Flag** … ORing of RDY AND EXC", which supports both
+        readings; the driver's behaviour and the oracle support the latch. This
+        is the last link in the `00120020` chain. Detail in `PROJECT_STATUS.md`.
+        *Verification when done: `sc499_suite` — the flag survives until a
+        status read and not past it — and the boot reaching further than
+        `3C459F5E`, measured on the matched MD path.*
   - [ ] **Give the machine a configuration.** The calendar's battery RAM is
         blank at every power-on, which on real hardware is a machine whose
         battery has died: the boot PROM says "Configuration information is not
