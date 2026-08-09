@@ -21420,3 +21420,34 @@ here.
 *Verification: 6,000 samples each side at matched deltas; the disassembly and
 the register dump from stops on the matched MD path; the bit table from
 `ap_sc499.h`, itself read off `[SC499]` PDF page 15's image.*
+
+
+## The status bits are fixed; the handshake behind them is the remaining half
+
+`AP_SC499_ST_UNUSED` lands the first half: bits 2-0 now read one, the idle
+status is `77` where it was `70`, and `sc499_suite`, `tape_suite` and
+`board_suite` carry the reasoning rather than only the byte. **The boot still
+crashes in the same place**, which is the expected result and worth stating
+plainly rather than quietly re-running.
+
+Loop 1 waits for `F7`. `F7` is `77` **plus bit 7, IRQF** -- and this core never
+raises it. `[SC499]` p. 12 defines the bit as "Interrupt Request Flag, ORing of
+RDY AND EXC, and DONE if DNIEN is set", so it is *derived* from the controller's
+progress, not latched by anything this model does. At reset here `ready` and
+`exception` are both false and `done` is true, so the OR yields nothing and
+`DNIEN` is the driver's to set.
+
+The oracle's first read returns `F7` because something set its `SC499_STAT_IRQ`
+during a command, and its second constant, `57`, is `77` with **EXC asserted** --
+so the sequence Domain/OS waits for is: *interrupt raised*, then *exception
+signalled*. That is the reset handshake, and it is exactly what `ap_sc499.h`
+already admits is absent: "What is not [modelled] is the QIC-02 command set
+itself -- the tape motion, the block protocol, the drive behind the controller."
+
+So the remaining work is a named piece of device modelling with a manual to
+follow -- `[SC499]` §1.13's command-transfer figures, which this header already
+cites for its handshake timings -- and not another search. The chain from
+`00120020` to here is now unbroken and every link is measured.
+
+*Verification: the boot after the fix, same `Crash_Status 00120020 PC 3C40E114`;
+`ctest` 130/130 on both build types with the three suites updated.*
