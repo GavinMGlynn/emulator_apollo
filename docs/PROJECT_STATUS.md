@@ -20656,3 +20656,72 @@ dies on a page that space 1's tree maps.
 *Verification: the oracle's own log, 200 lines, from a boot to the `)` prompt;
 the negative from a bounded headless run whose stop is proven to fire elsewhere
 in the same session.*
+
+
+## The two machines were never running the same software before Domain/OS
+
+The fault handler's branch was traced to its operand, and then the operand's
+cause turned out to invalidate the comparison that found it. Both halves are
+worth recording.
+
+**The branch, measured on both machines.** Our machine and the oracle both
+execute `BFEXTU` at `3C47A25A` with `a0=3BFF0000`, both fault on `3BFF0001`, and
+both enter the same handler and run 42 identical instructions. Then:
+
+```
+  3C42CE30  F017 6200   PMOVE MMUSR,(A7)
+  3C42CE34  361F        MOVE.W (A7)+,D3        D3 = MMUSR
+  3C42CE48  0803 000A   BTST #10,D3            I
+  3C42CE50  0803 000F   BTST #15,D3            B
+  3C42CE58  123C 0007   MOVE.B #7,D1
+  3C42CE5C  C203        AND.B D3,D1            D1 = N, the level count
+  3C42CE5E  B23C ....   CMP.B #1,D1
+  3C42CE62  6700 00DC   BEQ.W $3C42CF40        taken here, not on the oracle
+```
+
+| | ours | oracle |
+| --- | --- | --- |
+| MMUSR at `3C42CE36` | `0401` -- I set, **N=1** | `0402` -- I set, **N=2** |
+| the `BEQ` | taken, to the fatal path | not taken, to recovery |
+
+So Domain/OS distinguishes "the table search died at the **first** table" -- a
+whole 4 Mbyte region absent -- from "died deeper", an ordinary missing page, and
+only the second is recoverable. **Our `N=1` is correct for our tree**: the MMU
+logic is right and the tree is wrong. `--boot-watch-write 010017BC` names the
+damage exactly: the live tree's root entry for `3BC00000`-`3BFFFFFF` is
+**written 8 times and cleared last, `00000000`, by PC `01002D68`**, a five
+instruction `CLR.L` loop.
+
+**And the oracle never executes `01002D68` -- because it never loads the code it
+is in.** Its console is:
+
+```
+  MD7C REV 8.00, 1989/08/16.17:23:52
+  >ex domain_os
+  low: 01002000 high: 010E986C start: 01002024
+```
+
+MD, then Domain/OS, directly. Ours is the PROM's automatic path, which **loads
+and runs SELF_TEST first** (`low: 01002000 high: 01005378`) -- nine diagnostic
+tests including an MMU one -- and `01002D68` is inside that image. The two runs
+execute entirely different software before Domain/OS starts, which also explains
+a number that never made sense: the oracle's first address-space switch is at
+instruction 64 M and ours at 288 M.
+
+**So every cross-machine measurement in this investigation compared two
+different boots**, and the ones that matched did so because they were inside
+Domain/OS, which both do run. That is the second like-for-like failure this file
+has had to record, and the first one -- display and battery -- was checked and
+cleared while this larger one went unexamined.
+
+**The experiment that follows** is ours booted the oracle's way: `--service-mode`
+into MD and `EX DOMAIN_OS`, skipping SELF_TEST entirely. If it reaches `login:`,
+this core runs Domain/OS correctly and the defect is confined to what SELF_TEST
+leaves behind; if it crashes the same way, SELF_TEST is exonerated and the fault
+is in Domain/OS's own path on this core. Either answer is worth more than
+anything measured today.
+
+*Verification: the MMUSR values from a bounded headless run and from
+`ext/mame` instrumented at `3C42CE36` and filtered to `a0=3BFF0000` (reverted
+after; the checkout carries only its five known local edits); the write watch
+from the same headless run; both consoles quoted above.*
