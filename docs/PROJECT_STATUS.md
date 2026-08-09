@@ -20772,3 +20772,37 @@ is empty. What is *not* established is why it is empty at that moment.
 *Verification: the three runs above, each bounded, with their own counters. Both
 checkouts are back to baseline -- ours has no uncommitted core change and
 `ext/mame` carries only its five known local edits.*
+
+
+## The config table's boot-device bytes, from the PROM rather than the handbook
+
+Disassembling `3500_BOOT_12191_7.bin` around the validity check -- no run needed,
+the file is on disk -- gives the two bytes that were still unaccounted for in the
+fifty:
+
+```
+  001780  moveq   #$2,d0               the default device type
+  001782  clr.b   d4
+  001784  lea.l   $1090E.l,a0          the config table, at the checksum offset
+  00178A  cmpi.l  #$1234ABCD,$4(a0)    the VALID PATTERN, at 010912
+  001792  bne.b   $17A2                not valid -- keep the defaults
+  001794  tst.b   $1D(a0)              zero -- keep the defaults
+  00179A  move.b  $1D(a0),d0           device type,   at 01092B
+  00179E  move.b  $1E(a0),d4           second selector, at 01092C
+```
+
+So `$1D` and `$1E` from the handbook's checksum base are the **boot device
+selection**, and a blank table means device type 2 with the second byte zero --
+which is what every run of this core has used, and it reaches the disk. That
+closes what those bytes are for without an oracle and without a boot.
+
+**And the PROM does not check the checksum here.** Only the four-byte pattern is
+tested on this path. The `CONFIGURATION INFORMATION IS NOT INITIALIZED` warning
+therefore comes from somewhere else -- `SELF_TEST`, most likely, which is the
+standing hypothesis and is now narrowed by elimination rather than left open.
+The checksum algorithm at offset `$0E` is still unknown and is still the open
+half of this item.
+
+*Verification: the disassembly above, from the ROM file with Capstone; the
+addresses agree with `002398-04` p. 12-3's layout and with the measured
+`--boot-watch-read 00010912`.*
