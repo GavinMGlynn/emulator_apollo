@@ -2892,12 +2892,13 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
     needs the oracle instrumented at this routine rather than at the register.
     A write tap on the cache word is built (`APOLLO_ASID_TAP` in
     `mdsession.lua`) and **caught nothing in a run that installed the root
-    pointer ten times** — the tapped physical address was wrong, because it was
-    read off a `--dump-logical` window header and offset into. Only a window's
-    *first* address has been through the MMU; the rest is attributed, not
-    translated. The same assumption produced garbage when disassembling
-    `3C452930`. Resolving the address properly is the next step, and the tap is
-    otherwise ready. Detail in `PROJECT_STATUS.md`.
+    pointer ten times**. Resolving the address properly shows the address was
+    *right* — `3C43FB14 -> 01042714` — so **the two machines hold the kernel's
+    data in different physical pages**, agreeing on every logical address and on
+    both tree pointers. That makes any physical address useless as a
+    cross-machine instrument, so the tap gained a second mode:
+    `APOLLO_ASID_PC=<hex logical>` keeps only the writes made by a given
+    *instruction*, which needs no translation. Detail in `PROJECT_STATUS.md`.
 
 **Order matters here, and this file had it wrong.** The boot is a *test*, and
 two of its children were unfinished *implementation*. `CLAUDE.md` says

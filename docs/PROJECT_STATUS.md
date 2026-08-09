@@ -18740,19 +18740,32 @@ and -- corroborating that the oracle runs *our* code -- one sample taken at
 `pc 3C43DDC8`, which is the `CMP.W` two instructions before the gate at
 `3C43DDCE`. The oracle is executing the same routine and not taking the branch.
 
-So the writes happen and the tap missed them, which means **the physical address
-was wrong**, and the error is ours rather than the oracle's. `01042714` was
-derived by taking `--dump-logical`'s header for the `3C430000` window
-(`-> 01032C00`) and adding the offset within it. That assumes a 128 Kbyte logical
-window is physically contiguous, and nothing guarantees it: the dump resolves its
-*start* address and then reads physically onward, so an address deep inside a
-window is attributed rather than translated. The same assumption is why an
-earlier attempt to disassemble `3C452930` produced garbage.
+So the writes happen and the tap missed them. The obvious explanation was that
+the address had been derived badly -- `01042714` came from taking
+`--dump-logical`'s header for the `3C430000` window (`-> 01032C00`) and adding
+the offset within it, which assumes a 128 Kbyte logical window is physically
+contiguous. **Resolving it properly refutes that**: `--dump-logical 3C43FB14:8`
+answers `-> 01042714`, the same number. The derivation was right.
 
-**Which makes a rule out of it**: an address inside a `--dump-logical` window is
-not translated, and must not be used as a physical address. Only the window's
-first address has been through the MMU. Resolving one properly costs a
-`--dump-logical <addr>:8` of its own, and that is what the next tap will use.
+**So the two machines put the kernel's data in different physical pages**, while
+agreeing on every logical address and on both tree pointers, `01001400` and
+`0105BC00`. That is unremarkable in itself -- physical pages are allocated as
+they are faulted in, and nothing requires two implementations to allocate in the
+same order -- but it makes *any* physical address useless as a cross-machine
+instrument, which is what this tap was.
+
+**The fix is to stop needing one.** `mdsession.lua` gains a second mode:
+`APOLLO_ASID_PC=<hex logical>` taps a wide range and keeps only the writes made
+*by that instruction*, matching on the PC. The PC is the same logical number on
+both machines -- the oracle was even caught at `3C43DDC8` by the poll -- so where
+the data page landed stops mattering. It matches a small window rather than an
+exact PC, because during a write MAME's PC may already have advanced past the
+storing instruction.
+
+The caution about `--dump-logical` windows still stands and is worth keeping:
+only a window's first address goes through the MMU, the rest is read physically
+onward, and that *is* why disassembling `3C452930` from a window produced
+garbage. It simply was not what defeated this tap.
 
 *Verification: the tap's own log, the ten root-pointer changes in the same run,
 and the `3C43DDC8` sample that places the oracle inside the routine. No code

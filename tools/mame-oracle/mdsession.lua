@@ -458,9 +458,47 @@ end
 -- The address is passed in rather than hardcoded because it is *physical*: MAME
 -- taps the CPU's address space, and the kernel's own logical `3C43FB14` resolves
 -- through the MMU. On this image it lands at `01042714`.
+--
+-- **Two modes, and the second exists because the first needs an address we got
+-- wrong.** `APOLLO_ASID_TAP=<hex>` taps that physical address. `APOLLO_ASID_PC=
+-- <hex logical>` instead taps a wide range and keeps only writes *made by that
+-- instruction*, which needs no translation at all: the PC is the same logical
+-- number on both machines, and where the data page landed stops mattering. The
+-- first mode caught nothing in a run that installed the root pointer ten times,
+-- because the address had been read off a `--dump-logical` window header and
+-- offset into -- and only a window's first address has been through the MMU.
 local asid_tap_at = tonumber(os.getenv("APOLLO_ASID_TAP") or "", 16)
+local asid_pc = tonumber(os.getenv("APOLLO_ASID_PC") or "", 16)
+local asid_lo = tonumber(os.getenv("APOLLO_ASID_LO") or "", 16) or 0x01000000
+local asid_hi = tonumber(os.getenv("APOLLO_ASID_HI") or "", 16) or 0x010FFFFF
 local asid_file, asid_tap = nil, nil
-if asid_tap_at ~= nil then
+if asid_pc ~= nil then
+	asid_file = io.open((os.getenv("APOLLO_CRP_LOG") or "crpwatch.log") .. ".asid", "w")
+	local ok, err = pcall(function()
+		local sp = manager.machine.devices[":maincpu"].spaces["program"]
+		local cpu = manager.machine.devices[":maincpu"]
+		asid_tap = sp:install_write_tap(asid_lo, asid_hi, "asid-by-pc",
+			function(offset, data, mask)
+				-- A small window, not equality: during a write MAME's PC may
+				-- already have advanced past the storing instruction.
+				local pc = cpu.state["PC"].value
+				if pc >= asid_pc and pc <= asid_pc + 10 then
+					asid_file:write(string.format("%10.4f  write %08X = %08X  pc %08X\n",
+						manager.machine.time:as_double(), offset, data, pc))
+					asid_file:flush()
+				end
+				return data
+			end)
+	end)
+	if not ok then
+		asid_file:write("FATAL could not install the by-PC tap: " .. tostring(err) ..
+		                "\nFATAL this run proves nothing about the requests\n")
+	else
+		asid_file:write(string.format("# by-PC tap: writes from pc %08X over %08X-%08X\n",
+			asid_pc, asid_lo, asid_hi))
+	end
+	asid_file:flush()
+elseif asid_tap_at ~= nil then
 	asid_file = io.open((os.getenv("APOLLO_CRP_LOG") or "crpwatch.log") .. ".asid", "w")
 	local ok, err = pcall(function()
 		local sp = manager.machine.devices[":maincpu"].spaces["program"]
