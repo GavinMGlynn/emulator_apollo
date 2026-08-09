@@ -20314,13 +20314,53 @@ the first run's invocation proved unrecorded: 387,684,292 instructions,
 `Crash_Status` printed, `--boot-stop-pc 3C40E114:2` silent.*
 
 
+## A frame is five sequences in an order, and a receiver cannot count its way through them
 
+`ap_ring_mac` had the symbols and the stuffing; `ap_ring_frame` had the field
+layouts and the check polynomial. Neither says what order they go in, and
+`[MAC]` §2.2.2 p. 2-6 is explicit that the order is the protocol: "MAC protocols
+dictate that each sequence in a frame must appear in the appropriate order, and
+that the data within each sequence must be formatted correctly, or protocol
+errors will occur."
 
+`ap_ring_framer.*` is that order, from the page images:
 
+| | sequence | contents, quoted |
+| --- | --- | --- |
+| 1 | frame start | "the frame start (out-of-band) character, a null separator, and a separator character" |
+| 2 | packet header | "a packet header and a separator character" |
+| 3 | packet data | "packet data and a separator character" |
+| 4 | frame check | "a cyclic redundancy field and a null separator", CRC "most-significant bit first" |
+| 5 | end-of-frame | "the late acknowledge field" |
 
+The null separators inside a frame are the **short** one, a byte of zeros. The
+long one is not part of a frame at all: §2.1 puts it in the *transmit* sequence,
+where a node "pads with Zeros just after the modified token", so it belongs to
+the station.
 
+**The one thing the existing API could not do.** Neither variable-length
+sequence carries its length -- a packet header "can vary in size from 12 to 1024
+bytes", packet data "from 0 to 4096 bytes" -- so a receiver decides "another
+byte, or the end of this sequence" *before* consuming anything, and the reader
+had no way to look without taking. `ap_ring_peek_oob` is that look, on a copy of
+the reader so position and ones-run both survive it. It is sound only because of
+the stuffing: data can never present six consecutive ones, so `0` followed by
+six `1`s is an out-of-band character and nothing else. A framer that read fixed
+byte counts instead would truncate any header whose length it guessed wrong, and
+one that read raw bytes would mistake a payload of `0xFF`s for a separator --
+both are tests.
 
+**Deliberately not modelled, and recorded rather than omitted:** the abort.
+"The controller may abort transmitting the packet header field on any even byte
+after the 12th, if it encounters an error, or if it determines ... that the
+packet is not being copied by another node." A real controller raises that from
+an error it detects mid-transmission, and there is no error source here to raise
+one. The *effect* of an abort is expressible -- the error bit in the late
+acknowledge field -- and its cause is not, so frames are emitted whole.
 
+A parse distinguishes a frame that arrived whole and failed its check from one
+that was never a frame. They are different events for a receiver: the first sets
+the error bit and is reported upstream, the second is noise.
 
-
-
+*Verification: `ring_framer_suite`, 12 tests, each citing its `[MAC]` section;
+`ctest` 130/130 on both build types.*

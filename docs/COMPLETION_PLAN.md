@@ -4054,14 +4054,21 @@ discipline throughout.
     trailer just past `length` (finding 7a, open question H). H is not a
     blocker — it is outside the image and nothing yet shows the machine reads
     it — but the boot PROM's option-ROM scan will settle it.
-- [ ] MAC layer from `010005-00`: free and claimed tokens, frame start and
+- [x] MAC layer from `010005-00`: free and claimed tokens, frame start and
       separator characters, null separators, packet header, packet data, FCS,
-      end-of-frame. *Verification: each format cites its manual section;
-      encode/decode round-trip tests.*
-      **Awaiting:** the frame *assembly* — walking a whole frame's five
-      sequences in order over the bit stream. The field formats and the CRC are
-      done; what is missing is the state machine that emits and parses them as
-      a sequence, which belongs with the controller device.
+      end-of-frame — and the frame *assembly* that walks all five sequences in
+      order over the bit stream, in `ap_ring_framer.*`. A receiver needs a
+      non-consuming look at the next symbol, because neither variable-length
+      sequence carries its length; `ap_ring_peek_oob` is that, and it is safe
+      only because the stuffing makes six consecutive ones impossible in data.
+      Detail in `PROJECT_STATUS.md`.
+      *Verification: `ring_framer_suite`, 12 tests, each citing its `[MAC]`
+      section — a round trip, the opening three-part sequence in order, a
+      zero-length data sequence that still carries its separator, both length
+      rules refused before anything is written, a longer header parsed back at
+      its own length with no hint from the caller, a payload of `0xFF`s that
+      must not read as a character, and a corrupted frame arriving whole and
+      failing its check rather than being called malformed.*
   - [x] **§2.2.1, the symbol level, is done**: `src/core/ring/ap_ring_mac.*`
         holds bit stuffing and the four out-of-band characters as nine-bit
         symbols, with a writer and reader that round-trip data through the

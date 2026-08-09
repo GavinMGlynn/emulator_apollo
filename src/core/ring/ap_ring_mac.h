@@ -179,4 +179,21 @@ void ap_ring_bitreader_init(ap_ring_bitreader_t *r, const uint8_t *bytes,
 /* Nine raw bits as an out-of-band character. */
 [[nodiscard]] bool ap_ring_read_oob(ap_ring_bitreader_t *r, uint16_t *symbol);
 
+/* Whether an out-of-band character stands next in the stream, without consuming
+ * it.
+ *
+ * A frame's sequences are delimited by separator *characters* and not by any
+ * length field -- "a packet header can vary in size from 12 to 1024 bytes" and
+ * nothing on the wire says which -- so a receiver decides "another data byte or
+ * the end of this sequence" before every byte. That decision cannot be made by
+ * reading: a symbol consumed is a symbol the caller must then put back, and the
+ * reader carries a ones-run that makes putting it back more than a rewind.
+ *
+ * Safe to answer by looking because the stuffing guarantees it: data can never
+ * present six consecutive ones, so `0` followed by six `1`s is an out-of-band
+ * character and nothing else. False at end of stream, which a caller reads as
+ * "no more sequences here" rather than as an error. */
+[[nodiscard]] bool ap_ring_peek_oob(const ap_ring_bitreader_t *r,
+                                    uint16_t *symbol);
+
 #endif /* APOLLO_RING_AP_RING_MAC_H */

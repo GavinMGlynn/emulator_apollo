@@ -175,6 +175,22 @@ bool ap_ring_read_data_bits(ap_ring_bitreader_t *r, unsigned bits,
   return true;
 }
 
+bool ap_ring_peek_oob(const ap_ring_bitreader_t *r, uint16_t *symbol) {
+  /* A copy, so the look costs the caller nothing: the reader is a value and
+   * every field it carries -- position and ones-run both -- is restored by
+   * simply discarding this one. */
+  ap_ring_bitreader_t look = *r;
+  uint16_t candidate = 0u;
+  if (!ap_ring_read_oob(&look, &candidate)) {
+    return false;
+  }
+  if (!ap_ring_oob_well_formed(candidate)) {
+    return false;
+  }
+  *symbol = candidate;
+  return true;
+}
+
 bool ap_ring_read_oob(ap_ring_bitreader_t *r, uint16_t *symbol) {
   if (!ap_ring_bitreader_has(r, AP_RING_OOB_BITS)) {
     return false;

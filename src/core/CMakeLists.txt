@@ -113,6 +113,7 @@ add_library(apollo_core STATIC
   model/ap_model.c
   ring/ap_ring_mac.c
   ring/ap_ring_frame.c
+  ring/ap_ring_framer.c
   ring/ap_ring_phy.c
   ring/ap_ring_medium.c
   ring/ap_ring_sched.c
