@@ -21324,3 +21324,39 @@ down as "check build exit status, not grep" and which cost a cycle here anyway.
 
 *Verification: the four log lines above from the rebuilt instrument (reverted;
 five known local edits remain), against our two stops' exception tallies.*
+
+
+## Nothing observes the delay, so its length is not the mechanism either
+
+Diffing the per-register device counters between the stops -- the frontend
+reports them, so this cost no runs beyond the ones already taken:
+
+| window | device registers read | written |
+| --- | --- | --- |
+| across both delays (`3C4B6D1A` -> `3C4B6D52`, 8 M instructions) | **0** | **0** |
+| the 300,000 instructions after the delay | **0** | **0** |
+
+Together with the interrupt counts -- zero on both machines -- that closes the
+timing reading as an *explanation*, though not as a fact. The fact stands: our
+delay is 520 ms and the oracle's 720 ms, and this core's figure is the
+better-founded one. What does not stand is the consequence drawn from it. **A
+difference in elapsed time can only matter if something observes it**, and
+across this whole sequence nothing does: no interrupt arrives, no device
+register is read, and the writes go into empty AT bus space on both machines.
+
+So the 200 ms is real and inert, and the divergence at Δ 52-53 M is driven by
+something already in memory when the sequence begins -- data, not time. Which
+puts the question back where the sample table left it, and one level finer: both
+machines execute identically through the delays, and then ours takes the poll
+path while the oracle goes to `3C4B1E56` first and polls forty million
+instructions later. Same work, different order, with no observable input
+differing.
+
+**The next measurement is therefore the PC streams at fine granularity across
+Δ 52-53 M** -- `--boot-progress 10000 --boot-progress-from 01002024` on this
+side and the matching instrument on the oracle -- which resolves the branch to
+the instruction rather than to the million. Everything coarser has now been
+spent.
+
+*Verification: the counter diffs above, from the `3C4B6D1A`, `3C4B6D52` and
+`+300,000` stops, all on the matched MD path.*
