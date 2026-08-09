@@ -20890,3 +20890,51 @@ the bracket is written down so the next session spends one.
 *Verification: the two searches above over the PROM file and over a dump taken
 at `SELF_TEST`'s entry; the dump parsed by fixed column width, per the rule that
 a loose regex drops half of every row.*
+
+
+## MD talks, and the byte it was waiting for was never a carriage return
+
+Every attempt in this project to reach the Mnemonic Debugger has sent it
+carriage returns -- forty of them, at four rates, across two sessions and eleven
+runs. The firmware ignores carriage returns. Disassembled from
+`3500_BOOT_12191_7.bin`, the service-mode entry reads the receive buffer and
+compares it against a fixed set:
+
+```
+  0007EC  move.b  $16(a0),d1      the receive buffer
+  000844  cmp.b   #$FF,d1   ->    move.b #$BB,$12(a0,d4.w)    9600
+  00085A  cmp.b   #$FE,d1   ->    move.b #$99,$12(a0,d4.w)    4800
+  000870  cmp.b   #$C7,d1   ->    move.b #$88,$12(a0,d4.w)
+  000886  cmp.b   #$72,d1   ->    move.b #$66,$159(a6)        1200
+  0008A0  cmp.b   #$C0,d1   ->    move.b #$44,$159(a6)
+  0008A4  bne.w   $78E            anything else: back to the poll
+```
+
+**That is the autobaud, and it is a table of garbled patterns.** The PROM locks
+its rate by recognising what a byte *looks like* when the sender is faster or
+slower than its receiver, then writes the matching CSR and sets a "rate known"
+flag. `0D` is not in the set at any rate, so a carriage return is discarded and
+the poll runs for ever -- which is exactly the "drains input and produces
+nothing" signature this file recorded, and read as a defect, twice.
+
+**It also explains why `--boot-input-rate 0x99` made things worse.** That
+delivered the character *correctly*, and correct is precisely what the autobaud
+cannot use. The flag was doing its job; the job was wrong.
+
+Sending `FF` first -- what a console faster than the receiver would produce --
+selects 9600, which is what this frontend transmits at by default, so everything
+after it arrives clean:
+
+```
+  MD7C REV 8.00, 1989/08/16.17:23:52
+  >
+```
+
+**Captured as `tools/md-session.sh`**, because the plan item asked for the
+invocation rather than the prose, and because the prose is what failed. The
+script carries the disassembly above in its header, so the *reason* for the byte
+survives with the byte.
+
+*Verification: the disassembly, from the ROM file; the sign-on above, from
+`tools/md-session.sh` with no arguments. Eleven runs of carriage returns
+preceded it and none is needed again.*
