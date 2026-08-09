@@ -916,11 +916,20 @@ static void report_state(ap_machine_t *machine) {
     }
   }
   if (machine->distinct_fault_count > 0u) {
-    printf("  fault sites ");
-    for (unsigned i = 0; i < machine->distinct_fault_count; i++) {
-      printf(" %08X", machine->distinct_faults[i]);
+    /* One line per site, with the PC that first reached it and how often it
+     * faulted. As a bare list of addresses this said which places went
+     * unanswered and nothing about whether they were probed or stumbled into,
+     * which is the distinction a boot ending in a fault turns on. */
+    printf("  fault sites  %u distinct", machine->distinct_fault_count);
+    if (machine->fault_sites_dropped > 0u) {
+      printf(", %u more not recorded", machine->fault_sites_dropped);
     }
     printf("\n");
+    for (unsigned i = 0; i < machine->distinct_fault_count; i++) {
+      printf("    %08X  first from PC %08X, %u time(s)\n",
+             machine->fault_sites[i].address, machine->fault_sites[i].pc,
+             machine->fault_sites[i].count);
+    }
   }
   if (machine->watch_read_address != 0u) {
     printf("  watch read   %08X read %u time(s)", machine->watch_read_address,

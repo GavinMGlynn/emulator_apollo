@@ -3348,7 +3348,7 @@ failure that cost a bit position in the 68020's module entry word.
 | Time base (`time/`) | working | `time_suite`, 17 tests |
 | State hash (`state/`) | primitive working | `hash_suite`, 11 tests, incl. published FNV-1a 64 vectors |
 | Core board state hash (the identity harness's board half) | working: the board registers, the translation map, both interrupt controllers, the interval timer with its three clocks, the calendar with both cursors, both DMA controllers, both serial ports, the node ID, the disk and tape controllers, the graphics memories, the keyboard matrix and the boot PROM. The diagnostic counters are deliberately outside it and reported beside it | `board_state_suite`, 22 tests sweeping every device field by field |
-| Full-machine state hash (`ap_machine_hash`, `ap_machine_state`) | working: the processor, main memory, the board when one is attached, and elapsed time — with the clock, the PC and the bus-error count reported beside the number | `machine_suite`, 48 tests, incl. the same workload run twice on two boards agreeing at every step |
+| Full-machine state hash (`ap_machine_hash`, `ap_machine_state`) | working: the processor, main memory, the board when one is attached, and elapsed time — with the clock, the PC and the bus-error count reported beside the number | `machine_suite`, 52 tests, incl. the same workload run twice on two boards agreeing at every step |
 | Ring medium interface | not started | — |
 | Ring controller | not started | — |
 | 68030 instruction pipe + cache holding register | working | `pipe_suite`, 14 tests, `MC68030 User's Manual 3ed` §11.2.2 |
@@ -3360,7 +3360,7 @@ failure that cost a bit position in the 68020's module entry word.
 | 68030 family `0000` size-11 escape (`CMP2`/`CHK2`/`CAS`/`CAS2`) | decoded; the opcode map now has no holes. Semantics open: `CAS`/`CAS2` need an indivisible read-modify-write | `bounds_suite`, 9 tests, `M68000 Family Programmer's Reference Manual 1992` |
 | Per-instruction timing report (`--time-instructions`) | bus and cache time only, pinned as a golden; the 0/2 alternation is the cache holding register serving two instruction words per fetch | `tests/goldens/timing.txt`; oracle side by `tools/mame-oracle/steptime.lua` |
 | Probe suite (`probe/`, `--run-probes`) | 8 probes on the constructed machine, needing no firmware; results pinned as a golden under every build preset, identical between `-O0` and `-O3` | `tests/goldens/probes.txt`, `probe_suite`, 7 tests |
-| Constructed machine (`machine/`) | a 68030 on flat RAM, with an out-of-range access faulting rather than wrapping; with a board attached it takes its model's clock, charges the AT bus's wait states and takes device interrupts on the Apollo vectors, and stalls while another master holds the bus, and advances the devices that keep time | `machine_suite`, 48 tests |
+| Constructed machine (`machine/`) | a 68030 on flat RAM, with an out-of-range access faulting rather than wrapping; with a board attached it takes its model's clock, charges the AT bus's wait states and takes device interrupts on the Apollo vectors, and stalls while another master holds the bus, and advances the devices that keep time | `machine_suite`, 52 tests |
 | 68030 published timings (§11.6) | 59 rows from §11.6.6, §11.6.8, §11.6.9, §11.6.11, §11.6.12, §11.6.15 and §11.6.16, scheduled into the step as exposed microcode + measured operand bus + prefetch exposure, since the tables show a prefetch overlaps execution while an operand the operation consumes cannot (plain `max(microcode, bus)` was the retired first model — see above and `M68030_TIMING.md`). Branches are reached through their run-time outcome rather than by opcode. Seven instructions agree with the oracle (`FINDINGS.md` C8). Rows footnoted "Add Fetch Effective Address Time" are **declined**, not part-priced: their published figure is a component and the composition is open (C9). The four divides carry the manual's data-dependent marker and are `PROVISIONAL` | `timing_table_suite`, 16 tests; both published columns checked on a running machine by `machine_suite` |
 | 68030 ATC replacement | the history bit now means *recently used*, per `MC68851 PMMU User's Manual` §5.2.1.3 — a translating hit marks it, a `PTEST` probe does not. `PROVISIONAL` narrowed to victim choice among clear-history entries | `atc_suite`, 21 tests |
 | 68030 prefetch marginal cost | `NCC − CC` over the published prefetch count, computed in code across every row; the two rows where it is not integral are named in the test rather than rounded away | `timing_table_suite`, 16 tests |
@@ -20255,6 +20255,32 @@ landed because it is documented behaviour of an instruction the fault handler
 executes 290 times, found by the table walk the discipline prescribes; it is not
 landed as a candidate explanation, and it is not one.
 
+**The fault profile is now an instrument rather than a list.** `fault sites` was
+sixteen bare addresses, and a boot fills that during device probing alone -- 14
+of the 16 slots go to one `FD800000`-`FD80D000` scan, so every later fault in the
+run was invisible *and the list looked complete*. Each site now carries the PC
+that first reached it and how often it faulted, the cap is 64, and what the cap
+refuses is counted and printed (`N more not recorded`) rather than dropped in
+silence. The three answer different questions: a device probe returns to one
+address from one loop, and a program following a wild pointer arrives once from
+somewhere it should never have been.
+
+Two traps found writing its tests, both worth keeping because both produce a
+*plausible wrong reading* rather than an error:
+
+- Redirecting with `regs.pc` leaves the **prefetch pipe** loaded, so the next run
+  executes the words fetched before the exception. Three faults recorded as one.
+  The tell was a PC that advanced by four where the instruction is six bytes
+  long. `ap_m68030_cpu_reset` places a PC and empties the pipe.
+- Rewriting a program under a **reused address** leaves the instruction cache's
+  copy standing, so the second call re-runs the first program and faults at the
+  first address again -- which reads as "the second fault was never recorded".
+  Each program now lives at its own address.
+
+`ap_machine_reset` also zeroed `bus_errors` while leaving the site list behind,
+which would have left sixty-four places named by a machine reporting no bus
+errors at all. The profile is cleared with the count it describes.
+
 **What the same run does newly establish**: the kernel's *first* `MMUSR` read is
 at instruction **384,410,948**, about 3.1 M before the crash. So the handler is
 not probing steadily through the boot and then failing once -- the probing starts
@@ -20264,10 +20290,14 @@ measurements looked.
 
 *Verification: `walk_suite` 47 tests (7 new -- one table per level asked for, a
 truncation that is not a fault, the last descriptor named, a ceiling deeper than
-the tree, an unbounded translation, and both `successfully fetched` cases) and
-`mmusr_suite` 17 (1 new: a truncated search reports I clear and N as walked);
-`ctest` 129/129. The two dead leads are from the two bounded boots above, whose
-invocations are in this entry.*
+the tree, an unbounded translation, and both `successfully fetched` cases),
+`mmusr_suite` 17 (1 new: a truncated search reports I clear and N as walked), and
+`machine_suite` 52 (4 new: one place visited repeatedly, two places, the first PC
+kept, and the cap counting what it cannot name); `ctest` 129/129. The dead leads
+are from bounded boots whose invocations are in this entry -- and the
+never-executed result was re-run to completion with a known command line after
+the first run's invocation proved unrecorded: 387,684,292 instructions,
+`Crash_Status` printed, `--boot-stop-pc 3C40E114:2` silent.*
 
 
 

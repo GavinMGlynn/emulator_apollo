@@ -63,6 +63,18 @@ struct ap_board;
  * carries the information and the addresses repeat. */
 #define AP_MACHINE_MMU_WRITES 32u
 
+/* One address the bus never answered, with who first asked and how often.
+ *
+ * The PC is the *first* one to fault here rather than the last, because the
+ * question a fault profile answers is where a place was first reached from --
+ * a device probe returns to the same address from the same loop, and its
+ * hundredth PC says nothing its first did not. */
+typedef struct {
+  uint32_t address;
+  uint32_t pc;
+  unsigned count;
+} ap_fault_site_t;
+
 typedef struct {
   uint8_t *ram;
   uint32_t ram_bytes;
@@ -135,9 +147,23 @@ typedef struct {
   /* The distinct addresses that went unanswered, earliest first. A count says
    * how often; a first and a last say where a run started and stopped. Neither
    * says *which places*, and a scan that faults 130 times over one address is a
-   * different machine from one that faults 130 times over 130. */
-  uint32_t distinct_faults[16];
+   * different machine from one that faults 130 times over 130.
+   *
+   * Each site carries the PC that first reached it and how often it faulted,
+   * because the three answer different questions: a device probe faults many
+   * times over a range from one loop, and a program following a wild pointer
+   * faults once from somewhere that should never have been there. A boot that
+   * ends in a fault is asking which of the two it is, and an address list alone
+   * cannot say.
+   *
+   * The cap was sixteen and a boot fills it during device probing alone -- 14
+   * of the 16 slots went to one `FD80x000` scan -- so every later fault in the
+   * run was invisible and the list *looked* complete. `sites_dropped` counts
+   * what the cap refused, because a truncated list that says so is evidence and
+   * one that stays silent is a wrong answer. */
+  ap_fault_site_t fault_sites[64];
   unsigned distinct_fault_count;
+  unsigned fault_sites_dropped;
   /* Address translation, which the boot PROM turns on partway through and every
    * later access depends on. Counted because "the MMU is enabled" and "the MMU
    * has translated something" are different claims and a boot needs both. */

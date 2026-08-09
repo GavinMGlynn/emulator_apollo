@@ -90,14 +90,23 @@ static void fault(ap_machine_t *machine, uint32_t address) {
   machine->last_bus_error_pc = machine->cpu.regs.pc;
   machine->bus_errors++;
   for (unsigned i = 0; i < machine->distinct_fault_count; i++) {
-    if (machine->distinct_faults[i] == address) {
+    if (machine->fault_sites[i].address == address) {
+      machine->fault_sites[i].count++;
       return;
     }
   }
   if (machine->distinct_fault_count <
-      sizeof machine->distinct_faults / sizeof machine->distinct_faults[0]) {
-    machine->distinct_faults[machine->distinct_fault_count++] = address;
+      sizeof machine->fault_sites / sizeof machine->fault_sites[0]) {
+    machine->fault_sites[machine->distinct_fault_count++] =
+        (ap_fault_site_t){.address = address,
+                          .pc = machine->cpu.regs.pc,
+                          .count = 1u};
+    return;
   }
+  /* Past the cap. Counted rather than discarded silently: a list that stops
+   * naming places is indistinguishable from a machine that stopped faulting in
+   * new ones, and this run has already been read the wrong way once. */
+  machine->fault_sites_dropped++;
 }
 
 static bool in_range(const ap_machine_t *machine, uint32_t address,
@@ -555,6 +564,11 @@ void ap_machine_reset(ap_machine_t *machine, uint32_t pc, uint32_t stack) {
   machine->cpu.regs.isp = stack;
   machine->cpu.clocks = 0;
   machine->bus_errors = 0;
+  /* The profile goes with the count it describes. Zeroing one and not the other
+   * leaves a site list that outlives its own total -- sixty-four places named
+   * by a machine reporting no bus errors at all. */
+  machine->distinct_fault_count = 0;
+  machine->fault_sites_dropped = 0;
 
   /* Step 6, "Invalidates all entries in the instruction and data caches".
    *

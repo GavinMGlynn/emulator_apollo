@@ -572,6 +572,14 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
           (1 further) — one table accessed per level asked for, a truncation
           reported apart from a fault, and a bus-errored fetch leaving the last
           readable descriptor named.*
+    - [x] The fault profile carries its PCs: each distinct unanswered address
+          now records the PC that first reached it and how often it faulted, the
+          cap is 64 rather than 16, and what the cap refuses is counted and
+          printed. A boot filled the old cap during device probing alone, so the
+          list looked complete and was not. Detail in `PROJECT_STATUS.md`.
+          *Verification: `machine_suite` 52 tests (4 further) — one place
+          visited three times, two places kept apart, the first PC retained
+          rather than the last, and the overflow counted.*
     - [ ] A root pointer whose DT field is `page descriptor` cannot be
           represented: `ap_m68030_root_t` collapses DT to `long_format`, so a
           `CRP` of DT `$1` is walked as a short-format table. The same page owes

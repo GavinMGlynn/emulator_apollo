@@ -228,6 +228,111 @@ static void test_an_access_beyond_the_ram_faults_rather_than_wrapping(void) {
   TEST_ASSERT_TRUE(m.bus_errors > 0u);
 }
 
+/* ---------------------------------------------------------------------------
+ * The fault profile. A count says how often the bus went unanswered and a first
+ * and last say where a run began and ended; neither says *which places*, and a
+ * scan faulting 130 times over one address is a different machine from one
+ * faulting 130 times over 130.
+ * ------------------------------------------------------------------------- */
+
+/* Fault once at `bad`, from an instruction placed at `from`.
+ *
+ * The access has to come from the processor: `ap_machine_read` is the
+ * observer's API and deliberately answers false without recording anything, so
+ * a test driving it would assert on a counter nothing had touched. `MOVE.L
+ * (bad).L,D0` is the shortest instruction that puts an arbitrary address on the
+ * bus, and one `ap_machine_run` executes it and takes the bus error. The PC is
+ * then wherever the vector sent it, so each call places its own.
+ *
+ * Placed with `ap_m68030_cpu_reset` rather than by assigning `regs.pc`, which
+ * is the trap this helper exists to document: assigning the register leaves the
+ * **prefetch pipe** holding the words fetched before the exception, so the next
+ * run executes those instead. It looked exactly like the fault not being
+ * recorded -- one site where three were expected -- and the tell was a PC that
+ * advanced by four where the instruction is six bytes long. `ap_machine_reset`
+ * cannot serve here: it clears the very counters under test.
+ *
+ * And each program is written at its **own** address, because the instruction
+ * cache is not the pipe: rewriting the words under a reused address leaves the
+ * cached copy standing, so the second call re-executes the first program and
+ * faults at the first address again. That reads as "the second fault was never
+ * recorded" and is nothing of the kind. */
+static void fault_once(ap_machine_t *machine, uint32_t bad, uint32_t from) {
+  const uint16_t program[] = {0x2039u, (uint16_t)(bad >> 16), (uint16_t)bad};
+  for (unsigned i = 0; i < 3u; i++) {
+    machine->ram[from + i * 2u] = (uint8_t)(program[i] >> 8);
+    machine->ram[from + i * 2u + 1u] = (uint8_t)program[i];
+  }
+  ap_m68030_cpu_reset(&machine->cpu, from);
+  machine->cpu.regs.isp = STACK;
+  (void)ap_machine_run(machine, 1u);
+}
+
+/* Returning to the same unanswered address is one place, visited repeatedly --
+ * which is what a device probe looks like. */
+static void test_the_same_unanswered_address_is_one_site_with_a_count(void) {
+  ap_machine_t m;
+  ap_machine_init(&m, ram, RAM_BYTES);
+  ap_machine_reset(&m, PROGRAM, STACK);
+
+  for (unsigned i = 0; i < 3u; i++) {
+    fault_once(&m, 0x01000100u, PROGRAM);
+  }
+
+  TEST_ASSERT_EQUAL_UINT(1u, m.distinct_fault_count);
+  TEST_ASSERT_EQUAL_HEX32(0x01000100u, m.fault_sites[0].address);
+  TEST_ASSERT_EQUAL_UINT(3u, m.fault_sites[0].count);
+}
+
+/* And two addresses are two places, in the order they were first reached. */
+static void test_each_unanswered_address_gets_its_own_site(void) {
+  ap_machine_t m;
+  ap_machine_init(&m, ram, RAM_BYTES);
+  ap_machine_reset(&m, PROGRAM, STACK);
+
+  fault_once(&m, 0x01000200u, PROGRAM);
+  fault_once(&m, 0x01000300u, PROGRAM + 0x40u);
+
+  TEST_ASSERT_EQUAL_UINT(2u, m.distinct_fault_count);
+  TEST_ASSERT_EQUAL_HEX32(0x01000200u, m.fault_sites[0].address);
+  TEST_ASSERT_EQUAL_HEX32(0x01000300u, m.fault_sites[1].address);
+}
+
+/* The PC kept is the *first* one to reach the place. A probe returns to the
+ * same address from the same loop, so its hundredth PC says nothing its first
+ * did not -- but a program that wanders there once, later, is a different
+ * event, and only the first PC distinguishes them. */
+static void test_a_fault_site_remembers_the_first_pc_that_reached_it(void) {
+  ap_machine_t m;
+  ap_machine_init(&m, ram, RAM_BYTES);
+  ap_machine_reset(&m, PROGRAM, STACK);
+
+  fault_once(&m, 0x01000400u, PROGRAM);
+  fault_once(&m, 0x01000400u, PROGRAM + 0x40u);
+
+  TEST_ASSERT_EQUAL_UINT(1u, m.distinct_fault_count);
+  TEST_ASSERT_EQUAL_HEX32(PROGRAM, m.fault_sites[0].pc);
+  TEST_ASSERT_EQUAL_UINT(2u, m.fault_sites[0].count);
+}
+
+/* Past the cap the run keeps counting what it cannot name. A list that stops
+ * naming places reads exactly like a machine that stopped finding new ones, and
+ * a real boot filled the old sixteen slots during device probing alone. */
+static void test_fault_sites_past_the_cap_are_counted_not_dropped_silently(void) {
+  ap_machine_t m;
+  ap_machine_init(&m, ram, RAM_BYTES);
+  ap_machine_reset(&m, PROGRAM, STACK);
+
+  const unsigned capacity =
+      (unsigned)(sizeof m.fault_sites / sizeof m.fault_sites[0]);
+  for (unsigned i = 0; i < capacity + 6u; i++) {
+    fault_once(&m, 0x01000000u + i * 0x1000u, PROGRAM + i * 0x10u);
+  }
+
+  TEST_ASSERT_EQUAL_UINT(capacity, m.distinct_fault_count);
+  TEST_ASSERT_EQUAL_UINT(6u, m.fault_sites_dropped);
+}
+
 /* "A limit is required rather than optional: a probe that loops forever must
  * end as a failed probe rather than as a hung harness." */
 static void test_a_runaway_program_ends_at_its_limit(void) {
@@ -2125,6 +2230,10 @@ int main(void) {
   RUN_TEST(test_bsr_is_priced_as_a_call_not_as_an_untaken_branch);
   RUN_TEST(test_reset_leaves_the_state_a_reset_leaves);
   RUN_TEST(test_an_access_beyond_the_ram_faults_rather_than_wrapping);
+  RUN_TEST(test_the_same_unanswered_address_is_one_site_with_a_count);
+  RUN_TEST(test_each_unanswered_address_gets_its_own_site);
+  RUN_TEST(test_a_fault_site_remembers_the_first_pc_that_reached_it);
+  RUN_TEST(test_fault_sites_past_the_cap_are_counted_not_dropped_silently);
   RUN_TEST(test_a_runaway_program_ends_at_its_limit);
   RUN_TEST(test_a_run_stops_on_an_unimplemented_instruction_and_says_so);
   RUN_TEST(test_writing_memory_does_not_leave_a_stale_cache_line);
