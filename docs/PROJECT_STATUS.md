@@ -20016,6 +20016,46 @@ sides: which entry, and what it does.
 *Verification: the ring committed with the region comparison above; the three
 F-line steps are executed instructions, not disassembly.*
 
+## What the module's other entry actually is: a flush, and a `MOVEC` pair
+
+The same ring shows the whole path into `3C43DE58`, and it is not an
+address-space switch at all:
+
+```
+3C43DB0E-3C43DB1E   a loop, d1 counting 00070005 down to 0007FFFF
+3C43DB22  6100      BSR   -> 3C43DE58
+3C43DE58  F000      the MMU instruction -- a flush
+3C43DE5C  6100      BSR   -> 3C43DF24
+3C43DF24  103A      MOVE.B (d16,PC),D0        d0 = 0000FFFF
+3C43DF34  4E7A      MOVEC <cr>,D0             d0 = 00002101
+3C43DF38  08C0      BSET  #imm,D0             d0 = 00002901
+3C43DF3C  4E7B      MOVEC D0,<cr>
+3C43DF40  4E75      RTS
+```
+
+`0x2101 -> 0x2901` sets bit 11. On the 68030's `CACR` that is **write-allocate**,
+alongside the enable bits already set. So the routine flushes the MMU's
+translations and then reads, modifies and writes back a cache control register.
+
+**Which is a third correction of the same kind, and the last one is worth
+naming.** "No `MOVEC` executes in the 60,000 steps before the request" was
+measured over `288,580,118`-`288,640,117` and is true there. Two million
+instructions earlier the kernel executes a `MOVEC` **pair**. The claim was scoped
+correctly when written and has been reached for twice since as though it were
+general. A window's result is a statement about the window -- written down twice
+now, because it keeps being the thing that goes wrong.
+
+**And it changes what the earlier entry means.** The switch module's other entry
+is a flush-and-cache routine, not a second install path, so it is *not* the
+explanation for the oracle's `01001400` at 11.7 s. That remains unaccounted for,
+and the candidates are narrower for it: something installs a root pointer on the
+oracle before the switch routine is ever called, and it is neither `3C43DDF0`
+(which runs later) nor this entry (which flushes).
+
+*Verification: the ring committed with the region comparison; every instruction
+above was executed, and the register values are the machine's own.*
+
+
 
 
 

@@ -3016,8 +3016,13 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
     (`3C43DD1A`/`3C43DD3C`), runs its tail, and returns without asking to change
     space. That may be what installs `01001400` on the oracle at 11.7 s, which
     would explain why the poll placed the install inside the kernel while no
-    `PMOVE` at `3C43DDF0` accounts for it. Which entry, and what it does, is the
-    next measurement on both sides.
+    `PMOVE` at `3C43DDF0` accounts for it.
+    **Measured, and it is not the explanation**: that entry is a
+    *flush-and-cache* routine — an MMU flush at `3C43DE58`, then a `MOVEC` pair
+    at `3C43DF34`/`3C43DF3C` setting write-allocate in `CACR` (`2101 → 2901`).
+    So the oracle's `01001400` at 11.7 s is still unaccounted for, but the
+    candidates are narrower: not `3C43DDF0`, which runs later, and not this
+    entry, which flushes.
     **A separate defect surfaced while trying to match the boot routes**: the
     firmware's autobaud **walks downward under repeated characters**. One
     carriage return at 9600 locks at 9600 and the ordinary boot works; 120 at
