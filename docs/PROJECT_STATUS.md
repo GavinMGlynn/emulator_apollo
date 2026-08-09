@@ -20732,16 +20732,21 @@ from the same headless run; both consoles quoted above.*
 Each was a reasonable next step, each cost a run or two, and none produced the
 answer. Written down because the *negative* is the useful part.
 
-**1. Booting our machine the oracle's way is blocked by a known defect of ours.**
-`--service-mode` with a script of `expect MD7C` / `send EX DOMAIN_OS` runs to
-1,200 M instructions with the PC parked at `00000794` and the console silent --
-and `sio2 reg 1` read **149,993,735** times. That is the service-mode poll this
-file already documents: the PROM waits on `RxRDY` across three receivers and a
-byte's `RxRDY` is cleared again before the next arrives. So the experiment that
-would settle whether Domain/OS boots on this core without SELF_TEST is gated on
-fixing that first. It is now the highest-value item this investigation has,
-because it separates "our core cannot run Domain/OS" from "SELF_TEST leaves the
-machine in a state Domain/OS cannot survive".
+**1. Booting our machine the oracle's way -- and this entry's first version was
+wrong about why it failed.** `--service-mode` with a script of `expect MD7C` /
+`send EX DOMAIN_OS` ran to 1,200 M instructions with the PC parked at
+`00000794`, the console silent, and `sio2 reg 1` read **149,993,735** times.
+That was written up here as a defect in the service-mode poll and named the
+investigation's highest-value item.
+
+**There is no such defect.** This file already records, at length, that the
+service-mode dialogue needs *a keyboard press*, `--boot-input-interval 400000`,
+and **forty** carriage returns spread across a budget reaching ~45 emulated
+seconds -- and that the whole thing was chased through six hypotheses before
+someone read the paragraph in `MD.md` that says so. The run above supplied ten
+returns and no key press. It reproduced the documented symptom of the wrong
+recipe and was diagnosed as a fresh bug, which is the same mistake the original
+investigation made, from the same page, in the same file.
 
 **2. Making the oracle take *our* path did not produce a console.** With the
 `mc68681.cpp` edge-gate edit applied (`!BIT(CR, 2) &&` removed, the fix this
