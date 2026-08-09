@@ -19280,11 +19280,20 @@ frame" to "the fault is taken inside a lock" is now measured at every step,
 including why the failing index is `EF` and not one of the hundreds that were
 copied.
 
-**The frame result is clean and stands.** The value `3C000001` sits at
-`A6 - 0x20` in the frame at `3C4F98C8`, so it is a **local**, not a parameter
-passed in -- which means the routine that reads it computed or fetched it itself,
-and the search for its origin stops being a walk up the call chain and becomes a
-question about that one routine.
+**And the frame result needs correcting, which is the eighth time today.** The
+value `3C000001` does sit at `A6 - 0x20` in the frame at `3C4F98C8`, but it is
+not a local. On **entry** to the routine at `3C46EFE8` -- step 288,639,171, the
+`LINK` itself -- `D2` already holds `3C000001`, and the `2F02` two instructions
+later is `MOVE.L D2,-(A7)`, a **register save**. So the `MOVE.L $xx(A6),D2` at
+`3C46F02C` is *restoring* that saved register, not reading something the routine
+computed.
+
+Which changes the direction of the search rather than the question. The value is
+not produced in this routine or passed to it as an argument: it is carried in
+`D2` across a chain of nested calls, each saving and restoring it, and the
+sixty-thousand-step ring begins with it already in flight. Following it means
+following a **register through saves and restores**, not a value through frames,
+and its origin lies earlier than any ring taken at this stop has reached.
 
 *Verification: the two dump headers, from one stop at 288,639,158; the frame
 contents from the same stop. No conclusion drawn from the copy's direction until
