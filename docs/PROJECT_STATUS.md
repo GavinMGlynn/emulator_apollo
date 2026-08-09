@@ -20584,11 +20584,20 @@ display-less machine stands.
 **The framebuffer also shows two lines the serial console never carried.**
 `3C42BA58: 4E4F` disassembles as **`TRAP #15`** -- which is exactly how
 `crash_system` enters the Mnemonic Debugger, per *AEGIS Internals* §18.2.1.1 --
-with `2700` beside it, an SR in supervisor state at interrupt level 7. So the
-crash report's `PC 3C40E114` sits in a dump whose *other* address is the trap
-that produced it, and that address **is** executed. The reporter is not
-inventing a PC; it is printing a saved one from somewhere this core can now go
-and look.
+with `2700` beside it, an SR in supervisor state at interrupt level 7.
+
+**And it is not executed either.** That was written up here as "the reporter is
+printing a saved PC from somewhere this core can now go and look", on the
+assumption that an address MD disassembles must be one the processor reached.
+`--boot-stop-pc 3C42BA58:2` runs to 387,684,292 instructions without firing, the
+same answer `3C40E114` gave. So **both** addresses in the crash report are
+printed rather than run, and the same mistake was made twice in one session --
+the second time immediately after writing the first one up.
+
+What that leaves is a positive finding rather than a lead: the report describes a
+context that never executed here, which is what a dump of a *suspended* thread
+looks like, and `PID 0001` is beside it. Chasing either address is chasing a
+record, not a program.
 
 **One boot attempt that was not a comparison at all**, recorded because it took
 a run to find out: `--screen c8p` *without* a seeded battery never leaves the
