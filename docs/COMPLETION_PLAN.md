@@ -3995,8 +3995,15 @@ Only after the reference core is proven, and only under an identity harness.
 
 ## Phase 9 — Content testing
 
-- [ ] `docs/references/TEST_SHELF.md`: Domain/OS releases and applications
-      organised by the subsystem each stresses.
+- [x] `docs/references/TEST_SHELF.md`: Domain/OS releases and applications
+      organised by the subsystem each stresses. Every row is marked `observed`
+      or `expected` — a shelf that mixes what has been run with what has been
+      reasoned is a list of things someone once assumed. Nine subsystems are
+      already reached by the reference boot alone and its report counts each;
+      six need content we either cannot reach yet or do not hold, and the
+      releases and applications we lack are named rather than implied.
+      *Verification: every cited path is in the repository and `doc_claims`
+      checks that.*
 - [ ] Boot every Domain/OS release obtainable (SR9.7, SR10.1–10.4).
       *Verification: each boot recorded with its state hash; failures explained,
       not hidden.*

@@ -1,0 +1,87 @@
+# The test shelf: content, and the subsystem each piece stresses
+
+Phase 9 is content testing — running real Domain/OS rather than more unit tests,
+because content finds what tests do not. This file is the shelf: what we hold,
+what each piece exercises, and what we do not hold and would need.
+
+**Every row is marked.** `observed` means this project has actually run it and
+`PROJECT_STATUS.md` records the result. `expected` means it is reasoned from the
+subsystem and has **not** been run here — it is a plan, not a finding, and must
+not be cited as one. The distinction is the whole value of the file: a shelf that
+mixes the two is a list of things someone once assumed.
+
+## What we hold
+
+Neither the volume nor the cartridges are in this repository, and they will not
+be — see `docs/references/DOMAINOS_IMAGE.md`, which pins all six by SHA-256.
+
+| Item | What it is |
+| --- | --- |
+| `media/dn3500-sr10.4-installed.awd` | Domain/OS SR10.4, 'large' template, installed and cleanly shut down. The boot every measurement in Phase 8 uses |
+| `media/dn3500-osclean.awd` | OS restored from the boot cartridge, MINST not run. The right base for redoing an install |
+| five `.ct` cartridges | The SR10.4 distribution, `019593-001` and `019594-001`..`004` |
+| `roms/firmware/*_BOOT_*.bin` | Six boot PROMs across five models — see the firmware sweep in `PROJECT_STATUS.md` |
+
+## By subsystem
+
+### Reached by simply booting — `observed`
+
+The 350 M-instruction reference boot (`tools/identity-boot.sh`) already exercises
+these, and its report counts every one. They need no extra content; what they
+need is a *longer* boot, which is what Phase 8's speed work is for.
+
+| Subsystem | What the boot does to it | Evidence in the report |
+| --- | --- | --- |
+| Winchester disk, OMTI controller | 1275 commands, 1.34 M register accesses | `disk commands`, `disk reg N` |
+| Serial, both MC68681s | 35 M reads, autobaud, the console dialogue | `regions`, `sio1 reg N` |
+| MMU, ATC, table search | 56,688 descriptor fetches, 15,534 history updates | `atc fills` |
+| Interrupts, both 8259s | 392 vector-2 exceptions and four others | `exceptions` |
+| DMA, both 8237s | 2 transfers, 1.46 G bus ticks | `dma`, `dma bus` |
+| Calendar | 58 update cycles | `calendar` |
+| AT bus, empty slots | 7.4 M reads answered `FF` | `empty slot` |
+| Parity | 4 forced errors, self-test 7 | `parity` |
+| Boot PROM | 1.33 M reads | `regions` |
+
+### Reached only with more content — `expected`
+
+| Subsystem | What would stress it | Why it is not yet run |
+| --- | --- | --- |
+| Graphics, blitter, colour map | Any windowed session; the Display Manager draws continuously | The boot reaches the framebuffer but the crash at `00120020` precedes a session |
+| Apollo Token Ring | `lcnode` on two nodes | Needs the ring controller device, which is blocked on register meanings — `RING.md` |
+| Cartridge tape | A `wbak`/`rbak` to tape | Nothing has driven the SC499 past the firmware's own probe |
+| Floppy | Reading a real `.afd` under the OS | The reader is tested standalone (`--floppy`); the OS path is not |
+| FPU, 68882 | Any floating-point application | The part is modelled and unit-tested; no content has run through it |
+| Keyboard, mouse | An interactive session | Headless by design; the SDL frontend is deliberately not stubbed |
+
+### Attested commands
+
+Reached and recorded by this project, so they can be relied on as entry points:
+
+| Command | Prompt | What it reaches | Recorded |
+| --- | --- | --- | --- |
+| `ex domain_os` | `>` (MD) | Loads the OS from a volume | `MD.md` |
+| `ex config` | `>` (MD) | The calendar's configuration table | `PROJECT_STATUS.md` |
+| `shut` | `)` (bootshell) | Clean shutdown before copying an image | `DOMAINOS_IMAGE.md` |
+| Ctrl-D | `$` (Aegis shell) | Drops back to the bootshell | `DOMAINOS_IMAGE.md` |
+
+Anything else — `lcnode`, `wbak`, `netstat`, the Display Manager's own commands —
+is `expected` and belongs in the table above until a run here records it.
+
+## What we do not hold
+
+Named so that the gap is visible rather than implied.
+
+- **SR9.7, SR10.1, SR10.2, SR10.3.** The plan wants every obtainable release
+  booted; we have SR10.4 only. Each earlier release is a different kernel over
+  the same hardware, which is exactly the kind of variation that finds
+  assumptions.
+- **Applications.** No compilers, no DSEE, no networking suites. The
+  distribution cartridges we hold are the standard software bundle.
+- **Release notes.** `docs/references/bitsavers/release_notes/` and `SR10/` exist
+  and are empty.
+
+## How to use this file
+
+Take a row marked `expected`, run it, and either move it to `observed` with its
+evidence or record why it could not run. A row that moves takes its detail to
+`PROJECT_STATUS.md` and leaves a pointer here — the same rule the plan follows.
