@@ -472,7 +472,15 @@ local asid_pc = tonumber(os.getenv("APOLLO_ASID_PC") or "", 16)
 local asid_pc_hi = tonumber(os.getenv("APOLLO_ASID_PC_HI") or "", 16)
 local asid_lo = tonumber(os.getenv("APOLLO_ASID_LO") or "", 16) or 0x01000000
 local asid_hi = tonumber(os.getenv("APOLLO_ASID_HI") or "", 16) or 0x010FFFFF
-local asid_file, asid_tap = nil, nil
+local asid_file = nil
+-- **Held in `_G`, not in a local.** `install_read_tap`/`install_write_tap` return
+-- a handler object whose *lifetime is the tap*: when Lua collects it the tap is
+-- removed. A local in this chunk is collectable, and the symptom is a tap that
+-- logs a handful of accesses in the first timeslice and never fires again -- which
+-- is exactly what three measurements here reported as "caught nothing", each of
+-- them a dead instrument rather than a quiet machine. `screencap.lua` says the
+-- same thing about its own guard: it lives in `_G` or it does not survive.
+_G.apollo_asid_tap = _G.apollo_asid_tap or nil
 local asid_seen = 0
 if asid_pc ~= nil then
 	asid_pc_hi = asid_pc_hi or (asid_pc + 10)
@@ -480,7 +488,7 @@ if asid_pc ~= nil then
 	local ok, err = pcall(function()
 		local sp = manager.machine.devices[":maincpu"].spaces["program"]
 		local cpu = manager.machine.devices[":maincpu"]
-		asid_tap = sp:install_write_tap(asid_lo, asid_hi, "asid-by-pc",
+		_G.apollo_asid_tap = sp:install_write_tap(asid_lo, asid_hi, "asid-by-pc",
 			function(offset, data, mask)
 				-- A small window, not equality: during a write MAME's PC may
 				-- already have advanced past the storing instruction.
@@ -524,7 +532,7 @@ elseif asid_tap_at ~= nil then
 		-- long words: MAME refuses `x..x+1` with "end address has low bits
 		-- unset", which is a good error and was reported rather than swallowed.
 		local lo = asid_tap_at & ~3
-		asid_tap = sp:install_write_tap(lo, lo + 3,
+		_G.apollo_asid_tap = sp:install_write_tap(lo, lo + 3,
 			"asid-cache",
 			function(offset, data, mask)
 				asid_file:write(string.format("%10.4f  write %08X = %04X  pc %08X\n",
@@ -561,14 +569,15 @@ end
 -- this file now does: an instrument that has not been seen to fire cannot make
 -- its silence mean anything, and three before it produced a plausible nothing.
 local switch_pc = tonumber(os.getenv("APOLLO_SWITCH_PC") or "", 16)
-local switch_file, switch_tap, switch_hits = nil, nil, 0
+local switch_file, switch_hits = nil, 0
+_G.apollo_switch_tap = _G.apollo_switch_tap or nil
 local switch_next_sample = 0.0
 if switch_pc ~= nil then
 	switch_file = io.open((os.getenv("APOLLO_CRP_LOG") or "crpwatch.log") .. ".switch", "w")
 	local ok, err = pcall(function()
 		local cpu = manager.machine.devices[":maincpu"]
 		local sp = cpu.spaces["program"]
-		switch_tap = sp:install_read_tap(asid_lo, asid_hi, "switch-entry",
+		_G.apollo_switch_tap = sp:install_read_tap(asid_lo, asid_hi, "switch-entry",
 			function(offset, data, mask)
 				local pc = cpu.state["PC"].value
 				-- **Proof of life, sampled across the run rather than at its

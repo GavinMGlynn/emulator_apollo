@@ -2993,6 +2993,14 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
     cannot be settled by sampling. The hook must be shown to fire on something
     known before its silence counts, and must not rest on a physical address,
     since the two machines page the kernel differently.
+    **And the taps were dead.** A periodic proof-of-life shows one sample at
+    `0.0000` against ten root-pointer installs in the same run: MAME's
+    `install_*_tap` returns a handler **whose lifetime is the tap**, ours were
+    held in collectable locals, and Lua's collector removed them. Three "caught
+    nothing" results are withdrawn — they were dead instruments, not quiet
+    machines. Taps now live in `_G`, as `screencap.lua` already warned. The rule
+    "seen to fire" is not enough on its own: liveness must be **sampled across
+    the run**.
     **A separate defect surfaced while trying to match the boot routes**: the
     firmware's autobaud **walks downward under repeated characters**. One
     carriage return at 9600 locks at 9600 and the ordinary boot works; 120 at

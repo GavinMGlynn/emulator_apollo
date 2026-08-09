@@ -19895,6 +19895,42 @@ millisecond.
 *Verification: the hook's own log -- eight samples at `0.0000`, zero entries --
 against the same run's eight root-pointer installs. No code changed in the core.*
 
+## The taps were dead, and three "caught nothing" results with them
+
+The periodic proof-of-life did its job on the first run that had it: the oracle
+booted, installed the root pointer **ten** times, and the hook logged **one**
+alive sample -- at `0.0000`. Not one in the following forty seconds.
+
+**So the tap fires once and dies**, and the same is true of every tap in this
+file: the write tap's twelve samples were all stamped `0.0000` too, which was
+visible in its log all along and read as "the tap is wired" rather than "the tap
+was wired, once".
+
+**Which retracts three results.** "The write tap caught nothing over sixteen
+megabytes", "the by-PC tap caught nothing across the whole switch module", and
+the conclusion drawn from the second -- that a `PMOVE` writes a register and not
+memory, so watching writes can never see it -- were all measurements taken with a
+dead instrument. The reasoning about `PMOVE` is still correct on its own terms;
+what is withdrawn is the claim that a run *demonstrated* it.
+
+**The cause is Lua's garbage collector**, and this file already knew the shape of
+it. `install_read_tap` and `install_write_tap` return a handler object **whose
+lifetime is the tap**: when Lua collects the object, the tap is removed. Ours were
+assigned to locals in the chunk, which are collectable. `screencap.lua` says the
+same thing about its own guard, in a comment written after a session lost to it:
+*"the guard lives in `_G` or the machine resets for ever."* The taps are now held
+in `_G` for exactly that reason.
+
+**And the lesson generalises past this bug.** The rule "an instrument must be
+seen to fire before its silence is evidence" is not enough on its own -- it has to
+be *sampled across the run*, because an instrument can be alive when checked and
+dead when it matters. Every negative result in this investigation taken with a
+tap is now suspect until re-measured, and the re-measurement is running.
+
+*Verification: one alive sample at `0.0000` against ten root-pointer installs in
+the same run; the earlier taps' logs, whose samples are all at `0.0000`.*
+
+
 
 
 
