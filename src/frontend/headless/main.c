@@ -92,6 +92,12 @@ static void print_usage(const char *program_name) {
           "                        caught by counting visits to its PC: the\n"
           "                        visits that succeed look identical until the\n"
           "                        access is made\n"
+          "  --boot-progress-from ADDR\n"
+          "                        count --boot-progress from the first time\n"
+          "                        ADDR executes rather than from reset, so two\n"
+          "                        machines that reach the same code at\n"
+          "                        different absolute counts sample the *same*\n"
+          "                        instants and their PCs can be compared\n"
           "  --boot-stop-pc-then N run N more instructions after the stop\n"
           "                        address is reached, then end. With a trace\n"
           "                        ring this holds the window *after* an event\n"
@@ -1570,7 +1576,7 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
                           uint32_t stop_physical_pc,
                           uint32_t stop_physical_length, bool service_mode,
                           unsigned stop_pc_skip, uint32_t stop_mmu_fault_at,
-                          unsigned stop_pc_then) {
+                          unsigned stop_pc_then, uint32_t progress_from) {
   /* Before the PROM is even opened: a script that does not parse is the
    * caller's mistake and should be reported as one, not hidden behind whichever
    * file happens to be missing first. */
@@ -1960,6 +1966,8 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
      * the second is the question. */
     unsigned stop_pc_seen = 0u;
     unsigned stop_pc_countdown = 0u;
+    bool progress_started = false;
+    unsigned progress_base = 0u;
     bool stop_pc_armed = false;
     run = (ap_machine_run_t){.status = AP_M68030_STEP_EXECUTED};
     if (trace && trace_last == 0u) {
@@ -1973,7 +1981,17 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
        * loop, and the console cannot tell those apart -- both are silence. The
        * program counter can: a run reporting the same address every time is
        * stuck, and one reporting different addresses is working. */
-      if (progress_every != 0u && i != 0u && (i % progress_every) == 0u) {
+      if (progress_from != 0u && !progress_started &&
+          machine.cpu.regs.pc == progress_from) {
+        /* Zero the counter here: the interesting instant is when this code was
+         * reached, not when the machine was switched on, and two machines that
+         * arrive at different absolute counts must sample the same deltas for
+         * their PCs to be comparable at all. */
+        progress_started = true;
+        progress_base = i;
+      }
+      if (progress_every != 0u && (progress_from == 0u || progress_started) &&
+          i > progress_base && ((i - progress_base) % progress_every) == 0u) {
         const uint32_t here = machine.cpu.regs.pc;
         uint32_t physical = here;
         const bool mapped =
@@ -3292,6 +3310,7 @@ int main(int argc, char **argv) {
   unsigned boot_stop_pc_skip = 0u;
   uint32_t boot_stop_mmu_fault_at = 0u;
   unsigned boot_stop_pc_then = 0u;
+  uint32_t boot_progress_from = 0u;
   uint32_t boot_stop_physical_pc = 0;
   uint32_t boot_stop_physical_length = 1u;
   const char *dump_logical_specs[AP_MAX_LOGICAL_DUMPS] = {0};
@@ -3559,6 +3578,11 @@ int main(int argc, char **argv) {
       i += 2;
       continue;
     }
+    if (strcmp(argv[i], "--boot-progress-from") == 0 && i + 1 < argc) {
+      boot_progress_from = (uint32_t)strtoul(argv[i + 1], NULL, 16);
+      i += 2;
+      continue;
+    }
     if (strcmp(argv[i], "--boot-stop-pc-then") == 0 && i + 1 < argc) {
       boot_stop_pc_then = (unsigned)strtoul(argv[i + 1], NULL, 0);
       i += 2;
@@ -3699,7 +3723,8 @@ int main(int argc, char **argv) {
                           dump_logical_specs, dump_logical_count,
                           boot_stop_physical_pc, boot_stop_physical_length,
                           service_mode, boot_stop_pc_skip,
-                          boot_stop_mmu_fault_at, boot_stop_pc_then);
+                          boot_stop_mmu_fault_at, boot_stop_pc_then,
+                          boot_progress_from);
   }
 
   if (boot_tape != NULL) {

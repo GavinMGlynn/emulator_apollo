@@ -599,6 +599,13 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
           *Verification: `check_frontend_flags.py` exercises it; the stop fires
           at the second occurrence of `3C47A25A` where the unskipped run fires
           at the first.*
+    - [x] `--boot-progress-from ADDR` counts `--boot-progress` from the first
+          execution of ADDR rather than from reset, so two machines that reach
+          the same code at different absolute counts sample the **same**
+          instants and their PCs compare. It is what located the divergence to
+          one million instructions. Detail in `PROJECT_STATUS.md`.
+          *Verification: 646 samples against the oracle's 966 at matched
+          deltas, identical PCs at Δ 20 M and 30 M and a clean split at 53 M.*
     - [x] `--boot-stop-pc-then N` runs N more instructions after a stop fires
           and *then* ends, so a trace ring holds the window **after** an event
           rather than before it — which is what comparing two machines from the

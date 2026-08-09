@@ -20979,3 +20979,42 @@ ours was `0401` on the auto-boot path).
 
 *Verification: the console above, from a bounded run of the committed script.
 `ctest` 130/130.*
+
+
+## The divergence, located to one million instructions: an AT-bus poll we take and the oracle does not
+
+With both machines on the same path at last, and `--boot-progress-from` added so
+each samples its PC at the *same* delta from Domain/OS's entry rather than from
+its own reset, the two streams can be laid side by side. They are not merely
+similar:
+
+| Δ from `01002024` | ours | oracle |
+| --- | --- | --- |
+| 20 M | `3C43DCA2` | `3C43DCA2` |
+| 30 M | `3C450C04` | `3C450C04` |
+| 40 M | `3C4B6D34` | `3C4B6D28` |
+| 52 M | `3C4B6D4A` | `3C4B6D50` |
+| **53 M** | **`3C4BC38C`** | `3C4B6D50` |
+| 54 M | `3C4BC38C` | `3C4B1E56` |
+
+**Identical PCs at 20 M and 30 M**, and the landmark measurement agrees: the
+first address-space switch is at Δ 20,186,965 here against 20,186,952 on the
+oracle -- **13 instructions apart in 20.19 million**. This core executes
+Domain/OS's startup essentially exactly as MAME does.
+
+**The split is between Δ 52 M and 53 M.** Both machines sit in a loop at
+`3C4B6Dxx` for several million instructions; ours then leaves for `3C4BC38C` and
+the oracle leaves for `3C4B1E56`. And `3C4BC384` is not a new address: this file
+already identified it as `TST.B $8(A0)` with `A0 = 3FFF0000`, polling for bit 7
+of a device at physical `00055C00` -- the AT bus I/O window, where no card is
+fitted, the pull-ups answer `FF`, and the loop runs its `#$3FFFFE` timeout out
+over millions of instructions.
+
+So the open fork this file recorded long ago -- "either the polled device is
+something else, or the translation is wrong" -- is now the *whole* remaining
+question, and it is reached by a decision inside `3C4B6Dxx` that the two
+machines make differently.
+
+*Verification: 646 samples ours and 966 the oracle's, at matched deltas, from
+`tools/md-session.sh` and from `ext/mame` instrumented at the same landmark
+(reverted; the checkout carries only its five known local edits).*
