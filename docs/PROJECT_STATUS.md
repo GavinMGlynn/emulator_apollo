@@ -19930,6 +19930,52 @@ tap is now suspect until re-measured, and the re-measurement is running.
 *Verification: one alive sample at `0.0000` against ten root-pointer installs in
 the same run; the earlier taps' logs, whose samples are all at `0.0000`.*
 
+## The oracle asks for space 1 too, and installs before it asks
+
+With the tap held in `_G` the hook answers, and the answer retires the hypothesis
+this investigation has been resting on.
+
+```
+   12.2212  ENTRY pc 3C43DD80  a7 3C4F9904  arg 0001     (x40, the cap)
+```
+
+**Every call carries `arg 0001`.** The oracle asks for address space **1**, not 0
+-- the same space ours asks for, from the same routine, at the same stack pointer
+`3C4F9904` that our own trace records. The claim that "the oracle asks for space 0
+first and ours asks for space 1" is **withdrawn**. It was an inference: the
+oracle's first install is `01001400`, the table maps index 0 to `01001400`,
+therefore the argument was 0. The argument was measured now, and it is 1.
+
+**And the timing says something the inference could not.** The first `CRP` install
+is at **11.6-11.9 s** across every run; the first call to the switch routine is at
+**12.22 s**. The install happens *before* the routine is ever entered -- so
+`01001400` is installed by something that is **not** this routine, and the two
+events were only ever associated by my reading of a table.
+
+**Which reopens a question that looked closed.** Either there is a second
+root-pointer install path in the kernel that our exhaustive scan missed -- and
+that scan ran over an end-of-boot dump, which this file has already established
+cannot be exhaustive about code -- or the install at 11.7 s is not the kernel's at
+all. The oracle's boot reaches its kernel through MD rather than `SELF_TEST`, so
+whatever installs `01001400` there may be the loader.
+
+**What this does not disturb**: the table at `$3C43C96E`, its contents, the
+routine's shape, the gate's condition, and the fact that our machine skips the
+install because its cache already reads 1. All of those are measured on our side
+and stand. What is gone is the explanation of *why* the oracle gets past it, and
+the honest position is that it is unexplained again -- with one new and much
+sharper fact, that the oracle's `CRP` is already correct before it asks.
+
+**A caveat on the count**: all forty entries share one timestamp, and forty is the
+cap. That is consistent with one call sampled forty times -- the tap fires per
+access, and a routine makes several. How many calls there were is not yet known,
+and the cap needs raising before it can be.
+
+*Verification: the hook's log, with liveness sampled at 0.0, 2.2, 7.9, 9.9 and
+11.9 s -- the last at `pc 3C4527F8`, a kernel address -- so the tap was alive
+across the window in which the install happened.*
+
+
 
 
 

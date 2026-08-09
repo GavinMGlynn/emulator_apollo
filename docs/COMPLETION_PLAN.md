@@ -3001,6 +3001,15 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
     machines. Taps now live in `_G`, as `screencap.lua` already warned. The rule
     "seen to fire" is not enough on its own: liveness must be **sampled across
     the run**.
+    **With the taps alive, the answer retires the hypothesis.** Every oracle call
+    to the switch routine carries **`arg 0001`** — space 1, the same as ours,
+    from the same stack pointer. "The oracle asks for space 0 first" was an
+    inference from a table and is **withdrawn**. And its first `CRP` install is
+    at 11.6–11.9 s while the first call is at 12.22 s: **the oracle's root
+    pointer is already correct before it asks**. So either a second install path
+    exists that the end-of-boot scan could not see, or the install is the MD
+    loader's rather than the kernel's. Unexplained again, but with a much
+    sharper fact.
     **A separate defect surfaced while trying to match the boot routes**: the
     firmware's autobaud **walks downward under repeated characters**. One
     carriage return at 9600 locks at 9600 and the ordinary boot works; 120 at
