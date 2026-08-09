@@ -599,6 +599,13 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
           *Verification: `check_frontend_flags.py` exercises it; the stop fires
           at the second occurrence of `3C47A25A` where the unskipped run fires
           at the first.*
+    - [x] `--boot-stop-pc-then N` runs N more instructions after a stop fires
+          and *then* ends, so a trace ring holds the window **after** an event
+          rather than before it — which is what comparing two machines from the
+          same point needs. Applies to the MMU-fault stop as well, where the
+          question is entirely what the handler does next.
+          *Verification: `check_frontend_flags.py`; the two 4000-instruction
+          windows it captured are diffed in `PROJECT_STATUS.md`.*
     - [x] `--boot-stop-on-mmu-fault-at ADDR` ends a run when translation
           *refuses* a logical address — the event itself, where
           `--boot-stop-pc-skip` catches only a proxy for it and caught a visit

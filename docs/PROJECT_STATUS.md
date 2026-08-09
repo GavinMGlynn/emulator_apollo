@@ -20725,3 +20725,45 @@ anything measured today.
 `ext/mame` instrumented at `3C42CE36` and filtered to `a0=3BFF0000` (reverted
 after; the checkout carries only its five known local edits); the write watch
 from the same headless run; both consoles quoted above.*
+
+
+## Three experiments that failed to move it, recorded so they are not repeated
+
+Each was a reasonable next step, each cost a run or two, and none produced the
+answer. Written down because the *negative* is the useful part.
+
+**1. Booting our machine the oracle's way is blocked by a known defect of ours.**
+`--service-mode` with a script of `expect MD7C` / `send EX DOMAIN_OS` runs to
+1,200 M instructions with the PC parked at `00000794` and the console silent --
+and `sio2 reg 1` read **149,993,735** times. That is the service-mode poll this
+file already documents: the PROM waits on `RxRDY` across three receivers and a
+byte's `RxRDY` is cleared again before the next arrives. So the experiment that
+would settle whether Domain/OS boots on this core without SELF_TEST is gated on
+fixing that first. It is now the highest-value item this investigation has,
+because it separates "our core cannot run Domain/OS" from "SELF_TEST leaves the
+machine in a state Domain/OS cannot survive".
+
+**2. Making the oracle take *our* path did not produce a console.** With the
+`mc68681.cpp` edge-gate edit applied (`!BIT(CR, 2) &&` removed, the fix this
+file records for normal mode) and `mdsession.py --stage watch --settle 900`,
+which sends one carriage return and then keeps quiet, the oracle ran fifteen
+minutes and logged **nothing at all**. The edit is reverted. So there is still
+no like-for-like reference for the auto-boot path from either side.
+
+**3. Refusing the write that clears the root entry changes nothing.** A
+temporary, env-gated experiment in `board_write` (reverted) declined the
+`00000000` store to `010017BC`. The boot crashes identically -- same
+`00120020`, the same **288** MMU faults, 387,684,279 instructions against
+387,684,292. So the entry being cleared at `01002D68` is not the sole cause: it
+is either re-cleared by another path, or rebuilt and re-cleared, or the fault's
+tree is not the one that write reaches. The `CLR.L` loop is a symptom on the way
+past, not the lever.
+
+**What that leaves standing**, and it is still the best-evidenced chain this
+investigation has had: Domain/OS branches on `MMUSR`'s N, ours is 1 where the
+oracle's is 2, and our N is correct for a tree whose root entry for that region
+is empty. What is *not* established is why it is empty at that moment.
+
+*Verification: the three runs above, each bounded, with their own counters. Both
+checkouts are back to baseline -- ours has no uncommitted core change and
+`ext/mame` carries only its five known local edits.*
