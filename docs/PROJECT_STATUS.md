@@ -18660,6 +18660,64 @@ same disk image copied (MAME writes to a `.awd` in place), `--commands` sending
 `)` prompt, so this is a successful boot and not a partial one. No code changed
 in the core.*
 
+## The caller, read from the executed stream
+
+The previous entry left the question as "why is the first switch our kernel is
+asked for the space it is already in". A stop at the gate with a 3000-step ring
+(`--boot-stop-pc 3C43DDCE:2 --boot-trace-last 3000`, reached at 288,640,117
+instructions) answers the mechanical half of it exactly, because the ring records
+what was *executed* rather than what capstone makes of bytes it cannot decode.
+
+The call chain into the gate:
+
+```
+288640094  3C456642  4EB9   JSR $3C41954E
+288640095  3C41954E  4E56   LINK  A6,#..
+288640099  3C41955C  342E   MOVE.W $xx(A6),D2     ; the argument, from its own caller
+288640103  3C41956A  3F02   MOVE.W D2,-(A7)       ; pushed
+288640104  3C41956C  4EB9   JSR $3C43DD80         ; the switch routine
+288640105  3C43DD80  4280   CLR.L D0
+288640106  3C43DD82  3039   MOVE.W (xxx).L,D0     ; d0 <- 1, from a global
+288640110  3C43DDA6  B079   CMP.W (xxx).L,D0      ; equal
+288640115  3C43DDC4  302F   MOVE.W $xx(A7),D0     ; d0 <- 1, the pushed argument
+288640116  3C43DDC8  B079   CMP.W $3C43FB14,D0    ; against the cache
+288640117  3C43DDCE  6700   BEQ.W                 ; equal -- skip the install
+```
+
+So three things are now settled that were guesses:
+
+- **The switch routine's entry is `3C43DD80`**, not the `3C43DD1A`/`3C43DD3C`
+  entry points a static search for `JSR` targets had found -- those are other
+  entries into the same module and none of them is this path.
+- **The argument is a word pushed on the stack**, read back at `3C43DDC4`. `D0`
+  at the gate is not computed inside the routine; it is what the caller asked
+  for, and the caller took it from *its* own caller's frame.
+- **Our first call asks for space 1 against a cached 1.** Both halves of the
+  comparison are `1`, so the branch is taken and the machine's only
+  root-pointer install is skipped.
+
+**Which locates the divergence in time rather than in code.** The cache is the
+kernel image's own initial value -- established two entries above, from the
+memory sweep at `01002174` that writes back what it reads -- so the oracle starts
+with `1` there too. The oracle's *first* install is `01001400`, and this routine
+is the only thing that installs anything. Therefore the oracle calls it earlier,
+with an argument that is **not** `1`, installs `SELF_TEST`'s tree as that space,
+and leaves the cache holding that argument; the call with `1` then finds a
+mismatch and installs `0105BC00`. Ours never makes the earlier call.
+
+So the question is no longer about the switch, the gate, the cache or the
+argument. It is: **which call does the oracle make before ours makes any, and
+what does our machine do instead in the 288 million instructions before this
+one?** That is a question about the boot path ahead of this point, and the two
+machines are known to diverge nowhere visible in it -- same console, same
+counters -- so it will need the oracle instrumented at this routine rather than
+at the register.
+
+*Verification: the trace above, from one stop; the ring is the executed stream,
+so it does not depend on disassembling around instructions capstone cannot read.
+No code changed.*
+
+
 
 
 

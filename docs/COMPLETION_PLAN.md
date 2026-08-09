@@ -2882,9 +2882,15 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
     same disk to `)` shows **eight** `CRP` changes, alternating `01001400` and
     `0105BC00`. So the kernel *does* install the tree it builds, from the one
     `PMOVE` it has, called eight times. Ours is called and takes its gate every
-    time. **The divergence is in the caller**: the question is now why the first
-    switch our kernel is asked for is the space it is already in. Detail in
-    `PROJECT_STATUS.md`.
+    time. **The divergence is in the caller**, and a 3000-step ring at the gate
+    (reached at 288,640,117 instructions) reads the executed stream rather than
+    guessing at bytes: the routine's real entry is `3C43DD80`, its argument is a
+    word pushed by `3C41956C`, and our first call asks for space **1** against a
+    cached **1**. Since the cache is the image's own value on both machines, the
+    oracle must call this routine *earlier* with a different argument. So the
+    question is now **which call the oracle makes before ours makes any**, and it
+    needs the oracle instrumented at this routine rather than at the register.
+    Detail in `PROJECT_STATUS.md`.
 
 **Order matters here, and this file had it wrong.** The boot is a *test*, and
 two of its children were unfinished *implementation*. `CLAUDE.md` says
