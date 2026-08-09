@@ -3348,7 +3348,7 @@ failure that cost a bit position in the 68020's module entry word.
 | Time base (`time/`) | working | `time_suite`, 17 tests |
 | State hash (`state/`) | primitive working | `hash_suite`, 11 tests, incl. published FNV-1a 64 vectors |
 | Core board state hash (the identity harness's board half) | working: the board registers, the translation map, both interrupt controllers, the interval timer with its three clocks, the calendar with both cursors, both DMA controllers, both serial ports, the node ID, the disk and tape controllers, the graphics memories, the keyboard matrix and the boot PROM. The diagnostic counters are deliberately outside it and reported beside it | `board_state_suite`, 22 tests sweeping every device field by field |
-| Full-machine state hash (`ap_machine_hash`, `ap_machine_state`) | working: the processor, main memory, the board when one is attached, and elapsed time — with the clock, the PC and the bus-error count reported beside the number | `machine_suite`, 52 tests, incl. the same workload run twice on two boards agreeing at every step |
+| Full-machine state hash (`ap_machine_hash`, `ap_machine_state`) | working: the processor, main memory, the board when one is attached, and elapsed time — with the clock, the PC and the bus-error count reported beside the number | `machine_suite`, 55 tests, incl. the same workload run twice on two boards agreeing at every step |
 | Ring medium interface | not started | — |
 | Ring controller | not started | — |
 | 68030 instruction pipe + cache holding register | working | `pipe_suite`, 14 tests, `MC68030 User's Manual 3ed` §11.2.2 |
@@ -3360,7 +3360,7 @@ failure that cost a bit position in the 68020's module entry word.
 | 68030 family `0000` size-11 escape (`CMP2`/`CHK2`/`CAS`/`CAS2`) | decoded; the opcode map now has no holes. Semantics open: `CAS`/`CAS2` need an indivisible read-modify-write | `bounds_suite`, 9 tests, `M68000 Family Programmer's Reference Manual 1992` |
 | Per-instruction timing report (`--time-instructions`) | bus and cache time only, pinned as a golden; the 0/2 alternation is the cache holding register serving two instruction words per fetch | `tests/goldens/timing.txt`; oracle side by `tools/mame-oracle/steptime.lua` |
 | Probe suite (`probe/`, `--run-probes`) | 8 probes on the constructed machine, needing no firmware; results pinned as a golden under every build preset, identical between `-O0` and `-O3` | `tests/goldens/probes.txt`, `probe_suite`, 7 tests |
-| Constructed machine (`machine/`) | a 68030 on flat RAM, with an out-of-range access faulting rather than wrapping; with a board attached it takes its model's clock, charges the AT bus's wait states and takes device interrupts on the Apollo vectors, and stalls while another master holds the bus, and advances the devices that keep time | `machine_suite`, 52 tests |
+| Constructed machine (`machine/`) | a 68030 on flat RAM, with an out-of-range access faulting rather than wrapping; with a board attached it takes its model's clock, charges the AT bus's wait states and takes device interrupts on the Apollo vectors, and stalls while another master holds the bus, and advances the devices that keep time | `machine_suite`, 55 tests |
 | 68030 published timings (§11.6) | 59 rows from §11.6.6, §11.6.8, §11.6.9, §11.6.11, §11.6.12, §11.6.15 and §11.6.16, scheduled into the step as exposed microcode + measured operand bus + prefetch exposure, since the tables show a prefetch overlaps execution while an operand the operation consumes cannot (plain `max(microcode, bus)` was the retired first model — see above and `M68030_TIMING.md`). Branches are reached through their run-time outcome rather than by opcode. Seven instructions agree with the oracle (`FINDINGS.md` C8). Rows footnoted "Add Fetch Effective Address Time" are **declined**, not part-priced: their published figure is a component and the composition is open (C9). The four divides carry the manual's data-dependent marker and are `PROVISIONAL` | `timing_table_suite`, 16 tests; both published columns checked on a running machine by `machine_suite` |
 | 68030 ATC replacement | the history bit now means *recently used*, per `MC68851 PMMU User's Manual` §5.2.1.3 — a translating hit marks it, a `PTEST` probe does not. `PROVISIONAL` narrowed to victim choice among clear-history entries | `atc_suite`, 21 tests |
 | 68030 prefetch marginal cost | `NCC − CC` over the published prefetch count, computed in code across every row; the two rows where it is not integral are named in the test rather than rounded away | `timing_table_suite`, 16 tests |
@@ -20364,3 +20364,46 @@ the error bit and is reported upstream, the second is noise.
 
 *Verification: `ring_framer_suite`, 12 tests, each citing its `[MAC]` section;
 `ctest` 130/130 on both build types.*
+
+
+## The fatal fault, named: `PC 3C47A25A` reading `3BFF0001`
+
+The board-side profile said Domain/OS makes **one** faulting access in a whole
+boot -- `FD800008`, from `3C443E8C` -- and a stop there showed the kernel
+*expects* it: it masks interrupts, takes a handler's address with `LEA
+$3C443EA6(PC),A0`, stores it, saves `A7` in `D1`, and only then executes
+`MOVE.W (A1),(A2)` with `A1 = FD800008`. MAME refuses the same address
+(`apollo_unmapped_r`, commented "memory sizing in FPA address space") and boots
+to `login:`, and our machine survives that fault and runs 33 M instructions
+more. So the FPA probe is not the crash.
+
+**The arithmetic that found the rest.** The run takes **939 vector 2 exceptions**
+while the board refused **652** accesses. The difference, 287, are faults the MMU
+raised and no memory-side instrument could see -- a bus error from the board and
+one from translation are the same exception to the program. With the MMU's own
+refusals recorded the count is 288, and they are almost all one thing:
+
+```
+  mmu faults   288
+    PC 3C45509C  186 time(s)  3C328404-3C357C0C  invalid on write
+    PC 3C4525DC   15 time(s)  3C368414-3C37040C  invalid on write
+    ... fifteen PCs, every one "invalid on write" over 3C32xxxx-3C37xxxx ...
+    PC 3C47A25A    2 time(s)  3C248001-3BFF0001  invalid on read
+```
+
+286 of them are the pager doing its ordinary work on the kernel's own data, all
+recovered. **One instruction is unlike every other**: `3C47A25A`, faulting on a
+*read*, twice, at `3C248001` and then `3BFF0001` -- the address this
+investigation has chased since it began. Both are odd addresses ending `0001`.
+
+**So the address was right and the PC never was.** `Crash_Status 00120020 PC
+3C40E114` names an address our processor never executes; the instruction that
+actually reaches `3BFF0001` is `3C47A25A`. Every measurement aimed at
+`3C40E114` was aimed at nothing, which is why three of them came back empty.
+
+*Verification: the profile above, from a bounded boot on `--clock 2026-08-09`;
+the 939-versus-652 arithmetic from the same run's own counters; the FPA probe's
+instruction sequence from a 3000-step ring stopped at `3C443E8C`, executed
+rather than disassembled. `machine_suite` 55 tests (3 further: an MMU refusal
+counted apart from a board refusal, the logical address kept unrounded, and a
+clean machine reporting zero); `ctest` 130/130.*

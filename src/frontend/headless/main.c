@@ -938,6 +938,31 @@ static void report_state(ap_machine_t *machine) {
       printf("\n");
     }
   }
+  /* The MMU's refusals, always -- including when there are none. "Translation
+   * never refused anything" is a finding, and a line that appears only on a
+   * non-zero count cannot report it. Kept apart from the board's list because
+   * the two are the same vector 2 to the program and different events to
+   * whoever is reading the boot. */
+  {
+    static const char *const reason_name[] = {
+        "cached fault", "invalid", "limit", "protection", "search bus error"};
+    printf("  mmu faults   %u", machine->mmu_faults);
+    if (machine->mmu_fault_sites_dropped > 0u) {
+      printf(", %u from further PCs not recorded",
+             machine->mmu_fault_sites_dropped);
+    }
+    printf("\n");
+    for (unsigned i = 0; i < machine->mmu_fault_site_count; i++) {
+      const ap_mmu_fault_site_t *site = &machine->mmu_fault_sites[i];
+      printf("    PC %08X  %u time(s)  %08X", site->pc, site->count,
+             site->first_address);
+      if (site->last_address != site->first_address) {
+        printf("-%08X", site->last_address);
+      }
+      printf("  %s on %s\n", reason_name[site->reason],
+             site->write ? "write" : "read");
+    }
+  }
   if (machine->watch_read_address != 0u) {
     printf("  watch read   %08X read %u time(s)", machine->watch_read_address,
            machine->watch_reads);

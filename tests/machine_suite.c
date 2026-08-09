@@ -350,6 +350,111 @@ static void test_fault_sites_past_the_cap_are_counted_not_dropped_silently(void)
   TEST_ASSERT_EQUAL_UINT(6u, m.fault_sites_dropped);
 }
 
+/* ---------------------------------------------------------------------------
+ * The MMU's refusals, which are the *other* half of vector 2 and the half no
+ * memory-side instrument can see. A bus error raised by the board and one
+ * raised by translation reach the program identically; only the board's reach
+ * `fault()`, so counting them together hides which is which.
+ * ------------------------------------------------------------------------- */
+
+/* Translation on, with the program's own page and its stack mapped through the
+ * ATC so the machine can run at all, and one further page whose entry carries
+ * the bus-error bit -- which is `[030]` §9.4's "the ATC is loaded with an entry
+ * having the bus error (B) bit set", the cached form of every refusal. */
+static void map_identity(ap_machine_t *machine, uint32_t page, uint8_t fc,
+                         bool faulting) {
+  const int index = ap_m68030_atc_insert(
+      &machine->atc, fc, page, 12u, page >> AP_M68030_ATC_ADDRESS_SHIFT, false,
+      false, true, faulting);
+  TEST_ASSERT_TRUE(index >= 0);
+}
+
+static void translating_machine(ap_machine_t *machine) {
+  ap_machine_init(machine, ram, RAM_BYTES);
+  ap_machine_reset(machine, PROGRAM, STACK);
+  /* IS 0 + TIA 7 + TIB 7 + TIC 6 + PS 12 = 32, the same shape `walk_suite`
+   * uses: what matters here is the page size the ATC is keyed by. */
+  machine->cpu.tc = ap_m68030_tc_decode(UINT32_C(0x80000000) | (12u << 20) |
+                                        (0u << 16) | (7u << 12) | (7u << 8) |
+                                        (6u << 4));
+  map_identity(machine, PROGRAM & ~0xFFFu, AP_M68030_FC_SUPERVISOR_PROGRAM,
+               false);
+  map_identity(machine, STACK & ~0xFFFu, AP_M68030_FC_SUPERVISOR_DATA, false);
+  /* Page zero for the vector table, and the page *below* the stack for the
+   * frame: a long bus fault frame is 46 words, so it starts 0x5C under A7 and
+   * lands in the page below a stack pointer sitting at a page boundary. Without
+   * both, the exception the fault raises faults in turn -- correctly, and the
+   * machine then records two refusals for one access, which is right behaviour
+   * and not what these tests are about. Diagnosed rather than guessed: the
+   * second site read `00008FA4`, which is the frame, not the vector. */
+  map_identity(machine, 0u, AP_M68030_FC_SUPERVISOR_DATA, false);
+  map_identity(machine, (STACK & ~0xFFFu) - 0x1000u,
+               AP_M68030_FC_SUPERVISOR_DATA, false);
+}
+
+/* The separation itself: an access translation refuses is counted as an MMU
+ * fault and **not** as a board refusal, because the board never saw it. */
+static void test_an_mmu_refusal_is_recorded_apart_from_a_board_refusal(void) {
+  ap_machine_t m;
+  translating_machine(&m);
+  map_identity(&m, 0x00005000u, AP_M68030_FC_SUPERVISOR_DATA, true);
+
+  m.ram[PROGRAM] = 0x20u; /* MOVE.L (A0),D0 */
+  m.ram[PROGRAM + 1u] = 0x10u;
+  ap_m68030_cpu_reset(&m.cpu, PROGRAM);
+  m.cpu.regs.isp = STACK;
+  m.cpu.regs.a[0] = 0x00005000u;
+  (void)ap_machine_run(&m, 1u);
+
+  TEST_ASSERT_EQUAL_UINT(1u, m.mmu_faults);
+  TEST_ASSERT_EQUAL_UINT(0u, m.bus_errors);
+  TEST_ASSERT_EQUAL_UINT(1u, m.mmu_fault_site_count);
+  TEST_ASSERT_EQUAL_HEX32(PROGRAM, m.mmu_fault_sites[0].pc);
+  TEST_ASSERT_EQUAL_HEX32(0x00005000u, m.mmu_fault_sites[0].first_address);
+}
+
+/* The address recorded is the **logical** one the program named, which is the
+ * only address a failed translation has -- there is no physical address,
+ * because producing one is exactly what failed. */
+static void test_an_mmu_fault_records_the_logical_address(void) {
+  ap_machine_t m;
+  translating_machine(&m);
+  map_identity(&m, 0x00006000u, AP_M68030_FC_SUPERVISOR_DATA, true);
+
+  m.ram[PROGRAM] = 0x20u;
+  m.ram[PROGRAM + 1u] = 0x10u;
+  ap_m68030_cpu_reset(&m.cpu, PROGRAM);
+  m.cpu.regs.isp = STACK;
+  /* Deliberately not page-aligned: the offset within the page is part of what
+   * the program asked for and a profile that rounded it would lose the field a
+   * structure member was reached through. */
+  m.cpu.regs.a[0] = 0x000060A4u;
+  (void)ap_machine_run(&m, 1u);
+
+  TEST_ASSERT_EQUAL_UINT(1u, m.mmu_faults);
+  TEST_ASSERT_EQUAL_HEX32(0x000060A4u, m.mmu_fault_sites[0].first_address);
+  TEST_ASSERT_EQUAL_INT(AP_M68030_MMU_FAULT_CACHED,
+                        m.mmu_fault_sites[0].reason);
+}
+
+/* And a machine whose translation refused nothing says so with a zero rather
+ * than with an absent line: "the MMU never refused anything" is a finding. */
+static void test_a_machine_that_translates_cleanly_reports_no_mmu_faults(void) {
+  ap_machine_t m;
+  translating_machine(&m);
+  map_identity(&m, 0x00007000u, AP_M68030_FC_SUPERVISOR_DATA, false);
+
+  m.ram[PROGRAM] = 0x20u;
+  m.ram[PROGRAM + 1u] = 0x10u;
+  ap_m68030_cpu_reset(&m.cpu, PROGRAM);
+  m.cpu.regs.isp = STACK;
+  m.cpu.regs.a[0] = 0x00007000u;
+  (void)ap_machine_run(&m, 1u);
+
+  TEST_ASSERT_EQUAL_UINT(0u, m.mmu_faults);
+  TEST_ASSERT_EQUAL_UINT(0u, m.mmu_fault_site_count);
+}
+
 /* "A limit is required rather than optional: a probe that loops forever must
  * end as a failed probe rather than as a hung harness." */
 static void test_a_runaway_program_ends_at_its_limit(void) {
@@ -2251,6 +2356,9 @@ int main(void) {
   RUN_TEST(test_a_scan_from_one_instruction_records_the_span_it_reached);
   RUN_TEST(test_each_faulting_instruction_gets_its_own_site);
   RUN_TEST(test_fault_sites_past_the_cap_are_counted_not_dropped_silently);
+  RUN_TEST(test_an_mmu_refusal_is_recorded_apart_from_a_board_refusal);
+  RUN_TEST(test_an_mmu_fault_records_the_logical_address);
+  RUN_TEST(test_a_machine_that_translates_cleanly_reports_no_mmu_faults);
   RUN_TEST(test_a_runaway_program_ends_at_its_limit);
   RUN_TEST(test_a_run_stops_on_an_unimplemented_instruction_and_says_so);
   RUN_TEST(test_writing_memory_does_not_leave_a_stale_cache_line);

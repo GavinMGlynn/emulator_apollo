@@ -112,6 +112,38 @@ static void fault(ap_machine_t *machine, uint32_t address) {
   machine->fault_sites_dropped++;
 }
 
+/* The MMU's own refusals, kept apart from the board's. Same shape and the same
+ * reasoning: keyed by the instruction, with the span of logical addresses it
+ * reached over. */
+static void machine_mmu_faulted(void *context, uint32_t logical,
+                                uint8_t function_code, bool write,
+                                ap_m68030_mmu_fault_t reason) {
+  (void)function_code;
+  ap_machine_t *machine = (ap_machine_t *)context;
+  machine->mmu_faults++;
+
+  const uint32_t pc = machine->cpu.regs.pc;
+  for (unsigned i = 0; i < machine->mmu_fault_site_count; i++) {
+    if (machine->mmu_fault_sites[i].pc == pc) {
+      machine->mmu_fault_sites[i].count++;
+      machine->mmu_fault_sites[i].last_address = logical;
+      return;
+    }
+  }
+  if (machine->mmu_fault_site_count <
+      sizeof machine->mmu_fault_sites / sizeof machine->mmu_fault_sites[0]) {
+    machine->mmu_fault_sites[machine->mmu_fault_site_count++] =
+        (ap_mmu_fault_site_t){.pc = pc,
+                              .first_address = logical,
+                              .last_address = logical,
+                              .count = 1u,
+                              .reason = reason,
+                              .write = write};
+    return;
+  }
+  machine->mmu_fault_sites_dropped++;
+}
+
 static bool in_range(const ap_machine_t *machine, uint32_t address,
                      uint32_t count) {
   return address <= machine->ram_bytes && count <= machine->ram_bytes - address;
@@ -525,6 +557,7 @@ void ap_machine_init_model(ap_machine_t *machine, uint8_t *ram,
       .table_update = machine_table_update,
       .mmu_register_written = machine_mmu_register_written,
       .mmu_register_read = machine_mmu_register_read,
+      .mmu_faulted = machine_mmu_faulted,
       /* Always supplied, and it answers zero until a board is attached: a probe
        * on flat RAM has no device with a published cycle time, so nothing it
        * measures moves. Wiring it here rather than in `ap_machine_set_board`
@@ -572,6 +605,9 @@ void ap_machine_reset(ap_machine_t *machine, uint32_t pc, uint32_t stack) {
    * by a machine reporting no bus errors at all. */
   machine->distinct_fault_count = 0;
   machine->fault_sites_dropped = 0;
+  machine->mmu_faults = 0;
+  machine->mmu_fault_site_count = 0;
+  machine->mmu_fault_sites_dropped = 0;
 
   /* Step 6, "Invalidates all entries in the instruction and data caches".
    *

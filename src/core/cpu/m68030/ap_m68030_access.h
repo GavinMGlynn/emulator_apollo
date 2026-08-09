@@ -82,6 +82,33 @@ typedef void (*ap_m68030_mmu_write_fn)(void *context,
                                        ap_m68030_mmu_register_t which,
                                        uint32_t high, uint32_t low);
 
+/* Why a translation refused an access. The four causes `[030]` §9.4 gives for
+ * setting an ATC entry's B bit, kept apart here because they are different
+ * events for whoever is reading a boot: an invalid descriptor is a page that is
+ * not resident, a protection violation is a program reaching where it may not,
+ * and a bus error during the search is the tree itself being unreachable. */
+typedef enum {
+  AP_M68030_MMU_FAULT_CACHED,     /* an ATC entry with B already set answered */
+  AP_M68030_MMU_FAULT_INVALID,    /* a descriptor's DT field said invalid */
+  AP_M68030_MMU_FAULT_LIMIT,      /* an index exceeded a descriptor's limit */
+  AP_M68030_MMU_FAULT_PROTECTION, /* supervisor-only, or write-protected */
+  AP_M68030_MMU_FAULT_SEARCH_BUS, /* a descriptor fetch went unanswered */
+} ap_m68030_mmu_fault_t;
+
+/* Told whenever the MMU refuses an access, with the *logical* address the
+ * program named -- which is the only address that exists at this point, the
+ * translation having failed.
+ *
+ * Separate from the board's own refusals, and that separation is the point: a
+ * bus error raised by the board and one raised by the MMU are the same vector 2
+ * to the program, and counting them together hides which is which. A boot that
+ * takes 939 vector 2 exceptions while the board refused 652 accesses has 287
+ * translation faults that no memory-side instrument can see, and the fatal one
+ * is somewhere among them. */
+typedef void (*ap_m68030_mmu_fault_fn)(void *context, uint32_t logical,
+                                       uint8_t function_code, bool write,
+                                       ap_m68030_mmu_fault_t reason);
+
 /* Told after a `PMOVE` has *read* `which` out to memory, with the operand as it
  * was placed on the bus.
  *
@@ -144,6 +171,9 @@ typedef struct {
    * separate from the write hook because the two answer different questions --
    * what was installed, and whether anything looked. */
   ap_m68030_mmu_read_fn mmu_register_read;
+
+  /* Told whenever a translation refuses an access. Optional. */
+  ap_m68030_mmu_fault_fn mmu_faulted;
   ap_m68030_fill_fn fill;
   /* The external write cycle. Writethrough means this happens on *every* write
    * that reaches memory, hit or miss -- a cache update is not a substitute for

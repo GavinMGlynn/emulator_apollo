@@ -582,6 +582,15 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
           faulting three times as one row, a scan's span recorded from both
           ends, two instructions on the same address kept apart, and the
           overflow counted.*
+    - [x] The MMU's refusals are recorded too, keyed the same way and over
+          *logical* addresses. A bus error from the board and one from
+          translation are the same vector 2 to the program, and only the
+          board's were counted: a boot taking 939 vector 2 exceptions while the
+          board refused 652 accesses had 287 faults recorded nowhere. This is
+          what named the fatal one. Detail in `PROJECT_STATUS.md`.
+          *Verification: `machine_suite` 55 tests (3 further) — an MMU refusal
+          counted apart from a board refusal, the logical address kept
+          unrounded, and a machine that translates cleanly reporting zero.*
     - [ ] A root pointer whose DT field is `page descriptor` cannot be
           represented: `ap_m68030_root_t` collapses DT to `long_format`, so a
           `CRP` of DT `$1` is walked as a short-format table. The same page owes

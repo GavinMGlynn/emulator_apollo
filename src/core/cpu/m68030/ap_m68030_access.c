@@ -5,6 +5,35 @@
 
 #include <stddef.h>
 
+/* Report a refused translation, if anyone is listening. Kept as one function
+ * because there are four refusal points -- an ATC entry that already carries B,
+ * and a completed search, on each of the read and write paths -- and a shape
+ * maintained by hand at four sites is one where a site gets missed. */
+static void report_mmu_fault(const ap_m68030_access_ctx_t *access,
+                             uint32_t logical, uint8_t function_code,
+                             bool write, ap_m68030_mmu_fault_t reason) {
+  if (access->mmu_faulted != NULL) {
+    access->mmu_faulted(access->context, logical, function_code, write, reason);
+  }
+}
+
+/* Which of §9.4's causes a completed search hit. Order matters: a search that
+ * bus errored also reports invalid, and the bus error is the more specific
+ * answer -- the tree could not be read, rather than the tree saying no. */
+static ap_m68030_mmu_fault_t search_fault_reason(
+    const ap_m68030_walk_result_t *walk) {
+  if (walk->bus_error) {
+    return AP_M68030_MMU_FAULT_SEARCH_BUS;
+  }
+  if (walk->search.limit_violation) {
+    return AP_M68030_MMU_FAULT_LIMIT;
+  }
+  if (walk->search.invalid) {
+    return AP_M68030_MMU_FAULT_INVALID;
+  }
+  return AP_M68030_MMU_FAULT_PROTECTION;
+}
+
 ap_m68030_access_result_t ap_m68030_access_read(ap_m68030_access_ctx_t *access,
                                                 uint32_t logical,
                                                 uint8_t function_code) {
@@ -72,6 +101,8 @@ ap_m68030_access_read_sized(ap_m68030_access_ctx_t *access, uint32_t logical,
       physical = lookup.physical;
       cache_inhibit = lookup.cache_inhibit;
     } else if (lookup.status == AP_M68030_ATC_FAULT) {
+      report_mmu_fault(access, logical, function_code, false,
+                       AP_M68030_MMU_FAULT_CACHED);
       out.fault = true;
       return out;
     } else {
@@ -90,6 +121,8 @@ ap_m68030_access_read_sized(ap_m68030_access_ctx_t *access, uint32_t logical,
       if (!walk.ok ||
           !ap_m68030_search_permits_access(&walk.search,
                                            search_access.supervisor)) {
+        report_mmu_fault(access, logical, function_code, false,
+                         search_fault_reason(&walk));
         out.fault = true;
         return out;
       }
@@ -203,6 +236,8 @@ ap_m68030_access_result_t ap_m68030_access_write(ap_m68030_access_ctx_t *access,
     if (lookup.status == AP_M68030_ATC_FAULT) {
       /* B set, or WP set on a write: a bus error exception, taken immediately
        * and without the write reaching memory. */
+      report_mmu_fault(access, logical, function_code, true,
+                       AP_M68030_MMU_FAULT_CACHED);
       out.fault = true;
       return out;
     }
@@ -231,6 +266,8 @@ ap_m68030_access_result_t ap_m68030_access_write(ap_m68030_access_ctx_t *access,
           !ap_m68030_search_permits_write(&walk.search) ||
           !ap_m68030_search_permits_access(&walk.search,
                                            search_access.supervisor)) {
+        report_mmu_fault(access, logical, function_code, true,
+                         search_fault_reason(&walk));
         out.fault = true;
         return out;
       }

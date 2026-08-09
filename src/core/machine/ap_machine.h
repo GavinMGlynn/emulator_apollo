@@ -83,6 +83,21 @@ typedef struct {
   unsigned count;
 } ap_fault_site_t;
 
+/* The same, for an access the MMU refused rather than the board. The reason is
+ * carried because these four are not one event: a page that is not resident is
+ * a pager's ordinary work, and a protection violation from the same instruction
+ * is a program doing something it may not. The first reason seen is kept -- an
+ * instruction whose fault *changes* kind is worth noticing, and a last-write
+ * would hide it. */
+typedef struct {
+  uint32_t pc;
+  uint32_t first_address;
+  uint32_t last_address;
+  unsigned count;
+  ap_m68030_mmu_fault_t reason;
+  bool write;
+} ap_mmu_fault_site_t;
+
 typedef struct {
   uint8_t *ram;
   uint32_t ram_bytes;
@@ -169,6 +184,18 @@ typedef struct {
   ap_fault_site_t fault_sites[64];
   unsigned distinct_fault_count;
   unsigned fault_sites_dropped;
+
+  /* The *other* half of vector 2, and the half no memory-side instrument can
+   * see. A bus error raised by the board and one raised by the MMU reach the
+   * program as the same exception, and only the board's reach `fault()` above:
+   * a boot taking 939 vector 2 exceptions while the board refused 652 accesses
+   * has 287 translation faults recorded nowhere at all. Same shape as the
+   * board's profile, keyed by the faulting instruction, over *logical*
+   * addresses -- which is the only address a failed translation has. */
+  ap_mmu_fault_site_t mmu_fault_sites[64];
+  unsigned mmu_fault_site_count;
+  unsigned mmu_fault_sites_dropped;
+  unsigned mmu_faults;
   /* Address translation, which the boot PROM turns on partway through and every
    * later access depends on. Counted because "the MMU is enabled" and "the MMU
    * has translated something" are different claims and a boot needs both. */
