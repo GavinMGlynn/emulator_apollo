@@ -25,6 +25,14 @@
 # script rather than trusted.
 #
 # Reference configuration: no display fitted, default 1987 epoch, 16 Mbyte.
+#
+# **This clock is not the one the crash investigation wants.** The volume was
+# installed in 2026 and its timestamps are in that era, so a 1987 calendar is
+# thirty-nine years behind it: the machine takes a different path, produces
+# `392 x vector 2` against `939`, and by 350 M instructions has not reached the
+# `00120020` crash at all. Pass `--clock 2026-08-09` for any question about the
+# crash, and leave the default alone for identity -- the hash is a promise about
+# determinism and changing what it covers would break it silently.
 # Reference hash: see docs/PROJECT_STATUS.md. Release builds only for timing;
 # the hash is identical on every build type and that is asserted by using it.
 #

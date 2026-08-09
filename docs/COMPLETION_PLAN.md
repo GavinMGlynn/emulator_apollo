@@ -2992,7 +2992,17 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
     firmware is **searching** for a rate, not mis-measuring, and the harness's
     fixed `--boot-input-rate` cannot match a target that moves between
     characters. A harness question, not a serial-model one: the control case
-    works. Detail in `PROJECT_STATUS.md`.
+    works.
+    **And chasing that route turned up something larger**: the identity harness
+    and the crash investigation have been running **different machines**. Ours
+    defaults to a 1987 calendar; the oracle takes the host's date and sees year
+    **26**, and the volume's timestamps are in that era. With `--clock
+    2026-08-09` our boot produces `939 x vector 2` against `392`, three vector
+    classes the other never reaches, and the `00120020` crash at 387,684,292 —
+    which the 1987 boot never gets to. Static facts are unaffected, but every
+    measurement with an instruction count attached was taken on the wrong clock
+    and is being rechecked. `tools/identity-boot.sh` now says which clock each
+    question wants. Detail in `PROJECT_STATUS.md`.
     **And a standing caveat is discharged**: the eight `PMOVE`s really are
     `SELF_TEST`'s. Both images load at `01002000`, so the addresses proved
     nothing, but the last of them fires at 162,878,385 instructions while the

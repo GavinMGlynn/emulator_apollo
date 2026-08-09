@@ -19634,6 +19634,56 @@ excluded that.
 `CONFIG` for the setting; the reference report's own `power-on` line for ours. A
 boot with `--clock 2026-08-09` is running to test it. No code changed.*
 
+## The identity harness and the crash investigation have been different machines
+
+The `--clock 2026-08-09` boot the entry above called for reproduces the crash --
+and in doing so shows that two lines of work in this project have been running
+different configurations without either saying so.
+
+**With the year-26 calendar the machine goes much further and then crashes**, at
+the instruction this file recorded long ago:
+
+```
+  power-on     2026-08-09T00:00:00
+  Crash_Status 00120020  PC 3C40E114 pid 0001
+  executed     387,684,292 instruction(s)
+  exceptions   939 x vector 2, 1 x 5, 1 x 11, 1 x 31, 247 x 160, 1 x 173, 32 x 174
+```
+
+Against the 1987 boot's `392 x vector 2` and no crash at all by 350 M -- it is
+still spinning on the AT-card poll there. **These are not the same run of the same
+software.** The exception census differs by a factor of two and a half, three
+vector classes appear that the other never reaches, and only one of them gets to
+the fault this whole investigation is about.
+
+**Which means the two halves of the work have not been talking about one
+machine.** `tools/identity-boot.sh`, written earlier today to pin the reference,
+uses the default 1987 epoch -- and so did **every measurement taken today**: the
+gate at 288,640,117, the 60,000-step ring, the frame and tree dumps, the
+`mmu reads 0` census. The crash investigation that produced `387,684,292` and the
+`00120020` status was run with a year-26 clock, as this project's own memory
+records it must be, because the volume's timestamps are in that era.
+
+**What survives and what has to be rechecked.** The static facts do not depend on
+the clock: the kernel's code, the one `PMOVE` at `3C43DDF0`, the table at
+`$3C43C96E`, `0105BC00 = 0x416F << 10`. Neither does `mmu reads 0`, which is a
+property of a whole boot on either clock -- though it was measured on one and
+should be measured on the other. What must be rechecked is anything with an
+instruction count attached, because the two machines diverge early and stay
+diverged: the gate's first call, the ring's contents, and whether the switch is
+skipped **on the machine that actually reaches the crash**. That check is
+running.
+
+**And the harness needs correcting either way.** A reference boot that does not
+reach the defect the project is trying to fix is a poor reference. The right fix
+is not to change the identity hash -- that is a separate promise about
+determinism -- but to say plainly, in the script and here, which clock each
+question wants.
+
+*Verification: the two reports, one per clock, from the same binary and disk. No
+code changed.*
+
+
 
 
 
