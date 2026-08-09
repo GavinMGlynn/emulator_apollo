@@ -18598,6 +18598,69 @@ it costs one stop and no reasoning at all.
 in an end-of-boot dump, which is why this had to be captured mid-run. No code
 changed.*
 
+## The oracle differential, finally made: the kernel *does* install its tree
+
+This is the measurement `PROJECT_STATUS` has been calling decisive for weeks, and
+it was made by *not* doing what had been tried. The previous attempt side-loaded
+a probe into the oracle's `PMOVE` path; it was verified present in the binary,
+three boots ran, and it never fired, and nothing could tell "the oracle does not
+do this" from "the probe is not wired". This time `mdsession.lua` **polls CPU
+state MAME already exposes** -- `M68K_CRP_APTR` and `M68K_CRP_LIMIT` are ordinary
+`state_add` registers -- checks they exist before the run, and is driven by the
+harness that is already known to boot this disk. It fired on the first attempt.
+
+The oracle, booting the same SR10.4 disk to the `)` prompt:
+
+```
+ 0.0175  CRP_APTR  00000000   (reset)
+11.7368  CRP_APTR  01001400   CRP_LIMIT 00FF0002
+36.2244  CRP_APTR  0105BC00
+36.4408  CRP_APTR  01001400
+36.4574  CRP_APTR  0105BC00
+37.2232  CRP_APTR  01001400
+37.2398  CRP_APTR  0105BC00
+37.3064  CRP_APTR  01001400
+```
+
+**Eight changes, alternating between the two trees.** So `0105BC00` -- the tree
+our kernel builds, pages and rewrites seven times a boot and never installs -- is
+installed on a working machine, repeatedly, and the machine boots.
+
+**Which retracts this file's previous entry.** "Taking that branch is correct
+behaviour ... and the defect is upstream" is wrong: the kernel does install both
+trees. The reasoning that led there was sound about the memory sweep and wrong in
+what it concluded from it, and the oracle is what says so.
+
+**And the one-`PMOVE` finding survives, which makes the picture consistent.** A
+rescan with corrected extension encodings -- `TC` is `4000`, `SRP` `4800`, `CRP`
+`4C00`; the first scan had `SRP` wrong -- over 1,028,096 bytes still finds a
+single `PMOVE ,CRP`, at `010409F0`. Eight changes from one instruction means the
+routine is *called* eight times and switches every time. Ours is called and takes
+its gate every time.
+
+**So the divergence is in the caller, not the switch.** The gate skips when the
+requested space equals the cached one. Ours is first called with `D0 = 1` against
+a cached `1`. The oracle's first install is `01001400` -- `SELF_TEST`'s tree,
+which by §19.2's model is ASID 0's -- so its first call asks for a space that is
+*not* the cached one, installs, and updates the cache; every later switch then
+alternates normally. The question is no longer "why does the kernel not load a
+root pointer" but **"why is the first switch our kernel is asked for the one it
+is already in"**.
+
+**One caveat, stated because it bounds what may be concluded.** The poller samples
+on MAME's periodic callback, so the PC beside each line is where the CPU was when
+the change was *noticed*, not the instruction that made it. The values and their
+order are exact; the PCs locate loosely and must not be read as instruction
+addresses. A stop at one of them on our side is therefore a weak test, not a
+strong one.
+
+*Verification: `tools/mame-oracle/mdsession.lua` with `APOLLO_CRP_LOG` set, the
+same disk image copied (MAME writes to a `.awd` in place), `--commands` sending
+`ex domain_os`; the console reached `Domain/OS kernel(7), revision 10.4` and the
+`)` prompt, so this is a successful boot and not a partial one. No code changed
+in the core.*
+
+
 
 
 

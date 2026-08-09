@@ -2875,7 +2875,16 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
     own value and would be `1` on real hardware, so taking the branch is
     *correct* and the defect is upstream: the `CRP` should already hold the
     kernel's tree when it first reaches that routine, and ours holds
-    `SELF_TEST`'s `01001400`. Detail in `PROJECT_STATUS.md`.
+    `SELF_TEST`'s `01001400`.
+    **The oracle differential is now made, and it retracts that in turn.** With
+    `mdsession.lua` polling the CPU state MAME already exposes — rather than the
+    probe that was verified present and never fired — the oracle booting the
+    same disk to `)` shows **eight** `CRP` changes, alternating `01001400` and
+    `0105BC00`. So the kernel *does* install the tree it builds, from the one
+    `PMOVE` it has, called eight times. Ours is called and takes its gate every
+    time. **The divergence is in the caller**: the question is now why the first
+    switch our kernel is asked for is the space it is already in. Detail in
+    `PROJECT_STATUS.md`.
 
 **Order matters here, and this file had it wrong.** The boot is a *test*, and
 two of its children were unfinished *implementation*. `CLAUDE.md` says
