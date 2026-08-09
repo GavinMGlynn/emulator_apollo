@@ -19050,6 +19050,44 @@ module immediately before the request, are where to look.
 *Verification: one stop with `--boot-trace-last 60000`; the entry count, the PC
 census and the value's provenance are all from that ring. No code changed.*
 
+## The routine that runs just before the request, read from the trace
+
+The two routines the ring named are worth identifying, and the ring already
+contains them as executed instructions -- no dump, so no staleness.
+
+`3C43D95C`, called from `3C43DB74`, is an **address-to-descriptor mapper**:
+
+```
+3C43D96A  207C  MOVEA.L #$3C5BB800,A0   ; a descriptor table base
+3C43D98E  2404  MOVE.L  D4,D2           ; the virtual address, here 3C5C0800
+3C43D990  E08A  LSR.L   #8,D2           ; shift it down
+3C43D998  C4BC  AND.L   #imm,D2         ; and mask -> 000005C0
+3C43D9AA  D1C2  ADDA.L  D2,A0           ; -> 3C5BBDC0, the descriptor for it
+3C43D9AC  E98A  LSL.L   #4,D2           ; -> 00005C00, a second index
+3C43D9B2  007C  ORI.W   #imm,SR         ; then mask interrupts and take a lock
+3C43D9BC  4E75  RTS
+```
+
+So the kernel is walking **its own** software tables for an address in
+`3C5Cxxxx` -- not the 68030 tree at `0105BC00`, and not any physical address.
+`3C5BB800` is a table base and the result `3C5BBDC0` is a descriptor slot. It
+returns having masked interrupts, which is the lock the `00120020` crash code
+names: *"supervisor fault while resource lock(s) set"*.
+
+**That closes a small circle.** The crash's own status code says a fault was
+taken while a lock was held; this routine takes exactly such a lock immediately
+before the address-space request, and the request is the one that fails to
+install the tree. The fault that eventually arrives does so inside the window
+this routine opens.
+
+It does not yet say *why* the space asked for is 1. But it names the machinery
+that decides it -- the kernel's software descriptor tables in `3C5Bxxxx` -- and
+those are data, which a dump taken at the right stop **can** answer, unlike code.
+
+*Verification: the instructions above are from the 60,000-step ring, executed
+rather than disassembled. No code changed.*
+
+
 
 
 
