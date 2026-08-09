@@ -11,6 +11,7 @@
 #include "board/ap_dmapage.h"
 #include "board/ap_atmap.h"
 #include "board/ap_boardreg.h"
+#include "board/ap_graphics.h"
 
 void setUp(void) {}
 void tearDown(void) {}
@@ -96,6 +97,46 @@ static void test_main_memory_is_where_table_two_eight_puts_it(void) {
   /* And past the memory actually fitted is unmapped, not a wrap. */
   (void)ap_board_read(&b, AP_BOARD_RAM_BASE + sizeof ram, &ok);
   TEST_ASSERT_FALSE(ok);
+}
+
+/* The invariant `ap_board_region` is reordered on.
+ *
+ * It answers main memory before consulting the placement table or the graphics
+ * decodes, which is only a reordering while nothing below it can claim an
+ * address inside the memory range. Nothing does today -- every device sits in
+ * the low megabyte, well under either map's `ram_base` -- but that is a
+ * property of the tables, not of the code, so it is asserted here rather than
+ * left as a comment. A placement added inside the memory range fails this and
+ * not some distant boot. */
+static void test_no_device_placement_overlaps_the_memory_range(void) {
+  for (ap_model_id_t id = 0; id < AP_MODEL_COUNT; id++) {
+    const ap_board_map_t *map = ap_board_map_for(id);
+    TEST_ASSERT_NOT_NULL(map);
+
+    for (unsigned i = 0; i < map->placements; i++) {
+      const ap_board_placement_t *p = &map->placement[i];
+      const uint32_t last = p->base + p->size - 1u;
+      /* Disjoint means: ends before memory starts, or starts after it ends. */
+      TEST_ASSERT_TRUE_MESSAGE(last < map->ram_base || p->base > map->ram_limit,
+                               map->name);
+    }
+
+    /* Both graphics decodes too: they are checked below the memory test as
+     * well, and the frame buffers are the placements most plausibly mistaken
+     * for memory. */
+    const uint32_t graphics[][2] = {
+        {AP_GRAPHICS_MONO_ADDR, AP_GRAPHICS_MONO_ADDR + AP_GRAPHICS_RANGE - 1u},
+        {AP_GRAPHICS_COLOUR_ADDR,
+         AP_GRAPHICS_COLOUR_ADDR + AP_GRAPHICS_RANGE - 1u},
+        {AP_GRAPHICS_COLOUR_MEMORY_ADDR, AP_GRAPHICS_COLOUR_MEMORY_END},
+        {AP_GRAPHICS_MONO_MEMORY_ADDR, AP_GRAPHICS_MONO_MEMORY_END},
+    };
+    for (size_t i = 0; i < sizeof graphics / sizeof graphics[0]; i++) {
+      TEST_ASSERT_TRUE_MESSAGE(graphics[i][1] < map->ram_base ||
+                                   graphics[i][0] > map->ram_limit,
+                               map->name);
+    }
+  }
 }
 
 static void test_reads_reach_the_devices_themselves(void) {
@@ -1064,6 +1105,7 @@ int main(void) {
   RUN_TEST(test_every_device_lands_in_its_documented_region);
   RUN_TEST(test_an_unclaimed_address_is_unmapped_not_zero);
   RUN_TEST(test_main_memory_is_where_table_two_eight_puts_it);
+  RUN_TEST(test_no_device_placement_overlaps_the_memory_range);
   RUN_TEST(test_reads_reach_the_devices_themselves);
   RUN_TEST(test_the_read_only_memories_absorb_writes_rather_than_faulting);
   RUN_TEST(test_a_missing_prom_is_absent_for_writes_too);

@@ -3946,6 +3946,20 @@ Only after the reference core is proven, and only under an identity harness.
       speed measured on release builds only. Detail, including what this item
       cannot reach and why that is the exact-skip item's job, in
       `PROJECT_STATUS.md`.*
+- [x] **Main memory answered first in the board's region lookup** — a
+      reordering rather than a decision, since no placement and neither graphics
+      window overlaps either map's memory range, which is now asserted by
+      `board_suite` instead of assumed.
+      **And the identity-harness defect it surfaced**: the state hash covers a
+      fitted display and the power-on epoch, and the report mentioned neither,
+      so two runs differing only in `--screen` produce reports identical but for
+      the number — which reads as a broken change. Both are printed beside it
+      now, and `tools/identity-boot.sh` carries the canonical invocation. The
+      reference is re-baselined to `0D8379A03105C0F7`; `67A14B3BB6041410` is
+      retired, its configuration never having been recorded. Earlier A/Bs stand.
+      *Verification: bit-identical to the pre-change binary at seven bounds to
+      350 M across three separately built binaries; 273/275 s → 253.5/255.4 s;
+      `ctest` 129/129, `board_suite` 36 → 37. Detail in `PROJECT_STATUS.md`.*
 - [ ] Exact-skip scheduling: `next_event()` and `skip(n)` per subsystem, CPU
       half and devices half of the tick split so a span-breaking I/O write still
       runs its devices half canonically. *Verification: entire probe suite and

@@ -141,8 +141,33 @@ static bool locate(const ap_board_t *board, uint32_t address,
 
 ap_board_region_t ap_board_region(const ap_board_t *board, uint32_t address) {
   address &= board->map->address_mask;
-  /* The model's own table first. Every base and size in it is the one the
-   * device's module carries, so a placement corrected there cannot drift. */
+
+  /* Main memory first, ahead of the table it logically follows.
+   *
+   * This is a reordering, not a decision: on **both** maps every placement and
+   * both graphics windows lie strictly below `ram_base`, so no address can
+   * match this test and a test below it. `board_suite`'s
+   * `test_no_device_placement_overlaps_the_memory_range` asserts exactly that,
+   * for every map, which is what keeps the reordering honest when a placement
+   * is added -- a device put inside the memory range fails the test rather than
+   * silently reading as RAM.
+   *
+   * It is first because it is what the machine overwhelmingly asks about: a
+   * boot's physical accesses are code and data, and the cache-inhibit callback
+   * asks this question on *every* one of them. Answering it after a linear
+   * scan of fifteen placements and two graphics decodes cost 6.3% of a boot. */
+  if (address >= board->map->ram_base && address <= board->map->ram_limit) {
+    /* The space allocated to memory, not the memory fitted. An address in here
+     * with no SIMM behind it is still a main memory address -- the read path
+     * bounds-checks against what is actually present and reports it unmapped --
+     * which is the same distinction the AT bus windows make between an empty
+     * slot and an address nothing decodes. */
+    return AP_BOARD_REGION_RAM;
+  }
+
+  /* Then the model's own table, ahead of every window and decode below it.
+   * Every base and size in it is the one the device's module carries, so a
+   * placement corrected there cannot drift. */
   ap_board_region_t region = AP_BOARD_REGION_UNMAPPED;
   uint32_t canonical = 0;
   if (locate(board, address, &region, &canonical)) {
@@ -161,15 +186,6 @@ ap_board_region_t ap_board_region(const ap_board_t *board, uint32_t address) {
         ap_graphics_decode_memory(address, &colour, &offset)) {
       return AP_BOARD_REGION_GRAPHICS;
     }
-  }
-
-  if (address >= board->map->ram_base && address <= board->map->ram_limit) {
-    /* The space allocated to memory, not the memory fitted. An address in here
-     * with no SIMM behind it is still a main memory address -- the read path
-     * bounds-checks against what is actually present and reports it unmapped --
-     * which is the same distinction the AT bus windows make between an empty
-     * slot and an address nothing decodes. */
-    return AP_BOARD_REGION_RAM;
   }
 
   /* Last, so every device *inside* a window keeps its own region. */

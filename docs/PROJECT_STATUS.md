@@ -3406,7 +3406,7 @@ failure that cost a bit position in the 68020's module entry word.
 | Board cache (`012000` RAM, `014000` condition codes) | not started. The shared **bus arbitration point** is done and has its own row above | — |
 | Apollo interrupt controllers (`011000`, `011100`) | working: the two 8259As cascaded on **IR3** (measured, not IR2 as the AT convention would have it), vector bases `A0`/`A8` from the boot PROM's own ICW2, giving levels `A0`-`AF`. Priority order matches `008778-03` Table 2-3, which with the cascade on IR3 has no anomaly. The CPU interrupt level is **6**, also measured — neither manual states it, and it took starting the interval timer by hand to make anything request at all | `intr_suite`, 14 tests; `FINDINGS.md` C11, `tools/mame-oracle/writetrace.lua` |
 | Intel 8259A interrupt controller (the part) | working: ICW1-4 sequence, all three OCWs, fully nested priority with rotation, edge and level triggering, special mask and special fully nested modes, poll, AEOI, and the spurious level 7. 8086-mode vectoring only — MCS-80/85's `CALL` sequence is refused rather than approximated, and this machine never uses it. The Apollo *pairing* is a separate module | `i8259_suite`, 28 tests, each citing `8259A` 231468-003 |
-| Core-board address maps (`board/ap_board.c`) | working: every device placed by `008778-03` Table 2-8 and by the measurement that confirmed it, main memory at `1000000`, and an unclaimed address reported **unmapped rather than zero** — the distinction flat RAM hid, which cost 5634 invisible accesses in the first firmware run. Regions are named, so a trace can say *what* the firmware reached for. The AT windows declare a cycle time and everything else answers at the minimum, and an access to the translation map's undescribed seven eighths is counted rather than silently aliased, and each of the two declined core registers is counted apart. The DMA page registers now map offset to channel from `002398-04` p. 12-25, the handbook that prints the table `008778-03` Table 2-6 omits — channel 4, the cascade, has none | `board_suite`, 36 tests; `atbus_suite`, 8 tests |
+| Core-board address maps (`board/ap_board.c`) | working: every device placed by `008778-03` Table 2-8 and by the measurement that confirmed it, main memory at `1000000`, and an unclaimed address reported **unmapped rather than zero** — the distinction flat RAM hid, which cost 5634 invisible accesses in the first firmware run. Regions are named, so a trace can say *what* the firmware reached for. The AT windows declare a cycle time and everything else answers at the minimum, and an access to the translation map's undescribed seven eighths is counted rather than silently aliased, and each of the two declined core registers is counted apart. The DMA page registers now map offset to channel from `002398-04` p. 12-25, the handbook that prints the table `008778-03` Table 2-6 omits — channel 4, the cascade, has none | `board_suite`, 37 tests; `atbus_suite`, 8 tests |
 | Shared bus arbitration point | working: the external priority encoder `[030]` §7.7 requires, DRQ0 through DRQ7 with the processor last, driving the CPU's own arbitration unit over the three-wire protocol. A grant and its acknowledgement are separate instants, so the processor stops driving the bus when it grants rather than when the grant is taken up; a master is never pre-empted mid-transfer | `arbiter_suite`, 9 tests, `MC68030 User's Manual 3ed` §7.7, `008778-03` §2.4.6 |
 | Apollo DMA controllers (`010C00`, `010D00`) | working: DMA 1 at **stride 1** and DMA 2 at **stride 2**, both measured, both aliased through their ranges. A read of a write-only register returns zero where the oracle returns `0F`; `[8237]` marks that read "Illegal", so neither is specified and ours does not invent a register value. The board runs transfers: controller 1's request cascaded onto controller 2's channel 0 and one request reaching the arbiter, the address through the translation map, and the processor stalled while a controller holds the bus. The cascade and the channel assignments are `008778-03` Table 2-4's, so the AT convention this module used to refuse is now cited rather than assumed. **The peripheral side is wired**: the tape drives its own request line and its cartridge reaches memory by DMA, and the disk's two data ports move under an acknowledge | `dma_suite`, 17 tests; `FINDINGS.md` C13 |
 | Intel 8237A DMA controller (the part) | **programming model and transfer cycle complete**: all sixteen register addresses, four channels with base and current address/count, the single shared first/last flip-flop, command/mode/request/mask/status/temporary, master clear, autoinitialise reload and the mask-on-terminal-count rule; and a service cycle that moves a byte either way, verifies without moving one, walks the address up or down, and ends on the borrow out of zero rather than at zero. Memory-to-memory is refused outright rather than half-run. The part drives sixteen bits of address and the board composes the rest — not yet wired to the board | `i8237_suite`, 29 tests, `8237A` 231466 |
@@ -18024,3 +18024,109 @@ reduction needs an argument about one expression.**
 
 *Verification: `ctest` 129/129, every golden unchanged, two timings, exception
 census identical.*
+
+## The reference hash had two inputs that nothing printed
+
+An hour went into a change that turned out to be a no-op, because the number
+that adjudicates every optimisation in this phase stopped reproducing and the
+report gave no way to see why.
+
+**The symptom.** A boot after the change reported state hash
+`0D8379A03105C0F7` where every entry since `67A14B3BB6041410` was recorded. Every
+other line of the report was **byte-identical** to the last run that produced
+the old number -- same 350,000,000 instructions, same `clocks 1460151705`, same
+`final PC 3C4BC388`, same sixteen registers, same exception census, same
+`atc fills 56688`, same region counters down to `main memory 80866606 reads /
+148631858 writes`. `diff` of the two reports is one line.
+
+**It was not the change.** Three binaries were built and run to the same bound:
+the working tree, `HEAD` with the change stashed, and `HEAD~1` in a clean
+worktree with its own configure. All three agree with each other at 100 k, 1 M,
+5 M, 30 M, 50 M, 150 M and 350 M instructions, and all three disagree with the
+recorded reference. Reproducing an old artifact's watched write stopped at the
+same instruction -- 6,565,576 -- with a different hash, which says the execution
+is identical and the *hashed state* is not. The inputs were eliminated by
+measurement, not assumption: the disk matches its pinned SHA-256, no reboot and
+no package or toolchain change since before both eras, `ccache` not in the
+build, and perturbing the environment size left the hash unmoved.
+
+**The cause: the hash covers configuration the report never mentioned.** Two
+flags move it and leave no other trace:
+
+- `--screen`. A fitted display's image memory is hashed -- `ap_board_hash_graphics`
+  feeds the screen kind and both frame buffers -- and the region counters count
+  *by address*, so they report the display controller's reads whether or not a
+  board answers them. Fitting a 19-inch display changes the hash and **nothing
+  else in the report**: the check here diffed a 100 k run with and without one,
+  and the diff is the hash line alone.
+- `--clock`. The calendar's registers are hashed and the power-on epoch was
+  printed nowhere.
+
+So a recorded hash without its invocation is not a reference. It reads as a
+broken change, which is exactly how it was read for the first half-hour here.
+
+**Fixed so it cannot recur.** The run now prints what the hash covers, beside
+the number it changes:
+
+```
+  power-on     1987-07-31T21:09:21
+  state hash   ...
+  fitted       display none, 16 Mbyte main memory
+```
+
+and `tools/identity-boot.sh` carries the canonical invocation, so the reference
+is a script in the repository rather than a command line in a document. Its
+header records the three parts that are easy to omit and silently produce a
+different machine -- the two above, and the boot dialogue's `\r` on port 1
+channel B, without which the autobauding PROM never transmits and the `y` sent
+by `--boot-input` instead of `--boot-script` is swallowed while still being
+reported as delivered.
+
+**What this does and does not invalidate.** Every earlier verification in this
+phase is an A/B on one invocation -- before and after, same command -- and those
+stand unchanged. What does not stand is the absolute number as an identifier of
+a configuration: entries above quoting `67A14B3BB6041410` were true of the runs
+that produced them, and the configuration they were produced under was never
+written down. The reference is therefore re-baselined here, with its invocation,
+and the old value is retired rather than corrected.
+
+*Verification: `ctest` 129/129, every golden unchanged. `board_state_suite`
+already pinned that the hash covers the screen kind and the frame buffers, so
+the defect was in the report and the fix is there.*
+
+## Main memory answered first, and the invariant that makes it a reordering
+
+`ap_board_region` decides what a physical address is, and `machine_cache_inhibited`
+asks it on **every** access the CPU makes. It answered by walking the model's
+fifteen placements in order, then both graphics decodes, then the AT bus
+windows -- and main memory, which is what the machine overwhelmingly asks about,
+was checked *after* the placement scan. `perf` put it at 6.3% of a boot, the
+largest entry left that was not the CPU itself.
+
+**The workload is not close.** Of the boot's board accesses, main memory is
+80,866,606 reads and 148,631,858 writes; the whole of the rest -- serial, disk,
+the empty AT slots, the translation map -- is under a fifth of that. So the
+common case was paying for the rare one, fifteen comparisons at a time.
+
+**Moving the memory test to the front is a reordering and not a decision**,
+because nothing below it can claim an address inside the memory range: on both
+maps every placement and both graphics windows lie strictly below `ram_base`.
+That is a property of the tables rather than of the code, so it is asserted
+rather than commented -- `board_suite`'s
+`test_no_device_placement_overlaps_the_memory_range` walks every model's map and
+fails a placement that overlaps, which is what keeps the reordering honest when
+a device is added. The AT bus windows needed no argument: memory was already
+tested before them.
+
+**273 s and 275 s → 253.5 s and 255.4 s**, a 1.08x, and the two runs' reports
+are byte-identical to each other and to the pre-change binary's but for the two
+configuration lines added above. The re-baselined reference hash
+`0D8379A03105C0F7` is unchanged across the reordering, which is the point: this
+is the first figure in the phase measured against a reference whose invocation
+is recorded, in `tools/identity-boot.sh`.
+
+*Verification: identical to the pre-change binary at 100 k, 1 M, 5 M, 30 M,
+50 M, 150 M and 350 M instructions -- the last on three separately built
+binaries, one of them `HEAD~1` in its own worktree -- with `ctest` 129/129,
+`board_suite` 36 → 37, and every golden unchanged.*
+

@@ -728,9 +728,43 @@ static bool node_id_from_volume(const char *path, uint32_t *out) {
  * The bus-error count is here rather than in the hash deliberately -- it is our
  * record of watching the machine, not state the machine has. `ap_machine.h` has
  * the reasoning; this is the "reported beside it" half of it. */
+/* What a fitted display is called, for the configuration line below. */
+static const char *screen_kind_name(ap_screen_kind_t screen) {
+  switch (screen) {
+  case AP_SCREEN_NONE:
+    return "none";
+  case AP_SCREEN_COLOUR_4_PLANE:
+    return "c4p (4-plane colour)";
+  case AP_SCREEN_COLOUR_8_PLANE:
+    return "c8p (8-plane colour)";
+  case AP_SCREEN_MONO_19_INCH:
+    return "19i (19-inch monochrome)";
+  case AP_SCREEN_MONO_15_INCH:
+    return "15i (15-inch monochrome)";
+  }
+  return "unknown";
+}
+
 static void report_state(ap_machine_t *machine) {
   const ap_machine_state_t state = ap_machine_state(machine);
   printf("  state hash   %016llX\n", (unsigned long long)state.hash);
+
+  /* The configuration the hash covers, printed beside the number it changes.
+   *
+   * A fitted display puts its image memory into the hash and leaves **no other
+   * trace in this report**: the region counters count by address, so they
+   * report the display controller's reads whether or not a board answers them,
+   * and two runs differing only in `--screen` produce reports identical but for
+   * the hash. That is exactly how a reference hash comes to be irreproducible
+   * -- ours was taken with a display fitted, and rerunning it without one gave
+   * a different number with every other line byte-identical, which reads as a
+   * broken change rather than a different machine. Memory's extent is here for
+   * the same reason: `ap_board_hash` feeds it and nothing else prints it. */
+  if (machine->board != NULL) {
+    printf("  fitted       display %s, %u Mbyte main memory\n",
+           screen_kind_name(machine->board->graphics.screen),
+           (unsigned)(machine->board->ram_bytes / (1024u * 1024u)));
+  }
   /* The region of the address the *bus* would have seen. Naming the region of
    * the logical PC was the same error the trace's opcode column made: with the
    * MMU on it reports where that number would land if nothing translated it,
@@ -1695,6 +1729,11 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
          ap_board_region_name(ap_board_region(board, stack)));
   printf("  reset PC     %08X (%s)\n", pc,
          ap_board_region_name(ap_board_region(board, pc)));
+  /* The instant the machine powered on, for the same reason the display is
+   * reported beside the hash: the calendar's registers are hashed, `--clock`
+   * moves them, and nothing else in a run's output says which epoch it used. */
+  printf("  power-on     %04u-%02u-%02uT%02u:%02u:%02u\n", epoch.year,
+         epoch.month, epoch.day, epoch.hour, epoch.minute, epoch.second);
 
   ap_machine_t machine;
   /* The same model as the board, or the processor would run at one machine's
