@@ -19479,6 +19479,41 @@ code: trusting a recollection of a source instead of the source.
 silent at `0000078E`; the recipe is quoted from this file's own earlier entry.
 No code changed.*
 
+## The third attempt names the defect: a baud mismatch the report was already showing
+
+With the recorded recipe followed exactly -- `--service-mode`, a keyboard press,
+**120** carriage returns at `--boot-input-interval 400000`, and a 400 M budget --
+the console is still silent and the machine still ends at `PC 0000078E`. But this
+time the report says why, in two lines that were there all along:
+
+```
+  input        120 of 120 character(s) delivered, sent at 9600 baud (CSR BB)
+    sio1 B      8 bits, receiver enabled, listening at 4800 baud (CSR 99)
+```
+
+**The harness sends at 9600 and the firmware is listening at 4800.** Every one of
+the hundred and twenty carriage returns arrives garbled, which is why the count
+of delivered characters has been reassuring and useless in all three attempts:
+delivery is not reception.
+
+**And it is service mode that makes them disagree.** The reference boot's own
+report shows `sio1 B ... listening at 9600 baud (CSR BB)`, matching the sender,
+which is why the ordinary route has always worked. In service mode the firmware's
+autobaud settles on `CSR 99` instead, and `--boot-input-rate` defaults to `BB`
+and does not follow it.
+
+**A second, smaller thing worth having measured**: 400 M instructions is
+`16158514438440` base units, which at `AP_TIME_BASE_HZ` is **48.0 emulated
+seconds** -- not the sixty-odd an estimate from the clock rate suggests. The
+probe runs at about forty-five, and a hundred and twenty returns at 0.4 s span
+exactly forty-eight, so the budget was only just sufficient even before the baud
+mismatch. Both numbers come from the report rather than from arithmetic on the
+clock rate, which is the point.
+
+*Verification: the two report lines above, from the third attempt. The next run
+sends at `CSR 99` to match. No code changed.*
+
+
 
 
 
