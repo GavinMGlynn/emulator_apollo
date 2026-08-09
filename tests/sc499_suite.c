@@ -357,24 +357,114 @@ static void test_releasing_the_reset_raises_an_exception_only_after_the_interval
   ap_sc499_t t;
   ap_sc499_reset(&t);
 
+  /* Held for more than the minimum, as the guide requires of the host -- a pulse
+   * narrower than that is tested below and is not a reset. */
+  const ap_time_t release = 100u + AP_SC499_T_RESET_MIN_HOLD + 1u;
   ap_sc499_write(&t, AP_SC499_CONTROL_STATUS, AP_SC499_CTL_RESET);
+  ap_sc499_advance(&t, 100u);
+  ap_sc499_advance(&t, release);
   ap_sc499_write(&t, AP_SC499_CONTROL_STATUS, 0u);
 
   /* Immediately after the release the controller is idle, not excepting: the
    * status reads `F7`, which is the first thing the driver waits for. */
-  ap_sc499_advance(&t, 1000u);
+  ap_sc499_advance(&t, release + 1000u);
   TEST_ASSERT_FALSE(t.exception);
   TEST_ASSERT_EQUAL_HEX8(0xF7u, ap_sc499_read(&t, AP_SC499_CONTROL_STATUS));
 
   /* Short of the interval, still idle. */
-  ap_sc499_advance(&t, 1000u + AP_SC499_T_RESET_TO_EXCEPTION - 1u);
+  ap_sc499_advance(&t, release + 1000u + AP_SC499_T_RESET_TO_EXCEPTION - 1u);
   TEST_ASSERT_FALSE(t.exception);
 
   /* At it, the exception is asserted and the status reads `57` -- the second
    * thing the driver waits for. */
-  ap_sc499_advance(&t, 1000u + AP_SC499_T_RESET_TO_EXCEPTION);
+  ap_sc499_advance(&t, release + 1000u + AP_SC499_T_RESET_TO_EXCEPTION);
   TEST_ASSERT_TRUE(t.exception);
   TEST_ASSERT_EQUAL_HEX8(0x57u, ap_sc499_read(&t, AP_SC499_CONTROL_STATUS));
+}
+
+/* `[SC499]` §1.12 states the hold as a requirement -- "must be set, held for
+ * **more than** 25 usec, then cleared" -- and a requirement that nothing
+ * enforces is a comment. A runt pulse resets nothing, so no confidence test
+ * runs and no exception ever arrives, however long the host then waits.
+ *
+ * "More than" is strict, so the boundary belongs to the runt: exactly the
+ * minimum is not more than it. */
+static void test_a_reset_pulse_shorter_than_the_minimum_does_not_reset(void) {
+  for (unsigned held = 0; held <= 1u; held++) {
+    ap_sc499_t t;
+    ap_sc499_reset(&t);
+
+    /* held == 0: the two edges inside one tick, the narrowest pulse there is.
+     * held == 1: exactly the minimum, which the word "more" excludes. */
+    const ap_time_t release =
+        100u + (held ? AP_SC499_T_RESET_MIN_HOLD : (ap_time_t)0);
+    ap_sc499_write(&t, AP_SC499_CONTROL_STATUS, AP_SC499_CTL_RESET);
+    ap_sc499_advance(&t, 100u);
+    ap_sc499_advance(&t, release);
+    ap_sc499_write(&t, AP_SC499_CONTROL_STATUS, 0u);
+
+    /* Well past the interval a wide pulse would have used. */
+    ap_sc499_advance(&t, release + 4u * AP_SC499_T_RESET_TO_EXCEPTION);
+    TEST_ASSERT_FALSE(t.exception);
+    TEST_ASSERT_EQUAL_HEX8(0xF7u, ap_sc499_read(&t, AP_SC499_CONTROL_STATUS));
+  }
+}
+
+/* §1.12 gives RSTSAC two release paths: "cleared by either writing a 0 to
+ * Control Register Bit 7 **or by a RSTDMA**". Both end the microprocessor reset,
+ * so both start the confidence test -- modelling only the first would leave a
+ * documented way to reset the controller that produced no exception at all. */
+static void test_a_dma_reset_releases_the_hold_and_runs_the_confidence_test(
+    void) {
+  ap_sc499_t t;
+  ap_sc499_reset(&t);
+
+  const ap_time_t release = 100u + AP_SC499_T_RESET_MIN_HOLD + 1u;
+  ap_sc499_write(&t, AP_SC499_CONTROL_STATUS, AP_SC499_CTL_RESET);
+  ap_sc499_advance(&t, 100u);
+  ap_sc499_advance(&t, release);
+  ap_sc499_write(&t, AP_SC499_RSTDMA, 0u);
+
+  ap_sc499_advance(&t, release + AP_SC499_T_RESET_TO_EXCEPTION);
+  TEST_ASSERT_FALSE(t.exception);
+  ap_sc499_advance(&t, release + 2u * AP_SC499_T_RESET_TO_EXCEPTION);
+  TEST_ASSERT_TRUE(t.exception);
+
+  /* And a RSTDMA with nothing held is a DMA reset and nothing more. */
+  ap_sc499_t idle;
+  ap_sc499_reset(&idle);
+  ap_sc499_write(&idle, AP_SC499_RSTDMA, 0u);
+  ap_sc499_advance(&idle, 4u * AP_SC499_T_RESET_TO_EXCEPTION);
+  TEST_ASSERT_FALSE(idle.exception);
+}
+
+/* A driver that rewrites the control byte with the bit still up is holding the
+ * part down, not re-pulsing it. The rewrite runs the reset again -- which clears
+ * every field -- so the elapsed hold has to be carried across it, or the release
+ * that follows looks like a runt and silently does nothing. */
+static void test_rewriting_the_control_byte_does_not_restart_the_hold(void) {
+  ap_sc499_t t;
+  ap_sc499_reset(&t);
+
+  ap_sc499_write(&t, AP_SC499_CONTROL_STATUS, AP_SC499_CTL_RESET);
+  ap_sc499_advance(&t, 100u);
+
+  /* Most of the minimum elapses, then the byte is written again with the bit
+   * still up, then the rest of it. Neither half alone is a legal hold. */
+  const ap_time_t half = AP_SC499_T_RESET_MIN_HOLD / 2u;
+  ap_sc499_advance(&t, 100u + half);
+  ap_sc499_write(&t, AP_SC499_CONTROL_STATUS,
+                 (uint8_t)(AP_SC499_CTL_RESET | AP_SC499_CTL_IEN));
+  const ap_time_t release = 100u + AP_SC499_T_RESET_MIN_HOLD + 1u;
+  ap_sc499_advance(&t, release);
+  ap_sc499_write(&t, AP_SC499_CONTROL_STATUS, 0u);
+
+  /* Two advances: the first dates the arming, the second reaches the deadline
+   * it set. The release itself cannot date it -- see `ap_sc499_advance`. */
+  ap_sc499_advance(&t, release + AP_SC499_T_RESET_TO_EXCEPTION);
+  TEST_ASSERT_FALSE(t.exception);
+  ap_sc499_advance(&t, release + 2u * AP_SC499_T_RESET_TO_EXCEPTION);
+  TEST_ASSERT_TRUE(t.exception);
 }
 
 static void test_the_handshake_times_are_exact_in_base_units(void) {
@@ -419,6 +509,9 @@ int main(void) {
   RUN_TEST(test_holding_the_reset_bit_holds_the_controller);
   RUN_TEST(test_the_unused_low_bits_read_as_one);
   RUN_TEST(test_releasing_the_reset_raises_an_exception_only_after_the_interval);
+  RUN_TEST(test_a_reset_pulse_shorter_than_the_minimum_does_not_reset);
+  RUN_TEST(test_a_dma_reset_releases_the_hold_and_runs_the_confidence_test);
+  RUN_TEST(test_rewriting_the_control_byte_does_not_restart_the_hold);
   RUN_TEST(test_two_controllers_reset_alike_hold_identical_state);
   return UNITY_END();
 }

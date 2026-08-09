@@ -3421,7 +3421,7 @@ failure that cost a bit position in the 68020's module entry word.
 | Cartridge tape images (`image/ap_ct.c`) | working: block addressing over a raw `.ct` image, refusing any size that is not a whole number of 512-byte blocks, and boot-record parsing that returns the four header words. Their reading as load address and entry point is now **confirmed by the boot code itself** — its first instruction, a PC-relative `LEA`, computes word 0 exactly when executed at word 1, so the image proves its own layout. `ap_ct_boot_image` therefore *names* load address, entry point and length, and refuses a cartridge that does not announce itself, or whose header describes more than the file holds. Takes memory, never a filename, so `src/core` keeps its zero file I/O and the tests need no gitignored media | `ct_suite`, 12 tests; `FINDINGS.md` C24 |
 | Apollo display controller (`05D800`, `05E800`) | **identification**: both register blocks decode whether or not a screen is fitted, and the device ID at offset 1 reports `C4P=8`, `19I=9`, `C8P=10` or `15I=11` for the fitted family and `FF` for the other. An absent screen reads `FF` and does **not** bus error — "nothing is fitted" and "nothing is there" are different answers, and getting that wrong cost an investigation. **Drawing**: `CR0`'s mode and shift, `CR1`'s bits named per family, `CR2`'s two plane-select encodings, all sixteen raster operations, the word-level data path with its two active-low fields, and the blit that is the plane loop around them. **Lookup table**: the Bt458 wired behind its data and control ports, active-low chip selects, the FIFO that commits a palette on the release of `CPAL_CS`. **Raster**: both dot clocks, the beam as a function of the instant, and the status register's timing bits gated on `CR1`. **Scanout**: the four geometries, each buffer width being the manual's own printed capacity divided out, planes composed with plane 0 as bit 0 and bit 15 as the leftmost pixel. **Registers**: sixteen of them in two groups of eight, the low group aliased across the block, `CR0`-`CR3B`, the 16-bit write enable and the 32-bit raster operation, with `CR3A` as a bit port onto `CR1`. Still unmodelled and reading `FF`: the status register, the raster operation's write-only low half, and the lookup table's two ports | `graphics_suite`, 82 tests; `FINDINGS.md` C31-C32 |
 | Apollo cartridge tape (`050000`) | working, **controller joined to the drive**: a data-register write with the request bit set is a QIC-02 command, reads deliver the cartridge a byte at a time across the drive's block boundary, and a refused command or the end of tape raises Exception. The command handshake's **three entry conditions** are modelled — ready, exception, device-holds-the-bus, one figure each — and now **its timings too**: the device carries a clock, a command deasserts READY at once and reaches its destination only when the figure's interval has passed. Every interval is `PROVISIONAL`, since §1.13.2 publishes bounds rather than values. Four registers at stride 1, the upper four of each eight floating to `FF`, aliased through the range, on IRQ5 through to vector `A5`. The measured reset dump is reproduced over two aliasing periods | `tape_suite`, 17 tests; `FINDINGS.md` C16-C19 |
-| Archive SC-499 cartridge tape controller (the part) | **register model complete**: all four addresses of `[SC499]` §1.9 — data/command, control-on-write and status-on-read, and the two write-triggered DMA commands — plus the derived interrupt flag, the tri-stated IRQ line, and RSTDMA's documented identity with power-on reset. **The status register's polarity is corrected**: RDY and EXC are asserted *low*, and the interrupt flag is a disjunction rather than a conjunction — see the section below. The QIC-02 command set itself, tape motion and the drive behind it are not modelled. Not yet wired to the board at `050000` | `sc499_suite`, 18 tests, `Archive SC-499 Information Guide` | **Oracle note:** MAME's own SC-499 models no media change at all, so a cartridge swapped while Domain/OS holds the drive crashes it; `ext/mame` carries a local edit treating insertion as a QIC-02 RESET, per `FINDINGS.md` C56.
+| Archive SC-499 cartridge tape controller (the part) | **register model complete**: all four addresses of `[SC499]` §1.9 — data/command, control-on-write and status-on-read, and the two write-triggered DMA commands — plus the derived interrupt flag, the tri-stated IRQ line, and RSTDMA's documented identity with power-on reset. **The status register's polarity is corrected**: RDY and EXC are asserted *low*, and the interrupt flag is a disjunction rather than a conjunction — see the section below. The QIC-02 command set itself, tape motion and the drive behind it are not modelled. Not yet wired to the board at `050000` | **§1.12's reset protocol is complete**: the 25 us minimum hold is enforced (a narrower pulse resets nothing), it survives a rewrite of the control byte with the bit still up, and RSTDMA is the second documented release path | `sc499_suite`, 21 tests, `Archive SC-499 Information Guide` | **Oracle note:** MAME's own SC-499 models no media change at all, so a cartridge swapped while Domain/OS holds the drive crashes it; `ext/mame` carries a local edit treating insertion as a QIC-02 RESET, per `FINDINGS.md` C56.
 | Apollo disk and floppy (`04D000`, `05F800`) | working: both halves of the one card, placed **74 KB apart** by measurement, each aliased through 1 KB on its own period — four registers for the fixed disk, an eight-address block for the floppy. Interrupts on IRQ14 and IRQ6, separate lines eight apart. The gap is pinned as arithmetic, not constants: the AT window maps `Apollo = 0x040000 + AT × 0x80` | `disk_suite`, 6 tests; `FINDINGS.md` C20, C22, C23 |
 | OMTI command descriptor blocks | working: the 6-byte CDB decoded with the **cylinder reassembled from three bytes** (C10 in byte 1, C09/C08 in byte 2, low eight in byte 3), the command byte exposed both whole and split into class and opcode, and acceptance checked against the ESDI command set — which **refuses** `0C INITIALIZE DRIVE CHARACTERISTICS`, an ST506-only command that would make ESDI geometry look settable | `omti_cdb_suite`, 7 tests; `FINDINGS.md` C27 |
 | OMTI 862X ESDI/floppy controller (the part) | **register model complete for both halves**: the fixed disk's four ports with their read/write asymmetries and the status register's fixed bits, and the floppy's five at the standard PC layout. Modelled as two independent register sets sharing nothing, as `[OMTI]` §4.1 and §3.4 describe. Both measured dumps reproduced as tests. **Both command sets now modelled**: §5's fixed disk over `.awd`, and §6's floppy over `.afd` — ten commands and INVALID, with ST0–ST3 result bytes, and **no `WRITE DATA`**, which neither our §6 nor the sibling 8640's §5.3 lists. **`1E READ DATA TO BUFFER` implemented** -- §5.4.19's "reads data from the disk
@@ -21672,3 +21672,60 @@ does not reach the `00120020` crash. The crash investigation passes
 
 *Verification: three 350 M boots as above, hash `F442814C47D34D7D` in all three;
 `ctest` 130/130.*
+
+## The 200 ms was the wrong thing to question first; §1.8.1 was already on disk
+
+The plan of record was to question `AP_SC499_T_RESET_TO_EXCEPTION`, provisional
+at 200 ms, because our exception now arrives sooner than the oracle's relative
+to the driver's polling. The resolution order says the guide comes first, and
+the guide had three things to say -- one of them about that very figure.
+
+**§1.8.1, Power-On Confidence Test.** "A POC test occurs automatically when
+power is applied **or when a reset command is issued**... Successful completion
+of the above tests are reported to the host by the assertion of EXC- **within
+five seconds**. If EXC- is not asserted within this time a failure is
+indicated." So the reset response *is* the POC test, and it is bounded at 5 s.
+
+That does not pin 200 ms and it is not supposed to: 5 s is a failure threshold,
+and a part running four sub-tests including a 16K RAM check does not take the
+same time every unit. What it settles is that **200 ms is legal hardware** --
+the figure is unsourced, not wrong -- so the divergence it produces is not
+evidence of a bug in it. The header comment said "*How long* is in neither
+document", which was false, and is corrected in the same commit.
+
+**§1.12, two rules the model did not have.** Walking the section for the figure
+turned up the part that was actually missing:
+
+- "RSTSAC must be set, **held for more than 25 usec**, then cleared." A
+  requirement on the host that nothing enforces is a comment, so a narrower
+  pulse now resets nothing. "More than" is strict, and the boundary belongs to
+  the runt.
+- "...cleared by either writing a 0 to Control Register Bit 7 **or by a
+  RSTDMA**." A second release path, and releases are what start the confidence
+  test. Modelling only the first left a documented way to reset the controller
+  that produced no exception at all.
+
+A third case falls out of the first: a driver rewriting the control byte with
+the bit still up is holding the part down, not re-pulsing it, and the rewrite
+runs `ap_sc499_reset`, which clears the hold clock along with everything else.
+The elapsed hold is carried across it, or the eventual release looks like a runt
+and silently does nothing.
+
+**Measured before modelling, because the risk ran the other way.** Enforcing a
+minimum hold can only *remove* a reset, and this core had just gained its first
+completed tape handshake. Domain/OS holds RSTSAC for **1395.5 us** -- 55.8x the
+minimum -- pulsing it exactly once in a 450 M-instruction boot. So the rule is
+enforceable here with nothing to lose, which is the measurement worth having
+before writing the code rather than after.
+
+And that is confirmed on the real output rather than argued: both reference
+boots are **byte-identical** across the change. The identity boot returns
+`F442814C47D34D7D` with the same `final PC` and `clocks`, and the crash-clock
+boot returns the same `final PC 0100040A`, `clocks 1605628901` and the same
+exception census down to `32 x vector 174`. A documented rule is now enforced
+and this machine cannot tell.
+
+*Verification: `sc499_suite` 18 -> 21 (a runt pulse at both zero width and
+exactly the minimum; RSTDMA as a release, and inert when nothing is held; a
+rewrite mid-hold). `ctest` 130/130. Two 350 M/450 M boots byte-identical to the
+pre-change binary.*

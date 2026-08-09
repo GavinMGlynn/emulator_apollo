@@ -188,6 +188,15 @@ typedef struct {
   bool reset_arming;
   bool reset_pending;
   ap_time_t exception_at;
+  /* How long RSTSAC has been held. §1.12 makes 25 us a *requirement* on the
+   * host -- "RSTSAC must be set, held for more than 25 usec, then cleared" --
+   * so a narrower pulse is not a reset and must not arm the exception. Dated at
+   * the next advance for the same reason `exception_at` is: setting the bit runs
+   * `ap_sc499_reset`, which clears `now` along with everything else, so there is
+   * no instant to read at the write itself. */
+  bool hold_dating;
+  bool hold_dated;
+  ap_time_t held_since;
   /* Which figure the command in flight entered by, kept so the completion knows
    * what to undo -- 1-8 lifts an exception, 1-9 hands back the bus. */
   ap_sc499_entry_t entry;
@@ -237,12 +246,25 @@ typedef struct {
  * response to an exception**. Domain/OS corroborates -- its tape reset waits
  * for status `57`, which is EXCEPTION asserted, and cannot proceed without it.
  *
- * *How long* is in neither document. `[SC499]` §1.12 specifies the host's side
- * exactly ("held for more than 25 usec") and says nothing about the
- * controller's response; §1.13.2's "Exception Asserted" figure is a *command*
- * transfer, not a reset; `tpqic02.h`'s timeouts are all per-command. So this
- * figure is the oracle's, and the oracle's is itself unsourced --
+ * *How long* is **bounded** by the guide and not fixed by it, which is the
+ * correction to what this comment used to say ("in neither document"). §1.8.1,
+ * Power-On Confidence Test: "A POC test occurs automatically when power is
+ * applied **or when a reset command is issued**... Successful completion of the
+ * above tests are reported to the host by the assertion of EXC- **within five
+ * seconds**. If EXC- is not asserted within this time a failure is indicated."
+ *
+ * So the reset response is the POC test, its ceiling is 5 s, and 5 s is a
+ * *failure* threshold rather than a typical -- the page gives no typical, and a
+ * part that ran four sub-tests including a 16K RAM check plainly does not take
+ * the same time every unit. Any value below 5 s is legal hardware, which is what
+ * makes this figure provisional rather than wrong: 200 ms is inside the legal
+ * range, it is the oracle's, and the oracle's is itself unsourced --
  * `sc499.cpp` arms `attotime::from_msec(200)` with no citation.
+ *
+ * §1.12 specifies the host's side exactly ("held for more than 25 usec"), which
+ * is modelled -- see `AP_SC499_T_RESET_MIN_HOLD`. §1.13.2's "Exception Asserted"
+ * figure is a *command* transfer, not a reset; `tpqic02.h`'s timeouts are all
+ * per-command.
  *
  * Adopted rather than invented, and marked so it cannot be mistaken for a
  * measurement: the value must exceed nothing in particular and only has to fall
@@ -251,6 +273,20 @@ typedef struct {
  * Replace it with a figure from the QIC-02 standard or from hardware; a named
  * plan item carries it. */
 #define AP_SC499_T_RESET_TO_EXCEPTION AP_SC499_US(200000) /* PROVISIONAL */
+
+/* `[SC499]` §1.12, RSTSAC: "must be set, **held for more than 25 usec**, then
+ * cleared by either writing a 0 to Control Register Bit 7 or by a RSTDMA."
+ *
+ * This is a requirement on the *host*, and modelling it means a narrower pulse
+ * does not reset the controller -- which is the only reading that gives the
+ * sentence force. The guide does not say what a shorter pulse does, so "not a
+ * reset" is a choice among undefined behaviours, taken because the alternative
+ * makes the stated minimum unobservable and therefore untestable.
+ *
+ * It costs this machine nothing: Domain/OS holds RSTSAC for 1395.5 us, 55.8x
+ * the minimum, measured over a 450 M-instruction boot in which the driver pulses
+ * it exactly once. `PROJECT_STATUS.md` records the measurement. */
+#define AP_SC499_T_RESET_MIN_HOLD AP_SC499_US(25)
 
 /* Figure 1-5, Data Transfer Write Operation, T14->T15: "Device Asserts READY
  * (Device READY For Next Data Block)", timed `100 us. < T14--->T15`.

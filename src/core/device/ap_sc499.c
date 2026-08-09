@@ -86,6 +86,16 @@ void ap_sc499_advance(ap_sc499_t *tape, ap_time_t now) {
    * at power-on, so there is no instant to read at that point. Arming and then
    * dating on the next advance is the only form that is correct for both
    * callers. */
+  /* The same dating problem as the deadline below, for the same reason: the
+   * write that sets RSTSAC runs `ap_sc499_reset`, so the instant it happened is
+   * gone by the time anything could read it. Stamped at the first advance after
+   * the bit goes up, which is at most one tick late on a cycle-stepped core. */
+  if (tape->hold_dating) {
+    tape->hold_dating = false;
+    tape->hold_dated = true;
+    tape->held_since = tape->now;
+  }
+
   if (tape->reset_arming) {
     tape->reset_arming = false;
     tape->reset_pending = true;
@@ -248,8 +258,23 @@ void ap_sc499_write(ap_sc499_t *tape, unsigned reg, uint8_t value) {
        * carries the bit, so the reset must not clear the byte that requested
        * it -- a driver holding the bit high is holding the part in reset. */
       uint8_t held = value;
+      /* The hold survives the reset it causes. A driver that rewrites the byte
+       * with the bit still up is still holding the part down -- it has not
+       * re-pulsed it -- and `ap_sc499_reset` clears these along with everything
+       * else, so without carrying them across, a rewrite would erase the elapsed
+       * hold and the eventual release would look like a runt pulse. */
+      const bool dating = was_held && tape->hold_dating;
+      const bool dated = was_held && tape->hold_dated;
+      const ap_time_t since = was_held ? tape->held_since : (ap_time_t)0;
       ap_sc499_reset(tape);
       tape->control = held;
+      if (was_held) {
+        tape->hold_dating = dating;
+        tape->hold_dated = dated;
+        tape->held_since = since;
+      } else {
+        tape->hold_dating = true; /* the rising edge starts the clock */
+      }
     } else if (was_held) {
       /* The *release*. `[SC499]` §1.12: RSTSAC "must be set, held for more than
        * 25 usec, then cleared" -- so this edge, not the setting, is what starts
@@ -257,9 +282,19 @@ void ap_sc499_write(ap_sc499_t *tape, unsigned reg, uint8_t value) {
        * reset, which the protocol reports as an exception, so the exception is
        * armed rather than asserted here: the driver's first poll must see the
        * idle `F7` before its second sees `57`, and asserting immediately would
-       * skip the first. */
-      tape->exception = false;
-      tape->reset_arming = true;
+       * skip the first.
+       *
+       * And only if the pulse was wide enough. "More than 25 usec" is strict, so
+       * a hold of exactly the minimum is not one. */
+      const bool wide_enough =
+          tape->hold_dated &&
+          tape->now - tape->held_since > AP_SC499_T_RESET_MIN_HOLD;
+      tape->hold_dating = false;
+      tape->hold_dated = false;
+      if (wide_enough) {
+        tape->exception = false;
+        tape->reset_arming = true;
+      }
     }
     return;
   }
@@ -270,9 +305,25 @@ void ap_sc499_write(ap_sc499_t *tape, unsigned reg, uint8_t value) {
     tape->dma_active = true;
     tape->done = false;
     return;
-  case AP_SC499_RSTDMA:
-    /* Defined as equal to power-on reset. */
+  case AP_SC499_RSTDMA: {
+    /* Defined as equal to power-on reset -- and §1.12 gives it a second job:
+     * RSTSAC is "cleared by either writing a 0 to Control Register Bit 7 **or by
+     * a RSTDMA**". So a RSTDMA issued while the host is holding RSTSAC is a
+     * release, and releases are what start the POC test that ends in an
+     * exception. Modelling only the control-register path would leave a
+     * documented way to reset the controller silently inert.
+     *
+     * Computed before the reset, which clears both the control byte that says
+     * the bit was held and the clock the hold is measured against. */
+    const bool was_held = (tape->control & AP_SC499_CTL_RESET) != 0u;
+    const bool wide_enough = was_held && tape->hold_dated &&
+                             tape->now - tape->held_since >
+                                 AP_SC499_T_RESET_MIN_HOLD;
     ap_sc499_reset(tape);
+    if (wide_enough) {
+      tape->reset_arming = true;
+    }
     return;
+  }
   }
 }
