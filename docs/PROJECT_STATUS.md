@@ -21181,3 +21181,46 @@ anywhere the last four hypotheses looked.
 
 *Verification: the disassembly above from a `--dump-logical` at a stop inside the
 second loop, on the matched MD path.*
+
+
+## The mechanism, measured: our calibrated delay is 200 ms shorter than the oracle's
+
+The delay loop is the same instructions on both machines and a different length
+of *time*. Measured over the same span -- ours from `clocks` across a million
+instructions inside the loop, the oracle's from `total_cycles()` across 800,000
+visits to the same PC:
+
+| | cycles per 4-instruction iteration | 999,999 iterations at 25 MHz |
+| --- | --- | --- |
+| ours | **13.0** | **520 ms** |
+| oracle | **18.0** | **720 ms** |
+
+So Domain/OS asks for a fixed wait and gets **200 ms less of it here**. A device
+that becomes ready somewhere between 520 and 720 ms is ready on the oracle and
+not on this machine, and the code after the delay then does different work --
+with nothing wrong at the branch, the address, the device model's registers, or
+the poll, all four of which are eliminated.
+
+**Which of the two is right is genuinely open, and the reading matters.**
+
+- *Our 13.0 may be correct.* All four instructions sit in the instruction cache
+  after the first iteration, and `[030]`'s timings are cache-case figures --
+  which is exactly the sort of thing MAME does not model and this project
+  expects to out-accurate. On that reading the real machine's delay is ~520 ms
+  too, Domain/OS works with it on real hardware, and **the defect is that our
+  device takes longer than 520 ms to become ready** when the real one does not.
+- *Or our 13.0 is too fast.* A hand sum of the four instructions from the
+  manual's tables lands nearer 18 than 13 in the no-cache case, so if the cache
+  is not doing what this core thinks, the delay is genuinely short and the CPU
+  timing is the defect.
+
+Those are distinguishable and neither is assumed: the next step is the four
+instructions' cache-case costs from `[030]` §11's tables, page images, against
+what `ap_m68030` charges for each -- a paper measurement, no boot needed. What
+is *not* open is the mechanism: a calibrated delay that differs by 200 ms
+between the two machines, at the exact instant they diverge.
+
+*Verification: our figure from two runs of `tools/md-session.sh` stopped inside
+the loop (`clocks` 604,516,374 -> 607,766,376 over 1,000,000 instructions); the
+oracle's from `total_cycles()` at visits 200,000 and 1,000,000 (413,241,888 ->
+427,641,888), instrumented and reverted.*
