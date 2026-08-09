@@ -2953,7 +2953,14 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
     already there, and the `PMOVE` never runs; the later access to `EF` then
     faults inside the lock the mapper at `3C43D95C` took, which is exactly what
     `00120020` reports. The fault, the lock and the skipped install are **one
-    event, not three**. Detail in `PROJECT_STATUS.md`.
+    event, not three**.
+    **The whole narrative is now measured end to end**: the kernel allocates page
+    frame `0x416F`, derives `0105BC00` from it (`<< 10`), writes that into the
+    root pointer table at `$3C43C96E` entry 1 — the ring records `A0 = 3C43C96E`
+    at the store — writes the `ED`–`EF` mappings, asks for space 1, and is told
+    by its own cache it is already there. **One step is unexplained: why the
+    cache claims space 1 when nothing has installed it.** Detail in
+    `PROJECT_STATUS.md`.
 
 **Order matters here, and this file had it wrong.** The boot is a *test*, and
 two of its children were unfinished *implementation*. `CLAUDE.md` says

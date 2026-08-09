@@ -19201,11 +19201,31 @@ machines allocate the same frame number because both run the same allocator over
 the same disk from the same reset, so both compute `0105BC00`. It was never
 evidence that the two agreed about anything except the allocation order.
 
-**And it names the store worth watching.** The `MOVE.L D0,(A0,...)` at `3C46FE6E`
-puts the derived address into a table; if that table is the per-space root
-pointer list at `$3C43C96E`, this is the instruction that fills in entry 1 --
-the entry the switch would have loaded had it not been skipped. That is a
-one-stop measurement rather than a guess: stop there and read `A0`.
+**And the store's destination is measured, not guessed.** At `3C46FE6E` the ring
+records **`A0 = 3C43C96E`** -- the per-address-space root pointer table itself,
+the same base the switch routine loads with `LEA $3C43C96E(PC),A0`. So that
+instruction is what fills in **entry 1**, the entry the switch would have read
+had it not been skipped.
+
+**Which completes the narrative of the crash, every step measured:**
+
+1. The kernel allocates page frame `0x416F`.
+2. It derives `0105BC00` from it -- `0x416F << 10` -- at `3C46FE64`/`3C46FE6C`.
+3. It writes that into the root pointer table at `$3C43C96E`, entry 1
+   (`3C46FE6E`, `A0 = 3C43C96E`).
+4. It writes mappings for indices `ED`, `EE`, `EF` into `3C5BFC00`
+   (`3C46FE86` onward).
+5. It asks to switch to the address space those belong to -- space **1**.
+6. Its cache at `$3C43FB14` already claims space 1, so the gate at `3C43DDCE` is
+   taken and the one `PMOVE` never runs. Entry 1 is filled in and never loaded.
+7. The later access to `3BFF0001` -- index `EF`, one of the three just written --
+   faults, because the MMU is still walking space 0's tree.
+8. The fault lands inside the lock the mapper at `3C43D95C` took, which is what
+   `00120020` reports.
+
+Every one of those is from an executed instruction or a dump taken at a stop.
+What remains unexplained is step 6 alone: why the cache claims space 1 when
+nothing has installed it.
 
 *Verification: the instruction sequence is from the 60,000-step ring, executed
 rather than disassembled; the arithmetic is checked -- `0x416F << 10 =
