@@ -18974,8 +18974,24 @@ press, `--boot-input-interval 400000`, forty carriage returns, and a budget
 reaching about forty-five emulated seconds. `expect MD7C` / `send EX CONFIG` has
 been driven that way before.
 
-*Verification: the failed attempt's console, which reaches the self-test question
-rather than `MD7C`. No code changed.*
+**The second attempt did not reach it either, and stopped somewhere useful.**
+`--service-mode --boot-key 0x5A` with forty carriage returns at
+`--boot-input-interval 400000` and a 400 M-instruction budget -- comfortably past
+forty-five emulated seconds -- produces **no console output at all** and ends at
+`PC 0000078E`, which this file already identifies as the service-mode poll. So
+the machine is in service mode and waiting, and what it is waiting for is not
+what was sent. The recipe recorded above reached `MD7C` with the same switch and
+a keyboard press, so the missing part is in how the press or the pacing is
+delivered, not in whether the route exists.
+
+That is a harness question rather than a kernel one, and it is the next thing to
+settle, because until our boot can be made to take the oracle's route the
+`CRP`-at-entry difference stays unattributable. Both attempts are recorded here
+so the third does not repeat them: carriage returns alone do not interrupt the
+autoboot, and service mode alone does not produce the sign-on.
+
+*Verification: two consoles -- one reaching the self-test question, one silent at
+`0000078E`. No code changed.*
 
 
 
