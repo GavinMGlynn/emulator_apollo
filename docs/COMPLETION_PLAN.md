@@ -2890,7 +2890,14 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
     oracle must call this routine *earlier* with a different argument. So the
     question is now **which call the oracle makes before ours makes any**, and it
     needs the oracle instrumented at this routine rather than at the register.
-    Detail in `PROJECT_STATUS.md`.
+    A write tap on the cache word is built (`APOLLO_ASID_TAP` in
+    `mdsession.lua`) and **caught nothing in a run that installed the root
+    pointer ten times** — the tapped physical address was wrong, because it was
+    read off a `--dump-logical` window header and offset into. Only a window's
+    *first* address has been through the MMU; the rest is attributed, not
+    translated. The same assumption produced garbage when disassembling
+    `3C452930`. Resolving the address properly is the next step, and the tap is
+    otherwise ready. Detail in `PROJECT_STATUS.md`.
 
 **Order matters here, and this file had it wrong.** The boot is a *test*, and
 two of its children were unfinished *implementation*. `CLAUDE.md` says

@@ -442,6 +442,52 @@ if crp_log ~= nil and crp_log ~= "" then
 	end
 end
 
+-- ## Address-space-cache tap, opt-in with APOLLO_ASID_TAP=<hex physical address>
+--
+-- The root-pointer poll above says *what* the oracle installs and roughly when.
+-- What it cannot say is what the kernel was **asked** for, and that is now the
+-- question: our machine's only root-pointer install is skipped because the space
+-- requested equals the one its cache says is current, so the oracle must be
+-- asked for a different space first.
+--
+-- The kernel records the space it is switching to eight instructions before the
+-- `PMOVE`, with `MOVE.W D0,$3C43FB14`. Every successful switch therefore writes
+-- that word, and a write tap on it yields the sequence of requests directly --
+-- without hooking an instruction path, which is the thing that failed before.
+--
+-- The address is passed in rather than hardcoded because it is *physical*: MAME
+-- taps the CPU's address space, and the kernel's own logical `3C43FB14` resolves
+-- through the MMU. On this image it lands at `01042714`.
+local asid_tap_at = tonumber(os.getenv("APOLLO_ASID_TAP") or "", 16)
+local asid_file, asid_tap = nil, nil
+if asid_tap_at ~= nil then
+	asid_file = io.open((os.getenv("APOLLO_CRP_LOG") or "crpwatch.log") .. ".asid", "w")
+	local ok, err = pcall(function()
+		local sp = manager.machine.devices[":maincpu"].spaces["program"]
+		-- The tap is on the CPU's 32-bit space, so the range must cover whole
+		-- long words: MAME refuses `x..x+1` with "end address has low bits
+		-- unset", which is a good error and was reported rather than swallowed.
+		local lo = asid_tap_at & ~3
+		asid_tap = sp:install_write_tap(lo, lo + 3,
+			"asid-cache",
+			function(offset, data, mask)
+				asid_file:write(string.format("%10.4f  write %08X = %04X  pc %08X\n",
+					manager.machine.time:as_double(), offset, data & 0xFFFF,
+					manager.machine.devices[":maincpu"].state["PC"].value))
+				asid_file:flush()
+				return data
+			end)
+	end)
+	if not ok then
+		asid_file:write("FATAL could not install the tap: " .. tostring(err) ..
+		                "\nFATAL this run proves nothing about the requests\n")
+		asid_file:flush()
+	else
+		asid_file:write(string.format("# write tap on %08X installed\n", asid_tap_at))
+		asid_file:flush()
+	end
+end
+
 local function crp_poll()
 	if crp_file == nil then return end
 	local cpu = manager.machine.devices[":maincpu"]

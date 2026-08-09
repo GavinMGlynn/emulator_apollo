@@ -18717,6 +18717,48 @@ at the register.
 so it does not depend on disassembling around instructions capstone cannot read.
 No code changed.*
 
+## The tap that reported its own address was wrong
+
+The next instrument after the root-pointer poll was a **write tap on the address-
+space cache**: the kernel records the space it is switching to eight instructions
+before the `PMOVE`, with `MOVE.W D0,$3C43FB14`, so every successful switch writes
+that word and a tap on it yields the *requests* -- which is what our side lacks,
+since ours never gets past the gate to write it. `mdsession.lua` takes
+`APOLLO_ASID_TAP=<hex physical>` and installs it with MAME's
+`install_write_tap`.
+
+**It refused the first range and said so**: "end address has low bits unset, did
+you mean 1042717?" -- the CPU's space is 32 bits wide, so a tap must cover whole
+long words. Aligning to `addr & ~3 .. +3` installs cleanly. Worth recording only
+because the instrument *reported* it into its own log rather than installing
+nothing and producing a plausible silence, which is the failure this whole line
+of work exists to avoid.
+
+**And then it caught nothing, in a run that installed the root pointer ten
+times.** The same run's poll shows `01001400` at 11.69 s, `0105BC00` at 36.17 s,
+and -- corroborating that the oracle runs *our* code -- one sample taken at
+`pc 3C43DDC8`, which is the `CMP.W` two instructions before the gate at
+`3C43DDCE`. The oracle is executing the same routine and not taking the branch.
+
+So the writes happen and the tap missed them, which means **the physical address
+was wrong**, and the error is ours rather than the oracle's. `01042714` was
+derived by taking `--dump-logical`'s header for the `3C430000` window
+(`-> 01032C00`) and adding the offset within it. That assumes a 128 Kbyte logical
+window is physically contiguous, and nothing guarantees it: the dump resolves its
+*start* address and then reads physically onward, so an address deep inside a
+window is attributed rather than translated. The same assumption is why an
+earlier attempt to disassemble `3C452930` produced garbage.
+
+**Which makes a rule out of it**: an address inside a `--dump-logical` window is
+not translated, and must not be used as a physical address. Only the window's
+first address has been through the MMU. Resolving one properly costs a
+`--dump-logical <addr>:8` of its own, and that is what the next tap will use.
+
+*Verification: the tap's own log, the ten root-pointer changes in the same run,
+and the `3C43DDC8` sample that places the oracle inside the routine. No code
+changed in the core.*
+
+
 
 
 
