@@ -19087,6 +19087,54 @@ those are data, which a dump taken at the right stop **can** answer, unlike code
 *Verification: the instructions above are from the 60,000-step ring, executed
 rather than disassembled. No code changed.*
 
+## The loop immediately before the request writes the indices the crash faults on
+
+Following the requested value back through the 60,000-step ring lands on a loop
+that ties the two ends of this investigation together.
+
+**First, a correction to avoid.** The instruction that puts `1` in `D0` closest to
+the call is `3C46FE86 MOVEQ #1,D0`, and it is **not** the address space number --
+it is a `DBRA` loop count. The space asked for is the low word of `D2`, which
+holds `3C000001`, moved into `D0` at `3C46FED2` and pushed at `3C41956A`. Reading
+the `MOVEQ` as the argument would have been the same class of error as reading a
+logged address as an instruction.
+
+**What the loop does is the interesting part:**
+
+```
+3C46FE86  7001  MOVEQ   #1,D0            ; two iterations
+3C46FE88  323C  MOVE.W  #$ED,D1          ; starting index
+3C46FE8C  207C  MOVEA.L #$3C5BFC00,A0    ; a table base
+3C46FE92  25B0  MOVE.L  ...              ; write an entry
+3C46FE98  25B0  MOVE.L  ...              ; and another
+3C46FEA2  5241  ADDQ.W  #1,D1            ; ED -> EE -> EF
+3C46FEA4  51C8  DBRA    D0,$3C46FE92
+```
+
+It fills entries at indices **`ED`, `EE` and `EF`** into a structure based at
+`3C5BFC00`, and then -- within forty instructions -- the kernel asks to switch
+address space, and our machine declines.
+
+**`EF` is the index the crash faults on.** The fatal access is to `3BFF0001`, and
+this file has recorded its table index as `0xEF` since the fault was first
+localised. So the sequence is now visible end to end: the kernel installs the
+mappings for `ED`-`EF` into the tree it has built, asks for the address space
+those mappings belong to, is told by its own cache that it is already there, and
+the `PMOVE` never runs -- so the mappings it just wrote are in a tree the MMU is
+not walking. The later access to `EF` then faults, inside the lock the mapper at
+`3C43D95C` took, which is exactly what `00120020` reports.
+
+That does not yet say why the cache lies about the current space, which remains
+the open question. It does say that the fault, the lock and the skipped install
+are one event rather than three, and it identifies the structure at `3C5BFC00`
+that the mappings are written into -- data, at a known stop, which is the kind of
+thing a dump can answer.
+
+*Verification: all instructions above are from the 60,000-step ring, executed
+rather than disassembled; the `0xEF` index is this file's own earlier
+localisation of the fault. No code changed.*
+
+
 
 
 

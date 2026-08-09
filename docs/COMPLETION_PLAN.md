@@ -2944,8 +2944,16 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
     module active *before* it — so the kernel works on address spaces, then asks
     once, for space 1. The value is **read from memory**, not computed. It is
     not taking a wrong branch; it is being handed the number by something it
-    built earlier, and the two routines at `3C43D95C`–`3C43D9BC` and
-    `3C43DB6C`–`3C43DBAE` are where to look. Detail in `PROJECT_STATUS.md`.
+    built earlier.
+    **And the sequence is now visible end to end.** Forty instructions before the
+    request, a loop at `3C46FE86` writes entries at indices **`ED`, `EE`, `EF`**
+    into a structure at `3C5BFC00` — and `EF` is the index the crash's
+    `3BFF0001` faults on. So the kernel installs those mappings in the tree it
+    built, asks for the space they belong to, is told by its own cache it is
+    already there, and the `PMOVE` never runs; the later access to `EF` then
+    faults inside the lock the mapper at `3C43D95C` took, which is exactly what
+    `00120020` reports. The fault, the lock and the skipped install are **one
+    event, not three**. Detail in `PROJECT_STATUS.md`.
 
 **Order matters here, and this file had it wrong.** The boot is a *test*, and
 two of its children were unfinished *implementation*. `CLAUDE.md` says
