@@ -20870,9 +20870,18 @@ checksum at offset `$0E` remains the candidate and remains unknown.
 **Not found, and recorded as not found**: what code prints it. There is no
 32-bit literal `01004FB8` in the image and no `LEA (d16,PC),An` resolving to it,
 so the message is reached by a computed reference -- a table index, or a base
-register this static read cannot resolve. Finding it needs a *watch* on the
-string's address during a run rather than more disassembly, which is a cheaper
-instrument than the two searches already spent.
+register this static read cannot resolve.
+
+**Bracketed, though, so the next attempt is one run rather than four.** A read
+watch on the string over a 300 M boot -- long enough that the warning does
+appear on the console -- counts **12 reads**. Reads 1-7 are the PROM's memory
+sweep and its loader (the seventh at 162,877,889, *before* `SELF_TEST`'s entry
+at 162,878,376, from `PC 00008542`), and the twelfth is the loader's copy loop
+again at `PC 01002172`. So the print is **one of reads 8 to 11**, and
+`--boot-stop-on-watch-read 8` upward with a trace ring lands on it directly.
+
+Four runs went into narrowing this, which is three more than the rule allows;
+the bracket is written down so the next session spends one.
 
 *Verification: the two searches above over the PROM file and over a dump taken
 at `SELF_TEST`'s entry; the dump parsed by fixed column width, per the rule that
