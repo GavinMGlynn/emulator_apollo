@@ -19174,6 +19174,44 @@ better, since it is data -- a dump of that frame at a known stop.
 *Verification: the load chain and the loop are both from the 60,000-step ring,
 executed rather than disassembled. No code changed.*
 
+## Where `0105BC00` comes from: a page frame number, shifted
+
+Following the frame that supplies the requested space led past it to something
+more useful -- the origin of the tree address itself. Immediately before the call
+that establishes the frame, in the executed ring:
+
+```
+288639157  3C46F02A  2002  MOVE.L D2,D0        ; d0 = 0000416F
+288639163  3C46FE64  E188  LSL.L  #8,D0        ; -> 00416F00
+288639165  3C46FE6C  E588  LSL.L  #2,D0        ; -> 0105BC00
+288639166  3C46FE6E  2180  MOVE.L D0,(A0,...)  ; and stored
+288639169  3C46FE7A  2F03  MOVE.L D3,-(A7)
+288639170  3C46FE7C  6100  BSR    $3C46EFE8
+```
+
+**`0105BC00` is not a constant anywhere.** It is page frame `0x416F` shifted left
+by ten -- `0x416F * 0x400` -- computed at run time and then written somewhere by
+the `MOVE.L D0,(A0,...)`. So the kernel allocates a frame, derives the tree's
+physical address from its number, and records it; and the value this whole
+investigation has been chasing as "the tree the kernel builds and never installs"
+is that arithmetic's result.
+
+**Which explains why the address matched the oracle's to the digit.** Both
+machines allocate the same frame number because both run the same allocator over
+the same disk from the same reset, so both compute `0105BC00`. It was never
+evidence that the two agreed about anything except the allocation order.
+
+**And it names the store worth watching.** The `MOVE.L D0,(A0,...)` at `3C46FE6E`
+puts the derived address into a table; if that table is the per-space root
+pointer list at `$3C43C96E`, this is the instruction that fills in entry 1 --
+the entry the switch would have loaded had it not been skipped. That is a
+one-stop measurement rather than a guess: stop there and read `A0`.
+
+*Verification: the instruction sequence is from the 60,000-step ring, executed
+rather than disassembled; the arithmetic is checked -- `0x416F << 10 =
+0x0105BC00`. No code changed.*
+
+
 
 
 
