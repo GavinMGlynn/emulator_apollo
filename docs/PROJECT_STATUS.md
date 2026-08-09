@@ -19975,6 +19975,48 @@ and the cap needs raising before it can be.
 11.9 s -- the last at `pc 3C4527F8`, a kernel address -- so the tap was alive
 across the window in which the install happened.*
 
+## Our kernel does run MMU instructions, and enters the switch module earlier
+
+A ring already on disk -- taken at `3C452930`, the region the oracle installs from
+-- answers a question for free and corrects the scope of an earlier claim.
+
+**Three F-line instructions execute in those 2000 steps:**
+
+```
+286526002  01002254  F23C    an FPU operation, SELF_TEST era
+286526010  01002280  F010    the TT0 load the report already lists
+286526228  3C43DE58  F000    MMU coprocessor, at a kernel address
+```
+
+The third is the interesting one. `F000` is cpID 0, the MMU, and `3C43DE58` is
+inside the switch module -- **past `3C43DE22`, which is the gate's branch
+target**. Almost certainly the `PFLUSH` that the "already current" path performs
+before returning.
+
+**And it runs at 286,526,228, two million instructions before the first gate
+hit** at 288,640,117. So our kernel enters that module *earlier*, through one of
+the other entry points a static search found -- `3C43DD1A` or `3C43DD3C` -- runs
+its tail, and returns without ever passing the gate.
+
+**Which corrects the scope of an earlier entry.** "No F-line instruction and no
+`MOVEC` executes in the 60,000 steps before the request" is true and was measured
+over `288,580,118`-`288,640,117`. It must not be read as "the kernel never
+executes MMU instructions before the switch": two million instructions earlier it
+does, and the census simply did not reach that far. A window's result is a
+statement about the window.
+
+**What it adds to the question.** The module is entered before the first switch
+request, by a path that does not ask to change address space, and that path
+touches the MMU. Whatever the oracle does at 11.7 s to install `01001400` may
+well be this same module reached by that same other entry -- which would explain
+why the poll located the install inside the kernel and why no `PMOVE ,CRP` at
+`3C43DDF0` accounts for it. That is now a specific thing to measure on both
+sides: which entry, and what it does.
+
+*Verification: the ring committed with the region comparison above; the three
+F-line steps are executed instructions, not disassembly.*
+
+
 
 
 

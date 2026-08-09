@@ -3009,7 +3009,15 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
     pointer is already correct before it asks**. So either a second install path
     exists that the end-of-boot scan could not see, or the install is the MD
     loader's rather than the kernel's. Unexplained again, but with a much
-    sharper fact.
+    sharper fact — **and a lead**: our kernel executes an MMU instruction at
+    `3C43DE58`, inside the switch module past the gate's branch target, at
+    286,526,228 — *two million instructions before the first gate hit*. So the
+    module is entered earlier through one of its other entry points
+    (`3C43DD1A`/`3C43DD3C`), runs its tail, and returns without asking to change
+    space. That may be what installs `01001400` on the oracle at 11.7 s, which
+    would explain why the poll placed the install inside the kernel while no
+    `PMOVE` at `3C43DDF0` accounts for it. Which entry, and what it does, is the
+    next measurement on both sides.
     **A separate defect surfaced while trying to match the boot routes**: the
     firmware's autobaud **walks downward under repeated characters**. One
     carriage return at 9600 locks at 9600 and the ordinary boot works; 120 at
