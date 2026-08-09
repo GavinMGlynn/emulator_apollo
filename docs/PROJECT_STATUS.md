@@ -21360,3 +21360,63 @@ spent.
 
 *Verification: the counter diffs above, from the `3C4B6D1A`, `3C4B6D52` and
 `+300,000` stops, all on the matched MD path.*
+
+
+## The divergence, resolved to the instruction: our tape controller's status never changes
+
+Sampling both machines every 10,000 instructions from Domain/OS's entry and
+comparing *neighbourhoods* rather than exact PCs -- two machines in the same
+loop sit a few bytes apart, which an equality test reads as a difference at the
+very first sample -- gives a sustained split at **Δ 36,250,000**:
+
+```
+   36,220,000  ours 3C459F3C   oracle 3C459F3C     together
+   36,240,000  ours 3C459F5E   oracle 3C459F7E     same routine
+   36,250,000  ours 3C4B6D34   oracle 3C459F90     ours leaves
+```
+
+The routine is two polling loops over one register, and the register is
+`$1(A0)` with `A0 = 3FFF1000` -- **physical `00050000`, which is
+`AP_TAPE_ADDR`, the SC499 cartridge tape controller**:
+
+```
+  3C459F56  1628 0001   MOVE.B $1(A0),D3
+  3C459F5A  0C43 00F7   CMPI.W #$00F7,D3     loop 1 waits for F7
+  3C459F68  51CA FFEA   DBF    D2,...        bounded retry
+  3C459F6C  4A01        TST.B  D1            was it seen?
+  3C459F6E  6A2C        BPL.B  -> error tail
+  3C459F7E  1628 0001   MOVE.B $1(A0),D3
+  3C459F82  0C43 0057   CMPI.W #$0057,D3     loop 2 waits for 57
+```
+
+At Δ 36.24 M **ours is still in loop 1** and **the oracle is already in loop 2**,
+so the oracle's controller produced `F7` and ours did not. A dump of the
+register at that instant reads `00 70 FF FF ...`: ours returns a constant
+**`0x70`**, times its retry out, fails the `TST.B`/`BPL`, and takes the error
+tail -- which is what leads to the reset-with-delays and everything downstream.
+
+Against `[SC499]`'s own bit table, already transcribed in `ap_sc499.h`:
+
+| | IRQF | RDY | EXC | DONE | DIRC | bits 2-0 |
+| --- | --- | --- | --- | --- | --- | --- |
+| ours, constant | 0 | 1 | 1 | 1 | 0 | **000** |
+| wanted first (`F7`) | **1** | 1 | 1 | 1 | 0 | **111** |
+| wanted next (`57`) | 0 | 1 | **0** | 1 | 0 | **111** |
+
+So Domain/OS waits for the controller to raise its interrupt flag and then
+signal an exception -- the reset handshake -- and this core's status register
+does neither, nor does it drive bits 2-0 at all. `ap_sc499.h` defines bits 7-3
+and stops.
+
+**What is measured and what is not.** Measured: the split's location, the
+register's address, the two constants waited for, and that our register holds
+`0x70` while the oracle reaches the second loop. *Not* measured: what the
+oracle's controller actually returns and why -- MAME's `read_status_port`
+returns a function-local `static` and its `m_status` is built from the same five
+bits, so where `F7`'s low bits come from is not yet explained. That is one
+instrumented read away and is the next measurement, before any change is made
+here.
+
+*Verification: 6,000 samples each side at matched deltas; the disassembly and
+the register dump from stops on the matched MD path; the bit table from
+`ap_sc499.h`, itself read off `[SC499]` PDF page 15's image.*
