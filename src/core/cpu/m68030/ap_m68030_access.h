@@ -82,6 +82,21 @@ typedef void (*ap_m68030_mmu_write_fn)(void *context,
                                        ap_m68030_mmu_register_t which,
                                        uint32_t high, uint32_t low);
 
+/* Told after a `PMOVE` has *read* `which` out to memory, with the operand as it
+ * was placed on the bus.
+ *
+ * The write side answers "which root pointer did the program load". This one
+ * answers a question the write side cannot: **did the program ever look?** A
+ * kernel that inspects the MMU before configuring it behaves differently from
+ * one that assumes, and an absence of reads is evidence about the software
+ * rather than about this core. It was added because an investigation needed to
+ * know whether Domain/OS consults what the firmware left in `CRP`, and counting
+ * the instruction was the only way to answer it that does not depend on
+ * disassembling memory that may since have been paged over. */
+typedef void (*ap_m68030_mmu_read_fn)(void *context,
+                                      ap_m68030_mmu_register_t which,
+                                      uint32_t high, uint32_t low);
+
 typedef struct {
   ap_m68030_cache_t *cache; /* the instruction or data cache, as appropriate */
   ap_m68030_atc_t *atc;
@@ -124,6 +139,11 @@ typedef struct {
    * by dumping memory and searching it for `PMOVE` opcodes was tried and is
    * both slow and unsound -- it finds the instructions, not the executions. */
   ap_m68030_mmu_write_fn mmu_register_written;
+
+  /* Told whenever a `PMOVE` reads an MMU register out to memory. Optional, and
+   * separate from the write hook because the two answer different questions --
+   * what was installed, and whether anything looked. */
+  ap_m68030_mmu_read_fn mmu_register_read;
   ap_m68030_fill_fn fill;
   /* The external write cycle. Writethrough means this happens on *every* write
    * that reaches memory, hit or miss -- a cache update is not a substitute for

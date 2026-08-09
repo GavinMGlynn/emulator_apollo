@@ -894,6 +894,22 @@ static void report_state(ap_machine_t *machine) {
              machine->mmu_writes[i].pc);
     }
   }
+  /* Reads, always -- **including when there are none**, because "the program
+   * never looked at the MMU" is a finding and a line that only appears on a
+   * non-zero count cannot report it. The registers read are named rather than
+   * counted apart: which ones were inspected is the interesting half. */
+  {
+    printf("  mmu reads    %u PMOVE(s) out of a register", machine->mmu_reads_total);
+    if (machine->mmu_reads_total > 0u) {
+      printf(":");
+      for (unsigned r = 0; r < 8u; r++) {
+        if ((machine->mmu_reads_mask & (1u << r)) != 0u) {
+          printf(" %s", ap_mmu_register_name((uint8_t)r));
+        }
+      }
+    }
+    printf("\n");
+  }
   if (machine->distinct_fault_count > 0u) {
     printf("  fault sites ");
     for (unsigned i = 0; i < machine->distinct_fault_count; i++) {

@@ -1170,6 +1170,42 @@ static void test_a_logical_read_follows_the_translation_the_program_set_up(
  * `PMOVE (A0),CRP` is `F010 4C00`: F-line, coprocessor id 0, extension `4C00`
  * selecting `CRP`. Written as raw words because assembling it by hand is the
  * only way to be sure the encoding under test is the one the manual gives. */
+/* The other direction, and the reason it is counted separately.
+ *
+ * `PMOVE CRP,(A0)` is `F010 4E00` -- the same opcode word, extension bit 9 set,
+ * which is the read. The write log answers "which tree was installed"; this
+ * answers "did the program ever *look*", and no dump taken afterwards can. A
+ * kernel that inspects what the firmware left in `CRP` before configuring the
+ * MMU behaves differently from one that assumes it, and the two are
+ * indistinguishable in the final register state.
+ *
+ * A read must also **not** appear in the write log: they are different events
+ * and a counter that conflated them would report an install that never
+ * happened. */
+static void test_reading_an_mmu_register_is_counted_and_is_not_a_load(void) {
+  blank();
+  ap_machine_t m;
+  ap_machine_init(&m, ram, RAM_BYTES);
+
+  const uint32_t operand = 0x00002000u;
+
+  /* MOVEA.L #operand,A0 ; PMOVE CRP,(A0) */
+  TEST_ASSERT_TRUE(ap_machine_write(&m, PROGRAM, 2u, 0x207Cu));
+  TEST_ASSERT_TRUE(ap_machine_write(&m, PROGRAM + 2u, 4u, operand));
+  TEST_ASSERT_TRUE(ap_machine_write(&m, PROGRAM + 6u, 2u, 0xF010u));
+  TEST_ASSERT_TRUE(ap_machine_write(&m, PROGRAM + 8u, 2u, 0x4E00u));
+
+  ap_machine_reset(&m, PROGRAM, STACK);
+  TEST_ASSERT_EQUAL_UINT(0u, m.mmu_reads_total);
+
+  (void)ap_machine_run(&m, 2u);
+
+  TEST_ASSERT_EQUAL_UINT(1u, m.mmu_reads_total);
+  TEST_ASSERT_TRUE((m.mmu_reads_mask & (1u << AP_M68030_MMU_CRP)) != 0u);
+  /* And it did not register as a load. */
+  TEST_ASSERT_EQUAL_UINT(0u, m.mmu_writes_total);
+}
+
 static void test_every_mmu_register_load_is_recorded_with_its_instruction(
     void) {
   blank();
@@ -2094,6 +2130,7 @@ int main(void) {
   RUN_TEST(test_enabling_the_mmu_makes_an_access_translate);
   RUN_TEST(test_a_logical_read_follows_the_translation_the_program_set_up);
   RUN_TEST(test_every_mmu_register_load_is_recorded_with_its_instruction);
+  RUN_TEST(test_reading_an_mmu_register_is_counted_and_is_not_a_load);
   RUN_TEST(
       test_a_translation_probe_is_not_charged_to_the_machines_table_searches);
   RUN_TEST(test_the_same_workload_twice_gives_the_same_hash);

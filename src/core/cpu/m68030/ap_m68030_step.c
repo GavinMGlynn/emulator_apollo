@@ -3994,6 +3994,17 @@ static ap_m68030_root_t pmove_root_from(uint32_t upper, uint32_t lower,
   return root;
 }
 
+/* Reported only once the operand has reached memory, so an observer never sees a
+ * read that faulted halfway. The write side reports after the register is
+ * written for the same reason. */
+static void report_mmu_read(ap_m68030_cpu_t *cpu,
+                            ap_m68030_mmu_register_t which, uint32_t high,
+                            uint32_t low) {
+  if (cpu->data != NULL && cpu->data->mmu_register_read != NULL) {
+    cpu->data->mmu_register_read(cpu->data->context, which, high, low);
+  }
+}
+
 static bool execute_pmove(ap_m68030_cpu_t *cpu, const ap_m68030_coproc_t *coproc,
                           uint16_t extension, uint32_t *clocks) {
   const ap_m68030_mmu_register_t which = pmove_register(extension);
@@ -4077,9 +4088,14 @@ static bool execute_pmove(ap_m68030_cpu_t *cpu, const ap_m68030_coproc_t *coproc
           !write_frame_field(cpu, where.address + 4u, 4u, low, clocks)) {
         return false;
       }
+      report_mmu_read(cpu, which, high, low);
       return true;
     }
-    return write_frame_field(cpu, where.address, size, low, clocks);
+    if (!write_frame_field(cpu, where.address, size, low, clocks)) {
+      return false;
+    }
+    report_mmu_read(cpu, which, high, low);
+    return true;
   }
 
   /* Memory to register. */

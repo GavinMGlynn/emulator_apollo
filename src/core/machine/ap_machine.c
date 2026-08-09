@@ -352,6 +352,25 @@ static void machine_mmu_register_written(void *context,
   machine->mmu_writes[i].which = (uint8_t)which;
 }
 
+/* A `PMOVE` read the other way -- register out to memory.
+ *
+ * Counted rather than logged with its PC, because the question is not "which
+ * value came back" but **whether the program looked at all**. A kernel that
+ * inspects what the firmware left in `CRP` before configuring the MMU behaves
+ * differently from one that assumes, and no dump taken afterwards can tell the
+ * two apart. */
+static void machine_mmu_register_read(void *context,
+                                      ap_m68030_mmu_register_t which,
+                                      uint32_t high, uint32_t low) {
+  ap_machine_t *machine = (ap_machine_t *)context;
+  (void)high;
+  (void)low;
+  machine->mmu_reads_total++;
+  if ((unsigned)which < 8u) {
+    machine->mmu_reads_mask |= (uint8_t)(1u << (unsigned)which);
+  }
+}
+
 /* The table search's descriptor fetch. A machine whose MMU is off never calls
  * this; one whose tables a program has built does. */
 static bool machine_table_fetch(void *context, uint32_t physical,
@@ -486,6 +505,7 @@ void ap_machine_init_model(ap_machine_t *machine, uint8_t *ram,
       .table_fetch = machine_table_fetch,
       .table_update = machine_table_update,
       .mmu_register_written = machine_mmu_register_written,
+      .mmu_register_read = machine_mmu_register_read,
       /* Always supplied, and it answers zero until a board is attached: a probe
        * on flat RAM has no device with a published cycle time, so nothing it
        * measures moves. Wiring it here rather than in `ap_machine_set_board`

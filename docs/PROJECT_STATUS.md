@@ -3348,7 +3348,7 @@ failure that cost a bit position in the 68020's module entry word.
 | Time base (`time/`) | working | `time_suite`, 17 tests |
 | State hash (`state/`) | primitive working | `hash_suite`, 11 tests, incl. published FNV-1a 64 vectors |
 | Core board state hash (the identity harness's board half) | working: the board registers, the translation map, both interrupt controllers, the interval timer with its three clocks, the calendar with both cursors, both DMA controllers, both serial ports, the node ID, the disk and tape controllers, the graphics memories, the keyboard matrix and the boot PROM. The diagnostic counters are deliberately outside it and reported beside it | `board_state_suite`, 22 tests sweeping every device field by field |
-| Full-machine state hash (`ap_machine_hash`, `ap_machine_state`) | working: the processor, main memory, the board when one is attached, and elapsed time — with the clock, the PC and the bus-error count reported beside the number | `machine_suite`, 47 tests, incl. the same workload run twice on two boards agreeing at every step |
+| Full-machine state hash (`ap_machine_hash`, `ap_machine_state`) | working: the processor, main memory, the board when one is attached, and elapsed time — with the clock, the PC and the bus-error count reported beside the number | `machine_suite`, 48 tests, incl. the same workload run twice on two boards agreeing at every step |
 | Ring medium interface | not started | — |
 | Ring controller | not started | — |
 | 68030 instruction pipe + cache holding register | working | `pipe_suite`, 14 tests, `MC68030 User's Manual 3ed` §11.2.2 |
@@ -3360,7 +3360,7 @@ failure that cost a bit position in the 68020's module entry word.
 | 68030 family `0000` size-11 escape (`CMP2`/`CHK2`/`CAS`/`CAS2`) | decoded; the opcode map now has no holes. Semantics open: `CAS`/`CAS2` need an indivisible read-modify-write | `bounds_suite`, 9 tests, `M68000 Family Programmer's Reference Manual 1992` |
 | Per-instruction timing report (`--time-instructions`) | bus and cache time only, pinned as a golden; the 0/2 alternation is the cache holding register serving two instruction words per fetch | `tests/goldens/timing.txt`; oracle side by `tools/mame-oracle/steptime.lua` |
 | Probe suite (`probe/`, `--run-probes`) | 8 probes on the constructed machine, needing no firmware; results pinned as a golden under every build preset, identical between `-O0` and `-O3` | `tests/goldens/probes.txt`, `probe_suite`, 7 tests |
-| Constructed machine (`machine/`) | a 68030 on flat RAM, with an out-of-range access faulting rather than wrapping; with a board attached it takes its model's clock, charges the AT bus's wait states and takes device interrupts on the Apollo vectors, and stalls while another master holds the bus, and advances the devices that keep time | `machine_suite`, 47 tests |
+| Constructed machine (`machine/`) | a 68030 on flat RAM, with an out-of-range access faulting rather than wrapping; with a board attached it takes its model's clock, charges the AT bus's wait states and takes device interrupts on the Apollo vectors, and stalls while another master holds the bus, and advances the devices that keep time | `machine_suite`, 48 tests |
 | 68030 published timings (§11.6) | 59 rows from §11.6.6, §11.6.8, §11.6.9, §11.6.11, §11.6.12, §11.6.15 and §11.6.16, scheduled into the step as exposed microcode + measured operand bus + prefetch exposure, since the tables show a prefetch overlaps execution while an operand the operation consumes cannot (plain `max(microcode, bus)` was the retired first model — see above and `M68030_TIMING.md`). Branches are reached through their run-time outcome rather than by opcode. Seven instructions agree with the oracle (`FINDINGS.md` C8). Rows footnoted "Add Fetch Effective Address Time" are **declined**, not part-priced: their published figure is a component and the composition is open (C9). The four divides carry the manual's data-dependent marker and are `PROVISIONAL` | `timing_table_suite`, 16 tests; both published columns checked on a running machine by `machine_suite` |
 | 68030 ATC replacement | the history bit now means *recently used*, per `MC68851 PMMU User's Manual` §5.2.1.3 — a translating hit marks it, a `PTEST` probe does not. `PROVISIONAL` narrowed to victim choice among clear-history entries | `atc_suite`, 21 tests |
 | 68030 prefetch marginal cost | `NCC − CC` over the published prefetch count, computed in code across every row; the two rows where it is not integral are named in the test rather than rounded away | `timing_table_suite`, 16 tests |
@@ -16857,7 +16857,7 @@ was working. A counter shared between the machine and its observer is not a
 counter. Both halves are now named in the output, including when the probe count
 is zero, so two runs can be compared without knowing whether a trace was on.
 
-*Verification: `machine_suite`, 47 tests; `ctest` 122/122. And on the real
+*Verification: `machine_suite`, 48 tests; `ctest` 122/122. And on the real
 output, which is what settles it: the same bounded boot to 350 M now reports*
 
 ```
@@ -17065,7 +17065,7 @@ conclusion as the previous entry, now from the other direction and without
 relying on the branch analysis: not "the `PMOVE` we found is skipped" but "no
 `PMOVE` anywhere in this boot loads the kernel's tree".
 
-*Verification: `machine_suite`, 47 tests, including one that assembles
+*Verification: `machine_suite`, 48 tests, including one that assembles
 `F010 4C00` by hand -- `PMOVE (A0),CRP` -- and asserts both that the load is
 recorded with the operand the program supplied and that it reached the register,
 so this is a log of loads that took effect and not of opcodes that decoded. And
@@ -19405,6 +19405,48 @@ tree -- built, filled and recorded at `$3C43C96E` entry 1 -- is never loaded.
 *Verification: one stop with `--boot-stop-physical-pc 01002324:2`, at
 162,878,385 instructions, against the kernel's copy loop at 268,435,351 measured
 earlier. No code changed.*
+
+## Nothing ever reads the MMU, which refutes the mechanism
+
+The previous entries proposed a mechanism and said it needed testing: a kernel
+that checks whether the MMU is already configured would install address space 0
+on the oracle, where `CRP` is zero, and skip it here, where `SELF_TEST` has left
+`01001400` in place. Any such check must **read** an MMU register, and until now
+nothing counted those.
+
+**Now something does.** `PMOVE` has two directions and only the write side was
+reported. The read side now has its own callback, its own counter and its own
+report line -- printed **even when the count is zero**, because "the program
+never looked at the MMU" is a finding and a line that appears only on a non-zero
+count cannot state it.
+
+**The answer, over a whole 350 M-instruction boot:**
+
+```
+  mmu loads    8 PMOVE(s)
+  mmu reads    0 PMOVE(s) out of a register
+```
+
+**Neither `SELF_TEST` nor Domain/OS ever reads an MMU register.** Not `CRP`, not
+`TC`, not the status register, not once in the entire boot. So the kernel is not
+inspecting what the firmware left and branching on it, and the mechanism is
+refuted rather than merely unsupported.
+
+**Which is a real narrowing, not just a dead end.** The kernel's path is decided
+by software state alone, and the software state it starts from is the same image
+on both machines. Two implementations running identical code from an identical
+image, diverging, must be diverging on some *other* input -- device state, disk
+contents, or timing -- and the MMU is now excluded from that list by measurement
+rather than by argument.
+
+**The instrument does not perturb**: the same boot returns state hash
+`0D8379A03105C0F7`, unchanged.
+
+*Verification: `machine_suite` 47 → 48 -- the new test asserts a `PMOVE CRP,(A0)`
+(`F010 4E00`) is counted as a read **and does not appear as a load**, since
+conflating the two would report an install that never happened. `ctest` 129/129,
+and the 350 M hash unchanged.*
+
 
 
 

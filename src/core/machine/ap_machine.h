@@ -184,6 +184,14 @@ typedef struct {
   unsigned mmu_write_count;   /* how many are kept below */
   unsigned mmu_writes_total;  /* how many happened, which is the honest total */
 
+  /* `PMOVE`s that *read* an MMU register out to memory, counted rather than
+   * logged: the question they answer is "did the program ever look at the MMU",
+   * and a count settles that. Which register was read is kept as a bitmask, so
+   * "it read the CRP" and "it read the status register" are told apart without
+   * a second log. */
+  unsigned mmu_reads_total;
+  uint8_t mmu_reads_mask;
+
   /* The two caches are separate objects because the part has two, and a machine
    * that shared one would hide every instruction/data interaction. */
   ap_m68030_cache_t instruction_cache;

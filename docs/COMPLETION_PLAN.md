@@ -2974,9 +2974,14 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
     machine that switches to space **0** first — which the oracle does and we
     never do. Mechanism to test: the oracle's `CRP` is `00000000` until its
     kernel sets it, while `SELF_TEST` leaves ours configured, so a kernel that
-    checks before installing space 0 would skip it here and not there — though
-    **no F-line instruction and no `MOVEC` executes in the 60,000 steps before
-    the request**, so if such a check exists it ran much earlier.
+    checks before installing space 0 would skip it here and not there. **That
+    mechanism is now refuted by measurement.** `PMOVE` reads are counted and
+    reported (a new hook, and the line prints even at zero because "it never
+    looked" is a finding): over a whole boot, `mmu reads 0`. Neither `SELF_TEST`
+    nor Domain/OS reads `CRP`, `TC` or the status register even once. So the
+    kernel is not inspecting what the firmware left — the divergence must come
+    from some *other* input, and the MMU is excluded by measurement rather than
+    argument.
     **And a standing caveat is discharged**: the eight `PMOVE`s really are
     `SELF_TEST`'s. Both images load at `01002000`, so the addresses proved
     nothing, but the last of them fires at 162,878,385 instructions while the
