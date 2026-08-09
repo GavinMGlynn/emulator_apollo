@@ -19863,6 +19863,39 @@ it.
 *Verification: the tap's own log. The run reporting the arguments is in
 progress.*
 
+## Proving an instrument fires must be done where the question lives
+
+The switch hook ran, the oracle booted to `)`, the root pointer was installed
+eight times -- twice at PCs in and beside the routine, `3C43DC9C` and
+`3C43F5AC` -- and the hook reported **no entries at all**.
+
+**Its proof of firing does not cover the failure.** The eight unconditional
+samples it logged are all stamped `0.0000`: they are PROM-era data reads, taken
+in the first instants of the run, and the counter was exhausted long before the
+kernel started. So the log shows the tap alive at time zero and says **nothing**
+about whether it was alive at 11.6 seconds, when the first install happened. The
+rule this session has been applying -- an instrument must be seen to fire before
+its silence is evidence -- was satisfied in the letter and missed in the spirit:
+*fires* is not a property of an instrument, it is a property of an instrument **in
+a regime**, and the regime that matters here is the kernel's, not the firmware's.
+
+**Two candidate causes remain, and the run cannot distinguish them.** Either the
+tap kept firing and no read ever carried a PC inside `3C43DD80`-`3C43DE00` --
+which would be surprising, since the routine reads `$3C43FB14` and the stack --
+or the tap stopped seeing accesses once the MMU was on and the kernel was
+running. Nothing in the log separates those, because the only evidence of life it
+collected was from before either could differ.
+
+**The fix is small and it is the next thing to do**: sample *periodically* rather
+than the first N -- one logged read every few seconds of emulated time, so the
+log carries proof of life across the whole run and a gap becomes visible. A
+counter that fills in the first millisecond is a fire-check for the first
+millisecond.
+
+*Verification: the hook's own log -- eight samples at `0.0000`, zero entries --
+against the same run's eight root-pointer installs. No code changed in the core.*
+
+
 
 
 

@@ -561,7 +561,8 @@ end
 -- this file now does: an instrument that has not been seen to fire cannot make
 -- its silence mean anything, and three before it produced a plausible nothing.
 local switch_pc = tonumber(os.getenv("APOLLO_SWITCH_PC") or "", 16)
-local switch_file, switch_tap, switch_seen, switch_hits = nil, nil, 0, 0
+local switch_file, switch_tap, switch_hits = nil, nil, 0
+local switch_next_sample = 0.0
 if switch_pc ~= nil then
 	switch_file = io.open((os.getenv("APOLLO_CRP_LOG") or "crpwatch.log") .. ".switch", "w")
 	local ok, err = pcall(function()
@@ -570,10 +571,16 @@ if switch_pc ~= nil then
 		switch_tap = sp:install_read_tap(asid_lo, asid_hi, "switch-entry",
 			function(offset, data, mask)
 				local pc = cpu.state["PC"].value
-				if switch_seen < 8 then
-					switch_seen = switch_seen + 1
-					switch_file:write(string.format("%10.4f  sample read %08X  pc %08X\n",
-						manager.machine.time:as_double(), offset, pc))
+				-- **Proof of life, sampled across the run rather than at its
+				-- start.** A counter that fills in the first millisecond proves
+				-- the tap fires in the *firmware's* regime and says nothing
+				-- about the kernel's, which is where the question lives. One
+				-- read logged every two emulated seconds makes a gap visible.
+				local now = manager.machine.time:as_double()
+				if now >= switch_next_sample then
+					switch_next_sample = now + 2.0
+					switch_file:write(string.format("%10.4f  alive: read %08X  pc %08X\n",
+						now, offset, pc))
 					switch_file:flush()
 				end
 				if pc >= switch_pc and pc <= switch_pc + 0x80 and switch_hits < 40 then
