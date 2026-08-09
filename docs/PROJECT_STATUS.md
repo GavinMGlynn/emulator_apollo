@@ -21253,3 +21253,38 @@ and Equation (11-1), against `m68ki_cycles`' flat table in `m68kcpu.cpp`.*
 the loop (`clocks` 604,516,374 -> 607,766,376 over 1,000,000 instructions); the
 oracle's from `total_cycles()` at visits 200,000 and 1,000,000 (413,241,888 ->
 427,641,888), instrumented and reverted.*
+
+
+## The reset target is empty on both machines, so what differs is what happens *during* the delay
+
+`A3 = 3FFF2400` at the reset sequence, and the measurement -- not the inference,
+which was wrong by four kilobytes -- puts it at physical **`00054000`**, ISA
+**`0x280`**, reading `FF`.
+
+**Nothing is there on either machine.** MAME's Apollo driver fixes the 3c505 at
+ISA `0x300` by `DEVICE_INPUT_DEFAULTS`, the SC499 defaults to `0x200`, the
+OMTI8621's ESDI base is `0x1A0` and its floppy `0x3F0` -- and this board places
+its disk at `04D000` (ISA `0x1A0`), floppy at `05F800` (`0x3F0`) and tape at
+`050000` (`0x200`), matching all four. So the write at `$6(A3)` goes into empty
+AT bus space on the oracle exactly as it does here, and **the missing-device
+reading is dead for the third time**.
+
+**Which leaves only the delay's duration.** Both machines write the same
+registers to nothing and both count the same 999,999 iterations; the difference
+is that those iterations are 520 ms here and 720 ms there. What can differ over
+an interval that differs by 200 ms is not the device being written -- it is
+everything else that ticks meanwhile: the timers, the calendar, DMA, the serial
+lines, and the interrupts they raise. A periodic tick that fires N times in
+520 ms fires more in 720 ms, and the code after the delay finds a different
+state without any register anywhere being wrong.
+
+So the next measurement is **interrupt counts over the delay**, at matched
+deltas on both machines -- our run report already breaks exceptions down by
+vector (`247 x vector 160`, `32 x vector 174`, and so on) and the oracle can be
+instrumented for the same. If the counts differ, the tick rate is the defect and
+it is on this side of the fence; if they match, the delay's length is not the
+mechanism after all and this entry is the next one to be withdrawn.
+
+*Verification: `--dump-logical 3FFF2400:10` at a stop inside the loop, giving
+`00054000`; the four card bases read out of `3c505.cpp`, `sc499.cpp`,
+`omti8621.cpp` and `apollo_m.cpp` against this board's four constants.*
