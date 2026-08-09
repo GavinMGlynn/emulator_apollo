@@ -18854,6 +18854,40 @@ from execution -- a trace, or the oracle -- rather than from any dump.
 *Verification: the PC census above, from six oracle runs; the reuse evidence in
 the entry above. No code changed.*
 
+## What the tap could not see, and why that is informative
+
+Three runs of the write tap, correctly ranged over the sixteen megabytes fitted,
+proven to fire, and finally matching the whole switch module's PC range
+(`3C43DC00`-`3C43DF00`), caught **no writes at all** -- in runs where the poll saw
+the root pointer installed a dozen times and caught the CPU inside that very
+range, at `3C43DC9C`, `3C43DCA2` and `3C43DDC8`.
+
+An instrument that fires, is aimed correctly, and sees nothing is saying
+something. **`PMOVE (A0),CRP` reads memory and writes a CPU register; it makes no
+memory write.** So a path that installs a root pointer need not write anything,
+and the assumption this tap was built on -- that every switch records the space
+it moved to, in the word our gate compares against -- describes *our* code path
+and need not describe the one the oracle takes.
+
+That is worth stating plainly because it retires the instrument rather than the
+question. Watching the cache word can only ever find switches that update the
+cache. If the bookkeeping belongs to the *caller* on the path the oracle uses,
+or if that path updates something else, the tap is blind to it by construction
+and no amount of widening will help.
+
+**What would not be blind**: the `PMOVE` itself. That means an instruction-level
+hook in the oracle, which is the one thing tried at the very start of this
+session and abandoned when a hand-placed probe never fired. The difference now is
+that there is a working, checked instrument to build it beside, and a rule for
+what makes one trustworthy -- it must be shown to fire on something known before
+its silence counts as evidence. Both the root-pointer poll and this tap satisfy
+that; the original probe did not.
+
+*Verification: three runs, twelve samples logged in each proving the tap live,
+zero PC matches, and a dozen root-pointer installs in the same runs. No code
+changed.*
+
+
 
 
 The caution about `--dump-logical` windows still stands and is worth keeping:

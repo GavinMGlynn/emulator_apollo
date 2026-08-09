@@ -2908,7 +2908,16 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
     executed trace at `3C43DD88` — `323A` executed, `020A` in the dump. The
     trace is the source of truth for code; a dump speaks only for the instant it
     was taken. The tap therefore matches the whole routine's PC range rather
-    than an instruction read out of a dump. Detail in `PROJECT_STATUS.md`.
+    than an instruction read out of a dump.
+    **And the tap is now retired, on evidence.** Three runs, aimed correctly and
+    proven live, caught no writes while the poll saw a dozen installs and caught
+    the CPU inside the very range. `PMOVE (A0),CRP` reads memory and writes a
+    *register*, so an install path need write nothing: watching the cache word
+    can only find switches that update the cache, and the oracle's path need
+    not. **Next is an instruction-level hook on the `PMOVE` in the oracle** —
+    the thing abandoned at the start of this work when a hand-placed probe never
+    fired, now with two working instruments to build beside and a rule for what
+    makes one trustworthy. Detail in `PROJECT_STATUS.md`.
 
 **Order matters here, and this file had it wrong.** The boot is a *test*, and
 two of its children were unfinished *implementation*. `CLAUDE.md` says
