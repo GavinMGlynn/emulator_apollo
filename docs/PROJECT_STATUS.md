@@ -21220,6 +21220,35 @@ what `src/core/cpu/m68030/` charges for each -- a paper measurement, no boot nee
 is *not* open is the mechanism: a calibrated delay that differs by 200 ms
 between the two machines, at the exact instant they diverge.
 
+**Done, on paper, and it resolves in this core's favour.** The row costs alone
+already exceed the measurement -- `ADD Dn,EA` cache case 3 plus 2 for the
+`(d16,An)` calculate, `SUB Rn,Dn` 2, `Bcc` taken 6 -- which sums past 13 before
+`CMPI` is counted at all. The difference is that this core applies `[030]`
+§11.2-11.3's **instruction overlap**, Equation (11-1):
+
+>     CC1 + [CC2 - min(H2,T1)] + [CC3 - min(H3,T2)] + ...
+
+each instruction's head absorbing the previous instruction's tail, with the rule
+tested against the manual's own worked example rather than against figures this
+project produced. MAME's m68k has a flat per-opcode table (`m68ki_cycles`) and
+models no overlap whatever.
+
+So 13 against 18 is precisely the difference between modelling the documented
+overlap and not modelling it, and **this core's figure is the better-founded
+one** -- which is the case `CLAUDE.md` anticipates when it says to expect to
+out-accurate the oracle.
+
+**That resolves the fork to the second reading**: the real machine's delay is
+~520 ms, Domain/OS works with it on real hardware, and what is wrong here is
+that **something is not ready within 520 ms that should be**. The target is
+therefore the device this reset sequence drives -- the `CLR.B $6(A3)` and
+`ORI.B #1,$7(A3)` either side of the two delays -- and whether its ready timing
+is modelled at all. That is a device question, not a CPU one, and it is the
+first time this investigation has had a target with the CPU explicitly cleared.
+
+*Verification: the table rows and `ap_m68030_overlap.h`'s citation of §11.2-11.3
+and Equation (11-1), against `m68ki_cycles`' flat table in `m68kcpu.cpp`.*
+
 *Verification: our figure from two runs of `tools/md-session.sh` stopped inside
 the loop (`clocks` 604,516,374 -> 607,766,376 over 1,000,000 instructions); the
 oracle's from `total_cycles()` at visits 200,000 and 1,000,000 (413,241,888 ->
