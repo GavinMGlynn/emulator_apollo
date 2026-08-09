@@ -19552,6 +19552,55 @@ measurement rather than a change to the serial timing.
 *Verification: three runs, the rates read from each report's own `input` and
 `sio1 B` lines. No code changed.*
 
+## Correction: the autobaud is not walking, it is searching
+
+The entry above read `9600 -> 4800 -> 1050` as a rate measured lower each time.
+The numbers say otherwise, and the giveaway is that they are **CSR codes rather
+than rates**:
+
+```
+BB  ->  99  ->  77
+```
+
+Each nibble steps down by exactly two, both together -- `CSR - 0x22` per step.
+And the rate table is **not monotonic**: code 6 is 1200, code 7 is **1050**, code
+8 is 2400. A measurement that landed low would produce a lower *rate*, and no
+timing error can produce a consistent step of two *table indices* through a table
+that is not ordered by rate.
+
+**So the firmware is scanning candidate rates**, not re-measuring badly: it tries
+`B`, does not get what it expects, tries `9`, then `7`. That is what an autobaud
+does when it cannot lock -- and it means the previous entry's mechanism, a bit
+width measured slightly long ratcheting downward, is wrong. The search is the
+firmware behaving correctly; what is wrong is that it never succeeds.
+
+**Which moves the question, and narrows it.** The failure is not in the rate the
+receiver ends up at -- that is a symptom of a search still running -- but in why a
+carriage return sent at the rate the receiver is *currently* listening at is not
+recognised. The ordinary boot, one character at 9600 against a receiver at 9600,
+is recognised, so reception at a matched rate works in general. What differs in
+service mode is that a hundred and twenty characters arrive while the firmware is
+stepping the rate underneath them, and a character sent at 9600 into a receiver
+that has just moved to 4800 is garbage by construction.
+
+**That makes the harness the likely culprit after all, and specifically its fixed
+rate.** `--boot-input-rate` sets one CSR for the whole run; the firmware's search
+moves the target between characters, so no fixed choice can match for more than
+one step. The oracle's recipe does not have this problem because it feeds
+characters to MAME's *stdin* and the emulated DUART's own receiver clock does the
+matching, not a fixed sender rate.
+
+**What this needs is not a change to the serial timing.** It is either a sender
+that follows the receiver's current CSR, or the recognition that our headless
+harness cannot drive an autobauding search the way a real terminal does. Both are
+harness questions, and the serial model has not been shown wrong at any point:
+the control case works.
+
+*Verification: the three CSR values from three runs' reports, and the rate table
+in `ap_mc68681.c` -- codes 6, 7, 8 are 1200, 1050, 2400, which is what rules out
+a rate-ordered explanation. No code changed.*
+
+
 
 
 

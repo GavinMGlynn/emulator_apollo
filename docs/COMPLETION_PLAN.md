@@ -2986,9 +2986,13 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
     firmware's autobaud **walks downward under repeated characters**. One
     carriage return at 9600 locks at 9600 and the ordinary boot works; 120 at
     9600 end at 4800; 120 at 4800 end at 1050. The ordinary boot is the control
-    and is correct, so this is about *re-measurement*, and it is ours to explain.
-    Whether real hardware does the same is answerable against the oracle, which
-    reaches MD with this firmware. Detail in `PROJECT_STATUS.md`.
+    and is correct. **Corrected**: those are CSR *codes* — `BB → 99 → 77`, each
+    nibble down by two — and the rate table is not monotonic (6=1200, **7=1050**,
+    8=2400), so no timing error can produce a constant step of two indices. The
+    firmware is **searching** for a rate, not mis-measuring, and the harness's
+    fixed `--boot-input-rate` cannot match a target that moves between
+    characters. A harness question, not a serial-model one: the control case
+    works. Detail in `PROJECT_STATUS.md`.
     **And a standing caveat is discharged**: the eight `PMOVE`s really are
     `SELF_TEST`'s. Both images load at `01002000`, so the addresses proved
     nothing, but the last of them fires at 162,878,385 instructions while the
