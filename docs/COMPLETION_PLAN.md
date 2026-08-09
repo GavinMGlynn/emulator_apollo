@@ -2917,7 +2917,19 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
     not. **Next is an instruction-level hook on the `PMOVE` in the oracle** —
     the thing abandoned at the start of this work when a hand-placed probe never
     fired, now with two working instruments to build beside and a rule for what
-    makes one trustworthy. Detail in `PROJECT_STATUS.md`.
+    makes one trustworthy.
+    **And the differential now reads as a sequence of requests, which names the
+    mechanism end to end.** `$3C43C96E` is indexed by address space number, so
+    `01001400` *is* space 0 and `0105BC00` is space 1. The oracle's first install
+    is `01001400` — it asks for **space 0** first, mismatches the cache's false
+    claim of `1`, installs, and makes the claim true; its next request, for space
+    1, then installs `0105BC00` honestly. Ours is asked for **space 1** against a
+    cache already claiming 1, agrees with itself, and never installs anything.
+    **So the routine is correct and always was**; the question is why our kernel
+    is never asked to enter space 0. First thing to test: the oracle's `CRP` is
+    `00000000` until its kernel sets it, while ours holds `01001400` from the
+    firmware — a kernel that finds the MMU already configured may take a
+    different path. Detail in `PROJECT_STATUS.md`.
 
 **Order matters here, and this file had it wrong.** The boot is a *test*, and
 two of its children were unfinished *implementation*. `CLAUDE.md` says

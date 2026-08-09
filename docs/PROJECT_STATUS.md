@@ -18887,6 +18887,69 @@ that; the original probe did not.
 zero PC matches, and a dozen root-pointer installs in the same runs. No code
 changed.*
 
+## What the oracle asks for first, which is the whole difference
+
+The routine was disassembled correctly by an earlier entry in this file, and it
+is that reading -- not the stale one this session produced -- that composes with
+the oracle measurement:
+
+```
+3C43DDC4  302F 0004       MOVE.W  $4(A7),D0        ; the address space asked for
+3C43DDC8  B079 3C43FB14   CMP.W   $3C43FB14,D0     ; against the one believed current
+3C43DDCE  6700 0052       BEQ.W   $3C43DE22        <- taken, always, on ours
+3C43DDD2  33C0 3C43FB14   MOVE.W  D0,$3C43FB14
+3C43DDD8  41FA EB94       LEA     $3C43C96E(PC),A0
+3C43DDDC  2030 0400       MOVE.L  (A0,D0.W*4),D0   ; root pointer for that space
+3C43DDE6  23C0 3C43C966   MOVE.L  D0,$3C43C966     ; into the CRP image
+3C43DDF0  F010 4C00       PMOVE   (A0),CRP
+```
+
+`$3C43C96E` is indexed by the address space number, four bytes per entry, and its
+first two are `01001400` and `0105BC00`. **So the table names which space each
+tree belongs to**: `01001400` is address space **0**, `0105BC00` is space **1**.
+
+**Which makes the oracle's log readable as a sequence of requests.** Its first
+install is `01001400` -- so the oracle's first call asks for **space 0**. Ours
+asks for **space 1**, and asks for nothing else, ever.
+
+That composes into the mechanism end to end:
+
+- The cache at `$3C43FB14` ships as `1` in the kernel image, on both machines. It
+  is a *claim* that space 1 is current, and at that moment it is false on both --
+  the oracle's `CRP` is still `00000000` and ours holds `01001400`, which is
+  space **0**'s tree, left by the firmware.
+- The oracle asks for space 0 first. `0 != 1`, so it installs entry 0, writes the
+  cache, and the claim becomes true. The next request, for space 1, then
+  mismatches honestly and installs `0105BC00`.
+- Ours is asked for space 1 against a cache already claiming 1. It agrees with
+  itself and returns, and the tree the kernel has been building is never
+  installed. Every later symptom -- the fault at `3BFF0001`, the poll of an
+  absent card, the `00120020` crash -- follows from running space 1 on space 0's
+  tree.
+
+**So the defect is not in this routine, and never was.** It behaves correctly
+given what it is asked. The question is why our kernel is never asked to enter
+space 0, and that is a question about the boot before instruction 288,640,117 --
+where the two machines are known to differ in one visible respect already: the
+oracle's `CRP` is `00000000` until its kernel sets it, while ours holds
+`01001400` from the firmware's own self-test. A kernel that finds the MMU already
+configured may legitimately take a different path from one that finds it off, and
+that is the first thing the next session should test.
+
+**All three read fresh, at the instant of the gate**, rather than from the
+end-of-boot dump that misled this session earlier -- `--boot-stop-pc 3C43DDCE:2`
+with `--dump-logical` of each: the table holds `01001400` and `0105BC00` four
+bytes apart, the `CRP` image at `3C43C962` holds `00FF0002` and then
+**`00000000`**, its tree address still unwritten, and the cache holds `0001`. The
+one word that *had* differed between the two dumps, at `3C43C96A`, is live data
+and differs again -- which is consistent, and is why only a fresh read counts.
+
+*Verification: the disassembly is the earlier entry's, measured by stops; the
+table indexing is from `MOVE.L (A0,D0.W*4),D0`; the first-install value is from
+six oracle runs; the three memory reads above are from one stop at the gate at
+288,640,117 instructions. No code changed.*
+
+
 
 
 
