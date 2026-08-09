@@ -4003,7 +4003,9 @@ Only after the reference core is proven, and only under an identity harness.
       six addresses; what is missing is the AT cards at ISA `140` and `148`,
       which are not shifted Series 4000 addresses. Also the DN4500's memory
       strap, which has no Series 4500 rows in the manual, the oracle or our
-      table; the DN5500 past self-test; and both ring generations, which need
+      table — its firmware's failure site is now disassembled and the table it
+      decodes to is located at `007992`, a list of memory tops; what is left is
+      the code that indexes it; the DN5500 past self-test; and both ring generations, which need
       the ring controller device.
       *Verification: `frontend_flags` 13 → 16; DN3500 30 M hash unchanged.*
 - [ ] Real multi-node Domain workloads: distributed single-level store across

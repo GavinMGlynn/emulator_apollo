@@ -18273,5 +18273,62 @@ carried over unchanged would be inventing the half that is not measured.
 unidentified on both machines and is the one core-block address the derivation
 does not name. No code changed for this entry.*
 
+## The DN4500's memory sizing: the table is found, its index is not
+
+The firmware sweep left the Series 4500 failing self-test with
+`Expected= 02400000, Actual= 02000000`, and the strap table has no Series 4000
+rows. `008778-03` §3.3 and §3.9 were read as page images and describe the memory
+system and the serial ports without ever mentioning the input-port strapping;
+the oracle's `apollo.cpp` defines config bytes for the DN3500, DN3000 and DN5500
+and **none for a Series 4000**. So the references and the oracle are both
+exhausted, and this is the firmware's to answer -- the route the DN2500 map came
+by.
+
+**The firmware names its own failure site**, which is what makes this cheap: the
+message carries `PC= 00007982`, and that disassembles directly.
+
+```
+007940  move.l  (a0)+, d0
+007942  cmp.l   $54(a5), d0      ; the expected top of memory
+007946  bne.b   $797c            ; mismatch
+007948  move.l  $54(a5), d0
+00794C  clr.l   d1
+00794E  clr.l   d2
+007950  bset.b  d1, d2           ; one bit per megabyte present
+007952  sub.l   #$100000, d0
+007958  addq.l  #$1, d1
+00795A  cmp.l   #$100000, d0
+007960  bne.b   $7950
+007962  move.l  d2, $70(a5)
+...
+00797C  subq.l  #$4, a0
+00797E  move.l  $54(a5), d1
+007982  bsr.w   $5fac            ; report Expected/Actual
+```
+
+So `$54(a5)` is the top of memory the machine believes it has, and the run's
+`Expected= 02400000` is that value: twenty megabytes above the `01000000` base,
+against the sixteen fitted.
+
+**And immediately after the `rts` at `007990` there is a table of tops.** Read as
+long words from `007992`: `01400000`, `01400000`, `00000000`, `01800000`,
+`01400000`, `01400000`, `01800000`, `00000000`, `01C00000` ... -- that is 4, 8,
+12 and 16 megabytes above the base, with zero for a bank that is not there. The
+`02400000` the machine reported appears in it too. A table of memory tops sitting
+under the routine that reports one is what the strap decodes *to*.
+
+**What is not derived is the index.** Reading it as `007992 + strap * 4` gives
+`01C00000` for the DN5500's `14` and `02000000` for `20`, and nonsense for `60`
+and `64` -- which is only what one would expect, since those two are DN3500
+straps being read out of a Series 4000 firmware's table. Trying offsets until
+four points agree is a parameter search on our own guess, which this project does
+not do. The next step is the code that *indexes* this table -- the read of the
+SIO input port and the arithmetic between it and the load -- and that is a
+disassembly, not an experiment.
+
+*Verification: none -- this is a located table and a disassembled failure site,
+not a change. No code changed for this entry.*
+
+
 
 
