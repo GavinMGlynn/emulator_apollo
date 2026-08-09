@@ -19447,6 +19447,39 @@ rather than by argument.
 conflating the two would report an install that never happened. `ctest` 129/129,
 and the 350 M hash unchanged.*
 
+## Two failed attempts at MD, and the paragraph that explained both
+
+With the MMU excluded, the remaining candidate for the divergence is that the two
+boots reach the kernel by **different routes**: `mdsession.py` presses a key,
+drops into MD and runs `ex domain_os`, so `SELF_TEST`'s diagnostics never run;
+ours autoboots and they do. Comparing like with like needs our boot to take the
+oracle's route, and two attempts failed.
+
+- **Six carriage returns at `--boot-input-interval 200000`** did not interrupt
+  the autoboot at all. The console ran the whole self-test sequence and stopped
+  at `Do you wish to continue (y,n)?`.
+- **`--service-mode` with a keyboard press and forty returns at `400000`** gave
+  *no console output whatever* and ended at `PC 0000078E`, the service-mode poll.
+
+**The explanation was already in this file, in the entry that first got MD
+talking**, and it is a number rather than a mechanism: the recipe is **120
+returns spread over forty-eight emulated seconds**, because the firmware's
+autobaud probe does not run until about **forty-five**. Forty returns at 0.4 s
+span sixteen seconds and are all delivered and consumed long before the probe
+starts. The machine was not rejecting them; it had not got there yet -- which is
+word for word the conclusion that entry reached after "six hypotheses, a dozen
+boots and an instrumented binary".
+
+So both attempts failed for the same reason, and it is the reason this project
+has already written down once. **The cost of not re-reading one's own record is
+two boots**, which is cheap, but it is the same mistake as reading a dump for
+code: trusting a recollection of a source instead of the source.
+
+*Verification: the two consoles, one reaching the self-test question and one
+silent at `0000078E`; the recipe is quoted from this file's own earlier entry.
+No code changed.*
+
+
 
 
 
