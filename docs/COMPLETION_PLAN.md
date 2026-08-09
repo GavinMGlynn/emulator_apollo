@@ -2982,6 +2982,13 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
     kernel is not inspecting what the firmware left — the divergence must come
     from some *other* input, and the MMU is excluded by measurement rather than
     argument.
+    **A separate defect surfaced while trying to match the boot routes**: the
+    firmware's autobaud **walks downward under repeated characters**. One
+    carriage return at 9600 locks at 9600 and the ordinary boot works; 120 at
+    9600 end at 4800; 120 at 4800 end at 1050. The ordinary boot is the control
+    and is correct, so this is about *re-measurement*, and it is ours to explain.
+    Whether real hardware does the same is answerable against the oracle, which
+    reaches MD with this firmware. Detail in `PROJECT_STATUS.md`.
     **And a standing caveat is discharged**: the eight `PMOVE`s really are
     `SELF_TEST`'s. Both images load at `01002000`, so the addresses proved
     nothing, but the last of them fires at 162,878,385 instructions while the

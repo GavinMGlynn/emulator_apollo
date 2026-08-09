@@ -19513,6 +19513,46 @@ clock rate, which is the point.
 *Verification: the two report lines above, from the third attempt. The next run
 sends at `CSR 99` to match. No code changed.*
 
+## The autobaud walks downward under repeated characters, which is ours
+
+Sending at the rate the firmware appeared to want does not fix it -- it moves the
+target, and the way it moves is the finding.
+
+| what the harness sends | what `sio1 B` settles at |
+| --- | --- |
+| 9600, one carriage return (the ordinary boot) | **9600** -- correct, and it works |
+| 9600, 120 returns in service mode | 4800 |
+| 4800, 120 returns in service mode | **1050** |
+
+**The receiver's rate follows the sender's, downward.** That is not a harness
+misconfiguration: it is the firmware's autobaud re-measuring, and arriving lower
+each time. One character at 9600 locks correctly; a hundred and twenty at the
+same rate ends at half it; a hundred and twenty at 4800 ends at less than a
+quarter.
+
+**Which makes this ours to explain, not the harness's.** The ordinary boot is the
+control and it is right, so the DUART's rate selection and the autobaud path are
+not simply broken. What differs is *repetition*: something about a second and
+subsequent measurement lands short. A bit width measured slightly long yields a
+rate slightly low, and a mechanism that re-measures from its own previous
+estimate would ratchet -- which is exactly the shape of `9600 -> 4800 -> 1050`.
+
+**It also retires the previous entry's diagnosis.** "The harness sends at 9600
+and the firmware is listening at 4800" was true and was not the cause; matching
+the rate produces a new mismatch rather than a sign-on. The mismatch is a
+*symptom* of the walk, and the earlier entry read it as the disease.
+
+**Two things this does not yet establish**, and they matter before anything is
+changed: whether the walk happens on real hardware -- an autobaud that re-locks
+per character may legitimately do this and the firmware may simply not care --
+and whether MD is reachable at all without it. Both are answerable against the
+oracle, which reaches MD with the same firmware, and that comparison is the next
+measurement rather than a change to the serial timing.
+
+*Verification: three runs, the rates read from each report's own `input` and
+`sio1 B` lines. No code changed.*
+
+
 
 
 
