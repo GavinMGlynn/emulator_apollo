@@ -2965,8 +2965,17 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
     gate `EF` is **`00000000` in both**. It is filled in afterwards — seven times
     over a boot — into the kernel's tree alone, which the MMU never walks. The
     live tree keeps `00000000` there for the whole run.
-    **One step is unexplained: why the cache claims space 1 when nothing has
-    installed it.** Detail in `PROJECT_STATUS.md`.
+    **And the number 1 is the kernel's own allocation** — `3C46FE16 ADDQ.W #1,D2`
+    is the only instruction in 60,000 steps that *creates* the value; everything
+    else saves, restores or copies it. So the kernel allocates the next address
+    space, builds its tree, and asks to switch to it, which is impeccable.
+    **The defect is isolated to one thing**: the cache ships as `1` in the image,
+    claiming space 1 is current before it exists, and that is harmless only on a
+    machine that switches to space **0** first — which the oracle does and we
+    never do. Mechanism to test: the oracle's `CRP` is `00000000` until its
+    kernel sets it, while `SELF_TEST` leaves ours configured, so a kernel that
+    checks before installing space 0 would skip it here and not there. That is a
+    single conditional and it is findable. Detail in `PROJECT_STATUS.md`.
 
 **Order matters here, and this file had it wrong.** The boot is a *test*, and
 two of its children were unfinished *implementation*. `CLAUDE.md` says

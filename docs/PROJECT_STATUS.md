@@ -19299,6 +19299,48 @@ and its origin lies earlier than any ring taken at this stop has reached.
 contents from the same stop. No conclusion drawn from the copy's direction until
 it is measured. No code changed.*
 
+## Where the number 1 comes from: the kernel allocates it
+
+Tracking `D2` through the ring -- 27 transitions into and out of `3C000001`, all
+but one of them `MOVE`s that save, restore or copy it -- leaves exactly one that
+*creates* the value:
+
+```
+288638253  3C46FE16  5242  ADDQ.W #1,D2      ; 3C000000 -> 3C000001
+```
+
+**The address space number is not read from a table or passed in from anywhere.
+The kernel allocates it, by incrementing a counter.** Space 1 is simply the next
+one after space 0, and every later appearance of the value in the sixty thousand
+steps is that same number being carried in `D2` through nested calls, saved and
+restored at each level.
+
+**So the kernel is behaving impeccably.** It allocates the next address space,
+derives a root table for it from page frame `0x416F`, records that in the
+per-space table at `$3C43C96E` entry 1, copies the live tree into it, adds the
+mappings the new space needs, and asks to switch to it. Nothing in that sequence
+is wrong, and the same sequence on the oracle boots.
+
+**Which isolates the defect precisely.** The cache at `$3C43FB14` ships as `1`
+in the kernel image -- a claim that space 1 is current before space 1 has been
+allocated at all. That claim is harmless on a machine that switches to space **0**
+before allocating space 1, because the mismatch forces an install and corrects
+the cache. The oracle does exactly that: its first install is `01001400`, space
+0. Ours never does, so the stale `1` is still standing when the kernel asks for
+the space it has just created, and the numbers agree by accident.
+
+**And there is a mechanism worth testing for why.** On the oracle the `CRP` is
+`00000000` until its kernel sets it -- nothing has configured the MMU, so the
+kernel must install space 0 itself. On ours `SELF_TEST` has already installed
+`01001400`, so a kernel that checks whether the MMU is configured before
+installing space 0 would skip it here and not there. That is a single conditional
+somewhere in the kernel's startup, and it is testable: find the read of `CRP`, or
+of whatever the kernel uses to decide, and see which way it goes on each machine.
+
+*Verification: the 27 transitions and the single `ADDQ.W` are from the
+60,000-step ring, executed rather than disassembled. No code changed.*
+
+
 
 
 
