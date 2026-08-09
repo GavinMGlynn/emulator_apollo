@@ -18815,6 +18815,46 @@ routine writes on a path we never take.
 *Verification: the two readings above, from a trace and a dump of the same
 deterministic boot. No code changed in the core.*
 
+## The "exactly one PMOVE" finding is withdrawn
+
+It was built on the dump the entry above just disqualified, so it cannot stand.
+
+The scan searched 1,028,096 bytes of an **end-of-boot** image for every `F0xx`
+with a root-pointer extension and found one `PMOVE ,CRP`, at physical `010409F0`
+-- which does correspond to `3C43DDF0`, and our own trace does reach the gate
+eight instructions before it, so *that one is real*. What the scan cannot claim
+is **exhaustiveness**: a dump taken at 350 M is not a faithful image of the
+kernel's code at any single moment, because with 256-byte pages the kernel reuses
+frames, and code that ran earlier may have been overwritten by the time the dump
+was taken. An instruction absent from that image may simply have been paged away.
+
+**And the oracle says there is more than one site.** Collecting every PC at which
+the root-pointer poll caught a change, across six runs:
+
+```
+   8  3C43F5AC        1  3C43DDC8        1  3C452930
+   8  3C43F5A8        1  3C43DCA2        1  3C452944
+   2  3C43DC9E        1  3C43DCA0        1  3C466486
+   2  3C452930        1  3C43DC9C        1  3C41FE36
+```
+
+Two clusters, not one: `3C43F5A8`/`3C43F5AC` accounts for sixteen of the samples,
+and `3C43DC80`-`3C43DCA2` for five more. The poll's PCs locate loosely -- they are
+where the CPU was when a change was *noticed* -- so this is not proof that either
+address is a `PMOVE`. It is, though, evidence that the installs do not all happen
+in one place, and `3C43DC9C` in particular is an address this investigation has
+been round before: it was once called "the hash lookup that never succeeds", and
+that reading was itself withdrawn.
+
+**So two claims are retired together**: that the kernel has one root-pointer
+install, and that a static scan of a dumped image can settle how many it has. The
+question of how many there are is now open, and the honest way to answer it is
+from execution -- a trace, or the oracle -- rather than from any dump.
+
+*Verification: the PC census above, from six oracle runs; the reuse evidence in
+the entry above. No code changed.*
+
+
 
 The caution about `--dump-logical` windows still stands and is worth keeping:
 only a window's first address goes through the MMU, the rest is read physically

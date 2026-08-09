@@ -2865,9 +2865,12 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
     processes get 1–25, so `$3C43FB14 = 1` is a current-address-space id.
     **And the method changed** — the kernel is now dumped once and read
     offline instead of watched a boot at a time. Three facts, exhaustive over
-    the image: the kernel holds **exactly one** `PMOVE ,CRP`; it records the
-    ASID eight instructions earlier with `MOVE.W D0,$3C43FB14`; and that word
-    still holds `1` when the boot ends. So the one root-pointer load the kernel
+    the image: a `PMOVE ,CRP` at `3C43DDF0`, which our trace does reach; and the
+    word at `$3C43FB14` still holding `1` when the boot ends. **The claim that
+    it is the *only* one is withdrawn** — it rested on an end-of-boot dump,
+    which cannot be exhaustive about code, and the oracle's own PC census shows
+    root-pointer changes clustering at *two* places, `3C43F5A8`/`3C43F5AC` and
+    `3C43DC80`–`3C43DCA2`. So the one root-pointer load the kernel
     has is unreachable, by construction rather than by observation.
     **And the conclusion inverts**: `01002174`, logged for weeks as the last
     writer of that word, disassembles to `move.l (a0),d4 / move.l d4,(a0)+` — a
