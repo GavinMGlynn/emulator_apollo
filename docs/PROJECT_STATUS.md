@@ -20806,3 +20806,43 @@ half of this item.
 *Verification: the disassembly above, from the ROM file with Capstone; the
 addresses agree with `002398-04` p. 12-3's layout and with the measured
 `--boot-watch-read 00010912`.*
+
+
+## The MD recipe does not reproduce, and the reason is that it was never an invocation
+
+`PROJECT_STATUS.md` records "**Done, and MD talks**" -- the sign-on byte for byte,
+and `EX CONFIG` loading off `/sau14`. Five attempts today, on the *same* binary
+and PROM, produce no sign-on at all. Every one parks inside the service-mode
+poll at `00078E`-`0007AE` with an empty console.
+
+| attempt | what it had | result |
+| --- | --- | --- |
+| 1 | 10 returns, rate `0x99`, no key | PC `00000794`, silent, 1,200 M |
+| 2 | 40 returns, key `0x5A`, interval, **no rate** | PC `0000078E`, silent, 1,500 M; report says *"sent at 9600 baud (CSR BB)"* |
+| 3 | as 2, default 1987 clock | PC `0000078E`, silent |
+| 4 | 40 returns, key, interval, rate `0x99` | PC `000007A8`, silent, 1,000 M |
+| 5 | as 4, **no disk** | PC `000007A8`, silent, 600 M -- *"40 of 40 delivered, sent at 4800 baud (CSR 99)"*, `sio1 reg 11` read 40 times |
+
+The characters arrive, at the rate the firmware is listening at, and the
+firmware consumes all forty -- `sio1 reg 11` shows 40 reads and 0 writes, the
+same "drains input and produces nothing" signature this file recorded *before*
+the entry that says it was solved. `sio1 reg 1` is read **74,993,625** times.
+
+**So a claim in the living document has rotted, and the mechanism is the one
+this project already legislated against.** The recipe was written down as
+*ingredients* -- service mode, a key press, an interval, forty returns, a budget
+-- and never as a command line. `tools/identity-boot.sh` exists precisely
+because "a state hash is only a reference *together with the invocation that
+produced it*", and the same is true of a dialogue. Whatever the working run had,
+it is not recoverable from what was written, and five reconstructions from the
+ingredients do not find it.
+
+**Not marked as a defect this time.** The earlier investigation's mistake was to
+read a wrong invocation as a broken machine, and this entry deliberately does
+not repeat it: what is established is that *the documented recipe does not
+reproduce*, not that the DUART, the poll, or the delivery path is at fault. All
+five runs are consistent with a firmware that is waiting for something the
+recipe does not supply.
+
+*Verification: the five runs above, each bounded, with their own reports quoted.
+No code changed.*

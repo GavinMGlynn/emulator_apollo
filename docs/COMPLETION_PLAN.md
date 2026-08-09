@@ -3761,6 +3761,17 @@ boot below, and the boot is not attempted until they are done.
         like three problems are one. Detail in `PROJECT_STATUS.md`.
         *Verification: the PROM's accesses logged with their widths, and the
         judgement traced to one longword of battery RAM.*
+  - [ ] **Capture the MD dialogue as a script, not as prose.** The recorded
+        recipe for reaching the Mnemonic Debugger — service mode, a key press,
+        an interval, forty returns, a budget — does not reproduce: five
+        reconstructions park in the service-mode poll with an empty console,
+        while the characters demonstrably arrive and are consumed. The recipe
+        was never written as an invocation, which is the failure
+        `tools/identity-boot.sh` exists to prevent. Detail in
+        `PROJECT_STATUS.md`.
+        *Verification when done: a committed script under `tools/` reaches
+        `MD7C REV 8.00` and drives one command, so the invocation is the
+        artifact and the prose is only its commentary.*
   - [ ] **Give the machine a configuration.** The calendar's battery RAM is
         blank at every power-on, which on real hardware is a machine whose
         battery has died: the boot PROM says "Configuration information is not
