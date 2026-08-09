@@ -18993,6 +18993,35 @@ autoboot, and service mode alone does not produce the sign-on.
 *Verification: two consoles -- one reaching the self-test question, one silent at
 `0000078E`. No code changed.*
 
+## What the ring already shows about the request
+
+The 3000-step ring taken at the gate is worth reading for more than the immediate
+caller, because it is free evidence already on disk.
+
+Reconstructing the calls and returns in it, the value `1` that ends up as the
+requested address space is **carried through a chain of returns** long before the
+switch is called -- `d0 = 00000001` at `3C4109B0`, `3C410C78`, `3C4111B6`,
+`3C4090A4`, `3C46FF12`, and then into `JSR $3C41954E` at `3C456642` and
+`JSR $3C43DD80` at `3C41956C`. It is not computed at the call site; it arrives
+from somewhere earlier and is passed down.
+
+**And the ring contains one thing that is worth following.** At step 288,639,479
+a routine at `3C43DBEC` returns with `d0 = 0105C001`, and a few steps earlier
+`3C43D9BC` returns with `d2 = 00005C00`. Those addresses sit in the same
+`3C43Dxxx` module as the switch itself, and `0105C001` is one page-and-a-bit from
+`0105BC00`, the tree the kernel builds and never installs. A routine in the
+address-space module handling addresses in that region, immediately before the
+only switch request the boot ever makes, is the natural place to look for where
+the request's argument is decided.
+
+That is as far as 3000 steps reach: the chain of returns carrying `1` starts
+before the ring does. The next measurement is simply a longer ring at the same
+stop -- the instrument is already built and costs one boot.
+
+*Verification: the call/return reconstruction is from the ring committed with the
+caller entry above; no new run. No code changed.*
+
+
 
 
 
