@@ -3421,7 +3421,7 @@ failure that cost a bit position in the 68020's module entry word.
 | Cartridge tape images (`image/ap_ct.c`) | working: block addressing over a raw `.ct` image, refusing any size that is not a whole number of 512-byte blocks, and boot-record parsing that returns the four header words. Their reading as load address and entry point is now **confirmed by the boot code itself** — its first instruction, a PC-relative `LEA`, computes word 0 exactly when executed at word 1, so the image proves its own layout. `ap_ct_boot_image` therefore *names* load address, entry point and length, and refuses a cartridge that does not announce itself, or whose header describes more than the file holds. Takes memory, never a filename, so `src/core` keeps its zero file I/O and the tests need no gitignored media | `ct_suite`, 12 tests; `FINDINGS.md` C24 |
 | Apollo display controller (`05D800`, `05E800`) | **identification**: both register blocks decode whether or not a screen is fitted, and the device ID at offset 1 reports `C4P=8`, `19I=9`, `C8P=10` or `15I=11` for the fitted family and `FF` for the other. An absent screen reads `FF` and does **not** bus error — "nothing is fitted" and "nothing is there" are different answers, and getting that wrong cost an investigation. **Drawing**: `CR0`'s mode and shift, `CR1`'s bits named per family, `CR2`'s two plane-select encodings, all sixteen raster operations, the word-level data path with its two active-low fields, and the blit that is the plane loop around them. **Lookup table**: the Bt458 wired behind its data and control ports, active-low chip selects, the FIFO that commits a palette on the release of `CPAL_CS`. **Raster**: both dot clocks, the beam as a function of the instant, and the status register's timing bits gated on `CR1`. **Scanout**: the four geometries, each buffer width being the manual's own printed capacity divided out, planes composed with plane 0 as bit 0 and bit 15 as the leftmost pixel. **Registers**: sixteen of them in two groups of eight, the low group aliased across the block, `CR0`-`CR3B`, the 16-bit write enable and the 32-bit raster operation, with `CR3A` as a bit port onto `CR1`. Still unmodelled and reading `FF`: the status register, the raster operation's write-only low half, and the lookup table's two ports | `graphics_suite`, 82 tests; `FINDINGS.md` C31-C32 |
 | Apollo cartridge tape (`050000`) | working, **controller joined to the drive**: a data-register write with the request bit set is a QIC-02 command, reads deliver the cartridge a byte at a time across the drive's block boundary, and a refused command or the end of tape raises Exception. The command handshake's **three entry conditions** are modelled — ready, exception, device-holds-the-bus, one figure each — and now **its timings too**: the device carries a clock, a command deasserts READY at once and reaches its destination only when the figure's interval has passed. Every interval is `PROVISIONAL`, since §1.13.2 publishes bounds rather than values. Four registers at stride 1, the upper four of each eight floating to `FF`, aliased through the range, on IRQ5 through to vector `A5`. The measured reset dump is reproduced over two aliasing periods | `tape_suite`, 17 tests; `FINDINGS.md` C16-C19 |
-| Archive SC-499 cartridge tape controller (the part) | **register model complete**: all four addresses of `[SC499]` §1.9 — data/command, control-on-write and status-on-read, and the two write-triggered DMA commands — plus the derived interrupt flag, the tri-stated IRQ line, and RSTDMA's documented identity with power-on reset. **The status register's polarity is corrected**: RDY and EXC are asserted *low*, and the interrupt flag is a disjunction rather than a conjunction — see the section below. The QIC-02 command set itself, tape motion and the drive behind it are not modelled. Not yet wired to the board at `050000` | `sc499_suite`, 17 tests, `Archive SC-499 Information Guide` | **Oracle note:** MAME's own SC-499 models no media change at all, so a cartridge swapped while Domain/OS holds the drive crashes it; `ext/mame` carries a local edit treating insertion as a QIC-02 RESET, per `FINDINGS.md` C56.
+| Archive SC-499 cartridge tape controller (the part) | **register model complete**: all four addresses of `[SC499]` §1.9 — data/command, control-on-write and status-on-read, and the two write-triggered DMA commands — plus the derived interrupt flag, the tri-stated IRQ line, and RSTDMA's documented identity with power-on reset. **The status register's polarity is corrected**: RDY and EXC are asserted *low*, and the interrupt flag is a disjunction rather than a conjunction — see the section below. The QIC-02 command set itself, tape motion and the drive behind it are not modelled. Not yet wired to the board at `050000` | `sc499_suite`, 18 tests, `Archive SC-499 Information Guide` | **Oracle note:** MAME's own SC-499 models no media change at all, so a cartridge swapped while Domain/OS holds the drive crashes it; `ext/mame` carries a local edit treating insertion as a QIC-02 RESET, per `FINDINGS.md` C56.
 | Apollo disk and floppy (`04D000`, `05F800`) | working: both halves of the one card, placed **74 KB apart** by measurement, each aliased through 1 KB on its own period — four registers for the fixed disk, an eight-address block for the floppy. Interrupts on IRQ14 and IRQ6, separate lines eight apart. The gap is pinned as arithmetic, not constants: the AT window maps `Apollo = 0x040000 + AT × 0x80` | `disk_suite`, 6 tests; `FINDINGS.md` C20, C22, C23 |
 | OMTI command descriptor blocks | working: the 6-byte CDB decoded with the **cylinder reassembled from three bytes** (C10 in byte 1, C09/C08 in byte 2, low eight in byte 3), the command byte exposed both whole and split into class and opcode, and acceptance checked against the ESDI command set — which **refuses** `0C INITIALIZE DRIVE CHARACTERISTICS`, an ST506-only command that would make ESDI geometry look settable | `omti_cdb_suite`, 7 tests; `FINDINGS.md` C27 |
 | OMTI 862X ESDI/floppy controller (the part) | **register model complete for both halves**: the fixed disk's four ports with their read/write asymmetries and the status register's fixed bits, and the floppy's five at the standard PC layout. Modelled as two independent register sets sharing nothing, as `[OMTI]` §4.1 and §3.4 describe. Both measured dumps reproduced as tests. **Both command sets now modelled**: §5's fixed disk over `.awd`, and §6's floppy over `.afd` — ten commands and INVALID, with ST0–ST3 result bytes, and **no `WRITE DATA`**, which neither our §6 nor the sibling 8640's §5.3 lists. **`1E READ DATA TO BUFFER` implemented** -- §5.4.19's "reads data from the disk
@@ -21541,3 +21541,89 @@ in this chain.
 *Verification: `sc499_suite` 17 tests with the polarity and the idle `F7`
 asserted directly, `tape_suite` and `board_suite` dumps updated, `ctest` 130/130
 on both build types; the boot's own progress lines above.*
+
+
+## The exception after reset is QIC-02's, and its delay is in neither document
+
+The remaining question split into two, and only one of them has an answer on
+paper.
+
+**What**: the drive asserts EXCEPTION after a reset, and the reason is the
+protocol rather than this driver. Linux's `tpqic02.h` -- the same header this
+core already cites for `QIC_STAT_READY`'s polarity -- defines
+
+```
+  #define TP_POR 0x100    /* Power on or reset occurred */
+```
+
+`TP_POR` is a bit in the *drive's* status bytes, which a host obtains with READ
+STATUS, and READ STATUS is what a host issues **in response to an exception**.
+A power-on-reset condition that is reported through an exception is a power-on
+reset that raises one. That settles what `ap_tape_reset` recorded as open --
+"the oracle comes up with EXCEPTION asserted, this core does not ... nothing is
+claimed" -- and settles it from the protocol, with Domain/OS's `CMPI.W #$0057`
+as the corroboration rather than the evidence.
+
+**How long**: nothing. `[SC499]` §1.13.2 lists "Exception Asserted" only as a
+*command transfer* figure -- how a command is sent to a device already in
+exception -- and gives no post-reset interval. §1.12 specifies the host's side
+of the protocol exactly (RSTSAC "held for more than 25 usec") and says nothing
+about the controller's response time. `tpqic02.h`'s timeouts are for commands
+(`TIM_S` 4 s, `TIM_M` 30 s, `TIM_R` 8 min) and none is a reset delay. A web
+search for the QIC-02 standard's own wording found nothing usable.
+
+So the interval is a genuine gap in the documents, and the order says the oracle
+is what answers it -- with the figure marked `PROVISIONAL` in the code and named
+here, per the rule for a measurement that no manual supplies. It must be long
+enough that loop 1 sees `F7` first and short enough that loop 2's 131 M-iteration
+timeout does not expire, which is a wide window; the point of measuring rather
+than picking is that a number chosen to make the boot work is not evidence
+about the hardware.
+
+*Verification: `tpqic02.h` as fetched, `[SC499]` §1.12 and §1.13.2 as page
+images. No code changed by this entry.*
+
+
+## The tape handshake completes, and the divergence moves 920,000 instructions later
+
+The post-reset exception is modelled: the *release* of RSTSAC arms it and an
+interval later it asserts. `[SC499]` §1.12 gives the release as the event
+("set, held for more than 25 usec, then cleared"), `tpqic02.h`'s `TP_POR` gives
+the protocol reason, and the interval is `AP_SC499_T_RESET_TO_EXCEPTION`,
+**`PROVISIONAL`** at 200 ms -- the oracle's figure, and the oracle's is itself an
+uncited `attotime::from_msec(200)`.
+
+**Measured effect, and it is the point of the change:**
+
+```
+   37,130,000  ours 3C459F82   oracle 3C459F7C     both in loop 2
+   37,160,000  ours 3C459F7C   oracle 3C459F90     both in loop 2
+   37,170,000  ours 3C43DB66   oracle 3C459F82     ours exits
+```
+
+The sustained split was at Δ 36,250,000 and is now at Δ **37,170,000**. More
+than the distance: **this core now reaches loop 2 at all**, waits in it, takes
+its exception and leaves. Before these two fixes it never got past loop 1's
+comparison. The tape reset handshake -- `F7` then `57` -- completes.
+
+**The machine still crashes**, with the same `00120020`, and the divergence is
+now the *opposite* shape: ours leaves loop 2 while the oracle is still in it, so
+here we are early where before we were stuck. That points at the `PROVISIONAL`
+200 ms rather than at the mechanism, and it is the first thing to question --
+the figure was adopted from the oracle precisely because no document supplies
+it, and "our exception arrives sooner than the oracle's relative to the driver's
+polling" is exactly the symptom an interval that is merely plausible would
+produce.
+
+**Two implementation notes worth keeping.** The deadline is dated at the next
+`advance` rather than at the release, because `ap_sc499_reset` clears every
+field including `now` *and* is called on an uninitialised struct at power-on --
+so there is no instant to read at release time, and reading one is undefined
+behaviour rather than merely wrong. An earlier attempt preserved `now` across
+the reset and did read it, which `sc499_suite`'s byte-for-byte RSTDMA
+equivalence test caught immediately.
+
+*Verification: `sc499_suite` 18 tests (1 new: idle immediately after the
+release, still idle one tick short of the interval, exception and `57` at it);
+`ctest` 130/130 both build types; the sample comparison above against the same
+oracle stream as before.*

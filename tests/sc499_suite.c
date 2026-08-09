@@ -342,6 +342,41 @@ static void test_the_unused_low_bits_read_as_one(void) {
                          (uint8_t)(later & AP_SC499_ST_UNUSED));
 }
 
+/* `[SC499]` §1.12: RSTSAC "must be set, held for more than 25 usec, then
+ * cleared". The *release* is what starts the controller's own reset, and it
+ * comes out of that reporting a power-on-reset condition -- which QIC-02
+ * reports as an exception (`tpqic02.h`'s `TP_POR`, obtained with READ STATUS,
+ * which a host issues in response to one).
+ *
+ * The ordering is the part that matters and the part a driver depends on: the
+ * exception must arrive *after* an interval, not with the release, or a driver
+ * polling for the idle status first would never see it. Domain/OS does exactly
+ * that -- `F7` then `57`. */
+static void test_releasing_the_reset_raises_an_exception_only_after_the_interval(
+    void) {
+  ap_sc499_t t;
+  ap_sc499_reset(&t);
+
+  ap_sc499_write(&t, AP_SC499_CONTROL_STATUS, AP_SC499_CTL_RESET);
+  ap_sc499_write(&t, AP_SC499_CONTROL_STATUS, 0u);
+
+  /* Immediately after the release the controller is idle, not excepting: the
+   * status reads `F7`, which is the first thing the driver waits for. */
+  ap_sc499_advance(&t, 1000u);
+  TEST_ASSERT_FALSE(t.exception);
+  TEST_ASSERT_EQUAL_HEX8(0xF7u, ap_sc499_read(&t, AP_SC499_CONTROL_STATUS));
+
+  /* Short of the interval, still idle. */
+  ap_sc499_advance(&t, 1000u + AP_SC499_T_RESET_TO_EXCEPTION - 1u);
+  TEST_ASSERT_FALSE(t.exception);
+
+  /* At it, the exception is asserted and the status reads `57` -- the second
+   * thing the driver waits for. */
+  ap_sc499_advance(&t, 1000u + AP_SC499_T_RESET_TO_EXCEPTION);
+  TEST_ASSERT_TRUE(t.exception);
+  TEST_ASSERT_EQUAL_HEX8(0x57u, ap_sc499_read(&t, AP_SC499_CONTROL_STATUS));
+}
+
 static void test_the_handshake_times_are_exact_in_base_units(void) {
   /* `[SC499]` §1.13.2's figures are all bounds, and this core models them at the
    * bound -- `PROVISIONAL`, and recorded as such. What is *not* provisional is
@@ -383,6 +418,7 @@ int main(void) {
   RUN_TEST(test_done_contributes_to_the_flag_only_when_enabled);
   RUN_TEST(test_holding_the_reset_bit_holds_the_controller);
   RUN_TEST(test_the_unused_low_bits_read_as_one);
+  RUN_TEST(test_releasing_the_reset_raises_an_exception_only_after_the_interval);
   RUN_TEST(test_two_controllers_reset_alike_hold_identical_state);
   return UNITY_END();
 }

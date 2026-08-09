@@ -181,6 +181,13 @@ typedef struct {
    * and `now` starts there. */
   bool executing;
   ap_time_t ready_at;
+
+  /* The post-reset exception, armed when the host releases RSTSAC. Kept apart
+   * from `executing`/`ready_at` because it is not a command handshake and must
+   * not be cancelled by one. */
+  bool reset_arming;
+  bool reset_pending;
+  ap_time_t exception_at;
   /* Which figure the command in flight entered by, kept so the completion knows
    * what to undo -- 1-8 lifts an exception, 1-9 hands back the bus. */
   ap_sc499_entry_t entry;
@@ -220,6 +227,30 @@ typedef struct {
 #define AP_SC499_T_DIRECTION_RELEASE AP_SC499_US(150)    /* < 150 us, Figure 1-9 T3->T4 */
 #define AP_SC499_T_DIRECTION_TO_READY AP_SC499_US(500) /* < 500 us, Figure 1-9 T4->T6 */
 #define AP_SC499_T_COMMAND_EXECUTION AP_SC499_US(500000) /* < 500 ms, Figure 1-7 T4->T5 */
+
+/* **PROVISIONAL.** How long after the host releases RSTSAC the controller
+ * asserts EXCEPTION to report the power-on-reset condition.
+ *
+ * *That* it asserts one is protocol, not guesswork: Linux's `tpqic02.h` defines
+ * `TP_POR` ("Power on or reset occurred") as a bit in the drive's status bytes,
+ * and a host obtains those with READ STATUS, which is what it issues **in
+ * response to an exception**. Domain/OS corroborates -- its tape reset waits
+ * for status `57`, which is EXCEPTION asserted, and cannot proceed without it.
+ *
+ * *How long* is in neither document. `[SC499]` §1.12 specifies the host's side
+ * exactly ("held for more than 25 usec") and says nothing about the
+ * controller's response; §1.13.2's "Exception Asserted" figure is a *command*
+ * transfer, not a reset; `tpqic02.h`'s timeouts are all per-command. So this
+ * figure is the oracle's, and the oracle's is itself unsourced --
+ * `sc499.cpp` arms `attotime::from_msec(200)` with no citation.
+ *
+ * Adopted rather than invented, and marked so it cannot be mistaken for a
+ * measurement: the value must exceed nothing in particular and only has to fall
+ * inside the driver's window (after its first poll sees `F7`, before its second
+ * poll's 131 M-iteration timeout), which is far too wide to pin a number.
+ * Replace it with a figure from the QIC-02 standard or from hardware; a named
+ * plan item carries it. */
+#define AP_SC499_T_RESET_TO_EXCEPTION AP_SC499_US(200000) /* PROVISIONAL */
 
 /* Figure 1-5, Data Transfer Write Operation, T14->T15: "Device Asserts READY
  * (Device READY For Next Data Block)", timed `100 us. < T14--->T15`.

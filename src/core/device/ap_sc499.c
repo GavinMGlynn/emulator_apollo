@@ -74,6 +74,27 @@ void ap_sc499_advance(ap_sc499_t *tape, ap_time_t now) {
   if (now > tape->now) {
     tape->now = now;
   }
+
+  /* The post-reset exception, `[SC499]` §1.12's release of RSTSAC followed by
+   * the controller reporting its power-on-reset condition. Checked before the
+   * command handshake and independently of it: a reset is not a command, and
+   * the driver polls for this without issuing one.
+   *
+   * The deadline is computed *here* rather than at the release, because
+   * `ap_sc499_reset` -- which the release follows -- clears every field
+   * including `now`, and this part is also reset from an uninitialised struct
+   * at power-on, so there is no instant to read at that point. Arming and then
+   * dating on the next advance is the only form that is correct for both
+   * callers. */
+  if (tape->reset_arming) {
+    tape->reset_arming = false;
+    tape->reset_pending = true;
+    tape->exception_at = tape->now + AP_SC499_T_RESET_TO_EXCEPTION;
+  } else if (tape->reset_pending && tape->now >= tape->exception_at) {
+    tape->reset_pending = false;
+    tape->exception = true;
+  }
+
   if (!tape->executing || tape->now < tape->ready_at) {
     return;
   }
@@ -219,7 +240,8 @@ void ap_sc499_write(ap_sc499_t *tape, unsigned reg, uint8_t value) {
   case AP_SC499_DATA:
     tape->data = value;
     return;
-  case AP_SC499_CONTROL_STATUS:
+  case AP_SC499_CONTROL_STATUS: {
+    const bool was_held = (tape->control & AP_SC499_CTL_RESET) != 0u;
     tape->control = value;
     if ((value & AP_SC499_CTL_RESET) != 0u) {
       /* "Reset controller microprocessor". The control register itself is what
@@ -228,8 +250,19 @@ void ap_sc499_write(ap_sc499_t *tape, unsigned reg, uint8_t value) {
       uint8_t held = value;
       ap_sc499_reset(tape);
       tape->control = held;
+    } else if (was_held) {
+      /* The *release*. `[SC499]` §1.12: RSTSAC "must be set, held for more than
+       * 25 usec, then cleared" -- so this edge, not the setting, is what starts
+       * the controller's own reset. It comes out of it reporting a power-on
+       * reset, which the protocol reports as an exception, so the exception is
+       * armed rather than asserted here: the driver's first poll must see the
+       * idle `F7` before its second sees `57`, and asserting immediately would
+       * skip the first. */
+      tape->exception = false;
+      tape->reset_arming = true;
     }
     return;
+  }
   case AP_SC499_DMAGO:
     /* "Any write to this register will cause DMAGO to be active" -- the value is
      * not a parameter, and a model that stored it would invent a register the
