@@ -19249,11 +19249,36 @@ the live tree decides what the loop means. The wording in the entry above --
 "the mappings sit in a tree the MMU is not walking" -- assumed a store into the
 new tree and may have the direction backwards.
 
-**What is not yet known** is where `3C5C0400` lands physically. If it is
-`0105BC00`, the loop copies the old tree's entries into the new one, which is
-ordinary preparation for a switch. If the live tree is the *destination*, the
-reading is different again. A stop with both resolved settles it, and that is the
-next measurement rather than a guess.
+**Both resolved, and the direction is old to new.** At a stop at the gate:
+`3C5BFC00 -> 01001400` (the live tree) and `3C5C0400 -> 0105BC00` (the kernel's).
+So `A0` is the source and `A2` the destination: the loop copies the live tree's
+entries into the tree the kernel is building. The wording above was right and the
+doubt is discharged. The loop is also larger than the three indices suggested --
+after `ED` and `EE` it runs a second pass of **240 entries from index `0F`**
+(`MOVEQ #$0F,D1`, `MOVE.W #$F0,D0`), which is a bulk copy of the root table, not
+a patch.
+
+**And the entries themselves answer why the fault is at `EF`.** Reading both
+trees at the same stop, at offsets `0x3B4`, `0x3B8`, `0x3BC`:
+
+| index | live tree `01001400` | kernel tree `0105BC00` |
+| --- | --- | --- |
+| `ED` | `011E6003` | `011E6003` |
+| `EE` | `011E6403` | `011E6403` |
+| **`EF`** | **`00000000`** | **`00000000`** |
+
+`EF` -- the index the fatal `3BFF0001` resolves to -- is **invalid in both trees
+at this instant**, and the two are byte-identical across the whole region, the
+copy having already run. So the copy is not what makes `EF` valid. It is filled
+in afterwards, and this file recorded long ago that entry `0xEF` is written
+**seven times over a boot, last value `0133380B`** -- into the kernel's tree,
+which the MMU never walks because the switch was skipped. The live tree keeps
+`00000000` there for the whole run, and the access to `3BFF0001` finds nothing.
+
+**That is the last mechanical gap closed.** The chain from "the kernel allocates a
+frame" to "the fault is taken inside a lock" is now measured at every step,
+including why the failing index is `EF` and not one of the hundreds that were
+copied.
 
 **The frame result is clean and stands.** The value `3C000001` sits at
 `A6 - 0x20` in the frame at `3C4F98C8`, so it is a **local**, not a parameter

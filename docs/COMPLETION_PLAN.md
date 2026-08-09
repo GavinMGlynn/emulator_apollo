@@ -2958,9 +2958,15 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
     frame `0x416F`, derives `0105BC00` from it (`<< 10`), writes that into the
     root pointer table at `$3C43C96E` entry 1 — the ring records `A0 = 3C43C96E`
     at the store — writes the `ED`–`EF` mappings, asks for space 1, and is told
-    by its own cache it is already there. **One step is unexplained: why the
-    cache claims space 1 when nothing has installed it.** Detail in
-    `PROJECT_STATUS.md`.
+    by its own cache it is already there.
+    **And why the failing index is `EF` is measured too**: the loop copies the
+    live tree into the new one (`3C5BFC00 -> 01001400` source,
+    `3C5C0400 -> 0105BC00` destination, 240 entries after `ED`/`EE`), and at the
+    gate `EF` is **`00000000` in both**. It is filled in afterwards — seven times
+    over a boot — into the kernel's tree alone, which the MMU never walks. The
+    live tree keeps `00000000` there for the whole run.
+    **One step is unexplained: why the cache claims space 1 when nothing has
+    installed it.** Detail in `PROJECT_STATUS.md`.
 
 **Order matters here, and this file had it wrong.** The boot is a *test*, and
 two of its children were unfinished *implementation*. `CLAUDE.md` says
