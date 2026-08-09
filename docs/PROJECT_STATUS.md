@@ -21062,3 +21062,43 @@ reason for it is one measurement away and is not yet in evidence.
 
 *Verification: the disassembly from a `--dump-logical` taken at the stop, and
 the descriptor from a second, both on the matched MD path.*
+
+
+## The branch is not the divergence either: the oracle takes it too
+
+The previous entry decoded `CMPI.W #$0001,$0006(A0)` / `BHI.B` at `3C44F07E`,
+found the descriptor word at `+6` to be zero, and framed the question as "why is
+ours zero where the oracle's is above one". **The oracle's is zero too.**
+Instrumented at the three arms of that branch (reverted since):
+
+```
+  APOLLO_BR 3C44F07E a0=3C447180 d0=00000000     the compare
+  APOLLO_BR 3C44F086 a0=3C447180 d0=00000000     falls through -- as ours does
+  APOLLO_BR 3C44F09A a0=3FFF0400 d0=FFFFFF00
+  APOLLO_BR 3C44F07E a0=3C447140 d0=00001834
+  APOLLO_BR 3C44F086 a0=3C447140 d0=00001834     falls through again
+  APOLLO_BR 3C44F09A a0=3FFF0000 d0=FFFFFF00
+```
+
+Same descriptor, same arm. So the branch reports the same thing on both
+machines and **both enter the poll**. The framing in the entry above is
+withdrawn: there is no descriptor difference in evidence.
+
+**And the obvious next hypothesis is dead on arrival, from source rather than a
+run.** Both decodes put physical `00055C00` at ISA `0x2B8` -- ours is
+`(physical - 0x040000) >> 7`, MAME's is `(offset & 3) + ((offset & ~0x1ff) >> 7)`
+over word offsets, and they agree. And MAME answers unmapped AT-bus I/O with
+**`0xFFFF`**, commented *"ISA bus has 0xff for unmapped addresses"* -- the same
+value our pull-ups give. So neither the address nor the byte read there differs.
+
+**What is actually in evidence** is only this: our machine sits at `3C4BC38C`
+across roughly sixty million instructions of sampled stream, and the oracle's
+966 samples never once land there. Both poll; ours does not leave. The next
+measurement is therefore the poll's *duration* on the oracle -- an instruction
+count at each `3C4BC384` entry -- which distinguishes "the oracle exits early"
+from "the oracle polls briefly at a different moment", and those are different
+defects.
+
+*Verification: the branch log above from an instrumented `ext/mame` (reverted;
+five known local edits remain); the two decode formulas and the unmapped return
+read out of `apollo.cpp`.*
