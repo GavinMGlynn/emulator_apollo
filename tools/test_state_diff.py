@@ -89,6 +89,17 @@ def main():
     check("unequal scopes are refused, not guessed",
           "SCOPE SIZE" in out and "0 matched" in out, out)
 
+    # Names with spaces in them. MAME's registry names are like
+    # `Motorola MC68030/:maincpu/0/REG_D().0.0`, and a parser that split on
+    # whitespace took the key to be "Motorola" and mapped nothing at all --
+    # reporting `0 matched` with every line rejected, which looks like an empty
+    # map rather than a broken parser. This is the case that caught it.
+    code, out = run("cpu.d.000 u32 00000000000000AA\n",
+                    "Motorola MC68030/:maincpu/0/REG_D().0.0 u32 00000000000000BB\n",
+                    "cpu.d.000\tMotorola MC68030/:maincpu/0/REG_D().0.0\n")
+    check("a name containing spaces maps and compares",
+          "DIFFERS" in out and "1 matched" in out, out)
+
     print(f"\n{len(FAILURES)} failure(s)")
     return 1 if FAILURES else 0
 

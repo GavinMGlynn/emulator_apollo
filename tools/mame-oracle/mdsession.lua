@@ -706,10 +706,41 @@ end
 -- be stopped at a comparable instant rather than at whatever moment a run ends.
 local state_dump_path = os.getenv("APOLLO_STATE_DUMP")
 local state_dump_at = tonumber(os.getenv("APOLLO_STATE_DUMP_AT") or "") or 0.0
+-- **The sync point that actually works.** Emulated seconds are the same unit on
+-- both machines but not the same *place*: two cores agree on a second only if
+-- they execute identically, which is the thing under test. A shared **event** is
+-- what makes two dumps comparable, and the cheapest one is the fetch of a chosen
+-- instruction -- our side stops with `--boot-stop-pc`, this side taps the four
+-- bytes that instruction is read from. Narrow, so it costs nothing; the earlier
+-- whole-RAM tap made a run unusable.
+local state_dump_fetch = tonumber(os.getenv("APOLLO_STATE_DUMP_ON_FETCH") or "", 16)
 local state_dumped = false
+
+local function state_dump_now(why)
+	if state_dump_path == nil or state_dumped then return end
+	state_dumped = true
+	local ok, err = pcall(function()
+		manager.machine:apollo_dump_state(state_dump_path)
+	end)
+	note("# state dump (%s) at %.4fs -> %s%s\n", why,
+	     manager.machine.time:as_double(), state_dump_path,
+	     ok and "" or (" FAILED: " .. tostring(err)))
+end
+
+_G.apollo_fetch_tap = _G.apollo_fetch_tap or nil
+if state_dump_fetch ~= nil then
+	local ok, err = pcall(function()
+		local sp = manager.machine.devices[":maincpu"].spaces["program"]
+		_G.apollo_fetch_tap = sp:install_read_tap(state_dump_fetch,
+			state_dump_fetch + 3, "state-dump-fetch",
+			function() state_dump_now("fetch") end)
+	end)
+	if not ok then note("# fetch tap failed: %s\n", tostring(err)) end
+end
 
 local function state_dump_poll()
 	if state_dump_path == nil or state_dumped then return end
+	if state_dump_fetch ~= nil then return end
 	if manager.machine.time:as_double() < state_dump_at then return end
 	state_dumped = true
 	local ok, err = pcall(function()

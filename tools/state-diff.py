@@ -42,10 +42,15 @@ def load(path):
             line = line.strip()
             if not line or line.startswith("#"):
                 continue
-            parts = line.split()
+            # **Split from the right.** MAME's registry names contain spaces
+            # -- `Motorola MC68030/:maincpu/0/REG_D().0.0` -- so splitting on
+            # whitespace takes the key to be "Motorola" and silently maps
+            # nothing. The type and value are the last two fields; everything
+            # before them is the name, spaces and all.
+            parts = line.rsplit(None, 2)
             if len(parts) < 3:
                 continue
-            key, kind, value = parts[0], parts[1], parts[-1]
+            key, kind, value = parts[0], parts[1], parts[2]
             try:
                 fields[key] = (kind, int(value, 16))
             except ValueError:
@@ -64,7 +69,9 @@ def load_map(path):
             line = line.split("#", 1)[0].strip()
             if not line:
                 continue
-            bits = line.split()
+            # Tab-separated for the same reason: a name with spaces in it is
+            # one field, and only a tab can say where it ends.
+            bits = [b.strip() for b in line.split("\t") if b.strip()]
             if len(bits) != 2:
                 print(f"state-diff: ignoring malformed map line: {line}",
                       file=sys.stderr)
