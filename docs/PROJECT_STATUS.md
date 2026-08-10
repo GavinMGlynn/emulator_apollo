@@ -23365,3 +23365,77 @@ Nothing depends on it.
 64 KB memory test in four patterns; `RING.md` findings 44-51b, each with the ROM
 address that proves it, and 51/51a cross-checked against a second board
 generation.*
+
+## The posted-code differential was comparing two different boot modes
+
+`PROJECT_STATUS` and the working notes carried this as the live handle on the
+Phase 4 crash:
+
+```
+  oracle (boots)  00 03 04  05 06  08 0A  0C  -> 82 -> 01 02 03
+  ours            00 03 04  05 06  08 0A  0F  0C -> 0C 00 for ever
+```
+
+`0F` is ours alone, so `0F` was the thing to explain. It is explained, from the
+boot PROM binary alone with no measurement, and **it is not a defect**.
+
+**The post routine has two entries, and only one had been found.** `00251A`
+takes its code *inline* — it reads the word after the call and steps the return
+address past it. `00252A` takes it in `D0`. Both fall into `00252E`, which
+complements the byte and writes it through `$15A(A6)` to `00010100`. Scanning
+the PROM for calls to the inline entry finds fourteen sites, which matches the
+count in the notes — and misses every register-argument site.
+
+**`0F` is posted at `0008EC`, and the four instructions before it say what it
+means:**
+
+```
+  0008E4  lea.l  $8f4(pc),a1      ; a1 -> the string at 0008F4
+  0008E8  bsr.w  $4aec            ; print it
+  0008EC  bsr.w  $251a
+  0008F0  dc.w   $000F
+  0008F2  bra.b  $930
+```
+
+and `0008F4` is `0D 0A "MD7C REV 8.00, 1989/08/16.17:23:52"`. **`0F` means "the
+Mnemonic Debugger banner has been printed".** Our run was `md-session.sh` —
+service mode, `EX DOMAIN_OS`. The firmware posted `0F` because it did exactly
+what it was asked to do.
+
+**`0C` is a PROM site too**, which the notes had denied: `000934` is
+`move.w #$C,d0` / `bsr $252A`, the instruction pair immediately after the
+banner. It marks entry to the MD command loop. (The kernel may also post `0C`
+from `3C43DEFA`; the `0C` that follows `0F` is the PROM's.)
+
+**And `0C 00 0C 00 …` is the display flashing, not a loop failing.** `00255A`
+alternates the two bytes at `$1D4`/`$1D5(A6)` — the complemented code and `FF` —
+and `FF` complemented decodes as `00`. `main.c`'s own comment says the firmware
+"posts a diagnostic code and then flashes it for ever"; this is that flash.
+
+**So the two rows are a service-mode run against a normal-mode one.** Ours
+contains an MD-entry marker; the other ends at `82`, whose two sites sit beside
+`clr.w $17400` — the address translation map — which is the OS-load path. A
+comparison between a machine sitting in MD and a machine booting an OS cannot
+show a defect, and this one did not.
+
+This is the same error the `--screen` finding records one entry earlier: two
+machines were compared without holding their configuration equal. Third time in
+this investigation. The rule that catches it is already written down —
+cross-machine quantities must be sample-free *and* configuration-matched — and
+the recurring failure is applying it to instruction counts while not applying it
+to the mode the machine is running in.
+
+**What this costs and what it leaves.** It retires the posted-code sequence as a
+differential, which was the current lead. It does not touch the ASID finding
+underneath it: the oracle asks for address space 0 first, installs, and makes
+the cache's claim true, where ours is asked for space 1 against a cache already
+claiming 1 and installs nothing. That remains the open question, and it is
+reached on the *auto-boot* path, which is where the `00120020` crash is.
+
+Recorded as a negative result because it was cheap and certain — a scan of a
+64 KB binary already on disk — and because the alternative was another
+instrumented boot aimed at a code the firmware posts when it succeeds.
+
+*Verification: `roms/firmware/3500_BOOT_12191_7.bin`, the two post entries at
+`00251A`/`00252A`, their call sites enumerated mechanically, and the banner
+string at `0008F4`.*

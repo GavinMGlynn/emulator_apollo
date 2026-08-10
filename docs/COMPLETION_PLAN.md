@@ -2998,6 +2998,18 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
     `00000000` until its kernel sets it, while ours holds `01001400` from the
     firmware — a kernel that finds the MMU already configured may take a
     different path.
+    **The posted-code differential is retired, and it was never a differential.**
+    It had been the working handle: ours posts `0F` where the oracle does not.
+    Read out of the boot PROM rather than measured — the post routine has **two**
+    entries, `00251A` inline and `00252A` in `D0`, and only the first had ever
+    been scanned. `0F` is posted at `0008EC`, four instructions after
+    `lea $8f4(pc),a1` and a print call, and `0008F4` is `MD7C REV 8.00`: it means
+    **the Mnemonic Debugger banner was printed**, which is what our run asked
+    for. `0C` is a PROM site too (`000934`, the next instruction pair), and
+    `0C 00 0C 00` is `00255A` alternating the code with `FF` — the display
+    *flashing*, which `main.c` already documented. So the two rows compared a
+    service-mode run against a normal-mode one. Third configuration-mismatched
+    comparison in this investigation. Detail in `PROJECT_STATUS.md`.
     **But that difference may be an artefact of how the oracle was driven**, and
     ruling it out is the first step: `mdsession.py` presses a key at 4 s, drops
     into MD, and `ex domain_os` loads the kernel *without* `SELF_TEST` having
