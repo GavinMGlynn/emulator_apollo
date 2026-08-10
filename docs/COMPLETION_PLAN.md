@@ -3018,9 +3018,13 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
     screen, so the characters are genuinely lost. And it is **not timing**: the
     port delivered everything (`sio1 reg 3` read 15 times, zero flushes) and a
     two-phase run with the command gated *after* the banner reproduces it
-    byte-identically. **Next is a static read of the PROM's line editor at
-    `00223C`** — which special-cases `$08`, `$1B` and `$18` — and of `$21FA`'s
-    twenty-entry translation table, not a third boot. Detail in
+    byte-identically. **The static read found it**: `$14A(A6)` bit 1 is an
+    **input-discard flag**, tested at `00268E` in the console reader, and while
+    it is set every character delivered is read, passed to `$26EA`, and thrown
+    away — which is exactly fifteen reads with zero flushes and six characters
+    missing. MD exposes `XE ENABLE XON` / `XD DISABL XON` in its own command
+    table, so this is the receiving half of XON/XOFF. **The question is now what
+    this core's keyboard sends**, not when it sends it. Detail in
     `PROJECT_STATUS.md`.
     **The posted-code differential is retired, and it was never a differential.**
     It had been the working handle: ours posts `0F` where the oracle does not.

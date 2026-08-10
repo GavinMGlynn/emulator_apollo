@@ -23657,3 +23657,44 @@ actually has, and each phase re-evaluates its own gate.
 
 *Verification: `--screenshot` on `tools/md-session.sh --boot-type-after-pc
 0x78E`; the PNG shows the banner, the prompt and the truncated command.*
+
+## The six characters are swallowed by a flag, and the PROM has a command for it
+
+Read statically, as the changed question asked. The line editor at `00223C` is
+innocent: it stores into a 60-byte buffer at `$98(A6)` and special-cases only
+backspace, escape and cancel. The loss is one level down, in the console
+character reader at `002654`, and it is explicit:
+
+```
+  002688  move.b  $6(a5),d1        read the receive buffer
+  00268C  bsr.b   $26ea            process the character
+  00268E  btst.b  #$1,$14a(a6)
+  002694  bne.b   $2668            set: discard it and read another
+```
+
+**`$14A(A6)` bit 1 is an input-discard flag.** While it is set, every character
+the port delivers is read, handed to `$26EA`, and thrown away — which is exactly
+what the measurements show: fifteen reads of `sio1 reg 3`, zero flushes, and six
+characters that never reach the line. It is cleared at `0026D0` with
+`bclr.b #$1,$14a(a6)`, and `0026C4`-`0026CC` is a loop that keeps calling that
+clear-and-read until the flag stays down.
+
+**And MD names the mechanism in its own command table.** `MD.md`'s captured
+help screen lists `XE ENABLE XON` and `XD DISABL XON` — the debugger exposes
+XON/XOFF flow control as user commands, so a flag that discards input while set
+is the receiving half of it. `$26EA`, which every character passes through
+before the test, is where a `$13`/`$11` would be recognised.
+
+That makes this a **question about what this core's keyboard sends**, not about
+timing, and it is the first framing of this symptom that is not about *when*.
+Six characters is then a consequence rather than a constant to explain.
+
+**Verification of the negative half, which matters here:** the earlier
+explanations are all excluded by measurement rather than by preference — the
+port is not dropping them (zero flushes), the FIFO is not overrunning (a
+three-deep FIFO drops from the middle of a stream, not six from the front), and
+timing is not involved (a two-phase run with the command gated after the banner
+reproduces the result byte-identically).
+
+*Verification: `3500_BOOT_12191_7.bin` at `002654`-`0026D6`, read from the
+disassembly; the discard test at `00268E` and its clear at `0026D0`.*
