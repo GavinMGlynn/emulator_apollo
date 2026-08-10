@@ -379,6 +379,28 @@ local function install()
 
 	configure()
 
+	-- **Setting the configuration is not enough, and this file did not do the
+	-- other half.** `:apollo_config` is read at `MACHINE_RESET`, so a value
+	-- written from a periodic callback arrives *after* the machine has already
+	-- reset with the old one. The oracle **ships in Service** --
+	-- `PORT_CONFSETTING(0x00, "Service")` is the default -- so every run this
+	-- harness has ever made was a service-mode machine, whatever the
+	-- `Normal/Service = Normal` line above claimed. That is why `--stage watch`
+	-- parked in the boot PROM's console-selection poll at `000794` and a single
+	-- key press dropped it into the Mnemonic Debugger at `00267E`: both are
+	-- service-mode behaviour, and neither is the auto-boot the stage's comment
+	-- describes. `screencap.lua` had this right and said so; this file has
+	-- carried the bug beside it.
+	--
+	-- The guard lives in `_G` because the reset re-runs this script with fresh
+	-- locals, and a local guard resets the machine for ever.
+	if _G.apollo_mdsession_configured == nil then
+		_G.apollo_mdsession_configured = true
+		note("# configuration applied; soft reset so the firmware runs with it\n")
+		manager.machine:soft_reset()
+		return
+	end
+
 	-- Which devices the machine actually has. A build flag confirmed only by
 	-- the absence of compile errors is not confirmation that the device it
 	-- guards was instantiated, and those two look identical from outside --

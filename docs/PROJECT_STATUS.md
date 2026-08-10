@@ -23911,3 +23911,45 @@ Which is what the two-phase gate was built for.
 
 *Verification: the line buffer at `01000218`, dumped from the same invocation as
 the previous run with only `--boot-type-await-pushback` added.*
+
+## The oracle harness has been running service-mode machines the whole time
+
+`--stage watch` describes itself as the auto-boot watcher, and it never was one.
+`mdsession.lua` sets `:apollo_config` from its first periodic callback and
+**never soft-resets**. `:apollo_config` is read at `MACHINE_RESET`, so the value
+arrives after the machine has already reset with the old one — and the oracle
+**ships in Service**: `PORT_CONFSETTING(0x00, "Service")` is MAME's default.
+
+So every run this harness has ever made was a service-mode machine, whatever the
+`Normal/Service = Normal (0x0001)` line in its own header claimed. That header
+reports the port value it wrote, not the mode the machine is running in.
+
+It explains both failures seen while trying to take the matched measurement:
+with no input the machine parked in the boot PROM's console-selection poll at
+`000794`, and with a single key press it dropped into the Mnemonic Debugger at
+`00267E`. Neither is a stuck emulator. **Both are exactly what a service-mode
+DN3500 does**, and the stage's own comment describing an uninterrupted boot was
+describing a machine it had never produced.
+
+`screencap.lua` had this right and says so in its header — "(2) and (3) have one
+fix: set the configuration, then `soft_reset()` so the firmware runs again with
+it" — and `mdsession.lua` carried the bug beside it for the whole project. The
+guard has to live in `_G`, because the reset re-runs the script with fresh
+locals and a local guard resets the machine for ever.
+
+**Fixed, and the oracle now auto-boots.** With the soft reset in place,
+`--stage watch` runs the firmware through its self-tests and into Domain/OS:
+`CRP <- 01200000` at 37.8 emulated seconds from `PC 0100241A`. No earlier
+`mdsession.py` run has ever reached that.
+
+**What it costs retrospectively.** Every oracle measurement taken through this
+harness was taken in service mode. That does not invalidate the ones whose
+subject was the *firmware's* service-mode behaviour — the MD captures, the
+autobaud table, `MD.md` — but it does mean the address-space and root-pointer
+comparisons, taken with `--stage prompt` and `ex domain_os`, were of an
+MD-loaded Domain/OS against our auto-booted one. Which is the mismatch this
+investigation has suspected twice and could not previously test.
+
+*Verification: the run's own log shows the soft reset, the configuration applied
+twice, and a `CRP` install from `0100241A` — code the previous runs never
+reached.*
