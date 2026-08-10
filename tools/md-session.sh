@@ -55,13 +55,28 @@
 # gone. Hold it until the firmware is listening:
 #
 #   tools/md-session.sh --disk <copy> --screen 19i --boot-input "" \
-#     --boot-type "$(printf '\r\rEX DOMAIN_OS\r')" --boot-type-after-pc 0x78E
+#     --boot-type      "$(printf '\r\r')"           --boot-type-after-pc      0x78E \
+#     --boot-type-then "$(printf 'EX DOMAIN_OS\r')" --boot-type-then-after-pc 0x930 \
+#     --screenshot out.png
 #
-# `0x78E` is the top of the console-selection poll. Two characters are spent
-# before MD exists -- one selects the console (`00080E` posts `09`, the keyboard
-# branch) and one carriage return gets past `0008C8` to the banner (`0F`) -- so
-# the command needs both in front of it. Use `printf` for the returns: a shell
-# here-string sends `0A`, and no key produces `0A`.
+# **Two phases, and the split is not arbitrary.** `0x78E` is the top of the
+# console-selection poll; two characters are spent before MD exists -- one
+# selects the console (`00080E` posts `09`, the keyboard branch) and one
+# carriage return gets past `0008C8` to the banner (`0F`). `0x930` is the
+# instruction after that banner, and the command must wait for it because **the
+# firmware reads and discards whatever is typed while it prints**: a run with
+# everything in one string reported 15 characters typed, `sio1 reg 3` read 15
+# times, `rx_flushed` never moved -- and MD received `AIN_OS` out of
+# `EX DOMAIN_OS`. Nothing was lost on the wire; six characters were read by the
+# PROM and dropped, which is ordinary type-ahead handling and not a defect.
+#
+# **`--screenshot` is not optional.** This console is the *display*, so
+# `--boot-console` prints nothing at all: a run without a screenshot is silent
+# by construction rather than for want of output, and the screen is how
+# `AIN_OS` was found.
+#
+# Use `printf` for the returns: a shell here-string sends `0A`, and no key
+# produces `0A`.
 set -eu
 
 root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
