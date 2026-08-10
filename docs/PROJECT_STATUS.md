@@ -24290,13 +24290,34 @@ exactly one of bits 0-3, and they are paired with memory patterns `1111`,
 all. That is a **write-enable or plane-mask** being stepped through, with the
 data chosen to match.
 
-*Next: settle what `CR3A` with bit 7 set does, from the reference rather than
-from the code — the display controller's own documentation if this project holds
-it, then the sibling manuals, then MAME's `apollo_graphics` for the same
-register. If it is a write mask, a model that ignores it lets writes through
-that the hardware would suppress, and the memory the checker then reads is not
-the memory the firmware believes it wrote — which is exactly the disagreement
-the 128-word boundary describes.*
+**Checked against the oracle, and the suspicion is withdrawn — it matches
+exactly.** This is an Apollo custom part with no manual on disk, so MAME is the
+reference of last resort. `apollo_graphics_15i::set_cr3a` is:
+
+```c
+  m_cr3a = data;
+  if ((data & 0x80) == 0) { ... set_cr1 with the bit port ... }
+```
+
+Byte for byte the rule this core implements. So the bit-7-set writes are ignored
+on **both** machines, the oracle passes this test anyway, and `CR3A` is not the
+difference. The shape argument — `CE CD CB C7` clearing one of bits 0-3 against
+`1111 3333 7777 FFFF` — was suggestive and wrong; the values are stored and
+read back, which is all the firmware needs of them here.
+
+That is the seventh candidate excluded, and the exclusions are worth listing
+because together they are most of the surface: storage, device IDs, board
+decode, both read widths, the write/read cycle pair at reset and in service, the
+full buffer extent, and now `CR3A`. Everything the module does under the
+firmware's own inputs matches either the manual or the oracle.
+
+*Next, and it is the last piece of the sequence not yet read: the code between
+`006B54` and `006B9A` — what lays the descending counter down, and with which
+extent. The compare loop's counts come from `d1`/`d2`, which `006BAC` adjusts by
+screen type against `#$9`; the writer's extent has not been read at all. A
+writer and a checker that disagree by a screen-dependent factor is still the
+shape that fits a 128-word boundary, and that stretch of code is where it would
+live.*
 
 *Verification: `ap_graphics_memory_cycle` and `ap_graphics_memory_read_cycle`
 driven as the board drives them, buffers sized as `main.c` sizes them, registers
