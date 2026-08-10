@@ -24265,11 +24265,38 @@ between the pattern that was *laid down* — by code before `006B9A` — and the
 counter the compare loop expects. **That is where this resumes**, and it is
 upstream of everything examined so far.
 
-*Next: find what writes the descending pattern (before `006B9A`) and compare its
-extent and stride against the compare loop's `d1`/`d2` counts, which
-`006BAC`'s `cmpi.b #$9,$9a(a5)` adjusts by screen type. The 128-word boundary is
-the number to explain, and a pattern-writer and a checker disagreeing about how
-far to go by a factor related to the screen is the shape to look for.*
+**And reading before `006B9A` finds an unmodelled behaviour on the exact
+register the test manipulates.** `006B0A`-`006B54` is a register-gated memory
+readback: it writes `1111`, `3333`, `7777`, `FFFF` into display memory at `(a1)`
+and reads each back with `cmpi.w`, changing `(a2)` between them. The register
+dump gives `a2 = 0005DC06` — the monochrome block's **`+0x406`**, which this
+core names `CR3A`.
+
+`CR3A` is modelled as a *bit port* into `CR1`, and `apply_bit_port` opens with
+
+```c
+  if ((value & 0x80u) != 0u) { return; }
+```
+
+**Every value the firmware writes there has bit 7 set** — `CE`, `CD`, `CB`,
+`C7`, `C0`, `D0`, `E0`, `F0` — so every one of them is stored and otherwise
+**silently ignored**. The module's own comment describes only the bit-7-clear
+form; the bit-7-set form is not "no operation", it is a form nobody has
+identified, and treating it as a no-op is the assumption to test.
+
+Their shape says what they probably are: `CE`, `CD`, `CB`, `C7` each clear
+exactly one of bits 0-3, and they are paired with memory patterns `1111`,
+`3333`, `7777`, `FFFF` — bit 0 of each nibble, then bits 0-1, then 0-2, then
+all. That is a **write-enable or plane-mask** being stepped through, with the
+data chosen to match.
+
+*Next: settle what `CR3A` with bit 7 set does, from the reference rather than
+from the code — the display controller's own documentation if this project holds
+it, then the sibling manuals, then MAME's `apollo_graphics` for the same
+register. If it is a write mask, a model that ignores it lets writes through
+that the hardware would suppress, and the memory the checker then reads is not
+the memory the firmware believes it wrote — which is exactly the disagreement
+the 128-word boundary describes.*
 
 *Verification: `ap_graphics_memory_cycle` and `ap_graphics_memory_read_cycle`
 driven as the board drives them, buffers sized as `main.c` sizes them, registers
