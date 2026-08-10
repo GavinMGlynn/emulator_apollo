@@ -490,8 +490,31 @@ static void test_the_handshake_times_are_exact_in_base_units(void) {
   TEST_ASSERT_TRUE(AP_SC499_T_CLOSE_MIN < AP_SC499_T_CLOSE_MAX);
 }
 
+/* Every modelled duration sits inside Apollo's own documented time-out.
+ *
+ * `08845 Apollo Specification for QIC-36 Tape Controller` §12.3 gives the
+ * "maximum QIC-02 Command Set Timings before time-out conditions are
+ * generated". Those are the *host's* patience, not the drive's speed, so they
+ * bound this module rather than supplying its figures -- but a figure at or
+ * beyond one of them would be a command the driver had already abandoned, which
+ * is a mistake no amount of internal consistency would catch.
+ *
+ * It is also the second independent source for the reset's five seconds:
+ * `[SC499]` §1.8.1 says EXC- is asserted "within five seconds", and this is
+ * Apollo saying the same about the machine that carries the controller. */
+static void test_the_modelled_times_sit_inside_apollos_documented_maxima(void) {
+  TEST_ASSERT_TRUE(AP_SC499_T_RESET_TO_EXCEPTION < AP_SC499_MAX_RESET);
+  TEST_ASSERT_TRUE(AP_SC499_T_COMMAND_EXECUTION < AP_SC499_MAX_BOT);
+  TEST_ASSERT_TRUE(AP_SC499_T_COMMAND_EXECUTION < AP_SC499_MAX_RETENSION);
+  TEST_ASSERT_TRUE(AP_SC499_T_COMMAND_EXECUTION < AP_SC499_MAX_ERASE);
+
+  /* And the two documents agree on the reset ceiling, to the second. */
+  TEST_ASSERT_EQUAL_UINT64(AP_SC499_US(5000000), AP_SC499_MAX_RESET);
+}
+
 int main(void) {
   UNITY_BEGIN();
+  RUN_TEST(test_the_modelled_times_sit_inside_apollos_documented_maxima);
   RUN_TEST(test_the_handshake_times_are_exact_in_base_units);
   RUN_TEST(test_the_command_entry_condition_selects_a_figure);
   RUN_TEST(test_accepting_a_command_applies_all_three_figures);

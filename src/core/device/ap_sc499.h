@@ -266,6 +266,19 @@ typedef struct {
  * figure is a *command* transfer, not a reset; `tpqic02.h`'s timeouts are all
  * per-command.
  *
+ * **And Apollo's own specification agrees on the five seconds.** `08845 Apollo
+ * Specification for QIC-36 Tape Controller`, §12.3 "QIC-02 Command Maximum
+ * Timings ... before time-out conditions are generated": Reset Command **5
+ * Sec**. That is a second, independent source for the same ceiling, from the
+ * vendor of *this machine* rather than of the controller, and it was found by
+ * following `[SC499]` p. 14's own instruction to consult the QIC-02 standard --
+ * which led to bitsavers' `archive/` directory, where both that standard and
+ * this Apollo document sit beside the guide this file already cited.
+ *
+ * §12.3's other three are bounds on commands rather than on the reset, and they
+ * are recorded in `AP_SC499_MAX_*` below because a modelled duration that
+ * exceeded one would be a command the host had already given up on.
+ *
  * Adopted rather than invented, and marked so it cannot be mistaken for a
  * measurement: the value must exceed nothing in particular and only has to fall
  * inside the driver's window (after its first poll sees `F7`, before its second
@@ -287,6 +300,16 @@ typedef struct {
  * the minimum, measured over a 450 M-instruction boot in which the driver pulses
  * it exactly once. `PROJECT_STATUS.md` records the measurement. */
 #define AP_SC499_T_RESET_MIN_HOLD AP_SC499_US(25)
+
+/* `08845` §12.3's maxima: what the *host* waits before declaring a time-out,
+ * not what the drive takes. They bound this module's figures rather than
+ * supplying them -- a modelled duration at or beyond one of these would be a
+ * command the driver had already abandoned -- and `sc499_suite` asserts that
+ * every modelled figure sits inside its bound. */
+#define AP_SC499_MAX_RESET AP_SC499_US(5000000)          /* 5 s */
+#define AP_SC499_MAX_BOT AP_SC499_US(80000000)           /* 1 min 20 s */
+#define AP_SC499_MAX_RETENSION AP_SC499_US(241000000)    /* 600 ft, worst case */
+#define AP_SC499_MAX_ERASE AP_SC499_US(240000000)        /* 4 min */
 
 /* Figure 1-5, Data Transfer Write Operation, T14->T15: "Device Asserts READY
  * (Device READY For Next Data Block)", timed `100 us. < T14--->T15`.
