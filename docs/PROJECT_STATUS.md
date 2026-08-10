@@ -22512,3 +22512,49 @@ watch-write gives the count and the writing PC in a single bounded boot.
 *Verification: five stops, each on the instruction named, with the value read at
 that stop; two write watches giving 3 and 2 writes with their PCs; the code at
 each site dumped at its own stop rather than from an end-of-boot image.*
+
+## The kernel-entry parameters are identical, so the halt's input is not the cause
+
+The chain from the MD halt reaches the boot PROM, and stops there because the
+two machines agree.
+
+**Where `00010123` comes from.** Domain/OS's entry stub is six instructions:
+
+```
+  01002024  MOVEA.L #$01002000,A5
+  0100202A  MOVEA.L #$00000000,A0
+  01002030  MOVEC   A0,VBR
+  01002034  MOVEM.L (A7)+,D0-D2        ; three long words the loader pushed
+  0100203A  MOVEM.L D1-D2,($03CE,A5)   ; stored at 010023CE and 010023D2
+```
+
+So the byte the halt turns on is the low byte of **`D2` at kernel entry** -- a
+configuration word the boot PROM hands to the operating system on the stack.
+(It arrived as two separate word writes because a `MOVEM.L` moves each long word
+as two bus cycles, which is why watching `010023D2` alone missed the half that
+carries the deciding bit. The long word is also unaligned, spanning `D2`-`D5`.)
+
+**And the oracle passes exactly the same thing:**
+
+```
+  APOLLO_ENTRY sp=0113FFEC d0=00000E26 d1=00000000 d2=00010123
+  ours                     d0=00000E26 d1=00000000 d2=00010123
+```
+
+Read at the same instruction on both machines, off the same stack. So bit 1 of
+the low byte is **set on the oracle too**, the flag at `3C42BCD7` is written `FF`
+on both, and the input to the halt is not what differs.
+
+**What that leaves.** The oracle sets the same flag and does not stop, so either
+it clears the flag before `3C456B50` tests it, or it never reaches that test. Our
+own boot writes that flag **three** times; only the last was measured. The next
+question is the other two, and the oracle's count for the same address.
+
+This is a negative result and worth its cost: it removes the whole
+"configuration word" branch of the search, which is the branch that would have
+been most attractive to keep guessing at.
+
+*Verification: the entry stub dumped at a stop on `0100203A`; the four writes to
+each half of the word taken by stopping on the 1st, 2nd and 3rd; the oracle's
+three parameters read at `01002034` before the stub pops them, instrument
+reverted and `ext/mame` rebuilt clean.*
