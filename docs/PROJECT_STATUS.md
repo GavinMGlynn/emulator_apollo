@@ -22889,3 +22889,44 @@ half took one run and settled a question three entries had circled.
 
 *Verification: the probe above over one keyboard-driven boot, reverted; `ctest`
 130/130 after.*
+
+## The screen was never a witness: the display controller's registers are inert
+
+The garbled echo is not a defect to find. It is a gap this file already
+declares, and `ap_graphics.h` says so at the function that takes the writes:
+
+> "Writes are accepted and discarded. The blocks are decoded, so a write
+> terminates normally -- refusing it would be a bus error the hardware does not
+> raise. **What the registers would *do* is not modelled**, which is why this
+> stores nothing rather than storing something a later read would have to invent
+> a meaning for."
+
+`CR0`'s eight operating modes -- `CPU_DEST_BLT`, `ALTERNATING_BLT`,
+`CPU_SOURCE_BLT`, `DOUBLE_ACCESS_BLT` among them -- are decoded as data and do
+nothing. So anything the firmware renders *through the controller* never
+happens, while text it writes straight into image memory appears normally. That
+is precisely the split observed: the `MD7C REV 8.00` banner renders and the
+character-at-a-time echo does not.
+
+**So three entries of chasing were reading an instrument that is not
+implemented.** The measurement that mattered was the two-ended byte log --
+thirteen in, thirteen out, in order -- and it says the machine received
+`EX DOMAIN_OS` correctly. The screen disagreeing with that is the screen's
+fault, and this core already knew.
+
+**The rule this earns.** A screenshot is evidence about the *display model*, and
+about the machine only where the display model is complete. Until the
+controller's registers do something, the witnesses for a keyboard-driven boot
+are the posted codes, the program counter, the region counters and the serial
+console -- all of which are modelled. The `--screenshot` output should not be
+read as the machine's state again while this stands.
+
+**And the boot question is unchanged by all of it.** The keyboard-driven run
+delivered its command intact; what the machine did with it is still open, and
+the display cannot answer that. Judged by the instruments that are implemented,
+that run posts `0F` then `0C` and ends in the firmware's console poll at
+`002684`.
+
+*Verification: the header quoted above, read at the write path; the byte log of
+the previous entry; the register-read probe that found only nine reads of the
+controller in a whole boot, reverted.*
