@@ -23708,11 +23708,39 @@ terms — so that argument does not separate "six characters lost" from "twelve
 received, six mis-echoed". Both remain live, and my reversal of that finding is
 withdrawn as *unproven* rather than wrong.
 
-**What separates them is the line buffer, not the screen.** `00223C` stores the
-line at `$98(A6)`, so dumping that buffer at the moment MD dispatches settles it
-in one run: twelve bytes there means the display is at fault and the earlier
-finding stands; six means they are genuinely lost. That is the next step, and it
-is a different instrument rather than a third repetition of the same one.
+**What separates them is the line buffer, not the screen** — and it did.
+`00223C` stores the line at `$98(A6)`, which the run's own registers put at
+`01000218` (`a1` is that pointer). Dumped:
+
+```
+  01000218  20 41 49 4E 5F 4F 53 0D    " AIN_OS\r"
+```
+
+**Seven bytes, not thirteen.** The characters are genuinely lost, the display was
+showing exactly what MD held, and the reversal is confirmed by the buffer rather
+than inferred from MD's prompt behaviour.
+
+**And the losses are not the six from the front they looked like.** Against
+`E X ␣ D O M A I N _ O S`, what survives is `␣ A I N _ O S` — indices 2 and
+6-11. **Five** characters are lost, at indices 0, 1, 3, 4 and 5, and the space
+between them survives. So `O` is both lost (index 4) and kept (index 10): it is
+not per-character, and it is not a clean prefix either.
+
+Early characters dropped intermittently and then none at all is the signature of
+a **receiver overrun** — a burst arriving faster than the firmware retrieves it,
+settling once it starts consuming in step. Which raises a question about this
+core rather than about the firmware: `rx_flushed` counted **zero**, and the
+port reported fifteen reads for fifteen characters, so whatever discarded these
+five is not the path `--boot-type` re-sends on. `[68681]` §4.2.9 gives an
+overrun its own status bit and keeps the character in the shift register while
+the FIFO is full; a model that dropped one silently would produce exactly this
+and count nothing.
+
+**Next, and it is a register-table question rather than another boot:** walk
+`ap_mc68681`'s receiver against §4.2.9 — the overrun bit, what happens to a
+character arriving on a full FIFO, and whether anything counts it. That is the
+discipline `CLAUDE.md` puts first when a module misbehaves, and it has found
+five things in this project already.
 
 **Verification of the negative half, which matters here:** the earlier
 explanations are all excluded by measurement rather than by preference — the

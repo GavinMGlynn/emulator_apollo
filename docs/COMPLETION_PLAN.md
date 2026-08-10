@@ -3028,9 +3028,16 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
     (`45 58 20 44 4F 4D 41 49 4E 5F 4F 53 CB`) — fifteen characters, fifteen
     bytes, none of them flow control. So the reversal above is withdrawn as
     *unproven*: MD returns to its prompt for a valid command that failed too.
-    **Next: dump MD's line buffer at `$98(A6)`** when it dispatches — twelve
-    bytes means the display is at fault, six means they are lost. A different
-    instrument, not a third repetition. Detail in `PROJECT_STATUS.md`.
+    **The line buffer at `01000218` settles it**: it holds
+    `20 41 49 4E 5F 4F 53 0D`, seven bytes and not thirteen, so the characters
+    really are lost and the reversal is confirmed. **Five** go, at indices
+    0, 1, 3, 4, 5 of `EX DOMAIN_OS`, with the space at index 2 surviving — so
+    `O` is both lost and kept and it is neither per-character nor a clean
+    prefix. Early losses settling to none is a **receiver overrun** signature,
+    and `rx_flushed` counted zero, so it is not the path `--boot-type` re-sends
+    on. **Next: walk `ap_mc68681`'s receiver against `[68681]` §4.2.9** — the
+    overrun bit, a character arriving on a full FIFO, and whether anything
+    counts it. Detail in `PROJECT_STATUS.md`.
     **The posted-code differential is retired, and it was never a differential.**
     It had been the working handle: ours posts `0F` where the oracle does not.
     Read out of the boot PROM rather than measured — the post routine has **two**
