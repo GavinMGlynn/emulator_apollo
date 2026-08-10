@@ -3041,12 +3041,14 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
     exonerated on three counts (fifteen delivered, fifteen read, zero discarded
     by either route) and the loss is inside the **boot PROM's own input path**,
     between the register read and the store at `$98(A6)`. Every mechanism
-    visible there is excluded by the bytes this keyboard sends. **And the trace found it.** The PROM's transmit
-    routine at `002698` calls `$272E` before *every* byte it sends, which
+    visible there is excluded by the bytes this keyboard sends. **And the trace found it.** The PROM calls `$272E`
+    before **every character it outputs** — from `0026A0` in the serial
+    transmit path and `00479A` in the *display* one, and this run takes the
+    display path — which
     drains one received character to look for an XOFF and pushes back anything
     that was not flow control into a **one-byte** slot at `$14C(A6)` —
     `002726` drops it when that slot is full. So the firmware holds one
-    character of type-ahead while echoing, and `--boot-type` outruns it because
+    character of type-ahead while printing, and `--boot-type` outruns it because
     its readiness test is "the receive buffer is empty", which is true the
     instant the firmware drains it. Correct hardware behaviour; a person never
     outruns it. **Fix: pace the dialogue on the firmware having echoed the

@@ -23822,9 +23822,14 @@ is the one to catch.
 ## The PROM holds one character of type-ahead while it echoes, and we type faster
 
 The trace between the third and fourth reads of the receive buffer contains
-`00272E` and `0026D0`, and those close the question. The transmit routine is
-`002698` — wait for `TxRDY`, then `move.b d1,$6(a5)` — and **before every byte
-it sends** it calls `$272E`:
+`00272E` and `0026D0`, and those close the question. `$272E` is called before
+**every character the firmware outputs**, by *both* of its output paths:
+`0026A0`, inside the serial transmit routine at `002698`, and `00479A`, inside
+the display one. `00216E` chooses between them on `$1C7(A6)` bit 1, and the
+trace here goes `00216E` → `002174` → `004792` → `00479A` — **the display
+path**, which is why `sio1 reg 3` shows zero transmit writes in a run whose
+screen is full of echoed text. The drain is not a property of the serial
+transmitter; it is a property of *output*:
 
 ```
   00272E  btst #$2,$14a(a6)     XON/XOFF enabled?
@@ -23837,8 +23842,8 @@ it sends** it calls `$272E`:
   002728  move.b d1,$14c(a6)    slot empty -> keep it
 ```
 
-So the firmware drains one received character per transmitted byte, to look for
-an XOFF, and the place it puts anything that was **not** flow control is a
+So the firmware drains one received character per character *printed*, to look
+for an XOFF, and the place it puts anything that was **not** flow control is a
 **one-byte** push-back slot at `$14C(A6)`. `002726` is a plain `bne` to the
 `rts`: if that slot is already full, the character is discarded with no status,
 no counter and no trace.
@@ -23848,7 +23853,8 @@ receive register — because `$26D0` does some of the reading, not just the
 console reader. Zero flushed and zero dropped-with-the-receiver-disabled —
 because the *port* never discarded anything; the firmware did. Five characters
 lost at the start and none afterwards — because the losses happen while the
-firmware is echoing, and stop once it is keeping up. And `O` lost at index 4 and
+firmware is printing — the banner is forty characters, so forty drains — and
+stop once it is only echoing one character per character typed. And `O` lost at index 4 and
 kept at index 10, because the mechanism is positional, not per-character.
 
 **It is also correct hardware behaviour, and not our defect.** A person typing
@@ -23857,11 +23863,13 @@ because its readiness test is "the receive buffer is empty" — which is true th
 instant the firmware drains it, including when the firmware drained it *into a
 slot it then dropped*.
 
-**So the fix is the harness's, and it is now specified rather than guessed:**
-pace the dialogue on the firmware having **echoed** the previous character, not
-on the receive buffer being empty. The echo is a write to the same channel's
-transmit buffer, which `ap_sio` already counts per register, so the condition is
-available without new state.
+**So the fix is the harness's, and the display path changes what it can key
+on.** "Wait for the echo" is not observable as a serial transmit here, because
+the echo goes to graphics memory. What *is* observable is the push-back slot
+itself: `$14C(A6)` holds `$FFFF` when empty, and `A6` is the PROM's own global
+base, so a frontend that already knows PROM addresses can require the slot to be
+clear before sending the next character. That is the condition the firmware
+actually imposes, rather than a delay tuned until the symptom goes away.
 
 **What this cost, and what it bought.** Five explanations died on the way here —
 the port, the advance rule, type-ahead during the banner, XON/XOFF as a
@@ -23871,6 +23879,6 @@ uncounted disabled-receiver drop was not wasted: counting it is what ruled the
 port out completely, which is what left the firmware as the only remaining
 place to look.
 
-*Verification: `[ROM3500]` at `002698`-`00274C`, read from the disassembly, with
-the trace between reads 3 and 4 of `00010407` showing `00272E` and `0026D0`
-executing between them.*
+*Verification: `3500_BOOT_12191_7.bin` at `002698`-`00274C` and `00216E`, read
+from the disassembly; the trace between reads 3 and 4 of `00010407` shows
+`002174`, `004792`, `00479A`, `00272E` and `0026D0` executing between them.*
