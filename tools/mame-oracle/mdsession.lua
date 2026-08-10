@@ -731,9 +731,21 @@ _G.apollo_fetch_tap = _G.apollo_fetch_tap or nil
 if state_dump_fetch ~= nil then
 	local ok, err = pcall(function()
 		local sp = manager.machine.devices[":maincpu"].spaces["program"]
+		local cpu = manager.machine.devices[":maincpu"]
 		_G.apollo_fetch_tap = sp:install_read_tap(state_dump_fetch,
 			state_dump_fetch + 3, "state-dump-fetch",
-			function() state_dump_now("fetch") end)
+			function()
+				-- **A read tap cannot tell a fetch from a data read**, and the
+				-- boot PROM reads main memory long before it executes any of
+				-- it: the first version of this fired at 0.03 emulated seconds,
+				-- during a memory test, and dumped a machine 160 M
+				-- instructions before the point it was meant to capture. So the
+				-- PC decides: the address is only *executed* when the program
+				-- counter is there.
+				if cpu.state["PC"].value == state_dump_fetch then
+					state_dump_now("fetch")
+				end
+			end)
 	end)
 	if not ok then note("# fetch tap failed: %s\n", tostring(err)) end
 end
