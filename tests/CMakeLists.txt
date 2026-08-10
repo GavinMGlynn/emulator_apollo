@@ -200,6 +200,16 @@ if(Python3_Interpreter_FOUND AND NOT WIN32)
   # rather than against the encoder's own output -- a test comparing the
   # encoder with itself passes on any consistent mistake. Needs no MAME and no
   # ROMs, so it runs everywhere the suite does.
+  # `state-diff.py` decides what counts as a difference between this core and
+  # the oracle, so a fault in it is a wrong answer about the emulator wearing
+  # the authority of a measurement. Two behaviours are load-bearing and neither
+  # is obvious: an unmapped field is *not* a difference, and a positional scope
+  # mapping is refused when the lengths disagree. Both are checked against
+  # constructed inputs rather than the tool's own output.
+  add_test(NAME state_diff
+           COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/test_state_diff.py)
+  set_tests_properties(state_diff PROPERTIES LABELS tools)
+
   add_test(NAME probe_encoder
            COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/mame-oracle/test_encoder.py)
   set_tests_properties(probe_encoder PROPERTIES LABELS tools)
