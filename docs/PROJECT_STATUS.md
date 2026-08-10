@@ -24216,10 +24216,28 @@ Note also what *cannot* fail: a word past the buffer reads `FFFF`, and
 walking off the end is not the failure mode either; the failing word must read
 back as something that is neither what was written nor `FFFF`.
 
-*Next, and it names the address rather than inferring it:*
-`--boot-stop-pc 0x6BC4` — the error-exit branch itself — with the register line
-every run prints. `a3` at that instant is the word that failed and `d1` is what
-it was compared against, which turns "somewhere in 256 KB" into one address.*
+**Run, and it is the first word.** `--boot-stop-pc 0x6BC4` fires at 1,047,909
+instructions — **three** after `006BBE`'s 1,047,906 — with `a3 = 00FA0002`,
+already stepped past by `006BC2`'s `addq.w #$1,(a3)+`. So the word that fails is
+**`00FA0000`**, the very first word of display memory, on the very first
+comparison. Not somewhere in 256 KB: one address, the first one.
+
+`d1` is `FFFF`, so after the `not.w` pass that word should read `FFFF` and does
+not.
+
+That is the whole remaining question, and it is now small enough to hold in one
+hand: **why the first word of monochrome display memory does not read back
+complemented, on a machine, when the same two calls in isolation do.** The unit
+test starts from a zeroed buffer; the machine arrives here with whatever the
+PROM's earlier tests left, and `memory_read_cycle` *latches while reading* while
+`memory_cycle` may consult that latch — so the state the first read finds is not
+the state the test assumed.
+
+*Next: dump `FA0000` before and after the `not.w` pass on the machine —
+`--boot-stop-pc 0x6B9A` and `0x6BAA` with `--dump-mem FA0000:4` — which says
+whether the complement was written at all or was written and read back wrong.
+Two runs, a minute each, and they separate the write side from the read side for
+the one address that matters.*
 
 *Verification: `ap_graphics_memory_cycle` and `ap_graphics_memory_read_cycle`
 driven as the board drives them, buffers sized as `main.c` sizes them, registers
