@@ -24012,6 +24012,28 @@ display carries on.
 That is a defect with a one-line reproduction and a known-good control beside
 it, which is what a matched comparison is for.
 
+**Where it stops, measured.** The first blink is written at **9,876,040
+instructions**, and the machine is then in the PROM's error loop at `005EC8`.
+Three attempts to catch the *decision* that leads there all landed in shared
+code rather than in the branch: `005EC8` is reached **from** the delay loop, and
+`0061D8` — the delay itself — is a general-purpose routine whose first
+execution is at 1,376,036 instructions in ordinary use. Stopping on either
+catches the symptom.
+
+**So the next instrument should be chosen from the codes, not from the control
+flow.** The LED sequence is `FF EF DF FE EE DE CF BF AF 9F ED DD 9D 8D` on both
+displays and then `7D 6D 5D FC …` on `c8p` only. Those values are *not* written
+through the `$251A`/`$252A` post routine — its call sites carry `03`-`0F`, `82`,
+`83` — so they are direct writes to `00010100` from the self-test, and the
+question is which test writes `8D` and what it reads back from the display
+before deciding. `--boot-watch-write 0x010100 --boot-stop-on-watch-write 15`
+stops on the *first* blink write specifically, with a trace long enough to hold
+the comparison that precedes it; the runs above used 16 and 60, which was one
+write late and far too short a window.
+
+Recorded rather than attempted, because three instrument choices in a row landed
+on shared code and the fourth should be reasoned about before it is run.
+
 *Verification: `screencap.lua` in normal mode against `apollo-headless --screen
 15i`, both on `dn3500-sr10.4-installed.awd`, compared at the same emulated
 second; our posted codes and elapsed time from the run's own report.*
