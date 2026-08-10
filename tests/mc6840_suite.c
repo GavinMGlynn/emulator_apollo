@@ -48,7 +48,7 @@ static void program_continuous(ap_mc6840_t *ptm, uint16_t period_latch,
 static unsigned clocks_to_interrupt(ap_mc6840_t *ptm, unsigned index,
                                     unsigned limit) {
   for (unsigned i = 1; i <= limit; i++) {
-    ap_mc6840_clock(ptm, index);
+    ap_mc6840_clock_pin(ptm, index);
     if (ap_mc6840_irq(ptm)) {
       return i;
     }
@@ -77,6 +77,39 @@ static void test_the_clock_source_selection_is_reported(void) {
                   AP_MC6840_CR_INTERNAL_CLOCK);
   TEST_ASSERT_TRUE(ap_mc6840_uses_internal_clock(&ptm, 0u));
   TEST_ASSERT_FALSE(ap_mc6840_uses_internal_clock(&ptm, 1u));
+}
+
+/* A clock source a timer did not select must leave it standing still.
+ * `[6840]`: the counter "divides either the internal or external clock", and
+ * control-register bit 1 is which -- so the bit is only meaningful if the two
+ * pins behave differently, which this asserts from both sides. */
+static void test_each_clock_pin_counts_only_for_the_timer_that_selected_it(
+    void) {
+  ap_mc6840_t ptm;
+
+  /* Bit 1 clear selects the external `Cx` pin, which is what this board's three
+   * documented rates drive. */
+  program_continuous(&ptm, 4, AP_MC6840_CR_IRQ_ENABLE);
+  for (unsigned i = 0; i < 64u; i++) {
+    ap_mc6840_clock_internal(&ptm, 0);
+  }
+  TEST_ASSERT_FALSE(ap_mc6840_irq(&ptm));
+  for (unsigned i = 0; i < 64u; i++) {
+    ap_mc6840_clock_external(&ptm, 0);
+  }
+  TEST_ASSERT_TRUE(ap_mc6840_irq(&ptm));
+
+  /* And the other way round with the bit set. */
+  program_continuous(&ptm, 4,
+                     AP_MC6840_CR_INTERNAL_CLOCK | AP_MC6840_CR_IRQ_ENABLE);
+  for (unsigned i = 0; i < 64u; i++) {
+    ap_mc6840_clock_external(&ptm, 0);
+  }
+  TEST_ASSERT_FALSE(ap_mc6840_irq(&ptm));
+  for (unsigned i = 0; i < 64u; i++) {
+    ap_mc6840_clock_internal(&ptm, 0);
+  }
+  TEST_ASSERT_TRUE(ap_mc6840_irq(&ptm));
 }
 
 static void test_the_latches_come_up_all_ones(void) {
@@ -139,8 +172,8 @@ static void test_a_sixteen_bit_read_latches_the_low_byte(void) {
    * location". Without that, a counter that ticked between the two reads would
    * hand back a torn value. */
   uint8_t high = ap_mc6840_read(&ptm, AP_MC6840_RS_TIMER1_MSB);
-  ap_mc6840_clock(&ptm, 0); /* the counter moves between the two reads */
-  ap_mc6840_clock(&ptm, 0);
+  ap_mc6840_clock_pin(&ptm, 0); /* the counter moves between the two reads */
+  ap_mc6840_clock_pin(&ptm, 0);
   uint8_t low = ap_mc6840_read(&ptm, AP_MC6840_RS_TIMER1_LSB);
 
   TEST_ASSERT_EQUAL_HEX16(0x0123, (uint16_t)((high << 8) | low));
@@ -193,11 +226,11 @@ static void test_the_output_toggles_at_each_time_out(void) {
    * count, so it inverts on each time out rather than pulsing. */
   bool first = ap_mc6840_output(&ptm, 0);
   for (unsigned i = 0; i < 3; i++) {
-    ap_mc6840_clock(&ptm, 0);
+    ap_mc6840_clock_pin(&ptm, 0);
   }
   TEST_ASSERT_NOT_EQUAL(first, ap_mc6840_output(&ptm, 0));
   for (unsigned i = 0; i < 3; i++) {
-    ap_mc6840_clock(&ptm, 0);
+    ap_mc6840_clock_pin(&ptm, 0);
   }
   TEST_ASSERT_EQUAL(first, ap_mc6840_output(&ptm, 0));
 }
@@ -209,7 +242,7 @@ static void test_a_masked_output_reads_low_however_the_timer_runs(void) {
   /* §3.6.1 bit 7: "If the output is masked it will always be electrically
    * low." */
   for (unsigned i = 0; i < 12; i++) {
-    ap_mc6840_clock(&ptm, 0);
+    ap_mc6840_clock_pin(&ptm, 0);
     TEST_ASSERT_FALSE(ap_mc6840_output(&ptm, 0));
   }
 }
@@ -223,7 +256,7 @@ static void test_an_individual_interrupt_flag_cannot_be_masked(void) {
    * is exactly the state a polling driver reads, and a model that masked the
    * per-timer bits would hide it. */
   for (unsigned i = 0; i < 4; i++) {
-    ap_mc6840_clock(&ptm, 0);
+    ap_mc6840_clock_pin(&ptm, 0);
   }
   TEST_ASSERT_FALSE(ap_mc6840_irq(&ptm));
 
@@ -240,7 +273,7 @@ static void test_the_composite_flag_needs_the_interrupt_enabled(void) {
   /* §3.11: "A composite interrupt is caused by a timer interrupt *and* that
    * timer's interrupt flag enabled (CRX6 = 1)." */
   for (unsigned i = 0; i < 4; i++) {
-    ap_mc6840_clock(&ptm, 0);
+    ap_mc6840_clock_pin(&ptm, 0);
   }
   uint8_t status = ap_mc6840_read(&ptm, AP_MC6840_RS_CONTROL_2_OR_STATUS);
   TEST_ASSERT_EQUAL_HEX8(AP_MC6840_STATUS_COMPOSITE,
@@ -252,7 +285,7 @@ static void test_reading_status_then_the_timer_clears_the_interrupt(void) {
   ap_mc6840_t ptm;
   program_continuous(&ptm, 3, CONTINUOUS);
   for (unsigned i = 0; i < 4; i++) {
-    ap_mc6840_clock(&ptm, 0);
+    ap_mc6840_clock_pin(&ptm, 0);
   }
   TEST_ASSERT_TRUE(ap_mc6840_irq(&ptm));
 
@@ -276,7 +309,7 @@ static void test_an_interrupt_raised_between_the_two_reads_survives(void) {
    * that makes them matter. */
   (void)ap_mc6840_read(&ptm, AP_MC6840_RS_CONTROL_2_OR_STATUS); /* nothing set */
   for (unsigned i = 0; i < 4; i++) {
-    ap_mc6840_clock(&ptm, 0); /* the interrupt arrives now */
+    ap_mc6840_clock_pin(&ptm, 0); /* the interrupt arrives now */
   }
   (void)ap_mc6840_read(&ptm, AP_MC6840_RS_TIMER1_MSB);
 
@@ -287,7 +320,7 @@ static void test_a_software_reset_clears_every_interrupt(void) {
   ap_mc6840_t ptm;
   program_continuous(&ptm, 3, CONTINUOUS);
   for (unsigned i = 0; i < 4; i++) {
-    ap_mc6840_clock(&ptm, 0);
+    ap_mc6840_clock_pin(&ptm, 0);
   }
   TEST_ASSERT_TRUE(ap_mc6840_irq(&ptm));
 
@@ -310,7 +343,7 @@ static void test_all_timers_preset_holds_every_counter(void) {
 
   for (unsigned index = 0; index < AP_MC6840_TIMERS; index++) {
     for (unsigned i = 0; i < 32; i++) {
-      ap_mc6840_clock(&ptm, index);
+      ap_mc6840_clock_pin(&ptm, index);
     }
   }
   TEST_ASSERT_FALSE(ap_mc6840_irq(&ptm));
@@ -324,7 +357,7 @@ static void test_a_high_gate_holds_its_own_timer_only(void) {
    * the preset bit. */
   ap_mc6840_set_gate(&ptm, 0, true);
   for (unsigned i = 0; i < 32; i++) {
-    ap_mc6840_clock(&ptm, 0);
+    ap_mc6840_clock_pin(&ptm, 0);
   }
   TEST_ASSERT_FALSE(ap_mc6840_irq(&ptm));
 
@@ -338,7 +371,7 @@ static void test_the_gate_going_low_reloads_the_counter(void) {
   /* §3.7.1's counter initialization for continuous mode: "Reset OR Gate pin
    * goes low". An edge, not a level -- which is why the pin is stored. */
   for (unsigned i = 0; i < 5; i++) {
-    ap_mc6840_clock(&ptm, 0);
+    ap_mc6840_clock_pin(&ptm, 0);
   }
   ap_mc6840_set_gate(&ptm, 0, true);
   ap_mc6840_set_gate(&ptm, 0, false);
@@ -398,7 +431,7 @@ static void test_a_latch_write_reinitialises_only_when_bit_four_is_clear(void) {
    * period runs to its end and the new latch takes effect after it. */
   program_continuous(&ptm, 100, 0x00u | AP_MC6840_CR_IRQ_ENABLE);
   for (unsigned i = 0; i < 50; i++) {
-    ap_mc6840_clock(&ptm, 0);
+    ap_mc6840_clock_pin(&ptm, 0);
   }
   ap_mc6840_write(&ptm, AP_MC6840_RS_TIMER1_MSB, 0x00);
   ap_mc6840_write(&ptm, AP_MC6840_RS_TIMER1_LSB, 0x04);
@@ -406,7 +439,7 @@ static void test_a_latch_write_reinitialises_only_when_bit_four_is_clear(void) {
 
   program_continuous(&ptm, 100, 0x10u | AP_MC6840_CR_IRQ_ENABLE);
   for (unsigned i = 0; i < 50; i++) {
-    ap_mc6840_clock(&ptm, 0);
+    ap_mc6840_clock_pin(&ptm, 0);
   }
   ap_mc6840_write(&ptm, AP_MC6840_RS_TIMER1_MSB, 0x00);
   ap_mc6840_write(&ptm, AP_MC6840_RS_TIMER1_LSB, 0x04);
@@ -508,7 +541,7 @@ static void test_a_period_shorter_than_the_time_out_interrupts(void) {
 
   /* Fewer clocks than the latch, then the next falling edge closes it. */
   for (unsigned i = 0; i < 4u; i++) {
-    ap_mc6840_clock(&ptm, 0);
+    ap_mc6840_clock_pin(&ptm, 0);
   }
   ap_mc6840_set_gate(&ptm, 0, true);
   ap_mc6840_set_gate(&ptm, 0, false);
@@ -524,7 +557,7 @@ static void test_a_period_longer_than_the_time_out_does_not(void) {
   /* Past the Time Out, so the period is the longer of the two -- and the case
    * programmed here asks for an interrupt on the shorter. */
   for (unsigned i = 0; i < 64u; i++) {
-    ap_mc6840_clock(&ptm, 0);
+    ap_mc6840_clock_pin(&ptm, 0);
   }
   ap_mc6840_set_gate(&ptm, 0, true);
   ap_mc6840_set_gate(&ptm, 0, false);
@@ -543,7 +576,7 @@ static void test_bit_five_asks_for_the_interrupt_on_the_longer_period(void) {
   ap_mc6840_set_gate(&ptm, 0, true);
   ap_mc6840_set_gate(&ptm, 0, false);
   for (unsigned i = 0; i < 64u; i++) {
-    ap_mc6840_clock(&ptm, 0);
+    ap_mc6840_clock_pin(&ptm, 0);
   }
   TEST_ASSERT_TRUE(ap_mc6840_irq(&ptm));
 }
@@ -562,7 +595,7 @@ static void test_pulse_width_is_closed_by_the_rising_edge(void) {
   ap_mc6840_set_gate(&ptm, 0, true);
   ap_mc6840_set_gate(&ptm, 0, false);
   for (unsigned i = 0; i < 4u; i++) {
-    ap_mc6840_clock(&ptm, 0);
+    ap_mc6840_clock_pin(&ptm, 0);
   }
   /* Short down time: the rising edge arrives before the Time Out. */
   ap_mc6840_set_gate(&ptm, 0, true);
@@ -580,7 +613,7 @@ static void test_a_measurement_stops_at_its_own_interrupt(void) {
   ap_mc6840_set_gate(&ptm, 0, true);
   ap_mc6840_set_gate(&ptm, 0, false);
   for (unsigned i = 0; i < 64u; i++) {
-    ap_mc6840_clock(&ptm, 0);
+    ap_mc6840_clock_pin(&ptm, 0);
   }
   TEST_ASSERT_TRUE(ap_mc6840_irq(&ptm));
 
@@ -588,7 +621,7 @@ static void test_a_measurement_stops_at_its_own_interrupt(void) {
    * read followed by a counter read. Until then the counter is held. */
   const uint16_t held = ptm.timer[0].counter;
   for (unsigned i = 0; i < 32u; i++) {
-    ap_mc6840_clock(&ptm, 0);
+    ap_mc6840_clock_pin(&ptm, 0);
   }
   TEST_ASSERT_EQUAL_HEX16(held, ptm.timer[0].counter);
 }
@@ -626,6 +659,7 @@ static void test_two_parts_reset_alike_hold_identical_state(void) {
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_the_clock_source_selection_is_reported);
+  RUN_TEST(test_each_clock_pin_counts_only_for_the_timer_that_selected_it);
   RUN_TEST(test_the_latches_come_up_all_ones);
   RUN_TEST(test_control_register_three_is_selected_after_reset);
   RUN_TEST(test_one_address_reaches_two_control_registers);

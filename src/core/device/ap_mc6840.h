@@ -198,9 +198,22 @@ void ap_mc6840_write(ap_mc6840_t *ptm, ap_mc6840_rs_t rs, uint8_t value);
 /* Drive one timer's gate pin. Low enables counting. */
 void ap_mc6840_set_gate(ap_mc6840_t *ptm, unsigned index, bool high);
 
-/* One pulse of a timer's clock input. The board decides the rate; the part only
- * counts what it is given. */
-void ap_mc6840_clock(ap_mc6840_t *ptm, unsigned index);
+/* One pulse of a timer's clock input.
+ *
+ * `ap_mc6840_clock_pin` counts *whatever* pin it is called for and is what the
+ * two named entries share; a caller that owns one of the part's two clock
+ * sources should use its own entry instead, so that a timer selecting the other
+ * source stands still as the hardware does.
+ *
+ * `008778-03` §3.8 gives each of this board's three timers its own input rate
+ * -- 250 kHz, 125 kHz and 62.5 kHz -- and those rates are the **`Cx` pins**, so
+ * the board drives `ap_mc6840_clock_external`. The header's older claim that
+ * "nothing on this board drives `Cx`" had it exactly backwards: the three
+ * documented rates *are* the external inputs, and the boot PROM programs bit 1
+ * clear to select them. */
+void ap_mc6840_clock_pin(ap_mc6840_t *ptm, unsigned index);
+void ap_mc6840_clock_external(ap_mc6840_t *ptm, unsigned index);
+void ap_mc6840_clock_internal(ap_mc6840_t *ptm, unsigned index);
 
 /* The IRQ pin. `[6840]` §3.11: "A composite interrupt is caused by a timer
  * interrupt *and* that timer's interrupt flag enabled (CRX6 = 1). A composite
@@ -213,11 +226,10 @@ void ap_mc6840_clock(ap_mc6840_t *ptm, unsigned index);
  * that switched to an external source would see no change at all, which is the
  * failure that looks like the timer working.
  *
- * The external *input* is not modelled: nothing on this board drives `Cx`, and
- * a rate invented for it would be a claim about a wire that is not there. So
- * this reports the selection and `ap_mc6840_clock` still advances only the
- * internal one -- the part says what it was asked to do, and the board's
- * silence is the board's.
+ * Both inputs are modelled. `ap_mc6840_clock_external` is the `Cx` pin and
+ * `ap_mc6840_clock_internal` the enable clock, and each counts only for a timer
+ * that selected it -- so a driver that switches source sees the timer stop
+ * counting the old one, which is the behaviour a selection bit exists to have.
  */
 [[nodiscard]] bool ap_mc6840_uses_internal_clock(const ap_mc6840_t *ptm,
                                                  unsigned index);

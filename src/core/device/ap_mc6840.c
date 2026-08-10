@@ -190,7 +190,29 @@ void ap_mc6840_set_gate(ap_mc6840_t *ptm, unsigned index, bool high) {
   }
 }
 
-void ap_mc6840_clock(ap_mc6840_t *ptm, unsigned index) {
+/* One pulse of whichever source the timer is *not* selecting is not a pulse:
+ * `[6840]`'s counter "divides either the internal or external clock" and
+ * control-register bit 1 says which, so a source the timer did not select must
+ * leave it standing still. Both pins call this with their own answer. */
+static void clock_from(ap_mc6840_t *ptm, unsigned index, bool internal) {
+  if (index >= AP_MC6840_TIMERS) {
+    return;
+  }
+  if (ap_mc6840_uses_internal_clock(ptm, index) != internal) {
+    return;
+  }
+  ap_mc6840_clock_pin(ptm, index);
+}
+
+void ap_mc6840_clock_external(ap_mc6840_t *ptm, unsigned index) {
+  clock_from(ptm, index, false);
+}
+
+void ap_mc6840_clock_internal(ap_mc6840_t *ptm, unsigned index) {
+  clock_from(ptm, index, true);
+}
+
+void ap_mc6840_clock_pin(ap_mc6840_t *ptm, unsigned index) {
   if (index >= AP_MC6840_TIMERS || !counting(ptm, index)) {
     return;
   }

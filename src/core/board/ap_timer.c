@@ -79,7 +79,7 @@ void ap_timer_advance(ap_timer_t *timer, ap_time_t now) {
     }
     uint64_t pulses = ap_clock_cycles_in(&timer->clock[i], delta);
     for (uint64_t p = 0; p < pulses; p++) {
-      ap_mc6840_clock(&timer->ptm, i);
+      ap_mc6840_clock_external(&timer->ptm, i);
     }
     /* Advance by whole pulses only, so the remainder carries into the next
      * call. Setting the cursor to `now` instead would throw away a fraction of
