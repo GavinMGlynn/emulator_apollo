@@ -21987,3 +21987,56 @@ open; 1.5 G instructions did not reach the end of it.
 
 *Verification: `mc68681_suite` 47 -> 48, the overrun test rewritten to §4.2.9.4
 and a new one for `RESET RECEIVER`; `ctest` 130/130 on both build types.*
+
+## The install comes through the door we were watching, and the callers differ
+
+**The correction first.** The entry above concluded that "the installing path
+enters the module by another door", from the install landing at 198,056,299 and
+the second visit to `3C43DD80` at 200,486,124. Those two numbers are from **two
+different oracle runs**, and instruction counts are not comparable across runs.
+Recording a ring of the last 256 program counters and dumping it when the root
+pointer first becomes `0105BC00` settles it directly:
+
+```
+  APOLLO_RING at 197145387, crp=0105BC00, last 256 pcs:
+  ...
+  235  3C43DD80     <- the entry, the door
+  247  3C43DDCE     <- the gate: falls through here
+  255  3C43DDF0     <- the PMOVE
+```
+
+So the install **does** come through `3C43DD80`, and what differs at the gate is
+that the oracle falls through where ours branches away. No second door.
+
+**What the ring did establish is the caller, and the callers differ.** Taking
+the same window on each machine -- ours from `--boot-stop-pc 3C43DD80
+--boot-trace-last 60`:
+
+| | call chain into `3C43DD80` |
+| --- | --- |
+| ours (the only call we make) | `3C46FED2` → `3C456626` → `3C41954E` → **`3C41956C`** |
+| the oracle's *installing* call | `3C418D42` → `3C418D70` → **`3C40DB58`-`3C40DC08`** |
+
+**And we never run the oracle's caller**: `--boot-stop-pc 3C40DBB6` never fires
+over the whole boot to the crash. That is not because the subsystem is absent --
+every PC further up the oracle's chain *is* executed here:
+
+```
+  3C41FD3C  at 382,077,668      3C418CBC  at 355,435,275
+  3C41A21A  at 288,606,689      3C418D42  at 355,435,307
+```
+
+**Where the two part company is one return.** Both run `3C418D42`-`3C418D50`
+identically, ending in `RTS`. Ours returns to `3C44FB32`; the oracle returns
+into `3C418D6E`, which then calls `3C40DB58` and installs. Same routine, same
+instructions, *different caller* -- so the divergence is above `3C418D42`, and
+the reason ours never installs is that nothing here ever calls that routine from
+the place the oracle calls it from.
+
+*Next*: climb one more level -- what calls the routine ending at `3C418D50` on
+each machine, and what decides between them. The instrument is the same ring,
+armed on the entry rather than on the register.
+
+*Verification: the oracle's ring, dumped at the first transition to
+`0105BC00`; our four stop-PC runs and two trace windows; the instrument reverted
+and `ext/mame` rebuilt clean at five files.*
