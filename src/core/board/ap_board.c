@@ -188,6 +188,17 @@ ap_board_region_t ap_board_region(const ap_board_t *board, uint32_t address) {
     }
   }
 
+  /* The ring controller's four windows, `RING.md` finding 38, before the AT
+   * window they sit inside. Gated on the card being fitted rather than on the
+   * address alone: an unfitted slot must keep reading `FF` from `ATBUS` below,
+   * because that is what the option-ROM scan and every measurement so far have
+   * seen, and because a card that answered when it was not there would be
+   * indistinguishable from one that was. */
+  if (board->ring.present &&
+      ap_ring_ctl_decode(address, NULL, NULL, NULL)) {
+    return AP_BOARD_REGION_RING;
+  }
+
   /* Last, so every device *inside* a window keeps its own region. */
   if ((address >= AP_BOARD_ATBUS_IO_BASE &&
        address <= AP_BOARD_ATBUS_IO_END) ||
@@ -337,6 +348,10 @@ unsigned ap_board_interrupt_level(const ap_board_t *board) {
 
 bool ap_board_attach_parity(ap_board_t *board, uint8_t *bad, uint32_t bytes) {
   return ap_parity_attach(&board->parity, bad, bytes, board->ram_bytes);
+}
+
+void ap_board_attach_ring(ap_board_t *board, bool fitted) {
+  ap_ring_ctl_reset(&board->ring, fitted);
 }
 
 uint8_t ap_board_interrupt_acknowledge(ap_board_t *board) {
@@ -724,6 +739,7 @@ bool ap_board_cache_inhibited(const ap_board_t *board, uint32_t address) {
   case AP_BOARD_REGION_DISK:
   case AP_BOARD_REGION_TAPE:
   case AP_BOARD_REGION_GRAPHICS:
+  case AP_BOARD_REGION_RING:
   case AP_BOARD_REGION_ATBUS:
     break;
   }
@@ -750,6 +766,7 @@ const char *ap_board_region_name(ap_board_region_t region) {
   case AP_BOARD_REGION_DISK: return "disk/floppy";
   case AP_BOARD_REGION_TAPE: return "cartridge tape";
   case AP_BOARD_REGION_GRAPHICS: return "display controller";
+  case AP_BOARD_REGION_RING: return "token ring controller";
   case AP_BOARD_REGION_ATBUS: return "AT bus (empty slot)";
   case AP_BOARD_REGION_RAM: return "main memory";
   }
@@ -815,6 +832,11 @@ bool ap_board_init_model(ap_board_t *board, uint8_t *ram, uint32_t ram_bytes,
    * DN3500 answers there whether or not a screen is present -- and the ID
    * register reads `FF`, which is how the firmware learns there is none. */
   ap_graphics_init(&board->graphics, AP_SCREEN_NONE);
+  /* And no ring board either, for a different reason than the display's: the
+   * display's blocks decode with no screen fitted because the board carries
+   * them, whereas the ring controller is an expansion card and an empty slot
+   * decodes nothing at all. `ap_board_attach_ring` fits one. */
+  ap_ring_ctl_reset(&board->ring, false);
   ap_kbd_reset(&board->keyboard);
   /* The wire is empty, and explicitly so rather than by the `memset` above: a
    * reset that left a reply half-delivered would put a byte from the previous
@@ -932,6 +954,16 @@ uint8_t ap_board_read(ap_board_t *board, uint32_t address, bool *ok) {
     return ap_tape_read(&board->tape, address);
   case AP_BOARD_REGION_GRAPHICS:
     return ap_graphics_read(&board->graphics, address);
+  case AP_BOARD_REGION_RING: {
+    /* The unit is decoded but not yet *used*: this core models one controller,
+     * and `RING.md` finding 38 leaves open whether unit 1's windows are a
+     * second board or a second decode of the first. Recorded rather than
+     * guessed -- a machine with two ring cards would need that settled. */
+    bool second = false;
+    uint32_t offset = 0;
+    (void)ap_ring_ctl_decode(address, NULL, &second, &offset);
+    return ap_ring_ctl_read8(&board->ring, second, offset);
+  }
   case AP_BOARD_REGION_ATBUS:
     /* The window decodes and nothing drives the data lines, so the pull-ups
      * answer. `FF` rather than unmapped: the cycle terminates normally on the
@@ -1089,6 +1121,13 @@ void ap_board_write(ap_board_t *board, uint32_t address, uint8_t value,
   case AP_BOARD_REGION_GRAPHICS:
     ap_graphics_write(&board->graphics, address, value);
     return;
+  case AP_BOARD_REGION_RING: {
+    bool second = false;
+    uint32_t offset = 0;
+    (void)ap_ring_ctl_decode(address, NULL, &second, &offset);
+    ap_ring_ctl_write8(&board->ring, second, offset, value);
+    return;
+  }
   case AP_BOARD_REGION_ATBUS:
     if (board->atbus_empty_writes == 0u) {
       board->first_atbus_empty_write = address;

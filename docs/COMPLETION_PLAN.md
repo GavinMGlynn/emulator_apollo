@@ -4173,6 +4173,31 @@ discipline throughout.
 - [ ] Ring controller device: register interface, dual-ported RAM buffer,
       transmit and receive logic, bypass relays. *Verification: the ring ROM's
       own self-test passes under emulation — the firmware is the test.*
+  - [x] **The register interface, and the part behind half of it.** The board's
+        two windows per unit, its ID register, its presence gate and its two
+        Intel 8254 timers are built and wired into the AT decode, from the
+        firmware disassembly that is the only specification this board has —
+        `RING.md` findings 38 to 41a. An unfitted slot still reads `FF`, which
+        is what finding 40 makes the *successful* outcome of the firmware's
+        probe. `+402`, `+404`, `+406` and `+400`'s other bits are storage with
+        a test that says so, rather than invented behaviour.
+        *Verification: `ring_ctl_suite`, 8 tests, each replaying an access at
+        the ROM address `RING.md` cites for it; `i8254_suite`, 7 tests, the
+        first of which is the firmware's own `$30 $70 $B0 … $E4` sequence;
+        `board_suite` 38 → 40 for the decode. Detail in `PROJECT_STATUS.md`.*
+  - [ ] **The buffer, the DMA path and the interrupt, which the ROM cannot
+        settle.** Finding 42 is a bounded negative result: every absolute long
+        address in `[ROM3500]` is one of the four AT *I/O* windows, so the
+        dual-ported RAM is not reachable from this firmware and no further
+        reading of it will produce a layout. `[S3K]` §1.5.4 says the buffer
+        exists and Table 2-6 says where such a thing can live
+        (`080000`-`09FFFF`, plus three further windows) without saying which
+        the board decodes. **Closing route:** Domain/OS's own ring driver —
+        the only remaining source. Until it is read, transmit/receive and the
+        bypass relays have no host-side path to connect to, and the ring ROM's
+        self-test cannot be the verification because it never gets that far.
+        This is the item's real blocker and it is a *source* problem, not a
+        code one.
 - [x] Multi-node scheduler, in `src/core/ring/ap_ring_sched.*`: N nodes on one
       cycle-locked ring, each stepping only on its own boundaries against the
       shared time base, with the ring's bit clock competing as a clock domain

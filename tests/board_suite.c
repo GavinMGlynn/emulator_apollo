@@ -248,6 +248,67 @@ static void test_an_empty_at_bus_window_reads_ff_rather_than_faulting(void) {
   TEST_ASSERT_EQUAL_HEX32(0x090000u, b.first_atbus_empty_write);
 }
 
+/* The ring controller is an expansion card, so its four windows must read as an
+ * empty slot until one is fitted -- `RING.md` finding 40 makes that a
+ * *successful* outcome for the firmware's probe, not an error, and every
+ * measurement this project has taken of the AT window was taken with the slot
+ * empty. */
+static void test_the_ring_windows_are_an_empty_slot_until_a_card_is_fitted(
+    void) {
+  ap_board_t b;
+  bool ok = false;
+  init(&b);
+
+  TEST_ASSERT_EQUAL_UINT(AP_BOARD_REGION_ATBUS, ap_board_region(&b, 0x059000u));
+  TEST_ASSERT_EQUAL_HEX8(0xFFu, ap_board_read(&b, 0x059000u, &ok));
+  TEST_ASSERT_TRUE(ok);
+  TEST_ASSERT_EQUAL_UINT(1u, b.atbus_empty_reads);
+
+  ap_board_attach_ring(&b, true);
+  TEST_ASSERT_EQUAL_UINT(AP_BOARD_REGION_RING, ap_board_region(&b, 0x059000u));
+  /* Finding 39: the ID register, reached from the CPU's side of the bus. */
+  TEST_ASSERT_EQUAL_HEX8(AP_RING_CTL_ID_6, ap_board_read(&b, 0x059000u, &ok));
+  TEST_ASSERT_TRUE(ok);
+  /* And the slot counter did not move -- a fitted card is not an empty one. */
+  TEST_ASSERT_EQUAL_UINT(1u, b.atbus_empty_reads);
+
+  /* Removing it puts the window back. Both directions matter: a machine
+   * configured without a ring board must be indistinguishable from one that
+   * never had the code. */
+  ap_board_attach_ring(&b, false);
+  TEST_ASSERT_EQUAL_HEX8(0xFFu, ap_board_read(&b, 0x059000u, &ok));
+  TEST_ASSERT_EQUAL_UINT(2u, b.atbus_empty_reads);
+}
+
+/* All four windows of finding 38, through the board, with the timers reachable
+ * at the offsets the firmware writes. This is the test that would fail if the
+ * board decoded the card at one window and left the other three to the slot. */
+static void test_every_ring_window_reaches_the_card_from_the_bus(void) {
+  static const uint32_t bases[] = {0x051000u, 0x052000u, 0x059000u, 0x05A000u};
+  ap_board_t b;
+  bool ok = false;
+  init(&b);
+  ap_board_attach_ring(&b, true);
+
+  for (unsigned i = 0; i < sizeof bases / sizeof bases[0]; i++) {
+    TEST_ASSERT_EQUAL_UINT(AP_BOARD_REGION_RING,
+                           ap_board_region(&b, bases[i]));
+    TEST_ASSERT_EQUAL_HEX8(AP_RING_CTL_ID_6, ap_board_read(&b, bases[i], &ok));
+    TEST_ASSERT_TRUE(ok);
+  }
+
+  /* `[ROM3500]` `0000C6`: `$30` to `+806`, which is timer A's control word. */
+  ap_board_write(&b, 0x059806u, 0x30u, &ok);
+  TEST_ASSERT_TRUE(ok);
+  TEST_ASSERT_EQUAL_HEX8(0x30u, b.ring.a2.timer_a.counter[0].control);
+  /* The `a1` window is the same card's other half and a *different* register
+   * set: finding 38 leaves them distinct, so this must not have aliased. */
+  TEST_ASSERT_EQUAL_HEX8(0x00u, b.ring.a1.timer_a.counter[0].control);
+
+  TEST_ASSERT_EQUAL_UINT(0u, b.atbus_empty_reads);
+  TEST_ASSERT_EQUAL_UINT(0u, b.atbus_empty_writes);
+}
+
 /* ## The first address is not the interesting one
  *
  * The first empty-slot address a boot records is the PROM's expansion-ROM scan,
@@ -1155,6 +1216,8 @@ int main(void) {
   RUN_TEST(test_the_read_only_memories_absorb_writes_rather_than_faulting);
   RUN_TEST(test_a_missing_prom_is_absent_for_writes_too);
   RUN_TEST(test_an_empty_at_bus_window_reads_ff_rather_than_faulting);
+  RUN_TEST(test_the_ring_windows_are_an_empty_slot_until_a_card_is_fitted);
+  RUN_TEST(test_every_ring_window_reaches_the_card_from_the_bus);
   RUN_TEST(test_the_empty_slot_addresses_are_kept_distinct_and_in_order);
   RUN_TEST(test_more_empty_slot_addresses_than_fit_are_counted_not_dropped);
   RUN_TEST(test_the_windows_do_not_swallow_the_devices_inside_them);

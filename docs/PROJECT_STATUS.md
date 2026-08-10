@@ -3350,7 +3350,7 @@ failure that cost a bit position in the 68020's module entry word.
 | Core board state hash (the identity harness's board half) | working: the board registers, the translation map, both interrupt controllers, the interval timer with its three clocks, the calendar with both cursors, both DMA controllers, both serial ports, the node ID, the disk and tape controllers, the graphics memories, the keyboard matrix and the boot PROM. The diagnostic counters are deliberately outside it and reported beside it | `board_state_suite`, 23 tests sweeping every device field by field |
 | Full-machine state hash (`ap_machine_hash`, `ap_machine_state`) | working: the processor, main memory, the board when one is attached, and elapsed time — with the clock, the PC and the bus-error count reported beside the number | `machine_suite`, 55 tests, incl. the same workload run twice on two boards agreeing at every step |
 | Ring medium interface | not started | — |
-| Ring controller | not started | — |
+| Ring controller (`device/ap_ring_ctl.*`) | **register interface working**, wired into the AT decode: a unit's two windows, the ID register, the presence gate and its two Intel 8254 timers, all from the firmware disassembly that is this board's only specification. Fitted only on request -- an empty slot reads `FF`, which `RING.md` finding 40 makes the successful outcome of the firmware's probe. The dual-ported RAM buffer, the DMA path and the interrupt are **blocked on a source, not on code**: finding 42 shows the ROM never addresses AT memory space at all | `ring_ctl_suite`, 8 tests; `i8254_suite`, 7 tests; `board_suite` 38 -> 40 |
 | 68030 instruction pipe + cache holding register | working | `pipe_suite`, 14 tests, `MC68030 User's Manual 3ed` §11.2.2 |
 | 68030 bus cycle state machine | working, including burst line fills | `bus_suite`, 25 tests, each citing `MC68030 User's Manual 3ed` ch. 7 (read, write and burst cycles) |
 | 68030 bus arbitration control unit | working: the five-state machine of `[030]` §7.7.4, the processor at lowest priority, both documented deferrals (a committed bus cycle, and a locked read-modify-write) and the single-wire BGACK-alone path. Figure 7-61 did not survive the scan and the states are recovered from the prose walking it; one edge is marked `INFERRED` in code against the two passages supporting it. The input synchroniser is `PROVISIONAL` | `arb_suite`, 16 tests, `MC68030 User's Manual 3ed` §7.7 |
@@ -3406,7 +3406,7 @@ failure that cost a bit position in the 68020's module entry word.
 | Board cache (`012000` RAM, `014000` condition codes) | not started. The shared **bus arbitration point** is done and has its own row above | — |
 | Apollo interrupt controllers (`011000`, `011100`) | working: the two 8259As cascaded on **IR3** (measured, not IR2 as the AT convention would have it), vector bases `A0`/`A8` from the boot PROM's own ICW2, giving levels `A0`-`AF`. Priority order matches `008778-03` Table 2-3, which with the cascade on IR3 has no anomaly. The CPU interrupt level is **6**, also measured — neither manual states it, and it took starting the interval timer by hand to make anything request at all | `intr_suite`, 14 tests; `FINDINGS.md` C11, `tools/mame-oracle/writetrace.lua` |
 | Intel 8259A interrupt controller (the part) | working: ICW1-4 sequence, all three OCWs, fully nested priority with rotation, edge and level triggering, special mask and special fully nested modes, poll, AEOI, and the spurious level 7. 8086-mode vectoring only — MCS-80/85's `CALL` sequence is refused rather than approximated, and this machine never uses it. The Apollo *pairing* is a separate module | `i8259_suite`, 28 tests, each citing `8259A` 231468-003 |
-| Core-board address maps (`board/ap_board.c`) | working: every device placed by `008778-03` Table 2-8 and by the measurement that confirmed it, main memory at `1000000`, and an unclaimed address reported **unmapped rather than zero** — the distinction flat RAM hid, which cost 5634 invisible accesses in the first firmware run. Regions are named, so a trace can say *what* the firmware reached for. The AT windows declare a cycle time and everything else answers at the minimum, and an access to the translation map's undescribed seven eighths is counted rather than silently aliased, and each of the two declined core registers is counted apart. The DMA page registers now map offset to channel from `002398-04` p. 12-25, the handbook that prints the table `008778-03` Table 2-6 omits — channel 4, the cascade, has none | `board_suite`, 38 tests; `atbus_suite`, 8 tests |
+| Core-board address maps (`board/ap_board.c`) | working: every device placed by `008778-03` Table 2-8 and by the measurement that confirmed it, main memory at `1000000`, and an unclaimed address reported **unmapped rather than zero** — the distinction flat RAM hid, which cost 5634 invisible accesses in the first firmware run. Regions are named, so a trace can say *what* the firmware reached for. The AT windows declare a cycle time and everything else answers at the minimum, and an access to the translation map's undescribed seven eighths is counted rather than silently aliased, and each of the two declined core registers is counted apart. The DMA page registers now map offset to channel from `002398-04` p. 12-25, the handbook that prints the table `008778-03` Table 2-6 omits — channel 4, the cascade, has none | `board_suite`, 40 tests; `atbus_suite`, 8 tests |
 | Shared bus arbitration point | working: the external priority encoder `[030]` §7.7 requires, DRQ0 through DRQ7 with the processor last, driving the CPU's own arbitration unit over the three-wire protocol. A grant and its acknowledgement are separate instants, so the processor stops driving the bus when it grants rather than when the grant is taken up; a master is never pre-empted mid-transfer | `arbiter_suite`, 9 tests, `MC68030 User's Manual 3ed` §7.7, `008778-03` §2.4.6 |
 | Apollo DMA controllers (`010C00`, `010D00`) | working: DMA 1 at **stride 1** and DMA 2 at **stride 2**, both measured, both aliased through their ranges. A read of a write-only register returns zero where the oracle returns `0F`; `[8237]` marks that read "Illegal", so neither is specified and ours does not invent a register value. The board runs transfers: controller 1's request cascaded onto controller 2's channel 0 and one request reaching the arbiter, the address through the translation map, and the processor stalled while a controller holds the bus. The cascade and the channel assignments are `008778-03` Table 2-4's, so the AT convention this module used to refuse is now cited rather than assumed. **The peripheral side is wired**: the tape drives its own request line and its cartridge reaches memory by DMA, and the disk's two data ports move under an acknowledge | `dma_suite`, 17 tests; `FINDINGS.md` C13 |
 | Intel 8237A DMA controller (the part) | **programming model and transfer cycle complete**: all sixteen register addresses, four channels with base and current address/count, the single shared first/last flip-flop, command/mode/request/mask/status/temporary, master clear, autoinitialise reload and the mask-on-terminal-count rule; and a service cycle that moves a byte either way, verifies without moving one, walks the address up or down, and ends on the borrow out of zero rather than at zero. Memory-to-memory is refused outright rather than half-run. The part drives sixteen bits of address and the board composes the rest — not yet wired to the board | `i8237_suite`, 29 tests, `8237A` 231466 |
@@ -23019,6 +23019,31 @@ either stand: each compared binaries at a fixed device model.
 *Verification: `tools/identity-boot.sh`, 350 M instructions, the invocation the
 script holds.*
 
+## And again to `0C418F7FAFBD5D1F`, for the ring controller's state
+
+The ring controller's registers and its two 8254s are architectural state, so
+`ap_board_hash_ring` covers them and the number moved again -- including the
+fitted flag itself, because a machine with a card whose registers happen to read
+zero is not a machine with no card: the two answer the AT window differently.
+
+```
+                       before              after
+  state hash   C335D98309BA03C2    0C418F7FAFBD5D1F
+  final PC            3C4BC384            3C4BC384
+  clocks            1457857018          1457857018
+```
+
+Identical invariants again, and here that says something sharper than usual: the
+reference machine has **no ring card fitted**, so the run reached the same
+instruction in the same number of cycles because the new code changed nothing it
+does. The decode is gated on `board->ring.present`, which is false, and the
+window still reads `FF` from the empty-slot path.
+
+`C335D98309BA03C2` is retired.
+
+*Verification: `tools/identity-boot.sh`, 350 M instructions, the invocation the
+script holds.*
+
 
 ## The OMTI sector address conversion, and a jumper table that settles it
 
@@ -23133,3 +23158,70 @@ first. A driver polling it would otherwise proceed on a counter still holding
 the old count.
 
 *Verification: `i8254_suite`, 7 tests; `ctest` 130 -> 131.*
+
+## The ring controller's register interface, and what the firmware cannot tell us
+
+The last unbuilt device in Phase 6, built from the only specification this board
+has: its own option ROM. There is no register-level document for the Apollo
+10666 on disk or on the web, and MAME carries Domain networking over an emulated
+3c505 instead, so there is no oracle either. `RING.md` findings 38 to 41a are the
+disassembly, and every test in `ring_ctl_suite` replays an access at the ROM
+address cited for it. A test that went beyond them would be testing an
+invention.
+
+**A unit is two windows, not one.** `$CA0` maps a unit number to *two* base
+pointers — unit 0 gets `a1 = $51000` and `a2 = $59000`, unit 1 gets
+`$52000`/`$5A000` — and anything else is `ring: init error`. So `[S3K]` Table
+2-9's "a second controller sits at AT `0x320`" is how the manual lists the
+ranges, and the firmware drives the pair as one unit. Whether that is one board
+with two decodes or two boards driven as a pair is **not settled by this code**,
+and the module does not decide it: it models a unit with two windows and leaves
+the question where the evidence leaves it.
+
+**What each bank is.** `+000` is an 8-bit ID register accepting only `$36` or
+`$37` — ASCII `'6'` and `'7'`. `+400` is a status word whose bit 15 is a
+*presence gate*: init reads it, masks `$8000`, and if it is clear returns
+success having touched nothing else, so an empty slot is not an error. `+800`
+and `+C00` are the two 8254s.
+
+**Three things this got right only because they were looked for.**
+
+*The clear must not erase the gate.* Init clears `(a2)`, `+402`, `+404`, `+400`
+in that order — including the very word whose bit 15 it just tested. A model
+that let the host's zero take the presence bit with it would report the board
+absent from that moment on, and every later probe would fail. The gate is the
+board's answer about itself, not the host's to write.
+
+*A word access must touch an 8254 exactly once.* The registers are byte-wide at
+even offsets — findings 12 and 14 give a stride of two, and finding 41's `btst
+#14` on a word read of `+802` puts the register byte in the word's high half,
+which is the even address on a big-endian bus. An 8254 read has side effects: it
+unlatches, and it advances the LSB/MSB cursor. A model that read the device for
+both halves of a `move.w` would consume two bytes of a two-byte count per
+instruction and hand the firmware the LSB and MSB of different reads. The odd
+byte is not a register; it is the other half of a lane nothing drives.
+
+*An empty slot must stay empty.* The card is off by default and
+`ap_board_attach_ring` fits it. Every measurement this project has taken of the
+AT window was taken with the slot empty, and a card that answered unbidden would
+take a machine with no ring hardware down a path it never runs.
+
+**What is unknown is modelled as storage, and tested as storage.** `+402`,
+`+404`, `+406` and `+400`'s bits other than 15 and 11 have no established
+meaning — open question A. They are kept so a driver reads back what it wrote,
+nothing acts on any of them, and the test asserts a read-back rather than a
+behaviour, so that inventing one later fails there first.
+
+**And the rest of the item is blocked on a source, not on code.** Finding 42 is
+a bounded negative result from an exhaustive scan: every absolute long address
+in `[ROM3500]` is one of the four AT *I/O* windows. The ring ROM never touches
+AT memory space, so the dual-ported RAM buffer is not reachable from this
+firmware and no further reading of it will produce a layout. `[S3K]` §1.5.4 says
+the buffer exists; Table 2-6 says where such a thing can live and not which
+window this board decodes. Domain/OS's own ring driver is the remaining route.
+Until it is read, transmit and receive logic and the bypass relays have no
+host-side path to attach to — which is also why the plan item's verification,
+the ring ROM's self-test passing, cannot yet be the thing that closes it.
+
+*Verification: `ring_ctl_suite`, 8 tests; `board_suite` 38 -> 40 for the
+decode through the bus; `ctest` 131 -> 132.*

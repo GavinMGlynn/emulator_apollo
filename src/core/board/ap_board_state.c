@@ -320,6 +320,49 @@ void ap_board_hash_graphics(ap_hash_t *st, const ap_graphics_t *graphics) {
   }
 }
 
+/* One window of the ring controller. Both are hashed: `RING.md` finding 38
+ * makes a unit the *pair*, and two machines that differ only in what the `a1`
+ * window holds are two different machines. */
+static void hash_ring_window(ap_hash_t *st, const ap_ring_ctl_window_t *w) {
+  ap_hash_u8(st, w->id);
+  ap_hash_u16(st, w->status);
+  ap_hash_u16(st, w->slot_402);
+  ap_hash_u16(st, w->slot_404);
+  ap_hash_u16(st, w->slot_406);
+  for (unsigned t = 0; t < 2u; t++) {
+    const ap_i8254_t *pit = t == 0u ? &w->timer_a : &w->timer_b;
+    for (unsigned i = 0; i < AP_I8254_COUNTERS; i++) {
+      const ap_i8254_counter_t *c = &pit->counter[i];
+      /* Every field, not the visible ones: the LSB/MSB cursors and the latch
+       * valid flags decide what the *next* access returns, so two parts holding
+       * the same count mid-sequence are in different states. */
+      ap_hash_u8(st, c->control);
+      ap_hash_u16(st, c->counter);
+      ap_hash_u16(st, c->latch);
+      hash_bool(st, c->gate);
+      hash_bool(st, c->out);
+      hash_bool(st, c->null_count);
+      hash_bool(st, c->counting);
+      ap_hash_u16(st, c->count_latch);
+      hash_bool(st, c->count_latched);
+      ap_hash_u8(st, c->status_latch);
+      hash_bool(st, c->status_latched);
+      hash_bool(st, c->write_msb_next);
+      hash_bool(st, c->read_msb_next);
+    }
+  }
+}
+
+void ap_board_hash_ring(ap_hash_t *st, const ap_ring_ctl_t *ring) {
+  /* Fitted-ness first, and hashed even though every field below it is zero
+   * when the slot is empty: a machine with a card whose registers happen to
+   * read zero is not a machine with no card, because the two answer the AT
+   * window differently. */
+  hash_bool(st, ring->present);
+  hash_ring_window(st, &ring->a1);
+  hash_ring_window(st, &ring->a2);
+}
+
 void ap_board_hash_keyboard(ap_hash_t *st, const ap_kbd_t *keyboard) {
   /* Which keys are down. A model that let a repeated press through would
    * desynchronise the firmware's own shift state, and this is the state that
@@ -342,6 +385,7 @@ void ap_board_hash(ap_hash_t *st, const ap_board_t *board) {
   ap_board_hash_disk(st, &board->disk);
   ap_board_hash_tape(st, &board->tape);
   ap_board_hash_graphics(st, &board->graphics);
+  ap_board_hash_ring(st, &board->ring);
   ap_board_hash_keyboard(st, &board->keyboard);
 
   /* Which appendix's AT bus cycle times this board keeps. Configuration rather

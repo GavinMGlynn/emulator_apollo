@@ -47,6 +47,7 @@
 #include "board/ap_sio.h"
 #include "board/ap_graphics.h"
 #include "device/ap_kbd.h"
+#include "device/ap_ring_ctl.h"
 #include "board/ap_tape.h"
 #include "board/ap_timer.h"
 
@@ -112,6 +113,13 @@ typedef enum {
   AP_BOARD_REGION_DISK,
   AP_BOARD_REGION_TAPE,
   AP_BOARD_REGION_GRAPHICS,
+  /* The token ring controller's two AT I/O windows, `device/ap_ring_ctl.h`.
+   * Inside the AT window and therefore ahead of it, for the same reason the
+   * graphics decodes are: a window checked first would report a fitted card as
+   * an empty slot. Unlike them it is *conditional* -- an unfitted machine falls
+   * through to `ATBUS` and the window reads `FF`, which is what the option-ROM
+   * scan expects to find. */
+  AP_BOARD_REGION_RING,
   AP_BOARD_REGION_ATBUS,
   AP_BOARD_REGION_RAM,
 } ap_board_region_t;
@@ -189,6 +197,11 @@ typedef struct ap_board {
   ap_disk_t disk;
   ap_tape_t tape;
   ap_graphics_t graphics;
+  /* Absent until `ap_board_attach_ring` fits it. A DN3500 is not sold with a
+   * ring board in it and this core has no ring option ROM installed, so the
+   * default has to be the empty slot -- and the empty slot is what the boot
+   * measures today. */
+  ap_ring_ctl_t ring;
   ap_kbd_t keyboard;
 
   /* ## The wire between the keyboard and serial 1, which had no length
@@ -499,6 +512,17 @@ typedef struct ap_board {
  * machine and how a run says so. */
 [[nodiscard]] bool ap_board_attach_parity(ap_board_t *board, uint8_t *bad,
                                           uint32_t bytes);
+
+/* Fit or remove the token ring controller. Both directions are a reset of the
+ * card, because the machines they describe are a slot with a board plugged in
+ * and a slot with nothing in it -- there is no third state where a card is
+ * present but holds no registers.
+ *
+ * Fitting one changes what the four AT I/O windows answer, so it is off by
+ * default: `RING.md` finding 40 makes an empty slot a *successful* outcome for
+ * the firmware's probe, and a card that answered unbidden would take a machine
+ * with no ring hardware down a path it never runs. */
+void ap_board_attach_ring(ap_board_t *board, bool fitted);
 
 /* Attach a boot PROM image. Fails if it is larger than the region Table 2-8
  * gives it -- an image that does not fit is not this machine's PROM, and

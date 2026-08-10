@@ -79,6 +79,7 @@ void ap_board_hash_node_id(ap_hash_t *st, const ap_nodeid_t *node_id);
 void ap_board_hash_disk(ap_hash_t *st, const ap_disk_t *disk);
 void ap_board_hash_tape(ap_hash_t *st, const ap_tape_t *tape);
 void ap_board_hash_graphics(ap_hash_t *st, const ap_graphics_t *graphics);
+void ap_board_hash_ring(ap_hash_t *st, const ap_ring_ctl_t *ring);
 void ap_board_hash_keyboard(ap_hash_t *st, const ap_kbd_t *keyboard);
 
 /* The whole board: every device above, in a fixed order, plus the boot PROM and
