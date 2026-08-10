@@ -23493,20 +23493,26 @@ gate ends **exactly where it did without it** — `final PC 00002684`, the same
 posted codes, `15 of 15 typed`. Two characters get through, because `09` and
 `0F` are posted; the other thirteen do not reach MD.
 
-So the remaining problem is *pacing*, not timing of the first character. All
-fifteen are handed to the keyboard within about 125 ms of emulated time while
-the firmware prints a banner in between, and the receive FIFO is three deep.
-`--boot-type` advances on `ap_board_key_type` returning true — can the keyboard
-produce this character — where `--boot-input` advances only on
-`ap_sio_receiver_ready`, which is whether the port kept it.
+**And the pacing explanation is wrong — retracted before it was acted on.**
+`--boot-type` does *not* advance on "can the keyboard produce this character".
+Reading the code rather than the note about it: a character goes only when the
+receive buffer is empty (`!ap_sio_receiver_ready`), the port is at 8 bits, the
+receiver is enabled, and a character time has passed — and a character the
+channel discarded unread is **re-sent**, counted by `rx_flushed`. That is
+already the `--boot-input` rule and more. The refuted-frontend-fix note this was
+built on described an attempt from before that rule existed.
 
-**That difference has been tried before and refuted**, and the refutation was
-for a *different* symptom: making the two advance rules consistent left the
-screen pixel-identical when the question was garbled echo. It was reverted
-because it was justified by "could explain" rather than measured, which is the
-tell `CLAUDE.md` names. This is a different question — characters that never
-arrive rather than characters that arrive and display wrongly — so the rule is
-worth re-testing *against this measurement*, and only against it.
+So `15 of 15 typed` under those conditions means the firmware **took** fifteen
+characters. Two of them are accounted for by `09` and `0F`; the remaining
+thirteen went into MD's command reader. Which reframes the question: not "why
+did the command not arrive" but **"what did MD do with it"** — and a command
+that failed would leave MD exactly where the run ends, back in its read poll at
+`002684`.
+
+**The instrument that is missing is the screen.** `--boot-console` prints the
+*serial* console, and this run's console is the display: the whole point of the
+keyboard path is that the firmware talks to screen and keyboard instead. So the
+run has been silent by construction, and `--screenshot` is what reads it.
 
 *Verification: `ctest` 132, all passing; the flag documented in `--help` and
 checked by `frontend_flags`; the gate itself measured both ways (0 of 5 against
