@@ -24670,3 +24670,35 @@ selected by default, the field is zero, and the machine does exactly what it did
 
 *Verification: `ctest` 132, all passing; the CPU groups visible in a dump; the
 walk hash equal to the state hash.*
+
+## Collapsing uniform arrays in the dump, without touching the hash
+
+The first full dump of a boot was **34,841 lines and 94% of them were the ring
+controller's buffer** — 32,943 fields of a 64 KB card that was not even fitted.
+A diff of that buries every finding it might contain.
+
+The obvious fix is wrong. Switching those arrays to `ap_hash_bytes` would absorb
+the host's byte order and give different hashes on a big-endian machine, which
+is the one property this hash exists to guarantee.
+
+So the hash keeps visiting every element and only the *dump* collapses:
+`ap_hash_group_begin`/`_end` suppress per-field emission and write one line
+carrying the running hash after the whole group. That line differs whenever any
+element does, so nothing is hidden — locating *which* element is a separate
+question, worth asking only once the summary has shown a difference.
+
+```
+  before   34,841 lines   ring 32,943, translation_map 1,024
+  after     1,052 lines   ring 176, translation_map 1
+```
+
+**And the state hash is unchanged at `0C45C1FE2636AD31` across both changes**,
+which is the point: the traversal is identical, only the reporting differs. No
+identity re-baseline, and the walk hash still equals the state hash.
+
+The remaining shape is readable — `cpu` 479, `ring` 176, `keyboard` 128, `sio`
+67, `dma` 54, `interrupts` 44 — which is a dump a person can read and a mapping
+can be built against.
+
+*Verification: `ctest` 133, all passing; the same state hash before and after,
+with the walk hash equal to it.*

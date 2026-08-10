@@ -72,6 +72,9 @@ typedef struct {
   void *out;
   const char *scope;
   unsigned index;
+  /* Inside a group: fields are hashed but not emitted, and one summary line is
+   * written when it closes. */
+  const char *group;
 } ap_hash_t;
 
 /* Width tags mixed in by the typed helpers, so re-typing a field changes the
@@ -114,6 +117,25 @@ void ap_hash_dump_to(ap_hash_t *st, void *out);
  * the top of each device's hash function; a null or empty name means the
  * fields are numbered without a prefix. */
 void ap_hash_scope(ap_hash_t *st, const char *scope);
+
+/* Collapse a run of fields to one dump line, without changing the hash.
+ *
+ * A large uniform array -- the ring controller's 64 KB buffer, the translation
+ * map's 1024 entries -- is hashed field by field because that is what keeps the
+ * hash portable: `ap_hash_bytes` over a `uint16_t[]` would absorb the host's
+ * byte order and give different numbers on a big-endian machine. But dumping it
+ * field by field buries everything else: an unfitted ring card accounted for
+ * 94% of a dump's lines.
+ *
+ * So the *hash* keeps visiting every element and the *dump* emits one line
+ * carrying the running hash after them all, which differs whenever any element
+ * does. Locating which element is then a separate question, and one worth
+ * asking only once the summary line has shown a difference.
+ *
+ * Nesting is not supported: a group inside a group would need a stack, and
+ * nothing here has that shape. */
+void ap_hash_group_begin(ap_hash_t *st, const char *name);
+void ap_hash_group_end(ap_hash_t *st);
 
 /* Whether a dump target is attached, so a caller can skip work that only a
  * dump needs. */

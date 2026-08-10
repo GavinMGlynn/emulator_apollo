@@ -34,9 +34,11 @@ void ap_board_hash_translation_map(ap_hash_t *st, const ap_atmap_t *map) {
   /* All 128 entries, including the 64 an 8-bit transfer can never reach.
    * Software writes them and a later 16-bit transfer reads them, so an entry
    * out of an 8-bit transfer's range is still live state. */
+  ap_hash_group_begin(st, "entries");
   for (unsigned i = 0; i < AP_ATMAP_ENTRIES; i++) {
     ap_hash_u16(st, map->entry[i]);
   }
+  ap_hash_group_end(st);
 }
 
 static void hash_i8259(ap_hash_t *st, const ap_i8259_t *pic) {
@@ -383,9 +385,11 @@ void ap_board_hash_ring(ap_hash_t *st, const ap_ring_ctl_t *ring) {
   /* The dual-ported RAM in full. It is the card's memory and the frames pass
    * through it, so a run that moved different bytes is a different run -- the
    * same argument the frame buffers get. */
+  ap_hash_group_begin(st, "buffer");
   for (unsigned i = 0; i < AP_RING_CTL_BUFFER_WORDS; i++) {
     ap_hash_u16(st, ring->buffer[i]);
   }
+  ap_hash_group_end(st);
 }
 
 void ap_board_hash_keyboard(ap_hash_t *st, const ap_kbd_t *keyboard) {

@@ -16,8 +16,22 @@ bool ap_hash_dumping(const ap_hash_t *st) { return st->out != NULL; }
  * tag beside it. The tag is printed because a field whose *type* changed is a
  * different field to the hash, so a diff that hid the tag would show two
  * machines agreeing when the hash says otherwise. */
+void ap_hash_group_begin(ap_hash_t *st, const char *name) {
+  st->group = name;
+}
+
+void ap_hash_group_end(ap_hash_t *st) {
+  const char *name = st->group;
+  st->group = NULL;
+  if (st->out != NULL && name != NULL) {
+    fprintf((FILE *)st->out, "%s.%s grp  %016llX\n",
+            st->scope != NULL ? st->scope : "", name,
+            (unsigned long long)st->h);
+  }
+}
+
 static void emit(ap_hash_t *st, const char *type, uint64_t v) {
-  if (st->out == NULL) {
+  if (st->out == NULL || st->group != NULL) {
     return;
   }
   fprintf((FILE *)st->out, "%s.%03u %-4s %016llX\n",
