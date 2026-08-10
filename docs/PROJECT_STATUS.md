@@ -3350,7 +3350,7 @@ failure that cost a bit position in the 68020's module entry word.
 | Core board state hash (the identity harness's board half) | working: the board registers, the translation map, both interrupt controllers, the interval timer with its three clocks, the calendar with both cursors, both DMA controllers, both serial ports, the node ID, the disk and tape controllers, the graphics memories, the keyboard matrix and the boot PROM. The diagnostic counters are deliberately outside it and reported beside it | `board_state_suite`, 23 tests sweeping every device field by field |
 | Full-machine state hash (`ap_machine_hash`, `ap_machine_state`) | working: the processor, main memory, the board when one is attached, and elapsed time — with the clock, the PC and the bus-error count reported beside the number | `machine_suite`, 55 tests, incl. the same workload run twice on two boards agreeing at every step |
 | Ring medium interface | not started | — |
-| Ring controller (`device/ap_ring_ctl.*`) | **register interface working**, wired into the AT decode: a unit's two windows, the ID register, the presence gate and its two Intel 8254 timers, all from the firmware disassembly that is this board's only specification. Fitted only on request -- an empty slot reads `FF`, which `RING.md` finding 40 makes the successful outcome of the firmware's probe. The dual-ported RAM buffer, the DMA path and the interrupt are **blocked on a source, not on code**: finding 42 shows the ROM never addresses AT memory space at all | `ring_ctl_suite`, 8 tests; `i8254_suite`, 7 tests; `board_suite` 38 -> 40 |
+| Ring controller (`device/ap_ring_ctl.*`) | **register interface working**, wired into the AT decode: a unit's two windows, the ID register, the presence gate and its two Intel 8254 timers, all from the firmware disassembly that is this board's only specification. Fitted only on request -- an empty slot reads `FF`, which `RING.md` finding 40 makes the successful outcome of the firmware's probe. The dual-ported RAM buffer is **64 KB reached through the `+406` data port**, not a memory window -- findings 46, 46a and 47, which correct finding 42. What remains blocked on a source is the meaning of `+400`'s five polled bits and of the two command registers | `ring_ctl_suite`, 11 tests, one of which is the firmware's own 64 KB memory test; `i8254_suite`, 7 tests; `board_suite` 38 -> 40 |
 | 68030 instruction pipe + cache holding register | working | `pipe_suite`, 14 tests, `MC68030 User's Manual 3ed` §11.2.2 |
 | 68030 bus cycle state machine | working, including burst line fills | `bus_suite`, 25 tests, each citing `MC68030 User's Manual 3ed` ch. 7 (read, write and burst cycles) |
 | 68030 bus arbitration control unit | working: the five-state machine of `[030]` §7.7.4, the processor at lowest priority, both documented deferrals (a committed bus cycle, and a locked read-modify-write) and the single-wire BGACK-alone path. Figure 7-61 did not survive the scan and the states are recovered from the prose walking it; one edge is marked `INFERRED` in code against the two passages supporting it. The input synchroniser is `PROVISIONAL` | `arb_suite`, 16 tests, `MC68030 User's Manual 3ed` §7.7 |
@@ -23044,6 +23044,29 @@ window still reads `FF` from the empty-slot path.
 *Verification: `tools/identity-boot.sh`, 350 M instructions, the invocation the
 script holds.*
 
+## And once more to `91EBD2715BF70807`, for the card's 64 KB of RAM
+
+The dual-ported buffer is the card's memory and frames pass through it, so it is
+hashed in full -- the same argument the frame buffers get -- along with the
+window registers findings 44 to 50a added and the read-ahead latch, which decides
+what the *next* access to the data port returns.
+
+```
+                       before              after
+  state hash   0C418F7FAFBD5D1F    91EBD2715BF70807
+  final PC            3C4BC384            3C4BC384
+  clocks            1457857018          1457857018
+```
+
+Third identical pair of invariants in a row, and for the same reason as the
+second: no ring card is fitted on the reference machine, so 64 KB of hashed
+zeroes moved the number and nothing else.
+
+`0C418F7FAFBD5D1F` is retired.
+
+*Verification: `tools/identity-boot.sh`, 350 M instructions, the invocation the
+script holds.*
+
 
 ## The OMTI sector address conversion, and a jumper table that settles it
 
@@ -23225,3 +23248,120 @@ the ring ROM's self-test passing, cannot yet be the thing that closes it.
 
 *Verification: `ring_ctl_suite`, 8 tests; `board_suite` 38 -> 40 for the
 decode through the bus; `ctest` 131 -> 132.*
+
+## The buffer was never missing — it is a port, and finding 42 was wrong about it
+
+Open question B asked for the dual-ported RAM's size and host window. Finding 42
+had answered the second half negatively: an exhaustive scan showed every absolute
+long operand in `[ROM3500]` is one of the four AT **I/O** windows, so the buffer
+"is not reachable from this firmware". The scan was right. The conclusion was
+wrong, and I had committed it hours before finding out.
+
+The mistake was an assumption never stated as one: that a buffer `[S3K]` §1.5.4
+calls *dual-ported* must appear in memory space. It does not. The buffer is
+reached through an **auto-incrementing data port at `+406`**, whose pointer is
+`+006`, and the firmware's own memory test walks `$7FFF + 1` words — **64 KB** —
+through it in four patterns. Size answered, access path answered, and from the
+ROM after all.
+
+This is the second time a ring finding has been overturned by reading further
+rather than by measuring: finding 41a had already corrected 15's reading of
+`+800`/`+C00` as buffer. Both errors have the same shape — an offset whose
+*meaning* was unknown treated as an offset that was *inert*. That is how a port
+gets modelled as a latch, and there is now a test named for it.
+
+**Where it came from.** The `ENTRY_05` self-test, which nothing had read end to
+end. `0002E0`-`0002E2` sets `a3 = a1` and `a4 = a2`, so every offset in it is
+the bank findings 12-15 already catalogued — the listing `tools/ring-rom/disasm.py`
+produces had been sitting on disk with `a4` unresolved, which is why fifteen
+offsets read as unexplained. (The listings themselves are gitignored, being
+derived from ROMs this repository cannot redistribute — regenerate with
+`tools/ring-rom/disasm.py roms/firmware/3500_RING_10666_6.bin`.)
+
+**What it gave, beyond the buffer.**
+
+`+400` has at least five live bits, not two. `$9D2` polls bit 13 with a **1000**
+iteration limit; `$9FA` polls bit 2 and `$A28` polls bit 1, both with 65535;
+`$B70` reads bit 11 after a transmit. Each helper takes `d4` as an *expected
+polarity* and returns the comparison, so the caller's `bne $8D2` means "the bit
+did not reach the state this subtest wanted". None of the five is explained —
+but the polling structure now is, and that is what a driver will need.
+
+`+402` and `+404` are byte-wide command registers taking `$1`, `$2`, `$6` and
+`$8`, `$0`, and carry status as well: both are also read as words under a mask.
+
+The self-test is a **loopback** test. `$B70` writes a four-word header to the
+buffer and sets `+402 = 1`; `$BAC` sets `+006 = $10`, reads four words back, and
+compares them against what was sent. That is the concrete shape of the plan's
+verification, and it is why finding 30 insisted on modelling *both* halves of
+the bypass relay: §3.5's relays join transmit output to receive input precisely
+so a bypassed node can do this.
+
+And it corroborates `+006` as a plain word pointer rather than a mode register:
+transmit stages at word 0, receive reads from word 16. Both inside the tested
+extent, both a sane layout. The alternative reading — upper bits as a mode — is
+consistent with every access too, so the simpler one is modelled and the
+ambiguity is recorded rather than decided.
+
+**The one modelling detail that would have silently broken everything.** Both
+readers discard a `move.w (a1),d1` before their loop and then read `d3 + 1`
+words. That is a read-ahead port: an access returns the word the *previous*
+access fetched. A model that returned the addressed word immediately would be
+one word out for the whole 64 KB, and would fail on the first of four patterns.
+Writing `+006` must not prefetch either, for the same reason in the other
+direction.
+
+**The verification is the firmware's own test.** `ring_ctl_suite` replays
+`00033C`-`000440` instruction for instruction — the walking pattern to `$203`,
+the two `d4` variants, and the `$1111` rotate — with `$BE0`, `$C18`, `$C0A` and
+`$C4E` translated as C functions. Two 68000 details had to survive the
+translation or the patterns would diverge and the test would pass against
+itself: `addq.b #$2,d2` touches **only the low byte** and does not carry, and
+`not.w`/`rol.w` are 16-bit.
+
+**What is still blocked on a source.** The meaning of `+400`'s five bits and of
+the two command registers, which is what sequences transmit and receive; and the
+buffer's descriptor and queue layout, which the self-test cannot show because it
+uses the buffer as flat memory. Finding 50a closes one route for good: across
+the whole ROM there is **no read** of any `(a3)` offset, so the `a1` window is
+write-only to this firmware and cannot be characterised further from it. That is
+a bounded negative result of the kind finding 42 claimed to be, and unlike 42's
+it holds — it rests on the absence of an access rather than on an assumption
+about how hardware must be addressed.
+
+## And then the other board generation confirmed all of it
+
+The plan's next-source rule said to read `[ROM4500]` and `[ROM3000]` the way
+`[ROM3500]` had just been read, before reaching for anything else. `[ROM3000]`
+is the HP 1818-4882 board -- a different vendor part, byte-identical to
+`[ROM5500]` -- and it addresses the controller through a **table of eight base
+pointers** rather than by fixed offsets from two window bases.
+
+Eight pointers, and the DN3500 has two windows of four banks. They correspond
+one for one. `$14(a1)` is the status block, and its init is finding 40 verbatim:
+`move.w (a2),d0` / `and.w #$8000,d0`, then `clr.w $2(a2)`, `clr.w $4(a2)`,
+`clr.w (a2)`, then later `move.w #$800,(a2)` -- the same clear order and the same
+`$800`. `$18(a1)` and `$1C(a1)` take `$30`/`$70`/`$B0` at `+6`, so they are the
+two 8254s. `(a1)` and `$4(a1)` are the second window's blocks, cleared at exactly
+the offsets finding 50a lists.
+
+Two things fall out that a single ROM could not have given.
+
+**The DN3500's bank split is real.** `+400`-`+406` is one register block and
+`+000`-`+006` another, which the DN3000 shows directly by giving them separate
+base pointers. That had been an inference from the `$400` stride.
+
+**The four polled status bits are the family's, not one ROM's.** `[ROM3000]`
+masks `$2000`, `$0004`, `$0002` and `$0800` in the same poll-with-timeout shape
+as finding 45's helpers. Identical masks on a different board from a different
+vendor -- so a model built from `[ROM3500]` is worth applying to `[ROM3000]`,
+and the bits are worth chasing as a real interface rather than as an oddity.
+
+One generational difference, recorded because it is the only one found:
+`[ROM3000]` programs counter 2 of *both* timers and `[ROM3500]` only the first's.
+Nothing depends on it.
+
+*Verification: `ring_ctl_suite` 8 -> 11 tests, including the firmware's own
+64 KB memory test in four patterns; `RING.md` findings 44-51b, each with the ROM
+address that proves it, and 51/51a cross-checked against a second board
+generation.*

@@ -4092,10 +4092,15 @@ discipline throughout.
       register map and dual-ported RAM layout. *Verification: every register
       recorded in `docs/references/RING.md` with the ROM address that proves it;
       cross-checked against both board generations.*
-      **Awaiting:** the remaining register *meanings*. The map is now largely
-      recovered — findings 11-15 and 38-41a — including two 8254 timers
-      confirmed from their read-back command. What is left is `+402`, `+404`,
-      `+406`, the rest of `+400`'s bits, and the `a1` window at `$51000`.
+      **Awaiting:** the remaining register *meanings*. The map is now recovered
+      — findings 11-15, 38-41a and 44-50a, the last set from reading the
+      `ENTRY_05` self-test end to end. Settled since: `+406` is the buffer's
+      data port and `+006` its pointer (64 KB, read pipelined by one word);
+      `+400` has five polled bits; `+402`/`+404` are byte-wide command
+      registers. What is left is what those bits *mean*, and the `a1` window,
+      which finding 50a shows is write-only to this firmware and therefore
+      cannot be characterised from it at all. Next source: the `[ROM4500]` and
+      `[ROM3000]` listings, already on disk and not yet read this way.
   - [x] `tools/ring-rom/disasm.py` resolves the option-ROM header, entry-point
         table and string table, and confines code to the checksummed image.
         *Verification: runs clean over all four ring ROMs and the 3C505 ROM;
@@ -4185,19 +4190,33 @@ discipline throughout.
         the ROM address `RING.md` cites for it; `i8254_suite`, 7 tests, the
         first of which is the firmware's own `$30 $70 $B0 … $E4` sequence;
         `board_suite` 38 → 40 for the decode. Detail in `PROJECT_STATUS.md`.*
-  - [ ] **The buffer, the DMA path and the interrupt, which the ROM cannot
-        settle.** Finding 42 is a bounded negative result: every absolute long
-        address in `[ROM3500]` is one of the four AT *I/O* windows, so the
-        dual-ported RAM is not reachable from this firmware and no further
-        reading of it will produce a layout. `[S3K]` §1.5.4 says the buffer
-        exists and Table 2-6 says where such a thing can live
-        (`080000`-`09FFFF`, plus three further windows) without saying which
-        the board decodes. **Closing route:** Domain/OS's own ring driver —
-        the only remaining source. Until it is read, transmit/receive and the
-        bypass relays have no host-side path to connect to, and the ring ROM's
-        self-test cannot be the verification because it never gets that far.
-        This is the item's real blocker and it is a *source* problem, not a
-        code one.
+  - [x] **The dual-ported RAM, which was never missing.** It is not
+        memory-mapped: it is 64 KB reached through an auto-incrementing data
+        port at `+406` whose pointer is `+006`, and the read side is pipelined
+        by one word. This **corrects finding 42**, whose scan was right and
+        whose conclusion was not — the error was assuming a dual-ported buffer
+        had to appear in memory space. Open question B's size and access path
+        are answered from the ROM after all.
+        *Verification: the firmware's own memory test, `00033C`-`000440`,
+        replayed instruction for instruction — 64 KB in four patterns, with
+        `addq.b`'s no-carry and the 16-bit `not.w`/`rol.w` preserved so the
+        translation cannot pass against itself. Detail in `PROJECT_STATUS.md`.*
+  - [ ] **The transmit/receive handshake, which is what actually blocks the
+        self-test.** Finding 45 shows `+400` has five polled bits (15, 13, 11,
+        2, 1), each with its own timeout and expected polarity, and finding 48
+        two byte-wide command registers taking `$1`, `$2`, `$6`, `$8`. **None
+        of their meanings is established**, and they are what sequences the
+        loopback test finding 50 describes — transmit a frame at buffer word 0,
+        receive it back from word 16. Modelled as storage until a source
+        settles them, which means the ring ROM's self-test gets past its memory
+        test and no further.
+        **Closing routes, in the order the discipline wants them:** the
+        `[ROM4500]` and `[ROM3000]` listings, which are already on disk and
+        have not been read end to end the way `[ROM3500]`'s now has; then
+        Domain/OS's own ring driver. Finding 50a closes one route for good —
+        there is no read of any `(a3)` offset anywhere in `[ROM3500]`, so the
+        `a1` window is write-only to this firmware.
+  - [ ] The DMA path and the interrupt. No source yet names either.
 - [x] Multi-node scheduler, in `src/core/ring/ap_ring_sched.*`: N nodes on one
       cycle-locked ring, each stepping only on its own boundaries against the
       shared time base, with the ring's bit clock competing as a clock domain

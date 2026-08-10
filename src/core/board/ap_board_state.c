@@ -326,9 +326,16 @@ void ap_board_hash_graphics(ap_hash_t *st, const ap_graphics_t *graphics) {
 static void hash_ring_window(ap_hash_t *st, const ap_ring_ctl_window_t *w) {
   ap_hash_u8(st, w->id);
   ap_hash_u16(st, w->status);
-  ap_hash_u16(st, w->slot_402);
-  ap_hash_u16(st, w->slot_404);
+  ap_hash_u16(st, w->slot_002);
+  ap_hash_u16(st, w->slot_004);
+  ap_hash_u16(st, w->pointer);
+  ap_hash_u16(st, w->command_402);
+  ap_hash_u16(st, w->command_404);
   ap_hash_u16(st, w->slot_406);
+  /* The read-ahead latch decides what the *next* access to the data port
+   * returns, so two cards holding the same buffer mid-read are in different
+   * states -- the same reason the 8254's LSB/MSB cursors are here. */
+  ap_hash_u16(st, w->read_ahead);
   for (unsigned t = 0; t < 2u; t++) {
     const ap_i8254_t *pit = t == 0u ? &w->timer_a : &w->timer_b;
     for (unsigned i = 0; i < AP_I8254_COUNTERS; i++) {
@@ -361,6 +368,12 @@ void ap_board_hash_ring(ap_hash_t *st, const ap_ring_ctl_t *ring) {
   hash_bool(st, ring->present);
   hash_ring_window(st, &ring->a1);
   hash_ring_window(st, &ring->a2);
+  /* The dual-ported RAM in full. It is the card's memory and the frames pass
+   * through it, so a run that moved different bytes is a different run -- the
+   * same argument the frame buffers get. */
+  for (unsigned i = 0; i < AP_RING_CTL_BUFFER_WORDS; i++) {
+    ap_hash_u16(st, ring->buffer[i]);
+  }
 }
 
 void ap_board_hash_keyboard(ap_hash_t *st, const ap_kbd_t *keyboard) {

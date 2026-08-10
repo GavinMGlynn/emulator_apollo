@@ -88,14 +88,17 @@ uint8_t ap_ring_ctl_read8(ap_ring_ctl_t *ctl, bool second_window,
 
   switch (offset & AP_RING_CTL_BANK_MASK) {
   case AP_RING_CTL_BANK_ID:
-    /* Finding 39 reads this as a byte. An unpopulated slot leaves the bus to
+    /* Finding 39 reads `+000` as a byte. An unpopulated slot leaves the bus to
      * the pull-ups, which is `FF` on this machine -- the same reasoning the AT
      * window at large uses -- and `FF` is neither `$36` nor `$37`, so an absent
      * board fails the ID check exactly as it should. */
-    if (!odd && (offset & AP_RING_CTL_SLOT_MASK) == 0u) {
+    if (odd) {
+      return 0xFFu;
+    }
+    if ((offset & AP_RING_CTL_SLOT_MASK) == 0u) {
       return ctl->present ? w->id : 0xFFu;
     }
-    return 0xFFu;
+    return (uint8_t)(ap_ring_ctl_read16(ctl, second_window, offset) >> 8);
 
   case AP_RING_CTL_BANK_STATUS: {
     const uint16_t value = ap_ring_ctl_read16(ctl, second_window,
@@ -130,9 +133,13 @@ void ap_ring_ctl_write8(ap_ring_ctl_t *ctl, bool second_window, uint32_t offset,
 
   switch (offset & AP_RING_CTL_BANK_MASK) {
   case AP_RING_CTL_BANK_ID:
-    /* Init clears `(a2)` as part of the reset group. The ID is what the board
-     * answers with and is not host-writable, so the clear is accepted and
-     * discarded rather than storing over the identity a later read needs. */
+    /* The ID at slot 0 absorbs its clear -- it is what the board answers with
+     * and is not host-writable. The three word registers beside it take the
+     * even byte, as every other byte-wide lane on this board does. */
+    if (!odd && (offset & AP_RING_CTL_SLOT_MASK) != 0u) {
+      ap_ring_ctl_write16(ctl, second_window, offset,
+                          (uint16_t)((uint16_t)value << 8));
+    }
     return;
   case AP_RING_CTL_BANK_STATUS: {
     const uint16_t held = ap_ring_ctl_read16(ctl, second_window, offset & ~1u);
@@ -165,6 +172,28 @@ uint16_t ap_ring_ctl_read16(ap_ring_ctl_t *ctl, bool second_window,
   }
   ap_ring_ctl_window_t *w = window_of(ctl, second_window);
 
+  if ((offset & AP_RING_CTL_BANK_MASK) == AP_RING_CTL_BANK_ID) {
+    switch (offset & AP_RING_CTL_SLOT_MASK) {
+    case 0u:
+      {
+        const uint16_t byte = ctl->present ? w->id : 0xFFu;
+        /* The odd half of the lane is undriven, as everywhere else on this
+         * board. Finding 15's `movea.l (a2),a0` reads a long here and this is
+         * what its second byte would be. */
+        return (uint16_t)((uint16_t)(byte << 8) | 0x00FFu);
+      }
+    case 2u:
+      return w->slot_002;
+    case 4u:
+      return w->slot_004;
+    default:
+      /* `+006` is the buffer pointer. The firmware only ever writes it, so a
+       * read-back is the least-surprising answer rather than an evidenced
+       * one. */
+      return w->pointer;
+    }
+  }
+
   if ((offset & AP_RING_CTL_BANK_MASK) == AP_RING_CTL_BANK_STATUS) {
     switch (offset & AP_RING_CTL_SLOT_MASK) {
     case 0u:
@@ -173,11 +202,25 @@ uint16_t ap_ring_ctl_read16(ap_ring_ctl_t *ctl, bool second_window,
        * error. */
       return ctl->present ? w->status : 0u;
     case 2u:
-      return w->slot_402;
+      return w->command_402;
     case 4u:
-      return w->slot_404;
+      return w->command_404;
     default:
-      return w->slot_406;
+      /* `+406`. On the `a2` window this is the buffer's data port -- finding
+       * 46a's read-ahead latch, which answers with the word the *previous*
+       * access fetched and then fetches the next. On `a1` it is storage,
+       * because finding 50a shows the firmware never reads it. */
+      if (!second_window) {
+        return w->slot_406;
+      }
+      {
+        const uint16_t answered = w->read_ahead;
+        w->read_ahead = w->pointer < AP_RING_CTL_BUFFER_WORDS
+                            ? ctl->buffer[w->pointer]
+                            : 0xFFFFu;
+        w->pointer++;
+        return answered;
+      }
     }
   }
 
@@ -194,6 +237,26 @@ void ap_ring_ctl_write16(ap_ring_ctl_t *ctl, bool second_window,
   }
   ap_ring_ctl_window_t *w = window_of(ctl, second_window);
 
+  if ((offset & AP_RING_CTL_BANK_MASK) == AP_RING_CTL_BANK_ID) {
+    switch (offset & AP_RING_CTL_SLOT_MASK) {
+    case 0u:
+      return;
+    case 2u:
+      w->slot_002 = value;
+      return;
+    case 4u:
+      w->slot_004 = value;
+      return;
+    default:
+      /* Finding 46: the pointer `+406` advances from. Writing it does **not**
+       * prefetch -- if it did, the firmware's discarded first read would return
+       * word 0 and every word after it would be one place early, which is the
+       * off-by-one 46a exists to prevent. */
+      w->pointer = value;
+      return;
+    }
+  }
+
   if ((offset & AP_RING_CTL_BANK_MASK) == AP_RING_CTL_BANK_STATUS) {
     switch (offset & AP_RING_CTL_SLOT_MASK) {
     case 0u:
@@ -208,13 +271,23 @@ void ap_ring_ctl_write16(ap_ring_ctl_t *ctl, bool second_window,
                              (ctl->present ? AP_RING_CTL_STATUS_PRESENT : 0u));
       return;
     case 2u:
-      w->slot_402 = value;
+      w->command_402 = value;
       return;
     case 4u:
-      w->slot_404 = value;
+      w->command_404 = value;
       return;
     default:
-      w->slot_406 = value;
+      if (!second_window) {
+        w->slot_406 = value;
+        return;
+      }
+      /* The write side of the port, advancing the same pointer the read side
+       * does -- which is what lets the firmware fill from `+006 = 0` and then
+       * read back from `+006 = 0`. */
+      if (w->pointer < AP_RING_CTL_BUFFER_WORDS) {
+        ctl->buffer[w->pointer] = value;
+      }
+      w->pointer++;
       return;
     }
   }

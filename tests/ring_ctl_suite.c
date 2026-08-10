@@ -195,23 +195,27 @@ static void test_the_two_windows_are_separate_register_sets(void) {
       0x0000u, ap_ring_ctl_read16(&ctl, true, AP_RING_CTL_BANK_STATUS + 2u));
 }
 
-/* `+402`, `+404` and `+406` have **no known meaning** -- open question A. They
- * are storage, and this test says exactly that and no more: it asserts a
- * read-back, not a behaviour, so that inventing one later fails here first. */
-static void test_the_unknown_status_slots_are_storage_and_nothing_more(void) {
+/* `+402` and `+404` are byte-wide command registers whose **bits** have no known
+ * meaning -- finding 48 settles the width and direction and the values the
+ * firmware writes, and nothing more. They are storage, and this test says
+ * exactly that: it asserts a read-back, not a behaviour, so that inventing one
+ * later fails here first.
+ *
+ * `+406` was in this list until finding 46 took it out -- it is the buffer's
+ * data port, tested above. The rule that failed here is worth keeping: an
+ * offset whose meaning is unknown is not the same as an offset that is inert,
+ * and calling the first the second is how a port gets modelled as a latch. */
+static void test_the_unknown_command_slots_are_storage_and_nothing_more(void) {
   ap_ring_ctl_t ctl;
   ap_ring_ctl_reset(&ctl, true);
 
   ap_ring_ctl_write16(&ctl, true, AP_RING_CTL_BANK_STATUS + 2u, 0x1111u);
   ap_ring_ctl_write16(&ctl, true, AP_RING_CTL_BANK_STATUS + 4u, 0x2222u);
-  ap_ring_ctl_write16(&ctl, true, AP_RING_CTL_BANK_STATUS + 6u, 0x3333u);
 
   TEST_ASSERT_EQUAL_HEX16(
       0x1111u, ap_ring_ctl_read16(&ctl, true, AP_RING_CTL_BANK_STATUS + 2u));
   TEST_ASSERT_EQUAL_HEX16(
       0x2222u, ap_ring_ctl_read16(&ctl, true, AP_RING_CTL_BANK_STATUS + 4u));
-  TEST_ASSERT_EQUAL_HEX16(
-      0x3333u, ap_ring_ctl_read16(&ctl, true, AP_RING_CTL_BANK_STATUS + 6u));
 
   /* Writing them changes nothing else: no side effect on the gate, the ID or
    * the timers. */
@@ -220,6 +224,171 @@ static void test_the_unknown_status_slots_are_storage_and_nothing_more(void) {
       ap_ring_ctl_read16(&ctl, true, AP_RING_CTL_BANK_STATUS));
   TEST_ASSERT_EQUAL_HEX8(AP_RING_CTL_ID_6,
                          ap_ring_ctl_read8(&ctl, true, AP_RING_CTL_BANK_ID));
+
+  /* Finding 44's bank-0 registers, the same way: `+002` and `+004` are written
+   * by the self-test and `+004` is read once at `000944` with its value
+   * discarded, so a read-back is all that is claimed. */
+  ap_ring_ctl_write16(&ctl, true, AP_RING_CTL_BANK_ID + 2u, 0x4444u);
+  ap_ring_ctl_write16(&ctl, true, AP_RING_CTL_BANK_ID + 4u, 0x0010u);
+  TEST_ASSERT_EQUAL_HEX16(
+      0x4444u, ap_ring_ctl_read16(&ctl, true, AP_RING_CTL_BANK_ID + 2u));
+  TEST_ASSERT_EQUAL_HEX16(
+      0x0010u, ap_ring_ctl_read16(&ctl, true, AP_RING_CTL_BANK_ID + 4u));
+  /* And none of it disturbed the ID, which `0002E8`'s `move.w #$0,(a4)` also
+   * has to leave alone. */
+  TEST_ASSERT_EQUAL_HEX8(AP_RING_CTL_ID_6,
+                         ap_ring_ctl_read8(&ctl, true, AP_RING_CTL_BANK_ID));
+}
+
+/* ## The firmware's own memory test, replayed
+ *
+ * `[ROM3500]` `00033C`-`000440` walks the dual-ported RAM through the `+406`
+ * port in four patterns. This is that loop, instruction for instruction, with
+ * the 68000 helpers `$BE0` (write), `$C18` (read and compare), `$C0A` (write
+ * rotating) and `$C4E` (read rotating) as C functions. It is the strongest
+ * check available for a board with no datasheet and no oracle: the hardware's
+ * own acceptance test, run against the model.
+ *
+ * Two 68000 details have to survive the translation or the patterns diverge:
+ * `addq.b #$2,d2` modifies **only the low byte** and does not carry into the
+ * high one, and `not.w`/`rol.w` are 16-bit. A C translation that used ordinary
+ * arithmetic would generate a different sequence and still pass against itself.
+ */
+
+static uint16_t rom_not_w(uint16_t d) { return (uint16_t)~d; }
+
+static uint16_t rom_addq_b_2(uint16_t d) {
+  /* `addq.b` touches the low byte alone -- `$00FF + 2` is `$0001`, not
+   * `$0101`. */
+  return (uint16_t)((d & 0xFF00u) | (uint8_t)((d & 0xFFu) + 2u));
+}
+
+static uint16_t rom_rol_w_1(uint16_t d) {
+  return (uint16_t)((uint16_t)(d << 1) | (uint16_t)(d >> 15));
+}
+
+/* `$BE0`: write `count` words, advancing the pattern by `d4`'s two flags. */
+static void rom_write_pattern(ap_ring_ctl_t *ctl, uint16_t d2, uint16_t d4,
+                              unsigned count) {
+  for (unsigned i = 0; i < count; i++) {
+    const uint16_t out = (d4 & 1u) != 0u ? rom_not_w(d2) : d2;
+    ap_ring_ctl_write16(ctl, true, AP_RING_CTL_BANK_STATUS + 6u, out);
+    d2 = (d4 & 2u) != 0u ? (uint16_t)(d2 + 1u)
+                         : (uint16_t)(rom_addq_b_2(d2) + 0x200u);
+  }
+}
+
+/* `$C18`: the discarded read, then `count` reads compared against the same
+ * sequence. Returns true when every word matched. */
+static bool rom_read_pattern(ap_ring_ctl_t *ctl, uint16_t d2, uint16_t d4,
+                             unsigned count) {
+  (void)ap_ring_ctl_read16(ctl, true, AP_RING_CTL_BANK_STATUS + 6u);
+  for (unsigned i = 0; i < count; i++) {
+    const uint16_t got =
+        ap_ring_ctl_read16(ctl, true, AP_RING_CTL_BANK_STATUS + 6u);
+    const uint16_t want = (d4 & 1u) != 0u ? rom_not_w(d2) : d2;
+    if (got != want) {
+      return false;
+    }
+    d2 = (d4 & 2u) != 0u ? (uint16_t)(d2 + 1u)
+                         : (uint16_t)(rom_addq_b_2(d2) + 0x200u);
+  }
+  return true;
+}
+
+static void rom_point_at_zero(ap_ring_ctl_t *ctl) {
+  /* `move.w #$0,$6(a4)` before every pass. */
+  ap_ring_ctl_write16(ctl, true, AP_RING_CTL_BANK_ID + 6u, 0u);
+}
+
+static bool rom_pass(ap_ring_ctl_t *ctl, uint16_t d2, uint16_t d4) {
+  const unsigned count = 0x7FFFu + 1u; /* `d3 = $7FFF`, `dbra` runs d3+1 */
+  rom_point_at_zero(ctl);
+  rom_write_pattern(ctl, d2, d4, count);
+  rom_point_at_zero(ctl);
+  return rom_read_pattern(ctl, d2, d4, count);
+}
+
+static void test_the_firmwares_own_memory_test_passes(void) {
+  ap_ring_ctl_t ctl;
+  ap_ring_ctl_reset(&ctl, true);
+
+  /* `00033A`-`000394`: `d2` from 1, `+$101` each round, until `$203`. Two
+   * passes per round, `d4` = 0 then 1. */
+  for (uint16_t d2 = 1u; d2 != 0x203u; d2 = (uint16_t)(d2 + 0x101u)) {
+    TEST_ASSERT_TRUE(rom_pass(&ctl, d2, 0u));
+    TEST_ASSERT_TRUE(rom_pass(&ctl, d2, 1u));
+  }
+  /* `000396`-`0003E6`: `d2 = 0` with `d4` = 2, then `d4` = 3. */
+  TEST_ASSERT_TRUE(rom_pass(&ctl, 0u, 2u));
+  TEST_ASSERT_TRUE(rom_pass(&ctl, 0u, 3u));
+
+  /* `0003EA`-`000440`: `$1111` rotated, written by `$C0A` and read by `$C4E`,
+   * looping until the rotate brings it back. */
+  uint16_t d2 = 0x1111u;
+  do {
+    for (unsigned half = 0; half < 2u; half++) {
+      const unsigned count = 0x7FFFu + 1u;
+      uint16_t pattern = d2;
+      rom_point_at_zero(&ctl);
+      for (unsigned i = 0; i < count; i++) {
+        ap_ring_ctl_write16(&ctl, true, AP_RING_CTL_BANK_STATUS + 6u, pattern);
+        pattern = rom_rol_w_1(pattern);
+      }
+      pattern = d2;
+      rom_point_at_zero(&ctl);
+      (void)ap_ring_ctl_read16(&ctl, true, AP_RING_CTL_BANK_STATUS + 6u);
+      for (unsigned i = 0; i < count; i++) {
+        TEST_ASSERT_EQUAL_HEX16(
+            pattern, ap_ring_ctl_read16(&ctl, true,
+                                        AP_RING_CTL_BANK_STATUS + 6u));
+        pattern = rom_rol_w_1(pattern);
+      }
+      d2 = rom_not_w(d2); /* `not.w d2` between the two halves */
+    }
+    d2 = rom_rol_w_1(d2);
+  } while (d2 != 0x1111u);
+}
+
+/* Finding 46a, isolated. The port answers with the word the *previous* access
+ * fetched, so the firmware's discarded first read is load-bearing: a model that
+ * returned the addressed word immediately would be one word out for all 64 KB
+ * and the test above would fail on its first pattern. */
+static void test_the_data_port_answers_one_word_behind(void) {
+  ap_ring_ctl_t ctl;
+  ap_ring_ctl_reset(&ctl, true);
+
+  ap_ring_ctl_write16(&ctl, true, AP_RING_CTL_BANK_ID + 6u, 0u);
+  for (uint16_t i = 0; i < 4u; i++) {
+    ap_ring_ctl_write16(&ctl, true, AP_RING_CTL_BANK_STATUS + 6u,
+                        (uint16_t)(0xA000u + i));
+  }
+
+  /* Writing the pointer must not prefetch -- if it did, the discard below would
+   * consume word 0 and everything after it would be one place early. */
+  ap_ring_ctl_write16(&ctl, true, AP_RING_CTL_BANK_ID + 6u, 0u);
+  (void)ap_ring_ctl_read16(&ctl, true, AP_RING_CTL_BANK_STATUS + 6u);
+  for (uint16_t i = 0; i < 4u; i++) {
+    TEST_ASSERT_EQUAL_HEX16(
+        (uint16_t)(0xA000u + i),
+        ap_ring_ctl_read16(&ctl, true, AP_RING_CTL_BANK_STATUS + 6u));
+  }
+}
+
+/* Finding 50a: the `a1` window is written and never read anywhere in the ROM,
+ * so its `+406` is not the buffer port. A model that made both windows the same
+ * port would have `$976`'s clear of `$406(a3)` overwrite the buffer the test
+ * above had just filled. */
+static void test_the_first_windows_data_slot_is_not_the_buffer_port(void) {
+  ap_ring_ctl_t ctl;
+  ap_ring_ctl_reset(&ctl, true);
+
+  ap_ring_ctl_write16(&ctl, true, AP_RING_CTL_BANK_ID + 6u, 0u);
+  ap_ring_ctl_write16(&ctl, true, AP_RING_CTL_BANK_STATUS + 6u, 0x1234u);
+
+  /* `$976`: `move.w d3,$406(a3)` with `d3` cleared. */
+  ap_ring_ctl_write16(&ctl, false, AP_RING_CTL_BANK_STATUS + 6u, 0u);
+  TEST_ASSERT_EQUAL_HEX16(0x1234u, ctl.buffer[0]);
 }
 
 int main(void) {
@@ -231,6 +400,9 @@ int main(void) {
   RUN_TEST(test_the_firmwares_timer_initialisation_reaches_two_8254s);
   RUN_TEST(test_a_word_access_touches_the_timer_exactly_once);
   RUN_TEST(test_the_two_windows_are_separate_register_sets);
-  RUN_TEST(test_the_unknown_status_slots_are_storage_and_nothing_more);
+  RUN_TEST(test_the_unknown_command_slots_are_storage_and_nothing_more);
+  RUN_TEST(test_the_data_port_answers_one_word_behind);
+  RUN_TEST(test_the_first_windows_data_slot_is_not_the_buffer_port);
+  RUN_TEST(test_the_firmwares_own_memory_test_passes);
   return UNITY_END();
 }
