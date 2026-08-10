@@ -436,19 +436,62 @@ static void test_the_receive_fifo_holds_three_and_then_overruns(void) {
                          ap_mc68681_read(&d, AP_MC68681_SR_CSR_A) &
                              AP_MC68681_SR_FFULL);
 
-  /* A fourth is lost and flagged. */
+  /* A fourth is **held in the receive shift register, not lost** -- which is
+   * what "quadruple-buffered" means and what §4.2.9.4 requires: overrun is set
+   * "upon receipt of a new character when the FIFO is full **and a character is
+   * already in the receive shift register**". This test asserted the opposite
+   * for as long as the model implemented it. */
   ap_mc68681_receive(&d, 0, 'd');
+  TEST_ASSERT_EQUAL_HEX8(0, ap_mc68681_read(&d, AP_MC68681_SR_CSR_A) &
+                                AP_MC68681_SR_OVERRUN);
+
+  /* The *fifth* overruns, and it is the newest that is discarded. */
+  ap_mc68681_receive(&d, 0, 'e');
   TEST_ASSERT_EQUAL_HEX8(AP_MC68681_SR_OVERRUN,
                          ap_mc68681_read(&d, AP_MC68681_SR_CSR_A) &
                              AP_MC68681_SR_OVERRUN);
 
-  /* And the three already held are intact: an overrun discards the newest, not
-   * the oldest, so a driver reading after one still gets valid earlier data. */
+  /* Reading frees a position, the held character takes it, and §4.2.9.7's
+   * consequence follows: `FFULL` is **still set** after the read, because the
+   * FIFO is full again. */
   TEST_ASSERT_EQUAL_HEX8('a', ap_mc68681_read(&d, AP_MC68681_RB_TB_A));
+  TEST_ASSERT_EQUAL_HEX8(AP_MC68681_SR_FFULL,
+                         ap_mc68681_read(&d, AP_MC68681_SR_CSR_A) &
+                             AP_MC68681_SR_FFULL);
+
+  /* All four buffered characters come out, in order, and only then is the
+   * receiver empty. */
   TEST_ASSERT_EQUAL_HEX8('b', ap_mc68681_read(&d, AP_MC68681_RB_TB_A));
+  TEST_ASSERT_EQUAL_HEX8(0, ap_mc68681_read(&d, AP_MC68681_SR_CSR_A) &
+                                AP_MC68681_SR_FFULL);
   TEST_ASSERT_EQUAL_HEX8('c', ap_mc68681_read(&d, AP_MC68681_RB_TB_A));
+  TEST_ASSERT_EQUAL_HEX8('d', ap_mc68681_read(&d, AP_MC68681_RB_TB_A));
   TEST_ASSERT_EQUAL_HEX8(0, ap_mc68681_read(&d, AP_MC68681_SR_CSR_A) &
                                 AP_MC68681_SR_RXRDY);
+}
+
+/* The shift register belongs to the receiver, so `RESET RECEIVER` destroys a
+ * character held there along with the FIFO's -- and counts it, since a host
+ * typing at this channel cannot otherwise tell a consumed character from a
+ * discarded one. */
+static void test_resetting_the_receiver_also_discards_the_held_character(void) {
+  ap_mc68681_t d;
+  ap_mc68681_reset(&d);
+  enable_a(&d);
+
+  ap_mc68681_receive(&d, 0, 'a');
+  ap_mc68681_receive(&d, 0, 'b');
+  ap_mc68681_receive(&d, 0, 'c');
+  ap_mc68681_receive(&d, 0, 'd'); /* into the shift register */
+
+  const unsigned before = d.channel[0].rx_flushed;
+  ap_mc68681_write(&d, AP_MC68681_CR_A, 0x20u); /* RESET RECEIVER */
+  TEST_ASSERT_EQUAL_UINT(before + 4u, d.channel[0].rx_flushed);
+
+  /* And nothing is left to hand back once the receiver is enabled again. */
+  enable_a(&d);
+  TEST_ASSERT_EQUAL_HEX8(0, ap_mc68681_read(&d, AP_MC68681_SR_CSR_A) &
+                                (AP_MC68681_SR_RXRDY | AP_MC68681_SR_FFULL));
 }
 
 static void test_a_disabled_receiver_takes_nothing(void) {
@@ -1087,6 +1130,7 @@ int main(void) {
   RUN_TEST(test_an_idle_transmitter_is_ready_and_empty);
   RUN_TEST(test_the_mode_register_pointer_advances_then_sticks);
   RUN_TEST(test_the_receive_fifo_holds_three_and_then_overruns);
+  RUN_TEST(test_resetting_the_receiver_also_discards_the_held_character);
   RUN_TEST(test_a_disabled_receiver_takes_nothing);
   RUN_TEST(test_a_character_written_comes_back_out);
   RUN_TEST(test_the_two_channels_are_independent);

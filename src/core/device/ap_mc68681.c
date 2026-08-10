@@ -297,11 +297,26 @@ void ap_mc68681_receive(ap_mc68681_t *duart, unsigned channel, uint8_t byte) {
     return;
   }
   if (ch->fifo_count >= AP_MC68681_RX_FIFO) {
-    /* §4.2.9: the overrun bit, set when a character arrives with the FIFO
-     * already full. The character is lost and the ones already held are not --
-     * an overrun discards the newest, not the oldest, which is why a driver
-     * that reads the FIFO after an overrun still gets valid earlier data. */
-    ch->sr |= AP_MC68681_SR_OVERRUN;
+    /* §4.2.9.4: the overrun bit is set "upon receipt of a new character when
+     * the FIFO is full **and a character is already in the receive shift
+     * register waiting for an empty FIFO position**" -- so the first character
+     * to meet a full FIFO is *held*, not lost, and only the one after it
+     * overruns. The character discarded is the newest, so a driver reading the
+     * FIFO after an overrun still gets valid earlier data.
+     *
+     * `pending_status` is cleared either way: it belongs to the character that
+     * just arrived, and that character is now either in the shift register --
+     * where §4.2.9.4 says "the character in the receive shift register, and its
+     * break detect, parity error and framing error status, if any, is lost" on
+     * the *next* overrun -- or discarded. */
+    if (ch->rx_shift_full) {
+      ch->sr |= AP_MC68681_SR_OVERRUN;
+      ch->rx_flushed++;
+    } else {
+      ch->rx_shift = byte;
+      ch->rx_shift_full = true;
+    }
+    ch->pending_status = 0u;
     return;
   }
   /* The character's own error status travels with it -- see `fifo_status`. The
@@ -512,7 +527,21 @@ uint8_t ap_mc68681_read(ap_mc68681_t *duart, unsigned reg) {
       ch->fifo[i - 1u] = ch->fifo[i];
     }
     ch->fifo_count--;
-    ch->sr = (uint8_t)(ch->sr & ~AP_MC68681_SR_FFULL);
+    /* §4.2.9.7: the read frees a position, so a character held in the receive
+     * shift register takes it -- and the FIFO is full again, which is why the
+     * section says `FFULL` "will not be cleared when the CPU reads the receiver
+     * buffer" in that case. Done before the status bits are computed so both
+     * follow from the FIFO's actual depth rather than from a special case. */
+    if (ch->rx_shift_full && ch->fifo_count < AP_MC68681_RX_FIFO) {
+      ch->fifo_status[ch->fifo_count] = 0u;
+      ch->fifo[ch->fifo_count++] = ch->rx_shift;
+      ch->rx_shift_full = false;
+    }
+    if (ch->fifo_count >= AP_MC68681_RX_FIFO) {
+      ch->sr |= AP_MC68681_SR_FFULL;
+    } else {
+      ch->sr = (uint8_t)(ch->sr & ~AP_MC68681_SR_FFULL);
+    }
     if (ch->fifo_count == 0u) {
       ch->sr = (uint8_t)(ch->sr & ~AP_MC68681_SR_RXRDY);
     }
@@ -666,8 +695,12 @@ void ap_mc68681_write(ap_mc68681_t *duart, unsigned reg, uint8_t value) {
        * so it is counted. Measured on a Domain/OS boot: the operating system
        * takes the console over with `CRA` `05 0A 2A 3A`, and `2A` discards a
        * character delivered moments earlier, unread. */
-      ch->rx_flushed += ch->fifo_count;
+      ch->rx_flushed += ch->fifo_count + (ch->rx_shift_full ? 1u : 0u);
       ch->fifo_count = 0u;
+      /* The shift register is part of the receiver this command resets, so a
+       * character held there is destroyed with the FIFO's -- and counted with
+       * them, for the same reason. */
+      ch->rx_shift_full = false;
       ch->rx_enabled = false;
       ch->sr = (uint8_t)(ch->sr &
                          ~(AP_MC68681_SR_RXRDY | AP_MC68681_SR_FFULL));

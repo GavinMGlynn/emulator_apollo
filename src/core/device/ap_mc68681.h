@@ -118,6 +118,23 @@ typedef struct {
    * one character's own. */
   uint8_t pending_status;
   unsigned fifo_count;
+  /* The **receive shift register**, which is not part of the FIFO and which
+   * two clauses of §4.2.9 describe from opposite sides:
+   *
+   *   §4.2.9.4, overrun: it "becomes set upon receipt of a new character when
+   *   the FIFO is full **and a character is already in the receive shift
+   *   register waiting for an empty FIFO position**".
+   *   §4.2.9.7, FIFO full: "If a character is waiting in the receive shift
+   *   register because the FIFO is full, the channel A FIFO full status bit
+   *   will **not** be cleared when the CPU reads the receiver buffer."
+   *
+   * So the part holds one character beyond the three the FIFO holds, and an
+   * overrun costs the *fifth* character rather than the fourth. Modelling only
+   * the FIFO loses a character the hardware keeps, and clears `FFULL` on a read
+   * where the hardware leaves it set -- a driver using `FFULL` for flow control
+   * sees the opposite of the truth at exactly the moment it matters. */
+  uint8_t rx_shift;
+  bool rx_shift_full;
   /* Characters this channel has discarded **unread**, cumulative.
    *
    * Not a register and not hardware state: the part has no such counter, and
