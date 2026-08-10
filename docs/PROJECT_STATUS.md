@@ -22683,3 +22683,51 @@ ever enabled, and whether any typed character was delivered.
 
 *Verification: the run above; the option read out of `main.c` rather than
 inferred from the plan.*
+
+## The keyboard console types, and the character that was missing was a newline
+
+Two corrections and one step forward.
+
+**The keyboard port is configured after all.** The previous entry read
+`enabled=0, bits=5` and concluded the firmware never sets the port up. That was
+the *reset* state: the probe sampled on a counter that fired once, at instruction
+zero. Sampling on change instead shows `bits` going 5 → 8 and `enabled` going
+0 → 1, so the firmware does configure serial 1 channel A. It also polls it hard
+-- 49,976,887 reads of `SRA` in one run -- which is the machine waiting for a
+keystroke.
+
+**The characters were refused for a reason the option printed.** With the text
+passed as a shell here-string the last character was a **line feed**, and the
+run said so:
+
+```
+  apollo: --boot-type: no key produces
+  boot type    13 of 13 character(s) typed
+```
+
+No key on this keyboard produces `0A`, so `EX DOMAIN_OS` was typed and never
+submitted. `--boot-type` reporting the character rather than dropping it is what
+made this a one-line diagnosis, and it is worth noting because the same design
+in `--boot-input` would have saved earlier sessions.
+
+**With a carriage return it goes further, and stops somewhere new.** Passing
+`$(printf 'EX DOMAIN_OS\r')`:
+
+```
+  posted codes  00 03 04 05 06 08 09 0F 0C  then 0C 00 for ever (688 writes)
+  final PC      00002670 (boot PROM)
+  exceptions    129 x vector 2, and no interval timer interrupt at all
+```
+
+Two codes further than before -- `09` was where it stopped, and it now reaches
+`0F` and then blinks `0C`. But the final PC is **inside the boot PROM**, and
+`0C` is not one of the fourteen post sites: the firmware writes this register
+directly in its error loop at `005EC8`/`005ED8`, which this file already
+records. So the keyboard-typed command is being taken and the *firmware* is
+ending in its own error path, without Domain/OS ever starting.
+
+*Next*: find which PROM path reaches `005EC8` from `00002670`, which is a static
+question about a 64 K image and needs no boot at all.
+
+*Verification: three runs differing only in the typed text and the probe; the
+port states sampled on change; `ctest` 130/130 after the probe was reverted.*
