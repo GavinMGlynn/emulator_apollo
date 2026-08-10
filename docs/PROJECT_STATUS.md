@@ -22431,3 +22431,46 @@ by reading the pointer.
 *Verification: the loop and the call read from a dump at a stop on `3C456B86`;
 the string from a second dump at the same stop; a boot with the pattern seeded;
 a screenshot of the fitted display.*
+
+## The calendar is refuted by the oracle's own NVRAM, and it was on record already
+
+Two cheap checks close the previous entry's hypothesis.
+
+**The PROM computes no checksum there.** Reading the ROM around the located
+comparison:
+
+```
+  001784  LEA    $0001090E,A0            ; the battery RAM, calendar reg 0x0E
+  00178A  CMPI.L #$1234ABCD,($0004,A0)   ; the valid pattern, and nothing else
+  001792  BNE.B  -> 0x17A2
+  001794  TST.B  ($001D,A0)              ; a configuration byte
+  00179A  MOVE.B ($001D,A0),D0
+  00179E  MOVE.B ($001E,A0),D4           ; two type bytes
+```
+
+So "the checksum must agree as well" was wrong: this site validates the pattern
+and then reads two configuration bytes. No sum is taken.
+
+**And the oracle boots with no battery at all.** Its persisted RTC files are 64
+bytes of which only the ten clock registers are non-zero -- no pattern, no table
+-- and the `mdsession` runs that reach the Phase II Environment leave **no RTC
+file in their NVRAM directory whatsoever**. A machine that boots with an
+unconfigured calendar cannot be stopped by ours being unconfigured.
+
+**This was already in this file**, under the eliminated list: "The calendar, and
+the `CONFIGURATION INFORMATION IS NOT INITIALIZED` warning: the oracle prints the
+same warning and still reaches `login:`." The hypothesis was re-derived from a
+string and tested with two boots before the existing entry was consulted. The
+cost was small only because the refutation turned out to be a file listing
+rather than a run.
+
+**What remains true** is the shape and not the cause: the loop at `3C456B86` is
+unconditional, so the kernel halts deliberately, and the string at `3C4578C0` is
+what that call site points at. Why it is reached is open.
+
+*Next*: not another guess at the reason. Find what routes control to `3C456B72`
+-- the caller, by the same PC-ring technique that found the install path -- and
+compare that decision against the oracle, which does not take it.
+
+*Verification: the ROM read statically; the oracle's NVRAM directories listed;
+the prior entry re-read.*
