@@ -376,6 +376,33 @@ bool ap_mc68681_transmit(ap_mc68681_t *duart, unsigned channel,
   return true;
 }
 
+/* A free-running clock pin's level.
+ *
+ * §4.2.11.5 and §4.2.11.6 put the channels' bit clocks on `OP3` and `OP2` and
+ * say the clock free-runs when no data is moving, so the level is a pure
+ * function of the rate and the time it is sampled at: a square wave with a half
+ * period of one bit (or one sixteenth of one, for the 16X code).
+ *
+ * A rate the baud table does not define -- the clock-select codes that name an
+ * external pin rather than the generator -- leaves the pin low. That is not an
+ * approximation of a waveform, it is the absence of one this part could know
+ * about, and it is the only case here that returns something invented by
+ * nobody. */
+static bool clock_pin_level(const ap_mc68681_t *duart, uint8_t csr_nibble,
+                            unsigned multiplier) {
+  const unsigned baud =
+      ap_mc68681_baud(csr_nibble, (duart->acr & 0x80u) != 0u);
+  if (baud == 0u || multiplier == 0u) {
+    return false;
+  }
+  const uint64_t ticks_per_half =
+      (uint64_t)(AP_TIME_BASE_HZ / 2u) / ((uint64_t)baud * multiplier);
+  if (ticks_per_half == 0u) {
+    return false;
+  }
+  return (((uint64_t)duart->now / ticks_per_half) & 1u) != 0u;
+}
+
 bool ap_mc68681_output_pin(const ap_mc68681_t *duart, unsigned pin) {
   if (duart == NULL || pin > 7u) {
     return false;
@@ -419,13 +446,28 @@ bool ap_mc68681_output_pin(const ap_mc68681_t *duart, unsigned pin) {
       /* The counter/timer output, which this core does model. */
       return duart->counter_output;
     }
-    /* `TxCB`/`RxCB`: a bit clock this core does not have. */
-    return false;
+    /* §4.2.11.5: `10` is the channel B transmitter's 1X clock and `11` the
+     * receiver's, and both are free-running when no data moves. The transmitter
+     * takes the low nibble of its clock select and the receiver the high one,
+     * which is the same split `ap_mc68681_character_time` uses. */
+    const ap_mc68681_channel_t *b = &duart->channel[1];
+    const uint8_t nibble =
+        code == 2u ? (uint8_t)(b->csr & 0x0Fu) : (uint8_t)(b->csr >> 4);
+    return clock_pin_level(duart, nibble, 1u);
   }
   case 2u: {
     const unsigned code = (unsigned)(duart->opcr & 0x03u);
-    /* Every non-zero code here is a channel A clock, and none exists. */
-    return code == 0u ? from_opr : false;
+    if (code == 0u) {
+      return from_opr;
+    }
+    /* §4.2.11.6: `01` is the channel A transmitter's **16X** clock -- "the
+     * clock selected by CSRA[3:0] and will be a 1X clock if CSRA[3:0] = 1111"
+     * -- `10` its 1X clock, and `11` the receiver's 1X clock. */
+    const ap_mc68681_channel_t *a = &duart->channel[0];
+    const uint8_t nibble =
+        code == 3u ? (uint8_t)(a->csr >> 4) : (uint8_t)(a->csr & 0x0Fu);
+    const unsigned multiplier = (code == 1u && nibble != 0x0Fu) ? 16u : 1u;
+    return clock_pin_level(duart, nibble, multiplier);
   }
   default:
     /* `OP1` and `OP0` have no select: always the register bit, complemented. */

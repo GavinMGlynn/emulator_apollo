@@ -179,6 +179,13 @@ typedef struct {
    * because the start command inverts the output too, so the phase would depend
    * on where it happened to begin. */
   bool counter_second_half;
+
+  /* Absolute time, carried so that the output port's **clock** codes have a
+   * waveform to report. §4.2.11.5 and §4.2.11.6 put the channels' 1X and 16X
+   * clocks on `OP3` and `OP2`, and a clock is a level that depends on when it
+   * is looked at -- with no time there is nothing to answer with. Advanced by
+   * whoever advances the counter/timer. */
+  ap_time_t now;
 } ap_mc68681_t;
 
 void ap_mc68681_reset(ap_mc68681_t *duart);
@@ -454,10 +461,14 @@ void ap_mc68681_set_input(ap_mc68681_t *duart, uint8_t value);
  * port table shows by overbarring every `OPR` entry. So this returns the *pin*
  * level and a caller reading `opr` directly gets the opposite.
  *
- * The clock sources on `OP3`'s and `OP2`'s upper codes are not modelled: this
- * core has no bit clock to put on a pin, and a level invented for one would be
- * a claim about a waveform that does not exist. Those codes return false and
- * say so here rather than silently reading as an `OPR` bit. */
+ * The clock codes on `OP3` and `OP2` are modelled: §4.2.11.5's `TxCB`/`RxCB`
+ * and §4.2.11.6's 16X and 1X channel A clocks. Each is a free-running square
+ * wave at the rate the channel's own clock-select programs -- "a free running
+ * 1X clock is always output in this mode" -- so the pin is derived from the
+ * part's time cursor and that rate, and needs nothing invented: the rate comes
+ * from `ap_mc68681_baud` and the phase from `now`. A rate the baud table does
+ * not define leaves the pin low, which is the one case where there is genuinely
+ * no waveform. */
 [[nodiscard]] bool ap_mc68681_output_pin(const ap_mc68681_t *duart,
                                          unsigned pin);
 

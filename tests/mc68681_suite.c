@@ -1104,8 +1104,72 @@ static void test_a_character_read_before_the_reset_is_not_counted_as_lost(
   TEST_ASSERT_EQUAL_UINT(0u, duart.channel[0].rx_flushed);
 }
 
+/* §4.2.11.5 and §4.2.11.6 put the channels' bit clocks on `OP3` and `OP2`, and
+ * both say the clock free-runs: "a free running 1X clock is always output in
+ * this mode". So the pin is a square wave at the channel's programmed rate, and
+ * what makes it a clock rather than a level is that it changes with time. */
+static void test_the_output_port_clock_codes_carry_a_waveform(void) {
+  ap_mc68681_t d;
+  ap_mc68681_reset(&d);
+
+  /* 9600 baud on both halves of channel A's clock select, and OP2 programmed to
+   * the transmitter's 1X clock. */
+  ap_mc68681_write(&d, AP_MC68681_SR_CSR_A, 0xBBu);
+  ap_mc68681_write(&d, AP_MC68681_IP_OPCR, 0x02u);
+
+  const ap_time_t bit = AP_TIME_BASE_HZ / 9600u;
+  bool seen_high = false;
+  bool seen_low = false;
+  for (unsigned i = 0; i < 8u; i++) {
+    d.now = (ap_time_t)i * (bit / 2u);
+    if (ap_mc68681_output_pin(&d, 2u)) {
+      seen_high = true;
+    } else {
+      seen_low = true;
+    }
+  }
+  TEST_ASSERT_TRUE(seen_high);
+  TEST_ASSERT_TRUE(seen_low);
+
+  /* Code 0 is the register bit again, and does not move with time. */
+  ap_mc68681_write(&d, AP_MC68681_IP_OPCR, 0x00u);
+  const bool level = ap_mc68681_output_pin(&d, 2u);
+  d.now += bit * 3u;
+  TEST_ASSERT_EQUAL_INT((int)level, (int)ap_mc68681_output_pin(&d, 2u));
+}
+
+/* OP3's `10` and `11` are channel B's clocks, and its `01` is the counter/timer
+ * output that this core already had -- so the three cases must differ. */
+static void test_op3_selects_between_the_counter_and_channel_b_clocks(void) {
+  ap_mc68681_t d;
+  ap_mc68681_reset(&d);
+  ap_mc68681_write(&d, AP_MC68681_SR_CSR_B, 0xBBu);
+
+  ap_mc68681_write(&d, AP_MC68681_IP_OPCR, 0x04u); /* OPCR[3:2]=01 */
+  d.counter_output = true;
+  TEST_ASSERT_TRUE(ap_mc68681_output_pin(&d, 3u));
+  d.counter_output = false;
+  TEST_ASSERT_FALSE(ap_mc68681_output_pin(&d, 3u));
+
+  /* OPCR[3:2]=10, the channel B transmitter's 1X clock, which moves with time
+   * whatever the counter output happens to be. */
+  ap_mc68681_write(&d, AP_MC68681_IP_OPCR, 0x08u);
+  const ap_time_t bit = AP_TIME_BASE_HZ / 9600u;
+  bool changed = false;
+  const bool first = ap_mc68681_output_pin(&d, 3u);
+  for (unsigned i = 1; i < 6u; i++) {
+    d.now = (ap_time_t)i * (bit / 2u);
+    if (ap_mc68681_output_pin(&d, 3u) != first) {
+      changed = true;
+    }
+  }
+  TEST_ASSERT_TRUE(changed);
+}
+
 int main(void) {
   UNITY_BEGIN();
+  RUN_TEST(test_the_output_port_clock_codes_carry_a_waveform);
+  RUN_TEST(test_op3_selects_between_the_counter_and_channel_b_clocks);
   RUN_TEST(test_resetting_the_receiver_counts_the_characters_it_discards);
   RUN_TEST(test_a_character_read_before_the_reset_is_not_counted_as_lost);
   RUN_TEST(test_a_character_sent_at_the_wrong_rate_sets_a_framing_error);
