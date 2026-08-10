@@ -23620,5 +23620,18 @@ the port.
 `--boot-type-after-pc` was the right shape and half the answer: it is what makes
 the *first* phase land at all.
 
+**Landed: `--boot-type-then TEXT` with `--boot-type-then-after-pc ADDR`.** A
+second typed phase with its own arming address, sent once the first is spent, so
+the dialogue becomes `\r\r` at `0x78E` and `EX DOMAIN_OS\r` at `0x930` — the
+console poll for the characters that produce the prompt, the post-banner
+instruction for the command that needs it.
+
+Two phases and not N. A list of arbitrary length would be generality this
+machine has not asked for and nothing would test; two is the number the dialogue
+actually has, and each phase re-evaluates its own gate.
+
+*Verification: `ctest` 132, all passing; both flags in `--help` and checked by
+`frontend_flags`.*
+
 *Verification: `--screenshot` on `tools/md-session.sh --boot-type-after-pc
 0x78E`; the PNG shows the banner, the prompt and the truncated command.*

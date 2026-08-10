@@ -104,6 +104,15 @@ static void print_usage(const char *program_name) {
           "                        rather than the one before it, which is what\n"
           "                        a comparison against another machine's run\n"
           "                        from the same point needs\n"
+          "  --boot-type-then TEXT\n"
+          "  --boot-type-then-after-pc ADDR\n"
+          "                        a second typed phase with its own arming\n"
+          "                        address, sent once the first is spent. The\n"
+          "                        Mnemonic Debugger needs two characters\n"
+          "                        *before* its banner and the command *after*\n"
+          "                        it, and the firmware discards whatever is\n"
+          "                        typed while it prints -- so one string with\n"
+          "                        one gate cannot express the dialogue\n"
           "  --boot-type-after-pc ADDR\n"
           "                        hold the typed dialogue until the program\n"
           "                        counter first reaches ADDR, then send it. A\n"
@@ -1581,7 +1590,8 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
                           unsigned input_channel, uint8_t input_rate,
                           unsigned input_interval_us,
                           unsigned key, const char *typed, bool type_after_os,
-                          uint32_t type_after_pc,
+                          uint32_t type_after_pc, const char *typed2,
+                          uint32_t type2_after_pc,
                           const ap_mc146818_time_t *clock, bool boot_report,
                           bool console,
                           ap_screen_kind_t screen, uint32_t node_id,
@@ -1891,13 +1901,32 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
    * it for ever, so one baseline per character is what makes the second wait
    * for a fresh poll rather than going out in the same instant as the first. */
   size_t typed_sent = 0u;
-  const size_t typed_length = typed != NULL ? strlen(typed) : 0u;
+  /* ## The dialogue is two phases, because one gate cannot express it
+   *
+   * Measured: driving the Mnemonic Debugger from the keyboard needs two
+   * characters *before* its banner -- one to select the console, one carriage
+   * return to enter it -- and the command *after*. The boot PROM reads
+   * everything typed while it is printing that banner and discards it, which is
+   * ordinary type-ahead handling and not a defect: a run reported 15 characters
+   * typed, `sio1 reg 3` read 15 times, `rx_flushed` never moved, and MD
+   * received `AIN_OS` out of `EX DOMAIN_OS`. Six characters read by the
+   * firmware and dropped.
+   *
+   * So `--boot-type` gets a second string with its own arming address, and the
+   * cursor moves to it once the first is spent. Two phases and not N because
+   * two is what the machine needs and a general list would be untested
+   * generality. */
+  const char *typed_phase[2] = {typed, typed2};
+  const uint32_t typed_phase_pc[2] = {type_after_pc, type2_after_pc};
+  unsigned typed_phase_at = 0u;
+  const char *typed_now = typed_phase[0];
+  size_t typed_length = typed_now != NULL ? strlen(typed_now) : 0u;
   ap_time_t typed_at = 0u;
   unsigned typed_flushed_was = 0u;
   unsigned typed_reads_was = 0u;
   bool typed_pending = false;
   /* `--boot-type-after-pc`: unset means armed from reset. */
-  bool typed_armed = type_after_pc == 0u;
+  bool typed_armed = typed_phase_pc[0] == 0u;
   size_t input_sent = 0;
   const size_t input_length = input != NULL ? strlen(input) : 0u;
 
@@ -2189,10 +2218,23 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
        * step number cannot give: Domain/OS's calendar question arrives some
        * seven hundred million instructions in, and any constant chosen for it
        * would be a measurement of one boot rather than a condition. */
-      if (!typed_armed && machine.cpu.regs.pc == type_after_pc) {
+      /* Arm this phase, then move to the next once it is spent. The gate is
+       * re-evaluated per phase, so the command waits for MD's prompt while the
+       * two characters that produce that prompt waited only for the console
+       * poll. */
+      if (!typed_armed && machine.cpu.regs.pc == typed_phase_pc[typed_phase_at]) {
         typed_armed = true;
       }
-      typed_deliver(&machine, board, typed, typed_length, &typed_sent,
+      if (typed_sent >= typed_length && typed_phase_at == 0u &&
+          typed_phase[1] != NULL) {
+        typed_phase_at = 1u;
+        typed_now = typed_phase[1];
+        typed_length = strlen(typed_now);
+        typed_sent = 0u;
+        typed_pending = false;
+        typed_armed = typed_phase_pc[1] == 0u;
+      }
+      typed_deliver(&machine, board, typed_now, typed_length, &typed_sent,
                     &typed_at, &typed_flushed_was, &typed_reads_was,
                     &typed_pending, type_after_os, typed_armed);
       const uint32_t step_pc = machine.cpu.regs.pc;
@@ -2413,7 +2455,7 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
       }
       run.executed++;
     }
-  } else if (typed_length > 0u) {
+  } else if (typed_length > 0u || typed_phase[1] != NULL) {
     /* ## Typed input does not need a step loop, and paying for one made it
      * unusable
      *
@@ -2444,10 +2486,23 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
           part.status != AP_M68030_STEP_EXCEPTION) {
         break;
       }
-      if (!typed_armed && machine.cpu.regs.pc == type_after_pc) {
+      /* Arm this phase, then move to the next once it is spent. The gate is
+       * re-evaluated per phase, so the command waits for MD's prompt while the
+       * two characters that produce that prompt waited only for the console
+       * poll. */
+      if (!typed_armed && machine.cpu.regs.pc == typed_phase_pc[typed_phase_at]) {
         typed_armed = true;
       }
-      typed_deliver(&machine, board, typed, typed_length, &typed_sent,
+      if (typed_sent >= typed_length && typed_phase_at == 0u &&
+          typed_phase[1] != NULL) {
+        typed_phase_at = 1u;
+        typed_now = typed_phase[1];
+        typed_length = strlen(typed_now);
+        typed_sent = 0u;
+        typed_pending = false;
+        typed_armed = typed_phase_pc[1] == 0u;
+      }
+      typed_deliver(&machine, board, typed_now, typed_length, &typed_sent,
                     &typed_at, &typed_flushed_was, &typed_reads_was,
                     &typed_pending, type_after_os, typed_armed);
     }
@@ -3337,6 +3392,8 @@ int main(int argc, char **argv) {
   bool boot_report = false;
   bool boot_type_after_os = false;
   uint32_t boot_type_after_pc = 0;
+  const char *boot_typed2 = NULL;
+  uint32_t boot_type2_after_pc = 0;
   unsigned boot_stop_on_watch_read = 0;
   unsigned boot_stop_on_watch = 0;
   uint32_t boot_stop_pc_length = 1u;
@@ -3532,6 +3589,16 @@ int main(int argc, char **argv) {
     }
     if (strcmp(argv[i], "--boot-type-after-pc") == 0 && i + 1 < argc) {
       boot_type_after_pc = (uint32_t)strtoul(argv[i + 1], NULL, 0);
+      i += 2;
+      continue;
+    }
+    if (strcmp(argv[i], "--boot-type-then") == 0 && i + 1 < argc) {
+      boot_typed2 = argv[i + 1];
+      i += 2;
+      continue;
+    }
+    if (strcmp(argv[i], "--boot-type-then-after-pc") == 0 && i + 1 < argc) {
+      boot_type2_after_pc = (uint32_t)strtoul(argv[i + 1], NULL, 0);
       i += 2;
       continue;
     }
@@ -3749,7 +3816,7 @@ int main(int argc, char **argv) {
                           boot_input, boot_input_unit, boot_input_channel,
                           (uint8_t)boot_input_rate, boot_input_interval_us,
                           boot_key, boot_typed, boot_type_after_os,
-                          boot_type_after_pc,
+                          boot_type_after_pc, boot_typed2, boot_type2_after_pc,
                           boot_clock_set ? &boot_clock : NULL, boot_report,
                           boot_console,
                           boot_screen, node_id, opt.model->id, screenshot,
