@@ -1,0 +1,28 @@
+# Field correspondence: this core <TAB> the oracle.
+#
+# Read `tools/mame-oracle/STATE_DIFF.md` before adding a line. Two rules, and
+# both exist because a wrong mapping is worse than a missing one -- it shows two
+# unrelated fields agreeing, which is a silent false negative exactly where the
+# differential is supposed to be trustworthy:
+#
+#   1. Map from evidence, never from a similar-looking name. MAME's registry
+#      names come from `save_item(NAME(m_x))` and ours from the hash walk; two
+#      fields called `status` need not be the same register.
+#   2. A `*` on both sides maps a scope **positionally**, and needs justifying
+#      per device. `state-diff.py` refuses it when the scopes differ in length,
+#      which catches the common case of one core modelling a field the other
+#      does not -- but equal lengths are not proof the orders agree.
+#
+# The CPU is the one place positional mapping is sound without further argument:
+# `d[0..7]` and `a[0..6]` in order are the register file, not a convention
+# either core chose. The oracle's names are filled in from its first dump -- the
+# right-hand sides below are marked TODO until that dump exists, because
+# guessing them is exactly what rule 1 forbids.
+
+# cpu.d.*	TODO: maincpu's data register array, from the first oracle dump
+# cpu.a.*	TODO: maincpu's address register array
+# cpu.sp.000	TODO: usp
+# cpu.sp.001	TODO: isp
+# cpu.sp.002	TODO: msp
+# cpu.ctl.000	TODO: pc
+# cpu.ctl.001	TODO: sr
