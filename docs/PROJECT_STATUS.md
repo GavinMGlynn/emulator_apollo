@@ -3347,7 +3347,7 @@ failure that cost a bit position in the 68020's module entry word.
 | Model table (`model/`) | working, 9 models | `model_suite`, 21 tests |
 | Time base (`time/`) | working | `time_suite`, 17 tests |
 | State hash (`state/`) | primitive working | `hash_suite`, 11 tests, incl. published FNV-1a 64 vectors |
-| Core board state hash (the identity harness's board half) | working: the board registers, the translation map, both interrupt controllers, the interval timer with its three clocks, the calendar with both cursors, both DMA controllers, both serial ports, the node ID, the disk and tape controllers, the graphics memories, the keyboard matrix and the boot PROM. The diagnostic counters are deliberately outside it and reported beside it | `board_state_suite`, 22 tests sweeping every device field by field |
+| Core board state hash (the identity harness's board half) | working: the board registers, the translation map, both interrupt controllers, the interval timer with its three clocks, the calendar with both cursors, both DMA controllers, both serial ports, the node ID, the disk and tape controllers, the graphics memories, the keyboard matrix and the boot PROM. The diagnostic counters are deliberately outside it and reported beside it | `board_state_suite`, 23 tests sweeping every device field by field |
 | Full-machine state hash (`ap_machine_hash`, `ap_machine_state`) | working: the processor, main memory, the board when one is attached, and elapsed time — with the clock, the PC and the bus-error count reported beside the number | `machine_suite`, 55 tests, incl. the same workload run twice on two boards agreeing at every step |
 | Ring medium interface | not started | — |
 | Ring controller | not started | — |
@@ -11644,7 +11644,9 @@ hash would cost more than the run it measures. Everything a run *can*
 change is hashed in full: which block is buffered, where the head is,
 what the drive was told. The residual is named in code and here — two
 different cartridges of exactly equal size hash alike until one is read,
-and closing it needs a digest computed once at load time.
+and closing it needs a digest computed once at load time. [**Closed**: the
+digest is taken at `ap_ct_open` and kept current by `ap_ct_write_block`;
+see "The cartridge is hashed by a digest" below.]
 
 The graphics memories are the opposite case and **are** hashed in full.
 Nothing else covers them, since they hang off the display controller
@@ -22968,3 +22970,24 @@ levels. Neither of those can garble a character.
 
 *Verification: `ap_graphics_write`'s switch and `ap_graphics_blit` read directly;
 `ctest` 130/130 with the comment corrected.*
+
+
+## The cartridge is hashed by a digest, not by its extent
+
+The state hash contributed a tape cartridge by size and block count alone,
+because a `.ct` image is up to a hundred megabytes of read-only media and
+re-reading it on every hash would cost more than the run being measured. The
+named residual was that two cartridges of exactly equal size hashed alike until
+one of them was read.
+
+`ap_ct_open` now takes a digest of the image, by the same hash the machine state
+uses, and `ap_board_hash_tape` feeds it. One pass at load, nothing per hash.
+`ap_ct_write_block` recomputes it, so a cartridge loaded *writable* -- the one
+case where the medium is not read-only -- is described as it now stands rather
+than as it arrived.
+
+*Verification: `board_state_suite` 22 -> 23. The new test builds two images of
+identical size differing in one byte of the second block, so the difference is
+nowhere near the header and could only be found by reading the medium, and
+asserts the digests differ; then writes a block to a writable cartridge and
+asserts the digest moved.*

@@ -75,6 +75,19 @@ typedef struct {
   size_t size;
   uint64_t blocks;
   bool writable;
+  /* A digest of the image, taken once when it is opened.
+   *
+   * The state hash needs to tell two cartridges apart, and cannot afford to
+   * re-read up to a hundred megabytes of read-only media on every hash. Taking
+   * it once at open costs one pass over the image at load and nothing
+   * afterwards, which is what closes the approximation `board/ap_board_state.h`
+   * named: two cartridges of exactly equal size used to hash alike until one of
+   * them was read.
+   *
+   * Recomputed on a write, because a cartridge loaded writable is media a run
+   * *can* alter -- `ap_ct_write_block` keeps it current, so the digest is a
+   * fact about the image as it now stands rather than as it was loaded. */
+  uint64_t digest;
 } ap_ct_t;
 
 /* Block 0's header, returned verbatim. The words are deliberately numbered
@@ -91,6 +104,9 @@ typedef struct {
  * structural check the format admits, and it is worth making: a truncated or
  * mis-decompressed image would otherwise present a short final block full of
  * whatever followed it. */
+/* The digest of an image, by the same hash the machine state uses. */
+[[nodiscard]] uint64_t ap_ct_digest_of(const uint8_t *data, size_t size);
+
 [[nodiscard]] bool ap_ct_open(ap_ct_t *ct, uint8_t *data, size_t size,
                               bool writable);
 

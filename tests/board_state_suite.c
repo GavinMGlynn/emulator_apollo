@@ -14,6 +14,9 @@
  */
 
 #include "board/ap_board_state.h"
+#include <string.h>
+
+#include "image/ap_ct.h"
 #include "unity.h"
 
 void setUp(void) {}
@@ -508,8 +511,44 @@ static void test_two_boards_given_the_same_accesses_agree_at_every_step(void) {
   TEST_ASSERT_GREATER_THAN_UINT32(1u, moves);
 }
 
+/* Two cartridges of exactly equal size and different contents must hash apart.
+ *
+ * They did not: the drive contributed its image by *extent* only, because
+ * re-reading up to a hundred megabytes of read-only media on every hash would
+ * cost more than the run being measured. The approximation was named in
+ * `ap_board_state.h` with its closing route -- a digest taken once at load --
+ * and this is that route asserted. */
+static void test_two_cartridges_of_equal_size_hash_apart(void) {
+  static uint8_t one[AP_CT_BLOCK_SIZE * 2u];
+  static uint8_t two[AP_CT_BLOCK_SIZE * 2u];
+  memset(one, 0xA5, sizeof one);
+  memset(two, 0xA5, sizeof two);
+  /* One byte, in the second block, so the difference is nowhere near the
+   * header and could only be found by reading the medium. */
+  two[AP_CT_BLOCK_SIZE + 17u] = 0x5Au;
+
+  ap_ct_t a, b;
+  TEST_ASSERT_TRUE(ap_ct_open(&a, one, sizeof one, false));
+  TEST_ASSERT_TRUE(ap_ct_open(&b, two, sizeof two, false));
+
+  TEST_ASSERT_EQUAL_UINT64(a.size, b.size);
+  TEST_ASSERT_EQUAL_UINT64(a.blocks, b.blocks);
+  TEST_ASSERT_TRUE(a.digest != b.digest);
+
+  /* And a writable cartridge keeps its digest current, so a run that changed
+   * the medium is distinguishable from one that did not. */
+  ap_ct_t w;
+  TEST_ASSERT_TRUE(ap_ct_open(&w, two, sizeof two, true));
+  const uint64_t before = w.digest;
+  static uint8_t block[AP_CT_BLOCK_SIZE];
+  memset(block, 0x11, sizeof block);
+  TEST_ASSERT_TRUE(ap_ct_write_block(&w, 0u, block));
+  TEST_ASSERT_TRUE(w.digest != before);
+}
+
 int main(void) {
   UNITY_BEGIN();
+  RUN_TEST(test_two_cartridges_of_equal_size_hash_apart);
   RUN_TEST(test_two_identically_built_boards_hash_alike);
   RUN_TEST(test_every_board_register_field_moves_the_hash);
   RUN_TEST(test_every_translation_map_entry_moves_the_hash);

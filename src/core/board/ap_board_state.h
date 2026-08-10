@@ -45,15 +45,18 @@
  * The boot PROM is hashed in full. Which firmware is running is the largest
  * single fact about a boot, and the region is 64 Kbyte at most.
  *
- * The tape cartridge is **not**, and that is a deliberate approximation with a
- * named cost. A `.ct` image is up to a hundred megabytes of read-only media
- * that no run can alter, so re-reading it on every hash would cost more than
- * the run it is measuring. Its extent is hashed, and everything a run *can*
- * change — which block is buffered, where the head is, what the drive was told
- * — is hashed in full. The residual: two different cartridges of exactly equal
- * size hash alike until one of them is read. Closing it needs a digest computed
- * once at load time, which is worth doing when a run's identity ever turns on
- * which cartridge was in the drive.
+ * The tape cartridge is hashed **by a digest taken once when the image is
+ * opened**, which is the closing route this paragraph used to name as future
+ * work. A `.ct` image is up to a hundred megabytes and re-reading it on every
+ * hash would cost more than the run it is measuring; reading it once at load
+ * costs one pass and nothing afterwards. `ap_ct_write_block` keeps the digest
+ * current, so a cartridge loaded writable is described as it now stands rather
+ * than as it arrived.
+ *
+ * The residual it closes: two different cartridges of exactly equal size used
+ * to hash alike until one of them was read. Everything a run can change --
+ * which block is buffered, where the head is, what the drive was told -- was
+ * always hashed in full and still is.
  */
 
 #ifndef APOLLO_BOARD_AP_BOARD_STATE_H

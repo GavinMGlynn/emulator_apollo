@@ -2,6 +2,8 @@
 
 #include <string.h>
 
+#include "state/ap_hash.h"
+
 bool ap_ct_open(ap_ct_t *ct, uint8_t *data, size_t size, bool writable) {
   memset(ct, 0, sizeof *ct);
   if (data == NULL || size == 0u) {
@@ -17,7 +19,17 @@ bool ap_ct_open(ap_ct_t *ct, uint8_t *data, size_t size, bool writable) {
   ct->size = size;
   ct->blocks = (uint64_t)(size / AP_CT_BLOCK_SIZE);
   ct->writable = writable;
+  ct->digest = ap_ct_digest_of(data, size);
   return true;
+}
+
+/* One pass over the image, once. Uses the state hash so that a cartridge's
+ * identity is computed the same way every other piece of state is, rather than
+ * by a second checksum with its own properties. */
+uint64_t ap_ct_digest_of(const uint8_t *data, size_t size) {
+  ap_hash_t st = ap_hash_begin();
+  ap_hash_bytes(&st, data, size);
+  return ap_hash_end(&st);
 }
 
 uint64_t ap_ct_blocks(const ap_ct_t *ct) { return ct->blocks; }
@@ -43,6 +55,11 @@ bool ap_ct_write_block(ap_ct_t *ct, uint64_t index, const uint8_t *in) {
     return false;
   }
   memcpy(ct->data + (size_t)index * AP_CT_BLOCK_SIZE, in, AP_CT_BLOCK_SIZE);
+  /* Kept current, so the digest describes the medium as it now stands. A
+   * writable cartridge is the one case where the image is not read-only, and a
+   * digest taken only at load would go stale exactly when a run had changed
+   * something worth telling apart. */
+  ct->digest = ap_ct_digest_of(ct->data, ct->size);
   return true;
 }
 

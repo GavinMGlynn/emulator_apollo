@@ -271,14 +271,18 @@ void ap_board_hash_tape(ap_hash_t *st, const ap_tape_t *tape) {
   hash_bool(st, controller->dma_active);
 
   const ap_qic_t *drive = &tape->drive;
-  /* The cartridge by its extent, not its contents: read-only media no run can
-   * alter, and up to a hundred megabytes of it. The named cost is in the
-   * header -- two cartridges of exactly equal size hash alike until one is
-   * read. Whether an image is present at all is fed separately, since a drive
-   * with no cartridge is not a drive with an empty one. */
+  /* The cartridge by its extent **and its digest**, which closes the
+   * approximation this used to carry: two cartridges of exactly equal size
+   * hashed alike until one of them was read. The digest is taken once when the
+   * image is opened and kept current by a write, so a hundred megabytes of
+   * read-only media costs one pass at load and nothing per hash.
+   *
+   * Whether an image is present at all is fed separately, since a drive with no
+   * cartridge is not a drive with an empty one. */
   hash_bool(st, drive->image.data != NULL);
   ap_hash_u64(st, (uint64_t)drive->image.size);
   ap_hash_u64(st, drive->image.blocks);
+  ap_hash_u64(st, drive->image.digest);
 
   hash_bool(st, drive->loaded);
   ap_hash_u8(st, (uint8_t)drive->cartridge);
