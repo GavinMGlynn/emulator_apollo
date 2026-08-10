@@ -454,6 +454,18 @@ typedef struct {
  * different instant is exactly the divergence this must catch. */
 [[nodiscard]] uint64_t ap_machine_hash(const ap_machine_t *machine);
 
+/* Write every field the hash covers to `out` (a `FILE *`), one line per field,
+ * and return the hash of the same walk.
+ *
+ * **The same traversal, not a parallel one.** A dump and a hash written
+ * separately drift, and the drift is silent in the direction that matters: the
+ * dump shows two machines agreeing on every field it visits while their hashes
+ * differ, because the field that differs is one it does not visit. Returning
+ * the hash is what makes that checkable -- a dump whose hash does not match an
+ * ordinary run's is a dump of a different machine or a different walk. */
+[[nodiscard]] uint64_t ap_machine_dump_state(const ap_machine_t *machine,
+                                             void *out);
+
 /* The hash with the numbers that localise a disagreement, reported together.
  *
  * A hash answers "are these two runs the same" and nothing else: when it says

@@ -24556,3 +24556,46 @@ moves the question to the registers that configure them — `CR0`'s mode and
 *Verification: `screencap.lua` in normal mode against `apollo-headless --screen
 15i`, both on `dn3500-sr10.4-installed.awd`, compared at the same emulated
 second; our posted codes and elapsed time from the run's own report.*
+
+## `--dump-state`: the hash walk with an output attached
+
+The full-state differential needs both machines to emit every field they model.
+This is our half, and its one design decision is the whole of why it can be
+trusted.
+
+**It is not a second traversal.** A dump and a hash written as separate walkers
+drift, and the drift is silent in the direction that costs most: the dump shows
+two machines agreeing on every field it visits while their hashes differ,
+because the field that differs is one it does not visit. So `ap_hash_t` itself
+gained an optional output, and every `ap_hash_u8`/`u16`/`u32`/`u64`/`time` call
+already in the traversal emits a line as it absorbs. The dump *is* the identity
+harness's walk.
+
+That is checkable rather than asserted: `ap_machine_dump_state` returns the hash
+of the walk it just wrote, and the report prints it beside the ordinary
+`state hash`. Equal numbers mean the same traversal covered the same fields; a
+difference is flagged in the output as making the dump untrustworthy. A boot to
+2 M instructions gives **34,841 fields** and the two numbers agree exactly at
+`07981F0D1495E3A3`.
+
+**Blobs are hashed, not printed.** `ap_hash_bytes` covers main memory and the
+frame buffers, and it emits the running hash *after* absorbing rather than the
+length. Printing the bytes would bury the dump in megabytes; printing only the
+length would let two machines whose RAM differs dump identically, which is the
+exact failure a full-state diff exists to catch. Locating *where* inside a blob
+is a separate question with its own instrument.
+
+**Scopes, not names, for now.** `ap_hash_scope` labels each device as its hash
+function is entered — `cpu`, `registers`, `translation_map`, `timer`, `dma`,
+`sio`, `disk`, `tape`, `graphics`, `ring`, `keyboard`, `board`, `memory` — and
+fields are numbered within it. So a line reads `timer.007 u8 0000000000000034`.
+Field *names* would be better and are a mechanical improvement from here; making
+them a prerequisite would have delayed a working dump behind 151 edits, and the
+scope-plus-index form already diffs and already points at a subsystem.
+
+The width tag is printed because a field whose type changed is a different field
+to the hash, so a diff that hid the tag could show agreement the hash denies.
+
+*Verification: `ctest` 132, all passing — the hash is untouched, which the
+goldens confirm; `--dump-state` on a 2 M-instruction boot, 34,841 fields, walk
+hash equal to the state hash.*

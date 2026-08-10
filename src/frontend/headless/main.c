@@ -107,6 +107,15 @@ static void print_usage(const char *program_name) {
           "");
   /* Split again, for the same reason and by the same rule. */
   fprintf(stdout,
+          "  --dump-state FILE     write every field of machine state the hash\n"
+          "                        covers, one line per field, and print the\n"
+          "                        hash of that same walk beside it. The two\n"
+          "                        numbers agreeing is what makes the dump\n"
+          "                        trustworthy: it is the identity harness's\n"
+          "                        own traversal with an output attached, not a\n"
+          "                        second walker that could visit different\n"
+          "                        fields and show two machines agreeing while\n"
+          "                        their hashes differ\n"
           "  --boot-type-await-pushback\n"
           "                        hold each typed character until the boot\n"
           "                        PROM's one-byte type-ahead slot is empty.\n"
@@ -809,9 +818,31 @@ static const char *screen_kind_name(ap_screen_kind_t screen) {
   return "unknown";
 }
 
+/* `--dump-state`'s target. File scope because the dump belongs beside the hash
+ * it must agree with, and `report_state` is where that is printed -- threading
+ * a path through every reporting call to reach one line would be worse. */
+static const char *g_dump_state_path = NULL;
+
 static void report_state(ap_machine_t *machine) {
   const ap_machine_state_t state = ap_machine_state(machine);
   printf("  state hash   %016llX\n", (unsigned long long)state.hash);
+  if (g_dump_state_path != NULL) {
+    FILE *f = fopen(g_dump_state_path, "w");
+    if (f == NULL) {
+      fprintf(stderr, "apollo: cannot write %s\n", g_dump_state_path);
+    } else {
+      /* The returned hash is the check that this is the **same walk** the
+       * identity harness takes. If it differs from the line above, the dump is
+       * of a different traversal and nothing in it can be trusted as a
+       * comparison -- so it is printed rather than asserted, because a caller
+       * diffing two machines wants to see both numbers agree first. */
+      const uint64_t walked = ap_machine_dump_state(machine, f);
+      fclose(f);
+      printf("  state dump   %s, walk hash %016llX%s\n", g_dump_state_path,
+             (unsigned long long)walked,
+             walked == state.hash ? "" : "   <- DIFFERS, dump is untrustworthy");
+    }
+  }
 
   /* The configuration the hash covers, printed beside the number it changes.
    *
@@ -1496,7 +1527,7 @@ static void typed_deliver(ap_machine_t *machine, ap_board_t *board,
                           size_t *typed_sent, ap_time_t *typed_at,
                           unsigned *flushed_was, unsigned *reads_was,
                           bool *pending, bool type_after_os, bool armed,
-                          bool await_pushback) {
+                          bool await_pushback, bool *first_done) {
   if (typed == NULL || *typed_sent >= typed_length) {
     return;
   }
@@ -1588,12 +1619,20 @@ static void typed_deliver(ap_machine_t *machine, ap_board_t *board,
    * last: `ap_sio_receiver_ready` false means the receive buffer is empty
    * again. After that the only bound is the wire's, one character time,
    * which is also the fastest a person could type. */
+  /* **`*typed_sent == 0` is the wrong test for "the first character ever" once
+   * there are two phases**, because the phase switch resets the index. The
+   * second phase's first character then took the poll rule instead of the
+   * character-time rule and went the instant its gate armed, without the wire's
+   * own spacing after the phase before it -- measured as one character lost at
+   * exactly that boundary, and not fixed by moving the gate, which is what
+   * showed the rule rather than the moment was wrong. `first` is carried across
+   * phases so the poll threshold applies once, to the first character of the
+   * run, which is what it was written for. */
   const bool typed_due =
-      *typed_sent == 0u
-          ? input_polls(board) >= AP_BOOT_KEY_POLLS
-          : machine->now >= *typed_at + ap_sio_character_time(
-                                        &board->sio, 0u, 0u,
-                                        AP_SIO_KEYBOARD_BAUD);
+      !*first_done ? input_polls(board) >= AP_BOOT_KEY_POLLS
+                   : machine->now >= *typed_at + ap_sio_character_time(
+                                                 &board->sio, 0u, 0u,
+                                                 AP_SIO_KEYBOARD_BAUD);
   /* The firmware's own condition, when asked for. `A6` is the PROM's globals
    * base while PROM code is running, which is the only time this matters. */
   bool pushback_clear = true;
@@ -1610,6 +1649,7 @@ static void typed_deliver(ap_machine_t *machine, ap_board_t *board,
       ap_sio_receiver_enabled(&board->sio, 0u, 0u)) {
     if (ap_board_key_type(board, typed[*typed_sent])) {
       (*typed_sent)++;
+      *first_done = true;
       *typed_at = machine->now;
       /* Armed against this character, from now: see above. */
       *flushed_was = ap_sio_receiver_flushed(&board->sio, 0u, 0u);
@@ -1623,6 +1663,7 @@ static void typed_deliver(ap_machine_t *machine, ap_board_t *board,
       fprintf(stderr, "apollo: --boot-type: no key produces %c\n",
               typed[*typed_sent]);
       (*typed_sent)++;
+      *first_done = true;
     }
   }
 }
@@ -1970,6 +2011,8 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
   bool typed_pending = false;
   /* `--boot-type-after-pc`: unset means armed from reset. */
   bool typed_armed = typed_phase_pc[0] == 0u;
+  /* Carried across the phase switch, unlike `typed_sent`. */
+  bool typed_first_done = false;
   size_t input_sent = 0;
   const size_t input_length = input != NULL ? strlen(input) : 0u;
 
@@ -2280,7 +2323,7 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
       typed_deliver(&machine, board, typed_now, typed_length, &typed_sent,
                     &typed_at, &typed_flushed_was, &typed_reads_was,
                     &typed_pending, type_after_os, typed_armed,
-                    type_await_pushback);
+                    type_await_pushback, &typed_first_done);
       const uint32_t step_pc = machine.cpu.regs.pc;
       /* One instruction through the *machine*, not through the processor.
        *
@@ -2549,7 +2592,7 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
       typed_deliver(&machine, board, typed_now, typed_length, &typed_sent,
                     &typed_at, &typed_flushed_was, &typed_reads_was,
                     &typed_pending, type_after_os, typed_armed,
-                    type_await_pushback);
+                    type_await_pushback, &typed_first_done);
     }
   } else {
     run = ap_machine_run(&machine, limit);
@@ -3664,6 +3707,11 @@ int main(int argc, char **argv) {
     }
     if (strcmp(argv[i], "--boot-type-then-after-pc") == 0 && i + 1 < argc) {
       boot_type2_after_pc = (uint32_t)strtoul(argv[i + 1], NULL, 0);
+      i += 2;
+      continue;
+    }
+    if (strcmp(argv[i], "--dump-state") == 0 && i + 1 < argc) {
+      g_dump_state_path = argv[i + 1];
       i += 2;
       continue;
     }

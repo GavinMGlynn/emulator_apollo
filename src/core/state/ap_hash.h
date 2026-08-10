@@ -38,6 +38,7 @@
 #ifndef APOLLO_STATE_AP_HASH_H
 #define APOLLO_STATE_AP_HASH_H
 
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 
@@ -53,6 +54,24 @@
  * caller passing a half-built hash where a finished one is wanted. */
 typedef struct {
   uint64_t h;
+
+  /* ## The dump is the hash walk, not a second one
+   *
+   * A full-state dump and the state hash must never disagree about *which*
+   * fields are state. Written as two traversals they drift, and the failure is
+   * silent in the worst direction: the dump shows two machines agreeing while
+   * their hashes differ, because the field that differs is one the dump does
+   * not visit. So this is not a separate walker -- it is the same one, with an
+   * optional output attached, and every field absorbed is a field emitted.
+   *
+   * `out` is null for an ordinary hash and the cost is one branch per field.
+   * `scope` names the subsystem being walked and `index` numbers the fields
+   * within it, so a dump is readable and diffable before a single field has
+   * been given a name of its own -- which makes naming them an improvement
+   * rather than a prerequisite. */
+  void *out;
+  const char *scope;
+  unsigned index;
 } ap_hash_t;
 
 /* Width tags mixed in by the typed helpers, so re-typing a field changes the
@@ -85,6 +104,20 @@ void ap_hash_u64(ap_hash_t *st, uint64_t v);
  * ap_hash_u64 by tag: a time and a bare 64-bit register holding the same
  * number are different machine state and must hash differently. */
 void ap_hash_time(ap_hash_t *st, ap_time_t t);
+
+/* Attach a dump target. `out` is a `FILE *`; passing null returns the hash to
+ * silent operation. Every field absorbed after this is written as
+ * `scope.index = value` with its width tag, in traversal order. */
+void ap_hash_dump_to(ap_hash_t *st, void *out);
+
+/* Name the subsystem being walked, and restart the field numbering. Call it at
+ * the top of each device's hash function; a null or empty name means the
+ * fields are numbered without a prefix. */
+void ap_hash_scope(ap_hash_t *st, const char *scope);
+
+/* Whether a dump target is attached, so a caller can skip work that only a
+ * dump needs. */
+[[nodiscard]] bool ap_hash_dumping(const ap_hash_t *st);
 
 /* Finish, yielding the state hash. Does not modify *st, so a caller may
  * checkpoint an in-progress hash and continue absorbing. */

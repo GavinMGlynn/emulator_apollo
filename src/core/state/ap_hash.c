@@ -1,5 +1,31 @@
 #include "state/ap_hash.h"
 
+#include <stdio.h>
+
+/* The dump half. Null `out` is the ordinary case and costs one branch. */
+void ap_hash_dump_to(ap_hash_t *st, void *out) { st->out = out; }
+
+void ap_hash_scope(ap_hash_t *st, const char *scope) {
+  st->scope = scope;
+  st->index = 0u;
+}
+
+bool ap_hash_dumping(const ap_hash_t *st) { return st->out != NULL; }
+
+/* One line per field, in traversal order: `scope.index = value` with the width
+ * tag beside it. The tag is printed because a field whose *type* changed is a
+ * different field to the hash, so a diff that hid the tag would show two
+ * machines agreeing when the hash says otherwise. */
+static void emit(ap_hash_t *st, const char *type, uint64_t v) {
+  if (st->out == NULL) {
+    return;
+  }
+  fprintf((FILE *)st->out, "%s.%03u %-4s %016llX\n",
+          st->scope != NULL ? st->scope : "", st->index, type,
+          (unsigned long long)v);
+  st->index++;
+}
+
 ap_hash_t ap_hash_begin(void) {
   return (ap_hash_t){.h = AP_HASH_OFFSET_BASIS};
 }
@@ -12,6 +38,14 @@ void ap_hash_bytes(ap_hash_t *st, const void *data, size_t len) {
     h *= AP_HASH_PRIME;
   }
   st->h = h;
+  /* **After absorbing, and the running hash rather than the length.** A blob is
+   * main memory or a frame buffer -- printing it would bury the dump in
+   * megabytes, and printing only its length would let two machines whose RAM
+   * differs dump identically, which is the exact failure a full-state diff
+   * exists to catch. The running hash covers both extent and contents, so the
+   * line differs whenever the blob does; locating *where* inside it is then a
+   * separate question with its own instrument (`--dump-mem`). */
+  emit(st, "blob", h);
 }
 
 /* One byte, no tag: the primitive the rest are built from. */
@@ -29,26 +63,31 @@ static void absorb_le(ap_hash_t *st, uint64_t v, unsigned bytes) {
 }
 
 void ap_hash_u8(ap_hash_t *st, uint8_t v) {
+  emit(st, "u8", (uint64_t)v);
   absorb(st, (uint8_t)AP_HASH_TAG_U8);
   absorb(st, v);
 }
 
 void ap_hash_u16(ap_hash_t *st, uint16_t v) {
+  emit(st, "u16", (uint64_t)v);
   absorb(st, (uint8_t)AP_HASH_TAG_U16);
   absorb_le(st, (uint64_t)v, 2u);
 }
 
 void ap_hash_u32(ap_hash_t *st, uint32_t v) {
+  emit(st, "u32", (uint64_t)v);
   absorb(st, (uint8_t)AP_HASH_TAG_U32);
   absorb_le(st, (uint64_t)v, 4u);
 }
 
 void ap_hash_u64(ap_hash_t *st, uint64_t v) {
+  emit(st, "u64", (uint64_t)v);
   absorb(st, (uint8_t)AP_HASH_TAG_U64);
   absorb_le(st, v, 8u);
 }
 
 void ap_hash_time(ap_hash_t *st, ap_time_t t) {
+  emit(st, "time", (uint64_t)t);
   absorb(st, (uint8_t)AP_HASH_TAG_TIME);
   absorb_le(st, (uint64_t)t, 8u);
 }

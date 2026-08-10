@@ -828,9 +828,28 @@ ap_machine_run_t ap_machine_run(ap_machine_t *machine, unsigned limit) {
   return out;
 }
 
+static uint64_t machine_hash_into(ap_hash_t *stp, const ap_machine_t *machine);
+
+/* The dump and the hash are the same traversal: this is `ap_machine_hash` with
+ * an output attached, so a field cannot appear in one and not the other. It
+ * returns the hash as well, which is the check that the two agree -- a dump
+ * whose hash differs from an ordinary run's is a dump of a different walk. */
+uint64_t ap_machine_dump_state(const ap_machine_t *machine, void *out) {
+  ap_hash_t st = ap_hash_begin();
+  ap_hash_dump_to(&st, out);
+  return machine_hash_into(&st, machine);
+}
+
 uint64_t ap_machine_hash(const ap_machine_t *machine) {
   ap_hash_t st = ap_hash_begin();
+  return machine_hash_into(&st, machine);
+}
+
+static uint64_t machine_hash_into(ap_hash_t *stp, const ap_machine_t *machine) {
+  ap_hash_t st = *stp;
+  ap_hash_scope(&st, "cpu");
   ap_m68030_hash_cpu(&st, &machine->cpu);
+  ap_hash_scope(&st, "memory");
 
   /* The RAM too: a run that left different memory behind is a different run
    * however well its registers agree. */

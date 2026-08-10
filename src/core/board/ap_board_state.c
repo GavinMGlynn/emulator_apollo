@@ -22,6 +22,7 @@ static void hash_clock(ap_hash_t *st, const ap_clock_t *clock) {
 }
 
 void ap_board_hash_registers(ap_hash_t *st, const ap_boardreg_t *registers) {
+  ap_hash_scope(st, "registers");
   ap_hash_u16(st, registers->cpu_status);
   ap_hash_u16(st, registers->cpu_control);
   ap_hash_u8(st, registers->cache_control);
@@ -29,6 +30,7 @@ void ap_board_hash_registers(ap_hash_t *st, const ap_boardreg_t *registers) {
 }
 
 void ap_board_hash_translation_map(ap_hash_t *st, const ap_atmap_t *map) {
+  ap_hash_scope(st, "translation_map");
   /* All 128 entries, including the 64 an 8-bit transfer can never reach.
    * Software writes them and a later 16-bit transfer reads them, so an entry
    * out of an 8-bit transfer's range is still live state. */
@@ -75,6 +77,7 @@ static void hash_i8259(ap_hash_t *st, const ap_i8259_t *pic) {
 }
 
 void ap_board_hash_interrupts(ap_hash_t *st, const ap_intr_t *interrupts) {
+  ap_hash_scope(st, "interrupts");
   /* Master then slave, in that order, so a machine with the two exchanged does
    * not hash the same as one without -- the same reason the CPU feeds its
    * instruction cache before its data cache. */
@@ -95,6 +98,7 @@ static void hash_mc6840_timer(ap_hash_t *st, const ap_mc6840_timer_t *timer) {
 }
 
 void ap_board_hash_timer(ap_hash_t *st, const ap_timer_t *timer) {
+  ap_hash_scope(st, "timer");
   for (unsigned i = 0; i < AP_MC6840_TIMERS; i++) {
     hash_mc6840_timer(st, &timer->ptm.timer[i]);
   }
@@ -121,6 +125,7 @@ void ap_board_hash_timer(ap_hash_t *st, const ap_timer_t *timer) {
 }
 
 void ap_board_hash_calendar(ap_hash_t *st, const ap_calendar_t *calendar) {
+  ap_hash_scope(st, "calendar");
   const ap_mc146818_t *rtc = &calendar->rtc;
 
   ap_hash_bytes(st, rtc->ram, AP_MC146818_BYTES);
@@ -173,6 +178,7 @@ static void hash_i8237(ap_hash_t *st, const ap_i8237_t *dma) {
 }
 
 void ap_board_hash_dma(ap_hash_t *st, const ap_dma_t *dma) {
+  ap_hash_scope(st, "dma");
   for (unsigned i = 0; i < 2u; i++) {
     hash_i8237(st, &dma->controller[i]);
   }
@@ -230,6 +236,7 @@ static void hash_mc68681(ap_hash_t *st, const ap_mc68681_t *duart) {
 }
 
 void ap_board_hash_sio(ap_hash_t *st, const ap_sio_t *sio) {
+  ap_hash_scope(st, "sio");
   /* Both ports, in order. The per-register read and write tallies beside them
    * are instrumentation and are excluded -- see the header. */
   for (unsigned i = 0; i < 2u; i++) {
@@ -238,12 +245,14 @@ void ap_board_hash_sio(ap_hash_t *st, const ap_sio_t *sio) {
 }
 
 void ap_board_hash_node_id(ap_hash_t *st, const ap_nodeid_t *node_id) {
+  ap_hash_scope(st, "node_id");
   /* A device whose whole purpose is to be unique per machine. Two nodes on one
    * ring that hashed alike would be the one thing this must never say. */
   ap_hash_u32(st, node_id->id);
 }
 
 void ap_board_hash_disk(ap_hash_t *st, const ap_disk_t *disk) {
+  ap_hash_scope(st, "disk");
   const ap_omti_t *omti = &disk->controller;
 
   ap_hash_u16(st, omti->data);
@@ -261,6 +270,7 @@ void ap_board_hash_disk(ap_hash_t *st, const ap_disk_t *disk) {
 }
 
 void ap_board_hash_tape(ap_hash_t *st, const ap_tape_t *tape) {
+  ap_hash_scope(st, "tape");
   const ap_sc499_t *controller = &tape->controller;
   ap_hash_u8(st, controller->control);
   ap_hash_u8(st, controller->data);
@@ -303,6 +313,7 @@ void ap_board_hash_tape(ap_hash_t *st, const ap_tape_t *tape) {
 }
 
 void ap_board_hash_graphics(ap_hash_t *st, const ap_graphics_t *graphics) {
+  ap_hash_scope(st, "graphics");
   ap_hash_u8(st, (uint8_t)graphics->screen);
 
   /* The frame buffers in full. Nothing else covers them -- they hang off the
@@ -361,6 +372,7 @@ static void hash_ring_window(ap_hash_t *st, const ap_ring_ctl_window_t *w) {
 }
 
 void ap_board_hash_ring(ap_hash_t *st, const ap_ring_ctl_t *ring) {
+  ap_hash_scope(st, "ring");
   /* Fitted-ness first, and hashed even though every field below it is zero
    * when the slot is empty: a machine with a card whose registers happen to
    * read zero is not a machine with no card, because the two answer the AT
@@ -377,6 +389,7 @@ void ap_board_hash_ring(ap_hash_t *st, const ap_ring_ctl_t *ring) {
 }
 
 void ap_board_hash_keyboard(ap_hash_t *st, const ap_kbd_t *keyboard) {
+  ap_hash_scope(st, "keyboard");
   /* Which keys are down. A model that let a repeated press through would
    * desynchronise the firmware's own shift state, and this is the state that
    * stops it -- so two keyboards differing only in what is held are different
@@ -400,6 +413,8 @@ void ap_board_hash(ap_hash_t *st, const ap_board_t *board) {
   ap_board_hash_graphics(st, &board->graphics);
   ap_board_hash_ring(st, &board->ring);
   ap_board_hash_keyboard(st, &board->keyboard);
+  /* The board's own fields, after the devices it owns. */
+  ap_hash_scope(st, "board");
 
   /* Which appendix's AT bus cycle times this board keeps. Configuration rather
    * than something a program can change, and in the hash for the same reason
