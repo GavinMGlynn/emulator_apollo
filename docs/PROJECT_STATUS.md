@@ -22647,3 +22647,39 @@ rather than a mystery in the machine, and it is now a plan item.
 *Verification: the oracle's vector census from its own acknowledge path, one
 boot to the Phase II Environment, instrument reverted and `ext/mame` rebuilt
 clean; our two probes reverted, `ctest` 130/130 after.*
+
+## `--boot-type` already exists, and the keyboard console still does not drive MD
+
+**The plan item added in the previous entry was wrong and is withdrawn.** It
+asked for a way to type a dialogue on the keyboard. `--boot-type TEXT` does
+exactly that -- it walks the text through `ap_board_key_type`, paces each
+character by `ap_sio_character_time` at the keyboard's own 1200 baud, gates
+delivery on the receiver being enabled and eight bits wide, and reports a
+character no key produces rather than dropping it. `--boot-type-after-os` holds
+it until code above the firmware runs. The frontend was more capable than the
+entry that asked for it, and the check that would have caught this is reading
+the usage text before proposing a flag.
+
+**Used, it does not reach Domain/OS.** Service mode, a fitted `19i`, and
+`--boot-type "EX DOMAIN_OS\r"`:
+
+```
+  final PC     0000079A (boot PROM)
+  posted codes FF FC FB FA F9 F7 F5 F6 F5   (40 writes)
+  exceptions   129 x vector 2      (no vector 160 at all)
+```
+
+The machine sits in the PROM's service-mode poll. It never leaves the firmware,
+so the typed characters are not reaching the dialogue -- and with no interval
+timer interrupts taken at all, this is a much earlier state than the serial-
+driven run, not a further one.
+
+**The next question is a gate, not a mystery.** The typing path requires
+`ap_sio_receiver_enabled(&board->sio, 0, 0)` -- serial 1 channel A, the
+keyboard's port. If the firmware never enables that receiver in this
+configuration, every typed character is refused at the gate and the run looks
+exactly like this. That is one counter away: whether channel A's receiver is
+ever enabled, and whether any typed character was delivered.
+
+*Verification: the run above; the option read out of `main.c` rather than
+inferred from the plan.*

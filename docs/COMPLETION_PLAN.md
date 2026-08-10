@@ -4319,16 +4319,6 @@ Only after the reference core is proven, and only under an identity harness.
       *Verification: bit-identical to the pre-change binary at seven bounds to
       350 M across three separately built binaries; 273/275 s → 253.5/255.4 s;
       `ctest` 129/129, `board_suite` 36 → 37. Detail in `PROJECT_STATUS.md`.*
-- [ ] **Drive the keyboard as a console, not just one key.** `--boot-key N`
-      presses a single matrix index; there is no way to type a *dialogue* from
-      the keyboard, so a display-and-keyboard console cannot be driven the way
-      the oracle drives one. This blocks the only matched-console comparison
-      available: measured, the oracle takes 190 `A1` (IRQ1, serial) interrupts
-      where this core takes none, because Domain/OS configures a serial console
-      here and leaves IRQ1 masked (`imr = F6`) while the request is raised
-      (`irr = 02`). Wants a `--boot-keys` that maps characters to matrix indices
-      and paces them like `--boot-input`, and a script `send` that can choose the
-      keyboard. Detail in `PROJECT_STATUS.md`.
 - [ ] Exact-skip scheduling: `next_event()` and `skip(n)` per subsystem, CPU
       half and devices half of the tick split so a span-breaking I/O write still
       runs its devices half canonically. *Verification: entire probe suite and
