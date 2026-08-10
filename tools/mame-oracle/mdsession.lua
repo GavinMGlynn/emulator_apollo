@@ -46,8 +46,15 @@
 --                      autobaud (default "Numpad Enter")
 --   APOLLO_MD_POST_AT  emulated seconds to wait before pressing (default 4.0)
 --   APOLLO_MD_HOLD     emulated seconds to hold it down (default 0.2)
---   APOLLO_MD_DISPLAY  Graphics Controller setting name, if the default
---                      "8-Plane Color" is not wanted
+--   APOLLO_MD_DISPLAY  Graphics Controller setting name. **Unset means this
+--                      script leaves the setting alone**, so the machine keeps
+--                      MAME's own default for the driver -- `dn3500` is
+--                      `dn3500_15i`, a 15-inch monochrome. This line used to
+--                      say the default was "8-Plane Color", which the code
+--                      below does not do: it only writes `CONFIG` when the
+--                      variable is set. A run's own header prints which it
+--                      got ("left at its default"), and that print is the
+--                      thing to believe
 --   APOLLO_MD_UNTIL    emulated seconds after which to exit. Default 0, meaning
 --                      never -- an install runs for as long as it runs, and the
 --                      driver, which can see the console, is what ends it.

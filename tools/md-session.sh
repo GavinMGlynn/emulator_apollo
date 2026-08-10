@@ -44,6 +44,24 @@
 # Service mode is the Normal/Service switch, not a debugger flag: it is what
 # makes the PROM offer MD instead of booting. No disk is mounted here -- add
 # `--disk` when the command needs one, as `EX` does.
+#
+# ## Driving MD from the *keyboard* instead
+#
+# Which console the operating system picks decides which interrupts it unmasks,
+# so a keyboard session is not interchangeable with this serial one. `--boot-
+# type` types on the keyboard, but a dialogue handed to it at power-on is
+# delivered inside the first tenth of an emulated second -- long before the PROM
+# reaches its console-selection poll -- and every character but the last is
+# gone. Hold it until the firmware is listening:
+#
+#   tools/md-session.sh --disk <copy> --screen 19i --boot-input "" \
+#     --boot-type "$(printf '\r\rEX DOMAIN_OS\r')" --boot-type-after-pc 0x78E
+#
+# `0x78E` is the top of the console-selection poll. Two characters are spent
+# before MD exists -- one selects the console (`00080E` posts `09`, the keyboard
+# branch) and one carriage return gets past `0008C8` to the banner (`0F`) -- so
+# the command needs both in front of it. Use `printf` for the returns: a shell
+# here-string sends `0A`, and no key produces `0A`.
 set -eu
 
 root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
