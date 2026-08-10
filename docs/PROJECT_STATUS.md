@@ -23953,3 +23953,46 @@ investigation has suspected twice and could not previously test.
 *Verification: the run's own log shows the soft reset, the configuration applied
 twice, and a `CRP` install from `0100241A` — code the previous runs never
 reached.*
+
+## A matched comparison at last, and it puts the divergence far earlier
+
+With the harness fixed the oracle auto-boots, so for the first time both machines
+can be run in the *same* mode with the *same* display and compared at the *same*
+emulated instant. Same disk, same PROM, normal mode, `dn3500_15i` on the oracle
+and `--screen 15i` here, no input to either:
+
+| | at ~139 s emulated | screen |
+| --- | --- | --- |
+| oracle | the whole self-test list, ending `DO YOU WISH TO CONTINUE (Y,N)?` | drawn |
+| ours | `PC 000061E4`, still in the boot PROM | **blank** |
+
+The oracle's screen also shows what it is waiting for, which our own boot script
+has always answered over the serial console: `CONFIGURATION INFORMATION IS NOT
+INITIALIZED`, a `SELF TEST FAILED` line (`EXPECTED= 00000000, ACTUAL= 00000012,
+ADDRESS= 00010912, PC= 00005DF8`), and the question. It parks there because it
+wants a `y` on the keyboard — not because it is stuck.
+
+**Ours does not get that far, and its own diagnostic display says where it
+stops.** The posted codes run `FF EF DF FE EE DE CF BF AF 9F ED DD 9D 8D` and
+then alternate `0D 8D` for ever — a blinking code, which is the firmware's way
+of halting. `FINDINGS.md` C120 recorded this core, with `--screen c8p`, posting
+`9F ED DD 9D 8D 7D 6D 5D FC` **and drawing**. So the sequences agree up to `8D`
+and then ours stops on the 15-inch display where it continues on the 8-plane
+colour one.
+
+**Why this matters more than where the investigation had been looking.** Every
+measurement in the `00120020` line is about Domain/OS, tens of millions of
+instructions past this point, on a machine booted over the *serial* console with
+no display fitted. This is a divergence in the **boot PROM**, at 139 emulated
+seconds, on the configuration the oracle actually runs — and a machine that
+halts here never reaches the code the crash lives in. It may be independent of
+the crash, and it may be upstream of it; what it is not is something to leave
+unexamined while comparing later states.
+
+**The immediate check** is whether `--screen c8p` still draws where `15i` does
+not, which would isolate this to the 1024x800 mono path rather than to the
+display in general, and C120's record says it should.
+
+*Verification: `screencap.lua` in normal mode against `apollo-headless --screen
+15i`, both on `dn3500-sr10.4-installed.awd`, compared at the same emulated
+second; our posted codes and elapsed time from the run's own report.*
