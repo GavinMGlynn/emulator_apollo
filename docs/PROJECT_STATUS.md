@@ -24349,12 +24349,29 @@ no measurable slowdown. What it has **not** yet done is reach the test:
 emulated seconds, where the display test is at about 139. A longer settle is the
 whole of the change.
 
-*Next: the same run with `--settle` large enough to pass 139 emulated seconds,
-and the tap's log compared against our own `--dump-mem FA0000:8` at `006B9A` and
-`006BAA`, which are already recorded above as `FFFF FFFE FFFD FFFC` before the
-pass and `0000 0001 0002 0003` after. If the oracle's differ, the difference is
-the answer; if they agree, the failure is in the compare rather than the data
-and the search moves to `d1`.*
+**Run long enough, and the answer is that the oracle never runs this test.**
+Past 37.8 emulated seconds — with its kernel already installing a root pointer
+from `PC 0100241A`, so long past the boot PROM — the tap has caught
+**two** accesses to `FA0000` in the whole run, at `PC 00001070` and `00008360`.
+Our machine reads that address *thousands* of times, in a memory test that
+occupies under a second of emulated time around 1.0-1.4 M instructions.
+
+So the two machines are not failing and passing the same test. **Ours runs a
+display memory test at `FA0000` that the oracle's does not run at all** — on a
+`dn3500_15i`, a monochrome machine, which draws its full self-test list and
+carries on.
+
+That relocates the divergence upstream of everything examined since: not the
+memory, not the registers, not the compare, but **the branch that decides
+whether this test runs**. It is the same discovery as `--boot-stop-pc 0x6BBE`
+never firing on the colour board, arrived at from the other side and now true of
+the monochrome one as well — and it means nine candidates were excluded inside a
+code path the reference never executes.
+
+*Next: find what the firmware tests before entering this sequence, and what our
+board answers there that MAME's does not. `$9A(A5)` — the screen-type byte,
+already seen at `006BAC` and `006B6A` — is the first thing to compare, because
+it is read from the controller and it is what selects between these variants.*
 
 *Verification: `ap_graphics_memory_cycle` and `ap_graphics_memory_read_cycle`
 driven as the board drives them, buffers sized as `main.c` sizes them, registers
