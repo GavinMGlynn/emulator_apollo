@@ -24323,9 +24323,23 @@ The first pass **compares and then complements** — verify the old value, write
 its complement — so the descending counter in memory was laid down by an
 *earlier* test still, and this pass is already a checker.
 
-*Next, and it is now the only place left in this direction: whatever ran before
-`006B6A` and filled display memory with a descending counter. That is the write
-whose result the whole sequence checks, and no part of it has been read.*
+**And the structure of this whole area is now visible, which is what to resume
+from.** `006BF0` is the descending-counter fill — `move.w d1,(a3)+` with
+`dbra d1` — and it produces exactly the `FFFF FFFE FFFD FFFC` the dumps show.
+But it sits after `006BD4`, which loads `a2 = 0005EC05` and `a4 = 0005EC04`: the
+**colour** block's registers (`05E800 + 0x405/0x404`). So `006BD4` onward is the
+*colour* variant of this test, while the failing path uses `a2 = 0005DC06`, the
+monochrome block.
+
+The PROM therefore has **two** versions of this display test, one per board
+family, and the sequence that fails is the monochrome one whose fill has still
+not been located — it is not `006BF0`.
+
+*Next: find the monochrome fill, which is the write whose result the failing
+compare at `006B9A` checks. `006BD4`'s colour variant is a working model of what
+it should look like — a `move.w d1,(a3)+` loop preceded by register setup — so
+the search is for the same shape earlier in the block, and the two can then be
+compared against each other as well as against the oracle.*
 
 *Verification: `ap_graphics_memory_cycle` and `ap_graphics_memory_read_cycle`
 driven as the board drives them, buffers sized as `main.c` sizes them, registers
