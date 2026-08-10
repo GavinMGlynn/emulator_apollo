@@ -1,0 +1,72 @@
+diff --git a/src/emu/save.cpp b/src/emu/save.cpp
+index f6012bc5..3592b168 100644
+--- a/src/emu/save.cpp
++++ b/src/emu/save.cpp
+@@ -265,6 +265,38 @@ void save_manager::dispatch_presave()
+ //  write_file - writes the data to a file
+ //-------------------------------------------------
+ 
++// APOLLO: every registered field as text, one line per value.
++// TEMPORARY INSTRUMENTATION -- revert before committing ext/mame.
++//
++// This is the save state, not a parallel walk of it: the same m_entry_list the
++// serialiser uses, so a field MAME saves is a field this prints. Names come
++// from the registry, which is what makes it diffable against the other core --
++// their scopes are ours, these are MAME's, and the mapping between them is the
++// deliverable.
++void save_manager::apollo_dump_text(const char *path) const
++{
++	FILE *f = fopen(path, "w");
++	if (f == nullptr)
++		return;
++	for (auto &entry : m_entry_list)
++	{
++		const u8 *base = reinterpret_cast<const u8 *>(entry->m_data);
++		const u32 stride = entry->m_stride ? entry->m_stride : entry->m_typecount;
++		for (u32 block = 0; block < entry->m_blockcount; block++)
++			for (u32 i = 0; i < entry->m_typecount; i++)
++			{
++				const u8 *p = base + (size_t)(block * stride + i) * entry->m_typesize;
++				u64 v = 0;
++				for (u8 b = 0; b < entry->m_typesize && b < 8; b++)
++					v |= (u64)p[b] << (8 * b);   // host order, as saved
++				fprintf(f, "%s.%u.%u u%u %016llX\n", entry->m_name.c_str(),
++					block, i, (unsigned)entry->m_typesize * 8,
++					(unsigned long long)v);
++			}
++	}
++	fclose(f);
++}
++
+ save_error save_manager::write_file(util::core_file &file)
+ {
+ 	util::write_stream::ptr writer;
+diff --git a/src/emu/save.h b/src/emu/save.h
+index 7a7dd535..81dd03f7 100644
+--- a/src/emu/save.h
++++ b/src/emu/save.h
+@@ -159,6 +159,10 @@ public:
+ 	running_machine &machine() const { return m_machine; }
+ 	rewinder *rewind() { return m_rewind.get(); }
+ 	int registration_count() const { return m_entry_list.size(); }
++
++	// APOLLO: full-state text dump, for the emulator/oracle differential.
++	// TEMPORARY INSTRUMENTATION -- revert before committing ext/mame.
++	void apollo_dump_text(const char *path) const;
+ 	bool registration_allowed() const { return m_reg_allowed; }
+ 	bool supported() const { return m_supported; }
+ 
+diff --git a/src/frontend/mame/luaengine.cpp b/src/frontend/mame/luaengine.cpp
+index 4f0ae7ce..68039770 100644
+--- a/src/frontend/mame/luaengine.cpp
++++ b/src/frontend/mame/luaengine.cpp
+@@ -1422,6 +1422,9 @@ void lua_engine::initialize()
+ 	machine_type.set_function("exit", &running_machine::schedule_exit);
+ 	machine_type.set_function("hard_reset", &running_machine::schedule_hard_reset);
+ 	machine_type.set_function("soft_reset", &running_machine::schedule_soft_reset);
++	// APOLLO: TEMPORARY INSTRUMENTATION -- revert before committing ext/mame.
++	machine_type.set_function("apollo_dump_state",
++			[](running_machine &m, const char *path) { m.save().apollo_dump_text(path); });
+ 	machine_type.set_function("save", &running_machine::schedule_save); // TODO: some kind of completion notification?
+ 	machine_type.set_function("load", &running_machine::schedule_load); // TODO: some kind of completion notification?
+ 	machine_type.set_function("buffer_save",

@@ -695,6 +695,30 @@ if vram_tap_at ~= nil then
 	vram_file:flush()
 end
 
+-- ## Full-state dump, opt-in with APOLLO_STATE_DUMP=<path>
+--
+-- The oracle half of the emulator/oracle differential. `machine:apollo_dump_state`
+-- walks `save_manager`'s own registry -- the same `m_entry_list` the serialiser
+-- uses -- so a field MAME saves is a field this prints, with the name MAME
+-- registered it under. Requires the temporary instrumentation in `ext/mame`.
+--
+-- `APOLLO_STATE_DUMP_AT` is the emulated second to dump at, so both machines can
+-- be stopped at a comparable instant rather than at whatever moment a run ends.
+local state_dump_path = os.getenv("APOLLO_STATE_DUMP")
+local state_dump_at = tonumber(os.getenv("APOLLO_STATE_DUMP_AT") or "") or 0.0
+local state_dumped = false
+
+local function state_dump_poll()
+	if state_dump_path == nil or state_dumped then return end
+	if manager.machine.time:as_double() < state_dump_at then return end
+	state_dumped = true
+	local ok, err = pcall(function()
+		manager.machine:apollo_dump_state(state_dump_path)
+	end)
+	note("# state dump at %.4fs -> %s%s\n", manager.machine.time:as_double(),
+	     state_dump_path, ok and "" or (" FAILED: " .. tostring(err)))
+end
+
 local function crp_poll()
 	if crp_file == nil then return end
 	local cpu = manager.machine.devices[":maincpu"]
@@ -713,6 +737,7 @@ end
 
 emu.register_periodic(function()
 	crp_poll()
+	state_dump_poll()
 	if finished then
 		return
 	end
