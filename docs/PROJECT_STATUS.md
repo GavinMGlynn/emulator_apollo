@@ -24070,11 +24070,32 @@ that way. And the buffer is not short: the mono window is `FA0000`-`FDFFFF`,
 display accesses fall inside it — about four passes over the buffer, which is
 what a multi-pattern memory test looks like.
 
-*Next, and it is a unit-level question that needs no boot:* drive
-`ap_graphics_write` and `ap_graphics_memory_read_cycle` as a pair for each
-screen kind and see whether a word written to mono memory reads back. (There is
-no `..._memory_write_cycle`; the write side goes through `ap_graphics_write`,
-which `doc_claims` caught me asserting otherwise.)
+**Run, and it exonerates four things at once.** Driving the module directly for
+each screen kind:
+
+- a **byte** round-trip over 128 KB — 0 mismatches on `15i`, `19i` and `c8p`;
+- the **device ID** — `0B`, `09`, `0A`, which are the screen-kind values this
+  core enumerates and the ones the firmware compares against `9`;
+- the **board's decode** — `0A0000`, `0BFFFF`, `FA0000` and `FDFFFF` all report
+  `display controller`, so neither window is being stolen by the AT-bus range
+  it sits inside;
+- and the **word** round-trip, which is a *different code path*: `ap_board_read`
+  takes bytes to plain storage, while a word read goes through
+  `ap_graphics_memory_read_cycle` with its CR0-mode branches and latching. The
+  firmware's `eor.w` is a word access, so the byte test alone would have proved
+  nothing — 0 mismatches there too.
+
+So storage, identification, routing and both access widths are clean **at reset
+register values**, and that last qualifier is now the whole of the remaining
+question. `ap_graphics_memory_read_cycle` branches on `CR0`'s mode before it
+reads memory at all — two of the eight modes return the guard latch instead of
+the word — and on `CR2` for the source plane. A test that leaves those at reset
+cannot see a fault that depends on what the firmware wrote to them.
+
+*Next: capture `CR0`, `CR1` and `CR2` at the instant the firmware runs its test
+on a mono screen and on a colour one, and replay the same round-trip with those
+values. That is one stop at `006BBE` with a register dump, and then the unit
+test above with three constants changed.*
 `graphics_suite` is where that belongs, it runs in milliseconds, and it either
 reproduces the firmware's failure at the unit level or exonerates the pair and
 moves the question to the registers that configure them — `CR0`'s mode and
