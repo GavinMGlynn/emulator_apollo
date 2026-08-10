@@ -24426,11 +24426,34 @@ whose ID this core reports as `0B` will take it — which is correct if `0B` is
 what the hardware reports and wrong if the real 15-inch answers something the
 firmware does test for.
 
-*Next: what the oracle's `dn3500_15i` returns at `0005D801`, with
-`APOLLO_VRAM_TAP` pointed there. MAME defines `SCREEN_DEVICE_ID_15I 11`, so it
-should agree — and if it does, the ID is exonerated and the divergence is in
-what the *fallthrough path itself* does differently, which is the one region of
-this sequence still unexamined.*
+**Measured, and the oracle never touches that address.** With the tap on
+`0005D800`-`0005D807` and the run carried to 37.8 emulated seconds — its kernel
+already installing a root pointer, so long past the boot PROM — the log holds
+**zero** accesses. Our machine reads its ID there, at `0069AA`, with
+`a2 = 0005D801`.
+
+So the divergence is earlier than the ID *value*: the two machines do not even
+read the same register. Two readings fit, and they are distinguishable by one
+grep rather than another run:
+
+1. **Different path** — the oracle's firmware decides before `0069AA` that the
+   display is not monochrome and never probes that block. Then the question is
+   what it read *instead*, and the tap moves to the colour block at `05E800`.
+2. **Different placement** — MAME maps the monochrome register block somewhere
+   other than `05D800`, in which case the firmware does read its ID and the tap
+   was pointed at an address the oracle does not use. Then **this core's
+   placement is the defect**, and it would explain everything downstream: a
+   machine reading its ID from the wrong place gets a different byte and is
+   steered into a different variant of every test that follows.
+
+Reading (2) is the one to check first, because it is the cheaper of the two to
+settle and the more consequential if true: `AP_GRAPHICS_MONO_ADDR` is `05D800`
+in this core, and MAME's Apollo address map is the reference for where it
+belongs.
+
+*Next: `ext/mame/src/mame/apollo/apollo.cpp`'s memory map for the graphics
+device, against `AP_GRAPHICS_MONO_ADDR` and `AP_GRAPHICS_COLOUR_ADDR`. One grep,
+and it either exonerates the placement or names the defect outright.*
 
 *Verification: `ap_graphics_memory_cycle` and `ap_graphics_memory_read_cycle`
 driven as the board drives them, buffers sized as `main.c` sizes them, registers
