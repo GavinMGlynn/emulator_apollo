@@ -23818,3 +23818,59 @@ is the one to catch.
 
 *Verification: `ctest` 132, all passing; the counter reported by
 `apollo-headless` beside the per-register counts.*
+
+## The PROM holds one character of type-ahead while it echoes, and we type faster
+
+The trace between the third and fourth reads of the receive buffer contains
+`00272E` and `0026D0`, and those close the question. The transmit routine is
+`002698` — wait for `TxRDY`, then `move.b d1,$6(a5)` — and **before every byte
+it sends** it calls `$272E`:
+
+```
+  00272E  btst #$2,$14a(a6)     XON/XOFF enabled?
+  002738  bsr.b $26d0             read a character out of the receive FIFO
+  002742  btst #$1,$14a(a6)       was it flow control? then it is consumed
+  00274A  bsr.b $2720             otherwise push it back
+
+  002720  cmpi.w #$ffff,$14c(a6)
+  002726  bne.b $272c           slot already occupied -> return, dropping it
+  002728  move.b d1,$14c(a6)    slot empty -> keep it
+```
+
+So the firmware drains one received character per transmitted byte, to look for
+an XOFF, and the place it puts anything that was **not** flow control is a
+**one-byte** push-back slot at `$14C(A6)`. `002726` is a plain `bne` to the
+`rts`: if that slot is already full, the character is discarded with no status,
+no counter and no trace.
+
+**That is the whole of it, and every measurement fits.** Fifteen reads of the
+receive register — because `$26D0` does some of the reading, not just the
+console reader. Zero flushed and zero dropped-with-the-receiver-disabled —
+because the *port* never discarded anything; the firmware did. Five characters
+lost at the start and none afterwards — because the losses happen while the
+firmware is echoing, and stop once it is keeping up. And `O` lost at index 4 and
+kept at index 10, because the mechanism is positional, not per-character.
+
+**It is also correct hardware behaviour, and not our defect.** A person typing
+at a terminal never outruns a one-character push-back slot. `--boot-type` does,
+because its readiness test is "the receive buffer is empty" — which is true the
+instant the firmware drains it, including when the firmware drained it *into a
+slot it then dropped*.
+
+**So the fix is the harness's, and it is now specified rather than guessed:**
+pace the dialogue on the firmware having **echoed** the previous character, not
+on the receive buffer being empty. The echo is a write to the same channel's
+transmit buffer, which `ap_sio` already counts per register, so the condition is
+available without new state.
+
+**What this cost, and what it bought.** Five explanations died on the way here —
+the port, the advance rule, type-ahead during the banner, XON/XOFF as a
+discarder, and a silently-dropping disabled receiver — and each died to a
+measurement rather than to preference. The register-table walk that found the
+uncounted disabled-receiver drop was not wasted: counting it is what ruled the
+port out completely, which is what left the firmware as the only remaining
+place to look.
+
+*Verification: `[ROM3500]` at `002698`-`00274C`, read from the disassembly, with
+the trace between reads 3 and 4 of `00010407` showing `00272E` and `0026D0`
+executing between them.*
