@@ -24480,10 +24480,34 @@ It also explains the shape of everything since without any defect in the mono
 path: our `c8p` run reproduces the oracle character-for-character **because the
 oracle is colour**, and our `15i` run has never had a counterpart.
 
-*Next: set `APOLLO_MD_DISPLAY` to the monochrome setting, confirm it from the
-run's own header line rather than from the machine name, and only then ask
-whether a mono oracle passes the test ours fails. Everything downstream of the
-`15i`/`c8p` comparison is provisional until that run exists.*
+**The default is confirmed from MAME's source** — `PORT_CONFNAME(...,
+APOLLO_CONF_8_PLANES, "Graphics Controller")`, so **8-Plane Color** is what every
+run of this harness has used. (`19" Monochrome` is *commented out* there, so
+MAME cannot fit that board at all — our `19i` has no possible counterpart.)
+
+**And the monochrome run has now been made, header-verified**:
+`Graphics Controller = 15" Monochrome (0x0008)`, printed on both passes of the
+soft reset. Two results, and neither is what was expected:
+
+- the oracle **still reads `0005D800`-`0005D807` zero times** across the boot;
+- and its `CRP` install lands at **37.7892 s**, the same instant to the digit as
+  the 8-plane run.
+
+An identical boot to four decimal places with a different display fitted says the
+setting is not changing MAME's boot path, and the zero tap hits say its firmware
+never probes the monochrome register block on either. So the divergence at
+`0069AA` — where this core reads its ID from `0005D801` — is **real and not
+explained by display type**, which was the remaining hypothesis.
+
+That is a better place to be than the previous entry left it: the configuration
+mismatch was real and had to be corrected, and correcting it did *not* dissolve
+the divergence. What it removed was a false explanation.
+
+*Next: what the oracle reads instead, before its equivalent of `0069AA`. The tap
+moves to the colour block at `05E800`-`05E807` for the same window — if it fires
+there on a machine configured as monochrome, MAME is probing the wrong block or
+answering from the wrong device, and the comparison becomes about which of the
+two cores has the ID probe right. That is one run with one constant changed.*
 
 *Verification: `ap_graphics_memory_cycle` and `ap_graphics_memory_read_cycle`
 driven as the board drives them, buffers sized as `main.c` sizes them, registers
