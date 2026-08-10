@@ -24071,8 +24071,10 @@ display accesses fall inside it — about four passes over the buffer, which is
 what a multi-pattern memory test looks like.
 
 *Next, and it is a unit-level question that needs no boot:* drive
-`ap_graphics_memory_write_cycle` and `ap_graphics_memory_read_cycle` as a pair
-for each screen kind and see whether a word written to mono memory reads back.
+`ap_graphics_write` and `ap_graphics_memory_read_cycle` as a pair for each
+screen kind and see whether a word written to mono memory reads back. (There is
+no `..._memory_write_cycle`; the write side goes through `ap_graphics_write`,
+which `doc_claims` caught me asserting otherwise.)
 `graphics_suite` is where that belongs, it runs in milliseconds, and it either
 reproduces the firmware's failure at the unit level or exonerates the pair and
 moves the question to the registers that configure them — `CR0`'s mode and
