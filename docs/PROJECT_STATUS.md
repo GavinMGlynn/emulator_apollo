@@ -23751,3 +23751,49 @@ reproduces the result byte-identically).
 
 *Verification: `3500_BOOT_12191_7.bin` at `002654`-`0026D6`, read from the
 disassembly; the discard test at `00268E` and its clear at `0026D0`.*
+
+## A discard that nothing counted, found by the register-table walk
+
+`CLAUDE.md` says a misbehaving module is presumed incomplete until its register
+tables are walked, and that this is the step most often skipped. Walked here
+against `[68681]` §4.2.9, after the keyboard dialogue lost five characters with
+`rx_flushed` reading **zero**.
+
+**The overrun path is right.** §4.2.9.4 says the bit is set "upon receipt of a
+new character when the FIFO is full *and a character is already in the receive
+shift register waiting for an empty FIFO position*", so the first character to
+meet a full FIFO is held and only the next is lost. This core implements exactly
+that, and increments `rx_flushed` when it happens — so an overrun would have
+been counted, and none occurred.
+
+**Three lines above it, one did not.**
+
+```c
+  if (!ch->rx_enabled) {
+    return;                 /* silently: no status, no counter */
+  }
+```
+
+The *behaviour* is correct — §4.2.1, a disabled receiver does not assemble
+characters — and only its invisibility was wrong. Every other discard in this
+part increments something; this one made a real loss indistinguishable from a
+character that was never sent, which is precisely the confusion the whole
+`rx_flushed` field exists to prevent. A dialogue delivered into a port that had
+just been disabled would report fifteen characters typed, zero flushed, and lose
+five, which is what was measured.
+
+`rx_disabled_drops` now counts it, kept **separate** from `rx_flushed` rather
+than folded in, because the two are different events with different fixes: a
+host re-sends on the first, which means "the machine took it and then threw it
+away", while the second means "the machine was not listening" and the sender
+chose the wrong moment. The headless report prints both, and only when non-zero.
+
+**This does not yet claim to be the cause.** It makes the question decidable,
+which it was not before: the next run either shows five drops on serial 1
+channel A and names the mechanism, or shows zero and rules this out as
+completely as the overrun path is now ruled out. That is the difference between
+an instrument and an explanation, and this project has published the second in
+place of the first more than once today.
+
+*Verification: `ctest` 132, all passing; the counter reported by
+`apollo-headless` beside the per-register counts.*

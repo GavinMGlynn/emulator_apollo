@@ -294,6 +294,9 @@ void ap_mc68681_receive(ap_mc68681_t *duart, unsigned channel, uint8_t byte) {
   }
   ap_mc68681_channel_t *ch = &duart->channel[channel];
   if (!ch->rx_enabled) {
+    /* §4.2.1: a disabled receiver does not assemble characters, so dropping it
+     * is correct. Counting it is what was missing -- see the field. */
+    ch->rx_disabled_drops++;
     return;
   }
   if (ch->fifo_count >= AP_MC68681_RX_FIFO) {

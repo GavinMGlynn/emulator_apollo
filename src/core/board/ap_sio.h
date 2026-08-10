@@ -202,6 +202,14 @@ unsigned ap_sio_receiver_flushed(const ap_sio_t *sio, unsigned unit,
 unsigned ap_sio_receiver_reads(const ap_sio_t *sio, unsigned unit,
                                unsigned channel);
 
+/* Characters this channel dropped because its receiver was **disabled**, which
+ * is a different event from discarding one it had taken -- see
+ * `rx_disabled_drops` in `ap_mc68681.h`. A host that sees this rise sent into a
+ * port that was not listening. */
+[[nodiscard]] unsigned ap_sio_receiver_disabled_drops(const ap_sio_t *sio,
+                                                      unsigned unit,
+                                                      unsigned channel);
+
 bool ap_sio_receiver_enabled(const ap_sio_t *sio, unsigned unit,
                                            unsigned channel);
 

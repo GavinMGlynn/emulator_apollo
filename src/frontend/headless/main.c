@@ -2842,6 +2842,25 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
              board->sio.register_reads[unit][reg]);
     }
   }
+  /* Characters the ports threw away, by *which* of the two ways. A run that
+   * delivered a dialogue and saw none of it arrive cannot tell "the machine
+   * took it and reset the FIFO" from "the machine was not listening", and the
+   * two have different fixes -- the first is re-sent automatically, the second
+   * means the sender chose the wrong moment. Printed only when non-zero, so a
+   * clean run says nothing. */
+  for (unsigned unit = 0; unit < 2u; unit++) {
+    for (unsigned ch = 0; ch < 2u; ch++) {
+      const unsigned flushed = ap_sio_receiver_flushed(&board->sio, unit, ch);
+      const unsigned deaf =
+          ap_sio_receiver_disabled_drops(&board->sio, unit, ch);
+      if (flushed == 0u && deaf == 0u) {
+        continue;
+      }
+      printf("    sio%u %c    %8u discarded unread, %8u dropped with the"
+             " receiver disabled\n",
+             unit + 1u, (char)('A' + ch), flushed, deaf);
+    }
+  }
 
   if (dump_spec != NULL) {
     uint32_t at = 0, length = 0;

@@ -144,6 +144,25 @@ typedef struct {
    * this channel needs to tell those apart to know whether what it sent
    * arrived. See `CR_MISC_RESET_RECEIVER`. */
   unsigned rx_flushed;
+
+  /* Characters this channel has discarded because the **receiver was
+   * disabled**, cumulative, and counted separately from `rx_flushed` because
+   * they are a different event with a different cause.
+   *
+   * The part really does drop these -- §4.2.1: a disabled receiver does not
+   * assemble characters -- so the *behaviour* is right and only its
+   * invisibility was wrong. Every other discard path here increments a counter;
+   * this one returned silently, which made a real loss indistinguishable from a
+   * character that was never sent.
+   *
+   * Found by walking this receiver against §4.2.9 after a keyboard dialogue
+   * lost five characters with `rx_flushed` reading **zero** -- so the loss, if
+   * it is here, was by construction uncountable. Kept separate rather than
+   * folded into `rx_flushed`: a host re-sending on that counter is responding
+   * to "the machine threw it away after taking it", and this is "the machine
+   * was not listening", which a *typist* would also see but a wire would
+   * not. */
+  unsigned rx_disabled_drops;
   bool rx_enabled;
   bool tx_enabled;
   /* The last character handed to the transmitter, so a caller can observe what

@@ -229,6 +229,14 @@ unsigned ap_sio_receiver_flushed(const ap_sio_t *sio, unsigned unit,
   return sio->port[unit].channel[channel].rx_flushed;
 }
 
+unsigned ap_sio_receiver_disabled_drops(const ap_sio_t *sio, unsigned unit,
+                                        unsigned channel) {
+  if (unit >= 2u || channel >= 2u) {
+    return 0u;
+  }
+  return sio->port[unit].channel[channel].rx_disabled_drops;
+}
+
 unsigned ap_sio_receiver_reads(const ap_sio_t *sio, unsigned unit,
                                unsigned channel) {
   if (unit >= 2u || channel >= 2u) {
