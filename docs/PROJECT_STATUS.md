@@ -24311,13 +24311,21 @@ decode, both read widths, the write/read cycle pair at reset and in service, the
 full buffer extent, and now `CR3A`. Everything the module does under the
 firmware's own inputs matches either the manual or the oracle.
 
-*Next, and it is the last piece of the sequence not yet read: the code between
-`006B54` and `006B9A` — what lays the descending counter down, and with which
-extent. The compare loop's counts come from `d1`/`d2`, which `006BAC` adjusts by
-screen type against `#$9`; the writer's extent has not been read at all. A
-writer and a checker that disagree by a screen-dependent factor is still the
-shape that fits a 128-word boundary, and that stretch of code is where it would
-live.*
+**Read, and it excludes the writer/checker hypothesis too.** `006B6A` sets
+`d2 = 0` or `1` by the same `cmpi.b #$9,$9a(a5)` test the checker uses, and
+`006B88`-`006B98` re-tests it and adds 1 or 2 to a `d2` the previous `dbra` left
+at `-1` — giving `0` or `1` again. **Both loops walk the same extent**, chosen
+the same way from the same screen-type byte. A screen-dependent disagreement
+between them was the shape I expected and it is not there.
+
+The same reading corrects a label: `006B9A` is `cmp.w (a3),d1`, not the `not.w`.
+The first pass **compares and then complements** — verify the old value, write
+its complement — so the descending counter in memory was laid down by an
+*earlier* test still, and this pass is already a checker.
+
+*Next, and it is now the only place left in this direction: whatever ran before
+`006B6A` and filled display memory with a descending counter. That is the write
+whose result the whole sequence checks, and no part of it has been read.*
 
 *Verification: `ap_graphics_memory_cycle` and `ap_graphics_memory_read_cycle`
 driven as the board drives them, buffers sized as `main.c` sizes them, registers
