@@ -24389,12 +24389,31 @@ so `$9A(A5)` agrees there — but it is the first thing found that this core and
 the oracle actually disagree about, and it sits exactly on the branch that
 decides which variant runs.
 
-*Next: settle which is right before changing anything. The rule "a card answers
-for its own family and `FF` otherwise" is this core's, written from the
-firmware's habit of reading both blocks to see what is fitted; MAME's rule is
-"only a one-plane board answers at all". Those differ for every colour machine,
-and the firmware's own use of the value — at `006B6A` and `006BAC`, comparing
-against `#$9` — is the evidence that should decide it.*
+**And the firmware's own use of it is now read.** `0069AA` is
+`move.b (a2),$9a(a5)` — **one** ID read, stored once — and everything after it
+is a dispatch on that byte: `#$A` (10, the 8-plane) at `0069B6`, `0069F6`,
+`006A1A`, `006A6A` and `006D20`; `#$8` (8, the 4-plane) at `006A32`, `006A52`,
+`006A7A`; `#$9` (9, the 19-inch) at `006B6A`, `006B88` and `006BAC`. The
+15-inch's `11` is the fallthrough, which is why it has no comparison of its own.
+
+The dispatch is not abstract: at `0069C0`, when the byte reads `$A`, the
+firmware switches `a2` to `$5EC06` — **the colour block** — and at `0069D4` it
+adds `$405` instead. So the ID byte selects which register block the rest of the
+sequence talks to, and a machine whose ID reads differently is steered into a
+different variant of every test that follows. That is exactly the shape of "ours
+runs a test the oracle never runs".
+
+**Which makes the ID rule the thing to settle, and it is genuinely open.** This
+core answers the ID for whichever block matches the fitted family; MAME answers
+it only on a one-plane board and returns `FF` from a colour block. Both cannot
+be right, and the firmware reading the byte *once* from a single `(a2)` means
+whichever block `a2` points at when `0069AA` executes decides the whole path.
+
+*Next, and it is one measurement rather than a reading: what `a2` holds at
+`0069AA` on each machine, and what each returns there. `--boot-stop-pc 0x69AA`
+gives ours with the register line every run prints; `APOLLO_VRAM_TAP` pointed at
+the ID offsets gives the oracle's. If `a2` differs, the ID rule is the cause; if
+`a2` agrees and the byte differs, it is the cause more directly still.*
 
 *Verification: `ap_graphics_memory_cycle` and `ap_graphics_memory_read_cycle`
 driven as the board drives them, buffers sized as `main.c` sizes them, registers
