@@ -660,6 +660,41 @@ if switch_pc ~= nil then
 	switch_file:flush()
 end
 
+-- ## Display-memory tap, opt-in with APOLLO_VRAM_TAP=<hex address>
+--
+-- The boot PROM runs a display memory test that this core's monochrome path
+-- fails and the oracle passes, at `006B9A`/`006BBE`. Both machines run the same
+-- PROM over the same words, so the comparison that settles it is **what each
+-- reads at the same address under the same instruction** -- not another theory
+-- about the model.
+--
+-- A *narrow* tap, unlike the switch tap that made a run unusable: eight bytes
+-- rather than all of RAM, so the callback fires on the handful of accesses that
+-- matter instead of on every fetch. It logs the first accesses with their PC
+-- and value, which is exactly what `--dump-mem` gives on our side.
+local vram_tap_at = tonumber(os.getenv("APOLLO_VRAM_TAP") or "", 16)
+local vram_file, vram_hits = nil, 0
+_G.apollo_vram_tap = _G.apollo_vram_tap or nil
+if vram_tap_at ~= nil then
+	vram_file = io.open((os.getenv("APOLLO_CRP_LOG") or "crpwatch.log") .. ".vram", "w")
+	local ok, err = pcall(function()
+		local cpu = manager.machine.devices[":maincpu"]
+		local sp = cpu.spaces["program"]
+		_G.apollo_vram_tap = sp:install_read_tap(vram_tap_at, vram_tap_at + 7,
+			"vram", function(offset, data, mask)
+				if vram_hits >= 40 then return end
+				vram_hits = vram_hits + 1
+				vram_file:write(string.format("%10.4f  read %08X = %04X  pc %08X\n",
+					manager.machine.time:as_double(), offset, data,
+					cpu.state["PC"].value))
+				vram_file:flush()
+			end)
+	end)
+	vram_file:write(ok and "# vram tap installed\n"
+	                   or ("# FATAL tap failed: " .. tostring(err) .. "\n"))
+	vram_file:flush()
+end
+
 local function crp_poll()
 	if crp_file == nil then return end
 	local cpu = manager.machine.devices[":maincpu"]

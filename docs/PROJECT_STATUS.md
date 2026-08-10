@@ -24335,11 +24335,26 @@ The PROM therefore has **two** versions of this display test, one per board
 family, and the sequence that fails is the monochrome one whose fill has still
 not been located — it is not `006BF0`.
 
-*Next: find the monochrome fill, which is the write whose result the failing
-compare at `006B9A` checks. `006BD4`'s colour variant is a working model of what
-it should look like — a `move.w d1,(a3)+` loop preceded by register setup — so
-the search is for the same shape earlier in the block, and the two can then be
-compared against each other as well as against the oracle.*
+**And the instrument for settling it against the oracle is now built.**
+`APOLLO_VRAM_TAP=<hex>` installs a **narrow** read tap — eight bytes, not all of
+RAM, which is why it costs nothing where the earlier switch tap made a run
+unusable — and logs each access with its PC and value. Both machines run the
+same PROM over the same words, so what each *reads at the same address under the
+same instruction* is the comparison that settles this, rather than another
+theory about the model.
+
+It is verified live: two hits in a run, at `PC 00001070` and `PC 00008360`, with
+no measurable slowdown. What it has **not** yet done is reach the test:
+`--settle` is wall-clock seconds and 300 of them carried the oracle only to 25.7
+emulated seconds, where the display test is at about 139. A longer settle is the
+whole of the change.
+
+*Next: the same run with `--settle` large enough to pass 139 emulated seconds,
+and the tap's log compared against our own `--dump-mem FA0000:8` at `006B9A` and
+`006BAA`, which are already recorded above as `FFFF FFFE FFFD FFFC` before the
+pass and `0000 0001 0002 0003` after. If the oracle's differ, the difference is
+the answer; if they agree, the failure is in the compare rather than the data
+and the search moves to `d1`.*
 
 *Verification: `ap_graphics_memory_cycle` and `ap_graphics_memory_read_cycle`
 driven as the board drives them, buffers sized as `main.c` sizes them, registers
