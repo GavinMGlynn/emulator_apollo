@@ -53,6 +53,28 @@ our scopes and indices correspond to which of MAME's registry names. That table
 is the real deliverable — it is a written correspondence between the two models,
 and building it will itself surface fields one side has and the other does not.
 
+## The comparison tool
+
+    tools/state-diff.py OURS THEIRS --map FILE [--show-unmapped]
+
+Built around the mapping being **incomplete for a long time**, which is the
+condition that makes a differential lie if it is not designed for. It separates
+three populations, and conflating them is how this produces confident nonsense:
+
+  * **matched** — mapped on both sides; the only values that mean anything.
+  * **unmapped** — present with no counterpart declared. **Not a difference.**
+  * **missing** — mapped, but the named field is absent. A real finding: one
+    core models something the other does not, or a name moved.
+
+It never guesses a correspondence from a similar-looking name. A wrong mapping
+shows two unrelated fields agreeing — a silent false negative exactly where a
+differential is supposed to be trustworthy.
+
+The map is `ours <TAB> theirs`. A trailing `*` on both sides maps a whole scope
+**positionally**, which maps a device in one line once its field order is known
+to agree — and the tool refuses to do it when the two scopes have different
+lengths, because then the orders cannot be assumed to correspond.
+
 ## The protocol at each difference
 
 1. **This core is wrong** → fix it, against the reference documentation, with
