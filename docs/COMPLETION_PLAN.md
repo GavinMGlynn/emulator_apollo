@@ -4292,6 +4292,19 @@ discipline throughout.
       status flags; §1.10 adapter interrupts. The board is an 80186 with an
       82586 coprocessor, so the host side is a mailbox protocol and §1.9 is the
       whole of what this core models. Detail in `PROJECT_STATUS.md`.
+  - [x] `docs/references/ETHERNET.md`, the findings file, written from the
+        manual before any code — the map (`+0` command, `+2` status on read and
+        control on write, `+4` data, `+6` control on read), the 20-byte half
+        duplex data FIFO with its `DIR` bit, the five general-purpose status
+        flags the hardware "does not decode in any way", and the two adapter
+        interrupts. Base `300H` puts the card at physical `058000` through this
+        machine's AT decode, agreeing with `ap_board.h` from a *manual* rather
+        than from the oracle.
+        **The one gap is bounded and named:** §1.9 defers bit-level detail to a
+        *3C505 Hardware Interface Specification* we do not hold, so eleven flag
+        *names* are known and their positions are not. Unlike the ring's gap,
+        the oracle can close this one honestly — the document was read first and
+        says what it lacks.
 
 ## Phase 7 — Completing the model range
 
