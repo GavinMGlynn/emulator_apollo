@@ -24164,9 +24164,36 @@ complemented, not a constant — and `CR2`'s access mode, which is `11` on the
 monochrome board and `00` on the colour one and selects between four access
 modes the blit path branches on.
 
-*Next: size the buffers as the frontend does, and replay the firmware's own two
-passes — `not.w` then `eor.w` — rather than a single constant. The access mode
-is the one register field whose monochrome value has not yet been exercised.*
+**Run, correctly sized and with both passes, and all three pass.** Decoding the
+loop first: `dbra d1` leaves `d1 = $FFFF`, so `eor.w d1,(a3)` is a complement
+that expects zero — the firmware `not.w`s each word and then verifies it reads
+back as `FFFF`. Replaying exactly that through `memory_read_cycle` and
+`memory_cycle`, at the captured registers, with `max(picture, window)` buffers:
+
+```
+  15i   planes=1  picture 102,400  buffer 262,144   0 of 4096 words wrong
+  19i   planes=1  picture 163,840  buffer 262,144   0 of 4096 words wrong
+  c8p   planes=8  picture 819,200  buffer 819,200   0 of 4096 words wrong
+```
+
+So the read/modify/write pair the board uses satisfies the firmware's own test at
+unit level, on every screen, and **there is still no reproduction**.
+
+**Which makes the next question the one thing the test assumed rather than
+measured: where `a3` actually points.** `006BAA` is `movea.l a1,a3`, and the
+register capture at `006BBE` will say what `a1` holds. If it is `FA0000` the
+test walks the memory window and the model is exonerated there too; if it is
+`05D800` it walks the **register block**, and a memory test that reads control
+registers is a different question entirely — one where returning `FF` on a
+monochrome board's undriven odd bytes, which this core does deliberately, would
+make `eor.w` non-zero and take exactly the branch that halts us.
+
+That is one `--boot-stop-pc 0x6BBE` with the register line already printed by
+every run, and it is where this should resume.
+
+*Verification: `ap_graphics_memory_cycle` and `ap_graphics_memory_read_cycle`
+driven as the board drives them, buffers sized as `main.c` sizes them, registers
+at the values dumped from the failing machine.*
 `graphics_suite` is where that belongs, it runs in milliseconds, and it either
 reproduces the firmware's failure at the unit level or exonerates the pair and
 moves the question to the registers that configure them — `CR0`'s mode and
