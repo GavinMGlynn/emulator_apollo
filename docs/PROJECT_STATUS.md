@@ -23439,3 +23439,51 @@ instrumented boot aimed at a code the firmware posts when it succeeds.
 *Verification: `roms/firmware/3500_BOOT_12191_7.bin`, the two post entries at
 `00251A`/`00252A`, their call sites enumerated mechanically, and the banner
 string at `0008F4`.*
+
+## Typing into the boot PROM: a gate that a threshold cannot express
+
+Driving the Mnemonic Debugger from the **keyboard** console matters because the
+console the operating system picks decides which interrupts it unmasks: the
+oracle's `A1` (IRQ1, the DUARTs) count is 190 against our 0, and the reason is
+that its session presses keys while ours drives the dialogue over a serial port.
+`--boot-type` already types on the keyboard, paces at the keyboard's 1200 baud,
+and refuses characters no key can produce. It still could not submit a command,
+and the reason turned out to be timing rather than encoding.
+
+**Measured:** `--boot-type "EX DOMAIN_OS\r"` reports `13 of 13 character(s)
+typed` and the machine ends at `002684` — MD's console-read poll — having
+submitted nothing. Thirteen characters at 1200 baud is about 125 ms of emulated
+time, and the PROM does not reach its console-selection poll at `00078E` until
+after the display and memory tests. Everything typed before that is gone; the
+posted codes show which of it survived.
+
+**The posted codes read the sequence out**, now that both post entries are
+known: `00 03 04 05 06 08 09 0F 0C 00 0C 00 …`. `09` is `00080E`, the *keyboard*
+branch of the console-selection poll — so the console did switch, which is the
+half that was working. `0F` is the MD banner and `0C` the command loop. The
+keyboard path is short: `00080E` posts `09`, consumes the selecting key at
+`000814`, writes `#$BB` to channel A's clock select — 9600 directly, no autobaud,
+because the keyboard is a fixed-rate device — and falls to `0008C8`, which reads
+one more character and requires it to be a carriage return before printing the
+banner. So **two** characters are spent before MD exists: one to choose the
+console, one to enter the debugger.
+
+Prepending them (`\r\rEX DOMAIN_OS\r`) did not help, and could not: all fifteen
+still arrive inside the same 125 ms.
+
+**`--boot-type-after-pc ADDR`** is the fix, and it is deliberately not the shape
+of the flag beside it. `--boot-type-after-os` waits for `PC >= 0x02000000`,
+which works for a prompt inside Domain/OS and cannot work here: **MD runs in the
+boot PROM at `0000xxxx`, below every threshold rather than above one.** So this
+is a one-shot trigger on a PC having been *reached*, and the address to give it
+is `0x78E` — the top of the console-selection poll, the instant the firmware is
+listening.
+
+The distinction is the point. A threshold answers "has the machine got past
+X?"; a trigger answers "has the machine arrived at X?", and firmware prompts are
+the second question. The existing flag's own comment records two failed
+attempts at the first question before settling on the address space; this adds
+the other question rather than another threshold.
+
+*Verification: `ctest` 132, all passing; the flag documented in `--help` and
+checked by `frontend_flags`.*

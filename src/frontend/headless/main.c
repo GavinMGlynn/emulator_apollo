@@ -104,6 +104,17 @@ static void print_usage(const char *program_name) {
           "                        rather than the one before it, which is what\n"
           "                        a comparison against another machine's run\n"
           "                        from the same point needs\n"
+          "  --boot-type-after-pc ADDR\n"
+          "                        hold the typed dialogue until the program\n"
+          "                        counter first reaches ADDR, then send it. A\n"
+          "                        one-shot trigger, not a threshold, because a\n"
+          "                        prompt inside the boot PROM sits *below*\n"
+          "                        every threshold rather than above one: the\n"
+          "                        Mnemonic Debugger runs at 0000xxxx. Without\n"
+          "                        it a keyboard dialogue is delivered in the\n"
+          "                        first tenth of an emulated second, long\n"
+          "                        before the firmware selects a console, and\n"
+          "                        every character but the last is gone\n"
           "  --boot-stop-pc-skip N ignore the first N times the stop address\n"
           "                        is reached. An address executed once on a\n"
           "                        path that recovers and again on one that\n"
@@ -1444,7 +1455,7 @@ static void typed_deliver(ap_machine_t *machine, ap_board_t *board,
                           const char *typed, size_t typed_length,
                           size_t *typed_sent, ap_time_t *typed_at,
                           unsigned *flushed_was, unsigned *reads_was,
-                          bool *pending, bool type_after_os) {
+                          bool *pending, bool type_after_os, bool armed) {
   if (typed == NULL || *typed_sent >= typed_length) {
     return;
   }
@@ -1510,8 +1521,20 @@ static void typed_deliver(ap_machine_t *machine, ap_board_t *board,
    * `3C43F5AC` at the calendar prompt. A threshold above the diagnostics says
    * the operating system is running without claiming when it started, which a
    * count could not. */
+  /* `armed` is `--boot-type-after-pc`'s half of the same question. The
+   * threshold above cannot express "after the Mnemonic Debugger's banner",
+   * because MD runs in the *boot PROM* at `0000xxxx` -- **below** every
+   * threshold, not above one. So the second gate is a one-shot trigger on a PC
+   * having been *reached*, which is what a prompt inside the firmware needs.
+   *
+   * Measured, and it is why this exists: typing `EX DOMAIN_OS\r` at the
+   * keyboard delivers all thirteen characters within ~125 ms of emulated time,
+   * while the PROM does not reach its console-selection poll until after the
+   * display and memory tests. Every character but the last is gone before
+   * anything is listening, and the run parks in MD's read poll at `002684`
+   * having typed everything and submitted nothing. */
   const bool typing_allowed =
-      !type_after_os || machine->cpu.regs.pc >= AP_BOOT_TYPE_OS_PC;
+      armed && (!type_after_os || machine->cpu.regs.pc >= AP_BOOT_TYPE_OS_PC);
   /* **The poll threshold gates the first character only.** Rearming it per
    * character was measured wrong twice, with the same shortfall both times:
    * `polls 217931 (need 219228)`, 1,297 short after seven hundred million
@@ -1558,6 +1581,7 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
                           unsigned input_channel, uint8_t input_rate,
                           unsigned input_interval_us,
                           unsigned key, const char *typed, bool type_after_os,
+                          uint32_t type_after_pc,
                           const ap_mc146818_time_t *clock, bool boot_report,
                           bool console,
                           ap_screen_kind_t screen, uint32_t node_id,
@@ -1872,6 +1896,8 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
   unsigned typed_flushed_was = 0u;
   unsigned typed_reads_was = 0u;
   bool typed_pending = false;
+  /* `--boot-type-after-pc`: unset means armed from reset. */
+  bool typed_armed = type_after_pc == 0u;
   size_t input_sent = 0;
   const size_t input_length = input != NULL ? strlen(input) : 0u;
 
@@ -2163,9 +2189,12 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
        * step number cannot give: Domain/OS's calendar question arrives some
        * seven hundred million instructions in, and any constant chosen for it
        * would be a measurement of one boot rather than a condition. */
+      if (!typed_armed && machine.cpu.regs.pc == type_after_pc) {
+        typed_armed = true;
+      }
       typed_deliver(&machine, board, typed, typed_length, &typed_sent,
                     &typed_at, &typed_flushed_was, &typed_reads_was,
-                    &typed_pending, type_after_os);
+                    &typed_pending, type_after_os, typed_armed);
       const uint32_t step_pc = machine.cpu.regs.pc;
       /* One instruction through the *machine*, not through the processor.
        *
@@ -2415,9 +2444,12 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
           part.status != AP_M68030_STEP_EXCEPTION) {
         break;
       }
+      if (!typed_armed && machine.cpu.regs.pc == type_after_pc) {
+        typed_armed = true;
+      }
       typed_deliver(&machine, board, typed, typed_length, &typed_sent,
                     &typed_at, &typed_flushed_was, &typed_reads_was,
-                    &typed_pending, type_after_os);
+                    &typed_pending, type_after_os, typed_armed);
     }
   } else {
     run = ap_machine_run(&machine, limit);
@@ -3304,6 +3336,7 @@ int main(int argc, char **argv) {
   bool boot_clock_set = false;
   bool boot_report = false;
   bool boot_type_after_os = false;
+  uint32_t boot_type_after_pc = 0;
   unsigned boot_stop_on_watch_read = 0;
   unsigned boot_stop_on_watch = 0;
   uint32_t boot_stop_pc_length = 1u;
@@ -3495,6 +3528,11 @@ int main(int argc, char **argv) {
     if (strcmp(argv[i], "--boot-type-after-os") == 0) {
       boot_type_after_os = true;
       i += 1;
+      continue;
+    }
+    if (strcmp(argv[i], "--boot-type-after-pc") == 0 && i + 1 < argc) {
+      boot_type_after_pc = (uint32_t)strtoul(argv[i + 1], NULL, 0);
+      i += 2;
       continue;
     }
     if (strcmp(argv[i], "--boot-type") == 0 && i + 1 < argc) {
@@ -3711,6 +3749,7 @@ int main(int argc, char **argv) {
                           boot_input, boot_input_unit, boot_input_channel,
                           (uint8_t)boot_input_rate, boot_input_interval_us,
                           boot_key, boot_typed, boot_type_after_os,
+                          boot_type_after_pc,
                           boot_clock_set ? &boot_clock : NULL, boot_report,
                           boot_console,
                           boot_screen, node_id, opt.model->id, screenshot,

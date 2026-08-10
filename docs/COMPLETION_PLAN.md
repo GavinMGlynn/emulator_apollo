@@ -2998,6 +2998,17 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
     `00000000` until its kernel sets it, while ours holds `01001400` from the
     firmware — a kernel that finds the MMU already configured may take a
     different path.
+    **The matched-path oracle measurement is still not taken, and the obstacle
+    is the harness.** The oracle *does* boot to `login:` in normal mode, so the
+    comparison is possible in principle. Two configurations were tried and both
+    park before Domain/OS starts: with `APOLLO_MD_POST=none` the machine sits in
+    the PROM's console-selection poll at `000794`, and with the default key
+    press it sits in MD's read poll at `00267E` — the key *interrupts* the
+    auto-boot, which is what `screencap.lua` warns of ("every character sent to
+    one interrupts it"). So the documented `login:` capture used a recipe whose
+    *invocation* is not recorded — the same failure this file already names for
+    the MD recipe, which cost five reconstructions. **Next:** recover it, and
+    commit it as a script like `md-session.sh` rather than as prose.
     **The posted-code differential is retired, and it was never a differential.**
     It had been the working handle: ours posts `0F` where the oracle does not.
     Read out of the boot PROM rather than measured — the post routine has **two**
@@ -4306,7 +4317,13 @@ discipline throughout.
       the model, via a new `board_of` field in the model row. `model_suite`
       holds the relation up: a headless row must agree with its workstation in
       every board respect and differ only in the display. `dsp5500` stops at
-      `cinva`, the 68040 blocker, not this one. **Awaiting:** the oracle diff.
+      `cinva`, the 68040 blocker, not this one. **Awaiting:** the oracle diff —
+      **for three of the four only.** MAME's Apollo driver registers `dsp3000`,
+      `dsp3500` and `dsp5500` and has **no `dsp4500`**, so that row has no
+      runnable reference and its verification has to be the subset relation
+      `model_suite` already checks, not a diff. `dsp5500` is `MACHINE_NOT_
+      WORKING` there as well, so the diff that can actually be run is
+      `dsp3000` and `dsp3500`.
       Detail in `PROJECT_STATUS.md`.
 
 ## Phase 8 — Verified fast mode
