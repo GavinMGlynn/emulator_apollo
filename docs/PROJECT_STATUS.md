@@ -24216,14 +24216,27 @@ Note also what *cannot* fail: a word past the buffer reads `FFFF`, and
 walking off the end is not the failure mode either; the failing word must read
 back as something that is neither what was written nor `FFFF`.
 
-**Run, and it is the first word.** `--boot-stop-pc 0x6BC4` fires at 1,047,909
-instructions — **three** after `006BBE`'s 1,047,906 — with `a3 = 00FA0002`,
-already stepped past by `006BC2`'s `addq.w #$1,(a3)+`. So the word that fails is
-**`00FA0000`**, the very first word of display memory, on the very first
-comparison. Not somewhere in 256 KB: one address, the first one.
+**~~It is the first word~~ — WITHDRAWN, and the error is worth keeping.**
+`--boot-stop-pc 0x6BC4` fires three instructions into the loop, and I read that
+as the first comparison failing. It is not: `006BC4` is `bne.w $5EB6`, and a
+`--boot-stop-pc` fires when the PC *reaches* an instruction, **not when its
+branch is taken**. `006BC4` executes on every word where the `eor` was non-zero,
+which for this data is every word — so stopping there proved only that the loop
+was running. **Stop on the branch's target, never on the branch.**
 
-`d1` is `FFFF`, so after the `not.w` pass that word should read `FFFF` and does
-not.
+The dumps show why the `eor` is non-zero on a *passing* word, which also
+corrects the loop's reading. Before the pass, `FA0000` holds
+`FFFF FFFE FFFD FFFC`; after it, `0000 0001 0002 0003` — `not.w` complemented
+correctly. So a good word holds `0000`, `eor.w #FFFF` makes it `FFFF` (non-zero,
+so `beq` is not taken), `addq.w #1` makes it `0000` (zero, so `bne` is not
+taken), and the loop continues. Both `0000` and `FFFF` pass; the test catches
+anything else.
+
+**The real failing address, from the error target.** `--boot-stop-pc 0x5EB6`
+fires at **1,376,032** instructions — beside the `8D` post at 1,375,594 — with
+`a3 = 00FA0102`, stepped past by `006BC2`. So the word that fails is
+**`00FA0100`**: byte offset **256**, word index 128. The first 128 words pass
+and the 129th does not, which is a boundary rather than a scatter.
 
 That is the whole remaining question, and it is now small enough to hold in one
 hand: **why the first word of monochrome display memory does not read back
@@ -24233,11 +24246,11 @@ PROM's earlier tests left, and `memory_read_cycle` *latches while reading* while
 `memory_cycle` may consult that latch — so the state the first read finds is not
 the state the test assumed.
 
-*Next: dump `FA0000` before and after the `not.w` pass on the machine —
-`--boot-stop-pc 0x6B9A` and `0x6BAA` with `--dump-mem FA0000:4` — which says
-whether the complement was written at all or was written and read back wrong.
-Two runs, a minute each, and they separate the write side from the read side for
-the one address that matters.*
+*Next: dump `FA0100` at the same two stops. The complement demonstrably works at
+offset 0 and demonstrably fails at 256, so the question is what changes at that
+boundary — 256 bytes is two 1024-pixel scanlines at 16 pixels a word, and it is
+also the page size this machine's `TC` selects, which is worth ruling out before
+anything subtler.*
 
 *Verification: `ap_graphics_memory_cycle` and `ap_graphics_memory_read_cycle`
 driven as the board drives them, buffers sized as `main.c` sizes them, registers
