@@ -24451,9 +24451,39 @@ settle and the more consequential if true: `AP_GRAPHICS_MONO_ADDR` is `05D800`
 in this core, and MAME's Apollo address map is the reference for where it
 belongs.
 
-*Next: `ext/mame/src/mame/apollo/apollo.cpp`'s memory map for the graphics
-device, against `AP_GRAPHICS_MONO_ADDR` and `AP_GRAPHICS_COLOUR_ADDR`. One grep,
-and it either exonerates the placement or names the defect outright.*
+**Checked, and reading (2) is excluded: the maps are identical.**
+
+```
+  map(0x05d800, 0x05dc07)  mono registers      AP_GRAPHICS_MONO_ADDR    05D800
+  map(0xfa0000, 0xfdffff)  mono memory         AP_GRAPHICS_MONO_MEMORY  FA0000
+  map(0x05e800, 0x05ec07)  colour registers    AP_GRAPHICS_COLOUR_ADDR  05E800
+  map(0x0a0000, 0x0bffff)  colour memory       AP_GRAPHICS_COLOUR_MEM   0A0000
+```
+
+Which leaves reading (1) — and its consequence is one this whole comparison
+should have established first. **The oracle does not probe the monochrome block
+because it is not running a monochrome display.** `mdsession.lua` prints
+`Graphics Controller: not set by this script, left at its default` on every run,
+and no one has checked what that default is. `apollo_graphics_15i` is the *class
+name* for all four boards, so the machine being `dn3500_15i` says nothing about
+which is fitted; the board comes from the `:apollo_config` setting the script
+declines to set.
+
+**So the `--screen 15i` comparison was never like-for-like**, and the entry above
+that reads "the oracle draws its self-tests and ours halts" was comparing a
+monochrome machine of ours against a colour one of the oracle's. That is the
+*fourth* configuration mismatch in this investigation, after `--screen`, the
+cross-run instruction counts, and service-against-normal mode — and this time it
+was in a run I set up specifically to be matched.
+
+It also explains the shape of everything since without any defect in the mono
+path: our `c8p` run reproduces the oracle character-for-character **because the
+oracle is colour**, and our `15i` run has never had a counterpart.
+
+*Next: set `APOLLO_MD_DISPLAY` to the monochrome setting, confirm it from the
+run's own header line rather than from the machine name, and only then ask
+whether a mono oracle passes the test ours fails. Everything downstream of the
+`15i`/`c8p` comparison is provisional until that run exists.*
 
 *Verification: `ap_graphics_memory_cycle` and `ap_graphics_memory_read_cycle`
 driven as the board drives them, buffers sized as `main.c` sizes them, registers
