@@ -4282,7 +4282,9 @@ discipline throughout.
 - [ ] 3c505 802.3 controller, so Domain networking can also be checked against
       MAME the way MAME does it. *Verification: oracle diff — this is the one
       networking path with a runnable reference.*
-      **Now unblocked.** The reference on disk was **half a file** — 1,851,086
+      **Awaiting:** the device itself. The references are in place and the one
+      documentary gap is named (see the child below); what remains is the code.
+      The reference on disk was **half a file** — 1,851,086
       bytes of 3,677,170, a truncated download that opens with a valid header
       and fails only when read. Re-fetched from the Internet Archive's bitsavers
       mirror (`bitsavers_3Com3c505EersGuideMay86_3677170`; the bitsavers path
