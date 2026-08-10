@@ -415,6 +415,7 @@ void ap_board_hash(ap_hash_t *st, const ap_board_t *board) {
   ap_board_hash_keyboard(st, &board->keyboard);
   /* The board's own fields, after the devices it owns. */
   ap_hash_scope(st, "board");
+  ap_hash_u32(st, board->quirks.bits);
 
   /* Which appendix's AT bus cycle times this board keeps. Configuration rather
    * than something a program can change, and in the hash for the same reason

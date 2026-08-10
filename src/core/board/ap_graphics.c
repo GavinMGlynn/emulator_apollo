@@ -361,6 +361,16 @@ uint8_t ap_graphics_read(ap_graphics_t *graphics, uint32_t address) {
   const bool matches = colour ? ap_graphics_is_colour(graphics->screen)
                               : ap_graphics_is_monochrome(graphics->screen);
   if (offset == AP_GRAPHICS_DEVICE_ID) {
+    /* A block answers for its own family only: the firmware reads *both* at
+     * `0069AA` to discover what is installed, so a colour block that answered
+     * on a monochrome machine would send it down the colour path. MAME answers
+     * the 8-plane ID from the colour block whatever the Graphics Controller
+     * setting says, which is why its boot is identical under either -- see
+     * `AP_QUIRK_GRAPHICS_ID_ALWAYS_COLOUR`. */
+    if (colour && ap_quirk_selected(graphics->quirks,
+                                    AP_QUIRK_GRAPHICS_ID_ALWAYS_COLOUR)) {
+      return (uint8_t)AP_SCREEN_COLOUR_8_PLANE;
+    }
     return matches ? (uint8_t)graphics->screen : 0xFFu;
   }
   if (!matches) {

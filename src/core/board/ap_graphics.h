@@ -52,6 +52,8 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#include "model/ap_quirk.h"
+
 #include "device/ap_bt458.h"
 #include "time/ap_time.h"
 
@@ -299,6 +301,10 @@ typedef struct {
   uint32_t colour_bytes;
   uint8_t *mono_memory;
   uint32_t mono_bytes;
+
+  /* Oracle-compatibility selections, copied from the board. See
+   * `model/ap_quirk.h`; empty is the reference machine. */
+  ap_quirks_t quirks;
 } ap_graphics_t;
 
 void ap_graphics_init(ap_graphics_t *graphics, ap_screen_kind_t screen);

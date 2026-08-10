@@ -31,6 +31,7 @@
 #include "device/ap_bt458.h"
 #include "device/ap_kbd.h"
 #include "machine/ap_machine.h"
+#include "model/ap_quirk.h"
 #include "ring/ap_ring_probe.h"
 
 static void print_usage(const char *program_name) {
@@ -106,6 +107,20 @@ static void print_usage(const char *program_name) {
           "                        from the same point needs\n"
           "");
   /* Split again, for the same reason and by the same rule. */
+  fprintf(stdout,
+          "");
+  /* Split again, by the same 4095-character rule. */
+  fprintf(stdout,
+          "  --oracle-quirk NAME   run one deliberate divergence the *oracle's*\n"
+          "                        way instead of the reference documentation's,\n"
+          "                        so a state comparison can be carried past a\n"
+          "                        difference instead of drowning in its\n"
+          "                        consequences. The default is always the\n"
+          "                        documented behaviour\n"
+          "  --list-oracle-quirks  name each one, with what the reference says\n"
+          "                        and what MAME does instead\n"
+          "");
+  /* And once more. */
   fprintf(stdout,
           "  --dump-state FILE     write every field of machine state the hash\n"
           "                        covers, one line per field, and print the\n"
@@ -822,6 +837,10 @@ static const char *screen_kind_name(ap_screen_kind_t screen) {
  * it must agree with, and `report_state` is where that is printed -- threading
  * a path through every reporting call to reach one line would be worse. */
 static const char *g_dump_state_path = NULL;
+
+/* The selected oracle divergences, at file scope for the same reason: they are
+ * applied where the board is built, which is not where arguments are read. */
+static ap_quirks_t g_quirks;
 
 static void report_state(ap_machine_t *machine) {
   const ap_machine_state_t state = ap_machine_state(machine);
@@ -3374,6 +3393,8 @@ static int boot_from_tape(const char *path, unsigned limit) {
     fprintf(stderr, "apollo: cannot build the core board\n");
     return 1;
   }
+  /* Before anything runs: the set is configuration, and it is hashed. */
+  ap_board_set_quirks(board, g_quirks);
 
   ap_machine_t machine;
   ap_machine_init(&machine, ram, ram_bytes);
@@ -3707,6 +3728,28 @@ int main(int argc, char **argv) {
     }
     if (strcmp(argv[i], "--boot-type-then-after-pc") == 0 && i + 1 < argc) {
       boot_type2_after_pc = (uint32_t)strtoul(argv[i + 1], NULL, 0);
+      i += 2;
+      continue;
+    }
+    if (strcmp(argv[i], "--list-oracle-quirks") == 0) {
+      for (unsigned q = 0; q < AP_QUIRK_COUNT; q++) {
+        printf("  %-28s %s\n", ap_quirk_name((ap_quirk_t)q),
+               ap_quirk_description((ap_quirk_t)q));
+      }
+      return 0;
+    }
+    if (strcmp(argv[i], "--oracle-quirk") == 0 && i + 1 < argc) {
+      ap_quirk_t q = AP_QUIRK_GRAPHICS_ID_ALWAYS_COLOUR;
+      if (!ap_quirk_by_name(argv[i + 1], &q)) {
+        /* Refused rather than ignored: a typo that ran the reference machine
+         * while the report claimed an oracle comparison would invalidate the
+         * comparison silently, which is the failure mode this whole exercise
+         * exists to avoid. */
+        fprintf(stderr, "apollo: unknown oracle quirk %s;"
+                        " --list-oracle-quirks shows them\n", argv[i + 1]);
+        return 2;
+      }
+      ap_quirk_select(&g_quirks, q);
       i += 2;
       continue;
     }

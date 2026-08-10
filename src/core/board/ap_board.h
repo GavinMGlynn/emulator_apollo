@@ -48,6 +48,7 @@
 #include "board/ap_graphics.h"
 #include "device/ap_kbd.h"
 #include "device/ap_ring_ctl.h"
+#include "model/ap_quirk.h"
 #include "board/ap_tape.h"
 #include "board/ap_timer.h"
 
@@ -181,6 +182,11 @@ typedef struct {
 typedef struct ap_board {
   /* Which model's address space this board lays out. */
   const ap_board_map_t *map;
+
+  /* Deliberate divergences selected for an oracle comparison; empty is the
+   * reference machine. Hashed with the rest of the configuration, because a
+   * machine computing different answers is a different machine. */
+  ap_quirks_t quirks;
 
   ap_boardreg_t registers;
   /* The memory array's parity circuit. Inert until a caller fits the parity
@@ -523,6 +529,10 @@ typedef struct ap_board {
  * the firmware's probe, and a card that answered unbidden would take a machine
  * with no ring hardware down a path it never runs. */
 void ap_board_attach_ring(ap_board_t *board, bool fitted);
+
+/* Select the oracle-compatibility divergences for this machine. Call before the
+ * run; the set is configuration, not something a program can change. */
+void ap_board_set_quirks(ap_board_t *board, ap_quirks_t quirks);
 
 /* Attach a boot PROM image. Fails if it is larger than the region Table 2-8
  * gives it -- an image that does not fit is not this machine's PROM, and

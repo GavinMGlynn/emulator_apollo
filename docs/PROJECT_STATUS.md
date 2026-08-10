@@ -24599,3 +24599,43 @@ to the hash, so a diff that hid the tag could show agreement the hash denies.
 *Verification: `ctest` 132, all passing — the hash is untouched, which the
 goldens confirm; `--dump-state` on a 2 M-instruction boot, 34,841 fields, walk
 hash equal to the state hash.*
+
+## Oracle quirks: divergences you can switch on, so a comparison can continue
+
+A full-state differential finds three kinds of difference, and only one is a
+defect here: this core is wrong (fix it, with the citation), the *oracle* is
+wrong, or the documents do not settle it. The second is the awkward one —
+"fixing" it would mean breaking this core to match a defect, and leaving it
+means every later field diverges too and the comparison stops finding anything.
+
+`model/ap_quirk.h` is for that case. Each such divergence becomes a **named
+quirk**: this core implements the documented behaviour by default and the
+oracle's when the quirk is selected, so a run can be carried *past* a difference
+instead of drowning in its consequences. `--oracle-quirk NAME` selects one and
+`--list-oracle-quirks` prints each with what the reference says and what MAME
+does instead.
+
+Three properties are deliberate. **The default is always the documented
+behaviour** — a switch that made the oracle's choice the default would quietly
+turn this into a MAME clone. **An unknown name is refused**, not ignored,
+because a typo that ran the reference machine while the report claimed an oracle
+comparison would invalidate the comparison silently. And the selected set is
+**hashed with the rest of the configuration**: two machines computing different
+answers are different machines.
+
+Each entry must state what the reference says *and* what MAME does, with the
+file and function named. A quirk without that is an unexplained difference
+wearing a switch, which is worse than an unexplained difference because it looks
+settled.
+
+**The first entry is the one already measured**:
+`graphics-id-always-colour`. MAME answers the 8-plane ID from the colour block
+whatever the Graphics Controller setting says — `data = m_n_planes == 1 ?
+m_device_id : 0xff` on a device whose plane count does not follow the setting —
+where this core answers a block's ID only for its own family. The firmware reads
+*both* blocks at `0069AA` to discover what is installed, so answering from the
+wrong one sends it down the colour path on a monochrome machine, which is why
+the oracle's boot is identical under either setting.
+
+*Verification: `ctest` 132, all passing; `--list-oracle-quirks` prints the entry
+and an unknown name exits non-zero.*

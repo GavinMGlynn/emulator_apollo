@@ -350,6 +350,14 @@ bool ap_board_attach_parity(ap_board_t *board, uint8_t *bad, uint32_t bytes) {
   return ap_parity_attach(&board->parity, bad, bytes, board->ram_bytes);
 }
 
+void ap_board_set_quirks(ap_board_t *board, ap_quirks_t quirks) {
+  board->quirks = quirks;
+  /* Pushed down rather than reached up for: a device asking the board for
+   * configuration on every access would put a pointer chase on a hot path, and
+   * the set does not change during a run. */
+  board->graphics.quirks = quirks;
+}
+
 void ap_board_attach_ring(ap_board_t *board, bool fitted) {
   ap_ring_ctl_reset(&board->ring, fitted);
 }
