@@ -24246,11 +24246,30 @@ PROM's earlier tests left, and `memory_read_cycle` *latches while reading* while
 `memory_cycle` may consult that latch — so the state the first read finds is not
 the state the test assumed.
 
-*Next: dump `FA0100` at the same two stops. The complement demonstrably works at
-offset 0 and demonstrably fails at 256, so the question is what changes at that
-boundary — 256 bytes is two 1024-pixel scanlines at 16 pixels a word, and it is
-also the page size this machine's `TC` selects, which is worth ruling out before
-anything subtler.*
+**And the memory is not the problem — the dumps at the boundary settle it.** At
+`FA00F8` before the pass: `FF83 FF82 FF81 FF80 FF7F FF7E …`; after:
+`007C 007D 007E 007F 0080 0081 …`. The complement is exact at the failing word
+too — `FF7F` becomes `0080`. **`not.w` is correct across the buffer.**
+
+What the dumps show instead is the *shape* of the data, which changes the
+question again: display memory holds a **descending counter** before the pass
+(word *n* = `FFFF - n`) and an ascending one after (word *n* = *n*). It is not a
+constant fill, so the `eor.w` is not comparing against a fixed `FFFF` — and
+`006BC8`'s `dbra d1,$6BBE` **decrements `d1` inside the compare loop**, so the
+value each word is tested against changes as the loop walks. `d1` reads `FFFF`
+at the failure because `dbra` has wrapped it, not because the test uses `FFFF`
+throughout.
+
+So the model's memory does exactly what the firmware asked, and the mismatch is
+between the pattern that was *laid down* — by code before `006B9A` — and the
+counter the compare loop expects. **That is where this resumes**, and it is
+upstream of everything examined so far.
+
+*Next: find what writes the descending pattern (before `006B9A`) and compare its
+extent and stride against the compare loop's `d1`/`d2` counts, which
+`006BAC`'s `cmpi.b #$9,$9a(a5)` adjusts by screen type. The 128-word boundary is
+the number to explain, and a pattern-writer and a checker disagreeing about how
+far to go by a factor related to the screen is the shape to look for.*
 
 *Verification: `ap_graphics_memory_cycle` and `ap_graphics_memory_read_cycle`
 driven as the board drives them, buffers sized as `main.c` sizes them, registers
