@@ -22474,3 +22474,41 @@ compare that decision against the oracle, which does not take it.
 
 *Verification: the ROM read statically; the oracle's NVRAM directories listed;
 the prior entry re-read.*
+
+## The MD halt, traced to a status word: `00010123`
+
+Each link measured, none inferred.
+
+```
+  the terminal blink at 3C456B86        unconditional BRA, no exit test
+    <- BMI at 3C456B50 on $3C42BCD7     the byte reads FF
+    <- SNE  at 3C4568B4                 FF because BTST #1,(-$89,A6) was set
+    <- the byte at (-$89,A6) = 3C4F9B67 = 0x23   (bits 0, 1 and 5)
+    <- the long word 00010123 written by 3C45639C
+    <- a block copy, MOVE.L (A3)+,(A2)+, from (-$208,A6) into (-$90,A6)
+```
+
+**The decision is `BTST #1`.** `3C45688A` tests bit 0 of that byte and `3C456892`
+tests bit 1; both are set here, and `3C4568B4`'s `SNE` turns bit 1 into the `FF`
+that `3C456B50` later reads and halts on. So the whole halt is one bit of one
+byte, and that byte is the low byte of a status word **`00010123`** sitting
+eighth in a copied structure -- `(-$90,A6)+7` is `(-$89,A6)`.
+
+**It is copied, not computed.** `3C456392`-`3C45639C` is a run of `MOVE.L
+(A3)+,(A2)+` moving a structure from `(-$208,A6)`, itself filled by the `MOVE.L
+(A2)+,(A3)+` chain above it. So `00010123` originates further back still, and
+the next link is where *that* structure is filled.
+
+**What the value is not.** It is not an AEGIS status code being tested as a
+code: the kernel tests individual bits of the low byte, so `0x23` is a mask of
+conditions and bit 1 is one condition. Reading `00010123` against the handbook's
+status list would be reading a bitmask as an enumeration.
+
+*Next*: watch the source at `(-$208,A6)` -- its physical address is derivable
+from `A6 = 3C4F9BF0` at the copy -- and find what writes `00010123` there. That
+is one more link of the same kind, and the technique has been reliable: a
+watch-write gives the count and the writing PC in a single bounded boot.
+
+*Verification: five stops, each on the instruction named, with the value read at
+that stop; two write watches giving 3 and 2 writes with their PCs; the code at
+each site dumped at its own stop rather than from an end-of-boot image.*
