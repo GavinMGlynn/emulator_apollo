@@ -24409,11 +24409,28 @@ it only on a one-plane board and returns `FF` from a colour block. Both cannot
 be right, and the firmware reading the byte *once* from a single `(a2)` means
 whichever block `a2` points at when `0069AA` executes decides the whole path.
 
-*Next, and it is one measurement rather than a reading: what `a2` holds at
-`0069AA` on each machine, and what each returns there. `--boot-stop-pc 0x69AA`
-gives ours with the register line every run prints; `APOLLO_VRAM_TAP` pointed at
-the ID offsets gives the oracle's. If `a2` differs, the ID rule is the cause; if
-`a2` agrees and the byte differs, it is the cause more directly still.*
+**Measured on our side.** At `0069AA`, `a2` is the *fitted* family's ID offset
+on both: `0005D801` for `15i` (the monochrome block) and `0005E801` for `c8p`
+(the colour block). So the firmware finds the right block on each, and the byte
+it stores is `0B` and `0A` — this core's own values.
+
+**Which turns up the thing worth checking next, and it is not the colour case at
+all.** `0B` is 11, the 15-inch, and **11 is compared against nowhere**: the
+dispatch tests `#$A`, `#$8` and `#$9`, so a 15-inch board falls through every
+one of them. In particular it falls through `006B6A` and `006BAC`'s `#$9`, which
+is what gives `d2 = 0` and sends it into the variant that fails.
+
+So the 15-inch is not selected by a comparison; it is what is left when three
+comparisons miss. That makes the fallthrough path the *default*, and a board
+whose ID this core reports as `0B` will take it — which is correct if `0B` is
+what the hardware reports and wrong if the real 15-inch answers something the
+firmware does test for.
+
+*Next: what the oracle's `dn3500_15i` returns at `0005D801`, with
+`APOLLO_VRAM_TAP` pointed there. MAME defines `SCREEN_DEVICE_ID_15I 11`, so it
+should agree — and if it does, the ID is exonerated and the divergence is in
+what the *fallthrough path itself* does differently, which is the one region of
+this sequence still unexamined.*
 
 *Verification: `ap_graphics_memory_cycle` and `ap_graphics_memory_read_cycle`
 driven as the board drives them, buffers sized as `main.c` sizes them, registers
