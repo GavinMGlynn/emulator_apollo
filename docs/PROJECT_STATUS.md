@@ -23989,9 +23989,28 @@ halts here never reaches the code the crash lives in. It may be independent of
 the crash, and it may be upstream of it; what it is not is something to leave
 unexamined while comparing later states.
 
-**The immediate check** is whether `--screen c8p` still draws where `15i` does
-not, which would isolate this to the 1024x800 mono path rather than to the
-display in general, and C120's record says it should.
+**The immediate check was run, and it isolates the defect while clearing the
+core.** With `--screen c8p` on the same disk, the same PROM and the same clock,
+the posted codes continue past `8D` exactly as C120 recorded -- `7D 6D 5D FC 8F
+FE FB FA F9 F8 E8 7F F7 FF FE FD FC EC` -- and the run ends at `PC 0000267E`,
+the console read poll, *waiting for input like the oracle does*.
+
+And the screen is **character-for-character the oracle's**: the same self-test
+list down to `WINCHESTER DISK TEST # 1 STARTED / DRIVE 0 PASSED / DRIVE 1 (NOT
+FOUND)`, the same `LOADED: SELF_TEST REVISION: 2.4 / LAST COMPILED: WEDNESDAY,
+OCTOBER 5, 1988 1:08:11 PM (EDT)`, the same `CONFIGURATION INFORMATION IS NOT
+INITIALIZED`, and the same failure line to the digit -- `EXPECTED= 00000000,
+ACTUAL= 00000012, ADDRESS= 00010912, PC= 00005DF8`.
+
+So on the 8-plane colour display this core reproduces the oracle's entire boot
+PROM output exactly, including a self-test failure the *firmware* reports on
+both machines. The divergence is not in the PROM path, the disk, the clock or
+the CPU. **It is in this core's 1024x800 monochrome display**, and it halts the
+firmware at code `8D` where the same firmware on the same core with a different
+display carries on.
+
+That is a defect with a one-line reproduction and a known-good control beside
+it, which is what a matched comparison is for.
 
 *Verification: `screencap.lua` in normal mode against `apollo-headless --screen
 15i`, both on `dn3500-sr10.4-installed.awd`, compared at the same emulated
