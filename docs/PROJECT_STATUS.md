@@ -24092,10 +24092,33 @@ reads memory at all — two of the eight modes return the guard latch instead of
 the word — and on `CR2` for the source plane. A test that leaves those at reset
 cannot see a fault that depends on what the firmware wrote to them.
 
-*Next: capture `CR0`, `CR1` and `CR2` at the instant the firmware runs its test
-on a mono screen and on a colour one, and replay the same round-trip with those
-values. That is one stop at `006BBE` with a register dump, and then the unit
-test above with three constants changed.*
+**Captured.** Stopping at `006BBE` — first reached at 1,047,906 instructions on
+both — and dumping each board's register block:
+
+```
+  15i   0005DC00  E0 FF AA FF C0 FF 80 FF     CR0 E0   CR1 AA   CR2  C0
+  c8p   0005EC00  E0 00 8B FC 00 C0 80 80     CR0 E0   CR1 8B   CR2A 00  CR2B C0
+```
+
+(The monochrome board's odd bytes read `FF` because it is an 8-bit device on a
+16-bit lane; the 8-plane board packs `CR2A` and `CR2B` into the pair, which is
+why its odd bytes are real.)
+
+**`CR0` is `E0` on both**, so the mode field — bits 7-5, here `111` — is not the
+discriminator: `ap_graphics_memory_read_cycle` returns the guard latch only for
+the vector and CPU-source-blit modes, and this is neither, so both fall through
+to the memory read. That rules out the branch this investigation was pointed at.
+
+What differs is **`CR1` (`AA` against `8B`) and `CR2` (`C0` against `00`)**.
+`CR2` bits 7-6 select one of four access modes, so the monochrome board is in
+access mode 3 where the colour board is in mode 0.
+
+*Next, and it is the unit test above with two constants changed: set `CR1` and
+`CR2` to the captured monochrome values before the word round-trip and see
+whether it still round-trips. If it does, the read path is clean under the
+firmware's own configuration and the fault is in what the **write** side does
+with those registers; if it does not, the failing branch is reachable at unit
+level and can be fixed with a test beside it.*
 `graphics_suite` is where that belongs, it runs in milliseconds, and it either
 reproduces the firmware's failure at the unit level or exonerates the pair and
 moves the question to the registers that configure them — `CR0`'s mode and
