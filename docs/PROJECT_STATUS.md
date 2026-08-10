@@ -23550,3 +23550,58 @@ a re-fetched manual leaves no trace in the repository and the next reader would
 find the same half file if it were ever restored from a stale copy.
 
 *Verification: `pdfinfo` reports 77 pages; the table of contents extracts.*
+
+## The screen says the characters really are lost, which reverses a closed finding
+
+Adding `--screenshot` to the keyboard-console MD run answers the question the
+serial console could not, because this run's console *is* the display:
+
+```
+>
+MD7C REV 8.00, 1989/08/16.17:23:52
+>
+> AIN_OS
+>
+```
+
+Everything works except the payload. The console selection, the autobaud-free
+9600 write, the banner, MD's prompt, its echo, its parse and its recovery — all
+of it. And `EX DOMAIN_OS` arrived as **`AIN_OS`**: the first **six** characters,
+`EX DOM`, dropped contiguously from the front, the remaining six plus the
+carriage return delivered intact and in order. Thirteen typed, seven received.
+
+**This reverses a finding that had been recorded as settled.** The earlier
+`XMAIN_OS` observation was closed with "what the screen showed was not what the
+machine received — the last three entries of chasing were all about a display
+artefact", on the strength of a port trace showing thirteen bytes in and
+thirteen out. That conclusion cannot stand here: MD **parsed** what it echoed
+and returned to its prompt, so the machine's own behaviour agrees with the
+screen. The characters are lost, not mis-drawn.
+
+The two readings can both be honest — the port trace was of the serial path and
+this is the keyboard path — but the *conclusion* drawn from it, that the echo
+and display were at fault, was applied to this symptom and is withdrawn for it.
+
+**What the shape rules out.** Six dropped from the front with the tail intact
+and ordered is not corruption, not misframing, and not a full FIFO discarding
+the newest: a three-deep FIFO overrunning would drop from the *middle* of a
+steady stream, and a rate mismatch would damage characters rather than remove
+them. A contiguous head loss says the receiver was not accepting for a bounded
+interval and then was.
+
+**And that interval has a candidate in the firmware.** `000818` writes `#$BB` —
+9600 — to channel A's clock select, immediately after `00080E` consumes the
+selecting key. So the port is *reprogrammed* between the console being chosen
+and MD reading commands, and `--boot-type`'s readiness test (`receiver enabled`,
+`8 bits`, buffer empty) can be satisfied across a reprogramming that a real
+keyboard's characters would not survive either.
+
+**Next, and it is now a measurement rather than a search:** count what
+`ap_sio_receiver_flushed` reports on this path. The typing code already re-sends
+a character the channel discarded unread — that is what `rx_flushed` is for — so
+either the flush is not being counted here, or the characters are lost by some
+route that is not a flush. Six is a specific number and either answer is
+checkable against it.
+
+*Verification: `--screenshot` on `tools/md-session.sh --boot-type-after-pc
+0x78E`; the PNG shows the banner, the prompt and the truncated command.*

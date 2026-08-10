@@ -3009,6 +3009,15 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
     *invocation* is not recorded — the same failure this file already names for
     the MD recipe, which cost five reconstructions. **Next:** recover it, and
     commit it as a script like `md-session.sh` rather than as prose.
+    **The keyboard console reaches MD, and the command is truncated — with a
+    screenshot to prove it.** `EX DOMAIN_OS` arrives as `AIN_OS`: six characters
+    dropped contiguously from the front, the rest intact and ordered, MD parsing
+    the tail and returning to its prompt. That **reverses** the earlier
+    `XMAIN_OS` finding, which was closed as a display artefact on a port trace
+    of the *serial* path — here the machine's own behaviour agrees with the
+    screen, so the characters are genuinely lost. Next is a measurement, not a
+    search: `ap_sio_receiver_flushed` on this path, against the specific number
+    six. Detail in `PROJECT_STATUS.md`.
     **The posted-code differential is retired, and it was never a differential.**
     It had been the working handle: ours posts `0F` where the oracle does not.
     Read out of the boot PROM rather than measured — the post routine has **two**
