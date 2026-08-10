@@ -22558,3 +22558,45 @@ been most attractive to keep guessing at.
 each half of the word taken by stopping on the 1st, 2nd and 3rd; the oracle's
 three parameters read at `01002034` before the stub pops them, instrument
 reverted and `ext/mame` rebuilt clean.*
+
+## Both machines enter the blink; only the oracle leaves it
+
+The previous entries called `3C456B86`-`3C456BB4` a deliberate halt because it is
+an unconditional `BRA` with no exit test. That is true of the code and false of
+the machine, and the oracle shows it.
+
+Tapping the two sites on the oracle:
+
+```
+  APOLLO_FLAG set-site  d1=3C4F00FF (low=FF)     the same flag value as ours
+  APOLLO_FLAG test-site reached                   3C456B50, the branch we take
+```
+
+So the oracle **sets the same flag** and **reaches the same test**, and its own
+posted codes show what follows: `0C 00 0C 00 …` and then `82`. It enters the
+blink, blinks, and **leaves** -- out of a loop that contains no way out.
+
+**So the loop is left by an interrupt**, and the question changes from "why do we
+stop here" to "why is this core never taken out of it". That is a much better
+question, because it is about our machine rather than about the operating
+system's intentions.
+
+**What is already known about the interrupts here.** The MD-path boot takes
+`9,690 x vector 160` (the interval timer, IRQ0) and `7 x vector 174` over 1.2 G
+instructions, so interrupts *are* being delivered and taken during the blink --
+this is not a masked or dead interrupt line. The handler returns to the loop
+each time, where the oracle's does not, or the oracle receives one this core
+never raises.
+
+**And the flag chain is closed out as a cause.** Its three writes here are the
+PROM's `2500` at `00002E52`, the preserving sweep's `00002500` at `01002174`, and
+the kernel's `FF` at `3C4568B6`; the oracle writes the same `FF`. Nothing in the
+chain from the halt back to the boot PROM's `D2` differs between the machines.
+
+*Next*: compare **which vectors are taken during the blink** on each side, and
+what the handler does with the frame. A count of exceptions by vector over the
+same window is a whole-boot quantity on both machines and needs no alignment.
+
+*Verification: the oracle's two sites tapped at the instructions themselves, one
+boot to the Phase II Environment, instrument reverted and `ext/mame` rebuilt
+clean; our three writes taken by stopping on the 1st, 2nd and 3rd.*
