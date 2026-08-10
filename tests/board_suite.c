@@ -468,6 +468,38 @@ static void test_typing_sends_the_character_not_a_matrix_index(void) {
   TEST_ASSERT_FALSE(ap_board_key_type(&b, (char)0x01));
 }
 
+/* The string a Mnemonic Debugger session actually types, character by character
+ * with the port drained between each -- which is what the firmware does when it
+ * is keeping up.
+ *
+ * Written because a keyboard-driven boot put `EX DOMAIN_OS` on the screen as
+ * `XMAIN_OS` with a stray `E`: the first, third, fourth and fifth characters
+ * were lost. A screenshot cannot say whether the loss is in the encoding, the
+ * device or the frontend's pacing, and this separates them -- if every
+ * character survives a drained port, the core is not where they go. */
+static void test_a_typed_command_arrives_character_for_character(void) {
+  static const char command[] = "EX DOMAIN_OS";
+  ap_board_t b;
+  bool ok = false;
+  init(&b);
+  ap_board_write(&b, AP_SIO1_ADDR + (AP_MC68681_MR_A * 2u),
+                 AP_SIO_KEYBOARD_MR1, &ok);
+  ap_board_write(&b, AP_SIO1_ADDR + (AP_MC68681_SR_CSR_A * 2u),
+                 AP_SIO_KEYBOARD_CSR, &ok);
+  ap_board_write(&b, AP_SIO1_ADDR + (AP_MC68681_CR_A * 2u), 0x01u, &ok);
+
+  for (unsigned i = 0; command[i] != '\0'; i++) {
+    TEST_ASSERT_TRUE(ap_board_key_type(&b, command[i]));
+    /* Drained between characters, so nothing here depends on FIFO depth. */
+    const uint8_t got =
+        ap_board_read(&b, AP_SIO1_ADDR + (AP_MC68681_RB_TB_A * 2u), &ok);
+    TEST_ASSERT_EQUAL_HEX8((uint8_t)command[i], got);
+    /* And the port is empty again, so the next character cannot be refused for
+     * want of room. */
+    TEST_ASSERT_FALSE(ap_sio_receiver_ready(&b.sio, 0u, 0u));
+  }
+}
+
 /* ## The keyboard's replies travel at the line's rate, and that is not a detail
  *
  * The wire used to have no length: every reply byte reached the receiver in the
@@ -1124,6 +1156,7 @@ int main(void) {
   RUN_TEST(test_a_key_press_reaches_serial_one_channel_a);
   RUN_TEST(test_the_keyboards_reply_arrives_at_the_lines_rate);
   RUN_TEST(test_typing_sends_the_character_not_a_matrix_index);
+  RUN_TEST(test_a_typed_command_arrives_character_for_character);
   RUN_TEST(test_a_key_press_into_a_mismatched_port_is_damaged);
   RUN_TEST(test_a_repeated_press_puts_nothing_on_the_port);
   RUN_TEST(test_the_boot_prom_region_is_reported_absent);
