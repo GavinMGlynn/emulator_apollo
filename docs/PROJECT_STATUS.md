@@ -24503,11 +24503,47 @@ That is a better place to be than the previous entry left it: the configuration
 mismatch was real and had to be corrected, and correcting it did *not* dissolve
 the divergence. What it removed was a false explanation.
 
-*Next: what the oracle reads instead, before its equivalent of `0069AA`. The tap
-moves to the colour block at `05E800`-`05E807` for the same window — if it fires
-there on a machine configured as monochrome, MAME is probing the wrong block or
-answering from the wrong device, and the comparison becomes about which of the
-two cores has the ID probe right. That is one run with one constant changed.*
+**Run, and it fires — which settles the whole sequence.** With
+`Graphics Controller = 15" Monochrome` confirmed in the header, the oracle reads
+the **colour** block:
+
+```
+  0.2294  read 0005E800 = 000A0000  pc 000028D6
+  0.2294  read 0005E800 = 000A0000  pc 0000682A
+  0.2294  read 0005E800 = 000A0000  pc 000069AC     <- one past our 0069AA
+```
+
+The longword is `000A0000`, so the byte at `0005E801` is **`0A`** — the 8-plane
+ID. **MAME answers `0A` from the colour ID register even when the machine is
+configured as monochrome.** That is why its boot is identical to four decimal
+places under either setting: the configuration never reaches the register the
+firmware asks.
+
+So the two cores differ exactly here, and in this core's favour. Ours returns
+`FF` from the colour block when a monochrome screen is fitted — the rule that a
+card answers only for its own family — so the firmware falls through, probes
+`0005D801`, reads `0B`, and takes the 15-inch path. The oracle's firmware is
+told there is an 8-plane board and takes the colour path, on a machine that is
+not one.
+
+**Which means the oracle cannot validate this core's monochrome path at all.**
+Not "has not yet": *cannot*, because MAME always reports a colour controller.
+`19" Monochrome` being commented out in its config port is the same limitation
+showing from the other side.
+
+That reframes the halt correctly, and it is the classification `CLAUDE.md` asks
+for. The mono path is **not a regression against the oracle** — it is code the
+oracle never executes, and its failure is a genuine defect in a path this
+project has never had a reference for. Every comparison in this sequence was
+measuring a colour machine against a monochrome one because the reference has no
+other mode to offer.
+
+*Next, and it no longer involves the oracle: the monochrome display test fails at
+`00FA0100` on our machine and there is no reference that runs it. It has to be
+settled from the firmware — which is available, disassembled, and has already
+given the loop structure — and from the two mono screens differing, since `19i`
+takes the `#$9` branch and `15i` the fallthrough and both halt. Two paths failing
+the same way narrows it more than one.*
 
 *Verification: `ap_graphics_memory_cycle` and `ap_graphics_memory_read_cycle`
 driven as the board drives them, buffers sized as `main.c` sizes them, registers
