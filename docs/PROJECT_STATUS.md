@@ -22853,3 +22853,39 @@ order" without another screenshot.
 
 *Verification: `board_suite` 37 → 38, passing; the fix applied, run, and found
 to leave the screen pixel-identical; `ctest` 130/130 after the revert.*
+
+## The keyboard path is correct end to end; the corruption is in what is displayed
+
+Logging both ends of the keyboard port -- every byte the frontend delivers and
+every byte the firmware reads out of the receive buffer -- over a run that types
+`EX DOMAIN_OS\r`:
+
+```
+  in 45 out 45   in 58 out 58   in 20 out 20   in 44 out 44   in 4F out 4F
+  in 4D out 4D   in 41 out 41   in 49 out 49   in 4E out 4E   in 5F out 5F
+  in 4F out 4F   in 53 out 53   in CB out CB
+```
+
+**Thirteen in, thirteen out, byte for byte and in order.** `45 58 20 44 4F 4D
+41 49 4E 5F 4F 53` is `EX DOMAIN_OS` and `CB` is RETURN. Nothing is dropped,
+duplicated or reordered anywhere between `--boot-type` and the firmware's own
+read.
+
+**So the whole keyboard line is exonerated**, and with it the two entries that
+chased it: the characters were never lost, the port never refused one, and the
+frontend's advance rule -- the fix tried and reverted above -- was never
+implicated. What the screen showed was not what the machine received.
+
+**Which moves the fault to the echo.** The firmware reads `E`, `X`, space... and
+the display ends up reading `XMAIN_OS` with a stray `E` on the next line. The
+banner on the same screen -- `MD7C REV 8.00, 1989/08/16.17:23:52` -- renders
+perfectly, and that is the distinction worth keeping: the banner is written as a
+burst and the echo one character at a time, so a cursor or scroll defect that
+only bites between single-character writes would produce exactly this.
+
+*Next*: the same two-ended treatment on the *output* side -- what the firmware
+writes to the display controller against what lands in image memory. The input
+half took one run and settled a question three entries had circled.
+
+*Verification: the probe above over one keyboard-driven boot, reverted; `ctest`
+130/130 after.*
