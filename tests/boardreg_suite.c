@@ -295,28 +295,41 @@ static void test_the_four_measured_registers_decode_and_no_others(void) {
   TEST_ASSERT_FALSE(ap_boardreg_decode(0x016000u, &id));
 }
 
-static void test_the_two_unmeasurable_registers_are_declined_not_absent(void) {
+static void test_table_two_eights_last_two_registers_store_a_byte(void) {
   ap_boardreg_id_t id;
+  ap_boardreg_t regs;
+  ap_boardreg_init(&regs);
 
-  /* The distinction this module exists to keep. Task alias and master request
-   * are named by Table 2-8, so the hardware has them; they are absent from the
-   * *oracle*, matching exactly the all-ones signature that two known-unmapped
-   * control addresses produced. Modelling them from that would copy an oracle
-   * gap in as though it were a measurement. */
-  TEST_ASSERT_FALSE(ap_boardreg_decode(AP_BOARDREG_TASK_ALIAS_ADDR, &id));
-  TEST_ASSERT_TRUE(ap_boardreg_is_declined(AP_BOARDREG_TASK_ALIAS_ADDR));
+  /* Both are named by Table 2-8, so the hardware has them, and both were once
+   * declined because the *oracle* answers all-ones at each -- the same
+   * signature two known-unmapped control addresses produce, so modelling from
+   * it would import an oracle gap as a measurement.
+   *
+   * That argument was against inventing a read-back value, and it is still
+   * good. It never justified having no register at all: `008778-03` §2.4.7
+   * describes the master request register's purpose and the boot PROMs write it
+   * 29 times. So the storage is modelled and the semantics are not. */
+  TEST_ASSERT_TRUE(ap_boardreg_decode(AP_BOARDREG_TASK_ALIAS_ADDR, &id));
+  TEST_ASSERT_EQUAL_UINT(AP_BOARDREG_TASK_ALIAS, id);
+  TEST_ASSERT_TRUE(ap_boardreg_decode(AP_BOARDREG_MASTER_REQUEST_ADDR, &id));
+  TEST_ASSERT_EQUAL_UINT(AP_BOARDREG_MASTER_REQUEST, id);
 
-  TEST_ASSERT_FALSE(ap_boardreg_decode(AP_BOARDREG_MASTER_REQUEST_ADDR, &id));
-  TEST_ASSERT_TRUE(ap_boardreg_is_declined(AP_BOARDREG_MASTER_REQUEST_ADDR));
+  /* A byte written is the byte read: the firmware's sites are all `MOVE.B` and
+   * `CLR.B`, and it drives bits 1, 3 and 6. */
+  ap_boardreg_write8(&regs, AP_BOARDREG_MASTER_REQUEST_ADDR, 0x4Au);
+  TEST_ASSERT_EQUAL_HEX8(
+      0x4Au, ap_boardreg_read8(&regs, AP_BOARDREG_MASTER_REQUEST_ADDR));
+  TEST_ASSERT_EQUAL_HEX8(0x4Au, ap_boardreg_master_request(&regs));
 
-  /* An unmapped address is neither decoded nor declined: three answers, not
-   * two, because "no register" and "a register we refuse to guess at" are
-   * different facts about the machine. */
-  TEST_ASSERT_FALSE(ap_boardreg_is_declined(0x016000u));
+  ap_boardreg_write8(&regs, AP_BOARDREG_TASK_ALIAS_ADDR, 0x25u);
+  TEST_ASSERT_EQUAL_HEX8(
+      0x25u, ap_boardreg_read8(&regs, AP_BOARDREG_TASK_ALIAS_ADDR));
+
+  /* Nothing is declined now, and an unmapped address is still neither decoded
+   * nor declined. */
+  TEST_ASSERT_FALSE(ap_boardreg_is_declined(AP_BOARDREG_TASK_ALIAS_ADDR));
+  TEST_ASSERT_FALSE(ap_boardreg_is_declined(AP_BOARDREG_MASTER_REQUEST_ADDR));
   TEST_ASSERT_FALSE(ap_boardreg_decode(0x016000u, &id));
-
-  /* And a modelled register is not declined. */
-  TEST_ASSERT_FALSE(ap_boardreg_is_declined(AP_BOARDREG_CPU_CONTROL_ADDR));
 }
 
 static void test_the_power_on_values_are_the_measured_ones(void) {
@@ -504,7 +517,7 @@ int main(void) {
   RUN_TEST(test_only_bit_seven_of_the_cache_control_register_is_writable);
   RUN_TEST(test_a_register_is_aliased_across_its_whole_range);
   RUN_TEST(test_the_four_measured_registers_decode_and_no_others);
-  RUN_TEST(test_the_two_unmeasurable_registers_are_declined_not_absent);
+  RUN_TEST(test_table_two_eights_last_two_registers_store_a_byte);
   RUN_TEST(test_the_power_on_values_are_the_measured_ones);
   RUN_TEST(test_two_machines_initialised_alike_read_alike);
   RUN_TEST(test_the_normal_service_switch_is_bit_zero_and_defaults_to_normal);

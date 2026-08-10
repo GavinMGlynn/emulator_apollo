@@ -26,19 +26,27 @@
  * does. If a device ever needs one of these bits to mean something, that
  * meaning has to be established first, not assumed from a name in Table 2-8.
  *
- * ## The two registers this module refuses
+ * ## The two registers Table 2-8 lists and the oracle does not have
  *
- * Task alias (`010300`) and master request (`011600`) are **declined**, not
- * missing. They read all-ones with no writable bit -- and so do two addresses
- * chosen from gaps in Table 2-8, which is how C10 established that all-ones is
- * simply what unmapped looks like on this machine. They are absent from the
- * *oracle*; Table 2-8 lists them, so the hardware has them.
+ * Task alias (`010300`) and master request (`011600`) are **modelled as
+ * storage**: byte-wide, writable, reading back what was written. They were
+ * declined for a long time, on the grounds that the oracle answers all-ones at
+ * both and that copying that would be importing an oracle gap wearing the
+ * clothes of a measurement. That argument was against inventing a *value*, and
+ * it still holds -- what it does not justify is having no register at all where
+ * Table 2-8 says the hardware has one, and where the firmware writes one 29
+ * times.
  *
- * Modelling them as all-ones would copy an oracle gap into this core wearing
- * the clothes of a measurement. `ap_boardreg_is_declined` exists so a caller
- * can tell "no register here" from "a register we know exists and refuse to
- * guess at", which are very different facts about the machine -- and
- * `board/ap_board.h` now counts both, so a run says which one it touched.
+ * So the storage exists and the *meaning* is still not invented. `008778-03`
+ * §2.4.7 gives the master request register a function -- "By setting a
+ * particular bit in this register, an external processor asserts its DMA
+ * Request signal to the system processor" -- and pointedly does not say which
+ * bit. Nothing here acts on any bit, and nothing should until a source names
+ * one; `ap_boardreg_master_request` exposes the byte so that an external-master
+ * model can be built on evidence rather than on a guess made here first.
+ *
+ * `ap_boardreg_is_declined` is kept and now answers false for both: a caller
+ * that asked "is this a register you refuse to model" gets a truthful no.
  *
  * ## What the firmware says about them, which is more than the oracle does
  *
@@ -86,6 +94,11 @@ typedef enum {
   AP_BOARDREG_CACHE_CONTROL,
   AP_BOARDREG_LATCH_PAGE_ON_PARITY,
   AP_BOARDREG_SELECTIVE_CLEAR,
+  /* Both of Table 2-8's remaining registers. They *exist* and are byte-wide and
+   * writable; what no source gives is what their bits mean. See the header --
+   * the storage is modelled, the semantics are not invented. */
+  AP_BOARDREG_MASTER_REQUEST,
+  AP_BOARDREG_TASK_ALIAS,
   AP_BOARDREG_COUNT,
 } ap_boardreg_id_t;
 
@@ -345,6 +358,9 @@ typedef struct {
   /* The master 8259's `INT`, refreshed by the board -- see the cache register's
    * bit 4 above. Not storage: nothing a program writes can change it. */
   bool interrupt_pending;
+  /* Table 2-8's remaining two, byte-wide storage and no interpretation. */
+  uint8_t master_request;
+  uint8_t task_alias;
 } ap_boardreg_t;
 
 /* Reset to the measured power-on values.
@@ -381,6 +397,14 @@ void ap_boardreg_set_interrupt_pending(ap_boardreg_t *regs, bool pending);
 /* True for task alias and master request: registers Table 2-8 names, that this
  * core deliberately does not model. See the header. */
 [[nodiscard]] bool ap_boardreg_is_declined(uint32_t address);
+
+/* The master request register's byte, exactly as written.
+ *
+ * `008778-03` §2.4.7 says setting a bit here asserts an external master's DMA
+ * request; it does not say which bit, and the five boot PROMs drive bits 1, 3
+ * and 6 without ever reading the register back. So this reports the byte and
+ * makes no claim about what any bit does. */
+[[nodiscard]] uint8_t ap_boardreg_master_request(const ap_boardreg_t *regs);
 
 /* Access. A 16-bit read of the cache control register returns its byte in both
  * halves, which is what the hardware was measured to do rather than a

@@ -227,12 +227,27 @@ ap_time_t ap_board_access_time(const ap_board_t *board, uint32_t address,
   return 0u;
 }
 
-/* The two registers Table 2-8 names and `ap_boardreg` declines. Counted here
- * rather than in the register module because it is the *machine* that was
- * watched, and a count is our record of watching rather than state the board
- * has -- which is why these stay out of the hash, like every other counter. */
+/* Table 2-8's last two registers, counted separately.
+ *
+ * Counted here rather than in the register module because it is the *machine*
+ * that was watched, and a count is our record of watching rather than state the
+ * board has -- which is why these stay out of the hash, like every other
+ * counter.
+ *
+ * They were counted because they were declined, and they are still counted now
+ * that they store: "which of these did this run touch" is worth answering
+ * either way, and it is how the firmware's 29 write sites were confirmed to be
+ * the master request register's and not the task alias's. The gate is the
+ * address rather than `ap_boardreg_is_declined`, which now answers false for
+ * both -- and did so silently until a test caught it. */
 static void count_declined(ap_board_t *board, uint32_t address, bool read) {
-  if (!ap_boardreg_is_declined(address)) {
+  const bool in_master =
+      address >= AP_BOARDREG_MASTER_REQUEST_ADDR &&
+      address < AP_BOARDREG_MASTER_REQUEST_ADDR + AP_BOARDREG_RANGE;
+  const bool in_alias =
+      address >= AP_BOARDREG_TASK_ALIAS_ADDR &&
+      address < AP_BOARDREG_TASK_ALIAS_ADDR + AP_BOARDREG_RANGE;
+  if (!in_master && !in_alias) {
     return;
   }
   const bool task_alias =

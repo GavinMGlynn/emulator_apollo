@@ -67,6 +67,14 @@ bool ap_boardreg_decode(uint32_t address, ap_boardreg_id_t *out) {
     *out = AP_BOARDREG_LATCH_PAGE_ON_PARITY;
     return true;
   }
+  if (in_range(address, AP_BOARDREG_MASTER_REQUEST_ADDR)) {
+    *out = AP_BOARDREG_MASTER_REQUEST;
+    return true;
+  }
+  if (in_range(address, AP_BOARDREG_TASK_ALIAS_ADDR)) {
+    *out = AP_BOARDREG_TASK_ALIAS;
+    return true;
+  }
   if (in_range(address, AP_BOARDREG_SELECTIVE_CLEAR_ADDR)) {
     *out = AP_BOARDREG_SELECTIVE_CLEAR;
     return true;
@@ -103,8 +111,17 @@ static void selective_clear(ap_boardreg_t *regs, uint32_t address) {
 }
 
 bool ap_boardreg_is_declined(uint32_t address) {
-  return in_range(address, AP_BOARDREG_TASK_ALIAS_ADDR) ||
-         in_range(address, AP_BOARDREG_MASTER_REQUEST_ADDR);
+  /* Nothing is declined now: both of Table 2-8's remaining registers are
+   * modelled as the byte-wide storage the table says exists. Kept as a function
+   * rather than deleted because a caller asking the question deserves a
+   * truthful answer, and because a future register whose behaviour genuinely
+   * cannot be established would use it. */
+  (void)address;
+  return false;
+}
+
+uint8_t ap_boardreg_master_request(const ap_boardreg_t *regs) {
+  return regs == NULL ? 0u : regs->master_request;
 }
 
 /* The value a register reads as, at its own width. */
@@ -126,6 +143,10 @@ static uint16_t value_of(const ap_boardreg_t *regs, ap_boardreg_id_t id) {
                            : 0u));
   case AP_BOARDREG_LATCH_PAGE_ON_PARITY:
     return regs->latch_page_on_parity;
+  case AP_BOARDREG_MASTER_REQUEST:
+    return regs->master_request;
+  case AP_BOARDREG_TASK_ALIAS:
+    return regs->task_alias;
   case AP_BOARDREG_SELECTIVE_CLEAR:
     /* Write-only as far as anything here can say: no firmware in hand reads
      * the range, so there is no measurement and no page. All-ones because C10
@@ -161,10 +182,11 @@ uint8_t ap_boardreg_read8(const ap_boardreg_t *regs, uint32_t address) {
     return 0u;
   }
   const uint16_t value = value_of(regs, id);
-  if (id == AP_BOARDREG_CACHE_CONTROL) {
-    /* A byte register, measured aliased across its whole range: the same byte
-     * at `010200` and `010201`, which is why a word read of it returns `EFEF`.
-     * There is no lane to choose. */
+  if (id == AP_BOARDREG_CACHE_CONTROL || id == AP_BOARDREG_MASTER_REQUEST ||
+      id == AP_BOARDREG_TASK_ALIAS) {
+    /* Byte registers, aliased across their whole range: the same byte at
+     * `010200` and `010201`, which is why a word read of the cache register
+     * returns `EFEF`. There is no lane to choose. */
     return (uint8_t)value;
   }
   /* Sixteen-bit registers: address bit 0 is the byte lane, big-endian, so an
@@ -214,6 +236,20 @@ static void store(ap_boardreg_t *regs, ap_boardreg_id_t id, uint16_t value) {
   case AP_BOARDREG_LATCH_PAGE_ON_PARITY:
     regs->latch_page_on_parity = value;
     break;
+  case AP_BOARDREG_MASTER_REQUEST:
+    /* Byte-wide: every one of the 29 firmware sites is a `CLR.B` or a `MOVE.B`.
+     * Stored and nothing more -- §2.4.7 says a bit here asserts an external
+     * master's DMA request and does not say which, so acting on one would be
+     * this core deciding a fact the manual withheld. */
+    regs->master_request = (uint8_t)value;
+    break;
+  case AP_BOARDREG_TASK_ALIAS:
+    /* No firmware in hand references this address at all, so its width is not
+     * even established from that direction; Table 2-8's 256-byte range and the
+     * board's byte lanes are all there is. Stored at a byte for the same reason
+     * as its neighbour. */
+    regs->task_alias = (uint8_t)value;
+    break;
   case AP_BOARDREG_SELECTIVE_CLEAR:
     /* Never reaches here: the write paths route this id by address before
      * calling `store`, because the value is not what it carries. */
@@ -246,9 +282,16 @@ void ap_boardreg_write8(ap_boardreg_t *regs, uint32_t address, uint8_t value) {
     selective_clear(regs, address);
     return;
   }
-  if (id == AP_BOARDREG_CACHE_CONTROL) {
-    /* A byte register, measured aliased across the *whole* range -- `010201`
-     * behaves identically to `010200`. So there is no lane to choose. */
+  if (id == AP_BOARDREG_CACHE_CONTROL || id == AP_BOARDREG_MASTER_REQUEST ||
+      id == AP_BOARDREG_TASK_ALIAS) {
+    /* Byte registers, aliased across the *whole* range -- `010201` behaves
+     * identically to `010200`, measured for the cache register. So there is no
+     * lane to choose.
+     *
+     * The master request register is byte-wide on the firmware's own evidence:
+     * all 29 sites are `CLR.B` or `MOVE.B`. Task alias has no such evidence
+     * either way and follows its neighbour rather than being given a width no
+     * source states. */
     store(regs, id, value);
     return;
   }

@@ -716,11 +716,16 @@ static void test_the_map_does_not_alias_within_its_region(void) {
  * read -- and say nothing at all about task alias, which appears at no absolute
  * address in any firmware in hand. A shared counter would hide which of the two
  * a run had touched, which is the only question a run can answer. */
-static void test_the_two_declined_registers_are_counted_apart(void) {
+static void test_the_last_two_registers_are_counted_apart(void) {
   ap_board_t b;
   init(&b);
 
   bool ok = false;
+  /* Both are modelled now -- byte-wide storage, per Table 2-8 and the
+   * firmware's 29 write sites -- and both are still counted separately, because
+   * "which of these did a run touch" is a question worth answering whether or
+   * not the register stores. The counters were introduced when the pair was
+   * declined and outlived the declination. */
   (void)ap_board_read(&b, AP_BOARDREG_TASK_ALIAS_ADDR, &ok);
   ap_board_write(&b, AP_BOARDREG_MASTER_REQUEST_ADDR, 0x40u, &ok);
   ap_board_write(&b, AP_BOARDREG_MASTER_REQUEST_ADDR + 0x0FFu, 0x00u, &ok);
@@ -732,8 +737,12 @@ static void test_the_two_declined_registers_are_counted_apart(void) {
    * aliases within a range -- measured, for every register that could be. */
   TEST_ASSERT_EQUAL_UINT(2u, b.master_request_writes);
 
-  /* A register that is modelled is not counted here, or the counters would
-   * report the whole core-register region rather than the declined part of it. */
+  /* And the byte written is the byte held: the second write above was to the
+   * top of the same range and cleared it. */
+  TEST_ASSERT_EQUAL_HEX8(0x00u, ap_boardreg_master_request(&b.registers));
+
+  /* Another register is not counted here, or the counters would report the
+   * whole core-register region rather than these two. */
   ap_board_write(&b, AP_BOARDREG_CPU_CONTROL_ADDR, 0x11u, &ok);
   TEST_ASSERT_EQUAL_UINT(0u, b.task_alias_writes);
   TEST_ASSERT_EQUAL_UINT(2u, b.master_request_writes);
@@ -1135,7 +1144,7 @@ int main(void) {
   RUN_TEST(test_each_dma_channels_page_register_is_the_handbooks);
   RUN_TEST(test_the_cascade_channel_has_no_page_register);
   RUN_TEST(test_a_page_byte_supplies_the_high_eight_address_bits);
-  RUN_TEST(test_the_two_declined_registers_are_counted_apart);
+  RUN_TEST(test_the_last_two_registers_are_counted_apart);
   RUN_TEST(test_the_whole_map_region_is_entries_and_none_are_undescribed);
   RUN_TEST(test_the_map_does_not_alias_within_its_region);
   RUN_TEST(test_every_device_lands_in_its_documented_region);
