@@ -24031,8 +24031,38 @@ stops on the *first* blink write specifically, with a trace long enough to hold
 the comparison that precedes it; the runs above used 16 and 60, which was one
 write late and far too short a window.
 
-Recorded rather than attempted, because three instrument choices in a row landed
-on shared code and the fourth should be reasoned about before it is run.
+The reasoned instrument worked first time. **Write 15 is the `8D` post itself,
+at 1,375,594 instructions** — early, not at the 9.87 M where the blink appears —
+and the code running immediately before it is a five-instruction loop at
+`006BBE`:
+
+```
+  006BAC  cmpi.b #$9,$9a(a5)   the screen type; 9 is the 19-inch mono
+  006BB2  beq.w  $6bbc         ...which selects a different iteration count
+  006BBE  eor.w  d1,(a3)       XOR the pattern against display memory
+  006BC0  beq.b  $6bc8         reads back as written -> keep going
+  006BC2  addq.w #$1,(a3)+
+  006BC4  bne.w  $5eb6         still wrong -> the error exit
+```
+
+**It is the boot PROM's display memory test**, `8D` is the code it posts before
+running, and `006BC4` is the branch this core takes. `$5EB6` is beside `005EC8`,
+the error loop the machine was found blinking in — so the halt at 9.87 M is the
+consequence and this branch at 1.38 M is the cause.
+
+Two things follow that the earlier write-up got too narrow. The firmware reads a
+**screen type** byte at `$9A(A5)` and sizes the test from it, comparing against
+`9` — which is `AP_SCREEN_MONO_19_INCH` in this core's own enumeration, so the
+value is the same one we model. And the failure is **not specific to the
+15-inch**: the first attempt at this comparison used `--screen 19i` and produced
+a blank screen too, with 1,048,915 display writes and no text. What separates
+the runs is colour against monochrome, not one mono size against another. The
+entry above says "1024x800 monochrome"; the evidence supports "this core's
+monochrome path", and the 19-inch run is the second witness.
+
+*Next: what `eor.w d1,(a3)` reads back on the mono path that it does not on the
+colour one — a word read of display memory, at an address `a3` walks. That is a
+unit-level question about `ap_graphics`, answerable without booting.*
 
 *Verification: `screencap.lua` in normal mode against `apollo-headless --screen
 15i`, both on `dn3500-sr10.4-installed.awd`, compared at the same emulated
