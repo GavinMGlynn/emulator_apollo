@@ -22930,3 +22930,41 @@ that run posts `0F` then `0C` and ends in the firmware's console poll at
 *Verification: the header quoted above, read at the write path; the byte log of
 the previous entry; the register-read probe that found only nine reads of the
 controller in a whole boot, reverted.*
+
+## Correction: the display controller's registers are not inert
+
+An entry above concluded that "the display controller's registers are decoded
+but inert", explained a boot's garbled console echo with it, and drew a rule
+from it about not reading screenshots as machine state. **The premise was a
+stale comment, and the conclusion built on it is withdrawn.**
+
+`ap_graphics_write` stores. The write-enable and raster-operation registers are
+assembled from their scrambled byte lanes, `CR0` through `CR3B` are kept, the
+LUT ports and the diagnostic refresh request are recorded, and
+`ap_graphics_blit` acts on all of it -- ROP per plane, write-enable masking,
+`CR2`'s source and destination plane selects, source latching, and `CR0`'s
+alternating-BLT and vector modes each dispatched separately. The paragraph above
+the function still described a version of the module that no longer exists, and
+it was read instead of the code beneath it.
+
+**The corroborating evidence was in the same screenshot all along.** The banner
+`MD7C REV 8.00, 1989/08/16.17:23:52` renders in the firmware's own font. A
+controller that discarded its register writes could not draw that, and the
+observation that "the banner renders and the echo does not" was recorded twice
+without the contradiction being followed.
+
+**What this reopens.** The garbled echo -- `EX DOMAIN_OS` arriving on screen as
+`XMAIN_OS` with a stray `E` -- has no explanation again. What is still known is
+firmer than the explanation ever was: the keyboard path is correct end to end,
+thirteen bytes in and thirteen out in order, so the machine *received* the
+command correctly and the fault is somewhere between that and the glass.
+
+**And the rule that entry drew is wrong as stated.** A screenshot is evidence
+about the display *model*, which is largely implemented -- not about an
+unimplemented instrument. The sound version of the rule is narrower: a
+screenshot is evidence about whatever part of the display path is modelled, and
+this core does not model what a memory refresh *does*, nor the LUT's analogue
+levels. Neither of those can garble a character.
+
+*Verification: `ap_graphics_write`'s switch and `ap_graphics_blit` read directly;
+`ctest` 130/130 with the comment corrected.*

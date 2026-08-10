@@ -342,11 +342,25 @@ void ap_graphics_attach_memory(ap_graphics_t *graphics, uint8_t *colour,
 [[nodiscard]] uint8_t ap_graphics_read(ap_graphics_t *graphics,
                                        uint32_t address);
 
-/* Writes are accepted and discarded. The blocks are decoded, so a write
- * terminates normally -- refusing it would be a bus error the hardware does not
- * raise. What the registers would *do* is not modelled, which is why this
- * stores nothing rather than storing something a later read would have to
- * invent a meaning for. */
+/* A register write, stored.
+ *
+ * **This comment used to say the opposite** -- "writes are accepted and
+ * discarded ... what the registers would do is not modelled" -- and it was
+ * describing a version of this module that no longer exists. Everything below
+ * it stores: the write-enable and raster-operation registers with their
+ * scrambled byte lanes, `CR0` through `CR3B`, the LUT ports, and the
+ * diagnostic refresh request. `ap_graphics_blit` then acts on them.
+ *
+ * The cost of leaving it there was not hypothetical. A boot's garbled console
+ * echo was diagnosed from this paragraph as "the display controller's registers
+ * are inert", written up, and committed -- an explanation drawn from a stale
+ * comment rather than from the code under it. A block that decodes but does not
+ * reach a fitted card is still discarded, which is the one case the old wording
+ * described correctly and the reason it survived a reading.
+ *
+ * The blocks are decoded whether or not a card of that family is fitted, so a
+ * write with nothing behind it terminates normally rather than faulting -- that
+ * would be a bus error the hardware does not raise. */
 void ap_graphics_write(ap_graphics_t *graphics, uint32_t address,
                        uint8_t value);
 
