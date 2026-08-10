@@ -23788,12 +23788,33 @@ host re-sends on the first, which means "the machine took it and then threw it
 away", while the second means "the machine was not listening" and the sender
 chose the wrong moment. The headless report prints both, and only when non-zero.
 
-**This does not yet claim to be the cause.** It makes the question decidable,
-which it was not before: the next run either shows five drops on serial 1
-channel A and names the mechanism, or shows zero and rules this out as
-completely as the overrun path is now ruled out. That is the difference between
-an instrument and an explanation, and this project has published the second in
-place of the first more than once today.
+**It did not claim to be the cause, and it was not.** The instrument answered
+the other way: the run prints the line only when a counter is non-zero, and it
+printed **nothing** — zero flushed and zero dropped-with-the-receiver-disabled,
+on every port. Which is the outcome that makes an instrument worth building: it
+rules this out as completely as the overrun path, instead of leaving a
+plausible story standing.
+
+**So the port is exonerated on three independent counts** — fifteen characters
+delivered, fifteen register reads, zero discarded by either route — and MD's
+line buffer holds seven bytes. The loss is therefore **inside the boot PROM's
+own input path**, between reading the receive register and storing into the
+line at `$98(A6)`.
+
+And each mechanism visible in that path is excluded by the bytes this keyboard
+actually sends. `$26EA` sets the discard flag only for `$11`/`$13`; `00223C`
+special-cases only `$08`, `$1B`, `$18`; `$21FA`'s twenty-entry table at `$21D2`
+holds `CB DB FB C8 D8 F8 C9 D9 F9 5B 7B 5D 7D CA DA FA CC DC FC DE`. The lost
+characters are `45 58 44 4F 4D` — in none of those sets. There is also a
+push-back slot at `$14C(A6)` that `002654` consults before polling, and a
+line-restart at `002286` that clears the index, neither of which our bytes
+should reach.
+
+**Next is a PC-level trace inside `002654`-`00223C` while a losing character
+passes**, not another counter: everything countable at the boundary has now been
+counted, and all of it says the character arrived. `--boot-stop-pc` with
+`--boot-trace-last` over that range is the instrument, and the fifth character
+is the one to catch.
 
 *Verification: `ctest` 132, all passing; the counter reported by
 `apollo-headless` beside the per-register counts.*

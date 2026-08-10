@@ -3035,9 +3035,16 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
     `O` is both lost and kept and it is neither per-character nor a clean
     prefix. Early losses settling to none is a **receiver overrun** signature,
     and `rx_flushed` counted zero, so it is not the path `--boot-type` re-sends
-    on. **Next: walk `ap_mc68681`'s receiver against `[68681]` §4.2.9** — the
-    overrun bit, a character arriving on a full FIFO, and whether anything
-    counts it. Detail in `PROJECT_STATUS.md`.
+    on. The register-table walk found a discard that **nothing
+    counted** — a disabled receiver dropping its character silently — and
+    counting it answered the other way: **zero**, on every port. So the port is
+    exonerated on three counts (fifteen delivered, fifteen read, zero discarded
+    by either route) and the loss is inside the **boot PROM's own input path**,
+    between the register read and the store at `$98(A6)`. Every mechanism
+    visible there is excluded by the bytes this keyboard sends. **Next: a
+    PC-level trace inside `002654`-`00223C` as a losing character passes** —
+    everything countable at the boundary has been counted. Detail in
+    `PROJECT_STATUS.md`.
     **The posted-code differential is retired, and it was never a differential.**
     It had been the working handle: ours posts `0F` where the oracle does not.
     Read out of the boot PROM rather than measured — the post routine has **two**
