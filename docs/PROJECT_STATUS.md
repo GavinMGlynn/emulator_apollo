@@ -22271,3 +22271,53 @@ everything in it is explained by the tree.
 *Verification: region counters from two crash-clock boots with the current
 binary, at instruction 288,640,105 and at the crash, subtracted; both decodes
 computed for the same physical address.*
+
+## The posted diagnostic codes are the comparison this investigation needed
+
+The MD-path machine ends in two nested counted delay loops calling `3C43DEFA`
+alternately with `$0F` and `0`. That routine is four instructions long:
+
+```
+  3C43DF08  LEA    (-$15AA,PC),A0      A0 = 3C43C960, the code shadow
+  3C43DF0C  EOR.B  D0,(A0)             toggle
+  3C43DF0E  MOVE.B (A0),$3FFFB500      logical 3FFFB500 -> physical 00010100
+```
+
+`00010100` is `AP_BOARDREG_CPU_CONTROL_ADDR` -- the CPU control register, which
+this board also uses as the **diagnostic code display**, already modelled here
+and already recorded by every boot as `posted codes`.
+
+**It is not a panic, and that reading is withdrawn before it went anywhere.**
+The obvious conclusion from "alternates a value for ever" is a machine blinking
+a failure code. The oracle does the same thing and reaches the Phase II
+Environment, so blinking is what this software does while it works.
+
+**What the codes do give is a clean cross-machine comparison** -- a sequence of
+distinct values over a whole boot, which is exactly the sample-independent kind
+of quantity this investigation has learned to insist on:
+
+| | posted sequence (complemented, as the LEDs show it) |
+| --- | --- |
+| the oracle | `00 03 04` **`05 06`** `08 0A` `0C` → `82` → `01 02 03` … |
+| ours | `00 03 04` **`07`** `08 0A` **`0F`** `0C` → `0C 00 0C 00` for ever |
+
+Three differences, all sharp:
+
+- After `04` the oracle posts **`05` then `06`**; this core posts **`07`**.
+- This core posts an extra **`0F`** before `0C`; the oracle goes `0A` → `0C`.
+- Both reach `0C` and blink it. **The oracle leaves `0C` for `82`; we never
+  leave it** -- 46,607 writes of the same pair.
+
+So the divergence has a name and a boundary at last: it is between posting `04`
+and posting `08`, it is bracketed by two markers that mean the same thing on
+both machines, and it needs no instruction counts to locate. Everything this
+file has chased -- the switch routine, the root pointer, the branch at
+`3C418D30` -- is downstream of whatever that step is.
+
+*Next*: stop on the write that posts `04` on each machine and compare forward
+from there. The marker is invariant, so for the first time the two windows are
+genuinely the same window.
+
+*Verification: our sequence from the `posted codes` line of an MD-path boot; the
+oracle's from a temporary log of its own LED decode (`(cr >> 8) ^ 0xff`),
+reverted and `ext/mame` rebuilt clean.*
