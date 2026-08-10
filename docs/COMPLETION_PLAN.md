@@ -3051,8 +3051,13 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
     character of type-ahead while printing, and `--boot-type` outruns it because
     its readiness test is "the receive buffer is empty", which is true the
     instant the firmware drains it. Correct hardware behaviour; a person never
-    outruns it. **Fix: pace the dialogue on the firmware having echoed the
-    previous character.** Detail in `PROJECT_STATUS.md`.
+    outruns it. **Fixed, and the fix confirms the diagnosis by
+    construction:** `--boot-type-await-pushback` holds each character until the
+    slot reads `$FFFF`, the condition `002726` imposes, and the line buffer goes
+    from `" AIN_OS\r"` (7 bytes, five lost) to `".X DOMAIN_OS\r"` (13, one
+    lost) with no tuning. The one that remains is the same mechanism at its
+    boundary — the first character is sent when the gate arms at `0x930`, which
+    is one print before MD emits its prompt. Detail in `PROJECT_STATUS.md`.
     **The posted-code differential is retired, and it was never a differential.**
     It had been the working handle: ours posts `0F` where the oracle does not.
     Read out of the boot PROM rather than measured — the post routine has **two**

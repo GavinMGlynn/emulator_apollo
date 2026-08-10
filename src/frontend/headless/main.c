@@ -104,6 +104,18 @@ static void print_usage(const char *program_name) {
           "                        rather than the one before it, which is what\n"
           "                        a comparison against another machine's run\n"
           "                        from the same point needs\n"
+          "");
+  /* Split again, for the same reason and by the same rule. */
+  fprintf(stdout,
+          "  --boot-type-await-pushback\n"
+          "                        hold each typed character until the boot\n"
+          "                        PROM's one-byte type-ahead slot is empty.\n"
+          "                        The firmware drains a character from the\n"
+          "                        receive FIFO before every character it\n"
+          "                        prints, looking for an XOFF, and drops what\n"
+          "                        it pushed back if that slot is full -- so a\n"
+          "                        sender pacing on an empty receive buffer\n"
+          "                        outruns it and loses characters silently\n"
           "  --boot-type-then TEXT\n"
           "  --boot-type-then-after-pc ADDR\n"
           "                        a second typed phase with its own arming\n"
@@ -1454,6 +1466,25 @@ static bool parse_clock(const char *spec, ap_mc146818_time_t *out) {
 
 #define AP_BOOT_TYPE_OS_PC 0x02000000u
 
+/* The boot PROM's one-byte type-ahead slot, as an offset from its globals base
+ * in `A6`.
+ *
+ * `$272E` runs before **every character the firmware prints** -- from `0026A0`
+ * in the serial output path and `00479A` in the display one -- and drains a
+ * character out of the receive FIFO to look for an XOFF. Anything that was not
+ * flow control is pushed back here, and `002726` **drops it when the slot is
+ * already occupied**, silently. So the firmware can hold exactly one character
+ * of type-ahead while it is printing, and a sender whose readiness test is "the
+ * receive buffer is empty" outruns it: the buffer is empty the instant the
+ * firmware drains it, including when it drains it into a slot it then discards.
+ *
+ * Measured: a keyboard dialogue lost five characters this way, with the port
+ * reporting every one delivered and nothing discarded. A person at a terminal
+ * never outruns a one-character slot, which is why the firmware is right and
+ * only the harness was wrong. */
+#define AP_BOOT_TYPE_PUSHBACK_OFFSET 0x14Cu
+#define AP_BOOT_TYPE_PUSHBACK_EMPTY 0xFFFFu
+
 #define AP_BOOT_TYPE_CHUNK 4096u
 
 
@@ -1464,7 +1495,8 @@ static void typed_deliver(ap_machine_t *machine, ap_board_t *board,
                           const char *typed, size_t typed_length,
                           size_t *typed_sent, ap_time_t *typed_at,
                           unsigned *flushed_was, unsigned *reads_was,
-                          bool *pending, bool type_after_os, bool armed) {
+                          bool *pending, bool type_after_os, bool armed,
+                          bool await_pushback) {
   if (typed == NULL || *typed_sent >= typed_length) {
     return;
   }
@@ -1562,8 +1594,18 @@ static void typed_deliver(ap_machine_t *machine, ap_board_t *board,
           : machine->now >= *typed_at + ap_sio_character_time(
                                         &board->sio, 0u, 0u,
                                         AP_SIO_KEYBOARD_BAUD);
+  /* The firmware's own condition, when asked for. `A6` is the PROM's globals
+   * base while PROM code is running, which is the only time this matters. */
+  bool pushback_clear = true;
+  if (await_pushback) {
+    uint32_t slot = 0u;
+    const uint32_t at = machine->cpu.regs.a[6] + AP_BOOT_TYPE_PUSHBACK_OFFSET;
+    pushback_clear =
+        ap_board_peek_ram(board, at, 2u, &slot) &&
+        (uint16_t)slot == AP_BOOT_TYPE_PUSHBACK_EMPTY;
+  }
   if (*typed_sent < typed_length && typing_allowed && typed_due &&
-      !ap_sio_receiver_ready(&board->sio, 0u, 0u) &&
+      pushback_clear && !ap_sio_receiver_ready(&board->sio, 0u, 0u) &&
       ap_sio_character_bits(&board->sio, 0u, 0u) == 8u &&
       ap_sio_receiver_enabled(&board->sio, 0u, 0u)) {
     if (ap_board_key_type(board, typed[*typed_sent])) {
@@ -1592,6 +1634,7 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
                           unsigned key, const char *typed, bool type_after_os,
                           uint32_t type_after_pc, const char *typed2,
                           uint32_t type2_after_pc,
+                          bool type_await_pushback,
                           const ap_mc146818_time_t *clock, bool boot_report,
                           bool console,
                           ap_screen_kind_t screen, uint32_t node_id,
@@ -2236,7 +2279,8 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
       }
       typed_deliver(&machine, board, typed_now, typed_length, &typed_sent,
                     &typed_at, &typed_flushed_was, &typed_reads_was,
-                    &typed_pending, type_after_os, typed_armed);
+                    &typed_pending, type_after_os, typed_armed,
+                    type_await_pushback);
       const uint32_t step_pc = machine.cpu.regs.pc;
       /* One instruction through the *machine*, not through the processor.
        *
@@ -2504,7 +2548,8 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
       }
       typed_deliver(&machine, board, typed_now, typed_length, &typed_sent,
                     &typed_at, &typed_flushed_was, &typed_reads_was,
-                    &typed_pending, type_after_os, typed_armed);
+                    &typed_pending, type_after_os, typed_armed,
+                    type_await_pushback);
     }
   } else {
     run = ap_machine_run(&machine, limit);
@@ -3413,6 +3458,7 @@ int main(int argc, char **argv) {
   uint32_t boot_type_after_pc = 0;
   const char *boot_typed2 = NULL;
   uint32_t boot_type2_after_pc = 0;
+  bool boot_type_await_pushback = false;
   unsigned boot_stop_on_watch_read = 0;
   unsigned boot_stop_on_watch = 0;
   uint32_t boot_stop_pc_length = 1u;
@@ -3619,6 +3665,11 @@ int main(int argc, char **argv) {
     if (strcmp(argv[i], "--boot-type-then-after-pc") == 0 && i + 1 < argc) {
       boot_type2_after_pc = (uint32_t)strtoul(argv[i + 1], NULL, 0);
       i += 2;
+      continue;
+    }
+    if (strcmp(argv[i], "--boot-type-await-pushback") == 0) {
+      boot_type_await_pushback = true;
+      i += 1;
       continue;
     }
     if (strcmp(argv[i], "--boot-type") == 0 && i + 1 < argc) {
@@ -3836,6 +3887,7 @@ int main(int argc, char **argv) {
                           (uint8_t)boot_input_rate, boot_input_interval_us,
                           boot_key, boot_typed, boot_type_after_os,
                           boot_type_after_pc, boot_typed2, boot_type2_after_pc,
+                          boot_type_await_pushback,
                           boot_clock_set ? &boot_clock : NULL, boot_report,
                           boot_console,
                           boot_screen, node_id, opt.model->id, screenshot,

@@ -23882,3 +23882,32 @@ place to look.
 *Verification: `3500_BOOT_12191_7.bin` at `002698`-`00274C` and `00216E`, read
 from the disassembly; the trace between reads 3 and 4 of `00010407` shows
 `002174`, `004792`, `00479A`, `00272E` and `0026D0` executing between them.*
+
+## The firmware's own condition, applied: five losses become one
+
+`--boot-type-await-pushback` holds each character until the word at
+`A6 + $14C` reads `$FFFF` — the condition `002726` imposes, rather than a delay
+tuned until the symptom went away. The same dialogue, same gates, same disk:
+
+```
+  before   01000218  20 41 49 4E 5F 4F 53 0D              " AIN_OS\r"     7 bytes
+  after    01000218  00 58 20 44 4F 4D 41 49 4E 5F 4F 53 0D  ".X DOMAIN_OS\r"  13
+```
+
+**Five characters lost becomes one.** That is the diagnosis confirmed by
+construction: a condition derived from the firmware's own code, applied without
+tuning, and it removes exactly the losses the code says it should.
+
+**The one that remains is the same mechanism at its boundary.** `E` is the first
+character of the second phase, sent the instant the gate at `0x930` arms — and
+`0x930` is *before* MD prints its prompt. The slot reads empty when the check is
+made, the character takes a character time to arrive over the keyboard's 1200
+baud line, and in that window the firmware prints `>` and drains it. The check is
+right; the moment it is made is one print too early.
+
+So the remaining fix is not another mechanism but a later arming address:
+`00095E`, the instruction after `00095A`'s `bsr $216E` that emits the prompt.
+Which is what the two-phase gate was built for.
+
+*Verification: the line buffer at `01000218`, dumped from the same invocation as
+the previous run with only `--boot-type-await-pushback` added.*
