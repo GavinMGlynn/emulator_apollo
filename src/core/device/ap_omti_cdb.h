@@ -162,6 +162,12 @@ typedef struct {
 #define AP_OMTI_CONTROL_DISABLE_ECC 0x40u
 #define AP_OMTI_CONTROL_FORMAT_BUFFER 0x40u
 #define AP_OMTI_CONTROL_ADDRESS_CONVERSION 0x20u
+
+/* The conversion geometry of §5.2: sixteen heads per cylinder always, and the
+ * sectors per track the board's jumpers select. See the header for how 18 is
+ * established from the drive geometries rather than chosen. */
+#define AP_OMTI_CONVERSION_HEADS 16u
+#define AP_OMTI_CONVERSION_SECTORS 18u
 #define AP_OMTI_CONTROL_STEP 0x07u
 
 /* ## Which of the four options this controller acts on, and why the rest are
@@ -182,15 +188,37 @@ typedef struct {
  * - **`DISABLE ECC` (bit 6 on a READ)** chooses whether a correctable ECC error
  *   is corrected or reported. Same reason: nothing here produces one. The ECC
  *   *bytes* are modelled (`ap_awd_ecc`), the failure is not.
- * - **`ENABLE SECTOR ADDRESS CONVERSION` (bit 5)** converts the address using
- *   "16 heads per cylinder" and a sectors-per-track count taken from **jumpers
- *   W10 and W9**. This is the one that could change which sector a command
- *   reaches, and it is not modelled because the jumper positions on the
- *   *Apollo* board are in no source in hand -- `008778-03` describes the
- *   controller's function and not its strapping. Guessing a conversion would
- *   silently move every address. `PROVISIONAL`; closing it needs the Apollo
- *   board's jumper settings or a measurement of a command issued with the bit
- *   set. The Domain/OS boot measured here never sets it.
+ * - **`ENABLE SECTOR ADDRESS CONVERSION` (bit 5)** is modelled. §5.2: "the
+ *   controller will perform a sector address conversion based on 16 heads per
+ *   cylinder. The number of sectors per track used in the conversion is based
+ *   on the SECTORS PER TRACK Jumpers". The address in the CDB is therefore in a
+ *   host geometry of sixteen heads and the jumpered sectors, and the controller
+ *   re-expresses it in the drive's own; a linear block is what the two share.
+ *
+ *   **The jumper count is settled, and the manual disagrees with itself about
+ *   which jumpers they are.** §5.2 says "W10 and W9"; the jumper table under
+ *   COMMON SYSTEM JUMPER SETTINGS on page 2-8 says **W10 and W11** and is the
+ *   one that carries values:
+ *
+ *       W10 W11   bytes/sector   sectors/track (ST506/412 MFM)
+ *        0*  0        512             17
+ *        0   1        512             18
+ *        1   0       1024              9
+ *        1   1       1056              9
+ *
+ *   This board is **18 sectors per track**, and that comes from two independent
+ *   places rather than from a choice made here. `image/ap_awd.h` records both
+ *   Apollo drives from their own geometry -- the 348 MB Maxtor EXT-4380-E at
+ *   1223 cylinders, 15 heads, **18 sectors**, and the 155 MB Micropolis 1355 at
+ *   1023, 8, **18** -- and 18 is
+ *   the only entry in the table above that produces it, at 512 bytes per sector
+ *   which is what the images are. The same page's `W19/W18/W17` gives the
+ *   Winchester base address as `01A0h` in one of its eight rows, which is where
+ *   this board decodes the controller, so the table describes this strapping in
+ *   two places.
+ *
+ *   The Domain/OS boot measured here never sets the bit, so nothing observed
+ *   depends on this; it is implemented because the document defines it.
  * - **`STEP` (bits 2-0)** picks one of eight step rates, from 3 milliseconds
  *   per step to 10 microseconds buffered. Seeks in this model complete inside
  *   the command that issues them -- the same reason `MSR_SEEK_A`/`_B` are

@@ -270,6 +270,33 @@ static bool addressed(ap_omti_t *omti, const ap_omti_cdb_t *cdb,
     finish(omti, true, SENSE_DRIVE_NOT_READY);
     return false;
   }
+  /* §5.2 bit 5, ENABLE SECTOR ADDRESS CONVERSION: "the controller will perform
+   * a sector address conversion based on 16 heads per cylinder. The number of
+   * sectors per track used in the conversion is based on the SECTORS PER TRACK
+   * Jumpers ... This conversion is useful when there is a different number of
+   * sectors per track (ESDI) than the DOS is using (17)."
+   *
+   * So the address in the CDB is in a *host* geometry of sixteen heads and the
+   * jumpered sectors per track, and the controller re-expresses it in the
+   * drive's own. A linear block is the only thing the two share, so the
+   * conversion is: flatten with the conversion geometry, expand with the
+   * drive's -- which `ap_awd_lba` already does for the second half.
+   *
+   * The jumpers are `AP_OMTI_CONVERSION_SECTORS`; see the header for why 18 is
+   * this board's, and for the manual's own disagreement about which two jumpers
+   * they are. */
+  if ((cdb->control & AP_OMTI_CONTROL_ADDRESS_CONVERSION) != 0u) {
+    const uint32_t converted =
+        ((uint32_t)cdb->cylinder * AP_OMTI_CONVERSION_HEADS + cdb->head) *
+            AP_OMTI_CONVERSION_SECTORS +
+        cdb->sector;
+    if (converted >= ap_awd_sector_count(omti->selected->geometry)) {
+      refuse(omti, cdb->cylinder, cdb->head, cdb->sector, 0u);
+      return false;
+    }
+    *lba = converted;
+    return true;
+  }
   if (!ap_awd_lba(omti->selected->geometry, cdb->cylinder, cdb->head, cdb->sector,
                   lba)) {
     refuse(omti, cdb->cylinder, cdb->head, cdb->sector, 0u);

@@ -23018,3 +23018,41 @@ either stand: each compared binaries at a fixed device model.
 
 *Verification: `tools/identity-boot.sh`, 350 M instructions, the invocation the
 script holds.*
+
+
+## The OMTI sector address conversion, and a jumper table that settles it
+
+`ENABLE SECTOR ADDRESS CONVERSION` was the one control-byte bit that could
+change which sector a command reaches, and it was `PROVISIONAL` because "the
+jumper positions on the *Apollo* board are in no source in hand". They are, and
+the source was on disk: `OMTI IBM PC/AT Intelligent Data Controllers Reference`
+page 2-8, COMMON SYSTEM JUMPER SETTINGS.
+
+```
+   W10 W11   bytes/sector   sectors/track (ST506/412 MFM)
+    0*  0        512             17
+    0   1        512             18
+    1   0       1024              9
+    1   1       1056              9
+```
+
+**This board is 18 sectors per track, established twice over rather than
+chosen.** `image/ap_awd.h` records both Apollo drives from their own geometry --
+the 348 MB Maxtor EXT-4380-E at 1223 cylinders, 15 heads, 18 sectors, and the
+155 MB Micropolis 1355 at 1023, 8, 18 -- and 18 is the only row above that
+produces it, at the 512 bytes per sector the images are. The same page's
+`W19/W18/W17` row for `01A0h` is where this board decodes the controller, so the
+table describes this strapping in two independent places.
+
+**The manual disagrees with itself about which jumpers they are.** §5.2 names
+"W10 and W9"; page 2-8's table names W10 and W11 and is the one carrying values.
+Our header had copied §5.2 faithfully, which is why the search for a jumper
+table had been looking for the wrong pair.
+
+Implemented: with the bit set, the CDB's address is flattened using sixteen
+heads per cylinder and eighteen sectors, and the result indexes the drive
+directly. The Domain/OS boot measured here never sets the bit, so nothing
+observed depends on it -- it is implemented because the document defines it.
+
+*Verification: `omti_suite` 23 -> 24, asserting the converted and unconverted
+addresses differ on a 15-head drive and that the constants are the manual's.*

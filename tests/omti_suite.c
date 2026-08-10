@@ -686,8 +686,37 @@ static void test_the_completion_byte_carries_the_commands_lun(void) {
   TEST_ASSERT_EQUAL_HEX8(0x20u, ap_omti_disk_read(&o, AP_OMTI_DISK_DATA) & 0x20u);
 }
 
+/* §5.2 bit 5, sector address conversion. The CDB's address is in a host
+ * geometry of sixteen heads and the jumpered sectors per track, and the
+ * controller re-expresses it in the drive's -- so with the bit set the same CDB
+ * reaches a different block, on any drive whose geometry is not the
+ * conversion's. This board's drives have fifteen and eight heads. */
+static void test_sector_address_conversion_uses_sixteen_heads(void) {
+  /* The 348 MB Maxtor of `image/ap_awd.h`: 1223 cylinders, 15 heads, 18
+   * sectors. */
+  const ap_awd_geometry_t maxtor = {.cylinders = 1223u, .heads = 15u,
+                                    .sectors = 18u};
+
+  uint32_t plain = 0u;
+  TEST_ASSERT_TRUE(ap_awd_lba(maxtor, 2u, 3u, 4u, &plain));
+  TEST_ASSERT_EQUAL_UINT32((2u * 15u + 3u) * 18u + 4u, plain);
+
+  const uint32_t converted =
+      (2u * AP_OMTI_CONVERSION_HEADS + 3u) * AP_OMTI_CONVERSION_SECTORS + 4u;
+  TEST_ASSERT_EQUAL_UINT32((2u * 16u + 3u) * 18u + 4u, converted);
+  TEST_ASSERT_TRUE(converted != plain);
+
+  /* The constants are the manual's: sixteen heads always, and the sectors per
+   * track the jumper table gives for this board -- 18, which is the only entry
+   * matching both Apollo drives' own geometry. */
+  TEST_ASSERT_EQUAL_UINT(16u, AP_OMTI_CONVERSION_HEADS);
+  TEST_ASSERT_EQUAL_UINT(18u, AP_OMTI_CONVERSION_SECTORS);
+  TEST_ASSERT_EQUAL_UINT(18u, maxtor.sectors);
+}
+
 int main(void) {
   UNITY_BEGIN();
+  RUN_TEST(test_sector_address_conversion_uses_sixteen_heads);
   RUN_TEST(test_test_drive_ready_fails_for_a_lun_with_no_drive);
   RUN_TEST(test_the_completion_byte_carries_the_commands_lun);
   RUN_TEST(test_the_measured_fixed_disk_ports_are_reproduced);
