@@ -23099,3 +23099,37 @@ would be a command the driver had already abandoned, which is a mistake no
 amount of internal consistency would catch.
 
 *Verification: `sc499_suite` 21 -> 22.*
+
+
+## The Intel 8254, fetched and modelled, for the ring controller
+
+Phase 6's ring controller device needs two of these: `RING.md` finding 41
+identifies `+800`-`+806` and `+C00`-`+C06` as two Intel 8254 programmable
+interval timers, on four independent points from the firmware's own writes. The
+project held the 8237A and 8259A datasheets and no 8254, so the 8254 chapter of
+the *1983 Intel Microprocessors and Peripherals Handbook* was fetched from
+bitsavers' `components/intel/_dataBooks/` and is now the reference.
+
+Modelled: the control word's four fields, the counter latch command, the
+read-back command in both halves and the rule that status is returned before a
+latched count, LSB/MSB sequencing on reads and writes separately, the NULL COUNT
+flag with Figure 12's exact transitions, and counting with the OUT pin. Modes 0,
+2 and 3 in full; modes 1, 4 and 5 are decoded and counted with mode 0's
+waveform, and `ap_i8254_mode_gated` reports them, because their distinguishing
+behaviour needs a GATE edge this board does not drive -- a fact about the board,
+reported rather than approximated.
+
+**The firmware is the acceptance test, and it is the first test in the suite.**
+The ring ROM writes `$30`, `$70`, `$B0` -- counters 0, 1, 2, each LSB-then-MSB,
+each mode 0 -- then `$E4`, which decodes as read-back, latch status, counter 1,
+and then tests the NULL COUNT bit of what comes back. `$E4` exists only on the
+8254; the 8253 has no read-back command. So the part is pinned by the firmware
+using a command the earlier part does not have, and this suite replays that
+sequence and checks each step.
+
+Figure 12's footnote is the one a model gets wrong: for a two-byte count NULL
+COUNT "goes to 1 when the second byte is written", so it must not clear on the
+first. A driver polling it would otherwise proceed on a counter still holding
+the old count.
+
+*Verification: `i8254_suite`, 7 tests; `ctest` 130 -> 131.*
