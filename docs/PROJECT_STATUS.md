@@ -22385,3 +22385,49 @@ configuration and not the emulator.
 `3500_BOOT_12191_7.bin`; the give-up path's registers from a stop on the fourth
 write to `00010100`; three MD-path boots differing only in `--screen`; `ctest`
 130/130 after the probe was reverted.*
+
+## The MD stall is a terminal loop, and the calendar is not (yet) the reason
+
+Three things measured, one of them a hypothesis that did not survive.
+
+**The loop is terminal, not a wait.** `3C456B86`-`3C456BB4` is an unconditional
+`BRA` round two counted delays that call the LED routine with `$0F` and `0`.
+There is no exit test in it, so the kernel has stopped on purpose rather than
+waiting for a device.
+
+**It is preceded by a message call.** Immediately above:
+
+```
+  3C456B72  PEA (-$8B0,PC)      ; 3C4562C4, code
+  3C456B78  PEA (+$D44,PC)      ; 3C4578C0
+  3C456B7C  JSR $3C4D1F68
+```
+
+and logical `3C4578C0` holds, in plain text, **"Switch to service mode, press
+reset and run CALENDAR."** -- which reads exactly like the reason a machine with
+an unconfigured battery would stop.
+
+**Tested, and it is not sufficient.** `002398-04` p. 12-3 (p. 281 of the
+handbook) lays the battery RAM out as checksum at `0E`-`11`, valid pattern at
+`12`-`15`, memory array, node ID and device bits after it -- so file offsets
+0-3 and 4-7 of `--calendar-ram`. Seeding the pattern `1234ABCD` alone changes
+nothing: same terminal loop, same `0C`, 19,806 writes. Either the checksum over
+the table must agree as well, or this message is one entry of a table the call
+selects from and not the one printed.
+
+**The screen says the second is possible.** With `--screen 19i` fitted the
+machine's own display shows the boot PROM's `>` prompt and no message at all, so
+nothing was printed *there*; the serial console shows the `EX DOMAIN_OS` dialogue
+and the load line and then nothing either. A string a call site points at is not
+evidence that the string was printed, and this is recorded as an untested
+inference rather than a finding.
+
+*Next, in order*: compute the table's checksum the way the PROM does (the
+comparison at `00178A` is already located, so the routine around it can be read
+out of the ROM image), seed a complete table, and only then re-test. If it still
+stops, find what `3C4D1F68` actually prints by watching its argument rather than
+by reading the pointer.
+
+*Verification: the loop and the call read from a dump at a stop on `3C456B86`;
+the string from a second dump at the same stop; a boot with the pattern seeded;
+a screenshot of the fitted display.*
