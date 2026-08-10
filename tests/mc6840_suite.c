@@ -483,29 +483,114 @@ static void test_reinitialising_a_single_shot_arms_it_again(void) {
   TEST_ASSERT_TRUE(ap_mc6840_output(&ptm, 0));
 }
 
-static void test_the_measurement_modes_are_decoded_and_declined(void) {
+/* ## The two measurement modes, `[6840]` §3.9 and §3.10
+ *
+ * Both compare a duration on the gate pin against the Time Out, and which of
+ * the two arrives first *is* the comparison -- so the tests drive the gate and
+ * count clocks, and never inspect the mechanism.
+ *
+ * These modes were declined for a long time, on the grounds that this board
+ * wires nothing to a gate. That is a fact about the board and not about the
+ * part, and the part is what this suite tests. */
+static void test_a_period_shorter_than_the_time_out_interrupts(void) {
   ap_mc6840_t ptm;
-
-  /* §3.9 and §3.10. Both are decoded, so a caller is told *which* mode it asked
-   * for, and both are refused, because "The digital signal to be measured is
-   * applied to the individual gate pin" and on this board nothing is connected
-   * to the gates -- the timers take fixed clocks. Declined for want of a signal
-   * rather than for want of a transcription. */
-  program_continuous(&ptm, 4, 0x08u | AP_MC6840_CR_IRQ_ENABLE);
+  /* Bit 3 selects measurement, bit 4 clear selects period, bit 5 clear asks for
+   * the interrupt when the period is the *shorter* of the two. */
+  program_continuous(&ptm, 8, AP_MC6840_CR_MEASUREMENT | AP_MC6840_CR_IRQ_ENABLE);
   TEST_ASSERT_EQUAL_UINT(AP_MC6840_MODE_PERIOD_MEASUREMENT,
                          ap_mc6840_mode(&ptm, 0));
-  TEST_ASSERT_FALSE(ap_mc6840_mode_supported(&ptm, 0));
+  TEST_ASSERT_TRUE(ap_mc6840_mode_supported(&ptm, 0));
 
-  program_continuous(&ptm, 4, 0x18u | AP_MC6840_CR_IRQ_ENABLE);
-  TEST_ASSERT_EQUAL_UINT(AP_MC6840_MODE_PULSE_WIDTH_MEASUREMENT,
-                         ap_mc6840_mode(&ptm, 0));
-  TEST_ASSERT_FALSE(ap_mc6840_mode_supported(&ptm, 0));
+  /* The falling edge that starts the measurement. */
+  ap_mc6840_set_gate(&ptm, 0, true);
+  ap_mc6840_set_gate(&ptm, 0, false);
+  TEST_ASSERT_FALSE(ap_mc6840_irq(&ptm));
 
-  /* And a declined timer stands still rather than counting plausibly. */
-  for (unsigned i = 0; i < 64; i++) {
+  /* Fewer clocks than the latch, then the next falling edge closes it. */
+  for (unsigned i = 0; i < 4u; i++) {
     ap_mc6840_clock(&ptm, 0);
   }
+  ap_mc6840_set_gate(&ptm, 0, true);
+  ap_mc6840_set_gate(&ptm, 0, false);
+  TEST_ASSERT_TRUE(ap_mc6840_irq(&ptm));
+}
+
+static void test_a_period_longer_than_the_time_out_does_not(void) {
+  ap_mc6840_t ptm;
+  program_continuous(&ptm, 8, AP_MC6840_CR_MEASUREMENT | AP_MC6840_CR_IRQ_ENABLE);
+
+  ap_mc6840_set_gate(&ptm, 0, true);
+  ap_mc6840_set_gate(&ptm, 0, false);
+  /* Past the Time Out, so the period is the longer of the two -- and the case
+   * programmed here asks for an interrupt on the shorter. */
+  for (unsigned i = 0; i < 64u; i++) {
+    ap_mc6840_clock(&ptm, 0);
+  }
+  ap_mc6840_set_gate(&ptm, 0, true);
+  ap_mc6840_set_gate(&ptm, 0, false);
   TEST_ASSERT_FALSE(ap_mc6840_irq(&ptm));
+}
+
+/* Bit 5 set reverses the comparison: "Interrupt will be generated if the ...
+ * duration ... is greater than the Time Out", and it is the Time Out itself
+ * that raises it, with no closing edge needed. */
+static void test_bit_five_asks_for_the_interrupt_on_the_longer_period(void) {
+  ap_mc6840_t ptm;
+  program_continuous(&ptm, 8,
+                     AP_MC6840_CR_MEASUREMENT | AP_MC6840_CR_BIT5 |
+                         AP_MC6840_CR_IRQ_ENABLE);
+
+  ap_mc6840_set_gate(&ptm, 0, true);
+  ap_mc6840_set_gate(&ptm, 0, false);
+  for (unsigned i = 0; i < 64u; i++) {
+    ap_mc6840_clock(&ptm, 0);
+  }
+  TEST_ASSERT_TRUE(ap_mc6840_irq(&ptm));
+}
+
+/* §3.10 measures the *down time* -- "the period from the negative transition
+ * causing initialization to the first positive transition of the gate" -- so
+ * the rising edge closes it, where a period measurement ignores that edge. */
+static void test_pulse_width_is_closed_by_the_rising_edge(void) {
+  ap_mc6840_t ptm;
+  program_continuous(&ptm, 8,
+                     AP_MC6840_CR_MEASUREMENT | AP_MC6840_CR_BIT4 |
+                         AP_MC6840_CR_IRQ_ENABLE);
+  TEST_ASSERT_EQUAL_UINT(AP_MC6840_MODE_PULSE_WIDTH_MEASUREMENT,
+                         ap_mc6840_mode(&ptm, 0));
+
+  ap_mc6840_set_gate(&ptm, 0, true);
+  ap_mc6840_set_gate(&ptm, 0, false);
+  for (unsigned i = 0; i < 4u; i++) {
+    ap_mc6840_clock(&ptm, 0);
+  }
+  /* Short down time: the rising edge arrives before the Time Out. */
+  ap_mc6840_set_gate(&ptm, 0, true);
+  TEST_ASSERT_TRUE(ap_mc6840_irq(&ptm));
+}
+
+/* The Counter Enable both sections give includes "There is no individual
+ * interrupt flag asserted", which the counting modes have no equivalent of: a
+ * measurement stops at the interrupt that ended it rather than running on. */
+static void test_a_measurement_stops_at_its_own_interrupt(void) {
+  ap_mc6840_t ptm;
+  program_continuous(&ptm, 8,
+                     AP_MC6840_CR_MEASUREMENT | AP_MC6840_CR_BIT5 |
+                         AP_MC6840_CR_IRQ_ENABLE);
+  ap_mc6840_set_gate(&ptm, 0, true);
+  ap_mc6840_set_gate(&ptm, 0, false);
+  for (unsigned i = 0; i < 64u; i++) {
+    ap_mc6840_clock(&ptm, 0);
+  }
+  TEST_ASSERT_TRUE(ap_mc6840_irq(&ptm));
+
+  /* Reading the status register clears the flag; §3.11's sequence is a status
+   * read followed by a counter read. Until then the counter is held. */
+  const uint16_t held = ptm.timer[0].counter;
+  for (unsigned i = 0; i < 32u; i++) {
+    ap_mc6840_clock(&ptm, 0);
+  }
+  TEST_ASSERT_EQUAL_HEX16(held, ptm.timer[0].counter);
 }
 
 static void test_the_apollo_clock_rates_divide_the_time_base(void) {
@@ -566,7 +651,11 @@ int main(void) {
   RUN_TEST(test_dual_eight_bit_repeats_at_the_same_interval);
   RUN_TEST(test_single_shot_interrupts_repeatedly_but_pulses_once);
   RUN_TEST(test_reinitialising_a_single_shot_arms_it_again);
-  RUN_TEST(test_the_measurement_modes_are_decoded_and_declined);
+  RUN_TEST(test_a_period_shorter_than_the_time_out_interrupts);
+  RUN_TEST(test_a_period_longer_than_the_time_out_does_not);
+  RUN_TEST(test_bit_five_asks_for_the_interrupt_on_the_longer_period);
+  RUN_TEST(test_pulse_width_is_closed_by_the_rising_edge);
+  RUN_TEST(test_a_measurement_stops_at_its_own_interrupt);
   RUN_TEST(test_the_apollo_clock_rates_divide_the_time_base);
   RUN_TEST(test_two_parts_reset_alike_hold_identical_state);
   return UNITY_END();

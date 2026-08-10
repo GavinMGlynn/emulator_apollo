@@ -45,9 +45,11 @@ bool ap_mc6840_mode_supported(const ap_mc6840_t *ptm, unsigned index) {
   if (index >= AP_MC6840_TIMERS) {
     return false;
   }
-  ap_mc6840_mode_t mode = ap_mc6840_mode(ptm, index);
-  return mode == AP_MC6840_MODE_CONTINUOUS ||
-         mode == AP_MC6840_MODE_SINGLE_SHOT;
+  /* All four. The two measurement modes were declined while this board had
+   * nothing wired to a gate pin; they are `[6840]` §3.9 and §3.10 and are
+   * modelled now, so the answer is no longer about the board. */
+  (void)ap_mc6840_mode(ptm, index);
+  return true;
 }
 
 /* §3.7.1 and §3.7.2: bit 2 chooses whether the latch is one sixteen-bit word or
@@ -82,7 +84,22 @@ static bool counting(const ap_mc6840_t *ptm, unsigned index) {
   if (ptm->timer[index].gate) {
     return false;
   }
-  return ap_mc6840_mode_supported(ptm, index);
+  /* §3.9 and §3.10 state the same four-part Counter Enable for both
+   * measurement modes: "The gate pin goes low AND No write to the Counter
+   * Latches AND Reset is cleared AND There is no individual interrupt flag
+   * asserted."
+   *
+   * The first and third are the two tests above, which the counting modes
+   * share. The fourth is extra, and it is what stops a measurement running on
+   * past the interrupt that ended it -- the counting modes have no such rule
+   * and keep going. The second is the latch write, which reloads and clears
+   * `measuring` where it happens. */
+  const ap_mc6840_mode_t mode = ap_mc6840_mode(ptm, index);
+  if (mode == AP_MC6840_MODE_PERIOD_MEASUREMENT ||
+      mode == AP_MC6840_MODE_PULSE_WIDTH_MEASUREMENT) {
+    return !ptm->timer[index].interrupt_flag && ptm->timer[index].measuring;
+  }
+  return true;
 }
 
 /* §3.7: "Write to Counter Latches -- Counter Latch Initialization." A latch
@@ -96,6 +113,11 @@ static void reload(ap_mc6840_timer_t *timer) {
    * the counter is enabled" -- so the output is armed again by every
    * initialisation, not only by the first. */
   timer->single_shot_fired = false;
+  /* §3.10's note starts the output low for a measurement, and every
+   * initialisation restarts that. `timed_out` belongs to the measurement the
+   * reload begins, not the one it ended. */
+  timer->output = false;
+  timer->timed_out = false;
 }
 
 void ap_mc6840_set_gate(ap_mc6840_t *ptm, unsigned index, bool high) {
@@ -105,11 +127,62 @@ void ap_mc6840_set_gate(ap_mc6840_t *ptm, unsigned index, bool high) {
   bool was_high = ptm->timer[index].gate;
   ptm->timer[index].gate = high;
 
+  ap_mc6840_timer_t *timer = &ptm->timer[index];
+  const ap_mc6840_mode_t mode = ap_mc6840_mode(ptm, index);
+  const bool measurement = mode == AP_MC6840_MODE_PERIOD_MEASUREMENT ||
+                           mode == AP_MC6840_MODE_PULSE_WIDTH_MEASUREMENT;
+  /* Bit 5 selects which way the comparison runs: §3.9's two cases are
+   * "interrupt will be generated if the ... duration ... is less than the Time
+   * Out" for a clear bit and "greater than" for a set one. */
+  const bool interrupt_when_longer = (timer->control & AP_MC6840_CR_BIT5) != 0u;
+
+  if (measurement && !was_high && high) {
+    /* The **rising** edge, and it ends a pulse-width measurement only.
+     * §3.10: "The pulse on the gate pin is defined as the period from the
+     * negative transition causing initialization to the first positive
+     * transition of the gate", so the down time is measured between the two
+     * and this edge is where it is known. A period measurement ignores this
+     * edge entirely -- §3.9 measures falling edge to falling edge. */
+    if (mode == AP_MC6840_MODE_PULSE_WIDTH_MEASUREMENT && timer->measuring) {
+      if (!timer->timed_out && !interrupt_when_longer) {
+        /* The pulse ended before the Time Out: shorter, and this is the case
+         * that asks for an interrupt. When the Time Out came first the flag was
+         * set there, if the other case was programmed. */
+        timer->interrupt_flag = true;
+      }
+      timer->measuring = false;
+    }
+    return;
+  }
+
   if (was_high && !high) {
     /* §3.7.1's counter initialization for continuous mode is "Reset OR Gate pin
      * goes low", and §3.11 lists "The gate (GX) goes low. (IF CR x 3 = 0)"
      * among the things that clear an interrupt. Both are edge-triggered, which
      * is why the pin is stored rather than an enable flag. */
+    if (measurement) {
+      /* A falling edge ends a *period* measurement and begins the next one.
+       * §3.9 measures "the period of a digital signal" between falling edges,
+       * so the edge that closes one measurement opens the following one. */
+      if (mode == AP_MC6840_MODE_PERIOD_MEASUREMENT && timer->measuring) {
+        if (!timer->timed_out && !interrupt_when_longer) {
+          timer->interrupt_flag = true;
+        }
+        timer->measuring = false;
+      }
+      /* Counter Initialization, both sections: "The gate pin goes low AND There
+       * is no individual interrupt flag asserted". §3.9's first case adds "(A
+       * Reset Counter Enable OR a Time Out has occurred)" with the footnote
+       * "This prevents initialization on the trailing edge of a previous period
+       * measurement" -- which is exactly the state `measuring` carries, so a
+       * measurement still running is not restarted by its own trailing edge. */
+      if (!timer->interrupt_flag && !timer->measuring) {
+        reload(timer);
+        timer->measuring = true;
+        timer->timed_out = false;
+      }
+      return;
+    }
     reload(&ptm->timer[index]);
     if ((ptm->timer[index].control & 0x08u) == 0u) {
       ptm->timer[index].interrupt_flag = false;
@@ -169,9 +242,33 @@ void ap_mc6840_clock(ap_mc6840_t *ptm, unsigned index) {
   if (!timed_out) {
     return;
   }
+  const ap_mc6840_mode_t timed_mode = ap_mc6840_mode(ptm, index);
+  if (timed_mode == AP_MC6840_MODE_PERIOD_MEASUREMENT ||
+      timed_mode == AP_MC6840_MODE_PULSE_WIDTH_MEASUREMENT) {
+    /* The Time Out arrived before the gate edge that would have ended the
+     * measurement, so the measured duration is the *longer* of the two -- and
+     * §3.9's second case is the one that asks for an interrupt on that. The
+     * first case wants the opposite and says nothing here; its flag is set at
+     * the closing gate edge instead. */
+    timer->timed_out = true;
+    if ((timer->control & AP_MC6840_CR_BIT5) != 0u) {
+      timer->interrupt_flag = true;
+    }
+    /* §3.10's note, which covers both measurement modes: "During the first Time
+     * Out the output will be low. If the first Time Out is completed, the
+     * output will go high at the Time Out completion. If further Time Outs are
+     * allowed to be completed, the output will change state at the completion
+     * of each Time Out." A toggle satisfies all three from a low start, which
+     * is where `reload` leaves it. */
+    timer->output = !timer->output;
+    timer->counter = timer->latch;
+    timer->lsb_counter = (uint8_t)(timer->latch & 0xFFu);
+    return;
+  }
+
   timer->interrupt_flag = true;
 
-  if (ap_mc6840_mode(ptm, index) == AP_MC6840_MODE_SINGLE_SHOT) {
+  if (timed_mode == AP_MC6840_MODE_SINGLE_SHOT) {
     /* §3.8: "Internally, the count recycling is continuous as if in the
      * Continuous Mode. Only one pulse is evident on the output pin for each
      * Counter Initialization." So the interrupts keep coming and the output

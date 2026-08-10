@@ -148,6 +148,20 @@ typedef struct {
   /* Prescaler state, timer 3 only. `[6840]` §3.6.1: "Bit 0 in control register
    * #3 is a clock prescalar and is available only in control register #3." */
   uint8_t prescale_count;
+
+  /* ## The measurement modes' own state
+   *
+   * §3.9 and §3.10 both compare a duration on the gate pin against the Time
+   * Out, and which of the two arrives first *is* the comparison. So the only
+   * state a measurement needs is whether the Time Out has already happened
+   * since the counter was initialised.
+   *
+   * `[6840]` §3.9's footnote is why a measurement also has to know it is
+   * running: "This prevents initialization on the trailing edge of a previous
+   * period measurement", so a falling edge is an initialisation only when the
+   * previous measurement has ended. */
+  bool measuring;
+  bool timed_out;
 } ap_mc6840_timer_t;
 
 typedef struct {

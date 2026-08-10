@@ -177,15 +177,21 @@ void ap_i8237_set_request_pin(ap_i8237_t *dma, unsigned channel, bool asserted);
  * and also what stops a caller inventing a register for a device to be read
  * from.
  *
- * ## Memory-to-memory is declined
+ * ## Memory-to-memory, and a note on this section's own history
  *
  * `[8237]`'s command bit 0 pairs channel 0 with channel 1 through the temporary
- * register. It is not modelled: the transfer is a two-cycle sequence with its
- * own rules for the address-hold bit, and nothing on this board is known to use
- * it. Declined rather than half-done -- `ap_i8237_transfer` refuses a service
- * cycle while the bit is set and says so, so a caller cannot mistake silence
- * for a transfer. Cost to close: implement the read-then-write pair with the
- * temporary register; small, and blocked on nothing but a reason.
+ * register, and it **is modelled**: the read-from-memory and write-to-memory
+ * pair, the temporary register software can read back at register 13, the
+ * command register's `CH0_ADDRESS_HOLD` for "a single word ... written to a
+ * block of memory", and the datasheet's rule that only *channel 1's* word count
+ * is decremented and its terminal count ends the service.
+ *
+ * This section said "declined" long after that was true. The feature was
+ * implemented when the loaded diagnostic's `CPU (dma) Test #1` gave it a
+ * reason -- a block move from `1100000` to `1100800` -- and the header was not
+ * revisited. A stale declination is worse than none: it tells the next reader
+ * that a documented feature is missing, and an audit that trusts it will look
+ * for work that has already been done.
  * ------------------------------------------------------------------------- */
 
 /* Memory is addressed; the peripheral is selected. */
