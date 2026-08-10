@@ -22091,3 +22091,51 @@ the other way" into the two numbers, and names which side is wrong.
 values from a second stop at the same PC; the branch outcomes read from each
 machine's own trace -- ours `3C418D30` -> `3C418D32`, the oracle's `3C418D30` ->
 `3C418D3E`.*
+
+## The branch agrees on the visit that corresponds; the field it reads does not
+
+The entry above said the whole difference is the `BCS` at `3C418D30`. Tapping
+both operands on the oracle refines that, and the refinement matters: **on the
+visit that corresponds to ours, the oracle does exactly what we do.**
+
+```
+  APOLLO_CMP 0  d0=00000001 d1=00000000 a0=3C26E400 a3=3C43F728 fallthrough
+  APOLLO_CMP 1  d0=00000000 d1=00800001 a0=3C43F728 a3=3C26E400 TAKEN
+  APOLLO_CMP 2  d0=00000000 d1=00800001 a0=3C43F728 a3=3C26E400 TAKEN
+  ...                                                     390 of 400 TAKEN
+```
+
+Visit 0 is ours instruction for instruction -- same operands, same pointers,
+same fall-through. So the branch is not evaluated differently here; it is
+*reached with different arguments later*, and that is a fact about the callers,
+not about this comparison.
+
+**Two things the tap does establish.**
+
+**The pointers arrive swapped.** From visit 1 on, the oracle's caller passes the
+global in `A0` and the object in `A3` -- the reverse of visit 0 and the reverse
+of both of our visits. Ours are `a0=3C26E400 a3=3C43F728` at 355,435,305 and
+`a0=3C26E458 a3=3C43F728` at 383,013,430: same order, a different object,
+falling through both times. So this routine compares two objects either way
+round and the caller chooses the roles.
+
+**And the field itself differs between the machines.** Both read the long word
+at logical `3C43F738`:
+
+| | value at `3C43F738` |
+| --- | --- |
+| ours (physical `01042338`, at both visits) | **`00000001`** |
+| the oracle (visits 1 onward) | **`00800001`** |
+
+Bit 23 is set there and clear here. That is a difference in kernel *data* at a
+named address, not a difference in control flow, and it is the first thing found
+in this investigation that is both concrete and upstream of everything else.
+
+*Next*: what sets `0x00800000` in `01042338`. Our own watch counts 12,540 writes
+to it ending in `00000001`, so the field is maintained here -- the question is
+which write is missing, and the instrument is the write watch we already have,
+reporting values rather than just the last one.
+
+*Verification: the oracle's operand tap over a boot to the Phase II Environment,
+400 visits sampled; our two visits from stop-PC runs with traces; the instrument
+reverted and `ext/mame` rebuilt clean.*
