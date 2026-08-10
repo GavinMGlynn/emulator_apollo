@@ -24142,11 +24142,31 @@ Neither run reports any unknown-mode cycles, so the model recognises `CR0 = E0`
 in both. The monochrome board writes exactly one plane per cycle, which is right
 for a one-plane card.
 
-*Next, and now with the right entry points: write through
-`ap_graphics_memory_cycle` and read back through
-`ap_graphics_memory_read_cycle`, with `CR1` and `CR2` at the captured
-monochrome values. That is the pair the machine actually uses, and it is the
-first test in this sequence that could fail.*
+**Run with the right pair, and it does not reproduce the machine.** Writing
+through `ap_graphics_memory_cycle` and reading back through
+`ap_graphics_memory_read_cycle` at the captured registers: `15i` and `19i`
+round-trip cleanly over 4096 words, and `c8p` fails every one.
+
+**That inversion is the test's fault and must not be read as a finding.** The
+harness allocated 128 KB of colour memory, and an 8-plane 1024x800 board needs
+819,200 bytes; `memory_read_cycle` bounds `at = offset + plane_words * s_plane`
+against `bytes / 2` and returns `FFFF` past it, so every colour read was out of
+range by construction. The frontend sizes these buffers as
+`max(image_bytes, window)` and the test did not.
+
+So after four exonerations the honest position is that **no unit-level
+reproduction exists yet**: storage, IDs, board decode, both read widths, and now
+the write-cycle/read-cycle pair are all clean on monochrome, while the machine
+fails there. What the test still does not reproduce is the firmware's *sequence*
+— `006BA0`'s `not.w (a3)+` pass runs before the `eor.w` compare, so the value
+under test is one the controller wrote through the blit path and then
+complemented, not a constant — and `CR2`'s access mode, which is `11` on the
+monochrome board and `00` on the colour one and selects between four access
+modes the blit path branches on.
+
+*Next: size the buffers as the frontend does, and replay the firmware's own two
+passes — `not.w` then `eor.w` — rather than a single constant. The access mode
+is the one register field whose monochrome value has not yet been exercised.*
 `graphics_suite` is where that belongs, it runs in milliseconds, and it either
 reproduces the firmware's failure at the unit level or exonerates the pair and
 moves the question to the registers that configure them — `CR0`'s mode and
