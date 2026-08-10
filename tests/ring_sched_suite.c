@@ -140,7 +140,7 @@ static void test_the_same_workload_twice_gives_the_same_ring_hash(void) {
    * free to vary -- a float, an uninitialised field reaching the hash, or a
    * traversal whose order depends on layout. That is worth failing loudly for,
    * since every whole-ring golden downstream would inherit it. */
-  TEST_ASSERT_EQUAL_HEX64(0x9D0B2A0A2D558C97u, ap_ring_sched_hash(&x));
+  TEST_ASSERT_EQUAL_HEX64(0x38718457833330C7u, ap_ring_sched_hash(&x));
 }
 
 /* And the hash covers *phase*, not merely elapsed time: two rings at the same

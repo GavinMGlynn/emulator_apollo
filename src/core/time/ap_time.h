@@ -55,9 +55,9 @@
  * line 6,662,700 and a frame 5,603,330,700, so no raster boundary is rounded.
  * `FINDINGS.md` C112.
  *
- * At 336.6 GHz a uint64_t spans ~1.7 years of emulated time, down from ~29.5.
- * Still far beyond any run this project will make, and wrap is not a concern
- * the model needs to handle.
+ * At 21.5424 THz a uint64_t spans ~9.9 days of emulated time. Still far beyond
+ * any run this project will make, and wrap is not a concern the model needs to
+ * handle.
  */
 
 #ifndef APOLLO_TIME_AP_TIME_H
@@ -66,10 +66,28 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-/* LCM(3.6, 12, 20, 24, 25, 33, 68 MHz) = 336.6 GHz.
+/* LCM(3.6, 12, 20, 24, 25, 33, 68 MHz) = 336.6 GHz, times 2^6 for the
+ * calendar's fast periodic rates = 21.5424 THz.
+ *
+ * The factor of 64 is the fourth multiplication and the first that is not an
+ * LCM: `[146818]` Table 5's periodic rates are 32768/2^n Hz, and 32.768 kHz
+ * needs 2^15 where the LCM alone carries 2^9. Multiplying by 2^6 makes all
+ * fifteen rates exact, which is what lets the six fastest be implemented
+ * instead of refused.
+ *
+ * It costs span: 2^64 / base falls from 634 days to **9.9 days** of emulated
+ * time. That is still four orders of magnitude beyond any run this project
+ * makes -- the longest boot here is about a minute of emulated time -- and the
+ * alternative was a device permanently unable to honour two thirds of its own
+ * rate table.
+ *
+ * The crystal itself remains impossible: 4.194304 MHz would need 2^22 and a
+ * base of 2.76 PHz, spanning 1 hour 52 minutes. That is not a trade, it is a
+ * wall, and it is why the rates rather than the crystal are the clock domain.
+ *
  * See docs/PROJECT_STATUS.md for which model clocks are confirmed and which
  * are still PROVISIONAL. */
-#define AP_TIME_BASE_HZ UINT64_C(336600000000)
+#define AP_TIME_BASE_HZ UINT64_C(21542400000000)
 
 /* The ring's two clock domains, from 010005-00 section 3.2 p.3-3. Declared here
  * because the time base exists to represent them exactly, and a change to

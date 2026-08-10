@@ -17,8 +17,11 @@ static void test_both_ring_clocks_divide_the_time_base_exactly(void) {
   TEST_ASSERT_EQUAL_UINT64(0u, AP_TIME_BASE_HZ % AP_RING_LINE_HZ);
   /* Two windows to a cell, exactly. */
   TEST_ASSERT_EQUAL_UINT64(AP_RING_BIT_CELL_TICKS, 2u * AP_RING_WINDOW_TICKS);
-  /* And the cell really is the manual's 83.33 ns: 83.33e-9 * 336.6e9 = 28050. */
-  TEST_ASSERT_EQUAL_UINT64(28050u, AP_RING_BIT_CELL_TICKS);
+  /* And the cell really is the manual's 83.33 ns: at 21.5424 THz that is
+   * 83.33e-9 * 21.5424e12 = 1,795,200 units, which is 28050 * 64 -- the base's
+   * calendar multiplier passing through a figure that did not move. */
+  TEST_ASSERT_EQUAL_UINT64(1795200u, AP_RING_BIT_CELL_TICKS);
+  TEST_ASSERT_EQUAL_UINT64(28050u * 64u, AP_RING_BIT_CELL_TICKS);
 }
 
 /* "In each clock window, a transition ... must always be present." So the

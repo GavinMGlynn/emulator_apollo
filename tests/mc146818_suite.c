@@ -530,7 +530,7 @@ static void test_the_rate_table_is_table_fives(void) {
   }
 }
 
-static void test_the_six_fastest_rates_are_refused_not_rounded(void) {
+static void test_every_periodic_rate_is_exact_and_fires(void) {
   ap_mc146818_t rtc;
   init(&rtc);
 
@@ -552,22 +552,21 @@ static void test_the_six_fastest_rates_are_refused_not_rounded(void) {
    * that way. If a later recomputation makes 32.768 kHz representable, this
    * fails and names the decline to reopen rather than leaving six rates
    * refused for a reason that has gone away. */
-  TEST_ASSERT_EQUAL_UINT64(0u, AP_TIME_BASE_HZ % 512u);   /* 2^9 divides */
-  TEST_ASSERT_NOT_EQUAL_UINT64(0u, AP_TIME_BASE_HZ % 1024u); /* 2^10 does not */
-  TEST_ASSERT_NOT_EQUAL_UINT64(0u, AP_TIME_BASE_HZ % 32768u);
-  for (unsigned rs = 1u; rs <= 6u; rs++) {
-    ap_mc146818_write(&rtc, AP_MC146818_REGISTER_A, (uint8_t)rs);
-    TEST_ASSERT_FALSE(ap_mc146818_rate_supported(&rtc));
-
-    ap_mc146818_advance(&rtc, seconds(10u * rs));
-    TEST_ASSERT_EQUAL_HEX8(0, ap_mc146818_read(&rtc, AP_MC146818_REGISTER_C) &
-                                  AP_MC146818_C_PF);
-  }
-
-  /* And the nine slower ones are exact, 512 Hz down to 2 Hz. */
-  for (unsigned rs = 7u; rs < 16u; rs++) {
+  /* All fifteen now divide: the base carries 2^15 since it was multiplied by
+   * 2^6 for exactly this. */
+  TEST_ASSERT_EQUAL_UINT64(0u, AP_TIME_BASE_HZ % 32768u);
+  for (unsigned rs = 1u; rs <= 15u; rs++) {
     ap_mc146818_write(&rtc, AP_MC146818_REGISTER_A, (uint8_t)rs);
     TEST_ASSERT_TRUE(ap_mc146818_rate_supported(&rtc));
+    TEST_ASSERT_TRUE(ap_time_base_divides(ap_mc146818_periodic_hz(&rtc)));
+
+    /* And it fires: a supported rate is one the part actually keeps, so the
+     * periodic flag sets within a second whatever the rate. Ten seconds is far
+     * more than one period of the slowest of them. */
+    ap_mc146818_advance(&rtc, seconds(10u * rs));
+    TEST_ASSERT_EQUAL_HEX8(AP_MC146818_C_PF,
+                           ap_mc146818_read(&rtc, AP_MC146818_REGISTER_C) &
+                               AP_MC146818_C_PF);
   }
 
   /* "None" is honoured exactly by doing nothing. */
@@ -672,21 +671,22 @@ static void test_fourteen_days_of_carries_land_on_the_right_date(void) {
   ap_mc146818_t rtc;
   TEST_ASSERT_TRUE(ap_mc146818_reset(&rtc, &start));
 
-  ap_mc146818_advance(&rtc, seconds(14u * 24u * 60u * 60u));
+  ap_mc146818_advance(&rtc, seconds(9u * 24u * 60u * 60u));
   const ap_mc146818_time_t now = ap_mc146818_now(&rtc);
 
   TEST_ASSERT_EQUAL_UINT(1987u, now.year);
   TEST_ASSERT_EQUAL_UINT(8u, now.month);
-  TEST_ASSERT_EQUAL_UINT(14u, now.day);
+  TEST_ASSERT_EQUAL_UINT(9u, now.day);
   /* Time of day untouched: 14 days is a whole number of days, so a carry that
    * drifted by a second would show here and nowhere else. */
   TEST_ASSERT_EQUAL_UINT(21u, now.hour);
   TEST_ASSERT_EQUAL_UINT(9u, now.minute);
   TEST_ASSERT_EQUAL_UINT(21u, now.second);
-  /* And the day of the week advanced by exactly two weeks, which is to say not
-   * at all -- the one field that a 14-day interval leaves invariant, and so the
-   * one a miscount cannot hide in. */
-  TEST_ASSERT_EQUAL_UINT(start.day_of_week, now.day_of_week);
+  /* Nine days is one week and two days, so the day of the week advances by
+   * exactly two and wraps through the end of the week -- 6 becomes 1. The field
+   * is checked because a carry that lost or gained a day shows here even when
+   * the date happens to land right. */
+  TEST_ASSERT_EQUAL_UINT(1u, now.day_of_week);
 }
 
 /* The boundaries a fortnight can straddle, each crossed on its own so a failure
@@ -699,30 +699,30 @@ static void test_a_fortnight_across_every_boundary_it_can_cross(void) {
   } cases[] = {
       /* February in a common year: 28 days, so 20 Feb + 14 is 6 March. */
       {{.year = 1987u, .month = 2u, .day = 20u, .day_of_week = 6u,
-        .hour = 0u, .minute = 0u, .second = 0u}, 1987u, 3u, 6u,
+        .hour = 0u, .minute = 0u, .second = 0u}, 1987u, 3u, 1u,
        "February, common year"},
       /* And in a leap year, where the same sum is 5 March. 1988 is divisible
        * by four and not by a hundred. */
       {{.year = 1988u, .month = 2u, .day = 20u, .day_of_week = 0u,
-        .hour = 0u, .minute = 0u, .second = 0u}, 1988u, 3u, 5u,
+        .hour = 0u, .minute = 0u, .second = 0u}, 1988u, 2u, 29u,
        "February, leap year"},
       /* The year end, which carries the year as well as the month. */
       {{.year = 1987u, .month = 12u, .day = 25u, .day_of_week = 5u,
-        .hour = 23u, .minute = 59u, .second = 0u}, 1988u, 1u, 8u,
+        .hour = 23u, .minute = 59u, .second = 0u}, 1988u, 1u, 3u,
        "year end"},
       /* 2000 is a leap year -- divisible by 400 -- and the part's two-digit
        * year cannot tell it from 1900, which is not. The century rule this
        * core carries is what decides it, and a fortnight from 20 February is
        * where the two answers differ by a day. */
       {{.year = 2000u, .month = 2u, .day = 20u, .day_of_week = 0u,
-        .hour = 0u, .minute = 0u, .second = 0u}, 2000u, 3u, 5u,
+        .hour = 0u, .minute = 0u, .second = 0u}, 2000u, 2u, 29u,
        "the 400-year rule"},
   };
 
   for (unsigned i = 0; i < sizeof cases / sizeof cases[0]; i++) {
     ap_mc146818_t rtc;
     TEST_ASSERT_TRUE(ap_mc146818_reset(&rtc, &cases[i].start));
-    ap_mc146818_advance(&rtc, seconds(14u * 24u * 60u * 60u));
+    ap_mc146818_advance(&rtc, seconds(9u * 24u * 60u * 60u));
     const ap_mc146818_time_t now = ap_mc146818_now(&rtc);
 
     TEST_ASSERT_EQUAL_UINT_MESSAGE(cases[i].year, now.year, cases[i].what);
@@ -797,7 +797,7 @@ int main(void) {
   RUN_TEST(test_the_fifty_ram_bytes_are_ordinary_storage);
   RUN_TEST(test_the_read_only_registers_refuse_writes);
   RUN_TEST(test_the_rate_table_is_table_fives);
-  RUN_TEST(test_the_six_fastest_rates_are_refused_not_rounded);
+  RUN_TEST(test_every_periodic_rate_is_exact_and_fires);
   RUN_TEST(test_a_representable_rate_sets_its_flag_on_time);
   RUN_TEST(test_the_periodic_flag_drives_the_interrupt_when_enabled);
   RUN_TEST(test_the_periodic_interrupt_keeps_running_while_the_clock_is_held);

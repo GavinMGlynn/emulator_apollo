@@ -31,10 +31,11 @@
  * with `[146818]`'s don't-care codes, the update-ended and alarm interrupt
  * flags, and Register C's read-to-clear.
  *
- * ## What is declined
+ * ## The periodic rates, and the base that carries them
  *
- * The **six fastest periodic-interrupt rates**, and for a reason that is a fact
- * about this machine rather than about this module. `[146818]` Table 5 gives
+ * **All fifteen are implemented.** This section used to decline the six fastest
+ * and the paragraphs below record why, because the reason was a real one and
+ * the fix has a real cost. `[146818]` Table 5 gives
  * the rates as 32768/2^n Hz, and `AP_TIME_BASE_HZ` = 336,600,000,000 factors as
  *
  *     2^9 * 3^2 * 5^8 * 11 * 17
@@ -64,10 +65,21 @@
  * *conclusion* survived unchanged, because only the power of two decides it —
  * which is exactly why the error could sit there.
  *
- * The nine slower rates, 512 Hz down to 2 Hz (1.953 ms to 500 ms), divide the
- * base exactly and **are** implemented. `ap_mc146818_rate_supported` reports
- * which case a given `RS3-RS0` falls in, so a rate this core cannot honour is
- * refused rather than approximated.
+ * **The trade was made.** `AP_TIME_BASE_HZ` is the LCM times 2^6, so it carries
+ * 2^15 and every one of Table 5's rates divides it exactly -- 32.768 kHz down
+ * to 2 Hz. The span falls from 634 days to 9.9 days of emulated time, which is
+ * four orders of magnitude beyond the longest run this project makes and was
+ * the price of a device able to honour its own rate table.
+ *
+ * It cost two tests their length: the calendar's date-carry tests spanned a
+ * fortnight and now span nine days, which still crosses a month end, both
+ * February lengths and a year end. That is a genuine reduction in what they
+ * exercise and is recorded rather than glossed.
+ *
+ * `ap_mc146818_rate_supported` still reports which case a rate falls in. It now
+ * answers true for all fifteen, and it is kept rather than deleted because the
+ * *crystal* remains unrepresentable and a future clock could move the base
+ * again.
  *
  * The **square-wave output** pin is driven: `ap_mc146818_square_wave_hz`
  * reports its frequency, which shares the same selector and the same table as

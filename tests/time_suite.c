@@ -69,11 +69,24 @@ static void test_the_video_dot_clock_divides_the_base_exactly(void) {
   check_exact_period(68000000u);
 }
 
-/* The base is the LCM it claims to be, pinned in one place. Every frequency the
- * machine has must divide it, and it must be the *least* such -- a base twice
- * as large would divide them all too and would be wrong. */
-static void test_the_base_is_the_lcm_it_claims_to_be(void) {
-  TEST_ASSERT_EQUAL_UINT64(UINT64_C(336600000000), AP_TIME_BASE_HZ);
+/* The base is the LCM times the calendar's power of two, pinned in one place.
+ * Every frequency the machine has must divide it, and the LCM must divide it
+ * exactly -- the multiplier is 2^6 and nothing else, so a base that had drifted
+ * to some other multiple would fail here rather than silently re-scale every
+ * period in the machine.
+ *
+ * It is no longer the *least* such base, and that is deliberate: `[146818]`
+ * Table 5's six fastest periodic rates need 2^15 where the LCM carries 2^9. */
+static void test_the_base_is_the_lcm_times_the_calendar_power_of_two(void) {
+  TEST_ASSERT_EQUAL_UINT64(UINT64_C(21542400000000), AP_TIME_BASE_HZ);
+  TEST_ASSERT_EQUAL_UINT64(UINT64_C(0),
+                           AP_TIME_BASE_HZ % UINT64_C(336600000000));
+  TEST_ASSERT_EQUAL_UINT64(UINT64_C(64),
+                           AP_TIME_BASE_HZ / UINT64_C(336600000000));
+  /* And every one of the calendar's fifteen rates is now exact. */
+  for (unsigned n = 0; n < 15u; n++) {
+    TEST_ASSERT_TRUE(ap_time_base_divides(32768u >> n));
+  }
   const uint32_t clocks[] = {3600000u,  12000000u, 20000000u, 24000000u,
                              25000000u, 33000000u, 68000000u};
   uint64_t lcm = 1u;
@@ -82,7 +95,11 @@ static void test_the_base_is_the_lcm_it_claims_to_be(void) {
     while (b != 0u) { const uint64_t t = a % b; a = b; b = t; }
     lcm = lcm / a * clocks[i];
   }
-  TEST_ASSERT_EQUAL_UINT64(lcm, AP_TIME_BASE_HZ);
+  /* The LCM is what the base is built *from*, not what it equals: the base is
+   * that LCM times 2^6. Asserting equality here is what this test did before
+   * the calendar's rates were representable. */
+  TEST_ASSERT_EQUAL_UINT64(UINT64_C(336600000000), lcm);
+  TEST_ASSERT_EQUAL_UINT64(lcm * 64u, AP_TIME_BASE_HZ);
 }
 
 static void test_a_ring_bit_cell_divides_the_base_exactly(void) {
@@ -193,7 +210,7 @@ int main(void) {
   RUN_TEST(test_a_25mhz_cycle_divides_the_base_exactly);
   RUN_TEST(test_a_33mhz_cycle_divides_the_base_exactly);
   RUN_TEST(test_the_video_dot_clock_divides_the_base_exactly);
-  RUN_TEST(test_the_base_is_the_lcm_it_claims_to_be);
+  RUN_TEST(test_the_base_is_the_lcm_times_the_calendar_power_of_two);
   RUN_TEST(test_a_ring_bit_cell_divides_the_base_exactly);
   RUN_TEST(test_a_ring_bit_cell_is_exactly_two_line_windows);
   RUN_TEST(test_a_25mhz_cpu_and_the_ring_realign_every_12_ring_bits);
