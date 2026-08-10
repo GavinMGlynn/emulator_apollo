@@ -68,9 +68,27 @@
  * What *is* pinned is the bracket: an AT-compatible bus runs at one of these two
  * rates, the cycle counts agree at both, and only the memory read cycle differs
  * between them. The board takes the Series 3000 set, marked `PROVISIONAL`, and
- * the disagreement it can produce is one bus clock on a memory read. Cost to
- * close: a DS3500 hardware reference giving its BUS CLOCK, or an oracle
- * measurement of an AT device access.
+ * the disagreement it can produce is one bus clock on a memory read.
+ *
+ * **Both closing routes have now been tried, and both are dead.**
+ *
+ * The document: `019411-A00` is titled an *Addendum to* the "Domain Personal
+ * Workstations and Servers Hardware Architecture Handbook", so a base handbook
+ * exists and would be the DS3500 reference this wants. Bitsavers' entire Apollo
+ * directory was listed and holds the addendum and not the handbook; a web search
+ * for the handbook returns only the addendum again. It does not appear to be
+ * public.
+ *
+ * The oracle: it does not know either, and says so in its own source.
+ * `ext/mame/src/mame/apollo/apollo_m.cpp` instantiates the bus with the comment
+ * **`// FIXME: determine ISA bus clock`**. A measurement against it would
+ * recover MAME's placeholder rather than the hardware's rate, which is the
+ * failure mode `CLAUDE.md` warns about in saying the oracle's job is what the
+ * documents cannot answer -- here it cannot answer it either.
+ *
+ * So this stays `PROVISIONAL` on evidence rather than on an untried route, and
+ * the bracket above is the best statement available. It closes on hardware, or
+ * on the base handbook surfacing.
  */
 
 #ifndef APOLLO_BOARD_AP_ATBUS_H
