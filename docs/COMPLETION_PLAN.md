@@ -4088,19 +4088,15 @@ boot below, and the boot is not attempted until they are done.
 The novel work. No runnable oracle exists, so this phase is paper-oracle
 discipline throughout.
 
-- [ ] Disassemble `{3000,3500,4500,5500}_RING_*.bin` and recover the controller
+- [x] Disassemble `{3000,3500,4500,5500}_RING_*.bin` and recover the controller
       register map and dual-ported RAM layout. *Verification: every register
       recorded in `docs/references/RING.md` with the ROM address that proves it;
       cross-checked against both board generations.*
-      **Awaiting:** the remaining register *meanings*. The map is now recovered
-      — findings 11-15, 38-41a and 44-50a, the last set from reading the
-      `ENTRY_05` self-test end to end. Settled since: `+406` is the buffer's
-      data port and `+006` its pointer (64 KB, read pipelined by one word);
-      `+400` has five polled bits; `+402`/`+404` are byte-wide command
-      registers. What is left is what those bits *mean*, and the `a1` window,
-      which finding 50a shows is write-only to this firmware and therefore
-      cannot be characterised from it at all. Next source: the `[ROM4500]` and
-      `[ROM3000]` listings, already on disk and not yet read this way.
+      All three distinct images read end to end; `RING.md` findings 11-15,
+      38-41a and 44-51d. The map, the 64 KB buffer behind the `+406` port, and
+      the four polled status masks are cross-confirmed on both board
+      generations. What the ROMs cannot give — what `+400`'s bits *mean* — is
+      carried as its own open item below. Detail in `PROJECT_STATUS.md`.
   - [x] `tools/ring-rom/disasm.py` resolves the option-ROM header, entry-point
         table and string table, and confines code to the checksummed image.
         *Verification: runs clean over all four ring ROMs and the 3C505 ROM;
@@ -4210,12 +4206,17 @@ discipline throughout.
         receive it back from word 16. Modelled as storage until a source
         settles them, which means the ring ROM's self-test gets past its memory
         test and no further.
-        **Closing routes, in the order the discipline wants them:** the
-        `[ROM4500]` and `[ROM3000]` listings, which are already on disk and
-        have not been read end to end the way `[ROM3500]`'s now has; then
-        Domain/OS's own ring driver. Finding 50a closes one route for good —
-        there is no read of any `(a3)` offset anywhere in `[ROM3500]`, so the
-        `a1` window is write-only to this firmware.
+        **All three ROM images are now read, and none of them answers this.**
+        `[ROM3000]` and `[ROM4500]` poll the same four masks, test the same
+        `$7FFF` extent, and use the port the same way (findings 51, 51a, 51c) —
+        `[ROM4500]` differs from `[ROM3500]` in 1,413 bytes inside the
+        self-test, so that is a real revision agreeing, not a reprint. The
+        self-test hands its expected value, actual value and register address
+        back to the caller as *data*, and the whole string table is five
+        messages, so no per-bit text exists to recover.
+        **The only route left is Domain/OS's own ring driver.** Two further
+        routes are closed for good: finding 50a (no read of any `(a3)` offset
+        anywhere, so the `a1` window is write-only to this firmware) and 51c.
   - [ ] The DMA path and the interrupt. No source yet names either.
 - [x] Multi-node scheduler, in `src/core/ring/ap_ring_sched.*`: N nodes on one
       cycle-locked ring, each stepping only on its own boundaries against the
