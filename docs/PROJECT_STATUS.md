@@ -24113,12 +24113,40 @@ What differs is **`CR1` (`AA` against `8B`) and `CR2` (`C0` against `00`)**.
 `CR2` bits 7-6 select one of four access modes, so the monochrome board is in
 access mode 3 where the colour board is in mode 0.
 
-*Next, and it is the unit test above with two constants changed: set `CR1` and
-`CR2` to the captured monochrome values before the word round-trip and see
-whether it still round-trips. If it does, the read path is clean under the
-firmware's own configuration and the fault is in what the **write** side does
-with those registers; if it does not, the failing branch is reachable at unit
-level and can be fixed with a test beside it.*
+**Run, and the read path is clean under the firmware's own registers too** —
+`CR0 E0, CR1 AA, CR2 C0` on the 15-inch, `E0/8B/00` on the 8-plane, zero
+mismatches on both. So the read side is exonerated at reset *and* in service.
+
+**And that is when the test's own premise turned out to be wrong.** Those tests
+wrote through `ap_graphics_write`, which for the memory window is a plain store
+into `memory_at`. **The board does not use it for memory writes.**
+`ap_board_write` builds a `mem_mask` from the access width and calls
+`ap_graphics_memory_cycle` — the full blit path, with the ROP, the write enable
+and the plane logic. So every "round-trips" above was measured on a path the
+machine never takes for a write.
+
+That is the **third** time in this hunt that two paths exist and the test took
+the one the machine does not use: bytes against words on the read side, and now
+plain store against blit cycle on the write side. The lesson is cheap to state
+and was expensive three times — before testing a path, find its caller in
+`ap_board.c`.
+
+**What the run counters already say**, without any new test:
+
+```
+  15i   blit cycles   262,273      262,273 plane write(s)      1 per cycle
+  c8p   blit cycles 2,548,603   16,718,752 plane write(s)    ~6.6 per cycle
+```
+
+Neither run reports any unknown-mode cycles, so the model recognises `CR0 = E0`
+in both. The monochrome board writes exactly one plane per cycle, which is right
+for a one-plane card.
+
+*Next, and now with the right entry points: write through
+`ap_graphics_memory_cycle` and read back through
+`ap_graphics_memory_read_cycle`, with `CR1` and `CR2` at the captured
+monochrome values. That is the pair the machine actually uses, and it is the
+first test in this sequence that could fail.*
 `graphics_suite` is where that belongs, it runs in milliseconds, and it either
 reproduces the firmware's failure at the unit level or exonerates the pair and
 moves the question to the registers that configure them — `CR0`'s mode and
