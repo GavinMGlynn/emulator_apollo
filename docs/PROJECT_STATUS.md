@@ -23596,12 +23596,29 @@ and MD reading commands, and `--boot-type`'s readiness test (`receiver enabled`,
 `8 bits`, buffer empty) can be satisfied across a reprogramming that a real
 keyboard's characters would not survive either.
 
-**Next, and it is now a measurement rather than a search:** count what
-`ap_sio_receiver_flushed` reports on this path. The typing code already re-sends
-a character the channel discarded unread — that is what `rx_flushed` is for — so
-either the flush is not being counted here, or the characters are lost by some
-route that is not a flush. Six is a specific number and either answer is
-checkable against it.
+**And the measurement was already in the run's own report, which settles it the
+other way.** `sio1 reg 3` — channel A's receive buffer — shows **15 reads**, and
+`--boot-type` printed **no** "flushed unread" line, so `rx_flushed` never moved.
+The port delivered all fifteen characters and the **firmware read all fifteen**.
+Nothing was lost on the wire, in the FIFO, or by a reprogramming.
+
+So the six characters were read by the boot PROM and **discarded by it**, and
+the paragraph above about the receiver not accepting is withdrawn — it was a
+hardware explanation for a firmware behaviour. The candidate is ordinary
+type-ahead handling: six characters at 1200 baud is about 50 ms, which is the
+order of time the banner takes to reach the display, and firmware that drops
+input typed while it is printing is behaving normally rather than incorrectly.
+
+**Which makes this a harness problem with a definite shape.** The command must
+be typed *after* the banner, and the two characters that cause the banner must
+be typed *before* it — one gate cannot express both, because `--boot-type` is a
+single string with a single arming address. What is needed is a second gated
+phase: the early characters at `0x78E`, the command at `0x930`. That is a small
+frontend change and it is the next step, rather than any further measurement of
+the port.
+
+`--boot-type-after-pc` was the right shape and half the answer: it is what makes
+the *first* phase land at all.
 
 *Verification: `--screenshot` on `tools/md-session.sh --boot-type-after-pc
 0x78E`; the PNG shows the banner, the prompt and the truncated command.*
