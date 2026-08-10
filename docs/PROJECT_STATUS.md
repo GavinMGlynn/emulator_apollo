@@ -24653,14 +24653,20 @@ positional mapping has to be justified per device before `state-diff.py` will
 accept it, which is why that tool refuses one when the two scopes differ in
 length.
 
-**And the identity reference has moved.** `quirks.bits` joined the board hash —
-correctly, since a machine computing different answers is a different machine —
-so `91EBD2715BF70807` is stale. A 2 M-instruction boot now reports
-`0C45C1FE2636AD31` with the walk hash equal to it, which says the dump and hash
-still agree; what has not been re-taken is the 350 M-instruction reference boot.
-**Do that before trusting any identity comparison**, and expect `final PC` and
-`clocks` to be unchanged, since no quirk is selected by default and the field is
-zero.
+**And the identity reference has moved, and is re-taken.** `quirks.bits` joined
+the board hash — correctly, since a machine computing different answers is a
+different machine.
+
+```
+                       before              after
+  state hash   91EBD2715BF70807    1560EE097C79D169
+  final PC            3C4BC384            3C4BC384
+  clocks            1457857018          1457857018
+```
+
+`final PC` and `clocks` identical, as predicted before the run: no quirk is
+selected by default, the field is zero, and the machine does exactly what it did.
+`91EBD2715BF70807` is retired.
 
 *Verification: `ctest` 132, all passing; the CPU groups visible in a dump; the
 walk hash equal to the state hash.*
