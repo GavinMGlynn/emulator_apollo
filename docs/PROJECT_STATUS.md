@@ -22189,3 +22189,45 @@ sampled.
 
 *Verification: the write probe above over a whole boot, reverted; `ctest`
 130/130 after the revert.*
+
+## The interval timer is not starving the scheduler, and here is the arithmetic
+
+"A scheduler that is not running" suggests a slow tick, and the crash boot's
+`247 x vector 160` over 64 emulated seconds -- 3.85 Hz -- looks far too slow for
+one. It is not a defect, and the check is self-contained: it compares this
+machine's delivered rate against *what this machine's software asked for*, which
+needs no oracle and no cross-machine sampling.
+
+Probing every write the boot makes to the MC6840:
+
+```
+  [PTM] #3 rs=3 value=80  -> timer 1 latch 0080
+  ...
+  [PTM] #12 rs=2 value=FF
+  [PTM] #13 rs=3 value=FF -> timer 1 latch back to FFFF
+  [PTM] #15 rs=5 value=80 -> timer 2 latch 0080
+```
+
+Timer 1 ends the sequence at `FFFF`, its unwritten default. `[6840]` §3.7.1
+makes the period "the total 16-bit count in the latch +1, times the period of
+the clock", and `008778-03` §3.8 gives timer 1 a 250 kHz input, so:
+
+```
+  expected  (65535 + 1) / 250000 = 0.262144 s  ->  3.8147 Hz
+  measured  247 interrupts / 64.23 s           ->  3.846  Hz     (+0.8%)
+```
+
+**So the part is delivering exactly the rate the operating system programmed**,
+to within one percent over a whole boot -- and the residue is a handful of
+interrupts at the boundaries, not a rate error. Timer 2 is programmed to `0080`
+(1.03 ms) and its interrupt is masked, which is why it contributes nothing.
+
+Recorded as a **negative result with its arithmetic**, because "the tick is too
+slow" is the obvious next suspicion after "the scheduler is not running", and
+without this it would cost another session. What the low rate does say is that
+the operating system never programmed a fast tick here -- which is a question
+about why it did not, and belongs upstream with everything else.
+
+*Verification: a write probe over a whole crash-clock boot, reverted; the rate
+computed from `elapsed 21,618,187,523,064` base units and the exception census
+in the same report; `ctest` 130/130 after the revert.*
