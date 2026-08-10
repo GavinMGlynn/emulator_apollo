@@ -19,10 +19,41 @@
 # right-hand sides below are marked TODO until that dump exists, because
 # guessing them is exactly what rule 1 forbids.
 
-# cpu.d.*	TODO: maincpu's data register array, from the first oracle dump
-# cpu.a.*	TODO: maincpu's address register array
-# cpu.sp.000	TODO: usp
-# cpu.sp.001	TODO: isp
-# cpu.sp.002	TODO: msp
-# cpu.ctl.000	TODO: pc
-# cpu.ctl.001	TODO: sr
+# --- The CPU, from the oracle's first dump (2026-08-11) ---
+#
+# MAME registers Musashi's `dar[16]` as one array under `REG_D()`: D0-D7 then
+# A0-A7. So its `.0.8` is A0, not D8. This core hashes `d[0..7]`, `a[0..6]` and
+# the three stack pointers separately, because A7 *is* whichever stack the
+# status register selects and two machines differing only in which is active
+# must not hash alike.
+#
+# Written as explicit pairs rather than a positional scope map: the two arrays
+# are different lengths and mean different things at the same index, which is
+# exactly the case `state-diff.py` refuses to guess at.
+cpu.d.000	Motorola MC68030/:maincpu/0/REG_D().0.0
+cpu.d.001	Motorola MC68030/:maincpu/0/REG_D().0.1
+cpu.d.002	Motorola MC68030/:maincpu/0/REG_D().0.2
+cpu.d.003	Motorola MC68030/:maincpu/0/REG_D().0.3
+cpu.d.004	Motorola MC68030/:maincpu/0/REG_D().0.4
+cpu.d.005	Motorola MC68030/:maincpu/0/REG_D().0.5
+cpu.d.006	Motorola MC68030/:maincpu/0/REG_D().0.6
+cpu.d.007	Motorola MC68030/:maincpu/0/REG_D().0.7
+cpu.a.000	Motorola MC68030/:maincpu/0/REG_D().0.8
+cpu.a.001	Motorola MC68030/:maincpu/0/REG_D().0.9
+cpu.a.002	Motorola MC68030/:maincpu/0/REG_D().0.10
+cpu.a.003	Motorola MC68030/:maincpu/0/REG_D().0.11
+cpu.a.004	Motorola MC68030/:maincpu/0/REG_D().0.12
+cpu.a.005	Motorola MC68030/:maincpu/0/REG_D().0.13
+cpu.a.006	Motorola MC68030/:maincpu/0/REG_D().0.14
+# REG_D().0.15 is A7, the *active* stack pointer, and has no counterpart here by
+# construction -- this core keeps all three and lets the status register say
+# which is live. Deliberately unmapped rather than paired with a stack pointer
+# that only sometimes equals it.
+cpu.sp.000	Motorola MC68030/:maincpu/0/REG_USP().0.0
+cpu.sp.001	Motorola MC68030/:maincpu/0/REG_ISP().0.0
+cpu.sp.002	Motorola MC68030/:maincpu/0/REG_MSP().0.0
+
+# Still to map, and not guessed: cpu.ctl (PC, SR, VBR, SFC, DFC) against
+# whatever MAME names them -- `m_dfc` is visible in its dump, the rest need
+# looking up rather than assuming. Then cpu.mmu, cpu.cache, cpu.exec, cpu.fetch,
+# and the board devices.
