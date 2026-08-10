@@ -24368,10 +24368,33 @@ never firing on the colour board, arrived at from the other side and now true of
 the monochrome one as well — and it means nine candidates were excluded inside a
 code path the reference never executes.
 
-*Next: find what the firmware tests before entering this sequence, and what our
-board answers there that MAME's does not. `$9A(A5)` — the screen-type byte,
-already seen at `006BAC` and `006B6A` — is the first thing to compare, because
-it is read from the controller and it is what selects between these variants.*
+**And the first comparison of that branch's input finds a real difference in the
+model.** The screen type comes from the controller's ID register, offset 1 in
+the block. MAME's read handler is:
+
+```c
+  case 1:
+      data = m_n_planes == 1 ? m_device_id : 0xff;
+```
+
+**The ID answers only on a one-plane board.** A colour controller returns `FF`
+there. This core instead returns the screen value whenever the block's *family*
+matches what is fitted — so an 8-plane machine reads `0A` from the colour block
+where the oracle reads `FF`.
+
+That is a genuine divergence, measured against the reference, in the register the
+firmware uses to choose between these display tests. It is **not** the mono
+halt's cause on its own — both models return `9` or `11` for a one-plane board,
+so `$9A(A5)` agrees there — but it is the first thing found that this core and
+the oracle actually disagree about, and it sits exactly on the branch that
+decides which variant runs.
+
+*Next: settle which is right before changing anything. The rule "a card answers
+for its own family and `FF` otherwise" is this core's, written from the
+firmware's habit of reading both blocks to see what is fitted; MAME's rule is
+"only a one-plane board answers at all". Those differ for every colour machine,
+and the firmware's own use of the value — at `006B6A` and `006BAC`, comparing
+against `#$9` — is the evidence that should decide it.*
 
 *Verification: `ap_graphics_memory_cycle` and `ap_graphics_memory_read_cycle`
 driven as the board drives them, buffers sized as `main.c` sizes them, registers
