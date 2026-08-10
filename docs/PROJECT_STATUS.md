@@ -23487,3 +23487,36 @@ the other question rather than another threshold.
 
 *Verification: `ctest` 132, all passing; the flag documented in `--help` and
 checked by `frontend_flags`.*
+
+## The 3c505 reference on disk was half a file
+
+Phase 6's last unblocked item is the 3c505 802.3 controller — the one networking
+path with a runnable reference, since MAME carries Domain networking over it.
+The manual was already on disk under the (gitignored) references tree, so the
+item looked ready to start. It is not readable: `pdfinfo` gives `Couldn't find trailer dictionary`,
+Ghostscript cannot repair it, and `pdftotext` returns nothing at all.
+
+The file is **1,851,086 bytes against the original's 3,677,170** — almost
+exactly half. A truncated download, not a corrupt scan, and the failure mode is
+worth naming because it is silent in the direction that matters: the file is
+present, has the right name, opens with a valid `%PDF-1.3` header, and a
+directory listing gives no hint. Only reading it fails.
+
+Re-fetched from the Internet Archive's bitsavers mirror —
+`https://archive.org/download/bitsavers_3Com3c505EersGuideMay86_3677170/3c505_Etherlink_Plus_Developers_Guide_May86.pdf`
+— and the bitsavers path itself (`www.bitsavers.org/pdf/3Com/…`) now 404s, so
+the mirror is the source to record. 77 pages.
+
+**And it has what the item needs**, which the truncated half did not reach:
+§1.3.1–1.3.3 the adapter I/O map, adapter memory map and **host** I/O map;
+§1.9 the host-adapter interface — command register, data register and its
+configuration, DMA transfers, status flags; §1.10 adapter interrupts, internal
+and external. The board is an 80186 with an 82586 Ethernet coprocessor, so the
+host side is a mailbox protocol rather than a register-level Ethernet
+controller, and §1.9 is the whole of what this core has to model.
+
+Recorded rather than merely fixed: `docs/references/**/*.pdf` is gitignored, so
+a re-fetched manual leaves no trace in the repository and the next reader would
+find the same half file if it were ever restored from a stale copy.
+
+*Verification: `pdfinfo` reports 77 pages; the table of contents extracts.*

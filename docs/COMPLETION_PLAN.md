@@ -4282,6 +4282,16 @@ discipline throughout.
 - [ ] 3c505 802.3 controller, so Domain networking can also be checked against
       MAME the way MAME does it. *Verification: oracle diff — this is the one
       networking path with a runnable reference.*
+      **Now unblocked.** The reference on disk was **half a file** — 1,851,086
+      bytes of 3,677,170, a truncated download that opens with a valid header
+      and fails only when read. Re-fetched from the Internet Archive's bitsavers
+      mirror (`bitsavers_3Com3c505EersGuideMay86_3677170`; the bitsavers path
+      itself now 404s), 77 pages. It carries what this item needs: §1.3.1-1.3.3
+      the adapter I/O, adapter memory and **host** I/O maps; §1.9 the
+      host-adapter interface — command register, data register, DMA transfers,
+      status flags; §1.10 adapter interrupts. The board is an 80186 with an
+      82586 coprocessor, so the host side is a mailbox protocol and §1.9 is the
+      whole of what this core models. Detail in `PROJECT_STATUS.md`.
 
 ## Phase 7 — Completing the model range
 
