@@ -24188,8 +24188,38 @@ registers is a different question entirely — one where returning `FF` on a
 monochrome board's undriven odd bytes, which this core does deliberately, would
 make `eor.w` non-zero and take exactly the branch that halts us.
 
-That is one `--boot-stop-pc 0x6BBE` with the register line already printed by
-every run, and it is where this should resume.
+**Run, and it answers both ways at once.** On the 15-inch, at `006BBE`:
+
+```
+  d0-d7  00000055 0000FFFF ...
+  a0-a7  00000000 00FA0000 0005DC06 00FA0000 ...
+```
+
+`a1` and `a3` are `00FA0000` — the **memory window**, not the register block —
+and `d1` is `FFFF`, exactly as the loop was decoded. So the test walks display
+memory and the register-block reading above is not what is happening.
+
+**And the colour run never stops at all**: `--boot-stop-pc 0x6BBE` does not fire
+on `c8p`. **This test is monochrome-only.** So "the colour board passes the same
+test" was wrong — it does not run it, and the colour path's success says nothing
+about this code. The control run remains valuable for what it did show, that our
+PROM output matches the oracle's, but it is not a control *for this test*.
+
+**Extended to the full buffer, the module still passes**: 0 of 131,072 words
+wrong on both monochrome screens, 0 of 409,600 on the colour one. So
+`memory_cycle`/`memory_read_cycle` satisfy the firmware's own two-pass test over
+the entire extent, at its own registers, with its own data — and the machine
+still fails.
+
+Note also what *cannot* fail: a word past the buffer reads `FFFF`, and
+`eor.w #FFFF` against `FFFF` is zero, which is the **passing** branch. So
+walking off the end is not the failure mode either; the failing word must read
+back as something that is neither what was written nor `FFFF`.
+
+*Next, and it names the address rather than inferring it:*
+`--boot-stop-pc 0x6BC4` — the error-exit branch itself — with the register line
+every run prints. `a3` at that instant is the word that failed and `d1` is what
+it was compared against, which turns "somewhere in 256 KB" into one address.*
 
 *Verification: `ap_graphics_memory_cycle` and `ap_graphics_memory_read_cycle`
 driven as the board drives them, buffers sized as `main.c` sizes them, registers
