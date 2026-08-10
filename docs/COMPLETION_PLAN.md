@@ -3015,9 +3015,13 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
     the tail and returning to its prompt. That **reverses** the earlier
     `XMAIN_OS` finding, which was closed as a display artefact on a port trace
     of the *serial* path — here the machine's own behaviour agrees with the
-    screen, so the characters are genuinely lost. Next is a measurement, not a
-    search: `ap_sio_receiver_flushed` on this path, against the specific number
-    six. Detail in `PROJECT_STATUS.md`.
+    screen, so the characters are genuinely lost. And it is **not timing**: the
+    port delivered everything (`sio1 reg 3` read 15 times, zero flushes) and a
+    two-phase run with the command gated *after* the banner reproduces it
+    byte-identically. **Next is a static read of the PROM's line editor at
+    `00223C`** — which special-cases `$08`, `$1B` and `$18` — and of `$21FA`'s
+    twenty-entry translation table, not a third boot. Detail in
+    `PROJECT_STATUS.md`.
     **The posted-code differential is retired, and it was never a differential.**
     It had been the working handle: ours posts `0F` where the oracle does not.
     Read out of the boot PROM rather than measured — the post routine has **two**

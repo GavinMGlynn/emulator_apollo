@@ -23620,6 +23620,28 @@ the port.
 `--boot-type-after-pc` was the right shape and half the answer: it is what makes
 the *first* phase land at all.
 
+**And the type-ahead explanation is wrong too — the two-phase run reproduces it
+exactly.** With `\r\r` gated at `0x78E` and `EX DOMAIN_OS\r` gated at `0x930`,
+the instruction *after* the banner, the screen is byte-identical: `> AIN_OS`.
+Both runs read `sio1 reg 3` **15 times** with **zero** flushes. So the loss is
+not timing, not the banner, and not the gate — it is invariant under when the
+characters are sent.
+
+That is two measurements against the same hypothesis-shaped question, which is
+the point at which this project's own rule says to change the question rather
+than take a third. **The question is no longer "when are they lost" but "what
+does the PROM's line editor do with them".** `00223C` reads characters into a
+buffer at `$98(A6)` and treats `$08`, `$1B` and `$18` specially — a backspace, an
+escape and a cancel — after masking with `$7F`. Six characters entering that
+routine and not reaching the line is a **static** question about those special
+cases and about `$21FA`'s twenty-entry translation table at `$21D2`/`$21E6`,
+answerable by reading the PROM rather than by booting it again.
+
+**What is nevertheless established, and is new:** the keyboard console works.
+The machine selects it, enters MD, prints its banner and prompt, echoes, parses,
+rejects and recovers. Every earlier run on this path was silent because the
+console is the display and nothing was capturing it.
+
 **Landed: `--boot-type-then TEXT` with `--boot-type-then-after-pc ADDR`.** A
 second typed phase with its own arming address, sent once the first is spent, so
 the dialogue becomes `\r\r` at `0x78E` and `EX DOMAIN_OS\r` at `0x930` — the
