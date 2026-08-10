@@ -23471,8 +23471,9 @@ console, one to enter the debugger.
 Prepending them (`\r\rEX DOMAIN_OS\r`) did not help, and could not: all fifteen
 still arrive inside the same 125 ms.
 
-**`--boot-type-after-pc ADDR`** is the fix, and it is deliberately not the shape
-of the flag beside it. `--boot-type-after-os` waits for `PC >= 0x02000000`,
+**`--boot-type-after-pc ADDR`** is *a* fix — a necessary one, not a sufficient
+one, and the distinction is recorded here rather than discovered again. It is
+deliberately not the shape of the flag beside it. `--boot-type-after-os` waits for `PC >= 0x02000000`,
 which works for a prompt inside Domain/OS and cannot work here: **MD runs in the
 boot PROM at `0000xxxx`, below every threshold rather than above one.** So this
 is a one-shot trigger on a PC having been *reached*, and the address to give it
@@ -23485,8 +23486,31 @@ the second question. The existing flag's own comment records two failed
 attempts at the first question before settling on the address space; this adds
 the other question rather than another threshold.
 
+**Measured, and it does not finish the job.** The gate itself works: with an
+unreachable address the run reports `0 of 5 character(s) typed`, and with
+`0x78E` it reports `5 of 5`. But a boot given `\r\rEX DOMAIN_OS\r` behind the
+gate ends **exactly where it did without it** — `final PC 00002684`, the same
+posted codes, `15 of 15 typed`. Two characters get through, because `09` and
+`0F` are posted; the other thirteen do not reach MD.
+
+So the remaining problem is *pacing*, not timing of the first character. All
+fifteen are handed to the keyboard within about 125 ms of emulated time while
+the firmware prints a banner in between, and the receive FIFO is three deep.
+`--boot-type` advances on `ap_board_key_type` returning true — can the keyboard
+produce this character — where `--boot-input` advances only on
+`ap_sio_receiver_ready`, which is whether the port kept it.
+
+**That difference has been tried before and refuted**, and the refutation was
+for a *different* symptom: making the two advance rules consistent left the
+screen pixel-identical when the question was garbled echo. It was reverted
+because it was justified by "could explain" rather than measured, which is the
+tell `CLAUDE.md` names. This is a different question — characters that never
+arrive rather than characters that arrive and display wrongly — so the rule is
+worth re-testing *against this measurement*, and only against it.
+
 *Verification: `ctest` 132, all passing; the flag documented in `--help` and
-checked by `frontend_flags`.*
+checked by `frontend_flags`; the gate itself measured both ways (0 of 5 against
+an unreachable address, 5 of 5 against `0x78E`).*
 
 ## The 3c505 reference on disk was half a file
 
