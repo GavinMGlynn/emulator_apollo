@@ -22731,3 +22731,43 @@ question about a 64 K image and needs no boot at all.
 
 *Verification: three runs differing only in the typed text and the probe; the
 port states sampled on change; `ctest` 130/130 after the probe was reverted.*
+
+## `00002670` is a poll with a timeout, not the firmware's error loop
+
+Read statically out of the ROM image, which is what the previous entry asked
+for and costs no boot.
+
+```
+  00266A  MOVE.L #$00040000,D1        262,144 iterations
+  002670  SUBQ.L #1,D1                <- where the keyboard run ends
+  002674  BSR    $255A                taken when the count runs out
+  00267E  BTST   #0,($0002,A5)        a receiver-ready bit
+  002684  BEQ.B  -> 002670
+  002688  MOVE.B ($0006,A5),D1        and then the character
+```
+
+So the firmware is **waiting for a character with a bounded retry**, not
+failing. `($0002,A5)` and `($0006,A5)` are a status and a data register a stride
+of 4 apart, which is a serial port seen through `A5`.
+
+**And the error loop is not what we are watching.** `005EC8`'s loop writes
+`($0092,A5) & $0F` to the display register -- a value of `0F` or less -- while
+the codes this boot posts are raw `F3` and `FF`. A blink of `F3`/`FF` cannot come
+from an instruction that masks to four bits, so the previous entry's inference
+that the firmware "ends in its own error path" is **withdrawn**: it was drawn
+from the address alone, without reading what the loop writes.
+
+**What this leaves.** The keyboard-driven boot ends in a firmware poll for a
+console character, having posted `0F` and then blinked `0C` earlier in the run.
+The blink is somewhere else again, and the machine at the end is simply waiting
+for input it never gets -- consistent with 13 characters typed and no more
+supplied, since `--boot-type` sends its text once.
+
+*Next, and cheap*: send the dialogue the oracle sends rather than one command --
+its session presses Return repeatedly before `ex domain_os` and again after --
+and see whether the poll at `002670` is satisfied. The recipe is in
+`PROJECT_STATUS` above; only the typed text changes.
+
+*Verification: both sites disassembled from `3500_BOOT_12191_7.bin`; the
+contradiction between `AND.B #$0F` and the observed `F3`/`FF` is arithmetic, not
+a measurement.*
