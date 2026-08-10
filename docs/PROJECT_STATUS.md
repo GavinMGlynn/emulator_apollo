@@ -22771,3 +22771,48 @@ and see whether the poll at `002670` is satisfied. The recipe is in
 *Verification: both sites disassembled from `3500_BOOT_12191_7.bin`; the
 contradiction between `AND.B #$0F` and the observed `F3`/`FF` is arithmetic, not
 a measurement.*
+
+## The keyboard reaches MD and the characters arrive corrupted
+
+The screen settles it, and it is a defect on this side rather than a firmware
+path. Scanning out the fitted display after typing `\r\r\rEX DOMAIN_OS\r\r`:
+
+```
+  MD7C REV 8.00, 1989/08/16.17:23:52
+  >
+  >XMAIN_OS
+  E
+  >
+```
+
+The machine reaches the Mnemonic Debugger and echoes what it received.
+`EX DOMAIN_OS` arrived as **`XMAIN_OS`**, with a stray `E` on the following
+line: the first, third, fourth and fifth characters -- `E`, the space, `D` and
+`O` -- are missing, and one of them turns up later.
+
+So the earlier readings were all downstream of this. The firmware is not failing
+and is not in an error loop; it is executing a command it was handed in pieces,
+and then waiting at `002670` for the rest of a line that never comes. The
+`0F`/`0C` codes and the poll are what a debugger does with a corrupt command,
+not evidence about Domain/OS.
+
+**What it is not.** The delivery gate is not obviously too eager: it waits for
+`ap_sio_receiver_ready` to be false -- the FIFO empty -- before sending the next
+character, and paces at the keyboard's own 1200-baud character time. So a
+straightforward overrun is not the explanation, and the loss pattern is not
+every-other either.
+
+**Where to look, in order.** The keyboard's encoding (`ap_kbd_encode`, and the
+`AP_KBD_PREFIX` two-byte form for shifted characters -- `E`, `D` and `O` are
+letters that this keyboard may send shifted, and the space is not); then whether
+a prefix and its code can be split by the readiness gate, which would drop
+exactly the payload of a two-byte sequence; then the receiver's own handling now
+that a shift register sits behind the FIFO.
+
+*Next*: a test in `kbd_suite` that types a string and asserts the bytes that
+reach the port, which turns this from a screenshot into a red test. That is the
+first thing in this whole MD investigation that can be reproduced without a
+boot.
+
+*Verification: the screenshot above, from a run whose report says 17 of 17
+characters typed and which raised no "no key produces" warning.*
