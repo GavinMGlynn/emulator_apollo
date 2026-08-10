@@ -3023,9 +3023,14 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
     it is set every character delivered is read, passed to `$26EA`, and thrown
     away — which is exactly fifteen reads with zero flushes and six characters
     missing. MD exposes `XE ENABLE XON` / `XD DISABL XON` in its own command
-    table, so this is the receiving half of XON/XOFF. **The question is now what
-    this core's keyboard sends**, not when it sends it. Detail in
-    `PROJECT_STATUS.md`.
+    table, so this is the receiving half of XON/XOFF. **And that is refuted in turn**: bit 1 is set only
+    by `$11`/`$13`, and `ap_kbd_encode` sends plain ASCII
+    (`45 58 20 44 4F 4D 41 49 4E 5F 4F 53 CB`) — fifteen characters, fifteen
+    bytes, none of them flow control. So the reversal above is withdrawn as
+    *unproven*: MD returns to its prompt for a valid command that failed too.
+    **Next: dump MD's line buffer at `$98(A6)`** when it dispatches — twelve
+    bytes means the display is at fault, six means they are lost. A different
+    instrument, not a third repetition. Detail in `PROJECT_STATUS.md`.
     **The posted-code differential is retired, and it was never a differential.**
     It had been the working handle: ours posts `0F` where the oracle does not.
     Read out of the boot PROM rather than measured — the post routine has **two**

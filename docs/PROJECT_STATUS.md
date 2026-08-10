@@ -23685,9 +23685,34 @@ XON/XOFF flow control as user commands, so a flag that discards input while set
 is the receiving half of it. `$26EA`, which every character passes through
 before the test, is where a `$13`/`$11` would be recognised.
 
-That makes this a **question about what this core's keyboard sends**, not about
-timing, and it is the first framing of this symptom that is not about *when*.
-Six characters is then a consequence rather than a constant to explain.
+That made it a question about what this core's keyboard sends — and the answer
+**refutes the hypothesis one step after proposing it.**
+
+`$26EA` decodes completely: bit 1 is set **only** for `$11` or `$13`, and only
+when bit 2 enables flow control; on any other character it *clears* bit 1 and
+returns. And `ap_kbd_encode` gives, for `EX DOMAIN_OS\r`, the bytes
+`45 58 20 44 4F 4D 41 49 4E 5F 4F 53 CB` — plain ASCII, one byte per character,
+no `$11`, no `$13`. With the two leading returns that is **exactly the fifteen
+the port reported**, which also rules out the two-byte shift-prefix form being
+sent: fifteen characters produced fifteen bytes, not twenty-four.
+
+So no character in this dialogue can set the discard flag, and the flag is not
+the mechanism. The static reading was right about what the code does and wrong
+about it applying here.
+
+**Which reopens a question I closed too confidently.** I overturned the earlier
+"the screen is not what the machine received" finding on the grounds that MD
+parsed what it echoed and returned to its prompt. But MD returns to its prompt
+for a **valid command that failed**, too — `EX DOMAIN_OS` can fail on its own
+terms — so that argument does not separate "six characters lost" from "twelve
+received, six mis-echoed". Both remain live, and my reversal of that finding is
+withdrawn as *unproven* rather than wrong.
+
+**What separates them is the line buffer, not the screen.** `00223C` stores the
+line at `$98(A6)`, so dumping that buffer at the moment MD dispatches settles it
+in one run: twelve bytes there means the display is at fault and the earlier
+finding stands; six means they are genuinely lost. That is the next step, and it
+is a different instrument rather than a third repetition of the same one.
 
 **Verification of the negative half, which matters here:** the earlier
 explanations are all excluded by measurement rather than by preference — the
