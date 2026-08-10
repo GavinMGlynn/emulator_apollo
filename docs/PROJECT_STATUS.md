@@ -24060,9 +24060,23 @@ the runs is colour against monochrome, not one mono size against another. The
 entry above says "1024x800 monochrome"; the evidence supports "this core's
 monochrome path", and the 19-inch run is the second witness.
 
-*Next: what `eor.w d1,(a3)` reads back on the mono path that it does not on the
-colour one — a word read of display memory, at an address `a3` walks. That is a
-unit-level question about `ap_graphics`, answerable without booting.*
+**Two candidates checked and excluded, from the code rather than by running
+anything.** The read path returns `0xFFFF` when `at >= words`, with
+`at = offset + plane_words * s_plane`, and `s_plane` is clamped only against
+`AP_GRAPHICS_MAX_PLANES` — but `ap_graphics_cr2_fields` **forces `s_plane` to
+zero on a monochrome screen**, so a one-plane card cannot index past its buffer
+that way. And the buffer is not short: the mono window is `FA0000`-`FDFFFF`,
+256 KB against a 1024x800 picture's 100 KB, and the failing run's 1,048,915
+display accesses fall inside it — about four passes over the buffer, which is
+what a multi-pattern memory test looks like.
+
+*Next, and it is a unit-level question that needs no boot:* drive
+`ap_graphics_memory_write_cycle` and `ap_graphics_memory_read_cycle` as a pair
+for each screen kind and see whether a word written to mono memory reads back.
+`graphics_suite` is where that belongs, it runs in milliseconds, and it either
+reproduces the firmware's failure at the unit level or exonerates the pair and
+moves the question to the registers that configure them — `CR0`'s mode and
+`CR1`, which the read path branches on before it ever touches memory.*
 
 *Verification: `screencap.lua` in normal mode against `apollo-headless --screen
 15i`, both on `dn3500-sr10.4-installed.awd`, compared at the same emulated
