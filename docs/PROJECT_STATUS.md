@@ -24639,3 +24639,28 @@ the oracle's boot is identical under either setting.
 
 *Verification: `ctest` 132, all passing; `--list-oracle-quirks` prints the entry
 and an unknown name exits non-zero.*
+
+## The CPU dump is scoped, and the identity reference needs re-taking
+
+`ap_m68030_hash_regs` and `ap_m68030_hash_cpu` now name their groups —
+`cpu.d`, `cpu.a`, `cpu.sp`, `cpu.ctl`, `cpu.mmu`, `cpu.cache`, `cpu.exec`,
+`cpu.fetch` — so a dump reads as `cpu.d.000 u32 …FFFF` and maps onto the
+oracle's registry, whose data and address registers are separate arrays too.
+
+Positional-within-a-group is sound **here and only here**: `d[0..7]` in order is
+not a convention this core chose, it is the register file. Everywhere else a
+positional mapping has to be justified per device before `state-diff.py` will
+accept it, which is why that tool refuses one when the two scopes differ in
+length.
+
+**And the identity reference has moved.** `quirks.bits` joined the board hash —
+correctly, since a machine computing different answers is a different machine —
+so `91EBD2715BF70807` is stale. A 2 M-instruction boot now reports
+`0C45C1FE2636AD31` with the walk hash equal to it, which says the dump and hash
+still agree; what has not been re-taken is the 350 M-instruction reference boot.
+**Do that before trusting any identity comparison**, and expect `final PC` and
+`clocks` to be unchanged, since no quirk is selected by default and the field is
+zero.
+
+*Verification: `ctest` 132, all passing; the CPU groups visible in a dump; the
+walk hash equal to the state hash.*

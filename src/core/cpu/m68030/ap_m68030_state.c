@@ -13,12 +13,19 @@ static void hash_bool(ap_hash_t *st, bool value) {
 }
 
 void ap_m68030_hash_regs(ap_hash_t *st, const ap_m68030_regs_t *regs) {
+  /* Scoped per group so a dump maps onto the oracle's registry, whose data and
+   * address registers are separate arrays too. Positional within a group is
+   * enough here and only here: `d[0..7]` in order is not a convention this core
+   * chose, it is the register file. */
+  ap_hash_scope(st, "cpu.d");
   for (unsigned i = 0; i < 8u; i++) {
     ap_hash_u32(st, regs->d[i]);
   }
+  ap_hash_scope(st, "cpu.a");
   for (unsigned i = 0; i < 7u; i++) {
     ap_hash_u32(st, regs->a[i]);
   }
+  ap_hash_scope(st, "cpu.sp");
 
   /* All three stack pointers, not A7 through the active one: two states
    * differing only in which stack is active must differ here, and the status
@@ -27,6 +34,7 @@ void ap_m68030_hash_regs(ap_hash_t *st, const ap_m68030_regs_t *regs) {
   ap_hash_u32(st, regs->isp);
   ap_hash_u32(st, regs->msp);
 
+  ap_hash_scope(st, "cpu.ctl");
   ap_hash_u32(st, regs->pc);
   ap_hash_u16(st, regs->sr);
   ap_hash_u32(st, regs->vbr);
@@ -180,6 +188,7 @@ static void hash_access(ap_hash_t *st, const ap_m68030_access_ctx_t *access) {
 
 void ap_m68030_hash_cpu(ap_hash_t *st, const ap_m68030_cpu_t *cpu) {
   ap_m68030_hash_regs(st, &cpu->regs);
+  ap_hash_scope(st, "cpu.mmu");
 
   /* The MMU registers live on the CPU because there is one MMU and two access
    * paths through it. */
@@ -190,9 +199,11 @@ void ap_m68030_hash_cpu(ap_hash_t *st, const ap_m68030_cpu_t *cpu) {
   hash_tt(st, &cpu->tt1);
   ap_hash_u16(st, cpu->mmusr);
 
+  ap_hash_scope(st, "cpu.cache");
   hash_cacr(st, &cpu->cacr);
   ap_hash_u32(st, cpu->caar);
 
+  ap_hash_scope(st, "cpu.exec");
   hash_bool(st, cpu->stopped);
   ap_hash_u32(st, (uint32_t)cpu->external_resets);
   ap_hash_u32(st, (uint32_t)cpu->interrupt_level);
@@ -202,6 +213,7 @@ void ap_m68030_hash_cpu(ap_hash_t *st, const ap_m68030_cpu_t *cpu) {
 
   /* The instruction side: the pipe, where it is fetching from, and in which
    * address space. */
+  ap_hash_scope(st, "cpu.fetch");
   ap_m68030_hash_pipe(st, &cpu->fetch.pipe);
   ap_hash_u32(st, cpu->fetch.address);
   ap_hash_u8(st, cpu->fetch.function_code);
