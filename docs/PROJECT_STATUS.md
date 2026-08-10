@@ -22139,3 +22139,53 @@ reporting values rather than just the last one.
 *Verification: the oracle's operand tap over a boot to the Phase II Environment,
 400 visits sampled; our two visits from stop-PC runs with traces; the instrument
 reverted and `ext/mame` rebuilt clean.*
+
+## Bit 23 is set here too, and the comparison that said otherwise was a snapshot
+
+The entry above concluded that bit 23 of `01042338` "is set there and clear
+here", from our value at two branch visits against the oracle's at its visits.
+Probing every write to that address on this machine refutes it:
+
+```
+  [W] #10430 01042338 size=4 value=00800001 by PC 3C418DD6  <== bit23
+  [W] #10438 01042338 size=4 value=00800001 by PC 3C418DD6  <== bit23
+  ... 34 writes with bit 23 set, of 12,540 to the address
+```
+
+So this core reaches and runs the code that sets it, thirty-four times. The
+field is **time-varying** -- it takes `00800001` and `00000001` repeatedly -- and
+comparing our value at instruction 355,435,305 with the oracle's at its own
+visits compares two different moments. It says nothing.
+
+**This is the fifth time in this investigation that a conclusion drawn from
+nominally corresponding events has been wrong**, and the pattern is now specific
+enough to state as a rule: *two machines on different boot paths share no clock,
+so any comparison between them must be of a quantity that does not depend on
+when it was sampled* -- a count over a whole boot, a value at a stop on the same
+event, an instruction trace from the same entry. Snapshots of a mutable variable
+are none of those. Every finding in this file that survived was of the first
+kind; every one withdrawn was of the last.
+
+**What survives from the operand tap, because it is a count and not a
+snapshot:**
+
+| | visits to `3C418D30` | branch taken |
+| --- | --- | --- |
+| ours, whole boot | 2 (355,435,305 and 383,013,430) | 0 |
+| the oracle, sampled | 400 | 390 |
+
+and the pointers arrive swapped on the oracle's taken visits, in the original
+order on both of ours. That is the same shape as the earlier count -- the oracle
+calls `3C43DD80` 7,556 times and we call it once -- and it is the honest
+statement of the difference: **this kernel does the work twice and the oracle
+does it continuously**, which is a scheduler that is not running rather than a
+branch that is evaluated wrongly.
+
+*Next*: not another value comparison. The question is why this kernel stops
+re-entering the path at all, and the measurement is what it does instead --
+region counters and a PC census over the 99,971,132 instructions between our
+last visit and the crash, which is a quantity that does not depend on when it is
+sampled.
+
+*Verification: the write probe above over a whole boot, reverted; `ctest`
+130/130 after the revert.*
