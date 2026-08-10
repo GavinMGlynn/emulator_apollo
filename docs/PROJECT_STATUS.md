@@ -22040,3 +22040,54 @@ armed on the entry rather than on the register.
 *Verification: the oracle's ring, dumped at the first transition to
 `0105BC00`; our four stop-PC runs and two trace windows; the instrument reverted
 and `ext/mame` rebuilt clean at five files.*
+
+## The whole difference is one `BCS`, and both its operands are now named
+
+Climbing the call chain ended at a single conditional branch. Both machines
+execute the same instructions up to it; the oracle takes it and installs the
+kernel's tree, and this core falls through and never does.
+
+The code, dumped at the stop rather than at the end of a boot (22 bytes from
+logical `3C418D26`, physical `0101B926`):
+
+```
+  3C418D26  20 2B 00 10   MOVE.L ($0010,A3),D0     A3 = 3C43F728
+  3C418D2A  22 28 00 10   MOVE.L ($0010,A0),D1     A0 = 3C26E400
+  3C418D2E  B0 81         CMP.L  D1,D0
+  3C418D30  65 0C         BCS.B  -> 3C418D3E       the oracle goes here
+  3C418D32  66 0E         BNE.B  -> 3C418D42       we go here
+  3C418D34  32 2B 00 1A   MOVE.W ($001A,A3),D1     the equal case, reached by
+  3C418D38  B2 68 00 1A   CMP.W  ($001A,A0),D1     neither machine
+```
+
+Taking the branch leads to `3C418D3E`, the `RTS` at `3C418D50`, a return into
+`3C418D6E`, and the call at `3C418D70` into `3C40DB58` -- which calls
+`3C43DD80`, falls through the gate, and reaches the `PMOVE` at `3C43DDF0`.
+Falling through leads to the same `RTS` and a return somewhere else entirely.
+One branch, and everything downstream of the crash hangs off it.
+
+**Both operands, read at that instant:**
+
+| | logical | physical | our value |
+| --- | --- | --- | --- |
+| `(A3)+$10` | `3C43F738` | `01042338` | **1** |
+| `(A0)+$10` | `3C26E410` | `01074410` | **0** |
+
+`CMP.L D1,D0` with `D0 = 1` and `D1 = 0` borrows nothing, so carry is clear and
+the branch is not taken. For the oracle to take it, its `(A3)+$10` must be
+**less** than its `(A0)+$10` -- the pair is ordered the other way there.
+
+**The global is not a one-shot.** `--boot-watch-write 01042338` counts **12,540
+writes**, the last of them `00000001` by `PC 3C418E7E` -- a few instructions
+past the comparison, so the field is maintained by the same code that reads it.
+Whatever it counts, this core does reach and run that maintenance.
+
+*Next, and it is one instrumented run*: the oracle's two values at its
+installing call. The ring tap that produced the call path prints program
+counters; printing these two long words beside them turns "the pair is ordered
+the other way" into the two numbers, and names which side is wrong.
+
+*Verification: the encoding dumped at a stop on the instruction itself; both
+values from a second stop at the same PC; the branch outcomes read from each
+machine's own trace -- ours `3C418D30` -> `3C418D32`, the oracle's `3C418D30` ->
+`3C418D3E`.*
