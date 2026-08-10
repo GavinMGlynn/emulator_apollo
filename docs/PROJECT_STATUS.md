@@ -22321,3 +22321,67 @@ genuinely the same window.
 *Verification: our sequence from the `posted codes` line of an MD-path boot; the
 oracle's from a temporary log of its own LED decode (`(cr >> 8) ^ 0xff`),
 reverted and `ext/mame` rebuilt clean.*
+
+## The `07` was a display that was not fitted, and the comparison was unmatched
+
+The posted-code divergence recorded above -- the oracle posting `05 06` where
+this core posts `07` -- is **not a defect**. It is `--screen`.
+
+**What `07` is.** The codes come from the boot PROM, not from Domain/OS: the
+whole sequence is printed before `MD7C REV 8.00` appears. Scanning the ROM image
+for calls to the post routine at `0x251A` gives all fourteen sites and the code
+each one posts, and four of them sit together:
+
+```
+  002412  post 04
+  00244C  LEA ($0028,PC),A0   ; A0 = 0x2476
+  002450  MOVE.L A0,($0150,A6) ; install it as the give-up address
+  002458  BSR  $46EA           ; run the test
+  00245C  post 05              ; success path
+  002466  post 06
+  002476  post 07              ; the give-up arm
+```
+
+and the routine at `$46EA` polls a device (`BTST #0,(A1)` spun on at `0x46B8`),
+counts down a retry at `($0250,A6)`, and when it reaches zero restores the saved
+`A7` and jumps to the stored address. **`07` is the timeout arm of that test.**
+
+**The device is the display.** At the give-up, `A1 = 0005D800` and
+`A5 = 00FA0000` -- `AP_GRAPHICS_MONO_ADDR` and `AP_GRAPHICS_MONO_MEMORY_ADDR`,
+and the test's own constants `0005E800`/`000A0000` are the colour controller and
+its memory. `md-session.sh` fits no display; MAME's `dn3500` fits one by
+default. Fitting one here reproduces the oracle exactly:
+
+| | posted sequence |
+| --- | --- |
+| ours, no display | `00 03 04` **`07`** `08 0A` … |
+| ours, `--screen 19i` | `00 03 04` **`05 06`** `08 0A` … |
+| the oracle | `00 03 04` **`05 06`** `08 0A` … |
+
+**This was a self-inflicted comparison error**, and one this file had already
+warned about: "`--screen` **changes the boot path**. Hold it constant across any
+comparison." A posted-code sequence is only sample-independent *given the same
+machine*, and two machines differing in fitted hardware are not the same
+machine. The rule needs the qualifier.
+
+**It is not what stalls the MD path.** With the display fitted, 1.2 G
+instructions still end at `3C456B9E`, still take **0 MMU faults**, and still
+blink `0C` -- 36,564 writes of the same pair. So the display test is fixed and
+the stall is untouched.
+
+**What is left of the difference.** Ours posts `0F` (PROM site `0x0008EC`, in the
+service-mode console group at `0x6B8`-`0x8EC`) and the oracle does not; we drive
+the console over the serial port and the oracle drives it from keyboard and
+display, so this is very likely the same class of difference again. And `0C` is
+**not a PROM site at all** -- it appears in none of the fourteen -- so it is
+written directly by the kernel routine at `3C43DEFA`, which is why both machines
+show it.
+
+*Next*: match the console as well as the display before comparing further. Until
+the two machines are configured alike, the posted codes measure the
+configuration and not the emulator.
+
+*Verification: fourteen post sites read statically from
+`3500_BOOT_12191_7.bin`; the give-up path's registers from a stop on the fourth
+write to `00010100`; three MD-path boots differing only in `--screen`; `ctest`
+130/130 after the probe was reverted.*
