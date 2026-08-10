@@ -22600,3 +22600,50 @@ same window is a whole-boot quantity on both machines and needs no alignment.
 *Verification: the oracle's two sites tapped at the instructions themselves, one
 boot to the Phase II Environment, instrument reverted and `ext/mame` rebuilt
 clean; our three writes taken by stopping on the 1st, 2nd and 3rd.*
+
+## The interrupt the oracle leaves the blink on is one this machine has masked
+
+Counting the vectors each machine actually acknowledges -- a whole-boot quantity
+on both sides, needing no alignment:
+
+| vector | the oracle | ours |
+| --- | --- | --- |
+| `A0` (IRQ0, interval timer) | 10,303 | 7,458 |
+| **`A1` (IRQ1, the serial controllers)** | **190** | **0** |
+| `AE` (IRQ14) | 7 | 7 |
+
+`AP_SIO_IRQ` is 1, so `A1` is the DUARTs. The oracle takes 190 of them while
+this core takes none, and that is what leaves a loop with no exit.
+
+**The request is raised here and then masked.** Probing at the moment our SIO
+first asserts:
+
+```
+  [SIOIRQ] n=199968561 irq=1  p0 isr=19 imr=B2  p1 isr=11 imr=A2
+  [PIC]    sio=1  master irr=02  imr=F6  isr=00  pending=0
+```
+
+The DUART's own mask is programmed (`B2`/`A2`), `ap_sio_irq()` returns true, and
+the master's `irr` has bit 1 set -- so the device, the board wiring and the
+request path all work. **`imr = F6` masks IRQ1**, leaving only IRQ0 and the
+cascade on IRQ3 enabled.
+
+**And that mask is the operating system's own.** Our 8259 takes `A0 = 1` in the
+ready state as OCW1 and stores it, which is what `[8259]` specifies, so `F6` is
+what Domain/OS wrote. This is not a modelling error in the controller.
+
+**Which puts it back on the console.** The oracle's 190 `A1` interrupts come from
+a session that presses keys on the *keyboard*, with the display as console; this
+core drives the dialogue over the **serial port** instead, so the operating
+system configures a different console and never unmasks the line. The comparison
+has been between two machines whose consoles differ, which is the same class of
+mismatch as `--screen` two entries ago.
+
+**And this core cannot yet match it.** `--boot-key N` presses a single matrix
+key; there is no way to drive a *dialogue* from the keyboard, so `EX DOMAIN_OS`
+cannot be typed the way the oracle types it. That is a gap in this frontend
+rather than a mystery in the machine, and it is now a plan item.
+
+*Verification: the oracle's vector census from its own acknowledge path, one
+boot to the Phase II Environment, instrument reverted and `ext/mame` rebuilt
+clean; our two probes reverted, `ctest` 130/130 after.*
