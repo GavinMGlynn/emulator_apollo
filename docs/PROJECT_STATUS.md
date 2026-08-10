@@ -22231,3 +22231,43 @@ about why it did not, and belongs upstream with everything else.
 *Verification: a write probe over a whole crash-clock boot, reverted; the rate
 computed from `elapsed 21,618,187,523,064` base units and the exception census
 in the same report; `ctest` 130/130 after the revert.*
+
+## What this kernel does instead: 8.4 M reads of a slot with nothing in it
+
+The question left standing was what this machine does over the 99,971,132
+instructions between its last visit to the scheduling path and the crash.
+Answered by differencing the region counters at the two ends of the window --
+two whole-boot runs, subtracted, so nothing depends on when a sample was taken:
+
+| region | reads | writes |
+| --- | --- | --- |
+| main memory | 42,362,128 | 41,271,967 |
+| **AT bus (empty slot)** | **8,419,601** | 14 |
+| serial | 1,169,672 | 131 |
+| cartridge tape | 295,142 | 5 |
+| disk/floppy | 31,019 | 5,838 |
+
+**Essentially the whole boot's AT-bus polling happens here** -- 8,419,601 of the
+8.4 M reads this boot makes to an empty slot, at two or three instructions each,
+so a fifth to a quarter of the window is one poll of a device that is not there.
+That is the `TST.B $8(A0)` at `3C4BC384` with `A0 = 3FFF0000`, already on record,
+running its `#$3FFFFE` timeout to the end.
+
+**And it is downstream, not upstream.** `A0 = 3FFF0000` reaches physical
+`00055C00` *through the translation tree in force*, and the tree in force is the
+wrong one -- that is this whole investigation's finding. A logical address
+resolved through `SELF_TEST`'s tree lands where that tree puts it, so "the poll
+finds an empty slot" is a consequence of the missing root-pointer install and
+not an independent defect. The open fork recorded earlier -- "either the polled
+device is something else, or the translation is wrong" -- resolves to the second
+without needing the AT decode to change: `physical = 040000 + (ISA << 7)` gives
+ISA `2B8` here, and MAME's `(offset & 3) + ((offset & ~0x1ff) >> 7)` gives `2B8`
+too, so the two decodes agree and neither is the problem.
+
+So the window contains no second defect. The machine spends its last hundred
+million instructions timing out a poll it should never have been making, and
+everything in it is explained by the tree.
+
+*Verification: region counters from two crash-clock boots with the current
+binary, at instruction 288,640,105 and at the crash, subtracted; both decodes
+computed for the same physical address.*
