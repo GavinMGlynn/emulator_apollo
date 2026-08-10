@@ -50,11 +50,16 @@
  * alternate method of bus arbitration exists that implements a Master Request
  * Register. By setting a particular bit in this register, an external processor
  * asserts its DMA Request signal to the system processor." Which bit is not
- * stated, the register is absent from the oracle (`FINDINGS.md` C10), and
- * `board/ap_boardreg.h` declines `011600` for exactly that reason. Modelling it
- * would mean choosing a bit number, which no source here supplies. It is a
- * recorded gap in `docs/PROJECT_STATUS.md` with its cost to close, not an
- * omission.
+ * stated.
+ *
+ * The **register itself is modelled** -- `board/ap_boardreg.h` stores `011600`
+ * as the byte-wide storage Table 2-8 says exists, and
+ * `ap_boardreg_master_request` reports it -- so what is missing here is not the
+ * register but the *meaning of a bit in it*. Modelling the route would mean
+ * choosing a bit number, which no source here supplies, and a wrong choice
+ * would assert an external master at moments the hardware does not. That is a
+ * recorded gap with a bounded closing route, not an omission: the byte is
+ * already available to whatever consumes it once a source names the bit.
  *
  * **The search is exhausted rather than untried**, which is a different
  * statement and the one worth recording. Every reference on disk was read:

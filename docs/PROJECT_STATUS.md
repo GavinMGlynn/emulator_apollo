@@ -22991,3 +22991,30 @@ identical size differing in one byte of the second block, so the difference is
 nowhere near the header and could only be found by reading the medium, and
 asserts the digests differ; then writes a block to a writable cartridge and
 asserts the digest moved.*
+
+## The reference hash re-baselines to `C335D98309BA03C2`
+
+The reference audit added state that the hash covers, so the number had to move:
+the MC6840's two measurement fields, the DUART's time cursor, the board's
+master-request and task-alias bytes, and the cartridge digest. The time base's
+factor of 64 moves every stored time as well.
+
+```
+                       before              after
+  state hash   F442814C47D34D7D    C335D98309BA03C2
+  final PC            3C4BC384            3C4BC384
+  clocks            1457857018          1457857018
+```
+
+**`final PC` and `clocks` are identical**, which is the check that matters:
+`clocks` counts processor cycles and does not scale with the base, so a run that
+ends at the same instruction having taken the same number of cycles did the same
+work. Every added field is state the machine now *has* rather than behaviour it
+now performs, and the goldens said the same thing earlier -- every `clocks`
+figure in `probes.txt` unchanged, only the hashes moved.
+
+`0D8379A03105C0F7` and `F442814C47D34D7D` are retired. Earlier A/Bs against
+either stand: each compared binaries at a fixed device model.
+
+*Verification: `tools/identity-boot.sh`, 350 M instructions, the invocation the
+script holds.*
