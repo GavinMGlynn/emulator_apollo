@@ -26041,3 +26041,50 @@ one silently compares the diagnostic against the kernel.
 *Verification: ours `--boot-stop-pc 3C47A25A --boot-stop-pc-skip 1`, stopping at
 instruction 326,514,086 with 287 faults; the oracle's breakpoint run with its
 exit snapshot as the control.*
+
+## RETRACTED: running on `SELF_TEST`'s tree is what the oracle does too
+
+The oldest surviving claim in this investigation is that Domain/OS "never
+installs its own translation tables here", "runs its whole life on `SELF_TEST`'s
+`CRP = 0x01001400` tree", and "dies the first time it faults on an address that
+tree never mapped". The first two are now measured on **both** machines, and
+they are the same:
+
+| | `TC` | `CRP` | where |
+| --- | --- | --- | --- |
+| ours, at the fault site `3C47A25A` | `80A28750` | `01001400` | instruction 326,514,086 |
+| ours, early kernel `3C409EBA` | `80A28750` | `01001400` | instruction 325,777,432 |
+| **the oracle, at the calendar prompt** | **`80A28750`** | **`01001400`** | PC `3C43F5AC` |
+
+`80A28750` is `E` set, `SRE` **clear** — so on both machines every access, user
+and supervisor, goes through the `CRP`, and on both machines that `CRP` is
+`01001400`. **The oracle boots to the calendar question doing exactly what this
+core was faulted for.**
+
+So "Domain/OS never installs its own tables" is not a defect and never was: it
+is how this kernel runs. The earlier `SRE`-set state (`02A28750`, `CRP =
+01200000`) is a *transient* during `SELF_TEST`, before the kernel takes over —
+which is why it looked like the healthy configuration when sampled at posted
+`EC`, and why the section above about `SRE` describes a moment rather than a
+machine. Both cores pass through it and both leave it.
+
+The oracle's kernel also runs at `3C4xxxxx` — `m_pc = 3C43F5AC` — so the two are
+executing the same code at the same addresses under the same translation.
+
+### What is left of the crash, stated honestly
+
+Everything structural now matches: same firmware path, same self-test failure,
+same kernel image at the same addresses, same `TC`, same `CRP`, same screen up
+to the banner. What differs is **which instructions the kernel then executes**:
+ours reaches `3C409EBA` at instruction 325,777,432 and `3C47A25A` at
+326,514,086, and the oracle executes **neither** in 150 emulated seconds while
+reaching the calendar question.
+
+That makes the remaining difference a *data* difference — something the kernel
+reads that steers it — rather than a configuration or MMU one. Finding it means
+finding the first kernel instruction the two machines disagree about, and the
+method is now cheap: breakpoint a candidate PC on the oracle, and its exit
+snapshot says whether the run was meaningful.
+
+*Verification: three `--dump-state` runs against one oracle dump-on-exit, all in
+the display configuration with the prompt answered on both sides.*

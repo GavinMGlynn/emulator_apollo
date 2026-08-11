@@ -179,6 +179,15 @@ local function finish(why)
 	-- screen is the cheapest proof of that. Without it a keypost that silently
 	-- did nothing and a machine that genuinely never executes X produce the
 	-- same line.
+	-- Dump on the way out too, for the same reason as the snapshot: a run that
+	-- gives up is still a machine in a state, and "where was it instead?" is
+	-- the next question every time. Only when the hit path has not already
+	-- written one.
+	if dump_to ~= nil and not S.dumped then
+		S.dumped = true
+		local ok = pcall(function() manager.machine:apollo_dump_state(dump_to) end)
+		out("# state dumped on exit: %s\n", ok and dump_to or "failed")
+	end
 	if snap_name ~= nil then
 		for tag, screen in pairs(manager.machine.screens) do
 			local safe = tag:gsub("[^%w]", "_")
@@ -510,6 +519,7 @@ emu.register_periodic(function()
 		local pc = current_pc()
 		if debugger.execution_state == "stop" and pc ~= nil and pc ~= S.hit_pc then
 			out("# stepped %08X -> %08X -- dumping\n", S.hit_pc, pc)
+			S.dumped = true
 			manager.machine:apollo_dump_state(dump_to)
 			finish(string.format("dumped to %s at PC %08X", dump_to, pc))
 		end
