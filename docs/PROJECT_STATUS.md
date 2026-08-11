@@ -26177,3 +26177,38 @@ that is where the first real divergence is.
 *Verification: the same two dumps diffed with and without
 `--oracle-quirk duart-enable-sets-txemt`, the instruction count identical
 across both.*
+
+## Who writes the DUART, measured on both sides
+
+Tapping the oracle's whole DUART block with the program counter gives 113 writes
+and names every one. The two that matter:
+
+    reg 4 (ACR)  pc 0000064E  value 60      <- the boot PROM, and this core does this too
+    reg 4 (ACR)  pc 3C426612  value EA  x2  <- the **kernel**, and this core never does
+    reg 5 (IMR)  pc 3C42645E  value A2      <- the kernel, likewise
+
+This core's register counters at the same sync point: **reg 4 written twice**
+(the oracle three times), **reg 5 written zero times against 216,463 reads**. So
+the difference is not a value we compute wrongly — it is a routine we never
+reach.
+
+### And the routine is readable, from our own memory
+
+`--dump-logical 3C4265C0:A0` on a stopped machine gives the kernel's own code
+(mapped to physical `010291C0`), and at `3C426612`:
+
+    15 69 00 04 00 09     move.b (4,a1),(9,a2)
+
+With `a2` = `010400` the destination `9(a2)` is `010409`, which is register 4 —
+ACR. **The kernel writes ACR from a structure field at `a1+4`, not from a
+constant.** So the oracle's `EA` is data the kernel read from somewhere, and the
+question "why is our ACR `60`" becomes "why does our kernel not run this
+routine", which is a different and better question.
+
+That the kernel image is byte-identical on both machines is already established
+— same `LOW`/`HIGH`/`START`, same disk — so this is the same code on both.
+
+*Verification: oracle write tap over `010400`-`01041F` with lane decoding and
+PCs, 95 emulated seconds with the prompt answered; this core's per-register
+counters from the same sync point; the instruction bytes from
+`--dump-logical`.*
