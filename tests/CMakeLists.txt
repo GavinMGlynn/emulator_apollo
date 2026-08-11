@@ -211,6 +211,17 @@ if(Python3_Interpreter_FOUND AND NOT WIN32)
            COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/test_state_diff.py)
   set_tests_properties(state_diff PROPERTIES LABELS tools)
 
+  # The dump itself must be a function of machine state and nothing else. The
+  # goldens pin the state *hash*; the dump is a different artefact carrying
+  # field names, indices and derived lines the hash never sees, so its shape can
+  # move while the hash stays constant. Field indices were in fact found to
+  # depend on how full the DUART's receive FIFO happened to be -- the hash was
+  # right throughout and a map keyed on those indices would have compared
+  # unrelated values. Skips where the ROM and disk are absent, which is CI.
+  add_test(NAME dump_determinism
+           COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/test_dump_determinism.py)
+  set_tests_properties(dump_determinism PROPERTIES LABELS tools)
+
   add_test(NAME probe_encoder
            COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/mame-oracle/test_encoder.py)
   set_tests_properties(probe_encoder PROPERTIES LABELS tools)

@@ -25362,3 +25362,32 @@ accesses. That is where `+400`'s bit meanings will come from, if anywhere.
 
 *Verification: offsets recorded in `RING.md` findings 53-53e against
 `media/dn3500-sr10.4-installed.awd`, each re-readable with a fixed-offset dump.*
+
+## Our half of the differential, validated end to end before it is trusted
+
+The dump and the comparison tool had been tested against *constructed* inputs.
+Before either carries a conclusion about the oracle, they are now exercised on
+real ones.
+
+**The dump is deterministic**: two boots to the same posted diagnostic code —
+write 3 of `00010100`, instruction 51,369 — produce byte-identical 688-line
+files, and the walk hash equals the state hash, which is what says the dump is
+the same traversal the identity harness takes. **And the comparison works on
+real dumps**: an identity map over all 688 fields gives `688 matched, 0
+differing` between two runs of the same machine, and `46 differing` between
+instruction 51,369 and 379,634 — in `sio`, `cpu.fetch`, `timer`, `cpu.a/d/ctl`,
+`calendar`, `memory`, `translation_map` and `ring`, which is where a third of a
+million instructions of console traffic and timekeeping should show.
+
+That second half matters as much as the first. A determinism check that only
+asserts "identical" passes just as well on a dump that is blind or empty, so
+`dump_determinism` asserts both — same point identical, different point
+differing — and would fail if the dump ever stopped saying anything.
+
+It is a CTest entry costing 5.7 s, skipping where the boot PROM and disk are
+absent, which is CI. The goldens pin the state *hash*; this pins the *dump*,
+and the two are different artefacts — the dump carries field names, indices and
+derived lines the hash never sees, which is exactly how the FIFO-dependent field
+numbering above stayed invisible while every golden passed.
+
+*Verification: `dump_determinism` in CTest, `ctest` 134 → 135.*
