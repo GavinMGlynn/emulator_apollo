@@ -24953,3 +24953,52 @@ the two dumps means anything.
 
 *Verification: none — this entry records a negative result and an open
 question, which is what it is.*
+
+## The divergence, isolated at last, and it needs no sync point
+
+Run this core with **no input at all** — no `--boot-input`, no `--boot-script`,
+no keypress — on the same PROM, the same disk, the same 2026 clock, an 8-plane
+display and normal mode. Exactly the oracle's conditions:
+
+```
+  LOADING SELF_TEST DIAGNOSTICS FROM BOOT DEVICE.
+  LOW: 01002000 HIGH: 01005378 START: 01002020
+  LOADED:  SELF_TEST  REVISION: 2.4
+  LAST COMPILED: WEDNESDAY, OCTOBER 5, 1988  1:08:11 PM (EDT)
+  ...
+  CONFIGURATION INFORMATION IS NOT INITIALIZED.
+  SELF TEST FAILED.
+   EXPECTED= 00000000, ACTUAL= 00000012, ADDRESS= 00010912
+  DO YOU WISH TO CONTINUE (Y,N)? _
+```
+
+**This core loads `SELF_TEST`, runs it, fails a test and stops at a prompt. The
+oracle, given the same, boots straight to Domain/OS in about 38 emulated seconds
+and never loads `SELF_TEST` at all.**
+
+That is a reproducible divergence between the two cores **at the boot PROM
+level, with no input involved** — no harness difference, no configuration
+difference, no sync point required to see it. Two machines given identical
+firmware and media are choosing to run different programs, and it happens long
+before the `00120020` crash that this investigation has been chasing.
+
+It also explains, in retrospect, why every attempt to synchronise on `01002020`
+failed: only one machine ever executes it.
+
+**Which is the finding the full-state differential should be pointed at**, and
+the first one all session that needs neither a matched instant nor a field
+mapping to state. The next question is what the firmware branches on before
+`LOADING SELF_TEST` — the boot device's own decision, the `--- LOAD PATHS
+TESTED` line above it, or the network driver search that precedes both — and it
+is answerable by disassembling the PROM around that message, which is a reading
+task with no boot in it.
+
+**And a caution that follows from today's record**: this screen is
+character-identical to one captured earlier and attributed to the oracle. Under
+current builds it is *this core's* output and the oracle's differs. Before
+building on any of it, re-take both — a result is evidence about the build that
+produced it.
+
+*Verification: `apollo-headless --screen c8p --screenshot` with no input flags,
+700 M instructions, ending at `PC 0000267E` with the posted codes
+`… 8D 7D 6D 5D FC 8F …`.*
