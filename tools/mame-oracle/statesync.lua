@@ -81,6 +81,9 @@ local wr_text  = os.getenv("APOLLO_SYNC_WRITE")
 local wr_count = tonumber(os.getenv("APOLLO_SYNC_COUNT") or "1") or 1
 local rd_text  = os.getenv("APOLLO_SYNC_READ")
 local rd_pc    = os.getenv("APOLLO_SYNC_READ_PC")
+-- How many bytes the taps cover, rounded out to whole longwords. One register
+-- is the default; a device's whole window is what a protocol needs.
+local span     = tonumber(os.getenv("APOLLO_SYNC_SPAN") or "1") or 1
 rd_pc = rd_pc and tonumber(rd_pc, 16) or nil
 local wr_value = os.getenv("APOLLO_SYNC_VALUE")
 wr_value = wr_value and tonumber(wr_value, 16) or nil
@@ -202,7 +205,9 @@ local function install_read_tap()
 	S.cpu = cpu
 	S.reads = 0
 	local lo = rd_watch - (rd_watch % 4)
-	S.rtap = space:install_read_tap(lo, lo + 3, "apollo_sync_r",
+	local hi = rd_watch + span - 1
+	hi = hi + (3 - (hi % 4))
+	S.rtap = space:install_read_tap(lo, hi, "apollo_sync_r",
 		function(offset, data, mask)
 			if S.done then return end
 			local pc = current_pc()
@@ -238,7 +243,8 @@ local function install_write_tap()
 	-- covers the whole longword and the callback filters, rather than the range
 	-- being narrowed to what is wanted.
 	local lo = watch - (watch % 4)
-	local hi = lo + 3
+	local hi = watch + span - 1
+	hi = hi + (3 - (hi % 4))
 	S.tap = space:install_write_tap(lo, hi, "apollo_sync",
 		function(offset, data, mask)
 			if S.done then return end
