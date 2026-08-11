@@ -24987,11 +24987,31 @@ failed: only one machine ever executes it.
 
 **Which is the finding the full-state differential should be pointed at**, and
 the first one all session that needs neither a matched instant nor a field
-mapping to state. The next question is what the firmware branches on before
-`LOADING SELF_TEST` — the boot device's own decision, the `--- LOAD PATHS
-TESTED` line above it, or the network driver search that precedes both — and it
-is answerable by disassembling the PROM around that message, which is a reading
-task with no boot in it.
+mapping to state. The reading task was then done, and the PROM's own strings name the mechanism:
+
+```
+  0083E2  "--- Load paths tested."
+  008405  "Loading SELF_TEST diagnostics from boot device."
+  0084EC  "Could not load /SAU7/SELF_TEST."
+  008584  "Checksum error on /SAU7/SELF_TEST."
+```
+
+**`SELF_TEST` is a file — `/SAU7/SELF_TEST` — read off the Winchester**, and the
+firmware has failure messages for not finding it and for a bad checksum. So the
+divergence is not a branch on a configuration bit: it is whether the boot
+device *serves that file*. This core reads it and runs it; the oracle, on a byte
+identical disk image, does not — and prints neither failure message, so it is
+not failing the load, it is not reaching it.
+
+**That puts the difference in the disk path**, which is a subsystem both cores
+implement in full and which the differential can therefore compare directly:
+`ap_disk`/`ap_omti` here against MAME's `omti8621`. It is also a subsystem this
+core has a documented history with — the LUN decode fix, the `DRIVE 1 (NOT
+FOUND)` line — so a difference there is plausible rather than exotic.
+
+That is where the next session should point the state dump: not at the crash,
+which is 160 M instructions downstream, but at the disk controller's state
+during the load that only one machine performs.
 
 **And a caution that follows from today's record**: this screen is
 character-identical to one captured earlier and attributed to the oracle. Under
