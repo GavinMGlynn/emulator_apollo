@@ -25049,9 +25049,32 @@ firmware never writes to. **The first thing the next session should do is
 establish what that legend is**, because every oracle screenshot in this session
 shows it and every conclusion drawn from them depends on the answer.
 
-The way to settle it costs nothing: capture at 0.1 s, before any firmware could
-have drawn anything. If the legend is there, it is the device's initial state and
-none of these captures ever showed firmware output.
+The way to settle it cost nothing, and it settles it: **captured at 0.1 emulated
+seconds, the legend is already there** — before any firmware could have drawn a
+pixel. It is the machine's static furniture, not output.
+
+**So none of this session's `mdsession` screen captures ever showed firmware
+output.** Every one was a blank display area plus that legend, and "blank plus
+legend" was read throughout as "Domain/OS is running". It never was.
+
+That retracts, in one stroke, the chain built on it: the oracle booting to
+Domain/OS in 38 s, the oracle skipping `SELF_TEST`, the two machines running
+different programs, and the divergence being in the disk path. **None of them
+has evidence behind it any more.**
+
+And it sharpens the one thing that does: the `screencap.lua` capture taken
+earlier in this session *did* show real firmware text — the self-test list, the
+`SELF_TEST` banner, the prompt. Its re-run today showed only the legend. So the
+difference is not between the two Lua scripts and never was: **something between
+those two builds stopped the oracle's display rendering**, and the obvious
+suspect is one of this session's two MAME rebuilds — the C120 workaround, or the
+`save.h` instrumentation that touched most of the tree.
+
+*Next, and it is a bisect rather than a hypothesis*: rebuild `ext/mame` from a
+clean checkout with no local edits and capture at 60 s. If the self-test text
+returns, one of the local edits suppresses rendering and the patch is at fault;
+if it does not, the oracle's display has never rendered under this build and
+every screen comparison in this project needs re-taking.
 
 **And a caution that follows from today's record**: this screen is
 character-identical to one captured earlier and attributed to the oracle. Under
