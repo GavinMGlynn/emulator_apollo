@@ -25391,3 +25391,42 @@ derived lines the hash never sees, which is exactly how the FIFO-dependent field
 numbering above stayed invisible while every golden passed.
 
 *Verification: `dump_determinism` in CTest, `ctest` 134 → 135.*
+
+## Our side of the crash comparison is captured, and the derived fields work
+
+A full auto-boot on the 2026 clock, **no display fitted** — which is the crash
+path, and not the display-halt path the same invocation with `--screen c8p`
+takes — runs 388,611,237 instructions and stops with:
+
+    stopped      FAULT on 612C
+    final PC     0100040A (main memory)
+    fault addr   FFFFFFFC -> FFFFFFFC (unmapped)
+    mmu faults   288
+    d1           00120020
+    state hash   FD274E1026E6AAE3
+
+`d1 = 00120020` is the crash status itself. The dump's walk hash equals the
+state hash, so this file is the same traversal the identity harness takes.
+
+**The derived MMU fields earn their keep immediately.** `crp_lower = 01001400`
+is exactly the `SELF_TEST` tree this document records Domain/OS running its
+whole life on, recovered here as one line of a dump rather than as a
+special-purpose probe — which is the first independent check that the packing
+is right.
+
+`tc_packed = 00A28750` decomposes self-consistently: `IS` 2, `TIA` 8, `TIB` 7,
+`TIC` 5, `TID` 0 and a 10-bit page offset, summing to exactly 32. **Its `E` bit
+is clear** — translation is off at this instant, which fits the identity mapping
+the fault line shows (`FFFFFFFC -> FFFFFFFC`). Recorded as an observation about
+the *end* state, not a conclusion about the crash: 288 faults precede it, and a
+runaway write to `FFFFFFFC` with translation disabled is the tail of a cascade
+rather than its cause.
+
+**Which is why the comparison starts at write 9 and walks forward, not here.**
+At the final state one machine has crashed and the other has booted, so
+everything differs and nothing is attributable. The first divergence is the
+question; the last one is only its consequence.
+
+*Verification: `--boot-limit 400000000`, release build, `--clock 2026-08-09`,
+serial console on port 1 channel B, `tools/boot-domainos.script`, no `--screen`.
+Dump kept for the comparison.*
