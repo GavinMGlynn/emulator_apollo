@@ -388,16 +388,55 @@ static void test_the_break_change_interrupt_can_be_cleared_per_channel(void) {
   TEST_ASSERT_EQUAL_HEX8(0, d.isr & AP_MC68681_ISR_BREAK_B);
 }
 
-static void test_an_idle_transmitter_is_ready_and_empty(void) {
+/* **Reset clears the status register; it does not announce a transmitter.**
+ *
+ * §2.4: "A hardware reset, assertion of RESET, clears status registers A and B
+ * (SRA and SRB) ... and places channels A and B in the inactive state".
+ *
+ * This test previously asserted the opposite -- that an idle transmitter reads
+ * ready and empty at reset -- and the code matched it. Both were wrong in the
+ * same way, which is why the suite stayed green: the reasoning "an idle
+ * transmitter is ready and empty" describes an **enabled** transmitter, and
+ * reset leaves the channel inactive. The oracle differential found it, three of
+ * four channels reading `0C` where the reference read `00` for a whole boot.
+ *
+ * The worry the old test encoded -- a driver waiting for a transmitter that
+ * never announces itself -- is real and is answered by the enable path, which
+ * is asserted here rather than assumed. */
+static void test_reset_clears_the_status_register(void) {
   ap_mc68681_t d;
   ap_mc68681_reset(&d);
 
-  /* Getting this wrong at reset makes a driver wait for a transmitter that
-   * never announces itself -- a hang with no error anywhere. */
-  uint8_t sr = ap_mc68681_read(&d, AP_MC68681_SR_CSR_A);
+  TEST_ASSERT_EQUAL_HEX8(0x00u, ap_mc68681_read(&d, AP_MC68681_SR_CSR_A));
+  TEST_ASSERT_EQUAL_HEX8(0x00u, ap_mc68681_read(&d, AP_MC68681_SR_CSR_B));
+
+  /* And the transmitter announces itself when it is enabled, which is what
+   * stops the cleared reset value from being a hang. §4.2.9.6: transmitter
+   * ready "is set when the transmitter is first enabled". */
+  ap_mc68681_write(&d, AP_MC68681_CR_A, 0x04u); /* enable transmitter */
+  const uint8_t sr = ap_mc68681_read(&d, AP_MC68681_SR_CSR_A);
   TEST_ASSERT_EQUAL_HEX8(AP_MC68681_SR_TXRDY, sr & AP_MC68681_SR_TXRDY);
-  TEST_ASSERT_EQUAL_HEX8(AP_MC68681_SR_TXEMT, sr & AP_MC68681_SR_TXEMT);
   TEST_ASSERT_EQUAL_HEX8(0, sr & AP_MC68681_SR_RXRDY);
+
+  /* **But not transmitter-empty**, which is a different event. §4.2.9.5: TxEMT
+   * "will be set when the channel A transmitter underruns ... It is set after
+   * transmission of the last stop bit of a character if no character is in the
+   * transmit holding register awaiting transmission." A transmitter that has
+   * just been enabled has not transmitted anything, so it has not underrun.
+   *
+   * Asserted because the first draft of this test assumed the opposite -- an
+   * enabled idle transmitter "is obviously empty" -- and MAME's model does set
+   * both here. The manual distinguishes them, so this core does too. */
+  TEST_ASSERT_EQUAL_HEX8(0, sr & AP_MC68681_SR_TXEMT);
+}
+
+/* §2.4 again, and the only register reset gives a value rather than clearing:
+ * "RESET initializes the interrupt vector register (IVR) to 0F16". A `memset`
+ * reset gets every other register right and this one wrong. */
+static void test_reset_initialises_the_interrupt_vector_to_0f(void) {
+  ap_mc68681_t d;
+  ap_mc68681_reset(&d);
+  TEST_ASSERT_EQUAL_HEX8(0x0Fu, ap_mc68681_read(&d, AP_MC68681_IVR));
 }
 
 static void test_the_mode_register_pointer_advances_then_sticks(void) {
@@ -1257,7 +1296,8 @@ int main(void) {
   RUN_TEST(test_a_parity_type_disagreement_is_a_parity_error);
   RUN_TEST(test_matching_parity_is_not_an_error);
   RUN_TEST(test_a_receiver_without_parity_reports_none);
-  RUN_TEST(test_an_idle_transmitter_is_ready_and_empty);
+  RUN_TEST(test_reset_clears_the_status_register);
+  RUN_TEST(test_reset_initialises_the_interrupt_vector_to_0f);
   RUN_TEST(test_the_mode_register_pointer_advances_then_sticks);
   RUN_TEST(test_the_receive_fifo_holds_three_and_then_overruns);
   RUN_TEST(test_resetting_the_receiver_also_discards_the_held_character);

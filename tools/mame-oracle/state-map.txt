@@ -102,34 +102,76 @@ cpu.mmu.srp_lower	Motorola MC68030/:maincpu/0/m_mmu_srp_aptr.0.0
 # The MMU status register: ours is the u16 at the end of the decomposed run.
 cpu.mmu.035	Motorola MC68030/:maincpu/0/m_mmu_sr.0.0
 
-# --- The DUARTs, prepared but not active ---
+# --- The DUARTs, mapped ---
 #
-# The pairs below are worked out from both implementations' source and are
-# **commented out until a dump confirms the tag prefix**, which is the one part
-# neither source gives: MAME's channels are subdevices and this file cannot
-# derive whether they appear as `:sio:cha` or something else. An active line
-# with a wrong prefix reports MISSING, which is harmless; an active line with a
-# wrong *field* would report a false agreement, which is not. So they wait.
+# **The two ports were identified by value, not by name.** MAME's devices are
+# `:sio` and `:sio2` with channel subdevices `:sioN:cha`/`:chb`. At posted `8F`
+# this core's `port0 ch0` has `CSR = 66` and its port-level `ACR = 60`, and
+# MAME's `:sio:cha` has `CSR = 66` while `:sio`'s `ACR = 60`. Two independent
+# fields agreeing is what fixes the correspondence; the names alone would only
+# have suggested it.
 #
-# Two asymmetries here are worth stating, because both look like gaps in the
-# diff and neither is:
+#   port 0 <-> :sio        port 1 <-> :sio2
+#   channel 0 <-> cha      channel 1 <-> chb
 #
-#   * **MAME saves `CR`; this core has no such field.** The command register is
-#     not state on this part -- a command is acted on when it is written. MAME
-#     keeps the previous command word solely because `write_CR` tested an edge
-#     against it, which is the defect `duart-tx-enable.patch` fixes. So that
-#     field is a fingerprint of a bug, and its absence here is correct.
+# Field order here is `ap_board_state.c`'s `hash_mc68681_channel` then
+# `hash_mc68681`: ten numbered fields per channel, two channels, then the
+# port-level registers from index 20.
 #
+# Two asymmetries, both stated because each will look like a gap and neither is:
+#
+#   * **MAME saves `CR`; this core has no such field.** A command is acted on
+#     when it is written, so the previous command word is not state. MAME keeps
+#     it only because `write_CR` tested an edge against it -- the defect
+#     `duart-tx-enable.patch` fixes -- so that field is a fingerprint of a bug.
 #   * **This core keeps `fifo_status[]` and `pending_status`; MAME does not.**
-#     §4.2.1.3 makes framing error, parity error and received break properties
-#     of the character at the top of the FIFO, so they travel with the
-#     character rather than sitting in one register. That is richer than the
-#     oracle, not poorer, and is an "unmapped here" for the right reason.
+#     §4.2.1.3 makes framing error, parity error and received break properties of
+#     the character at the top of the FIFO, so they travel with the character
+#     rather than sitting in one register. Richer than the oracle, not poorer.
 #
-# Per channel, in this core's order:
-#   .0 mr[0]=MR1  .1 mr[1]=MR2  .2 mr_pointer=MR_ptr  .3 csr=CSR  .4 sr=SR
-#   .5 fifo_count=rx_fifo_num   .6 rx_enabled  .7 tx_enabled=m_tx_enabled
-#   .8 tx_holding=m_tx_data     .9 tx_holding_full=m_tx_data_in_buffer
-# and the receive FIFO itself is a group line, deliberately unmappable: MAME
-# saves all three slots unconditionally, this core treats the ones past the
-# count as unreachable and does not hash them.
+# The receive FIFO is a group line here and a fixed four-entry array there, so it
+# is unmappable in either direction: this core hashes only the occupied entries
+# because the rest are unreachable, MAME saves all of them unconditionally.
+
+# port 0, channel 0
+sio.000	DUART channel/:sio:cha/0/MR1.0.0
+sio.001	DUART channel/:sio:cha/0/MR2.0.0
+sio.002	DUART channel/:sio:cha/0/MR_ptr.0.0
+sio.003	DUART channel/:sio:cha/0/CSR.0.0
+sio.004	DUART channel/:sio:cha/0/SR.0.0
+sio.005	DUART channel/:sio:cha/0/rx_fifo_num.0.0
+sio.006	DUART channel/:sio:cha/0/rx_enabled.0.0
+sio.007	DUART channel/:sio:cha/0/m_tx_enabled.0.0
+# .008 is the transmit holding register's *contents*, and it is not comparable.
+# MAME's `duart_channel::device_reset` issues `write_CR(0x30)`, which clears
+# `m_tx_data_in_buffer` and **leaves `m_tx_data` holding the previous byte** --
+# measured as `53` ('S') three instructions after a hard reset, from the run
+# before it. This core zeroes it. Neither is wrong: with the holding register
+# not full its contents are unreachable, which is the same reason the caches and
+# the receive FIFO hash only what an access can reach. Compare `.009`
+# (`m_tx_data_in_buffer`) instead, which is the bit that says whether the
+# contents mean anything.
+sio.009	DUART channel/:sio:cha/0/m_tx_data_in_buffer.0.0
+# port 0, channel 1
+sio.010	DUART channel/:sio:chb/0/MR1.0.0
+sio.011	DUART channel/:sio:chb/0/MR2.0.0
+sio.012	DUART channel/:sio:chb/0/MR_ptr.0.0
+sio.013	DUART channel/:sio:chb/0/CSR.0.0
+sio.014	DUART channel/:sio:chb/0/SR.0.0
+sio.015	DUART channel/:sio:chb/0/rx_fifo_num.0.0
+sio.016	DUART channel/:sio:chb/0/rx_enabled.0.0
+sio.017	DUART channel/:sio:chb/0/m_tx_enabled.0.0
+# .018 likewise -- see the note on .008.
+sio.019	DUART channel/:sio:chb/0/m_tx_data_in_buffer.0.0
+# port 0, the shared registers
+sio.020	DN3000/DS3500 SIO (MC2681)/:sio/0/ACR.0.0
+sio.021	DN3000/DS3500 SIO (MC2681)/:sio/0/IMR.0.0
+sio.022	DN3000/DS3500 SIO (MC2681)/:sio/0/ISR.0.0
+# .023 is IVR, which MAME's MC2681 does not register -- `save_item(NAME(IVR))`
+# is inside the 68681-only branch of `device_start`. Absent, not different.
+sio.024	DN3000/DS3500 SIO (MC2681)/:sio/0/IPCR.0.0
+sio.025	DN3000/DS3500 SIO (MC2681)/:sio/0/OPCR.0.0
+sio.026	DN3000/DS3500 SIO (MC2681)/:sio/0/OPR.0.0
+# .027 is this core's latched input port; MAME's nearest is `IP_last_state`,
+# which is the *previous* sample used for change detection, not the current
+# level. Different quantities, deliberately unmapped.

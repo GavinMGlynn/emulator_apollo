@@ -25,10 +25,19 @@
 
 static void reset_channel(ap_mc68681_channel_t *ch) {
   memset(ch, 0, sizeof *ch);
-  /* An idle transmitter is both ready and empty; a receiver with nothing in it
-   * is neither ready nor full. Getting this wrong at reset makes a driver wait
-   * for a transmitter that never announces itself. */
-  ch->sr = AP_MC68681_SR_TXRDY | AP_MC68681_SR_TXEMT;
+  /* **The status register is cleared, not set ready.** §2.4: "A hardware reset,
+   * assertion of RESET, clears status registers A and B (SRA and SRB)", and the
+   * same sentence "places channels A and B in the inactive state".
+   *
+   * This used to seed `TXRDY | TXEMT` on the reasoning that an idle transmitter
+   * is ready and empty. That reasoning describes an *enabled* transmitter, and
+   * reset leaves the channel inactive -- the transmitter is enabled by a command
+   * register write, and `write_CR`'s enable path is what asserts `TXRDY`. So the
+   * old value announced a transmitter that had not been enabled.
+   *
+   * Found by the oracle differential: three of the four channels differed from
+   * MAME's here for the whole boot, ours reading `0C` where the reference read
+   * `00`, and the manual settles which is right. */
 }
 
 void ap_mc68681_reset(ap_mc68681_t *duart) {
@@ -36,6 +45,10 @@ void ap_mc68681_reset(ap_mc68681_t *duart) {
   for (unsigned i = 0; i < AP_MC68681_CHANNELS; i++) {
     reset_channel(&duart->channel[i]);
   }
+  /* §2.4: "RESET initializes the interrupt vector register (IVR) to 0F16".
+   * The one register reset gives a *value* rather than clearing -- so a
+   * `memset` alone gets it wrong, which is exactly what happened. */
+  duart->ivr = 0x0Fu;
 }
 
 bool ap_mc68681_timer_mode(const ap_mc68681_t *duart) {

@@ -3416,7 +3416,7 @@ failure that cost a bit position in the 68020's module entry word.
 | MC146818A calendar (the part) | working: ten clock bytes, four registers, 50 RAM bytes, the once-per-second update with a full Gregorian carry, the alarm with don't-care codes, and Register C's read-to-clear. **Time is supplied by the caller, never the host** — the oracle seeds its calendar from the wall clock, which would rot every golden. The **periodic interrupt** is implemented for **all fifteen** of `[146818]` Table 5's rates, 32.768 kHz down to 2 Hz: the base is the LCM times 2^6 so that it carries the 2^15 the six fastest need, at a span of 9.9 days rather than 634. The **square wave** is driven, sharing that selector and gated by Register B's `SQWE`, and the `DSE` bit's two **daylight-savings** updates are applied. The crystal itself stays unrepresentable — 4.194304 MHz would need a base spanning under two hours — and `ap_mc146818_rate_supported` is kept for that reason. Not yet wired to the board at `010900` | `mc146818_suite`, 32 tests, `MC146818A` (register figures read from page images) |
 | Node ID PROM (`011200`) | working: the layout measured from the oracle's own PROM — stride 2 with the **odd byte reading zero** (unlike the serial ports at the same stride), the identifier big-endian in registers 0-3, and a checksum in register **15** confirmed arithmetically (`01 + 23 + 45 = 69`) and then by the boot PROM's own self-test, which sums registers 0-14 and compares. The identifier is supplied by the caller, never a constant: a device whose purpose is to be unique per machine must not be the same on every one | `nodeid_suite`, 8 tests; `008778-03` Table 2-8, CPU self-test 8 at `008218` |
 | Apollo serial ports (`010400`, `010500`) | working: both DUARTs at **stride 2** (measured), sixteen registers over thirty-two bytes and aliased, sharing IRQ1 through to vector `A1`. The memory-refresh square wave of §3.9 runs: the counter is clocked at the DUART's X1 and produces a 15 microsecond period from the boot PROM's own preload. Its *frequency*, 66666.67 Hz, is not an integer, so a core counting in hertz could not represent this board's refresh clock at all | `sio_suite`, 29 tests; `FINDINGS.md` C14 |
-| MC68681 / SCN2681 DUART (the part) | **programming model complete**: all sixteen register addresses of `[68681]` Table 4-1, both channels' mode registers with their shared pointer, clock-select, command and status registers, the three-deep receive FIFO with overrun, the interrupt status and mask registers, the input and output ports, and the counter/timer with both address-triggered commands. **All eight of §4.2.7.2's miscellaneous commands** — the audit found three falling through a bare `default: break;` (reset break change interrupt, start break, stop break) and, in the same paragraph, three outright errors in the transmitter status bits; see below. **Serial framing is modelled**, and the claim that it was not was stale: `ap_mc68681_resample` reshapes a character arriving at a mismatched baud rate rather than flagging an intact one, `ap_mc68681_character_bits` applies `MR1`'s width, parity is checked on both enable *and* type, `MR2`'s stop-bit field is read, and all four channel modes — normal, auto-echo, local loopback, remote loopback — behave differently. **Wired to the board** through `board/ap_sio.h` | **the receive shift register is modelled**: the part is quadruple-buffered, so a character meeting a full FIFO is held rather than lost and only the next one overruns, and a read that frees a position refills the FIFO from it -- which is why §4.2.9.7 says `FFULL` is not cleared by that read | `mc68681_suite`, 52 tests, `MC68681 DUART Sep85` |
+| MC68681 / SCN2681 DUART (the part) | **programming model complete**: all sixteen register addresses of `[68681]` Table 4-1, both channels' mode registers with their shared pointer, clock-select, command and status registers, the three-deep receive FIFO with overrun, the interrupt status and mask registers, the input and output ports, and the counter/timer with both address-triggered commands. **All eight of §4.2.7.2's miscellaneous commands** — the audit found three falling through a bare `default: break;` (reset break change interrupt, start break, stop break) and, in the same paragraph, three outright errors in the transmitter status bits; see below. **Serial framing is modelled**, and the claim that it was not was stale: `ap_mc68681_resample` reshapes a character arriving at a mismatched baud rate rather than flagging an intact one, `ap_mc68681_character_bits` applies `MR1`'s width, parity is checked on both enable *and* type, `MR2`'s stop-bit field is read, and all four channel modes — normal, auto-echo, local loopback, remote loopback — behave differently. **Wired to the board** through `board/ap_sio.h` | **the receive shift register is modelled**: the part is quadruple-buffered, so a character meeting a full FIFO is held rather than lost and only the next one overruns, and a read that frees a position refills the FIFO from it -- which is why §4.2.9.7 says `FFULL` is not cleared by that read | `mc68681_suite`, 53 tests, `MC68681 DUART Sep85` |
 | QIC-02 tape drive | **the whole command set**, all eleven of `[SC499]` §1.13: both SELECTs with the sticky selection and the soft lock, BOT, RETENSION, both format selects, READ, READ STATUS, and WRITE, WRITE FILE MARK, READ FILE MARK and ERASE recognised and refused. **WRITE places a block** on a cartridge loaded writable, the distinction `ap_ct_t` now carries; a read-only one refuses. WRITE FILE MARK and ERASE are still refused, and for a reason that has not changed — a `.ct` is a raw block image with no file marks in it. The cartridge *type* is supplied by the caller, because the controller derives it from tape geometry a raw image does not carry. **The two opcodes C25 recorded as lost are recovered**: §1.13's summary table has a previous owner's pen through `H'22'` and `H'26'`, and §1.13.1's numbered descriptions two pages on give the same codes in clean binary, corroborated by the three codes either side of them that this core already had. **READ STATUS now transfers its block**: six bytes, the length `[SC499]` §1.13.1 gives outright, as three 16-bit fields LSB-first — exception flags, data-error count, underrun count — and reading it clears the power-on condition it reports | `qic_suite`, 18 tests; `FINDINGS.md` C25 |
 | Cartridge tape images (`image/ap_ct.c`) | working: block addressing over a raw `.ct` image, refusing any size that is not a whole number of 512-byte blocks, and boot-record parsing that returns the four header words. Their reading as load address and entry point is now **confirmed by the boot code itself** — its first instruction, a PC-relative `LEA`, computes word 0 exactly when executed at word 1, so the image proves its own layout. `ap_ct_boot_image` therefore *names* load address, entry point and length, and refuses a cartridge that does not announce itself, or whose header describes more than the file holds. Takes memory, never a filename, so `src/core` keeps its zero file I/O and the tests need no gitignored media | `ct_suite`, 12 tests; `FINDINGS.md` C24 |
 | Apollo display controller (`05D800`, `05E800`) | **identification**: both register blocks decode whether or not a screen is fitted, and the device ID at offset 1 reports `C4P=8`, `19I=9`, `C8P=10` or `15I=11` for the fitted family and `FF` for the other. An absent screen reads `FF` and does **not** bus error — "nothing is fitted" and "nothing is there" are different answers, and getting that wrong cost an investigation. **Drawing**: `CR0`'s mode and shift, `CR1`'s bits named per family, `CR2`'s two plane-select encodings, all sixteen raster operations, the word-level data path with its two active-low fields, and the blit that is the plane loop around them. **Lookup table**: the Bt458 wired behind its data and control ports, active-low chip selects, the FIFO that commits a palette on the release of `CPAL_CS`. **Raster**: both dot clocks, the beam as a function of the instant, and the status register's timing bits gated on `CR1`. **Scanout**: the four geometries, each buffer width being the manual's own printed capacity divided out, planes composed with plane 0 as bit 0 and bit 15 as the leftmost pixel. **Registers**: sixteen of them in two groups of eight, the low group aliased across the block, `CR0`-`CR3B`, the 16-bit write enable and the 32-bit raster operation, with `CR3A` as a bit port onto `CR1`. **Corrected 2026-08-11**: this line previously said the status register, the raster operation's low half and the lookup table's two ports were "still unmodelled and reading `FF`". All three are modelled -- the status register answers from the raster (`graphics_status`), the lookup table has its Bt458 with the release-committed FIFO, and the raster operation's low half reads `FF` because it is **write-only in the hardware**, which is a model of the part rather than a gap in it. What genuinely reads `FF` is the low register group on a board that is not 8-plane, and registers that are write-only -- `FF` rather than zero, because zero is a state a real register can report and these cannot report anything | `graphics_suite`, 82 tests; `FINDINGS.md` C31-C32 |
@@ -25601,3 +25601,74 @@ channels 24× slower rather than leaving them alone.
 *Verification: `sio_suite` 28 → 29 for the accessor, including that the low
 nibble is the transmitter's and `ACR[7]` picks the table; the enabled-channel
 measurement read from the `8F` dump's `sio` fields.*
+
+## The DUART mapped, and a reset defect the tests were protecting
+
+Extending the map past the CPU changed the picture: **the CPU agreeing does not
+mean the devices agree.** The two ports were identified by value rather than by
+name — at posted `8F` this core's `port0 ch0` has `CSR = 66` and its port-level
+`ACR = 60`, and MAME's `:sio:cha` has `CSR = 66` while `:sio`'s `ACR = 60`. Two
+independent fields agreeing is what fixes `port 0 ↔ :sio`.
+
+### A real defect, from §2.4, that a green test was holding in place
+
+Three of our four channels read `SR = 0C` where the reference read `00`, for the
+whole boot. `[68681]` §2.4 settles it: "A hardware reset, assertion of RESET,
+**clears status registers A and B** (SRA and SRB) … and places channels A and B
+in the inactive state". This core seeded `TXRDY | TXEMT` at reset, on the
+reasoning that an idle transmitter is ready and empty — which describes an
+*enabled* transmitter, and reset leaves the channel inactive.
+
+`mc68681_suite` had a test asserting the wrong behaviour, so the suite was green
+throughout. That is the failure mode `CLAUDE.md` names: "tests encode the same
+misreadings as the code, and three did." Now four.
+
+The same sentence gives a second one: "RESET initializes the interrupt vector
+register (IVR) to `0F16`" — the only register reset gives a *value* rather than
+clearing, so a `memset` reset gets it wrong. **MAME's
+`mc68681_device::device_reset` sets `IVR = 0x0f` too**, which is independent
+confirmation from a second implementation.
+
+Fixing the status register removed two differences at once: the channel's `SR`
+and the port's `ISR`, whose transmitter bits derive from it. 9 → 7.
+
+Rewriting the test also caught a third misreading, mine: I asserted `TXEMT`
+after an enable. §4.2.9.5 says TxEMT "will be set when the channel A transmitter
+**underruns** … after transmission of the last stop bit of a character", while
+§4.2.9.6 gives TxRDY as "set when the transmitter is first enabled". A freshly
+enabled transmitter has not underrun. Our model already had this right and
+MAME's sets both — so the assertion, not the code, was the error.
+
+### Two differences that are not defects, with the reason
+
+**`m_tx_data` is not comparable.** MAME's `duart_channel::device_reset` issues
+`write_CR(0x30)`, which clears `m_tx_data_in_buffer` and leaves `m_tx_data`
+holding the previous byte — measured as `53` ('S') three instructions after a
+hard reset, from the run before it. With the holding register not full its
+contents are unreachable, which is why this core zeroes it and why the field is
+now unmapped in favour of `m_tx_data_in_buffer`.
+
+**IP0 is a square wave sampled at different moments.** Both cores drive the
+DUART's IP0 from the OP3 refresh loopback, but MAME updates it only when the
+output port changes and this core tracks the timer's level continuously. So bit
+0 of `IPCR` and the input latch disagrees at an instant and **flips between sync
+points** — `11` against `10`, then `10` against `11`. A difference that
+alternates is a sampling artefact, the same tell as the stack-pointer mapping.
+
+### What is still open, and it is the live thread
+
+`IMR`: ours `00`, the oracle's `33`, **at every sync point from our write 5
+onward**. `OPR`: ours `00`, the oracle's `03` then `0B`. Both are registers the
+firmware writes, and over a full 388 M-instruction boot **this core records zero
+writes to register 5 and zero to registers 14 and 15** while reading register 5
+216,463 times. So on this machine the firmware polls where on the oracle it
+arms interrupts — which matches the standing finding that vector `A1` (IRQ1, the
+DUARTs) fires 190 times on the oracle and never here.
+
+Neither MAME's `apollo_sio::write` nor its `device_reset` programs `IMR`, so the
+oracle's value comes from its firmware. Same ROM, different behaviour: the cause
+is upstream of both registers and is what the next measurement should find.
+
+*Verification: `mc68681_suite` 52 → 53; the sweep re-run on the **no-reset**
+path only, since MAME's hard reset leaves DUART residue and made the first
+sweep's device comparisons untrustworthy.*
