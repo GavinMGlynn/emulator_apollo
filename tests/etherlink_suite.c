@@ -9,7 +9,6 @@
 
 #include "unity.h"
 
-#include "board/ap_board.h"
 #include "device/ap_3c505.h"
 
 void setUp(void) {}
@@ -84,6 +83,71 @@ static void test_the_flags_are_named_without_positions(void) {
   TEST_ASSERT_TRUE((unsigned)AP_3C505_FLAG_HSF2 < (unsigned)AP_3C505_FLAG_COUNT);
 }
 
+/* `[DEV]` Table 1, read from the page image rather than the text layer -- it is
+ * a two-column table and the extraction interleaves the columns. Every response
+ * code is its command plus `0x30`, across all seventeen implemented commands. */
+static void test_a_response_code_is_its_command_plus_thirty_hex(void) {
+  uint8_t response = 0u;
+
+  /* The ends of the table and a sample from the middle. */
+  TEST_ASSERT_TRUE(ap_3c505_response_for(
+      AP_3C505_CMD_CONFIGURE_ADAPTER_MEMORY, &response));
+  TEST_ASSERT_EQUAL_HEX8(0x31u, response);
+  TEST_ASSERT_TRUE(ap_3c505_response_for(AP_3C505_CMD_TRANSMIT_PACKET,
+                                         &response));
+  TEST_ASSERT_EQUAL_HEX8(0x39u, response);
+  TEST_ASSERT_TRUE(ap_3c505_response_for(AP_3C505_CMD_ADAPTER_INFO, &response));
+  TEST_ASSERT_EQUAL_HEX8(0x41u, response);
+
+  /* And the rule holds for every implemented command that has a response, so
+   * a transcription slip in one row of the enum fails here. */
+  for (uint8_t code = AP_3C505_CMD_FIRST; code <= AP_3C505_CMD_LAST; code++) {
+    if (code == AP_3C505_CMD_DOWNLOAD_DATA_PIO ||
+        code == AP_3C505_CMD_UPLOAD_DATA_PIO) {
+      continue;
+    }
+    TEST_ASSERT_TRUE(ap_3c505_response_for(code, &response));
+    TEST_ASSERT_EQUAL_HEX8(code + AP_3C505_RESPONSE_BIAS, response);
+  }
+}
+
+/* The hole in the response space. Table 1 marks `36`/`37` `n/a` while `34`/`35`
+ * are "download/upload data request" -- so the two transfers the *host* drives
+ * are the two the adapter never answers. Modelling `06`/`07` as ordinary
+ * commands with responses would invent two codes the manual says do not
+ * exist. */
+static void test_the_pio_transfers_are_the_commands_with_no_response(void) {
+  uint8_t response = 0xFFu;
+
+  TEST_ASSERT_FALSE(
+      ap_3c505_response_for(AP_3C505_CMD_DOWNLOAD_DATA_PIO, &response));
+  TEST_ASSERT_FALSE(
+      ap_3c505_response_for(AP_3C505_CMD_UPLOAD_DATA_PIO, &response));
+  TEST_ASSERT_EQUAL_HEX8(0xFFu, response); /* and it wrote nothing */
+
+  /* Their DMA counterparts do answer, and that is the contrast the table
+   * draws: `04`/`05` need the host asked for a DMA cycle, `06`/`07` do not. */
+  TEST_ASSERT_TRUE(
+      ap_3c505_response_for(AP_3C505_CMD_DOWNLOAD_DATA_DMA, &response));
+  TEST_ASSERT_EQUAL_HEX8(0x34u, response);
+  TEST_ASSERT_TRUE(
+      ap_3c505_response_for(AP_3C505_CMD_UPLOAD_DATA_DMA, &response));
+  TEST_ASSERT_EQUAL_HEX8(0x35u, response);
+}
+
+/* `00` names nothing, `12`-`2f` are reserved. They are in the host's half of
+ * the code space without being commands, and a model that treated a reserved
+ * code as implemented would answer where the ROM's behaviour is unknown. */
+static void test_the_reserved_codes_are_not_implemented_commands(void) {
+  TEST_ASSERT_FALSE(ap_3c505_command_is_implemented(0x00u));
+  TEST_ASSERT_FALSE(ap_3c505_command_is_implemented(0x12u));
+  TEST_ASSERT_FALSE(ap_3c505_command_is_implemented(AP_3C505_CMD_RESERVED_END));
+  TEST_ASSERT_FALSE(ap_3c505_command_is_implemented(0x31u)); /* a response */
+
+  TEST_ASSERT_TRUE(ap_3c505_command_is_implemented(AP_3C505_CMD_SELF_TEST));
+  TEST_ASSERT_FALSE(ap_3c505_response_for(0x12u, NULL));
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_the_card_answers_sixteen_locations_from_its_jumpered_base);
@@ -91,5 +155,8 @@ int main(void) {
   RUN_TEST(test_the_sizes_are_the_manuals);
   RUN_TEST(test_the_factory_base_lands_where_the_board_places_the_card);
   RUN_TEST(test_the_flags_are_named_without_positions);
+  RUN_TEST(test_a_response_code_is_its_command_plus_thirty_hex);
+  RUN_TEST(test_the_pio_transfers_are_the_commands_with_no_response);
+  RUN_TEST(test_the_reserved_codes_are_not_implemented_commands);
   return UNITY_END();
 }

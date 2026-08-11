@@ -25117,3 +25117,55 @@ produced it.
 *Verification: `apollo-headless --screen c8p --screenshot` with no input flags,
 700 M instructions, ending at `PC 0000267E` with the posted codes
 `… 8D 7D 6D 5D FC 8F …`.*
+
+## The bisect resolved: the oracle's display works, and the blank is MAME's own
+
+The pre-specified test ran on a **pristine `ext/mame`** — `git stash` of all
+eight edits, full rebuild, `apollo` linked from an unmodified tree — with
+`screencap.lua` in both modes. Neither branch of the pre-committed
+interpretation applies as written, and the reason is instructive.
+
+| Build | Mode | 0.1 s | 3 s | 10 s | 60 s |
+| --- | --- | --- | --- | --- | --- |
+| pristine | normal | 0 ink | — | — | 0 ink |
+| pristine | service | **102 ink** | 102 | 102 | — |
+
+**102 lit pixels is the figure this document already records** for the `>`
+prompt and its cursor in service mode. So the oracle's display renders firmware
+output correctly on an unmodified tree, and the eight edits are exonerated: they
+were never between the firmware and the screen.
+
+The normal-mode blank is not a defect of this session's builds either. It is the
+hang this document records above — MAME's `duart_channel::write_CR` gating
+enable-transmitter on an *edge* against the previous command register, so the
+firmware's back-to-back `CRA = 45, 35, 25` enables the transmitter once and the
+machine stops for ever at `0067A2` polling `TxRDY`, writing nothing to graphics
+memory. **`stash show --stat` confirms no edit touches `mc68681.cpp`**, so that
+hang is pristine MAME's, present with the edits and without them.
+
+### What this costs, and what it does not
+
+The pre-committed reading said a blank screen would be "decisive — every screen
+comparison in this project needs re-taking". It is not, because it was written
+expecting normal mode to draw, and this document already said it does not. The
+honest statement is narrower and worth keeping in that form:
+
+* the oracle's **service-mode** screen is sound, on any build here, and the
+  service-mode agreement (102 ink each, zero differing pixels of 819,200)
+  stands;
+* the oracle's **normal-mode** screen is blank for a documented MAME defect, so
+  no normal-mode oracle screen has ever carried information — which is what the
+  retracted four-conclusion chain had actually run into;
+* this core's captures were separately shown sound, so the comparison's failure
+  was always one-sided.
+
+**Pre-specifying an interpretation is still right; applying it mechanically is
+not.** The value was in fixing the branches before the measurement, and the cost
+of the wrong branch was one extra run in the other mode — which is the run that
+answered it.
+
+*Verification: pristine `ext/mame` (`git stash` of 8 files, `stash@{0}`, since
+popped; full `SUBTARGET=apollo` rebuild), `screencap.lua`, `dn3500`,
+`-disk1 media/dn3500.awd`, `pngcmp.py` for the ink counts. Both PNGs of the
+normal run are byte-identical (`md5 8fca9e5a…`), as three service-mode PNGs are
+to each other at 102 ink.*

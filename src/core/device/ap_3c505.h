@@ -107,6 +107,62 @@ typedef enum {
   AP_3C505_FLAG_COUNT
 } ap_3c505_flag_t;
 
+/* ## The command set, `[DEV]` §3.1 and Table 1
+ *
+ * The firmware "idles waiting for a Primary Command Block (PCB) from the PC
+ * Host". Host commands occupy `00`-`2f` and adapter responses `30`-`5f`, and
+ * the table's own shape is the interesting part: **a response code is its
+ * command code plus `0x30`**, uniformly, from `01`/`31` to `11`/`41`.
+ *
+ * The two entries that break it are the ones that confirm it. `04`/`05` are
+ * the **DMA** download and upload, and their responses `34`/`35` are named
+ * "download data request" and "upload data request" -- the adapter asking the
+ * host to run the DMA cycle. `06`/`07` are the **PIO** forms of the same two
+ * transfers, and Table 1 marks `36`/`37` `n/a`: nothing has to be requested
+ * back, because the host is doing the moving itself. So the hole in the
+ * response space is a statement about who drives the transfer, not a gap.
+ *
+ * Codes `12`-`2f` and `42`-`5f` are reserved. Modelling them as *reserved*
+ * rather than as invalid matters: an adapter that rejects them is a guess, and
+ * `[DEV]` does not say what this ROM does with one.
+ */
+typedef enum {
+  AP_3C505_CMD_CONFIGURE_ADAPTER_MEMORY = 0x01, /* set buffer requirements */
+  AP_3C505_CMD_CONFIGURE_82586 = 0x02,          /* set receive mode */
+  AP_3C505_CMD_GET_ETHERNET_ADDRESS = 0x03,
+  AP_3C505_CMD_DOWNLOAD_DATA_DMA = 0x04,
+  AP_3C505_CMD_UPLOAD_DATA_DMA = 0x05,
+  AP_3C505_CMD_DOWNLOAD_DATA_PIO = 0x06,
+  AP_3C505_CMD_UPLOAD_DATA_PIO = 0x07,
+  AP_3C505_CMD_RECEIVE_PACKET = 0x08,
+  AP_3C505_CMD_TRANSMIT_PACKET = 0x09,
+  AP_3C505_CMD_NETWORK_STATISTICS = 0x0Au, /* includes 82586 error counts */
+  AP_3C505_CMD_LOAD_MULTICAST_LIST = 0x0Bu,
+  AP_3C505_CMD_CLEAR_DOWNLOADED_PROGRAMS = 0x0Cu,
+  AP_3C505_CMD_DOWNLOAD_PROGRAM = 0x0Du,
+  AP_3C505_CMD_EXECUTE_PROGRAM = 0x0Eu,
+  AP_3C505_CMD_SELF_TEST = 0x0Fu,
+  AP_3C505_CMD_SET_ETHERNET_ADDRESS = 0x10u,
+  AP_3C505_CMD_ADAPTER_INFO = 0x11u,
+
+  AP_3C505_CMD_FIRST = 0x01u,
+  AP_3C505_CMD_LAST = 0x11u,     /* `12`-`2f` are reserved */
+  AP_3C505_CMD_RESERVED_END = 0x2Fu
+} ap_3c505_command_t;
+
+/* What separates a response from the command it answers. */
+#define AP_3C505_RESPONSE_BIAS 0x30u
+
+/* Whether a code is a command this ROM version implements. Reserved codes
+ * answer `false`: they are in the host's half of the space but name nothing. */
+[[nodiscard]] bool ap_3c505_command_is_implemented(uint8_t code);
+
+/* The response code for a command, or `false` if the command has none. The
+ * out-parameter shape is not decoration -- `06` and `07` are implemented
+ * commands *without* a response code, so "no response" has to be sayable
+ * without picking a sentinel value that is itself a valid code. */
+[[nodiscard]] bool ap_3c505_response_for(uint8_t command, uint8_t *response);
+
 /* Whether an address falls in a card's sixteen I/O locations, and where. */
 [[nodiscard]] bool ap_3c505_decode(uint32_t base, uint32_t address,
                                    uint32_t *offset);

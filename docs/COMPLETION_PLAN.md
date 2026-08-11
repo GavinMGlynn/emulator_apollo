@@ -4414,6 +4414,17 @@ discipline throughout.
         base landing on `058000` through this machine's AT decode, and one test
         that pins the **absence** of flag positions so that giving a flag a bit
         number without a source fails there first.*
+  - [x] The PCB command set, `[DEV]` §3.1 and Table 1 — all seventeen commands,
+        the `00`-`2f` / `30`-`5f` split, and the invariant that **a response
+        code is its command plus `0x30`**. The two codes Table 1 marks `n/a`
+        are the PIO transfers, which the host drives and the adapter therefore
+        never answers, so the hole in the response space states who moves the
+        data. Read from a page render: the table is two-column and the PDF's
+        text layer interleaves it. Closes open question B.
+        *Verification: `etherlink_suite`, now 8 tests — the `+0x30` rule
+        checked across every implemented command, the two PIO commands proved
+        to have no response while their DMA counterparts do, and the reserved
+        codes proved not to be commands.*
   - [x] `docs/references/ETHERNET.md`, the findings file, written from the
         manual before any code — the map (`+0` command, `+2` status on read and
         control on write, `+4` data, `+6` control on read), the 20-byte half
