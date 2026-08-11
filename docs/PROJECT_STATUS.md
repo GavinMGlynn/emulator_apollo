@@ -24702,3 +24702,44 @@ can be built against.
 
 *Verification: `ctest` 133, all passing; the same state hash before and after,
 with the walk hash equal to it.*
+
+## The oracle's sync point does not fire yet, and the reason is not established
+
+Our side of the synchronised dump works: `--boot-stop-pc 0x1002024` stops at
+Domain/OS entry after 162,878,377 instructions and writes its state there.
+
+The oracle's does not. Three attempts:
+
+1. **A time trigger** — comparable units, but not a comparable *place*: two
+   cores agree on an emulated second only if they execute identically, which is
+   the thing under test.
+2. **A read tap on the instruction's bytes** — fired at 0.0313 s, during the
+   boot PROM's memory test, 160 M instructions early. A read tap cannot tell a
+   fetch from a data read.
+3. **The same tap gated on the PC** — installed cleanly, produced no dump and
+   no error. First with an exact match, which is wrong because MAME's `PC` can
+   have advanced by the time a callback runs (the switch tap in the same file
+   matches a range for exactly this reason); then with a ±8 window, which also
+   did not fire.
+
+So attempt 3 is **unverified, not working**, and the cause is open. Two
+candidates, neither tested:
+
+* **The oracle may not fetch that address.** Its own self-test screen prints
+  `LOADING SELF_TEST DIAGNOSTICS … START: 01002020`, four bytes below the
+  address this core stops at. A tap covers `1002024`-`1002027`; a machine
+  entering at `01002020` and branching away need never touch it.
+* **Taps may not survive the soft reset** this harness now performs. The script
+  re-runs with fresh locals and reinstalls, but whether the space's taps are
+  cleared by the reset has not been checked.
+
+The first is cheap to settle — tap `01002020` instead, or widen the range to
+cover both — and is the more likely of the two.
+
+**What this does not affect**: our dump, the diff tool, the quirk mechanism and
+the mapping are all working and tested. What is missing is one comparable
+instant on the oracle's side, and until it exists no field difference between
+the two dumps means anything.
+
+*Verification: none — this entry records a negative result and an open
+question, which is what it is.*
