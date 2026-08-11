@@ -1166,8 +1166,74 @@ static void test_op3_selects_between_the_counter_and_channel_b_clocks(void) {
   TEST_ASSERT_TRUE(changed);
 }
 
+/* **The boot PROM's own command sequence**, which the oracle gets wrong.
+ *
+ * At `006768`-`006774` the firmware writes `CRA = 45, 35, 25` back to back.
+ * Decoded per §4.2.7 -- `[6:4]` miscellaneous, `[3:2]` transmitter, `[1:0]`
+ * receiver -- those are: reset error status + enable both; reset transmitter +
+ * enable both; reset receiver + enable both.
+ *
+ * The middle one specifies "reset transmitter" and "enable transmitter" in a
+ * single word, which §4.2.7 says "cannot be specified" -- so what a part does
+ * with it is undefined and this test does not assert on it. **The third write
+ * is not undefined**: misc = 2 touches the receiver only, and the transmitter
+ * field is a plain enable. After it the transmitter must be enabled with
+ * TxRDY asserted, whatever the second write did.
+ *
+ * MAME gated enable-transmitter on an *edge* against the previous command
+ * register, so all three writes carrying bit 2 meant only the first enabled;
+ * the transmitter stayed reset, TxRDY never returned, and its DN3500 polled
+ * `0067A2` for ever without drawing. This test is that defect, stated as the
+ * hardware fact it violates, so this core cannot acquire it. */
+static void
+test_the_prom_command_sequence_leaves_the_transmitter_enabled(void) {
+  ap_mc68681_t d;
+  ap_mc68681_reset(&d);
+
+  ap_mc68681_write(&d, AP_MC68681_CR_A, 0x45u);
+  ap_mc68681_write(&d, AP_MC68681_CR_A, 0x35u);
+  ap_mc68681_write(&d, AP_MC68681_CR_A, 0x25u);
+
+  const uint8_t sr = ap_mc68681_read(&d, AP_MC68681_SR_CSR_A);
+  TEST_ASSERT_EQUAL_HEX8(AP_MC68681_SR_TXRDY, sr & AP_MC68681_SR_TXRDY);
+
+  /* And it really transmits, which is the thing the firmware was waiting on. */
+  uint8_t out = 0u;
+  ap_mc68681_write(&d, AP_MC68681_RB_TB_A, 0x41u);
+  TEST_ASSERT_TRUE(ap_mc68681_transmit(&d, 0u, &out));
+  TEST_ASSERT_EQUAL_HEX8(0x41u, out);
+}
+
+/* The command register is **not state**: a command is acted on when it is
+ * written, so re-issuing "enable transmitter" is idempotent and never depends
+ * on what the previous write happened to contain. Asserted directly, because
+ * the alternative reading is what the oracle implemented. */
+static void test_enabling_an_already_enabled_transmitter_is_idempotent(void) {
+  ap_mc68681_t d;
+  ap_mc68681_reset(&d);
+
+  ap_mc68681_write(&d, AP_MC68681_CR_A, 0x04u); /* enable */
+  const uint8_t first = ap_mc68681_read(&d, AP_MC68681_SR_CSR_A);
+  ap_mc68681_write(&d, AP_MC68681_CR_A, 0x04u); /* again */
+  const uint8_t second = ap_mc68681_read(&d, AP_MC68681_SR_CSR_A);
+  TEST_ASSERT_EQUAL_HEX8(first, second);
+  TEST_ASSERT_EQUAL_HEX8(AP_MC68681_SR_TXRDY, second & AP_MC68681_SR_TXRDY);
+
+  /* A reset in between, then the same enable, must still enable -- this is the
+   * firmware's sequence reduced to its two load-bearing writes. */
+  ap_mc68681_write(&d, AP_MC68681_CR_A, 0x30u); /* reset transmitter */
+  TEST_ASSERT_EQUAL_HEX8(
+      0u, ap_mc68681_read(&d, AP_MC68681_SR_CSR_A) & AP_MC68681_SR_TXRDY);
+  ap_mc68681_write(&d, AP_MC68681_CR_A, 0x04u); /* enable */
+  TEST_ASSERT_EQUAL_HEX8(
+      AP_MC68681_SR_TXRDY,
+      ap_mc68681_read(&d, AP_MC68681_SR_CSR_A) & AP_MC68681_SR_TXRDY);
+}
+
 int main(void) {
   UNITY_BEGIN();
+  RUN_TEST(test_the_prom_command_sequence_leaves_the_transmitter_enabled);
+  RUN_TEST(test_enabling_an_already_enabled_transmitter_is_idempotent);
   RUN_TEST(test_the_output_port_clock_codes_carry_a_waveform);
   RUN_TEST(test_op3_selects_between_the_counter_and_channel_b_clocks);
   RUN_TEST(test_resetting_the_receiver_counts_the_characters_it_discards);
