@@ -24888,10 +24888,33 @@ What has *not* been checked, and is the next reading: the two scripts differ in
 far more than configuration — `mdsession.lua` installs taps, opens a swap
 channel, and drives a console the other does not touch, and either may perturb a
 machine that is deciding what to load. And the `screencap.lua` run that showed
-the prompt was made *before* several of this session's changes landed, so the
-cheapest single test left is to **re-run `screencap.lua` now** and see whether it
-still reaches the prompt at all. If it does not, the difference was never between
-the harnesses and this whole line closes.
+the prompt was made *before* several of this session's changes landed.
+
+**Re-run now, and it does not reach the prompt either.** Same script, same
+options, fresh directories, same disk image: the DM legend at 160 emulated
+seconds, identical to `mdsession.lua`. So **the difference was never between the
+harnesses**, both are exonerated, and this whole line closes.
+
+What it closes on is a comparison against a **stale result**. The prompt
+screenshot is real, but it was taken before this session rebuilt MAME twice and
+changed the harness, and it has been treated ever since as a current fact about
+the oracle. Every step down this line — the missing `SELF_TEST`, the sync point
+that could not fire, the eight configuration fields, the NVRAM check — was
+reasoning from it.
+
+**That is the fifth comparison this session invalidated by the same error**, and
+the first four were each recorded with a resolution not to repeat it. The rule
+in this document said to confirm configuration from a run's own output; it needs
+the other half, which today cost more than the first: **a result is evidence
+about the build and harness that produced it, and both change under you.** A
+screenshot from before two rebuilds is a historical record, not a measurement of
+the current oracle.
+
+**What actually stands**: the oracle boots to Domain/OS in about 38 emulated
+seconds under either harness, unaided, and never loads `SELF_TEST`; this core
+loads `SELF_TEST` because its boot script answers a prompt. Two machines running
+different software is the real obstacle to a synchronised dump — and that was
+established by the screenshots, not by the line that has just closed.
 
 Worth stating plainly: this was found by reading two files side by side, after
 five instrument attempts and several boots failed to find it. The three things
