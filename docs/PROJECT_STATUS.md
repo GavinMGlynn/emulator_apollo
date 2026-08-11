@@ -25870,3 +25870,45 @@ explained by anything downstream of that register.
 The state hash moving is expected and is the only change: the reset value is
 machine state, so every hash taken before this commit belongs to a different
 machine. The reference above is updated in place.
+
+## The crash's MMU state is a property of the *configuration*, not of this core
+
+The standing account of `CRASH_STATUS 00120020` is that Domain/OS "never
+installs its own translation tables here" and "runs its whole life on
+`SELF_TEST`'s `CRP = 0x01001400` tree". The derived MMU fields make that
+checkable for the first time, and it does not survive the check.
+
+| | `TC` | `CRP` | `SRP` |
+| --- | --- | --- | --- |
+| ours, **display** boot at posted `EC` | `02A28750` | `01200000` | `01200000` |
+| the oracle at posted `EC` | `02A28750` | `01200000` | `01200000` |
+| ours, **no-display serial** crash run | `00A28750` | `01001400` | `01200000` |
+
+**In the configuration the oracle actually runs, this core installs the same
+tree it does, with the same `TC`.** The two differ in bit 25 — `SRE`, the
+supervisor root pointer enable — and with `SRE` set, supervisor accesses use the
+`SRP`; with it clear, everything uses the `CRP`. So the crash run is a machine
+whose kernel is walking `SELF_TEST`'s stale tree *because `SRE` is clear*, which
+is exactly the reported symptom, and it is clear only in the configuration
+without a display.
+
+Note also that the crash run's `SRP` is already `01200000` — the same tree the
+display boot puts in **both** roots. The tables are installed there too; what is
+missing is the bit that makes supervisor accesses use them.
+
+### What this costs the standing account
+
+The crash was reported as "ours, and the oracle proves it" on the strength of
+the oracle booting the same disk to `login:`. That comparison held `--screen`
+*different* between the two sides — this document's own list of method traps
+says `--screen c8p` changes the boot path and must be held constant, and it was
+not. So the conclusion "Domain/OS never installs its tables" is true of the
+no-display run and **false of the machine the oracle was compared against**.
+
+This does not say the crash is not ours. It says the crash has not yet been
+observed in a configuration comparable to the oracle's, and that the MMU
+evidence which framed it belongs to the other configuration.
+
+*Verification: `--dump-state` at the 49th write to `00010100` under
+`--screen c8p`, against the oracle's dump at the same posted code; the crash
+run's own dump for the third row.*
