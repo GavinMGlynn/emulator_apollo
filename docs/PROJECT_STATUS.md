@@ -26607,3 +26607,42 @@ state at 84 s emulated; this core's `--boot-stop-pc 3C47A25A
 --boot-stop-pc-skip 1` at instruction 326,514,086;
 `ext/mame/src/mame/apollo/apollo.cpp` lines 469-491 for the FPA probe
 addresses.*
+
+### The MMU is exonerated: identical tree, and the page is absent on both
+
+The faulting instruction is `BFEXTU 1(a0){2:6},D0` -- bytes `E9E8 0086 0001` at
+physical `010A525A`, six long, which is why the next PC is `3C47A260`. With
+`a0 = 3C248000` its effective address is `3C248001`, the address that faults.
+
+Walking that address by hand through **both machines' physical memory**, at 84 s
+emulated, with `TC 80A28750` (IS=2, TIA=8, TIB=7, TIC=5, PS=10) giving indices
+`TIA=F0 TIB=49 TIC=00` and a 1-byte offset:
+
+| | ours | oracle |
+|---|---|---|
+| root `CRP` | `01001400` | `01001400` |
+| level-0 descriptor `010017C0` | `011E680B` | `011E680B` |
+| its neighbours `010017C4/C8` | `011E6C0B` `011E700B` | `011E6C0B` `011E700B` |
+| level-1 descriptor `011E6A48` | -- | `00000000 00000000` |
+
+The level-0 descriptors are **byte-identical**, and the oracle's level-1
+descriptor is all zeros: `DT = 0`, **invalid**. So `3C248001` does not translate
+on the oracle either. Had the oracle executed this `BFEXTU` with that `a0` at
+that moment, it would have taken the same fault.
+
+**The divergence is therefore not translation but `a0`.** This core arrives at
+the instruction holding a pointer into a region no page table on either machine
+maps. The question is what put `3C248000` in `a0` -- or what called this routine
+at 84 s at all, given the oracle does not execute it until 101 s, after the
+calendar question is answered.
+
+**Reading the oracle's RAM out of a state dump**, which this needed and which is
+not obvious: main memory is at physical `0x01000000`, the dump stores it as
+`memory/:maincpu/0/:ram.0.<index>` in **u32 entries indexed by longword**, so
+`index = (physical - 0x01000000) / 4`, and the value is the big-endian longword
+as the 68030 reads it -- no swapping. Confirmed against this core's own
+`--dump-mem` of the same addresses before being relied on.
+
+*Verification: `--dump-mem 01001400:400` and `--dump-logical 3C400000:100000`
+from this core at the stop, against `six/theirs.txt` from the 84 s oracle dump;
+instruction decode from `[030]` section 8, bit-field extension word format.*
