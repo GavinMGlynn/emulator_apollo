@@ -26260,3 +26260,44 @@ the DUART.
 
 *Verification: `--boot-stop-pc 3C426612 --boot-trace-last 4`, registers read
 from the trace; per-register counters from the same run.*
+
+## `--boot-log-watch-writes`, the sync the differential actually needs
+
+The retraction above turns on one thing: a sound sync point must be an **event
+both machines emit once, in order, by the same path**. Posted diagnostic codes
+are that; a program-counter visit count is not. The oracle's tap already logs
+every write with its program counter, and this core only summarised the
+*distinct* codes — so the two sides could not be lined up write for write.
+
+`--boot-log-watch-writes` prints the sequence:
+
+    watch write  1 at 00010100 value 0000FF00 size 2 by PC 0000633C after 0
+    watch write  2 at 00010100 value 000000EF size 1 by PC 0000653A after 3
+    watch write  3 at 00010100 value 000000DF size 1 by PC 0000655C after 51369
+
+Same shape as the oracle's tap line, so the two logs diff directly.
+
+### Three bugs on the way, and the codebase had warned about the third
+
+1. **An argument flag that never advanced `i`.** `--boot-log-watch-writes` takes
+   no operand, and the parser did `continue` without `i += 1`, so it spun on the
+   same `argv` for ever. The symptom was a machine that "hung" at a limit of
+   **1,000 instructions** — which is what said it was not the machine at all.
+2. **`%0*X` with a width computed from machine state.** A size that is ever
+   large makes `printf` pad a field of billions of characters: no output, full
+   CPU, indistinguishable from a hang. Fixed width, and the size printed as a
+   value where it cannot become a length.
+3. **The flag did nothing, silently.** `wants_steps` selects the per-step loop,
+   and it is a hand-maintained list of every flag needing it. Mine was not in
+   it, so with the flag set the bulk path ran and the logging never executed —
+   the run completed cleanly and printed nothing.
+
+The comment directly above `wants_steps` says: "it is now complete, and the
+`boot type` diagnostic reports when a flag was asked for and did nothing, which
+is the failure this class produces". The list was **not** complete, one commit
+after being described as such — and the mechanism that reports the failure
+covers `--boot-type` only. A flag that is asked for and does nothing is the
+worst kind of instrument, because the run *succeeds*.
+
+*Verification: the sequence above against a 700,000-instruction boot, matching
+the posted codes the report summarises; `ctest` 135/135.*

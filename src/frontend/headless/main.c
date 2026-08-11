@@ -58,6 +58,13 @@ static void print_usage(const char *program_name) {
           "                        the same dump, of the address the *program*\n"
           "                        named: translated as an access would be\n"
           "  --boot-watch-write ADDR\n"
+          "  --boot-log-watch-writes\n"
+          "                        print every watched write as it\n"
+          "                        happens -- value, program counter and\n"
+          "                        instruction number -- rather than only\n"
+          "                        the distinct posted codes the report\n"
+          "                        summarises. The sequence is what lines\n"
+          "                        up against the oracle write for write\n"
           "                        remember the last write to ADDR and which\n"
           "                        instruction made it, and report both\n"
           "  --boot-watch-read ADDR\n"
@@ -837,6 +844,11 @@ static const char *screen_kind_name(ap_screen_kind_t screen) {
  * it must agree with, and `report_state` is where that is printed -- threading
  * a path through every reporting call to reach one line would be worse. */
 static const char *g_dump_state_path = NULL;
+
+/* Log every watched write as it happens, rather than only the distinct posted
+ * codes the report summarises. At file scope with the others: it is consumed
+ * deep in the step loop, not where arguments are read. */
+static bool g_log_watch_writes = false;
 
 /* The selected oracle divergences, at file scope for the same reason: they are
  * applied where the board is built, which is not where arguments are read. */
@@ -2122,7 +2134,8 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
       script.steps > 0u || key < AP_KBD_KEYS ||
       progress_every > 0u || stop_pc != 0u || stop_physical_pc != 0u ||
       stop_mmu_fault_at != 0u ||
-      stop_on_watch != 0u || stop_on_watch_read != 0u || stop_on_refusal;
+      stop_on_watch != 0u || stop_on_watch_read != 0u || stop_on_refusal ||
+      g_log_watch_writes;
   if (wants_steps) {
     /* Step by step, reporting the program counter and the active stack pointer.
      *
@@ -2139,6 +2152,7 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
     bool progress_started = false;
     unsigned progress_base = 0u;
     bool stop_pc_armed = false;
+    unsigned logged_watch_writes = 0u;
     run = (ap_machine_run_t){.status = AP_M68030_STEP_EXECUTED};
     if (trace && trace_last == 0u) {
       printf("# step pc a7 a6 a0 instruction status%s\n",
@@ -2434,6 +2448,30 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
        * rather than whatever ran between it and a later event. Numbered
        * because a value written ten times is interesting on the tenth: the
        * early ones are a loader doing its job. */
+      /* **The whole sequence, when asked for.** The report prints the posted
+       * codes *distinct in order*, which is the right summary and the wrong
+       * thing for a comparison: the oracle's tap logs every write, so the two
+       * sides could not be lined up write-for-write. A sequence emitted once
+       * per event, in order, by the same firmware path is the only sync this
+       * differential has that both machines are known to reach identically --
+       * a bare program-counter visit count is not, which cost a set of
+       * conclusions drawn at "kernel entry" that turned out to compare two
+       * different moments. */
+      if (g_log_watch_writes &&
+          machine.watch_writes != logged_watch_writes) {
+        logged_watch_writes = machine.watch_writes;
+        /* **Fixed width, never `%0*X`.** A width computed from machine state
+         * is a footgun: one large or uninitialised size and `printf` pads a
+         * field of billions of characters, producing no output while appearing
+         * to hang. That is exactly what happened -- a 200,000-instruction run
+         * sat silent for a minute with an empty log. The size is printed as a
+         * value instead, where it cannot become a length. */
+        printf("  watch write  %u at %08X value %08X size %u by PC %08X "
+               "after %u\n",
+               machine.watch_writes, machine.watch_write_address,
+               machine.watch_write_value, machine.watch_write_size,
+               machine.watch_write_pc, i);
+      }
       if (stop_on_watch_read != 0u && machine.watch_reads >= stop_on_watch_read) {
         printf("  stopped on   read %u of %08X after %u instruction(s)\n",
                machine.watch_reads, machine.watch_read_address, i);
@@ -3667,6 +3705,11 @@ int main(int argc, char **argv) {
     if (strcmp(argv[i], "--boot-progress") == 0 && i + 1 < argc) {
       boot_progress = (unsigned)strtoul(argv[i + 1], NULL, 0);
       i += 2;
+      continue;
+    }
+    if (strcmp(argv[i], "--boot-log-watch-writes") == 0) {
+      g_log_watch_writes = true;
+      i += 1;
       continue;
     }
     if (strcmp(argv[i], "--boot-watch-write") == 0 && i + 1 < argc) {
