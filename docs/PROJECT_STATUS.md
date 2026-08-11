@@ -25026,11 +25026,32 @@ self-test text having been drawn and erased before then. The two hypotheses —
 *never drawn* and *drawn then cleared* — are not distinguishable from any
 snapshot taken after the DM appears.
 
-Snapshots at 5, 10 and 15 emulated seconds separate them, and they cost one run.
-Until they exist, "the oracle skips `SELF_TEST`" rests on its *absence of a
-prompt*, which is weaker evidence than it has been treated as: a machine that
-loaded `SELF_TEST`, passed every test and had nothing to ask would also boot
-straight through.
+Snapshots at 5, 10 and 15 emulated seconds were taken to separate them, **and
+they undermine the reading itself.** At **5 seconds** the oracle's screen already
+shows the same legend, and so does 10, 15 and 18.
+
+Domain/OS's Display Manager cannot be running at 5 emulated seconds. This core's
+own PROM self-tests take about 20 s to reach `SELF_TEST`, and the oracle's own
+`CRP` install — the first sign of an operating system — is at 37.8 s. A legend on
+screen 33 seconds before that is not Domain/OS.
+
+**So "the oracle boots to Domain/OS in 38 s" is withdrawn**, and with it every
+inference drawn from that legend today: that the oracle skips `SELF_TEST`, that
+the two machines run different programs, that the divergence is in the disk
+path. Those may still be true — the *absence of a prompt* is unexplained either
+way — but the legend was the evidence for them and it does not carry the weight.
+
+What the legend actually is has not been established. Candidates, none tested:
+it is the screen's initial or default content in MAME rather than anything the
+firmware drew; it is a second screen device this capture is picking up
+(`:kbd:mono` appears in the device list); or the capture is of a screen the
+firmware never writes to. **The first thing the next session should do is
+establish what that legend is**, because every oracle screenshot in this session
+shows it and every conclusion drawn from them depends on the answer.
+
+The way to settle it costs nothing: capture at 0.1 s, before any firmware could
+have drawn anything. If the legend is there, it is the device's initial state and
+none of these captures ever showed firmware output.
 
 **And a caution that follows from today's record**: this screen is
 character-identical to one captured earlier and attributed to the oracle. Under
