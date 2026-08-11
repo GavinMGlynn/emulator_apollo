@@ -79,6 +79,9 @@
 local pc_text  = os.getenv("APOLLO_SYNC_PC")
 local wr_text  = os.getenv("APOLLO_SYNC_WRITE")
 local wr_count = tonumber(os.getenv("APOLLO_SYNC_COUNT") or "1") or 1
+local rd_text  = os.getenv("APOLLO_SYNC_READ")
+local rd_pc    = os.getenv("APOLLO_SYNC_READ_PC")
+rd_pc = rd_pc and tonumber(rd_pc, 16) or nil
 local wr_value = os.getenv("APOLLO_SYNC_VALUE")
 wr_value = wr_value and tonumber(wr_value, 16) or nil
 local skip     = tonumber(os.getenv("APOLLO_SYNC_SKIP") or "0") or 0
@@ -161,8 +164,8 @@ local function finish(why)
 	manager.machine:exit()
 end
 
-if pc_text == nil and wr_text == nil then
-	out("# neither APOLLO_SYNC_PC nor APOLLO_SYNC_WRITE is set\n")
+if pc_text == nil and wr_text == nil and rd_text == nil then
+	out("# no APOLLO_SYNC_PC, _WRITE or _READ is set\n")
 	return
 end
 local target = pc_text and tonumber(pc_text, 16) or nil
@@ -170,6 +173,7 @@ if pc_text ~= nil and target == nil then
 	out("# APOLLO_SYNC_PC is not hexadecimal: %s\n", pc_text)
 	return
 end
+local rd_watch = rd_text and tonumber(rd_text, 16) or nil
 local watch = wr_text and tonumber(wr_text, 16) or nil
 if wr_text ~= nil and watch == nil then
 	out("# APOLLO_SYNC_WRITE is not hexadecimal: %s\n", wr_text)
@@ -179,6 +183,41 @@ end
 -- The tap mode. Installed once, after the reset this script performs, on the
 -- CPU's program space -- which on a machine whose MMU lives inside the CPU is
 -- the **physical** side, the same addresses `--boot-watch-write` takes.
+-- Log reads of an address, with the value returned and the program counter.
+--
+-- The write tap answers "who wrote this"; this answers "what did the machine
+-- see", which is the other half and the one a *branch* turns on. It exists for
+-- registers MAME keeps outside its save registry -- `cpu_status_register` is a
+-- file-scope static, so it is absent from the state dump and a read is the only
+-- way to observe it.
+--
+-- Unlike the write tap this one has no early-arming problem for late reads: the
+-- parity-test branch it was built for happens around 0.2 s, and the tap is in
+-- place from about 17 ms.
+local function install_read_tap()
+	local cpu = manager.machine.devices[":maincpu"]
+	if cpu == nil then return false end
+	local space = cpu.spaces["program"]
+	if space == nil then return false end
+	S.cpu = cpu
+	S.reads = 0
+	local lo = rd_watch - (rd_watch % 4)
+	S.rtap = space:install_read_tap(lo, lo + 3, "apollo_sync_r",
+		function(offset, data, mask)
+			if S.done then return end
+			local pc = current_pc()
+			if rd_pc ~= nil and pc ~= rd_pc then return end
+			S.reads = S.reads + 1
+			if S.reads <= 40 then
+				out("# read %d at %08X: data %08X mask %08X pc %08X\n",
+				    S.reads, offset, data, mask, pc or 0)
+			end
+		end)
+	out("# read tap on %08X%s\n", rd_watch,
+	    rd_pc and string.format(", pc %08X only", rd_pc) or "")
+	return true
+end
+
 -- Returns false when the machine is not ready yet, which is **not** an error:
 -- a hard reset tears the machine down and rebuilds it, and the first periodic
 -- callback afterwards can see a `:maincpu` whose address spaces do not exist
@@ -322,6 +361,14 @@ emu.register_periodic(function()
 		-- here. This is the path a seeded cfg directory takes, and the only one
 		-- on which the debugger survives.
 		out("# no reset; running from the machine as started\n")
+	end
+
+	if rd_watch ~= nil and S.rtap == nil then
+		local ok, ready = pcall(install_read_tap)
+		if ok and not ready and now_s() >= giveup_s then
+			finish("the machine never presented a program space")
+			return
+		end
 	end
 
 	-- Write-tap mode needs no debugger at all, which is the point of it.

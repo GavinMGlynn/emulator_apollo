@@ -25745,3 +25745,60 @@ IMR question is still open rather than answered.
 
 *Verification: `--boot-trace-last 26` into write 21; `tools/ring-rom/disasm.py`
 on `3500_BOOT_12191_7.bin`; MAME's write tap with the offset filter relaxed.*
+
+## RETRACTED: the posted codes never diverged, and D2 is a poll counter
+
+**The "posted codes diverge right after `8F`" finding above is wrong.** It
+compared two different quantities, which is the error this project keeps
+repeating in new clothes.
+
+The oracle's `08 00 01` are **not posted codes**. They are writes to the
+*control* register at `0x10101` — lane mask `00FF0000` — at PCs `744E`, `745C`
+and `746C`, which the disassembly now identifies as the parity test's own
+`FORCE_BAD_PARITY` sequence. The posted diagnostic codes go to `0x10100`, the
+**other byte lane of the same longword**. Our `posted codes` line reports only
+that lane; the oracle's tap logged every write in the longword. Filtered to the
+same lane the two agree exactly:
+
+    oracle:  EE DE CF BF AF 9F 9F ED DD 9D 8D 7D 6D 5D FC 8F FE FB FA
+    ours:    EE DE CF BF AF 9F    ED DD 9D 8D 7D 6D 5D FC 8F FE FB FA  F9 F8 E8
+
+(The oracle's list starts at `EE` because its tap arms at ~17 ms, and ends at
+`FA` because the run was bounded at 6 s.)
+
+**So the oracle executes the parity test too** — writes 17-19 above are it — and
+posts `FE` after it, exactly as this core does. Everything in the previous
+section about the parity branch deciding the split is withdrawn. What survives
+is the disassembly itself, which is independently useful and correct: `0074A0`
+does test the four parity byte-lane flags, and both machines pass it.
+
+### What the D2 difference actually is
+
+With the paths identical, `D2` at posted `8F` — ours `FFFF31BA`, the oracle's
+`FFFF1BF8` — is not evidence of a different route. The routine at `0073BE` says
+what it is:
+
+    0073BE  clr.w   d2                  ; low word only; the high word stays FFFF
+    0073C0  btst.b  #$1, $b(a0)         ; a0 = 010400, so ISR bit 1: RxRDY channel A
+    0073C6  bne.b   $73d2               ; got a character
+    0073C8  cmp.w   #$ffff, d2          ; else time out
+    0073CE  addq.w  #$1, d2
+    0073D0  bra.b   $73c0
+    0073D2  move.b  $7(a0), d1          ; read the receive buffer
+
+**`D2` is the keyboard-receive poll counter.** Ours reached `0x31BA` = 12,730
+polls, the oracle's `0x1BF8` = 7,160 — so this core's first keyboard character
+arrives about 1.8× later in poll count. That is a bounded timing question about
+the keyboard receive path, not a path divergence.
+
+It also explains, at last, the shape of the Phase 5 failure. `0073EC` — the
+**timeout** exit of this very loop — is the PC our display boot reports, with
+`EXPECTED= 00000002` (the `d0` the error routine is handed) and `ADDRESS=
+0001040B` (`a0 + 0x0B`, the DUART's ISR). Our machine passes this loop in the
+configuration measured here and fails it in the one that reaches `SELF TEST
+FAILED`. **The Phase 5 blocker is this loop timing out**, and the margin is now
+a number: 12,730 polls against a 65,535 limit.
+
+*Verification: the oracle's write tap with the lane mask printed, filtered to
+`mask FF000000`; the disassembly of `0073BE`-`0073D6`; `ADDRESS`, `EXPECTED` and
+`PC` of the recorded failure all matching that routine's operands.*
