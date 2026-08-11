@@ -25672,3 +25672,76 @@ is upstream of both registers and is what the next measurement should find.
 *Verification: `mc68681_suite` 52 → 53; the sweep re-run on the **no-reset**
 path only, since MAME's hard reset leaves DUART residue and made the first
 sweep's device comparisons untrustworthy.*
+
+## The post-`8F` divergence is the memory parity test, at `0074A0`
+
+Traced by keeping the last 26 steps into our write 21 (`--boot-trace-last`),
+which land in `0074A0`-`0074D6`, and disassembling the boot PROM there:
+
+    0074A0  move.w  $10000.l, d0      ; the CPU status register
+    0074A6  and.w   #$f0, d0          ; the four parity byte-lane flags
+    0074AA  cmp.w   #$f0, d0
+    0074AE  beq.b   $74b8             ; expects all four SET
+    0074B4  bsr.w   $5f8c             ; else the error routine
+    0074B8  clr.w   $10000.l          ; clear the conditions
+    0074BE  move.w  $10000.l, d0
+    0074C4  and.w   #$f0, d0
+    0074C8  beq.b   $74d2             ; and now expects all four CLEAR
+    0074CE  bsr.w   $5f8c
+
+`0x00F0` is `AP_BOARDREG_STATUS_PARITY_MASK` — the four F280 parity checkers of
+`008778-03` §3.3, one per byte lane. **This core takes the `beq` and posts the
+next code; the oracle takes `bsr $5f8c` and posts something else**, which is the
+whole of the post-`8F` split.
+
+**Both cores model forced bad parity**, which is worth saying because the first
+guess was that MAME does not. `apollo.cpp`'s `ram_with_parity_w`/`_r` arm a
+per-offset handler when `FORCE_BAD_PARITY` is set, and — the detail that
+matters — **invert the lane mask on anything that is not a DN3000**:
+
+    parity_error_byte_mask = control & APOLLO_CSR_CR_PARITY_BYTE_MASK;
+    if (!apollo_is_dn3000()) parity_error_byte_mask ^= APOLLO_CSR_CR_PARITY_BYTE_MASK;
+
+which is the same active-low lane sense this core carries as
+`has_active_low_parity_lanes`. The models differ in *extent*: MAME flags only
+the single longword last written with the bit set, this core keeps a per-byte
+bitmap.
+
+### What is not yet established, and why the trail stops here
+
+The provoking sequence at `007474`-`007488` **cannot be read yet**: the
+disassembly desynchronises there — the listing shows a run of `"NqNqNq…"` where
+data is being decoded as instructions — so which address is written with bad
+parity, and with which lane mask, is not known. Everything above rests on the
+branch at `0074A0`, which disassembles cleanly and is confirmed by the execution
+trace passing through it.
+
+So the honest statement is: **the divergence is the parity test, and which side
+is right is not yet decided.** Deciding it needs the status register's value at
+`0074A0` on both machines. MAME's `cpu_status_register` is a file-scope static
+and is not in its save registry, so it is not in the dump and a read tap on
+`010000` is the way to get it — the same shape as the write tap, and the next
+thing to build.
+
+### Two smaller things the hunt established
+
+**The tap could not have found the DUART writes it was asked about.** A tap on
+`1040A` and then `1040B` reported zero writes, which reads as "the oracle never
+writes IMR". Both were wrong for their own reason: in a 32-bit space MAME
+reports a byte access at the **longword-aligned** address with a lane mask, so
+an exact `offset == watch` test rejects every odd-address register — which is
+where this machine's DUART lives. With the filter relaxed the same window shows
+the one write it does contain: `ACR = 60` at PC `00006570`, matching the PROM's
+`move.b #$60, $8(a3)` exactly.
+
+**And a tap cannot be armed early enough on a cold start.**
+`emu.register_periodic` first fires around 17 ms of emulated time — some 425,000
+instructions — and the DUART's mask is already programmed by 0.015 s.
+`emu.register_prestart` does not help: an autoboot script is loaded after the
+machine has started, so the callback never runs. The hard-reset path *does* arm
+from instruction 0, but it is not a cold start — the machine runs those 17 ms in
+**Service** mode first, and can leave persistent state behind. That is why the
+IMR question is still open rather than answered.
+
+*Verification: `--boot-trace-last 26` into write 21; `tools/ring-rom/disasm.py`
+on `3500_BOOT_12191_7.bin`; MAME's write tap with the offset filter relaxed.*

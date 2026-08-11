@@ -203,12 +203,24 @@ local function install_write_tap()
 	S.tap = space:install_write_tap(lo, hi, "apollo_sync",
 		function(offset, data, mask)
 			if S.done then return end
-			-- The longword covers more than the register asked for, so a write
-			-- to a neighbour inside it is not this event.
-			if offset ~= watch then return end
+			-- **The offset is the access's, not the byte's.** In a 32-bit space
+			-- a byte write is reported at the aligned address with a mask
+			-- selecting the lane, so testing `offset == watch` silently rejects
+			-- every write to an odd address -- which is where this machine's
+			-- DUART registers live. Accept anything in the longword and let the
+			-- caller's value match discriminate; `APOLLO_SYNC_STRICT=1` restores
+			-- the exact test for a register that really is longword-aligned.
+			if os.getenv("APOLLO_SYNC_STRICT") ~= nil and offset ~= watch then
+				return
+			end
 			S.seen = S.seen + 1
-			out("# write %d to %08X: data %04X mask %04X\n",
-			    S.seen, watch, data & 0xFFFF, mask & 0xFFFF)
+			-- The PC as well as the value: "which instruction wrote this" is
+			-- the question a differential asks next about every difference it
+			-- finds, and recovering it afterwards costs another whole run.
+			-- Musashi's PC has already advanced past the opcode here, so this
+			-- is *after* the writing instruction, not its address.
+			out("# write %d at %08X: data %08X mask %08X pc %08X\n",
+			    S.seen, offset, data, mask, current_pc() or 0)
 			-- **Match the posted value, not the count, when one is given.**
 			-- This tap is installed after the reset this script performs, so it
 			-- misses the writes that happen in between -- measured as the first
@@ -235,6 +247,25 @@ local function install_write_tap()
 		out("# write tap on %08X, dumping on write %d\n", watch, wr_count)
 	end
 	return true
+end
+
+-- **Arm the tap before the machine runs.** `emu.register_periodic` does not
+-- fire until the first timeslice, about 17 ms of emulated time -- roughly
+-- 425,000 instructions of boot PROM. Anything the firmware does in that window
+-- is invisible to a tap installed from there, and that is not a small window:
+-- the DUART's interrupt mask is already programmed by 0.015 s, so a tap armed
+-- at 17 ms sees *zero* writes to it and reads as "the oracle never writes this
+-- register" when the truth is "the tap was late".
+--
+-- `emu.register_prestart` runs before reset, which is early enough. This is
+-- also why the tap mode no longer needs a reset of its own to catch the first
+-- posted codes.
+if watch ~= nil then
+	emu.register_prestart(function()
+		if S.done or S.tap ~= nil then return end
+		local ok, ready = pcall(install_write_tap)
+		if ok and ready then S.prearmed = true end
+	end)
 end
 
 emu.register_periodic(function()
