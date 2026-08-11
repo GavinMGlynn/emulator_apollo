@@ -24796,14 +24796,22 @@ Snapshots at 120, 150, 200 and 300 emulated seconds, bracketing the keypress:
 at 300 s the oracle's screen is the **Display Manager's function-key legend** —
 `SHELL CMD`, `CUT COPY`, `UNDO PASTE`, through to the A-D and PWR indicators.
 
-That is Domain/OS running. **The answer works**: `Y` then `Numpad Enter` at
-150 s gets the machine past `DO YOU WISH TO CONTINUE (Y,N)?` and all the way
-into the operating system. The harness can now drive the oracle to the same
-place this core boots to, which no `mdsession.py` run has ever done.
+That is Domain/OS running. **But "the answer works" is withdrawn — the machine
+was already there.** The 150 s snapshot, taken at the *same instant* the key was
+pressed, is already the DM legend, and so is the 200 s one. The oracle reaches
+Domain/OS in `--stage watch` **without any input at all**.
 
-So the remaining question is narrow and different from every guess made before
-it: the machine *does* boot, and the tap on `01002020` still did not fire in the
-run that had both. Which means `01002020` is executed at a moment the tap could
+So the prompt theory was wrong too, and with it the reasoning that produced it.
+The `DO YOU WISH TO CONTINUE` screen came from a `screencap.lua` run — a
+different harness, its own reset — and I carried a conclusion across from it
+without checking whether this harness's machine stops there. It does not.
+
+Which leaves the real finding, and it is better than the one I claimed: **the
+oracle boots to Domain/OS unaided in this harness**, and has done throughout,
+including in the runs whose taps never fired.
+
+So the remaining question is narrower still: the machine boots **unaided**, and
+the tap on `01002020` never fired in any run. Which means `01002020` is executed at a moment the tap could
 not see, or is not executed on this path at all — and that is now a question
 about *which* address the oracle's SELF_TEST enters at, answerable by tapping a
 range rather than a word, or by reading the address off the oracle's own
