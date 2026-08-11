@@ -24839,10 +24839,17 @@ does it and the oracle does not, on the same PROM image and the same disk.
 
 The obvious suspects, none tested: the console the firmware selects (ours is
 driven on serial 1 channel B by `--boot-input`, the oracle's is its display and
-keyboard); the calendar's battery RAM, whose "CONFIGURATION INFORMATION IS NOT
-INITIALIZED" is what the diagnostic complains about, and whose NVRAM directory
-differs between the `screencap.lua` run that *did* show the prompt and these
-`mdsession` runs that do not; and the boot device path.
+keyboard); ~~the calendar's battery RAM~~ — **eliminated by one cheap check**: every NVRAM
+directory involved is empty, including the shared one the `screencap.lua` run
+that *did* show the prompt used. MAME never writes NVRAM here, so it cannot be
+what distinguishes the runs; and the boot device path.
+
+Two suspects left, and the shape of the difference now points at the **harness**
+rather than the machine: the run that reached the prompt used `screencap.lua`,
+and the runs that boot straight through use `mdsession.lua`. Both set Normal
+mode, both soft-reset, both post no input. What differs between the two scripts
+— and *when* each performs its reset relative to machine start — is where to
+look next, and it is a reading task rather than another boot.
 
 **That difference is worth more than the sync point it was blocking.** Two cores
 given the same PROM and the same disk are choosing to run different programs,
