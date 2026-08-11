@@ -25912,3 +25912,45 @@ evidence which framed it belongs to the other configuration.
 *Verification: `--dump-state` at the 49th write to `00010100` under
 `--screen c8p`, against the oracle's dump at the same posted code; the crash
 run's own dump for the third row.*
+
+### And the crash *does* reproduce there — which is what makes it comparable
+
+Answering the prompt carries the display boot straight into it:
+
+    DO YOU WISH TO CONTINUE (Y,N)? Y
+    SELF TESTS PASSED.
+    >LOW: 01002000 HIGH: 010E986C START: 01002024
+
+    Domain/OS kernel(7), revision 10.4, February 14, 1992  11:42:25 am
+
+    CRASH_STATUS 00120020  PC 3C40E114 PID 0001
+    S   3C42BA58        2700            BC
+    3C42BA58: 4E4F
+
+`4E4F` is `TRAP #15`, which is how `crash_system` enters MD — so the dump is the
+kernel's own, not a bus fault. **The crash is real in the configuration the
+oracle runs**, which settles the question the previous section left open: it is
+not an artefact of the no-display harness, and the differential can now be run
+on two machines doing the same thing.
+
+What the display configuration adds is that the MMU is *correctly* set up when
+it happens — `TC 02A28750` with `SRE` set, both roots at `01200000`, matching
+the oracle — and the machine still dies. So the account of the crash as
+"Domain/OS runs on `SELF_TEST`'s tree" describes the serial run only, and the
+real failure has a **faulting PC, `3C40E114`, and a PID** to chase instead.
+
+**Two harness defects found getting here**, both silent:
+
+* `--boot-type` with no arming address **breaks the boot**: typing `Y` from the
+  start gives 20 posted codes instead of 49, because the keyboard-receive
+  self-test at `0073C0` reads whatever character is waiting and gets ours.
+  `--boot-type-after-pc 2670` — the poll the machine sits in at the prompt — is
+  the arming that works.
+* `--boot-type-after-pc` parsed its address with `strtoul(..., 0)`, so `2670`
+  meant **decimal** 2670 while every sibling address flag takes hex. The trigger
+  never fired and the run reported `0 of 2 character(s) typed` after fifteen
+  minutes. Now base 16, like `--boot-watch-write` and `--boot-stop-pc`.
+
+*Verification: `--screen c8p --boot-type-after-pc 2670 --boot-type "Y\r"`,
+900 M instructions, 288 MMU faults, final PC `3FFA2684 -> 00002684`; the screen
+read from the PNG.*

@@ -3717,7 +3717,13 @@ int main(int argc, char **argv) {
       continue;
     }
     if (strcmp(argv[i], "--boot-type-after-pc") == 0 && i + 1 < argc) {
-      boot_type_after_pc = (uint32_t)strtoul(argv[i + 1], NULL, 0);
+      /* **Hex, like every other address flag.** `--boot-watch-write`,
+       * `--boot-watch-read` and `--boot-stop-pc` all take an address as hex
+       * without a prefix; this one took base 0, so `--boot-type-after-pc 2670`
+       * armed at decimal 2670 and the trigger never fired. The failure is
+       * silent -- the run completes and reports `0 of 2 character(s) typed` --
+       * which is exactly the shape that wastes a fifteen-minute boot. */
+      boot_type_after_pc = (uint32_t)strtoul(argv[i + 1], NULL, 16);
       i += 2;
       continue;
     }
@@ -3727,7 +3733,7 @@ int main(int argc, char **argv) {
       continue;
     }
     if (strcmp(argv[i], "--boot-type-then-after-pc") == 0 && i + 1 < argc) {
-      boot_type2_after_pc = (uint32_t)strtoul(argv[i + 1], NULL, 0);
+      boot_type2_after_pc = (uint32_t)strtoul(argv[i + 1], NULL, 16);
       i += 2;
       continue;
     }
