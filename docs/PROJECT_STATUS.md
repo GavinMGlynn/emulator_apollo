@@ -25071,10 +25071,27 @@ suspect is one of this session's two MAME rebuilds — the C120 workaround, or t
 `save.h` instrumentation that touched most of the tree.
 
 *Next, and it is a bisect rather than a hypothesis*: rebuild `ext/mame` from a
-clean checkout with no local edits and capture at 60 s. If the self-test text
-returns, one of the local edits suppresses rendering and the patch is at fault;
-if it does not, the oracle's display has never rendered under this build and
-every screen comparison in this project needs re-taking.
+clean checkout with no local edits and capture at 60 s.
+
+**The confound, named before the result rather than after it.** A pristine
+checkout removes the three instrumentation files *and* the five known local
+edits together — APOLLO_XXL and the sc499 tape support — so the outcomes are
+asymmetric:
+
+* **Text does not return** → decisive. The display has never rendered under any
+  build in this session, and every screen comparison in this project needs
+  re-taking, including the ones this document already relies on.
+* **Text returns** → narrows it only to "one of eight edits". A second run with
+  the five known edits restored separates the instrumentation from them, and is
+  worth doing before blaming the patch.
+
+`-video none` is *not* a candidate: the capture that showed real text used it
+too. What differs between that capture and today's is the binary, which is what
+this bisect isolates.
+
+The stash is recoverable — `stash@{0}` holds all eight files — and the
+instrumentation is independently committed as `apollo-state-dump.patch`, so a
+lost stash costs a re-apply rather than the work.
 
 **And a caution that follows from today's record**: this screen is
 character-identical to one captured earlier and attributed to the oracle. Under
