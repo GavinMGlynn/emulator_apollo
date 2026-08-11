@@ -25013,6 +25013,25 @@ That is where the next session should point the state dump: not at the crash,
 which is 160 M instructions downstream, but at the disk controller's state
 during the load that only one machine performs.
 
+**One observation and one caution, and the caution is the point.** The oracle's
+snapshot at **20** emulated seconds is already the DM legend — earlier than the
+38 s its `CRP` install suggested, and earlier than this core reaches `01002020`
+at all (162,878,376 instructions, about 24 s).
+
+It is tempting to read that as "the oracle never draws the self-test list". **It
+does not support that**, and the distinction is exactly the one this session has
+got wrong five times. The Display Manager clears the screen when Domain/OS
+starts, so a screen showing the DM at 20 s is equally consistent with the
+self-test text having been drawn and erased before then. The two hypotheses —
+*never drawn* and *drawn then cleared* — are not distinguishable from any
+snapshot taken after the DM appears.
+
+Snapshots at 5, 10 and 15 emulated seconds separate them, and they cost one run.
+Until they exist, "the oracle skips `SELF_TEST`" rests on its *absence of a
+prompt*, which is weaker evidence than it has been treated as: a machine that
+loaded `SELF_TEST`, passed every test and had nothing to ask would also boot
+straight through.
+
 **And a caution that follows from today's record**: this screen is
 character-identical to one captured earlier and attributed to the oracle. Under
 current builds it is *this core's* output and the oracle's differs. Before
