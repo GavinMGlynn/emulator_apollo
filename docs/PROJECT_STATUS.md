@@ -25430,3 +25430,53 @@ question; the last one is only its consequence.
 *Verification: `--boot-limit 400000000`, release build, `--clock 2026-08-09`,
 serial console on port 1 channel B, `tools/boot-domainos.script`, no `--screen`.
 Dump kept for the comparison.*
+
+## The DUART fix unblocks the oracle's display boot, and it fails a self test too
+
+With `duart-tx-enable.patch` applied and MAME rebuilt, the oracle's **normal
+mode draws** where every previous run in this project's history left it blank:
+
+| build | 0.1 s | 1 s | 6 s | 15 s | 30 s | 60 s |
+| --- | --- | --- | --- | --- | --- | --- |
+| pristine | 0 ink | — | — | — | — | 0 ink |
+| with the fix | — | 1,258 | 3,725 | 6,303 | 12,461 | **24,216** |
+
+At 60 s it has run the whole sequence: `KEYBOARD TEST # 0`, four memory modules,
+`WINCHESTER DISK` with **`DRIVE 0 PASSED` / `DRIVE 1 (NOT FOUND)`** — which is
+what this core prints since the OMTI LUN fix — `802.3 NETWORK CONTROLLER-AT TEST
+PASSED`, then `LOADING SELF_TEST DIAGNOSTICS FROM BOOT DEVICE`,
+`LOW: 01002000 HIGH: 01005378 START: 01002020` and `LOADED: SELF_TEST REVISION
+2.4, LAST COMPILED WEDNESDAY, OCTOBER 5, 1988`.
+
+`START: 01002020` is the address this project's notes already carry for the
+kernel-entry stub, arrived at here from the oracle's own screen.
+
+### And this is the machine Phase 5 has never had
+
+**The oracle fails a self test as well**, at a different one:
+
+| | EXPECTED | ACTUAL | ADDRESS | PC |
+| --- | --- | --- | --- | --- |
+| oracle | `00000000` | `00000012` | `00010912` | `00005DF8` |
+| this core | `00000002` | `0000FF00` | `0001040B` | `000073EC` |
+
+Both then print `DO YOU WISH TO CONTINUE (Y,N)?`.
+
+That **reframes the Phase 5 blocker**. `SELF TEST FAILED` has been treated as
+this core's defect through eight commits, a completed MC68681 sweep and a full
+register-table walk — on the reasoning that a correct machine would pass. The
+reference machine does not pass either. What differs is *which* test fails, and
+that is a far narrower and more answerable question than "why does our machine
+fail its self tests".
+
+Both failing addresses are in the core register block (`010000`-`011600`), and
+the tests are reached from different PROM routines, so they are different tests
+rather than the same test disagreeing.
+
+**The `KEYBOARD TEST # 0` note is now checkable too.** This document records
+that the keyboard test "has never been seen to succeed anywhere, and the reason
+is that the oracle in normal mode never reaches it". It reaches it now.
+
+*Verification: `screencap.lua` normal mode against the rebuilt oracle,
+`pngcmp.py` ink counts, screens read from the PNGs. The same script on the
+pristine binary gives 0 ink at both instants, which is the control.*
