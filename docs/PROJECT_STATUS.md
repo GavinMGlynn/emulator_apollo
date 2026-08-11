@@ -24826,6 +24826,29 @@ BOOT PATHS ARE DIFFERENT", and which invalidated a body of cross-machine work
 then. It has been rediscovered from the other side: not by comparing counts, but
 by watching one machine reach a screen the other never draws.
 
+**Option (b) chosen, and its first obstacle is now measured.** Snapshots at 20,
+40, 60, 80 and 100 emulated seconds: the DM legend is on screen by **40 s**, so
+the oracle boots Domain/OS directly at about 37.8 s — the same instant as its
+`CRP` install from `PC 0100241A` — and never loads `SELF_TEST`, never prints the
+diagnostic banner, and never reaches a prompt to be driven through.
+
+So "drive the oracle through the prompt" cannot be done as stated: **there is no
+prompt in this configuration**. The question option (b) actually poses is one
+step earlier — *what makes the boot PROM load `SELF_TEST` at all?* This core
+does it and the oracle does not, on the same PROM image and the same disk.
+
+The obvious suspects, none tested: the console the firmware selects (ours is
+driven on serial 1 channel B by `--boot-input`, the oracle's is its display and
+keyboard); the calendar's battery RAM, whose "CONFIGURATION INFORMATION IS NOT
+INITIALIZED" is what the diagnostic complains about, and whose NVRAM directory
+differs between the `screencap.lua` run that *did* show the prompt and these
+`mdsession` runs that do not; and the boot device path.
+
+**That difference is worth more than the sync point it was blocking.** Two cores
+given the same PROM and the same disk are choosing to run different programs,
+and this core is the one loading a diagnostic the oracle skips. Whichever is
+right, it is upstream of the crash and of every comparison attempted today.
+
 **So a sync point in `0100xxxx` cannot be shared while the two machines run
 different software there.** The comparison needs either an address in code
 *both* execute — Domain/OS's own entry, or a point inside the kernel — or our
