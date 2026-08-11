@@ -1780,6 +1780,16 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
     fprintf(stderr, "apollo: cannot build the core board\n");
     return 1;
   }
+  /* Before anything runs: the set is configuration, and it is hashed.
+   *
+   * **This was missing on the boot path.** `--oracle-quirk` was applied only
+   * where a board is built for a probe run, so on a boot it parsed the name,
+   * refused a bad one, and then silently changed nothing -- a comparison run
+   * would report the reference machine's behaviour while claiming the oracle's.
+   * Found because selecting a quirk left the state hash byte-identical, which
+   * it cannot do when the set is hashed. */
+  ap_board_set_quirks(board, g_quirks);
+
   /* Fit a display, if one was asked for. The memories are allocated here rather
    * than in the core, which allocates nothing -- and only when a screen is
    * fitted, so a machine without one has no frame buffer rather than an empty

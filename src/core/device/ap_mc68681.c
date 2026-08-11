@@ -41,7 +41,12 @@ static void reset_channel(ap_mc68681_channel_t *ch) {
 }
 
 void ap_mc68681_reset(ap_mc68681_t *duart) {
+  /* Configuration, not state: a reset is the part's, and the quirk set is the
+   * harness's. Clearing it here would make a reset silently return the machine
+   * to reference behaviour part-way through a comparison run. */
+  const ap_quirks_t quirks = duart->quirks;
   memset(duart, 0, sizeof *duart);
+  duart->quirks = quirks;
   for (unsigned i = 0; i < AP_MC68681_CHANNELS; i++) {
     reset_channel(&duart->channel[i]);
   }
@@ -838,9 +843,16 @@ void ap_mc68681_write(ap_mc68681_t *duart, unsigned reg, uint8_t value) {
     }
     if ((value & CR_ENABLE_TX) != 0u) {
       /* §4.2.7.3: "Enable Transmitter ... The transmitter-ready status bit will
-       * be asserted." */
+       * be asserted." Only that bit: §4.2.9.5 makes TxEMT an *underrun* flag,
+       * set "after transmission of the last stop bit of a character", and a
+       * transmitter just enabled has transmitted nothing.
+       *
+       * MAME asserts both here, which is `AP_QUIRK_DUART_ENABLE_SETS_TXEMT`. */
       ch->tx_enabled = true;
       ch->sr |= AP_MC68681_SR_TXRDY;
+      if (ap_quirk_selected(duart->quirks, AP_QUIRK_DUART_ENABLE_SETS_TXEMT)) {
+        ch->sr |= AP_MC68681_SR_TXEMT;
+      }
     }
     if ((value & CR_DISABLE_TX) != 0u) {
       /* §4.2.7.3: "Disable Transmitter. This command terminates transmitter

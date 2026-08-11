@@ -32,6 +32,8 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#include "model/ap_quirk.h"
+
 #include "time/ap_time.h"
 
 #define AP_MC68681_REGISTERS 16u
@@ -177,6 +179,13 @@ typedef struct {
 } ap_mc68681_channel_t;
 
 typedef struct {
+  /* Deliberate divergences, pushed down from the board rather than reached up
+   * for: a device asking the board on every access would put a pointer chase on
+   * a hot path, and the set does not change during a run. Survives
+   * `ap_mc68681_reset`, because it is configuration and not state the part
+   * holds. */
+  ap_quirks_t quirks;
+
   ap_mc68681_channel_t channel[AP_MC68681_CHANNELS];
 
   uint8_t acr;

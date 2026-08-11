@@ -3416,7 +3416,7 @@ failure that cost a bit position in the 68020's module entry word.
 | MC146818A calendar (the part) | working: ten clock bytes, four registers, 50 RAM bytes, the once-per-second update with a full Gregorian carry, the alarm with don't-care codes, and Register C's read-to-clear. **Time is supplied by the caller, never the host** — the oracle seeds its calendar from the wall clock, which would rot every golden. The **periodic interrupt** is implemented for **all fifteen** of `[146818]` Table 5's rates, 32.768 kHz down to 2 Hz: the base is the LCM times 2^6 so that it carries the 2^15 the six fastest need, at a span of 9.9 days rather than 634. The **square wave** is driven, sharing that selector and gated by Register B's `SQWE`, and the `DSE` bit's two **daylight-savings** updates are applied. The crystal itself stays unrepresentable — 4.194304 MHz would need a base spanning under two hours — and `ap_mc146818_rate_supported` is kept for that reason. Not yet wired to the board at `010900` | `mc146818_suite`, 32 tests, `MC146818A` (register figures read from page images) |
 | Node ID PROM (`011200`) | working: the layout measured from the oracle's own PROM — stride 2 with the **odd byte reading zero** (unlike the serial ports at the same stride), the identifier big-endian in registers 0-3, and a checksum in register **15** confirmed arithmetically (`01 + 23 + 45 = 69`) and then by the boot PROM's own self-test, which sums registers 0-14 and compares. The identifier is supplied by the caller, never a constant: a device whose purpose is to be unique per machine must not be the same on every one | `nodeid_suite`, 8 tests; `008778-03` Table 2-8, CPU self-test 8 at `008218` |
 | Apollo serial ports (`010400`, `010500`) | working: both DUARTs at **stride 2** (measured), sixteen registers over thirty-two bytes and aliased, sharing IRQ1 through to vector `A1`. The memory-refresh square wave of §3.9 runs: the counter is clocked at the DUART's X1 and produces a 15 microsecond period from the boot PROM's own preload. Its *frequency*, 66666.67 Hz, is not an integer, so a core counting in hertz could not represent this board's refresh clock at all | `sio_suite`, 29 tests; `FINDINGS.md` C14 |
-| MC68681 / SCN2681 DUART (the part) | **programming model complete**: all sixteen register addresses of `[68681]` Table 4-1, both channels' mode registers with their shared pointer, clock-select, command and status registers, the three-deep receive FIFO with overrun, the interrupt status and mask registers, the input and output ports, and the counter/timer with both address-triggered commands. **All eight of §4.2.7.2's miscellaneous commands** — the audit found three falling through a bare `default: break;` (reset break change interrupt, start break, stop break) and, in the same paragraph, three outright errors in the transmitter status bits; see below. **Serial framing is modelled**, and the claim that it was not was stale: `ap_mc68681_resample` reshapes a character arriving at a mismatched baud rate rather than flagging an intact one, `ap_mc68681_character_bits` applies `MR1`'s width, parity is checked on both enable *and* type, `MR2`'s stop-bit field is read, and all four channel modes — normal, auto-echo, local loopback, remote loopback — behave differently. **Wired to the board** through `board/ap_sio.h` | **the receive shift register is modelled**: the part is quadruple-buffered, so a character meeting a full FIFO is held rather than lost and only the next one overruns, and a read that frees a position refills the FIFO from it -- which is why §4.2.9.7 says `FFULL` is not cleared by that read | `mc68681_suite`, 53 tests, `MC68681 DUART Sep85` |
+| MC68681 / SCN2681 DUART (the part) | **programming model complete**: all sixteen register addresses of `[68681]` Table 4-1, both channels' mode registers with their shared pointer, clock-select, command and status registers, the three-deep receive FIFO with overrun, the interrupt status and mask registers, the input and output ports, and the counter/timer with both address-triggered commands. **All eight of §4.2.7.2's miscellaneous commands** — the audit found three falling through a bare `default: break;` (reset break change interrupt, start break, stop break) and, in the same paragraph, three outright errors in the transmitter status bits; see below. **Serial framing is modelled**, and the claim that it was not was stale: `ap_mc68681_resample` reshapes a character arriving at a mismatched baud rate rather than flagging an intact one, `ap_mc68681_character_bits` applies `MR1`'s width, parity is checked on both enable *and* type, `MR2`'s stop-bit field is read, and all four channel modes — normal, auto-echo, local loopback, remote loopback — behave differently. **Wired to the board** through `board/ap_sio.h` | **the receive shift register is modelled**: the part is quadruple-buffered, so a character meeting a full FIFO is held rather than lost and only the next one overruns, and a read that frees a position refills the FIFO from it -- which is why §4.2.9.7 says `FFULL` is not cleared by that read | `mc68681_suite`, 55 tests, `MC68681 DUART Sep85` |
 | QIC-02 tape drive | **the whole command set**, all eleven of `[SC499]` §1.13: both SELECTs with the sticky selection and the soft lock, BOT, RETENSION, both format selects, READ, READ STATUS, and WRITE, WRITE FILE MARK, READ FILE MARK and ERASE recognised and refused. **WRITE places a block** on a cartridge loaded writable, the distinction `ap_ct_t` now carries; a read-only one refuses. WRITE FILE MARK and ERASE are still refused, and for a reason that has not changed — a `.ct` is a raw block image with no file marks in it. The cartridge *type* is supplied by the caller, because the controller derives it from tape geometry a raw image does not carry. **The two opcodes C25 recorded as lost are recovered**: §1.13's summary table has a previous owner's pen through `H'22'` and `H'26'`, and §1.13.1's numbered descriptions two pages on give the same codes in clean binary, corroborated by the three codes either side of them that this core already had. **READ STATUS now transfers its block**: six bytes, the length `[SC499]` §1.13.1 gives outright, as three 16-bit fields LSB-first — exception flags, data-error count, underrun count — and reading it clears the power-on condition it reports | `qic_suite`, 18 tests; `FINDINGS.md` C25 |
 | Cartridge tape images (`image/ap_ct.c`) | working: block addressing over a raw `.ct` image, refusing any size that is not a whole number of 512-byte blocks, and boot-record parsing that returns the four header words. Their reading as load address and entry point is now **confirmed by the boot code itself** — its first instruction, a PC-relative `LEA`, computes word 0 exactly when executed at word 1, so the image proves its own layout. `ap_ct_boot_image` therefore *names* load address, entry point and length, and refuses a cartridge that does not announce itself, or whose header describes more than the file holds. Takes memory, never a filename, so `src/core` keeps its zero file I/O and the tests need no gitignored media | `ct_suite`, 12 tests; `FINDINGS.md` C24 |
 | Apollo display controller (`05D800`, `05E800`) | **identification**: both register blocks decode whether or not a screen is fitted, and the device ID at offset 1 reports `C4P=8`, `19I=9`, `C8P=10` or `15I=11` for the fitted family and `FF` for the other. An absent screen reads `FF` and does **not** bus error — "nothing is fitted" and "nothing is there" are different answers, and getting that wrong cost an investigation. **Drawing**: `CR0`'s mode and shift, `CR1`'s bits named per family, `CR2`'s two plane-select encodings, all sixteen raster operations, the word-level data path with its two active-low fields, and the blit that is the plane loop around them. **Lookup table**: the Bt458 wired behind its data and control ports, active-low chip selects, the FIFO that commits a palette on the release of `CPAL_CS`. **Raster**: both dot clocks, the beam as a function of the instant, and the status register's timing bits gated on `CR1`. **Scanout**: the four geometries, each buffer width being the manual's own printed capacity divided out, planes composed with plane 0 as bit 0 and bit 15 as the leftmost pixel. **Registers**: sixteen of them in two groups of eight, the low group aliased across the block, `CR0`-`CR3B`, the 16-bit write enable and the 32-bit raster operation, with `CR3A` as a bit port onto `CR1`. **Corrected 2026-08-11**: this line previously said the status register, the raster operation's low half and the lookup table's two ports were "still unmodelled and reading `FF`". All three are modelled -- the status register answers from the raster (`graphics_status`), the lookup table has its Bt458 with the release-committed FIFO, and the raster operation's low half reads `FF` because it is **write-only in the hardware**, which is a model of the part rather than a gap in it. What genuinely reads `FF` is the low register group on a board that is not 8-plane, and registers that are write-only -- `FF` rather than zero, because zero is a state a real register can report and these cannot report anything | `graphics_suite`, 82 tests; `FINDINGS.md` C31-C32 |
@@ -26088,3 +26088,54 @@ snapshot says whether the run was meaningful.
 
 *Verification: three `--dump-state` runs against one oracle dump-on-exit, all in
 the display configuration with the prompt answered on both sides.*
+
+## The kernel's entry compared, and `--oracle-quirk` was doing nothing
+
+Both machines can now be stopped at the **kernel's entry** — the *second* pass
+of `01002024`, the first being `SELF_TEST`'s — and diffed there:
+
+    51 matched, 7 differing
+      cpu.d.007   ours 110EE1A6   theirs 110EE6E2
+      sio.004     ours 04         theirs 0C     ch0 SR
+      sio.014     ours 04         theirs 0C     ch1 SR
+      sio.010     ours 13         theirs 17     ch1 MR1
+      sio.020     ours 60         theirs EA     ACR
+      sio.021     ours 00         theirs A2     IMR
+      sio.026     ours 06         theirs 81     OPR
+
+Six of the seven are the **DUART**, which is a much sharper statement than
+"something differs": the two machines arrive at the kernel with the same CPU
+state bar one register and disagree about one device.
+
+The `SR` difference is `TxEMT`, and it is a **documented ambiguity rather than a
+defect on either side**. `[68681]` §4.2.9.6 gives TxRDY as "set when the
+transmitter is first enabled"; §4.2.9.5 gives TxEMT as set when the transmitter
+"underruns … after transmission of the last stop bit of a character". A
+transmitter just enabled has sent nothing, so by the letter TxEMT stays clear —
+this core's reading — and MAME sets both. That is exactly case 2 of
+`ap_quirk.h`'s taxonomy, so it is now
+`--oracle-quirk duart-enable-sets-txemt` rather than an argument.
+
+### And the quirk mechanism was silently inert on the boot path
+
+Selecting it changed **nothing** — same seven differences, and the state hash
+byte-identical at `D55C25D1262ADD75`. The quirk set is hashed, so an identical
+hash is proof the selection never reached the machine.
+
+`ap_board_set_quirks` was called where a board is built for a *probe* run and
+**not** in `boot_from_prom`. So `--oracle-quirk` parsed its argument, correctly
+refused an unknown name, and then did nothing on the only path any of this work
+uses. A comparison run would have reported the reference machine's behaviour
+while claiming the oracle's — the exact failure the mechanism exists to prevent.
+
+Fixed, and now `--oracle-quirk duart-enable-sets-txemt` moves the hash
+(`6B5E168C18BB6B4C` → `77F892EC76FF676E`) on a 200,000-instruction boot.
+
+**The lesson is the one this session keeps re-teaching**: a switch that is
+supposed to change behaviour must be shown to change *something* before any run
+using it is believed. The state hash is the cheapest such proof, and it was
+sitting in the output all along.
+
+*Verification: `ctest` 135/135; `mc68681_suite` 53 → 55, adding that reset
+preserves the selected quirks and that the quirk reproduces MAME's `SR = 0C`
+while the default gives `04`.*

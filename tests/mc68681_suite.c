@@ -742,7 +742,46 @@ static void test_two_duarts_reset_alike_hold_identical_state(void) {
   memset(&b, 0x55, sizeof b);
   ap_mc68681_reset(&a);
   ap_mc68681_reset(&b);
+
+  /* **The quirk set is exempt, and deliberately.** It is the harness's
+   * configuration, not state the part holds, so `ap_mc68681_reset` preserves it
+   * -- clearing it would silently return a machine to reference behaviour
+   * part-way through a comparison run, which is the one thing a divergence
+   * switch must never do. Everything the *part* owns must still be identical,
+   * which is what this test is for, so the two are equalised here rather than
+   * the comparison being narrowed. */
+  a.quirks = ap_quirks_none();
+  b.quirks = ap_quirks_none();
   TEST_ASSERT_EQUAL_MEMORY(&a, &b, sizeof a);
+}
+
+/* And the exemption is itself asserted, so "reset preserves the quirks" cannot
+ * quietly stop being true. */
+static void test_reset_preserves_the_selected_quirks(void) {
+  ap_mc68681_t d;
+  ap_mc68681_reset(&d);
+  ap_quirk_select(&d.quirks, AP_QUIRK_DUART_ENABLE_SETS_TXEMT);
+  ap_mc68681_reset(&d);
+  TEST_ASSERT_TRUE(
+      ap_quirk_selected(d.quirks, AP_QUIRK_DUART_ENABLE_SETS_TXEMT));
+}
+
+/* The quirk's whole behaviour: with it selected, enabling the transmitter
+ * asserts TxEMT as MAME does; without it, only TxRDY, as §4.2.9.5/6 say. */
+static void test_the_txemt_quirk_matches_the_oracle_when_selected(void) {
+  ap_mc68681_t reference;
+  ap_mc68681_reset(&reference);
+  ap_mc68681_write(&reference, AP_MC68681_CR_A, 0x04u);
+  TEST_ASSERT_EQUAL_HEX8(AP_MC68681_SR_TXRDY,
+                         ap_mc68681_read(&reference, AP_MC68681_SR_CSR_A));
+
+  ap_mc68681_t like_mame;
+  ap_mc68681_reset(&like_mame);
+  ap_quirk_select(&like_mame.quirks, AP_QUIRK_DUART_ENABLE_SETS_TXEMT);
+  ap_mc68681_write(&like_mame, AP_MC68681_CR_A, 0x04u);
+  TEST_ASSERT_EQUAL_HEX8(
+      (uint8_t)(AP_MC68681_SR_TXRDY | AP_MC68681_SR_TXEMT),
+      ap_mc68681_read(&like_mame, AP_MC68681_SR_CSR_A));
 }
 
 
@@ -1324,5 +1363,7 @@ int main(void) {
   RUN_TEST(test_the_break_commands_are_obeyed_rather_than_dropped);
   RUN_TEST(test_the_break_change_interrupt_can_be_cleared_per_channel);
   RUN_TEST(test_two_duarts_reset_alike_hold_identical_state);
+  RUN_TEST(test_reset_preserves_the_selected_quirks);
+  RUN_TEST(test_the_txemt_quirk_matches_the_oracle_when_selected);
   return UNITY_END();
 }

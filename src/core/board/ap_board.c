@@ -356,6 +356,9 @@ void ap_board_set_quirks(ap_board_t *board, ap_quirks_t quirks) {
    * configuration on every access would put a pointer chase on a hot path, and
    * the set does not change during a run. */
   board->graphics.quirks = quirks;
+  for (unsigned unit = 0; unit < 2u; unit++) {
+    board->sio.port[unit].quirks = quirks;
+  }
 }
 
 void ap_board_attach_ring(ap_board_t *board, bool fitted) {

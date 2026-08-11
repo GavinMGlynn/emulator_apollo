@@ -72,6 +72,23 @@ typedef enum {
    * monochrome. Measured 2026-08-11; see `ap_quirk.c` for the evidence. */
   AP_QUIRK_GRAPHICS_ID_ALWAYS_COLOUR = 0,
 
+  /* "Enable transmitter" asserts **transmitter-empty** as well as
+   * transmitter-ready.
+   *
+   * `[68681]` §4.2.9.6 gives TxRDY as "set when the transmitter is first
+   * enabled"; §4.2.9.5 gives TxEMT as set "when the channel A transmitter
+   * underruns ... after transmission of the last stop bit of a character".
+   * A transmitter that has just been enabled has transmitted nothing, so by
+   * the letter it has not underrun and TxEMT stays clear -- which is what this
+   * core does. MAME sets both.
+   *
+   * The difference is visible: at the kernel's entry this core's idle channels
+   * read `SR = 04` and the oracle's read `0C`. Whether any software turns on
+   * it is a separate question, and this quirk exists to answer that question by
+   * running the comparison both ways rather than by arguing about the
+   * sentence. Measured 2026-08-12. */
+  AP_QUIRK_DUART_ENABLE_SETS_TXEMT = 1,
+
   AP_QUIRK_COUNT
 } ap_quirk_t;
 

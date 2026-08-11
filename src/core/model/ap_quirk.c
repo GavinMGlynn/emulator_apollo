@@ -22,6 +22,17 @@ static const struct {
          "family -- the firmware reads both blocks at 0069AA to discover what "
          "is installed, so answering from the wrong one sends it down the "
          "colour path on a monochrome machine"},
+    [AP_QUIRK_DUART_ENABLE_SETS_TXEMT] =
+        {"duart-enable-sets-txemt",
+         "enabling a DUART transmitter asserts transmitter-**empty** as well "
+         "as transmitter-ready (MAME mc68681.cpp `duart_channel::write_CR`: "
+         "`SR |= STATUS_TRANSMITTER_READY | STATUS_TRANSMITTER_EMPTY`), where "
+         "[68681] §4.2.9.5 sets TxEMT only when the transmitter *underruns*, "
+         "\"after transmission of the last stop bit of a character\" -- a "
+         "freshly enabled transmitter has sent nothing and so has not "
+         "underrun. §4.2.9.6 names only TxRDY for the enable. Visible at the "
+         "kernel's entry, where this core's idle channels read SR = 04 and the "
+         "oracle's read 0C"},
 };
 
 const char *ap_quirk_name(ap_quirk_t quirk) {
