@@ -25273,3 +25273,46 @@ was needed from them was that they stop moving everything else.
 *Verification: `hash_suite` gains a test that a group of one element and a group
 of three leave the following field at the same index, while still differing from
 each other; `ctest` 134/134.*
+
+## The ring patent read, and it corroborates the elastic store from outside
+
+`RING.md`'s open questions D and E both named `[PAT575]` — US 4,716,575 — as
+"the remaining source" and neither had been read. It is on disk. Reading it
+costs one command, and the rule this project keeps re-learning is that the
+document already held beats another measurement.
+
+**It confirms the elastic-store model from an independent source and a different
+decade.** Claim 3(a): each network interface unit "is adapted to store a
+**maximum of two bits** between receipt and retransmission thereof", and claims
+6 and 7 make the FIFO literally two bistable flip-flops of one bit each, with
+switches alternately coupling them on alternate clock periods. `[MAC]` §3.3.2's
+nominal 1-bit delay is that buffer half full, and its `0.5 ≤ d ≤ 1.5` range sits
+inside a two-bit capacity. Nothing in the model changes —
+`AP_RING_ESB_MIN/NOMINAL/MAX_CENTIBITS` are already 50/100/150 — which is the
+outcome worth having: a figure taken from one manual, independently confirmed.
+
+**It supplies the mechanism half of question D.** On overflow "the receive and
+transmit counters are reset to a predetermined value", which is the same event
+`[MAC]` describes from the network's side as re-initialising at 24 MHz. And the
+linear offset finding 29 *measured* is there by construction: the loop filter's
+tracking error is "a linear function of the VCO frequency", with closed-loop
+gain "less than unity in the steady state".
+
+**And it is now exhausted, which is the more useful half of the result.** It
+gives no acquisition or lock time, no capture range, no damping factor, and
+nothing about the token-loss timeout of question E — it is a physical-layer
+synchronisation patent with no host-side register description at all, so it
+cannot speak to `+400`'s bits either. Both questions are updated to say so, so
+that nobody reads "`[PAT575]` is where a real figure would come from" a fourth
+time and spends the afternoon finding out otherwise.
+
+One thing it does say that invites over-reading, recorded with the caution
+attached: claims 4 and 5 describe two loop-filter types, one with no pole at the
+origin and one with a pole at the origin giving "a phase-locked loop of at least
+second order", and the description contemplates both in one network. That is
+**not** evidence that the Master runs one and the rest the other. The patent
+does not say so.
+
+*Verification: `[PAT575]` claims 3, 6, 7 and columns 6-8, read from 150 dpi page
+renders rather than the text layer — the two-column claim text interleaves, and
+"maximum of two bits" sits in a claim whose extraction is scrambled.*
