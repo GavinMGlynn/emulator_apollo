@@ -26393,3 +26393,42 @@ from a decoration, and it cost one build.
 
 *Verification: `graphics_suite` 82 → 83, `mc68681_suite` 55 → 56; each new test
 confirmed to fail against the unfixed source and pass against the fixed one.*
+
+## The clean comparison: identical to the instruction the crash begins
+
+Fresh identical disks, no 3c505 on either side, both driven through the prompt,
+posted codes compared write-for-write. **The two machines agree for 3,886
+consecutive writes.** The first difference is a single value at the same program
+counter — ours `FD` where the oracle has `FE`, both from `3C43DF0E` — after
+which they resync exactly. A one-step phase difference in a heartbeat, not a
+path split.
+
+They then continue in lockstep to our write 3,923. The sequences end differently
+because one machine dies:
+
+    ours    ... F3 FF F3 FF   from PC 3FFA2546   (the PROM's crash blink)
+    oracle  ... FC FD FC FD   from PC 3C43DF0E   (the kernel, at the prompt)
+
+**So the posted codes agree right up to the crash, and the divergence *is* the
+crash.** That is a real result and a limiting one: this sync point cannot
+localise the cause, because both machines emit identical codes until one stops.
+
+### What it does localise, to 1.16 M instructions
+
+    326,513,470   heartbeat FC at 3C43DF0E
+    326,514,086   the fault: 3C47A25A reads 3BFF0001, invalid  (616 later)
+    326,518,990   heartbeat FE at 3C43DF0E -- still alive
+    327,671,862   crash blink F3 from 3FFA2546
+
+**The fault is not immediately fatal.** The kernel takes it, carries on, posts
+another heartbeat 4,904 instructions later, and dies 1.15 M instructions after
+that. So `3BFF0001` is neither the crash nor a symptom appearing at the moment
+of death — it is an event the kernel *survives*, and whatever kills the machine
+happens in the window after it.
+
+That rules out the shape the investigation has assumed throughout: "the machine
+faults on an unmapped address and dies". It faults, recovers, and dies later.
+
+*Verification: `--boot-log-watch-writes` over 900 M instructions against the
+oracle's tap, both on fresh copies of `dn3500-sr10.4-installed.awd` with
+`-isa3 ""`; fault instants from the same run's fault-site table.*
