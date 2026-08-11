@@ -46,6 +46,43 @@ Format: `module.tag.name.block.index uN value`.
 **`ext/mame` is never committed with this applied.** The patch is the artifact;
 the working tree is reverted.
 
+## The sync points, measured
+
+`--boot-watch-write 10100 --boot-stop-on-watch-write N` stops on the Nth write
+to the diagnostic register. Under `--screen c8p`, which is the configuration a
+comparison must use because the oracle reports a colour board whatever it is
+configured as:
+
+| write | posted (raw) | PC | instruction |
+| --- | --- | --- | --- |
+| 1 | `FF00` | `0000633C` | 0 |
+| 2 | `EF` | `0000653A` | 3 |
+| 3 | `DF` | `0000655C` | 51,369 |
+| 4 | `FE` | `000065C4` | 51,931 |
+| 5 | `EE` | `0000660A` | 379,634 |
+| 6 | `DE` | `00006644` | 471,791 |
+| 7 | `CF` | `00005E42` | 604,923 |
+| 8 | `BF` | `00005E42` | 605,704 |
+| 9 | `AF` | `00005E42` | 605,716 |
+| 12 | `ED` | `00005E42` | 606,002 |
+| 15 | `8D` | `00005E42` | 2,965,634 |
+| 18 | `5D` | `00005E42` | 3,133,387 |
+
+**Write 9 is where to start.** `PROJECT_STATUS.md` records that both machines
+post `FF EF DF FE EE DE CF BF AF` *from the same program counters* — so writes
+1-9 are a prefix the two machines are already known to agree on, and a diff
+there that is not clean is a fault in the harness rather than a finding about
+the emulator. Only once it is clean is walking forward worth anything.
+
+The instruction counts are **ours** and are not a sync mechanism — they are
+recorded so a run can be recognised, not matched. Two cores' instruction counts
+are not comparable, which is the whole reason the sync point is a posted code.
+
+Note writes 10 and 11 both post `9F`, and that `--screen` changes the path after
+write 9: the same table under `--screen 19i` agrees through write 9 and then
+gives write 12 at instruction 654,321 instead of 606,002. Hold the display
+constant across any comparison.
+
 ## Where the two machines are stopped, which is not "at the same time"
 
 `tools/state-compare.sh` runs both halves. The point it stops them at is a
