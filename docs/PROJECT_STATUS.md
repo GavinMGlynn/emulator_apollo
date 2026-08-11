@@ -26301,3 +26301,53 @@ worst kind of instrument, because the run *succeeds*.
 
 *Verification: the sequence above against a 700,000-instruction boot, matching
 the posted codes the report summarises; `ctest` 135/135.*
+
+## The first divergence in the whole boot is the missing 3c505
+
+With both sequences logged write-for-write and the oracle's four missed writes
+accounted for, the two machines agree on **every posted code and every posting
+program counter** for 24 writes. Then:
+
+    our #29   FF  pc 01005290   instruction 140,557,992   (SELF_TEST, in memory)
+    orac #25  F7  pc 00005E42                             (still in the boot PROM)
+    orac #26  E7  pc 00005E42
+    orac #27  D7  pc 00005E42
+    orac #28  C7  pc 00005E42
+
+The oracle stays in the PROM's post routine emitting a descending `F7 E7 D7 C7`
+that this core never emits, and this core moves on to `SELF_TEST`. **That is the
+network driver search**, and the screens say so directly — the oracle prints
+
+    NETWORK DRIVER SEARCH STARTED...
+        802.3 NETWORK CONTROLLER-AT TEST PASSED.
+    ABOVE DRIVER TYPE LOADED.
+
+and this core prints the same two lines without the middle one, because MAME
+fits a **3c505** by default and this core has the interface header and no
+device.
+
+So the first divergence anywhere in the boot — before the kernel, before the
+crash, before anything — is a card that is not implemented. Everything after it
+is downstream of a machine with different hardware.
+
+### The hypothesis this raises, and what would settle it
+
+This core's crashing boot **reads an empty AT slot 8,435,090 times** (16 writes).
+That is a driver polling a controller that never answers, and it matches the
+spin already recorded at `3C4BC384` — `TST.B $8(A0)` with `A0 = 3FFF0000`,
+running its `#$3FFFFE` timeout out against pull-ups that read `FF`.
+
+So: **the crash may be Domain/OS failing on an absent network controller.** That
+is a hypothesis, not a finding — the polling is measured, the causal link is
+not. What would settle it is implementing the 3c505 far enough to answer the
+PROM's probe and the driver's poll, and seeing whether the crash survives. The
+plan item for it is already open, and it is now the item the crash points at.
+
+**What this does *not* say** is that the crash is not ours. An emulator missing a
+card the reference fits is our gap, whichever way the causation runs.
+
+*Verification: `--boot-log-watch-writes` over a 900 M-instruction boot with the
+prompt answered, against the oracle's tap over 140 emulated seconds, compared
+byte-for-byte with the oracle's index offset by the four writes its tap arms too
+late to see; both screens read from their PNGs; the empty-slot counters from the
+same run.*
