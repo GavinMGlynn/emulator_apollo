@@ -3346,7 +3346,7 @@ failure that cost a bit position in the 68020's module entry word.
 | Build system, presets, CI | working | 4-platform matrix green on first run, plus the `-O0` vs `-O3` output-identity job |
 | Model table (`model/`) | working, 9 models | `model_suite`, 21 tests |
 | Time base (`time/`) | working | `time_suite`, 17 tests |
-| State hash (`state/`) | primitive working | `hash_suite`, 12 tests, incl. published FNV-1a 64 vectors |
+| State hash (`state/`) | primitive working | `hash_suite`, 13 tests, incl. published FNV-1a 64 vectors |
 | Core board state hash (the identity harness's board half) | working: the board registers, the translation map, both interrupt controllers, the interval timer with its three clocks, the calendar with both cursors, both DMA controllers, both serial ports, the node ID, the disk and tape controllers, the graphics memories, the keyboard matrix and the boot PROM. The diagnostic counters are deliberately outside it and reported beside it | `board_state_suite`, 23 tests sweeping every device field by field |
 | Full-machine state hash (`ap_machine_hash`, `ap_machine_state`) | working: the processor, main memory, the board when one is attached, and elapsed time — with the clock, the PC and the bus-error count reported beside the number | `machine_suite`, 55 tests, incl. the same workload run twice on two boards agreeing at every step |
 | Ring medium interface | not started | — |
@@ -25244,3 +25244,32 @@ which settles it.
 byte-identical; `hash_suite` gains a test that a noted value changes neither the
 hash nor the field numbering; `--dump-state` shows the five derived lines after
 `cpu.mmu.035` with the numbered fields unshifted.*
+
+### And the field indices were not stable, which the map is keyed on
+
+Found while mapping the DUART, before it produced a wrong answer. Several walks
+are **data dependent**: the CPU's caches and ATCs skip fields for an invalid
+entry, and the DUART hashes its receive FIFO only up to its occupancy. The
+number of lines they emit therefore varies at run time, and every field after
+one of them is renumbered *by an ordinary character arriving*.
+
+A map keyed on those indices does not fail loudly when that happens. It compares
+two unrelated values, and they agree or differ for no reason — a false negative
+or a false finding, from a table that still looks correct.
+
+Each such run is now wrapped in a group, which emits one named line and does not
+advance the index. Names carry the side or the port (`i_cache`, `d_atc`,
+`p0_ch1_rxfifo`) because a scope is walked more than once and four lines with
+one key is its own silent corruption. The hash is untouched — `9C69A5F8223B2ED8`
+before and after at the same stop — and `cpu.fetch` falls from 406 dump lines to
+34, which is a readability win the ring buffer's group already argued for.
+
+The group summary is a *running hash*, so it differs whenever any element does
+but is not comparable with MAME's field values. That is the right trade: those
+runs were never mappable — MAME saves all three FIFO slots unconditionally while
+this core deliberately treats the ones past the count as unreachable — and what
+was needed from them was that they stop moving everything else.
+
+*Verification: `hash_suite` gains a test that a group of one element and a group
+of three leave the following field at the same index, while still differing from
+each other; `ctest` 134/134.*

@@ -4,6 +4,7 @@
 #include "cpu/m68030/ap_m68030_state.h"
 
 #include <stddef.h>
+#include <stdio.h>
 
 /* Booleans are fed as one tagged byte rather than as whatever the compiler
  * stores, so a `bool` that happens to hold a value other than 0 or 1 cannot
@@ -160,7 +161,19 @@ static void hash_cacr(ap_hash_t *st, const ap_m68030_cacr_t *cacr) {
 /* One access context's *state*, which is its cache and ATC. The callbacks and
  * the context pointer are host addresses and are excluded; the enable and
  * disable flags are architectural, since they come from CACR and CDIS. */
-static void hash_access(ap_hash_t *st, const ap_m68030_access_ctx_t *access) {
+/* `side` names this access path in the dump -- "i" or "d". It exists because
+ * the cache and ATC walks below are **data dependent**: both skip fields for an
+ * invalid entry, so the number of lines they emit varies with what the machine
+ * happens to hold, and every field after them in the scope would be renumbered
+ * by an ordinary run of the program. A map keyed on those indices silently
+ * starts naming the wrong field.
+ *
+ * Collapsing each walk to one group line fixes that -- a group emits one named
+ * line and does not advance the index -- and the group's running hash still
+ * differs whenever any entry does. The names have to be distinct because this
+ * function is called twice into the same scope. */
+static void hash_access(ap_hash_t *st, const ap_m68030_access_ctx_t *access,
+                        const char *side) {
   if (access == NULL) {
     /* A marker rather than nothing: "no data side at all" and "a data side
      * whose cache is empty" are different machines, and feeding nothing would
@@ -171,10 +184,18 @@ static void hash_access(ap_hash_t *st, const ap_m68030_access_ctx_t *access) {
   ap_hash_u8(st, 0x01u);
 
   if (access->cache != NULL) {
+    char name[16];
+    snprintf(name, sizeof name, "%s_cache", side);
+    ap_hash_group_begin(st, name);
     ap_m68030_hash_cache(st, access->cache);
+    ap_hash_group_end(st);
   }
   if (access->atc != NULL) {
+    char name[16];
+    snprintf(name, sizeof name, "%s_atc", side);
+    ap_hash_group_begin(st, name);
     ap_m68030_hash_atc(st, access->atc);
+    ap_hash_group_end(st);
   }
 
   hash_bool(st, access->cache_enabled);
@@ -245,8 +266,8 @@ void ap_m68030_hash_cpu(ap_hash_t *st, const ap_m68030_cpu_t *cpu) {
 
   /* Instruction side then data side, in that order, so a machine with the two
    * caches exchanged does not hash the same as one without. */
-  hash_access(st, cpu->fetch.access);
-  hash_access(st, cpu->data);
+  hash_access(st, cpu->fetch.access, "i");
+  hash_access(st, cpu->data, "d");
 
   /* Timing is state. Two runs reaching the same registers by different numbers
    * of bus cycles are not the same run on a machine whose whole claim is

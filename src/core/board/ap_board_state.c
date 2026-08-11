@@ -3,6 +3,8 @@
 
 #include "board/ap_board_state.h"
 
+#include <stdio.h>
+
 /* Fed as one tagged byte rather than as whatever the compiler stores, so a
  * `bool` holding some value other than 0 or 1 cannot produce a hash the same
  * state would not. Same rule as the CPU's half. */
@@ -186,8 +188,15 @@ void ap_board_hash_dma(ap_hash_t *st, const ap_dma_t *dma) {
   }
 }
 
+/* `name` identifies this channel in the dump. As with the CPU's caches, the
+ * receive FIFO below is hashed **only up to its occupancy**, so the number of
+ * lines it emits varies with what the port happens to hold and every field
+ * after it in the scope would be renumbered by an ordinary character arriving.
+ * Four channels share the `sio` scope, so the group names carry the port and
+ * channel or the dump would have four lines with one key. */
 static void hash_mc68681_channel(ap_hash_t *st,
-                                 const ap_mc68681_channel_t *channel) {
+                                 const ap_mc68681_channel_t *channel,
+                                 const char *name) {
   ap_hash_u8(st, channel->mr[0]);
   ap_hash_u8(st, channel->mr[1]);
   /* Which mode register the next access reaches. Two ports with identical mode
@@ -203,9 +212,11 @@ static void hash_mc68681_channel(ap_hash_t *st,
    * behave identically disagree, the same false positive the CPU's caches had
    * to be fixed for. */
   ap_hash_u32(st, (uint32_t)channel->fifo_count);
+  ap_hash_group_begin(st, name);
   for (unsigned i = 0; i < channel->fifo_count && i < AP_MC68681_RX_FIFO; i++) {
     ap_hash_u8(st, channel->fifo[i]);
   }
+  ap_hash_group_end(st);
 
   hash_bool(st, channel->rx_enabled);
   hash_bool(st, channel->tx_enabled);
@@ -213,9 +224,12 @@ static void hash_mc68681_channel(ap_hash_t *st,
   hash_bool(st, channel->tx_holding_full);
 }
 
-static void hash_mc68681(ap_hash_t *st, const ap_mc68681_t *duart) {
+static void hash_mc68681(ap_hash_t *st, const ap_mc68681_t *duart,
+                         unsigned port) {
   for (unsigned i = 0; i < AP_MC68681_CHANNELS; i++) {
-    hash_mc68681_channel(st, &duart->channel[i]);
+    char name[24];
+    snprintf(name, sizeof name, "p%u_ch%u_rxfifo", port, i);
+    hash_mc68681_channel(st, &duart->channel[i], name);
   }
 
   ap_hash_u8(st, duart->acr);
@@ -242,7 +256,7 @@ void ap_board_hash_sio(ap_hash_t *st, const ap_sio_t *sio) {
   /* Both ports, in order. The per-register read and write tallies beside them
    * are instrumentation and are excluded -- see the header. */
   for (unsigned i = 0; i < 2u; i++) {
-    hash_mc68681(st, &sio->port[i]);
+    hash_mc68681(st, &sio->port[i], i);
   }
 }
 

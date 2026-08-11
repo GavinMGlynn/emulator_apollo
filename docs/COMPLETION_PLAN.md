@@ -232,7 +232,7 @@ everywhere the file is read.)
   - [x] The hashing primitive itself (`src/core/state/`): FNV-1a 64-bit,
         little-endian by construction and width-tagged, with no `ap_hash_ptr()`
         so host pointers are excluded by construction rather than by discipline.
-        *Verification: `hash_suite`, 12 tests, including the **published**
+        *Verification: `hash_suite`, 13 tests, including the **published**
         FNV-1a 64 vectors — external constants, not our own output.*
   - [x] **The CPU's contribution** (`cpu/m68030/ap_m68030_state.c`): every
         register, the MMU and cache control registers, the pipe, both caches,

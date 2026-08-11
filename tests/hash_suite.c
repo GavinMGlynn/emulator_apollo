@@ -1,3 +1,4 @@
+#include <stdio.h>
 #include <string.h>
 
 #include "state/ap_hash.h"
@@ -157,8 +158,57 @@ static void test_a_noted_value_does_not_change_the_hash(void) {
   TEST_ASSERT_EQUAL_HEX64(ap_hash_end(&plain), ap_hash_end(&st));
 }
 
+/* **Field indices must not depend on what the machine happens to hold.**
+ *
+ * Several walks are data dependent -- the CPU's caches and ATCs skip fields for
+ * an invalid entry, the DUART hashes its receive FIFO only up to its occupancy
+ * -- so the number of lines they emit varies at run time. Left bare, every
+ * field after one of them is renumbered by an ordinary character arriving, and
+ * a field map keyed on those indices silently starts naming the wrong field:
+ * two unrelated values compared, agreeing or differing for no reason.
+ *
+ * Wrapping such a run in a group is the fix, and this is the property that
+ * makes it one: one line out, whatever went in, and the index unmoved. */
+static void test_a_group_costs_one_line_whatever_its_length(void) {
+  char lines[2][256];
+
+  for (unsigned run = 0; run < 2u; run++) {
+    FILE *f = tmpfile();
+    TEST_ASSERT_NOT_NULL(f);
+    ap_hash_t st = ap_hash_begin();
+    ap_hash_dump_to(&st, f);
+    ap_hash_scope(&st, "x");
+
+    ap_hash_u8(&st, 0xAAu); /* x.000 */
+    ap_hash_group_begin(&st, "g");
+    /* One element on the first run, three on the second: the "occupancy". */
+    for (unsigned i = 0; i < (run == 0u ? 1u : 3u); i++) {
+      ap_hash_u8(&st, (uint8_t)i);
+    }
+    ap_hash_group_end(&st);
+    ap_hash_u8(&st, 0xBBu); /* must be x.001 in both */
+
+    rewind(f);
+    size_t n = fread(lines[run], 1u, sizeof lines[run] - 1u, f);
+    lines[run][n] = '\0';
+    fclose(f);
+  }
+
+  /* The trailing field keeps its index across a group that grew. */
+  TEST_ASSERT_NOT_NULL(strstr(lines[0], "x.001"));
+  TEST_ASSERT_NOT_NULL(strstr(lines[1], "x.001"));
+  /* And the group itself is one line, named, in both. */
+  TEST_ASSERT_NOT_NULL(strstr(lines[0], "x.g "));
+  TEST_ASSERT_NOT_NULL(strstr(lines[1], "x.g "));
+
+  /* The group's summary still *differs*, because the contents did -- index
+   * stability must not have been bought by making the dump blind. */
+  TEST_ASSERT_NOT_EQUAL_INT(0, strcmp(lines[0], lines[1]));
+}
+
 int main(void) {
   UNITY_BEGIN();
+  RUN_TEST(test_a_group_costs_one_line_whatever_its_length);
   RUN_TEST(test_a_noted_value_does_not_change_the_hash);
   RUN_TEST(test_the_byte_hash_matches_the_published_fnv1a_64_vectors);
   RUN_TEST(test_an_empty_hash_is_the_offset_basis);
