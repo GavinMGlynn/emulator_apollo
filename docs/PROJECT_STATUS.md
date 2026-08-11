@@ -25093,6 +25093,21 @@ The stash is recoverable — `stash@{0}` holds all eight files — and the
 instrumentation is independently committed as `apollo-state-dump.patch`, so a
 lost stash costs a re-apply rather than the work.
 
+**And the symmetric check on our own side passes**, which is worth having done
+rather than assumed. `apollo-headless --screen c8p --screenshot` at 400,000
+instructions — 0.043 emulated seconds, far before the firmware draws — produces
+a **completely black** 1024x800 image: no legend, no furniture, nothing.
+
+So this core's captures contain only what the firmware actually drew, and the
+screenshots of ours showing the self-test list, `SELF TESTS PASSED.` and the
+kernel banner are what they appear to be. The defect being bisected is confined
+to the oracle's side of the comparison.
+
+That check cost seconds and was the obvious counterpart to the one that
+overturned ten claims; not doing it earlier is the same omission in miniature.
+**When an instrument is shown to lie on one side, test the other side the same
+way before trusting it.**
+
 **And a caution that follows from today's record**: this screen is
 character-identical to one captured earlier and attributed to the oracle. Under
 current builds it is *this core's* output and the oracle's differs. Before
