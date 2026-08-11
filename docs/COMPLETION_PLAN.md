@@ -2950,6 +2950,26 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         diff it enables: it is a written correspondence between the two models,
         and building it will itself surface fields one side has and the other
         does not.
+  - [ ] **Decide what to compare, before building any more sync machinery.**
+        The two machines run *different software* in `0100xxxx`: this core loads
+        `SELF_TEST` (its entry is `01002020`) because
+        `tools/boot-domainos.script` answers the diagnostic's prompt, and the
+        oracle — given no input — skips it and goes straight to Domain/OS,
+        reaching the DM before 120 emulated seconds. Five sync attempts failed
+        because they aimed at an address only one machine executes.
+        Two options, and they answer different questions:
+        **(a) Match the oracle's path** — run ours without `SELF_TEST`, which is
+        what the MD route was originally for. Tests this core against how MAME
+        boots, and both machines then run one program. But the `00120020` crash
+        is *not* known to reproduce there: `md-session.sh` reached 1.5 G
+        instructions with zero MMU faults.
+        **(b) Match ours** — get the oracle to load `SELF_TEST` too, by giving it
+        the console dialogue our boot script provides. Keeps the comparison on
+        the path the crash actually occurs on, which is the point of the
+        exercise, at the cost of driving the oracle's keyboard through a prompt.
+        (b) is the one that can find the crash; (a) is the one that is easy.
+        **Choose deliberately and write down which**, because a differential run
+        on the wrong path produces differences that are all explained by the path.
   - [ ] **Sync points.** Compare at instants both machines can be stopped at by
         the same event, not by instruction count — the crash PC, and
         `--boot-progress-from`'s matched deltas. And **verify the configuration
