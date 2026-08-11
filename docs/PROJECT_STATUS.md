@@ -26540,3 +26540,70 @@ same firmware path.
 breakpoint at `3C47A25A`, against this core's `--boot-stop-pc 3C47A25A
 --boot-stop-pc-skip 1` stopping at instruction 326,514,086 with the fault-site
 table naming `3BFF0001`.*
+
+### Corrected twice over: the address, and what the CRP difference meant
+
+**The faulting address is `3C248001`, not `3BFF0001`.** `3BFF0001` came from the
+older *serial-console* run and was carried forward into a display-configuration
+result -- the same `--screen` mismatch this project has already been bitten by.
+In the display configuration the fault-site table reads
+
+    PC 3C47A25A  1 time(s)  3C248001  invalid on read
+
+with `a0 = 3C248000`, so the access is a dereference of `a0+1`. It is **the only
+read fault among 287**; the other 286 are `invalid on write` from twelve PCs in
+`3C40A4xx`/`3C45xxxx` against `3C32xxxx-3C37xxxx`, which the handler services --
+ordinary demand paging.
+
+**And the CRP difference was a sampling artefact.** At `3C47A25A` the oracle's
+`CRP` reads `0105BC00` where ours reads `01001400`, which looked like the whole
+answer: with `SRE` clear every access uses `CRP`, so the two machines would be
+walking different trees. The control refutes it. Sampled at **84 s emulated**,
+the point ours crashes, the oracle reads
+
+    m_mmu_crp_aptr  01001400     m_mmu_srp_aptr  01200000
+    m_mmu_crp_limit 00FF0002     m_mmu_srp_limit 80000002
+    m_mmu_tc        80A28750
+
+-- **identical to ours in every field**. The oracle's `0105BC00` belongs to 101 s,
+*after* the keypress that answers the calendar question; the two dumps were two
+different moments in the program, not two machines disagreeing. Same error as the
+five withdrawn conclusions this project has already paid for, caught this time by
+taking the control before building on the result.
+
+What survives the correction, because it is a whole-run count rather than a
+sample: this core executes **8 `PMOVE`s in 326 M instructions, every one of them
+from a firmware PC**, and the kernel does 287 `PMOVE`s that only *read* `MMUSR`,
+at the single PC `3C42CE30` -- one per MMU fault, which identifies it as the
+demand-paging fault handler. Neither machine has installed a kernel address
+space by 84 s.
+
+**`TC` agrees exactly, `80A28750`, so `SRE` clear is correct behaviour** and the
+"one bit in one configuration" account of the crash is closed: both machines
+clear it and both therefore translate through `CRP`.
+
+### Not a divergence: the FPA probes
+
+`FD800000-FD87F000` (256 + 128 times from firmware PCs `0000106A`/`0000835A`)
+and `FFF90000` (3 times) are bus errors here, and they are **supposed** to be.
+MAME's `apollo_unmapped_r` names them in its own source -- `"omit logging for
+memory sizing in FPA address space"` and `"omit logging for FPA trial access"` --
+and that function ends in `apollo_bus_error()`, so the oracle bus-errors on them
+too. The one kernel-side entry, `FD800008` from `PC 3C443E8C`, is the same
+FPA sizing seen from the kernel. Settled from the oracle's source without
+running it.
+
+### Where the hunt stands
+
+Ours crashes at **the point the oracle asks the calendar question**: the oracle
+sits at that prompt from ~84 s until a key arrives, and this core instead takes
+its one read fault, finds the resource locks set, and calls `crash_system`. The
+MMU configuration is identical on both sides at that moment, so the question is
+no longer "which tree" but **why `3C248000` is not resident here, or why `a0`
+holds it at all**.
+
+*Verification: `statesync.lua` with `APOLLO_SYNC_GIVEUP=84` dumping the oracle's
+state at 84 s emulated; this core's `--boot-stop-pc 3C47A25A
+--boot-stop-pc-skip 1` at instruction 326,514,086;
+`ext/mame/src/mame/apollo/apollo.cpp` lines 469-491 for the FPA probe
+addresses.*
