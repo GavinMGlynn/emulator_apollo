@@ -642,8 +642,55 @@ static void test_the_diagnostic_line_idles_asserted_after_reset(void) {
   TEST_ASSERT_TRUE(ap_sio_diagnostic_interrupt(&sio));
 }
 
+/* `[68681]` §4.2.5.2: "CHANNEL A TRANSMITTER CLOCK SELECT -- CSRA[3:0]. This
+ * field selects the baud-rate clock for the channel A transmitter", from one of
+ * the two sets `ACR[7]` chooses between (§4.2.5.1, Table 4-5).
+ *
+ * The accessor exists because the board paces its transmitters at the
+ * *keyboard's* fixed rate rather than each channel's own. That is a latent
+ * defect and **not** the cause of any divergence measured so far: at the point
+ * the oracle differential reaches, only the keyboard channel has its
+ * transmitter enabled, and the board's transmit loop excludes that channel, so
+ * the wrong rate is applied to nothing. Recorded here rather than "fixed",
+ * because a change justified by "this could explain it" is the thing
+ * `CLAUDE.md` names as the tell. */
+static void test_the_transmit_rate_comes_from_the_channels_clock_select(void) {
+  ap_sio_t sio;
+  TEST_ASSERT_TRUE(ap_sio_reset(&sio));
+
+  /* Reset leaves CSR at zero, which is code 0 -- a real rate, 50 baud in set
+   * one, not an "unprogrammed" sentinel. A model treating it as unset would
+   * transmit faster than the part. */
+  TEST_ASSERT_EQUAL_UINT(50u, ap_sio_transmit_baud(&sio, 0u, 0u));
+
+  /* The keyboard's own programming: `66` is code 6 both ways, 1200 baud. */
+  ap_sio_write(&sio, AP_SIO1_ADDR + (1u << 1), 0x66u); /* CSRA */
+  TEST_ASSERT_EQUAL_UINT(1200u, ap_sio_transmit_baud(&sio, 0u, 0u));
+
+  /* The *low* nibble is the transmitter's: a channel receiving at 9600 and
+   * transmitting at 1200 must report 1200, which is the asymmetry the two
+   * nibbles exist to allow. */
+  ap_sio_write(&sio, AP_SIO1_ADDR + (1u << 1), 0xB6u);
+  TEST_ASSERT_EQUAL_UINT(1200u, ap_sio_transmit_baud(&sio, 0u, 0u));
+  ap_sio_write(&sio, AP_SIO1_ADDR + (1u << 1), 0x6Bu);
+  TEST_ASSERT_EQUAL_UINT(9600u, ap_sio_transmit_baud(&sio, 0u, 0u));
+
+  /* And `ACR[7]` selects the other table, where the same code is a different
+   * rate: code 10 is 7200 in set one and 1800 in set two. */
+  ap_sio_write(&sio, AP_SIO1_ADDR + (4u << 1), 0x00u); /* ACR */
+  ap_sio_write(&sio, AP_SIO1_ADDR + (1u << 1), 0x0Au);
+  TEST_ASSERT_EQUAL_UINT(7200u, ap_sio_transmit_baud(&sio, 0u, 0u));
+  ap_sio_write(&sio, AP_SIO1_ADDR + (4u << 1), 0x80u);
+  TEST_ASSERT_EQUAL_UINT(1800u, ap_sio_transmit_baud(&sio, 0u, 0u));
+
+  /* Out of range answers zero rather than reading past the array. */
+  TEST_ASSERT_EQUAL_UINT(0u, ap_sio_transmit_baud(&sio, 2u, 0u));
+  TEST_ASSERT_EQUAL_UINT(0u, ap_sio_transmit_baud(&sio, 0u, 2u));
+}
+
 int main(void) {
   UNITY_BEGIN();
+  RUN_TEST(test_the_transmit_rate_comes_from_the_channels_clock_select);
   RUN_TEST(test_op7_can_carry_channel_bs_transmitter_ready);
   RUN_TEST(test_serial_ones_op7_is_the_diagnostic_interrupt);
   RUN_TEST(test_the_diagnostic_line_idles_asserted_after_reset);

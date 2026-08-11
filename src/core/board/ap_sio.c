@@ -203,6 +203,18 @@ bool ap_sio_refresh_output(const ap_sio_t *sio) {
   return sio->port[0].counter_output;
 }
 
+unsigned ap_sio_transmit_baud(const ap_sio_t *sio, unsigned unit,
+                              unsigned channel) {
+  if (unit >= 2u || channel >= 2u) {
+    return 0u;
+  }
+  /* §4.2.5.2: the transmitter's rate is the low nibble of the channel's
+   * clock-select register; §4.2.5.1 and Table 4-5: `ACR[7]` chooses the set. */
+  return ap_mc68681_baud(
+      (uint8_t)(sio->port[unit].channel[channel].csr & 0x0Fu),
+      (sio->port[unit].acr & 0x80u) != 0u);
+}
+
 ap_time_t ap_sio_character_time(const ap_sio_t *sio, unsigned unit,
                                 unsigned channel, unsigned baud) {
   if (unit >= 2u || channel >= 2u) {

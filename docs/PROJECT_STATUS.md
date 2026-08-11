@@ -3415,7 +3415,7 @@ failure that cost a bit position in the 68020's module entry word.
 | Apollo calendar (`010900`) | working: **stride 1, byte consecutive** (measured — and not the timer's odd-address stride 2, so neither placement could be inferred from the other), sixty-four registers aliased through the 256-byte range, and the IRQ8 route through to vector `A8`. The battery RAM's **configuration table** is laid out from `002398-04` p. 12-3 — checksum, valid pattern, memory array, node ID, device bits and the three type bytes — and left blank. The pattern's **value** is not in the manual and came from the boot PROM instead — `cmpi.l #$1234ABCD,$4(a0)` at `00178A`, with `a0` based at the handbook's checksum offset. The fifty bytes are a **battery**: `--calendar-ram FILE` carries them across a run, and deliberately not the clock, since a starting instant taken from the last run's ending one is a wall clock arriving through the back door | `calendar_suite`, 10 tests; `FINDINGS.md` C12 |
 | MC146818A calendar (the part) | working: ten clock bytes, four registers, 50 RAM bytes, the once-per-second update with a full Gregorian carry, the alarm with don't-care codes, and Register C's read-to-clear. **Time is supplied by the caller, never the host** — the oracle seeds its calendar from the wall clock, which would rot every golden. The **periodic interrupt** is implemented for **all fifteen** of `[146818]` Table 5's rates, 32.768 kHz down to 2 Hz: the base is the LCM times 2^6 so that it carries the 2^15 the six fastest need, at a span of 9.9 days rather than 634. The **square wave** is driven, sharing that selector and gated by Register B's `SQWE`, and the `DSE` bit's two **daylight-savings** updates are applied. The crystal itself stays unrepresentable — 4.194304 MHz would need a base spanning under two hours — and `ap_mc146818_rate_supported` is kept for that reason. Not yet wired to the board at `010900` | `mc146818_suite`, 32 tests, `MC146818A` (register figures read from page images) |
 | Node ID PROM (`011200`) | working: the layout measured from the oracle's own PROM — stride 2 with the **odd byte reading zero** (unlike the serial ports at the same stride), the identifier big-endian in registers 0-3, and a checksum in register **15** confirmed arithmetically (`01 + 23 + 45 = 69`) and then by the boot PROM's own self-test, which sums registers 0-14 and compares. The identifier is supplied by the caller, never a constant: a device whose purpose is to be unique per machine must not be the same on every one | `nodeid_suite`, 8 tests; `008778-03` Table 2-8, CPU self-test 8 at `008218` |
-| Apollo serial ports (`010400`, `010500`) | working: both DUARTs at **stride 2** (measured), sixteen registers over thirty-two bytes and aliased, sharing IRQ1 through to vector `A1`. The memory-refresh square wave of §3.9 runs: the counter is clocked at the DUART's X1 and produces a 15 microsecond period from the boot PROM's own preload. Its *frequency*, 66666.67 Hz, is not an integer, so a core counting in hertz could not represent this board's refresh clock at all | `sio_suite`, 28 tests; `FINDINGS.md` C14 |
+| Apollo serial ports (`010400`, `010500`) | working: both DUARTs at **stride 2** (measured), sixteen registers over thirty-two bytes and aliased, sharing IRQ1 through to vector `A1`. The memory-refresh square wave of §3.9 runs: the counter is clocked at the DUART's X1 and produces a 15 microsecond period from the boot PROM's own preload. Its *frequency*, 66666.67 Hz, is not an integer, so a core counting in hertz could not represent this board's refresh clock at all | `sio_suite`, 29 tests; `FINDINGS.md` C14 |
 | MC68681 / SCN2681 DUART (the part) | **programming model complete**: all sixteen register addresses of `[68681]` Table 4-1, both channels' mode registers with their shared pointer, clock-select, command and status registers, the three-deep receive FIFO with overrun, the interrupt status and mask registers, the input and output ports, and the counter/timer with both address-triggered commands. **All eight of §4.2.7.2's miscellaneous commands** — the audit found three falling through a bare `default: break;` (reset break change interrupt, start break, stop break) and, in the same paragraph, three outright errors in the transmitter status bits; see below. **Serial framing is modelled**, and the claim that it was not was stale: `ap_mc68681_resample` reshapes a character arriving at a mismatched baud rate rather than flagging an intact one, `ap_mc68681_character_bits` applies `MR1`'s width, parity is checked on both enable *and* type, `MR2`'s stop-bit field is read, and all four channel modes — normal, auto-echo, local loopback, remote loopback — behave differently. **Wired to the board** through `board/ap_sio.h` | **the receive shift register is modelled**: the part is quadruple-buffered, so a character meeting a full FIFO is held rather than lost and only the next one overruns, and a read that frees a position refills the FIFO from it -- which is why §4.2.9.7 says `FFULL` is not cleared by that read | `mc68681_suite`, 52 tests, `MC68681 DUART Sep85` |
 | QIC-02 tape drive | **the whole command set**, all eleven of `[SC499]` §1.13: both SELECTs with the sticky selection and the soft lock, BOT, RETENSION, both format selects, READ, READ STATUS, and WRITE, WRITE FILE MARK, READ FILE MARK and ERASE recognised and refused. **WRITE places a block** on a cartridge loaded writable, the distinction `ap_ct_t` now carries; a read-only one refuses. WRITE FILE MARK and ERASE are still refused, and for a reason that has not changed — a `.ct` is a raw block image with no file marks in it. The cartridge *type* is supplied by the caller, because the controller derives it from tape geometry a raw image does not carry. **The two opcodes C25 recorded as lost are recovered**: §1.13's summary table has a previous owner's pen through `H'22'` and `H'26'`, and §1.13.1's numbered descriptions two pages on give the same codes in clean binary, corroborated by the three codes either side of them that this core already had. **READ STATUS now transfers its block**: six bytes, the length `[SC499]` §1.13.1 gives outright, as three 16-bit fields LSB-first — exception flags, data-error count, underrun count — and reading it clears the power-on condition it reports | `qic_suite`, 18 tests; `FINDINGS.md` C25 |
 | Cartridge tape images (`image/ap_ct.c`) | working: block addressing over a raw `.ct` image, refusing any size that is not a whole number of 512-byte blocks, and boot-record parsing that returns the four header words. Their reading as load address and entry point is now **confirmed by the boot code itself** — its first instruction, a PC-relative `LEA`, computes word 0 exactly when executed at word 1, so the image proves its own layout. `ap_ct_boot_image` therefore *names* load address, entry point and length, and refuses a cartridge that does not announce itself, or whose header describes more than the file holds. Takes memory, never a filename, so `src/core` keeps its zero file I/O and the tests need no gitignored media | `ct_suite`, 12 tests; `FINDINGS.md` C24 |
@@ -25548,3 +25548,56 @@ something real.
 *Verification: `tools/state-compare.sh`, sync points `653A` (breakpoint mode)
 and posted `AF` and `8D` (write-tap mode), against
 `media/dn3500-sr10.4-installed.awd` and `--screen c8p`.*
+
+## Walking the diff forward: the divergence is bracketed, and a hypothesis died
+
+Sync points across the boot, `--screen c8p`, oracle in normal mode:
+
+| posted | our write | our instruction | result |
+| --- | --- | --- | --- |
+| `EF` | 2 | 3 | clean |
+| `DF` | 3 | 51,369 | clean |
+| `AF` | 9 | 605,716 | clean |
+| `8D` | 15 | 2,965,634 | clean |
+| `5D` | 18 | 3,133,387 | clean |
+| `FC` | 19 | 3,731,052 | clean |
+| **`8F`** | **20** | **5,195,369** | **`D2` differs** |
+
+("clean" = the two undefined-at-reset root-pointer words and nothing else.)
+
+**The posted codes themselves diverge on the write after `8F`**: this core posts
+`FE FB FA F9 F8 E8 …`, the oracle posts `08 00 01`. So the machines are
+identical through `FC`, and something between `FC` and `8F` — a window of
+1.46 M instructions — sets them on different paths.
+
+The one state difference at `8F` is `D2`: ours `FFFF31BA`, the oracle's
+`FFFF1BF8`. Ours has decremented once from its reset value `FFFF31BB`; the
+oracle's has counted down about 5,570 further. A `FFFF`-prefixed value being
+decremented is a poll counter, and the window's device activity says what is
+being polled: **216,502 serial reads against 25 writes**, beside 105,380 display
+writes.
+
+### The hypothesis that fitted, and does not survive measurement
+
+`ap_board.c` paces every transmitter with `AP_SIO_KEYBOARD_BAUD` — the framing
+comes from each channel's own mode registers and **the rate does not**, though
+`[68681]` §4.2.5.2 puts the transmitter's rate in `CSR[3:0]`. A console shifted
+out at the wrong rate would change exactly this poll count, and it explains the
+direction: ours polls fewer times, so our transmitter frees sooner.
+
+It is not the cause. At `8F` **only `port0 ch0` has its transmitter enabled**
+(`CSR = 66`, 1200 baud, the keyboard), every other channel is `CSR = 00` with
+`tx_enabled = 0` — and the board's transmit loop *excludes the keyboard
+channel*. The wrong rate is being applied to nothing.
+
+So `ap_sio_transmit_baud` is added, cited and tested as the accessor the board
+should be using, and the board is **left alone**: a change justified by "this
+could explain it" rather than "this was measured to be it" is the tell
+`CLAUDE.md` names, and this is that case caught in the act. One detail worth
+keeping for whoever does change it: `CSR = 0` is **50 baud**, a real rate, not
+an unprogrammed sentinel, so using the channel's own rate makes untouched
+channels 24× slower rather than leaving them alone.
+
+*Verification: `sio_suite` 28 → 29 for the accessor, including that the low
+nibble is the transmitter's and `ACR[7]` picks the table; the enabled-channel
+measurement read from the `8F` dump's `sio` fields.*

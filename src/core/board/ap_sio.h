@@ -187,6 +187,22 @@ void ap_sio_advance(ap_sio_t *sio, ap_time_t now);
 [[nodiscard]] ap_time_t ap_sio_character_time(const ap_sio_t *sio, unsigned unit,
                                               unsigned channel, unsigned baud);
 
+/* The channel's **transmitter** baud rate, from its own clock-select register.
+ *
+ * `[68681]` §4.2.5.2: "CHANNEL A TRANSMITTER CLOCK SELECT -- CSRA[3:0]. This
+ * field selects the baud-rate clock for the channel A transmitter", from one of
+ * two sets chosen by `ACR[7]` (§4.2.5.1 and Table 4-5).
+ *
+ * This exists because the board paced **every** transmitter at the keyboard's
+ * fixed 1200 baud: the framing came from the channel's own mode registers and
+ * the rate did not. A console the firmware programs to 9600 was therefore
+ * shifted out eight times too slowly -- a timing error on the one path the
+ * firmware polls hardest, and the differential found it as a poll counter that
+ * had counted down a different number of times from the oracle's. Zero for the
+ * four codes that name no fixed rate, as `ap_mc68681_baud` gives. */
+[[nodiscard]] unsigned ap_sio_transmit_baud(const ap_sio_t *sio, unsigned unit,
+                                            unsigned channel);
+
 [[nodiscard]] unsigned ap_sio_character_bits(const ap_sio_t *sio, unsigned unit,
                                              unsigned channel);
 
