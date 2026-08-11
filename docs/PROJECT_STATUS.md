@@ -26432,3 +26432,63 @@ faults on an unmapped address and dies". It faults, recovers, and dies later.
 *Verification: `--boot-log-watch-writes` over 900 M instructions against the
 oracle's tap, both on fresh copies of `dn3500-sr10.4-installed.awd` with
 `-isa3 ""`; fault instants from the same run's fault-site table.*
+
+## The crash decoded: the kernel panics because locks are held when it faults
+
+The crash's `PC 3C40E114` is **not** the faulting instruction, which is why
+`--boot-stop-pc 3C40E114` ran 900 M instructions without stopping on either
+machine. It is a **return address**: the code there is
+
+    3C40E10E  4E B9 3C 42 B9 28   jsr    $3C42B928
+    3C40E114  58 4F               addq.l #4,a7      <- what the record reports
+
+so the reported PC is the saved return address of the call into `3C42B928`.
+That routine masks interrupts and saves every register --
+`ori.w #$0700,sr` then `movem.l d0-d7/a0-a7,-(a7)` -- which is `crash_system`.
+**The oracle never calls it**; this core does, at instruction 326,526,214.
+
+### Why it is called
+
+    3C40E0FE  jsr    $3C41A4F4      ; ask a question
+    3C40E104  addq.l #4,a7
+    3C40E106  tst.b  d0             ; d0 = 000000FF, measured
+    3C40E108  bpl.b  ...            ; not taken
+    3C40E10A  pea    (1266,pc)
+    3C40E10E  jsr    $3C42B928      ; panic
+
+and the routine it asks is four instructions long:
+
+    3C41A500  movea.l $8(a6),a0
+    3C41A504  tst.l   $10(a0)
+    3C41A508  sne     d0            ; d0 = FF if [a0+0x10] != 0
+    3C41A50A  tst.w   $28(a0)
+    3C41A50E  sgt     d1            ; d1 = FF if [a0+0x28] > 0
+    3C41A510  or.b    d1,d0
+
+It answers "is either counter set?", and the caller panics when it is.
+`002398-04` p. 4-7 gives `00120020` as **"supervisor fault while resource
+lock(s) set"**, so those two fields are the lock counts and this is the fault
+handler declining to continue.
+
+**So the crash is not a fault this core mishandles. It is Domain/OS taking a
+supervisor fault at a moment when it holds a resource lock, and choosing to
+die** — which is what its own status code says, now traced instruction by
+instruction rather than looked up.
+
+### What that makes the real question
+
+The fault is the one already identified: `3C47A25A` reading `3BFF0001`,
+invalid, at instruction 326,514,086 — 12,128 instructions before the panic. The
+kernel survives it long enough to post one more heartbeat, run its handler, find
+the lock counts non-zero, and stop.
+
+So the question is no longer "why does the machine die here" but **"why does
+this core fault on `3BFF0001` when the oracle never does"** — a page-translation
+question with a known address, a known faulting instruction, and a known-good
+reference that executes neither.
+
+*Verification: `--boot-trace-last 80` into `3C42B928` giving the call chain and
+`d0 = 000000FF` at the test; `--dump-logical` of `3C40E100`, `3C41A4F0` and
+`3C42B928` for the code, all read from a running machine; the oracle's
+breakpoint runs at `3C40E114` and `3C42B928` both reporting zero hits with their
+exit snapshots as controls.*
