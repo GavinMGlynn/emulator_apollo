@@ -26646,3 +26646,79 @@ as the 68030 reads it -- no swapping. Confirmed against this core's own
 *Verification: `--dump-mem 01001400:400` and `--dump-logical 3C400000:100000`
 from this core at the stop, against `six/theirs.txt` from the 84 s oracle dump;
 instruction decode from `[030]` section 8, bit-field extension word format.*
+
+### The input asymmetry was not the cause, and `3BFF0001` was never a second configuration
+
+Our runs typed `Y` **and a carriage return** into `sio1 A` while the oracle
+received a single keyboard `Y`, so the obvious suspicion was that a stray CR
+answered a later prompt and drove this core somewhere the oracle was not.
+**It did not.** With `--boot-type "Y"` and no CR, 500 M instructions still
+reach the same fault:
+
+    PC 3C47A25A  2 time(s)  3C248001-3BFF0001  invalid on read
+
+which also **corrects the correction above**: `3BFF0001` is not the
+serial-console configuration leaking into a display result, it is the **second
+occurrence at the same PC**, and the site table prints a first-last range. Two
+faults, one instruction, two different pointers -- `a0 = 3C248000` and
+`3BFF0000`.
+
+### What the screen says, which is where the window really is
+
+At the fault this core has drawn the whole self test, `DO YOU WISH TO CONTINUE
+(Y,N)? Y`, `SELF TESTS PASSED.`, and then
+
+    Domain/OS kernel(7), revision 10.4, February 14, 1992  11:42:25 am
+
+and **nothing further -- the calendar question is never printed**. So the
+divergence is inside kernel initialisation, between the banner and that prompt,
+and not, as the earlier note had it, at the prompt itself. The oracle does not
+execute the enclosing routine `3C47A220` at all in 95 s of emulated time with
+the self-test prompt answered.
+
+### Both machines take the same fault: the MMU is right and the handler is the difference
+
+At `3C47A25A` the oracle's registers are **identical to ours** -- `d2 00C70001`,
+`d3 00000F00`, `a0 3C248000`, `a1 3C4C7D9C` -- and its page tables are
+byte-identical. It was tempting to read its ATC entry 3 (`tag 0D3C2480`, logical
+`3C248000`) as a *stale valid* translation that let it survive where we fault.
+**It is the opposite.** Its data word is `08011E68`, and `08000000` in the data
+is `M68K_MMU_ATC_BUSERROR`, not a valid bit -- MAME caches the *failed*
+translation so a repeat access faults without walking the tree again.
+
+So the oracle takes the same MMU fault, at the same instruction, on the same
+address. `3C47A25A -> 3C42CD90` is not a fall-through to `3C47A260`, it is the
+**exception vector being taken**: `3C42Cxxx` is the fault handler, which is
+where the 287 `PTEST`s at `3C42CE30` live.
+
+**This retires the MMU line entirely.** Identical registers, identical tree,
+identical fault, and the fault itself is ordinary demand paging -- 287 of them
+are serviced in this very run. What differs is what the handler does with it:
+this core's handler finds the resource lock counts non-zero (`3C41A4F4` returns
+`FF` from `tst.l $10(a0)` / `tst.w $28(a0)`) and calls `crash_system`, giving
+`CRASH_STATUS 00120020`, which `002398-04` defines as *supervisor fault while
+resource lock(s) set*.
+
+The descriptor's history confirms the fault is expected rather than a mapping
+this core lost. Watching physical `011E6A48` for the whole run, it is written
+five times, **every one of them from firmware**:
+
+    1  00000000  by PC 00007718      2  FFFFFFFF  by PC 00007732
+    3  00000000  by PC 0000774A      4  011E6A48  by PC 00007786
+    5  011E6A48  by PC 01002174
+
+-- the memory test's zero/ones/zero/address-in-address pattern, then
+`SELF_TEST` writing address-in-address again. `011E6A48` has `DT = 0`, so the
+descriptor is leftover test data and the kernel never touches it. The oracle's
+tap sees the same first write from the same firmware PC. **Neither machine ever
+maps that page**, which is why both fault.
+
+So the question is no longer about translation at all: it is **why this core is
+holding resource locks when it takes an ordinary page fault**, and the oracle is
+not.
+
+*Verification: `--boot-type "Y"` for 500 M instructions; `--screenshot` at the
+fault; `five/theirs.txt` registers and ATC against
+`ext/mame/src/devices/cpu/m68000/m68kmmu.h` lines 40-47 and 119-134;
+`--boot-watch-write 011E6A48 --boot-log-watch-writes` on this core and
+`APOLLO_SYNC_WRITE=11E6A48` on the oracle.*
