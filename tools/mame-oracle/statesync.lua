@@ -63,6 +63,11 @@
 --   APOLLO_SYNC_PC     hex address to stop at, e.g. "3C43DD80"
 --   APOLLO_SYNC_WRITE  hex *physical* address to tap instead, e.g. "10100"
 --   APOLLO_SYNC_COUNT  which write to dump on, 1-based (default 1)
+--   APOLLO_SYNC_VALUE  hex byte to match instead of counting -- **prefer this**.
+--                      The tap is installed after this script's reset and so
+--                      misses the writes before it (measured: the first four),
+--                      which makes a count an offset nobody can verify. A
+--                      posted code is the same number on both machines.
 --   APOLLO_SYNC_SKIP   ignore this many hits first (default 0), for an address
 --                      inside a loop or a routine called more than once
 --   APOLLO_SYNC_DUMP   where to write the state dump (default "oracle.state")
@@ -74,6 +79,8 @@
 local pc_text  = os.getenv("APOLLO_SYNC_PC")
 local wr_text  = os.getenv("APOLLO_SYNC_WRITE")
 local wr_count = tonumber(os.getenv("APOLLO_SYNC_COUNT") or "1") or 1
+local wr_value = os.getenv("APOLLO_SYNC_VALUE")
+wr_value = wr_value and tonumber(wr_value, 16) or nil
 local skip     = tonumber(os.getenv("APOLLO_SYNC_SKIP") or "0") or 0
 local dump_to  = os.getenv("APOLLO_SYNC_DUMP") or "oracle.state"
 local normal   = (os.getenv("APOLLO_SYNC_MODE") or "normal") ~= "service"
@@ -92,20 +99,42 @@ local S = G.APOLLO_SYNC
 -- periodic callback changes nothing until the machine is reset again. Same
 -- trap, same fix, as `screencap.lua` -- and the guard has to live in `_G`
 -- because the reset re-runs this chunk with fresh locals.
+-- Returns true when the machine has to be reset for the setting to take, and
+-- **false when it is already right** -- which is the case worth having. The
+-- port is read at `MACHINE_RESET`, so setting it here needs a reset to take
+-- effect, and a reset is expensive in ways that are not obvious: it invalidates
+-- the debugger (`machine.debugger` is nil afterwards under `-debugger none`),
+-- it re-runs this script against a machine that does not exist yet, and it
+-- moves the point the run starts from.
+--
+-- All of that is avoidable. MAME **persists this port** to
+-- `cfg/dn3500.cfg`, so seeding that directory with
+-- `tools/mame-oracle/dn3500-normal.cfg` starts the machine in Normal mode with
+-- nothing to change and nothing to reset. `state-compare.sh` does exactly that,
+-- and this function then reports "already", which is the fast path.
 local function set_mode()
 	local port = manager.machine.ioport.ports[":apollo_config"]
 	if port == nil then
 		out("# no :apollo_config port\n")
-		return
+		return false
 	end
+	local want = normal and 1 or 0
 	for name, field in pairs(port.fields) do
 		if name:find("Service") then
-			field.user_value = normal and 1 or 0
-			out("# %s = %s\n", name, normal and "Normal" or "Service")
-			return
+			local have = field.user_value
+			if have == want then
+				out("# %s already %s; no reset needed\n", name,
+				    normal and "Normal" or "Service")
+				return false
+			end
+			field.user_value = want
+			out("# %s = %s (was %s); reset required\n", name,
+			    normal and "Normal" or "Service", tostring(have))
+			return true
 		end
 	end
 	out("# no Service field in :apollo_config\n")
+	return false
 end
 
 local function now_s() return manager.machine.time:as_double() - S.base end
@@ -150,22 +179,47 @@ end
 -- The tap mode. Installed once, after the reset this script performs, on the
 -- CPU's program space -- which on a machine whose MMU lives inside the CPU is
 -- the **physical** side, the same addresses `--boot-watch-write` takes.
+-- Returns false when the machine is not ready yet, which is **not** an error:
+-- a hard reset tears the machine down and rebuilds it, and the first periodic
+-- callback afterwards can see a `:maincpu` whose address spaces do not exist
+-- yet. Treating that as fatal ended the run before the firmware had started.
+-- A genuine failure -- an install that throws -- is still fatal, and the caller
+-- tells them apart.
 local function install_write_tap()
 	local cpu = manager.machine.devices[":maincpu"]
-	if cpu == nil then finish("no :maincpu") return end
-	S.cpu = cpu
+	if cpu == nil then return false end
 	local space = cpu.spaces["program"]
-	if space == nil then finish("no program space on :maincpu") return end
+	if space == nil then return false end
+	S.cpu = cpu
 	S.seen = 0
-	-- A word write to the diagnostic register covers both bytes, so the tap is
-	-- two bytes wide and counts one event per access rather than per byte.
-	S.tap = space:install_write_tap(watch, watch + 1, "apollo_sync",
+	-- **The range must be aligned to the space's granularity.** This is a
+	-- 32-bit space, so a tap has to start on a longword boundary and end with
+	-- its low bits set: asking for `10100`-`10101` is refused with
+	-- "end address has low bits unset, did you mean 10103?". The tap therefore
+	-- covers the whole longword and the callback filters, rather than the range
+	-- being narrowed to what is wanted.
+	local lo = watch - (watch % 4)
+	local hi = lo + 3
+	S.tap = space:install_write_tap(lo, hi, "apollo_sync",
 		function(offset, data, mask)
 			if S.done then return end
+			-- The longword covers more than the register asked for, so a write
+			-- to a neighbour inside it is not this event.
+			if offset ~= watch then return end
 			S.seen = S.seen + 1
 			out("# write %d to %08X: data %04X mask %04X\n",
 			    S.seen, watch, data & 0xFFFF, mask & 0xFFFF)
-			if S.seen < wr_count then return end
+			-- **Match the posted value, not the count, when one is given.**
+			-- This tap is installed after the reset this script performs, so it
+			-- misses the writes that happen in between -- measured as the first
+			-- four, making the oracle's write N our write N+4. A fixed offset
+			-- would be a constant nobody can check; the posted byte is the same
+			-- number on both machines and needs no correction.
+			if wr_value ~= nil then
+				if (data & 0xFF) ~= wr_value then return end
+			elseif S.seen < wr_count then
+				return
+			end
 			-- **Mid-instruction.** The PC has not advanced and the rest of this
 			-- instruction has not run. Said here as well as in the header
 			-- because this is the line whose output someone will compare.
@@ -174,30 +228,94 @@ local function install_write_tap()
 				"dumped to %s inside write %d -- MID-INSTRUCTION, not aligned "
 				.. "with a --boot-stop-on-watch-write dump", dump_to, S.seen))
 		end)
-	out("# write tap on %08X, dumping on write %d\n", watch, wr_count)
+	if wr_value ~= nil then
+		out("# write tap on %08X, dumping on the write posting %02X\n",
+		    watch, wr_value)
+	else
+		out("# write tap on %08X, dumping on write %d\n", watch, wr_count)
+	end
+	return true
 end
 
 emu.register_periodic(function()
 	if S.done then return end
 
+	-- ## The reset is *scheduled*, and the machine after it is a new one
+	--
+	-- `hard_reset()` does not happen when it is called. Callbacks keep running
+	-- against the machine being torn down, so anything established in them is
+	-- established on the wrong machine: a breakpoint set there is reported as
+	-- set, and then `machine.debugger` is nil on the next call because the
+	-- object it belonged to is gone.
+	--
+	-- Emulated time restarting is what says the new machine has arrived -- it
+	-- is the one observable that cannot be true of the old one. Every handle is
+	-- dropped at that point and re-established against the machine that will
+	-- actually run.
+	local t = manager.machine.time:as_double()
+	if S.last_time ~= nil and t < S.last_time then
+		out("# machine restarted (%.6fs -> %.6fs); re-arming\n", S.last_time, t)
+		S.bp, S.tap, S.cpu, S.seen, S.hits = nil, nil, nil, 0, 0
+		S.stepping, S.hit_pc = nil, nil
+		S.base = t
+	end
+	S.last_time = t
+
 	if not S.armed then
 		S.armed = true
-		set_mode()
+		S.need_reset = set_mode()
 		S.base = manager.machine.time:as_double()
 		if watch ~= nil then
-			out("# state sync: write %d to %08X, mode=%s\n",
-			    wr_count, watch, normal and "normal" or "service")
+			out("# state sync: %s at %08X, mode=%s\n",
+			    wr_value ~= nil and string.format("posted %02X", wr_value)
+			                     or string.format("write %d", wr_count),
+			    watch, normal and "normal" or "service")
 		else
 			out("# state sync: stop at %08X, skip %d, mode=%s\n",
 			    target, skip, normal and "normal" or "service")
 		end
-		manager.machine:soft_reset()
-		return
+		-- **Hard, not soft.** A soft reset re-enters the firmware but leaves the
+		-- CPU's data registers holding whatever the ~17 ms before this callback
+		-- put there, so a dump taken afterwards differs from a power-on machine in
+		-- registers the firmware has not yet written. That is a difference in the
+		-- harness which reads exactly like a difference in the emulator -- it
+		-- showed up as D4 = 02E003D8 against our 0, at a point where the two
+		-- machines agreed on everything else. `screencap.lua` uses a soft reset
+		-- because it only needs the configuration applied; a state comparison
+		-- needs the machine to start where ours starts.
+		if S.need_reset then
+			manager.machine:hard_reset()
+			return
+		end
+		-- Already in the wanted mode, so nothing is reset and the run starts
+		-- here. This is the path a seeded cfg directory takes, and the only one
+		-- on which the debugger survives.
+		out("# no reset; running from the machine as started\n")
 	end
 
 	-- Write-tap mode needs no debugger at all, which is the point of it.
 	if watch ~= nil then
-		if S.tap == nil then install_write_tap() end
+		-- Attempted **once**. A failed install used to leave `S.tap` nil and be
+		-- retried every poll, which buried the error in thousands of copies of
+		-- itself and, worse, meant the give-up check below was never reached --
+		-- so a broken run looked like a slow one.
+		if S.tap == nil then
+			local ok, ready = pcall(install_write_tap)
+			if not ok then
+				-- Threw: a real fault, such as a range the space refuses.
+				finish(string.format("install_write_tap failed: %s",
+				                     tostring(ready)))
+				return
+			end
+			if not ready then
+				-- Not built yet. Retried silently; the give-up below bounds it,
+				-- so a machine that never comes up still ends saying so.
+				if now_s() >= giveup_s then
+					finish("the machine never presented a program space")
+				end
+				return
+			end
+		end
 		if now_s() >= giveup_s then
 			finish(string.format(
 				"gave up after %.1fs emulated with %d write(s) to %08X",

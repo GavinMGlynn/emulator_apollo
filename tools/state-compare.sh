@@ -65,7 +65,15 @@ echo "# ours: stop at PC $pc, skipping $skip"
 echo "# oracle: same address, same count, ${mode} mode"
 rm -rf "$out/rt"; mkdir -p "$out/rt/nvram" "$out/rt/cfg" "$out/rt/state" \
   "$out/rt/diff" "$out/rt/snapshot" "$out/rt/input"
+# **Seed the configuration instead of resetting into it.** `:apollo_config` is
+# read at MACHINE_RESET, so setting it from Lua needs a reset -- and a reset
+# invalidates the debugger (`machine.debugger` is nil afterwards under
+# `-debugger none`), re-runs the script against a machine that does not exist
+# yet, and moves the point the run starts from. MAME persists that port to
+# `cfg/dn3500.cfg`, so starting from a seeded copy needs no reset at all.
+cp -f "$root/tools/mame-oracle/dn3500-normal.cfg" "$out/rt/cfg/dn3500.cfg"
 APOLLO_SYNC_PC="$pc" APOLLO_SYNC_SKIP="$skip" APOLLO_SYNC_MODE="$mode" \
+${VALUE:+APOLLO_SYNC_VALUE=$VALUE} ${WRITE:+APOLLO_SYNC_WRITE=$WRITE} \
 APOLLO_SYNC_DUMP="$out/theirs.txt" APOLLO_SYNC_GIVEUP="${GIVEUP:-120}" \
   "$mame" dn3500 -noreadconfig \
   -rompath "$root/tools/mame-oracle/out/roms" \
@@ -78,6 +86,11 @@ APOLLO_SYNC_DUMP="$out/theirs.txt" APOLLO_SYNC_GIVEUP="${GIVEUP:-120}" \
   -snapshot_directory "$out/rt/snapshot" -input_directory "$out/rt/input" \
   2>&1 | grep -E "^#"
 
+# The oracle's dump is the whole save registry -- 14 M lines, 795 MB, nearly all
+# of it RAM. The map covers the CPU, so the CPU lines are extracted before the
+# diff: loading 14 M entries into a dict to compare 29 of them is minutes of
+# wall clock and gigabytes of resident memory for no gain.
 echo "# diff"
-python3 "$root/tools/state-diff.py" "$out/ours.txt" "$out/theirs.txt" \
+grep "^Motorola MC68030" "$out/theirs.txt" > "$out/theirs-cpu.txt"
+python3 "$root/tools/state-diff.py" "$out/ours.txt" "$out/theirs-cpu.txt" \
   --map "$root/tools/mame-oracle/state-map.txt" || true

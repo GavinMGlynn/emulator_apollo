@@ -25480,3 +25480,71 @@ is that the oracle in normal mode never reaches it". It reaches it now.
 *Verification: `screencap.lua` normal mode against the rebuilt oracle,
 `pngcmp.py` ink counts, screens read from the PNGs. The same script on the
 pristine binary gives 0 ink at both instants, which is the control.*
+
+## The first synchronised state diff, and the two machines agree
+
+The differential runs. At three sync points spanning instruction 3 to 2,965,634:
+
+    27 matched, 2 differing, 0 missing
+
+and the two are the same two every time. **Every other mapped CPU field —
+PC, SR, VBR, SFC, DFC, all eight data registers, all seven address registers,
+the active stack pointer, TC, both root-pointer low words and MMUSR — is
+identical to the oracle's.** That is the first field-level agreement with MAME
+this project has recorded over a stretch of boot rather than at one instant.
+
+Getting there cost four harness defects, and every one of them first presented
+as a difference in the emulator.
+
+**`-debug -debugger none` does not stop the DN3500 booting.** That trap is
+recorded in this document and it is wrong. What breaks is a *reset*: MAME's
+`hard_reset` is scheduled, so a breakpoint set in the callback that requests it
+lands on the machine being torn down, and `machine.debugger` is nil afterwards.
+Seeding `cfg/dn3500.cfg` with the Normal/Service setting — MAME persists that
+port — removes the reset entirely, and then breakpoints work exactly as
+intended: `bpset` at `653A` stops, one step lands on `6542`, which is where
+`--boot-stop-pc 653A` leaves this core.
+
+**A soft reset is not a power-on.** `screencap.lua` uses one because it only
+needs the configuration applied; a state comparison does not survive it. It
+leaves the CPU's data registers holding whatever the ~17 ms before the callback
+put there — `D4 = 02E003D8` against our `0` — and it installs the tap after the
+first four posted codes, making the oracle's write N our write N+4.
+
+**So the sync is on the posted value, not on a count.** A count is an offset
+nobody can verify; a posted code is the same number on both machines. With the
+hard reset the oracle's writes 1-9 are `FF00 EF DF FE EE DE CF BF AF`, ours
+exactly.
+
+### The stack pointers were the instructive one
+
+`cpu.sp.001` was mapped to MAME's `REG_ISP()`, which is the obvious pairing and
+is wrong. **Musashi keeps the live A7 in `REG_D().0.15` and treats
+`REG_USP()`/`REG_ISP()`/`REG_MSP()` as spill slots**, written when the status
+register switches away from that stack and stale until then. Measured three
+instructions into the boot: MAME's `REG_ISP()` is `00000000` while its A7 is
+`01000180` — exactly this core's `isp`.
+
+That produced a difference that *appeared, vanished and reappeared* across sync
+points, which is the signature of a mapping fault rather than a divergent
+machine. The fix is a derived field, the same device as the packed MMU words:
+`cpu.sp.active` computes which of the three A7 currently is, from the status
+register's S and M bits, and pairs with `REG_D().0.15` in every mode — which no
+fixed pairing of the three could.
+
+### What is left, and it is understood
+
+`crp_upper` and `srp_upper`: ours `00000002`, MAME's `00000000`, at every sync
+point so far. **Neither is wrong.** `ap_m68030_root_pack_upper` cannot emit
+`DT = 0` because the manual says "a descriptor-type code of $00 (invalid) is not
+allowed" in a root pointer, so it synthesises a valid type; MAME stores the raw
+register, which reset leaves at zero. The MC68030 does not define CRP or SRP at
+reset, so this is a disagreement about an undefined value, and it persists only
+until the firmware's first `PMOVE`. Recorded as open under the third case of
+`ap_quirk.h`'s taxonomy — the manuals do not settle it — and deliberately left
+*visible* in the diff rather than hidden by a heuristic that might later hide
+something real.
+
+*Verification: `tools/state-compare.sh`, sync points `653A` (breakpoint mode)
+and posted `AF` and `8D` (write-tap mode), against
+`media/dn3500-sr10.4-installed.awd` and `--screen c8p`.*

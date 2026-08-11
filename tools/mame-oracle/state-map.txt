@@ -45,13 +45,19 @@ cpu.a.003	Motorola MC68030/:maincpu/0/REG_D().0.11
 cpu.a.004	Motorola MC68030/:maincpu/0/REG_D().0.12
 cpu.a.005	Motorola MC68030/:maincpu/0/REG_D().0.13
 cpu.a.006	Motorola MC68030/:maincpu/0/REG_D().0.14
-# REG_D().0.15 is A7, the *active* stack pointer, and has no counterpart here by
-# construction -- this core keeps all three and lets the status register say
-# which is live. Deliberately unmapped rather than paired with a stack pointer
-# that only sometimes equals it.
-cpu.sp.000	Motorola MC68030/:maincpu/0/REG_USP().0.0
-cpu.sp.001	Motorola MC68030/:maincpu/0/REG_ISP().0.0
-cpu.sp.002	Motorola MC68030/:maincpu/0/REG_MSP().0.0
+# **The three stack pointers do not pair, and pairing them reports differences
+# that are not there.** Musashi keeps the *live* A7 in `REG_D().0.15` and treats
+# `REG_USP()`/`REG_ISP()`/`REG_MSP()` as **spill slots**: written when the status
+# register switches away from that stack, stale until then. Measured at PC
+# `653A`, three instructions into the boot: MAME's `REG_ISP()` is `00000000`
+# while its A7 is `01000180`, which is exactly this core's `isp`. Mapping
+# `cpu.sp.001` to `REG_ISP()` therefore reported a difference at every sync
+# point where the two machines agreed exactly.
+#
+# So the three are deliberately unmapped and the *derived* active stack is
+# mapped instead. It pairs with A7 in every mode, which no fixed pairing of the
+# three could: the status register's S and M bits choose which one A7 is.
+cpu.sp.active	Motorola MC68030/:maincpu/0/REG_D().0.15
 
 # Still to map, and not guessed: cpu.cache and cpu.exec, then the board devices.
 # `cpu.fetch`'s caches and ATCs are group lines carrying a running hash and are

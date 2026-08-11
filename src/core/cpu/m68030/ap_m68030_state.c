@@ -35,6 +35,30 @@ void ap_m68030_hash_regs(ap_hash_t *st, const ap_m68030_regs_t *regs) {
   ap_hash_u32(st, regs->isp);
   ap_hash_u32(st, regs->msp);
 
+  /* **Which of the three A7 currently is**, derived, for the oracle diff only.
+   *
+   * MAME's Musashi keeps the *live* stack pointer in its `dar[15]` -- A7 -- and
+   * `REG_USP()`/`REG_ISP()`/`REG_MSP()` are **spill slots**, written when the
+   * status register switches away from that stack and stale until then. So
+   * MAME's `REG_ISP()` reads 0 through the whole early boot while its A7 holds
+   * the initialised supervisor stack, and pairing our `isp` with its `REG_ISP()`
+   * reports a difference at every sync point where there is none.
+   *
+   * This core has no such slot: all three are always current and A7 is derived
+   * from the status register instead. Emitting that derivation is what makes
+   * the two models comparable -- it pairs with `REG_D().0.15` in every mode,
+   * where no fixed pairing of the three could.
+   *
+   * `[M68030UM]` §1.3: S selects supervisor, and with S set M chooses the
+   * master stack over the interrupt stack. */
+  {
+    const bool supervisor = (regs->sr & 0x2000u) != 0u;
+    const bool master = (regs->sr & 0x1000u) != 0u;
+    const uint32_t active = !supervisor ? regs->usp
+                                        : (master ? regs->msp : regs->isp);
+    ap_hash_note_u32(st, "active", active);
+  }
+
   ap_hash_scope(st, "cpu.ctl");
   ap_hash_u32(st, regs->pc);
   ap_hash_u16(st, regs->sr);
