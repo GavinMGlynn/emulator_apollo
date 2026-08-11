@@ -742,7 +742,15 @@ if state_dump_fetch ~= nil then
 				-- instructions before the point it was meant to capture. So the
 				-- PC decides: the address is only *executed* when the program
 				-- counter is there.
-				if cpu.state["PC"].value == state_dump_fetch then
+				-- **A window, not an equality.** MAME's `PC` may already have
+				-- advanced by the time a tap callback runs -- the switch tap in
+				-- this same file matches a range for exactly that reason, and
+				-- an exact test here installed cleanly, never fired, and left a
+				-- run that looked like the address was never executed. Sixteen
+				-- bytes is wide enough for the fetch and narrow enough that no
+				-- unrelated code sits in it.
+				local pc = cpu.state["PC"].value
+				if pc >= state_dump_fetch - 8 and pc <= state_dump_fetch + 8 then
 					state_dump_now("fetch")
 				end
 			end)
