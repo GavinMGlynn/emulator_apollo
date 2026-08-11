@@ -24810,8 +24810,28 @@ Which leaves the real finding, and it is better than the one I claimed: **the
 oracle boots to Domain/OS unaided in this harness**, and has done throughout,
 including in the runs whose taps never fired.
 
-So the remaining question is narrower still: the machine boots **unaided**, and
-the tap on `01002020` never fired in any run. Which means `01002020` is executed at a moment the tap could
+So the remaining question is narrower still, and it points at something this
+project already knows. The 120 s snapshot is **also** the DM legend, so the
+oracle is in Domain/OS well before then — consistent with the `CRP` install at
+37.8 s from `PC 0100241A` — and it never executes `01002020` in any run.
+
+**`01002020` is `SELF_TEST`'s entry, not Domain/OS's.** This core's own screen
+prints `LOADING SELF_TEST DIAGNOSTICS FROM BOOT DEVICE / LOW: 01002000 HIGH:
+01005378 START: 01002020`, and our boot reaches it because
+`tools/boot-domainos.script` answers the diagnostic's prompt. The oracle, given
+no input, does not load `SELF_TEST` at all — it goes straight to Domain/OS.
+
+Which is the *same finding* recorded much earlier in this document under "THE
+BOOT PATHS ARE DIFFERENT", and which invalidated a body of cross-machine work
+then. It has been rediscovered from the other side: not by comparing counts, but
+by watching one machine reach a screen the other never draws.
+
+**So a sync point in `0100xxxx` cannot be shared while the two machines run
+different software there.** The comparison needs either an address in code
+*both* execute — Domain/OS's own entry, or a point inside the kernel — or our
+side run without `SELF_TEST`, which is what the MD path was originally for.
+Choosing between those is the next decision, and it is a decision rather than
+another instrument. Which means `01002020` is executed at a moment the tap could
 not see, or is not executed on this path at all — and that is now a question
 about *which* address the oracle's SELF_TEST enters at, answerable by tapping a
 range rather than a word, or by reading the address off the oracle's own
