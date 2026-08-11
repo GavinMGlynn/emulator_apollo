@@ -4409,6 +4409,11 @@ discipline throughout.
         Two shapes in the map catch a reader out and both are the manual's:
         `+2` is two different registers by direction, and the control register
         is readable at a different offset than it is written.
+        *Verification: `etherlink_suite`, 5 tests — the sixteen-location decode
+        from a jumpered base, both asymmetries, the manual's sizes, the factory
+        base landing on `058000` through this machine's AT decode, and one test
+        that pins the **absence** of flag positions so that giving a flag a bit
+        number without a source fails there first.*
   - [x] `docs/references/ETHERNET.md`, the findings file, written from the
         manual before any code — the map (`+0` command, `+2` status on read and
         control on write, `+4` data, `+6` control on read), the 20-byte half
