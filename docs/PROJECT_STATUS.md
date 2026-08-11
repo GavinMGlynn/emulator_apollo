@@ -25316,3 +25316,49 @@ does not say so.
 *Verification: `[PAT575]` claims 3, 6, 7 and columns 6-8, read from 150 dpi page
 renders rather than the text layer — the two-column claim text interleaves, and
 "maximum of two bits" sits in a claim whose extraction is scrambled.*
+
+## The ring's last route was a string search away
+
+`RING.md` finding 51c ended "Domain/OS's ring driver is the only route left" —
+after three ROM images had been read and exhausted — and stopped there. The
+driver is on the installed disk, and finding it took one string scan.
+
+**The link map names every entry point**: `RING8_$INT` and
+`RING8_$INT_DEFERRED`, `RING_$SENDP`, `RING_$RCV0`/`RCV1`, `RING_$START`,
+`RING_$STOP`, `RING_$KICK_DRIVER`, `RING_$SET_TMASK`, `RING_$GET_STATS`,
+`RING_$IOCTL`, the five `RING_$SVC_*`, `PKT_ROUTABLE`, `HDR_CHKSUM`. That alone
+closes a plan item's "no source yet names either": the interrupt is named, in
+the same deferred-handler shape as the Ethernet driver beside it.
+
+**One name is a hardware bit.** `RING_$POLL_STICKY_BPHERR` — a **bi-phase
+error**, polled as **sticky**, i.e. latched rather than level. Finding 45 has
+five polled bits in `+400` whose meanings are unestablished, and a latched error
+is exactly one of their shapes. This names a condition, not a position, and the
+distinction is kept in the finding.
+
+**And the whole condition taxonomy**, nineteen in `domain_ring.pas`'s own order,
+from `NACKs` and `WACKs` through `Xmit overrun`, `Token inserted` and
+`Rcv DMA EOR` to `Rcv hdr chksum` — with prose for six. A transmit timeout
+"counts the number of packets sent by this node that **did not return**"; a WACK
+is a packet returned "with marks showing that the intended receiver saw the
+packet but could not receive it"; a NACK, one returned "without the mark that
+acknowledges receipt". `Rcv DMA EOR` is the first evidence of the DMA path's
+shape.
+
+### The false positive, which is the more transferable lesson
+
+The first search scanned for finding 51a's four polled masks as `ANDI.W`
+immediates. It gave exactly one cluster in 348 MB, which looked decisive and was
+**data** — a walking-bit table among glyph patterns. The signature was wrong in
+principle, not just unlucky: the ROM uses `and.w #mask` to test several bits at
+once, while a driver testing one bit writes `btst #n`, which contains no mask
+word anywhere. **Search a driver by its symbols, not by another program's
+instruction shapes.**
+
+The next step is concrete rather than hopeful: the map's addresses are *load*
+addresses, so `RING_PROC` has to be located as a file on the disk before
+`RING_$START` and `RING_$SENDP` can be disassembled for their register
+accesses. That is where `+400`'s bit meanings will come from, if anywhere.
+
+*Verification: offsets recorded in `RING.md` findings 53-53e against
+`media/dn3500-sr10.4-installed.awd`, each re-readable with a fixed-offset dump.*

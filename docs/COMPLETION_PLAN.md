@@ -4342,10 +4342,23 @@ discipline throughout.
         self-test hands its expected value, actual value and register address
         back to the caller as *data*, and the whole string table is five
         messages, so no per-bit text exists to recover.
-        **The only route left is Domain/OS's own ring driver.** Two further
-        routes are closed for good: finding 50a (no read of any `(a3)` offset
-        anywhere, so the `a1` window is write-only to this firmware) and 51c.
-  - [ ] The DMA path and the interrupt. No source yet names either.
+        **The only route left is Domain/OS's own ring driver -- and that route
+        is now open** (`RING.md` findings 53-53e). The installed disk carries
+        the driver's link map with every entry point named, including
+        `RING_$POLL_STICKY_BPHERR`, which names a **latched bi-phase error**:
+        the first name attached to any of `+400`'s polled bits from outside the
+        ROM. Nineteen hardware conditions are named in order by
+        `domain_ring.pas`, six with prose definitions.
+        **The next step is concrete**: locate the `RING_PROC` module on the disk
+        (the map's addresses are load addresses, not disk offsets, so it must be
+        found as a file) and disassemble `RING_$START` and `RING_$SENDP` for
+        their register accesses. Two further routes stay closed: finding 50a and
+        51c.
+  - [ ] The DMA path and the interrupt. **Both are now named, by Domain/OS's
+        own driver** (`RING.md` findings 53-53c): `RING8_$INT` with a deferred
+        half `RING8_$INT_DEFERRED`, and `Rcv DMA EOR` -- end of record -- in the
+        statistics vector. Names, not yet a vector number, a mask or a transfer
+        shape; what turns them into those is the driver's code.
 - [x] Multi-node scheduler, in `src/core/ring/ap_ring_sched.*`: N nodes on one
       cycle-locked ring, each stepping only on its own boundaries against the
       shared time base, with the ring's bit clock competing as a clock domain
