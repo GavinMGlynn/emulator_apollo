@@ -24847,9 +24847,41 @@ what distinguishes the runs; and the boot device path.
 Two suspects left, and the shape of the difference now points at the **harness**
 rather than the machine: the run that reached the prompt used `screencap.lua`,
 and the runs that boot straight through use `mdsession.lua`. Both set Normal
-mode, both soft-reset, both post no input. What differs between the two scripts
-— and *when* each performs its reset relative to machine start — is where to
-look next, and it is a reading task rather than another boot.
+mode, both soft-reset, both post no input. What differs between the two scripts was then read, and it is narrow.
+
+**The mechanism is identical.** Both write `field.user_value` on
+`:apollo_config` and both soft-reset afterwards, so neither is failing to apply
+its settings — `set_setting` in `mdsession.lua` and the loop in
+`screencap.lua`'s `set_mode` do the same thing by the same route.
+
+**What differs is how many fields each sets.** `screencap.lua` sets **one** —
+the Normal/Service switch — and leaves every other field at MAME's default.
+`mdsession.lua` sets **nine**:
+
+```
+  Normal/Service    Normal        German Keyboard    Off
+  30 Years Ago      Off           25 Years Ago       On
+  Node ID from Disk Off           Trap Trace         Off
+  FPU Trace         Off           Disk Trace         Off
+  Network Trace     Off
+```
+
+Eight of those are forced by one harness and left alone by the other, on a
+machine whose boot demonstrably differs between them. `Node ID from Disk` is the
+one with a known bearing on where the firmware looks — `RING.md` finding 8
+records that Domain/OS may take the node ID from the first logical volume's
+label instead of the ID PROM — but any of the eight is a candidate and none has
+been tested.
+
+**The decisive run is one line**: reduce `mdsession.lua`'s `CONFIG` to
+Normal/Service alone, matching `screencap.lua`, and see whether the diagnostic's
+prompt reappears. If it does, bisect the eight; if it does not, the difference is
+elsewhere and the two scripts are exonerated together.
+
+Worth stating plainly: this was found by reading two files side by side, after
+five instrument attempts and several boots failed to find it. The three things
+that produced answers today were a screenshot, a re-read of an old log, and a
+directory listing — all cheap, none of them new machinery.
 
 **That difference is worth more than the sync point it was blocking.** Two cores
 given the same PROM and the same disk are choosing to run different programs,
