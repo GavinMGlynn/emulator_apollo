@@ -24791,7 +24791,32 @@ What the next attempt should do first, before adding anything:
 
 Only one of those is fixed by another tap.
 
-*Verification: none — negative results and an open cause, recorded as such.*
+**And the screenshot settled it in one run, which five taps could not.**
+Snapshots at 120, 150, 200 and 300 emulated seconds, bracketing the keypress:
+at 300 s the oracle's screen is the **Display Manager's function-key legend** —
+`SHELL CMD`, `CUT COPY`, `UNDO PASTE`, through to the A-D and PWR indicators.
+
+That is Domain/OS running. **The answer works**: `Y` then `Numpad Enter` at
+150 s gets the machine past `DO YOU WISH TO CONTINUE (Y,N)?` and all the way
+into the operating system. The harness can now drive the oracle to the same
+place this core boots to, which no `mdsession.py` run has ever done.
+
+So the remaining question is narrow and different from every guess made before
+it: the machine *does* boot, and the tap on `01002020` still did not fire in the
+run that had both. Which means `01002020` is executed at a moment the tap could
+not see, or is not executed on this path at all — and that is now a question
+about *which* address the oracle's SELF_TEST enters at, answerable by tapping a
+range rather than a word, or by reading the address off the oracle's own
+`LOADING SELF_TEST … START:` line as it appears on screen.
+
+**The method note is the durable part.** Five instrument attempts were designed
+from guesses about the previous failure and cost a run each. One screenshot,
+costing nothing and using a call `screencap.lua` already made, answered what
+none of them could: *the machine was fine, and the instrument was looking in the
+wrong place.*
+
+*Verification: `mdsession__apollo_screen_screen_300000ms.png` — the DM legend,
+on a machine that had received `Y` and `Numpad Enter` at 150 s.*
 
 **What this does not affect**: our dump, the diff tool, the quirk mechanism and
 the mapping are all working and tested. What is missing is one comparable
