@@ -25802,3 +25802,50 @@ a number: 12,730 polls against a 65,535 limit.
 *Verification: the oracle's write tap with the lane mask printed, filtered to
 `mask FF000000`; the disassembly of `0073BE`-`0073D6`; `ADDRESS`, `EXPECTED` and
 `PC` of the recorded failure all matching that routine's operands.*
+
+## The display boot now matches the oracle, and the DUART fix is why
+
+Booting `--screen c8p` and scanning the framebuffer out gives a screen with
+**23,304 lit pixels** against the oracle's 24,216, and the text is the same
+through to the end:
+
+    SELF TEST FAILED.
+     EXPECTED= 00000000, ACTUAL= 00000012, ADDRESS= 00010912
+     PC= 00005DF8
+    DO YOU WISH TO CONTINUE (Y,N)?
+
+**Those are the oracle's numbers exactly.** The failure this document tracked
+for eight commits — `EXPECTED= 00000002, ACTUAL= 0000FF00, ADDRESS= 0001040B,
+PC= 000073EC` — **is gone**, and the reason is now readable rather than guessed:
+`0073EC` is the timeout exit of the keyboard-receive loop, which polls `ISR`
+bit 1 at `a0 + 0x0B` = `0001040B`. This core seeded `SR` with `TXRDY | TXEMT` at
+reset against §2.4's "clears status registers A and B", and the ISR's bits
+derive from `SR`. Fixing the reset fixed the test.
+
+### The one remaining difference is a device we have not built
+
+    ours    37 ink bands, first at y=128
+    oracle  38 ink bands, first at y=112, both ending on identical rows
+
+One extra line, and reading it says what it is:
+
+    NETWORK DRIVER SEARCH STARTED...
+        802.3 NETWORK CONTROLLER-AT TEST PASSED.      <- the oracle only
+    ABOVE DRIVER TYPE LOADED.
+
+MAME fits a **3c505** by default; this core has the interface header and no
+device. The screen is bottom-anchored, so that single line pushes everything
+above it up by one row — which is the whole of the 6,398-pixel difference, and
+why testing a *global* shift found none: the top is displaced and the bottom is
+not.
+
+So the display boot is now **the oracle's screen minus one unimplemented
+card**. That is the first time a booting machine's screen has matched the
+reference here, and it retires the Phase 5 investigation that had been running
+since the framebuffer PNG item was opened. The item itself stays open, because
+its verification asks for a *login prompt* and that still waits on the Phase 4
+crash.
+
+*Verification: `--screen c8p --screenshot`, 300 M instructions; `pngcmp.py`
+against `screencap.lua`'s 60 s normal-mode capture; ink-band analysis for the
+line counts; both screens read from their PNGs.*

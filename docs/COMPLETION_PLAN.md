@@ -4192,9 +4192,21 @@ boot below, and the boot is not attempted until they are done.
       observations this item was written around are all resolved, and the
       investigation -- the LED index/data pair, the blink loop, the plane-count
       mismatch, the harness input bugs -- is in `PROJECT_STATUS.md`.
-      What remains is only the *subject* of the picture: the verification asks
+      **The display boot now matches the oracle's screen.** With the DUART
+      reset fixed (§2.4 clears SRA/SRB), our `--screen c8p` boot renders the
+      whole self-test sequence and fails the *same* test as the reference, with
+      the same numbers: `EXPECTED= 00000000, ACTUAL= 00000012, ADDRESS=
+      00010912, PC= 00005DF8`, then `DO YOU WISH TO CONTINUE (Y,N)?`. The old
+      failure at `PC= 000073EC` -- the keyboard-receive loop timing out on a
+      status bit our stale reset value polluted -- is gone.
+      **The one remaining difference is a line for a device we have not
+      built**: the oracle prints `802.3 NETWORK CONTROLLER-AT TEST PASSED.` and
+      we do not, because MAME fits a 3c505 by default and this core has only
+      the interface header. 37 ink bands against the oracle's 38, both ending
+      on identical rows.
+      What remains is still the *subject* of the picture: the verification asks
       for a **login prompt**, and that waits on Phase 4's `CRASH_STATUS
-      00120020`, which the oracle proves is ours. Detail in `PROJECT_STATUS.md`.
+      00120020`. Detail in `PROJECT_STATUS.md`.
       *Verification: a decoded PNG showing Domain/OS's login prompt.*
 - [x] **SDL3 interactive frontend, implemented rather than stubbed.**
       `apollo-sdl` opens a window on the emulated screen: scanout to an ARGB
