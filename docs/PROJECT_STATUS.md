@@ -24873,10 +24873,25 @@ records that Domain/OS may take the node ID from the first logical volume's
 label instead of the ID PROM — but any of the eight is a candidate and none has
 been tested.
 
-**The decisive run is one line**: reduce `mdsession.lua`'s `CONFIG` to
-Normal/Service alone, matching `screencap.lua`, and see whether the diagnostic's
-prompt reappears. If it does, bisect the eight; if it does not, the difference is
-elsewhere and the two scripts are exonerated together.
+**Run, and the eight fields are exonerated.** `APOLLO_MD_MINIMAL_CONFIG` sets
+only the Normal/Service switch and leaves the rest at MAME's default — the log
+confirms it, eight fields now reading `not set by this script, left at its
+default` — and the machine still shows the DM legend at 160 emulated seconds.
+Same as before. **The configuration table is not the difference.**
+
+So both harnesses are cleared on the two things read out of them: the same
+`user_value` mechanism, and now the same effective configuration. Whatever makes
+one machine reach the diagnostic's prompt and the other boot straight past it is
+somewhere neither comparison looked.
+
+What has *not* been checked, and is the next reading: the two scripts differ in
+far more than configuration — `mdsession.lua` installs taps, opens a swap
+channel, and drives a console the other does not touch, and either may perturb a
+machine that is deciding what to load. And the `screencap.lua` run that showed
+the prompt was made *before* several of this session's changes landed, so the
+cheapest single test left is to **re-run `screencap.lua` now** and see whether it
+still reaches the prompt at all. If it does not, the difference was never between
+the harnesses and this whole line closes.
 
 Worth stating plainly: this was found by reading two files side by side, after
 five instrument attempts and several boots failed to find it. The three things

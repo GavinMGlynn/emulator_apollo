@@ -187,8 +187,17 @@ local function configure()
 	-- field this table does not name is *reported* rather than silently left at
 	-- whatever the default is. A configuration that is only half stated is one
 	-- whose other half moves when MAME's does.
+	-- `APOLLO_MD_MINIMAL_CONFIG` sets **only** the Normal/Service switch and
+	-- leaves every other field at MAME's default, which is what `screencap.lua`
+	-- does. The two harnesses boot the same machine differently -- one reaches
+	-- the diagnostic's prompt and the other goes straight to Domain/OS -- and
+	-- the only difference read out of them is that this file forces eight extra
+	-- fields. This makes that difference testable in one run instead of by
+	-- editing the table.
+	local minimal = os.getenv("APOLLO_MD_MINIMAL_CONFIG") ~= nil
 	for name, field in pairs(port.fields) do
 		local wanted = CONFIG[name]
+		if minimal and not name:find("Service") then wanted = nil end
 		if wanted ~= nil then
 			set_setting(field, name, wanted)
 		else
