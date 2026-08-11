@@ -7060,3 +7060,85 @@ machines drop to the `>` prompt without drawing:
 
 102 lit pixels each, pixel for pixel, decoded from our framebuffer on one side
 and rendered by MAME on the other.
+
+## C122 -- C120's hang is fixed in our checkout, and the datasheet says why
+
+**Class: oracle-wrong, corrected in `ext/mame`.** C120 diagnosed the normal-mode
+hang and stopped at the diagnosis. Three things have changed it into a fix.
+
+### It reproduces on a pristine tree
+
+All eight local edits stashed, `apollo` relinked from an unmodified checkout:
+normal mode is blank at 0.1 s and at 60 s (byte-identical PNGs), service mode is
+**102 lit pixels** at 0.1 s, 3 s and 10 s -- the figure already recorded for the
+`>` prompt. So the display path is sound and the hang is upstream MAME's, not
+something this project's instrumentation introduced. `stash show --stat`
+confirms no edit touches `mc68681.cpp` either way.
+
+### The datasheet settles what the firmware is asking for
+
+`MC68681 ... Sep 1985` §4.2.7, read from the page image:
+
+> Multiple commands can be specified in a single write to CRA as long as the
+> commands are non-conflicting; e.g., the "enable transmitter" and "reset
+> transmitter" commands cannot be specified in a single command word.
+
+CRA is `[6:4]` miscellaneous, `[3:2]` transmitter, `[1:0]` receiver. So of the
+firmware's three writes:
+
+| write | misc | Tx field | verdict |
+| --- | --- | --- | --- |
+| `45` | 4, reset error status | enable | legal |
+| `35` | 3, **reset transmitter** | enable | **the conflict §4.2.7 forbids** -- undefined |
+| `25` | 2, reset receiver | enable | **legal, unambiguous "enable transmitter"** |
+
+**The undefined case does not have to be resolved.** `25` is a plain enable with
+a non-conflicting miscellaneous command beside it, and MAME drops it for the
+sole reason that the *previous* command word happened to carry bit 2. That is
+the bug, and it is provable without deciding what real silicon does with `35`.
+
+### The fix, and why it is not the unconditional form
+
+    - if (!BIT(CR, 2) && BIT(data, 2))
+    + if (!m_tx_enabled && BIT(data, 2))
+
+`CR` is a **command** register: its last value is not state, and says nothing
+about whether the transmitter is enabled. Gating on the transmitter's own state
+is idempotent, cannot re-assert `TXEMT` under a character being shifted out --
+which a bare `if (BIT(data, 2))` would, and that is presumably what the edge was
+reaching for -- and fixes the sequence, because `35`'s reset clears
+`m_tx_enabled` and the following `25` therefore enables.
+
+Kept as `tools/mame-oracle/duart-tx-enable.patch`. This is a **correction** to
+the oracle rather than instrumentation, so it is not reverted before commit the
+way a probe is; it is one hunk, and it is upstreamable.
+
+*Any normal-mode oracle reading taken before this is not comparable to one
+taken after: the machine now runs where it previously stopped at `0067A2`.*
+
+## C123 -- the state dumper reported SR = 0 for ever, and nearly proved it
+
+**Class: our-instrument-wrong, caught before it produced a finding.**
+`apollo_dump_text` walks `m_entry_list` directly. Musashi keeps the status
+register **decomposed** into flag variables and reassembles it only in
+`device_pre_save()`:
+
+    void m68000_musashi_device::device_pre_save()
+    {
+        m_save_sr = m68ki_get_sr();
+        m_save_stopped = ...; m_save_halted = ...;
+    }
+
+A walk that never dispatches presave therefore reads `m_save_sr` as whatever
+`device_reset` left -- **zero** -- on a machine whose SR is nothing of the sort.
+`m_save_stopped` and `m_save_halted` have the same shape.
+
+Left alone, the first CPU diff would have shown the oracle's SR permanently
+zero and permanently different from ours. That reads as a real and dramatic
+finding; it is an artefact of the instrument. The fix is one line --
+`dispatch_presave()` before the walk, which is what an actual save does -- and
+the dumper is no longer `const` because of it.
+
+**The general rule this is an instance of:** a dump that claims to be "the save
+state as text" must do everything a save does, or it is a different thing with
+a misleading name. The registry is not all live state.

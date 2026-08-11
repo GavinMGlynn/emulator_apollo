@@ -199,6 +199,25 @@ void ap_m68030_hash_cpu(ap_hash_t *st, const ap_m68030_cpu_t *cpu) {
   hash_tt(st, &cpu->tt1);
   ap_hash_u16(st, cpu->mmusr);
 
+  /* The packed register words, for the oracle differential only -- derived, so
+   * the hash is untouched (see `ap_hash_note_u32`).
+   *
+   * This core decomposes `TC` and the root pointers on the `PMOVE` that writes
+   * them; MAME keeps the words. Decomposed against packed, no field of one
+   * dump pairs with any field of the other, and the MMU is what a page fault
+   * has to be read from -- so the packing that `PMOVE` already inverts is
+   * emitted beside the fields, where it lines up with `m_mmu_tc`,
+   * `m_mmu_crp_limit`/`_aptr` and `m_mmu_srp_limit`/`_aptr` one for one.
+   *
+   * MAME's `_limit` is the **upper** long word and `_aptr` the lower
+   * (`m68kmmu.h`, `PMOVE from CRP`), which is the opposite of what the names
+   * suggest to a reader who has not checked. */
+  ap_hash_note_u32(st, "tc_packed", ap_m68030_tc_encode(&cpu->tc));
+  ap_hash_note_u32(st, "crp_upper", ap_m68030_root_pack_upper(&cpu->crp));
+  ap_hash_note_u32(st, "crp_lower", cpu->crp.table_address);
+  ap_hash_note_u32(st, "srp_upper", ap_m68030_root_pack_upper(&cpu->srp));
+  ap_hash_note_u32(st, "srp_lower", cpu->srp.table_address);
+
   ap_hash_scope(st, "cpu.cache");
   hash_cacr(st, &cpu->cacr);
   ap_hash_u32(st, cpu->caar);

@@ -57,3 +57,41 @@ cpu.sp.002	Motorola MC68030/:maincpu/0/REG_MSP().0.0
 # whatever MAME names them -- `m_dfc` is visible in its dump, the rest need
 # looking up rather than assuming. Then cpu.mmu, cpu.cache, cpu.exec, cpu.fetch,
 # and the board devices.
+
+# --- The CPU control registers ---
+#
+# Names from `m68kcpu.cpp`'s `device_start()` save_item() calls, not guessed
+# from the dump: `save_item(NAME(m_pc))` is what makes the registry entry
+# `m_pc`. The *prefix* ("Motorola MC68030/:maincpu/0/") is formatting this file
+# cannot derive, and is copied from the `REG_D()` lines above, which came from a
+# real dump. **Not yet confirmed against a dump of their own** -- a wrong prefix
+# shows up as MISSING rather than as a false agreement, which is the failure
+# mode this format is built to have.
+cpu.ctl.000	Motorola MC68030/:maincpu/0/m_pc.0.0
+# SR is the one that needed the oracle's dumper fixed first. Musashi keeps the
+# status register decomposed into flag variables and only reassembles it in
+# `device_pre_save()`; the dumper walked the registry without dispatching, so
+# this field read 0 from reset for ever. Mapping it against a dump taken before
+# that fix would have produced a confident, permanent, wrong difference.
+cpu.ctl.001	Motorola MC68030/:maincpu/0/m_save_sr.0.0
+cpu.ctl.002	Motorola MC68030/:maincpu/0/m_vbr.0.0
+cpu.ctl.003	Motorola MC68030/:maincpu/0/m_sfc.0.0
+cpu.ctl.004	Motorola MC68030/:maincpu/0/m_dfc.0.0
+
+# --- The MMU, through the packed forms ---
+#
+# The decomposed fields `cpu.mmu.000`-`.034` have **no counterpart** and are
+# deliberately unmapped: this core unpacks `TC` and the root pointers when
+# `PMOVE` writes them, MAME keeps the words. The packed lines beside them are
+# derived (`ap_hash_note_u32`), do not enter the hash, and are what pairs.
+#
+# MAME's `_limit` is the **upper** long word and `_aptr` the lower -- the
+# opposite of what the names suggest. `m68kmmu.h`'s `PMOVE from CRP` writes
+# `(u64)m_mmu_crp_limit<<32 | m_mmu_crp_aptr`, which settles it.
+cpu.mmu.tc_packed	Motorola MC68030/:maincpu/0/m_mmu_tc.0.0
+cpu.mmu.crp_upper	Motorola MC68030/:maincpu/0/m_mmu_crp_limit.0.0
+cpu.mmu.crp_lower	Motorola MC68030/:maincpu/0/m_mmu_crp_aptr.0.0
+cpu.mmu.srp_upper	Motorola MC68030/:maincpu/0/m_mmu_srp_limit.0.0
+cpu.mmu.srp_lower	Motorola MC68030/:maincpu/0/m_mmu_srp_aptr.0.0
+# The MMU status register: ours is the u16 at the end of the decomposed run.
+cpu.mmu.035	Motorola MC68030/:maincpu/0/m_mmu_sr.0.0

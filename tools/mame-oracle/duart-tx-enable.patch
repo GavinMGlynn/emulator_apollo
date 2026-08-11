@@ -1,0 +1,34 @@
+diff --git a/src/devices/machine/mc68681.cpp b/src/devices/machine/mc68681.cpp
+index 70d3cfd0..fdf4ad53 100644
+--- a/src/devices/machine/mc68681.cpp
++++ b/src/devices/machine/mc68681.cpp
+@@ -1807,7 +1807,28 @@ void duart_channel::write_CR(uint8_t data)
+ 		SR &= ~STATUS_RECEIVER_READY;
+ 	}
+ 
+-	if (!BIT(CR, 2) && BIT(data, 2))
++	// APOLLO ORACLE EDIT -- see docs/references/ETHERNET.md's sibling,
++	// tools/mame-oracle/FINDINGS.md, and the MC68681 datasheet Sep 1985 §4.2.7.
++	//
++	// Was: `if (!BIT(CR, 2) && BIT(data, 2))` -- an *edge* against the previous
++	// command word. CR is a command register, not state: its last value says
++	// nothing about whether the transmitter is enabled, and gating on it makes
++	// a legal "enable transmitter" a no-op whenever the previous write happened
++	// to carry bit 2. The Apollo boot PROM writes CRA = 45, 35, 25 back to
++	// back; `35` is misc-3 "reset transmitter" (which clears m_tx_enabled) and
++	// `25` is misc-2 "reset receiver" plus a plain, non-conflicting "enable
++	// transmitter". MAME dropped that enable, left TxRDY clear, and the machine
++	// polled it for ever at PC 0067A2 -- so the oracle could not be booted in
++	// normal mode at all.
++	//
++	// Gating on the transmitter's own state instead is idempotent, safe to
++	// re-issue mid-transmission (it will not re-assert TXEMT under a character
++	// being shifted out, which an unconditional form would), and fixes the
++	// sequence above. Note `35` specifies "reset transmitter" and "enable
++	// transmitter" together, which §4.2.7 says "cannot be specified in a single
++	// command word" -- the outcome here does not depend on how that undefined
++	// case resolves, because the legal `25` that follows enables either way.
++	if (!m_tx_enabled && BIT(data, 2))
+ 	{
+ 		SR |= STATUS_TRANSMITTER_READY | STATUS_TRANSMITTER_EMPTY;
+ 		m_tx_data_in_buffer = false;

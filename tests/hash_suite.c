@@ -135,8 +135,31 @@ static void test_absorbing_no_bytes_leaves_the_hash_unchanged(void) {
   TEST_ASSERT_EQUAL_HEX64(before, ap_hash_end(&st));
 }
 
+/* A derived dump line must not reach the hash. The whole reason
+ * `ap_hash_note_u32` exists rather than another `ap_hash_u32` is that the
+ * packed MMU words are a *view* of state already absorbed -- absorbing them
+ * again would invalidate every golden and double-count the same bits. */
+static void test_a_noted_value_does_not_change_the_hash(void) {
+  ap_hash_t st = ap_hash_begin();
+  ap_hash_u32(&st, 0x12345678u);
+  const uint64_t before = ap_hash_end(&st);
+
+  ap_hash_note_u32(&st, "derived", 0xDEADBEEFu);
+  TEST_ASSERT_EQUAL_HEX64(before, ap_hash_end(&st));
+
+  /* And with no dump attached it is not merely unhashed but inert: the field
+   * numbering must not move either, or a dump and a no-dump run would disagree
+   * about which index a field has. */
+  ap_hash_u32(&st, 0u);
+  ap_hash_t plain = ap_hash_begin();
+  ap_hash_u32(&plain, 0x12345678u);
+  ap_hash_u32(&plain, 0u);
+  TEST_ASSERT_EQUAL_HEX64(ap_hash_end(&plain), ap_hash_end(&st));
+}
+
 int main(void) {
   UNITY_BEGIN();
+  RUN_TEST(test_a_noted_value_does_not_change_the_hash);
   RUN_TEST(test_the_byte_hash_matches_the_published_fnv1a_64_vectors);
   RUN_TEST(test_an_empty_hash_is_the_offset_basis);
   RUN_TEST(test_a_u32_is_absorbed_little_endian_whatever_the_host_order);

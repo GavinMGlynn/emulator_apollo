@@ -12,6 +12,21 @@ void ap_hash_scope(ap_hash_t *st, const char *scope) {
 
 bool ap_hash_dumping(const ap_hash_t *st) { return st->out != NULL; }
 
+void ap_hash_note_u32(ap_hash_t *st, const char *name, uint32_t v) {
+  /* Suppressed inside a group for the same reason the fields are: the group's
+   * one summary line is the dump's account of that run, and a derived line
+   * inside it would be a second. */
+  if (st->out == NULL || st->group != NULL) {
+    return;
+  }
+  /* Named rather than indexed, and `st->index` is deliberately not advanced --
+   * a derived value is not a field of the state, and numbering it would
+   * renumber every real field after it and silently invalidate the map. */
+  fprintf((FILE *)st->out, "%s.%s %-4s %016llX\n",
+          st->scope != NULL ? st->scope : "", name, "u32",
+          (unsigned long long)v);
+}
+
 /* One line per field, in traversal order: `scope.index = value` with the width
  * tag beside it. The tag is printed because a field whose *type* changed is a
  * different field to the hash, so a diff that hid the tag would show two

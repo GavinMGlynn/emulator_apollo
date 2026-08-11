@@ -1,8 +1,8 @@
 diff --git a/src/emu/save.cpp b/src/emu/save.cpp
-index f6012bc5..3592b168 100644
+index f6012bc5..0716ec50 100644
 --- a/src/emu/save.cpp
 +++ b/src/emu/save.cpp
-@@ -265,6 +265,38 @@ void save_manager::dispatch_presave()
+@@ -265,6 +265,50 @@ void save_manager::dispatch_presave()
  //  write_file - writes the data to a file
  //-------------------------------------------------
  
@@ -14,11 +14,23 @@ index f6012bc5..3592b168 100644
 +// from the registry, which is what makes it diffable against the other core --
 +// their scopes are ours, these are MAME's, and the mapping between them is the
 +// deliverable.
-+void save_manager::apollo_dump_text(const char *path) const
++void save_manager::apollo_dump_text(const char *path)
 +{
 +	FILE *f = fopen(path, "w");
 +	if (f == nullptr)
 +		return;
++	// **The registry is not all live state.** Several devices register a shadow
++	// copy that only their device_pre_save() fills in -- Musashi's m_save_sr is
++	// the one that matters here, because Musashi keeps the status register
++	// decomposed into flag variables and only reassembles it for a save. Walk
++	// the list without dispatching and the dump reports SR = 0 from reset, for
++	// ever, on a machine whose SR is nothing of the sort. m_save_stopped and
++	// m_save_halted are the same shape.
++	//
++	// A save does this, so a dump claiming to be "the save state as text" must
++	// too. The callbacks only materialise shadow copies; they do not perturb
++	// the running machine.
++	dispatch_presave();
 +	for (auto &entry : m_entry_list)
 +	{
 +		const u8 *base = reinterpret_cast<const u8 *>(entry->m_data);
@@ -42,17 +54,19 @@ index f6012bc5..3592b168 100644
  {
  	util::write_stream::ptr writer;
 diff --git a/src/emu/save.h b/src/emu/save.h
-index 7a7dd535..81dd03f7 100644
+index 7a7dd535..5fab4684 100644
 --- a/src/emu/save.h
 +++ b/src/emu/save.h
-@@ -159,6 +159,10 @@ public:
+@@ -159,6 +159,12 @@ public:
  	running_machine &machine() const { return m_machine; }
  	rewinder *rewind() { return m_rewind.get(); }
  	int registration_count() const { return m_entry_list.size(); }
 +
 +	// APOLLO: full-state text dump, for the emulator/oracle differential.
 +	// TEMPORARY INSTRUMENTATION -- revert before committing ext/mame.
-+	void apollo_dump_text(const char *path) const;
++	// Not const: it dispatches the presave callbacks first, because several
++	// fields in the registry are shadow copies that only exist after one runs.
++	void apollo_dump_text(const char *path);
  	bool registration_allowed() const { return m_reg_allowed; }
  	bool supported() const { return m_supported; }
  

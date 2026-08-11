@@ -3346,7 +3346,7 @@ failure that cost a bit position in the 68020's module entry word.
 | Build system, presets, CI | working | 4-platform matrix green on first run, plus the `-O0` vs `-O3` output-identity job |
 | Model table (`model/`) | working, 9 models | `model_suite`, 21 tests |
 | Time base (`time/`) | working | `time_suite`, 17 tests |
-| State hash (`state/`) | primitive working | `hash_suite`, 11 tests, incl. published FNV-1a 64 vectors |
+| State hash (`state/`) | primitive working | `hash_suite`, 12 tests, incl. published FNV-1a 64 vectors |
 | Core board state hash (the identity harness's board half) | working: the board registers, the translation map, both interrupt controllers, the interval timer with its three clocks, the calendar with both cursors, both DMA controllers, both serial ports, the node ID, the disk and tape controllers, the graphics memories, the keyboard matrix and the boot PROM. The diagnostic counters are deliberately outside it and reported beside it | `board_state_suite`, 23 tests sweeping every device field by field |
 | Full-machine state hash (`ap_machine_hash`, `ap_machine_state`) | working: the processor, main memory, the board when one is attached, and elapsed time — with the clock, the PC and the bus-error count reported beside the number | `machine_suite`, 55 tests, incl. the same workload run twice on two boards agreeing at every step |
 | Ring medium interface | not started | — |
@@ -25169,3 +25169,78 @@ popped; full `SUBTARGET=apollo` rebuild), `screencap.lua`, `dn3500`,
 `-disk1 media/dn3500.awd`, `pngcmp.py` for the ink counts. Both PNGs of the
 normal run are byte-identical (`md5 8fca9e5a…`), as three service-mode PNGs are
 to each other at 102 ink.*
+
+## Two oracle defects fixed, and the differential can now reach the MMU
+
+The bisect's real yield was not the screen. It was that the oracle's
+normal-mode hang — the thing that stops the machine long before the crash being
+chased — is a **fixable MAME bug**, and the state dumper had a second one that
+would have manufactured a finding.
+
+### The DUART: a legal "enable transmitter" was being dropped
+
+`FINDINGS.md` C120 diagnosed the hang and stopped there. The MC68681 datasheet
+§4.2.7 finishes it:
+
+> Multiple commands can be specified in a single write to CRA as long as the
+> commands are non-conflicting; e.g., the "enable transmitter" and "reset
+> transmitter" commands cannot be specified in a single command word.
+
+CRA is `[6:4]` misc, `[3:2]` transmitter, `[1:0]` receiver, so of the firmware's
+`45`, `35`, `25`: `35` is reset-transmitter *and* enable-transmitter together —
+the conflict the datasheet forbids, behaviour undefined — but `25` is a plain,
+non-conflicting **enable**. MAME dropped it only because the previous command
+word happened to carry bit 2. **The undefined case never has to be resolved**,
+which is what makes this provable rather than arguable.
+
+The fix gates on the transmitter's own state, not on the previous command word:
+`if (!m_tx_enabled && BIT(data, 2))`. `CR` is a command register — its last
+value is not state. This is idempotent and, unlike the unconditional form, will
+not re-assert `TXEMT` under a character being shifted out, which is presumably
+what the edge was reaching for. Kept as
+`tools/mame-oracle/duart-tx-enable.patch`; one hunk, and upstreamable.
+
+**Consequence for every earlier reading**: normal-mode oracle measurements taken
+before this are not comparable with ones taken after, because the machine now
+runs where it used to stop.
+
+### The dumper: the oracle's SR read zero for ever
+
+`apollo_dump_text` walked `m_entry_list` without dispatching presave. Musashi
+keeps SR decomposed into flag variables and only reassembles it in
+`device_pre_save()`, so the field read `0` from reset — and `m_save_stopped` and
+`m_save_halted` with it. The first CPU diff would have reported the oracle's
+status register permanently zero and permanently different from ours: dramatic,
+and entirely an artefact. One line fixes it (`dispatch_presave()`), and the
+dumper stops being `const`.
+
+Caught by reading the field's definition before mapping it, not by a run. That
+is the cheap end of the resolution order doing its job.
+
+### Derived fields, so the MMU can be compared at all
+
+The two cores mismatch **structurally** where it matters most: this core unpacks
+`TC` and the root pointers when `PMOVE` writes them; MAME keeps the words. No
+field of one dump pairs with any field of the other, and the crash under
+investigation is a page fault.
+
+`ap_hash_note_u32` emits a **derived** line — named, not numbered, absorbed into
+no hash — beside the decomposed fields. It reuses `ap_m68030_tc_encode` and
+`ap_m68030_root_pack_upper`, the packings `PMOVE` already inverts, so the dump
+gains `tc_packed`, `crp_upper/lower`, `srp_upper/lower` and these pair one for
+one with `m_mmu_tc`, `m_mmu_crp_limit`/`_aptr`, `m_mmu_srp_limit`/`_aptr`.
+
+Three properties keep it honest: the hash is untouched (every golden still
+passes), the value is a function of state already absorbed (so it cannot hide a
+difference), and the field numbering does not move (so the map does not silently
+shift). A test pins the first and third.
+
+One trap worth stating because the names invite the opposite reading: MAME's
+`m_mmu_crp_limit` is the **upper** long word and `_aptr` the lower.
+`m68kmmu.h`'s `PMOVE from CRP` writes `(u64)m_mmu_crp_limit<<32 | m_mmu_crp_aptr`,
+which settles it.
+
+*Verification: `ctest` 134/134 including the four goldens, so the hash is
+byte-identical; `hash_suite` gains a test that a noted value changes neither the
+hash nor the field numbering; `--dump-state` shows the five derived lines after
+`cpu.mmu.035` with the numbered fields unshifted.*

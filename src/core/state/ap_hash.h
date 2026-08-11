@@ -141,6 +141,30 @@ void ap_hash_group_end(ap_hash_t *st);
  * dump needs. */
 [[nodiscard]] bool ap_hash_dumping(const ap_hash_t *st);
 
+/* Emit a **derived** value to the dump, named, without absorbing it.
+ *
+ * The oracle differential runs into a structural mismatch the field mapping
+ * cannot express: this core keeps the MMU's registers *decomposed* -- `tc` as
+ * enable, page size, per-level index widths -- while MAME keeps the packed
+ * register words it was written from. Neither dump has a field the other can be
+ * paired with, and the MMU is precisely the state a page fault has to be
+ * diagnosed from.
+ *
+ * So the dump gains the packed form as a derived line beside the decomposed
+ * fields it is computed from. Three properties make that safe, and all three
+ * are the reason this is a separate call rather than another `ap_hash_u32`:
+ *
+ *   * **It does not touch the hash.** Every golden stays valid, which a derived
+ *     field must never be allowed to cost.
+ *   * **It is a function of state already absorbed**, so it cannot hide a
+ *     difference: if the packing agrees, the fields it packs agree.
+ *   * **It is named, not numbered.** A derived line is not the Nth field of
+ *     anything, and giving it an index would shift every field after it.
+ *
+ * Nothing here may emit a value the hash has not already covered -- that would
+ * be a dump showing state the identity harness does not check. */
+void ap_hash_note_u32(ap_hash_t *st, const char *name, uint32_t v);
+
 /* Finish, yielding the state hash. Does not modify *st, so a caller may
  * checkpoint an in-progress hash and continue absorbing. */
 [[nodiscard]] uint64_t ap_hash_end(const ap_hash_t *st);
