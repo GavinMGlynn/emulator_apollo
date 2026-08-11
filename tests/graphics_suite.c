@@ -2060,8 +2060,36 @@ static void test_the_stepped_beam_is_not_the_running_one(void) {
   TEST_ASSERT_EQUAL_UINT(48u, pixel);
 }
 
+/* **Construction must not read the caller's stack.**
+ *
+ * `ap_graphics_init` sets each field by name, and for months it did not set
+ * `quirks` -- so `ap_graphics_read` tested a quirk bit taken from whatever the
+ * caller happened to leave on the stack. Every test passed on Linux, where that
+ * memory was reliably zero, and `graphics_suite` failed on Windows for months
+ * with `Expected 0x08 Was 0x0A`: the colour block answering the 8-plane ID
+ * because the always-colour quirk looked selected.
+ *
+ * Filling the struct with garbage first is what makes that reproducible here
+ * rather than only on the platform nobody runs locally. `0xAA` sets bit 0 of
+ * the quirk set, which is exactly the quirk in question. */
+static void test_init_does_not_inherit_the_callers_stack(void) {
+  ap_graphics_t g;
+  /* `0xFF`, not `0xAA`: the fill must set **every** quirk bit or the probe
+   * misses the one being tested. `0xAA` leaves bit 0 clear, which is the
+   * always-colour quirk, and this test passed against the unfixed code. */
+  memset(&g, 0xFF, sizeof g);
+  ap_graphics_init(&g, AP_SCREEN_COLOUR_4_PLANE);
+
+  /* The 4-plane board answers its own ID, not the 8-plane one a selected
+   * always-colour quirk would give. */
+  TEST_ASSERT_EQUAL_HEX8(
+      (uint8_t)AP_SCREEN_COLOUR_4_PLANE,
+      ap_graphics_read(&g, AP_GRAPHICS_COLOUR_ADDR + AP_GRAPHICS_DEVICE_ID));
+}
+
 int main(void) {
   UNITY_BEGIN();
+  RUN_TEST(test_init_does_not_inherit_the_callers_stack);
   RUN_TEST(test_each_screen_reports_the_id_the_firmware_compares_against);
   RUN_TEST(test_the_other_family_s_block_reads_ff);
   RUN_TEST(test_an_absent_screen_still_decodes_and_reads_ff);

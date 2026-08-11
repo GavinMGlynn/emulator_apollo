@@ -743,26 +743,31 @@ static void test_two_duarts_reset_alike_hold_identical_state(void) {
   ap_mc68681_reset(&a);
   ap_mc68681_reset(&b);
 
-  /* **The quirk set is exempt, and deliberately.** It is the harness's
-   * configuration, not state the part holds, so `ap_mc68681_reset` preserves it
-   * -- clearing it would silently return a machine to reference behaviour
-   * part-way through a comparison run, which is the one thing a divergence
-   * switch must never do. Everything the *part* owns must still be identical,
-   * which is what this test is for, so the two are equalised here rather than
-   * the comparison being narrowed. */
-  a.quirks = ap_quirks_none();
-  b.quirks = ap_quirks_none();
+  /* Nothing is exempt: reset is the initialiser and must leave *every* byte
+   * the same, quirk set included. Two structs filled with different garbage
+   * and then reset must be indistinguishable, or some field is being carried
+   * over from before the machine existed -- which is exactly the defect this
+   * suite caught on Windows. */
   TEST_ASSERT_EQUAL_MEMORY(&a, &b, sizeof a);
 }
 
-/* And the exemption is itself asserted, so "reset preserves the quirks" cannot
- * quietly stop being true. */
-static void test_reset_preserves_the_selected_quirks(void) {
+/* **Reset clears the quirk set, and that is the safe direction.**
+ *
+ * This test asserted the opposite for one commit, and the opposite was wrong in
+ * a way Linux could not show. `ap_mc68681_reset` is the *initialiser* -- every
+ * caller writes `ap_mc68681_t d; ap_mc68681_reset(&d);` -- so preserving the
+ * field meant reading it before anything had written it. That is undefined
+ * behaviour, it read zero here and did not on Windows, and CI failed with a
+ * transmitter reporting TxEMT it had not earned.
+ *
+ * Nothing is lost by clearing: `ap_board_set_quirks` applies the set after
+ * `ap_board_init`, and nothing resets a device after that point. */
+static void test_reset_clears_the_selected_quirks(void) {
   ap_mc68681_t d;
   ap_mc68681_reset(&d);
   ap_quirk_select(&d.quirks, AP_QUIRK_DUART_ENABLE_SETS_TXEMT);
   ap_mc68681_reset(&d);
-  TEST_ASSERT_TRUE(
+  TEST_ASSERT_FALSE(
       ap_quirk_selected(d.quirks, AP_QUIRK_DUART_ENABLE_SETS_TXEMT));
 }
 
@@ -1308,8 +1313,29 @@ static void test_enabling_an_already_enabled_transmitter_is_idempotent(void) {
       ap_mc68681_read(&d, AP_MC68681_SR_CSR_A) & AP_MC68681_SR_TXRDY);
 }
 
+/* The same hazard on this part, made reproducible the same way: reset is the
+ * initialiser, so a struct full of garbage must come out of it identical to one
+ * full of zeroes -- including the quirk set, whose bit 0 `0xAA` happens to
+ * set. */
+static void test_reset_does_not_inherit_the_callers_stack(void) {
+  ap_mc68681_t d;
+  /* `0xFF` so every quirk bit is set; `0xAA` leaves the even-numbered ones
+   * clear and would miss half the set. */
+  memset(&d, 0xFF, sizeof d);
+  ap_mc68681_reset(&d);
+
+  TEST_ASSERT_FALSE(
+      ap_quirk_selected(d.quirks, AP_QUIRK_DUART_ENABLE_SETS_TXEMT));
+  /* And the behaviour that bit would have changed: enabling asserts TxRDY
+   * alone, per §4.2.9.5/6. */
+  ap_mc68681_write(&d, AP_MC68681_CR_A, 0x04u);
+  TEST_ASSERT_EQUAL_HEX8(AP_MC68681_SR_TXRDY,
+                         ap_mc68681_read(&d, AP_MC68681_SR_CSR_A));
+}
+
 int main(void) {
   UNITY_BEGIN();
+  RUN_TEST(test_reset_does_not_inherit_the_callers_stack);
   RUN_TEST(test_the_prom_command_sequence_leaves_the_transmitter_enabled);
   RUN_TEST(test_enabling_an_already_enabled_transmitter_is_idempotent);
   RUN_TEST(test_the_output_port_clock_codes_carry_a_waveform);
@@ -1363,7 +1389,7 @@ int main(void) {
   RUN_TEST(test_the_break_commands_are_obeyed_rather_than_dropped);
   RUN_TEST(test_the_break_change_interrupt_can_be_cleared_per_channel);
   RUN_TEST(test_two_duarts_reset_alike_hold_identical_state);
-  RUN_TEST(test_reset_preserves_the_selected_quirks);
+  RUN_TEST(test_reset_clears_the_selected_quirks);
   RUN_TEST(test_the_txemt_quirk_matches_the_oracle_when_selected);
   return UNITY_END();
 }

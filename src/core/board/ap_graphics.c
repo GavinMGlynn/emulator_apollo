@@ -4,6 +4,17 @@
 
 void ap_graphics_init(ap_graphics_t *graphics, ap_screen_kind_t screen) {
   graphics->screen = screen;
+  /* **Initialised here, not left to the caller.** This field was never set by
+   * any construction path, so `ap_graphics_read` tested a quirk bit read from
+   * whatever the caller's stack held. On Linux that was reliably zero and every
+   * test passed; on Windows it was not, and `graphics_suite` failed CI for
+   * months with `Expected 0x08 Was 0x0A` -- the colour block answering the
+   * 8-plane ID because the always-colour quirk looked selected.
+   *
+   * The board applies the real set with `ap_board_set_quirks` after
+   * `ap_board_init`, so clearing here loses nothing: nothing resets a device
+   * after that point, and the 68030's `RESET` instruction only counts. */
+  graphics->quirks = ap_quirks_none();
   /* Every register zero at reset, which is not a neutral choice: `CR1`'s
    * `DISP_EN` is bit 0, so a controller that has not been programmed has its
    * display *off*. That is what the hardware does and it is why a screenshot

@@ -41,12 +41,16 @@ static void reset_channel(ap_mc68681_channel_t *ch) {
 }
 
 void ap_mc68681_reset(ap_mc68681_t *duart) {
-  /* Configuration, not state: a reset is the part's, and the quirk set is the
-   * harness's. Clearing it here would make a reset silently return the machine
-   * to reference behaviour part-way through a comparison run. */
-  const ap_quirks_t quirks = duart->quirks;
+  /* **Cleared, not preserved.** Preserving read `duart->quirks` before anything
+   * had written it -- every test does `ap_mc68681_t d; ap_mc68681_reset(&d);`,
+   * so reset *is* the initialiser and there is nothing to preserve. That is
+   * undefined behaviour that happened to read zero on Linux and did not on
+   * Windows, where it failed CI as a transmitter reporting TxEMT it had not
+   * earned.
+   *
+   * Nothing is lost: the board applies the set with `ap_board_set_quirks` after
+   * `ap_board_init`, and no reset happens after that. */
   memset(duart, 0, sizeof *duart);
-  duart->quirks = quirks;
   for (unsigned i = 0; i < AP_MC68681_CHANNELS; i++) {
     reset_channel(&duart->channel[i]);
   }
