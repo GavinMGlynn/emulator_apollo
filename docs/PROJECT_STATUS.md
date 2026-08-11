@@ -25954,3 +25954,52 @@ real failure has a **faulting PC, `3C40E114`, and a PID** to chase instead.
 *Verification: `--screen c8p --boot-type-after-pc 2670 --boot-type "Y\r"`,
 900 M instructions, 288 MMU faults, final PC `3FFA2684 -> 00002684`; the screen
 read from the PNG.*
+
+## Both machines driven through the prompt: the divergence is one line wide
+
+The oracle can now be carried past `DO YOU WISH TO CONTINUE` too, and the two
+screens diverge at a single point:
+
+    both:    DO YOU WISH TO CONTINUE (Y,N)? Y
+    both:    SELF TESTS PASSED.
+    both:    >LOW: 01002000 HIGH: 010E986C START: 01002024
+    both:    Domain/OS kernel(7), revision 10.4, February 14, 1992  11:42:25 am
+
+    ours:    CRASH_STATUS 00120020  PC 3C40E114 PID 0001
+    oracle:  More than 14 days have elapsed since the last shutdown.
+             Do you want to run DOMAIN_OS with the current calendar?
+
+**Identical through the kernel banner, including its `LOW`/`HIGH`/`START`
+addresses.** The kernel loads, runs, and prints the same line on both machines;
+the next thing it does kills one of them. That is the whole search space now —
+not "somewhere in a 388 M-instruction boot", but between the banner and the
+first thing after it.
+
+And the oracle names what that next thing is: it reads the **calendar** and asks
+about it. So the kernel's first act after announcing itself is a calendar
+enquiry, and this core faults inside it.
+
+*That is not the calendar finding this document already refuted.* The refuted
+one was the PROM's `CONFIGURATION INFORMATION IS NOT INITIALIZED` warning, which
+both machines still print and which neither is stopped by. This is a **kernel**
+read of the same part, hundreds of millions of instructions later, and it is
+new.
+
+### Driving the oracle's keyboard, and a trap the project had already recorded
+
+`emu.keypost` — MAME's natural keyboard — **reports success and does nothing**
+here: `apollo_kbd.cpp` defines no `PORT_CHAR` entries, so the character-to-key
+translation has nothing to work with. `mdsession.lua` says so in a comment and
+`FINDINGS.md` C40 measured it, and I used `keypost` anyway; the first run
+"proved" the oracle never reaches `3C40E114`, which was worthless.
+
+What caught it was making `finish()` **always snapshot**: the screen showed the
+machine still sitting at the prompt with no `Y` echoed. A run that ends "never
+reached X" is only evidence if the machine got far enough for X to be
+reachable, and a screen is the cheapest proof of that. Pressing the field
+directly by `PORT_NAME` — as `mdsession.lua` does — works, and the same run then
+carries the oracle all the way to the calendar question.
+
+*Verification: `statesync.lua` with `APOLLO_SYNC_KEYS=Y` pressing
+`:kbd:keyboard1`'s field for 0.2 emulated seconds at 45 s, snapshot on exit;
+both screens read from their PNGs.*

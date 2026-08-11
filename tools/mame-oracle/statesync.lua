@@ -84,6 +84,17 @@ local rd_pc    = os.getenv("APOLLO_SYNC_READ_PC")
 -- How many bytes the taps cover, rounded out to whole longwords. One register
 -- is the default; a device's whole window is what a protocol needs.
 local span     = tonumber(os.getenv("APOLLO_SYNC_SPAN") or "1") or 1
+-- Keys to post to the machine, and when. `emu.keypost` drives MAME's natural
+-- keyboard, which is how the oracle can be carried through a prompt the way
+-- `--boot-type` carries this core through it.
+--
+-- **Timed, not triggered.** A PC trigger would need the debugger, and this has
+-- to work in the tap modes too. Emulated seconds are deterministic, so the same
+-- number reproduces the same run -- unlike wall-clock pacing, which
+-- `mdsession.py` documents as the reason its runs are not measurements.
+local snap_name = os.getenv("APOLLO_SYNC_SNAP")
+local keys     = os.getenv("APOLLO_SYNC_KEYS")
+local keys_at  = tonumber(os.getenv("APOLLO_SYNC_KEYS_AT") or "0") or 0
 rd_pc = rd_pc and tonumber(rd_pc, 16) or nil
 local wr_value = os.getenv("APOLLO_SYNC_VALUE")
 wr_value = wr_value and tonumber(wr_value, 16) or nil
@@ -163,6 +174,18 @@ end
 local function finish(why)
 	if S.done then return end
 	S.done = true
+	-- **Snapshot on the way out, always.** A run that ends "never reached X" is
+	-- only evidence if the machine got far enough for X to be reachable, and a
+	-- screen is the cheapest proof of that. Without it a keypost that silently
+	-- did nothing and a machine that genuinely never executes X produce the
+	-- same line.
+	if snap_name ~= nil then
+		for tag, screen in pairs(manager.machine.screens) do
+			local safe = tag:gsub("[^%w]", "_")
+			screen:snapshot(string.format("%s%s.png", snap_name, safe))
+		end
+		out("# snapshot written for %s\n", snap_name)
+	end
 	out("# %s\n", why)
 	manager.machine:exit()
 end
@@ -328,6 +351,42 @@ emu.register_periodic(function()
 	-- is the one observable that cannot be true of the old one. Every handle is
 	-- dropped at that point and re-established against the machine that will
 	-- actually run.
+	-- **Press the key directly, never through the natural keyboard.**
+	-- `mdsession.lua` records why and `FINDINGS.md` C40 measured it:
+	-- `apollo_kbd.cpp` defines no `PORT_CHAR` entries at all, so
+	-- `emu.keypost` has nothing to translate a character with and **silently
+	-- does nothing**. It reports success, the machine never sees a key, and a
+	-- run that then fails to reach an address looks like evidence about the
+	-- address. That is why `finish()` always snapshots: the screen is what
+	-- caught this, still sitting at the prompt with no `Y` echoed.
+	--
+	-- `APOLLO_SYNC_KEYS` is therefore a **`PORT_NAME`**, not text -- "Y", not
+	-- "Y\r" -- and it is held for a beat and released, because a key that is
+	-- never released repeats.
+	if keys ~= nil and not S.keys_sent and now_s() >= keys_at then
+		S.keys_sent = true
+		for tag, port in pairs(manager.machine.ioport.ports) do
+			if tag:find("kbd") then
+				for field_name, field in pairs(port.fields) do
+					if field_name == keys then
+						S.held = field
+						S.held_until = now_s() + 0.2
+						field:set_value(1)
+						out("# pressed %q on %s at %.3fs\n", keys, tag, now_s())
+					end
+				end
+			end
+		end
+		if S.held == nil then
+			out("# key %q not found on any kbd port\n", keys)
+		end
+	end
+	if S.held ~= nil and now_s() >= S.held_until then
+		S.held:set_value(0)
+		out("# released %q at %.3fs\n", keys, now_s())
+		S.held = nil
+	end
+
 	local t = manager.machine.time:as_double()
 	if S.last_time ~= nil and t < S.last_time then
 		out("# machine restarted (%.6fs -> %.6fs); re-arming\n", S.last_time, t)
