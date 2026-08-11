@@ -24735,12 +24735,39 @@ candidates, neither tested:
   reset landed, and its tap fired repeatedly. Taps survive. No new run was
   needed to rule this out — the measurement existed and had not been re-read.
 
-So the address is the remaining candidate, and it is the one being tested: the
-oracle's self-test prints `START: 01002020`, and this core's own stop confirms
-the entry instruction is there — `--boot-stop-pc 0x1002020` halts after
-162,878,376 instructions, exactly one before the `01002024` stop. A tap watching
-`1002024`-`1002027` on a machine that enters at `01002020` and branches away
-would never see it.
+The address candidate was then tested and **also fails**: a tap on `01002020`
+does not fire either, though this core's own stop confirms the entry
+instruction is there — `--boot-stop-pc 0x1002020` halts after 162,878,376
+instructions, one before the `01002024` stop.
+
+**Both candidates eliminated, and the real reason was in a screenshot taken
+hours earlier.** The oracle in `--stage watch` with `APOLLO_MD_POST=none`
+receives **no input at all**, and its own screen shows where that leaves it:
+
+```
+  CONFIGURATION INFORMATION IS NOT INITIALIZED.
+  SELF TEST FAILED.
+   EXPECTED= 00000000, ACTUAL= 00000012, ADDRESS= 00010912
+  DO YOU WISH TO CONTINUE (Y,N)? _
+```
+
+It parks at that prompt. **It never loads Domain/OS**, so `01002020` is never
+executed and no tap on it can fire. Our machine gets past the same question
+because `tools/boot-domainos.script` answers `y` over the serial console; the
+oracle, whose console is its display, has nobody typing.
+
+The `CRP` install at 37.8 s from `PC 0100241A` that suggested otherwise is
+`SELF_TEST`'s own MMU test, which runs *before* the prompt — the same
+`0100xxxx` region, a different program.
+
+**So the missing piece is not a tap at all: the oracle needs a `y` on its
+keyboard.** `mdsession.lua` can press keys (`press_key`, used for the autobaud),
+and what it lacks is a way to answer a prompt at a chosen moment. That is the
+next step, and it is the third time this session an answer was already sitting in
+a measurement that had been taken and not re-read.
+
+*Verification: none — a negative result and a located cause, with the fix not
+yet built.*
 
 **What this does not affect**: our dump, the diff tool, the quirk mechanism and
 the mapping are all working and tested. What is missing is one comparable
