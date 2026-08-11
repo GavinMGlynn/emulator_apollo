@@ -24729,12 +24729,18 @@ candidates, neither tested:
   `LOADING SELF_TEST DIAGNOSTICS … START: 01002020`, four bytes below the
   address this core stops at. A tap covers `1002024`-`1002027`; a machine
   entering at `01002020` and branching away need never touch it.
-* **Taps may not survive the soft reset** this harness now performs. The script
-  re-runs with fresh locals and reinstalls, but whether the space's taps are
-  cleared by the reset has not been checked.
+* ~~**Taps may not survive the soft reset** this harness now performs.~~
+  **Eliminated, from evidence already in hand.** The `APOLLO_VRAM_TAP` run that
+  found the oracle reading `0005E800` at `pc 000069AC` was made *after* the soft
+  reset landed, and its tap fired repeatedly. Taps survive. No new run was
+  needed to rule this out — the measurement existed and had not been re-read.
 
-The first is cheap to settle — tap `01002020` instead, or widen the range to
-cover both — and is the more likely of the two.
+So the address is the remaining candidate, and it is the one being tested: the
+oracle's self-test prints `START: 01002020`, and this core's own stop confirms
+the entry instruction is there — `--boot-stop-pc 0x1002020` halts after
+162,878,376 instructions, exactly one before the `01002024` stop. A tap watching
+`1002024`-`1002027` on a machine that enters at `01002020` and branches away
+would never see it.
 
 **What this does not affect**: our dump, the diff tool, the quirk mechanism and
 the mapping are all working and tested. What is missing is one comparable
