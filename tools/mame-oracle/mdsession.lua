@@ -740,6 +740,39 @@ end
 local answer_at = tonumber(os.getenv("APOLLO_MD_ANSWER_AT") or "") or 0.0
 local answer_next, answer_down_at = 1, nil
 
+-- ## A screenshot at a chosen instant, opt-in with APOLLO_MD_SNAP_AT
+--
+-- Because five instrument attempts in a row failed on this side and each was
+-- designed from a guess about the previous failure. The machine's *screen* says
+-- where it actually is, and twice already this project has found an answer
+-- sitting in a capture nobody re-read. Cheaper than any tap and it settles
+-- questions taps cannot: whether the firmware reached a prompt, whether an
+-- answer was accepted, whether an operating system loaded at all.
+--
+-- Comma-separated emulated seconds. `screen:snapshot(name)` is the same call
+-- `screencap.lua` makes.
+local snap_at = {}
+for v in string.gmatch(os.getenv("APOLLO_MD_SNAP_AT") or "", "([^,]+)") do
+	snap_at[#snap_at + 1] = tonumber(v)
+end
+table.sort(snap_at)
+local snap_next = 1
+
+local function snap_poll()
+	if snap_next > #snap_at then return end
+	local now = manager.machine.time:as_double()
+	while snap_next <= #snap_at and now >= snap_at[snap_next] do
+		for tag, screen in pairs(manager.machine.screens) do
+			local name = string.format("mdsession_%s_%dms.png",
+				(tag:gsub("[^%w]", "_")), math.floor(snap_at[snap_next] * 1000))
+			local ok, err = pcall(function() screen:snapshot(name) end)
+			note("# snapshot %s at %.3fs%s\n", name, now,
+			     ok and "" or (" FAILED: " .. tostring(err)))
+		end
+		snap_next = snap_next + 1
+	end
+end
+
 local function answer_poll()
 	if #answer_keys == 0 or answer_next > #answer_keys then return end
 	local now = manager.machine.time:as_double()
@@ -831,6 +864,7 @@ end
 
 emu.register_periodic(function()
 	crp_poll()
+	snap_poll()
 	answer_poll()
 	state_dump_poll()
 	if finished then
