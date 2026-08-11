@@ -34,6 +34,28 @@
  * selected set is hashed like any other configuration. A run comparing against
  * the oracle and a run of the reference machine are not interchangeable and
  * their hashes say so.
+ *
+ * ## When *not* to add one, which has already come up once
+ *
+ * A quirk is for a divergence that must be lived with. When the oracle's defect
+ * can be **fixed in the oracle** instead, that is better: both sides then run
+ * the documented behaviour and there is no second path here to maintain or to
+ * get wrong.
+ *
+ * The case that settled this: MAME's `duart_channel::write_CR` gated
+ * enable-transmitter on an *edge* against the previous command register, which
+ * the MC68681 datasheet §4.2.7 contradicts, and which hung the oracle's
+ * normal-mode boot. Modelling it here would have meant storing the previous
+ * command word -- a state field this core does not otherwise have, because a
+ * command is acted on when it is written -- and then either hashing it, which
+ * invalidates every golden for a field that exists only to support a bug, or
+ * not hashing it, which breaks the premise that two machines behaving
+ * differently hash differently. It was fixed in `ext/mame` instead
+ * (`tools/mame-oracle/duart-tx-enable.patch`), and no quirk exists for it.
+ *
+ * The test is therefore: *can the oracle be corrected?* If yes, correct it. A
+ * quirk is for what remains -- a divergence in code we cannot or should not
+ * change, where the comparison would otherwise drown in its consequences.
  */
 
 #ifndef APOLLO_MODEL_AP_QUIRK_H
