@@ -24766,8 +24766,32 @@ and what it lacks is a way to answer a prompt at a chosen moment. That is the
 next step, and it is the third time this session an answer was already sitting in
 a measurement that had been taken and not re-read.
 
-*Verification: none — a negative result and a located cause, with the fix not
-yet built.*
+**The fix is built and the run still does not reach Domain/OS.**
+`APOLLO_MD_ANSWER="Y,Numpad Enter"` presses cleanly — the log shows `pressed
+"Y" on :kbd:keyboard1 at 150.0s`, released, then `Numpad Enter` — and no dump
+follows. So answering the prompt is *necessary* and was not *sufficient*, and
+the cause is again not established.
+
+**Stop and take stock before the next attempt.** Five instrument attempts have
+now failed on the oracle's side (a time trigger, a bare read tap, an exact PC
+match, a PC window, an unanswered prompt), and each was designed from a
+hypothesis about why the previous one failed. That is the pattern this
+investigation has been told twice to abandon, and it has reappeared inside the
+new methodology.
+
+What the next attempt should do first, before adding anything:
+
+1. **Screenshot the oracle at the end of that run.** Its screen says where the
+   machine actually is, and this project has already twice found the answer
+   sitting in a capture nobody re-read. 150 emulated seconds was chosen from a
+   *different harness's* run (`screencap.lua`, its own reset), so the prompt may
+   not be on screen at that instant here.
+2. **Then** decide whether the answer is mistimed, the keypress is not reaching
+   the firmware, or Domain/OS loads and never executes `01002020`.
+
+Only one of those is fixed by another tap.
+
+*Verification: none — negative results and an open cause, recorded as such.*
 
 **What this does not affect**: our dump, the diff tool, the quirk mechanism and
 the mapping are all working and tested. What is missing is one comparable
