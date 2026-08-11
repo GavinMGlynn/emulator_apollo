@@ -716,6 +716,49 @@ local state_dump_at = tonumber(os.getenv("APOLLO_STATE_DUMP_AT") or "") or 0.0
 local state_dump_fetch = tonumber(os.getenv("APOLLO_STATE_DUMP_ON_FETCH") or "", 16)
 local state_dumped = false
 
+-- ## Answering a prompt on the keyboard, opt-in with APOLLO_MD_ANSWER
+--
+-- The oracle's console is its *display*, so a run that sends nothing sits at
+-- whatever the firmware last asked. `--stage watch` reaches
+--
+--     DO YOU WISH TO CONTINUE (Y,N)? _
+--
+-- and stops there for ever -- which is why a tap on Domain/OS's entry never
+-- fired: the machine never loads it. This core's own boot answers the same
+-- question with `y` over the serial console (`tools/boot-domainos.script`);
+-- there is nobody typing here.
+--
+-- A comma-separated list of `PORT_NAME`s, pressed in order once the emulated
+-- clock passes `APOLLO_MD_ANSWER_AT`. Note the *name*: `apollo_kbd.cpp` gives
+-- RETURN no `PORT_NAME` at all (line 77 is `PORT_CODE(KEYCODE_ENTER)` and
+-- nothing else), so it cannot be pressed this way -- use `Numpad Enter`, which
+-- is named and is what this harness already presses for the autobaud.
+local answer_keys = {}
+for k in string.gmatch(os.getenv("APOLLO_MD_ANSWER") or "", "([^,]+)") do
+	answer_keys[#answer_keys + 1] = k
+end
+local answer_at = tonumber(os.getenv("APOLLO_MD_ANSWER_AT") or "") or 0.0
+local answer_next, answer_down_at = 1, nil
+
+local function answer_poll()
+	if #answer_keys == 0 or answer_next > #answer_keys then return end
+	local now = manager.machine.time:as_double()
+	if now < answer_at then return end
+	if answer_down_at == nil then
+		press_key(answer_keys[answer_next])
+		answer_down_at = now
+		return
+	end
+	-- One key at a time, held then released, because a keyboard cannot report
+	-- two presses in the same instant and the firmware reads one character per
+	-- poll of its receiver.
+	if now >= answer_down_at + hold_s then
+		release_key()
+		answer_down_at = nil
+		answer_next = answer_next + 1
+	end
+end
+
 local function state_dump_now(why)
 	if state_dump_path == nil or state_dumped then return end
 	state_dumped = true
@@ -788,6 +831,7 @@ end
 
 emu.register_periodic(function()
 	crp_poll()
+	answer_poll()
 	state_dump_poll()
 	if finished then
 		return
