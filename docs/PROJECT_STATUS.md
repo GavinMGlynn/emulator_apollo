@@ -26139,3 +26139,41 @@ sitting in the output all along.
 *Verification: `ctest` 135/135; `mc68681_suite` 53 → 55, adding that reset
 preserves the selected quirks and that the quirk reproduces MAME's `SR = 0C`
 while the default gives `04`.*
+
+### The quirk answers its question: `TxEMT` is inert, and five differences remain
+
+With it genuinely applied, the kernel-entry diff drops from seven to five — both
+`SR` differences go — and **the instruction count is unchanged**, 208,170,082
+either way. So no software up to the kernel's entry tests `TxEMT`: the
+ambiguity is real, and it changes nothing. This core's reading of §4.2.9.5 stays
+the default, now with a measurement behind it rather than an argument.
+
+That is what a quirk is *for* — the point was never to pick a side, it was to
+find out whether the side matters. Here it does not, and the cost of finding out
+was one flag and one run.
+
+What remains at the kernel's entry is one CPU register and four DUART registers:
+
+| | ours | oracle |
+| --- | --- | --- |
+| `D7` | `110EE1A6` | `110EE6E2` |
+| ch1 `MR1` | `13` | `17` |
+| `ACR` | `60` | `EA` |
+| `IMR` | `00` | `A2` |
+| `OPR` | `06` | `81` |
+
+`IMR = 00` against `A2`, and `ACR` without its `BRG set 2` bit or its input-port
+change-interrupt enables, is the same shape this document already recorded from
+the posted-code sweep: **the oracle's console is interrupt-driven and this
+core's is not.** `MR1` differs only in bit 2, the parity *type*, which the mode
+field makes a don't-care — so that one is a write this core did not see rather
+than a behaviour it got wrong.
+
+**And the window is now bounded at both ends.** At posted `EC` both machines had
+`ACR = 60`; at the kernel's entry the oracle has `EA`. So the DUART is
+reprogrammed between those two points — in the post-`Y` `SELF_TEST` phase — and
+that is where the first real divergence is.
+
+*Verification: the same two dumps diffed with and without
+`--oracle-quirk duart-enable-sets-txemt`, the instruction count identical
+across both.*
