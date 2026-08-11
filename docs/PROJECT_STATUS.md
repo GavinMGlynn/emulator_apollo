@@ -26003,3 +26003,41 @@ carries the oracle all the way to the calendar question.
 *Verification: `statesync.lua` with `APOLLO_SYNC_KEYS=Y` pressing
 `:kbd:keyboard1`'s field for 0.2 emulated seconds at 45 s, snapshot on exit;
 both screens read from their PNGs.*
+
+## The fault site is ours alone, so the divergence is upstream of it
+
+With both machines driven through the prompt, the crash's last MMU fault is
+identifiable. This core, in the display configuration:
+
+    PC 3C47A25A  2 time(s)  3C248001-3BFF0001  invalid on read
+
+**`3BFF0001` is the address this document has named as the crash's fault since
+the investigation opened**, recovered here from a run that also produces the
+screen, rather than from a special-purpose probe. The kernel reads it, the tree
+says invalid, and the machine dies. It is the last of 288 faults; the other 287
+are `invalid on write` in `3C32xxxx`-`3C37xxxx` from a dozen kernel PCs, which
+is what demand paging looks like.
+
+**The oracle never executes `3C47A25A`** — 150 emulated seconds, breakpoint set,
+zero hits — and this time the negative is interpretable, because the same run's
+exit snapshot shows it sitting at `Do you want to run DOMAIN_OS with the current
+calendar?`. It got past the prompt and simply never went there.
+
+So `3C47A25A` is **downstream**. Our kernel reaches an instruction the oracle's
+never executes, which means the two diverge earlier and the fault is a
+consequence. Chasing the faulting address itself would be chasing a symptom —
+the same mistake as chasing the blink loop and the `00010123` config word before
+it.
+
+### The next sync point is harder than it looks
+
+`>LOW: 01002000 HIGH: 010E986C START: 01002024` is printed identically by both,
+so `01002024` looked like a guaranteed kernel-entry sync. It is not: the oracle
+hits it at **30 s**, fifteen seconds before the `Y` is pressed, because the
+*first* `SELF_TEST` load (`START: 01002020`) runs through the same address. A
+sync there needs a skip count established on both sides first, and an unskipped
+one silently compares the diagnostic against the kernel.
+
+*Verification: ours `--boot-stop-pc 3C47A25A --boot-stop-pc-skip 1`, stopping at
+instruction 326,514,086 with 287 faults; the oracle's breakpoint run with its
+exit snapshot as the control.*
