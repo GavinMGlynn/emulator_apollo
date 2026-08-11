@@ -4349,10 +4349,15 @@ discipline throughout.
         the first name attached to any of `+400`'s polled bits from outside the
         ROM. Nineteen hardware conditions are named in order by
         `domain_ring.pas`, six with prose definitions.
-        **The next step is concrete**: locate the `RING_PROC` module on the disk
-        (the map's addresses are load addresses, not disk offsets, so it must be
-        found as a file) and disassemble `RING_$START` and `RING_$SENDP` for
-        their register accesses. Two further routes stay closed: finding 50a and
+        **The next step is concrete and bounded**: the files are named --
+        `ring8a.drvr` and `ring8b.drvr` -- and `RING_PROC` is **`0x3370`
+        bytes**, with every routine at a known offset inside it
+        (`RING_$SENDP` `+0xABC`, `RING8_$INT` `+0x758`,
+        `RING_$POLL_STICKY_BPHERR` `+0x19A4`). What stands between here and
+        `+400`'s bit meanings is **walking the AEGIS filesystem** to extract 13
+        KB: neither the load addresses nor the directory records give a byte
+        offset. That is a filesystem problem, not a research one, and it would
+        pay for itself well beyond the ring. Two further routes stay closed: finding 50a and
         51c.
   - [ ] The DMA path and the interrupt. **Both are now named, by Domain/OS's
         own driver** (`RING.md` findings 53-53c): `RING8_$INT` with a deferred
