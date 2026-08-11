@@ -25403,7 +25403,7 @@ takes — runs 388,611,237 instructions and stops with:
     fault addr   FFFFFFFC -> FFFFFFFC (unmapped)
     mmu faults   288
     d1           00120020
-    state hash   FD274E1026E6AAE3
+    state hash   7EA7721F10D64733   (was FD274E1026E6AAE3 before the DUART reset fix)
 
 `d1 = 00120020` is the crash status itself. The dump's walk hash equals the
 state hash, so this file is the same traversal the identity harness takes.
@@ -25849,3 +25849,24 @@ crash.
 *Verification: `--screen c8p --screenshot`, 300 M instructions; `pngcmp.py`
 against `screencap.lua`'s 60 s normal-mode capture; ink-band analysis for the
 line counts; both screens read from their PNGs.*
+
+### The same fix does not touch the Phase 4 crash, and that is worth knowing
+
+Re-running the crash boot with the corrected DUART reset gives:
+
+    executed     388611237 instruction(s)      <- identical
+    stopped      FAULT on 612C                 <- identical
+    final PC     0100040A                      <- identical
+    mmu faults   288                           <- identical
+    d1           00120020                      <- identical
+    state hash   7EA7721F10D64733              <- changed, from the reset value
+
+**Identical to the instruction.** So the two open items are genuinely
+independent: the DUART's reset value decided the display boot's keyboard
+self-test and has no bearing on `CRASH_STATUS 00120020`. A fix that moved one
+and not the other is a useful separation — it means the crash cannot be
+explained by anything downstream of that register.
+
+The state hash moving is expected and is the only change: the reset value is
+machine state, so every hash taken before this commit belongs to a different
+machine. The reference above is updated in place.
