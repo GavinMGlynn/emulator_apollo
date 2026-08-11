@@ -46,6 +46,46 @@ Format: `module.tag.name.block.index uN value`.
 **`ext/mame` is never committed with this applied.** The patch is the artifact;
 the working tree is reverted.
 
+## Where the two machines are stopped, which is not "at the same time"
+
+`tools/state-compare.sh` runs both halves. The point it stops them at is a
+**program counter and a visit count**, not an instant.
+
+An earlier version synchronised on emulated seconds, reasoning that both
+machines measure time the same way while instruction counts are not comparable
+across two cores. The second half is true; the conclusion does not follow. Two
+cores whose timing differs at all are at different points in the program at the
+same instant, so a diff taken there compares two unrelated machine states — the
+same error as comparing snapshots of two machines with no shared clock, which
+has already cost this project five withdrawn conclusions. "The Nth time this
+instruction is about to run" means the same thing on both machines however fast
+either got there, and it is the only kind of point at which a difference can be
+*attributed*, because both machines executed the same instructions to reach it.
+
+### The oracle stops with a breakpoint, not a tap
+
+Five earlier attempts used memory taps and all five failed the same way:
+`install_read_tap` sees bus reads and cannot tell an instruction fetch from a
+data read of the same address; gating on the PC then fails the other way,
+because by the time the tap fires the PC has moved. A tap is the wrong
+instrument for "stop here".
+
+`statesync.lua` uses `-debug -debugger none`, which gives a working
+`device_debug` with no window to want, and `bpset` stops exactly at an
+instruction boundary. There is no UI to notice the stop, so the script polls
+`execution_state` and drives it.
+
+### And it steps once, because the two stops are on opposite sides
+
+MAME's breakpoint stops **before** executing the instruction at the address.
+This core's `--boot-stop-pc` stops **after** it: `--boot-stop-pc 653A` ends with
+`PC = 6542`. Diffed directly, every register that instruction touched differs —
+a difference in the harness that reads exactly like a difference in the
+emulator. So the oracle steps one instruction after the hit and lands where we
+do. `step` is asynchronous and the first poll after it can still show the old
+PC, so the script waits for the PC to *move* rather than for the debugger to be
+stopped.
+
 ## Comparing them
 
 The two cores name nothing alike, so a diff needs a **field mapping**: which of
