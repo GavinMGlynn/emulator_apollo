@@ -26492,3 +26492,51 @@ reference that executes neither.
 `3C42B928` for the code, all read from a running machine; the oracle's
 breakpoint runs at `3C40E114` and `3C42B928` both reporting zero hits with their
 exit snapshots as controls.*
+
+## RETRACTED: "the oracle never executes X" — it was waiting at a second prompt
+
+**Every negative result of that form in this document is void.** `3C40E114`,
+`3C42B928`, `3C42CE8A`, `3C41A4DC` were each measured with a breakpoint on the
+oracle that reported zero hits, and in each case the machine was **idle at a
+prompt**, not declining to run the code.
+
+This machine asks **twice**. The self-test's `DO YOU WISH TO CONTINUE (Y,N)?`
+takes a bare `Y`; the kernel then asks `Do you want to run DOMAIN_OS with the
+current calendar?`, which needs an answer **and a Return**. The runs answered
+only the first.
+
+The exit snapshot was in place and did catch the first version of this — a
+`keypost` that silently did nothing left the machine at prompt one. It did not
+catch the second, because the screen showed the machine *past* prompt one and I
+read that as "it got far enough", without noticing what it was now sitting at.
+**A control that proves a machine started is not a control that proves it
+finished.**
+
+Return has no `PORT_NAME` in `apollo_kbd.cpp` — it is `PORT_CODE(KEYCODE_ENTER)`
+and nothing else — so MAME generates the name **"Unnamed Key"**. Pressing it
+alone re-asks the question, which is how it was identified. `APOLLO_SYNC_KEYS2`
+now takes a comma-separated sequence, so `"Y,Unnamed Key"` answers and submits.
+
+## The divergence, at one instruction
+
+With both prompts answered the oracle reaches the faulting instruction:
+
+    # pressed "Y" (1 of 2) at 100.015s
+    # pressed "Unnamed Key" (2 of 2) at 100.232s
+    # hit 1 at 3C47A25A, 101.037681s emulated
+    # stepped 3C47A25A -> 3C42CD90
+
+**The oracle executes `3C47A25A` and carries on to `3C42CD90`. This core
+executes `3C47A25A` and takes an MMU fault reading `3BFF0001`.** Same
+instruction, same code, same disk, same configuration — one translates the
+address and the other does not.
+
+That is the whole remaining question, and it is now a page-translation one with
+every variable pinned: a known instruction, a known logical address, a
+known-good reference that resolves it, and both machines reaching it under the
+same firmware path.
+
+*Verification: `statesync.lua` with `APOLLO_SYNC_KEYS2="Y,Unnamed Key"` and a
+breakpoint at `3C47A25A`, against this core's `--boot-stop-pc 3C47A25A
+--boot-stop-pc-skip 1` stopping at instruction 326,514,086 with the fault-site
+table naming `3BFF0001`.*

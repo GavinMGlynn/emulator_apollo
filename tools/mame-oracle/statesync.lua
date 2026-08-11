@@ -95,6 +95,13 @@ local span     = tonumber(os.getenv("APOLLO_SYNC_SPAN") or "1") or 1
 local snap_name = os.getenv("APOLLO_SYNC_SNAP")
 local keys     = os.getenv("APOLLO_SYNC_KEYS")
 local keys_at  = tonumber(os.getenv("APOLLO_SYNC_KEYS_AT") or "0") or 0
+-- A **second** press, because this machine asks twice: the self-test's
+-- `DO YOU WISH TO CONTINUE` and then the kernel's `Do you want to run DOMAIN_OS
+-- with the current calendar?`. Answering only the first leaves the oracle idle
+-- at the second, and then "the oracle never executes X" means nothing at all --
+-- it was waiting for a keystroke, not declining to run the code.
+local keys2    = os.getenv("APOLLO_SYNC_KEYS2")
+local keys2_at = tonumber(os.getenv("APOLLO_SYNC_KEYS2_AT") or "0") or 0
 rd_pc = rd_pc and tonumber(rd_pc, 16) or nil
 local wr_value = os.getenv("APOLLO_SYNC_VALUE")
 wr_value = wr_value and tonumber(wr_value, 16) or nil
@@ -392,9 +399,54 @@ emu.register_periodic(function()
 	end
 	if S.held ~= nil and now_s() >= S.held_until then
 		S.held:set_value(0)
-		out("# released %q at %.3fs\n", keys, now_s())
+		out("# released at %.3fs\n", now_s())
 		S.held = nil
 	end
+	-- **A sequence, not a key.** `APOLLO_SYNC_KEYS2` is comma-separated, because
+	-- the calendar prompt wants an answer *and* a Return: pressing Return alone
+	-- simply re-asks, which is how "Unnamed Key" was confirmed to be Return in
+	-- the first place. Each name is pressed and released in turn, one per
+	-- callback, so the firmware sees distinct keystrokes rather than a chord.
+	if keys2 ~= nil and S.keys_sent and S.held == nil and now_s() >= keys2_at then
+		if S.key2_list == nil then
+			S.key2_list = {}
+			for piece in (keys2 .. ","):gmatch("([^,]*),") do
+				if piece ~= "" then S.key2_list[#S.key2_list + 1] = piece end
+			end
+			S.key2_next = 1
+		end
+		if S.key2_next > #S.key2_list then goto keys_done end
+		local want = S.key2_list[S.key2_next]
+		S.key2_next = S.key2_next + 1
+		for tag, port in pairs(manager.machine.ioport.ports) do
+			if tag:find("kbd") then
+				for field_name, field in pairs(port.fields) do
+					if field_name == want then
+						S.held = field
+						S.held_until = now_s() + 0.2
+						field:set_value(1)
+						out("# pressed %q (%d of %d) on %s at %.3fs\n",
+						    want, S.key2_next - 1, #S.key2_list, tag, now_s())
+					end
+				end
+			end
+		end
+		if S.held == nil then
+			-- Name what *is* there. `apollo_kbd.cpp` leaves some keys without a
+			-- `PORT_NAME` -- Return is `PORT_CODE(KEYCODE_ENTER)` and nothing
+			-- else -- so MAME generates their names and guessing one wastes a
+			-- whole run.
+			out("# key %q not found; keyboard fields:\n", want)
+			for tag, port in pairs(manager.machine.ioport.ports) do
+				if tag:find("kbd") then
+					for field_name, _ in pairs(port.fields) do
+						out("#   %s\n", field_name)
+					end
+				end
+			end
+		end
+	end
+	::keys_done::
 
 	local t = manager.machine.time:as_double()
 	if S.last_time ~= nil and t < S.last_time then
